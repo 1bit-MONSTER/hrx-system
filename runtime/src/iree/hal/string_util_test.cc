@@ -16,6 +16,7 @@
 #include "iree/base/internal/fpu_state.h"
 #include "iree/base/internal/span.h"
 #include "iree/hal/api.h"
+#include "iree/hal/memory/heap_pool.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 
@@ -439,27 +440,6 @@ class Handle {
   T* value_ = nullptr;
 };
 
-// C++ wrapper for iree_hal_allocator_t.
-struct Allocator final
-    : public Handle<iree_hal_allocator_t, iree_hal_allocator_retain,
-                    iree_hal_allocator_release> {
-  using handle_type::handle_type;
-
-  // Creates a host-local heap allocator that can be used when buffers are
-  // required that will not interact with a real hardware device (such as those
-  // used in file IO or tests). Buffers allocated with this will not be
-  // compatible with real device allocators and will likely incur a copy if
-  // used.
-  static StatusOr<Allocator> CreateHostLocal() {
-    Allocator allocator;
-    iree_status_t status = iree_hal_allocator_create_heap(
-        iree_make_cstring_view("host_local"), iree_allocator_system(),
-        iree_allocator_system(), &allocator);
-    IREE_RETURN_IF_ERROR(std::move(status));
-    return std::move(allocator);
-  }
-};
-
 // C++ wrapper for iree_hal_buffer_t.
 struct Buffer final : public Handle<iree_hal_buffer_t, iree_hal_buffer_retain,
                                     iree_hal_buffer_release> {
@@ -545,16 +525,11 @@ struct BufferView final
   // Parses a serialized set of buffer elements in the canonical tensor format
   // (the same as produced by Format).
   static StatusOr<BufferView> Parse(const std::string& value,
-                                    Allocator allocator) {
+                                    iree_hal_pool_t* pool) {
     BufferView buffer_view;
-    const iree_hal_buffer_params_t buffer_params = {
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_MAPPING,
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-        /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL,
-    };
     iree_status_t status = iree_hal_buffer_view_parse(
-        iree_string_view_t{value.data(), (iree_host_size_t)value.size()},
-        allocator, buffer_params, &buffer_view);
+        iree_string_view_t{value.data(), (iree_host_size_t)value.size()}, pool,
+        /*min_alignment=*/0, &buffer_view);
     IREE_RETURN_IF_ERROR(std::move(status));
     return std::move(buffer_view);
   }
@@ -1090,62 +1065,74 @@ TEST(BufferElementsStringUtilTest, FormatBufferElementsElided) {
               IsOkAndHolds("[1 2][3 4]"));
 }
 
-TEST(BufferViewStringUtilTest, Parse) {
-  IREE_ASSERT_OK_AND_ASSIGN(auto allocator, Allocator::CreateHostLocal());
+class BufferViewStringUtilTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    const iree_hal_pool_host_access_t host_access = {
+        /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+    };
+    IREE_ASSERT_OK(iree_hal_heap_pool_create(
+        host_access, iree_allocator_system(), iree_allocator_system(), &pool_));
+  }
 
+  void TearDown() override { iree_hal_pool_release(pool_); }
+
+  iree_hal_pool_t* pool_ = nullptr;
+};
+
+TEST_F(BufferViewStringUtilTest, Parse) {
   // Zero fill.
-  IREE_ASSERT_OK_AND_ASSIGN(auto bv0, BufferView::Parse("i8", allocator));
+  IREE_ASSERT_OK_AND_ASSIGN(auto bv0, BufferView::Parse("i8", pool_));
   EXPECT_THAT(bv0.buffer().CloneData<int8_t>(),
               IsOkAndHolds(Eq(std::vector<int8_t>{0})));
 
   // Zero fill (empty value).
-  IREE_ASSERT_OK_AND_ASSIGN(auto bv1, BufferView::Parse("2x2xi8=", allocator));
+  IREE_ASSERT_OK_AND_ASSIGN(auto bv1, BufferView::Parse("2x2xi8=", pool_));
   EXPECT_THAT(bv1.buffer().CloneData<int8_t>(),
               IsOkAndHolds(Eq(std::vector<int8_t>{0, 0, 0, 0})));
 
   // Splat.
-  IREE_ASSERT_OK_AND_ASSIGN(auto bv2, BufferView::Parse("2x2xi8=3", allocator));
+  IREE_ASSERT_OK_AND_ASSIGN(auto bv2, BufferView::Parse("2x2xi8=3", pool_));
   EXPECT_THAT(bv2.buffer().CloneData<int8_t>(),
               IsOkAndHolds(Eq(std::vector<int8_t>{3, 3, 3, 3})));
 
   // Flat list.
   IREE_ASSERT_OK_AND_ASSIGN(auto bv3,
-                            BufferView::Parse("2x2xi8=1 2 3 4", allocator));
+                            BufferView::Parse("2x2xi8=1 2 3 4", pool_));
   EXPECT_THAT(bv3.buffer().CloneData<int8_t>(),
               IsOkAndHolds(Eq(std::vector<int8_t>{1, 2, 3, 4})));
 
   // Whitespace and separators shouldn't matter.
   IREE_ASSERT_OK_AND_ASSIGN(
-      auto bv4, BufferView::Parse("  2x2xi8 =  1,\n2 3\t,4", allocator));
+      auto bv4, BufferView::Parse("  2x2xi8 =  1,\n2 3\t,4", pool_));
   EXPECT_THAT(bv4.buffer().CloneData<int8_t>(),
               IsOkAndHolds(Eq(std::vector<int8_t>{1, 2, 3, 4})));
 
   // Brackets are optional.
-  IREE_ASSERT_OK_AND_ASSIGN(
-      auto bv5, BufferView::Parse("4xi16=[[0][1][2]][3]", allocator));
+  IREE_ASSERT_OK_AND_ASSIGN(auto bv5,
+                            BufferView::Parse("4xi16=[[0][1][2]][3]", pool_));
   EXPECT_THAT(bv5.buffer().CloneData<int16_t>(),
               IsOkAndHolds(Eq(std::vector<int16_t>{0, 1, 2, 3})));
 }
 
-TEST(BufferViewStringUtilTest, ParseInvalid) {
-  IREE_ASSERT_OK_AND_ASSIGN(auto allocator, Allocator::CreateHostLocal());
-
+TEST_F(BufferViewStringUtilTest, ParseInvalid) {
   // Incomplete.
-  EXPECT_THAT(BufferView::Parse("", allocator),
+  EXPECT_THAT(BufferView::Parse("", pool_),
               StatusIs(StatusCode::kInvalidArgument));
-  EXPECT_THAT(BufferView::Parse("asdf", allocator),
+  EXPECT_THAT(BufferView::Parse("asdf", pool_),
               StatusIs(StatusCode::kInvalidArgument));
-  EXPECT_THAT(BufferView::Parse("9x8=", allocator),
+  EXPECT_THAT(BufferView::Parse("9x8=", pool_),
               StatusIs(StatusCode::kInvalidArgument));
-  EXPECT_THAT(BufferView::Parse("=4", allocator),
+  EXPECT_THAT(BufferView::Parse("=4", pool_),
               StatusIs(StatusCode::kInvalidArgument));
 
   // Partial data.
-  EXPECT_THAT(BufferView::Parse("2x4xi32=5 3", allocator),
+  EXPECT_THAT(BufferView::Parse("2x4xi32=5 3", pool_),
               StatusIs(StatusCode::kOutOfRange));
 }
 
-TEST(BufferViewStringUtilTest, ToString) {
+TEST_F(BufferViewStringUtilTest, ToString) {
   std::vector<int8_t> buffer = {1};
   EXPECT_THAT(FormatBufferElements<int8_t>(buffer, Shape{}), IsOkAndHolds("1"));
   EXPECT_THAT(FormatBufferElements<int8_t>(buffer, Shape{1}),
@@ -1184,11 +1171,10 @@ TEST(BufferViewStringUtilTest, ToString) {
           "-99]"));
 }
 
-TEST(BufferViewStringUtilTest, RoundTrip) {
-  IREE_ASSERT_OK_AND_ASSIGN(auto allocator, Allocator::CreateHostLocal());
+TEST_F(BufferViewStringUtilTest, RoundTrip) {
   auto expect_round_trip = [&](std::string source_value) {
     IREE_ASSERT_OK_AND_ASSIGN(auto buffer_view,
-                              BufferView::Parse(source_value, allocator));
+                              BufferView::Parse(source_value, pool_));
     EXPECT_THAT(buffer_view.ToString(), IsOkAndHolds(source_value));
   };
 

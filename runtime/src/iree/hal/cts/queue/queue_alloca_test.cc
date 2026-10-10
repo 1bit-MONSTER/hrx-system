@@ -13,10 +13,9 @@
 #include "iree/hal/cts/util/pool_test_util.h"
 #include "iree/hal/cts/util/test_base.h"
 #include "iree/hal/memory/fixed_block_pool.h"
-#include "iree/hal/memory/maintenance.h"
-#include "iree/hal/memory/passthrough_pool.h"
 #include "iree/hal/memory/slab_cache.h"
 #include "iree/hal/memory/tlsf_pool.h"
+#include "iree/hal/slab_pool.h"
 
 namespace iree::hal::cts {
 
@@ -27,123 +26,12 @@ iree_hal_queue_family_affinity_t QueueFamilyAffinity(iree_hal_queue_t* queue) {
       iree_hal_queue_family_ordinal(iree_hal_queue_family(queue)));
 }
 
-iree_hal_buffer_params_t MakeAllocationParams(iree_hal_queue_t* queue) {
-  iree_hal_buffer_params_t params = {};
-  params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
-  params.queue_family_affinity = QueueFamilyAffinity(queue);
-  return params;
+constexpr iree_hal_buffer_usage_t kQueueAllocationUsage =
+    IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
+
+iree_hal_pool_reservation_request_t MakeRequest(iree_device_size_t size) {
+  return iree_hal_make_pool_reservation_request(size, /*min_alignment=*/0);
 }
-
-iree_hal_pool_reservation_request_t MakeRequest(iree_hal_queue_t* queue,
-                                                iree_device_size_t size) {
-  return {
-      /*.params=*/MakeAllocationParams(queue),
-      /*.allocation_size=*/size,
-  };
-}
-
-// Keeps native slab allocation and advice intact while materializing ordinary
-// subspans. Queue allocation must accept these just like native buffer views.
-class SubspanSlabProvider : public iree_hal_slab_provider_t {
- public:
-  explicit SubspanSlabProvider(iree_hal_slab_provider_t* inner)
-      : inner_(inner) {
-    iree_hal_slab_provider_retain(inner_);
-    iree_hal_slab_provider_initialize(&vtable_, this);
-  }
-
-  ~SubspanSlabProvider() { iree_hal_slab_provider_release(inner_); }
-
-  // Borrowed materializations, valid until their queue allocation is released.
-  std::vector<iree_hal_buffer_t*> views;
-
- private:
-  static SubspanSlabProvider* Cast(iree_hal_slab_provider_t* provider) {
-    return static_cast<SubspanSlabProvider*>(provider);
-  }
-  static const SubspanSlabProvider* Cast(
-      const iree_hal_slab_provider_t* provider) {
-    return static_cast<const SubspanSlabProvider*>(provider);
-  }
-
-  // Native provider retained for the adapter's lifetime.
-  iree_hal_slab_provider_t* inner_;
-  // Delegates native operations and changes only buffer materialization.
-  static const iree_hal_slab_provider_vtable_t vtable_;
-};
-
-const iree_hal_slab_provider_vtable_t SubspanSlabProvider::vtable_ = {
-    /*.destroy=*/[](iree_hal_slab_provider_t* provider) {
-      delete Cast(provider);
-    },
-    /*.acquire_slab=*/
-    [](iree_hal_slab_provider_t* provider, iree_device_size_t min_length,
-       iree_device_size_t min_alignment, iree_hal_slab_t* out_slab) {
-      return iree_hal_slab_provider_acquire_slab(
-          Cast(provider)->inner_, min_length, min_alignment, out_slab);
-    },
-    /*.release_slab=*/
-    [](iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab) {
-      iree_hal_slab_provider_release_slab(Cast(provider)->inner_, slab);
-    },
-    /*.wrap_buffer=*/
-    [](iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
-       iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-       iree_hal_buffer_params_t params,
-       iree_hal_buffer_release_callback_t release_callback,
-       iree_hal_buffer_t** out_buffer) {
-      auto* self = Cast(provider);
-      Ref<iree_hal_buffer_t> backing;
-      IREE_RETURN_IF_ERROR(iree_hal_slab_provider_wrap_buffer(
-          self->inner_, slab, 0, slab->length, params,
-          iree_hal_buffer_release_callback_null(), backing.out()));
-      IREE_RETURN_IF_ERROR(iree_hal_subspan_buffer_create_with_callback(
-          backing, iree_hal_buffer_byte_offset(backing) + slab_offset,
-          allocation_size, release_callback, iree_allocator_system(),
-          out_buffer));
-      self->views.push_back(*out_buffer);
-      return iree_ok_status();
-    },
-    /*.validate_asan_options=*/
-    [](const iree_hal_slab_provider_t* provider,
-       const iree_hal_asan_pool_options_t* options) {
-      return iree_hal_slab_provider_validate_asan_options(
-          Cast(provider)->inner_, options);
-    },
-    /*.advise_asan_range=*/
-    [](iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
-       iree_device_size_t backing_offset,
-       iree_hal_asan_range_advice_flags_t flags,
-       const iree_hal_asan_allocation_layout_t* layout) {
-      iree_hal_slab_provider_advise_asan_range(Cast(provider)->inner_, slab,
-                                               backing_offset, flags, layout);
-    },
-    /*.prefault=*/
-    [](iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
-       iree_device_size_t offset, iree_device_size_t length) {
-      iree_hal_slab_provider_prefault(Cast(provider)->inner_, slab, offset,
-                                      length);
-    },
-    /*.trim=*/
-    [](iree_hal_slab_provider_t* provider, iree_hal_pool_trim_flags_t flags) {
-      iree_hal_slab_provider_trim(Cast(provider)->inner_, flags);
-    },
-    /*.query_stats=*/
-    [](const iree_hal_slab_provider_t* provider,
-       iree_hal_slab_provider_visited_set_t* visited,
-       iree_hal_slab_provider_stats_t* out_stats) {
-      iree_hal_slab_provider_query_stats(Cast(provider)->inner_, visited,
-                                         out_stats);
-    },
-    /*.query_properties=*/
-    [](const iree_hal_slab_provider_t* provider,
-       iree_hal_slab_provider_properties_t* properties) {
-      iree_hal_slab_provider_query_properties(Cast(provider)->inner_,
-                                              properties);
-    },
-};
 
 }  // namespace
 
@@ -159,48 +47,66 @@ class QueueAllocaTest : public CtsTestBase<> {
     }
   }
 
-  iree_status_t QueryPoolBackend(iree_hal_queue_pool_backend_t* out_backend) {
-    return iree_hal_device_query_queue_pool_backend(
-        device_, iree_hal_queue_family(transfer_queue_), out_backend);
+  iree_hal_asan_pool_options_t AsanOptions() const {
+    return iree_hal_device_spec_sanitizer(iree_hal_device_spec(device_))
+        ->asan.pool_options;
   }
 
-  iree_status_t CreatePassthroughPool(iree_hal_pool_t** out_pool) {
-    iree_hal_queue_pool_backend_t backend = {};
-    IREE_RETURN_IF_ERROR(QueryPoolBackend(&backend));
-    if (!backend.slab_provider || !backend.notification) {
-      return iree_make_status(
-          IREE_STATUS_FAILED_PRECONDITION,
-          "queue pool backend query returned an incomplete bundle");
-    }
-    iree_hal_passthrough_pool_options_t options = {};
-    options.asan = backend.asan;
-    return iree_hal_passthrough_pool_create(
-        options, backend.slab_provider, backend.notification,
-        backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
-        out_pool);
+  iree_status_t CreateSlabPool(iree_hal_pool_t** out_pool) {
+    return CreateQueueSlabPool(device_group_,
+                               iree_hal_queue_family(transfer_queue_),
+                               kQueueAllocationUsage, /*host_access=*/{},
+                               iree_allocator_system(), out_pool);
   }
 
   iree_status_t CreateTLSFPool(iree_device_size_t range_length,
                                iree_hal_pool_t** out_pool) {
-    iree_hal_queue_pool_backend_t backend = {};
-    IREE_RETURN_IF_ERROR(QueryPoolBackend(&backend));
-    if (!backend.slab_provider || !backend.notification) {
-      return iree_make_status(
-          IREE_STATUS_FAILED_PRECONDITION,
-          "queue pool backend query returned an incomplete bundle");
-    }
     iree_hal_tlsf_pool_options_t options = {};
     options.tlsf_options.range_length = range_length;
     options.tlsf_options.alignment = IREE_HAL_MEMORY_TLSF_MIN_ALIGNMENT;
     options.tlsf_options.frontier_capacity = 2;
-    options.asan = backend.asan;
-    iree_hal_passthrough_pool_options_t backing_options = {};
-    backing_options.epoch_query = backend.epoch_query;
+    options.asan = AsanOptions();
     iree_hal_pool_t* backing_pool = nullptr;
-    IREE_RETURN_IF_ERROR(iree_hal_passthrough_pool_create(
-        backing_options, backend.slab_provider, backend.notification,
-        backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
-        &backing_pool));
+    IREE_RETURN_IF_ERROR(CreateSlabPool(&backing_pool));
+    iree_status_t status = iree_hal_tlsf_pool_create(
+        backing_pool, &options, iree_allocator_system(), out_pool);
+    iree_hal_pool_release(backing_pool);
+    return status;
+  }
+
+  iree_status_t CreateHostExportableTLSFPool(iree_device_size_t range_length,
+                                             iree_hal_pool_t** out_pool) {
+    const iree_hal_pool_family_access_t family_access = {
+        /*.family=*/iree_hal_queue_family(transfer_queue_),
+        /*.usage=*/kQueueAllocationUsage,
+    };
+    const iree_hal_pool_scope_t scope = {
+        /*.family_count=*/1,
+        /*.families=*/&family_access,
+        /*.host=*/
+        {
+            /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+            /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
+                IREE_HAL_MAPPING_MODE_PERSISTENT,
+        },
+    };
+    const iree_hal_external_storage_class_t export_class =
+        iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+    iree_hal_slab_pool_options_t backing_options;
+    iree_hal_slab_pool_options_initialize(&backing_options);
+    backing_options.owned.exports.class_count = 1;
+    backing_options.owned.exports.classes = &export_class;
+    backing_options.trace_name = IREE_SV("cts.queue.exportable");
+    iree_hal_pool_t* backing_pool = nullptr;
+    IREE_RETURN_IF_ERROR(
+        iree_hal_slab_pool_create(device_group_, scope, &backing_options,
+                                  iree_allocator_system(), &backing_pool));
+    iree_hal_tlsf_pool_options_t options = {};
+    options.tlsf_options.range_length = range_length;
+    options.tlsf_options.alignment = IREE_HAL_MEMORY_TLSF_MIN_ALIGNMENT;
+    options.tlsf_options.frontier_capacity = 2;
+    options.asan = AsanOptions();
     iree_status_t status = iree_hal_tlsf_pool_create(
         backing_pool, &options, iree_allocator_system(), out_pool);
     iree_hal_pool_release(backing_pool);
@@ -211,20 +117,21 @@ class QueueAllocaTest : public CtsTestBase<> {
                                      uint32_t block_count,
                                      iree_hal_pool_t** out_backing_pool,
                                      iree_hal_pool_t** out_pool) {
-    iree_hal_queue_pool_backend_t backend = {};
-    IREE_RETURN_IF_ERROR(QueryPoolBackend(&backend));
-    if (!backend.slab_provider || !backend.notification) {
-      return iree_make_status(
-          IREE_STATUS_FAILED_PRECONDITION,
-          "queue pool backend query returned an incomplete bundle");
-    }
+    *out_backing_pool = nullptr;
+    *out_pool = nullptr;
     iree_hal_fixed_block_pool_options_t options = {};
     options.block_size = block_size;
     options.blocks_per_slab = block_count;
     options.frontier_capacity = 2;
-    options.asan = backend.asan;
-    return CreateFiniteBlockPool(backend, options, iree_allocator_system(),
-                                 out_backing_pool, out_pool);
+    options.asan = AsanOptions();
+    IREE_RETURN_IF_ERROR(CreateSlabPool(out_backing_pool));
+    iree_status_t status = CreateFiniteBlockPool(
+        *out_backing_pool, options, iree_allocator_system(), out_pool);
+    if (!iree_status_is_ok(status)) {
+      iree_hal_pool_release(*out_backing_pool);
+      *out_backing_pool = nullptr;
+    }
+    return status;
   }
 
   iree_hal_queue_t* FindSiblingQueue(iree_hal_queue_t* queue) {
@@ -274,19 +181,22 @@ class QueueAllocaTest : public CtsTestBase<> {
   }
 };
 
-TEST_P(QueueAllocaTest, ExactQueueAndExplicitPool) {
+TEST_P(QueueAllocaTest, ExplicitPoolScope) {
   constexpr iree_device_size_t kAllocationSize = 1024;
   Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(CreatePassthroughPool(pool.out()));
+  IREE_ASSERT_OK(CreateSlabPool(pool.out()));
 
-  // Use the native guarantee, which may exceed the CPU heap alignment.
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(QueryPoolBackend(&backend));
-  iree_hal_slab_provider_properties_t properties;
-  iree_hal_slab_provider_query_properties(backend.slab_provider, &properties);
-  iree_hal_pool_reservation_request_t request =
-      MakeRequest(transfer_queue_, kAllocationSize);
-  request.params.min_alignment = properties.allocation_alignment;
+  // Exercise an alignment accepted by this pool. The device's queue backend
+  // may expose a different native memory class than the one selected for the
+  // explicit scope above, so its provider properties are not authoritative
+  // for this allocation.
+  iree_hal_pool_capabilities_t capabilities;
+  iree_hal_pool_query_capabilities(pool, &capabilities);
+  ASSERT_GT(capabilities.max_allocation_alignment, 0u);
+  const iree_device_size_t requested_alignment =
+      iree_min((iree_device_size_t)256, capabilities.max_allocation_alignment);
+  iree_hal_pool_reservation_request_t request = MakeRequest(kAllocationSize);
+  request.min_alignment = requested_alignment;
   Ref<iree_hal_buffer_t> buffer;
   SemaphoreList empty_wait;
   SemaphoreList alloca_signal(device_, {0}, {1});
@@ -298,15 +208,16 @@ TEST_P(QueueAllocaTest, ExactQueueAndExplicitPool) {
 
   const auto memory = iree_hal_buffer_memory_view(buffer);
   ASSERT_NE(memory.backing, nullptr);
-  EXPECT_EQ(memory.backing->allocation_alignment,
-            properties.allocation_alignment);
-  EXPECT_EQ(memory.offset % properties.allocation_alignment, 0u);
+  EXPECT_GE(memory.backing->allocation_alignment, requested_alignment);
+  EXPECT_EQ(memory.offset % requested_alignment, 0u);
   EXPECT_GE(iree_hal_buffer_byte_length(buffer), kAllocationSize);
-  const iree_hal_buffer_placement_t placement =
-      iree_hal_buffer_allocation_placement(buffer);
-  EXPECT_EQ(device_, placement.device);
-  EXPECT_EQ(QueueFamilyAffinity(transfer_queue_),
-            placement.queue_family_affinity);
+  const iree_hal_buffer_usage_t expected_usage = kQueueAllocationUsage;
+  EXPECT_EQ(expected_usage, iree_hal_buffer_allowed_usage(buffer));
+  EXPECT_EQ(expected_usage,
+            iree_hal_buffer_family_usage(
+                buffer, iree_hal_queue_family(transfer_queue_)));
+  IREE_EXPECT_OK(iree_hal_buffer_validate_family_usage(
+      buffer, iree_hal_queue_family(transfer_queue_), expected_usage));
 
   constexpr uint32_t kPattern = 0xA11CA7EDu;
   FillAndWait(transfer_queue_, buffer, kPattern);
@@ -320,33 +231,24 @@ TEST_P(QueueAllocaTest, ExactQueueAndExplicitPool) {
 }
 
 TEST_P(QueueAllocaTest, IndependentAllocatorsShareCachedNativeBacking) {
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(QueryPoolBackend(&backend));
-  iree_hal_slab_provider_properties_t properties;
-  iree_hal_slab_provider_query_properties(backend.slab_provider, &properties);
   // Both allocation policies can give and receive the same cached range.
   for (uint32_t policies = 0; policies < 4; ++policies) {
     SCOPED_TRACE(policies);
-    iree_hal_passthrough_pool_options_t native_options = {};
-    native_options.epoch_query = backend.epoch_query;
     Ref<iree_hal_pool_t> native;
-    IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-        native_options, backend.slab_provider, backend.notification,
-        backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
-        native.out()));
+    IREE_ASSERT_OK(CreateSlabPool(native.out()));
+    iree_hal_pool_capabilities_t native_capabilities;
+    iree_hal_pool_query_capabilities(native, &native_capabilities);
     iree_hal_slab_cache_options_t cache_options;
     iree_hal_slab_cache_options_initialize(&cache_options);
-    cache_options.slab = MakeRequest(transfer_queue_, 65536);
-    // Share one class satisfying both the native guarantee and the 256-byte
-    // fixed-block stride, including sources that strengthen alignment on
-    // demand.
-    cache_options.slab.params.min_alignment =
-        iree_max(properties.allocation_alignment,
-                 iree_min(256, properties.max_allocation_alignment));
+    cache_options.slab = MakeRequest(65536);
+    // Share one class satisfying the 256-byte fixed-block stride when the
+    // selected native source supports it.
+    cache_options.slab.min_alignment =
+        iree_min(256, native_capabilities.max_allocation_alignment);
     Ref<iree_hal_pool_t> cache;
     IREE_ASSERT_OK(iree_hal_slab_cache_create(
         native, &cache_options, iree_allocator_system(), cache.out()));
-    const auto request = MakeRequest(transfer_queue_, 256);
+    const auto request = MakeRequest(256);
     const iree_hal_buffer_backing_facts_t* first_backing = nullptr;
     Ref<iree_hal_pool_t> children[2];
     for (uint32_t iteration = 0; iteration < 2; ++iteration) {
@@ -356,7 +258,7 @@ TEST_P(QueueAllocaTest, IndependentAllocatorsShareCachedNativeBacking) {
         options.block_size = 256;
         options.blocks_per_slab = 16;
         options.frontier_capacity = 2;
-        options.asan = backend.asan;
+        options.asan = AsanOptions();
         IREE_ASSERT_OK(iree_hal_fixed_block_pool_create(
             cache, &options, iree_allocator_system(), child.out()));
       } else {
@@ -364,7 +266,7 @@ TEST_P(QueueAllocaTest, IndependentAllocatorsShareCachedNativeBacking) {
         options.tlsf_options.range_length = 4096;
         options.tlsf_options.alignment = IREE_HAL_MEMORY_TLSF_MIN_ALIGNMENT;
         options.tlsf_options.frontier_capacity = 2;
-        options.asan = backend.asan;
+        options.asan = AsanOptions();
         IREE_ASSERT_OK(iree_hal_tlsf_pool_create(
             cache, &options, iree_allocator_system(), child.out()));
       }
@@ -395,13 +297,9 @@ TEST_P(QueueAllocaTest, IndependentAllocatorsShareCachedNativeBacking) {
         DeallocaAndWait(transfer_queue_, 1, &buffer);
         buffers[i].reset();
       }
-      // Both children remain alive. Observe the automatic whole-range return
-      // before asking the other policy to reuse it, without explicit trimming.
-      iree_hal_memory_maintenance_call(
-          backend.maintenance, [](void*) {}, nullptr);
-      iree_hal_pool_stats_t stats;
-      iree_hal_pool_query_stats(child, &stats);
-      EXPECT_EQ(stats.bytes_committed, 0u);
+      // Destruction joins this child's automatic whole-range return before the
+      // other independently created policy asks the cache to reuse it.
+      child.reset();
     }
     iree_hal_pool_stats_t stats;
     iree_hal_pool_query_stats(native, &stats);
@@ -413,8 +311,6 @@ TEST_P(QueueAllocaTest, IndependentAllocatorsShareCachedNativeBacking) {
 }
 
 TEST_P(QueueAllocaTest, BlockedSiblingResumesFromSharedCache) {
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(QueryPoolBackend(&backend));
   for (uint32_t policies = 0; policies < 4; ++policies) {
     SCOPED_TRACE(policies);
     // A finite ordinary backing pool bounds the entire composition to one
@@ -424,10 +320,10 @@ TEST_P(QueueAllocaTest, BlockedSiblingResumesFromSharedCache) {
     IREE_ASSERT_OK(CreateFixedBlockPool(65536, 1, native.out(), source.out()));
     iree_hal_slab_cache_options_t cache_options;
     iree_hal_slab_cache_options_initialize(&cache_options);
-    cache_options.slab = MakeRequest(transfer_queue_, 65536);
+    cache_options.slab = MakeRequest(65536);
     iree_hal_pool_capabilities_t capabilities;
     iree_hal_pool_query_capabilities(source, &capabilities);
-    cache_options.slab.params.min_alignment =
+    cache_options.slab.min_alignment =
         iree_min(4096, capabilities.max_allocation_alignment);
     Ref<iree_hal_pool_t> cache;
     IREE_ASSERT_OK(iree_hal_slab_cache_create(
@@ -439,7 +335,7 @@ TEST_P(QueueAllocaTest, BlockedSiblingResumesFromSharedCache) {
         options.block_size = 256;
         options.blocks_per_slab = 16;
         options.frontier_capacity = 2;
-        options.asan = backend.asan;
+        options.asan = AsanOptions();
         IREE_ASSERT_OK(iree_hal_fixed_block_pool_create(
             cache, &options, iree_allocator_system(), children[i].out()));
       } else {
@@ -447,7 +343,7 @@ TEST_P(QueueAllocaTest, BlockedSiblingResumesFromSharedCache) {
         options.tlsf_options.range_length = 4096;
         options.tlsf_options.alignment = IREE_HAL_MEMORY_TLSF_MIN_ALIGNMENT;
         options.tlsf_options.frontier_capacity = 2;
-        options.asan = backend.asan;
+        options.asan = AsanOptions();
         IREE_ASSERT_OK(iree_hal_tlsf_pool_create(
             cache, &options, iree_allocator_system(), children[i].out()));
       }
@@ -456,7 +352,7 @@ TEST_P(QueueAllocaTest, BlockedSiblingResumesFromSharedCache) {
               iree_hal_pool_notification(children[1]));
     auto* cache_notification = iree_hal_pool_notification(cache);
     ASSERT_NE(cache_notification, iree_hal_pool_notification(children[1]));
-    const auto request = MakeRequest(transfer_queue_, 256);
+    const auto request = MakeRequest(256);
     Ref<iree_hal_buffer_t> first;
     SemaphoreList no_waits;
     SemaphoreList first_allocated(device_, {0}, {1});
@@ -498,8 +394,8 @@ TEST_P(QueueAllocaTest, BlockedSiblingResumesFromSharedCache) {
     iree_hal_buffer_t* second_buffer = second;
     DeallocaAndWait(transfer_queue_, 1, &second_buffer);
     second.reset();
-    iree_hal_memory_maintenance_call(
-        backend.maintenance, [](void*) {}, nullptr);
+    children[1].reset();
+    children[0].reset();
     iree_hal_pool_stats_t stats;
     iree_hal_pool_query_stats(native, &stats);
     EXPECT_EQ(stats.reserve_count, 1u);
@@ -510,44 +406,59 @@ TEST_P(QueueAllocaTest, BlockedSiblingResumesFromSharedCache) {
 }
 
 TEST_P(QueueAllocaTest, MapsSubspanBackingInNativeCoordinates) {
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(QueryPoolBackend(&backend));
-  auto provider = std::unique_ptr<SubspanSlabProvider,
-                                  decltype(&iree_hal_slab_provider_release)>(
-      new SubspanSlabProvider(backend.slab_provider),
-      iree_hal_slab_provider_release);
-  iree_hal_slab_provider_properties_t properties;
-  iree_hal_slab_provider_query_properties(provider.get(), &properties);
-  if (!iree_all_bits_set(properties.memory_type,
-                         IREE_HAL_MEMORY_TYPE_HOST_VISIBLE)) {
-    GTEST_SKIP() << "queue pool backing is not host visible";
+  const iree_hal_pool_family_access_t family_access = {
+      /*.family=*/iree_hal_queue_family(transfer_queue_),
+      /*.usage=*/kQueueAllocationUsage,
+  };
+  const iree_hal_pool_scope_t scope = {
+      /*.family_count=*/1,
+      /*.families=*/&family_access,
+      /*.host=*/
+      {
+          /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+          /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
+              IREE_HAL_MAPPING_MODE_PERSISTENT,
+      },
+  };
+  iree_hal_slab_pool_options_t source_options;
+  iree_hal_slab_pool_options_initialize(&source_options);
+  Ref<iree_hal_pool_t> source_pool;
+  iree_status_t status =
+      iree_hal_slab_pool_create(device_group_, scope, &source_options,
+                                iree_allocator_system(), source_pool.out());
+  if (iree_status_is_unavailable(status)) {
+    iree::Status unavailable_status(std::move(status));
+    GTEST_SKIP() << "device has no host-mappable queue storage: "
+                 << unavailable_status.ToString();
   }
+  IREE_ASSERT_OK(status);
+
+  Ref<iree_hal_buffer_t> source;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source_pool, MakeRequest(1024), iree_infinite_timeout(), source.out()));
+  Ref<iree_hal_buffer_t> source_view;
+  IREE_ASSERT_OK(iree_hal_buffer_subspan(
+      source, 128, 512, iree_allocator_system(), source_view.out()));
 
   iree_hal_fixed_block_pool_options_t options = {};
   options.block_size = 256;
-  options.blocks_per_slab = 2;
   options.frontier_capacity = 2;
-  options.asan = backend.asan;
-  backend.slab_provider = provider.get();
-  Ref<iree_hal_pool_t> backing_pool;
+  options.asan = AsanOptions();
   Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(CreateFiniteBlockPool(backend, options,
-                                       iree_allocator_system(),
-                                       backing_pool.out(), pool.out()));
+  IREE_ASSERT_OK(iree_hal_fixed_block_pool_create_from_buffer(
+      source_view, 0, IREE_HAL_WHOLE_BUFFER, &options, iree_allocator_system(),
+      pool.out()));
 
   std::array<Ref<iree_hal_buffer_t>, 2> buffers;
   for (auto& buffer : buffers) {
-    auto request = MakeRequest(transfer_queue_, 256);
-    request.params.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED |
-                            IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT;
+    auto request = MakeRequest(256);
     SemaphoreList signal(device_, {0}, {1});
     IREE_ASSERT_OK(
         iree_hal_queue_alloca(transfer_queue_, iree_hal_semaphore_list_empty(),
                               signal, pool, 1, &request, buffer.out()));
     Wait(signal);
   }
-  ASSERT_EQ(1u, provider->views.size());
-  const auto source_memory = iree_hal_buffer_memory_view(provider->views[0]);
+  const auto source_memory = iree_hal_buffer_memory_view(source_view);
   const auto first_memory = iree_hal_buffer_memory_view(buffers[0]);
   const auto second_memory = iree_hal_buffer_memory_view(buffers[1]);
   EXPECT_EQ(first_memory.backing, source_memory.backing);
@@ -576,7 +487,7 @@ TEST_P(QueueAllocaTest, MapsSubspanBackingInNativeCoordinates) {
       IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
 
       const auto memory = iree_hal_buffer_memory_view(buffers[i]);
-      auto values = ReadBufferBytes(provider->views[0],
+      auto values = ReadBufferBytes(source_view,
                                     memory.offset - source_memory.offset, 256);
       for (size_t j = 0; j < values.size(); ++j) {
         EXPECT_EQ((j >= 48 && j < 112 ? 0xB0u : 0xA0u) + i, values[j]);
@@ -591,7 +502,7 @@ TEST_P(QueueAllocaTest, MapsSubspanBackingInNativeCoordinates) {
 TEST_P(QueueAllocaTest, NestedBufferPoolsPreserveRangesAndOwnership) {
   Ref<iree_hal_pool_t> native_pool;
   IREE_ASSERT_OK(CreateTLSFPool(16384, native_pool.out()));
-  auto request = MakeRequest(transfer_queue_, 8192);
+  auto request = MakeRequest(8192);
   Ref<iree_hal_buffer_t> source;
   SemaphoreList admission(device_, {0}, {1});
   SemaphoreList allocated(device_, {0}, {1});
@@ -623,10 +534,13 @@ TEST_P(QueueAllocaTest, NestedBufferPoolsPreserveRangesAndOwnership) {
   Ref<iree_hal_buffer_t> neighbor;
   Ref<iree_hal_buffer_t> arena_backing;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      blocks, request.params, 512, iree_immediate_timeout(), neighbor.out()));
-  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(blocks, request.params, 512,
-                                               iree_immediate_timeout(),
-                                               arena_backing.out()));
+      blocks,
+      iree_hal_make_pool_reservation_request(512, request.min_alignment),
+      iree_immediate_timeout(), neighbor.out()));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      blocks,
+      iree_hal_make_pool_reservation_request(512, request.min_alignment),
+      iree_immediate_timeout(), arena_backing.out()));
   FillAndWait(transfer_queue_, neighbor, 0x22222222u);
   FillAndWait(transfer_queue_, arena_backing, 0x33333333u);
 
@@ -641,9 +555,11 @@ TEST_P(QueueAllocaTest, NestedBufferPoolsPreserveRangesAndOwnership) {
   Ref<iree_hal_buffer_t> first;
   Ref<iree_hal_buffer_t> second;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      arena, request.params, 64, iree_immediate_timeout(), first.out()));
+      arena, iree_hal_make_pool_reservation_request(64, request.min_alignment),
+      iree_immediate_timeout(), first.out()));
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      arena, request.params, 64, iree_immediate_timeout(), second.out()));
+      arena, iree_hal_make_pool_reservation_request(64, request.min_alignment),
+      iree_immediate_timeout(), second.out()));
   FillAndWait(transfer_queue_, first, 0xABABABABu);
   FillAndWait(transfer_queue_, second, 0xCDCDCDCDu);
 
@@ -699,11 +615,11 @@ TEST_P(QueueAllocaTest, PluralSmallLargeAndAlignedTransaction) {
   std::array<iree_hal_pool_reservation_request_t, kAllocationSizes.size()>
       requests;
   for (size_t i = 0; i < requests.size(); ++i) {
-    requests[i] = MakeRequest(transfer_queue_, kAllocationSizes[i]);
+    requests[i] = MakeRequest(kAllocationSizes[i]);
   }
   iree_hal_pool_capabilities_t capabilities;
   iree_hal_pool_query_capabilities(pool, &capabilities);
-  requests.back().params.min_alignment =
+  requests.back().min_alignment =
       iree_min(4096, capabilities.max_allocation_alignment);
   std::array<iree_hal_buffer_t*, kAllocationSizes.size()> raw_buffers = {};
   SemaphoreList empty_wait;
@@ -729,9 +645,9 @@ TEST_P(QueueAllocaTest, PluralSmallLargeAndAlignedTransaction) {
     for (uint32_t value : actual) {
       EXPECT_EQ(value, pattern);
     }
-    if (requests[i].params.min_alignment) {
+    if (requests[i].min_alignment) {
       const auto memory = iree_hal_buffer_memory_view(buffers[i]);
-      EXPECT_EQ(memory.offset % requests[i].params.min_alignment, 0u);
+      EXPECT_EQ(memory.offset % requests[i].min_alignment, 0u);
     }
   }
 
@@ -743,10 +659,9 @@ TEST_P(QueueAllocaTest, PluralSmallLargeAndAlignedTransaction) {
 
 TEST_P(QueueAllocaTest, WaitDependencyControlsReadiness) {
   Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(CreatePassthroughPool(pool.out()));
+  IREE_ASSERT_OK(CreateSlabPool(pool.out()));
 
-  const iree_hal_pool_reservation_request_t request =
-      MakeRequest(transfer_queue_, /*size=*/512);
+  const iree_hal_pool_reservation_request_t request = MakeRequest(/*size=*/512);
   Ref<iree_hal_buffer_t> buffer;
   SemaphoreList alloca_wait(device_, {0}, {1});
   SemaphoreList alloca_signal(device_, {0}, {1});
@@ -769,12 +684,15 @@ TEST_P(QueueAllocaTest, WaitDependencyControlsReadiness) {
 
 TEST_P(QueueAllocaTest, ExportFollowsAllocationLifetime) {
   Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(CreateTLSFPool(/*range_length=*/4096, pool.out()));
-  auto request = MakeRequest(transfer_queue_, /*size=*/256);
-  iree_hal_pool_capabilities_t capabilities;
-  iree_hal_pool_query_capabilities(pool, &capabilities);
-  request.params.usage |=
-      capabilities.supported_usage & IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT;
+  iree_status_t status =
+      CreateHostExportableTLSFPool(/*range_length=*/4096, pool.out());
+  if (iree_status_is_unavailable(status)) {
+    iree::Status unavailable_status(std::move(status));
+    GTEST_SKIP() << "device has no host-exportable queue storage: "
+                 << unavailable_status.ToString();
+  }
+  IREE_ASSERT_OK(status);
+  auto request = MakeRequest(/*size=*/256);
 
   Ref<iree_hal_buffer_t> buffer;
   SemaphoreList alloca_wait(device_, {0}, {1});
@@ -786,40 +704,47 @@ TEST_P(QueueAllocaTest, ExportFollowsAllocationLifetime) {
   IREE_ASSERT_OK(iree_hal_buffer_subspan(
       buffer, 64, 64, iree_allocator_system(), subspan.out()));
 
-  iree_hal_external_buffer_t external_buffer = {};
+  iree_hal_external_storage_t external_buffer = {};
+  iree_hal_buffer_range_t logical_range = {};
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_FAILED_PRECONDITION,
       iree_hal_buffer_export(
-          subspan, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-          IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer));
-  EXPECT_EQ(IREE_HAL_EXTERNAL_BUFFER_TYPE_NONE, external_buffer.type);
+          subspan, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+          iree_hal_make_external_storage_class(
+              IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+          &external_buffer, &logical_range));
+  EXPECT_EQ(IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE,
+            external_buffer.storage_class.type);
   IREE_ASSERT_OK(
       iree_hal_semaphore_list_signal(alloca_wait, /*frontier=*/nullptr));
   Wait(alloca_signal);
 
   constexpr uint32_t kPattern = 0xA11CA7EDu;
   FillAndWait(transfer_queue_, buffer, kPattern);
-  iree_status_t export_status = iree_hal_buffer_export(
-      subspan, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer);
-  if (iree_status_is_ok(export_status)) {
-    EXPECT_EQ(IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-              external_buffer.type);
-    EXPECT_EQ(64u, external_buffer.size);
-    iree_hal_external_buffer_t root_export = {};
-    IREE_ASSERT_OK(iree_hal_buffer_export(
-        buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-        IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &root_export));
-    EXPECT_EQ(root_export.handle.device_allocation.ptr + 64,
-              external_buffer.handle.device_allocation.ptr);
-    for (uint32_t value : ReadBufferData<uint32_t>(subspan)) {
-      EXPECT_EQ(kPattern, value);
-    }
-  } else {
-    // External pointer support is optional; allocation readiness is not.
-    IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE, export_status);
-    EXPECT_EQ(IREE_HAL_EXTERNAL_BUFFER_TYPE_NONE, external_buffer.type);
+  IREE_ASSERT_OK(iree_hal_buffer_export(
+      subspan, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      &external_buffer, &logical_range));
+  EXPECT_EQ(IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER,
+            external_buffer.storage_class.type);
+  EXPECT_EQ(64u, logical_range.byte_length);
+  iree_hal_external_storage_t root_export = {};
+  iree_hal_buffer_range_t root_range = {};
+  IREE_ASSERT_OK(iree_hal_buffer_export(
+      buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      &root_export, &root_range));
+  EXPECT_EQ(root_export.payload.host_pointer,
+            external_buffer.payload.host_pointer);
+  EXPECT_EQ(root_range.byte_offset + 64, logical_range.byte_offset);
+  EXPECT_EQ(root_export.byte_length, external_buffer.byte_length);
+  for (uint32_t value : ReadBufferData<uint32_t>(subspan)) {
+    EXPECT_EQ(kPattern, value);
   }
+  iree_hal_external_storage_release(&root_export);
+  iree_hal_external_storage_release(&external_buffer);
 
   iree_hal_buffer_t* buffers[] = {buffer.get()};
   DeallocaAndWait(transfer_queue_, IREE_ARRAYSIZE(buffers), buffers);
@@ -829,20 +754,24 @@ TEST_P(QueueAllocaTest, ExportFollowsAllocationLifetime) {
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_FAILED_PRECONDITION,
       iree_hal_buffer_export(
-          subspan, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-          IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer));
-  EXPECT_EQ(IREE_HAL_EXTERNAL_BUFFER_TYPE_NONE, external_buffer.type);
-  EXPECT_EQ(0u, external_buffer.size);
-  EXPECT_EQ(nullptr, external_buffer.handle.host_allocation.ptr);
+          subspan, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+          iree_hal_make_external_storage_class(
+              IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+          &external_buffer, &logical_range));
+  EXPECT_EQ(IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE,
+            external_buffer.storage_class.type);
+  EXPECT_EQ(0u, external_buffer.byte_length);
+  EXPECT_EQ(nullptr, external_buffer.payload.host_pointer);
+  EXPECT_EQ(0u, logical_range.byte_length);
 }
 
 TEST_P(QueueAllocaTest, ValidationFailureLeavesOutputsUntouched) {
   Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(CreatePassthroughPool(pool.out()));
+  IREE_ASSERT_OK(CreateSlabPool(pool.out()));
 
   std::array<iree_hal_pool_reservation_request_t, 2> requests = {
-      MakeRequest(transfer_queue_, /*size=*/256),
-      MakeRequest(transfer_queue_, /*size=*/0),
+      MakeRequest(/*size=*/256),
+      MakeRequest(/*size=*/0),
   };
   auto* const sentinel0 = reinterpret_cast<iree_hal_buffer_t*>(uintptr_t{0x1});
   auto* const sentinel1 = reinterpret_cast<iree_hal_buffer_t*>(uintptr_t{0x2});
@@ -870,8 +799,8 @@ TEST_P(QueueAllocaTest, PoolValidationIsAllOrNothing) {
                                       backing_pool.out(), pool.out()));
 
   std::array<iree_hal_pool_reservation_request_t, 2> invalid_requests = {
-      MakeRequest(transfer_queue_, kBlockSize),
-      MakeRequest(transfer_queue_, kBlockSize + 1),
+      MakeRequest(kBlockSize),
+      MakeRequest(kBlockSize + 1),
   };
   auto* const sentinel0 = reinterpret_cast<iree_hal_buffer_t*>(uintptr_t{0x1});
   auto* const sentinel1 = reinterpret_cast<iree_hal_buffer_t*>(uintptr_t{0x2});
@@ -892,8 +821,8 @@ TEST_P(QueueAllocaTest, PoolValidationIsAllOrNothing) {
   EXPECT_EQ(0u, stats.reservation_count);
 
   std::array<iree_hal_pool_reservation_request_t, 2> valid_requests = {
-      MakeRequest(transfer_queue_, kBlockSize),
-      MakeRequest(transfer_queue_, kBlockSize),
+      MakeRequest(kBlockSize),
+      MakeRequest(kBlockSize),
   };
   outputs = {};
   SemaphoreList valid_signal(device_, {0}, {1});
@@ -909,10 +838,9 @@ TEST_P(QueueAllocaTest, PoolValidationIsAllOrNothing) {
 
 TEST_P(QueueAllocaTest, DuplicateDeallocaLeavesEpochLive) {
   Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(CreatePassthroughPool(pool.out()));
+  IREE_ASSERT_OK(CreateSlabPool(pool.out()));
 
-  const iree_hal_pool_reservation_request_t request =
-      MakeRequest(transfer_queue_, /*size=*/256);
+  const iree_hal_pool_reservation_request_t request = MakeRequest(/*size=*/256);
   Ref<iree_hal_buffer_t> buffer;
   SemaphoreList empty_wait;
   SemaphoreList alloca_signal(device_, {0}, {1});
@@ -940,11 +868,10 @@ TEST_P(QueueAllocaTest, DuplicateDeallocaLeavesEpochLive) {
 TEST_P(QueueAllocaTest, MixedPoolDeallocaLeavesEpochsLive) {
   Ref<iree_hal_pool_t> pool0;
   Ref<iree_hal_pool_t> pool1;
-  IREE_ASSERT_OK(CreatePassthroughPool(pool0.out()));
-  IREE_ASSERT_OK(CreatePassthroughPool(pool1.out()));
+  IREE_ASSERT_OK(CreateSlabPool(pool0.out()));
+  IREE_ASSERT_OK(CreateSlabPool(pool1.out()));
 
-  const iree_hal_pool_reservation_request_t request =
-      MakeRequest(transfer_queue_, /*size=*/256);
+  const iree_hal_pool_reservation_request_t request = MakeRequest(/*size=*/256);
   Ref<iree_hal_buffer_t> buffer0;
   Ref<iree_hal_buffer_t> buffer1;
   SemaphoreList empty_wait;
@@ -987,8 +914,8 @@ TEST_P(QueueAllocaTest, ExhaustionRetriesAfterPluralRelease) {
                                       backing_pool.out(), pool.out()));
 
   std::array<iree_hal_pool_reservation_request_t, 2> requests = {
-      MakeRequest(transfer_queue_, kBlockSize),
-      MakeRequest(transfer_queue_, kBlockSize),
+      MakeRequest(kBlockSize),
+      MakeRequest(kBlockSize),
   };
   std::array<iree_hal_buffer_t*, 2> first_buffers = {};
   SemaphoreList empty_wait;
@@ -1036,8 +963,7 @@ TEST_P(QueueAllocaTest, CrossQueueReusePreservesDeathFrontier) {
   Ref<iree_hal_pool_t> pool;
   IREE_ASSERT_OK(CreateFixedBlockPool(kBlockSize, /*block_count=*/1,
                                       backing_pool.out(), pool.out()));
-  const iree_hal_pool_reservation_request_t request =
-      MakeRequest(transfer_queue_, kBlockSize);
+  const iree_hal_pool_reservation_request_t request = MakeRequest(kBlockSize);
 
   Ref<iree_hal_buffer_t> first_buffer;
   SemaphoreList empty_wait;

@@ -11,6 +11,7 @@
 
 #include "iree/base/internal/math.h"
 #include "iree/hal/api.h"
+#include "iree/hal/memory/heap_pool.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/ir/context.h"
@@ -44,32 +45,25 @@ class ReferenceTest : public ::testing::Test {
     IREE_ASSERT_OK(loom_module_allocate(&context_, IREE_SV("reference_test"),
                                         &block_pool_, nullptr, host_allocator_,
                                         &module_));
-    IREE_ASSERT_OK(
-        iree_hal_allocator_create_heap(IREE_SV("testbench"), host_allocator_,
-                                       host_allocator_, &device_allocator_));
+    const iree_hal_pool_host_access_t host_access = {
+        /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
+            IREE_HAL_MAPPING_MODE_PERSISTENT,
+    };
+    IREE_ASSERT_OK(iree_hal_heap_pool_create(host_access, host_allocator_,
+                                             host_allocator_, &pool_));
     reference_options_ = {
-        /*.device_allocator=*/device_allocator_,
-        /*.result_buffer_params=*/BufferParams(),
+        /*.result_pool=*/pool_,
+        /*.min_alignment=*/0,
         /*.host_allocator=*/host_allocator_,
     };
   }
 
   void TearDown() override {
-    iree_hal_allocator_release(device_allocator_);
+    iree_hal_pool_release(pool_);
     loom_module_free(module_);
     loom_context_deinitialize(&context_);
     iree_arena_block_pool_deinitialize(&block_pool_);
-  }
-
-  iree_hal_buffer_params_t BufferParams() {
-    return iree_hal_buffer_params_t{
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_DEFAULT |
-            IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING,
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-        /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-            IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-        /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-    };
   }
 
   template <typename T>
@@ -82,9 +76,9 @@ class ReferenceTest : public ::testing::Test {
     };
     iree_hal_buffer_view_t* buffer_view = nullptr;
     IREE_CHECK_OK(iree_hal_buffer_view_generate(
-        device_allocator_, BufferParams(), shape.size(), shape.data(),
-        element_type, IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR, FillBufferView<T>,
-        &contents, &buffer_view));
+        pool_, /*min_alignment=*/0, shape.size(), shape.data(), element_type,
+        IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR, FillBufferView<T>, &contents,
+        &buffer_view));
     loom_testbench_value_t value = {};
     IREE_CHECK_OK(
         loom_testbench_value_set_buffer_view_move(buffer_view, &value));
@@ -201,7 +195,7 @@ class ReferenceTest : public ::testing::Test {
   iree_arena_block_pool_t block_pool_ = {};
   loom_context_t context_ = {};
   loom_module_t* module_ = nullptr;
-  iree_hal_allocator_t* device_allocator_ = nullptr;
+  iree_hal_pool_t* pool_ = nullptr;
   loom_testbench_reference_matmul_oracle_options_t reference_options_ = {};
 };
 

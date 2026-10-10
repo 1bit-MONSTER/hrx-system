@@ -14,8 +14,6 @@
 // Bound buffers must satisfy the exact uses and access permissions, the
 // optional storage-class requirement, and the recorded range/alignment.
 typedef struct iree_hal_buffer_binding_requirements_t {
-  // Queue operation categories required of the allocator's native backing.
-  iree_hal_buffer_compatibility_t required_compatibility;
   // Buffer uses declared by commands referencing this binding.
   iree_hal_buffer_usage_t usage;
   // Known accesses performed by commands. NONE contributes no requirement;
@@ -39,9 +37,6 @@ typedef struct iree_hal_buffer_binding_requirements_t {
 // Storage for command buffer validation state.
 // Designed to be embedded in concrete implementations that want validation.
 typedef struct iree_hal_command_buffer_validation_state_t {
-  // Allocator from the device the command buffer is targeting.
-  // Used to verify buffer compatibility.
-  iree_hal_allocator_t* device_allocator;
   // 1 when begin has been called.
   int32_t has_began : 1;
   // 1 when end has been called.
@@ -56,7 +51,6 @@ typedef struct iree_hal_command_buffer_validation_state_t {
 } iree_hal_command_buffer_validation_state_t;
 
 void iree_hal_command_buffer_initialize_validation(
-    iree_hal_allocator_t* device_allocator,
     iree_hal_command_buffer_t* command_buffer,
     iree_hal_command_buffer_validation_state_t* out_validation_state);
 

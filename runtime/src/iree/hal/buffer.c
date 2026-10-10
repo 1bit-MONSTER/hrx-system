@@ -217,12 +217,12 @@ static void iree_hal_subspan_buffer_destroy(iree_hal_buffer_t* base_buffer) {
 static iree_status_t iree_hal_subspan_buffer_export_range(
     iree_hal_buffer_t* buffer, iree_device_size_t local_byte_offset,
     iree_device_size_t local_byte_length,
-    iree_hal_external_buffer_type_t requested_type,
-    iree_hal_external_buffer_flags_t requested_flags,
-    iree_hal_external_buffer_t* out_external_buffer) {
+    iree_hal_external_storage_class_t requested_class,
+    iree_hal_external_storage_t* out_storage,
+    iree_hal_buffer_range_t* out_logical_range) {
   return _VTABLE_DISPATCH(buffer->allocated_buffer, export_range)(
       buffer->allocated_buffer, local_byte_offset, local_byte_length,
-      requested_type, requested_flags, out_external_buffer);
+      requested_class, out_storage, out_logical_range);
 }
 
 static iree_status_t iree_hal_subspan_buffer_map_range(
@@ -257,7 +257,6 @@ static iree_status_t iree_hal_subspan_buffer_flush_range(
 }
 
 static const iree_hal_buffer_vtable_t iree_hal_subspan_buffer_vtable = {
-    .recycle = iree_hal_buffer_recycle,
     .destroy = iree_hal_subspan_buffer_destroy,
     .export_range = iree_hal_subspan_buffer_export_range,
     .map_range = iree_hal_subspan_buffer_map_range,
@@ -305,6 +304,9 @@ static iree_hal_buffer_native_binding_t iree_hal_buffer_offset_native_binding(
     case IREE_HAL_BUFFER_INTERFACE_VULKAN_BUFFER:
       binding.vulkan.offset += offset;
       break;
+    case IREE_HAL_BUFFER_INTERFACE_WEBGPU_BUFFER:
+      binding.webgpu.offset += offset;
+      break;
     case IREE_HAL_BUFFER_INTERFACE_RDMA:
       binding.rdma.address += offset;
       break;
@@ -313,6 +315,9 @@ static iree_hal_buffer_native_binding_t iree_hal_buffer_offset_native_binding(
       break;
     case IREE_HAL_BUFFER_INTERFACE_REMOTE:
       binding.remote.offset += offset;
+      break;
+    case IREE_HAL_BUFFER_INTERFACE_COUNT:
+      IREE_ASSERT_UNREACHABLE("interface count is not a native interface");
       break;
   }
   return binding;
@@ -382,7 +387,6 @@ IREE_API_EXPORT void iree_hal_buffer_initialize(
   buffer->byte_length = byte_length;
   memset(&buffer->memory, 0, sizeof(buffer->memory));
   buffer->placement = placement;
-  buffer->pooling_allocator = NULL;
   buffer->preserve_count = IREE_ATOMIC_VAR_INIT(1);
   buffer->memory_type = memory_type;
   buffer->allowed_access = allowed_access;
@@ -393,18 +397,6 @@ IREE_API_EXPORT void iree_hal_buffer_initialize(
   // initializing.
   if (allocated_buffer != buffer) {
     iree_hal_buffer_retain(buffer->allocated_buffer);
-  }
-}
-
-IREE_API_EXPORT void iree_hal_buffer_recycle(iree_hal_buffer_t* buffer) {
-  if (IREE_LIKELY(buffer)) {
-    IREE_TRACE_ZONE_BEGIN(z0);
-    if (buffer->pooling_allocator) {
-      iree_hal_allocator_deallocate_buffer(buffer->pooling_allocator, buffer);
-    } else {
-      iree_hal_buffer_destroy(buffer);
-    }
-    IREE_TRACE_ZONE_END(z0);
   }
 }
 
@@ -425,7 +417,7 @@ IREE_API_EXPORT void iree_hal_buffer_release(iree_hal_buffer_t* buffer) {
   if (IREE_LIKELY(buffer) &&
       iree_atomic_ref_count_dec(&((iree_hal_resource_t*)(buffer))->ref_count) ==
           1) {
-    iree_hal_buffer_recycle(buffer);
+    iree_hal_buffer_destroy(buffer);
   }
 }
 
@@ -690,18 +682,41 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_subspan(
                                         host_allocator, out_buffer);
 }
 
-IREE_API_EXPORT iree_status_t iree_hal_buffer_export(
-    iree_hal_buffer_t* buffer, iree_hal_external_buffer_type_t requested_type,
-    iree_hal_external_buffer_flags_t requested_flags,
-    iree_hal_external_buffer_t* out_external_buffer) {
+IREE_API_EXPORT void iree_hal_external_storage_release(
+    iree_hal_external_storage_t* storage) {
+  IREE_ASSERT_ARGUMENT(storage);
+  iree_hal_external_storage_t value = *storage;
+  memset(storage, 0, sizeof(*storage));
+  if (value.release) {
+    value.release(value.release_user_data, value.storage_class, value.payload);
+  }
+}
+
+IREE_API_EXPORT iree_status_t
+iree_hal_buffer_export(iree_hal_buffer_t* buffer, iree_hal_buffer_range_t range,
+                       iree_hal_external_storage_class_t requested_class,
+                       iree_hal_external_storage_t* out_storage,
+                       iree_hal_buffer_range_t* out_logical_range) {
   IREE_ASSERT_ARGUMENT(buffer);
-  IREE_ASSERT_ARGUMENT(out_external_buffer);
-  memset(out_external_buffer, 0, sizeof(*out_external_buffer));
+  IREE_ASSERT_ARGUMENT(out_storage);
+  IREE_ASSERT_ARGUMENT(out_logical_range);
+  memset(out_storage, 0, sizeof(*out_storage));
+  memset(out_logical_range, 0, sizeof(*out_logical_range));
   IREE_TRACE_ZONE_BEGIN(z0);
-  iree_status_t status = _VTABLE_DISPATCH(buffer, export_range)(
-      buffer, iree_hal_buffer_byte_offset(buffer),
-      iree_hal_buffer_byte_length(buffer), requested_type, requested_flags,
-      out_external_buffer);
+  iree_device_size_t byte_offset = 0;
+  iree_device_size_t byte_length = 0;
+  iree_status_t status = iree_hal_buffer_calculate_range(
+      iree_hal_buffer_byte_offset(buffer), iree_hal_buffer_byte_length(buffer),
+      range.byte_offset, range.byte_length, &byte_offset, &byte_length);
+  if (iree_status_is_ok(status)) {
+    status = _VTABLE_DISPATCH(buffer, export_range)(
+        buffer, byte_offset, byte_length, requested_class, out_storage,
+        out_logical_range);
+  }
+  if (!iree_status_is_ok(status)) {
+    iree_hal_external_storage_release(out_storage);
+    memset(out_logical_range, 0, sizeof(*out_logical_range));
+  }
   IREE_TRACE_ZONE_END(z0);
   return status;
 }

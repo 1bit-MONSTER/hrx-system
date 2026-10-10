@@ -74,6 +74,7 @@ iree_cc_binary_benchmark(
   SRCS
     "queue_benchmark.cc"
   DEPS
+    iree::async
     iree::async::util::proactor_pool
     iree::base
     iree::hal

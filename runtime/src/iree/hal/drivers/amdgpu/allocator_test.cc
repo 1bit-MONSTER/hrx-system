@@ -4,6 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "iree/hal/drivers/amdgpu/allocator.h"
+
 #include <array>
 #include <cstring>
 #include <vector>
@@ -28,7 +30,11 @@ using iree::hal::cts::Ref;
 constexpr iree_hal_queue_family_affinity_t kQueueFamilyAffinity0 =
     ((iree_hal_queue_family_affinity_t)1ull) << 0;
 
-static void CountingReleaseCallback(void* user_data, iree_hal_buffer_t*) {
+static void CountingReleaseCallback(
+    void* user_data, iree_hal_external_storage_class_t storage_class,
+    iree_hal_external_storage_payload_t payload) {
+  (void)storage_class;
+  (void)payload;
   ++*static_cast<int*>(user_data);
 }
 
@@ -68,17 +74,18 @@ static iree_status_t QueueReadbackAndWait(iree_hal_device_t* device,
                                           iree_hal_queue_t* queue,
                                           iree_hal_buffer_t* source_buffer,
                                           iree_byte_span_t target) {
-  const iree_hal_buffer_params_t readback_params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+  const iree_hal_amdgpu_buffer_spec_t readback_spec = {
       /*.type=*/IREE_HAL_MEMORY_TYPE_OPTIMAL |
           IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
           IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER |
+          IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
       /*.queue_family_affinity=*/kQueueFamilyAffinity0,
   };
   Ref<iree_hal_buffer_t> readback_buffer;
-  IREE_RETURN_IF_ERROR(iree_hal_allocator_allocate_buffer(
-      allocator, readback_params, target.data_length, readback_buffer.out()));
+  IREE_RETURN_IF_ERROR(iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      allocator, readback_spec, target.data_length, readback_buffer.out()));
   IREE_RETURN_IF_ERROR(QueueCopyAndWait(device, queue, source_buffer,
                                         readback_buffer, target.data_length));
 
@@ -91,32 +98,30 @@ static iree_status_t QueueReadbackAndWait(iree_hal_device_t* device,
   return iree_hal_buffer_unmap_range(&readback_mapping);
 }
 
-static iree_hal_buffer_params_t DeviceLocalVirtualMemoryParams() {
-  return (iree_hal_buffer_params_t){
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+static iree_hal_physical_memory_params_t DeviceLocalVirtualMemoryParams() {
+  return (iree_hal_physical_memory_params_t){
       /*.type=*/IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
       /*.queue_family_affinity=*/kQueueFamilyAffinity0,
   };
 }
 
-static iree_hal_buffer_params_t HostLocalVirtualMemoryParams() {
-  return (iree_hal_buffer_params_t){
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+static iree_hal_physical_memory_params_t HostLocalVirtualMemoryParams() {
+  return (iree_hal_physical_memory_params_t){
       /*.type=*/
       IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
       /*.queue_family_affinity=*/kQueueFamilyAffinity0,
   };
 }
 
-static iree_hal_buffer_params_t DeviceLocalHostVisibleVirtualMemoryParams() {
-  return (iree_hal_buffer_params_t){
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+static iree_hal_physical_memory_params_t
+DeviceLocalHostVisibleVirtualMemoryParams() {
+  return (iree_hal_physical_memory_params_t){
       /*.type=*/IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
           IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
           IREE_HAL_MEMORY_TYPE_HOST_COHERENT,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
       /*.queue_family_affinity=*/kQueueFamilyAffinity0,
   };
 }
@@ -229,27 +234,34 @@ class VirtualMemoryMapping {
 };
 
 static iree_status_t AllocateAndExportDevicePointer(
-    iree_hal_allocator_t* allocator, iree_hal_buffer_params_t params,
-    iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer,
-    uint64_t* out_ptr) {
+    iree_hal_pool_t* pool, iree_device_size_t allocation_size,
+    iree_hal_buffer_t** out_buffer, uint64_t* out_ptr) {
   *out_buffer = nullptr;
   *out_ptr = 0;
 
   iree_hal_buffer_t* buffer = nullptr;
-  iree_status_t status = iree_hal_allocator_allocate_buffer(
-      allocator, params, allocation_size, &buffer);
-  iree_hal_external_buffer_t external_buffer = {};
+  iree_status_t status = iree_hal_pool_allocate_buffer(
+      pool,
+      iree_hal_make_pool_reservation_request(allocation_size,
+                                             /*min_alignment=*/0),
+      iree_infinite_timeout(), &buffer);
+  iree_hal_external_storage_t external_buffer = {};
+  iree_hal_buffer_range_t logical_range = {};
   if (iree_status_is_ok(status)) {
     status = iree_hal_buffer_export(
-        buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-        IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer);
+        buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+        iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+        &external_buffer, &logical_range);
   }
   if (iree_status_is_ok(status)) {
     *out_buffer = buffer;
-    *out_ptr = external_buffer.handle.device_allocation.ptr;
+    *out_ptr =
+        external_buffer.payload.device_address + logical_range.byte_offset;
   } else {
     iree_hal_buffer_release(buffer);
   }
+  iree_hal_external_storage_release(&external_buffer);
   return status;
 }
 
@@ -283,14 +295,6 @@ static iree_hal_amdgpu_shadow_map_slab_t* FindShadowMapSlab(
     }
   }
   return nullptr;
-}
-
-static iree_device_size_t OversizedAllocationSize(
-    const iree_hal_amdgpu_logical_device_t* logical_device) {
-  const iree_device_size_t tlsf_range_length =
-      logical_device->physical_devices[0]
-          ->default_pool_options.tlsf_options.range_length;
-  return tlsf_range_length + 1;
 }
 
 // The caller has finished publishing releases. Drain on the captured owner so
@@ -412,9 +416,43 @@ class AllocatorTest : public ::testing::Test {
 
     iree_hal_device_t* device() const { return base_device_; }
 
+    iree_hal_device_group_t* device_group() const { return device_group_; }
+
     iree_hal_queue_t* queue() const {
       return iree_hal_device_queue(base_device_, /*family_ordinal=*/0,
                                    /*queue_ordinal=*/0);
+    }
+
+    iree_status_t CreatePool(iree_hal_buffer_usage_t usage,
+                             iree_hal_pool_t** out_pool) const {
+      return CreateConfiguredPool(usage, /*host_access=*/{},
+                                  /*owned_exports=*/{},
+                                  /*import_class_count=*/0,
+                                  /*import_classes=*/nullptr, out_pool);
+    }
+
+    iree_status_t CreateExportPool(iree_hal_buffer_usage_t usage,
+                                   iree_hal_pool_host_access_t host_access,
+                                   iree_hal_pool_export_classes_t exports,
+                                   iree_hal_pool_t** out_pool) const {
+      return CreateConfiguredPool(usage, host_access, exports,
+                                  /*import_class_count=*/0,
+                                  /*import_classes=*/nullptr, out_pool);
+    }
+
+    iree_status_t CreateImportPool(
+        iree_hal_buffer_usage_t usage,
+        iree_hal_external_storage_class_t storage_class,
+        iree_hal_pool_export_classes_t exports,
+        iree_hal_pool_t** out_pool) const {
+      const iree_hal_pool_import_class_t import_class = {
+          /*.storage_class=*/storage_class,
+          /*.exports=*/exports,
+      };
+      return CreateConfiguredPool(usage, /*host_access=*/{},
+                                  /*owned_exports=*/{},
+                                  /*import_class_count=*/1, &import_class,
+                                  out_pool);
     }
 
     iree_hal_amdgpu_logical_device_t* logical_device() const {
@@ -422,6 +460,34 @@ class AllocatorTest : public ::testing::Test {
     }
 
    private:
+    iree_status_t CreateConfiguredPool(
+        iree_hal_buffer_usage_t usage, iree_hal_pool_host_access_t host_access,
+        iree_hal_pool_export_classes_t owned_exports,
+        iree_host_size_t import_class_count,
+        const iree_hal_pool_import_class_t* import_classes,
+        iree_hal_pool_t** out_pool) const {
+      const iree_hal_pool_family_access_t family_access = {
+          /*.family=*/iree_hal_queue_family(queue()),
+          /*.usage=*/usage,
+      };
+      const iree_hal_pool_scope_t scope = {
+          /*.family_count=*/1,
+          /*.families=*/&family_access,
+          /*.host=*/host_access,
+      };
+      iree_hal_slab_pool_options_t options;
+      iree_hal_slab_pool_options_initialize(&options);
+      options.owned.mode = import_class_count
+                               ? IREE_HAL_SLAB_POOL_IMPORT_ONLY
+                               : IREE_HAL_SLAB_POOL_OWNED_ENABLED;
+      options.owned.exports = owned_exports;
+      options.imports.class_count = import_class_count;
+      options.imports.classes = import_classes;
+      options.trace_name = IREE_SV("amdgpu.allocator.test");
+      return iree_hal_slab_pool_create(device_group_, scope, &options,
+                                       iree_allocator_system(), out_pool);
+    }
+
     // Creation context supplying the proactor pool and frontier tracker.
     iree::hal::cts::DeviceCreateContext create_context_;
 
@@ -449,7 +515,8 @@ TEST_F(AllocatorTest, VirtualMemoryLifecycleUsesNativeState) {
   iree_hal_allocator_t* allocator = test_device.allocator();
   ASSERT_TRUE(iree_hal_allocator_supports_virtual_memory(allocator));
 
-  const iree_hal_buffer_params_t params = DeviceLocalVirtualMemoryParams();
+  const iree_hal_physical_memory_params_t params =
+      DeviceLocalVirtualMemoryParams();
   iree_device_size_t minimum_page_size = 0;
   iree_device_size_t recommended_page_size = 0;
   IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_query_granularity(
@@ -599,7 +666,7 @@ TEST_F(AllocatorTest, VirtualMemoryMapsMinimumGranuleAcrossPools) {
   iree_hal_allocator_t* allocator = test_device.allocator();
   ASSERT_TRUE(iree_hal_allocator_supports_virtual_memory(allocator));
 
-  const iree_hal_buffer_params_t device_params =
+  const iree_hal_physical_memory_params_t device_params =
       DeviceLocalVirtualMemoryParams();
   iree_device_size_t device_minimum_page_size = 0;
   iree_device_size_t device_recommended_page_size = 0;
@@ -609,7 +676,7 @@ TEST_F(AllocatorTest, VirtualMemoryMapsMinimumGranuleAcrossPools) {
   ASSERT_NE(0u, device_minimum_page_size);
   ASSERT_GE(device_recommended_page_size, device_minimum_page_size);
 
-  const iree_hal_buffer_params_t host_params =
+  const iree_hal_physical_memory_params_t host_params =
       DeviceLocalHostVisibleVirtualMemoryParams();
   iree_device_size_t host_minimum_page_size = 0;
   iree_device_size_t host_recommended_page_size = 0;
@@ -716,7 +783,7 @@ TEST_F(AllocatorTest,
   IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
   iree_hal_allocator_t* allocator = test_device.allocator();
 
-  iree_hal_buffer_params_t reservation_params =
+  iree_hal_physical_memory_params_t reservation_params =
       DeviceLocalVirtualMemoryParams();
   iree_device_size_t reservation_minimum_page_size = 0;
   iree_device_size_t reservation_recommended_page_size = 0;
@@ -726,7 +793,8 @@ TEST_F(AllocatorTest,
   ASSERT_NE(0u, reservation_minimum_page_size);
   ASSERT_GE(reservation_recommended_page_size, reservation_minimum_page_size);
 
-  iree_hal_buffer_params_t backing_params = DeviceLocalVirtualMemoryParams();
+  iree_hal_physical_memory_params_t backing_params =
+      DeviceLocalVirtualMemoryParams();
   backing_params.queue_family_affinity = backing_family_affinity;
   iree_device_size_t backing_minimum_page_size = 0;
   iree_device_size_t backing_recommended_page_size = 0;
@@ -783,7 +851,7 @@ TEST_F(AllocatorTest, VirtualMemoryMapsHostLocalBacking) {
   IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
   iree_hal_allocator_t* allocator = test_device.allocator();
 
-  const iree_hal_buffer_params_t reservation_params =
+  const iree_hal_physical_memory_params_t reservation_params =
       DeviceLocalVirtualMemoryParams();
   iree_device_size_t reservation_minimum_page_size = 0;
   iree_device_size_t reservation_recommended_page_size = 0;
@@ -791,7 +859,7 @@ TEST_F(AllocatorTest, VirtualMemoryMapsHostLocalBacking) {
       allocator, reservation_params, &reservation_minimum_page_size,
       &reservation_recommended_page_size));
 
-  const iree_hal_buffer_params_t backing_params =
+  const iree_hal_physical_memory_params_t backing_params =
       HostLocalVirtualMemoryParams();
   iree_device_size_t minimum_page_size = 0;
   iree_device_size_t recommended_page_size = 0;
@@ -1029,22 +1097,21 @@ TEST_F(AllocatorTest,
   IREE_ASSERT_OK(test_device.InitializeWithOptions(
       &options, &libhsa_, &topology_, host_allocator_));
 
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
-  params.queue_family_affinity = kQueueFamilyAffinity0;
+  Ref<iree_hal_pool_t> pool;
+  IREE_ASSERT_OK(test_device.CreatePool(
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
+      pool.out()));
 
   iree_hal_buffer_t* first_buffer = nullptr;
   uint64_t first_ptr = 0;
-  IREE_ASSERT_OK(AllocateAndExportDevicePointer(test_device.allocator(), params,
+  IREE_ASSERT_OK(AllocateAndExportDevicePointer(pool,
                                                 /*allocation_size=*/4096,
                                                 &first_buffer, &first_ptr));
   iree_hal_buffer_release(first_buffer);
 
   iree_hal_buffer_t* second_buffer = nullptr;
   uint64_t second_ptr = 0;
-  IREE_ASSERT_OK(AllocateAndExportDevicePointer(test_device.allocator(), params,
+  IREE_ASSERT_OK(AllocateAndExportDevicePointer(pool,
                                                 /*allocation_size=*/4096,
                                                 &second_buffer, &second_ptr));
   EXPECT_NE(second_ptr, first_ptr);
@@ -1066,33 +1133,31 @@ TEST_F(
   IREE_ASSERT_OK(test_device.InitializeWithOptions(
       &options, &libhsa_, &topology_, host_allocator_));
 
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
-  params.queue_family_affinity = kQueueFamilyAffinity0;
+  Ref<iree_hal_pool_t> pool;
+  IREE_ASSERT_OK(test_device.CreatePool(
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
+      pool.out()));
 
   iree_hal_buffer_t* first_buffer = nullptr;
   uint64_t first_ptr = 0;
-  IREE_ASSERT_OK(AllocateAndExportDevicePointer(test_device.allocator(), params,
+  IREE_ASSERT_OK(AllocateAndExportDevicePointer(pool,
                                                 /*allocation_size=*/4096,
                                                 &first_buffer, &first_ptr));
   iree_hal_buffer_release(first_buffer);
 
   iree_hal_buffer_t* second_buffer = nullptr;
   uint64_t second_ptr = 0;
-  IREE_ASSERT_OK(AllocateAndExportDevicePointer(test_device.allocator(), params,
+  IREE_ASSERT_OK(AllocateAndExportDevicePointer(pool,
                                                 /*allocation_size=*/4096,
                                                 &second_buffer, &second_ptr));
   EXPECT_EQ(second_ptr, first_ptr);
   iree_hal_buffer_release(second_buffer);
 }
 
-TEST_F(AllocatorTest, AsanDiagnosticsExposeDefaultQuarantineRetention) {
+TEST_F(AllocatorTest, AsanDiagnosticsExposeQuarantineRetention) {
   iree_hal_amdgpu_logical_device_options_t options;
   iree_hal_amdgpu_logical_device_options_initialize(&options);
   options.asan.enabled = 1;
-  options.default_pool.range_length = 4096;
   if (const char* reason = QueryHostIncompatibilityReason(&options)) {
     GTEST_SKIP() << reason;
   }
@@ -1114,22 +1179,20 @@ TEST_F(AllocatorTest, AsanDiagnosticsExposeDefaultQuarantineRetention) {
       asan.shadow_mapped_slab_count;
   const uint64_t initial_shadow_committed_size = asan.shadow_committed_size;
 
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
-  params.queue_family_affinity = kQueueFamilyAffinity0;
+  Ref<iree_hal_pool_t> pool;
+  IREE_ASSERT_OK(test_device.CreatePool(
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
+      pool.out()));
 
   iree_hal_buffer_t* buffer = nullptr;
   uint64_t ptr = 0;
-  const iree_device_size_t allocation_size =
-      OversizedAllocationSize(test_device.logical_device());
-  IREE_ASSERT_OK(AllocateAndExportDevicePointer(
-      test_device.allocator(), params, allocation_size, &buffer, &ptr));
+  const iree_device_size_t allocation_size = 4096;
+  IREE_ASSERT_OK(
+      AllocateAndExportDevicePointer(pool, allocation_size, &buffer, &ptr));
   iree_hal_buffer_t* small_buffer = nullptr;
   uint64_t small_ptr = 0;
-  IREE_ASSERT_OK(AllocateAndExportDevicePointer(
-      test_device.allocator(), params, 128, &small_buffer, &small_ptr));
+  IREE_ASSERT_OK(
+      AllocateAndExportDevicePointer(pool, 128, &small_buffer, &small_ptr));
   iree_hal_buffer_release(buffer);
   iree_hal_buffer_release(small_buffer);
 
@@ -1137,12 +1200,7 @@ TEST_F(AllocatorTest, AsanDiagnosticsExposeDefaultQuarantineRetention) {
       test_device.logical_device()->physical_devices[0]->memory_maintenance);
 
   asan = QueryAsanObservation(test_device.device());
-  iree_hal_pool_stats_t pool_stats;
-  iree_hal_pool_query_stats(
-      test_device.logical_device()->physical_devices[0]->default_pool,
-      &pool_stats);
-  EXPECT_GT(pool_stats.bytes_quarantined, allocation_size + 128);
-  EXPECT_EQ(asan.quarantine_size, pool_stats.bytes_quarantined);
+  EXPECT_GT(asan.quarantine_size, allocation_size + 128);
   EXPECT_EQ(asan.quarantine_eviction_count, 0u);
   EXPECT_GE(asan.shadow_mapped_slab_count, initial_shadow_mapped_slab_count);
   EXPECT_GE(asan.shadow_committed_size, initial_shadow_committed_size);
@@ -1153,7 +1211,6 @@ TEST_F(AllocatorTest, AsanDiagnosticsExposeZeroQuarantineRelease) {
   iree_hal_amdgpu_logical_device_options_initialize(&options);
   options.asan.enabled = 1;
   options.asan.quarantine_size = 0;
-  options.default_pool.range_length = 4096;
   if (const char* reason = QueryHostIncompatibilityReason(&options)) {
     GTEST_SKIP() << reason;
   }
@@ -1173,18 +1230,16 @@ TEST_F(AllocatorTest, AsanDiagnosticsExposeZeroQuarantineRelease) {
       asan.shadow_mapped_slab_count;
   const uint64_t initial_shadow_committed_size = asan.shadow_committed_size;
 
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
-  params.queue_family_affinity = kQueueFamilyAffinity0;
+  Ref<iree_hal_pool_t> pool;
+  IREE_ASSERT_OK(test_device.CreatePool(
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
+      pool.out()));
 
   iree_hal_buffer_t* buffer = nullptr;
   uint64_t ptr = 0;
-  const iree_device_size_t allocation_size =
-      OversizedAllocationSize(test_device.logical_device());
-  IREE_ASSERT_OK(AllocateAndExportDevicePointer(
-      test_device.allocator(), params, allocation_size, &buffer, &ptr));
+  const iree_device_size_t allocation_size = 4096;
+  IREE_ASSERT_OK(
+      AllocateAndExportDevicePointer(pool, allocation_size, &buffer, &ptr));
   iree_hal_buffer_release(buffer);
 
   DrainMemoryMaintenance(
@@ -1276,47 +1331,6 @@ TEST_F(AllocatorTest, QueryMemoryHeapCountRequiresDeviceFineDirectHostAccess) {
                 (all_device_fine_pools_available ? 1u : 0u));
 }
 
-TEST_F(AllocatorTest, AdvertisedMemoryHeapsAreAllocatable) {
-  TestLogicalDevice test_device;
-  IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
-  for (iree_host_size_t i = 0;
-       i < test_device.logical_device()->physical_device_count; ++i) {
-    test_device.logical_device()
-        ->physical_devices[i]
-        ->memory_system.svm.direct_host_access = 0;
-  }
-
-  std::array<iree_hal_allocator_memory_heap_t, 4> heaps;
-  iree_host_size_t heap_count = 0;
-  IREE_ASSERT_OK(iree_hal_allocator_query_memory_heaps(
-      test_device.allocator(), heaps.size(), heaps.data(), &heap_count));
-  for (iree_host_size_t heap_index = 0; heap_index < heap_count; ++heap_index) {
-    const iree_hal_allocator_memory_heap_t& heap = heaps[heap_index];
-    ASSERT_TRUE(
-        iree_all_bits_set(heap.allowed_usage, IREE_HAL_BUFFER_USAGE_TRANSFER));
-    for (iree_host_size_t device_index = 0;
-         device_index < test_device.logical_device()->physical_device_count;
-         ++device_index) {
-      iree_hal_buffer_params_t params = {0};
-      params.type = heap.type;
-      params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-      params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-          (iree_hal_queue_family_ordinal_t)device_index);
-      params.min_alignment = heap.min_alignment;
-      iree_hal_buffer_params_t resolved_params = {0};
-      iree_device_size_t resolved_allocation_size = 0;
-      const iree_hal_buffer_compatibility_t compatibility =
-          iree_hal_allocator_query_buffer_compatibility(
-              test_device.allocator(), params, heap.min_alignment,
-              &resolved_params, &resolved_allocation_size);
-      EXPECT_TRUE(iree_all_bits_set(compatibility,
-                                    IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE))
-          << "heap " << heap_index << " is not allocatable by queue "
-          << device_index;
-    }
-  }
-}
-
 TEST_F(AllocatorTest, DirectHostAccessDoesNotImplyUnifiedMemory) {
   TestLogicalDevice test_device;
   IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
@@ -1327,20 +1341,6 @@ TEST_F(AllocatorTest, DirectHostAccessDoesNotImplyUnifiedMemory) {
     physical_device->memory_system.device_local.unified_memory = 0;
     physical_device->memory_system.svm.direct_host_access = 1;
   }
-
-  iree_hal_buffer_params_t params = {0};
-  params.type =
-      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  params.queue_family_affinity = kQueueFamilyAffinity0;
-
-  iree_hal_buffer_params_t resolved_params = {0};
-  iree_device_size_t resolved_allocation_size = 0;
-  EXPECT_EQ(IREE_HAL_BUFFER_COMPATIBILITY_NONE,
-            iree_hal_allocator_query_buffer_compatibility(
-                test_device.allocator(), params, /*allocation_size=*/4096,
-                &resolved_params, &resolved_allocation_size));
 
   std::array<iree_hal_allocator_memory_heap_t, 4> heaps;
   iree_host_size_t heap_count = 0;
@@ -1353,7 +1353,7 @@ TEST_F(AllocatorTest, DirectHostAccessDoesNotImplyUnifiedMemory) {
   }
 }
 
-TEST_F(AllocatorTest, UnifiedMemorySatisfiesDualLocality) {
+TEST_F(AllocatorTest, UnifiedMemoryIsAdvertisedAsDualLocality) {
   iree_hal_amdgpu_logical_device_options_t options;
   iree_hal_amdgpu_logical_device_options_initialize(&options);
   options.suppress_device_fine_memory = 1;
@@ -1368,62 +1368,6 @@ TEST_F(AllocatorTest, UnifiedMemorySatisfiesDualLocality) {
         ->memory_system.device_local.unified_memory = 1;
   }
 
-  iree_hal_buffer_params_t params = {0};
-  params.type =
-      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  params.queue_family_affinity = kQueueFamilyAffinity0;
-
-  iree_hal_buffer_params_t resolved_params = {0};
-  iree_device_size_t resolved_allocation_size = 0;
-  const iree_hal_buffer_compatibility_t compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          test_device.allocator(), params, /*allocation_size=*/4096,
-          &resolved_params, &resolved_allocation_size);
-  EXPECT_TRUE(iree_all_bits_set(
-      compatibility, IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
-                         IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE |
-                         IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER));
-  EXPECT_FALSE(iree_any_bit_set(compatibility,
-                                IREE_HAL_BUFFER_COMPATIBILITY_LOW_PERFORMANCE));
-  EXPECT_TRUE(iree_all_bits_set(resolved_params.type,
-                                IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-                                    IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
-                                    IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL));
-
-  iree_hal_buffer_params_t host_visible_params = params;
-  host_visible_params.type =
-      IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL | IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  iree_hal_buffer_params_t resolved_host_visible_params = {0};
-  iree_device_size_t resolved_host_visible_allocation_size = 0;
-  const iree_hal_buffer_compatibility_t host_visible_compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          test_device.allocator(), host_visible_params,
-          /*allocation_size=*/4096, &resolved_host_visible_params,
-          &resolved_host_visible_allocation_size);
-  EXPECT_TRUE(
-      iree_all_bits_set(host_visible_compatibility,
-                        IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
-                            IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER));
-  EXPECT_FALSE(iree_any_bit_set(host_visible_compatibility,
-                                IREE_HAL_BUFFER_COMPATIBILITY_LOW_PERFORMANCE));
-  EXPECT_TRUE(iree_all_bits_set(resolved_host_visible_params.type,
-                                IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-                                    IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
-                                    IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
-                                    IREE_HAL_MEMORY_TYPE_HOST_VISIBLE));
-
-  iree_hal_buffer_t* buffer = NULL;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      test_device.allocator(), params, /*allocation_size=*/4096, &buffer));
-  EXPECT_TRUE(iree_all_bits_set(iree_hal_buffer_memory_type(buffer),
-                                IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-                                    IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
-                                    IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL));
-  iree_hal_buffer_release(buffer);
-
   std::array<iree_hal_allocator_memory_heap_t, 4> heaps;
   iree_host_size_t heap_count = 0;
   IREE_ASSERT_OK(iree_hal_allocator_query_memory_heaps(
@@ -1435,274 +1379,6 @@ TEST_F(AllocatorTest, UnifiedMemorySatisfiesDualLocality) {
                                              IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL);
   }
   EXPECT_TRUE(found_dual_local_heap);
-
-  void* host_ptr = NULL;
-  IREE_ASSERT_OK(iree_allocator_malloc_aligned(
-      host_allocator_, /*byte_length=*/4096, /*min_alignment=*/64,
-      /*offset=*/0, &host_ptr));
-  iree_hal_external_buffer_t external_buffer = {};
-  external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-  external_buffer.size = 4096;
-  external_buffer.handle.host_allocation.ptr = host_ptr;
-  iree_hal_buffer_params_t import_params = {0};
-  import_params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  import_params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  import_params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  import_params.queue_family_affinity = kQueueFamilyAffinity0;
-  buffer = NULL;
-  iree_status_t import_status = iree_hal_allocator_import_buffer(
-      test_device.allocator(), import_params, &external_buffer,
-      iree_hal_buffer_release_callback_null(), &buffer);
-  if (!iree_status_is_ok(import_status)) {
-    iree_allocator_free_aligned(host_allocator_, host_ptr);
-  }
-  IREE_ASSERT_OK(import_status);
-  EXPECT_TRUE(iree_all_bits_set(iree_hal_buffer_memory_type(buffer),
-                                IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-                                    IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
-                                    IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL));
-  iree_hal_buffer_release(buffer);
-  iree_allocator_free_aligned(host_allocator_, host_ptr);
-}
-
-TEST_F(AllocatorTest, OversizedAllocationIsRejectedByCompatibility) {
-  TestLogicalDevice test_device;
-  IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
-
-  std::array<iree_hal_allocator_memory_heap_t, 4> heaps;
-  iree_host_size_t heap_count = 0;
-  IREE_ASSERT_OK(iree_hal_allocator_query_memory_heaps(
-      test_device.allocator(), heaps.size(), heaps.data(), &heap_count));
-  ASSERT_GE(heap_count, 2u);
-  ASSERT_LE(heap_count, heaps.size());
-  ASSERT_LT(heaps[0].max_allocation_size, ~(iree_device_size_t)0);
-
-  iree_device_size_t oversized_allocation_size = 0;
-  ASSERT_TRUE(iree_device_size_checked_add(heaps[0].max_allocation_size, 1,
-                                           &oversized_allocation_size));
-
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-
-  iree_hal_buffer_params_t resolved_params = {0};
-  iree_device_size_t resolved_allocation_size = 0;
-  const iree_hal_buffer_compatibility_t compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          test_device.allocator(), params, oversized_allocation_size,
-          &resolved_params, &resolved_allocation_size);
-  EXPECT_EQ(compatibility, IREE_HAL_BUFFER_COMPATIBILITY_NONE);
-}
-
-TEST_F(AllocatorTest, DeviceLocalHostVisiblePerformanceReflectsTopology) {
-  TestLogicalDevice test_device;
-  IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
-  const bool unified_memory = test_device.logical_device()
-                                  ->physical_devices[0]
-                                  ->memory_system.device_local.unified_memory;
-
-  iree_hal_buffer_params_t params = {0};
-  params.type =
-      IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL | IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER |
-                 IREE_HAL_BUFFER_USAGE_DISPATCH |
-                 IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-
-  iree_hal_buffer_params_t resolved_params = {0};
-  iree_device_size_t resolved_allocation_size = 0;
-  const iree_hal_buffer_compatibility_t compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          test_device.allocator(), params, /*allocation_size=*/4096,
-          &resolved_params, &resolved_allocation_size);
-  if (!iree_all_bits_set(compatibility,
-                         IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE)) {
-    GTEST_SKIP() << "device-local host-visible memory is not available";
-  }
-  EXPECT_TRUE(iree_all_bits_set(
-      compatibility, IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
-                         IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER |
-                         IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH));
-  EXPECT_EQ(iree_any_bit_set(compatibility,
-                             IREE_HAL_BUFFER_COMPATIBILITY_LOW_PERFORMANCE),
-            !unified_memory);
-  EXPECT_TRUE(iree_all_bits_set(resolved_params.type,
-                                IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
-                                    IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
-                                    IREE_HAL_MEMORY_TYPE_HOST_COHERENT));
-  EXPECT_EQ(
-      iree_all_bits_set(resolved_params.type, IREE_HAL_MEMORY_TYPE_HOST_LOCAL),
-      unified_memory);
-
-  iree_hal_buffer_params_t preferred_params = {0};
-  preferred_params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL |
-                          IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
-                          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-  preferred_params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER |
-                           IREE_HAL_BUFFER_USAGE_DISPATCH |
-                           IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  iree_hal_buffer_params_t resolved_preferred_params = {0};
-  iree_device_size_t resolved_preferred_allocation_size = 0;
-  iree_hal_buffer_compatibility_t preferred_compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          test_device.allocator(), preferred_params, /*allocation_size=*/4096,
-          &resolved_preferred_params, &resolved_preferred_allocation_size);
-  EXPECT_TRUE(
-      iree_all_bits_set(preferred_compatibility,
-                        IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
-                            IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER |
-                            IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH));
-  EXPECT_EQ(iree_any_bit_set(preferred_compatibility,
-                             IREE_HAL_BUFFER_COMPATIBILITY_LOW_PERFORMANCE),
-            !unified_memory);
-  EXPECT_TRUE(iree_all_bits_set(resolved_preferred_params.type,
-                                IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
-                                    IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
-                                    IREE_HAL_MEMORY_TYPE_HOST_COHERENT));
-  EXPECT_EQ(iree_all_bits_set(resolved_preferred_params.type,
-                              IREE_HAL_MEMORY_TYPE_HOST_LOCAL),
-            unified_memory);
-}
-
-TEST_F(AllocatorTest, SuppressDeviceFineMemoryUsesHostFineFallback) {
-  iree_hal_amdgpu_logical_device_options_t options;
-  iree_hal_amdgpu_logical_device_options_initialize(&options);
-  options.suppress_device_fine_memory = 1;
-
-  TestLogicalDevice test_device;
-  IREE_ASSERT_OK(test_device.InitializeWithOptions(
-      &options, &libhsa_, &topology_, host_allocator_));
-  const bool unified_memory = test_device.logical_device()
-                                  ->physical_devices[0]
-                                  ->memory_system.device_local.unified_memory;
-
-  iree_hal_buffer_params_t device_local_host_visible_params = {0};
-  device_local_host_visible_params.type =
-      IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL | IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  device_local_host_visible_params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
-  iree_hal_buffer_params_t resolved_device_local_host_visible_params = {0};
-  iree_device_size_t resolved_device_local_host_visible_allocation_size = 0;
-  iree_hal_buffer_compatibility_t device_local_host_visible_compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          test_device.allocator(), device_local_host_visible_params,
-          /*allocation_size=*/4096, &resolved_device_local_host_visible_params,
-          &resolved_device_local_host_visible_allocation_size);
-  if (unified_memory) {
-    EXPECT_TRUE(
-        iree_all_bits_set(device_local_host_visible_compatibility,
-                          IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
-                              IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER));
-    EXPECT_TRUE(iree_all_bits_set(
-        resolved_device_local_host_visible_params.type,
-        IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
-            IREE_HAL_MEMORY_TYPE_HOST_VISIBLE));
-  } else {
-    EXPECT_EQ(device_local_host_visible_compatibility,
-              IREE_HAL_BUFFER_COMPATIBILITY_NONE);
-  }
-
-  iree_hal_buffer_params_t host_visible_params = {0};
-  host_visible_params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL |
-                             IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
-                             IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-  host_visible_params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
-  iree_hal_buffer_params_t resolved_host_visible_params = {0};
-  iree_device_size_t resolved_host_visible_allocation_size = 0;
-  iree_hal_buffer_compatibility_t host_visible_compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          test_device.allocator(), host_visible_params,
-          /*allocation_size=*/4096, &resolved_host_visible_params,
-          &resolved_host_visible_allocation_size);
-  EXPECT_TRUE(
-      iree_all_bits_set(host_visible_compatibility,
-                        IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
-                            IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER));
-  EXPECT_TRUE(iree_all_bits_set(
-      resolved_host_visible_params.type,
-      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE));
-  EXPECT_TRUE(iree_all_bits_set(resolved_host_visible_params.usage,
-                                IREE_HAL_BUFFER_USAGE_MAPPING));
-  EXPECT_EQ(iree_all_bits_set(resolved_host_visible_params.type,
-                              IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL),
-            unified_memory);
-
-  iree_hal_buffer_t* buffer = NULL;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      test_device.allocator(), resolved_host_visible_params,
-      resolved_host_visible_allocation_size, &buffer));
-  EXPECT_TRUE(iree_all_bits_set(
-      iree_hal_buffer_memory_type(buffer),
-      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE));
-  EXPECT_EQ(iree_all_bits_set(iree_hal_buffer_memory_type(buffer),
-                              IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL),
-            unified_memory);
-  iree_hal_buffer_release(buffer);
-}
-
-TEST_F(AllocatorTest, OverAlignedAllocationIsRejected) {
-  TestLogicalDevice test_device;
-  IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
-
-  std::array<iree_hal_allocator_memory_heap_t, 4> heaps;
-  iree_host_size_t heap_count = 0;
-  IREE_ASSERT_OK(iree_hal_allocator_query_memory_heaps(
-      test_device.allocator(), heaps.size(), heaps.data(), &heap_count));
-  ASSERT_GE(heap_count, 2u);
-  ASSERT_LE(heap_count, heaps.size());
-
-  const iree_device_size_t over_alignment =
-      ~(iree_device_size_t)0 ^ (~(iree_device_size_t)0 >> 1);
-  ASSERT_TRUE(iree_device_size_is_power_of_two(over_alignment));
-  ASSERT_GT(over_alignment, heaps[0].min_alignment);
-
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  params.min_alignment = over_alignment;
-
-  iree_hal_buffer_params_t resolved_params = {0};
-  iree_device_size_t resolved_allocation_size = 0;
-  const iree_hal_buffer_compatibility_t compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          test_device.allocator(), params, /*allocation_size=*/1,
-          &resolved_params, &resolved_allocation_size);
-  EXPECT_EQ(compatibility, IREE_HAL_BUFFER_COMPATIBILITY_NONE);
-
-  iree_hal_buffer_t* buffer = NULL;
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      iree_hal_allocator_allocate_buffer(test_device.allocator(), params,
-                                         /*allocation_size=*/1, &buffer));
-  EXPECT_EQ(buffer, nullptr);
-}
-
-TEST_F(AllocatorTest, UnsupportedExternalBufferImportsFailLoud) {
-  TestLogicalDevice test_device;
-  IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
-
-  iree_hal_buffer_params_t params = {0};
-  params.type =
-      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-
-  std::array<iree_hal_external_buffer_type_t, 2> unsupported_types = {
-      IREE_HAL_EXTERNAL_BUFFER_TYPE_OPAQUE_FD,
-      IREE_HAL_EXTERNAL_BUFFER_TYPE_OPAQUE_WIN32,
-  };
-  for (iree_hal_external_buffer_type_t unsupported_type : unsupported_types) {
-    iree_hal_external_buffer_t external_buffer = {};
-    external_buffer.type = unsupported_type;
-    external_buffer.size = 4096;
-
-    iree_hal_buffer_t* buffer = NULL;
-    IREE_EXPECT_STATUS_IS(
-        IREE_STATUS_UNIMPLEMENTED,
-        iree_hal_allocator_import_buffer(
-            test_device.allocator(), params, &external_buffer,
-            iree_hal_buffer_release_callback_null(), &buffer));
-    EXPECT_EQ(buffer, nullptr);
-  }
 }
 
 TEST_F(AllocatorTest, HostAllocationImportUsesFinePoolAtomicContract) {
@@ -1715,25 +1391,39 @@ TEST_F(AllocatorTest, HostAllocationImportUsesFinePoolAtomicContract) {
                                                /*min_alignment=*/64,
                                                /*offset=*/0, &host_ptr));
 
-  iree_hal_external_buffer_t external_buffer = {};
-  external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION;
-  external_buffer.size = kAllocationSize;
-  external_buffer.handle.host_allocation.ptr = host_ptr;
+  iree_hal_external_storage_t external_buffer = {};
+  external_buffer.storage_class = iree_hal_make_external_storage_class(
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  external_buffer.byte_length = kAllocationSize;
+  external_buffer.payload.host_pointer = host_ptr;
+  external_buffer.maintenance_range =
+      iree_hal_make_buffer_range(0, kAllocationSize);
 
-  iree_hal_buffer_params_t params = {};
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
-  params.queue_family_affinity = kQueueFamilyAffinity0;
+  const std::array<iree_hal_external_storage_class_t, 2> export_classes = {
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+  };
+  const iree_hal_pool_export_classes_t exports = {
+      /*.class_count=*/export_classes.size(),
+      /*.classes=*/export_classes.data(),
+  };
+  Ref<iree_hal_pool_t> import_pool;
+  IREE_ASSERT_OK(test_device.CreateImportPool(
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      exports, import_pool.out()));
 
   int release_count = 0;
-  iree_hal_buffer_release_callback_t callback = {};
-  callback.fn = CountingReleaseCallback;
-  callback.user_data = &release_count;
+  external_buffer.release = CountingReleaseCallback;
+  external_buffer.release_user_data = &release_count;
 
   iree_hal_buffer_t* buffer = nullptr;
-  iree_status_t status = iree_hal_allocator_import_buffer(
-      test_device.allocator(), params, &external_buffer, callback, &buffer);
+  iree_status_t status = iree_hal_pool_import_buffer(
+      import_pool, &external_buffer,
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &buffer);
   if (!iree_status_is_ok(status)) {
     iree_allocator_free_aligned(host_allocator_, host_ptr);
   }
@@ -1757,35 +1447,47 @@ TEST_F(AllocatorTest, HostAllocationImportUsesFinePoolAtomicContract) {
 
   // Device export names the registered HSA agent address, regardless of where
   // the allocation resides. Views preserve that address plus their offset.
-  iree_hal_external_buffer_t root_export = {};
+  iree_hal_external_storage_t root_export = {};
+  iree_hal_buffer_range_t root_range = {};
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &root_export));
+      buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &root_export, &root_range));
   Ref<iree_hal_buffer_t> view;
   IREE_ASSERT_OK(
       iree_hal_buffer_subspan(buffer, 128, 64, host_allocator_, view.out()));
-  iree_hal_external_buffer_t view_export = {};
+  iree_hal_external_storage_t view_export = {};
+  iree_hal_buffer_range_t view_range = {};
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      view, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &view_export));
-  EXPECT_EQ(root_export.handle.device_allocation.ptr + 128,
-            view_export.handle.device_allocation.ptr);
-  EXPECT_EQ(64u, view_export.size);
+      view, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &view_export, &view_range));
+  EXPECT_EQ(root_export.payload.device_address,
+            view_export.payload.device_address);
+  EXPECT_EQ(root_range.byte_offset + 128, view_range.byte_offset);
+  EXPECT_EQ(64u, view_range.byte_length);
   const iree_hal_buffer_native_binding_slot_t device_slot = {
       IREE_HAL_AMDGPU_BUFFER_BINDING_DEVICE_ADDRESS,
       IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS,
   };
   EXPECT_EQ(iree_hal_buffer_native_binding(view, device_slot).device_address,
-            view_export.handle.device_allocation.ptr);
+            view_export.payload.device_address + view_range.byte_offset);
   iree_byte_span_t host_span = iree_byte_span_empty();
   IREE_ASSERT_OK(iree_hal_buffer_native_host_span(view, 0, 64, &host_span));
   EXPECT_EQ(host_span.data, static_cast<uint8_t*>(host_ptr) + 128);
   EXPECT_EQ(host_span.data_length, 64u);
-  iree_hal_external_buffer_t host_export = {};
+  iree_hal_external_storage_t host_export = {};
+  iree_hal_buffer_range_t host_range = {};
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      view, IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &host_export));
-  EXPECT_EQ(host_export.handle.host_allocation.ptr, host_span.data);
+      view, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      &host_export, &host_range));
+  EXPECT_EQ(static_cast<uint8_t*>(host_export.payload.host_pointer) +
+                host_range.byte_offset,
+            host_span.data);
   // The registered execution address does not grant public mapping access.
   iree_hal_buffer_mapping_t mapping = {};
   IREE_EXPECT_STATUS_IS(
@@ -1796,14 +1498,19 @@ TEST_F(AllocatorTest, HostAllocationImportUsesFinePoolAtomicContract) {
   std::array<uint32_t, 16> exported_values = {};
   IREE_ASSERT_OK(iree_hsa_memory_copy(
       IREE_LIBHSA(&libhsa_), exported_values.data(),
-      reinterpret_cast<void*>(view_export.handle.device_allocation.ptr),
+      reinterpret_cast<void*>(view_export.payload.device_address +
+                              view_range.byte_offset),
       sizeof(exported_values)));
   for (uint32_t value : exported_values) {
     EXPECT_EQ(kPattern, value);
   }
+  iree_hal_external_storage_release(&host_export);
+  iree_hal_external_storage_release(&view_export);
+  iree_hal_external_storage_release(&root_export);
   view.reset();
 
   iree_hal_buffer_release(buffer);
+  import_pool.reset();
   EXPECT_EQ(release_count, 1);
   iree_allocator_free_aligned(host_allocator_, host_ptr);
 }
@@ -1923,23 +1630,26 @@ TEST_F(AllocatorTest, DeviceAllocationImportRejectsUnknownPointer) {
   TestLogicalDevice test_device;
   IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
 
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  params.queue_family_affinity = kQueueFamilyAffinity0;
+  Ref<iree_hal_pool_t> import_pool;
+  IREE_ASSERT_OK(test_device.CreateImportPool(
+      IREE_HAL_BUFFER_USAGE_TRANSFER,
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      /*exports=*/{}, import_pool.out()));
 
   uint32_t host_storage = 0;
-  iree_hal_external_buffer_t external_buffer = {};
-  external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION;
-  external_buffer.size = sizeof(host_storage);
-  external_buffer.handle.device_allocation.ptr =
-      (uint64_t)(uintptr_t)&host_storage;
+  iree_hal_external_storage_t external_buffer = {};
+  external_buffer.storage_class = iree_hal_make_external_storage_class(
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS);
+  external_buffer.byte_length = sizeof(host_storage);
+  external_buffer.payload.device_address = (uint64_t)(uintptr_t)&host_storage;
 
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
-                        iree_hal_allocator_import_buffer(
-                            test_device.allocator(), params, &external_buffer,
-                            iree_hal_buffer_release_callback_null(), &buffer));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      iree_hal_pool_import_buffer(
+          import_pool, &external_buffer,
+          iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &buffer));
   EXPECT_EQ(buffer, nullptr);
 }
 
@@ -1955,37 +1665,35 @@ TEST_F(AllocatorTest, DeviceAllocationImportWrapsHsaAllocation) {
   HsaAllocation allocation(&libhsa_);
   IREE_ASSERT_OK(allocation.Allocate(memory_pool, kAllocationSize));
 
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
-  params.queue_family_affinity = kQueueFamilyAffinity0;
+  const iree_hal_external_storage_class_t device_address_class =
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS);
+  const iree_hal_pool_export_classes_t exports = {
+      /*.class_count=*/1,
+      /*.classes=*/&device_address_class,
+  };
+  Ref<iree_hal_pool_t> import_pool;
+  IREE_ASSERT_OK(test_device.CreateImportPool(
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
+      device_address_class, exports, import_pool.out()));
 
-  iree_hal_buffer_params_t resolved_params = {0};
-  iree_device_size_t resolved_allocation_size = 0;
-  const iree_hal_buffer_compatibility_t compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          test_device.allocator(), params, kAllocationSize, &resolved_params,
-          &resolved_allocation_size);
-  EXPECT_TRUE(iree_all_bits_set(
-      compatibility, IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE |
-                         IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER |
-                         IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH));
-
-  iree_hal_external_buffer_t external_buffer = {};
-  external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION;
-  external_buffer.size = kAllocationSize;
-  external_buffer.handle.device_allocation.ptr =
+  iree_hal_external_storage_t external_buffer = {};
+  external_buffer.storage_class = iree_hal_make_external_storage_class(
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS);
+  external_buffer.byte_length = kAllocationSize;
+  external_buffer.payload.device_address =
       (uint64_t)(uintptr_t)allocation.ptr();
+  external_buffer.maintenance_range =
+      iree_hal_make_buffer_range(0, kAllocationSize);
 
   int release_count = 0;
-  iree_hal_buffer_release_callback_t callback = {};
-  callback.fn = CountingReleaseCallback;
-  callback.user_data = &release_count;
+  external_buffer.release = CountingReleaseCallback;
+  external_buffer.release_user_data = &release_count;
 
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
-      test_device.allocator(), params, &external_buffer, callback, &buffer));
+  IREE_ASSERT_OK(iree_hal_pool_import_buffer(
+      import_pool, &external_buffer,
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &buffer));
   ASSERT_NE(buffer, nullptr);
   EXPECT_TRUE(iree_all_bits_set(iree_hal_buffer_memory_type(buffer),
                                 IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL));
@@ -1994,15 +1702,20 @@ TEST_F(AllocatorTest, DeviceAllocationImportWrapsHsaAllocation) {
                 IREE_HAL_AMDGPU_ATOMIC_MEMORY_CELL_FLAG_DEVICE_SCOPE_64);
   EXPECT_EQ(iree_hal_buffer_allocation_size(buffer), kAllocationSize);
 
-  iree_hal_external_buffer_t exported_buffer = {};
+  iree_hal_external_storage_t exported_buffer = {};
+  iree_hal_buffer_range_t exported_range = {};
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &exported_buffer));
-  EXPECT_EQ(exported_buffer.type,
-            IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION);
-  EXPECT_EQ(exported_buffer.size, kAllocationSize);
-  EXPECT_EQ(exported_buffer.handle.device_allocation.ptr,
-            external_buffer.handle.device_allocation.ptr);
+      buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &exported_buffer, &exported_range));
+  EXPECT_EQ(exported_buffer.storage_class.type,
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS);
+  EXPECT_EQ(exported_buffer.byte_length, kAllocationSize);
+  EXPECT_EQ(exported_buffer.payload.device_address,
+            (uint64_t)(uintptr_t)allocation.ptr());
+  EXPECT_EQ(exported_range.byte_offset, 0u);
+  EXPECT_EQ(exported_range.byte_length, kAllocationSize);
 
   constexpr uint32_t kPattern = 0xACCE551u;
   IREE_ASSERT_OK(QueueFillAndWait(test_device.device(), test_device.queue(),
@@ -2015,7 +1728,9 @@ TEST_F(AllocatorTest, DeviceAllocationImportWrapsHsaAllocation) {
     EXPECT_EQ(value, kPattern);
   }
 
+  iree_hal_external_storage_release(&exported_buffer);
   iree_hal_buffer_release(buffer);
+  import_pool.reset();
   EXPECT_EQ(release_count, 1);
 }
 
@@ -2039,22 +1754,27 @@ TEST_F(AllocatorTest, AsanDeviceAllocationImportPublishesShadow) {
   HsaAllocation allocation(&libhsa_);
   IREE_ASSERT_OK(allocation.Allocate(memory_pool, kAllocationSize));
 
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
-  params.queue_family_affinity = kQueueFamilyAffinity0;
+  const iree_hal_amdgpu_buffer_spec_t spec = {
+      /*.type=*/IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER |
+          IREE_HAL_BUFFER_USAGE_DISPATCH,
+      /*.queue_family_affinity=*/kQueueFamilyAffinity0,
+  };
 
-  iree_hal_external_buffer_t external_buffer = {};
-  external_buffer.type = IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION;
-  external_buffer.size = kAllocationSize;
-  external_buffer.handle.device_allocation.ptr =
+  iree_hal_external_storage_t external_buffer = {};
+  external_buffer.storage_class.type =
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS;
+  external_buffer.byte_length = kAllocationSize;
+  external_buffer.payload.device_address =
       (uint64_t)(uintptr_t)allocation.ptr();
+  const uint64_t imported_device_address =
+      external_buffer.payload.device_address;
 
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
-      test_device.allocator(), params, &external_buffer,
-      iree_hal_buffer_release_callback_null(), &buffer));
+  IREE_ASSERT_OK(iree_hal_amdgpu_allocator_import_direct_buffer(
+      test_device.allocator(), &spec, &external_buffer,
+      /*access_agent_count=*/1, &topology_.gpu_agents[0], &buffer));
   ASSERT_NE(buffer, nullptr);
 
   iree_hal_amdgpu_asan_state_t* asan_state =
@@ -2065,8 +1785,7 @@ TEST_F(AllocatorTest, AsanDeviceAllocationImportPublishesShadow) {
 
   iree_hal_amdgpu_shadow_map_range_t shadow_range;
   IREE_ASSERT_OK(iree_hal_amdgpu_shadow_map_calculate_range(
-      shadow_map, external_buffer.handle.device_allocation.ptr,
-      external_buffer.size, &shadow_range));
+      shadow_map, imported_device_address, kAllocationSize, &shadow_range));
   ASSERT_GT(shadow_range.shadow_length, 0u);
 
   std::vector<uint8_t> shadow_bytes(shadow_range.shadow_length);
@@ -2121,32 +1840,21 @@ TEST_F(AllocatorTest, AsanHostLocalDeviceVisibleAllocationPublishesShadow) {
   IREE_ASSERT_OK(test_device.InitializeWithOptions(
       &options, &libhsa_, &topology_, host_allocator_));
 
-  iree_hal_buffer_params_t params = {0};
-  params.type =
-      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER |
-                 IREE_HAL_BUFFER_USAGE_DISPATCH | IREE_HAL_BUFFER_USAGE_MAPPING;
-
-  iree_hal_buffer_params_t resolved_params = {0};
-  iree_device_size_t resolved_allocation_size = 0;
   const iree_device_size_t shadow_granule = (iree_device_size_t)1ull
                                             << options.asan.shadow_scale_shift;
   const iree_device_size_t accessible_size = shadow_granule + 4;
-  const iree_hal_buffer_compatibility_t compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          test_device.allocator(), params, accessible_size, &resolved_params,
-          &resolved_allocation_size);
-  if (!iree_all_bits_set(compatibility,
-                         IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE)) {
-    GTEST_SKIP() << "host-local device-visible memory is not available";
-  }
-  EXPECT_TRUE(iree_all_bits_set(
-      resolved_params.type,
-      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE));
+  const iree_hal_amdgpu_buffer_spec_t spec = {
+      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
+          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER |
+          IREE_HAL_BUFFER_USAGE_DISPATCH | IREE_HAL_BUFFER_USAGE_MAPPING,
+      /*.queue_family_affinity=*/kQueueFamilyAffinity0,
+  };
 
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      test_device.allocator(), resolved_params, accessible_size, &buffer));
+  IREE_ASSERT_OK(iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      test_device.allocator(), spec, accessible_size, &buffer));
   EXPECT_EQ(iree_hal_buffer_byte_length(buffer), accessible_size);
   ASSERT_GT(iree_hal_buffer_allocation_size(buffer), accessible_size);
 
@@ -2234,60 +1942,66 @@ TEST_F(AllocatorTest, DeviceAllocationExportReportsHsaPointer) {
   TestLogicalDevice test_device;
   IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
 
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
-  params.queue_family_affinity = kQueueFamilyAffinity0;
-
-  iree_hal_buffer_params_t resolved_params = {0};
-  iree_device_size_t resolved_allocation_size = 0;
-  const iree_hal_buffer_compatibility_t compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          test_device.allocator(), params, /*allocation_size=*/4096,
-          &resolved_params, &resolved_allocation_size);
-  EXPECT_TRUE(iree_all_bits_set(compatibility,
-                                IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
-                                    IREE_HAL_BUFFER_COMPATIBILITY_EXPORTABLE));
+  const iree_hal_external_storage_class_t device_address_class =
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS);
+  const iree_hal_pool_export_classes_t exports = {
+      /*.class_count=*/1,
+      /*.classes=*/&device_address_class,
+  };
+  Ref<iree_hal_pool_t> pool;
+  IREE_ASSERT_OK(test_device.CreateExportPool(
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
+      /*host_access=*/{}, exports, pool.out()));
 
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      test_device.allocator(), params, /*allocation_size=*/4096, &buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool,
+      iree_hal_make_pool_reservation_request(/*byte_length=*/4096,
+                                             /*min_alignment=*/0),
+      iree_infinite_timeout(), &buffer));
 
-  iree_hal_external_buffer_t external_buffer = {};
+  iree_hal_external_storage_t external_buffer = {};
+  iree_hal_buffer_range_t logical_range = {};
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer));
-  EXPECT_EQ(external_buffer.type,
-            IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION);
-  EXPECT_NE(external_buffer.handle.device_allocation.ptr, 0u);
-  EXPECT_EQ(external_buffer.size, iree_hal_buffer_allocation_size(buffer));
+      buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &external_buffer, &logical_range));
+  EXPECT_EQ(external_buffer.storage_class.type,
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS);
+  EXPECT_NE(external_buffer.payload.device_address, 0u);
+  EXPECT_EQ(external_buffer.byte_length,
+            iree_hal_buffer_allocation_size(buffer));
+  EXPECT_EQ(logical_range.byte_offset, 0u);
+  EXPECT_EQ(logical_range.byte_length, iree_hal_buffer_byte_length(buffer));
 
   hsa_amd_pointer_info_t pointer_info = {};
   pointer_info.size = sizeof(pointer_info);
   IREE_ASSERT_OK(iree_hsa_amd_pointer_info(
       IREE_LIBHSA(&libhsa_),
-      (const void*)(uintptr_t)external_buffer.handle.device_allocation.ptr,
+      (const void*)(uintptr_t)external_buffer.payload.device_address,
       &pointer_info, /*alloc=*/NULL, /*num_agents_accessible=*/NULL,
       /*accessible=*/NULL));
   EXPECT_EQ(pointer_info.type, HSA_EXT_POINTER_TYPE_HSA);
   EXPECT_EQ(pointer_info.agentBaseAddress,
-            (void*)(uintptr_t)external_buffer.handle.device_allocation.ptr);
-  EXPECT_GE(pointer_info.sizeInBytes, external_buffer.size);
+            (void*)(uintptr_t)external_buffer.payload.device_address);
+  EXPECT_GE(pointer_info.sizeInBytes, external_buffer.byte_length);
 
   constexpr uint32_t kPattern = 0xA110CA7Eu;
   IREE_ASSERT_OK(QueueFillAndWait(test_device.device(), test_device.queue(),
-                                  buffer, external_buffer.size, &kPattern,
-                                  sizeof(kPattern)));
+                                  buffer, external_buffer.byte_length,
+                                  &kPattern, sizeof(kPattern)));
   std::array<uint32_t, 4096 / sizeof(uint32_t)> observed = {};
   IREE_ASSERT_OK(iree_hsa_memory_copy(
       IREE_LIBHSA(&libhsa_), observed.data(),
-      (const void*)(uintptr_t)external_buffer.handle.device_allocation.ptr,
+      (const void*)(uintptr_t)external_buffer.payload.device_address,
       sizeof(observed)));
   for (uint32_t value : observed) {
     EXPECT_EQ(value, kPattern);
   }
 
+  iree_hal_external_storage_release(&external_buffer);
   iree_hal_buffer_release(buffer);
 }
 
@@ -2295,33 +2009,60 @@ TEST_F(AllocatorTest, ExternalBufferExportValidatesMemoryType) {
   TestLogicalDevice test_device;
   IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
 
-  iree_hal_buffer_params_t params = {0};
-  params.type =
-      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
+  const std::array<iree_hal_external_storage_class_t, 2> export_classes = {
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+  };
+  const iree_hal_pool_export_classes_t exports = {
+      /*.class_count=*/export_classes.size(),
+      /*.classes=*/export_classes.data(),
+  };
+  const iree_hal_pool_host_access_t host_access = {
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+      /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+  };
+  Ref<iree_hal_pool_t> pool;
+  IREE_ASSERT_OK(test_device.CreateExportPool(
+      IREE_HAL_BUFFER_USAGE_TRANSFER, host_access, exports, pool.out()));
 
   iree_hal_buffer_t* buffer = NULL;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      test_device.allocator(), params, /*allocation_size=*/4096, &buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool,
+      iree_hal_make_pool_reservation_request(/*byte_length=*/4096,
+                                             /*min_alignment=*/0),
+      iree_infinite_timeout(), &buffer));
 
-  iree_hal_external_buffer_t external_buffer = {};
+  iree_hal_external_storage_t external_buffer = {};
+  iree_hal_buffer_range_t logical_range = {};
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer));
-  EXPECT_NE(external_buffer.handle.device_allocation.ptr, 0u);
-  EXPECT_EQ(external_buffer.size, iree_hal_buffer_allocation_size(buffer));
+      buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &external_buffer, &logical_range));
+  EXPECT_NE(external_buffer.payload.device_address, 0u);
+  EXPECT_EQ(external_buffer.byte_length,
+            iree_hal_buffer_allocation_size(buffer));
+  iree_hal_external_storage_release(&external_buffer);
 
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer));
-  EXPECT_NE(external_buffer.handle.host_allocation.ptr, nullptr);
-  EXPECT_EQ(external_buffer.size, iree_hal_buffer_allocation_size(buffer));
+      buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      &external_buffer, &logical_range));
+  EXPECT_NE(external_buffer.payload.host_pointer, nullptr);
+  EXPECT_EQ(external_buffer.byte_length,
+            iree_hal_buffer_allocation_size(buffer));
+  iree_hal_external_storage_release(&external_buffer);
 
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_UNAVAILABLE,
-      iree_hal_buffer_export(buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_OPAQUE_WIN32,
-                             IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE,
-                             &external_buffer));
+      iree_hal_buffer_export(
+          buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+          iree_hal_make_external_storage_class(
+              IREE_HAL_EXTERNAL_STORAGE_TYPE_VULKAN_OPAQUE_WIN32),
+          &external_buffer, &logical_range));
 
   iree_hal_buffer_release(buffer);
 }

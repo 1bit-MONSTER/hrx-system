@@ -136,6 +136,8 @@ iree_cc_library(
     "execute_object.h"
     "execute_operation.c"
     "execute_operation.h"
+    "execute_pool.c"
+    "execute_pool.h"
     "execute_state.c"
     "execute_state.h"
     "execute_vmm.c"
@@ -147,7 +149,6 @@ iree_cc_library(
     ::format
     iree::base
     iree::hal
-    iree::hal::memory::passthrough_pool
     iree::io::file_handle
   PUBLIC
 )
@@ -173,6 +174,8 @@ iree_cc_library(
     "recorder_executable.h"
     "recorder_file.c"
     "recorder_file.h"
+    "recorder_pool.c"
+    "recorder_pool.h"
     "recorder_queue.c"
     "recorder_queue.h"
     "recorder_record.h"
@@ -236,7 +239,7 @@ iree_cc_test(
     iree::base
     iree::hal
     iree::hal::drivers::task::registration
-    iree::hal::memory::passthrough_pool
+    iree::hal::memory::tlsf_pool
     iree::hal::testing::mock_device
     iree::io::file_handle
     iree::testing::gtest
@@ -305,22 +308,6 @@ iree_cc_test(
 
 iree_cc_test(
   NAME
-    recorder_allocator_test
-  SRCS
-    "recorder_allocator.h"
-    "recorder_allocator_test.cc"
-  DEPS
-    ::format
-    ::recorder
-    iree::base
-    iree::hal
-    iree::io::file_handle
-    iree::testing::gtest
-    iree::testing::gtest_main
-)
-
-iree_cc_test(
-  NAME
     recorder_buffer_test
   SRCS
     "recorder_buffer.h"
@@ -336,6 +323,23 @@ iree_cc_test(
 )
 
 if(TARGET iree::hal::drivers::task::registration)
+
+iree_cc_test(
+  NAME
+    recorder_pool_test
+  SRCS
+    "recorder_pool_test.cc"
+  DEPS
+    ::recorder
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    iree::hal
+    iree::hal::drivers::task::registration
+    iree::io::file_handle
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
 
 iree_cc_test(
   NAME

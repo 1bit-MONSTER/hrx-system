@@ -4,6 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -47,7 +48,7 @@ typedef struct VmmAllocatorState {
   bool is_mapped = false;
   iree_hal_queue_family_affinity_t reserve_queue_family_affinity = 0;
   iree_device_size_t reserve_size = 0;
-  iree_hal_buffer_params_t physical_params = {};
+  iree_hal_physical_memory_params_t physical_params = {};
   iree_device_size_t physical_size = 0;
   iree_device_size_t map_virtual_offset = 0;
   iree_device_size_t map_physical_offset = 0;
@@ -59,6 +60,7 @@ typedef struct VmmAllocatorState {
   iree_hal_memory_protection_t protection = 0;
   iree_hal_queue_family_affinity_t advise_queue_family_affinity = 0;
   iree_hal_memory_advice_t advice = 0;
+  alignas(4096) std::array<uint8_t, kReservationSize> virtual_storage = {};
 } VmmAllocatorState;
 
 typedef struct VmmTestPhysicalMemory {
@@ -68,7 +70,6 @@ typedef struct VmmTestPhysicalMemory {
 typedef struct VmmTestAllocator {
   iree_hal_resource_t resource;
   iree_allocator_t host_allocator;
-  iree_hal_allocator_t* heap_allocator;
   VmmAllocatorState* state;
 } VmmTestAllocator;
 
@@ -83,7 +84,6 @@ static VmmTestAllocator* vmm_test_allocator_cast(
 static void vmm_test_allocator_destroy(iree_hal_allocator_t* base_allocator) {
   VmmTestAllocator* allocator = vmm_test_allocator_cast(base_allocator);
   iree_allocator_t host_allocator = allocator->host_allocator;
-  iree_hal_allocator_release(allocator->heap_allocator);
   iree_allocator_free(host_allocator, allocator);
 }
 
@@ -100,7 +100,8 @@ static bool vmm_test_allocator_supports_virtual_memory(
 }
 
 static iree_status_t vmm_test_allocator_query_granularity(
-    iree_hal_allocator_t* base_allocator, iree_hal_buffer_params_t params,
+    iree_hal_allocator_t* base_allocator,
+    iree_hal_physical_memory_params_t params,
     iree_device_size_t* out_minimum_page_size,
     iree_device_size_t* out_recommended_page_size) {
   (void)base_allocator;
@@ -125,15 +126,24 @@ static iree_status_t vmm_test_allocator_virtual_memory_reserve(
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "test reservation is already live");
   }
-  iree_hal_buffer_params_t params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL,
-      /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-      /*.min_alignment=*/4096,
+  if (size > state->virtual_storage.size()) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "test reservation exceeds backing storage");
+  }
+  const iree_hal_buffer_placement_t placement = {
+      /*.device=*/nullptr,
+      /*.queue_family_affinity=*/queue_family_affinity,
+      /*.flags=*/IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE,
   };
-  IREE_RETURN_IF_ERROR(iree_hal_allocator_allocate_buffer(
-      allocator->heap_allocator, params, size, out_virtual_buffer));
+  IREE_RETURN_IF_ERROR(iree_hal_heap_buffer_wrap(
+      placement,
+      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
+          IREE_HAL_MEMORY_TYPE_HOST_CACHED | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_BUFFER_USAGE_STORAGE, size,
+      iree_make_byte_span(state->virtual_storage.data(),
+                          static_cast<iree_host_size_t>(size)),
+      iree_hal_buffer_release_callback_null(), allocator->host_allocator,
+      out_virtual_buffer));
   state->virtual_buffer = *out_virtual_buffer;
   state->reserve_queue_family_affinity = queue_family_affinity;
   state->reserve_size = size;
@@ -158,8 +168,9 @@ static iree_status_t vmm_test_allocator_virtual_memory_release(
 }
 
 static iree_status_t vmm_test_allocator_physical_memory_allocate(
-    iree_hal_allocator_t* base_allocator, iree_hal_buffer_params_t params,
-    iree_device_size_t size, iree_allocator_t host_allocator,
+    iree_hal_allocator_t* base_allocator,
+    iree_hal_physical_memory_params_t params, iree_device_size_t size,
+    iree_allocator_t host_allocator,
     iree_hal_physical_memory_t** out_physical_memory) {
   VmmAllocatorState* state = vmm_test_allocator_cast(base_allocator)->state;
   ++state->physical_allocate_attempt_count;
@@ -297,13 +308,8 @@ static iree_status_t vmm_test_allocator_virtual_memory_advise(
 const iree_hal_allocator_vtable_t vmm_test_allocator_vtable = {
     /*.destroy=*/vmm_test_allocator_destroy,
     /*.host_allocator=*/vmm_test_allocator_host_allocator,
-    /*.trim=*/nullptr,
     /*.query_statistics=*/nullptr,
     /*.query_memory_heaps=*/nullptr,
-    /*.query_buffer_compatibility=*/nullptr,
-    /*.allocate_buffer=*/nullptr,
-    /*.deallocate_buffer=*/nullptr,
-    /*.import_buffer=*/nullptr,
     /*.supports_virtual_memory=*/vmm_test_allocator_supports_virtual_memory,
     /*.virtual_memory_query_granularity=*/
     vmm_test_allocator_query_granularity,
@@ -322,22 +328,14 @@ static iree_status_t CreateVmmTestAllocator(
     VmmAllocatorState* state, iree_allocator_t host_allocator,
     iree_hal_allocator_t** out_allocator) {
   *out_allocator = nullptr;
-  iree_hal_allocator_t* heap_allocator = nullptr;
-  IREE_RETURN_IF_ERROR(
-      iree_hal_allocator_create_heap(IREE_SV("replay-vmm-test"), host_allocator,
-                                     host_allocator, &heap_allocator));
   VmmTestAllocator* allocator = nullptr;
-  iree_status_t status = iree_allocator_malloc(
-      host_allocator, sizeof(*allocator), reinterpret_cast<void**>(&allocator));
-  if (!iree_status_is_ok(status)) {
-    iree_hal_allocator_release(heap_allocator);
-    return status;
-  }
+  IREE_RETURN_IF_ERROR(
+      iree_allocator_malloc(host_allocator, sizeof(*allocator),
+                            reinterpret_cast<void**>(&allocator)));
   memset(allocator, 0, sizeof(*allocator));
   iree_hal_resource_initialize(&vmm_test_allocator_vtable,
                                &allocator->resource);
   allocator->host_allocator = host_allocator;
-  allocator->heap_allocator = heap_allocator;
   allocator->state = state;
   *out_allocator = reinterpret_cast<iree_hal_allocator_t*>(allocator);
   return iree_ok_status();
@@ -419,13 +417,10 @@ class ReplayVmmExecutionTest : public ::testing::Test {
 
   void AllocatePhysical(OperationRecord* record, bool unaligned = false) {
     iree_hal_replay_allocator_physical_memory_allocate_payload_t payload = {};
-    payload.allocation.allocation_size = kReservationSize;
-    payload.allocation.queue_family_affinity = kQueueFamilyAffinity;
-    payload.allocation.min_alignment = 4096;
-    payload.allocation.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
-    payload.allocation.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-    payload.allocation.access =
-        IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE;
+    payload.allocation_size = kReservationSize;
+    payload.queue_family_affinity = kQueueFamilyAffinity;
+    payload.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
+    payload.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
     record->Reset(
         IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
         IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
@@ -656,7 +651,7 @@ TEST_F(ReplayVmmExecutionTest, BackendFailuresRetainRetryableObjects) {
   state_.fail_physical_allocate = true;
   iree_hal_replay_allocator_physical_memory_allocate_payload_t
       allocate_payload = {};
-  allocate_payload.allocation.allocation_size = kReservationSize;
+  allocate_payload.allocation_size = kReservationSize;
   record.Reset(
       IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
       IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,

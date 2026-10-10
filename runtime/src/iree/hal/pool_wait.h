@@ -29,6 +29,8 @@ typedef struct iree_hal_pool_wait_callback_t {
 // Captures the pool's immutable, distinct local and backing notifications.
 // The pool and its progress owners must outlive the helper. Every source is
 // submitted and cancelled through its own proactor, which must remain polling.
+// Returns FAILED_PRECONDITION if the pool has no capacity source; such a pool
+// must report allocation failure as a status instead of transient exhaustion.
 // The helper can be reused for successive allocation attempts.
 IREE_API_EXPORT iree_status_t iree_hal_pool_wait_create(
     iree_hal_pool_t* pool, iree_allocator_t host_allocator,

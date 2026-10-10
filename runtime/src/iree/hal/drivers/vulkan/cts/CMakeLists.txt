@@ -368,7 +368,6 @@ iree_cc_test(
     iree::hal::cts::util::test_base
     iree::hal::cts::util::test_main
     iree::hal::memory::fixed_block_pool
-    iree::hal::memory::passthrough_pool
     iree::testing::gtest
   LABELS
     "iree-build-requirement=runtime.hal.vulkan"

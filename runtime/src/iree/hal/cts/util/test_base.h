@@ -7,7 +7,7 @@
 // Base class for HAL conformance tests.
 //
 // Provides the test fixture and helper utilities shared by all HAL CTS tests.
-// Test logic lives in separate .cc files (core/allocator_test.cc, etc.)
+// Test logic lives in separate .cc files (buffer/pool_test.cc, etc.)
 // which use CTS_REGISTER_TEST_SUITE() for self-registration.
 //
 // Key design:
@@ -342,6 +342,9 @@ inline std::vector<uint8_t> MakeFilledBytes(iree_device_size_t buffer_size,
 // in TearDown(). The global test environment owns their final teardown.
 template <typename BaseType = ::testing::TestWithParam<BackendInfo>>
 class CtsTestBase : public BaseType {
+ public:
+  ~CtsTestBase() override { iree_hal_pool_release(device_pool_); }
+
  protected:
   void SetUp() override {
     const BackendInfo& backend = this->GetParam();
@@ -565,15 +568,58 @@ class CtsTestBase : public BaseType {
   // Buffer helpers
   //===--------------------------------------------------------------------===//
 
+  // Creates a caller-owned pool with |usage| on every provisioned family.
+  // Tests that need asymmetric family policy construct their scope directly.
+  iree_status_t CreateDevicePool(iree_hal_buffer_usage_t usage,
+                                 iree_hal_pool_t** out_pool) {
+    *out_pool = nullptr;
+    const iree_hal_device_queue_spec_t* queue_spec =
+        iree_hal_device_spec_queues(iree_hal_device_spec(device_));
+    std::vector<iree_hal_pool_family_access_t> families;
+    families.reserve(queue_spec->family_count);
+    for (iree_host_size_t i = 0; i < queue_spec->family_count; ++i) {
+      if (queue_spec->families[i].provisioned_queue_count == 0) {
+        continue;
+      }
+      families.push_back((iree_hal_pool_family_access_t){
+          /*.family=*/iree_hal_device_queue_family(device_, i),
+          /*.usage=*/usage,
+      });
+    }
+    const iree_hal_pool_scope_t scope = {
+        /*.family_count=*/families.size(),
+        /*.families=*/families.data(),
+    };
+    iree_hal_slab_pool_options_t options;
+    iree_hal_slab_pool_options_initialize(&options);
+    options.trace_name = IREE_SV("cts.device");
+    return iree_hal_slab_pool_create(device_group_, scope, &options,
+                                     iree_allocator_system(), out_pool);
+  }
+
+  // Returns a fixture-owned pool spanning every provisioned queue family.
+  // The pool remains live through fixture destruction so buffers stored in
+  // derived fixture members are released before their borrowed pool.
+  iree_status_t GetDevicePool(iree_hal_pool_t** out_pool) {
+    *out_pool = nullptr;
+    if (!device_pool_) {
+      IREE_RETURN_IF_ERROR(CreateDevicePool(
+          IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
+          &device_pool_));
+    }
+    *out_pool = device_pool_;
+    return iree_ok_status();
+  }
+
   iree_status_t CreateUninitializedDeviceBuffer(
       iree_device_size_t buffer_size, iree_hal_buffer_t** out_buffer) {
     *out_buffer = nullptr;
-    iree_hal_buffer_params_t params = {0};
-    params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-    params.usage =
-        IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
-    return iree_hal_allocator_allocate_buffer(device_allocator_, params,
-                                              buffer_size, out_buffer);
+    iree_hal_pool_t* pool = nullptr;
+    IREE_RETURN_IF_ERROR(GetDevicePool(&pool));
+    return iree_hal_pool_allocate_buffer(pool,
+                                         iree_hal_make_pool_reservation_request(
+                                             buffer_size, /*min_alignment=*/1),
+                                         iree_infinite_timeout(), out_buffer);
   }
 
   iree_status_t CreateZeroedDeviceBuffer(iree_device_size_t buffer_size,
@@ -884,6 +930,8 @@ class CtsTestBase : public BaseType {
   iree_hal_device_t* device_ = nullptr;
   // Retained allocator exposed by |device_|.
   iree_hal_allocator_t* device_allocator_ = nullptr;
+  // Owned execution pool borrowed by buffers created through fixture helpers.
+  iree_hal_pool_t* device_pool_ = nullptr;
   // Provisioned transfer-capable queue borrowed from |device_|.
   iree_hal_queue_t* transfer_queue_ = nullptr;
 

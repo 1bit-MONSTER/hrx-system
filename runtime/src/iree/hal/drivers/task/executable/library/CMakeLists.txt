@@ -76,6 +76,7 @@ iree_cc_binary(
     iree::hal::drivers::task::executable::environment
     iree::hal::drivers::task::executable::loader
     iree::hal::drivers::task::executable::loaders::registration
+    iree::hal::memory::heap_pool
     iree::io::file_handle
     iree::task
     iree::testing::benchmark

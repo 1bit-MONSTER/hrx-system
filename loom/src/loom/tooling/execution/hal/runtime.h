@@ -26,10 +26,12 @@ typedef struct loom_run_hal_runtime_t {
   // Borrowed provisioned queue used for host data transfers, if available.
   // The runtime-owned |device| outlives this pointer.
   iree_hal_queue_t* transfer_queue;
-  // Reusable queue-allocation pool spanning dispatch and transfer access.
-  iree_hal_pool_t* staging_pool;
   // Topology group assigning frontier state to |device|.
   iree_hal_device_group_t* device_group;
+  // Reusable queue-allocation pool spanning dispatch and transfer access.
+  iree_hal_pool_t* device_pool;
+  // Host-mappable pool for upload, readback, and tooling values.
+  iree_hal_pool_t* staging_pool;
 } loom_run_hal_runtime_t;
 
 typedef struct loom_run_hal_runtime_options_t {

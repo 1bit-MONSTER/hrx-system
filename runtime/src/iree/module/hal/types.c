@@ -14,9 +14,9 @@ static_assert(sizeof(((iree_hal_resource_t*)0)->ref_count) ==
               "HAL and VM must share the intrusive owner count");
 
 static void iree_hal_module_buffer_destroy(void* object) {
-  // The VM already consumed the final owner. HAL release would decrement again,
-  // and direct destruction would skip the allocator's recycling contract.
-  iree_hal_buffer_recycle((iree_hal_buffer_t*)object);
+  // The VM already consumed the final owner, so destroy without decrementing
+  // the shared intrusive reference count again.
+  iree_hal_buffer_destroy((iree_hal_buffer_t*)object);
 }
 
 static void iree_hal_module_buffer_view_destroy(void* object) {

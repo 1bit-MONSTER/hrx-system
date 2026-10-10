@@ -246,36 +246,28 @@ static void iree_hal_amd_xdna_slab_provider_release_slab(
 static iree_status_t iree_hal_amd_xdna_slab_provider_wrap_buffer(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab,
     iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t params,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** out_buffer) {
   iree_hal_amd_xdna_slab_provider_t* provider =
       iree_hal_amd_xdna_slab_provider_cast(base_provider);
-  iree_hal_memory_type_t resolved_type = params.type;
-  if (iree_any_bit_set(resolved_type, IREE_HAL_MEMORY_TYPE_OPTIMAL)) {
-    resolved_type &= ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
-    resolved_type |= provider->properties.memory_type;
-  }
-  IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_memory_type(
-      provider->properties.memory_type, resolved_type));
-  if (!iree_all_bits_set(provider->properties.supported_usage, params.usage)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "XDNA slab does not support requested buffer usage");
-  }
-  params.type = resolved_type;
   iree_hal_amd_xdna_slab_handle_t* handle =
       (iree_hal_amd_xdna_slab_handle_t*)(uintptr_t)slab->provider_handle;
-  return iree_hal_amd_xdna_buffer_wrap(provider->device, provider->context,
-                                       (iree_hal_amd_xdna_buffer_storage_t){
-                                           .memory = &handle->memory,
-                                           .bindings = handle->bindings,
-                                           .host_binding_index = 0,
-                                           .offset = slab_offset,
-                                       },
-                                       allocation_size, params,
-                                       release_callback,
-                                       provider->host_allocator, out_buffer);
+  const iree_hal_buffer_placement_t placement = {
+      .device = provider->device,
+      .queue_family_affinity = provider->properties.queue_family_affinity,
+  };
+  return iree_hal_amd_xdna_buffer_wrap(
+      placement, provider->context,
+      (iree_hal_amd_xdna_buffer_storage_t){
+          .memory = &handle->memory,
+          .bindings = handle->bindings,
+          .host_binding_index = 0,
+          .offset = slab_offset,
+      },
+      allocation_size, provider->properties.memory_type, allowed_access,
+      allowed_usage, release_callback, provider->host_allocator, out_buffer);
 }
 
 static iree_status_t iree_hal_amd_xdna_slab_provider_validate_asan_options(

@@ -21,7 +21,6 @@
 #include <vector>
 
 #include "iree/hal/cts/util/test_base.h"
-#include "iree/hal/memory/passthrough_pool.h"
 
 namespace iree::hal::cts {
 
@@ -42,14 +41,8 @@ class DispatchPipelineTest : public CtsTestBase<> {
       GTEST_SKIP() << "device has no provisioned transfer-capable queue";
     }
 
-    iree_hal_queue_pool_backend_t backend = {};
-    IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-        device_, iree_hal_queue_family(transfer_queue_), &backend));
-    iree_hal_passthrough_pool_options_t options = {};
-    options.asan = backend.asan;
-    IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-        options, backend.slab_provider, backend.notification,
-        backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
+    IREE_ASSERT_OK(CreateDevicePool(
+        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
         &transient_pool_));
 
     // Load the scale_and_offset kernel:
@@ -264,16 +257,9 @@ TEST_P(DispatchPipelineTest, TransientInputPipeline) {
   // Allocate a transient buffer for input.
   SemaphoreList alloca_signal(device_, {0}, {1});
   SemaphoreList empty_wait;
-  iree_hal_buffer_params_t alloca_params = {0};
-  alloca_params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  alloca_params.usage =
-      IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
-  alloca_params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_)));
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/alloca_params,
-      /*.allocation_size=*/kBufferSize,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(kBufferSize,
+                                             /*min_alignment=*/0);
   iree_hal_buffer_t* raw = nullptr;
   IREE_ASSERT_OK(iree_hal_queue_alloca(transfer_queue_, empty_wait,
                                        alloca_signal, transient_pool_,

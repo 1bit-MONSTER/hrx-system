@@ -493,8 +493,7 @@ static hrx_status_t hrx_create_task_device(int group_count,
 
   // Heap allocator for host-accessible buffers.
   iree_hal_allocator_t* device_allocator = NULL;
-  status = iree_hal_allocator_create_heap(iree_make_cstring_view("hrx"), alloc,
-                                          alloc, &device_allocator);
+  status = iree_hal_allocator_create_heap(alloc, &device_allocator);
   if (!iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < loader_count; i++) {
       iree_hal_executable_loader_release(loaders[i]);

@@ -517,7 +517,6 @@ static iree_status_t iree_hal_task_device_trim(iree_hal_device_t* base_device) {
   for (iree_host_size_t i = 0; i < device->queue_count; ++i) {
     iree_hal_task_queue_trim(&device->queues[i]);
   }
-  IREE_RETURN_IF_ERROR(iree_hal_allocator_trim(device->device_allocator));
 
   iree_arena_block_pool_trim(&device->small_block_pool);
   iree_arena_block_pool_trim(&device->large_block_pool);
@@ -696,9 +695,8 @@ static iree_status_t iree_hal_task_device_create_command_buffer(
     iree_hal_command_buffer_t** out_command_buffer) {
   iree_hal_task_device_t* device = iree_hal_task_device_cast(base_device);
   return iree_hal_block_command_buffer_create(
-      iree_hal_device_allocator(base_device), queue_family, mode,
-      command_categories, binding_capacity, &device->large_block_pool,
-      device->host_allocator, out_command_buffer);
+      queue_family, mode, command_categories, binding_capacity,
+      &device->large_block_pool, device->host_allocator, out_command_buffer);
 }
 
 static iree_status_t iree_hal_task_device_load_executable(
@@ -718,15 +716,16 @@ static iree_status_t iree_hal_task_device_load_executable(
 }
 
 static iree_status_t iree_hal_task_device_import_file(
-    iree_hal_device_t* base_device,
+    iree_hal_device_t* base_device, iree_hal_pool_t* storage_pool,
     iree_hal_queue_family_affinity_t queue_family_affinity,
     iree_hal_memory_access_t access, iree_io_file_handle_t* handle,
     iree_hal_external_file_flags_t flags, iree_hal_file_t** out_file) {
+  (void)queue_family_affinity;
+  (void)flags;
   iree_hal_task_device_t* device = iree_hal_task_device_cast(base_device);
   return iree_hal_file_from_handle(
-      iree_hal_device_allocator(base_device), queue_family_affinity, access,
-      handle, device->proactor, iree_hal_device_host_allocator(base_device),
-      out_file);
+      storage_pool, access, handle, device->proactor,
+      iree_hal_device_host_allocator(base_device), out_file);
 }
 
 static iree_status_t iree_hal_task_device_create_semaphore(
@@ -751,21 +750,6 @@ iree_hal_task_device_query_semaphore_compatibility(
 static const iree_hal_memory_backend_t* iree_hal_task_device_memory_backend(
     iree_hal_device_t* base_device) {
   return &iree_hal_task_device_cast(base_device)->memory_backend.base;
-}
-
-static iree_status_t iree_hal_task_device_query_queue_pool_backend(
-    iree_hal_device_t* base_device, const iree_hal_queue_family_t* queue_family,
-    iree_hal_queue_pool_backend_t* out_backend) {
-  (void)queue_family;
-  iree_hal_task_device_t* device = iree_hal_task_device_cast(base_device);
-  out_backend->slab_provider = device->memory_backend.slab_provider;
-  out_backend->notification = device->memory_backend.notification;
-  out_backend->maintenance = device->memory_backend.maintenance;
-  out_backend->epoch_query = (iree_hal_pool_epoch_query_t){
-      .fn = iree_hal_task_device_query_pool_epoch,
-      .user_data = device,
-  };
-  return iree_ok_status();
 }
 
 static uint32_t iree_hal_task_device_profile_count(iree_host_size_t count) {
@@ -902,7 +886,6 @@ static const iree_hal_device_vtable_t iree_hal_task_device_vtable = {
     .create_semaphore = iree_hal_task_device_create_semaphore,
     .query_semaphore_compatibility =
         iree_hal_task_device_query_semaphore_compatibility,
-    .query_queue_pool_backend = iree_hal_task_device_query_queue_pool_backend,
     .profiling_begin = iree_hal_task_device_profiling_begin,
     .profiling_flush = iree_hal_task_device_profiling_flush,
     .profiling_end = iree_hal_task_device_profiling_end,

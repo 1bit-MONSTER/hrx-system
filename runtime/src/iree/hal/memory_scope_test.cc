@@ -6,6 +6,7 @@
 
 #include "iree/hal/memory_scope.h"
 
+#include "iree/hal/device.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 
@@ -90,6 +91,53 @@ TEST(MemoryTransitionRecipeTest, ValidatesEffectsAndQueueOperationShape) {
                         iree_hal_memory_transition_recipe_validate(&recipe));
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         iree_hal_memory_transition_recipe_validate(nullptr));
+}
+
+TEST(MemoryScopeFamilyUsageTest, UnscopedBufferHonorsAllocationPlacement) {
+  uint8_t device_a_token = 0;
+  uint8_t device_b_token = 0;
+  iree_hal_queue_family_spec_t family_spec = {};
+  iree_hal_queue_family_t family_a0;
+  iree_hal_queue_family_t family_a1;
+  iree_hal_queue_family_t family_b1;
+  iree_hal_queue_family_initialize(
+      reinterpret_cast<iree_hal_device_t*>(&device_a_token), 0, &family_spec,
+      &family_a0);
+  iree_hal_queue_family_initialize(
+      reinterpret_cast<iree_hal_device_t*>(&device_a_token), 1, &family_spec,
+      &family_a1);
+  iree_hal_queue_family_initialize(
+      reinterpret_cast<iree_hal_device_t*>(&device_b_token), 1, &family_spec,
+      &family_b1);
+
+  iree_hal_buffer_t buffer = {};
+  buffer.allocated_buffer = &buffer;
+  buffer.allowed_usage = IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE;
+  buffer.placement.device =
+      reinterpret_cast<iree_hal_device_t*>(&device_a_token);
+  buffer.placement.queue_family_affinity =
+      iree_hal_make_queue_family_affinity(1);
+
+  IREE_EXPECT_OK(iree_hal_buffer_validate_family_usage(
+      &buffer, &family_a1, IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_PERMISSION_DENIED,
+      iree_hal_buffer_validate_family_usage(
+          &buffer, &family_a0, IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_PERMISSION_DENIED,
+      iree_hal_buffer_validate_family_usage(
+          &buffer, &family_b1, IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE));
+  EXPECT_EQ(iree_hal_buffer_family_usage(&buffer, &family_a0),
+            IREE_HAL_BUFFER_USAGE_NONE);
+
+  buffer.placement.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
+  IREE_EXPECT_OK(iree_hal_buffer_validate_family_usage(
+      &buffer, &family_a0, IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE));
+
+  buffer.placement = iree_hal_buffer_placement_undefined();
+  IREE_EXPECT_OK(iree_hal_buffer_validate_family_usage(
+      &buffer, &family_b1, IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE));
 }
 
 TEST_F(MemoryScopeTest, UnknownIsNotCoherent) {

@@ -23,10 +23,7 @@
 #include "iree/hal/drivers/amdgpu/util/block_pool.h"
 #include "iree/hal/drivers/amdgpu/util/libhsa.h"
 #include "iree/hal/drivers/amdgpu/util/signal_pool.h"
-#include "iree/hal/memory/slab_provider.h"
-#include "iree/hal/memory/tlsf_pool.h"
-#include "iree/hal/pool.h"
-#include "iree/hal/pool_set.h"
+#include "iree/hal/memory/asan.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,7 +33,6 @@ typedef struct iree_hal_amdgpu_host_memory_pools_t
     iree_hal_amdgpu_host_memory_pools_t;
 typedef struct iree_hal_amdgpu_pm4_command_buffer_resident_pool_t
     iree_hal_amdgpu_pm4_command_buffer_resident_pool_t;
-typedef struct iree_hal_amdgpu_asan_state_t iree_hal_amdgpu_asan_state_t;
 typedef struct iree_hal_amdgpu_feedback_state_t
     iree_hal_amdgpu_feedback_state_t;
 typedef struct iree_hal_amdgpu_hostcall_provider_state_t
@@ -85,21 +81,6 @@ typedef struct iree_hal_amdgpu_system_event_agent_target_t
 // Since primarily used for transient submission-specific allocations it need
 // not be large.
 #define IREE_HAL_AMDGPU_PHYSICAL_DEVICE_HOST_BLOCK_SIZE_DEFAULT (8 * 1024)
-
-// Logical byte length for the default per-device queue-allocation pool.
-#define IREE_HAL_AMDGPU_PHYSICAL_DEVICE_DEFAULT_POOL_RANGE_LENGTH_DEFAULT \
-  (64 * 1024 * 1024)
-
-// Logical byte length for host-visible default queue-allocation pool slabs.
-#define IREE_HAL_AMDGPU_PHYSICAL_DEVICE_HOST_POOL_RANGE_LENGTH_DEFAULT \
-  (64 * 1024)
-
-// Minimum byte alignment for default-pool suballocations.
-#define IREE_HAL_AMDGPU_PHYSICAL_DEVICE_DEFAULT_POOL_ALIGNMENT_DEFAULT 256
-
-// Maximum death-frontier entries stored per free default-pool block.
-#define IREE_HAL_AMDGPU_PHYSICAL_DEVICE_DEFAULT_POOL_FRONTIER_CAPACITY_DEFAULT \
-  IREE_HAL_MEMORY_TLSF_DEFAULT_FRONTIER_CAPACITY
 
 // Total number of HAL queues on the physical device.
 #define IREE_HAL_AMDGPU_PHYSICAL_DEVICE_DEFAULT_QUEUE_COUNT \
@@ -151,20 +132,8 @@ typedef struct iree_hal_amdgpu_physical_device_options_t {
   // disables the optional upload ring.
   uint32_t host_queue_upload_capacity;
 
-  // Default queue-allocation pool policy.
-  struct {
-    // Logical byte length of the default TLSF pool range.
-    iree_device_size_t range_length;
-
-    // Minimum byte alignment for every default-pool reservation.
-    iree_device_size_t alignment;
-
-    // Maximum death-frontier entry count stored per free TLSF block.
-    uint8_t frontier_capacity;
-
-    // ASAN allocation-shaping policy for default pools.
-    iree_hal_asan_pool_options_t asan;
-  } default_pool;
+  // ASAN allocation-shaping policy inherited by caller-created native pools.
+  iree_hal_asan_pool_options_t asan_pool_options;
 
   // Fixed-size queue_read/queue_write staging policy.
   iree_hal_amdgpu_staging_pool_options_t file_staging;
@@ -291,26 +260,12 @@ typedef struct iree_hal_amdgpu_physical_device_t {
   // Pool of HSA signals for host-waited semaphores and proactor integration.
   iree_hal_amdgpu_host_signal_pool_t host_signal_pool;
 
-  // Default queue-allocation pool notification for this physical device.
-  iree_async_notification_t* default_pool_notification;
+  // Shared capacity notification for caller-created native pools.
+  iree_async_notification_t* memory_notification;
   // Shared cold memory worker independent of execution queue failure/lifetime.
   iree_hal_memory_maintenance_t* memory_maintenance;
-  // Slab provider backing default and caller-created pools for this domain.
-  iree_hal_slab_provider_t* default_slab_provider;
-  // Host-local slab provider for mappable queue allocation transients.
-  iree_hal_slab_provider_t* default_host_slab_provider;
-  // TLSF options derived from device options and HSA memory-pool properties.
-  iree_hal_tlsf_pool_options_t default_pool_options;
-  // Routes default queue allocations to the best compatible memory pool.
-  iree_hal_pool_set_t default_pool_set;
-  // Frontier-aware allocator for suballocated and dedicated device ranges.
-  iree_hal_pool_t* default_pool;
-  // Explicit retention cache for device-local TLSF backing.
-  iree_hal_pool_t* default_backing_cache;
-  // Frontier-aware suballocating pool for host-visible queue allocations.
-  iree_hal_pool_t* default_host_pool;
-  // Explicit retention cache for host-visible TLSF backing.
-  iree_hal_pool_t* default_host_backing_cache;
+  // ASAN allocation-shaping policy inherited by caller-created native pools.
+  iree_hal_asan_pool_options_t asan_pool_options;
 
   // Fixed-size staging pool for non-mappable queue_read/queue_write transfers.
   iree_hal_amdgpu_staging_pool_t file_staging_pool;
@@ -395,7 +350,7 @@ iree_status_t iree_hal_amdgpu_physical_device_initialize(
     const iree_hal_amdgpu_physical_device_options_t* options,
     iree_async_proactor_t* proactor, iree_host_size_t host_ordinal,
     const iree_hal_amdgpu_host_memory_pools_t* host_memory_pools,
-    iree_host_size_t device_ordinal, iree_hal_amdgpu_asan_state_t* asan_state,
+    iree_host_size_t device_ordinal,
     const iree_hal_hostcall_provider_t* hostcall_provider,
     iree_allocator_t host_allocator,
     iree_hal_amdgpu_physical_device_t* out_physical_device);

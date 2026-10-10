@@ -68,11 +68,12 @@ typedef uint32_t iree_numpy_npy_save_options_t;
 
 // Loads a single value from a .npy |stream| into a buffer view.
 // On success |out_buffer_view| will have a buffer view matching the parameters
-// in the npy file allocated from the given |allocator| and |buffer_params|.
+// in the npy file allocated from |pool| with at least |min_alignment| byte
+// alignment. The pool must grant scoped host write mapping.
 //
 // If IREE_NUMPY_NPY_LOAD_OPTION_MAP_FILE is set and the
-// |allocator| supports mapping then the file will be mapped into the
-// host process. Otherwise the file will be loaded into a new allocation.
+// selected pool supports mapping then the file may be mapped into the host
+// process. Otherwise the file will be loaded into a new allocation.
 //
 // Upon return the |stream| will be positioned immediately following the
 // ndarray contents, which may be end-of-stream.
@@ -83,7 +84,7 @@ typedef uint32_t iree_numpy_npy_save_options_t;
 // https://numpy.org/doc/stable/reference/generated/numpy.load.html
 IREE_API_EXPORT iree_status_t iree_numpy_npy_load_ndarray(
     iree_io_stream_t* stream, iree_numpy_npy_load_options_t options,
-    iree_hal_buffer_params_t buffer_params, iree_hal_allocator_t* allocator,
+    iree_hal_pool_t* pool, iree_device_size_t min_alignment,
     iree_hal_buffer_view_t** out_buffer_view);
 
 // Saves |buffer_view| to a .npy |stream|.

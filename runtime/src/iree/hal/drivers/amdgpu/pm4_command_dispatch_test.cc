@@ -8,6 +8,7 @@
 #include <cstdint>
 
 #include "iree/hal/api.h"
+#include "iree/hal/cts/util/pool_test_util.h"
 #include "iree/hal/drivers/amdgpu/buffer.h"
 #include "iree/hal/drivers/amdgpu/executable.h"
 #include "iree/hal/drivers/amdgpu/host_queue_command_buffer_profiling_test_util.h"
@@ -15,7 +16,6 @@
 #include "iree/hal/drivers/amdgpu/physical_device.h"
 #include "iree/hal/drivers/amdgpu/pm4_command_buffer.h"
 #include "iree/hal/drivers/amdgpu/util/pm4_emitter.h"
-#include "iree/hal/memory/passthrough_pool.h"
 #include "iree/hal/memory/tlsf_pool.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -272,30 +272,23 @@ TEST_F(PM4CommandDispatchTest, StaticParametersUseNativePacketAndRetainBuffer) {
 TEST_F(PM4CommandDispatchTest, WritesInteriorOfNestedQueuedArena) {
   using iree::hal::cts::SemaphoreList;
   iree_hal_queue_t* queue = test_device_.queue();
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      test_device_.base_device(), iree_hal_queue_family(queue), &backend));
-  iree_hal_passthrough_pool_options_t source_options = {};
-  source_options.epoch_query = backend.epoch_query;
   Ref<iree_hal_pool_t> source;
-  IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-      source_options, backend.slab_provider, backend.notification,
-      backend.frontier_tracker, backend.maintenance, host_allocator_,
-      source.out()));
-  iree_hal_buffer_params_t params = {};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(0);
+  IREE_ASSERT_OK(iree::hal::cts::CreateQueueSlabPool(
+      test_device_.device_group(), iree_hal_queue_family(queue),
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      /*host_access=*/{}, host_allocator_, source.out()));
   Ref<iree_hal_buffer_t> backing;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, params, 8192, iree_infinite_timeout(), backing.out()));
+      source, iree_hal_make_pool_reservation_request(8192, /*min_alignment=*/1),
+      iree_infinite_timeout(), backing.out()));
   iree_hal_tlsf_pool_options_t options = {};
   options.tlsf_options.frontier_capacity = 4;
   Ref<iree_hal_pool_t> arena_pool;
   IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
       backing, 256, 7168, &options, host_allocator_, arena_pool.out()));
-  const iree_hal_pool_reservation_request_t arena_request = {params, 4096};
+  const iree_hal_pool_reservation_request_t arena_request =
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
+                                             /*min_alignment=*/1);
   Ref<iree_hal_buffer_t> arena;
   SemaphoreList arena_ready(test_device_.base_device(), {0}, {1});
   IREE_ASSERT_OK(iree_hal_queue_alloca(queue, iree_hal_semaphore_list_empty(),
@@ -306,7 +299,9 @@ TEST_F(PM4CommandDispatchTest, WritesInteriorOfNestedQueuedArena) {
   Ref<iree_hal_pool_t> pool;
   IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
       arena, 256, 3584, &options, host_allocator_, pool.out()));
-  const iree_hal_pool_reservation_request_t request = {params, 256};
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/256,
+                                             /*min_alignment=*/1);
   Ref<iree_hal_buffer_t> root;
   SemaphoreList allocated(test_device_.base_device(), {0}, {1});
   IREE_ASSERT_OK(iree_hal_queue_alloca(queue, iree_hal_semaphore_list_empty(),

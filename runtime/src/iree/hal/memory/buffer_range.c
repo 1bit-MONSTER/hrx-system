@@ -90,36 +90,28 @@ void iree_hal_pool_buffer_range_query_reservation_view(
 
 iree_status_t iree_hal_pool_buffer_range_materialize(
     const iree_hal_pool_buffer_range_t* range, iree_device_size_t offset,
-    iree_device_size_t length, iree_hal_buffer_params_t params,
-    const iree_async_frontier_t* reuse_frontier,
+    iree_device_size_t length, const iree_async_frontier_t* reuse_frontier,
     iree_hal_buffer_release_callback_t release_callback,
     iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer) {
   *out_buffer = NULL;
+  iree_hal_memory_access_t allowed_access =
+      iree_hal_buffer_allowed_access(range->buffer);
+  iree_hal_buffer_usage_t allowed_usage =
+      iree_hal_buffer_allowed_usage(range->buffer);
   if (range->memory.contract) {
-    params = range->memory.contract->buffer_params;
-  } else {
-    iree_hal_buffer_params_canonicalize(&params);
+    allowed_access = range->memory.contract->allowed_access;
+    allowed_usage = range->memory.contract->allowed_usage;
   }
-  IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_memory_type(
-      iree_hal_buffer_memory_type(range->buffer),
-      params.type & ~IREE_HAL_MEMORY_TYPE_OPTIMAL));
   IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_access(
-      iree_hal_buffer_allowed_access(range->buffer), params.access));
+      iree_hal_buffer_allowed_access(range->buffer), allowed_access));
   IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_usage(
-      iree_hal_buffer_allowed_usage(range->buffer), params.usage));
-  const iree_hal_queue_family_affinity_t affinity =
-      iree_hal_buffer_allocation_placement(range->buffer).queue_family_affinity;
-  if (!iree_hal_queue_family_affinity_is_any(params.queue_family_affinity) &&
-      !iree_all_bits_set(affinity, params.queue_family_affinity)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "requested queue families exceed backing scope");
-  }
+      iree_hal_buffer_allowed_usage(range->buffer), allowed_usage));
   IREE_RETURN_IF_ERROR(iree_hal_subspan_buffer_create_with_callback(
       range->buffer,
       iree_hal_buffer_byte_offset(range->buffer) + range->offset + offset,
       length, release_callback, host_allocator, out_buffer));
-  (*out_buffer)->allowed_access = params.access;
-  (*out_buffer)->allowed_usage = params.usage;
+  (*out_buffer)->allowed_access = allowed_access;
+  (*out_buffer)->allowed_usage = allowed_usage;
   (*out_buffer)->memory = range->memory;
   (*out_buffer)->memory.offset += offset;
   (*out_buffer)->memory.binding_offset += offset;

@@ -1275,63 +1275,35 @@ static iree_status_t loom_testbench_generate_buffer(void* user_data,
 #undef LOOM_TESTBENCH_FILL_INT_TYPED
 #undef LOOM_TESTBENCH_FILL_IOTA_TYPED
 
-static iree_hal_buffer_params_t loom_testbench_default_buffer_params(void) {
-  iree_hal_buffer_params_t buffer_params = {
-      .usage = IREE_HAL_BUFFER_USAGE_DEFAULT | IREE_HAL_BUFFER_USAGE_MAPPING |
-               IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT,
-      .access = IREE_HAL_MEMORY_ACCESS_ALL,
-      .type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL,
-  };
-  return buffer_params;
-}
-
-static iree_hal_buffer_params_t loom_testbench_buffer_params(
+static bool loom_testbench_should_stage_target_pool(
     const loom_testbench_value_materializer_options_t* options) {
-  if (options->buffer_params.usage == IREE_HAL_BUFFER_USAGE_NONE &&
-      options->buffer_params.access == IREE_HAL_MEMORY_ACCESS_NONE &&
-      options->buffer_params.type == IREE_HAL_MEMORY_TYPE_NONE) {
-    return loom_testbench_default_buffer_params();
-  }
-  return options->buffer_params;
+  const iree_hal_pool_host_access_t host_access =
+      iree_hal_pool_query_host_access(options->target_pool);
+  return !iree_all_bits_set(host_access.access, IREE_HAL_MEMORY_ACCESS_WRITE) ||
+         !iree_all_bits_set(host_access.modes, IREE_HAL_MAPPING_MODE_SCOPED);
 }
 
-static bool loom_testbench_should_stage_buffer_params(
-    const loom_testbench_value_materializer_options_t* options,
-    iree_hal_buffer_params_t buffer_params) {
-  if (!options->device || !options->transfer_queue) {
-    return false;
-  }
-  iree_hal_buffer_params_canonicalize(&buffer_params);
-  return !iree_all_bits_set(buffer_params.type,
-                            IREE_HAL_MEMORY_TYPE_HOST_VISIBLE);
-}
-
-static iree_hal_buffer_params_t loom_testbench_staging_buffer_params(
-    iree_hal_buffer_params_t buffer_params) {
-  iree_hal_buffer_params_canonicalize(&buffer_params);
-  buffer_params.usage |=
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
-  buffer_params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  buffer_params.type &= ~IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  buffer_params.type |=
-      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-  return buffer_params;
-}
-
-static iree_status_t loom_testbench_copy_buffer_view_to_params(
+static iree_status_t loom_testbench_copy_buffer_view_to_target(
     const loom_testbench_value_materializer_options_t* options,
     iree_hal_buffer_view_t* source_buffer_view,
-    iree_hal_buffer_params_t target_params,
     iree_hal_buffer_view_t** out_target_buffer_view) {
   iree_hal_buffer_view_t* target_buffer_view = NULL;
   iree_status_t status = iree_hal_buffer_view_create_uninitialized_like(
-      options->device_allocator, target_params, source_buffer_view,
+      options->target_pool, options->min_alignment, source_buffer_view,
       &target_buffer_view);
+
+  if (iree_status_is_ok(status) &&
+      iree_hal_buffer_view_byte_length(source_buffer_view) == 0) {
+    *out_target_buffer_view = target_buffer_view;
+    return iree_ok_status();
+  }
 
   iree_hal_semaphore_t* completion_semaphore = NULL;
   if (iree_status_is_ok(status)) {
+    iree_hal_device_t* device = iree_hal_queue_family_device(
+        iree_hal_queue_family(options->transfer_queue));
     status = iree_hal_semaphore_create(
-        options->device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
+        device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
         IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &completion_semaphore);
   }
   if (iree_status_is_ok(status)) {
@@ -1376,9 +1348,9 @@ static iree_status_t loom_testbench_materialize_generated_source(
     const loom_testbench_value_source_plan_t* source,
     loom_testbench_generator_state_t* generator_state,
     loom_testbench_value_table_t* table) {
-  if (!options->device_allocator) {
+  if (!options->target_pool) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "shaped value generation requires a HAL allocator");
+                            "shaped value generation requires a target pool");
   }
   if (!loom_type_is_shaped(source->type)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -1394,25 +1366,28 @@ static iree_status_t loom_testbench_materialize_generated_source(
   IREE_RETURN_IF_ERROR(loom_testbench_scalar_type_to_hal_element_type(
       loom_type_element_type(source->type), &element_type));
 
-  iree_hal_buffer_params_t buffer_params =
-      loom_testbench_buffer_params(options);
   iree_hal_buffer_view_t* buffer_view = NULL;
-  if (loom_testbench_should_stage_buffer_params(options, buffer_params)) {
+  if (loom_testbench_should_stage_target_pool(options)) {
+    if (!options->staging_pool || !options->transfer_queue) {
+      return iree_make_status(
+          IREE_STATUS_FAILED_PRECONDITION,
+          "a non-host-writable target pool requires a staging pool and "
+          "transfer queue");
+    }
     iree_hal_buffer_view_t* staging_buffer_view = NULL;
     iree_status_t status = iree_hal_buffer_view_generate(
-        options->device_allocator,
-        loom_testbench_staging_buffer_params(buffer_params), shape_rank, shape,
+        options->staging_pool, options->min_alignment, shape_rank, shape,
         element_type, IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR,
         loom_testbench_generate_buffer, generator_state, &staging_buffer_view);
     if (iree_status_is_ok(status)) {
-      status = loom_testbench_copy_buffer_view_to_params(
-          options, staging_buffer_view, buffer_params, &buffer_view);
+      status = loom_testbench_copy_buffer_view_to_target(
+          options, staging_buffer_view, &buffer_view);
     }
     iree_hal_buffer_view_release(staging_buffer_view);
     IREE_RETURN_IF_ERROR(status);
   } else {
     IREE_RETURN_IF_ERROR(iree_hal_buffer_view_generate(
-        options->device_allocator, buffer_params, shape_rank, shape,
+        options->target_pool, options->min_alignment, shape_rank, shape,
         element_type, IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR,
         loom_testbench_generate_buffer, generator_state, &buffer_view));
   }
@@ -1484,9 +1459,9 @@ static iree_status_t loom_testbench_materialize_file_read_npy(
     const loom_testbench_value_materializer_options_t* options,
     const loom_testbench_value_source_plan_t* source,
     loom_testbench_value_table_t* table) {
-  if (!options->device_allocator) {
+  if (!options->target_pool) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "NPY reads require a HAL allocator");
+                            "NPY reads require a target pool");
   }
   if (!options->open_read_file.fn) {
     return iree_make_status(IREE_STATUS_UNAVAILABLE,
@@ -1501,25 +1476,29 @@ static iree_status_t loom_testbench_materialize_file_read_npy(
                             "file provider returned NULL stream");
   }
 
-  iree_hal_buffer_params_t buffer_params =
-      loom_testbench_buffer_params(options);
   iree_hal_buffer_view_t* buffer_view = NULL;
   iree_status_t status = iree_ok_status();
-  if (loom_testbench_should_stage_buffer_params(options, buffer_params)) {
+  if (loom_testbench_should_stage_target_pool(options)) {
+    if (!options->staging_pool || !options->transfer_queue) {
+      iree_io_stream_release(stream);
+      return iree_make_status(
+          IREE_STATUS_FAILED_PRECONDITION,
+          "a non-host-writable target pool requires a staging pool and "
+          "transfer queue");
+    }
     iree_hal_buffer_view_t* staging_buffer_view = NULL;
     status = iree_numpy_npy_load_ndarray(
-        stream, IREE_NUMPY_NPY_LOAD_OPTION_DEFAULT,
-        loom_testbench_staging_buffer_params(buffer_params),
-        options->device_allocator, &staging_buffer_view);
+        stream, IREE_NUMPY_NPY_LOAD_OPTION_DEFAULT, options->staging_pool,
+        options->min_alignment, &staging_buffer_view);
     if (iree_status_is_ok(status)) {
-      status = loom_testbench_copy_buffer_view_to_params(
-          options, staging_buffer_view, buffer_params, &buffer_view);
+      status = loom_testbench_copy_buffer_view_to_target(
+          options, staging_buffer_view, &buffer_view);
     }
     iree_hal_buffer_view_release(staging_buffer_view);
   } else {
     status = iree_numpy_npy_load_ndarray(
-        stream, IREE_NUMPY_NPY_LOAD_OPTION_DEFAULT, buffer_params,
-        options->device_allocator, &buffer_view);
+        stream, IREE_NUMPY_NPY_LOAD_OPTION_DEFAULT, options->target_pool,
+        options->min_alignment, &buffer_view);
   }
   iree_io_stream_release(stream);
 

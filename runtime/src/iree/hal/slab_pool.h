@@ -14,9 +14,49 @@
 extern "C" {
 #endif  // __cplusplus
 
+// Exact external storage classes that one selected native route must export
+// together. Class arrays are borrowed only during pool construction.
+typedef struct iree_hal_pool_export_classes_t {
+  // Number of required export classes.
+  iree_host_size_t class_count;
+  // Exact required export classes.
+  const iree_hal_external_storage_class_t* classes;
+} iree_hal_pool_export_classes_t;
+
+// One admitted import class and the exports required from buffers imported
+// through that route.
+typedef struct iree_hal_pool_import_class_t {
+  // Exact external storage class admitted as input.
+  iree_hal_external_storage_class_t storage_class;
+  // Export classes that must remain available after import.
+  iree_hal_pool_export_classes_t exports;
+} iree_hal_pool_import_class_t;
+
+// Controls whether a native slab pool can allocate new backing.
+typedef enum iree_hal_slab_pool_owned_mode_e {
+  // The pool may allocate new backing through its selected native route.
+  IREE_HAL_SLAB_POOL_OWNED_ENABLED = 0,
+  // The pool only admits explicitly imported backing.
+  IREE_HAL_SLAB_POOL_IMPORT_ONLY = 1,
+} iree_hal_slab_pool_owned_mode_t;
+
 typedef struct iree_hal_slab_pool_options_t {
   // Physical backing placement, independent of the participating-family order.
   iree_hal_pool_placement_t placement;
+  // Policy for storage allocated by the selected native route.
+  struct {
+    // Whether owned backing allocation is enabled.
+    iree_hal_slab_pool_owned_mode_t mode;
+    // Export classes required from every owned allocation.
+    iree_hal_pool_export_classes_t exports;
+  } owned;
+  // Exact external source classes admitted by this pool.
+  struct {
+    // Number of admitted input classes; zero disables import.
+    iree_host_size_t class_count;
+    // Source classes and their correlated export requirements.
+    const iree_hal_pool_import_class_t* classes;
+  } imports;
   // Optional construction preferences never weaken required scope entries.
   struct {
     // Additional public host access when the selected memory supports it.

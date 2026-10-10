@@ -12,38 +12,6 @@
 #include "iree/hal/detail.h"
 #include "iree/hal/resource.h"
 
-//===----------------------------------------------------------------------===//
-// String utils
-//===----------------------------------------------------------------------===//
-
-static const iree_bitfield_string_mapping_t
-    iree_hal_buffer_compatibility_mappings[] = {
-        {IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE, IREE_SVL("ALLOCATABLE")},
-        {IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE, IREE_SVL("IMPORTABLE")},
-        {IREE_HAL_BUFFER_COMPATIBILITY_EXPORTABLE, IREE_SVL("EXPORTABLE")},
-        {IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER,
-         IREE_SVL("QUEUE_TRANSFER")},
-        {IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH,
-         IREE_SVL("QUEUE_DISPATCH")},
-        {IREE_HAL_BUFFER_COMPATIBILITY_LOW_PERFORMANCE,
-         IREE_SVL("LOW_PERFORMANCE")},
-};
-
-IREE_API_EXPORT iree_status_t iree_hal_buffer_compatibility_parse(
-    iree_string_view_t value, iree_hal_buffer_compatibility_t* out_value) {
-  return iree_bitfield_parse(
-      value, IREE_ARRAYSIZE(iree_hal_buffer_compatibility_mappings),
-      iree_hal_buffer_compatibility_mappings, out_value);
-}
-
-IREE_API_EXPORT iree_string_view_t
-iree_hal_buffer_compatibility_format(iree_hal_buffer_compatibility_t value,
-                                     iree_bitfield_string_temp_t* out_temp) {
-  return iree_bitfield_format_inline(
-      value, IREE_ARRAYSIZE(iree_hal_buffer_compatibility_mappings),
-      iree_hal_buffer_compatibility_mappings, out_temp);
-}
-
 IREE_API_EXPORT iree_status_t iree_hal_allocator_statistics_format(
     const iree_hal_allocator_statistics_t* statistics,
     iree_string_builder_t* builder) {
@@ -86,16 +54,6 @@ IREE_API_EXPORT iree_allocator_t iree_hal_allocator_host_allocator(
     const iree_hal_allocator_t* IREE_RESTRICT allocator) {
   IREE_ASSERT_ARGUMENT(allocator);
   return _VTABLE_DISPATCH(allocator, host_allocator)(allocator);
-}
-
-IREE_API_EXPORT
-iree_status_t iree_hal_allocator_trim(
-    iree_hal_allocator_t* IREE_RESTRICT allocator) {
-  IREE_ASSERT_ARGUMENT(allocator);
-  IREE_TRACE_ZONE_BEGIN(z0);
-  iree_status_t status = _VTABLE_DISPATCH(allocator, trim)(allocator);
-  IREE_TRACE_ZONE_END(z0);
-  return status;
 }
 
 IREE_API_EXPORT void iree_hal_allocator_query_statistics(
@@ -157,73 +115,6 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_query_memory_heaps(
                                                          heaps, out_count);
 }
 
-IREE_API_EXPORT iree_hal_buffer_compatibility_t
-iree_hal_allocator_query_buffer_compatibility(
-    iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t* out_params,
-    iree_device_size_t* out_allocation_size) {
-  IREE_ASSERT_ARGUMENT(allocator);
-  iree_hal_buffer_params_canonicalize(&params);
-  iree_hal_buffer_compatibility_t result =
-      _VTABLE_DISPATCH(allocator, query_buffer_compatibility)(
-          allocator, &params, &allocation_size);
-  if (result != IREE_HAL_BUFFER_COMPATIBILITY_NONE) {
-    if (out_params) {
-      *out_params = params;
-    }
-    if (out_allocation_size) {
-      *out_allocation_size = allocation_size;
-    }
-  }
-  return result;
-}
-
-IREE_API_EXPORT iree_status_t iree_hal_allocator_allocate_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params, iree_device_size_t allocation_size,
-    iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
-  IREE_ASSERT_ARGUMENT(allocator);
-  IREE_ASSERT_ARGUMENT(out_buffer);
-  *out_buffer = NULL;
-  IREE_TRACE_ZONE_BEGIN(z0);
-  IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)allocation_size);
-  iree_hal_buffer_params_canonicalize(&params);
-  iree_status_t status = _VTABLE_DISPATCH(allocator, allocate_buffer)(
-      allocator, &params, allocation_size, out_buffer);
-  IREE_TRACE_ZONE_END(z0);
-  return status;
-}
-
-IREE_API_EXPORT void iree_hal_allocator_deallocate_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT allocator, iree_hal_buffer_t* buffer) {
-  IREE_ASSERT_ARGUMENT(allocator);
-  IREE_ASSERT_ARGUMENT(buffer);
-  IREE_TRACE_ZONE_BEGIN(z0);
-  IREE_TRACE_ZONE_APPEND_VALUE_I64(
-      z0, (int64_t)iree_hal_buffer_allocation_size(buffer));
-  _VTABLE_DISPATCH(allocator, deallocate_buffer)(allocator, buffer);
-  IREE_TRACE_ZONE_END(z0);
-}
-
-IREE_API_EXPORT iree_status_t iree_hal_allocator_import_buffer(
-    iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params,
-    iree_hal_external_buffer_t* IREE_RESTRICT external_buffer,
-    iree_hal_buffer_release_callback_t release_callback,
-    iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
-  IREE_ASSERT_ARGUMENT(allocator);
-  IREE_ASSERT_ARGUMENT(external_buffer);
-  IREE_ASSERT_ARGUMENT(out_buffer);
-  *out_buffer = NULL;
-  IREE_TRACE_ZONE_BEGIN(z0);
-  iree_hal_buffer_params_canonicalize(&params);
-  iree_status_t status = _VTABLE_DISPATCH(allocator, import_buffer)(
-      allocator, &params, external_buffer, release_callback, out_buffer);
-  IREE_TRACE_ZONE_END(z0);
-  return status;
-}
-
 //===----------------------------------------------------------------------===//
 // Virtual Memory Management
 //===----------------------------------------------------------------------===//
@@ -237,7 +128,7 @@ IREE_API_EXPORT bool iree_hal_allocator_supports_virtual_memory(
 IREE_API_EXPORT iree_status_t
 iree_hal_allocator_virtual_memory_query_granularity(
     iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params,
+    iree_hal_physical_memory_params_t params,
     iree_device_size_t* IREE_RESTRICT out_minimum_page_size,
     iree_device_size_t* IREE_RESTRICT out_recommended_page_size) {
   IREE_ASSERT_ARGUMENT(allocator);
@@ -283,7 +174,7 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_virtual_memory_release(
 
 IREE_API_EXPORT iree_status_t iree_hal_allocator_physical_memory_allocate(
     iree_hal_allocator_t* IREE_RESTRICT allocator,
-    iree_hal_buffer_params_t params, iree_device_size_t size,
+    iree_hal_physical_memory_params_t params, iree_device_size_t size,
     iree_allocator_t host_allocator,
     iree_hal_physical_memory_t** IREE_RESTRICT out_physical_memory) {
   IREE_ASSERT_ARGUMENT(allocator);

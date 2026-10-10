@@ -58,7 +58,7 @@ IREE_API_EXPORT iree_status_t iree_io_parameter_provider_load(
     iree_hal_queue_t* queue, iree_hal_pool_t* pool,
     const iree_hal_semaphore_list_t wait_semaphore_list,
     const iree_hal_semaphore_list_t signal_semaphore_list,
-    iree_string_view_t source_scope, iree_hal_buffer_params_t target_params,
+    iree_string_view_t source_scope, iree_device_size_t target_min_alignment,
     iree_host_size_t count, iree_io_parameter_enumerator_t enumerator,
     iree_io_parameter_emitter_t emitter) {
   IREE_ASSERT_ARGUMENT(provider);
@@ -68,7 +68,7 @@ IREE_API_EXPORT iree_status_t iree_io_parameter_provider_load(
   IREE_TRACE_ZONE_BEGIN(z0);
   iree_status_t status = provider->vtable->load(
       provider, device, queue, pool, wait_semaphore_list, signal_semaphore_list,
-      source_scope, target_params, count, enumerator, emitter);
+      source_scope, target_min_alignment, count, enumerator, emitter);
   IREE_TRACE_ZONE_END(z0);
   return status;
 }

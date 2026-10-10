@@ -59,24 +59,18 @@ static void MakeScaleAndOffsetBindings(iree_hal_buffer_t* input_buffer,
 // output[i] = input[i] * scale + offset.
 TEST_P(QueueDispatchTest, DispatchWithConstantsAndBindings) {
   const uint32_t input_data[] = {1, 2, 3, 4};
-  iree_hal_buffer_params_t params = {};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE_READ |
-                 IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET;
   Ref<iree_hal_buffer_t> input_buffer;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      device_allocator_, params, sizeof(input_data), input_buffer.out()));
+  IREE_ASSERT_OK(
+      CreateUninitializedDeviceBuffer(sizeof(input_data), input_buffer.out()));
   SemaphoreList upload_signal(device_, {0}, {1});
   IREE_ASSERT_OK(iree_hal_queue_update(
       transfer_queue_, iree_hal_semaphore_list_empty(), upload_signal,
       input_data, 0, input_buffer, 0, sizeof(input_data), /*barriers=*/NULL,
       IREE_HAL_UPDATE_FLAG_NONE));
 
-  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE_WRITE |
-                 IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE;
   Ref<iree_hal_buffer_t> output_buffer;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      device_allocator_, params, sizeof(input_data), output_buffer.out()));
+  IREE_ASSERT_OK(
+      CreateUninitializedDeviceBuffer(sizeof(input_data), output_buffer.out()));
 
   iree_hal_buffer_ref_t binding_refs[2];
   MakeScaleAndOffsetBindings(input_buffer, output_buffer, binding_refs);
@@ -664,12 +658,7 @@ class QueueDispatchIndirectParametersTest : public CtsTestBase<> {
   }
 
   iree_status_t CreateIndirectParameterBuffer(iree_hal_buffer_t** out_buffer) {
-    iree_hal_buffer_params_t params = {0};
-    params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-    params.usage = IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS |
-                   IREE_HAL_BUFFER_USAGE_TRANSFER;
-    return iree_hal_allocator_allocate_buffer(device_allocator_, params,
-                                              kParameterByteLength, out_buffer);
+    return CreateUninitializedDeviceBuffer(kParameterByteLength, out_buffer);
   }
 
   void ReloadExecutableFromCallScopedStorage() {

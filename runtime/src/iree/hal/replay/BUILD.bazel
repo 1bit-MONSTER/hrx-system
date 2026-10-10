@@ -118,6 +118,8 @@ iree_runtime_cc_library(
         "execute_object.h",
         "execute_operation.c",
         "execute_operation.h",
+        "execute_pool.c",
+        "execute_pool.h",
         "execute_state.c",
         "execute_state.h",
         "execute_vmm.c",
@@ -131,7 +133,6 @@ iree_runtime_cc_library(
         ":format",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/memory:passthrough_pool",
         "//runtime/src/iree/io:file_handle",
     ],
 )
@@ -153,6 +154,8 @@ iree_runtime_cc_library(
         "recorder_executable.h",
         "recorder_file.c",
         "recorder_file.h",
+        "recorder_pool.c",
+        "recorder_pool.h",
         "recorder_queue.c",
         "recorder_queue.h",
         "recorder_record.h",
@@ -224,7 +227,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/drivers/task/registration",
-        "//runtime/src/iree/hal/memory:passthrough_pool",
+        "//runtime/src/iree/hal/memory:tlsf_pool",
         "//runtime/src/iree/hal/testing:mock_device",
         "//runtime/src/iree/io:file_handle",
         "//runtime/src/iree/testing:gtest",
@@ -296,23 +299,6 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
-    name = "recorder_allocator_test",
-    srcs = [
-        "recorder_allocator.h",
-        "recorder_allocator_test.cc",
-    ],
-    deps = [
-        ":format",
-        ":recorder",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/hal",
-        "//runtime/src/iree/io:file_handle",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-    ],
-)
-
-iree_runtime_cc_test(
     name = "recorder_buffer_test",
     srcs = [
         "recorder_buffer.h",
@@ -334,6 +320,22 @@ iree_cmake_extra_content(
 if(TARGET iree::hal::drivers::task::registration)
 """,
     inline = True,
+)
+
+iree_runtime_cc_test(
+    name = "recorder_pool_test",
+    srcs = ["recorder_pool_test.cc"],
+    deps = [
+        ":recorder",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/util:proactor_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/task/registration",
+        "//runtime/src/iree/io:file_handle",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
 )
 
 iree_runtime_cc_test(

@@ -41,8 +41,8 @@ typedef struct iree_hal_vulkan_slab_provider_t {
   // Vulkan memory type index used for whole-slab allocations.
   uint32_t memory_type_index;
 
-  // Vulkan memory property flags for |memory_type_index|.
-  VkMemoryPropertyFlags memory_property_flags;
+  // Prequalified Vulkan memory types usable for external host attachments.
+  uint32_t import_memory_type_bits;
 
   // Immutable HAL memory properties exposed by this provider.
   iree_hal_slab_provider_properties_t properties;
@@ -78,6 +78,23 @@ static const iree_hal_vulkan_slab_provider_t*
 iree_hal_vulkan_slab_provider_const_cast(
     const iree_hal_slab_provider_t* base_provider) {
   return (const iree_hal_vulkan_slab_provider_t*)base_provider;
+}
+
+static void iree_hal_vulkan_slab_provider_populate_properties(
+    const iree_hal_vulkan_slab_provider_t* provider,
+    iree_hal_memory_type_t memory_type,
+    iree_hal_slab_provider_properties_t* out_properties) {
+  *out_properties = provider->properties;
+  out_properties->memory_type = memory_type;
+  out_properties->allocation_alignment =
+      provider->min_alignment ? provider->min_alignment : 1;
+  out_properties->max_allocation_alignment =
+      out_properties->allocation_alignment;
+  out_properties->maintenance_alignment =
+      iree_any_bit_set(memory_type, IREE_HAL_MEMORY_TYPE_HOST_VISIBLE) &&
+              !iree_any_bit_set(memory_type, IREE_HAL_MEMORY_TYPE_HOST_COHERENT)
+          ? provider->non_coherent_atom_size
+          : 1;
 }
 
 iree_status_t iree_hal_vulkan_slab_provider_create(
@@ -126,7 +143,7 @@ iree_status_t iree_hal_vulkan_slab_provider_create(
   provider->syms = *options.syms;
   provider->logical_device = options.logical_device;
   provider->memory_type_index = options.memory_type_index;
-  provider->memory_property_flags = options.memory_property_flags;
+  provider->import_memory_type_bits = options.import_memory_type_bits;
   provider->properties.memory_type = options.memory_type;
   provider->properties.supported_usage = options.supported_usage;
   provider->properties.queue_family_affinity =
@@ -192,7 +209,7 @@ static iree_status_t iree_hal_vulkan_slab_provider_acquire_slab(
                 (uint64_t)min_length, (uint64_t)min_alignment));
   }
 
-  const iree_hal_buffer_params_t params = {
+  const iree_hal_vulkan_buffer_spec_t buffer_spec = {
       .type = provider->properties.memory_type,
       .access = IREE_HAL_MEMORY_ACCESS_ALL,
       .usage = provider->properties.supported_usage,
@@ -202,7 +219,7 @@ static iree_status_t iree_hal_vulkan_slab_provider_acquire_slab(
   iree_hal_buffer_t* buffer = NULL;
   iree_status_t status =
       iree_hal_vulkan_allocator_allocate_direct_buffer_from_type(
-          provider->allocator, provider->memory_type_index, &params,
+          provider->allocator, provider->memory_type_index, &buffer_spec,
           allocation_size, &buffer);
 
   VkDeviceAddress device_address = 0;
@@ -226,6 +243,71 @@ static iree_status_t iree_hal_vulkan_slab_provider_acquire_slab(
   return status;
 }
 
+static iree_status_t iree_hal_vulkan_slab_provider_import_slab(
+    iree_hal_slab_provider_t* base_provider,
+    const iree_hal_external_storage_t* storage,
+    iree_hal_imported_slab_t* out_import) {
+  iree_hal_vulkan_slab_provider_t* provider =
+      iree_hal_vulkan_slab_provider_cast(base_provider);
+  IREE_TRACE_ZONE_BEGIN(z0);
+
+  const iree_hal_vulkan_buffer_spec_t buffer_spec = {
+      .type = provider->properties.memory_type,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .usage = provider->properties.supported_usage,
+      .queue_family_affinity = provider->queue_family_affinity_mask,
+      .min_alignment = provider->min_alignment,
+  };
+  iree_hal_buffer_t* buffer = NULL;
+  iree_status_t status = iree_hal_vulkan_allocator_import_direct_buffer(
+      provider->allocator, provider->import_memory_type_bits, &buffer_spec,
+      storage, &buffer);
+
+  VkDeviceAddress device_address = 0;
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_vulkan_buffer_device_address(buffer, &device_address);
+  }
+
+  if (iree_status_is_ok(status)) {
+    out_import->slab.base_ptr = (uint8_t*)(uintptr_t)device_address;
+    out_import->slab.length = storage->byte_length;
+    out_import->slab.provider_handle = (uint64_t)(uintptr_t)buffer;
+    iree_hal_vulkan_slab_provider_populate_properties(
+        provider, iree_hal_buffer_memory_type(buffer), &out_import->properties);
+    out_import->properties.supported_usage =
+        iree_hal_buffer_allowed_usage(buffer);
+    iree_hal_memory_trace_alloc(&provider->trace, out_import->slab.base_ptr,
+                                out_import->slab.length);
+    iree_atomic_fetch_add(&provider->total_acquired, 1,
+                          iree_memory_order_relaxed);
+  } else {
+    iree_hal_buffer_release(buffer);
+  }
+
+  IREE_TRACE_ZONE_END(z0);
+  return status;
+}
+
+static bool iree_hal_vulkan_slab_provider_query_import_requirements(
+    const iree_hal_slab_provider_t* base_provider,
+    iree_hal_external_storage_class_t storage_class,
+    iree_hal_pool_import_requirements_t* out_requirements) {
+  const iree_hal_vulkan_slab_provider_t* provider =
+      iree_hal_vulkan_slab_provider_const_cast(base_provider);
+  if (storage_class.type != IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER ||
+      storage_class.provenance[0] || storage_class.provenance[1] ||
+      !provider->import_memory_type_bits) {
+    return false;
+  }
+  *out_requirements = (iree_hal_pool_import_requirements_t){
+      .min_byte_length = provider->min_alignment,
+      .max_byte_length = 0,
+      .base_alignment = provider->min_alignment,
+      .byte_length_alignment = provider->min_alignment,
+  };
+  return true;
+}
+
 static void iree_hal_vulkan_slab_provider_release_slab(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab) {
   IREE_ASSERT_ARGUMENT(slab);
@@ -246,72 +328,14 @@ static void iree_hal_vulkan_slab_provider_release_slab(
 static iree_status_t iree_hal_vulkan_slab_provider_wrap_buffer(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab,
     iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t params,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** out_buffer) {
   iree_hal_vulkan_slab_provider_t* provider =
       iree_hal_vulkan_slab_provider_cast(base_provider);
   iree_hal_buffer_t* slab_buffer =
       (iree_hal_buffer_t*)(uintptr_t)slab->provider_handle;
-
-  iree_hal_memory_type_t resolved_type = params.type;
-  if (iree_any_bit_set(resolved_type, IREE_HAL_MEMORY_TYPE_OPTIMAL)) {
-    resolved_type &= ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
-    resolved_type |= provider->properties.memory_type;
-  }
-  if (IREE_UNLIKELY(!iree_all_bits_set(provider->properties.memory_type,
-                                       resolved_type))) {
-#if IREE_STATUS_MODE
-    iree_bitfield_string_temp_t actual_temp;
-    iree_bitfield_string_temp_t requested_temp;
-    iree_string_view_t actual_string = iree_hal_memory_type_format(
-        provider->properties.memory_type, &actual_temp);
-    iree_string_view_t requested_string =
-        iree_hal_memory_type_format(resolved_type, &requested_temp);
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "Vulkan slab provider memory type %.*s does not satisfy requested "
-        "buffer type %.*s",
-        (int)actual_string.size, actual_string.data, (int)requested_string.size,
-        requested_string.data);
-#else
-    return iree_status_from_code(IREE_STATUS_INVALID_ARGUMENT);
-#endif  // IREE_STATUS_MODE
-  }
-  if (IREE_UNLIKELY(!iree_all_bits_set(provider->properties.supported_usage,
-                                       params.usage))) {
-#if IREE_STATUS_MODE
-    iree_bitfield_string_temp_t actual_temp;
-    iree_bitfield_string_temp_t requested_temp;
-    iree_string_view_t actual_string = iree_hal_buffer_usage_format(
-        provider->properties.supported_usage, &actual_temp);
-    iree_string_view_t requested_string =
-        iree_hal_buffer_usage_format(params.usage, &requested_temp);
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "Vulkan slab provider usage %.*s does not satisfy requested buffer "
-        "usage %.*s",
-        (int)actual_string.size, actual_string.data, (int)requested_string.size,
-        requested_string.data);
-#else
-    return iree_status_from_code(IREE_STATUS_INVALID_ARGUMENT);
-#endif  // IREE_STATUS_MODE
-  }
-
-  iree_hal_queue_family_affinity_t queue_family_affinity =
-      params.queue_family_affinity;
-  if (iree_hal_queue_family_affinity_is_any(queue_family_affinity)) {
-    queue_family_affinity = provider->queue_family_affinity_mask;
-  } else if (IREE_UNLIKELY(iree_hal_queue_family_affinity_is_empty(
-                               queue_family_affinity) ||
-                           (queue_family_affinity &
-                            ~provider->queue_family_affinity_mask) != 0)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "Vulkan slab provider queue family affinity 0x%016" PRIx64
-        " is outside the supported mask 0x%016" PRIx64,
-        queue_family_affinity, provider->queue_family_affinity_mask);
-  }
 
   VkDeviceMemory device_memory = VK_NULL_HANDLE;
   VkBuffer handle = VK_NULL_HANDLE;
@@ -322,17 +346,21 @@ static iree_status_t iree_hal_vulkan_slab_provider_wrap_buffer(
       iree_hal_vulkan_buffer_device_address(slab_buffer, &device_address));
   iree_hal_vulkan_buffer_mapping_state_t* mapping_state =
       iree_hal_vulkan_buffer_mapping_state(slab_buffer);
+  const iree_hal_memory_type_t memory_type =
+      iree_hal_buffer_memory_type(slab_buffer);
+  const VkMemoryPropertyFlags memory_property_flags =
+      iree_hal_vulkan_buffer_memory_property_flags(slab_buffer);
 
   const iree_hal_buffer_placement_t placement = {
       .device = provider->parent_device,
-      .queue_family_affinity = queue_family_affinity,
+      .queue_family_affinity = provider->queue_family_affinity_mask,
       .flags = IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE,
   };
   return iree_hal_vulkan_buffer_create_borrowed(
-      &provider->syms, provider->logical_device, placement, resolved_type,
-      params.access, params.usage, slab->length, slab_offset, allocation_size,
-      provider->memory_property_flags, provider->non_coherent_atom_size,
-      device_memory, mapping_state, handle, device_address, release_callback,
+      &provider->syms, provider->logical_device, placement, memory_type,
+      allowed_access, allowed_usage, slab->length, slab_offset, allocation_size,
+      memory_property_flags, provider->non_coherent_atom_size, device_memory,
+      mapping_state, handle, device_address, release_callback,
       provider->host_allocator, out_buffer);
 }
 
@@ -392,18 +420,8 @@ static void iree_hal_vulkan_slab_provider_query_properties(
     iree_hal_slab_provider_properties_t* out_properties) {
   const iree_hal_vulkan_slab_provider_t* provider =
       iree_hal_vulkan_slab_provider_const_cast(base_provider);
-  *out_properties = provider->properties;
-  out_properties->allocation_alignment =
-      provider->min_alignment ? provider->min_alignment : 1;
-  out_properties->max_allocation_alignment =
-      out_properties->allocation_alignment;
-  out_properties->maintenance_alignment =
-      iree_any_bit_set(provider->memory_property_flags,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) &&
-              !iree_any_bit_set(provider->memory_property_flags,
-                                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
-          ? provider->non_coherent_atom_size
-          : 1;
+  iree_hal_vulkan_slab_provider_populate_properties(
+      provider, provider->properties.memory_type, out_properties);
 }
 
 static const iree_hal_slab_provider_vtable_t
@@ -419,4 +437,7 @@ static const iree_hal_slab_provider_vtable_t
         .trim = iree_hal_vulkan_slab_provider_trim,
         .query_stats = iree_hal_vulkan_slab_provider_query_stats,
         .query_properties = iree_hal_vulkan_slab_provider_query_properties,
+        .import_slab = iree_hal_vulkan_slab_provider_import_slab,
+        .query_import_requirements =
+            iree_hal_vulkan_slab_provider_query_import_requirements,
 };

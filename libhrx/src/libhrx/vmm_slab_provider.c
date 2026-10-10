@@ -21,7 +21,7 @@ typedef struct hrx_vmm_slab_provider_t {
   iree_allocator_t host_allocator;
 
   // Parameters used to allocate physical backing for every slab.
-  iree_hal_buffer_params_t buffer_params;
+  iree_hal_physical_memory_params_t physical_memory_params;
 
   // Granularity required for virtual reservations and physical allocations.
   iree_device_size_t page_size;
@@ -205,11 +205,12 @@ static iree_status_t hrx_vmm_slab_provider_acquire_slab(
   };
 
   iree_status_t status = iree_hal_allocator_virtual_memory_reserve(
-      provider->allocator, provider->buffer_params.queue_family_affinity,
-      allocation_size, &slab->virtual_buffer);
+      provider->allocator,
+      provider->physical_memory_params.queue_family_affinity, allocation_size,
+      &slab->virtual_buffer);
   if (iree_status_is_ok(status)) {
     status = iree_hal_allocator_physical_memory_allocate(
-        provider->allocator, provider->buffer_params, allocation_size,
+        provider->allocator, provider->physical_memory_params, allocation_size,
         provider->host_allocator, &slab->physical_memory);
   }
   if (iree_status_is_ok(status)) {
@@ -221,19 +222,28 @@ static iree_status_t hrx_vmm_slab_provider_acquire_slab(
   if (iree_status_is_ok(status)) {
     status = iree_hal_allocator_virtual_memory_protect(
         provider->allocator, slab->virtual_buffer, /*virtual_offset=*/0,
-        allocation_size, provider->buffer_params.queue_family_affinity,
+        allocation_size, provider->physical_memory_params.queue_family_affinity,
         IREE_HAL_VIRTUAL_MEMORY_ACCESS_SCOPE_DEVICE,
         IREE_HAL_MEMORY_PROTECTION_READ_WRITE);
   }
 
-  iree_hal_external_buffer_t external_buffer;
+  iree_hal_external_storage_t external_buffer = {0};
+  iree_hal_buffer_range_t logical_range = {0};
   if (iree_status_is_ok(status)) {
     status = iree_hal_buffer_export(
-        slab->virtual_buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-        IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer);
+        slab->virtual_buffer,
+        iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+        iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+        &external_buffer, &logical_range);
   }
-  if (iree_status_is_ok(status) &&
-      !external_buffer.handle.device_allocation.ptr) {
+  uint64_t device_address = 0;
+  if (iree_status_is_ok(status)) {
+    device_address =
+        external_buffer.payload.device_address + logical_range.byte_offset;
+  }
+  iree_hal_external_storage_release(&external_buffer);
+  if (iree_status_is_ok(status) && !device_address) {
     status = iree_make_status(
         IREE_STATUS_UNAVAILABLE,
         "VMM allocator returned a reservation without a device address");
@@ -250,8 +260,7 @@ static iree_status_t hrx_vmm_slab_provider_acquire_slab(
   }
 
   slab->is_published = true;
-  out_slab->base_ptr =
-      (uint8_t*)(uintptr_t)external_buffer.handle.device_allocation.ptr;
+  out_slab->base_ptr = (uint8_t*)(uintptr_t)device_address;
   out_slab->length = allocation_size;
   out_slab->provider_handle = (uint64_t)(uintptr_t)slab;
   iree_atomic_fetch_add(&provider->total_acquired, 1,
@@ -282,7 +291,8 @@ static void hrx_vmm_slab_provider_release_slab(
 static iree_status_t hrx_vmm_slab_provider_wrap_buffer(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab,
     iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t params,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** out_buffer) {
   IREE_ASSERT_ARGUMENT(slab);
@@ -296,17 +306,12 @@ static iree_status_t hrx_vmm_slab_provider_wrap_buffer(
                             "VMM slab has no virtual reservation");
   }
 
-  const iree_hal_memory_type_t required_type =
-      params.type & ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
-  IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_memory_type(
-      iree_hal_buffer_memory_type(virtual_slab->virtual_buffer),
-      required_type));
   IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_access(
       iree_hal_buffer_allowed_access(virtual_slab->virtual_buffer),
-      params.access));
+      allowed_access));
   IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_usage(
       iree_hal_buffer_allowed_usage(virtual_slab->virtual_buffer),
-      params.usage));
+      allowed_usage));
 
   // The callback returns this range to the pool. Tie it to the final subspan
   // reference so TLSF cannot reuse the range while a caller still owns it.
@@ -378,10 +383,10 @@ static void hrx_vmm_slab_provider_query_properties(
     iree_hal_slab_provider_properties_t* out_properties) {
   const hrx_vmm_slab_provider_t* provider =
       hrx_vmm_slab_provider_const_cast(base_provider);
-  out_properties->memory_type = provider->buffer_params.type;
-  out_properties->supported_usage = provider->buffer_params.usage;
+  out_properties->memory_type = provider->physical_memory_params.type;
+  out_properties->supported_usage = provider->physical_memory_params.usage;
   out_properties->queue_family_affinity =
-      provider->buffer_params.queue_family_affinity;
+      provider->physical_memory_params.queue_family_affinity;
   out_properties->allocation_alignment = provider->page_size;
   out_properties->max_allocation_alignment = provider->page_size;
   out_properties->maintenance_alignment = 1;
@@ -389,7 +394,7 @@ static void hrx_vmm_slab_provider_query_properties(
 
 iree_status_t hrx_vmm_slab_provider_create(
     iree_hal_allocator_t* allocator,
-    iree_hal_buffer_params_t physical_buffer_params,
+    iree_hal_physical_memory_params_t physical_memory_params,
     iree_allocator_t host_allocator, iree_hal_slab_provider_t** out_provider) {
   IREE_ASSERT_ARGUMENT(allocator);
   IREE_ASSERT_ARGUMENT(out_provider);
@@ -399,9 +404,9 @@ iree_status_t hrx_vmm_slab_provider_create(
                             "allocator does not support virtual memory");
   }
 
-  iree_hal_buffer_params_canonicalize(&physical_buffer_params);
+  iree_hal_physical_memory_params_canonicalize(&physical_memory_params);
   const iree_hal_memory_type_t required_type =
-      physical_buffer_params.type & ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
+      physical_memory_params.type & ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
   if (!iree_all_bits_set(required_type, IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL) ||
       iree_any_bit_set(required_type, IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
                                           IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
@@ -415,7 +420,7 @@ iree_status_t hrx_vmm_slab_provider_create(
   iree_device_size_t minimum_page_size = 0;
   iree_device_size_t recommended_page_size = 0;
   IREE_RETURN_IF_ERROR(iree_hal_allocator_virtual_memory_query_granularity(
-      allocator, physical_buffer_params, &minimum_page_size,
+      allocator, physical_memory_params, &minimum_page_size,
       &recommended_page_size));
   const iree_device_size_t page_size =
       recommended_page_size ? recommended_page_size : minimum_page_size;
@@ -430,7 +435,7 @@ iree_status_t hrx_vmm_slab_provider_create(
   *provider = (hrx_vmm_slab_provider_t){
       .allocator = allocator,
       .host_allocator = host_allocator,
-      .buffer_params = physical_buffer_params,
+      .physical_memory_params = physical_memory_params,
       .page_size = page_size,
       .total_acquired = IREE_ATOMIC_VAR_INIT(0),
       .total_released = IREE_ATOMIC_VAR_INIT(0),

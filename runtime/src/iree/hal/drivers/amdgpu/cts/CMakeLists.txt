@@ -347,8 +347,6 @@ iree_cc_test(
     iree::hal::cts::util::test_base
     iree::hal::cts::util::test_main
     iree::hal::drivers::amdgpu::headers
-    iree::hal::memory::cpu_slab_provider
-    iree::hal::memory::passthrough_pool
     iree::hal::memory::tlsf_pool
   LABELS
     "iree-build-requirement=runtime.hal.amdgpu"

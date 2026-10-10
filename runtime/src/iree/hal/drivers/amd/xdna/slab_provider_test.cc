@@ -211,14 +211,10 @@ TEST_F(SlabProviderTest, PublishesRangedBindingsAndCacheControl) {
   EXPECT_EQ(native_.created_alignments[0], 256u);
 
   int release_count = 0;
-  iree_hal_buffer_params_t params = {};
-  params.usage = IREE_HAL_BUFFER_USAGE_DISPATCH | IREE_HAL_BUFFER_USAGE_MAPPING;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.type = properties.memory_type;
-  params.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
   iree_hal_buffer_t* buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_slab_provider_wrap_buffer(
-      provider_, &slab, 16, 32, params,
+      provider_, &slab, 16, 32, IREE_HAL_MEMORY_ACCESS_ALL,
+      IREE_HAL_BUFFER_USAGE_DISPATCH | IREE_HAL_BUFFER_USAGE_MAPPING,
       (iree_hal_buffer_release_callback_t){
           +[](void* user_data, iree_hal_buffer_t* buffer) {
             (void)buffer;

@@ -20,6 +20,7 @@
 #include "iree/hal/drivers/task/executable/library/abi.h"
 #include "iree/hal/drivers/task/executable/loader.h"
 #include "iree/hal/drivers/task/executable/loaders/registration/init.h"
+#include "iree/hal/memory/heap_pool.h"
 #include "iree/io/file_contents.h"
 #include "iree/task/topology.h"
 
@@ -149,9 +150,7 @@ iree_hal_executable_library_create_device(
   }
   iree_hal_allocator_t* device_allocator = NULL;
   if (iree_status_is_ok(status)) {
-    status =
-        iree_hal_allocator_create_heap(IREE_SV("benchmark"), host_allocator,
-                                       host_allocator, &device_allocator);
+    status = iree_hal_allocator_create_heap(host_allocator, &device_allocator);
   }
   if (iree_status_is_ok(status)) {
     iree_hal_task_device_params_t device_params;
@@ -219,6 +218,17 @@ static iree_status_t iree_hal_executable_library_run(
       executable_loader, host_allocator, &device);
   iree_hal_executable_loader_release(executable_loader);
 
+  iree_hal_pool_t* binding_pool = NULL;
+  if (iree_status_is_ok(status)) {
+    const iree_hal_pool_host_access_t host_access = {
+        .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+        .modes =
+            IREE_HAL_MAPPING_MODE_SCOPED | IREE_HAL_MAPPING_MODE_PERSISTENT,
+    };
+    status = iree_hal_heap_pool_create(host_access, host_allocator,
+                                       host_allocator, &binding_pool);
+  }
+
   // Select the highest-priority target advertised by the chosen loader.
   const iree_hal_executable_target_t* target = NULL;
   if (iree_status_is_ok(status)) {
@@ -284,17 +294,11 @@ static iree_status_t iree_hal_executable_library_run(
   iree_hal_buffer_view_t* buffer_views[IREE_HAL_EXECUTABLE_MAX_BINDING_COUNT];
   void* binding_ptrs[IREE_HAL_EXECUTABLE_MAX_BINDING_COUNT];
   size_t binding_lengths[IREE_HAL_EXECUTABLE_MAX_BINDING_COUNT];
-  const iree_hal_buffer_params_t buffer_params = {
-      .usage = IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT |
-               IREE_HAL_BUFFER_USAGE_MAPPING_ACCESS_RANDOM,
-      .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
-      .type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL,
-  };
   for (iree_host_size_t i = 0;
        iree_status_is_ok(status) && i < dispatch_params.binding_count; ++i) {
-    status = iree_hal_buffer_view_parse(dispatch_params.bindings[i],
-                                        iree_hal_device_allocator(device),
-                                        buffer_params, &buffer_views[i]);
+    status =
+        iree_hal_buffer_view_parse(dispatch_params.bindings[i], binding_pool,
+                                   /*min_alignment=*/0, &buffer_views[i]);
     if (iree_status_is_ok(status)) {
       ++buffer_view_count;
       iree_hal_buffer_t* buffer = iree_hal_buffer_view_buffer(buffer_views[i]);
@@ -339,6 +343,7 @@ static iree_status_t iree_hal_executable_library_run(
 
   // Unload.
   iree_hal_executable_release(executable);
+  iree_hal_pool_release(binding_pool);
   iree_hal_device_release(device);
   iree_io_file_contents_free(file_contents);
 

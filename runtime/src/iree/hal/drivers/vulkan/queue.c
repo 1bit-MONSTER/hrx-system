@@ -29,6 +29,7 @@
 #define IREE_HAL_VULKAN_QUEUE_COMMAND_BUFFER_SLOT_ABSENT UINT32_MAX
 #define IREE_HAL_VULKAN_QUEUE_COMMAND_BUFFER_SLOT_RESERVED UINT64_MAX
 #define IREE_HAL_VULKAN_QUEUE_COMMAND_BUFFER_BLOCK_CAPACITY 64
+#define IREE_HAL_VULKAN_QUEUE_FILL_SCRATCH_SIZE 8
 #define IREE_HAL_VULKAN_QUEUE_NATIVE_REPLAY_OWNER_RESERVED UINT64_MAX
 #define IREE_HAL_VULKAN_QUEUE_NATIVE_DESCRIPTOR_BLOCK_SET_CAPACITY 4096
 #define IREE_HAL_VULKAN_QUEUE_BDA_PUBLICATION_BLOCK_SIZE (64ull * 1024ull)
@@ -67,6 +68,10 @@ struct iree_hal_vulkan_queue_command_buffer_block_t {
 
   // Command pool backing command_buffers.
   VkCommandPool pool;
+
+  // Transfer-only fill scratch, with eight bytes per command-buffer slot.
+  // The command-buffer lease owns reuse through native completion.
+  iree_hal_buffer_t* fill_scratch;
 
   // Primary command buffers leased by one-shot queue submissions.
   VkCommandBuffer
@@ -502,9 +507,6 @@ struct iree_hal_vulkan_queue_pending_submission_t {
     struct {
       // Target buffer retained until the fill retires.
       iree_hal_buffer_t* target_buffer;
-
-      // Tiny transfer source containing repeated edge pattern bytes. Owned.
-      iree_hal_buffer_t* staging_buffer;
 
       // Target byte offset captured from queue_fill.
       iree_device_size_t target_offset;
@@ -1173,7 +1175,7 @@ static iree_status_t iree_hal_vulkan_queue_bda_publication_block_create(
   memset(block, 0, sizeof(*block));
   block->capacity = capacity;
 
-  iree_hal_buffer_params_t params = {
+  const iree_hal_vulkan_buffer_spec_t buffer_spec = {
       .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE |
               IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
       .access = IREE_HAL_MEMORY_ACCESS_WRITE,
@@ -1184,7 +1186,7 @@ static iree_status_t iree_hal_vulkan_queue_bda_publication_block_create(
           iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base))),
   };
   iree_status_t status = iree_hal_vulkan_allocator_allocate_direct_buffer(
-      queue->device_allocator, &params, capacity, &block->buffer);
+      queue->device_allocator, &buffer_spec, capacity, &block->buffer);
   if (iree_status_is_ok(status)) {
     status = iree_hal_buffer_map_range(
         block->buffer, IREE_HAL_MAPPING_MODE_PERSISTENT,
@@ -1615,7 +1617,7 @@ static iree_status_t iree_hal_vulkan_queue_staging_ring_create(
   ring->waiter_tail = &ring->waiter_head;
 
   const iree_device_size_t allocation_size = slot_size * slot_count;
-  iree_hal_buffer_params_t params = {
+  const iree_hal_vulkan_buffer_spec_t buffer_spec = {
       .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE |
               IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
       .access = IREE_HAL_MEMORY_ACCESS_ALL,
@@ -1627,8 +1629,8 @@ static iree_status_t iree_hal_vulkan_queue_staging_ring_create(
       .queue_family_affinity = iree_hal_make_queue_family_affinity(
           iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base))),
   };
-  iree_status_t status = iree_hal_allocator_allocate_buffer(
-      queue->device_allocator, params, allocation_size, &ring->buffer);
+  iree_status_t status = iree_hal_vulkan_allocator_allocate_direct_buffer(
+      queue->device_allocator, &buffer_spec, allocation_size, &ring->buffer);
   if (iree_status_is_ok(status)) {
     status = iree_hal_buffer_map_range(
         ring->buffer, IREE_HAL_MAPPING_MODE_PERSISTENT,
@@ -1789,6 +1791,21 @@ static iree_status_t iree_hal_vulkan_queue_command_buffer_block_create(
         IREE_VULKAN_DEVICE(&queue->syms), queue->logical_device, &allocate_info,
         block->command_buffers);
   }
+  if (iree_status_is_ok(status) &&
+      !iree_any_bit_set(queue->queue_flags, VK_QUEUE_COMPUTE_BIT)) {
+    const iree_hal_vulkan_buffer_spec_t buffer_spec = {
+        .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+        .access = IREE_HAL_MEMORY_ACCESS_ALL,
+        .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
+        .queue_family_affinity = iree_hal_make_queue_family_affinity(
+            iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base))),
+    };
+    status = iree_hal_vulkan_allocator_allocate_direct_buffer(
+        queue->device_allocator, &buffer_spec,
+        IREE_HAL_VULKAN_QUEUE_FILL_SCRATCH_SIZE *
+            IREE_HAL_VULKAN_QUEUE_COMMAND_BUFFER_BLOCK_CAPACITY,
+        &block->fill_scratch);
+  }
   if (iree_status_is_ok(status)) {
     *out_block = block;
   } else {
@@ -1797,6 +1814,7 @@ static iree_status_t iree_hal_vulkan_queue_command_buffer_block_create(
                                 queue->logical_device, block->pool,
                                 /*pAllocator=*/NULL);
     }
+    iree_hal_buffer_release(block->fill_scratch);
     iree_allocator_free(queue->host_allocator, block);
   }
   return status;
@@ -1813,6 +1831,7 @@ static void iree_hal_vulkan_queue_command_buffer_block_destroy(
                               queue->logical_device, block->pool,
                               /*pAllocator=*/NULL);
   }
+  iree_hal_buffer_release(block->fill_scratch);
   iree_allocator_free(queue->host_allocator, block);
 }
 
@@ -2371,9 +2390,6 @@ static iree_status_t iree_hal_vulkan_queue_acquire_native_replay_under_lock(
     bool replay_compatible, iree_device_size_t publication_length,
     bool* out_acquired) {
   *out_acquired = false;
-  if (!replay_compatible) {
-    return iree_ok_status();
-  }
   if (descriptor_requirements.set_count != 0) {
     queue->native_replay_cache.descriptor_bypass_count =
         queue->native_replay_cache.descriptor_bypass_count + 1;
@@ -2396,6 +2412,9 @@ static iree_status_t iree_hal_vulkan_queue_acquire_native_replay_under_lock(
       iree_hal_vulkan_queue_profile_requests_dispatch_events(submission)) {
     queue->native_replay_cache.profile_bypass_count =
         queue->native_replay_cache.profile_bypass_count + 1;
+    return iree_ok_status();
+  }
+  if (!replay_compatible) {
     return iree_ok_status();
   }
 
@@ -3791,7 +3810,7 @@ static void iree_hal_vulkan_queue_profile_record_memory_event(
     iree_hal_profile_memory_event_type_t type,
     iree_hal_profile_memory_event_flags_t flags, uint32_t result,
     uint64_t allocation_id, iree_hal_pool_t* pool,
-    iree_hal_buffer_params_t params,
+    const iree_hal_buffer_t* buffer, iree_device_size_t alignment,
     const iree_hal_pool_reservation_t* reservation, uint64_t backing_id,
     iree_device_size_t length, uint64_t frontier_entry_count) {
   if (!iree_hal_vulkan_profile_recorder_is_enabled(
@@ -3814,10 +3833,12 @@ static void iree_hal_vulkan_queue_profile_record_memory_event(
   event.queue_ordinal = submission->profile.scope.queue_ordinal;
   event.frontier_entry_count =
       (uint32_t)iree_min(frontier_entry_count, (uint64_t)UINT32_MAX);
-  event.memory_type = params.type;
-  event.buffer_usage = params.usage;
+  if (buffer) {
+    event.memory_type = iree_hal_buffer_memory_type(buffer);
+    event.buffer_usage = iree_hal_buffer_allowed_usage(buffer);
+  }
   event.length = length;
-  event.alignment = params.min_alignment ? params.min_alignment : 1;
+  event.alignment = alignment ? alignment : 1;
   if (reservation) {
     event.flags |= IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_POOL_RESERVATION;
     event.backing_id = reservation->block_handle;
@@ -4010,49 +4031,42 @@ static iree_status_t iree_hal_vulkan_queue_pending_submission_create(
   return iree_ok_status();
 }
 
-static void iree_hal_vulkan_queue_pending_submission_destroy(
+// Releases caller-visible resources captured by a submission. Terminal
+// semaphore publication permits callers to destroy allocation pools, so this
+// must run before publishing success or failure. The operation is idempotent so
+// capture failures and final submission destruction share the same cleanup.
+static void iree_hal_vulkan_queue_release_operation_resources(
     iree_hal_vulkan_queue_t* queue,
     iree_hal_vulkan_queue_pending_submission_t* submission) {
-  iree_hal_semaphore_list_release(submission->wait_semaphore_list);
-  iree_hal_semaphore_list_release(submission->signal_semaphore_list);
-  iree_status_t wait_failure_status = (iree_status_t)iree_atomic_exchange(
-      &submission->wait_failure_status, 0, iree_memory_order_acquire);
-  iree_status_free(wait_failure_status);
-  if (submission->wait_entries) {
-    iree_allocator_free(queue->host_allocator, submission->wait_entries);
-  }
-  iree_allocator_free(queue->host_allocator, submission->sparse_bind.binds);
-  iree_hal_vulkan_queue_release_descriptor_cache_sets(queue, submission);
-  iree_hal_vulkan_queue_release_native_descriptor_pool(queue, submission);
-  iree_hal_vulkan_queue_release_bda_publication(queue, submission);
-  iree_hal_vulkan_queue_release_timestamp_queries(queue, submission);
-  iree_hal_vulkan_queue_release_completion_action(submission);
-  iree_hal_vulkan_queue_release_native_replay(queue, submission);
-  iree_hal_vulkan_queue_release_native_command_buffer(queue, submission);
-
   switch (submission->kind) {
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_SPARSE_BIND:
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_FILL:
       iree_hal_buffer_release(submission->fill.target_buffer);
-      iree_hal_buffer_release(submission->fill.staging_buffer);
+      submission->fill.target_buffer = NULL;
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_UPDATE:
       iree_allocator_free(queue->host_allocator,
                           submission->update.source_data);
+      submission->update.source_data = NULL;
       iree_hal_buffer_release(submission->update.target_buffer);
+      submission->update.target_buffer = NULL;
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_COPY:
       iree_hal_buffer_release(submission->copy.source_buffer);
+      submission->copy.source_buffer = NULL;
       iree_hal_buffer_release(submission->copy.target_buffer);
+      submission->copy.target_buffer = NULL;
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_TRANSFER:
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_ALLOCA: {
       if (submission->alloca.capacity.prepared) {
         iree_hal_pool_wait_abort(submission->alloca.capacity.wait);
+        submission->alloca.capacity.prepared = false;
       }
       iree_hal_pool_wait_destroy(submission->alloca.capacity.wait);
+      submission->alloca.capacity.wait = NULL;
       for (iree_host_size_t i = 0; i < submission->alloca.request_count; ++i) {
         iree_hal_buffer_release(submission->alloca.backing_buffers[i]);
         submission->alloca.backing_buffers[i] = NULL;
@@ -4081,6 +4095,7 @@ static void iree_hal_vulkan_queue_pending_submission_destroy(
       }
       for (iree_host_size_t i = 0; i < submission->alloca.request_count; ++i) {
         iree_hal_buffer_release(submission->alloca.buffers[i]);
+        submission->alloca.buffers[i] = NULL;
       }
       break;
     }
@@ -4095,10 +4110,12 @@ static void iree_hal_vulkan_queue_pending_submission_destroy(
       }
       for (iree_host_size_t i = 0; i < submission->dealloca.buffer_count; ++i) {
         iree_hal_buffer_release(submission->dealloca.buffers[i]);
+        submission->dealloca.buffers[i] = NULL;
       }
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_EXECUTE:
       iree_hal_command_buffer_release(submission->execute.command_buffer);
+      submission->execute.command_buffer = NULL;
       if (submission->execute.binding_table_bindings &&
           !iree_any_bit_set(
               submission->execute.flags,
@@ -4107,32 +4124,62 @@ static void iree_hal_vulkan_queue_pending_submission_destroy(
              i < submission->execute.binding_table_count; ++i) {
           iree_hal_buffer_release(
               submission->execute.binding_table_bindings[i].buffer);
+          submission->execute.binding_table_bindings[i].buffer = NULL;
         }
       }
+      submission->execute.binding_table_count = 0;
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_DISPATCH:
       iree_hal_executable_release(submission->dispatch.executable);
+      submission->dispatch.executable = NULL;
       if (submission->dispatch.bindings) {
         for (iree_host_size_t i = 0; i < submission->dispatch.binding_count;
              ++i) {
           iree_hal_buffer_release(submission->dispatch.bindings[i].buffer);
+          submission->dispatch.bindings[i].buffer = NULL;
         }
       }
       if (iree_hal_dispatch_uses_indirect_parameters(
               submission->dispatch.flags)) {
         iree_hal_buffer_release(
             submission->dispatch.config.workgroup_count_ref.buffer);
+        submission->dispatch.config.workgroup_count_ref.buffer = NULL;
       }
+      submission->dispatch.binding_count = 0;
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_ATOMIC:
       iree_hal_buffer_release(submission->atomic.target_buffer);
+      submission->atomic.target_buffer = NULL;
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_BARRIER:
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_HOST_CALL:
       iree_hal_resource_release(submission->host_call.call.resource);
+      submission->host_call.call.resource = NULL;
       break;
   }
+}
+
+static void iree_hal_vulkan_queue_pending_submission_destroy(
+    iree_hal_vulkan_queue_t* queue,
+    iree_hal_vulkan_queue_pending_submission_t* submission) {
+  iree_hal_semaphore_list_release(submission->wait_semaphore_list);
+  iree_hal_semaphore_list_release(submission->signal_semaphore_list);
+  iree_status_t wait_failure_status = (iree_status_t)iree_atomic_exchange(
+      &submission->wait_failure_status, 0, iree_memory_order_acquire);
+  iree_status_free(wait_failure_status);
+  if (submission->wait_entries) {
+    iree_allocator_free(queue->host_allocator, submission->wait_entries);
+  }
+  iree_allocator_free(queue->host_allocator, submission->sparse_bind.binds);
+  iree_hal_vulkan_queue_release_descriptor_cache_sets(queue, submission);
+  iree_hal_vulkan_queue_release_native_descriptor_pool(queue, submission);
+  iree_hal_vulkan_queue_release_bda_publication(queue, submission);
+  iree_hal_vulkan_queue_release_timestamp_queries(queue, submission);
+  iree_hal_vulkan_queue_release_completion_action(submission);
+  iree_hal_vulkan_queue_release_native_replay(queue, submission);
+  iree_hal_vulkan_queue_release_native_command_buffer(queue, submission);
+  iree_hal_vulkan_queue_release_operation_resources(queue, submission);
 
   iree_notification_deinitialize(&submission->callback_notification);
   iree_allocator_free(queue->host_allocator, submission);
@@ -4200,6 +4247,7 @@ static void iree_hal_vulkan_queue_execute_host_call(
       iree_async_fixed_frontier_as_const_frontier(&submission->frontier);
 
   if (!iree_status_is_ok(completion_status)) {
+    iree_hal_vulkan_queue_release_operation_resources(queue, submission);
     iree_hal_vulkan_queue_fail_signal_list(
         signal_semaphore_list, iree_status_clone(completion_status));
     return;
@@ -4219,6 +4267,7 @@ static void iree_hal_vulkan_queue_execute_host_call(
   iree_status_t call_status =
       submission->host_call.call.fn(submission->host_call.call.user_data,
                                     submission->host_call.args, &context);
+  iree_hal_vulkan_queue_release_operation_resources(queue, submission);
 
   if (is_nonblocking || iree_status_is_deferred(call_status)) {
     iree_status_free(call_status);
@@ -4334,61 +4383,39 @@ static void iree_hal_vulkan_queue_record_native_copy_region(
                        &copy_region);
 }
 
-static iree_status_t iree_hal_vulkan_queue_prepare_fill_staging(
-    iree_hal_vulkan_queue_t* queue,
-    iree_hal_vulkan_queue_pending_submission_t* submission) {
-  const iree_hal_buffer_params_t params = {
-      .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE |
-              IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
-      .access = IREE_HAL_MEMORY_ACCESS_ALL,
-      .usage = IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE |
-               IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED |
-               IREE_HAL_BUFFER_USAGE_MAPPING_ACCESS_SEQUENTIAL_WRITE,
-      .queue_family_affinity = iree_hal_make_queue_family_affinity(
-          iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base))),
-  };
-  iree_hal_buffer_t* staging_buffer = NULL;
-  iree_status_t status = iree_hal_allocator_allocate_buffer(
-      queue->device_allocator, params, /*allocation_size=*/8, &staging_buffer);
-
-  iree_hal_buffer_mapping_t staging_mapping = {{0}};
-  if (iree_status_is_ok(status)) {
-    status = iree_hal_buffer_map_range(
-        staging_buffer, IREE_HAL_MAPPING_MODE_SCOPED,
-        IREE_HAL_MEMORY_ACCESS_WRITE, IREE_HAL_BUFFER_MAP_FLAG_DISCARD,
-        /*byte_offset=*/0,
-        /*byte_length=*/8, &staging_mapping);
-  }
-  if (iree_status_is_ok(status)) {
-    for (iree_host_size_t i = 0; i < staging_mapping.contents.data_length;
-         ++i) {
-      staging_mapping.contents.data[i] =
-          submission->fill.pattern[i % submission->fill.pattern_length];
-    }
-    if (!iree_all_bits_set(iree_hal_buffer_memory_type(staging_buffer),
-                           IREE_HAL_MEMORY_TYPE_HOST_COHERENT)) {
-      status = iree_hal_buffer_mapping_flush_range(
-          &staging_mapping, /*byte_offset=*/0, IREE_HAL_WHOLE_BUFFER);
-    }
-  }
-  if (staging_mapping.buffer) {
-    status =
-        iree_status_join(status, iree_hal_buffer_unmap_range(&staging_mapping));
-  }
-  if (iree_status_is_ok(status)) {
-    submission->fill.staging_buffer = staging_buffer;
-  } else {
-    iree_hal_buffer_release(staging_buffer);
-  }
-  return status;
-}
-
 static iree_status_t iree_hal_vulkan_queue_record_staged_fill_ranges(
     iree_hal_vulkan_queue_t* queue,
     iree_hal_vulkan_queue_pending_submission_t* submission,
     VkBuffer staging_handle, VkDeviceSize staging_offset,
     VkBuffer target_handle, VkDeviceSize target_offset,
     VkDeviceSize target_length) {
+  uint32_t scratch_pattern = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_vulkan_queue_expand_fill_pattern(
+      submission->fill.pattern, submission->fill.pattern_length,
+      /*pattern_offset=*/0, &scratch_pattern));
+  iree_vkCmdFillBuffer(IREE_VULKAN_DEVICE(&queue->syms),
+                       submission->native_command_buffer, staging_handle,
+                       staging_offset, IREE_HAL_VULKAN_QUEUE_FILL_SCRATCH_SIZE,
+                       scratch_pattern);
+  const VkBufferMemoryBarrier2 barrier = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+      .srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT,
+      .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+      .dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT,
+      .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .buffer = staging_handle,
+      .offset = staging_offset,
+      .size = IREE_HAL_VULKAN_QUEUE_FILL_SCRATCH_SIZE,
+  };
+  const VkDependencyInfo dependency = {
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .bufferMemoryBarrierCount = 1,
+      .pBufferMemoryBarriers = &barrier,
+  };
+  iree_vkCmdPipelineBarrier2(IREE_VULKAN_DEVICE(&queue->syms),
+                             submission->native_command_buffer, &dependency);
   const VkDeviceSize target_end = target_offset + target_length;
   const VkDeviceSize leading_length =
       (sizeof(uint32_t) - (target_offset % sizeof(uint32_t))) %
@@ -4460,10 +4487,11 @@ static iree_status_t iree_hal_vulkan_queue_record_fill_native(
 
   iree_hal_vulkan_queue_resolved_transfer_buffer_t staging = {0};
   if (use_staged_edges) {
-    IREE_RETURN_IF_ERROR(
-        iree_hal_vulkan_queue_prepare_fill_staging(queue, submission));
+    const iree_hal_vulkan_queue_command_buffer_lease_t* lease =
+        &submission->native_command_buffer_lease;
     IREE_RETURN_IF_ERROR(iree_hal_vulkan_queue_resolve_transfer_buffer(
-        submission->fill.staging_buffer, /*offset=*/0, &staging));
+        lease->block->fill_scratch,
+        lease->slot * IREE_HAL_VULKAN_QUEUE_FILL_SCRATCH_SIZE, &staging));
   }
 
   VkDescriptorSet
@@ -4909,7 +4937,8 @@ static void iree_hal_vulkan_queue_profile_record_alloca_memory_events(
     iree_hal_vulkan_queue_profile_record_memory_event(
         submission, type, flags, result,
         iree_hal_buffer_allocation_profile(submission->alloca.buffers[i]).id,
-        submission->alloca.pool, submission->alloca.requests[i].params,
+        submission->alloca.pool, submission->alloca.buffers[i],
+        submission->alloca.requests[i].min_alignment,
         reservations ? &reservations[i] : NULL, /*backing_id=*/0,
         submission->alloca.requests[i].allocation_size, frontier_entry_count);
   }
@@ -4943,7 +4972,8 @@ static void iree_hal_vulkan_queue_release_alloca_reservations(
         submission, IREE_HAL_PROFILE_MEMORY_EVENT_TYPE_POOL_RELEASE, flags,
         result,
         iree_hal_buffer_allocation_profile(submission->alloca.buffers[i]).id,
-        submission->alloca.pool, submission->alloca.requests[i].params,
+        submission->alloca.pool, submission->alloca.buffers[i],
+        submission->alloca.requests[i].min_alignment,
         &submission->alloca.reservations[i], /*backing_id=*/0,
         submission->alloca.requests[i].allocation_size,
         reuse_frontier ? reuse_frontier->entry_count : 0);
@@ -4955,6 +4985,7 @@ static void iree_hal_vulkan_queue_release_alloca_reservations(
 }
 
 static void iree_hal_vulkan_queue_complete_alloca(
+    iree_hal_vulkan_queue_t* queue,
     iree_hal_vulkan_queue_pending_submission_t* submission,
     const iree_status_t completion_status) {
   iree_hal_semaphore_list_t signal_semaphore_list =
@@ -4974,6 +5005,7 @@ static void iree_hal_vulkan_queue_complete_alloca(
         IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_QUEUE_OPERATION, UINT32_MAX,
         submission->alloca.reservations, frontier->entry_count);
     submission->alloca.owns_attached_reservations = false;
+    iree_hal_vulkan_queue_release_operation_resources(queue, submission);
     iree_hal_vulkan_queue_signal_list_or_fail(signal_semaphore_list, frontier);
   } else {
     for (iree_host_size_t i = 0; i < submission->alloca.request_count; ++i) {
@@ -4986,12 +5018,14 @@ static void iree_hal_vulkan_queue_complete_alloca(
         submission->alloca.wait_frontier->entry_count);
     iree_hal_vulkan_queue_release_alloca_reservations(
         submission, iree_status_code(completion_status));
+    iree_hal_vulkan_queue_release_operation_resources(queue, submission);
     iree_hal_vulkan_queue_fail_signal_list(
         signal_semaphore_list, iree_status_clone(completion_status));
   }
 }
 
 static void iree_hal_vulkan_queue_complete_dealloca(
+    iree_hal_vulkan_queue_t* queue,
     iree_hal_vulkan_queue_pending_submission_t* submission,
     const iree_status_t completion_status) {
   iree_hal_semaphore_list_t signal_semaphore_list =
@@ -5021,11 +5055,6 @@ static void iree_hal_vulkan_queue_complete_dealloca(
         submission->dealloca.reservations, /*death_frontier=*/NULL);
     for (iree_host_size_t i = 0; i < submission->dealloca.buffer_count; ++i) {
       iree_hal_buffer_t* buffer = submission->dealloca.buffers[i];
-      const iree_hal_buffer_params_t params = {
-          .type = iree_hal_buffer_memory_type(buffer),
-          .access = iree_hal_buffer_allowed_access(buffer),
-          .usage = iree_hal_buffer_allowed_usage(buffer),
-      };
       const uint64_t allocation_id =
           iree_hal_buffer_allocation_profile(buffer).id;
       const iree_device_size_t allocation_size =
@@ -5033,34 +5062,32 @@ static void iree_hal_vulkan_queue_complete_dealloca(
       iree_hal_vulkan_queue_profile_record_memory_event(
           submission, IREE_HAL_PROFILE_MEMORY_EVENT_TYPE_QUEUE_DEALLOCA,
           IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_QUEUE_OPERATION, UINT32_MAX,
-          allocation_id, submission->dealloca.pool, params,
+          allocation_id, submission->dealloca.pool, buffer, /*alignment=*/1,
           &submission->dealloca.reservations[i], /*backing_id=*/0,
           allocation_size, /*frontier_entry_count=*/0);
       iree_hal_vulkan_queue_profile_record_memory_event(
           submission, IREE_HAL_PROFILE_MEMORY_EVENT_TYPE_POOL_RELEASE,
           IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_QUEUE_OPERATION, UINT32_MAX,
-          allocation_id, submission->dealloca.pool, params,
+          allocation_id, submission->dealloca.pool, buffer, /*alignment=*/1,
           &submission->dealloca.reservations[i], /*backing_id=*/0,
           allocation_size, /*frontier_entry_count=*/0);
     }
+    iree_hal_vulkan_queue_release_operation_resources(queue, submission);
     iree_hal_vulkan_queue_signal_list_or_fail(signal_semaphore_list, frontier);
   } else {
     for (iree_host_size_t i = 0; i < submission->dealloca.buffer_count; ++i) {
       iree_hal_buffer_t* buffer = submission->dealloca.buffers[i];
-      const iree_hal_buffer_params_t params = {
-          .type = iree_hal_buffer_memory_type(buffer),
-          .access = iree_hal_buffer_allowed_access(buffer),
-          .usage = iree_hal_buffer_allowed_usage(buffer),
-      };
       iree_hal_vulkan_queue_profile_record_memory_event(
           submission, IREE_HAL_PROFILE_MEMORY_EVENT_TYPE_QUEUE_DEALLOCA,
           IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_QUEUE_OPERATION,
           iree_status_code(completion_status),
           iree_hal_buffer_allocation_profile(buffer).id,
-          submission->dealloca.pool, params, /*reservation=*/NULL,
-          /*backing_id=*/0, iree_hal_buffer_allocation_size(buffer),
+          submission->dealloca.pool, buffer, /*alignment=*/1,
+          /*reservation=*/NULL, /*backing_id=*/0,
+          iree_hal_buffer_allocation_size(buffer),
           /*frontier_entry_count=*/0);
     }
+    iree_hal_vulkan_queue_release_operation_resources(queue, submission);
     iree_hal_vulkan_queue_fail_signal_list(
         signal_semaphore_list, iree_status_clone(completion_status));
   }
@@ -5084,6 +5111,22 @@ static void iree_hal_vulkan_queue_complete_submission(
     }
   }
 
+  switch (submission->kind) {
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_FILL:
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_UPDATE:
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_COPY:
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_TRANSFER:
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_EXECUTE:
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_DISPATCH:
+    case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_ATOMIC:
+      // Completion actions may publish a larger operation's terminal
+      // semaphores. Release this submission's caller resources first.
+      iree_hal_vulkan_queue_release_native_replay(queue, submission);
+      iree_hal_vulkan_queue_release_operation_resources(queue, submission);
+      break;
+    default:
+      break;
+  }
   iree_hal_vulkan_queue_consume_completion_action(submission, terminal_status);
 
   switch (submission->kind) {
@@ -5113,10 +5156,11 @@ static void iree_hal_vulkan_queue_complete_submission(
       iree_hal_vulkan_queue_complete_operation(submission, terminal_status);
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_ALLOCA:
-      iree_hal_vulkan_queue_complete_alloca(submission, terminal_status);
+      iree_hal_vulkan_queue_complete_alloca(queue, submission, terminal_status);
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_DEALLOCA:
-      iree_hal_vulkan_queue_complete_dealloca(submission, terminal_status);
+      iree_hal_vulkan_queue_complete_dealloca(queue, submission,
+                                              terminal_status);
       break;
     default:
       iree_hal_vulkan_queue_fail_signal_list(
@@ -5143,8 +5187,6 @@ static void iree_hal_vulkan_queue_fail_unsubmitted_submission(
   IREE_ASSERT(!iree_status_is_ok(status),
               "unsubmitted queue failure status must be non-OK");
   iree_status_t completion_status = iree_status_clone(status);
-  iree_hal_vulkan_queue_consume_completion_action(submission,
-                                                  completion_status);
   switch (submission->kind) {
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_ALLOCA:
       iree_hal_vulkan_queue_profile_record_alloca_memory_events(
@@ -5158,35 +5200,31 @@ static void iree_hal_vulkan_queue_fail_unsubmitted_submission(
           submission->alloca.wait_frontier
               ? submission->alloca.wait_frontier->entry_count
               : 0);
-      iree_hal_vulkan_queue_fail_signal_list(submission->signal_semaphore_list,
-                                             status);
       break;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_DEALLOCA: {
       for (iree_host_size_t i = 0; i < submission->dealloca.buffer_count; ++i) {
         iree_hal_buffer_t* buffer = submission->dealloca.buffers[i];
-        const iree_hal_buffer_params_t params = {
-            .type = iree_hal_buffer_memory_type(buffer),
-            .access = iree_hal_buffer_allowed_access(buffer),
-            .usage = iree_hal_buffer_allowed_usage(buffer),
-        };
         iree_hal_vulkan_queue_profile_record_memory_event(
             submission, IREE_HAL_PROFILE_MEMORY_EVENT_TYPE_QUEUE_DEALLOCA,
             IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_QUEUE_OPERATION,
             iree_status_code(status),
             iree_hal_buffer_allocation_profile(buffer).id,
-            submission->dealloca.pool, params, /*reservation=*/NULL,
-            /*backing_id=*/0, iree_hal_buffer_allocation_size(buffer),
+            submission->dealloca.pool, buffer, /*alignment=*/1,
+            /*reservation=*/NULL, /*backing_id=*/0,
+            iree_hal_buffer_allocation_size(buffer),
             /*frontier_entry_count=*/0);
       }
-      iree_hal_vulkan_queue_fail_signal_list(submission->signal_semaphore_list,
-                                             status);
       break;
     }
     default:
-      iree_hal_vulkan_queue_fail_signal_list(submission->signal_semaphore_list,
-                                             status);
       break;
   }
+  iree_hal_vulkan_queue_release_native_replay(queue, submission);
+  iree_hal_vulkan_queue_release_operation_resources(queue, submission);
+  iree_hal_vulkan_queue_consume_completion_action(submission,
+                                                  completion_status);
+  iree_hal_vulkan_queue_fail_signal_list(submission->signal_semaphore_list,
+                                         status);
   iree_status_free(completion_status);
   iree_hal_vulkan_queue_pending_submission_destroy(queue, submission);
 }
@@ -5365,7 +5403,8 @@ static iree_status_t iree_hal_vulkan_queue_acquire_alloca_reservations(
         submission, IREE_HAL_PROFILE_MEMORY_EVENT_TYPE_POOL_RESERVE, flags,
         item_result,
         iree_hal_buffer_allocation_profile(submission->alloca.buffers[i]).id,
-        submission->alloca.pool, submission->alloca.requests[i].params,
+        submission->alloca.pool, submission->alloca.buffers[i],
+        submission->alloca.requests[i].min_alignment,
         submission->alloca.reservations_held
             ? &submission->alloca.reservations[i]
             : NULL,
@@ -6093,7 +6132,8 @@ static void iree_hal_vulkan_queue_start_alloca_frontier_wait(
       IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_QUEUE_OPERATION |
           IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_WAIT_FRONTIER,
       UINT32_MAX, /*allocation_id=*/0, submission->alloca.pool,
-      submission->alloca.requests[0].params,
+      submission->alloca.buffers[0],
+      submission->alloca.requests[0].min_alignment,
       /*reservation=*/NULL, /*backing_id=*/0,
       iree_hal_vulkan_queue_profile_payload_length(submission),
       submission->alloca.wait_frontier->entry_count);
@@ -6114,7 +6154,8 @@ static void iree_hal_vulkan_queue_start_alloca_capacity_wait(
       IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_QUEUE_OPERATION |
           IREE_HAL_PROFILE_MEMORY_EVENT_FLAG_WAIT_NOTIFICATION,
       UINT32_MAX, /*allocation_id=*/0, submission->alloca.pool,
-      submission->alloca.requests[0].params,
+      submission->alloca.buffers[0],
+      submission->alloca.requests[0].min_alignment,
       /*reservation=*/NULL, /*backing_id=*/0,
       iree_hal_vulkan_queue_profile_payload_length(submission),
       /*frontier_entry_count=*/0);
@@ -7061,16 +7102,6 @@ iree_status_t iree_hal_vulkan_queue_submit_barrier(
       iree_hal_vulkan_queue_completion_action_null());
 }
 
-static bool iree_hal_vulkan_pool_supports_queue_families(
-    iree_hal_queue_family_affinity_t supported_affinity,
-    iree_hal_queue_family_affinity_t requested_affinity) {
-  if (iree_hal_queue_family_affinity_is_any(supported_affinity)) {
-    return true;
-  }
-  return !iree_hal_queue_family_affinity_is_any(requested_affinity) &&
-         iree_all_bits_set(supported_affinity, requested_affinity);
-}
-
 static iree_status_t iree_hal_vulkan_queue_create_transient_buffer(
     iree_hal_vulkan_queue_t* queue, iree_hal_pool_t* pool,
     iree_host_size_t request_index,
@@ -7080,44 +7111,10 @@ static iree_status_t iree_hal_vulkan_queue_create_transient_buffer(
   iree_hal_pool_capabilities_t pool_capabilities;
   iree_hal_pool_query_capabilities(pool, &pool_capabilities);
   iree_hal_pool_reservation_request_t canonical_request = *request;
-  if (pool->memory_contract) {
-    canonical_request.params = pool->memory_contract->buffer_params;
-    canonical_request.params.min_alignment = request->params.min_alignment;
-    if (!iree_device_size_checked_align(request->allocation_size, 4,
-                                        &canonical_request.allocation_size)) {
-      return iree_make_status(
-          IREE_STATUS_OUT_OF_RANGE,
-          "Vulkan allocation size overflows dword alignment");
-    }
-  } else {
-    IREE_RETURN_IF_ERROR(iree_hal_vulkan_allocator_resolve_pool_allocation(
-        queue->device_allocator, &pool_capabilities, request->params,
-        request->allocation_size, &canonical_request.params,
-        &canonical_request.allocation_size));
-    if (IREE_UNLIKELY(!iree_all_bits_set(pool_capabilities.memory_type,
-                                         canonical_request.params.type))) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "Vulkan allocation request %" PRIhsz
-          " memory type is not supported by the source pool",
-          request_index);
-    }
-    if (IREE_UNLIKELY(!iree_all_bits_set(pool_capabilities.supported_usage,
-                                         canonical_request.params.usage))) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "Vulkan allocation request %" PRIhsz
-                              " usage is not supported by the source pool",
-                              request_index);
-    }
-    if (IREE_UNLIKELY(!iree_hal_vulkan_pool_supports_queue_families(
-            pool_capabilities.queue_family_affinity,
-            canonical_request.params.queue_family_affinity))) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "Vulkan allocation request %" PRIhsz
-          " queue family affinity is not supported by the source pool",
-          request_index);
-    }
+  if (!iree_device_size_checked_align(request->allocation_size, 4,
+                                      &canonical_request.allocation_size)) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "Vulkan allocation size overflows dword alignment");
   }
   if (IREE_UNLIKELY(pool_capabilities.max_allocation_size != 0 &&
                     canonical_request.allocation_size >
@@ -7127,16 +7124,32 @@ static iree_status_t iree_hal_vulkan_queue_create_transient_buffer(
                             " exceeds the source pool maximum allocation size",
                             request_index);
   }
+  if (IREE_UNLIKELY(
+          !iree_device_size_is_valid_alignment(request->min_alignment) ||
+          request->min_alignment >
+              pool_capabilities.max_allocation_alignment)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "Vulkan allocation request %" PRIhsz
+                            " alignment exceeds the source pool maximum",
+                            request_index);
+  }
 
   iree_hal_buffer_placement_t placement = {
       .device = (iree_hal_device_t*)queue->device,
-      .queue_family_affinity = canonical_request.params.queue_family_affinity,
+      .queue_family_affinity = pool_capabilities.queue_family_affinity,
       .flags = IREE_HAL_BUFFER_PLACEMENT_FLAG_ASYNCHRONOUS,
   };
+  const iree_hal_memory_access_t allowed_access =
+      pool->memory_contract ? pool->memory_contract->allowed_access
+                            : pool_capabilities.allowed_access;
+  const iree_hal_buffer_usage_t allowed_usage =
+      pool->memory_contract ? pool->memory_contract->allowed_usage
+                            : pool_capabilities.supported_usage;
   iree_hal_buffer_t* buffer = NULL;
   IREE_RETURN_IF_ERROR(iree_hal_vulkan_transient_buffer_create(
-      placement, canonical_request.params, canonical_request.allocation_size,
-      request->allocation_size, pool, queue->host_allocator, &buffer));
+      placement, pool_capabilities.memory_type, allowed_access, allowed_usage,
+      canonical_request.allocation_size, request->allocation_size, pool,
+      queue->host_allocator, &buffer));
   *out_canonical_request = canonical_request;
   *out_buffer = buffer;
   return iree_ok_status();
@@ -7808,6 +7821,20 @@ static void iree_hal_vulkan_staged_transfer_pump(
 static void iree_hal_vulkan_staged_transfer_try_finish(
     iree_hal_vulkan_staged_transfer_t* transfer);
 
+// Releases caller-owned endpoints once all transfer chunks are terminal. The
+// staged object may remain live through an async callback or terminal signal
+// barrier, but neither path may extend the caller's buffer, file, or borrowed
+// host-range lifetime beyond terminal semaphore publication.
+static void iree_hal_vulkan_staged_transfer_release_captures(
+    iree_hal_vulkan_staged_transfer_t* transfer) {
+  iree_hal_buffer_release(transfer->buffer);
+  transfer->buffer = NULL;
+  iree_hal_file_release(transfer->file);
+  transfer->file = NULL;
+  transfer->async_file = NULL;
+  transfer->host_contents = iree_byte_span_empty();
+}
+
 static void iree_hal_vulkan_staged_transfer_destroy(
     iree_hal_resource_t* resource) {
   iree_hal_vulkan_staged_transfer_t* transfer =
@@ -7817,8 +7844,7 @@ static void iree_hal_vulkan_staged_transfer_destroy(
                                  transfer->host_allocator);
   }
   iree_hal_resource_release(transfer->completion_action.resource);
-  iree_hal_buffer_release(transfer->buffer);
-  iree_hal_file_release(transfer->file);
+  iree_hal_vulkan_staged_transfer_release_captures(transfer);
   iree_slim_mutex_deinitialize(&transfer->mutex);
   iree_allocator_free(transfer->host_allocator, transfer);
 }
@@ -7871,6 +7897,7 @@ static void iree_hal_vulkan_staged_transfer_complete(
   iree_hal_vulkan_queue_completion_action_t completion_action =
       transfer->completion_action;
   transfer->completion_action = iree_hal_vulkan_queue_completion_action_null();
+  iree_hal_vulkan_staged_transfer_release_captures(transfer);
   if (completion_action.fn) {
     completion_action.fn(completion_action.user_data, status);
     iree_hal_resource_release(completion_action.resource);
@@ -8225,6 +8252,7 @@ static void iree_hal_vulkan_staged_transfer_start(
   iree_hal_vulkan_staged_transfer_t* transfer =
       (iree_hal_vulkan_staged_transfer_t*)user_data;
   if (!iree_status_is_ok(completion_status)) {
+    iree_hal_vulkan_staged_transfer_release_captures(transfer);
     iree_hal_vulkan_staged_transfer_fail_signals(
         transfer, iree_status_clone(completion_status));
     return;
@@ -8432,10 +8460,6 @@ static iree_status_t iree_hal_vulkan_queue_submit_staged_transfer(
           .user_data = transfer,
           .resource = &transfer->resource,
       });
-  if (!iree_status_is_ok(status)) {
-    iree_hal_vulkan_staged_transfer_fail_signals(transfer,
-                                                 iree_status_clone(status));
-  }
   iree_hal_resource_release(&transfer->resource);
   return status;
 }
@@ -8466,10 +8490,6 @@ static iree_status_t iree_hal_vulkan_queue_submit_staged_update(
           .user_data = transfer,
           .resource = &transfer->resource,
       });
-  if (!iree_status_is_ok(status)) {
-    iree_hal_vulkan_staged_transfer_fail_signals(transfer,
-                                                 iree_status_clone(status));
-  }
   iree_hal_resource_release(&transfer->resource);
   return status;
 }
@@ -8541,38 +8561,55 @@ static iree_device_size_t iree_hal_vulkan_transfer_operation_length(
   return 0;
 }
 
-static void iree_hal_vulkan_transfer_transaction_destroy(
-    iree_hal_resource_t* resource) {
-  iree_hal_vulkan_transfer_transaction_t* transaction =
-      (iree_hal_vulkan_transfer_transaction_t*)resource;
+// Releases all caller resources captured by a transfer transaction. This runs
+// when the last child finishes, before the transaction's terminal semaphore is
+// published. It may also run while the entry action still retains the
+// transaction, so transaction destruction alone cannot provide this ordering.
+static void iree_hal_vulkan_transfer_transaction_release_operations(
+    iree_hal_vulkan_transfer_transaction_t* transaction) {
   for (iree_host_size_t i = 0; i < transaction->operation_count; ++i) {
-    const iree_hal_transfer_operation_t* operation =
-        &transaction->operations[i];
+    iree_hal_transfer_operation_t* operation = &transaction->operations[i];
     if (iree_hal_vulkan_transfer_operation_length(operation) == 0) {
       continue;
     }
     switch (operation->type) {
       case IREE_HAL_TRANSFER_OPERATION_TYPE_FILL:
         iree_hal_buffer_release(operation->fill.target_buffer);
+        operation->fill.target_buffer = NULL;
         break;
       case IREE_HAL_TRANSFER_OPERATION_TYPE_UPDATE:
         iree_hal_buffer_release(operation->update.target_buffer);
+        operation->update.target_buffer = NULL;
         break;
       case IREE_HAL_TRANSFER_OPERATION_TYPE_COPY:
         iree_hal_buffer_release(operation->copy.source_buffer);
+        operation->copy.source_buffer = NULL;
         iree_hal_buffer_release(operation->copy.target_buffer);
+        operation->copy.target_buffer = NULL;
         break;
       case IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD:
         iree_hal_buffer_release(operation->upload.target_buffer);
+        operation->upload.target_buffer = NULL;
         break;
       case IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD:
         iree_hal_buffer_release(operation->download.source_buffer);
+        operation->download.source_buffer = NULL;
         break;
     }
     iree_hal_resource_release(transaction->staged_transfers[i]
                                   ? &transaction->staged_transfers[i]->resource
                                   : NULL);
+    transaction->staged_transfers[i] = NULL;
   }
+  transaction->operation_count = 0;
+  transaction->native_operation_count = 0;
+}
+
+static void iree_hal_vulkan_transfer_transaction_destroy(
+    iree_hal_resource_t* resource) {
+  iree_hal_vulkan_transfer_transaction_t* transaction =
+      (iree_hal_vulkan_transfer_transaction_t*)resource;
+  iree_hal_vulkan_transfer_transaction_release_operations(transaction);
   if (transaction->completion_submission) {
     iree_hal_vulkan_queue_pending_submission_destroy(
         transaction->queue, transaction->completion_submission);
@@ -8908,6 +8945,7 @@ static iree_status_t iree_hal_vulkan_transfer_transaction_create(
 
 static void iree_hal_vulkan_transfer_transaction_finish(
     iree_hal_vulkan_transfer_transaction_t* transaction, iree_status_t status) {
+  iree_hal_vulkan_transfer_transaction_release_operations(transaction);
   iree_hal_vulkan_queue_pending_submission_t* completion_submission =
       transaction->completion_submission;
   transaction->completion_submission = NULL;

@@ -17,6 +17,7 @@
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "libhrx/src/libhrx/device.h"
+#include "libhrx/src/libhrx/mem_pool_backing.h"
 
 namespace {
 
@@ -617,6 +618,7 @@ TEST(StreamValueWaitLaneTest,
      OwnerFailureDoesNotRetireBlockedAcceptedSubmission) {
   IREE_ASSERT_OK(HRX_CALL(hrx_cpu_initialize(/*flags=*/0)));
   iree_hal_queue_t* wait_queue = nullptr;
+  iree_hal_pool_t* memory_pool = nullptr;
   iree_hal_buffer_t* target_buffer = nullptr;
   iree_hal_buffer_mapping_t target_mapping = {};
   iree_hal_semaphore_t* owner_timeline = nullptr;
@@ -632,9 +634,9 @@ TEST(StreamValueWaitLaneTest,
       iree_atomic_store(
           reinterpret_cast<iree_atomic_int32_t*>(target_mapping.contents.data),
           1, iree_memory_order_release);
-      iree_status_ignore(iree_hal_semaphore_wait(lane_completion, /*value=*/1,
-                                                 iree_infinite_timeout(),
-                                                 IREE_ASYNC_WAIT_FLAG_NONE));
+      IREE_EXPECT_OK(iree_hal_semaphore_wait(lane_completion, /*value=*/1,
+                                             iree_infinite_timeout(),
+                                             IREE_ASYNC_WAIT_FLAG_NONE));
     }
     if (target_mapping.contents.data) {
       IREE_EXPECT_OK(iree_hal_buffer_unmap_range(&target_mapping));
@@ -643,6 +645,7 @@ TEST(StreamValueWaitLaneTest,
     iree_hal_semaphore_release(lane_completion);
     iree_hal_semaphore_release(owner_timeline);
     iree_hal_buffer_release(target_buffer);
+    iree_hal_pool_release(memory_pool);
     iree_hal_queue_release(wait_queue);
     if (lane_mutex_initialized) {
       iree_slim_mutex_deinitialize(&lane.submission_mutex);
@@ -666,16 +669,14 @@ TEST(StreamValueWaitLaneTest,
   IREE_ASSERT_OK(iree_hal_queue_acquire(family, &queue_params, &wait_queue));
   ASSERT_NE(foreign_queue, wait_queue);
 
-  const iree_hal_buffer_params_t buffer_params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
-          IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-  };
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(device), buffer_params, sizeof(uint32_t),
-      &target_buffer));
+  IREE_ASSERT_OK(hrx_mem_pool_backing_retain_allocation_source(
+      hrx_device, HRX_MEMORY_TYPE_HOST_LOCAL | HRX_MEMORY_TYPE_DEVICE_VISIBLE,
+      &memory_pool));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      memory_pool,
+      iree_hal_make_pool_reservation_request(sizeof(uint32_t),
+                                             /*min_alignment=*/0),
+      iree_infinite_timeout(), &target_buffer));
   IREE_ASSERT_OK(iree_hal_buffer_map_range(
       target_buffer, IREE_HAL_MAPPING_MODE_PERSISTENT,
       IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_BUFFER_MAP_FLAG_NONE,

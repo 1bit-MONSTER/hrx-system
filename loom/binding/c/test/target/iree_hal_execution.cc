@@ -32,6 +32,7 @@ using HalBufferPtr = HandlePtr<iree_hal_buffer_t, iree_hal_buffer_release>;
 using HalDevicePtr = HandlePtr<iree_hal_device_t, iree_hal_device_release>;
 using HalDeviceGroupPtr =
     HandlePtr<iree_hal_device_group_t, iree_hal_device_group_release>;
+using HalPoolPtr = HandlePtr<iree_hal_pool_t, iree_hal_pool_release>;
 using HalSemaphorePtr =
     HandlePtr<iree_hal_semaphore_t, iree_hal_semaphore_release>;
 using LaunchConfigProgramPtr = HandlePtr<loomc_launch_config_program_t,
@@ -364,14 +365,12 @@ iree_hal_queue_t* SelectProvisionedQueue(
   return nullptr;
 }
 
-iree_status_t AllocateStorageBuffer(iree_hal_device_t* device,
+iree_status_t AllocateStorageBuffer(iree_hal_pool_t* pool,
                                     iree_device_size_t buffer_size,
                                     iree_hal_buffer_t** out_buffer) {
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
-  return iree_hal_allocator_allocate_buffer(iree_hal_device_allocator(device),
-                                            params, buffer_size, out_buffer);
+  return iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(buffer_size, 1),
+      iree_infinite_timeout(), out_buffer);
 }
 
 iree_status_t PrepareExecutableFromArtifact(
@@ -480,6 +479,33 @@ void RunIreeHalKernelExecutionTest(
   iree_hal_queue_t* dispatch_queue = SelectProvisionedQueue(
       device.get(), IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_DISPATCH);
   ASSERT_NE(dispatch_queue, nullptr);
+  iree_hal_pool_family_access_t family_accesses[2] = {
+      {
+          /*.family=*/iree_hal_queue_family(dispatch_queue),
+          /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
+      },
+  };
+  iree_host_size_t family_access_count = 1;
+  if (iree_hal_queue_family(transfer_queue) == family_accesses[0].family) {
+    family_accesses[0].usage |= IREE_HAL_BUFFER_USAGE_TRANSFER;
+  } else {
+    family_accesses[family_access_count++] = {
+        /*.family=*/iree_hal_queue_family(transfer_queue),
+        /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+    };
+  }
+  const iree_hal_pool_scope_t pool_scope = {
+      /*.family_count=*/family_access_count,
+      /*.families=*/family_accesses,
+  };
+  iree_hal_slab_pool_options_t pool_options;
+  iree_hal_slab_pool_options_initialize(&pool_options);
+  pool_options.trace_name = IREE_SV("loomc.execution_test");
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(iree_hal_slab_pool_create(device_group.get(), pool_scope,
+                                           &pool_options,
+                                           iree_allocator_system(), &pool));
+  HalPoolPtr pool_ptr(pool);
 
   TargetEnvironmentPtr target_environment;
   ContextPtr context;
@@ -570,8 +596,8 @@ void RunIreeHalKernelExecutionTest(
       executable_target, dispatch_queue, artifact, &executable));
   ExecutablePtr executable_ptr(executable);
 
-  execute({device.get(), transfer_queue, dispatch_queue, executable_ptr.get(),
-           launch_config});
+  execute({device.get(), pool_ptr.get(), transfer_queue, dispatch_queue,
+           executable_ptr.get(), launch_config});
 }
 
 void RunIreeHalByteOffsetExecution(const IreeHalKernelExecution& execution) {
@@ -583,11 +609,11 @@ void RunIreeHalByteOffsetExecution(const IreeHalKernelExecution& execution) {
   std::array<int32_t, 2> output = {0, 0};
   iree_hal_buffer_t* input_buffer = nullptr;
   IREE_ASSERT_OK(
-      AllocateStorageBuffer(execution.device, sizeof(input), &input_buffer));
+      AllocateStorageBuffer(execution.pool, sizeof(input), &input_buffer));
   HalBufferPtr input_buffer_ptr(input_buffer);
   iree_hal_buffer_t* output_buffer = nullptr;
   IREE_ASSERT_OK(
-      AllocateStorageBuffer(execution.device, sizeof(output), &output_buffer));
+      AllocateStorageBuffer(execution.pool, sizeof(output), &output_buffer));
   HalBufferPtr output_buffer_ptr(output_buffer);
 
   iree_hal_semaphore_t* transfer_semaphore = nullptr;

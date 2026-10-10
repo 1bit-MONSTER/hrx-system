@@ -18,10 +18,10 @@ extern "C" {
 #endif
 
 typedef struct loom_testbench_reference_matmul_oracle_options_t {
-  // HAL allocator used to allocate the result buffer view.
-  iree_hal_allocator_t* device_allocator;
-  // Buffer placement used for the result buffer view.
-  iree_hal_buffer_params_t result_buffer_params;
+  // Borrowed host-writable pool used to allocate the result buffer view.
+  iree_hal_pool_t* result_pool;
+  // Minimum byte alignment of result allocations.
+  iree_device_size_t min_alignment;
   // Host allocator used for transient accumulation storage.
   iree_allocator_t host_allocator;
 } loom_testbench_reference_matmul_oracle_options_t;

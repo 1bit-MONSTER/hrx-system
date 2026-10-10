@@ -143,7 +143,6 @@ void iree_hal_amdgpu_pm4_command_buffer_resident_pool_trim(
 // All device builtin contexts are borrowed immutable planning and launch
 // metadata and must remain valid for the command buffer lifetime.
 iree_status_t iree_hal_amdgpu_pm4_command_buffer_create(
-    iree_hal_allocator_t* device_allocator,
     const iree_hal_queue_family_t* queue_family,
     iree_hal_command_buffer_mode_t mode,
     iree_hal_command_category_t command_categories,

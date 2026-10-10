@@ -42,12 +42,14 @@ IREE_API_EXPORT void iree_hal_file_cache_trim(
     iree_hal_file_cache_t* file_cache);
 
 // Looks up the file |handle| for use on |device| by every family in
-// |queue_family_affinity| and returns it retained in |out_file|. A cached file
-// imported for a superset of the requested families may be reused. If no
-// compatible file is cached then one is imported and retained until the cache
-// is trimmed.
+// |queue_family_affinity| and returns it retained in |out_file|. The optional
+// |storage_pool| is part of the cache identity because it determines the
+// contract of any device-visible storage buffer. A cached file imported for a
+// superset of the requested families and access may be reused. If no compatible
+// file is cached then one is imported and retained until the cache is trimmed.
 IREE_API_EXPORT iree_status_t iree_hal_file_cache_lookup(
     iree_hal_file_cache_t* file_cache, iree_hal_device_t* device,
+    iree_hal_pool_t* storage_pool,
     iree_hal_queue_family_affinity_t queue_family_affinity,
     iree_hal_memory_access_t access, iree_io_file_handle_t* handle,
     iree_hal_external_file_flags_t flags, iree_hal_file_t** out_file);

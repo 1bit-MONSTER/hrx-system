@@ -306,6 +306,7 @@ iree_cc_test(
     ::common
     iree::base
     iree::hal
+    iree::hal::memory::heap_pool
     iree::testing::gtest
     iree::testing::gtest_main
     libhrx::src::libhrx::hrx_static

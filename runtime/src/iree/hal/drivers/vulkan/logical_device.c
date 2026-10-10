@@ -494,7 +494,7 @@ static void iree_hal_vulkan_logical_device_clear_topology_info(
     for (iree_host_size_t i = 0; i < device->queues.queue_count; ++i) {
       iree_hal_vulkan_queue_retire_frontier(&device->queues.objects[i]);
     }
-    iree_hal_vulkan_allocator_deinitialize_default_pools(
+    iree_hal_vulkan_allocator_deinitialize_memory_services(
         device->device_allocator);
     iree_async_frontier_tracker_release(device->frontier_tracker);
     device->frontier_tracker = NULL;
@@ -586,7 +586,7 @@ static iree_status_t iree_hal_vulkan_logical_device_trim(
     iree_hal_vulkan_queue_trim(&device->queues.objects[i]);
   }
   iree_arena_block_pool_trim(&device->command_buffer_block_pool);
-  return iree_hal_allocator_trim(device->device_allocator);
+  return iree_ok_status();
 }
 
 static uint64_t iree_hal_vulkan_stats_saturating_add(uint64_t lhs,
@@ -931,14 +931,8 @@ static iree_status_t iree_hal_vulkan_logical_device_assign_topology_info(
     if (node_id != UINT32_MAX) {
       iree_thread_affinity_set_group_any(node_id, &memory_affinity);
     }
-    status = iree_hal_vulkan_allocator_initialize_default_pools(
-        device->device_allocator, device->proactor, frontier_tracker,
-        memory_affinity);
-  }
-  iree_hal_queue_pool_backend_t pool_backend = {0};
-  if (iree_status_is_ok(status)) {
-    status = iree_hal_vulkan_allocator_query_queue_pool_backend(
-        device->device_allocator, &pool_backend);
+    status = iree_hal_vulkan_allocator_initialize_memory_services(
+        device->device_allocator, device->proactor, memory_affinity);
   }
   if (!iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < assigned_queue_count; ++i) {
@@ -954,8 +948,10 @@ static iree_status_t iree_hal_vulkan_logical_device_assign_topology_info(
       .logical_device = device->logical_device,
       .physical_device = &device->physical_device,
       .enabled_features = device->enabled_features,
-      .notification = pool_backend.notification,
-      .maintenance = pool_backend.maintenance,
+      .notification = iree_hal_vulkan_allocator_memory_notification(
+          device->device_allocator),
+      .maintenance = iree_hal_vulkan_allocator_memory_maintenance(
+          device->device_allocator),
       .epoch_query =
           {
               .fn = iree_hal_vulkan_logical_device_query_pool_epoch,
@@ -1045,20 +1041,21 @@ static iree_status_t iree_hal_vulkan_logical_device_load_executable(
 }
 
 static iree_status_t iree_hal_vulkan_logical_device_import_file(
-    iree_hal_device_t* base_device,
+    iree_hal_device_t* base_device, iree_hal_pool_t* storage_pool,
     iree_hal_queue_family_affinity_t queue_family_affinity,
     iree_hal_memory_access_t access, iree_io_file_handle_t* handle,
     iree_hal_external_file_flags_t flags, iree_hal_file_t** out_file) {
   IREE_ASSERT_ARGUMENT(out_file);
   *out_file = NULL;
+  (void)queue_family_affinity;
   (void)flags;
   iree_hal_vulkan_logical_device_t* device =
       iree_hal_vulkan_logical_device_cast(base_device);
 
   iree_hal_file_t* file = NULL;
-  iree_status_t status = iree_hal_file_from_handle(
-      device->device_allocator, queue_family_affinity, access, handle,
-      device->proactor, device->host_allocator, &file);
+  iree_status_t status =
+      iree_hal_file_from_handle(storage_pool, access, handle, device->proactor,
+                                device->host_allocator, &file);
   if (iree_status_is_ok(status) &&
       iree_io_file_handle_type(handle) == IREE_IO_FILE_HANDLE_TYPE_FD &&
       !iree_hal_file_storage_buffer(file) &&
@@ -1101,21 +1098,6 @@ iree_hal_vulkan_logical_device_query_semaphore_compatibility(
 static const iree_hal_memory_backend_t*
 iree_hal_vulkan_logical_device_memory_backend(iree_hal_device_t* base_device) {
   return &iree_hal_vulkan_logical_device_cast(base_device)->memory_backend.base;
-}
-
-static iree_status_t iree_hal_vulkan_logical_device_query_queue_pool_backend(
-    iree_hal_device_t* base_device, const iree_hal_queue_family_t* queue_family,
-    iree_hal_queue_pool_backend_t* out_backend) {
-  (void)queue_family;
-  iree_hal_vulkan_logical_device_t* device =
-      iree_hal_vulkan_logical_device_cast(base_device);
-  IREE_RETURN_IF_ERROR(iree_hal_vulkan_allocator_query_queue_pool_backend(
-      device->device_allocator, out_backend));
-  out_backend->epoch_query = (iree_hal_pool_epoch_query_t){
-      .fn = iree_hal_vulkan_logical_device_query_pool_epoch,
-      .user_data = device,
-  };
-  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_vulkan_logical_device_profiling_begin(
@@ -1920,8 +1902,6 @@ static const iree_hal_device_vtable_t iree_hal_vulkan_logical_device_vtable = {
     .query_semaphore_compatibility =
         iree_hal_vulkan_logical_device_query_semaphore_compatibility,
     .memory_backend = iree_hal_vulkan_logical_device_memory_backend,
-    .query_queue_pool_backend =
-        iree_hal_vulkan_logical_device_query_queue_pool_backend,
     .profiling_begin = iree_hal_vulkan_logical_device_profiling_begin,
     .profiling_flush = iree_hal_vulkan_logical_device_profiling_flush,
     .profiling_end = iree_hal_vulkan_logical_device_profiling_end,

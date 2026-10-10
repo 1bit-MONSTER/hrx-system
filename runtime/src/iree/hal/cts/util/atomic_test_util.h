@@ -19,35 +19,44 @@ struct AtomicTestRequirements {
   // Wait conditions that must be supported when testing atomic waits.
   iree_hal_atomic_wait_condition_flags_t wait_condition_flags =
       IREE_HAL_ATOMIC_WAIT_CONDITION_FLAG_NONE;
-  // Memory type bits that must be available on the target allocation.
-  iree_hal_memory_type_t memory_type = IREE_HAL_MEMORY_TYPE_NONE;
   // Buffer usage bits required by the test and its readback path.
   iree_hal_buffer_usage_t buffer_usage = IREE_HAL_BUFFER_USAGE_NONE;
-  // Memory access bits required by the tested operations.
-  iree_hal_memory_access_t memory_access = IREE_HAL_MEMORY_ACCESS_NONE;
   // Width of each atomic operation.
   iree_hal_atomic_width_t width = IREE_HAL_ATOMIC_WIDTH_32;
   // Ordering and coherence domain requested by the test.
   iree_hal_atomic_flags_t atomic_flags = IREE_HAL_ATOMIC_FLAG_NONE;
 };
 
-// Queue and allocation parameters satisfying an atomic test requirement.
+// Queue-family access and allocation geometry for an atomic test requirement.
 struct AtomicTestConfiguration {
   // Queue family providing the requested atomic operations.
   iree_hal_queue_family_ordinal_t queue_family_ordinal = 0;
-
-  // Allocation parameters selecting a matching memory type.
-  iree_hal_buffer_params_t buffer_params = {};
+  // Exact family contract used to select a compatible native pool.
+  iree_hal_pool_family_access_t family_access = {};
+  // Natural alignment required by the selected atomic width.
+  iree_device_size_t min_alignment = 1;
 };
 
-// Selects one queue family and memory type satisfying |requirements|.
+// Selects one provisioned queue family satisfying |requirements|.
 //
-// Queue and memory atomic capabilities are independent and both must contain
-// the requested coherence-domain cell. The selected heap must also be visible
-// to the physical devices serviced by the queue family.
-bool SelectAtomicTestConfiguration(const iree_hal_device_spec_t* device_spec,
+// The returned family access carries the matching memory requirements. Callers
+// must construct a pool from it; pool construction selects and qualifies the
+// native memory route independently from queue selection.
+bool SelectAtomicTestConfiguration(iree_hal_device_t* device,
                                    const AtomicTestRequirements& requirements,
                                    AtomicTestConfiguration* out_configuration);
+
+// Constructs an owned native pool for a selected atomic test configuration.
+iree_status_t CreateAtomicTestPool(iree_hal_device_group_t* device_group,
+                                   const AtomicTestConfiguration& configuration,
+                                   iree_hal_pool_t** out_pool);
+
+// Constructs an import-only host-pointer pool for testing target validation.
+// The imported backing supplies its exact atomic facts at runtime, so this
+// source deliberately admits storage without requiring atomics at construction.
+iree_status_t CreateAtomicTestHostImportPool(
+    iree_hal_device_group_t* device_group,
+    const AtomicTestConfiguration& configuration, iree_hal_pool_t** out_pool);
 
 }  // namespace iree::hal::cts
 

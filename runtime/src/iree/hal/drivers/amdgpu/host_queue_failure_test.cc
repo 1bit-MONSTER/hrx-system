@@ -11,6 +11,7 @@
 #include "iree/base/threading/notification.h"
 #include "iree/hal/api.h"
 #include "iree/hal/cts/util/test_base.h"
+#include "iree/hal/drivers/amdgpu/allocator.h"
 #include "iree/hal/drivers/amdgpu/host_queue.h"
 #include "iree/hal/drivers/amdgpu/logical_device.h"
 #include "iree/hal/drivers/amdgpu/physical_device.h"
@@ -132,13 +133,15 @@ class TestLogicalDevice {
 static iree_status_t CreateHostVisibleTransferBuffer(
     iree_hal_allocator_t* allocator, iree_device_size_t buffer_size,
     iree_hal_buffer_t** out_buffer) {
-  iree_hal_buffer_params_t params = {0};
+  iree_hal_amdgpu_buffer_spec_t params = {0};
   params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL |
                 IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
                 IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
+  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
   params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
-  return iree_hal_allocator_allocate_buffer(allocator, params, buffer_size,
-                                            out_buffer);
+  params.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
+  return iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      allocator, params, buffer_size, out_buffer);
 }
 
 static iree_status_t CreateSemaphore(iree_hal_device_t* device,

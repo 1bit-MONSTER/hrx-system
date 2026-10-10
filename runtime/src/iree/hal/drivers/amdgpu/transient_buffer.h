@@ -79,9 +79,10 @@ void iree_hal_amdgpu_transient_buffer_pool_deinitialize(
 // state changes happen in the notification ring's pre-signal phase after
 // dealloca waits are satisfied and before dealloca signals are published.
 iree_status_t iree_hal_amdgpu_transient_buffer_create(
-    iree_hal_buffer_placement_t placement, iree_hal_buffer_params_t params,
-    iree_device_size_t allocation_size, iree_device_size_t byte_length,
-    iree_hal_pool_t* source_pool,
+    iree_hal_buffer_placement_t placement, iree_hal_memory_type_t memory_type,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage, iree_device_size_t allocation_size,
+    iree_device_size_t byte_length, iree_hal_pool_t* source_pool,
     iree_hal_amdgpu_transient_buffer_pool_t* wrapper_pool,
     iree_hal_buffer_t** out_buffer);
 

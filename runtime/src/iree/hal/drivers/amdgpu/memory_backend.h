@@ -7,6 +7,7 @@
 #ifndef IREE_HAL_DRIVERS_AMDGPU_MEMORY_BACKEND_H_
 #define IREE_HAL_DRIVERS_AMDGPU_MEMORY_BACKEND_H_
 
+#include "iree/hal/allocator.h"
 #include "iree/hal/drivers/amdgpu/util/libhsa.h"
 #include "iree/hal/memory_backend.h"
 
@@ -27,6 +28,8 @@ typedef struct iree_hal_amdgpu_memory_backend_t {
   iree_hal_memory_backend_t base;
   // Existing HAL owner for native buffer placement and profiling.
   iree_hal_device_t* device;
+  // Device-owned allocator borrowed as the legacy ROCr attachment service.
+  iree_hal_allocator_t* allocator;
   // Device-owned native runtime dispatch table.
   const iree_hal_amdgpu_libhsa_t* libhsa;
   // Device-owned native agent snapshot, borrowed only during qualification.

@@ -34,6 +34,15 @@ typedef struct iree_hal_vulkan_slab_pool_plan_t {
   } progress;
   // Owned immutable access facts retained by the created source.
   iree_hal_memory_contract_t* contract;
+  // Whether the created pool may allocate new Vulkan slabs.
+  iree_hal_slab_pool_owned_mode_t owned_mode;
+  // Constructor-borrowed import classes copied by synchronous pool creation.
+  struct {
+    // Number of admitted input classes.
+    iree_host_size_t class_count;
+    // Source classes and correlated export requirements.
+    const iree_hal_pool_import_class_t* classes;
+  } imports;
   // Borrowed until synchronous creation copies the diagnostic name.
   iree_string_view_t trace_name;
 } iree_hal_vulkan_slab_pool_plan_t;
@@ -59,6 +68,12 @@ static iree_status_t iree_hal_vulkan_slab_pool_plan_create(
     const iree_hal_passthrough_pool_options_t options = {
         .memory_contract = plan->contract,
         .epoch_query = plan->progress.epoch_query,
+        .owned_mode = plan->owned_mode,
+        .imports =
+            {
+                .class_count = plan->imports.class_count,
+                .classes = plan->imports.classes,
+            },
         .trace_name = plan->trace_name,
     };
     status = iree_hal_passthrough_pool_create(
@@ -103,6 +118,79 @@ static iree_hal_buffer_usage_t iree_hal_vulkan_memory_mapping_usage(
     usage |= IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT;
   }
   return usage;
+}
+
+static bool iree_hal_vulkan_host_pointer_class_is_supported(
+    iree_hal_external_storage_class_t storage_class) {
+  return storage_class.type == IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER &&
+         storage_class.provenance[0] == 0 && storage_class.provenance[1] == 0;
+}
+
+static bool iree_hal_vulkan_external_storage_options_are_supported(
+    const iree_hal_vulkan_memory_backend_t* backend,
+    const iree_hal_slab_pool_options_t* options) {
+  // Vulkan buffers do not yet implement any external export route.
+  if (options->owned.exports.class_count) {
+    return false;
+  }
+  if (options->imports.class_count &&
+      !iree_hal_vulkan_allocator_supports_host_allocation_import(
+          backend->allocator)) {
+    return false;
+  }
+  for (iree_host_size_t i = 0; i < options->imports.class_count; ++i) {
+    const iree_hal_pool_import_class_t* import_class =
+        &options->imports.classes[i];
+    if (!iree_hal_vulkan_host_pointer_class_is_supported(
+            import_class->storage_class) ||
+        import_class->exports.class_count) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool iree_hal_vulkan_memory_properties_support_slab_storage(
+    VkMemoryPropertyFlags flags) {
+  return !iree_any_bit_set(flags,
+                           VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT |
+                               VK_MEMORY_PROPERTY_PROTECTED_BIT |
+                               VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD |
+                               VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD);
+}
+
+// Returns external-buffer memory types that preserve the selected pool memory
+// guarantees. Vulkan may expose separate type indices for ordinary and external
+// resources even when their HAL-visible properties are identical.
+static uint32_t iree_hal_vulkan_compatible_import_memory_type_bits(
+    const iree_hal_vulkan_memory_backend_t* backend,
+    uint32_t external_memory_type_bits,
+    iree_hal_memory_type_t pool_memory_type) {
+  iree_hal_memory_type_t required_memory_type =
+      pool_memory_type &
+      ~(IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_OPTIMAL);
+  required_memory_type |=
+      IREE_HAL_MEMORY_TYPE_HOST_VISIBLE | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
+
+  uint32_t compatible_memory_type_bits = 0;
+  const VkPhysicalDeviceMemoryProperties* memory =
+      &backend->physical_device->memory_properties2.memoryProperties;
+  for (uint32_t i = 0; i < memory->memoryTypeCount; ++i) {
+    if (!(external_memory_type_bits & (1u << i))) {
+      continue;
+    }
+    const VkMemoryPropertyFlags flags = memory->memoryTypes[i].propertyFlags;
+    if (!iree_hal_vulkan_memory_properties_support_slab_storage(flags)) {
+      continue;
+    }
+    const iree_hal_memory_type_t memory_type =
+        iree_hal_vulkan_memory_type_from_properties(
+            backend->physical_device->properties2.properties.deviceType, flags);
+    if (iree_all_bits_set(memory_type, required_memory_type)) {
+      compatible_memory_type_bits |= 1u << i;
+    }
+  }
+  return compatible_memory_type_bits;
 }
 
 // Reports device-local placement only when this native owner selects discrete
@@ -173,12 +261,18 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
     iree_hal_pool_scope_t scope, const iree_hal_slab_pool_options_t* options,
     iree_hal_slab_pool_plan_callback_t callback,
     iree_allocator_t host_allocator) {
+  if (!iree_hal_vulkan_external_storage_options_are_supported(backend,
+                                                              options)) {
+    return iree_ok_status();
+  }
   uint32_t interfaces = 1u << IREE_HAL_BUFFER_INTERFACE_VULKAN_BUFFER;
   if (iree_any_bit_set(
           backend->enabled_features.general,
           IREE_HAL_VULKAN_FEATURE_ENABLE_BUFFER_DEVICE_ADDRESSES)) {
     interfaces |= 1u << IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS;
   }
+  const iree_hal_atomic_operation_capabilities_t atomic_operations =
+      iree_hal_vulkan_atomic_capabilities(backend->enabled_features).operations;
   iree_hal_buffer_usage_t usage = IREE_HAL_BUFFER_USAGE_NONE;
   iree_hal_queue_family_affinity_t families = 0;
   for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
@@ -186,7 +280,9 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
     if (iree_hal_device_memory_backend(
             iree_hal_queue_family_device(access->family)) != &backend->base ||
         (access->interfaces & ~((uint64_t)interfaces)) ||
-        access->requirements) {
+        access->requirements ||
+        !iree_hal_atomic_operation_capabilities_support(
+            atomic_operations, access->atomic_operations)) {
       // HOST_COHERENT alone does not establish automatic device visibility.
       // This native owner does not enable device_coherent_memory, so neither
       // full host/device coherence nor an uncached device route is available.
@@ -230,6 +326,46 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
                                            backend->logical_device, &query,
                                            &requirements);
 
+  iree_device_size_t min_alignment = requirements.memoryRequirements.alignment;
+  uint32_t external_memory_type_bits = 0;
+  if (options->imports.class_count) {
+    const VkExternalMemoryBufferCreateInfo external_create_info = {
+        .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO,
+        .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
+    };
+    VkBufferCreateInfo external_buffer_create_info = create_info;
+    external_buffer_create_info.pNext = &external_create_info;
+    const VkDeviceBufferMemoryRequirements external_query = {
+        .sType = VK_STRUCTURE_TYPE_DEVICE_BUFFER_MEMORY_REQUIREMENTS,
+        .pCreateInfo = &external_buffer_create_info,
+    };
+    VkMemoryRequirements2 external_requirements = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2,
+    };
+    iree_vkGetDeviceBufferMemoryRequirements(
+        IREE_VULKAN_DEVICE(backend->syms), backend->logical_device,
+        &external_query, &external_requirements);
+    external_memory_type_bits =
+        external_requirements.memoryRequirements.memoryTypeBits;
+    min_alignment = iree_max(
+        min_alignment,
+        (iree_device_size_t)external_requirements.memoryRequirements.alignment);
+
+    const VkDeviceSize import_alignment =
+        backend->physical_device->external_memory_host_properties
+            .minImportedHostPointerAlignment;
+    if (import_alignment > IREE_DEVICE_SIZE_MAX ||
+        (import_alignment && !iree_device_size_is_valid_alignment(
+                                 (iree_device_size_t)import_alignment))) {
+      return iree_make_status(
+          IREE_STATUS_FAILED_PRECONDITION,
+          "Vulkan reported invalid minImportedHostPointerAlignment %" PRIu64,
+          (uint64_t)import_alignment);
+    }
+    min_alignment =
+        iree_max(min_alignment, (iree_device_size_t)import_alignment);
+  }
+
   const VkPhysicalDeviceMemoryProperties* memory =
       &backend->physical_device->memory_properties2.memoryProperties;
   const VkPhysicalDeviceLimits* limits =
@@ -239,11 +375,9 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
        ++i) {
     const VkMemoryPropertyFlags flags = memory->memoryTypes[i].propertyFlags;
     if (!(requirements.memoryRequirements.memoryTypeBits & (1u << i)) ||
-        iree_any_bit_set(flags,
-                         VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT |
-                             VK_MEMORY_PROPERTY_PROTECTED_BIT |
-                             VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD |
-                             VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD) ||
+        !iree_hal_vulkan_memory_properties_support_slab_storage(flags) ||
+        (options->imports.class_count &&
+         !iree_any_bit_set(flags, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) ||
         !iree_hal_vulkan_memory_supports_host_access(flags, scope.host)) {
       continue;
     }
@@ -257,6 +391,14 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
     const iree_hal_memory_type_t memory_type =
         iree_hal_vulkan_memory_type_from_properties(
             backend->physical_device->properties2.properties.deviceType, flags);
+    const uint32_t import_memory_type_bits =
+        options->imports.class_count
+            ? iree_hal_vulkan_compatible_import_memory_type_bits(
+                  backend, external_memory_type_bits, memory_type)
+            : 0;
+    if (options->imports.class_count && !import_memory_type_bits) {
+      continue;
+    }
     iree_hal_pool_host_access_t host = scope.host;
     if (iree_hal_vulkan_memory_supports_host_access(
             flags, options->preferences.host)) {
@@ -290,14 +432,12 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
         .syms = backend->syms,
         .logical_device = backend->logical_device,
         .memory_type_index = i,
-        .memory_property_flags = flags,
+        .import_memory_type_bits = import_memory_type_bits,
         .memory_type = memory_type,
         .supported_usage = native_usage | mapping_usage,
-        .atomic_operations =
-            iree_hal_vulkan_atomic_capabilities(backend->enabled_features)
-                .operations,
+        .atomic_operations = atomic_operations,
         .queue_family_affinity_mask = families,
-        .min_alignment = requirements.memoryRequirements.alignment,
+        .min_alignment = min_alignment,
         .non_coherent_atom_size = limits->nonCoherentAtomSize,
     };
     plan->progress.notification = backend->notification;
@@ -305,6 +445,9 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
     plan->progress.epoch_query = backend->epoch_query;
     plan->progress.tracker =
         iree_hal_device_topology_info(backend->device)->frontier.tracker;
+    plan->owned_mode = options->owned.mode;
+    plan->imports.class_count = options->imports.class_count;
+    plan->imports.classes = options->imports.classes;
     plan->trace_name = options->trace_name;
     status = iree_hal_memory_contract_create(
         iree_hal_device_group_memory_domain(group),
@@ -315,12 +458,9 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
       iree_hal_memory_contract_t* contract = plan->contract;
       contract->host = host;
       contract->placement = placement;
-      contract->buffer_params = (iree_hal_buffer_params_t){
-          .usage = usage | mapping_usage,
-          .access = IREE_HAL_MEMORY_ACCESS_ALL,
-          .type = plan->provider_options.memory_type,
-          .queue_family_affinity = families,
-      };
+      contract->allowed_access =
+          iree_hal_buffer_usage_access(usage) | host.access;
+      contract->allowed_usage = usage | mapping_usage;
       for (iree_host_size_t j = 0; j < scope.family_count; ++j) {
         const uint32_t queue_scope_id =
             scope.families[j].family->memory.queue_scope_id;

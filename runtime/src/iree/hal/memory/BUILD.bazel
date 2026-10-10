@@ -209,6 +209,29 @@ iree_runtime_cc_library(
 )
 
 iree_runtime_cc_library(
+    name = "heap_pool",
+    srcs = ["heap_pool.c"],
+    hdrs = ["heap_pool.h"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
+        "//runtime/src/iree/hal",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "heap_pool_test",
+    srcs = ["heap_pool_test.cc"],
+    deps = [
+        ":heap_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_library(
     name = "maintenance",
     srcs = ["maintenance.c"],
     hdrs = ["maintenance.h"],
@@ -216,6 +239,17 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/threading",
         "//runtime/src/iree/hal",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "maintenance_test",
+    srcs = ["maintenance_test.cc"],
+    deps = [
+        ":maintenance",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 

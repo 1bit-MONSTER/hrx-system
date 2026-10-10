@@ -8,7 +8,6 @@
 #define IREE_HAL_DRIVERS_AMDGPU_AQL_PREPUBLISHED_KERNARG_STORAGE_H_
 
 #include "iree/base/api.h"
-#include "iree/hal/api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,8 +25,6 @@ typedef enum iree_hal_amdgpu_aql_prepublished_kernarg_storage_mode_e {
 typedef struct iree_hal_amdgpu_aql_prepublished_kernarg_storage_t {
   // Selected backing mode.
   iree_hal_amdgpu_aql_prepublished_kernarg_storage_mode_t mode;
-  // HAL allocation parameters used for materialized kernarg storage.
-  iree_hal_buffer_params_t buffer_params;
 } iree_hal_amdgpu_aql_prepublished_kernarg_storage_t;
 
 static inline iree_hal_amdgpu_aql_prepublished_kernarg_storage_t
@@ -44,12 +41,6 @@ iree_hal_amdgpu_aql_prepublished_kernarg_storage_device_fine_host_coherent(
       iree_hal_amdgpu_aql_prepublished_kernarg_storage_disabled();
   storage.mode =
       IREE_HAL_AMDGPU_AQL_PREPUBLISHED_KERNARG_STORAGE_MODE_DEVICE_FINE_HOST_COHERENT;
-  storage.buffer_params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
-                               IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
-                               IREE_HAL_MEMORY_TYPE_HOST_COHERENT;
-  storage.buffer_params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  storage.buffer_params.usage = IREE_HAL_BUFFER_USAGE_DISPATCH_UNIFORM_READ |
-                                IREE_HAL_BUFFER_USAGE_MAPPING;
   return storage;
 }
 

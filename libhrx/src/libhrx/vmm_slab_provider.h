@@ -15,12 +15,12 @@ extern "C" {
 // one mapped physical allocation. Materialized buffers are subspans of that
 // reservation, so every pool allocation has a stable device-visible address.
 //
-// |physical_buffer_params| must require device-local memory and may not request
-// host access. The provider retains |allocator| and releases it at destruction.
-// Virtual memory must be supported by |allocator|.
+// |physical_memory_params| must require device-local memory. The provider
+// retains |allocator| and releases it at destruction. Virtual memory must be
+// supported by |allocator|.
 iree_status_t hrx_vmm_slab_provider_create(
     iree_hal_allocator_t* allocator,
-    iree_hal_buffer_params_t physical_buffer_params,
+    iree_hal_physical_memory_params_t physical_memory_params,
     iree_allocator_t host_allocator, iree_hal_slab_provider_t** out_provider);
 
 #ifdef __cplusplus

@@ -50,12 +50,12 @@ void iree_hal_pool_buffer_range_query_reservation_view(
     iree_device_size_t length, const iree_async_frontier_t* reuse_frontier,
     iree_hal_pool_reservation_view_t* out_view);
 
-// Materializes a reservation with narrowed permissions and exact reuse history.
+// Materializes a reservation with the range contract's permissions and exact
+// reuse history.
 // Offsets are relative to the managed range. Transfers the callback on success.
 iree_status_t iree_hal_pool_buffer_range_materialize(
     const iree_hal_pool_buffer_range_t* range, iree_device_size_t offset,
-    iree_device_size_t length, iree_hal_buffer_params_t params,
-    const iree_async_frontier_t* reuse_frontier,
+    iree_device_size_t length, const iree_async_frontier_t* reuse_frontier,
     iree_hal_buffer_release_callback_t release_callback,
     iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
 

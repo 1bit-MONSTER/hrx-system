@@ -210,6 +210,33 @@ typedef struct iree_hal_atomic_operation_capabilities_t {
   iree_hal_atomic_operation_flags_t system_scope_64;
 } iree_hal_atomic_operation_capabilities_t;
 
+// Returns true when every operation in |required| is present in the matching
+// width and coherence-domain cell of |available|.
+static inline bool iree_hal_atomic_operation_capabilities_support(
+    iree_hal_atomic_operation_capabilities_t available,
+    iree_hal_atomic_operation_capabilities_t required) {
+  return iree_all_bits_set(available.device_scope_32,
+                           required.device_scope_32) &&
+         iree_all_bits_set(available.device_scope_64,
+                           required.device_scope_64) &&
+         iree_all_bits_set(available.system_scope_32,
+                           required.system_scope_32) &&
+         iree_all_bits_set(available.system_scope_64, required.system_scope_64);
+}
+
+// Returns true when every capability cell contains only known operations.
+static inline bool iree_hal_atomic_operation_capabilities_are_valid(
+    iree_hal_atomic_operation_capabilities_t capabilities) {
+  return !iree_any_bit_set(capabilities.device_scope_32,
+                           ~IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL) &&
+         !iree_any_bit_set(capabilities.device_scope_64,
+                           ~IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL) &&
+         !iree_any_bit_set(capabilities.system_scope_32,
+                           ~IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL) &&
+         !iree_any_bit_set(capabilities.system_scope_64,
+                           ~IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL);
+}
+
 // Atomic wait condition capabilities partitioned by width and coherence
 // domain.
 typedef struct iree_hal_atomic_wait_condition_capabilities_t {

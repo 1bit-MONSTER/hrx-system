@@ -84,6 +84,8 @@ struct IreeHalKernelExecutionTarget {
 struct IreeHalKernelExecution {
   // Live device that owns the executable and queues.
   iree_hal_device_t* device;
+  // Explicit storage contract shared by dispatch and transfer operations.
+  iree_hal_pool_t* pool;
   // Queue used for explicitly synchronized uploads and downloads.
   iree_hal_queue_t* transfer_queue;
   // Queue compatible with the loaded executable.

@@ -57,6 +57,20 @@ class HalDispatchTest : public ::testing::Test {
       }
     }
     ASSERT_NE(queue_, nullptr);
+    const iree_hal_pool_family_access_t family_access = {
+        /*.family=*/iree_hal_queue_family(queue_),
+        /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
+            IREE_HAL_BUFFER_USAGE_TRANSFER,
+    };
+    const iree_hal_pool_scope_t pool_scope = {
+        /*.family_count=*/1,
+        /*.families=*/&family_access,
+    };
+    iree_hal_slab_pool_options_t pool_options;
+    iree_hal_slab_pool_options_initialize(&pool_options);
+    pool_options.trace_name = IREE_SV("loom.task_abi");
+    IREE_ASSERT_OK(iree_hal_slab_pool_create(device_group_, pool_scope,
+                                             &pool_options, allocator, &pool_));
     IREE_ASSERT_OK(iree_hal_semaphore_create(
         device_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
         IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &semaphore_));
@@ -66,6 +80,7 @@ class HalDispatchTest : public ::testing::Test {
     iree_hal_buffer_release(buffer_);
     iree_hal_executable_release(executable_);
     iree_hal_semaphore_release(semaphore_);
+    iree_hal_pool_release(pool_);
     iree_hal_device_group_release(device_group_);
     iree_hal_device_release(device_);
     iree_async_frontier_tracker_release(frontier_tracker_);
@@ -113,6 +128,8 @@ class HalDispatchTest : public ::testing::Test {
   iree_hal_queue_t* queue_ = nullptr;
   // Completion frontier for ordered uploads, dispatches, and downloads.
   iree_hal_semaphore_t* semaphore_ = nullptr;
+  // Explicit storage shared by dispatch and transfer on the selected family.
+  iree_hal_pool_t* pool_ = nullptr;
   // Loaded native image, independent of compiler and input-byte lifetimes.
   iree_hal_executable_t* executable_ = nullptr;
   // Output allocation including prefix and suffix sentinel words.
@@ -148,13 +165,10 @@ TEST_F(HalDispatchTest, GridCallsAndIndependentImageLifetime) {
   std::array<uint32_t, kPrefix + kCount + 2> output = {};
   output.front() = 0x76543210;
   output.back() = 0xfedcba98;
-  iree_hal_buffer_params_t buffer_params = {};
-  buffer_params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  buffer_params.usage =
-      IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(device_), buffer_params, sizeof(output),
-      &buffer_));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool_,
+      iree_hal_make_pool_reservation_request(sizeof(output), alignof(uint32_t)),
+      iree_infinite_timeout(), &buffer_));
   uint64_t uploaded = 1, first_done = 2, second_done = 3, downloaded = 4;
   IREE_ASSERT_OK(iree_hal_queue_upload(
       queue_, iree_hal_semaphore_list_empty(), Completion(&uploaded),
@@ -215,13 +229,9 @@ TEST_F(HalDispatchTest, NarrowParameterAndZeroWork) {
 
   std::array<uint8_t, 8> output;
   output.fill(0xc8);
-  iree_hal_buffer_params_t buffer_params = {};
-  buffer_params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  buffer_params.usage =
-      IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(device_), buffer_params, output.size(),
-      &buffer_));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool_, iree_hal_make_pool_reservation_request(output.size(), 1),
+      iree_infinite_timeout(), &buffer_));
   uint64_t uploaded = 1, filled = 2, skipped = 3, downloaded = 4;
   IREE_ASSERT_OK(iree_hal_queue_upload(
       queue_, iree_hal_semaphore_list_empty(), Completion(&uploaded),

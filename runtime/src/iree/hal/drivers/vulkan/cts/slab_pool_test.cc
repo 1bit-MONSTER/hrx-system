@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <future>
 #include <vector>
 
 #include "iree/hal/cts/util/test_base.h"
@@ -17,6 +18,48 @@
 
 namespace iree::hal::cts {
 namespace {
+
+struct ImportedHostAllocation {
+  // Pointer released after the Vulkan attachment is retired.
+  void* pointer = nullptr;
+  // True when the transport callback observed the expected storage class.
+  bool storage_class_matches = false;
+  // True when the transport callback observed the original host pointer.
+  bool payload_matches = false;
+  // True after the external transport release callback runs.
+  bool released = false;
+};
+
+struct ResourceRefCountObservation {
+  // Borrowed resource kept live by the test until observation completes.
+  iree_hal_resource_t* resource = nullptr;
+  // Result published by the terminal semaphore callback.
+  std::promise<uint32_t> result;
+};
+
+static void ObserveResourceRefCount(void* user_data,
+                                    iree_async_semaphore_timepoint_t* timepoint,
+                                    iree_status_t status) {
+  (void)timepoint;
+  auto* observation = static_cast<ResourceRefCountObservation*>(user_data);
+  const uint32_t ref_count =
+      iree_atomic_ref_count_load(&observation->resource->ref_count);
+  iree_status_free(status);
+  observation->result.set_value(ref_count);
+}
+
+static void ReleaseImportedHostAllocation(
+    void* user_data, iree_hal_external_storage_class_t storage_class,
+    iree_hal_external_storage_payload_t payload) {
+  auto* allocation = static_cast<ImportedHostAllocation*>(user_data);
+  allocation->storage_class_matches = iree_hal_external_storage_class_equal(
+      storage_class, iree_hal_make_external_storage_class(
+                         IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER));
+  allocation->payload_matches = payload.host_pointer == allocation->pointer;
+  iree_allocator_free_aligned(iree_allocator_system(), allocation->pointer);
+  allocation->pointer = nullptr;
+  allocation->released = true;
+}
 
 class VulkanSlabPoolTest : public CtsTestBase<> {
  protected:
@@ -124,10 +167,12 @@ TEST_P(VulkanSlabPoolTest, CapturesExactFamiliesWithoutAllocatingBacking) {
   Ref<iree_hal_buffer_t> buffer;
   iree_hal_pool_capabilities_t capabilities;
   iree_hal_pool_query_capabilities(source, &capabilities);
-  iree_hal_buffer_params_t params = {};
-  params.min_alignment = capabilities.max_allocation_alignment;
+  const iree_device_size_t min_alignment =
+      capabilities.max_allocation_alignment;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, params, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+      source,
+      iree_hal_make_pool_reservation_request(sizeof(uint32_t), min_alignment),
+      iree_infinite_timeout(), buffer.out()));
   EXPECT_EQ(iree_hal_buffer_allowed_usage(buffer),
             IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET);
   const uint32_t value = 0xAABBCCDD;
@@ -154,6 +199,100 @@ TEST_P(VulkanSlabPoolTest, CapturesExactFamiliesWithoutAllocatingBacking) {
   JoinMaintenance(source);
 }
 
+TEST_P(VulkanSlabPoolTest, QueueReleasesBuffersBeforeTerminalSignal) {
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(Scope(), source.out()));
+  for (bool fail_dependency : {false, true}) {
+    SCOPED_TRACE(fail_dependency);
+    Ref<iree_hal_buffer_t> buffer;
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+        iree_infinite_timeout(), buffer.out()));
+
+    SemaphoreList ready(device_, {0}, {1});
+    SemaphoreList completed(device_, {0}, {1});
+    const uint32_t pattern = 0xA5A5A5A5u;
+    IREE_ASSERT_OK(iree_hal_queue_fill(
+        queues_[0], ready, completed, buffer, 0, sizeof(pattern), &pattern,
+        sizeof(pattern), /*barriers=*/NULL, IREE_HAL_FILL_FLAG_NONE));
+
+    ResourceRefCountObservation observation = {&buffer.get()->resource};
+    std::future<uint32_t> observed_ref_count = observation.result.get_future();
+    iree_async_semaphore_timepoint_t timepoint = {};
+    timepoint.callback = ObserveResourceRefCount;
+    timepoint.user_data = &observation;
+    IREE_ASSERT_OK(iree_async_semaphore_acquire_timepoint(
+        reinterpret_cast<iree_async_semaphore_t*>(completed.semaphores[0]), 1,
+        &timepoint));
+    if (fail_dependency) {
+      iree_hal_semaphore_fail(ready.semaphores[0],
+                              iree_status_from_code(IREE_STATUS_CANCELLED));
+    } else {
+      IREE_ASSERT_OK(iree_hal_semaphore_signal(ready.semaphores[0], 1, NULL));
+    }
+
+    EXPECT_EQ(observed_ref_count.get(), 1u);
+    if (fail_dependency) {
+      IREE_EXPECT_STATUS_IS(
+          IREE_STATUS_CANCELLED,
+          iree_hal_semaphore_list_wait(completed, iree_infinite_timeout(),
+                                       IREE_ASYNC_WAIT_FLAG_NONE));
+    } else {
+      Wait(completed);
+    }
+    EXPECT_EQ(iree_atomic_ref_count_load(&buffer.get()->resource.ref_count),
+              1u);
+    buffer.reset();
+    JoinMaintenance(source);
+  }
+}
+
+TEST_P(VulkanSlabPoolTest,
+       NativeReplayDoesNotRetainStaticBufferCommandBuffers) {
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(Scope(), source.out()));
+  Ref<iree_hal_buffer_t> buffer;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+      iree_infinite_timeout(), buffer.out()));
+
+  Ref<iree_hal_command_buffer_t> command_buffer;
+  IREE_ASSERT_OK(iree_hal_command_buffer_create(
+      iree_hal_queue_family(queues_[0]), IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT,
+      IREE_HAL_COMMAND_CATEGORY_TRANSFER, /*binding_capacity=*/0,
+      command_buffer.out()));
+  IREE_ASSERT_OK(iree_hal_command_buffer_begin(command_buffer));
+  const uint32_t pattern = 0x5A5A5A5Au;
+  IREE_ASSERT_OK(iree_hal_command_buffer_fill_buffer(
+      command_buffer,
+      iree_hal_make_buffer_ref(buffer, /*offset=*/0, sizeof(pattern)), &pattern,
+      sizeof(pattern), IREE_HAL_FILL_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_command_buffer_end(command_buffer));
+
+  SemaphoreList ready(device_, {0}, {1});
+  SemaphoreList completed(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_execute(
+      queues_[0], ready, completed, command_buffer,
+      iree_hal_buffer_binding_table_empty(), IREE_HAL_QUEUE_EXECUTE_FLAG_NONE));
+
+  ResourceRefCountObservation observation = {&command_buffer.get()->resource};
+  std::future<uint32_t> observed_ref_count = observation.result.get_future();
+  iree_async_semaphore_timepoint_t timepoint = {};
+  timepoint.callback = ObserveResourceRefCount;
+  timepoint.user_data = &observation;
+  IREE_ASSERT_OK(iree_async_semaphore_acquire_timepoint(
+      reinterpret_cast<iree_async_semaphore_t*>(completed.semaphores[0]), 1,
+      &timepoint));
+  IREE_ASSERT_OK(iree_hal_semaphore_signal(ready.semaphores[0], 1, NULL));
+
+  EXPECT_EQ(observed_ref_count.get(), 1u);
+  Wait(completed);
+  command_buffer.reset();
+  EXPECT_EQ(iree_atomic_ref_count_load(&buffer.get()->resource.ref_count), 1u);
+  buffer.reset();
+  JoinMaintenance(source);
+}
+
 TEST_P(VulkanSlabPoolTest, RequiredAndPreferredHostGrants) {
   for (auto access : {IREE_HAL_MEMORY_ACCESS_READ, IREE_HAL_MEMORY_ACCESS_WRITE,
                       IREE_HAL_MEMORY_ACCESS_ALL}) {
@@ -171,7 +310,8 @@ TEST_P(VulkanSlabPoolTest, RequiredAndPreferredHostGrants) {
       EXPECT_EQ(host.modes, modes);
       Ref<iree_hal_buffer_t> buffer;
       IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-          source, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+          source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+          iree_infinite_timeout(), buffer.out()));
       const uint32_t value = 0x1234ABCD;
       SemaphoreList filled(device_, {0}, {1});
       IREE_ASSERT_OK(iree_hal_queue_fill(
@@ -250,7 +390,8 @@ TEST_P(VulkanSlabPoolTest, CachedHostAccessIsAnExactNativeClass) {
             IREE_HAL_HOST_CACHEABILITY_WRITE_BACK);
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      required, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+      required, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+      iree_infinite_timeout(), buffer.out()));
   const uint32_t value = 0xABCD1234;
   SemaphoreList filled(device_, {0}, {1});
   IREE_ASSERT_OK(
@@ -272,6 +413,80 @@ TEST_P(VulkanSlabPoolTest, CachedHostAccessIsAnExactNativeClass) {
   JoinMaintenance(required);
 }
 
+TEST_P(VulkanSlabPoolTest, ImportsHostStorageThroughSelectedNativeRoute) {
+  const iree_hal_pool_import_class_t import_class = {
+      /*.storage_class=*/iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+  };
+  iree_hal_slab_pool_options_t options;
+  iree_hal_slab_pool_options_initialize(&options);
+  options.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+  options.imports.class_count = 1;
+  options.imports.classes = &import_class;
+  auto scope = Scope();
+  scope.host.access = IREE_HAL_MEMORY_ACCESS_ALL;
+  scope.host.modes = IREE_HAL_MAPPING_MODE_SCOPED;
+  Ref<iree_hal_pool_t> source;
+  iree_status_t create_status = iree_hal_slab_pool_create(
+      device_group_, scope, &options, iree_allocator_system(), source.out());
+  if (iree_status_is_unavailable(create_status)) {
+    iree::Status unavailable_status(std::move(create_status));
+    GTEST_SKIP() << unavailable_status.ToString();
+  }
+  IREE_ASSERT_OK(create_status);
+
+  iree_hal_pool_capabilities_t capabilities;
+  iree_hal_pool_query_capabilities(source, &capabilities);
+  const iree_device_size_t allocation_size =
+      std::max<iree_device_size_t>(capabilities.max_allocation_alignment, 4096);
+  ASSERT_LE(allocation_size, IREE_HOST_SIZE_MAX);
+  ImportedHostAllocation allocation;
+  IREE_ASSERT_OK(iree_allocator_malloc_aligned(
+      iree_allocator_system(), static_cast<iree_host_size_t>(allocation_size),
+      static_cast<iree_host_size_t>(allocation_size), /*offset=*/0,
+      &allocation.pointer));
+  std::memset(allocation.pointer, 0, static_cast<size_t>(allocation_size));
+
+  iree_hal_external_storage_t storage = {};
+  storage.storage_class = import_class.storage_class;
+  storage.byte_length = allocation_size;
+  storage.payload.host_pointer = allocation.pointer;
+  storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  storage.maintenance_range = iree_hal_make_buffer_range(0, allocation_size);
+  storage.release = ReleaseImportedHostAllocation;
+  storage.release_user_data = &allocation;
+  Ref<iree_hal_buffer_t> buffer;
+  IREE_ASSERT_OK(iree_hal_pool_import_buffer(
+      source, &storage, iree_hal_make_buffer_range(0, allocation_size),
+      buffer.out()));
+  EXPECT_EQ(storage.storage_class.type, IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE);
+
+  const uint32_t value = 0xABCD1234;
+  SemaphoreList filled(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_fill(
+      queues_.front(), iree_hal_semaphore_list_empty(), filled, buffer, 0,
+      sizeof(value), &value, sizeof(value), /*barriers=*/NULL,
+      IREE_HAL_FILL_FLAG_NONE));
+  Wait(filled);
+  iree_hal_buffer_mapping_t mapping = {};
+  IREE_ASSERT_OK(iree_hal_buffer_map_range(
+      buffer, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_READ,
+      IREE_HAL_BUFFER_MAP_FLAG_NONE, 0, sizeof(value), &mapping));
+  IREE_ASSERT_OK(
+      iree_hal_buffer_mapping_invalidate_range(&mapping, 0, sizeof(value)));
+  uint32_t result = 0;
+  std::memcpy(&result, mapping.contents.data, sizeof(result));
+  EXPECT_EQ(result, value);
+  IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
+
+  buffer.reset();
+  EXPECT_FALSE(allocation.released);
+  JoinMaintenance(source);
+  EXPECT_TRUE(allocation.storage_class_matches);
+  EXPECT_TRUE(allocation.payload_matches);
+  EXPECT_TRUE(allocation.released);
+}
+
 TEST_P(VulkanSlabPoolTest, NativeOnlyAndHostOnlyDoNotGrantQueueOperations) {
   for (auto& access : families_) {
     access.usage = IREE_HAL_BUFFER_USAGE_NONE;
@@ -280,7 +495,8 @@ TEST_P(VulkanSlabPoolTest, NativeOnlyAndHostOnlyDoNotGrantQueueOperations) {
   IREE_ASSERT_OK(CreateSource(Scope(), source.out()));
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, {}, 64, iree_infinite_timeout(), buffer.out()));
+      source, iree_hal_make_pool_reservation_request(64, 0),
+      iree_infinite_timeout(), buffer.out()));
   EXPECT_EQ(iree_hal_buffer_allowed_usage(buffer), IREE_HAL_BUFFER_USAGE_NONE);
   iree_hal_memory_scope_t scope;
   const iree_hal_memory_site_t site = {IREE_HAL_MEMORY_SITE_PROGRAM,
@@ -312,7 +528,8 @@ TEST_P(VulkanSlabPoolTest, NativeOnlyAndHostOnlyDoNotGrantQueueOperations) {
   Ref<iree_hal_pool_t> host_source;
   IREE_ASSERT_OK(CreateSource(host_scope, host_source.out()));
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      host_source, {}, 64, iree_infinite_timeout(), buffer.out()));
+      host_source, iree_hal_make_pool_reservation_request(64, 0),
+      iree_infinite_timeout(), buffer.out()));
   iree_hal_buffer_mapping_t mapping = {};
   IREE_ASSERT_OK(iree_hal_buffer_map_range(
       buffer, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_ALL,
@@ -421,8 +638,7 @@ TEST_P(VulkanSlabPoolTest, SharedBackingAcrossFamiliesAndAllocationPolicies) {
   iree_hal_slab_cache_options_t cache_options;
   iree_hal_slab_cache_options_initialize(&cache_options);
   cache_options.slab.allocation_size = 65536;
-  cache_options.slab.params.min_alignment =
-      capabilities.max_allocation_alignment;
+  cache_options.slab.min_alignment = capabilities.max_allocation_alignment;
   Ref<iree_hal_pool_t> cache;
   IREE_ASSERT_OK(iree_hal_slab_cache_create(
       source, &cache_options, iree_allocator_system(), cache.out()));

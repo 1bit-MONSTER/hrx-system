@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "iree/base/internal/arena.h"
+#include "iree/hal/drivers/vulkan/allocator.h"
 #include "iree/hal/drivers/vulkan/barrier.h"
 #include "iree/hal/drivers/vulkan/buffer.h"
 #include "iree/hal/drivers/vulkan/executable.h"
@@ -201,6 +202,9 @@ typedef struct iree_hal_vulkan_command_buffer_t {
   // Retained resources referenced by recorded commands.
   // NULL only when the command buffer mode is UNRETAINED.
   iree_hal_resource_set_t* resource_set;
+
+  // Whether any recorded command directly names a HAL buffer.
+  bool has_static_buffer_refs;
 
   // First command block in recording order.
   iree_hal_vulkan_command_block_t* command_block_head;
@@ -564,8 +568,10 @@ static iree_status_t iree_hal_vulkan_command_buffer_track_buffer_ref(
     iree_hal_vulkan_command_buffer_t* command_buffer,
     iree_hal_buffer_ref_t buffer_ref) {
   if (buffer_ref.buffer) {
-    return iree_hal_vulkan_command_buffer_retain_resource(command_buffer,
-                                                          buffer_ref.buffer);
+    IREE_RETURN_IF_ERROR(iree_hal_vulkan_command_buffer_retain_resource(
+        command_buffer, buffer_ref.buffer));
+    command_buffer->has_static_buffer_refs = true;
+    return iree_ok_status();
   }
   command_buffer->base.binding_count =
       iree_max(command_buffer->base.binding_count, buffer_ref.buffer_slot + 1);
@@ -575,11 +581,6 @@ static iree_status_t iree_hal_vulkan_command_buffer_track_buffer_ref(
 static iree_status_t iree_hal_vulkan_command_buffer_track_buffer_refs(
     iree_hal_vulkan_command_buffer_t* command_buffer, iree_host_size_t count,
     const iree_hal_buffer_ref_t* buffer_refs) {
-  if (!command_buffer->resource_set &&
-      command_buffer->base.binding_count ==
-          command_buffer->base.binding_capacity) {
-    return iree_ok_status();
-  }
   bool has_static_refs = false;
   uint32_t binding_count = command_buffer->base.binding_count;
   for (iree_host_size_t i = 0; i < count; ++i) {
@@ -595,6 +596,7 @@ static iree_status_t iree_hal_vulkan_command_buffer_track_buffer_refs(
         command_buffer->resource_set, count, buffer_refs,
         offsetof(iree_hal_buffer_ref_t, buffer), sizeof(buffer_refs[0])));
   }
+  command_buffer->has_static_buffer_refs |= has_static_refs;
   return iree_ok_status();
 }
 
@@ -746,8 +748,8 @@ iree_status_t iree_hal_vulkan_command_buffer_create(
   memset(command_buffer, 0, sizeof(*command_buffer) + validation_state_size);
 
   iree_hal_command_buffer_initialize(
-      device_allocator, queue_family, mode, command_categories,
-      binding_capacity, (uint8_t*)command_buffer + sizeof(*command_buffer),
+      queue_family, mode, command_categories, binding_capacity,
+      (uint8_t*)command_buffer + sizeof(*command_buffer),
       &iree_hal_vulkan_command_buffer_vtable, &command_buffer->base);
   command_buffer->host_allocator = host_allocator;
   command_buffer->device_allocator = device_allocator;
@@ -1347,7 +1349,11 @@ bool iree_hal_vulkan_command_buffer_native_replay_compatible(
     iree_hal_command_buffer_t* base_command_buffer) {
   iree_hal_vulkan_command_buffer_t* command_buffer =
       iree_hal_vulkan_command_buffer_cast(base_command_buffer);
-  return !command_buffer->has_indirect_transfer;
+  // A cached replay retains its source command buffer. Direct buffer references
+  // would therefore keep allocation-pool reservations live after terminal
+  // semaphore publication, when callers are allowed to destroy the pool.
+  return !command_buffer->has_indirect_transfer &&
+         !command_buffer->has_static_buffer_refs;
 }
 
 iree_status_t iree_hal_vulkan_command_buffer_native_bda_publication_length(
@@ -2706,7 +2712,7 @@ iree_hal_vulkan_command_buffer_materialize_transfer_staging(
     return iree_ok_status();
   }
 
-  const iree_hal_buffer_params_t params = {
+  const iree_hal_vulkan_buffer_spec_t buffer_spec = {
       .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE |
               IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
       .access = IREE_HAL_MEMORY_ACCESS_ALL,
@@ -2718,8 +2724,8 @@ iree_hal_vulkan_command_buffer_materialize_transfer_staging(
               iree_hal_command_buffer_queue_family(&command_buffer->base))),
   };
   iree_hal_buffer_t* staging_buffer = NULL;
-  iree_status_t status = iree_hal_allocator_allocate_buffer(
-      command_buffer->device_allocator, params,
+  iree_status_t status = iree_hal_vulkan_allocator_allocate_direct_buffer(
+      command_buffer->device_allocator, &buffer_spec,
       command_buffer->transfer_staging_length, &staging_buffer);
 
   iree_hal_buffer_mapping_t staging_mapping = {{0}};

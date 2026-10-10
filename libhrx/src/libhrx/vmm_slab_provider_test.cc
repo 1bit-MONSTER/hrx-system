@@ -7,6 +7,7 @@
 #include "iree/hal/memory/maintenance.h"
 #include "iree/hal/memory/passthrough_pool.h"
 #include "iree/hal/memory/tlsf_pool.h"
+#include "iree/hal/slab_pool.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 
@@ -29,29 +30,39 @@ class VmmSlabProviderTest : public ::testing::Test {
       GTEST_SKIP() << "The device allocator does not support virtual memory.";
     }
     params_.usage = IREE_HAL_BUFFER_USAGE_DEFAULT;
-    params_.access = IREE_HAL_MEMORY_ACCESS_ALL;
     params_.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
     params_.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
     IREE_ASSERT_OK(
         hrx_vmm_slab_provider_create(device->allocator.hal_allocator, params_,
                                      iree_allocator_system(), &provider_));
-    iree_hal_queue_pool_backend_t backend;
-    IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-        device->hal_device, iree_hal_queue_family(device->transfer_queue),
-        &backend));
-    maintenance_ = backend.maintenance;
+    const iree_hal_pool_family_access_t family_access = {
+        /*.family=*/iree_hal_queue_family(device->transfer_queue),
+        /*.usage=*/IREE_HAL_BUFFER_USAGE_DEFAULT,
+    };
+    const iree_hal_pool_scope_t scope = {
+        /*.family_count=*/1,
+        /*.families=*/&family_access,
+    };
+    iree_hal_slab_pool_options_t owner_options;
+    iree_hal_slab_pool_options_initialize(&owner_options);
+    owner_options.trace_name = IREE_SV("hrx.vmm_test_owner");
+    IREE_ASSERT_OK(iree_hal_slab_pool_create(
+        device->hal_device_group, scope, &owner_options,
+        iree_allocator_system(), &owner_pool_));
+    maintenance_ = owner_pool_->maintenance;
     iree_hal_tlsf_pool_options_t options = {};
     options.tlsf_options.range_length = 2 * 1024 * 1024;
     options.tlsf_options.alignment = 256;
     options.tlsf_options.frontier_capacity =
         IREE_HAL_MEMORY_TLSF_DEFAULT_FRONTIER_CAPACITY;
     iree_hal_passthrough_pool_options_t backing_options = {};
-    backing_options.epoch_query = backend.epoch_query;
+    backing_options.memory_contract = owner_pool_->memory_contract;
+    backing_options.epoch_query = owner_pool_->epoch_query;
     iree_hal_pool_t* backing_pool = nullptr;
     IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-        backing_options, provider_, backend.notification,
-        backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
-        &backing_pool));
+        backing_options, provider_, owner_pool_->notification,
+        owner_pool_->frontier_tracker, owner_pool_->maintenance,
+        iree_allocator_system(), &backing_pool));
     iree_status_t pool_status = iree_hal_tlsf_pool_create(
         backing_pool, &options, iree_allocator_system(), &pool_);
     iree_hal_pool_release(backing_pool);
@@ -60,6 +71,7 @@ class VmmSlabProviderTest : public ::testing::Test {
 
   void TearDown() override {
     iree_hal_pool_release(pool_);
+    iree_hal_pool_release(owner_pool_);
     iree_hal_slab_provider_release(provider_);
     if (initialized_) {
       IREE_EXPECT_OK(hrx_status_to_iree(hrx_gpu_shutdown()));
@@ -95,11 +107,13 @@ class VmmSlabProviderTest : public ::testing::Test {
   // Whether the fixture owns an initialized GPU runtime.
   bool initialized_ = false;
   // Device-local parameters matching the production VMM pool configuration.
-  iree_hal_buffer_params_t params_ = {};
+  iree_hal_physical_memory_params_t params_ = {};
   // Production provider owning the native virtual reservation and mapping.
   iree_hal_slab_provider_t* provider_ = nullptr;
   // Real TLSF pool whose reservation and slab lifetimes are observed.
   iree_hal_pool_t* pool_ = nullptr;
+  // Explicit native pool retaining the selected GPU progress resources.
+  iree_hal_pool_t* owner_pool_ = nullptr;
   // Borrowed native owner kept alive until runtime shutdown.
   iree_hal_memory_maintenance_t* maintenance_ = nullptr;
 };
@@ -107,7 +121,9 @@ class VmmSlabProviderTest : public ::testing::Test {
 TEST_F(VmmSlabProviderTest, OwnedRangeSurvivesUntilItsFinalSubspan) {
   iree_hal_buffer_t* owner = nullptr;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      pool_, params_, 4096, iree_infinite_timeout(), &owner));
+      pool_,
+      iree_hal_make_pool_reservation_request(4096, /*min_alignment=*/256),
+      iree_infinite_timeout(), &owner));
   iree_hal_buffer_t* root = iree_hal_buffer_allocated_buffer(owner);
   ASSERT_NE(owner, root);
   iree_hal_buffer_t* intermediate = nullptr;
@@ -146,7 +162,9 @@ TEST_F(VmmSlabProviderTest, OwnedRangeSurvivesUntilItsFinalSubspan) {
 }
 
 TEST_F(VmmSlabProviderTest, BorrowedSubspanDoesNotOwnTheReservation) {
-  const iree_hal_pool_reservation_request_t request = {params_, 4096};
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
+                                             /*min_alignment=*/256);
   iree_hal_pool_reservation_t reservation;
   iree_hal_pool_acquire_info_t info;
   iree_hal_pool_acquire_result_t result;

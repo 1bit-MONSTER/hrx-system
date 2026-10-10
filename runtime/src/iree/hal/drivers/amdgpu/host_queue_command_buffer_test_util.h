@@ -16,6 +16,7 @@
 #include "iree/hal/api.h"
 #include "iree/hal/cts/util/registry.h"
 #include "iree/hal/cts/util/test_base.h"
+#include "iree/hal/drivers/amdgpu/allocator.h"
 #include "iree/hal/drivers/amdgpu/aql_command_buffer.h"
 #include "iree/hal/drivers/amdgpu/executable.h"
 #include "iree/hal/drivers/amdgpu/host_queue.h"
@@ -69,6 +70,8 @@ class TestLogicalDevice {
 
   iree_hal_device_t* base_device() const { return base_device_; }
 
+  iree_hal_device_group_t* device_group() const { return device_group_; }
+
   iree_hal_queue_t* queue(iree_hal_queue_family_ordinal_t family_ordinal = 0,
                           iree_hal_queue_ordinal_t queue_ordinal = 0) const {
     return iree_hal_device_queue(base_device_, family_ordinal, queue_ordinal);
@@ -109,33 +112,36 @@ class TestLogicalDevice {
 static iree_status_t CreateHostVisibleTransferBuffer(
     iree_hal_allocator_t* allocator, iree_device_size_t buffer_size,
     iree_hal_buffer_t** out_buffer) {
-  iree_hal_buffer_params_t params = {0};
+  iree_hal_amdgpu_buffer_spec_t params = {0};
   params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL |
                 IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
                 IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
+  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
   params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
-  return iree_hal_allocator_allocate_buffer(allocator, params, buffer_size,
-                                            out_buffer);
+  params.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
+  return iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      allocator, params, buffer_size, out_buffer);
 }
 
 static iree_status_t CreateHostVisibleDispatchBuffer(
     iree_hal_allocator_t* allocator, iree_device_size_t buffer_size,
     iree_hal_buffer_t** out_buffer) {
-  iree_hal_buffer_params_t params = {0};
+  iree_hal_amdgpu_buffer_spec_t params = {0};
   params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL |
                 IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
                 IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
   params.access = IREE_HAL_MEMORY_ACCESS_ALL;
   params.usage = IREE_HAL_BUFFER_USAGE_STORAGE |
                  IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
-  return iree_hal_allocator_allocate_buffer(allocator, params, buffer_size,
-                                            out_buffer);
+  params.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
+  return iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      allocator, params, buffer_size, out_buffer);
 }
 
 static iree_status_t CreateHostVisibleIndirectParameterBuffer(
     iree_hal_allocator_t* allocator, iree_device_size_t buffer_size,
     iree_hal_buffer_t** out_buffer) {
-  iree_hal_buffer_params_t params = {0};
+  iree_hal_amdgpu_buffer_spec_t params = {0};
   params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL |
                 IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
                 IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
@@ -143,8 +149,9 @@ static iree_status_t CreateHostVisibleIndirectParameterBuffer(
   params.usage = IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS |
                  IREE_HAL_BUFFER_USAGE_STORAGE |
                  IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
-  return iree_hal_allocator_allocate_buffer(allocator, params, buffer_size,
-                                            out_buffer);
+  params.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
+  return iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      allocator, params, buffer_size, out_buffer);
 }
 
 static bool IsAmdgpuCtsExecutableTarget(
@@ -219,25 +226,12 @@ static iree_status_t LoadCtsExecutable(
 }
 
 static iree_status_t QueueTransientTransferBuffer(
-    iree_hal_amdgpu_host_queue_t* queue,
+    iree_hal_amdgpu_host_queue_t* queue, iree_hal_pool_t* pool,
     const iree_hal_semaphore_list_t signal_list, iree_device_size_t buffer_size,
     iree_hal_buffer_t** out_buffer) {
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base)));
-  iree_hal_pool_t* pool =
-      iree_hal_pool_set_select(queue->default_pool_set, params, buffer_size);
-  if (!pool) {
-    return iree_make_status(IREE_STATUS_NOT_FOUND,
-                            "no queue pool supports the transient request");
-  }
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/buffer_size,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(buffer_size,
+                                             /*min_alignment=*/0);
   return iree_hal_queue_alloca(&queue->base, iree_hal_semaphore_list_empty(),
                                signal_list, pool,
                                /*request_count=*/1, &request, out_buffer);

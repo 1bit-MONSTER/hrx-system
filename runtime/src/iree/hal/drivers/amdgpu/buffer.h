@@ -124,15 +124,17 @@ iree_status_t iree_hal_amdgpu_buffer_create(
 // The returned buffer has the same memory ownership semantics as
 // iree_hal_amdgpu_buffer_create(), but its host-side wrapper storage is
 // returned to |pool| instead of |host_allocator| when the final reference is
-// released. |pool| must outlive all buffers allocated from it.
+// released. Native bindings address byte zero of the complete
+// |allocation_size| extent; |byte_offset| locates the visible view within it.
+// |pool| must outlive all buffers allocated from it.
 iree_status_t iree_hal_amdgpu_buffer_create_pooled(
     const iree_hal_amdgpu_libhsa_t* libhsa,
     iree_hal_buffer_placement_t placement, iree_hal_memory_type_t memory_type,
     iree_hal_memory_access_t allowed_access,
     iree_hal_buffer_usage_t allowed_usage,
     iree_hal_amdgpu_atomic_memory_cell_flags_t atomic_memory_cells,
-    iree_device_size_t allocation_size, iree_device_size_t byte_length,
-    void* device_pointer, void* host_pointer,
+    iree_device_size_t allocation_size, iree_device_size_t byte_offset,
+    iree_device_size_t byte_length, void* device_pointer, void* host_pointer,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_amdgpu_buffer_pool_t* pool, iree_allocator_t host_allocator,
     iree_hal_buffer_t** out_buffer);
@@ -156,9 +158,9 @@ bool iree_hal_amdgpu_buffer_isa(const iree_hal_buffer_t* buffer);
 // wrapper owner may be another backend. Host accessibility is independent of
 // this address.
 //
-// This is the entire allocated_buffer and must be offset by
-// iree_hal_buffer_byte_offset and the binding offset when computing kernarg
-// binding addresses. |buffer| must be the allocated buffer (not a subspan);
+// This is allocation coordinate zero and must be offset by
+// iree_hal_buffer_byte_offset and the operation-relative offset when computing
+// execution addresses. |buffer| must be the allocated buffer (not a subspan);
 // callers should use iree_hal_buffer_allocated_buffer() to unwrap first.
 void* iree_hal_amdgpu_buffer_device_pointer(iree_hal_buffer_t* buffer);
 

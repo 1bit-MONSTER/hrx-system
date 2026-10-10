@@ -47,7 +47,7 @@ iree_status_t iree_hal_tlsf_pool_reservation_geometry(
     iree_hal_tlsf_pool_request_geometry_t* out_geometry) {
   const iree_device_size_t size = request->allocation_size;
   const iree_device_size_t alignment =
-      request->params.min_alignment ? request->params.min_alignment : 1;
+      request->min_alignment ? request->min_alignment : 1;
   if (!size || !iree_device_size_is_power_of_two(alignment)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "TLSF reservation requires nonzero size and "
@@ -120,8 +120,8 @@ iree_status_t iree_hal_tlsf_pool_dedicated_acquire(
   }
   if (iree_status_is_ok(status)) {
     status = iree_hal_pool_buffer_range_initialize(
-        buffer, 0, IREE_HAL_WHOLE_BUFFER, backing_request->params.min_alignment,
-        asan, &backing->range);
+        buffer, 0, IREE_HAL_WHOLE_BUFFER, backing_request->min_alignment, asan,
+        &backing->range);
     backing->range.memory.reuse_frontier = info.reuse_frontier;
   }
   iree_hal_buffer_release(buffer);
@@ -345,7 +345,6 @@ iree_status_t iree_hal_tlsf_pool_reservation_materialize(
     status = iree_hal_pool_buffer_range_materialize(
         range, reservations[materialized_count].offset,
         reservations[materialized_count].byte_length,
-        requests[materialized_count].params,
         iree_hal_tlsf_pool_reservation_frontier(release_node, frontier_offset),
         release_callback, host_allocator, staged_buffer);
     if (iree_status_is_ok(status)) {

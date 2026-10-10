@@ -231,8 +231,7 @@ class DeviceSpecFloatControlsTest
 TEST_P(DeviceSpecFloatControlsTest, CreatesSpecFromParams) {
   iree_hal_allocator_t* allocator = NULL;
   IREE_ASSERT_OK(
-      iree_hal_allocator_create_heap(IREE_SV("test"), iree_allocator_system(),
-                                     iree_allocator_system(), &allocator));
+      iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
 
   iree_hal_vulkan_physical_device_snapshot_t physical_device = {};
   physical_device.ordinal = 3;

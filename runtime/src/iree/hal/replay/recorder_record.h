@@ -76,6 +76,19 @@ iree_status_t iree_hal_replay_recorder_begin_operation(
     iree_hal_replay_payload_type_t payload_type,
     iree_hal_replay_pending_record_t* out_pending_record);
 
+// Begins a void passthrough operation when capture is still available. Returns
+// false without constructing a status when the recorder is closed or terminal;
+// the backend operation must still proceed in that case. A true result leaves
+// the recorder mutex owned by |out_pending_record| until an end call.
+bool iree_hal_replay_recorder_try_begin_operation(
+    iree_hal_replay_recorder_t* recorder, iree_hal_replay_object_id_t device_id,
+    iree_hal_replay_object_id_t object_id,
+    iree_hal_replay_object_id_t related_object_id,
+    iree_hal_replay_object_type_t object_type,
+    iree_hal_replay_operation_code_t operation_code,
+    iree_hal_replay_payload_type_t payload_type,
+    iree_hal_replay_pending_record_t* out_pending_record);
+
 // Registers |semaphore| while |pending_record| owns the recorder mutex.
 //
 // The recorder retains |semaphore| on success and releases it with the
@@ -85,6 +98,19 @@ iree_status_t iree_hal_replay_recorder_begin_operation(
 iree_status_t iree_hal_replay_recorder_register_semaphore(
     iree_hal_replay_pending_record_t* pending_record,
     iree_hal_semaphore_t* semaphore, iree_hal_replay_object_id_t semaphore_id);
+
+// Registers the immutable contract identifying a captured slab-pool tree while
+// |pending_record| owns the recorder mutex. The recorder retains |contract| so
+// descendant pools remain identifiable after the root pool is released.
+iree_status_t iree_hal_replay_recorder_register_pool_contract(
+    iree_hal_replay_pending_record_t* pending_record,
+    iree_hal_memory_contract_t* contract, iree_hal_replay_object_id_t pool_id);
+
+// Returns the captured root pool id for |contract|, or NONE when the contract
+// was not created through |recorder|.
+iree_hal_replay_object_id_t iree_hal_replay_recorder_find_pool_contract_id(
+    iree_hal_replay_recorder_t* recorder,
+    const iree_hal_memory_contract_t* contract);
 
 // Returns the captured object id for |semaphore|, or NONE when the semaphore
 // was not created through |recorder|.
@@ -109,6 +135,12 @@ iree_status_t iree_hal_replay_recorder_end_operation_with_payload(
     iree_hal_replay_pending_record_t* pending_record,
     iree_status_t operation_status, iree_host_size_t iovec_count,
     const iree_const_byte_span_t* iovecs);
+
+// Completes a successfully begun void operation. Capture write failures become
+// terminal recorder failures reported by iree_hal_replay_recorder_close.
+void iree_hal_replay_recorder_end_void_operation_with_payload(
+    iree_hal_replay_pending_record_t* pending_record,
+    iree_host_size_t iovec_count, const iree_const_byte_span_t* iovecs);
 
 // Completes a forwarded stateful operation without allowing capture I/O to
 // change the status observed by the caller. Capture failures remain latched on

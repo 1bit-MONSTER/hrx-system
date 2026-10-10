@@ -40,10 +40,11 @@ void iree_hal_memory_maintenance_retain(
 void iree_hal_memory_maintenance_release(
     iree_hal_memory_maintenance_t* maintenance);
 
-// Publishes prepared work without allocation. The callback runs on the captured
-// cold owner, never inline on the submitting thread or a proactor poll
-// callback. Queue links are protected by a short metadata lock; wakeup runs
-// outside it.
+// Publishes prepared work without allocation. Queue links are protected by a
+// short metadata lock; wakeup runs outside it. Thread-backed owners run work on
+// their captured executor. Inline owners may run and free |entry| before this
+// call returns and are reserved for native APIs whose execution context cannot
+// block waiting for another executor.
 void iree_hal_memory_maintenance_enqueue(
     iree_hal_memory_maintenance_t* maintenance,
     iree_hal_memory_maintenance_entry_t* entry);
@@ -99,6 +100,17 @@ bool iree_hal_memory_maintenance_run_one(
 // Returns whether an entry is queued. Used by the executor's sleep predicate.
 bool iree_hal_memory_maintenance_has_work(
     iree_hal_memory_maintenance_t* maintenance);
+
+// Creates a serialized owner that drains work on an enqueueing thread.
+//
+// This is intended for synchronous, execution-context-affine native APIs such
+// as browser WebGPU. It creates no thread and never blocks waiting for another
+// executor. Callbacks from several producers remain single-consumer, but the
+// winning producer supplies the execution context. Every producer must
+// therefore already satisfy the native API's thread-affinity contract.
+iree_status_t iree_hal_memory_maintenance_inline_create(
+    iree_allocator_t host_allocator,
+    iree_hal_memory_maintenance_t** out_maintenance);
 
 #ifdef __cplusplus
 }  // extern "C"

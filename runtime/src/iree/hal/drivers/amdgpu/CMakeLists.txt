@@ -226,6 +226,7 @@ iree_cc_library(
   NAME
     amdgpu
   HDRS
+    "allocator.h"
     "api.h"
   SRCS
     "allocator.c"
@@ -413,6 +414,7 @@ iree_cc_library(
     iree::hal::drivers::amdgpu::util::shadow_map
     iree::hal::drivers::amdgpu::util::topology
     iree::hal::drivers::amdgpu::util::vmem
+    iree::hal::memory::asan
     iree::hal::memory::maintenance
     iree::hal::memory::maintenance_thread
     iree::hal::memory::passthrough_pool
@@ -991,6 +993,7 @@ iree_cc_test(
     ::headers
     iree::base
     iree::hal
+    iree::hal::cts::util::pool_test_util
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
     iree::hal::drivers::amdgpu::cts::testdata_amdgpu
@@ -1054,12 +1057,12 @@ iree_cc_test(
     ::headers
     iree::base
     iree::hal
+    iree::hal::cts::util::pool_test_util
     iree::hal::cts::util::registry
     iree::hal::cts::util::test_base
     iree::hal::drivers::amdgpu::cts::testdata_amdgpu
     iree::hal::drivers::amdgpu::target::selection
     iree::hal::drivers::amdgpu::util::packet
-    iree::hal::memory::passthrough_pool
     iree::hal::memory::tlsf_pool
     iree::testing::gtest
     iree::testing::gtest_main
@@ -1223,10 +1226,10 @@ iree_cc_test(
     iree::base::internal
     iree::base::threading
     iree::hal
+    iree::hal::cts::util::pool_test_util
     iree::hal::cts::util::test_base
     iree::hal::drivers::amdgpu::util::packet
     iree::hal::memory::fixed_block_pool
-    iree::hal::memory::passthrough_pool
     iree::hal::memory::tlsf_pool
     iree::testing::gtest
     iree::testing::gtest_main
@@ -1348,6 +1351,7 @@ iree_cc_test(
     iree::async
     iree::base
     iree::hal
+    iree::hal::cts::util::pool_test_util
     iree::hal::cts::util::test_base
     iree::hal::drivers::amdgpu::util::packet
     iree::io::file_handle

@@ -12,16 +12,6 @@
 #include "hrx_internal.h"
 #include "mem_pool.h"
 
-iree_hal_buffer_usage_t hrx_buffer_usage_for_device(hrx_device_t device,
-                                                    hrx_buffer_usage_t usage) {
-  iree_hal_buffer_usage_t hal_usage =
-      usage ? (iree_hal_buffer_usage_t)usage : IREE_HAL_BUFFER_USAGE_DEFAULT;
-  if (device->type == HRX_ACCELERATOR_CPU) {
-    hal_usage |= IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT;
-  }
-  return hal_usage;
-}
-
 iree_status_t hrx_buffer_create_from_hal(iree_hal_buffer_t* hal_buffer,
                                          hrx_device_t device,
                                          hrx_memory_type_t mem_type,
@@ -76,24 +66,7 @@ hrx_status_t hrx_buffer_allocate(hrx_stream_t stream, size_t size,
   }
   memset(buf, 0, sizeof(*buf));
 
-  iree_hal_buffer_params_t params = {
-      .type = (iree_hal_memory_type_t)mem_type,
-      .access = IREE_HAL_MEMORY_ACCESS_ALL,
-      .usage = hrx_buffer_usage_for_device(stream->device, usage),
-  };
-  const iree_hal_buffer_compatibility_t compatibility =
-      iree_hal_allocator_query_buffer_compatibility(
-          stream->device->allocator.hal_allocator, params,
-          (iree_device_size_t)size, &params,
-          /*out_allocation_size=*/NULL);
-  if (!iree_all_bits_set(compatibility,
-                         IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE)) {
-    iree_allocator_free(iree_allocator_system(), buf);
-    HRX_RETURN_AND_END_ZONE(
-        z0,
-        hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
-                        "buffer params are not allocatable on this device"));
-  }
+  (void)usage;
 
   hrx_status_t flush_status = hrx_stream_flush(stream);
   if (!hrx_status_is_ok(flush_status)) {
@@ -115,20 +88,12 @@ hrx_status_t hrx_buffer_allocate(hrx_stream_t stream, size_t size,
       .payload_values = &signal_value,
   };
 
-  iree_hal_queue_pool_backend_t backend = {0};
-  iree_status_t status = iree_hal_device_query_queue_pool_backend(
-      stream->device->hal_device,
-      iree_hal_queue_family(stream->device->transfer_queue), &backend);
+  iree_status_t status = hrx_mem_pool_backing_retain_allocation_source(
+      stream->device, mem_type, &buf->hal_pool);
   if (iree_status_is_ok(status)) {
-    status = hrx_iree_exact_pool_create(
-        stream->device->allocator.hal_allocator, params, backend.notification,
-        backend.frontier_tracker, iree_allocator_system(), &buf->hal_pool);
-  }
-  if (iree_status_is_ok(status)) {
-    const iree_hal_pool_reservation_request_t request = {
-        .params = params,
-        .allocation_size = (iree_device_size_t)size,
-    };
+    const iree_hal_pool_reservation_request_t request =
+        iree_hal_make_pool_reservation_request((iree_device_size_t)size,
+                                               /*min_alignment=*/0);
     status = iree_hal_queue_alloca(
         stream->device->transfer_queue, wait_list, signal_list, buf->hal_pool,
         /*request_count=*/1, &request, &buf->hal_buffer);
@@ -297,14 +262,18 @@ hrx_status_t hrx_buffer_get_device_ptr(hrx_buffer_t buffer, void** device_ptr) {
 
   // A scoped mapping grants access only to its interval and cannot provide a
   // whole-buffer device address. Native export leaves any active map untouched.
-  iree_hal_external_buffer_t external_buffer;
+  iree_hal_external_storage_t external_buffer = {0};
+  iree_hal_buffer_range_t logical_range = {0};
   iree_status_t status = iree_hal_buffer_export(
-      buffer->hal_buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer);
+      buffer->hal_buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &external_buffer, &logical_range);
   if (iree_status_is_ok(status)) {
-    *device_ptr =
-        (void*)(uintptr_t)external_buffer.handle.device_allocation.ptr;
+    *device_ptr = (void*)(uintptr_t)(external_buffer.payload.device_address +
+                                     logical_range.byte_offset);
   }
+  iree_hal_external_storage_release(&external_buffer);
   HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(status));
 }
 

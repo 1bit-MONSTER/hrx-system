@@ -65,13 +65,6 @@ enum iree_hal_pool_access_requirement_bits_e {
   IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED = 1u << 1,
 };
 
-typedef enum iree_hal_host_cacheability_e {
-  IREE_HAL_HOST_CACHEABILITY_UNKNOWN = 0,
-  IREE_HAL_HOST_CACHEABILITY_WRITE_BACK = 1,
-  IREE_HAL_HOST_CACHEABILITY_WRITE_COMBINED = 2,
-  IREE_HAL_HOST_CACHEABILITY_UNCACHED = 3,
-} iree_hal_host_cacheability_t;
-
 typedef enum iree_hal_pool_placement_mode_e {
   IREE_HAL_POOL_PLACEMENT_AUTOMATIC = 0,
   IREE_HAL_POOL_PLACEMENT_PREFERRED = 1,
@@ -95,6 +88,9 @@ typedef struct iree_hal_pool_family_access_t {
   iree_hal_buffer_interfaces_t interfaces;
   // Hard access properties qualified together with every other participant.
   iree_hal_pool_access_requirements_t requirements;
+  // Atomic operations required at this family, partitioned by access width and
+  // coherence domain. Zero cells do not require atomic access.
+  iree_hal_atomic_operation_capabilities_t atomic_operations;
 } iree_hal_pool_family_access_t;
 
 typedef struct iree_hal_pool_host_access_t {
@@ -139,7 +135,7 @@ typedef struct iree_hal_memory_scope_access_t {
   // Prepared representations; zero identifies an excluded site.
   uint32_t interfaces;
   // Prepared slot per native interface, or NATIVE_BINDING_INDEX_NONE.
-  uint16_t bindings[8];
+  uint16_t bindings[IREE_HAL_BUFFER_INTERFACE_COUNT];
 } iree_hal_memory_scope_access_t;
 
 // Shared cold metadata retained by pools; buffers borrow it from their owner.
@@ -158,8 +154,10 @@ typedef struct iree_hal_memory_contract_t {
   uint32_t transition_row_shift;
   // Complete native publication format, with types owned by this contract.
   iree_hal_buffer_binding_layout_t binding_layout;
-  // Global permission projection consumed by native buffer wrappers.
-  iree_hal_buffer_params_t buffer_params;
+  // HAL API access permissions allowed on every buffer from the contract.
+  iree_hal_memory_access_t allowed_access;
+  // HAL operation usages allowed on every buffer from the contract.
+  iree_hal_buffer_usage_t allowed_usage;
   // Achieved owned-backing guarantee, independent of the original preference.
   iree_hal_pool_placement_t placement;
   // Achieved public host mapping contract.

@@ -33,7 +33,6 @@ HRX_SRCS = [
     "host_allocator.c",
     "mem_pool.c",
     "mem_pool_backing.c",
-    "pool.c",
     "queue_ops.c",
     "runtime.c",
     "semaphore.c",

@@ -936,10 +936,6 @@ TEST_F(PhysicalDeviceCapabilitiesTest, SelectsPrepublishedKernargStorage) {
   EXPECT_EQ(
       storage.mode,
       IREE_HAL_AMDGPU_AQL_PREPUBLISHED_KERNARG_STORAGE_MODE_DEVICE_FINE_HOST_COHERENT);
-  EXPECT_TRUE(iree_all_bits_set(storage.buffer_params.type,
-                                IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
-                                    IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
-                                    IREE_HAL_MEMORY_TYPE_HOST_COHERENT));
 }
 
 TEST_F(PhysicalDeviceCapabilitiesTest,

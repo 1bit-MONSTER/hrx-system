@@ -117,21 +117,12 @@ TEST_P(SemaphoreSubmissionTest,
     const iree_hal_queue_family_t* queue_family = iree_hal_device_queue_family(
         device_, (iree_hal_queue_family_ordinal_t)family_ordinal);
     ASSERT_NE(nullptr, queue_family);
-    const iree_hal_buffer_params_t buffer_params = {
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
-            IREE_HAL_BUFFER_USAGE_TRANSFER,
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-        /*.type=*/IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
-        /*.queue_family_affinity=*/
-        iree_hal_make_queue_family_affinity(
-            (iree_hal_queue_family_ordinal_t)family_ordinal),
-    };
     Ref<iree_hal_buffer_t> source_buffer;
-    IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-        device_allocator_, buffer_params, kBufferSize, source_buffer.out()));
+    IREE_ASSERT_OK(
+        CreateUninitializedDeviceBuffer(kBufferSize, source_buffer.out()));
     Ref<iree_hal_buffer_t> target_buffer;
-    IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-        device_allocator_, buffer_params, kBufferSize, target_buffer.out()));
+    IREE_ASSERT_OK(
+        CreateUninitializedDeviceBuffer(kBufferSize, target_buffer.out()));
     Ref<iree_hal_buffer_t> fill_target;
     IREE_ASSERT_OK(iree_hal_buffer_subspan(target_buffer, kFillTargetOffset,
                                            kFillLength, iree_allocator_system(),

@@ -312,10 +312,10 @@ language modes before C++20. Clang accepts them as an extension in those modes,
 but portable aggregate initializers use IREE's comment field-label convention:
 
 ```c++
-iree_hal_buffer_params_t params = {
-    /*.type=*/IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+iree_hal_pool_host_access_t host_access = {
     /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-    /*.usage=*/IREE_HAL_BUFFER_USAGE_DEFAULT,
+    /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+    /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
 };
 ```
 
@@ -325,10 +325,10 @@ selects C++20 for its private C++ code. C designated initializers also remain
 valid and are not diagnosed:
 
 ```c
-iree_hal_buffer_params_t params = {
-    .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+iree_hal_pool_host_access_t host_access = {
     .access = IREE_HAL_MEMORY_ACCESS_ALL,
-    .usage = IREE_HAL_BUFFER_USAGE_DEFAULT,
+    .modes = IREE_HAL_MAPPING_MODE_SCOPED,
+    .cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
 };
 ```
 

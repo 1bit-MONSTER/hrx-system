@@ -10,7 +10,6 @@
 #include "iree/hal/cts/util/pool_test_util.h"
 #include "iree/hal/cts/util/test_base.h"
 #include "iree/hal/memory/fixed_block_pool.h"
-#include "iree/hal/memory/passthrough_pool.h"
 
 namespace iree::hal::cts {
 
@@ -39,7 +38,6 @@ TEST_P(VulkanAllocatorGuardrailTest, QueueAllocaAcceptsSparseSizedAllocation) {
       device_allocator_, heaps.size(), heaps.data(), &heap_count));
   heaps.resize(heap_count);
 
-  iree_hal_buffer_params_t params = {0};
   iree_device_size_t allocation_size = 0;
   for (const auto& heap : heaps) {
     if (!iree_all_bits_set(heap.allowed_usage,
@@ -48,8 +46,6 @@ TEST_P(VulkanAllocatorGuardrailTest, QueueAllocaAcceptsSparseSizedAllocation) {
     }
     if (iree_device_size_checked_add(heap.max_allocation_size, 1,
                                      &allocation_size)) {
-      params.type = heap.type;
-      params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
       break;
     }
   }
@@ -61,22 +57,11 @@ TEST_P(VulkanAllocatorGuardrailTest, QueueAllocaAcceptsSparseSizedAllocation) {
                  << allocation_size << " bytes";
   }
 
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      device_, iree_hal_queue_family(transfer_queue_), &backend));
-  iree_hal_passthrough_pool_options_t options = {};
-  options.asan = backend.asan;
   Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-      options, backend.slab_provider, backend.notification,
-      backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
-      pool.out()));
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_)));
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/allocation_size,
-  };
+  IREE_ASSERT_OK(CreateDevicePool(IREE_HAL_BUFFER_USAGE_TRANSFER, pool.out()));
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(allocation_size,
+                                             /*min_alignment=*/1);
 
   Ref<iree_hal_buffer_t> buffer;
   SemaphoreList empty_wait;
@@ -115,28 +100,21 @@ TEST_P(VulkanAllocatorGuardrailTest, QueueAllocaAcceptsSparseSizedAllocation) {
 
 TEST_P(VulkanAllocatorGuardrailTest,
        CompletedDeallocationIsImmediatelyReusable) {
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      device_, iree_hal_queue_family(transfer_queue_), &backend));
   constexpr iree_device_size_t kBlockSize = 512;
   iree_hal_fixed_block_pool_options_t options = {};
   options.block_size = kBlockSize;
   options.blocks_per_slab = 1;
   options.frontier_capacity = 2;
-  options.asan = backend.asan;
   Ref<iree_hal_pool_t> backing_pool;
   Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(CreateFiniteBlockPool(backend, options,
-                                       iree_allocator_system(),
-                                       backing_pool.out(), pool.out()));
+  IREE_ASSERT_OK(
+      CreateDevicePool(IREE_HAL_BUFFER_USAGE_TRANSFER, backing_pool.out()));
+  IREE_ASSERT_OK(CreateFiniteBlockPool(backing_pool, options,
+                                       iree_allocator_system(), pool.out()));
 
-  iree_hal_pool_reservation_request_t request = {};
-  request.allocation_size = kBlockSize;
-  request.params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  request.params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  request.params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_)));
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(kBlockSize,
+                                             /*min_alignment=*/0);
   Ref<iree_hal_buffer_t> transient_buffer;
   SemaphoreList empty_wait;
   SemaphoreList allocated(device_, {0}, {1});
@@ -175,59 +153,6 @@ TEST_P(VulkanAllocatorGuardrailTest,
   for (uint32_t value : ReadBufferData<uint32_t>(buffer)) {
     EXPECT_EQ(pattern, value);
   }
-}
-
-TEST_P(VulkanAllocatorGuardrailTest, QueueAllocaRejectsAnotherNativeOwner) {
-  DeviceCreateContext context;
-  IREE_ASSERT_OK(context.Initialize(iree_allocator_system()));
-  Ref<iree_hal_device_t> other_device;
-  IREE_ASSERT_OK(iree_hal_driver_create_default_device(
-      driver_, context.params(), iree_allocator_system(), other_device.out()));
-  iree_hal_device_group_builder_t builder;
-  iree_hal_device_group_builder_initialize(&builder,
-                                           context.frontier_tracker());
-  iree_status_t status =
-      iree_hal_device_group_builder_add_device(&builder, other_device);
-  Ref<iree_hal_device_group_t> group;
-  if (iree_status_is_ok(status)) {
-    status = iree_hal_device_group_builder_finalize(
-        &builder, iree_allocator_system(), group.out());
-  }
-  iree_hal_device_group_builder_deinitialize(&builder);
-  IREE_ASSERT_OK(status);
-
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      other_device, iree_hal_device_queue_family(other_device, 0), &backend));
-  iree_hal_passthrough_pool_options_t options = {};
-  options.epoch_query = backend.epoch_query;
-  Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-      options, backend.slab_provider, backend.notification,
-      backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
-      pool.out()));
-
-  // The semantic capabilities match, but a VkBuffer from a different VkDevice
-  // cannot be published as a local native binding. Every acquired reservation
-  // returns to its original pool when materialization exposes that mismatch.
-  iree_hal_pool_reservation_request_t request = {};
-  request.params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  request.params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  request.allocation_size = 4096;
-  Ref<iree_hal_buffer_t> buffer;
-  SemaphoreList allocated(device_, {0}, {1});
-  status =
-      iree_hal_queue_alloca(transfer_queue_, iree_hal_semaphore_list_empty(),
-                            allocated, pool, 1, &request, buffer.out());
-  if (iree_status_is_ok(status)) {
-    status = iree_hal_semaphore_list_wait(allocated, iree_infinite_timeout(),
-                                          IREE_ASYNC_WAIT_FLAG_NONE);
-  }
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT, status);
-  iree_hal_pool_stats_t stats;
-  iree_hal_pool_query_stats(pool, &stats);
-  EXPECT_EQ(stats.reserve_count, 1u);
-  EXPECT_EQ(stats.reservation_count, 0u);
 }
 
 CTS_REGISTER_TEST_SUITE(VulkanAllocatorGuardrailTest);

@@ -113,12 +113,6 @@ iree_status_t loom_run_hal_testbench_context_select_target(
 iree_status_t loom_run_hal_testbench_require_successful_result(
     const loomc_result_t* result, iree_string_view_t fallback_message);
 
-// Returns host-visible fixture parameters for CPU generation and observations.
-// HAL execution stages fixtures into device-local memory around kernel
-// launches.
-iree_hal_buffer_params_t loom_run_hal_testbench_host_visible_buffer_params(
-    void);
-
 // Finds the single kernel launch in |case_plan| accepted by the HAL bridge.
 iree_status_t loom_run_hal_testbench_select_kernel_launch(
     const loom_testbench_case_plan_t* case_plan,

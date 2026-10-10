@@ -244,22 +244,6 @@ TEST(DeviceGroupBuilder, FailedTopologyAssignmentClearsAssignedDevices) {
   iree_hal_device_release(device_a);
 }
 
-// Queue pool backends expose driver internals that rely on group-assigned
-// frontier/topology state.
-TEST(Device, QueryQueuePoolBackendRequiresDeviceGroup) {
-  iree_hal_device_spec_t* spec = CreateTestDeviceSpec("mock", 0, 0);
-  iree_hal_device_t* device = CreateMockDeviceWithSpec("mock", spec);
-  iree_hal_device_spec_release(spec);
-
-  iree_hal_queue_pool_backend_t backend;
-  iree_status_t status = iree_hal_device_query_queue_pool_backend(
-      device, iree_hal_device_queue_family(device, 0), &backend);
-  EXPECT_THAT(status, StatusIs(iree::StatusCode::kFailedPrecondition));
-  iree_status_ignore(status);
-
-  iree_hal_device_release(device);
-}
-
 //===----------------------------------------------------------------------===//
 // Single-device group tests
 //===----------------------------------------------------------------------===//
@@ -540,29 +524,46 @@ TEST(DeviceGroup, NullRetainRelease) {
 }
 
 //===----------------------------------------------------------------------===//
-// Replacement group tests
+// Wrapped group tests
 //===----------------------------------------------------------------------===//
 
-typedef struct DeviceGroupReplacementContext {
+typedef struct DeviceGroupWrapperContext {
   iree_hal_device_t* replacements[2];
-  iree_host_size_t call_count;
-} DeviceGroupReplacementContext;
+  iree_host_size_t replacement_call_count;
+  iree_host_size_t pool_call_count;
+  iree_hal_device_group_t* expected_request_group;
+} DeviceGroupWrapperContext;
+
+static void DestroyDeviceGroupWrapperContext(void* self) {
+  delete (DeviceGroupWrapperContext*)self;
+}
 
 static iree_status_t ReplaceDeviceWithRetainedMock(
-    iree_hal_device_group_t* source_group, iree_host_size_t device_index,
-    iree_hal_device_t* source_device, void* user_data,
+    void* self, iree_hal_device_group_t* source_group,
+    iree_host_size_t device_index, iree_hal_device_t* source_device,
     iree_hal_device_t** out_replacement_device) {
-  DeviceGroupReplacementContext* context =
-      (DeviceGroupReplacementContext*)user_data;
+  DeviceGroupWrapperContext* context = (DeviceGroupWrapperContext*)self;
   EXPECT_EQ(source_device,
             iree_hal_device_group_device_at(source_group, device_index));
   iree_hal_device_retain(context->replacements[device_index]);
   *out_replacement_device = context->replacements[device_index];
-  ++context->call_count;
+  ++context->replacement_call_count;
   return iree_ok_status();
 }
 
-TEST(DeviceGroup, CreateWithReplacementsPreservesTopology) {
+static iree_status_t ObserveSlabPoolCreation(
+    void* self, iree_hal_slab_pool_create_callback_t next,
+    iree_hal_device_group_t* request_group, const iree_hal_pool_scope_t* scope,
+    const iree_hal_slab_pool_options_t* options,
+    iree_allocator_t host_allocator, iree_hal_pool_t** out_pool) {
+  DeviceGroupWrapperContext* context = (DeviceGroupWrapperContext*)self;
+  EXPECT_EQ(request_group, context->expected_request_group);
+  ++context->pool_call_count;
+  return next.fn(next.user_data, request_group, scope, options, host_allocator,
+                 out_pool);
+}
+
+TEST(DeviceGroup, CreateWrappedPreservesTopology) {
   iree_hal_device_t* device_a = CreateMockDevice("mock");
   iree_hal_device_t* device_b = CreateMockDevice("mock");
 
@@ -577,19 +578,25 @@ TEST(DeviceGroup, CreateWithReplacementsPreservesTopology) {
 
   iree_hal_device_t* replacement_a = CreateMockDevice("mock");
   iree_hal_device_t* replacement_b = CreateMockDevice("mock");
-  DeviceGroupReplacementContext context = {};
-  context.replacements[0] = replacement_a;
-  context.replacements[1] = replacement_b;
-  iree_hal_device_group_replacement_callback_t replacement_callback = {};
-  replacement_callback.fn = ReplaceDeviceWithRetainedMock;
-  replacement_callback.user_data = &context;
+  auto* context = new DeviceGroupWrapperContext();
+  context->replacements[0] = replacement_a;
+  context->replacements[1] = replacement_b;
+  const iree_hal_device_group_wrapper_vtable_t wrapper_vtable = {
+      /*.destroy=*/DestroyDeviceGroupWrapperContext,
+      /*.replace_device=*/ReplaceDeviceWithRetainedMock,
+      /*.create_slab_pool=*/ObserveSlabPoolCreation,
+  };
+  const iree_hal_device_group_wrapper_t wrapper = {
+      /*.self=*/context,
+      /*.vtable=*/&wrapper_vtable,
+  };
 
   iree_hal_device_group_t* replacement_group = NULL;
-  IREE_ASSERT_OK(iree_hal_device_group_create_with_replacements(
-      source_group, replacement_callback, iree_allocator_system(),
-      &replacement_group));
+  IREE_ASSERT_OK(iree_hal_device_group_create_wrapped(
+      source_group, wrapper, iree_allocator_system(), &replacement_group));
+  context->expected_request_group = replacement_group;
 
-  EXPECT_EQ(2u, context.call_count);
+  EXPECT_EQ(2u, context->replacement_call_count);
   EXPECT_EQ(2u, iree_hal_device_group_device_count(replacement_group));
   EXPECT_EQ(replacement_a,
             iree_hal_device_group_device_at(replacement_group, 0));
@@ -603,6 +610,20 @@ TEST(DeviceGroup, CreateWithReplacementsPreservesTopology) {
   EXPECT_EQ(iree_hal_device_topology_info(replacement_b)->topology,
             iree_hal_device_group_topology(replacement_group));
   EXPECT_EQ(iree_hal_device_topology_info(replacement_b)->topology_index, 1u);
+
+  iree_hal_slab_pool_options_t pool_options;
+  iree_hal_slab_pool_options_initialize(&pool_options);
+  iree_hal_pool_scope_t pool_scope = {};
+  pool_scope.host.access =
+      IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE;
+  pool_scope.host.modes = IREE_HAL_MAPPING_MODE_SCOPED;
+  iree_hal_pool_t* pool = NULL;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNAVAILABLE,
+      iree_hal_slab_pool_create(replacement_group, pool_scope, &pool_options,
+                                iree_allocator_system(), &pool));
+  EXPECT_EQ(1u, context->pool_call_count);
+  EXPECT_EQ(nullptr, pool);
 
   iree_hal_device_group_release(replacement_group);
   iree_hal_device_release(replacement_a);

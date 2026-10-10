@@ -42,10 +42,11 @@ typedef struct iree_hal_amd_xdna_transient_buffer_t
 // placement device is retained until that block is returned, keeping the queue
 // storage owner live without tracking individual buffers.
 iree_status_t iree_hal_amd_xdna_transient_buffer_create(
-    iree_hal_buffer_placement_t placement, iree_hal_buffer_params_t params,
-    iree_device_size_t allocation_size, iree_device_size_t byte_length,
-    iree_hal_pool_t* source_pool, iree_arena_block_pool_t* block_pool,
-    iree_hal_buffer_t** out_buffer);
+    iree_hal_buffer_placement_t placement, iree_hal_memory_type_t memory_type,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage, iree_device_size_t allocation_size,
+    iree_device_size_t byte_length, iree_hal_pool_t* source_pool,
+    iree_arena_block_pool_t* block_pool, iree_hal_buffer_t** out_buffer);
 
 // Attaches a pool reservation to the transient buffer. |pool| must be the
 // source pool captured at creation. The wrapper takes ownership until

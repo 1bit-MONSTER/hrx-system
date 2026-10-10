@@ -620,9 +620,8 @@ static iree_status_t InvokeAndSummarizeDispatchBlock(
 class AqlBlockProcessorRecordedTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    IREE_ASSERT_OK(iree_hal_allocator_create_heap(
-        iree_make_cstring_view("aql_block_processor_test"),
-        iree_allocator_system(), iree_allocator_system(), &device_allocator_));
+    IREE_ASSERT_OK(iree_hal_allocator_create_heap(iree_allocator_system(),
+                                                  &device_allocator_));
     iree_hal_amdgpu_profile_metadata_initialize(iree_allocator_system(),
                                                 &profile_metadata_);
     IREE_ASSERT_OK(iree_hal_amdgpu_aql_program_block_pool_initialize(

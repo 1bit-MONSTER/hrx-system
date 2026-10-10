@@ -24,6 +24,7 @@
 #include "iree/testing/status_matchers.h"
 #include "libhrx/src/libhrx/buffer.h"
 #include "libhrx/src/libhrx/device.h"
+#include "libhrx/src/libhrx/mem_pool_backing.h"
 
 namespace {
 
@@ -414,6 +415,7 @@ class GraphExecTest : public ::testing::Test {
 };
 
 TEST_F(GraphExecTest, BatchMemoryNodePreservesResolvedWriteSemantics) {
+  iree_hal_pool_t* memory_pool = nullptr;
   iree_hal_buffer_t* buffer = nullptr;
   iree_hal_buffer_mapping_t mapping = {};
   iree_hal_streaming_retained_buffer_ref_t target = {};
@@ -429,17 +431,18 @@ TEST_F(GraphExecTest, BatchMemoryNodePreservesResolvedWriteSemantics) {
       IREE_EXPECT_OK(iree_hal_buffer_unmap_range(&mapping));
     }
     iree_hal_buffer_release(buffer);
+    iree_hal_pool_release(memory_pool);
   });
 
-  const iree_hal_buffer_params_t buffer_params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_DEFAULT |
-          IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-  };
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      context_->device_allocator, buffer_params, sizeof(uint64_t), &buffer));
+  const hrx_memory_type_t memory_type =
+      HRX_MEMORY_TYPE_HOST_LOCAL | HRX_MEMORY_TYPE_DEVICE_VISIBLE;
+  IREE_ASSERT_OK(hrx_mem_pool_backing_retain_allocation_source(
+      device_entry_.hrx_device, memory_type, &memory_pool));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      memory_pool,
+      iree_hal_make_pool_reservation_request(sizeof(uint64_t),
+                                             /*min_alignment=*/0),
+      iree_infinite_timeout(), &buffer));
   IREE_ASSERT_OK(iree_hal_buffer_map_range(
       buffer, IREE_HAL_MAPPING_MODE_PERSISTENT, IREE_HAL_MEMORY_ACCESS_ALL,
       IREE_HAL_BUFFER_MAP_FLAG_NONE,
@@ -447,12 +450,11 @@ TEST_F(GraphExecTest, BatchMemoryNodePreservesResolvedWriteSemantics) {
   ASSERT_NE(mapping.contents.data, nullptr);
   *reinterpret_cast<uint64_t*>(mapping.contents.data) = 0;
   IREE_ASSERT_OK(hrx_buffer_create_from_hal(
-      buffer, device_entry_.hrx_device,
-      HRX_MEMORY_TYPE_HOST_LOCAL | HRX_MEMORY_TYPE_DEVICE_VISIBLE,
-      sizeof(uint64_t), mapping.contents.data, &target.owner));
+      buffer, device_entry_.hrx_device, memory_type, sizeof(uint64_t),
+      mapping.contents.data, &target.owner));
   target.buffer = buffer;
   iree_hal_buffer_retain(target.buffer);
-  target.memory_type = buffer_params.type;
+  target.memory_type = memory_type;
   target.allocation_size = sizeof(uint64_t);
   IREE_ASSERT_OK(iree_hal_streaming_graph_create(
       context_, IREE_HAL_STREAMING_GRAPH_FLAG_NONE, iree_allocator_system(),

@@ -34,8 +34,9 @@ typedef struct iree_hal_vulkan_slab_provider_options_t {
   // Vulkan memory type index used for whole-slab allocations.
   uint32_t memory_type_index;
 
-  // Vulkan memory property flags for |memory_type_index|.
-  VkMemoryPropertyFlags memory_property_flags;
+  // Prequalified Vulkan memory types usable for external host attachments.
+  // Zero when the provider does not admit host-pointer imports.
+  uint32_t import_memory_type_bits;
 
   // HAL memory type exposed by slabs from this provider.
   iree_hal_memory_type_t memory_type;

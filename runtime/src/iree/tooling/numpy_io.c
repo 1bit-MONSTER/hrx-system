@@ -293,15 +293,14 @@ static iree_status_t iree_numpy_parse_shape_dims(iree_string_view_t shape,
 
 IREE_API_EXPORT iree_status_t iree_numpy_npy_load_ndarray(
     iree_io_stream_t* stream, iree_numpy_npy_load_options_t options,
-    iree_hal_buffer_params_t buffer_params, iree_hal_allocator_t* allocator,
+    iree_hal_pool_t* pool, iree_device_size_t min_alignment,
     iree_hal_buffer_view_t** out_buffer_view) {
   IREE_ASSERT_ARGUMENT(stream);
-  IREE_ASSERT_ARGUMENT(allocator);
+  IREE_ASSERT_ARGUMENT(pool);
   IREE_ASSERT_ARGUMENT(out_buffer_view);
   *out_buffer_view = NULL;
   IREE_TRACE_ZONE_BEGIN(z0);
-  iree_allocator_t host_allocator =
-      iree_hal_allocator_host_allocator(allocator);
+  iree_allocator_t host_allocator = iree_hal_pool_host_allocator(pool);
 
   // Quick check for EOF; if already there we can give a better error than
   // if we failed trying to parse the header. Since npy files are often
@@ -376,10 +375,9 @@ IREE_API_EXPORT iree_status_t iree_numpy_npy_load_ndarray(
     iree_numpy_npy_read_params_t read_params = {
         .stream = stream,
     };
-    status = iree_hal_buffer_view_generate(allocator, buffer_params, shape_rank,
-                                           shape, element_type, encoding_type,
-                                           iree_numpy_npy_read_into_contents,
-                                           &read_params, out_buffer_view);
+    status = iree_hal_buffer_view_generate(
+        pool, min_alignment, shape_rank, shape, element_type, encoding_type,
+        iree_numpy_npy_read_into_contents, &read_params, out_buffer_view);
   }
 
   iree_allocator_free(host_allocator, header_buffer);

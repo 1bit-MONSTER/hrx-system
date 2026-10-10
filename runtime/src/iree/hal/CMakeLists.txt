@@ -35,7 +35,6 @@ iree_cc_library(
     "memory_backend.h"
     "memory_scope.h"
     "pool.h"
-    "pool_set.h"
     "pool_wait.h"
     "profile_metrics.h"
     "profile_options.h"
@@ -57,7 +56,6 @@ iree_cc_library(
     "buffer.c"
     "buffer_allocation.c"
     "buffer_heap.c"
-    "buffer_heap_impl.h"
     "buffer_view.c"
     "buffer_view_util.c"
     "channel.c"
@@ -80,7 +78,6 @@ iree_cc_library(
     "memory_backend.c"
     "memory_scope.c"
     "pool.c"
-    "pool_set.c"
     "pool_wait.c"
     "profile_metrics.c"
     "profile_options.c"
@@ -220,6 +217,7 @@ iree_cc_test(
     iree::base
     iree::base::internal::fpu_state
     iree::base::internal::span
+    iree::hal::memory::heap_pool
     iree::testing::gtest
     iree::testing::gtest_main
 )

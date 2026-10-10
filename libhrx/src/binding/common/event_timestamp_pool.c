@@ -56,11 +56,11 @@ struct iree_hal_streaming_event_timestamp_slab_t {
 };
 
 void iree_hal_streaming_event_timestamp_pool_initialize(
-    iree_hal_allocator_t* device_allocator, iree_allocator_t host_allocator,
+    iree_hal_pool_t* memory_pool, iree_allocator_t host_allocator,
     iree_hal_streaming_event_timestamp_pool_t* out_pool) {
   memset(out_pool, 0, sizeof(*out_pool));
-  out_pool->device_allocator = device_allocator;
-  iree_hal_allocator_retain(device_allocator);
+  out_pool->memory_pool = memory_pool;
+  iree_hal_pool_retain(memory_pool);
   out_pool->host_allocator = host_allocator;
   iree_slim_mutex_initialize(&out_pool->mutex);
   out_pool->next_slab_slot_count =
@@ -114,8 +114,8 @@ void iree_hal_streaming_event_timestamp_pool_deinitialize(
   }
 
   iree_slim_mutex_deinitialize(&pool->mutex);
-  iree_hal_allocator_release(pool->device_allocator);
-  pool->device_allocator = NULL;
+  iree_hal_pool_release(pool->memory_pool);
+  pool->memory_pool = NULL;
 
   IREE_TRACE_ZONE_END(z0);
 }
@@ -134,23 +134,15 @@ static iree_status_t iree_hal_streaming_event_timestamp_pool_grow(
       z0,
       iree_allocator_malloc(pool->host_allocator, slab_size, (void**)&slab));
 
-  // The device writes a tick into this buffer at a queue point and the host
-  // maps it back, so the allocation has to serve both: DEVICE_VISIBLE is what
-  // states the device writes here, and every other host allocation this binding
-  // hands the device asks for it beside HOST_LOCAL. HOST_COHERENT is a
-  // requirement here and not a preference: the read path never invalidates, so
-  // non-coherent memory would return stale ticks.
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-                IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE |
-                IREE_HAL_MEMORY_TYPE_HOST_COHERENT;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY;
+  // The source contract requires coherent public host access for every device
+  // family. The read path therefore needs no per-slot invalidation.
   iree_hal_buffer_t* buffer = NULL;
-  iree_status_t status = iree_hal_allocator_allocate_buffer(
-      pool->device_allocator, params,
-      slot_count * IREE_HAL_STREAMING_EVENT_TIMESTAMP_SLOT_SIZE, &buffer);
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(
+          slot_count * IREE_HAL_STREAMING_EVENT_TIMESTAMP_SLOT_SIZE,
+          /*min_alignment=*/IREE_HAL_STREAMING_EVENT_TIMESTAMP_SLOT_SIZE);
+  iree_status_t status = iree_hal_pool_allocate_buffer(
+      pool->memory_pool, request, iree_infinite_timeout(), &buffer);
   if (!iree_status_is_ok(status)) {
     iree_allocator_free(pool->host_allocator, slab);
     IREE_TRACE_ZONE_END(z0);

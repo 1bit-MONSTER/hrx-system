@@ -15,6 +15,14 @@
 namespace iree::hal::cts {
 namespace {
 
+static void CountExternalStorageRelease(
+    void* user_data, iree_hal_external_storage_class_t storage_class,
+    iree_hal_external_storage_payload_t payload) {
+  (void)storage_class;
+  (void)payload;
+  ++*static_cast<int*>(user_data);
+}
+
 class TaskSlabPoolTest : public CtsTestBase<> {
  protected:
   void SetUp() override {
@@ -192,6 +200,52 @@ TEST_P(TaskSlabPoolTest, CapturesExactFamiliesWithoutAllocatingBacking) {
                                     IREE_HAL_BUFFER_INTERFACE_HOST, &slot));
 }
 
+TEST_P(TaskSlabPoolTest, QualifiesRequiredAtomicCapabilities) {
+  const iree_hal_atomic_operation_capabilities_t required =
+      iree_hal_atomic_operation_capabilities_for_host(
+          IREE_HAL_ATOMIC_OPERATION_FLAG_STORE |
+          IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_ADD);
+  families_[1].atomic_operations = required;
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(source.out()));
+  iree_hal_pool_capabilities_t capabilities;
+  iree_hal_pool_query_capabilities(source, &capabilities);
+  EXPECT_TRUE(iree_hal_atomic_operation_capabilities_support(
+      capabilities.atomic_operations, required));
+}
+
+TEST_P(TaskSlabPoolTest, RejectsInvalidAtomicRequirements) {
+  families_[0].atomic_operations.device_scope_32 = UINT32_C(1) << 31;
+  Ref<iree_hal_pool_t> source;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        CreateSource(source.out()));
+}
+
+TEST_P(TaskSlabPoolTest, DerivesPublicAccessFromDeclaredUses) {
+  families_[0].usage = IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE;
+  families_[1].usage = IREE_HAL_BUFFER_USAGE_STORAGE_READ;
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(source.out()));
+
+  iree_hal_pool_capabilities_t capabilities;
+  iree_hal_pool_query_capabilities(source, &capabilities);
+  EXPECT_EQ(capabilities.allowed_access, IREE_HAL_MEMORY_ACCESS_READ);
+  EXPECT_EQ(capabilities.supported_usage,
+            IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE |
+                IREE_HAL_BUFFER_USAGE_STORAGE_READ);
+
+  Ref<iree_hal_buffer_t> buffer;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source,
+      iree_hal_make_pool_reservation_request(
+          /*allocation_size=*/64, /*min_alignment=*/1),
+      iree_infinite_timeout(), buffer.out()));
+  EXPECT_EQ(iree_hal_buffer_allowed_access(buffer),
+            IREE_HAL_MEMORY_ACCESS_READ);
+  EXPECT_EQ(iree_hal_buffer_allowed_usage(buffer),
+            capabilities.supported_usage);
+}
+
 TEST_P(TaskSlabPoolTest, RejectsIncompleteConstructionRoutes) {
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);
@@ -258,6 +312,169 @@ TEST_P(TaskSlabPoolTest, ReportsAchievedPlacementIndependentlyOfFamilyOrder) {
             IREE_HAL_MEMORY_ACCESS_READ);
 }
 
+TEST_P(TaskSlabPoolTest, ImportsFiniteExternalRangeWithExactOwnership) {
+  const iree_hal_external_storage_class_t host_pointer_class =
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  const iree_hal_pool_import_class_t import_class = {
+      /*.storage_class=*/host_pointer_class,
+      /*.exports=*/
+      {
+          /*.class_count=*/1,
+          /*.classes=*/&host_pointer_class,
+      },
+  };
+  iree_hal_slab_pool_options_t options;
+  iree_hal_slab_pool_options_initialize(&options);
+  options.imports.class_count = 1;
+  options.imports.classes = &import_class;
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(iree_hal_slab_pool_create(
+      group_, Scope(), &options, iree_allocator_system(), source.out()));
+  iree_hal_pool_import_requirements_t import_requirements;
+  EXPECT_TRUE(iree_hal_pool_query_import_requirements(
+      source, host_pointer_class, &import_requirements));
+  EXPECT_EQ(import_requirements.base_alignment, 1u);
+  EXPECT_EQ(import_requirements.byte_length_alignment, 1u);
+  EXPECT_FALSE(iree_hal_pool_query_import_requirements(
+      source,
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &import_requirements));
+
+  alignas(64) std::array<uint8_t, 64> storage_bytes = {};
+  int release_count = 0;
+  iree_hal_external_storage_t storage = {
+      /*.storage_class=*/host_pointer_class,
+      /*.payload=*/{/*.host_pointer=*/storage_bytes.data()},
+      /*.byte_length=*/storage_bytes.size(),
+      /*.host_cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+      /*.maintenance_range=*/
+      iree_hal_make_buffer_range(0, storage_bytes.size()),
+      /*.physical_backing_id=*/{{0x1234, 0x5678}},
+      /*.release=*/CountExternalStorageRelease,
+      /*.release_user_data=*/&release_count,
+  };
+  Ref<iree_hal_buffer_t> imported;
+  IREE_ASSERT_OK(iree_hal_pool_import_buffer(
+      source, &storage, iree_hal_make_buffer_range(8, 24), imported.out()));
+  EXPECT_EQ(storage.storage_class.type, IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE);
+  EXPECT_EQ(iree_hal_buffer_byte_length(imported), 24u);
+  const iree_hal_buffer_memory_view_t memory =
+      iree_hal_buffer_memory_view(imported);
+  ASSERT_NE(memory.backing, nullptr);
+  EXPECT_EQ(memory.offset, 8u);
+  EXPECT_GE(memory.backing->allocation_alignment, 64u);
+  EXPECT_EQ(memory.backing->maintenance_range.byte_offset, 0u);
+  EXPECT_EQ(memory.backing->maintenance_range.byte_length,
+            storage_bytes.size());
+  EXPECT_EQ(memory.backing->host_cacheability,
+            IREE_HAL_HOST_CACHEABILITY_WRITE_BACK);
+  EXPECT_EQ(memory.backing->physical_backing_id.words[0], 0x1234u);
+  EXPECT_EQ(memory.backing->physical_backing_id.words[1], 0x5678u);
+
+  Ref<iree_hal_buffer_t> nested;
+  IREE_ASSERT_OK(iree_hal_buffer_subspan(
+      imported, 4, 8, iree_allocator_system(), nested.out()));
+  imported.reset();
+  EXPECT_EQ(release_count, 0);
+  iree_hal_external_storage_t exported = {};
+  iree_hal_buffer_range_t exported_range = {};
+  IREE_ASSERT_OK(iree_hal_buffer_export(
+      nested, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      host_pointer_class, &exported, &exported_range));
+  EXPECT_EQ(exported.payload.host_pointer, storage_bytes.data());
+  EXPECT_EQ(exported.byte_length, storage_bytes.size());
+  EXPECT_EQ(exported.host_cacheability, IREE_HAL_HOST_CACHEABILITY_WRITE_BACK);
+  EXPECT_EQ(exported_range.byte_offset, 12u);
+  EXPECT_EQ(exported_range.byte_length, 8u);
+  EXPECT_EQ(exported.physical_backing_id.words[0], 0x1234u);
+  EXPECT_EQ(exported.physical_backing_id.words[1], 0x5678u);
+  iree_hal_external_storage_release(&exported);
+  nested.reset();
+  JoinMaintenance(source);
+  EXPECT_EQ(release_count, 1);
+}
+
+TEST_P(TaskSlabPoolTest, ImportAdmissionIsExplicitAndNativeOnly) {
+  alignas(64) std::array<uint8_t, 64> storage_bytes = {};
+  const iree_hal_external_storage_class_t host_pointer_class =
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  auto make_storage = [&]() {
+    return iree_hal_external_storage_t{
+        /*.storage_class=*/host_pointer_class,
+        /*.payload=*/{/*.host_pointer=*/storage_bytes.data()},
+        /*.byte_length=*/storage_bytes.size(),
+        /*.host_cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+        /*.maintenance_range=*/
+        iree_hal_make_buffer_range(0, storage_bytes.size()),
+    };
+  };
+
+  Ref<iree_hal_pool_t> ordinary_source;
+  IREE_ASSERT_OK(CreateSource(ordinary_source.out()));
+  iree_hal_pool_import_requirements_t import_requirements;
+  EXPECT_FALSE(iree_hal_pool_query_import_requirements(
+      ordinary_source, host_pointer_class, &import_requirements));
+  iree_hal_external_storage_t storage = make_storage();
+  Ref<iree_hal_buffer_t> imported;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNAVAILABLE,
+      iree_hal_pool_import_buffer(
+          ordinary_source, &storage,
+          iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+          imported.out()));
+  EXPECT_EQ(storage.storage_class.type,
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  EXPECT_FALSE(imported);
+
+  const iree_hal_pool_import_class_t import_class = {
+      /*.storage_class=*/host_pointer_class,
+  };
+  iree_hal_slab_pool_options_t options;
+  iree_hal_slab_pool_options_initialize(&options);
+  options.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+  options.imports.class_count = 1;
+  options.imports.classes = &import_class;
+  Ref<iree_hal_pool_t> import_source;
+  IREE_ASSERT_OK(iree_hal_slab_pool_create(
+      group_, Scope(), &options, iree_allocator_system(), import_source.out()));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      iree_hal_pool_allocate_buffer(
+          import_source, iree_hal_make_pool_reservation_request(16, 0),
+          iree_immediate_timeout(), imported.out()));
+
+  storage = make_storage();
+  storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_UNKNOWN;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      iree_hal_pool_import_buffer(
+          import_source, &storage,
+          iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+          imported.out()));
+  EXPECT_EQ(storage.storage_class.type,
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  EXPECT_FALSE(imported);
+
+  iree_hal_slab_cache_options_t cache_options;
+  iree_hal_slab_cache_options_initialize(&cache_options);
+  cache_options.slab.allocation_size = 4096;
+  Ref<iree_hal_pool_t> cache;
+  IREE_ASSERT_OK(iree_hal_slab_cache_create(
+      import_source, &cache_options, iree_allocator_system(), cache.out()));
+  storage = make_storage();
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNAVAILABLE,
+      iree_hal_pool_import_buffer(
+          cache, &storage, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+          imported.out()));
+  EXPECT_EQ(storage.storage_class.type,
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  EXPECT_FALSE(imported);
+}
+
 TEST_P(TaskSlabPoolTest, PublicHostGrantsRemainIndependentOfExecution) {
   auto scope = Scope();
   scope.host.access = IREE_HAL_MEMORY_ACCESS_READ;
@@ -270,7 +487,8 @@ TEST_P(TaskSlabPoolTest, PublicHostGrantsRemainIndependentOfExecution) {
       group_, scope, &options, iree_allocator_system(), source.out()));
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+      source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+      iree_infinite_timeout(), buffer.out()));
   SemaphoreList filled(devices_[0], {0}, {1});
   const uint32_t value = 0xAABBCCDD;
   IREE_ASSERT_OK(
@@ -300,7 +518,8 @@ TEST_P(TaskSlabPoolTest, NativeOnlyScopeDoesNotInventSemanticPermissions) {
   IREE_ASSERT_OK(CreateSource(source.out()));
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+      source, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+      iree_infinite_timeout(), buffer.out()));
   EXPECT_EQ(iree_hal_buffer_allowed_usage(buffer), IREE_HAL_BUFFER_USAGE_NONE);
   uint32_t value = 42;
   IREE_EXPECT_STATUS_IS(
@@ -318,7 +537,8 @@ TEST_P(TaskSlabPoolTest, InteriorArenasInheritTheCompleteScope) {
   IREE_ASSERT_OK(CreateSource(source.out()));
   Ref<iree_hal_buffer_t> backing;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, {}, 8192, iree_infinite_timeout(), backing.out()));
+      source, iree_hal_make_pool_reservation_request(8192, 0),
+      iree_infinite_timeout(), backing.out()));
   Ref<iree_hal_pool_t> blocks;
   iree_hal_fixed_block_pool_options_t block_options = {};
   block_options.block_size = 1024;
@@ -328,7 +548,8 @@ TEST_P(TaskSlabPoolTest, InteriorArenasInheritTheCompleteScope) {
       blocks.out()));
   Ref<iree_hal_buffer_t> region;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      blocks, {}, 1024, iree_infinite_timeout(), region.out()));
+      blocks, iree_hal_make_pool_reservation_request(1024, 0),
+      iree_infinite_timeout(), region.out()));
   Ref<iree_hal_pool_t> arena;
   iree_hal_tlsf_pool_options_t options = {};
   options.tlsf_options.alignment = IREE_HAL_MEMORY_TLSF_MIN_ALIGNMENT;
@@ -337,7 +558,8 @@ TEST_P(TaskSlabPoolTest, InteriorArenasInheritTheCompleteScope) {
       region, 64, 768, &options, iree_allocator_system(), arena.out()));
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      arena, {}, sizeof(uint32_t), iree_infinite_timeout(), buffer.out()));
+      arena, iree_hal_make_pool_reservation_request(sizeof(uint32_t), 0),
+      iree_infinite_timeout(), buffer.out()));
   const auto memory = iree_hal_buffer_memory_view(buffer);
   EXPECT_EQ(memory.contract, source.get()->memory_contract);
   EXPECT_EQ(memory.backing, iree_hal_buffer_memory_view(backing).backing);
@@ -410,7 +632,8 @@ TEST_P(TaskSlabPoolTest, RecordedBindingsValidateTheAdmittedFamily) {
   IREE_ASSERT_OK(CreateSource(source.out()));
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, {}, 16, iree_infinite_timeout(), buffer.out()));
+      source, iree_hal_make_pool_reservation_request(16, 0),
+      iree_infinite_timeout(), buffer.out()));
   for (bool indirect : {false, true}) {
     Ref<iree_hal_command_buffer_t> commands;
     IREE_ASSERT_OK(iree_hal_command_buffer_create(
@@ -464,7 +687,7 @@ TEST_P(TaskSlabPoolTest, SharedBackingAcrossDevicesAndAllocationPolicies) {
   iree_hal_slab_cache_options_t cache_options;
   iree_hal_slab_cache_options_initialize(&cache_options);
   cache_options.slab.allocation_size = 65536;
-  cache_options.slab.params.min_alignment =
+  cache_options.slab.min_alignment =
       iree_min(4096, capabilities.max_allocation_alignment);
   Ref<iree_hal_pool_t> cache;
   IREE_ASSERT_OK(iree_hal_slab_cache_create(

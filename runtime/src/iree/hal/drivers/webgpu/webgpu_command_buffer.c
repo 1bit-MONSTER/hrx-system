@@ -46,7 +46,7 @@ iree_status_t iree_hal_webgpu_command_buffer_create(
     iree_hal_webgpu_handle_t device_handle,
     iree_hal_webgpu_handle_t queue_handle,
     const iree_hal_webgpu_builtins_t* builtins,
-    iree_arena_block_pool_t* block_pool, iree_hal_allocator_t* device_allocator,
+    iree_arena_block_pool_t* block_pool,
     const iree_hal_queue_family_t* queue_family,
     iree_hal_command_buffer_mode_t mode,
     iree_hal_command_category_t command_categories,
@@ -68,8 +68,8 @@ iree_status_t iree_hal_webgpu_command_buffer_create(
                                     mode, binding_capacity),
                             (void**)&command_buffer));
   iree_hal_command_buffer_initialize(
-      device_allocator, queue_family, mode, command_categories,
-      binding_capacity, (uint8_t*)command_buffer + sizeof(*command_buffer),
+      queue_family, mode, command_categories, binding_capacity,
+      (uint8_t*)command_buffer + sizeof(*command_buffer),
       &iree_hal_webgpu_command_buffer_vtable, &command_buffer->base);
   command_buffer->host_allocator = host_allocator;
   command_buffer->device_handle = device_handle;

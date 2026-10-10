@@ -9,6 +9,7 @@
 #include "iree/base/api.h"
 #include "iree/base/internal/math.h"
 #include "iree/base/internal/span.h"
+#include "iree/hal/memory/heap_pool.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 
@@ -205,13 +206,17 @@ static const iree_hal_buffer_equality_t kApproximateNumpyEquality = ([]() {
 
 class BufferViewMatchersTest : public ::testing::Test {
  protected:
-  iree_hal_allocator_t* device_allocator_ = nullptr;
+  iree_hal_pool_t* pool_ = nullptr;
   virtual void SetUp() {
-    IREE_CHECK_OK(iree_hal_allocator_create_heap(
-        IREE_SV("heap"), iree_allocator_system(), iree_allocator_system(),
-        &device_allocator_));
+    const iree_hal_pool_host_access_t host_access = {
+        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+        /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+    };
+    IREE_CHECK_OK(iree_hal_heap_pool_create(
+        host_access, iree_allocator_system(), iree_allocator_system(), &pool_));
   }
-  virtual void TearDown() { iree_hal_allocator_release(device_allocator_); }
+  virtual void TearDown() { iree_hal_pool_release(pool_); }
 
   template <typename T>
   StatusOr<BufferView> CreateBufferView(iree::span<const iree_hal_dim_t> shape,
@@ -221,14 +226,13 @@ class BufferViewMatchersTest : public ::testing::Test {
     for (iree_hal_dim_t dim : shape) {
       num_elements *= dim;
     }
-    iree_hal_buffer_params_t params = {0};
-    params.type =
-        IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-    params.usage =
-        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
+    const iree_device_size_t allocation_size =
+        iree_max((iree_device_size_t)(num_elements * sizeof(T)), 1u);
     Buffer buffer;
-    IREE_RETURN_IF_ERROR(iree_hal_allocator_allocate_buffer(
-        device_allocator_, params, num_elements * sizeof(T), &buffer));
+    IREE_RETURN_IF_ERROR(iree_hal_pool_allocate_buffer(
+        pool_,
+        iree_hal_make_pool_reservation_request(allocation_size, alignof(T)),
+        iree_infinite_timeout(), &buffer));
     IREE_RETURN_IF_ERROR(iree_hal_buffer_map_write(buffer, 0, contents,
                                                    num_elements * sizeof(T)));
     BufferView buffer_view;

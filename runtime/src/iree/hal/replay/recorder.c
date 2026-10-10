@@ -38,6 +38,15 @@ typedef struct iree_hal_replay_recorder_semaphore_entry_t {
   struct iree_hal_replay_recorder_semaphore_entry_t* next;
 } iree_hal_replay_recorder_semaphore_entry_t;
 
+typedef struct iree_hal_replay_recorder_pool_entry_t {
+  // Retained immutable contract shared by the captured pool tree.
+  iree_hal_memory_contract_t* contract;
+  // Session-local object id assigned to the captured root slab pool.
+  iree_hal_replay_object_id_t pool_id;
+  // Next retained pool registry entry.
+  struct iree_hal_replay_recorder_pool_entry_t* next;
+} iree_hal_replay_recorder_pool_entry_t;
+
 struct iree_hal_replay_recorder_t {
   // Reference count used to manage shared recorder lifetime.
   iree_atomic_ref_count_t ref_count;
@@ -57,6 +66,8 @@ struct iree_hal_replay_recorder_t {
   iree_status_code_t terminal_status_code;
   // Retained raw semaphores assigned replay object ids.
   iree_hal_replay_recorder_semaphore_entry_t* semaphore_list;
+  // Retained memory contracts assigned root pool object ids.
+  iree_hal_replay_recorder_pool_entry_t* pool_list;
   // True once the writer has been closed.
   bool closed;
 };
@@ -314,6 +325,28 @@ iree_status_t iree_hal_replay_recorder_allocate_semaphore_payloads(
   return status;
 }
 
+static void iree_hal_replay_recorder_initialize_pending_operation_locked(
+    iree_hal_replay_recorder_t* recorder, iree_hal_replay_object_id_t device_id,
+    iree_hal_replay_object_id_t object_id,
+    iree_hal_replay_object_id_t related_object_id,
+    iree_hal_replay_object_type_t object_type,
+    iree_hal_replay_operation_code_t operation_code,
+    iree_hal_replay_payload_type_t payload_type,
+    iree_hal_replay_pending_record_t* out_pending_record) {
+  out_pending_record->recorder = recorder;
+  out_pending_record->metadata = (iree_hal_replay_file_record_metadata_t){
+      .sequence_ordinal = recorder->next_sequence_ordinal++,
+      .thread_id = iree_hal_replay_current_thread_id(),
+      .device_id = device_id,
+      .object_id = object_id,
+      .related_object_id = related_object_id,
+      .record_type = IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION,
+      .payload_type = payload_type,
+      .object_type = object_type,
+      .operation_code = operation_code,
+  };
+}
+
 iree_status_t iree_hal_replay_recorder_begin_operation(
     iree_hal_replay_recorder_t* recorder, iree_hal_replay_object_id_t device_id,
     iree_hal_replay_object_id_t object_id,
@@ -331,26 +364,85 @@ iree_status_t iree_hal_replay_recorder_begin_operation(
     iree_slim_mutex_unlock(&recorder->mutex);
     return status;
   }
-
-  out_pending_record->recorder = recorder;
-  out_pending_record->metadata = (iree_hal_replay_file_record_metadata_t){
-      .sequence_ordinal = recorder->next_sequence_ordinal++,
-      .thread_id = iree_hal_replay_current_thread_id(),
-      .device_id = device_id,
-      .object_id = object_id,
-      .related_object_id = related_object_id,
-      .record_type = IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION,
-      .payload_type = payload_type,
-      .object_type = object_type,
-      .operation_code = operation_code,
-  };
+  iree_hal_replay_recorder_initialize_pending_operation_locked(
+      recorder, device_id, object_id, related_object_id, object_type,
+      operation_code, payload_type, out_pending_record);
   return iree_ok_status();
+}
+
+bool iree_hal_replay_recorder_try_begin_operation(
+    iree_hal_replay_recorder_t* recorder, iree_hal_replay_object_id_t device_id,
+    iree_hal_replay_object_id_t object_id,
+    iree_hal_replay_object_id_t related_object_id,
+    iree_hal_replay_object_type_t object_type,
+    iree_hal_replay_operation_code_t operation_code,
+    iree_hal_replay_payload_type_t payload_type,
+    iree_hal_replay_pending_record_t* out_pending_record) {
+  IREE_ASSERT_ARGUMENT(out_pending_record);
+  memset(out_pending_record, 0, sizeof(*out_pending_record));
+
+  iree_slim_mutex_lock(&recorder->mutex);
+  if (IREE_UNLIKELY(recorder->terminal_status_code != IREE_STATUS_OK ||
+                    recorder->closed)) {
+    iree_slim_mutex_unlock(&recorder->mutex);
+    return false;
+  }
+  iree_hal_replay_recorder_initialize_pending_operation_locked(
+      recorder, device_id, object_id, related_object_id, object_type,
+      operation_code, payload_type, out_pending_record);
+  return true;
 }
 
 void iree_hal_replay_recorder_mark_unsupported(
     iree_hal_replay_pending_record_t* pending_record) {
   pending_record->metadata.record_type =
       IREE_HAL_REPLAY_FILE_RECORD_TYPE_UNSUPPORTED;
+}
+
+iree_status_t iree_hal_replay_recorder_register_pool_contract(
+    iree_hal_replay_pending_record_t* pending_record,
+    iree_hal_memory_contract_t* contract, iree_hal_replay_object_id_t pool_id) {
+  IREE_ASSERT_ARGUMENT(pending_record);
+  IREE_ASSERT_ARGUMENT(pending_record->recorder);
+  IREE_ASSERT_ARGUMENT(contract);
+  iree_hal_replay_recorder_t* recorder = pending_record->recorder;
+  for (iree_hal_replay_recorder_pool_entry_t* entry = recorder->pool_list;
+       entry; entry = entry->next) {
+    if (IREE_UNLIKELY(entry->contract == contract)) {
+      return iree_make_status(
+          IREE_STATUS_ALREADY_EXISTS,
+          "memory contract is already assigned to replay pool %" PRIu64,
+          entry->pool_id);
+    }
+  }
+  iree_hal_replay_recorder_pool_entry_t* entry = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(recorder->host_allocator,
+                                             sizeof(*entry), (void**)&entry));
+  entry->contract = contract;
+  iree_hal_memory_contract_retain(entry->contract);
+  entry->pool_id = pool_id;
+  entry->next = recorder->pool_list;
+  recorder->pool_list = entry;
+  return iree_ok_status();
+}
+
+iree_hal_replay_object_id_t iree_hal_replay_recorder_find_pool_contract_id(
+    iree_hal_replay_recorder_t* recorder,
+    const iree_hal_memory_contract_t* contract) {
+  if (!contract) {
+    return IREE_HAL_REPLAY_OBJECT_ID_NONE;
+  }
+  iree_hal_replay_object_id_t pool_id = IREE_HAL_REPLAY_OBJECT_ID_NONE;
+  iree_slim_mutex_lock(&recorder->mutex);
+  for (iree_hal_replay_recorder_pool_entry_t* entry = recorder->pool_list;
+       entry; entry = entry->next) {
+    if (entry->contract == contract) {
+      pool_id = entry->pool_id;
+      break;
+    }
+  }
+  iree_slim_mutex_unlock(&recorder->mutex);
+  return pool_id;
 }
 
 iree_status_t iree_hal_replay_recorder_end_operation_with_payload(
@@ -367,6 +459,20 @@ iree_status_t iree_hal_replay_recorder_end_operation_with_payload(
   iree_slim_mutex_unlock(&recorder->mutex);
   iree_status_free(record_status);
   return operation_status;
+}
+
+void iree_hal_replay_recorder_end_void_operation_with_payload(
+    iree_hal_replay_pending_record_t* pending_record,
+    iree_host_size_t iovec_count, const iree_const_byte_span_t* iovecs) {
+  iree_hal_replay_recorder_t* recorder = pending_record->recorder;
+  pending_record->metadata.status_code = IREE_STATUS_OK;
+  iree_status_t record_status = iree_hal_replay_file_writer_append_record(
+      recorder->writer, &pending_record->metadata, iovec_count, iovecs, NULL);
+  iree_hal_replay_recorder_fail_locked(recorder,
+                                       iree_status_code(record_status));
+  iree_slim_mutex_unlock(&recorder->mutex);
+  // The recorder now owns the terminal code; the writer status has no caller.
+  iree_status_free(record_status);
 }
 
 iree_status_t iree_hal_replay_recorder_end_operation(
@@ -542,6 +648,13 @@ IREE_API_EXPORT void iree_hal_replay_recorder_release(
       iree_hal_semaphore_release(semaphore_entry->semaphore);
       iree_allocator_free(host_allocator, semaphore_entry);
       semaphore_entry = next_entry;
+    }
+    iree_hal_replay_recorder_pool_entry_t* pool_entry = recorder->pool_list;
+    while (pool_entry) {
+      iree_hal_replay_recorder_pool_entry_t* next_entry = pool_entry->next;
+      iree_hal_memory_contract_release(pool_entry->contract);
+      iree_allocator_free(host_allocator, pool_entry);
+      pool_entry = next_entry;
     }
     iree_hal_replay_file_writer_free(recorder->writer);
     iree_slim_mutex_deinitialize(&recorder->mutex);

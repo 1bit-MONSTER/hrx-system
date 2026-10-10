@@ -10,6 +10,7 @@
 
 #include "iree/base/internal/arena.h"
 #include "iree/hal/api.h"
+#include "iree/hal/memory/heap_pool.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/format/text/parser.h"
@@ -57,13 +58,17 @@ class ScenarioValuesTest : public ::testing::Test {
     RegisterDialect(LOOM_DIALECT_CHECK, loom_check_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_TEST, loom_test_dialect_vtables);
     IREE_ASSERT_OK(loom_context_finalize(&context_));
-    IREE_ASSERT_OK(
-        iree_hal_allocator_create_heap(IREE_SV("scenario"), host_allocator_,
-                                       host_allocator_, &device_allocator_));
+    const iree_hal_pool_host_access_t host_access = {
+        /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
+            IREE_HAL_MAPPING_MODE_PERSISTENT,
+    };
+    IREE_ASSERT_OK(iree_hal_heap_pool_create(host_access, host_allocator_,
+                                             host_allocator_, &pool_));
   }
 
   void TearDown() override {
-    iree_hal_allocator_release(device_allocator_);
+    iree_hal_pool_release(pool_);
     iree_arena_deinitialize(&plan_arena_);
     loom_context_deinitialize(&context_);
     iree_arena_block_pool_deinitialize(&block_pool_);
@@ -127,7 +132,7 @@ check.scenario public @paired configure[2](%configuration: index, %configuration
   loom_testbench_value_materializer_options_t MaterializerOptions() {
     loom_testbench_value_materializer_options_t options = {};
     loom_testbench_value_materializer_options_initialize(&options);
-    options.device_allocator = device_allocator_;
+    options.target_pool = pool_;
     return options;
   }
 
@@ -153,7 +158,7 @@ check.scenario public @paired configure[2](%configuration: index, %configuration
   iree_arena_block_pool_t block_pool_;
   iree_arena_allocator_t plan_arena_;
   loom_context_t context_;
-  iree_hal_allocator_t* device_allocator_ = nullptr;
+  iree_hal_pool_t* pool_ = nullptr;
 };
 
 TEST_F(ScenarioValuesTest, MaterializesIndependentPairedAliasGraphs) {

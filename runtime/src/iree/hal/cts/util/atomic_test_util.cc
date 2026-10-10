@@ -45,15 +45,14 @@ iree_hal_atomic_wait_condition_flags_t AtomicWaitConditionsForCell(
 
 }  // namespace
 
-bool SelectAtomicTestConfiguration(const iree_hal_device_spec_t* device_spec,
+bool SelectAtomicTestConfiguration(iree_hal_device_t* device,
                                    const AtomicTestRequirements& requirements,
                                    AtomicTestConfiguration* out_configuration) {
   *out_configuration = {};
+  const iree_hal_device_spec_t* device_spec = iree_hal_device_spec(device);
   const iree_hal_device_queue_spec_t* queues =
       iree_hal_device_spec_queues(device_spec);
-  const iree_hal_device_memory_spec_t* memory =
-      iree_hal_device_spec_memory(device_spec);
-  if (!queues || !memory) {
+  if (!queues) {
     return false;
   }
 
@@ -82,46 +81,76 @@ bool SelectAtomicTestConfiguration(const iree_hal_device_spec_t* device_spec,
       continue;
     }
 
-    for (iree_host_size_t memory_index = 0;
-         memory_index < memory->memory_type_count; ++memory_index) {
-      const iree_hal_memory_type_spec_t& memory_type =
-          memory->memory_types[memory_index];
-      const iree_hal_memory_heap_spec_t& memory_heap =
-          memory->heaps[memory_type.heap_index];
-      if ((memory_heap.physical_device_affinity &
-           queue_family.physical_device_affinity) == 0 ||
-          !iree_all_bits_set(memory_type.memory_type,
-                             requirements.memory_type) ||
-          !iree_all_bits_set(memory_type.allowed_buffer_usage,
-                             requirements.buffer_usage) ||
-          !iree_all_bits_set(memory_type.allowed_memory_access,
-                             requirements.memory_access)) {
-        continue;
-      }
-      const iree_hal_atomic_operation_flags_t memory_operations =
-          AtomicOperationCapabilitiesForCell(memory_type.atomic_operations,
-                                             requirements.width,
-                                             requirements.atomic_flags);
-      if (!iree_all_bits_set(memory_operations, requirements.operation_flags)) {
-        continue;
-      }
-
-      out_configuration->queue_family_ordinal =
-          (iree_hal_queue_family_ordinal_t)family_index;
-      out_configuration->buffer_params = {
-          /*.usage=*/requirements.buffer_usage,
-          /*.access=*/requirements.memory_access,
-          /*.type=*/memory_type.memory_type,
-          /*.queue_family_affinity=*/
-          iree_hal_make_queue_family_affinity(
-              (iree_hal_queue_family_ordinal_t)family_index),
-          /*.min_alignment=*/
-          iree_hal_atomic_width_byte_count(requirements.width),
-      };
-      return true;
+    iree_hal_atomic_operation_capabilities_t required_atomics = {};
+    const bool system_scope = iree_any_bit_set(
+        requirements.atomic_flags, IREE_HAL_ATOMIC_FLAG_SYSTEM_SCOPE);
+    switch (requirements.width) {
+      case IREE_HAL_ATOMIC_WIDTH_32:
+        if (system_scope) {
+          required_atomics.system_scope_32 = requirements.operation_flags;
+        } else {
+          required_atomics.device_scope_32 = requirements.operation_flags;
+        }
+        break;
+      case IREE_HAL_ATOMIC_WIDTH_64:
+        if (system_scope) {
+          required_atomics.system_scope_64 = requirements.operation_flags;
+        } else {
+          required_atomics.device_scope_64 = requirements.operation_flags;
+        }
+        break;
+      default:
+        return false;
     }
+
+    out_configuration->queue_family_ordinal =
+        (iree_hal_queue_family_ordinal_t)family_index;
+    out_configuration->family_access.family = iree_hal_device_queue_family(
+        device, out_configuration->queue_family_ordinal);
+    out_configuration->family_access.usage = requirements.buffer_usage;
+    out_configuration->family_access.atomic_operations = required_atomics;
+    out_configuration->min_alignment =
+        iree_hal_atomic_width_byte_count(requirements.width);
+    return true;
   }
   return false;
+}
+
+iree_status_t CreateAtomicTestPool(iree_hal_device_group_t* device_group,
+                                   const AtomicTestConfiguration& configuration,
+                                   iree_hal_pool_t** out_pool) {
+  const iree_hal_pool_scope_t scope = {
+      /*.family_count=*/1,
+      /*.families=*/&configuration.family_access,
+  };
+  iree_hal_slab_pool_options_t options;
+  iree_hal_slab_pool_options_initialize(&options);
+  options.trace_name = IREE_SV("cts.atomic");
+  return iree_hal_slab_pool_create(device_group, scope, &options,
+                                   iree_allocator_system(), out_pool);
+}
+
+iree_status_t CreateAtomicTestHostImportPool(
+    iree_hal_device_group_t* device_group,
+    const AtomicTestConfiguration& configuration, iree_hal_pool_t** out_pool) {
+  iree_hal_pool_family_access_t family_access = configuration.family_access;
+  family_access.atomic_operations = {};
+  const iree_hal_pool_scope_t scope = {
+      /*.family_count=*/1,
+      /*.families=*/&family_access,
+  };
+  const iree_hal_pool_import_class_t import_class = {
+      /*.storage_class=*/iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+  };
+  iree_hal_slab_pool_options_t options;
+  iree_hal_slab_pool_options_initialize(&options);
+  options.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+  options.imports.class_count = 1;
+  options.imports.classes = &import_class;
+  options.trace_name = IREE_SV("cts.atomic.import");
+  return iree_hal_slab_pool_create(device_group, scope, &options,
+                                   iree_allocator_system(), out_pool);
 }
 
 }  // namespace iree::hal::cts

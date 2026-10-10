@@ -19,8 +19,10 @@ extern "C" {
 // Magic header bytes for IREE HAL replay files: "IRRP".
 #define IREE_HAL_REPLAY_FILE_MAGIC 0x50525249u
 
-// Major version of the IREE HAL replay file format.
-#define IREE_HAL_REPLAY_FILE_VERSION_MAJOR 9u
+// Major version of the IREE HAL replay file format. Version 13 replaces
+// implicit allocator buffer routing with explicit pool construction and use,
+// including file storage attachment.
+#define IREE_HAL_REPLAY_FILE_VERSION_MAJOR 13u
 
 // Minor version of the IREE HAL replay file format. Minor version 5 adds
 // explicit memory transition recipes to barrier records.
@@ -102,7 +104,6 @@ enum iree_hal_replay_operation_code_e {
   IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_LOAD_EXECUTABLE = 9u,
   IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_IMPORT_FILE = 10u,
   IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_CREATE_SEMAPHORE = 11u,
-  IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_QUERY_QUEUE_POOL_BACKEND = 12u,
   IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_ACQUIRE_QUEUE = 13u,
   IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_PROFILING_BEGIN = 24u,
   IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_PROFILING_FLUSH = 25u,
@@ -111,10 +112,7 @@ enum iree_hal_replay_operation_code_e {
   IREE_HAL_REPLAY_OPERATION_CODE_REPLAY_SCOPE_BEGIN = 50u,
   IREE_HAL_REPLAY_OPERATION_CODE_REPLAY_SCOPE_END = 51u,
 
-  IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_TRIM = 100u,
   IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_QUERY_MEMORY_HEAPS = 101u,
-  IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_ALLOCATE_BUFFER = 102u,
-  IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_IMPORT_BUFFER = 103u,
   IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_QUERY_GRANULARITY =
       105u,
   IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_RESERVE = 106u,
@@ -125,6 +123,11 @@ enum iree_hal_replay_operation_code_e {
   IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP = 111u,
   IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT = 112u,
   IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_ADVISE = 113u,
+
+  IREE_HAL_REPLAY_OPERATION_CODE_POOL_CREATE_SLAB = 150u,
+  IREE_HAL_REPLAY_OPERATION_CODE_POOL_TRIM = 151u,
+  IREE_HAL_REPLAY_OPERATION_CODE_POOL_ALLOCATE_BUFFER = 152u,
+  IREE_HAL_REPLAY_OPERATION_CODE_POOL_IMPORT_BUFFER = 153u,
 
   IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_MAP_RANGE = 200u,
   IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_UNMAP_RANGE = 201u,
@@ -172,7 +175,6 @@ typedef uint32_t iree_hal_replay_payload_type_t;
 enum iree_hal_replay_payload_type_e {
   IREE_HAL_REPLAY_PAYLOAD_TYPE_NONE = 0u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_BUFFER_OBJECT = 1u,
-  IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_ALLOCATE_BUFFER = 2u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_BUFFER_RANGE = 3u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_BUFFER_RANGE_DATA = 4u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_EXECUTABLE_LOAD = 6u,
@@ -183,7 +185,6 @@ enum iree_hal_replay_payload_type_e {
   IREE_HAL_REPLAY_PAYLOAD_TYPE_COMMAND_BUFFER_FILL_BUFFER = 17u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_COMMAND_BUFFER_UPDATE_BUFFER = 18u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_FILE_OBJECT = 22u,
-  IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_IMPORT_BUFFER = 25u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_REPLAY_SCOPE = 26u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_COMMAND_BUFFER_ATOMIC_WAIT = 27u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_COMMAND_BUFFER_ATOMIC_STORE = 28u,
@@ -210,6 +211,10 @@ enum iree_hal_replay_payload_type_e {
   IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT = 52u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_ADVISE = 53u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_DYNAMIC_QUEUE_OBJECT = 54u,
+  IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_CREATE_SLAB = 55u,
+  IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_TRIM = 56u,
+  IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_ALLOCATE_BUFFER = 57u,
+  IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_IMPORT_BUFFER = 58u,
 };
 
 // Type of one operation in a captured exact-queue transfer transaction.
@@ -289,37 +294,143 @@ typedef struct iree_hal_replay_buffer_object_payload_t {
   uint32_t reserved1;
 } iree_hal_replay_buffer_object_payload_t;
 
-// Payload describing an allocator buffer allocation request.
-typedef struct iree_hal_replay_allocator_allocate_buffer_payload_t {
+// Header for explicit slab-pool construction followed by family access rows,
+// owned export classes, import rows, import export classes, and a trace name.
+typedef struct iree_hal_replay_pool_create_slab_payload_t {
+  // Number of family access rows following this header.
+  uint64_t family_count;
+  // Number of external storage classes required from owned allocations.
+  uint64_t owned_export_count;
+  // Number of admitted import rows.
+  uint64_t import_count;
+  // Total export classes referenced by all import rows.
+  uint64_t import_export_count;
+  // Byte length of the final UTF-8 trace name.
+  uint64_t trace_name_length;
+  // Requested placement policy.
+  uint32_t placement_mode;
+  // Requested topology placement node.
+  uint32_t placement_node;
+  // Whether owned native backing is enabled.
+  uint32_t owned_mode;
+  // Reserved for future construction policy; must be zero.
+  uint32_t reserved0;
+  // Required public host memory access bits.
+  uint32_t host_access;
+  // Required public host mapping modes.
+  uint32_t host_mapping_modes;
+  // Required public host cacheability.
+  uint32_t host_cacheability;
+  // Preferred additional host memory access bits.
+  uint32_t preferred_host_access;
+  // Preferred additional host mapping modes.
+  uint32_t preferred_host_mapping_modes;
+  // Preferred host cacheability.
+  uint32_t preferred_host_cacheability;
+} iree_hal_replay_pool_create_slab_payload_t;
+static_assert(sizeof(iree_hal_replay_pool_create_slab_payload_t) == 80,
+              "slab pool replay header must be 80 bytes");
+
+// One canonical queue-family access row in a slab-pool construction request.
+typedef struct iree_hal_replay_pool_family_access_payload_t {
+  // Device ordinal in the captured group.
+  uint32_t device_ordinal;
+  // Canonical queue-family ordinal on that device.
+  uint32_t family_ordinal;
+  // Required buffer usage bits.
+  uint64_t usage;
+  // Required native buffer interfaces.
+  uint64_t interfaces;
+  // Hard family access requirements.
+  uint32_t requirements;
+  // Reserved for future family requirements; must be zero.
+  uint32_t reserved0;
+  // Required 32-bit atomic operations in the device coherence domain.
+  uint32_t atomic_device_scope_32;
+  // Required 64-bit atomic operations in the device coherence domain.
+  uint32_t atomic_device_scope_64;
+  // Required 32-bit atomic operations in the system coherence domain.
+  uint32_t atomic_system_scope_32;
+  // Required 64-bit atomic operations in the system coherence domain.
+  uint32_t atomic_system_scope_64;
+} iree_hal_replay_pool_family_access_payload_t;
+static_assert(sizeof(iree_hal_replay_pool_family_access_payload_t) == 48,
+              "pool family replay row must be 48 bytes");
+
+// Stable external storage class representation used in pool payloads.
+typedef struct iree_hal_replay_external_storage_class_payload_t {
+  // Native external storage representation type.
+  uint32_t type;
+  // Reserved for future class metadata; must be zero.
+  uint32_t reserved0;
+  // Provider-defined interpretation identity.
+  uint64_t provenance[2];
+} iree_hal_replay_external_storage_class_payload_t;
+static_assert(sizeof(iree_hal_replay_external_storage_class_payload_t) == 24,
+              "external storage class replay row must be 24 bytes");
+
+// One admitted import class and its correlated export-class range.
+typedef struct iree_hal_replay_pool_import_class_payload_t {
+  // Exact admitted source class.
+  iree_hal_replay_external_storage_class_payload_t storage_class;
+  // First entry in the flattened import export-class array.
+  uint64_t export_offset;
+  // Number of required export classes for this input class.
+  uint64_t export_count;
+} iree_hal_replay_pool_import_class_payload_t;
+static_assert(sizeof(iree_hal_replay_pool_import_class_payload_t) == 40,
+              "pool import replay row must be 40 bytes");
+
+// Geometry for one synchronous explicit-pool allocation.
+typedef struct iree_hal_replay_pool_allocate_buffer_payload_t {
   // Requested allocation size, in bytes.
   uint64_t allocation_size;
-  // Requested queue family affinity from the canonicalized buffer params.
-  uint64_t queue_family_affinity;
-  // Requested minimum alignment, in bytes.
+  // Requested minimum native-address alignment, in bytes.
   uint64_t min_alignment;
-  // Requested buffer usage bits.
-  uint32_t usage;
-  // Requested memory type bits.
-  uint32_t type;
-  // Requested memory access bits.
-  uint16_t access;
-  // Reserved for future allocation request metadata; must be zero.
-  uint16_t reserved0;
-  // Reserved for future allocation request metadata; must be zero.
-  uint32_t reserved1;
-} iree_hal_replay_allocator_allocate_buffer_payload_t;
+  // Captured size of the backing allocation containing the logical result.
+  // Replay allocates this size so absolute suballocation offsets remain valid.
+  uint64_t replay_allocation_size;
+} iree_hal_replay_pool_allocate_buffer_payload_t;
+static_assert(sizeof(iree_hal_replay_pool_allocate_buffer_payload_t) == 24,
+              "pool allocation replay payload must be 24 bytes");
 
-// Payload describing an imported host allocation followed by captured bytes.
-typedef struct iree_hal_replay_allocator_import_buffer_payload_t {
-  // Allocation parameters used to materialize the imported buffer on replay.
-  iree_hal_replay_allocator_allocate_buffer_payload_t allocation;
-  // External buffer type captured from the import request.
-  uint32_t external_type;
-  // External buffer flags captured from the import request.
-  uint32_t external_flags;
-  // Captured byte length following this payload header.
+// Explicit pool trim policy.
+typedef struct iree_hal_replay_pool_trim_payload_t {
+  // Pool trim flags.
+  uint32_t flags;
+  // Reserved for future trim policy; must be zero.
+  uint32_t reserved0;
+  // Minimum total committed backing to retain.
+  uint64_t min_bytes_to_keep;
+} iree_hal_replay_pool_trim_payload_t;
+static_assert(sizeof(iree_hal_replay_pool_trim_payload_t) == 16,
+              "pool trim replay payload must be 16 bytes");
+
+// Imported host storage followed by the complete captured storage extent.
+typedef struct iree_hal_replay_pool_import_buffer_payload_t {
+  // Exact external storage class admitted by the pool.
+  iree_hal_replay_external_storage_class_payload_t storage_class;
+  // Byte length of the external storage extent.
+  uint64_t byte_length;
+  // Logical buffer byte offset in the external storage extent.
+  uint64_t logical_offset;
+  // Logical buffer byte length.
+  uint64_t logical_length;
+  // Source-owned maintenance-envelope byte offset.
+  uint64_t maintenance_offset;
+  // Source-owned maintenance-envelope byte length.
+  uint64_t maintenance_length;
+  // Physical storage identity, when established by the source.
+  uint64_t physical_backing_id[2];
+  // Number of captured data bytes following this header.
   uint64_t data_length;
-} iree_hal_replay_allocator_import_buffer_payload_t;
+  // Source-established host mapping class.
+  uint32_t host_cacheability;
+  // Reserved for future import metadata; must be zero.
+  uint32_t reserved0;
+} iree_hal_replay_pool_import_buffer_payload_t;
+static_assert(sizeof(iree_hal_replay_pool_import_buffer_payload_t) == 96,
+              "pool import replay payload must be 96 bytes");
 
 // Payload describing a virtual address reservation request.
 typedef struct iree_hal_replay_allocator_virtual_memory_reserve_payload_t {
@@ -343,12 +454,20 @@ static_assert(
 
 // Payload describing a physical memory allocation request.
 typedef struct iree_hal_replay_allocator_physical_memory_allocate_payload_t {
-  // Canonical allocation parameters and requested physical allocation size.
-  iree_hal_replay_allocator_allocate_buffer_payload_t allocation;
+  // Requested physical allocation size, in bytes.
+  uint64_t allocation_size;
+  // Queue families permitted to map and access the allocation.
+  uint64_t queue_family_affinity;
+  // Intended buffer usages for mapped virtual ranges.
+  uint32_t usage;
+  // Required physical memory type bits.
+  uint32_t type;
+  // Reserved for future use; must be zero.
+  uint64_t reserved0;
 } iree_hal_replay_allocator_physical_memory_allocate_payload_t;
 static_assert(
-    sizeof(iree_hal_replay_allocator_physical_memory_allocate_payload_t) == 40,
-    "physical memory allocate replay payload must be 40 bytes");
+    sizeof(iree_hal_replay_allocator_physical_memory_allocate_payload_t) == 32,
+    "physical memory allocate replay payload must be 32 bytes");
 
 // Payload identifying a physical memory handle being freed.
 typedef struct iree_hal_replay_allocator_physical_memory_free_payload_t {
@@ -607,6 +726,8 @@ typedef struct iree_hal_replay_file_object_payload_t {
   uint64_t file_mtime_ns;
   // Byte length of the file reference following this header.
   uint64_t reference_length;
+  // Pool object used for optional storage attachment, or NONE.
+  iree_hal_replay_object_id_t storage_pool_id;
   // HAL memory access bits allowed by this imported file.
   uint32_t access;
   // External HAL file flags requested at import.
@@ -621,11 +742,11 @@ typedef struct iree_hal_replay_file_object_payload_t {
   iree_hal_replay_digest_type_t digest_type;
   // Reserved for future file validation metadata; must be zero.
   uint16_t reserved0;
-  // Reserved for future file object metadata; must be zero.
-  uint32_t reserved1;
   // Digest bytes used when |validation_type| requires content validation.
   uint8_t digest[32];
 } iree_hal_replay_file_object_payload_t;
+static_assert(sizeof(iree_hal_replay_file_object_payload_t) == 112,
+              "file replay payload must be 112 bytes");
 
 // Payload describing a replay annotation scope followed by UTF-8 name bytes.
 typedef struct iree_hal_replay_scope_payload_t {
@@ -757,8 +878,8 @@ typedef struct iree_hal_replay_queue_alloca_payload_t {
   uint64_t signal_semaphore_count;
   // Number of allocation request descriptors following the timepoints.
   uint64_t request_count;
-  // Reserved for future allocation transaction metadata; must be zero.
-  uint64_t reserved0;
+  // Session-local pool object used for this allocation transaction.
+  iree_hal_replay_object_id_t pool_id;
 } iree_hal_replay_queue_alloca_payload_t;
 static_assert(sizeof(iree_hal_replay_queue_alloca_payload_t) == 32,
               "queue alloca replay header must be 32 bytes");
@@ -768,11 +889,13 @@ static_assert(sizeof(iree_hal_replay_queue_alloca_payload_t) == 32,
 typedef struct iree_hal_replay_queue_alloca_request_payload_t {
   // Session-local object id assigned to the returned allocation root.
   iree_hal_replay_object_id_t buffer_id;
-  // Canonical allocation request submitted to the queue.
-  iree_hal_replay_allocator_allocate_buffer_payload_t allocation;
+  // Requested allocation size, in bytes.
+  uint64_t allocation_size;
+  // Requested minimum alignment, in bytes.
+  uint64_t min_alignment;
 } iree_hal_replay_queue_alloca_request_payload_t;
-static_assert(sizeof(iree_hal_replay_queue_alloca_request_payload_t) == 48,
-              "queue alloca replay request must be 48 bytes");
+static_assert(sizeof(iree_hal_replay_queue_alloca_request_payload_t) == 24,
+              "queue alloca replay request must be 24 bytes");
 
 // Header for an exact-queue deallocation transaction followed by semaphore
 // timepoints and allocation-root object ids.

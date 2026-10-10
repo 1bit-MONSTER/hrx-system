@@ -19,7 +19,6 @@
 #include "iree/hal/memory/cpu_slab_provider.h"
 #include "iree/hal/memory/maintenance_thread.h"
 #include "iree/hal/memory/passthrough_pool.h"
-#include "iree/hal/pool_set.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 
@@ -177,7 +176,8 @@ static void iree_hal_test_opaque_slab_provider_release_slab(
 static iree_status_t iree_hal_test_opaque_slab_provider_wrap_buffer(
     iree_hal_slab_provider_t* base_provider, const iree_hal_slab_t* slab,
     iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t params,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** out_buffer) {
   iree_hal_test_opaque_slab_provider_t* provider =
@@ -186,10 +186,12 @@ static iree_status_t iree_hal_test_opaque_slab_provider_wrap_buffer(
   iree_byte_span_t data = iree_make_byte_span(
       (uint8_t*)(uintptr_t)slab->provider_handle + slab_offset,
       (iree_host_size_t)allocation_size);
-  return iree_hal_heap_buffer_wrap(iree_hal_buffer_placement_undefined(),
-                                   params.type, params.access, params.usage,
-                                   allocation_size, data, release_callback,
-                                   provider->host_allocator, out_buffer);
+  return iree_hal_heap_buffer_wrap(
+      iree_hal_buffer_placement_undefined(),
+      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
+          IREE_HAL_MEMORY_TYPE_HOST_COHERENT | IREE_HAL_MEMORY_TYPE_HOST_CACHED,
+      allowed_access, allowed_usage, allocation_size, data, release_callback,
+      provider->host_allocator, out_buffer);
 }
 
 static iree_status_t iree_hal_test_opaque_slab_provider_validate_asan_options(
@@ -284,13 +286,7 @@ const iree_hal_slab_provider_vtable_t
 
 static iree_hal_pool_reservation_request_t MakeReservationRequest(
     iree_device_size_t allocation_size, iree_device_size_t min_alignment) {
-  iree_hal_pool_reservation_request_t request = {};
-  request.params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  request.params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  request.params.min_alignment = min_alignment;
-  request.allocation_size = allocation_size;
-  return request;
+  return iree_hal_make_pool_reservation_request(allocation_size, min_alignment);
 }
 
 static iree_status_t AcquireOneReservation(
@@ -315,13 +311,10 @@ static void ReleaseOneReservation(
 }
 
 static iree_status_t MaterializeOneReservation(
-    iree_hal_pool_t* pool, iree_hal_buffer_params_t params,
-    const iree_hal_pool_reservation_t* reservation,
+    iree_hal_pool_t* pool, const iree_hal_pool_reservation_t* reservation,
     iree_hal_pool_materialize_flags_t flags, iree_hal_buffer_t** out_buffer) {
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/reservation->byte_length,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(reservation->byte_length, 1);
   return iree_hal_pool_materialize_reservations(pool, 1, &request, reservation,
                                                 flags, out_buffer);
 }
@@ -363,8 +356,7 @@ static iree_status_t CreateFinitePool(
       backing_pool, &options, &request);
   iree_hal_buffer_t* buffer = nullptr;
   if (iree_status_is_ok(status)) {
-    status = iree_hal_pool_allocate_buffer(backing_pool, request.params,
-                                           request.allocation_size,
+    status = iree_hal_pool_allocate_buffer(backing_pool, request,
                                            iree_infinite_timeout(), &buffer);
   }
   if (iree_status_is_ok(status)) {
@@ -549,7 +541,6 @@ TEST(FixedBlockPool, NoGrowthDefersLargeBatchStaging) {
   iree_hal_pool_reservation_request_t requests[kCount];
   for (auto& request : requests) {
     request = MakeReservationRequest(256, 16);
-    request.params.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
   }
   iree_hal_pool_reservation_t reservations[kCount];
   memset(reservations, 0xA5, sizeof(reservations));
@@ -628,7 +619,6 @@ TEST(FixedBlockPool, SixQueueHistorySurvivesInlineAndColdStaging) {
         options, provider, notification, test_frontier_tracker(),
         allocator.allocator(), &backing_pool, &pool));
     auto request = MakeReservationRequest(64, 16);
-    request.params.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
     const iree_hal_pool_reservation_request_t requests[2] = {request, request};
     iree_hal_pool_reservation_t reservations[2];
     iree_hal_pool_acquire_info_t infos[2];
@@ -661,8 +651,8 @@ TEST(FixedBlockPool, SixQueueHistorySurvivesInlineAndColdStaging) {
                 0);
       iree_hal_buffer_t* buffer = nullptr;
       IREE_ASSERT_OK(MaterializeOneReservation(
-          pool, request.params, &reservations[i],
-          IREE_HAL_POOL_MATERIALIZE_FLAG_NONE, &buffer));
+          pool, &reservations[i], IREE_HAL_POOL_MATERIALIZE_FLAG_NONE,
+          &buffer));
       const uint8_t pattern = static_cast<uint8_t>(capacity + i);
       IREE_ASSERT_OK(iree_hal_buffer_map_fill(buffer, 0, 64, &pattern, 1));
       uint8_t actual[64] = {};
@@ -866,7 +856,6 @@ TEST_F(FixedBlockPoolTest, ConcurrentUseRevalidatesTheEntireBatch) {
                                    test_frontier_tracker(), query.query(),
                                    allocator_, &pool_));
   auto request = MakeReservationRequest(64, 16);
-  request.params.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
   const iree_hal_pool_reservation_request_t requests[2] = {request, request};
   iree_hal_pool_reservation_t reservations[2];
   iree_hal_pool_acquire_info_t infos[2];
@@ -906,9 +895,8 @@ TEST_F(FixedBlockPoolTest, ConcurrentUseRevalidatesTheEntireBatch) {
     iree_hal_pool_query_stats(pool_, &stats);
     EXPECT_EQ(stats.bytes_reserved, 2 * options.block_size);
     iree_hal_buffer_t* buffer = nullptr;
-    iree_status_t status =
-        MaterializeOneReservation(pool_, request.params, &competing,
-                                  IREE_HAL_POOL_MATERIALIZE_FLAG_NONE, &buffer);
+    iree_status_t status = MaterializeOneReservation(
+        pool_, &competing, IREE_HAL_POOL_MATERIALIZE_FLAG_NONE, &buffer);
     const uint32_t expected[16] = {0x12345678};
     uint32_t actual[16] = {};
     if (iree_status_is_ok(status)) {
@@ -941,9 +929,8 @@ TEST_F(FixedBlockPoolTest, ConcurrentUseRevalidatesTheEntireBatch) {
   // All CPU accesses above have completed; inspect its bytes through the new
   // reservation and return each block with its own exact history.
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(
-      MaterializeOneReservation(pool_, request.params, &reservations[1],
-                                IREE_HAL_POOL_MATERIALIZE_FLAG_NONE, &buffer));
+  IREE_ASSERT_OK(MaterializeOneReservation(
+      pool_, &reservations[1], IREE_HAL_POOL_MATERIALIZE_FLAG_NONE, &buffer));
   uint32_t actual[16] = {};
   IREE_ASSERT_OK(iree_hal_buffer_map_read(buffer, 0, actual, sizeof(actual)));
   EXPECT_EQ(actual[0], 0x12345678u);
@@ -976,11 +963,9 @@ TEST_F(FixedBlockPoolTest, AlignmentStrengthensBackingWithinBlockStride) {
   EXPECT_EQ(stats.bytes_reserved, 0u);
 
   auto request = MakeReservationRequest(128, 256);
-  request.params.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
   iree_hal_buffer_t* buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      pool_, request.params, request.allocation_size, iree_infinite_timeout(),
-      &buffer));
+      pool_, request, iree_infinite_timeout(), &buffer));
   iree_hal_buffer_mapping_t mapping = {};
   IREE_ASSERT_OK(iree_hal_buffer_map_range(
       buffer, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_ALL,
@@ -1210,15 +1195,9 @@ TEST_F(FixedBlockPoolTest, WrapReservationCreatesBuffer) {
       pool_, 128, 16, /*requester_frontier=*/NULL,
       IREE_HAL_POOL_RESERVE_FLAG_NONE, &reservation, &reserve_info, &result));
 
-  iree_hal_buffer_params_t params = {0};
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-
   iree_hal_buffer_t* buffer = NULL;
   IREE_ASSERT_OK(MaterializeOneReservation(
-      pool_, params, &reservation,
+      pool_, &reservation,
       IREE_HAL_POOL_MATERIALIZE_FLAG_TRANSFER_RESERVATION_OWNERSHIP, &buffer));
   ASSERT_NE(buffer, nullptr);
   EXPECT_EQ(iree_hal_buffer_allocation_size(buffer), 1024u);
@@ -1244,24 +1223,6 @@ TEST_F(FixedBlockPoolTest, WrapReservationCreatesBuffer) {
   EXPECT_EQ(stats.release_count, 1u);
 }
 
-TEST_F(FixedBlockPoolTest, PoolSetRoutesByUserVisibleRange) {
-  iree_hal_pool_set_t pool_set;
-  IREE_ASSERT_OK(iree_hal_pool_set_initialize(/*initial_capacity=*/1,
-                                              allocator_, &pool_set));
-  IREE_ASSERT_OK(iree_hal_pool_set_register(&pool_set, 10, pool_));
-
-  iree_hal_buffer_params_t params = {0};
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-
-  EXPECT_EQ(pool_, iree_hal_pool_set_select(&pool_set, params, 128));
-  EXPECT_EQ(nullptr, iree_hal_pool_set_select(&pool_set, params, 257));
-
-  iree_hal_pool_set_deinitialize(&pool_set);
-}
-
 TEST_F(FixedBlockPoolTest, BorrowedMaterializationDoesNotReleaseReservation) {
   iree_hal_pool_reservation_t reservation;
   iree_hal_pool_acquire_info_t acquire_info;
@@ -1270,16 +1231,9 @@ TEST_F(FixedBlockPoolTest, BorrowedMaterializationDoesNotReleaseReservation) {
       pool_, 128, 16, /*requester_frontier=*/NULL,
       IREE_HAL_POOL_RESERVE_FLAG_NONE, &reservation, &acquire_info, &result));
 
-  iree_hal_buffer_params_t params = {0};
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-
   iree_hal_buffer_t* buffer = NULL;
-  IREE_ASSERT_OK(MaterializeOneReservation(pool_, params, &reservation,
-                                           IREE_HAL_POOL_MATERIALIZE_FLAG_NONE,
-                                           &buffer));
+  IREE_ASSERT_OK(MaterializeOneReservation(
+      pool_, &reservation, IREE_HAL_POOL_MATERIALIZE_FLAG_NONE, &buffer));
 
   iree_hal_buffer_release(buffer);
 
@@ -1325,15 +1279,9 @@ TEST(FixedBlockPool, UsesProviderHooks) {
       pool, 128, 16, /*requester_frontier=*/NULL,
       IREE_HAL_POOL_RESERVE_FLAG_NONE, &reservation, &reserve_info, &result));
 
-  iree_hal_buffer_params_t params = {0};
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-
   iree_hal_buffer_t* buffer = NULL;
   IREE_ASSERT_OK(MaterializeOneReservation(
-      pool, params, &reservation,
+      pool, &reservation,
       IREE_HAL_POOL_MATERIALIZE_FLAG_TRANSFER_RESERVATION_OWNERSHIP, &buffer));
 
   // Policy trim preserves live buffers; native trim is an explicit source
@@ -1457,15 +1405,9 @@ TEST(FixedBlockPool, ASANAdvisesBackingBlockAndExposesUserRange) {
   EXPECT_EQ(stats.bytes_reserved, 192u);
   EXPECT_EQ(stats.bytes_free, 192u);
 
-  iree_hal_buffer_params_t params = {0};
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-
   iree_hal_buffer_t* buffer = NULL;
   IREE_ASSERT_OK(MaterializeOneReservation(
-      pool, params, &reservation,
+      pool, &reservation,
       IREE_HAL_POOL_MATERIALIZE_FLAG_TRANSFER_RESERVATION_OWNERSHIP, &buffer));
   ASSERT_NE(buffer, nullptr);
   EXPECT_EQ(iree_hal_buffer_allocation_size(buffer), 384u);

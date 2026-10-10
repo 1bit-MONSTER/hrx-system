@@ -31,12 +31,14 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_initialize(
     iree_allocator_t host_allocator, iree_hal_pool_t* out_pool) {
   IREE_ASSERT_ARGUMENT(vtable);
   IREE_ASSERT_ARGUMENT(out_pool);
-  iree_host_size_t source_count = 1;
+  iree_host_size_t source_count = notification ? 1 : 0;
   for (iree_host_size_t i = 0; i < backing_sources.count; ++i) {
-    source_count += backing_sources.values[i] != notification;
+    source_count +=
+        backing_sources.values[i] && backing_sources.values[i] != notification;
   }
-  iree_async_notification_t** sources = &out_pool->notification;
-  if (source_count > 1) {
+  iree_async_notification_t** sources =
+      notification ? &out_pool->notification : NULL;
+  if (source_count > (notification ? 1 : 0)) {
     IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
         host_allocator, source_count, sizeof(*sources), (void**)&sources));
   }
@@ -44,11 +46,14 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_initialize(
   out_pool->memory_contract = memory_contract;
   iree_hal_memory_contract_retain(memory_contract);
   out_pool->notification = notification;
-  sources[0] = notification;
   iree_async_notification_retain(notification);
-  iree_host_size_t source_index = 1;
+  iree_host_size_t source_index = 0;
+  if (notification) {
+    sources[source_index++] = notification;
+  }
   for (iree_host_size_t i = 0; i < backing_sources.count; ++i) {
-    if (backing_sources.values[i] != notification) {
+    if (backing_sources.values[i] &&
+        backing_sources.values[i] != notification) {
       sources[source_index++] = backing_sources.values[i];
       iree_async_notification_retain(backing_sources.values[i]);
     }
@@ -57,11 +62,13 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_initialize(
       .count = source_count,
       .values = sources,
   };
-  out_pool->wait_allocator = host_allocator;
+  out_pool->host_allocator = host_allocator;
   out_pool->frontier_tracker = frontier_tracker;
   out_pool->maintenance = NULL;
   out_pool->epoch_query = iree_hal_pool_epoch_query_null();
   out_pool->asan_enabled = false;
+  out_pool->allocation_interceptor =
+      (iree_hal_pool_allocation_interceptor_t){0};
   return iree_ok_status();
 }
 
@@ -70,8 +77,9 @@ IREE_API_EXPORT void iree_hal_pool_deinitialize(iree_hal_pool_t* pool) {
   for (iree_host_size_t i = 0; i < pool->wait_sources.count; ++i) {
     iree_async_notification_release(pool->wait_sources.values[i]);
   }
-  if (pool->wait_sources.values != &pool->notification) {
-    iree_allocator_free(pool->wait_allocator, (void*)pool->wait_sources.values);
+  if (pool->wait_sources.values &&
+      pool->wait_sources.values != &pool->notification) {
+    iree_allocator_free(pool->host_allocator, (void*)pool->wait_sources.values);
   }
 }
 
@@ -161,6 +169,75 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_materialize_reservations(
       pool, reservation_count, requests, reservations, flags, out_buffers);
   IREE_TRACE_ZONE_END(z0);
   return status;
+}
+
+IREE_API_EXPORT iree_status_t iree_hal_pool_import_buffer(
+    iree_hal_pool_t* pool, iree_hal_external_storage_t* inout_storage,
+    iree_hal_buffer_range_t logical_range, iree_hal_buffer_t** out_buffer) {
+  IREE_ASSERT_ARGUMENT(pool);
+  IREE_ASSERT_ARGUMENT(inout_storage);
+  IREE_ASSERT_ARGUMENT(out_buffer);
+  *out_buffer = NULL;
+  IREE_TRACE_ZONE_BEGIN(z0);
+  if (inout_storage->storage_class.type ==
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE ||
+      inout_storage->byte_length == 0) {
+    IREE_TRACE_ZONE_END(z0);
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "external storage must be nonempty");
+  }
+
+  iree_hal_buffer_range_t resolved_range = {0};
+  iree_status_t status = iree_hal_buffer_calculate_range(
+      0, inout_storage->byte_length, logical_range.byte_offset,
+      logical_range.byte_length, &resolved_range.byte_offset,
+      &resolved_range.byte_length);
+  if (iree_status_is_ok(status)) {
+    iree_device_size_t maintenance_offset = 0;
+    iree_device_size_t maintenance_length = 0;
+    status = iree_hal_buffer_calculate_range(
+        0, inout_storage->byte_length,
+        inout_storage->maintenance_range.byte_offset,
+        inout_storage->maintenance_range.byte_length, &maintenance_offset,
+        &maintenance_length);
+  }
+  if (iree_status_is_ok(status)) {
+    const iree_hal_pool_vtable_t* vtable =
+        (const iree_hal_pool_vtable_t*)pool->resource.vtable;
+    if (!vtable->import_buffer) {
+      status = iree_make_status(
+          IREE_STATUS_UNAVAILABLE,
+          "pool does not admit caller-selected external backing");
+    } else {
+      status = vtable->import_buffer(pool, inout_storage, resolved_range,
+                                     out_buffer);
+    }
+  }
+  IREE_TRACE_ZONE_END(z0);
+  return status;
+}
+
+IREE_API_EXPORT bool iree_hal_pool_query_import_requirements(
+    const iree_hal_pool_t* pool,
+    iree_hal_external_storage_class_t storage_class,
+    iree_hal_pool_import_requirements_t* out_requirements) {
+  IREE_ASSERT_ARGUMENT(pool);
+  IREE_ASSERT_ARGUMENT(out_requirements);
+  memset(out_requirements, 0, sizeof(*out_requirements));
+  if (storage_class.type == IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE) {
+    return false;
+  }
+  const iree_hal_pool_vtable_t* vtable =
+      (const iree_hal_pool_vtable_t*)pool->resource.vtable;
+  return vtable->query_import_requirements &&
+         vtable->query_import_requirements(pool, storage_class,
+                                           out_requirements);
+}
+
+IREE_API_EXPORT iree_allocator_t
+iree_hal_pool_host_allocator(const iree_hal_pool_t* pool) {
+  IREE_ASSERT_ARGUMENT(pool);
+  return pool->host_allocator;
 }
 
 IREE_API_EXPORT void iree_hal_pool_query_capabilities(
@@ -307,18 +384,9 @@ static iree_status_t iree_hal_pool_wait_for_capacity(
   return wait.status;
 }
 
-IREE_API_EXPORT iree_status_t iree_hal_pool_allocate_buffer(
-    iree_hal_pool_t* pool, iree_hal_buffer_params_t params,
-    iree_device_size_t allocation_size, iree_timeout_t timeout,
-    iree_hal_buffer_t** out_buffer) {
-  IREE_ASSERT_ARGUMENT(pool);
-  IREE_ASSERT_ARGUMENT(out_buffer);
-  IREE_TRACE_ZONE_BEGIN(z0);
-
-  const iree_hal_pool_reservation_request_t request = {
-      .params = params,
-      .allocation_size = allocation_size,
-  };
+static iree_status_t iree_hal_pool_allocate_buffer_direct(
+    iree_hal_pool_t* pool, iree_hal_pool_reservation_request_t request,
+    iree_timeout_t timeout, iree_hal_buffer_t** out_buffer) {
   iree_hal_buffer_t* buffer = NULL;
 
   // Capacity retries and exact-range completion share one deadline.
@@ -387,7 +455,7 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_allocate_buffer(
           } else if (!capacity_wait) {
             // Only a failed fast attempt allocates cold wait state. Retry with
             // every source observed before submitting any asynchronous wait.
-            status = iree_hal_pool_wait_create(pool, pool->wait_allocator,
+            status = iree_hal_pool_wait_create(pool, pool->host_allocator,
                                                &capacity_wait);
           } else {
             status = iree_hal_pool_wait_for_capacity(capacity_wait, timeout);
@@ -416,6 +484,24 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_allocate_buffer(
   if (iree_status_is_ok(status)) {
     *out_buffer = buffer;
   }
+
+  return status;
+}
+
+IREE_API_EXPORT iree_status_t iree_hal_pool_allocate_buffer(
+    iree_hal_pool_t* pool, iree_hal_pool_reservation_request_t request,
+    iree_timeout_t timeout, iree_hal_buffer_t** out_buffer) {
+  IREE_ASSERT_ARGUMENT(pool);
+  IREE_ASSERT_ARGUMENT(out_buffer);
+  IREE_TRACE_ZONE_BEGIN(z0);
+
+  iree_status_t status =
+      pool->allocation_interceptor.fn
+          ? pool->allocation_interceptor.fn(
+                pool->allocation_interceptor.user_data, pool, request, timeout,
+                iree_hal_pool_allocate_buffer_direct, out_buffer)
+          : iree_hal_pool_allocate_buffer_direct(pool, request, timeout,
+                                                 out_buffer);
 
   IREE_TRACE_ZONE_END(z0);
   return status;

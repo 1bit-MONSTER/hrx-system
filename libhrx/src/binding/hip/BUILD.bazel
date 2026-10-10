@@ -797,8 +797,13 @@ hrx_cc_test(
     env = {
         "HRX_TEST_LIBAMDHIP64": "$(location :amdhip64)",
     },
+    resource_group = GPU_DEVICE_RESOURCE_GROUP,
     sanitizer_suppressions = hsa_suppressions,
-    target_compatible_with = _LINUX_COMPATIBILITY,
+    tags = [
+        "iree-run-requirement=runtime.resource.amd_gpu",
+        "runtime-resource=amd-gpu",
+    ],
+    target_compatible_with = _HIP_GPU_COMPATIBILITY,
     deps = [
         ":launch_params",
         "//build_tools/bazel:dl",

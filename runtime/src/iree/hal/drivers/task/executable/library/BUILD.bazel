@@ -78,6 +78,7 @@ iree_runtime_cc_binary(
         "//runtime/src/iree/hal/drivers/task/executable:environment",
         "//runtime/src/iree/hal/drivers/task/executable:loader",
         "//runtime/src/iree/hal/drivers/task/executable/loaders/registration",
+        "//runtime/src/iree/hal/memory:heap_pool",
         "//runtime/src/iree/io:file_handle",
         "//runtime/src/iree/task",
         "//runtime/src/iree/testing:benchmark",

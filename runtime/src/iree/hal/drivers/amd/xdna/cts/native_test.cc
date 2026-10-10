@@ -108,13 +108,14 @@ class XdnaNativeTest : public ::testing::Test {
   }
 
   void MakeBuffer(iree_hal_buffer_t** out_buffer) {
-    iree_hal_buffer_params_t params = {};
-    params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-    params.usage =
-        IREE_HAL_BUFFER_USAGE_DEFAULT | IREE_HAL_BUFFER_USAGE_MAPPING;
+    if (!memory_pool_) {
+      CreateMemoryPool(IREE_HAL_BUFFER_USAGE_TRANSFER |
+                       IREE_HAL_BUFFER_USAGE_STORAGE);
+    }
     iree_hal_buffer_t* allocation = nullptr;
-    IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-        iree_hal_device_allocator(device_), params, 3 * kBytes, &allocation));
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        memory_pool_, iree_hal_make_pool_reservation_request(3 * kBytes, 1),
+        iree_infinite_timeout(), &allocation));
     buffers_.push_back(allocation);
     const uint8_t guard = 0xA5;
     IREE_ASSERT_OK(
@@ -132,6 +133,9 @@ class XdnaNativeTest : public ::testing::Test {
   }
 
   void CreateMemoryPool(iree_hal_buffer_usage_t usage) {
+    if (memory_pool_) {
+      return;
+    }
     iree_async_frontier_tracker_t* tracker = nullptr;
     IREE_ASSERT_OK(iree_async_frontier_tracker_create(
         iree_async_frontier_tracker_options_default(), iree_allocator_system(),
@@ -149,6 +153,11 @@ class XdnaNativeTest : public ::testing::Test {
     const iree_hal_pool_scope_t scope = {
         /*.family_count=*/1,
         /*.families=*/&family_access,
+        /*.host=*/
+        {
+            /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+            /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+        },
     };
     iree_hal_slab_pool_options_t options;
     iree_hal_slab_pool_options_initialize(&options);
@@ -271,13 +280,9 @@ TEST_F(XdnaNativeTest, SlabPoolAllocationExecutesThroughPreparedBindings) {
 
   std::array<iree_hal_pool_reservation_request_t, 3> requests = {};
   for (size_t i = 0; i < requests.size(); ++i) {
-    requests[i].params.min_alignment = 64;
-    requests[i].params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET |
-                               IREE_HAL_BUFFER_USAGE_STORAGE_READ;
+    requests[i].min_alignment = 64;
     requests[i].allocation_size = 3 * kBytes;
   }
-  requests[2].params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE_WRITE;
   std::array<iree_hal_buffer_t*, 3> roots = {};
   uint64_t progress_value = 1;
   IREE_ASSERT_OK(iree_hal_queue_alloca(
@@ -597,13 +602,8 @@ TEST_F(XdnaNativeTest, FailedDependencyFailsOnlyItsConsumer) {
 }
 
 TEST_F(XdnaNativeTest, AllocationPublishesItsActualMemoryProperties) {
-  iree_hal_buffer_params_t params = {};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_DEFAULT;
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(device_), params, kBytes, &buffer));
-  buffers_.push_back(buffer);
+  ASSERT_NO_FATAL_FAILURE(MakeBuffer(&buffer));
   EXPECT_EQ(iree_hal_buffer_allocation_placement(buffer).device, device_);
   EXPECT_TRUE(iree_all_bits_set(
       iree_hal_buffer_memory_type(buffer),
@@ -613,12 +613,18 @@ TEST_F(XdnaNativeTest, AllocationPublishesItsActualMemoryProperties) {
       buffer, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_WRITE,
       IREE_HAL_BUFFER_MAP_FLAG_NONE, 0, kBytes, &mapping));
   IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
-  params.usage |= IREE_HAL_BUFFER_USAGE_SHARING_EXPORT;
+  iree_hal_external_storage_t external_storage = {};
+  iree_hal_buffer_range_t logical_range = {};
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_UNAVAILABLE,
-      iree_hal_allocator_allocate_buffer(iree_hal_device_allocator(device_),
-                                         params, kBytes, &buffer));
-  EXPECT_EQ(buffer, nullptr);
+      iree_hal_buffer_export(
+          buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+          iree_hal_make_external_storage_class(
+              IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+          &external_storage, &logical_range));
+  EXPECT_EQ(external_storage.storage_class.type,
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE);
+  EXPECT_EQ(logical_range.byte_length, 0u);
 }
 
 }  // namespace

@@ -230,6 +230,7 @@ loom_cc_test(
         ":invocation",
         ":runtime",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/hal/memory:heap_pool",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

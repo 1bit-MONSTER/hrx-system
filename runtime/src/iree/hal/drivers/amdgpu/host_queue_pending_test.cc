@@ -17,13 +17,14 @@
 #include "iree/base/status_cc.h"
 #include "iree/base/threading/notification.h"
 #include "iree/hal/api.h"
+#include "iree/hal/cts/util/pool_test_util.h"
 #include "iree/hal/cts/util/test_base.h"
+#include "iree/hal/drivers/amdgpu/allocator.h"
 #include "iree/hal/drivers/amdgpu/host_queue.h"
 #include "iree/hal/drivers/amdgpu/logical_device.h"
 #include "iree/hal/drivers/amdgpu/physical_device.h"
 #include "iree/hal/drivers/amdgpu/util/aql_emitter.h"
 #include "iree/hal/memory/fixed_block_pool.h"
-#include "iree/hal/memory/passthrough_pool.h"
 #include "iree/hal/memory/tlsf_pool.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -90,6 +91,8 @@ class TestLogicalDevice {
 
   iree_hal_device_t* base_device() const { return base_device_; }
 
+  iree_hal_device_group_t* device_group() const { return device_group_; }
+
   iree_hal_queue_t* queue() const {
     return iree_hal_device_queue(base_device_, /*family_ordinal=*/0,
                                  /*queue_ordinal=*/0);
@@ -127,35 +130,20 @@ class TestLogicalDevice {
   iree_hal_device_group_t* device_group_ = NULL;
 };
 
-static iree_hal_buffer_params_t MakeTransientBufferParams() {
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
-  return params;
-}
-
-static iree_hal_buffer_params_t MakeHostLocalMappedTransientBufferParams(
-    iree_hal_memory_type_t extra_memory_type) {
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-                IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE | extra_memory_type;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER |
-                 IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_MAPPING;
-  return params;
-}
-
 static iree_status_t CreateHostVisibleTransferBuffer(
     iree_hal_allocator_t* allocator, iree_device_size_t buffer_size,
     iree_hal_buffer_t** out_buffer) {
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL |
-                IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
-                IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING;
-  return iree_hal_allocator_allocate_buffer(allocator, params, buffer_size,
-                                            out_buffer);
+  const iree_hal_amdgpu_buffer_spec_t spec = {
+      /*.type=*/IREE_HAL_MEMORY_TYPE_OPTIMAL |
+          IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
+          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER |
+          IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
+      /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+  };
+  return iree_hal_amdgpu_allocator_allocate_direct_buffer(
+      allocator, spec, buffer_size, out_buffer);
 }
 
 static iree_status_t CreateSemaphore(iree_hal_device_t* device,
@@ -177,15 +165,11 @@ static iree_hal_semaphore_list_t MakeSemaphoreList(
 static iree_status_t QueueAlloca(iree_hal_amdgpu_host_queue_t* queue,
                                  iree_hal_pool_t* pool,
                                  iree_hal_semaphore_list_t signal_list,
-                                 iree_hal_buffer_params_t params,
                                  iree_device_size_t allocation_size,
+                                 iree_device_size_t min_alignment,
                                  iree_hal_buffer_t** out_buffer) {
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base)));
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/allocation_size,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(allocation_size, min_alignment);
   return iree_hal_queue_alloca(&queue->base, iree_hal_semaphore_list_empty(),
                                signal_list, pool,
                                /*request_count=*/1, &request, out_buffer);
@@ -197,83 +181,6 @@ static iree_status_t QueueDealloca(iree_hal_amdgpu_host_queue_t* queue,
                                    iree_hal_buffer_t* buffer) {
   return iree_hal_queue_dealloca(&queue->base, wait_list, signal_list,
                                  /*buffer_count=*/1, &buffer);
-}
-
-static void RunSelectedPoolServesHostLocalMappedAlloca(
-    const iree_hal_amdgpu_libhsa_t* libhsa,
-    const iree_hal_amdgpu_topology_t* topology, iree_allocator_t host_allocator,
-    iree_hal_memory_type_t extra_memory_type) {
-  iree_hal_amdgpu_logical_device_options_t options;
-  iree_hal_amdgpu_logical_device_options_initialize(&options);
-  options.preallocate_pools = 0;
-
-  TestLogicalDevice test_device;
-  IREE_ASSERT_OK(
-      test_device.Initialize(&options, libhsa, topology, host_allocator));
-  iree_hal_amdgpu_host_queue_t* queue = test_device.first_host_queue();
-  ASSERT_NE(queue, nullptr);
-
-  Ref<iree_hal_semaphore_t> alloca_signal;
-  IREE_ASSERT_OK(
-      CreateSemaphore(test_device.base_device(), alloca_signal.out()));
-  uint64_t alloca_signal_value = 1;
-  iree_hal_semaphore_t* alloca_signal_ptr = alloca_signal.get();
-  const iree_hal_semaphore_list_t alloca_signal_list =
-      MakeSemaphoreList(&alloca_signal_ptr, &alloca_signal_value);
-
-  iree_hal_buffer_params_t params =
-      MakeHostLocalMappedTransientBufferParams(extra_memory_type);
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base)));
-  iree_hal_pool_t* pool =
-      iree_hal_pool_set_select(queue->default_pool_set, params,
-                               /*allocation_size=*/8);
-  ASSERT_NE(pool, nullptr);
-  iree_hal_buffer_t* buffer = NULL;
-  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca_signal_list, params,
-                             /*allocation_size=*/8, &buffer));
-  ASSERT_NE(buffer, nullptr);
-  IREE_ASSERT_OK(iree_hal_semaphore_wait(alloca_signal, alloca_signal_value,
-                                         iree_infinite_timeout(),
-                                         IREE_ASYNC_WAIT_FLAG_NONE));
-
-  EXPECT_TRUE(iree_all_bits_set(
-      iree_hal_buffer_memory_type(buffer),
-      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE));
-  EXPECT_TRUE(iree_all_bits_set(iree_hal_buffer_allowed_usage(buffer),
-                                IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED));
-
-  iree_hal_buffer_mapping_t mapping;
-  IREE_ASSERT_OK(iree_hal_buffer_map_range(
-      buffer, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_WRITE,
-      IREE_HAL_BUFFER_MAP_FLAG_NONE,
-      /*byte_offset=*/0, /*byte_length=*/8, &mapping));
-  memset(mapping.contents.data, 0, 8);
-  IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
-
-  Ref<iree_hal_semaphore_t> dealloca_signal;
-  IREE_ASSERT_OK(
-      CreateSemaphore(test_device.base_device(), dealloca_signal.out()));
-  uint64_t dealloca_signal_value = 1;
-  iree_hal_semaphore_t* dealloca_signal_ptr = dealloca_signal.get();
-  const iree_hal_semaphore_list_t dealloca_signal_list =
-      MakeSemaphoreList(&dealloca_signal_ptr, &dealloca_signal_value);
-  IREE_ASSERT_OK(QueueDealloca(queue, iree_hal_semaphore_list_empty(),
-                               dealloca_signal_list, buffer));
-  IREE_ASSERT_OK(iree_hal_semaphore_wait(dealloca_signal, dealloca_signal_value,
-                                         iree_infinite_timeout(),
-                                         IREE_ASYNC_WAIT_FLAG_NONE));
-  iree_hal_buffer_release(buffer);
-}
-
-TEST_F(HostQueuePendingTest, SelectedPoolServesHostLocalMappedAlloca) {
-  RunSelectedPoolServesHostLocalMappedAlloca(
-      &libhsa_, &topology_, host_allocator_, IREE_HAL_MEMORY_TYPE_NONE);
-}
-
-TEST_F(HostQueuePendingTest, SelectedPoolServesOptimalHostLocalMappedAlloca) {
-  RunSelectedPoolServesHostLocalMappedAlloca(
-      &libhsa_, &topology_, host_allocator_, IREE_HAL_MEMORY_TYPE_OPTIMAL);
 }
 
 // Cancels the queue's deferred operations the way the queue itself does:
@@ -317,33 +224,22 @@ static void EnqueueRawBlockingBarrier(
 }
 
 static iree_status_t CreateExplicitFixedBlockPool(
-    iree_hal_device_t* device, const iree_hal_queue_family_t* queue_family,
-    iree_device_size_t block_size, iree_hal_pool_t** out_native_pool,
-    iree_hal_pool_t** out_pool) {
+    iree_hal_device_group_t* device_group,
+    const iree_hal_queue_family_t* queue_family, iree_device_size_t block_size,
+    iree_hal_pool_t** out_native_pool, iree_hal_pool_t** out_pool) {
   *out_native_pool = nullptr;
   *out_pool = nullptr;
-  iree_hal_queue_pool_backend_t backend = {0};
-  IREE_RETURN_IF_ERROR(
-      iree_hal_device_query_queue_pool_backend(device, queue_family, &backend));
-  if (!backend.slab_provider || !backend.notification) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "queue pool backend query returned an incomplete backend bundle");
-  }
   Ref<iree_hal_pool_t> backing_pool;
-  IREE_RETURN_IF_ERROR(iree_hal_passthrough_pool_create(
-      {}, backend.slab_provider, backend.notification, backend.frontier_tracker,
-      backend.maintenance, iree_allocator_system(), backing_pool.out()));
-  Ref<iree_hal_buffer_t> backing_buffer;
-  IREE_RETURN_IF_ERROR(iree_hal_pool_allocate_buffer(
-      backing_pool, MakeTransientBufferParams(), block_size,
-      iree_infinite_timeout(), backing_buffer.out()));
+  IREE_RETURN_IF_ERROR(iree::hal::cts::CreateQueueSlabPool(
+      device_group, queue_family,
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      /*host_access=*/{}, iree_allocator_system(), backing_pool.out()));
   iree_hal_fixed_block_pool_options_t options = {};
   options.block_size = block_size;
+  options.blocks_per_slab = 1;
   options.frontier_capacity = 2;
-  IREE_RETURN_IF_ERROR(iree_hal_fixed_block_pool_create_from_buffer(
-      backing_buffer, 0, IREE_HAL_WHOLE_BUFFER, &options,
-      iree_allocator_system(), out_pool));
+  IREE_RETURN_IF_ERROR(iree::hal::cts::CreateFiniteBlockPool(
+      backing_pool, options, iree_allocator_system(), out_pool));
   *out_native_pool = backing_pool.release();
   return iree_ok_status();
 }
@@ -362,16 +258,12 @@ TEST_F(HostQueuePendingTest,
   const auto* family = iree_hal_queue_family(&queue->base);
   Ref<iree_hal_pool_t> native_pool;
   Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(CreateExplicitFixedBlockPool(device.base_device(), family,
+  IREE_ASSERT_OK(CreateExplicitFixedBlockPool(device.device_group(), family,
                                               kByteLength, native_pool.out(),
                                               pool.out()));
-  iree_hal_pool_reservation_request_t request = {};
-  request.allocation_size = kByteLength;
-  request.params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  request.params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  request.params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(family));
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(kByteLength,
+                                             /*min_alignment=*/0);
   Ref<iree_hal_semaphore_t> completion;
   IREE_ASSERT_OK(CreateSemaphore(device.base_device(), completion.out()));
   iree_hal_semaphore_t* semaphore = completion.get();
@@ -396,14 +288,8 @@ TEST_F(HostQueuePendingTest,
                                          iree_infinite_timeout(),
                                          IREE_ASYNC_WAIT_FLAG_NONE));
   Ref<iree_hal_buffer_t> readback;
-  iree_hal_buffer_params_t readback_params = {};
-  readback_params.type =
-      IREE_HAL_MEMORY_TYPE_HOST_VISIBLE | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-  readback_params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  readback_params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      device.allocator(), readback_params, kByteLength, readback.out()));
+  IREE_ASSERT_OK(CreateHostVisibleTransferBuffer(device.allocator(),
+                                                 kByteLength, readback.out()));
 
   hsa_signal_t blocker = iree_hsa_signal_null();
   IREE_ASSERT_OK(iree_hsa_amd_signal_create(IREE_LIBHSA(&libhsa_), 1, 0,
@@ -435,15 +321,19 @@ TEST_F(HostQueuePendingTest,
     // Timeout is the behavior under test; native progress stays explicitly
     // held.
     iree_status_t timeout_status =
-        iree_hal_pool_allocate_buffer(pool, request.params, kByteLength,
+        iree_hal_pool_allocate_buffer(pool,
+                                      iree_hal_make_pool_reservation_request(
+                                          kByteLength, request.min_alignment),
                                       iree_make_timeout_ms(1), recycled.out());
     const bool timed_out = iree_status_is_deadline_exceeded(timeout_status);
     IREE_EXPECT_STATUS_IS(IREE_STATUS_DEADLINE_EXCEEDED, timeout_status);
     if (timed_out) {
       allocating = std::thread([&] {
         allocation_status = iree_hal_pool_allocate_buffer(
-            pool, request.params, kByteLength, iree_infinite_timeout(),
-            recycled.out());
+            pool,
+            iree_hal_make_pool_reservation_request(kByteLength,
+                                                   request.min_alignment),
+            iree_infinite_timeout(), recycled.out());
         finished.store(true, std::memory_order_release);
       });
       iree_hal_pool_stats_t stats = {};
@@ -502,28 +392,19 @@ TEST_F(HostQueuePendingTest,
 }
 
 static iree_status_t CreateExplicitTlsfPool(
-    iree_hal_device_t* device, const iree_hal_queue_family_t* queue_family,
-    iree_device_size_t slab_size, iree_hal_pool_t** out_pool) {
-  iree_hal_queue_pool_backend_t backend = {0};
-  IREE_RETURN_IF_ERROR(
-      iree_hal_device_query_queue_pool_backend(device, queue_family, &backend));
-  if (!backend.slab_provider || !backend.notification) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "queue pool backend query returned an incomplete backend bundle");
-  }
+    iree_hal_device_group_t* device_group,
+    const iree_hal_queue_family_t* queue_family, iree_device_size_t slab_size,
+    iree_hal_pool_t** out_pool) {
   iree_hal_tlsf_pool_options_t options = {};
   options.tlsf_options.range_length = slab_size;
   options.tlsf_options.alignment = 16;
   options.tlsf_options.initial_block_capacity = 16;
   options.tlsf_options.frontier_capacity = 2;
-  iree_hal_passthrough_pool_options_t backing_options = {};
-  backing_options.epoch_query = iree_hal_pool_epoch_query_null();
   iree_hal_pool_t* backing_pool = nullptr;
-  IREE_RETURN_IF_ERROR(iree_hal_passthrough_pool_create(
-      backing_options, backend.slab_provider, backend.notification,
-      backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
-      &backing_pool));
+  IREE_RETURN_IF_ERROR(iree::hal::cts::CreateQueueSlabPool(
+      device_group, queue_family,
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      /*host_access=*/{}, iree_allocator_system(), &backing_pool));
   iree_status_t status = iree_hal_tlsf_pool_create(
       backing_pool, &options, iree_allocator_system(), out_pool);
   iree_hal_pool_release(backing_pool);
@@ -536,12 +417,9 @@ static iree_status_t SeedWaitableFixedBlockReservation(
   iree_hal_pool_reservation_t reservation;
   iree_hal_pool_acquire_info_t acquire_info;
   iree_hal_pool_acquire_result_t acquire_result;
-  iree_hal_buffer_params_t params = {};
-  params.min_alignment = 1;
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/allocation_size,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(allocation_size,
+                                             /*min_alignment=*/1);
   IREE_RETURN_IF_ERROR(iree_hal_pool_acquire_reservations(
       pool, 1, &request, /*requester_frontier=*/NULL,
       IREE_HAL_POOL_RESERVE_FLAG_NONE, &reservation, &acquire_info,
@@ -800,7 +678,7 @@ TEST_F(HostQueuePendingTest, QueueAllocaTlsfGrowthRetriesThroughColdPath) {
   ASSERT_NE(queue, nullptr);
 
   Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(CreateExplicitTlsfPool(test_device.base_device(),
+  IREE_ASSERT_OK(CreateExplicitTlsfPool(test_device.device_group(),
                                         iree_hal_queue_family(&queue->base),
                                         allocation_size, pool.out()));
 
@@ -813,9 +691,8 @@ TEST_F(HostQueuePendingTest, QueueAllocaTlsfGrowthRetriesThroughColdPath) {
       MakeSemaphoreList(&alloca0_signal_ptr, &alloca0_signal_value);
 
   iree_hal_buffer_t* buffer0 = NULL;
-  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca0_signal_list,
-                             MakeTransientBufferParams(), allocation_size,
-                             &buffer0));
+  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca0_signal_list, allocation_size,
+                             /*min_alignment=*/0, &buffer0));
   ASSERT_NE(buffer0, nullptr);
   IREE_ASSERT_OK(iree_hal_semaphore_wait(alloca0_signal, alloca0_signal_value,
                                          iree_infinite_timeout(),
@@ -830,9 +707,8 @@ TEST_F(HostQueuePendingTest, QueueAllocaTlsfGrowthRetriesThroughColdPath) {
       MakeSemaphoreList(&alloca1_signal_ptr, &alloca1_signal_value);
 
   iree_hal_buffer_t* buffer1 = NULL;
-  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca1_signal_list,
-                             MakeTransientBufferParams(), allocation_size,
-                             &buffer1));
+  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca1_signal_list, allocation_size,
+                             /*min_alignment=*/0, &buffer1));
   ASSERT_NE(buffer1, nullptr);
   IREE_ASSERT_OK(iree_hal_semaphore_wait(alloca1_signal, alloca1_signal_value,
                                          iree_infinite_timeout(),
@@ -866,7 +742,7 @@ TEST_F(HostQueuePendingTest,
   Ref<iree_hal_pool_t> native_pool;
   Ref<iree_hal_pool_t> pool;
   IREE_ASSERT_OK(CreateExplicitFixedBlockPool(
-      test_device.base_device(), iree_hal_queue_family(&queue->base),
+      test_device.device_group(), iree_hal_queue_family(&queue->base),
       allocation_size, native_pool.out(), pool.out()));
 
   Ref<iree_hal_semaphore_t> alloca0_signal;
@@ -878,9 +754,8 @@ TEST_F(HostQueuePendingTest,
       MakeSemaphoreList(&alloca0_signal_ptr, &alloca0_signal_value);
 
   iree_hal_buffer_t* buffer0 = NULL;
-  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca0_signal_list,
-                             MakeTransientBufferParams(), allocation_size,
-                             &buffer0));
+  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca0_signal_list, allocation_size,
+                             /*min_alignment=*/0, &buffer0));
   ASSERT_NE(buffer0, nullptr);
   IREE_ASSERT_OK(iree_hal_semaphore_wait(alloca0_signal, alloca0_signal_value,
                                          iree_infinite_timeout(),
@@ -895,9 +770,8 @@ TEST_F(HostQueuePendingTest,
       MakeSemaphoreList(&alloca1_signal_ptr, &alloca1_signal_value);
 
   iree_hal_buffer_t* buffer1 = NULL;
-  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca1_signal_list,
-                             MakeTransientBufferParams(), allocation_size,
-                             &buffer1));
+  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca1_signal_list, allocation_size,
+                             /*min_alignment=*/0, &buffer1));
   ASSERT_NE(buffer1, nullptr);
   EXPECT_FALSE(iree_hal_semaphore_list_poll(alloca1_signal_list));
   ASSERT_TRUE(HostQueueHasPendingOps(queue));
@@ -989,7 +863,7 @@ TEST_F(HostQueuePendingTest, CancelPendingAllocaFrontierWait) {
   Ref<iree_hal_pool_t> native_pool;
   Ref<iree_hal_pool_t> pool;
   IREE_ASSERT_OK(CreateExplicitFixedBlockPool(
-      test_device.base_device(), iree_hal_queue_family(&queue->base),
+      test_device.device_group(), iree_hal_queue_family(&queue->base),
       allocation_size, native_pool.out(), pool.out()));
   const iree_async_axis_t death_axis = queue->axis;
   IREE_ASSERT_OK(
@@ -1005,9 +879,8 @@ TEST_F(HostQueuePendingTest, CancelPendingAllocaFrontierWait) {
       MakeSemaphoreList(&alloca_signal_ptr, &alloca_signal_value);
 
   iree_hal_buffer_t* buffer = NULL;
-  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca_signal_list,
-                             MakeTransientBufferParams(), allocation_size,
-                             &buffer));
+  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca_signal_list, allocation_size,
+                             /*min_alignment=*/0, &buffer));
   ASSERT_NE(buffer, nullptr);
   EXPECT_FALSE(iree_hal_semaphore_list_poll(alloca_signal_list));
   ASSERT_TRUE(HostQueueHasPendingOps(queue));
@@ -1042,8 +915,8 @@ TEST_F(HostQueuePendingTest, CancelColdAllocaPreservesInheritedFrontier) {
   Ref<iree_hal_pool_t> native_pool;
   Ref<iree_hal_pool_t> backing_pool;
   IREE_ASSERT_OK(CreateExplicitFixedBlockPool(
-      test_device.base_device(), iree_hal_queue_family(&queue->base), kSlabSize,
-      native_pool.out(), backing_pool.out()));
+      test_device.device_group(), iree_hal_queue_family(&queue->base),
+      kSlabSize, native_pool.out(), backing_pool.out()));
   IREE_ASSERT_OK(
       SeedWaitableFixedBlockReservation(backing_pool, kSlabSize, queue->axis));
   iree_hal_tlsf_pool_options_t pool_options = {};
@@ -1056,9 +929,8 @@ TEST_F(HostQueuePendingTest, CancelColdAllocaPreservesInheritedFrontier) {
 
   iree::hal::cts::SemaphoreList allocated(test_device.base_device(), {0}, {1});
   Ref<iree_hal_buffer_t> buffer;
-  IREE_ASSERT_OK(QueueAlloca(queue, pool, allocated,
-                             MakeTransientBufferParams(), kAllocationSize,
-                             buffer.out()));
+  IREE_ASSERT_OK(QueueAlloca(queue, pool, allocated, kAllocationSize,
+                             /*min_alignment=*/0, buffer.out()));
   ASSERT_TRUE(HostQueueHasPendingOps(queue));
   EXPECT_FALSE(iree_hal_semaphore_list_poll(allocated));
   iree_hal_pool_stats_t stats = {};
@@ -1081,8 +953,9 @@ TEST_F(HostQueuePendingTest, CancelColdAllocaPreservesInheritedFrontier) {
 
   // Cancellation rolls back bookkeeping without retiring the prior user's
   // dependency. The next allocation must inherit the exact same edge.
-  const iree_hal_pool_reservation_request_t request = {
-      MakeTransientBufferParams(), kAllocationSize};
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(kAllocationSize,
+                                             /*min_alignment=*/0);
   iree_hal_pool_reservation_t reservation;
   iree_hal_pool_acquire_info_t info;
   iree_hal_pool_acquire_result_t result;
@@ -1114,7 +987,7 @@ TEST_F(HostQueuePendingTest, CancelPendingAllocaPoolNotificationWait) {
   Ref<iree_hal_pool_t> native_pool;
   Ref<iree_hal_pool_t> pool;
   IREE_ASSERT_OK(CreateExplicitFixedBlockPool(
-      test_device.base_device(), iree_hal_queue_family(&queue->base),
+      test_device.device_group(), iree_hal_queue_family(&queue->base),
       allocation_size, native_pool.out(), pool.out()));
 
   Ref<iree_hal_semaphore_t> alloca0_signal;
@@ -1126,9 +999,8 @@ TEST_F(HostQueuePendingTest, CancelPendingAllocaPoolNotificationWait) {
       MakeSemaphoreList(&alloca0_signal_ptr, &alloca0_signal_value);
 
   iree_hal_buffer_t* buffer0 = NULL;
-  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca0_signal_list,
-                             MakeTransientBufferParams(), allocation_size,
-                             &buffer0));
+  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca0_signal_list, allocation_size,
+                             /*min_alignment=*/0, &buffer0));
   ASSERT_NE(buffer0, nullptr);
   IREE_ASSERT_OK(iree_hal_semaphore_wait(alloca0_signal, alloca0_signal_value,
                                          iree_infinite_timeout(),
@@ -1143,9 +1015,8 @@ TEST_F(HostQueuePendingTest, CancelPendingAllocaPoolNotificationWait) {
       MakeSemaphoreList(&alloca1_signal_ptr, &alloca1_signal_value);
 
   iree_hal_buffer_t* buffer1 = NULL;
-  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca1_signal_list,
-                             MakeTransientBufferParams(), allocation_size,
-                             &buffer1));
+  IREE_ASSERT_OK(QueueAlloca(queue, pool, alloca1_signal_list, allocation_size,
+                             /*min_alignment=*/0, &buffer1));
   ASSERT_NE(buffer1, nullptr);
   EXPECT_FALSE(iree_hal_semaphore_list_poll(alloca1_signal_list));
   ASSERT_TRUE(HostQueueHasPendingOps(queue));

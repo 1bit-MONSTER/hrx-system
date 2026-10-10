@@ -67,12 +67,18 @@ TEST_F(ReplayRecorderBufferTest, ExportsNestedSubspansOfANativeView) {
       iree_allocator_system(), &buffer));
   iree_hal_buffer_release(native_view);
 
-  iree_hal_external_buffer_t external_buffer = {};
+  iree_hal_external_storage_t external_buffer = {};
+  iree_hal_buffer_range_t logical_range = {};
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      buffer, IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer));
-  EXPECT_EQ(storage_ + 32, external_buffer.handle.host_allocation.ptr);
-  EXPECT_EQ(64u, external_buffer.size);
+      buffer, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      &external_buffer, &logical_range));
+  EXPECT_EQ(storage_, external_buffer.payload.host_pointer);
+  EXPECT_EQ(sizeof(storage_), external_buffer.byte_length);
+  EXPECT_EQ(32u, logical_range.byte_offset);
+  EXPECT_EQ(64u, logical_range.byte_length);
+  iree_hal_external_storage_release(&external_buffer);
 
   iree_hal_buffer_t* whole_view = nullptr;
   IREE_ASSERT_OK(iree_hal_buffer_subspan(buffer, 0, IREE_HAL_WHOLE_BUFFER,
@@ -90,16 +96,26 @@ TEST_F(ReplayRecorderBufferTest, ExportsNestedSubspansOfANativeView) {
   iree_hal_buffer_release(buffer);
 
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      nested_subspan, IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer));
-  EXPECT_EQ(storage_ + 50, external_buffer.handle.host_allocation.ptr);
-  EXPECT_EQ(8u, external_buffer.size);
+      nested_subspan, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      &external_buffer, &logical_range));
+  EXPECT_EQ(storage_, external_buffer.payload.host_pointer);
+  EXPECT_EQ(sizeof(storage_), external_buffer.byte_length);
+  EXPECT_EQ(50u, logical_range.byte_offset);
+  EXPECT_EQ(8u, logical_range.byte_length);
+  iree_hal_external_storage_release(&external_buffer);
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      nested_subspan, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &external_buffer));
-  EXPECT_EQ(reinterpret_cast<uintptr_t>(storage_ + 50),
-            external_buffer.handle.device_allocation.ptr);
-  EXPECT_EQ(8u, external_buffer.size);
+      nested_subspan, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &external_buffer, &logical_range));
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(storage_),
+            external_buffer.payload.device_address);
+  EXPECT_EQ(sizeof(storage_), external_buffer.byte_length);
+  EXPECT_EQ(50u, logical_range.byte_offset);
+  EXPECT_EQ(8u, logical_range.byte_length);
+  iree_hal_external_storage_release(&external_buffer);
   iree_hal_buffer_mapping_t mapping;
   IREE_ASSERT_OK(iree_hal_buffer_map_range(
       nested_subspan, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_READ,

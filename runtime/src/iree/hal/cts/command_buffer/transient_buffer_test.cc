@@ -21,7 +21,6 @@
 #include <vector>
 
 #include "iree/hal/cts/util/test_base.h"
-#include "iree/hal/memory/passthrough_pool.h"
 
 namespace iree::hal::cts {
 
@@ -67,14 +66,8 @@ class TransientBufferTest : public CtsTestBase<> {
     if (!transfer_queue_) {
       GTEST_SKIP() << "device has no provisioned transfer-capable queue";
     }
-    iree_hal_queue_pool_backend_t backend = {};
-    IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-        device_, iree_hal_queue_family(transfer_queue_), &backend));
-    iree_hal_passthrough_pool_options_t options = {};
-    options.asan = backend.asan;
-    IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-        options, backend.slab_provider, backend.notification,
-        backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
+    IREE_ASSERT_OK(CreateDevicePool(
+        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
         transient_pool_.out()));
   }
 
@@ -83,28 +76,13 @@ class TransientBufferTest : public CtsTestBase<> {
     CtsTestBase<>::TearDown();
   }
 
-  iree_hal_buffer_params_t MakeTransientBufferParams(
-      iree_hal_memory_access_t access = IREE_HAL_MEMORY_ACCESS_ALL) {
-    iree_hal_buffer_params_t params = {0};
-    params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-    params.access = access;
-    params.usage =
-        IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
-    params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-        iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_)));
-    return params;
-  }
-
   iree_status_t QueueAllocaTransient(
       iree_hal_semaphore_list_t wait_semaphores,
       iree_hal_semaphore_list_t signal_semaphores, iree_device_size_t size,
       iree_hal_buffer_t** out_buffer) {
     *out_buffer = nullptr;
-    iree_hal_buffer_params_t params = MakeTransientBufferParams();
-    const iree_hal_pool_reservation_request_t request = {
-        /*.params=*/params,
-        /*.allocation_size=*/size,
-    };
+    const iree_hal_pool_reservation_request_t request =
+        iree_hal_make_pool_reservation_request(size, /*min_alignment=*/0);
     iree_hal_buffer_t* buffer = nullptr;
     iree_status_t status = iree_hal_queue_alloca(
         transfer_queue_, wait_semaphores, signal_semaphores, transient_pool_,
@@ -403,28 +381,19 @@ TEST_P(TransientBufferTest, UpdateTransientBuffer) {
 }
 
 //===----------------------------------------------------------------------===//
-// Transient buffer with zero access flags (HAL module calling convention)
+// Transient buffer fill
 //===----------------------------------------------------------------------===//
 
-// Allocates a transient buffer with zero access flags (as the HAL module does)
-// and performs a command buffer fill on it. This specifically targets the
-// access-flags propagation bug: queue_alloca canonicalizes access=0 to
-// MEMORY_ACCESS_ALL, but the command buffer fill path may not handle
-// transient buffers with the canonicalized flags correctly.
-TEST_P(TransientBufferTest, FillTransientWithZeroAccessFlags) {
+// Allocates a transient buffer and performs a command buffer fill on it.
+TEST_P(TransientBufferTest, FillTransient) {
   const iree_device_size_t buffer_size = 256;
 
   SemaphoreList signal(device_, {0}, {1});
   SemaphoreList empty_wait;
-  iree_hal_buffer_params_t params = MakeTransientBufferParams(
-      /*access=*/IREE_HAL_MEMORY_ACCESS_NONE);
-  // Deliberately use access = 0 to match HAL module behavior.
-
   iree_hal_buffer_t* raw = nullptr;
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/buffer_size,
-  };
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(buffer_size,
+                                             /*min_alignment=*/0);
   IREE_ASSERT_OK(iree_hal_queue_alloca(transfer_queue_, empty_wait, signal,
                                        transient_pool_,
                                        /*request_count=*/1, &request, &raw));

@@ -10,7 +10,6 @@
 
 #include "iree/hal/cts/util/profile_test_util.h"
 #include "iree/hal/cts/util/test_base.h"
-#include "iree/hal/memory/passthrough_pool.h"
 
 namespace iree::hal::cts {
 
@@ -96,27 +95,11 @@ TEST_P(VulkanProfilingTest,
   DeviceProfilingScope profiling(device_);
   IREE_ASSERT_OK(profiling.Begin(&options));
 
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_)));
-
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      device_, iree_hal_queue_family(transfer_queue_), &backend));
-  iree_hal_passthrough_pool_options_t pool_options = {};
-  pool_options.asan = backend.asan;
   Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-      pool_options, backend.slab_provider, backend.notification,
-      backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
-      pool.out()));
-  const iree_hal_pool_reservation_request_t request = {
-      /*.params=*/params,
-      /*.allocation_size=*/kBufferSize,
-  };
+  IREE_ASSERT_OK(CreateDevicePool(IREE_HAL_BUFFER_USAGE_TRANSFER, pool.out()));
+  const iree_hal_pool_reservation_request_t request =
+      iree_hal_make_pool_reservation_request(kBufferSize,
+                                             /*min_alignment=*/0);
 
   Ref<iree_hal_buffer_t> buffer;
   SemaphoreList empty_wait;

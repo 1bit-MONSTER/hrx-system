@@ -245,9 +245,10 @@ static void iree_hal_amdgpu_transient_buffer_pool_release(
 //===----------------------------------------------------------------------===//
 
 iree_status_t iree_hal_amdgpu_transient_buffer_create(
-    iree_hal_buffer_placement_t placement, iree_hal_buffer_params_t params,
-    iree_device_size_t allocation_size, iree_device_size_t byte_length,
-    iree_hal_pool_t* source_pool,
+    iree_hal_buffer_placement_t placement, iree_hal_memory_type_t memory_type,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage, iree_device_size_t allocation_size,
+    iree_device_size_t byte_length, iree_hal_pool_t* source_pool,
     iree_hal_amdgpu_transient_buffer_pool_t* wrapper_pool,
     iree_hal_buffer_t** out_buffer) {
   IREE_ASSERT_ARGUMENT(source_pool);
@@ -267,8 +268,8 @@ iree_status_t iree_hal_amdgpu_transient_buffer_create(
 
   iree_hal_buffer_initialize(
       placement, /*allocated_buffer=*/&buffer->base, allocation_size,
-      /*byte_offset=*/0, byte_length, params.type, params.access, params.usage,
-      &iree_hal_amdgpu_transient_buffer_vtable, &buffer->base);
+      /*byte_offset=*/0, byte_length, memory_type, allowed_access,
+      allowed_usage, &iree_hal_amdgpu_transient_buffer_vtable, &buffer->base);
   memset(&buffer->native, 0, sizeof(buffer->native));
   buffer->base.memory.bindings = buffer->native.bindings;
   buffer->base.memory.contract = source_pool->memory_contract;
@@ -536,9 +537,9 @@ static iree_status_t iree_hal_amdgpu_transient_buffer_load_host_backing(
 static iree_status_t iree_hal_amdgpu_transient_buffer_export_range(
     iree_hal_buffer_t* base_buffer, iree_device_size_t local_byte_offset,
     iree_device_size_t local_byte_length,
-    iree_hal_external_buffer_type_t requested_type,
-    iree_hal_external_buffer_flags_t requested_flags,
-    iree_hal_external_buffer_t* out_external_buffer) {
+    iree_hal_external_storage_class_t requested_class,
+    iree_hal_external_storage_t* out_storage,
+    iree_hal_buffer_range_t* out_logical_range) {
   iree_hal_amdgpu_transient_buffer_t* buffer =
       iree_hal_amdgpu_transient_buffer_cast(base_buffer);
   iree_hal_buffer_t* backing_buffer = NULL;
@@ -548,8 +549,7 @@ static iree_status_t iree_hal_amdgpu_transient_buffer_export_range(
       ->export_range(
           backing_buffer,
           iree_hal_buffer_byte_offset(backing_buffer) + local_byte_offset,
-          local_byte_length, requested_type, requested_flags,
-          out_external_buffer);
+          local_byte_length, requested_class, out_storage, out_logical_range);
 }
 
 static iree_status_t iree_hal_amdgpu_transient_buffer_map_range(
@@ -642,7 +642,6 @@ static const iree_hal_buffer_allocation_vtable_t
 
 static const iree_hal_buffer_vtable_t iree_hal_amdgpu_transient_buffer_vtable =
     {
-        .recycle = iree_hal_buffer_recycle,
         .destroy = iree_hal_amdgpu_transient_buffer_destroy,
         .export_range = iree_hal_amdgpu_transient_buffer_export_range,
         .map_range = iree_hal_amdgpu_transient_buffer_map_range,

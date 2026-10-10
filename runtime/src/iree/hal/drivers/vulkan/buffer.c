@@ -356,6 +356,11 @@ iree_hal_vulkan_buffer_mapping_state_t* iree_hal_vulkan_buffer_mapping_state(
   return vulkan_buffer->mapping_state;
 }
 
+VkMemoryPropertyFlags iree_hal_vulkan_buffer_memory_property_flags(
+    iree_hal_buffer_t* buffer) {
+  return iree_hal_vulkan_buffer_cast(buffer)->memory_property_flags;
+}
+
 iree_status_t iree_hal_vulkan_buffer_resolve_backing(
     iree_hal_buffer_t* buffer, iree_hal_buffer_t** out_backing_buffer) {
   IREE_ASSERT_ARGUMENT(buffer);
@@ -580,9 +585,9 @@ static iree_status_t iree_hal_vulkan_buffer_make_mapped_memory_range(
 static iree_status_t iree_hal_vulkan_buffer_export_range(
     iree_hal_buffer_t* base_buffer, iree_device_size_t local_byte_offset,
     iree_device_size_t local_byte_length,
-    iree_hal_external_buffer_type_t requested_type,
-    iree_hal_external_buffer_flags_t requested_flags,
-    iree_hal_external_buffer_t* out_external_buffer) {
+    iree_hal_external_storage_class_t requested_class,
+    iree_hal_external_storage_t* out_storage,
+    iree_hal_buffer_range_t* out_logical_range) {
   return iree_make_status(IREE_STATUS_UNAVAILABLE,
                           "Vulkan buffer does not support external export");
 }
@@ -725,7 +730,6 @@ static iree_status_t iree_hal_vulkan_buffer_flush_range(
 }
 
 static const iree_hal_buffer_vtable_t iree_hal_vulkan_buffer_vtable = {
-    .recycle = iree_hal_buffer_recycle,
     .destroy = iree_hal_vulkan_buffer_destroy,
     .export_range = iree_hal_vulkan_buffer_export_range,
     .map_range = iree_hal_vulkan_buffer_map_range,

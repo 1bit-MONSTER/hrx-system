@@ -25,13 +25,17 @@ extern "C" {
 // HSA access calls are cold allocation/pinning paths. Keeping this list in
 // caller storage avoids heap allocations while still making access policy an
 // explicit, inspectable decision instead of ad-hoc all-agent grants.
+enum {
+  IREE_HAL_AMDGPU_ACCESS_AGENT_LIST_CAPACITY =
+      IREE_HAL_AMDGPU_MAX_CPU_AGENT + IREE_HAL_AMDGPU_MAX_GPU_AGENT,
+};
+
 typedef struct iree_hal_amdgpu_access_agent_list_t {
   // Number of initialized entries in |values|.
   uint32_t count;
 
   // HSA agents to pass to memory allocation, locking, or VMM access APIs.
-  hsa_agent_t
-      values[IREE_HAL_AMDGPU_MAX_CPU_AGENT + IREE_HAL_AMDGPU_MAX_GPU_AGENT];
+  hsa_agent_t values[IREE_HAL_AMDGPU_ACCESS_AGENT_LIST_CAPACITY];
 } iree_hal_amdgpu_access_agent_list_t;
 
 // Resolves the GPU agents selected by |queue_family_affinity|.

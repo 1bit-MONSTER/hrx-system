@@ -83,9 +83,13 @@ TEST_F(ForeignBufferTest,
     const auto view_cells =
         iree_hal_amdgpu_buffer_atomic_memory_cells(view.get());
     EXPECT_EQ(view_cells, cells);
-    EXPECT_EQ(iree_hal_amdgpu_buffer_device_pointer(view.get()), &storage_[1]);
+    auto* view_pointer =
+        static_cast<uint8_t*>(iree_hal_amdgpu_buffer_device_pointer(
+            iree_hal_buffer_allocated_buffer(view.get()))) +
+        iree_hal_buffer_byte_offset(view.get());
+    EXPECT_EQ(view_pointer, reinterpret_cast<uint8_t*>(&storage_[1]));
     IREE_EXPECT_OK(iree_hal_amdgpu_atomic_memory_validate_required_cells(
-        view_cells, iree_hal_amdgpu_buffer_device_pointer(view.get()), cells,
+        view_cells, view_pointer, cells,
         IREE_HAL_ATOMIC_TARGET_ERROR_MODE_DEFAULT));
   }
 }

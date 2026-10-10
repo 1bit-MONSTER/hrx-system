@@ -11,8 +11,6 @@
 
 #include "iree/hal/api.h"
 #include "iree/hal/cts/util/test_base.h"
-#include "iree/hal/memory/cpu_slab_provider.h"
-#include "iree/hal/memory/passthrough_pool.h"
 #include "iree/hal/memory/tlsf_pool.h"
 
 namespace iree::hal::cts {
@@ -50,22 +48,14 @@ class AmdgpuBufferTest : public CtsTestBase<> {
 };
 
 TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
-  iree_hal_buffer_params_t params = {};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER |
-                 IREE_HAL_BUFFER_USAGE_STORAGE |
-                 IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS;
-  params.queue_family_affinity =
-      iree_hal_make_queue_family_affinity(iree_hal_queue_family_ordinal(
-          iree_hal_queue_family(transfer_queue_))) |
-      iree_hal_make_queue_family_affinity(iree_hal_queue_family_ordinal(
-          iree_hal_queue_family(dispatch_queue_)));
+  const iree_hal_buffer_usage_t usage =
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE |
+      IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS;
   std::array<iree_hal_pool_family_access_t, 2> families = {};
   families[0].family = iree_hal_queue_family(transfer_queue_);
-  families[0].usage = params.usage;
+  families[0].usage = usage;
   families[1].family = iree_hal_queue_family(dispatch_queue_);
-  families[1].usage = params.usage;
+  families[1].usage = usage;
   const iree_hal_pool_scope_t scope = {
       families[0].family == families[1].family ? 1u : 2u, families.data(), {}};
   iree_hal_slab_pool_options_t source_options;
@@ -76,7 +66,8 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
                                 iree_allocator_system(), source.out()));
   Ref<iree_hal_buffer_t> backing;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      source, params, 8192, iree_infinite_timeout(), backing.out()));
+      source, iree_hal_make_pool_reservation_request(8192, /*min_alignment=*/1),
+      iree_infinite_timeout(), backing.out()));
   iree_hal_tlsf_pool_options_t options = {};
   options.tlsf_options.frontier_capacity = 4;
   Ref<iree_hal_pool_t> arena_pool;
@@ -86,7 +77,9 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
     SCOPED_TRACE(::testing::Message() << "queued arena: " << queued_arena);
     Ref<iree_hal_buffer_t> arena;
     if (queued_arena) {
-      const iree_hal_pool_reservation_request_t request = {params, 4096};
+      const iree_hal_pool_reservation_request_t request =
+          iree_hal_make_pool_reservation_request(/*allocation_size=*/4096,
+                                                 /*min_alignment=*/1);
       SemaphoreList allocated(device_, {0}, {1});
       IREE_ASSERT_OK(iree_hal_queue_alloca(
           transfer_queue_, iree_hal_semaphore_list_empty(), allocated,
@@ -95,7 +88,9 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
           allocated, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
     } else {
       IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-          arena_pool, params, 4096, iree_infinite_timeout(), arena.out()));
+          arena_pool,
+          iree_hal_make_pool_reservation_request(4096, /*min_alignment=*/1),
+          iree_infinite_timeout(), arena.out()));
     }
     Ref<iree_hal_pool_t> pool;
     IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
@@ -125,8 +120,8 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
         if (queued) {
           std::array<iree_hal_pool_reservation_request_t, 3> requests = {};
           for (auto& request : requests) {
-            request.params = params;
             request.allocation_size = sizeof(input);
+            request.min_alignment = 1;
           }
           iree_hal_buffer_t* buffers[3] = {};
           IREE_ASSERT_OK(iree_hal_queue_alloca(transfer_queue_, gate, allocated,
@@ -138,8 +133,10 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
         } else {
           for (auto& root : roots) {
             IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-                pool, params, sizeof(input), iree_infinite_timeout(),
-                root.out()));
+                pool,
+                iree_hal_make_pool_reservation_request(sizeof(input),
+                                                       /*min_alignment=*/1),
+                iree_infinite_timeout(), root.out()));
           }
         }
         // The unsignaled gate keeps queued storage uncommitted while both
@@ -281,44 +278,6 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
   }
 }
 
-TEST_P(AmdgpuBufferTest, QueueAllocationRejectsUnregisteredHostStorage) {
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      device_, iree_hal_queue_family(transfer_queue_), &backend));
-  iree_hal_slab_provider_t* provider = nullptr;
-  IREE_ASSERT_OK(iree_hal_cpu_slab_provider_create(64, iree_allocator_system(),
-                                                   &provider));
-  Ref<iree_hal_pool_t> source;
-  iree_status_t status = iree_hal_passthrough_pool_create(
-      {}, provider, backend.notification, backend.frontier_tracker,
-      backend.maintenance, iree_allocator_system(), source.out());
-  iree_hal_slab_provider_release(provider);
-  IREE_ASSERT_OK(status);
-  iree_hal_pool_reservation_request_t request = {};
-  request.params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  request.params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-  request.params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  request.params.queue_family_affinity = iree_hal_make_queue_family_affinity(
-      iree_hal_queue_family_ordinal(iree_hal_queue_family(transfer_queue_)));
-  request.allocation_size = 256;
-  Ref<iree_hal_buffer_t> buffer;
-  SemaphoreList allocated(device_, {0}, {1});
-  // Native growth executes asynchronously on the captured maintenance owner.
-  // Its ordinary CPU buffer is rejected before any GPU address is published.
-  IREE_ASSERT_OK(
-      iree_hal_queue_alloca(transfer_queue_, iree_hal_semaphore_list_empty(),
-                            allocated, source, 1, &request, buffer.out()));
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      iree_hal_semaphore_list_wait(allocated, iree_infinite_timeout(),
-                                   IREE_ASYNC_WAIT_FLAG_NONE));
-  EXPECT_EQ(
-      buffer.get()->memory.bindings[kDeviceAddressSlot.index].device_address,
-      0u);
-  buffer.reset();
-  source.reset();
-}
-
 TEST(AmdgpuBufferNativeTest, HostMappingAndExportUseIndependentHostAddress) {
   std::array<uint8_t, 256> host_storage = {};
   // The wrapper treats this agent address as opaque and never dereferences it.
@@ -362,16 +321,27 @@ TEST(AmdgpuBufferNativeTest, HostMappingAndExportUseIndependentHostAddress) {
   for (size_t i = 0; i < host_storage.size(); ++i) {
     EXPECT_EQ(host_storage[i], i >= 52 && i < 68 ? 0xAB : 0);
   }
-  iree_hal_external_buffer_t exported = {};
+  iree_hal_external_storage_t exported = {};
+  iree_hal_buffer_range_t logical_range = {};
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      view, IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &exported));
-  EXPECT_EQ(exported.handle.host_allocation.ptr, host_storage.data() + 48);
-  EXPECT_EQ(exported.size, 64u);
+      view, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+      &exported, &logical_range));
+  EXPECT_EQ(exported.payload.host_pointer, host_storage.data());
+  EXPECT_EQ(exported.byte_length, host_storage.size());
+  EXPECT_EQ(logical_range.byte_offset, 48u);
+  EXPECT_EQ(logical_range.byte_length, 64u);
+  iree_hal_external_storage_release(&exported);
   IREE_ASSERT_OK(iree_hal_buffer_export(
-      view, IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION,
-      IREE_HAL_EXTERNAL_BUFFER_FLAG_NONE, &exported));
-  EXPECT_EQ(exported.handle.device_allocation.ptr, kAgentAddress + 48);
+      view, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS),
+      &exported, &logical_range));
+  EXPECT_EQ(exported.payload.device_address, kAgentAddress);
+  EXPECT_EQ(logical_range.byte_offset, 48u);
+  EXPECT_EQ(logical_range.byte_length, 64u);
+  iree_hal_external_storage_release(&exported);
   EXPECT_EQ(iree_hal_amdgpu_buffer_atomic_memory_cells(view),
             IREE_HAL_AMDGPU_ATOMIC_MEMORY_CELL_FLAGS_ALL);
   view.reset();

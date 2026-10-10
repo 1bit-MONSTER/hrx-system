@@ -28,6 +28,17 @@ static const iree_hal_queue_family_spec_t kQueueFamilySpec = [] {
   return spec;
 }();
 
+static iree_status_t CreateValidationBuffer(
+    iree_byte_span_t storage, iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage, iree_hal_buffer_t** out_buffer) {
+  return iree_hal_heap_buffer_wrap(
+      iree_hal_buffer_placement_undefined(),
+      IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+      allowed_access, allowed_usage, storage.data_length, storage,
+      iree_hal_buffer_release_callback_null(), iree_allocator_system(),
+      out_buffer);
+}
+
 static void NoopCommandBufferDestroy(
     iree_hal_command_buffer_t* command_buffer) {}
 
@@ -113,6 +124,31 @@ TEST(AtomicTest, HostCapabilitiesFollowLockFreeWidths) {
       iree_atomic_int64_is_lock_free() ? allowed_operations : 0;
   EXPECT_EQ(capabilities.device_scope_64, expected_64);
   EXPECT_EQ(capabilities.system_scope_64, expected_64);
+}
+
+TEST(AtomicTest, CapabilitySetsValidateAndContainRequiredCells) {
+  const iree_hal_atomic_operation_capabilities_t available = {
+      /*.device_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE |
+          IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_ADD,
+      /*.device_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
+      /*.system_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_WAIT,
+  };
+  const iree_hal_atomic_operation_capabilities_t required = {
+      /*.device_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_ADD,
+      /*.device_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
+  };
+  EXPECT_TRUE(iree_hal_atomic_operation_capabilities_are_valid(available));
+  EXPECT_TRUE(
+      iree_hal_atomic_operation_capabilities_support(available, required));
+
+  iree_hal_atomic_operation_capabilities_t unsupported = required;
+  unsupported.system_scope_64 = IREE_HAL_ATOMIC_OPERATION_FLAG_WAIT;
+  EXPECT_FALSE(
+      iree_hal_atomic_operation_capabilities_support(available, unsupported));
+
+  iree_hal_atomic_operation_capabilities_t invalid = available;
+  invalid.system_scope_64 = UINT32_C(1) << 31;
+  EXPECT_FALSE(iree_hal_atomic_operation_capabilities_are_valid(invalid));
 }
 
 TEST(AtomicTest, ValidatesWaitParameters) {
@@ -303,17 +339,10 @@ class AtomicTargetValidationTest : public ::testing::Test {
   }
 
   void SetUp() override {
-    IREE_ASSERT_OK(iree_hal_allocator_create_heap(
-        IREE_SV("atomic-test"), iree_allocator_system(),
-        iree_allocator_system(), &allocator_));
-    const iree_hal_buffer_params_t buffer_params = {
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-        /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-            IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-    };
-    IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(allocator_, buffer_params,
-                                                      16, &root_buffer_));
+    IREE_ASSERT_OK(CreateValidationBuffer(
+        iree_make_byte_span(root_storage_, sizeof(root_storage_)),
+        IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_BUFFER_USAGE_STORAGE,
+        &root_buffer_));
     IREE_ASSERT_OK(iree_hal_buffer_subspan(
         root_buffer_, 1, 8, iree_allocator_system(), &unaligned_buffer_));
     ASSERT_NE(0u, iree_hal_buffer_byte_offset(unaligned_buffer_) % 4);
@@ -355,7 +384,7 @@ class AtomicTargetValidationTest : public ::testing::Test {
     iree_hal_queue_initialize(queue_family_, &queue_params, &queue_vtable_,
                               &queue_);
     iree_hal_command_buffer_initialize(
-        allocator_, queue_family_, /*mode=*/0, IREE_HAL_COMMAND_CATEGORY_ATOMIC,
+        queue_family_, /*mode=*/0, IREE_HAL_COMMAND_CATEGORY_ATOMIC,
         /*binding_capacity=*/1, validation_state_, &command_buffer_vtable_,
         &command_buffer_);
     IREE_ASSERT_OK(iree_hal_command_buffer_begin(&command_buffer_));
@@ -367,11 +396,10 @@ class AtomicTargetValidationTest : public ::testing::Test {
     iree_allocator_free(iree_allocator_system(), validation_state_);
     iree_hal_buffer_release(unaligned_buffer_);
     iree_hal_buffer_release(root_buffer_);
-    iree_hal_allocator_release(allocator_);
     iree_hal_device_release(device_);
   }
 
-  iree_hal_allocator_t* allocator_ = nullptr;
+  alignas(16) uint8_t root_storage_[16] = {};
   iree_hal_buffer_t* root_buffer_ = nullptr;
   iree_hal_buffer_t* unaligned_buffer_ = nullptr;
   void* validation_state_ = nullptr;
@@ -510,15 +538,12 @@ TEST_F(AtomicTargetValidationTest,
           iree_hal_make_buffer_ref(root_buffer_, /*offset=*/0, /*length=*/3),
           StoreParams(IREE_HAL_ATOMIC_TARGET_ERROR_MODE_INCOMPATIBLE)));
 
-  const iree_hal_buffer_params_t bad_usage_params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-  };
+  alignas(8) uint8_t bad_usage_storage[8] = {};
   iree_hal_buffer_t* bad_usage_buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      allocator_, bad_usage_params, /*allocation_size=*/8, &bad_usage_buffer));
+  IREE_ASSERT_OK(CreateValidationBuffer(
+      iree_make_byte_span(bad_usage_storage, sizeof(bad_usage_storage)),
+      IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_BUFFER_USAGE_TRANSFER,
+      &bad_usage_buffer));
   const iree_hal_semaphore_list_t empty = iree_hal_semaphore_list_empty();
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_PERMISSION_DENIED,
@@ -528,15 +553,11 @@ TEST_F(AtomicTargetValidationTest,
           /*barriers=*/NULL));
   iree_hal_buffer_release(bad_usage_buffer);
 
-  const iree_hal_buffer_params_t bad_access_params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_READ,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-  };
+  alignas(8) uint8_t bad_access_storage[8] = {};
   iree_hal_buffer_t* bad_access_buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      allocator_, bad_access_params, /*allocation_size=*/8,
+  IREE_ASSERT_OK(CreateValidationBuffer(
+      iree_make_byte_span(bad_access_storage, sizeof(bad_access_storage)),
+      IREE_HAL_MEMORY_ACCESS_READ, IREE_HAL_BUFFER_USAGE_STORAGE,
       &bad_access_buffer));
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_PERMISSION_DENIED,

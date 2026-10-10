@@ -125,6 +125,16 @@ typedef struct iree_hal_slab_t {
   uint64_t provider_handle;
 } iree_hal_slab_t;
 
+// One native attachment to caller-selected external storage. Properties
+// describe this exact attachment and may be narrower than provider-owned slab
+// properties, particularly for alignment and maintenance granularity.
+typedef struct iree_hal_imported_slab_t {
+  // Provider-owned attachment released with release_slab.
+  iree_hal_slab_t slab;
+  // Exact immutable properties of this attachment.
+  iree_hal_slab_provider_properties_t properties;
+} iree_hal_imported_slab_t;
+
 //===----------------------------------------------------------------------===//
 // iree_hal_slab_provider_t
 //===----------------------------------------------------------------------===//
@@ -170,6 +180,22 @@ iree_status_t iree_hal_slab_provider_acquire_slab(
     iree_hal_slab_provider_t* provider, iree_device_size_t min_length,
     iree_device_size_t min_alignment, iree_hal_slab_t* out_slab);
 
+// Attaches the provider to a caller-selected external storage extent. The
+// provider borrows |storage| for this call and acquires any native references
+// required by the returned slab. It never consumes or releases the external
+// transport owner. On failure |out_import| remains zeroed.
+iree_status_t iree_hal_slab_provider_import_slab(
+    iree_hal_slab_provider_t* provider,
+    const iree_hal_external_storage_t* storage,
+    iree_hal_imported_slab_t* out_import);
+
+// Queries native geometry required to import |storage_class|. Returns false
+// and zeros |out_requirements| when this provider cannot attach that class.
+bool iree_hal_slab_provider_query_import_requirements(
+    const iree_hal_slab_provider_t* provider,
+    iree_hal_external_storage_class_t storage_class,
+    iree_hal_pool_import_requirements_t* out_requirements);
+
 // Releases a previously acquired slab back to the provider.
 void iree_hal_slab_provider_release_slab(iree_hal_slab_provider_t* provider,
                                          const iree_hal_slab_t* slab);
@@ -178,12 +204,14 @@ void iree_hal_slab_provider_release_slab(iree_hal_slab_provider_t* provider,
 // buffer implementation for that slab's memory.
 //
 // |slab_offset| and |allocation_size| define the byte range relative to the
-// slab's base. The range must lie fully inside [0, slab->length). |params|
-// carries the owner's resolved permissions; zero usage grants no operations.
+// slab's base. The range must lie fully inside [0, slab->length).
+// |allowed_access| and |allowed_usage| are the permissions captured by the
+// owning pool's memory contract; zero usage grants no operations.
 iree_status_t iree_hal_slab_provider_wrap_buffer(
     iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
     iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t params,
+    iree_hal_memory_access_t allowed_access,
+    iree_hal_buffer_usage_t allowed_usage,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** out_buffer);
 
@@ -257,10 +285,15 @@ typedef struct iree_hal_slab_buffer_backing_t {
 } iree_hal_slab_buffer_backing_t;
 
 // Initializes facts after the slab descriptor reaches its stable owned address.
-// |min_alignment| is the alignment used to acquire this slab.
+// |properties| describes this exact slab rather than merely the provider's
+// owned-allocation route.
 void iree_hal_slab_buffer_backing_initialize(
     iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
-    iree_device_size_t min_alignment, iree_async_notification_t* notification,
+    const iree_hal_slab_provider_properties_t* properties,
+    iree_hal_buffer_range_t maintenance_range,
+    iree_hal_host_cacheability_t host_cacheability,
+    iree_hal_physical_memory_id_t physical_backing_id,
+    iree_async_notification_t* notification,
     iree_async_frontier_tracker_t* tracker,
     iree_hal_memory_maintenance_t* maintenance,
     iree_hal_slab_buffer_backing_t* out_backing);
@@ -301,7 +334,8 @@ struct iree_hal_slab_provider_vtable_t {
   iree_status_t (*wrap_buffer)(
       iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
       iree_device_size_t slab_offset, iree_device_size_t allocation_size,
-      iree_hal_buffer_params_t params,
+      iree_hal_memory_access_t allowed_access,
+      iree_hal_buffer_usage_t allowed_usage,
       iree_hal_buffer_release_callback_t release_callback,
       iree_hal_buffer_t** out_buffer);
 
@@ -342,6 +376,18 @@ struct iree_hal_slab_provider_vtable_t {
   // Queries the memory properties of slabs from this provider.
   void (*query_properties)(const iree_hal_slab_provider_t* provider,
                            iree_hal_slab_provider_properties_t* out_properties);
+
+  // Attaches to one exact external storage extent without consuming its
+  // transport owner. NULL when this provider cannot import external storage.
+  iree_status_t (*import_slab)(iree_hal_slab_provider_t* provider,
+                               const iree_hal_external_storage_t* storage,
+                               iree_hal_imported_slab_t* out_import);
+
+  // Queries immutable external storage geometry without native calls.
+  bool (*query_import_requirements)(
+      const iree_hal_slab_provider_t* provider,
+      iree_hal_external_storage_class_t storage_class,
+      iree_hal_pool_import_requirements_t* out_requirements);
 };
 
 #ifdef __cplusplus
