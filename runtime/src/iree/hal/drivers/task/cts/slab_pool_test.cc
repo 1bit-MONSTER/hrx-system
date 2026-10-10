@@ -100,8 +100,10 @@ class TaskSlabPoolTest : public CtsTestBase<> {
   }
 
   iree_hal_pool_scope_t Scope() const {
-    iree_hal_pool_scope_t scope = {.family_count = families_.size(),
-                                   .families = families_.data()};
+    iree_hal_pool_scope_t scope = {
+        .family_count = families_.size(),
+        .families = families_.data(),
+    };
     return scope;
   }
 
@@ -539,8 +541,10 @@ TEST_P(TaskSlabPoolTest, InteriorArenasInheritTheCompleteScope) {
       source, iree_hal_make_pool_reservation_request(8192, 0),
       iree_infinite_timeout(), backing.out()));
   Ref<iree_hal_pool_t> blocks;
-  iree_hal_fixed_block_pool_options_t block_options = {.block_size = 1024,
-                                                       .frontier_capacity = 4};
+  iree_hal_fixed_block_pool_options_t block_options = {
+      .block_size = 1024,
+      .frontier_capacity = 4,
+  };
   IREE_ASSERT_OK(iree_hal_fixed_block_pool_create_from_buffer(
       backing, 128, 4096, &block_options, iree_allocator_system(),
       blocks.out()));
@@ -698,7 +702,10 @@ TEST_P(TaskSlabPoolTest, SharedBackingAcrossDevicesAndAllocationPolicies) {
   IREE_ASSERT_OK(iree_hal_tlsf_pool_create(
       cache, &tlsf_options, iree_allocator_system(), children[0].out()));
   iree_hal_fixed_block_pool_options_t block_options = {
-      .block_size = 256, .blocks_per_slab = 16, .frontier_capacity = 4};
+      .block_size = 256,
+      .blocks_per_slab = 16,
+      .frontier_capacity = 4,
+  };
   IREE_ASSERT_OK(iree_hal_fixed_block_pool_create(
       cache, &block_options, iree_allocator_system(), children[1].out()));
 
