@@ -269,10 +269,6 @@ iree_status_t iree_hal_replay_executor_require_payload(
     iree_hal_replay_payload_type_t payload_type,
     iree_host_size_t minimum_length);
 
-iree_status_t iree_hal_replay_executor_make_buffer_params(
-    const iree_hal_replay_allocator_allocate_buffer_payload_t* payload,
-    iree_hal_buffer_params_t* out_params);
-
 iree_status_t iree_hal_replay_executor_write_buffer_data(
     iree_hal_buffer_t* buffer, iree_device_size_t byte_offset,
     iree_device_size_t byte_length, iree_hal_memory_access_t memory_access,

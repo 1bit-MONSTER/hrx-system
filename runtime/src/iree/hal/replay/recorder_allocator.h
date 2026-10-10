@@ -16,10 +16,6 @@
 extern "C" {
 #endif  // __cplusplus
 
-void iree_hal_replay_recorder_allocator_make_allocate_buffer_payload(
-    const iree_hal_buffer_params_t* params, iree_device_size_t allocation_size,
-    iree_hal_replay_allocator_allocate_buffer_payload_t* out_payload);
-
 iree_status_t iree_hal_replay_recorder_wrap_allocator(
     iree_hal_replay_recorder_t* recorder, iree_hal_replay_object_id_t device_id,
     iree_hal_device_t* placement_device, iree_hal_allocator_t* base_allocator,

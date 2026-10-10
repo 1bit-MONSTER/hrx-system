@@ -74,18 +74,6 @@ static iree_hal_allocator_t* iree_hal_replay_recorder_allocator_base_or_self(
              : allocator;
 }
 
-void iree_hal_replay_recorder_allocator_make_allocate_buffer_payload(
-    const iree_hal_buffer_params_t* params, iree_device_size_t allocation_size,
-    iree_hal_replay_allocator_allocate_buffer_payload_t* out_payload) {
-  memset(out_payload, 0, sizeof(*out_payload));
-  out_payload->allocation_size = allocation_size;
-  out_payload->queue_family_affinity = params->queue_family_affinity;
-  out_payload->min_alignment = params->min_alignment;
-  out_payload->usage = params->usage;
-  out_payload->type = params->type;
-  out_payload->access = params->access;
-}
-
 static iree_status_t iree_hal_replay_recorder_allocator_begin_operation(
     iree_hal_replay_recorder_allocator_t* allocator,
     iree_hal_replay_object_id_t related_object_id,
@@ -194,12 +182,10 @@ iree_hal_replay_recorder_allocator_query_buffer_compatibility(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
     iree_hal_buffer_params_t* IREE_RESTRICT params,
     iree_device_size_t* IREE_RESTRICT allocation_size) {
-  iree_hal_replay_recorder_allocator_t* allocator =
-      iree_hal_replay_recorder_allocator_cast(base_allocator);
-  return IREE_HAL_REPLAY_VTABLE_DISPATCH(allocator->base_allocator,
-                                         iree_hal_allocator,
-                                         query_buffer_compatibility)(
-      allocator->base_allocator, params, allocation_size);
+  (void)base_allocator;
+  (void)params;
+  (void)allocation_size;
+  return IREE_HAL_BUFFER_COMPATIBILITY_NONE;
 }
 
 static iree_status_t iree_hal_replay_recorder_allocator_allocate_buffer(
@@ -207,59 +193,13 @@ static iree_status_t iree_hal_replay_recorder_allocator_allocate_buffer(
     const iree_hal_buffer_params_t* IREE_RESTRICT params,
     iree_device_size_t allocation_size,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
-  iree_hal_replay_recorder_allocator_t* allocator =
-      iree_hal_replay_recorder_allocator_cast(base_allocator);
+  (void)base_allocator;
+  (void)params;
+  (void)allocation_size;
   *out_buffer = NULL;
-
-  iree_hal_replay_object_id_t buffer_id = IREE_HAL_REPLAY_OBJECT_ID_NONE;
-  IREE_RETURN_IF_ERROR(iree_hal_replay_recorder_reserve_object_id(
-      allocator->recorder, &buffer_id));
-
-  iree_hal_replay_allocator_allocate_buffer_payload_t operation_payload;
-  iree_hal_replay_recorder_allocator_make_allocate_buffer_payload(
-      params, allocation_size, &operation_payload);
-  iree_const_byte_span_t operation_iovec = iree_make_const_byte_span(
-      (const uint8_t*)&operation_payload, sizeof(operation_payload));
-
-  iree_hal_replay_pending_record_t pending_record;
-  IREE_RETURN_IF_ERROR(iree_hal_replay_recorder_allocator_begin_operation(
-      allocator, buffer_id,
-      IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_ALLOCATE_BUFFER,
-      IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_ALLOCATE_BUFFER, &pending_record));
-
-  iree_hal_buffer_t* base_buffer = NULL;
-  iree_hal_buffer_t* replay_buffer = NULL;
-  iree_status_t status = IREE_HAL_REPLAY_VTABLE_DISPATCH(
-      allocator->base_allocator, iree_hal_allocator, allocate_buffer)(
-      allocator->base_allocator, params, allocation_size, &base_buffer);
-  if (iree_status_is_ok(status)) {
-    status = iree_hal_replay_recorder_buffer_create_proxy(
-        allocator->recorder, allocator->device_id, buffer_id,
-        IREE_HAL_REPLAY_OBJECT_ID_NONE, allocator->placement_device,
-        base_buffer, allocator->host_allocator, &replay_buffer);
-  }
-
-  iree_hal_replay_buffer_object_payload_t object_payload;
-  if (iree_status_is_ok(status)) {
-    iree_hal_replay_recorder_buffer_make_object_payload(base_buffer,
-                                                        &object_payload);
-  } else {
-    memset(&object_payload, 0, sizeof(object_payload));
-  }
-  iree_const_byte_span_t object_iovec = iree_make_const_byte_span(
-      (const uint8_t*)&object_payload, sizeof(object_payload));
-  status = iree_hal_replay_recorder_end_creation_operation(
-      &pending_record, status, 1, &operation_iovec,
-      IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER, buffer_id,
-      IREE_HAL_REPLAY_PAYLOAD_TYPE_BUFFER_OBJECT, 1, &object_iovec);
-
-  if (iree_status_is_ok(status)) {
-    *out_buffer = replay_buffer;
-  } else {
-    iree_hal_buffer_release(replay_buffer);
-  }
-  iree_hal_buffer_release(base_buffer);
-  return status;
+  return iree_make_status(
+      IREE_STATUS_UNIMPLEMENTED,
+      "replay capture requires buffer allocation through an explicit pool");
 }
 
 static void iree_hal_replay_recorder_allocator_deallocate_buffer(
@@ -267,15 +207,9 @@ static void iree_hal_replay_recorder_allocator_deallocate_buffer(
     iree_hal_buffer_t* IREE_RESTRICT buffer) {
   iree_hal_replay_recorder_allocator_t* allocator =
       iree_hal_replay_recorder_allocator_cast(base_allocator);
-  iree_hal_buffer_t* base_buffer =
-      iree_hal_replay_recorder_buffer_base_or_self(buffer);
-  if (base_buffer != buffer) {
-    iree_hal_buffer_destroy(buffer);
-  } else {
-    IREE_HAL_REPLAY_VTABLE_DISPATCH(allocator->base_allocator,
-                                    iree_hal_allocator, deallocate_buffer)(
-        allocator->base_allocator, base_buffer);
-  }
+  IREE_HAL_REPLAY_VTABLE_DISPATCH(allocator->base_allocator, iree_hal_allocator,
+                                  deallocate_buffer)(allocator->base_allocator,
+                                                     buffer);
 }
 
 static iree_status_t iree_hal_replay_recorder_allocator_import_buffer(
@@ -284,89 +218,14 @@ static iree_status_t iree_hal_replay_recorder_allocator_import_buffer(
     const iree_hal_external_storage_t* IREE_RESTRICT external_buffer,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
-  iree_hal_replay_recorder_allocator_t* allocator =
-      iree_hal_replay_recorder_allocator_cast(base_allocator);
+  (void)base_allocator;
+  (void)params;
+  (void)external_buffer;
+  (void)release_callback;
   *out_buffer = NULL;
-
-  iree_hal_replay_object_id_t buffer_id = IREE_HAL_REPLAY_OBJECT_ID_NONE;
-  IREE_RETURN_IF_ERROR(iree_hal_replay_recorder_reserve_object_id(
-      allocator->recorder, &buffer_id));
-
-  iree_hal_replay_allocator_import_buffer_payload_t operation_payload;
-  iree_const_byte_span_t operation_iovecs[2];
-  iree_host_size_t operation_iovec_count = 0;
-  iree_hal_replay_payload_type_t operation_payload_type =
-      IREE_HAL_REPLAY_PAYLOAD_TYPE_NONE;
-  const bool capture_host_allocation =
-      external_buffer->storage_class.type ==
-          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER &&
-      external_buffer->byte_length <= IREE_HOST_SIZE_MAX &&
-      (external_buffer->byte_length == 0 ||
-       external_buffer->payload.host_pointer != NULL);
-  if (capture_host_allocation) {
-    iree_hal_replay_recorder_allocator_make_allocate_buffer_payload(
-        params, external_buffer->byte_length, &operation_payload.allocation);
-    operation_payload.storage_type = external_buffer->storage_class.type;
-    operation_payload.reserved0 = 0;
-    operation_payload.data_length = external_buffer->byte_length;
-    operation_iovecs[operation_iovec_count++] = iree_make_const_byte_span(
-        (const uint8_t*)&operation_payload, sizeof(operation_payload));
-    if (external_buffer->byte_length != 0) {
-      operation_iovecs[operation_iovec_count++] = iree_make_const_byte_span(
-          (const uint8_t*)external_buffer->payload.host_pointer,
-          (iree_host_size_t)external_buffer->byte_length);
-    }
-    operation_payload_type =
-        IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_IMPORT_BUFFER;
-  }
-
-  iree_hal_replay_pending_record_t pending_record;
-  IREE_RETURN_IF_ERROR(iree_hal_replay_recorder_allocator_begin_operation(
-      allocator, buffer_id,
-      IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_IMPORT_BUFFER,
-      operation_payload_type, &pending_record));
-  if (!capture_host_allocation) {
-    iree_hal_replay_recorder_mark_unsupported(&pending_record);
-  }
-
-  // Complete fallible wrapper construction before native import can take
-  // ownership of the caller's release callback.
-  iree_hal_replay_recorder_buffer_t* proxy_buffer = NULL;
-  iree_status_t status = iree_hal_replay_recorder_buffer_allocate_proxy(
-      allocator->host_allocator, &proxy_buffer);
-  iree_hal_buffer_t* base_buffer = NULL;
-  if (iree_status_is_ok(status)) {
-    status = IREE_HAL_REPLAY_VTABLE_DISPATCH(allocator->base_allocator,
-                                             iree_hal_allocator, import_buffer)(
-        allocator->base_allocator, params, external_buffer, release_callback,
-        &base_buffer);
-  }
-
-  iree_hal_replay_buffer_object_payload_t object_payload;
-  if (iree_status_is_ok(status)) {
-    iree_hal_replay_recorder_buffer_make_object_payload(base_buffer,
-                                                        &object_payload);
-  } else {
-    memset(&object_payload, 0, sizeof(object_payload));
-  }
-  iree_const_byte_span_t object_iovec = iree_make_const_byte_span(
-      (const uint8_t*)&object_payload, sizeof(object_payload));
-  status = iree_hal_replay_recorder_end_creation_operation(
-      &pending_record, status, operation_iovec_count, operation_iovecs,
-      IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER, buffer_id,
-      IREE_HAL_REPLAY_PAYLOAD_TYPE_BUFFER_OBJECT, 1, &object_iovec);
-
-  if (iree_status_is_ok(status)) {
-    *out_buffer = iree_hal_replay_recorder_buffer_initialize_proxy(
-        allocator->recorder, allocator->device_id, buffer_id,
-        IREE_HAL_REPLAY_OBJECT_ID_NONE, allocator->placement_device,
-        base_buffer, allocator->host_allocator, proxy_buffer);
-  } else {
-    iree_hal_replay_recorder_buffer_free_proxy(allocator->host_allocator,
-                                               proxy_buffer);
-  }
-  iree_hal_buffer_release(base_buffer);
-  return status;
+  return iree_make_status(
+      IREE_STATUS_UNIMPLEMENTED,
+      "replay capture requires buffer import through an explicit pool");
 }
 
 static bool iree_hal_replay_recorder_allocator_supports_virtual_memory(

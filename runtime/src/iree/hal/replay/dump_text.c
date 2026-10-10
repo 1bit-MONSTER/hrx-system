@@ -212,54 +212,6 @@ static iree_status_t iree_hal_replay_dump_append_text_payload(
           payload.queue_family_affinity, payload.placement_flags,
           payload.memory_type, payload.allowed_usage, payload.allowed_access);
     }
-    case IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_ALLOCATE_BUFFER: {
-      IREE_RETURN_IF_ERROR(iree_hal_replay_dump_payload_length_check(
-          record, sizeof(iree_hal_replay_allocator_allocate_buffer_payload_t)));
-      iree_hal_replay_allocator_allocate_buffer_payload_t payload;
-      memcpy(&payload, record->payload.data, sizeof(payload));
-      return iree_string_builder_append_format(
-          builder,
-          " allocation_size=%" PRIu64 " queue_family_affinity=%" PRIu64
-          " min_alignment=%" PRIu64 " usage=0x%08" PRIx32 " type=0x%08" PRIx32
-          " access=0x%04" PRIx16,
-          payload.allocation_size, payload.queue_family_affinity,
-          payload.min_alignment, payload.usage, payload.type, payload.access);
-    }
-    case IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_IMPORT_BUFFER: {
-      if (record->payload.data_length <
-          sizeof(iree_hal_replay_allocator_import_buffer_payload_t)) {
-        return iree_make_status(IREE_STATUS_DATA_LOSS,
-                                "replay import buffer payload is short");
-      }
-      iree_hal_replay_allocator_import_buffer_payload_t payload;
-      memcpy(&payload, record->payload.data, sizeof(payload));
-      if (IREE_UNLIKELY(payload.reserved0 != 0)) {
-        return iree_make_status(IREE_STATUS_DATA_LOSS,
-                                "replay import buffer reserved metadata is "
-                                "nonzero");
-      }
-      if (payload.data_length >
-          record->payload.data_length -
-              sizeof(iree_hal_replay_allocator_import_buffer_payload_t)) {
-        return iree_make_status(
-            IREE_STATUS_DATA_LOSS,
-            "replay import buffer data extends past record");
-      }
-      const uint64_t data_offset =
-          payload_range->offset +
-          (uint64_t)sizeof(iree_hal_replay_allocator_import_buffer_payload_t);
-      return iree_string_builder_append_format(
-          builder,
-          " allocation_size=%" PRIu64 " queue_family_affinity=%" PRIu64
-          " min_alignment=%" PRIu64 " usage=0x%08" PRIx32 " type=0x%08" PRIx32
-          " access=0x%04" PRIx16 " storage_type=%" PRIu32
-          " data_range=[%" PRIu64 ", +%" PRIu64 "]",
-          payload.allocation.allocation_size,
-          payload.allocation.queue_family_affinity,
-          payload.allocation.min_alignment, payload.allocation.usage,
-          payload.allocation.type, payload.allocation.access,
-          payload.storage_type, data_offset, payload.data_length);
-    }
     case IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_CREATE_SLAB: {
       if (record->payload.data_length <
           sizeof(iree_hal_replay_pool_create_slab_payload_t)) {

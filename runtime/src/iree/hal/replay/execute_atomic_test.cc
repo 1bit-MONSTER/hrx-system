@@ -18,6 +18,7 @@
 #include "iree/hal/memory/passthrough_pool.h"
 #include "iree/hal/replay/file_reader.h"
 #include "iree/hal/replay/file_writer.h"
+#include "iree/hal/slab_pool.h"
 #include "iree/io/file_handle.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -361,6 +362,16 @@ static const iree_hal_device_spec_t* CapturingDeviceSpec(
   return iree_hal_device_spec(CastDevice(base_device)->delegate);
 }
 
+static const iree_hal_device_topology_info_t* CapturingDeviceTopologyInfo(
+    iree_hal_device_t* base_device) {
+  return iree_hal_device_topology_info(CastDevice(base_device)->delegate);
+}
+
+static const iree_hal_memory_backend_t* CapturingDeviceMemoryBackend(
+    iree_hal_device_t* base_device) {
+  return iree_hal_device_memory_backend(CastDevice(base_device)->delegate);
+}
+
 static const iree_hal_queue_family_t* CapturingDeviceQueueFamily(
     iree_hal_device_t* base_device,
     iree_hal_queue_family_ordinal_t family_ordinal) {
@@ -528,7 +539,7 @@ static void AppendSerializedReplayRecord(
 static std::vector<uint8_t> MakeFullFileAtomicReplayStorage(
     SerializedAtomicRecordForm form, uint16_t version_minor,
     uint8_t encoded_target_error_mode) {
-  constexpr iree_hal_replay_object_id_t kAllocatorId = 7;
+  constexpr iree_hal_replay_object_id_t kPoolId = 7;
   std::vector<uint8_t> storage(16384, 0);
   iree_io_file_handle_t* file_handle = nullptr;
   IREE_CHECK_OK(iree_io_file_handle_wrap_host_allocation(
@@ -570,15 +581,6 @@ static std::vector<uint8_t> MakeFullFileAtomicReplayStorage(
                     IREE_HAL_REPLAY_OPERATION_CODE_NONE, kDeviceId,
                     IREE_HAL_REPLAY_OBJECT_ID_NONE),
       {});
-  AppendSerializedReplayRecord(
-      writer,
-      make_metadata(IREE_HAL_REPLAY_FILE_RECORD_TYPE_OBJECT,
-                    IREE_HAL_REPLAY_OBJECT_TYPE_ALLOCATOR,
-                    IREE_HAL_REPLAY_PAYLOAD_TYPE_NONE,
-                    IREE_HAL_REPLAY_OPERATION_CODE_NONE, kAllocatorId,
-                    IREE_HAL_REPLAY_OBJECT_ID_NONE),
-      {});
-
   const iree_hal_replay_provisioned_queue_object_payload_t queue_payload = {
       /*.family_ordinal=*/0,
       /*.queue_ordinal=*/0,
@@ -593,24 +595,57 @@ static std::vector<uint8_t> MakeFullFileAtomicReplayStorage(
                     IREE_HAL_REPLAY_OBJECT_ID_NONE),
       {iree_make_const_byte_span(&queue_payload, sizeof(queue_payload))});
 
-  const iree_hal_replay_allocator_allocate_buffer_payload_t buffer_payload = {
-      /*.allocation_size=*/64,
-      /*.queue_family_affinity=*/iree_hal_make_queue_family_affinity(0),
-      /*.min_alignment=*/8,
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+  const iree_hal_replay_pool_create_slab_payload_t pool_payload = {
+      /*.family_count=*/1,
+      /*.owned_export_count=*/0,
+      /*.import_count=*/0,
+      /*.import_export_count=*/0,
+      /*.trace_name_length=*/0,
+      /*.placement_mode=*/IREE_HAL_POOL_PLACEMENT_AUTOMATIC,
+      /*.placement_node=*/0,
+      /*.owned_mode=*/IREE_HAL_SLAB_POOL_OWNED_ENABLED,
       /*.reserved0=*/0,
-      /*.reserved1=*/0,
+      /*.host_access=*/IREE_HAL_MEMORY_ACCESS_NONE,
+      /*.host_mapping_modes=*/0,
+      /*.host_cacheability=*/IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
+      /*.preferred_host_access=*/IREE_HAL_MEMORY_ACCESS_NONE,
+      /*.preferred_host_mapping_modes=*/0,
+      /*.preferred_host_cacheability=*/IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
+  };
+  const iree_hal_replay_pool_family_access_payload_t family_payload = {
+      /*.device_ordinal=*/0,
+      /*.family_ordinal=*/0,
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
+      /*.interfaces=*/0,
+      /*.requirements=*/0,
+      /*.reserved0=*/0,
+      /*.atomic_device_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL,
+      /*.atomic_device_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL,
+      /*.atomic_system_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL,
+      /*.atomic_system_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL,
   };
   AppendSerializedReplayRecord(
       writer,
       make_metadata(IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION,
-                    IREE_HAL_REPLAY_OBJECT_TYPE_ALLOCATOR,
-                    IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_ALLOCATE_BUFFER,
-                    IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_ALLOCATE_BUFFER,
-                    kAllocatorId, kBufferId),
+                    IREE_HAL_REPLAY_OBJECT_TYPE_NONE,
+                    IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_CREATE_SLAB,
+                    IREE_HAL_REPLAY_OPERATION_CODE_POOL_CREATE_SLAB,
+                    IREE_HAL_REPLAY_OBJECT_ID_NONE, kPoolId),
+      {iree_make_const_byte_span(&pool_payload, sizeof(pool_payload)),
+       iree_make_const_byte_span(&family_payload, sizeof(family_payload))});
+
+  const iree_hal_replay_pool_allocate_buffer_payload_t buffer_payload = {
+      /*.allocation_size=*/64,
+      /*.min_alignment=*/8,
+      /*.replay_allocation_size=*/64,
+  };
+  AppendSerializedReplayRecord(
+      writer,
+      make_metadata(IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION,
+                    IREE_HAL_REPLAY_OBJECT_TYPE_POOL,
+                    IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_ALLOCATE_BUFFER,
+                    IREE_HAL_REPLAY_OPERATION_CODE_POOL_ALLOCATE_BUFFER,
+                    kPoolId, kBufferId),
       {iree_make_const_byte_span(&buffer_payload, sizeof(buffer_payload))});
 
   const iree_hal_replay_semaphore_object_payload_t semaphore_payload = {
@@ -877,18 +912,6 @@ class ReplayAtomicExecutionTest : public ::testing::Test {
  protected:
   void SetUp() override {
     task_device_ = CreateTaskDevice();
-
-    const iree_hal_buffer_params_t buffer_params = {
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
-            IREE_HAL_BUFFER_USAGE_TRANSFER |
-            IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-        /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-            IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-    };
-    IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-        iree_hal_device_allocator(task_device_), buffer_params, 64,
-        &target_buffer_));
     IREE_ASSERT_OK(iree_hal_semaphore_create(
         task_device_,
         /*queue_family_affinity=*/iree_hal_make_queue_family_affinity(0),
@@ -936,11 +959,13 @@ class ReplayAtomicExecutionTest : public ::testing::Test {
     device_vtable_.host_allocator = CapturingDeviceHostAllocator;
     device_vtable_.device_allocator = CapturingDeviceAllocator;
     device_vtable_.device_spec = CapturingDeviceSpec;
+    device_vtable_.topology_info = CapturingDeviceTopologyInfo;
     device_vtable_.queue_family = CapturingDeviceQueueFamily;
     device_vtable_.queue = CapturingDeviceQueue;
     device_vtable_.assign_topology_info = CapturingDeviceAssignTopologyInfo;
     device_vtable_.create_command_buffer = CapturingDeviceCreateCommandBuffer;
     device_vtable_.create_semaphore = CapturingDeviceCreateSemaphore;
+    device_vtable_.memory_backend = CapturingDeviceMemoryBackend;
     capturing_device_.delegate = task_device_;
     capturing_device_.command_buffer = &command_buffer_;
     capturing_device_.command_buffer_vtable = &command_buffer_vtable_;
@@ -959,6 +984,42 @@ class ReplayAtomicExecutionTest : public ::testing::Test {
     IREE_ASSERT_OK(iree_hal_command_buffer_begin(&command_buffer_.base));
     iree_hal_queue_initialize(&capturing_device_.queue_family, &queue_params,
                               &queue_vtable_, &queue_.base);
+
+    capturing_group_ = CreateDeviceGroup(
+        reinterpret_cast<iree_hal_device_t*>(&capturing_device_));
+    const iree_hal_pool_family_access_t family_access = {
+        /*.family=*/&capturing_device_.queue_family,
+        /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
+            IREE_HAL_BUFFER_USAGE_TRANSFER,
+        /*.interfaces=*/0,
+        /*.requirements=*/0,
+        /*.atomic_operations=*/
+        {
+            /*.device_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL,
+            /*.device_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL,
+            /*.system_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL,
+            /*.system_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL,
+        },
+    };
+    const iree_hal_pool_scope_t pool_scope = {
+        /*.family_count=*/1,
+        /*.families=*/&family_access,
+        /*.host=*/
+        {
+            /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+            /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+            /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
+        },
+    };
+    iree_hal_slab_pool_options_t pool_options;
+    iree_hal_slab_pool_options_initialize(&pool_options);
+    pool_options.trace_name = IREE_SV("replay.atomic_execution");
+    IREE_ASSERT_OK(iree_hal_slab_pool_create(capturing_group_, pool_scope,
+                                             &pool_options,
+                                             iree_allocator_system(), &pool_));
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        pool_, iree_hal_make_pool_reservation_request(64, 8),
+        iree_infinite_timeout(), &target_buffer_));
 
     execute_options_ = iree_hal_replay_execute_options_default();
     IREE_ASSERT_OK(iree_hal_replay_executor_initialize(
@@ -985,13 +1046,17 @@ class ReplayAtomicExecutionTest : public ::testing::Test {
                 signal_semaphore_entry);
     iree_hal_replay_object_entry_t device_entry = {};
     device_entry.value.device = task_device_;
+    iree_hal_device_retain(task_device_);
     StoreObject(kDeviceId, IREE_HAL_REPLAY_OBJECT_TYPE_DEVICE, device_entry);
   }
 
   void TearDown() override {
+    IREE_EXPECT_OK(iree_hal_replay_executor_deinitialize(&executor_));
+    iree_hal_pool_release(pool_);
+    iree_hal_device_group_release(capturing_group_);
     iree_hal_device_release(
         reinterpret_cast<iree_hal_device_t*>(&capturing_device_));
-    iree_status_ignore(iree_hal_replay_executor_deinitialize(&executor_));
+    iree_hal_device_release(task_device_);
     iree_allocator_free(iree_allocator_system(), validation_state_);
   }
 
@@ -1028,6 +1093,10 @@ class ReplayAtomicExecutionTest : public ::testing::Test {
 
   // Task-driver device owning the concrete test buffer and semaphores.
   iree_hal_device_t* task_device_ = nullptr;
+  // Device group defining the capturing family's memory namespace.
+  iree_hal_device_group_t* capturing_group_ = nullptr;
+  // Explicit pool owning the concrete target buffer backing.
+  iree_hal_pool_t* pool_ = nullptr;
   // Borrowed target buffer transferred to |executor_|.
   iree_hal_buffer_t* target_buffer_ = nullptr;
   // Borrowed wait semaphore transferred to |executor_|.
@@ -1261,10 +1330,6 @@ TEST_F(ReplayAtomicExecutionTest, ReplaysQueueOperations) {
 }
 
 TEST_F(ReplayAtomicExecutionTest, ReplaysVersionedModesThroughFullFile) {
-  iree_hal_device_t* capturing_device =
-      reinterpret_cast<iree_hal_device_t*>(&capturing_device_);
-  iree_hal_device_group_t* device_group = CreateDeviceGroup(capturing_device);
-
   const SerializedAtomicRecordForm forms[] = {
       kSerializedCommandBufferWait, kSerializedCommandBufferStore,
       kSerializedCommandBufferRmw,  kSerializedQueueWait,
@@ -1307,7 +1372,7 @@ TEST_F(ReplayAtomicExecutionTest, ReplaysVersionedModesThroughFullFile) {
       std::vector<uint8_t> storage = MakeFullFileAtomicReplayStorage(
           form, version_case.version_minor, version_case.encoded_mode);
       iree_status_t status = iree_hal_replay_execute_file(
-          FullFileReplayContents(storage), device_group,
+          FullFileReplayContents(storage), capturing_group_,
           /*options=*/nullptr, iree_allocator_system());
       if (version_case.expected_status == IREE_STATUS_OK) {
         IREE_EXPECT_OK(status);
@@ -1348,8 +1413,6 @@ TEST_F(ReplayAtomicExecutionTest, ReplaysVersionedModesThroughFullFile) {
       }
     }
   }
-
-  iree_hal_device_group_release(device_group);
 }
 
 TEST_F(ReplayAtomicExecutionTest, TracksPrivateCompletionWithoutWireSignal) {

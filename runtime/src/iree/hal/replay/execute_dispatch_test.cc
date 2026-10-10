@@ -14,6 +14,7 @@
 #include "iree/hal/replay/execute.h"
 #include "iree/hal/replay/file_reader.h"
 #include "iree/hal/replay/recorder.h"
+#include "iree/hal/slab_pool.h"
 #include "iree/io/file_contents.h"
 #include "iree/io/file_handle.h"
 #include "iree/testing/gtest.h"
@@ -76,6 +77,30 @@ class ReplayDispatchTest : public ::testing::Test {
     device_ = iree_hal_device_group_device_at(wrapped_group_, 0);
     family_ = iree_hal_device_queue_family(device_, 0);
     ASSERT_NE(nullptr, family_);
+    const iree_hal_pool_family_access_t family_access = {
+        /*.family=*/family_,
+        /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
+            IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE,
+        /*.interfaces=*/0,
+        /*.requirements=*/0,
+        /*.atomic_operations=*/{},
+    };
+    const iree_hal_pool_scope_t pool_scope = {
+        /*.family_count=*/1,
+        /*.families=*/&family_access,
+        /*.host=*/
+        {
+            /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+            /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+            /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
+        },
+    };
+    iree_hal_slab_pool_options_t pool_options;
+    iree_hal_slab_pool_options_initialize(&pool_options);
+    pool_options.trace_name = IREE_SV("replay.dispatch");
+    IREE_ASSERT_OK(iree_hal_slab_pool_create(wrapped_group_, pool_scope,
+                                             &pool_options,
+                                             iree_allocator_system(), &pool_));
     const iree_hal_executable_target_selection_t selection = {
         /*.family=*/IREE_SV("cpu"),
     };
@@ -102,6 +127,8 @@ class ReplayDispatchTest : public ::testing::Test {
       iree_hal_buffer_release(buffer);
       buffer = nullptr;
     }
+    iree_hal_pool_release(pool_);
+    pool_ = nullptr;
     iree_hal_file_release(file_);
     file_ = nullptr;
     iree_hal_semaphore_release(semaphore_);
@@ -159,6 +186,8 @@ class ReplayDispatchTest : public ::testing::Test {
   iree_hal_command_buffer_t* command_buffer_ = nullptr;
   // Input and output buffers retained until queue completion.
   iree_hal_buffer_t* buffers_[3] = {};
+  // Explicit pool defining dispatch, transfer, and host access.
+  iree_hal_pool_t* pool_ = nullptr;
   // Imported file receiving the computed output.
   iree_hal_file_t* file_ = nullptr;
   // Explicit dispatch-to-write dependency and completion signal.
@@ -194,19 +223,13 @@ TEST_F(ReplayDispatchTest, FamilyConstructorsReplayNativeOutput) {
       {100.0f, 200.0f, 300.0f, 400.0f},
       {0.0f, 0.0f, 0.0f, 0.0f},
   };
-  const iree_hal_buffer_params_t buffer_params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
-          IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE |
-          IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-  };
   iree_hal_buffer_ref_t binding_refs[3] = {};
   for (uint32_t i = 0; i < IREE_ARRAYSIZE(buffers_); ++i) {
-    IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-        iree_hal_device_allocator(device_), buffer_params,
-        sizeof(initial_data[i]), &buffers_[i]));
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        pool_,
+        iree_hal_make_pool_reservation_request(sizeof(initial_data[i]),
+                                               alignof(float)),
+        iree_infinite_timeout(), &buffers_[i]));
     IREE_ASSERT_OK(iree_hal_buffer_map_write(buffers_[i], 0, initial_data[i],
                                              sizeof(initial_data[i])));
     binding_refs[i] = {i, 0, buffers_[i], 0, sizeof(initial_data[i])};

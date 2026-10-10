@@ -568,23 +568,6 @@ iree_status_t iree_hal_replay_executor_require_payload(
   return iree_ok_status();
 }
 
-iree_status_t iree_hal_replay_executor_make_buffer_params(
-    const iree_hal_replay_allocator_allocate_buffer_payload_t* payload,
-    iree_hal_buffer_params_t* out_params) {
-  if (IREE_UNLIKELY(payload->reserved0 != 0 || payload->reserved1 != 0)) {
-    return iree_make_status(
-        IREE_STATUS_DATA_LOSS,
-        "replay allocation request reserved fields must be zero");
-  }
-  memset(out_params, 0, sizeof(*out_params));
-  out_params->usage = payload->usage;
-  out_params->type = payload->type;
-  out_params->access = payload->access;
-  out_params->queue_family_affinity = payload->queue_family_affinity;
-  out_params->min_alignment = payload->min_alignment;
-  return iree_ok_status();
-}
-
 iree_status_t iree_hal_replay_executor_write_buffer_data(
     iree_hal_buffer_t* buffer, iree_device_size_t byte_offset,
     iree_device_size_t byte_length, iree_hal_memory_access_t memory_access,

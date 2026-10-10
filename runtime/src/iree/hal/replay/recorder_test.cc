@@ -18,6 +18,7 @@
 #include "iree/hal/replay/file_reader.h"
 #include "iree/hal/replay/recorder_allocator.h"
 #include "iree/hal/replay/recorder_record.h"
+#include "iree/hal/slab_pool.h"
 #include "iree/hal/testing/mock_device.h"
 #include "iree/io/file_contents.h"
 #include "iree/testing/gtest.h"
@@ -101,6 +102,50 @@ static iree_hal_device_group_t* CreateTaskDeviceGroup() {
   return group;
 }
 
+static iree_status_t CreateTestPool(
+    iree_hal_device_group_t* group, iree_hal_buffer_usage_t family_usage,
+    iree_hal_mapping_mode_t host_mapping_modes,
+    iree_hal_atomic_operation_capabilities_t atomic_operations,
+    iree_string_view_t trace_name, iree_hal_pool_t** out_pool) {
+  *out_pool = nullptr;
+  iree_hal_device_t* device = iree_hal_device_group_device_at(group, 0);
+  const iree_hal_pool_family_access_t family_access = {
+      /*.family=*/iree_hal_device_queue_family(device, 0),
+      /*.usage=*/family_usage,
+      /*.interfaces=*/0,
+      /*.requirements=*/0,
+      /*.atomic_operations=*/atomic_operations,
+  };
+  const iree_hal_memory_access_t host_access =
+      host_mapping_modes
+          ? static_cast<iree_hal_memory_access_t>(IREE_HAL_MEMORY_ACCESS_ALL)
+          : IREE_HAL_MEMORY_ACCESS_NONE;
+  const iree_hal_pool_scope_t scope = {
+      /*.family_count=*/family_usage ? 1u : 0u,
+      /*.families=*/family_usage ? &family_access : nullptr,
+      /*.host=*/
+      {
+          /*.access=*/host_access,
+          /*.modes=*/host_mapping_modes,
+          /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
+      },
+  };
+  iree_hal_slab_pool_options_t options;
+  iree_hal_slab_pool_options_initialize(&options);
+  options.trace_name = trace_name;
+  return iree_hal_slab_pool_create(group, scope, &options,
+                                   iree_allocator_system(), out_pool);
+}
+
+static iree_status_t CreateTestPool(iree_hal_device_group_t* group,
+                                    iree_hal_buffer_usage_t family_usage,
+                                    iree_hal_mapping_mode_t host_mapping_modes,
+                                    iree_string_view_t trace_name,
+                                    iree_hal_pool_t** out_pool) {
+  return CreateTestPool(group, family_usage, host_mapping_modes,
+                        /*atomic_operations=*/{}, trace_name, out_pool);
+}
+
 static iree_hal_replay_recorder_t* CreateHostAllocationRecorder(
     std::vector<uint8_t>* storage,
     const iree_hal_replay_recorder_options_t* options = nullptr) {
@@ -177,8 +222,8 @@ struct ReplayRecordSummary {
   uint64_t inline_file_reference_length = 0;
   iree_host_size_t assign_topology_record_count = 0;
   iree_host_size_t refine_topology_record_count = 0;
-  iree_host_size_t allocate_buffer_record_count = 0;
-  iree_host_size_t import_buffer_record_count = 0;
+  iree_host_size_t pool_allocate_buffer_record_count = 0;
+  iree_host_size_t pool_import_buffer_record_count = 0;
   // Most recently captured mapping and mapped-data publication.
   struct {
     // Map operation arguments, including its access permissions and flags.
@@ -198,12 +243,12 @@ struct ReplayRecordSummary {
     // Name from the last parsed scope record.
     std::string last_name;
   } scope;
-  iree_host_size_t unsupported_import_buffer_record_count = 0;
+  iree_host_size_t unsupported_pool_import_buffer_record_count = 0;
   iree_host_size_t unsupported_export_buffer_record_count = 0;
   iree_host_size_t unsupported_host_call_record_count = 0;
   iree_host_size_t buffer_range_data_payload_count = 0;
-  iree_host_size_t import_buffer_payload_count = 0;
-  uint64_t import_buffer_captured_data_length = 0;
+  iree_host_size_t pool_import_buffer_payload_count = 0;
+  uint64_t pool_import_buffer_captured_data_length = 0;
   iree_host_size_t semaphore_object_payload_count = 0;
   // Memory type from the last parsed buffer object payload.
   iree_hal_memory_type_t last_buffer_memory_type = 0;
@@ -301,11 +346,11 @@ static ReplayRecordSummary ParseReplayRecordSummary(
                    IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_REFINE_TOPOLOGY_EDGE) {
           ++summary.refine_topology_record_count;
         } else if (record.header.operation_code ==
-                   IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_ALLOCATE_BUFFER) {
-          ++summary.allocate_buffer_record_count;
+                   IREE_HAL_REPLAY_OPERATION_CODE_POOL_ALLOCATE_BUFFER) {
+          ++summary.pool_allocate_buffer_record_count;
         } else if (record.header.operation_code ==
-                   IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_IMPORT_BUFFER) {
-          ++summary.import_buffer_record_count;
+                   IREE_HAL_REPLAY_OPERATION_CODE_POOL_IMPORT_BUFFER) {
+          ++summary.pool_import_buffer_record_count;
         } else if (record.header.operation_code ==
                    IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_MAP_RANGE) {
           ++summary.buffer_map_range_record_count;
@@ -346,15 +391,15 @@ static ReplayRecordSummary ParseReplayRecordSummary(
           memcpy(&summary.mapping.data, record.payload.data,
                  sizeof(summary.mapping.data));
         } else if (record.header.payload_type ==
-                   IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_IMPORT_BUFFER) {
-          ++summary.import_buffer_payload_count;
-          iree_hal_replay_allocator_import_buffer_payload_t import_payload;
+                   IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_IMPORT_BUFFER) {
+          ++summary.pool_import_buffer_payload_count;
+          iree_hal_replay_pool_import_buffer_payload_t import_payload;
           if (record.payload.data_length < sizeof(import_payload)) {
             ADD_FAILURE() << "import buffer payload is short";
             return summary;
           }
           memcpy(&import_payload, record.payload.data, sizeof(import_payload));
-          summary.import_buffer_captured_data_length +=
+          summary.pool_import_buffer_captured_data_length +=
               import_payload.data_length;
         } else if (record.header.payload_type ==
                    IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_EXECUTE) {
@@ -397,8 +442,8 @@ static ReplayRecordSummary ParseReplayRecordSummary(
         break;
       case IREE_HAL_REPLAY_FILE_RECORD_TYPE_UNSUPPORTED:
         if (record.header.operation_code ==
-            IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_IMPORT_BUFFER) {
-          ++summary.unsupported_import_buffer_record_count;
+            IREE_HAL_REPLAY_OPERATION_CODE_POOL_IMPORT_BUFFER) {
+          ++summary.unsupported_pool_import_buffer_record_count;
         } else if (record.header.operation_code ==
                    IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_EXPORT) {
           ++summary.unsupported_export_buffer_record_count;
@@ -581,20 +626,18 @@ TEST(ReplayRecorderTest, RecordsExactQueueTransferTransaction) {
       wrapped_device, /*family_ordinal=*/0, /*queue_ordinal=*/0);
   ASSERT_NE(nullptr, queue);
 
-  const iree_hal_buffer_params_t buffer_params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER |
-          IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-  };
-  iree_hal_allocator_t* allocator = iree_hal_device_allocator(wrapped_device);
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreateTestPool(wrapped_group, IREE_HAL_BUFFER_USAGE_TRANSFER,
+                                IREE_HAL_MAPPING_MODE_SCOPED,
+                                IREE_SV("replay.queue_transfer"), &pool));
   iree_hal_buffer_t* source_buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      allocator, buffer_params, /*allocation_size=*/8, &source_buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(/*allocation_size=*/8, 1),
+      iree_infinite_timeout(), &source_buffer));
   iree_hal_buffer_t* target_buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      allocator, buffer_params, /*allocation_size=*/16, &target_buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(/*allocation_size=*/16, 1),
+      iree_infinite_timeout(), &target_buffer));
 
   const uint8_t source_data[] = {0x10, 0x11, 0x12, 0x13,
                                  0x14, 0x15, 0x16, 0x17};
@@ -665,6 +708,7 @@ TEST(ReplayRecorderTest, RecordsExactQueueTransferTransaction) {
   iree_hal_semaphore_release(signal_semaphore);
   iree_hal_buffer_release(target_buffer);
   iree_hal_buffer_release(source_buffer);
+  iree_hal_pool_release(pool);
 
   IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder));
   iree_hal_replay_recorder_release(recorder);
@@ -700,17 +744,14 @@ TEST(ReplayRecorderTest, WaitfulUploadRemainsLiveAndIsMarkedUnsupported) {
       wrapped_device, /*family_ordinal=*/0, /*queue_ordinal=*/0);
   ASSERT_NE(nullptr, queue);
 
-  const iree_hal_buffer_params_t buffer_params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER |
-          IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-  };
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreateTestPool(wrapped_group, IREE_HAL_BUFFER_USAGE_TRANSFER,
+                                IREE_HAL_MAPPING_MODE_SCOPED,
+                                IREE_SV("replay.waitful_upload"), &pool));
   iree_hal_buffer_t* target_buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(wrapped_device), buffer_params,
-      /*allocation_size=*/4, &target_buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(/*allocation_size=*/4, 1),
+      iree_infinite_timeout(), &target_buffer));
 
   iree_hal_semaphore_t* wait_semaphore = nullptr;
   IREE_ASSERT_OK(iree_hal_semaphore_create(
@@ -751,6 +792,7 @@ TEST(ReplayRecorderTest, WaitfulUploadRemainsLiveAndIsMarkedUnsupported) {
   iree_hal_semaphore_release(signal_semaphore);
   iree_hal_semaphore_release(wait_semaphore);
   iree_hal_buffer_release(target_buffer);
+  iree_hal_pool_release(pool);
   IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder));
   iree_hal_device_group_release(wrapped_group);
   iree_hal_device_group_release(source_group);
@@ -825,8 +867,6 @@ TEST(ReplayRecorderTest, WrappedImportsAndExportsPreserveNativeBufferViews) {
 
   iree_hal_device_t* wrapped_device =
       iree_hal_device_group_device_at(wrapped_group, 0);
-  iree_hal_allocator_t* allocator = iree_hal_device_allocator(wrapped_device);
-  ASSERT_NE(nullptr, allocator);
 
   // Wrapper families name the same memory sites without sharing mutable
   // family objects. Pool contracts prepared before wrapping stay applicable.
@@ -849,30 +889,56 @@ TEST(ReplayRecorderTest, WrappedImportsAndExportsPreserveNativeBufferViews) {
     EXPECT_NE(source_site.family, wrapped_site.family);
   }
 
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_MAPPING |
-                 IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT |
-                 IREE_HAL_BUFFER_USAGE_SHARING_EXPORT;
-
   alignas(64) uint8_t imported_storage[16] = {0, 1, 2,  3,  4,  5,  6,  7,
                                               8, 9, 10, 11, 12, 13, 14, 15};
+  const iree_hal_external_storage_class_t host_pointer_class =
+      iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  const iree_hal_pool_import_class_t import_class = {
+      /*.storage_class=*/host_pointer_class,
+      /*.exports=*/
+      {
+          /*.class_count=*/1,
+          /*.classes=*/&host_pointer_class,
+      },
+  };
+  const iree_hal_pool_scope_t scope = {
+      /*.family_count=*/0,
+      /*.families=*/nullptr,
+      /*.host=*/
+      {
+          /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+          /*.modes=*/IREE_HAL_MAPPING_MODE_PERSISTENT,
+          /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
+      },
+  };
+  iree_hal_slab_pool_options_t pool_options;
+  iree_hal_slab_pool_options_initialize(&pool_options);
+  pool_options.owned.exports.class_count = 1;
+  pool_options.owned.exports.classes = &host_pointer_class;
+  pool_options.imports.class_count = 1;
+  pool_options.imports.classes = &import_class;
+  pool_options.trace_name = IREE_SV("replay.host_interop");
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(iree_hal_slab_pool_create(wrapped_group, scope, &pool_options,
+                                           iree_allocator_system(), &pool));
+
   iree_hal_external_storage_t external_buffer = {};
-  external_buffer.storage_class = iree_hal_make_external_storage_class(
-      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
+  external_buffer.storage_class = host_pointer_class;
   external_buffer.byte_length = sizeof(imported_storage);
   external_buffer.payload.host_pointer = imported_storage;
+  external_buffer.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
   external_buffer.maintenance_range =
       iree_hal_make_buffer_range(0, sizeof(imported_storage));
   iree_hal_buffer_t* imported_buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
-      allocator, params, &external_buffer,
+  IREE_ASSERT_OK(iree_hal_pool_import_buffer(
+      pool, &external_buffer,
       iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER), &imported_buffer));
 
   iree_hal_buffer_t* allocated_buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      allocator, params, sizeof(imported_storage), &allocated_buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(sizeof(imported_storage), 1),
+      iree_infinite_timeout(), &allocated_buffer));
   iree_hal_external_storage_t exported_buffer = {};
   iree_hal_buffer_range_t logical_range = {};
   IREE_ASSERT_OK(iree_hal_buffer_export(
@@ -910,6 +976,7 @@ TEST(ReplayRecorderTest, WrappedImportsAndExportsPreserveNativeBufferViews) {
   iree_hal_external_storage_release(&exported_buffer);
   iree_hal_buffer_release(nested_subspan);
   iree_hal_buffer_release(allocated_buffer);
+  iree_hal_pool_release(pool);
 
   IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder));
   iree_hal_replay_recorder_release(recorder);
@@ -917,16 +984,15 @@ TEST(ReplayRecorderTest, WrappedImportsAndExportsPreserveNativeBufferViews) {
   iree_hal_device_group_release(source_group);
 
   ReplayRecordSummary summary = ParseReplayRecordSummary(storage);
-  EXPECT_EQ(1u, summary.import_buffer_record_count);
-  EXPECT_EQ(1u, summary.import_buffer_payload_count);
+  EXPECT_EQ(1u, summary.pool_import_buffer_record_count);
+  EXPECT_EQ(1u, summary.pool_import_buffer_payload_count);
   EXPECT_EQ(sizeof(imported_storage),
-            summary.import_buffer_captured_data_length);
-  EXPECT_EQ(0u, summary.unsupported_import_buffer_record_count);
+            summary.pool_import_buffer_captured_data_length);
   EXPECT_EQ(2u, summary.unsupported_export_buffer_record_count);
   EXPECT_EQ(2u, summary.buffer_object_record_count);
 }
 
-TEST(ReplayRecorderTest, WrappedAllocatorRecordsBuffersAndMapping) {
+TEST(ReplayRecorderTest, WrappedPoolRecordsBuffersAndMapping) {
   std::vector<uint8_t> storage(32768, 0);
   iree_hal_replay_recorder_t* recorder = CreateHostAllocationRecorder(&storage);
 
@@ -935,18 +1001,14 @@ TEST(ReplayRecorderTest, WrappedAllocatorRecordsBuffersAndMapping) {
   IREE_ASSERT_OK(iree_hal_replay_wrap_device_group(
       recorder, source_group, iree_allocator_system(), &wrapped_group));
 
-  iree_hal_device_t* wrapped_device =
-      iree_hal_device_group_device_at(wrapped_group, 0);
-  iree_hal_allocator_t* allocator = iree_hal_device_allocator(wrapped_device);
-  ASSERT_NE(nullptr, allocator);
-
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_MAPPING;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreateTestPool(wrapped_group, IREE_HAL_BUFFER_USAGE_NONE,
+                                IREE_HAL_MAPPING_MODE_SCOPED,
+                                IREE_SV("replay.mapping"), &pool));
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(
-      iree_hal_allocator_allocate_buffer(allocator, params, 16, &buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(16, 1),
+      iree_infinite_timeout(), &buffer));
 
   iree_hal_buffer_mapping_t mapping;
   IREE_ASSERT_OK(iree_hal_buffer_map_range(
@@ -964,6 +1026,7 @@ TEST(ReplayRecorderTest, WrappedAllocatorRecordsBuffersAndMapping) {
   IREE_ASSERT_OK(iree_hal_buffer_mapping_flush_range(&mapping, 0, 16));
   IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
   iree_hal_buffer_release(buffer);
+  iree_hal_pool_release(pool);
 
   IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder));
   iree_hal_replay_recorder_release(recorder);
@@ -975,7 +1038,7 @@ TEST(ReplayRecorderTest, WrappedAllocatorRecordsBuffersAndMapping) {
   EXPECT_EQ(1u, summary.device_object_record_count);
   EXPECT_EQ(1u, summary.allocator_object_record_count);
   EXPECT_EQ(1u, summary.buffer_object_record_count);
-  EXPECT_EQ(1u, summary.allocate_buffer_record_count);
+  EXPECT_EQ(1u, summary.pool_allocate_buffer_record_count);
   EXPECT_EQ(1u, summary.buffer_map_range_record_count);
   EXPECT_EQ(1u, summary.buffer_flush_range_record_count);
   EXPECT_EQ(1u, summary.buffer_unmap_range_record_count);
@@ -999,19 +1062,14 @@ TEST(ReplayRecorderTest, PersistentWriteMapsFailLoud) {
   IREE_ASSERT_OK(iree_hal_replay_wrap_device_group(
       recorder, source_group, iree_allocator_system(), &wrapped_group));
 
-  iree_hal_device_t* wrapped_device =
-      iree_hal_device_group_device_at(wrapped_group, 0);
-  iree_hal_allocator_t* allocator = iree_hal_device_allocator(wrapped_device);
-  ASSERT_NE(nullptr, allocator);
-
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_VISIBLE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_MAPPING | IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreateTestPool(wrapped_group, IREE_HAL_BUFFER_USAGE_NONE,
+                                IREE_HAL_MAPPING_MODE_PERSISTENT,
+                                IREE_SV("replay.persistent_mapping"), &pool));
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(
-      iree_hal_allocator_allocate_buffer(allocator, params, 16, &buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(16, 1),
+      iree_infinite_timeout(), &buffer));
 
   iree_hal_buffer_mapping_t mapping;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_UNIMPLEMENTED,
@@ -1020,6 +1078,7 @@ TEST(ReplayRecorderTest, PersistentWriteMapsFailLoud) {
                             IREE_HAL_MEMORY_ACCESS_WRITE,
                             IREE_HAL_BUFFER_MAP_FLAG_NONE, 0, 16, &mapping));
   iree_hal_buffer_release(buffer);
+  iree_hal_pool_release(pool);
 
   IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder));
   iree_hal_replay_recorder_release(recorder);
@@ -1138,15 +1197,14 @@ TEST(ReplayRecorderTest, WrappedDeviceRecordsQueueExecuteWithSparseBindings) {
       wrapped_device, /*family_ordinal=*/0, /*queue_ordinal=*/0);
   ASSERT_NE(nullptr, wrapped_queue);
 
-  const iree_hal_buffer_params_t buffer_params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_WRITE,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-          IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
-  };
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreateTestPool(wrapped_group,
+                                IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET, 0,
+                                IREE_SV("replay.sparse_bindings"), &pool));
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(wrapped_device), buffer_params, 64, &buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(64, 1),
+      iree_infinite_timeout(), &buffer));
 
   iree_hal_command_buffer_t* command_buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_command_buffer_create(
@@ -1200,6 +1258,7 @@ TEST(ReplayRecorderTest, WrappedDeviceRecordsQueueExecuteWithSparseBindings) {
   iree_hal_semaphore_release(wait_semaphore);
   iree_hal_command_buffer_release(command_buffer);
   iree_hal_buffer_release(buffer);
+  iree_hal_pool_release(pool);
 
   IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder));
   iree_hal_replay_recorder_release(recorder);
@@ -1231,15 +1290,21 @@ TEST(ReplayRecorderTest, RecordsAndReplaysCommandBufferAtomicOperations) {
       wrapped_device, /*family_ordinal=*/0, /*queue_ordinal=*/0);
   ASSERT_NE(nullptr, wrapped_queue);
 
-  const iree_hal_buffer_params_t buffer_params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-          IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+  const iree_hal_atomic_operation_capabilities_t atomic_operations = {
+      /*.device_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_NONE,
+      /*.device_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAG_NONE,
+      /*.system_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE |
+          IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_XOR,
+      /*.system_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAG_WAIT,
   };
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreateTestPool(
+      wrapped_group, IREE_HAL_BUFFER_USAGE_STORAGE, 0, atomic_operations,
+      IREE_SV("replay.command_buffer_atomics"), &pool));
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(wrapped_device), buffer_params, 64, &buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(64, 8),
+      iree_infinite_timeout(), &buffer));
 
   iree_hal_command_buffer_t* command_buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_command_buffer_create(
@@ -1292,6 +1357,7 @@ TEST(ReplayRecorderTest, RecordsAndReplaysCommandBufferAtomicOperations) {
 
   iree_hal_command_buffer_release(command_buffer);
   iree_hal_buffer_release(buffer);
+  iree_hal_pool_release(pool);
   IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder));
   iree_hal_replay_recorder_release(recorder);
   iree_hal_device_group_release(wrapped_group);
@@ -1398,16 +1464,21 @@ TEST(ReplayRecorderTest, RecordsAndReplaysVersion2ExactQueueAtomicOperations) {
       wrapped_device, /*family_ordinal=*/0, /*queue_ordinal=*/0);
   ASSERT_NE(nullptr, queue);
 
-  const iree_hal_buffer_params_t buffer_params = {
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
-          IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+  const iree_hal_atomic_operation_capabilities_t atomic_operations = {
+      /*.device_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_NONE,
+      /*.device_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAG_NONE,
+      /*.system_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
+      /*.system_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAG_WAIT |
+          IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_ADD,
   };
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreateTestPool(wrapped_group, IREE_HAL_BUFFER_USAGE_STORAGE,
+                                IREE_HAL_MAPPING_MODE_SCOPED, atomic_operations,
+                                IREE_SV("replay.queue_atomics"), &pool));
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(wrapped_device), buffer_params, 64, &buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(64, 8),
+      iree_infinite_timeout(), &buffer));
   const uint64_t initial_wait_value = UINT64_MAX;
   IREE_ASSERT_OK(iree_hal_buffer_map_write(buffer, /*target_offset=*/8,
                                            &initial_wait_value,
@@ -1494,6 +1565,7 @@ TEST(ReplayRecorderTest, RecordsAndReplaysVersion2ExactQueueAtomicOperations) {
   iree_hal_semaphore_release(signal_semaphore);
   iree_hal_semaphore_release(wait_semaphore);
   iree_hal_buffer_release(buffer);
+  iree_hal_pool_release(pool);
   IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder));
   iree_hal_replay_recorder_release(recorder);
   iree_hal_device_group_release(wrapped_group);
@@ -2257,7 +2329,7 @@ TEST(ReplayRecorderVmmTest, RejectsForeignRawAndConsumedHandles) {
   ordinary_buffer_params.access = IREE_HAL_MEMORY_ACCESS_ALL;
   ordinary_buffer_params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
   IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      allocator_a, ordinary_buffer_params, /*allocation_size=*/64,
+      base_allocator_a, ordinary_buffer_params, /*allocation_size=*/64,
       &ordinary_buffer));
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,

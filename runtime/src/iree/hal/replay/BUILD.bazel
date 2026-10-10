@@ -299,23 +299,6 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
-    name = "recorder_allocator_test",
-    srcs = [
-        "recorder_allocator.h",
-        "recorder_allocator_test.cc",
-    ],
-    deps = [
-        ":format",
-        ":recorder",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/hal",
-        "//runtime/src/iree/io:file_handle",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-    ],
-)
-
-iree_runtime_cc_test(
     name = "recorder_buffer_test",
     srcs = [
         "recorder_buffer.h",
@@ -337,6 +320,22 @@ iree_cmake_extra_content(
 if(TARGET iree::hal::drivers::task::registration)
 """,
     inline = True,
+)
+
+iree_runtime_cc_test(
+    name = "recorder_pool_test",
+    srcs = ["recorder_pool_test.cc"],
+    deps = [
+        ":recorder",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/util:proactor_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/task/registration",
+        "//runtime/src/iree/io:file_handle",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
 )
 
 iree_runtime_cc_test(
