@@ -122,6 +122,23 @@ iree_cc_library(
 endif()
 
 if(IREE_HAL_DRIVER_WEBGPU)
+iree_cc_test(
+  NAME
+    webgpu_buffer_test
+  SRCS
+    "webgpu_buffer_test.cc"
+  DEPS
+    ::webgpu_buffer
+    iree::base
+    iree::hal
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=runtime.hal.webgpu"
+)
+endif()
+
+if(IREE_HAL_DRIVER_WEBGPU)
 iree_cc_library(
   NAME
     webgpu_builder
@@ -207,6 +224,7 @@ iree_cc_library(
     ::webgpu_executable
     ::webgpu_fd_file
     ::webgpu_imports
+    ::webgpu_memory
     ::webgpu_queue
     ::webgpu_semaphore
     iree::async
@@ -231,6 +249,29 @@ iree_cc_library(
     iree::base
     iree::hal
     iree::io::file_handle
+  PUBLIC
+)
+endif()
+
+if(IREE_HAL_DRIVER_WEBGPU)
+iree_cc_library(
+  NAME
+    webgpu_memory
+  HDRS
+    "webgpu_memory.h"
+  SRCS
+    "webgpu_memory.c"
+  DEPS
+    ::handle_table
+    ::webgpu_buffer
+    ::webgpu_constants
+    ::webgpu_imports
+    iree::async
+    iree::base
+    iree::hal
+    iree::hal::memory::maintenance
+    iree::hal::memory::passthrough_pool
+    iree::hal::memory::tracing
   PUBLIC
 )
 endif()

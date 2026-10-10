@@ -28,6 +28,7 @@ TEST(BufferBindingTest, PublishesEveryInterfaceAndPreservesNativeFacts) {
       IREE_HAL_BUFFER_INTERFACE_RDMA,
       IREE_HAL_BUFFER_INTERFACE_REGISTERED_IO,
       IREE_HAL_BUFFER_INTERFACE_REMOTE,
+      IREE_HAL_BUFFER_INTERFACE_WEBGPU_BUFFER,
   };
   struct NativeTable {
     // Generic representations copied and translated by the shared publisher.
@@ -43,6 +44,7 @@ TEST(BufferBindingTest, PublishesEveryInterfaceAndPreservesNativeFacts) {
   source.bindings[5].rdma = {0x4000, 11, 22};
   source.bindings[6].registered_io = {storage, 33, 128};
   source.bindings[7].remote = {44, 256};
+  source.bindings[8].webgpu = {55, 512};
   source.native_facts = 0x123456789ABCDEF0;
   const iree_hal_buffer_binding_layout_t layout = {
       sizeof(source), IREE_ARRAYSIZE(types), 0, types};
@@ -64,6 +66,8 @@ TEST(BufferBindingTest, PublishesEveryInterfaceAndPreservesNativeFacts) {
   EXPECT_EQ(target.bindings[6].registered_io.offset, 144u);
   EXPECT_EQ(target.bindings[7].remote.object_id, 44u);
   EXPECT_EQ(target.bindings[7].remote.offset, 272u);
+  EXPECT_EQ(target.bindings[8].webgpu.buffer, 55u);
+  EXPECT_EQ(target.bindings[8].webgpu.offset, 528u);
   EXPECT_EQ(target.native_facts, source.native_facts);
 
   // A resource without an optional raw address does not acquire one merely

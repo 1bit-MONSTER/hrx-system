@@ -130,7 +130,7 @@ static iree_status_t iree_hal_slab_pool_validate_scope(
         iree_hal_device_group_resolve_memory_scope(group, site, &resolved));
     if (iree_any_bit_set(access->usage, ~(IREE_HAL_BUFFER_USAGE_TRANSFER |
                                           IREE_HAL_BUFFER_USAGE_DISPATCH)) ||
-        (access->interfaces >> 8) ||
+        (access->interfaces >> IREE_HAL_BUFFER_INTERFACE_COUNT) ||
         iree_any_bit_set(access->requirements,
                          ~(IREE_HAL_POOL_ACCESS_REQUIRE_COHERENT_WITH_HOST |
                            IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED)) ||

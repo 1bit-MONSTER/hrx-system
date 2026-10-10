@@ -135,7 +135,7 @@ typedef struct iree_hal_memory_scope_access_t {
   // Prepared representations; zero identifies an excluded site.
   uint32_t interfaces;
   // Prepared slot per native interface, or NATIVE_BINDING_INDEX_NONE.
-  uint16_t bindings[8];
+  uint16_t bindings[IREE_HAL_BUFFER_INTERFACE_COUNT];
 } iree_hal_memory_scope_access_t;
 
 // Shared cold metadata retained by pools; buffers borrow it from their owner.

@@ -122,6 +122,18 @@ iree_runtime_cc_library(
     ],
 )
 
+iree_runtime_cc_test(
+    name = "webgpu_buffer_test",
+    srcs = ["webgpu_buffer_test.cc"],
+    deps = [
+        ":webgpu_buffer",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 iree_runtime_cc_library(
     name = "webgpu_builder",
     srcs = ["webgpu_builder.c"],
@@ -182,6 +194,7 @@ iree_runtime_cc_library(
         ":webgpu_executable",
         ":webgpu_fd_file",
         ":webgpu_imports",
+        ":webgpu_memory",
         ":webgpu_queue",
         ":webgpu_semaphore",
         "//runtime/src/iree/async",
@@ -201,6 +214,24 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/io:file_handle",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "webgpu_memory",
+    srcs = ["webgpu_memory.c"],
+    hdrs = ["webgpu_memory.h"],
+    deps = [
+        ":handle_table",
+        ":webgpu_buffer",
+        ":webgpu_constants",
+        ":webgpu_imports",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/memory:maintenance",
+        "//runtime/src/iree/hal/memory:passthrough_pool",
+        "//runtime/src/iree/hal/memory:tracing",
     ],
 )
 

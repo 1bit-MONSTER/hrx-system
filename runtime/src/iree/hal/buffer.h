@@ -896,6 +896,8 @@ typedef enum iree_hal_buffer_interface_e {
   IREE_HAL_BUFFER_INTERFACE_RDMA = 5,
   IREE_HAL_BUFFER_INTERFACE_REGISTERED_IO = 6,
   IREE_HAL_BUFFER_INTERFACE_REMOTE = 7,
+  IREE_HAL_BUFFER_INTERFACE_WEBGPU_BUFFER = 8,
+  IREE_HAL_BUFFER_INTERFACE_COUNT = 9,
 } iree_hal_buffer_interface_t;
 
 // Prepared native identity. The access contract fixes the payload for each
@@ -913,6 +915,13 @@ typedef union iree_hal_buffer_native_binding_t {
     // Byte offset within the native resource.
     uint64_t offset;
   } vulkan;
+  // WebGPU resource identity and view position.
+  struct {
+    // Native GPUBuffer bridge handle.
+    uint64_t buffer;
+    // Byte offset within the native resource.
+    uint64_t offset;
+  } webgpu;
   // Registration prepared for one exact endpoint.
   struct {
     // IOVA of the view's first byte.

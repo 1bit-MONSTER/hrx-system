@@ -20,6 +20,15 @@ extern "C" {
 // iree_hal_webgpu_buffer_t
 //===----------------------------------------------------------------------===//
 
+enum iree_hal_webgpu_buffer_binding_e {
+  IREE_HAL_WEBGPU_BUFFER_BINDING_RESOURCE = 0,
+  IREE_HAL_WEBGPU_BUFFER_BINDING_COUNT = 1,
+};
+
+// Returns the native binding table layout published by WebGPU buffers.
+const iree_hal_buffer_binding_layout_t* iree_hal_webgpu_buffer_binding_layout(
+    void);
+
 // Wraps a WebGPU GPUBuffer (referenced by bridge handle) as an IREE HAL
 // buffer. The buffer tracks its bridge handle and maintains a shadow buffer
 // in wasm linear memory for host-side mapping operations.
@@ -53,40 +62,7 @@ iree_status_t iree_hal_webgpu_buffer_create(
     iree_hal_webgpu_handle_t buffer_handle, bool mapped_at_creation,
     iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
 
-// Creates a buffer wrapper without a GPU buffer (handle = 0).
-//
-// Used by queue_alloca to return a valid iree_hal_buffer_t* immediately. The
-// buffer has no GPU backing yet — its contents are undefined and it must not
-// be used in GPU operations until iree_hal_webgpu_buffer_bind is called.
-// The buffer's memory_type, allowed_usage, and allocation_size are stored for
-// use by bind when creating the actual GPU buffer.
-iree_status_t iree_hal_webgpu_buffer_create_stub(
-    iree_hal_buffer_placement_t placement, iree_hal_memory_type_t memory_type,
-    iree_hal_memory_access_t allowed_access,
-    iree_hal_buffer_usage_t allowed_usage, iree_device_size_t allocation_size,
-    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
-
-// Assigns a GPU buffer to a stub created with
-// iree_hal_webgpu_buffer_create_stub.
-//
-// Creates a GPUBuffer via the bridge using the buffer's stored memory_type,
-// allowed_usage, and allocation_size. The buffer transitions from unbound
-// (handle = 0) to bound. Must only be called once on a stub buffer.
-//
-// For future pool allocators, this is where pool acquisition would happen
-// instead of fresh buffer creation.
-iree_status_t iree_hal_webgpu_buffer_bind(
-    iree_hal_buffer_t* buffer, iree_hal_webgpu_handle_t device_handle);
-
-// Detaches and destroys the GPU buffer, setting the handle to 0.
-//
-// After unbinding, the iree_hal_webgpu_buffer_t C wrapper remains valid but
-// has no GPU backing. The GPU memory is freed (or returned to pool in a
-// future pooled allocator). Must only be called on a bound buffer.
-void iree_hal_webgpu_buffer_unbind(iree_hal_buffer_t* buffer);
-
 // Returns the WebGPU bridge handle for the underlying GPUBuffer.
-// Returns 0 for unbound stub buffers.
 iree_hal_webgpu_handle_t iree_hal_webgpu_buffer_handle(
     const iree_hal_buffer_t* buffer);
 

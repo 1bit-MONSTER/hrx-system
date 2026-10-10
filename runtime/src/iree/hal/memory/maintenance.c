@@ -148,3 +148,69 @@ bool iree_hal_memory_maintenance_run_one(
   IREE_TRACE_ZONE_END(z0);
   return true;
 }
+
+//===----------------------------------------------------------------------===//
+// Inline owner
+//===----------------------------------------------------------------------===//
+
+typedef struct iree_hal_memory_maintenance_inline_t {
+  // Shared intrusive work queue.
+  iree_hal_memory_maintenance_t base;
+  // Allocator for this owner.
+  iree_allocator_t host_allocator;
+  // Selects one enqueueing thread to drain at a time.
+  iree_atomic_int32_t draining;
+} iree_hal_memory_maintenance_inline_t;
+
+static void iree_hal_memory_maintenance_inline_wake(
+    iree_hal_memory_maintenance_t* base_maintenance) {
+  iree_hal_memory_maintenance_inline_t* maintenance =
+      (iree_hal_memory_maintenance_inline_t*)base_maintenance;
+  if (iree_atomic_exchange(&maintenance->draining, 1,
+                           iree_memory_order_acq_rel)) {
+    return;
+  }
+  while (true) {
+    while (iree_hal_memory_maintenance_run_one(base_maintenance)) {
+    }
+    iree_atomic_store(&maintenance->draining, 0, iree_memory_order_release);
+    if (!iree_hal_memory_maintenance_has_work(base_maintenance) ||
+        iree_atomic_exchange(&maintenance->draining, 1,
+                             iree_memory_order_acq_rel)) {
+      break;
+    }
+  }
+}
+
+static void iree_hal_memory_maintenance_inline_destroy(
+    iree_hal_memory_maintenance_t* base_maintenance) {
+  iree_hal_memory_maintenance_inline_t* maintenance =
+      (iree_hal_memory_maintenance_inline_t*)base_maintenance;
+  IREE_ASSERT(
+      !iree_atomic_load(&maintenance->draining, iree_memory_order_acquire));
+  iree_allocator_t host_allocator = maintenance->host_allocator;
+  iree_hal_memory_maintenance_deinitialize(base_maintenance);
+  iree_allocator_free(host_allocator, maintenance);
+}
+
+static const iree_hal_memory_maintenance_vtable_t
+    iree_hal_memory_maintenance_inline_vtable = {
+        .destroy = iree_hal_memory_maintenance_inline_destroy,
+        .wake = iree_hal_memory_maintenance_inline_wake,
+};
+
+iree_status_t iree_hal_memory_maintenance_inline_create(
+    iree_allocator_t host_allocator,
+    iree_hal_memory_maintenance_t** out_maintenance) {
+  IREE_ASSERT_ARGUMENT(out_maintenance);
+  *out_maintenance = NULL;
+  iree_hal_memory_maintenance_inline_t* maintenance = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+      host_allocator, sizeof(*maintenance), (void**)&maintenance));
+  iree_hal_memory_maintenance_initialize(
+      &iree_hal_memory_maintenance_inline_vtable, &maintenance->base);
+  maintenance->host_allocator = host_allocator;
+  maintenance->draining = IREE_ATOMIC_VAR_INIT(0);
+  *out_maintenance = &maintenance->base;
+  return iree_ok_status();
+}

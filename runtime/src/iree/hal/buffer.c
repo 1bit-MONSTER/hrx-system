@@ -305,6 +305,9 @@ static iree_hal_buffer_native_binding_t iree_hal_buffer_offset_native_binding(
     case IREE_HAL_BUFFER_INTERFACE_VULKAN_BUFFER:
       binding.vulkan.offset += offset;
       break;
+    case IREE_HAL_BUFFER_INTERFACE_WEBGPU_BUFFER:
+      binding.webgpu.offset += offset;
+      break;
     case IREE_HAL_BUFFER_INTERFACE_RDMA:
       binding.rdma.address += offset;
       break;
@@ -313,6 +316,9 @@ static iree_hal_buffer_native_binding_t iree_hal_buffer_offset_native_binding(
       break;
     case IREE_HAL_BUFFER_INTERFACE_REMOTE:
       binding.remote.offset += offset;
+      break;
+    case IREE_HAL_BUFFER_INTERFACE_COUNT:
+      IREE_ASSERT_UNREACHABLE("interface count is not a native interface");
       break;
   }
   return binding;

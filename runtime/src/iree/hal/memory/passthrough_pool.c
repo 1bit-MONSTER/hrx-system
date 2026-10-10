@@ -210,6 +210,18 @@ static void iree_hal_passthrough_pool_destroy(iree_hal_pool_t* base_pool);
 static const char* IREE_HAL_PASSTHROUGH_POOL_TRACE_ID =
     "iree-hal-passthrough-pool";
 
+// Returns a process-local tracing identity without interpreting opaque device
+// storage as an address. Device providers may intentionally leave base_ptr
+// null and use only provider_handle.
+static void* iree_hal_passthrough_pool_trace_address(
+    const iree_hal_slab_t* slab, iree_device_size_t offset) {
+  uintptr_t base = (uintptr_t)slab->base_ptr;
+  if (!base) {
+    base = (uintptr_t)slab->provider_handle;
+  }
+  return base ? (void*)(base + (uintptr_t)offset) : NULL;
+}
+
 //===----------------------------------------------------------------------===//
 // Reservation state helpers
 //===----------------------------------------------------------------------===//
@@ -347,8 +359,9 @@ static void iree_hal_passthrough_pool_reservation_state_release_reservation(
       iree_hal_asan_pool_options_is_enabled(&pool->asan_options)
           ? reservation_state->asan_layout.user_offset
           : 0;
-  iree_hal_memory_trace_free(&pool->trace,
-                             allocation->slab.base_ptr + user_offset);
+  iree_hal_memory_trace_free(
+      &pool->trace,
+      iree_hal_passthrough_pool_trace_address(&allocation->slab, user_offset));
   iree_atomic_fetch_add(&pool->bytes_reserved,
                         -(int64_t)allocation->charged_length,
                         iree_memory_order_relaxed);
@@ -631,7 +644,8 @@ static void iree_hal_passthrough_pool_imported_buffer_release(
   iree_hal_passthrough_pool_t* pool =
       (iree_hal_passthrough_pool_t*)allocation->pool;
   iree_hal_memory_trace_free(&pool->trace,
-                             allocation->slab.base_ptr + buffer->byte_offset);
+                             iree_hal_passthrough_pool_trace_address(
+                                 &allocation->slab, buffer->byte_offset));
   iree_slim_mutex_lock(&pool->retirement_mutex);
   IREE_ASSERT_EQ(allocation->retirement_state,
                  IREE_HAL_PASSTHROUGH_POOL_RETIREMENT_LIVE);
@@ -766,7 +780,9 @@ static iree_status_t iree_hal_passthrough_pool_import_buffer(
     pool->allocation_head = allocation;
     iree_slim_mutex_unlock(&pool->retirement_mutex);
     iree_hal_memory_trace_alloc(
-        &pool->trace, allocation->slab.base_ptr + logical_range.byte_offset,
+        &pool->trace,
+        iree_hal_passthrough_pool_trace_address(&allocation->slab,
+                                                logical_range.byte_offset),
         logical_range.byte_length);
     *out_buffer = buffer;
   } else {
@@ -911,9 +927,10 @@ static iree_status_t iree_hal_passthrough_pool_acquire_one_reservation(
   pool->allocation_head = allocation;
   iree_slim_mutex_unlock(&pool->retirement_mutex);
 
-  iree_hal_memory_trace_alloc(
-      &pool->trace, allocation->slab.base_ptr + out_reservation->offset,
-      out_reservation->byte_length);
+  iree_hal_memory_trace_alloc(&pool->trace,
+                              iree_hal_passthrough_pool_trace_address(
+                                  &allocation->slab, out_reservation->offset),
+                              out_reservation->byte_length);
 
   memset(out_info, 0, sizeof(*out_info));
   out_info->result = IREE_HAL_POOL_ACQUIRE_OK_FRESH;
@@ -933,7 +950,8 @@ static void iree_hal_passthrough_pool_rollback_reservation(
           ? reservation_state->asan_layout.user_offset
           : 0;
   iree_hal_memory_trace_free(
-      &pool->trace, reservation_state->allocation.slab.base_ptr + user_offset);
+      &pool->trace, iree_hal_passthrough_pool_trace_address(
+                        &reservation_state->allocation.slab, user_offset));
   iree_atomic_fetch_add(&pool->bytes_reserved,
                         -(int64_t)reservation_state->allocation.charged_length,
                         iree_memory_order_relaxed);

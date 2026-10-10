@@ -7,6 +7,7 @@
 #include "iree/hal/drivers/webgpu/webgpu_device.h"
 
 #include "iree/async/frontier_tracker.h"
+#include "iree/async/notification.h"
 #include "iree/async/util/proactor_pool.h"
 #include "iree/hal/drivers/webgpu/webgpu_allocator.h"
 #include "iree/hal/drivers/webgpu/webgpu_builtins.h"
@@ -14,6 +15,7 @@
 #include "iree/hal/drivers/webgpu/webgpu_executable.h"
 #include "iree/hal/drivers/webgpu/webgpu_fd_file.h"
 #include "iree/hal/drivers/webgpu/webgpu_imports.h"
+#include "iree/hal/drivers/webgpu/webgpu_memory.h"
 #include "iree/hal/drivers/webgpu/webgpu_queue.h"
 #include "iree/hal/drivers/webgpu/webgpu_semaphore.h"
 #include "iree/hal/utils/device_spec_builder.h"
@@ -29,6 +31,9 @@ typedef struct iree_hal_webgpu_device_t {
 
   iree_allocator_t host_allocator;
   iree_hal_allocator_t* device_allocator;
+
+  // Native resources exposed to explicit slab-pool construction.
+  iree_hal_webgpu_memory_backend_t memory_backend;
 
   // Flags controlling ownership and behavior.
   iree_hal_webgpu_device_flags_t flags;
@@ -85,6 +90,15 @@ static iree_hal_webgpu_device_t* iree_hal_webgpu_device_cast(
   return (iree_hal_webgpu_device_t*)base_value;
 }
 
+static bool iree_hal_webgpu_device_query_pool_epoch(void* user_data,
+                                                    iree_async_axis_t axis,
+                                                    uint64_t epoch) {
+  iree_hal_webgpu_device_t* device = user_data;
+  return device->queue.frontier_tracker &&
+         iree_async_frontier_tracker_query_epoch(device->queue.frontier_tracker,
+                                                 axis, epoch);
+}
+
 static iree_status_t iree_hal_webgpu_device_spec_create(
     iree_string_view_t identifier, iree_allocator_t host_allocator,
     iree_hal_device_spec_t** out_device_spec) {
@@ -130,11 +144,46 @@ static iree_status_t iree_hal_webgpu_device_spec_create(
       .families = &queue_family,
       .flags = IREE_HAL_DEVICE_QUEUE_SPEC_FLAG_NONE,
   };
+  const iree_hal_memory_heap_spec_t memory_heaps[] = {
+      {
+          .name = IREE_SV("WebGPU device memory"),
+          .capacity_bytes = 0,
+          .allocation_granularity = 4,
+          .allocation_alignment = IREE_HAL_WEBGPU_SLAB_ALIGNMENT,
+          .maximum_allocation_size = 0,
+          .physical_device_affinity = 1ull,
+          .flags =
+              IREE_HAL_MEMORY_HEAP_SPEC_FLAG_CAPACITY_UNKNOWN |
+              IREE_HAL_MEMORY_HEAP_SPEC_FLAG_MAXIMUM_ALLOCATION_SIZE_UNKNOWN,
+      },
+  };
+  const iree_hal_memory_type_spec_t memory_types[] = {
+      {
+          .heap_index = 0,
+          .memory_type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+          .allowed_buffer_usage =
+              IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
+          .allowed_memory_access = IREE_HAL_MEMORY_ACCESS_NONE,
+          .minimum_alignment = IREE_HAL_WEBGPU_SLAB_ALIGNMENT,
+          .optimal_transfer_granularity = 4,
+          .flags = IREE_HAL_MEMORY_TYPE_SPEC_FLAG_NONE,
+      },
+  };
+  const iree_hal_device_memory_spec_t memory = {
+      .heap_count = IREE_ARRAYSIZE(memory_heaps),
+      .heaps = memory_heaps,
+      .memory_type_count = IREE_ARRAYSIZE(memory_types),
+      .memory_types = memory_types,
+      .flags = IREE_HAL_DEVICE_MEMORY_SPEC_FLAG_NONE,
+  };
 
   iree_hal_device_spec_builder_t builder;
   iree_hal_device_spec_builder_initialize(host_allocator, &builder);
   iree_status_t status =
       iree_hal_device_spec_builder_set_identity(&builder, &identity);
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_device_spec_builder_set_memory(&builder, &memory);
+  }
   if (iree_status_is_ok(status)) {
     status = iree_hal_device_spec_builder_set_queues(&builder, &queues);
   }
@@ -184,6 +233,15 @@ iree_status_t iree_hal_webgpu_device_create(
   iree_status_t status =
       iree_async_proactor_pool_get(device->proactor_pool, 0, &proactor);
   if (iree_status_is_ok(status)) {
+    status = iree_async_notification_create(
+        proactor, IREE_ASYNC_NOTIFICATION_FLAG_NONE,
+        &device->memory_backend.notification);
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_memory_maintenance_inline_create(
+        host_allocator, &device->memory_backend.maintenance);
+  }
+  if (iree_status_is_ok(status)) {
     status = iree_hal_webgpu_device_spec_create(identifier, host_allocator,
                                                 &device->device_spec);
   }
@@ -218,6 +276,16 @@ iree_status_t iree_hal_webgpu_device_create(
   if (iree_status_is_ok(status)) {
     status = iree_hal_webgpu_allocator_create(device_handle, host_allocator,
                                               &device->device_allocator);
+  }
+
+  if (iree_status_is_ok(status)) {
+    device->memory_backend.device = (iree_hal_device_t*)device;
+    device->memory_backend.device_handle = device_handle;
+    device->memory_backend.epoch_query = (iree_hal_pool_epoch_query_t){
+        .fn = iree_hal_webgpu_device_query_pool_epoch,
+        .user_data = device,
+    };
+    iree_hal_webgpu_memory_backend_initialize(&device->memory_backend);
   }
 
   if (iree_status_is_ok(status)) {
@@ -273,6 +341,8 @@ static void iree_hal_webgpu_device_destroy(iree_hal_device_t* base_device) {
     device->queue_count = 0;
   }
   iree_hal_webgpu_builtins_deinitialize(&device->builtins);
+  iree_hal_memory_maintenance_release(device->memory_backend.maintenance);
+  iree_async_notification_release(device->memory_backend.notification);
   iree_hal_channel_provider_release(device->channel_provider);
   iree_hal_device_spec_release(device->device_spec);
   iree_async_proactor_pool_release(device->proactor_pool);
@@ -327,6 +397,11 @@ static const iree_hal_device_spec_t* iree_hal_webgpu_device_spec(
     iree_hal_device_t* base_device) {
   iree_hal_webgpu_device_t* device = iree_hal_webgpu_device_cast(base_device);
   return device->device_spec;
+}
+
+static const iree_hal_memory_backend_t* iree_hal_webgpu_device_memory_backend(
+    iree_hal_device_t* base_device) {
+  return &iree_hal_webgpu_device_cast(base_device)->memory_backend.base;
 }
 
 static const iree_hal_queue_family_t* iree_hal_webgpu_device_queue_family(
@@ -561,4 +636,5 @@ static const iree_hal_device_vtable_t iree_hal_webgpu_device_vtable = {
     .profiling_begin = iree_hal_webgpu_device_profiling_begin,
     .profiling_flush = iree_hal_webgpu_device_profiling_flush,
     .profiling_end = iree_hal_webgpu_device_profiling_end,
+    .memory_backend = iree_hal_webgpu_device_memory_backend,
 };

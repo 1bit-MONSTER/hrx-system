@@ -274,6 +274,18 @@ iree_cc_library(
   PUBLIC
 )
 
+iree_cc_test(
+  NAME
+    maintenance_test
+  SRCS
+    "maintenance_test.cc"
+  DEPS
+    ::maintenance
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
 iree_cc_library(
   NAME
     maintenance_thread
