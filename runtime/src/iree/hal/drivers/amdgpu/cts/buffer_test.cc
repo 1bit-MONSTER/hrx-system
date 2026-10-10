@@ -11,8 +11,6 @@
 
 #include "iree/hal/api.h"
 #include "iree/hal/cts/util/test_base.h"
-#include "iree/hal/memory/cpu_slab_provider.h"
-#include "iree/hal/memory/passthrough_pool.h"
 #include "iree/hal/memory/tlsf_pool.h"
 
 namespace iree::hal::cts {
@@ -287,40 +285,6 @@ TEST_P(AmdgpuBufferTest, NativeBindingsExecuteFromInteriorPoolRanges) {
           deallocated, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
     }
   }
-}
-
-TEST_P(AmdgpuBufferTest, QueueAllocationRejectsUnregisteredHostStorage) {
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      device_, iree_hal_queue_family(transfer_queue_), &backend));
-  iree_hal_slab_provider_t* provider = nullptr;
-  IREE_ASSERT_OK(iree_hal_cpu_slab_provider_create(64, iree_allocator_system(),
-                                                   &provider));
-  Ref<iree_hal_pool_t> source;
-  iree_status_t status = iree_hal_passthrough_pool_create(
-      {}, provider, backend.notification, backend.frontier_tracker,
-      backend.maintenance, iree_allocator_system(), source.out());
-  iree_hal_slab_provider_release(provider);
-  IREE_ASSERT_OK(status);
-  const iree_hal_pool_reservation_request_t request =
-      iree_hal_make_pool_reservation_request(/*allocation_size=*/256,
-                                             /*min_alignment=*/0);
-  Ref<iree_hal_buffer_t> buffer;
-  SemaphoreList allocated(device_, {0}, {1});
-  // Native growth executes asynchronously on the captured maintenance owner.
-  // Its ordinary CPU buffer is rejected before any GPU address is published.
-  IREE_ASSERT_OK(
-      iree_hal_queue_alloca(transfer_queue_, iree_hal_semaphore_list_empty(),
-                            allocated, source, 1, &request, buffer.out()));
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      iree_hal_semaphore_list_wait(allocated, iree_infinite_timeout(),
-                                   IREE_ASYNC_WAIT_FLAG_NONE));
-  EXPECT_EQ(
-      buffer.get()->memory.bindings[kDeviceAddressSlot.index].device_address,
-      0u);
-  buffer.reset();
-  source.reset();
 }
 
 TEST(AmdgpuBufferNativeTest, HostMappingAndExportUseIndependentHostAddress) {

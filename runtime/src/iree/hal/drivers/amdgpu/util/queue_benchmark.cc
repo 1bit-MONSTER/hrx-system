@@ -29,8 +29,8 @@
 #include "iree/hal/drivers/amdgpu/semaphore.h"
 #include "iree/hal/drivers/amdgpu/target/selection.h"
 #include "iree/hal/drivers/amdgpu/util/benchmark_flags.h"
-#include "iree/hal/memory/passthrough_pool.h"
 #include "iree/hal/memory/tlsf_pool.h"
+#include "iree/hal/slab_pool.h"
 #include "iree/io/file_contents.h"
 
 IREE_FLAG(
@@ -743,27 +743,26 @@ class QueueBenchmark : public benchmark::Fixture {
   iree_status_t CreateQueueAllocaTlsfPool(iree_device_size_t allocation_size,
                                           iree_hal_pool_t** out_pool) {
     *out_pool = nullptr;
-    iree_hal_queue_pool_backend_t backend = {0};
-    IREE_RETURN_IF_ERROR(iree_hal_device_query_queue_pool_backend(
-        device_, iree_hal_queue_family(queue0_), &backend));
-    if (!backend.slab_provider || !backend.notification) {
-      return iree_make_status(
-          IREE_STATUS_FAILED_PRECONDITION,
-          "queue pool backend query returned an incomplete backend bundle");
-    }
-
     iree_hal_tlsf_pool_options_t options = {};
     options.tlsf_options.range_length = allocation_size;
     options.tlsf_options.alignment = kPayloadBufferAlignment;
     options.tlsf_options.initial_block_capacity = 16;
     options.tlsf_options.frontier_capacity = 2;
-    iree_hal_passthrough_pool_options_t backing_options = {};
-    backing_options.epoch_query = iree_hal_pool_epoch_query_null();
+    const iree_hal_pool_family_access_t family_access = {
+        /*.family=*/iree_hal_queue_family(queue0_),
+        /*.usage=*/kQueueAllocaBufferParams.usage,
+    };
+    const iree_hal_pool_scope_t scope = {
+        /*.family_count=*/1,
+        /*.families=*/&family_access,
+    };
+    iree_hal_slab_pool_options_t backing_options;
+    iree_hal_slab_pool_options_initialize(&backing_options);
+    backing_options.trace_name = IREE_SV("amdgpu.queue_benchmark");
     iree_hal_pool_t* backing_pool = nullptr;
-    IREE_RETURN_IF_ERROR(iree_hal_passthrough_pool_create(
-        backing_options, backend.slab_provider, backend.notification,
-        backend.frontier_tracker, backend.maintenance, host_allocator_,
-        &backing_pool));
+    IREE_RETURN_IF_ERROR(
+        iree_hal_slab_pool_create(device_group_, scope, &backing_options,
+                                  host_allocator_, &backing_pool));
     iree_status_t status = iree_hal_tlsf_pool_create(backing_pool, &options,
                                                      host_allocator_, out_pool);
     iree_hal_pool_release(backing_pool);

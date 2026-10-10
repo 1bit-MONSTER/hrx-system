@@ -8,6 +8,7 @@
 #include <cstdint>
 
 #include "iree/hal/api.h"
+#include "iree/hal/cts/util/pool_test_util.h"
 #include "iree/hal/drivers/amdgpu/buffer.h"
 #include "iree/hal/drivers/amdgpu/executable.h"
 #include "iree/hal/drivers/amdgpu/host_queue_command_buffer_profiling_test_util.h"
@@ -15,7 +16,6 @@
 #include "iree/hal/drivers/amdgpu/physical_device.h"
 #include "iree/hal/drivers/amdgpu/pm4_command_buffer.h"
 #include "iree/hal/drivers/amdgpu/util/pm4_emitter.h"
-#include "iree/hal/memory/passthrough_pool.h"
 #include "iree/hal/memory/tlsf_pool.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -272,16 +272,11 @@ TEST_F(PM4CommandDispatchTest, StaticParametersUseNativePacketAndRetainBuffer) {
 TEST_F(PM4CommandDispatchTest, WritesInteriorOfNestedQueuedArena) {
   using iree::hal::cts::SemaphoreList;
   iree_hal_queue_t* queue = test_device_.queue();
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      test_device_.base_device(), iree_hal_queue_family(queue), &backend));
-  iree_hal_passthrough_pool_options_t source_options = {};
-  source_options.epoch_query = backend.epoch_query;
   Ref<iree_hal_pool_t> source;
-  IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-      source_options, backend.slab_provider, backend.notification,
-      backend.frontier_tracker, backend.maintenance, host_allocator_,
-      source.out()));
+  IREE_ASSERT_OK(iree::hal::cts::CreateQueueSlabPool(
+      test_device_.device_group(), iree_hal_queue_family(queue),
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      host_allocator_, source.out()));
   iree_hal_buffer_params_t params = {};
   params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
   params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;

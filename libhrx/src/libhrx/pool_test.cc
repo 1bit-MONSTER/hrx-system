@@ -16,9 +16,6 @@ class CpuPoolTest : public ::testing::Test {
     IREE_ASSERT_OK(hrx_status_to_iree(hrx_cpu_initialize(/*flags=*/0)));
     IREE_ASSERT_OK(
         hrx_status_to_iree(hrx_cpu_device_get(/*index=*/0, &device_)));
-    IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-        device_->hal_device, iree_hal_queue_family(device_->transfer_queue),
-        &backend_));
   }
 
   void TearDown() override {
@@ -28,14 +25,16 @@ class CpuPoolTest : public ::testing::Test {
   void WaitForMaintenance() {
     // Producers have stopped. Join child returns and the cache/native work
     // they enqueue before observing retention or changing the trim phase.
+    iree_hal_memory_maintenance_t* maintenance =
+        device_->mem_pool_backing.cache->maintenance;
     iree_hal_memory_maintenance_call(
-        backend_.maintenance,
+        maintenance,
         [](void* user_data) {
           auto* owner = static_cast<iree_hal_memory_maintenance_t*>(user_data);
           while (iree_hal_memory_maintenance_run_one(owner)) {
           }
         },
-        backend_.maintenance);
+        maintenance);
   }
 
   iree_hal_pool_stats_t BackingStats() {
@@ -46,8 +45,6 @@ class CpuPoolTest : public ::testing::Test {
 
   // CPU device supplying backing storage for the pools under test.
   hrx_device_t device_ = nullptr;
-  // Borrowed memory and progress sources from the device's transfer family.
-  iree_hal_queue_pool_backend_t backend_ = {};
 };
 
 TEST_F(CpuPoolTest, MemoryPoolServesSmallAndLargeBuffersFromOneAllocator) {

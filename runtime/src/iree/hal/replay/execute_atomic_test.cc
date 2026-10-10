@@ -15,7 +15,6 @@
 #include "iree/async/frontier_tracker.h"
 #include "iree/async/util/proactor_pool.h"
 #include "iree/hal/drivers/task/registration/driver_module.h"
-#include "iree/hal/memory/passthrough_pool.h"
 #include "iree/hal/replay/file_reader.h"
 #include "iree/hal/replay/file_writer.h"
 #include "iree/hal/slab_pool.h"
@@ -1668,16 +1667,19 @@ TEST(ReplayExecutorLifecycleTest,
       iree_hal_device_queue(device, /*family_ordinal=*/0, /*queue_ordinal=*/0);
   ASSERT_NE(nullptr, queue);
 
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      device, iree_hal_queue_family(queue), &backend));
-  iree_hal_passthrough_pool_options_t pool_options = {};
-  pool_options.asan = backend.asan;
+  const iree_hal_pool_family_access_t family_access = {
+      /*.family=*/iree_hal_queue_family(queue),
+      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+  };
+  const iree_hal_pool_scope_t pool_scope = {
+      /*.family_count=*/1,
+      /*.families=*/&family_access,
+  };
+  iree_hal_slab_pool_options_t pool_options;
+  iree_hal_slab_pool_options_initialize(&pool_options);
   iree_hal_pool_t* pool = nullptr;
-  IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-      pool_options, backend.slab_provider, backend.notification,
-      backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
-      &pool));
+  IREE_ASSERT_OK(iree_hal_slab_pool_create(
+      device_group, pool_scope, &pool_options, iree_allocator_system(), &pool));
 
   iree_hal_semaphore_t* signal_semaphore = nullptr;
   IREE_ASSERT_OK(iree_hal_semaphore_create(

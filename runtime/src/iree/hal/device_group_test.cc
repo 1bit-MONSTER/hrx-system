@@ -244,22 +244,6 @@ TEST(DeviceGroupBuilder, FailedTopologyAssignmentClearsAssignedDevices) {
   iree_hal_device_release(device_a);
 }
 
-// Queue pool backends expose driver internals that rely on group-assigned
-// frontier/topology state.
-TEST(Device, QueryQueuePoolBackendRequiresDeviceGroup) {
-  iree_hal_device_spec_t* spec = CreateTestDeviceSpec("mock", 0, 0);
-  iree_hal_device_t* device = CreateMockDeviceWithSpec("mock", spec);
-  iree_hal_device_spec_release(spec);
-
-  iree_hal_queue_pool_backend_t backend;
-  iree_status_t status = iree_hal_device_query_queue_pool_backend(
-      device, iree_hal_device_queue_family(device, 0), &backend);
-  EXPECT_THAT(status, StatusIs(iree::StatusCode::kFailedPrecondition));
-  iree_status_ignore(status);
-
-  iree_hal_device_release(device);
-}
-
 //===----------------------------------------------------------------------===//
 // Single-device group tests
 //===----------------------------------------------------------------------===//

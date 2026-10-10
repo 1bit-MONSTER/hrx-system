@@ -1099,7 +1099,6 @@ iree_cc_binary_benchmark(
     iree::hal::drivers::amdgpu::headers
     iree::hal::drivers::amdgpu::registration
     iree::hal::drivers::amdgpu::target::selection
-    iree::hal::memory::passthrough_pool
     iree::hal::memory::tlsf_pool
     iree::io::file_handle
     iree::third_party::google_benchmark

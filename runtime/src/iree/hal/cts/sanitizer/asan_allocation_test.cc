@@ -15,7 +15,6 @@
 #include "iree/hal/cts/util/pool_test_util.h"
 #include "iree/hal/cts/util/registry.h"
 #include "iree/hal/memory/fixed_block_pool.h"
-#include "iree/hal/memory/passthrough_pool.h"
 #include "iree/hal/memory/tlsf_pool.h"
 
 namespace iree::hal::cts {
@@ -383,9 +382,8 @@ TEST_P(AsanAllocationTest, ReleasedPoolBufferReports) {
 TEST_P(AsanAllocationTest, QueueDeallocaReleaseReportsAfterSignal) {
   iree_hal_queue_t* queue = iree_hal_device_queue(device(), 0, 0);
   ASSERT_NE(queue, nullptr);
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      device(), iree_hal_queue_family(queue), &backend));
+  const auto* sanitizer =
+      iree_hal_device_spec_sanitizer(iree_hal_device_spec(device()));
 
   const iree_hal_pool_reservation_request_t request =
       iree_hal_make_pool_reservation_request(kAsanAllocationBufferLength,
@@ -396,30 +394,24 @@ TEST_P(AsanAllocationTest, QueueDeallocaReleaseReportsAfterSignal) {
     SCOPED_TRACE(static_cast<int>(kind));
     Ref<iree_hal_pool_t> backing_pool;
     Ref<iree_hal_pool_t> pool;
+    Ref<iree_hal_pool_t> native_pool;
+    IREE_ASSERT_OK(SanitizerCreateDevicePool(
+        asan_device_.device_group(), queue, /*exports=*/{}, native_pool.out()));
     if (kind == PoolKind::kFixedBlock) {
       iree_hal_fixed_block_pool_options_t options = {};
       options.block_size = kAsanAllocationBufferLength;
       options.blocks_per_slab = 2;
-      options.asan = backend.asan;
-      IREE_ASSERT_OK(CreateFiniteBlockPool(backend, options,
-                                           iree_allocator_system(),
-                                           backing_pool.out(), pool.out()));
+      options.asan = sanitizer->asan.pool_options;
+      IREE_ASSERT_OK(CreateFiniteBlockPool(
+          native_pool, options, iree_allocator_system(), pool.out()));
+      backing_pool = std::move(native_pool);
     } else {
-      iree_hal_passthrough_pool_options_t options = {};
-      if (kind == PoolKind::kNative) {
-        options.asan = backend.asan;
-      }
-      Ref<iree_hal_pool_t> native_pool;
-      IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-          options, backend.slab_provider, backend.notification,
-          backend.frontier_tracker, backend.maintenance,
-          iree_allocator_system(), native_pool.out()));
       if (kind == PoolKind::kNative) {
         pool = std::move(native_pool);
       } else {
         iree_hal_tlsf_pool_options_t tlsf_options = {};
         tlsf_options.tlsf_options.range_length = 65536;
-        tlsf_options.asan = backend.asan;
+        tlsf_options.asan = sanitizer->asan.pool_options;
         IREE_ASSERT_OK(iree_hal_tlsf_pool_create(
             native_pool, &tlsf_options, iree_allocator_system(), pool.out()));
       }
@@ -467,15 +459,17 @@ TEST_P(AsanAllocationTest, QueueDeallocaReleaseReportsAfterSignal) {
 }
 
 TEST_P(AsanAllocationTest, GuardedFiniteAllocaWaitsForInheritedHostUse) {
-  iree_hal_queue_pool_backend_t backend = {};
-  IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-      device(), iree_hal_queue_family(queue()), &backend));
+  iree_async_frontier_tracker_t* frontier_tracker =
+      iree_hal_device_topology_info(device())->frontier.tracker;
+  ASSERT_NE(frontier_tracker, nullptr);
+  const auto* sanitizer =
+      iree_hal_device_spec_sanitizer(iree_hal_device_spec(device()));
   const iree_async_axis_t host_axis = iree_async_axis_make(
-      iree_async_frontier_tracker_session_epoch(backend.frontier_tracker),
-      iree_async_frontier_tracker_machine_index(backend.frontier_tracker),
+      iree_async_frontier_tracker_session_epoch(frontier_tracker),
+      iree_async_frontier_tracker_machine_index(frontier_tracker),
       IREE_ASYNC_CAUSAL_DOMAIN_HOST, 0x534841444FULL);
-  IREE_ASSERT_OK(iree_async_frontier_tracker_register_axis(
-      backend.frontier_tracker, host_axis, nullptr));
+  IREE_ASSERT_OK(iree_async_frontier_tracker_register_axis(frontier_tracker,
+                                                           host_axis, nullptr));
   uint64_t host_epoch = 0;
   for (bool use_tlsf : {false, true}) {
     SCOPED_TRACE(use_tlsf ? "TLSF" : "fixed block");
@@ -485,9 +479,12 @@ TEST_P(AsanAllocationTest, GuardedFiniteAllocaWaitsForInheritedHostUse) {
     source_options.frontier_capacity = 1;
     Ref<iree_hal_pool_t> backing_pool;
     Ref<iree_hal_pool_t> source_pool;
-    IREE_ASSERT_OK(
-        CreateFiniteBlockPool(backend, source_options, iree_allocator_system(),
-                              backing_pool.out(), source_pool.out()));
+    IREE_ASSERT_OK(SanitizerCreateDevicePool(asan_device_.device_group(),
+                                             queue(), /*exports=*/{},
+                                             backing_pool.out()));
+    IREE_ASSERT_OK(CreateFiniteBlockPool(backing_pool, source_options,
+                                         iree_allocator_system(),
+                                         source_pool.out()));
     const iree_hal_pool_reservation_request_t source_request =
         iree_hal_make_pool_reservation_request(/*allocation_size=*/65536,
                                                /*min_alignment=*/0);
@@ -517,14 +514,14 @@ TEST_P(AsanAllocationTest, GuardedFiniteAllocaWaitsForInheritedHostUse) {
     Ref<iree_hal_pool_t> pool;
     if (use_tlsf) {
       iree_hal_tlsf_pool_options_t options = {};
-      options.asan = backend.asan;
+      options.asan = sanitizer->asan.pool_options;
       IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
           source, 0, IREE_HAL_WHOLE_BUFFER, &options, iree_allocator_system(),
           pool.out()));
     } else {
       iree_hal_fixed_block_pool_options_t options = {};
       options.block_size = kAsanAllocationBufferLength;
-      options.asan = backend.asan;
+      options.asan = sanitizer->asan.pool_options;
       IREE_ASSERT_OK(iree_hal_fixed_block_pool_create_from_buffer(
           source, 0, IREE_HAL_WHOLE_BUFFER, &options, iree_allocator_system(),
           pool.out()));
@@ -551,7 +548,7 @@ TEST_P(AsanAllocationTest, GuardedFiniteAllocaWaitsForInheritedHostUse) {
              iree_status_is_ok(allocation_status));
     EXPECT_EQ(stats.wait_count, 1u);
     EXPECT_EQ(allocated_value, 0u);
-    iree_async_frontier_tracker_advance(backend.frontier_tracker, host_axis,
+    iree_async_frontier_tracker_advance(frontier_tracker, host_axis,
                                         host_epoch);
     IREE_ASSERT_OK(allocation_status);
     IREE_ASSERT_OK(iree_hal_semaphore_list_wait(

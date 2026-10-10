@@ -69,6 +69,8 @@ class TestLogicalDevice {
 
   iree_hal_device_t* base_device() const { return base_device_; }
 
+  iree_hal_device_group_t* device_group() const { return device_group_; }
+
   iree_hal_queue_t* queue(iree_hal_queue_family_ordinal_t family_ordinal = 0,
                           iree_hal_queue_ordinal_t queue_ordinal = 0) const {
     return iree_hal_device_queue(base_device_, family_ordinal, queue_ordinal);

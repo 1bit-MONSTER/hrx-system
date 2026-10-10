@@ -751,7 +751,6 @@ iree_runtime_cc_benchmark(
         "//runtime/src/iree/hal/drivers/amdgpu/device:headers",
         "//runtime/src/iree/hal/drivers/amdgpu/registration",
         "//runtime/src/iree/hal/drivers/amdgpu/target:selection",
-        "//runtime/src/iree/hal/memory:passthrough_pool",
         "//runtime/src/iree/hal/memory:tlsf_pool",
         "//runtime/src/iree/io:file_handle",
     ],

@@ -26,7 +26,6 @@
 
 #include "iree/hal/cts/util/profile_test_util.h"
 #include "iree/hal/cts/util/test_base.h"
-#include "iree/hal/memory/passthrough_pool.h"
 
 namespace iree::hal::cts {
 
@@ -44,14 +43,8 @@ class DispatchReuseTest : public CtsTestBase<> {
       GTEST_SKIP() << "device has no provisioned transfer-capable queue";
     }
 
-    iree_hal_queue_pool_backend_t backend = {};
-    IREE_ASSERT_OK(iree_hal_device_query_queue_pool_backend(
-        device_, iree_hal_queue_family(transfer_queue_), &backend));
-    iree_hal_passthrough_pool_options_t options = {};
-    options.asan = backend.asan;
-    IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
-        options, backend.slab_provider, backend.notification,
-        backend.frontier_tracker, backend.maintenance, iree_allocator_system(),
+    IREE_ASSERT_OK(CreateDevicePool(
+        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
         &transient_pool_));
 
     // Load the workgroup-ID kernel: writes workgroup_id[0] to buffer[wg_id].

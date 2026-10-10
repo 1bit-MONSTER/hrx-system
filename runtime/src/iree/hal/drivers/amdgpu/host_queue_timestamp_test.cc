@@ -72,6 +72,8 @@ class TestLogicalDevice {
 
   iree_hal_device_t* base_device() const { return base_device_; }
 
+  iree_hal_device_group_t* device_group() const { return device_group_; }
+
   iree_hal_queue_t* queue() const {
     return iree_hal_device_queue(base_device_, /*family_ordinal=*/0,
                                  /*queue_ordinal=*/0);
@@ -1058,23 +1060,23 @@ static iree_hal_buffer_params_t DeviceLocalTransientBufferParams() {
 // Creates a pool holding exactly one allocation of |block_size| bytes, so a
 // second allocation stays unstaged until the first one is released.
 static iree_status_t CreateSingleBlockPool(
-    iree_hal_device_t* device, const iree_hal_queue_family_t* queue_family,
-    iree_device_size_t block_size, iree_hal_pool_t** out_backing_pool,
-    iree_hal_pool_t** out_pool) {
-  iree_hal_queue_pool_backend_t backend = {0};
-  IREE_RETURN_IF_ERROR(
-      iree_hal_device_query_queue_pool_backend(device, queue_family, &backend));
-  if (!backend.slab_provider || !backend.notification) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "queue pool backend query returned an incomplete backend bundle");
-  }
+    iree_hal_device_group_t* device_group,
+    const iree_hal_queue_family_t* queue_family, iree_device_size_t block_size,
+    iree_hal_pool_t** out_backing_pool, iree_hal_pool_t** out_pool) {
   iree_hal_fixed_block_pool_options_t options = {};
   options.block_size = block_size;
   options.blocks_per_slab = 1;
   options.frontier_capacity = 2;
-  return iree::hal::cts::CreateFiniteBlockPool(
-      backend, options, iree_allocator_system(), out_backing_pool, out_pool);
+  IREE_RETURN_IF_ERROR(iree::hal::cts::CreateQueueSlabPool(
+      device_group, queue_family, IREE_HAL_BUFFER_USAGE_TRANSFER,
+      iree_allocator_system(), out_backing_pool));
+  iree_status_t status = iree::hal::cts::CreateFiniteBlockPool(
+      *out_backing_pool, options, iree_allocator_system(), out_pool);
+  if (!iree_status_is_ok(status)) {
+    iree_hal_pool_release(*out_backing_pool);
+    *out_backing_pool = nullptr;
+  }
+  return status;
 }
 
 // A queue_alloca target with no staged backing has no device pointer to write
@@ -1091,9 +1093,9 @@ TEST_P(HostQueueTimestampTest, RejectsUnstagedTargetWithoutAllocationWait) {
   const iree_device_size_t allocation_size = 4096;
   Ref<iree_hal_pool_t> backing_pool;
   Ref<iree_hal_pool_t> pool;
-  IREE_ASSERT_OK(
-      CreateSingleBlockPool(device, iree_hal_queue_family(&queue->base),
-                            allocation_size, backing_pool.out(), pool.out()));
+  IREE_ASSERT_OK(CreateSingleBlockPool(
+      test_device.device_group(), iree_hal_queue_family(&queue->base),
+      allocation_size, backing_pool.out(), pool.out()));
 
   // One timeline per wrapper: the blocked allocation completes only after the
   // held wrapper is deallocated, so a shared timeline would signal backwards.
