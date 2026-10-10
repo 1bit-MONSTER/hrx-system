@@ -51,10 +51,9 @@ typedef struct iree_hal_vulkan_allocator_queue_family_t {
 
 // Creates the Vulkan allocator object for a logical device.
 //
-// The allocator owns the default Vulkan slab/pool policy used for synchronous
-// HAL allocations. Each slab provider delegates whole-slab materialization back
-// through the direct allocation helpers below so the Vulkan object creation and
-// sparse-binding rules remain centralized.
+// Slab providers delegate whole-slab materialization through the direct
+// allocation helpers below so Vulkan object creation and sparse-binding rules
+// remain centralized.
 iree_status_t iree_hal_vulkan_allocator_create(
     iree_hal_device_t* parent_device, const iree_hal_vulkan_device_syms_t* syms,
     VkDevice logical_device,
@@ -66,24 +65,22 @@ iree_status_t iree_hal_vulkan_allocator_create(
     iree_hal_vulkan_queue_t* sparse_binding_queue,
     iree_allocator_t host_allocator, iree_hal_allocator_t** out_allocator);
 
-// Creates the allocator's pools after the device's group tracker is known.
-// The pools borrow |frontier_tracker| until deinitialization. The caller keeps
-// |proactor| alive through pool teardown.
-iree_status_t iree_hal_vulkan_allocator_initialize_default_pools(
+// Creates placement-local progress services used by explicit Vulkan pools.
+// The caller keeps |proactor| alive through service teardown.
+iree_status_t iree_hal_vulkan_allocator_initialize_memory_services(
     iree_hal_allocator_t* base_allocator, iree_async_proactor_t* proactor,
-    iree_async_frontier_tracker_t* frontier_tracker,
     iree_thread_affinity_t memory_affinity);
 
-// Releases the allocator's pools before retiring its group completion state.
-void iree_hal_vulkan_allocator_deinitialize_default_pools(
+// Releases the placement-local progress services.
+void iree_hal_vulkan_allocator_deinitialize_memory_services(
     iree_hal_allocator_t* base_allocator);
 
 // Borrows the notification shared by explicit Vulkan memory pools. Available
-// after default-pool initialization and until deinitialization.
+// after memory-service initialization and until deinitialization.
 iree_async_notification_t* iree_hal_vulkan_allocator_memory_notification(
     iree_hal_allocator_t* base_allocator);
 
-// Borrows the placement-local cold memory owner. Available after default-pool
+// Borrows the placement-local cold memory owner. Available after memory-service
 // initialization and until deinitialization.
 iree_hal_memory_maintenance_t* iree_hal_vulkan_allocator_memory_maintenance(
     iree_hal_allocator_t* base_allocator);
@@ -117,8 +114,8 @@ iree_status_t iree_hal_vulkan_allocator_import_direct_buffer_from_type(
 
 // Allocates one whole Vulkan buffer directly from a compatible memory type.
 //
-// This bypasses the default pool set and gives the caller exclusive ownership
-// of the underlying VkDeviceMemory mapping lifetime.
+// The caller has exclusive ownership of the underlying VkDeviceMemory mapping
+// lifetime.
 iree_status_t iree_hal_vulkan_allocator_allocate_direct_buffer(
     iree_hal_allocator_t* base_allocator,
     const iree_hal_vulkan_buffer_spec_t* spec,
