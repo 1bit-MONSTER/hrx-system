@@ -753,21 +753,6 @@ static const iree_hal_memory_backend_t* iree_hal_task_device_memory_backend(
   return &iree_hal_task_device_cast(base_device)->memory_backend.base;
 }
 
-static iree_status_t iree_hal_task_device_query_queue_pool_backend(
-    iree_hal_device_t* base_device, const iree_hal_queue_family_t* queue_family,
-    iree_hal_queue_pool_backend_t* out_backend) {
-  (void)queue_family;
-  iree_hal_task_device_t* device = iree_hal_task_device_cast(base_device);
-  out_backend->slab_provider = device->memory_backend.slab_provider;
-  out_backend->notification = device->memory_backend.notification;
-  out_backend->maintenance = device->memory_backend.maintenance;
-  out_backend->epoch_query = (iree_hal_pool_epoch_query_t){
-      .fn = iree_hal_task_device_query_pool_epoch,
-      .user_data = device,
-  };
-  return iree_ok_status();
-}
-
 static uint32_t iree_hal_task_device_profile_count(iree_host_size_t count) {
   return count > UINT32_MAX ? UINT32_MAX : (uint32_t)count;
 }
@@ -902,7 +887,6 @@ static const iree_hal_device_vtable_t iree_hal_task_device_vtable = {
     .create_semaphore = iree_hal_task_device_create_semaphore,
     .query_semaphore_compatibility =
         iree_hal_task_device_query_semaphore_compatibility,
-    .query_queue_pool_backend = iree_hal_task_device_query_queue_pool_backend,
     .profiling_begin = iree_hal_task_device_profiling_begin,
     .profiling_flush = iree_hal_task_device_profiling_flush,
     .profiling_end = iree_hal_task_device_profiling_end,

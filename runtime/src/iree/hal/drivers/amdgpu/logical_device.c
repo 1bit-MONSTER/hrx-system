@@ -3116,26 +3116,6 @@ iree_hal_amdgpu_logical_device_query_semaphore_compatibility(
   return IREE_HAL_SEMAPHORE_COMPATIBILITY_HOST_ONLY;
 }
 
-static iree_status_t iree_hal_amdgpu_logical_device_query_queue_pool_backend(
-    iree_hal_device_t* base_device, const iree_hal_queue_family_t* queue_family,
-    iree_hal_queue_pool_backend_t* out_backend) {
-  iree_hal_amdgpu_logical_device_t* logical_device =
-      iree_hal_amdgpu_logical_device_cast(base_device);
-  const iree_hal_queue_family_ordinal_t queue_family_ordinal =
-      iree_hal_queue_family_ordinal(queue_family);
-  iree_hal_amdgpu_physical_device_t* physical_device =
-      logical_device->physical_devices[queue_family_ordinal];
-  out_backend->slab_provider = physical_device->default_slab_provider;
-  out_backend->notification = physical_device->default_pool_notification;
-  out_backend->maintenance = physical_device->memory_maintenance;
-  out_backend->epoch_query = (iree_hal_pool_epoch_query_t){
-      .fn = iree_hal_amdgpu_logical_device_query_pool_epoch,
-      .user_data = logical_device,
-  };
-  out_backend->asan = physical_device->default_pool_options.asan;
-  return iree_ok_status();
-}
-
 static iree_status_t
 iree_hal_amdgpu_logical_device_verify_queue_device_profiling_supported(
     iree_hal_amdgpu_logical_device_t* logical_device) {
@@ -3504,8 +3484,6 @@ static const iree_hal_device_vtable_t iree_hal_amdgpu_logical_device_vtable = {
     .create_semaphore = iree_hal_amdgpu_logical_device_create_semaphore,
     .query_semaphore_compatibility =
         iree_hal_amdgpu_logical_device_query_semaphore_compatibility,
-    .query_queue_pool_backend =
-        iree_hal_amdgpu_logical_device_query_queue_pool_backend,
     .profiling_begin = iree_hal_amdgpu_logical_device_profiling_begin,
     .profiling_flush = iree_hal_amdgpu_logical_device_profiling_flush,
     .profiling_end = iree_hal_amdgpu_logical_device_profiling_end,

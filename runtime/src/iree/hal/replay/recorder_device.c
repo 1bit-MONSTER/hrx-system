@@ -557,27 +557,6 @@ iree_hal_replay_device_query_semaphore_compatibility(
                                                        semaphore);
 }
 
-static iree_status_t iree_hal_replay_device_query_queue_pool_backend(
-    iree_hal_device_t* base_device, const iree_hal_queue_family_t* queue_family,
-    iree_hal_queue_pool_backend_t* out_backend) {
-  iree_hal_replay_device_t* device = iree_hal_replay_device_cast(base_device);
-  iree_hal_replay_pending_record_t pending_record;
-  IREE_RETURN_IF_ERROR(iree_hal_replay_device_begin_operation(
-      device, IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_QUERY_QUEUE_POOL_BACKEND,
-      &pending_record));
-  iree_hal_queue_pool_backend_t backend = {0};
-  iree_status_t status = iree_hal_device_query_queue_pool_backend(
-      device->base_device,
-      iree_hal_device_queue_family(device->base_device,
-                                   iree_hal_queue_family_ordinal(queue_family)),
-      &backend);
-  status = iree_hal_replay_device_complete_operation(&pending_record, status);
-  if (iree_status_is_ok(status)) {
-    *out_backend = backend;
-  }
-  return status;
-}
-
 static iree_status_t iree_hal_replay_device_profiling_begin(
     iree_hal_device_t* base_device,
     const iree_hal_device_profiling_options_t* options) {
@@ -871,7 +850,6 @@ static const iree_hal_device_vtable_t iree_hal_replay_device_vtable = {
     .create_semaphore = iree_hal_replay_device_create_semaphore,
     .query_semaphore_compatibility =
         iree_hal_replay_device_query_semaphore_compatibility,
-    .query_queue_pool_backend = iree_hal_replay_device_query_queue_pool_backend,
     .profiling_begin = iree_hal_replay_device_profiling_begin,
     .profiling_flush = iree_hal_replay_device_profiling_flush,
     .profiling_end = iree_hal_replay_device_profiling_end,

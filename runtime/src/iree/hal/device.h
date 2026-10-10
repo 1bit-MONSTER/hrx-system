@@ -298,39 +298,6 @@ iree_hal_device_create_params_default(void) {
 IREE_API_EXPORT iree_status_t iree_hal_device_create_params_verify(
     const iree_hal_device_create_params_t* params);
 
-// Backend-native ingredients required to create queue-allocation pools for a
-// device memory domain.
-//
-// |slab_provider| and |notification| are borrowed from the device. Pool
-// constructors retain those objects, but the objects themselves,
-// |epoch_query|, and |asan| may still read or describe backend-owned state. The
-// device must therefore outlive all pools created from this bundle.
-//
-// |notification| may be shared by multiple pools in the same physical-memory
-// domain and can wake callers whose own pool state did not change. Callers
-// should always retry reservations after wakeup instead of assuming precise
-// notification routing.
-typedef struct iree_hal_queue_pool_backend_t {
-  // Slab provider for the selected queue memory domain.
-  iree_hal_slab_provider_t* slab_provider;
-
-  // Notification shared by pools over the selected queue memory domain.
-  iree_async_notification_t* notification;
-
-  // Borrowed group completion tracker for reservation reuse dependencies.
-  iree_async_frontier_tracker_t* frontier_tracker;
-
-  // Borrowed placement-local cold owner shared by pools in the memory domain.
-  iree_hal_memory_maintenance_t* maintenance;
-
-  // Optional host-side epoch query for zero-sync block reuse.
-  iree_hal_pool_epoch_query_t epoch_query;
-
-  // Active ASAN allocation-shaping policy for custom pools over this backend.
-  // Disabled when the device does not support or has not enabled ASAN pools.
-  iree_hal_asan_pool_options_t asan;
-} iree_hal_queue_pool_backend_t;
-
 // Device's cached view of topology for fast compatibility checks.
 //
 // The bitmaps provide O(1) "can I interact with device X?" answers for the
@@ -635,23 +602,6 @@ IREE_API_EXPORT iree_hal_semaphore_compatibility_t
 iree_hal_device_query_semaphore_compatibility(iree_hal_device_t* device,
                                               iree_hal_semaphore_t* semaphore);
 
-// Queries the slab provider, notification, and epoch-query callback to use when
-// constructing custom pools backed by the memory domain of |queue_family|.
-//
-// |queue_family| must be the exact family identity borrowed from |device|. It
-// selects one backing memory domain and does not constrain which queue families
-// may access allocations made from the pool. Allocation accessibility remains
-// specified by iree_hal_buffer_params_t::queue_family_affinity and advertised
-// by iree_hal_pool_capabilities_t::queue_family_affinity.
-//
-// The returned pointers are borrowed from |device| and remain valid until the
-// device is destroyed.
-//
-// Requires that |device| has been assigned to a device group.
-IREE_API_EXPORT iree_status_t iree_hal_device_query_queue_pool_backend(
-    iree_hal_device_t* device, const iree_hal_queue_family_t* queue_family,
-    iree_hal_queue_pool_backend_t* out_backend);
-
 // Borrows immutable native memory owners established before device publication.
 // NULL means the device supplies no slab construction backend. This performs no
 // allocation, registration, or capability discovery.
@@ -844,10 +794,6 @@ typedef struct iree_hal_device_vtable_t {
   iree_hal_semaphore_compatibility_t(
       IREE_API_PTR* query_semaphore_compatibility)(
       iree_hal_device_t* device, iree_hal_semaphore_t* semaphore);
-
-  iree_status_t(IREE_API_PTR* query_queue_pool_backend)(
-      iree_hal_device_t* device, const iree_hal_queue_family_t* queue_family,
-      iree_hal_queue_pool_backend_t* out_backend);
 
   iree_status_t(IREE_API_PTR* profiling_begin)(
       iree_hal_device_t* device,

@@ -645,12 +645,6 @@ iree_hal_mock_device_query_semaphore_compatibility(
   return IREE_HAL_SEMAPHORE_COMPATIBILITY_NONE;
 }
 
-static iree_status_t iree_hal_mock_device_query_queue_pool_backend(
-    iree_hal_device_t* base_device, const iree_hal_queue_family_t* queue_family,
-    iree_hal_queue_pool_backend_t* out_backend) {
-  return iree_make_status(IREE_STATUS_UNIMPLEMENTED);
-}
-
 static iree_status_t iree_hal_mock_device_profiling_begin(
     iree_hal_device_t* base_device,
     const iree_hal_device_profiling_options_t* options) {
@@ -698,7 +692,6 @@ static const iree_hal_device_vtable_t iree_hal_mock_device_vtable = {
     .create_semaphore = iree_hal_mock_device_create_semaphore,
     .query_semaphore_compatibility =
         iree_hal_mock_device_query_semaphore_compatibility,
-    .query_queue_pool_backend = iree_hal_mock_device_query_queue_pool_backend,
     .profiling_begin = iree_hal_mock_device_profiling_begin,
     .profiling_flush = iree_hal_mock_device_profiling_flush,
     .profiling_end = iree_hal_mock_device_profiling_end,

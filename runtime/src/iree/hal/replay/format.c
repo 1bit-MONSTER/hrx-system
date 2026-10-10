@@ -103,8 +103,6 @@ IREE_API_EXPORT const char* iree_hal_replay_operation_code_string(
       return "device.import_file";
     case IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_CREATE_SEMAPHORE:
       return "device.create_semaphore";
-    case IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_QUERY_QUEUE_POOL_BACKEND:
-      return "device.query_queue_pool_backend";
     case IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_ACQUIRE_QUEUE:
       return "device.acquire_queue";
     case IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_PROFILING_BEGIN:

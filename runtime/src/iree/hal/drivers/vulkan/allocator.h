@@ -78,6 +78,16 @@ iree_status_t iree_hal_vulkan_allocator_initialize_default_pools(
 void iree_hal_vulkan_allocator_deinitialize_default_pools(
     iree_hal_allocator_t* base_allocator);
 
+// Borrows the notification shared by explicit Vulkan memory pools. Available
+// after default-pool initialization and until deinitialization.
+iree_async_notification_t* iree_hal_vulkan_allocator_memory_notification(
+    iree_hal_allocator_t* base_allocator);
+
+// Borrows the placement-local cold memory owner. Available after default-pool
+// initialization and until deinitialization.
+iree_hal_memory_maintenance_t* iree_hal_vulkan_allocator_memory_maintenance(
+    iree_hal_allocator_t* base_allocator);
+
 // Allocates one whole Vulkan buffer from a required memory type index.
 //
 // This is the primitive used by Vulkan slab providers and private staging. It
@@ -113,11 +123,6 @@ iree_status_t iree_hal_vulkan_allocator_allocate_direct_buffer(
     iree_hal_allocator_t* base_allocator,
     const iree_hal_vulkan_buffer_spec_t* spec,
     iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer);
-
-// Returns the default queue-pool backend resources borrowed from |allocator|.
-iree_status_t iree_hal_vulkan_allocator_query_queue_pool_backend(
-    iree_hal_allocator_t* base_allocator,
-    iree_hal_queue_pool_backend_t* out_backend);
 
 #ifdef __cplusplus
 }  // extern "C"

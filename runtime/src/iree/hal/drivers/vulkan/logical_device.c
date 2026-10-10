@@ -935,11 +935,6 @@ static iree_status_t iree_hal_vulkan_logical_device_assign_topology_info(
         device->device_allocator, device->proactor, frontier_tracker,
         memory_affinity);
   }
-  iree_hal_queue_pool_backend_t pool_backend = {0};
-  if (iree_status_is_ok(status)) {
-    status = iree_hal_vulkan_allocator_query_queue_pool_backend(
-        device->device_allocator, &pool_backend);
-  }
   if (!iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < assigned_queue_count; ++i) {
       iree_hal_vulkan_queue_retire_frontier(&device->queues.objects[i]);
@@ -954,8 +949,10 @@ static iree_status_t iree_hal_vulkan_logical_device_assign_topology_info(
       .logical_device = device->logical_device,
       .physical_device = &device->physical_device,
       .enabled_features = device->enabled_features,
-      .notification = pool_backend.notification,
-      .maintenance = pool_backend.maintenance,
+      .notification = iree_hal_vulkan_allocator_memory_notification(
+          device->device_allocator),
+      .maintenance = iree_hal_vulkan_allocator_memory_maintenance(
+          device->device_allocator),
       .epoch_query =
           {
               .fn = iree_hal_vulkan_logical_device_query_pool_epoch,
@@ -1102,21 +1099,6 @@ iree_hal_vulkan_logical_device_query_semaphore_compatibility(
 static const iree_hal_memory_backend_t*
 iree_hal_vulkan_logical_device_memory_backend(iree_hal_device_t* base_device) {
   return &iree_hal_vulkan_logical_device_cast(base_device)->memory_backend.base;
-}
-
-static iree_status_t iree_hal_vulkan_logical_device_query_queue_pool_backend(
-    iree_hal_device_t* base_device, const iree_hal_queue_family_t* queue_family,
-    iree_hal_queue_pool_backend_t* out_backend) {
-  (void)queue_family;
-  iree_hal_vulkan_logical_device_t* device =
-      iree_hal_vulkan_logical_device_cast(base_device);
-  IREE_RETURN_IF_ERROR(iree_hal_vulkan_allocator_query_queue_pool_backend(
-      device->device_allocator, out_backend));
-  out_backend->epoch_query = (iree_hal_pool_epoch_query_t){
-      .fn = iree_hal_vulkan_logical_device_query_pool_epoch,
-      .user_data = device,
-  };
-  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_vulkan_logical_device_profiling_begin(
@@ -1921,8 +1903,6 @@ static const iree_hal_device_vtable_t iree_hal_vulkan_logical_device_vtable = {
     .query_semaphore_compatibility =
         iree_hal_vulkan_logical_device_query_semaphore_compatibility,
     .memory_backend = iree_hal_vulkan_logical_device_memory_backend,
-    .query_queue_pool_backend =
-        iree_hal_vulkan_logical_device_query_queue_pool_backend,
     .profiling_begin = iree_hal_vulkan_logical_device_profiling_begin,
     .profiling_flush = iree_hal_vulkan_logical_device_profiling_flush,
     .profiling_end = iree_hal_vulkan_logical_device_profiling_end,
