@@ -900,7 +900,7 @@ static iree_status_t iree_hal_vulkan_allocator_query_memory_heaps(
 
 static bool iree_hal_vulkan_allocator_normalize_queue_family_affinity(
     const iree_hal_vulkan_allocator_t* allocator,
-    iree_hal_buffer_params_t* params) {
+    iree_hal_vulkan_buffer_spec_t* params) {
   iree_hal_queue_family_affinity_t queue_family_affinity =
       iree_hal_queue_family_affinity_is_any(params->queue_family_affinity)
           ? allocator->queue_family_affinity_mask
@@ -913,6 +913,30 @@ static bool iree_hal_vulkan_allocator_normalize_queue_family_affinity(
   return true;
 }
 
+static iree_hal_vulkan_buffer_spec_t
+iree_hal_vulkan_allocator_spec_from_buffer_params(
+    const iree_hal_buffer_params_t* params) {
+  return (iree_hal_vulkan_buffer_spec_t){
+      .type = params->type,
+      .access = params->access,
+      .usage = params->usage,
+      .queue_family_affinity = params->queue_family_affinity,
+      .min_alignment = params->min_alignment,
+  };
+}
+
+static void iree_hal_vulkan_allocator_update_buffer_params(
+    const iree_hal_vulkan_buffer_spec_t* spec,
+    iree_hal_buffer_params_t* out_params) {
+  *out_params = (iree_hal_buffer_params_t){
+      .usage = spec->usage,
+      .access = spec->access,
+      .type = spec->type,
+      .queue_family_affinity = spec->queue_family_affinity,
+      .min_alignment = spec->min_alignment,
+  };
+}
+
 static const iree_hal_buffer_usage_t iree_hal_vulkan_mapping_usage_bits =
     IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED |
     IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT |
@@ -921,7 +945,7 @@ static const iree_hal_buffer_usage_t iree_hal_vulkan_mapping_usage_bits =
     IREE_HAL_BUFFER_USAGE_MAPPING_ACCESS_SEQUENTIAL_WRITE;
 
 static bool iree_hal_vulkan_allocator_strip_optional_mapping(
-    iree_hal_buffer_params_t* params) {
+    iree_hal_vulkan_buffer_spec_t* params) {
   if (!iree_any_bit_set(params->usage, iree_hal_vulkan_mapping_usage_bits)) {
     return true;
   }
@@ -934,7 +958,7 @@ static bool iree_hal_vulkan_allocator_strip_optional_mapping(
 }
 
 static int iree_hal_vulkan_allocator_score_memory_type(
-    const iree_hal_buffer_params_t* params,
+    const iree_hal_vulkan_buffer_spec_t* params,
     iree_hal_memory_type_t memory_type) {
   const bool mapping_requested =
       iree_any_bit_set(params->usage, iree_hal_vulkan_mapping_usage_bits);
@@ -967,7 +991,7 @@ static int iree_hal_vulkan_allocator_score_memory_type(
 
 static bool iree_hal_vulkan_allocator_resolve_memory_placement(
     const iree_hal_vulkan_allocator_t* allocator,
-    uint32_t allowed_memory_type_bits, iree_hal_buffer_params_t* params,
+    uint32_t allowed_memory_type_bits, iree_hal_vulkan_buffer_spec_t* params,
     iree_hal_vulkan_allocator_memory_placement_t* out_placement) {
   memset(out_placement, 0, sizeof(*out_placement));
   if (!iree_hal_vulkan_allocator_normalize_queue_family_affinity(allocator,
@@ -985,7 +1009,7 @@ static bool iree_hal_vulkan_allocator_resolve_memory_placement(
 
   bool found = false;
   int best_score = 0;
-  iree_hal_buffer_params_t best_params = *params;
+  iree_hal_vulkan_buffer_spec_t best_params = *params;
   iree_hal_vulkan_allocator_memory_placement_t best_placement;
   memset(&best_placement, 0, sizeof(best_placement));
 
@@ -1001,7 +1025,7 @@ static bool iree_hal_vulkan_allocator_resolve_memory_placement(
       continue;
     }
 
-    iree_hal_buffer_params_t candidate_params = *params;
+    iree_hal_vulkan_buffer_spec_t candidate_params = *params;
     const iree_hal_buffer_usage_t allowed_usage =
         iree_hal_vulkan_allowed_usage_from_memory_type(memory_type);
     if (!iree_all_bits_set(allowed_usage, candidate_params.usage)) {
@@ -1096,7 +1120,7 @@ bool iree_hal_vulkan_allocator_supports_host_allocation_import(
 static iree_status_t iree_hal_vulkan_allocator_prepare_sparse_buffer_params(
     const iree_hal_vulkan_allocator_t* allocator,
     iree_device_size_t allocation_size, iree_device_size_t max_allocation_size,
-    iree_hal_buffer_params_t* params) {
+    iree_hal_vulkan_buffer_spec_t* params) {
   if (!iree_hal_vulkan_allocator_supports_sparse_binding(allocator)) {
     return iree_make_status(
         IREE_STATUS_RESOURCE_EXHAUSTED,
@@ -1143,11 +1167,11 @@ iree_hal_vulkan_allocator_virtual_memory_params(
 static iree_status_t iree_hal_vulkan_allocator_prepare_virtual_memory_params(
     const iree_hal_vulkan_allocator_t* allocator,
     iree_hal_physical_memory_params_t* params,
-    iree_hal_buffer_params_t* out_buffer_params) {
+    iree_hal_vulkan_buffer_spec_t* out_buffer_params) {
   IREE_RETURN_IF_ERROR(
       iree_hal_vulkan_allocator_require_virtual_memory(allocator));
   iree_hal_physical_memory_params_canonicalize(params);
-  *out_buffer_params = (iree_hal_buffer_params_t){
+  *out_buffer_params = (iree_hal_vulkan_buffer_spec_t){
       .usage = params->usage,
       .access = IREE_HAL_MEMORY_ACCESS_ALL,
       .type = params->type,
@@ -1173,13 +1197,10 @@ static iree_status_t iree_hal_vulkan_allocator_require_virtual_buffer(
 }
 
 static iree_hal_buffer_compatibility_t
-iree_hal_vulkan_allocator_query_buffer_compatibility(
-    iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    iree_hal_buffer_params_t* IREE_RESTRICT params,
+iree_hal_vulkan_allocator_query_buffer_compatibility_spec(
+    iree_hal_vulkan_allocator_t* allocator,
+    iree_hal_vulkan_buffer_spec_t* IREE_RESTRICT params,
     iree_device_size_t* IREE_RESTRICT allocation_size) {
-  iree_hal_vulkan_allocator_t* allocator =
-      iree_hal_vulkan_allocator_cast(base_allocator);
-
   if (!iree_status_is_ok(
           iree_hal_vulkan_allocator_align_allocation_size(allocation_size))) {
     return IREE_HAL_BUFFER_COMPATIBILITY_NONE;
@@ -1251,6 +1272,24 @@ iree_hal_vulkan_allocator_query_buffer_compatibility(
   return compatibility;
 }
 
+static iree_hal_buffer_compatibility_t
+iree_hal_vulkan_allocator_query_buffer_compatibility(
+    iree_hal_allocator_t* IREE_RESTRICT base_allocator,
+    iree_hal_buffer_params_t* IREE_RESTRICT params,
+    iree_device_size_t* IREE_RESTRICT allocation_size) {
+  iree_hal_vulkan_allocator_t* allocator =
+      iree_hal_vulkan_allocator_cast(base_allocator);
+  iree_hal_vulkan_buffer_spec_t spec =
+      iree_hal_vulkan_allocator_spec_from_buffer_params(params);
+  const iree_hal_buffer_compatibility_t compatibility =
+      iree_hal_vulkan_allocator_query_buffer_compatibility_spec(
+          allocator, &spec, allocation_size);
+  if (compatibility != IREE_HAL_BUFFER_COMPATIBILITY_NONE) {
+    iree_hal_vulkan_allocator_update_buffer_params(&spec, params);
+  }
+  return compatibility;
+}
+
 static iree_status_t iree_hal_vulkan_allocator_resolve_buffer_sharing(
     const iree_hal_vulkan_allocator_t* allocator,
     iree_hal_queue_family_affinity_t queue_family_affinity,
@@ -1294,9 +1333,9 @@ static iree_status_t iree_hal_vulkan_allocator_resolve_buffer_sharing(
 
 static iree_status_t iree_hal_vulkan_allocator_create_buffer_handle(
     iree_hal_vulkan_allocator_t* allocator,
-    const iree_hal_buffer_params_t* params, iree_device_size_t allocation_size,
-    VkBufferCreateFlags create_flags, const void* create_info_pnext,
-    VkBuffer* out_buffer) {
+    const iree_hal_vulkan_buffer_spec_t* params,
+    iree_device_size_t allocation_size, VkBufferCreateFlags create_flags,
+    const void* create_info_pnext, VkBuffer* out_buffer) {
   *out_buffer = VK_NULL_HANDLE;
 
   iree_hal_vulkan_allocator_buffer_sharing_t sharing;
@@ -1323,8 +1362,9 @@ static iree_status_t iree_hal_vulkan_allocator_create_buffer_handle(
 
 static iree_status_t iree_hal_vulkan_allocator_create_sparse_virtual_handle(
     iree_hal_vulkan_allocator_t* allocator,
-    const iree_hal_buffer_params_t* params, iree_device_size_t allocation_size,
-    VkBuffer* out_buffer, VkMemoryRequirements* out_memory_requirements) {
+    const iree_hal_vulkan_buffer_spec_t* params,
+    iree_device_size_t allocation_size, VkBuffer* out_buffer,
+    VkMemoryRequirements* out_memory_requirements) {
   *out_buffer = VK_NULL_HANDLE;
   memset(out_memory_requirements, 0, sizeof(*out_memory_requirements));
   const VkBufferCreateFlags create_flags =
@@ -1399,7 +1439,7 @@ static VkDeviceAddress iree_hal_vulkan_allocator_query_device_address(
 }
 
 static iree_status_t iree_hal_vulkan_allocator_make_buffer_params_status(
-    const iree_hal_buffer_params_t* params) {
+    const iree_hal_vulkan_buffer_spec_t* params) {
 #if IREE_STATUS_MODE
   iree_bitfield_string_temp_t temp0, temp1;
   iree_string_view_t memory_type_str =
@@ -1420,42 +1460,10 @@ static iree_status_t iree_hal_vulkan_allocator_make_buffer_params_status(
 #endif  // IREE_STATUS_MODE
 }
 
-iree_status_t iree_hal_vulkan_allocator_resolve_pool_allocation(
-    iree_hal_allocator_t* base_allocator,
-    const iree_hal_pool_capabilities_t* pool_capabilities,
-    iree_hal_buffer_params_t params, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t* out_params,
-    iree_device_size_t* out_allocation_size) {
-  IREE_ASSERT_ARGUMENT(base_allocator);
-  IREE_ASSERT_ARGUMENT(pool_capabilities);
-  IREE_ASSERT_ARGUMENT(out_params);
-  IREE_ASSERT_ARGUMENT(out_allocation_size);
-  iree_hal_vulkan_allocator_t* allocator =
-      iree_hal_vulkan_allocator_cast(base_allocator);
-
-  iree_hal_buffer_params_canonicalize(&params);
-  IREE_RETURN_IF_ERROR(
-      iree_hal_vulkan_allocator_align_allocation_size(&allocation_size));
-  if (iree_any_bit_set(params.type, IREE_HAL_MEMORY_TYPE_OPTIMAL)) {
-    params.type &= ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
-    params.type |= pool_capabilities->memory_type;
-  }
-
-  iree_hal_vulkan_allocator_memory_placement_t memory_placement;
-  if (!iree_hal_vulkan_allocator_resolve_memory_placement(
-          allocator, UINT32_MAX, &params, &memory_placement)) {
-    return iree_hal_vulkan_allocator_make_buffer_params_status(&params);
-  }
-
-  *out_params = params;
-  *out_allocation_size = allocation_size;
-  return iree_ok_status();
-}
-
 static iree_status_t
 iree_hal_vulkan_allocator_allocate_direct_buffer_with_memory_type_bits(
     iree_hal_vulkan_allocator_t* allocator, uint32_t allowed_memory_type_bits,
-    const iree_hal_buffer_params_t* IREE_RESTRICT params,
+    const iree_hal_vulkan_buffer_spec_t* IREE_RESTRICT params,
     iree_device_size_t allocation_size,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
   const iree_device_size_t byte_length = allocation_size;
@@ -1472,7 +1480,7 @@ iree_hal_vulkan_allocator_allocate_direct_buffer_with_memory_type_bits(
         allocator, allocation_size);
   }
 
-  iree_hal_buffer_params_t compat_params = *params;
+  iree_hal_vulkan_buffer_spec_t compat_params = *params;
   if (iree_status_is_ok(status) && use_sparse_allocation) {
     status = iree_hal_vulkan_allocator_prepare_sparse_buffer_params(
         allocator, allocation_size,
@@ -1639,8 +1647,8 @@ iree_hal_vulkan_allocator_allocate_direct_buffer_with_memory_type_bits(
 
 iree_status_t iree_hal_vulkan_allocator_allocate_direct_buffer_from_type(
     iree_hal_vulkan_allocator_t* allocator, uint32_t memory_type_index,
-    const iree_hal_buffer_params_t* params, iree_device_size_t allocation_size,
-    iree_hal_buffer_t** out_buffer) {
+    const iree_hal_vulkan_buffer_spec_t* params,
+    iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer) {
   IREE_ASSERT_ARGUMENT(allocator);
   IREE_ASSERT_ARGUMENT(params);
   IREE_ASSERT_ARGUMENT(out_buffer);
@@ -1660,8 +1668,8 @@ iree_status_t iree_hal_vulkan_allocator_allocate_direct_buffer_from_type(
 
 iree_status_t iree_hal_vulkan_allocator_allocate_direct_buffer(
     iree_hal_allocator_t* base_allocator,
-    const iree_hal_buffer_params_t* params, iree_device_size_t allocation_size,
-    iree_hal_buffer_t** out_buffer) {
+    const iree_hal_vulkan_buffer_spec_t* params,
+    iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer) {
   iree_hal_vulkan_allocator_t* allocator =
       iree_hal_vulkan_allocator_cast(base_allocator);
   return iree_hal_vulkan_allocator_allocate_direct_buffer_with_memory_type_bits(
@@ -1682,10 +1690,12 @@ static iree_status_t iree_hal_vulkan_allocator_allocate_buffer(
   // Legacy allocator requests carry per-allocation permissions that cannot be
   // projected onto a pool with a fixed memory contract. Keep this path direct
   // until its remaining callers migrate to explicitly scoped pools.
+  const iree_hal_vulkan_buffer_spec_t spec =
+      iree_hal_vulkan_allocator_spec_from_buffer_params(params);
   iree_hal_buffer_t* buffer = NULL;
   iree_status_t status =
       iree_hal_vulkan_allocator_allocate_direct_buffer_with_memory_type_bits(
-          allocator, UINT32_MAX, params, allocation_size, &buffer);
+          allocator, UINT32_MAX, &spec, allocation_size, &buffer);
 
   if (iree_status_is_ok(status)) {
     IREE_STATISTICS(iree_hal_allocator_statistics_record_alloc(
@@ -1720,7 +1730,7 @@ static void iree_hal_vulkan_allocator_deallocate_buffer(
 }
 
 static void iree_hal_vulkan_allocator_normalize_host_allocation_import_params(
-    iree_hal_buffer_params_t* params) {
+    iree_hal_vulkan_buffer_spec_t* params) {
   const bool requires_host_local =
       iree_all_bits_set(params->type, IREE_HAL_MEMORY_TYPE_HOST_LOCAL);
   if (iree_any_bit_set(params->type, IREE_HAL_MEMORY_TYPE_OPTIMAL)) {
@@ -1736,7 +1746,7 @@ static void iree_hal_vulkan_allocator_normalize_host_allocation_import_params(
 
 static iree_status_t iree_hal_vulkan_allocator_validate_host_allocation_import(
     const iree_hal_vulkan_allocator_t* allocator,
-    const iree_hal_buffer_params_t* params,
+    const iree_hal_vulkan_buffer_spec_t* params,
     const iree_hal_external_storage_t* external_buffer) {
   if (external_buffer->storage_class.provenance[0] ||
       external_buffer->storage_class.provenance[1]) {
@@ -1846,7 +1856,7 @@ static iree_status_t
 iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
     iree_hal_vulkan_allocator_t* IREE_RESTRICT allocator,
     uint32_t allowed_memory_type_bits,
-    const iree_hal_buffer_params_t* IREE_RESTRICT params,
+    const iree_hal_vulkan_buffer_spec_t* IREE_RESTRICT params,
     const iree_hal_external_storage_t* IREE_RESTRICT external_buffer,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
@@ -1866,15 +1876,15 @@ iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
     status = iree_hal_vulkan_allocator_align_allocation_size(&allocation_size);
   }
 
-  iree_hal_buffer_params_t compat_params = *params;
+  iree_hal_vulkan_buffer_spec_t compat_params = *params;
   iree_hal_vulkan_allocator_normalize_host_allocation_import_params(
       &compat_params);
-  iree_hal_buffer_params_t query_params = compat_params;
+  iree_hal_vulkan_buffer_spec_t query_params = compat_params;
   iree_hal_buffer_compatibility_t compatibility =
       IREE_HAL_BUFFER_COMPATIBILITY_NONE;
   if (iree_status_is_ok(status)) {
-    compatibility = iree_hal_vulkan_allocator_query_buffer_compatibility(
-        (iree_hal_allocator_t*)allocator, &query_params, &allocation_size);
+    compatibility = iree_hal_vulkan_allocator_query_buffer_compatibility_spec(
+        allocator, &query_params, &allocation_size);
     if (!iree_all_bits_set(compatibility,
                            IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE)) {
 #if IREE_STATUS_MODE
@@ -2024,7 +2034,7 @@ iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
 
 iree_status_t iree_hal_vulkan_allocator_import_direct_buffer_from_type(
     iree_hal_vulkan_allocator_t* allocator, uint32_t memory_type_index,
-    const iree_hal_buffer_params_t* params,
+    const iree_hal_vulkan_buffer_spec_t* params,
     const iree_hal_external_storage_t* storage,
     iree_hal_buffer_t** out_buffer) {
   IREE_ASSERT_ARGUMENT(allocator);
@@ -2054,8 +2064,10 @@ static iree_status_t iree_hal_vulkan_allocator_import_buffer(
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
   iree_hal_vulkan_allocator_t* allocator =
       iree_hal_vulkan_allocator_cast(base_allocator);
+  const iree_hal_vulkan_buffer_spec_t spec =
+      iree_hal_vulkan_allocator_spec_from_buffer_params(params);
   return iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
-      allocator, UINT32_MAX, params, external_buffer, release_callback,
+      allocator, UINT32_MAX, &spec, external_buffer, release_callback,
       out_buffer);
 }
 
@@ -2291,7 +2303,7 @@ static iree_status_t iree_hal_vulkan_allocator_virtual_memory_query_granularity(
   iree_hal_vulkan_allocator_t* allocator =
       iree_hal_vulkan_allocator_cast(base_allocator);
 
-  iree_hal_buffer_params_t buffer_params;
+  iree_hal_vulkan_buffer_spec_t buffer_params;
   iree_status_t status =
       iree_hal_vulkan_allocator_prepare_virtual_memory_params(
           allocator, &params, &buffer_params);
@@ -2335,7 +2347,7 @@ static iree_status_t iree_hal_vulkan_allocator_virtual_memory_reserve(
 
   iree_hal_physical_memory_params_t params =
       iree_hal_vulkan_allocator_virtual_memory_params(queue_family_affinity);
-  iree_hal_buffer_params_t buffer_params;
+  iree_hal_vulkan_buffer_spec_t buffer_params;
   iree_status_t status =
       iree_hal_vulkan_allocator_prepare_virtual_memory_params(
           allocator, &params, &buffer_params);
@@ -2434,7 +2446,7 @@ static iree_status_t iree_hal_vulkan_allocator_physical_memory_allocate(
         "Vulkan physical memory allocations must be non-zero");
   }
 
-  iree_hal_buffer_params_t buffer_params;
+  iree_hal_vulkan_buffer_spec_t buffer_params;
   iree_status_t status =
       iree_hal_vulkan_allocator_prepare_virtual_memory_params(
           allocator, &params, &buffer_params);

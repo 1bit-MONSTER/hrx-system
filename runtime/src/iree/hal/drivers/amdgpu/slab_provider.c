@@ -720,7 +720,7 @@ static iree_status_t iree_hal_amdgpu_slab_provider_import_slab(
                 "AMDGPU slab provider has no external attachment service"));
   }
 
-  const iree_hal_buffer_params_t params = {
+  const iree_hal_amdgpu_buffer_spec_t buffer_spec = {
       .type = provider->properties.memory_type,
       .access = IREE_HAL_MEMORY_ACCESS_ALL,
       .usage = provider->properties.supported_usage,
@@ -729,7 +729,7 @@ static iree_status_t iree_hal_amdgpu_slab_provider_import_slab(
   };
   iree_hal_buffer_t* imported_buffer = NULL;
   iree_status_t status = iree_hal_amdgpu_allocator_import_direct_buffer(
-      provider->import_allocator, &params, storage, provider->access.count,
+      provider->import_allocator, &buffer_spec, storage, provider->access.count,
       provider->access.agents, &imported_buffer);
 
   iree_hal_amdgpu_slab_handle_t* slab_handle = NULL;

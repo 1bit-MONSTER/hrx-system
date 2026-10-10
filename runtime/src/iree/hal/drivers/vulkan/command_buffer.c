@@ -2712,7 +2712,7 @@ iree_hal_vulkan_command_buffer_materialize_transfer_staging(
     return iree_ok_status();
   }
 
-  const iree_hal_buffer_params_t params = {
+  const iree_hal_vulkan_buffer_spec_t buffer_spec = {
       .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE |
               IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
       .access = IREE_HAL_MEMORY_ACCESS_ALL,
@@ -2725,7 +2725,7 @@ iree_hal_vulkan_command_buffer_materialize_transfer_staging(
   };
   iree_hal_buffer_t* staging_buffer = NULL;
   iree_status_t status = iree_hal_vulkan_allocator_allocate_direct_buffer(
-      command_buffer->device_allocator, &params,
+      command_buffer->device_allocator, &buffer_spec,
       command_buffer->transfer_staging_length, &staging_buffer);
 
   iree_hal_buffer_mapping_t staging_mapping = {{0}};

@@ -209,7 +209,7 @@ static iree_status_t iree_hal_vulkan_slab_provider_acquire_slab(
                 (uint64_t)min_length, (uint64_t)min_alignment));
   }
 
-  const iree_hal_buffer_params_t params = {
+  const iree_hal_vulkan_buffer_spec_t buffer_spec = {
       .type = provider->properties.memory_type,
       .access = IREE_HAL_MEMORY_ACCESS_ALL,
       .usage = provider->properties.supported_usage,
@@ -219,7 +219,7 @@ static iree_status_t iree_hal_vulkan_slab_provider_acquire_slab(
   iree_hal_buffer_t* buffer = NULL;
   iree_status_t status =
       iree_hal_vulkan_allocator_allocate_direct_buffer_from_type(
-          provider->allocator, provider->memory_type_index, &params,
+          provider->allocator, provider->memory_type_index, &buffer_spec,
           allocation_size, &buffer);
 
   VkDeviceAddress device_address = 0;
@@ -251,7 +251,7 @@ static iree_status_t iree_hal_vulkan_slab_provider_import_slab(
       iree_hal_vulkan_slab_provider_cast(base_provider);
   IREE_TRACE_ZONE_BEGIN(z0);
 
-  const iree_hal_buffer_params_t params = {
+  const iree_hal_vulkan_buffer_spec_t buffer_spec = {
       .type = provider->properties.memory_type,
       .access = IREE_HAL_MEMORY_ACCESS_ALL,
       .usage = provider->properties.supported_usage,
@@ -261,8 +261,8 @@ static iree_status_t iree_hal_vulkan_slab_provider_import_slab(
   iree_hal_buffer_t* buffer = NULL;
   iree_status_t status =
       iree_hal_vulkan_allocator_import_direct_buffer_from_type(
-          provider->allocator, provider->memory_type_index, &params, storage,
-          &buffer);
+          provider->allocator, provider->memory_type_index, &buffer_spec,
+          storage, &buffer);
 
   VkDeviceAddress device_address = 0;
   if (iree_status_is_ok(status)) {

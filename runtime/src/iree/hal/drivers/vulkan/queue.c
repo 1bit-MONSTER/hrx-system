@@ -1175,7 +1175,7 @@ static iree_status_t iree_hal_vulkan_queue_bda_publication_block_create(
   memset(block, 0, sizeof(*block));
   block->capacity = capacity;
 
-  iree_hal_buffer_params_t params = {
+  const iree_hal_vulkan_buffer_spec_t buffer_spec = {
       .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE |
               IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
       .access = IREE_HAL_MEMORY_ACCESS_WRITE,
@@ -1186,7 +1186,7 @@ static iree_status_t iree_hal_vulkan_queue_bda_publication_block_create(
           iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base))),
   };
   iree_status_t status = iree_hal_vulkan_allocator_allocate_direct_buffer(
-      queue->device_allocator, &params, capacity, &block->buffer);
+      queue->device_allocator, &buffer_spec, capacity, &block->buffer);
   if (iree_status_is_ok(status)) {
     status = iree_hal_buffer_map_range(
         block->buffer, IREE_HAL_MAPPING_MODE_PERSISTENT,
@@ -1617,7 +1617,7 @@ static iree_status_t iree_hal_vulkan_queue_staging_ring_create(
   ring->waiter_tail = &ring->waiter_head;
 
   const iree_device_size_t allocation_size = slot_size * slot_count;
-  iree_hal_buffer_params_t params = {
+  const iree_hal_vulkan_buffer_spec_t buffer_spec = {
       .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE |
               IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
       .access = IREE_HAL_MEMORY_ACCESS_ALL,
@@ -1630,7 +1630,7 @@ static iree_status_t iree_hal_vulkan_queue_staging_ring_create(
           iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base))),
   };
   iree_status_t status = iree_hal_vulkan_allocator_allocate_direct_buffer(
-      queue->device_allocator, &params, allocation_size, &ring->buffer);
+      queue->device_allocator, &buffer_spec, allocation_size, &ring->buffer);
   if (iree_status_is_ok(status)) {
     status = iree_hal_buffer_map_range(
         ring->buffer, IREE_HAL_MAPPING_MODE_PERSISTENT,
@@ -1793,7 +1793,7 @@ static iree_status_t iree_hal_vulkan_queue_command_buffer_block_create(
   }
   if (iree_status_is_ok(status) &&
       !iree_any_bit_set(queue->queue_flags, VK_QUEUE_COMPUTE_BIT)) {
-    const iree_hal_buffer_params_t params = {
+    const iree_hal_vulkan_buffer_spec_t buffer_spec = {
         .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
         .access = IREE_HAL_MEMORY_ACCESS_ALL,
         .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
@@ -1801,7 +1801,7 @@ static iree_status_t iree_hal_vulkan_queue_command_buffer_block_create(
             iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base))),
     };
     status = iree_hal_vulkan_allocator_allocate_direct_buffer(
-        queue->device_allocator, &params,
+        queue->device_allocator, &buffer_spec,
         IREE_HAL_VULKAN_QUEUE_FILL_SCRATCH_SIZE *
             IREE_HAL_VULKAN_QUEUE_COMMAND_BUFFER_BLOCK_CAPACITY,
         &block->fill_scratch);

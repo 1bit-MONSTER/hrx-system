@@ -15,6 +15,24 @@ typedef struct iree_hal_amdgpu_logical_device_t
     iree_hal_amdgpu_logical_device_t;
 typedef struct iree_hal_amdgpu_topology_t iree_hal_amdgpu_topology_t;
 
+// Exact native properties used to allocate or attach one AMDGPU buffer.
+//
+// This is private allocation policy consumed by the retained ROCr allocator
+// and slab providers. Public pools fix these properties at construction time;
+// individual reservations carry only their size and alignment.
+typedef struct iree_hal_amdgpu_buffer_spec_t {
+  // Memory properties required or preferred during HSA pool selection.
+  iree_hal_memory_type_t type;
+  // Access permissions published by the resulting HAL buffer.
+  iree_hal_memory_access_t access;
+  // Native usage supported by the selected allocation or attachment.
+  iree_hal_buffer_usage_t usage;
+  // HAL queue families permitted to access the native storage.
+  iree_hal_queue_family_affinity_t queue_family_affinity;
+  // Minimum required native address alignment, or zero for the native default.
+  iree_device_size_t min_alignment;
+} iree_hal_amdgpu_buffer_spec_t;
+
 //===----------------------------------------------------------------------===//
 // iree_hal_amdgpu_allocator_t
 //===----------------------------------------------------------------------===//
@@ -58,7 +76,7 @@ iree_status_t iree_hal_amdgpu_allocator_allocate_prepublished_kernarg_buffer(
 // |access_agents| is the exact group-qualified native access set and is copied
 // by the synchronous attachment calls.
 iree_status_t iree_hal_amdgpu_allocator_import_direct_buffer(
-    iree_hal_allocator_t* allocator, const iree_hal_buffer_params_t* params,
+    iree_hal_allocator_t* allocator, const iree_hal_amdgpu_buffer_spec_t* spec,
     const iree_hal_external_storage_t* storage,
     iree_host_size_t access_agent_count, const hsa_agent_t* access_agents,
     iree_hal_buffer_t** out_buffer);

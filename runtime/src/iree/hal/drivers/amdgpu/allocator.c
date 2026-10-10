@@ -669,8 +669,8 @@ static iree_status_t iree_hal_amdgpu_allocator_query_device_pointer_range(
 }
 
 static bool iree_hal_amdgpu_allocator_resolve_placement(
-    iree_hal_amdgpu_allocator_t* allocator, iree_hal_buffer_params_t* params,
-    bool allow_vmm_host_access,
+    iree_hal_amdgpu_allocator_t* allocator,
+    iree_hal_amdgpu_buffer_spec_t* params, bool allow_vmm_host_access,
     iree_hal_amdgpu_allocator_placement_t* out_placement) {
   memset(out_placement, 0, sizeof(*out_placement));
 
@@ -817,6 +817,30 @@ static bool iree_hal_amdgpu_allocator_resolve_placement(
   return true;
 }
 
+static iree_hal_amdgpu_buffer_spec_t
+iree_hal_amdgpu_allocator_spec_from_buffer_params(
+    const iree_hal_buffer_params_t* params) {
+  return (iree_hal_amdgpu_buffer_spec_t){
+      .type = params->type,
+      .access = params->access,
+      .usage = params->usage,
+      .queue_family_affinity = params->queue_family_affinity,
+      .min_alignment = params->min_alignment,
+  };
+}
+
+static void iree_hal_amdgpu_allocator_update_buffer_params(
+    const iree_hal_amdgpu_buffer_spec_t* spec,
+    iree_hal_buffer_params_t* out_params) {
+  *out_params = (iree_hal_buffer_params_t){
+      .usage = spec->usage,
+      .access = spec->access,
+      .type = spec->type,
+      .queue_family_affinity = spec->queue_family_affinity,
+      .min_alignment = spec->min_alignment,
+  };
+}
+
 static bool iree_hal_amdgpu_allocator_supports_virtual_memory_internal(
     const iree_hal_amdgpu_allocator_t* allocator) {
   return allocator->virtual_memory != NULL &&
@@ -854,7 +878,7 @@ static iree_status_t iree_hal_amdgpu_allocator_resolve_virtual_memory_placement(
       iree_hal_amdgpu_allocator_require_virtual_memory(allocator));
   iree_hal_physical_memory_params_canonicalize(params);
 
-  iree_hal_buffer_params_t buffer_params = {
+  iree_hal_amdgpu_buffer_spec_t buffer_params = {
       .usage = params->usage,
       .access = IREE_HAL_MEMORY_ACCESS_ALL,
       .type = params->type,
@@ -1216,7 +1240,7 @@ static iree_status_t iree_hal_amdgpu_allocator_query_memory_heaps(
 static iree_hal_buffer_compatibility_t
 iree_hal_amdgpu_allocator_query_buffer_compatibility_impl(
     iree_hal_amdgpu_allocator_t* allocator,
-    iree_hal_buffer_params_t* IREE_RESTRICT params,
+    iree_hal_amdgpu_buffer_spec_t* IREE_RESTRICT params,
     iree_device_size_t* IREE_RESTRICT allocation_size,
     iree_hal_amdgpu_allocator_placement_t* out_placement) {
   if (out_placement) {
@@ -1314,15 +1338,22 @@ iree_hal_amdgpu_allocator_query_buffer_compatibility(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
     iree_hal_buffer_params_t* IREE_RESTRICT params,
     iree_device_size_t* IREE_RESTRICT allocation_size) {
-  return iree_hal_amdgpu_allocator_query_buffer_compatibility_impl(
-      iree_hal_amdgpu_allocator_cast(base_allocator), params, allocation_size,
-      /*out_placement=*/NULL);
+  iree_hal_amdgpu_buffer_spec_t spec =
+      iree_hal_amdgpu_allocator_spec_from_buffer_params(params);
+  const iree_hal_buffer_compatibility_t compatibility =
+      iree_hal_amdgpu_allocator_query_buffer_compatibility_impl(
+          iree_hal_amdgpu_allocator_cast(base_allocator), &spec,
+          allocation_size, /*out_placement=*/NULL);
+  if (compatibility != IREE_HAL_BUFFER_COMPATIBILITY_NONE) {
+    iree_hal_amdgpu_allocator_update_buffer_params(&spec, params);
+  }
+  return compatibility;
 }
 
 static void iree_hal_amdgpu_allocator_record_buffer_allocate(
     iree_hal_amdgpu_allocator_t* allocator,
     const iree_hal_amdgpu_allocator_placement_t* memory_placement,
-    iree_hal_buffer_params_t params, iree_device_size_t allocation_size,
+    iree_hal_amdgpu_buffer_spec_t params, iree_device_size_t allocation_size,
     void* host_ptr, iree_hal_buffer_t* buffer) {
   uint64_t session_id = 0;
   const uint64_t allocation_id =
@@ -1352,7 +1383,8 @@ static void iree_hal_amdgpu_allocator_record_buffer_allocate(
 }
 
 static void iree_hal_amdgpu_allocator_record_buffer_import(
-    iree_hal_amdgpu_allocator_t* allocator, iree_hal_buffer_params_t params,
+    iree_hal_amdgpu_allocator_t* allocator,
+    iree_hal_amdgpu_buffer_spec_t params,
     const iree_hal_external_storage_t* external_buffer,
     iree_hal_amdgpu_imported_host_release_data_t* release_data) {
   uint64_t session_id = 0;
@@ -1460,7 +1492,7 @@ static bool iree_hal_amdgpu_allocator_should_publish_asan_allocation(
 static iree_status_t iree_hal_amdgpu_allocator_allocate_asan_pool_buffer(
     iree_hal_amdgpu_allocator_t* allocator,
     const iree_hal_amdgpu_allocator_placement_t* memory_placement,
-    iree_hal_buffer_params_t params, iree_device_size_t byte_length,
+    iree_hal_amdgpu_buffer_spec_t params, iree_device_size_t byte_length,
     iree_hal_buffer_t** out_buffer) {
   IREE_ASSERT_ARGUMENT(out_buffer);
   *out_buffer = NULL;
@@ -1487,8 +1519,10 @@ static iree_status_t iree_hal_amdgpu_allocator_allocate_asan_pool_buffer(
   const iree_device_size_t pool_allocation_size =
       byte_length == 0 ? 4 : byte_length;
   iree_hal_buffer_t* allocation_buffer = NULL;
+  iree_hal_buffer_params_t legacy_params;
+  iree_hal_amdgpu_allocator_update_buffer_params(&params, &legacy_params);
   iree_hal_pool_t* pool = iree_hal_pool_set_select(
-      &physical_device->default_pool_set, params, pool_allocation_size);
+      &physical_device->default_pool_set, legacy_params, pool_allocation_size);
   if (!pool) {
     return iree_make_status(IREE_STATUS_NOT_FOUND,
                             "no AMDGPU ASAN pool can satisfy a %" PRIdsz
@@ -1507,7 +1541,6 @@ static iree_status_t iree_hal_amdgpu_allocator_allocate_asan_pool_buffer(
   iree_status_t status = iree_hal_pool_allocate_buffer(
       pool, request, iree_infinite_timeout(), &allocation_buffer);
   if (iree_status_is_ok(status)) {
-    iree_hal_buffer_params_canonicalize(&params);
     allocation_buffer->allowed_access = params.access;
     allocation_buffer->allowed_usage = params.usage;
     allocation_buffer->placement.queue_family_affinity =
@@ -1544,9 +1577,9 @@ static void iree_hal_amdgpu_allocator_release_asan_allocation(
   IREE_TRACE_ZONE_END(z0);
 }
 
-static iree_status_t iree_hal_amdgpu_allocator_allocate_buffer(
+static iree_status_t iree_hal_amdgpu_allocator_allocate_buffer_spec(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    const iree_hal_buffer_params_t* IREE_RESTRICT params,
+    const iree_hal_amdgpu_buffer_spec_t* IREE_RESTRICT params,
     iree_device_size_t allocation_size,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
   iree_hal_amdgpu_allocator_t* allocator =
@@ -1556,7 +1589,7 @@ static iree_status_t iree_hal_amdgpu_allocator_allocate_buffer(
   IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)byte_length);
 
   // Coerce options into those required by the current device.
-  iree_hal_buffer_params_t compat_params = *params;
+  iree_hal_amdgpu_buffer_spec_t compat_params = *params;
   iree_hal_amdgpu_allocator_placement_t memory_placement;
   if (!iree_hal_amdgpu_allocator_resolve_placement(
           allocator, &compat_params, /*allow_vmm_host_access=*/false,
@@ -1746,6 +1779,17 @@ static iree_status_t iree_hal_amdgpu_allocator_allocate_buffer(
   return status;
 }
 
+static iree_status_t iree_hal_amdgpu_allocator_allocate_buffer(
+    iree_hal_allocator_t* IREE_RESTRICT base_allocator,
+    const iree_hal_buffer_params_t* IREE_RESTRICT params,
+    iree_device_size_t allocation_size,
+    iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
+  const iree_hal_amdgpu_buffer_spec_t spec =
+      iree_hal_amdgpu_allocator_spec_from_buffer_params(params);
+  return iree_hal_amdgpu_allocator_allocate_buffer_spec(
+      base_allocator, &spec, allocation_size, out_buffer);
+}
+
 iree_status_t iree_hal_amdgpu_allocator_allocate_prepublished_kernarg_buffer(
     iree_hal_allocator_t* base_allocator, uint32_t physical_device_ordinal,
     iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer) {
@@ -1756,7 +1800,7 @@ iree_status_t iree_hal_amdgpu_allocator_allocate_prepublished_kernarg_buffer(
         " exceeds the HAL queue-family limit",
         physical_device_ordinal);
   }
-  const iree_hal_buffer_params_t params = {
+  const iree_hal_amdgpu_buffer_spec_t params = {
       .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
               IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
               IREE_HAL_MEMORY_TYPE_HOST_COHERENT,
@@ -1766,8 +1810,8 @@ iree_status_t iree_hal_amdgpu_allocator_allocate_prepublished_kernarg_buffer(
       .queue_family_affinity =
           iree_hal_make_queue_family_affinity(physical_device_ordinal),
   };
-  return iree_hal_amdgpu_allocator_allocate_buffer(base_allocator, &params,
-                                                   allocation_size, out_buffer);
+  return iree_hal_amdgpu_allocator_allocate_buffer_spec(
+      base_allocator, &params, allocation_size, out_buffer);
 }
 
 static void iree_hal_amdgpu_allocator_deallocate_buffer(
@@ -1852,7 +1896,7 @@ static void iree_hal_amdgpu_allocator_release_imported_device(
 
 static iree_status_t iree_hal_amdgpu_allocator_import_device_allocation(
     iree_hal_amdgpu_allocator_t* allocator,
-    const iree_hal_buffer_params_t* params,
+    const iree_hal_amdgpu_buffer_spec_t* params,
     const iree_hal_external_storage_t* external_buffer,
     const iree_hal_amdgpu_access_agent_list_t* exact_access_agents,
     iree_hal_buffer_release_callback_t release_callback,
@@ -1885,7 +1929,7 @@ static iree_status_t iree_hal_amdgpu_allocator_import_device_allocation(
         (uint64_t)params->min_alignment);
   }
 
-  iree_hal_buffer_params_t compat_params = *params;
+  iree_hal_amdgpu_buffer_spec_t compat_params = *params;
   iree_hal_amdgpu_allocator_placement_t memory_placement;
   if (!iree_hal_amdgpu_allocator_resolve_placement(
           allocator, &compat_params, /*allow_vmm_host_access=*/false,
@@ -1977,7 +2021,7 @@ static iree_status_t iree_hal_amdgpu_allocator_import_device_allocation(
 
 static iree_status_t iree_hal_amdgpu_allocator_import_buffer_with_access_agents(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
-    const iree_hal_buffer_params_t* IREE_RESTRICT params,
+    const iree_hal_amdgpu_buffer_spec_t* IREE_RESTRICT params,
     const iree_hal_external_storage_t* IREE_RESTRICT external_buffer,
     const iree_hal_amdgpu_access_agent_list_t* exact_access_agents,
     iree_hal_buffer_release_callback_t release_callback,
@@ -2038,7 +2082,7 @@ static iree_status_t iree_hal_amdgpu_allocator_import_buffer_with_access_agents(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "host allocation import requires a non-zero size");
   }
-  iree_hal_buffer_params_t compat_params = *params;
+  iree_hal_amdgpu_buffer_spec_t compat_params = *params;
   compat_params.type &= ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
   compat_params.type |= IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
                         IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
@@ -2158,14 +2202,16 @@ static iree_status_t iree_hal_amdgpu_allocator_import_buffer(
     const iree_hal_external_storage_t* IREE_RESTRICT external_buffer,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
+  const iree_hal_amdgpu_buffer_spec_t spec =
+      iree_hal_amdgpu_allocator_spec_from_buffer_params(params);
   return iree_hal_amdgpu_allocator_import_buffer_with_access_agents(
-      base_allocator, params, external_buffer, /*exact_access_agents=*/NULL,
+      base_allocator, &spec, external_buffer, /*exact_access_agents=*/NULL,
       release_callback, out_buffer);
 }
 
 iree_status_t iree_hal_amdgpu_allocator_import_direct_buffer(
     iree_hal_allocator_t* base_allocator,
-    const iree_hal_buffer_params_t* params,
+    const iree_hal_amdgpu_buffer_spec_t* params,
     const iree_hal_external_storage_t* storage,
     iree_host_size_t access_agent_count, const hsa_agent_t* access_agents,
     iree_hal_buffer_t** out_buffer) {
@@ -2190,10 +2236,8 @@ iree_status_t iree_hal_amdgpu_allocator_import_direct_buffer(
     memcpy(exact_access_agents.values, access_agents,
            access_agent_count * sizeof(*access_agents));
   }
-  iree_hal_buffer_params_t canonical_params = *params;
-  iree_hal_buffer_params_canonicalize(&canonical_params);
   return iree_hal_amdgpu_allocator_import_buffer_with_access_agents(
-      base_allocator, &canonical_params, storage, &exact_access_agents,
+      base_allocator, params, storage, &exact_access_agents,
       iree_hal_buffer_release_callback_null(), out_buffer);
 }
 

@@ -24,6 +24,24 @@ extern "C" {
 typedef struct iree_hal_vulkan_allocator_t iree_hal_vulkan_allocator_t;
 typedef struct iree_hal_vulkan_queue_t iree_hal_vulkan_queue_t;
 
+// Exact native properties used to create one Vulkan buffer.
+//
+// This is private allocation policy consumed by the Vulkan allocator and slab
+// provider. Public pools fix these properties at construction time; individual
+// reservations carry only their size and alignment.
+typedef struct iree_hal_vulkan_buffer_spec_t {
+  // Memory properties required or preferred during memory-type selection.
+  iree_hal_memory_type_t type;
+  // Access permissions published by the resulting HAL buffer.
+  iree_hal_memory_access_t access;
+  // Native usage fixed when the VkBuffer is created.
+  iree_hal_buffer_usage_t usage;
+  // HAL queue families permitted to access the VkBuffer.
+  iree_hal_queue_family_affinity_t queue_family_affinity;
+  // Minimum required native address alignment, or zero for the native default.
+  iree_device_size_t min_alignment;
+} iree_hal_vulkan_buffer_spec_t;
+
 // Maps one canonical HAL queue family ordinal to its Vulkan queue family.
 // Array position is the HAL queue family ordinal.
 typedef struct iree_hal_vulkan_allocator_queue_family_t {
@@ -67,8 +85,8 @@ void iree_hal_vulkan_allocator_deinitialize_default_pools(
 // any application pool inventory.
 iree_status_t iree_hal_vulkan_allocator_allocate_direct_buffer_from_type(
     iree_hal_vulkan_allocator_t* allocator, uint32_t memory_type_index,
-    const iree_hal_buffer_params_t* params, iree_device_size_t allocation_size,
-    iree_hal_buffer_t** out_buffer);
+    const iree_hal_vulkan_buffer_spec_t* spec,
+    iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer);
 
 // Returns whether this allocator can attach ordinary host allocations as
 // Vulkan memory. This requires both VK_EXT_external_memory_host and a unified
@@ -84,7 +102,7 @@ bool iree_hal_vulkan_allocator_supports_host_allocation_import(
 // construction-time memory-type selection remains exact at import time.
 iree_status_t iree_hal_vulkan_allocator_import_direct_buffer_from_type(
     iree_hal_vulkan_allocator_t* allocator, uint32_t memory_type_index,
-    const iree_hal_buffer_params_t* params,
+    const iree_hal_vulkan_buffer_spec_t* spec,
     const iree_hal_external_storage_t* storage, iree_hal_buffer_t** out_buffer);
 
 // Allocates one whole Vulkan buffer directly from a compatible memory type.
@@ -93,26 +111,13 @@ iree_status_t iree_hal_vulkan_allocator_import_direct_buffer_from_type(
 // of the underlying VkDeviceMemory mapping lifetime.
 iree_status_t iree_hal_vulkan_allocator_allocate_direct_buffer(
     iree_hal_allocator_t* base_allocator,
-    const iree_hal_buffer_params_t* params, iree_device_size_t allocation_size,
-    iree_hal_buffer_t** out_buffer);
+    const iree_hal_vulkan_buffer_spec_t* spec,
+    iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer);
 
 // Returns the default queue-pool backend resources borrowed from |allocator|.
 iree_status_t iree_hal_vulkan_allocator_query_queue_pool_backend(
     iree_hal_allocator_t* base_allocator,
     iree_hal_queue_pool_backend_t* out_backend);
-
-// Resolves one pool-backed queue allocation against Vulkan memory properties.
-//
-// The returned parameters contain a concrete memory type and queue-family
-// affinity and the returned allocation size satisfies Vulkan's buffer-size
-// granularity. Pool policy validation remains in queue.c. Outputs are untouched
-// on failure.
-iree_status_t iree_hal_vulkan_allocator_resolve_pool_allocation(
-    iree_hal_allocator_t* base_allocator,
-    const iree_hal_pool_capabilities_t* pool_capabilities,
-    iree_hal_buffer_params_t params, iree_device_size_t allocation_size,
-    iree_hal_buffer_params_t* out_params,
-    iree_device_size_t* out_allocation_size);
 
 #ifdef __cplusplus
 }  // extern "C"
