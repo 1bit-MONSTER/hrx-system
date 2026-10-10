@@ -1240,12 +1240,15 @@ static iree_status_t loom_low_allocation_unit_liveness_note_block_live_out_uses(
             value_domain, liveness, value_id, &value_ordinal)) {
       continue;
     }
-    const loom_liveness_interval_t* interval =
-        loom_liveness_interval_for_value_ordinal(liveness, value_ordinal);
-    if (unit_use_index->heads != NULL && interval != NULL &&
-        interval->unit_count > 1) {
-      continue;
-    }
+    // 1bit/hrx-longctx-fix (bong-water-water-bong, 2026-10-10): re-apply
+    // whole-value live-out demand to multi-unit (tuple) values. ba07714dd
+    // dropped this to delegate their cross-block demand to the backward
+    // extend_boundaries walk, but that walk stops at a value definition block
+    // and never reaches a loop header back-edge predecessor, so a loop-carried
+    // tuple unit end_point was not extended to the latch (back-edge
+    // parallel-copy point) -> long-KV flash-attention corruption. end_points is
+    // a monotone max, so re-adding this live-out contribution only lengthens
+    // intervals (never shortens): correctness-safe. See commit message.
     const loom_low_allocation_direct_use_flags_t direct_use_flags =
         edge_use_index->values == NULL
             ? 0
