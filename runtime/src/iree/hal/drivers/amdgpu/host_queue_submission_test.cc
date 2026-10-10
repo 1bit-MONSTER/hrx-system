@@ -6,6 +6,7 @@
 
 #include "iree/hal/drivers/amdgpu/host_queue_submission.h"
 
+#include <atomic>
 #include <cstdint>
 #include <initializer_list>
 
@@ -18,6 +19,7 @@
 #include "iree/hal/drivers/amdgpu/host_queue_waits.h"
 #include "iree/hal/drivers/amdgpu/logical_device.h"
 #include "iree/hal/drivers/amdgpu/physical_device.h"
+#include "iree/hal/drivers/amdgpu/semaphore.h"
 #include "iree/hal/drivers/amdgpu/util/pm4_capabilities.h"
 #include "iree/hal/drivers/amdgpu/util/pm4_emitter.h"
 #include "iree/testing/gtest.h"
@@ -270,6 +272,98 @@ TEST_F(HostQueueSubmissionTest, DeferredSignalsRetireAfterHostAssembly) {
     // Releasing the caller's references after completion must also join all
     // submission-side semaphore reads, independent of which thread frees it.
   }
+}
+
+TEST_F(HostQueueSubmissionTest, HostWaitRequiresPublishedProducerRetirement) {
+  iree_hal_amdgpu_logical_device_options_t options;
+  iree_hal_amdgpu_logical_device_options_initialize(&options);
+  TestLogicalDevice test_device;
+  IREE_ASSERT_OK(
+      test_device.Initialize(&options, &libhsa_, &topology_, host_allocator_));
+  auto* queue = test_device.first_host_queue();
+  ASSERT_NE(queue, nullptr);
+  iree::hal::cts::SemaphoreList completed(test_device.base_device(), {0}, {1});
+  struct CompletionState {
+    // Borrowed semaphore whose completion must follow the retirement action.
+    iree_hal_semaphore_t* semaphore;
+    // Number of retirement actions observed across completion threads.
+    std::atomic<uint32_t> callback_count{0};
+    // Semaphore value visible when the retirement action began.
+    std::atomic<uint64_t> observed_value{UINT64_MAX};
+  } completion_state{completed.semaphores[0]};
+
+  // Model the interval after a packet header becomes device-visible but before
+  // its submitter publishes the epoch's final host-side resource accesses.
+  auto* ring = &queue->notification_ring;
+  iree_slim_mutex_lock(&queue->locks.submission_mutex);
+  iree_status_t status = iree_hal_amdgpu_notification_ring_reserve(
+      ring, /*entry_count=*/1, /*frontier_snapshot_count=*/0);
+  auto* reclaim_entry = iree_hal_amdgpu_notification_ring_reclaim_entry(ring);
+  iree_hal_resource_t** resources = nullptr;
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_amdgpu_reclaim_entry_prepare(
+        reclaim_entry, queue->block_pool, /*count=*/1, &resources);
+  }
+  uint64_t producer_epoch = 0;
+  if (iree_status_is_ok(status)) {
+    resources[0] =
+        reinterpret_cast<iree_hal_resource_t*>(completed.semaphores[0]);
+    iree_hal_resource_retain(resources[0]);
+    reclaim_entry->signal_semaphore_count = 1;
+    reclaim_entry->count = 1;
+    reclaim_entry->pre_signal_action = {
+        [](iree_hal_amdgpu_reclaim_entry_t*, void* user_data,
+           const iree_status_t action_status) {
+          IREE_EXPECT_OK(iree_status_clone(action_status));
+          auto* state = static_cast<CompletionState*>(user_data);
+          uint64_t value = 0;
+          IREE_EXPECT_OK(iree_hal_semaphore_query(state->semaphore, &value));
+          state->observed_value.store(value, std::memory_order_release);
+          state->callback_count.fetch_add(1, std::memory_order_release);
+        },
+        &completion_state};
+    producer_epoch = iree_hal_amdgpu_notification_ring_advance_epoch(ring);
+    iree_hal_amdgpu_notification_ring_push(
+        ring, producer_epoch,
+        reinterpret_cast<iree_async_semaphore_t*>(completed.semaphores[0]),
+        /*timeline_value=*/1, IREE_HAL_AMDGPU_NOTIFICATION_ENTRY_FLAG_NONE);
+    iree_async_single_frontier_t producer_frontier;
+    iree_async_single_frontier_initialize(&producer_frontier, queue->axis,
+                                          producer_epoch);
+    EXPECT_TRUE(iree_hal_amdgpu_semaphore_publish_signal(
+        completed.semaphores[0], queue->axis,
+        iree_async_single_frontier_as_const_frontier(&producer_frontier),
+        producer_epoch, /*producer_value=*/1));
+  }
+  iree_slim_mutex_unlock(&queue->locks.submission_mutex);
+  IREE_ASSERT_OK(status);
+
+  // Hardware completion alone cannot authorize host-visible completion. The
+  // immediate timeout checks that contract without blocking valid queue work.
+  iree_hsa_signal_store_screlease(
+      IREE_LIBHSA(&libhsa_), ring->epoch.signal,
+      (hsa_signal_value_t)(IREE_HAL_AMDGPU_EPOCH_INITIAL_VALUE -
+                           producer_epoch));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_DEADLINE_EXCEEDED,
+      iree_hal_semaphore_wait(completed.semaphores[0], /*value=*/1,
+                              iree_immediate_timeout(),
+                              IREE_ASYNC_WAIT_FLAG_NONE));
+  uint64_t value = 0;
+  IREE_EXPECT_OK(iree_hal_semaphore_query(completed.semaphores[0], &value));
+  EXPECT_EQ(value, 0u);
+  EXPECT_EQ(completion_state.callback_count.load(std::memory_order_acquire),
+            0u);
+
+  iree_hal_amdgpu_notification_ring_publish_epoch(ring, producer_epoch);
+  iree_hal_amdgpu_host_queue_drain_completions_for_waiter(queue);
+  IREE_EXPECT_OK(iree_hal_semaphore_wait(completed.semaphores[0], /*value=*/1,
+                                         iree_infinite_timeout(),
+                                         IREE_ASYNC_WAIT_FLAG_NONE));
+  EXPECT_EQ(completion_state.callback_count.load(std::memory_order_acquire),
+            1u);
+  EXPECT_EQ(completion_state.observed_value.load(std::memory_order_acquire),
+            0u);
 }
 
 class HostQueueHsaProfilingScope {
