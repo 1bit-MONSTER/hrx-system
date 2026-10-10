@@ -91,7 +91,8 @@ TEST_P(VulkanQueueDescriptorCacheTest,
     iree_host_size_t submitted_count = 0;
     for (iree_host_size_t i = 0;
          i < kSubmissionCount && iree_status_is_ok(status); ++i) {
-      const iree_host_size_t pattern_length = 1u << (i / (4 * 17));
+      const iree_host_size_t pattern_length = iree_host_size_t{1}
+                                              << (i / (4 * 17));
       const iree_device_size_t offset =
           i * kStride + ((i / 17) % 4) * pattern_length;
       const iree_device_size_t length = (1 + i % 17) * pattern_length;
