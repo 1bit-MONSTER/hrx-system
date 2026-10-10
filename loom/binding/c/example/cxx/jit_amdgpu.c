@@ -27,6 +27,8 @@ typedef struct jit_state_t {
   iree_async_frontier_tracker_t* frontier_tracker;
   // Queue group owning registration with the completion tracker.
   iree_hal_device_group_t* device_group;
+  // Explicit storage shared by the dispatch and transfer families.
+  iree_hal_pool_t* pool;
   // Physical execution device and allocator owner.
   iree_hal_device_t* device;
   // Borrowed provisioned dispatch queue.
@@ -73,6 +75,7 @@ static void deinitialize(jit_state_t* state) {
   loomc_workspace_release(state->workspace);
   loomc_context_release(state->context);
   loomc_target_environment_release(state->target_environment);
+  iree_hal_pool_release(state->pool);
   iree_hal_device_group_release(state->device_group);
   iree_hal_device_release(state->device);
   iree_async_frontier_tracker_release(state->frontier_tracker);
@@ -140,6 +143,31 @@ static iree_status_t initialize(jit_state_t* state, const char* device_uri) {
     return iree_make_status(IREE_STATUS_UNAVAILABLE,
                             "device needs dispatch and transfer queues");
   }
+  iree_hal_pool_family_access_t family_accesses[2] = {
+      {
+          .family = iree_hal_queue_family(state->dispatch_queue),
+          .usage = IREE_HAL_BUFFER_USAGE_STORAGE,
+      },
+  };
+  iree_host_size_t family_access_count = 1;
+  if (iree_hal_queue_family(state->transfer_queue) ==
+      family_accesses[0].family) {
+    family_accesses[0].usage |= IREE_HAL_BUFFER_USAGE_TRANSFER;
+  } else {
+    family_accesses[family_access_count++] = (iree_hal_pool_family_access_t){
+        .family = iree_hal_queue_family(state->transfer_queue),
+        .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
+    };
+  }
+  const iree_hal_pool_scope_t pool_scope = {
+      .family_count = family_access_count,
+      .families = family_accesses,
+  };
+  iree_hal_slab_pool_options_t pool_options;
+  iree_hal_slab_pool_options_initialize(&pool_options);
+  pool_options.trace_name = iree_make_cstring_view("loom.jit_amdgpu");
+  IREE_RETURN_IF_ERROR(iree_hal_slab_pool_create(
+      state->device_group, pool_scope, &pool_options, allocator, &state->pool));
   IREE_RETURN_IF_ERROR(
       iree_status_from_loomc(loomc_target_environment_create_amdgpu(
           loomc_allocator_system(), &state->target_environment)));
@@ -328,17 +356,17 @@ static iree_status_t execute_kernel(jit_state_t* state, const char* name,
   iree_hal_buffer_t* input_buffer = NULL;
   iree_hal_buffer_t* output_buffer = NULL;
   iree_hal_semaphore_t* semaphore = NULL;
-  const iree_hal_buffer_params_t buffer_params = {
-      .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
-      .usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER,
-  };
-  iree_status_t status = iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(state->device), buffer_params, sizeof(input),
-      &input_buffer);
+  iree_status_t status =
+      iree_hal_pool_allocate_buffer(state->pool,
+                                    iree_hal_make_pool_reservation_request(
+                                        sizeof(input), iree_alignof(float)),
+                                    iree_infinite_timeout(), &input_buffer);
   if (iree_status_is_ok(status)) {
-    status = iree_hal_allocator_allocate_buffer(
-        iree_hal_device_allocator(state->device), buffer_params, sizeof(output),
-        &output_buffer);
+    status =
+        iree_hal_pool_allocate_buffer(state->pool,
+                                      iree_hal_make_pool_reservation_request(
+                                          sizeof(output), iree_alignof(float)),
+                                      iree_infinite_timeout(), &output_buffer);
   }
   if (iree_status_is_ok(status)) {
     status = iree_hal_semaphore_create(

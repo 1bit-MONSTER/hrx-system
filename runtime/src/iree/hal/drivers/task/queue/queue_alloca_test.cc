@@ -837,17 +837,9 @@ TEST_P(TaskQueueNativeRetirementTest,
 
 TEST_P(TaskQueueNativeRetirementTest, CompletionCanDestroyItsPool) {
   ASSERT_NO_FATAL_FAILURE(UseNativePool());
-  iree_hal_buffer_params_t params = {};
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage =
-      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
-  params.queue_family_affinity = iree_hal_make_queue_family_affinity(0);
   backing_.ObserveNextAllocation();
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-      pool_,
-      iree_hal_make_pool_reservation_request(kBlockSize,
-                                             (params).min_alignment),
+      pool_, iree_hal_make_pool_reservation_request(kBlockSize, 1),
       iree_infinite_timeout(), &initial_buffers_[0]));
 
   const uint32_t pattern = 0xDCBA9876u;

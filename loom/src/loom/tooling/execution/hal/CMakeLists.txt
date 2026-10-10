@@ -326,6 +326,7 @@ loom_cc_test(
     ::invocation
     ::runtime
     iree::base
+    iree::hal::memory::heap_pool
     iree::testing::gtest
     iree::testing::gtest_main
 )

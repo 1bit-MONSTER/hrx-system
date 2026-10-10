@@ -33,6 +33,36 @@ class TaskBufferAccessTest : public CtsTestBase<> {
   iree_hal_executable_t* executable_ = nullptr;
 };
 
+static iree_status_t CreateHostImportPool(
+    iree_hal_device_group_t* device_group,
+    const iree_hal_queue_family_t* family, iree_hal_buffer_usage_t usage,
+    iree_hal_atomic_operation_capabilities_t atomic_operations,
+    iree_hal_pool_t** out_pool) {
+  const iree_hal_pool_family_access_t family_access = {
+      /*.family=*/family,
+      /*.usage=*/usage,
+      /*.interfaces=*/0,
+      /*.requirements=*/0,
+      /*.atomic_operations=*/atomic_operations,
+  };
+  const iree_hal_pool_scope_t scope = {
+      /*.family_count=*/1,
+      /*.families=*/&family_access,
+  };
+  const iree_hal_pool_import_class_t import_class = {
+      /*.storage_class=*/iree_hal_make_external_storage_class(
+          IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+  };
+  iree_hal_slab_pool_options_t options;
+  iree_hal_slab_pool_options_initialize(&options);
+  options.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+  options.imports.class_count = 1;
+  options.imports.classes = &import_class;
+  options.trace_name = IREE_SV("task.buffer_access.import");
+  return iree_hal_slab_pool_create(device_group, scope, &options,
+                                   iree_allocator_system(), out_pool);
+}
+
 TEST_P(TaskBufferAccessTest, DirectionalStorageBindings) {
   iree_hal_queue_t* queue =
       QueueForCommandCategories(IREE_HAL_COMMAND_CATEGORY_DISPATCH);
@@ -42,30 +72,46 @@ TEST_P(TaskBufferAccessTest, DirectionalStorageBindings) {
       {100.0f, 200.0f, 300.0f, 400.0f},
       {},
   };
+  const iree_hal_atomic_operation_capabilities_t no_atomics = {};
+  const iree_hal_atomic_operation_capabilities_t write_atomics = {
+      /*.system_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
+  };
+  Ref<iree_hal_pool_t> read_pool;
+  IREE_ASSERT_OK(CreateHostImportPool(
+      device_group_, iree_hal_queue_family(queue),
+      IREE_HAL_BUFFER_USAGE_STORAGE_READ, no_atomics, read_pool.out()));
+  Ref<iree_hal_pool_t> write_pool;
+  IREE_ASSERT_OK(CreateHostImportPool(
+      device_group_, iree_hal_queue_family(queue),
+      IREE_HAL_BUFFER_USAGE_STORAGE_WRITE, write_atomics, write_pool.out()));
+  const iree_hal_buffer_usage_t usages[] = {
+      IREE_HAL_BUFFER_USAGE_STORAGE_READ,
+      IREE_HAL_BUFFER_USAGE_STORAGE_READ,
+      IREE_HAL_BUFFER_USAGE_STORAGE_WRITE,
+  };
+  const iree_hal_memory_access_t accesses[] = {
+      IREE_HAL_MEMORY_ACCESS_READ,
+      IREE_HAL_MEMORY_ACCESS_READ,
+      IREE_HAL_MEMORY_ACCESS_WRITE,
+  };
   Ref<iree_hal_buffer_t> buffers[3];
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(buffers); ++i) {
-    iree_hal_buffer_params_t params = {};
-    params.type =
-        IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-    params.access =
-        i == 2 ? IREE_HAL_MEMORY_ACCESS_WRITE : IREE_HAL_MEMORY_ACCESS_READ;
-    params.usage = i == 2 ? IREE_HAL_BUFFER_USAGE_STORAGE_WRITE
-                          : IREE_HAL_BUFFER_USAGE_STORAGE_READ;
     iree_hal_external_storage_t external = {};
     external.storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
     external.byte_length = sizeof(values[i]);
     external.payload.host_pointer = values[i].data();
-    IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
-        device_allocator_, params, &external,
+    external.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+    IREE_ASSERT_OK(iree_hal_pool_import_buffer(
+        i == 2 ? write_pool.get() : read_pool.get(), &external,
         iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
         buffers[i].out()));
-    EXPECT_EQ(iree_hal_buffer_allowed_usage(buffers[i]), params.usage);
+    EXPECT_EQ(iree_hal_buffer_allowed_usage(buffers[i]), usages[i]);
     iree_hal_buffer_mapping_t mapping = {};
     IREE_EXPECT_STATUS_IS(
         IREE_STATUS_PERMISSION_DENIED,
         iree_hal_buffer_map_range(buffers[i], IREE_HAL_MAPPING_MODE_SCOPED,
-                                  params.access, IREE_HAL_BUFFER_MAP_FLAG_NONE,
-                                  0, sizeof(values[i]), &mapping));
+                                  accesses[i], IREE_HAL_BUFFER_MAP_FLAG_NONE, 0,
+                                  sizeof(values[i]), &mapping));
   }
 
   for (DispatchMode mode : {DispatchMode::kQueue, DispatchMode::kInlineQueue,
@@ -125,19 +171,15 @@ TEST_P(TaskBufferAccessTest, DirectionalStorageBindings) {
       if (indirect) {
         // The opaque dispatch must preserve the atomic store's exact WRITE
         // requirement on the same slot. Rejection occurs before submission.
-        iree_hal_buffer_params_t params = {};
-        params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-                      IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
-        params.usage = IREE_HAL_BUFFER_USAGE_STORAGE_READ;
-        params.access = IREE_HAL_MEMORY_ACCESS_ALL;
         iree_hal_external_storage_t external = {};
         external.storage_class.type =
             IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
         external.byte_length = sizeof(values[2]);
         external.payload.host_pointer = values[2].data();
+        external.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
         Ref<iree_hal_buffer_t> storage_read_only;
-        IREE_ASSERT_OK(iree_hal_allocator_import_buffer(
-            device_allocator_, params, &external,
+        IREE_ASSERT_OK(iree_hal_pool_import_buffer(
+            read_pool.get(), &external,
             iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
             storage_read_only.out()));
         entries[2].buffer = storage_read_only;
@@ -184,13 +226,17 @@ TEST_P(TaskBufferAccessTest, ExecutionOnlyNestedViews) {
   iree_hal_queue_t* queue = QueueForCommandCategories(
       IREE_HAL_COMMAND_CATEGORY_DISPATCH | IREE_HAL_COMMAND_CATEGORY_TRANSFER);
   ASSERT_NE(queue, nullptr);
-  iree_hal_buffer_params_t params = {};
-  params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
+  const iree_hal_buffer_usage_t usage =
+      IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
   const iree_hal_pool_family_access_t family_access = {
       /*.family=*/iree_hal_queue_family(queue),
-      /*.usage=*/params.usage,
+      /*.usage=*/usage,
+      /*.interfaces=*/0,
+      /*.requirements=*/0,
+      /*.atomic_operations=*/
+      {
+          /*.system_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
+      },
   };
   const iree_hal_pool_scope_t scope = {
       /*.family_count=*/1,
@@ -221,12 +267,9 @@ TEST_P(TaskBufferAccessTest, ExecutionOnlyNestedViews) {
       SemaphoreList downloaded(device_, {0}, {1});
       AllocationGate release_gate(gate.semaphores[0]);
       const iree_hal_pool_reservation_request_t requests[] = {
-          iree_hal_make_pool_reservation_request(sizeof(inputs[0]),
-                                                 params.min_alignment),
-          iree_hal_make_pool_reservation_request(sizeof(inputs[1]),
-                                                 params.min_alignment),
-          iree_hal_make_pool_reservation_request(sizeof(inputs[2]),
-                                                 params.min_alignment),
+          iree_hal_make_pool_reservation_request(sizeof(inputs[0]), 1),
+          iree_hal_make_pool_reservation_request(sizeof(inputs[1]), 1),
+          iree_hal_make_pool_reservation_request(sizeof(inputs[2]), 1),
       };
       if (transient) {
         iree_hal_buffer_t* buffers[3] = {};
@@ -238,8 +281,8 @@ TEST_P(TaskBufferAccessTest, ExecutionOnlyNestedViews) {
         }
       } else {
         for (auto& root : roots) {
-          IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-              device_allocator_, params, sizeof(inputs[0]), root.out()));
+          IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+              pool, requests[0], iree_infinite_timeout(), root.out()));
         }
       }
       for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(views); ++i) {
@@ -250,7 +293,7 @@ TEST_P(TaskBufferAccessTest, ExecutionOnlyNestedViews) {
         IREE_ASSERT_OK(
             iree_hal_buffer_subspan(outer, sizeof(float), 4 * sizeof(float),
                                     iree_allocator_system(), views[i].out()));
-        EXPECT_EQ(iree_hal_buffer_allowed_usage(views[i]), params.usage);
+        EXPECT_EQ(iree_hal_buffer_allowed_usage(views[i]), usage);
         iree_hal_buffer_mapping_t mapping = {};
         IREE_EXPECT_STATUS_IS(
             IREE_STATUS_PERMISSION_DENIED,

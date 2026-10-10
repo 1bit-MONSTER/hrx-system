@@ -132,16 +132,11 @@ static iree_status_t EnumerateParameterRequest(
 }
 
 static iree_hal_buffer_t* AllocateTransferBuffer(
-    iree_hal_device_t* device, iree_device_size_t byte_length) {
-  iree_hal_buffer_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  params.usage = IREE_HAL_BUFFER_USAGE_MAPPING |
-                 IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE |
-                 IREE_HAL_BUFFER_USAGE_TRANSFER_TARGET;
+    iree_hal_pool_t* pool, iree_device_size_t byte_length) {
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_CHECK_OK(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(device), params, byte_length, &buffer));
+  IREE_CHECK_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(byte_length, 1),
+      iree_infinite_timeout(), &buffer));
   return buffer;
 }
 
@@ -188,32 +183,6 @@ static void ExpectBufferBytesEqual(iree_hal_buffer_t* buffer,
   IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
 }
 
-class ParameterIndexProviderTest : public ::testing::Test {
- protected:
-  static void SetUpTestSuite() { device_group_ = CreateTaskDeviceGroup(); }
-
-  static void TearDownTestSuite() {
-    iree_hal_device_group_release(device_group_);
-    device_group_ = nullptr;
-  }
-
-  static iree_hal_device_t* device() {
-    return iree_hal_device_group_device_at(device_group_, 0);
-  }
-
-  static iree_hal_queue_t* queue() {
-    return iree_hal_device_queue(device(), /*family_ordinal=*/0,
-                                 /*queue_ordinal=*/0);
-  }
-
-  static iree_hal_device_group_t* device_group() { return device_group_; }
-
- private:
-  static iree_hal_device_group_t* device_group_;
-};
-
-iree_hal_device_group_t* ParameterIndexProviderTest::device_group_ = nullptr;
-
 static iree_status_t CreateTransferPool(iree_hal_device_group_t* device_group,
                                         bool admit_host_imports,
                                         iree_hal_pool_t** out_pool) {
@@ -227,7 +196,7 @@ static iree_status_t CreateTransferPool(iree_hal_device_group_t* device_group,
       /*.families=*/&family,
       /*.host=*/
       {
-          /*.access=*/IREE_HAL_MEMORY_ACCESS_READ,
+          /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
           /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
           /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
       },
@@ -248,6 +217,43 @@ static iree_status_t CreateTransferPool(iree_hal_device_group_t* device_group,
   return iree_hal_slab_pool_create(device_group, scope, &options,
                                    iree_allocator_system(), out_pool);
 }
+
+class ParameterIndexProviderTest : public ::testing::Test {
+ protected:
+  static void SetUpTestSuite() {
+    device_group_ = CreateTaskDeviceGroup();
+    IREE_ASSERT_OK(CreateTransferPool(device_group_,
+                                      /*admit_host_imports=*/false,
+                                      &transfer_pool_));
+  }
+
+  static void TearDownTestSuite() {
+    iree_hal_pool_release(transfer_pool_);
+    transfer_pool_ = nullptr;
+    iree_hal_device_group_release(device_group_);
+    device_group_ = nullptr;
+  }
+
+  static iree_hal_device_t* device() {
+    return iree_hal_device_group_device_at(device_group_, 0);
+  }
+
+  static iree_hal_queue_t* queue() {
+    return iree_hal_device_queue(device(), /*family_ordinal=*/0,
+                                 /*queue_ordinal=*/0);
+  }
+
+  static iree_hal_device_group_t* device_group() { return device_group_; }
+
+  static iree_hal_pool_t* transfer_pool() { return transfer_pool_; }
+
+ private:
+  static iree_hal_device_group_t* device_group_;
+  static iree_hal_pool_t* transfer_pool_;
+};
+
+iree_hal_device_group_t* ParameterIndexProviderTest::device_group_ = nullptr;
+iree_hal_pool_t* ParameterIndexProviderTest::transfer_pool_ = nullptr;
 
 static iree_status_t CaptureLoadedBuffer(void* user_data, iree_host_size_t i,
                                          iree_hal_buffer_t* buffer) {
@@ -402,9 +408,9 @@ TEST_F(ParameterIndexProviderTest, GatherBatchPreservesGroupSignals) {
       iree_allocator_system(), provider.out()));
 
   Ref<iree_hal_buffer_t, iree_hal_buffer_release> first_buffer;
-  first_buffer.reset(AllocateTransferBuffer(device, 4));
+  first_buffer.reset(AllocateTransferBuffer(transfer_pool(), 4));
   Ref<iree_hal_buffer_t, iree_hal_buffer_release> second_buffer;
-  second_buffer.reset(AllocateTransferBuffer(device, 4));
+  second_buffer.reset(AllocateTransferBuffer(transfer_pool(), 4));
 
   Ref<iree_hal_semaphore_t, iree_hal_semaphore_release> first_signal;
   IREE_ASSERT_OK(iree_hal_semaphore_create(
@@ -513,7 +519,8 @@ TEST_F(ParameterIndexProviderTest, GatherBatchReadsAdjacentFileSpans) {
       iree_allocator_system(), provider.out()));
 
   Ref<iree_hal_buffer_t, iree_hal_buffer_release> target_buffer;
-  target_buffer.reset(AllocateTransferBuffer(device, sizeof(source_data)));
+  target_buffer.reset(
+      AllocateTransferBuffer(transfer_pool(), sizeof(source_data)));
 
   Ref<iree_hal_semaphore_t, iree_hal_semaphore_release> signal;
   IREE_ASSERT_OK(iree_hal_semaphore_create(
@@ -596,9 +603,9 @@ TEST_F(ParameterIndexProviderTest, ScatterBatchPreservesGroupSemaphores) {
       iree_allocator_system(), provider.out()));
 
   Ref<iree_hal_buffer_t, iree_hal_buffer_release> first_buffer;
-  first_buffer.reset(AllocateTransferBuffer(device, 4));
+  first_buffer.reset(AllocateTransferBuffer(transfer_pool(), 4));
   Ref<iree_hal_buffer_t, iree_hal_buffer_release> second_buffer;
-  second_buffer.reset(AllocateTransferBuffer(device, 4));
+  second_buffer.reset(AllocateTransferBuffer(transfer_pool(), 4));
 
   Ref<iree_hal_semaphore_t, iree_hal_semaphore_release> first_wait;
   IREE_ASSERT_OK(iree_hal_semaphore_create(
@@ -749,7 +756,8 @@ TEST_F(ParameterIndexProviderTest, ScatterBatchWritesAdjacentFileSpans) {
       0x10, 0x11, 0x12, 0x13, 0x20, 0x21, 0x22, 0x23, 0x30, 0x31, 0x32, 0x33,
   };
   Ref<iree_hal_buffer_t, iree_hal_buffer_release> source_buffer;
-  source_buffer.reset(AllocateTransferBuffer(device, sizeof(source_data)));
+  source_buffer.reset(
+      AllocateTransferBuffer(transfer_pool(), sizeof(source_data)));
   WriteBufferBytes(source_buffer.get(),
                    iree_make_const_byte_span(source_data, sizeof(source_data)));
 

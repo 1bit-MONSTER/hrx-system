@@ -6,6 +6,7 @@
 
 #include "loom/tooling/execution/hal/invocation.h"
 
+#include "iree/hal/memory/heap_pool.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 
@@ -13,6 +14,16 @@ namespace loom {
 namespace {
 
 class HalInvocationTest : public ::testing::Test {};
+
+static iree_status_t CreateHostTestPool(iree_hal_pool_t** out_pool) {
+  const iree_hal_pool_host_access_t host_access = {
+      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
+      /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+      /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+  };
+  return iree_hal_heap_pool_create(host_access, iree_allocator_system(),
+                                   iree_allocator_system(), out_pool);
+}
 
 static void RetainedStorageBinding(iree_hal_buffer_t* buffer,
                                    iree_device_size_t byte_offset,
@@ -291,18 +302,12 @@ TEST_F(HalInvocationTest, PreparePlanFromListsRetainsBindings) {
   loom_run_hal_invocation_options_t options = {};
   loom_run_hal_invocation_options_initialize(&options);
 
-  iree_hal_allocator_t* allocator = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_create_heap(
-      IREE_SV("hal_invocation_test"), iree_allocator_system(),
-      iree_allocator_system(), &allocator));
-  iree_hal_buffer_params_t buffer_params = {};
-  buffer_params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  buffer_params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  buffer_params.usage =
-      IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreateHostTestPool(&pool));
   iree_hal_buffer_t* buffer = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      allocator, buffer_params, /*allocation_size=*/4, &buffer));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(/*allocation_size=*/4, 1),
+      iree_infinite_timeout(), &buffer));
 
   loom_run_hal_binding_list_t bindings = {};
   IREE_ASSERT_OK(loom_run_hal_binding_list_initialize_count(
@@ -321,23 +326,16 @@ TEST_F(HalInvocationTest, PreparePlanFromListsRetainsBindings) {
   EXPECT_NE(plan.bindings.values[0].buffer, nullptr);
 
   loom_run_hal_invocation_plan_deinitialize(&plan);
-  iree_hal_allocator_release(allocator);
+  iree_hal_pool_release(pool);
 }
 
 TEST_F(HalInvocationTest, BindingListTotalByteLengthUsesLogicalBufferExtents) {
-  iree_hal_allocator_t* allocator = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_create_heap(
-      IREE_SV("hal_invocation_test"), iree_allocator_system(),
-      iree_allocator_system(), &allocator));
-
-  iree_hal_buffer_params_t buffer_params = {};
-  buffer_params.type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-  buffer_params.access = IREE_HAL_MEMORY_ACCESS_ALL;
-  buffer_params.usage =
-      IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreateHostTestPool(&pool));
   iree_hal_buffer_t* allocation = nullptr;
-  IREE_ASSERT_OK(iree_hal_allocator_allocate_buffer(
-      allocator, buffer_params, /*allocation_size=*/256, &allocation));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(/*allocation_size=*/256, 1),
+      iree_infinite_timeout(), &allocation));
 
   iree_hal_buffer_t* subspan = nullptr;
   IREE_ASSERT_OK(iree_hal_buffer_subspan(allocation, /*byte_offset=*/64,
@@ -367,7 +365,7 @@ TEST_F(HalInvocationTest, BindingListTotalByteLengthUsesLogicalBufferExtents) {
   iree_hal_buffer_view_release(buffer_view);
   iree_hal_buffer_release(subspan);
   iree_hal_buffer_release(allocation);
-  iree_hal_allocator_release(allocator);
+  iree_hal_pool_release(pool);
 }
 
 TEST_F(HalInvocationTest, PreparePlanFromListsRejectsTooManyBindings) {

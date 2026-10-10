@@ -34,6 +34,7 @@ iree_cc_test(
     iree::base::internal
     iree::base::internal::span
     iree::hal
+    iree::hal::memory::heap_pool
     iree::testing::gtest
     iree::testing::gtest_main
 )
