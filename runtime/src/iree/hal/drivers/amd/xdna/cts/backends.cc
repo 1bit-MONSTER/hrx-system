@@ -23,7 +23,8 @@ static iree_status_t CreateXdnaDevice(
   iree_hal_device_info_t* device_infos = nullptr;
   if (iree_status_is_ok(status)) {
     status = iree_hal_driver_query_available_devices(
-        driver, iree_allocator_system(), &device_count, &device_infos);
+        driver, IREE_SV("xdna"), iree_allocator_system(), &device_count,
+        &device_infos);
   }
   iree_allocator_free(iree_allocator_system(), device_infos);
   if (iree_status_is_ok(status) && device_count == 0) {

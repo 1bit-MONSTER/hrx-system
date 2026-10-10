@@ -38,8 +38,8 @@ class HeterogeneousSlabPoolTest : public CtsTestBase<> {
     IREE_ASSERT_OK(
         iree_hal_driver_registry_allocate(iree_allocator_system(), &registry_));
     IREE_ASSERT_OK(iree_hal_task_driver_module_register(registry_));
-    IREE_ASSERT_OK(iree_hal_driver_registry_try_create(
-        registry_, IREE_SV("task"), iree_allocator_system(), &host_driver_));
+    IREE_ASSERT_OK(iree_hal_driver_registry_get_driver(
+        registry_, IREE_SV("task"), &host_driver_));
     const std::array<iree_hal_driver_t*, 2> drivers = {host_driver_, driver_};
     for (size_t i = 0; i < devices_.size(); ++i) {
       IREE_ASSERT_OK(contexts_[i].Initialize(iree_allocator_system()));

@@ -151,6 +151,7 @@ static iree_status_t iree_hal_amdgpu_driver_factory_enumerate(
     void* self, iree_host_size_t* out_driver_info_count,
     const iree_hal_driver_info_t** out_driver_infos) {
   static const iree_hal_driver_info_t default_driver_info = {
+      .driver_id = 0,
       .driver_name = IREE_SVL("amdgpu"),
       .full_name = IREE_SVL("AMD GPU Driver (HSA/ROCR)"),
   };
@@ -160,14 +161,8 @@ static iree_status_t iree_hal_amdgpu_driver_factory_enumerate(
 }
 
 static iree_status_t iree_hal_amdgpu_driver_factory_try_create(
-    void* self, iree_string_view_t driver_name, iree_allocator_t host_allocator,
+    void* self, iree_hal_driver_id_t driver_id, iree_allocator_t host_allocator,
     iree_hal_driver_t** out_driver) {
-  if (!iree_string_view_equal(driver_name, IREE_SV("amdgpu"))) {
-    return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                            "no driver '%.*s' is provided by this factory",
-                            (int)driver_name.size, driver_name.data);
-  }
-
   iree_hal_amdgpu_driver_options_t options;
   iree_hal_amdgpu_driver_options_initialize(&options);
   iree_hal_amdgpu_logical_device_options_t* device_options =
@@ -383,7 +378,7 @@ static iree_status_t iree_hal_amdgpu_driver_factory_try_create(
   device_options->wait_active_for_ns = FLAG_amdgpu_wait_active_for_ns;
 
   iree_status_t status = iree_hal_amdgpu_driver_create(
-      driver_name, &options, host_allocator, out_driver);
+      IREE_SV("amdgpu"), &options, host_allocator, out_driver);
 
   return status;
 }

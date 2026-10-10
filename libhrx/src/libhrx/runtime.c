@@ -727,8 +727,8 @@ static hrx_status_t hrx_create_iree_amdgpu_driver(
     status = iree_hal_amdgpu_driver_module_register(registry);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_hal_driver_registry_try_create(
-        registry, iree_make_cstring_view("amdgpu"), alloc, out_driver);
+    status = iree_hal_driver_registry_get_driver(
+        registry, iree_make_cstring_view("amdgpu"), out_driver);
   }
   iree_hal_driver_registry_free(registry);
   hrx_debug_print_iree_status("amdgpu driver create", status);
@@ -931,7 +931,7 @@ hrx_status_t hrx_gpu_initialize_with_device_extensions(
   iree_host_size_t device_info_count = 0;
   iree_hal_device_info_t* device_infos = NULL;
   iree_status = iree_hal_driver_query_available_devices(
-      driver, alloc, &device_info_count, &device_infos);
+      driver, IREE_SV("amdgpu"), alloc, &device_info_count, &device_infos);
   hrx_debug_print_iree_status("query available devices", iree_status);
   if (!iree_status_is_ok(iree_status)) {
     iree_hal_driver_release(driver);
@@ -1025,8 +1025,9 @@ hrx_status_t hrx_gpu_initialize_with_device_extensions(
     }
 
     iree_status = iree_hal_driver_create_device_by_ordinal(
-        driver, info_index, /*param_count=*/0, /*params=*/NULL, &create_params,
-        alloc, &hal_devices[created_device_count]);
+        driver, IREE_SV("amdgpu"), info_index, /*param_count=*/0,
+        /*params=*/NULL, &create_params, alloc,
+        &hal_devices[created_device_count]);
     hrx_debug_print_iree_status("create device by ordinal", iree_status);
     if (iree_status_is_ok(iree_status)) {
       device_info_indices[created_device_count] = info_index;

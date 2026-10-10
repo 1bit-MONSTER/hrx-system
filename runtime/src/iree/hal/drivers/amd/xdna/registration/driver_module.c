@@ -12,6 +12,7 @@ static iree_status_t iree_hal_amd_xdna_driver_factory_enumerate(
     void* self, iree_host_size_t* out_count,
     const iree_hal_driver_info_t** out_infos) {
   static const iree_hal_driver_info_t info = {
+      .driver_id = 0,
       .driver_name = IREE_SVL("xdna"),
       .full_name = IREE_SVL("AMD XDNA execution using libamdf"),
   };
@@ -21,12 +22,8 @@ static iree_status_t iree_hal_amd_xdna_driver_factory_enumerate(
 }
 
 static iree_status_t iree_hal_amd_xdna_driver_factory_try_create(
-    void* self, iree_string_view_t name, iree_allocator_t host_allocator,
+    void* self, iree_hal_driver_id_t driver_id, iree_allocator_t host_allocator,
     iree_hal_driver_t** out_driver) {
-  if (!iree_string_view_equal(name, IREE_SV("xdna"))) {
-    return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                            "driver factory only provides 'xdna'");
-  }
   return iree_hal_amd_xdna_driver_create(host_allocator, out_driver);
 }
 

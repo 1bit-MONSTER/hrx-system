@@ -24,9 +24,9 @@ static iree_status_t CreateVulkanDevice(
 
   iree_hal_driver_t* driver = nullptr;
   if (iree_status_is_ok(status)) {
-    status = iree_hal_driver_registry_try_create(
+    status = iree_hal_driver_registry_get_driver(
         iree_hal_driver_registry_default(), iree_make_cstring_view("vulkan"),
-        iree_allocator_system(), &driver);
+        &driver);
   }
 
   iree_hal_device_t* device = nullptr;

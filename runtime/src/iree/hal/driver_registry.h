@@ -58,17 +58,20 @@ typedef struct iree_hal_driver_factory_t {
       void* self, iree_host_size_t* out_driver_info_count,
       const iree_hal_driver_info_t** out_driver_infos);
 
-  // Tries to create a driver as previously queried with enumerate.
-  // |driver_id| is the opaque ID returned from enumeration; note that there may
-  // be a significant amount of time between enumeration and creation and the
-  // driver registry lock may have been release between then.
+  // Creates the driver identified by a factory-local |driver_id| returned by
+  // enumerate. The registry retains one successful instance per ID, shared by
+  // all schemes advertising that ID. Failure leaves |out_driver| NULL and may
+  // be retried by a subsequent registry query.
   //
   // Delay-loaded drivers may still fail here if - for example - required system
   // resources are unavailable or permission is denied.
   //
-  // Called with the driver registry lock held; may be called from any thread.
+  // The driver uses the registry's allocator and must remain valid
+  // independently of the factory after creation. Called with the registry lock
+  // held; may be called from any thread. Constructors must not reenter this
+  // registry.
   iree_status_t(IREE_API_PTR* try_create)(void* self,
-                                          iree_string_view_t driver_name,
+                                          iree_hal_driver_id_t driver_id,
                                           iree_allocator_t host_allocator,
                                           iree_hal_driver_t** out_driver);
 } iree_hal_driver_factory_t;
@@ -97,7 +100,10 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_allocate(
     iree_allocator_t host_allocator, iree_hal_driver_registry_t** out_registry);
 
 // Frees a driver registry.
-// All factories will be implicitly unregistered.
+// All factories are unregistered and all registry-owned driver references are
+// released. References held by callers or devices remain valid. The registry's
+// allocator must outlive those references. No registry operations may be in
+// flight when freeing it. The default process registry cannot be freed.
 IREE_API_EXPORT void iree_hal_driver_registry_free(
     iree_hal_driver_registry_t* registry);
 
@@ -111,8 +117,9 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_register_factory(
     const iree_hal_driver_factory_t* factory);
 
 // Unregisters a driver factory.
-// Unregistering a factory only prevents new drivers from being created;
-// existing drivers may remain live even after unregistering. Factories can
+// Releases the registry's driver references for this factory and prevents new
+// creation through it. Existing caller and device references remain valid.
+// Registering the factory again creates independent instances. Factories can
 // expect that no new drivers will be created via the factory after the call
 // returns.
 //
@@ -138,17 +145,20 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_enumerate(
     iree_host_size_t* out_driver_info_count,
     iree_hal_driver_info_t** out_driver_infos);
 
-// Attempts to create a driver registered with the given canonical driver name.
-// Effectively enumerate + find by name + try_create if found. Factories are
-// searched in most-recently-added order such that it's possible to override
+// Acquires a retained driver for the given device URI scheme. The first query
+// lazily creates it using the registry's allocator; subsequent queries for any
+// scheme with the same factory-local driver ID share that instance. Factories
+// are searched in most-recently-added order such that it's possible to override
 // drivers with newer registrations when multiple factories provide the same
 // driver name.
 //
-// Thread-safe. May block the caller if the driver is delay-loaded and needs to
-// perform additional loading/verification/etc before returning.
-IREE_API_EXPORT iree_status_t iree_hal_driver_registry_try_create(
+// The caller releases |out_driver| with iree_hal_driver_release. Separate
+// registries or direct driver constructors provide independent instances.
+// Thread-safe. Discovery and creation are serialized by the registry; this is
+// a cold construction API, never a recording or submission operation.
+IREE_API_EXPORT iree_status_t iree_hal_driver_registry_get_driver(
     iree_hal_driver_registry_t* registry, iree_string_view_t driver_name,
-    iree_allocator_t host_allocator, iree_hal_driver_t** out_driver);
+    iree_hal_driver_t** out_driver);
 
 // Attempts to create a device with the given `driver://path?params` URI.
 // Factories are searched in most-recently-added order such that it's possible
@@ -160,14 +170,10 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_try_create(
 // device or type of device. If the path is omitted the driver will select a
 // device based on heuristics, flags, the environment, or a die roll.
 //
-// !!!! WARNING !!!!
-// Each call to this function may create a new driver. Drivers are generally
-// very expensive to create and often taint the process for its lifetime by
-// loading shared libraries, connecting to system resources, etc. Some drivers
-// may only be able to have one instance live at a time or will fail in
-// spectacularly nasty ways if multiple instances are used simultaneously.
-// If creating multiple devices then instead create a driver once and use
-// iree_hal_driver_create_device_by_uri to create the devices.
+// The registry retains and shares the driver across calls, including calls
+// using different schemes provided by the same factory-local driver ID. Each
+// call creates a distinct logical device with |host_allocator|. The device
+// retains any driver resources it requires after the registry is freed.
 //
 // Thread-safe. May block the caller if the driver is delay-loaded and needs to
 // perform additional loading/verification/etc before returning.

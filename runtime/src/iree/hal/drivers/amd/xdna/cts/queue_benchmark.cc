@@ -89,7 +89,8 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
     iree_host_size_t device_count = 0;
     iree_hal_device_info_t* device_infos = nullptr;
     IREE_RETURN_IF_ERROR(iree_hal_driver_query_available_devices(
-        driver_, iree_allocator_system(), &device_count, &device_infos));
+        driver_, IREE_SV("xdna"), iree_allocator_system(), &device_count,
+        &device_infos));
     iree_allocator_free(iree_allocator_system(), device_infos);
     if (!device_count) {
       return iree_make_status(IREE_STATUS_UNAVAILABLE,

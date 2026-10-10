@@ -33,9 +33,9 @@ static iree_status_t CreateTaskDevice(
   // and heap allocator via the driver module's flag-based configuration.
   iree_hal_driver_t* driver = nullptr;
   if (iree_status_is_ok(status)) {
-    status = iree_hal_driver_registry_try_create(
+    status = iree_hal_driver_registry_get_driver(
         iree_hal_driver_registry_default(), iree_make_cstring_view("task"),
-        iree_allocator_system(), &driver);
+        &driver);
   }
 
   // Create the default device from the driver.

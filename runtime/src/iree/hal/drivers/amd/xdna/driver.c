@@ -144,8 +144,9 @@ iree_status_t iree_hal_amd_xdna_driver_create(iree_allocator_t host_allocator,
 }
 
 static iree_status_t iree_hal_amd_xdna_driver_query_available_devices(
-    iree_hal_driver_t* base, iree_allocator_t host_allocator,
-    iree_host_size_t* out_count, iree_hal_device_info_t** out_infos) {
+    iree_hal_driver_t* base, iree_string_view_t driver_name,
+    iree_allocator_t host_allocator, iree_host_size_t* out_count,
+    iree_hal_device_info_t** out_infos) {
   iree_hal_amd_xdna_driver_t* driver = (iree_hal_amd_xdna_driver_t*)base;
   const iree_host_size_t string_capacity =
       sizeof(driver->endpoints[0].name) + 12;

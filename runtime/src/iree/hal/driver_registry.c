@@ -29,14 +29,31 @@
 // isolating/sandboxing/multi-versioning).
 #define IREE_HAL_MAX_DRIVER_FACTORY_COUNT 16
 
+// One registry-owned driver, shared by every scheme with this factory-local ID.
+typedef struct iree_hal_driver_registry_instance_t {
+  // Next instance in the registry's cold-path cache.
+  struct iree_hal_driver_registry_instance_t* next;
+  // Borrowed registered factory that produced this instance.
+  const iree_hal_driver_factory_t* factory;
+  // Canonical identity within the factory.
+  iree_hal_driver_id_t driver_id;
+  // Retained driver allocated with the registry allocator.
+  iree_hal_driver_t* driver;
+} iree_hal_driver_registry_instance_t;
+
 struct iree_hal_driver_registry_t {
+  // Allocator used by the registry and every driver it creates.
   iree_allocator_t host_allocator;
+  // Serializes registration, discovery, and lazy driver construction.
   iree_slim_mutex_t mutex;
 
+  // Number of live factory registrations.
+  iree_host_size_t factory_count;
   // Factories in registration order. As factories are unregistered the list is
   // shifted to be kept dense.
-  iree_host_size_t factory_count;
   const iree_hal_driver_factory_t* factories[IREE_HAL_MAX_DRIVER_FACTORY_COUNT];
+  // Owned instances keyed by registered factory and factory-local driver ID.
+  iree_hal_driver_registry_instance_t* instances;
 };
 
 static iree_hal_driver_registry_t iree_hal_driver_registry_default_;
@@ -45,6 +62,7 @@ static iree_once_flag iree_hal_driver_registry_default_flag_ =
 static void iree_hal_driver_registry_default_initialize(void) {
   memset(&iree_hal_driver_registry_default_, 0,
          sizeof(iree_hal_driver_registry_default_));
+  iree_hal_driver_registry_default_.host_allocator = iree_allocator_system();
   iree_slim_mutex_initialize(&iree_hal_driver_registry_default_.mutex);
 }
 
@@ -74,6 +92,17 @@ iree_hal_driver_registry_allocate(iree_allocator_t host_allocator,
   return iree_ok_status();
 }
 
+static void iree_hal_driver_registry_release_instances(
+    iree_hal_driver_registry_instance_t* instance,
+    iree_allocator_t host_allocator) {
+  while (instance) {
+    iree_hal_driver_registry_instance_t* next = instance->next;
+    iree_hal_driver_release(instance->driver);
+    iree_allocator_free(host_allocator, instance);
+    instance = next;
+  }
+}
+
 IREE_API_EXPORT void iree_hal_driver_registry_free(
     iree_hal_driver_registry_t* registry) {
   if (!registry) {
@@ -82,6 +111,8 @@ IREE_API_EXPORT void iree_hal_driver_registry_free(
   IREE_TRACE_ZONE_BEGIN(z0);
   iree_allocator_t host_allocator = registry->host_allocator;
 
+  iree_hal_driver_registry_release_instances(registry->instances,
+                                             host_allocator);
   iree_slim_mutex_deinitialize(&registry->mutex);
   iree_allocator_free(host_allocator, registry);
 
@@ -112,7 +143,7 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_register_factory(
   // they'd just get a RESOURCE_EXHAUSTED and think there were too many unique
   // factories registered already.
   if (iree_status_is_ok(status) &&
-      registry->factory_count + 1 >= IREE_ARRAYSIZE(registry->factories)) {
+      registry->factory_count >= IREE_ARRAYSIZE(registry->factories)) {
     status = iree_make_status(
         IREE_STATUS_RESOURCE_EXHAUSTED,
         "the maximum number of factories (%zu) have been registered",
@@ -132,6 +163,7 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_unregister_factory(
     iree_hal_driver_registry_t* registry,
     const iree_hal_driver_factory_t* factory) {
   IREE_TRACE_ZONE_BEGIN(z0);
+  iree_hal_driver_registry_instance_t* retired_instances = NULL;
   iree_slim_mutex_lock(&registry->mutex);
 
   iree_status_t status = iree_ok_status();
@@ -151,12 +183,29 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_unregister_factory(
 
   if (iree_status_is_ok(status)) {
     // Compact list. Note that registration order is preserved.
-    memmove((void*)&registry->factories[index], &registry->factories[index + 1],
-            registry->factory_count - index - 1);
+    memmove(
+        (void*)&registry->factories[index], &registry->factories[index + 1],
+        (registry->factory_count - index - 1) * sizeof(*registry->factories));
     registry->factories[--registry->factory_count] = NULL;
+
+    // Remove the factory's cache entries while locked, then perform potentially
+    // expensive native driver destruction after dropping the metadata lock.
+    iree_hal_driver_registry_instance_t** link = &registry->instances;
+    while (*link) {
+      iree_hal_driver_registry_instance_t* instance = *link;
+      if (instance->factory == factory) {
+        *link = instance->next;
+        instance->next = retired_instances;
+        retired_instances = instance;
+      } else {
+        link = &instance->next;
+      }
+    }
   }
 
   iree_slim_mutex_unlock(&registry->mutex);
+  iree_hal_driver_registry_release_instances(retired_instances,
+                                             registry->host_allocator);
   IREE_TRACE_ZONE_END(z0);
   return status;
 }
@@ -265,23 +314,24 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_enumerate(
   // Cleanup memory if we failed.
   if (!iree_status_is_ok(status) && *out_driver_infos) {
     iree_allocator_free(host_allocator, *out_driver_infos);
+    *out_driver_info_count = 0;
+    *out_driver_infos = NULL;
   }
   IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
-IREE_API_EXPORT iree_status_t iree_hal_driver_registry_try_create(
+IREE_API_EXPORT iree_status_t iree_hal_driver_registry_get_driver(
     iree_hal_driver_registry_t* registry, iree_string_view_t driver_name,
-    iree_allocator_t host_allocator, iree_hal_driver_t** out_driver) {
+    iree_hal_driver_t** out_driver) {
   IREE_ASSERT_ARGUMENT(registry);
   IREE_TRACE_ZONE_BEGIN(z0);
   IREE_TRACE_ZONE_APPEND_TEXT(z0, driver_name.data, driver_name.size);
 
   *out_driver = NULL;
 
-  // NOTE: we hold the lock the entire time here so that we can avoid
-  // allocations and avoid spurious failures by outside mutation of the
-  // registry.
+  // Cold construction is serialized so aliases cannot race to create distinct
+  // native owners and unregister cannot invalidate a borrowed factory callback.
   iree_status_t status = iree_ok_status();
   iree_slim_mutex_lock(&registry->mutex);
 
@@ -289,6 +339,7 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_try_create(
   // NOTE: we scan in reverse so that we prefer the first hit in the most
   // recently registered factory.
   const iree_hal_driver_factory_t* hit_factory = NULL;
+  iree_hal_driver_id_t hit_driver_id = 0;
   for (iree_host_size_t i = 0; i < registry->factory_count; ++i) {
     // Reach inside and grab the internal factory data structures.
     const iree_hal_driver_factory_t* factory =
@@ -309,6 +360,7 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_try_create(
           &driver_infos[driver_info_count - j - 1];
       if (iree_string_view_equal(driver_name, driver_info->driver_name)) {
         hit_factory = factory;
+        hit_driver_id = driver_info->driver_id;
         break;
       }
     }
@@ -322,10 +374,34 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_try_create(
   // If we found a driver during the scan try to create it now.
   // This may block the caller (with the lock held!), and may fail if for
   // example a delay-loaded driver cannot be created even if it was enumerated.
-  if (hit_factory != NULL) {
-    status = hit_factory->try_create(hit_factory->self, driver_name,
-                                     host_allocator, out_driver);
-  } else {
+  if (iree_status_is_ok(status) && hit_factory != NULL) {
+    iree_hal_driver_registry_instance_t* instance = registry->instances;
+    while (instance && (instance->factory != hit_factory ||
+                        instance->driver_id != hit_driver_id)) {
+      instance = instance->next;
+    }
+    if (!instance) {
+      status = iree_allocator_malloc(registry->host_allocator,
+                                     sizeof(*instance), (void**)&instance);
+      if (iree_status_is_ok(status)) {
+        status = hit_factory->try_create(hit_factory->self, hit_driver_id,
+                                         registry->host_allocator,
+                                         &instance->driver);
+        if (iree_status_is_ok(status)) {
+          instance->factory = hit_factory;
+          instance->driver_id = hit_driver_id;
+          instance->next = registry->instances;
+          registry->instances = instance;
+        } else {
+          iree_allocator_free(registry->host_allocator, instance);
+        }
+      }
+    }
+    if (iree_status_is_ok(status)) {
+      iree_hal_driver_retain(instance->driver);
+      *out_driver = instance->driver;
+    }
+  } else if (iree_status_is_ok(status)) {
     status =
         iree_make_status(IREE_STATUS_NOT_FOUND, "no driver '%.*s' registered",
                          (int)driver_name.size, driver_name.data);
@@ -348,15 +424,11 @@ IREE_API_EXPORT iree_status_t iree_hal_create_device(
   IREE_TRACE_ZONE_BEGIN(z0);
   IREE_TRACE_ZONE_APPEND_TEXT(z0, device_uri.data, device_uri.size);
 
-  // Try to create the driver; the backing driver factory may cache this but
-  // it's not safe to assume the returned driver is going to remain live for
-  // any longer than this function holds a reference.
+  // Acquire the registry-owned driver selected by the original URI scheme.
   iree_string_view_t driver_name = iree_uri_schema(device_uri);
   iree_hal_driver_t* driver = NULL;
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0,
-      iree_hal_driver_registry_try_create(registry, driver_name, host_allocator,
-                                          &driver),
+      z0, iree_hal_driver_registry_get_driver(registry, driver_name, &driver),
       "creating driver for device '%.*s'", (int)device_uri.size,
       device_uri.data);
 

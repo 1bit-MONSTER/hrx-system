@@ -22,21 +22,28 @@ extern "C" {
 // Types and Enums
 //===----------------------------------------------------------------------===//
 
+// Factory-local identity of a driver implementation. Multiple URI schemes may
+// share one ID and one registry-owned driver instance. IDs from different
+// factories are unrelated and are not persistent identifiers.
+typedef uintptr_t iree_hal_driver_id_t;
+
 // Describes a driver providing device enumeration and creation.
 // The lifetime of memory referenced by this structure (such as strings) is
 // dependent on where it originated.
 //
 // * When using iree_hal_driver_registry_enumerate the driver info is copied
 //   into memory owned by the caller.
-// * When queried from a live driver with iree_hal_driver_info the memory is
-//   only guaranteed to live for as long as the driver is.
 // * When enumerating via factories the information may be valid only while the
 //   driver registry lock is held.
 typedef struct iree_hal_driver_info_t {
   IREE_API_UNSTABLE
 
-  // Canonical name of the driver as used in command lines, documentation, etc.
-  // Examples: 'amdgpu', 'vulkan'.
+  // Factory-local identity passed to the factory's creation callback.
+  iree_hal_driver_id_t driver_id;
+
+  // Device URI scheme as used in command lines and documentation.
+  // Examples: 'vulkan', 'rdna', 'xdna'. Entries sharing a driver_id select the
+  // same driver instance while preserving this scheme for device selection.
   iree_string_view_t driver_name;
 
   // Full human-readable name of the driver for display.
@@ -61,13 +68,15 @@ IREE_API_EXPORT void iree_hal_driver_retain(iree_hal_driver_t* driver);
 // Releases the given |driver| from the caller.
 IREE_API_EXPORT void iree_hal_driver_release(iree_hal_driver_t* driver);
 
-// Queries available devices and returns them as a list.
-// The provided |allocator| will be used to allocate the returned list and after
-// the caller is done with it |out_device_infos| must be freed with that same
-// allocator by the caller.
+// Queries available devices in the |driver_name| URI scheme. An empty name
+// enumerates all devices exposed by the driver. Ordinals index this filtered
+// list, while returned opaque IDs identify devices across all of its schemes.
+// The provided |host_allocator| will be used to allocate the returned list and
+// after the caller is done with it |out_device_infos| must be freed with that
+// same allocator by the caller.
 IREE_API_EXPORT iree_status_t iree_hal_driver_query_available_devices(
-    iree_hal_driver_t* driver, iree_allocator_t host_allocator,
-    iree_host_size_t* out_device_info_count,
+    iree_hal_driver_t* driver, iree_string_view_t driver_name,
+    iree_allocator_t host_allocator, iree_host_size_t* out_device_info_count,
     iree_hal_device_info_t** out_device_infos);
 
 // Appends detailed info about a device with the given |device_id| to |builder|.
@@ -87,15 +96,17 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_dump_device_info(
     iree_string_builder_t* builder);
 
 // Creates a device with the given |device_ordinal| as enumerated by
-// iree_hal_driver_query_available_devices. The ordering of devices is driver
-// dependent and may vary across driver instances and processes.
+// iree_hal_driver_query_available_devices with the same |driver_name| scheme.
+// The ordering of devices is driver-dependent and may vary across driver
+// instances and processes.
 //
 // Optionally takes a list of key-value parameters as defined by the device
 // implementation. The parameters are only used during creation and need not
 // remain live after the function returns.
 IREE_API_EXPORT iree_status_t iree_hal_driver_create_device_by_ordinal(
-    iree_hal_driver_t* driver, iree_host_size_t device_ordinal,
-    iree_host_size_t param_count, const iree_string_pair_t* params,
+    iree_hal_driver_t* driver, iree_string_view_t driver_name,
+    iree_host_size_t device_ordinal, iree_host_size_t param_count,
+    const iree_string_pair_t* params,
     const iree_hal_device_create_params_t* create_params,
     iree_allocator_t host_allocator, iree_hal_device_t** out_device);
 
@@ -143,7 +154,9 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_create_device_by_uri(
     const iree_hal_device_create_params_t* create_params,
     iree_allocator_t host_allocator, iree_hal_device_t** out_device);
 
-// Creates the driver-defined "default" device.
+// Creates the driver-defined "default" device across all of its URI schemes.
+// To select a default within one scheme, pass that bare scheme (for example
+// "rdna") to iree_hal_driver_create_device_by_uri instead.
 // The driver will select a device based on heuristics, flags, the environment,
 // or a die roll.
 IREE_API_EXPORT iree_status_t iree_hal_driver_create_default_device(
@@ -159,8 +172,8 @@ typedef struct iree_hal_driver_vtable_t {
   void(IREE_API_PTR* destroy)(iree_hal_driver_t* driver);
 
   iree_status_t(IREE_API_PTR* query_available_devices)(
-      iree_hal_driver_t* driver, iree_allocator_t host_allocator,
-      iree_host_size_t* out_device_info_count,
+      iree_hal_driver_t* driver, iree_string_view_t driver_name,
+      iree_allocator_t host_allocator, iree_host_size_t* out_device_info_count,
       iree_hal_device_info_t** out_device_infos);
 
   iree_status_t(IREE_API_PTR* dump_device_info)(iree_hal_driver_t* driver,

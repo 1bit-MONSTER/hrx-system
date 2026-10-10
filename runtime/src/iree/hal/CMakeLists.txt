@@ -161,6 +161,20 @@ iree_cc_test(
 
 iree_cc_test(
   NAME
+    driver_registry_test
+  SRCS
+    "driver_registry_test.cc"
+  DEPS
+    ::hal
+    iree::async::util::proactor_pool
+    iree::base
+    iree::hal::testing::mock_device
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+iree_cc_test(
+  NAME
     device_test
   SRCS
     "device_test.cc"

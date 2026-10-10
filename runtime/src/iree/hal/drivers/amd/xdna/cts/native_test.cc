@@ -34,7 +34,7 @@ class XdnaNativeTest : public ::testing::Test {
     iree_host_size_t count = 0;
     iree_hal_device_info_t* infos = nullptr;
     IREE_ASSERT_OK(iree_hal_driver_query_available_devices(
-        driver_, iree_allocator_system(), &count, &infos));
+        driver_, IREE_SV("xdna"), iree_allocator_system(), &count, &infos));
     iree_allocator_free(iree_allocator_system(), infos);
     if (!count) {
       GTEST_SKIP() << "No native XDNA endpoint";
