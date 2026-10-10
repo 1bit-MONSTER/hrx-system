@@ -406,7 +406,10 @@ static void iree_hal_passthrough_pool_owned_buffer_release(
   iree_hal_passthrough_pool_materialize_state_t* state = element->state;
   iree_hal_passthrough_pool_reservation_state_t* reservation_state =
       element->reservation_state;
-  if (state->ownership_committed) {
+  const bool ownership_committed = state->ownership_committed;
+  iree_hal_passthrough_pool_t* pool = NULL;
+  if (ownership_committed) {
+    pool = (iree_hal_passthrough_pool_t*)reservation_state->allocation.pool;
     const iree_hal_pool_reservation_t reservation = {
         .block_handle = (uint64_t)(uintptr_t)reservation_state,
     };
@@ -415,13 +418,15 @@ static void iree_hal_passthrough_pool_owned_buffer_release(
         IREE_HAL_ASAN_RANGE_ADVICE_FLAG_RELEASED);
     iree_hal_passthrough_pool_reservation_state_release_reservation(
         reservation_state, NULL);
-    iree_hal_passthrough_pool_t* pool =
-        (iree_hal_passthrough_pool_t*)reservation_state->allocation.pool;
-    iree_async_notification_signal_if_observed(pool->base.notification,
-                                               INT32_MAX);
   }
   iree_hal_passthrough_pool_reservation_state_release_reference(
       reservation_state);
+  // A notification observer may immediately release the pool. Publish only
+  // after the final buffer reference has moved the allocation out of LIVE.
+  if (ownership_committed) {
+    iree_async_notification_signal_if_observed(pool->base.notification,
+                                               INT32_MAX);
+  }
   const int32_t previous_count = iree_atomic_fetch_sub(
       &state->reference_count, 1, iree_memory_order_acq_rel);
   IREE_ASSERT(previous_count > 0);
