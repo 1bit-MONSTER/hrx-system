@@ -19,6 +19,7 @@ iree_py_library(
     "descriptor_rule.py"
     "extended_math.py"
     "float8.py"
+    "float_width.py"
     "index.py"
     "logical_core.py"
     "memory.py"

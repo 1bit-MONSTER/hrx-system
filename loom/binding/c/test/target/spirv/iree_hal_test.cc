@@ -40,6 +40,8 @@ constexpr uint32_t kVulkanApiVersion13 =
 constexpr uint32_t kVulkanComponentTypeBfloat16Khr = 1000141000;
 constexpr uint32_t kVulkanSubgroupFeatureBallotBit = 0x00000008;
 constexpr uint64_t kMaximumWorkgroupLocalMemorySize = 32 * 1024;
+constexpr uint32_t kAmdVendorId = 0x1002;
+constexpr uint32_t kNvidiaVendorId = 0x10DE;
 
 constexpr const char kF16CooperativeMatrixRow[] =
     "khr.cooperative_matrix.f16.16x16x16.f32.subgroup";
@@ -112,7 +114,8 @@ iree_status_t CreateVulkanDeviceSpec(
         cooperative_matrix_properties = nullptr,
     iree_hal_vulkan_device_spec_flags_t device_spec_flags =
         IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
-    uint32_t subgroup_supported_operations = 0) {
+    uint32_t subgroup_supported_operations = 0,
+    uint32_t vendor_id = kNvidiaVendorId) {
   out_device_spec->reset();
   iree_hal_vulkan_device_spec_t vulkan_spec = {
       .api_version = kVulkanApiVersion13,
@@ -141,8 +144,20 @@ iree_status_t CreateVulkanDeviceSpec(
 
   iree_hal_device_spec_builder_t builder;
   iree_hal_device_spec_builder_initialize(iree_allocator_system(), &builder);
-  iree_status_t status = iree_ok_status();
-  if (iree_any_bit_set(flags, kDeviceSpecFlagIncludeDispatch)) {
+  const iree_hal_device_identity_spec_t identity = {
+      /*.logical_device_id=*/iree_string_view_empty(),
+      /*.display_name=*/iree_string_view_empty(),
+      /*.driver_id=*/iree_string_view_empty(),
+      /*.driver_version=*/iree_string_view_empty(),
+      /*.backend_id=*/iree_string_view_empty(),
+      /*.device_path=*/iree_string_view_empty(),
+      /*.vendor_name=*/iree_string_view_empty(),
+      /*.vendor_id=*/vendor_id,
+  };
+  iree_status_t status =
+      iree_hal_device_spec_builder_set_identity(&builder, &identity);
+  if (iree_status_is_ok(status) &&
+      iree_any_bit_set(flags, kDeviceSpecFlagIncludeDispatch)) {
     iree_hal_device_dispatch_spec_t dispatch = {
         .launch =
             {
@@ -399,6 +414,36 @@ TEST(LoomcSpirvIreeHalTargetTest, CreatesProfileFromHalFacts) {
   LOOMC_EXPECT_OK(loomc_spirv_target_profile_query_feature(
       profile.get(), LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM, &feature_state));
   EXPECT_EQ(feature_state, LOOMC_TARGET_FACT_STATE_TRUE);
+  LOOMC_EXPECT_OK(loomc_spirv_target_profile_query_feature(
+      profile.get(), LOOMC_SPIRV_FEATURE_FLOAT64_TO_FLOAT16_CONVERSION,
+      &feature_state));
+  EXPECT_EQ(feature_state, LOOMC_TARGET_FACT_STATE_TRUE);
+}
+
+TEST(LoomcSpirvIreeHalTargetTest, DisablesBrokenAmdFloat64ToFloat16Conversion) {
+  DeviceSpecPtr device_spec;
+  IREE_ASSERT_OK(CreateVulkanDeviceSpec(
+      RequiredVulkanFeatures(), kCompleteDeviceSpecFlags, &device_spec,
+      /*cooperative_matrix_property_count=*/0,
+      /*cooperative_matrix_properties=*/nullptr,
+      /*device_spec_flags=*/IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
+      /*subgroup_supported_operations=*/0,
+      /*vendor_id=*/kAmdVendorId));
+  FakeHalDevice device = {};
+  InitializeFakeDevice(device_spec.get(), &device);
+  TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
+  loomc_result_t* result = nullptr;
+  TargetProfilePtr profile =
+      SelectTargetFromHal(target_environment.get(), &device, &result);
+  ResultPtr result_ptr(result);
+
+  ASSERT_NE(profile.get(), nullptr);
+  ExpectSucceededResult(result_ptr.get());
+  loomc_target_fact_state_t feature_state = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  LOOMC_EXPECT_OK(loomc_spirv_target_profile_query_feature(
+      profile.get(), LOOMC_SPIRV_FEATURE_FLOAT64_TO_FLOAT16_CONVERSION,
+      &feature_state));
+  EXPECT_EQ(feature_state, LOOMC_TARGET_FACT_STATE_FALSE);
 }
 
 TEST(LoomcSpirvIreeHalTargetTest, PreservesExtendedCompilerFeatureFamily) {
@@ -418,7 +463,10 @@ TEST(LoomcSpirvIreeHalTargetTest, PreservesExtendedCompilerFeatureFamily) {
       IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE |
           IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_DENORM_PRESERVE |
           IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_ROUNDING_RTE |
-          IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE,
+          IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE |
+          IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE |
+          IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE |
+          IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE,
       /*subgroup_supported_operations=*/kVulkanSubgroupFeatureBallotBit));
   FakeHalDevice device = {};
   InitializeFakeDevice(device_spec.get(), &device);
@@ -451,6 +499,9 @@ TEST(LoomcSpirvIreeHalTargetTest, PreservesExtendedCompilerFeatureFamily) {
       LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
       LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
+      LOOMC_SPIRV_FEATURE_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE,
+      LOOMC_SPIRV_FEATURE_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE,
+      LOOMC_SPIRV_FEATURE_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE,
   };
   for (loomc_spirv_feature_t feature : expected_features) {
     loomc_target_fact_state_t state = LOOMC_TARGET_FACT_STATE_UNKNOWN;

@@ -33,6 +33,15 @@ typedef enum iree_hal_vulkan_device_spec_flag_bits_e {
   IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_ROUNDING_RTE = 1u << 2,
   // F32 can use round-to-nearest-even independently of other widths.
   IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE = 1u << 3,
+  // F16 operations preserve signed zero, infinity, and NaN semantics.
+  IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE = 1u
+                                                                          << 4,
+  // F32 operations preserve signed zero, infinity, and NaN semantics.
+  IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE = 1u
+                                                                          << 5,
+  // F64 operations preserve signed zero, infinity, and NaN semantics.
+  IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE = 1u
+                                                                          << 6,
 } iree_hal_vulkan_device_spec_flag_bits_t;
 
 // Borrowed view of encoded Vulkan cooperative matrix property rows.

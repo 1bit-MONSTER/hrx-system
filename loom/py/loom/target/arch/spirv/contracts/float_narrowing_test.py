@@ -12,6 +12,7 @@ from loom.target.arch.spirv.contracts.descriptor_rule import (
     descriptor_feature_guards,
     logical_core_descriptor,
 )
+from loom.target.arch.spirv.contracts.float_width import float_width_narrow_rules
 from loom.target.arch.spirv.contracts.logical_core import (
     SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT,
 )
@@ -81,14 +82,7 @@ def test_scalar_float_narrowing_rules_cover_the_complete_type_matrix() -> None:
     assert actual_pairs == expected_pairs
 
 
-def test_generic_narrowing_recipes_cover_every_non_native_pair() -> None:
-    native_pairs = frozenset(
-        {
-            ("f64", "f32"),
-            ("f64", "f16"),
-            ("f32", "f16"),
-        }
-    )
+def test_generic_narrowing_recipes_cover_every_pair() -> None:
     exact_recipe_pairs = {
         _narrowing_pair(rule)
         for rule in SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT.cases
@@ -97,7 +91,25 @@ def test_generic_narrowing_recipes_cover_every_non_native_pair() -> None:
         and rule.report_key.startswith("exact_")
     }
 
-    assert exact_recipe_pairs == _expected_narrowing_pairs() - native_pairs
+    assert exact_recipe_pairs == _expected_narrowing_pairs()
+
+
+def test_float_width_fallbacks_recover_native_results_from_low_payloads() -> None:
+    rules = {_narrowing_pair(rule): rule for rule in float_width_narrow_rules()}
+    expected_tails = {
+        ("f64", "f32"): ("i64", "v2f32", "f32"),
+        ("f64", "f16"): ("i64", "v4f16", "f16"),
+        ("f32", "f16"): ("i32", "v2f16", "f16"),
+    }
+
+    assert rules.keys() == expected_tails.keys()
+    for pair, (carrier, packed, result) in expected_tails.items():
+        bitcast, extract = rules[pair].emit[-2:]
+        assert bitcast.descriptor.key == f"spirv.op_bitcast.{carrier}.{packed}"
+        assert extract.descriptor.key == (
+            f"spirv.op_composite_extract.{packed}.{result}"
+        )
+        assert extract.immediates == {"component_index": 0}
 
 
 def test_bfloat_narrowing_preserves_the_profile_result_representation() -> None:

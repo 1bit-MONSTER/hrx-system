@@ -17,6 +17,8 @@
 enum {
   LOOMC_SPIRV_VULKANINFO_LIMIT_FACT_CAPACITY = 16,
   LOOMC_SPIRV_VULKANINFO_ENVIRONMENT_FACT_CAPACITY = 4,
+  // PCI-SIG vendor identifier reported by AMD Vulkan physical devices.
+  LOOMC_SPIRV_VULKANINFO_AMD_VENDOR_ID = 0x1002,
 };
 
 typedef struct loomc_spirv_vulkaninfo_import_t {
@@ -505,6 +507,9 @@ static loomc_status_t loomc_spirv_vulkaninfo_add_float_control_features(
   loomc_target_fact_state_t rte16 = LOOMC_TARGET_FACT_STATE_UNKNOWN;
   loomc_target_fact_state_t rte32 = LOOMC_TARGET_FACT_STATE_UNKNOWN;
   loomc_target_fact_state_t rte64 = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  loomc_target_fact_state_t preserve16 = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  loomc_target_fact_state_t preserve32 = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  loomc_target_fact_state_t preserve64 = LOOMC_TARGET_FACT_STATE_UNKNOWN;
   loomc_target_fact_state_t denorm_independence =
       LOOMC_TARGET_FACT_STATE_UNKNOWN;
   loomc_target_fact_state_t rounding_independence =
@@ -521,6 +526,15 @@ static loomc_status_t loomc_spirv_vulkaninfo_add_float_control_features(
       import, object, IREE_SV("shaderRoundingModeRTEFloat32"), &rte32));
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_bool_feature(
       import, object, IREE_SV("shaderRoundingModeRTEFloat64"), &rte64));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_bool_feature(
+      import, object, IREE_SV("shaderSignedZeroInfNanPreserveFloat16"),
+      &preserve16));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_bool_feature(
+      import, object, IREE_SV("shaderSignedZeroInfNanPreserveFloat32"),
+      &preserve32));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_bool_feature(
+      import, object, IREE_SV("shaderSignedZeroInfNanPreserveFloat64"),
+      &preserve64));
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_float_control_independence(
       import, object, IREE_SV("denormBehaviorIndependence"),
       &denorm_independence));
@@ -544,10 +558,19 @@ static loomc_status_t loomc_spirv_vulkaninfo_add_float_control_features(
           loomc_spirv_vulkaninfo_and_fact_states(rte16, rte64),
           rounding_independence),
       provenance));
-  return loomc_spirv_vulkaninfo_add_feature_fact(
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_feature_fact(
       import, LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
       loomc_spirv_vulkaninfo_and_fact_states(rte32, rounding_independence),
-      provenance);
+      provenance));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_feature_fact(
+      import, LOOMC_SPIRV_FEATURE_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE,
+      preserve16, provenance));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_feature_fact(
+      import, LOOMC_SPIRV_FEATURE_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE,
+      preserve32, provenance));
+  return loomc_spirv_vulkaninfo_add_feature_fact(
+      import, LOOMC_SPIRV_FEATURE_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE,
+      preserve64, provenance);
 }
 
 static loomc_status_t loomc_spirv_vulkaninfo_add_feature_fields(
@@ -575,6 +598,33 @@ static loomc_status_t loomc_spirv_vulkaninfo_parse_uint64(
                     loomc_spirv_vulkaninfo_string_data(provenance)));
   }
   return loomc_ok_status();
+}
+
+static loomc_status_t loomc_spirv_vulkaninfo_add_float64_to_float16_conversion(
+    loomc_spirv_vulkaninfo_import_t* import,
+    iree_string_view_t physical_properties) {
+  iree_string_view_t value = iree_string_view_empty();
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_try_lookup(
+      physical_properties, IREE_SV("vendorID"), &value));
+  if (iree_string_view_is_empty(value) ||
+      loomc_spirv_vulkaninfo_is_null(value)) {
+    return loomc_ok_status();
+  }
+  uint64_t vendor_id = 0;
+  const loomc_string_view_t provenance =
+      loomc_make_cstring_view("vulkaninfo:vendorID");
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_parse_uint64(
+      import, value, provenance, &vendor_id));
+  if (vendor_id > UINT32_MAX) {
+    return loomc_spirv_vulkaninfo_fail_message(
+        import, "vulkaninfo vendorID must fit in 32 bits");
+  }
+  return loomc_spirv_vulkaninfo_add_feature_fact(
+      import, LOOMC_SPIRV_FEATURE_FLOAT64_TO_FLOAT16_CONVERSION,
+      vendor_id != LOOMC_SPIRV_VULKANINFO_AMD_VENDOR_ID
+          ? LOOMC_TARGET_FACT_STATE_TRUE
+          : LOOMC_TARGET_FACT_STATE_FALSE,
+      provenance);
 }
 
 static loomc_status_t loomc_spirv_vulkaninfo_add_limit(
@@ -1235,6 +1285,9 @@ static loomc_status_t loomc_spirv_vulkaninfo_import_device(
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_api_version(
       import, physical_properties, IREE_SV("apiVersion"),
       loomc_make_cstring_view("vulkaninfo:apiVersion")));
+  LOOMC_RETURN_IF_ERROR(
+      loomc_spirv_vulkaninfo_add_float64_to_float16_conversion(
+          import, physical_properties));
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_import_limits(
       import, physical_properties, vulkan11_properties, subgroup_properties));
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_import_feature_properties(

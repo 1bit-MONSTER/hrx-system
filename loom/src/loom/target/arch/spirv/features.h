@@ -96,8 +96,16 @@ typedef enum loom_spirv_feature_atom_e {
   LOOM_SPIRV_FEATURE_ATOM_FLOAT16_64_ROUNDING_RTE = 35,
   // F32 RoundingModeRTE independent of other floating-point widths.
   LOOM_SPIRV_FEATURE_ATOM_FLOAT32_ROUNDING_RTE = 36,
+  // F16 SignedZeroInfNanPreserve execution-mode support.
+  LOOM_SPIRV_FEATURE_ATOM_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE = 37,
+  // F32 SignedZeroInfNanPreserve execution-mode support.
+  LOOM_SPIRV_FEATURE_ATOM_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE = 38,
+  // F64 SignedZeroInfNanPreserve execution-mode support.
+  LOOM_SPIRV_FEATURE_ATOM_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE = 39,
+  // Native F64-to-F16 conversion satisfies the scalar.fptrunc contract.
+  LOOM_SPIRV_FEATURE_ATOM_FLOAT64_TO_FLOAT16_CONVERSION = 40,
   // Number of feature atom enum slots.
-  LOOM_SPIRV_FEATURE_ATOM_COUNT = 37,
+  LOOM_SPIRV_FEATURE_ATOM_COUNT = 41,
 } loom_spirv_feature_atom_t;
 
 // Bitset of loom_spirv_feature_atom_t values.
@@ -221,6 +229,22 @@ typedef enum loom_spirv_feature_bit_e {
 #define LOOM_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE \
   (UINT64_C(1) << LOOM_SPIRV_FEATURE_ATOM_FLOAT32_ROUNDING_RTE)
 
+// Target enables F16 SignedZeroInfNanPreserve execution mode.
+#define LOOM_SPIRV_FEATURE_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE \
+  (UINT64_C(1) << LOOM_SPIRV_FEATURE_ATOM_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE)
+
+// Target enables F32 SignedZeroInfNanPreserve execution mode.
+#define LOOM_SPIRV_FEATURE_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE \
+  (UINT64_C(1) << LOOM_SPIRV_FEATURE_ATOM_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE)
+
+// Target enables F64 SignedZeroInfNanPreserve execution mode.
+#define LOOM_SPIRV_FEATURE_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE \
+  (UINT64_C(1) << LOOM_SPIRV_FEATURE_ATOM_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE)
+
+// Target native F64-to-F16 conversion satisfies the scalar.fptrunc contract.
+#define LOOM_SPIRV_FEATURE_FLOAT64_TO_FLOAT16_CONVERSION \
+  (UINT64_C(1) << LOOM_SPIRV_FEATURE_ATOM_FLOAT64_TO_FLOAT16_CONVERSION)
+
 // Feature bits known by the SPIR-V target package.
 #define LOOM_SPIRV_FEATURE_KNOWN_BITS                                         \
   (LOOM_SPIRV_FEATURE_VULKAN_SHADER |                                         \
@@ -255,7 +279,11 @@ typedef enum loom_spirv_feature_bit_e {
    LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT |                              \
    LOOM_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE |                            \
    LOOM_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE |                               \
-   LOOM_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE)
+   LOOM_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE |                                  \
+   LOOM_SPIRV_FEATURE_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE |                  \
+   LOOM_SPIRV_FEATURE_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE |                  \
+   LOOM_SPIRV_FEATURE_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE |                  \
+   LOOM_SPIRV_FEATURE_FLOAT64_TO_FLOAT16_CONVERSION)
 
 // Feature bits unconditionally required by Vulkan 1.3 BDA HAL modules.
 #define LOOM_SPIRV_FEATURE_MODULE_VULKAN_1_3_BDA_BASELINE \

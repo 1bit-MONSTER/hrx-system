@@ -1,0 +1,166 @@
+// RUN: emit spirv-dis input=source-low validate
+// REQUIRES: spirv-dis, spirv-val
+
+spirv.target<vulkan1_3> @target {contract_feature_bits = 1086626759166}
+
+func.def target(@target) @narrow_to_single(%input: f64) -> (f32) {
+  %result = scalar.fptrunc %input : f64 to f32
+  func.return %result : f32
+}
+
+// ----
+               OpCapability Shader
+               OpCapability VulkanMemoryModel
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability Float16
+               OpCapability Float64
+               OpCapability Int8
+               OpCapability Int16
+               OpCapability StorageBuffer8BitAccess
+               OpCapability StorageBuffer16BitAccess
+               OpCapability DenormPreserve
+               OpCapability RoundingModeRTE
+               OpCapability SignedZeroInfNanPreserve
+               OpExtension "SPV_KHR_vulkan_memory_model"
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpExtension "SPV_KHR_8bit_storage"
+               OpExtension "SPV_KHR_16bit_storage"
+               OpExtension "SPV_KHR_float_controls"
+               OpMemoryModel PhysicalStorageBuffer64 Vulkan
+               OpEntryPoint GLCompute %narrow_to_single "narrow_to_single"
+               OpExecutionMode %narrow_to_single LocalSize 1 1 1
+               OpExecutionMode %narrow_to_single DenormPreserve 32
+               OpExecutionMode %narrow_to_single RoundingModeRTE 32
+               OpExecutionMode %narrow_to_single SignedZeroInfNanPreserve 32
+               OpExecutionMode %narrow_to_single SignedZeroInfNanPreserve 64
+               OpName %narrow_to_single "narrow_to_single"
+               OpName %input "input"
+               OpName %result "result"
+               OpMemberDecorate %_struct_6 0 Offset 0
+               OpDecorate %_struct_6 Block
+               OpDecorate %4 DescriptorSet 0
+               OpDecorate %4 Binding 0
+               OpMemberDecorate %_struct_11 0 Offset 0
+               OpDecorate %_struct_11 Block
+               OpDecorate %9 DescriptorSet 0
+               OpDecorate %9 Binding 1
+               OpDecorate %result NoContraction
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+     %double = OpTypeFloat 64
+  %_struct_6 = OpTypeStruct %double
+%_ptr_StorageBuffer__struct_6 = OpTypePointer StorageBuffer %_struct_6
+%_ptr_StorageBuffer_double = OpTypePointer StorageBuffer %double
+          %4 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+      %float = OpTypeFloat 32
+ %_struct_11 = OpTypeStruct %float
+%_ptr_StorageBuffer__struct_11 = OpTypePointer StorageBuffer %_struct_11
+%_ptr_StorageBuffer_float = OpTypePointer StorageBuffer %float
+          %9 = OpVariable %_ptr_StorageBuffer__struct_11 StorageBuffer
+       %void = OpTypeVoid
+         %15 = OpTypeFunction %void
+%narrow_to_single = OpFunction %void None %15
+         %16 = OpLabel
+         %17 = OpAccessChain %_ptr_StorageBuffer_double %4 %int_0
+      %input = OpLoad %double %17 Aligned 8
+     %result = OpFConvert %float %input
+         %20 = OpAccessChain %_ptr_StorageBuffer_float %9 %int_0
+               OpStore %20 %result Aligned 4
+               OpReturn
+               OpFunctionEnd
+
+// ====
+
+spirv.target<vulkan1_3> @target {contract_feature_bits = 2186138386942}
+
+func.def target(@target) @narrow_to_half(%double: f64, %single: f32) -> (f16, f16) {
+  %double_result = scalar.fptrunc %double : f64 to f16
+  %single_result = scalar.fptrunc %single : f32 to f16
+  func.return %double_result, %single_result : f16, f16
+}
+
+// ----
+               OpCapability Shader
+               OpCapability VulkanMemoryModel
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability Float16
+               OpCapability Float64
+               OpCapability Int8
+               OpCapability Int16
+               OpCapability StorageBuffer8BitAccess
+               OpCapability StorageBuffer16BitAccess
+               OpCapability DenormPreserve
+               OpCapability RoundingModeRTE
+               OpCapability SignedZeroInfNanPreserve
+               OpExtension "SPV_KHR_vulkan_memory_model"
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpExtension "SPV_KHR_8bit_storage"
+               OpExtension "SPV_KHR_16bit_storage"
+               OpExtension "SPV_KHR_float_controls"
+               OpMemoryModel PhysicalStorageBuffer64 Vulkan
+               OpEntryPoint GLCompute %narrow_to_half "narrow_to_half"
+               OpExecutionMode %narrow_to_half LocalSize 1 1 1
+               OpExecutionMode %narrow_to_half DenormPreserve 16
+               OpExecutionMode %narrow_to_half DenormPreserve 64
+               OpExecutionMode %narrow_to_half RoundingModeRTE 16
+               OpExecutionMode %narrow_to_half RoundingModeRTE 64
+               OpExecutionMode %narrow_to_half SignedZeroInfNanPreserve 16
+               OpExecutionMode %narrow_to_half SignedZeroInfNanPreserve 32
+               OpExecutionMode %narrow_to_half SignedZeroInfNanPreserve 64
+               OpName %narrow_to_half "narrow_to_half"
+               OpName %double "double"
+               OpName %single "single"
+               OpName %double_result "double_result"
+               OpName %single_result "single_result"
+               OpMemberDecorate %_struct_6 0 Offset 0
+               OpDecorate %_struct_6 Block
+               OpDecorate %4 DescriptorSet 0
+               OpDecorate %4 Binding 0
+               OpMemberDecorate %_struct_11 0 Offset 0
+               OpDecorate %_struct_11 Block
+               OpDecorate %9 DescriptorSet 0
+               OpDecorate %9 Binding 1
+               OpMemberDecorate %_struct_16 0 Offset 0
+               OpDecorate %_struct_16 Block
+               OpDecorate %14 DescriptorSet 0
+               OpDecorate %14 Binding 2
+               OpDecorate %19 DescriptorSet 0
+               OpDecorate %19 Binding 3
+               OpDecorate %double_result NoContraction
+               OpDecorate %single_result NoContraction
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+   %double_0 = OpTypeFloat 64
+  %_struct_6 = OpTypeStruct %double_0
+%_ptr_StorageBuffer__struct_6 = OpTypePointer StorageBuffer %_struct_6
+%_ptr_StorageBuffer_double_0 = OpTypePointer StorageBuffer %double_0
+          %4 = OpVariable %_ptr_StorageBuffer__struct_6 StorageBuffer
+      %float = OpTypeFloat 32
+ %_struct_11 = OpTypeStruct %float
+%_ptr_StorageBuffer__struct_11 = OpTypePointer StorageBuffer %_struct_11
+%_ptr_StorageBuffer_float = OpTypePointer StorageBuffer %float
+          %9 = OpVariable %_ptr_StorageBuffer__struct_11 StorageBuffer
+       %half = OpTypeFloat 16
+ %_struct_16 = OpTypeStruct %half
+%_ptr_StorageBuffer__struct_16 = OpTypePointer StorageBuffer %_struct_16
+%_ptr_StorageBuffer_half = OpTypePointer StorageBuffer %half
+         %14 = OpVariable %_ptr_StorageBuffer__struct_16 StorageBuffer
+         %19 = OpVariable %_ptr_StorageBuffer__struct_16 StorageBuffer
+       %void = OpTypeVoid
+         %21 = OpTypeFunction %void
+%narrow_to_half = OpFunction %void None %21
+         %22 = OpLabel
+         %23 = OpAccessChain %_ptr_StorageBuffer_double_0 %4 %int_0
+     %double = OpLoad %double_0 %23 Aligned 8
+         %25 = OpAccessChain %_ptr_StorageBuffer_float %9 %int_0
+     %single = OpLoad %float %25 Aligned 4
+%double_result = OpFConvert %half %double
+%single_result = OpFConvert %half %single
+         %29 = OpAccessChain %_ptr_StorageBuffer_half %14 %int_0
+               OpStore %29 %double_result Aligned 2
+         %30 = OpAccessChain %_ptr_StorageBuffer_half %19 %int_0
+               OpStore %30 %single_result Aligned 2
+               OpReturn
+               OpFunctionEnd

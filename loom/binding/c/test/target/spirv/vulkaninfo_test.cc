@@ -172,6 +172,7 @@ TEST(TargetSpirvVulkaninfoTest, ImportsGpuinfoProfileWrapper) {
         "properties": {
           "VkPhysicalDeviceProperties": {
             "apiVersion": 4206592,
+            "vendorID": 4318,
             "deviceName": "Unit Test GPU",
             "limits": {
               "maxComputeWorkGroupCount": [65535, 1024, 64],
@@ -195,6 +196,9 @@ TEST(TargetSpirvVulkaninfoTest, ImportsGpuinfoProfileWrapper) {
             "shaderDenormPreserveFloat16": true,
             "shaderDenormPreserveFloat32": true,
             "shaderDenormPreserveFloat64": true,
+            "shaderSignedZeroInfNanPreserveFloat16": true,
+            "shaderSignedZeroInfNanPreserveFloat32": true,
+            "shaderSignedZeroInfNanPreserveFloat64": true,
             "shaderRoundingModeRTEFloat16": true,
             "shaderRoundingModeRTEFloat32": true,
             "shaderRoundingModeRTEFloat64": true
@@ -301,6 +305,10 @@ TEST(TargetSpirvVulkaninfoTest, ImportsGpuinfoProfileWrapper) {
       LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
       LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
+      LOOMC_SPIRV_FEATURE_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE,
+      LOOMC_SPIRV_FEATURE_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE,
+      LOOMC_SPIRV_FEATURE_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE,
+      LOOMC_SPIRV_FEATURE_FLOAT64_TO_FLOAT16_CONVERSION,
   };
   for (loomc_spirv_feature_t feature : extended_features) {
     ExpectFeatureState(profile.get(), feature, LOOMC_TARGET_FACT_STATE_TRUE);
@@ -354,6 +362,7 @@ TEST(TargetSpirvVulkaninfoTest, ImportsRawDevicesArrayByIndex) {
       {
         "properties": {
           "apiVersion": 4202496,
+          "vendorID": 4098,
           "limits": {
             "maxComputeWorkGroupCount": [16, 8, 4],
             "maxComputeWorkGroupInvocations": 128,
@@ -391,6 +400,9 @@ TEST(TargetSpirvVulkaninfoTest, ImportsRawDevicesArrayByIndex) {
                      LOOMC_TARGET_FACT_STATE_TRUE);
   ExpectFeatureState(profile.get(), LOOMC_SPIRV_FEATURE_PHYSICAL_STORAGE_BUFFER,
                      LOOMC_TARGET_FACT_STATE_TRUE);
+  ExpectFeatureState(profile.get(),
+                     LOOMC_SPIRV_FEATURE_FLOAT64_TO_FLOAT16_CONVERSION,
+                     LOOMC_TARGET_FACT_STATE_FALSE);
   ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_X,
                    LOOMC_TARGET_FACT_STATE_TRUE, 128);
   ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_X,

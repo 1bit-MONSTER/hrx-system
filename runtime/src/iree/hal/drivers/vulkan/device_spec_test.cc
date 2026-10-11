@@ -217,19 +217,26 @@ TEST(DeviceSpecTest, AtomicCapabilitiesRequireExactFeatures) {
             IREE_HAL_ATOMIC_OPERATION_FLAG_NONE);
 }
 
+struct FloatWidthSupport {
+  // Whether the control is supported for F16.
+  VkBool32 f16;
+  // Whether the control is supported for F32.
+  VkBool32 f32;
+  // Whether the control is supported for F64.
+  VkBool32 f64;
+};
+
 struct FloatControlsCase {
-  // Denormal-preservation support for F16, F32, and F64 respectively.
-  VkBool32 denorm16;
-  VkBool32 denorm32;
-  VkBool32 denorm64;
+  // Per-width denormal-preservation support.
+  FloatWidthSupport denorm_preserve;
   // Widths whose denormal modes can be controlled independently.
   VkShaderFloatControlsIndependence denorm_independence;
-  // RTE support for F16, F32, and F64 respectively.
-  VkBool32 rte16;
-  VkBool32 rte32;
-  VkBool32 rte64;
+  // Per-width round-to-nearest-even support.
+  FloatWidthSupport rounding_rte;
   // Widths whose rounding modes can be controlled independently.
   VkShaderFloatControlsIndependence rounding_independence;
+  // Per-width signed-zero, infinity, and NaN preservation support.
+  FloatWidthSupport signed_zero_inf_nan_preserve;
   // Float-control promises retained by the device facet.
   iree_hal_vulkan_device_spec_flags_t expected_flags;
 };
@@ -246,21 +253,30 @@ TEST_P(DeviceSpecFloatControlsTest, CreatesSpecFromParams) {
       .ordinal = 3,
   };
   physical_device.float_controls_properties.shaderDenormPreserveFloat16 =
-      GetParam().denorm16;
+      GetParam().denorm_preserve.f16;
   physical_device.float_controls_properties.shaderDenormPreserveFloat32 =
-      GetParam().denorm32;
+      GetParam().denorm_preserve.f32;
   physical_device.float_controls_properties.shaderDenormPreserveFloat64 =
-      GetParam().denorm64;
+      GetParam().denorm_preserve.f64;
   physical_device.float_controls_properties.denormBehaviorIndependence =
       GetParam().denorm_independence;
   physical_device.float_controls_properties.shaderRoundingModeRTEFloat16 =
-      GetParam().rte16;
+      GetParam().rounding_rte.f16;
   physical_device.float_controls_properties.shaderRoundingModeRTEFloat32 =
-      GetParam().rte32;
+      GetParam().rounding_rte.f32;
   physical_device.float_controls_properties.shaderRoundingModeRTEFloat64 =
-      GetParam().rte64;
+      GetParam().rounding_rte.f64;
   physical_device.float_controls_properties.roundingModeIndependence =
       GetParam().rounding_independence;
+  physical_device.float_controls_properties
+      .shaderSignedZeroInfNanPreserveFloat16 =
+      GetParam().signed_zero_inf_nan_preserve.f16;
+  physical_device.float_controls_properties
+      .shaderSignedZeroInfNanPreserveFloat32 =
+      GetParam().signed_zero_inf_nan_preserve.f32;
+  physical_device.float_controls_properties
+      .shaderSignedZeroInfNanPreserveFloat64 =
+      GetParam().signed_zero_inf_nan_preserve.f64;
   std::strncpy(physical_device.properties2.properties.deviceName,
                "Vulkan test device",
                sizeof(physical_device.properties2.properties.deviceName) - 1);
@@ -504,63 +520,86 @@ TEST_P(DeviceSpecFloatControlsTest, CreatesSpecFromParams) {
 INSTANTIATE_TEST_SUITE_P(
     FloatControls, DeviceSpecFloatControlsTest,
     ::testing::Values(
-        FloatControlsCase{VK_FALSE, VK_FALSE, VK_FALSE,
-                          VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL, VK_FALSE,
-                          VK_FALSE, VK_FALSE,
+        FloatControlsCase{{VK_FALSE, VK_FALSE, VK_FALSE},
                           VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL,
+                          {VK_FALSE, VK_FALSE, VK_FALSE},
+                          VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL,
+                          {VK_FALSE, VK_FALSE, VK_FALSE},
                           IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE},
-        FloatControlsCase{VK_TRUE, VK_TRUE, VK_TRUE,
-                          VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE, VK_TRUE,
-                          VK_TRUE, VK_TRUE,
+        FloatControlsCase{{VK_TRUE, VK_TRUE, VK_TRUE},
                           VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE,
+                          {VK_TRUE, VK_TRUE, VK_TRUE},
+                          VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE,
+                          {VK_FALSE, VK_FALSE, VK_FALSE},
                           IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE},
         FloatControlsCase{
-            VK_FALSE, VK_TRUE, VK_FALSE,
-            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY, VK_FALSE,
-            VK_TRUE, VK_FALSE,
+            {VK_FALSE, VK_TRUE, VK_FALSE},
             VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
+            {VK_FALSE, VK_TRUE, VK_FALSE},
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
+            {VK_FALSE, VK_TRUE, VK_FALSE},
             IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE |
-                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE},
-        FloatControlsCase{VK_TRUE, VK_FALSE, VK_FALSE,
-                          VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
-                          VK_TRUE, VK_FALSE, VK_FALSE,
-                          VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
-                          IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE},
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE |
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE},
         FloatControlsCase{
-            VK_TRUE, VK_FALSE, VK_TRUE,
-            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY, VK_TRUE,
-            VK_FALSE, VK_TRUE,
+            {VK_TRUE, VK_FALSE, VK_FALSE},
             VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
+            {VK_TRUE, VK_FALSE, VK_FALSE},
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
+            {VK_TRUE, VK_FALSE, VK_FALSE},
+            IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE},
+        FloatControlsCase{
+            {VK_TRUE, VK_FALSE, VK_TRUE},
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
+            {VK_TRUE, VK_FALSE, VK_TRUE},
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
+            {VK_TRUE, VK_FALSE, VK_TRUE},
             IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_DENORM_PRESERVE |
-                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_ROUNDING_RTE},
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_ROUNDING_RTE |
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE |
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE},
         FloatControlsCase{
-            VK_TRUE, VK_TRUE, VK_TRUE,
-            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY, VK_TRUE, VK_TRUE,
-            VK_TRUE, VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE,
+            {VK_TRUE, VK_TRUE, VK_TRUE},
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
+            {VK_TRUE, VK_TRUE, VK_TRUE},
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE,
+            {VK_TRUE, VK_TRUE, VK_TRUE},
             IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE |
-                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_DENORM_PRESERVE},
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_DENORM_PRESERVE |
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE |
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE |
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE},
         FloatControlsCase{
-            VK_TRUE, VK_TRUE, VK_TRUE,
-            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE, VK_TRUE, VK_TRUE,
-            VK_TRUE, VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
+            {VK_TRUE, VK_TRUE, VK_TRUE},
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE,
+            {VK_TRUE, VK_TRUE, VK_TRUE},
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
+            {VK_FALSE, VK_FALSE, VK_FALSE},
             IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_ROUNDING_RTE |
                 IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE},
         FloatControlsCase{
-            VK_TRUE, VK_TRUE, VK_TRUE,
-            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY, VK_TRUE, VK_TRUE,
-            VK_TRUE, VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
+            {VK_TRUE, VK_TRUE, VK_TRUE},
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
+            {VK_TRUE, VK_TRUE, VK_TRUE},
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY,
+            {VK_FALSE, VK_FALSE, VK_FALSE},
             IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE |
                 IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_DENORM_PRESERVE |
                 IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_ROUNDING_RTE |
                 IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE},
         FloatControlsCase{
-            VK_TRUE, VK_TRUE, VK_TRUE,
-            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL, VK_TRUE, VK_TRUE,
-            VK_TRUE, VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL,
+            {VK_TRUE, VK_TRUE, VK_TRUE},
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL,
+            {VK_TRUE, VK_TRUE, VK_TRUE},
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL,
+            {VK_TRUE, VK_TRUE, VK_TRUE},
             IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE |
                 IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_DENORM_PRESERVE |
                 IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_ROUNDING_RTE |
-                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE}));
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE |
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE |
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE |
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE}));
 
 }  // namespace
 }  // namespace iree::hal::vulkan

@@ -1132,6 +1132,22 @@ static iree_status_t loom_spirv_emit_return(loom_spirv_emit_state_t* state,
       LOOM_SPIRV_OP_RETURN, NULL, 0);
 }
 
+static iree_status_t loom_spirv_emit_float_execution_mode(
+    loom_spirv_emit_state_t* state, loom_spirv_feature_bits_t required_feature,
+    loom_spirv_execution_mode_t execution_mode, uint32_t bit_width) {
+  if (!iree_any_bit_set(state->required_feature_bits, required_feature)) {
+    return iree_ok_status();
+  }
+  const uint32_t operands[] = {
+      state->function_id,
+      execution_mode,
+      bit_width,
+  };
+  return loom_spirv_binary_write_instruction(
+      loom_spirv_emit_section(state, LOOM_SPIRV_MODULE_SECTION_EXECUTION_MODE),
+      LOOM_SPIRV_OP_EXECUTION_MODE, operands, IREE_ARRAYSIZE(operands));
+}
+
 static iree_status_t loom_spirv_emit_entry_point(
     loom_spirv_emit_state_t* state) {
   const iree_string_view_t entry_name = loom_spirv_emit_export_name(state);
@@ -1175,19 +1191,33 @@ static iree_status_t loom_spirv_emit_entry_point(
       loom_spirv_emit_section(state, LOOM_SPIRV_MODULE_SECTION_EXECUTION_MODE),
       LOOM_SPIRV_OP_EXECUTION_MODE, execution_mode_operands,
       IREE_ARRAYSIZE(execution_mode_operands)));
-  if (iree_any_bit_set(state->required_feature_bits,
-                       LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE)) {
-    const uint32_t denorm_mode_operands[] = {
-        state->function_id,
-        LOOM_SPIRV_EXECUTION_MODE_DENORM_PRESERVE,
-        32,
-    };
-    IREE_RETURN_IF_ERROR(loom_spirv_binary_write_instruction(
-        loom_spirv_emit_section(state,
-                                LOOM_SPIRV_MODULE_SECTION_EXECUTION_MODE),
-        LOOM_SPIRV_OP_EXECUTION_MODE, denorm_mode_operands,
-        IREE_ARRAYSIZE(denorm_mode_operands)));
-  }
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_float_execution_mode(
+      state, LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
+      LOOM_SPIRV_EXECUTION_MODE_DENORM_PRESERVE, 32));
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_float_execution_mode(
+      state, LOOM_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
+      LOOM_SPIRV_EXECUTION_MODE_DENORM_PRESERVE, 16));
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_float_execution_mode(
+      state, LOOM_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
+      LOOM_SPIRV_EXECUTION_MODE_DENORM_PRESERVE, 64));
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_float_execution_mode(
+      state, LOOM_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
+      LOOM_SPIRV_EXECUTION_MODE_ROUNDING_MODE_RTE, 16));
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_float_execution_mode(
+      state, LOOM_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
+      LOOM_SPIRV_EXECUTION_MODE_ROUNDING_MODE_RTE, 64));
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_float_execution_mode(
+      state, LOOM_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
+      LOOM_SPIRV_EXECUTION_MODE_ROUNDING_MODE_RTE, 32));
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_float_execution_mode(
+      state, LOOM_SPIRV_FEATURE_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE,
+      LOOM_SPIRV_EXECUTION_MODE_SIGNED_ZERO_INF_NAN_PRESERVE, 16));
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_float_execution_mode(
+      state, LOOM_SPIRV_FEATURE_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE,
+      LOOM_SPIRV_EXECUTION_MODE_SIGNED_ZERO_INF_NAN_PRESERVE, 32));
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_float_execution_mode(
+      state, LOOM_SPIRV_FEATURE_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE,
+      LOOM_SPIRV_EXECUTION_MODE_SIGNED_ZERO_INF_NAN_PRESERVE, 64));
   return iree_ok_status();
 }
 

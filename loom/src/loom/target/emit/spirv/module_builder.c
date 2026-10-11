@@ -114,7 +114,13 @@ static loom_spirv_feature_bits_t loom_spirv_module_builder_base_feature_bits(
   // unused capabilities and extensions.
   const loom_spirv_feature_bits_t demand_driven_feature_bits =
       LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM |
-      LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE;
+      LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE |
+      LOOM_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE |
+      LOOM_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE |
+      LOOM_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE |
+      LOOM_SPIRV_FEATURE_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE |
+      LOOM_SPIRV_FEATURE_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE |
+      LOOM_SPIRV_FEATURE_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE;
   return (loom_spirv_feature_bits_t)target->config->contract_feature_bits &
          ~demand_driven_feature_bits;
 }
