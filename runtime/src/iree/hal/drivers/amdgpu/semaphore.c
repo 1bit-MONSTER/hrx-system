@@ -374,16 +374,18 @@ static iree_status_t iree_hal_amdgpu_semaphore_wait(
     iree_hal_amdgpu_host_queue_epoch_wait_t wait_state;
     if (iree_hal_amdgpu_logical_device_lookup_host_queue_epoch_wait(
             semaphore->device, producer_axis, &wait_state)) {
+      // Device completion and host retirement share the caller's deadline.
+      iree_convert_timeout_to_absolute(&timeout);
       IREE_RETURN_IF_ERROR(iree_hal_amdgpu_semaphore_wait_for_epoch(
           &wait_state, producer_epoch, timeout, flags));
       iree_hal_amdgpu_host_queue_drain_completions_for_waiter(
           wait_state.host_queue);
-      return iree_async_semaphore_publish_untainted(&semaphore->async,
-                                                    producer_value, NULL);
     }
   }
 
-  // Software fallback: timepoint-based blocking wait.
+  // Only retirement publishes host-visible completion: a completed GPU epoch
+  // may still await the submitter's final host-side resource accesses. The
+  // drain above normally satisfies this wait without registering a timepoint.
   return iree_async_semaphore_multi_wait(
       IREE_ASYNC_WAIT_MODE_ALL, (iree_async_semaphore_t**)&base_semaphore,
       &value, 1, timeout, flags, iree_allocator_system());

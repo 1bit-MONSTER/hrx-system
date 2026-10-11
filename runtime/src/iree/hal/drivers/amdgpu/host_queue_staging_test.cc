@@ -21,6 +21,7 @@
 #include "iree/hal/cts/util/test_base.h"
 #include "iree/hal/drivers/amdgpu/allocator.h"
 #include "iree/hal/drivers/amdgpu/host_queue.h"
+#include "iree/hal/drivers/amdgpu/host_queue_submission.h"
 #include "iree/hal/drivers/amdgpu/logical_device.h"
 #include "iree/hal/drivers/amdgpu/physical_device.h"
 #include "iree/hal/drivers/amdgpu/system.h"
@@ -510,6 +511,114 @@ TEST_F(HostQueueStagingTest, LogicalDeviceOptionsSetFileStagingPool) {
   ASSERT_NE(physical_device, nullptr);
   EXPECT_EQ(physical_device->file_staging_pool.slot_size, kStagingSlotSize);
   EXPECT_EQ(physical_device->file_staging_pool.slot_count, 2u);
+}
+
+// Drives a waiter retirement while the completion service is executing an
+// already-detached callback batch. All storage is test-owned until completion.
+struct WaiterPostDrainState {
+  // Queue whose completion service executes the callbacks.
+  iree_hal_amdgpu_host_queue_t* queue;
+  // Queue-signaled semaphore used by the nested native epoch wait.
+  iree_hal_semaphore_t* nested_completion;
+  // Public completion published only by the second deferred callback.
+  iree_hal_semaphore_t* completion;
+  // First deferred callback, which synchronously takes the host waiter role.
+  iree_hal_amdgpu_host_queue_post_drain_action_t wait_action = {};
+  // Second deferred callback, enqueued by the nested wait's retirement.
+  iree_hal_amdgpu_host_queue_post_drain_action_t completion_action = {};
+
+  static void Complete(void* user_data) {
+    auto* state = static_cast<WaiterPostDrainState*>(user_data);
+    IREE_EXPECT_OK(iree_hal_semaphore_signal(state->completion, /*new_value=*/1,
+                                             /*frontier=*/nullptr));
+  }
+
+  static void EnqueueCompletion(iree_hal_amdgpu_reclaim_entry_t*,
+                                void* user_data, const iree_status_t status) {
+    // Failure propagates through the nested completion semaphore to its waiter.
+    if (!iree_status_is_ok(status)) {
+      return;
+    }
+    auto* state = static_cast<WaiterPostDrainState*>(user_data);
+    iree_hal_amdgpu_host_queue_enqueue_post_drain_action(
+        state->queue, &state->completion_action, Complete, state);
+  }
+
+  static void SubmitAndWait(void* user_data) {
+    auto* state = static_cast<WaiterPostDrainState*>(user_data);
+    iree_hal_amdgpu_wait_resolution_t resolution = {};
+    uint64_t signal_value = 1;
+    const auto signals =
+        MakeSemaphoreList(&state->nested_completion, &signal_value);
+    bool ready = false;
+    iree_slim_mutex_lock(&state->queue->locks.submission_mutex);
+    iree_status_t status = iree_hal_amdgpu_host_queue_try_submit_barrier(
+        state->queue, &resolution, signals, {EnqueueCompletion, state},
+        /*operation_resources=*/nullptr, /*operation_resource_count=*/0,
+        /*profile_event_info=*/nullptr,
+        iree_hal_amdgpu_host_queue_post_commit_callback_null(),
+        /*resource_set=*/nullptr,
+        IREE_HAL_AMDGPU_HOST_QUEUE_SUBMISSION_FLAG_RETAIN_RESOURCES, &ready,
+        /*out_submission_id=*/nullptr);
+    iree_slim_mutex_unlock(&state->queue->locks.submission_mutex);
+    if (iree_status_is_ok(status)) {
+      EXPECT_TRUE(ready);
+      if (!ready) {
+        status = iree_status_from_code(IREE_STATUS_RESOURCE_EXHAUSTED);
+      }
+    }
+    if (iree_status_is_ok(status)) {
+      // The completion thread is inside this callback, so this native wait
+      // must retire the newer epoch itself. Its deferred callback stays queued.
+      status = iree_hal_semaphore_wait(state->nested_completion, signal_value,
+                                       iree_infinite_timeout(),
+                                       IREE_ASYNC_WAIT_FLAG_NONE);
+    }
+    if (!iree_status_is_ok(status)) {
+      iree_hal_semaphore_fail(state->completion, status);
+    }
+  }
+
+  static void EnqueueWait(iree_hal_amdgpu_reclaim_entry_t*, void* user_data,
+                          const iree_status_t status) {
+    auto* state = static_cast<WaiterPostDrainState*>(user_data);
+    if (!iree_status_is_ok(status)) {
+      iree_hal_semaphore_fail(state->completion, iree_status_clone(status));
+      return;
+    }
+    iree_hal_amdgpu_host_queue_enqueue_post_drain_action(
+        state->queue, &state->wait_action, SubmitAndWait, state);
+  }
+};
+
+TEST_F(HostQueueStagingTest,
+       WaiterRetirementDuringPostDrainStillRunsContinuation) {
+  iree_hal_amdgpu_logical_device_options_t options;
+  iree_hal_amdgpu_logical_device_options_initialize(&options);
+  options.preallocate_pools = 0;
+  TestLogicalDevice test_device;
+  IREE_ASSERT_OK(
+      test_device.Initialize(&options, &libhsa_, &topology_, host_allocator_));
+  Ref<iree_hal_semaphore_t> nested_completion;
+  IREE_ASSERT_OK(
+      CreateSemaphore(test_device.base_device(), nested_completion.out()));
+  Ref<iree_hal_semaphore_t> completion;
+  IREE_ASSERT_OK(CreateSemaphore(test_device.base_device(), completion.out()));
+  WaiterPostDrainState state = {test_device.first_host_queue(),
+                                nested_completion.get(), completion.get()};
+  ASSERT_NE(state.queue, nullptr);
+
+  // The first retirement starts a callback that submits and retires a newer
+  // epoch. The service must not adopt that epoch as serviced before running its
+  // newly queued continuation, even when no further GPU work will arrive.
+  IREE_ASSERT_OK(iree_hal_amdgpu_host_queue_enqueue_host_action(
+      state.queue, iree_hal_semaphore_list_empty(),
+      {WaiterPostDrainState::EnqueueWait, &state},
+      /*operation_resources=*/nullptr, /*operation_resource_count=*/0,
+      /*barriers=*/{}));
+  IREE_ASSERT_OK(iree_hal_semaphore_wait(completion, /*value=*/1,
+                                         iree_infinite_timeout(),
+                                         IREE_ASYNC_WAIT_FLAG_NONE));
 }
 
 TEST_F(HostQueueStagingTest,

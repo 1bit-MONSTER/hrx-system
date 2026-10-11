@@ -370,7 +370,7 @@ void iree_hal_amdgpu_host_queue_enqueue_post_drain_action(
   iree_slim_mutex_unlock(&queue->locks.post_drain_mutex);
 }
 
-static void iree_hal_amdgpu_host_queue_run_post_drain_actions(
+static uint64_t iree_hal_amdgpu_host_queue_run_post_drain_actions(
     iree_hal_amdgpu_host_queue_t* queue) {
   // A waiter can publish more actions while retiring a newer completion batch.
   // Join that retirement before detaching its actions so their callbacks cannot
@@ -381,6 +381,10 @@ static void iree_hal_amdgpu_host_queue_run_post_drain_actions(
       queue->post_drain.head;
   queue->post_drain.head = NULL;
   queue->post_drain.tail = NULL;
+  // This batch covers only the retirement prefix visible while detaching it.
+  // A waiter may retire more epochs and enqueue new actions during callbacks.
+  const uint64_t serviced_epoch = (uint64_t)iree_atomic_load(
+      &queue->notification_ring.epoch.last_drained, iree_memory_order_relaxed);
   iree_slim_mutex_unlock(&queue->locks.post_drain_mutex);
   iree_slim_mutex_unlock(&queue->locks.completion_drain_mutex);
 
@@ -390,6 +394,7 @@ static void iree_hal_amdgpu_host_queue_run_post_drain_actions(
     action->fn(action->user_data);
     action = next_action;
   }
+  return serviced_epoch;
 }
 
 void iree_hal_amdgpu_host_queue_query_scope(
@@ -464,14 +469,13 @@ static iree_host_size_t iree_hal_amdgpu_host_queue_drain_completions_locked(
   return count;
 }
 
-iree_host_size_t iree_hal_amdgpu_host_queue_drain_completions(
+// Returns the retirement epoch whose post-drain continuations were serviced.
+static uint64_t iree_hal_amdgpu_host_queue_drain_completions(
     iree_hal_amdgpu_host_queue_t* queue) {
   iree_slim_mutex_lock(&queue->locks.completion_drain_mutex);
-  iree_host_size_t count =
-      iree_hal_amdgpu_host_queue_drain_completions_locked(queue);
+  iree_hal_amdgpu_host_queue_drain_completions_locked(queue);
   iree_slim_mutex_unlock(&queue->locks.completion_drain_mutex);
-  iree_hal_amdgpu_host_queue_run_post_drain_actions(queue);
-  return count;
+  return iree_hal_amdgpu_host_queue_run_post_drain_actions(queue);
 }
 
 iree_host_size_t iree_hal_amdgpu_host_queue_drain_completions_for_waiter(
@@ -606,14 +610,6 @@ iree_status_t iree_hal_amdgpu_host_queue_wait_for_setup_epoch(
   return iree_hal_amdgpu_host_queue_clone_error_status(queue);
 }
 
-static hsa_signal_value_t iree_hal_amdgpu_host_queue_last_drained_signal_value(
-    iree_hal_amdgpu_host_queue_t* queue) {
-  const uint64_t last_drained_epoch = (uint64_t)iree_atomic_load(
-      &queue->notification_ring.epoch.last_drained, iree_memory_order_acquire);
-  return (hsa_signal_value_t)(IREE_HAL_AMDGPU_EPOCH_INITIAL_VALUE -
-                              last_drained_epoch);
-}
-
 void iree_hal_amdgpu_host_queue_wait_idle_before_deinitialize(
     iree_hal_amdgpu_host_queue_t* queue) {
   IREE_ASSERT_ARGUMENT(queue);
@@ -696,8 +692,8 @@ static int iree_hal_amdgpu_host_queue_completion_thread_main(void* entry_arg) {
   hsa_signal_t epoch_signal =
       iree_hal_amdgpu_notification_ring_epoch_signal(&queue->notification_ring);
   hsa_signal_t stop_signal = queue->completion.stop_signal;
-  hsa_signal_value_t last_epoch_value =
-      iree_hal_amdgpu_host_queue_last_drained_signal_value(queue);
+  // No callbacks have been serviced, even if a waiter already retired epochs.
+  hsa_signal_value_t last_epoch_value = IREE_HAL_AMDGPU_EPOCH_INITIAL_VALUE;
 
   bool keep_running = true;
   while (keep_running) {
@@ -726,14 +722,13 @@ static int iree_hal_amdgpu_host_queue_completion_thread_main(void* entry_arg) {
       IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, signal_index);
 
       if (signal_index == IREE_HAL_AMDGPU_COMPLETION_WAIT_EPOCH_SIGNAL) {
-        iree_hal_amdgpu_host_queue_drain_completions(queue);
-        // Arm the next wait from the epoch we actually drained, not from a raw
-        // HSA signal load. A GPU completion can race with the drain and update
-        // the signal after drain() sampled it; observing that newer value here
-        // would mark an undrained epoch as already seen and could sleep forever
-        // with a user semaphore still pending.
+        const uint64_t serviced_epoch =
+            iree_hal_amdgpu_host_queue_drain_completions(queue);
+        // A waiter may retire newer epochs while callbacks run. Their deferred
+        // work still belongs to this thread and must keep the next wait awake.
         last_epoch_value =
-            iree_hal_amdgpu_host_queue_last_drained_signal_value(queue);
+            (hsa_signal_value_t)(IREE_HAL_AMDGPU_EPOCH_INITIAL_VALUE -
+                                 serviced_epoch);
       }
 
       // An out-of-range index means every signal handle passed was null or

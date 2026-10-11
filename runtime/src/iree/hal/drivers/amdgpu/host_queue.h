@@ -963,14 +963,6 @@ void iree_hal_amdgpu_host_queue_query_scope(
     const iree_hal_amdgpu_host_queue_t* queue,
     iree_hal_amdgpu_queue_scope_t* out_scope);
 
-// Drains completed notification entries, retires queue-owned resources, runs
-// post-drain continuations, and advances the queue frontier tracker.
-//
-// The queue completion thread calls this after epoch-signal wakeups. Internal
-// serialization keeps notification-ring consumption single-reader.
-iree_host_size_t iree_hal_amdgpu_host_queue_drain_completions(
-    iree_hal_amdgpu_host_queue_t* queue);
-
 // Drains completed notification entries and retires queue-owned resources after
 // a direct host waiter has independently observed a producer epoch.
 //
