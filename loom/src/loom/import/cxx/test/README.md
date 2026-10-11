@@ -51,9 +51,9 @@ iree-bazel-test --config=asan --config=loom-importer-cxx \
 Build declarations pair each source with its authored scenario module. All
 kernels in a source file share that module; the cases select the entries they
 exercise. Import uses the normal facade headers without per-kernel root flags or
-header-path overrides. The remaining generated numerical fixtures are declared
-action outputs and retained as test data, with NPY paths relative to the check
-source.
+header-path overrides. Scenario generators construct their inputs at runtime,
+and comparison trials run independent oracle functions before transferring the
+same physical inputs to the selected target.
 Schedule variants are named C++ entry points, and the reference code exercises
 each entry against the same numerical oracle. Numerical reference modules bind
 three workgroups with ordinary `config.def` values. The source semantics kernels
@@ -130,12 +130,11 @@ wrappers are omitted from both extractions. Launch annotations
 supply the Loom configuration contract. The upstream licenses are included
 beside the source files.
 
-`loom/py/loom/gen/test/cxx_kernel_cases.py` generates deterministic, quantized
-inputs and reference fixtures using only Python's standard library. Attention
-uses a materialized score matrix and double-precision softmax reference; RMSNorm
-uses a direct row sum of squares. These references are independent of the
-source kernels' reduction and staging algorithms. Python runs only to prepare
-test fixtures; the importer, CLI, and public C extension are native.
+Quantized scenarios generate serialized Q4_K, Q8_1, and IQ4_XS records in their
+owning C++ sources. Their scalar oracles use logical scales and codes or decode
+records without sharing the kernels' vector addressing and reduction
+algorithms. This keeps the physical format and full workload geometry under
+test without generated Loom modules or NPY payloads.
 
 The integer references use unbounded integer multiplication/division and
 explicit modular conversion into the source width. Shift counts remain within

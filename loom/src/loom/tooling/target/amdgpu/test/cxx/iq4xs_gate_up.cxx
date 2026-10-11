@@ -7,11 +7,14 @@
 // Qwen3.8 decode gate/up projection for original GGUF IQ4_XS weights. A
 // 256-thread workgroup computes 16 channels for one routed expert, staging the
 // 2,560-element activation in five 512-element workgroup tiles.
+#include <loomcxx/buffer.h>
+#include <loomcxx/check.h>
 #include <loomcxx/kernel.h>
 #include <loomcxx/predicate.h>
 #include <loomcxx/scalar.h>
 #include <loomcxx/target/amdgpu.h>
 #include <loomcxx/vector.h>
+#include <loomcxx/view.h>
 
 #include <stdfloat>
 
@@ -39,6 +42,11 @@ static_assert(sizeof(IQ4XSBlock) == 136 && alignof(IQ4XSBlock) == 2);
 static_assert(__builtin_offsetof(IQ4XSBlock, scales_high) == 2);
 static_assert(__builtin_offsetof(IQ4XSBlock, scales_low) == 4);
 static_assert(__builtin_offsetof(IQ4XSBlock, quants) == 8);
+
+constexpr unsigned kIQ4XSInputSize = 2560u;
+constexpr unsigned kIQ4XSOutputSize = 640u;
+constexpr unsigned kIQ4XSRouteCount = 10u;
+constexpr unsigned kIQ4XSBlockCount = 10u;
 
 [[loom::config("qwen38.iq4xs.async_staging")]]
 extern const bool async_staging;
@@ -245,9 +253,15 @@ IQ4XSAccumulators stage_and_accumulate_iq4xs_tile_gfx9_4(
 void qwen38_iq4xs_gate_up_swiglu(
     [[loom::noalias, loom::assume_aligned(64)]] const std::bfloat16_t* input,
     [[loom::noalias, loom::assume_aligned(64)]] const int* route_ids,
-    [[loom::noalias, loom::assume_aligned(64)]] const IQ4XSBlock* gate_weight,
-    [[loom::noalias, loom::assume_aligned(64)]] const IQ4XSBlock* up_weight,
+    [[loom::noalias,
+      loom::assume_aligned(64)]] const unsigned char* gate_weight_storage,
+    [[loom::noalias,
+      loom::assume_aligned(64)]] const unsigned char* up_weight_storage,
     [[loom::noalias, loom::assume_aligned(64)]] float* output) {
+  const auto* gate_weight =
+      reinterpret_cast<const IQ4XSBlock*>(gate_weight_storage);
+  const auto* up_weight =
+      reinterpret_cast<const IQ4XSBlock*>(up_weight_storage);
   unsigned workgroup = loom::kernel::workgroup::id.x;
   unsigned workitem = loom::kernel::workitem::id.x;
   loom::assume(workitem < 256u);
@@ -317,3 +331,201 @@ void qwen38_iq4xs_gate_up_swiglu(
     output[route * 640u + channel] = loom::scalar::siluf(gate) * up;
   }
 }
+
+constexpr unsigned kIQ4XSStoredExpertCount = 2u;
+constexpr unsigned kIQ4XSWeightByteCount = kIQ4XSStoredExpertCount *
+                                           kIQ4XSOutputSize * kIQ4XSBlockCount *
+                                           sizeof(IQ4XSBlock);
+constexpr unsigned kIQ4XSOutputElementCount =
+    kIQ4XSRouteCount * kIQ4XSOutputSize;
+
+static signed char iq4nl_code(unsigned code) {
+  loom::assume(code < 16u);
+  Codes16 values = {-127, -104, -83, -65, -49, -35, -22, -10,
+                    1,    13,   25,  38,  53,  69,  89,  113};
+  return values[code];
+}
+
+void generate_iq4xs_gate_up_input(loom::type::buffer<std::bfloat16_t> input) {
+  auto values = loom::buffer::view<kIQ4XSInputSize>(
+      input, {}, loom::encoding::layout::dense<1>());
+  for (unsigned position = 0; position < kIQ4XSInputSize; ++position) {
+    float value = -1.0f + float(position % 257u) / 128.0f;
+    loom::view::store(static_cast<std::bfloat16_t>(value), values, position);
+  }
+}
+
+void generate_iq4xs_route_ids(loom::type::buffer<int> route_ids) {
+  auto values = loom::buffer::view<kIQ4XSRouteCount>(
+      route_ids, {}, loom::encoding::layout::dense<1>());
+  constexpr unsigned kExpertOneMask = 0x14du;
+  for (unsigned route = 0; route < kIQ4XSRouteCount; ++route) {
+    loom::view::store(int((kExpertOneMask >> route) & 1u), values, route);
+  }
+}
+
+template <unsigned Kind>
+void generate_iq4xs_gate_up_weight(loom::type::buffer<unsigned char> weight) {
+  auto bytes = loom::buffer::view<kIQ4XSWeightByteCount>(
+      weight, {}, loom::encoding::layout::dense<1>());
+  for (unsigned expert = 0; expert < kIQ4XSStoredExpertCount; ++expert) {
+    for (unsigned channel = 0; channel < kIQ4XSOutputSize; ++channel) {
+      for (unsigned block = 0; block < kIQ4XSBlockCount; ++block) {
+        unsigned record =
+            (expert * kIQ4XSOutputSize + channel) * kIQ4XSBlockCount + block;
+        unsigned base = record * sizeof(IQ4XSBlock);
+        unsigned exponent = 11u + (expert + channel + block + Kind) % 3u;
+        std::float16_t scale =
+            static_cast<std::float16_t>(1.0f / float(1u << exponent));
+        unsigned short scale_bits = __builtin_bit_cast(unsigned short, scale);
+        loom::view::store(static_cast<unsigned char>(scale_bits), bytes, base);
+        loom::view::store(static_cast<unsigned char>(scale_bits >> 8u), bytes,
+                          base + 1u);
+
+        unsigned scales_high = 0u;
+        for (unsigned group = 0; group < 8u; ++group) {
+          unsigned scale_code = (expert * 19u + channel * 7u + block * 13u +
+                                 group * 9u + Kind * 23u) %
+                                64u;
+          scales_high |= (scale_code >> 4u) << (2u * group);
+        }
+        loom::view::store(static_cast<unsigned char>(scales_high), bytes,
+                          base + 2u);
+        loom::view::store(static_cast<unsigned char>(scales_high >> 8u), bytes,
+                          base + 3u);
+        for (unsigned pair = 0; pair < 4u; ++pair) {
+          unsigned low_group = pair * 2u;
+          unsigned low_code = (expert * 19u + channel * 7u + block * 13u +
+                               low_group * 9u + Kind * 23u) %
+                              64u;
+          unsigned high_group = low_group + 1u;
+          unsigned high_code = (expert * 19u + channel * 7u + block * 13u +
+                                high_group * 9u + Kind * 23u) %
+                               64u;
+          loom::view::store(static_cast<unsigned char>(
+                                (low_code & 15u) | ((high_code & 15u) << 4u)),
+                            bytes, base + 4u + pair);
+        }
+        for (unsigned group = 0; group < 8u; ++group) {
+          for (unsigned lane = 0; lane < 16u; ++lane) {
+            unsigned low_code =
+                (expert * 11u + channel * 5u + block * 7u + group * 3u +
+                 lane * 13u + lane / 5u + Kind * 9u) %
+                16u;
+            unsigned high_lane = lane + 16u;
+            unsigned high_code =
+                (expert * 11u + channel * 5u + block * 7u + group * 3u +
+                 high_lane * 13u + high_lane / 5u + Kind * 9u) %
+                16u;
+            loom::view::store(
+                static_cast<unsigned char>(low_code | (high_code << 4u)), bytes,
+                base + 8u + group * 16u + lane);
+          }
+        }
+      }
+    }
+  }
+}
+
+double iq4xs_projection_oracle(loom::type::buffer<std::bfloat16_t> input,
+                               loom::type::buffer<unsigned char> weight,
+                               unsigned expert, unsigned channel) {
+  loom::assume(expert < kIQ4XSStoredExpertCount && channel < kIQ4XSOutputSize);
+  auto input_values = loom::buffer::view<kIQ4XSInputSize>(
+      input, {}, loom::encoding::layout::dense<1>());
+  auto weight_bytes = loom::buffer::view<kIQ4XSWeightByteCount>(
+      weight, {}, loom::encoding::layout::dense<1>());
+  double total = 0.0;
+  for (unsigned block = 0; block < kIQ4XSBlockCount; ++block) {
+    unsigned record =
+        (expert * kIQ4XSOutputSize + channel) * kIQ4XSBlockCount + block;
+    unsigned base = record * sizeof(IQ4XSBlock);
+    unsigned short scale_bits = loom::view::load(weight_bytes, base);
+    scale_bits |=
+        static_cast<unsigned short>(loom::view::load(weight_bytes, base + 1u))
+        << 8u;
+    float scale =
+        static_cast<float>(__builtin_bit_cast(std::float16_t, scale_bits));
+    unsigned scales_high = loom::view::load(weight_bytes, base + 2u);
+    scales_high |= unsigned(loom::view::load(weight_bytes, base + 3u)) << 8u;
+    for (unsigned group = 0; group < 8u; ++group) {
+      unsigned low_byte =
+          loom::view::load(weight_bytes, base + 4u + group / 2u);
+      unsigned low_bits = (low_byte >> (4u * (group % 2u))) & 15u;
+      unsigned high_bits = (scales_high >> (2u * group)) & 3u;
+      int signed_scale = int(low_bits | (high_bits << 4u)) - 32;
+      std::bfloat16_t group_multiplier =
+          static_cast<std::bfloat16_t>(scale * float(signed_scale));
+      for (unsigned lane = 0; lane < 32u; ++lane) {
+        unsigned packed = loom::view::load(
+            weight_bytes, base + 8u + group * 16u + lane % 16u);
+        unsigned code = (packed >> (4u * (lane / 16u))) & 15u;
+        std::bfloat16_t decoded_weight = static_cast<std::bfloat16_t>(
+            float(group_multiplier) * float(iq4nl_code(code)));
+        unsigned input_index = block * 256u + group * 32u + lane;
+        total += double(float(decoded_weight)) *
+                 double(float(loom::view::load(input_values, input_index)));
+      }
+    }
+  }
+  return total;
+}
+
+void iq4xs_gate_up_oracle(loom::type::buffer<std::bfloat16_t> input,
+                          loom::type::buffer<int> route_ids,
+                          loom::type::buffer<unsigned char> gate_weight,
+                          loom::type::buffer<unsigned char> up_weight,
+                          loom::type::buffer<float> output) {
+  auto routes = loom::buffer::view<kIQ4XSRouteCount>(
+      route_ids, {}, loom::encoding::layout::dense<1>());
+  auto output_values = loom::buffer::view<kIQ4XSOutputElementCount>(
+      output, {}, loom::encoding::layout::dense<1>());
+  for (unsigned route = 0; route < kIQ4XSRouteCount; ++route) {
+    unsigned expert = unsigned(loom::view::load(routes, route));
+    for (unsigned channel = 0; channel < kIQ4XSOutputSize; ++channel) {
+      float gate = static_cast<float>(
+          iq4xs_projection_oracle(input, gate_weight, expert, channel));
+      float up = static_cast<float>(
+          iq4xs_projection_oracle(input, up_weight, expert, channel));
+      float value = gate / (1.0f + loom::scalar::approximate::expf(-gate)) * up;
+      loom::view::store(value, output_values,
+                        route * kIQ4XSOutputSize + channel);
+    }
+  }
+}
+
+LOOM_CHECK_SCENARIO(iq4xs_gate_up_values) {
+  loom::check::trial<1>([](loom::check::ordinal trial,
+                           loom::check::entropy entropy) {
+    const auto input =
+        loom::check::fill<std::bfloat16_t, kIQ4XSInputSize>(0.0f);
+    loom::check::generate<generate_iq4xs_gate_up_input>(input);
+    const auto route_ids = loom::check::fill<int, kIQ4XSRouteCount>(0);
+    loom::check::generate<generate_iq4xs_route_ids>(route_ids);
+    const auto gate_weight =
+        loom::check::fill<unsigned char, kIQ4XSWeightByteCount>(0u);
+    loom::check::generate<generate_iq4xs_gate_up_weight<0>>(gate_weight);
+    const auto up_weight =
+        loom::check::fill<unsigned char, kIQ4XSWeightByteCount>(0u);
+    loom::check::generate<generate_iq4xs_gate_up_weight<1>>(up_weight);
+    const auto output_storage =
+        loom::check::fill<float, kIQ4XSOutputElementCount + 32u>(-123.0f);
+    const auto output_prefix = loom::check::slice<16>(output_storage, 0);
+    const auto output =
+        loom::check::slice<kIQ4XSOutputElementCount>(output_storage, 16);
+    const auto output_suffix =
+        loom::check::slice<16>(output_storage, kIQ4XSOutputElementCount + 16u);
+    loom::check::compare<qwen38_iq4xs_gate_up_swiglu, iq4xs_gate_up_oracle>(
+        input, route_ids, gate_weight, up_weight, output, [&] {
+          loom::check::expect_bitwise(input, input);
+          loom::check::expect_bitwise(route_ids, route_ids);
+          loom::check::expect_bitwise(gate_weight, gate_weight);
+          loom::check::expect_bitwise(up_weight, up_weight);
+          loom::check::expect_close(output, output, 0.00001, 0.00001);
+          loom::check::expect_bitwise(output_prefix, output_prefix);
+          loom::check::expect_bitwise(output_suffix, output_suffix);
+        });
+  });
+}
+
+LOOM_CHECK_BENCHMARK(iq4xs_gate_up_latency, iq4xs_gate_up_values);

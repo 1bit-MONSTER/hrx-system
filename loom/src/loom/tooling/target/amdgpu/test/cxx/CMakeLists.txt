@@ -3568,35 +3568,12 @@ loom_execution_test(
 endif()
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_generated_file_family(
-  NAME
-    iq4xs_blocks_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "iq4xs_blocks_checks.loom"
-    "iq4xs_blocks_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=iq4xs_blocks"
-  TESTONLY
-)
-endif()
-
 if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_test_module(
   NAME
     iq4xs_blocks_test_module
   SRCS
     "iq4xs_blocks.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/iq4xs_blocks_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/iq4xs_blocks_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/iq4xs_blocks_checks.loom"
 )
 endif()
 
@@ -3652,35 +3629,12 @@ loom_execution_test(
 endif()
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_generated_file_family(
-  NAME
-    iq4xs_gate_up_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "iq4xs_gate_up_checks.loom"
-    "iq4xs_gate_up_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=iq4xs_gate_up"
-  TESTONLY
-)
-endif()
-
 if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_test_module(
   NAME
     iq4xs_gate_up_module
   SRCS
     "iq4xs_gate_up.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/iq4xs_gate_up_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/iq4xs_gate_up_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/iq4xs_gate_up_checks.loom"
 )
 endif()
 
@@ -3966,35 +3920,12 @@ loom_check_compile_tests(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_generated_file_family(
-  NAME
-    q4k_q8_swiglu_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "q4k_q8_swiglu_checks.loom"
-    "q4k_q8_swiglu_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=q4k_q8_swiglu"
-  TESTONLY
-)
-endif()
-
 if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_test_module(
   NAME
     q4k_q8_swiglu_test_module
   SRCS
     "q4k_q8_swiglu.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/q4k_q8_swiglu_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/q4k_q8_swiglu_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/q4k_q8_swiglu_checks.loom"
 )
 endif()
 

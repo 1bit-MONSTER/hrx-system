@@ -11,11 +11,14 @@
 // dot products, and gate/up accumulation. Varying input_size changes the loop
 // bound while keeping the compiled body bounded.
 
+#include <loomcxx/buffer.h>
+#include <loomcxx/check.h>
 #include <loomcxx/kernel.h>
 #include <loomcxx/predicate.h>
 #include <loomcxx/scalar.h>
 #include <loomcxx/target.h>
 #include <loomcxx/vector.h>
+#include <loomcxx/view.h>
 
 #include <stdfloat>
 
@@ -229,11 +232,18 @@ static loom::kernel::configuration ffn_routed_gate_up_configuration(
 ffn_routed_gate_up_swiglu_q4k_q8(
     unsigned token_count, unsigned route_count, unsigned route_stride,
     unsigned expert_count, unsigned output_size,
-    [[loom::noalias, loom::assume_aligned(64)]] const Q8_1Group* q8_input,
+    [[loom::noalias,
+      loom::assume_aligned(64)]] const unsigned char* q8_input_storage,
     [[loom::noalias, loom::assume_aligned(64)]] const int* route_ids,
-    [[loom::noalias, loom::assume_aligned(64)]] const Q4KBlock* gate_weight,
-    [[loom::noalias, loom::assume_aligned(64)]] const Q4KBlock* up_weight,
+    [[loom::noalias,
+      loom::assume_aligned(64)]] const unsigned char* gate_weight_storage,
+    [[loom::noalias,
+      loom::assume_aligned(64)]] const unsigned char* up_weight_storage,
     [[loom::noalias, loom::assume_aligned(64)]] float* output) {
+  const auto* q8_input = reinterpret_cast<const Q8_1Group*>(q8_input_storage);
+  const auto* gate_weight =
+      reinterpret_cast<const Q4KBlock*>(gate_weight_storage);
+  const auto* up_weight = reinterpret_cast<const Q4KBlock*>(up_weight_storage);
   loom::assume(token_count >= 1u && token_count <= ffn_token_capacity);
   loom::assume(route_count == ffn_route_count);
   loom::assume(route_stride >= 1u && route_stride <= 128u);
@@ -254,4 +264,277 @@ ffn_routed_gate_up_swiglu_q4k_q8(
                                  route, route_stride, expert_count, output_size,
                                  channel, lane, q8_input, route_ids,
                                  gate_weight, up_weight, output);
+}
+
+constexpr unsigned kQ4KQ8TokenCount = 2u;
+constexpr unsigned kQ4KQ8RouteCount = 8u;
+constexpr unsigned kQ4KQ8RouteStride = 11u;
+constexpr unsigned kQ4KQ8ExpertCount = 128u;
+constexpr unsigned kQ4KQ8StoredExpertCount = 2u;
+constexpr unsigned kQ4KQ8OutputSize = 768u;
+constexpr unsigned kQ4KQ8BlockCount = 2u;
+constexpr unsigned kQ4KQ8GroupCount = kQ4KQ8BlockCount * 2u;
+constexpr unsigned kQ4KQ8InputByteCount =
+    kQ4KQ8TokenCount * kQ4KQ8GroupCount * sizeof(Q8_1Group);
+constexpr unsigned kQ4KQ8WeightByteCount = kQ4KQ8StoredExpertCount *
+                                           kQ4KQ8OutputSize * kQ4KQ8BlockCount *
+                                           sizeof(Q4KBlock);
+constexpr unsigned kQ4KQ8OutputElementCount =
+    kQ4KQ8TokenCount * kQ4KQ8RouteCount * kQ4KQ8OutputSize;
+
+static std::float16_t q4k_q8_power_of_two(unsigned exponent) {
+  return static_cast<std::float16_t>(1.0f / float(1u << exponent));
+}
+
+static int q4k_q8_input_value(unsigned token, unsigned record, unsigned group,
+                              unsigned lane) {
+  return int((token * 11u + record * 7u + group * 5u + lane * 3u + lane / 5u) %
+             15u) -
+         7;
+}
+
+template <unsigned Kind>
+static unsigned q4k_scale_code(unsigned expert, unsigned channel,
+                               unsigned block, unsigned group) {
+  return (expert * 17u + channel * 3u + block * 11u + group * 7u + Kind * 13u) %
+         64u;
+}
+
+template <unsigned Kind>
+static unsigned q4k_minimum_code(unsigned expert, unsigned channel,
+                                 unsigned block, unsigned group) {
+  return (expert * 13u + channel * 5u + block * 3u + group * 9u + Kind * 7u) %
+         64u;
+}
+
+template <unsigned Kind>
+static unsigned q4k_quant_code(unsigned expert, unsigned channel,
+                               unsigned block, unsigned group, unsigned lane) {
+  return (expert * 13u + channel * 7u + block * 5u + group * 3u + lane * 11u +
+          lane / 7u + Kind * 9u) %
+         16u;
+}
+
+void generate_q4k_q8_input(loom::type::buffer<unsigned char> input) {
+  auto bytes = loom::buffer::view<kQ4KQ8InputByteCount>(
+      input, {}, loom::encoding::layout::dense<1>());
+  for (unsigned token = 0; token < kQ4KQ8TokenCount; ++token) {
+    for (unsigned record = 0; record < kQ4KQ8GroupCount; ++record) {
+      unsigned base = (token * kQ4KQ8GroupCount + record) * sizeof(Q8_1Group);
+      for (unsigned group = 0; group < 4u; ++group) {
+        std::float16_t scale =
+            q4k_q8_power_of_two(4u + (token + record + group) % 3u);
+        int sum = 0;
+        for (unsigned lane = 0; lane < 32u; ++lane) {
+          int value = q4k_q8_input_value(token, record, group, lane);
+          sum += value;
+          loom::view::store(static_cast<unsigned char>(value), bytes,
+                            base + 16u + group * 32u + lane);
+        }
+        std::float16_t scaled_sum =
+            static_cast<std::float16_t>(float(scale) * float(sum));
+        unsigned short scale_bits = __builtin_bit_cast(unsigned short, scale);
+        unsigned short sum_bits =
+            __builtin_bit_cast(unsigned short, scaled_sum);
+        unsigned header = base + group * 4u;
+        loom::view::store(static_cast<unsigned char>(scale_bits), bytes,
+                          header);
+        loom::view::store(static_cast<unsigned char>(scale_bits >> 8u), bytes,
+                          header + 1u);
+        loom::view::store(static_cast<unsigned char>(sum_bits), bytes,
+                          header + 2u);
+        loom::view::store(static_cast<unsigned char>(sum_bits >> 8u), bytes,
+                          header + 3u);
+      }
+    }
+  }
+}
+
+void generate_q4k_q8_route_ids(loom::type::buffer<int> route_ids) {
+  auto values = loom::buffer::view<kQ4KQ8TokenCount * kQ4KQ8RouteStride>(
+      route_ids, {}, loom::encoding::layout::dense<1>());
+  for (unsigned token = 0; token < kQ4KQ8TokenCount; ++token) {
+    for (unsigned route = 0; route < kQ4KQ8RouteStride; ++route) {
+      int expert = route < kQ4KQ8RouteCount
+                       ? int((token + route) % kQ4KQ8StoredExpertCount)
+                       : int(kQ4KQ8ExpertCount - 1u);
+      loom::view::store(expert, values, token * kQ4KQ8RouteStride + route);
+    }
+  }
+}
+
+template <unsigned Kind>
+void generate_q4k_weight(loom::type::buffer<unsigned char> weight) {
+  auto bytes = loom::buffer::view<kQ4KQ8WeightByteCount>(
+      weight, {}, loom::encoding::layout::dense<1>());
+  for (unsigned expert = 0; expert < kQ4KQ8StoredExpertCount; ++expert) {
+    for (unsigned channel = 0; channel < kQ4KQ8OutputSize; ++channel) {
+      for (unsigned block = 0; block < kQ4KQ8BlockCount; ++block) {
+        unsigned record =
+            (expert * kQ4KQ8OutputSize + channel) * kQ4KQ8BlockCount + block;
+        unsigned base = record * sizeof(Q4KBlock);
+        std::float16_t scale =
+            q4k_q8_power_of_two(9u + (expert + channel + block + Kind) % 3u);
+        std::float16_t minimum = q4k_q8_power_of_two(
+            11u + (expert + channel + 2u * block + Kind) % 2u);
+        unsigned short scale_bits = __builtin_bit_cast(unsigned short, scale);
+        unsigned short minimum_bits =
+            __builtin_bit_cast(unsigned short, minimum);
+        loom::view::store(static_cast<unsigned char>(scale_bits), bytes, base);
+        loom::view::store(static_cast<unsigned char>(scale_bits >> 8u), bytes,
+                          base + 1u);
+        loom::view::store(static_cast<unsigned char>(minimum_bits), bytes,
+                          base + 2u);
+        loom::view::store(static_cast<unsigned char>(minimum_bits >> 8u), bytes,
+                          base + 3u);
+        for (unsigned group = 0; group < 4u; ++group) {
+          unsigned low_scale =
+              q4k_scale_code<Kind>(expert, channel, block, group);
+          unsigned high_scale =
+              q4k_scale_code<Kind>(expert, channel, block, group + 4u);
+          unsigned low_minimum =
+              q4k_minimum_code<Kind>(expert, channel, block, group);
+          unsigned high_minimum =
+              q4k_minimum_code<Kind>(expert, channel, block, group + 4u);
+          loom::view::store(static_cast<unsigned char>(
+                                (low_scale & 15u) | ((low_scale >> 4u) << 4u) |
+                                ((high_scale >> 4u) << 6u)),
+                            bytes, base + 4u + group);
+          loom::view::store(
+              static_cast<unsigned char>((low_minimum & 15u) |
+                                         ((low_minimum >> 4u) << 4u) |
+                                         ((high_minimum >> 4u) << 6u)),
+              bytes, base + 8u + group);
+          loom::view::store(
+              static_cast<unsigned char>((high_scale & 15u) |
+                                         ((high_minimum & 15u) << 4u)),
+              bytes, base + 12u + group);
+        }
+        for (unsigned pair = 0; pair < 4u; ++pair) {
+          for (unsigned half = 0; half < 2u; ++half) {
+            for (unsigned lane = 0; lane < 16u; ++lane) {
+              unsigned value_lane = half * 16u + lane;
+              unsigned low_code = q4k_quant_code<Kind>(expert, channel, block,
+                                                       pair * 2u, value_lane);
+              unsigned high_code = q4k_quant_code<Kind>(
+                  expert, channel, block, pair * 2u + 1u, value_lane);
+              unsigned offset = base + 16u + pair * 32u + half * 16u + lane;
+              loom::view::store(
+                  static_cast<unsigned char>(low_code | (high_code << 4u)),
+                  bytes, offset);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+template <unsigned Kind>
+double q4k_q8_projection_oracle(unsigned token, unsigned expert,
+                                unsigned channel) {
+  double accumulator = 0.0;
+  for (unsigned block = 0; block < kQ4KQ8BlockCount; ++block) {
+    float scale =
+        float(q4k_q8_power_of_two(9u + (expert + channel + block + Kind) % 3u));
+    float minimum = float(
+        q4k_q8_power_of_two(11u + (expert + channel + 2u * block + Kind) % 2u));
+    for (unsigned group = 0; group < 8u; ++group) {
+      unsigned input_record = block * 2u + group / 4u;
+      unsigned input_group = group % 4u;
+      float input_scale = float(
+          q4k_q8_power_of_two(4u + (token + input_record + input_group) % 3u));
+      int input_sum = 0;
+      int dot = 0;
+      for (unsigned lane = 0; lane < 32u; ++lane) {
+        int input_value =
+            q4k_q8_input_value(token, input_record, input_group, lane);
+        input_sum += input_value;
+        dot += int(q4k_quant_code<Kind>(expert, channel, block, group, lane)) *
+               input_value;
+      }
+      unsigned group_scale =
+          q4k_scale_code<Kind>(expert, channel, block, group);
+      unsigned group_minimum =
+          q4k_minimum_code<Kind>(expert, channel, block, group);
+      accumulator += double(input_scale) * double(scale) * double(group_scale) *
+                     double(dot);
+      accumulator -= double(minimum) * double(group_minimum) *
+                     double(input_scale) * double(input_sum);
+    }
+  }
+  return accumulator;
+}
+
+void q4k_q8_swiglu_oracle(unsigned token_count, unsigned route_count,
+                          unsigned route_stride, unsigned expert_count,
+                          unsigned output_size,
+                          loom::type::buffer<unsigned char> q8_input,
+                          loom::type::buffer<int> route_ids,
+                          loom::type::buffer<unsigned char> gate_weight,
+                          loom::type::buffer<unsigned char> up_weight,
+                          loom::type::buffer<float> output) {
+  loom::assume(
+      token_count == kQ4KQ8TokenCount && route_count == kQ4KQ8RouteCount &&
+      route_stride == kQ4KQ8RouteStride && expert_count == kQ4KQ8ExpertCount &&
+      output_size == kQ4KQ8OutputSize);
+  auto output_values = loom::buffer::view<kQ4KQ8OutputElementCount>(
+      output, {}, loom::encoding::layout::dense<1>());
+  for (unsigned token = 0; token < token_count; ++token) {
+    for (unsigned route = 0; route < route_count; ++route) {
+      unsigned expert = (token + route) % kQ4KQ8StoredExpertCount;
+      for (unsigned channel = 0; channel < output_size; ++channel) {
+        float gate = static_cast<float>(
+            q4k_q8_projection_oracle<0>(token, expert, channel));
+        float up = static_cast<float>(
+            q4k_q8_projection_oracle<1>(token, expert, channel));
+        float value =
+            gate / (1.0f + loom::scalar::approximate::expf(-gate)) * up;
+        loom::view::store(
+            value, output_values,
+            (token * kQ4KQ8RouteCount + route) * kQ4KQ8OutputSize + channel);
+      }
+    }
+  }
+}
+
+LOOM_CHECK_SCENARIO(q4k_q8_swiglu_values) {
+  loom::check::trial<1>([](loom::check::ordinal trial,
+                           loom::check::entropy entropy) {
+    const auto q8_input =
+        loom::check::fill<unsigned char, kQ4KQ8InputByteCount>(0u);
+    loom::check::generate<generate_q4k_q8_input>(q8_input);
+    const auto route_ids =
+        loom::check::fill<int, kQ4KQ8TokenCount * kQ4KQ8RouteStride>(0);
+    loom::check::generate<generate_q4k_q8_route_ids>(route_ids);
+    const auto gate_weight =
+        loom::check::fill<unsigned char, kQ4KQ8WeightByteCount>(0u);
+    loom::check::generate<generate_q4k_weight<0>>(gate_weight);
+    const auto up_weight =
+        loom::check::fill<unsigned char, kQ4KQ8WeightByteCount>(0u);
+    loom::check::generate<generate_q4k_weight<1>>(up_weight);
+    const auto output_storage =
+        loom::check::fill<float, kQ4KQ8OutputElementCount + 32u>(-123.0f);
+    const auto output_prefix = loom::check::slice<16>(output_storage, 0);
+    const auto output =
+        loom::check::slice<kQ4KQ8OutputElementCount>(output_storage, 16);
+    const auto output_suffix =
+        loom::check::slice<16>(output_storage, kQ4KQ8OutputElementCount + 16u);
+    loom::check::compare<ffn_routed_gate_up_swiglu_q4k_q8,
+                         q4k_q8_swiglu_oracle>(
+        loom::kernel::workload(kQ4KQ8TokenCount, kQ4KQ8RouteCount,
+                               kQ4KQ8RouteStride, kQ4KQ8ExpertCount,
+                               kQ4KQ8OutputSize),
+        kQ4KQ8TokenCount, kQ4KQ8RouteCount, kQ4KQ8RouteStride,
+        kQ4KQ8ExpertCount, kQ4KQ8OutputSize, q8_input, route_ids, gate_weight,
+        up_weight, output, [&] {
+          loom::check::expect_bitwise(q8_input, q8_input);
+          loom::check::expect_bitwise(route_ids, route_ids);
+          loom::check::expect_bitwise(gate_weight, gate_weight);
+          loom::check::expect_bitwise(up_weight, up_weight);
+          loom::check::expect_close(output, output, 0.002, 0.002);
+          loom::check::expect_bitwise(output_prefix, output_prefix);
+          loom::check::expect_bitwise(output_suffix, output_suffix);
+        });
+  });
 }
