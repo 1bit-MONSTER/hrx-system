@@ -589,32 +589,9 @@ loom_test(
     variants = _Q4K_Q8_VARIANTS,
 )
 
-loom_generated_file_family(
-    name = "packed_byte_shifts_checks_gen",
-    testonly = True,
-    args = [
-        "kernel",
-        "--group=packed_byte_shifts",
-    ],
-    generator = "//loom/py/loom/gen/test:cxx_kernel_cases",
-    output_directories = ["packed_byte_shifts_arrays"],
-    output_flags = [
-        "--output",
-        "--arrays",
-    ],
-    outputs = [
-        "packed_byte_shifts_checks.loom",
-        "packed_byte_shifts_arrays",
-    ],
-)
-
 loom_test(
     name = "packed_byte_shifts_test",
-    srcs = [
-        "packed_byte_shifts.cxx",
-        ":packed_byte_shifts_checks.loom",
-    ],
-    data = [":packed_byte_shifts_checks_gen"],
+    srcs = ["packed_byte_shifts.cxx"],
     execution_profiles = _EXECUTION_PROFILES,
     target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
 )

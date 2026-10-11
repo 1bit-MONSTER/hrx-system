@@ -23,7 +23,7 @@ func.def @memory_observations(%initial: i32) -> (i32, i32, i32, i32, i32) {
   func.return %returned, %input, %output, %before, %after : i32, i32, i32, i32, i32
 }
 
-check.case @qualified_pointer_observations {
+check.case @volatile_values {
   %initial = check.literal value(2147483647) : i32
   %returned, %input, %output, %before, %after = func.call @memory_observations(%initial) : (i32) -> (i32, i32, i32, i32, i32)
   %expected = check.literal value(-2) : i32
@@ -33,10 +33,6 @@ check.case @qualified_pointer_observations {
   check.expect.equal actual(%output) expected(%expected) : i32
   check.expect.equal actual(%before) expected(%guard) : i32
   check.expect.equal actual(%after) expected(%guard) : i32
-  check.return
-}
-
-check.case @qualified_parameter_observations {
   %zero = check.literal value(0) : i32
   %high = check.literal value(2147483647) : i32
   %all = check.literal value(-1) : i32
