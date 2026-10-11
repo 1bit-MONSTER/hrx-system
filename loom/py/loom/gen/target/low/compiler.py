@@ -813,6 +813,15 @@ def _compile_asm_form(
             missing_fields = ", ".join(sorted(variadic_operand_fields - referenced_variadic_fields))
             raise ValueError(f"descriptor '{descriptor.key}' asm form '{mnemonic}' omits variadic operand field(s): {missing_fields}")
 
+    # The text parser and builder pass packet values through in canonical IR
+    # order. Native ISA permutations have their own native_assembly_values.
+    expected_results = tuple(operand.field_name for operand in descriptor.operands if operand.role is OperandRole.RESULT)
+    expected_operands = tuple(operand.field_name for operand in descriptor.operands if operand.role in packet_operand_roles)
+    if asm_form.results != expected_results:
+        raise ValueError(f"descriptor '{descriptor.key}' asm form '{mnemonic}' results must enumerate canonical packet order {expected_results}, got {asm_form.results}")
+    if asm_operand_fields != expected_operands:
+        raise ValueError(f"descriptor '{descriptor.key}' asm form '{mnemonic}' operands must enumerate canonical packet order {expected_operands}, got {asm_operand_fields}")
+
     immediate_order = []
     seen_immediate_names: set[str] = set()
     for immediate in asm_form.immediates:

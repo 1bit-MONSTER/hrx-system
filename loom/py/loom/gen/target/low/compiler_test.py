@@ -486,6 +486,7 @@ def test_shared_operand_rows_keep_descriptor_local_source_positions() -> None:
         key="test.reversed.i32",
         mnemonic="test.reversed.i32",
         operands=(base.operands[0], base.operands[2], base.operands[1]),
+        asm_forms=(replace(base.asm_forms[0], operands=("rhs", "lhs")),),
     )
     compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(base, reversed_sources)))
 
@@ -499,8 +500,6 @@ def test_shared_operand_rows_keep_descriptor_local_source_positions() -> None:
     "changes",
     [
         {},
-        {"results": ("carry", "dst")},
-        {"operands": ("rhs", "lhs")},
         {"result_value_types": ()},
         {"result_value_types": (AsmResultValueType(ScalarTypeKind.F32), None)},
         {"operands": (), "operand_segments": (AsmOperandSegment(AsmOperandSegmentDelimiter.PAREN, ("lhs", "rhs")),)},

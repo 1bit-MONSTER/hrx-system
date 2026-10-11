@@ -66,9 +66,7 @@ def _descriptor(
     constraints: tuple[Constraint, ...] = (),
 ) -> Descriptor:
     result_names = tuple(operand.field_name for operand in operands if operand.role is OperandRole.RESULT)
-    operand_names = tuple(
-        operand.field_name for operand in operands if operand.role in (OperandRole.OPERAND, OperandRole.PREDICATE, OperandRole.RESOURCE) and OperandFlag.IMPLICIT not in operand.flags
-    )
+    operand_names = tuple(operand.field_name for operand in operands if operand.role in (OperandRole.OPERAND, OperandRole.PREDICATE, OperandRole.RESOURCE))
     return replace(
         TEST_LOW_ADD_I32_DESCRIPTOR,
         key=key,
