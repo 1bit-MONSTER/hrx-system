@@ -15,6 +15,7 @@
 #include "loom/ops/op_defs.h"
 #include "loom/target/math_policy.h"
 #include "loom/util/fact_cfg.h"
+#include "loom/util/fact_loop.h"
 
 #define LOOM_REWRITER_INITIAL_WORKLIST_CAPACITY 64
 #define LOOM_REWRITER_INITIAL_REGION_STACK_CAPACITY 8
@@ -128,7 +129,7 @@ static iree_status_t loom_rewriter_recompute_op_facts(loom_rewriter_t* rewriter,
 
 // Region owners publish inherited context before their children are built or
 // revisited. Cyclic summaries refresh it again when control facts change.
-static iree_status_t loom_rewriter_seed_nested_execution_scope(
+static iree_status_t loom_rewriter_seed_nested_execution_facts(
     loom_rewriter_t* rewriter, loom_op_t* op) {
   if (!rewriter->fact_table || !op->region_count) {
     return iree_ok_status();
@@ -146,6 +147,11 @@ static iree_status_t loom_rewriter_seed_nested_execution_scope(
     if (regions[i]) {
       IREE_RETURN_IF_ERROR(loom_value_fact_table_set_region_temporal_scope(
           rewriter->fact_table, regions[i], scope, may_repeat));
+      if (regions[i]->block_count) {
+        IREE_RETURN_IF_ERROR(loom_value_fact_table_seed_loop_iv_arg(
+            rewriter->fact_table, rewriter->module,
+            loom_region_entry_block(regions[i]), op));
+      }
     }
   }
   return iree_ok_status();
@@ -162,7 +168,7 @@ static iree_status_t loom_rewriter_on_op_finalized(void* user_data,
   loom_rewriter_t* rewriter = (loom_rewriter_t*)user_data;
   ++rewriter->created_op_count;
   IREE_RETURN_IF_ERROR(loom_rewriter_add_to_worklist(rewriter, op));
-  IREE_RETURN_IF_ERROR(loom_rewriter_seed_nested_execution_scope(rewriter, op));
+  IREE_RETURN_IF_ERROR(loom_rewriter_seed_nested_execution_facts(rewriter, op));
   // Newly defined results have no users yet. Only a terminator changes an
   // existing control or payload equation before its results are connected.
   if (iree_any_bit_set(op->traits, LOOM_TRAIT_TERMINATOR)) {
@@ -185,7 +191,7 @@ static iree_status_t loom_rewriter_on_op_finalized(void* user_data,
 static iree_status_t loom_rewriter_record_subtree(loom_rewriter_t* rewriter,
                                                   loom_op_t* op) {
   loom_module_record_op_summaries(rewriter->module, op);
-  IREE_RETURN_IF_ERROR(loom_rewriter_seed_nested_execution_scope(rewriter, op));
+  IREE_RETURN_IF_ERROR(loom_rewriter_seed_nested_execution_facts(rewriter, op));
   loom_region_t** regions = loom_op_regions(op);
   for (uint8_t region_index = 0; region_index < op->region_count;
        ++region_index) {
