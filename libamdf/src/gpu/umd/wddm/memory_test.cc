@@ -493,6 +493,65 @@ TEST_F(WindowsGpuMemoryTest,
   EXPECT_EQ(state_.operations,
             (std::vector<Operation>{Operation::kMap, Operation::kMap,
                                     Operation::kWait}));
+  // The queued form preserves the same chunk boundaries and permissions in a
+  // single vector. Only native dependencies are substituted, not translation.
+  bridge_.gpu_kernel_queue_create =
+      [](amdf_wkmi_bridge_gpu_adapter_t*,
+         const amdf_wkmi_bridge_gpu_kernel_queue_create_info_t*,
+         amdf_wkmi_bridge_gpu_kernel_queue_t** queue,
+         amdf_wkmi_bridge_gpu_kernel_queue_info_t* info,
+         uint32_t*) -> amdf_wkmi_bridge_result_t {
+    *queue =
+        reinterpret_cast<amdf_wkmi_bridge_gpu_kernel_queue_t*>(current_state);
+    *info = {};
+    info->progress_fence_pointer = &current_state->paging_fence;
+    info->progress_fence_handle = 0x50;
+    info->context_handle = 0x60;
+    info->queue_handle = 0x70;
+    return AMDF_WKMI_BRIDGE_RESULT_SUCCESS;
+  };
+  bridge_.gpu_kernel_queue_destroy =
+      [](amdf_wkmi_bridge_gpu_kernel_queue_t*,
+         uint32_t*) -> amdf_wkmi_bridge_result_t {
+    return AMDF_WKMI_BRIDGE_RESULT_SUCCESS;
+  };
+  kmt_.update_gpu_virtual_address =
+      [](const D3DKMT_UPDATEGPUVIRTUALADDRESS* native) {
+        EXPECT_EQ(native->NumOperations, 2u);
+        EXPECT_EQ(native->FenceValue, 9u);
+        for (uint32_t i = 0; i < native->NumOperations; ++i) {
+          const auto& operation = native->Operations[i];
+          EXPECT_EQ(operation.OperationType,
+                    D3DDDI_UPDATEGPUVIRTUALADDRESS_MAP_PROTECT);
+          EXPECT_EQ(operation.MapProtect.hAllocation, 0x20u + i);
+          EXPECT_EQ(operation.MapProtect.BaseAddress,
+                    UINT64_C(0x202000) + i * 4096);
+          EXPECT_EQ(operation.MapProtect.SizeInBytes, 4096u);
+          EXPECT_EQ(operation.MapProtect.AllocationOffsetInBytes,
+                    i == 0 ? 28672u : 0u);
+          EXPECT_EQ(operation.MapProtect.Protection.Write, 0u);
+          EXPECT_EQ(operation.MapProtect.Protection.Execute, 0u);
+        }
+        return static_cast<NTSTATUS>(0);
+      };
+  kmt_.wait_on_hardware_queue =
+      [](const D3DKMT_SUBMITWAITFORSYNCOBJECTSTOHWQUEUE* wait) {
+        EXPECT_EQ(wait->hHwQueue, 0x70u);
+        EXPECT_EQ(wait->FenceValueArray[0], 10u);
+        return static_cast<NTSTATUS>(0);
+      };
+  amdf_gpu_umd_kernel_queue_t* queue = nullptr;
+  ASSERT_EQ(amdf_gpu_umd_kernel_queue_create(
+                &device_, AMDF_QUEUE_COMMAND_TYPE_GPU_PM4, &queue),
+            AMDF_STATUS_OK);
+  bool accepted = false;
+  mutated = false;
+  ASSERT_EQ(amdf_gpu_umd_memory_reservation_update_on_queue(
+                reservation, queue, 0, 1, &update, 10, &mutated, &accepted),
+            AMDF_STATUS_OK);
+  EXPECT_TRUE(mutated);
+  EXPECT_TRUE(accepted);
+  ASSERT_EQ(amdf_gpu_umd_kernel_queue_destroy(queue), AMDF_STATUS_OK);
   ASSERT_EQ(amdf_gpu_umd_memory_reservation_destroy(reservation),
             AMDF_STATUS_OK);
   ASSERT_EQ(state_.mappings.size(), 3u);

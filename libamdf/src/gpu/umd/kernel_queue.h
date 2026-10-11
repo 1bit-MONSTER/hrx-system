@@ -19,6 +19,11 @@ extern "C" {
 
 typedef struct amdf_gpu_umd_kernel_queue_t amdf_gpu_umd_kernel_queue_t;
 
+// Maximum unretired prefix admitted before queue-ordered mapping publication,
+// or zero when unavailable. Cached capability query without native work.
+uint32_t amdf_gpu_umd_kernel_queue_mapping_capacity(
+    const amdf_gpu_umd_kernel_queue_t* queue);
+
 // Acquires one native kernel-mediated queue accepting |command_type|.
 // Cold path: command and completion resources are prepared before publication,
 // including reusable native wait state. No first-submit or first-wait setup.
@@ -41,8 +46,8 @@ amdf_status_t amdf_gpu_umd_kernel_queue_submit(
 uint64_t amdf_gpu_umd_kernel_queue_query_progress(
     const amdf_gpu_umd_kernel_queue_t* queue);
 
-// Returns the observed terminal device failure without native queries. An
-// operation error alone does not fail the queue or establish retirement.
+// Returns cached terminal queue/device failure without native queries. A
+// rejected command alone does not fail the queue or establish retirement.
 // Atomic observation only; no locks, allocation, initialization or polling.
 amdf_status_t amdf_gpu_umd_kernel_queue_query_terminal_status(
     const amdf_gpu_umd_kernel_queue_t* queue);

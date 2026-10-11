@@ -486,3 +486,19 @@ amdf_status_t amdf_gpu_umd_memory_reservation_destroy(
   }
   return amdf_gpu_kfd_reservation_release(reservation, status);
 }
+
+amdf_status_t amdf_gpu_umd_memory_reservation_update_on_queue(
+    amdf_gpu_umd_memory_reservation_t* reservation,
+    amdf_gpu_umd_kernel_queue_t* queue, uint32_t access_ordinal,
+    uint32_t update_count, const amdf_gpu_umd_mapping_update_t* updates,
+    uint64_t submission, bool* mutation_started, bool* accepted) {
+  (void)reservation;
+  (void)queue;
+  (void)access_ordinal;
+  (void)update_count;
+  (void)updates;
+  (void)submission;
+  (void)mutation_started;
+  (void)accepted;
+  return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+}

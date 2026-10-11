@@ -7,6 +7,7 @@
 #ifndef AMDF_SRC_GPU_UMD_MEMORY_RESERVATION_H_
 #define AMDF_SRC_GPU_UMD_MEMORY_RESERVATION_H_
 
+#include "libamdf/src/gpu/umd/kernel_queue.h"
 #include "libamdf/src/gpu/umd/memory.h"
 
 #ifdef __cplusplus
@@ -62,6 +63,14 @@ amdf_status_t amdf_gpu_umd_memory_reservation_update(
     amdf_gpu_umd_memory_reservation_t* reservation, uint32_t access_ordinal,
     uint32_t update_count, const amdf_gpu_umd_mapping_update_t* updates,
     bool* mutation_started);
+
+// Enqueues the same trusted updates on a native queue of the selected consumer.
+// Accepted work owns submission even when a subsequent dependency step fails.
+amdf_status_t amdf_gpu_umd_memory_reservation_update_on_queue(
+    amdf_gpu_umd_memory_reservation_t* reservation,
+    amdf_gpu_umd_kernel_queue_t* queue, uint32_t access_ordinal,
+    uint32_t update_count, const amdf_gpu_umd_mapping_update_t* updates,
+    uint64_t submission, bool* mutation_started, bool* accepted);
 
 // Checked complete removal before VA release; consumes metadata on any result.
 amdf_status_t amdf_gpu_umd_memory_reservation_destroy(

@@ -8,6 +8,7 @@
 
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/gpu/umd/wddm/device.h"
+#include "libamdf/src/gpu/umd/wddm/kernel_queue.h"
 #include "libamdf/src/gpu/umd/wddm/memory.h"
 
 struct amdf_gpu_umd_memory_reservation_t {
@@ -21,8 +22,8 @@ struct amdf_gpu_umd_memory_reservation_t {
   uint64_t address;
   // Application-visible extent, shared by the explicitly admitted consumers.
   uint64_t byte_length;
-  // Paging owner of the latest update, including any partially accepted batch.
-  // Final clear uses this queue so it follows that batch even after failure.
+  // Device of the latest mutation. Its paging queue orders host-completed
+  // batches and final clear. The caller retires queued updates before clear.
   amdf_gpu_umd_device_t* publisher;
   // Live devices sharing these native page tables, borrowed through release.
   amdf_gpu_umd_device_t* devices[];
@@ -221,5 +222,79 @@ amdf_status_t amdf_gpu_umd_memory_reservation_destroy(
         amdf_kmt_make_status(device->kmt->free_gpu_virtual_address(&release));
   }
   amdf_free(reservation->host_allocator, reservation);
+  return status;
+}
+
+amdf_status_t amdf_gpu_umd_memory_reservation_update_on_queue(
+    amdf_gpu_umd_memory_reservation_t* reservation,
+    amdf_gpu_umd_kernel_queue_t* queue, uint32_t access_ordinal,
+    uint32_t update_count, const amdf_gpu_umd_mapping_update_t* updates,
+    uint64_t submission, bool* mutation_started, bool* accepted) {
+  uint64_t operation_count = 0;
+  for (uint32_t i = 0; i < update_count; ++i) {
+    const amdf_gpu_umd_mapping_update_t* entry = &updates[i];
+    uint64_t position = 0;
+    do {
+      const uint64_t span =
+          entry->memory == NULL
+              ? entry->byte_length
+              : amdf_gpu_wddm_memory_span(entry->memory,
+                                          entry->source_byte_offset + position)
+                    .byte_length;
+      const uint64_t remaining = entry->byte_length - position;
+      position += span < remaining ? span : remaining;
+      ++operation_count;
+    } while (position < entry->byte_length);
+  }
+  if (operation_count > UINT32_MAX) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE);
+  }
+  D3DDDI_UPDATEGPUVIRTUALADDRESS_OPERATION* operations = NULL;
+  amdf_status_t status = amdf_calloc_array(
+      reservation->host_allocator, operation_count, sizeof(*operations),
+      amdf_alignof(D3DDDI_UPDATEGPUVIRTUALADDRESS_OPERATION),
+      (void**)&operations);
+  if (!amdf_status_is_ok(status)) {
+    return status;
+  }
+  uint32_t ordinal = 0;
+  for (uint32_t i = 0; i < update_count; ++i) {
+    const amdf_gpu_umd_mapping_update_t* entry = &updates[i];
+    uint64_t position = 0;
+    do {
+      D3DDDI_UPDATEGPUVIRTUALADDRESS_OPERATION* operation =
+          &operations[ordinal++];
+      const uint64_t address =
+          reservation->address + entry->target_byte_offset + position;
+      uint64_t length = entry->byte_length - position;
+      if (entry->memory == NULL) {
+        operation->OperationType = D3DDDI_UPDATEGPUVIRTUALADDRESS_UNMAP;
+        operation->Unmap.BaseAddress = address;
+        operation->Unmap.SizeInBytes = length;
+        operation->Unmap.Protection.NoAccess = 1;
+      } else {
+        const amdf_gpu_wddm_memory_span_t source = amdf_gpu_wddm_memory_span(
+            entry->memory, entry->source_byte_offset + position);
+        if (length > source.byte_length) {
+          length = source.byte_length;
+        }
+        operation->OperationType = D3DDDI_UPDATEGPUVIRTUALADDRESS_MAP_PROTECT;
+        operation->MapProtect.BaseAddress = address;
+        operation->MapProtect.SizeInBytes = length;
+        operation->MapProtect.hAllocation = source.allocation;
+        operation->MapProtect.AllocationOffsetInBytes = source.byte_offset;
+        operation->MapProtect.Protection.Write =
+            (entry->access & AMDF_MEMORY_ACCESS_WRITE) != 0;
+        operation->MapProtect.Protection.Execute =
+            (entry->access & AMDF_MEMORY_ACCESS_EXECUTE) != 0;
+      }
+      position += length;
+    } while (position < entry->byte_length);
+  }
+  reservation->publisher = reservation->devices[access_ordinal];
+  status = amdf_gpu_wddm_kernel_queue_update_memory(
+      queue, (uint32_t)operation_count, operations, submission,
+      mutation_started, accepted);
+  amdf_free(reservation->host_allocator, operations);
   return status;
 }

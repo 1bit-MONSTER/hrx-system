@@ -105,6 +105,7 @@ iree_cc_library(
   HDRS
     "memory_reservation.h"
   DEPS
+    ::kernel_queue
     ::memory
     amdf::headers
   PUBLIC

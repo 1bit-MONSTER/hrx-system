@@ -47,6 +47,12 @@ static void amdf_kmt_resolve_procedures(amdf_kmt_api_t* api) {
           api->module, "D3DKMTFreeGpuVirtualAddress");
   api->map_gpu_virtual_address = (PFND3DKMT_MAPGPUVIRTUALADDRESS)GetProcAddress(
       api->module, "D3DKMTMapGpuVirtualAddress");
+  api->update_gpu_virtual_address =
+      (PFND3DKMT_UPDATEGPUVIRTUALADDRESS)GetProcAddress(
+          api->module, "D3DKMTUpdateGpuVirtualAddress");
+  api->wait_on_hardware_queue =
+      (PFND3DKMT_SUBMITWAITFORSYNCOBJECTSTOHWQUEUE)GetProcAddress(
+          api->module, "D3DKMTSubmitWaitForSyncObjectsToHwQueue");
   api->make_resident =
       (PFND3DKMT_MAKERESIDENT)GetProcAddress(api->module, "D3DKMTMakeResident");
   api->lock = (PFND3DKMT_LOCK2)GetProcAddress(api->module, "D3DKMTLock2");

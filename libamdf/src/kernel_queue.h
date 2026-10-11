@@ -37,6 +37,15 @@ typedef struct amdf_kernel_queue_vtable_t {
   // other result consumes native ownership, preserving unsafe backing on
   // failure. A native-domain busy error is a consuming cleanup failure.
   amdf_status_t (*destroy_native)(amdf_kernel_queue_t* queue);
+  // Applies a validated mapping vector using the existing publication owner.
+  // On native acceptance publishes a nonzero point even if a later step fails;
+  // that failure is also latched on the queue. Rejection leaves the point zero.
+  amdf_status_t (*update_memory)(amdf_kernel_queue_t* queue,
+                                 amdf_memory_reservation_t* reservation,
+                                 uint32_t access_ordinal, uint32_t update_count,
+                                 const amdf_memory_mapping_update_t* updates,
+                                 bool* mutation_started,
+                                 uint64_t* accepted_submission);
 } amdf_kernel_queue_vtable_t;
 
 struct amdf_kernel_queue_t {

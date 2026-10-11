@@ -85,7 +85,7 @@ typedef uint32_t amdf_abi_version_t;
 /// Activated kernel queue information includes native notification types.
 #define AMDF_ABI_VERSION_5 ((amdf_abi_version_t)5)
 
-/// Stable address reservations and explicit ordinary-backing mapping sources.
+/// Stable reservations, ordinary backing sources and queue-ordered mappings.
 #define AMDF_ABI_VERSION_6 ((amdf_abi_version_t)6)
 
 /// The most recent ABI version described by this header.

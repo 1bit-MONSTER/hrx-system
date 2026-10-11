@@ -11,6 +11,7 @@
 
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/device.h"
+#include "libamdf/src/kernel_queue.h"
 #include "libamdf/src/memory_resource.h"
 #include "libamdf/src/structure.h"
 
@@ -176,9 +177,10 @@ static amdf_status_t amdf_memory_reservation_validate_update(
   return AMDF_STATUS_OK;
 }
 
-amdf_status_t AMDF_CALL amdf_memory_reservation_update(
-    amdf_memory_reservation_t* reservation, uint32_t access_ordinal,
-    uint32_t update_count, const amdf_memory_mapping_update_t* updates) {
+static amdf_status_t amdf_memory_reservation_apply(
+    amdf_kernel_queue_t* queue, amdf_memory_reservation_t* reservation,
+    uint32_t access_ordinal, uint32_t update_count,
+    const amdf_memory_mapping_update_t* updates, uint64_t* out_submission) {
   if (reservation == NULL || (update_count != 0 && updates == NULL)) {
     return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
   }
@@ -187,6 +189,9 @@ amdf_status_t AMDF_CALL amdf_memory_reservation_update(
   }
   amdf_memory_reservation_access_state_t* target =
       &reservation->accesses[access_ordinal];
+  if (queue != NULL && queue->device != target->device) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
+  }
   amdf_status_t* failure =
       &reservation->accesses[target->info.mapping_access_ordinal].failure;
   if (!amdf_status_is_ok(*failure)) {
@@ -218,15 +223,47 @@ amdf_status_t AMDF_CALL amdf_memory_reservation_update(
     }
   }
   bool mutation_started = false;
+  uint64_t accepted_submission = 0;
   if (amdf_status_is_ok(status)) {
-    status = reservation->vtable->update(
-        reservation, access_ordinal, update_count, ordered, &mutation_started);
+    status = queue != NULL
+                 ? queue->vtable->update_memory(
+                       queue, reservation, access_ordinal, update_count,
+                       ordered, &mutation_started, &accepted_submission)
+                 : reservation->vtable->update(reservation, access_ordinal,
+                                               update_count, ordered,
+                                               &mutation_started);
   }
   if (!amdf_status_is_ok(status) && mutation_started) {
     *failure = status;
   }
   amdf_free(reservation->host_allocator, ordered);
+  if (accepted_submission != 0) {
+    *out_submission = accepted_submission;
+    return AMDF_STATUS_OK;
+  }
   return status;
+}
+
+amdf_status_t AMDF_CALL amdf_memory_reservation_update(
+    amdf_memory_reservation_t* reservation, uint32_t access_ordinal,
+    uint32_t update_count, const amdf_memory_mapping_update_t* updates) {
+  return amdf_memory_reservation_apply(NULL, reservation, access_ordinal,
+                                       update_count, updates, NULL);
+}
+
+amdf_status_t AMDF_CALL amdf_kernel_queue_update_memory(
+    amdf_kernel_queue_t* queue, amdf_memory_reservation_t* reservation,
+    uint32_t access_ordinal, uint32_t update_count,
+    const amdf_memory_mapping_update_t* updates, uint64_t* out_submission) {
+  if (queue == NULL || out_submission == NULL || update_count == 0) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
+  }
+  if ((queue->info.capabilities &
+       AMDF_KERNEL_QUEUE_CAPABILITY_VIRTUAL_MEMORY) == 0) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  }
+  return amdf_memory_reservation_apply(queue, reservation, access_ordinal,
+                                       update_count, updates, out_submission);
 }
 
 amdf_status_t AMDF_CALL

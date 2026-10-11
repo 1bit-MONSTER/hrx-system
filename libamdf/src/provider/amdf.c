@@ -69,6 +69,7 @@ static const amdf_api_t amdf_api_v6 = {
         amdf_memory_reservation_query_access_info,
     .memory_reservation_update = amdf_memory_reservation_update,
     .memory_reservation_destroy = amdf_memory_reservation_destroy,
+    .kernel_queue_update_memory = amdf_kernel_queue_update_memory,
 };
 
 amdf_status_t AMDF_CALL amdf_query_api(amdf_abi_version_t minimum_version,

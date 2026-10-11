@@ -496,7 +496,10 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
     ASSERT_EQ(status, AMDF_STATUS_OK);
   }
 
-  void RunMappingReplacement(uint32_t family_ordinal) {
+  enum class MappingPublication { kHostCompleted, kQueueOrdered };
+
+  void RunMappingReplacement(uint32_t family_ordinal,
+                             MappingPublication publication) {
     amdf_memory_reservation_capabilities_t capabilities = {};
     capabilities.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES;
     capabilities.structure_size = sizeof(capabilities);
@@ -543,6 +546,17 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
               AMDF_STATUS_OK);
     ASSERT_NO_FATAL_FAILURE(PrepareNativeCopy(
         family_ordinal, projection.address, projection.address + granularity));
+    if (publication == MappingPublication::kQueueOrdered) {
+      amdf_kernel_queue_info_t queue_info = {};
+      queue_info.type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_INFO;
+      queue_info.structure_size = sizeof(queue_info);
+      ASSERT_EQ(api_->kernel_queue_query_info(queue_, &queue_info),
+                AMDF_STATUS_OK);
+      if ((queue_info.capabilities &
+           AMDF_KERNEL_QUEUE_CAPABILITY_VIRTUAL_MEMORY) == 0) {
+        GTEST_SKIP() << "native queue-ordered mappings are not advertised";
+      }
+    }
     ComPtr<ID3D12Resource> upload;
     ComPtr<ID3D12Resource> readback;
     ASSERT_NO_FATAL_FAILURE(CreateStaging(D3D12_HEAP_TYPE_UPLOAD, &upload));
@@ -577,9 +591,16 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
            .access = access.access,
            .source_byte_offset = destination_offset - prefix},
       }};
-      ASSERT_EQ(api_->memory_reservation_update(reservation_, 0, updates.size(),
-                                                updates.data()),
-                AMDF_STATUS_OK);
+      if (publication == MappingPublication::kQueueOrdered) {
+        ASSERT_EQ(api_->kernel_queue_update_memory(
+                      queue_, reservation_, 0, updates.size(), updates.data(),
+                      &pending_submission_),
+                  AMDF_STATUS_OK);
+      } else {
+        ASSERT_EQ(api_->memory_reservation_update(
+                      reservation_, 0, updates.size(), updates.data()),
+                  AMDF_STATUS_OK);
+      }
       ASSERT_NO_FATAL_FAILURE(ExecuteNativeCopy());
       for (uint32_t i = 0; i < kWordCount; ++i) {
         expected[destination_offset / 4 + i] = expected[source_offset / 4 + i];
@@ -703,7 +724,11 @@ TEST_F(D3D12Pm4MemoryInteropTest, ForeignNativeForeignRoundTrip) {
 }
 
 TEST_F(D3D12Pm4MemoryInteropTest, ReplacesImportedSlicesOnAnExistingQueue) {
-  RunMappingReplacement(family_ordinal_);
+  RunMappingReplacement(family_ordinal_, MappingPublication::kHostCompleted);
+}
+
+TEST_F(D3D12Pm4MemoryInteropTest, QueueOrdersImportedSliceReplacement) {
+  RunMappingReplacement(family_ordinal_, MappingPublication::kQueueOrdered);
 }
 
 TEST_F(D3D12MemoryInteropTest, ImportOwnsBackingAfterSourceRelease) {

@@ -66,6 +66,11 @@ amdf_status_t AMDF_CALL amdf_memory_reservation_update(
 amdf_status_t AMDF_CALL
 amdf_memory_reservation_destroy(amdf_memory_reservation_t* reservation);
 
+amdf_status_t AMDF_CALL amdf_kernel_queue_update_memory(
+    amdf_kernel_queue_t* queue, amdf_memory_reservation_t* reservation,
+    uint32_t access_ordinal, uint32_t update_count,
+    const amdf_memory_mapping_update_t* updates, uint64_t* out_submission);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

@@ -27,10 +27,11 @@ amdf_status_t amdf_gpu_device_query_memory_reservation_capabilities(
       out_capabilities);
 }
 
-static amdf_status_t amdf_gpu_memory_reservation_update(
+static amdf_status_t amdf_gpu_memory_reservation_apply(
     amdf_memory_reservation_t* base, uint32_t access_ordinal,
     uint32_t update_count, const amdf_memory_mapping_update_t* updates,
-    bool* mutation_started) {
+    bool* mutation_started, amdf_gpu_umd_kernel_queue_t* queue,
+    uint64_t submission, bool* accepted) {
   amdf_gpu_memory_reservation_t* reservation =
       (amdf_gpu_memory_reservation_t*)base;
   amdf_gpu_umd_mapping_update_t* native = NULL;
@@ -53,10 +54,34 @@ static amdf_status_t amdf_gpu_memory_reservation_update(
           memory->info.source_byte_offset + updates[i].source_byte_offset;
     }
   }
-  status = amdf_gpu_umd_memory_reservation_update(
-      reservation->umd, access_ordinal, update_count, native, mutation_started);
+  status = queue != NULL
+               ? amdf_gpu_umd_memory_reservation_update_on_queue(
+                     reservation->umd, queue, access_ordinal, update_count,
+                     native, submission, mutation_started, accepted)
+               : amdf_gpu_umd_memory_reservation_update(
+                     reservation->umd, access_ordinal, update_count, native,
+                     mutation_started);
   amdf_free(base->host_allocator, native);
   return status;
+}
+
+static amdf_status_t amdf_gpu_memory_reservation_update(
+    amdf_memory_reservation_t* base, uint32_t access_ordinal,
+    uint32_t update_count, const amdf_memory_mapping_update_t* updates,
+    bool* mutation_started) {
+  return amdf_gpu_memory_reservation_apply(base, access_ordinal, update_count,
+                                           updates, mutation_started, NULL, 0,
+                                           NULL);
+}
+
+amdf_status_t amdf_gpu_memory_reservation_update_on_queue(
+    amdf_memory_reservation_t* base, amdf_gpu_umd_kernel_queue_t* queue,
+    uint32_t access_ordinal, uint32_t update_count,
+    const amdf_memory_mapping_update_t* updates, uint64_t submission,
+    bool* mutation_started, bool* accepted) {
+  return amdf_gpu_memory_reservation_apply(base, access_ordinal, update_count,
+                                           updates, mutation_started, queue,
+                                           submission, accepted);
 }
 
 static amdf_status_t amdf_gpu_memory_reservation_destroy(

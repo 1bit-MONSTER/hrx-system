@@ -63,6 +63,7 @@ amdf_cc_library(
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         ":device_state",
+        ":kernel_queue",
         ":memory",
         ":memory_profile",
         "//libamdf/src:allocator",
@@ -74,10 +75,12 @@ amdf_cc_library(
 amdf_cc_library(
     name = "kernel_queue",
     srcs = ["kernel_queue.c"],
+    hdrs = ["kernel_queue.h"],
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         ":device_state",
         "//libamdf/src:allocator",
+        "//libamdf/src:atomics",
         "//libamdf/src:wait",
         "//libamdf/src/gpu/umd:kernel_queue",
         "//libamdf/src/gpu/umd/wddm/wkmi:adapter",
@@ -243,6 +246,7 @@ amdf_cc_test(
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         ":device_state",
+        ":kernel_queue",
         ":memory",
         ":memory_reservation",
         "//libamdf/src:allocator",

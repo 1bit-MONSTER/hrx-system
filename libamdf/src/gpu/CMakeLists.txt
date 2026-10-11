@@ -42,6 +42,7 @@ iree_cc_library(
     libamdf::src::endpoint
     libamdf::src::gpu::umd::device
     libamdf::src::gpu::umd::instance
+    libamdf::src::gpu::umd::kernel_queue
     libamdf::src::gpu::umd::memory
     libamdf::src::gpu::umd::memory_reservation
     libamdf::src::host_mapping

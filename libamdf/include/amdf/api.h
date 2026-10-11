@@ -693,6 +693,35 @@ typedef struct amdf_api_t {
   /// source registry or implicit device-execution wait is created.
   amdf_status_t(AMDF_CALL* memory_reservation_destroy)(
       amdf_memory_reservation_t* reservation);
+
+  /// Enqueues mapping replacement or detach between commands on one queue.
+  /// Requires VIRTUAL_MEMORY in the live queue's capabilities and a reservation
+  /// access belonging to that exact device. Unsupported queues return
+  /// UNSUPPORTED; this call never substitutes a host wait. The nonempty vector
+  /// has the same range, source and permission rules as reservation_update.
+  /// Descriptors are borrowed only during the call. The caller serializes
+  /// reservation mutation and keeps the reservation and old/proposed backing
+  /// alive until checked retirement and successful removal permit reuse.
+  ///
+  /// Earlier commands on this queue finish before mutation; later commands see
+  /// the new translations. The caller separately orders other queues and native
+  /// aliases. The returned point uses ordinary kernel_queue_wait/status: there
+  /// is no separate mapping completion object. Success means acceptance, not
+  /// completed mutation. A failure after native acceptance latches terminal
+  /// queue failure, still returns the accepted point, and prevents subsequent
+  /// publication. Checked retirement and terminal status must both be observed.
+  /// Rejection leaves out_submission unchanged; a native mutation failure can
+  /// poison the reservation as with reservation_update. Failed queues and
+  /// projections never authorize recycling backing merely because they failed.
+  ///
+  /// This cold path may allocate descriptor arrays and enter the driver, but
+  /// performs no execution wait, creates no worker, and retains no sources.
+  /// Concurrent publication or full native capacity returns BUSY. Mapping
+  /// admission may be tighter than the configured command capacity.
+  amdf_status_t(AMDF_CALL* kernel_queue_update_memory)(
+      amdf_kernel_queue_t* queue, amdf_memory_reservation_t* reservation,
+      uint32_t access_ordinal, uint32_t update_count,
+      const amdf_memory_mapping_update_t* updates, uint64_t* out_submission);
 } amdf_api_t;
 
 /// Function type used to acquire the immutable API table.

@@ -59,6 +59,11 @@ readiness let existing queues immediately use a replacement; the runtime owns
 last-use ordering and backing lifetime. No allocation registry or per-dispatch
 mapping walk is required.
 
+Mapping updates can complete on the host or, when a kernel queue advertises
+native support, join that queue's existing command and completion sequence.
+The [mapping contract](docs/memory.md#queue-ordered-replacement) separates
+native queue ordering from runtime scheduling of a host-completed update.
+
 Execution uses caller-prepared native commands. A user queue exposes queue
 state and doorbells; a kernel-mediated queue supplies the required platform
 transport. GPU packet construction and XDNA executable loading, relocation,

@@ -38,6 +38,20 @@ amdf_status_t amdf_gpu_umd_create_endpoint_profile(
     amdf_gpu_endpoint_properties_t properties = {0};
     if (amdf_gpu_wddm_wkmi_endpoint_properties_translate(&provider_properties,
                                                          &properties)) {
+      const amdf_kmt_api_t* kmt = &platform_endpoint->instance->kmt;
+      if (kmt->update_gpu_virtual_address != NULL &&
+          kmt->wait_on_hardware_queue != NULL) {
+        for (uint32_t i = 0; i < properties.queue_family_count; ++i) {
+          amdf_gpu_queue_family_properties_t* family =
+              &properties.queue_families[i];
+          if ((family->publication_modes &
+               AMDF_QUEUE_PUBLICATION_MODE_KERNEL) != 0) {
+            family->roles |= AMDF_QUEUE_ROLE_VIRTUAL_MEMORY;
+            family->kernel_queue_capabilities |=
+                AMDF_KERNEL_QUEUE_CAPABILITY_VIRTUAL_MEMORY;
+          }
+        }
+      }
       if (amdf_gpu_endpoint_profile_initialize(&properties, &profile)) {
         profile_available = true;
       } else {

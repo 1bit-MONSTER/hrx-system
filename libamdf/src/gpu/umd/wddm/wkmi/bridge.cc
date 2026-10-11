@@ -132,9 +132,9 @@ GpuAdapterClose(amdf_wkmi_bridge_gpu_adapter_t* adapter,
   return AMDF_WKMI_BRIDGE_RESULT_SUCCESS;
 }
 
-const amdf_wkmi_bridge_api_t kBridgeApiV5 = {
+const amdf_wkmi_bridge_api_t kBridgeApiV6 = {
     sizeof(amdf_wkmi_bridge_api_t),
-    AMDF_WKMI_BRIDGE_ABI_VERSION_5,
+    AMDF_WKMI_BRIDGE_ABI_VERSION_6,
     GpuAdapterOpen,
     GpuAdapterClose,
     amdf::wkmi_bridge::GpuAllocationQueryLayout,
@@ -153,10 +153,10 @@ amdf_wkmi_bridge_query_api(uint32_t minimum_version, uint32_t maximum_version,
   if (out_api == nullptr) {
     return AMDF_WKMI_BRIDGE_RESULT_INVALID_ARGUMENT;
   }
-  if (minimum_version > AMDF_WKMI_BRIDGE_ABI_VERSION_5 ||
-      maximum_version < AMDF_WKMI_BRIDGE_ABI_VERSION_5) {
+  if (minimum_version > AMDF_WKMI_BRIDGE_ABI_VERSION_6 ||
+      maximum_version < AMDF_WKMI_BRIDGE_ABI_VERSION_6) {
     return AMDF_WKMI_BRIDGE_RESULT_VERSION_MISMATCH;
   }
-  *out_api = &kBridgeApiV5;
+  *out_api = &kBridgeApiV6;
   return AMDF_WKMI_BRIDGE_RESULT_SUCCESS;
 }

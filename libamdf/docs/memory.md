@@ -448,6 +448,60 @@ its ordinary dependency edges, then publishes its ordinary completion signal.
 Reservation queries remain cached and allocation-free, and dispatch gains no
 mapping lookup, source list, or extra synchronization step.
 
+### Queue-ordered replacement
+
+When a live kernel queue advertises
+`AMDF_KERNEL_QUEUE_CAPABILITY_VIRTUAL_MEMORY`, the same descriptors can be
+inserted between commands without waiting on the host:
+
+```c
+// Earlier commands on queue still use the previous backing.
+uint64_t mapping_point;
+status = api->kernel_queue_update_memory(queue, arena, arena_gpu_access, 1,
+                                        &replacement, &mapping_point);
+// On acceptance, later commands on queue use the replacement backing.
+// Ordinary queue progress/wait also covers the mapping point.
+```
+
+The queue's previous commands complete before replacement, and following
+commands observe the new translations. Mapping and command operations share
+one progress sequence and one pending-capacity budget. The source descriptors
+are consumed during publication; backing remains caller-owned. A successful
+wait covering a detach permits release of the old backing once its other
+aliases and users finish. Ordering another queue or a shared native alias is
+the caller's responsibility; queue order does not imply a device-wide drain.
+
+Windows hardware queues use `UpdateGpuVirtualAddress` with their existing
+monitored progress fence. The native update waits for the preceding point,
+changes the mappings, and signals the next point. An explicit native queue
+wait orders later commands behind it. Both PM4 and SDMA queues use this
+mechanism. Native allocation chunks become descriptors in one update vector;
+registered pages and imported slices use the same path as owned backing.
+Mapping admission conservatively limits the unretired prefix to 128 points
+to avoid the native pending-update throttle. A full prefix returns `BUSY`
+without waiting; ordinary command capacity is unchanged.
+
+Acceptance is distinct from success at retirement. If native mapping is
+accepted but publication of the following queue dependency fails, the caller
+still receives the accepted point. The queue records terminal failure and
+rejects subsequent publication; the reservation projection becomes unusable.
+Queue status and waits report that failure. Independently observed progress,
+not failure alone, establishes retirement. No replay, second completion
+object, mapping registry, or retained source list is introduced.
+
+Linux KFD queues do not advertise this native queued operation. AMDGPU's DRM
+input-fence mapping path waits on the submitting host, and DRM submission's
+VM ordering does not by itself order an existing KFD user queue. A runtime
+therefore waits its existing dependency edges on its existing host executor,
+calls `memory_reservation_update`, and publishes its existing completion
+signal only after mapping readiness returns. In IREE, a normal
+`iree_hal_queue_host_call` has that shape: its wait semaphores precede the
+callback and its signal semaphores follow successful callback completion.
+The application can enqueue the dependent graph without blocking; the
+callback pays the native publication wait. No libamdf worker or alternate
+semaphore system is required. The queued libamdf API returns `UNSUPPORTED`
+on such queues instead of concealing that host wait.
+
 On Linux the instance serializes its foreground VM mutations through native
 completion. A PROCESS-lifetime KFD context can also be used by foreign driver
 clients; their VM mutations require caller coordination with reservation updates

@@ -215,6 +215,7 @@ amdf_cc_library(
     deps = [
         ":allocator",
         ":device",
+        ":kernel_queue",
         ":memory_resource",
         ":structure",
     ],

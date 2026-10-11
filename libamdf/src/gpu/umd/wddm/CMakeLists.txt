@@ -73,6 +73,7 @@ iree_cc_library(
     "memory_reservation.c"
   DEPS
     ::device_state
+    ::kernel_queue
     ::memory
     ::memory_profile
     amdf::headers
@@ -87,12 +88,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR 
 iree_cc_library(
   NAME
     kernel_queue
+  HDRS
+    "kernel_queue.h"
   SRCS
     "kernel_queue.c"
   DEPS
     ::device_state
     amdf::headers
     libamdf::src::allocator
+    libamdf::src::atomics
     libamdf::src::gpu::umd::kernel_queue
     libamdf::src::gpu::umd::wddm::wkmi::adapter
     libamdf::src::platform::wait
@@ -309,6 +313,7 @@ iree_cc_test(
     "memory_test.cc"
   DEPS
     ::device_state
+    ::kernel_queue
     ::memory
     ::memory_reservation
     amdf::headers

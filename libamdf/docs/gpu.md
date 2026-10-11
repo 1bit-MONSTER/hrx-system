@@ -189,6 +189,14 @@ only reads already established progress. A wait timeout or a sampled healthy
 status permits no additional storage reuse. Independent queues still require
 explicit device dependencies and payload visibility.
 
+Queues with `AMDF_KERNEL_QUEUE_CAPABILITY_VIRTUAL_MEMORY` also accept
+`kernel_queue_update_memory`. These points belong to the same sequence:
+preceding commands finish before replacement, and subsequent commands observe
+the new backing. Mapping publication is an explicit cold operation and may
+allocate descriptor storage; ordinary command publication is unchanged. The
+[mapping contract](memory.md#queue-ordered-replacement) defines backing lifetime,
+accepted failure and the host-completed alternative for other providers.
+
 After every accepted point retires, `kernel_queue_destroy` releases the native
 owner before the caller releases command backing and the device. An API-domain
 BUSY result leaves the queue live; other results consume a valid queue handle,

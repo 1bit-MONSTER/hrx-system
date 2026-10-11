@@ -85,6 +85,7 @@ iree_cc_library(
     "indirect_test.cc"
     "lds_test.cc"
     "mapping_test.cc"
+    "queued_mapping_test.cc"
     "resource_test.cc"
     "timestamp_test.cc"
     "wait_test.cc"
