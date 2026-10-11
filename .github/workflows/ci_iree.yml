@@ -550,12 +550,19 @@ jobs:
               Sort-Object Free -Descending
           )
           $drives |
-            Select-Object Name, Root,
+            Select-Object Name, Root, DisplayRoot,
               @{Name = 'FreeGiB'; Expression = {[math]::Round($_.Free / 1GB, 1)}},
               @{Name = 'UsedGiB'; Expression = {[math]::Round($_.Used / 1GB, 1)}} |
             Format-Table -AutoSize
+          # B: is the Azure pool's canonical build mapping. Equivalent aliases
+          # can expand to longer host paths that exceed MSVC's path handling.
+          $preferredDrive = $drives | Where-Object Name -eq 'B' | Select-Object -First 1
+          $candidateDrives = @($preferredDrive) + @(
+            $drives | Where-Object Name -ne 'B'
+          )
           $selectedDrive = $null
-          foreach ($drive in $drives) {
+          foreach ($drive in $candidateDrives) {
+            if (-not $drive) { continue }
             $probe = Join-Path $drive.Root ".hrx-ci-write-probe-$PID"
             try {
               [IO.File]::WriteAllText($probe, '')
@@ -704,7 +711,7 @@ jobs:
         run: |
           Get-PSDrive -PSProvider FileSystem -ErrorAction Stop |
             Where-Object { $_.Root -match '^[A-Za-z]:\\$' -and $null -ne $_.Free } |
-            Select-Object Name, Root,
+            Select-Object Name, Root, DisplayRoot,
               @{Name = 'FreeGiB'; Expression = {[math]::Round($_.Free / 1GB, 1)}},
               @{Name = 'UsedGiB'; Expression = {[math]::Round($_.Used / 1GB, 1)}} |
             Format-Table -AutoSize
