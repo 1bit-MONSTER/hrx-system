@@ -21,6 +21,14 @@ struct FakeMemory {
   FakeNative* owner;
   // Owned bytes modeling one native backing.
   std::vector<uint8_t> bytes;
+  // Borrowed application storage for a REGISTER construction.
+  void* registered_pointer = nullptr;
+  // Complete attached extent, independent of ownership.
+  uint64_t byte_length = 0;
+
+  void* data() {
+    return registered_pointer ? registered_pointer : bytes.data();
+  }
 };
 
 struct FakeMapping {
@@ -40,6 +48,7 @@ struct CacheOperation {
 struct FakeNative {
   FakeNative() {
     api.memory_create = MemoryCreate;
+    api.memory_query_info = MemoryQueryInfo;
     api.memory_map = MemoryMap;
     api.host_mapping_query_info = MappingQueryInfo;
     api.host_mapping_cache_control = MappingCacheControl;
@@ -56,21 +65,41 @@ struct FakeNative {
       amdf_memory_scope_t* scope, const amdf_memory_create_info_t* info,
       amdf_memory_t** out_memory) {
     auto* self = reinterpret_cast<FakeNative*>(scope);
-    EXPECT_EQ(info->memory_profile_ordinal, 7u);
+    const bool registered = info->registered_host_pointer != nullptr;
+    EXPECT_EQ(info->memory_profile_ordinal, registered ? 8u : 7u);
     EXPECT_EQ(info->access_count, 2u);
     EXPECT_EQ(info->required_flags, self->required_flags);
     EXPECT_NE(info->byte_length, 0u);
-    EXPECT_EQ(info->byte_length % 64, 0u);
     EXPECT_LE(info->byte_length, 4096u);
-    EXPECT_GE(info->minimum_alignment, 64u);
+    if (!registered) {
+      EXPECT_EQ(info->byte_length % 64, 0u);
+      EXPECT_GE(info->minimum_alignment, 64u);
+    } else {
+      EXPECT_EQ(info->registered_host_cacheability,
+                AMDF_HOST_CACHEABILITY_WRITE_BACK);
+    }
     EXPECT_LE(info->minimum_alignment, 4096u);
     EXPECT_TRUE(iree_device_size_is_power_of_two(info->minimum_alignment));
     self->created_lengths.push_back(info->byte_length);
     self->created_alignments.push_back(info->minimum_alignment);
-    auto* memory =
-        new FakeMemory{self, std::vector<uint8_t>(info->byte_length)};
+    auto* memory = new FakeMemory{
+        self, std::vector<uint8_t>(registered ? 0 : info->byte_length),
+        info->registered_host_pointer, info->byte_length};
     ++self->create_count;
     *out_memory = reinterpret_cast<amdf_memory_t*>(memory);
+    return AMDF_STATUS_OK;
+  }
+
+  static amdf_status_t AMDF_CALL MemoryQueryInfo(amdf_memory_t* handle,
+                                                 amdf_memory_info_t* out_info) {
+    auto* memory = reinterpret_cast<FakeMemory*>(handle);
+    const uintptr_t pointer = reinterpret_cast<uintptr_t>(memory->data());
+    out_info->byte_length = memory->byte_length;
+    out_info->alignment = memory->registered_pointer
+                              ? pointer & (~pointer + 1)
+                              : memory->owner->created_alignments.back();
+    out_info->native_allocation_byte_length = memory->byte_length;
+    out_info->native_allocation_granularity = 64;
     return AMDF_STATUS_OK;
   }
 
@@ -78,7 +107,7 @@ struct FakeNative {
                                            const amdf_memory_map_info_t* info,
                                            amdf_host_mapping_t** out_mapping) {
     auto* memory = reinterpret_cast<FakeMemory*>(base_memory);
-    EXPECT_EQ(info->byte_length, memory->bytes.size());
+    EXPECT_EQ(info->byte_length, memory->byte_length);
     EXPECT_EQ(info->flags,
               AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE);
     *out_mapping =
@@ -92,8 +121,8 @@ struct FakeNative {
     auto* mapping = reinterpret_cast<FakeMapping*>(base_mapping);
     out_info->flags = AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE;
     out_info->cacheability = AMDF_HOST_CACHEABILITY_WRITE_BACK;
-    out_info->pointer = mapping->memory->bytes.data();
-    out_info->byte_length = mapping->memory->bytes.size();
+    out_info->pointer = mapping->memory->data();
+    out_info->byte_length = mapping->memory->byte_length;
     out_info->cache_line_size = 64;
     out_info->flush.kind = AMDF_CACHE_TRANSITION_KIND_RANGE;
     out_info->flush.range_granularity = 64;
@@ -140,7 +169,7 @@ struct FakeNative {
       return amdf_make_api_status(AMDF_STATUS_CODE_RESOURCE_EXHAUSTED);
     }
     *out_address = UINT64_C(0x100000) + UINT64_C(0x10000) * access_ordinal +
-                   memory->bytes.size();
+                   memory->byte_length;
     return AMDF_STATUS_OK;
   }
 
@@ -174,7 +203,9 @@ class SlabProviderTest : public ::testing::Test {
     CreateProvider(AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE);
   }
 
-  void CreateProvider(amdf_memory_map_flags_t host_access) {
+  void CreateProvider(
+      amdf_memory_map_flags_t host_access,
+      const iree_hal_pool_import_class_t* import_policy = nullptr) {
     iree_hal_slab_provider_release(provider_);
     provider_ = nullptr;
     accesses_[0].device = reinterpret_cast<amdf_device_t*>(uintptr_t{1});
@@ -202,6 +233,23 @@ class SlabProviderTest : public ::testing::Test {
     native_.required_flags = host_access ? AMDF_MEMORY_FLAG_HOST_VISIBLE : 0;
     options.memory.required_flags = native_.required_flags;
     options.memory.host_access = host_access;
+    iree_hal_amd_fabric_import_route_t import_route = {};
+    if (import_policy) {
+      import_route.policy = *import_policy;
+      import_route.profile = options.memory.profile;
+      import_route.profile.ordinal = 8;
+      import_route.profile.roles =
+          AMDF_MEMORY_PROFILE_ROLE_REGISTER | AMDF_MEMORY_PROFILE_ROLE_HOST_MAP;
+      import_route.profile.registration.maximum_byte_length = 4096;
+      import_route.profile.registration.byte_length_granularity = 1;
+      import_route.profile.registration.registered_host_pointer_alignment = 1;
+      import_route.profile.registration.registered_host_cacheability =
+          AMDF_HOST_CACHEABILITY_WRITE_BACK;
+      import_route.profile.registration.minimum_alignment = 1;
+      import_route.profile.registration.maximum_alignment = 4096;
+      options.import_count = 1;
+      options.imports = &import_route;
+    }
     iree_hal_amd_fabric_binding_request_t bindings[3] = {};
     bindings[1] = {0, AMDF_MEMORY_ADDRESS_GPU};
     bindings[2] = {1, AMDF_MEMORY_ADDRESS_XDNA_DMA};
@@ -367,6 +415,106 @@ TEST_F(SlabProviderTest, FailedBindingReleasesMappingAndBacking) {
   EXPECT_EQ(native_.map_count, 1);
   EXPECT_EQ(native_.unmap_count, 1);
   EXPECT_EQ(native_.destroy_count, 1);
+}
+
+TEST_F(SlabProviderTest, RegisteredStorageExportsExactBorrowedSubranges) {
+  const iree_hal_external_storage_class_t storage_class = {
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER, {0, 0}};
+  iree_hal_pool_import_class_t policy = {storage_class, {1, &storage_class}};
+  CreateProvider(AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE,
+                 &policy);
+  alignas(64) uint8_t bytes[256] = {};
+  iree_hal_external_storage_t storage = {};
+  storage.storage_class = storage_class;
+  storage.payload.host_pointer = bytes;
+  storage.byte_length = sizeof(bytes);
+  storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  iree_hal_imported_slab_t imported = {};
+  IREE_ASSERT_OK(
+      iree_hal_slab_provider_import_slab(provider_, &storage, &imported));
+  EXPECT_EQ(storage.payload.host_pointer, bytes);
+  EXPECT_EQ(imported.slab.base_ptr, bytes);
+  EXPECT_EQ(imported.slab.length, sizeof(bytes));
+  EXPECT_GE(imported.properties.allocation_alignment, 64u);
+  iree_hal_buffer_t* buffer = nullptr;
+  IREE_ASSERT_OK(iree_hal_slab_provider_wrap_buffer(
+      provider_, &imported.slab, 64, 128, IREE_HAL_MEMORY_ACCESS_ALL,
+      IREE_HAL_BUFFER_USAGE_STORAGE, iree_hal_buffer_release_callback_null(),
+      &buffer));
+  iree_hal_buffer_t* subspan = nullptr;
+  IREE_ASSERT_OK(iree_hal_buffer_subspan(buffer, 16, 48,
+                                         iree_allocator_system(), &subspan));
+  iree_hal_external_storage_t exported = {};
+  iree_hal_buffer_range_t logical_range = {};
+  IREE_ASSERT_OK(
+      iree_hal_buffer_export(subspan, iree_hal_make_buffer_range(8, 16),
+                             storage_class, &exported, &logical_range));
+  EXPECT_EQ(exported.payload.host_pointer, bytes);
+  EXPECT_EQ(exported.byte_length, sizeof(bytes));
+  EXPECT_EQ(exported.host_cacheability, IREE_HAL_HOST_CACHEABILITY_WRITE_BACK);
+  EXPECT_EQ(exported.release, nullptr);
+  EXPECT_EQ(logical_range.byte_offset, 88u);
+  EXPECT_EQ(logical_range.byte_length, 16u);
+  iree_hal_external_storage_release(&exported);
+  EXPECT_EQ(native_.destroy_count, 0);
+  iree_hal_buffer_release(subspan);
+  iree_hal_buffer_release(buffer);
+  iree_hal_slab_provider_release_slab(provider_, &imported.slab);
+  EXPECT_EQ(native_.unmap_count, 1);
+  EXPECT_EQ(native_.destroy_count, 1);
+  bytes[88] = 123;
+  EXPECT_EQ(bytes[88], 123);
+}
+
+TEST_F(SlabProviderTest, FailedRegistrationPublicationPreservesCallerStorage) {
+  const iree_hal_external_storage_class_t storage_class = {
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER, {0, 0}};
+  iree_hal_pool_import_class_t policy = {storage_class, {}};
+  CreateProvider(AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE,
+                 &policy);
+  alignas(64) uint8_t bytes[128] = {};
+  int release_count = 0;
+  iree_hal_external_storage_t storage = {};
+  storage.storage_class = storage_class;
+  storage.payload.host_pointer = bytes;
+  storage.byte_length = sizeof(bytes);
+  storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  storage.release = +[](void* user_data, iree_hal_external_storage_class_t,
+                        iree_hal_external_storage_payload_t) {
+    ++*static_cast<int*>(user_data);
+  };
+  storage.release_user_data = &release_count;
+  iree_hal_imported_slab_t imported = {};
+  for (const auto cacheability : {IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
+                                  IREE_HAL_HOST_CACHEABILITY_WRITE_COMBINED,
+                                  IREE_HAL_HOST_CACHEABILITY_UNCACHED}) {
+    storage.host_cacheability = cacheability;
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_FAILED_PRECONDITION,
+        iree_hal_slab_provider_import_slab(provider_, &storage, &imported));
+    EXPECT_EQ(imported.slab.provider_handle, 0u);
+    EXPECT_EQ(storage.host_cacheability, cacheability);
+    EXPECT_EQ(native_.create_count, 0);
+    EXPECT_EQ(release_count, 0);
+  }
+  storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  native_.fail_second_address = true;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_RESOURCE_EXHAUSTED,
+      iree_hal_slab_provider_import_slab(provider_, &storage, &imported));
+  EXPECT_EQ(imported.slab.provider_handle, 0u);
+  EXPECT_EQ(storage.payload.host_pointer, bytes);
+  EXPECT_EQ(storage.byte_length, sizeof(bytes));
+  EXPECT_EQ(release_count, 0);
+  EXPECT_EQ(native_.unmap_count, 1);
+  EXPECT_EQ(native_.destroy_count, 1);
+  native_.fail_second_address = false;
+  IREE_ASSERT_OK(
+      iree_hal_slab_provider_import_slab(provider_, &storage, &imported));
+  iree_hal_slab_provider_release_slab(provider_, &imported.slab);
+  EXPECT_EQ(release_count, 0);
+  iree_hal_external_storage_release(&storage);
+  EXPECT_EQ(release_count, 1);
 }
 
 }  // namespace

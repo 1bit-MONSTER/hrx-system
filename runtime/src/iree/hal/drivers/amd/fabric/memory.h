@@ -9,6 +9,7 @@
 
 #include "amdf/amdf.h"
 #include "iree/hal/device_event.h"
+#include "iree/hal/slab_pool.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +27,12 @@ typedef struct iree_hal_amd_fabric_memory_t {
   iree_byte_span_t contents;
   // Observed cache class; UNKNOWN without a host view.
   amdf_host_cacheability_t host_cacheability;
+  // Achieved attachment geometry and physical identity, captured once.
+  amdf_memory_info_t info;
+  // Storage-relative envelope available for host cache maintenance.
+  iree_hal_buffer_range_t maintenance_range;
+  // Borrowed export policy, dominated by the owning slab provider.
+  iree_hal_pool_export_classes_t exports;
 } iree_hal_amd_fabric_memory_t;
 
 // Qualified construction facts copied by a provider. Accesses and scope are
@@ -43,6 +50,8 @@ typedef struct iree_hal_amd_fabric_memory_options_t {
   amdf_memory_flags_t required_flags;
   // Persistent host access, or zero to omit the mapping entirely.
   amdf_memory_map_flags_t host_access;
+  // Qualified exports; class storage outlives the native memory owner.
+  iree_hal_pool_export_classes_t exports;
 } iree_hal_amd_fabric_memory_options_t;
 
 // Allocates native backing, rounding the extent to the profile granularity.
@@ -51,6 +60,15 @@ typedef struct iree_hal_amd_fabric_memory_options_t {
 iree_status_t iree_hal_amd_fabric_memory_allocate(
     const amdf_api_t* api, const iree_hal_amd_fabric_memory_options_t* options,
     uint64_t byte_length, uint64_t alignment,
+    iree_hal_device_event_sink_t event_sink,
+    iree_hal_amd_fabric_memory_t* out_memory);
+
+// Registers caller-owned host storage using a qualified REGISTER profile.
+// The source is borrowed throughout, including rollback after attachment.
+// Success owns only the native attachment and optional persistent mapping.
+iree_status_t iree_hal_amd_fabric_memory_register(
+    const amdf_api_t* api, const iree_hal_amd_fabric_memory_options_t* options,
+    const iree_hal_external_storage_t* storage,
     iree_hal_device_event_sink_t event_sink,
     iree_hal_amd_fabric_memory_t* out_memory);
 

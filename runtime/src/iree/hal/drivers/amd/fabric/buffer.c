@@ -82,19 +82,54 @@ static iree_status_t iree_hal_amd_fabric_buffer_flush_range(
 }
 
 static iree_status_t iree_hal_amd_fabric_buffer_export_range(
-    iree_hal_buffer_t* buffer, iree_device_size_t local_byte_offset,
+    iree_hal_buffer_t* base_buffer, iree_device_size_t local_byte_offset,
     iree_device_size_t local_byte_length,
     iree_hal_external_storage_class_t requested_class,
     iree_hal_external_storage_t* out_storage,
     iree_hal_buffer_range_t* out_logical_range) {
-  (void)buffer;
-  (void)local_byte_offset;
-  (void)local_byte_length;
-  (void)requested_class;
-  (void)out_storage;
-  (void)out_logical_range;
-  return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                          "AMD buffer export is not supported");
+  iree_hal_amd_fabric_buffer_t* buffer =
+      (iree_hal_amd_fabric_buffer_t*)base_buffer;
+  const iree_hal_amd_fabric_memory_t* memory = buffer->memory;
+  bool admitted = false;
+  for (iree_host_size_t i = 0; i < memory->exports.class_count; ++i) {
+    admitted |= iree_hal_external_storage_class_equal(
+        memory->exports.classes[i], requested_class);
+  }
+  if (!admitted) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "export class was not admitted for this backing");
+  }
+  iree_hal_host_cacheability_t cacheability =
+      IREE_HAL_HOST_CACHEABILITY_UNKNOWN;
+  switch (memory->host_cacheability) {
+    case AMDF_HOST_CACHEABILITY_WRITE_BACK:
+      cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+      break;
+    case AMDF_HOST_CACHEABILITY_WRITE_COMBINED:
+      cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_COMBINED;
+      break;
+    case AMDF_HOST_CACHEABILITY_UNCACHED:
+      cacheability = IREE_HAL_HOST_CACHEABILITY_UNCACHED;
+      break;
+    default:
+      break;
+  }
+  *out_storage = (iree_hal_external_storage_t){
+      .storage_class = requested_class,
+      .payload = {.host_pointer = memory->contents.data},
+      .byte_length = memory->contents.data_length,
+      .host_cacheability = cacheability,
+      .maintenance_range = memory->maintenance_range,
+  };
+  if (base_buffer->memory.backing) {
+    out_storage->physical_backing_id =
+        base_buffer->memory.backing->physical_backing_id;
+  }
+  // The pointer borrows the mapping. The caller retains its source buffer or
+  // allocation for every external use, including a second native registration.
+  *out_logical_range = iree_hal_make_buffer_range(
+      buffer->storage_offset + local_byte_offset, local_byte_length);
+  return iree_ok_status();
 }
 
 static const iree_hal_buffer_vtable_t iree_hal_amd_fabric_buffer_vtable = {

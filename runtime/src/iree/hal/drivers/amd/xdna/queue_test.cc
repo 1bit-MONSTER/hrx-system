@@ -125,6 +125,7 @@ struct NativeProvider {
   NativeProvider() {
     iree_notification_initialize(&submission_notification);
     api.memory_create = MemoryCreate;
+    api.memory_query_info = MemoryQueryInfo;
     api.memory_destroy = MemoryDestroy;
     api.memory_map = MemoryMap;
     api.host_mapping_destroy = MappingDestroy;
@@ -229,6 +230,15 @@ struct NativeProvider {
     ++self->live_memories;
     ++self->memory_create_count;
     *out_memory = reinterpret_cast<amdf_memory_t*>(memory);
+    return AMDF_STATUS_OK;
+  }
+  static amdf_status_t AMDF_CALL MemoryQueryInfo(amdf_memory_t* handle,
+                                                 amdf_memory_info_t* out_info) {
+    auto* memory = reinterpret_cast<Memory*>(handle);
+    out_info->byte_length = memory->contents.size();
+    out_info->alignment = 32768;
+    out_info->native_allocation_byte_length = memory->contents.size();
+    out_info->native_allocation_granularity = 4096;
     return AMDF_STATUS_OK;
   }
   static amdf_status_t AMDF_CALL MemoryDestroy(amdf_memory_t* handle) {

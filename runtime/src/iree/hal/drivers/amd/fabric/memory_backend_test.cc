@@ -47,6 +47,7 @@ struct FakeNative {
     api.memory_scope_query_device_profile = MemoryScopeQueryDeviceProfile;
     api.memory_scope_query_pair_info = MemoryScopeQueryPairInfo;
     api.memory_create = MemoryCreate;
+    api.memory_query_info = MemoryQueryInfo;
     api.memory_destroy = MemoryDestroy;
     api.memory_query_address = MemoryQueryAddress;
     api.memory_map = MemoryMap;
@@ -67,7 +68,7 @@ struct FakeNative {
     out_info->kind = self->memory_class == AMDF_MEMORY_CLASS_LOCAL
                          ? AMDF_MEMORY_SCOPE_KIND_LOCAL
                          : AMDF_MEMORY_SCOPE_KIND_SYSTEM;
-    out_info->memory_profile_count = 1;
+    out_info->memory_profile_count = self->registration_enabled ? 2 : 1;
     return AMDF_STATUS_OK;
   }
 
@@ -77,7 +78,7 @@ struct FakeNative {
       amdf_memory_profile_t* out_profile,
       amdf_memory_access_capabilities_t* out_capabilities) {
     auto* self = reinterpret_cast<FakeNative*>(base_scope);
-    EXPECT_EQ(profile_ordinal, 0u);
+    EXPECT_LT(profile_ordinal, self->registration_enabled ? 2u : 1u);
     EXPECT_EQ(access_count, 2u);
     EXPECT_EQ(accesses[0].device, self->devices[0]);
     EXPECT_EQ(accesses[1].device, self->devices[1]);
@@ -118,6 +119,19 @@ struct FakeNative {
         : self->supports_private_mapping
             ? AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE
             : AMDF_MEMORY_MAP_FLAG_READ;
+    if (profile_ordinal == 1) {
+      out_profile->roles =
+          AMDF_MEMORY_PROFILE_ROLE_REGISTER | AMDF_MEMORY_PROFILE_ROLE_HOST_MAP;
+      out_profile->allocation = {};
+      out_profile->registration.maximum_byte_length = UINT64_C(1) << 30;
+      out_profile->registration.byte_length_granularity = 1;
+      out_profile->registration.registered_host_pointer_alignment = 1;
+      out_profile->registration.registered_host_cacheability =
+          AMDF_HOST_CACHEABILITY_WRITE_BACK;
+      out_profile->registration.minimum_alignment = 1;
+      out_profile->registration.maximum_alignment = 4096;
+      out_profile->registration.native_byte_length_granularity = 4096;
+    }
     return AMDF_STATUS_OK;
   }
 
@@ -134,17 +148,25 @@ struct FakeNative {
                            const amdf_memory_profile_pair_query_t* query,
                            amdf_memory_pair_info_t* out_info) {
     auto* self = reinterpret_cast<FakeNative*>(base_scope);
-    EXPECT_EQ(query->memory_profile_ordinal, 0u);
+    const bool registered = query->memory_profile_ordinal == 1;
+    EXPECT_LT(query->memory_profile_ordinal,
+              self->registration_enabled ? 2u : 1u);
+    EXPECT_EQ(query->registered_host_cacheability,
+              registered ? AMDF_HOST_CACHEABILITY_WRITE_BACK
+                         : AMDF_HOST_CACHEABILITY_UNKNOWN);
     EXPECT_EQ(query->access_count, 2u);
     EXPECT_EQ(query->required_flags, self->required_flags);
     EXPECT_EQ(query->accesses[0].device, self->devices[0]);
     EXPECT_EQ(query->accesses[1].device, self->devices[1]);
     ++self->pair_query_count;
+    if (registered && self->registration_transition_unknown) {
+      return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+    }
 
     out_info->flags = AMDF_MEMORY_PAIR_FLAG_SHARED_BACKING_REACHABLE;
     out_info->release.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
     out_info->acquire.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
-    if (self->host_coherent &&
+    if (self->host_coherent && !registered &&
         (query->producer.kind == AMDF_MEMORY_SITE_KIND_HOST ||
          query->consumer.kind == AMDF_MEMORY_SITE_KIND_HOST)) {
       return AMDF_STATUS_OK;
@@ -160,7 +182,8 @@ struct FakeNative {
       out_info->release.executor = AMDF_CACHE_TRANSITION_EXECUTOR_HOST_DIRECT;
       out_info->release.host_operation = AMDF_HOST_CACHE_OPERATION_FLUSH;
       out_info->release.host_instruction =
-          AMDF_HOST_CACHE_INSTRUCTION_X86_CLFLUSH;
+          registered ? AMDF_HOST_CACHE_INSTRUCTION_X86_CLWB
+                     : AMDF_HOST_CACHE_INSTRUCTION_X86_CLFLUSH;
       out_info->release.host_fence_after = AMDF_HOST_CACHE_FENCE_X86_MFENCE;
       out_info->release.range_granularity =
           UINT64_C(64) << query->consumer.value.device.access_ordinal;
@@ -195,6 +218,8 @@ struct FakeNative {
     void* data;
     // Complete rounded native byte extent.
     uint64_t byte_length;
+    // Whether the native object borrows application storage.
+    bool registered;
   };
 
   static amdf_status_t AMDF_CALL MemoryCreate(
@@ -209,10 +234,14 @@ struct FakeNative {
                 self->address_kinds[i]);
       EXPECT_EQ(info->accesses[i].requirements.access, self->device_access);
     }
-    auto* memory = new Memory{self, nullptr, info->byte_length};
-    IREE_CHECK_OK(iree_allocator_malloc_aligned(
-        iree_allocator_system(), info->byte_length, info->minimum_alignment, 0,
-        &memory->data));
+    auto* memory =
+        new Memory{self, info->registered_host_pointer, info->byte_length,
+                   info->registered_host_pointer != nullptr};
+    if (!memory->registered) {
+      IREE_CHECK_OK(iree_allocator_malloc_aligned(
+          iree_allocator_system(), info->byte_length, info->minimum_alignment,
+          0, &memory->data));
+    }
     ++self->create_count;
     *out_memory = reinterpret_cast<amdf_memory_t*>(memory);
     return AMDF_STATUS_OK;
@@ -221,8 +250,21 @@ struct FakeNative {
   static amdf_status_t AMDF_CALL MemoryDestroy(amdf_memory_t* handle) {
     auto* memory = reinterpret_cast<Memory*>(handle);
     ++memory->owner->destroy_count;
-    iree_allocator_free_aligned(iree_allocator_system(), memory->data);
+    if (!memory->registered) {
+      iree_allocator_free_aligned(iree_allocator_system(), memory->data);
+    }
     delete memory;
+    return AMDF_STATUS_OK;
+  }
+
+  static amdf_status_t AMDF_CALL MemoryQueryInfo(amdf_memory_t* handle,
+                                                 amdf_memory_info_t* out_info) {
+    auto* memory = reinterpret_cast<Memory*>(handle);
+    out_info->byte_length = memory->byte_length;
+    const uintptr_t pointer = reinterpret_cast<uintptr_t>(memory->data);
+    out_info->alignment = memory->registered ? pointer & (~pointer + 1) : 4096;
+    out_info->native_allocation_byte_length = memory->byte_length;
+    out_info->native_allocation_granularity = 4096;
     return AMDF_STATUS_OK;
   }
 
@@ -235,6 +277,9 @@ struct FakeNative {
     *out_address =
         UINT64_C(0x100000) + access_ordinal * UINT64_C(0x10000) +
         (kind == AMDF_MEMORY_ADDRESS_XDNA_FIRMWARE ? UINT64_C(0x8000) : 0);
+    if (access_ordinal == 1 && memory->owner->fail_after_bindings) {
+      memory->owner->fail_metadata_allocation.store(true);
+    }
     return AMDF_STATUS_OK;
   }
 
@@ -304,12 +349,21 @@ struct FakeNative {
   bool host_coherent = false;
   // Whether device visibility requires an explicit queue transition.
   bool require_device_transition = false;
+  // Whether a separate host registration profile is offered.
+  bool registration_enabled = false;
+  // Missing native visibility qualification for the registration route.
+  bool registration_transition_unknown = false;
+  // Arms host allocation failure once native attachment/bindings are complete.
+  bool fail_after_bindings = false;
+  // Single metadata allocation failure consumed by the allocator dependency.
+  std::atomic<bool> fail_metadata_allocation{false};
 };
 
 class MemoryBackendTest : public ::testing::Test {
  protected:
   void SetUp() override {
     allocator_ = iree_allocator_system();
+    iree_hal_slab_pool_options_initialize(&pool_options_);
     IREE_ASSERT_OK(iree_async_notification_create(
         test_proactor(), IREE_ASYNC_NOTIFICATION_FLAG_NONE, &notification_));
     IREE_ASSERT_OK(iree_hal_memory_maintenance_thread_create({}, allocator_,
@@ -426,9 +480,7 @@ class MemoryBackendTest : public ::testing::Test {
                                          IREE_HAL_MAPPING_MODE_PERSISTENT
                                    : 0;
     scope.host.cacheability = IREE_HAL_HOST_CACHEABILITY_UNKNOWN;
-    iree_hal_slab_pool_options_t options;
-    iree_hal_slab_pool_options_initialize(&options);
-    return iree_hal_slab_pool_create(group_, scope, &options, allocator_,
+    return iree_hal_slab_pool_create(group_, scope, &pool_options_, allocator_,
                                      out_pool);
   }
 
@@ -447,6 +499,8 @@ class MemoryBackendTest : public ::testing::Test {
 
   // Host allocator shared by all test owners.
   iree_allocator_t allocator_;
+  // Public construction policy used by each production pool creation.
+  iree_hal_slab_pool_options_t pool_options_;
   // Fake libamdf scope and its query observations.
   FakeNative native_;
   // Engine-supplied native address interface for each device.
@@ -591,6 +645,209 @@ TEST_F(MemoryBackendTest, RejectsProfileWithoutPrivateReadWriteMapping) {
   iree_status_free(status);
   EXPECT_EQ(pool, nullptr);
   EXPECT_EQ(native_.pair_query_count, 0);
+}
+
+TEST_F(MemoryBackendTest, JoinsOwnedAndRegisteredVisibilityAtConstruction) {
+  native_.registration_enabled = true;
+  const iree_hal_external_storage_class_t storage_class = {
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER, {0, 0}};
+  const iree_hal_pool_import_class_t import_class = {storage_class,
+                                                     {1, &storage_class}};
+  pool_options_.imports.class_count = 1;
+  pool_options_.imports.classes = &import_class;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+  const int query_count = native_.pair_query_count;
+  EXPECT_EQ(query_count, 18);
+  const auto table = iree_hal_pool_transition_table(pool);
+  iree_hal_memory_transition_pair_t pair;
+  IREE_ASSERT_OK(iree_hal_memory_transition_prepare_pair(
+      table, ResolveScope(IREE_HAL_MEMORY_SITE_HOST),
+      ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
+      IREE_HAL_MEMORY_TRANSITION_RELEASE, &pair));
+  const auto* recipe = iree_hal_memory_transition_recipe(
+      table, pair, IREE_HAL_MEMORY_TRANSITION_RELEASE);
+  ASSERT_NE(recipe, nullptr);
+  ASSERT_EQ(recipe->operation_count, 1u);
+  EXPECT_EQ(recipe->operations[0].executor,
+            IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_API);
+  EXPECT_EQ(recipe->operations[0].operation,
+            IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH);
+  EXPECT_EQ(recipe->operations[0].host.instruction,
+            IREE_HAL_HOST_CACHE_INSTRUCTION_NONE);
+
+  iree_hal_buffer_t* owned = nullptr;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(128, 64),
+      iree_infinite_timeout(), &owned));
+  iree_hal_external_storage_t exported = {};
+  iree_hal_buffer_range_t range = {};
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNAVAILABLE,
+      iree_hal_buffer_export(owned, iree_hal_make_buffer_range(0, 64),
+                             storage_class, &exported, &range));
+  alignas(128) uint8_t bytes[512] = {};
+  iree_hal_external_storage_t storage = {};
+  storage.storage_class = storage_class;
+  storage.payload.host_pointer = bytes;
+  storage.byte_length = sizeof(bytes);
+  storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  iree_hal_buffer_t* imported = nullptr;
+  IREE_ASSERT_OK(iree_hal_pool_import_buffer(
+      pool, &storage, iree_hal_make_buffer_range(128, 256), &imported));
+  EXPECT_EQ(storage.byte_length, 0u);
+  IREE_ASSERT_OK(iree_hal_buffer_export(imported,
+                                        iree_hal_make_buffer_range(32, 64),
+                                        storage_class, &exported, &range));
+  EXPECT_EQ(exported.payload.host_pointer, bytes);
+  EXPECT_EQ(range.byte_offset, 160u);
+  EXPECT_EQ(range.byte_length, 64u);
+  EXPECT_EQ(native_.pair_query_count, query_count);
+  iree_hal_external_storage_release(&exported);
+  iree_hal_buffer_release(imported);
+  iree_hal_buffer_release(owned);
+  iree_hal_pool_release(pool);
+  EXPECT_EQ(native_.create_count, 2);
+  EXPECT_EQ(native_.destroy_count, 2);
+}
+
+TEST_F(MemoryBackendTest, RegistrationRequiresItsOwnVisibilityQualification) {
+  native_.registration_enabled = true;
+  native_.registration_transition_unknown = true;
+  const iree_hal_pool_import_class_t import_class = {
+      {IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER, {0, 0}}, {}};
+  pool_options_.imports.class_count = 1;
+  pool_options_.imports.classes = &import_class;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
+                        CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+  EXPECT_EQ(pool, nullptr);
+  EXPECT_EQ(native_.create_count, 0);
+}
+
+TEST_F(MemoryBackendTest, CoherentOwnedAndCachedImportedUseMappingRecipes) {
+  native_.registration_enabled = true;
+  native_.host_coherent = true;
+  const iree_hal_pool_import_class_t import_class = {
+      {IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER, {0, 0}}, {}};
+  pool_options_.imports.class_count = 1;
+  pool_options_.imports.classes = &import_class;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+  const auto table = iree_hal_pool_transition_table(pool);
+  iree_hal_memory_transition_pair_t pair;
+  IREE_ASSERT_OK(iree_hal_memory_transition_prepare_pair(
+      table, ResolveScope(IREE_HAL_MEMORY_SITE_HOST),
+      ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
+      IREE_HAL_MEMORY_TRANSITION_RELEASE, &pair));
+  const auto* recipe = iree_hal_memory_transition_recipe(
+      table, pair, IREE_HAL_MEMORY_TRANSITION_RELEASE);
+  ASSERT_NE(recipe, nullptr);
+  ASSERT_EQ(recipe->operation_count, 1u);
+  EXPECT_EQ(recipe->operations[0].executor,
+            IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_API);
+  iree_hal_pool_release(pool);
+}
+
+TEST_F(MemoryBackendTest, HostExportDoesNotGrantPublicMapping) {
+  const iree_hal_external_storage_class_t storage_class = {
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER, {0, 0}};
+  pool_options_.owned.exports = {1, &storage_class};
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(
+      CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool,
+                 UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
+                 IREE_HAL_MEMORY_ACCESS_NONE));
+  iree_hal_buffer_t* buffer = nullptr;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(128, 64),
+      iree_infinite_timeout(), &buffer));
+  iree_hal_buffer_mapping_t mapping;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_PERMISSION_DENIED,
+      iree_hal_buffer_map_range(
+          buffer, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_READ,
+          IREE_HAL_BUFFER_MAP_FLAG_NONE, 0, 64, &mapping));
+  iree_hal_external_storage_t exported = {};
+  iree_hal_buffer_range_t range = {};
+  IREE_ASSERT_OK(iree_hal_buffer_export(buffer,
+                                        iree_hal_make_buffer_range(32, 64),
+                                        storage_class, &exported, &range));
+  EXPECT_NE(exported.payload.host_pointer, nullptr);
+  EXPECT_EQ(exported.byte_length, 4096u);
+  EXPECT_EQ(exported.host_cacheability, IREE_HAL_HOST_CACHEABILITY_WRITE_BACK);
+  EXPECT_EQ(exported.release, nullptr);
+  EXPECT_EQ(range.byte_offset, 32u);
+  EXPECT_EQ(range.byte_length, 64u);
+  iree_hal_external_storage_release(&exported);
+  EXPECT_EQ(native_.destroy_count, 0);
+  iree_hal_buffer_release(buffer);
+  iree_hal_pool_release(pool);
+  EXPECT_EQ(native_.destroy_count, 1);
+}
+
+TEST_F(MemoryBackendTest, WrapperFailureRollsBackBeforeConsumingStorage) {
+  native_.registration_enabled = true;
+  allocator_ = {
+      &native_,
+      +[](void* self, iree_allocator_command_t command, const void* params,
+          void** inout_pointer) -> iree_status_t {
+        auto* native = static_cast<FakeNative*>(self);
+        if (command != IREE_ALLOCATOR_COMMAND_FREE &&
+            native->fail_metadata_allocation.exchange(false)) {
+          return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                                  "buffer metadata allocation failed");
+        }
+        const auto system = iree_allocator_system();
+        return system.ctl(system.self, command, params, inout_pointer);
+      }};
+  const iree_hal_pool_import_class_t import_class = {
+      {IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER, {0, 0}}, {}};
+  pool_options_.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+  pool_options_.imports.class_count = 1;
+  pool_options_.imports.classes = &import_class;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+  alignas(128) uint8_t bytes[512] = {};
+  struct ReleaseState {
+    // Native dependency observing detach before the caller callback.
+    FakeNative* native;
+    // Callback executions, read only after pool retirement joins.
+    int count;
+  } release_state = {&native_, 0};
+  iree_hal_external_storage_t storage = {};
+  storage.storage_class = import_class.storage_class;
+  storage.payload.host_pointer = bytes;
+  storage.byte_length = sizeof(bytes);
+  storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  storage.release = +[](void* user_data, iree_hal_external_storage_class_t,
+                        iree_hal_external_storage_payload_t) {
+    auto* state = static_cast<ReleaseState*>(user_data);
+    EXPECT_EQ(state->native->destroy_count, 2);
+    EXPECT_EQ(state->native->unmap_count, 2);
+    ++state->count;
+  };
+  storage.release_user_data = &release_state;
+  const auto original = storage;
+  native_.fail_after_bindings = true;
+  iree_hal_buffer_t* buffer = nullptr;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_RESOURCE_EXHAUSTED,
+      iree_hal_pool_import_buffer(
+          pool, &storage, iree_hal_make_buffer_range(128, 256), &buffer));
+  EXPECT_EQ(buffer, nullptr);
+  EXPECT_EQ(memcmp(&storage, &original, sizeof(storage)), 0);
+  EXPECT_EQ(release_state.count, 0);
+  EXPECT_EQ(native_.destroy_count, 1);
+  EXPECT_EQ(native_.unmap_count, 1);
+  native_.fail_after_bindings = false;
+  IREE_ASSERT_OK(iree_hal_pool_import_buffer(
+      pool, &storage, iree_hal_make_buffer_range(128, 256), &buffer));
+  EXPECT_EQ(storage.release, nullptr);
+  EXPECT_EQ(release_state.count, 0);
+  iree_hal_buffer_release(buffer);
+  iree_hal_pool_release(pool);
+  EXPECT_EQ(release_state.count, 1);
 }
 
 TEST_F(MemoryBackendTest, RejectsUnsupportedDeviceAddressInterface) {

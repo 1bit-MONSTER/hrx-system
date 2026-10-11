@@ -1071,6 +1071,8 @@ enum class CpuHandoffMode {
   kRecordedDirect,
   kRecordedDeferred,
   kRecordedIndirect,
+  kRegisteredDirect,
+  kRegisteredIndirect,
 };
 
 class CpuXdnaNativeTest : public XdnaNativeTest,
@@ -1113,6 +1115,10 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
       iree_hal_executable_release(&cpu_executable_->base);
     }
     XdnaNativeTest::TearDown();
+    if (registered_storage_) {
+      EXPECT_EQ(registration_release_count_, 1);
+      iree_allocator_free_aligned(iree_allocator_system(), registered_storage_);
+    }
     iree_hal_device_release(cpu_device_);
     iree_async_proactor_pool_release(cpu_proactor_pool_);
     iree_hal_allocator_release(cpu_allocator_);
@@ -1155,6 +1161,18 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
     scope.host.modes = host_access ? IREE_HAL_MAPPING_MODE_SCOPED : 0u;
     iree_hal_slab_pool_options_t options;
     iree_hal_slab_pool_options_initialize(&options);
+    const iree_hal_external_storage_class_t storage_class = {
+        IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER, {0, 0}};
+    const iree_hal_pool_import_class_t import_class = {storage_class,
+                                                       {1, &storage_class}};
+    if (GetParam() == CpuHandoffMode::kRegisteredDirect ||
+        GetParam() == CpuHandoffMode::kRegisteredIndirect) {
+      options.imports.class_count = 1;
+      options.imports.classes = &import_class;
+      if (GetParam() == CpuHandoffMode::kRegisteredIndirect) {
+        options.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+      }
+    }
     IREE_ASSERT_OK(iree_hal_slab_pool_create(device_group_, scope, &options,
                                              iree_allocator_system(),
                                              &memory_pool_));
@@ -1197,8 +1215,8 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
     EXPECT_EQ((release ? transition.acquire : transition.release).bits, 0u);
     IREE_ASSERT_OK(iree_hal_command_buffer_create(
         iree_hal_queue_family(cpu_queue_), IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT,
-        IREE_HAL_COMMAND_CATEGORY_DISPATCH,
-        GetParam() == CpuHandoffMode::kRecordedIndirect ? 1 : 0, out_commands));
+        IREE_HAL_COMMAND_CATEGORY_DISPATCH, UsesIndirectBindings() ? 1 : 0,
+        out_commands));
     commands_.push_back(*out_commands);
     IREE_ASSERT_OK(iree_hal_command_buffer_begin(*out_commands));
     if (!release) {
@@ -1216,6 +1234,56 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
     IREE_ASSERT_OK(iree_hal_command_buffer_end(*out_commands));
   }
 
+  bool UsesIndirectBindings() const {
+    return GetParam() == CpuHandoffMode::kRecordedIndirect ||
+           GetParam() == CpuHandoffMode::kRegisteredIndirect;
+  }
+
+  void ImportRegisteredStorage(iree_hal_buffer_t** out_buffer) {
+    constexpr size_t kStorageLength = 8192;
+    IREE_ASSERT_OK(iree_allocator_malloc_aligned(iree_allocator_system(),
+                                                 kStorageLength, 4096, 0,
+                                                 &registered_storage_));
+    memset(registered_storage_, 0xCC, kStorageLength);
+    iree_hal_external_storage_t storage = {};
+    storage.storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+    storage.payload.host_pointer = registered_storage_;
+    storage.byte_length = kStorageLength;
+    storage.maintenance_range = iree_hal_make_buffer_range(0, kStorageLength);
+    storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+    storage.release = +[](void* user_data, iree_hal_external_storage_class_t,
+                          iree_hal_external_storage_payload_t) {
+      ++*static_cast<int*>(user_data);
+    };
+    storage.release_user_data = &registration_release_count_;
+    iree_hal_pool_import_requirements_t requirements;
+    ASSERT_TRUE(iree_hal_pool_query_import_requirements(
+        memory_pool_, storage.storage_class, &requirements));
+    EXPECT_LE(requirements.base_alignment, 4096u);
+    iree_hal_buffer_t* imported = nullptr;
+    IREE_ASSERT_OK(iree_hal_pool_import_buffer(
+        memory_pool_, &storage, iree_hal_make_buffer_range(kBytes, 5 * kBytes),
+        &imported));
+    buffers_.push_back(imported);
+    EXPECT_EQ(storage.byte_length, 0u);
+    EXPECT_EQ(storage.release, nullptr);
+    EXPECT_EQ(registration_release_count_, 0);
+    iree_hal_external_storage_class_t storage_class = {};
+    storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+    iree_hal_buffer_range_t range;
+    IREE_ASSERT_OK(iree_hal_buffer_export(
+        imported, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
+        storage_class, &storage, &range));
+    EXPECT_EQ(storage.payload.host_pointer, registered_storage_);
+    EXPECT_EQ(storage.byte_length, kStorageLength);
+    EXPECT_EQ(storage.release, nullptr);
+    EXPECT_EQ(range.byte_offset, kBytes);
+    EXPECT_EQ(range.byte_length, 5 * kBytes);
+    IREE_ASSERT_OK(
+        iree_hal_pool_import_buffer(memory_pool_, &storage, range, out_buffer));
+    EXPECT_EQ(storage.byte_length, 0u);
+  }
+
   // Existing CPU services shared by all submissions in this test.
   iree_task_executor_t* cpu_executor_ = nullptr;
   // CPU device's ordinary allocation source.
@@ -1230,6 +1298,10 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
   CpuAddExecutable* cpu_executable_ = nullptr;
   // Recorded programs retained across three changing-input replays.
   std::vector<iree_hal_command_buffer_t*> commands_;
+  // Application allocation retained until every native attachment is released.
+  void* registered_storage_ = nullptr;
+  // Original imported transport callback, independent of borrowed reimports.
+  int registration_release_count_ = 0;
 };
 
 TEST_P(CpuXdnaNativeTest, CpuNpuCpuKernelsShareOneBacking) {
@@ -1248,13 +1320,19 @@ TEST_P(CpuXdnaNativeTest, CpuNpuCpuKernelsShareOneBacking) {
   const iree_hal_queue_barriers_t no_payload_barriers = {&empty, &empty};
   const bool deferred = GetParam() == CpuHandoffMode::kRecordedDeferred ||
                         GetParam() == CpuHandoffMode::kRecordedIndirect;
+  const bool registered = GetParam() == CpuHandoffMode::kRegisteredDirect ||
+                          GetParam() == CpuHandoffMode::kRegisteredIndirect;
   if (deferred) {
     IREE_ASSERT_OK(iree_hal_queue_alloca(cpu_queue_, {1, &start, &start_value},
                                          {1, &progress, &allocated},
                                          memory_pool_, 1, &request, &root));
   } else {
-    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-        memory_pool_, request, iree_infinite_timeout(), &root));
+    if (registered) {
+      ASSERT_NO_FATAL_FAILURE(ImportRegisteredStorage(&root));
+    } else {
+      IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+          memory_pool_, request, iree_infinite_timeout(), &root));
+    }
     IREE_ASSERT_OK(iree_hal_queue_barrier(
         cpu_queue_, {1, &start, &start_value}, {1, &progress, &allocated},
         &no_payload_barriers, IREE_HAL_QUEUE_BARRIER_FLAG_NONE));
@@ -1276,7 +1354,7 @@ TEST_P(CpuXdnaNativeTest, CpuNpuCpuKernelsShareOneBacking) {
     buffers_.push_back(view);
     npu_bindings[i] = iree_hal_make_buffer_ref(view, 0, kBytes);
   }
-  const bool indirect = GetParam() == CpuHandoffMode::kRecordedIndirect;
+  const bool indirect = UsesIndirectBindings();
   const auto cpu_input =
       indirect ? iree_hal_make_indirect_buffer_ref(0, kBytes, kBytes)
                : iree_hal_make_buffer_ref(root, kBytes, kBytes);
@@ -1392,15 +1470,25 @@ TEST_P(CpuXdnaNativeTest, CpuNpuCpuKernelsShareOneBacking) {
     }
     previous = downloaded;
   }
+  if (registered) {
+    const auto* bytes = static_cast<const uint8_t*>(registered_storage_);
+    for (size_t i = 0; i < kBytes; ++i) {
+      EXPECT_EQ(bytes[i], 0xCC) << i;
+    }
+    for (size_t i = 6 * kBytes; i < 8192; ++i) {
+      EXPECT_EQ(bytes[i], 0xCC) << i;
+    }
+    EXPECT_EQ(registration_release_count_, 0);
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(
     SharedBacking, CpuXdnaNativeTest,
-    ::testing::Values(CpuHandoffMode::kQueueDefaults,
-                      CpuHandoffMode::kPublicMapping,
-                      CpuHandoffMode::kRecordedDirect,
-                      CpuHandoffMode::kRecordedDeferred,
-                      CpuHandoffMode::kRecordedIndirect),
+    ::testing::Values(
+        CpuHandoffMode::kQueueDefaults, CpuHandoffMode::kPublicMapping,
+        CpuHandoffMode::kRecordedDirect, CpuHandoffMode::kRecordedDeferred,
+        CpuHandoffMode::kRecordedIndirect, CpuHandoffMode::kRegisteredDirect,
+        CpuHandoffMode::kRegisteredIndirect),
     [](const ::testing::TestParamInfo<CpuHandoffMode>& info) {
       switch (info.param) {
         case CpuHandoffMode::kQueueDefaults:
@@ -1413,6 +1501,10 @@ INSTANTIATE_TEST_SUITE_P(
           return "RecordedDeferred";
         case CpuHandoffMode::kRecordedIndirect:
           return "RecordedIndirect";
+        case CpuHandoffMode::kRegisteredDirect:
+          return "RegisteredDirect";
+        case CpuHandoffMode::kRegisteredIndirect:
+          return "RegisteredIndirect";
       }
       return "";
     });

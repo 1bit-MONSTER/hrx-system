@@ -52,6 +52,18 @@ iree_hal_amd_fabric_slab_provider_const_cast(
   return (const iree_hal_amd_fabric_slab_provider_t*)base_provider;
 }
 
+static iree_hal_pool_export_classes_t iree_hal_amd_fabric_copy_exports(
+    iree_hal_pool_export_classes_t source,
+    iree_hal_external_storage_class_t** cursor) {
+  iree_hal_pool_export_classes_t result = {.class_count = source.class_count};
+  if (source.class_count) {
+    result.classes = *cursor;
+    memcpy(*cursor, source.classes, source.class_count * sizeof(**cursor));
+    *cursor += source.class_count;
+  }
+  return result;
+}
+
 iree_status_t iree_hal_amd_fabric_slab_provider_create(
     iree_hal_device_t* device, const amdf_api_t* api,
     iree_hal_device_event_sink_t event_sink,
@@ -61,6 +73,17 @@ iree_status_t iree_hal_amd_fabric_slab_provider_create(
   iree_host_size_t total_size = 0;
   iree_host_size_t accesses_offset = 0;
   iree_host_size_t bindings_offset = 0;
+  iree_host_size_t imports_offset = 0;
+  iree_host_size_t exports_offset = 0;
+  iree_host_size_t export_count = options->memory.exports.class_count;
+  for (iree_host_size_t i = 0; i < options->import_count; ++i) {
+    if (!iree_host_size_checked_add(
+            export_count, options->imports[i].policy.exports.class_count,
+            &export_count)) {
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "AMD export class count overflows host size");
+    }
+  }
   IREE_RETURN_IF_ERROR(IREE_STRUCT_LAYOUT(
       sizeof(iree_hal_amd_fabric_slab_provider_t), &total_size,
       IREE_STRUCT_FIELD_ALIGNED(
@@ -69,7 +92,11 @@ iree_status_t iree_hal_amd_fabric_slab_provider_create(
       IREE_STRUCT_FIELD_ALIGNED(
           options->binding_count, iree_hal_amd_fabric_binding_request_t,
           iree_alignof(iree_hal_amd_fabric_binding_request_t),
-          &bindings_offset)));
+          &bindings_offset),
+      IREE_STRUCT_FIELD(options->import_count,
+                        iree_hal_amd_fabric_import_route_t, &imports_offset),
+      IREE_STRUCT_FIELD(export_count, iree_hal_external_storage_class_t,
+                        &exports_offset)));
   iree_hal_amd_fabric_slab_provider_t* provider = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, total_size, (void**)&provider));
@@ -92,14 +119,29 @@ iree_status_t iree_hal_amd_fabric_slab_provider_create(
   memcpy(bindings, options->bindings,
          options->binding_count * sizeof(*bindings));
   provider->options.bindings = bindings;
+  iree_hal_external_storage_class_t* exports =
+      (iree_hal_external_storage_class_t*)((uint8_t*)provider + exports_offset);
+  provider->options.memory.exports =
+      iree_hal_amd_fabric_copy_exports(options->memory.exports, &exports);
+  iree_hal_amd_fabric_import_route_t* imports =
+      (iree_hal_amd_fabric_import_route_t*)((uint8_t*)provider +
+                                            imports_offset);
+  for (iree_host_size_t i = 0; i < options->import_count; ++i) {
+    imports[i] = options->imports[i];
+    imports[i].policy.exports = iree_hal_amd_fabric_copy_exports(
+        options->imports[i].policy.exports, &exports);
+  }
+  provider->options.imports = imports;
+  const bool owned = iree_all_bits_set(options->memory.profile.roles,
+                                       AMDF_MEMORY_PROFILE_ROLE_CREATE);
   provider->properties = (iree_hal_slab_provider_properties_t){
       .memory_type = options->memory_type,
       .supported_usage = options->supported_usage,
       .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
       .allocation_alignment =
-          options->memory.profile.allocation.minimum_alignment,
+          owned ? options->memory.profile.allocation.minimum_alignment : 1,
       .max_allocation_alignment =
-          options->memory.profile.allocation.maximum_alignment,
+          owned ? options->memory.profile.allocation.maximum_alignment : 1,
       .maintenance_alignment = options->maintenance_alignment,
   };
   *out_provider = &provider->base;
@@ -113,16 +155,9 @@ static void iree_hal_amd_fabric_slab_provider_destroy(
   iree_allocator_free(provider->host_allocator, provider);
 }
 
-static iree_status_t iree_hal_amd_fabric_slab_provider_acquire_slab(
-    iree_hal_slab_provider_t* base_provider, iree_device_size_t min_length,
-    iree_device_size_t min_alignment, iree_hal_slab_t* out_slab) {
-  iree_hal_amd_fabric_slab_provider_t* provider =
-      iree_hal_amd_fabric_slab_provider_cast(base_provider);
-  memset(out_slab, 0, sizeof(*out_slab));
-  if (!min_length) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "AMD slab allocations must be non-empty");
-  }
+static iree_status_t iree_hal_amd_fabric_slab_handle_create(
+    iree_hal_amd_fabric_slab_provider_t* provider,
+    iree_hal_amd_fabric_slab_handle_t** out_handle) {
   const uint32_t binding_count = provider->options.binding_count;
   iree_host_size_t total_size = 0;
   iree_host_size_t bindings_offset = 0;
@@ -137,11 +172,16 @@ static iree_status_t iree_hal_amd_fabric_slab_provider_acquire_slab(
   memset(handle, 0, total_size);
   handle->bindings =
       (iree_hal_buffer_native_binding_t*)((uint8_t*)handle + bindings_offset);
+  *out_handle = handle;
+  return iree_ok_status();
+}
 
-  iree_status_t status = iree_hal_amd_fabric_memory_allocate(
-      provider->api, &provider->options.memory, min_length, min_alignment,
-      provider->event_sink, &handle->memory);
-  for (uint32_t i = 0; i < binding_count && iree_status_is_ok(status); ++i) {
+static iree_status_t iree_hal_amd_fabric_slab_handle_bind(
+    iree_hal_amd_fabric_slab_provider_t* provider,
+    iree_hal_amd_fabric_slab_handle_t* handle) {
+  iree_status_t status = iree_ok_status();
+  for (uint32_t i = 0;
+       i < provider->options.binding_count && iree_status_is_ok(status); ++i) {
     if (i == provider->options.host_binding_index) {
       handle->bindings[i].host_pointer = handle->memory.contents.data;
     } else {
@@ -153,6 +193,33 @@ static iree_status_t iree_hal_amd_fabric_slab_provider_acquire_slab(
               binding->address_kind, &handle->bindings[i].device_address),
           "memory_query_address");
     }
+  }
+  return status;
+}
+
+static iree_status_t iree_hal_amd_fabric_slab_provider_acquire_slab(
+    iree_hal_slab_provider_t* base_provider, iree_device_size_t min_length,
+    iree_device_size_t min_alignment, iree_hal_slab_t* out_slab) {
+  iree_hal_amd_fabric_slab_provider_t* provider =
+      iree_hal_amd_fabric_slab_provider_cast(base_provider);
+  memset(out_slab, 0, sizeof(*out_slab));
+  if (!min_length) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "AMD slab allocations must be non-empty");
+  }
+  if (!iree_all_bits_set(provider->options.memory.profile.roles,
+                         AMDF_MEMORY_PROFILE_ROLE_CREATE)) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "AMD provider admits imported storage only");
+  }
+  iree_hal_amd_fabric_slab_handle_t* handle = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_hal_amd_fabric_slab_handle_create(provider, &handle));
+  iree_status_t status = iree_hal_amd_fabric_memory_allocate(
+      provider->api, &provider->options.memory, min_length, min_alignment,
+      provider->event_sink, &handle->memory);
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_amd_fabric_slab_handle_bind(provider, handle);
   }
   if (iree_status_is_ok(status)) {
     out_slab->base_ptr = handle->memory.contents.data;
@@ -166,6 +233,87 @@ static iree_status_t iree_hal_amd_fabric_slab_provider_acquire_slab(
     iree_allocator_free(provider->host_allocator, handle);
   }
   return status;
+}
+
+static const iree_hal_amd_fabric_import_route_t*
+iree_hal_amd_fabric_slab_provider_find_import(
+    const iree_hal_amd_fabric_slab_provider_t* provider,
+    iree_hal_external_storage_class_t storage_class) {
+  for (iree_host_size_t i = 0; i < provider->options.import_count; ++i) {
+    const iree_hal_amd_fabric_import_route_t* route =
+        &provider->options.imports[i];
+    if (iree_hal_external_storage_class_equal(route->policy.storage_class,
+                                              storage_class)) {
+      return route;
+    }
+  }
+  return NULL;
+}
+
+static iree_status_t iree_hal_amd_fabric_slab_provider_import_slab(
+    iree_hal_slab_provider_t* base_provider,
+    const iree_hal_external_storage_t* storage,
+    iree_hal_imported_slab_t* out_import) {
+  iree_hal_amd_fabric_slab_provider_t* provider =
+      iree_hal_amd_fabric_slab_provider_cast(base_provider);
+  const iree_hal_amd_fabric_import_route_t* route =
+      iree_hal_amd_fabric_slab_provider_find_import(provider,
+                                                    storage->storage_class);
+  if (!route) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "external storage class was not admitted");
+  }
+  iree_hal_amd_fabric_slab_handle_t* handle = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_hal_amd_fabric_slab_handle_create(provider, &handle));
+  iree_hal_amd_fabric_memory_options_t options = provider->options.memory;
+  options.profile = route->profile;
+  options.exports = route->policy.exports;
+  iree_status_t status = iree_hal_amd_fabric_memory_register(
+      provider->api, &options, storage, provider->event_sink, &handle->memory);
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_amd_fabric_slab_handle_bind(provider, handle);
+  }
+  if (iree_status_is_ok(status)) {
+    out_import->slab = (iree_hal_slab_t){
+        .base_ptr = handle->memory.contents.data,
+        .length = storage->byte_length,
+        .provider_handle = (uint64_t)(uintptr_t)handle,
+    };
+    out_import->properties = provider->properties;
+    out_import->properties.allocation_alignment = handle->memory.info.alignment;
+    out_import->properties.max_allocation_alignment =
+        handle->memory.info.alignment;
+    iree_atomic_fetch_add(&provider->total_acquired, 1,
+                          iree_memory_order_relaxed);
+  } else {
+    iree_hal_amd_fabric_memory_deinitialize(provider->api, provider->event_sink,
+                                            &handle->memory);
+    iree_allocator_free(provider->host_allocator, handle);
+  }
+  return status;
+}
+
+static bool iree_hal_amd_fabric_slab_provider_query_import_requirements(
+    const iree_hal_slab_provider_t* base_provider,
+    iree_hal_external_storage_class_t storage_class,
+    iree_hal_pool_import_requirements_t* out_requirements) {
+  const iree_hal_amd_fabric_import_route_t* route =
+      iree_hal_amd_fabric_slab_provider_find_import(
+          iree_hal_amd_fabric_slab_provider_const_cast(base_provider),
+          storage_class);
+  if (!route) {
+    return false;
+  }
+  const amdf_memory_construction_capabilities_t* capabilities =
+      &route->profile.registration;
+  *out_requirements = (iree_hal_pool_import_requirements_t){
+      .min_byte_length = capabilities->byte_length_granularity,
+      .max_byte_length = capabilities->maximum_byte_length,
+      .base_alignment = capabilities->registered_host_pointer_alignment,
+      .byte_length_alignment = capabilities->byte_length_granularity,
+  };
+  return true;
 }
 
 static void iree_hal_amd_fabric_slab_provider_release_slab(
@@ -276,6 +424,7 @@ static const iree_hal_slab_provider_vtable_t
     iree_hal_amd_fabric_slab_provider_vtable = {
         .destroy = iree_hal_amd_fabric_slab_provider_destroy,
         .acquire_slab = iree_hal_amd_fabric_slab_provider_acquire_slab,
+        .import_slab = iree_hal_amd_fabric_slab_provider_import_slab,
         .release_slab = iree_hal_amd_fabric_slab_provider_release_slab,
         .wrap_buffer = iree_hal_amd_fabric_slab_provider_wrap_buffer,
         .validate_asan_options =
@@ -286,4 +435,6 @@ static const iree_hal_slab_provider_vtable_t
         .trim = iree_hal_amd_fabric_slab_provider_trim,
         .query_stats = iree_hal_amd_fabric_slab_provider_query_stats,
         .query_properties = iree_hal_amd_fabric_slab_provider_query_properties,
+        .query_import_requirements =
+            iree_hal_amd_fabric_slab_provider_query_import_requirements,
 };

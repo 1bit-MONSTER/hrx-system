@@ -23,10 +23,22 @@ typedef struct iree_hal_amd_fabric_binding_request_t {
   amdf_memory_address_kind_t address_kind;
 } iree_hal_amd_fabric_binding_request_t;
 
+// One exact input class with its qualified native construction profile.
+typedef struct iree_hal_amd_fabric_import_route_t {
+  // Admitted input and correlated output classes.
+  iree_hal_pool_import_class_t policy;
+  // Profile qualified against the provider's complete device access set.
+  amdf_memory_profile_t profile;
+} iree_hal_amd_fabric_import_route_t;
+
 // Cold native construction contract copied into one slab provider.
 typedef struct iree_hal_amd_fabric_slab_provider_options_t {
   // Qualified construction policy; the provider copies the access array.
   iree_hal_amd_fabric_memory_options_t memory;
+  // Number of exact external storage routes.
+  iree_host_size_t import_count;
+  // Qualified input routes, including their export class arrays.
+  const iree_hal_amd_fabric_import_route_t* imports;
   // Number of prepared slots, including the optional host slot.
   uint16_t binding_count;
   // Optional host slot, or IREE_HAL_BUFFER_NATIVE_BINDING_INDEX_NONE.
