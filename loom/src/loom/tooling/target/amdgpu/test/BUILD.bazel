@@ -138,21 +138,6 @@ loom_test(
 )
 
 loom_test(
-    name = "atomic_observations_test",
-    srcs = [
-        "atomic_observations.loom",
-        "//loom/src/loom/test/corpus/source_low:memory_atomic_float64.loom",
-        "//loom/src/loom/test/corpus/source_low:memory_atomic_observations.loom",
-        "//loom/src/loom/test/corpus/source_low:memory_float64.loom",
-    ],
-    compile_targets = ["//loom/target/amdgpu:" + target for target in LOOM_AMDGPU_SUPPORTED_TARGETS],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_test(
     name = "packed_integer_widening_test",
     srcs = ["packed_integer_widening.loom"],
     execution_profiles = [

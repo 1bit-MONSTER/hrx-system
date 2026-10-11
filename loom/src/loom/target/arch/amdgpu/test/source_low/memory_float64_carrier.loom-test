@@ -1,7 +1,7 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_float64.loom
 // RUN: emit source-low target=amdgpu:gfx1151 output=low
 
-// Full-width carriers retain all payload bits across native packet splitting.
+// A 32-register f64 carrier retains all payload bits across native packet
+// splitting.
 kernel.def @float64_memory_copy() {
   %unit = index.constant 1 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index

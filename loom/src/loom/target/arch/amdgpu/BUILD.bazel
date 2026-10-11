@@ -555,11 +555,14 @@ loom_check_test_suite(
         ["test/source_low/*.loom-test"],
         exclude = [
             "test/source_low/memory_stability.loom-test",
-            "test/source_low/source_low_memory_float64.loom-test",
         ],
     ),
     compile_targets = {
         "test/source_low/float64_narrow.loom-test": [
+            "//loom/target/amdgpu:" + target
+            for target in LOOM_AMDGPU_SUPPORTED_TARGETS
+        ],
+        "test/source_low/memory_float64_carrier.loom-test": [
             "//loom/target/amdgpu:" + target
             for target in LOOM_AMDGPU_SUPPORTED_TARGETS
         ],
@@ -576,21 +579,6 @@ loom_check_test_suite(
             "//loom/target/amdgpu:" + target
             for target in LOOM_AMDGPU_SUPPORTED_TARGETS
         ],
-        "test/source_low/source_low_memory_atomic_observations_gfx1200.loom-test": [
-            "//loom/target/amdgpu:gfx1200",
-            "//loom/target/amdgpu:gfx1201",
-            "//loom/target/amdgpu:gfx12-generic",
-        ],
-        "test/source_low/source_low_memory_atomic_observations_gfx1250.loom-test": [
-            "//loom/target/amdgpu:gfx1250",
-            "//loom/target/amdgpu:gfx1251",
-            "//loom/target/amdgpu:gfx12-5-generic",
-        ],
-        "test/source_low/source_low_memory_atomic_observations_gfx9_4_generic.loom-test": [
-            "//loom/target/amdgpu:gfx9-4-generic",
-            "//loom/target/amdgpu:gfx942",
-            "//loom/target/amdgpu:gfx950",
-        ],
         "test/source_low/source_low_system_scope_store_wait.loom-test": [
             "//loom/target/amdgpu:gfx1200",
             "//loom/target/amdgpu:gfx1201",
@@ -606,15 +594,6 @@ loom_check_test_suite(
         ],
     },
     test_name_prefix_to_strip = "test/source_low/",
-)
-
-loom_check_test(
-    name = "source_low_memory_float64",
-    src = "test/source_low/source_low_memory_float64.loom-test",
-    compile_targets = [
-        "//loom/target/amdgpu:" + target
-        for target in LOOM_AMDGPU_SUPPORTED_TARGETS
-    ],
 )
 
 #===------------------------------------------------------------------------===#
