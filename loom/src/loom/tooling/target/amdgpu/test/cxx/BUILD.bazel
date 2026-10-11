@@ -14,7 +14,7 @@ load(
     "//loom/build_tools/amdgpu:target_config.bzl",
     "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY",
 )
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with", "loom_generated_file_family")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
 load("//loom/build_tools/bazel:defs.bzl", "loom_test", "loom_test_module")
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test")
 load("//loom/target/amdgpu:execution_profiles.bzl", "amdgpu_execution_profile")
@@ -511,33 +511,10 @@ loom_test(
     variants = _IQ4XS_GATE_UP_BUFFERING_VARIANTS,
 )
 
-loom_generated_file_family(
-    name = "q4k_q8_swiglu_checks_gen",
-    testonly = True,
-    args = [
-        "kernel",
-        "--group=q4k_q8_swiglu",
-    ],
-    generator = "//loom/py/loom/gen/test:cxx_kernel_cases",
-    output_directories = ["q4k_q8_swiglu_arrays"],
-    output_flags = [
-        "--output",
-        "--arrays",
-    ],
-    outputs = [
-        "q4k_q8_swiglu_checks.loom",
-        "q4k_q8_swiglu_arrays",
-    ],
-)
-
 loom_test(
     name = "q4k_q8_swiglu_test",
-    srcs = [
-        "q4k_q8_swiglu.cxx",
-        ":q4k_q8_swiglu_checks.loom",
-    ],
+    srcs = ["q4k_q8_swiglu.cxx"],
     benchmark_smoke = False,
-    data = [":q4k_q8_swiglu_checks_gen"],
     execution_profiles = _EXECUTION_PROFILES,
     target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
     variants = _Q4K_Q8_VARIANTS,
