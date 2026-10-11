@@ -63,6 +63,19 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
   explicit KfdSparseMappingBackend(amdf_native_lifetime_t lifetime)
       : lifetime_(lifetime) {}
 
+  bool PrepareInstance() {
+    const amdf_status_t status = amdf_gpu_umd_instance_prepare(
+        &instance_, lifetime_, amdf_allocator_system());
+    if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+      RequireStatus(amdf_gpu_umd_instance_destroy(instance_),
+                    "release unsupported KFD instance");
+      instance_ = nullptr;
+      return false;
+    }
+    RequireStatus(status, "prepare KFD instance");
+    return true;
+  }
+
   void Initialize(uint32_t backing_count, uint64_t reservation_byte_length,
                   uint64_t payload_byte_length) override {
     RequireStatus(
@@ -114,9 +127,6 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
     ::testing::Test::RecordProperty("native_lifetime", lifetime_);
 
     amdf_platform_instance_lock_native(platform_);
-    RequireStatus(amdf_gpu_umd_instance_prepare(&instance_, lifetime_,
-                                                amdf_allocator_system()),
-                  "prepare KFD instance");
     amdf_gpu_umd_device_result_t result = {};
     RequireStatus(amdf_gpu_umd_device_create(instance_, endpoint_,
                                              amdf_allocator_system(), lifetime_,
@@ -497,6 +507,10 @@ class KfdSparseMappingTest
 
 TEST_P(KfdSparseMappingTest, ReplacesRetainedBackingBeforeImmediateAccess) {
   KfdSparseMappingBackend backend(GetParam());
+  if (!backend.PrepareInstance()) {
+    GTEST_SKIP() << "KFD does not support native lifetime " << GetParam()
+                 << "; mapping replacement has not been exercised";
+  }
   ExerciseSparseMappingReplacement(backend);
 }
 
