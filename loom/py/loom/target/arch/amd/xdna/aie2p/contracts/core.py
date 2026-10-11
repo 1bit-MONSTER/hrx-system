@@ -25,6 +25,21 @@ from loom.target.arch.amd.xdna.aie2p.contracts.i64 import (
     AIE2P_PAIR_SCALAR_TYPES,
     AIE2P_PAIR_VECTOR_TYPES,
 )
+from loom.target.arch.amd.xdna.aie2p.contracts.selection import (
+    PredicateUpdate as _PredicateUpdate,
+)
+from loom.target.arch.amd.xdna.aie2p.contracts.selection import (
+    predicate_binary_emits as _predicate_binary_emits,
+)
+from loom.target.arch.amd.xdna.aie2p.contracts.selection import (
+    predicate_select_emits as _predicate_select_emits,
+)
+from loom.target.arch.amd.xdna.aie2p.contracts.selection import (
+    predicate_splat_emits as _vector_predicate_splat_emits,
+)
+from loom.target.arch.amd.xdna.aie2p.contracts.selection import (
+    whole_x_select_emits as _whole_x_select_emits,
+)
 from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
     AIE2P_CORE_DESCRIPTOR_SET,
 )
@@ -702,40 +717,6 @@ def _vector_wide_f32_splat_rule() -> DescriptorRule:
     )
 
 
-def _vector_predicate_splat_emits(
-    source: ValueRef,
-    result: ValueRef,
-    *,
-    result_type: ResultTypeBinding | None = None,
-) -> tuple[EmitDescriptorOp, ...]:
-    return (
-        _op_emit(
-            _descriptor("amd.xdna.aie2p.splat.i8x64"),
-            operands={"src": source},
-            results={"dst": ValueRef.temporary("broadcast_condition")},
-            result_types={"dst": DescriptorResultType()},
-        ),
-        _op_emit(
-            _descriptor("amd.xdna.aie2p.sub.i8x64"),
-            operands={
-                "s1": ValueRef.temporary("broadcast_condition"),
-                "s2": ValueRef.temporary("broadcast_condition"),
-            },
-            results={"d": ValueRef.temporary("zero")},
-            result_types={"d": DescriptorResultType()},
-        ),
-        _op_emit(
-            _descriptor("amd.xdna.aie2p.cmp.lt.unsigned.i8x64"),
-            operands={
-                "s1": ValueRef.temporary("zero"),
-                "s2": ValueRef.temporary("broadcast_condition"),
-            },
-            results={"cmp": result},
-            result_types=(None if result_type is None else {"cmp": result_type}),
-        ),
-    )
-
-
 def _vector_predicate_splat_rule() -> DescriptorRule:
     return DescriptorRule(
         source_op=vector.vector_splat,
@@ -815,53 +796,6 @@ def _predicate_complete_emit(
     )
 
 
-class _PredicateUpdate(Enum):
-    NONE = "none"
-    LHS = "lhs"
-    RHS = "rhs"
-
-
-def _predicate_binary_emits(
-    operation: str,
-    lhs: ValueRef,
-    rhs: ValueRef,
-    result: ValueRef,
-    *,
-    temporary_prefix: str,
-    update: _PredicateUpdate,
-) -> tuple[EmitDescriptorOp, ...]:
-    low_result = ValueRef.temporary(f"{temporary_prefix}_low32")
-    if update is _PredicateUpdate.NONE:
-        low = _descriptor(f"amd.xdna.aie2p.predicate.{operation}.low32")
-        high = _descriptor(f"amd.xdna.aie2p.predicate.{operation}.high32")
-        low_operands = {"s0": lhs, "s1": rhs}
-        high_operands = {"s0": lhs, "s1": rhs, "storage": low_result}
-    else:
-        # The native scalar operation is commutative, so place whichever source
-        # value dies here in the tied s1 encoding role.
-        preserved, updated = (
-            (rhs, lhs) if update is _PredicateUpdate.LHS else (lhs, rhs)
-        )
-        low = _descriptor(f"amd.xdna.aie2p.predicate.{operation}.low32.rhs_tied")
-        high = _descriptor(f"amd.xdna.aie2p.predicate.{operation}.high32.rhs_tied")
-        low_operands = {"s0": preserved, "s1": updated}
-        high_operands = {"s0": preserved, "s1": low_result}
-    return (
-        _op_emit(
-            low,
-            operands=low_operands,
-            results={"d0": low_result},
-            result_types={"d0": DescriptorResultType()},
-        ),
-        _op_emit(
-            high,
-            operands=high_operands,
-            results={"d0": result},
-            result_types={"d0": DescriptorResultType()},
-        ),
-    )
-
-
 def _vector_predicate_binary_rules(
     source_op: Op,
     operation: str,
@@ -892,46 +826,6 @@ def _vector_predicate_binary_rules(
             (_PredicateUpdate.LHS, "lhs"),
             (_PredicateUpdate.NONE, None),
         )
-    )
-
-
-def _predicate_select_emits(
-    condition: ValueRef,
-    true_value: ValueRef,
-    false_value: ValueRef,
-    result: ValueRef,
-    *,
-    first_update: _PredicateUpdate,
-) -> tuple[EmitDescriptorOp, ...]:
-    """Selects packed predicate bits while keeping every value packed."""
-
-    difference = ValueRef.temporary("difference")
-    changes = ValueRef.temporary("changes")
-    return (
-        *_predicate_binary_emits(
-            "xor",
-            false_value,
-            true_value,
-            difference,
-            temporary_prefix="difference",
-            update=first_update,
-        ),
-        *_predicate_binary_emits(
-            "and",
-            condition,
-            difference,
-            changes,
-            temporary_prefix="changes",
-            update=_PredicateUpdate.RHS,
-        ),
-        *_predicate_binary_emits(
-            "xor",
-            false_value,
-            changes,
-            result,
-            temporary_prefix="selected",
-            update=_PredicateUpdate.RHS,
-        ),
     )
 
 
@@ -1097,7 +991,6 @@ def _vector_compare_rule(
 def _whole_vector_select_rule(
     result_type: TypePattern,
 ) -> DescriptorRule:
-    subtract_one = _descriptor("amd.xdna.aie2p.select.mask.i32")
     select = _descriptor("amd.xdna.aie2p.select.i32x16")
     return DescriptorRule(
         source_op=scf.scf_select,
@@ -1106,24 +999,11 @@ def _whole_vector_select_rule(
             Guard.value_type("condition", _I1),
             *_typed_guards(("true_value", "false_value", "result"), result_type),
         ),
-        emit=(
-            EmitDescriptorOp(
-                descriptor=subtract_one,
-                operands={"s0": ValueRef.operand("condition")},
-                results={"d0": ValueRef.temporary("hardware_selector")},
-                result_types={"d0": DescriptorResultType()},
-                immediates={"imm": -1},
-                form=DescriptorEmitForm.OP,
-            ),
-            _op_emit(
-                select,
-                operands={
-                    "s1": ValueRef.operand("true_value"),
-                    "s2": ValueRef.operand("false_value"),
-                    "sel": ValueRef.temporary("hardware_selector"),
-                },
-                results={"d": ValueRef.result("result")},
-            ),
+        emit=_whole_x_select_emits(
+            ValueRef.operand("condition"),
+            ValueRef.operand("true_value"),
+            ValueRef.operand("false_value"),
+            ValueRef.result("result"),
         ),
     )
 

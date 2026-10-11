@@ -42,6 +42,7 @@ iree_py_library(
     "predicate_words.py"
     "reduction.py"
     "scalar_program.py"
+    "selection.py"
     "structural.py"
     "table.py"
   DEPS
