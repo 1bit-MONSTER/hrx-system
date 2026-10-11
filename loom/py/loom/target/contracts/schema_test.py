@@ -15,6 +15,7 @@ from loom.dialect.scalar import analysis as scalar_analysis
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.scalar import conversion as scalar_conversion
 from loom.dialect.vector import defs as vector
+from loom.dsl import ANY, CONVERGENT, PURE, Op, Operand, Result, TiedResult
 from loom.error.target import ERR_TARGET_003
 from loom.target.contracts import (
     AttrProject,
@@ -158,6 +159,84 @@ def test_descriptor_rule_accepts_dead_related_result() -> None:
     )
 
 
+def test_descriptor_rule_rejects_live_sibling_source_graph_result() -> None:
+    rule = DescriptorRule(
+        source_op=scalar_arithmetic.scalar_addi,
+        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+        source_nodes=(
+            SourceNode.adjacent_definition(
+                "pair",
+                source_op=vector.vector_deinterleave,
+                parent_operand=ValueRef.operand("lhs"),
+                node_result=ValueRef.result("even"),
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="must guard sibling results as unused: odd"):
+        ContractFragment(
+            name="test-low.live-sibling-source-graph-result",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(rule,),
+        )
+
+
+def test_descriptor_rule_rejects_live_sibling_root_result() -> None:
+    root_pair = Op(
+        "test.source_graph_root_pair",
+        operands=[Operand("lhs", ANY), Operand("rhs", ANY)],
+        results=[Result("result", ANY), Result("sibling", ANY)],
+        traits=[PURE],
+    )
+    rule = DescriptorRule(
+        source_op=root_pair,
+        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+        source_nodes=(_forward_source_node(),),
+    )
+    with pytest.raises(ValueError, match="must guard sibling results as unused"):
+        ContractFragment(
+            name="test-low.live-sibling-root-result",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(rule,),
+        )
+
+
+def test_descriptor_rule_rejects_variadic_source_graph_definition() -> None:
+    variadic_root = Op(
+        "test.variadic_source_graph_root",
+        operands=[Operand("input", ANY)],
+        results=[Result("result", ANY, variadic=True)],
+        traits=[PURE],
+    )
+    rule = DescriptorRule(
+        source_op=variadic_root,
+        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+        source_nodes=(_forward_source_node(),),
+    )
+    with pytest.raises(ValueError, match="cannot have variadic results"):
+        ContractFragment(
+            name="test-low.variadic-source-graph-definition",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(rule,),
+        )
+
+
+def test_descriptor_rule_rejects_duplicate_source_graph_result_user() -> None:
+    rule = DescriptorRule(
+        source_op=scalar_arithmetic.scalar_addi,
+        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+        source_nodes=(
+            _forward_source_node(name="first"),
+            _forward_source_node(name="second"),
+        ),
+    )
+    with pytest.raises(ValueError, match=r"root.result.*has multiple users"):
+        ContractFragment(
+            name="test-low.duplicate-source-graph-result-user",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(rule,),
+        )
+
+
 def test_descriptor_rule_rejects_unknown_source_node_parent() -> None:
     with pytest.raises(ValueError, match="references unknown parent 'missing'"):
         ContractFragment(
@@ -189,6 +268,38 @@ def test_descriptor_rule_rejects_duplicate_source_node_name() -> None:
 def test_descriptor_rule_rejects_non_pure_source_node() -> None:
     source_node = replace(_forward_source_node(), source_op=vector.vector_load)
     with pytest.raises(ValueError, match="must be pure and regionless"):
+        ContractFragment(
+            name="test-low.fused-source-nodes",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(_fused_scalar_rule(source_nodes=(source_node,)),),
+        )
+
+
+def test_descriptor_rule_rejects_convergent_source_node() -> None:
+    convergent = Op(
+        "test.convergent_source_node",
+        operands=[Operand("input", ANY)],
+        results=[Result("result", ANY)],
+        traits=[PURE, CONVERGENT],
+    )
+    source_node = replace(_forward_source_node(), source_op=convergent)
+    with pytest.raises(ValueError, match="must be relocatable"):
+        ContractFragment(
+            name="test-low.fused-source-nodes",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(_fused_scalar_rule(source_nodes=(source_node,)),),
+        )
+
+
+def test_descriptor_rule_rejects_tied_source_node() -> None:
+    pure_tied = Op(
+        "test.pure_tied_source_node",
+        operands=[Operand("input", ANY)],
+        results=[TiedResult("result", "input", ANY)],
+        traits=[PURE],
+    )
+    source_node = replace(_forward_source_node(), source_op=pure_tied)
+    with pytest.raises(ValueError, match="must be relocatable"):
         ContractFragment(
             name="test-low.fused-source-nodes",
             descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,

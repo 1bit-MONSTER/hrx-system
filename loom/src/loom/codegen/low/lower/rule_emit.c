@@ -477,7 +477,7 @@ static iree_status_t loom_low_lower_rule_emit_descriptor_op(
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
     loom_low_lower_rule_emit_state_t* state,
     const loom_low_lower_resolved_emit_t* resolved_emit,
-    const loom_low_source_memory_access_plan_t* source_memory_access) {
+    const loom_low_lower_selected_source_memory_t* selected_source_memory) {
   const loom_low_lower_emit_t* emit = resolved_emit->emit;
   const loom_low_lower_source_memory_t* source_memory = NULL;
   const loom_low_source_memory_access_plan_t* emit_source_memory_access = NULL;
@@ -485,8 +485,8 @@ static iree_status_t loom_low_lower_rule_emit_descriptor_op(
     const uint16_t source_memory_index =
         (uint16_t)(emit->source_memory_ordinal - 1);
     source_memory = &rule_set->source_memories[source_memory_index];
-    IREE_ASSERT(source_memory_access != NULL);
-    emit_source_memory_access = source_memory_access;
+    IREE_ASSERT(selected_source_memory != NULL);
+    emit_source_memory_access = &selected_source_memory->access;
   }
 
   loom_value_id_t* low_operands = NULL;
@@ -523,7 +523,8 @@ static iree_status_t loom_low_lower_rule_emit_descriptor_op(
   if (emit_source_memory_access != NULL) {
     IREE_RETURN_IF_ERROR(loom_low_lower_record_memory_packet(
         context, low_op, resolved_emit->descriptor.descriptor,
-        emit_source_memory_access, loom_value_facts_exact_i64(0)));
+        selected_source_memory->origin, emit_source_memory_access,
+        loom_value_facts_exact_i64(0)));
   }
   loom_value_slice_t low_results = loom_low_op_results(low_op);
   return loom_low_lower_rule_bind_results(context, rule_set, source_op, state,
@@ -1120,7 +1121,7 @@ iree_status_t loom_low_lower_rule_set_emit_rule(
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
     const loom_low_lower_rule_t* rule,
     const loom_low_lower_resolved_emit_t* resolved_emits,
-    const loom_low_source_memory_access_plan_t* source_memory_access,
+    const loom_low_lower_selected_source_memory_t* source_memory,
     const loom_op_t* const* source_nodes, uint8_t source_node_count) {
   IREE_ASSERT(rule->emit_count == 0 || resolved_emits != NULL);
   IREE_ASSERT_EQ(source_node_count,
@@ -1145,13 +1146,13 @@ iree_status_t loom_low_lower_rule_set_emit_rule(
       case LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP: {
         IREE_RETURN_IF_ERROR(loom_low_lower_rule_emit_descriptor_op(
             context, rule_set, source_op, &state, resolved_emit,
-            source_memory_access));
+            source_memory));
         break;
       }
       case LOOM_LOW_LOWER_EMIT_DESCRIPTOR_CONST: {
         IREE_RETURN_IF_ERROR(loom_low_lower_rule_emit_descriptor_const(
             context, rule_set, source_op, &state, resolved_emit,
-            source_memory_access));
+            source_memory != NULL ? &source_memory->access : NULL));
         break;
       }
       case LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP_FIRST_LANE: {

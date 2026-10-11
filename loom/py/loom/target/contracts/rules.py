@@ -13,7 +13,15 @@ from dataclasses import dataclass
 from enum import Enum, unique
 from typing import Self
 
-from loom.dsl import FACT_IDENTITY, PURE, MemoryAccessInterface, Op
+from loom.dsl import (
+    CONTEXTUAL,
+    CONVERGENT,
+    FACT_IDENTITY,
+    PURE,
+    MemoryAccessInterface,
+    Op,
+    TiedResult,
+)
 from loom.target.contracts.descriptors import _require_descriptor
 from loom.target.contracts.emits import (
     ContractEmit,
@@ -31,6 +39,7 @@ from loom.target.low_descriptors import Descriptor, DescriptorSet, OperandRole
 
 MAX_SOURCE_NODES = 8
 SOURCE_NODE_COUNT_BITS = (MAX_SOURCE_NODES - 1).bit_length()
+MAX_RULE_PRIORITY = 15
 
 
 @unique
@@ -187,6 +196,12 @@ class SourceNode:
                 f"{self.source_op.name}: related source nodes must be pure and "
                 "regionless"
             )
+        if any(
+            trait in self.source_op.traits for trait in (CONVERGENT, CONTEXTUAL)
+        ) or any(isinstance(result, TiedResult) for result in self.source_op.results):
+            raise ValueError(
+                f"{self.source_op.name}: related source nodes must be relocatable"
+            )
         if not self.source_op.results:
             raise ValueError(
                 f"{self.source_op.name}: related source nodes must produce a result"
@@ -236,7 +251,8 @@ class DescriptorRule:
     """Source-to-Low rule contract case authored in Python.
 
     Cases for the same source operation are selected by descending priority,
-    preserving authored order among cases with equal priority.
+    preserving authored order among cases with equal priority. Related source
+    graphs also use the priority to resolve ownership across root operations.
     """
 
     source_op: Op
@@ -267,6 +283,10 @@ class DescriptorRule:
         object.__setattr__(self, "report_key", report_key)
         if priority < 0:
             raise ValueError("descriptor rule priority must be non-negative")
+        if priority > MAX_RULE_PRIORITY:
+            raise ValueError(
+                f"descriptor rule priority must not exceed {MAX_RULE_PRIORITY}"
+            )
         _validate_report_key(source_op, report_key)
 
     @property
@@ -284,6 +304,7 @@ class DescriptorRule:
         source_ops = {"": self.source_op}
         for source_node in self.source_nodes:
             source_node.validate(source_ops)
+        self._validate_source_graph_forest(source_ops)
         for guard in self.guards:
             guard.validate(self.source_op)
         defined_temporaries = set[str]()
@@ -303,6 +324,63 @@ class DescriptorRule:
         self._validate_related_results()
         self._validate_source_memory_preservation()
         self._validate_per_lane_sequence()
+
+    def _validate_source_graph_forest(self, source_ops: dict[str, Op]) -> None:
+        endpoint_guards = {"": self.guards}
+        endpoint_guards.update(
+            (source_node.name, source_node.guards) for source_node in self.source_nodes
+        )
+        connected_results = set[tuple[str, str, int]]()
+        for source_node in self.source_nodes:
+            if source_node.relation in (
+                SourceNodeRelation.ADJACENT_UNIQUE_USER,
+                SourceNodeRelation.EXCLUSIVE_USER,
+            ):
+                definition_name = source_node.parent
+                definition_value = source_node.parent_value
+            else:
+                definition_name = source_node.name
+                definition_value = source_node.node_value
+            result_key = (
+                definition_name,
+                definition_value.field,
+                definition_value.element,
+            )
+            if result_key in connected_results:
+                endpoint = definition_name or "root"
+                raise ValueError(
+                    f"{self.source_op.name}: source graph result "
+                    f"'{endpoint}.{definition_value.field}' has multiple users"
+                )
+            connected_results.add(result_key)
+
+            definition_op = source_ops[definition_name]
+            if any(result.variadic for result in definition_op.results):
+                endpoint = definition_name or "root"
+                raise ValueError(
+                    f"{self.source_op.name}: source graph definition '{endpoint}' "
+                    "cannot have variadic results"
+                )
+            if len(definition_op.results) <= 1:
+                continue
+            dead_result_fields = {
+                guard.field
+                for guard in endpoint_guards[definition_name]
+                if guard.kind is GuardKind.VALUE_NO_USES
+            }
+            live_sibling_fields = tuple(
+                result.name
+                for result in definition_op.results
+                if result.name != definition_value.field
+                and result.name not in dead_result_fields
+            )
+            if live_sibling_fields:
+                endpoint = definition_name or "root"
+                raise ValueError(
+                    f"{self.source_op.name}: source graph definition '{endpoint}' "
+                    "must guard sibling results as unused: "
+                    + ", ".join(live_sibling_fields)
+                )
 
     def _validate_related_results(self) -> None:
         covered_results = set[tuple[str, str, int]]()

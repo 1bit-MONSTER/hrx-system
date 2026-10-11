@@ -17,6 +17,7 @@
 #include "loom/ir/module.h"
 #include "loom/ops/index/ops.h"
 #include "loom/ops/scalar/ops.h"
+#include "loom/ops/test/ops.h"
 #include "loom/util/fact_table.h"
 
 namespace loom {
@@ -242,6 +243,7 @@ class LowLowerRuleMatchTest : public ::testing::Test {
   enum SourceGraphSelectionFlagBits : uint8_t {
     kSourceGraphSelectionRejectRelatedGuard = 1u << 0,
     kSourceGraphSelectionEmitRelatedRhs = 1u << 1,
+    kSourceGraphSelectionRelatedUserChain = 1u << 2,
   };
   using SourceGraphSelectionFlags = uint8_t;
 
@@ -315,10 +317,19 @@ class LowLowerRuleMatchTest : public ::testing::Test {
     return op;
   }
 
+  loom_op_t* BuildConvergent(loom_value_id_t input) {
+    loom_op_t* op = nullptr;
+    IREE_EXPECT_OK(loom_test_convergent_build(
+        &builder_, input, loom_type_scalar(LOOM_SCALAR_TYPE_I32),
+        LOOM_LOCATION_UNKNOWN, &op));
+    return op;
+  }
+
   struct SourceGraphSelection {
-    const loom_op_t* source_nodes[2] = {};
+    const loom_op_t* source_nodes[3] = {};
     const loom_op_t* diagnostic_source_op = nullptr;
     uint8_t source_node_count = 0;
+    uint8_t emission_source_node_index = 0;
     bool selected = false;
     bool has_source_op_span = false;
   };
@@ -327,14 +338,14 @@ class LowLowerRuleMatchTest : public ::testing::Test {
       const loom_op_t* source_op, loom_op_kind_t related_op_kind,
       loom_low_lower_source_node_relation_t relation,
       SourceGraphSelectionFlags flags = 0) {
-    loom_low_lower_value_ref_t value_refs[3] = {};
-    loom_low_lower_source_node_t source_node = {
+    loom_low_lower_value_ref_t value_refs[5] = {};
+    loom_low_lower_source_node_t source_nodes[2] = {{
         .relation = relation,
         .parent_node_index = 0,
         .source_op_kind = related_op_kind,
         .parent_value_ref_index = 0,
         .node_value_ref_index = 1,
-    };
+    }};
     if (relation == LOOM_LOW_LOWER_SOURCE_NODE_ADJACENT_UNIQUE_USER ||
         relation == LOOM_LOW_LOWER_SOURCE_NODE_EXCLUSIVE_USER) {
       value_refs[0].kind = LOOM_LOW_LOWER_VALUE_REF_RESULT;
@@ -356,12 +367,15 @@ class LowLowerRuleMatchTest : public ::testing::Test {
       guard.diagnostic_index = 0;
       guard.payload_ordinal = 1;
       guard_payload.u64 = UINT64_MAX;
-      source_node.guard_count = 1;
+      source_nodes[0].guard_count = 1;
     }
     loom_low_lower_emit_t emit = {};
     const loom_low_lower_emit_ref_t emit_ref = 0;
+    const bool has_related_user_chain =
+        iree_any_bit_set(flags, kSourceGraphSelectionRelatedUserChain);
     loom_low_lower_rule_t rule = {
-        .source_node_span = LOOM_LOW_LOWER_SOURCE_NODE_SPAN(0, 1),
+        .source_node_span =
+            LOOM_LOW_LOWER_SOURCE_NODE_SPAN(0, has_related_user_chain ? 2 : 1),
     };
     if (relation == LOOM_LOW_LOWER_SOURCE_NODE_EXCLUSIVE_USER ||
         relation == LOOM_LOW_LOWER_SOURCE_NODE_EXCLUSIVE_DEFINITION) {
@@ -377,6 +391,19 @@ class LowLowerRuleMatchTest : public ::testing::Test {
       emit.operand_ref_count = 1;
       rule.emit_count = 1;
     }
+    if (has_related_user_chain) {
+      value_refs[3].kind = LOOM_LOW_LOWER_VALUE_REF_RESULT;
+      value_refs[3].source_node_index = 1;
+      value_refs[4].kind = LOOM_LOW_LOWER_VALUE_REF_OPERAND;
+      value_refs[4].source_node_index = 2;
+      source_nodes[1] = {
+          .relation = LOOM_LOW_LOWER_SOURCE_NODE_EXCLUSIVE_USER,
+          .parent_node_index = 1,
+          .source_op_kind = LOOM_OP_SCALAR_ADDI,
+          .parent_value_ref_index = 3,
+          .node_value_ref_index = 4,
+      };
+    }
     const loom_low_lower_rule_span_t span = {
         .source_op_kind = source_op->kind,
         .rule_start = 0,
@@ -389,8 +416,9 @@ class LowLowerRuleMatchTest : public ::testing::Test {
         .rule_count = 1,
         .value_refs = value_refs,
         .value_ref_count = IREE_ARRAYSIZE(value_refs),
-        .source_nodes = &source_node,
-        .source_node_count = 1,
+        .source_nodes = source_nodes,
+        .source_node_count =
+            static_cast<uint16_t>(has_related_user_chain ? 2 : 1),
     };
     if (rule.emit_count != 0) {
       rule_set.emit_refs = &emit_ref;
@@ -415,6 +443,7 @@ class LowLowerRuleMatchTest : public ::testing::Test {
         .source_nodes = {},
         .diagnostic_source_op = selection.failure.diagnostic_source_op,
         .source_node_count = selection.source_node_count,
+        .emission_source_node_index = selection.emission_source_node_index,
         .selected = selection.rule != nullptr,
         .has_source_op_span = selection.failure.has_source_op_span,
     };
@@ -1230,6 +1259,22 @@ TEST_F(LowLowerRuleMatchTest, SelectsNonAdjacentExclusiveDefinitionSourceNode) {
   EXPECT_EQ(selection.source_nodes[1], producer);
 }
 
+TEST_F(LowLowerRuleMatchTest, RejectsConvergentRelatedSourceNode) {
+  const loom_value_id_t lhs =
+      loom_scalar_constant_result(BuildScalarConstant(2));
+  const loom_value_id_t rhs =
+      loom_scalar_constant_result(BuildScalarConstant(3));
+  const loom_op_t* producer = BuildAdd(lhs, rhs);
+  BuildConvergent(loom_scalar_addi_result(producer));
+
+  const SourceGraphSelection selection =
+      SelectSourceGraph(producer, LOOM_OP_TEST_CONVERGENT,
+                        LOOM_LOW_LOWER_SOURCE_NODE_EXCLUSIVE_USER);
+
+  EXPECT_FALSE(selection.selected);
+  EXPECT_TRUE(selection.has_source_op_span);
+}
+
 TEST_F(LowLowerRuleMatchTest, SelectsExclusiveUserWithOperandAvailableAtRoot) {
   const loom_value_id_t lhs =
       loom_scalar_constant_result(BuildScalarConstant(2));
@@ -1246,9 +1291,11 @@ TEST_F(LowLowerRuleMatchTest, SelectsExclusiveUserWithOperandAvailableAtRoot) {
       kSourceGraphSelectionEmitRelatedRhs);
 
   EXPECT_TRUE(selection.selected);
+  EXPECT_EQ(selection.emission_source_node_index, 0u);
 }
 
-TEST_F(LowLowerRuleMatchTest, RejectsExclusiveUserWithOperandDefinedAfterRoot) {
+TEST_F(LowLowerRuleMatchTest,
+       SelectsExclusiveUserAfterOperandDefinedAfterRoot) {
   const loom_value_id_t lhs =
       loom_scalar_constant_result(BuildScalarConstant(2));
   const loom_value_id_t rhs =
@@ -1262,8 +1309,32 @@ TEST_F(LowLowerRuleMatchTest, RejectsExclusiveUserWithOperandDefinedAfterRoot) {
       producer, LOOM_OP_SCALAR_MULI, LOOM_LOW_LOWER_SOURCE_NODE_EXCLUSIVE_USER,
       kSourceGraphSelectionEmitRelatedRhs);
 
-  EXPECT_FALSE(selection.selected);
+  EXPECT_TRUE(selection.selected);
   EXPECT_TRUE(selection.has_source_op_span);
+  EXPECT_EQ(selection.emission_source_node_index, 1u);
+}
+
+TEST_F(LowLowerRuleMatchTest, SelectsEarliestSourceNodeWithAvailableOperands) {
+  const loom_value_id_t lhs =
+      loom_scalar_constant_result(BuildScalarConstant(2));
+  const loom_value_id_t rhs =
+      loom_scalar_constant_result(BuildScalarConstant(3));
+  const loom_op_t* producer = BuildAdd(lhs, rhs);
+  const loom_value_id_t late_accumulator =
+      loom_scalar_constant_result(BuildScalarConstant(5));
+  const loom_op_t* middle =
+      BuildMultiply(loom_scalar_addi_result(producer), late_accumulator);
+  const loom_op_t* tail = BuildAdd(loom_scalar_muli_result(middle), lhs);
+
+  const SourceGraphSelection selection = SelectSourceGraph(
+      producer, LOOM_OP_SCALAR_MULI, LOOM_LOW_LOWER_SOURCE_NODE_EXCLUSIVE_USER,
+      kSourceGraphSelectionEmitRelatedRhs |
+          kSourceGraphSelectionRelatedUserChain);
+
+  EXPECT_TRUE(selection.selected);
+  ASSERT_EQ(selection.source_node_count, 3u);
+  EXPECT_EQ(selection.source_nodes[2], tail);
+  EXPECT_EQ(selection.emission_source_node_index, 1u);
 }
 
 TEST_F(LowLowerRuleMatchTest, RejectsNonAdjacentSourceNode) {

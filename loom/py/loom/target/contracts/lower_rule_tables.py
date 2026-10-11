@@ -22,6 +22,7 @@ from loom.target.contracts.guards import GuardKind
 from loom.target.contracts.kinds import SourceValueKind
 from loom.target.contracts.patterns import TypePattern
 from loom.target.contracts.rules import (
+    MAX_RULE_PRIORITY,
     SourceNodeRelation,
 )
 from loom.target.contracts.source_memory import (
@@ -135,6 +136,8 @@ LOWER_SOURCE_MEMORY_NONE = 0
 LOWER_RULE_FLAG_CONTRACT_ONLY = 1 << 0
 LOWER_RULE_FLAG_ORDINAL_VALUE_ALIAS = 1 << 1
 LOWER_RULE_FLAG_NONLOCAL_SOURCE_GRAPH = 1 << 2
+LOWER_RULE_PRIORITY_SHIFT = 4
+LOWER_RULE_PRIORITY_MAX = MAX_RULE_PRIORITY
 LOWER_RULE_PRIMARY_EMIT_NONE = 0xFFFF
 
 _LOW_VALUE_GUARD_KINDS = (

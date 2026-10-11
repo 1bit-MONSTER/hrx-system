@@ -16,6 +16,7 @@
 #define LOOM_CODEGEN_LOW_LOWER_CONTRACT_QUERY_H_
 
 #include "iree/base/api.h"
+#include "loom/codegen/low/lower/contract_selection.h"
 #include "loom/codegen/low/lower/rule_match.h"
 #include "loom/ir/ir.h"
 #include "loom/target/contract.h"
@@ -51,6 +52,50 @@ typedef struct loom_low_lower_contract_query_options_t {
   // Optional source-graph ownership filter applied after a rule matches.
   loom_low_lower_contract_accept_rule_callback_t accept_rule;
 } loom_low_lower_contract_query_options_t;
+
+typedef enum loom_low_lower_contract_case_match_kind_e {
+  LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_SKIP = 0,
+  LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_UNSUPPORTED = 1,
+  LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_DESCRIPTOR_MATRIX = 2,
+  LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_LOWER_RULE = 3,
+} loom_low_lower_contract_case_match_kind_t;
+
+typedef struct loom_low_lower_contract_case_match_t {
+  // Kind of generated contract case represented by this match.
+  loom_low_lower_contract_case_match_kind_t kind;
+  // Rule set owning a lower-rule match, or NULL for other systems.
+  const loom_low_lower_rule_set_t* rule_set;
+  // Selected lower rule and its best failure when no rule matched.
+  loom_low_lower_rule_selection_t selection;
+  // Adapted semantic request for a descriptor-matrix case.
+  loom_contract_request_t contract_request;
+  // Descriptor-matrix result before lower-rule result materialization.
+  loom_target_contract_query_result_t result;
+} loom_low_lower_contract_case_match_t;
+
+typedef iree_status_t (*loom_low_lower_contract_case_fn_t)(
+    void* user_data, uint16_t case_index,
+    const loom_low_lower_contract_case_match_t* match, bool* out_stop);
+
+typedef struct loom_low_lower_contract_case_callback_t {
+  // Callback invoked for every relevant case in the selected iteration mode.
+  loom_low_lower_contract_case_fn_t fn;
+  // Caller-owned payload passed to |fn|.
+  void* user_data;
+} loom_low_lower_contract_case_callback_t;
+
+typedef iree_status_t (*loom_low_lower_contract_match_fn_t)(
+    void* user_data, const loom_target_contract_query_result_t* result,
+    const loom_low_lower_rule_set_t* rule_set,
+    const loom_low_lower_rule_selection_t* selection,
+    loom_low_lower_rule_primary_descriptor_status_t primary_status);
+
+typedef struct loom_low_lower_contract_match_callback_t {
+  // Callback invoked once for every legal generated contract candidate.
+  loom_low_lower_contract_match_fn_t fn;
+  // Caller-owned payload passed to |fn|.
+  void* user_data;
+} loom_low_lower_contract_match_callback_t;
 
 // Returns true and assigns the generated lower-rule row referenced by a
 // composed target-contract case. The row may be an emission program or a
@@ -93,6 +138,38 @@ iree_status_t loom_low_lower_query_descriptor_matrix_contract(
     const loom_op_t* source_op, loom_contract_request_t* out_request,
     loom_target_contract_query_result_t* out_result);
 
+// Visits all generated lowering contract cases for |source_op| without
+// selecting a winner.
+//
+// The caller supplies the match context because lowering and immutable-source
+// queries carry different value, memory and descriptor state. Candidate mode
+// uses the generated exact-key index and includes descriptor-matrix cases. All
+// mode uses authored order for exact rejection selection and omits matrix cases
+// already covered by candidate mode. Skip cases are not reported.
+iree_status_t loom_low_lower_visit_lowering_contract_cases(
+    const loom_target_contract_query_environment_t* environment,
+    const loom_low_lower_contract_query_options_t* options,
+    const loom_op_t* source_op,
+    loom_low_lower_contract_case_iteration_mode_t iteration_mode,
+    loom_low_lower_rule_match_context_t* match_context,
+    loom_low_lower_contract_case_callback_t callback,
+    bool* out_used_candidate_index);
+
+// Visits generated target-query contract cases for |source_op| without
+// selecting a winner.
+//
+// This has the same iteration contract as the lowering visitor but excludes
+// fragments that did not opt in to target contract queries. Such fragments may
+// still contain source-to-Low lowering rules.
+iree_status_t loom_low_lower_visit_target_contract_cases(
+    const loom_target_contract_query_environment_t* environment,
+    const loom_low_lower_contract_query_options_t* options,
+    const loom_op_t* source_op,
+    loom_low_lower_contract_case_iteration_mode_t iteration_mode,
+    loom_low_lower_rule_match_context_t* match_context,
+    loom_low_lower_contract_case_callback_t callback,
+    bool* out_used_candidate_index);
+
 // Queries source-to-target-low rule tables for one source op.
 //
 // A LEGAL result means one opt-in rule matched the selected target contract. An
@@ -115,6 +192,20 @@ iree_status_t loom_low_lower_query_target_contract_with_selection(
     const loom_low_lower_contract_query_options_t* options,
     const loom_op_t* source_op, loom_target_contract_query_result_t* out_result,
     loom_low_lower_rule_selection_t* out_selection);
+
+// Visits every legal generated contract candidate matching |source_op| in
+// composed priority order.
+//
+// This is the candidate-producing counterpart to the first-match query above.
+// It uses the generated exact candidate index, resolves primary descriptor
+// state, and does not apply |options->accept_rule|. Descriptor-matrix
+// candidates carry an empty rule selection. Target-owned callbacks, unsupported
+// markers, and rejection diagnostics are outside this enumeration.
+iree_status_t loom_low_lower_visit_target_contract_matches(
+    const loom_target_contract_query_environment_t* environment,
+    const loom_low_lower_contract_query_options_t* options,
+    const loom_op_t* source_op,
+    loom_low_lower_contract_match_callback_t callback);
 
 #ifdef __cplusplus
 }  // extern "C"

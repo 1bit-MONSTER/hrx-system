@@ -43,6 +43,8 @@ typedef struct loom_low_lower_rule_descriptor_cache_t
     loom_low_lower_rule_descriptor_cache_t;
 typedef struct loom_low_lower_source_query_coverage_t
     loom_low_lower_source_query_coverage_t;
+typedef struct loom_low_lower_source_graph_placement_t
+    loom_low_lower_source_graph_placement_t;
 
 typedef struct loom_low_lower_target_state_record_t {
   // Target-owned static key identifying this function-local state object.
@@ -132,6 +134,8 @@ struct loom_low_lower_context_t {
   loom_low_lower_function_analysis_t function_analysis;
   // Source-graph coverage for the primary fact table, owned by analysis_arena.
   loom_low_lower_source_query_coverage_t* source_query_coverage;
+  // Lazy source-graph emission placement state owned by analysis_arena.
+  loom_low_lower_source_graph_placement_t* source_graph_placement;
   // Arena reset after each source-op planning callback.
   iree_arena_allocator_t planning_arena;
   // True only while a source-op planning callback may request scratch storage.

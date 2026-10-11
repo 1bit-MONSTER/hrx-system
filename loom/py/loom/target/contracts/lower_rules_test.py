@@ -28,6 +28,7 @@ from loom.target.contracts import (
     LOWER_RULE_FLAG_NONLOCAL_SOURCE_GRAPH,
     LOWER_RULE_FLAG_ORDINAL_VALUE_ALIAS,
     LOWER_RULE_PRIMARY_EMIT_NONE,
+    LOWER_RULE_PRIORITY_SHIFT,
     AttrProject,
     ContractFragment,
     DescriptorEmitForm,
@@ -994,6 +995,20 @@ def test_compile_lower_rule_set_groups_ops_and_orders_rules_by_priority() -> Non
     assert compiled.authored_case_indices[
         addi_span.rule_start : addi_span.rule_start + addi_span.rule_count
     ] == (1, 3, 0)
+    assert [
+        rule.flags >> LOWER_RULE_PRIORITY_SHIFT
+        for rule in compiled.rules[
+            addi_span.rule_start : addi_span.rule_start + addi_span.rule_count
+        ]
+    ] == [2, 2, 0]
+
+
+def test_descriptor_rule_rejects_unrepresentable_priority() -> None:
+    with pytest.raises(ValueError, match="priority must not exceed 15"):
+        DescriptorRule(
+            source_op=scalar_arithmetic.scalar_addi,
+            priority=16,
+        )
 
 
 def test_compile_lower_rule_set_interns_exact_rule_programs() -> None:

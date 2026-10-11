@@ -31,6 +31,16 @@ class LowLowerSourceQueryTest : public ::testing::Test {
   using DialectVtablesFn =
       const loom_op_vtable_t* const* (*)(iree_host_size_t*);
 
+  struct QueryProbe {
+    // Operation owned by the target callback.
+    const loom_op_t* handled_op = nullptr;
+    // Target-owned query outcome.
+    loom_target_contract_query_outcome_t outcome =
+        LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+    // True when the callback observed source-scope analyses.
+    bool observed_source_scope = false;
+  };
+
   void SetUp() override {
     iree_arena_block_pool_initialize(4096, iree_allocator_system(),
                                      &block_pool_);
@@ -176,6 +186,30 @@ class LowLowerSourceQueryTest : public ::testing::Test {
     const loom_target_contract_query_callback_t callback =
         loom_low_lower_source_query_scope_callback(query_scope_);
     return callback.fn(callback.user_data, &environment, source_op, out_result);
+  }
+
+  void InstallTargetContract(QueryProbe* probe,
+                             loom_low_lower_policy_t* policy) {
+    *policy = *options_.policy;
+    policy->query_op_contract = {
+        .fn = [](void* user_data,
+                 const loom_target_contract_query_environment_t* environment,
+                 const loom_op_t* source_op,
+                 loom_target_contract_query_result_t* out_result)
+            -> iree_status_t {
+          auto* probe = static_cast<QueryProbe*>(user_data);
+          probe->observed_source_scope |=
+              environment->value_domain != nullptr &&
+              environment->view_regions != nullptr;
+          *out_result = loom_target_contract_query_result_empty();
+          if (source_op == probe->handled_op) {
+            out_result->outcome = probe->outcome;
+          }
+          return iree_ok_status();
+        },
+        .user_data = probe,
+    };
+    options_.policy = policy;
   }
 
   iree_arena_block_pool_t block_pool_;
@@ -435,10 +469,10 @@ TEST_F(LowLowerSourceQueryTest, RelatedOpsUseSelectedSourceGraphContract) {
       loom_low_descriptor_set_string(
           mapping_context_.descriptor_set,
           root_result.selected_descriptor->semantic_tag_string_ref),
-      IREE_SV("test.fused.add_mul.i32")));
+      IREE_SV("integer.add.i32")));
 
-  // The later add cannot also claim the multiply and falls through to its
-  // standalone contract, matching source-plan ownership.
+  // Equal-score graphs use stable candidate order at their shared tree top, so
+  // the later add claims the multiply independently of query order.
   loom_target_contract_query_result_t overlap_result =
       loom_target_contract_query_result_empty();
   IREE_ASSERT_OK(QueryContract(overlap_root_op_, &overlap_result));
@@ -447,35 +481,13 @@ TEST_F(LowLowerSourceQueryTest, RelatedOpsUseSelectedSourceGraphContract) {
       loom_low_descriptor_set_string(
           mapping_context_.descriptor_set,
           overlap_result.selected_descriptor->semantic_tag_string_ref),
-      IREE_SV("integer.add.i32")));
+      IREE_SV("test.fused.mul_add.i32")));
 }
 
 TEST_F(LowLowerSourceQueryTest, TargetOwnedContractComposesWithGeneratedCases) {
-  struct QueryProbe {
-    // Operation owned by the target callback.
-    const loom_op_t* handled_op = nullptr;
-    // True when the callback observed source-scope analyses.
-    bool observed_source_scope = false;
-  } probe = {.handled_op = mapped_source_op_};
-  loom_low_lower_policy_t policy = *options_.policy;
-  policy.query_op_contract = {
-      .fn =
-          [](void* user_data,
-             const loom_target_contract_query_environment_t* environment,
-             const loom_op_t* source_op,
-             loom_target_contract_query_result_t* out_result) -> iree_status_t {
-        auto* probe = static_cast<QueryProbe*>(user_data);
-        probe->observed_source_scope |= environment->value_domain != nullptr &&
-                                        environment->view_regions != nullptr;
-        *out_result = loom_target_contract_query_result_empty();
-        if (source_op == probe->handled_op) {
-          out_result->outcome = LOOM_TARGET_CONTRACT_QUERY_LEGAL;
-        }
-        return iree_ok_status();
-      },
-      .user_data = &probe,
-  };
-  options_.policy = &policy;
+  QueryProbe probe = {.handled_op = mapped_source_op_};
+  loom_low_lower_policy_t policy;
+  InstallTargetContract(&probe, &policy);
   CreateQueryScope();
 
   loom_target_contract_query_result_t generated_result =
@@ -490,6 +502,57 @@ TEST_F(LowLowerSourceQueryTest, TargetOwnedContractComposesWithGeneratedCases) {
   EXPECT_EQ(target_result.outcome, LOOM_TARGET_CONTRACT_QUERY_LEGAL);
   EXPECT_EQ(target_result.selected_descriptor, nullptr);
   EXPECT_TRUE(probe.observed_source_scope);
+}
+
+TEST_F(LowLowerSourceQueryTest, TargetOwnedRelatedOpExcludesGeneratedGraphs) {
+  QueryProbe probe = {.handled_op = fused_related_op_};
+  loom_low_lower_policy_t policy;
+  InstallTargetContract(&probe, &policy);
+  CreateQueryScope();
+
+  loom_target_contract_query_result_t related_result =
+      loom_target_contract_query_result_empty();
+  IREE_ASSERT_OK(QueryContract(fused_related_op_, &related_result));
+  EXPECT_EQ(related_result.outcome, LOOM_TARGET_CONTRACT_QUERY_LEGAL);
+  EXPECT_EQ(related_result.selected_descriptor, nullptr);
+
+  for (const loom_op_t* root : {fused_root_op_, overlap_root_op_}) {
+    loom_target_contract_query_result_t root_result =
+        loom_target_contract_query_result_empty();
+    IREE_ASSERT_OK(QueryContract(root, &root_result));
+    ASSERT_NE(root_result.selected_descriptor, nullptr);
+    EXPECT_TRUE(iree_string_view_equal(
+        loom_low_descriptor_set_string(
+            mapping_context_.descriptor_set,
+            root_result.selected_descriptor->semantic_tag_string_ref),
+        IREE_SV("integer.add.i32")));
+  }
+}
+
+TEST_F(LowLowerSourceQueryTest,
+       TargetRejectedRelatedOpExcludesGeneratedGraphs) {
+  QueryProbe probe = {
+      .handled_op = fused_related_op_,
+      .outcome = LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED,
+  };
+  loom_low_lower_policy_t policy;
+  InstallTargetContract(&probe, &policy);
+  CreateQueryScope();
+
+  loom_target_contract_query_result_t related_result =
+      loom_target_contract_query_result_empty();
+  IREE_ASSERT_OK(QueryContract(fused_related_op_, &related_result));
+  EXPECT_EQ(related_result.outcome, LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED);
+
+  loom_target_contract_query_result_t root_result =
+      loom_target_contract_query_result_empty();
+  IREE_ASSERT_OK(QueryContract(fused_root_op_, &root_result));
+  ASSERT_NE(root_result.selected_descriptor, nullptr);
+  EXPECT_TRUE(iree_string_view_equal(
+      loom_low_descriptor_set_string(
+          mapping_context_.descriptor_set,
+          root_result.selected_descriptor->semantic_tag_string_ref),
+      IREE_SV("integer.add.i32")));
 }
 
 TEST_F(LowLowerSourceQueryTest, NativeContractWithoutMetadataCallback) {

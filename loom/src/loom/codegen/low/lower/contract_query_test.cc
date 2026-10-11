@@ -386,6 +386,100 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleSelectsLegalCase) {
   EXPECT_EQ(result.selected_descriptor, &kDescriptor);
 }
 
+TEST(LowContractQueryTest, LoweringVisitorIncludesNonQueryFragment) {
+  loom_low_lower_rule_t rule = {};
+  loom_low_lower_rule_set_t rule_set = {
+      .rules = &rule,
+      .rule_count = 1,
+  };
+  const loom_low_lower_rule_set_t* rule_sets[] = {&rule_set};
+
+  const loom_target_contract_fragment_t fragment = {};
+  const loom_target_contract_binding_t binding = {
+      .fragment = &fragment,
+      .rule_set_index = 0,
+  };
+  const loom_target_contract_case_t contract_case = {
+      .system = LOOM_TARGET_CONTRACT_SYSTEM_VALUE_ELIDE,
+      .binding_index = 0,
+      .row_index = 0,
+  };
+  loom_target_contract_op_entry_t entries[(kSourceOpKind & 0xFF) + 1] = {};
+  entries[loom_op_dialect_index(kSourceOpKind)] = {
+      .case_start = 0,
+      .case_count = 1,
+  };
+  const loom_target_contract_dialect_table_t dialect = {
+      .op_count = IREE_ARRAYSIZE(entries),
+      .op_entries = entries,
+  };
+  const loom_target_contract_index_t index = {
+      .dialect_base_id = kSourceOpKind >> 8,
+      .dialect_count = 1,
+      .dialects = &dialect,
+      .case_count = 1,
+      .cases = &contract_case,
+      .binding_count = 1,
+      .nonlocal_source_op_kind_count = 0,
+      .bindings = &binding,
+      .selection_data = nullptr,
+      .nonlocal_source_op_kinds = nullptr,
+  };
+  const loom_low_lower_contract_query_options_t options = {
+      .contract_index = &index,
+      .rule_sets =
+          {
+              .count = IREE_ARRAYSIZE(rule_sets),
+              .values = rule_sets,
+          },
+  };
+  const loom_target_facts_t target_facts = MakeTargetFacts();
+  const loom_target_contract_query_environment_t environment = {
+      .module = nullptr,
+      .function = {},
+      .target_facts = &target_facts,
+  };
+  loom_low_lower_rule_match_context_t match_context = {
+      .bundle = &kTargetBundle,
+  };
+  loom_op_t op = {
+      .kind = kSourceOpKind,
+  };
+
+  struct VisitState {
+    const loom_low_lower_rule_t* expected_rule;
+    int count;
+  } lowering_state = {.expected_rule = &rule, .count = 0},
+    target_query_state = {.expected_rule = &rule, .count = 0};
+  const loom_low_lower_contract_case_callback_t callback = {
+      .fn = [](void* user_data, uint16_t case_index,
+               const loom_low_lower_contract_case_match_t* match,
+               bool* out_stop) -> iree_status_t {
+        auto* state = static_cast<VisitState*>(user_data);
+        EXPECT_EQ(case_index, 0);
+        EXPECT_EQ(match->kind, LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_LOWER_RULE);
+        EXPECT_EQ(match->selection.rule, state->expected_rule);
+        ++state->count;
+        *out_stop = false;
+        return iree_ok_status();
+      },
+      .user_data = &lowering_state,
+  };
+  IREE_ASSERT_OK(loom_low_lower_visit_lowering_contract_cases(
+      &environment, &options, &op,
+      LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES, &match_context,
+      callback, /*out_used_candidate_index=*/nullptr));
+  EXPECT_EQ(lowering_state.count, 1);
+
+  loom_low_lower_contract_case_callback_t target_query_callback = callback;
+  target_query_callback.user_data = &target_query_state;
+  IREE_ASSERT_OK(loom_low_lower_visit_target_contract_cases(
+      &environment, &options, &op,
+      LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES, &match_context,
+      target_query_callback, /*out_used_candidate_index=*/nullptr));
+  EXPECT_EQ(target_query_state.count, 0);
+}
+
 TEST(LowContractQueryTest,
      ContractIndexDefersUnavailableDescriptorAcrossBindings) {
   const uint64_t feature_mask_words[] = {1};

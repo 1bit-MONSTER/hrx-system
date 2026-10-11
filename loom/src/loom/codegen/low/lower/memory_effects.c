@@ -73,7 +73,8 @@ bool loom_low_lower_memory_packet_interval(
       source_plan->root_uniform_scope <
           LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP ||
       source_plan->vector_offset_kind ==
-          LOOM_LOW_SOURCE_MEMORY_VECTOR_OFFSET_OTHER) {
+          LOOM_LOW_SOURCE_MEMORY_VECTOR_OFFSET_OTHER ||
+      (source_plan->dynamic_term_count != 0 && origin == NULL)) {
     return false;
   }
   int64_t lane_begin = 0, lane_end = 0;
@@ -172,10 +173,9 @@ static iree_status_t loom_low_lower_record_memory_packet_effects(
 iree_status_t loom_low_lower_record_memory_packet(
     loom_low_lower_context_t* context, const loom_op_t* low_op,
     const loom_low_descriptor_t* descriptor,
+    const loom_low_lower_memory_origin_t* origin,
     const loom_low_source_memory_access_plan_t* source_plan,
     loom_value_facts_t additional_offset) {
-  const loom_low_lower_memory_origin_t* origin =
-      context->lowering->source_plan.memory.current->origin;
   loom_low_memory_relative_interval_t relative;
   int64_t lane_byte_count = 0;
   const bool has_interval = loom_low_lower_memory_packet_interval(

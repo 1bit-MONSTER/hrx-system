@@ -11,6 +11,8 @@
 #include "loom/codegen/low/lower/context.h"
 #include "loom/codegen/low/lower/contract_query.h"
 #include "loom/codegen/low/lower/rule_match.h"
+#include "loom/codegen/low/lower/source_graph_placement.h"
+#include "loom/codegen/low/lower/source_graph_plan.h"
 #include "loom/ir/module.h"
 #include "loom/target/low_descriptor_registry.h"
 #include "loom/target/registers.h"
@@ -23,37 +25,54 @@ typedef struct loom_low_lower_contract_query_state_t {
   const loom_target_contract_query_environment_t* environment;
 } loom_low_lower_contract_query_state_t;
 
-// Source-graph ownership established once for one immutable query scope.
-// Result ordinals provide the dense identity for nearly every semantic op;
-// result-less roots use the sparse fallback index.
-typedef struct loom_low_lower_source_query_graph_t {
-  // Root operation whose contract selected the source graph.
-  const loom_op_t* root_op;
-  // Contract result retained for the root's later worklist query.
-  loom_target_contract_query_result_t root_result;
-} loom_low_lower_source_query_graph_t;
+typedef struct loom_low_lower_source_query_alternative_t
+    loom_low_lower_source_query_alternative_t;
+
+struct loom_low_lower_source_query_alternative_t {
+  // Exact legal contract result retained from candidate matching.
+  loom_target_contract_query_result_t result;
+  // Resolver availability and target-ownership state.
+  loom_low_lower_source_graph_alternative_state_t state;
+};
+
+typedef struct loom_low_lower_source_query_node_t {
+  // Next source node participating in at least one multi-node graph.
+  struct loom_low_lower_source_query_node_t* next;
+  // Immutable source operation represented by this node.
+  const loom_op_t* op;
+  // Dense function-local identity used by the shared resolver.
+  uint32_t index;
+} loom_low_lower_source_query_node_t;
 
 typedef struct loom_low_lower_source_query_zero_result_entry_t {
   // Result-less source operation, or NULL for an empty slot.
   const loom_op_t* op;
-  // Selected graph or one of the root-state marker addresses below.
-  const loom_low_lower_source_query_graph_t* graph;
+  // Dense source graph node for |op|.
+  loom_low_lower_source_query_node_t* node;
 } loom_low_lower_source_query_zero_result_entry_t;
 
 typedef struct loom_low_lower_source_query_coverage_t {
-  // Source-value-ordinal indexed graph for each operation's first result.
-  const loom_low_lower_source_query_graph_t** value_graphs;
-  // Number of entries in value_graphs.
-  loom_value_ordinal_t value_graph_count;
-  // Sparse identity index for result-less operations.
+  // First participating source node in discovery order.
+  loom_low_lower_source_query_node_t* first_node;
+  // Last participating source node in discovery order.
+  loom_low_lower_source_query_node_t* last_node;
+  // Source-value-ordinal indexed nodes for operations producing results.
+  loom_low_lower_source_query_node_t** value_nodes;
+  // Number of entries in value_nodes.
+  loom_value_ordinal_t value_node_count;
+  // Sparse identity index for result-less graph roots.
   loom_low_lower_source_query_zero_result_entry_t* zero_result_entries;
   // Number of populated zero_result_entries.
   iree_host_size_t zero_result_count;
   // Power-of-two capacity of zero_result_entries.
   iree_host_size_t zero_result_capacity;
+  // Shared candidate ownership resolver.
+  loom_low_lower_source_graph_plan_t* graph_plan;
+  // Number of participating source nodes.
+  uint32_t node_count;
   // True after all source graphs in the function have been selected.
   bool prepared;
-  // True while the one-time source walk is selecting graphs.
+  // True while the one-time source walk is collecting graphs.
   bool preparing;
 } loom_low_lower_source_query_coverage_t;
 
@@ -62,16 +81,15 @@ typedef struct loom_low_lower_source_query_coverage_build_state_t {
   loom_low_lower_context_t* context;
   // Contract environment fixed for the immutable query scope.
   const loom_target_contract_query_environment_t* environment;
-  // Base contract matcher options without the graph ownership filter.
+  // Base contract matcher options without an ownership filter.
   const loom_low_lower_contract_query_options_t* options;
   // Coverage being populated or queried.
   loom_low_lower_source_query_coverage_t* coverage;
+  // Root operation whose contract candidates are being visited.
+  const loom_op_t* root_op;
+  // True while collecting multi-node graphs; false while adding singletons.
+  bool collect_multi_node_graphs;
 } loom_low_lower_source_query_coverage_build_state_t;
-
-static const loom_low_lower_source_query_graph_t
-    loom_low_lower_source_query_legal_root_marker = {0};
-static const loom_low_lower_source_query_graph_t
-    loom_low_lower_source_query_unavailable_root_marker = {0};
 
 static iree_host_size_t loom_low_lower_source_query_op_hash(
     const loom_op_t* op) {
@@ -97,16 +115,15 @@ static bool loom_low_lower_source_query_op_value_ordinal(
   return true;
 }
 
-static const loom_low_lower_source_query_graph_t*
-loom_low_lower_source_query_coverage_lookup(
+static loom_low_lower_source_query_node_t*
+loom_low_lower_source_query_coverage_lookup_node(
     const loom_low_lower_context_t* context,
     const loom_low_lower_source_query_coverage_t* coverage,
     const loom_op_t* op) {
   loom_value_ordinal_t ordinal = LOOM_VALUE_ORDINAL_INVALID;
   if (loom_low_lower_source_query_op_value_ordinal(context, op, &ordinal)) {
-    return coverage->value_graphs != NULL &&
-                   ordinal < coverage->value_graph_count
-               ? coverage->value_graphs[ordinal]
+    return coverage->value_nodes != NULL && ordinal < coverage->value_node_count
+               ? coverage->value_nodes[ordinal]
                : NULL;
   }
   if (coverage->zero_result_capacity == 0) {
@@ -116,7 +133,7 @@ loom_low_lower_source_query_coverage_lookup(
   iree_host_size_t slot = loom_low_lower_source_query_op_hash(op) & mask;
   while (coverage->zero_result_entries[slot].op != NULL) {
     if (coverage->zero_result_entries[slot].op == op) {
-      return coverage->zero_result_entries[slot].graph;
+      return coverage->zero_result_entries[slot].node;
     }
     slot = (slot + 1) & mask;
   }
@@ -126,7 +143,7 @@ loom_low_lower_source_query_coverage_lookup(
 static void loom_low_lower_source_query_coverage_insert_zero_result(
     loom_low_lower_source_query_zero_result_entry_t* entries,
     iree_host_size_t capacity, const loom_op_t* op,
-    const loom_low_lower_source_query_graph_t* graph) {
+    loom_low_lower_source_query_node_t* node) {
   const iree_host_size_t mask = capacity - 1;
   iree_host_size_t slot = loom_low_lower_source_query_op_hash(op) & mask;
   while (entries[slot].op != NULL && entries[slot].op != op) {
@@ -134,45 +151,56 @@ static void loom_low_lower_source_query_coverage_insert_zero_result(
   }
   entries[slot] = (loom_low_lower_source_query_zero_result_entry_t){
       .op = op,
-      .graph = graph,
+      .node = node,
   };
 }
 
-static iree_status_t loom_low_lower_source_query_coverage_set(
+static iree_status_t loom_low_lower_source_query_coverage_get_node(
     loom_low_lower_context_t* context,
     loom_low_lower_source_query_coverage_t* coverage, const loom_op_t* op,
-    const loom_low_lower_source_query_graph_t* graph) {
+    loom_low_lower_source_query_node_t** out_node) {
+  *out_node =
+      loom_low_lower_source_query_coverage_lookup_node(context, coverage, op);
+  if (*out_node != NULL) {
+    return iree_ok_status();
+  }
+  if (coverage->node_count == UINT32_MAX) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "source query graph node count overflow");
+  }
+  loom_low_lower_source_query_node_t* node = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate(&context->analysis_arena,
+                                           sizeof(*node), (void**)&node));
+  *node = (loom_low_lower_source_query_node_t){
+      .op = op,
+      .index = coverage->node_count++,
+  };
+  if (coverage->last_node != NULL) {
+    coverage->last_node->next = node;
+  } else {
+    coverage->first_node = node;
+  }
+  coverage->last_node = node;
+
   loom_value_ordinal_t ordinal = LOOM_VALUE_ORDINAL_INVALID;
   if (loom_low_lower_source_query_op_value_ordinal(context, op, &ordinal)) {
-    const loom_value_ordinal_t required_count =
-        context->lowering->value_domain.value_count;
-    if (coverage->value_graphs == NULL ||
-        coverage->value_graph_count < required_count) {
-      const loom_value_ordinal_t previous_count =
-          coverage->value_graphs != NULL ? coverage->value_graph_count : 0;
-      const loom_low_lower_source_query_graph_t** new_value_graphs = NULL;
+    if (coverage->value_nodes == NULL) {
+      coverage->value_node_count = context->lowering->value_domain.value_count;
       IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-          &context->analysis_arena, required_count, sizeof(*new_value_graphs),
-          (void**)&new_value_graphs));
-      if (previous_count != 0) {
-        memcpy(new_value_graphs, coverage->value_graphs,
-               previous_count * sizeof(*new_value_graphs));
-      }
-      memset(new_value_graphs + previous_count, 0,
-             (required_count - previous_count) * sizeof(*new_value_graphs));
-      coverage->value_graphs = new_value_graphs;
-      coverage->value_graph_count = required_count;
+          &context->analysis_arena, coverage->value_node_count,
+          sizeof(*coverage->value_nodes), (void**)&coverage->value_nodes));
+      memset(coverage->value_nodes, 0,
+             (iree_host_size_t)coverage->value_node_count *
+                 sizeof(*coverage->value_nodes));
     }
-    IREE_ASSERT_LT(ordinal, coverage->value_graph_count);
-    coverage->value_graphs[ordinal] = graph;
+    IREE_ASSERT_LT(ordinal, coverage->value_node_count);
+    coverage->value_nodes[ordinal] = node;
+    *out_node = node;
     return iree_ok_status();
   }
 
-  const bool already_present = loom_low_lower_source_query_coverage_lookup(
-                                   context, coverage, op) != NULL;
-  if (!already_present &&
-      (coverage->zero_result_capacity == 0 ||
-       coverage->zero_result_count >= coverage->zero_result_capacity / 2)) {
+  if (coverage->zero_result_capacity == 0 ||
+      coverage->zero_result_count >= coverage->zero_result_capacity / 2) {
     const iree_host_size_t new_capacity =
         coverage->zero_result_capacity == 0
             ? 8
@@ -191,7 +219,7 @@ static iree_status_t loom_low_lower_source_query_coverage_set(
           coverage->zero_result_entries[i];
       if (entry.op != NULL) {
         loom_low_lower_source_query_coverage_insert_zero_result(
-            new_entries, new_capacity, entry.op, entry.graph);
+            new_entries, new_capacity, entry.op, entry.node);
       }
     }
     coverage->zero_result_entries = new_entries;
@@ -199,30 +227,45 @@ static iree_status_t loom_low_lower_source_query_coverage_set(
   }
 
   loom_low_lower_source_query_coverage_insert_zero_result(
-      coverage->zero_result_entries, coverage->zero_result_capacity, op, graph);
-  if (!already_present) {
-    ++coverage->zero_result_count;
-  }
+      coverage->zero_result_entries, coverage->zero_result_capacity, op, node);
+  ++coverage->zero_result_count;
+  *out_node = node;
   return iree_ok_status();
 }
 
-static iree_status_t loom_low_lower_source_query_coverage_record_graph(
-    loom_low_lower_context_t* context,
-    loom_low_lower_source_query_coverage_t* coverage,
+static iree_status_t loom_low_lower_source_query_coverage_add_graph(
+    loom_low_lower_source_query_coverage_build_state_t* state,
     const loom_op_t* const* source_nodes, uint8_t source_node_count,
-    const loom_target_contract_query_result_t* root_result) {
-  loom_low_lower_source_query_graph_t* graph = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate(&context->analysis_arena,
-                                           sizeof(*graph), (void**)&graph));
-  *graph = (loom_low_lower_source_query_graph_t){
-      .root_op = source_nodes[0],
-      .root_result = *root_result,
-  };
+    const loom_low_lower_rule_set_t* rule_set,
+    const loom_low_lower_rule_t* rule, uint8_t priority,
+    const loom_target_contract_query_result_t* result,
+    loom_low_lower_source_graph_alternative_state_t alternative_state) {
+  uint32_t node_indices[LOOM_LOW_LOWER_MAX_SOURCE_NODES];
   for (uint8_t i = 0; i < source_node_count; ++i) {
-    IREE_RETURN_IF_ERROR(loom_low_lower_source_query_coverage_set(
-        context, coverage, source_nodes[i], graph));
+    loom_low_lower_source_query_node_t* node = NULL;
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_query_coverage_get_node(
+        state->context, state->coverage, source_nodes[i], &node));
+    node_indices[i] = node->index;
   }
-  return iree_ok_status();
+  loom_low_lower_source_graph_edge_t edges[LOOM_LOW_LOWER_MAX_SOURCE_NODES - 1];
+  const loom_low_lower_source_graph_edge_t* graph_edges = NULL;
+  if (source_node_count > 1) {
+    IREE_ASSERT(rule_set != NULL);
+    IREE_ASSERT(rule != NULL);
+    loom_low_lower_source_graph_rule_edges(rule_set, rule, edges);
+    graph_edges = edges;
+  }
+  loom_low_lower_source_query_alternative_t* alternative = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate(&state->context->analysis_arena,
+                                           sizeof(*alternative),
+                                           (void**)&alternative));
+  *alternative = (loom_low_lower_source_query_alternative_t){
+      .result = *result,
+      .state = alternative_state,
+  };
+  return loom_low_lower_source_graph_plan_add_alternative(
+      state->coverage->graph_plan, node_indices, source_node_count, graph_edges,
+      priority, alternative, /*out_alternative=*/NULL);
 }
 
 static bool loom_low_lower_source_query_case_has_related_nodes(
@@ -282,7 +325,6 @@ static iree_status_t loom_low_lower_source_query_one(
     loom_low_lower_context_t* context,
     const loom_target_contract_query_environment_t* environment,
     const loom_low_lower_contract_query_options_t* options,
-    loom_low_lower_contract_accept_rule_callback_t accept_rule,
     const loom_op_t* source_op, loom_target_contract_query_result_t* out_result,
     loom_low_lower_rule_selection_t* out_selection) {
   *out_result = loom_target_contract_query_result_empty();
@@ -300,62 +342,43 @@ static iree_status_t loom_low_lower_source_query_one(
   if (out_result->outcome != LOOM_TARGET_CONTRACT_QUERY_UNHANDLED) {
     return iree_ok_status();
   }
-  loom_low_lower_contract_query_options_t filtered_options = *options;
-  filtered_options.accept_rule = accept_rule;
   return loom_low_lower_query_target_contract_with_selection(
-      environment, &filtered_options, source_op, out_result, out_selection);
+      environment, options, source_op, out_result, out_selection);
 }
 
-static iree_status_t loom_low_lower_source_query_accept_graph(
-    void* user_data, const loom_low_lower_rule_selection_t* selection,
-    bool* out_accepted) {
-  *out_accepted = false;
+static iree_status_t loom_low_lower_source_query_collect_contract_match(
+    void* user_data, const loom_target_contract_query_result_t* result,
+    const loom_low_lower_rule_set_t* rule_set,
+    const loom_low_lower_rule_selection_t* selection,
+    loom_low_lower_rule_primary_descriptor_status_t primary_status) {
   loom_low_lower_source_query_coverage_build_state_t* state =
       (loom_low_lower_source_query_coverage_build_state_t*)user_data;
-  const loom_op_t* root_op = selection->source_nodes[0];
-  for (uint8_t i = 1; i < selection->source_node_count; ++i) {
-    const loom_op_t* source_node = selection->source_nodes[i];
-    const loom_low_lower_source_query_graph_t* graph =
-        loom_low_lower_source_query_coverage_lookup(
-            state->context, state->coverage, source_node);
-    if (graph != NULL && graph->root_op == root_op) {
-      continue;
-    }
-    if (graph == &loom_low_lower_source_query_legal_root_marker) {
-      continue;
-    }
-    if (graph != NULL) {
-      return iree_ok_status();
-    }
-    IREE_ASSERT_EQ(source_node->parent_block, root_op->parent_block);
-    if (source_node->block_ordinal > root_op->block_ordinal) {
-      continue;
-    }
-
-    loom_target_contract_query_result_t related_result =
-        loom_target_contract_query_result_empty();
-    loom_low_lower_rule_selection_t related_selection;
-    IREE_RETURN_IF_ERROR(loom_low_lower_source_query_one(
-        state->context, state->environment, state->options,
-        (loom_low_lower_contract_accept_rule_callback_t){
-            .fn = loom_low_lower_source_query_accept_graph,
-            .user_data = state,
-        },
-        source_node, &related_result, &related_selection));
-    const bool related_is_legal =
-        related_result.outcome == LOOM_TARGET_CONTRACT_QUERY_LEGAL &&
-        related_selection.source_node_count <= 1;
-    IREE_RETURN_IF_ERROR(loom_low_lower_source_query_coverage_set(
-        state->context, state->coverage, source_node,
-        related_is_legal
-            ? &loom_low_lower_source_query_legal_root_marker
-            : &loom_low_lower_source_query_unavailable_root_marker));
-    if (!related_is_legal) {
+  const uint8_t source_node_count =
+      selection->rule != NULL ? selection->source_node_count : 1;
+  if ((source_node_count > 1) != state->collect_multi_node_graphs) {
+    return iree_ok_status();
+  }
+  if (selection->rule != NULL) {
+    bool placement_legal = false;
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_placement_evaluate(
+        state->context, selection, &placement_legal));
+    if (!placement_legal) {
       return iree_ok_status();
     }
   }
-  *out_accepted = true;
-  return iree_ok_status();
+  const loom_op_t* singleton_node = state->root_op;
+  const loom_op_t* const* source_nodes =
+      selection->rule != NULL ? selection->source_nodes : &singleton_node;
+  const uint8_t priority = selection->rule != NULL
+                               ? loom_low_lower_rule_priority(selection->rule)
+                               : 0;
+  const loom_low_lower_source_graph_alternative_state_t alternative_state =
+      primary_status == LOOM_LOW_LOWER_RULE_PRIMARY_DESCRIPTOR_AVAILABLE
+          ? LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_ENABLED
+          : LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FALLBACK;
+  return loom_low_lower_source_query_coverage_add_graph(
+      state, source_nodes, source_node_count, rule_set, selection->rule,
+      priority, result, alternative_state);
 }
 
 static iree_status_t loom_low_lower_source_query_coverage_visit(
@@ -365,36 +388,87 @@ static iree_status_t loom_low_lower_source_query_coverage_visit(
   *out_result = LOOM_WALK_CONTINUE;
   loom_low_lower_source_query_coverage_build_state_t* state =
       (loom_low_lower_source_query_coverage_build_state_t*)user_data;
-  const loom_low_lower_source_query_graph_t* graph =
-      loom_low_lower_source_query_coverage_lookup(state->context,
-                                                  state->coverage, op);
-  if ((graph != NULL && graph->root_op != NULL) ||
-      !loom_low_lower_source_query_op_has_related_rule(state->options, op)) {
+  if (!loom_low_lower_source_query_op_has_related_rule(state->options, op)) {
     return iree_ok_status();
   }
-
-  loom_target_contract_query_result_t result =
+  loom_target_contract_query_result_t target_result =
       loom_target_contract_query_result_empty();
-  loom_low_lower_rule_selection_t selection;
-  IREE_RETURN_IF_ERROR(loom_low_lower_source_query_one(
-      state->context, state->environment, state->options,
-      (loom_low_lower_contract_accept_rule_callback_t){
-          .fn = loom_low_lower_source_query_accept_graph,
-          .user_data = state,
-      },
-      op, &result, &selection));
-  if (result.outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL ||
-      selection.source_node_count <= 1) {
-    return loom_low_lower_source_query_coverage_set(
-        state->context, state->coverage, op,
-        result.outcome == LOOM_TARGET_CONTRACT_QUERY_LEGAL
-            ? &loom_low_lower_source_query_legal_root_marker
-            : &loom_low_lower_source_query_unavailable_root_marker);
+  const loom_target_contract_query_callback_t query_op_contract =
+      state->context->policy->query_op_contract;
+  if (query_op_contract.fn != NULL) {
+    IREE_RETURN_IF_ERROR(query_op_contract.fn(
+        query_op_contract.user_data, state->environment, op, &target_result));
   }
+  if (target_result.outcome != LOOM_TARGET_CONTRACT_QUERY_UNHANDLED) {
+    return iree_ok_status();
+  }
+  state->root_op = op;
+  state->collect_multi_node_graphs = true;
+  return loom_low_lower_visit_target_contract_matches(
+      state->environment, state->options, op,
+      (loom_low_lower_contract_match_callback_t){
+          .fn = loom_low_lower_source_query_collect_contract_match,
+          .user_data = state,
+      });
+}
 
-  return loom_low_lower_source_query_coverage_record_graph(
-      state->context, state->coverage, selection.source_nodes,
-      selection.source_node_count, &result);
+static iree_status_t loom_low_lower_source_query_collect_singletons(
+    loom_low_lower_source_query_coverage_build_state_t* state) {
+  for (loom_low_lower_source_query_node_t* node = state->coverage->first_node;
+       node != NULL; node = node->next) {
+    state->root_op = node->op;
+    loom_target_contract_query_result_t target_result =
+        loom_target_contract_query_result_empty();
+    const loom_target_contract_query_callback_t query_op_contract =
+        state->context->policy->query_op_contract;
+    if (query_op_contract.fn != NULL) {
+      IREE_RETURN_IF_ERROR(query_op_contract.fn(query_op_contract.user_data,
+                                                state->environment, node->op,
+                                                &target_result));
+    }
+    if (target_result.outcome != LOOM_TARGET_CONTRACT_QUERY_UNHANDLED) {
+      const loom_op_t* source_nodes[] = {node->op};
+      IREE_RETURN_IF_ERROR(loom_low_lower_source_query_coverage_add_graph(
+          state, source_nodes, /*source_node_count=*/1,
+          /*rule_set=*/NULL, /*rule=*/NULL, /*priority=*/0, &target_result,
+          LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FIXED));
+      continue;
+    }
+    state->collect_multi_node_graphs = false;
+    IREE_RETURN_IF_ERROR(loom_low_lower_visit_target_contract_matches(
+        state->environment, state->options, node->op,
+        (loom_low_lower_contract_match_callback_t){
+            .fn = loom_low_lower_source_query_collect_contract_match,
+            .user_data = state,
+        }));
+  }
+  return iree_ok_status();
+}
+
+static loom_low_lower_source_graph_alternative_state_t
+loom_low_lower_source_query_alternative_state(
+    void* user_data,
+    const loom_low_lower_source_graph_alternative_t* alternative) {
+  (void)user_data;
+  const loom_low_lower_source_query_alternative_t* query_alternative =
+      (const loom_low_lower_source_query_alternative_t*)
+          loom_low_lower_source_graph_alternative_user_data(alternative);
+  return query_alternative->state;
+}
+
+static iree_status_t loom_low_lower_source_query_accept_singleton(
+    void* user_data, const loom_low_lower_rule_selection_t* selection,
+    bool* out_accepted) {
+  (void)user_data;
+  *out_accepted = selection->source_node_count <= 1;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_low_lower_source_query_accept_placement(
+    void* user_data, const loom_low_lower_rule_selection_t* selection,
+    bool* out_accepted) {
+  return loom_low_lower_source_graph_placement_evaluate(
+      (loom_low_lower_context_t*)user_data, selection, out_accepted);
 }
 
 static iree_status_t loom_low_lower_source_query_prepare_coverage(
@@ -420,10 +494,8 @@ static iree_status_t loom_low_lower_source_query_prepare_coverage(
     return iree_ok_status();
   }
 
-  const loom_local_value_domain_t* value_domain =
-      &context->lowering->value_domain;
-  coverage->value_graph_count = value_domain->value_count;
-
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_plan_create(
+      &context->analysis_arena, &coverage->graph_plan));
   coverage->preparing = true;
   loom_low_lower_source_query_coverage_build_state_t state = {
       .context = context,
@@ -439,6 +511,20 @@ static iree_status_t loom_low_lower_source_query_prepare_coverage(
           .user_data = &state,
       },
       &walk_result);
+  if (iree_status_is_ok(status)) {
+    status = loom_low_lower_source_query_collect_singletons(&state);
+  }
+  bool complete = false;
+  if (iree_status_is_ok(status)) {
+    status = loom_low_lower_source_graph_plan_resolve(
+        coverage->graph_plan,
+        (loom_low_lower_source_graph_alternative_query_callback_t){
+            .fn = loom_low_lower_source_query_alternative_state,
+            .user_data = NULL,
+        },
+        &complete);
+  }
+  (void)complete;
   coverage->preparing = false;
   coverage->prepared = iree_status_is_ok(status);
   return status;
@@ -602,6 +688,11 @@ static iree_status_t loom_low_lower_source_query_contract(
               .user_data = context,
           },
       .descriptor_matrix = context->policy->descriptor_matrix,
+      .accept_rule =
+          {
+              .fn = loom_low_lower_source_query_accept_placement,
+              .user_data = context,
+          },
   };
   loom_low_lower_source_query_coverage_t* coverage = NULL;
   if (iree_status_is_ok(status) && !fact_table_changed &&
@@ -611,35 +702,45 @@ static iree_status_t loom_low_lower_source_query_contract(
         context, &query_environment, &query_options, &coverage);
   }
   if (iree_status_is_ok(status) && coverage != NULL && coverage->prepared) {
-    const loom_low_lower_source_query_graph_t* graph =
-        loom_low_lower_source_query_coverage_lookup(context, coverage,
-                                                    source_op);
-    if (graph != NULL && graph->root_op != NULL &&
-        graph->root_op != source_op) {
-      *out_result = loom_target_contract_query_result_empty();
-      out_result->outcome = LOOM_TARGET_CONTRACT_QUERY_LEGAL;
-    } else if (graph != NULL && graph->root_op == source_op) {
-      *out_result = graph->root_result;
+    const loom_low_lower_source_query_node_t* node =
+        loom_low_lower_source_query_coverage_lookup_node(context, coverage,
+                                                         source_op);
+    const loom_low_lower_source_graph_alternative_t* alternative =
+        node != NULL ? loom_low_lower_source_graph_plan_selected_alternative(
+                           coverage->graph_plan, node->index)
+                     : NULL;
+    if (alternative != NULL) {
+      const loom_low_lower_source_graph_candidate_t* candidate =
+          loom_low_lower_source_graph_alternative_candidate(alternative);
+      const uint32_t root_index =
+          loom_low_lower_source_graph_candidate_node(candidate, 0);
+      if (root_index != node->index) {
+        *out_result = loom_target_contract_query_result_empty();
+        out_result->outcome = LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+      } else {
+        const loom_low_lower_source_query_alternative_t* query_alternative =
+            (const loom_low_lower_source_query_alternative_t*)
+                loom_low_lower_source_graph_alternative_user_data(alternative);
+        *out_result = query_alternative->result;
+      }
     } else {
-      loom_low_lower_source_query_coverage_build_state_t coverage_state = {
-          .context = context,
-          .environment = &query_environment,
-          .options = &query_options,
-          .coverage = coverage,
-      };
-      status = loom_low_lower_source_query_one(
-          context, &query_environment, &query_options,
-          (loom_low_lower_contract_accept_rule_callback_t){
-              .fn = loom_low_lower_source_query_accept_graph,
-              .user_data = &coverage_state,
-          },
-          source_op, out_result, /*out_selection=*/NULL);
+      loom_low_lower_contract_query_options_t singleton_options = query_options;
+      if (node != NULL) {
+        singleton_options.accept_rule =
+            (loom_low_lower_contract_accept_rule_callback_t){
+                .fn = loom_low_lower_source_query_accept_singleton,
+                .user_data = NULL,
+            };
+      }
+      status = loom_low_lower_source_query_one(context, &query_environment,
+                                               &singleton_options, source_op,
+                                               out_result,
+                                               /*out_selection=*/NULL);
     }
   } else if (iree_status_is_ok(status)) {
     status = loom_low_lower_source_query_one(
-        context, &query_environment, &query_options,
-        (loom_low_lower_contract_accept_rule_callback_t){0}, source_op,
-        out_result, /*out_selection=*/NULL);
+        context, &query_environment, &query_options, source_op, out_result,
+        /*out_selection=*/NULL);
   }
 
   context->descriptor_set = saved_descriptor_set;

@@ -1122,6 +1122,16 @@ typedef uint8_t loom_low_lower_rule_flags_t;
 #define LOOM_LOW_LOWER_RULE_FLAG_WIDE_PRIMARY_EMIT \
   ((loom_low_lower_rule_flags_t)1u << 3)
 
+// Authored contract priority retained for cross-root source-graph selection.
+// The low nibble remains available for independent behavior flags.
+#define LOOM_LOW_LOWER_RULE_PRIORITY_SHIFT 4u
+#define LOOM_LOW_LOWER_RULE_PRIORITY_MASK \
+  ((loom_low_lower_rule_flags_t)0xFu << LOOM_LOW_LOWER_RULE_PRIORITY_SHIFT)
+#define LOOM_LOW_LOWER_RULE_PRIORITY_MAX 15u
+#define LOOM_LOW_LOWER_RULE_PRIORITY(priority) \
+  ((loom_low_lower_rule_flags_t)((priority)    \
+                                 << LOOM_LOW_LOWER_RULE_PRIORITY_SHIFT))
+
 // Rule row has no structured report key.
 #define LOOM_LOW_LOWER_RULE_REPORT_KEY_NONE ((uint16_t)0)
 
@@ -1182,6 +1192,13 @@ typedef struct loom_low_lower_rule_t {
 } loom_low_lower_rule_t;
 static_assert(sizeof(loom_low_lower_rule_t) == 14,
               "loom_low_lower_rule_t must be 14 bytes");
+
+// Returns the authored contract priority retained in the rule row.
+static inline uint8_t loom_low_lower_rule_priority(
+    const loom_low_lower_rule_t* rule) {
+  return (uint8_t)((rule->flags & LOOM_LOW_LOWER_RULE_PRIORITY_MASK) >>
+                   LOOM_LOW_LOWER_RULE_PRIORITY_SHIFT);
+}
 
 // Returns the descriptor emit representing the rule's primary action, or
 // LOOM_LOW_LOWER_RULE_PRIMARY_EMIT_NONE when the rule has no primary action.

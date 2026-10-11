@@ -113,6 +113,7 @@ from loom.target.contracts.lower_rule_tables import (
     LOWER_RULE_FLAG_NONLOCAL_SOURCE_GRAPH,
     LOWER_RULE_FLAG_ORDINAL_VALUE_ALIAS,
     LOWER_RULE_PRIMARY_EMIT_NONE,
+    LOWER_RULE_PRIORITY_SHIFT,
     LOWER_SOURCE_MEMORY_NONE,
     CompiledLowerRuleSet,
     LowerAttrCopy,
@@ -561,7 +562,8 @@ class _LowerRuleSetCompiler:
                         for source_node in rule.source_nodes
                     )
                     else 0
-                ),
+                )
+                | (rule.priority << LOWER_RULE_PRIORITY_SHIFT),
                 report_key=rule.report_key,
             )
         )

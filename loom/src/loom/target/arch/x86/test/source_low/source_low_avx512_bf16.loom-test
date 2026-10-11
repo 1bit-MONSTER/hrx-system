@@ -131,6 +131,84 @@ low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_
 
 // ====
 
+// Overlapping unary load-convert graphs do not prevent the later paired
+// conversion from claiming the high half while folding the low load.
+x86.target<avx512_packed_dot> @target {contract_feature_bits = 66, contract_set_key = "x86.avx512_features.core"}
+
+func.def target(@target) @narrow_two_loads(%input: buffer, %position0: index) -> (vector<16xbf16>) {
+  %origin = index.constant 0 : offset
+  %position = index.assume %position0 [range(%position0, 8, 56)] : index
+  %source = buffer.view %input[%origin] : buffer -> view<64xf32>
+  %high = vector.load %source[0] : view<64xf32> -> vector<8xf32>
+  %low = vector.load %source[%position] : view<64xf32> -> vector<8xf32>
+  %low_bf16 = vector.fptrunc<daz> %low : vector<8xf32> to vector<8xbf16>
+  %high_bf16 = vector.fptrunc<daz> %high : vector<8xf32> to vector<8xbf16>
+  %result = vector.concat<0> %low_bf16, %high_bf16 : vector<8xbf16>, vector<8xbf16> -> vector<16xbf16>
+  func.return %result : vector<16xbf16>
+}
+
+// ----
+low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_layout({signature = (buffer, index) -> (vector<16xbf16>)}) @narrow_two_loads(%input: reg<x86.gpr64>, %position: reg<x86.gpr64>) -> (reg<x86.ymm>) asm {
+  %high = vmovdqu32.load.ymm %input {disp32 = 0}
+  %result = avx512_bf16.vcvtne2ps2bf16.load.indexed.ymm %high, %input, %position {disp32 = 0, scale = 4}
+  return %result
+}
+
+// ====
+
+// A memory graph may emit at the first later graph node where its register
+// operand is available. Its folded load retains the original memory origin.
+x86.target<avx512_packed_dot> @target {contract_feature_bits = 66, contract_set_key = "x86.avx512_features.core"}
+
+func.def target(@target) @narrow_two_loads_delayed(%input: buffer, %position0: index) -> (vector<16xbf16>) {
+  %origin = index.constant 0 : offset
+  %position = index.assume %position0 [range(%position0, 8, 56)] : index
+  %source = buffer.view %input[%origin] : buffer -> view<64xf32>
+  %low = vector.load %source[%position] : view<64xf32> -> vector<8xf32>
+  %high = vector.load %source[0] : view<64xf32> -> vector<8xf32>
+  %low_bf16 = vector.fptrunc<daz> %low : vector<8xf32> to vector<8xbf16>
+  %high_bf16 = vector.fptrunc<daz> %high : vector<8xf32> to vector<8xbf16>
+  %result = vector.concat<0> %low_bf16, %high_bf16 : vector<8xbf16>, vector<8xbf16> -> vector<16xbf16>
+  func.return %result : vector<16xbf16>
+}
+
+// ----
+low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_layout({signature = (buffer, index) -> (vector<16xbf16>)}) @narrow_two_loads_delayed(%input: reg<x86.gpr64>, %position: reg<x86.gpr64>) -> (reg<x86.ymm>) asm {
+  %high = vmovdqu32.load.ymm %input {disp32 = 0}
+  %result = avx512_bf16.vcvtne2ps2bf16.load.indexed.ymm %high, %input, %position {disp32 = 0, scale = 4}
+  return %result
+}
+
+// ====
+
+// An overlapping write keeps the first load at its original position. The
+// paired conversion cannot fold that load at the later high-load anchor.
+x86.target<avx512_packed_dot> @target {contract_feature_bits = 66, contract_set_key = "x86.avx512_features.core"}
+
+func.def target(@target) @narrow_two_loads_across_write(%input: buffer, %position0: index, %replacement: vector<8xf32>) -> (vector<16xbf16>) {
+  %origin = index.constant 0 : offset
+  %position = index.assume %position0 [range(%position0, 8, 56)] : index
+  %source = buffer.view %input[%origin] : buffer -> view<64xf32>
+  %low = vector.load %source[%position] : view<64xf32> -> vector<8xf32>
+  vector.store %replacement, %source[%position] : vector<8xf32>, view<64xf32>
+  %high = vector.load %source[0] : view<64xf32> -> vector<8xf32>
+  %low_bf16 = vector.fptrunc<daz> %low : vector<8xf32> to vector<8xbf16>
+  %high_bf16 = vector.fptrunc<daz> %high : vector<8xf32> to vector<8xbf16>
+  %result = vector.concat<0> %low_bf16, %high_bf16 : vector<8xbf16>, vector<8xbf16> -> vector<16xbf16>
+  func.return %result : vector<16xbf16>
+}
+
+// ----
+low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_layout({signature = (buffer, index, vector<8xf32>) -> (vector<16xbf16>)}) @narrow_two_loads_across_write(%input: reg<x86.gpr64>, %position: reg<x86.gpr64>, %replacement: reg<x86.ymm>) -> (reg<x86.ymm>) asm {
+  %low = vmovdqu32.load.indexed.ymm %input, %position {disp32 = 0, scale = 4}
+  vmovdqu32.store.indexed.ymm %replacement, %input, %position {disp32 = 0, scale = 4}
+  %high = vmovdqu32.load.ymm %input {disp32 = 0}
+  %result = avx512_bf16.vcvtne2ps2bf16.ymm %high, %low
+  return %result
+}
+
+// ====
+
 // The widest indexed memory form preserves a dynamic merge value and converts
 // a callable predicate carrier before the five-input instruction.
 x86.target<avx512_packed_dot> @target {contract_feature_bits = 66, contract_set_key = "x86.avx512_features.core"}
