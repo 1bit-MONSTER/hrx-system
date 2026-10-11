@@ -20,6 +20,7 @@ extern "C" {
 typedef enum loom_amdgpu_scalar_conversion_op_group_e {
   LOOM_AMDGPU_SCALAR_CONVERSION_OP_TRUNCI = 0,
   LOOM_AMDGPU_SCALAR_CONVERSION_OP_EXTF,
+  LOOM_AMDGPU_SCALAR_CONVERSION_OP_FPTRUNC,
   LOOM_AMDGPU_SCALAR_CONVERSION_OP_EXTSI,
   LOOM_AMDGPU_SCALAR_CONVERSION_OP_EXTUI,
   LOOM_AMDGPU_SCALAR_CONVERSION_OP_SITOFP,
@@ -33,6 +34,15 @@ typedef enum loom_amdgpu_scalar_conversion_op_group_e {
 // Returns the scalar numeric conversion family for |op_kind|.
 loom_amdgpu_scalar_conversion_op_group_t loom_amdgpu_scalar_conversion_op_group(
     loom_op_kind_t op_kind);
+
+// Queries callback-owned scalar conversion capability and retains the exact
+// semantic plan for source lowering. Generated descriptor-owned conversions
+// remain unhandled so their source contracts keep precedence.
+iree_status_t loom_amdgpu_query_scalar_conversion_contract(
+    void* user_data,
+    const loom_target_contract_query_environment_t* environment,
+    const loom_op_t* source_op,
+    loom_target_contract_query_result_t* out_result);
 
 // Selects an AMDGPU scalar conversion plan.
 iree_status_t loom_amdgpu_select_scalar_conversion_plan(

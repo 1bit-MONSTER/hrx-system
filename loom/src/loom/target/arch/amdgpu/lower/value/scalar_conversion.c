@@ -7,6 +7,7 @@
 #include "loom/target/arch/amdgpu/lower/value/scalar_conversion.h"
 
 #include <stdint.h>
+#include <string.h>
 
 #include "iree/base/internal/math.h"
 #include "loom/ops/scalar/ops.h"
@@ -82,6 +83,60 @@ typedef struct loom_amdgpu_scalar_conversion_rule_t {
 } loom_amdgpu_scalar_conversion_rule_t;
 static_assert(sizeof(loom_amdgpu_scalar_conversion_rule_t) == 12,
               "scalar conversion rules must stay compact");
+
+// Semantic scalar conversion plan shared by operations with the same target,
+// types, and relevant value facts. Per-operation identities and later physical
+// representation decisions are deliberately excluded.
+typedef struct loom_amdgpu_scalar_conversion_plan_template_t {
+  // Lowering strategy selected for the source/result type pair.
+  uint8_t kind;
+  // Static source integer payload bit count, or zero for non-integer sources.
+  uint8_t source_bit_count;
+  // Static result integer payload bit count, or zero for non-integer results.
+  uint8_t result_bit_count;
+  // Descriptor selected for conversion packets used by the strategy.
+  loom_amdgpu_descriptor_ref_t convert_descriptor_ref;
+  union {
+    // Exceptional-value simplifications for scalar FP8 decoding.
+    struct {
+      // Selected simplifications for the decoded value.
+      loom_amdgpu_fp8_decode_value_flags_t value_flags;
+    } fp8_decode;
+    // Native packed FP8 encode strategy for an FP8-result truncation.
+    loom_amdgpu_fp8_encode_plan_t fp8_encode;
+    // Exact split-word strategy for narrowing an F64 source.
+    loom_amdgpu_f64_narrow_plan_t f64_narrow;
+  };
+} loom_amdgpu_scalar_conversion_plan_template_t;
+static_assert(sizeof(loom_amdgpu_scalar_conversion_plan_template_t) == 36,
+              "scalar conversion plan templates must stay compact");
+
+typedef struct loom_amdgpu_scalar_conversion_query_state_t {
+  // One-based template index by result value ordinal; zero means unretained.
+  uint16_t* template_indices_by_value_ordinal;
+  // Interned semantic plans selected by contract queries in this function.
+  loom_amdgpu_scalar_conversion_plan_template_t* templates;
+  // Number of allocated entries in |templates|.
+  iree_host_size_t template_capacity;
+  // Number of entries in |template_indices_by_value_ordinal|.
+  loom_value_ordinal_t template_index_count;
+  // Number of populated entries in |templates|.
+  uint16_t template_count;
+} loom_amdgpu_scalar_conversion_query_state_t;
+static_assert(sizeof(loom_amdgpu_scalar_conversion_query_state_t) == 32,
+              "scalar conversion query state must stay compact");
+
+// At most one plan can be selected for an operation group, source/result type
+// pair, and FP8 fact simplification state. This bound keeps one-based template
+// indexes representable without coupling their width to function size.
+#define LOOM_AMDGPU_SCALAR_CONVERSION_FACT_VARIANT_COUNT 16u
+#define LOOM_AMDGPU_SCALAR_CONVERSION_TEMPLATE_COUNT_MAXIMUM           \
+  (LOOM_AMDGPU_SCALAR_CONVERSION_OP_COUNT_ * LOOM_SCALAR_TYPE_COUNT_ * \
+   LOOM_SCALAR_TYPE_COUNT_ * LOOM_AMDGPU_SCALAR_CONVERSION_FACT_VARIANT_COUNT)
+static_assert(LOOM_AMDGPU_SCALAR_CONVERSION_TEMPLATE_COUNT_MAXIMUM < UINT16_MAX,
+              "scalar conversion templates must fit in one-based indexes");
+
+static int loom_amdgpu_scalar_conversion_query_state_key;
 
 #define LOOM_AMDGPU_SCALAR_CONVERSION_REFS_0() \
   {                                            \
@@ -453,6 +508,7 @@ static const uint8_t
     kAmdgpuScalarConversionOpGroupCodeByScalarOp[LOOM_OP_SCALAR_COUNT_] = {
         LOOM_AMDGPU_SCALAR_CONVERSION_OP_GROUP_ROW(TRUNCI, TRUNCI),
         LOOM_AMDGPU_SCALAR_CONVERSION_OP_GROUP_ROW(EXTF, EXTF),
+        LOOM_AMDGPU_SCALAR_CONVERSION_OP_GROUP_ROW(FPTRUNC, FPTRUNC),
         LOOM_AMDGPU_SCALAR_CONVERSION_OP_GROUP_ROW(EXTSI, EXTSI),
         LOOM_AMDGPU_SCALAR_CONVERSION_OP_GROUP_ROW(EXTUI, EXTUI),
         LOOM_AMDGPU_SCALAR_CONVERSION_OP_GROUP_ROW(SITOFP, SITOFP),
@@ -586,27 +642,263 @@ static bool loom_amdgpu_select_scalar_conversion_plan_impl(
   return true;
 }
 
+static bool loom_amdgpu_fp8_encode_plans_equal(
+    const loom_amdgpu_fp8_encode_plan_t* lhs,
+    const loom_amdgpu_fp8_encode_plan_t* rhs) {
+  return lhs->kind == rhs->kind && lhs->flags == rhs->flags &&
+         lhs->format.exponent_bits == rhs->format.exponent_bits &&
+         lhs->format.mantissa_bits == rhs->format.mantissa_bits &&
+         lhs->format.exponent_bias == rhs->format.exponent_bias &&
+         lhs->format.special_policy == rhs->format.special_policy &&
+         lhs->low_descriptor_ref == rhs->low_descriptor_ref &&
+         lhs->high_descriptor_ref == rhs->high_descriptor_ref &&
+         lhs->round_add_descriptor_ref == rhs->round_add_descriptor_ref &&
+         lhs->sign_insert_descriptor_ref == rhs->sign_insert_descriptor_ref &&
+         lhs->packed_i8_permute.kind == rhs->packed_i8_permute.kind &&
+         lhs->packed_i8_permute.descriptor_ref ==
+             rhs->packed_i8_permute.descriptor_ref;
+}
+
+static bool loom_amdgpu_scalar_conversion_plan_templates_equal(
+    const loom_amdgpu_scalar_conversion_plan_template_t* lhs,
+    const loom_amdgpu_scalar_conversion_plan_template_t* rhs) {
+  if (lhs->kind != rhs->kind ||
+      lhs->source_bit_count != rhs->source_bit_count ||
+      lhs->result_bit_count != rhs->result_bit_count ||
+      lhs->convert_descriptor_ref != rhs->convert_descriptor_ref) {
+    return false;
+  }
+  switch (lhs->kind) {
+    case LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_TO_BF16:
+      return lhs->fp8_decode.value_flags == rhs->fp8_decode.value_flags;
+    case LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_ENCODE:
+      return loom_amdgpu_fp8_encode_plans_equal(&lhs->fp8_encode,
+                                                &rhs->fp8_encode);
+    case LOOM_AMDGPU_SCALAR_CONVERSION_KIND_F64_NARROW:
+      return lhs->f64_narrow.kind == rhs->f64_narrow.kind;
+    default:
+      return true;
+  }
+}
+
+static loom_amdgpu_scalar_conversion_plan_template_t
+loom_amdgpu_scalar_conversion_plan_template(
+    const loom_amdgpu_scalar_conversion_plan_t* plan) {
+  loom_amdgpu_scalar_conversion_plan_template_t plan_template = {
+      .kind = plan->kind,
+      .source_bit_count = plan->source_bit_count,
+      .result_bit_count = plan->result_bit_count,
+      .convert_descriptor_ref = plan->convert_descriptor_ref,
+  };
+  switch (plan->kind) {
+    case LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_TO_BF16:
+      plan_template.fp8_decode.value_flags = plan->fp8_decode.value_flags;
+      break;
+    case LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_ENCODE:
+      plan_template.fp8_encode = plan->fp8_encode;
+      break;
+    case LOOM_AMDGPU_SCALAR_CONVERSION_KIND_F64_NARROW:
+      plan_template.f64_narrow = plan->f64_narrow;
+      break;
+    default:
+      break;
+  }
+  return plan_template;
+}
+
+static loom_amdgpu_scalar_conversion_plan_t
+loom_amdgpu_scalar_conversion_plan_from_template(
+    const loom_amdgpu_scalar_conversion_plan_template_t* plan_template,
+    const loom_module_t* module, loom_value_id_t source,
+    loom_value_id_t result) {
+  loom_amdgpu_scalar_conversion_plan_t plan = {
+      .source = source,
+      .result = result,
+      .kind = (loom_amdgpu_scalar_conversion_kind_t)plan_template->kind,
+      .source_bit_count = plan_template->source_bit_count,
+      .result_bit_count = plan_template->result_bit_count,
+      .convert_descriptor_ref = plan_template->convert_descriptor_ref,
+  };
+  switch (plan_template->kind) {
+    case LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_TO_BF16:
+      plan.fp8_decode.source_format =
+          loom_numeric_format_from_scalar_type(loom_amdgpu_scalar_type_or_none(
+              loom_module_value_type(module, source)));
+      plan.fp8_decode.value_flags = plan_template->fp8_decode.value_flags;
+      break;
+    case LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_ENCODE:
+      plan.fp8_encode = plan_template->fp8_encode;
+      break;
+    case LOOM_AMDGPU_SCALAR_CONVERSION_KIND_F64_NARROW:
+      plan.f64_narrow = plan_template->f64_narrow;
+      break;
+    default:
+      break;
+  }
+  return plan;
+}
+
+static const loom_amdgpu_scalar_conversion_plan_template_t*
+loom_amdgpu_scalar_conversion_query_state_lookup(
+    const loom_amdgpu_scalar_conversion_query_state_t* state,
+    const loom_local_value_domain_t* value_domain, const loom_op_t* source_op) {
+  if (state == NULL || state->template_indices_by_value_ordinal == NULL ||
+      value_domain == NULL || source_op->result_count != 1) {
+    return NULL;
+  }
+  const loom_value_id_t result = loom_op_const_results(source_op)[0];
+  const loom_value_ordinal_t result_ordinal =
+      loom_local_value_domain_try_ordinal(value_domain, result);
+  if (result_ordinal == LOOM_VALUE_ORDINAL_INVALID ||
+      result_ordinal >= state->template_index_count) {
+    return NULL;
+  }
+  const uint16_t template_index_plus_one =
+      state->template_indices_by_value_ordinal[result_ordinal];
+  if (template_index_plus_one == 0) {
+    return NULL;
+  }
+  const uint16_t template_index = template_index_plus_one - 1u;
+  IREE_ASSERT_LT(template_index, state->template_count);
+  return &state->templates[template_index];
+}
+
+static iree_status_t loom_amdgpu_scalar_conversion_retain_query_plan(
+    const loom_target_contract_query_environment_t* environment,
+    loom_amdgpu_scalar_conversion_query_state_t* state,
+    const loom_op_t* source_op,
+    const loom_amdgpu_scalar_conversion_plan_t* plan) {
+  if (state == NULL) {
+    return iree_ok_status();
+  }
+  IREE_ASSERT(environment->value_domain != NULL);
+  const loom_local_value_domain_t* value_domain = environment->value_domain;
+  if (state->template_indices_by_value_ordinal == NULL) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        environment->arena, value_domain->value_count,
+        sizeof(*state->template_indices_by_value_ordinal),
+        (void**)&state->template_indices_by_value_ordinal));
+    memset(state->template_indices_by_value_ordinal, 0,
+           value_domain->value_count *
+               sizeof(*state->template_indices_by_value_ordinal));
+    state->template_index_count = value_domain->value_count;
+  }
+  IREE_ASSERT_EQ(state->template_index_count, value_domain->value_count);
+
+  const loom_amdgpu_scalar_conversion_plan_template_t plan_template =
+      loom_amdgpu_scalar_conversion_plan_template(plan);
+  uint16_t template_index = 0;
+  for (; template_index < state->template_count; ++template_index) {
+    if (loom_amdgpu_scalar_conversion_plan_templates_equal(
+            &state->templates[template_index], &plan_template)) {
+      break;
+    }
+  }
+  if (template_index == state->template_count) {
+    IREE_ASSERT_LT(state->template_count,
+                   LOOM_AMDGPU_SCALAR_CONVERSION_TEMPLATE_COUNT_MAXIMUM);
+    const iree_host_size_t minimum_capacity =
+        state->template_capacity == 0
+            ? 4
+            : (iree_host_size_t)state->template_count + 1;
+    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+        environment->arena, state->template_count, minimum_capacity,
+        sizeof(*state->templates), &state->template_capacity,
+        (void**)&state->templates));
+    state->templates[template_index] = plan_template;
+    ++state->template_count;
+  }
+
+  const loom_value_id_t result = loom_op_const_results(source_op)[0];
+  const loom_value_ordinal_t result_ordinal =
+      loom_local_value_domain_try_ordinal(value_domain, result);
+  IREE_ASSERT_NE(result_ordinal, LOOM_VALUE_ORDINAL_INVALID);
+  uint16_t* retained_template_index_plus_one =
+      &state->template_indices_by_value_ordinal[result_ordinal];
+  IREE_ASSERT(*retained_template_index_plus_one == 0 ||
+              *retained_template_index_plus_one == template_index + 1u);
+  *retained_template_index_plus_one = template_index + 1u;
+  return iree_ok_status();
+}
+
+static bool loom_amdgpu_scalar_conversion_op_is_callback_owned(
+    const loom_module_t* module, const loom_op_t* source_op,
+    loom_amdgpu_scalar_conversion_op_group_t op_group) {
+  if ((op_group != LOOM_AMDGPU_SCALAR_CONVERSION_OP_FPTOSI &&
+       op_group != LOOM_AMDGPU_SCALAR_CONVERSION_OP_FPTOUI) ||
+      source_op->result_count != 1) {
+    return true;
+  }
+  const loom_value_id_t result = loom_op_const_results(source_op)[0];
+  return loom_amdgpu_scalar_type_or_none(
+             loom_module_value_type(module, result)) != LOOM_SCALAR_TYPE_I32;
+}
+
+iree_status_t loom_amdgpu_query_scalar_conversion_contract(
+    void* user_data,
+    const loom_target_contract_query_environment_t* environment,
+    const loom_op_t* source_op,
+    loom_target_contract_query_result_t* out_result) {
+  (void)user_data;
+  *out_result = loom_target_contract_query_result_empty();
+  const loom_amdgpu_scalar_conversion_op_group_t op_group =
+      loom_amdgpu_scalar_conversion_op_group(source_op->kind);
+  if (op_group == LOOM_AMDGPU_SCALAR_CONVERSION_OP_COUNT_ ||
+      environment->vector_lane_projection.source_lane_count != 0 ||
+      !loom_amdgpu_scalar_conversion_op_is_callback_owned(
+          environment->module, source_op, op_group)) {
+    return iree_ok_status();
+  }
+
+  loom_amdgpu_scalar_conversion_plan_t plan = {0};
+  if (!loom_amdgpu_select_scalar_conversion_plan_impl(
+          environment->module, environment->fact_table,
+          environment->descriptor_set, source_op, &plan)) {
+    return iree_ok_status();
+  }
+
+  loom_amdgpu_scalar_conversion_query_state_t* state = NULL;
+  if (environment->value_domain != NULL &&
+      environment->target_state_allocator.fn != NULL) {
+    IREE_RETURN_IF_ERROR(
+        loom_target_contract_query_get_or_allocate_target_state(
+            environment, &loom_amdgpu_scalar_conversion_query_state_key,
+            sizeof(*state), (void**)&state));
+    if (loom_amdgpu_scalar_conversion_query_state_lookup(
+            state, environment->value_domain, source_op) != NULL) {
+      out_result->outcome = LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+      return iree_ok_status();
+    }
+  }
+  IREE_RETURN_IF_ERROR(loom_amdgpu_scalar_conversion_retain_query_plan(
+      environment, state, source_op, &plan));
+  out_result->outcome = LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+  return iree_ok_status();
+}
+
 iree_status_t loom_amdgpu_select_scalar_conversion_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_amdgpu_scalar_conversion_plan_t* out_plan, bool* out_selected) {
-  *out_selected = loom_amdgpu_select_scalar_conversion_plan_impl(
-      loom_low_lower_context_module(context),
-      loom_low_lower_context_fact_table(context),
-      loom_low_lower_context_descriptor_set(context), source_op, out_plan);
-  if (!*out_selected) {
+  *out_plan = (loom_amdgpu_scalar_conversion_plan_t){0};
+  *out_selected = false;
+  const loom_amdgpu_scalar_conversion_query_state_t* state =
+      (const loom_amdgpu_scalar_conversion_query_state_t*)
+          loom_low_lower_lookup_target_state(
+              context, &loom_amdgpu_scalar_conversion_query_state_key,
+              sizeof(*state));
+  const loom_amdgpu_scalar_conversion_plan_template_t* plan_template =
+      loom_amdgpu_scalar_conversion_query_state_lookup(
+          state, loom_low_lower_context_value_domain(context), source_op);
+  if (plan_template == NULL) {
     return iree_ok_status();
   }
+  const loom_value_id_t source = loom_op_const_operands(source_op)[0];
+  const loom_value_id_t result = loom_op_const_results(source_op)[0];
+  *out_plan = loom_amdgpu_scalar_conversion_plan_from_template(
+      plan_template, loom_low_lower_context_module(context), source, result);
+  *out_selected = true;
   const loom_amdgpu_scalar_conversion_op_group_t op_group =
       loom_amdgpu_scalar_conversion_op_group(source_op->kind);
-  if ((op_group == LOOM_AMDGPU_SCALAR_CONVERSION_OP_FPTOSI ||
-       op_group == LOOM_AMDGPU_SCALAR_CONVERSION_OP_FPTOUI) &&
-      out_plan->result_bit_count == 32) {
-    // The generic scalar rules preserve SGPR/VGPR selection for full-width
-    // results. Target plans are needed only when a narrow result must select
-    // its carrier representation.
-    *out_selected = false;
-    return iree_ok_status();
-  }
   switch (op_group) {
     case LOOM_AMDGPU_SCALAR_CONVERSION_OP_TRUNCI:
     case LOOM_AMDGPU_SCALAR_CONVERSION_OP_FPTOSI:
@@ -629,6 +921,7 @@ iree_status_t loom_amdgpu_select_scalar_conversion_plan(
       }
       break;
     case LOOM_AMDGPU_SCALAR_CONVERSION_OP_EXTF:
+    case LOOM_AMDGPU_SCALAR_CONVERSION_OP_FPTRUNC:
     case LOOM_AMDGPU_SCALAR_CONVERSION_OP_COUNT_:
       break;
   }
