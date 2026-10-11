@@ -90,6 +90,9 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::byte_copy_unaligned_kernels
     libamdf::cts::gpu::kernels::geometry_ids
     libamdf::cts::gpu::kernels::geometry_ids_kernels
+    libamdf::cts::gpu::kernels::immutable_data
+    libamdf::cts::gpu::kernels::immutable_data_alternate_kernels
+    libamdf::cts::gpu::kernels::immutable_data_kernels
     libamdf::cts::gpu::kernels::lds_exchange
     libamdf::cts::gpu::kernels::lds_exchange_kernels
     libamdf::cts::gpu::kernels::pattern_fill_unaligned

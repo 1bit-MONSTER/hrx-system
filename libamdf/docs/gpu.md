@@ -44,6 +44,14 @@ memory attachment; a host mapping supplies a separate CPU view. The
 [memory contract](memory.md) determines how host writes become visible and which
 cache transitions the device requires.
 
+An executable image is not only its instruction bytes. The caller materializes
+the descriptor, every compiler-owned immutable object reachable by the selected
+kernel, the linked text and all required alignment or fetch padding at their
+linked relative addresses. It publishes that complete initialized image before
+dispatch and retains its backing through the final completion of every queue
+that can reach it. Kernarg or payload publication does not repair omitted
+executable bytes, and packet-slot retirement does not end their lifetime.
+
 ## Mapped USER publication
 
 `gpu->user_queue_create` takes the family ordinal, producer mode, priority,
@@ -224,7 +232,7 @@ There are distinct reuse boundaries:
 | Observation | Storage it permits the caller to reuse |
 | --- | --- |
 | Acquired native read index, or successful `user_queue_wait_consumed` | Consumed packet slots in the command ring. |
-| Native execution completion with the required visibility | Code, kernargs, data and completion storage whose final use has completed. |
+| Native execution completion with the required visibility | Complete executable images, kernargs, payloads and completion storage whose final use has completed. |
 | Successful `user_queue_destroy`, after execution completion and mapping release | The queue's borrowed scratch backing. |
 
 `user_queue_query_status` samples progress and terminal state. The KFD provider

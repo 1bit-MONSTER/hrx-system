@@ -12,6 +12,9 @@
 #include <vector>
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
+#include "libamdf/cts/gpu/kernels/immutable_data.h"
+#include "libamdf/cts/gpu/kernels/immutable_data_alternate_kernels.h"
+#include "libamdf/cts/gpu/kernels/immutable_data_kernels.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
 #include "libamdf/cts/gpu/kernels/transform_alternate_kernels.h"
 #include "libamdf/cts/gpu/kernels/transform_kernels.h"
@@ -289,6 +292,271 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
                  std::to_string(status.producer_index));
   RecordProperty("aql_replacement_final_consumed_index",
                  std::to_string(status.consumed_index));
+}
+
+TEST_F(AqlDispatchTest, ReplacesCompletedImmutableDataAtSameAddress) {
+  const auto* first_kernel_product =
+      kernels::immutable_data::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(first_kernel_product, nullptr)
+      << "missing compiled immutable_data kernel for endpoint";
+  const auto& first_kernel = *first_kernel_product;
+  const auto* alternate_kernel_product =
+      kernels::immutable_data_alternate::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(alternate_kernel_product, nullptr)
+      << "missing compiled immutable_data_alternate kernel for endpoint";
+  const auto& alternate_kernel = *alternate_kernel_product;
+
+  constexpr uint32_t kPageByteLength = 4096;
+  constexpr uint32_t kResultWordCount = 64;
+  constexpr uint32_t kOutputGuard = 0x73c69a5bu;
+  constexpr uint8_t kArgumentGuard = 0xa7;
+  constexpr uint8_t kControlGuard = 0x3d;
+  constexpr uint32_t kSignalGuardByteOffset = 2 * sizeof(aql::Signal);
+  const std::array<const kernels::Kernel*, 3> kKernels = {
+      &first_kernel, &alternate_kernel, &first_kernel};
+  constexpr std::array<uint32_t, 3> kTableBases = {0, 100, 0};
+  constexpr uint64_t kPacketCount = 2 * kKernels.size();
+
+  ASSERT_STREQ(first_kernel.target, alternate_kernel.target);
+  ASSERT_EQ(first_kernel.executable.byte_length,
+            alternate_kernel.executable.byte_length);
+  ASSERT_EQ(first_kernel.executable.descriptor_byte_offset,
+            alternate_kernel.executable.descriptor_byte_offset);
+  ASSERT_EQ(first_kernel.executable.rodata_byte_length,
+            alternate_kernel.executable.rodata_byte_length);
+  ASSERT_GT(first_kernel.executable.rodata_byte_length, 64u);
+  ASSERT_EQ(first_kernel.entry_byte_offset, alternate_kernel.entry_byte_offset);
+  ASSERT_EQ(first_kernel.entry_byte_length, alternate_kernel.entry_byte_length);
+  ASSERT_EQ(first_kernel.text_byte_length, alternate_kernel.text_byte_length);
+  const auto* first_image =
+      reinterpret_cast<const uint8_t*>(first_kernel.executable.words);
+  const auto* alternate_image =
+      reinterpret_cast<const uint8_t*>(alternate_kernel.executable.words);
+  const uint32_t rodata_begin = first_kernel.executable.descriptor_byte_offset;
+  const uint32_t rodata_end =
+      rodata_begin + first_kernel.executable.rodata_byte_length;
+  ASSERT_LE(rodata_end, first_kernel.entry_byte_offset);
+  ASSERT_EQ(std::memcmp(first_image, alternate_image, rodata_begin + 64), 0);
+  ASSERT_NE(std::memcmp(first_image + rodata_begin + 64,
+                        alternate_image + rodata_begin + 64,
+                        rodata_end - rodata_begin - 64),
+            0);
+  ASSERT_EQ(std::memcmp(first_image + rodata_end, alternate_image + rodata_end,
+                        first_kernel.executable.byte_length - rodata_end),
+            0);
+  ASSERT_EQ(std::memcmp(first_image + first_kernel.entry_byte_offset,
+                        alternate_image + alternate_kernel.entry_byte_offset,
+                        first_kernel.text_byte_length),
+            0);
+  for (const kernels::Kernel* kernel : {&first_kernel, &alternate_kernel}) {
+    ASSERT_EQ(kernel->arguments.byte_length,
+              sizeof(kernels::immutable_data::Arguments));
+    ASSERT_EQ(kernel->arguments.byte_offsets.size(),
+              kernels::immutable_data::kArgumentByteOffsets.size());
+    ASSERT_EQ(kernel->arguments.byte_lengths.size(),
+              kernels::immutable_data::kArgumentByteLengths.size());
+    ASSERT_EQ(kernel->arguments.value_kinds.size(),
+              kernels::immutable_data::kArgumentValueKinds.size());
+    ASSERT_TRUE(
+        std::equal(kernel->arguments.byte_offsets.begin(),
+                   kernel->arguments.byte_offsets.end(),
+                   kernels::immutable_data::kArgumentByteOffsets.begin()));
+    ASSERT_TRUE(
+        std::equal(kernel->arguments.byte_lengths.begin(),
+                   kernel->arguments.byte_lengths.end(),
+                   kernels::immutable_data::kArgumentByteLengths.begin()));
+    ASSERT_TRUE(
+        std::equal(kernel->arguments.value_kinds.begin(),
+                   kernel->arguments.value_kinds.end(),
+                   kernels::immutable_data::kArgumentValueKinds.begin()));
+    ASSERT_EQ(kernel->required_workgroup_size,
+              (std::array<uint32_t, 3>{64, 1, 1}));
+    ASSERT_EQ(kernel->group_segment_byte_length, 0u);
+    ASSERT_EQ(kernel->private_segment_byte_length, 0u);
+  }
+
+  const uint32_t kCacheRangeByteLength =
+      (first_kernel.executable.byte_length + 255u) & ~255u;
+  const uint64_t kCodeByteLength =
+      (std::max(
+           aql::ExecutableByteLength(gpu_endpoint_info_, first_kernel),
+           aql::ExecutableByteLength(gpu_endpoint_info_, alternate_kernel)) +
+       kPageByteLength - 1) &
+      ~(uint64_t{kPageByteLength} - 1);
+  GpuMemory* code = nullptr;
+  GpuMemory* commands = nullptr;
+  GpuMemory* output = nullptr;
+  GpuMemory* arguments = nullptr;
+  GpuMemory* control = nullptr;
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE,
+                   kCodeByteLength, &code));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE,
+                   kPageByteLength, &commands));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+                   kPageByteLength, &output));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ, kPageByteLength, &arguments));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+                   kPageByteLength, &control));
+  ASSERT_EQ(code->device_address % 256, 0u);
+  ASSERT_LT(code->device_address, UINT64_C(1) << 48);
+  ASSERT_LE(kCodeByteLength, (UINT64_C(1) << 48) - code->device_address);
+  ASSERT_EQ(commands->device_address % 4, 0u);
+  ASSERT_LT(commands->device_address, UINT64_C(1) << 48);
+  ASSERT_LE(kPageByteLength, (UINT64_C(1) << 48) - commands->device_address);
+  ASSERT_EQ(arguments->device_address % first_kernel.arguments.alignment, 0u);
+  ASSERT_EQ(arguments->device_address % alternate_kernel.arguments.alignment,
+            0u);
+  ASSERT_EQ(control->device_address % alignof(aql::Signal), 0u);
+
+  GpuUserQueue* queue = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
+  const uint64_t capacity = queue->host.ring_byte_length / sizeof(aql::Packet);
+  ASSERT_GE(capacity, kPacketCount);
+  uint64_t next_packet_index = 0;
+
+  std::vector<uint8_t> expected_code(kCodeByteLength);
+  std::vector<uint8_t> observed_code(kCodeByteLength);
+  std::array<uint8_t, kPageByteLength> expected_commands = {};
+  std::array<uint8_t, kPageByteLength> observed_commands;
+  std::array<uint8_t, kPageByteLength> expected_arguments;
+  std::array<uint8_t, kPageByteLength> observed_arguments;
+  std::array<uint8_t, kPageByteLength> observed_control;
+  std::array<uint32_t, kPageByteLength / sizeof(uint32_t)> expected_output;
+  std::array<uint32_t, kPageByteLength / sizeof(uint32_t)> observed_output;
+  expected_arguments.fill(kArgumentGuard);
+  const kernels::immutable_data::Arguments payload = {output->device_address};
+  std::memcpy(expected_arguments.data(), &payload, sizeof(payload));
+  std::memcpy(arguments->host.pointer, expected_arguments.data(),
+              sizeof(expected_arguments));
+  const auto cache_commands = aql::CodeCacheInvalidate(
+      gpu_endpoint_info_, code->device_address, kCacheRangeByteLength);
+  std::memcpy(expected_commands.data(), cache_commands.data(),
+              cache_commands.size() * sizeof(uint32_t));
+  std::memcpy(commands->host.pointer, expected_commands.data(),
+              sizeof(expected_commands));
+  std::memset(control->host.pointer, kControlGuard, kPageByteLength);
+  std::memset(control->host.pointer, 0, kSignalGuardByteOffset);
+  auto* signals = static_cast<aql::Signal*>(control->host.pointer);
+  signals[0].kind = 1;
+  signals[1].kind = 1;
+  const auto cache_packet = aql::IndirectBuffer(
+      aql::HeaderBarrier::kDisabled, commands->device_address,
+      cache_commands.size(), control->device_address,
+      {aql::FenceScope::kNone, aql::FenceScope::kNone});
+
+  RecordProperty("aql_immutable_replacement_target", first_kernel.target);
+  RecordProperty("aql_immutable_replacement_first_image_sha256",
+                 first_kernel.executable.sha256);
+  RecordProperty("aql_immutable_replacement_alternate_image_sha256",
+                 alternate_kernel.executable.sha256);
+  RecordProperty("aql_immutable_replacement_image_byte_length",
+                 first_kernel.executable.byte_length);
+  RecordProperty("aql_immutable_replacement_rodata_byte_length",
+                 first_kernel.executable.rodata_byte_length);
+  RecordProperty("aql_immutable_replacement_text_byte_length",
+                 first_kernel.text_byte_length);
+  RecordProperty("aql_immutable_replacement_code_allocation_count", 1);
+  RecordProperty("aql_immutable_replacement_completed_generations", 0);
+
+  for (uint32_t generation = 0; generation < kKernels.size(); ++generation) {
+    SCOPED_TRACE(generation);
+    const kernels::Kernel& kernel = *kKernels[generation];
+    const auto& image = kernel.executable;
+    std::fill(expected_code.begin(), expected_code.end(), 0);
+    std::memcpy(expected_code.data(), image.words, image.byte_length);
+    // Completion and ring retirement from the preceding generation make this
+    // the only executable image reachable through the retained allocation.
+    std::memcpy(code->host.pointer, expected_code.data(), expected_code.size());
+    expected_output.fill(kOutputGuard);
+    for (uint32_t i = 0; i < kResultWordCount; ++i) {
+      expected_output[i] = kTableBases[generation] + (i & 15u);
+    }
+    observed_output = expected_output;
+    for (uint32_t i = 0; i < kResultWordCount; ++i) {
+      observed_output[i] = ~expected_output[i];
+    }
+    std::memcpy(output->host.pointer, observed_output.data(),
+                sizeof(observed_output));
+    signals[0].value = 1;
+    signals[1].value = 1;
+
+    GpuStoreRelease(queue->host.write_index_address, next_packet_index + 1);
+    aql::Publish(*queue, next_packet_index++, cache_packet);
+    ASSERT_NO_FATAL_FAILURE(
+        WaitCompletionAndConsumption(*queue, signals[0], next_packet_index));
+    const auto dispatch_packet = aql::Dispatch(
+        aql::HeaderBarrier::kDisabled,
+        {1,
+         {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+         {kResultWordCount, 1, 1}},
+        kernel.private_segment_byte_length, kernel.group_segment_byte_length,
+        code->device_address + image.descriptor_byte_offset,
+        arguments->device_address,
+        control->device_address + sizeof(aql::Signal),
+        {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
+    GpuStoreRelease(queue->host.write_index_address, next_packet_index + 1);
+    aql::Publish(*queue, next_packet_index++, dispatch_packet);
+    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signals[1].value), 0);
+
+    std::memcpy(observed_output.data(), output->host.pointer,
+                sizeof(observed_output));
+    std::memcpy(observed_code.data(), code->host.pointer, observed_code.size());
+    std::memcpy(observed_commands.data(), commands->host.pointer,
+                sizeof(observed_commands));
+    std::memcpy(observed_arguments.data(), arguments->host.pointer,
+                sizeof(observed_arguments));
+    std::memcpy(observed_control.data(), control->host.pointer,
+                sizeof(observed_control));
+    for (uint32_t i = 0; i < expected_output.size(); ++i) {
+      EXPECT_EQ(observed_output[i], expected_output[i]) << "output word=" << i;
+    }
+    for (uint64_t i = 0; i < kCodeByteLength; ++i) {
+      EXPECT_EQ(observed_code[i], expected_code[i]) << "code byte=" << i;
+    }
+    for (uint32_t i = 0; i < kPageByteLength; ++i) {
+      EXPECT_EQ(observed_commands[i], expected_commands[i]) << "IB byte=" << i;
+      EXPECT_EQ(observed_arguments[i], expected_arguments[i])
+          << "argument byte=" << i;
+    }
+    for (uint32_t i = 0; i < 2; ++i) {
+      aql::Signal observed_signal;
+      std::memcpy(&observed_signal,
+                  observed_control.data() + i * sizeof(aql::Signal),
+                  sizeof(observed_signal));
+      EXPECT_EQ(observed_signal.kind, 1) << "signal=" << i;
+      EXPECT_EQ(observed_signal.value, 0) << "signal=" << i;
+    }
+    for (uint32_t i = kSignalGuardByteOffset; i < kPageByteLength; ++i) {
+      EXPECT_EQ(observed_control[i], kControlGuard) << "control byte=" << i;
+    }
+    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, next_packet_index));
+    if (HasFailure()) {
+      return;
+    }
+    RecordProperty("aql_immutable_replacement_completed_generations",
+                   generation + 1);
+  }
+
+  amdf_user_queue_status_t status = {
+      .type = AMDF_STRUCTURE_TYPE_USER_QUEUE_STATUS,
+      .structure_size = sizeof(status),
+  };
+  ASSERT_EQ(api_->user_queue_query_status(queue->queue, &status),
+            AMDF_STATUS_OK);
+  ASSERT_EQ(status.terminal_status, AMDF_STATUS_OK);
+  ASSERT_EQ(status.producer_index, kPacketCount);
+  ASSERT_EQ(status.consumed_index, kPacketCount);
+  RecordProperty("aql_immutable_replacement_image_upload_count",
+                 kKernels.size());
+  RecordProperty("aql_immutable_replacement_count", kKernels.size() - 1);
+  RecordProperty("aql_immutable_replacement_cache_publication_count",
+                 kKernels.size());
+  RecordProperty("aql_immutable_replacement_dispatch_count", kKernels.size());
 }
 
 }  // namespace

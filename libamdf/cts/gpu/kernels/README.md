@@ -23,6 +23,15 @@ each prior use has completed, with fixed inputs and arguments distinguishing the
 programs. Both programs have valid bounded accesses if instruction fetch
 observes the preceding image.
 
+[immutable_data.loom](immutable_data.loom) and its alternate have identical
+kernel descriptors, argument ABI and instruction bytes. Their only executable
+difference is a compiler-owned 16-word read-only table containing 0–15 or
+100–115. The [immutable replacement case](../aql/executable_test.cc) publishes
+the pair A → B → A at one retained device address and checks all 64 table
+reads after each completed replacement. This is the executable-data companion
+to the transform case: one isolates stale read-only data while the other
+isolates stale instructions.
+
 The [PM4 dispatch case](../pm4/dispatch_test.cc) uses the same source and
 [typed argument layout](transform.h) through ordinary PM4 dispatch. Its
 caller binds the emitted resource words and actual
@@ -103,16 +112,18 @@ binary products or manual regeneration step for the Loom programs. This path
 has no LLVM tool dependency; Loom and embedding are CTS build dependencies only.
 
 The embedder admits one self-contained AMDHSA V6 kernel, validates its ELF,
-descriptor and AMDGPU MessagePack metadata, and rejects relocations,
-undefined dependencies and kernel data beyond the descriptor and text. The
-image preserves their relative addresses, alignment and complete text padding.
-Generated immutable metadata carries argument, geometry and resource facts
-and HSACO/image hashes. Text extents, entry placement and resource words come
-from the compiled product. Behavioral tests select the exact physical product
-once, retain its metadata through launch, and compare results with independent
-CPU oracles. The host product tests retain semantic ABI and initial-register
-checks without fixing compiler instruction sizes or register counts. There is
-no runtime ELF parser or descriptor patching.
+descriptor and AMDGPU MessagePack metadata, and rejects relocations, undefined
+dependencies and unsupported allocated state. Defined global object symbols
+must be bounded, nonempty and nonoverlapping within the loaded `.rodata`
+section. The image preserves that complete section and `.text` at their linked
+relative addresses, including alignment gaps and complete text padding.
+Generated immutable metadata carries argument, geometry and resource facts,
+the read-only-data extent and HSACO/image hashes. Text extents, entry placement
+and resource words come from the compiled product. Behavioral tests select the
+exact physical product once, retain its metadata through launch, and compare
+results with independent CPU oracles. The host product tests retain semantic
+ABI and initial-register checks without fixing compiler instruction sizes or
+register counts. There is no runtime ELF parser or descriptor patching.
 
 ### Private memory, geometry and transfers
 
@@ -246,12 +257,13 @@ and GFX9-only configurations.
 
 ## AQL publication and observation
 
-The shared fixture copies the exact target image into coherent system memory
-with GPU READ|EXECUTE access. Its allocation includes speculative fetch padding
-and the compiler's target-specific prefetch extent. Before dispatch it executes
-`ACQUIRE_MEM` through an AQL vendor PM4-IB packet: seven-dword COHER_CNTL on
-CDNA or eight-dword GCR with the selected RDNA generation's cache fields.
-It waits for that packet's native completion. This follows ROCr's
+The shared fixture copies the exact target image—descriptor, compiler-owned
+read-only data and text—into coherent system memory with GPU READ|EXECUTE
+access. Its allocation includes speculative fetch padding and the compiler's
+target-specific prefetch extent. Before dispatch it executes `ACQUIRE_MEM`
+through an AQL vendor PM4-IB packet: seven-dword COHER_CNTL on CDNA or
+eight-dword GCR with the selected RDNA generation's cache fields. It waits for
+that packet's native completion. This follows ROCr's
 [code freezing][freeze], [cache invalidation][invalidate] and
 [ExecutePM4][execute] paths. Both vendor packet fence scopes are NONE,
 matching the [ExecutePM4 defaults][defaults].
@@ -266,19 +278,19 @@ The transform payload case uses SYSTEM acquire/release scopes. Its two
 completed epochs change the input, addend and count, launch 1024 workitems,
 and compare every output word with an independently computed host result.
 Prefix and suffix guards, inactive tail lanes and unchanged input are checked.
-Code, IB, kernarg, signal and data storage remain alive until queue destruction;
-completed kernargs and data are reused only after execution completion and ring
-consumption have both been observed.
+The complete executable image, IB, kernarg, signal and payload storage remain
+alive until queue destruction; completed kernargs and data are reused only
+after execution completion and ring consumption have both been observed.
 
 The [composed recipe](../recipes/copy_dispatch_test.cc) adds SDMA upload and
 download, device-side dependencies, and repeated signal and queue-ring reuse.
 Its coherent SYSTEM and staged LOCAL payload cases consume distinct queried
-visibility policies; code, arguments and control remain in coherent SYSTEM
-memory. The [completed-use replacement case](../aql/executable_test.cc)
-separately exercises explicit publication at a retained executed address.
-Concurrent replacement and LOCAL code upload need their own witnesses.
-Cold publication alone does not demonstrate instruction refresh after a
-deliberate replacement. The public
+visibility policies; executable images, arguments and control remain in
+coherent SYSTEM memory. The [completed-use replacement cases](../aql/executable_test.cc)
+separately exercise explicit instruction and immutable-data publication at a
+retained executed address. Concurrent replacement and LOCAL executable upload
+need their own witnesses. Cold publication alone does not demonstrate either
+instruction or read-only-data refresh after a deliberate replacement. The public
 [dispatch contract](../../../../docs/reference/amd/gpu/aql/dispatch.md) distinguishes compiler
 metadata, memory publication and completion ownership.
 

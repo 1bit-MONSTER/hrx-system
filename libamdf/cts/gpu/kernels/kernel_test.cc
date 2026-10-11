@@ -26,6 +26,9 @@
 #include "libamdf/cts/gpu/kernels/device_sdma_upload_kernels.h"
 #include "libamdf/cts/gpu/kernels/geometry_ids.h"
 #include "libamdf/cts/gpu/kernels/geometry_ids_kernels.h"
+#include "libamdf/cts/gpu/kernels/immutable_data.h"
+#include "libamdf/cts/gpu/kernels/immutable_data_alternate_kernels.h"
+#include "libamdf/cts/gpu/kernels/immutable_data_kernels.h"
 #include "libamdf/cts/gpu/kernels/lds_exchange.h"
 #include "libamdf/cts/gpu/kernels/lds_exchange_kernels.h"
 #include "libamdf/cts/gpu/kernels/pattern_fill_unaligned.h"
@@ -280,6 +283,26 @@ TEST(KernelTest, TransformProductsPreserveTheCallerContract) {
                 kernel.wavefront_size == 32 ? 0x408u : 8u);
       EXPECT_EQ(kernel.program.argument_preload, 0u);
       EXPECT_EQ(kernel.program.resource2 & 0x1fffu, 0x84u);
+    }
+  }
+}
+
+TEST(KernelTest, ImmutableDataProductsPreserveTheCallerContract) {
+  using Arguments = kernels::immutable_data::Arguments;
+  for (const auto* set : {&kernels::immutable_data::kKernels,
+                          &kernels::immutable_data_alternate::kKernels}) {
+    for (const auto& kernel : set->variants) {
+      SCOPED_TRACE(kernel.target);
+      CheckArgumentLayout(kernel, kernels::immutable_data::kArgumentByteOffsets,
+                          kernels::immutable_data::kArgumentByteLengths,
+                          kernels::immutable_data::kArgumentValueKinds,
+                          sizeof(Arguments), alignof(Arguments));
+      EXPECT_EQ(kernel.arguments.byte_length, sizeof(Arguments));
+      EXPECT_EQ(kernel.required_workgroup_size,
+                (std::array<uint32_t, 3>{64, 1, 1}));
+      EXPECT_EQ(kernel.group_segment_byte_length, 0u);
+      EXPECT_EQ(kernel.private_segment_byte_length, 0u);
+      EXPECT_GT(kernel.executable.rodata_byte_length, 64u);
     }
   }
 }

@@ -1546,6 +1546,9 @@ iree_cc_test(
     ::file_staged_upload_kernels
     ::geometry_ids
     ::geometry_ids_kernels
+    ::immutable_data
+    ::immutable_data_alternate_kernels
+    ::immutable_data_kernels
     ::kernel
     ::lds_exchange
     ::lds_exchange_kernels

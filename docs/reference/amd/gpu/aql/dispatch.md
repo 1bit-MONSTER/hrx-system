@@ -61,6 +61,17 @@ and firmware capability must agree; the copied runtime structure alone does
 not describe every supported code-object feature. [ROCr descriptor
 copy][rocr-descriptor] · [LLVM preload protocol][llvm-preload]
 
+The descriptor is one object in the executable image, not a bound on that
+image. AMDGPU ELF represents a defined read-only global as an `STT_OBJECT` in
+`.rodata`, separately from the descriptor object and `.text` function symbol.
+Machine code resolves such objects according to the linked image; the dispatch
+packet supplies no replacement address for them. A raw executable owner must
+therefore materialize every loaded byte reachable by the selected kernel,
+including descriptors, immutable objects, text and required padding, at the
+relative addresses used by the linked program. Copying only the descriptor and
+text can leave a valid-looking launch whose data references name absent or
+unrelated bytes. [LLVM code-object symbols][llvm-symbols]
+
 A metadata-enabled queue can additionally carry a copied descriptor suffix
 and up to 32 argument DWORDs in a paired 256-byte record. Its versioned
 representation and publication are described under [metadata-prefetch rings](metadata.md);
@@ -164,10 +175,13 @@ resource totals][packet]
 
 ## Executable publication and final use
 
-Executable publication has three obligations: finish and publish image writes,
-complete executable-cache maintenance, and retain code until all its users
-finish. An address-range invalidation does not discover other queues still
-executing an old image at that address.
+Executable publication has three obligations: finish and publish every image
+write, complete the target's executable-cache maintenance, and retain the
+complete image until all its users finish. Immutable objects loaded by the
+program are image dependencies just like its descriptor and instructions; they
+are not kernargs or independently bound dispatch payloads. An address-range
+invalidation does not discover other queues still executing an old image at
+that address.
 
 ROCr's base-profile loader stages the image separately from its final local
 allocation. Freeze selects a blocking upload when Large BAR is unavailable or
@@ -204,16 +218,17 @@ successful upload. [Freeze contract][hsa-freeze] · [Destruction
 precondition][hsa-destroy] · [Segment result][freeze] · [Result
 handling][loader-freeze]
 
-### Reusing a completed code address
+### Reusing a completed executable address
 
-Caller-owned raw code storage has a distinct lifecycle from a frozen HSA
+Caller-owned raw executable storage has a distinct lifecycle from a frozen HSA
 executable handle. A completed-use replacement composes the following native
 obligations:
 
-1. Join every old dispatch and indirect command that can access the code.
+1. Join every old dispatch and indirect command that can access the image.
 2. Retire the naming packet slots before rewriting their ring storage. Retain
-   code backing and mappings while replacing the complete image, including
-   compiler-required padding and any fetchable tail.
+   executable backing and mappings while replacing the complete image,
+   including descriptors, immutable objects, compiler-required padding and any
+   fetchable tail.
 3. Publish the replacement writes for the actual mapping and complete the
    target's executable-cache operation.
 4. Only then publish the next dispatch with its matching descriptor, argument
@@ -224,6 +239,13 @@ path. Cache invalidation is not an old-user join, and the sequence does not
 create a mutable or refreezable HSA executable handle. [HSA last-use
 requirement][hsa-destroy] · [Executable publication][code-cache] ·
 [Synchronous native completion][loader-cache-carrier]
+
+The same sequence applies when the old and new descriptor and instruction
+bytes are identical but a linked immutable object changes. Text identity does
+not prove that a scalar, vector or shared data cache cannot still satisfy the
+next program load from the old image. Conversely, changing an output after an
+ordinary payload acquire is not evidence that executable-owned data was
+materialized, published or retained correctly.
 
 ## PM4 shader state inside an AQL queue
 
@@ -260,6 +282,7 @@ Return to [AQL](README.md) or [barriers and signals](barriers.md).
 [llvm-descriptor]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/include/llvm/Support/AMDHSAKernelDescriptor.h#L266-L330
 [rocr-descriptor]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/loader/AMDHSAKernelDescriptor.h#L214-L244
 [llvm-preload]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L7229-L7258
+[llvm-symbols]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L3358-L3403
 [hsa]: https://hsafoundation.com/wp-content/uploads/2021/02/HSA-SysArch-1.2.pdf
 [llvm-flat-size]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L2597-L2607
 [llvm-uniform]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L5824-L5833
