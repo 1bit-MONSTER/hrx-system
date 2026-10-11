@@ -47,8 +47,6 @@ enum loom_low_lower_value_flag_bits_e {
   LOOM_LOW_LOWER_VALUE_MATERIALIZED = (uint8_t)1u << 4,
   // The planned binding inherits its carrier from one flattened source ordinal.
   LOOM_LOW_LOWER_VALUE_INHERITED_TYPE = (uint8_t)1u << 5,
-  // A later source op is owned by an already selected nonlocal source graph.
-  LOOM_LOW_LOWER_VALUE_SOURCE_GRAPH_RESERVED = (uint8_t)1u << 6,
 };
 typedef uint8_t loom_low_lower_value_flags_t;
 
@@ -74,6 +72,14 @@ typedef enum loom_low_lower_selected_plan_kind_e {
   LOOM_LOW_LOWER_SELECTED_PLAN_INVOKE = 4,
 } loom_low_lower_selected_plan_kind_t;
 
+// Canonical source-memory data retained with a selected table rule.
+typedef struct loom_low_lower_selected_source_memory_t {
+  // Root-adjusted canonical access consumed by the selected rule.
+  loom_low_source_memory_access_plan_t access;
+  // Dynamic origin proof captured from the unadjusted source access.
+  const loom_low_lower_memory_origin_t* origin;
+} loom_low_lower_selected_source_memory_t;
+
 // One source operation's lowering decision retained between planning and
 // emission.
 typedef struct loom_low_lower_selected_plan_t {
@@ -86,6 +92,8 @@ typedef struct loom_low_lower_selected_plan_t {
   // Number of source nodes owned by a table rule, including the root. Zero for
   // non-rule plans and claimed placeholders.
   uint8_t source_node_count;
+  // Source-node ordinal that triggers emission. Zero emits at |source_op|.
+  uint8_t emission_source_node_index;
   // Policy rule-set ordinal for table-driven selections.
   uint16_t rule_set_index;
   // Rule-table ordinal for table-driven selections.
@@ -99,9 +107,9 @@ typedef struct loom_low_lower_selected_plan_t {
   const loom_low_lower_rule_t* rule;
   // Resolved emit rows for |rule|, or NULL for non-rule plans.
   const loom_low_lower_resolved_emit_t* resolved_emits;
-  // Canonical source-memory plan retained from rule selection, or NULL when
-  // the selected rule does not consume source memory.
-  const loom_low_source_memory_access_plan_t* source_memory_access;
+  // Canonical source-memory selection retained from rule matching, or NULL
+  // when the selected rule does not consume source memory.
+  const loom_low_lower_selected_source_memory_t* source_memory;
   // Selected-plan-specific retained payload.
   union {
     // Helper signature and proved preconditions owned by the function plan.
@@ -151,10 +159,6 @@ typedef struct loom_low_lower_source_plan_t {
   loom_low_lower_realizations_t* realizations;
   // Storage demands and binding states indexed by source value ordinal.
   loom_low_lower_value_flags_t* value_flags;
-  // Direct selected-plan indices for operation kinds claimable by nonlocal
-  // source graphs, keyed by each source op's first result value. Prepared from
-  // source traversal order and NULL when the function has no candidate nodes.
-  uint32_t* selected_plan_indices_by_value_ordinal;
   // Policy rule sets requiring per-rule primary descriptor feature queries,
   // stored as a dense bitset. NULL when generated summaries prove every
   // primary descriptor available for the active profile.
@@ -202,10 +206,6 @@ bool loom_low_lower_source_plan_uses_structured_control_flow(
 
 // Returns true when |kind| carries source-only metadata and emits no Low op.
 bool loom_low_lower_source_plan_op_is_metadata(loom_op_kind_t kind);
-
-// Returns true when |source_value_id| needs a materialized target-Low result.
-bool loom_low_lower_source_plan_result_storage_required(
-    const loom_low_lower_context_t* context, loom_value_id_t source_value_id);
 
 #ifdef __cplusplus
 }  // extern "C"

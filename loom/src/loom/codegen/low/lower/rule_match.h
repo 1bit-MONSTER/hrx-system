@@ -176,6 +176,9 @@ typedef struct loom_low_lower_rule_selection_t {
   bool uses_source_memory_access;
   // Number of populated source_nodes entries for the selected rule.
   uint8_t source_node_count;
+  // Source-node ordinal where the rule can emit after every source-backed
+  // operand is available. Zero preserves root emission.
+  uint8_t emission_source_node_index;
 } loom_low_lower_rule_selection_t;
 
 // Returns true when |candidate| carries a more useful selection failure than

@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include "loom/codegen/low/descriptors.h"
+#include "loom/codegen/low/lower/source_memory.h"
 #include "loom/ir/attribute.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
@@ -93,9 +94,9 @@ static iree_status_t loom_amdgpu_record_fragment_memory_packet(
   const loom_amdgpu_fragment_memory_packet_offset_t runtime_packet_offset =
       loom_amdgpu_fragment_memory_runtime_packet_offset(
           plan, packet->register_index, element_index);
-  return loom_low_lower_record_memory_packet(context, low_op, descriptor,
-                                             &packet_source,
-                                             runtime_packet_offset.byte_facts);
+  return loom_low_lower_record_memory_packet(
+      context, low_op, descriptor, loom_low_lower_source_memory_origin(context),
+      &packet_source, runtime_packet_offset.byte_facts);
 }
 
 static iree_status_t loom_amdgpu_make_fragment_memory_attrs(

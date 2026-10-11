@@ -81,6 +81,11 @@ const loom_low_source_memory_access_plan_t* loom_low_lower_source_memory_access(
     const loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_low_source_memory_access_diagnostic_t* out_diagnostic);
 
+// Returns the current access's retained dynamic-origin proof, or NULL when no
+// source-memory record is active or its relative origin is not representable.
+const loom_low_lower_memory_origin_t* loom_low_lower_source_memory_origin(
+    const loom_low_lower_context_t* context);
+
 // Returns the current access's retained loop-invariant canonical term set.
 uint16_t loom_low_lower_source_memory_invariant_terms(
     const loom_low_lower_context_t* context);

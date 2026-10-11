@@ -48,12 +48,13 @@ iree_status_t loom_low_lower_record_memory_effect(
     loom_low_lower_context_t* context, const loom_op_t* low_op,
     uint16_t effect_ordinal, const loom_low_memory_access_summary_t* summary);
 
-// Records an instruction for the current source-memory record in the emission
-// traversal. The caller supplies selected geometry over that record's canonical
-// dynamic terms; additional_offset bounds runtime instruction coordinates.
+// Records an instruction from retained source-memory selection data. The
+// caller supplies selected geometry over the origin's canonical dynamic terms;
+// additional_offset bounds runtime instruction coordinates.
 iree_status_t loom_low_lower_record_memory_packet(
     loom_low_lower_context_t* context, const loom_op_t* low_op,
     const loom_low_descriptor_t* descriptor,
+    const loom_low_lower_memory_origin_t* origin,
     const loom_low_source_memory_access_plan_t* source_plan,
     loom_value_facts_t additional_offset);
 

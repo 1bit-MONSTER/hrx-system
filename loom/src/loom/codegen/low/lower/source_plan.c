@@ -20,7 +20,10 @@
 #include "loom/codegen/low/lower/rule_source_memory.h"
 #include "loom/codegen/low/lower/rule_value.h"
 #include "loom/codegen/low/lower/source_call.h"
+#include "loom/codegen/low/lower/source_graph_placement.h"
+#include "loom/codegen/low/lower/source_graph_plan.h"
 #include "loom/codegen/low/lower/source_query.h"
+#include "loom/codegen/low/lower/source_value_storage.h"
 #include "loom/codegen/low/source_memory_plan.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
@@ -34,6 +37,108 @@
 #include "loom/ops/scf/ops.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/ops/view/ops.h"
+
+typedef enum loom_low_lower_source_candidate_kind_e {
+  LOOM_LOW_LOWER_SOURCE_CANDIDATE_RULE = 0,
+  LOOM_LOW_LOWER_SOURCE_CANDIDATE_DESCRIPTOR_MATRIX = 1,
+  LOOM_LOW_LOWER_SOURCE_CANDIDATE_PLAN = 2,
+  LOOM_LOW_LOWER_SOURCE_CANDIDATE_CALLBACK = 3,
+} loom_low_lower_source_candidate_kind_t;
+
+typedef struct loom_low_lower_source_candidate_descriptor_matrix_t {
+  // Generated descriptor-matrix row selected by source adaptation.
+  const loom_target_contract_descriptor_matrix_rule_t* matrix_rule;
+  // Target-independent adapted request.
+  loom_contract_request_t contract_request;
+  // Target projection retained without materialized immediate attributes.
+  loom_target_contract_query_result_t query_result;
+} loom_low_lower_source_candidate_descriptor_matrix_t;
+
+typedef struct loom_low_lower_source_candidate_callback_t {
+  // Target callback evaluated only when this fallback is selected.
+  loom_low_lower_select_op_callback_t callback;
+  // Selected plan populated after successful evaluation.
+  loom_low_lower_selected_plan_t selected_plan;
+  // True after the callback has been evaluated.
+  bool evaluated;
+} loom_low_lower_source_candidate_callback_t;
+
+typedef struct loom_low_lower_source_candidate_t {
+  // Candidate payload representation.
+  loom_low_lower_source_candidate_kind_t kind;
+  // Resolver state before storage-demand filtering.
+  loom_low_lower_source_graph_alternative_state_t state;
+  // True when deferred evaluation proved the candidate unavailable.
+  bool disabled;
+  union {
+    struct {
+      // Rule set owning the selected rule row.
+      const loom_low_lower_rule_set_t* rule_set;
+      // Canonical root memory access, or NULL when unused.
+      const loom_low_source_memory_access_plan_t* source_memory_access;
+      // Policy rule-set ordinal.
+      uint16_t rule_set_index;
+      // Rule-table ordinal.
+      uint16_t rule_index;
+      // Source-node ordinal where every emitted operand is available.
+      uint8_t emission_source_node_index;
+    } rule;
+    // Retained descriptor-matrix query awaiting selected-plan materialization.
+    loom_low_lower_source_candidate_descriptor_matrix_t* descriptor_matrix;
+    // Complete non-rule selected plan.
+    loom_low_lower_selected_plan_t* selected_plan;
+    // Deferred target callback state.
+    loom_low_lower_source_candidate_callback_t* callback;
+  } data;
+} loom_low_lower_source_candidate_t;
+
+typedef struct loom_low_lower_source_candidate_graph_t {
+  // Number of source nodes in root-first order.
+  uint8_t source_node_count;
+  // Source nodes shared by every exact graph alternative.
+  const loom_op_t* source_nodes[];
+} loom_low_lower_source_candidate_graph_t;
+
+typedef struct loom_low_lower_source_candidate_rejection_t {
+  // Best generated-rule rejection when no candidate covers this node.
+  const loom_low_lower_rule_set_t* failed_rule_set;
+  // Best generated-rule failure detail.
+  loom_low_lower_rule_failure_t rule_failure;
+  // Descriptor-matrix rejection retained until coverage is resolved.
+  loom_target_contract_query_result_t matrix_rejection;
+} loom_low_lower_source_candidate_rejection_t;
+
+typedef struct loom_low_lower_source_candidate_node_t {
+  // Ordinary source operation represented by this node.
+  const loom_op_t* source_op;
+  // Canonical source-memory record, or NULL for non-memory operations.
+  const loom_low_lower_source_memory_record_t* memory_record;
+  // Root-adjusted canonical access shared by matching rule alternatives.
+  const loom_low_source_memory_access_plan_t* matched_source_memory_access;
+  // Cold rejection detail allocated only for uncovered operations.
+  loom_low_lower_source_candidate_rejection_t* rejection;
+} loom_low_lower_source_candidate_node_t;
+
+typedef struct loom_low_lower_source_candidate_plan_t {
+  // Mutable lowering context owning candidate facts and retained plan storage.
+  loom_low_lower_context_t* context;
+  // Query environment initialized on the first indexed contract operation.
+  loom_target_contract_query_environment_t query_environment;
+  // Composed contract tables and target descriptor-matrix projection.
+  loom_low_lower_contract_query_options_t query_options;
+  // Shared exact-graph resolver.
+  loom_low_lower_source_graph_plan_t* graph_plan;
+  // Ordinary operations in source-plan traversal order.
+  loom_low_lower_source_candidate_node_t* nodes;
+  // Number of entries allocated in |nodes|.
+  iree_host_size_t node_capacity;
+  // First-result value ordinal to dense source-plan node index.
+  uint32_t* value_node_indices;
+  // Number of entries in |value_node_indices|.
+  loom_value_ordinal_t value_node_count;
+  // Next node populated by candidate collection traversal.
+  uint32_t collection_node_index;
+} loom_low_lower_source_candidate_plan_t;
 
 bool loom_low_lower_source_plan_uses_structured_control_flow(
     const loom_low_lower_context_t* context) {
@@ -56,26 +161,12 @@ static bool loom_low_lower_supported_structured_source_op(
   }
 }
 
-static bool loom_low_lower_source_op_requires_emission_with_traits(
-    const loom_op_t* source_op, loom_trait_flags_t traits) {
-  if (source_op->result_count == 0 || source_op->region_count != 0 ||
-      source_op->tied_result_count != 0) {
-    return true;
-  }
-  if (iree_any_bit_set(traits, LOOM_TRAIT_TERMINATOR | LOOM_TRAIT_HINT |
-                                   LOOM_TRAIT_CONVERGENT |
-                                   LOOM_TRAIT_OBSERVABLE_EFFECT)) {
-    return true;
-  }
-  return loom_traits_may_read(traits) || loom_traits_may_write(traits);
-}
-
 static bool loom_low_lower_op_is_structural(
     const loom_low_lower_context_t* context, const loom_op_t* op,
     loom_trait_flags_t traits, bool is_callable_exit) {
   if ((loom_traits_are_fact_identity(traits) ||
        loom_traits_are_value_alias(traits)) &&
-      !loom_low_lower_source_op_requires_emission_with_traits(op, traits)) {
+      !loom_low_lower_source_value_storage_op_requires_emission(op, traits)) {
     return true;
   }
   if (is_callable_exit) {
@@ -125,731 +216,76 @@ static bool loom_low_lower_op_is_discardable_hint(const loom_module_t* module,
   return iree_any_bit_set(traits, LOOM_TRAIT_HINT);
 }
 
-static void loom_low_lower_mark_value_storage_required(
-    loom_low_lower_context_t* context, loom_value_id_t source_value_id) {
-  const loom_low_lower_value_flags_t required_flags =
-      LOOM_LOW_LOWER_VALUE_STORAGE_REQUIRED |
-      (context->lowering->source_plan.is_analyzing_storage_demands
-           ? 0
-           : LOOM_LOW_LOWER_VALUE_STORAGE_BASELINE_REQUIRED);
-  // Storage demand flows backward through structural identities. The required
-  // bit is both the result and the visited set, so even shared identity chains
-  // are traversed at most once across the whole function plan.
-  while (true) {
-    const loom_value_ordinal_t source_ordinal =
-        loom_low_lowering_frame_value_ordinal(context->lowering,
-                                              source_value_id);
-    loom_low_lower_value_flags_t* storage_flags =
-        &context->lowering->source_plan.value_flags[source_ordinal];
-    if (iree_all_bits_set(*storage_flags, required_flags)) {
-      return;
-    }
-    *storage_flags |= required_flags;
-
-    const loom_value_t* source_value =
-        loom_module_value(context->module, source_value_id);
-    if (loom_value_is_block_arg(source_value)) {
-      return;
-    }
-    const loom_op_t* defining_op = loom_value_def_op(source_value);
-    if (defining_op == NULL) {
-      return;
-    }
-    const loom_trait_flags_t traits = defining_op->traits;
-    const uint16_t result_ordinal = loom_value_def_index(source_value);
-    if (loom_traits_are_fact_identity(traits)) {
-      IREE_ASSERT_EQ(defining_op->operand_count, defining_op->result_count);
-      IREE_ASSERT_LT(result_ordinal, defining_op->operand_count);
-      source_value_id = loom_op_const_operands(defining_op)[result_ordinal];
-      continue;
-    }
-    if (loom_traits_are_value_alias(traits)) {
-      IREE_ASSERT_EQ(result_ordinal, 0);
-      IREE_ASSERT(defining_op->operand_count >= 1);
-      source_value_id = loom_op_const_operands(defining_op)[0];
-      continue;
-    }
-    if (loom_buffer_assume_same_root_isa(defining_op)) {
-      IREE_ASSERT_EQ(result_ordinal, 0);
-      source_value_id = loom_buffer_assume_same_root_buffer(defining_op);
-      continue;
-    }
-    return;
-  }
-}
-
-void loom_low_lower_require_source_value_storage(
-    loom_low_lower_context_t* context, loom_value_id_t source_value_id) {
-  loom_low_lower_mark_value_storage_required(context, source_value_id);
-}
-
-void loom_low_lower_require_source_operands_storage(
-    loom_low_lower_context_t* context, const loom_op_t* source_op) {
-  const loom_value_id_t* operands = loom_op_const_operands(source_op);
-  for (uint16_t i = 0; i < source_op->operand_count; ++i) {
-    loom_low_lower_mark_value_storage_required(context, operands[i]);
-  }
-}
-
-static bool loom_low_lower_value_storage_required(
-    const loom_low_lower_context_t* context, loom_value_id_t source_value_id) {
-  const loom_value_ordinal_t source_ordinal =
-      loom_low_lowering_frame_value_ordinal(context->lowering, source_value_id);
-  return iree_any_bit_set(
-      context->lowering->source_plan.value_flags[source_ordinal],
-      LOOM_LOW_LOWER_VALUE_STORAGE_REQUIRED);
-}
-
-bool loom_low_lower_source_plan_result_storage_required(
-    const loom_low_lower_context_t* context, loom_value_id_t source_value_id) {
-  return loom_low_lower_value_storage_required(context, source_value_id) ||
-         loom_module_value_has_type_uses(context->module, source_value_id);
-}
-
-static bool loom_low_lower_rule_value_ref_source_value(
-    const loom_low_lower_context_t* context,
-    const loom_low_lower_selected_plan_t* selected_plan,
-    uint16_t value_ref_index, loom_value_id_t* out_source_value_id) {
-  const loom_low_lower_rule_set_t* rule_set = selected_plan->rule_set;
-  return loom_low_lower_rule_resolve_source_value_from_nodes(
-      context->module, context->fact_table,
-      (loom_target_contract_vector_lane_projection_t){0}, rule_set,
-      selected_plan->source_op, selected_plan->data.source_nodes,
-      selected_plan->source_node_count, value_ref_index, out_source_value_id);
-}
-
-static bool loom_low_lower_value_has_fact_storage_demand(
-    const loom_low_lower_context_t* context, loom_value_id_t source_value_id) {
-  const loom_value_ordinal_t source_ordinal =
-      loom_low_lowering_frame_value_ordinal(context->lowering, source_value_id);
-  return iree_any_bit_set(
-      context->lowering->source_plan.value_flags[source_ordinal],
-      LOOM_LOW_LOWER_VALUE_STORAGE_FACT_REFERENCE);
-}
-
-static bool loom_low_lower_rule_value_ref_binds_source_value(
-    const loom_module_t* module, const loom_low_lower_rule_set_t* rule_set,
-    const loom_op_t* source_op, const loom_op_t* const* source_nodes,
-    uint8_t source_node_count, uint16_t value_ref_index,
-    loom_value_id_t source_value_id) {
-  if (rule_set->value_refs[value_ref_index].kind !=
-      LOOM_LOW_LOWER_VALUE_REF_RESULT) {
+static bool loom_low_lower_source_plan_has_related_rules(
+    const loom_low_lower_context_t* context) {
+  const loom_target_contract_index_t* index = context->policy->contract.index;
+  if (index == NULL) {
     return false;
   }
-  const loom_value_slice_t result_span =
-      loom_low_lower_rule_value_ref_field_span_from_nodes(
-          module, rule_set, source_op, source_nodes, source_node_count,
-          value_ref_index);
-  for (iree_host_size_t i = 0; i < result_span.count; ++i) {
-    if (result_span.values[i] == source_value_id) {
+  for (uint8_t i = 0; i < index->binding_count; ++i) {
+    const loom_target_contract_binding_t* binding = &index->bindings[i];
+    if (binding->rule_set_index < context->policy->contract.rule_sets.count &&
+        context->policy->contract.rule_sets.values[binding->rule_set_index]
+                ->source_node_count != 0) {
       return true;
     }
   }
   return false;
 }
 
-static bool loom_low_lower_rule_binds_source_value(
-    const loom_module_t* module, const loom_low_lower_rule_set_t* rule_set,
-    const loom_op_t* source_op, const loom_op_t* const* source_nodes,
-    uint8_t source_node_count, const loom_low_lower_rule_t* rule,
-    loom_value_id_t source_value_id) {
-  for (uint16_t emit_ordinal = 0; emit_ordinal < rule->emit_count;
-       ++emit_ordinal) {
-    const uint16_t emit_ref_index =
-        (uint16_t)(rule->action.emit_start + emit_ordinal);
-    const loom_low_lower_emit_t* emit =
-        loom_low_lower_rule_set_emit_at(rule_set, emit_ref_index);
-    const uint16_t result_ref_start =
-        iree_any_bit_set(emit->flags,
-                         LOOM_LOW_LOWER_EMIT_FLAG_BIND_RESULTS_TO_REFS)
-            ? emit->result_bind_ref_start
-            : emit->result_type.value_ref_start;
-    for (uint16_t result_ordinal = 0; result_ordinal < emit->result_ref_count;
-         ++result_ordinal) {
-      const uint16_t value_ref_index =
-          (uint16_t)(result_ref_start + result_ordinal);
-      if (loom_low_lower_rule_value_ref_binds_source_value(
-              module, rule_set, source_op, source_nodes, source_node_count,
-              value_ref_index, source_value_id)) {
-        return true;
-      }
-    }
-  }
-  if (rule->emit_count == 0) {
-    for (uint16_t alias_ordinal = 0;
-         alias_ordinal < rule->metadata.value.alias_ref_count;
-         ++alias_ordinal) {
-      const uint16_t result_ref_index =
-          (uint16_t)(rule->action.alias_ref_start + alias_ordinal * 2 + 1);
-      if (loom_low_lower_rule_value_ref_binds_source_value(
-              module, rule_set, source_op, source_nodes, source_node_count,
-              result_ref_index, source_value_id)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-static bool loom_low_lower_rule_preserves_fact_storage_demands(
-    const loom_low_lower_context_t* context,
-    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
-    const loom_op_t* const* source_nodes, uint8_t source_node_count,
-    const loom_low_lower_rule_t* rule) {
-  if (context->lowering->source_plan.fact_storage_demand_count == 0) {
-    return true;
-  }
-  for (uint8_t source_node_index = 0; source_node_index < source_node_count;
-       ++source_node_index) {
-    const loom_op_t* source_node = source_op;
-    if (source_node_index != 0) {
-      IREE_ASSERT(source_nodes != NULL);
-      source_node = source_nodes[source_node_index];
-    }
-    const loom_value_id_t* results = loom_op_const_results(source_node);
-    for (uint16_t result_ordinal = 0;
-         result_ordinal < source_node->result_count; ++result_ordinal) {
-      const loom_value_id_t result = results[result_ordinal];
-      if (loom_low_lower_value_has_fact_storage_demand(context, result) &&
-          !loom_low_lower_rule_binds_source_value(
-              context->module, rule_set, source_op, source_nodes,
-              source_node_count, rule, result)) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-static void loom_low_lower_mark_rule_value_ref_storage_demand(
+static iree_status_t loom_low_lower_source_candidate_plan_initialize(
     loom_low_lower_context_t* context,
-    const loom_low_lower_selected_plan_t* selected_plan,
-    uint16_t value_ref_index) {
-  loom_value_id_t source_value_id = LOOM_VALUE_ID_INVALID;
-  if (!loom_low_lower_rule_value_ref_source_value(
-          context, selected_plan, value_ref_index, &source_value_id)) {
-    return;
+    loom_low_lower_source_candidate_plan_t* out_plan) {
+  *out_plan = (loom_low_lower_source_candidate_plan_t){0};
+  out_plan->context = context;
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_plan_create(
+      &context->analysis_arena, &out_plan->graph_plan));
+  out_plan->value_node_count = context->lowering->value_domain.value_count;
+  if (out_plan->value_node_count == 0) {
+    return iree_ok_status();
   }
-  const loom_low_lower_value_ref_t* value_ref =
-      &selected_plan->rule_set->value_refs[value_ref_index];
-  if (value_ref->kind == LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND ||
-      value_ref->kind ==
-          LOOM_LOW_LOWER_VALUE_REF_UNIFORM_ELEMENT_ORIGIN_OPERAND ||
-      value_ref->kind ==
-          LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND) {
-    const loom_value_ordinal_t source_ordinal =
-        loom_low_lowering_frame_value_ordinal(context->lowering,
-                                              source_value_id);
-    loom_low_lower_value_flags_t* storage_flags =
-        &context->lowering->source_plan.value_flags[source_ordinal];
-    if (!iree_any_bit_set(*storage_flags,
-                          LOOM_LOW_LOWER_VALUE_STORAGE_FACT_REFERENCE)) {
-      *storage_flags |= LOOM_LOW_LOWER_VALUE_STORAGE_FACT_REFERENCE;
-      ++context->lowering->source_plan.fact_storage_demand_count;
-    }
-  }
-  loom_low_lower_mark_value_storage_required(context, source_value_id);
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      &context->analysis_arena, out_plan->value_node_count,
+      sizeof(*out_plan->value_node_indices),
+      (void**)&out_plan->value_node_indices));
+  memset(out_plan->value_node_indices, 0xFF,
+         (iree_host_size_t)out_plan->value_node_count *
+             sizeof(*out_plan->value_node_indices));
+  return iree_ok_status();
 }
 
-static bool loom_low_lower_rule_value_ref_uses_source_memory_plan(
-    const loom_low_lower_rule_set_t* rule_set, uint16_t value_ref_index) {
-  const loom_low_lower_value_ref_t* value_ref =
-      &rule_set->value_refs[value_ref_index];
-  switch (value_ref->kind) {
-    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_TERM:
-    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET:
-    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_BYTE_OFFSET:
-    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ADDRESS:
-    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ROOT:
-      return true;
-    default:
-      return false;
-  }
-}
-
-static bool loom_low_lower_emit_uses_source_memory_plan(
-    const loom_low_lower_rule_set_t* rule_set,
-    const loom_low_lower_emit_t* emit) {
-  for (uint16_t operand_ordinal = 0; operand_ordinal < emit->operand_ref_count;
-       ++operand_ordinal) {
-    const uint16_t value_ref_index =
-        (uint16_t)(emit->operand_ref_start + operand_ordinal);
-    if (loom_low_lower_rule_value_ref_uses_source_memory_plan(
-            rule_set, value_ref_index)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-static bool loom_low_lower_emit_materializes_source_memory_address(
-    const loom_low_lower_rule_set_t* rule_set,
-    const loom_low_lower_emit_t* emit) {
-  for (uint16_t operand_ordinal = 0; operand_ordinal < emit->operand_ref_count;
-       ++operand_ordinal) {
-    const uint16_t value_ref_index =
-        (uint16_t)(emit->operand_ref_start + operand_ordinal);
-    if (rule_set->value_refs[value_ref_index].kind ==
-        LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ADDRESS) {
-      return true;
-    }
-  }
-  return false;
-}
-
-static void loom_low_lower_mark_source_memory_realization_seen(
-    loom_low_lower_context_t* context, loom_value_id_t source_value_id) {
-  const loom_value_ordinal_t source_ordinal =
-      loom_low_lowering_frame_value_ordinal(context->lowering, source_value_id);
-  loom_low_lower_value_flags_t* storage_flags =
-      &context->lowering->source_plan.value_flags[source_ordinal];
-  if (iree_any_bit_set(*storage_flags,
-                       LOOM_LOW_LOWER_VALUE_STORAGE_MEMORY_REALIZATION_SEEN)) {
-    loom_low_lower_mark_value_storage_required(context, source_value_id);
-  } else {
-    *storage_flags |= LOOM_LOW_LOWER_VALUE_STORAGE_MEMORY_REALIZATION_SEEN;
-  }
-}
-
-static void loom_low_lower_mark_reused_source_memory_realizations(
+static iree_status_t loom_low_lower_source_candidate_plan_record_node(
     loom_low_lower_context_t* context,
-    const loom_low_source_memory_access_plan_t* access) {
-  for (uint8_t i = 0; i < access->dynamic_realization_count; ++i) {
-    loom_low_lower_mark_source_memory_realization_seen(
-        context, access->dynamic_realizations[i].term.index);
+    loom_low_lower_source_candidate_plan_t* plan, const loom_op_t* source_op,
+    iree_host_size_t node_index) {
+  if (node_index >= UINT32_MAX) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "source candidate node count overflow");
   }
-}
-
-static void loom_low_lower_mark_source_memory_access_storage_demands(
-    loom_low_lower_context_t* context,
-    const loom_low_lower_source_memory_t* source_memory,
-    const loom_low_lower_source_memory_address_materializer_t*
-        address_materializer,
-    const loom_low_source_memory_access_plan_t* access) {
-  uint8_t first_canonical_term = 0;
-  if (address_materializer != NULL) {
-    const loom_value_id_t base_value_id =
-        address_materializer->base_kind ==
-                LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_BASE_VIEW
-            ? loom_low_source_memory_access_base_view_value_id(access)
-            : access->root_value_id;
-    IREE_ASSERT_NE(base_value_id, LOOM_VALUE_ID_INVALID);
-    loom_low_lower_mark_value_storage_required(context, base_value_id);
-    if (address_materializer->coordinate_unit_byte_count == 1 &&
-        address_materializer->coordinate_type ==
-            LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_COORDINATE_OFFSET &&
-        access->dynamic_view_base_term_count != 0 &&
-        access->dynamic_view_base_value_id != LOOM_VALUE_ID_INVALID) {
-      loom_low_lower_mark_value_storage_required(
-          context, access->dynamic_view_base_value_id);
-      first_canonical_term = access->dynamic_view_base_term_count;
-    }
-  } else if (loom_low_lower_rule_source_memory_reuses_view_base(source_memory,
-                                                                access)) {
-    loom_low_lower_mark_value_storage_required(
-        context, access->dynamic_view_base_value_id);
-    first_canonical_term = access->dynamic_view_base_term_count;
-  } else if (
-      loom_low_source_memory_access_dynamic_offset_has_materialized_view_base(
-          access)) {
-    // Canonical address terms normally replace the source view-base
-    // expression. Preserve the exact view base when that expression also
-    // carries an integer-to-index conversion required by target lowering.
-    for (uint8_t term_ordinal = 0;
-         term_ordinal < access->dynamic_view_base_term_count; ++term_ordinal) {
-      const loom_type_t term_type = loom_module_value_type(
-          context->module, access->dynamic_terms[term_ordinal].index);
-      if (!loom_type_equal(term_type,
-                           loom_type_scalar(LOOM_SCALAR_TYPE_INDEX)) &&
-          !loom_type_equal(term_type,
-                           loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET))) {
-        loom_low_lower_mark_value_storage_required(
-            context, access->dynamic_view_base_value_id);
-        break;
-      }
-    }
-  }
-  const loom_low_source_memory_dynamic_component_t* component =
-      loom_low_source_memory_access_retained_component(
-          access, first_canonical_term,
-          address_materializer != NULL
-              ? address_materializer->coordinate_unit_byte_count
-              : 1);
-  if (component != NULL) {
-    loom_low_lower_mark_value_storage_required(context, component->term->index);
-    for (uint8_t i = 0; i < component->term->stride_value_count; ++i) {
-      loom_low_lower_mark_value_storage_required(
-          context, component->term->stride_values[i]);
-    }
-  }
-  for (uint8_t term_ordinal = first_canonical_term;
-       term_ordinal < access->dynamic_term_count; ++term_ordinal) {
-    const loom_low_source_memory_dynamic_term_t* term =
-        &access->dynamic_terms[term_ordinal];
-    loom_low_lower_mark_value_storage_required(context, term->index);
-    for (uint8_t stride_ordinal = 0; stride_ordinal < term->stride_value_count;
-         ++stride_ordinal) {
-      loom_low_lower_mark_value_storage_required(
-          context, term->stride_values[stride_ordinal]);
-    }
-  }
-}
-
-static void loom_low_lower_mark_rule_storage_demands(
-    loom_low_lower_context_t* context,
-    const loom_low_lower_selected_plan_t* selected_plan) {
-  const loom_low_lower_rule_set_t* rule_set = selected_plan->rule_set;
-  const loom_low_lower_rule_t* rule = selected_plan->rule;
-  IREE_ASSERT(rule_set != NULL);
-  IREE_ASSERT(rule != NULL);
-  bool uses_dynamic_byte_offset = false;
-  for (uint16_t emit_ordinal = 0; emit_ordinal < rule->emit_count;
-       ++emit_ordinal) {
-    const uint16_t emit_ref_index =
-        (uint16_t)(rule->action.emit_start + emit_ordinal);
-    const loom_low_lower_emit_t* emit =
-        loom_low_lower_rule_set_emit_at(rule_set, emit_ref_index);
-    for (uint16_t operand_ordinal = 0;
-         operand_ordinal < emit->operand_ref_count; ++operand_ordinal) {
-      const uint16_t value_ref_index =
-          (uint16_t)(emit->operand_ref_start + operand_ordinal);
-      const loom_low_lower_value_ref_t* value_ref =
-          &rule_set->value_refs[value_ref_index];
-      uses_dynamic_byte_offset |=
-          value_ref->kind ==
-          LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET;
-      if (value_ref->kind == LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ROOT) {
-        IREE_ASSERT(selected_plan->source_memory_access != NULL);
-        loom_low_lower_mark_value_storage_required(
-            context, selected_plan->source_memory_access->root_value_id);
-        continue;
-      }
-      loom_low_lower_mark_rule_value_ref_storage_demand(context, selected_plan,
-                                                        value_ref_index);
-    }
-    if (emit->source_memory_ordinal == 0 ||
-        !loom_low_lower_emit_uses_source_memory_plan(rule_set, emit)) {
-      continue;
-    }
-    IREE_ASSERT(selected_plan->source_memory_access != NULL);
-    const loom_low_lower_source_memory_t* source_memory =
-        &rule_set->source_memories[emit->source_memory_ordinal - 1];
-    const loom_low_lower_source_memory_address_materializer_t*
-        address_materializer =
-            loom_low_lower_emit_materializes_source_memory_address(rule_set,
-                                                                   emit)
-                ? loom_low_lower_rule_set_source_memory_address_materializer(
-                      rule_set, source_memory)
-                : NULL;
-    loom_low_lower_mark_source_memory_access_storage_demands(
-        context, source_memory, address_materializer,
-        selected_plan->source_memory_access);
-  }
-  if (uses_dynamic_byte_offset) {
-    IREE_ASSERT(selected_plan->source_memory_access != NULL);
-    loom_low_lower_mark_reused_source_memory_realizations(
-        context, selected_plan->source_memory_access);
-  }
-  if (rule->emit_count != 0) {
-    return;
-  }
-
-  if (iree_all_bits_set(rule->flags,
-                        LOOM_LOW_LOWER_RULE_FLAG_ORDINAL_VALUE_ALIAS)) {
-    IREE_ASSERT_EQ(rule->metadata.value.alias_ref_count, 1);
-    const loom_value_slice_t source_span =
-        loom_low_lower_rule_value_ref_field_span_from_nodes(
-            context->module, rule_set, selected_plan->source_op,
-            selected_plan->data.source_nodes, selected_plan->source_node_count,
-            rule->action.alias_ref_start);
-    for (iree_host_size_t i = 0; i < source_span.count; ++i) {
-      loom_low_lower_mark_value_storage_required(context,
-                                                 source_span.values[i]);
-    }
-  } else {
-    for (uint16_t alias_ordinal = 0;
-         alias_ordinal < rule->metadata.value.alias_ref_count;
-         ++alias_ordinal) {
-      const uint16_t value_ref_index =
-          (uint16_t)(rule->action.alias_ref_start + alias_ordinal * 2);
-      loom_low_lower_mark_rule_value_ref_storage_demand(context, selected_plan,
-                                                        value_ref_index);
-    }
-  }
-  if (rule->metadata.value.alias_ref_count == 0) {
-    return;
-  }
-
-  // Canonical source-memory plans own the storage demands for addresses through
-  // buffer.view aliases. Requiring the original byte-offset expression here
-  // would make an equivalent source realization mandatory target IR.
-  const loom_op_t* source_op = selected_plan->source_op;
-  if (loom_buffer_view_isa(source_op)) {
-    return;
-  }
-
-  // Other variadic aliases can erase projection ops whose non-exact operands
-  // remain referenced by facts consumed by later plans.
-  const loom_value_fact_table_t* fact_table = context->fact_table;
-  const loom_op_vtable_t* vtable = loom_op_vtable(context->module, source_op);
-  if (vtable == NULL || !iree_any_bit_set(vtable->vtable_flags,
-                                          LOOM_OP_VTABLE_VARIADIC_OPERANDS)) {
-    return;
-  }
-  const loom_value_id_t* operands = loom_op_const_operands(source_op);
-  for (uint16_t i = vtable->fixed_operand_count; i < source_op->operand_count;
-       ++i) {
-    int64_t exact_value = 0;
-    if (fact_table != NULL &&
-        loom_value_facts_as_exact_i64(
-            loom_value_fact_table_lookup(fact_table, operands[i]),
-            &exact_value)) {
-      continue;
-    }
-    loom_low_lower_mark_value_storage_required(context, operands[i]);
-  }
-}
-
-static void loom_low_lower_mark_descriptor_matrix_storage_demands(
-    loom_low_lower_context_t* context,
-    const loom_low_lower_selected_plan_t* selected_plan) {
-  const loom_low_lower_descriptor_matrix_plan_t* plan =
-      (const loom_low_lower_descriptor_matrix_plan_t*)
-          selected_plan->data.target_plan.target_data;
-  IREE_ASSERT(plan != NULL);
-  loom_low_lower_require_source_operands_storage(context,
-                                                 selected_plan->source_op);
-  const loom_contract_operand_t* operands[] = {
-      &plan->contract_request.lhs,
-      &plan->contract_request.rhs,
-      &plan->contract_request.accumulator,
-      &plan->contract_request.result,
-  };
-  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(operands); ++i) {
-    const loom_contract_encoded_operand_t* encoded = &operands[i]->encoded;
-    for (uint8_t key = 0; key < LOOM_CONTRACT_AUXILIARY_OPERAND_KEY_COUNT_;
-         ++key) {
-      if (!iree_any_bit_set(encoded->required_auxiliary_operands,
-                            loom_contract_auxiliary_operand_key_flag(key))) {
-        continue;
-      }
-      const loom_contract_value_ref_t ref = encoded->auxiliary_value_refs[key];
-      IREE_ASSERT(loom_contract_value_ref_is_present(ref));
-      loom_low_lower_mark_value_storage_required(
-          context, loom_contract_value_ref_value_id(ref));
-    }
-  }
-}
-
-static void loom_low_lower_mark_callback_plan_storage_demands(
-    loom_low_lower_context_t* context,
-    const loom_low_lower_selected_plan_t* selected_plan) {
-  IREE_ASSERT_EQ(selected_plan->kind, LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK);
-  if (context->policy->mark_plan_storage_demands.fn != NULL) {
-    context->policy->mark_plan_storage_demands.fn(
-        context->policy->mark_plan_storage_demands.user_data, context,
-        selected_plan->source_op, selected_plan->data.target_plan);
-    return;
-  }
-  loom_low_lower_require_source_operands_storage(context,
-                                                 selected_plan->source_op);
-}
-
-static void loom_low_lower_mark_structural_storage_demands(
-    loom_low_lower_context_t* context, const loom_op_t* source_op,
-    loom_trait_flags_t traits) {
-  if (loom_traits_are_fact_identity(traits) ||
-      loom_traits_are_value_alias(traits) ||
-      loom_buffer_assume_same_root_isa(source_op)) {
-    const loom_value_id_t* results = loom_op_const_results(source_op);
-    for (uint16_t i = 0; i < source_op->result_count; ++i) {
-      if (loom_module_value_has_type_uses(context->module, results[i])) {
-        loom_low_lower_mark_value_storage_required(context, results[i]);
-      }
-    }
-    return;
-  }
-  if (loom_cfg_cond_br_isa(source_op) &&
-      loom_low_lower_structural_branch_exact_bool(context, source_op, NULL)) {
-    return;
-  }
-  loom_low_lower_require_source_operands_storage(context, source_op);
-}
-
-static bool loom_low_lower_source_op_requires_emission(
-    const loom_low_lower_context_t* context, const loom_op_t* source_op) {
-  const loom_trait_flags_t traits =
-      loom_op_effective_traits(context->module, source_op);
-  return loom_low_lower_source_op_requires_emission_with_traits(source_op,
-                                                                traits);
-}
-
-static bool loom_low_lower_source_op_result_storage_required(
-    const loom_low_lower_context_t* context, const loom_op_t* source_op) {
-  const loom_value_id_t* results = loom_op_const_results(source_op);
-  for (uint16_t i = 0; i < source_op->result_count; ++i) {
-    IREE_ASSERT_NE(results[i], LOOM_VALUE_ID_INVALID);
-    if (loom_low_lower_source_plan_result_storage_required(context,
-                                                           results[i])) {
-      return true;
-    }
-  }
-  return false;
-}
-
-static bool loom_low_lower_selected_plan_storage_required(
-    const loom_low_lower_context_t* context,
-    const loom_low_lower_selected_plan_t* selected_plan) {
-  const uint8_t source_node_count = selected_plan->source_node_count != 0
-                                        ? selected_plan->source_node_count
-                                        : 1;
-  for (uint8_t i = 0; i < source_node_count; ++i) {
-    const loom_op_t* source_op = selected_plan->source_op;
-    if (i != 0) {
-      IREE_ASSERT(selected_plan->data.source_nodes != NULL);
-      source_op = selected_plan->data.source_nodes[i];
-    }
-    if (loom_low_lower_source_op_requires_emission(context, source_op) ||
-        loom_low_lower_source_op_result_storage_required(context, source_op)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-static bool loom_low_lower_can_elide_selected_plan(
-    const loom_low_lower_context_t* context,
-    const loom_low_lower_selected_plan_t* selected_plan) {
-  return selected_plan->kind != LOOM_LOW_LOWER_SELECTED_PLAN_INVOKE &&
-         !loom_low_lower_selected_plan_storage_required(context, selected_plan);
-}
-
-static void loom_low_lower_mark_selected_plan_storage_demands(
-    loom_low_lower_context_t* context,
-    const loom_low_lower_selected_plan_t* selected_plan) {
-  switch (selected_plan->kind) {
-    case LOOM_LOW_LOWER_SELECTED_PLAN_RULE:
-      loom_low_lower_mark_rule_storage_demands(context, selected_plan);
-      break;
-    case LOOM_LOW_LOWER_SELECTED_PLAN_DESCRIPTOR_MATRIX:
-      loom_low_lower_mark_descriptor_matrix_storage_demands(context,
-                                                            selected_plan);
-      break;
-    case LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK:
-      loom_low_lower_mark_callback_plan_storage_demands(context, selected_plan);
-      break;
-    case LOOM_LOW_LOWER_SELECTED_PLAN_FUNCTION_STORAGE:
-      // The selected plan retains the extent; no source operand is emitted.
-      break;
-    case LOOM_LOW_LOWER_SELECTED_PLAN_INVOKE:
-      loom_low_lower_require_source_operands_storage(context,
-                                                     selected_plan->source_op);
-      break;
-  }
-}
-
-static void loom_low_lower_analyze_storage_demands(
-    loom_low_lower_context_t* context) {
-  loom_low_lower_source_plan_t* source_plan = &context->lowering->source_plan;
-  source_plan->is_analyzing_storage_demands = true;
-  for (iree_host_size_t i = source_plan->selected_plan_count; i > 0; --i) {
-    loom_low_lower_selected_plan_t* selected_plan =
-        &source_plan->selected_plans[i - 1];
-    if (!iree_any_bit_set(selected_plan->flags,
-                          LOOM_LOW_LOWER_SELECTED_PLAN_ELIDED) &&
-        loom_low_lower_selected_plan_storage_required(context, selected_plan)) {
-      loom_low_lower_mark_selected_plan_storage_demands(context, selected_plan);
-    }
-  }
-  for (iree_host_size_t i = 0; i < source_plan->selected_plan_count; ++i) {
-    loom_low_lower_selected_plan_t* selected_plan =
-        &source_plan->selected_plans[i];
-    if (iree_any_bit_set(selected_plan->flags,
-                         LOOM_LOW_LOWER_SELECTED_PLAN_CLAIMED)) {
-      continue;
-    }
-    if (loom_low_lower_can_elide_selected_plan(context, selected_plan)) {
-      selected_plan->flags |= LOOM_LOW_LOWER_SELECTED_PLAN_ELIDED;
-    }
-  }
-  source_plan->is_analyzing_storage_demands = false;
-}
-
-static bool loom_low_lower_selected_plans_preserve_fact_storage_demands(
-    const loom_low_lower_context_t* context) {
-  const loom_low_lower_source_plan_t* source_plan =
-      &context->lowering->source_plan;
-  for (iree_host_size_t i = 0; i < source_plan->selected_plan_count; ++i) {
-    const loom_low_lower_selected_plan_t* selected_plan =
-        &source_plan->selected_plans[i];
-    if (selected_plan->kind != LOOM_LOW_LOWER_SELECTED_PLAN_RULE ||
-        selected_plan->rule == NULL) {
-      continue;
-    }
-    if (!loom_low_lower_rule_preserves_fact_storage_demands(
-            context, selected_plan->rule_set, selected_plan->source_op,
-            selected_plan->data.source_nodes, selected_plan->source_node_count,
-            selected_plan->rule)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-static void loom_low_lower_prepare_plan_refinement(
-    loom_low_lower_context_t* context) {
-  loom_low_lower_source_plan_t* source_plan = &context->lowering->source_plan;
-  const loom_value_ordinal_t value_count =
-      context->lowering->value_domain.value_count;
-  for (loom_value_ordinal_t i = 0; i < value_count; ++i) {
-    source_plan->value_flags[i] &=
-        LOOM_LOW_LOWER_VALUE_STORAGE_FACT_REFERENCE |
-        LOOM_LOW_LOWER_VALUE_STORAGE_BASELINE_REQUIRED |
-        LOOM_LOW_LOWER_VALUE_INHERITED_TYPE;
-    if (iree_any_bit_set(source_plan->value_flags[i],
-                         LOOM_LOW_LOWER_VALUE_STORAGE_BASELINE_REQUIRED)) {
-      source_plan->value_flags[i] |= LOOM_LOW_LOWER_VALUE_STORAGE_REQUIRED;
-    }
-  }
-  source_plan->memory.cursor = source_plan->memory.first;
-  source_plan->memory.current = NULL;
-  source_plan->selected_plan_count = 0;
-  source_plan->selected_plan_emit_index = 0;
-}
-
-static inline bool loom_low_lower_source_plan_op_may_be_claimed_nonlocally(
-    const loom_low_lower_context_t* context, loom_op_kind_t op_kind) {
-  const loom_target_contract_index_t* contract_index =
-      context->policy->contract.index;
-  return contract_index != NULL &&
-         contract_index->nonlocal_source_op_kind_count != 0 &&
-         loom_target_contract_index_has_nonlocal_source_op_kind(contract_index,
-                                                                op_kind);
-}
-
-static iree_status_t loom_low_lower_record_nonlocal_source_graph_index(
-    loom_low_lower_context_t* context, const loom_op_t* source_op,
-    iree_host_size_t plan_index) {
-  IREE_ASSERT_LT(plan_index, UINT32_MAX);
-  IREE_ASSERT_NE(source_op->result_count, 0);
-  loom_low_lower_source_plan_t* source_plan = &context->lowering->source_plan;
-  if (source_plan->selected_plan_indices_by_value_ordinal == NULL) {
-    const loom_value_ordinal_t value_count =
-        context->lowering->value_domain.value_count;
-    uint32_t* plan_indices = NULL;
-    IREE_RETURN_IF_ERROR(loom_low_lower_allocate_function_array(
-        context, value_count, sizeof(*plan_indices), (void**)&plan_indices));
-    memset(plan_indices, 0xFF,
-           (iree_host_size_t)value_count * sizeof(*plan_indices));
-    source_plan->selected_plan_indices_by_value_ordinal = plan_indices;
+  if (source_op->result_count == 0) {
+    return iree_ok_status();
   }
   const loom_value_ordinal_t value_ordinal =
       loom_local_value_domain_try_ordinal(&context->lowering->value_domain,
                                           loom_op_const_results(source_op)[0]);
   IREE_ASSERT_NE(value_ordinal, LOOM_VALUE_ORDINAL_INVALID);
-  source_plan->selected_plan_indices_by_value_ordinal[value_ordinal] =
-      (uint32_t)plan_index;
+  IREE_ASSERT_LT(value_ordinal, plan->value_node_count);
+  plan->value_node_indices[value_ordinal] = (uint32_t)node_index;
   return iree_ok_status();
+}
+
+static uint32_t loom_low_lower_source_candidate_plan_lookup_node(
+    const loom_low_lower_context_t* context,
+    const loom_low_lower_source_candidate_plan_t* plan,
+    const loom_op_t* source_op) {
+  IREE_ASSERT_GT(source_op->result_count, 0);
+  const loom_value_ordinal_t value_ordinal =
+      loom_local_value_domain_try_ordinal(&context->lowering->value_domain,
+                                          loom_op_const_results(source_op)[0]);
+  IREE_ASSERT_NE(value_ordinal, LOOM_VALUE_ORDINAL_INVALID);
+  return value_ordinal < plan->value_node_count
+             ? plan->value_node_indices[value_ordinal]
+             : UINT32_MAX;
 }
 
 static iree_status_t loom_low_lower_visit_region_plan_ops(
@@ -857,6 +293,7 @@ static iree_status_t loom_low_lower_visit_region_plan_ops(
     const loom_low_lower_source_plan_observer_t* observer, void* observer_state,
     loom_low_lower_visibility_builder_t* visibility,
     loom_low_lower_source_memory_builder_t* memory_builder,
+    loom_low_lower_source_candidate_plan_t* candidate_plan,
     iree_host_size_t* inout_plan_capacity) {
   const uint16_t* block_order =
       source_region == loom_func_like_body(context->source_function)
@@ -885,7 +322,8 @@ static iree_status_t loom_low_lower_visit_region_plan_ops(
             loom_low_lower_structural_plan_branch(context, op));
       }
       if (is_structural) {
-        loom_low_lower_mark_structural_storage_demands(context, op, traits);
+        loom_low_lower_source_value_storage_mark_structural_demands(context, op,
+                                                                    traits);
       }
       if (is_callable_exit) {
         IREE_RETURN_IF_ERROR(
@@ -900,18 +338,19 @@ static iree_status_t loom_low_lower_visit_region_plan_ops(
           if (regions[i] != NULL) {
             IREE_RETURN_IF_ERROR(loom_low_lower_visit_region_plan_ops(
                 context, regions[i], observer, observer_state, visibility,
-                memory_builder, inout_plan_capacity));
+                memory_builder, candidate_plan, inout_plan_capacity));
           }
         }
         continue;
       }
+      if (op->region_count != 0) {
+        continue;
+      }
       if (!is_structural &&
           !loom_low_lower_source_plan_op_is_metadata(op->kind)) {
-        if (loom_low_lower_source_plan_op_may_be_claimed_nonlocally(context,
-                                                                    op->kind)) {
-          IREE_RETURN_IF_ERROR(
-              loom_low_lower_record_nonlocal_source_graph_index(
-                  context, op, *inout_plan_capacity));
+        if (candidate_plan != NULL) {
+          IREE_RETURN_IF_ERROR(loom_low_lower_source_candidate_plan_record_node(
+              context, candidate_plan, op, *inout_plan_capacity));
         }
         ++(*inout_plan_capacity);
       }
@@ -922,7 +361,8 @@ static iree_status_t loom_low_lower_visit_region_plan_ops(
 }
 
 static iree_status_t loom_low_lower_prepare_plan(
-    loom_low_lower_context_t* context, loom_region_t* source_body) {
+    loom_low_lower_context_t* context, loom_region_t* source_body,
+    loom_low_lower_source_candidate_plan_t* candidate_plan) {
   const loom_low_lower_source_plan_observer_t* observer =
       context->policy->source_plan_observer;
   void* observer_state = NULL;
@@ -940,7 +380,7 @@ static iree_status_t loom_low_lower_prepare_plan(
       loom_low_lower_source_memory_builder_create(context, &memory_builder));
   IREE_RETURN_IF_ERROR(loom_low_lower_visit_region_plan_ops(
       context, source_body, observer, observer_state, &visibility,
-      memory_builder, &plan_capacity));
+      memory_builder, candidate_plan, &plan_capacity));
   context->lowering->source_plan.memory.current = NULL;
   context->lowering->source_plan.memory.cursor =
       context->lowering->source_plan.memory.first;
@@ -962,6 +402,14 @@ static iree_status_t loom_low_lower_prepare_plan(
   if (plan_capacity == 0) {
     return iree_ok_status();
   }
+  if (candidate_plan != NULL) {
+    candidate_plan->node_capacity = plan_capacity;
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        &context->analysis_arena, plan_capacity, sizeof(*candidate_plan->nodes),
+        (void**)&candidate_plan->nodes));
+    memset(candidate_plan->nodes, 0,
+           plan_capacity * sizeof(*candidate_plan->nodes));
+  }
   IREE_RETURN_IF_ERROR(loom_low_lower_allocate_function_array(
       context, plan_capacity,
       sizeof(*context->lowering->source_plan.selected_plans),
@@ -977,203 +425,6 @@ static void loom_low_lower_record_selected_plan(
                  source_plan->selected_plan_capacity);
   source_plan->selected_plans[source_plan->selected_plan_count++] =
       selected_plan;
-}
-
-static loom_low_lower_selected_plan_t*
-loom_low_lower_find_indexed_selected_plan(loom_low_lower_context_t* context,
-                                          const loom_op_t* source_op) {
-  loom_low_lower_source_plan_t* source_plan = &context->lowering->source_plan;
-  IREE_ASSERT(source_plan->selected_plan_indices_by_value_ordinal != NULL);
-  IREE_ASSERT_NE(source_op->result_count, 0);
-  const loom_value_ordinal_t value_ordinal =
-      loom_local_value_domain_try_ordinal(&context->lowering->value_domain,
-                                          loom_op_const_results(source_op)[0]);
-  IREE_ASSERT_NE(value_ordinal, LOOM_VALUE_ORDINAL_INVALID);
-  const uint32_t plan_index =
-      source_plan->selected_plan_indices_by_value_ordinal[value_ordinal];
-  if (plan_index == UINT32_MAX) {
-    return NULL;
-  }
-  IREE_ASSERT_LT(plan_index, source_plan->selected_plan_count);
-  loom_low_lower_selected_plan_t* selected_plan =
-      &source_plan->selected_plans[plan_index];
-  IREE_ASSERT_EQ(selected_plan->source_op, source_op);
-  return selected_plan;
-}
-
-static const loom_op_t* loom_low_lower_selected_plan_source_node(
-    const loom_low_lower_selected_plan_t* selected_plan,
-    uint8_t source_node_index) {
-  IREE_ASSERT_LT(source_node_index, selected_plan->source_node_count);
-  if (source_node_index == 0) {
-    return selected_plan->source_op;
-  }
-  IREE_ASSERT(selected_plan->data.source_nodes != NULL);
-  IREE_ASSERT_EQ(selected_plan->data.source_nodes[0], selected_plan->source_op);
-  return selected_plan->data.source_nodes[source_node_index];
-}
-
-static bool loom_low_lower_selected_plan_owns_related_source_op(
-    const loom_low_lower_selected_plan_t* selected_plan,
-    const loom_op_t* source_op) {
-  for (uint8_t i = 1; i < selected_plan->source_node_count; ++i) {
-    if (loom_low_lower_selected_plan_source_node(selected_plan, i) ==
-        source_op) {
-      return true;
-    }
-  }
-  return false;
-}
-
-static loom_low_lower_selected_plan_t* loom_low_lower_find_recent_selected_plan(
-    loom_low_lower_context_t* context, const loom_op_t* source_op) {
-  loom_low_lower_source_plan_t* source_plan = &context->lowering->source_plan;
-  const iree_host_size_t first_plan =
-      source_plan->selected_plan_count > LOOM_LOW_LOWER_MAX_SOURCE_NODES
-          ? source_plan->selected_plan_count - LOOM_LOW_LOWER_MAX_SOURCE_NODES
-          : 0;
-  for (iree_host_size_t i = source_plan->selected_plan_count; i > first_plan;
-       --i) {
-    loom_low_lower_selected_plan_t* selected_plan =
-        &source_plan->selected_plans[i - 1];
-    if (selected_plan->source_op == source_op) {
-      return selected_plan;
-    }
-  }
-  return NULL;
-}
-
-static bool loom_low_lower_source_op_is_reserved(
-    loom_low_lower_context_t* context, const loom_op_t* source_op) {
-  loom_low_lower_source_plan_t* source_plan = &context->lowering->source_plan;
-  if (source_plan->selected_plan_indices_by_value_ordinal != NULL &&
-      source_op->result_count != 0) {
-    const loom_value_ordinal_t value_ordinal =
-        loom_local_value_domain_try_ordinal(
-            &context->lowering->value_domain,
-            loom_op_const_results(source_op)[0]);
-    IREE_ASSERT_NE(value_ordinal, LOOM_VALUE_ORDINAL_INVALID);
-    if (iree_any_bit_set(source_plan->value_flags[value_ordinal],
-                         LOOM_LOW_LOWER_VALUE_SOURCE_GRAPH_RESERVED)) {
-      return true;
-    }
-  }
-  const iree_host_size_t first_plan =
-      source_plan->selected_plan_count > LOOM_LOW_LOWER_MAX_SOURCE_NODES
-          ? source_plan->selected_plan_count - LOOM_LOW_LOWER_MAX_SOURCE_NODES
-          : 0;
-  for (iree_host_size_t i = source_plan->selected_plan_count; i > first_plan;
-       --i) {
-    const loom_low_lower_selected_plan_t* selected_plan =
-        &source_plan->selected_plans[i - 1];
-    if (loom_low_lower_selected_plan_owns_related_source_op(selected_plan,
-                                                            source_op)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-static bool loom_low_lower_rule_selection_can_claim_source_nodes(
-    loom_low_lower_context_t* context,
-    const loom_low_lower_rule_selection_t* selection) {
-  IREE_ASSERT(selection->rule != NULL);
-  IREE_ASSERT_EQ(
-      selection->source_node_count,
-      (uint8_t)(loom_low_lower_rule_source_node_count(selection->rule) + 1));
-  const loom_op_t* source_op = selection->source_nodes[0];
-  const bool is_nonlocal = iree_any_bit_set(
-      selection->rule->flags, LOOM_LOW_LOWER_RULE_FLAG_NONLOCAL_SOURCE_GRAPH);
-  for (uint8_t i = 1; i < selection->source_node_count; ++i) {
-    const loom_op_t* source_node = selection->source_nodes[i];
-    IREE_ASSERT_EQ(source_node->parent_block, source_op->parent_block);
-    if (loom_low_lower_source_op_is_reserved(context, source_node)) {
-      return false;
-    }
-    if (source_node->block_ordinal > source_op->block_ordinal) {
-      continue;
-    }
-    loom_low_lower_selected_plan_t* selected_plan =
-        is_nonlocal
-            ? loom_low_lower_find_indexed_selected_plan(context, source_node)
-            : loom_low_lower_find_recent_selected_plan(context, source_node);
-    if (selected_plan == NULL ||
-        iree_any_bit_set(selected_plan->flags,
-                         LOOM_LOW_LOWER_SELECTED_PLAN_CLAIMED) ||
-        selected_plan->source_node_count > 1) {
-      return false;
-    }
-  }
-  return true;
-}
-
-static void loom_low_lower_rule_selection_claim_preceding_source_nodes(
-    loom_low_lower_context_t* context,
-    const loom_low_lower_rule_selection_t* selection) {
-  const loom_op_t* source_op = selection->source_nodes[0];
-  const bool is_nonlocal = iree_any_bit_set(
-      selection->rule->flags, LOOM_LOW_LOWER_RULE_FLAG_NONLOCAL_SOURCE_GRAPH);
-  for (uint8_t i = 1; i < selection->source_node_count; ++i) {
-    const loom_op_t* source_node = selection->source_nodes[i];
-    if (source_node->block_ordinal > source_op->block_ordinal) {
-      continue;
-    }
-    loom_low_lower_selected_plan_t* selected_plan =
-        is_nonlocal
-            ? loom_low_lower_find_indexed_selected_plan(context, source_node)
-            : loom_low_lower_find_recent_selected_plan(context, source_node);
-    IREE_ASSERT(selected_plan != NULL);
-    selected_plan->flags |= LOOM_LOW_LOWER_SELECTED_PLAN_CLAIMED |
-                            LOOM_LOW_LOWER_SELECTED_PLAN_ELIDED;
-  }
-}
-
-static void loom_low_lower_rule_selection_reserve_following_source_nodes(
-    loom_low_lower_context_t* context,
-    const loom_low_lower_rule_selection_t* selection) {
-  loom_low_lower_source_plan_t* source_plan = &context->lowering->source_plan;
-  if (!iree_any_bit_set(selection->rule->flags,
-                        LOOM_LOW_LOWER_RULE_FLAG_NONLOCAL_SOURCE_GRAPH)) {
-    return;
-  }
-  const loom_op_t* source_op = selection->source_nodes[0];
-  for (uint8_t i = 1; i < selection->source_node_count; ++i) {
-    const loom_op_t* source_node = selection->source_nodes[i];
-    if (source_node->block_ordinal <= source_op->block_ordinal) {
-      continue;
-    }
-    IREE_ASSERT_NE(source_node->result_count, 0);
-    const loom_value_ordinal_t value_ordinal =
-        loom_local_value_domain_try_ordinal(
-            &context->lowering->value_domain,
-            loom_op_const_results(source_node)[0]);
-    IREE_ASSERT_NE(value_ordinal, LOOM_VALUE_ORDINAL_INVALID);
-    source_plan->value_flags[value_ordinal] |=
-        LOOM_LOW_LOWER_VALUE_SOURCE_GRAPH_RESERVED;
-  }
-}
-
-static bool loom_low_lower_try_record_claimed_source_plan(
-    loom_low_lower_context_t* context, const loom_op_t* source_op) {
-  if (!loom_low_lower_source_op_is_reserved(context, source_op)) {
-    return false;
-  }
-  loom_low_lower_record_selected_plan(
-      context, (loom_low_lower_selected_plan_t){
-                   .source_op = source_op,
-                   .kind = LOOM_LOW_LOWER_SELECTED_PLAN_RULE,
-                   .flags = LOOM_LOW_LOWER_SELECTED_PLAN_CLAIMED |
-                            LOOM_LOW_LOWER_SELECTED_PLAN_ELIDED,
-                   .source_node_count = 0,
-                   .rule_set_index = UINT16_MAX,
-                   .rule_index = UINT16_MAX,
-                   .rule_set = NULL,
-                   .rule = NULL,
-                   .resolved_emits = NULL,
-                   .source_memory_access = NULL,
-                   .data.source_nodes = NULL,
-               });
-  return true;
 }
 
 static void loom_low_lower_record_elided_hint_plan(
@@ -1280,8 +531,238 @@ static iree_status_t loom_low_lower_finalize_selected_plans(
   return iree_ok_status();
 }
 
+static bool loom_low_lower_rule_selection_can_record_plan(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_low_lower_rule_set_t* rule_set,
+    const loom_low_lower_rule_selection_t* rule_selection) {
+  if (!loom_low_lower_source_value_storage_rule_preserves_fact_demands(
+          context, rule_set, source_op, rule_selection->source_nodes,
+          rule_selection->source_node_count, rule_selection->rule)) {
+    return false;
+  }
+  return true;
+}
+
+static iree_status_t loom_low_lower_record_selected_rule_plan(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    uint16_t rule_set_index, const loom_low_lower_rule_set_t* rule_set,
+    const loom_low_lower_rule_selection_t* rule_selection,
+    const loom_low_lower_rule_source_memory_state_t* source_memory_state,
+    bool* out_recorded) {
+  *out_recorded = false;
+  IREE_ASSERT_EQ(rule_selection->source_node_count, 1);
+  IREE_ASSERT_EQ(loom_low_lower_rule_source_node_count(rule_selection->rule),
+                 0);
+  if (!loom_low_lower_rule_selection_can_record_plan(
+          context, source_op, rule_set, rule_selection)) {
+    return iree_ok_status();
+  }
+  const loom_low_lower_selected_source_memory_t* source_memory = NULL;
+  if (rule_selection->uses_source_memory_access) {
+    IREE_ASSERT(source_memory_state != NULL);
+    IREE_ASSERT_EQ(source_memory_state->source_op, source_op);
+    IREE_ASSERT(source_memory_state->plan_available);
+    const loom_low_lower_source_memory_record_t* memory_record =
+        context->lowering->source_plan.memory.current;
+    IREE_ASSERT(memory_record != NULL && memory_record->source_op == source_op);
+    loom_low_lower_selected_source_memory_t* retained_source_memory = NULL;
+    IREE_RETURN_IF_ERROR(loom_low_lower_allocate_plan_data(
+        context, sizeof(*retained_source_memory),
+        (void**)&retained_source_memory));
+    *retained_source_memory = (loom_low_lower_selected_source_memory_t){
+        .access = *source_memory_state->access_plan,
+        .origin = memory_record->origin,
+    };
+    source_memory = retained_source_memory;
+  }
+  loom_low_lower_record_selected_plan(
+      context, (loom_low_lower_selected_plan_t){
+                   .source_op = source_op,
+                   .kind = LOOM_LOW_LOWER_SELECTED_PLAN_RULE,
+                   .source_node_count = rule_selection->source_node_count,
+                   .rule_set_index = rule_set_index,
+                   .rule_index = rule_selection->rule_index,
+                   .rule_set = rule_set,
+                   .rule = rule_selection->rule,
+                   .source_memory = source_memory,
+                   .data.source_nodes = NULL,
+               });
+  *out_recorded = true;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_low_lower_source_candidate_allocate(
+    loom_low_lower_context_t* context,
+    loom_low_lower_source_candidate_kind_t kind,
+    loom_low_lower_source_graph_alternative_state_t state,
+    loom_low_lower_source_candidate_t** out_candidate) {
+  *out_candidate = NULL;
+  loom_low_lower_source_candidate_t* candidate = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate(
+      &context->analysis_arena, sizeof(*candidate), (void**)&candidate));
+  *candidate = (loom_low_lower_source_candidate_t){
+      .kind = kind,
+      .state = state,
+  };
+  *out_candidate = candidate;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_low_lower_source_candidate_add(
+    loom_low_lower_context_t* context,
+    loom_low_lower_source_candidate_plan_t* candidate_plan,
+    const loom_op_t* const* source_nodes, uint8_t source_node_count,
+    const loom_low_lower_source_graph_edge_t* edges, uint8_t priority,
+    loom_low_lower_source_candidate_t* source_candidate) {
+  uint32_t node_indices[LOOM_LOW_LOWER_MAX_SOURCE_NODES];
+  IREE_ASSERT_GT(candidate_plan->collection_node_index, 0);
+  node_indices[0] = candidate_plan->collection_node_index - 1;
+  IREE_ASSERT_EQ(candidate_plan->nodes[node_indices[0]].source_op,
+                 source_nodes[0]);
+  for (uint8_t i = 1; i < source_node_count; ++i) {
+    node_indices[i] = loom_low_lower_source_candidate_plan_lookup_node(
+        context, candidate_plan, source_nodes[i]);
+    IREE_ASSERT_NE(node_indices[i], UINT32_MAX);
+  }
+  loom_low_lower_source_graph_alternative_t* alternative = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_plan_add_alternative(
+      candidate_plan->graph_plan, node_indices, source_node_count, edges,
+      priority, source_candidate, &alternative));
+  if (source_node_count > 1) {
+    const loom_low_lower_source_graph_candidate_t* graph_candidate =
+        loom_low_lower_source_graph_alternative_candidate(alternative);
+    if (loom_low_lower_source_graph_candidate_user_data(graph_candidate) ==
+        NULL) {
+      const iree_host_size_t allocation_size =
+          sizeof(loom_low_lower_source_candidate_graph_t) +
+          (iree_host_size_t)source_node_count * sizeof(*source_nodes);
+      loom_low_lower_source_candidate_graph_t* graph = NULL;
+      IREE_RETURN_IF_ERROR(iree_arena_allocate(
+          &context->analysis_arena, allocation_size, (void**)&graph));
+      graph->source_node_count = source_node_count;
+      memcpy(graph->source_nodes, source_nodes,
+             (iree_host_size_t)source_node_count * sizeof(*source_nodes));
+      loom_low_lower_source_graph_alternative_set_candidate_user_data(
+          alternative, graph);
+    }
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_low_lower_source_candidate_add_rule(
+    loom_low_lower_context_t* context,
+    loom_low_lower_source_candidate_plan_t* candidate_plan,
+    loom_low_lower_source_candidate_node_t* candidate_node,
+    uint16_t rule_set_index, const loom_low_lower_rule_set_t* rule_set,
+    const loom_low_lower_rule_selection_t* selection,
+    loom_low_lower_rule_primary_descriptor_status_t primary_status,
+    const loom_low_lower_rule_source_memory_state_t* source_memory_state) {
+  bool placement_legal = false;
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_placement_evaluate(
+      context, selection, &placement_legal));
+  if (!placement_legal) {
+    return iree_ok_status();
+  }
+  loom_low_lower_source_candidate_t* source_candidate = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_candidate_allocate(
+      context, LOOM_LOW_LOWER_SOURCE_CANDIDATE_RULE,
+      primary_status == LOOM_LOW_LOWER_RULE_PRIMARY_DESCRIPTOR_AVAILABLE
+          ? LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_ENABLED
+          : LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FALLBACK,
+      &source_candidate));
+  source_candidate->data.rule.rule_set = rule_set;
+  source_candidate->data.rule.rule_set_index = rule_set_index;
+  source_candidate->data.rule.rule_index = selection->rule_index;
+  source_candidate->data.rule.emission_source_node_index =
+      selection->emission_source_node_index;
+  if (selection->uses_source_memory_access) {
+    IREE_ASSERT(source_memory_state->plan_available);
+    if (candidate_node->matched_source_memory_access == NULL) {
+      loom_low_source_memory_access_plan_t* retained_access = NULL;
+      IREE_RETURN_IF_ERROR(iree_arena_allocate(&context->analysis_arena,
+                                               sizeof(*retained_access),
+                                               (void**)&retained_access));
+      *retained_access = *source_memory_state->access_plan;
+      candidate_node->matched_source_memory_access = retained_access;
+    }
+    source_candidate->data.rule.source_memory_access =
+        candidate_node->matched_source_memory_access;
+  }
+  loom_low_lower_source_graph_edge_t edges[LOOM_LOW_LOWER_MAX_SOURCE_NODES - 1];
+  const loom_low_lower_source_graph_edge_t* graph_edges = NULL;
+  if (selection->source_node_count > 1) {
+    loom_low_lower_source_graph_rule_edges(rule_set, selection->rule, edges);
+    graph_edges = edges;
+  }
+  return loom_low_lower_source_candidate_add(
+      context, candidate_plan, selection->source_nodes,
+      selection->source_node_count, graph_edges,
+      loom_low_lower_rule_priority(selection->rule), source_candidate);
+}
+
+static iree_status_t loom_low_lower_source_candidate_add_descriptor_matrix(
+    loom_low_lower_context_t* context,
+    loom_low_lower_source_candidate_plan_t* candidate_plan,
+    const loom_op_t* source_op,
+    const loom_target_contract_descriptor_matrix_rule_t* matrix_rule,
+    const loom_contract_request_t* contract_request,
+    const loom_target_contract_query_result_t* query_result) {
+  loom_low_lower_source_candidate_t* source_candidate = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_candidate_allocate(
+      context, LOOM_LOW_LOWER_SOURCE_CANDIDATE_DESCRIPTOR_MATRIX,
+      LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_ENABLED, &source_candidate));
+  loom_low_lower_source_candidate_descriptor_matrix_t* descriptor_matrix = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate(&context->analysis_arena,
+                                           sizeof(*descriptor_matrix),
+                                           (void**)&descriptor_matrix));
+  *descriptor_matrix = (loom_low_lower_source_candidate_descriptor_matrix_t){
+      .matrix_rule = matrix_rule,
+      .contract_request = *contract_request,
+      .query_result = *query_result,
+  };
+  source_candidate->data.descriptor_matrix = descriptor_matrix;
+  const loom_op_t* source_nodes[] = {source_op};
+  return loom_low_lower_source_candidate_add(
+      context, candidate_plan, source_nodes, /*source_node_count=*/1,
+      /*edges=*/NULL, /*priority=*/0, source_candidate);
+}
+
+static iree_status_t loom_low_lower_source_candidate_add_selected_plan(
+    loom_low_lower_context_t* context,
+    loom_low_lower_source_candidate_plan_t* candidate_plan,
+    const loom_low_lower_selected_plan_t* selected_plan,
+    loom_low_lower_source_graph_alternative_state_t state) {
+  loom_low_lower_source_candidate_t* source_candidate = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_candidate_allocate(
+      context, LOOM_LOW_LOWER_SOURCE_CANDIDATE_PLAN, state, &source_candidate));
+  loom_low_lower_selected_plan_t* retained_plan = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate(&context->analysis_arena,
+                                           sizeof(*retained_plan),
+                                           (void**)&retained_plan));
+  *retained_plan = *selected_plan;
+  source_candidate->data.selected_plan = retained_plan;
+  const loom_op_t* source_nodes[] = {selected_plan->source_op};
+  return loom_low_lower_source_candidate_add(
+      context, candidate_plan, source_nodes, /*source_node_count=*/1,
+      /*edges=*/NULL, /*priority=*/0, source_candidate);
+}
+
+static iree_status_t loom_low_lower_select_fixed_plan(
+    loom_low_lower_context_t* context,
+    loom_low_lower_source_candidate_plan_t* candidate_plan,
+    const loom_low_lower_selected_plan_t* selected_plan,
+    loom_low_lower_source_graph_alternative_state_t state) {
+  if (candidate_plan != NULL) {
+    return loom_low_lower_source_candidate_add_selected_plan(
+        context, candidate_plan, selected_plan, state);
+  }
+  loom_low_lower_record_selected_plan(context, *selected_plan);
+  return iree_ok_status();
+}
+
 static iree_status_t loom_low_lower_try_select_op_callback(
     loom_low_lower_context_t* context,
+    loom_low_lower_source_candidate_plan_t* candidate_plan,
     loom_low_lower_select_op_callback_t callback, const loom_op_t* source_op,
     bool* out_selected) {
   *out_selected = false;
@@ -1295,86 +776,48 @@ static iree_status_t loom_low_lower_try_select_op_callback(
   if (loom_low_lower_plan_is_empty(plan)) {
     return iree_ok_status();
   }
-  loom_low_lower_record_selected_plan(
-      context, (loom_low_lower_selected_plan_t){
-                   .source_op = source_op,
-                   .kind = LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK,
-                   .rule_set_index = UINT16_MAX,
-                   .rule_index = UINT16_MAX,
-                   .rule_set = NULL,
-                   .rule = NULL,
-                   .data.target_plan = plan,
-               });
+  const loom_low_lower_selected_plan_t selected_plan = {
+      .source_op = source_op,
+      .kind = LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK,
+      .rule_set_index = UINT16_MAX,
+      .rule_index = UINT16_MAX,
+      .data.target_plan = plan,
+  };
+  if (candidate_plan != NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_candidate_add_selected_plan(
+        context, candidate_plan, &selected_plan,
+        LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_ENABLED));
+  } else {
+    loom_low_lower_record_selected_plan(context, selected_plan);
+  }
   *out_selected = true;
   return iree_ok_status();
 }
 
-static bool loom_low_lower_rule_selection_can_record_plan(
-    loom_low_lower_context_t* context, const loom_op_t* source_op,
-    const loom_low_lower_rule_set_t* rule_set,
-    const loom_low_lower_rule_selection_t* rule_selection) {
-  if (!loom_low_lower_rule_preserves_fact_storage_demands(
-          context, rule_set, source_op, rule_selection->source_nodes,
-          rule_selection->source_node_count, rule_selection->rule)) {
-    return false;
-  }
-  if (!loom_low_lower_rule_selection_can_claim_source_nodes(context,
-                                                            rule_selection)) {
-    return false;
-  }
-  return true;
-}
-
-static iree_status_t loom_low_lower_record_selected_rule_plan(
-    loom_low_lower_context_t* context, const loom_op_t* source_op,
-    uint16_t rule_set_index, const loom_low_lower_rule_set_t* rule_set,
-    const loom_low_lower_rule_selection_t* rule_selection,
-    const loom_low_lower_rule_source_memory_state_t* source_memory_state,
-    bool* out_recorded) {
-  *out_recorded = false;
-  if (!loom_low_lower_rule_selection_can_record_plan(
-          context, source_op, rule_set, rule_selection)) {
+static iree_status_t loom_low_lower_source_candidate_add_callback(
+    loom_low_lower_context_t* context,
+    loom_low_lower_source_candidate_plan_t* candidate_plan,
+    const loom_op_t* source_op, loom_low_lower_select_op_callback_t callback,
+    loom_low_lower_source_graph_alternative_state_t state) {
+  if (callback.fn == NULL) {
     return iree_ok_status();
   }
-  const loom_low_source_memory_access_plan_t* source_memory_access = NULL;
-  if (rule_selection->uses_source_memory_access) {
-    IREE_ASSERT(source_memory_state != NULL);
-    IREE_ASSERT_EQ(source_memory_state->source_op, source_op);
-    IREE_ASSERT(source_memory_state->plan_available);
-    loom_low_source_memory_access_plan_t* retained_source_memory_access = NULL;
-    IREE_RETURN_IF_ERROR(loom_low_lower_allocate_plan_data(
-        context, sizeof(*retained_source_memory_access),
-        (void**)&retained_source_memory_access));
-    *retained_source_memory_access = *source_memory_state->access_plan;
-    source_memory_access = retained_source_memory_access;
-  }
-  const loom_op_t** retained_source_nodes = NULL;
-  if (rule_selection->source_node_count > 1) {
-    IREE_RETURN_IF_ERROR(loom_low_lower_allocate_plan_data(
-        context,
-        rule_selection->source_node_count * sizeof(*retained_source_nodes),
-        (void**)&retained_source_nodes));
-    memcpy(retained_source_nodes, rule_selection->source_nodes,
-           rule_selection->source_node_count * sizeof(*retained_source_nodes));
-  }
-  loom_low_lower_rule_selection_claim_preceding_source_nodes(context,
-                                                             rule_selection);
-  loom_low_lower_record_selected_plan(
-      context, (loom_low_lower_selected_plan_t){
-                   .source_op = source_op,
-                   .kind = LOOM_LOW_LOWER_SELECTED_PLAN_RULE,
-                   .source_node_count = rule_selection->source_node_count,
-                   .rule_set_index = rule_set_index,
-                   .rule_index = rule_selection->rule_index,
-                   .rule_set = rule_set,
-                   .rule = rule_selection->rule,
-                   .source_memory_access = source_memory_access,
-                   .data.source_nodes = retained_source_nodes,
-               });
-  loom_low_lower_rule_selection_reserve_following_source_nodes(context,
-                                                               rule_selection);
-  *out_recorded = true;
-  return iree_ok_status();
+  loom_low_lower_source_candidate_t* source_candidate = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_candidate_allocate(
+      context, LOOM_LOW_LOWER_SOURCE_CANDIDATE_CALLBACK, state,
+      &source_candidate));
+  loom_low_lower_source_candidate_callback_t* callback_state = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate(&context->analysis_arena,
+                                           sizeof(*callback_state),
+                                           (void**)&callback_state));
+  *callback_state = (loom_low_lower_source_candidate_callback_t){
+      .callback = callback,
+  };
+  source_candidate->data.callback = callback_state;
+  const loom_op_t* source_nodes[] = {source_op};
+  return loom_low_lower_source_candidate_add(
+      context, candidate_plan, source_nodes, /*source_node_count=*/1,
+      /*edges=*/NULL, /*priority=*/0, source_candidate);
 }
 
 static iree_status_t loom_low_lower_emit_contract_query_rejection(
@@ -1388,11 +831,12 @@ static iree_status_t loom_low_lower_emit_contract_query_rejection(
   return loom_low_lower_emit_no_target_contract(context, source_op);
 }
 
-static iree_status_t loom_low_lower_record_descriptor_matrix_plan(
+static iree_status_t loom_low_lower_create_descriptor_matrix_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_target_contract_descriptor_matrix_rule_t* matrix_rule,
     const loom_contract_request_t* contract_request,
-    const loom_target_contract_query_result_t* query_result) {
+    const loom_target_contract_query_result_t* query_result,
+    loom_low_lower_selected_plan_t* out_selected_plan) {
   loom_low_lower_descriptor_matrix_plan_t* plan_data = NULL;
   IREE_RETURN_IF_ERROR(loom_low_lower_allocate_plan_data(
       context, sizeof(*plan_data), (void**)&plan_data));
@@ -1423,53 +867,29 @@ static iree_status_t loom_low_lower_record_descriptor_matrix_plan(
         &plan_data->contract_request, plan_data->descriptor.descriptor,
         &plan_data->attrs));
   }
-  loom_low_lower_record_selected_plan(
-      context, (loom_low_lower_selected_plan_t){
-                   .source_op = source_op,
-                   .kind = LOOM_LOW_LOWER_SELECTED_PLAN_DESCRIPTOR_MATRIX,
-                   .rule_set_index = UINT16_MAX,
-                   .rule_index = query_result->rule_index,
-                   .rule_set = NULL,
-                   .rule = NULL,
-                   .resolved_emits = NULL,
-                   .data.target_plan =
-                       loom_low_lower_plan_make(source_op->kind, plan_data),
-               });
+  *out_selected_plan = (loom_low_lower_selected_plan_t){
+      .source_op = source_op,
+      .kind = LOOM_LOW_LOWER_SELECTED_PLAN_DESCRIPTOR_MATRIX,
+      .rule_set_index = UINT16_MAX,
+      .rule_index = query_result->rule_index,
+      .rule_set = NULL,
+      .rule = NULL,
+      .resolved_emits = NULL,
+      .data.target_plan = loom_low_lower_plan_make(source_op->kind, plan_data),
+  };
   return iree_ok_status();
 }
 
-static iree_status_t loom_low_lower_try_plan_descriptor_matrix_case(
+static iree_status_t loom_low_lower_record_descriptor_matrix_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    const loom_target_contract_case_t* contract_case,
-    const loom_target_contract_binding_t* binding,
-    loom_low_lower_contract_case_iteration_mode_t iteration_mode,
-    bool* out_selected) {
-  *out_selected = false;
-  if (iteration_mode == LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_ALL) {
-    return iree_ok_status();
-  }
-  const loom_target_contract_descriptor_matrix_rule_t* matrix_rule =
-      &binding->fragment->descriptor_matrices[contract_case->row_index];
-  loom_target_contract_query_result_t query_result =
-      loom_target_contract_query_result_empty();
-  loom_contract_request_t contract_request = {0};
-  loom_target_contract_query_environment_t environment = {0};
-  IREE_RETURN_IF_ERROR(loom_low_lower_source_query_environment_initialize(
-      context, context->descriptor_set, &environment));
-  IREE_RETURN_IF_ERROR(loom_low_lower_query_descriptor_matrix_contract(
-      &environment, &context->policy->descriptor_matrix, matrix_rule, source_op,
-      &contract_request, &query_result));
-  if (query_result.outcome == LOOM_TARGET_CONTRACT_QUERY_LEGAL) {
-    query_result.rule_index = contract_case->row_index;
-    IREE_RETURN_IF_ERROR(loom_low_lower_record_descriptor_matrix_plan(
-        context, source_op, matrix_rule, &contract_request, &query_result));
-    *out_selected = true;
-  } else if (query_result.outcome == LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED ||
-             query_result.outcome == LOOM_TARGET_CONTRACT_QUERY_INVALID_IR) {
-    IREE_RETURN_IF_ERROR(loom_low_lower_emit_contract_query_rejection(
-        context, source_op, &query_result));
-    *out_selected = true;
-  }
+    const loom_target_contract_descriptor_matrix_rule_t* matrix_rule,
+    const loom_contract_request_t* contract_request,
+    const loom_target_contract_query_result_t* query_result) {
+  loom_low_lower_selected_plan_t selected_plan;
+  IREE_RETURN_IF_ERROR(loom_low_lower_create_descriptor_matrix_plan(
+      context, source_op, matrix_rule, contract_request, query_result,
+      &selected_plan));
+  loom_low_lower_record_selected_plan(context, selected_plan);
   return iree_ok_status();
 }
 
@@ -1501,84 +921,187 @@ static iree_status_t loom_low_lower_plan_primary_descriptor_available(
   return iree_ok_status();
 }
 
-IREE_ATTRIBUTE_NOINLINE static iree_status_t
-loom_low_lower_plan_primary_descriptor_fallback(
-    loom_low_lower_context_t* context, const loom_op_t* source_op,
-    loom_low_lower_rule_source_memory_state_t* source_memory_state,
-    loom_low_lower_rule_match_context_t* match_context,
-    bool* inout_view_regions_resolved,
-    loom_low_lower_contract_case_iterator_t* iterator,
-    uint16_t unavailable_rule_set_index,
-    const loom_low_lower_rule_set_t* unavailable_rule_set,
-    const loom_low_lower_rule_selection_t* unavailable_selection,
-    bool* out_selected) {
-  const loom_target_contract_index_t* index = context->policy->contract.index;
-  uint16_t case_index = UINT16_MAX;
-  while (loom_low_lower_contract_case_iterator_next(iterator, &case_index)) {
-    const loom_target_contract_case_t* contract_case =
-        &index->cases[case_index];
-    const loom_target_contract_binding_t* binding =
-        &index->bindings[contract_case->binding_index];
-    if (contract_case->system ==
-        LOOM_TARGET_CONTRACT_SYSTEM_DESCRIPTOR_MATRIX) {
-      bool selected = false;
-      IREE_RETURN_IF_ERROR(loom_low_lower_try_plan_descriptor_matrix_case(
-          context, source_op, contract_case, binding,
-          LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES, &selected));
-      if (selected) {
-        *out_selected = true;
-        return iree_ok_status();
+static void loom_low_lower_source_contract_retain_rule_failure(
+    loom_low_lower_source_candidate_rejection_t* rejection,
+    const loom_low_lower_contract_case_match_t* match) {
+  if (loom_low_lower_rule_failure_is_better(match->selection.failure,
+                                            rejection->rule_failure)) {
+    rejection->failed_rule_set = match->rule_set;
+    rejection->rule_failure = match->selection.failure;
+  }
+}
+
+typedef struct loom_low_lower_source_candidate_contract_state_t {
+  // Mutable lowering context owning match state and retained plans.
+  loom_low_lower_context_t* context;
+  // Function candidate plan receiving alternatives.
+  loom_low_lower_source_candidate_plan_t* candidate_plan;
+  // Candidate node receiving alternatives.
+  loom_low_lower_source_candidate_node_t* candidate_node;
+  // Source operation being matched.
+  const loom_op_t* source_op;
+  // Canonical source-memory state shared by every candidate rule.
+  loom_low_lower_rule_source_memory_state_t* source_memory_state;
+  // Match context used for primary descriptor availability queries.
+  loom_low_lower_rule_match_context_t* match_context;
+  // Best generated rejection seen when no candidate matched.
+  loom_low_lower_source_candidate_rejection_t rejection;
+  // Current generated contract iteration mode.
+  loom_low_lower_contract_case_iteration_mode_t iteration_mode;
+  // True when collection found at least one legal alternative.
+  bool matched;
+} loom_low_lower_source_candidate_contract_state_t;
+
+static iree_status_t loom_low_lower_source_candidate_visit_contract_case(
+    void* user_data, uint16_t case_index,
+    const loom_low_lower_contract_case_match_t* match, bool* out_stop) {
+  *out_stop = false;
+  loom_low_lower_source_candidate_contract_state_t* state =
+      (loom_low_lower_source_candidate_contract_state_t*)user_data;
+  const loom_target_contract_index_t* index =
+      state->context->policy->contract.index;
+  const loom_target_contract_case_t* contract_case = &index->cases[case_index];
+  const loom_target_contract_binding_t* binding =
+      &index->bindings[contract_case->binding_index];
+  if (match->kind == LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_DESCRIPTOR_MATRIX) {
+    if (match->result.outcome == LOOM_TARGET_CONTRACT_QUERY_LEGAL) {
+      const loom_target_contract_descriptor_matrix_rule_t* matrix_rule =
+          &binding->fragment->descriptor_matrices[contract_case->row_index];
+      IREE_RETURN_IF_ERROR(
+          loom_low_lower_source_candidate_add_descriptor_matrix(
+              state->context, state->candidate_plan, state->source_op,
+              matrix_rule, &match->contract_request, &match->result));
+      state->matched = true;
+    } else if (match->result.outcome ==
+                   LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED ||
+               match->result.outcome == LOOM_TARGET_CONTRACT_QUERY_INVALID_IR) {
+      if (state->rejection.matrix_rejection.outcome ==
+          LOOM_TARGET_CONTRACT_QUERY_UNHANDLED) {
+        state->rejection.matrix_rejection = match->result;
       }
-      continue;
     }
-    uint16_t rule_index = UINT16_MAX;
-    if (!loom_low_lower_contract_case_lower_rule_index(index, contract_case,
-                                                       &rule_index)) {
-      continue;
+    return iree_ok_status();
+  }
+  if (match->kind != LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_LOWER_RULE) {
+    return iree_ok_status();
+  }
+  if (match->selection.rule == NULL) {
+    loom_low_lower_source_contract_retain_rule_failure(&state->rejection,
+                                                       match);
+    return iree_ok_status();
+  }
+  IREE_ASSERT_EQ(state->iteration_mode,
+                 LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES,
+                 "generated contract candidate index omitted a matching rule");
+  state->matched = true;
+  bool primary_descriptor_available = false;
+  IREE_RETURN_IF_ERROR(loom_low_lower_plan_primary_descriptor_available(
+      state->context, state->match_context, binding->rule_set_index,
+      match->rule_set, &match->selection, &primary_descriptor_available));
+  return loom_low_lower_source_candidate_add_rule(
+      state->context, state->candidate_plan, state->candidate_node,
+      binding->rule_set_index, match->rule_set, &match->selection,
+      primary_descriptor_available
+          ? LOOM_LOW_LOWER_RULE_PRIMARY_DESCRIPTOR_AVAILABLE
+          : LOOM_LOW_LOWER_RULE_PRIMARY_DESCRIPTOR_FEATURES_UNAVAILABLE,
+      state->source_memory_state);
+}
+
+typedef struct loom_low_lower_source_stream_contract_state_t {
+  // Mutable lowering context owning match state and retained plans.
+  loom_low_lower_context_t* context;
+  // Source operation being matched.
+  const loom_op_t* source_op;
+  // Canonical source-memory state shared by every candidate rule.
+  loom_low_lower_rule_source_memory_state_t* source_memory_state;
+  // Match context used for primary descriptor availability queries.
+  loom_low_lower_rule_match_context_t* match_context;
+  // Best generated rejection seen when no candidate matched.
+  loom_low_lower_source_candidate_rejection_t rejection;
+  // First feature-unavailable rule retained as a same-graph fallback.
+  loom_low_lower_rule_selection_t fallback_selection;
+  // Rule set owning |fallback_selection|.
+  const loom_low_lower_rule_set_t* fallback_rule_set;
+  // Policy rule-set ordinal owning |fallback_selection|.
+  uint16_t fallback_rule_set_index;
+  // Current generated contract iteration mode.
+  loom_low_lower_contract_case_iteration_mode_t iteration_mode;
+  // True after a plan or terminal contract rejection has been recorded.
+  bool selected;
+} loom_low_lower_source_stream_contract_state_t;
+
+static iree_status_t loom_low_lower_source_stream_visit_contract_case(
+    void* user_data, uint16_t case_index,
+    const loom_low_lower_contract_case_match_t* match, bool* out_stop) {
+  *out_stop = false;
+  loom_low_lower_source_stream_contract_state_t* state =
+      (loom_low_lower_source_stream_contract_state_t*)user_data;
+  const loom_target_contract_index_t* index =
+      state->context->policy->contract.index;
+  const loom_target_contract_case_t* contract_case = &index->cases[case_index];
+  const loom_target_contract_binding_t* binding =
+      &index->bindings[contract_case->binding_index];
+  if (match->kind == LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_DESCRIPTOR_MATRIX) {
+    if (match->result.outcome == LOOM_TARGET_CONTRACT_QUERY_LEGAL) {
+      const loom_target_contract_descriptor_matrix_rule_t* matrix_rule =
+          &binding->fragment->descriptor_matrices[contract_case->row_index];
+      IREE_RETURN_IF_ERROR(loom_low_lower_record_descriptor_matrix_plan(
+          state->context, state->source_op, matrix_rule,
+          &match->contract_request, &match->result));
+      state->selected = true;
+      *out_stop = true;
+    } else if (match->result.outcome ==
+                   LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED ||
+               match->result.outcome == LOOM_TARGET_CONTRACT_QUERY_INVALID_IR) {
+      IREE_RETURN_IF_ERROR(loom_low_lower_emit_contract_query_rejection(
+          state->context, state->source_op, &match->result));
+      state->selected = true;
+      *out_stop = true;
     }
-    const loom_low_lower_rule_set_t* rule_set =
-        context->policy->contract.rule_sets.values[binding->rule_set_index];
-    match_context->policy_rule_set_ordinal =
-        (uint16_t)(binding->rule_set_index + 1u);
-    if (rule_set->source_memory_count != 0 && !*inout_view_regions_resolved) {
-      IREE_RETURN_IF_ERROR(loom_low_lower_context_view_regions(
-          context, &match_context->view_regions));
-      *inout_view_regions_resolved = true;
+    return iree_ok_status();
+  }
+  if (match->kind != LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_LOWER_RULE) {
+    return iree_ok_status();
+  }
+  if (match->selection.rule == NULL) {
+    loom_low_lower_source_contract_retain_rule_failure(&state->rejection,
+                                                       match);
+    return iree_ok_status();
+  }
+  if (state->iteration_mode == LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_ALL) {
+    return iree_ok_status();
+  }
+  if (state->fallback_rule_set != NULL &&
+      !loom_low_lower_rule_selections_have_same_source_graph(
+          &state->fallback_selection, &match->selection)) {
+    return iree_ok_status();
+  }
+
+  bool primary_descriptor_available = false;
+  IREE_RETURN_IF_ERROR(loom_low_lower_plan_primary_descriptor_available(
+      state->context, state->match_context, binding->rule_set_index,
+      match->rule_set, &match->selection, &primary_descriptor_available));
+  if (!primary_descriptor_available) {
+    if (state->fallback_rule_set == NULL &&
+        loom_low_lower_rule_selection_can_record_plan(
+            state->context, state->source_op, match->rule_set,
+            &match->selection)) {
+      state->fallback_selection = match->selection;
+      state->fallback_rule_set = match->rule_set;
+      state->fallback_rule_set_index = binding->rule_set_index;
     }
-    IREE_ASSERT(rule_set->source_memory_count == 0 ||
-                source_memory_state->access_plan != NULL);
-    loom_low_lower_rule_selection_t selection;
-    IREE_RETURN_IF_ERROR(
-        loom_low_lower_rule_set_select_rule_range_with_match_context(
-            match_context, rule_set, source_op, rule_index, 1, &selection));
-    if (selection.rule == NULL ||
-        !loom_low_lower_rule_selections_have_same_source_graph(
-            unavailable_selection, &selection)) {
-      continue;
-    }
-    bool primary_descriptor_available = false;
-    IREE_RETURN_IF_ERROR(loom_low_lower_plan_primary_descriptor_available(
-        context, match_context, binding->rule_set_index, rule_set, &selection,
-        &primary_descriptor_available));
-    if (!primary_descriptor_available) {
-      continue;
-    }
-    bool recorded = false;
-    IREE_RETURN_IF_ERROR(loom_low_lower_record_selected_rule_plan(
-        context, source_op, binding->rule_set_index, rule_set, &selection,
-        source_memory_state, &recorded));
-    if (recorded) {
-      *out_selected = true;
-      return iree_ok_status();
-    }
+    return iree_ok_status();
   }
 
   bool recorded = false;
   IREE_RETURN_IF_ERROR(loom_low_lower_record_selected_rule_plan(
-      context, source_op, unavailable_rule_set_index, unavailable_rule_set,
-      unavailable_selection, source_memory_state, &recorded));
-  IREE_ASSERT(recorded);
-  *out_selected = true;
+      state->context, state->source_op, binding->rule_set_index,
+      match->rule_set, &match->selection, state->source_memory_state,
+      &recorded));
+  if (recorded) {
+    state->selected = true;
+    *out_stop = true;
+  }
   return iree_ok_status();
 }
 
@@ -1597,120 +1120,176 @@ static iree_status_t loom_low_lower_plan_op_from_contract_index(
     return iree_ok_status();
   }
 
+  loom_target_contract_query_environment_t environment = {0};
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_query_environment_initialize(
+      context, context->descriptor_set, &environment));
+  const loom_low_lower_contract_query_options_t query_options = {
+      .contract_index = index,
+      .rule_sets = context->policy->contract.rule_sets,
+      .descriptor_matrix = context->policy->descriptor_matrix,
+  };
   loom_low_lower_rule_match_context_t match_context;
   loom_low_lower_rule_match_context_initialize_from_lowering(
-      context, /*view_regions=*/NULL, source_memory_state, &match_context);
+      context, environment.view_regions, source_memory_state, &match_context);
   // The lowering policy owns this rule-set list and its paired descriptor set.
   // Generated primary feature classes can therefore bypass descriptor lookup.
   match_context.flags |=
       LOOM_LOW_LOWER_RULE_MATCH_FLAG_PRIMARY_DESCRIPTORS_BOUND;
   match_context.consumption_query = consumption_query;
-  bool view_regions_resolved = false;
+
   const loom_low_lower_rule_set_t* initial_failed_rule_set =
       *inout_failed_rule_set;
   const loom_low_lower_rule_failure_t initial_rule_failure =
       *inout_rule_failure;
-  const loom_low_lower_rule_set_t* failed_rule_set = initial_failed_rule_set;
-  loom_low_lower_rule_failure_t rule_failure = initial_rule_failure;
-  loom_low_lower_contract_case_iteration_mode_t iteration_mode =
-      LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES;
-  while (true) {
-    failed_rule_set = initial_failed_rule_set;
-    rule_failure = initial_rule_failure;
-    loom_low_lower_contract_case_iterator_t iterator;
-    const bool used_candidates =
-        loom_low_lower_contract_case_iterator_initialize(
-            context->module, index, op_entry, source_op,
-            match_context.vector_lane_projection, iteration_mode, &iterator);
-    uint16_t case_index = UINT16_MAX;
-    while (loom_low_lower_contract_case_iterator_next(&iterator, &case_index)) {
-      const loom_target_contract_case_t* contract_case =
-          &index->cases[case_index];
-      const loom_target_contract_binding_t* binding =
-          &index->bindings[contract_case->binding_index];
-      if (contract_case->system ==
-          LOOM_TARGET_CONTRACT_SYSTEM_DESCRIPTOR_MATRIX) {
-        bool selected = false;
-        IREE_RETURN_IF_ERROR(loom_low_lower_try_plan_descriptor_matrix_case(
-            context, source_op, contract_case, binding, iteration_mode,
-            &selected));
-        if (selected) {
-          *out_selected = true;
-          return iree_ok_status();
-        }
-        continue;
-      }
-      uint16_t rule_index = UINT16_MAX;
-      if (!loom_low_lower_contract_case_lower_rule_index(index, contract_case,
-                                                         &rule_index)) {
-        continue;
-      }
-      const loom_low_lower_rule_set_t* rule_set =
-          context->policy->contract.rule_sets.values[binding->rule_set_index];
-      match_context.policy_rule_set_ordinal =
-          (uint16_t)(binding->rule_set_index + 1u);
-      if (rule_set->source_memory_count != 0 && !view_regions_resolved) {
-        IREE_RETURN_IF_ERROR(loom_low_lower_context_view_regions(
-            context, &match_context.view_regions));
-        view_regions_resolved = true;
-      }
-      IREE_ASSERT(rule_set->source_memory_count == 0 ||
-                  source_memory_state->access_plan != NULL);
-      loom_low_lower_rule_selection_t rule_selection;
-      IREE_RETURN_IF_ERROR(
-          loom_low_lower_rule_set_select_rule_range_with_match_context(
-              &match_context, rule_set, source_op, rule_index, 1,
-              &rule_selection));
-      if (rule_selection.rule != NULL) {
-        if (iteration_mode == LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_ALL) {
-          continue;
-        }
-        bool primary_descriptor_available = false;
-        IREE_RETURN_IF_ERROR(loom_low_lower_plan_primary_descriptor_available(
-            context, &match_context, binding->rule_set_index, rule_set,
-            &rule_selection, &primary_descriptor_available));
-        if (!primary_descriptor_available) {
-          if (!loom_low_lower_rule_selection_can_record_plan(
-                  context, source_op, rule_set, &rule_selection)) {
-            continue;
-          }
-          return loom_low_lower_plan_primary_descriptor_fallback(
-              context, source_op, source_memory_state, &match_context,
-              &view_regions_resolved, &iterator, binding->rule_set_index,
-              rule_set, &rule_selection, out_selected);
-        }
-        bool recorded = false;
-        IREE_RETURN_IF_ERROR(loom_low_lower_record_selected_rule_plan(
-            context, source_op, binding->rule_set_index, rule_set,
-            &rule_selection, source_memory_state, &recorded));
-        if (recorded) {
-          *out_selected = true;
-          return iree_ok_status();
-        }
-        continue;
-      }
-      if (loom_low_lower_rule_failure_is_better(rule_selection.failure,
-                                                rule_failure)) {
-        failed_rule_set = rule_set;
-        rule_failure = rule_selection.failure;
-      }
-    }
-    if (!used_candidates ||
-        iteration_mode == LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_ALL) {
-      break;
-    }
-    // Candidate failures are incomplete; repeat the authored order to retain
-    // the exact best rejection when no candidate recorded a plan.
-    iteration_mode = LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_ALL;
+  loom_low_lower_source_stream_contract_state_t state = {
+      .context = context,
+      .source_op = source_op,
+      .source_memory_state = source_memory_state,
+      .match_context = &match_context,
+      .rejection =
+          {
+              .failed_rule_set = initial_failed_rule_set,
+              .rule_failure = initial_rule_failure,
+          },
+      .fallback_selection = {.rule_index = UINT16_MAX},
+      .fallback_rule_set_index = UINT16_MAX,
+      .iteration_mode = LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES,
+  };
+  const loom_low_lower_contract_case_callback_t callback = {
+      .fn = loom_low_lower_source_stream_visit_contract_case,
+      .user_data = &state,
+  };
+  bool used_candidate_index = false;
+  IREE_RETURN_IF_ERROR(loom_low_lower_visit_lowering_contract_cases(
+      &environment, &query_options, source_op, state.iteration_mode,
+      &match_context, callback, &used_candidate_index));
+  if (!state.selected && state.fallback_rule_set != NULL) {
+    bool recorded = false;
+    IREE_RETURN_IF_ERROR(loom_low_lower_record_selected_rule_plan(
+        context, source_op, state.fallback_rule_set_index,
+        state.fallback_rule_set, &state.fallback_selection, source_memory_state,
+        &recorded));
+    IREE_ASSERT(recorded);
+    state.selected = true;
   }
-  *inout_failed_rule_set = failed_rule_set;
-  *inout_rule_failure = rule_failure;
+  if (!state.selected && used_candidate_index) {
+    state.rejection.failed_rule_set = initial_failed_rule_set;
+    state.rejection.rule_failure = initial_rule_failure;
+    state.iteration_mode = LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_ALL;
+    IREE_RETURN_IF_ERROR(loom_low_lower_visit_lowering_contract_cases(
+        &environment, &query_options, source_op, state.iteration_mode,
+        &match_context, callback, /*out_used_candidate_index=*/NULL));
+  }
+  *inout_failed_rule_set = state.rejection.failed_rule_set;
+  *inout_rule_failure = state.rejection.rule_failure;
+  *out_selected = state.selected;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_low_lower_source_candidate_retain_rejection(
+    loom_low_lower_context_t* context,
+    loom_low_lower_source_candidate_node_t* candidate_node,
+    loom_low_lower_source_candidate_rejection_t** out_rejection) {
+  if (candidate_node->rejection == NULL) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate(
+        &context->analysis_arena, sizeof(*candidate_node->rejection),
+        (void**)&candidate_node->rejection));
+    memset(candidate_node->rejection, 0, sizeof(*candidate_node->rejection));
+  }
+  *out_rejection = candidate_node->rejection;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_low_lower_source_candidate_collect_contract(
+    loom_low_lower_context_t* context,
+    loom_low_lower_source_candidate_plan_t* candidate_plan,
+    loom_low_lower_source_candidate_node_t* candidate_node,
+    loom_consumption_region_query_t* consumption_query) {
+  const loom_op_t* source_op = candidate_node->source_op;
+  const loom_target_contract_index_t* index = context->policy->contract.index;
+  if (index == NULL) {
+    return iree_ok_status();
+  }
+  const loom_target_contract_op_entry_t op_entry =
+      loom_target_contract_index_lookup_kind(index, source_op->kind);
+  if (loom_target_contract_op_entry_is_empty(op_entry)) {
+    return iree_ok_status();
+  }
+  if (candidate_plan->query_environment.module == NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_query_environment_initialize(
+        context, context->descriptor_set, &candidate_plan->query_environment));
+    candidate_plan->query_options = (loom_low_lower_contract_query_options_t){
+        .contract_index = index,
+        .rule_sets = context->policy->contract.rule_sets,
+        .descriptor_matrix = context->policy->descriptor_matrix,
+    };
+  }
+
+  loom_low_source_memory_access_plan_t source_memory_access;
+  loom_low_lower_rule_source_memory_state_t source_memory_state;
+  loom_low_lower_rule_source_memory_state_initialize(
+      source_op, &source_memory_access, &source_memory_state);
+  if (candidate_node->memory_record != NULL) {
+    if (candidate_node->memory_record->available) {
+      source_memory_state.retained_access =
+          &candidate_node->memory_record->access;
+    } else {
+      source_memory_state.plan_attempted = true;
+      source_memory_state.diagnostic =
+          candidate_node->memory_record->diagnostic;
+    }
+  }
+  loom_low_lower_rule_match_context_t match_context;
+  loom_low_lower_rule_match_context_initialize_from_lowering(
+      context, candidate_plan->query_environment.view_regions,
+      &source_memory_state, &match_context);
+  match_context.flags |=
+      LOOM_LOW_LOWER_RULE_MATCH_FLAG_PRIMARY_DESCRIPTORS_BOUND;
+  match_context.consumption_query = consumption_query;
+  loom_low_lower_source_candidate_contract_state_t collect_state = {
+      .context = context,
+      .candidate_plan = candidate_plan,
+      .candidate_node = candidate_node,
+      .source_op = source_op,
+      .source_memory_state = &source_memory_state,
+      .match_context = &match_context,
+      .iteration_mode = LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES,
+  };
+  const loom_low_lower_contract_case_callback_t callback = {
+      .fn = loom_low_lower_source_candidate_visit_contract_case,
+      .user_data = &collect_state,
+  };
+  bool used_candidate_index = false;
+  IREE_RETURN_IF_ERROR(loom_low_lower_visit_lowering_contract_cases(
+      &candidate_plan->query_environment, &candidate_plan->query_options,
+      source_op, LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES,
+      &match_context, callback, &used_candidate_index));
+  if (collect_state.matched || !used_candidate_index) {
+    return iree_ok_status();
+  }
+
+  collect_state.iteration_mode = LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_ALL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_visit_lowering_contract_cases(
+      &candidate_plan->query_environment, &candidate_plan->query_options,
+      source_op, LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_ALL, &match_context,
+      callback, /*out_used_candidate_index=*/NULL));
+  if (collect_state.rejection.failed_rule_set != NULL ||
+      collect_state.rejection.matrix_rejection.outcome ==
+          LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED ||
+      collect_state.rejection.matrix_rejection.outcome ==
+          LOOM_TARGET_CONTRACT_QUERY_INVALID_IR) {
+    loom_low_lower_source_candidate_rejection_t* rejection = NULL;
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_candidate_retain_rejection(
+        context, candidate_node, &rejection));
+    *rejection = collect_state.rejection;
+  }
   return iree_ok_status();
 }
 
 static iree_status_t loom_low_lower_plan_op(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    loom_consumption_region_query_t* consumption_query, bool is_callable_exit) {
+    loom_consumption_region_query_t* consumption_query, bool is_callable_exit,
+    loom_low_lower_source_candidate_plan_t* candidate_plan) {
   if (source_op->region_count != 0) {
     if (loom_low_lower_supported_structured_source_op(context, source_op)) {
       return loom_low_lower_structural_plan_op(context, source_op);
@@ -1731,25 +1310,36 @@ static iree_status_t loom_low_lower_plan_op(
   if (loom_low_lower_source_plan_op_is_metadata(source_op->kind)) {
     return iree_ok_status();
   }
-  if (loom_low_lower_try_record_claimed_source_plan(context, source_op)) {
-    return iree_ok_status();
+
+  loom_low_lower_source_candidate_node_t* candidate_node = NULL;
+  if (candidate_plan != NULL) {
+    const uint32_t node_index = candidate_plan->collection_node_index++;
+    IREE_ASSERT_LT(node_index, candidate_plan->node_capacity);
+    candidate_node = &candidate_plan->nodes[node_index];
+    candidate_node->source_op = source_op;
+    candidate_node->memory_record =
+        context->lowering->source_plan.memory.current;
   }
 
   if (loom_low_invoke_isa(source_op)) {
     const loom_low_lower_source_invoke_plan_t* plan = NULL;
     IREE_RETURN_IF_ERROR(
         loom_low_lower_source_invoke_plan(context, source_op, &plan));
-    if (plan != NULL) {
-      loom_low_lower_record_selected_plan(
-          context, (loom_low_lower_selected_plan_t){
-                       .source_op = source_op,
-                       .kind = LOOM_LOW_LOWER_SELECTED_PLAN_INVOKE,
-                       .rule_set_index = UINT16_MAX,
-                       .rule_index = UINT16_MAX,
-                       .data.invoke = plan,
-                   });
+    if (plan == NULL && candidate_plan == NULL) {
+      return iree_ok_status();
     }
-    return iree_ok_status();
+    const loom_low_lower_selected_plan_t selected_plan = {
+        .source_op = source_op,
+        .kind = plan != NULL ? LOOM_LOW_LOWER_SELECTED_PLAN_INVOKE
+                             : LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK,
+        .flags = plan != NULL ? 0 : LOOM_LOW_LOWER_SELECTED_PLAN_ELIDED,
+        .rule_set_index = UINT16_MAX,
+        .rule_index = UINT16_MAX,
+        .data.invoke = plan,
+    };
+    return loom_low_lower_select_fixed_plan(
+        context, candidate_plan, &selected_plan,
+        LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FIXED);
   }
 
   if (loom_buffer_alloca_isa(source_op)) {
@@ -1758,36 +1348,62 @@ static iree_status_t loom_low_lower_plan_op(
     IREE_RETURN_IF_ERROR(loom_low_lower_function_storage_select(
         context, source_op, &selected, &plan));
     if (selected) {
-      loom_low_lower_record_selected_plan(
-          context, (loom_low_lower_selected_plan_t){
-                       .source_op = source_op,
-                       .kind = LOOM_LOW_LOWER_SELECTED_PLAN_FUNCTION_STORAGE,
-                       .rule_set_index = UINT16_MAX,
-                       .rule_index = UINT16_MAX,
-                       .data.function_storage = plan,
-                   });
-      return iree_ok_status();
+      const loom_low_lower_selected_plan_t selected_plan = {
+          .source_op = source_op,
+          .kind = LOOM_LOW_LOWER_SELECTED_PLAN_FUNCTION_STORAGE,
+          .rule_set_index = UINT16_MAX,
+          .rule_index = UINT16_MAX,
+          .data.function_storage = plan,
+      };
+      return loom_low_lower_select_fixed_plan(
+          context, candidate_plan, &selected_plan,
+          LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FIXED);
     }
   }
 
   const loom_low_lower_source_memory_record_t* prepared_memory =
-      context->lowering->source_plan.memory.current;
+      candidate_node != NULL ? candidate_node->memory_record
+                             : context->lowering->source_plan.memory.current;
   if (prepared_memory &&
       !loom_low_lower_plan_is_empty(prepared_memory->prepared_plan)) {
-    loom_low_lower_record_selected_plan(
-        context, (loom_low_lower_selected_plan_t){
-                     .source_op = source_op,
-                     .kind = LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK,
-                     .rule_set_index = UINT16_MAX,
-                     .rule_index = UINT16_MAX,
-                     .data.target_plan = prepared_memory->prepared_plan,
-                 });
-    return iree_ok_status();
+    const loom_low_lower_selected_plan_t selected_plan = {
+        .source_op = source_op,
+        .kind = LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK,
+        .rule_set_index = UINT16_MAX,
+        .rule_index = UINT16_MAX,
+        .data.target_plan = prepared_memory->prepared_plan,
+    };
+    return loom_low_lower_select_fixed_plan(
+        context, candidate_plan, &selected_plan,
+        LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FIXED);
   }
   bool selected_callback = false;
   IREE_RETURN_IF_ERROR(loom_low_lower_try_select_op_callback(
-      context, context->policy->preselect_op, source_op, &selected_callback));
+      context, candidate_plan, context->policy->preselect_op, source_op,
+      &selected_callback));
   if (selected_callback) {
+    return iree_ok_status();
+  }
+
+  if (candidate_plan != NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_candidate_collect_contract(
+        context, candidate_plan, candidate_node, consumption_query));
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_candidate_add_callback(
+        context, candidate_plan, source_op, context->policy->select_op,
+        LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FALLBACK));
+    if (loom_low_lower_op_is_discardable_hint(context->module, source_op)) {
+      const loom_low_lower_selected_plan_t selected_plan = {
+          .source_op = source_op,
+          .kind = LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK,
+          .flags = LOOM_LOW_LOWER_SELECTED_PLAN_ELIDED,
+          .rule_set_index = UINT16_MAX,
+          .rule_index = UINT16_MAX,
+          .data.target_plan = {0},
+      };
+      IREE_RETURN_IF_ERROR(loom_low_lower_select_fixed_plan(
+          context, candidate_plan, &selected_plan,
+          LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FALLBACK));
+    }
     return iree_ok_status();
   }
 
@@ -1823,7 +1439,8 @@ static iree_status_t loom_low_lower_plan_op(
   }
 
   IREE_RETURN_IF_ERROR(loom_low_lower_try_select_op_callback(
-      context, context->policy->select_op, source_op, &selected_callback));
+      context, /*candidate_plan=*/NULL, context->policy->select_op, source_op,
+      &selected_callback));
   if (selected_callback) {
     return iree_ok_status();
   }
@@ -1835,9 +1452,293 @@ static iree_status_t loom_low_lower_plan_op(
   return loom_low_lower_emit_no_target_contract(context, source_op);
 }
 
+static loom_low_lower_source_graph_alternative_state_t
+loom_low_lower_source_candidate_query(
+    void* user_data,
+    const loom_low_lower_source_graph_alternative_t* alternative) {
+  const loom_low_lower_source_candidate_plan_t* candidate_plan =
+      (const loom_low_lower_source_candidate_plan_t*)user_data;
+  const loom_low_lower_source_candidate_t* source_candidate =
+      (const loom_low_lower_source_candidate_t*)
+          loom_low_lower_source_graph_alternative_user_data(alternative);
+  if (source_candidate->disabled) {
+    return LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_DISABLED;
+  }
+  if (source_candidate->kind != LOOM_LOW_LOWER_SOURCE_CANDIDATE_RULE) {
+    return source_candidate->state;
+  }
+  const loom_low_lower_source_graph_candidate_t* graph_candidate =
+      loom_low_lower_source_graph_alternative_candidate(alternative);
+  const uint32_t root_index =
+      loom_low_lower_source_graph_candidate_node(graph_candidate, 0);
+  const loom_low_lower_source_candidate_node_t* root_node =
+      &candidate_plan->nodes[root_index];
+  const loom_low_lower_source_candidate_graph_t* graph =
+      (const loom_low_lower_source_candidate_graph_t*)
+          loom_low_lower_source_graph_candidate_user_data(graph_candidate);
+  const loom_op_t* singleton_node = root_node->source_op;
+  const loom_op_t* const* source_nodes =
+      graph != NULL ? graph->source_nodes : &singleton_node;
+  const uint8_t source_node_count =
+      graph != NULL ? graph->source_node_count : 1;
+  const loom_low_lower_rule_t* rule =
+      &source_candidate->data.rule.rule_set
+           ->rules[source_candidate->data.rule.rule_index];
+  if (!loom_low_lower_source_value_storage_rule_preserves_fact_demands(
+          candidate_plan->context, source_candidate->data.rule.rule_set,
+          root_node->source_op, source_nodes, source_node_count, rule)) {
+    return LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_DISABLED;
+  }
+  return source_candidate->state;
+}
+
+static iree_status_t loom_low_lower_source_candidate_resolve(
+    loom_low_lower_source_candidate_plan_t* candidate_plan,
+    bool* out_complete) {
+  loom_low_lower_context_t* context = candidate_plan->context;
+  while (true) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_plan_resolve(
+        candidate_plan->graph_plan,
+        (loom_low_lower_source_graph_alternative_query_callback_t){
+            .fn = loom_low_lower_source_candidate_query,
+            .user_data = candidate_plan,
+        },
+        out_complete));
+    bool retry = false;
+    for (uint32_t node_index = 0; node_index < candidate_plan->node_capacity;
+         ++node_index) {
+      const loom_low_lower_source_graph_alternative_t* alternative =
+          loom_low_lower_source_graph_plan_selected_alternative(
+              candidate_plan->graph_plan, node_index);
+      if (alternative == NULL) {
+        continue;
+      }
+      const loom_low_lower_source_graph_candidate_t* graph_candidate =
+          loom_low_lower_source_graph_alternative_candidate(alternative);
+      if (loom_low_lower_source_graph_candidate_node(graph_candidate, 0) !=
+          node_index) {
+        continue;
+      }
+      loom_low_lower_source_candidate_t* source_candidate =
+          (loom_low_lower_source_candidate_t*)
+              loom_low_lower_source_graph_alternative_user_data(alternative);
+      if (source_candidate->kind != LOOM_LOW_LOWER_SOURCE_CANDIDATE_CALLBACK) {
+        continue;
+      }
+      loom_low_lower_source_candidate_callback_t* callback_state =
+          source_candidate->data.callback;
+      IREE_ASSERT(!callback_state->evaluated);
+      callback_state->evaluated = true;
+      loom_low_lower_plan_t target_plan = loom_low_lower_plan_empty();
+      context->lowering->source_plan.memory.current =
+          candidate_plan->nodes[node_index].memory_record;
+      loom_low_lower_planning_scope_begin(context);
+      iree_status_t status = callback_state->callback.fn(
+          callback_state->callback.user_data, context,
+          candidate_plan->nodes[node_index].source_op, &target_plan);
+      loom_low_lower_planning_scope_end(context);
+      context->lowering->source_plan.memory.current = NULL;
+      IREE_RETURN_IF_ERROR(status);
+      if (loom_low_lower_plan_is_empty(target_plan)) {
+        source_candidate->disabled = true;
+        retry = true;
+        continue;
+      }
+      callback_state->selected_plan = (loom_low_lower_selected_plan_t){
+          .source_op = candidate_plan->nodes[node_index].source_op,
+          .kind = LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK,
+          .rule_set_index = UINT16_MAX,
+          .rule_index = UINT16_MAX,
+          .data.target_plan = target_plan,
+      };
+      source_candidate->kind = LOOM_LOW_LOWER_SOURCE_CANDIDATE_PLAN;
+      source_candidate->data.selected_plan = &callback_state->selected_plan;
+    }
+    if (!retry || loom_low_lower_context_should_stop(context)) {
+      return iree_ok_status();
+    }
+  }
+}
+
+static iree_status_t loom_low_lower_source_candidate_emit_rejection(
+    loom_low_lower_context_t* context,
+    const loom_low_lower_source_candidate_node_t* candidate_node) {
+  const loom_low_lower_source_candidate_rejection_t* rejection =
+      candidate_node->rejection;
+  if (rejection != NULL && (rejection->matrix_rejection.outcome ==
+                                LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED ||
+                            rejection->matrix_rejection.outcome ==
+                                LOOM_TARGET_CONTRACT_QUERY_INVALID_IR)) {
+    return loom_low_lower_emit_contract_query_rejection(
+        context, candidate_node->source_op, &rejection->matrix_rejection);
+  }
+  if (rejection != NULL && rejection->failed_rule_set != NULL) {
+    loom_low_source_memory_access_plan_t source_memory_access;
+    loom_low_lower_rule_source_memory_state_t source_memory_state;
+    loom_low_lower_rule_source_memory_state_initialize(
+        candidate_node->source_op, &source_memory_access, &source_memory_state);
+    if (candidate_node->memory_record != NULL) {
+      if (candidate_node->memory_record->available) {
+        source_memory_state.retained_access =
+            &candidate_node->memory_record->access;
+      } else {
+        source_memory_state.plan_attempted = true;
+        source_memory_state.diagnostic =
+            candidate_node->memory_record->diagnostic;
+      }
+    }
+    return loom_low_lower_rule_set_emit_selection_failure(
+        context, rejection->failed_rule_set, candidate_node->source_op,
+        rejection->rule_failure, &source_memory_state);
+  }
+  return loom_low_lower_emit_no_target_contract(context,
+                                                candidate_node->source_op);
+}
+
+static iree_status_t loom_low_lower_source_candidate_materialize(
+    loom_low_lower_source_candidate_plan_t* candidate_plan) {
+  loom_low_lower_context_t* context = candidate_plan->context;
+  loom_low_lower_source_plan_t* source_plan = &context->lowering->source_plan;
+  source_plan->selected_plan_count = 0;
+  source_plan->selected_plan_emit_index = 0;
+  for (uint32_t node_index = 0; node_index < candidate_plan->node_capacity;
+       ++node_index) {
+    const loom_low_lower_source_graph_alternative_t* alternative =
+        loom_low_lower_source_graph_plan_selected_alternative(
+            candidate_plan->graph_plan, node_index);
+    if (alternative == NULL) {
+      IREE_RETURN_IF_ERROR(loom_low_lower_source_candidate_emit_rejection(
+          context, &candidate_plan->nodes[node_index]));
+      if (loom_low_lower_context_should_stop(context)) {
+        return iree_ok_status();
+      }
+      continue;
+    }
+    const loom_low_lower_source_graph_candidate_t* graph_candidate =
+        loom_low_lower_source_graph_alternative_candidate(alternative);
+    const uint32_t root_index =
+        loom_low_lower_source_graph_candidate_node(graph_candidate, 0);
+    loom_low_lower_source_candidate_t* source_candidate =
+        (loom_low_lower_source_candidate_t*)
+            loom_low_lower_source_graph_alternative_user_data(alternative);
+    const uint8_t emission_source_node_index =
+        source_candidate->kind == LOOM_LOW_LOWER_SOURCE_CANDIDATE_RULE
+            ? source_candidate->data.rule.emission_source_node_index
+            : 0;
+    const uint32_t emission_index = loom_low_lower_source_graph_candidate_node(
+        graph_candidate, emission_source_node_index);
+    if (emission_index != node_index) {
+      loom_low_lower_record_selected_plan(
+          context, (loom_low_lower_selected_plan_t){
+                       .source_op = candidate_plan->nodes[node_index].source_op,
+                       .kind = LOOM_LOW_LOWER_SELECTED_PLAN_RULE,
+                       .flags = LOOM_LOW_LOWER_SELECTED_PLAN_CLAIMED |
+                                LOOM_LOW_LOWER_SELECTED_PLAN_ELIDED,
+                       .rule_set_index = UINT16_MAX,
+                       .rule_index = UINT16_MAX,
+                   });
+      continue;
+    }
+
+    if (source_candidate->kind ==
+        LOOM_LOW_LOWER_SOURCE_CANDIDATE_DESCRIPTOR_MATRIX) {
+      const loom_low_lower_source_candidate_descriptor_matrix_t*
+          descriptor_matrix = source_candidate->data.descriptor_matrix;
+      loom_low_lower_selected_plan_t selected_plan;
+      IREE_RETURN_IF_ERROR(loom_low_lower_create_descriptor_matrix_plan(
+          context, candidate_plan->nodes[root_index].source_op,
+          descriptor_matrix->matrix_rule, &descriptor_matrix->contract_request,
+          &descriptor_matrix->query_result, &selected_plan));
+      loom_low_lower_record_selected_plan(context, selected_plan);
+      continue;
+    }
+    if (source_candidate->kind == LOOM_LOW_LOWER_SOURCE_CANDIDATE_PLAN) {
+      loom_low_lower_selected_plan_t selected_plan =
+          *source_candidate->data.selected_plan;
+      selected_plan.flags &= LOOM_LOW_LOWER_SELECTED_PLAN_ELIDED;
+      loom_low_lower_record_selected_plan(context, selected_plan);
+      continue;
+    }
+
+    IREE_ASSERT_EQ(source_candidate->kind,
+                   LOOM_LOW_LOWER_SOURCE_CANDIDATE_RULE);
+    const loom_low_lower_source_candidate_graph_t* graph =
+        (const loom_low_lower_source_candidate_graph_t*)
+            loom_low_lower_source_graph_candidate_user_data(graph_candidate);
+    const uint8_t source_node_count =
+        loom_low_lower_source_graph_candidate_node_count(graph_candidate);
+    IREE_ASSERT(source_node_count == 1 || graph != NULL);
+    const loom_low_lower_rule_set_t* rule_set =
+        source_candidate->data.rule.rule_set;
+    loom_low_lower_selected_source_memory_t* source_memory = NULL;
+    if (source_candidate->data.rule.source_memory_access != NULL) {
+      const loom_low_lower_source_memory_record_t* memory_record =
+          candidate_plan->nodes[root_index].memory_record;
+      IREE_ASSERT(memory_record != NULL && memory_record->available);
+      IREE_RETURN_IF_ERROR(iree_arena_allocate(&context->analysis_arena,
+                                               sizeof(*source_memory),
+                                               (void**)&source_memory));
+      *source_memory = (loom_low_lower_selected_source_memory_t){
+          .access = *source_candidate->data.rule.source_memory_access,
+          .origin = memory_record->origin,
+      };
+    }
+    loom_low_lower_record_selected_plan(
+        context,
+        (loom_low_lower_selected_plan_t){
+            .source_op = candidate_plan->nodes[root_index].source_op,
+            .kind = LOOM_LOW_LOWER_SELECTED_PLAN_RULE,
+            .source_node_count = source_node_count,
+            .emission_source_node_index = emission_source_node_index,
+            .rule_set_index = source_candidate->data.rule.rule_set_index,
+            .rule_index = source_candidate->data.rule.rule_index,
+            .rule_set = rule_set,
+            .rule = &rule_set->rules[source_candidate->data.rule.rule_index],
+            .source_memory = source_memory,
+            .data.source_nodes = graph != NULL ? graph->source_nodes : NULL,
+        });
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_low_lower_source_candidate_retain_selected_data(
+    loom_low_lower_context_t* context) {
+  loom_low_lower_source_plan_t* source_plan = &context->lowering->source_plan;
+  for (iree_host_size_t i = 0; i < source_plan->selected_plan_count; ++i) {
+    loom_low_lower_selected_plan_t* selected_plan =
+        &source_plan->selected_plans[i];
+    if (selected_plan->kind != LOOM_LOW_LOWER_SELECTED_PLAN_RULE ||
+        selected_plan->rule == NULL) {
+      continue;
+    }
+    if (selected_plan->source_node_count > 1) {
+      const loom_op_t** retained_source_nodes = NULL;
+      IREE_RETURN_IF_ERROR(loom_low_lower_allocate_plan_data(
+          context,
+          (iree_host_size_t)selected_plan->source_node_count *
+              sizeof(*retained_source_nodes),
+          (void**)&retained_source_nodes));
+      memcpy(retained_source_nodes, selected_plan->data.source_nodes,
+             (iree_host_size_t)selected_plan->source_node_count *
+                 sizeof(*retained_source_nodes));
+      selected_plan->data.source_nodes = retained_source_nodes;
+    }
+    if (selected_plan->source_memory != NULL) {
+      loom_low_lower_selected_source_memory_t* retained_source_memory = NULL;
+      IREE_RETURN_IF_ERROR(loom_low_lower_allocate_plan_data(
+          context, sizeof(*retained_source_memory),
+          (void**)&retained_source_memory));
+      *retained_source_memory = *selected_plan->source_memory;
+      selected_plan->source_memory = retained_source_memory;
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_low_lower_plan_region(
     loom_low_lower_context_t* context, loom_region_t* source_region,
-    const loom_op_t* block_arg_context_op, bool skip_entry_block_args) {
+    const loom_op_t* block_arg_context_op, bool skip_entry_block_args,
+    loom_low_lower_source_candidate_plan_t* candidate_plan) {
   loom_consumption_region_query_t consumption_query;
   loom_consumption_region_query_initialize(context->module, source_region,
                                            &context->analysis_arena,
@@ -1864,7 +1765,7 @@ static iree_status_t loom_low_lower_plan_region(
       loom_low_lower_source_memory_enter_op(context, op);
       loom_low_lower_planning_scope_begin(context);
       iree_status_t status = loom_low_lower_plan_op(
-          context, op, &consumption_query, is_callable_exit);
+          context, op, &consumption_query, is_callable_exit, candidate_plan);
       loom_low_lower_planning_scope_end(context);
       IREE_RETURN_IF_ERROR(status);
       if (loom_low_lower_context_should_stop(context)) {
@@ -1883,9 +1784,9 @@ static iree_status_t loom_low_lower_plan_region(
         if (regions[i] == NULL) {
           continue;
         }
-        IREE_RETURN_IF_ERROR(
-            loom_low_lower_plan_region(context, regions[i], op,
-                                       /*skip_entry_block_args=*/false));
+        IREE_RETURN_IF_ERROR(loom_low_lower_plan_region(
+            context, regions[i], op,
+            /*skip_entry_block_args=*/false, candidate_plan));
         if (loom_low_lower_context_should_stop(context)) {
           return iree_ok_status();
         }
@@ -1900,39 +1801,18 @@ static bool loom_low_lower_try_reuse_selected_rule_plan(
     const loom_low_lower_selected_plan_t* previous_plan) {
   IREE_ASSERT_EQ(previous_plan->kind, LOOM_LOW_LOWER_SELECTED_PLAN_RULE);
   IREE_ASSERT(previous_plan->rule != NULL);
-  IREE_ASSERT_GT(previous_plan->source_node_count, 0);
-  if (!loom_low_lower_rule_preserves_fact_storage_demands(
+  IREE_ASSERT_EQ(previous_plan->source_node_count, 1);
+  IREE_ASSERT_EQ(loom_low_lower_rule_source_node_count(previous_plan->rule), 0);
+  if (!loom_low_lower_source_value_storage_rule_preserves_fact_demands(
           context, previous_plan->rule_set, previous_plan->source_op,
           previous_plan->data.source_nodes, previous_plan->source_node_count,
           previous_plan->rule)) {
     return false;
   }
 
-  loom_low_lower_rule_selection_t selection = {
-      .rule = previous_plan->rule,
-      .rule_index = previous_plan->rule_index,
-      .uses_source_memory_access = previous_plan->source_memory_access != NULL,
-      .source_node_count = previous_plan->source_node_count,
-  };
-  selection.source_nodes[0] = previous_plan->source_op;
-  if (selection.source_node_count > 1) {
-    IREE_ASSERT(previous_plan->data.source_nodes != NULL);
-    for (uint8_t i = 1; i < selection.source_node_count; ++i) {
-      selection.source_nodes[i] = previous_plan->data.source_nodes[i];
-    }
-  }
-  if (!loom_low_lower_rule_selection_can_claim_source_nodes(context,
-                                                            &selection)) {
-    return false;
-  }
-
-  loom_low_lower_rule_selection_claim_preceding_source_nodes(context,
-                                                             &selection);
   loom_low_lower_selected_plan_t reused_plan = *previous_plan;
   reused_plan.flags = 0;
   loom_low_lower_record_selected_plan(context, reused_plan);
-  loom_low_lower_rule_selection_reserve_following_source_nodes(context,
-                                                               &selection);
   return true;
 }
 
@@ -1941,10 +1821,6 @@ static iree_status_t loom_low_lower_refine_plan_op(
     const loom_op_t* source_op, bool is_callable_exit,
     const loom_low_lower_selected_plan_t* previous_plan) {
   IREE_ASSERT_EQ(previous_plan->source_op, source_op);
-  if (loom_low_lower_try_record_claimed_source_plan(context, source_op)) {
-    return iree_ok_status();
-  }
-
   if (previous_plan->kind != LOOM_LOW_LOWER_SELECTED_PLAN_RULE) {
     loom_low_lower_selected_plan_t reused_plan = *previous_plan;
     reused_plan.flags = 0;
@@ -1961,7 +1837,7 @@ static iree_status_t loom_low_lower_refine_plan_op(
                                            &context->planning_arena,
                                            &consumption_query);
   return loom_low_lower_plan_op(context, source_op, &consumption_query,
-                                is_callable_exit);
+                                is_callable_exit, /*candidate_plan=*/NULL);
 }
 
 static iree_status_t loom_low_lower_refine_plan_region(
@@ -2113,19 +1989,48 @@ iree_status_t loom_low_lower_source_plan_build(
 
   iree_arena_initialize(context->module->arena.block_pool,
                         &context->planning_arena);
-  iree_status_t status = loom_low_lower_prepare_plan(context, source_body);
+  loom_low_lower_source_candidate_plan_t candidate_plan;
+  loom_low_lower_source_candidate_plan_t* active_candidate_plan = NULL;
+  iree_status_t status = iree_ok_status();
+  if (loom_low_lower_source_plan_has_related_rules(context)) {
+    status = loom_low_lower_source_candidate_plan_initialize(context,
+                                                             &candidate_plan);
+    if (iree_status_is_ok(status)) {
+      active_candidate_plan = &candidate_plan;
+    }
+  }
   if (iree_status_is_ok(status)) {
-    status = loom_low_lower_plan_region(context, source_body,
-                                        context->source_function.op,
-                                        /*skip_entry_block_args=*/true);
+    status = loom_low_lower_prepare_plan(context, source_body,
+                                         active_candidate_plan);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_low_lower_plan_region(
+        context, source_body, context->source_function.op,
+        /*skip_entry_block_args=*/true, active_candidate_plan);
+    if (active_candidate_plan != NULL) {
+      bool complete = false;
+      if (iree_status_is_ok(status) &&
+          !loom_low_lower_context_should_stop(context)) {
+        IREE_ASSERT_EQ(active_candidate_plan->collection_node_index,
+                       active_candidate_plan->node_capacity);
+        status = loom_low_lower_source_candidate_resolve(active_candidate_plan,
+                                                         &complete);
+      }
+      if (iree_status_is_ok(status) &&
+          !loom_low_lower_context_should_stop(context)) {
+        status =
+            loom_low_lower_source_candidate_materialize(active_candidate_plan);
+      }
+      (void)complete;
+    }
   }
   if (iree_status_is_ok(status) &&
       !loom_low_lower_context_should_stop(context)) {
-    loom_low_lower_analyze_storage_demands(context);
+    loom_low_lower_source_value_storage_analyze(context);
     loom_value_ordinal_t previous_fact_storage_demand_count = 0;
-    while (
-        source_plan->fact_storage_demand_count != 0 &&
-        !loom_low_lower_selected_plans_preserve_fact_storage_demands(context)) {
+    while (source_plan->fact_storage_demand_count != 0 &&
+           !loom_low_lower_source_value_storage_plans_preserve_fact_demands(
+               context)) {
       IREE_ASSERT_GT(
           source_plan->fact_storage_demand_count,
           previous_fact_storage_demand_count,
@@ -2134,18 +2039,35 @@ iree_status_t loom_low_lower_source_plan_build(
           source_plan->fact_storage_demand_count;
       const iree_host_size_t previous_plan_count =
           source_plan->selected_plan_count;
-      loom_low_lower_prepare_plan_refinement(context);
+      loom_low_lower_source_value_storage_prepare_refinement(context);
       iree_host_size_t previous_plan_index = 0;
-      status = loom_low_lower_refine_plan_region(
-          context, source_body, previous_plan_count, &previous_plan_index);
+      if (active_candidate_plan != NULL) {
+        bool complete = false;
+        status = loom_low_lower_source_candidate_resolve(active_candidate_plan,
+                                                         &complete);
+        if (iree_status_is_ok(status)) {
+          status = loom_low_lower_source_candidate_materialize(
+              active_candidate_plan);
+        }
+        previous_plan_index = previous_plan_count;
+        (void)complete;
+      } else {
+        status = loom_low_lower_refine_plan_region(
+            context, source_body, previous_plan_count, &previous_plan_index);
+      }
       if (!iree_status_is_ok(status) ||
           loom_low_lower_context_should_stop(context)) {
         break;
       }
       IREE_ASSERT_EQ(previous_plan_index, previous_plan_count);
       IREE_ASSERT_EQ(source_plan->selected_plan_count, previous_plan_count);
-      loom_low_lower_analyze_storage_demands(context);
+      loom_low_lower_source_value_storage_analyze(context);
     }
+  }
+  if (iree_status_is_ok(status) &&
+      !loom_low_lower_context_should_stop(context) &&
+      active_candidate_plan != NULL) {
+    status = loom_low_lower_source_candidate_retain_selected_data(context);
   }
   if (iree_status_is_ok(status) &&
       !loom_low_lower_context_should_stop(context)) {

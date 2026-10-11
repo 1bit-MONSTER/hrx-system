@@ -1380,7 +1380,9 @@ iree_status_t loom_low_lower_rule_plan_finalize(
   const loom_low_lower_rule_t* rule = selected_plan->rule;
   const loom_op_t* source_op = selected_plan->source_op;
   const loom_low_source_memory_access_plan_t* source_memory_access =
-      selected_plan->source_memory_access;
+      selected_plan->source_memory != NULL
+          ? &selected_plan->source_memory->access
+          : NULL;
   const bool elided = iree_any_bit_set(selected_plan->flags,
                                        LOOM_LOW_LOWER_SELECTED_PLAN_ELIDED);
   selected_plan->resolved_emits = NULL;

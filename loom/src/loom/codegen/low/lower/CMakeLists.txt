@@ -37,10 +37,12 @@ loom_cc_library(
     "rule_value.h"
     "rules.h"
     "source_call.h"
+    "source_graph_placement.h"
     "source_graph_plan.h"
     "source_memory.h"
     "source_plan.h"
     "source_query.h"
+    "source_value_storage.h"
     "structural_plan.h"
     "visibility.h"
   SRCS
@@ -69,10 +71,12 @@ loom_cc_library(
     "rule_source_memory_materialize.c"
     "rule_value.c"
     "source_call.c"
+    "source_graph_placement.c"
     "source_graph_plan.c"
     "source_memory.c"
     "source_plan.c"
     "source_query.c"
+    "source_value_storage.c"
     "structural_plan.c"
     "visibility.c"
   DEPS
@@ -86,6 +90,7 @@ loom_cc_library(
     loom::analysis::control_uniformity
     loom::analysis::kernel_async_legality
     loom::analysis::kernel_barrier_lifetime
+    loom::analysis::motion
     loom::analysis::native_layout
     loom::analysis::storage_access
     loom::analysis::storage_interference
@@ -250,6 +255,7 @@ loom_cc_test(
     loom::ir::facts
     loom::ops::index
     loom::ops::scalar
+    loom::ops::test
     loom::util::fact_table
 )
 

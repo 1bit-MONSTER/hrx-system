@@ -11,6 +11,7 @@
 
 #include "iree/base/internal/math.h"
 #include "loom/analysis/consumption.h"
+#include "loom/analysis/motion.h"
 #include "loom/analysis/symbolic_expr_proof.h"
 #include "loom/codegen/low/lower/context.h"
 #include "loom/codegen/low/lower/rule_descriptor.h"
@@ -1368,9 +1369,8 @@ static bool loom_low_lower_rule_source_node_op_is_eligible(
     const loom_op_t* source_op) {
   return source_op != NULL && source_op->kind == source_node->source_op_kind &&
          source_op->region_count == 0 &&
-         iree_any_bit_set(
-             loom_op_effective_traits(match_context->module, source_op),
-             LOOM_TRAIT_PURE);
+         loom_motion_op_can_relocate_effect_free(match_context->module,
+                                                 source_op);
 }
 
 static bool loom_low_lower_rule_resolve_source_node(
@@ -1472,25 +1472,14 @@ static bool loom_low_lower_rule_resolve_source_node(
   return true;
 }
 
-static bool loom_low_lower_rule_source_value_available_at_root(
-    const loom_low_lower_rule_match_context_t* match_context,
-    const loom_op_t* root_op, loom_value_id_t value_id) {
-  const loom_value_t* value =
-      loom_module_value(match_context->module, value_id);
-  if (loom_value_is_block_arg(value)) {
-    return true;
-  }
-  const loom_op_t* defining_op = loom_value_def_op(value);
-  IREE_ASSERT(defining_op != NULL);
-  return defining_op->parent_block != root_op->parent_block ||
-         defining_op->block_ordinal < root_op->block_ordinal;
-}
-
-static bool loom_low_lower_rule_nonlocal_source_operands_available(
+static bool loom_low_lower_rule_emission_source_node(
     const loom_low_lower_rule_match_context_t* match_context,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
     const loom_low_lower_rule_t* rule, const loom_op_t* const* source_nodes,
-    uint8_t source_node_count) {
+    uint8_t source_node_count, uint8_t* out_source_node_index) {
+  *out_source_node_index = 0;
+  uint64_t latest_defining_ordinal = 0;
+  bool has_same_block_definition = false;
   for (uint16_t emit_ordinal = 0; emit_ordinal < rule->emit_count;
        ++emit_ordinal) {
     const loom_low_lower_emit_t* emit = loom_low_lower_rule_set_emit_at(
@@ -1526,12 +1515,43 @@ static bool loom_low_lower_rule_nonlocal_source_operands_available(
               source_nodes, source_node_count, value_ref_index, &value_id)) {
         return false;
       }
-      if (!loom_low_lower_rule_source_value_available_at_root(
-              match_context, source_op, value_id)) {
-        return false;
+      const loom_value_t* value =
+          loom_module_value(match_context->module, value_id);
+      if (loom_value_is_block_arg(value)) {
+        continue;
+      }
+      const loom_op_t* defining_op = loom_value_def_op(value);
+      IREE_ASSERT(defining_op != NULL);
+      if (defining_op->parent_block == source_op->parent_block &&
+          (!has_same_block_definition ||
+           defining_op->block_ordinal > latest_defining_ordinal)) {
+        latest_defining_ordinal = defining_op->block_ordinal;
+        has_same_block_definition = true;
       }
     }
   }
+
+  if (!has_same_block_definition ||
+      source_op->block_ordinal > latest_defining_ordinal) {
+    return true;
+  }
+
+  uint64_t earliest_emission_ordinal = UINT64_MAX;
+  uint8_t emission_source_node_index = UINT8_MAX;
+  for (uint8_t i = 1; i < source_node_count; ++i) {
+    const loom_op_t* source_node = source_nodes[i];
+    IREE_ASSERT_EQ(source_node->parent_block, source_op->parent_block);
+    if ((!has_same_block_definition ||
+         source_node->block_ordinal > latest_defining_ordinal) &&
+        source_node->block_ordinal < earliest_emission_ordinal) {
+      earliest_emission_ordinal = source_node->block_ordinal;
+      emission_source_node_index = i;
+    }
+  }
+  if (emission_source_node_index == UINT8_MAX) {
+    return false;
+  }
+  *out_source_node_index = emission_source_node_index;
   return true;
 }
 
@@ -1569,7 +1589,8 @@ static iree_status_t loom_low_lower_rule_matches(
     uint16_t* out_diagnostic_index, uint16_t* out_matched_guard_count,
     const loom_op_t** out_diagnostic_source_op,
     bool* out_source_memory_compatible, bool* out_uses_source_memory_access,
-    const loom_op_t** out_source_nodes, uint8_t* out_source_node_count) {
+    const loom_op_t** out_source_nodes, uint8_t* out_source_node_count,
+    uint8_t* out_emission_source_node_index) {
   *out_matches = false;
   *out_diagnostic_index = LOOM_LOW_LOWER_DIAGNOSTIC_NONE;
   *out_matched_guard_count = 0;
@@ -1577,6 +1598,7 @@ static iree_status_t loom_low_lower_rule_matches(
   *out_source_memory_compatible = false;
   *out_uses_source_memory_access = false;
   *out_source_node_count = 0;
+  *out_emission_source_node_index = 0;
   bool guards_match = false;
   IREE_RETURN_IF_ERROR(loom_low_lower_rule_guard_program_matches(
       match_context, rule_set, source_op, rule->guard_start, rule->guard_count,
@@ -1641,12 +1663,15 @@ static iree_status_t loom_low_lower_rule_matches(
     return iree_ok_status();
   }
   if (iree_any_bit_set(rule->flags,
-                       LOOM_LOW_LOWER_RULE_FLAG_NONLOCAL_SOURCE_GRAPH) &&
-      !loom_low_lower_rule_nonlocal_source_operands_available(
-          match_context, rule_set, source_op, rule, out_source_nodes,
-          source_node_count)) {
-    *out_matched_guard_count = matched_guard_count;
-    return iree_ok_status();
+                       LOOM_LOW_LOWER_RULE_FLAG_NONLOCAL_SOURCE_GRAPH)) {
+    uint8_t emission_source_node_index = 0;
+    if (!loom_low_lower_rule_emission_source_node(
+            match_context, rule_set, source_op, rule, out_source_nodes,
+            source_node_count, &emission_source_node_index)) {
+      *out_matched_guard_count = matched_guard_count;
+      return iree_ok_status();
+    }
+    *out_emission_source_node_index = emission_source_node_index;
   }
   *out_matches = true;
   *out_matched_guard_count = matched_guard_count;
@@ -1708,6 +1733,7 @@ iree_status_t loom_low_lower_rule_set_select_rule_range_with_match_context(
   out_selection->rule_index = UINT16_MAX;
   out_selection->uses_source_memory_access = false;
   out_selection->source_node_count = 0;
+  out_selection->emission_source_node_index = 0;
 
   if (rule_count == 0) {
     return iree_ok_status();
@@ -1734,16 +1760,18 @@ iree_status_t loom_low_lower_rule_set_select_rule_range_with_match_context(
     // the populated prefix is published after a successful match.
     const loom_op_t* source_nodes[LOOM_LOW_LOWER_MAX_SOURCE_NODES];
     uint8_t source_node_count = 0;
+    uint8_t emission_source_node_index = 0;
     IREE_RETURN_IF_ERROR(loom_low_lower_rule_matches(
         match_context, rule_set, source_op, rule, &rule_matches,
         &diagnostic_index, &matched_guard_count, &diagnostic_source_op,
         &source_memory_compatible, &uses_source_memory_access, source_nodes,
-        &source_node_count));
+        &source_node_count, &emission_source_node_index));
     if (rule_matches) {
       out_selection->rule = rule;
       out_selection->rule_index = rule_index;
       out_selection->uses_source_memory_access = uses_source_memory_access;
       out_selection->source_node_count = source_node_count;
+      out_selection->emission_source_node_index = emission_source_node_index;
       memcpy((void*)out_selection->source_nodes, source_nodes,
              source_node_count * sizeof(*source_nodes));
       return iree_ok_status();

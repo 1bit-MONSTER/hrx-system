@@ -10,6 +10,7 @@
 #include "loom/codegen/low/builder.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/lower/realization.h"
+#include "loom/codegen/low/lower/source_memory.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/cache.h"
@@ -40,7 +41,8 @@ static iree_status_t loom_amdgpu_emit_memory_packet(
       result_types, result_count, /*tied_results=*/NULL,
       /*tied_result_count=*/0, source_op->location, out_op));
   return loom_low_lower_record_memory_packet(
-      context, *out_op, packet->access.descriptor, &packet->access.source,
+      context, *out_op, packet->access.descriptor,
+      loom_low_lower_source_memory_origin(context), &packet->access.source,
       loom_value_facts_exact_i64(0));
 }
 

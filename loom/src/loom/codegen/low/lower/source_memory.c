@@ -474,6 +474,13 @@ const loom_low_source_memory_access_plan_t* loom_low_lower_source_memory_access(
   return record->available ? &record->access : NULL;
 }
 
+const loom_low_lower_memory_origin_t* loom_low_lower_source_memory_origin(
+    const loom_low_lower_context_t* context) {
+  const loom_low_lower_source_memory_record_t* record =
+      context->lowering->source_plan.memory.current;
+  return record != NULL ? record->origin : NULL;
+}
+
 uint16_t loom_low_lower_source_memory_invariant_terms(
     const loom_low_lower_context_t* context) {
   return context->lowering->source_plan.memory.current->invariant_term_mask;
