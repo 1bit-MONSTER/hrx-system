@@ -623,6 +623,20 @@ static bool loom_low_lower_rule_value_facts_u32_divisor_magic_kind(
   return kind == expected_kind;
 }
 
+static bool loom_low_lower_rule_value_facts_i32_divisor_magic_kind(
+    const loom_low_lower_rule_match_context_t* match_context,
+    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
+    uint16_t value_ref_index,
+    loom_low_lower_signed_divisor_magic_kind_t expected_kind) {
+  const loom_value_id_t divisor = loom_low_lower_rule_source_value(
+      match_context->module, rule_set, source_op, value_ref_index);
+  loom_low_lower_signed_divisor_magic_info_t info = {0};
+  return loom_low_lower_rule_value_facts_i32_divisor_magic_info(
+             match_context->module, match_context->fact_table, divisor,
+             &info) &&
+         loom_low_lower_signed_divisor_magic_kind(info) == expected_kind;
+}
+
 static bool loom_low_lower_rule_value_facts_exact_float(
     const loom_low_lower_rule_match_context_t* match_context,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
@@ -1201,6 +1215,14 @@ static iree_status_t loom_low_lower_rule_guard_matches(
           guard->selector.value.value_ref_index,
           guard->selector.value.other_value_ref_index,
           (loom_low_lower_unsigned_divisor_magic_kind_t)
+              loom_low_lower_rule_set_guard_payload(rule_set, guard)
+                  ->u64);
+      return iree_ok_status();
+    case LOOM_LOW_LOWER_GUARD_VALUE_I32_DIVISOR_MAGIC_KIND:
+      *out_matches = loom_low_lower_rule_value_facts_i32_divisor_magic_kind(
+          match_context, rule_set, source_op,
+          guard->selector.value.value_ref_index,
+          (loom_low_lower_signed_divisor_magic_kind_t)
               loom_low_lower_rule_set_guard_payload(rule_set, guard)
                   ->u64);
       return iree_ok_status();

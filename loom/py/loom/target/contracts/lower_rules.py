@@ -73,6 +73,7 @@ from loom.target.contracts.lower_rule_diagnostics import (
     _exact_power_of_two_integer_diagnostic,
     _float_equals_diagnostic,
     _guard_diagnostic,
+    _i32_divisor_magic_kind_diagnostic,
     _i64_array_count_diagnostic,
     _i64_array_element_range_diagnostic,
     _i64_array_elements_range_diagnostic,
@@ -1042,6 +1043,7 @@ class _LowerRuleSetCompiler:
             GuardKind.VALUE_EXACT_I64,
             GuardKind.VALUE_EXACT_POWER_OF_TWO_I64,
             GuardKind.VALUE_U32_DIVISOR_MAGIC_KIND,
+            GuardKind.VALUE_I32_DIVISOR_MAGIC_KIND,
             GuardKind.VALUE_EXACT_FLOAT,
             GuardKind.VALUE_EXACT_POWER_OF_TWO_FLOAT,
             GuardKind.VALUE_NOT_NAN,
@@ -1375,6 +1377,25 @@ class _LowerRuleSetCompiler:
                         _guard_diagnostic(
                             guard,
                             _u32_divisor_magic_kind_diagnostic(
+                                guard.field,
+                                guard.count,
+                            ),
+                        ),
+                    ),
+                    u64=guard.count,
+                )
+            )
+            return
+        if guard.kind == GuardKind.VALUE_I32_DIVISOR_MAGIC_KIND:
+            self._guards.append(
+                LowerGuard(
+                    kind=guard.kind,
+                    value_ref_index=value_ref_index,
+                    diagnostic_index=self._append_diagnostic_ref(
+                        source_op,
+                        _guard_diagnostic(
+                            guard,
+                            _i32_divisor_magic_kind_diagnostic(
                                 guard.field,
                                 guard.count,
                             ),
@@ -2514,6 +2535,10 @@ class _LowerRuleSetCompiler:
             kind = LowerAttrCopyKind.VALUE_U32_DIVISOR_MAGIC_MULTIPLIER_AS_I32
         elif project.kind == ValueProjectKind.U32_DIVISOR_MAGIC_SHIFT:
             kind = LowerAttrCopyKind.VALUE_U32_DIVISOR_MAGIC_SHIFT
+        elif project.kind == ValueProjectKind.I32_DIVISOR_MAGIC_MULTIPLIER:
+            kind = LowerAttrCopyKind.VALUE_I32_DIVISOR_MAGIC_MULTIPLIER
+        elif project.kind == ValueProjectKind.I32_DIVISOR_MAGIC_SHIFT:
+            kind = LowerAttrCopyKind.VALUE_I32_DIVISOR_MAGIC_SHIFT
         elif project.kind == ValueProjectKind.I32_AS_U32_BITS:
             kind = LowerAttrCopyKind.VALUE_I32_AS_U32_BITS
         elif project.kind == ValueProjectKind.FLOAT_BITS:

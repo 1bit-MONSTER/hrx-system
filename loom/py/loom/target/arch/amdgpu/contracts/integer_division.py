@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Exact unsigned constant division and remainder source-to-low rules."""
+"""Exact constant division and remainder source-to-low rules."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from loom.target.contracts import (
     Guard,
     GuardDiagnostic,
     Scalar,
+    SignedDivisorMagicKind,
     TypePattern,
     UnsignedDivisorMagicKind,
     ValueMaterializer,
@@ -48,6 +49,11 @@ _POSITIVE_U32_DIVISOR_DIAGNOSTIC = GuardDiagnostic(
     subject_role="divisor",
     subject_name="u32",
     constraint_key="amdgpu.divisor.positive_u32",
+)
+_SIGNED_I32_DIVISOR_DIAGNOSTIC = GuardDiagnostic(
+    subject_role="divisor",
+    subject_name="i32",
+    constraint_key="amdgpu.divisor.constant_signed_i32",
 )
 
 
@@ -636,8 +642,265 @@ def _high_bit_division_rule(
     )
 
 
+def _signed_magic_guards(
+    *,
+    register_class: str,
+    kind: SignedDivisorMagicKind,
+    needs_divisor_value: bool,
+) -> tuple[Guard, ...]:
+    if register_class == "amdgpu.sgpr":
+        value_guards = [Guard.low_value_register_class("lhs", register_class)]
+        if needs_divisor_value:
+            value_guards.append(Guard.low_value_register_class("rhs", register_class))
+    else:
+        value_guards = [Guard.value_materializable("lhs", I32_VGPR_MATERIALIZER.name)]
+        if needs_divisor_value:
+            value_guards.append(
+                Guard.value_materializable("rhs", I32_VGPR_MATERIALIZER.name)
+            )
+    return (
+        *(Guard.value_type(field, _I32) for field in ("lhs", "rhs", "result")),
+        Guard.low_value_register_class("result", register_class),
+        Guard.value_i32_divisor_magic_kind(
+            "rhs", kind, diagnostic=_SIGNED_I32_DIVISOR_DIAGNOSTIC
+        ),
+        *value_guards,
+    )
+
+
+def _signed_magic_descriptors(
+    descriptor_set: DescriptorSet,
+    *,
+    register_class: str,
+    kind: SignedDivisorMagicKind,
+    is_remainder: bool,
+) -> tuple[Descriptor, ...]:
+    prefix = "s" if register_class == "amdgpu.sgpr" else "v"
+    descriptors = [
+        descriptor_by_key(descriptor_set, f"amdgpu.{prefix}_mov_b32"),
+        descriptor_by_key(descriptor_set, f"amdgpu.{prefix}_mul_hi_i32"),
+        descriptor_by_key(
+            descriptor_set,
+            "amdgpu.s_lshr_b32.rhs_inline"
+            if prefix == "s"
+            else "amdgpu.v_lshrrev_b32.src0_inline",
+        ),
+        descriptor_by_key(descriptor_set, f"amdgpu.{prefix}_add_u32"),
+    ]
+    if kind.numerator_factor != 0:
+        descriptors.append(
+            descriptor_by_key(
+                descriptor_set,
+                f"amdgpu.{prefix}_{'add' if kind.numerator_factor > 0 else 'sub'}_u32",
+            )
+        )
+    if kind.has_shift:
+        descriptors.append(
+            descriptor_by_key(
+                descriptor_set,
+                "amdgpu.s_ashr_i32.rhs_inline"
+                if prefix == "s"
+                else "amdgpu.v_ashrrev_i32.src0_inline",
+            )
+        )
+    if is_remainder:
+        descriptors.extend(
+            (
+                descriptor_by_key(descriptor_set, f"amdgpu.{prefix}_mul_i32")
+                if prefix == "s"
+                else descriptor_by_key(descriptor_set, "amdgpu.v_mul_lo_u32"),
+                descriptor_by_key(descriptor_set, f"amdgpu.{prefix}_sub_u32"),
+            )
+        )
+    return tuple(descriptors)
+
+
+def _signed_magic_emits(
+    descriptor_set: DescriptorSet,
+    *,
+    register_class: str,
+    kind: SignedDivisorMagicKind,
+    result: ValueRef,
+) -> tuple[EmitDescriptorOp, ...]:
+    scalar_register = register_class == "amdgpu.sgpr"
+    prefix = "s" if scalar_register else "v"
+    form = DescriptorEmitForm.AUTO if scalar_register else DescriptorEmitForm.OP
+    lhs = (
+        _DIRECT_LHS
+        if scalar_register
+        else _materialized_operand("lhs", I32_VGPR_MATERIALIZER)
+    )
+    move = descriptor_by_key(descriptor_set, f"amdgpu.{prefix}_mov_b32")
+    multiply_hi = descriptor_by_key(descriptor_set, f"amdgpu.{prefix}_mul_hi_i32")
+    emits = [
+        EmitDescriptorOp(
+            descriptor=move,
+            results={"dst": ValueRef.temporary("magic")},
+            result_types={"dst": _RESULT},
+            immediates={"imm32": ValueProject.i32_divisor_magic_multiplier("rhs")},
+        ),
+        EmitDescriptorOp(
+            descriptor=multiply_hi,
+            operands={"lhs": lhs, "rhs": ValueRef.temporary("magic")},
+            results={"dst": ValueRef.temporary("high_product")},
+            result_types={"dst": _RESULT},
+            form=form,
+        ),
+    ]
+    quotient = ValueRef.temporary("high_product")
+    if kind.numerator_factor != 0:
+        adjust = descriptor_by_key(
+            descriptor_set,
+            f"amdgpu.{prefix}_{'add' if kind.numerator_factor > 0 else 'sub'}_u32",
+        )
+        emits.append(
+            EmitDescriptorOp(
+                descriptor=adjust,
+                operands={"lhs": quotient, "rhs": lhs},
+                results={"dst": ValueRef.temporary("adjusted_quotient")},
+                result_types={"dst": _RESULT},
+                form=form,
+            )
+        )
+        quotient = ValueRef.temporary("adjusted_quotient")
+    if kind.has_shift:
+        shift = descriptor_by_key(
+            descriptor_set,
+            "amdgpu.s_ashr_i32.rhs_inline"
+            if scalar_register
+            else "amdgpu.v_ashrrev_i32.src0_inline",
+        )
+        emits.append(
+            EmitDescriptorOp(
+                descriptor=shift,
+                operands={"lhs" if scalar_register else "value": quotient},
+                results={"dst": ValueRef.temporary("shifted_quotient")},
+                result_types={"dst": _RESULT},
+                immediates={"imm32": ValueProject.i32_divisor_magic_shift("rhs")},
+                form=form,
+            )
+        )
+        quotient = ValueRef.temporary("shifted_quotient")
+    sign = descriptor_by_key(
+        descriptor_set,
+        "amdgpu.s_lshr_b32.rhs_inline"
+        if scalar_register
+        else "amdgpu.v_lshrrev_b32.src0_inline",
+    )
+    add = descriptor_by_key(descriptor_set, f"amdgpu.{prefix}_add_u32")
+    emits.extend(
+        (
+            EmitDescriptorOp(
+                descriptor=sign,
+                operands={"lhs" if scalar_register else "value": quotient},
+                results={"dst": ValueRef.temporary("sign_correction")},
+                result_types={"dst": _RESULT},
+                immediates={"imm32": 31},
+                form=form,
+            ),
+            EmitDescriptorOp(
+                descriptor=add,
+                operands={
+                    "lhs": quotient,
+                    "rhs": ValueRef.temporary("sign_correction"),
+                },
+                results={"dst": result},
+                result_types={"dst": _RESULT},
+                form=form,
+            ),
+        )
+    )
+    return tuple(emits)
+
+
+def _signed_magic_rule(
+    descriptor_set: DescriptorSet,
+    source_op: Op,
+    *,
+    register_class: str,
+    kind: SignedDivisorMagicKind,
+) -> DescriptorRule:
+    is_remainder = source_op is scalar_arithmetic.scalar_remsi
+    quotient = ValueRef.temporary("quotient") if is_remainder else _RESULT
+    emits = list(
+        _signed_magic_emits(
+            descriptor_set,
+            register_class=register_class,
+            kind=kind,
+            result=quotient,
+        )
+    )
+    if is_remainder:
+        scalar_register = register_class == "amdgpu.sgpr"
+        form = DescriptorEmitForm.AUTO if scalar_register else DescriptorEmitForm.OP
+        multiply_lo = descriptor_by_key(
+            descriptor_set,
+            "amdgpu.s_mul_i32" if scalar_register else "amdgpu.v_mul_lo_u32",
+        )
+        subtract = descriptor_by_key(
+            descriptor_set,
+            "amdgpu.s_sub_u32" if scalar_register else "amdgpu.v_sub_u32",
+        )
+        lhs = (
+            _DIRECT_LHS
+            if scalar_register
+            else _materialized_operand("lhs", I32_VGPR_MATERIALIZER)
+        )
+        rhs = (
+            _DIRECT_RHS
+            if scalar_register
+            else _materialized_operand("rhs", I32_VGPR_MATERIALIZER)
+        )
+        emits.extend(
+            (
+                EmitDescriptorOp(
+                    descriptor=multiply_lo,
+                    operands={"lhs": quotient, "rhs": rhs},
+                    results={"dst": ValueRef.temporary("quotient_product")},
+                    result_types={"dst": _RESULT},
+                    form=form,
+                ),
+                EmitDescriptorOp(
+                    descriptor=subtract,
+                    operands={
+                        "lhs": lhs,
+                        "rhs": ValueRef.temporary("quotient_product"),
+                    },
+                    results={"dst": _RESULT},
+                    form=form,
+                ),
+            )
+        )
+    multiply_hi = descriptor_by_key(
+        descriptor_set,
+        "amdgpu.s_mul_hi_i32"
+        if register_class == "amdgpu.sgpr"
+        else "amdgpu.v_mul_hi_i32",
+    )
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=multiply_hi,
+        guards=(
+            *_signed_magic_guards(
+                register_class=register_class,
+                kind=kind,
+                needs_divisor_value=is_remainder,
+            ),
+            *_descriptor_available_guards(
+                *_signed_magic_descriptors(
+                    descriptor_set,
+                    register_class=register_class,
+                    kind=kind,
+                    is_remainder=is_remainder,
+                )
+            ),
+        ),
+        emit=tuple(emits),
+    )
+
+
 def integer_division_rules(descriptor_set: DescriptorSet) -> tuple[DescriptorRule, ...]:
-    """Builds index and scalar u32 constant division/remainder rules."""
+    """Builds exact 32-bit constant division and remainder rules."""
     rules = [
         _magic_remainder_vgpr_rule(
             descriptor_set, source_op, type_pattern, kind=kind, product_shift=1
@@ -701,4 +964,18 @@ def integer_division_rules(descriptor_set: DescriptorSet) -> tuple[DescriptorRul
                 (-(2**31) + 1, -1),
             )
         )
+    rules.extend(
+        _signed_magic_rule(
+            descriptor_set,
+            source_op,
+            register_class=register_class,
+            kind=kind,
+        )
+        for source_op in (
+            scalar_arithmetic.scalar_divsi,
+            scalar_arithmetic.scalar_remsi,
+        )
+        for register_class in ("amdgpu.sgpr", "amdgpu.vgpr")
+        for kind in SignedDivisorMagicKind
+    )
     return tuple(rules)

@@ -76,6 +76,8 @@ class LowerAttrCopyKind(Enum):
         "value_u32_divisor_magic_multiplier_as_i32"
     )
     VALUE_U32_DIVISOR_MAGIC_SHIFT = "value_u32_divisor_magic_shift"
+    VALUE_I32_DIVISOR_MAGIC_MULTIPLIER = "value_i32_divisor_magic_multiplier"
+    VALUE_I32_DIVISOR_MAGIC_SHIFT = "value_i32_divisor_magic_shift"
     VALUE_I32_AS_U32_BITS = "value_i32_as_u32_bits"
     VALUE_FLOAT_BITS = "value_float_bits"
     VALUE_FLOAT_AS_F32_I32 = "value_float_as_f32_i32"

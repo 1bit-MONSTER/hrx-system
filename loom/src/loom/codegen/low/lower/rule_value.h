@@ -175,6 +175,14 @@ bool loom_low_lower_rule_value_facts_u32_divisor_magic_info(
     loom_value_id_t numerator, loom_value_id_t divisor,
     loom_low_lower_unsigned_divisor_magic_info_t* out_info);
 
+// Derives the signed 32-bit recipe from an exact divisor. Returns false when
+// the divisor is unavailable, outside the signed i32 domain, or equal to
+// zero, one, or negative one.
+bool loom_low_lower_rule_value_facts_i32_divisor_magic_info(
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    loom_value_id_t divisor,
+    loom_low_lower_signed_divisor_magic_info_t* out_info);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

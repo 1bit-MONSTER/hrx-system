@@ -45,6 +45,7 @@ _AMDGPU_CONTRACT_DESCRIPTOR_OVERLAY_BUILDERS: dict[
     "amdgpu.s_sub_u32": _s_sub_u32_overlay,
     "amdgpu.s_mul_i32": _s_mul_i32_overlay,
     "amdgpu.s_mul_hi_u32": _s_mul_hi_u32_overlay,
+    "amdgpu.s_mul_hi_i32": _s_mul_hi_i32_overlay,
     **_contract_overlay_builders_from_overlays(_s_min_i32_overlays()),
     **_contract_overlay_builders_from_overlays(_s_max_i32_overlays()),
     **_contract_overlay_builders_from_overlays(_s_min_u32_overlays()),

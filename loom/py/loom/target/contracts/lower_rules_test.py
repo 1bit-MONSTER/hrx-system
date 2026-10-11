@@ -49,6 +49,7 @@ from loom.target.contracts import (
     OrdinalValueAliasRule,
     RecipeRule,
     Scalar,
+    SignedDivisorMagicKind,
     SourceMemoryAddressBase,
     SourceMemoryAddressCoordinateType,
     SourceMemoryAddressLayout,
@@ -4122,6 +4123,55 @@ def test_divisor_magic_requires_explicit_numerator() -> None:
         lambda: replace(ValueProject.exact_i64("rhs"), other_source_value="lhs"),
         "projection does not consume a second value",
     )
+
+
+def test_signed_divisor_magic_retains_one_divisor_reference() -> None:
+    table = ContractFragment(
+        name="test.signed-divisor-magic",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=[
+            DescriptorRule(
+                source_op=scalar_arithmetic.scalar_divsi,
+                descriptor=TEST_LOW_CONST_I32_DESCRIPTOR,
+                guards=(
+                    Guard.value_i32_divisor_magic_kind(
+                        "rhs", SignedDivisorMagicKind.MULTIPLY_ADD_SHIFT
+                    ),
+                ),
+                emit=(
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_CONST_I32_DESCRIPTOR,
+                        results={"dst": ValueRef.temporary("multiplier")},
+                        result_types={"dst": ValueRef.result("result")},
+                        immediates={
+                            "i32_value": ValueProject.i32_divisor_magic_multiplier(
+                                "rhs"
+                            )
+                        },
+                    ),
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_CONST_I32_DESCRIPTOR,
+                        results={"dst": ValueRef.result("result")},
+                        immediates={
+                            "i32_value": ValueProject.i32_divisor_magic_shift("rhs")
+                        },
+                    ),
+                ),
+            )
+        ],
+    )
+
+    compiled = compile_lower_rule_set(table, dialect_ops={"scalar": ALL_SCALAR_OPS})
+
+    assert compiled.guards[0].kind == GuardKind.VALUE_I32_DIVISOR_MAGIC_KIND
+    assert compiled.guards[0].u64 == SignedDivisorMagicKind.MULTIPLY_ADD_SHIFT
+    assert compiled.guards[0].other_value_ref_index == 0
+    assert [copy.kind for copy in compiled.attr_copies] == [
+        LowerAttrCopyKind.VALUE_I32_DIVISOR_MAGIC_MULTIPLIER,
+        LowerAttrCopyKind.VALUE_I32_DIVISOR_MAGIC_SHIFT,
+    ]
+    assert {copy.value_ref_index for copy in compiled.attr_copies} == {0}
+    assert all(copy.other_value_ref_index == 0 for copy in compiled.attr_copies)
 
 
 def test_compile_lower_rule_set_compiles_exact_i64_i32_word() -> None:

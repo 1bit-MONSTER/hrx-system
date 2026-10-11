@@ -483,3 +483,24 @@ bool loom_low_lower_rule_value_facts_u32_divisor_magic_info(
       loom_low_lower_unsigned_numerator_maximum(fact_table, numerator, 32));
   return true;
 }
+
+bool loom_low_lower_rule_value_facts_i32_divisor_magic_info(
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    loom_value_id_t divisor,
+    loom_low_lower_signed_divisor_magic_info_t* out_info) {
+  *out_info = (loom_low_lower_signed_divisor_magic_info_t){0};
+  loom_value_facts_t facts = loom_value_facts_unknown();
+  if (!loom_low_lower_rule_integer_immediate_facts(module, fact_table, divisor,
+                                                   &facts)) {
+    return false;
+  }
+  int64_t exact_value = 0;
+  if (!loom_value_facts_as_exact_i64(facts, &exact_value) ||
+      exact_value < INT32_MIN || exact_value > INT32_MAX ||
+      (exact_value >= -1 && exact_value <= 1)) {
+    return false;
+  }
+  *out_info =
+      loom_low_lower_signed_divisor_magic_info(exact_value, /*bit_width=*/32);
+  return true;
+}

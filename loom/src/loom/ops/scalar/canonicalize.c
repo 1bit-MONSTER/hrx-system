@@ -852,6 +852,10 @@ iree_status_t loom_scalar_divsi_canonicalize(loom_op_t* op,
   if (loom_scalar_value_facts_are_exact_i64(rewriter, rhs, 1)) {
     return loom_scalar_replace_single_result_with_value(op, rewriter, lhs);
   }
+  if (loom_scalar_value_facts_are_exact_i64(rewriter, rhs, -1)) {
+    return loom_scalar_replace_single_result_with_unary_op(
+        op, rewriter, LOOM_OP_SCALAR_NEGI, /*instance_flags=*/0, lhs);
+  }
   if (loom_scalar_value_facts_are_non_negative(rewriter, lhs) &&
       loom_scalar_value_facts_are_non_negative(rewriter, rhs)) {
     return loom_scalar_replace_single_result_with_binary_op(
@@ -897,6 +901,9 @@ iree_status_t loom_scalar_remsi_canonicalize(loom_op_t* op,
     return loom_scalar_replace_single_result_with_i64_constant(op, rewriter, 0);
   }
   if (loom_scalar_value_facts_are_exact_i64(rewriter, rhs, 1)) {
+    return loom_scalar_replace_single_result_with_i64_constant(op, rewriter, 0);
+  }
+  if (loom_scalar_value_facts_are_exact_i64(rewriter, rhs, -1)) {
     return loom_scalar_replace_single_result_with_i64_constant(op, rewriter, 0);
   }
   if (loom_scalar_value_facts_are_non_negative(rewriter, lhs) &&

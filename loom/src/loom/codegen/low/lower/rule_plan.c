@@ -808,6 +808,23 @@ static iree_status_t loom_low_lower_rule_build_attrs(
         attrs[i].value = loom_attr_i64((int64_t)projected_value);
         break;
       }
+      case LOOM_LOW_LOWER_ATTR_COPY_VALUE_I32_DIVISOR_MAGIC_MULTIPLIER:
+      case LOOM_LOW_LOWER_ATTR_COPY_VALUE_I32_DIVISOR_MAGIC_SHIFT: {
+        const loom_value_id_t divisor = loom_low_lower_rule_plan_source_value(
+            context, rule_set, state, attr_copy->value_ref_index);
+        loom_low_lower_signed_divisor_magic_info_t info = {0};
+        const bool has_magic_info =
+            loom_low_lower_rule_value_facts_i32_divisor_magic_info(
+                loom_low_lower_context_module(context),
+                loom_low_lower_context_fact_table(context), divisor, &info);
+        IREE_ASSERT(has_magic_info);
+        attrs[i].value = loom_attr_i64(
+            attr_copy->kind ==
+                    LOOM_LOW_LOWER_ATTR_COPY_VALUE_I32_DIVISOR_MAGIC_MULTIPLIER
+                ? (uint32_t)info.multiplier
+                : info.post_shift);
+        break;
+      }
       case LOOM_LOW_LOWER_ATTR_COPY_VALUE_I32_AS_U32_BITS: {
         const loom_value_id_t source_value_id =
             loom_low_lower_rule_plan_source_value(context, rule_set, state,
