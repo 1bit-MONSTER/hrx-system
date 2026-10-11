@@ -1369,7 +1369,7 @@ loom_corpus_build(
     "numeric/integer/bitfield.loom"
     "SPIR-V has no module artifact format."
     "loom::target::spirv::all"
-    "numeric/integer/constant_unsigned_division.loom"
+    "numeric/integer/constant_division.loom"
     "SPIR-V has no module artifact format."
     "loom::target::spirv::all"
     "numeric/integer/division.loom"

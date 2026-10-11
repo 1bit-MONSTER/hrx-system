@@ -167,13 +167,13 @@ iree_native_test(
   NAME
     "scalar_division_scenario_test"
   ARGS
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/integer/constant_unsigned_division.loom}}"
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/integer/constant_division.loom}}"
     "--device=task"
     "--case=@constant_scalar_quotient_values"
   SRC
     loom::tools::iree-test-loom
   DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/integer/constant_unsigned_division.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/integer/constant_division.loom"
 )
 endif()
 
