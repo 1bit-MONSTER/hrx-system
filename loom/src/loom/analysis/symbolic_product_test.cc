@@ -189,7 +189,7 @@ TEST_F(SymbolicProductTest, ExplicitNoWrapContractPermitsProductProof) {
 
 TEST_F(SymbolicProductTest, ExactSignedEndpointsAreNotSaturatedRanges) {
   const auto select = DefineBounded(LOOM_SCALAR_TYPE_I64, 0, 1);
-  for (const auto bounds :
+  for (const auto& bounds :
        {std::pair{INT64_MIN, int64_t{0}}, std::pair{int64_t{0}, INT64_MAX}}) {
     SCOPED_TRACE(::testing::PrintToString(bounds));
     const auto input =
@@ -207,8 +207,8 @@ TEST_F(SymbolicProductTest, ProductRangeMatchesExhaustiveSmallWidthOracle) {
       {-128, 127}, {-128, -127}, {-16, -1}, {-8, 7},
       {-1, 1},     {0, 1},       {0, 15},   {15, 16},
   };
-  for (const auto left_bounds : intervals) {
-    for (const auto right_bounds : intervals) {
+  for (const auto& left_bounds : intervals) {
+    for (const auto& right_bounds : intervals) {
       SCOPED_TRACE(::testing::PrintToString(left_bounds));
       SCOPED_TRACE(::testing::PrintToString(right_bounds));
       bool exact = true;
