@@ -35,6 +35,17 @@ typedef struct iree_hal_amd_fabric_memory_t {
   iree_hal_pool_export_classes_t exports;
 } iree_hal_amd_fabric_memory_t;
 
+// Prepared source metadata owned by one physical slab. Native updates receive
+// logical offsets while HAL views preserve native coordinates for alignment.
+typedef struct iree_hal_amd_fabric_mapping_source_t {
+  // Borrowed prepared backing; no installed alias retains this handle.
+  amdf_memory_t* memory;
+  // Exact native consumer access selected by the binding's HAL scope.
+  uint32_t access_ordinal;
+  // Native payload preceding logical source byte zero.
+  uint64_t logical_byte_offset;
+} iree_hal_amd_fabric_mapping_source_t;
+
 // Qualified construction facts copied by a provider. Accesses and scope are
 // borrowed; native construction establishes all accesses before publication.
 typedef struct iree_hal_amd_fabric_memory_options_t {

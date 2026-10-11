@@ -102,6 +102,8 @@ typedef struct iree_hal_memory_mapping_t {
 // Public ranges and access have been validated and transient sources committed
 // before native update. Arrays are sorted by target offset and nonoverlapping.
 typedef struct iree_hal_memory_mapping_update_t {
+  // Exact admitted target site, preserved across native projection aliases.
+  uint32_t scope_id;
   // Target interval in reservation coordinates.
   iree_hal_buffer_range_t target_range;
   // Prepared native source; a NULL descriptor detaches the interval.
@@ -116,8 +118,9 @@ typedef struct iree_hal_memory_reservation_vtable_t {
       iree_hal_memory_reservation_t* reservation);
   // Frees metadata after explicit close and final buffer wrapper release.
   void(IREE_API_PTR* destroy)(iree_hal_memory_reservation_t* reservation);
-  // Completes one native projection vector synchronously. Native failures may
-  // partially apply and poison the reservation; only close is valid afterward.
+  // Completes one native projection vector synchronously. The implementation
+  // owns sticky failure state after native mutation; preparation failures must
+  // not poison an unchanged reservation.
   iree_status_t(IREE_API_PTR* update)(
       iree_hal_memory_reservation_t* reservation, uint32_t projection,
       iree_host_size_t update_count,
@@ -137,8 +140,6 @@ struct iree_hal_memory_reservation_t {
   uint32_t projection_count;
   // Scope-indexed native projections; INVALID for excluded sites and ANY.
   const uint32_t* projections;
-  // Sticky native failure, accessed by caller-ordered mapping/close work.
-  bool failed;
   // Explicit native destruction has consumed the address owner.
   bool closed;
 };

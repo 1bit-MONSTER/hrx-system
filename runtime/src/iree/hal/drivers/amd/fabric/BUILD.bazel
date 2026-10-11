@@ -148,7 +148,10 @@ iree_runtime_cc_test(
 
 iree_runtime_cc_library(
     name = "memory_backend",
-    srcs = ["memory_backend.c"],
+    srcs = [
+        "memory_backend.c",
+        "memory_reservation.c",
+    ],
     hdrs = ["memory_backend.h"],
     deps = [
         ":memory",

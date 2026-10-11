@@ -24,6 +24,8 @@ typedef struct iree_hal_amd_fabric_slab_provider_t {
   iree_hal_amd_fabric_slab_provider_options_t options;
   // Immutable HAL capabilities of all slabs.
   iree_hal_slab_provider_properties_t properties;
+  // Number of source descriptors appended to each slab's prepared bindings.
+  uint32_t mapping_source_count;
   // Cumulative successful slab acquisitions.
   iree_atomic_int64_t total_acquired;
   // Cumulative slab release attempts.
@@ -35,6 +37,8 @@ typedef struct iree_hal_amd_fabric_slab_handle_t {
   iree_hal_amd_fabric_memory_t memory;
   // Prepared addresses in the contract layout order.
   iree_hal_buffer_native_binding_t* bindings;
+  // Prepared native source identities; absent for ordinary address-only slabs.
+  iree_hal_amd_fabric_mapping_source_t* mapping_sources;
 } iree_hal_amd_fabric_slab_handle_t;
 
 static const iree_hal_slab_provider_vtable_t
@@ -119,6 +123,10 @@ iree_status_t iree_hal_amd_fabric_slab_provider_create(
   memcpy(bindings, options->bindings,
          options->binding_count * sizeof(*bindings));
   provider->options.bindings = bindings;
+  for (uint32_t i = 0; i < options->binding_count; ++i) {
+    provider->mapping_source_count +=
+        bindings[i].type == IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  }
   iree_hal_external_storage_class_t* exports =
       (iree_hal_external_storage_class_t*)((uint8_t*)provider + exports_offset);
   provider->options.memory.exports =
@@ -161,17 +169,24 @@ static iree_status_t iree_hal_amd_fabric_slab_handle_create(
   const uint32_t binding_count = provider->options.binding_count;
   iree_host_size_t total_size = 0;
   iree_host_size_t bindings_offset = 0;
+  iree_host_size_t mapping_sources_offset = 0;
   IREE_RETURN_IF_ERROR(IREE_STRUCT_LAYOUT(
       sizeof(iree_hal_amd_fabric_slab_handle_t), &total_size,
       IREE_STRUCT_FIELD_ALIGNED(binding_count, iree_hal_buffer_native_binding_t,
                                 iree_alignof(iree_hal_buffer_native_binding_t),
-                                &bindings_offset)));
+                                &bindings_offset),
+      IREE_STRUCT_FIELD(provider->mapping_source_count,
+                        iree_hal_amd_fabric_mapping_source_t,
+                        &mapping_sources_offset)));
   iree_hal_amd_fabric_slab_handle_t* handle = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(provider->host_allocator,
                                              total_size, (void**)&handle));
   memset(handle, 0, total_size);
   handle->bindings =
       (iree_hal_buffer_native_binding_t*)((uint8_t*)handle + bindings_offset);
+  handle->mapping_sources =
+      (iree_hal_amd_fabric_mapping_source_t*)((uint8_t*)handle +
+                                              mapping_sources_offset);
   *out_handle = handle;
   return iree_ok_status();
 }
@@ -180,6 +195,7 @@ static iree_status_t iree_hal_amd_fabric_slab_handle_bind(
     iree_hal_amd_fabric_slab_provider_t* provider,
     iree_hal_amd_fabric_slab_handle_t* handle) {
   iree_status_t status = iree_ok_status();
+  uint32_t source_count = 0;
   for (uint32_t i = 0;
        i < provider->options.binding_count && iree_status_is_ok(status); ++i) {
     if (i == provider->options.host_binding_index) {
@@ -187,6 +203,20 @@ static iree_status_t iree_hal_amd_fabric_slab_handle_bind(
     } else {
       const iree_hal_amd_fabric_binding_request_t* binding =
           &provider->options.bindings[i];
+      if (binding->type == IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE) {
+        iree_hal_amd_fabric_mapping_source_t* source =
+            &handle->mapping_sources[source_count++];
+        *source = (iree_hal_amd_fabric_mapping_source_t){
+            .memory = handle->memory.handle,
+            .access_ordinal = binding->access_ordinal,
+            .logical_byte_offset = handle->memory.info.source_byte_offset,
+        };
+        handle->bindings[i].mapping_source.descriptor = source;
+        handle->bindings[i].mapping_source.granularity =
+            binding->mapping_granularity;
+        handle->bindings[i].mapping_source.offset = source->logical_byte_offset;
+        continue;
+      }
       status = IREE_HAL_AMD_STATUS_FROM_AMDF(
           provider->api->memory_query_address(
               handle->memory.handle, binding->access_ordinal,

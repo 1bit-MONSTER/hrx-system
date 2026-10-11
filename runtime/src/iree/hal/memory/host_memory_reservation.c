@@ -14,6 +14,8 @@ typedef struct iree_hal_host_memory_reservation_t {
   iree_hal_memory_reservation_t base;
   // Owned process address interval, initially inaccessible.
   iree_shm_reservation_t native;
+  // Sticky native replacement failure, serialized by the caller's queue edges.
+  bool failed;
   // Prepared CPU execution address shared by every admitted site.
   iree_hal_buffer_native_binding_t binding;
   // Captured process page-table identity per admitted scope.
@@ -38,6 +40,11 @@ static iree_status_t iree_hal_host_memory_reservation_update(
     const iree_hal_memory_mapping_update_t* updates) {
   iree_hal_host_memory_reservation_t* reservation =
       (iree_hal_host_memory_reservation_t*)base;
+  if (reservation->failed) {
+    return iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "reservation requires destruction after native failure");
+  }
   iree_shm_mapping_update_t inline_updates[16];
   iree_shm_mapping_update_t* native_updates = inline_updates;
   if (update_count > IREE_ARRAYSIZE(inline_updates)) {
@@ -66,6 +73,7 @@ static iree_status_t iree_hal_host_memory_reservation_update(
   }
   iree_status_t status = iree_shm_reservation_update(
       &reservation->native, update_count, native_updates);
+  reservation->failed = !iree_status_is_ok(status);
   if (native_updates != inline_updates) {
     iree_allocator_free(base->host_allocator, native_updates);
   }

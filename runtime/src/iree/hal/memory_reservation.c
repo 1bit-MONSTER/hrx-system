@@ -323,7 +323,8 @@ static iree_status_t iree_hal_memory_mapping_capture(
         .source_slot = {.index = slot,
                         .type = IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE},
         .source_offset = mapping->source_offset,
-        .update = {.target_range = mapping->target_range,
+        .update = {.scope_id = id,
+                   .target_range = mapping->target_range,
                    .access = mapping->access},
     };
     if (!iree_any_bit_set(batch->flags,
@@ -371,11 +372,7 @@ static iree_status_t iree_hal_memory_mapping_batch_execute(
        ++i) {
     const iree_hal_memory_mapping_capture_t* capture = &batch->captures[i];
     batch->updates[i] = capture->update;
-    if (capture->reservation->failed) {
-      status = iree_make_status(
-          IREE_STATUS_FAILED_PRECONDITION,
-          "reservation requires destruction after native failure");
-    } else if (capture->source) {
+    if (capture->source) {
       iree_hal_buffer_memory_view_t memory =
           iree_hal_buffer_memory_view(capture->source);
       if (!memory.bindings) {
@@ -415,9 +412,6 @@ static iree_status_t iree_hal_memory_mapping_batch_execute(
     }
     status = first->reservation->vtable->update(
         first->reservation, first->projection, end - i, &batch->updates[i]);
-    if (!iree_status_is_ok(status)) {
-      first->reservation->failed = true;
-    }
     i = end;
   }
   IREE_TRACE_ZONE_END(z0);

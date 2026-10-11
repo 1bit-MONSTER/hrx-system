@@ -776,6 +776,7 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_query(
   iree_hal_memory_type_t memory_type =
       IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
   const iree_hal_amd_fabric_memory_backend_t* owner = NULL;
+  iree_status_t status = iree_ok_status();
   for (iree_host_size_t device_index = 0;
        device_index < iree_hal_device_group_device_count(group) && supported;
        ++device_index) {
@@ -904,6 +905,7 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_query(
         }
         if (index == binding_count) {
           requests[index] = (iree_hal_amd_fabric_binding_request_t){
+              .type = binding.type,
               .access_ordinal = access_ordinal,
               .address_kind = binding.address_kind};
           binding_types[index] = binding.type;
@@ -911,6 +913,54 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_query(
         }
         bindings->interfaces |= 1u << binding.type;
         bindings->bindings[binding.type] = (uint16_t)index;
+      }
+      if (requested->interfaces &
+          (UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE)) {
+        amdf_memory_reservation_capabilities_t capabilities = {
+            .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES,
+            .structure_size = sizeof(capabilities),
+        };
+        const amdf_status_t native_status =
+            backend->native.api->device_query_memory_reservation_capabilities(
+                backend->native.device, backend->native.address_domain_ordinal,
+                &capabilities);
+        if (native_status ==
+            amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+          supported = false;
+          break;
+        }
+        if (!amdf_status_is_ok(native_status)) {
+          status = IREE_HAL_AMD_STATUS_FROM_AMDF(
+              native_status, "device_query_memory_reservation_capabilities");
+          supported = false;
+          break;
+        }
+        if (capabilities.mapping_granularity > UINT32_MAX) {
+          supported = false;
+          break;
+        }
+        requirements->flags |= AMDF_MEMORY_FLAG_MAPPING_SOURCE;
+        requirements->access |= capabilities.required_access;
+        uint32_t index = 1;
+        for (; index < binding_count; ++index) {
+          if (requests[index].access_ordinal == access_ordinal &&
+              binding_types[index] ==
+                  IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE) {
+            break;
+          }
+        }
+        if (index == binding_count) {
+          requests[index] = (iree_hal_amd_fabric_binding_request_t){
+              .type = IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE,
+              .access_ordinal = access_ordinal,
+              .mapping_granularity = (uint32_t)capabilities.mapping_granularity,
+          };
+          binding_types[index] = IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+          ++binding_count;
+        }
+        bindings->interfaces |= 1u << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+        bindings->bindings[IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE] =
+            (uint16_t)index;
       }
       if (requested->interfaces & ~((uint64_t)bindings->interfaces)) {
         supported = false;
@@ -933,14 +983,14 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_query(
                binding_count < IREE_HAL_BUFFER_NATIVE_BINDING_INDEX_NONE;
   if (!supported) {
     iree_allocator_free(host_allocator, scratch);
-    return iree_ok_status();
+    return status;
   }
 
   amdf_memory_scope_info_t scope_info = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO,
       .structure_size = sizeof(scope_info),
   };
-  iree_status_t status =
+  status =
       IREE_HAL_AMD_STATUS_FROM_AMDF(owner->native.api->memory_scope_query_info(
                                         owner->native.scope, &scope_info),
                                     "memory_scope_query_info");
@@ -1063,6 +1113,7 @@ void iree_hal_amd_fabric_memory_backend_initialize(
               .type = IREE_HAL_MEMORY_BACKEND_AMDF,
               .factory_count = IREE_ARRAYSIZE(factories),
               .factories = factories,
+              .reserve = iree_hal_amd_fabric_memory_reservation_create,
           },
       .device = device,
       .native = *options,

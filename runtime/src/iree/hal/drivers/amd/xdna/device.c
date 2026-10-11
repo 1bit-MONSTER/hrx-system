@@ -227,8 +227,11 @@ iree_status_t iree_hal_amd_xdna_device_create(
     };
     const iree_hal_amd_fabric_memory_backend_options_t memory_options = {
         .api = context->api,
+        .instance = context->fabric->instance,
         .scope = context->data_source.scope,
         .device = context->device,
+        .address_domain_ordinal = context->data_source.capabilities
+                                      .device_address.address_domain_ordinal,
         .memory_type =
             IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
         .event_sink = context->event_sink,

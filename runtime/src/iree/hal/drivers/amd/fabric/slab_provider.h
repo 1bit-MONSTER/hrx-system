@@ -17,10 +17,14 @@ extern "C" {
 // One native address to resolve into a prepared binding slot. The request at
 // host_binding_index is unused: that slot receives the optional host pointer.
 typedef struct iree_hal_amd_fabric_binding_request_t {
+  // Prepared interface: an execution address or a mapping source.
+  iree_hal_buffer_interface_t type;
   // Index into the complete native access set.
   uint32_t access_ordinal;
   // Exact native address interface produced for this slot.
   amdf_memory_address_kind_t address_kind;
+  // Required native source offset alignment for MAPPING_SOURCE, otherwise zero.
+  uint32_t mapping_granularity;
 } iree_hal_amd_fabric_binding_request_t;
 
 // One exact input class with its qualified native construction profile.

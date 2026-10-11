@@ -350,8 +350,10 @@ class SlabProviderTest : public ::testing::Test {
       options.imports = &import_route;
     }
     iree_hal_amd_fabric_binding_request_t bindings[3] = {};
-    bindings[1] = {0, AMDF_MEMORY_ADDRESS_GPU};
-    bindings[2] = {1, AMDF_MEMORY_ADDRESS_XDNA_DMA};
+    bindings[1] = {IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS, 0,
+                   AMDF_MEMORY_ADDRESS_GPU};
+    bindings[2] = {IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA, 1,
+                   AMDF_MEMORY_ADDRESS_XDNA_DMA};
     options.binding_count = host_access ? 3 : 2;
     options.host_binding_index =
         host_access ? 0 : IREE_HAL_BUFFER_NATIVE_BINDING_INDEX_NONE;

@@ -780,7 +780,8 @@ iree_hal_queue_barrier(iree_hal_queue_t* queue,
 //
 // Entries may span several reservations and projections. Overlapping target
 // ranges in the same native projection are rejected. Native failures may apply
-// a prefix of the batch; affected reservations then require destruction. An
+// a prefix of the batch; affected native projections then require destruction.
+// Preparation or validation failures leave unchanged reservations usable. An
 // accepted failure propagates through the signal semaphores. Mapping
 // establishes translation readiness, not data visibility; existing memory
 // barriers describe producer/consumer cache transitions using the actual
