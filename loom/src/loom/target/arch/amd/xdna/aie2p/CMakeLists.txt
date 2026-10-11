@@ -998,6 +998,7 @@ loom_check_test_suite(
     "test/source_low/view_bitcast.loom-test"
     "test/strand_targets.loom-test"
     "test/target_legalize_report.loom-test"
+    "test/vector_extract_shape.loom-test"
     "test/vector_float_extrema.loom-test"
     "test/vector_insert_packetization.loom-test"
     "test/vector_memory_packetization.loom-test"

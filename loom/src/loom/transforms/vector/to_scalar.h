@@ -155,12 +155,6 @@ iree_status_t loom_vector_fragment_store_to_scalar_rewrite_op(
 uint32_t loom_vector_fragment_store_to_scalar_reference_rejection_bits(
     loom_pass_t* pass, loom_rewriter_t* rewriter, loom_op_t* op);
 
-// Rewrites one scalar-result vector.extract over a static multidimensional
-// vector into a linear register-vector extract.
-iree_status_t loom_vector_extract_flatten_static_shape_rewrite_op(
-    loom_pass_t* pass, loom_rewriter_t* rewriter, loom_op_t* op,
-    bool* out_rewritten);
-
 // Rewrites one scalar-result vector.extract when its lane can be rematerialized
 // from the source producer tree. Fixed dense loads that cannot move to the use
 // are expanded at their original position so extracted lanes retain their
