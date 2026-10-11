@@ -130,3 +130,38 @@ func.def @unknown_write_offset(%storage: buffer, %offset: offset, %replacement: 
   }
   func.return %result : i32
 }
+
+// ====
+
+// Inner-loop motion removes only the inner execution predicate. The read
+// still depends on the conditional and possibly empty outer loop.
+func.def @nested_execution_predicates(%storage: view<8xi32>, %count: index, %condition: i1) {
+  %begin = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  scf.for %outer = [%begin to %count step %step] {
+    scf.if %condition {
+      scf.for %inner = [%begin to %end step %step] {
+        %loaded = view.load %storage[0] : view<8xi32> -> i32
+        view.store %loaded, %storage[1] : i32, view<8xi32>
+      }
+    }
+  }
+  func.return
+}
+
+// ----
+func.def @nested_execution_predicates(%storage: view<8xi32>, %count: index, %condition: i1) {
+  %begin = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  scf.for %outer = [%begin to %count step %step] {
+    scf.if %condition {
+      %loaded = view.load %storage[0] : view<8xi32> -> i32
+      scf.for %inner = [%begin to %end step %step] {
+        view.store %loaded, %storage[1] : i32, view<8xi32>
+      }
+    }
+  }
+  func.return
+}

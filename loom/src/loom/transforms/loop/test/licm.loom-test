@@ -652,3 +652,44 @@ kernel.def @keeps_workgroup_load_after_matching_barrier() {
   view.store %result, %output_view[0] : i32, view<1xi32>
   kernel.return
 }
+
+// ====
+
+// The inner while's condition region is distinct from its LoopLike body.
+// Pure condition work can still leave the enclosing counted loop.
+func.def @hoists_nested_while_condition(%count: index, %initial: i32, %limit: i32) -> (i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %result = scf.for %outer = [%begin to %count step %step](%carry = %initial : i32) -> (i32) {
+    %inner_result = scf.while(%before = %carry : i32) -> (i32) {
+      %invariant = test.cmp lt, %initial, %limit : i32
+      %bound = scf.select %invariant, %before, %limit : i32
+      %condition = test.cmp lt, %before, %bound : i32
+      scf.condition %condition, %before : i1, i32
+    } do(%body: i32) {
+      %next = test.addi %body, %initial : i32
+      scf.yield %next : i32
+    }
+    scf.yield %inner_result : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.def @hoists_nested_while_condition(%count: index, %initial: i32, %limit: i32) -> (i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %invariant = test.cmp lt, %initial, %limit : i32
+  %result = scf.for %outer = [%begin to %count step %step](%carry = %initial : i32) -> (i32) {
+    %inner_result = scf.while(%before = %carry : i32) -> (i32) {
+      %bound = scf.select %invariant, %before, %limit : i32
+      %condition = test.cmp lt, %before, %bound : i32
+      scf.condition %condition, %before : i1, i32
+    } do(%body: i32) {
+      %next = test.addi %body, %initial : i32
+      scf.yield %next : i32
+    }
+    scf.yield %inner_result : i32
+  }
+  func.return %result : i32
+}
