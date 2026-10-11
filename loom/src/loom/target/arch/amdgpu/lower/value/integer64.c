@@ -2058,30 +2058,3 @@ iree_status_t loom_amdgpu_low_legality_verify_scalar_i64_ctpop(
   }
   return iree_ok_status();
 }
-
-iree_status_t loom_amdgpu_low_legality_verify_scalar_remsi_i64(
-    const loom_target_low_legality_provider_t* provider,
-    loom_target_low_legality_context_t* context, const loom_op_t* op,
-    bool* out_handled) {
-  (void)provider;
-  if (!loom_amdgpu_low_legality_context_is_amdgpu(context)) {
-    return iree_ok_status();
-  }
-  if (!loom_scalar_remsi_isa(op)) {
-    return iree_ok_status();
-  }
-
-  const loom_module_t* module = loom_target_low_legality_module(context);
-  if (!loom_amdgpu_type_is_i64(
-          loom_module_value_type(module, loom_scalar_remsi_lhs(op))) ||
-      !loom_amdgpu_type_is_i64(
-          loom_module_value_type(module, loom_scalar_remsi_rhs(op))) ||
-      !loom_amdgpu_type_is_i64(
-          loom_module_value_type(module, loom_scalar_remsi_result(op)))) {
-    return iree_ok_status();
-  }
-
-  *out_handled = true;
-  return loom_amdgpu_low_legality_reject(
-      context, op, IREE_SV("scalar_remsi.signed_i64_dynamic"));
-}

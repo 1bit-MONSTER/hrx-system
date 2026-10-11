@@ -372,6 +372,12 @@ enum loom_low_lower_attr_copy_kind_e {
   // Emits the negated mathematical exponent of an exact signed floating-point
   // power of two as an i64 packet attribute.
   LOOM_LOW_LOWER_ATTR_COPY_VALUE_FLOAT_POWER_OF_TWO_NEGATED_EXPONENT = 45,
+  // Emits the signed i32 reciprocal multiplier's zero-extended bit pattern for
+  // an exact divisor source value fact as an i64 packet attribute.
+  LOOM_LOW_LOWER_ATTR_COPY_VALUE_I32_DIVISOR_MAGIC_MULTIPLIER = 46,
+  // Emits the signed i32 reciprocal arithmetic post-shift for an exact divisor
+  // source value fact as an i64 packet attribute.
+  LOOM_LOW_LOWER_ATTR_COPY_VALUE_I32_DIVISOR_MAGIC_SHIFT = 47,
   // Maximum attribute-copy kind plus one.
   LOOM_LOW_LOWER_ATTR_COPY_COUNT_,
 };
@@ -849,6 +855,9 @@ typedef enum loom_low_lower_guard_kind_e {
   // Contract-only queries accept an unselected representation so legality
   // remains independent of function-local representation planning.
   LOOM_LOW_LOWER_GUARD_LOW_VALUE_REPRESENTATION = 42,
+  // Source divisor facts select the signed i32 reciprocal arithmetic shape in
+  // payload.u64, a loom_low_lower_signed_divisor_magic_kind_t.
+  LOOM_LOW_LOWER_GUARD_VALUE_I32_DIVISOR_MAGIC_KIND = 43,
   // Maximum guard kind value plus one.
   LOOM_LOW_LOWER_GUARD_COUNT_,
 } loom_low_lower_guard_kind_t;

@@ -48,7 +48,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
         "integer/bit_count.loom",
         "integer/bitfield.loom",
         "integer/bitwise_divisibility.loom",
-        "integer/constant_unsigned_division.loom",
+        "integer/constant_division.loom",
         "integer/division.loom",
         "integer/narrow_consumers.loom",
         "integer/scalar_observations.loom",

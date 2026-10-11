@@ -71,6 +71,8 @@ class ValueProjectKind(Enum):
     U32_DIVISOR_MAGIC_MULTIPLIER = "u32_divisor_magic_multiplier"
     U32_DIVISOR_MAGIC_MULTIPLIER_AS_I32 = "u32_divisor_magic_multiplier_as_i32"
     U32_DIVISOR_MAGIC_SHIFT = "u32_divisor_magic_shift"
+    I32_DIVISOR_MAGIC_MULTIPLIER = "i32_divisor_magic_multiplier"
+    I32_DIVISOR_MAGIC_SHIFT = "i32_divisor_magic_shift"
     I32_AS_U32_BITS = "i32_as_u32_bits"
     FLOAT_BITS = "float_bits"
     FLOAT_AS_F32_I32 = "float_as_f32_i32"
@@ -997,6 +999,22 @@ class ValueProject:
             kind=ValueProjectKind.U32_DIVISOR_MAGIC_MULTIPLIER_AS_I32,
             source_value=divisor,
             other_source_value=numerator,
+        )
+
+    @classmethod
+    def i32_divisor_magic_multiplier(cls, divisor: str) -> Self:
+        """Projects signed reciprocal bits as a zero-extended u32 immediate."""
+        return cls(
+            kind=ValueProjectKind.I32_DIVISOR_MAGIC_MULTIPLIER,
+            source_value=divisor,
+        )
+
+    @classmethod
+    def i32_divisor_magic_shift(cls, divisor: str) -> Self:
+        """Projects the arithmetic post-shift for a signed i32 reciprocal."""
+        return cls(
+            kind=ValueProjectKind.I32_DIVISOR_MAGIC_SHIFT,
+            source_value=divisor,
         )
 
     @classmethod

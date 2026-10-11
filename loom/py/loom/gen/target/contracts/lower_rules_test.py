@@ -74,6 +74,7 @@ from loom.target.contracts import (
     LowerValueRef,
     RecipeRule,
     Scalar,
+    SignedDivisorMagicKind,
     SourceMemoryAddressBase,
     SourceMemoryAddressCoordinateType,
     SourceMemoryAddressLayout,
@@ -2096,6 +2097,7 @@ def test_generate_lower_rule_set_emits_divisor_magic_projection() -> None:
                     Guard.value_type("rhs", Scalar("i32")),
                     Guard.value_type("result", Scalar("i32")),
                     Guard.value_u32_divisor_magic_kind("lhs", "rhs", UnsignedDivisorMagicKind.MULTIPLY_SHIFT),
+                    Guard.value_i32_divisor_magic_kind("rhs", SignedDivisorMagicKind.MULTIPLY_SUBTRACT_SHIFT),
                 ),
                 emit=(
                     EmitDescriptorOp(
@@ -2121,6 +2123,18 @@ def test_generate_lower_rule_set_emits_divisor_magic_projection() -> None:
                         result_types={"dst": ValueRef.result("result")},
                         immediates={"i32_value": ValueProject.exact_i64_minus_one("rhs")},
                     ),
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_CONST_I32_DESCRIPTOR,
+                        results={"dst": ValueRef.temporary("signed_magic")},
+                        result_types={"dst": ValueRef.result("result")},
+                        immediates={"i32_value": ValueProject.i32_divisor_magic_multiplier("rhs")},
+                    ),
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_CONST_I32_DESCRIPTOR,
+                        results={"dst": ValueRef.temporary("signed_shift")},
+                        result_types={"dst": ValueRef.result("result")},
+                        immediates={"i32_value": ValueProject.i32_divisor_magic_shift("rhs")},
+                    ),
                 ),
             )
         ],
@@ -2132,6 +2146,9 @@ def test_generate_lower_rule_set_emits_divisor_magic_projection() -> None:
     assert "LOOM_LOW_LOWER_ATTR_COPY_VALUE_U32_DIVISOR_MAGIC_MULTIPLIER" in generated.source
     assert "LOOM_LOW_LOWER_ATTR_COPY_VALUE_U32_DIVISOR_MAGIC_MULTIPLIER_AS_I32" in generated.source
     assert "LOOM_LOW_LOWER_ATTR_COPY_VALUE_U32_DIVISOR_MAGIC_SHIFT" in generated.source
+    assert "LOOM_LOW_LOWER_GUARD_VALUE_I32_DIVISOR_MAGIC_KIND" in generated.source
+    assert "LOOM_LOW_LOWER_ATTR_COPY_VALUE_I32_DIVISOR_MAGIC_MULTIPLIER" in generated.source
+    assert "LOOM_LOW_LOWER_ATTR_COPY_VALUE_I32_DIVISOR_MAGIC_SHIFT" in generated.source
     assert ".literal_i64 = INT64_C(32)" in generated.source
     assert "LOOM_LOW_LOWER_ATTR_COPY_VALUE_EXACT_I64_MINUS_ONE" in generated.source
 

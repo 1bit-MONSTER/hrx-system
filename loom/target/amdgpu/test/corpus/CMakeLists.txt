@@ -227,7 +227,7 @@ loom_corpus_build(
     "numeric/integer/bitfield.loom"
     "AMDGPU has no module artifact format."
     "loom::target::amdgpu::all"
-    "numeric/integer/constant_unsigned_division.loom"
+    "numeric/integer/constant_division.loom"
     "AMDGPU has no module artifact format."
     "loom::target::amdgpu::all"
     "numeric/integer/division.loom"

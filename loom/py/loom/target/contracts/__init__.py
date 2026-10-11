@@ -61,6 +61,7 @@ from loom.target.contracts.guards import (
     Guard,
     GuardDiagnostic,
     GuardKind,
+    SignedDivisorMagicKind,
     UnsignedDivisorMagicKind,
 )
 from loom.target.contracts.immediates import (
@@ -232,6 +233,7 @@ __all__ = [
     "ReductionDescriptorCase",
     "RecipeRule",
     "Scalar",
+    "SignedDivisorMagicKind",
     "SelectDescriptorCase",
     "SourceMemoryAddressBase",
     "SourceMemoryAddressCoordinateType",

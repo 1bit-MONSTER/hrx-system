@@ -81,7 +81,7 @@ _ADAPTER_ONLY_SCENARIOS = [
     "numeric/float/sign.loom",
     "numeric/float/turns.loom",
     "numeric/integer/bit_count.loom",
-    "numeric/integer/constant_unsigned_division.loom",
+    "numeric/integer/constant_division.loom",
     "numeric/integer/arithmetic.loom",
     "numeric/integer/bitfield.loom",
     "numeric/integer/division.loom",

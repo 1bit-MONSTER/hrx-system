@@ -60,6 +60,34 @@ class UnsignedDivisorMagicKind(IntEnum):
 
 
 @unique
+class SignedDivisorMagicKind(IntEnum):
+    """Arithmetic shape of an exact signed word-sized reciprocal recipe."""
+
+    MULTIPLY = 0
+    MULTIPLY_SHIFT = 1
+    MULTIPLY_ADD = 2
+    MULTIPLY_ADD_SHIFT = 3
+    MULTIPLY_SUBTRACT = 4
+    MULTIPLY_SUBTRACT_SHIFT = 5
+
+    @property
+    def numerator_factor(self) -> int:
+        if self in (self.MULTIPLY_ADD, self.MULTIPLY_ADD_SHIFT):
+            return 1
+        if self in (self.MULTIPLY_SUBTRACT, self.MULTIPLY_SUBTRACT_SHIFT):
+            return -1
+        return 0
+
+    @property
+    def has_shift(self) -> bool:
+        return self in (
+            self.MULTIPLY_SHIFT,
+            self.MULTIPLY_ADD_SHIFT,
+            self.MULTIPLY_SUBTRACT_SHIFT,
+        )
+
+
+@unique
 class GuardKind(Enum):
     """Selection guard kind for descriptor-rule contracts."""
 
@@ -85,6 +113,7 @@ class GuardKind(Enum):
     VALUE_EXACT_I64 = "value_exact_i64"
     VALUE_EXACT_POWER_OF_TWO_I64 = "value_exact_power_of_two_i64"
     VALUE_U32_DIVISOR_MAGIC_KIND = "value_u32_divisor_magic_kind"
+    VALUE_I32_DIVISOR_MAGIC_KIND = "value_i32_divisor_magic_kind"
     VALUE_EXACT_FLOAT = "value_exact_float"
     VALUE_EXACT_POWER_OF_TWO_FLOAT = "value_exact_power_of_two_float"
     VALUE_NOT_NAN = "value_not_nan"
@@ -587,6 +616,21 @@ class Guard:
         )
 
     @classmethod
+    def value_i32_divisor_magic_kind(
+        cls,
+        divisor: str,
+        kind: SignedDivisorMagicKind,
+        *,
+        diagnostic: GuardDiagnostic | None = None,
+    ) -> Self:
+        return cls(
+            kind=GuardKind.VALUE_I32_DIVISOR_MAGIC_KIND,
+            field=divisor,
+            count=kind,
+            diagnostic=diagnostic,
+        )
+
+    @classmethod
     def value_exact_float(
         cls,
         field: str,
@@ -1030,6 +1074,7 @@ class Guard:
             GuardKind.VALUE_EXACT_I64,
             GuardKind.VALUE_EXACT_POWER_OF_TWO_I64,
             GuardKind.VALUE_U32_DIVISOR_MAGIC_KIND,
+            GuardKind.VALUE_I32_DIVISOR_MAGIC_KIND,
             GuardKind.VALUE_EXACT_FLOAT,
             GuardKind.VALUE_EXACT_POWER_OF_TWO_FLOAT,
             GuardKind.VALUE_NOT_NAN,
@@ -1239,6 +1284,12 @@ def _validate_value_fact_guard(
         if not isinstance(guard.count, UnsignedDivisorMagicKind):
             raise ValueError(
                 f"{source_op.name}: {subject} needs a reciprocal recipe kind"
+            )
+        return
+    if guard.kind == GuardKind.VALUE_I32_DIVISOR_MAGIC_KIND:
+        if not isinstance(guard.count, SignedDivisorMagicKind):
+            raise ValueError(
+                f"{source_op.name}: {subject} needs a signed reciprocal recipe kind"
             )
         return
     if guard.kind == GuardKind.VALUE_I64_RANGE and (

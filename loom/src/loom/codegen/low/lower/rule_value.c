@@ -91,6 +91,92 @@ loom_low_lower_unsigned_divisor_magic_info(uint64_t divisor, uint32_t bit_width,
   return info;
 }
 
+loom_low_lower_signed_divisor_magic_info_t
+loom_low_lower_signed_divisor_magic_info(int64_t divisor, uint32_t bit_width) {
+  IREE_ASSERT_GE(bit_width, 3u);
+  IREE_ASSERT_LE(bit_width, 64u);
+  IREE_ASSERT_NE(divisor, 0);
+  IREE_ASSERT_NE(divisor, 1);
+  IREE_ASSERT_NE(divisor, -1);
+  if (bit_width < 64) {
+    const int64_t signed_limit = INT64_C(1) << (bit_width - 1);
+    IREE_ASSERT_GE(divisor, -signed_limit);
+    IREE_ASSERT_LT(divisor, signed_limit);
+  }
+  const uint64_t mask = UINT64_MAX >> (64 - bit_width);
+  const uint64_t sign_bit = UINT64_C(1) << (bit_width - 1);
+  const uint64_t divisor_bits = (uint64_t)divisor & mask;
+  const bool divisor_is_negative = (divisor_bits & sign_bit) != 0;
+  const uint64_t divisor_magnitude =
+      divisor_is_negative ? ((~divisor_bits + 1) & mask) : divisor_bits;
+  IREE_ASSERT_LE(divisor_magnitude, sign_bit);
+
+  // Hacker's Delight, second edition, section 10-4. All temporaries model
+  // fixed-width unsigned integers so this also handles the signed minimum
+  // divisor without forming its unrepresentable positive counterpart.
+  const uint64_t t = sign_bit + (divisor_bits >> (bit_width - 1));
+  const uint64_t ancestor = (t - 1 - (t % divisor_magnitude)) & mask;
+  uint32_t p = bit_width - 1;
+  uint64_t q1 = sign_bit / ancestor;
+  uint64_t r1 = sign_bit % ancestor;
+  uint64_t q2 = sign_bit / divisor_magnitude;
+  uint64_t r2 = sign_bit % divisor_magnitude;
+  uint64_t delta = 0;
+  do {
+    ++p;
+    q1 = (q1 << 1) & mask;
+    r1 = (r1 << 1) & mask;
+    if (r1 >= ancestor) {
+      q1 = (q1 + 1) & mask;
+      r1 -= ancestor;
+    }
+    q2 = (q2 << 1) & mask;
+    r2 = (r2 << 1) & mask;
+    if (r2 >= divisor_magnitude) {
+      q2 = (q2 + 1) & mask;
+      r2 -= divisor_magnitude;
+    }
+    delta = divisor_magnitude - r2;
+  } while (q1 < delta || (q1 == delta && r1 == 0));
+
+  uint64_t multiplier = (q2 + 1) & mask;
+  if (divisor_is_negative) {
+    multiplier = (~multiplier + 1) & mask;
+  }
+  const bool multiplier_is_negative = (multiplier & sign_bit) != 0;
+  const int8_t numerator_factor =
+      !divisor_is_negative && multiplier_is_negative   ? 1
+      : divisor_is_negative && !multiplier_is_negative ? -1
+                                                       : 0;
+  return (loom_low_lower_signed_divisor_magic_info_t){
+      .multiplier = multiplier,
+      .post_shift = (uint8_t)(p - bit_width),
+      .numerator_factor = numerator_factor,
+  };
+}
+
+loom_low_lower_signed_divisor_magic_kind_t
+loom_low_lower_signed_divisor_magic_kind(
+    loom_low_lower_signed_divisor_magic_info_t info) {
+  switch (info.numerator_factor) {
+    case 0:
+      return info.post_shift == 0
+                 ? LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY
+                 : LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY_SHIFT;
+    case 1:
+      return info.post_shift == 0
+                 ? LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY_ADD
+                 : LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY_ADD_SHIFT;
+    case -1:
+      return info.post_shift == 0
+                 ? LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY_SUBTRACT
+                 : LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY_SUBTRACT_SHIFT;
+    default:
+      IREE_ASSERT_UNREACHABLE("invalid signed divisor numerator factor");
+      return LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY;
+  }
+}
+
 uint64_t loom_low_lower_u32_divisor_reciprocal(uint32_t divisor) {
   return UINT64_MAX / divisor + 1;
 }
@@ -395,5 +481,26 @@ bool loom_low_lower_rule_value_facts_u32_divisor_magic_info(
   *out_info = loom_low_lower_unsigned_divisor_magic_info(
       (uint32_t)exact_value, /*bit_width=*/32,
       loom_low_lower_unsigned_numerator_maximum(fact_table, numerator, 32));
+  return true;
+}
+
+bool loom_low_lower_rule_value_facts_i32_divisor_magic_info(
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    loom_value_id_t divisor,
+    loom_low_lower_signed_divisor_magic_info_t* out_info) {
+  *out_info = (loom_low_lower_signed_divisor_magic_info_t){0};
+  loom_value_facts_t facts = loom_value_facts_unknown();
+  if (!loom_low_lower_rule_integer_immediate_facts(module, fact_table, divisor,
+                                                   &facts)) {
+    return false;
+  }
+  int64_t exact_value = 0;
+  if (!loom_value_facts_as_exact_i64(facts, &exact_value) ||
+      exact_value < INT32_MIN || exact_value > INT32_MAX ||
+      (exact_value >= -1 && exact_value <= 1)) {
+    return false;
+  }
+  *out_info =
+      loom_low_lower_signed_divisor_magic_info(exact_value, /*bit_width=*/32);
   return true;
 }

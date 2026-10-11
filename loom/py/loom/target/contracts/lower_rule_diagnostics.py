@@ -259,6 +259,22 @@ def _u32_divisor_magic_kind_diagnostic(field: str, kind: int) -> DiagnosticRef:
     )
 
 
+def _i32_divisor_magic_kind_diagnostic(field: str, kind: int) -> DiagnosticRef:
+    suffix = (
+        "multiply",
+        "multiply_shift",
+        "multiply_add",
+        "multiply_add_shift",
+        "multiply_subtract",
+        "multiply_subtract_shift",
+    )[kind]
+    return _named_constraint_diagnostic(
+        "value_fact",
+        field,
+        f"i32_divisor_magic.{suffix}",
+    )
+
+
 def _exact_float_diagnostic(field: str) -> DiagnosticRef:
     return _named_constraint_diagnostic("value_fact", field, "exact_float")
 

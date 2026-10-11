@@ -100,7 +100,7 @@ _MODULES = [
 
 _XFAILS = {
     "vector_values": {
-        "@vector_values_signed_functions": "TARGET/001",
+        "@vector_values_signed_functions": "TARGET/003",
     },
 }
 

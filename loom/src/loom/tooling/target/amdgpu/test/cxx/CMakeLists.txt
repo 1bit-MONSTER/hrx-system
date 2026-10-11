@@ -1837,7 +1837,7 @@ loom_execution_test(
   MODULE
     "loom::import::cxx::test::vector_values_module"
   ARGS
-    "--xfail=@vector_values_signed_functions=TARGET/001"
+    "--xfail=@vector_values_signed_functions=TARGET/003"
   RUNNER_ARGS
     "--device=amdgpu"
   LABELS
@@ -1863,7 +1863,7 @@ loom_execution_test(
   MODULE
     "loom::import::cxx::test::vector_values_module"
   ARGS
-    "--xfail=@vector_values_signed_functions=TARGET/001"
+    "--xfail=@vector_values_signed_functions=TARGET/003"
   RUNNER_ARGS
     "--device=amdgpu"
     "--sanitizer=access"
