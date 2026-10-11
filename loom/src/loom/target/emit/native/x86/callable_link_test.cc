@@ -50,6 +50,10 @@ extern "C" uint64_t local_pair(uint64_t first, uint64_t second, uint64_t index);
 extern "C" uint32_t sum_previous_instances(uint64_t count);
 extern "C" void add_i32x4(const int32_t* lhs, const int32_t* rhs,
                           int32_t* output);
+extern "C" void write_exact_avx2_lanes(uint8_t* byte_output,
+                                       uint16_t* word_output,
+                                       float* dword_output,
+                                       int64_t* qword_output);
 extern "C" void add_constant_i32x4(const int32_t* input, int32_t* output);
 extern "C" void reverse_i8x32_lanes(const uint8_t* input, uint8_t* output);
 extern "C" void spill_i8x32(const uint8_t* input, uint8_t* output);
@@ -62,6 +66,7 @@ extern "C" void avx512_select_i32x16(const int32_t* scalar, const int32_t* lhs,
 extern "C" void avx512_reverse_i32x16(const int32_t* input, int32_t* output);
 extern "C" void avx512_reduce_f32x16(const float* values, const float* bias,
                                      const float* initial, float* output);
+extern "C" void write_exact_avx512_lanes(double* output);
 extern "C" void avx512_bf16_convert_indexed_masked(
     const float* low_values, uint64_t position, const float* high_values,
     const int8_t* mask_lhs, const int8_t* mask_rhs, const uint16_t* passthrough,
@@ -292,6 +297,22 @@ TEST(NativeCallableTest, Avx2VectorFunctionUsesOrdinaryCLinkage) {
   std::array<uint8_t, 32> spilled = {};
   spill_i8x32(bytes.data(), spilled.data());
   EXPECT_EQ(spilled, bytes);
+
+  std::array<uint8_t, 16> exact_bytes = {};
+  std::array<uint16_t, 8> exact_words = {};
+  std::array<float, 8> exact_dwords = {};
+  std::array<int64_t, 4> exact_qwords = {};
+  write_exact_avx2_lanes(exact_bytes.data(), exact_words.data(),
+                         exact_dwords.data(), exact_qwords.data());
+  for (size_t i = 0; i < exact_words.size(); ++i) {
+    EXPECT_EQ(exact_bytes[2 * i], 1);
+    EXPECT_EQ(exact_bytes[2 * i + 1], 0xfe);
+    EXPECT_EQ(exact_words[i], i % 2 == 0 ? 0x3fc0 : 0xc000);
+    EXPECT_EQ(exact_dwords[i], i % 2 == 0 ? 1.5f : -2.25f);
+  }
+  EXPECT_EQ(exact_qwords,
+            (std::array<int64_t, 4>{INT64_C(0x0123456789abcdef), -2,
+                                    INT64_C(0x0123456789abcdef), -2}));
 }
 
 TEST(NativeCallableTest, MixedPrivateResultsOverflowIndependentBanks) {
@@ -353,6 +374,12 @@ TEST(NativeCallableTest, Avx512CoreUsesOrdinaryCLinkage) {
   avx512_reduce_f32x16(values.data(), bias.data(), initial.data(),
                        reduced.data());
   EXPECT_EQ(reduced[0], 144.0f);
+
+  std::array<double, 8> exact_lanes = {};
+  write_exact_avx512_lanes(exact_lanes.data());
+  for (size_t i = 0; i < exact_lanes.size(); ++i) {
+    EXPECT_EQ(exact_lanes[i], i % 2 == 0 ? 1.25 : -2.5);
+  }
 }
 
 TEST(NativeCallableTest,

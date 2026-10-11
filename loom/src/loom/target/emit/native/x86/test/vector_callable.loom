@@ -5,6 +5,36 @@ global.rodata.def @addends = align(16) bytes("01000000fbffffff6400000000000080")
 
 global.rodata.def @reverse_lanes = align(32) bytes("0f0e0d0c0b0a090807060504030201000f0e0d0c0b0a09080706050403020100")
 
+// Exact source lanes lower into artifact-owned data before this object is
+// independently linked. Alternating values cover each storage width without
+// being mistaken for the uniform broadcast path.
+func.def public @write_exact_avx2_lanes(%byte_output: buffer, %word_output: buffer, %dword_output: buffer, %qword_output: buffer) {
+  %origin = index.constant 0 : offset
+  %byte_view = buffer.view %byte_output[%origin] : buffer -> view<16xi8>
+  %word_view = buffer.view %word_output[%origin] : buffer -> view<8xbf16>
+  %dword_view = buffer.view %dword_output[%origin] : buffer -> view<8xf32>
+  %qword_view = buffer.view %qword_output[%origin] : buffer -> view<4xi64>
+
+  %i8_low = scalar.constant 1 : i8
+  %i8_high = scalar.constant -2 : i8
+  %bytes = vector.from_elements %i8_low, %i8_high, %i8_low, %i8_high, %i8_low, %i8_high, %i8_low, %i8_high, %i8_low, %i8_high, %i8_low, %i8_high, %i8_low, %i8_high, %i8_low, %i8_high : vector<16xi8>
+  %bf16_low = scalar.constant 1.5 : bf16
+  %bf16_high = scalar.constant -2.0 : bf16
+  %words = vector.from_elements %bf16_low, %bf16_high, %bf16_low, %bf16_high, %bf16_low, %bf16_high, %bf16_low, %bf16_high : vector<8xbf16>
+  %f32_low = scalar.constant 1.5 : f32
+  %f32_high = scalar.constant -2.25 : f32
+  %dwords = vector.from_elements %f32_low, %f32_high, %f32_low, %f32_high, %f32_low, %f32_high, %f32_low, %f32_high : vector<8xf32>
+  %i64_low = scalar.constant 81985529216486895 : i64
+  %i64_high = scalar.constant -2 : i64
+  %qwords = vector.from_elements %i64_low, %i64_high, %i64_low, %i64_high : vector<4xi64>
+
+  vector.store %bytes, %byte_view[0] : vector<16xi8>, view<16xi8>
+  vector.store %words, %word_view[0] : vector<8xbf16>, view<8xbf16>
+  vector.store %dwords, %dword_view[0] : vector<8xf32>, view<8xf32>
+  vector.store %qwords, %qword_view[0] : vector<4xi64>, view<4xi64>
+  func.return
+}
+
 low.func.def public target<x86.avx2.core> abi(object_function) @add_i32x4(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>, %output: reg<x86.gpr64>) asm {
   %lhs_vector = vmovdqu32.load.xmm %lhs {disp32 = 0}
   %rhs_vector = vmovdqu32.load.xmm %rhs {disp32 = 0}
