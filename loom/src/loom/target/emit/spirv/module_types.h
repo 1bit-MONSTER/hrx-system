@@ -28,15 +28,6 @@ typedef struct loom_spirv_type_cache_entry_t loom_spirv_type_cache_entry_t;
 typedef struct loom_spirv_integer_constant_cache_entry_t
     loom_spirv_integer_constant_cache_entry_t;
 
-enum {
-  // Fixed byte length of the raw-BDA PushConstant root header.
-  LOOM_SPIRV_BDA_ROOT_BYTE_LENGTH = 32,
-  // Byte offset of the optional inline-constant array in the raw-BDA root.
-  LOOM_SPIRV_BDA_ROOT_CONSTANT_BYTE_OFFSET = 32,
-  // Struct member index of the optional inline-constant array.
-  LOOM_SPIRV_BDA_ROOT_CONSTANT_MEMBER_INDEX = 6,
-};
-
 typedef struct loom_spirv_type_context_t {
   // Scratch arena used for cache storage.
   iree_arena_allocator_t* scratch_arena;

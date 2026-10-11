@@ -65,6 +65,13 @@ _SPIRV_TOOLING_VISIBILITY = [
 # SPIR-V low descriptors
 #===------------------------------------------------------------------------===#
 
+loom_cc_library(
+    name = "bda_abi",
+    hdrs = ["bda_abi.h"],
+    visibility = _SPIRV_EMIT_VISIBILITY,
+    deps = ["//runtime/src/iree/base"],
+)
+
 loom_spirv_registry_sources(name = "registry_sources")
 
 loom_generated_cc_library(
@@ -295,6 +302,7 @@ loom_cc_library(
     hdrs = ["low_verify.h"],
     visibility = _SPIRV_TOOLING_VISIBILITY,
     deps = [
+        ":bda_abi",
         ":error_defs",
         ":module_contract",
         ":packet_rows",
@@ -351,10 +359,14 @@ loom_cc_test(
     name = "provider_test",
     srcs = ["provider_test.cc"],
     deps = [
+        ":bda_abi",
+        ":error_defs",
         ":features",
         ":profile",
         ":provider",
         "//loom/src/loom/analysis:symbol_facts",
+        "//loom/src/loom/codegen/low:text_asm",
+        "//loom/src/loom/codegen/low:verify",
         "//loom/src/loom/format/text:parser",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
@@ -362,6 +374,7 @@ loom_cc_test(
         "//loom/src/loom/ops/target",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target/arch/spirv/records:target_records",
+        "//loom/src/loom/testing:diagnostic_matchers",
         "//loom/src/loom/testing:module_ptr",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",

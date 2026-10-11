@@ -10,6 +10,7 @@
 
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
+#include "loom/target/arch/spirv/bda_abi.h"
 #include "loom/target/arch/spirv/descriptors/descriptors.h"
 #include "loom/target/arch/spirv/registers.h"
 #include "loom/target/arch/spirv/scalar_types.h"
@@ -225,6 +226,8 @@ static iree_status_t loom_spirv_module_abi_emit_bda_parameters(
     IREE_ASSERT_LT(direct_argument_ordinal, plan->arg_count);
     const loom_spirv_module_abi_slot_t* slot =
         &plan->args[direct_argument_ordinal++];
+    IREE_ASSERT_LE(slot->constant_word_offset,
+                   LOOM_SPIRV_BDA_MAX_REFLECTED_CONSTANT_WORD_OFFSET);
     const uint8_t byte_length =
         loom_spirv_module_abi_logical_parameter_byte_length(signature->types[i],
                                                             slot);

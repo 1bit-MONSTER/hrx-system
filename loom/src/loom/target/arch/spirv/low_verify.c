@@ -11,6 +11,7 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
+#include "loom/target/arch/spirv/bda_abi.h"
 #include "loom/target/arch/spirv/descriptors/descriptors.h"
 #include "loom/target/arch/spirv/error_catalog.h"
 #include "loom/target/arch/spirv/module_contract.h"
@@ -569,6 +570,22 @@ static iree_status_t loom_spirv_low_emit_raw_bda_constant_count(
                              params, IREE_ARRAYSIZE(params));
 }
 
+static iree_status_t loom_spirv_low_emit_raw_bda_parameter_offset(
+    loom_low_verify_context_t* context, loom_spirv_low_verify_state_t* state,
+    loom_value_id_t value_id, uint32_t constant_word_offset) {
+  const uint32_t constant_byte_offset = constant_word_offset * sizeof(uint32_t);
+  loom_diagnostic_param_t params[] = {
+      loom_param_string(state->function_name),
+      loom_param_string(
+          loom_low_diagnostic_value_name(state->module, value_id)),
+      loom_param_u32(constant_byte_offset),
+      loom_param_u32(LOOM_SPIRV_BDA_ROOT_CONSTANT_BYTE_OFFSET +
+                     constant_byte_offset),
+  };
+  return loom_spirv_low_emit(context, state->function_op, LOOM_ERR_SPIRV_031,
+                             params, IREE_ARRAYSIZE(params));
+}
+
 static iree_status_t loom_spirv_low_emit_shader_argument_value(
     loom_low_verify_context_t* context, loom_spirv_low_verify_state_t* state,
     loom_value_id_t value_id, loom_spirv_value_type_t value_type) {
@@ -625,6 +642,13 @@ static iree_status_t loom_spirv_low_verify_abi_shape(
                                                        &word_count)) {
           IREE_RETURN_IF_ERROR(loom_spirv_low_emit_raw_bda_direct_value(
               context, state, value_id, value_type));
+          continue;
+        }
+        if (state->logical_signature != NULL &&
+            constant_word_count >
+                LOOM_SPIRV_BDA_MAX_REFLECTED_CONSTANT_WORD_OFFSET) {
+          IREE_RETURN_IF_ERROR(loom_spirv_low_emit_raw_bda_parameter_offset(
+              context, state, value_id, constant_word_count));
           continue;
         }
         if (constant_word_count > UINT16_MAX - word_count) {

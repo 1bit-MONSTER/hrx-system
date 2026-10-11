@@ -6,6 +6,7 @@
 
 #include "loom/target/emit/spirv/module_types.h"
 
+#include "loom/target/arch/spirv/bda_abi.h"
 #include "loom/target/emit/spirv/binary_format.h"
 
 typedef enum loom_spirv_type_key_kind_e {

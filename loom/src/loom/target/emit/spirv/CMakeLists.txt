@@ -67,6 +67,7 @@ loom_cc_library(
     ::module_builder
     iree::base
     iree::base::internal::arena
+    loom::target::arch::spirv::bda_abi
     loom::target::arch::spirv::scalar_types
     loom::target::arch::spirv::value_types
   PUBLIC
@@ -143,6 +144,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::ir
     loom::ops::low
+    loom::target::arch::spirv::bda_abi
     loom::target::arch::spirv::descriptors::descriptors_ids
     loom::target::arch::spirv::registers
     loom::target::arch::spirv::scalar_types
