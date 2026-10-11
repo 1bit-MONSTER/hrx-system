@@ -7,24 +7,23 @@
 // IR walker: iterative DFS traversal of the region nesting tree.
 //
 // Walks all operations in a region (and recursively in nested regions)
-// in dominance order, providing nesting context to the callback at
+// in structural order, providing nesting context to the callback at
 // each operation. The context includes the containing block, region,
 // parent op, and nesting depth — the information that parent pointers
 // on the IR structs would provide, threaded through the walk for free.
 //
-// For structured regions (no LOOM_REGION_INSTANCE_FLAG_CFG), dominance
-// order is:
+// Traversal order is:
 //   - Ops within a block are visited in block order.
 //   - For multi-block regions, the entry block (block 0) is visited
-//     first, then sibling blocks. Entry block dominates all siblings
-//     in structured control flow.
+//     first, then sibling blocks in physical region order. This does not
+//     establish CFG dominance order; use the walker in dominance.h for that.
 //   - Nested regions are visited between the ops of the parent block
 //     (pre-order: parent op before children; post-order: children
 //     before parent op).
 //
 // The walker is iterative (no recursion) with a bounded inline stack.
-// Unusually deep walks spill into invocation-local storage obtained from the
-// module's block pool and returned before the walk completes.
+// Unusually deep walks spill into a growable allocation from the module's
+// workspace allocator and release it before the walk completes.
 //
 // Usage:
 //
@@ -106,7 +105,9 @@ typedef iree_status_t (*loom_walk_fn_t)(void* user_data, loom_op_t* op,
 
 // Callback bundle: function pointer and user data.
 typedef struct loom_walk_callback_t {
+  // Visitor invoked for each operation.
   loom_walk_fn_t fn;
+  // Opaque state forwarded to the visitor.
   void* user_data;
 } loom_walk_callback_t;
 
@@ -123,7 +124,7 @@ typedef struct loom_walk_callback_t {
 //
 // Traversal storage has invocation lifetime and never aliases or remains in
 // callback-owned storage. Callback allocations therefore remain valid after
-// the walk returns. Stack growth can fail if the module's block pool cannot
+// the walk returns. Stack growth can fail if the workspace allocator cannot
 // provide temporary spill storage.
 iree_status_t loom_walk_region(const loom_module_t* module,
                                loom_region_t* region, loom_walk_order_t order,
