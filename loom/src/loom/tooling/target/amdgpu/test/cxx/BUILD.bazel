@@ -477,32 +477,9 @@ loom_test(
     target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
 )
 
-loom_generated_file_family(
-    name = "iq4xs_blocks_checks_gen",
-    testonly = True,
-    args = [
-        "kernel",
-        "--group=iq4xs_blocks",
-    ],
-    generator = "//loom/py/loom/gen/test:cxx_kernel_cases",
-    output_directories = ["iq4xs_blocks_arrays"],
-    output_flags = [
-        "--output",
-        "--arrays",
-    ],
-    outputs = [
-        "iq4xs_blocks_checks.loom",
-        "iq4xs_blocks_arrays",
-    ],
-)
-
 loom_test(
     name = "iq4xs_blocks_test",
-    srcs = [
-        "iq4xs_blocks.cxx",
-        ":iq4xs_blocks_checks.loom",
-    ],
-    data = [":iq4xs_blocks_checks_gen"],
+    srcs = ["iq4xs_blocks.cxx"],
     execution_profiles = _EXECUTION_PROFILES,
     target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
 )

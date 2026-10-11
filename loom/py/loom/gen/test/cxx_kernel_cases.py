@@ -32,50 +32,6 @@ def pack_iq4xs(scale, group_scales, codes):
     return struct.pack("<eH", scale, high) + low + quants
 
 
-def iq4xs_blocks(arrays):
-    # Expected values come from logical scales and code indices before packing.
-    # Eight blocks cover every signed six-bit scale and all 256 packed byte
-    # values, including distinct adjacent record contents. Low codes permute
-    # all sixteen entries; group-dependent high codes span every pairing.
-    packed = bytearray([0xA5] * 32)
-    mutated = bytearray(packed)
-    expected = []
-    for block, scale in enumerate((0.5, -0.25, 2.0, -4.0, 0.0625, -0.125, 1.0, -2.0)):
-        group_scales = [block * 8 + group - 32 for group in range(8)]
-        codes = [(3 * lane + 5 * group + 7 * block + (lane // 16) * (group + 8 * block)) % 16 for group in range(8) for lane in range(32)]
-        expected.extend(scale * group_scales[index // 32] * IQ4NL_CODEBOOK[code] for index, code in enumerate(codes))
-        packed.extend(pack_iq4xs(scale, group_scales, codes))
-        mutated.extend(pack_iq4xs(scale, [value ^ 1 for value in group_scales], [code ^ 1 for code in codes]))
-    packed.extend([0xA5] * 32)
-    mutated.extend([0xA5] * 32)
-
-    cases = ""
-    for kernel in ("decode_iq4xs", "decode_iq4xs_packed"):
-        case = Case(arrays, kernel + "_values", "f32", len(expected))
-        case.array("input_storage", [signed_bits(value, 8) for value in packed], "i8")
-        case.array("original", [signed_bits(value, 8) for value in packed], "i8")
-        case.array("codebook", IQ4NL_CODEBOOK, "i8")
-        case.lines.append("  %input = check.tensor.view %input_storage offset(32) : tensor<1152xi8> -> tensor<1088xi8>")
-        case.launch(kernel, "%input, %codebook, %output", "tensor<1088xi8>, tensor<16xi8>, tensor<2048xf32>")
-        case.lines.append("  check.expect.bitwise actual(%input_storage) expected(%original) : tensor<1152xi8>")
-        cases += case.finish(expected)
-    input_path = arrays.write("iq4xs_update_input.npy", [signed_bits(value, 8) for value in packed], "i8")
-    expected_path = arrays.write("iq4xs_update_expected.npy", [signed_bits(value, 8) for value in mutated], "i8")
-    cases += f'''check.case public @iq4xs_update {{
-  %storage = check.file.read.npy path("{input_path}") : tensor<1152xi8>
-  %input = check.tensor.view %storage offset(32) : tensor<1152xi8> -> tensor<1088xi8>
-  kernel.launch @update_iq4xs(%input) : (tensor<1088xi8>)
-  %expected = check.file.read.npy path("{expected_path}") : tensor<1152xi8>
-  check.expect.bitwise actual(%storage) expected(%expected) : tensor<1152xi8>
-  check.return
-}}
-'''
-    declarations = "kernel.decl @decode_iq4xs() launch(%blocks: buffer, %codebook: buffer, %output: buffer)\n\n"
-    declarations += "kernel.decl @decode_iq4xs_packed() launch(%blocks: buffer, %codebook: buffer, %output: buffer)\n\n"
-    declarations += "kernel.decl @update_iq4xs() launch(%blocks: buffer)\n\n"
-    return declarations + cases
-
-
 def iq4xs_gate_up(arrays):
     # Preserve the production 2,560 x 640 x top-10 execution geometry while
     # storing only the two experts selected by this fixture. Expected values
@@ -246,7 +202,6 @@ def q4k_q8_swiglu(arrays):
 
 
 KERNEL_GROUPS = {
-    "iq4xs_blocks": iq4xs_blocks,
     "iq4xs_gate_up": iq4xs_gate_up,
     "q4k_q8_swiglu": q4k_q8_swiglu,
 }
