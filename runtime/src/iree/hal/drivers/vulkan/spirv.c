@@ -522,6 +522,7 @@ void iree_hal_vulkan_spirv_bda_dispatch_metadata_deinitialize(
     return;
   }
   iree_allocator_free(host_allocator, metadata->binding_requirements);
+  iree_allocator_free(host_allocator, metadata->parameters);
   iree_hal_vulkan_spirv_bda_dispatch_metadata_initialize(metadata);
 }
 
@@ -544,11 +545,17 @@ typedef struct iree_hal_vulkan_spirv_bda_metadata_parse_state_t {
   // Whether binding count metadata was already parsed.
   bool has_binding_count;
 
+  // Whether logical parameter metadata was already parsed.
+  bool has_parameters;
+
   // Whether any per-binding requirement metadata was found.
   bool has_binding_requirements;
 
   // Whether this pass should populate |metadata->binding_requirements|.
   bool populate_binding_requirements;
+
+  // Allocator used for variable-length metadata tables.
+  iree_allocator_t host_allocator;
 } iree_hal_vulkan_spirv_bda_metadata_parse_state_t;
 
 static iree_status_t iree_hal_vulkan_spirv_parse_metadata_pair_u32_u32(
@@ -583,6 +590,91 @@ static iree_status_t iree_hal_vulkan_spirv_parse_metadata_pair_u32_u64(
       lhs, UINT32_MAX, field_name, out_lhs));
   return iree_hal_vulkan_spirv_parse_metadata_uint64(rhs, UINT64_MAX,
                                                      field_name, out_rhs);
+}
+
+static iree_status_t iree_hal_vulkan_spirv_parse_bda_parameters(
+    iree_string_view_t value,
+    iree_hal_vulkan_spirv_bda_metadata_parse_state_t* state) {
+  iree_hal_vulkan_spirv_bda_dispatch_metadata_t* metadata = state->metadata;
+  state->has_parameters = true;
+  if (iree_string_view_is_empty(value)) {
+    return iree_ok_status();
+  }
+
+  iree_host_size_t parameter_count = 0;
+  iree_string_view_t remaining = value;
+  while (!iree_string_view_is_empty(remaining)) {
+    iree_string_view_t token = iree_string_view_empty();
+    iree_string_view_t tail = iree_string_view_empty();
+    const intptr_t separator =
+        iree_string_view_split(remaining, ';', &token, &tail);
+    if (iree_string_view_is_empty(token) ||
+        (separator >= 0 && iree_string_view_is_empty(tail))) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "Vulkan BDA parameter metadata contains an empty parameter token");
+    }
+    ++parameter_count;
+    if (parameter_count > UINT16_MAX) {
+      return iree_make_status(
+          IREE_STATUS_OUT_OF_RANGE,
+          "Vulkan BDA parameter metadata exceeds %u logical parameters",
+          UINT16_MAX);
+    }
+    remaining = tail;
+  }
+
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
+      state->host_allocator, parameter_count, sizeof(metadata->parameters[0]),
+      (void**)&metadata->parameters));
+  metadata->parameter_count = (uint16_t)parameter_count;
+
+  remaining = value;
+  for (iree_host_size_t i = 0; i < parameter_count; ++i) {
+    iree_string_view_t token = iree_string_view_empty();
+    iree_string_view_t tail = iree_string_view_empty();
+    iree_string_view_split(remaining, ';', &token, &tail);
+    iree_hal_vulkan_spirv_bda_parameter_t* parameter = &metadata->parameters[i];
+    *parameter = (iree_hal_vulkan_spirv_bda_parameter_t){0};
+    if (iree_string_view_consume_prefix(&token, IREE_SV("b"))) {
+      uint32_t binding_ordinal = 0;
+      IREE_RETURN_IF_ERROR(iree_hal_vulkan_spirv_parse_metadata_uint32(
+          token, UINT16_MAX, "parameter binding ordinal", &binding_ordinal));
+      parameter->type = IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_BINDING;
+      parameter->offset = (uint16_t)binding_ordinal;
+    } else if (iree_string_view_consume_prefix(&token, IREE_SV("c"))) {
+      uint32_t constant_offset = 0;
+      uint32_t constant_size = 0;
+      IREE_RETURN_IF_ERROR(iree_hal_vulkan_spirv_parse_metadata_pair_u32_u32(
+          token, "constant parameter", &constant_offset, &constant_size));
+      if (constant_offset > UINT16_MAX || constant_size > UINT16_MAX) {
+        return iree_make_status(
+            IREE_STATUS_OUT_OF_RANGE,
+            "Vulkan BDA constant parameter offset or size exceeds %u",
+            UINT16_MAX);
+      }
+      if (constant_size != sizeof(uint8_t) &&
+          constant_size != sizeof(uint16_t) &&
+          constant_size != sizeof(uint32_t) &&
+          constant_size != sizeof(uint64_t)) {
+        return iree_make_status(
+            IREE_STATUS_INVALID_ARGUMENT,
+            "Vulkan BDA constant parameter size %u is not a supported scalar "
+            "byte length",
+            constant_size);
+      }
+      parameter->type = IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT;
+      parameter->offset = (uint16_t)constant_offset;
+      parameter->size = (uint16_t)constant_size;
+    } else {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "Vulkan BDA parameter metadata token '%.*s' has unknown type",
+          (int)token.size, token.data);
+    }
+    remaining = tail;
+  }
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_vulkan_spirv_parse_bda_metadata_field(
@@ -654,6 +746,15 @@ static iree_status_t iree_hal_vulkan_spirv_parse_bda_metadata_field(
     metadata->binding_count_known = true;
     metadata->binding_count = (uint16_t)binding_count;
     return iree_ok_status();
+  }
+
+  if (iree_string_view_consume_prefix(&value, IREE_SV("parameters="))) {
+    if (state->has_parameters) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "Vulkan BDA metadata parameter table is duplicated");
+    }
+    return iree_hal_vulkan_spirv_parse_bda_parameters(value, state);
   }
 
   if (iree_string_view_consume_prefix(&value, IREE_SV("binding."))) {
@@ -842,6 +943,64 @@ static iree_status_t iree_hal_vulkan_spirv_validate_bda_metadata(
         IREE_STATUS_INVALID_ARGUMENT,
         "Vulkan BDA binding requirements require a non-zero binding count");
   }
+  if (state->has_parameters) {
+    if (!state->has_binding_count || !state->has_constant_byte_length) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "Vulkan BDA parameter metadata requires explicit bindings and "
+          "constant_length fields");
+    }
+    uint16_t expected_binding_ordinal = 0;
+    uint32_t expected_constant_offset = 0;
+    for (uint16_t i = 0; i < metadata->parameter_count; ++i) {
+      const iree_hal_vulkan_spirv_bda_parameter_t* parameter =
+          &metadata->parameters[i];
+      if (parameter->type ==
+          IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_BINDING) {
+        if (parameter->offset != expected_binding_ordinal) {
+          return iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "Vulkan BDA parameter %u maps binding %u but expected dense "
+              "binding %u",
+              i, parameter->offset, expected_binding_ordinal);
+        }
+        ++expected_binding_ordinal;
+      } else {
+        if (parameter->offset != expected_constant_offset) {
+          return iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "Vulkan BDA parameter %u maps constant byte offset %u but "
+              "expected packed offset %u",
+              i, parameter->offset, expected_constant_offset);
+        }
+        expected_constant_offset +=
+            iree_max((uint16_t)sizeof(uint32_t), parameter->size);
+        const uint64_t native_offset =
+            (uint64_t)metadata->constant_push_constant_offset +
+            parameter->offset;
+        if (native_offset > UINT16_MAX) {
+          return iree_make_status(
+              IREE_STATUS_OUT_OF_RANGE,
+              "Vulkan BDA parameter %u native offset %" PRIu64 " exceeds %u", i,
+              native_offset, UINT16_MAX);
+        }
+      }
+    }
+    if (expected_binding_ordinal != metadata->binding_count) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "Vulkan BDA parameter table covers %u bindings but metadata "
+          "declares %u",
+          expected_binding_ordinal, metadata->binding_count);
+    }
+    if (expected_constant_offset != metadata->constant_byte_length) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "Vulkan BDA parameter table covers %u constant bytes but metadata "
+          "declares %u",
+          expected_constant_offset, metadata->constant_byte_length);
+    }
+  }
   return iree_ok_status();
 }
 
@@ -864,6 +1023,7 @@ iree_status_t iree_hal_vulkan_spirv_parse_bda_dispatch_metadata(
     states[i] = (iree_hal_vulkan_spirv_bda_metadata_parse_state_t){
         .entry_name = entry_points[i].name,
         .metadata = &out_metadata[i],
+        .host_allocator = host_allocator,
     };
   }
   qsort(states, entry_point_count, sizeof(states[0]),

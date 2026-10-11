@@ -8,6 +8,7 @@
 #define IREE_HAL_DRIVERS_VULKAN_SPIRV_H_
 
 #include "iree/base/api.h"
+#include "iree/hal/executable.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -86,6 +87,20 @@ typedef struct iree_hal_vulkan_spirv_bda_binding_requirement_t {
   uint64_t minimum_length;
 } iree_hal_vulkan_spirv_bda_binding_requirement_t;
 
+// Compact logical parameter retained from SPIR-V BDA metadata.
+typedef struct iree_hal_vulkan_spirv_bda_parameter_t {
+  // HAL-visible parameter kind.
+  iree_hal_executable_function_parameter_type_t type;
+
+  // Logical byte length excluding raw-BDA slot padding; ignored for bindings.
+  uint16_t size;
+
+  // HAL constants-table byte offset or binding ordinal, depending on type.
+  uint16_t offset;
+} iree_hal_vulkan_spirv_bda_parameter_t;
+static_assert(sizeof(iree_hal_vulkan_spirv_bda_parameter_t) == 6,
+              "Vulkan BDA parameters must remain compact");
+
 // Per-entry SPIR-V BDA dispatch metadata reflected from OpModuleProcessed
 // strings.
 typedef struct iree_hal_vulkan_spirv_bda_dispatch_metadata_t {
@@ -115,6 +130,12 @@ typedef struct iree_hal_vulkan_spirv_bda_dispatch_metadata_t {
 
   // Per-binding requirements owned by this metadata object.
   iree_hal_vulkan_spirv_bda_binding_requirement_t* binding_requirements;
+
+  // Number of logical parameters in |parameters|.
+  uint16_t parameter_count;
+
+  // Logical parameters in source order, owned by this metadata object.
+  iree_hal_vulkan_spirv_bda_parameter_t* parameters;
 } iree_hal_vulkan_spirv_bda_dispatch_metadata_t;
 
 typedef enum iree_hal_vulkan_spirv_bda_verification_flag_bits_e {
@@ -170,7 +191,14 @@ iree_status_t iree_hal_vulkan_spirv_verify_bda_entry_point(
 //   iree.vulkan.bda.v1[<name>].constant_offset=<byte_offset>
 //   iree.vulkan.bda.v1[<name>].constant_length=<byte_length>
 //   iree.vulkan.bda.v1[<name>].bindings=<count>
+//   iree.vulkan.bda.v1[<name>].parameters=<parameter>[;<parameter>...]
 //   iree.vulkan.bda.v1[<name>].binding.<ordinal>=<alignment>,<minimum_length>
+//
+// Logical parameter tokens are `b<binding_ordinal>` for bindings and
+// `c<constant_byte_offset>,<logical_byte_length>` for constants. Constant
+// offsets name packed 32-bit raw-BDA slots while the byte length excludes slot
+// padding. Token order is source order. An empty value declares an empty
+// logical signature.
 //
 // The last ']' terminates the name; names may themselves contain brackets.
 // Record order is independent of entry order. Defaults are root=0,32,

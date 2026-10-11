@@ -8,6 +8,7 @@
 // table the dispatch provides and the shader consumes it through the hidden BDA
 // root.
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -596,6 +597,51 @@ TEST_P(BdaSpirvTest, QueueDispatchExecutesBdaShaderWithMetadata) {
       dispatch_signal, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
 
   ExpectOutput(output_buffer);
+}
+
+TEST_P(BdaSpirvTest, FunctionReflectionOwnsLogicalParameterMetadata) {
+  const iree_const_byte_span_t fixture =
+      BdaSpirvFixture(kBdaSpirvAdd7ConstantLength4);
+  std::vector<uint8_t> mutable_artifact(fixture.data,
+                                        fixture.data + fixture.data_length);
+  Ref<iree_hal_executable_t> executable;
+  IREE_ASSERT_OK(
+      PrepareBdaExecutable(iree_make_const_byte_span(mutable_artifact.data(),
+                                                     mutable_artifact.size()),
+                           executable.out()));
+  std::fill(mutable_artifact.begin(), mutable_artifact.end(), 0);
+
+  iree_hal_executable_function_t function =
+      iree_hal_executable_function_invalid();
+  IREE_ASSERT_OK(iree_hal_executable_lookup_function_by_name(
+      executable.get(), IREE_SV("main"), &function));
+  iree_hal_executable_function_info_t info = {};
+  IREE_ASSERT_OK(
+      iree_hal_executable_function_info(executable.get(), function, &info));
+  EXPECT_TRUE(iree_string_view_equal(info.name, IREE_SV("main")));
+  EXPECT_EQ(4u, info.constant_byte_length);
+  EXPECT_EQ(2u, info.binding_count);
+  ASSERT_EQ(3u, info.parameter_count);
+
+  std::array<iree_hal_executable_function_parameter_t, 3> parameters = {};
+  IREE_ASSERT_OK(iree_hal_executable_function_parameters(
+      executable.get(), function, parameters.size(), parameters.data()));
+  EXPECT_EQ(IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT,
+            parameters[0].type);
+  EXPECT_EQ(0u, parameters[0].offset);
+  EXPECT_EQ(4u, parameters[0].size);
+  EXPECT_EQ(IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_FLAG_NATIVE_ABI_OFFSET,
+            parameters[0].flags);
+  EXPECT_EQ(32u, parameters[0].native_abi_offset);
+  EXPECT_TRUE(iree_string_view_is_empty(parameters[0].name));
+  for (iree_host_size_t i = 1; i < parameters.size(); ++i) {
+    EXPECT_EQ(IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_BINDING,
+              parameters[i].type);
+    EXPECT_EQ(i - 1, parameters[i].offset);
+    EXPECT_EQ(IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_FLAG_NONE,
+              parameters[i].flags);
+    EXPECT_TRUE(iree_string_view_is_empty(parameters[i].name));
+  }
 }
 
 TEST_P(BdaSpirvTest, QueueDispatchRejectsBdaMetadataBindingMismatch) {
