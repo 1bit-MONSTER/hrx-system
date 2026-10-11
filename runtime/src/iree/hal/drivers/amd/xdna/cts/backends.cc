@@ -85,7 +85,7 @@ static bool xdna_registered_ =
                "IndirectCommandBufferBindingTableRetainedUntilSignal",
                "reusable command buffers are outside the XDNA v1 surface"},
           }},
-         {"async_queue"},
+         {"async_queue", "file_io"},
      }),
      true);
 

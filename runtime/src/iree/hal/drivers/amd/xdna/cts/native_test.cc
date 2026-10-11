@@ -17,8 +17,12 @@
 #include "iree/hal/drivers/amd/xdna/image/testdata/mul_i32.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/mul_i32_npu4.h"
 #include "iree/hal/slab_pool.h"
+#include "iree/hal/utils/file_registry.h"
+#include "iree/io/file_contents.h"
+#include "iree/io/file_handle.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "iree/testing/temp_file.h"
 
 namespace {
 
@@ -147,6 +151,10 @@ class XdnaNativeTest : public ::testing::Test {
     for (auto* buffer : buffers_) {
       iree_hal_buffer_release(buffer);
     }
+    for (auto* file : files_) {
+      iree_hal_file_release(file);
+    }
+    iree_async_proactor_pool_release(file_pool_);
     iree_hal_pool_release(memory_pool_);
     iree_hal_executable_release(alternate_executable_);
     iree_hal_executable_release(executable_);
@@ -219,7 +227,9 @@ class XdnaNativeTest : public ::testing::Test {
     semaphores_.push_back(*out_semaphore);
   }
 
-  void CreateMemoryPool(iree_hal_buffer_usage_t usage) {
+  void CreateMemoryPool(
+      iree_hal_buffer_usage_t usage,
+      iree_hal_memory_access_t host_access = IREE_HAL_MEMORY_ACCESS_ALL) {
     if (memory_pool_) {
       return;
     }
@@ -242,8 +252,8 @@ class XdnaNativeTest : public ::testing::Test {
         /*.families=*/&family_access,
         /*.host=*/
         {
-            /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-            /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+            /*.access=*/host_access,
+            /*.modes=*/host_access ? IREE_HAL_MAPPING_MODE_SCOPED : 0u,
         },
     };
     iree_hal_slab_pool_options_t options;
@@ -251,6 +261,31 @@ class XdnaNativeTest : public ::testing::Test {
     IREE_ASSERT_OK(iree_hal_slab_pool_create(device_group_, scope, &options,
                                              iree_allocator_system(),
                                              &memory_pool_));
+  }
+
+  void ImportNativeFile(iree_string_view_t path,
+                        iree_const_byte_span_t contents,
+                        iree_hal_memory_access_t access,
+                        iree_hal_file_t** out_file,
+                        iree_async_proactor_t* file_proactor = nullptr) {
+    IREE_ASSERT_OK(
+        iree_io_file_contents_write(path, contents, iree_allocator_system()));
+    iree_io_file_handle_t* handle = nullptr;
+    IREE_ASSERT_OK(iree_io_file_handle_open(
+        IREE_IO_FILE_MODE_READ | IREE_IO_FILE_MODE_WRITE |
+            IREE_IO_FILE_MODE_RANDOM_ACCESS | IREE_IO_FILE_MODE_SHARE_READ |
+            IREE_IO_FILE_MODE_SHARE_WRITE | IREE_IO_FILE_MODE_ASYNC,
+        path, iree_allocator_system(), &handle));
+    iree_status_t status =
+        file_proactor
+            ? iree_hal_file_from_handle(nullptr, access, handle, file_proactor,
+                                        iree_allocator_system(), out_file)
+            : iree_hal_file_import(
+                  device_, nullptr, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, access,
+                  handle, IREE_HAL_EXTERNAL_FILE_FLAG_NONE, out_file);
+    iree_io_file_handle_release(handle);
+    IREE_ASSERT_OK(status);
+    files_.push_back(*out_file);
   }
 
   void CheckOutput(iree_hal_buffer_t* output,
@@ -308,6 +343,10 @@ class XdnaNativeTest : public ::testing::Test {
       iree_hal_executable_function_invalid();
   // Test-owned buffers, released before device teardown.
   std::vector<iree_hal_buffer_t*> buffers_;
+  // Imported files released before the device's progress owner.
+  std::vector<iree_hal_file_t*> files_;
+  // Optional independent file progress owner, retained through file release.
+  iree_async_proactor_pool_t* file_pool_ = nullptr;
   // Test-owned semaphores, released before device teardown.
   std::vector<iree_hal_semaphore_t*> semaphores_;
 };
@@ -460,6 +499,218 @@ TEST_F(XdnaNativeTest, SlabPoolAllocationExecutesThroughPreparedBindings) {
     EXPECT_EQ(output[lhs.size() + i], lhs[i] * rhs[i]) << i;
     EXPECT_EQ(output[2 * lhs.size() + i], 0xA5A5A5A5u) << i;
   }
+}
+
+TEST_F(XdnaNativeTest, FilesRoundTripThroughDeferredDeviceOnlyBuffers) {
+  ASSERT_NO_FATAL_FAILURE(CreateMemoryPool(
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      IREE_HAL_MEMORY_ACCESS_NONE));
+  ASSERT_NO_FATAL_FAILURE(LoadMultiply());
+  iree_hal_semaphore_t *start = nullptr, *progress = nullptr;
+  ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&start));
+  ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&progress));
+  uint64_t start_value = 1;
+  uint64_t allocated = 1, initialized = 2, lhs_loaded = 3, rhs_loaded = 4,
+           computed = 5, written = 6;
+
+  std::array<uint32_t, 64> input;
+  input.fill(0xCCCCCCCCu);
+  for (size_t i = 0; i < 16; ++i) {
+    input[16 + i] = static_cast<uint32_t>(i * 97 + 13);
+    input[32 + i] = static_cast<uint32_t>(0xFFFFFF00u + i * 11);
+  }
+  std::array<uint32_t, 80> initial_output;
+  initial_output.fill(0x3C3C3C3Cu);
+  iree::testing::TempFilePath input_path("xdna_file_input");
+  iree::testing::TempFilePath output_path("xdna_file_output");
+  iree_hal_file_t *input_file = nullptr, *output_file = nullptr;
+  ASSERT_NO_FATAL_FAILURE(
+      ImportNativeFile(input_path.path_view(),
+                       iree_make_const_byte_span(input.data(), sizeof(input)),
+                       IREE_HAL_MEMORY_ACCESS_READ, &input_file));
+  ASSERT_NO_FATAL_FAILURE(ImportNativeFile(
+      output_path.path_view(),
+      iree_make_const_byte_span(initial_output.data(), sizeof(initial_output)),
+      IREE_HAL_MEMORY_ACCESS_WRITE, &output_file));
+
+  std::array<iree_hal_pool_reservation_request_t, 3> requests;
+  requests.fill(iree_hal_make_pool_reservation_request(3 * kBytes, 64));
+  std::array<iree_hal_buffer_t*, 3> roots = {};
+  IREE_ASSERT_OK(iree_hal_queue_alloca(
+      queue_, {1, &start, &start_value}, {1, &progress, &allocated},
+      memory_pool_, requests.size(), requests.data(), roots.data()));
+  for (auto* root : roots) {
+    buffers_.push_back(root);
+    EXPECT_EQ(iree_hal_buffer_allowed_usage(root) &
+                  IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
+              0u);
+  }
+  std::array<iree_hal_buffer_t*, 3> views = {};
+  for (size_t i = 0; i < views.size(); ++i) {
+    IREE_ASSERT_OK(iree_hal_buffer_subspan(roots[i], kBytes, kBytes,
+                                           iree_allocator_system(), &views[i]));
+    buffers_.push_back(views[i]);
+  }
+
+  // Consumers arrive before producers, and all public resource references are
+  // released before the start gate opens. No buffer backing exists at capture.
+  IREE_ASSERT_OK(iree_hal_queue_write(
+      queue_, {1, &progress, &computed}, {1, &progress, &written}, roots[2], 0,
+      output_file, kBytes, 3 * kBytes, nullptr, IREE_HAL_WRITE_FLAG_NONE));
+  const iree_hal_buffer_ref_t bindings[] = {
+      iree_hal_make_buffer_ref(views[0], 0, kBytes),
+      iree_hal_make_buffer_ref(views[1], 0, kBytes),
+      iree_hal_make_buffer_ref(views[2], 0, kBytes),
+  };
+  IREE_ASSERT_OK(iree_hal_queue_dispatch(
+      queue_, {1, &progress, &rhs_loaded}, {1, &progress, &computed},
+      executable_, function_, iree_hal_make_static_dispatch_config(1, 1, 1), {},
+      {IREE_ARRAYSIZE(bindings), bindings}, nullptr,
+      IREE_HAL_DISPATCH_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_queue_read(queue_, {1, &progress, &lhs_loaded},
+                                     {1, &progress, &rhs_loaded}, input_file,
+                                     2 * kBytes, roots[1], kBytes, kBytes,
+                                     nullptr, IREE_HAL_READ_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_queue_read(queue_, {1, &progress, &initialized},
+                                     {1, &progress, &lhs_loaded}, input_file,
+                                     kBytes, roots[0], kBytes, kBytes, nullptr,
+                                     IREE_HAL_READ_FLAG_NONE));
+  const uint8_t guard = 0xA5;
+  std::array<iree_hal_transfer_operation_t, 3> fills = {};
+  for (size_t i = 0; i < fills.size(); ++i) {
+    fills[i].type = IREE_HAL_TRANSFER_OPERATION_TYPE_FILL;
+    fills[i].fill.target_buffer = roots[i];
+    fills[i].fill.length = 3 * kBytes;
+    fills[i].fill.pattern = &guard;
+    fills[i].fill.pattern_length = sizeof(guard);
+  }
+  IREE_ASSERT_OK(iree_hal_queue_transfer(queue_, {1, &progress, &allocated},
+                                         {1, &progress, &initialized},
+                                         fills.size(), fills.data(), nullptr));
+  for (auto* buffer : buffers_) {
+    iree_hal_buffer_release(buffer);
+  }
+  buffers_.clear();
+  for (auto* file : files_) {
+    iree_hal_file_release(file);
+  }
+  files_.clear();
+  iree_hal_executable_release(executable_);
+  executable_ = nullptr;
+
+  IREE_ASSERT_OK(iree_hal_semaphore_signal(start, start_value, nullptr));
+  IREE_ASSERT_OK(iree_hal_semaphore_wait(
+      progress, written, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+  iree_io_file_contents_t* contents = nullptr;
+  IREE_ASSERT_OK(iree_io_file_contents_read(
+      output_path.path_view(), iree_allocator_system(), &contents));
+  std::array<uint32_t, 80> output = {};
+  const bool exact_length = contents->buffer.data_length == sizeof(output);
+  if (exact_length) {
+    memcpy(output.data(), contents->buffer.data, sizeof(output));
+  }
+  iree_io_file_contents_free(contents);
+  ASSERT_TRUE(exact_length);
+  for (size_t i = 0; i < 16; ++i) {
+    EXPECT_EQ(output[i], 0x3C3C3C3Cu) << i;
+    EXPECT_EQ(output[16 + i], 0xA5A5A5A5u) << i;
+    EXPECT_EQ(output[32 + i], input[16 + i] * input[32 + i]) << i;
+    EXPECT_EQ(output[48 + i], 0xA5A5A5A5u) << i;
+    EXPECT_EQ(output[64 + i], 0x3C3C3C3Cu) << i;
+  }
+}
+
+TEST_F(XdnaNativeTest, FileIoReturnsFromAnIndependentProactor) {
+  iree_hal_buffer_t* buffer = nullptr;
+  ASSERT_NO_FATAL_FAILURE(MakeBuffer(&buffer));
+  IREE_ASSERT_OK(iree_async_proactor_pool_create(
+      1, nullptr, iree_async_proactor_pool_options_default(),
+      iree_allocator_system(), &file_pool_));
+  iree_async_proactor_t* file_proactor = nullptr;
+  IREE_ASSERT_OK(iree_async_proactor_pool_get(file_pool_, 0, &file_proactor));
+  std::array<uint8_t, 3 * kBytes> initial_contents;
+  for (size_t i = 0; i < initial_contents.size(); ++i) {
+    initial_contents[i] = static_cast<uint8_t>(i * 13);
+  }
+  iree::testing::TempFilePath path("xdna_independent_file");
+  iree_hal_file_t* file = nullptr;
+  ASSERT_NO_FATAL_FAILURE(
+      ImportNativeFile(path.path_view(),
+                       iree_make_const_byte_span(initial_contents.data(),
+                                                 initial_contents.size()),
+                       IREE_HAL_MEMORY_ACCESS_ALL, &file, file_proactor));
+  iree_hal_semaphore_t* progress = nullptr;
+  ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&progress));
+  uint64_t read = 1, written = 2;
+  IREE_ASSERT_OK(iree_hal_queue_write(
+      queue_, {1, &progress, &read}, {1, &progress, &written}, buffer, 0, file,
+      2 * kBytes, kBytes, nullptr, IREE_HAL_WRITE_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_queue_read(queue_, {}, {1, &progress, &read}, file,
+                                     kBytes, buffer, 0, kBytes, nullptr,
+                                     IREE_HAL_READ_FLAG_NONE));
+  for (auto* buffer : buffers_) {
+    iree_hal_buffer_release(buffer);
+  }
+  buffers_.clear();
+  for (auto* file : files_) {
+    iree_hal_file_release(file);
+  }
+  files_.clear();
+  IREE_ASSERT_OK(iree_hal_semaphore_wait(
+      progress, written, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+  iree_io_file_contents_t* contents = nullptr;
+  IREE_ASSERT_OK(iree_io_file_contents_read(
+      path.path_view(), iree_allocator_system(), &contents));
+  auto expected = initial_contents;
+  std::copy_n(initial_contents.begin() + kBytes, kBytes,
+              expected.begin() + 2 * kBytes);
+  EXPECT_EQ(contents->buffer.data_length, expected.size());
+  if (contents->buffer.data_length == expected.size()) {
+    EXPECT_EQ(memcmp(contents->buffer.data, expected.data(), expected.size()),
+              0);
+  }
+  iree_io_file_contents_free(contents);
+}
+
+TEST_F(XdnaNativeTest, TruncatedFileFailsItsConsumerAndRetiresIo) {
+  iree_hal_buffer_t* buffer = nullptr;
+  ASSERT_NO_FATAL_FAILURE(MakeBuffer(&buffer));
+  std::array<uint8_t, kBytes> initial_contents;
+  initial_contents.fill(0x4D);
+  iree::testing::TempFilePath path("xdna_truncated_file");
+  iree_hal_file_t* file = nullptr;
+  ASSERT_NO_FATAL_FAILURE(
+      ImportNativeFile(path.path_view(),
+                       iree_make_const_byte_span(initial_contents.data(),
+                                                 initial_contents.size()),
+                       IREE_HAL_MEMORY_ACCESS_READ, &file));
+  // The imported file keeps its logical length, while the underlying file can
+  // change externally. The queue must report short I/O instead of success.
+  IREE_ASSERT_OK(iree_io_file_contents_write(
+      path.path_view(), iree_make_const_byte_span(initial_contents.data(), 7),
+      iree_allocator_system()));
+  iree_hal_semaphore_t *failed = nullptr, *consumer = nullptr,
+                       *independent = nullptr;
+  ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&failed));
+  ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&consumer));
+  ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&independent));
+  uint64_t value = 1;
+  IREE_ASSERT_OK(iree_hal_queue_read(queue_, {}, {1, &failed, &value}, file, 0,
+                                     buffer, 0, kBytes, nullptr,
+                                     IREE_HAL_READ_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_queue_barrier(queue_, {1, &failed, &value},
+                                        {1, &consumer, &value}, nullptr,
+                                        IREE_HAL_QUEUE_BARRIER_FLAG_NONE));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_OUT_OF_RANGE,
+      iree_hal_semaphore_wait(consumer, value, iree_infinite_timeout(),
+                              IREE_ASYNC_WAIT_FLAG_NONE));
+  // An I/O error fails its dependency chain without poisoning unrelated work.
+  IREE_ASSERT_OK(iree_hal_queue_barrier(queue_, {}, {1, &independent, &value},
+                                        nullptr,
+                                        IREE_HAL_QUEUE_BARRIER_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_semaphore_wait(
+      independent, value, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
 }
 
 TEST_F(XdnaNativeTest, RebindsExecutableAfterCheckedRetirement) {

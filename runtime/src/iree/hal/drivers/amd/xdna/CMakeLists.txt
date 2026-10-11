@@ -296,6 +296,7 @@ iree_cc_library(
     iree::base::threading
     iree::hal
     iree::hal::drivers::amd::fabric::buffer
+    iree::hal::drivers::amd::fabric::file_transfer
     iree::hal::drivers::amd::status
   PUBLIC
 )
@@ -384,6 +385,7 @@ iree_cc_library(
     iree::hal::drivers::amd::fabric::memory_backend
     iree::hal::memory::maintenance_thread
     iree::hal::utils::device_spec_builder
+    iree::hal::utils::files
   PUBLIC
 )
 endif()

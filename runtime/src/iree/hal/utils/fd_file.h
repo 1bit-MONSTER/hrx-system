@@ -32,6 +32,8 @@ extern "C" {
 // via iree_hal_file_async_handle(), and import failure is a construction error.
 // If |proactor| is NULL or the file was not opened for platform async I/O, only
 // synchronous I/O is supported.
+// The proactor is borrowed and must outlive the file; its polling owner must
+// remain active while operations are pending.
 IREE_API_EXPORT iree_status_t iree_hal_fd_file_from_handle(
     iree_hal_memory_access_t access, iree_io_file_handle_t* handle,
     iree_async_proactor_t* proactor, iree_allocator_t host_allocator,

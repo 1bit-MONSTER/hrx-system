@@ -9,6 +9,7 @@ fabric/
   fabric.{c,h}                   Native instance and passive discovery.
   memory.{c,h}                   Native backing and optional host mappings.
   buffer.{c,h}                   HAL views over prepared backing and bindings.
+  file_transfer.{c,h}            Async file I/O through host execution bindings.
   slab_provider.{c,h}            Backing acquisition through the slab interface.
   memory_backend.{c,h}           Complete pool qualification and captured facts.
   memory_transition.{c,h}        Native visibility recipes translated to HAL.
@@ -69,3 +70,41 @@ imports/exports, enforced placement, and uncached device-access requests emit
 no candidate. Extending those routes requires native qualification and matching
 construction support. Queue visibility uses libamdf's exact queue-family
 recipes; program-side visibility remains unqualified by that native query.
+
+## File transfers
+
+XDNA imports host-memory files and platform file handles through the shared HAL
+file implementations. Platform handles used by queues are opened with
+`IREE_IO_FILE_MODE_ASYNC`. Queue reads and writes use the existing public API:
+
+```c
+IREE_RETURN_IF_ERROR(iree_hal_queue_read(
+    queue, prerequisites, loaded, file, file_offset, buffer, buffer_offset,
+    length, barriers, IREE_HAL_READ_FLAG_NONE));
+// Device work waits for loaded and signals computed.
+IREE_RETURN_IF_ERROR(iree_hal_queue_write(
+    queue, computed, saved, buffer, buffer_offset, file, file_offset, length,
+    barriers, IREE_HAL_WRITE_FLAG_NONE));
+```
+
+The fabric transfer owns the exact byte range and continues partial native I/O.
+The execution engine owns semaphore dependencies, before/after barriers, and
+terminal signaling. A failed transfer fails its dependent signals; it can leave
+partial output and does not fail independent queue work. Write completion means
+the operating system has consumed the bytes, without promising disk durability.
+
+XDNA resolves its private host execution binding after dependencies complete,
+so file operations can target queue-allocated buffers that have not committed at
+capture time. Public host mapping permission is unnecessary. The existing host
+service acquires source bytes before writes and publishes destination bytes
+after reads. Disk I/O runs on the imported file's proactor; its completion
+returns to the queue owner before final publication. Neither the proactor nor
+the host service blocks waiting for disk I/O. Files on another proactor use the
+same completion path, with each progress owner kept live by its caller.
+
+Memory files with device-visible storage already use HAL queue copies. Other
+memory files copy on the host service. This implementation allocates no staging
+memory and creates no additional threads. Device-only backing without a host
+execution binding needs an engine-specific copy/staging route and is rejected by
+the direct host path. File and buffer references remain retained through the
+operation; callers still own backing retirement and the device lifetime.

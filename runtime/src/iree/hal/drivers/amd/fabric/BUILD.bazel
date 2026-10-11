@@ -63,6 +63,34 @@ iree_runtime_cc_library(
 )
 
 iree_runtime_cc_library(
+    name = "file_transfer",
+    srcs = ["file_transfer.c"],
+    hdrs = ["file_transfer.h"],
+    deps = [
+        ":buffer",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/utils:files",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "file_transfer_test",
+    srcs = ["file_transfer_test.cc"],
+    deps = [
+        ":buffer",
+        ":file_transfer",
+        "//libamdf:headers",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_library(
     name = "slab_provider",
     srcs = ["slab_provider.c"],
     hdrs = ["slab_provider.h"],

@@ -81,6 +81,44 @@ endif()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
+    file_transfer
+  HDRS
+    "file_transfer.h"
+  SRCS
+    "file_transfer.c"
+  DEPS
+    ::buffer
+    iree::async
+    iree::base
+    iree::hal
+    iree::hal::utils::files
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_test(
+  NAME
+    file_transfer_test
+  SRCS
+    "file_transfer_test.cc"
+  DEPS
+    ::buffer
+    ::file_transfer
+    amdf::headers
+    iree::async
+    iree::base
+    iree::hal
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=libamdf"
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
     slab_provider
   HDRS
     "slab_provider.h"

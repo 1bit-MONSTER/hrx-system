@@ -28,6 +28,8 @@ extern "C" {
 // If |proactor| is non-NULL, file descriptor-based files will be bound to the
 // proactor for async I/O at construction time. The async handle is then
 // available via iree_hal_file_async_handle().
+// The caller keeps the proactor and its progress owner live through file
+// destruction and all accepted operations.
 IREE_API_EXPORT iree_status_t iree_hal_file_from_handle(
     iree_hal_pool_t* storage_pool, iree_hal_memory_access_t access,
     iree_io_file_handle_t* handle, iree_async_proactor_t* proactor,

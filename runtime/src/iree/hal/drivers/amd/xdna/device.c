@@ -15,6 +15,7 @@
 #include "iree/hal/drivers/amd/xdna/semaphore.h"
 #include "iree/hal/memory/maintenance_thread.h"
 #include "iree/hal/utils/device_spec_builder.h"
+#include "iree/hal/utils/file_registry.h"
 
 typedef struct iree_hal_amd_xdna_device_t {
   // HAL resource header.
@@ -392,12 +393,15 @@ static iree_status_t iree_hal_amd_xdna_device_create_command_buffer(
 }
 
 static iree_status_t iree_hal_amd_xdna_device_import_file(
-    iree_hal_device_t* device, iree_hal_pool_t* pool,
+    iree_hal_device_t* base, iree_hal_pool_t* pool,
     iree_hal_queue_family_affinity_t queue_family_affinity,
     iree_hal_memory_access_t access, iree_io_file_handle_t* handle,
     iree_hal_external_file_flags_t flags, iree_hal_file_t** out_file) {
-  return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                          "XDNA device does not support import_file");
+  iree_hal_amd_xdna_device_t* device = (iree_hal_amd_xdna_device_t*)base;
+  return iree_hal_file_from_handle(
+      pool, access, handle,
+      iree_async_proactor_pool_entry_proactor(device->proactor_entry),
+      device->host_allocator, out_file);
 }
 
 static iree_status_t iree_hal_amd_xdna_device_profiling_begin(

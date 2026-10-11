@@ -62,6 +62,8 @@ typedef uint32_t iree_hal_external_file_flags_t;
 typedef struct iree_hal_file_t iree_hal_file_t;
 
 // Imports an external |handle| for use on |device|.
+// The device must outlive the returned file and accepted operations using it;
+// the file may borrow the device's native resources and progress services.
 //
 // |storage_pool| optionally supplies the contract and native route used to
 // expose memory-backed files as device-visible storage buffers. A NULL pool or

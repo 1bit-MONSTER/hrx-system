@@ -8,6 +8,7 @@
 #define IREE_HAL_DRIVERS_AMD_XDNA_QUEUE_OPERATION_H_
 
 #include "iree/async/frontier_tracker.h"
+#include "iree/hal/drivers/amd/fabric/file_transfer.h"
 #include "iree/hal/drivers/amd/xdna/executable.h"
 #include "iree/hal/drivers/amd/xdna/queue_frontier.h"
 #include "iree/hal/drivers/amd/xdna/queue_producer_index.h"
@@ -54,6 +55,7 @@ typedef enum iree_hal_amd_xdna_operation_kind_e {
   IREE_HAL_AMD_XDNA_OPERATION_ALLOCA,
   IREE_HAL_AMD_XDNA_OPERATION_DEALLOCA,
   IREE_HAL_AMD_XDNA_OPERATION_TRANSFER,
+  IREE_HAL_AMD_XDNA_OPERATION_FILE,
   IREE_HAL_AMD_XDNA_OPERATION_DISPATCH,
 } iree_hal_amd_xdna_operation_kind_t;
 
@@ -85,16 +87,16 @@ struct iree_hal_amd_xdna_operation_t {
   iree_async_operation_t admission;
   // Placed callback returning resolved software waits to the queue owner.
   iree_async_operation_t wait_completion;
-  // Placed callback returning pool readiness to the queue owner.
-  iree_async_operation_t memory_completion;
+  // Placed callback returning pool readiness or file I/O to the queue owner.
+  iree_async_operation_t continuation;
   // Intrusive progress-service admission and placed result handoff.
   iree_hal_amd_xdna_queue_service_item_t service_item;
   // Registered timepoints plus one registration sentinel.
   iree_atomic_int32_t wait_count;
   // First failure transferred from a resolved timepoint callback.
   iree_atomic_intptr_t wait_status;
-  // Terminal hidden-memory-wait status transferred to the proactor owner.
-  iree_atomic_intptr_t memory_status;
+  // Pool-wait or file-I/O status transferred to the proactor owner.
+  iree_atomic_intptr_t continuation_status;
   // Borrowed queue kept live by |device|.
   iree_hal_amd_xdna_queue_t* queue;
   // Retained device dominating the queue through arena return.
@@ -193,6 +195,13 @@ struct iree_hal_amd_xdna_operation_t {
       // Final captured descriptor used while appending, or NULL.
       iree_hal_amd_xdna_transfer_t* tail;
     } transfer;
+    // File transaction using a prepared host execution binding.
+    struct {
+      // Arena-owned state retaining the file and logical buffer.
+      iree_hal_amd_fabric_file_transfer_t* transfer;
+      // True after platform I/O retires and before final host publication.
+      bool io_completed;
+    } file;
   };
 };
 
@@ -227,8 +236,8 @@ void iree_hal_amd_xdna_operation_merge_memory_frontiers(
 iree_status_t iree_hal_amd_xdna_operation_prepare_frontier_wait(
     iree_hal_amd_xdna_operation_t* operation);
 
-// Executes one allocation, deallocation, or transfer transaction on the
-// blocking host service.
+// Executes allocation, deallocation, transfer, or file preparation/publication
+// on the blocking host service. Disk I/O itself runs on its file's proactor.
 void iree_hal_amd_xdna_operation_execute_host(
     iree_hal_amd_xdna_operation_t* operation);
 
@@ -252,6 +261,22 @@ iree_status_t iree_hal_amd_xdna_queue_transfer(
     const iree_hal_semaphore_list_t signals, iree_host_size_t count,
     const iree_hal_transfer_operation_t* operations,
     const iree_hal_queue_barriers_t* barriers);
+
+// Captures a file read through the buffer's private host execution binding.
+iree_status_t iree_hal_amd_xdna_queue_read(
+    iree_hal_queue_t* base, const iree_hal_semaphore_list_t waits,
+    const iree_hal_semaphore_list_t signals, iree_hal_file_t* source_file,
+    uint64_t source_offset, iree_hal_buffer_t* target_buffer,
+    iree_device_size_t target_offset, iree_device_size_t length,
+    const iree_hal_queue_barriers_t* barriers, iree_hal_read_flags_t flags);
+
+// Captures a file write through the buffer's private host execution binding.
+iree_status_t iree_hal_amd_xdna_queue_write(
+    iree_hal_queue_t* base, const iree_hal_semaphore_list_t waits,
+    const iree_hal_semaphore_list_t signals, iree_hal_buffer_t* source_buffer,
+    iree_device_size_t source_offset, iree_hal_file_t* target_file,
+    uint64_t target_offset, iree_device_size_t length,
+    const iree_hal_queue_barriers_t* barriers, iree_hal_write_flags_t flags);
 
 #ifdef __cplusplus
 }  // extern "C"

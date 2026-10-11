@@ -115,6 +115,12 @@ void iree_hal_amd_xdna_operation_release_resources(
         iree_hal_buffer_release(target);
       }
       break;
+    case IREE_HAL_AMD_XDNA_OPERATION_FILE:
+      if (operation->file.transfer) {
+        iree_hal_amd_fabric_file_transfer_deinitialize(
+            operation->file.transfer);
+      }
+      break;
     case IREE_HAL_AMD_XDNA_OPERATION_BARRIER:
       break;
   }
@@ -450,6 +456,13 @@ void iree_hal_amd_xdna_operation_execute_host(
         operation->status = iree_hal_amd_xdna_transfer_execute(transfer);
       }
       break;
+    case IREE_HAL_AMD_XDNA_OPERATION_FILE:
+      operation->status = operation->file.io_completed
+                              ? iree_hal_amd_fabric_file_transfer_finish(
+                                    operation->file.transfer)
+                              : iree_hal_amd_fabric_file_transfer_prepare(
+                                    operation->file.transfer);
+      break;
     case IREE_HAL_AMD_XDNA_OPERATION_BARRIER:
     case IREE_HAL_AMD_XDNA_OPERATION_DISPATCH:
       IREE_BUILTIN_UNREACHABLE();
@@ -757,4 +770,55 @@ iree_status_t iree_hal_amd_xdna_queue_transfer(
     iree_hal_amd_xdna_operation_discard(operation);
   }
   return status;
+}
+
+static iree_status_t iree_hal_amd_xdna_queue_file_transfer(
+    iree_hal_queue_t* base, const iree_hal_semaphore_list_t waits,
+    const iree_hal_semaphore_list_t signals, iree_hal_file_t* file,
+    iree_hal_memory_access_t file_access, uint64_t file_offset,
+    iree_hal_buffer_t* buffer, iree_device_size_t buffer_offset,
+    iree_device_size_t length, const iree_hal_queue_barriers_t* barriers) {
+  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_queue_barriers_validate(barriers));
+  iree_hal_amd_xdna_operation_t* operation = NULL;
+  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_operation_create(
+      (iree_hal_amd_xdna_queue_t*)base, waits, signals,
+      IREE_HAL_AMD_XDNA_OPERATION_FILE, &operation));
+  iree_status_t status = iree_hal_amd_xdna_queue_capture_allocate_metadata(
+      &operation->capture, sizeof(*operation->file.transfer),
+      (void**)&operation->file.transfer);
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_amd_fabric_file_transfer_initialize(
+        file, file_access, file_offset, buffer, buffer_offset, length,
+        operation->file.transfer);
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_amd_xdna_operation_submit(operation);
+  } else {
+    iree_hal_amd_xdna_operation_discard(operation);
+  }
+  return status;
+}
+
+iree_status_t iree_hal_amd_xdna_queue_read(
+    iree_hal_queue_t* base, const iree_hal_semaphore_list_t waits,
+    const iree_hal_semaphore_list_t signals, iree_hal_file_t* source_file,
+    uint64_t source_offset, iree_hal_buffer_t* target_buffer,
+    iree_device_size_t target_offset, iree_device_size_t length,
+    const iree_hal_queue_barriers_t* barriers, iree_hal_read_flags_t flags) {
+  (void)flags;
+  return iree_hal_amd_xdna_queue_file_transfer(
+      base, waits, signals, source_file, IREE_HAL_MEMORY_ACCESS_READ,
+      source_offset, target_buffer, target_offset, length, barriers);
+}
+
+iree_status_t iree_hal_amd_xdna_queue_write(
+    iree_hal_queue_t* base, const iree_hal_semaphore_list_t waits,
+    const iree_hal_semaphore_list_t signals, iree_hal_buffer_t* source_buffer,
+    iree_device_size_t source_offset, iree_hal_file_t* target_file,
+    uint64_t target_offset, iree_device_size_t length,
+    const iree_hal_queue_barriers_t* barriers, iree_hal_write_flags_t flags) {
+  (void)flags;
+  return iree_hal_amd_xdna_queue_file_transfer(
+      base, waits, signals, target_file, IREE_HAL_MEMORY_ACCESS_WRITE,
+      target_offset, source_buffer, source_offset, length, barriers);
 }

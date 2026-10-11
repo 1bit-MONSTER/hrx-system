@@ -55,8 +55,11 @@ iree_cc_test(
     iree::hal::drivers::amd::xdna::image::testdata::add_i32_npu4
     iree::hal::drivers::amd::xdna::image::testdata::mul_i32
     iree::hal::drivers::amd::xdna::image::testdata::mul_i32_npu4
+    iree::hal::utils::files
+    iree::io::file_handle
     iree::testing::gtest
     iree::testing::gtest_main
+    iree::testing::temp_file
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.xdna"

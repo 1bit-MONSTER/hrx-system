@@ -226,6 +226,7 @@ iree_runtime_cc_library(
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/drivers/amd:status",
         "//runtime/src/iree/hal/drivers/amd/fabric:buffer",
+        "//runtime/src/iree/hal/drivers/amd/fabric:file_transfer",
     ],
 )
 
@@ -293,6 +294,7 @@ iree_runtime_cc_library(
         "//runtime/src/iree/hal/drivers/amd/fabric:memory_backend",
         "//runtime/src/iree/hal/memory:maintenance_thread",
         "//runtime/src/iree/hal/utils:device_spec_builder",
+        "//runtime/src/iree/hal/utils:files",
     ],
 )
 
