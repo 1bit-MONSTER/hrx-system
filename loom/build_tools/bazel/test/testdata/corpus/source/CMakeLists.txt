@@ -15,8 +15,8 @@ loom_corpus_sources(
   MANIFEST
     "sample"
   SRCS
-    "nested/fixture.loom"
     "excluded.loom"
+    "nested/fixture.loom"
     "other.loom"
 )
 

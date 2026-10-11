@@ -42,10 +42,14 @@ loom_corpus_sources(
     "atomic/narrow/cmpxchg.loom"
     "atomic/narrow/contention.loom"
     "atomic/narrow/float.loom"
+    "atomic/narrow/observations.loom"
+    "atomic/narrow/scopes.loom"
     "atomic/narrow/vector.loom"
     "atomic/private.loom"
     "atomic/vector.loom"
     "atomic/workgroup/cmpxchg.loom"
+    "atomic/workgroup/global.loom"
+    "atomic/workgroup/observations.loom"
     "atomic/workgroup/panel_stream.loom"
     "atomic/workgroup/vector.loom"
     "buffer/allocation_freshness.loom"
@@ -81,10 +85,6 @@ loom_corpus_sources(
     "view/strided_recurrence.loom"
     "view/subview.loom"
     "view/window_walk.loom"
-    "atomic/narrow/observations.loom"
-    "atomic/narrow/scopes.loom"
-    "atomic/workgroup/global.loom"
-    "atomic/workgroup/observations.loom"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

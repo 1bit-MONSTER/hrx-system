@@ -169,6 +169,48 @@ class CheckTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(output.read_text(encoding="utf-8"), "PASS\n")
 
+    def test_authoring_requires_scenarios_in_manifest_owned_corpus(self):
+        with tempfile.TemporaryDirectory(prefix="loom hygiene ") as temporary:
+            root = Path(temporary)
+            source = root / "loom/src/loom/test/corpus/numeric/example.loom"
+            source.parent.mkdir(parents=True)
+            manifest = root / "sources.json"
+            manifest.write_text(
+                json.dumps([source.relative_to(root).as_posix()]), encoding="utf-8"
+            )
+            output = root / "passed"
+            command = [
+                self.runner,
+                "--check=authoring",
+                "--tool",
+                self.authoring,
+                "--sources",
+                str(manifest),
+                "--output",
+                str(output),
+            ]
+
+            source.write_text(
+                "check.case @example {\n  check.return\n}\n", encoding="utf-8"
+            )
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("use check.scenario instead of check.case", result.stdout)
+            self.assertFalse(output.exists())
+
+            source.write_text("func.decl @example()\n", encoding="utf-8")
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("must define at least one check.scenario", result.stdout)
+            self.assertFalse(output.exists())
+
+            source.write_text(
+                "check.scenario @example {\n  check.return\n}\n", encoding="utf-8"
+            )
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(output.read_text(encoding="utf-8"), "PASS\n")
+
     def test_formatter_and_authoring_use_real_tools_and_preserve_inputs(self):
         for check, tool in (("format", self.formatter), ("authoring", self.authoring)):
             with (

@@ -252,7 +252,7 @@ def _test_execution_carries_allowed_failures_impl(env, target):
     info = target[LoomExecutionTestInfo]
     if info.test_runner_args != [
         "--max-samples-per-case=1",
-        "--allow-failure=@other_case=TARGET/003,EXPECT/003",
+        "--allow-failure=@other_scenario=TARGET/003,EXPECT/003",
     ]:
         env.fail("unexpected corpus correctness arguments %r" % info.test_runner_args)
 

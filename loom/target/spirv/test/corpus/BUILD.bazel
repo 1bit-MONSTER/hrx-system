@@ -7,15 +7,9 @@
 load(
     "//loom/build_tools/bazel:defs.bzl",
     "loom_corpus_build",
-    "loom_legacy_case_test",
     "loom_scenario_test",
 )
-load(
-    "//loom/src/loom/test/corpus:catalog.bzl",
-    "LOOM_CORPUS",
-    "LOOM_LEGACY_CASES",
-    "LOOM_SCENARIOS",
-)
+load("//loom/src/loom/test/corpus:catalog.bzl", "LOOM_CORPUS")
 load(
     "//loom/src/loom/tooling/target/spirv:execution_profiles.bzl",
     "SPIRV_VULKAN_HARDWARE_PROFILE",
@@ -130,23 +124,6 @@ _EXPLICIT_CFG_KERNELS = [
     "memory/storage/stability/cfg.loom",
 ]
 
-_EXPLICIT_CFG_SCENARIOS = [
-    "control/branch/cfg.loom",
-    "control/branch/effects.loom",
-    "control/branch/half.loom",
-    "control/branch/results.loom",
-    "control/loop/callable.loom",
-    "control/loop/count.loom",
-    "control/loop/wide_index_recurrence.loom",
-    "memory/storage/stability/cfg.loom",
-]
-
-_LEGACY_EXPLICIT_CFG_KERNELS = [
-    source
-    for source in _EXPLICIT_CFG_KERNELS
-    if source not in _EXPLICIT_CFG_SCENARIOS
-]
-
 _NO_KERNEL_ARTIFACT_EXCLUDES = {
     source: (
         "SPIR-V requires structured control flow." if source in _EXPLICIT_CFG_KERNELS else "SPIR-V has no module artifact format."
@@ -154,16 +131,9 @@ _NO_KERNEL_ARTIFACT_EXCLUDES = {
     for source in _NO_DEVICE_SUBJECTS + _ADAPTER_ONLY_SCENARIOS + _EXPLICIT_CFG_KERNELS
 }
 
-_NO_HARDWARE_SUBJECT_EXCLUDES = {
-    source: (
-        "SPIR-V requires structured control flow." if source in _EXPLICIT_CFG_KERNELS else "The source has no SPIR-V device subject."
-    )
-    for source in _NO_DEVICE_SUBJECTS + _LEGACY_EXPLICIT_CFG_KERNELS
-}
-
 _SCENARIO_EXCLUDES = {
     source: "SPIR-V requires structured control flow."
-    for source in _EXPLICIT_CFG_SCENARIOS
+    for source in _EXPLICIT_CFG_KERNELS
 }
 
 _ALL_PROFILE_XFAILS = {
@@ -687,21 +657,8 @@ loom_scenario_test(
     allowed_failures = {
         SPIRV_VULKAN_HARDWARE_PROFILE.name: _SPIRV_EXECUTION_ALLOWED_FAILURES,
     },
-    catalog = LOOM_SCENARIOS,
+    catalog = LOOM_CORPUS,
     excludes = _SCENARIO_EXCLUDES,
-    execution_profiles = [SPIRV_VULKAN_HARDWARE_PROFILE],
-    xfails = {
-        SPIRV_VULKAN_HARDWARE_PROFILE.name: _SPIRV_EXECUTION_XFAILS,
-    },
-)
-
-loom_legacy_case_test(
-    name = "legacy_execution",
-    allowed_failures = {
-        SPIRV_VULKAN_HARDWARE_PROFILE.name: _SPIRV_EXECUTION_ALLOWED_FAILURES,
-    },
-    catalog = LOOM_LEGACY_CASES,
-    excludes = _NO_HARDWARE_SUBJECT_EXCLUDES,
     execution_profiles = [SPIRV_VULKAN_HARDWARE_PROFILE],
     xfails = {
         SPIRV_VULKAN_HARDWARE_PROFILE.name: _SPIRV_EXECUTION_XFAILS,
@@ -710,8 +667,5 @@ loom_legacy_case_test(
 
 test_suite(
     name = "execution",
-    tests = [
-        ":legacy_execution",
-        ":scenario_execution",
-    ],
+    tests = [":scenario_execution"],
 )

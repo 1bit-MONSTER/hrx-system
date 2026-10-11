@@ -11,7 +11,7 @@ load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_manifest")
 CONTROL_CORPUS = loom_corpus_manifest(
     name = "control",
     package = "//loom/src/loom/test/corpus/control",
-    scenario_srcs = [
+    srcs = [
         "branch/cfg.loom",
         "branch/effects.loom",
         "branch/guards.loom",
@@ -37,5 +37,4 @@ CONTROL_CORPUS = loom_corpus_manifest(
         "schedule/ordered_read_ahead.loom",
         "schedule/unroll_scope.loom",
     ],
-    legacy_case_srcs = [],
 )
