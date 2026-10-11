@@ -31,6 +31,44 @@ typedef struct loom_low_lower_unsigned_divisor_magic_info_t {
   bool is_add;
 } loom_low_lower_unsigned_divisor_magic_info_t;
 
+// Exact signed constant-divisor recipe for a native-width high multiply.
+typedef struct loom_low_lower_signed_divisor_magic_info_t {
+  // Two's-complement multiplication constant at the selected integer width.
+  uint64_t multiplier;
+  // Final arithmetic right shift applied after the high-half multiply.
+  uint8_t post_shift;
+  // Numerator coefficient added to the high product: -1, 0, or 1.
+  int8_t numerator_factor;
+} loom_low_lower_signed_divisor_magic_info_t;
+
+// Arithmetic shape of an exact signed reciprocal recipe. Adjacent pairs
+// distinguish whether the high product needs an arithmetic post-shift.
+typedef enum loom_low_lower_signed_divisor_magic_kind_e {
+  LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY = 0,
+  LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY_SHIFT = 1,
+  LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY_ADD = 2,
+  LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY_ADD_SHIFT = 3,
+  LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY_SUBTRACT = 4,
+  LOOM_LOW_LOWER_SIGNED_DIVISOR_MAGIC_MULTIPLY_SUBTRACT_SHIFT = 5,
+} loom_low_lower_signed_divisor_magic_kind_t;
+
+// Derives an exact signed constant-divisor recipe using a |bit_width|-bit
+// signed high-half multiply. The width is in [3, 64], and |divisor| must fit
+// that signed width and must not be 0, 1, or -1. With q =
+// signed_high_bit_width(n * multiplier), the quotient is:
+//
+//   q = (q + numerator_factor * n) >> post_shift;
+//   q += logical_shift_right(q, bit_width - 1);
+//
+// All arithmetic before the shifts wraps at |bit_width| bits.
+loom_low_lower_signed_divisor_magic_info_t
+loom_low_lower_signed_divisor_magic_info(int64_t divisor, uint32_t bit_width);
+
+// Returns the arithmetic shape represented by |info|.
+loom_low_lower_signed_divisor_magic_kind_t
+loom_low_lower_signed_divisor_magic_kind(
+    loom_low_lower_signed_divisor_magic_info_t info);
+
 // Derives an exact unsigned constant-divisor recipe using a |bit_width|-bit
 // high-half multiply. The width is in [2, 64]. Divisor is in [2, 2^bit_width -
 // 1] and numerator_maximum is an inclusive bound in [0, 2^bit_width - 1]. The

@@ -658,5 +658,129 @@ TEST(UnsignedDivisorMagicTest, NumeratorBoundRemovesAddAdjustment) {
   }
 }
 
+static int64_t SignedValueAtWidth(uint64_t bits, uint32_t bit_width) {
+  const uint64_t sign_bit = UINT64_C(1) << (bit_width - 1);
+  return static_cast<int64_t>((bits ^ sign_bit) - sign_bit);
+}
+
+static uint64_t SignedMultiplyHighAtWidth(uint64_t lhs, uint64_t rhs,
+                                          uint32_t bit_width) {
+  const uint64_t mask = UINT64_MAX >> (64 - bit_width);
+  const uint64_t sign_bit = UINT64_C(1) << (bit_width - 1);
+  uint64_t high = 0, low = 0;
+  iree_math_mul_u64_to_u128(lhs, rhs, &high, &low);
+  uint64_t product_high =
+      bit_width == 64
+          ? high
+          : ((low >> bit_width) | (high << (64 - bit_width))) & mask;
+  if (lhs & sign_bit) {
+    product_high = (product_high - rhs) & mask;
+  }
+  if (rhs & sign_bit) {
+    product_high = (product_high - lhs) & mask;
+  }
+  return product_high;
+}
+
+static uint64_t ArithmeticShiftRightAtWidth(uint64_t value, uint32_t shift,
+                                            uint32_t bit_width) {
+  const uint64_t mask = UINT64_MAX >> (64 - bit_width);
+  const uint64_t sign_bit = UINT64_C(1) << (bit_width - 1);
+  if (shift == 0) {
+    return value & mask;
+  }
+  const uint64_t sign_fill =
+      value & sign_bit ? mask ^ (mask >> shift) : UINT64_C(0);
+  return ((value >> shift) | sign_fill) & mask;
+}
+
+static int64_t ApplySignedDivisionRecipe(
+    int64_t numerator, uint32_t bit_width,
+    loom_low_lower_signed_divisor_magic_info_t info) {
+  const uint64_t mask = UINT64_MAX >> (64 - bit_width);
+  const uint64_t numerator_bits = (uint64_t)numerator & mask;
+  uint64_t quotient =
+      SignedMultiplyHighAtWidth(numerator_bits, info.multiplier, bit_width);
+  if (info.numerator_factor > 0) {
+    quotient = (quotient + numerator_bits) & mask;
+  } else if (info.numerator_factor < 0) {
+    quotient = (quotient - numerator_bits) & mask;
+  }
+  quotient = ArithmeticShiftRightAtWidth(quotient, info.post_shift, bit_width);
+  quotient = (quotient + (quotient >> (bit_width - 1))) & mask;
+  return SignedValueAtWidth(quotient, bit_width);
+}
+
+TEST(SignedDivisorMagicTest, ExactAcrossWidthsAndSignedBoundaries) {
+  uint64_t random = UINT64_C(0x2c9277b5ac3d8f61);
+  for (uint32_t bit_width = 3; bit_width <= 64; ++bit_width) {
+    const uint64_t mask = UINT64_MAX >> (64 - bit_width);
+    const uint64_t sign_bit = UINT64_C(1) << (bit_width - 1);
+    auto check_divisor = [&](int64_t divisor) {
+      if (divisor >= -1 && divisor <= 1) {
+        return;
+      }
+      const auto info =
+          loom_low_lower_signed_divisor_magic_info(divisor, bit_width);
+      EXPECT_EQ(loom_low_lower_signed_divisor_magic_kind(info) & 1,
+                info.post_shift == 0 ? 0 : 1);
+      auto check_numerator = [&](int64_t numerator) {
+        const int64_t quotient =
+            ApplySignedDivisionRecipe(numerator, bit_width, info);
+        ASSERT_EQ(quotient, numerator / divisor)
+            << "width=" << bit_width << " numerator=" << numerator
+            << " divisor=" << divisor;
+        ASSERT_EQ(numerator - quotient * divisor, numerator % divisor)
+            << "width=" << bit_width << " numerator=" << numerator
+            << " divisor=" << divisor;
+      };
+      if (bit_width <= 8) {
+        for (uint64_t numerator_bits = 0; numerator_bits <= mask;
+             ++numerator_bits) {
+          check_numerator(SignedValueAtWidth(numerator_bits, bit_width));
+        }
+      } else {
+        const int64_t minimum = SignedValueAtWidth(sign_bit, bit_width);
+        const int64_t maximum = SignedValueAtWidth(sign_bit - 1, bit_width);
+        for (int64_t numerator :
+             {minimum, minimum + 1, divisor, divisor + 1, INT64_C(-1),
+              INT64_C(0), INT64_C(1), maximum - 1, maximum}) {
+          if (numerator >= minimum && numerator <= maximum) {
+            check_numerator(numerator);
+          }
+        }
+        for (uint32_t sample = 0; sample < 64; ++sample) {
+          random ^= random << 13;
+          random ^= random >> 7;
+          random ^= random << 17;
+          check_numerator(SignedValueAtWidth(random & mask, bit_width));
+        }
+      }
+    };
+    if (bit_width <= 8) {
+      for (uint64_t divisor_bits = 0; divisor_bits <= mask; ++divisor_bits) {
+        check_divisor(SignedValueAtWidth(divisor_bits, bit_width));
+      }
+    } else {
+      const int64_t minimum = SignedValueAtWidth(sign_bit, bit_width);
+      const int64_t maximum = SignedValueAtWidth(sign_bit - 1, bit_width);
+      for (int64_t divisor :
+           {minimum, minimum + 1, INT64_C(-257), INT64_C(-20), INT64_C(-7),
+            INT64_C(-3), INT64_C(-2), INT64_C(2), INT64_C(3), INT64_C(7),
+            INT64_C(20), INT64_C(257), maximum - 1, maximum}) {
+        if (divisor >= minimum && divisor <= maximum) {
+          check_divisor(divisor);
+        }
+      }
+      for (uint32_t sample = 0; sample < 512; ++sample) {
+        random ^= random << 13;
+        random ^= random >> 7;
+        random ^= random << 17;
+        check_divisor(SignedValueAtWidth(random & mask, bit_width));
+      }
+    }
+  }
+}
+
 }  // namespace
 }  // namespace loom
