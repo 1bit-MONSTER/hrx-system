@@ -514,7 +514,8 @@ static bool loom_amdgpu_source_producer_result_requires_vgpr(
       loom_module_value_type(module, source_value_id);
   return loom_amdgpu_type_is_i8(value_type) ||
          loom_amdgpu_type_is_i16(value_type) ||
-         loom_amdgpu_type_is_i32(value_type);
+         loom_amdgpu_type_is_i32(value_type) ||
+         loom_amdgpu_type_is_i64(value_type);
 }
 
 static bool loom_amdgpu_source_producer_result_follows_operand_vgpr(

@@ -30,3 +30,228 @@ low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @convert_float_to_wide_
   %unsigned_vector = concat(%50, %33, %52, %33) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
   return %signed, %unsigned, %signed_vector, %unsigned_vector
 }
+
+// ====
+
+func.def @convert_bfloat16_to_wide_integer(%value: bf16, %values: vector<2xbf16>) -> (i64, i64, vector<2xi64>, vector<2xi64>) {
+  %signed = scalar.fptosi %value : bf16 to i64
+  %unsigned = scalar.fptoui %value : bf16 to i64
+  %signed_vector = vector.fptosi %values : vector<2xbf16> to vector<2xi64>
+  %unsigned_vector = vector.fptoui %values : vector<2xbf16> to vector<2xi64>
+  func.return %signed, %unsigned, %signed_vector, %unsigned_vector : i64, i64, vector<2xi64>, vector<2xi64>
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @convert_bfloat16_to_wide_integer(%value: reg<amdgpu.vgpr>, %values: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>) asm {
+  %34 = v_lshlrev_b32_src0_inline %value, 16
+  %35 = s_mov_b32 4294967264
+  %36 = s_mov_b32 3481272320
+  %37 = v_ashrrev_i32_src0_inline %34, 31
+  %38 = v_and_b32_lit %34, 2147483647
+  %39 = v_trunc_f32 %38
+  %40 = v_ldexp_f32 %39, %35
+  %41 = v_floor_f32 %40
+  %42 = v_fma_f32 %41, %36, %39
+  %43 = v_cvt_u32_f32 %42
+  %44 = v_cvt_u32_f32 %41
+  %45 = v_xor_b32 %43, %37
+  %46 = v_xor_b32 %44, %37
+  %53, %54 = v_sub_co_u32 %45, %37
+  %55, %56 = v_sub_co_ci_u32 %46, %37, %54
+  %signed = concat(%53, %55) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %61 = v_trunc_f32 %34
+  %62 = v_ldexp_f32 %61, %35
+  %63 = v_floor_f32 %62
+  %64 = v_fma_f32 %63, %36, %61
+  %65 = v_cvt_u32_f32 %64
+  %66 = v_cvt_u32_f32 %63
+  %unsigned = concat(%65, %66) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %68 = v_lshlrev_b32_src0_16_low16 %values
+  %71 = v_ashrrev_i32_src0_inline %68, 31
+  %72 = v_and_b32_lit %68, 2147483647
+  %73 = v_trunc_f32 %72
+  %74 = v_ldexp_f32 %73, %35
+  %75 = v_floor_f32 %74
+  %76 = v_fma_f32 %75, %36, %73
+  %77 = v_cvt_u32_f32 %76
+  %78 = v_cvt_u32_f32 %75
+  %79 = v_xor_b32 %77, %71
+  %80 = v_xor_b32 %78, %71
+  %87, %88 = v_sub_co_u32 %79, %71
+  %89, %90 = v_sub_co_ci_u32 %80, %71, %88
+  %91 = concat(%87, %89) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %92 = v_lshrrev_b32_src0_inline %values, 16
+  %93 = v_lshlrev_b32_src0_16_low16 %92
+  %96 = v_ashrrev_i32_src0_inline %93, 31
+  %97 = v_and_b32_lit %93, 2147483647
+  %98 = v_trunc_f32 %97
+  %99 = v_ldexp_f32 %98, %35
+  %100 = v_floor_f32 %99
+  %101 = v_fma_f32 %100, %36, %98
+  %102 = v_cvt_u32_f32 %101
+  %103 = v_cvt_u32_f32 %100
+  %104 = v_xor_b32 %102, %96
+  %105 = v_xor_b32 %103, %96
+  %112, %113 = v_sub_co_u32 %104, %96
+  %114, %115 = v_sub_co_ci_u32 %105, %96, %113
+  %116 = concat(%112, %114) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %signed_vector = concat(%91, %116) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %120 = v_trunc_f32 %68
+  %121 = v_ldexp_f32 %120, %35
+  %122 = v_floor_f32 %121
+  %123 = v_fma_f32 %122, %36, %120
+  %124 = v_cvt_u32_f32 %123
+  %125 = v_cvt_u32_f32 %122
+  %126 = concat(%124, %125) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %129 = v_trunc_f32 %93
+  %130 = v_ldexp_f32 %129, %35
+  %131 = v_floor_f32 %130
+  %132 = v_fma_f32 %131, %36, %129
+  %133 = v_cvt_u32_f32 %132
+  %134 = v_cvt_u32_f32 %131
+  %135 = concat(%133, %134) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %unsigned_vector = concat(%126, %135) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  return %signed, %unsigned, %signed_vector, %unsigned_vector
+}
+
+// ====
+
+func.def @convert_float32_to_wide_integer(%value: f32, %values: vector<2xf32>) -> (i64, i64, vector<2xi64>, vector<2xi64>) {
+  %signed = scalar.fptosi %value : f32 to i64
+  %unsigned = scalar.fptoui %value : f32 to i64
+  %signed_vector = vector.fptosi %values : vector<2xf32> to vector<2xi64>
+  %unsigned_vector = vector.fptoui %values : vector<2xf32> to vector<2xi64>
+  func.return %signed, %unsigned, %signed_vector, %unsigned_vector : i64, i64, vector<2xi64>, vector<2xi64>
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @convert_float32_to_wide_integer(%value: reg<amdgpu.vgpr>, %values: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>) asm {
+  %26 = s_mov_b32 4294967264
+  %27 = s_mov_b32 3481272320
+  %28 = v_ashrrev_i32_src0_inline %value, 31
+  %29 = v_and_b32_lit %value, 2147483647
+  %30 = v_trunc_f32 %29
+  %31 = v_ldexp_f32 %30, %26
+  %32 = v_floor_f32 %31
+  %33 = v_fma_f32 %32, %27, %30
+  %34 = v_cvt_u32_f32 %33
+  %35 = v_cvt_u32_f32 %32
+  %36 = v_xor_b32 %34, %28
+  %37 = v_xor_b32 %35, %28
+  %44, %45 = v_sub_co_u32 %36, %28
+  %46, %47 = v_sub_co_ci_u32 %37, %28, %45
+  %signed = concat(%44, %46) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %51 = v_trunc_f32 %value
+  %52 = v_ldexp_f32 %51, %26
+  %53 = v_floor_f32 %52
+  %54 = v_fma_f32 %53, %27, %51
+  %55 = v_cvt_u32_f32 %54
+  %56 = v_cvt_u32_f32 %53
+  %unsigned = concat(%55, %56) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %58 = slice %values[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %61 = v_ashrrev_i32_src0_inline %58, 31
+  %62 = v_and_b32_lit %58, 2147483647
+  %63 = v_trunc_f32 %62
+  %64 = v_ldexp_f32 %63, %26
+  %65 = v_floor_f32 %64
+  %66 = v_fma_f32 %65, %27, %63
+  %67 = v_cvt_u32_f32 %66
+  %68 = v_cvt_u32_f32 %65
+  %69 = v_xor_b32 %67, %61
+  %70 = v_xor_b32 %68, %61
+  %77, %78 = v_sub_co_u32 %69, %61
+  %79, %80 = v_sub_co_ci_u32 %70, %61, %78
+  %81 = concat(%77, %79) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %82 = slice %values[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %85 = v_ashrrev_i32_src0_inline %82, 31
+  %86 = v_and_b32_lit %82, 2147483647
+  %87 = v_trunc_f32 %86
+  %88 = v_ldexp_f32 %87, %26
+  %89 = v_floor_f32 %88
+  %90 = v_fma_f32 %89, %27, %87
+  %91 = v_cvt_u32_f32 %90
+  %92 = v_cvt_u32_f32 %89
+  %93 = v_xor_b32 %91, %85
+  %94 = v_xor_b32 %92, %85
+  %101, %102 = v_sub_co_u32 %93, %85
+  %103, %104 = v_sub_co_ci_u32 %94, %85, %102
+  %105 = concat(%101, %103) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %signed_vector = concat(%81, %105) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %109 = v_trunc_f32 %58
+  %110 = v_ldexp_f32 %109, %26
+  %111 = v_floor_f32 %110
+  %112 = v_fma_f32 %111, %27, %109
+  %113 = v_cvt_u32_f32 %112
+  %114 = v_cvt_u32_f32 %111
+  %115 = concat(%113, %114) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %118 = v_trunc_f32 %82
+  %119 = v_ldexp_f32 %118, %26
+  %120 = v_floor_f32 %119
+  %121 = v_fma_f32 %120, %27, %118
+  %122 = v_cvt_u32_f32 %121
+  %123 = v_cvt_u32_f32 %120
+  %124 = concat(%122, %123) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %unsigned_vector = concat(%115, %124) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  return %signed, %unsigned, %signed_vector, %unsigned_vector
+}
+
+// ====
+
+func.def @convert_float64_to_wide_integer(%value: f64, %values: vector<2xf64>) -> (i64, i64, vector<2xi64>, vector<2xi64>) {
+  %signed = scalar.fptosi %value : f64 to i64
+  %unsigned = scalar.fptoui %value : f64 to i64
+  %signed_vector = vector.fptosi %values : vector<2xf64> to vector<2xi64>
+  %unsigned_vector = vector.fptoui %values : vector<2xf64> to vector<2xi64>
+  func.return %signed, %unsigned, %signed_vector, %unsigned_vector : i64, i64, vector<2xi64>, vector<2xi64>
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @convert_float64_to_wide_integer(%value: reg<amdgpu.vgpr x2>, %values: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>) asm {
+  %26 = s_mov_b32 4294967264
+  %27 = s_mov_b32 0
+  %28 = s_mov_b32 3253731328
+  %29 = concat(%27, %28) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %30 = v_trunc_f64 %value
+  %31 = v_ldexp_f64 %30, %26
+  %32 = v_floor_f64 %31
+  %33 = v_fma_f64 %32, %29, %30
+  %34 = v_cvt_u32_f64 %33
+  %35 = v_cvt_i32_f64 %32
+  %signed = concat(%34, %35) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %40 = concat(%27, %28) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %44 = v_fma_f64 %32, %40, %30
+  %45 = v_cvt_u32_f64 %44
+  %46 = v_cvt_u32_f64 %32
+  %unsigned = concat(%45, %46) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %48 = slice %values[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x2>
+  %52 = concat(%27, %28) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %53 = v_trunc_f64 %48
+  %54 = v_ldexp_f64 %53, %26
+  %55 = v_floor_f64 %54
+  %56 = v_fma_f64 %55, %52, %53
+  %57 = v_cvt_u32_f64 %56
+  %58 = v_cvt_i32_f64 %55
+  %59 = concat(%57, %58) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %60 = slice %values[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x2>
+  %64 = concat(%27, %28) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %65 = v_trunc_f64 %60
+  %66 = v_ldexp_f64 %65, %26
+  %67 = v_floor_f64 %66
+  %68 = v_fma_f64 %67, %64, %65
+  %69 = v_cvt_u32_f64 %68
+  %70 = v_cvt_i32_f64 %67
+  %71 = concat(%69, %70) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %signed_vector = concat(%59, %71) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %76 = concat(%27, %28) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %80 = v_fma_f64 %55, %76, %53
+  %81 = v_cvt_u32_f64 %80
+  %82 = v_cvt_u32_f64 %55
+  %83 = concat(%81, %82) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %87 = concat(%27, %28) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %91 = v_fma_f64 %67, %87, %65
+  %92 = v_cvt_u32_f64 %91
+  %93 = v_cvt_u32_f64 %67
+  %94 = concat(%92, %93) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %unsigned_vector = concat(%83, %94) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  return %signed, %unsigned, %signed_vector, %unsigned_vector
+}
