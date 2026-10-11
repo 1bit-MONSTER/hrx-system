@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <vector>
@@ -36,20 +37,41 @@ class Pm4MappingTest : public Pm4DispatchTest {
   void TearDown() override {
     // Remove execution before addresses, then addresses before backing. Native
     // failure never turns into an implicit destructor retry or backing reuse.
+    if (cleanup_failed_) {
+      return;
+    }
     if (queue_ != nullptr) {
       ASSERT_TRUE(queue_->Release(api_));
     }
     for (auto** owner : {&reservation_, &second_reservation_}) {
       if (*owner != nullptr) {
-        const amdf_status_t status = api_->memory_reservation_destroy(*owner);
-        *owner = nullptr;
-        ASSERT_EQ(status, AMDF_STATUS_OK);
+        ASSERT_NO_FATAL_FAILURE(ReleaseReservation(owner));
       }
     }
     for (auto& backing : backing_) {
-      ASSERT_TRUE(backing.Release(api_));
+      ASSERT_NO_FATAL_FAILURE(ReleaseBacking(&backing));
+    }
+    for (void* storage : caller_storage_) {
+      std::free(storage);
+    }
+    if (second_device_ != nullptr) {
+      const amdf_status_t status = api_->device_destroy(second_device_);
+      second_device_ = nullptr;
+      ASSERT_EQ(status, AMDF_STATUS_OK);
     }
     Pm4DispatchTest::TearDown();
+  }
+
+  void ReleaseReservation(amdf_memory_reservation_t** owner) {
+    const amdf_status_t status = api_->memory_reservation_destroy(*owner);
+    *owner = nullptr;
+    cleanup_failed_ = !amdf_status_is_ok(status);
+    ASSERT_EQ(status, AMDF_STATUS_OK);
+  }
+
+  void ReleaseBacking(GpuMemory* backing) {
+    cleanup_failed_ = !backing->Release(api_);
+    ASSERT_FALSE(cleanup_failed_);
   }
 
   void Prepare(amdf_memory_scope_t* scope,
@@ -75,14 +97,15 @@ class Pm4MappingTest : public Pm4DispatchTest {
     ASSERT_EQ(kSlabByteLength % capabilities.mapping_granularity, 0u);
     required_access_ = capabilities.required_access;
     access_ = kReadWrite | required_access_;
-    const amdf_memory_reservation_access_t access = {device_, 0, access_};
+    const amdf_memory_reservation_access_t accesses[] = {
+        {device_, 0, access_}, {second_device_, 0, access_}};
     const amdf_memory_reservation_create_info_t create = {
         .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CREATE_INFO,
         .structure_size = sizeof(create),
         .byte_length = kReservationByteLength,
         .minimum_alignment = kAlignment,
-        .access_count = 1,
-        .accesses = &access,
+        .access_count = second_device_ == nullptr ? 1u : 2u,
+        .accesses = accesses,
     };
     ASSERT_EQ(
         api_->memory_reservation_create(instance_, &create, &reservation_),
@@ -125,10 +148,14 @@ class Pm4MappingTest : public Pm4DispatchTest {
     ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue_, command_byte_length));
   }
 
-  void CreateBacking(uint64_t byte_length, GpuMemory** out_memory) {
+  void CreateBacking(uint64_t byte_length, GpuMemory** out_memory,
+                     amdf_device_t* consumer = nullptr) {
+    if (consumer == nullptr) {
+      consumer = device_;
+    }
     const bool system = scope_ == system_scope_;
     const amdf_memory_device_access_t attachment = {
-        device_,
+        consumer,
         {.access = access_,
          .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
                   AMDF_MEMORY_FLAG_MAPPING_SOURCE |
@@ -139,9 +166,9 @@ class Pm4MappingTest : public Pm4DispatchTest {
     create.structure_size = sizeof(create);
     create.required_flags =
         system ? AMDF_MEMORY_FLAG_HOST_VISIBLE : AMDF_MEMORY_FLAG_DEVICE_LOCAL;
-    create.memory_profile_ordinal = FindMemoryProfileOrdinal(
-        scope_, AMDF_MEMORY_PROFILE_ROLE_CREATE, create.required_flags,
-        attachment.requirements);
+    create.memory_profile_ordinal = FindGpuMemoryProfileOrdinal(
+        api_, scope_, consumer, AMDF_MEMORY_PROFILE_ROLE_CREATE,
+        create.required_flags, attachment.requirements);
     ASSERT_NE(create.memory_profile_ordinal,
               AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN);
     create.byte_length = byte_length;
@@ -248,7 +275,7 @@ class Pm4MappingTest : public Pm4DispatchTest {
     first.access = 0;
     ASSERT_EQ(api_->memory_reservation_update(reservation_, 0, 1, &first),
               AMDF_STATUS_OK);
-    ASSERT_TRUE(original->Release(api_));
+    ASSERT_NO_FATAL_FAILURE(ReleaseBacking(original));
 
     constexpr std::array<uint64_t, 9> kPayloadLengths = {
         128, 4096, 4096, 4096, 4096, 128, 128, 4096, 4096};
@@ -296,7 +323,7 @@ class Pm4MappingTest : public Pm4DispatchTest {
       };
       ASSERT_EQ(api_->memory_reservation_update(reservation_, 0, 1, &detach),
                 AMDF_STATUS_OK);
-      ASSERT_TRUE(slabs[i]->Release(api_));
+      ASSERT_NO_FATAL_FAILURE(ReleaseBacking(slabs[i]));
     }
     RecordProperty("mapping_verified_split_owners", slabs.size());
   }
@@ -348,11 +375,9 @@ class Pm4MappingTest : public Pm4DispatchTest {
     }
     // Final release clears live mappings and holes while the same queue is
     // still alive. Backing is released before queue teardown can help.
-    const amdf_status_t status = api_->memory_reservation_destroy(reservation_);
-    reservation_ = nullptr;
-    ASSERT_EQ(status, AMDF_STATUS_OK);
+    ASSERT_NO_FATAL_FAILURE(ReleaseReservation(&reservation_));
     for (auto* slab : slabs) {
-      ASSERT_TRUE(slab->Release(api_));
+      ASSERT_NO_FATAL_FAILURE(ReleaseBacking(slab));
     }
     RecordProperty("mapping_verified_retained_generations", 3);
   }
@@ -612,12 +637,185 @@ class Pm4MappingTest : public Pm4DispatchTest {
     ASSERT_TRUE(amdf::testing::CheckSparseWords(
         "preserved capture", capture.data(), capture.size(), 1));
     for (auto** owner : {&reservation_, &second_reservation_}) {
-      const amdf_status_t status = api_->memory_reservation_destroy(*owner);
-      *owner = nullptr;
-      ASSERT_EQ(status, AMDF_STATUS_OK);
+      ASSERT_NO_FATAL_FAILURE(ReleaseReservation(owner));
     }
     for (auto* slab : slabs) {
-      ASSERT_TRUE(slab->Release(api_));
+      ASSERT_NO_FATAL_FAILURE(ReleaseBacking(slab));
+    }
+  }
+
+  void RunSharedDomain(amdf_memory_scope_t* scope) {
+    // This case deliberately owns a second logical device: its paging owner
+    // and allocation handles must work with the first device's existing queue.
+    amdf_gpu_device_create_info_t device_create = {};
+    device_create.type = AMDF_STRUCTURE_TYPE_GPU_DEVICE_CREATE_INFO;
+    device_create.structure_size = sizeof(device_create);
+    ASSERT_EQ(
+        gpu_api_->device_create(endpoint_, &device_create, &second_device_),
+        AMDF_STATUS_OK);
+    ASSERT_NO_FATAL_FAILURE(Prepare(scope));
+    if (IsSkipped()) {
+      return;
+    }
+    amdf_memory_reservation_access_info_t second = {};
+    second.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO;
+    second.structure_size = sizeof(second);
+    ASSERT_EQ(
+        api_->memory_reservation_query_access_info(reservation_, 1, &second),
+        AMDF_STATUS_OK);
+    ASSERT_EQ(second.mapping_access_ordinal,
+              reservation_info_.mapping_access_ordinal);
+    ASSERT_EQ(second.address, reservation_info_.address);
+
+    GpuMemory* primary_backing = nullptr;
+    GpuMemory* secondary_backing = nullptr;
+    ASSERT_NO_FATAL_FAILURE(CreateBacking(kSlabByteLength, &primary_backing));
+    ASSERT_NO_FATAL_FAILURE(
+        CreateBacking(kSlabByteLength, &secondary_backing, second_device_));
+    const uint64_t offset = (UINT64_C(4) << 30) + kSlabByteLength;
+    amdf_memory_mapping_update_t update = {
+        .target_byte_offset = offset,
+        .byte_length = kSlabByteLength,
+        .memory = secondary_backing->memory,
+        .access = access_,
+    };
+    // The first GPU action after publication executes on the other logical
+    // device. No allocation or diagnostic submission supplies readiness.
+    ASSERT_EQ(api_->memory_reservation_update(reservation_, 1, 1, &update),
+              AMDF_STATUS_OK);
+    ASSERT_NO_FATAL_FAILURE(
+        WriteAndVerify(offset, 4096, 1, *secondary_backing));
+    update.memory = primary_backing->memory;
+    ASSERT_EQ(api_->memory_reservation_update(reservation_, 0, 1, &update),
+              AMDF_STATUS_OK);
+    ASSERT_NO_FATAL_FAILURE(WriteAndVerify(offset, 4096, 2, *primary_backing));
+    ASSERT_NO_FATAL_FAILURE(Verify(
+        secondary_backing->device_address + kPayloadByteOffset, 4096, 1));
+    ASSERT_NO_FATAL_FAILURE(ReleaseReservation(&reservation_));
+    ASSERT_NO_FATAL_FAILURE(ReleaseBacking(secondary_backing));
+    ASSERT_NO_FATAL_FAILURE(ReleaseBacking(primary_backing));
+  }
+
+  void RunRegisteredSource() {
+    ASSERT_NO_FATAL_FAILURE(Prepare(system_scope_));
+    if (IsSkipped()) {
+      return;
+    }
+    const amdf_memory_device_access_t attachment = {
+        device_,
+        {.access = access_,
+         .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
+                  AMDF_MEMORY_FLAG_MAPPING_SOURCE |
+                  AMDF_MEMORY_FLAG_HOST_COHERENT},
+    };
+    amdf_memory_scope_info_t scope_info = {};
+    scope_info.type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO;
+    scope_info.structure_size = sizeof(scope_info);
+    ASSERT_EQ(api_->memory_scope_query_info(scope_, &scope_info),
+              AMDF_STATUS_OK);
+    amdf_memory_profile_t profile = {};
+    profile.type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE;
+    profile.structure_size = sizeof(profile);
+    amdf_memory_access_capabilities_t capabilities = {};
+    capabilities.type = AMDF_STRUCTURE_TYPE_MEMORY_ACCESS_CAPABILITIES;
+    capabilities.structure_size = sizeof(capabilities);
+    uint32_t ordinal = AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN;
+    for (uint32_t i = 0; i < scope_info.memory_profile_count; ++i) {
+      const amdf_status_t status = api_->memory_scope_query_device_profile(
+          scope_, i, 1, &attachment, &profile, &capabilities);
+      if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+        continue;
+      }
+      ASSERT_EQ(status, AMDF_STATUS_OK);
+      constexpr auto kRoles =
+          AMDF_MEMORY_PROFILE_ROLE_REGISTER | AMDF_MEMORY_PROFILE_ROLE_HOST_MAP;
+      if ((profile.roles & kRoles) == kRoles &&
+          (profile.supported_flags & AMDF_MEMORY_FLAG_HOST_VISIBLE) != 0) {
+        ordinal = i;
+        break;
+      }
+    }
+    if (ordinal == AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN) {
+      GTEST_SKIP() << "registered pages are not an advertised mapping source";
+    }
+    const uint64_t granularity =
+        std::max(reservation_info_.mapping_granularity,
+                 profile.registration.native_byte_length_granularity);
+    const uint64_t alignment =
+        std::max({granularity, profile.registration.minimum_alignment,
+                  profile.registration.registered_host_pointer_alignment});
+    ASSERT_GE(granularity, 4096u);
+    ASSERT_LE(granularity, kLargePayloadByteLength);
+    const uint64_t byte_length = 4 * granularity;
+    ASSERT_LE(byte_length, profile.registration.maximum_byte_length);
+    std::array<GpuMemory*, 2> sources = {};
+    for (auto& source : sources) {
+      void* storage = std::malloc(byte_length + alignment - 1);
+      ASSERT_NE(storage, nullptr);
+      const uintptr_t pointer =
+          (reinterpret_cast<uintptr_t>(storage) + alignment - 1) &
+          ~(alignment - 1);
+      std::memset(reinterpret_cast<void*>(pointer), 0, byte_length);
+      amdf_memory_create_info_t create = {};
+      create.type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO;
+      create.structure_size = sizeof(create);
+      create.memory_profile_ordinal = ordinal;
+      create.required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
+      create.byte_length = byte_length;
+      create.minimum_alignment = alignment;
+      create.access_count = 1;
+      create.accesses = &attachment;
+      create.registered_host_pointer = reinterpret_cast<void*>(pointer);
+      create.registered_host_cacheability = AMDF_HOST_CACHEABILITY_WRITE_BACK;
+      source = &backing_.emplace_back();
+      source->Initialize(api_, scope_, create);
+      // A failed construction rollback can retain native pins. Free caller
+      // pages only through a published handle's successful final release.
+      if (source->memory != nullptr) {
+        caller_storage_.push_back(storage);
+      }
+      ASSERT_FALSE(HasFatalFailure());
+    }
+    const uint64_t offset = (UINT64_C(4) << 30) + kSlabByteLength;
+    const uint64_t payload_length = granularity - kPayloadByteOffset;
+    amdf_memory_mapping_update_t update = {
+        .target_byte_offset = offset,
+        .byte_length = granularity,
+        .access = access_,
+        .source_byte_offset = granularity,
+    };
+    for (uint32_t generation = 1; generation <= sources.size(); ++generation) {
+      update.memory = sources[generation - 1]->memory;
+      auto* words = static_cast<uint32_t*>(upload_->host.pointer);
+      for (uint64_t i = 0; i < payload_length / 4; ++i) {
+        words[i] = TaggedWord(generation, i);
+      }
+      ASSERT_EQ(api_->memory_reservation_update(reservation_, 0, 1, &update),
+                AMDF_STATUS_OK);
+      ASSERT_NO_FATAL_FAILURE(
+          Copy(upload_->device_address,
+               reservation_info_.address + offset + kPayloadByteOffset,
+               payload_length));
+      ASSERT_NO_FATAL_FAILURE(
+          Verify(reservation_info_.address + offset + kPayloadByteOffset,
+                 payload_length, generation));
+      for (uint32_t previous = 1; previous <= generation; ++previous) {
+        const auto* source = sources[previous - 1];
+        ASSERT_NO_FATAL_FAILURE(
+            Verify(source->device_address + granularity + kPayloadByteOffset,
+                   payload_length, previous));
+        const auto* host = reinterpret_cast<const uint32_t*>(
+            static_cast<const uint8_t*>(
+                source->creation.registered_host_pointer) +
+            granularity + kPayloadByteOffset);
+        for (uint64_t i = 0; i < payload_length / 4; ++i) {
+          ASSERT_EQ(host[i], TaggedWord(previous, i)) << "word=" << i;
+        }
+      }
+    }
+    ASSERT_NO_FATAL_FAILURE(ReleaseReservation(&reservation_));
+    for (auto* source : sources) {
+      ASSERT_NO_FATAL_FAILURE(ReleaseBacking(source));
     }
   }
 
@@ -636,6 +834,12 @@ class Pm4MappingTest : public Pm4DispatchTest {
   // Stable physical owners; early release consumes handles without erasing
   // slots.
   std::deque<GpuMemory> backing_;
+  // Caller-owned pages retained through every registered source's teardown.
+  std::vector<void*> caller_storage_;
+  // Case-owned logical device used to exercise shared native address domains.
+  amdf_device_t* second_device_ = nullptr;
+  // Failed consuming teardown preserves the remaining native dependencies.
+  bool cleanup_failed_ = false;
   // Persistent stream, owned by the command fixture and never recreated.
   GpuCommandQueue* queue_ = nullptr;
   // Immutable compiled program selected by endpoint capabilities.
@@ -698,6 +902,21 @@ TEST_F(Pm4MappingTest, LocalBackingPermutesRetainedSparseStateAndCacheRanges) {
     GTEST_SKIP() << "endpoint has no local storage scope";
   }
   RunRetainedSparse(local_scope_);
+}
+
+TEST_F(Pm4MappingTest, SystemBackingReplacementThroughSharedLogicalDevices) {
+  RunSharedDomain(system_scope_);
+}
+
+TEST_F(Pm4MappingTest, LocalBackingReplacementThroughSharedLogicalDevices) {
+  if (local_scope_ == nullptr) {
+    GTEST_SKIP() << "endpoint has no local storage scope";
+  }
+  RunSharedDomain(local_scope_);
+}
+
+TEST_F(Pm4MappingTest, RegisteredBackingReplacementPreservesCallerPages) {
+  RunRegisteredSource();
 }
 
 }  // namespace
