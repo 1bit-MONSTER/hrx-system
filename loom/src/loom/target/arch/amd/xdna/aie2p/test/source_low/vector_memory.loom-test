@@ -568,27 +568,27 @@ func.def target(@target) @reduce_positive_i32x7(%input: buffer) -> (i32) {
 low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @reduce_positive_i32x7() -> (reg<aie2p.er>) asm {
   %input_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %initial = mov.short 1000
-  %69 = lda %input_view, 0
-  %70 = lda %input_view, 4
-  %71 = lda %input_view, 8
-  %72 = lda %input_view, 12
-  %73 = ltu.select %initial, %69
-  %74 = sel.nez %initial, %69, %73
-  %75 = ltu.select %74, %70
-  %76 = sel.nez %74, %70, %75
-  %77 = ltu.select %76, %71
-  %78 = sel.nez %76, %71, %77
-  %79 = ltu.select %78, %72
-  %80 = sel.nez %78, %72, %79
-  %81 = lda %input_view, 16
-  %82 = lda %input_view, 20
-  %83 = lda %input_view, 24
-  %84 = ltu.select %80, %81
-  %85 = sel.nez %80, %81, %84
-  %86 = ltu.select %85, %82
-  %87 = sel.nez %85, %82, %86
-  %88 = ltu.select %87, %83
-  %minimum = sel.nez %87, %83, %88
+  %60 = lda %input_view, 0
+  %61 = ltu.select %initial, %60
+  %62 = sel.nez %initial, %60, %61
+  %63 = lda %input_view, 4
+  %64 = ltu.select %62, %63
+  %65 = sel.nez %62, %63, %64
+  %66 = lda %input_view, 8
+  %67 = ltu.select %65, %66
+  %68 = sel.nez %65, %66, %67
+  %69 = lda %input_view, 12
+  %70 = ltu.select %68, %69
+  %71 = sel.nez %68, %69, %70
+  %72 = lda %input_view, 16
+  %73 = ltu.select %71, %72
+  %74 = sel.nez %71, %72, %73
+  %75 = lda %input_view, 20
+  %76 = ltu.select %74, %75
+  %77 = sel.nez %74, %75, %76
+  %78 = lda %input_view, 24
+  %79 = ltu.select %77, %78
+  %minimum = sel.nez %77, %78, %79
   return %minimum
 }
 
