@@ -7,6 +7,8 @@
 #ifndef AMDF_SRC_GPU_UMD_KFD_INSTANCE_H_
 #define AMDF_SRC_GPU_UMD_KFD_INSTANCE_H_
 
+#include <pthread.h>
+
 #include "libamdf/src/gpu/umd/instance.h"
 #include "libamdf/src/gpu/umd/kfd/topology.h"
 
@@ -16,6 +18,12 @@ extern "C" {
 
 // Returns the borrowed descriptor after successful instance preparation.
 int amdf_gpu_kfd_instance_descriptor(const amdf_gpu_umd_instance_t* instance);
+
+// Returns the connection's cold VM-mutation lock, borrowed through destruction.
+// All devices and peer mappings on this connection share this lock. Native
+// mapping completion extends past KFD's own process mutex into PASID flushes.
+pthread_mutex_t* amdf_gpu_kfd_instance_memory_mutex(
+    amdf_gpu_umd_instance_t* instance);
 
 // Acquires or reuses this context's exact render-file VM for one GPU. The
 // caller holds the owning platform instance's native-state lock. Any return

@@ -38,14 +38,17 @@ static amdf_status_t amdf_gpu_kfd_doorbell_release_native(
         .device_ids_array_ptr = (uintptr_t)&gpu_id,
         .n_devices = doorbell->mapped_count,
     };
+    amdf_gpu_kfd_device_lock_memory(doorbell->device);
     int result;
     do {
       // KFD preserves its completed prefix across interrupted final waits.
       result = ioctl(doorbell->device->descriptor,
                      AMDKFD_IOC_UNMAP_MEMORY_FROM_GPU, &unmap);
     } while (result == -1 && errno == EINTR);
+    const int error = errno;
+    amdf_gpu_kfd_device_unlock_memory(doorbell->device);
     if (result != 0) {
-      return amdf_linux_error(errno);
+      return amdf_linux_error(error);
     }
     if (unmap.n_success != doorbell->mapped_count) {
       return amdf_linux_error(EPROTO);
@@ -57,9 +60,13 @@ static amdf_status_t amdf_gpu_kfd_doorbell_release_native(
     };
     // Special allocation release has different consumption semantics from
     // ordinary GTT/VRAM buffers. Any error is terminal for this owner.
-    if (ioctl(doorbell->device->descriptor, AMDKFD_IOC_FREE_MEMORY_OF_GPU,
-              &release) != 0) {
-      return amdf_linux_error(errno);
+    amdf_gpu_kfd_device_lock_memory(doorbell->device);
+    const int result = ioctl(doorbell->device->descriptor,
+                             AMDKFD_IOC_FREE_MEMORY_OF_GPU, &release);
+    const int error = errno;
+    amdf_gpu_kfd_device_unlock_memory(doorbell->device);
+    if (result != 0) {
+      return amdf_linux_error(error);
     }
   }
   if (doorbell->reservation != NULL &&
@@ -116,6 +123,7 @@ amdf_status_t amdf_gpu_kfd_doorbell_create(
                KFD_IOC_ALLOC_MEM_FLAGS_UNCACHED,
   };
   if (amdf_status_is_ok(status)) {
+    amdf_gpu_kfd_device_lock_memory(device);
     if (ioctl(device->descriptor, AMDKFD_IOC_ALLOC_MEMORY_OF_GPU, &allocate) !=
         0) {
       status = amdf_linux_error(errno);
@@ -125,6 +133,7 @@ amdf_status_t amdf_gpu_kfd_doorbell_create(
         status = amdf_linux_error(EPROTO);
       }
     }
+    amdf_gpu_kfd_device_unlock_memory(device);
   }
   if (amdf_status_is_ok(status)) {
     uint32_t gpu_id = device->topology.gpu_id;
@@ -133,13 +142,16 @@ amdf_status_t amdf_gpu_kfd_doorbell_create(
         .device_ids_array_ptr = (uintptr_t)&gpu_id,
         .n_devices = 1,
     };
+    amdf_gpu_kfd_device_lock_memory(device);
     int result;
     do {
       result = ioctl(device->descriptor, AMDKFD_IOC_MAP_MEMORY_TO_GPU, &map);
     } while (result == -1 && errno == EINTR);
+    const int error = errno;
+    amdf_gpu_kfd_device_unlock_memory(device);
     doorbell->mapped_count = map.n_success;
     if (result != 0) {
-      status = amdf_linux_error(errno);
+      status = amdf_linux_error(error);
     } else if (map.n_success != 1) {
       status = amdf_linux_error(EPROTO);
     }

@@ -236,15 +236,18 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
     for (const auto& mapping : mappings) {
       sources.push_back(bo_entries_[mapping.backing]);
     }
+    amdf_gpu_kfd_device_lock_memory(device_);
     for (const auto& mapping : mappings) {
       Update(AMDGPU_VA_OP_REPLACE, bo_entries_[mapping.backing].bo_handle,
              reservation_addresses[mapping.reservation] + mapping.byte_offset,
              kSparseSlabByteLength);
     }
     PublishMappings(sources);
+    amdf_gpu_kfd_device_unlock_memory(device_);
   }
 
   void Detach(std::span<const SparseMapping> mappings) override {
+    amdf_gpu_kfd_device_lock_memory(device_);
     for (const auto& mapping : mappings) {
       Update(AMDGPU_VA_OP_CLEAR, 0,
              reservation_addresses[mapping.reservation] + mapping.byte_offset,
@@ -253,6 +256,7 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
     // Removal needs no old source handles or reconstruction of the installed
     // mapping set. Only the publication command's own transport is submitted.
     PublishMappings(std::span(&bo_entries_.back(), 1));
+    amdf_gpu_kfd_device_unlock_memory(device_);
   }
 
   void Execute(std::span<const uint32_t> words,
@@ -287,10 +291,12 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
     // Clear the complete reservations, including holes, without enumerating
     // their installed mappings. Completion precedes backing release while the
     // same queue is alive; queue teardown cannot supply this guarantee.
+    amdf_gpu_kfd_device_lock_memory(device_);
     for (uint64_t address : reservation_addresses) {
       Update(AMDGPU_VA_OP_CLEAR, 0, address, reservation_byte_length_);
     }
     PublishMappings(std::span(&bo_entries_.back(), 1));
+    amdf_gpu_kfd_device_unlock_memory(device_);
     for (size_t i = 0; i < backing_.size(); ++i) {
       drm_gem_close release = {};
       release.handle = bo_entries_[i].bo_handle;
