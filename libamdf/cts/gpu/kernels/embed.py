@@ -8,9 +8,10 @@
 """Embeds physical variants of a self-contained AMDHSA V6 kernel.
 
 The input descriptor and AMDGPU metadata own all resource and argument facts.
-The generated image preserves descriptor/text addresses relative to an aligned
-upload base. Queue admission, argument values and final-use ownership belong to
-the typed caller; this cold tool neither compiles nor executes the kernel.
+The generated image preserves read-only data and text addresses relative to an
+aligned upload base. Queue admission, argument values and final-use ownership
+belong to the typed caller; this cold tool neither compiles nor executes the
+kernel.
 """
 
 from __future__ import annotations
@@ -390,12 +391,14 @@ def kernel_metadata(metadata, symbol, descriptor):
 
 @dataclass(frozen=True)
 class KernelImage:
-    # Descriptor and full text with their linked relative placement intact.
+    # Complete read-only data and text with their linked placement intact.
     image: bytes
     # Exact compiler-emitted 64-byte descriptor.
     descriptor: bytes
     # Descriptor byte position within the aligned image.
     descriptor_offset: int
+    # Complete .rodata storage extent, beginning at descriptor_offset.
+    rodata_size: int
     # Kernel entry byte position within the aligned image.
     entry_offset: int
     # Function-symbol byte extent, independent of complete text storage.
@@ -448,23 +451,51 @@ def extract_image(data, symbol):
         terminated = terminated or tag == 0
     require(terminated, "unterminated dynamic table")
     symbols = elf.symbols(elf.section(".dynsym", 11))
-    require(
-        set(symbols) == {symbol, symbol + ".kd"},
-        "expected only the kernel and descriptor symbols",
-    )
+    require(symbol in symbols, "missing kernel symbol")
+    require(symbol + ".kd" in symbols, "missing kernel descriptor symbol")
     text = elf.section(".text", 1)
     rodata = elf.section(".rodata", 1)
     elf.require_loaded(rodata, 2)
     elf.require_loaded(text, 6)
+    rodata_index = elf.sections.index(rodata)
     entry = symbols[symbol]
     descriptor_symbol = symbols[symbol + ".kd"]
     require(
         descriptor_symbol[1] == 0x11
-        and descriptor_symbol[3] == elf.sections.index(rodata)
+        and descriptor_symbol[3] == rodata_index
         and descriptor_symbol[4] == rodata.address
-        and descriptor_symbol[5] == rodata.size == 64,
-        "rodata must contain exactly the kernel descriptor",
+        and descriptor_symbol[5] == 64
+        and rodata.size >= 64,
+        "rodata must begin with the complete kernel descriptor",
     )
+    occupied_rodata = [(0, 64, symbol + ".kd")]
+    for name, object_symbol in symbols.items():
+        if name in (symbol, symbol + ".kd"):
+            continue
+        require(
+            object_symbol[1] == 0x11,
+            f"extra symbol is not a global object: {name}",
+        )
+        require(
+            object_symbol[3] == rodata_index,
+            f"extra object is outside rodata: {name}",
+        )
+        object_offset = object_symbol[4] - rodata.address
+        object_size = object_symbol[5]
+        require(
+            0 <= object_offset <= rodata.size
+            and object_size > 0
+            and object_size <= rodata.size - object_offset,
+            f"extra object exceeds rodata: {name}",
+        )
+        require(
+            all(
+                object_offset + object_size <= start or object_offset >= end
+                for start, end, _ in occupied_rodata
+            ),
+            f"overlapping rodata object: {name}",
+        )
+        occupied_rodata.append((object_offset, object_offset + object_size, name))
     require(
         entry[1] == 0x12
         and entry[3] == elf.sections.index(text)
@@ -478,7 +509,8 @@ def extract_image(data, symbol):
         rodata.address % 64 == 0 and text.address % 256 == 0,
         "descriptor/entry alignment",
     )
-    descriptor = elf.contents(rodata)
+    rodata_contents = elf.contents(rodata)
+    descriptor = rodata_contents[:64]
     require(
         descriptor[12:16] == bytes(4)
         and descriptor[24:44] == bytes(20)
@@ -487,28 +519,29 @@ def extract_image(data, symbol):
     )
     delta = struct.unpack_from("<q", descriptor, 16)[0]
     require(
-        delta >= 64 and rodata.address + delta == text.address,
+        delta >= rodata.size and rodata.address + delta == text.address,
         "descriptor entry offset mismatch",
     )
     target, metadata = kernel_metadata(read_metadata(elf), symbol, descriptor)
     phase = rodata.address % 256
     image_size = phase + delta + text.size
-    require(image_size <= len(data), "unsupported sparse descriptor/text image")
+    require(image_size <= len(data), "unsupported sparse rodata/text image")
     require(image_size <= 0xFFFFFFFF, "image exceeds the caller's 32-bit extent")
     image = bytearray(image_size)
-    image[phase : phase + 64] = descriptor
+    image[phase : phase + rodata.size] = rodata_contents
     image[phase + delta :] = elf.contents(text)
     return KernelImage(
-        bytes(image),
-        descriptor,
-        phase,
-        phase + delta,
-        entry[5],
-        text.size,
-        elf.flags,
-        hashlib.sha256(data).hexdigest(),
-        target,
-        metadata,
+        image=bytes(image),
+        descriptor=descriptor,
+        descriptor_offset=phase,
+        rodata_size=rodata.size,
+        entry_offset=phase + delta,
+        entry_size=entry[5],
+        text_size=text.size,
+        elf_flags=elf.flags,
+        hsaco_sha256=hashlib.sha256(data).hexdigest(),
+        target=target,
+        metadata=metadata,
     )
 
 
@@ -525,6 +558,7 @@ def render_variant(kernel, namespace):
     ]
     constants = {
         "kDescriptorByteOffset": kernel.descriptor_offset,
+        "kRodataByteLength": kernel.rodata_size,
         "kEntryByteOffset": kernel.entry_offset,
         "kEntryByteLength": kernel.entry_size,
         "kTextByteLength": kernel.text_size,
@@ -590,6 +624,7 @@ def render_variant(kernel, namespace):
             "    kImage.data(),",
             "    sizeof(kImage),",
             "    kDescriptorByteOffset,",
+            "    kRodataByteLength,",
             "    kImageSha256,",
             "};",
             "",

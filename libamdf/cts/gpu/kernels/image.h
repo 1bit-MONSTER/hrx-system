@@ -14,12 +14,14 @@ namespace kernels {
 // One fixed compiler artifact, uploaded unchanged at a 256-byte-aligned base.
 // Kernel pairs these bytes with the compiler's argument and launch metadata.
 struct Image {
-  // Borrowed little-endian words containing the paired descriptor and code.
+  // Borrowed little-endian words containing read-only data and code.
   const uint32_t* words;
   // Complete copied image length, including alignment and compiler padding.
   uint32_t byte_length;
   // Descriptor location within the image, preserving its signed entry offset.
   uint32_t descriptor_byte_offset;
+  // Complete .rodata extent beginning at descriptor_byte_offset.
+  uint32_t rodata_byte_length;
   // SHA-256 of the complete image bytes, recorded in the native test receipt.
   const char* sha256;
 };

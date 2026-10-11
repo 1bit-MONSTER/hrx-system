@@ -24,7 +24,7 @@ struct Kernel {
   const char* target;
   // SHA-256 of the complete compiler code object before extraction.
   const char* hsaco_sha256;
-  // Descriptor and text with their linked placement preserved.
+  // Read-only data and text with their linked placement preserved.
   Image executable;
   // Entry point relative to the beginning of executable.
   uint32_t entry_byte_offset;
