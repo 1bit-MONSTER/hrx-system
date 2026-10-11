@@ -64,3 +64,80 @@ low.func.def target<test.low.core>(@test_target) @compact_return_annotation(%val
   // ERROR@+1: PARSE/003
   return %value : reg<test.i32>
 }
+
+// ====
+// RUN: format bytecode
+
+// Full register types, including semantic payloads, come from the tied input.
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @inherited_scalar_type(%source: reg<test.i64 : i64>) -> (reg<test.i64 : i64>) asm {
+  %result = test.tied.any %source
+  return %result
+}
+
+// ====
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @inherited_vector_type(%source: reg<test.i32 x4 : vector<4xi32>>) -> (reg<test.i32 x4 : vector<4xi32>>) asm {
+  %result = test.early_tied.v4i32 %source
+  return %result
+}
+
+// ====
+
+// Destructive register reuse inherits the type but does not consume ownership.
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @destructive_without_ownership(%source: reg<test.i64 : i64>) -> (reg<test.i64 : i64>, reg<test.i64 : i64>) asm {
+  %result = test.destructive.any %source
+  return %result, %source
+}
+
+// ====
+
+// Authored ownership is retained even when the descriptor has no default tie.
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @destructive_with_ownership(%source: reg<test.i64 : i64>) -> (reg<test.i64 : i64>) asm {
+  %result = test.destructive.any %source : %source as reg<test.i64 : i64>
+  return %result
+}
+
+// ====
+
+// Default tie rows are deliberately not in result order in the descriptor.
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @reordered_default_ties(%left: reg<test.i32 : i32>, %right: reg<test.i64 : i64>) -> (reg<test.i64 : i64>, reg<test.i32 : i32>) asm {
+  %first, %second = test.tied.pair %left, %right : %right as reg<test.i64 : i64>, %left as reg<test.i32 : i32>
+  return %first, %second
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @reordered_default_ties(%left: reg<test.i32 : i32>, %right: reg<test.i64 : i64>) -> (reg<test.i64 : i64>, reg<test.i32 : i32>) asm {
+  %first, %second = test.tied.pair %left, %right
+  return %first, %second
+}
+
+// ====
+
+// Explicit ownership replaces the whole default set; it is not merged with it.
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @partially_owned_results(%left: reg<test.i32 : i32>, %right: reg<test.i64 : i64>) -> (reg<test.i64 : i64>, reg<test.i32 : i32>, reg<test.i32 : i32>) asm {
+  %first, %second = test.tied.pair %left, %right : %right as reg<test.i64 : i64>, reg<test.i32 : i32>
+  return %first, %second, %left
+}
+
+// ====
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @replaced_ownership(%left: reg<test.i32 : i32>, %right: reg<test.i32 : i32>) -> (reg<test.i32 : i32>, reg<test.i32 : i32>) asm {
+  %first, %second = test.tied.pair %left, %right : %left as reg<test.i32 : i32>, %right as reg<test.i32 : i32>
+  return %first, %second
+}

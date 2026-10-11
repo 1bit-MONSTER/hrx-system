@@ -475,7 +475,7 @@ def test_compiler_interns_exact_descriptor_and_asm_spans() -> None:
     assert const_form.layout_index == const_copy_form.layout_index
     assert add_form.layout_index != const_form.layout_index
     assert len(compiled.asm_table_storage.layouts) == 2
-    assert compiled.asm_table_storage.operand_indices == [0, 1, 2]
+    assert not compiled.asm_table_storage.tied_results
     assert len(compiled.asm_table_storage.immediates) == 1
 
 
@@ -537,8 +537,7 @@ def test_assembly_layout_interning_preserves_every_projection(changes) -> None:
     assert len(storage.layouts) == (2 if changes else 1)
     for asm_form in compiled.asm_forms:
         layout = storage.layouts[asm_form.layout_index]
-        assert tuple(storage.operand_indices[layout.result_operand_index_start : layout.result_operand_index_start + layout.result_operand_index_count]) == asm_form.result_indices
-        assert tuple(storage.operand_indices[layout.operand_index_start : layout.operand_index_start + layout.operand_index_count]) == asm_form.operand_indices
+        assert tuple(storage.tied_results[layout.tied_result_start : layout.tied_result_start + layout.tied_result_count]) == asm_form.tied_results
         assert tuple(storage.operand_segments[layout.operand_segment_start : layout.operand_segment_start + layout.operand_segment_count]) == asm_form.operand_segments
         assert tuple(storage.immediates[layout.immediate_start : layout.immediate_start + len(asm_form.immediates)]) == asm_form.immediates
         assert layout.explicit_immediate_count == asm_form.explicit_immediate_count
@@ -546,10 +545,10 @@ def test_assembly_layout_interning_preserves_every_projection(changes) -> None:
         assert layout.requires_named_immediates == asm_form.requires_named_immediates
         assert layout.native_owns_immediate_syntax == asm_form.native_owns_immediate_syntax
         assert tuple(storage.native_values[layout.native_assembly_value_start : layout.native_assembly_value_start + layout.native_assembly_value_count]) == asm_form.native_assembly_values
-        if layout.result_value_type_start is None:
-            assert not asm_form.result_value_types
+        if layout.result_type_start is None:
+            assert not asm_form.result_types
         else:
-            assert tuple(storage.result_value_types[layout.result_value_type_start : layout.result_value_type_start + layout.result_operand_index_count]) == asm_form.result_value_types
+            assert tuple(storage.result_types[layout.result_type_start : layout.result_type_start + len(asm_form.result_types)]) == asm_form.result_types
     before = tuple(storage.layouts)
     storage.append_forms(compiled.asm_forms)
     assert tuple(storage.layouts) == before

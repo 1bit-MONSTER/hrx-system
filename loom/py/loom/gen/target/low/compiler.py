@@ -17,7 +17,10 @@ from loom.gen.target.low.compiled import (
     CompiledAsmForm,
     CompiledAsmImmediate,
     CompiledAsmOperandSegment,
+    CompiledAsmOperandType,
+    CompiledAsmResultType,
     CompiledAsmTableStorage,
+    CompiledAsmTiedResult,
     CompiledDescriptorSet,
     CompiledNativeAsmValue,
     CompiledOperandForm,
@@ -822,6 +825,31 @@ def _compile_asm_form(
     if asm_operand_fields != expected_operands:
         raise ValueError(f"descriptor '{descriptor.key}' asm form '{mnemonic}' operands must enumerate canonical packet order {expected_operands}, got {asm_operand_fields}")
 
+    # Preserve exact operand-derived types and default ownership separately:
+    # destructive register reuse alone does not consume IR ownership.
+    result_types: list[CompiledAsmResultType] = list(asm_form.result_value_types or (None,) * len(result_indices))
+    packet_operand_indices = {descriptor_index: packet_index for packet_index, descriptor_index in enumerate(operand_order)}
+    tied_results = []
+    tied_operands: set[int] = set()
+    for constraint in descriptor.constraints:
+        if constraint.kind not in (ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE):
+            continue
+        result_index = constraint.lhs_operand_index
+        operand_index = packet_operand_indices[constraint.rhs_operand_index]
+        previous = result_types[result_index]
+        tied = constraint.kind is ConstraintKind.TIED
+        if isinstance(previous, CompiledAsmOperandType):
+            if previous.operand_index != operand_index:
+                raise ValueError(f"descriptor '{descriptor.key}' result {result_index} inherits conflicting operand types")
+            if tied and previous.tied:
+                raise ValueError(f"descriptor '{descriptor.key}' repeats ownership tie for result {result_index}")
+        if tied:
+            if operand_index in tied_operands:
+                raise ValueError(f"descriptor '{descriptor.key}' ties multiple results to packet operand {operand_index}")
+            tied_operands.add(operand_index)
+            tied_results.append(CompiledAsmTiedResult(result_index, operand_index))
+        result_types[result_index] = CompiledAsmOperandType(operand_index, tied or (isinstance(previous, CompiledAsmOperandType) and previous.tied))
+
     immediate_order = []
     seen_immediate_names: set[str] = set()
     for immediate in asm_form.immediates:
@@ -878,10 +906,9 @@ def _compile_asm_form(
         mnemonic=mnemonic,
         native_assembly_mnemonic_label=native_assembly_mnemonic_label,
         native_assembly_mnemonic=native_assembly_mnemonic,
-        result_indices=tuple(result_indices),
-        operand_indices=tuple(operand_order),
         operand_segments=tuple(operand_segments),
-        result_value_types=asm_form.result_value_types,
+        result_types=tuple(result_types) if any(result_type is not None for result_type in result_types) else (),
+        tied_results=tuple(tied_results),
         immediates=tuple(immediate_order),
         explicit_immediate_count=explicit_immediate_count,
         has_named_immediates=has_named_immediates,

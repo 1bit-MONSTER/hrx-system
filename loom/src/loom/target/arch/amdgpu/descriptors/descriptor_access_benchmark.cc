@@ -161,7 +161,7 @@ static void BM_AssemblyFacts(benchmark::State& state,
         const loom_low_asm_layout_t* layout =
             &descriptor_set->asm_layouts[asm_form->layout_index];
         return static_cast<uint64_t>(asm_form_ordinal) +
-               asm_form->descriptor_ordinal + layout->operand_index_count +
+               asm_form->descriptor_ordinal + layout->tied_result_count +
                layout->explicit_immediate_count;
       });
 }
@@ -193,7 +193,7 @@ static void BM_MixedFacts(benchmark::State& state,
           const loom_low_asm_layout_t* layout =
               &descriptor_set->asm_layouts[asm_form->layout_index];
           result += asm_form_ordinal + asm_form->descriptor_ordinal +
-                    layout->operand_index_count;
+                    layout->tied_result_count;
         }
         return result;
       });
