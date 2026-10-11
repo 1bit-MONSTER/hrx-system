@@ -125,6 +125,7 @@ typedef struct loom_amdgpu_fp8_encode_plan_t {
 
 typedef enum loom_amdgpu_f64_narrow_kind_e {
   LOOM_AMDGPU_F64_NARROW_KIND_NONE = 0,
+  LOOM_AMDGPU_F64_NARROW_KIND_F16,
   LOOM_AMDGPU_F64_NARROW_KIND_BF16,
   LOOM_AMDGPU_F64_NARROW_KIND_F8E4M3,
   LOOM_AMDGPU_F64_NARROW_KIND_F8E5M2,

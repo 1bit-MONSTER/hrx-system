@@ -40,6 +40,17 @@ typedef struct loom_amdgpu_f64_narrow_format_t {
 } loom_amdgpu_f64_narrow_format_t;
 
 static const loom_amdgpu_f64_narrow_format_t kAmdgpuF64NarrowFormats[] = {
+    [LOOM_AMDGPU_F64_NARROW_KIND_F16] =
+        {
+            .result_bit_count = 16,
+            .mantissa_bit_count = 10,
+            .minimum_normal_exponent = 1009,
+            .subnormal_guard_position_base = 1018,
+            .clamp_threshold = UINT16_C(0x7C00),
+            .clamp_value = UINT16_C(0x7C00),
+            .nan_payload = UINT16_C(0x7E00),
+            .flags = LOOM_AMDGPU_F64_NARROW_FORMAT_FLAG_PRESERVE_NAN_PAYLOAD,
+        },
     [LOOM_AMDGPU_F64_NARROW_KIND_BF16] =
         {
             .result_bit_count = 16,
@@ -104,6 +115,8 @@ static const loom_amdgpu_descriptor_ref_t
 static loom_amdgpu_f64_narrow_kind_t loom_amdgpu_f64_narrow_kind(
     loom_scalar_type_t result_type) {
   switch (result_type) {
+    case LOOM_SCALAR_TYPE_F16:
+      return LOOM_AMDGPU_F64_NARROW_KIND_F16;
     case LOOM_SCALAR_TYPE_BF16:
       return LOOM_AMDGPU_F64_NARROW_KIND_BF16;
     case LOOM_SCALAR_TYPE_F8E4M3:
@@ -169,7 +182,7 @@ iree_status_t loom_amdgpu_emit_f64_narrow(
       context, source_op, low_source, /*register_count=*/2,
       /*register_offset=*/1, vgpr_type, &source_high));
 
-  // F64 destinations in this family retain at most seven fraction bits. Every
+  // F64 destinations in this family retain at most ten fraction bits. Every
   // rounding guard therefore lives in the high source word; the low word only
   // contributes sticky information. This avoids constructing or operating on
   // general two-word integer temporaries.
