@@ -1,0 +1,32 @@
+// RUN: emit source-low target=amdgpu:gfx1151 output=low
+
+func.def @convert_float_to_wide_integer(%half: f16, %halves: vector<2xf16>) -> (i64, i64, vector<2xi64>, vector<2xi64>) {
+  %signed = scalar.fptosi %half : f16 to i64
+  %unsigned = scalar.fptoui %half : f16 to i64
+  %signed_vector = vector.fptosi %halves : vector<2xf16> to vector<2xi64>
+  %unsigned_vector = vector.fptoui %halves : vector<2xf16> to vector<2xi64>
+  func.return %signed, %unsigned, %signed_vector, %unsigned_vector : i64, i64, vector<2xi64>, vector<2xi64>
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @convert_float_to_wide_integer(%half: reg<amdgpu.vgpr>, %halves: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>) asm {
+  %28 = v_cvt_f32_f16 %half
+  %29 = v_cvt_i32_f32 %28
+  %30 = v_ashrrev_i32_src0_inline %29, 31
+  %signed = concat(%29, %30) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %32 = v_cvt_u32_f32 %28
+  %33 = v_mov_b32 0
+  %unsigned = concat(%32, %33) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %35 = v_cvt_f32_f16 %halves
+  %36 = v_lshrrev_b32_src0_inline %halves, 16
+  %37 = v_cvt_f32_f16 %36
+  %40 = v_cvt_i32_f32 %35
+  %42 = v_cvt_i32_f32 %37
+  %45 = v_ashrrev_i32_src0_inline %40, 31
+  %47 = v_ashrrev_i32_src0_inline %42, 31
+  %signed_vector = concat(%40, %45, %42, %47) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
+  %50 = v_cvt_u32_f32 %35
+  %52 = v_cvt_u32_f32 %37
+  %unsigned_vector = concat(%50, %33, %52, %33) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
+  return %signed, %unsigned, %signed_vector, %unsigned_vector
+}

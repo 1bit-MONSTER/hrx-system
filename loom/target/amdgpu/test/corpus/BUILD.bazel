@@ -137,7 +137,6 @@ loom_corpus_build(
     xfails = {
         "//loom/target/amdgpu:all": {
             "numeric/conversion/float8_facts.loom:@float8_facts": "TARGET/034",
-            "numeric/conversion/integer_floating.loom:@loop_carried_floating_conversions": "TARGET/002",
             "numeric/vector/conversion.loom:@pack_nibbles": "AMDGPU/023,TARGET/003",
         },
         "//loom/target/amdgpu:without_bf16_fma": {
@@ -177,11 +176,9 @@ loom_scenario_test(
             "memory/view/selected_crops.loom:@selected_crop_values": "LOWERING/044",
             "numeric/conversion/conversion.loom:@float_to_integer_values": "TARGET/093",
             "numeric/conversion/conversion.loom:@float_width_values": "TARGET/093",
-            "numeric/conversion/conversion.loom:@floating_rounding_chain_values": "TARGET/002",
             "numeric/conversion/conversion.loom:@integer_to_float_values": "TARGET/093",
             "numeric/conversion/conversion.loom:@integer_width_values": "TARGET/093",
             "numeric/conversion/float8_facts.loom:@float8_fact_values": "TARGET/034",
-            "numeric/conversion/integer_floating.loom:@loop_carried_floating_values": "TARGET/002",
             "numeric/float/clamp.loom:@clamp_ieee_f32_values": "TARGET/003",
             "numeric/float/exponential.loom:@exponential_values": "EXPECT/002,EXPECT/003",
             "numeric/float/logarithm.loom:@logarithm_values": "EXPECT/003",
