@@ -28,6 +28,7 @@ from loom.target.contracts import (
     EmitRegisterMove,
     EmitRegisterSlice,
     Guard,
+    OperandSegmentProject,
     OrdinalValueAliasRule,
     RecipeRule,
     Scalar,
@@ -41,6 +42,7 @@ from loom.target.contracts import (
     descriptor_by_semantic_tag,
 )
 from loom.target.contracts.diagnostics import string_param, target_diagnostic
+from loom.target.low_descriptors import Immediate, ImmediateFlag, ImmediateKind
 from loom.target.test.descriptors import (
     TEST_LOW_ADD_F32_DESCRIPTOR,
     TEST_LOW_ADD_I32_DESCRIPTOR,
@@ -1197,6 +1199,102 @@ def test_descriptor_rule_rejects_negative_variadic_operand_element() -> None:
                     ],
                 )
             ],
+        )
+
+
+def test_operand_segment_exact_bits_requires_variadic_payload_fields() -> None:
+    Guard.operand_segment_exact_bits("elements", bit_width=32).validate(
+        vector.vector_from_elements
+    )
+    with pytest.raises(ValueError, match="must be a variadic operand"):
+        Guard.operand_segment_exact_bits("lhs", bit_width=32).validate(
+            scalar_arithmetic.scalar_addi
+        )
+    with pytest.raises(ValueError, match="bit width must be 8, 16, 32, or 64"):
+        Guard.operand_segment_exact_bits("elements", bit_width=24)
+
+
+def test_operand_segment_exact_bits_requires_read_only_immediate() -> None:
+    descriptor = replace(
+        TEST_LOW_FROM_ELEMENTS_V4I32_DESCRIPTOR,
+        immediates=(
+            Immediate(
+                "data",
+                ImmediateKind.ORDINAL,
+                bit_width=32,
+                unsigned_max=(2**32) - 1,
+            ),
+        ),
+    )
+    projection = OperandSegmentProject.exact_bits_read_only("elements", bit_width=32)
+    with pytest.raises(ValueError, match="must reference read-only data"):
+        projection.validate(vector.vector_from_elements, descriptor, "data")
+
+    read_only_descriptor = replace(
+        descriptor,
+        immediates=(
+            replace(
+                descriptor.immediates[0],
+                flags=(ImmediateFlag.READ_ONLY_DATA,),
+            ),
+        ),
+    )
+    projection.validate(vector.vector_from_elements, read_only_descriptor, "data")
+
+
+def test_operand_segment_projection_requires_matching_exact_bits_guard() -> None:
+    descriptor = replace(
+        TEST_LOW_FROM_ELEMENTS_V4I32_DESCRIPTOR,
+        immediates=(
+            Immediate(
+                "data",
+                ImmediateKind.ORDINAL,
+                flags=(ImmediateFlag.READ_ONLY_DATA,),
+                bit_width=32,
+                unsigned_max=(2**32) - 1,
+            ),
+        ),
+    )
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        descriptors=tuple(
+            descriptor
+            if row.key == TEST_LOW_FROM_ELEMENTS_V4I32_DESCRIPTOR.key
+            else row
+            for row in TEST_LOW_CORE_DESCRIPTOR_SET.descriptors
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match="needs a matching operand_segment_exact_bits guard",
+    ):
+        ContractFragment(
+            name="bad.from-elements-exact-data",
+            descriptor_set=descriptor_set,
+            cases=(
+                DescriptorRule(
+                    source_op=vector.vector_from_elements,
+                    descriptor=descriptor,
+                    guards=(
+                        Guard.operand_segment_exact_bits("elements", bit_width=16),
+                    ),
+                    emit=(
+                        EmitDescriptorOp(
+                            descriptor=descriptor,
+                            operands={
+                                f"lane{i}": ValueRef.operand("elements", element=i)
+                                for i in range(4)
+                            },
+                            results={"dst": ValueRef.result("result")},
+                            immediates={
+                                "data": OperandSegmentProject.exact_bits_read_only(
+                                    "elements", bit_width=32
+                                )
+                            },
+                        ),
+                    ),
+                ),
+            ),
         )
 
 

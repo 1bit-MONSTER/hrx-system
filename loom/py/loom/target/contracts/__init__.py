@@ -67,6 +67,8 @@ from loom.target.contracts.guards import (
 from loom.target.contracts.immediates import (
     AttrProject,
     AttrProjectKind,
+    OperandSegmentProject,
+    OperandSegmentProjectKind,
     SourceMemoryProject,
     SourceMemoryProjectKind,
     SourceOpProject,
@@ -229,6 +231,8 @@ __all__ = [
     "LowerTypePattern",
     "LowerValueRef",
     "OrdinalValueAliasRule",
+    "OperandSegmentProject",
+    "OperandSegmentProjectKind",
     "PredicateDescriptorCase",
     "ReductionDescriptorCase",
     "RecipeRule",

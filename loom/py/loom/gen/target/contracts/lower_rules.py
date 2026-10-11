@@ -1074,6 +1074,10 @@ def _validate_c_table_shape(
     for index, row in enumerate(table.attr_copies):
         row_subject = f"{subject} attr-copy {index}"
         _require_u8(row.source_attr_index, f"{row_subject} source attr index")
+        _require_u8(
+            row.source_operand_field_index,
+            f"{row_subject} source operand field index",
+        )
         _require_u16(
             row.other_source_attr_index,
             f"{row_subject} other source attr index",

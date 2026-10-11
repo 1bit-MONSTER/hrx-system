@@ -97,6 +97,7 @@ class LowerAttrCopyKind(Enum):
     I64_ARRAY_READ_ONLY_ELEMENTS = "i64_array_read_only_elements"
     I64_ARRAY_READ_ONLY_BYTE_SEGMENT = "i64_array_read_only_byte_segment"
     I64_ARRAY_READ_ONLY_BYTE_WORDS = "i64_array_read_only_byte_words"
+    OPERAND_SEGMENT_EXACT_BITS_READ_ONLY = "operand_segment_exact_bits_read_only"
     SOURCE_MEMORY_STATIC_BYTE_OFFSET = "source_memory_static_byte_offset"
     SOURCE_MEMORY_STATIC_BYTE_OFFSET_PLUS_LITERAL = (
         "source_memory_static_byte_offset_plus_literal"
@@ -123,6 +124,7 @@ class LowerAttrCopyKind(Enum):
             LowerAttrCopyKind.I64_ARRAY_READ_ONLY_ELEMENTS,
             LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_SEGMENT,
             LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_WORDS,
+            LowerAttrCopyKind.OPERAND_SEGMENT_EXACT_BITS_READ_ONLY,
         )
 
 
@@ -285,6 +287,7 @@ class LowerAttrCopy:
     kind: LowerAttrCopyKind
     target_name: str
     source_attr_index: int = 0
+    source_operand_field_index: int = 0
     other_source_attr_index: int = 0
     source_element_index: int = 0
     source_element_count: int = 0

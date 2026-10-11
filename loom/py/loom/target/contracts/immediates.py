@@ -19,7 +19,12 @@ from loom.target.contracts.descriptors import (
     _validate_immediate_literal,
 )
 from loom.target.contracts.kinds import SourceValueKind
-from loom.target.contracts.source import ValueRef, _require_attr, _require_value
+from loom.target.contracts.source import (
+    ValueRef,
+    _require_attr,
+    _require_operand,
+    _require_value,
+)
 from loom.target.low_descriptors import (
     Descriptor,
     DescriptorSet,
@@ -29,6 +34,24 @@ from loom.target.low_descriptors import (
 
 _I64_MIN = -(2**63)
 _I64_MAX = 2**63 - 1
+
+
+def _require_read_only_data_immediate(
+    source_op: Op,
+    descriptor: Descriptor,
+    bound_immediate_name: str | None,
+    subject: str,
+) -> None:
+    if bound_immediate_name is None:
+        raise ValueError(
+            f"{source_op.name}: {subject} must bind one descriptor immediate"
+        )
+    immediate = _require_immediate(descriptor, bound_immediate_name, subject)
+    if ImmediateFlag.READ_ONLY_DATA not in immediate.flags:
+        raise ValueError(
+            f"{source_op.name}: {subject} descriptor immediate "
+            f"'{bound_immediate_name}' must reference read-only data"
+        )
 
 
 @unique
@@ -57,6 +80,13 @@ class AttrProjectKind(Enum):
     I64_LITERAL_MINUS_ATTRS = "i64_literal_minus_attrs"
     I64_ATTR_MINUS_LITERAL = "i64_attr_minus_literal"
     EXPAND_LANE_I64_ARRAY_TO_BYTE_LANES = "expand_lane_i64_array_to_byte_lanes"
+
+
+@unique
+class OperandSegmentProjectKind(Enum):
+    """Projection from an ordered source operand segment."""
+
+    EXACT_BITS_READ_ONLY = "exact_bits_read_only"
 
 
 @unique
@@ -715,16 +745,9 @@ class AttrProject:
         bound_immediate_name: str | None,
         subject: str,
     ) -> None:
-        if bound_immediate_name is None:
-            raise ValueError(
-                f"{source_op.name}: {subject} must bind one descriptor immediate"
-            )
-        immediate = _require_immediate(descriptor, bound_immediate_name, subject)
-        if ImmediateFlag.READ_ONLY_DATA not in immediate.flags:
-            raise ValueError(
-                f"{source_op.name}: {subject} descriptor immediate "
-                f"'{bound_immediate_name}' must reference read-only data"
-            )
+        _require_read_only_data_immediate(
+            source_op, descriptor, bound_immediate_name, subject
+        )
         if self.kind == AttrProjectKind.I64_ARRAY_READ_ONLY_ELEMENTS:
             if self.bit_width not in (8, 16, 32, 64):
                 raise ValueError(
@@ -843,6 +866,46 @@ class AttrProject:
                 f"{source_op.name}: {subject} source attr "
                 f"'{self.other_source_attr}' must be an i64 attr"
             )
+
+
+@dataclass(frozen=True, slots=True)
+class OperandSegmentProject:
+    """Descriptor immediate projection from an ordered operand segment."""
+
+    kind: OperandSegmentProjectKind
+    source_operand: str
+    bit_width: int
+
+    @classmethod
+    def exact_bits_read_only(cls, source_operand: str, *, bit_width: int) -> Self:
+        """Encodes each exact scalar operand as declared-width little-endian data."""
+        return cls(
+            kind=OperandSegmentProjectKind.EXACT_BITS_READ_ONLY,
+            source_operand=source_operand,
+            bit_width=bit_width,
+        )
+
+    def validate(
+        self,
+        source_op: Op,
+        descriptor: Descriptor,
+        bound_immediate_name: str | None,
+    ) -> None:
+        subject = f"immediate projection {self.kind.value}"
+        operand = _require_operand(source_op, self.source_operand, subject)
+        if not operand.variadic:
+            raise ValueError(
+                f"{source_op.name}: {subject} field '{self.source_operand}' "
+                "must be a variadic operand"
+            )
+        if self.bit_width not in (8, 16, 32, 64):
+            raise ValueError(
+                f"{source_op.name}: {subject} element bit width must be "
+                "8, 16, 32, or 64"
+            )
+        _require_read_only_data_immediate(
+            source_op, descriptor, bound_immediate_name, subject
+        )
 
 
 @dataclass(frozen=True, slots=True)

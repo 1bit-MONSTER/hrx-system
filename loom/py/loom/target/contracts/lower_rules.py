@@ -35,6 +35,8 @@ from loom.target.contracts.guards import Guard, GuardKind, is_source_attr_guard_
 from loom.target.contracts.immediates import (
     AttrProject,
     AttrProjectKind,
+    OperandSegmentProject,
+    OperandSegmentProjectKind,
     SourceMemoryProject,
     SourceOpProject,
     ValueProject,
@@ -960,6 +962,32 @@ class _LowerRuleSetCompiler:
                         ),
                     ),
                     u64=guard.count,
+                )
+            )
+            return
+
+        if guard.kind == GuardKind.OPERAND_SEGMENT_EXACT_BITS:
+            if guard.bit_width is None:
+                raise ValueError(
+                    f"{source_op.name}: exact-bits operand-segment guard needs "
+                    "a bit width"
+                )
+            self._guards.append(
+                LowerGuard(
+                    kind=guard.kind,
+                    attr_index=_source_operand_index(source_op, guard.field),
+                    diagnostic_index=self._append_diagnostic_ref(
+                        source_op,
+                        _guard_diagnostic(
+                            guard,
+                            _named_constraint_diagnostic(
+                                "operand segment",
+                                guard.field,
+                                f"exact_{guard.bit_width}_bit_elements",
+                            ),
+                        ),
+                    ),
+                    u64=guard.bit_width,
                 )
             )
             return
@@ -2203,6 +2231,15 @@ class _LowerRuleSetCompiler:
                     )
                 )
                 continue
+            if isinstance(binding, OperandSegmentProject):
+                attr_copies.append(
+                    self._lower_operand_segment_project(
+                        source_op,
+                        target_name,
+                        binding,
+                    )
+                )
+                continue
             if isinstance(binding, SourceOpProject):
                 attr_copies.append(
                     _lower_source_op_project(source_op, target_name, binding)
@@ -2228,6 +2265,26 @@ class _LowerRuleSetCompiler:
                 continue
             raise TypeError(f"unsupported immediate binding: {type(binding).__name__}")
         return tuple(attr_copies)
+
+    def _lower_operand_segment_project(
+        self,
+        source_op: Op,
+        target_name: str,
+        project: OperandSegmentProject,
+    ) -> LowerAttrCopy:
+        if project.kind != OperandSegmentProjectKind.EXACT_BITS_READ_ONLY:
+            raise ValueError(
+                f"{source_op.name}: unsupported operand-segment projection "
+                f"{project.kind.value}"
+            )
+        return LowerAttrCopy(
+            kind=LowerAttrCopyKind.OPERAND_SEGMENT_EXACT_BITS_READ_ONLY,
+            target_name=target_name,
+            source_operand_field_index=_source_operand_index(
+                source_op, project.source_operand
+            ),
+            source_element_bit_width=project.bit_width,
+        )
 
     def _lower_attr_project(
         self,

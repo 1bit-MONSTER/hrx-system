@@ -10,6 +10,7 @@
 
 #include "iree/base/internal/math.h"
 #include "loom/ir/context.h"
+#include "loom/ir/float_facts.h"
 #include "loom/ir/module.h"
 #include "loom/ops/op_defs.h"
 
@@ -444,6 +445,33 @@ bool loom_low_lower_rule_float_immediate_facts(
   }
   *out_facts = facts;
   return true;
+}
+
+bool loom_low_lower_rule_value_exact_bits(
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    loom_value_id_t value_id, uint32_t expected_bit_width, uint64_t* out_bits) {
+  if (fact_table == NULL) {
+    return false;
+  }
+  const loom_type_t type = loom_module_value_type(module, value_id);
+  if (!loom_type_is_scalar(type)) {
+    return false;
+  }
+  const loom_scalar_type_t scalar_type = loom_type_element_type(type);
+  if (loom_scalar_type_bitwidth(scalar_type) != expected_bit_width) {
+    return false;
+  }
+  const loom_value_facts_t facts =
+      loom_value_fact_table_lookup(fact_table, value_id);
+  if (loom_scalar_type_set_contains(LOOM_SCALAR_TYPE_SET_INTEGER_PAYLOAD,
+                                    scalar_type)) {
+    return loom_value_facts_as_exact_raw_bits(
+        facts, (int32_t)expected_bit_width, out_bits);
+  }
+  if (loom_scalar_type_set_contains(LOOM_SCALAR_TYPE_SET_FLOAT, scalar_type)) {
+    return loom_value_facts_as_exact_float_bits(scalar_type, facts, out_bits);
+  }
+  return false;
 }
 
 uint64_t loom_low_lower_unsigned_numerator_maximum(

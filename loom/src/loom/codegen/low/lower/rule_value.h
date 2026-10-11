@@ -160,6 +160,13 @@ bool loom_low_lower_rule_float_immediate_facts(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
     loom_value_id_t value_id, loom_value_facts_t* out_facts);
 
+// Projects the exact declared-width bit pattern of one scalar integer or
+// floating-point value. Address-like and predicate scalars are not payloads.
+// Returns false when the type, width, or retained fact is not exact.
+bool loom_low_lower_rule_value_exact_bits(
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    loom_value_id_t value_id, uint32_t expected_bit_width, uint64_t* out_bits);
+
 // Returns the inclusive unsigned maximum of a scalar numerator at its native
 // product width. Unknown or sign-crossing facts retain the full unsigned
 // domain.

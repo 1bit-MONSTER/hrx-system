@@ -612,6 +612,7 @@ def guard_row(
         GuardKind.I64_RANGE,
         GuardKind.I64_ATTRS_SUM_EQUALS,
         GuardKind.OPERAND_SEGMENT_COUNT,
+        GuardKind.OPERAND_SEGMENT_EXACT_BITS,
         GuardKind.I64_ARRAY_COUNT,
         GuardKind.I64_ARRAY_ELEMENT_RANGE,
         GuardKind.I64_ARRAY_ELEMENTS_RANGE,
@@ -691,6 +692,7 @@ def guard_payload_row(row: LowerGuard) -> list[str]:
         GuardKind.ENUM_ATTR_EQUALS,
         GuardKind.ENUM_ATTR_IN,
         GuardKind.OPERAND_SEGMENT_COUNT,
+        GuardKind.OPERAND_SEGMENT_EXACT_BITS,
         GuardKind.LOW_VALUE_REGISTER_UNIT_COUNT,
         GuardKind.LOW_VALUE_REPRESENTATION,
         GuardKind.VALUE_STATIC_DIM0_MULTIPLE,
@@ -821,6 +823,13 @@ def attr_copy_row(
         LowerAttrCopyKind.I64_ATTR_MINUS_LITERAL,
     ):
         _append_field(fields, "source_attr_index", row.source_attr_index, always=True)
+    if row.kind == LowerAttrCopyKind.OPERAND_SEGMENT_EXACT_BITS_READ_ONLY:
+        _append_field(
+            fields,
+            "source_operand_field_index",
+            row.source_operand_field_index,
+            always=True,
+        )
     if row.kind in (
         LowerAttrCopyKind.I64_SHIFTED_LOW_BIT_MASK,
         LowerAttrCopyKind.I64_SHIFTED_LOW_BIT_CLEAR_MASK,
@@ -879,6 +888,7 @@ def attr_copy_row(
         LowerAttrCopyKind.I64_ARRAY_SHUFFLE_MASK_CHUNK,
         LowerAttrCopyKind.I64_ARRAY_READ_ONLY_ELEMENTS,
         LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_SEGMENT,
+        LowerAttrCopyKind.OPERAND_SEGMENT_EXACT_BITS_READ_ONLY,
     ):
         _append_field(
             fields,

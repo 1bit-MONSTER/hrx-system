@@ -25,6 +25,7 @@ from loom.target.contracts.descriptors import (
 )
 from loom.target.contracts.immediates import (
     AttrProject,
+    OperandSegmentProject,
     SourceMemoryProject,
     SourceMemoryProjectKind,
     SourceOpProject,
@@ -295,6 +296,7 @@ class EmitDescriptorOp:
         Mapping[
             str,
             AttrProject
+            | OperandSegmentProject
             | SourceOpProject
             | ValueProject
             | ValueTypeProject
@@ -705,7 +707,7 @@ class EmitDescriptorOp:
                         self.descriptor,
                         immediate_name,
                     )
-                elif isinstance(binding, SourceOpProject):
+                elif isinstance(binding, (OperandSegmentProject, SourceOpProject)):
                     binding.validate(source_op, self.descriptor, immediate_name)
                 elif isinstance(binding, SourceMemoryProject):
                     if self.source_memory is None:
