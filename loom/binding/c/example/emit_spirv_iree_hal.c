@@ -105,7 +105,8 @@ static void print_status(loomc_status_t status) {
   fprintf(stderr, "%s: %.*s\n", code, (int)message.size, message.data);
 }
 
-static void print_iree_status_detail(const char* label, iree_status_t status) {
+static void print_iree_status_detail(const char* label,
+                                     const iree_status_t status) {
   const char* code = iree_status_code_string(iree_status_code(status));
   iree_string_view_t message = iree_status_message(status);
   if (iree_string_view_is_empty(message)) {
