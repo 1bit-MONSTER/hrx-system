@@ -320,14 +320,13 @@ LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_scalar_i64_alu_dispatch,
                              loom_amdgpu_scalar_i64_alu_plan_t,
                              loom_amdgpu_lower_scalar_i64_alu)
 
-LOOM_AMDGPU_DEFINE_DATA_SELECT(
-    loom_amdgpu_select_unsigned_i64_division_dispatch,
-    loom_amdgpu_unsigned_i64_division_plan_t,
-    loom_amdgpu_select_unsigned_i64_division_plan)
+LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_i64_division_dispatch,
+                               loom_amdgpu_i64_division_plan_t,
+                               loom_amdgpu_select_i64_division_plan)
 
-LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_unsigned_i64_division_dispatch,
-                             loom_amdgpu_unsigned_i64_division_plan_t,
-                             loom_amdgpu_lower_unsigned_i64_division)
+LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_i64_division_dispatch,
+                             loom_amdgpu_i64_division_plan_t,
+                             loom_amdgpu_lower_i64_division)
 
 LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_scalar_i64_ctpop_dispatch,
                                loom_amdgpu_scalar_i64_ctpop_plan_t,
@@ -1273,8 +1272,8 @@ LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_scalar_i64_alu_plan_t, rhs,
                                         1);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_scalar_i64_ctpop_plan_t,
                                         source, 0);
-LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(
-    loom_amdgpu_unsigned_i64_division_plan_t, source, 0);
+LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_i64_division_plan_t, source,
+                                        0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_scalar_cttz_plan_t, source,
                                         0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_scalar_conversion_plan_t,
@@ -1841,11 +1840,12 @@ static iree_status_t loom_amdgpu_finalize_plan(
     case LOOM_OP_INDEX_CAST:
       return loom_amdgpu_finalize_index_cast_plan(
           context, (const loom_amdgpu_index_cast_plan_t*)plan.target_data);
+    case LOOM_OP_SCALAR_DIVSI:
     case LOOM_OP_SCALAR_DIVUI:
+    case LOOM_OP_SCALAR_REMSI:
     case LOOM_OP_SCALAR_REMUI:
-      return loom_amdgpu_finalize_unsigned_i64_division_plan(
-          context,
-          (const loom_amdgpu_unsigned_i64_division_plan_t*)plan.target_data);
+      return loom_amdgpu_finalize_i64_division_plan(
+          context, (const loom_amdgpu_i64_division_plan_t*)plan.target_data);
     case LOOM_OP_SCALAR_TRUNCI:
     case LOOM_OP_SCALAR_EXTF:
     case LOOM_OP_SCALAR_FPTRUNC:
