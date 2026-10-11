@@ -23,6 +23,7 @@ amdf_cc_library(
     ],
     deps = [
         "//libamdf/cts/gpu/sdma/encoding:commands",
+        "//libamdf/cts/gpu/util:sparse_mapping_layout",
         "//third_party:google_test",
     ],
 )

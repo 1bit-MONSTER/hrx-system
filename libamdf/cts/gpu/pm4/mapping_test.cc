@@ -13,6 +13,7 @@
 #include "libamdf/cts/gpu/kernels/byte_copy_unaligned.h"
 #include "libamdf/cts/gpu/kernels/byte_copy_unaligned_kernels.h"
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
+#include "libamdf/cts/gpu/util/sparse_mapping_layout.h"
 
 namespace {
 
@@ -22,6 +23,8 @@ constexpr uint64_t kPlacementByteOffset = UINT64_C(18) << 20;
 constexpr uint64_t kLargePayloadByteLength = UINT64_C(16) << 20;
 constexpr amdf_memory_access_t kReadWrite =
     AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
+
+enum class SparseReadRoute { kReservation, kOriginalBacking };
 
 uint32_t TaggedWord(uint32_t owner, uint64_t word) {
   return 0x93b57fd1u ^
@@ -36,11 +39,12 @@ class Pm4MappingTest : public Pm4DispatchTest {
     if (queue_ != nullptr) {
       ASSERT_TRUE(queue_->Release(api_));
     }
-    if (reservation_ != nullptr) {
-      const amdf_status_t status =
-          api_->memory_reservation_destroy(reservation_);
-      reservation_ = nullptr;
-      ASSERT_EQ(status, AMDF_STATUS_OK);
+    for (auto** owner : {&reservation_, &second_reservation_}) {
+      if (*owner != nullptr) {
+        const amdf_status_t status = api_->memory_reservation_destroy(*owner);
+        *owner = nullptr;
+        ASSERT_EQ(status, AMDF_STATUS_OK);
+      }
     }
     for (auto& backing : backing_) {
       ASSERT_TRUE(backing.Release(api_));
@@ -48,7 +52,8 @@ class Pm4MappingTest : public Pm4DispatchTest {
     Pm4DispatchTest::TearDown();
   }
 
-  void Prepare(amdf_memory_scope_t* scope) {
+  void Prepare(amdf_memory_scope_t* scope,
+               uint64_t command_byte_length = 65536) {
     ASSERT_NE(scope, nullptr);
     scope_ = scope;
     amdf_memory_reservation_capabilities_t capabilities = {};
@@ -117,7 +122,7 @@ class Pm4MappingTest : public Pm4DispatchTest {
     };
     ASSERT_NO_FATAL_FAILURE(PrepareProgram(
         kernel->executable, kernel->entry_byte_offset, &program_, "mapping"));
-    ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue_, 65536));
+    ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue_, command_byte_length));
   }
 
   void CreateBacking(uint64_t byte_length, GpuMemory** out_memory) {
@@ -158,6 +163,9 @@ class Pm4MappingTest : public Pm4DispatchTest {
         arguments_->host.pointer, &arguments,
         offsetof(kernels::byte_copy_unaligned::Arguments, workgroup_size_x) +
             sizeof(uint32_t));
+    // Leave room for the complete fixed compute recipe before writing it. The
+    // finite test stream never wraps or overwrites commands already published.
+    ASSERT_GE(queue_->words().size() - command_word_count_, 128u);
     Pm4CommandWriter commands(queue_->words().data() + command_word_count_,
                               *pm4_profile_);
     commands.SystemBarrier();
@@ -401,8 +409,222 @@ class Pm4MappingTest : public Pm4DispatchTest {
                                    kPayloadLength, 37));
   }
 
+  void WriteSparseGeneration(std::span<const amdf::testing::SparseRange> ranges,
+                             const std::array<uint64_t, 2>& addresses,
+                             uint32_t generation) {
+    auto* input = static_cast<uint32_t*>(upload_->host.pointer);
+    uint64_t payload_position = 0;
+    for (const auto& range : ranges) {
+      for (uint64_t offset = 0; offset < range.byte_length;) {
+        const uint64_t length =
+            std::min(kLargePayloadByteLength, range.byte_length - offset);
+        const uint64_t first_word = (payload_position + offset) / 4;
+        for (uint64_t i = 0; i < length / 4; ++i) {
+          input[i] = amdf::testing::SparsePattern(
+              generation, static_cast<uint32_t>(first_word + i));
+        }
+        ASSERT_NO_FATAL_FAILURE(Copy(
+            upload_->device_address,
+            addresses[range.reservation] + range.byte_offset + offset, length));
+        offset += length;
+      }
+      payload_position += range.byte_length;
+    }
+  }
+
+  void ReadSparseGeneration(
+      std::span<const amdf::testing::SparseRange> ranges,
+      std::span<const amdf::testing::SparseMapping> mappings,
+      std::span<GpuMemory* const> slabs,
+      const std::array<uint64_t, 2>& addresses, uint32_t generation,
+      SparseReadRoute route, std::span<uint32_t> capture) {
+    auto* output = static_cast<uint32_t*>(readback_->host.pointer);
+    uint64_t payload_position = 0;
+    for (const auto& range : ranges) {
+      for (uint64_t offset = 0; offset < range.byte_length;) {
+        const uint64_t position = range.byte_offset + offset;
+        const uint64_t slab_offset = position % kSlabByteLength;
+        const uint64_t length =
+            std::min(kSlabByteLength - slab_offset, range.byte_length - offset);
+        uint64_t source = addresses[range.reservation] + position;
+        if (route == SparseReadRoute::kOriginalBacking) {
+          const auto mapping = std::find_if(
+              mappings.begin(), mappings.end(), [&](const auto& entry) {
+                return entry.reservation == range.reservation &&
+                       entry.byte_offset == position - slab_offset;
+              });
+          ASSERT_NE(mapping, mappings.end());
+          source = slabs[mapping->backing]->device_address + slab_offset;
+        }
+        std::fill_n(output, length / 4, 0u);
+        ASSERT_NO_FATAL_FAILURE(
+            Copy(source, readback_->device_address, length));
+        const uint64_t first_word = (payload_position + offset) / 4;
+        uint64_t incorrect = 0;
+        uint64_t first_incorrect = 0;
+        for (uint64_t i = 0; i < length / 4; ++i) {
+          if (output[i] !=
+              amdf::testing::SparsePattern(
+                  generation, static_cast<uint32_t>(first_word + i))) {
+            if (incorrect == 0) {
+              first_incorrect = i;
+            }
+            ++incorrect;
+          }
+        }
+        ASSERT_EQ(incorrect, 0u)
+            << "generation=" << generation
+            << " reservation=" << range.reservation << " offset=" << position
+            << " first_word=" << first_word + first_incorrect
+            << " observed=" << output[first_incorrect];
+        if (!capture.empty()) {
+          ASSERT_LE(first_word + length / 4, capture.size());
+          std::copy_n(output, length / 4, capture.data() + first_word);
+        }
+        offset += length;
+      }
+      payload_position += range.byte_length;
+    }
+    std::fprintf(
+        stderr, "public compute generation=%u route=%s checked_words=%llu\n",
+        generation,
+        route == SparseReadRoute::kReservation ? "reservation" : "backing",
+        static_cast<unsigned long long>(payload_position / 4));
+  }
+
+  void RunRetainedSparse(amdf_memory_scope_t* scope) {
+    // The finite stream does not wrap. All backing, command storage and capture
+    // storage are prepared before the first mapping generation is installed.
+    ASSERT_NO_FATAL_FAILURE(Prepare(scope, UINT64_C(1) << 20));
+    if (IsSkipped()) {
+      return;
+    }
+    const auto original_ranges = amdf::testing::SparseRanges(1);
+    const auto replacement_ranges = amdf::testing::SparseRanges(2);
+    auto original = amdf::testing::SparseMappings(original_ranges);
+    auto replacement = amdf::testing::SparseMappings(replacement_ranges);
+    const uint32_t original_count = original.size();
+    const uint32_t slab_count = std::max(original.size(), replacement.size());
+    std::vector<GpuMemory*> slabs(slab_count);
+    for (auto& slab : slabs) {
+      ASSERT_NO_FATAL_FAILURE(CreateBacking(kSlabByteLength, &slab));
+    }
+    for (uint32_t i = 0; i < original.size(); ++i) {
+      original[i].backing = i;
+    }
+    for (uint32_t i = 0; i < replacement.size(); ++i) {
+      replacement[i].backing = i < original_count ? original_count - 1 - i : i;
+    }
+    auto direct = replacement;
+    for (auto& mapping : direct) {
+      mapping.backing = (mapping.backing + 1) % slab_count;
+    }
+    const amdf_memory_reservation_access_t access = {device_, 0, access_};
+    const amdf_memory_reservation_create_info_t create = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CREATE_INFO,
+        .structure_size = sizeof(create),
+        .byte_length = reservation_info_.byte_length,
+        .access_count = 1,
+        .accesses = &access,
+    };
+    ASSERT_EQ(api_->memory_reservation_create(instance_, &create,
+                                              &second_reservation_),
+              AMDF_STATUS_OK);
+    amdf_memory_reservation_access_info_t second = {};
+    second.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO;
+    second.structure_size = sizeof(second);
+    ASSERT_EQ(api_->memory_reservation_query_access_info(second_reservation_, 0,
+                                                         &second),
+              AMDF_STATUS_OK);
+    const std::array<uint64_t, 2> addresses = {reservation_info_.address,
+                                               second.address};
+    const std::array<amdf_memory_reservation_t*, 2> reservations = {
+        reservation_, second_reservation_};
+    using UpdateBatch =
+        std::array<std::vector<amdf_memory_mapping_update_t>, 2>;
+    const auto make_batch =
+        [&](std::span<const amdf::testing::SparseMapping> mappings) {
+          UpdateBatch batch;
+          for (const auto& mapping : mappings) {
+            batch[mapping.reservation].push_back({
+                .target_byte_offset = mapping.byte_offset,
+                .byte_length = kSlabByteLength,
+                .memory = slabs[mapping.backing]->memory,
+                .access = access_,
+            });
+          }
+          return batch;
+        };
+    const auto original_batch = make_batch(original);
+    const auto replacement_batch = make_batch(replacement);
+    const auto direct_batch = make_batch(direct);
+    auto detach_batch = original_batch;
+    for (auto& projection : detach_batch) {
+      for (auto& entry : projection) {
+        entry.memory = nullptr;
+        entry.access = 0;
+      }
+    }
+    const auto update = [&](const UpdateBatch& batch) {
+      for (uint32_t i = 0; i < batch.size(); ++i) {
+        ASSERT_EQ(api_->memory_reservation_update(
+                      reservations[i], 0, batch[i].size(), batch[i].data()),
+                  AMDF_STATUS_OK);
+      }
+    };
+    uint64_t payload_byte_length = 0;
+    for (const auto& range : original_ranges) {
+      payload_byte_length += range.byte_length;
+    }
+    std::vector<uint32_t> capture(payload_byte_length / 4);
+    RecordProperty("mapping_sparse_range_count", original_ranges.size());
+    RecordProperty("mapping_retained_slab_count", slab_count);
+    RecordProperty("mapping_sparse_payload_byte_length",
+                   std::to_string(payload_byte_length));
+
+    ASSERT_NO_FATAL_FAILURE(update(original_batch));
+    ASSERT_NO_FATAL_FAILURE(
+        WriteSparseGeneration(original_ranges, addresses, 1));
+    ASSERT_NO_FATAL_FAILURE(
+        ReadSparseGeneration(original_ranges, original, slabs, addresses, 1,
+                             SparseReadRoute::kReservation, capture));
+    ASSERT_NO_FATAL_FAILURE(update(detach_batch));
+    ASSERT_NO_FATAL_FAILURE(update(replacement_batch));
+    ASSERT_NO_FATAL_FAILURE(
+        WriteSparseGeneration(replacement_ranges, addresses, 2));
+    ASSERT_NO_FATAL_FAILURE(
+        ReadSparseGeneration(replacement_ranges, replacement, slabs, addresses,
+                             2, SparseReadRoute::kReservation, {}));
+    ASSERT_NO_FATAL_FAILURE(
+        ReadSparseGeneration(replacement_ranges, replacement, slabs, addresses,
+                             2, SparseReadRoute::kOriginalBacking, {}));
+    ASSERT_TRUE(amdf::testing::CheckSparseWords(
+        "independent capture", capture.data(), capture.size(), 1));
+    ASSERT_NO_FATAL_FAILURE(update(direct_batch));
+    ASSERT_NO_FATAL_FAILURE(
+        WriteSparseGeneration(replacement_ranges, addresses, 3));
+    ASSERT_NO_FATAL_FAILURE(
+        ReadSparseGeneration(replacement_ranges, direct, slabs, addresses, 3,
+                             SparseReadRoute::kReservation, {}));
+    ASSERT_NO_FATAL_FAILURE(
+        ReadSparseGeneration(replacement_ranges, direct, slabs, addresses, 3,
+                             SparseReadRoute::kOriginalBacking, {}));
+    ASSERT_TRUE(amdf::testing::CheckSparseWords(
+        "preserved capture", capture.data(), capture.size(), 1));
+    for (auto** owner : {&reservation_, &second_reservation_}) {
+      const amdf_status_t status = api_->memory_reservation_destroy(*owner);
+      *owner = nullptr;
+      ASSERT_EQ(status, AMDF_STATUS_OK);
+    }
+    for (auto* slab : slabs) {
+      ASSERT_TRUE(slab->Release(api_));
+    }
+  }
+
   // Case-owned VA, explicitly cleared before its ordinary borrowed backing.
   amdf_memory_reservation_t* reservation_ = nullptr;
+  // Second independent address interval in the retained-slab scenario.
+  amdf_memory_reservation_t* second_reservation_ = nullptr;
   // Immutable consumer projection queried before physical backing exists.
   amdf_memory_reservation_access_info_t reservation_info_ = {};
   // Borrowed storage placement chosen by the scenario.
@@ -465,6 +687,17 @@ TEST_F(Pm4MappingTest, LocalBackingSlicesAndAliasesSharePhysicalStorage) {
     GTEST_SKIP() << "endpoint has no local storage scope";
   }
   RunSourceSlices(local_scope_);
+}
+
+TEST_F(Pm4MappingTest, SystemBackingPermutesRetainedSparseStateAndCacheRanges) {
+  RunRetainedSparse(system_scope_);
+}
+
+TEST_F(Pm4MappingTest, LocalBackingPermutesRetainedSparseStateAndCacheRanges) {
+  if (local_scope_ == nullptr) {
+    GTEST_SKIP() << "endpoint has no local storage scope";
+  }
+  RunRetainedSparse(local_scope_);
 }
 
 }  // namespace
