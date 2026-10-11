@@ -37,6 +37,7 @@ loom_cc_library(
     "rule_value.h"
     "rules.h"
     "source_call.h"
+    "source_graph_plan.h"
     "source_memory.h"
     "source_plan.h"
     "source_query.h"
@@ -68,6 +69,7 @@ loom_cc_library(
     "rule_source_memory_materialize.c"
     "rule_value.c"
     "source_call.c"
+    "source_graph_plan.c"
     "source_memory.c"
     "source_plan.c"
     "source_query.c"
@@ -271,6 +273,18 @@ loom_cc_test(
     loom::target::test::lower
     loom::target::test::target_record_table
     loom::util::fact_table
+)
+
+loom_cc_test(
+  NAME
+    source_graph_plan_test
+  SRCS
+    "source_graph_plan_test.cc"
+  DEPS
+    ::lower
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
 )
 
 loom_cc_test(
