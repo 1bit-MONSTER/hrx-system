@@ -430,6 +430,247 @@ check.scenario @floating_integer_values {
   check.return
 }
 
+// BF16, F32, and F64 can all represent I64-domain values beyond I32. Exercise
+// scalar and vector conversions through buffer results so function-result
+// transport cannot hide the conversion contract.
+kernel.def @wide_floating_integer_shapes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%signed_bf16_input: buffer, %unsigned_bf16_input: buffer, %signed_f32_input: buffer, %unsigned_f32_input: buffer, %signed_f64_input: buffer, %unsigned_f64_input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %signed_bf16 = buffer.view %signed_bf16_input[%base] : buffer -> view<4xbf16>
+  %unsigned_bf16 = buffer.view %unsigned_bf16_input[%base] : buffer -> view<4xbf16>
+  %signed_f32 = buffer.view %signed_f32_input[%base] : buffer -> view<4xf32>
+  %unsigned_f32 = buffer.view %unsigned_f32_input[%base] : buffer -> view<4xf32>
+  %signed_f64 = buffer.view %signed_f64_input[%base] : buffer -> view<4xf64>
+  %unsigned_f64 = buffer.view %unsigned_f64_input[%base] : buffer -> view<4xf64>
+  %result = buffer.view %output[%base] : buffer -> view<42xi64>
+
+  %signed_bf16_scalar = view.load %signed_bf16[0] : view<4xbf16> -> bf16
+  %unsigned_bf16_scalar = view.load %unsigned_bf16[0] : view<4xbf16> -> bf16
+  %signed_bf16_scalar_i64 = scalar.fptosi %signed_bf16_scalar : bf16 to i64
+  %unsigned_bf16_scalar_i64 = scalar.fptoui %unsigned_bf16_scalar : bf16 to i64
+  view.store %signed_bf16_scalar_i64, %result[0] : i64, view<42xi64>
+  view.store %unsigned_bf16_scalar_i64, %result[7] : i64, view<42xi64>
+  %signed_bf16_2 = vector.load %signed_bf16[0] : view<4xbf16> -> vector<2xbf16>
+  %unsigned_bf16_2 = vector.load %unsigned_bf16[0] : view<4xbf16> -> vector<2xbf16>
+  %signed_bf16_2_i64 = vector.fptosi %signed_bf16_2 : vector<2xbf16> to vector<2xi64>
+  %unsigned_bf16_2_i64 = vector.fptoui %unsigned_bf16_2 : vector<2xbf16> to vector<2xi64>
+  vector.store %signed_bf16_2_i64, %result[1] : vector<2xi64>, view<42xi64>
+  vector.store %unsigned_bf16_2_i64, %result[8] : vector<2xi64>, view<42xi64>
+  %signed_bf16_4 = vector.load %signed_bf16[0] : view<4xbf16> -> vector<4xbf16>
+  %unsigned_bf16_4 = vector.load %unsigned_bf16[0] : view<4xbf16> -> vector<4xbf16>
+  %signed_bf16_4_i64 = vector.fptosi %signed_bf16_4 : vector<4xbf16> to vector<4xi64>
+  %unsigned_bf16_4_i64 = vector.fptoui %unsigned_bf16_4 : vector<4xbf16> to vector<4xi64>
+  vector.store %signed_bf16_4_i64, %result[3] : vector<4xi64>, view<42xi64>
+  vector.store %unsigned_bf16_4_i64, %result[10] : vector<4xi64>, view<42xi64>
+
+  %signed_f32_scalar = view.load %signed_f32[0] : view<4xf32> -> f32
+  %unsigned_f32_scalar = view.load %unsigned_f32[0] : view<4xf32> -> f32
+  %signed_f32_scalar_i64 = scalar.fptosi %signed_f32_scalar : f32 to i64
+  %unsigned_f32_scalar_i64 = scalar.fptoui %unsigned_f32_scalar : f32 to i64
+  view.store %signed_f32_scalar_i64, %result[14] : i64, view<42xi64>
+  view.store %unsigned_f32_scalar_i64, %result[21] : i64, view<42xi64>
+  %signed_f32_2 = vector.load %signed_f32[0] : view<4xf32> -> vector<2xf32>
+  %unsigned_f32_2 = vector.load %unsigned_f32[0] : view<4xf32> -> vector<2xf32>
+  %signed_f32_2_i64 = vector.fptosi %signed_f32_2 : vector<2xf32> to vector<2xi64>
+  %unsigned_f32_2_i64 = vector.fptoui %unsigned_f32_2 : vector<2xf32> to vector<2xi64>
+  vector.store %signed_f32_2_i64, %result[15] : vector<2xi64>, view<42xi64>
+  vector.store %unsigned_f32_2_i64, %result[22] : vector<2xi64>, view<42xi64>
+  %signed_f32_4 = vector.load %signed_f32[0] : view<4xf32> -> vector<4xf32>
+  %unsigned_f32_4 = vector.load %unsigned_f32[0] : view<4xf32> -> vector<4xf32>
+  %signed_f32_4_i64 = vector.fptosi %signed_f32_4 : vector<4xf32> to vector<4xi64>
+  %unsigned_f32_4_i64 = vector.fptoui %unsigned_f32_4 : vector<4xf32> to vector<4xi64>
+  vector.store %signed_f32_4_i64, %result[17] : vector<4xi64>, view<42xi64>
+  vector.store %unsigned_f32_4_i64, %result[24] : vector<4xi64>, view<42xi64>
+
+  %signed_f64_scalar = view.load %signed_f64[0] : view<4xf64> -> f64
+  %unsigned_f64_scalar = view.load %unsigned_f64[0] : view<4xf64> -> f64
+  %signed_f64_scalar_i64 = scalar.fptosi %signed_f64_scalar : f64 to i64
+  %unsigned_f64_scalar_i64 = scalar.fptoui %unsigned_f64_scalar : f64 to i64
+  view.store %signed_f64_scalar_i64, %result[28] : i64, view<42xi64>
+  view.store %unsigned_f64_scalar_i64, %result[35] : i64, view<42xi64>
+  %signed_f64_2 = vector.load %signed_f64[0] : view<4xf64> -> vector<2xf64>
+  %unsigned_f64_2 = vector.load %unsigned_f64[0] : view<4xf64> -> vector<2xf64>
+  %signed_f64_2_i64 = vector.fptosi %signed_f64_2 : vector<2xf64> to vector<2xi64>
+  %unsigned_f64_2_i64 = vector.fptoui %unsigned_f64_2 : vector<2xf64> to vector<2xi64>
+  vector.store %signed_f64_2_i64, %result[29] : vector<2xi64>, view<42xi64>
+  vector.store %unsigned_f64_2_i64, %result[36] : vector<2xi64>, view<42xi64>
+  %signed_f64_4 = vector.load %signed_f64[0] : view<4xf64> -> vector<4xf64>
+  %unsigned_f64_4 = vector.load %unsigned_f64[0] : view<4xf64> -> vector<4xf64>
+  %signed_f64_4_i64 = vector.fptosi %signed_f64_4 : vector<4xf64> to vector<4xi64>
+  %unsigned_f64_4_i64 = vector.fptoui %unsigned_f64_4 : vector<4xf64> to vector<4xi64>
+  vector.store %signed_f64_4_i64, %result[31] : vector<4xi64>, view<42xi64>
+  vector.store %unsigned_f64_4_i64, %result[38] : vector<4xi64>, view<42xi64>
+  kernel.return
+}
+
+func.def @wide_floating_integer_shapes_oracle(%signed_bf16_input: buffer, %unsigned_bf16_input: buffer, %signed_f32_input: buffer, %unsigned_f32_input: buffer, %signed_f64_input: buffer, %unsigned_f64_input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %signed_bf16 = buffer.view %signed_bf16_input[%base] : buffer -> view<4xbf16>
+  %unsigned_bf16 = buffer.view %unsigned_bf16_input[%base] : buffer -> view<4xbf16>
+  %signed_f32 = buffer.view %signed_f32_input[%base] : buffer -> view<4xf32>
+  %unsigned_f32 = buffer.view %unsigned_f32_input[%base] : buffer -> view<4xf32>
+  %signed_f64 = buffer.view %signed_f64_input[%base] : buffer -> view<4xf64>
+  %unsigned_f64 = buffer.view %unsigned_f64_input[%base] : buffer -> view<4xf64>
+  %result = buffer.view %output[%base] : buffer -> view<42xi64>
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %c2 = index.constant 2 : index
+  %step = index.constant 1 : index
+  %signed_bf16_2_base = index.constant 1 : index
+  %signed_bf16_4_base = index.constant 3 : index
+  %unsigned_bf16_2_base = index.constant 8 : index
+  %unsigned_bf16_4_base = index.constant 10 : index
+  %signed_f32_2_base = index.constant 15 : index
+  %signed_f32_4_base = index.constant 17 : index
+  %unsigned_f32_2_base = index.constant 22 : index
+  %unsigned_f32_4_base = index.constant 24 : index
+  %signed_f64_2_base = index.constant 29 : index
+  %signed_f64_4_base = index.constant 31 : index
+  %unsigned_f64_2_base = index.constant 36 : index
+  %unsigned_f64_4_base = index.constant 38 : index
+
+  scf.for %i = [%begin to %end step %step] {
+    %signed_value = view.load %signed_bf16[%i] : view<4xbf16> -> bf16
+    %unsigned_value = view.load %unsigned_bf16[%i] : view<4xbf16> -> bf16
+    %signed_integer = scalar.fptosi %signed_value : bf16 to i64
+    %unsigned_integer = scalar.fptoui %unsigned_value : bf16 to i64
+    %signed4_position = index.add %signed_bf16_4_base, %i : index
+    %unsigned4_position = index.add %unsigned_bf16_4_base, %i : index
+    view.store %signed_integer, %result[%signed4_position] : i64, view<42xi64>
+    view.store %unsigned_integer, %result[%unsigned4_position] : i64, view<42xi64>
+    %first_two = index.cmp ult, %i, %c2 : index
+    scf.if %first_two {
+      %signed2_position = index.add %signed_bf16_2_base, %i : index
+      %unsigned2_position = index.add %unsigned_bf16_2_base, %i : index
+      view.store %signed_integer, %result[%signed2_position] : i64, view<42xi64>
+      view.store %unsigned_integer, %result[%unsigned2_position] : i64, view<42xi64>
+    }
+  }
+  scf.for %i = [%begin to %end step %step] {
+    %signed_value = view.load %signed_f32[%i] : view<4xf32> -> f32
+    %unsigned_value = view.load %unsigned_f32[%i] : view<4xf32> -> f32
+    %signed_integer = scalar.fptosi %signed_value : f32 to i64
+    %unsigned_integer = scalar.fptoui %unsigned_value : f32 to i64
+    %signed4_position = index.add %signed_f32_4_base, %i : index
+    %unsigned4_position = index.add %unsigned_f32_4_base, %i : index
+    view.store %signed_integer, %result[%signed4_position] : i64, view<42xi64>
+    view.store %unsigned_integer, %result[%unsigned4_position] : i64, view<42xi64>
+    %first_two = index.cmp ult, %i, %c2 : index
+    scf.if %first_two {
+      %signed2_position = index.add %signed_f32_2_base, %i : index
+      %unsigned2_position = index.add %unsigned_f32_2_base, %i : index
+      view.store %signed_integer, %result[%signed2_position] : i64, view<42xi64>
+      view.store %unsigned_integer, %result[%unsigned2_position] : i64, view<42xi64>
+    }
+  }
+  scf.for %i = [%begin to %end step %step] {
+    %signed_value = view.load %signed_f64[%i] : view<4xf64> -> f64
+    %unsigned_value = view.load %unsigned_f64[%i] : view<4xf64> -> f64
+    %signed_integer = scalar.fptosi %signed_value : f64 to i64
+    %unsigned_integer = scalar.fptoui %unsigned_value : f64 to i64
+    %signed4_position = index.add %signed_f64_4_base, %i : index
+    %unsigned4_position = index.add %unsigned_f64_4_base, %i : index
+    view.store %signed_integer, %result[%signed4_position] : i64, view<42xi64>
+    view.store %unsigned_integer, %result[%unsigned4_position] : i64, view<42xi64>
+    %first_two = index.cmp ult, %i, %c2 : index
+    scf.if %first_two {
+      %signed2_position = index.add %signed_f64_2_base, %i : index
+      %unsigned2_position = index.add %unsigned_f64_2_base, %i : index
+      view.store %signed_integer, %result[%signed2_position] : i64, view<42xi64>
+      view.store %unsigned_integer, %result[%unsigned2_position] : i64, view<42xi64>
+    }
+  }
+
+  %signed_bf16_scalar = view.load %signed_bf16[0] : view<4xbf16> -> bf16
+  %unsigned_bf16_scalar = view.load %unsigned_bf16[0] : view<4xbf16> -> bf16
+  %signed_bf16_scalar_i64 = scalar.fptosi %signed_bf16_scalar : bf16 to i64
+  %unsigned_bf16_scalar_i64 = scalar.fptoui %unsigned_bf16_scalar : bf16 to i64
+  view.store %signed_bf16_scalar_i64, %result[0] : i64, view<42xi64>
+  view.store %unsigned_bf16_scalar_i64, %result[7] : i64, view<42xi64>
+  %signed_f32_scalar = view.load %signed_f32[0] : view<4xf32> -> f32
+  %unsigned_f32_scalar = view.load %unsigned_f32[0] : view<4xf32> -> f32
+  %signed_f32_scalar_i64 = scalar.fptosi %signed_f32_scalar : f32 to i64
+  %unsigned_f32_scalar_i64 = scalar.fptoui %unsigned_f32_scalar : f32 to i64
+  view.store %signed_f32_scalar_i64, %result[14] : i64, view<42xi64>
+  view.store %unsigned_f32_scalar_i64, %result[21] : i64, view<42xi64>
+  %signed_f64_scalar = view.load %signed_f64[0] : view<4xf64> -> f64
+  %unsigned_f64_scalar = view.load %unsigned_f64[0] : view<4xf64> -> f64
+  %signed_f64_scalar_i64 = scalar.fptosi %signed_f64_scalar : f64 to i64
+  %unsigned_f64_scalar_i64 = scalar.fptoui %unsigned_f64_scalar : f64 to i64
+  view.store %signed_f64_scalar_i64, %result[28] : i64, view<42xi64>
+  view.store %unsigned_f64_scalar_i64, %result[35] : i64, view<42xi64>
+  func.return
+}
+
+check.scenario @wide_floating_integer_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %signed_bf16 = check.generate.iota offset(-9.2233720368547758e+18) step(36028797018963968.0) : tensor<4xbf16>
+    %unsigned_bf16 = check.generate.iota offset(1.815851369755784e+19) step(72057594037927936.0) : tensor<4xbf16>
+    %signed_f32 = check.generate.iota offset(-9.2233720368547758e+18) step(549755813888.0) : tensor<4xf32>
+    %unsigned_f32 = check.generate.iota offset(1.8446739675663041e+19) step(1099511627776.0) : tensor<4xf32>
+    %signed_f64 = check.generate.iota offset(-9.2233720368547758e+18) step(1024.0) : tensor<4xf64>
+    %unsigned_f64 = check.generate.iota offset(1.8446744073709421e+19) step(2048.0) : tensor<4xf64>
+    %storage = check.generate.fill value(-123) : tensor<46xi64>
+    %output = check.tensor.view %storage offset(2) : tensor<46xi64> -> tensor<42xi64>
+    check.compare<@wide_floating_integer_shapes, @wide_floating_integer_shapes_oracle>(%signed_bf16, %unsigned_bf16, %signed_f32, %unsigned_f32, %signed_f64, %unsigned_f64, %output) : (tensor<4xbf16>, tensor<4xbf16>, tensor<4xf32>, tensor<4xf32>, tensor<4xf64>, tensor<4xf64>, tensor<42xi64>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<46xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %signed_bf16 = check.generate.iota offset(9.0792568487789199e+18) step(36028797018963968.0) : tensor<4xbf16>
+    %unsigned_bf16 = check.generate.iota offset(0.25) step(0.5) : tensor<4xbf16>
+    %signed_f32 = check.generate.iota offset(9.2233698378315203e+18) step(549755813888.0) : tensor<4xf32>
+    %unsigned_f32 = check.generate.iota offset(0.25) step(0.5) : tensor<4xf32>
+    %signed_f64 = check.generate.iota offset(9.2233720368547103e+18) step(1024.0) : tensor<4xf64>
+    %unsigned_f64 = check.generate.iota offset(0.25) step(0.5) : tensor<4xf64>
+    %storage = check.generate.fill value(-123) : tensor<46xi64>
+    %output = check.tensor.view %storage offset(2) : tensor<46xi64> -> tensor<42xi64>
+    check.compare<@wide_floating_integer_shapes, @wide_floating_integer_shapes_oracle>(%signed_bf16, %unsigned_bf16, %signed_f32, %unsigned_f32, %signed_f64, %unsigned_f64, %output) : (tensor<4xbf16>, tensor<4xbf16>, tensor<4xf32>, tensor<4xf32>, tensor<4xf64>, tensor<4xf64>, tensor<42xi64>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<46xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %signed_bf16 = check.generate.iota offset(-4294967296.0) step(33554432.0) : tensor<4xbf16>
+    %unsigned_bf16 = check.generate.iota offset(4261412864.0) step(33554432.0) : tensor<4xbf16>
+    %signed_f32 = check.generate.iota offset(-4294967296.0) step(512.0) : tensor<4xf32>
+    %unsigned_f32 = check.generate.iota offset(4294966272.0) step(512.0) : tensor<4xf32>
+    %signed_f64 = check.generate.iota offset(-4294967296.75) step(0.5) : tensor<4xf64>
+    %unsigned_f64 = check.generate.iota offset(4294967295.25) step(0.5) : tensor<4xf64>
+    %storage = check.generate.fill value(-123) : tensor<46xi64>
+    %output = check.tensor.view %storage offset(2) : tensor<46xi64> -> tensor<42xi64>
+    check.compare<@wide_floating_integer_shapes, @wide_floating_integer_shapes_oracle>(%signed_bf16, %unsigned_bf16, %signed_f32, %unsigned_f32, %signed_f64, %unsigned_f64, %output) : (tensor<4xbf16>, tensor<4xbf16>, tensor<4xf32>, tensor<4xf32>, tensor<4xf64>, tensor<4xf64>, tensor<42xi64>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<46xi64>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %unsigned_bf16_entropy = check.entropy.fork %entropy name("unsigned_bf16") : check.entropy
+    %signed_f32_entropy = check.entropy.fork %entropy name("signed_f32") : check.entropy
+    %unsigned_f32_entropy = check.entropy.fork %entropy name("unsigned_f32") : check.entropy
+    %signed_f64_entropy = check.entropy.fork %entropy name("signed_f64") : check.entropy
+    %unsigned_f64_entropy = check.entropy.fork %entropy name("unsigned_f64") : check.entropy
+    %signed_bf16_seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %unsigned_bf16_seed = check.entropy.read %unsigned_bf16_entropy[%trial] : check.entropy -> i64
+    %signed_f32_seed = check.entropy.read %signed_f32_entropy[%trial] : check.entropy -> i64
+    %unsigned_f32_seed = check.entropy.read %unsigned_f32_entropy[%trial] : check.entropy -> i64
+    %signed_f64_seed = check.entropy.read %signed_f64_entropy[%trial] : check.entropy -> i64
+    %unsigned_f64_seed = check.entropy.read %unsigned_f64_entropy[%trial] : check.entropy -> i64
+    %signed_bf16 = check.generate.random.uniform seed(%signed_bf16_seed) range(-9.1513144428168479e+18 to 9.1513144428168479e+18) : tensor<4xbf16>
+    %unsigned_bf16 = check.generate.random.uniform seed(%unsigned_bf16_seed) range(0.0 to 1.8302628885633696e+19) : tensor<4xbf16>
+    %signed_f32 = check.generate.random.uniform seed(%signed_f32_seed) range(-9.223370937343148e+18 to 9.223370937343148e+18) : tensor<4xf32>
+    %unsigned_f32 = check.generate.random.uniform seed(%unsigned_f32_seed) range(0.0 to 1.8446741874686296e+19) : tensor<4xf32>
+    %signed_f64 = check.generate.random.uniform seed(%signed_f64_seed) range(-9.2233720368547738e+18 to 9.2233720368547738e+18) : tensor<4xf64>
+    %unsigned_f64 = check.generate.random.uniform seed(%unsigned_f64_seed) range(0.0 to 1.8446744073709548e+19) : tensor<4xf64>
+    %storage = check.generate.fill value(-123) : tensor<46xi64>
+    %output = check.tensor.view %storage offset(2) : tensor<46xi64> -> tensor<42xi64>
+    check.compare<@wide_floating_integer_shapes, @wide_floating_integer_shapes_oracle>(%signed_bf16, %unsigned_bf16, %signed_f32, %unsigned_f32, %signed_f64, %unsigned_f64, %output) : (tensor<4xbf16>, tensor<4xbf16>, tensor<4xf32>, tensor<4xf32>, tensor<4xf64>, tensor<4xf64>, tensor<42xi64>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<46xi64>
+    }
+  }
+  check.return
+}
+
 // Conversion results cross loop boundaries instead of being consumed directly
 // by stores. Scalar loads keep vector-memory support independent of this path.
 kernel.def @loop_carried_floating_conversions() {
