@@ -273,6 +273,12 @@ static iree_status_t loom_scalar_replace_single_result_with_binary_op(
                                  result_type, op->location, &replacement_op));
       break;
     }
+    case LOOM_OP_SCALAR_SUBI: {
+      IREE_RETURN_IF_ERROR(
+          loom_scalar_subi_build(&rewriter->builder, instance_flags, lhs, rhs,
+                                 result_type, op->location, &replacement_op));
+      break;
+    }
     case LOOM_OP_SCALAR_MULI: {
       IREE_RETURN_IF_ERROR(
           loom_scalar_muli_build(&rewriter->builder, instance_flags, lhs, rhs,
@@ -853,8 +859,13 @@ iree_status_t loom_scalar_divsi_canonicalize(loom_op_t* op,
     return loom_scalar_replace_single_result_with_value(op, rewriter, lhs);
   }
   if (loom_scalar_value_facts_are_exact_i64(rewriter, rhs, -1)) {
-    return loom_scalar_replace_single_result_with_unary_op(
-        op, rewriter, LOOM_OP_SCALAR_NEGI, /*instance_flags=*/0, lhs);
+    loom_builder_set_before(&rewriter->builder, op);
+    loom_value_id_t zero = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_scalar_materialize_or_reuse_integer_constant(
+        op, rewriter, LOOM_VALUE_ID_INVALID, 0,
+        loom_scalar_single_result_type(rewriter, op), &zero));
+    return loom_scalar_replace_single_result_with_binary_op(
+        op, rewriter, LOOM_OP_SCALAR_SUBI, /*instance_flags=*/0, zero, lhs);
   }
   if (loom_scalar_value_facts_are_non_negative(rewriter, lhs) &&
       loom_scalar_value_facts_are_non_negative(rewriter, rhs)) {
