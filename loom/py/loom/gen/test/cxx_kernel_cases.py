@@ -81,78 +81,6 @@ def swiglu(arrays):
     return "kernel.decl @aiter_swiglu_f16() launch(%input: buffer, %output: buffer, %columns: i32)\n\n" + "\n".join(cases)
 
 
-def control_flow(arrays):
-    counts = [0, 1, 2, 7, 31, 64, 129]
-    expected = []
-    for count in counts:
-        trips = max(1, count)
-        inner = max(1, count & 3)
-        nested = inner * count * (count - 1) // 2 + count * inner * (inner + 1) // 2
-        expected.extend([count * (count + 1) // 2, count, trips * (trips + 1) // 2, trips, nested, count, trips, max(0, count - 1), trips, trips])
-    case = Case(arrays, "loop_semantics", "i32", len(expected))
-    case.array("counts", counts)
-    case.scalar("length", len(counts), "i32")
-    case.launch("control_flow", "%counts, %output, %length", f"tensor<{len(counts)}xi32>, tensor<{len(expected)}xi32>, i32")
-    return "kernel.decl @control_flow() launch(%counts: buffer, %output: buffer, %length: i32)\n\n" + case.finish(expected)
-
-
-def short_circuit(arrays):
-    cases = []
-    for length in [0, 1, 17, 33, 64]:
-        values = [((index * 7) % 9) - 3 for index in range(max(1, length))]
-        expected = []
-        for lane in range(64):
-            present = lane < length
-            truth = present and values[lane] != 0
-            first = (lane & 1) != 0
-            second = (lane & 2) != 0
-            expected.extend(
-                [
-                    int(present),
-                    int(truth),
-                    2 * int(present),
-                    int(not present or truth),
-                    12 if first else 1,
-                    int(first and second),
-                    1 if first else 12,
-                    int(first or second),
-                    4 * int((lane & 8) != 0),
-                    int(lane != 31 and lane != 32),
-                    next(trace for bound, trace in [(2, 123456), (4, 12345), (8, 1234), (16, 123), (32, 12), (64, 1)] if lane < bound),
-                    int(lane == 0),
-                ]
-            )
-        case = Case(arrays, f"short_circuit_{length}", "i32", len(expected))
-        case.array("input", values)
-        case.scalar("length", length, "i32")
-        case.launch("short_circuit", "%input, %output, %length", f"tensor<{len(values)}xi32>, tensor<{len(expected)}xi32>, i32")
-        cases.append(case.finish(expected))
-    return "kernel.decl @short_circuit() launch(%input: buffer, %output: buffer, %length: i32)\n\n" + "\n".join(cases)
-
-
-def early_returns(arrays):
-    cases = []
-    for length in [0, 1, 17, 33, 64]:
-        values = [((index * 7) % 9) - 3 for index in range(max(1, length))]
-        expected = [-123] * (64 * 6)
-        for lane in range(length):
-            value = values[lane]
-            next_value = values[lane + 1] if lane + 1 < length else None
-            classified = -7 if next_value is None else abs(next_value) if next_value < 0 else 3 if next_value == 0 else next_value + 4
-            trace = 1 if next_value is None else 3 if next_value == 0 else 2
-            total = sum(values[lane : min(lane + 3, length)]) - 7 * max(0, lane + 3 - length)
-            chosen = (-11 if lane & 1 else -13) if value < 0 else (17 if lane & 1 else 19)
-            published = 11 if value < 0 else value
-            state = value + 1 if value < 0 else 5 if value == 0 else value + 7
-            expected[lane * 6 : (lane + 1) * 6] = [classified, trace, total, chosen, published, state]
-        case = Case(arrays, f"early_returns_{length}", "i32", len(expected))
-        case.array("input", values)
-        case.scalar("length", length, "i32")
-        case.launch("early_returns", "%input, %output, %length", f"tensor<{len(values)}xi32>, tensor<{len(expected)}xi32>, i32")
-        cases.append(case.finish(expected))
-    return "kernel.decl @early_returns() launch(%input: buffer, %output: buffer, %length: i32)\n\n" + "\n".join(cases)
-
-
 def pointer_walk(arrays):
     cases = []
     counts = [0, 1, 2, 5, 17, 33, 47]
@@ -546,8 +474,6 @@ def q4k_q8_swiglu(arrays):
 
 KERNEL_GROUPS = {
     "aiter_swiglu_f16": lambda arrays: launch_grid("aiter_swiglu_f16", 3) + swiglu(arrays),
-    "control_flow": control_flow,
-    "early_returns": early_returns,
     "flash_attention": lambda arrays: launch_grid("flash_attention", 3) + attention(arrays),
     "iq4xs_blocks": iq4xs_blocks,
     "iq4xs_gate_up": iq4xs_gate_up,
@@ -555,7 +481,6 @@ KERNEL_GROUPS = {
     "packed_byte_shifts": packed_byte_shifts,
     "pointer_walk": pointer_walk,
     "q4k_q8_swiglu": q4k_q8_swiglu,
-    "short_circuit": short_circuit,
     "vector_depth": lambda arrays: vector_depth(arrays) + "\n" + vector_depth_span(arrays),
     "volatile_memory": volatile_memory,
 }

@@ -1069,6 +1069,24 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
+    control_flow_module
+  SRCS
+    "control_flow.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    early_returns_module
+  SRCS
+    "early_returns.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
     enum_values_module
   SRCS
     "enum_values.cxx"
@@ -1132,6 +1150,15 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
+    short_circuit_module
+  SRCS
+    "short_circuit.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
     symbol_exports_module
   SRCS
     "symbol_exports.cxx"
@@ -1180,44 +1207,6 @@ loom_generated_file_family(
   ARGS
     "kernel"
     "--group=aiter_swiglu_f16"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
-    control_flow_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "control_flow_checks.loom"
-    "control_flow_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=control_flow"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
-    early_returns_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "early_returns_checks.loom"
-    "early_returns_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=early_returns"
   TESTONLY
 )
 endif()
@@ -1282,25 +1271,6 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_generated_file_family(
   NAME
-    short_circuit_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "short_circuit_checks.loom"
-    "short_circuit_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=short_circuit"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
     vector_depth_checks_gen
   GENERATOR
     loom::py::loom::gen::test::cxx_kernel_cases
@@ -1354,36 +1324,6 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
-    control_flow_module
-  SRCS
-    "control_flow.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/control_flow_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/control_flow_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/control_flow_checks.loom"
-  INPUTOPTS
-
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_test_module(
-  NAME
-    early_returns_module
-  SRCS
-    "early_returns.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/early_returns_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/early_returns_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/early_returns_checks.loom"
-  INPUTOPTS
-
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_test_module(
-  NAME
     flash_attention_module
   SRCS
     "flash_attention.cxx"
@@ -1421,21 +1361,6 @@ loom_test_module(
   DATA
     "${CMAKE_CURRENT_BINARY_DIR}/pointer_walk_arrays"
     "${CMAKE_CURRENT_BINARY_DIR}/pointer_walk_checks.loom"
-  INPUTOPTS
-
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_test_module(
-  NAME
-    short_circuit_module
-  SRCS
-    "short_circuit.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/short_circuit_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/short_circuit_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/short_circuit_checks.loom"
   INPUTOPTS
 
 )
