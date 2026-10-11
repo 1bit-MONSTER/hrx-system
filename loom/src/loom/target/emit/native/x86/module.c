@@ -11,6 +11,7 @@
 #include "loom/error/error_catalog.h"
 #include "loom/target/emit/native/x86/abi.h"
 #include "loom/target/emit/native/x86/function.h"
+#include "loom/target/reporting/low.h"
 
 static iree_status_t loom_x86_module_reject_callable(
     const loom_target_emit_request_t* request, const loom_target_entry_t* entry,
@@ -108,6 +109,8 @@ static iree_status_t loom_x86_module_encode_function(
   loom_low_allocation_reserved_range_t reserved_ranges[3] = {{{0}}};
   const iree_host_size_t reserved_range_count =
       loom_x86_function_reserved_ranges(abi, reserved_ranges);
+  loom_target_compile_report_t* report = request->compile_report;
+  loom_low_planning_statistics_t planning_statistics;
   const loom_low_emission_frame_options_t frame_options = {
       .descriptor_registry = request->low_descriptor_registry,
       .resolved_target = &abi->target,
@@ -132,12 +135,30 @@ static iree_status_t loom_x86_module_encode_function(
       .allocation_reserved_ranges = reserved_ranges,
       .allocation_reserved_range_count = reserved_range_count,
       .emitter = request->diagnostic_emitter,
+      .statistics = report ? &planning_statistics : NULL,
   };
-  const loom_low_emission_frame_spill_free_options_t spill_options = {0};
+  const loom_low_emission_frame_spill_free_options_t spill_options = {
+      .materialization_options.record_materialized_spills =
+          loom_target_compile_report_wants_details(
+              report, LOOM_TARGET_COMPILE_REPORT_DETAIL_SPILL_ROWS),
+  };
   loom_low_emission_frame_t frame = {0};
   IREE_RETURN_IF_ERROR(loom_low_emission_frame_build_spill_free(
       request->module, (loom_op_t*)entry->func.op, &frame_options,
       &spill_options, function_arena, &frame, out_accepted));
+  if (report) {
+    loom_target_compile_report_record_low_planning(report,
+                                                   &planning_statistics);
+    if (*out_accepted) {
+      IREE_RETURN_IF_ERROR(
+          loom_target_compile_report_record_low_emission_frame(report, &frame));
+      loom_target_compile_report_record_low_kernel_workload(report,
+                                                            entry->func.op);
+    } else if (frame.allocation.function_op) {
+      IREE_RETURN_IF_ERROR(loom_target_compile_report_record_low_allocation(
+          report, &frame.allocation));
+    }
+  }
   if (!*out_accepted) {
     return iree_ok_status();
   }
@@ -159,11 +180,18 @@ static iree_status_t loom_x86_module_encode_function(
         fixups->count + function.symbol_fixup_count, sizeof(*fixups->values),
         &fixups->capacity, (void**)&fixups->values));
   }
+  uint64_t instruction_count = 0;
+  const iree_io_stream_pos_t code_start = iree_io_stream_offset(stream);
   IREE_RETURN_IF_ERROR(loom_x86_function_write(
       &function, symbol_indices, section_index,
       function.symbol_fixup_count ? fixups->values + fixups->count : NULL,
-      stream, function_arena));
+      stream, report ? &instruction_count : NULL, function_arena));
   fixups->count += function.symbol_fixup_count;
+  if (report) {
+    const uint64_t code_bytes = iree_io_stream_offset(stream) - code_start;
+    loom_target_compile_report_record_emission(report, instruction_count,
+                                               code_bytes, code_bytes);
+  }
   return iree_ok_status();
 }
 

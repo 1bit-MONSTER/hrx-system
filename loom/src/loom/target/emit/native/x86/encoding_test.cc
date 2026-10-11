@@ -15,10 +15,11 @@ namespace {
 void ExpectEncoding(loom_x86_encoding_form_t form, uint16_t encoding_id,
                     const loom_x86_encoding_operands_t& operands,
                     std::initializer_list<uint8_t> bytes,
-                    uint16_t written_registers) {
+                    uint16_t written_registers, uint8_t instruction_count = 1) {
   loom_x86_encoded_instruction_t instruction;
   loom_x86_encode_instruction(form, encoding_id, &operands, &instruction);
   ASSERT_EQ(instruction.length, bytes.size());
+  EXPECT_EQ(instruction.instruction_count, instruction_count);
   EXPECT_EQ(loom_x86_encoding_gpr_writes(form, &operands), written_registers);
   size_t index = 0;
   for (uint8_t byte : bytes) {
@@ -34,6 +35,7 @@ void ExpectVectorEncoding(uint16_t encoding_format_id, uint16_t encoding_id,
   loom_x86_encode_instruction(encoding_format_id, encoding_id, &operands,
                               &instruction);
   ASSERT_EQ(instruction.length, bytes.size());
+  EXPECT_EQ(instruction.instruction_count, 1);
   size_t index = 0;
   for (uint8_t byte : bytes) {
     EXPECT_EQ(instruction.bytes[index], byte) << "byte " << index;
@@ -404,7 +406,7 @@ TEST(EncodingTest, PredicateSequenceAndImplicitWrites) {
   ExpectEncoding(
       LOOM_X86_ENCODING_FORM_COMPARE, 0x92 | LOOM_X86_ENCODING_REX_W, operands,
       {0x4d, 0x39, 0xc8, 0x40, 0x0f, 0x92, 0xc7, 0x40, 0x0f, 0xb6, 0xff},
-      1u << 7);
+      1u << 7, 3);
   operands.result = 2;
   operands.inputs[0] = 0;
   ExpectEncoding(LOOM_X86_ENCODING_FORM_MULTIPLY_HIGH,
@@ -464,7 +466,7 @@ TEST(EncodingTest, ConditionalSequences) {
   operands.inputs[2] = 8;
   ExpectEncoding(LOOM_X86_ENCODING_FORM_SELECT,
                  LOOM_X86_ENCODING_OPCODE_0F | 0x45 | LOOM_X86_ENCODING_REX_W,
-                 operands, {0x85, 0xc9, 0x4d, 0x0f, 0x45, 0xc1}, 1u << 8);
+                 operands, {0x85, 0xc9, 0x4d, 0x0f, 0x45, 0xc1}, 1u << 8, 2);
   // SUB changes flags before CMOVB restores the original value on borrow.
   operands.inputs[0] = 7;
   operands.immediate = 3;
@@ -472,7 +474,7 @@ TEST(EncodingTest, ConditionalSequences) {
       LOOM_X86_ENCODING_FORM_SUBTRACT_IF_UGE,
       LOOM_X86_ENCODING_OPCODE_0F | 0x42, operands,
       {0x44, 0x8b, 0xc7, 0x41, 0x81, 0xe8, 3, 0, 0, 0, 0x44, 0x0f, 0x42, 0xc7},
-      1u << 8);
+      1u << 8, 3);
 }
 
 TEST(EncodingTest, WordStoreAndSignedExtension) {
@@ -495,11 +497,11 @@ TEST(EncodingTest, FullWidthBranchAndRelativeDisplacements) {
   operands.immediate = 0x12345678;
   ExpectEncoding(LOOM_X86_ENCODING_FORM_BRANCH_ZERO, LOOM_X86_ENCODING_REX_W,
                  operands,
-                 {0x4d, 0x85, 0xc0, 0x0f, 0x84, 0x78, 0x56, 0x34, 0x12}, 0);
+                 {0x4d, 0x85, 0xc0, 0x0f, 0x84, 0x78, 0x56, 0x34, 0x12}, 0, 2);
   operands.inputs[0] = 1;
   operands.immediate = -6;
   ExpectEncoding(LOOM_X86_ENCODING_FORM_BRANCH_NONZERO, 0, operands,
-                 {0x85, 0xc9, 0x0f, 0x85, 0xfa, 0xff, 0xff, 0xff}, 0);
+                 {0x85, 0xc9, 0x0f, 0x85, 0xfa, 0xff, 0xff, 0xff}, 0, 2);
   ExpectEncoding(LOOM_X86_ENCODING_FORM_JUMP, 0, operands,
                  {0xe9, 0xfa, 0xff, 0xff, 0xff}, 0);
   ExpectEncoding(LOOM_X86_ENCODING_FORM_CALL, 0, operands,

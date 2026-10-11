@@ -36,6 +36,7 @@ static void loom_x86_encode_prefix(loom_x86_encoded_instruction_t* instruction,
 
 static void loom_x86_encode_opcode(loom_x86_encoded_instruction_t* instruction,
                                    uint16_t encoding_id) {
+  ++instruction->instruction_count;
   if (encoding_id & LOOM_X86_ENCODING_OPCODE_0F) {
     loom_x86_encode_byte(instruction, 0x0f);
   }
@@ -234,6 +235,7 @@ static void loom_x86_encode_vector_instruction(
   loom_x86_encode_vector_prefix(instruction, encoding_id, reg, vvvv, rm, middle,
                                 has_index, memory, mask);
   loom_x86_encode_byte(instruction, (uint8_t)encoding_id);
+  ++instruction->instruction_count;
   if (behavior == LOOM_X86_VECTOR_ENCODING_RIP_LOAD) {
     loom_x86_encode_byte(instruction, ((reg & 7) << 3) | 5);
     loom_x86_encode_integer(instruction, 0, 4);
@@ -281,6 +283,7 @@ void loom_x86_encode_instruction(
     loom_x86_encoded_instruction_t* out_instruction) {
   loom_x86_encoded_instruction_t* instruction = out_instruction;
   instruction->length = 0;
+  instruction->instruction_count = 0;
   if (encoding_format_id & LOOM_X86_ENCODING_FORMAT_VECTOR) {
     loom_x86_encode_vector_instruction(encoding_format_id, encoding_id,
                                        operands, instruction);
@@ -346,7 +349,7 @@ void loom_x86_encode_instruction(
         width_flags = 0;
       }
       loom_x86_encode_prefix(instruction, encoding_id, 0, result, 0, 0);
-      loom_x86_encode_byte(instruction, (uint8_t)encoding_id + (result & 7));
+      loom_x86_encode_opcode(instruction, (uint8_t)encoding_id + (result & 7));
       loom_x86_encode_integer(instruction, operands->immediate,
                               width_flags ? 8 : 4);
       break;
@@ -398,19 +401,19 @@ void loom_x86_encode_instruction(
       return;
     case LOOM_X86_ENCODING_FORM_JUMP:
     case LOOM_X86_ENCODING_FORM_CALL:
-      loom_x86_encode_byte(instruction,
-                           form == LOOM_X86_ENCODING_FORM_CALL ? 0xe8 : 0xe9);
+      loom_x86_encode_opcode(instruction,
+                             form == LOOM_X86_ENCODING_FORM_CALL ? 0xe8 : 0xe9);
       loom_x86_encode_integer(instruction, operands->immediate, 4);
       return;
     case LOOM_X86_ENCODING_FORM_PUSH:
     case LOOM_X86_ENCODING_FORM_POP:
       loom_x86_encode_prefix(instruction, 0, 0, lhs, 0, 0);
-      loom_x86_encode_byte(
+      loom_x86_encode_opcode(
           instruction,
           (form == LOOM_X86_ENCODING_FORM_PUSH ? 0x50 : 0x58) | (lhs & 7));
       return;
     case LOOM_X86_ENCODING_FORM_RETURN:
-      loom_x86_encode_byte(instruction, 0xc3);
+      loom_x86_encode_opcode(instruction, 0xc3);
       return;
     case LOOM_X86_ENCODING_FORM_NONE:
     default:

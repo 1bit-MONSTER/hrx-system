@@ -135,6 +135,8 @@ typedef struct loom_x86_encoded_instruction_t {
   uint8_t bytes[32];
   // Number of live bytes in |bytes|.
   uint8_t length;
+  // Number of physical instructions in the sequence, including macro expansion.
+  uint8_t instruction_count;
 } loom_x86_encoded_instruction_t;
 
 // Returns architectural GPR writes, including implicit writes, for a concrete

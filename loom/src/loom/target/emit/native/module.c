@@ -16,6 +16,7 @@
 #include "loom/target/emit/native/image_elf.h"
 #include "loom/target/emit/native/object_elf.h"
 #include "loom/target/emit/native/task_library.h"
+#include "loom/target/reporting/report.h"
 
 typedef struct loom_native_module_selection_t {
   // Architecture identity supplied by the composing provider.
@@ -274,25 +275,61 @@ iree_status_t loom_native_module_check_calls(
   return status;
 }
 
+// Keep optional report storage off the ordinary emission stack even under LTO.
+IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_native_module_report_function(
+    const loom_target_emit_request_t* request, const loom_target_entry_t* entry,
+    const loom_native_module_elf_target_t* target, const void* target_context,
+    const uint32_t* symbol_indices, iree_string_view_t symbol_name,
+    iree_host_size_t section_index, loom_native_module_fixups_t* fixups,
+    iree_arena_allocator_t* function_arena, iree_io_stream_t* stream,
+    bool* out_accepted) {
+  loom_target_compile_report_t report;
+  loom_target_compile_report_initialize(&report, request->allocator);
+  report.requested_detail_flags =
+      request->compile_report->requested_detail_flags;
+  report.lowered_symbol = entry->func_name;
+  loom_target_compile_report_record_target_bundle(
+      &report, loom_target_entry_bundle(entry));
+  loom_target_emit_request_t entry_request = *request;
+  entry_request.compile_report = &report;
+  iree_status_t status = target->emit_function(
+      &entry_request, entry, target_context, symbol_indices, section_index,
+      fixups, function_arena, stream, out_accepted);
+  report.function_name = symbol_name;
+  if (iree_status_is_ok(status)) {
+    status = loom_target_compile_report_record_entry_report(
+        request->compile_report, &report);
+  }
+  loom_target_compile_report_deinitialize(&report);
+  return status;
+}
+
 static iree_status_t loom_native_module_function(
     const loom_target_emit_request_t* request, const loom_target_entry_t* entry,
     const loom_native_module_elf_target_t* target, const void* target_context,
-    const uint32_t* symbol_indices, iree_host_size_t section_index,
-    loom_native_module_fixups_t* fixups, bool* out_accepted,
-    loom_native_section_contribution_t* out_section) {
+    const uint32_t* symbol_indices, iree_string_view_t symbol_name,
+    iree_host_size_t section_index, loom_native_module_fixups_t* fixups,
+    bool* out_accepted, loom_native_section_contribution_t* out_section) {
   *out_section = (loom_native_section_contribution_t){0};
   iree_io_stream_t* stream = NULL;
   IREE_RETURN_IF_ERROR(iree_io_vec_stream_create(
       IREE_IO_STREAM_MODE_READABLE | IREE_IO_STREAM_MODE_WRITABLE |
           IREE_IO_STREAM_MODE_SEEKABLE | IREE_IO_STREAM_MODE_RESIZABLE,
       4096, request->allocator, &stream));
-  // Retain only emitted bytes between functions. Schedule, allocation, and
-  // instruction preparation storage is bounded by the largest function.
+  // Reports copy compact rows before function scratch retires. The schedule,
+  // allocation, and instruction storage stays bounded by the largest function.
   iree_arena_allocator_t function_arena;
   iree_arena_initialize(request->scratch_arena->block_pool, &function_arena);
-  iree_status_t status = target->emit_function(
-      request, entry, target_context, symbol_indices, section_index, fixups,
-      &function_arena, stream, out_accepted);
+  iree_status_t status;
+  if (request->compile_report) {
+    status = loom_native_module_report_function(
+        request, entry, target, target_context, symbol_indices, symbol_name,
+        section_index, fixups, &function_arena, stream, out_accepted);
+  } else {
+    status = target->emit_function(request, entry, target_context,
+                                   symbol_indices, section_index, fixups,
+                                   &function_arena, stream, out_accepted);
+  }
   iree_arena_deinitialize(&function_arena);
   const iree_host_size_t length =
       (iree_host_size_t)iree_io_stream_length(stream);
@@ -364,6 +401,9 @@ static iree_status_t loom_native_module_build_artifact(
       &accepted, &entries));
   if (!accepted || diagnostics.error_count) {
     return iree_ok_status();
+  }
+  if (request->compile_report) {
+    request->compile_report->target_family_name = target_fact_type->name;
   }
   void* target_context = NULL;
   IREE_RETURN_IF_ERROR(target->prepare_module(
@@ -489,7 +529,8 @@ static iree_status_t loom_native_module_build_artifact(
       const iree_host_size_t first_fixup = fixups.count;
       status = loom_native_module_function(
           request, &entries.values[i], target, target_context, symbol_indices,
-          section_index, &fixups, &accepted, &sections[section_index]);
+          symbols[i].name, section_index, &fixups, &accepted,
+          &sections[section_index]);
       symbols[i].size = sections[section_index].contents.data_length;
       // The prepared fixups are the exact referenced symbols. Unused imports
       // remain legal; a self-contained image requires definitions only for

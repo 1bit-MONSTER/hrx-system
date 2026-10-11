@@ -680,6 +680,31 @@ def test_show_separates_facts_analysis_and_unavailable_evidence() -> None:
     assert "partial waits: unavailable" in text
 
 
+def test_planning_costs_distinguish_rebuilds_from_final_code() -> None:
+    baseline_report = _compile_report()
+    baseline_report["entries"]["rows"][0]["planning"] = {
+        "frame_build_count": 7,
+        "allocation_run_count": 7,
+        "repair": {"rematerialized_operand_count": 8},
+        "memory": {"frame_arena": {"used_bytes_high_water": 1024}},
+    }
+    candidate_report = deepcopy(baseline_report)
+    candidate_report["entries"]["rows"][0]["planning"]["frame_build_count"] = 42
+    baseline = parse_compile_report(baseline_report, source="baseline.json")
+    candidate = parse_compile_report(candidate_report, source="candidate.json")
+    shown = build_compile_report_show(baseline)
+    analysis = shown["entries"][0]["compiler_analysis"]
+    assert analysis["rematerialized_operand_count"] == 8
+    assert analysis["frame_arena_used_bytes_high_water"] == 1024
+    assert "repair_arena_used_bytes_high_water" not in analysis
+    assert "frame builds: 7" in format_compile_report_show_text(shown)
+
+    difference = build_compile_report_diff(baseline, candidate)
+    analysis = difference["entries"][0]["compiler_analysis"]
+    assert analysis["changed"]["frame_build_count"]["delta"] == 35
+    assert "frame builds: 7 -> 42" in format_compile_report_diff_text(difference)
+
+
 def test_show_execution_economics_without_static_dispatch_geometry() -> None:
     report = _compile_report()
     workload = report["workload"]

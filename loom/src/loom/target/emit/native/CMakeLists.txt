@@ -122,6 +122,7 @@ loom_cc_library(
     loom::target::abi::task::state_layout
     loom::target::entry_selection
     loom::target::provider
+    loom::target::reporting::report
   PUBLIC
 )
 

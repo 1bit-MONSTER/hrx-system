@@ -194,6 +194,8 @@ loom_cc_library(
     loom::codegen::low::target_binding
     loom::error::error_defs
     loom::target::emit::native::module
+    loom::target::reporting::low
+    loom::target::reporting::report
   PUBLIC
 )
 endif()
@@ -239,6 +241,32 @@ iree_native_test(
     loom::tools::loom-check::loom-check
   LABELS
     "loom-check"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86)
+iree_py_test(
+  NAME
+    report_test
+  MAIN
+    "report_test.py"
+  SRCS
+    "report_test.py"
+  ARGS
+    "{{$<TARGET_FILE:loom::tools::loom-compile::loom-compile>}}"
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/native/x86/test/callable.loom}}"
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/native/x86/test/hal_dispatch.loom}}"
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/native/x86/test/callable.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/native/x86/test/hal_dispatch.loom"
+    "loom::tools::loom-compile::loom-compile"
+  DEPS
+    loom::py::loom::reporting::reporting
+    loom::py::loom::tools::compile_report
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
 )
 endif()
 

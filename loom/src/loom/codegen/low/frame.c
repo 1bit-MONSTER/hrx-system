@@ -909,26 +909,6 @@ iree_status_t loom_low_emission_frame_build(
   return status;
 }
 
-static iree_status_t loom_low_emission_frame_emit_rematerialization_summary(
-    const loom_low_emission_frame_options_t* frame_options,
-    const loom_low_allocation_table_t* allocation,
-    loom_low_allocation_rematerialization_trigger_t trigger,
-    const loom_low_allocation_rematerialization_result_t* result) {
-  if (!iree_any_bit_set(frame_options->allocation_diagnostic_flags,
-                        LOOM_LOW_ALLOCATION_DIAGNOSTIC_PREDICTED_SPILLS)) {
-    return iree_ok_status();
-  }
-  const loom_low_rematerialization_batch_result_t batch = {
-      .repaired_value_count = 1,
-      .cloned_packet_count = result->value.cloned_packet_count,
-      .rewritten_operand_count = result->value.rewritten_operand_count,
-      .retained_placement_count = result->value.retained_placement_count,
-  };
-  return loom_low_allocation_rematerialization_emit_summary(
-      allocation, trigger, result->descriptor_reg_class_id, &batch,
-      frame_options->emitter);
-}
-
 static iree_status_t loom_low_emission_frame_apply_materialization_summary(
     const loom_low_emission_frame_materialization_summary_t* summary,
     iree_arena_allocator_t* arena, loom_low_emission_frame_t* frame) {
@@ -1090,21 +1070,16 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
     if (value_repair_iteration_count < value_repair_iteration_limit) {
       if (frame.allocation.spill_plan_count <
           last_rematerialized_spill_plan_count) {
-        loom_low_allocation_rematerialization_result_t
-            rematerialization_result = {0};
-        IREE_RETURN_IF_ERROR(loom_low_allocation_rematerialize_spill_plan(
-            module, &frame.allocation, &rematerialization, scratch_arena,
-            &rematerialization_result));
-        if (rematerialization_result.value.rewritten_operand_count != 0) {
+        loom_low_rematerialization_batch_result_t rematerialization_result = {
+            0};
+        IREE_RETURN_IF_ERROR(loom_low_allocation_rematerialize_spill_plans(
+            module, &frame.allocation, &rematerialization, repair_emitter,
+            scratch_arena, &rematerialization_result));
+        if (rematerialization_result.rewritten_operand_count != 0) {
           if (statistics != NULL) {
             statistics->repair.rematerialized_operand_count +=
-                rematerialization_result.value.rewritten_operand_count;
+                rematerialization_result.rewritten_operand_count;
           }
-          IREE_RETURN_IF_ERROR(
-              loom_low_emission_frame_emit_rematerialization_summary(
-                  frame_options, &frame.allocation,
-                  LOOM_LOW_ALLOCATION_REMATERIALIZATION_TRIGGER_SPILL_PLAN,
-                  &rematerialization_result));
           last_rematerialized_spill_plan_count =
               frame.allocation.spill_plan_count;
           ++value_repair_iteration_count;

@@ -1871,6 +1871,23 @@ const loom_liveness_block_info_t* loom_liveness_block_info_for_block(
   return NULL;
 }
 
+uint16_t loom_liveness_block_index_at_point(
+    const loom_liveness_analysis_t* analysis, uint32_t point) {
+  iree_host_size_t first = 0;
+  iree_host_size_t count = analysis->block_count;
+  while (count != 0) {
+    const iree_host_size_t half = count / 2;
+    const iree_host_size_t middle = first + half;
+    if (point > analysis->blocks[middle].end_point) {
+      first = middle + 1;
+      count -= half + 1;
+    } else {
+      count = half;
+    }
+  }
+  return (uint16_t)first;
+}
+
 static const loom_liveness_pressure_summary_t*
 loom_liveness_pressure_summary_for_class(
     const loom_liveness_analysis_t* analysis,

@@ -508,6 +508,14 @@ class LivenessStorageTest : public LivenessTest {
     ASSERT_EQ(analysis.interval_count, entry->arg_count);
     ASSERT_EQ(analysis.segment_count,
               static_cast<size_t>(body_->block_count) * entry->arg_count);
+    for (uint16_t i = 0; i < analysis.block_count; ++i) {
+      EXPECT_EQ(loom_liveness_block_index_at_point(
+                    &analysis, analysis.blocks[i].start_point),
+                i);
+      EXPECT_EQ(loom_liveness_block_index_at_point(
+                    &analysis, analysis.blocks[i].end_point),
+                i);
+    }
     for (uint16_t i = 0; i < entry->arg_count; ++i) {
       const auto ordinal = FindValueOrdinal(analysis, entry->arg_ids[i]);
       ASSERT_NE(ordinal, LOOM_VALUE_ORDINAL_INVALID);
