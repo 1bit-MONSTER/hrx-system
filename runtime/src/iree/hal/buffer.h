@@ -942,6 +942,9 @@ typedef struct iree_hal_buffer_allocation_info_t {
 // Immutable cold facts embedded in the owner of prepared native storage.
 // This is borrowed value data, not another resource or an origin-pool link.
 // The sealed device group and the allocation epoch must outlive all consumers.
+// Virtual reservations publish alignment and progress services only; physical
+// facts remain unknown and range advice is unavailable until established by
+// an actual storage source. Mapped sources are queried independently.
 typedef struct iree_hal_buffer_backing_facts_t {
   // Shared capacity notification on the allocation's progress owner.
   iree_async_notification_t* notification;

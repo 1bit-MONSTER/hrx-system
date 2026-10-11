@@ -18,6 +18,8 @@ typedef struct iree_hal_host_memory_reservation_t {
   bool failed;
   // Prepared CPU execution address shared by every admitted site.
   iree_hal_buffer_native_binding_t binding;
+  // Virtual geometry and borrowed progress services for child pools.
+  iree_hal_buffer_backing_facts_t backing;
   // Captured process page-table identity per admitted scope.
   uint32_t projections[];
 } iree_hal_host_memory_reservation_t;
@@ -88,6 +90,8 @@ static const iree_hal_memory_reservation_vtable_t
 };
 
 iree_status_t iree_hal_host_memory_reservation_create(
+    const iree_hal_host_memory_backend_t* backend,
+    iree_async_frontier_tracker_t* frontier_tracker,
     iree_hal_memory_contract_t* contract,
     const iree_hal_memory_reservation_options_t* options,
     iree_allocator_t host_allocator,
@@ -111,9 +115,19 @@ iree_status_t iree_hal_host_memory_reservation_create(
       &reservation->native);
   if (iree_status_is_ok(status)) {
     reservation->binding.host_pointer = reservation->native.base;
+    reservation->backing = (iree_hal_buffer_backing_facts_t){
+        .notification = backend->notification,
+        .tracker = frontier_tracker,
+        .maintenance = backend->maintenance,
+        .maintenance_range = {.byte_length = options->byte_length},
+        .allocation_alignment =
+            iree_max(options->min_alignment, reservation->native.granularity),
+        .maintenance_alignment = 1,
+    };
     iree_hal_memory_reservation_initialize(
-        contract, &reservation->binding, IREE_HAL_CPU_SLAB_PROVIDER_MEMORY_TYPE,
-        options->byte_length, reservation->native.granularity,
+        contract, &reservation->binding, &reservation->backing,
+        IREE_HAL_CPU_SLAB_PROVIDER_MEMORY_TYPE, options->byte_length,
+        reservation->native.granularity,
         &iree_hal_host_memory_reservation_vtable, host_allocator,
         &reservation->base);
     reservation->base.projection_count = 1;

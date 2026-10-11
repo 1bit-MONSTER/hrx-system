@@ -49,6 +49,11 @@ IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_create(
 // destroyed addresses or caller-owned mapped backing alive. Access to an
 // unmapped range is invalid. Physical placement and visibility queries apply
 // to the actual source buffers; an address reservation owns no physical pages.
+// Finite pools can subdivide this view using its virtual alignment and captured
+// group progress services, including before mappings are installed. Their
+// retained ranges and allocations remain virtual capacity; the caller orders
+// every access after mapping completion and destroys child pools before the
+// address owner. Mapping replacement does not change child buffer addresses.
 IREE_API_EXPORT iree_hal_buffer_t* iree_hal_memory_reservation_buffer(
     iree_hal_memory_reservation_t* reservation);
 
@@ -146,12 +151,15 @@ struct iree_hal_memory_reservation_t {
 };
 
 // Initializes the common buffer view and retains its immutable contract.
-// The backend supplies bindings/projections and owns their metadata until its
-// destroy callback. That callback releases metadata only; close owns all
+// The backend supplies bindings/projections/backing facts and owns their
+// metadata until its destroy callback. Backing facts describe virtual address
+// alignment and group progress services, with no physical allocation or
+// byte-touching advice. That callback releases metadata only; close owns all
 // fallible native removal. The creator sets projection_count and projections.
 IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
     iree_hal_memory_contract_t* contract,
     const iree_hal_buffer_native_binding_t* bindings,
+    const iree_hal_buffer_backing_facts_t* backing,
     iree_hal_memory_type_t memory_type, iree_device_size_t byte_length,
     iree_device_size_t mapping_granularity,
     const iree_hal_memory_reservation_vtable_t* vtable,

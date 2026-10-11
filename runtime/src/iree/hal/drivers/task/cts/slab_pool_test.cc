@@ -932,6 +932,42 @@ TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
   IREE_ASSERT_OK(iree_hal_memory_reservation_create(
       group_, Scope(), &options, iree_allocator_system(), second.out()));
   EXPECT_EQ(iree_hal_memory_reservation_mapping_granularity(first), kUnit);
+
+  // Both pool strategies manage virtual subranges before pages are mapped.
+  // They retain metadata and address capacity without allocating physical
+  // storage or assuming the mapping replacement unit is a suballocation unit.
+  constexpr iree_device_size_t kChildOffset = 256;
+  Ref<iree_hal_pool_t> first_pool, second_pool;
+  iree_hal_tlsf_pool_options_t tlsf_options = {};
+  tlsf_options.tlsf_options.alignment = kChildOffset;
+  IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
+      first.buffer(), kChildOffset, 1024, &tlsf_options,
+      iree_allocator_system(), first_pool.out()));
+  iree_hal_fixed_block_pool_options_t block_options;
+  iree_hal_fixed_block_pool_options_initialize(&block_options);
+  block_options.block_size = kChildOffset;
+  block_options.alignment = kChildOffset;
+  IREE_ASSERT_OK(iree_hal_fixed_block_pool_create_from_buffer(
+      second.buffer(), kChildOffset, 1024, &block_options,
+      iree_allocator_system(), second_pool.out()));
+  Ref<iree_hal_buffer_t> first_child, second_child;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      first_pool, iree_hal_make_pool_reservation_request(16, kChildOffset),
+      iree_infinite_timeout(), first_child.out()));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      second_pool, iree_hal_make_pool_reservation_request(16, kChildOffset),
+      iree_infinite_timeout(), second_child.out()));
+  for (iree_hal_buffer_t* child : {first_child.get(), second_child.get()}) {
+    const auto memory = iree_hal_buffer_memory_view(child);
+    EXPECT_EQ(memory.offset, kChildOffset);
+    ASSERT_NE(memory.backing, nullptr);
+    EXPECT_EQ(memory.backing->native_allocation.byte_length, 0u);
+    EXPECT_EQ(memory.backing->allocation_alignment, kUnit);
+    EXPECT_EQ(memory.backing->advice, nullptr);
+  }
+  iree_hal_pool_stats_t source_stats;
+  iree_hal_pool_query_stats(source, &source_stats);
+  EXPECT_EQ(source_stats.bytes_committed, physical_charge);
   const iree_hal_memory_scope_t all = {
       iree_hal_device_group_memory_domain(group_), IREE_HAL_MEMORY_SCOPE_ANY};
 
@@ -968,7 +1004,7 @@ TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
   // Hold old use while both replacement and its consumer are submitted. Queue
   // submission must return without waiting for this caller-controlled gate.
   IREE_EXPECT_OK(iree_hal_queue_download(queues_[0], gate, old_done,
-                                         first.buffer(), 0, old_values.data(),
+                                         first_child, 0, old_values.data(),
                                          sizeof(old_values), nullptr));
   mappings[0].source = nested;
   mappings[1].source = backing;
@@ -976,8 +1012,8 @@ TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
                                     mappings.size(), mappings.data(),
                                     IREE_HAL_QUEUE_MAP_FLAG_NONE));
   const iree_hal_buffer_ref_t refs[] = {
-      iree_hal_make_buffer_ref(first.buffer(), 0, 4 * sizeof(float)),
-      iree_hal_make_buffer_ref(second.buffer(), 0, 4 * sizeof(float)),
+      iree_hal_make_buffer_ref(first_child, 0, 4 * sizeof(float)),
+      iree_hal_make_buffer_ref(second_child, 0, 4 * sizeof(float)),
       iree_hal_make_buffer_ref(output, 0, 4 * sizeof(float)),
   };
   IREE_EXPECT_OK(iree_hal_queue_dispatch(
@@ -1001,12 +1037,12 @@ TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
   SemaphoreList written(devices_[1], {0}, {1});
   const float value = 11;
   IREE_ASSERT_OK(iree_hal_queue_fill(
-      queues_[1], downloaded, written, first.buffer(), 0, 4 * sizeof(float),
+      queues_[1], downloaded, written, first_child, 0, 4 * sizeof(float),
       &value, sizeof(value), nullptr, IREE_HAL_FILL_FLAG_NONE));
   SemaphoreList alias_read(devices_[0], {0}, {1});
-  IREE_ASSERT_OK(iree_hal_queue_download(queues_[0], written, alias_read,
-                                         backing, 2 * kUnit, result.data(),
-                                         sizeof(result), nullptr));
+  IREE_ASSERT_OK(iree_hal_queue_download(
+      queues_[0], written, alias_read, backing, 2 * kUnit + kChildOffset,
+      result.data(), sizeof(result), nullptr));
   IREE_ASSERT_OK(Wait(alias_read));
   EXPECT_THAT(result, ::testing::ElementsAre(11, 11, 11, 11));
 
@@ -1029,13 +1065,17 @@ TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
                                     IREE_HAL_QUEUE_MAP_FLAG_NONE));
   SemaphoreList reuse_read(devices_[0], {0}, {1});
   IREE_ASSERT_OK(iree_hal_queue_download(queues_[0], reused, reuse_read,
-                                         second.buffer(), 0, result.data(),
+                                         second_child, 0, result.data(),
                                          sizeof(result), nullptr));
   IREE_ASSERT_OK(Wait(reuse_read));
   EXPECT_THAT(result, ::testing::ElementsAre(11, 11, 11, 11));
   EXPECT_EQ(iree_hal_buffer_memory_view(backing)
                 .backing->native_allocation.byte_length,
             physical_charge);
+  first_child.reset();
+  second_child.reset();
+  first_pool.reset();
+  second_pool.reset();
   IREE_ASSERT_OK(first.Close());
   // A retained wrapper can be released after explicit native close.
   Ref<iree_hal_buffer_t> retained(second.buffer());

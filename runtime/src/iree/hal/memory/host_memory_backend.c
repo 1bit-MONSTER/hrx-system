@@ -308,8 +308,8 @@ static iree_status_t iree_hal_host_reservation_create_from_plan(
   iree_hal_host_slab_pool_plan_t* plan =
       (iree_hal_host_slab_pool_plan_t*)base_plan;
   iree_status_t status = iree_hal_host_memory_reservation_create(
-      plan->contract, state->options, state->host_allocator,
-      state->out_reservation);
+      plan->backend, plan->frontier_tracker, plan->contract, state->options,
+      state->host_allocator, state->out_reservation);
   iree_hal_slab_pool_plan_destroy(base_plan);
   return status;
 }

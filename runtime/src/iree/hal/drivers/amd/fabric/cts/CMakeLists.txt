@@ -25,6 +25,7 @@ iree_cc_test(
     iree::hal::drivers::amd::fabric::memory_backend
     iree::hal::drivers::task::device
     iree::hal::memory::host_memory_backend
+    iree::hal::memory::tlsf_pool
     iree::hal::testing::mock_device
     iree::task
     iree::testing::gtest

@@ -18,6 +18,7 @@
 #include "iree/hal/drivers/amd/fabric/memory_backend.h"
 #include "iree/hal/drivers/task/device.h"
 #include "iree/hal/memory/host_memory_backend.h"
+#include "iree/hal/memory/tlsf_pool.h"
 #include "iree/hal/testing/mock_device.h"
 #include "iree/task/executor.h"
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
@@ -184,10 +185,27 @@ class FabricMemoryReservationTest
     scope.host = {};
     const iree_hal_memory_reservation_options_t reservation_options = {
         .byte_length = granularity_, .mapping_granularity = granularity_};
-    for (auto& reservation : reservations_) {
+    const auto physical_charge = iree_hal_buffer_memory_view(backing_)
+                                     .backing->native_allocation.byte_length;
+    for (size_t i = 0; i < reservations_.size(); ++i) {
       IREE_ASSERT_OK(iree_hal_memory_reservation_create(
-          group_, scope, &reservation_options, allocator_, &reservation));
+          group_, scope, &reservation_options, allocator_, &reservations_[i]));
+      iree_hal_tlsf_pool_options_t child_options = {};
+      child_options.tlsf_options.alignment = 256;
+      IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
+          iree_hal_memory_reservation_buffer(reservations_[i]), 256, 256,
+          &child_options, allocator_, &child_pools_[i]));
+      IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+          child_pools_[i], iree_hal_make_pool_reservation_request(256, 256),
+          iree_infinite_timeout(), &children_[i]));
+      const auto memory = iree_hal_buffer_memory_view(children_[i]);
+      ASSERT_NE(memory.backing, nullptr);
+      EXPECT_EQ(memory.backing->native_allocation.byte_length, 0u);
+      EXPECT_EQ(memory.offset, 256u);
     }
+    iree_hal_pool_stats_t stats;
+    iree_hal_pool_query_stats(pool_, &stats);
+    EXPECT_EQ(stats.bytes_committed, physical_charge);
     IREE_ASSERT_OK(iree_hal_device_group_resolve_memory_scope(
         group_, {IREE_HAL_MEMORY_SITE_QUEUE, access_.family}, &scope_));
     IREE_ASSERT_OK(iree_hal_pool_resolve_binding(
@@ -217,6 +235,10 @@ class FabricMemoryReservationTest
   }
 
   void TearDown() override {
+    for (size_t i = 0; i < children_.size(); ++i) {
+      iree_hal_buffer_release(children_[i]);
+      iree_hal_pool_release(child_pools_[i]);
+    }
     // Checked address removal happens while the native execution queue and
     // original backing still exist. A failed removal never authorizes reuse.
     for (auto*& reservation : reservations_) {
@@ -277,7 +299,7 @@ class FabricMemoryReservationTest
       commands.AcquireFromSystem();
     }
     for (uint32_t i = 0; i < 2; ++i) {
-      auto* buffer = iree_hal_memory_reservation_buffer(reservations_[i]);
+      auto* buffer = children_[i];
       const iree_hal_buffer_native_binding_slot_t slot = {
           .index = buffer->memory.contract->scopes[scope_.id]
                        .bindings[IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS],
@@ -307,8 +329,8 @@ class FabricMemoryReservationTest
                                        AMDF_TIMEOUT_INFINITE, 0),
         AMDF_STATUS_OK);
     for (uint32_t i = 0; i < 64; ++i) {
-      ASSERT_EQ(words[2 * stride + i], first_pattern + i);
-      ASSERT_EQ(words[3 * stride + i], second_pattern + i);
+      ASSERT_EQ(words[2 * stride + i], first_pattern + 64 + i);
+      ASSERT_EQ(words[3 * stride + i], second_pattern + 64 + i);
     }
   }
 
@@ -361,6 +383,10 @@ class FabricMemoryReservationTest
   bool mapped_ = false;
   // Independent address owners updated by each single HAL batch.
   std::array<iree_hal_memory_reservation_t*, 2> reservations_ = {};
+  // Finite suballocators over unmapped virtual ranges, retained across remaps.
+  std::array<iree_hal_pool_t*, 2> child_pools_ = {};
+  // Stable interior buffer addresses actually read by the native GPU.
+  std::array<iree_hal_buffer_t*, 2> children_ = {};
   // Exact native replacement unit used for this witness.
   uint64_t granularity_ = 0;
   // Completed HAL mapping sequence.
@@ -381,7 +407,7 @@ TEST_P(FabricMemoryReservationTest, BatchedReplacementChangesRealGpuAddresses) {
   auto* words = reinterpret_cast<uint32_t*>(host_mapping_.contents.data);
   const size_t stride = granularity_ / sizeof(uint32_t);
   std::memset(words, 0, host_mapping_.contents.data_length);
-  for (uint32_t i = 0; i < 64; ++i) {
+  for (uint32_t i = 0; i < 128; ++i) {
     words[i] = 0x1000 + i;
     words[stride + i] = 0x2000 + i;
   }

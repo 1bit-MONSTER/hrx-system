@@ -151,6 +151,7 @@ static const iree_hal_buffer_vtable_t
 IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
     iree_hal_memory_contract_t* contract,
     const iree_hal_buffer_native_binding_t* bindings,
+    const iree_hal_buffer_backing_facts_t* backing,
     iree_hal_memory_type_t memory_type, iree_device_size_t byte_length,
     iree_device_size_t mapping_granularity,
     const iree_hal_memory_reservation_vtable_t* vtable,
@@ -164,6 +165,7 @@ IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
   reservation->buffer.memory.contract = contract;
   iree_hal_memory_contract_retain(contract);
   reservation->buffer.memory.bindings = bindings;
+  reservation->buffer.memory.backing = backing;
   reservation->buffer.host_binding_index =
       contract->binding_layout.host_binding_index;
   reservation->vtable = vtable;

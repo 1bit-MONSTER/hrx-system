@@ -39,6 +39,8 @@ typedef struct iree_hal_amd_fabric_memory_reservation_t {
   uint32_t* projections;
   // One ordinary GPU execution address per native consumer.
   iree_hal_buffer_native_binding_t* bindings;
+  // Virtual geometry and borrowed progress services for child pools.
+  iree_hal_buffer_backing_facts_t backing;
 } iree_hal_amd_fabric_memory_reservation_t;
 
 static iree_status_t iree_hal_amd_fabric_memory_reservation_close(
@@ -360,9 +362,18 @@ iree_status_t iree_hal_amd_fabric_memory_reservation_create(
       reservation->projections[id] = reservation->accesses[a].projection;
       reservation->projections[id + 1] = reservation->accesses[a].projection;
     }
+    reservation->backing = (iree_hal_buffer_backing_facts_t){
+        .notification = owner->notification,
+        .tracker =
+            iree_hal_device_topology_info(owner->device)->frontier.tracker,
+        .maintenance = owner->maintenance,
+        .maintenance_range = {.byte_length = options->byte_length},
+        .allocation_alignment = alignment,
+        .maintenance_alignment = 1,
+    };
     iree_hal_memory_reservation_initialize(
-        contract, reservation->bindings, IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-        options->byte_length, granularity,
+        contract, reservation->bindings, &reservation->backing,
+        IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE, options->byte_length, granularity,
         &iree_hal_amd_fabric_memory_reservation_vtable, host_allocator,
         &reservation->base);
     reservation->base.projection_count = projection_count;
