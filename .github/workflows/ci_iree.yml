@@ -541,6 +541,51 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Select Windows build storage
+        shell: powershell
+        run: |
+          $drives = @(
+            Get-PSDrive -PSProvider FileSystem -ErrorAction Stop |
+              Where-Object { $_.Root -match '^[A-Za-z]:\\$' -and $null -ne $_.Free } |
+              Sort-Object Free -Descending
+          )
+          $drives |
+            Select-Object Name, Root,
+              @{Name = 'FreeGiB'; Expression = {[math]::Round($_.Free / 1GB, 1)}},
+              @{Name = 'UsedGiB'; Expression = {[math]::Round($_.Used / 1GB, 1)}} |
+            Format-Table -AutoSize
+          $selectedDrive = $null
+          foreach ($drive in $drives) {
+            $probe = Join-Path $drive.Root ".hrx-ci-write-probe-$PID"
+            try {
+              [IO.File]::WriteAllText($probe, '')
+              Remove-Item -LiteralPath $probe -Force
+              $selectedDrive = $drive
+              break
+            } catch {
+              Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+              Write-Warning "Skipping unwritable build volume $($drive.Root): $_"
+            }
+          }
+          if (-not $selectedDrive) { throw 'No writable filesystem volume is available for Windows build outputs.' }
+          $outputName = if ("${{ matrix.kind }}" -eq 'amd_client') { 'iree-bazel-client' } else { 'iree-bazel-windows' }
+          $buildRoot = Join-Path $selectedDrive.Root 'hrx'
+          $outputDir = Join-Path $buildRoot $outputName
+          $environment = [ordered]@{
+            BAZEL_LLVM = Join-Path $outputDir 'rocm-root\lib\llvm'
+            HRX_DOWNLOAD_CACHE_DIR = Join-Path $outputDir 'downloads'
+            HRX_OUTPUT_DIR = $outputDir
+            HRX_ROCM_ROOT = Join-Path $outputDir 'rocm-root'
+            IREE_CI_BAZEL_OUTPUT_ROOT = (Join-Path $selectedDrive.Root 'b').Replace('\', '/')
+            PIP_CACHE_DIR = Join-Path $outputDir 'caches\pip'
+          }
+          New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
+          foreach ($entry in $environment.GetEnumerator()) {
+            "$($entry.Key)=$($entry.Value)" |
+              Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          Write-Output "Selected Windows build root $buildRoot with $([math]::Round($selectedDrive.Free / 1GB, 1)) GiB free."
+
       - name: Set up Node.js
         if: matrix.kind == 'repository'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -565,8 +610,7 @@ jobs:
       - name: Install developer tools
         shell: powershell
         run: |
-          $bazelOutputRoot = (Join-Path $env:SystemDrive "b").Replace('\', '/')
-          "startup --output_user_root=$bazelOutputRoot" |
+          "startup --output_user_root=$env:IREE_CI_BAZEL_OUTPUT_ROOT" |
             Out-File -FilePath .bazelrc.local -Encoding ascii -Append
           if ("${{ matrix.host_toolchain }}" -eq "msvc") {
             "build --config=windows-msvc" |
@@ -652,6 +696,18 @@ jobs:
           $env:AR = Join-Path $env:BAZEL_LLVM 'bin\llvm-lib.exe'
           python build_tools/devtools/ci.py iree-bazel-amd-client --bazel-profile-dir "$env:RUNNER_TEMP\bazel-profiles"
           exit $LASTEXITCODE
+
+      - name: Report Windows build storage
+        if: always()
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Get-PSDrive -PSProvider FileSystem -ErrorAction Stop |
+            Where-Object { $_.Root -match '^[A-Za-z]:\\$' -and $null -ne $_.Free } |
+            Select-Object Name, Root,
+              @{Name = 'FreeGiB'; Expression = {[math]::Round($_.Free / 1GB, 1)}},
+              @{Name = 'UsedGiB'; Expression = {[math]::Round($_.Used / 1GB, 1)}} |
+            Format-Table -AutoSize
 
       - name: Upload Windows build failure evidence
         if: ${{ always() && steps.iree_bazel_ci.outcome == 'failure' }}
