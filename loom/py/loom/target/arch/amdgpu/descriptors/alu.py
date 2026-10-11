@@ -257,6 +257,41 @@ def _s_mul_hi_overlay(
             AmdgpuOperandOverlay("SSRC0", _sgpr_operand("lhs")),
             AmdgpuOperandOverlay("SSRC1", _sgpr_operand("rhs")),
         ),
+        operand_forms=(
+            _literal_operand_form(
+                replacement_descriptor=f"{descriptor_key}.lit",
+                source_operand="rhs",
+            ),
+        ),
+        constraints=_REMATERIALIZABLE_RESULT_CONSTRAINTS,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
+def _s_mul_hi_literal_overlay(
+    *, descriptor_key: str, instruction_name: str, mnemonic: str, semantic_tag: str
+) -> AmdgpuDescriptorOverlay:
+    return AmdgpuDescriptorOverlay(
+        descriptor_key=f"{descriptor_key}.lit",
+        instruction_name=instruction_name,
+        mnemonic=mnemonic,
+        encoding_name="ENC_SOP2",
+        encoding_format_id=AMDGPU_ENCODING_FORMAT_SOP2_LITERAL,
+        semantic_tag=semantic_tag,
+        schedule_class=_SCHEDULE_SALU,
+        operands=(
+            AmdgpuOperandOverlay("SDST", _sgpr_result()),
+            AmdgpuOperandOverlay("SSRC0", _sgpr_operand("lhs")),
+        ),
+        asm_forms=_asm(
+            mnemonic=f"{mnemonic}_lit",
+            results=("dst",),
+            operands=("lhs",),
+            immediates=("imm32",),
+        ),
+        immediate_fields=("LITERAL",),
+        immediates=(_LITERAL_U32_IMMEDIATE,),
+        fixed_encoding_fields=(("SSRC1", _predefined("SRC_LITERAL", "OPR_SSRC")),),
         constraints=_REMATERIALIZABLE_RESULT_CONSTRAINTS,
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     )
@@ -271,8 +306,26 @@ def _s_mul_hi_u32_overlay() -> AmdgpuDescriptorOverlay:
     )
 
 
+def _s_mul_hi_u32_literal_overlay() -> AmdgpuDescriptorOverlay:
+    return _s_mul_hi_literal_overlay(
+        descriptor_key="amdgpu.s_mul_hi_u32",
+        instruction_name="S_MUL_HI_U32",
+        mnemonic="s_mul_hi_u32",
+        semantic_tag="integer.mul.hi.u32",
+    )
+
+
 def _s_mul_hi_i32_overlay() -> AmdgpuDescriptorOverlay:
     return _s_mul_hi_overlay(
+        descriptor_key="amdgpu.s_mul_hi_i32",
+        instruction_name="S_MUL_HI_I32",
+        mnemonic="s_mul_hi_i32",
+        semantic_tag="integer.mul.hi.i32",
+    )
+
+
+def _s_mul_hi_i32_literal_overlay() -> AmdgpuDescriptorOverlay:
+    return _s_mul_hi_literal_overlay(
         descriptor_key="amdgpu.s_mul_hi_i32",
         instruction_name="S_MUL_HI_I32",
         mnemonic="s_mul_hi_i32",
@@ -7934,7 +7987,9 @@ __all__ = (
     "_s_min_u32_overlay",
     "_s_min_u32_overlays",
     "_s_mul_hi_u32_overlay",
+    "_s_mul_hi_u32_literal_overlay",
     "_s_mul_hi_i32_overlay",
+    "_s_mul_hi_i32_literal_overlay",
     "_s_mul_i32_overlay",
     "_s_mul_i32_rhs_inline_overlay",
     "_s_mulk_i32_overlay",
