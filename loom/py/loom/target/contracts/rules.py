@@ -31,6 +31,7 @@ from loom.target.low_descriptors import Descriptor, DescriptorSet, OperandRole
 
 MAX_SOURCE_NODES = 8
 SOURCE_NODE_COUNT_BITS = (MAX_SOURCE_NODES - 1).bit_length()
+MAX_RULE_PRIORITY = 15
 
 
 @unique
@@ -236,7 +237,8 @@ class DescriptorRule:
     """Source-to-Low rule contract case authored in Python.
 
     Cases for the same source operation are selected by descending priority,
-    preserving authored order among cases with equal priority.
+    preserving authored order among cases with equal priority. Related source
+    graphs also use the priority to resolve ownership across root operations.
     """
 
     source_op: Op
@@ -267,6 +269,10 @@ class DescriptorRule:
         object.__setattr__(self, "report_key", report_key)
         if priority < 0:
             raise ValueError("descriptor rule priority must be non-negative")
+        if priority > MAX_RULE_PRIORITY:
+            raise ValueError(
+                f"descriptor rule priority must not exceed {MAX_RULE_PRIORITY}"
+            )
         _validate_report_key(source_op, report_key)
 
     @property

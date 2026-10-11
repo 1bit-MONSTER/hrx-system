@@ -20,6 +20,7 @@ from loom.target.contracts import (
     LOWER_RULE_FLAG_CONTRACT_ONLY,
     LOWER_RULE_FLAG_NONLOCAL_SOURCE_GRAPH,
     LOWER_RULE_FLAG_ORDINAL_VALUE_ALIAS,
+    LOWER_RULE_PRIORITY_SHIFT,
     LOWER_SOURCE_MEMORY_NONE,
     CompiledLowerRuleSet,
     ContractFragment,
@@ -555,6 +556,10 @@ def _rule_flags_c_expression(flags: int) -> str:
     )
     parts = [name for mask, name in names if flags & mask]
     known_flags = sum(mask for mask, _ in names)
+    priority = flags >> LOWER_RULE_PRIORITY_SHIFT
+    if priority:
+        parts.append(f"LOOM_LOW_LOWER_RULE_PRIORITY({priority})")
+        known_flags |= 0xF << LOWER_RULE_PRIORITY_SHIFT
     remaining_flags = flags & ~known_flags
     if remaining_flags:
         parts.append(f"0x{remaining_flags:X}")
