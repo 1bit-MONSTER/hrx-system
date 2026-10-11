@@ -42,6 +42,8 @@ loom_corpus_sources(
     "atomic/narrow/cmpxchg.loom"
     "atomic/narrow/contention.loom"
     "atomic/narrow/float.loom"
+    "atomic/narrow/observations.loom"
+    "atomic/narrow/scopes.loom"
     "atomic/narrow/vector.loom"
     "atomic/private.loom"
     "atomic/vector.loom"
@@ -81,8 +83,6 @@ loom_corpus_sources(
     "view/strided_recurrence.loom"
     "view/subview.loom"
     "view/window_walk.loom"
-    "atomic/narrow/observations.loom"
-    "atomic/narrow/scopes.loom"
     "atomic/workgroup/global.loom"
     "atomic/workgroup/observations.loom"
 )

@@ -49,29 +49,41 @@ kernel.def @narrow_observations_i8() {
   kernel.return
 }
 
-check.case public @narrow_observation_values_i8 {
-  %storage = check.generate.fill value(77) : tensor<260xi8>
-  %output = check.generate.fill value(0) : tensor<4x128xi8>
-  kernel.launch @narrow_observations_i8(%storage, %output) : (tensor<260xi8>, tensor<4x128xi8>)
-  %global = check.tensor.view %storage offset(1) : tensor<260xi8> -> tensor<128xi8>
-  %generic = check.tensor.view %storage offset(131) : tensor<260xi8> -> tensor<128xi8>
-  %expected = check.generate.iota offset(-128) step(1) : tensor<128xi8>
-  check.expect.bitwise actual(%global) expected(%expected) : tensor<128xi8>
-  check.expect.bitwise actual(%generic) expected(%expected) : tensor<128xi8>
-  %old = check.tensor.view %output offset(0) : tensor<4x128xi8> -> tensor<384xi8>
-  %expected_old = check.generate.fill value(77) : tensor<384xi8>
-  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<384xi8>
-  %local_final = check.tensor.view %output offset(384) : tensor<4x128xi8> -> tensor<128xi8>
-  check.expect.bitwise actual(%local_final) expected(%expected) : tensor<128xi8>
-  %expected_guard = check.generate.fill value(77) : tensor<1xi8>
-  %guard_0 = check.tensor.view %storage offset(0) : tensor<260xi8> -> tensor<1xi8>
-  check.expect.bitwise actual(%guard_0) expected(%expected_guard) : tensor<1xi8>
-  %guard_129 = check.tensor.view %storage offset(129) : tensor<260xi8> -> tensor<1xi8>
-  check.expect.bitwise actual(%guard_129) expected(%expected_guard) : tensor<1xi8>
-  %guard_130 = check.tensor.view %storage offset(130) : tensor<260xi8> -> tensor<1xi8>
-  check.expect.bitwise actual(%guard_130) expected(%expected_guard) : tensor<1xi8>
-  %guard_259 = check.tensor.view %storage offset(259) : tensor<260xi8> -> tensor<1xi8>
-  check.expect.bitwise actual(%guard_259) expected(%expected_guard) : tensor<1xi8>
+func.def @narrow_observations_i8_oracle(%storage: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %global_base = index.constant 1 : offset
+  %generic_base = index.constant 131 : offset
+  %global_cells = buffer.view %storage[%global_base] : buffer -> view<128xi8>
+  %generic_cells = buffer.view %storage[%generic_base] : buffer -> view<128xi8>
+  %results = buffer.view %output[%origin] : buffer -> view<4x128xi8>
+  %begin = index.constant 0 : index
+  %end = index.constant 128 : index
+  %step = index.constant 1 : index
+  %initial = scalar.constant 77 : i8
+  %bias = scalar.constant -128 : i32
+  scf.for %lane = [%begin to %end step %step] {
+    %lane_i32 = index.cast %lane : index to i32
+    %tag = scalar.addi %lane_i32, %bias : i32
+    %replacement = scalar.trunci %tag : i32 to i8
+    view.store %replacement, %global_cells[%lane] : i8, view<128xi8>
+    view.store %replacement, %generic_cells[%lane] : i8, view<128xi8>
+    view.store %initial, %results[0, %lane] : i8, view<4x128xi8>
+    view.store %initial, %results[1, %lane] : i8, view<4x128xi8>
+    view.store %initial, %results[2, %lane] : i8, view<4x128xi8>
+    view.store %replacement, %results[3, %lane] : i8, view<4x128xi8>
+  }
+  func.return
+}
+
+check.scenario @narrow_observation_values_i8 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(77) : tensor<260xi8>
+    %output = check.generate.fill value(0) : tensor<4x128xi8>
+    check.compare<@narrow_observations_i8, @narrow_observations_i8_oracle>(%storage, %output) : (tensor<260xi8>, tensor<4x128xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<260xi8>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<4x128xi8>
+    }
+  }
   check.return
 }
 
@@ -126,29 +138,41 @@ kernel.def @narrow_observations_i16() {
   kernel.return
 }
 
-check.case public @narrow_observation_values_i16 {
-  %storage = check.generate.fill value(77) : tensor<260xi16>
-  %output = check.generate.fill value(0) : tensor<4x128xi16>
-  kernel.launch @narrow_observations_i16(%storage, %output) : (tensor<260xi16>, tensor<4x128xi16>)
-  %global = check.tensor.view %storage offset(2) : tensor<260xi16> -> tensor<128xi16>
-  %generic = check.tensor.view %storage offset(262) : tensor<260xi16> -> tensor<128xi16>
-  %expected = check.generate.iota offset(-32768) step(1) : tensor<128xi16>
-  check.expect.bitwise actual(%global) expected(%expected) : tensor<128xi16>
-  check.expect.bitwise actual(%generic) expected(%expected) : tensor<128xi16>
-  %old = check.tensor.view %output offset(0) : tensor<4x128xi16> -> tensor<384xi16>
-  %expected_old = check.generate.fill value(77) : tensor<384xi16>
-  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<384xi16>
-  %local_final = check.tensor.view %output offset(768) : tensor<4x128xi16> -> tensor<128xi16>
-  check.expect.bitwise actual(%local_final) expected(%expected) : tensor<128xi16>
-  %expected_guard = check.generate.fill value(77) : tensor<1xi16>
-  %guard_0 = check.tensor.view %storage offset(0) : tensor<260xi16> -> tensor<1xi16>
-  check.expect.bitwise actual(%guard_0) expected(%expected_guard) : tensor<1xi16>
-  %guard_129 = check.tensor.view %storage offset(258) : tensor<260xi16> -> tensor<1xi16>
-  check.expect.bitwise actual(%guard_129) expected(%expected_guard) : tensor<1xi16>
-  %guard_130 = check.tensor.view %storage offset(260) : tensor<260xi16> -> tensor<1xi16>
-  check.expect.bitwise actual(%guard_130) expected(%expected_guard) : tensor<1xi16>
-  %guard_259 = check.tensor.view %storage offset(518) : tensor<260xi16> -> tensor<1xi16>
-  check.expect.bitwise actual(%guard_259) expected(%expected_guard) : tensor<1xi16>
+func.def @narrow_observations_i16_oracle(%storage: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %global_base = index.constant 2 : offset
+  %generic_base = index.constant 262 : offset
+  %global_cells = buffer.view %storage[%global_base] : buffer -> view<128xi16>
+  %generic_cells = buffer.view %storage[%generic_base] : buffer -> view<128xi16>
+  %results = buffer.view %output[%origin] : buffer -> view<4x128xi16>
+  %begin = index.constant 0 : index
+  %end = index.constant 128 : index
+  %step = index.constant 1 : index
+  %initial = scalar.constant 77 : i16
+  %bias = scalar.constant -32768 : i32
+  scf.for %lane = [%begin to %end step %step] {
+    %lane_i32 = index.cast %lane : index to i32
+    %tag = scalar.addi %lane_i32, %bias : i32
+    %replacement = scalar.trunci %tag : i32 to i16
+    view.store %replacement, %global_cells[%lane] : i16, view<128xi16>
+    view.store %replacement, %generic_cells[%lane] : i16, view<128xi16>
+    view.store %initial, %results[0, %lane] : i16, view<4x128xi16>
+    view.store %initial, %results[1, %lane] : i16, view<4x128xi16>
+    view.store %initial, %results[2, %lane] : i16, view<4x128xi16>
+    view.store %replacement, %results[3, %lane] : i16, view<4x128xi16>
+  }
+  func.return
+}
+
+check.scenario @narrow_observation_values_i16 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(77) : tensor<260xi16>
+    %output = check.generate.fill value(0) : tensor<4x128xi16>
+    check.compare<@narrow_observations_i16, @narrow_observations_i16_oracle>(%storage, %output) : (tensor<260xi16>, tensor<4x128xi16>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<260xi16>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<4x128xi16>
+    }
+  }
   check.return
 }
 
@@ -198,19 +222,50 @@ kernel.def @narrow_float_observations() {
   kernel.return
 }
 
-check.case public @narrow_float_observation_bits {
-  %halves = check.generate.fill value(0) : tensor<65536xi16>
-  %brains = check.generate.fill value(0) : tensor<65536xi16>
-  %e4s = check.generate.fill value(0) : tensor<65536xi8>
-  %e5s = check.generate.fill value(0) : tensor<65536xi8>
-  %output = check.generate.fill value(0) : tensor<4x65536xi16>
-  kernel.launch @narrow_float_observations(%halves, %brains, %e4s, %e5s, %output) : (tensor<65536xi16>, tensor<65536xi16>, tensor<65536xi8>, tensor<65536xi8>, tensor<4x65536xi16>)
-  %half_results = check.tensor.view %output offset(0) : tensor<4x65536xi16> -> tensor<2x65536xi16>
-  %expected_halves = check.generate.iota offset(-32768) step(1) period(65536) : tensor<2x65536xi16>
-  check.expect.bitwise actual(%half_results) expected(%expected_halves) : tensor<2x65536xi16>
-  %byte_results = check.tensor.view %output offset(262144) : tensor<4x65536xi16> -> tensor<2x65536xi16>
-  %expected_bytes = check.generate.iota offset(0) step(1) period(256) : tensor<2x65536xi16>
-  check.expect.bitwise actual(%byte_results) expected(%expected_bytes) : tensor<2x65536xi16>
+func.def @narrow_float_observations_oracle(%half_storage: buffer, %brain_storage: buffer, %e4_storage: buffer, %e5_storage: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %halves = buffer.view %half_storage[%origin] : buffer -> view<65536xi16>
+  %brains = buffer.view %brain_storage[%origin] : buffer -> view<65536xi16>
+  %e4s = buffer.view %e4_storage[%origin] : buffer -> view<65536xi8>
+  %e5s = buffer.view %e5_storage[%origin] : buffer -> view<65536xi8>
+  %results = buffer.view %output[%origin] : buffer -> view<4x65536xi16>
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 1 : index
+  %half_bias = scalar.constant -32768 : i32
+  scf.for %index = [%begin to %end step %step] {
+    %ordinal = index.cast %index : index to i32
+    %half_pattern = scalar.addi %ordinal, %half_bias : i32
+    %half_bits = scalar.trunci %half_pattern : i32 to i16
+    %byte_bits = scalar.trunci %ordinal : i32 to i8
+    %byte_result = scalar.extui %byte_bits : i8 to i16
+    view.store %half_bits, %halves[%index] : i16, view<65536xi16>
+    view.store %half_bits, %brains[%index] : i16, view<65536xi16>
+    view.store %byte_bits, %e4s[%index] : i8, view<65536xi8>
+    view.store %byte_bits, %e5s[%index] : i8, view<65536xi8>
+    view.store %half_bits, %results[0, %index] : i16, view<4x65536xi16>
+    view.store %half_bits, %results[1, %index] : i16, view<4x65536xi16>
+    view.store %byte_result, %results[2, %index] : i16, view<4x65536xi16>
+    view.store %byte_result, %results[3, %index] : i16, view<4x65536xi16>
+  }
+  func.return
+}
+
+check.scenario @narrow_float_observation_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %halves = check.generate.fill value(0) : tensor<65536xi16>
+    %brains = check.generate.fill value(0) : tensor<65536xi16>
+    %e4s = check.generate.fill value(0) : tensor<65536xi8>
+    %e5s = check.generate.fill value(0) : tensor<65536xi8>
+    %output = check.generate.fill value(0) : tensor<4x65536xi16>
+    check.compare<@narrow_float_observations, @narrow_float_observations_oracle>(%halves, %brains, %e4s, %e5s, %output) : (tensor<65536xi16>, tensor<65536xi16>, tensor<65536xi8>, tensor<65536xi8>, tensor<4x65536xi16>) -> () {
+      check.expect.bitwise actual(%halves) expected(%halves) : tensor<65536xi16>
+      check.expect.bitwise actual(%brains) expected(%brains) : tensor<65536xi16>
+      check.expect.bitwise actual(%e4s) expected(%e4s) : tensor<65536xi8>
+      check.expect.bitwise actual(%e5s) expected(%e5s) : tensor<65536xi8>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<4x65536xi16>
+    }
+  }
   check.return
 }
 
@@ -290,17 +345,40 @@ kernel.def @narrow_atomic_publication() {
   kernel.return
 }
 
-check.case public @narrow_publication_values {
-  %publication = check.generate.fill value(77) : tensor<3xi8>
-  %payload = check.generate.fill value(-1) : tensor<1xi32>
-  %output = check.generate.fill value(-1) : tensor<2x16xi32>
-  kernel.launch @narrow_atomic_publication(%publication, %payload, %output) : (tensor<3xi8>, tensor<1xi32>, tensor<2x16xi32>)
-  %expected = check.generate.iota offset(65536) step(1) period(16) : tensor<2x16xi32>
-  check.expect.bitwise actual(%output) expected(%expected) : tensor<2x16xi32>
-  %before = check.tensor.view %publication offset(0) : tensor<3xi8> -> tensor<1xi8>
-  %after = check.tensor.view %publication offset(2) : tensor<3xi8> -> tensor<1xi8>
-  %expected_guard = check.generate.fill value(77) : tensor<1xi8>
-  check.expect.bitwise actual(%before) expected(%expected_guard) : tensor<1xi8>
-  check.expect.bitwise actual(%after) expected(%expected_guard) : tensor<1xi8>
+func.def @narrow_atomic_publication_oracle(%publication: buffer, %payload: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %interior = index.constant 1 : offset
+  %flag = buffer.view %publication[%interior] : buffer -> view<1xi8>
+  %global_payload = buffer.view %payload[%origin] : buffer -> view<1xi32>
+  %results = buffer.view %output[%origin] : buffer -> view<2x16xi32>
+  %begin = index.constant 0 : index
+  %end = index.constant 16 : index
+  %step = index.constant 1 : index
+  %advance = scalar.constant 1 : i32
+  %bias = scalar.constant 65536 : i32
+  scf.for %iteration = [%begin to %end step %step] {
+    %ordinal = index.cast %iteration : index to i32
+    %value = scalar.addi %ordinal, %bias : i32
+    %epoch = scalar.addi %ordinal, %advance : i32
+    %ready = scalar.trunci %epoch : i32 to i8
+    view.store %ready, %flag[0] : i8, view<1xi8>
+    view.store %value, %global_payload[0] : i32, view<1xi32>
+    view.store %value, %results[0, %iteration] : i32, view<2x16xi32>
+    view.store %value, %results[1, %iteration] : i32, view<2x16xi32>
+  }
+  func.return
+}
+
+check.scenario @narrow_publication_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %publication = check.generate.fill value(77) : tensor<3xi8>
+    %payload = check.generate.fill value(-1) : tensor<1xi32>
+    %output = check.generate.fill value(-1) : tensor<2x16xi32>
+    check.compare<@narrow_atomic_publication, @narrow_atomic_publication_oracle>(%publication, %payload, %output) : (tensor<3xi8>, tensor<1xi32>, tensor<2x16xi32>) -> () {
+      check.expect.bitwise actual(%publication) expected(%publication) : tensor<3xi8>
+      check.expect.bitwise actual(%payload) expected(%payload) : tensor<1xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2x16xi32>
+    }
+  }
   check.return
 }
