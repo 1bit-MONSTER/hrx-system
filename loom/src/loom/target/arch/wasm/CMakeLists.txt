@@ -120,6 +120,7 @@ loom_check_test_suite(
     "test/source_low/numeric_f32_narrowing.loom-test"
     "test/source_low/numeric_float_extensions.loom-test"
     "test/source_low/numeric_float_ordering_reference.loom-test"
+    "test/source_low/numeric_float_to_integer.loom-test"
     "test/source_low/numeric_index_extrema.loom-test"
     "test/source_low/numeric_index_operands.loom-test"
     "test/source_low/numeric_integer_arithmetic.loom-test"

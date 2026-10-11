@@ -314,8 +314,16 @@ _OP_F32_MIN = 0x96
 _OP_F32_MAX = 0x97
 _OP_F32_COPYSIGN = 0x98
 _OP_I32_WRAP_I64 = 0xA7
+_OP_I32_TRUNC_F32_S = 0xA8
+_OP_I32_TRUNC_F32_U = 0xA9
+_OP_I32_TRUNC_F64_S = 0xAA
+_OP_I32_TRUNC_F64_U = 0xAB
 _OP_I64_EXTEND_I32_S = 0xAC
 _OP_I64_EXTEND_I32_U = 0xAD
+_OP_I64_TRUNC_F32_S = 0xAE
+_OP_I64_TRUNC_F32_U = 0xAF
+_OP_I64_TRUNC_F64_S = 0xB0
+_OP_I64_TRUNC_F64_U = 0xB1
 _OP_F32_CONVERT_I32_S = 0xB2
 _OP_F32_CONVERT_I32_U = 0xB3
 _OP_F32_CONVERT_I64_S = 0xB4
@@ -814,6 +822,39 @@ def _integer_to_float_descriptor(
     )
 
 
+def _float_to_integer_descriptor(
+    float_type: str,
+    integer_type: str,
+    signedness: str,
+    encoding_id: int,
+) -> Descriptor:
+    float_operand = (
+        _f32_operand("input") if float_type == "f32" else _f64_operand("input")
+    )
+    if integer_type == "i32":
+        result = _i32_result()
+        schedule_class = _SCHEDULE_SCALAR_I32
+    else:
+        result = _i64_result()
+        schedule_class = _SCHEDULE_SCALAR_I64
+    semantic_signedness = "signed" if signedness == "s" else "unsigned"
+    semantic_integer_type = (
+        integer_type if signedness == "s" else f"u{integer_type[1:]}"
+    )
+    return Descriptor(
+        key=f"wasm.{integer_type}.trunc_{float_type}_{signedness}",
+        mnemonic=f"{integer_type}.trunc_{float_type}_{signedness}",
+        semantic_tag=(
+            f"convert.{semantic_signedness}.{float_type}.{semantic_integer_type}"
+        ),
+        encoding_id=encoding_id,
+        operands=(result, float_operand),
+        asm_forms=_asm(results=("dst",), operands=("input",)),
+        schedule_class=schedule_class,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
 def _float_width_descriptor(
     source_type: str,
     result_type: str,
@@ -1299,6 +1340,21 @@ WASM_CORE_SIMD128_DESCRIPTOR_SET = DescriptorSet(
             asm_forms=_asm(results=("dst",), operands=("input",)),
             schedule_class=_SCHEDULE_SCALAR_I32,
             flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        ),
+        *(
+            _float_to_integer_descriptor(
+                float_type, integer_type, signedness, encoding_id
+            )
+            for float_type, integer_type, signedness, encoding_id in (
+                ("f32", "i32", "s", _OP_I32_TRUNC_F32_S),
+                ("f32", "i32", "u", _OP_I32_TRUNC_F32_U),
+                ("f64", "i32", "s", _OP_I32_TRUNC_F64_S),
+                ("f64", "i32", "u", _OP_I32_TRUNC_F64_U),
+                ("f32", "i64", "s", _OP_I64_TRUNC_F32_S),
+                ("f32", "i64", "u", _OP_I64_TRUNC_F32_U),
+                ("f64", "i64", "s", _OP_I64_TRUNC_F64_S),
+                ("f64", "i64", "u", _OP_I64_TRUNC_F64_U),
+            )
         ),
         *(
             Descriptor(

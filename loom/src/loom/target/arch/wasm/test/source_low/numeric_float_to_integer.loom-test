@@ -1,0 +1,48 @@
+// RUN: emit source-low target=wasm:simd128 output=low
+
+func.def @convert_float_values(%single: f32, %double: f64) -> (i32, i64, i32, i64, i32, i64, i32, i64) {
+  %signed_single_word = scalar.fptosi %single : f32 to i32
+  %signed_single_wide = scalar.fptosi %single : f32 to i64
+  %unsigned_single_word = scalar.fptoui %single : f32 to i32
+  %unsigned_single_wide = scalar.fptoui %single : f32 to i64
+  %signed_double_word = scalar.fptosi %double : f64 to i32
+  %signed_double_wide = scalar.fptosi %double : f64 to i64
+  %unsigned_double_word = scalar.fptoui %double : f64 to i32
+  %unsigned_double_wide = scalar.fptoui %double : f64 to i64
+  func.return %signed_single_word, %signed_single_wide, %unsigned_single_word, %unsigned_single_wide, %signed_double_word, %signed_double_wide, %unsigned_double_word, %unsigned_double_wide : i32, i64, i32, i64, i32, i64, i32, i64
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @convert_float_values(%single: reg<wasm.f32>, %double: reg<wasm.f64>) -> (reg<wasm.i32>, reg<wasm.i64>, reg<wasm.i32>, reg<wasm.i64>, reg<wasm.i32>, reg<wasm.i64>, reg<wasm.i32>, reg<wasm.i64>) asm {
+  %signed_single_word = i32.trunc_f32_s %single
+  %signed_single_wide = i64.trunc_f32_s %single
+  %unsigned_single_word = i32.trunc_f32_u %single
+  %unsigned_single_wide = i64.trunc_f32_u %single
+  %signed_double_word = i32.trunc_f64_s %double
+  %signed_double_wide = i64.trunc_f64_s %double
+  %unsigned_double_word = i32.trunc_f64_u %double
+  %unsigned_double_wide = i64.trunc_f64_u %double
+  return %signed_single_word, %signed_single_wide, %unsigned_single_word, %unsigned_single_wide, %signed_double_word, %signed_double_wide, %unsigned_double_word, %unsigned_double_wide
+}
+
+// ====
+
+func.def @convert_float_to_narrow(%single: f32, %double: f64) -> (i1, i8, i16, i1, i8, i16) {
+  %signed_flag = scalar.fptosi %single : f32 to i1
+  %signed_byte = scalar.fptosi %single : f32 to i8
+  %signed_half = scalar.fptosi %single : f32 to i16
+  %unsigned_flag = scalar.fptoui %double : f64 to i1
+  %unsigned_byte = scalar.fptoui %double : f64 to i8
+  %unsigned_half = scalar.fptoui %double : f64 to i16
+  func.return %signed_flag, %signed_byte, %signed_half, %unsigned_flag, %unsigned_byte, %unsigned_half : i1, i8, i16, i1, i8, i16
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @convert_float_to_narrow(%single: reg<wasm.f32>, %double: reg<wasm.f64>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
+  %22 = i32.trunc_f32_s %single
+  %23 = i32.const 1
+  %signed_flag = i32.and %22, %23
+  %27 = i32.trunc_f64_u %double
+  %unsigned_flag = i32.and %27, %23
+  return %signed_flag, %22, %22, %unsigned_flag, %27, %27
+}

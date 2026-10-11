@@ -189,6 +189,68 @@ def test_scalar_integer_constants_cover_every_fixed_width_type() -> None:
     }
 
 
+def test_scalar_float_to_integer_rules_cover_every_native_carrier_pair() -> None:
+    actual = {}
+    for rule in WASM_CORE_SIMD128_CONTRACT_FRAGMENT.cases:
+        if (
+            not isinstance(rule, DescriptorRule)
+            or rule.source_op
+            not in (conversion.scalar_fptosi, conversion.scalar_fptoui)
+            or len(rule.emit) != 1
+        ):
+            continue
+        input_type, result_type = _narrowing_pair(rule)
+        if input_type not in ("f32", "f64") or result_type not in ("i32", "i64"):
+            continue
+        signedness = "s" if rule.source_op is conversion.scalar_fptosi else "u"
+        actual[(input_type, result_type, signedness)] = rule.descriptor.key
+
+    assert actual == {
+        (float_type, integer_type, signedness): (
+            f"wasm.{integer_type}.trunc_{float_type}_{signedness}"
+        )
+        for float_type in ("f32", "f64")
+        for integer_type in ("i32", "i64")
+        for signedness in ("s", "u")
+    }
+
+
+def test_scalar_float_to_narrow_integer_rules_use_i32_carriers() -> None:
+    actual = {}
+    for rule in WASM_CORE_SIMD128_CONTRACT_FRAGMENT.cases:
+        if not isinstance(rule, DescriptorRule) or rule.source_op not in (
+            conversion.scalar_fptosi,
+            conversion.scalar_fptoui,
+        ):
+            continue
+        input_type, result_type = _narrowing_pair(rule)
+        if input_type not in ("f32", "f64") or result_type not in (
+            "i1",
+            "i8",
+            "i16",
+        ):
+            continue
+        signedness = "s" if rule.source_op is conversion.scalar_fptosi else "u"
+        actual[(input_type, result_type, signedness)] = tuple(
+            emit.descriptor.key for emit in rule.emit
+        )
+
+    assert actual == {
+        (float_type, integer_type, signedness): (
+            (
+                f"wasm.i32.trunc_{float_type}_{signedness}",
+                "wasm.i32.const",
+                "wasm.i32.and",
+            )
+            if integer_type == "i1"
+            else (f"wasm.i32.trunc_{float_type}_{signedness}",)
+        )
+        for float_type in ("f32", "f64")
+        for integer_type in ("i1", "i8", "i16")
+        for signedness in ("s", "u")
+    }
+
+
 def test_exact_recipes_cover_every_non_native_pair() -> None:
     native_pairs = frozenset({("f64", "f32")})
     exact_recipe_pairs = {
