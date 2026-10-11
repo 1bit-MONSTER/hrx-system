@@ -97,6 +97,9 @@ template <auto Subject, class... Args>
 [[loom::op("check.compare")]] void compare(Args... args);
 
 // Uses a distinct ordinary function or kernel as the oracle implementation.
+// A leading workload bundle configures the target kernel. A distinct ordinary
+// function oracle receives only the shared ABI arguments; another configured
+// product receives the same workload as the target.
 template <auto Subject, auto Oracle, class... Args>
 [[loom::op("check.compare")]] void compare(Args... args);
 

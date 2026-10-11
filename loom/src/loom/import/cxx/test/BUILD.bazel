@@ -545,6 +545,9 @@ loom_test_module(
 _GENERATED_KERNEL_SOURCES = [
     "aiter_swiglu_f16",
     "flash_attention",
+]
+
+_APPROXIMATE_KERNEL_SOURCES = [
     "llama_rms_norm",
 ]
 
@@ -589,14 +592,20 @@ _AUTHORED_KERNEL_SOURCES = [
             ":" + source + "_checks.loom",
         ],
         data = [":" + source + "_checks_gen"],
-        inputopts = ["cxx:approximate-functions=true"] if source in [
-            "aiter_swiglu_f16",
-            "flash_attention",
-            "llama_rms_norm",
-        ] else [],
+        inputopts = ["cxx:approximate-functions=true"],
         target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
     )
     for source in _GENERATED_KERNEL_SOURCES
+]
+
+[
+    loom_test_module(
+        name = source + "_module",
+        srcs = [source + ".cxx"],
+        inputopts = ["cxx:approximate-functions=true"],
+        target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
+    )
+    for source in _APPROXIMATE_KERNEL_SOURCES
 ]
 
 # Authored scenarios replace generated harnesses and payload files as each

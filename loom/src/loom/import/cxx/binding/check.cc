@@ -340,9 +340,10 @@ std::optional<CheckIntrinsic> CheckIntrinsic::resolve(
       }
       result.configuration = bind_configuration(result.subject);
       auto* oracle_configuration = bind_configuration(result.oracle);
-      if (oracle_configuration != result.configuration && result.oracle) {
+      if (oracle_configuration &&
+          oracle_configuration != result.configuration) {
         fail(
-            "check.compare target and oracle must use the same workload "
+            "a configured check.compare oracle must use the target workload "
             "configuration");
       }
       break;

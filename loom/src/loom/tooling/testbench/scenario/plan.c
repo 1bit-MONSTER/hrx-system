@@ -158,8 +158,8 @@ loom_testbench_scenario_subject_invocation_kind(const loom_symbol_t* symbol) {
 
 static bool loom_testbench_plan_scenario_invocation(
     const loom_module_t* module, const loom_op_t* action_op,
-    loom_symbol_ref_t callee, const loom_value_id_t* result_value_ids,
-    iree_host_size_t result_count,
+    loom_symbol_ref_t callee, bool is_oracle,
+    const loom_value_id_t* result_value_ids, iree_host_size_t result_count,
     loom_testbench_invocation_plan_t* out_invocation) {
   const bool is_compare = loom_check_compare_isa(action_op);
   const loom_value_slice_t call_parameters =
@@ -175,6 +175,8 @@ static bool loom_testbench_plan_scenario_invocation(
   if (kind == LOOM_TESTBENCH_INVOCATION_NONE) {
     return false;
   }
+  const bool consumes_call_parameters =
+      !is_oracle || kind != LOOM_TESTBENCH_INVOCATION_FUNCTION_CALL;
 
   *out_invocation = (loom_testbench_invocation_plan_t){
       .kind = kind,
@@ -186,8 +188,9 @@ static bool loom_testbench_plan_scenario_invocation(
       .attrs = loom_named_attr_slice_empty(),
       .execution_epoch = LOOM_TESTBENCH_EXECUTION_EPOCH_INVALID,
       .launch_schedule_depth = 0,
-      .workload_value_ids = call_parameters.values,
-      .workload_count = call_parameters.count,
+      .workload_value_ids =
+          consumes_call_parameters ? call_parameters.values : NULL,
+      .workload_count = consumes_call_parameters ? call_parameters.count : 0,
       .input_value_ids = arguments.values,
       .input_count = arguments.count,
       .result_value_ids = result_value_ids,
@@ -313,8 +316,8 @@ static bool loom_testbench_plan_scenario_action(
     const loom_symbol_ref_t target_callee =
         loom_check_compare_callee(action_op);
     if (!loom_testbench_plan_scenario_invocation(
-            module, action_op, target_callee, block->arg_ids, actual_count,
-            &out_action->target)) {
+            module, action_op, target_callee, /*is_oracle=*/false,
+            block->arg_ids, actual_count, &out_action->target)) {
       return false;
     }
     loom_symbol_ref_t oracle_callee =
@@ -323,7 +326,7 @@ static bool loom_testbench_plan_scenario_action(
       oracle_callee = target_callee;
     }
     if (!loom_testbench_plan_scenario_invocation(
-            module, action_op, oracle_callee,
+            module, action_op, oracle_callee, /*is_oracle=*/true,
             actual_count == 0 ? NULL : block->arg_ids + actual_count,
             actual_count, &out_action->oracle)) {
       return false;
@@ -338,8 +341,9 @@ static bool loom_testbench_plan_scenario_action(
     out_action->kind = LOOM_TESTBENCH_SCENARIO_ACTION_INVOKE;
     const loom_value_slice_t results = loom_check_invoke_results(action_op);
     return loom_testbench_plan_scenario_invocation(
-        module, action_op, loom_check_invoke_callee(action_op), results.values,
-        results.count, &out_action->target);
+        module, action_op, loom_check_invoke_callee(action_op),
+        /*is_oracle=*/false, results.values, results.count,
+        &out_action->target);
   }
   return false;
 }

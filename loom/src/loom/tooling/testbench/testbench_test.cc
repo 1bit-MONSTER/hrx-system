@@ -364,18 +364,18 @@ check.benchmark<@configured> @configured_throughput
   loom_module_free(module);
 }
 
-TEST_F(TestbenchTest, PlansDistinctKernelAndOracleSubjects) {
+TEST_F(TestbenchTest, PlansKernelWorkloadAndFunctionOracle) {
   loom_module_t* module = ParseModule(R"(
-kernel.decl @subgroup_target() launch(%storage: buffer)
+kernel.decl @subgroup_target(%workload: index) launch(%storage: buffer)
 
 test.func @subgroup_oracle(%storage: buffer) {
   test.yield
 }
 
-check.scenario @subgroup_comparison {
+check.scenario @subgroup_comparison configure[2](%configuration: index, %configuration_entropy: check.entropy) {
   check.trial[4](%trial: index, %entropy: check.entropy) {
     %storage = check.generate.fill value(0) : tensor<4xi32>
-    check.compare<@subgroup_target, @subgroup_oracle>(%storage) : (tensor<4xi32>) -> () {
+    check.compare<@subgroup_target, @subgroup_oracle>[%configuration](%storage) : [index](tensor<4xi32>) -> () {
       check.expect.equal actual(%storage) expected(%storage) : tensor<4xi32>
     }
   }
@@ -399,6 +399,8 @@ check.scenario @subgroup_comparison {
             action.oracle.callee_ref.symbol_id);
   EXPECT_EQ(action.target.input_count, 1u);
   EXPECT_EQ(action.oracle.input_count, 1u);
+  EXPECT_EQ(action.target.workload_count, 1u);
+  EXPECT_EQ(action.oracle.workload_count, 0u);
   EXPECT_EQ(action.target.input_value_ids[0], action.oracle.input_value_ids[0]);
   EXPECT_EQ(action.target.result_count, 0u);
   EXPECT_EQ(action.oracle.result_count, 0u);

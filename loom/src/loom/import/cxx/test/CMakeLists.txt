@@ -1261,25 +1261,6 @@ loom_generated_file_family(
 endif()
 
 if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
-    llama_rms_norm_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "llama_rms_norm_checks.loom"
-    "llama_rms_norm_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=llama_rms_norm"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
     aiter_swiglu_f16_module
@@ -1315,10 +1296,6 @@ loom_test_module(
     llama_rms_norm_module
   SRCS
     "llama_rms_norm.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/llama_rms_norm_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/llama_rms_norm_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/llama_rms_norm_checks.loom"
   INPUTOPTS
     "cxx:approximate-functions=true"
 )

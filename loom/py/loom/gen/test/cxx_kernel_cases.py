@@ -41,26 +41,6 @@ def attention(arrays):
     return "kernel.decl @flash_attention() launch(%query: buffer, %key: buffer, %value: buffer, %output: buffer, %query_count: i32, %key_count: i32)\n\n" + "\n".join(cases)
 
 
-def rms_norm(arrays):
-    cases = []
-    for columns in [1, 33, 129]:
-        rng = random.Random(810 + columns)
-        values = [rounded(rng.uniform(-2, 2), "f32") for _ in range(3 * columns)]
-        epsilon = rounded(1e-5, "f32")
-        expected = []
-        for row in range(3):
-            inputs = values[row * columns : (row + 1) * columns]
-            scale = 1 / math.sqrt(math.fsum(value * value for value in inputs) / columns + epsilon)
-            expected.extend(value * scale for value in inputs)
-        case = Case(arrays, f"rms_norm_{columns}", "f32", len(values))
-        case.array("input", values)
-        case.scalar("columns", columns, "i32")
-        case.scalar("epsilon", epsilon, "f32")
-        case.launch("llama_rms_norm", "%input, %output, %columns, %epsilon", f"tensor<{len(values)}xf32>, tensor<{len(values)}xf32>, i32, f32")
-        cases.append(case.finish(expected, 0.0002))
-    return "kernel.decl @llama_rms_norm() launch(%input: buffer, %output: buffer, %columns: i32, %epsilon: f32)\n\n" + "\n".join(cases)
-
-
 def swiglu(arrays):
     cases = []
     for columns in [1, 31, 65, 129]:
@@ -322,7 +302,6 @@ KERNEL_GROUPS = {
     "flash_attention": lambda arrays: launch_grid("flash_attention", 3) + attention(arrays),
     "iq4xs_blocks": iq4xs_blocks,
     "iq4xs_gate_up": iq4xs_gate_up,
-    "llama_rms_norm": lambda arrays: launch_grid("llama_rms_norm", 3) + rms_norm(arrays),
     "q4k_q8_swiglu": q4k_q8_swiglu,
 }
 

@@ -331,7 +331,7 @@ check_compare = Op(
     "check.compare",
     group=check_ops,
     doc=(
-        "Ends a trial by independently invoking target and oracle subjects and checking their explicit typed observations. A single subject is used for both profiles; an optional second subject supplies the oracle implementation."
+        "Ends a trial by independently invoking target and oracle subjects and checking their explicit typed observations. A single subject is used for both profiles; an optional second subject supplies the oracle implementation. Call parameters configure the target. A distinct ordinary function oracle receives only the shared arguments; another product-shaped oracle receives the same call parameters as the target."
     ),
     operands=list(_SUBJECT_ACTION_OPERANDS),
     attrs=[
