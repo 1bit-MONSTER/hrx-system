@@ -855,6 +855,26 @@ typedef struct loom_low_lower_contract_t {
   loom_low_lower_rule_set_list_t rule_sets;
 } loom_low_lower_contract_t;
 
+// Target-owned contract query routed over a contiguous source op-kind range.
+// A zero op-kind count accepts every source operation.
+typedef struct loom_low_lower_op_contract_query_t {
+  // Callback invoked to query one accepted source operation.
+  loom_target_contract_query_op_fn_t fn;
+  // Caller-owned payload passed to |fn|.
+  void* user_data;
+  // First operation kind accepted when |op_kind_count| is nonzero.
+  loom_op_kind_t first_op_kind;
+  // Number of contiguous operation kinds accepted from |first_op_kind|.
+  uint16_t op_kind_count;
+} loom_low_lower_op_contract_query_t;
+
+// Returns true when |query| accepts |op_kind|.
+static inline bool loom_low_lower_op_contract_query_accepts(
+    const loom_low_lower_op_contract_query_t* query, loom_op_kind_t op_kind) {
+  return query->op_kind_count == 0 ||
+         (uint16_t)(op_kind - query->first_op_kind) < query->op_kind_count;
+}
+
 typedef struct loom_low_lower_policy_t {
   // Stable policy name used in diagnostics and status messages.
   iree_string_view_t name;
@@ -936,7 +956,7 @@ typedef struct loom_low_lower_policy_t {
   // cases. This admits bounded recipes whose invariants cannot be represented
   // by generated guards. It is read-only, leaves unowned operations
   // unhandled, and must agree with the corresponding target plan selector.
-  loom_target_contract_query_callback_t query_op_contract;
+  loom_low_lower_op_contract_query_t query_op_contract;
   // Optional observer of the compiler-owned source-plan traversal. The
   // observer sees the current op only and must not recursively inspect the
   // source function.

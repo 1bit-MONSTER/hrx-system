@@ -1985,6 +1985,8 @@ static const loom_low_lower_policy_t kAmdgpuLowLowerPolicy = {
         {
             .fn = loom_amdgpu_query_scalar_conversion_contract,
             .user_data = NULL,
+            .first_op_kind = LOOM_OP_SCALAR_SITOFP,
+            .op_kind_count = LOOM_OP_SCALAR_BITCAST - LOOM_OP_SCALAR_SITOFP + 1,
         },
     .descriptor_matrix =
         {
