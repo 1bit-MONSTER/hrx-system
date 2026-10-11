@@ -18,11 +18,14 @@ const loom_pass_info_t* loom_licm_pass_info(void);
 
 // Loop-invariant code motion pass.
 //
-// Walks function bodies, finds ops implementing the LoopLike interface, and
-// hoists speculatable pure work out of loop bodies. A candidate moves before
-// the loop when every operand and SSA value referenced by result types is
-// either defined outside the loop or inside the candidate subtree that moves
-// with it.
+// Processes LoopLike operations from inner loops to outer loops. An enclosing
+// loop immediately sees work hoisted from its children. Hoists speculatable
+// pure work and ordinary reads with proven execution and memory legality.
+// Every captured SSA value must be available at the insertion point or defined
+// inside the candidate subtree that moves with it.
+//
+// Shared legality analysis is acquired at the first loop, before any mutation,
+// and retained across hoists. Loop-free functions require only traversal.
 iree_status_t loom_licm_run(loom_pass_t* pass, loom_module_t* module,
                             loom_func_like_t function);
 

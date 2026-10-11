@@ -25,6 +25,7 @@ loom_cc_library(
     loom::pass::value_facts
     loom::rewrite::rewriter
     loom::target::function_version
+    loom::util::walk
   PUBLIC
 )
 

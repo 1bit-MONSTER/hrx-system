@@ -6,6 +6,7 @@
 
 #include "loom/util/walk.h"
 
+#include <algorithm>
 #include <vector>
 
 #include "iree/base/internal/arena.h"
@@ -23,11 +24,43 @@ namespace {
 // Test fixture
 //===----------------------------------------------------------------------===//
 
+struct AllocationState {
+  // Number of allocation or resize requests.
+  uint64_t allocation_count = 0;
+  // Number of outstanding allocations.
+  uint64_t live_count = 0;
+  // Largest requested allocation since the last reset, in bytes.
+  iree_host_size_t largest_request = 0;
+
+  static iree_status_t Control(void* self, iree_allocator_command_t command,
+                               const void* params, void** inout_ptr) {
+    auto* state = static_cast<AllocationState*>(self);
+    const bool resizing =
+        command == IREE_ALLOCATOR_COMMAND_REALLOC && *inout_ptr != nullptr;
+    iree_allocator_t allocator = iree_allocator_system();
+    IREE_RETURN_IF_ERROR(
+        allocator.ctl(allocator.self, command, params, inout_ptr));
+    if (command == IREE_ALLOCATOR_COMMAND_FREE) {
+      --state->live_count;
+    } else {
+      ++state->allocation_count;
+      if (!resizing) {
+        ++state->live_count;
+      }
+      state->largest_request =
+          std::max(state->largest_request,
+                   static_cast<const iree_allocator_alloc_params_t*>(params)
+                       ->byte_length);
+    }
+    return iree_ok_status();
+  }
+};
+
 class WalkTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    iree_arena_block_pool_initialize(4096, iree_allocator_system(),
-                                     &block_pool_);
+    iree_arena_block_pool_initialize(
+        4096, {&allocations_, AllocationState::Control}, &block_pool_);
     loom_context_initialize(iree_allocator_system(), &context_);
     iree_host_size_t vtable_count = 0;
     const loom_op_vtable_t* const* vtables =
@@ -65,6 +98,7 @@ class WalkTest : public ::testing::Test {
     loom_module_free(module_);
     loom_context_deinitialize(&context_);
     iree_arena_block_pool_deinitialize(&block_pool_);
+    EXPECT_EQ(allocations_.live_count, 0u);
   }
 
   // Enters a nested region's block, setting parent_op for ancestry.
@@ -82,26 +116,7 @@ class WalkTest : public ::testing::Test {
   // Finalizes the module (sets parent pointers via compute_uses).
   void finalize() { IREE_ASSERT_OK(loom_module_compute_uses(module_)); }
 
-  uint64_t block_allocation_count() const {
-    iree_arena_block_pool_statistics_t statistics;
-    iree_arena_block_pool_query_statistics(&block_pool_, &statistics);
-    return statistics.block_system_allocation_count;
-  }
-
-  void expect_blocks_reusable(uint64_t block_count,
-                              uint64_t expected_allocation_count) {
-    iree_arena_allocator_t probe_arena;
-    iree_arena_initialize(&block_pool_, &probe_arena);
-    for (uint64_t i = 0; i < block_count; ++i) {
-      void* allocation = nullptr;
-      IREE_ASSERT_OK(iree_arena_allocate(
-          &probe_arena, iree_arena_block_pool_max_allocation_size(&block_pool_),
-          &allocation));
-    }
-    EXPECT_EQ(block_allocation_count(), expected_allocation_count);
-    iree_arena_deinitialize(&probe_arena);
-  }
-
+  AllocationState allocations_;
   iree_arena_block_pool_t block_pool_;
   loom_context_t context_;
   loom_module_t* module_ = nullptr;
@@ -199,7 +214,7 @@ TEST_F(WalkTest, PreOrderFlatBlock) {
   finalize();
 
   const iree_host_size_t retained_bytes = module_->arena.used_allocation_size;
-  const uint64_t block_allocations = block_allocation_count();
+  const uint64_t allocations_before = allocations_.allocation_count;
   WalkState state;
   loom_walk_result_t walk_result = LOOM_WALK_CONTINUE;
   constexpr iree_host_size_t kWalkCount = 2048;
@@ -220,7 +235,7 @@ TEST_F(WalkTest, PreOrderFlatBlock) {
     EXPECT_EQ(r.depth, 0u);
   }
   EXPECT_EQ(module_->arena.used_allocation_size, retained_bytes);
-  EXPECT_EQ(block_allocation_count(), block_allocations);
+  EXPECT_EQ(allocations_.allocation_count, allocations_before);
 }
 
 TEST_F(WalkTest, PreOrderNestedRegion) {
@@ -428,7 +443,9 @@ TEST_F(WalkTest, DeepNesting) {
   finalize();
 
   iree_arena_block_pool_trim(&block_pool_);
-  const uint64_t allocations_before = block_allocation_count();
+  const uint64_t allocations_before = allocations_.allocation_count;
+  const uint64_t live_before = allocations_.live_count;
+  allocations_.largest_request = 0;
   const iree_host_size_t retained_bytes = module_->arena.used_allocation_size;
   WalkState state;
   loom_walk_result_t walk_result = LOOM_WALK_CONTINUE;
@@ -446,11 +463,11 @@ TEST_F(WalkTest, DeepNesting) {
   EXPECT_EQ(state.records.back().parent_op, maps.back());
   EXPECT_EQ(module_->arena.used_allocation_size, retained_bytes);
 
-  const uint64_t allocations_after_walk = block_allocation_count();
-  const uint64_t spill_block_count =
-      allocations_after_walk - allocations_before;
-  EXPECT_GT(spill_block_count, 0u);
-  expect_blocks_reusable(spill_block_count, allocations_after_walk);
+  EXPECT_GT(allocations_.allocation_count, allocations_before);
+  EXPECT_EQ(allocations_.live_count, live_before);
+  // This stack fits in less than a pool block. Spilling must not acquire an
+  // entire block whose granularity is chosen for long-lived IR storage.
+  EXPECT_LT(allocations_.largest_request, block_pool_.total_block_size);
 
   WalkState post_order_state;
   walk_result = LOOM_WALK_CONTINUE;
@@ -467,7 +484,7 @@ TEST_F(WalkTest, DeepNesting) {
     EXPECT_EQ(post_order_state.records[i + 2].op, maps[map_index]);
     EXPECT_EQ(post_order_state.records[i + 2].depth, map_index);
   }
-  expect_blocks_reusable(spill_block_count, allocations_after_walk);
+  EXPECT_EQ(allocations_.live_count, live_before);
 
   WalkState abort_state;
   abort_state.abort_op = deep_const;
@@ -476,7 +493,7 @@ TEST_F(WalkTest, DeepNesting) {
                                     {record_visitor, &abort_state},
                                     &walk_result));
   EXPECT_EQ(walk_result, LOOM_WALK_ABORT);
-  expect_blocks_reusable(spill_block_count, allocations_after_walk);
+  EXPECT_EQ(allocations_.live_count, live_before);
 
   WalkState failure_state;
   failure_state.fail_op = deep_const;
@@ -485,7 +502,7 @@ TEST_F(WalkTest, DeepNesting) {
       IREE_STATUS_ABORTED,
       loom_walk_function(module_, func_like_, LOOM_WALK_PRE_ORDER,
                          {record_visitor, &failure_state}, &walk_result));
-  expect_blocks_reusable(spill_block_count, allocations_after_walk);
+  EXPECT_EQ(allocations_.live_count, live_before);
 
   constexpr uint16_t kNestedTrigger = kMapCount / 2;
   NestedWalkState nested_state = {
@@ -500,9 +517,7 @@ TEST_F(WalkTest, DeepNesting) {
   EXPECT_EQ(walk_result, LOOM_WALK_CONTINUE);
   EXPECT_EQ(nested_state.outer.records.size(), kMapCount + 2);
   EXPECT_EQ(nested_state.nested.records.size(), kMapCount - kNestedTrigger);
-  const uint64_t allocations_after_nested_walk = block_allocation_count();
-  expect_blocks_reusable(allocations_after_nested_walk - allocations_before,
-                         allocations_after_nested_walk);
+  EXPECT_EQ(allocations_.live_count, live_before);
   EXPECT_EQ(module_->arena.used_allocation_size, retained_bytes);
 }
 

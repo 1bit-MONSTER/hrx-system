@@ -6,7 +6,6 @@
 
 #include "loom/util/walk.h"
 
-#include "iree/base/internal/arena.h"
 #include "loom/ops/op_defs.h"
 
 //===----------------------------------------------------------------------===//
@@ -40,41 +39,42 @@ typedef struct loom_walk_stack_t {
   iree_host_size_t count;
   // Number of frames available in |frames|.
   iree_host_size_t capacity;
-  // Whether |spill_arena| was initialized after exhausting inline storage.
-  bool spill_initialized;
-  // Invocation-local storage for frames beyond |inline_frames|.
-  iree_arena_allocator_t spill_arena;
+  // Allocator owning spill storage for this invocation.
+  iree_allocator_t allocator;
   // Frame storage covering common shallow region trees without allocation.
   loom_walk_frame_t inline_frames[LOOM_WALK_INLINE_STACK_CAPACITY];
 } loom_walk_stack_t;
 
-static void loom_walk_stack_initialize(loom_walk_stack_t* stack) {
+static void loom_walk_stack_initialize(loom_walk_stack_t* stack,
+                                       iree_allocator_t allocator) {
   stack->frames = stack->inline_frames;
   stack->count = 0;
   stack->capacity = IREE_ARRAYSIZE(stack->inline_frames);
-  stack->spill_initialized = false;
+  stack->allocator = allocator;
 }
 
 static void loom_walk_stack_deinitialize(loom_walk_stack_t* stack) {
-  if (stack->spill_initialized) {
-    iree_arena_deinitialize(&stack->spill_arena);
+  if (stack->frames != stack->inline_frames) {
+    iree_allocator_free(stack->allocator, stack->frames);
   }
 }
 
-static iree_status_t loom_walk_stack_reserve(
-    loom_walk_stack_t* stack, iree_arena_block_pool_t* block_pool,
-    iree_host_size_t additional) {
+static iree_status_t loom_walk_stack_reserve(loom_walk_stack_t* stack,
+                                             iree_host_size_t additional) {
   iree_host_size_t required = stack->count + additional;
   if (required <= stack->capacity) {
     return iree_ok_status();
   }
-  if (!stack->spill_initialized) {
-    iree_arena_initialize(block_pool, &stack->spill_arena);
-    stack->spill_initialized = true;
+  loom_walk_frame_t* frames =
+      stack->frames == stack->inline_frames ? NULL : stack->frames;
+  IREE_RETURN_IF_ERROR(iree_allocator_grow_array(
+      stack->allocator, required, sizeof(loom_walk_frame_t), &stack->capacity,
+      (void**)&frames));
+  if (stack->frames == stack->inline_frames) {
+    memcpy(frames, stack->inline_frames, stack->count * sizeof(*frames));
   }
-  return iree_arena_grow_array(&stack->spill_arena, stack->count, required,
-                               sizeof(loom_walk_frame_t), &stack->capacity,
-                               (void**)&stack->frames);
+  stack->frames = frames;
+  return iree_ok_status();
 }
 
 static void loom_walk_stack_push(loom_walk_stack_t* stack, loom_block_t* block,
@@ -109,9 +109,8 @@ static iree_host_size_t loom_walk_total_block_count(const loom_op_t* op) {
 //
 // For single-block regions, pushes one frame.
 //
-// For multi-block regions, uses entry block dominance: block 0
-// is pushed on top of the stack so it is processed first. Sibling
-// blocks are pushed below in reverse order.
+// For multi-block regions, block 0 is pushed on top of the stack so it is
+// processed first. Sibling blocks are pushed below in reverse physical order.
 static void loom_walk_push_region_frames(loom_walk_stack_t* stack,
                                          const loom_op_t* op,
                                          uint16_t child_depth) {
@@ -153,12 +152,11 @@ iree_status_t loom_walk_region(const loom_module_t* module,
   }
 
   loom_walk_stack_t stack;
-  loom_walk_stack_initialize(&stack);
+  loom_walk_stack_initialize(&stack, module->arena.block_pool->block_allocator);
 
   // Push the region's blocks onto the stack. For multi-block regions,
   // entry block goes on top (processed first).
-  iree_status_t status = loom_walk_stack_reserve(
-      &stack, module->arena.block_pool, region->block_count);
+  iree_status_t status = loom_walk_stack_reserve(&stack, region->block_count);
   if (iree_status_is_ok(status) && region->block_count == 1) {
     loom_walk_stack_push(&stack, loom_region_entry_block(region), NULL, 0);
   } else if (iree_status_is_ok(status)) {
@@ -236,8 +234,7 @@ iree_status_t loom_walk_region(const loom_module_t* module,
     if (op->region_count > 0 && !skip_regions) {
       iree_host_size_t child_block_count = loom_walk_total_block_count(op);
       if (child_block_count > 0) {
-        status = loom_walk_stack_reserve(&stack, module->arena.block_pool,
-                                         child_block_count);
+        status = loom_walk_stack_reserve(&stack, child_block_count);
         if (!iree_status_is_ok(status)) {
           break;
         }

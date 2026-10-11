@@ -14,6 +14,7 @@
 #include "loom/pass/value_facts.h"
 #include "loom/rewrite/rewriter.h"
 #include "loom/target/function_version.h"
+#include "loom/util/walk.h"
 
 #define LOOM_LICM_STATISTICS(V, statistics_type)     \
   V(statistics_type, loops_visited, "loops-visited", \
@@ -86,49 +87,48 @@ typedef struct loom_licm_context_t {
   loom_licm_statistics_t* statistics;
   // Module being transformed.
   loom_module_t* module;
+  // Function owning the lazily acquired analysis scope.
+  loom_func_like_t function;
   // Rewriter used for all IR movement.
   loom_rewriter_t* rewriter;
   // Shared motion legality analysis.
   loom_motion_analysis_t motion;
   // Function-local value domain backing symbolic movement analysis.
   loom_local_value_domain_t value_domain;
-  // Function facts used for counted-loop and alias proofs.
-  loom_value_fact_table_t* fact_table;
-  // Region DFS stack for finding loop-like ops in the function.
-  loom_licm_region_stack_t function_stack;
   // Region DFS stack for scanning one loop body for hoistable ops.
   loom_licm_region_stack_t loop_stack;
+  // Whether the current traversal moved any operation.
+  bool changed;
 } loom_licm_context_t;
 
 //===----------------------------------------------------------------------===//
 // Hoisting
 //===----------------------------------------------------------------------===//
 
-static iree_status_t loom_licm_op_is_hoistable(loom_licm_context_t* context,
-                                               loom_op_t* loop_op,
-                                               loom_op_t* candidate_op,
-                                               bool* out_hoistable) {
-  const loom_loop_like_t loop = loom_loop_like_cast(context->module, loop_op);
-  loom_motion_loop_hoist_result_t result = {0};
-  IREE_RETURN_IF_ERROR(loom_motion_subtree_evaluate_hoist_before_loop(
-      &context->motion, loop, candidate_op, &result));
-  *out_hoistable = loom_motion_loop_hoist_result_is_legal(&result);
-  return iree_ok_status();
-}
-
-static iree_status_t loom_licm_push_child_regions(
-    loom_licm_context_t* context, loom_licm_region_stack_t* stack,
-    loom_op_t* op) {
+static iree_status_t loom_licm_push_child_regions(loom_licm_context_t* context,
+                                                  loom_op_t* op) {
+  if (op->region_count == 0) {
+    return iree_ok_status();
+  }
+  const loom_loop_like_t nested_loop = loom_loop_like_cast(context->module, op);
+  loom_region_t* nested_body =
+      loom_loop_like_isa(nested_loop) ? loom_loop_like_body(nested_loop) : NULL;
   loom_region_t** regions = loom_op_regions(op);
   for (uint8_t i = 0; i < op->region_count; ++i) {
-    IREE_RETURN_IF_ERROR(
-        loom_licm_region_stack_push(context->pass->arena, stack, regions[i]));
+    // The child loop already inspected its body in this round. Its hoisted
+    // work is now in the enclosing block. Keep visiting other regions, such
+    // as a while condition, which do not belong to that body's traversal.
+    if (regions[i] == nested_body) {
+      continue;
+    }
+    IREE_RETURN_IF_ERROR(loom_licm_region_stack_push(
+        context->pass->arena, &context->loop_stack, regions[i]));
   }
   return iree_ok_status();
 }
 
 static iree_status_t loom_licm_hoist_from_loop_body(
-    loom_licm_context_t* context, loom_loop_like_t loop, bool* out_changed) {
+    loom_licm_context_t* context, loom_loop_like_t loop) {
   loom_region_t* body = loom_loop_like_body(loop);
   if (!body) {
     return iree_ok_status();
@@ -154,17 +154,16 @@ static iree_status_t loom_licm_hoist_from_loop_body(
           continue;
         }
 
-        bool hoistable = false;
-        IREE_RETURN_IF_ERROR(
-            loom_licm_op_is_hoistable(context, loop.op, op, &hoistable));
-        if (hoistable) {
+        loom_motion_loop_hoist_result_t result;
+        IREE_RETURN_IF_ERROR(loom_motion_subtree_evaluate_hoist_before_loop(
+            &context->motion, loop, op, &result));
+        if (loom_motion_loop_hoist_result_is_legal(&result)) {
           IREE_RETURN_IF_ERROR(
               loom_rewriter_move_before(context->rewriter, op, loop.op));
-          *out_changed = true;
+          context->changed = true;
           ++context->statistics->ops_hoisted;
         } else {
-          IREE_RETURN_IF_ERROR(
-              loom_licm_push_child_regions(context, &context->loop_stack, op));
+          IREE_RETURN_IF_ERROR(loom_licm_push_child_regions(context, op));
         }
 
         op = next_op;
@@ -175,49 +174,41 @@ static iree_status_t loom_licm_hoist_from_loop_body(
   return iree_ok_status();
 }
 
-static iree_status_t loom_licm_process_function_once(
-    loom_licm_context_t* context, loom_func_like_t function,
-    bool* out_changed) {
-  loom_region_t* body = loom_func_like_body(function);
-  if (!body) {
-    return iree_ok_status();
-  }
+static iree_status_t loom_licm_initialize_motion(loom_licm_context_t* context) {
+  loom_pass_t* pass = context->pass;
+  loom_region_t* body = loom_func_like_body(context->function);
+  IREE_RETURN_IF_ERROR(
+      loom_licm_region_stack_initialize(pass->arena, &context->loop_stack));
+  IREE_RETURN_IF_ERROR(loom_local_value_domain_acquire_for_region_tree(
+      context->module, body, pass->arena, &context->value_domain));
+  loom_value_fact_table_t* fact_table = NULL;
+  IREE_RETURN_IF_ERROR(loom_pass_value_facts_acquire(
+      pass, context->module,
+      loom_pass_value_fact_scope_function_for_target(
+          context->function,
+          loom_target_function_version_target_facts(pass->function_version)),
+      &fact_table));
+  return loom_motion_analysis_initialize_region(
+      context->module, body, fact_table, &context->value_domain, pass->arena,
+      &context->motion);
+}
 
-  context->function_stack.count = 0;
-  IREE_RETURN_IF_ERROR(loom_licm_region_stack_push(
-      context->pass->arena, &context->function_stack, body));
-
-  while (true) {
-    loom_region_t* region =
-        loom_licm_region_stack_pop(&context->function_stack);
-    if (!region) {
-      break;
+static iree_status_t loom_licm_process_loop(
+    void* user_data, loom_op_t* op, const loom_walk_context_t* walk_context,
+    loom_walk_result_t* out_result) {
+  (void)walk_context;
+  *out_result = LOOM_WALK_CONTINUE;
+  loom_licm_context_t* context = (loom_licm_context_t*)user_data;
+  const loom_loop_like_t loop = loom_loop_like_cast(context->module, op);
+  if (loom_loop_like_isa(loop)) {
+    // No mutation precedes the first loop visit. Acquire the shared snapshot
+    // here so loop-free functions do not construct unused analysis state.
+    if (!context->motion.module) {
+      IREE_RETURN_IF_ERROR(loom_licm_initialize_motion(context));
     }
-
-    loom_block_t* block = NULL;
-    loom_region_for_each_block(region, block) {
-      loom_op_t* op = block->first_op;
-      while (op) {
-        loom_op_t* next_op = op->next_op;
-        if (op->flags & LOOM_OP_FLAG_DEAD) {
-          op = next_op;
-          continue;
-        }
-
-        loom_loop_like_t loop = loom_loop_like_cast(context->module, op);
-        if (loom_loop_like_isa(loop)) {
-          ++context->statistics->loops_visited;
-          IREE_RETURN_IF_ERROR(
-              loom_licm_hoist_from_loop_body(context, loop, out_changed));
-        }
-
-        IREE_RETURN_IF_ERROR(loom_licm_push_child_regions(
-            context, &context->function_stack, op));
-        op = next_op;
-      }
-    }
+    ++context->statistics->loops_visited;
+    return loom_licm_hoist_from_loop_body(context, loop);
   }
-
   return iree_ok_status();
 }
 
@@ -235,38 +226,23 @@ iree_status_t loom_licm_run(loom_pass_t* pass, loom_module_t* module,
       .pass = pass,
       .statistics = loom_licm_statistics(pass),
       .module = module,
+      .function = function,
       .rewriter = &rewriter,
   };
-  iree_status_t status =
-      loom_licm_region_stack_initialize(pass->arena, &context.function_stack);
-  if (iree_status_is_ok(status)) {
-    status =
-        loom_licm_region_stack_initialize(pass->arena, &context.loop_stack);
-  }
-  if (iree_status_is_ok(status)) {
-    status = loom_local_value_domain_acquire_for_region_tree(
-        module, body, pass->arena, &context.value_domain);
-  }
-  if (iree_status_is_ok(status)) {
-    status = loom_pass_value_facts_acquire(
-        pass, module,
-        loom_pass_value_fact_scope_function_for_target(
-            function,
-            loom_target_function_version_target_facts(pass->function_version)),
-        &context.fact_table);
-  }
-  if (iree_status_is_ok(status)) {
-    status = loom_motion_analysis_initialize_region(
-        module, body, context.fact_table, &context.value_domain, pass->arena,
-        &context.motion);
-  }
-
-  bool changed = true;
+  iree_status_t status = iree_ok_status();
   bool any_changed = false;
-  while (iree_status_is_ok(status) && changed) {
-    changed = false;
-    status = loom_licm_process_function_once(&context, function, &changed);
-    any_changed |= changed;
+  context.changed = true;
+  while (iree_status_is_ok(status) && context.changed) {
+    context.changed = false;
+    loom_walk_result_t walk_result = LOOM_WALK_CONTINUE;
+    // Visit children before parents so an enclosing loop immediately sees
+    // operations hoisted from its nested loops.
+    status =
+        loom_walk_region(module, body, LOOM_WALK_POST_ORDER,
+                         (loom_walk_callback_t){.fn = loom_licm_process_loop,
+                                                .user_data = &context},
+                         &walk_result);
+    any_changed |= context.changed;
   }
 
   if (iree_status_is_ok(status) && any_changed) {
