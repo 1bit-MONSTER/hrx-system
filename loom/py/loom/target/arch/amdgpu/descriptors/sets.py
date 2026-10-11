@@ -330,6 +330,10 @@ def _rdna_scalar_domain_fma_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
 def _floating_arithmetic_support_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
     return (
         _v_ldexp_f32_overlay(),
+        _v_ceil_f64_overlay(),
+        _v_floor_f64_overlay(),
+        _v_rndne_f64_overlay(),
+        _v_trunc_f64_overlay(),
         _v_sub_f64_overlay(),
         _v_fma_f64_neg_a_overlay(),
         _v_fma_f64_neg_a_one_overlay(),
@@ -341,6 +345,7 @@ def _floating_arithmetic_support_overlays() -> tuple[AmdgpuDescriptorOverlay, ..
         _v_div_fmas_f64_overlay(),
         _v_div_fixup_f64_overlay(),
         *_v_cvt_f64_integer_overlays(),
+        *_v_cvt_integer_f64_overlays(),
     )
 
 

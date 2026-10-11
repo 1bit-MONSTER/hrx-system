@@ -32,6 +32,30 @@ v_cmp_lt_f64 s[2:3], v[0:1], v[2:3]
   s_endpgm
 
 // ====
+// RUN: emit amdgpu-assembly @round_convert_f64
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @round_convert_f64(%value: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %ceiled = v_ceil_f64 %value
+  %floored = v_floor_f64 %value
+  %rounded = v_rndne_f64 %value
+  %truncated = v_trunc_f64 %value
+  %signed = v_cvt_i32_f64 %value
+  %unsigned = v_cvt_u32_f64 %value
+  return %ceiled, %floored, %rounded, %truncated, %signed, %unsigned
+}
+
+// ----
+  v_cvt_i32_f64 v2, v[0:1]
+  v_cvt_u32_f64 v3, v[0:1]
+  v_ceil_f64 v[4:5], v[0:1]
+  v_floor_f64 v[6:7], v[0:1]
+  v_rndne_f64 v[8:9], v[0:1]
+  v_trunc_f64 v[0:1], v[0:1]
+  s_endpgm
+
+// ====
 // RUN: emit amdgpu-assembly @subtract_f64
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}

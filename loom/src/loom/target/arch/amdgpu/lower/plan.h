@@ -137,6 +137,28 @@ typedef struct loom_amdgpu_f64_narrow_plan_t {
   loom_amdgpu_f64_narrow_kind_t kind;
 } loom_amdgpu_f64_narrow_plan_t;
 
+typedef uint8_t loom_amdgpu_float_to_integer64_signedness_t;
+enum loom_amdgpu_float_to_integer64_signedness_e {
+  LOOM_AMDGPU_FLOAT_TO_INTEGER64_SIGNEDNESS_SIGNED = 1,
+  LOOM_AMDGPU_FLOAT_TO_INTEGER64_SIGNEDNESS_UNSIGNED = 2,
+};
+
+typedef uint8_t loom_amdgpu_float_to_integer64_kind_t;
+enum loom_amdgpu_float_to_integer64_kind_e {
+  LOOM_AMDGPU_FLOAT_TO_INTEGER64_KIND_NONE = 0,
+  LOOM_AMDGPU_FLOAT_TO_INTEGER64_KIND_F32_SIGNED = 1,
+  LOOM_AMDGPU_FLOAT_TO_INTEGER64_KIND_F32_UNSIGNED = 2,
+  LOOM_AMDGPU_FLOAT_TO_INTEGER64_KIND_F64_SIGNED = 3,
+  LOOM_AMDGPU_FLOAT_TO_INTEGER64_KIND_F64_UNSIGNED = 4,
+};
+
+typedef struct loom_amdgpu_float_to_integer64_plan_t {
+  // Working precision and integer interpretation selected for exact splitting.
+  loom_amdgpu_float_to_integer64_kind_t kind;
+} loom_amdgpu_float_to_integer64_plan_t;
+static_assert(sizeof(loom_amdgpu_float_to_integer64_plan_t) == 1,
+              "wide float conversion plans must stay cache dense");
+
 // Per-value facts that can simplify FP8 decode emission. These describe the
 // actual value being decoded, not the full source FP8 type.
 typedef enum loom_amdgpu_fp8_decode_value_flag_bits_e {
@@ -565,6 +587,7 @@ typedef enum loom_amdgpu_scalar_conversion_kind_e {
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_TO_BF16,
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_ENCODE,
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_F64_NARROW,
+  LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FLOAT_TO_INTEGER64,
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FPTOI_F32_TO_I32,
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FPTOI_F32_TO_NARROW,
 } loom_amdgpu_scalar_conversion_kind_t;
@@ -598,6 +621,8 @@ typedef struct loom_amdgpu_scalar_conversion_plan_t {
     loom_amdgpu_fp8_encode_plan_t fp8_encode;
     // Exact split-word strategy for narrowing an F64 source.
     loom_amdgpu_f64_narrow_plan_t f64_narrow;
+    // Exact split-word strategy for producing an I64 payload.
+    loom_amdgpu_float_to_integer64_plan_t float_to_integer64;
   };
 } loom_amdgpu_scalar_conversion_plan_t;
 
@@ -612,6 +637,7 @@ typedef enum loom_amdgpu_vector_conversion_kind_e {
   LOOM_AMDGPU_VECTOR_CONVERSION_KIND_PACKED_INTEGER_TO_FULL_64,
   LOOM_AMDGPU_VECTOR_CONVERSION_KIND_PACKED_INTEGER_TO_PACKED_INTEGER,
   LOOM_AMDGPU_VECTOR_CONVERSION_KIND_PACKED_U8_TO_F32,
+  LOOM_AMDGPU_VECTOR_CONVERSION_KIND_FLOAT_TO_INTEGER64,
   LOOM_AMDGPU_VECTOR_CONVERSION_KIND_COUNT_,
 } loom_amdgpu_vector_conversion_kind_t;
 
@@ -642,9 +668,13 @@ typedef struct loom_amdgpu_vector_conversion_plan_t {
   loom_amdgpu_descriptor_ref_t convert_descriptor_ref;
   // Byte permutation plan selected for full-register i8 result assembly.
   loom_amdgpu_byte_permute_plan_t packed_i8_permute;
+  // Exact split-word strategy for floating lanes producing I64 payloads.
+  loom_amdgpu_float_to_integer64_plan_t float_to_integer64;
   // True when integer source lanes require sign extension.
   bool sign_extend_source;
 } loom_amdgpu_vector_conversion_plan_t;
+static_assert(sizeof(loom_amdgpu_vector_conversion_plan_t) == 48,
+              "vector conversion plans must stay cache dense");
 
 typedef struct loom_amdgpu_bitpack_plan_t {
   // Source vector value containing unpacked i32 lanes.

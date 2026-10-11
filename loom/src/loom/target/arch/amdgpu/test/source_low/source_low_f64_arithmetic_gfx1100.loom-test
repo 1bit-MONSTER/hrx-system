@@ -72,6 +72,29 @@ low.func.def target<amdgpu.rdna3.core> abi(hal_kernel) @convert_to_f64(%signed32
 
 // ====
 
+func.def @f64_rounding_and_integer_conversion(%value: f64) -> (f64, f64, f64, f64, i32, i32) {
+  %ceiled = scalar.ceilf %value : f64
+  %floored = scalar.floorf %value : f64
+  %rounded = scalar.roundevenf %value : f64
+  %truncated = scalar.truncf %value : f64
+  %signed = scalar.fptosi %value : f64 to i32
+  %unsigned = scalar.fptoui %value : f64 to i32
+  func.return %ceiled, %floored, %rounded, %truncated, %signed, %unsigned : f64, f64, f64, f64, i32, i32
+}
+
+// ----
+low.func.def target<amdgpu.rdna3.core> abi(hal_kernel) @f64_rounding_and_integer_conversion(%value: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %ceiled = v_ceil_f64 %value
+  %floored = v_floor_f64 %value
+  %rounded = v_rndne_f64 %value
+  %truncated = v_trunc_f64 %value
+  %signed = v_cvt_i32_f64 %value
+  %unsigned = v_cvt_u32_f64 %value
+  return %ceiled, %floored, %rounded, %truncated, %signed, %unsigned
+}
+
+// ====
+
 func.def @unsupported_f64_clamp(%value: f64, %lower: f64, %upper: f64) -> (f64) {
   // ERROR@+1: TARGET/002 {field_name="value", actual_type="f64"}
   %result = scalar.clampf<number> %value, %lower, %upper : f64
