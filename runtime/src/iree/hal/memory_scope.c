@@ -914,7 +914,7 @@ static void iree_hal_memory_transition_host_fence(
   }
 }
 
-static void iree_hal_memory_transition_host_direct(
+IREE_API_EXPORT void iree_hal_memory_transition_execute_host_direct(
     const iree_hal_memory_transition_recipe_info_t* info, const void* pointer,
     iree_device_size_t length) {
   if (!length) {
@@ -926,8 +926,8 @@ static void iree_hal_memory_transition_host_direct(
     return;
   }
   // The native producer qualifies the instruction for the host and supplies
-  // its power-of-two cache-line granularity. Range validation above established
-  // the inclusive last address; rounding down avoids an end-address overflow.
+  // its power-of-two cache-line granularity. The caller validated the inclusive
+  // last address; rounding down avoids an end-address overflow.
   const uintptr_t mask = (uintptr_t)info->range_granularity - 1;
   const uintptr_t first = (uintptr_t)pointer & ~mask;
   const uintptr_t last = ((uintptr_t)pointer + length - 1) & ~mask;
@@ -959,6 +959,17 @@ static void iree_hal_memory_transition_host_direct(
     }
   }
   iree_hal_memory_transition_host_fence(info->host.fence_after);
+}
+
+#else
+
+IREE_API_EXPORT void iree_hal_memory_transition_execute_host_direct(
+    const iree_hal_memory_transition_recipe_info_t* info, const void* pointer,
+    iree_device_size_t length) {
+  (void)info;
+  (void)pointer;
+  (void)length;
+  IREE_ASSERT_UNREACHABLE("direct host cache recipe requires an x86 host");
 }
 
 #endif  // IREE_ARCH_X86_*
@@ -1021,7 +1032,7 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_mapping_memory_barrier(
       } else {
 #if defined(IREE_ARCH_X86_64) || defined(IREE_ARCH_X86_32)
         if (length) {
-          iree_hal_memory_transition_host_direct(
+          iree_hal_memory_transition_execute_host_direct(
               info, transition->mapping->contents.data + transition->offset,
               length);
         }

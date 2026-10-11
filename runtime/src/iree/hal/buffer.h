@@ -1000,6 +1000,24 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_native_host_span(
     const iree_hal_buffer_t* buffer, iree_device_size_t offset,
     iree_device_size_t length, iree_byte_span_t* out_span);
 
+// Executes native maintenance through a prepared CPU execution binding.
+// These operations require READ or WRITE access respectively, independently of
+// public mapping permissions. The caller orders the operation after allocation
+// commitment and producer completion, and before backing retirement. Native
+// maintenance may block and must run on a host executor, not a proactor
+// callback. An explicit operation always reaches the native implementation,
+// including on CPU-coherent storage whose external protocol may still require
+// maintenance.
+IREE_API_EXPORT iree_status_t iree_hal_buffer_invalidate_host_range(
+    iree_hal_buffer_t* buffer, iree_device_size_t offset,
+    iree_device_size_t length);
+
+// Publishes writes through the prepared CPU execution binding. Follows the
+// execution and ownership contract of iree_hal_buffer_invalidate_host_range.
+IREE_API_EXPORT iree_status_t iree_hal_buffer_flush_host_range(
+    iree_hal_buffer_t* buffer, iree_device_size_t offset,
+    iree_device_size_t length);
+
 // Returns success iff the buffer was allocated with the given memory type.
 IREE_API_EXPORT iree_status_t iree_hal_buffer_validate_memory_type(
     iree_hal_memory_type_t actual_memory_type,

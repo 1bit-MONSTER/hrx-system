@@ -301,7 +301,8 @@ static iree_status_t iree_hal_device_spec_validate_queue_family(
         family->supported_queue_features & ~known_queue_features);
   }
   const iree_hal_queue_family_spec_flags_t known_family_flags =
-      IREE_HAL_QUEUE_FAMILY_SPEC_FLAG_DYNAMIC_ACQUISITION;
+      IREE_HAL_QUEUE_FAMILY_SPEC_FLAG_DYNAMIC_ACQUISITION |
+      IREE_HAL_QUEUE_FAMILY_SPEC_FLAG_HOST_MEMORY_BARRIERS;
   if (IREE_UNLIKELY(family->flags & ~known_family_flags)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "device spec queue family %" PRIhsz

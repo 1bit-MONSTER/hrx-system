@@ -623,6 +623,8 @@ struct MappedTransferBuffer : iree_hal_buffer_t {
   std::array<uint8_t, 64> device_contents = {};
   // Stale host cache for noncoherent mappings.
   std::array<uint8_t, 64> host_contents = {};
+  // Prepared CPU execution view, independent of public mapping permission.
+  iree_hal_buffer_native_binding_t host_binding = {};
   // Outstanding mappings that must be returned even after a cache error.
   size_t mapping_count = 0;
   // Source transitions performed by the caller.
@@ -706,6 +708,12 @@ struct MappedTransferBuffer : iree_hal_buffer_t {
         device_contents.size(), IREE_HAL_MEMORY_TYPE_HOST_LOCAL | coherence,
         IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_BUFFER_USAGE_MAPPING, &vtable,
         this);
+    host_binding.host_pointer =
+        iree_all_bits_set(coherence, IREE_HAL_MEMORY_TYPE_HOST_COHERENT)
+            ? device_contents.data()
+            : host_contents.data();
+    host_binding_index = 0;
+    memory.bindings = &host_binding;
   }
 };
 
@@ -716,6 +724,71 @@ static MappedTransferBufferPtr MakeMappedTransferBuffer(
     iree_hal_memory_type_t coherence = 0) {
   return MappedTransferBufferPtr(new MappedTransferBuffer(coherence),
                                  iree_hal_buffer_release);
+}
+
+TEST(BufferHostExecutionTest, CacheOperationsDoNotRequirePublicMaps) {
+  for (iree_hal_memory_type_t coherence :
+       {0u, static_cast<uint32_t>(IREE_HAL_MEMORY_TYPE_HOST_COHERENT)}) {
+    auto buffer = MakeMappedTransferBuffer(coherence);
+    buffer->allowed_usage = IREE_HAL_BUFFER_USAGE_STORAGE;
+    iree_hal_buffer_t* view = nullptr;
+    IREE_ASSERT_OK(iree_hal_buffer_subspan(buffer.get(), 7, 40,
+                                           iree_allocator_system(), &view));
+    iree_hal_buffer_mapping_t mapping = {};
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_PERMISSION_DENIED,
+        iree_hal_buffer_map_range(
+            view, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_ALL,
+            IREE_HAL_BUFFER_MAP_FLAG_NONE, 3, 8, &mapping));
+    iree_byte_span_t span;
+    IREE_ASSERT_OK(iree_hal_buffer_native_host_span(view, 3, 8, &span));
+    memset(span.data, 0x57, span.data_length);
+    IREE_ASSERT_OK(iree_hal_buffer_flush_host_range(view, 3, 8));
+    EXPECT_EQ(buffer->flush_count, 1u);
+    EXPECT_EQ(buffer->maintenance_range.offset, 10u);
+    EXPECT_EQ(buffer->maintenance_range.length, 8u);
+    EXPECT_EQ(buffer->device_contents[10], 0x57);
+    EXPECT_EQ(buffer->device_contents[9], 0u);
+    EXPECT_EQ(buffer->device_contents[18], 0u);
+    buffer->device_contents[12] = 0x92;
+    IREE_ASSERT_OK(
+        iree_hal_buffer_invalidate_host_range(view, 5, IREE_HAL_WHOLE_BUFFER));
+    EXPECT_EQ(buffer->invalidate_count, 1u);
+    EXPECT_EQ(buffer->maintenance_range.offset, 12u);
+    EXPECT_EQ(buffer->maintenance_range.length, 35u);
+    EXPECT_EQ(span.data[2], 0x92);
+    EXPECT_EQ(buffer->mapping_count, 0u);
+    iree_hal_buffer_release(view);
+  }
+}
+
+TEST(BufferHostExecutionTest, EnforcesRangeAccessAndNativeFailures) {
+  auto buffer = MakeMappedTransferBuffer();
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                        iree_hal_buffer_flush_host_range(buffer.get(), 60, 8));
+  buffer->allowed_access = IREE_HAL_MEMORY_ACCESS_READ;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_PERMISSION_DENIED,
+                        iree_hal_buffer_flush_host_range(buffer.get(), 0, 8));
+  buffer->allowed_access = IREE_HAL_MEMORY_ACCESS_WRITE;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_PERMISSION_DENIED,
+      iree_hal_buffer_invalidate_host_range(buffer.get(), 0, 8));
+  EXPECT_EQ(buffer->flush_count, 0u);
+  EXPECT_EQ(buffer->invalidate_count, 0u);
+  buffer->allowed_access = IREE_HAL_MEMORY_ACCESS_ALL;
+  buffer->flush_code = IREE_STATUS_UNAVAILABLE;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
+                        iree_hal_buffer_flush_host_range(buffer.get(), 0, 8));
+  buffer->invalidate_code = IREE_STATUS_DATA_LOSS;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_DATA_LOSS,
+      iree_hal_buffer_invalidate_host_range(buffer.get(), 0, 8));
+  buffer->host_binding.host_pointer = nullptr;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      iree_hal_buffer_invalidate_host_range(buffer.get(), 0, 8));
+  EXPECT_EQ(buffer->flush_count, 1u);
+  EXPECT_EQ(buffer->invalidate_count, 1u);
 }
 
 TEST(BufferMappedTransferTest, ReadObservesEveryCompletedWrite) {

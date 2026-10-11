@@ -306,7 +306,8 @@ static iree_status_t iree_hal_queue_validate_barrier_list(
   }
   for (iree_host_size_t i = 0; i < barriers->count; ++i) {
     const iree_hal_barrier_t* barrier = &barriers->values[i];
-    IREE_RETURN_IF_ERROR(iree_hal_barrier_validate(barrier));
+    IREE_RETURN_IF_ERROR(
+        iree_hal_barrier_validate(barrier, iree_hal_queue_family(queue)));
     for (iree_host_size_t j = 0; j < barrier->buffer_barrier_count; ++j) {
       const iree_hal_buffer_ref_t ref = barrier->buffer_barriers[j].buffer_ref;
       if (IREE_UNLIKELY(!ref.buffer)) {

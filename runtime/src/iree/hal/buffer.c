@@ -373,6 +373,30 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_native_host_span(
   return iree_ok_status();
 }
 
+IREE_API_EXPORT iree_status_t iree_hal_buffer_invalidate_host_range(
+    iree_hal_buffer_t* buffer, iree_device_size_t offset,
+    iree_device_size_t length) {
+  IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_access(
+      buffer->allowed_access, IREE_HAL_MEMORY_ACCESS_READ));
+  iree_byte_span_t span = iree_byte_span_empty();
+  IREE_RETURN_IF_ERROR(
+      iree_hal_buffer_native_host_span(buffer, offset, length, &span));
+  return _VTABLE_DISPATCH(buffer, invalidate_range)(
+      buffer, buffer->byte_offset + offset, span.data_length);
+}
+
+IREE_API_EXPORT iree_status_t iree_hal_buffer_flush_host_range(
+    iree_hal_buffer_t* buffer, iree_device_size_t offset,
+    iree_device_size_t length) {
+  IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_access(
+      buffer->allowed_access, IREE_HAL_MEMORY_ACCESS_WRITE));
+  iree_byte_span_t span = iree_byte_span_empty();
+  IREE_RETURN_IF_ERROR(
+      iree_hal_buffer_native_host_span(buffer, offset, length, &span));
+  return _VTABLE_DISPATCH(buffer, flush_range)(
+      buffer, buffer->byte_offset + offset, span.data_length);
+}
+
 IREE_API_EXPORT void iree_hal_buffer_initialize(
     iree_hal_buffer_placement_t placement, iree_hal_buffer_t* allocated_buffer,
     iree_device_size_t allocation_size, iree_device_size_t byte_offset,

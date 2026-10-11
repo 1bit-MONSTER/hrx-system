@@ -6,6 +6,7 @@
 
 #include "iree/hal/memory_scope.h"
 
+#include "iree/hal/command_buffer.h"
 #include "iree/hal/device.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -91,6 +92,45 @@ TEST(MemoryTransitionRecipeTest, ValidatesEffectsAndQueueOperationShape) {
                         iree_hal_memory_transition_recipe_validate(&recipe));
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         iree_hal_memory_transition_recipe_validate(nullptr));
+}
+
+TEST(MemoryTransitionRecipeTest, QueueFamilyAdmitsItsHostExecutors) {
+  iree_hal_queue_family_spec_t family_spec = {};
+  iree_hal_queue_family_t family = {};
+  family.spec = &family_spec;
+  iree_hal_memory_transition_recipe_info_t operation = {
+      /*.kind=*/IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
+      /*.executor=*/IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_API,
+      /*.operation=*/IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH,
+      /*.range_granularity=*/64,
+  };
+  iree_hal_memory_transition_recipe_t recipe = {
+      /*.effects=*/{IREE_HAL_MEMORY_EFFECT_HOST_FLUSH},
+      /*.operation_count=*/1,
+      /*.operations=*/&operation,
+  };
+  iree_hal_buffer_barrier_t range = {};
+  range.recipe = &recipe;
+  iree_hal_barrier_t barrier = {};
+  barrier.effects = recipe.effects;
+  barrier.buffer_barrier_count = 1;
+  barrier.buffer_barriers = &range;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNIMPLEMENTED,
+                        iree_hal_barrier_validate(&barrier, &family));
+  family_spec.flags = IREE_HAL_QUEUE_FAMILY_SPEC_FLAG_HOST_MEMORY_BARRIERS;
+  IREE_EXPECT_OK(iree_hal_barrier_validate(&barrier, &family));
+  operation.executor = IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT;
+  operation.host.instruction = IREE_HAL_HOST_CACHE_INSTRUCTION_X86_CLFLUSH;
+#if defined(IREE_ARCH_X86_64) || defined(IREE_ARCH_X86_32)
+  IREE_EXPECT_OK(iree_hal_barrier_validate(&barrier, &family));
+#else
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
+                        iree_hal_barrier_validate(&barrier, &family));
+#endif
+  // Host effects still require an actual range operand and matching recipe.
+  barrier.buffer_barrier_count = 0;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        iree_hal_barrier_validate(&barrier, &family));
 }
 
 TEST(MemoryScopeFamilyUsageTest, UnscopedBufferHonorsAllocationPlacement) {
