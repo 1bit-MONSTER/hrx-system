@@ -13,37 +13,39 @@
 namespace loom::predicate {
 
 template <class T>
-[[loom::predicate("eq")]] bool eq(T left, T right);
+[[loom::predicate("eq")]] bool eq(const T& left, const T& right);
 template <class T>
-[[loom::predicate("ne")]] bool ne(T left, T right);
+[[loom::predicate("ne")]] bool ne(const T& left, const T& right);
 template <class T>
-[[loom::predicate("lt")]] bool lt(T left, T right);
+[[loom::predicate("lt")]] bool lt(const T& left, const T& right);
 template <class T>
-[[loom::predicate("le")]] bool le(T left, T right);
+[[loom::predicate("le")]] bool le(const T& left, const T& right);
 template <class T>
-[[loom::predicate("gt")]] bool gt(T left, T right);
+[[loom::predicate("gt")]] bool gt(const T& left, const T& right);
 template <class T>
-[[loom::predicate("ge")]] bool ge(T left, T right);
+[[loom::predicate("ge")]] bool ge(const T& left, const T& right);
 template <class T>
-[[loom::predicate("ult")]] bool ult(T left, T right);
+[[loom::predicate("ult")]] bool ult(const T& left, const T& right);
 template <class T>
-[[loom::predicate("ule")]] bool ule(T left, T right);
+[[loom::predicate("ule")]] bool ule(const T& left, const T& right);
 template <class T>
-[[loom::predicate("ugt")]] bool ugt(T left, T right);
+[[loom::predicate("ugt")]] bool ugt(const T& left, const T& right);
 template <class T>
-[[loom::predicate("uge")]] bool uge(T left, T right);
+[[loom::predicate("uge")]] bool uge(const T& left, const T& right);
 template <class T>
-[[loom::predicate("multiple_of")]] bool multiple_of(T value, T divisor);
+[[loom::predicate("multiple_of")]] bool multiple_of(const T& value,
+                                                    const T& divisor);
 template <class T>
-[[loom::predicate("power_of_two")]] bool power_of_two(T value);
+[[loom::predicate("power_of_two")]] bool power_of_two(const T& value);
 template <class T>
-[[loom::predicate("range")]] bool range(T value, T lower, T upper);
+[[loom::predicate("range")]] bool range(const T& value, const T& lower,
+                                        const T& upper);
 template <class T>
-[[loom::predicate("not_nan")]] bool not_nan(T value);
+[[loom::predicate("not_nan")]] bool not_nan(const T& value);
 template <class T>
-[[loom::predicate("not_inf")]] bool not_inf(T value);
+[[loom::predicate("not_inf")]] bool not_inf(const T& value);
 template <class T>
-[[loom::predicate("finite")]] bool finite(T value);
+[[loom::predicate("finite")]] bool finite(const T& value);
 
 // Returns the typed result identity of the function carrying the enclosing
 // trailing loom::where attribute. A member access selects one scalar component
@@ -56,30 +58,30 @@ template <class T>
 // that value's source type; integer literals therefore retain their ordinary
 // C++ suffix requirements.
 template <class T>
-[[loom::predicate("eq")]] bool eq(T value);
+[[loom::predicate("eq")]] bool eq(const T& value);
 template <class T>
-[[loom::predicate("ne")]] bool ne(T value);
+[[loom::predicate("ne")]] bool ne(const T& value);
 template <class T>
-[[loom::predicate("lt")]] bool lt(T value);
+[[loom::predicate("lt")]] bool lt(const T& value);
 template <class T>
-[[loom::predicate("le")]] bool le(T value);
+[[loom::predicate("le")]] bool le(const T& value);
 template <class T>
-[[loom::predicate("gt")]] bool gt(T value);
+[[loom::predicate("gt")]] bool gt(const T& value);
 template <class T>
-[[loom::predicate("ge")]] bool ge(T value);
+[[loom::predicate("ge")]] bool ge(const T& value);
 template <class T>
-[[loom::predicate("ult")]] bool ult(T value);
+[[loom::predicate("ult")]] bool ult(const T& value);
 template <class T>
-[[loom::predicate("ule")]] bool ule(T value);
+[[loom::predicate("ule")]] bool ule(const T& value);
 template <class T>
-[[loom::predicate("ugt")]] bool ugt(T value);
+[[loom::predicate("ugt")]] bool ugt(const T& value);
 template <class T>
-[[loom::predicate("uge")]] bool uge(T value);
+[[loom::predicate("uge")]] bool uge(const T& value);
 template <class T>
-[[loom::predicate("multiple_of")]] bool multiple_of(T divisor);
+[[loom::predicate("multiple_of")]] bool multiple_of(const T& divisor);
 [[loom::predicate("power_of_two")]] bool power_of_two();
 template <class T>
-[[loom::predicate("range")]] bool range(T lower, T upper);
+[[loom::predicate("range")]] bool range(const T& lower, const T& upper);
 [[loom::predicate("not_nan")]] bool not_nan();
 [[loom::predicate("not_inf")]] bool not_inf();
 [[loom::predicate("finite")]] bool finite();

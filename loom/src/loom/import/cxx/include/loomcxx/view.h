@@ -9,6 +9,7 @@
 
 #include <loomcxx/buffer.h>
 #include <loomcxx/encoding_type.h>
+#include <loomcxx/index.h>
 
 namespace loom::type {
 
@@ -54,6 +55,12 @@ using view_dimensions =
                 (Extents == loom::type::dynamic ? loom::type::size_type{1}
                                                 : loom::type::size_type{0}))>;
 
+template <loom::type::size_type... Extents>
+using view_index_dimensions = loom::type::indices<(
+    loom::type::size_type{0} + ... +
+    (Extents == loom::type::dynamic ? loom::type::size_type{1}
+                                    : loom::type::size_type{0}))>;
+
 }  // namespace loom::detail
 
 namespace loom::encoding::layout {
@@ -81,12 +88,30 @@ loom::type::view<loom::type::shape<Extents...>, T, Role> view(
     T* data, loom::detail::view_dimensions<Extents...> dimensions,
     loom::type::encoding<Role, sizeof...(Extents)> encoding);
 
+// Forms a borrowed view while retaining dynamic extents already in Loom's
+// index domain. At least one dynamic axis distinguishes this from static {}.
+template <loom::type::size_type... Extents, class T, loom::encoding::role Role>
+  requires((Extents == loom::type::dynamic) || ...)
+[[loom::op("buffer.view")]]
+loom::type::view<loom::type::shape<Extents...>, T, Role> view(
+    T* data, loom::detail::view_index_dimensions<Extents...> dimensions,
+    loom::type::encoding<Role, sizeof...(Extents)> encoding);
+
 // Forms a typed view at the root of an existing Loom buffer value.
 template <loom::type::size_type... Extents, class T, loom::encoding::role Role>
 [[loom::op("buffer.view")]]
 loom::type::view<loom::type::shape<Extents...>, T, Role> view(
     loom::type::buffer<T> data,
     loom::detail::view_dimensions<Extents...> dimensions,
+    loom::type::encoding<Role, sizeof...(Extents)> encoding);
+
+// Forms an indexed dynamic view at the root of a Loom buffer value.
+template <loom::type::size_type... Extents, class T, loom::encoding::role Role>
+  requires((Extents == loom::type::dynamic) || ...)
+[[loom::op("buffer.view")]]
+loom::type::view<loom::type::shape<Extents...>, T, Role> view(
+    loom::type::buffer<T> data,
+    loom::detail::view_index_dimensions<Extents...> dimensions,
     loom::type::encoding<Role, sizeof...(Extents)> encoding);
 
 }  // namespace loom::buffer
@@ -102,6 +127,16 @@ loom::type::view<loom::type::shape<Extents...>, T, Role> subview(
     loom::type::coordinates<sizeof...(SourceExtents)> origin,
     loom::detail::view_dimensions<Extents...> dimensions);
 
+// Forms a subview retaining result extents already in Loom's index domain.
+template <loom::type::size_type... Extents, class T,
+          loom::type::size_type... SourceExtents, loom::encoding::role Role>
+  requires((Extents == loom::type::dynamic) || ...)
+[[loom::op("view.subview")]]
+loom::type::view<loom::type::shape<Extents...>, T, Role> subview(
+    loom::type::view<loom::type::shape<SourceExtents...>, T, Role> source,
+    loom::type::coordinates<sizeof...(SourceExtents)> origin,
+    loom::detail::view_index_dimensions<Extents...> dimensions);
+
 // Forms a subview while preserving the source's static/dynamic extent pattern.
 template <class T, loom::type::size_type... Extents, loom::encoding::role Role>
 [[loom::op("view.subview")]]
@@ -109,6 +144,15 @@ loom::type::view<loom::type::shape<Extents...>, T, Role> subview(
     loom::type::view<loom::type::shape<Extents...>, T, Role> source,
     loom::type::coordinates<sizeof...(Extents)> origin,
     loom::detail::view_dimensions<Extents...> dimensions);
+
+// Preserves a source's dynamic extent pattern and index-domain identities.
+template <class T, loom::type::size_type... Extents, loom::encoding::role Role>
+  requires((Extents == loom::type::dynamic) || ...)
+[[loom::op("view.subview")]]
+loom::type::view<loom::type::shape<Extents...>, T, Role> subview(
+    loom::type::view<loom::type::shape<Extents...>, T, Role> source,
+    loom::type::coordinates<sizeof...(Extents)> origin,
+    loom::detail::view_index_dimensions<Extents...> dimensions);
 
 // Loads one scalar at a logical coordinate.
 template <class Shape, class T, loom::encoding::role Role, class... Indices>

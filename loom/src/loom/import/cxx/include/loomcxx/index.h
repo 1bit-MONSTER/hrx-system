@@ -17,6 +17,20 @@ class [[loom::type("index")]] index {
   operator unsigned long long() const;
 };
 
+// A fixed count of native index values. Class template argument deduction lets
+// source spell runtime shape and coordinate records as indices{a, b, ...}.
+template <__SIZE_TYPE__ Count>
+struct indices {
+  // Values in logical axis order.
+  index values[Count];
+};
+
+template <>
+struct indices<0> {};
+
+template <class... Values>
+indices(Values...) -> indices<sizeof...(Values)>;
+
 }  // namespace loom::type
 
 namespace loom::index {

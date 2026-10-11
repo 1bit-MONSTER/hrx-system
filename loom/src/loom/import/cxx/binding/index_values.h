@@ -28,13 +28,19 @@ bool require_integral(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
                       Types& types, const cxx::Type* type, cxx::AST* owner,
                       std::string_view role);
 
-// Requires an admitted record with exactly |count| flattened integer
-// components. The returned mask records unsigned source interpretations in
-// transport order so later emission can preserve C++ widening semantics.
-uint16_t require_integral_record(cxx::TranslationUnit& unit,
-                                 Diagnostics& diagnostics, Types& types,
-                                 const cxx::Type* type, size_t count,
-                                 cxx::AST* owner, std::string_view role);
+// Requires one Loom index or non-Boolean C++ integer. Returns whether an
+// ordinary integer operand has unsigned C++ value semantics.
+bool require_index_value(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
+                         Types& types, const cxx::Type* type, cxx::AST* owner,
+                         std::string_view role);
+
+// Requires an admitted record with exactly |count| flattened index or integer
+// components. The returned mask records unsigned C++ interpretations in
+// transport order; Loom index components need no conversion.
+uint16_t require_index_record(cxx::TranslationUnit& unit,
+                              Diagnostics& diagnostics, Types& types,
+                              const cxx::Type* type, size_t count,
+                              cxx::AST* owner, std::string_view role);
 
 // Returns whether one flattened component was admitted as unsigned.
 bool is_unsigned_component(uint32_t mask, size_t index);

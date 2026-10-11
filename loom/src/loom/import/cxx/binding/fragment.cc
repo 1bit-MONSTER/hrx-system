@@ -264,7 +264,7 @@ std::optional<FragmentIntrinsic> FragmentIntrinsic::resolve(
                            "vector.fragment.load does not support volatile "
                            "views");
       }
-      result.origin_unsigned_mask_ = require_integral_record(
+      result.origin_unsigned_mask_ = require_index_record(
           unit, diagnostics, types, parameters[1], result.view_->extents.size(),
           owner, "fragment origin");
       if (!types.vector(signature->returnType())) {
@@ -297,7 +297,7 @@ std::optional<FragmentIntrinsic> FragmentIntrinsic::resolve(
                            "vector.fragment.store does not support volatile "
                            "views");
       }
-      result.origin_unsigned_mask_ = require_integral_record(
+      result.origin_unsigned_mask_ = require_index_record(
           unit, diagnostics, types, parameters[2], result.view_->extents.size(),
           owner, "fragment origin");
       shape_index = 3;

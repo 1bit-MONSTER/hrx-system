@@ -72,6 +72,7 @@ loom_check_test_suite(
     "float8_invalid.cxx-test"
     "frontend.cxx-test"
     "functions.cxx-test"
+    "index_views.cxx-test"
     "initializer_dependencies.cxx-test"
     "integer_intrinsics.cxx-test"
     "integer_widening.cxx-test"

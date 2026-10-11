@@ -2001,18 +2001,39 @@ class Translator final : private Initialization::Evaluation {
               predicate.args[i] = values[predicate.args[i]];
             }
           }
+          bool index_domain = admitted.value_count > 0;
+          for (size_t i = 0; i < admitted.value_count; ++i) {
+            auto element = loom_type_element_type(value_types[i]);
+            index_domain &=
+                loom_type_kind(value_types[i]) == LOOM_TYPE_SCALAR &&
+                (element == LOOM_SCALAR_TYPE_INDEX ||
+                 element == LOOM_SCALAR_TYPE_OFFSET);
+          }
           loom_op_t* op;
-          check(loom_scalar_assume_build(
-              &builder_, values.data(), admitted.value_count, &predicate, 1,
-              value_types.data(), admitted.value_count, locations_.get(ast),
-              &op));
+          if (index_domain) {
+            check(loom_index_assume_build(
+                &builder_, values.data(), admitted.value_count, &predicate, 1,
+                value_types.data(), admitted.value_count, locations_.get(ast),
+                &op));
+          } else {
+            check(loom_scalar_assume_build(
+                &builder_, values.data(), admitted.value_count, &predicate, 1,
+                value_types.data(), admitted.value_count, locations_.get(ast),
+                &op));
+          }
           for (size_t i = 0; i < admitted.value_count; ++i) {
             const auto& source_value = admitted.values[i];
+            auto result = loom_op_results(op)[i];
+            auto refined =
+                index_domain
+                    ? value_arena_.capture(
+                          types_.partition(source_value.source->type, ast),
+                          {&result, 1})
+                    : Value(numeric_convert(result,
+                                            source_value.converted->type,
+                                            source_value.source->type, ast));
             values_[source_value.binding] =
-                name(numeric_convert(loom_op_results(op)[i],
-                                     source_value.converted->type,
-                                     source_value.source->type, ast),
-                     cxx::to_string(source_value.binding->name()));
+                name(refined, cxx::to_string(source_value.binding->name()));
           }
         }
         return;
