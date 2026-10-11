@@ -27,15 +27,6 @@
 extern "C" {
 #endif
 
-typedef enum loom_low_allocation_rematerialization_trigger_e {
-  // Unknown or uninitialized rematerialization trigger.
-  LOOM_LOW_ALLOCATION_REMATERIALIZATION_TRIGGER_UNKNOWN = 0,
-  // A terminal allocation failure was repaired by rematerialization.
-  LOOM_LOW_ALLOCATION_REMATERIALIZATION_TRIGGER_ALLOCATION_FAILURE = 1,
-  // A predicted spill plan was avoided by rematerialization.
-  LOOM_LOW_ALLOCATION_REMATERIALIZATION_TRIGGER_SPILL_PLAN = 2,
-} loom_low_allocation_rematerialization_trigger_t;
-
 typedef struct loom_low_value_rematerialization_result_t {
   // SSA value whose defining packet was rematerialized or placement retained.
   loom_value_id_t value_id;
@@ -46,14 +37,6 @@ typedef struct loom_low_value_rematerialization_result_t {
   // Number of original private results whose placement was newly retained.
   uint32_t retained_placement_count;
 } loom_low_value_rematerialization_result_t;
-
-typedef struct loom_low_allocation_rematerialization_result_t {
-  // Descriptor-guided value rematerialization performed by the repair.
-  loom_low_value_rematerialization_result_t value;
-  // Original register class in the allocation's target descriptor set.
-  // Retained by value across IR rewrites and analysis snapshot retirement.
-  uint16_t descriptor_reg_class_id;
-} loom_low_allocation_rematerialization_result_t;
 
 typedef struct loom_low_rematerialization_batch_result_t {
   // Number of values repaired by cloning or retained placement.
@@ -133,26 +116,19 @@ iree_status_t loom_low_allocation_rematerialize_failure(
     iree_diagnostic_emitter_t emitter, iree_arena_allocator_t* arena,
     loom_low_rematerialization_batch_result_t* out_result);
 
-// Attempts to repair one predicted spill plan by rematerializing its value
-// instead of materializing storage traffic.
+// Repairs predicted spills as one consumer-first rematerialization batch.
+// Candidate selection consumes the immutable allocation snapshot. Application
+// retains only value IDs and ordering facts, then queries fresh uses for each
+// rewrite so producers see uses introduced by earlier consumer clones.
+// Callers rebuild allocation once after the complete batch. One optional
+// diagnostic summarizes the batch; its trigger class is the first spill plan.
 //
-// Returns OK with a zero result when no spill-plan value is a rematerialization
-// candidate. When a value is rewritten, callers must rebuild allocation before
-// consulting the old allocation table again.
-iree_status_t loom_low_allocation_rematerialize_spill_plan(
+// Returns OK with a zero result when no spill-plan value can be rematerialized.
+iree_status_t loom_low_allocation_rematerialize_spill_plans(
     loom_module_t* module, const loom_low_allocation_table_t* table,
-    loom_low_rematerialization_state_t* state, iree_arena_allocator_t* arena,
-    loom_low_allocation_rematerialization_result_t* out_result);
-
-// Emits one structured remark summarizing a successful rematerialization
-// batch. |trigger_reg_class_id| names the trigger value class; a failure
-// repair batch may also cover other simultaneously over-budget classes.
-iree_status_t loom_low_allocation_rematerialization_emit_summary(
-    const loom_low_allocation_table_t* table,
-    loom_low_allocation_rematerialization_trigger_t trigger,
-    uint16_t trigger_reg_class_id,
-    const loom_low_rematerialization_batch_result_t* result,
-    iree_diagnostic_emitter_t emitter);
+    loom_low_rematerialization_state_t* state,
+    iree_diagnostic_emitter_t emitter, iree_arena_allocator_t* arena,
+    loom_low_rematerialization_batch_result_t* out_result);
 
 #ifdef __cplusplus
 }  // extern "C"

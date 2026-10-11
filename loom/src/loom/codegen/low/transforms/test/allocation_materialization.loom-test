@@ -962,6 +962,99 @@ low.func.def target<test.low.core>(@target) @cross_block_constants() -> (reg<tes
 
 // ====
 
+// Both spilled literals rematerialize in one batch. The three attempts are
+// the initial allocation, the batch retry, and one materialized storage spill.
+// RUN: with-checks pass-report low-materialize-allocation{budgets=test.i32=2}
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @spill_batch_rebuilds_once(%input: reg<test.i32>) -> (reg<test.i32>) asm {
+  %one = test.const.i32 1
+  %two = test.const.i32 2
+  %three = test.const.i32 3
+  %pressure = test.add.i32 %input, %input
+  %pair = test.add.i32 %one, %two
+  %sum = test.add.i32 %pair, %three
+  %result = test.add.i32 %sum, %pressure
+  return %result
+}
+
+// ----
+CHECK: *"rematerializations":2,*"attempts":3,*
+
+// ====
+
+// Folding the fallback edge makes the late producer dominate the early loop.
+// Consumer-first repair must use CFG order after that change, not source points.
+// RUN: with-checks pass-report cfg-simplify,low-materialize-allocation{budgets=test.i32=2}
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @dependent_spills_reordered_cfg(%a: reg<test.i32>, %b: reg<test.i32>) -> (reg<test.i32>) asm {
+  low.cond_br %a, ^produce, ^fallback : reg<test.i32>
+^derive(%incoming_literal: reg<test.i32>):
+  %derived = test.rematerialize.i32 %incoming_literal
+  low.cond_br %b, ^repeat, ^finish : reg<test.i32>
+^repeat:
+  low.br ^derive(%incoming_literal: reg<test.i32>)
+^finish:
+  low.br ^consume(%incoming_literal: reg<test.i32>, %derived: reg<test.i32>)
+^consume(%literal_value: reg<test.i32>, %derived_value: reg<test.i32>):
+  %ab = test.add.i32 %a, %b
+  %ba = test.add.i32 %b, %a
+  %first = test.add.i32 %ab, %derived_value
+  %second = test.add.i32 %ba, %derived_value
+  %both = test.add.i32 %literal_value, %derived_value
+  %partial = test.add.i32 %first, %second
+  %result = test.add.i32 %partial, %both
+  return %result
+^fallback:
+  %false = test.const.i32 0
+  low.cond_br %false, ^alternate, ^exit : reg<test.i32>
+^alternate:
+  %other_literal = test.const.i32 13
+  low.br ^derive(%other_literal: reg<test.i32>)
+^exit:
+  return %a
+^produce:
+  %literal = test.const.i32 7
+  low.br ^derive(%literal: reg<test.i32>)
+}
+
+// ----
+CHECK: *"rematerializations":7,*"attempts":8,*
+
+// ====
+
+// Nested definitions use their analyzed enclosing block's point range;
+// cloning a consumer must preserve its producer until all new uses are repaired.
+// RUN: with-checks pass-report low-materialize-allocation{budgets=test.i32=2}
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @nested_dependent_spills(%condition: reg<test.i32>, %a: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = low.scf.if %condition -> (reg<test.i32>) {
+    %literal = test.const.i32 7
+    %derived = test.rematerialize.i32 %literal
+    %first_pair = test.add.i32 %a, %a
+    %second_pair = test.add.i32 %a, %a
+    %first = test.add.i32 %first_pair, %derived
+    %second = test.add.i32 %second_pair, %derived
+    %both = test.add.i32 %literal, %derived
+    %partial = test.add.i32 %first, %second
+    %sum = test.add.i32 %partial, %both
+    low.scf.yield %sum : reg<test.i32>
+  } else {
+    low.scf.yield %a : reg<test.i32>
+  }
+  return %result
+}
+
+// ----
+CHECK: *"rematerializations":7,*"attempts":8,*
+
+// ====
+
 // Materialization cannot replace an authored assignment without receiving the
 // retained allocation table that defines it.
 // RUN: pass low-materialize-allocation

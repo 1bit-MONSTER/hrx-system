@@ -45,26 +45,6 @@ typedef struct loom_low_materialize_allocation_parse_context_t {
   loom_low_materialize_allocation_pass_state_t* state;
 } loom_low_materialize_allocation_parse_context_t;
 
-static iree_status_t loom_low_materialize_allocation_emit_rematerialization(
-    loom_pass_t* pass,
-    const loom_low_materialize_allocation_pass_state_t* state,
-    const loom_low_allocation_table_t* table,
-    loom_low_allocation_rematerialization_trigger_t trigger,
-    const loom_low_allocation_rematerialization_result_t* result) {
-  if (!state || !state->emit_spill_diagnostics) {
-    return iree_ok_status();
-  }
-  const loom_low_rematerialization_batch_result_t batch = {
-      .repaired_value_count = 1,
-      .cloned_packet_count = result->value.cloned_packet_count,
-      .rewritten_operand_count = result->value.rewritten_operand_count,
-      .retained_placement_count = result->value.retained_placement_count,
-  };
-  return loom_low_allocation_rematerialization_emit_summary(
-      table, trigger, result->descriptor_reg_class_id, &batch,
-      pass->diagnostic_emitter);
-}
-
 static const loom_pass_option_def_t kLowMaterializeAllocationOptions[] = {
     {IREE_SVL("budgets"),
      IREE_SVL("Semicolon-separated register class budgets, such as "
@@ -504,30 +484,24 @@ static iree_status_t loom_low_materialize_allocation_run_attempts(
       rematerialization_iteration_limit = table.liveness.value_count + 1;
     }
     if (rematerialization_iteration_count < rematerialization_iteration_limit) {
-      loom_low_allocation_rematerialization_result_t rematerialization_result =
-          {0};
-      IREE_RETURN_IF_ERROR(loom_low_allocation_rematerialize_spill_plan(
-          module, &table, &rematerialization, attempt_arena,
+      const iree_diagnostic_emitter_t emitter =
+          state && state->emit_spill_diagnostics
+              ? pass->diagnostic_emitter
+              : (iree_diagnostic_emitter_t){0};
+      loom_low_rematerialization_batch_result_t rematerialization_result = {0};
+      IREE_RETURN_IF_ERROR(loom_low_allocation_rematerialize_spill_plans(
+          module, &table, &rematerialization, emitter, attempt_arena,
           &rematerialization_result));
-      if (rematerialization_result.value.rewritten_operand_count != 0) {
-        IREE_RETURN_IF_ERROR(
-            loom_low_materialize_allocation_emit_rematerialization(
-                pass, state, &table,
-                LOOM_LOW_ALLOCATION_REMATERIALIZATION_TRIGGER_SPILL_PLAN,
-                &rematerialization_result));
+      if (rematerialization_result.rewritten_operand_count != 0) {
         loom_low_materialize_allocation_statistics_t* statistics =
             loom_low_materialize_allocation_statistics(pass);
         statistics->rematerializations +=
-            (int64_t)rematerialization_result.value.cloned_packet_count;
+            (int64_t)rematerialization_result.cloned_packet_count;
         loom_pass_mark_changed(pass);
         ++rematerialization_iteration_count;
         continue;
       }
       loom_low_allocation_live_range_split_result_t split_result = {0};
-      const iree_diagnostic_emitter_t emitter =
-          state && state->emit_spill_diagnostics
-              ? pass->diagnostic_emitter
-              : (iree_diagnostic_emitter_t){0};
       IREE_RETURN_IF_ERROR(loom_low_allocation_split_fixed_value_spill_plans(
           module, &table, emitter, attempt_arena, &split_result));
       if (split_result.rewritten_operand_count != 0) {

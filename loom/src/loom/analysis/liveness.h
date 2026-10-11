@@ -413,6 +413,13 @@ bool loom_liveness_segment_ranges_overlap(
 const loom_liveness_block_info_t* loom_liveness_block_info_for_block(
     const loom_liveness_analysis_t* analysis, const loom_block_t* block);
 
+// Returns the analyzed-region block containing |point|. The point must belong
+// to this analysis, including points inside nested regions when REGION_TREE
+// is enabled. Lookup is logarithmic in the number of analyzed blocks and uses
+// their retained, disjoint program-point ranges.
+uint16_t loom_liveness_block_index_at_point(
+    const loom_liveness_analysis_t* analysis, uint32_t point);
+
 // Collects all pressure summaries that exceed |budgets|. Missing value classes
 // do not violate a budget because no value in that class was live in the
 // analyzed region.
