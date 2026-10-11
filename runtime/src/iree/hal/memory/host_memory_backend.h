@@ -37,6 +37,14 @@ void iree_hal_host_memory_backend_initialize(
     iree_hal_pool_epoch_query_t epoch_query,
     iree_hal_host_memory_backend_t* out_backend);
 
+// Creates a process reservation from an already-qualified coherent contract.
+// Used by the host backend after qualifying the complete group scope.
+iree_status_t iree_hal_host_memory_reservation_create(
+    iree_hal_memory_contract_t* contract,
+    const iree_hal_memory_reservation_options_t* options,
+    iree_allocator_t host_allocator,
+    iree_hal_memory_reservation_t** out_reservation);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

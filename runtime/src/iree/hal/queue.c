@@ -16,6 +16,7 @@
 #include "iree/hal/device.h"
 #include "iree/hal/executable.h"
 #include "iree/hal/file.h"
+#include "iree/hal/memory_reservation.h"
 #include "iree/hal/pool.h"
 #include "iree/hal/semaphore.h"
 
@@ -460,6 +461,31 @@ iree_hal_queue_host_call(iree_hal_queue_t* queue,
   }
   iree_status_t status = _VTABLE_DISPATCH(queue, host_call)(
       queue, wait_semaphore_list, signal_semaphore_list, call, args, flags);
+  IREE_TRACE_ZONE_END(z0);
+  return status;
+}
+
+IREE_API_EXPORT iree_status_t iree_hal_queue_map(
+    iree_hal_queue_t* queue, iree_hal_semaphore_list_t waits,
+    iree_hal_semaphore_list_t signals, iree_host_size_t mapping_count,
+    const iree_hal_memory_mapping_t* mappings,
+    iree_hal_queue_map_flags_t flags) {
+  if (!queue || (mapping_count && !mappings) ||
+      iree_any_bit_set(flags, ~IREE_HAL_QUEUE_MAP_FLAG_BORROW_BUFFERS)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "invalid mapping queue, array or flags");
+  }
+  IREE_RETURN_IF_ERROR(iree_hal_queue_validate_semaphore_list("wait", waits));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_queue_validate_semaphore_list("signal", signals));
+  IREE_TRACE_ZONE_BEGIN(z0);
+  const iree_hal_queue_vtable_t* vtable =
+      (const iree_hal_queue_vtable_t*)queue->resource.vtable;
+  iree_status_t status =
+      vtable->map
+          ? vtable->map(queue, waits, signals, mapping_count, mappings, flags)
+          : iree_hal_memory_reservation_queue_map(
+                queue, waits, signals, mapping_count, mappings, flags);
   IREE_TRACE_ZONE_END(z0);
   return status;
 }

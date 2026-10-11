@@ -113,6 +113,14 @@ typedef struct iree_hal_pool_scope_t {
   iree_hal_pool_host_access_t host;
 } iree_hal_pool_scope_t;
 
+// Validates public host permissions and their mapping/cacheability contract.
+IREE_API_EXPORT iree_status_t
+iree_hal_pool_host_access_validate(iree_hal_pool_host_access_t host);
+
+// Validates canonical group membership and simultaneous family/host requests.
+IREE_API_EXPORT iree_status_t iree_hal_pool_scope_validate(
+    iree_hal_device_group_t* group, iree_hal_pool_scope_t scope);
+
 // Prepares an indexed native binding slot for this pool's captured contract.
 // A slot is reusable for inherited child pools/views with the same contract.
 IREE_API_EXPORT iree_status_t iree_hal_pool_resolve_binding(

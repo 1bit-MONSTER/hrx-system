@@ -808,7 +808,10 @@ typedef enum iree_hal_buffer_interface_e {
   IREE_HAL_BUFFER_INTERFACE_REGISTERED_IO = 6,
   IREE_HAL_BUFFER_INTERFACE_REMOTE = 7,
   IREE_HAL_BUFFER_INTERFACE_WEBGPU_BUFFER = 8,
-  IREE_HAL_BUFFER_INTERFACE_COUNT = 9,
+  // Native storage that can supply pages to a virtual reservation. Request
+  // this interface explicitly when constructing the source pool.
+  IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE = 9,
+  IREE_HAL_BUFFER_INTERFACE_COUNT = 10,
 } iree_hal_buffer_interface_t;
 
 // Prepared native identity. The access contract fixes the payload for each
@@ -819,6 +822,16 @@ typedef union iree_hal_buffer_native_binding_t {
   uint8_t* host_pointer;
   // Address for DEVICE_ADDRESS or the selected XDNA address interface.
   uint64_t device_address;
+  // Remappable storage prepared for one exact memory scope. The target
+  // reservation backend interprets the descriptor; it is not a device address.
+  struct {
+    // Borrowed native descriptor owned by the source allocation.
+    const void* descriptor;
+    // Native source offset/length alignment, in bytes; a nonzero power of two.
+    uint32_t granularity;
+    // Byte offset within the descriptor's native storage.
+    uint64_t offset;
+  } mapping_source;
   // Vulkan resource identity and view position; buffer contains VkBuffer bits.
   struct {
     // Native VkBuffer handle.

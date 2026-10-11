@@ -27,6 +27,113 @@ namespace {
 
 class ShmTest : public ::testing::Test {};
 
+class ShmReservationTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    granularity_ = iree_shm_required_size(0);
+    IREE_ASSERT_OK(iree_shm_create(nullptr, 4 * granularity_, &source_));
+    IREE_ASSERT_OK(iree_shm_reservation_initialize(
+        4 * granularity_, 16 * granularity_, granularity_, &reservation_));
+  }
+
+  void TearDown() override {
+    iree_status_t status = iree_shm_reservation_deinitialize(&reservation_);
+    if (iree_status_is_ok(status)) {
+      iree_shm_close(&source_);
+    }
+    IREE_EXPECT_OK(status);
+  }
+
+  iree_shm_mapping_update_t Mapping(iree_host_size_t target_offset,
+                                    iree_host_size_t source_offset,
+                                    iree_host_size_t byte_length) {
+    return {target_offset, byte_length, &source_, source_offset,
+            IREE_SHM_ACCESS_READ | IREE_SHM_ACCESS_WRITE};
+  }
+
+  // Native page unit used by this host.
+  iree_host_size_t granularity_ = 0;
+  // Original physical storage and independently observable mapping.
+  iree_shm_mapping_t source_ = {};
+  // Explicit virtual address owner.
+  iree_shm_reservation_t reservation_ = {};
+};
+
+TEST_F(ShmReservationTest, ReplacesSubrangesWithoutCopyingBacking) {
+  EXPECT_EQ(
+      reinterpret_cast<uintptr_t>(reservation_.base) % (16 * granularity_), 0u);
+  auto* source = static_cast<uint8_t*>(source_.base);
+  for (iree_host_size_t i = 0; i < 4; ++i) {
+    std::memset(source + i * granularity_, static_cast<int>(i + 1),
+                granularity_);
+  }
+  auto initial = Mapping(0, 0, 4 * granularity_);
+  IREE_ASSERT_OK(iree_shm_reservation_update(&reservation_, 1, &initial));
+
+  // Replace the middle of an occupied range and alias one backing page twice.
+  const iree_shm_mapping_update_t replacements[] = {
+      Mapping(granularity_, 3 * granularity_, granularity_),
+      Mapping(2 * granularity_, 0, granularity_),
+  };
+  IREE_ASSERT_OK(iree_shm_reservation_update(&reservation_, 2, replacements));
+  const uint8_t expected[] = {1, 4, 1, 4};
+  for (iree_host_size_t i = 0; i < 4; ++i) {
+    for (iree_host_size_t j = 0; j < granularity_; ++j) {
+      ASSERT_EQ(reservation_.base[i * granularity_ + j], expected[i]);
+    }
+  }
+  reservation_.base[granularity_ + 7] = 91;
+  EXPECT_EQ(source[3 * granularity_ + 7], 91);
+  EXPECT_EQ(reservation_.base[3 * granularity_ + 7], 91);
+  source[13] = 73;
+  EXPECT_EQ(reservation_.base[13], 73);
+  EXPECT_EQ(reservation_.base[2 * granularity_ + 13], 73);
+
+  // Detach across old mapping boundaries, then reuse the same address range.
+  const iree_shm_mapping_update_t detach = {granularity_, 2 * granularity_};
+  IREE_ASSERT_OK(iree_shm_reservation_update(&reservation_, 1, &detach));
+  auto replacement = Mapping(granularity_, granularity_, 2 * granularity_);
+  IREE_ASSERT_OK(iree_shm_reservation_update(&reservation_, 1, &replacement));
+  EXPECT_EQ(reservation_.base[granularity_], 2);
+  EXPECT_EQ(reservation_.base[2 * granularity_], 3);
+  EXPECT_EQ(reservation_.base[13], 73);
+  EXPECT_EQ(reservation_.base[3 * granularity_ + 7], 91);
+}
+
+TEST_F(ShmReservationTest, ValidatesCompleteVectorBeforeMutation) {
+  auto* source = static_cast<uint8_t*>(source_.base);
+  std::memset(source, 11, granularity_);
+  std::memset(source + granularity_, 22, granularity_);
+  auto initial = Mapping(0, 0, granularity_);
+  IREE_ASSERT_OK(iree_shm_reservation_update(&reservation_, 1, &initial));
+  const iree_shm_mapping_update_t updates[] = {
+      Mapping(0, granularity_, granularity_),
+      Mapping(granularity_, source_.size, granularity_),
+  };
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        iree_shm_reservation_update(&reservation_, 2, updates));
+  EXPECT_EQ(reservation_.base[0], 11);
+  auto valid = Mapping(0, granularity_, granularity_);
+  IREE_ASSERT_OK(iree_shm_reservation_update(&reservation_, 1, &valid));
+  EXPECT_EQ(reservation_.base[0], 22);
+}
+
+TEST_F(ShmReservationTest, IndependentReservationsShareOriginalStorage) {
+  iree_shm_reservation_t other = {};
+  IREE_ASSERT_OK(iree_shm_reservation_initialize(2 * granularity_, 0,
+                                                 2 * granularity_, &other));
+  auto update = Mapping(0, granularity_, 2 * granularity_);
+  IREE_ASSERT_OK(iree_shm_reservation_update(&reservation_, 1, &update));
+  IREE_ASSERT_OK(iree_shm_reservation_update(&other, 1, &update));
+  reservation_.base[5] = 39;
+  EXPECT_EQ(other.base[5], 39);
+  EXPECT_EQ(static_cast<uint8_t*>(source_.base)[granularity_ + 5], 39);
+  IREE_ASSERT_OK(iree_shm_reservation_deinitialize(&reservation_));
+  other.base[7] = 42;
+  EXPECT_EQ(static_cast<uint8_t*>(source_.base)[granularity_ + 7], 42);
+  IREE_ASSERT_OK(iree_shm_reservation_deinitialize(&other));
+}
+
 TEST_F(ShmTest, RequiredSizeZeroReturnsOnePage) {
   iree_host_size_t page = iree_shm_required_size(0);
   EXPECT_GT(page, 0);

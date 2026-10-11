@@ -7,6 +7,7 @@
 #ifndef IREE_HAL_MEMORY_BACKEND_H_
 #define IREE_HAL_MEMORY_BACKEND_H_
 
+#include "iree/hal/memory_reservation.h"
 #include "iree/hal/slab_pool.h"
 
 #ifdef __cplusplus
@@ -35,6 +36,15 @@ typedef struct iree_hal_memory_backend_t {
   iree_host_size_t factory_count;
   // Borrowed factory descriptors, deduplicated by exact pointer identity.
   const iree_hal_slab_pool_factory_t* const* factories;
+  // Qualifies the entire address scope and creates a reservation. Unsupported
+  // combinations return OK with a NULL output; allocation/platform errors
+  // propagate. No native state is acquired until the complete scope qualifies.
+  iree_status_t(IREE_API_PTR* reserve)(
+      const struct iree_hal_memory_backend_t* backend,
+      iree_hal_device_group_t* group, iree_hal_pool_scope_t scope,
+      const iree_hal_memory_reservation_options_t* options,
+      iree_allocator_t host_allocator,
+      iree_hal_memory_reservation_t** out_reservation);
 } iree_hal_memory_backend_t;
 
 typedef struct iree_hal_slab_pool_plan_info_t {

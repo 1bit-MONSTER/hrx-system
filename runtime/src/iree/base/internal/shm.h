@@ -219,6 +219,72 @@ iree_status_t iree_shm_handle_dup(iree_shm_handle_t source,
 // invalid sentinel after closing.
 void iree_shm_handle_close(iree_shm_handle_t* handle);
 
+//===----------------------------------------------------------------------===//
+// Stable address reservations over shared storage
+//===----------------------------------------------------------------------===//
+
+typedef uint32_t iree_shm_access_t;
+enum iree_shm_access_bits_e {
+  IREE_SHM_ACCESS_NONE = 0u,
+  IREE_SHM_ACCESS_READ = 1u << 0,
+  IREE_SHM_ACCESS_WRITE = 1u << 1,
+};
+
+// Move-owned address interval without physical backing. Initialized once and
+// exclusively mutated by its owner; readers must finish before their mappings
+// change. Copying this value does not duplicate ownership. No source handles or
+// installed-mapping ledger are retained.
+typedef struct iree_shm_reservation_t {
+  // Aligned usable address, inaccessible until backing is installed.
+  uint8_t* base;
+  // Usable byte extent, a multiple of |granularity|.
+  iree_host_size_t byte_length;
+  // Independent replacement unit, selected at initialization.
+  iree_host_size_t granularity;
+  // Complete native interval, including possible alignment slack.
+  void* allocation_base;
+  // Extent released by terminal deinitialization.
+  iree_host_size_t allocation_byte_length;
+} iree_shm_reservation_t;
+
+// One replacement or detach in reservation-relative coordinates.
+typedef struct iree_shm_mapping_update_t {
+  // First destination byte in the reservation.
+  iree_host_size_t target_offset;
+  // Nonzero number of bytes to replace or detach.
+  iree_host_size_t byte_length;
+  // Borrowed shared backing, or NULL to restore inaccessible reserved pages.
+  const iree_shm_mapping_t* source;
+  // First source byte; zero for detach.
+  iree_host_size_t source_offset;
+  // Exact requested read/write access; NONE for detach.
+  iree_shm_access_t access;
+} iree_shm_mapping_update_t;
+
+// Reserves an inaccessible interval. Length must be a nonzero multiple of the
+// replacement granularity. Zero alignment/granularity selects the normal page
+// size; nonzero values must be powers of two at least as large as that size.
+// Larger granules reduce native mapping work on platforms requiring individual
+// views for independently replaceable ranges. Failure leaves output unchanged.
+iree_status_t iree_shm_reservation_initialize(
+    iree_host_size_t byte_length, iree_host_size_t alignment,
+    iree_host_size_t granularity, iree_shm_reservation_t* out_reservation);
+
+// Applies sorted, nonoverlapping updates. All ranges and access values are
+// validated before mutation. Sources remain caller-owned while aliases use
+// their backing. Success establishes CPU translation readiness; no execution
+// dependencies are inferred or waited. A native error may leave partial
+// updates; after such an error only terminal deinitialization is permitted.
+iree_status_t iree_shm_reservation_update(
+    iree_shm_reservation_t* reservation, iree_host_size_t update_count,
+    const iree_shm_mapping_update_t* updates);
+
+// Removes all aliases and releases the interval after the caller has completed
+// its users. Consumes and zeros the reservation even on failure. Failure may
+// preserve native mappings and never certifies that backing can be recycled.
+iree_status_t iree_shm_reservation_deinitialize(
+    iree_shm_reservation_t* reservation);
+
 // Applies seals to a shared memory mapping, preventing future modification.
 //
 // Seals are additive and permanent: once a seal is applied it cannot be

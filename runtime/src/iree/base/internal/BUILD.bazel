@@ -390,6 +390,7 @@ iree_runtime_cc_library(
     name = "shm",
     srcs = [
         "shm_posix.c",
+        "shm_reservation.c",
         "shm_win32.c",
     ],
     hdrs = ["shm.h"],
