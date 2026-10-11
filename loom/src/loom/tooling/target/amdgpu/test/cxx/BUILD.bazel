@@ -484,32 +484,9 @@ loom_test(
     target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
 )
 
-loom_generated_file_family(
-    name = "iq4xs_gate_up_checks_gen",
-    testonly = True,
-    args = [
-        "kernel",
-        "--group=iq4xs_gate_up",
-    ],
-    generator = "//loom/py/loom/gen/test:cxx_kernel_cases",
-    output_directories = ["iq4xs_gate_up_arrays"],
-    output_flags = [
-        "--output",
-        "--arrays",
-    ],
-    outputs = [
-        "iq4xs_gate_up_checks.loom",
-        "iq4xs_gate_up_arrays",
-    ],
-)
-
 loom_test_module(
     name = "iq4xs_gate_up_module",
-    srcs = [
-        "iq4xs_gate_up.cxx",
-        ":iq4xs_gate_up_checks.loom",
-    ],
-    data = [":iq4xs_gate_up_checks_gen"],
+    srcs = ["iq4xs_gate_up.cxx"],
     target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
 )
 

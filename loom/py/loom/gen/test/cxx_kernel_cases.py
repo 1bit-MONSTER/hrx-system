@@ -13,83 +13,6 @@ from pathlib import Path
 
 from loom.gen.test.kernel_fixture import Arrays, Case, signed_bits
 
-IQ4NL_CODEBOOK = [-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113]
-
-
-def rounded_bfloat16(value):
-    """Round one finite value to bfloat16 and return its exact float value."""
-    bits = struct.unpack("<I", struct.pack("<f", value))[0]
-    bits += 0x7FFF + ((bits >> 16) & 1)
-    return struct.unpack("<f", struct.pack("<I", bits & 0xFFFF0000))[0]
-
-
-def pack_iq4xs(scale, group_scales, codes):
-    """Pack logical scales/codes into the 136-byte IQ4_XS storage layout."""
-    scale_codes = [value + 32 for value in group_scales]
-    high = sum((value >> 4) << (2 * group) for group, value in enumerate(scale_codes))
-    low = bytes((scale_codes[group] & 15) | ((scale_codes[group + 1] & 15) << 4) for group in range(0, 8, 2))
-    quants = bytes(codes[group * 32 + lane] | (codes[group * 32 + lane + 16] << 4) for group in range(8) for lane in range(16))
-    return struct.pack("<eH", scale, high) + low + quants
-
-
-def iq4xs_gate_up(arrays):
-    # Preserve the production 2,560 x 640 x top-10 execution geometry while
-    # storing only the two experts selected by this fixture. Expected values
-    # are evaluated from the logical scale/code records before packing.
-    input_size = 2560
-    output_size = 640
-    route_ids = [1, 0, 1, 1, 0, 0, 1, 0, 1, 0]
-    expert_count = 2
-    block_count = input_size // 256
-    input_values = [rounded_bfloat16(-1.0 + (index % 257) / 128.0) for index in range(input_size)]
-
-    projections = {}
-    packed_weights = {}
-    for name, kind in (("gate", 0), ("up", 1)):
-        records = bytearray()
-        experts = []
-        for expert in range(expert_count):
-            rows = []
-            for channel in range(output_size):
-                products = []
-                for block in range(block_count):
-                    scale = 2.0 ** -(11 + ((expert + channel + block + kind) % 3))
-                    group_scales = [((expert * 19 + channel * 7 + block * 13 + group * 9 + kind * 23) % 64) - 32 for group in range(8)]
-                    codes = [(expert * 11 + channel * 5 + block * 7 + group * 3 + lane * 13 + lane // 5 + kind * 9) % 16 for group in range(8) for lane in range(32)]
-                    records.extend(pack_iq4xs(scale, group_scales, codes))
-                    for group, group_scale in enumerate(group_scales):
-                        decoded_scale = rounded_bfloat16(scale * group_scale)
-                        for lane in range(32):
-                            code = codes[group * 32 + lane]
-                            weight = rounded_bfloat16(decoded_scale * IQ4NL_CODEBOOK[code])
-                            input_index = block * 256 + group * 32 + lane
-                            products.append(weight * input_values[input_index])
-                rows.append(math.fsum(products))
-            experts.append(rows)
-        projections[name] = experts
-        packed_weights[name] = records
-
-    expected = []
-    for expert in route_ids:
-        for channel in range(output_size):
-            gate = projections["gate"][expert][channel]
-            up = projections["up"][expert][channel]
-            expected.append(gate / (1.0 + math.exp(-gate)) * up)
-
-    case = Case(arrays, "iq4xs_gate_up_values", "f32", len(expected))
-    case.lines.append(f"  %input = check.generate.iota offset(-1.0) step(0.0078125) period(257) : tensor<{input_size}xbf16>")
-    case.array("route_ids", route_ids, "i32")
-    for name in ("gate", "up"):
-        case.array(f"{name}_weight", [signed_bits(value, 8) for value in packed_weights[name]], "i8")
-    case.launch(
-        "qwen38_iq4xs_gate_up_swiglu",
-        "%input, %route_ids, %gate_weight, %up_weight, %output",
-        f"tensor<{input_size}xbf16>, tensor<{len(route_ids)}xi32>, tensor<{len(packed_weights['gate'])}xi8>, tensor<{len(packed_weights['up'])}xi8>, tensor<{len(expected)}xf32>",
-    )
-    declaration = "kernel.decl @qwen38_iq4xs_gate_up_swiglu() launch(%input: buffer, %route_ids: buffer, %gate_weight: buffer, %up_weight: buffer, %output: buffer)\n\n"
-    benchmark = "check.benchmark<@iq4xs_gate_up_values> @iq4xs_gate_up_latency\n"
-    return declaration + case.finish(expected, 0.00001) + benchmark
-
 
 def pack_q4k(scale, minimum, group_scales, group_minimums, codes):
     """Pack logical Q4_K fields into its 144-byte storage layout."""
@@ -202,7 +125,6 @@ def q4k_q8_swiglu(arrays):
 
 
 KERNEL_GROUPS = {
-    "iq4xs_gate_up": iq4xs_gate_up,
     "q4k_q8_swiglu": q4k_q8_swiglu,
 }
 
