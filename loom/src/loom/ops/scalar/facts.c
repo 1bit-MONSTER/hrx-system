@@ -20,6 +20,7 @@
 #include "loom/ops/op_defs.h"
 #include "loom/ops/scalar/compare.h"
 #include "loom/ops/scalar/ops.h"
+#include "loom/util/fact_table.h"
 #include "loom/util/predicate_facts.h"
 
 //===----------------------------------------------------------------------===//
@@ -627,8 +628,12 @@ iree_status_t loom_scalar_cmpi_facts(loom_fact_context_t* context,
                                      const loom_op_t* op,
                                      const loom_value_facts_t* operand_facts,
                                      loom_value_facts_t* result_facts) {
+  const loom_value_id_t lhs_identity = loom_value_fact_table_query_identity(
+      context->table, loom_scalar_cmpi_lhs(op));
+  const loom_value_id_t rhs_identity = loom_value_fact_table_query_identity(
+      context->table, loom_scalar_cmpi_rhs(op));
   bool result = false;
-  if ((loom_scalar_cmpi_lhs(op) == loom_scalar_cmpi_rhs(op) &&
+  if ((lhs_identity == rhs_identity &&
        loom_scalar_cmpi_same_value_result(loom_scalar_cmpi_predicate(op),
                                           &result)) ||
       loom_scalar_cmpi_result_from_facts(
@@ -651,8 +656,12 @@ iree_status_t loom_scalar_cmpf_facts(loom_fact_context_t* context,
                                      loom_value_facts_t* result_facts) {
   bool result = false;
   if (loom_scalar_cmpf_constant_result(
-          loom_scalar_cmpf_predicate(op), loom_scalar_cmpf_lhs(op),
-          loom_scalar_cmpf_rhs(op), loom_scalar_cmpf_fastmath(op), &result)) {
+          loom_scalar_cmpf_predicate(op),
+          loom_value_fact_table_query_identity(context->table,
+                                               loom_scalar_cmpf_lhs(op)),
+          loom_value_fact_table_query_identity(context->table,
+                                               loom_scalar_cmpf_rhs(op)),
+          loom_scalar_cmpf_fastmath(op), &result)) {
     result_facts[0] = loom_value_facts_exact_i64(result ? 1 : 0);
     return iree_ok_status();
   }

@@ -960,6 +960,10 @@ bool loom_value_fact_table_values_equal(const loom_value_fact_table_t* table,
   if (!table) {
     return false;
   }
+  if (loom_value_fact_table_query_identity(table, lhs) ==
+      loom_value_fact_table_query_identity(table, rhs)) {
+    return true;
+  }
   const loom_value_facts_t lhs_facts = loom_value_fact_table_lookup(table, lhs);
   const loom_value_facts_t rhs_facts = loom_value_fact_table_lookup(table, rhs);
   return loom_value_facts_is_exact(lhs_facts) &&

@@ -262,6 +262,16 @@ static inline loom_value_id_t loom_rewriter_value_identity(
   return loom_value_fact_table_query_identity(rewriter->fact_table, value_id);
 }
 
+// Returns whether same-typed operands carry identical values using the retained
+// identity and exact integer facts. This does not prove sole ownership or
+// ordinary floating-point equality; NaN-sensitive patterns retain their
+// predicate rules.
+static inline bool loom_rewriter_values_equal(const loom_rewriter_t* rewriter,
+                                              loom_value_id_t lhs,
+                                              loom_value_id_t rhs) {
+  return loom_value_fact_table_values_equal(rewriter->fact_table, lhs, rhs);
+}
+
 // Returns the live producer of a value's retained identity, or NULL for block
 // arguments, erased producers, and identities with a different refined type.
 // This permits semantic producer matching across fact identities without

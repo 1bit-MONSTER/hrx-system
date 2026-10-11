@@ -12,6 +12,45 @@
 namespace loom {
 namespace {
 
+TEST(ScalarCompareTest, IdentityPredicatesPreserveNanSemantics) {
+  const struct {
+    // Predicate interpreted with two identical floating-point values.
+    uint8_t predicate;
+    // Result when the value is ordered, including infinities and signed zero.
+    bool ordered_result;
+    // Result when the value is NaN.
+    bool nan_result;
+  } cases[] = {
+      {LOOM_SCALAR_CMPF_PREDICATE_OEQ, true, false},
+      {LOOM_SCALAR_CMPF_PREDICATE_OGT, false, false},
+      {LOOM_SCALAR_CMPF_PREDICATE_OGE, true, false},
+      {LOOM_SCALAR_CMPF_PREDICATE_OLT, false, false},
+      {LOOM_SCALAR_CMPF_PREDICATE_OLE, true, false},
+      {LOOM_SCALAR_CMPF_PREDICATE_ONE, false, false},
+      {LOOM_SCALAR_CMPF_PREDICATE_ORD, true, false},
+      {LOOM_SCALAR_CMPF_PREDICATE_UEQ, true, true},
+      {LOOM_SCALAR_CMPF_PREDICATE_UGT, false, true},
+      {LOOM_SCALAR_CMPF_PREDICATE_UGE, true, true},
+      {LOOM_SCALAR_CMPF_PREDICATE_ULT, false, true},
+      {LOOM_SCALAR_CMPF_PREDICATE_ULE, true, true},
+      {LOOM_SCALAR_CMPF_PREDICATE_UNE, false, true},
+      {LOOM_SCALAR_CMPF_PREDICATE_UNO, false, true},
+  };
+  for (const auto& test : cases) {
+    SCOPED_TRACE(unsigned(test.predicate));
+    bool result = false;
+    const bool proven = loom_scalar_cmpf_constant_result(
+        test.predicate, 1, 1, /*fastmath=*/0, &result);
+    EXPECT_EQ(proven, test.ordered_result == test.nan_result);
+    if (proven) {
+      EXPECT_EQ(result, test.ordered_result);
+    }
+    ASSERT_TRUE(loom_scalar_cmpf_constant_result(
+        test.predicate, 1, 1, LOOM_SCALAR_FASTMATHFLAGS_NNAN, &result));
+    EXPECT_EQ(result, test.ordered_result);
+  }
+}
+
 TEST(ScalarCompareTest, UnsignedRangesMatchEnumeratedIntegerValues) {
   constexpr int bounds[] = {-128, -2, -1, 0, 1, 126, 127};
   constexpr uint8_t predicates[] = {

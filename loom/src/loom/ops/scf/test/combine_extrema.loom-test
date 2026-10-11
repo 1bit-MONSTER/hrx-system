@@ -113,3 +113,24 @@ CHECK: %other_false = scf.select %less, %lhs, %payload : i32
 CHECK: %float_result = scf.select %float_less, %a, %b : f32
 CHECK-NOT: *scalar.min*
 CHECK-NOT: *scalar.max*
+
+// ====
+// RUN: pass combine
+
+// Matching uses retained values, while the resulting extrema retain the arms'
+// actual SSA values and their local refinements.
+func.def @refined_extremum(%left: i16, %right: i16) -> (i16, i16) {
+  %a, %b = scalar.assume %left, %right [ne(%left, 0), ne(%right, 0)] : i16, i16
+  %less = scalar.cmpi slt, %left, %right : i16
+  %forward = scf.select %less, %a, %b : i16
+  %reverse = scf.select %less, %b, %a : i16
+  func.return %forward, %reverse : i16, i16
+}
+
+// ----
+func.def @refined_extremum(%left: i16, %right: i16) -> (i16, i16) {
+  %a, %b = scalar.assume %left, %right [ne(%left, 0), ne(%right, 0)] : i16, i16
+  %forward = scalar.minsi %a, %b : i16
+  %reverse = scalar.maxsi %b, %a : i16
+  func.return %forward, %reverse : i16, i16
+}

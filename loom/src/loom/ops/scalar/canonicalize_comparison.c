@@ -221,7 +221,9 @@ iree_status_t loom_scalar_cmpi_canonicalize(loom_op_t* op,
   bool result = false;
   loom_value_facts_t lhs_facts = loom_rewriter_value_facts(rewriter, lhs);
   loom_value_facts_t rhs_facts = loom_rewriter_value_facts(rewriter, rhs);
-  if ((lhs == rhs && loom_scalar_cmpi_same_value_result(predicate, &result)) ||
+  if ((loom_rewriter_value_identity(rewriter, lhs) ==
+           loom_rewriter_value_identity(rewriter, rhs) &&
+       loom_scalar_cmpi_same_value_result(predicate, &result)) ||
       loom_scalar_cmpi_result_from_facts(loom_type_element_type(operand_type),
                                          predicate, &lhs_facts, &rhs_facts,
                                          &result)) {
@@ -281,7 +283,9 @@ iree_status_t loom_scalar_cmpf_canonicalize(loom_op_t* op,
 
   bool result = false;
   if (loom_scalar_cmpf_constant_result(
-          predicate, lhs, rhs, loom_scalar_cmpf_fastmath(op), &result)) {
+          predicate, loom_rewriter_value_identity(rewriter, lhs),
+          loom_rewriter_value_identity(rewriter, rhs),
+          loom_scalar_cmpf_fastmath(op), &result)) {
     return loom_scalar_replace_single_result_with_i64_constant(op, rewriter,
                                                                result ? 1 : 0);
   }

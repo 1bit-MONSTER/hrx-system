@@ -88,6 +88,7 @@ loom_generated_cc_library(
     loom::ops::combining
     loom::ops::op_defs
     loom::rewrite::rewriter
+    loom::util::fact_table
     loom::util::predicate_facts
 )
 

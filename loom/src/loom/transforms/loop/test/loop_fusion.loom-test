@@ -304,3 +304,34 @@ func.def @preserves_bare_unroll_intent(%input: view<64xf32>, %end: index, %depth
   }
   func.return %first, %second : f32, f32
 }
+
+// ====
+
+// Equivalent domains can retain different local refinements of the same value.
+func.def @fuses_refined_domains(%n: index, %a: i32, %b: i32) -> (i32, i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %bounded = index.assume %n [range(%n, 1, 1023)] : index
+  %sum_a = scf.for %i = [%begin to %n step %step](%acc = %a : i32) -> (i32) {
+    %next = test.addi %acc, %b : i32
+    scf.yield %next : i32
+  }
+  %sum_b = scf.for %j = [%begin to %bounded step %step](%acc = %b : i32) -> (i32) {
+    %next = test.addi %acc, %a : i32
+    scf.yield %next : i32
+  }
+  func.return %sum_a, %sum_b : i32, i32
+}
+
+// ----
+func.def @fuses_refined_domains(%n: index, %a: i32, %b: i32) -> (i32, i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %bounded = index.assume %n [range(%n, 1, 1023)] : index
+  %sum_a, %sum_b = scf.for %18 = [%begin to %n step %step](%19 = %a : i32, %20 = %b : i32) -> (i32, i32) {
+    %next = test.addi %19, %b : i32
+    %15 = test.addi %20, %a : i32
+    scf.yield %next, %15 : i32, i32
+  }
+  func.return %sum_a, %sum_b : i32, i32
+}
