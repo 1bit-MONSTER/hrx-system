@@ -1,0 +1,49 @@
+// RUN: emit source-low target=amdgpu:gfx942 output=low
+
+func.def @narrow_integer_float(%flag: i1, %byte: i8, %halfword: i16, %halfwords: vector<2xi16>) -> (f32, f32, f64, f64, f64, f64, f64, f64, vector<2xf64>, vector<2xf64>) {
+  %signed_flag_f32 = scalar.sitofp %flag : i1 to f32
+  %unsigned_flag_f32 = scalar.uitofp %flag : i1 to f32
+  %signed_flag_f64 = scalar.sitofp %flag : i1 to f64
+  %unsigned_flag_f64 = scalar.uitofp %flag : i1 to f64
+  %signed_byte_f64 = scalar.sitofp %byte : i8 to f64
+  %unsigned_byte_f64 = scalar.uitofp %byte : i8 to f64
+  %signed_halfword_f64 = scalar.sitofp %halfword : i16 to f64
+  %unsigned_halfword_f64 = scalar.uitofp %halfword : i16 to f64
+  %signed_halfwords_f64 = vector.sitofp %halfwords : vector<2xi16> to vector<2xf64>
+  %unsigned_halfwords_f64 = vector.uitofp %halfwords : vector<2xi16> to vector<2xf64>
+  func.return %signed_flag_f32, %unsigned_flag_f32, %signed_flag_f64, %unsigned_flag_f64, %signed_byte_f64, %unsigned_byte_f64, %signed_halfword_f64, %unsigned_halfword_f64, %signed_halfwords_f64, %unsigned_halfwords_f64 : f32, f32, f64, f64, f64, f64, f64, f64, vector<2xf64>, vector<2xf64>
+}
+
+// ----
+low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @narrow_integer_float(%flag: reg<amdgpu.sgpr>, %byte: reg<amdgpu.vgpr>, %halfword: reg<amdgpu.vgpr>, %halfwords: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>) asm {
+  %84 = s_mov_b32 4294967295
+  %85 = s_mov_b32 0
+  %86 = s_cmp_lg_i32_src1_inline %flag {rhs = 0}
+  %87 = s_cselect_b32 %84, %85, %86
+  %signed_flag_f32 = v_cvt_f32_i32 %87
+  %89 = s_mov_b32 1
+  %90 = s_cmp_lg_i32_src1_inline %flag {rhs = 0}
+  %91 = s_cselect_b32 %89, %85, %90
+  %unsigned_flag_f32 = v_cvt_f32_u32 %91
+  %signed_flag_f64 = v_cvt_f64_i32 %87
+  %unsigned_flag_f64 = v_cvt_f64_u32 %91
+  %95 = v_mov_b32_sdwa %byte {dst_sel = 6, dst_unused = 0, src0_sel = 0, src0_sext = 1}
+  %signed_byte_f64 = v_cvt_f64_i32 %95
+  %97 = v_and_b32_lit %byte, 255
+  %unsigned_byte_f64 = v_cvt_f64_u32 %97
+  %99 = v_mov_b32_sdwa %halfword {dst_sel = 6, dst_unused = 0, src0_sel = 4, src0_sext = 1}
+  %signed_halfword_f64 = v_cvt_f64_i32 %99
+  %101 = v_and_b32_lit %halfword, 65535
+  %unsigned_halfword_f64 = v_cvt_f64_u32 %101
+  %103 = v_mov_b32_sdwa %halfwords {dst_sel = 6, dst_unused = 0, src0_sel = 4, src0_sext = 1}
+  %104 = v_cvt_f64_i32 %103
+  %105 = v_mov_b32_sdwa %halfwords {dst_sel = 6, dst_unused = 0, src0_sel = 5, src0_sext = 1}
+  %106 = v_cvt_f64_i32 %105
+  %signed_halfwords_f64 = concat(%104, %106) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %108 = v_and_b32_lit %103, 65535
+  %109 = v_cvt_f64_u32 %108
+  %110 = v_and_b32_lit %105, 65535
+  %111 = v_cvt_f64_u32 %110
+  %unsigned_halfwords_f64 = concat(%109, %111) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  return %signed_flag_f32, %unsigned_flag_f32, %signed_flag_f64, %unsigned_flag_f64, %signed_byte_f64, %unsigned_byte_f64, %signed_halfword_f64, %unsigned_halfword_f64, %signed_halfwords_f64, %unsigned_halfwords_f64
+}

@@ -2638,55 +2638,6 @@ def _scalar_float_cast_rule(
     )
 
 
-def _bool_to_f64_rule() -> DescriptorRule:
-    move = _descriptor("amdgpu.v_mov_b32")
-    select = _descriptor("amdgpu.v_cndmask_b32")
-    convert = _descriptor("amdgpu.v_cvt_f64_u32")
-    return DescriptorRule(
-        source_op=scalar_conversion.scalar_uitofp,
-        descriptor=select,
-        guards=(
-            _value_type("input", _I1),
-            _value_type("result", _F64),
-            Guard.value_materializable("input", I1_NATIVE_MASK_MATERIALIZER.name),
-            Guard.descriptor_available(move),
-            Guard.descriptor_available(select),
-            Guard.descriptor_available(convert),
-        ),
-        emit=(
-            EmitDescriptorOp(
-                descriptor=move,
-                results={"dst": ValueRef.temporary("zero")},
-                result_types={"dst": DescriptorResultType()},
-                immediates={"imm32": 0},
-            ),
-            EmitDescriptorOp(
-                descriptor=move,
-                results={"dst": ValueRef.temporary("one")},
-                result_types={"dst": DescriptorResultType()},
-                immediates={"imm32": 1},
-            ),
-            EmitDescriptorOp(
-                descriptor=select,
-                operands={
-                    "false_value": ValueRef.temporary("zero"),
-                    "true_value": ValueRef.temporary("one"),
-                    "mask": ValueRef.operand(
-                        "input", materializer=I1_NATIVE_MASK_MATERIALIZER.name
-                    ),
-                },
-                results={"dst": ValueRef.temporary("integer")},
-                result_types={"dst": DescriptorResultType()},
-            ),
-            EmitDescriptorOp(
-                descriptor=convert,
-                operands={"input": ValueRef.temporary("integer")},
-                results={"dst": ValueRef.result("result")},
-            ),
-        ),
-    )
-
-
 def _i64_to_f64_rule(source_op: Op, *, signed: bool) -> DescriptorRule:
     # Convert each 32-bit limb exactly, scale the signed or unsigned high limb
     # by 2^32 exactly, and let the final addition perform the one required
@@ -4565,7 +4516,6 @@ def _rules() -> tuple[ContractCase, ...]:
                 _F64,
                 "amdgpu.v_cvt_f64_u32",
             ),
-            _bool_to_f64_rule(),
             _i64_to_f32_rule(scalar_conversion.scalar_uitofp, signed=False),
             _i64_to_f32_rule(scalar_conversion.scalar_sitofp, signed=True),
             _i64_to_f64_rule(scalar_conversion.scalar_uitofp, signed=False),
