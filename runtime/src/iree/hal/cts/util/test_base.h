@@ -581,14 +581,14 @@ class CtsTestBase : public BaseType {
       if (queue_spec->families[i].provisioned_queue_count == 0) {
         continue;
       }
-      families.push_back((iree_hal_pool_family_access_t){
-          /*.family=*/iree_hal_device_queue_family(device_, i),
-          /*.usage=*/usage,
+      families.push_back(iree_hal_pool_family_access_t{
+          .family = iree_hal_device_queue_family(device_, i),
+          .usage = usage,
       });
     }
     const iree_hal_pool_scope_t scope = {
-        /*.family_count=*/families.size(),
-        /*.families=*/families.data(),
+        .family_count = families.size(),
+        .families = families.data(),
     };
     iree_hal_slab_pool_options_t options;
     iree_hal_slab_pool_options_initialize(&options);
