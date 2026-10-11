@@ -46,6 +46,7 @@ from loom.target.contracts import (
     OperandSegmentProject,
     Scalar,
     ValueAliasRule,
+    ValueProject,
     ValueRef,
     Vector,
 )
@@ -91,6 +92,21 @@ def test_scalar_signed_narrow_extensions_use_native_carriers() -> None:
         (Scalar("i8"), Scalar("i32"), "x86.scalar.movsx.i8.gpr32"),
         (Scalar("i16"), Scalar("i32"), "x86.scalar.movsx.i16.gpr32"),
     }
+
+
+def test_scalar_storage_float_constants_share_one_bit_preserving_rule() -> None:
+    storage_type = Scalar(tuple(element.name for element in STORAGE_ELEMENTS))
+    rules = tuple(
+        case
+        for case in X86_SCALAR_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule)
+        and case.source_op is scalar_conversion.scalar_constant
+        and _value_type_guard(case, "result") == storage_type
+    )
+    assert len(rules) == 1
+    rule = rules[0]
+    assert rule.descriptor.key == "x86.scalar.movimm.gpr32"
+    assert rule.emit[0].immediates == {"imm32": ValueProject.float_bits("result")}
 
 
 def test_uniform_shift_rules_cover_native_types_widths_and_count_forms() -> None:

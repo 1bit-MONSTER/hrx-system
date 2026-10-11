@@ -1,0 +1,20 @@
+// Storage-width floating constants keep their declared bits in the shared
+// GPR32 carrier instead of requiring target-specific scalar arithmetic.
+// RUN: emit source-low target=x86:scalar output=low
+
+func.def @storage_float_constants() -> (f8E4M3, f8E5M2, f16, bf16) {
+  %e4m3 = scalar.constant 1.5 : f8E4M3
+  %e5m2 = scalar.constant -1.25 : f8E5M2
+  %half = scalar.constant 1.5 : f16
+  %bfloat = scalar.constant -2.0 : bf16
+  func.return %e4m3, %e5m2, %half, %bfloat : f8E4M3, f8E5M2, f16, bf16
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = () -> (f8E4M3, f8E5M2, f16, bf16)}) @storage_float_constants() -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %e4m3 = mov.imm32 60
+  %e5m2 = mov.imm32 189
+  %half = mov.imm32 15872
+  %bfloat = mov.imm32 49152
+  return %e4m3, %e5m2, %half, %bfloat
+}
