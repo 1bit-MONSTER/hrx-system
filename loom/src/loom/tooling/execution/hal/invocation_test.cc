@@ -17,9 +17,9 @@ class HalInvocationTest : public ::testing::Test {};
 
 static iree_status_t CreateHostTestPool(iree_hal_pool_t** out_pool) {
   const iree_hal_pool_host_access_t host_access = {
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
-      /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .modes = IREE_HAL_MAPPING_MODE_SCOPED,
+      .cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
   };
   return iree_hal_heap_pool_create(host_access, iree_allocator_system(),
                                    iree_allocator_system(), out_pool);
@@ -89,23 +89,23 @@ TEST_F(HalInvocationTest, DispatchSequenceInitializeIsNotPrepared) {
 TEST_F(HalInvocationTest,
        DispatchSequenceRejectsMixedRepresentationsBeforeDeviceUse) {
   const loom_run_hal_prepared_candidate_t kernel_candidate = {
-      /*.executable=*/reinterpret_cast<iree_hal_executable_t*>(1),
+      .executable = reinterpret_cast<iree_hal_executable_t*>(1),
   };
   const loom_run_hal_prepared_candidate_t array_candidate = {
-      /*.executable=*/reinterpret_cast<iree_hal_executable_t*>(1),
+      .executable = reinterpret_cast<iree_hal_executable_t*>(1),
   };
   loom_run_hal_dispatch_sequence_step_t steps[2] = {
       {
-          /*.candidate=*/&array_candidate,
-          /*.representation=*/
-          LOOM_RUN_HAL_DISPATCH_SEQUENCE_REPRESENTATION_DIRECT,
-          /*.execution_epoch=*/0,
+          .candidate = &array_candidate,
+          .representation =
+              LOOM_RUN_HAL_DISPATCH_SEQUENCE_REPRESENTATION_DIRECT,
+          .execution_epoch = 0,
       },
       {
-          /*.candidate=*/&kernel_candidate,
-          /*.representation=*/
-          LOOM_RUN_HAL_DISPATCH_SEQUENCE_REPRESENTATION_COMMAND_BUFFER,
-          /*.execution_epoch=*/1,
+          .candidate = &kernel_candidate,
+          .representation =
+              LOOM_RUN_HAL_DISPATCH_SEQUENCE_REPRESENTATION_COMMAND_BUFFER,
+          .execution_epoch = 1,
       },
   };
   loom_run_hal_invocation_options_initialize(&steps[0].options);
@@ -125,13 +125,13 @@ TEST_F(HalInvocationTest,
 TEST_F(HalInvocationTest,
        DispatchSequenceRejectsOversizedConstantsBeforeDeviceUse) {
   const loom_run_hal_prepared_candidate_t candidate = {
-      /*.executable=*/reinterpret_cast<iree_hal_executable_t*>(1),
+      .executable = reinterpret_cast<iree_hal_executable_t*>(1),
   };
   loom_run_hal_dispatch_sequence_step_t step = {
-      /*.candidate=*/&candidate,
-      /*.representation=*/
-      LOOM_RUN_HAL_DISPATCH_SEQUENCE_REPRESENTATION_COMMAND_BUFFER,
-      /*.execution_epoch=*/0,
+      .candidate = &candidate,
+      .representation =
+          LOOM_RUN_HAL_DISPATCH_SEQUENCE_REPRESENTATION_COMMAND_BUFFER,
+      .execution_epoch = 0,
   };
   loom_run_hal_invocation_options_initialize(&step.options);
   step.options.constant_byte_length = LOOM_RUN_HAL_MAX_CONSTANT_BYTE_LENGTH + 1;
@@ -208,13 +208,13 @@ TEST_F(HalInvocationTest,
   loom_run_hal_invocation_request_initialize(&request);
   request.runtime = &runtime;
   request.artifact = &executable;
-  request.bindings = (loom_run_hal_binding_specs_t){
-      /*.values=*/bindings,
-      /*.count=*/IREE_ARRAYSIZE(bindings),
+  request.bindings = loom_run_hal_binding_specs_t{
+      .values = bindings,
+      .count = IREE_ARRAYSIZE(bindings),
   };
-  request.expected_bindings = (loom_run_hal_binding_specs_t){
-      /*.values=*/expected_bindings,
-      /*.count=*/IREE_ARRAYSIZE(expected_bindings),
+  request.expected_bindings = loom_run_hal_binding_specs_t{
+      .values = expected_bindings,
+      .count = IREE_ARRAYSIZE(expected_bindings),
   };
 
   loom_run_hal_invocation_result_t result = {};
@@ -410,7 +410,7 @@ TEST_F(HalInvocationTest,
        DispatchBatchRejectsZeroDispatchCountBeforeDeviceUse) {
   loom_run_hal_runtime_t runtime = {};
   loom_run_hal_prepared_candidate_t candidate = {
-      /*.executable=*/reinterpret_cast<iree_hal_executable_t*>(1),
+      .executable = reinterpret_cast<iree_hal_executable_t*>(1),
   };
   loom_run_hal_invocation_plan_t plan = {};
   loom_run_hal_invocation_plan_initialize(&plan);

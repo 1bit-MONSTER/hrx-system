@@ -65,25 +65,28 @@ class Pm4QueuedMappingTest : public Pm4DispatchTest,
   }
 
   void Prepare() {
-    amdf_gpu_kernel_queue_create_info_t create_queue = {};
-    create_queue.type = AMDF_STRUCTURE_TYPE_GPU_KERNEL_QUEUE_CREATE_INFO;
-    create_queue.structure_size = sizeof(create_queue);
-    create_queue.queue_family_ordinal = family_.ordinal;
-    create_queue.maximum_pending_submission_count = 32;
+    amdf_gpu_kernel_queue_create_info_t create_queue = {
+        .type = AMDF_STRUCTURE_TYPE_GPU_KERNEL_QUEUE_CREATE_INFO,
+        .structure_size = sizeof(create_queue),
+        .queue_family_ordinal = family_.ordinal,
+        .maximum_pending_submission_count = 32,
+    };
     ASSERT_EQ(gpu_api_->kernel_queue_create(device_, &create_queue, &queue_),
               AMDF_STATUS_OK);
-    amdf_kernel_queue_info_t queue_info = {};
-    queue_info.type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_INFO;
-    queue_info.structure_size = sizeof(queue_info);
+    amdf_kernel_queue_info_t queue_info = {
+        .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_INFO,
+        .structure_size = sizeof(queue_info),
+    };
     ASSERT_EQ(api_->kernel_queue_query_info(queue_, &queue_info),
               AMDF_STATUS_OK);
     if ((queue_info.capabilities &
          AMDF_KERNEL_QUEUE_CAPABILITY_VIRTUAL_MEMORY) == 0) {
       GTEST_SKIP() << "native queue-ordered mapping is not advertised";
     }
-    amdf_memory_reservation_capabilities_t capabilities = {};
-    capabilities.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES;
-    capabilities.structure_size = sizeof(capabilities);
+    amdf_memory_reservation_capabilities_t capabilities = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES,
+        .structure_size = sizeof(capabilities),
+    };
     ASSERT_EQ(api_->device_query_memory_reservation_capabilities(device_, 0,
                                                                  &capabilities),
               AMDF_STATUS_OK);
@@ -100,9 +103,10 @@ class Pm4QueuedMappingTest : public Pm4DispatchTest,
     ASSERT_EQ(
         api_->memory_reservation_create(instance_, &create, &reservation_),
         AMDF_STATUS_OK);
-    amdf_memory_reservation_access_info_t info = {};
-    info.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO;
-    info.structure_size = sizeof(info);
+    amdf_memory_reservation_access_info_t info = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO,
+        .structure_size = sizeof(info),
+    };
     ASSERT_EQ(
         api_->memory_reservation_query_access_info(reservation_, 0, &info),
         AMDF_STATUS_OK);
@@ -116,10 +120,12 @@ class Pm4QueuedMappingTest : public Pm4DispatchTest,
     const bool local = GetParam() == Backing::kLocal;
     const amdf_memory_device_access_t attachment = {
         device_,
-        {.access = access_,
-         .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
-                  AMDF_MEMORY_FLAG_MAPPING_SOURCE |
-                  (local ? UINT64_C(0) : AMDF_MEMORY_FLAG_HOST_COHERENT)}};
+        {
+            .access = access_,
+            .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
+                     AMDF_MEMORY_FLAG_MAPPING_SOURCE |
+                     (local ? UINT64_C(0) : AMDF_MEMORY_FLAG_HOST_COHERENT),
+        }};
     const auto flags =
         local ? AMDF_MEMORY_FLAG_DEVICE_LOCAL : AMDF_MEMORY_FLAG_HOST_VISIBLE;
     const auto role = registered ? AMDF_MEMORY_PROFILE_ROLE_REGISTER
@@ -129,21 +135,24 @@ class Pm4QueuedMappingTest : public Pm4DispatchTest,
     if (ordinal == AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN) {
       GTEST_SKIP() << "selected backing role is not a mapping source";
     }
-    amdf_memory_profile_t profile = {};
-    profile.type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE;
-    profile.structure_size = sizeof(profile);
-    amdf_memory_access_capabilities_t source_capabilities = {};
-    source_capabilities.type = AMDF_STRUCTURE_TYPE_MEMORY_ACCESS_CAPABILITIES;
-    source_capabilities.structure_size = sizeof(source_capabilities);
+    amdf_memory_profile_t profile = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE,
+        .structure_size = sizeof(profile),
+    };
+    amdf_memory_access_capabilities_t source_capabilities = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_ACCESS_CAPABILITIES,
+        .structure_size = sizeof(source_capabilities),
+    };
     ASSERT_EQ(
         api_->memory_scope_query_device_profile(scope, ordinal, 1, &attachment,
                                                 &profile, &source_capabilities),
         AMDF_STATUS_OK);
     for (uint32_t i = 0; i < backing_.size(); ++i) {
-      amdf_memory_create_info_t source = {};
-      source.type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO;
-      source.structure_size = sizeof(source);
-      source.memory_profile_ordinal = ordinal;
+      amdf_memory_create_info_t source = {
+          .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
+          .structure_size = sizeof(source),
+          .memory_profile_ordinal = ordinal,
+      };
       source.required_flags = flags;
       source.byte_length = kBackingLength;
       source.minimum_alignment = kBackingLength;
@@ -213,14 +222,17 @@ class Pm4QueuedMappingTest : public Pm4DispatchTest,
   }
 
   void Submit(uint64_t offset, uint64_t length) {
-    const amdf_gpu_kernel_command_t command = {.memory = commands_->memory,
-                                               .byte_offset = offset,
-                                               .byte_length = length};
+    const amdf_gpu_kernel_command_t command = {
+        .memory = commands_->memory,
+        .byte_offset = offset,
+        .byte_length = length,
+    };
     const amdf_gpu_kernel_queue_submission_info_t submit = {
         .type = AMDF_STRUCTURE_TYPE_GPU_KERNEL_QUEUE_SUBMISSION_INFO,
         .structure_size = sizeof(submit),
         .command_count = 1,
-        .commands = &command};
+        .commands = &command,
+    };
     ASSERT_EQ(gpu_api_->kernel_queue_submit(queue_, &submit, &last_submission_),
               AMDF_STATUS_OK);
   }
@@ -307,7 +319,8 @@ TEST_P(Pm4QueuedMappingTest, PendingUseThenReplacementThenComputeAndDetach) {
       .byte_length = kPageLength,
       .memory = backing_[1].memory,
       .access = access_,
-      .source_byte_offset = kBackingLength - kPageLength};
+      .source_byte_offset = kBackingLength - kPageLength,
+  };
   ASSERT_EQ(api_->memory_reservation_update(reservation_, 0, 1, &initial),
             AMDF_STATUS_OK);
   ASSERT_NO_FATAL_FAILURE(Submit(0, predecessor.word_count() * 4));
@@ -317,16 +330,18 @@ TEST_P(Pm4QueuedMappingTest, PendingUseThenReplacementThenComputeAndDetach) {
         .byte_length = kPageLength,
         .memory = backing_[generation % 2].memory,
         .access = access_,
-        .source_byte_offset = (generation % 4) * kPageLength};
+        .source_byte_offset = (generation % 4) * kPageLength,
+    };
     ASSERT_EQ(api_->kernel_queue_update_memory(queue_, reservation_, 0, 1,
                                                &update, &last_submission_),
               AMDF_STATUS_OK);
     ASSERT_NO_FATAL_FAILURE(
         Submit((generation + 1) * 4096, lengths[generation]));
     if (generation == 0) {
-      amdf_kernel_queue_status_t status = {};
-      status.type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS;
-      status.structure_size = sizeof(status);
+      amdf_kernel_queue_status_t status = {
+          .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS,
+          .structure_size = sizeof(status),
+      };
       ASSERT_EQ(api_->kernel_queue_refresh_status(queue_, &status),
                 AMDF_STATUS_OK);
       EXPECT_EQ(status.retired_submission, 0u);
@@ -340,7 +355,9 @@ TEST_P(Pm4QueuedMappingTest, PendingUseThenReplacementThenComputeAndDetach) {
     }
   }
   const amdf_memory_mapping_update_t detach = {
-      .target_byte_offset = kTargetOffset, .byte_length = kPageLength};
+      .target_byte_offset = kTargetOffset,
+      .byte_length = kPageLength,
+  };
   ASSERT_EQ(api_->kernel_queue_update_memory(queue_, reservation_, 0, 1,
                                              &detach, &last_submission_),
             AMDF_STATUS_OK);

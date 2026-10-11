@@ -935,8 +935,10 @@ class ReleaseFlowAnalyzer final
     }
     --ReferenceCount;
     if (ReferenceCount == 0) {
-      Released[Release.Variable] = ReleaseInfo{.Function = Release.Function,
-                                               .Location = Release.Location};
+      Released[Release.Variable] = ReleaseInfo{
+          .Function = Release.Function,
+          .Location = Release.Location,
+      };
     }
   }
 

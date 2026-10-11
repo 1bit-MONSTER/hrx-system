@@ -40,23 +40,54 @@ def _loom_check_expand_env(ctx):
         for key, value in ctx.attr.env.items()
     }
 
+def _loom_check_runfile_path(ctx, file):
+    if file.short_path.startswith("../"):
+        return file.short_path[3:]
+    return ctx.workspace_name + "/" + file.short_path
+
+def _shell_quote(value):
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
 def _loom_check_wrapper_content(ctx):
     compile_argument = ""
     if ctx.attr.compile_target:
         profile = ctx.attr.compile_target[LoomTargetProfileInfo]
-        value = ("--target=%s:%s" % (profile.family, profile.selector)).replace("'", "'\"'\"'")
-        compile_argument = "'%s' " % value
+        compile_argument = _shell_quote("--target=%s:%s" % (profile.family, profile.selector)) + " "
+
+    # The physical fixture path owns relative source includes. A prefix map
+    # retains the repository-relative spelling used by diagnostics and goldens.
+    fixture_runfile = _loom_check_runfile_path(ctx, ctx.file.src)
     return (
         "#!/usr/bin/env bash\n" +
-        "set -euo pipefail\n" +
-        "RUNFILES=\"${{RUNFILES_DIR:-$0.runfiles}}\"\n" +
-        "cd \"${{RUNFILES}}/{workspace}\"\n" +
-        "exec \"${{PWD}}/{runner}\" \"$@\" " +
-        "{compile_argument}\"{fixture}\"\n"
+        "# --- begin runfiles.bash initialization v3 ---\n" +
+        "set -uo pipefail; set +e; f=bazel_tools/tools/bash/runfiles/runfiles.bash\n" +
+        "# shellcheck disable=SC1090\n" +
+        "source \"${{RUNFILES_DIR:-/dev/null}}/$f\" 2>/dev/null || \\\n" +
+        "  source \"$(grep -sm1 \"^$f \" \"${{RUNFILES_MANIFEST_FILE:-/dev/null}}\" | cut -f2- -d' ')\" 2>/dev/null || \\\n" +
+        "  source \"$0.runfiles/$f\" 2>/dev/null || \\\n" +
+        "  source \"$(grep -sm1 \"^$f \" \"$0.runfiles_manifest\" | cut -f2- -d' ')\" 2>/dev/null || \\\n" +
+        "  source \"$(grep -sm1 \"^$f \" \"$0.exe.runfiles_manifest\" | cut -f2- -d' ')\" 2>/dev/null || \\\n" +
+        "  {{ echo >&2 \"ERROR: cannot find $f\"; exit 1; }}; f=; set -e\n" +
+        "# --- end runfiles.bash initialization v3 ---\n" +
+        "runner=\"$(rlocation {runner})\"\n" +
+        "fixture=\"$(rlocation {fixture})\"\n" +
+        "runner=\"${{runner//\\\\//}}\"\n" +
+        "fixture=\"${{fixture//\\\\//}}\"\n" +
+        "fixture_suffix={fixture_short_path}\n" +
+        "if [[ \"${{fixture}}\" != *\"${{fixture_suffix}}\" ]]; then\n" +
+        "  echo >&2 \"ERROR: resolved fixture path does not end in ${{fixture_suffix}}: ${{fixture}}\"\n" +
+        "  exit 1\n" +
+        "fi\n" +
+        "workspace_root=\"${{fixture%\"${{fixture_suffix}}\"}}\"\n" +
+        "source_prefix_map=\"--source-prefix-map=${{workspace_root}}/=\"\n" +
+        "exec \"${{runner}}\" \"${{source_prefix_map}}\" \"$@\" " +
+        "{compile_argument}\"${{fixture}}\"\n"
     ).format(
-        workspace = ctx.workspace_name,
-        runner = ctx.executable.runner.short_path,
-        fixture = ctx.file.src.short_path,
+        runner = _shell_quote(_loom_check_runfile_path(ctx, ctx.executable.runner)),
+        fixture = _shell_quote(fixture_runfile),
+        fixture_short_path = _shell_quote(
+            "/" + fixture_runfile.removeprefix(ctx.workspace_name + "/"),
+        ),
         compile_argument = compile_argument,
     )
 
@@ -75,6 +106,7 @@ def _loom_check_test_impl(ctx):
         ] + ctx.files.data,
     )
     runfiles = runfiles.merge_all(
+        [ctx.attr._runfiles_dep[DefaultInfo].default_runfiles] +
         [ctx.attr.runner[DefaultInfo].default_runfiles] +
         [target[DefaultInfo].default_runfiles for target in ctx.attr.data],
     )
@@ -127,6 +159,9 @@ _loom_check_executable = rule(
             allow_single_file = True,
             doc = "Source .<format>-test file appended by the wrapper.",
             mandatory = True,
+        ),
+        "_runfiles_dep": attr.label(
+            default = "@rules_shell//shell/runfiles",
         ),
     },
     doc = "Generates a shell launcher for one .<format>-test file.",

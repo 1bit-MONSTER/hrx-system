@@ -60,6 +60,7 @@ py_test(
     # The changed-path-aware Linux presubmit owns these hardware-free checks.
     tags = ["manual"],
     target_compatible_with = ["@platforms//os:linux"],
+    deps = ["//build_tools/amdgpu:target_map"],
 )
 
 py_test(

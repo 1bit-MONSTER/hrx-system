@@ -95,15 +95,19 @@ class MemoryReservationTest : public MemoryTest {
 
 TEST_F(MemoryReservationTest, ValidatesTheWholeVectorBeforeNativeMutation) {
   std::array<amdf_memory_mapping_update_t, 2> updates = {{
-      {.target_byte_offset = 8192,
-       .byte_length = 4096,
-       .memory = memory_,
-       .access = AMDF_MEMORY_ACCESS_READ,
-       .source_byte_offset = 4096},
-      {.target_byte_offset = 0,
-       .byte_length = 4096,
-       .memory = memory_,
-       .access = AMDF_MEMORY_ACCESS_READ},
+      {
+          .target_byte_offset = 8192,
+          .byte_length = 4096,
+          .memory = memory_,
+          .access = AMDF_MEMORY_ACCESS_READ,
+          .source_byte_offset = 4096,
+      },
+      {
+          .target_byte_offset = 0,
+          .byte_length = 4096,
+          .memory = memory_,
+          .access = AMDF_MEMORY_ACCESS_READ,
+      },
   }};
   const auto original = updates;
   ASSERT_EQ(amdf_memory_reservation_update(&native_.base, 0, updates.size(),
@@ -182,8 +186,9 @@ TEST_F(MemoryReservationTest,
   device.profile.external_memory_support[0].source_offset_alignment = 1;
   device.profile.external_memory_support[0].byte_length_alignment = 1;
   ReleaseState released = {};
-  amdf_external_memory_t external = {};
-  external.type = AMDF_EXTERNAL_MEMORY_TYPE_DMA_BUF_FD;
+  amdf_external_memory_t external = {
+      .type = AMDF_EXTERNAL_MEMORY_TYPE_DMA_BUF_FD,
+  };
   external.payload.file_descriptor = 101;
   external.source_byte_offset = 13;
   external.byte_length = 16371;
@@ -223,12 +228,14 @@ TEST_F(MemoryReservationTest,
   vtable.query_memory_reservation_capabilities =
       [](amdf_device_t*, uint32_t,
          amdf_memory_reservation_capabilities_t* out) {
-        *out = {.supported_access = AMDF_MEMORY_ACCESS_READ,
-                .required_access = AMDF_MEMORY_ACCESS_READ,
-                .maximum_byte_length = 65536,
-                .reservation_granularity = 4096,
-                .maximum_alignment = 65536,
-                .mapping_granularity = 4096};
+        *out = {
+            .supported_access = AMDF_MEMORY_ACCESS_READ,
+            .required_access = AMDF_MEMORY_ACCESS_READ,
+            .maximum_byte_length = 65536,
+            .reservation_granularity = 4096,
+            .maximum_alignment = 65536,
+            .mapping_granularity = 4096,
+        };
         return AMDF_STATUS_OK;
       };
   vtable.reservation_create =

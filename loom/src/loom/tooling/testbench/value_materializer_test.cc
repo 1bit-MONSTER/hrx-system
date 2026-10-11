@@ -39,9 +39,9 @@ class ValueMaterializerTest : public ::testing::Test {
     IREE_ASSERT_OK(loom_context_finalize(&context_));
 
     const iree_hal_pool_host_access_t host_access = {
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
-        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
-            IREE_HAL_MAPPING_MODE_PERSISTENT,
+        .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+        .modes =
+            IREE_HAL_MAPPING_MODE_SCOPED | IREE_HAL_MAPPING_MODE_PERSISTENT,
     };
     IREE_ASSERT_OK(iree_hal_heap_pool_create(host_access, host_allocator_,
                                              host_allocator_, &pool_));
@@ -66,8 +66,9 @@ class ValueMaterializerTest : public ::testing::Test {
   }
 
   loom_module_t* ParseModule(const char* source) {
-    loom_text_parse_options_t options = {};
-    options.max_errors = 20;
+    loom_text_parse_options_t options = {
+        .max_errors = 20,
+    };
     loom_module_t* module = nullptr;
     IREE_EXPECT_OK(loom_text_parse(iree_make_cstring_view(source),
                                    IREE_SV("value_materializer_test.loom"),
@@ -225,11 +226,12 @@ TEST_F(ValueMaterializerTest, MaterializesNarrowScalarLiterals) {
     sources[i].literal.value = loom_attr_f64(literals[i].value);
   }
 
-  loom_testbench_case_plan_t case_plan = {};
-  case_plan.value_sources = sources;
-  case_plan.value_source_count = IREE_ARRAYSIZE(sources);
-  case_plan.cartesian_sample_count = 1;
-  case_plan.sample_count = 1;
+  loom_testbench_case_plan_t case_plan = {
+      .value_sources = sources,
+      .value_source_count = IREE_ARRAYSIZE(sources),
+      .cartesian_sample_count = 1,
+      .sample_count = 1,
+  };
 
   loom_testbench_value_table_t table = {};
   IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(

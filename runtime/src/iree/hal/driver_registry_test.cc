@@ -41,8 +41,8 @@ iree_status_t QueryDevices(iree_hal_driver_t* driver,
                            iree_hal_device_info_t** out_infos) {
   // Different scheme-local ordinal zero values resolve to distinct opaque IDs.
   const iree_hal_device_info_t info = {
-      /*.device_id=*/
-      iree_string_view_equal(driver_name, IREE_SV("xdna")) ? 2u : 1u,
+      .device_id =
+          iree_string_view_equal(driver_name, IREE_SV("xdna")) ? 2u : 1u,
   };
   IREE_RETURN_IF_ERROR(iree_allocator_clone(
       host_allocator, iree_make_const_byte_span(&info, sizeof(info)),
@@ -80,11 +80,11 @@ iree_status_t CreateDeviceByPath(
 }
 
 const iree_hal_driver_vtable_t kDriverVtable = {
-    /*.destroy=*/DestroyDriver,
-    /*.query_available_devices=*/QueryDevices,
-    /*.dump_device_info=*/nullptr,
-    /*.create_device_by_id=*/CreateDeviceById,
-    /*.create_device_by_path=*/CreateDeviceByPath,
+    .destroy = DestroyDriver,
+    .query_available_devices = QueryDevices,
+    .dump_device_info = nullptr,
+    .create_device_by_id = CreateDeviceById,
+    .create_device_by_path = CreateDeviceByPath,
 };
 
 class Factory {

@@ -111,18 +111,18 @@ class ReplayRecorderPoolTest : public ::testing::Test {
         iree_hal_make_external_storage_class(
             IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
     const iree_hal_pool_import_class_t import_class = {
-        /*.storage_class=*/host_pointer_class,
-        /*.exports=*/{},
+        .storage_class = host_pointer_class,
+        .exports = {},
     };
     const iree_hal_pool_scope_t scope = {
-        /*.family_count=*/0,
-        /*.families=*/nullptr,
-        /*.host=*/
-        {
-            /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-            /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
-            /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
-        },
+        .family_count = 0,
+        .families = nullptr,
+        .host =
+            {
+                .access = IREE_HAL_MEMORY_ACCESS_ALL,
+                .modes = IREE_HAL_MAPPING_MODE_SCOPED,
+                .cacheability = IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
+            },
     };
     iree_hal_slab_pool_options_t options;
     iree_hal_slab_pool_options_initialize(&options);
@@ -149,9 +149,10 @@ class ReplayRecorderPoolTest : public ::testing::Test {
 
   iree_status_t Import(iree_hal_external_storage_class_t storage_class,
                        iree_hal_buffer_t** out_buffer) {
-    iree_hal_external_storage_t external_storage = {};
-    external_storage.storage_class = storage_class;
-    external_storage.byte_length = sizeof(storage_);
+    iree_hal_external_storage_t external_storage = {
+        .storage_class = storage_class,
+        .byte_length = sizeof(storage_),
+    };
     external_storage.payload.host_pointer = storage_;
     external_storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
     external_storage.maintenance_range =

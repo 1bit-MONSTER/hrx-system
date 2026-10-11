@@ -51,8 +51,9 @@ static const iree_hal_device_spec_t* FakeHalDeviceSpec(
 }
 
 static iree_hal_device_vtable_t MakeFakeHalDeviceVtable() {
-  iree_hal_device_vtable_t vtable = {};
-  vtable.device_spec = FakeHalDeviceSpec;
+  iree_hal_device_vtable_t vtable = {
+      .device_spec = FakeHalDeviceSpec,
+  };
   return vtable;
 }
 
@@ -75,12 +76,12 @@ iree_status_t CreateXdnaDeviceSpec(const TestTarget* targets,
   for (iree_host_size_t i = 0; i < target_count && iree_status_is_ok(status);
        ++i) {
     const iree_hal_executable_target_t target = {
-        /*.family=*/IREE_SV("xdna"),
-        /*.target_key=*/targets[i].target_key,
-        /*.kind=*/targets[i].kind,
-        /*.priority=*/0,
-        /*.physical_device_affinity=*/targets[i].physical_device_affinity,
-        /*.flags=*/IREE_HAL_EXECUTABLE_TARGET_FLAG_NONE,
+        .family = IREE_SV("xdna"),
+        .target_key = targets[i].target_key,
+        .kind = targets[i].kind,
+        .priority = 0,
+        .physical_device_affinity = targets[i].physical_device_affinity,
+        .flags = IREE_HAL_EXECUTABLE_TARGET_FLAG_NONE,
     };
     status =
         iree_hal_device_spec_builder_add_executable_target(&builder, &target);
@@ -139,15 +140,15 @@ TargetProfilePtr SelectTargetFromHal(
       loomc_xdna_iree_hal_target_provider(),
   };
   const loomc_iree_hal_target_options_t options = {
-      /*.type=*/LOOMC_STRUCTURE_TYPE_IREE_HAL_TARGET_OPTIONS,
-      /*.structure_size=*/sizeof(options),
-      /*.next=*/nullptr,
-      /*.identifier=*/loomc_make_cstring_view("fake-xdna"),
-      /*.device=*/reinterpret_cast<iree_hal_device_t*>(device),
-      /*.physical_device_affinity=*/physical_device_affinity,
-      /*.target_profile=*/requested_profile,
-      /*.providers=*/providers,
-      /*.provider_count=*/IREE_ARRAYSIZE(providers),
+      .type = LOOMC_STRUCTURE_TYPE_IREE_HAL_TARGET_OPTIONS,
+      .structure_size = sizeof(options),
+      .next = nullptr,
+      .identifier = loomc_make_cstring_view("fake-xdna"),
+      .device = reinterpret_cast<iree_hal_device_t*>(device),
+      .physical_device_affinity = physical_device_affinity,
+      .target_profile = requested_profile,
+      .providers = providers,
+      .provider_count = IREE_ARRAYSIZE(providers),
   };
   loomc_iree_hal_target_selection_t selection = {};
   loomc_status_t status = loomc_target_select_iree_hal(

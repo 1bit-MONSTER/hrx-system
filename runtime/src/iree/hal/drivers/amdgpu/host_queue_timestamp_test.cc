@@ -220,11 +220,11 @@ static iree_status_t AllocateTimestampBufferSized(
   // GPUs expose; the host pool is device-visible, so the device still writes
   // here and the host maps it to read back.
   const iree_hal_amdgpu_buffer_spec_t spec = {
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER |
-          IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
-      /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+      .type = IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .usage =
+          IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
+      .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
   };
   return iree_hal_amdgpu_allocator_allocate_direct_buffer(
       iree_hal_device_allocator(device), spec, size, out_buffer);
@@ -587,10 +587,10 @@ TEST_P(HostQueueTimestampTest, TickAdvancesAcrossWork) {
   // Scratch buffer filled between the two captures to create measurable work.
   const iree_device_size_t kScratchBytes = 64 * 1024 * 1024;
   const iree_hal_amdgpu_buffer_spec_t scratch_spec = {
-      /*.type=*/IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
-      /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+      .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
+      .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
   };
   Ref<iree_hal_buffer_t> scratch;
   IREE_ASSERT_OK(iree_hal_amdgpu_allocator_allocate_direct_buffer(
@@ -691,10 +691,10 @@ TEST_P(HostQueueTimestampTest, RejectsBufferWithoutTransferTarget) {
   iree_hal_device_t* device = test_device.base_device();
 
   const iree_hal_amdgpu_buffer_spec_t spec = {
-      /*.type=*/IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
-      /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+      .type = IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .usage = IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
+      .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
   };
   Ref<iree_hal_buffer_t> target;
   IREE_ASSERT_OK(iree_hal_amdgpu_allocator_allocate_direct_buffer(
@@ -991,8 +991,8 @@ TEST_P(HostQueueTimestampTest, CapturesIntoQueueAllocaTarget) {
 
   uint64_t alloca_value = 2;
   const iree_hal_pool_host_access_t host_access = {
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_READ,
-      /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+      .access = IREE_HAL_MEMORY_ACCESS_READ,
+      .modes = IREE_HAL_MAPPING_MODE_SCOPED,
   };
   Ref<iree_hal_pool_t> pool;
   IREE_ASSERT_OK(iree::hal::cts::CreateQueueSlabPool(
@@ -1051,10 +1051,11 @@ static iree_status_t CreateSingleBlockPool(
     iree_hal_device_group_t* device_group,
     const iree_hal_queue_family_t* queue_family, iree_device_size_t block_size,
     iree_hal_pool_t** out_backing_pool, iree_hal_pool_t** out_pool) {
-  iree_hal_fixed_block_pool_options_t options = {};
-  options.block_size = block_size;
-  options.blocks_per_slab = 1;
-  options.frontier_capacity = 2;
+  iree_hal_fixed_block_pool_options_t options = {
+      .block_size = block_size,
+      .blocks_per_slab = 1,
+      .frontier_capacity = 2,
+  };
   IREE_RETURN_IF_ERROR(iree::hal::cts::CreateQueueSlabPool(
       device_group, queue_family, IREE_HAL_BUFFER_USAGE_TRANSFER,
       /*host_access=*/{}, iree_allocator_system(), out_backing_pool));

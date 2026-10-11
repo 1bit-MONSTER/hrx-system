@@ -59,9 +59,9 @@ class ScenarioValuesTest : public ::testing::Test {
     RegisterDialect(LOOM_DIALECT_TEST, loom_test_dialect_vtables);
     IREE_ASSERT_OK(loom_context_finalize(&context_));
     const iree_hal_pool_host_access_t host_access = {
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
-        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
-            IREE_HAL_MAPPING_MODE_PERSISTENT,
+        .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+        .modes =
+            IREE_HAL_MAPPING_MODE_SCOPED | IREE_HAL_MAPPING_MODE_PERSISTENT,
     };
     IREE_ASSERT_OK(iree_hal_heap_pool_create(host_access, host_allocator_,
                                              host_allocator_, &pool_));
@@ -112,8 +112,7 @@ check.scenario public @paired configure[2](%configuration: index, %configuration
   check.return
 }
 )";
-    loom_text_parse_options_t options = {};
-    options.max_errors = 20;
+    loom_text_parse_options_t options = {.max_errors = 20};
     loom_module_t* module = nullptr;
     IREE_EXPECT_OK(loom_text_parse(iree_make_cstring_view(source),
                                    IREE_SV("scenario_values_test.loom"),
@@ -146,8 +145,7 @@ check.scenario public @paired configure[2](%configuration: index, %configuration
 
   static void AssignI32(loom_testbench_value_table_t* table,
                         loom_value_id_t value_id, int32_t payload) {
-    loom_testbench_value_t value = {};
-    value.kind = LOOM_TESTBENCH_VALUE_KIND_SCALAR;
+    loom_testbench_value_t value = {.kind = LOOM_TESTBENCH_VALUE_KIND_SCALAR};
     value.scalar.kind = IREE_TOOLING_VALUE_KIND_I32;
     value.scalar.storage.i32 = payload;
     IREE_ASSERT_OK(

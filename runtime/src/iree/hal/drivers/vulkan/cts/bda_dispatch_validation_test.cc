@@ -128,11 +128,12 @@ TEST_P(BdaDispatchValidationTest, QueueDispatchRejectsGrantsFromAnotherGroup) {
   IREE_ASSERT_OK(iree_hal_device_group_create_from_device(
       other_device, context.frontier_tracker(), iree_allocator_system(),
       other_group.out()));
-  iree_hal_pool_family_access_t access = {};
-  access.family = iree_hal_device_queue_family(
-      other_device, iree_hal_queue_family(dispatch_queue_)->ordinal);
-  access.usage = IREE_HAL_BUFFER_USAGE_STORAGE |
-                 IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS;
+  iree_hal_pool_family_access_t access = {
+      .family = iree_hal_device_queue_family(
+          other_device, iree_hal_queue_family(dispatch_queue_)->ordinal),
+      .usage = IREE_HAL_BUFFER_USAGE_STORAGE |
+               IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS,
+  };
   const iree_hal_pool_scope_t scope = {1, &access, {}};
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);
@@ -191,8 +192,8 @@ TEST_P(BdaDispatchValidationTest, QueueDispatchRejectsBindingCountMismatch) {
                                iree_hal_buffer_byte_length(input_buffer)),
   };
   const iree_hal_buffer_ref_list_t bindings = {
-      /*.count=*/IREE_ARRAYSIZE(binding_refs),
-      /*.values=*/binding_refs,
+      .count = IREE_ARRAYSIZE(binding_refs),
+      .values = binding_refs,
   };
 
   EXPECT_THAT(Status(iree_hal_queue_dispatch(
@@ -224,8 +225,8 @@ TEST_P(BdaDispatchValidationTest,
                                iree_hal_buffer_byte_length(input_buffer)),
   };
   const iree_hal_buffer_ref_list_t bindings = {
-      /*.count=*/IREE_ARRAYSIZE(binding_refs),
-      /*.values=*/binding_refs,
+      .count = IREE_ARRAYSIZE(binding_refs),
+      .values = binding_refs,
   };
 
   EXPECT_THAT(Status(iree_hal_command_buffer_dispatch(
@@ -251,8 +252,8 @@ TEST_P(BdaDispatchValidationTest, QueueDispatchRejectsEmptyBindingRange) {
       iree_hal_make_buffer_ref(output_buffer, /*offset=*/0, /*length=*/0),
   };
   const iree_hal_buffer_ref_list_t bindings = {
-      /*.count=*/IREE_ARRAYSIZE(binding_refs),
-      /*.values=*/binding_refs,
+      .count = IREE_ARRAYSIZE(binding_refs),
+      .values = binding_refs,
   };
 
   EXPECT_THAT(Status(iree_hal_queue_dispatch(
@@ -285,8 +286,8 @@ TEST_P(BdaDispatchValidationTest,
       iree_hal_make_buffer_ref(output_buffer, /*offset=*/0, /*length=*/0),
   };
   const iree_hal_buffer_ref_list_t bindings = {
-      /*.count=*/IREE_ARRAYSIZE(binding_refs),
-      /*.values=*/binding_refs,
+      .count = IREE_ARRAYSIZE(binding_refs),
+      .values = binding_refs,
   };
   IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
       command_buffer, executable_, iree_hal_executable_function_from_index(0),
@@ -322,8 +323,8 @@ TEST_P(BdaDispatchValidationTest, QueueDispatchRejectsMinimumBindingLength) {
                                iree_hal_buffer_byte_length(output_buffer)),
   };
   const iree_hal_buffer_ref_list_t bindings = {
-      /*.count=*/IREE_ARRAYSIZE(binding_refs),
-      /*.values=*/binding_refs,
+      .count = IREE_ARRAYSIZE(binding_refs),
+      .values = binding_refs,
   };
 
   EXPECT_THAT(Status(iree_hal_queue_dispatch(
@@ -360,8 +361,8 @@ TEST_P(BdaDispatchValidationTest,
                                iree_hal_buffer_byte_length(output_buffer)),
   };
   const iree_hal_buffer_ref_list_t bindings = {
-      /*.count=*/IREE_ARRAYSIZE(binding_refs),
-      /*.values=*/binding_refs,
+      .count = IREE_ARRAYSIZE(binding_refs),
+      .values = binding_refs,
   };
   IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
       command_buffer, requirement_executable_,
@@ -400,8 +401,8 @@ TEST_P(BdaDispatchValidationTest, QueueDispatchRejectsMinimumBindingAlignment) {
           iree_hal_buffer_byte_length(output_buffer) - output_offset),
   };
   const iree_hal_buffer_ref_list_t bindings = {
-      /*.count=*/IREE_ARRAYSIZE(binding_refs),
-      /*.values=*/binding_refs,
+      .count = IREE_ARRAYSIZE(binding_refs),
+      .values = binding_refs,
   };
 
   EXPECT_THAT(Status(iree_hal_queue_dispatch(
@@ -441,8 +442,8 @@ TEST_P(BdaDispatchValidationTest,
           iree_hal_buffer_byte_length(output_buffer) - output_offset),
   };
   const iree_hal_buffer_ref_list_t bindings = {
-      /*.count=*/IREE_ARRAYSIZE(binding_refs),
-      /*.values=*/binding_refs,
+      .count = IREE_ARRAYSIZE(binding_refs),
+      .values = binding_refs,
   };
   IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
       command_buffer, requirement_executable_,

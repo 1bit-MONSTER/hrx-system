@@ -282,9 +282,11 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
               AMDF_STATUS_OK);
     const amdf_memory_device_access_t access = {
         device_,
-        {.access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE |
-                   AMDF_MEMORY_ACCESS_EXECUTE,
-         .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS}};
+        {
+            .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE |
+                      AMDF_MEMORY_ACCESS_EXECUTE,
+            .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS,
+        }};
     amdf_memory_create_info_t create = {};
     create.type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO;
     create.structure_size = sizeof(create);
@@ -580,16 +582,20 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
       const uint64_t destination_offset =
           (generation == 0 ? 2 : 3) * granularity;
       const std::array<amdf_memory_mapping_update_t, 2> updates = {{
-          {.target_byte_offset = 0,
-           .byte_length = granularity,
-           .memory = imported_memory_,
-           .access = access.access,
-           .source_byte_offset = source_offset - prefix},
-          {.target_byte_offset = granularity,
-           .byte_length = granularity,
-           .memory = imported_memory_,
-           .access = access.access,
-           .source_byte_offset = destination_offset - prefix},
+          {
+              .target_byte_offset = 0,
+              .byte_length = granularity,
+              .memory = imported_memory_,
+              .access = access.access,
+              .source_byte_offset = source_offset - prefix,
+          },
+          {
+              .target_byte_offset = granularity,
+              .byte_length = granularity,
+              .memory = imported_memory_,
+              .access = access.access,
+              .source_byte_offset = destination_offset - prefix,
+          },
       }};
       if (publication == MappingPublication::kQueueOrdered) {
         ASSERT_EQ(api_->kernel_queue_update_memory(

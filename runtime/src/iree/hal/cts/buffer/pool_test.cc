@@ -39,15 +39,15 @@ class PoolTest : public CtsTestBase<> {
       if (queue_spec->families[i].provisioned_queue_count == 0) {
         continue;
       }
-      families.push_back((iree_hal_pool_family_access_t){
-          /*.family=*/iree_hal_device_queue_family(device_, i),
-          /*.usage=*/usage,
+      families.push_back(iree_hal_pool_family_access_t{
+          .family = iree_hal_device_queue_family(device_, i),
+          .usage = usage,
       });
     }
     const iree_hal_pool_scope_t scope = {
-        /*.family_count=*/families.size(),
-        /*.families=*/families.data(),
-        /*.host=*/host_access,
+        .family_count = families.size(),
+        .families = families.data(),
+        .host = host_access,
     };
     return iree_hal_slab_pool_create(device_group_, scope, options,
                                      iree_allocator_system(), out_pool);
@@ -63,7 +63,7 @@ class PoolTest : public CtsTestBase<> {
 
   iree_status_t CreateHostImportPool(iree_hal_pool_t** out_pool) {
     const iree_hal_pool_import_class_t import_class = {
-        /*.storage_class=*/iree_hal_make_external_storage_class(
+        .storage_class = iree_hal_make_external_storage_class(
             IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
     };
     iree_hal_slab_pool_options_t options;
@@ -166,8 +166,9 @@ TEST_P(PoolTest, ImportHostAllocationNullCallback) {
       geometry.alignment, /*offset=*/0, &host_ptr));
 
   auto make_external_storage = [&]() {
-    iree_hal_external_storage_t storage = {};
-    storage.storage_class = storage_class;
+    iree_hal_external_storage_t storage = {
+        .storage_class = storage_class,
+    };
     storage.payload.host_pointer = host_ptr;
     storage.byte_length = allocation_size;
     storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
@@ -218,8 +219,9 @@ TEST_P(PoolTest, ImportHostAllocationWithCallback) {
       geometry.alignment, /*offset=*/0, &host_ptr));
 
   int release_count = 0;
-  iree_hal_external_storage_t storage = {};
-  storage.storage_class = storage_class;
+  iree_hal_external_storage_t storage = {
+      .storage_class = storage_class,
+  };
   storage.payload.host_pointer = host_ptr;
   storage.byte_length = allocation_size;
   storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;

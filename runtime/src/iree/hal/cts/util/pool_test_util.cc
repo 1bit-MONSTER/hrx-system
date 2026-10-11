@@ -17,13 +17,13 @@ iree_status_t CreateQueueSlabPool(iree_hal_device_group_t* device_group,
                                   iree_allocator_t host_allocator,
                                   iree_hal_pool_t** out_pool) {
   const iree_hal_pool_family_access_t family_access = {
-      /*.family=*/queue_family,
-      /*.usage=*/usage,
+      .family = queue_family,
+      .usage = usage,
   };
   const iree_hal_pool_scope_t scope = {
-      /*.family_count=*/1,
-      /*.families=*/&family_access,
-      /*.host=*/host_access,
+      .family_count = 1,
+      .families = &family_access,
+      .host = host_access,
   };
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);

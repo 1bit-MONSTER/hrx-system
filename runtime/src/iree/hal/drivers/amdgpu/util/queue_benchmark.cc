@@ -154,10 +154,10 @@ static iree_status_t QueueBenchmarkDiscardProfileSinkEndSession(
 
 static const iree_hal_profile_sink_vtable_t
     kQueueBenchmarkDiscardProfileSinkVtable = {
-        /*.destroy=*/QueueBenchmarkDiscardProfileSinkDestroy,
-        /*.begin_session=*/QueueBenchmarkDiscardProfileSinkBeginSession,
-        /*.write=*/QueueBenchmarkDiscardProfileSinkWrite,
-        /*.end_session=*/QueueBenchmarkDiscardProfileSinkEndSession,
+        .destroy = QueueBenchmarkDiscardProfileSinkDestroy,
+        .begin_session = QueueBenchmarkDiscardProfileSinkBeginSession,
+        .write = QueueBenchmarkDiscardProfileSinkWrite,
+        .end_session = QueueBenchmarkDiscardProfileSinkEndSession,
 };
 
 iree_status_t QueueBenchmarkDiscardProfileSinkCreate(
@@ -745,12 +745,12 @@ class QueueBenchmark : public benchmark::Fixture {
     options.tlsf_options.initial_block_capacity = 16;
     options.tlsf_options.frontier_capacity = 2;
     const iree_hal_pool_family_access_t family_access = {
-        /*.family=*/iree_hal_queue_family(queue0_),
-        /*.usage=*/kQueueAllocaBufferUsage,
+        .family = iree_hal_queue_family(queue0_),
+        .usage = kQueueAllocaBufferUsage,
     };
     const iree_hal_pool_scope_t scope = {
-        /*.family_count=*/1,
-        /*.families=*/&family_access,
+        .family_count = 1,
+        .families = &family_access,
     };
     iree_hal_slab_pool_options_t backing_options;
     iree_hal_slab_pool_options_initialize(&backing_options);
@@ -1420,9 +1420,10 @@ class QueueBenchmark : public benchmark::Fixture {
         queue_spec->families[iree_hal_queue_family_ordinal(queue_family)]
             .physical_device_affinity;
 
-    iree_hal_executable_target_selection_t selection = {};
-    selection.family = IREE_SV("amdgpu");
-    selection.physical_device_affinity = physical_device_affinity;
+    iree_hal_executable_target_selection_t selection = {
+        .family = IREE_SV("amdgpu"),
+        .physical_device_affinity = physical_device_affinity,
+    };
     const iree_hal_executable_target_selection_result_t target_result =
         iree_hal_device_spec_select_executable_target(
             iree_hal_device_spec(device_), &selection);

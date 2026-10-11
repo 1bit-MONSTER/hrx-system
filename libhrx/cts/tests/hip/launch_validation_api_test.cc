@@ -382,21 +382,23 @@ TEST_F(HipLaunchValidationApiTest,
                 /*block_dim_z=*/1, /*shared_memory_bytes=*/0, stream_,
                 /*arguments=*/nullptr, /*extra=*/nullptr));
 
-  hipLaunchConfig_t runtime_config = {};
-  runtime_config.gridDim = invalid_grid;
-  runtime_config.blockDim = valid_dimension;
-  runtime_config.stream = stream_;
+  hipLaunchConfig_t runtime_config = {
+      .gridDim = invalid_grid,
+      .blockDim = valid_dimension,
+      .stream = stream_,
+  };
   EXPECT_EQ(hipErrorInvalidConfiguration,
             api_.launch_kernel_ex(&runtime_config, function,
                                   /*arguments=*/nullptr));
 
-  HIP_LAUNCH_CONFIG driver_config = {};
-  driver_config.gridDimY = 1;
-  driver_config.gridDimZ = 1;
-  driver_config.blockDimX = 1;
-  driver_config.blockDimY = 1;
-  driver_config.blockDimZ = 1;
-  driver_config.hStream = stream_;
+  HIP_LAUNCH_CONFIG driver_config = {
+      .gridDimY = 1,
+      .gridDimZ = 1,
+      .blockDimX = 1,
+      .blockDimY = 1,
+      .blockDimZ = 1,
+      .hStream = stream_,
+  };
   EXPECT_EQ(
       hipErrorInvalidConfiguration,
       api_.driver_launch_kernel_ex(&driver_config, (hipFunction_t)function,
@@ -405,12 +407,12 @@ TEST_F(HipLaunchValidationApiTest,
   hipGraph_t graph = nullptr;
   ASSERT_EQ(hipSuccess, api_.graph_create(&graph, /*flags=*/0));
   hipKernelNodeParams valid_params = {
-      /*.blockDim=*/valid_dimension,
-      /*.extra=*/nullptr,
-      /*.func=*/const_cast<void*>(function),
-      /*.gridDim=*/valid_dimension,
-      /*.kernelParams=*/nullptr,
-      /*.sharedMemBytes=*/0,
+      .blockDim = valid_dimension,
+      .extra = nullptr,
+      .func = const_cast<void*>(function),
+      .gridDim = valid_dimension,
+      .kernelParams = nullptr,
+      .sharedMemBytes = 0,
   };
   hipGraphNode_t node = nullptr;
   ASSERT_EQ(hipSuccess,
@@ -441,29 +443,32 @@ TEST_F(HipLaunchValidationApiTest,
 TEST_F(HipLaunchValidationApiTest,
        ExtendedLaunchEntryPointsRejectMalformedAttributes) {
   const dim3 one = {1, 1, 1};
-  hipLaunchAttribute unsupported_attribute = {};
-  unsupported_attribute.id = hipLaunchAttributeClusterDimension;
+  hipLaunchAttribute unsupported_attribute = {
+      .id = hipLaunchAttributeClusterDimension,
+  };
 
-  hipLaunchConfig_t runtime_config = {};
-  runtime_config.gridDim = one;
-  runtime_config.blockDim = one;
-  runtime_config.stream = stream_;
-  runtime_config.attrs = &unsupported_attribute;
-  runtime_config.numAttrs = 1;
+  hipLaunchConfig_t runtime_config = {
+      .gridDim = one,
+      .blockDim = one,
+      .stream = stream_,
+      .attrs = &unsupported_attribute,
+      .numAttrs = 1,
+  };
   EXPECT_EQ(hipErrorInvalidValue,
             api_.launch_kernel_ex(&runtime_config, empty_function_,
                                   /*arguments=*/nullptr));
 
-  HIP_LAUNCH_CONFIG driver_config = {};
-  driver_config.gridDimX = 1;
-  driver_config.gridDimY = 1;
-  driver_config.gridDimZ = 1;
-  driver_config.blockDimX = 1;
-  driver_config.blockDimY = 1;
-  driver_config.blockDimZ = 1;
-  driver_config.hStream = stream_;
-  driver_config.attrs = &unsupported_attribute;
-  driver_config.numAttrs = 1;
+  HIP_LAUNCH_CONFIG driver_config = {
+      .gridDimX = 1,
+      .gridDimY = 1,
+      .gridDimZ = 1,
+      .blockDimX = 1,
+      .blockDimY = 1,
+      .blockDimZ = 1,
+      .hStream = stream_,
+      .attrs = &unsupported_attribute,
+      .numAttrs = 1,
+  };
   EXPECT_EQ(hipErrorInvalidValue,
             api_.driver_launch_kernel_ex(&driver_config, empty_function_,
                                          /*arguments=*/nullptr,
@@ -479,8 +484,9 @@ TEST_F(HipLaunchValidationApiTest,
                                          /*arguments=*/nullptr,
                                          /*extra=*/nullptr));
 
-  hipLaunchAttribute prefetch_attribute = {};
-  prefetch_attribute.id = hipLaunchAttributeExtDynDataPrefetch;
+  hipLaunchAttribute prefetch_attribute = {
+      .id = hipLaunchAttributeExtDynDataPrefetch,
+  };
   runtime_config.attrs = &prefetch_attribute;
   driver_config.attrs = &prefetch_attribute;
   EXPECT_EQ(hipErrorInvalidValue,
@@ -505,19 +511,21 @@ TEST_F(HipLaunchValidationApiTest,
 TEST_F(HipLaunchValidationApiTest,
        ExtendedLaunchEntryPointsDispatchNoArgumentKernel) {
   const dim3 one = {1, 1, 1};
-  hipLaunchConfig_t runtime_config = {};
-  runtime_config.gridDim = one;
-  runtime_config.blockDim = one;
-  runtime_config.stream = stream_;
+  hipLaunchConfig_t runtime_config = {
+      .gridDim = one,
+      .blockDim = one,
+      .stream = stream_,
+  };
 
-  HIP_LAUNCH_CONFIG driver_config = {};
-  driver_config.gridDimX = 1;
-  driver_config.gridDimY = 1;
-  driver_config.gridDimZ = 1;
-  driver_config.blockDimX = 1;
-  driver_config.blockDimY = 1;
-  driver_config.blockDimZ = 1;
-  driver_config.hStream = stream_;
+  HIP_LAUNCH_CONFIG driver_config = {
+      .gridDimX = 1,
+      .gridDimY = 1,
+      .gridDimZ = 1,
+      .blockDimX = 1,
+      .blockDimY = 1,
+      .blockDimZ = 1,
+      .hStream = stream_,
+  };
 
   ASSERT_EQ(hipSuccess, api_.launch_kernel_ex(&runtime_config, empty_function_,
                                               /*arguments=*/nullptr));
@@ -528,8 +536,9 @@ TEST_F(HipLaunchValidationApiTest,
   ASSERT_EQ(hipSuccess, api_.stream_synchronize(stream_));
 
   if (supports_cooperative_launch_) {
-    hipLaunchAttribute cooperative_attribute = {};
-    cooperative_attribute.id = hipLaunchAttributeCooperative;
+    hipLaunchAttribute cooperative_attribute = {
+        .id = hipLaunchAttributeCooperative,
+    };
     cooperative_attribute.val.cooperative = 1;
     runtime_config.attrs = &cooperative_attribute;
     runtime_config.numAttrs = 1;
@@ -563,12 +572,12 @@ TEST_F(HipLaunchValidationApiTest,
 TEST_F(HipLaunchValidationApiTest, ZeroAccessPolicyWindowRemainsSupported) {
   const dim3 one = {1, 1, 1};
   hipKernelNodeParams params = {
-      /*.blockDim=*/one,
-      /*.extra=*/nullptr,
-      /*.func=*/empty_function_,
-      /*.gridDim=*/one,
-      /*.kernelParams=*/nullptr,
-      /*.sharedMemBytes=*/0,
+      .blockDim = one,
+      .extra = nullptr,
+      .func = empty_function_,
+      .gridDim = one,
+      .kernelParams = nullptr,
+      .sharedMemBytes = 0,
   };
 
   hipGraph_t graph = nullptr;
@@ -642,41 +651,44 @@ TEST_F(HipLaunchValidationApiTest, LaunchEntryPointsRejectDestroyedStreams) {
                 /*arguments=*/nullptr));
 
   hipLaunchParams multi_device_launch = {
-      /*.func=*/reinterpret_cast<void*>(uintptr_t{1}),
-      /*.gridDim=*/valid_dimension,
-      /*.blockDim=*/valid_dimension,
-      /*.args=*/nullptr,
-      /*.sharedMem=*/0,
-      /*.stream=*/stale_stream,
+      .func = reinterpret_cast<void*>(uintptr_t{1}),
+      .gridDim = valid_dimension,
+      .blockDim = valid_dimension,
+      .args = nullptr,
+      .sharedMem = 0,
+      .stream = stale_stream,
   };
   EXPECT_EQ(hipErrorInvalidValue,
             api_.launch_multi_device(&multi_device_launch,
                                      /*device_count=*/1, /*flags=*/0));
 
-  hipLaunchConfig_t runtime_config = {};
-  runtime_config.gridDim = valid_dimension;
-  runtime_config.blockDim = valid_dimension;
-  runtime_config.stream = stale_stream;
+  hipLaunchConfig_t runtime_config = {
+      .gridDim = valid_dimension,
+      .blockDim = valid_dimension,
+      .stream = stale_stream,
+  };
   EXPECT_EQ(hipErrorInvalidValue,
             api_.launch_kernel_ex(&runtime_config, function,
                                   /*arguments=*/nullptr));
 
-  HIP_LAUNCH_CONFIG driver_config = {};
-  driver_config.gridDimX = 1;
-  driver_config.gridDimY = 1;
-  driver_config.gridDimZ = 1;
-  driver_config.blockDimX = 1;
-  driver_config.blockDimY = 1;
-  driver_config.blockDimZ = 1;
-  driver_config.hStream = stale_stream;
+  HIP_LAUNCH_CONFIG driver_config = {
+      .gridDimX = 1,
+      .gridDimY = 1,
+      .gridDimZ = 1,
+      .blockDimX = 1,
+      .blockDimY = 1,
+      .blockDimZ = 1,
+      .hStream = stale_stream,
+  };
   EXPECT_EQ(
       hipErrorContextIsDestroyed,
       api_.driver_launch_kernel_ex(&driver_config, (hipFunction_t)function,
                                    /*arguments=*/nullptr,
                                    /*extra=*/nullptr));
 
-  hipLaunchAttribute cooperative_attribute = {};
-  cooperative_attribute.id = hipLaunchAttributeCooperative;
+  hipLaunchAttribute cooperative_attribute = {
+      .id = hipLaunchAttributeCooperative,
+  };
   cooperative_attribute.val.cooperative = 1;
   runtime_config.attrs = &cooperative_attribute;
   runtime_config.numAttrs = 1;
@@ -774,12 +786,12 @@ TEST_F(HipLaunchValidationApiTest,
   hipGraph_t graph = nullptr;
   ASSERT_EQ(hipSuccess, api_.graph_create(&graph, /*flags=*/0));
   hipKernelNodeParams valid_params = {
-      /*.blockDim=*/valid_dimension,
-      /*.extra=*/nullptr,
-      /*.func=*/const_cast<void*>(function),
-      /*.gridDim=*/valid_dimension,
-      /*.kernelParams=*/nullptr,
-      /*.sharedMemBytes=*/0,
+      .blockDim = valid_dimension,
+      .extra = nullptr,
+      .func = const_cast<void*>(function),
+      .gridDim = valid_dimension,
+      .kernelParams = nullptr,
+      .sharedMemBytes = 0,
   };
   hipGraphNode_t node = nullptr;
   ASSERT_EQ(hipSuccess,
@@ -820,20 +832,20 @@ TEST_F(HipLaunchValidationApiTest,
       HIP_LAUNCH_PARAM_END,
   };
   hipKernelNodeParams empty_params = {
-      /*.blockDim=*/valid_dimension,
-      /*.extra=*/nullptr,
-      /*.func=*/empty_function_,
-      /*.gridDim=*/valid_dimension,
-      /*.kernelParams=*/nullptr,
-      /*.sharedMemBytes=*/0,
+      .blockDim = valid_dimension,
+      .extra = nullptr,
+      .func = empty_function_,
+      .gridDim = valid_dimension,
+      .kernelParams = nullptr,
+      .sharedMemBytes = 0,
   };
   hipKernelNodeParams short_prepacked_params = {
-      /*.blockDim=*/valid_dimension,
-      /*.extra=*/extra,
-      /*.func=*/prepacked_function_,
-      /*.gridDim=*/valid_dimension,
-      /*.kernelParams=*/nullptr,
-      /*.sharedMemBytes=*/0,
+      .blockDim = valid_dimension,
+      .extra = extra,
+      .func = prepacked_function_,
+      .gridDim = valid_dimension,
+      .kernelParams = nullptr,
+      .sharedMemBytes = 0,
   };
 
   EXPECT_EQ(hipErrorInvalidValue,

@@ -98,18 +98,18 @@ class DispatchReuseTest : public CtsTestBase<> {
         IREE_HAL_ACCESS_SCOPE_DISPATCH_READ | IREE_HAL_ACCESS_SCOPE_MEMORY_READ,
     };
     const iree_hal_barrier_t execution_barrier = {
-        /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_DISPATCH |
-            IREE_HAL_EXECUTION_STAGE_TRANSFER |
-            IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
-        /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE |
-            IREE_HAL_EXECUTION_STAGE_DISPATCH |
-            IREE_HAL_EXECUTION_STAGE_TRANSFER,
-        /*.flags=*/IREE_HAL_BARRIER_FLAG_NONE,
-        /*.effects=*/{},
-        /*.memory_barrier_count=*/1,
-        /*.memory_barriers=*/&memory_barrier,
-        /*.buffer_barrier_count=*/0,
-        /*.buffer_barriers=*/nullptr,
+        .source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH |
+                             IREE_HAL_EXECUTION_STAGE_TRANSFER |
+                             IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
+        .target_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE |
+                             IREE_HAL_EXECUTION_STAGE_DISPATCH |
+                             IREE_HAL_EXECUTION_STAGE_TRANSFER,
+        .flags = IREE_HAL_BARRIER_FLAG_NONE,
+        .effects = {},
+        .memory_barrier_count = 1,
+        .memory_barriers = &memory_barrier,
+        .buffer_barrier_count = 0,
+        .buffer_barriers = nullptr,
     };
     IREE_ASSERT_OK(
         iree_hal_command_buffer_barrier(command_buffer, &execution_barrier));
@@ -136,8 +136,8 @@ class DispatchReuseTest : public CtsTestBase<> {
         /*length=*/workgroup_count * sizeof(uint32_t),
     }};
     iree_hal_buffer_ref_list_t bindings = {
-        /*.count=*/1,
-        /*.values=*/binding_refs,
+        .count = 1,
+        .values = binding_refs,
     };
 
     IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
@@ -177,8 +177,8 @@ class DispatchReuseTest : public CtsTestBase<> {
           /*length=*/workgroup_count * sizeof(uint32_t),
       }};
       iree_hal_buffer_ref_list_t bindings = {
-          /*.count=*/1,
-          /*.values=*/binding_refs,
+          .count = 1,
+          .values = binding_refs,
       };
       IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
           command_buffer, workgroup_id_executable_,
@@ -230,8 +230,8 @@ TEST_P(DispatchReuseTest, ResubmitWithDifferentBindings) {
         /*length=*/buffer_size,
     }};
     iree_hal_buffer_binding_table_t binding_table = {
-        /*.count=*/1,
-        /*.bindings=*/bindings,
+        .count = 1,
+        .bindings = bindings,
     };
 
     SubmitWithBindingsAndWait(command_buffer, binding_table);
@@ -262,8 +262,8 @@ TEST_P(DispatchReuseTest, DispatchProfilingRecordsCommandBufferDispatch) {
       /*length=*/buffer_size,
   }};
   iree_hal_buffer_binding_table_t binding_table = {
-      /*.count=*/1,
-      /*.bindings=*/bindings,
+      .count = 1,
+      .bindings = bindings,
   };
 
   TestProfileSink sink = {};
@@ -440,8 +440,8 @@ TEST_P(DispatchReuseTest, MixedDirectAndIndirectBindings) {
        /*offset=*/1 * sizeof(float), /*length=*/2 * sizeof(float)},
   };
   iree_hal_buffer_ref_list_t bindings = {
-      /*.count=*/IREE_ARRAYSIZE(binding_refs),
-      /*.values=*/binding_refs,
+      .count = IREE_ARRAYSIZE(binding_refs),
+      .values = binding_refs,
   };
   const float fill_value = -1.0f;
   IREE_ASSERT_OK(iree_hal_command_buffer_fill_buffer(
@@ -452,14 +452,14 @@ TEST_P(DispatchReuseTest, MixedDirectAndIndirectBindings) {
       IREE_HAL_ACCESS_SCOPE_DISPATCH_WRITE,
   };
   const iree_hal_barrier_t fill_dependency = {
-      /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_TRANSFER,
-      /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_DISPATCH,
-      /*.flags=*/IREE_HAL_BARRIER_FLAG_NONE,
-      /*.effects=*/{},
-      /*.memory_barrier_count=*/1,
-      /*.memory_barriers=*/&fill_barrier,
-      /*.buffer_barrier_count=*/0,
-      /*.buffer_barriers=*/nullptr,
+      .source_stage_mask = IREE_HAL_EXECUTION_STAGE_TRANSFER,
+      .target_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+      .flags = IREE_HAL_BARRIER_FLAG_NONE,
+      .effects = {},
+      .memory_barrier_count = 1,
+      .memory_barriers = &fill_barrier,
+      .buffer_barrier_count = 0,
+      .buffer_barriers = nullptr,
   };
   IREE_ASSERT_OK(
       iree_hal_command_buffer_barrier(command_buffer, &fill_dependency));
@@ -469,17 +469,18 @@ TEST_P(DispatchReuseTest, MixedDirectAndIndirectBindings) {
       iree_hal_make_static_dispatch_config(1, 1, 1),
       iree_const_byte_span_empty(), bindings, IREE_HAL_DISPATCH_FLAG_NONE));
   const iree_hal_barrier_t retire_barrier = {
-      /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_DISPATCH |
-          IREE_HAL_EXECUTION_STAGE_TRANSFER |
-          IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
-      /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE |
-          IREE_HAL_EXECUTION_STAGE_DISPATCH | IREE_HAL_EXECUTION_STAGE_TRANSFER,
-      /*.flags=*/IREE_HAL_BARRIER_FLAG_NONE,
-      /*.effects=*/{},
-      /*.memory_barrier_count=*/0,
-      /*.memory_barriers=*/nullptr,
-      /*.buffer_barrier_count=*/0,
-      /*.buffer_barriers=*/nullptr,
+      .source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH |
+                           IREE_HAL_EXECUTION_STAGE_TRANSFER |
+                           IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
+      .target_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE |
+                           IREE_HAL_EXECUTION_STAGE_DISPATCH |
+                           IREE_HAL_EXECUTION_STAGE_TRANSFER,
+      .flags = IREE_HAL_BARRIER_FLAG_NONE,
+      .effects = {},
+      .memory_barrier_count = 0,
+      .memory_barriers = nullptr,
+      .buffer_barrier_count = 0,
+      .buffer_barriers = nullptr,
   };
   IREE_ASSERT_OK(
       iree_hal_command_buffer_barrier(command_buffer, &retire_barrier));
@@ -545,8 +546,8 @@ TEST_P(DispatchReuseTest, DeferredExecuteRetainsDispatchBindingTable) {
        /*offset=*/1 * sizeof(float), /*length=*/2 * sizeof(float)},
   };
   iree_hal_buffer_ref_list_t bindings = {
-      /*.count=*/IREE_ARRAYSIZE(binding_refs),
-      /*.values=*/binding_refs,
+      .count = IREE_ARRAYSIZE(binding_refs),
+      .values = binding_refs,
   };
   IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
       command_buffer, absf_executable_,
@@ -554,17 +555,18 @@ TEST_P(DispatchReuseTest, DeferredExecuteRetainsDispatchBindingTable) {
       iree_hal_make_static_dispatch_config(1, 1, 1),
       iree_const_byte_span_empty(), bindings, IREE_HAL_DISPATCH_FLAG_NONE));
   const iree_hal_barrier_t retire_barrier = {
-      /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_DISPATCH |
-          IREE_HAL_EXECUTION_STAGE_TRANSFER |
-          IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
-      /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE |
-          IREE_HAL_EXECUTION_STAGE_DISPATCH | IREE_HAL_EXECUTION_STAGE_TRANSFER,
-      /*.flags=*/IREE_HAL_BARRIER_FLAG_NONE,
-      /*.effects=*/{},
-      /*.memory_barrier_count=*/0,
-      /*.memory_barriers=*/nullptr,
-      /*.buffer_barrier_count=*/0,
-      /*.buffer_barriers=*/nullptr,
+      .source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH |
+                           IREE_HAL_EXECUTION_STAGE_TRANSFER |
+                           IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
+      .target_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE |
+                           IREE_HAL_EXECUTION_STAGE_DISPATCH |
+                           IREE_HAL_EXECUTION_STAGE_TRANSFER,
+      .flags = IREE_HAL_BARRIER_FLAG_NONE,
+      .effects = {},
+      .memory_barrier_count = 0,
+      .memory_barriers = nullptr,
+      .buffer_barrier_count = 0,
+      .buffer_barriers = nullptr,
   };
   IREE_ASSERT_OK(
       iree_hal_command_buffer_barrier(command_buffer, &retire_barrier));

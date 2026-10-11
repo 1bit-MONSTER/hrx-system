@@ -75,12 +75,13 @@ amdf_status_t AMDF_CALL EnumerateEndpoints(amdf_instance_t* instance,
 }
 
 amdf_api_t NativeApi() {
-  amdf_api_t api = {};
-  api.instance_create = CreateInstance;
-  api.instance_destroy = DestroyInstance;
-  api.endpoint_enumerate = EnumerateEndpoints;
-  api.instance_enumerate_memory_scopes = EnumerateScopes;
-  api.memory_scope_query_info = QueryScope;
+  amdf_api_t api = {
+      .instance_create = CreateInstance,
+      .instance_destroy = DestroyInstance,
+      .endpoint_enumerate = EnumerateEndpoints,
+      .instance_enumerate_memory_scopes = EnumerateScopes,
+      .memory_scope_query_info = QueryScope,
+  };
   // No engine extension or device creation callbacks exist in passive
   // discovery.
   return api;

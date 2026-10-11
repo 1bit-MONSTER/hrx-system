@@ -240,15 +240,15 @@ class FileTest : public CtsTestBase<> {
   iree_status_t CreateHostFileStoragePool(iree_hal_pool_t** out_pool) {
     *out_pool = nullptr;
     const iree_hal_pool_family_access_t family_access = {
-        /*.family=*/iree_hal_queue_family(transfer_queue_),
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+        .family = iree_hal_queue_family(transfer_queue_),
+        .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
     };
     const iree_hal_pool_scope_t scope = {
-        /*.family_count=*/1,
-        /*.families=*/&family_access,
+        .family_count = 1,
+        .families = &family_access,
     };
     const iree_hal_pool_import_class_t import_class = {
-        /*.storage_class=*/iree_hal_make_external_storage_class(
+        .storage_class = iree_hal_make_external_storage_class(
             IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
     };
     iree_hal_slab_pool_options_t options;
@@ -399,9 +399,10 @@ class FileTest : public CtsTestBase<> {
                           iree_hal_buffer_t* target_buffer,
                           iree_device_size_t target_offset,
                           iree_device_size_t length) {
-    iree_hal_barrier_t action = {};
-    action.flags = IREE_HAL_BARRIER_FLAG_ACQUIRE_SYSTEM_SCOPE |
-                   IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE;
+    iree_hal_barrier_t action = {
+        .flags = IREE_HAL_BARRIER_FLAG_ACQUIRE_SYSTEM_SCOPE |
+                 IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE,
+    };
     const iree_hal_barrier_list_t list = {1, &action};
     const iree_hal_queue_barriers_t barriers = {&list, &list};
     SemaphoreList empty_wait;

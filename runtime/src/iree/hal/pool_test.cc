@@ -77,10 +77,11 @@ class PoolFrontierWaitTest : public ::testing::Test {
         test_proactor(), IREE_ASYNC_NOTIFICATION_FLAG_NONE, &notification_));
     IREE_ASSERT_OK(iree_hal_cpu_slab_provider_create(
         /*min_alignment=*/0, iree_allocator_system(), &provider_));
-    iree_hal_fixed_block_pool_options_t options = {};
-    options.block_size = kByteLength;
-    options.blocks_per_slab = 1;
-    options.frontier_capacity = 2;
+    iree_hal_fixed_block_pool_options_t options = {
+        .block_size = kByteLength,
+        .blocks_per_slab = 1,
+        .frontier_capacity = 2,
+    };
     IREE_ASSERT_OK(iree_hal_memory_maintenance_thread_create(
         {}, iree_allocator_system(), &maintenance_));
     IREE_ASSERT_OK(iree_hal_passthrough_pool_create(

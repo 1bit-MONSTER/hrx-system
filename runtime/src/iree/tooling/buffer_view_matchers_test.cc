@@ -172,35 +172,38 @@ static const iree_hal_buffer_equality_t kExactEquality = ([]() {
 })();
 
 static const iree_hal_buffer_equality_t kApproximateAbsoluteEquality = ([]() {
-  iree_hal_buffer_equality_t equality = {};
-  equality.mode = IREE_HAL_BUFFER_EQUALITY_APPROXIMATE;
-  equality.f16_atol = 0.001f;
-  equality.f32_atol = 0.0001f;
-  equality.f64_atol = 0.0001;
-  equality.bf16_atol = 0.01f;
-  equality.rtol = 0.0;
+  iree_hal_buffer_equality_t equality = {
+      .mode = IREE_HAL_BUFFER_EQUALITY_APPROXIMATE,
+      .f16_atol = 0.001f,
+      .f32_atol = 0.0001f,
+      .f64_atol = 0.0001,
+      .bf16_atol = 0.01f,
+      .rtol = 0.0,
+  };
   return equality;
 })();
 
 static const iree_hal_buffer_equality_t kApproximateRelativeEquality = ([]() {
-  iree_hal_buffer_equality_t equality = {};
-  equality.mode = IREE_HAL_BUFFER_EQUALITY_APPROXIMATE;
-  equality.f16_atol = 0.0f;
-  equality.f32_atol = 0.0f;
-  equality.f64_atol = 0.0;
-  equality.bf16_atol = 0.0f;
-  equality.rtol = 0.001;
+  iree_hal_buffer_equality_t equality = {
+      .mode = IREE_HAL_BUFFER_EQUALITY_APPROXIMATE,
+      .f16_atol = 0.0f,
+      .f32_atol = 0.0f,
+      .f64_atol = 0.0,
+      .bf16_atol = 0.0f,
+      .rtol = 0.001,
+  };
   return equality;
 })();
 
 static const iree_hal_buffer_equality_t kApproximateNumpyEquality = ([]() {
-  iree_hal_buffer_equality_t equality = {};
-  equality.mode = IREE_HAL_BUFFER_EQUALITY_APPROXIMATE;
-  equality.f16_atol = 1e-5f;
-  equality.f32_atol = 1e-5f;
-  equality.f64_atol = 1e-5;
-  equality.bf16_atol = 1e-5f;
-  equality.rtol = 1e-5;
+  iree_hal_buffer_equality_t equality = {
+      .mode = IREE_HAL_BUFFER_EQUALITY_APPROXIMATE,
+      .f16_atol = 1e-5f,
+      .f32_atol = 1e-5f,
+      .f64_atol = 1e-5,
+      .bf16_atol = 1e-5f,
+      .rtol = 1e-5,
+  };
   return equality;
 })();
 
@@ -209,9 +212,9 @@ class BufferViewMatchersTest : public ::testing::Test {
   iree_hal_pool_t* pool_ = nullptr;
   virtual void SetUp() {
     const iree_hal_pool_host_access_t host_access = {
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
-        /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+        .access = IREE_HAL_MEMORY_ACCESS_ALL,
+        .modes = IREE_HAL_MAPPING_MODE_SCOPED,
+        .cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
     };
     IREE_CHECK_OK(iree_hal_heap_pool_create(
         host_access, iree_allocator_system(), iree_allocator_system(), &pool_));

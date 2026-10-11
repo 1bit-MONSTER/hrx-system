@@ -78,22 +78,22 @@ class ReplayDispatchTest : public ::testing::Test {
     family_ = iree_hal_device_queue_family(device_, 0);
     ASSERT_NE(nullptr, family_);
     const iree_hal_pool_family_access_t family_access = {
-        /*.family=*/family_,
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
-            IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE,
-        /*.interfaces=*/0,
-        /*.requirements=*/0,
-        /*.atomic_operations=*/{},
+        .family = family_,
+        .usage = IREE_HAL_BUFFER_USAGE_STORAGE |
+                 IREE_HAL_BUFFER_USAGE_TRANSFER_SOURCE,
+        .interfaces = 0,
+        .requirements = 0,
+        .atomic_operations = {},
     };
     const iree_hal_pool_scope_t pool_scope = {
-        /*.family_count=*/1,
-        /*.families=*/&family_access,
-        /*.host=*/
-        {
-            /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-            /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
-            /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
-        },
+        .family_count = 1,
+        .families = &family_access,
+        .host =
+            {
+                .access = IREE_HAL_MEMORY_ACCESS_ALL,
+                .modes = IREE_HAL_MAPPING_MODE_SCOPED,
+                .cacheability = IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
+            },
     };
     iree_hal_slab_pool_options_t pool_options;
     iree_hal_slab_pool_options_initialize(&pool_options);
@@ -102,7 +102,7 @@ class ReplayDispatchTest : public ::testing::Test {
                                              &pool_options,
                                              iree_allocator_system(), &pool_));
     const iree_hal_executable_target_selection_t selection = {
-        /*.family=*/IREE_SV("cpu"),
+        .family = IREE_SV("cpu"),
     };
     auto result = iree_hal_device_spec_select_executable_target(
         iree_hal_device_spec(device_), &selection);

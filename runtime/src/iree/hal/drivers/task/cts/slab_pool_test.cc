@@ -100,9 +100,10 @@ class TaskSlabPoolTest : public CtsTestBase<> {
   }
 
   iree_hal_pool_scope_t Scope() const {
-    iree_hal_pool_scope_t scope = {};
-    scope.family_count = families_.size();
-    scope.families = families_.data();
+    iree_hal_pool_scope_t scope = {
+        .family_count = families_.size(),
+        .families = families_.data(),
+    };
     return scope;
   }
 
@@ -317,12 +318,12 @@ TEST_P(TaskSlabPoolTest, ImportsFiniteExternalRangeWithExactOwnership) {
       iree_hal_make_external_storage_class(
           IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
   const iree_hal_pool_import_class_t import_class = {
-      /*.storage_class=*/host_pointer_class,
-      /*.exports=*/
-      {
-          /*.class_count=*/1,
-          /*.classes=*/&host_pointer_class,
-      },
+      .storage_class = host_pointer_class,
+      .exports =
+          {
+              .class_count = 1,
+              .classes = &host_pointer_class,
+          },
   };
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);
@@ -345,15 +346,14 @@ TEST_P(TaskSlabPoolTest, ImportsFiniteExternalRangeWithExactOwnership) {
   alignas(64) std::array<uint8_t, 64> storage_bytes = {};
   int release_count = 0;
   iree_hal_external_storage_t storage = {
-      /*.storage_class=*/host_pointer_class,
-      /*.payload=*/{/*.host_pointer=*/storage_bytes.data()},
-      /*.byte_length=*/storage_bytes.size(),
-      /*.host_cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
-      /*.maintenance_range=*/
-      iree_hal_make_buffer_range(0, storage_bytes.size()),
-      /*.physical_backing_id=*/{{0x1234, 0x5678}},
-      /*.release=*/CountExternalStorageRelease,
-      /*.release_user_data=*/&release_count,
+      .storage_class = host_pointer_class,
+      .payload = {.host_pointer = storage_bytes.data()},
+      .byte_length = storage_bytes.size(),
+      .host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+      .maintenance_range = iree_hal_make_buffer_range(0, storage_bytes.size()),
+      .physical_backing_id = {{0x1234, 0x5678}},
+      .release = CountExternalStorageRelease,
+      .release_user_data = &release_count,
   };
   Ref<iree_hal_buffer_t> imported;
   IREE_ASSERT_OK(iree_hal_pool_import_buffer(
@@ -403,12 +403,12 @@ TEST_P(TaskSlabPoolTest, ImportAdmissionIsExplicitAndNativeOnly) {
           IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
   auto make_storage = [&]() {
     return iree_hal_external_storage_t{
-        /*.storage_class=*/host_pointer_class,
-        /*.payload=*/{/*.host_pointer=*/storage_bytes.data()},
-        /*.byte_length=*/storage_bytes.size(),
-        /*.host_cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
-        /*.maintenance_range=*/
-        iree_hal_make_buffer_range(0, storage_bytes.size()),
+        .storage_class = host_pointer_class,
+        .payload = {.host_pointer = storage_bytes.data()},
+        .byte_length = storage_bytes.size(),
+        .host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+        .maintenance_range =
+            iree_hal_make_buffer_range(0, storage_bytes.size()),
     };
   };
 
@@ -430,7 +430,7 @@ TEST_P(TaskSlabPoolTest, ImportAdmissionIsExplicitAndNativeOnly) {
   EXPECT_FALSE(imported);
 
   const iree_hal_pool_import_class_t import_class = {
-      /*.storage_class=*/host_pointer_class,
+      .storage_class = host_pointer_class,
   };
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);
@@ -540,9 +540,10 @@ TEST_P(TaskSlabPoolTest, InteriorArenasInheritTheCompleteScope) {
       source, iree_hal_make_pool_reservation_request(8192, 0),
       iree_infinite_timeout(), backing.out()));
   Ref<iree_hal_pool_t> blocks;
-  iree_hal_fixed_block_pool_options_t block_options = {};
-  block_options.block_size = 1024;
-  block_options.frontier_capacity = 4;
+  iree_hal_fixed_block_pool_options_t block_options = {
+      .block_size = 1024,
+      .frontier_capacity = 4,
+  };
   IREE_ASSERT_OK(iree_hal_fixed_block_pool_create_from_buffer(
       backing, 128, 4096, &block_options, iree_allocator_system(),
       blocks.out()));
@@ -699,10 +700,11 @@ TEST_P(TaskSlabPoolTest, SharedBackingAcrossDevicesAndAllocationPolicies) {
   tlsf_options.tlsf_options.frontier_capacity = 4;
   IREE_ASSERT_OK(iree_hal_tlsf_pool_create(
       cache, &tlsf_options, iree_allocator_system(), children[0].out()));
-  iree_hal_fixed_block_pool_options_t block_options = {};
-  block_options.block_size = 256;
-  block_options.blocks_per_slab = 16;
-  block_options.frontier_capacity = 4;
+  iree_hal_fixed_block_pool_options_t block_options = {
+      .block_size = 256,
+      .blocks_per_slab = 16,
+      .frontier_capacity = 4,
+  };
   IREE_ASSERT_OK(iree_hal_fixed_block_pool_create(
       cache, &block_options, iree_allocator_system(), children[1].out()));
 

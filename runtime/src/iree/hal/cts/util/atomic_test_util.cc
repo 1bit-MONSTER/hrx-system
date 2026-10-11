@@ -120,8 +120,8 @@ iree_status_t CreateAtomicTestPool(iree_hal_device_group_t* device_group,
                                    const AtomicTestConfiguration& configuration,
                                    iree_hal_pool_t** out_pool) {
   const iree_hal_pool_scope_t scope = {
-      /*.family_count=*/1,
-      /*.families=*/&configuration.family_access,
+      .family_count = 1,
+      .families = &configuration.family_access,
   };
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);
@@ -136,11 +136,11 @@ iree_status_t CreateAtomicTestHostImportPool(
   iree_hal_pool_family_access_t family_access = configuration.family_access;
   family_access.atomic_operations = {};
   const iree_hal_pool_scope_t scope = {
-      /*.family_count=*/1,
-      /*.families=*/&family_access,
+      .family_count = 1,
+      .families = &family_access,
   };
   const iree_hal_pool_import_class_t import_class = {
-      /*.storage_class=*/iree_hal_make_external_storage_class(
+      .storage_class = iree_hal_make_external_storage_class(
           IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
   };
   iree_hal_slab_pool_options_t options;

@@ -57,10 +57,10 @@ static TreeFacts VerifyTree(const Node* node, const Node* expected_parent) {
   const uint8_t height = 1 + std::max(left.height, right.height);
   EXPECT_EQ(node->height, height);
   return {
-      /*.minimum=*/node->left ? left.minimum : node,
-      /*.maximum=*/node->right ? right.maximum : node,
-      /*.count=*/left.count + right.count + 1,
-      /*.height=*/height,
+      .minimum = node->left ? left.minimum : node,
+      .maximum = node->right ? right.maximum : node,
+      .count = left.count + right.count + 1,
+      .height = height,
   };
 }
 

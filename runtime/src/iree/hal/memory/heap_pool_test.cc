@@ -17,9 +17,8 @@ namespace {
 
 TEST(HeapPoolTest, AllocatesMappedHostStorageWithoutProgressOwner) {
   const iree_hal_pool_host_access_t host_access = {
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
-      /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
-          IREE_HAL_MAPPING_MODE_PERSISTENT,
+      .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+      .modes = IREE_HAL_MAPPING_MODE_SCOPED | IREE_HAL_MAPPING_MODE_PERSISTENT,
   };
   iree_hal_pool_t* pool = nullptr;
   IREE_ASSERT_OK(iree_hal_heap_pool_create(host_access, iree_allocator_system(),
@@ -79,8 +78,8 @@ TEST(HeapPoolTest, AllocatesMappedHostStorageWithoutProgressOwner) {
 
 TEST(HeapPoolTest, NoGrowthDefersWithoutAllocating) {
   const iree_hal_pool_host_access_t host_access = {
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
-      /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+      .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+      .modes = IREE_HAL_MAPPING_MODE_SCOPED,
   };
   iree_hal_pool_t* pool = nullptr;
   IREE_ASSERT_OK(iree_hal_heap_pool_create(host_access, iree_allocator_system(),
@@ -109,8 +108,8 @@ TEST(HeapPoolTest, NoGrowthDefersWithoutAllocating) {
 
 TEST(HeapPoolTest, BorrowedMaterializationRetainsBackingAfterReservation) {
   const iree_hal_pool_host_access_t host_access = {
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
-      /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+      .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+      .modes = IREE_HAL_MAPPING_MODE_SCOPED,
   };
   iree_hal_pool_t* pool = nullptr;
   IREE_ASSERT_OK(iree_hal_heap_pool_create(host_access, iree_allocator_system(),

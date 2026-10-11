@@ -77,18 +77,18 @@ class QueueAllocaTest : public CtsTestBase<> {
   iree_status_t CreateHostExportableTLSFPool(iree_device_size_t range_length,
                                              iree_hal_pool_t** out_pool) {
     const iree_hal_pool_family_access_t family_access = {
-        /*.family=*/iree_hal_queue_family(transfer_queue_),
-        /*.usage=*/kQueueAllocationUsage,
+        .family = iree_hal_queue_family(transfer_queue_),
+        .usage = kQueueAllocationUsage,
     };
     const iree_hal_pool_scope_t scope = {
-        /*.family_count=*/1,
-        /*.families=*/&family_access,
-        /*.host=*/
-        {
-            /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-            /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
-                IREE_HAL_MAPPING_MODE_PERSISTENT,
-        },
+        .family_count = 1,
+        .families = &family_access,
+        .host =
+            {
+                .access = IREE_HAL_MEMORY_ACCESS_ALL,
+                .modes = IREE_HAL_MAPPING_MODE_SCOPED |
+                         IREE_HAL_MAPPING_MODE_PERSISTENT,
+            },
     };
     const iree_hal_external_storage_class_t export_class =
         iree_hal_make_external_storage_class(
@@ -119,11 +119,12 @@ class QueueAllocaTest : public CtsTestBase<> {
                                      iree_hal_pool_t** out_pool) {
     *out_backing_pool = nullptr;
     *out_pool = nullptr;
-    iree_hal_fixed_block_pool_options_t options = {};
-    options.block_size = block_size;
-    options.blocks_per_slab = block_count;
-    options.frontier_capacity = 2;
-    options.asan = AsanOptions();
+    iree_hal_fixed_block_pool_options_t options = {
+        .block_size = block_size,
+        .blocks_per_slab = block_count,
+        .frontier_capacity = 2,
+        .asan = AsanOptions(),
+    };
     IREE_RETURN_IF_ERROR(CreateSlabPool(out_backing_pool));
     iree_status_t status = CreateFiniteBlockPool(
         *out_backing_pool, options, iree_allocator_system(), out_pool);
@@ -254,11 +255,12 @@ TEST_P(QueueAllocaTest, IndependentAllocatorsShareCachedNativeBacking) {
     for (uint32_t iteration = 0; iteration < 2; ++iteration) {
       auto& child = children[iteration];
       if (policies & (1u << iteration)) {
-        iree_hal_fixed_block_pool_options_t options = {};
-        options.block_size = 256;
-        options.blocks_per_slab = 16;
-        options.frontier_capacity = 2;
-        options.asan = AsanOptions();
+        iree_hal_fixed_block_pool_options_t options = {
+            .block_size = 256,
+            .blocks_per_slab = 16,
+            .frontier_capacity = 2,
+            .asan = AsanOptions(),
+        };
         IREE_ASSERT_OK(iree_hal_fixed_block_pool_create(
             cache, &options, iree_allocator_system(), child.out()));
       } else {
@@ -331,11 +333,12 @@ TEST_P(QueueAllocaTest, BlockedSiblingResumesFromSharedCache) {
     Ref<iree_hal_pool_t> children[2];
     for (uint32_t i = 0; i < 2; ++i) {
       if (policies & (1u << i)) {
-        iree_hal_fixed_block_pool_options_t options = {};
-        options.block_size = 256;
-        options.blocks_per_slab = 16;
-        options.frontier_capacity = 2;
-        options.asan = AsanOptions();
+        iree_hal_fixed_block_pool_options_t options = {
+            .block_size = 256,
+            .blocks_per_slab = 16,
+            .frontier_capacity = 2,
+            .asan = AsanOptions(),
+        };
         IREE_ASSERT_OK(iree_hal_fixed_block_pool_create(
             cache, &options, iree_allocator_system(), children[i].out()));
       } else {
@@ -407,18 +410,18 @@ TEST_P(QueueAllocaTest, BlockedSiblingResumesFromSharedCache) {
 
 TEST_P(QueueAllocaTest, MapsSubspanBackingInNativeCoordinates) {
   const iree_hal_pool_family_access_t family_access = {
-      /*.family=*/iree_hal_queue_family(transfer_queue_),
-      /*.usage=*/kQueueAllocationUsage,
+      .family = iree_hal_queue_family(transfer_queue_),
+      .usage = kQueueAllocationUsage,
   };
   const iree_hal_pool_scope_t scope = {
-      /*.family_count=*/1,
-      /*.families=*/&family_access,
-      /*.host=*/
-      {
-          /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-          /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
-              IREE_HAL_MAPPING_MODE_PERSISTENT,
-      },
+      .family_count = 1,
+      .families = &family_access,
+      .host =
+          {
+              .access = IREE_HAL_MEMORY_ACCESS_ALL,
+              .modes = IREE_HAL_MAPPING_MODE_SCOPED |
+                       IREE_HAL_MAPPING_MODE_PERSISTENT,
+          },
   };
   iree_hal_slab_pool_options_t source_options;
   iree_hal_slab_pool_options_initialize(&source_options);
@@ -440,10 +443,11 @@ TEST_P(QueueAllocaTest, MapsSubspanBackingInNativeCoordinates) {
   IREE_ASSERT_OK(iree_hal_buffer_subspan(
       source, 128, 512, iree_allocator_system(), source_view.out()));
 
-  iree_hal_fixed_block_pool_options_t options = {};
-  options.block_size = 256;
-  options.frontier_capacity = 2;
-  options.asan = AsanOptions();
+  iree_hal_fixed_block_pool_options_t options = {
+      .block_size = 256,
+      .frontier_capacity = 2,
+      .asan = AsanOptions(),
+  };
   Ref<iree_hal_pool_t> pool;
   IREE_ASSERT_OK(iree_hal_fixed_block_pool_create_from_buffer(
       source_view, 0, IREE_HAL_WHOLE_BUFFER, &options, iree_allocator_system(),
@@ -514,9 +518,10 @@ TEST_P(QueueAllocaTest, NestedBufferPoolsPreserveRangesAndOwnership) {
   Ref<iree_hal_buffer_t> source_view;
   IREE_ASSERT_OK(iree_hal_buffer_subspan(
       source, 256, 4096, iree_allocator_system(), source_view.out()));
-  iree_hal_fixed_block_pool_options_t block_options = {};
-  block_options.block_size = 512;
-  block_options.frontier_capacity = 2;
+  iree_hal_fixed_block_pool_options_t block_options = {
+      .block_size = 512,
+      .frontier_capacity = 2,
+  };
   Ref<iree_hal_pool_t> blocks;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
                         iree_hal_fixed_block_pool_create_from_buffer(

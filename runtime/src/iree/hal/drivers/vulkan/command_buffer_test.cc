@@ -25,14 +25,15 @@ namespace {
 static constexpr iree_hal_queue_priority_t kQueuePriority =
     IREE_HAL_QUEUE_PRIORITY_NORMAL;
 static const iree_hal_queue_family_spec_t kQueueFamilySpec = [] {
-  iree_hal_queue_family_spec_t spec = {};
-  spec.name = IREE_SV("test");
-  spec.priority_count = 1;
-  spec.priorities = &kQueuePriority;
-  spec.physical_device_affinity = 1;
-  spec.role_flags = IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_DISPATCH |
+  iree_hal_queue_family_spec_t spec = {
+      .name = IREE_SV("test"),
+      .priority_count = 1,
+      .priorities = &kQueuePriority,
+      .physical_device_affinity = 1,
+      .role_flags = IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_DISPATCH |
                     IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_TRANSFER |
-                    IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_ATOMIC;
+                    IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_ATOMIC,
+  };
   return spec;
 }();
 
@@ -61,32 +62,31 @@ TEST(QueueBarrierTest, ExplicitEmptyReplacesDefaultDependency) {
 
 TEST(QueueBarrierTest, RangedAcquirePromotesToGlobalQueueVisibility) {
   const iree_hal_memory_transition_recipe_info_t operation = {
-      /*.kind=*/IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
-      /*.executor=*/IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE,
-      /*.operation=*/
-      IREE_HAL_MEMORY_TRANSITION_OPERATION_ACQUIRE_FROM_SYSTEM,
-      /*.range_granularity=*/64,
+      .kind = IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
+      .executor = IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE,
+      .operation = IREE_HAL_MEMORY_TRANSITION_OPERATION_ACQUIRE_FROM_SYSTEM,
+      .range_granularity = 64,
   };
   const iree_hal_memory_transition_recipe_t recipe = {
-      /*.effects=*/{IREE_HAL_MEMORY_EFFECT_RANGE_ACQUIRE_FROM_SYSTEM},
-      /*.operation_count=*/1,
-      /*.operations=*/&operation,
+      .effects = {IREE_HAL_MEMORY_EFFECT_RANGE_ACQUIRE_FROM_SYSTEM},
+      .operation_count = 1,
+      .operations = &operation,
   };
   const iree_hal_buffer_barrier_t buffer_barrier = {
-      /*.source_scope=*/0,
-      /*.target_scope=*/IREE_HAL_ACCESS_SCOPE_DISPATCH_READ,
-      /*.buffer_ref=*/{},
-      /*.recipe=*/&recipe,
+      .source_scope = 0,
+      .target_scope = IREE_HAL_ACCESS_SCOPE_DISPATCH_READ,
+      .buffer_ref = {},
+      .recipe = &recipe,
   };
   const iree_hal_barrier_t barrier = {
-      /*.source_stage_mask=*/0,
-      /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_DISPATCH,
-      /*.flags=*/IREE_HAL_BARRIER_FLAG_NONE,
-      /*.effects=*/recipe.effects,
-      /*.memory_barrier_count=*/0,
-      /*.memory_barriers=*/nullptr,
-      /*.buffer_barrier_count=*/1,
-      /*.buffer_barriers=*/&buffer_barrier,
+      .source_stage_mask = 0,
+      .target_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+      .flags = IREE_HAL_BARRIER_FLAG_NONE,
+      .effects = recipe.effects,
+      .memory_barrier_count = 0,
+      .memory_barriers = nullptr,
+      .buffer_barrier_count = 1,
+      .buffer_barriers = &buffer_barrier,
   };
   const iree_hal_barrier_list_t list = {1, &barrier};
   const iree_hal_barrier_list_t empty = {};
@@ -264,16 +264,17 @@ static VKAPI_ATTR void VKAPI_CALL FakeCmdInsertDebugUtilsLabelEXT(
 }
 
 static iree_hal_vulkan_device_syms_t MakeNativeReplaySyms() {
-  iree_hal_vulkan_device_syms_t syms = {};
-  syms.vkBeginCommandBuffer = FakeBeginCommandBuffer;
-  syms.vkEndCommandBuffer = FakeEndCommandBuffer;
-  syms.vkCmdBeginDebugUtilsLabelEXT = FakeCmdBeginDebugUtilsLabelEXT;
-  syms.vkCmdEndDebugUtilsLabelEXT = FakeCmdEndDebugUtilsLabelEXT;
-  syms.vkCmdInsertDebugUtilsLabelEXT = FakeCmdInsertDebugUtilsLabelEXT;
-  syms.vkCmdPipelineBarrier2 = FakeCmdPipelineBarrier2;
-  syms.vkCmdPushConstants = FakeCmdPushConstants;
-  syms.vkCmdBindPipeline = FakeCmdBindPipeline;
-  syms.vkCmdDispatch = FakeCmdDispatch;
+  iree_hal_vulkan_device_syms_t syms = {
+      .vkBeginCommandBuffer = FakeBeginCommandBuffer,
+      .vkEndCommandBuffer = FakeEndCommandBuffer,
+      .vkCmdBeginDebugUtilsLabelEXT = FakeCmdBeginDebugUtilsLabelEXT,
+      .vkCmdEndDebugUtilsLabelEXT = FakeCmdEndDebugUtilsLabelEXT,
+      .vkCmdInsertDebugUtilsLabelEXT = FakeCmdInsertDebugUtilsLabelEXT,
+      .vkCmdPipelineBarrier2 = FakeCmdPipelineBarrier2,
+      .vkCmdBindPipeline = FakeCmdBindPipeline,
+      .vkCmdPushConstants = FakeCmdPushConstants,
+      .vkCmdDispatch = FakeCmdDispatch,
+  };
   return syms;
 }
 
@@ -291,11 +292,13 @@ class VulkanCommandBufferTest : public ::testing::Test {
   void SetUp() override {
     iree_arena_block_pool_initialize(block_size_, iree_allocator_system(),
                                      &block_pool_);
-    iree_hal_device_queue_spec_t queues = {};
-    queues.family_count = 1;
-    queues.families = &kQueueFamilySpec;
-    iree_hal_device_spec_params_t spec_params = {};
-    spec_params.queues = &queues;
+    iree_hal_device_queue_spec_t queues = {
+        .family_count = 1,
+        .families = &kQueueFamilySpec,
+    };
+    iree_hal_device_spec_params_t spec_params = {
+        .queues = &queues,
+    };
     iree_hal_device_spec_t* device_spec = nullptr;
     IREE_ASSERT_OK(iree_hal_device_spec_create(
         &spec_params, iree_allocator_system(), &device_spec));
@@ -429,20 +432,20 @@ TEST_F(VulkanCommandBufferTest, SystemScopeUsesHostMemoryDomain) {
   ASSERT_NE(command_buffer, nullptr);
 
   const iree_hal_memory_barrier_t memory_barrier = {
-      /*.source_scope=*/IREE_HAL_ACCESS_SCOPE_DISPATCH_WRITE,
-      /*.target_scope=*/IREE_HAL_ACCESS_SCOPE_DISPATCH_READ,
+      .source_scope = IREE_HAL_ACCESS_SCOPE_DISPATCH_WRITE,
+      .target_scope = IREE_HAL_ACCESS_SCOPE_DISPATCH_READ,
   };
   IREE_ASSERT_OK(iree_hal_command_buffer_begin(command_buffer.get()));
   const iree_hal_barrier_t execution_barrier = {
-      /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_DISPATCH,
-      /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_DISPATCH,
-      /*.flags=*/IREE_HAL_BARRIER_FLAG_ACQUIRE_SYSTEM_SCOPE |
-          IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE,
-      /*.effects=*/{},
-      /*.memory_barrier_count=*/1,
-      /*.memory_barriers=*/&memory_barrier,
-      /*.buffer_barrier_count=*/0,
-      /*.buffer_barriers=*/nullptr,
+      .source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+      .target_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+      .flags = IREE_HAL_BARRIER_FLAG_ACQUIRE_SYSTEM_SCOPE |
+               IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE,
+      .effects = {},
+      .memory_barrier_count = 1,
+      .memory_barriers = &memory_barrier,
+      .buffer_barrier_count = 0,
+      .buffer_barriers = nullptr,
   };
   IREE_ASSERT_OK(iree_hal_command_buffer_barrier(command_buffer.get(),
                                                  &execution_barrier));
@@ -546,33 +549,32 @@ TEST_F(VulkanCommandBufferTest,
   ASSERT_NE(command_buffer, nullptr);
 
   iree_hal_memory_transition_recipe_info_t operation = {
-      /*.kind=*/IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
-      /*.executor=*/IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE,
-      /*.operation=*/IREE_HAL_MEMORY_TRANSITION_OPERATION_RELEASE_TO_SYSTEM,
-      /*.range_granularity=*/64,
+      .kind = IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
+      .executor = IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE,
+      .operation = IREE_HAL_MEMORY_TRANSITION_OPERATION_RELEASE_TO_SYSTEM,
+      .range_granularity = 64,
   };
   const iree_hal_memory_transition_recipe_t recipe = {
-      /*.effects=*/{IREE_HAL_MEMORY_EFFECT_RANGE_RELEASE_TO_SYSTEM},
-      /*.operation_count=*/1,
-      /*.operations=*/&operation,
+      .effects = {IREE_HAL_MEMORY_EFFECT_RANGE_RELEASE_TO_SYSTEM},
+      .operation_count = 1,
+      .operations = &operation,
   };
   const iree_hal_buffer_barrier_t buffer_barrier = {
-      /*.source_scope=*/IREE_HAL_ACCESS_SCOPE_DISPATCH_WRITE,
-      /*.target_scope=*/IREE_HAL_ACCESS_SCOPE_HOST_READ,
-      /*.buffer_ref=*/
-      iree_hal_make_indirect_buffer_ref(
+      .source_scope = IREE_HAL_ACCESS_SCOPE_DISPATCH_WRITE,
+      .target_scope = IREE_HAL_ACCESS_SCOPE_HOST_READ,
+      .buffer_ref = iree_hal_make_indirect_buffer_ref(
           /*buffer_slot=*/0, /*offset=*/7, /*length=*/13),
-      /*.recipe=*/&recipe,
+      .recipe = &recipe,
   };
   const iree_hal_barrier_t barrier = {
-      /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_DISPATCH,
-      /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
-      /*.flags=*/IREE_HAL_BARRIER_FLAG_NONE,
-      /*.effects=*/recipe.effects,
-      /*.memory_barrier_count=*/0,
-      /*.memory_barriers=*/nullptr,
-      /*.buffer_barrier_count=*/1,
-      /*.buffer_barriers=*/&buffer_barrier,
+      .source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+      .target_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
+      .flags = IREE_HAL_BARRIER_FLAG_NONE,
+      .effects = recipe.effects,
+      .memory_barrier_count = 0,
+      .memory_barriers = nullptr,
+      .buffer_barrier_count = 1,
+      .buffer_barriers = &buffer_barrier,
   };
   IREE_ASSERT_OK(iree_hal_command_buffer_begin(command_buffer.get()));
   IREE_ASSERT_OK(
@@ -598,9 +600,9 @@ TEST_F(VulkanCommandBufferTest,
       /*device_address=*/0, iree_hal_buffer_release_callback_null(),
       iree_allocator_system(), &buffer));
   const iree_hal_buffer_binding_t binding = {
-      /*.buffer=*/buffer,
-      /*.offset=*/5,
-      /*.length=*/40,
+      .buffer = buffer,
+      .offset = 5,
+      .length = 40,
   };
   const iree_hal_buffer_binding_table_t binding_table = {1, &binding};
 
@@ -649,69 +651,67 @@ TEST_F(VulkanCommandBufferTest,
   };
   const TestCase test_cases[] = {
       {
-          /*.flags=*/IREE_HAL_ATOMIC_FLAG_NONE,
-          /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_TRANSFER,
-          /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_TRANSFER,
-          /*.pre_source_stage_mask=*/VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-          /*.pre_source_access_mask=*/0,
-          /*.pre_target_access_mask=*/0,
-          /*.post_source_access_mask=*/0,
-          /*.post_target_stage_mask=*/VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-          /*.post_target_access_mask=*/0,
+          .flags = IREE_HAL_ATOMIC_FLAG_NONE,
+          .source_stage_mask = IREE_HAL_EXECUTION_STAGE_TRANSFER,
+          .target_stage_mask = IREE_HAL_EXECUTION_STAGE_TRANSFER,
+          .pre_source_stage_mask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+          .pre_source_access_mask = 0,
+          .pre_target_access_mask = 0,
+          .post_source_access_mask = 0,
+          .post_target_stage_mask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+          .post_target_access_mask = 0,
       },
       {
-          /*.flags=*/IREE_HAL_ATOMIC_FLAG_RELEASE,
-          /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_TRANSFER,
-          /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_TRANSFER,
-          /*.pre_source_stage_mask=*/VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-          /*.pre_source_access_mask=*/VK_ACCESS_2_TRANSFER_WRITE_BIT,
-          /*.pre_target_access_mask=*/
-          VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-          /*.post_source_access_mask=*/0,
-          /*.post_target_stage_mask=*/VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-          /*.post_target_access_mask=*/0,
+          .flags = IREE_HAL_ATOMIC_FLAG_RELEASE,
+          .source_stage_mask = IREE_HAL_EXECUTION_STAGE_TRANSFER,
+          .target_stage_mask = IREE_HAL_EXECUTION_STAGE_TRANSFER,
+          .pre_source_stage_mask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+          .pre_source_access_mask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+          .pre_target_access_mask =
+              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+          .post_source_access_mask = 0,
+          .post_target_stage_mask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+          .post_target_access_mask = 0,
       },
       {
-          /*.flags=*/IREE_HAL_ATOMIC_FLAG_ACQUIRE,
-          /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_TRANSFER,
-          /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_TRANSFER,
-          /*.pre_source_stage_mask=*/VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-          /*.pre_source_access_mask=*/0,
-          /*.pre_target_access_mask=*/0,
-          /*.post_source_access_mask=*/
-          VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-          /*.post_target_stage_mask=*/VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-          /*.post_target_access_mask=*/
-          VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
+          .flags = IREE_HAL_ATOMIC_FLAG_ACQUIRE,
+          .source_stage_mask = IREE_HAL_EXECUTION_STAGE_TRANSFER,
+          .target_stage_mask = IREE_HAL_EXECUTION_STAGE_TRANSFER,
+          .pre_source_stage_mask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+          .pre_source_access_mask = 0,
+          .pre_target_access_mask = 0,
+          .post_source_access_mask =
+              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+          .post_target_stage_mask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+          .post_target_access_mask =
+              VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
       },
       {
-          /*.flags=*/IREE_HAL_ATOMIC_FLAG_ACQUIRE |
-              IREE_HAL_ATOMIC_FLAG_RELEASE,
-          /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_TRANSFER,
-          /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_TRANSFER,
-          /*.pre_source_stage_mask=*/VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-          /*.pre_source_access_mask=*/VK_ACCESS_2_TRANSFER_WRITE_BIT,
-          /*.pre_target_access_mask=*/
-          VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-          /*.post_source_access_mask=*/
-          VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-          /*.post_target_stage_mask=*/VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-          /*.post_target_access_mask=*/
-          VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
+          .flags = IREE_HAL_ATOMIC_FLAG_ACQUIRE | IREE_HAL_ATOMIC_FLAG_RELEASE,
+          .source_stage_mask = IREE_HAL_EXECUTION_STAGE_TRANSFER,
+          .target_stage_mask = IREE_HAL_EXECUTION_STAGE_TRANSFER,
+          .pre_source_stage_mask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+          .pre_source_access_mask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+          .pre_target_access_mask =
+              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+          .post_source_access_mask =
+              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+          .post_target_stage_mask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+          .post_target_access_mask =
+              VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
       },
       {
-          /*.flags=*/IREE_HAL_ATOMIC_FLAG_ACQUIRE |
-              IREE_HAL_ATOMIC_FLAG_RELEASE,
-          /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE,
-          /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
-          /*.pre_source_stage_mask=*/VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-          /*.pre_source_access_mask=*/0,
-          /*.pre_target_access_mask=*/
-          VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-          /*.post_source_access_mask=*/
-          VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-          /*.post_target_stage_mask=*/VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
-          /*.post_target_access_mask=*/0,
+          .flags = IREE_HAL_ATOMIC_FLAG_ACQUIRE | IREE_HAL_ATOMIC_FLAG_RELEASE,
+          .source_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE,
+          .target_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
+          .pre_source_stage_mask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+          .pre_source_access_mask = 0,
+          .pre_target_access_mask =
+              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+          .post_source_access_mask =
+              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+          .post_target_stage_mask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+          .post_target_access_mask = 0,
       },
   };
 
@@ -722,11 +722,12 @@ TEST_F(VulkanCommandBufferTest,
     ASSERT_NE(command_buffer, nullptr);
 
     const iree_hal_atomic_rmw_params_t params = {
-        /*.operand=*/7,
-        /*.flags=*/test_case.flags,
-        /*.width=*/IREE_HAL_ATOMIC_WIDTH_32,
-        /*.operation=*/IREE_HAL_ATOMIC_RMW_OPERATION_ADD,
-        /*.reserved=*/0,
+        .operand = 7,
+        .flags = test_case.flags,
+        .width = IREE_HAL_ATOMIC_WIDTH_32,
+        .operation = IREE_HAL_ATOMIC_RMW_OPERATION_ADD,
+        .target_error_mode = IREE_HAL_ATOMIC_TARGET_ERROR_MODE_DEFAULT,
+        .reserved = 0,
     };
     IREE_ASSERT_OK(iree_hal_command_buffer_begin(command_buffer.get()));
     IREE_ASSERT_OK(iree_hal_command_buffer_atomic_rmw(
@@ -754,22 +755,22 @@ TEST_F(VulkanCommandBufferTest,
         reinterpret_cast<VkPipeline>(static_cast<uintptr_t>(0x2222));
     const iree_hal_buffer_binding_t binding = {};
     const iree_hal_buffer_binding_table_t binding_table = {
-        /*.count=*/1,
-        /*.bindings=*/&binding,
+        .count = 1,
+        .bindings = &binding,
     };
     iree_hal_vulkan_command_buffer_bda_binding_slot_t cached_slot = {
-        /*.device_address=*/0x1000,
-        /*.length=*/16,
+        .device_address = 0x1000,
+        .length = 16,
     };
     iree_hal_vulkan_command_buffer_bda_binding_cache_t binding_cache = {
-        /*.slots=*/&cached_slot,
-        /*.slot_count=*/1,
+        .slots = &cached_slot,
+        .slot_count = 1,
     };
     uint64_t published_target_address = 0;
     const iree_hal_vulkan_command_buffer_bda_publication_t publication = {
-        /*.host_span=*/iree_make_byte_span(&published_target_address,
-                                           sizeof(published_target_address)),
-        /*.device_address=*/0x4000,
+        .host_span = iree_make_byte_span(&published_target_address,
+                                         sizeof(published_target_address)),
+        .device_address = 0x4000,
     };
     const VkDevice logical_device =
         reinterpret_cast<VkDevice>(static_cast<uintptr_t>(0x1234));
@@ -841,13 +842,12 @@ TEST_F(VulkanCommandBufferTest,
   ASSERT_NE(command_buffer, nullptr);
 
   const iree_hal_atomic_rmw_params_t params = {
-      /*.operand=*/7,
-      /*.flags=*/IREE_HAL_ATOMIC_FLAG_ACQUIRE | IREE_HAL_ATOMIC_FLAG_RELEASE,
-      /*.width=*/IREE_HAL_ATOMIC_WIDTH_32,
-      /*.operation=*/IREE_HAL_ATOMIC_RMW_OPERATION_ADD,
-      /*.target_error_mode=*/
-      IREE_HAL_ATOMIC_TARGET_ERROR_MODE_INCOMPATIBLE,
-      /*.reserved=*/0,
+      .operand = 7,
+      .flags = IREE_HAL_ATOMIC_FLAG_ACQUIRE | IREE_HAL_ATOMIC_FLAG_RELEASE,
+      .width = IREE_HAL_ATOMIC_WIDTH_32,
+      .operation = IREE_HAL_ATOMIC_RMW_OPERATION_ADD,
+      .target_error_mode = IREE_HAL_ATOMIC_TARGET_ERROR_MODE_INCOMPATIBLE,
+      .reserved = 0,
   };
   IREE_ASSERT_OK(iree_hal_command_buffer_begin(command_buffer.get()));
   IREE_ASSERT_OK(iree_hal_command_buffer_atomic_rmw(
@@ -875,9 +875,9 @@ TEST_F(VulkanCommandBufferTest,
           /*bda_publication=*/nullptr, /*bda_binding_cache=*/nullptr));
   uint64_t published_target_address = 0;
   const iree_hal_vulkan_command_buffer_bda_publication_t short_publication = {
-      /*.host_span=*/iree_make_byte_span(&published_target_address,
-                                         sizeof(published_target_address) - 1),
-      /*.device_address=*/0x4000,
+      .host_span = iree_make_byte_span(&published_target_address,
+                                       sizeof(published_target_address) - 1),
+      .device_address = 0x4000,
   };
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_FAILED_PRECONDITION,
@@ -887,22 +887,22 @@ TEST_F(VulkanCommandBufferTest,
 
   const iree_hal_buffer_binding_t binding = {};
   const iree_hal_buffer_binding_table_t binding_table = {
-      /*.count=*/1,
-      /*.bindings=*/&binding,
+      .count = 1,
+      .bindings = &binding,
   };
   iree_hal_vulkan_command_buffer_bda_binding_slot_t cached_slot = {
-      /*.device_address=*/0x1000,
-      /*.length=*/16,
+      .device_address = 0x1000,
+      .length = 16,
   };
   iree_hal_vulkan_command_buffer_bda_binding_cache_t binding_cache = {
-      /*.slots=*/&cached_slot,
-      /*.slot_count=*/1,
+      .slots = &cached_slot,
+      .slot_count = 1,
   };
   const iree_hal_vulkan_command_buffer_bda_publication_t
       misaligned_publication = {
-          /*.host_span=*/iree_make_byte_span(&published_target_address,
-                                             sizeof(published_target_address)),
-          /*.device_address=*/0x4001,
+          .host_span = iree_make_byte_span(&published_target_address,
+                                           sizeof(published_target_address)),
+          .device_address = 0x4001,
       };
   IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
                         iree_hal_vulkan_command_buffer_publish_bda_replay_data(
@@ -910,9 +910,9 @@ TEST_F(VulkanCommandBufferTest,
                             &misaligned_publication, &binding_cache));
 
   const iree_hal_vulkan_command_buffer_bda_publication_t publication = {
-      /*.host_span=*/iree_make_byte_span(&published_target_address,
-                                         sizeof(published_target_address)),
-      /*.device_address=*/0x4000,
+      .host_span = iree_make_byte_span(&published_target_address,
+                                       sizeof(published_target_address)),
+      .device_address = 0x4000,
   };
   iree_hal_vulkan_command_buffer_bda_binding_cache_t empty_cache = {};
   IREE_EXPECT_STATUS_IS(

@@ -337,13 +337,14 @@ class MemoryBackendTest : public ::testing::Test {
           AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE;
       native_families_[i].binding_count = 1;
       native_families_[i].bindings = &binding_descriptions_[i];
-      iree_hal_amd_fabric_memory_backend_options_t memory_options = {};
-      memory_options.api = &native_.api;
-      memory_options.scope = native_.scope();
-      memory_options.device = native_.devices[i];
-      memory_options.memory_type =
-          IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-      memory_options.families = &native_families_[i];
+      iree_hal_amd_fabric_memory_backend_options_t memory_options = {
+          .api = &native_.api,
+          .scope = native_.scope(),
+          .device = native_.devices[i],
+          .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
+                         IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+          .families = &native_families_[i],
+      };
       iree_hal_amd_fabric_memory_backend_initialize(
           devices_[i], &memory_options, notification_, maintenance_,
           iree_hal_pool_epoch_query_null(), &backends_[i]);
@@ -434,9 +435,10 @@ class MemoryBackendTest : public ::testing::Test {
   iree_hal_memory_scope_t ResolveScope(
       iree_hal_memory_site_kind_t kind,
       const iree_hal_queue_family_t* family = nullptr) {
-    iree_hal_memory_site_t site = {};
-    site.kind = kind;
-    site.family = family;
+    iree_hal_memory_site_t site = {
+        .kind = kind,
+        .family = family,
+    };
     iree_hal_memory_scope_t scope;
     IREE_CHECK_OK(
         iree_hal_device_group_resolve_memory_scope(group_, site, &scope));
@@ -497,9 +499,10 @@ TEST_F(MemoryBackendTest, PublishesCanonicalPerDeviceBindings) {
   for (uint16_t device_index = 0; device_index < families_.size();
        ++device_index) {
     iree_hal_memory_scope_t program_scope;
-    iree_hal_memory_site_t site = {};
-    site.kind = IREE_HAL_MEMORY_SITE_PROGRAM;
-    site.family = families_[device_index];
+    iree_hal_memory_site_t site = {
+        .kind = IREE_HAL_MEMORY_SITE_PROGRAM,
+        .family = families_[device_index],
+    };
     IREE_ASSERT_OK(iree_hal_device_group_resolve_memory_scope(group_, site,
                                                               &program_scope));
     iree_hal_buffer_native_binding_slot_t slot;

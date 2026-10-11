@@ -315,7 +315,10 @@ jobs:
       - name: Report ROCm environment
         if: matrix.kind == 'amdgpu'
         timeout-minutes: 1
-        run: bash .github/scripts/check_rocm_environment.sh --export-libamdf-gpu-selection
+        run: >-
+          bash .github/scripts/check_rocm_environment.sh
+          --export-libamdf-gpu-selection
+          --amdgpu-target "${{ matrix.target_selector }}"
 
       - name: Check native accelerator access
         if: matrix.kind == 'amd_client'
@@ -538,6 +541,65 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Select Windows build storage
+        shell: powershell
+        run: |
+          $drives = @(
+            Get-PSDrive -PSProvider FileSystem -ErrorAction Stop |
+              Where-Object { $_.Root -match '^[A-Za-z]:\\$' -and $null -ne $_.Free } |
+              Sort-Object Free -Descending
+          )
+          $drives |
+            Select-Object Name, Root, DisplayRoot,
+              @{Name = 'FreeGiB'; Expression = {[math]::Round($_.Free / 1GB, 1)}},
+              @{Name = 'UsedGiB'; Expression = {[math]::Round($_.Used / 1GB, 1)}} |
+            Format-Table -AutoSize
+          # B: is the Azure pool's canonical build mapping. Equivalent aliases
+          # can expand to longer host paths that exceed MSVC's path handling.
+          $preferredDrive = $drives | Where-Object Name -eq 'B' | Select-Object -First 1
+          $candidateDrives = @($preferredDrive) + @(
+            $drives | Where-Object Name -ne 'B'
+          )
+          $selectedDrive = $null
+          foreach ($drive in $candidateDrives) {
+            if (-not $drive) { continue }
+            $probe = Join-Path $drive.Root ".hrx-ci-write-probe-$PID"
+            try {
+              [IO.File]::WriteAllText($probe, '')
+              Remove-Item -LiteralPath $probe -Force
+              $selectedDrive = $drive
+              break
+            } catch {
+              Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+              Write-Warning "Skipping unwritable build volume $($drive.Root): $_"
+            }
+          }
+          if (-not $selectedDrive) { throw 'No writable filesystem volume is available for Windows build outputs.' }
+          $outputName = if ("${{ matrix.kind }}" -eq 'amd_client') { 'iree-bazel-client' } else { 'iree-bazel-windows' }
+          $buildRoot = Join-Path $selectedDrive.Root 'hrx'
+          $outputDir = Join-Path $buildRoot $outputName
+          # Keep compiler paths short and stable across runners. The toolchain
+          # is small enough for the system volume; build outputs and caches are
+          # the high-volume state that belong on the dedicated build volume.
+          $rocmRoot = Join-Path $env:SystemDrive 'r'
+          $environment = [ordered]@{
+            BAZEL_LLVM = Join-Path $rocmRoot 'lib\llvm'
+            HRX_DOWNLOAD_CACHE_DIR = Join-Path $outputDir 'downloads'
+            HRX_OUTPUT_DIR = $outputDir
+            HRX_ROCM_ROOT = $rocmRoot
+            IREE_CI_BAZEL_EXECROOT_BACKING = Join-Path $outputDir 'bazel-execroot'
+            IREE_CI_BAZEL_OUTPUT_BASE = (Join-Path $env:SystemDrive 'o').Replace('\', '/')
+            IREE_CI_FAILURE_ARTIFACT_DIR = Join-Path $outputDir 'failure-evidence'
+            PIP_CACHE_DIR = Join-Path $outputDir 'caches\pip'
+          }
+          New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
+          foreach ($entry in $environment.GetEnumerator()) {
+            "$($entry.Key)=$($entry.Value)" |
+              Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          Write-Output "Selected Windows build root $buildRoot with $([math]::Round($selectedDrive.Free / 1GB, 1)) GiB free."
+          Write-Output "Using stable toolchain root $rocmRoot and Bazel output base $($environment.IREE_CI_BAZEL_OUTPUT_BASE)."
+
       - name: Set up Node.js
         if: matrix.kind == 'repository'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -562,8 +624,30 @@ jobs:
       - name: Install developer tools
         shell: powershell
         run: |
-          $bazelOutputRoot = (Join-Path $env:SystemDrive "b").Replace('\', '/')
-          "startup --output_user_root=$bazelOutputRoot" |
+          # Bazel resolves B: through the Azure volume's per-VM C:\<GUID>
+          # mount, which makes action and runfiles paths too long for MSVC.
+          # Keep the logical execroot short while storing its contents on the
+          # high-capacity build volume. Test launchers resolve declared source
+          # runfiles through Bazel instead of depending on this physical tree.
+          $outputBase = $env:IREE_CI_BAZEL_OUTPUT_BASE.Replace('/', '\')
+          $execroot = Join-Path $outputBase 'execroot'
+          $backing = $env:IREE_CI_BAZEL_EXECROOT_BACKING
+          New-Item -ItemType Directory -Path $outputBase -Force | Out-Null
+          if ([IO.Path]::GetPathRoot($outputBase) -ne [IO.Path]::GetPathRoot($backing)) {
+            New-Item -ItemType Directory -Path $backing -Force | Out-Null
+            if (Test-Path -LiteralPath $execroot) {
+              $item = Get-Item -LiteralPath $execroot -Force
+              $actualTarget = @($item.Target) | Select-Object -First 1
+              if ($item.LinkType -ne 'Junction' -or
+                  [IO.Path]::GetFullPath($actualTarget) -ne [IO.Path]::GetFullPath($backing)) {
+                throw "Bazel execroot $execroot is not the expected junction to $backing."
+              }
+            } else {
+              New-Item -ItemType Junction -Path $execroot -Target $backing | Out-Null
+            }
+            Write-Output "Using short Bazel execroot $execroot backed by $backing."
+          }
+          "startup --output_base=$env:IREE_CI_BAZEL_OUTPUT_BASE" |
             Out-File -FilePath .bazelrc.local -Encoding ascii -Append
           if ("${{ matrix.host_toolchain }}" -eq "msvc") {
             "build --config=windows-msvc" |
@@ -649,6 +733,18 @@ jobs:
           $env:AR = Join-Path $env:BAZEL_LLVM 'bin\llvm-lib.exe'
           python build_tools/devtools/ci.py iree-bazel-amd-client --bazel-profile-dir "$env:RUNNER_TEMP\bazel-profiles"
           exit $LASTEXITCODE
+
+      - name: Report Windows build storage
+        if: always()
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Get-PSDrive -PSProvider FileSystem -ErrorAction Stop |
+            Where-Object { $_.Root -match '^[A-Za-z]:\\$' -and $null -ne $_.Free } |
+            Select-Object Name, Root, DisplayRoot,
+              @{Name = 'FreeGiB'; Expression = {[math]::Round($_.Free / 1GB, 1)}},
+              @{Name = 'UsedGiB'; Expression = {[math]::Round($_.Used / 1GB, 1)}} |
+            Format-Table -AutoSize
 
       - name: Upload Windows build failure evidence
         if: ${{ always() && steps.iree_bazel_ci.outcome == 'failure' }}
@@ -845,7 +941,10 @@ jobs:
       - name: Report ROCm environment
         if: matrix.kind == 'amdgpu'
         timeout-minutes: 1
-        run: bash .github/scripts/check_rocm_environment.sh --export-libamdf-gpu-selection
+        run: >-
+          bash .github/scripts/check_rocm_environment.sh
+          --export-libamdf-gpu-selection
+          --amdgpu-target "${{ matrix.target_selector }}"
 
       - name: Run IREE CMake CI
         id: iree_cmake_ci

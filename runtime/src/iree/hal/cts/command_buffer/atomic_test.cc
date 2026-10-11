@@ -37,13 +37,13 @@ class CommandBufferAtomicTest : public CtsTestBase<> {
       iree_hal_atomic_wait_condition_flags_t wait_condition_flags,
       AtomicTestConfiguration* out_configuration) {
     const AtomicTestRequirements requirements = {
-        /*.operation_flags=*/operation_flags,
-        /*.wait_condition_flags=*/wait_condition_flags,
-        /*.buffer_usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
-            IREE_HAL_BUFFER_USAGE_TRANSFER,
-        /*.width=*/width,
-        /*.atomic_flags=*/IREE_HAL_ATOMIC_FLAG_ACQUIRE |
-            IREE_HAL_ATOMIC_FLAG_RELEASE,
+        .operation_flags = operation_flags,
+        .wait_condition_flags = wait_condition_flags,
+        .buffer_usage =
+            IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER,
+        .width = width,
+        .atomic_flags =
+            IREE_HAL_ATOMIC_FLAG_ACQUIRE | IREE_HAL_ATOMIC_FLAG_RELEASE,
     };
     if (!SelectAtomicTestConfiguration(device_, requirements,
                                        out_configuration)) {
@@ -105,9 +105,9 @@ class CommandBufferAtomicTest : public CtsTestBase<> {
     SemaphoreList empty_wait;
     SemaphoreList signal(device_, {0}, {1});
     const iree_hal_atomic_store_params_t params = {
-        /*.value=*/static_cast<uint64_t>(value),
-        /*.flags=*/IREE_HAL_ATOMIC_FLAG_RELEASE,
-        /*.width=*/width,
+        .value = static_cast<uint64_t>(value),
+        .flags = IREE_HAL_ATOMIC_FLAG_RELEASE,
+        .width = width,
     };
     iree_status_t status =
         iree_hal_queue_atomic_store(atomic_queue_, empty_wait, signal, buffer,
@@ -123,13 +123,13 @@ class CommandBufferAtomicTest : public CtsTestBase<> {
       iree_hal_command_buffer_t* command_buffer,
       iree_hal_buffer_t* indirect_buffer) {
     iree_hal_buffer_binding_t binding = {
-        /*.buffer=*/indirect_buffer,
-        /*.offset=*/0,
-        /*.length=*/IREE_HAL_WHOLE_BUFFER,
+        .buffer = indirect_buffer,
+        .offset = 0,
+        .length = IREE_HAL_WHOLE_BUFFER,
     };
     const iree_hal_buffer_binding_table_t binding_table = {
-        /*.count=*/indirect_buffer ? 1u : 0u,
-        /*.bindings=*/indirect_buffer ? &binding : nullptr,
+        .count = indirect_buffer ? 1u : 0u,
+        .bindings = indirect_buffer ? &binding : nullptr,
     };
 
     SemaphoreList empty_wait;
@@ -172,10 +172,11 @@ class CommandBufferAtomicTest : public CtsTestBase<> {
       GTEST_SKIP() << "Pool cannot import host storage for target validation";
     }
     IREE_ASSERT_OK(import_pool_status.release());
-    iree_hal_external_storage_t external_buffer = {};
-    external_buffer.storage_class = iree_hal_make_external_storage_class(
-        IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
-    external_buffer.byte_length = kBufferSize;
+    iree_hal_external_storage_t external_buffer = {
+        .storage_class = iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+        .byte_length = kBufferSize,
+    };
     external_buffer.payload.host_pointer = misaligned_ptr;
     external_buffer.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
     external_buffer.maintenance_range =
@@ -220,51 +221,51 @@ class CommandBufferAtomicTest : public CtsTestBase<> {
             IREE_ASSERT_OK(iree_hal_command_buffer_atomic_wait(
                 command_buffer, IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE,
                 IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE, target_ref,
-                (iree_hal_atomic_wait_params_t){
-                    /*.value=*/0,
-                    /*.mask=*/width == IREE_HAL_ATOMIC_WIDTH_32 ? UINT32_MAX
-                                                                : UINT64_MAX,
-                    /*.flags=*/IREE_HAL_ATOMIC_FLAG_ACQUIRE,
-                    /*.width=*/width,
-                    /*.condition=*/IREE_HAL_ATOMIC_WAIT_CONDITION_EQUAL,
-                    /*.target_error_mode=*/mode,
+                iree_hal_atomic_wait_params_t{
+                    .value = 0,
+                    .mask = width == IREE_HAL_ATOMIC_WIDTH_32 ? UINT32_MAX
+                                                              : UINT64_MAX,
+                    .flags = IREE_HAL_ATOMIC_FLAG_ACQUIRE,
+                    .width = width,
+                    .condition = IREE_HAL_ATOMIC_WAIT_CONDITION_EQUAL,
+                    .target_error_mode = mode,
                 }));
             break;
           case AtomicKind::kStore:
             IREE_ASSERT_OK(iree_hal_command_buffer_atomic_store(
                 command_buffer, IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE,
                 IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE, target_ref,
-                (iree_hal_atomic_store_params_t){
-                    /*.value=*/1,
-                    /*.flags=*/IREE_HAL_ATOMIC_FLAG_RELEASE,
-                    /*.width=*/width,
-                    /*.target_error_mode=*/mode,
+                iree_hal_atomic_store_params_t{
+                    .value = 1,
+                    .flags = IREE_HAL_ATOMIC_FLAG_RELEASE,
+                    .width = width,
+                    .target_error_mode = mode,
                 }));
             break;
           case AtomicKind::kRmw:
             IREE_ASSERT_OK(iree_hal_command_buffer_atomic_rmw(
                 command_buffer, IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE,
                 IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE, target_ref,
-                (iree_hal_atomic_rmw_params_t){
-                    /*.operand=*/1,
-                    /*.flags=*/IREE_HAL_ATOMIC_FLAG_ACQUIRE |
-                        IREE_HAL_ATOMIC_FLAG_RELEASE,
-                    /*.width=*/width,
-                    /*.operation=*/IREE_HAL_ATOMIC_RMW_OPERATION_ADD,
-                    /*.target_error_mode=*/mode,
+                iree_hal_atomic_rmw_params_t{
+                    .operand = 1,
+                    .flags = IREE_HAL_ATOMIC_FLAG_ACQUIRE |
+                             IREE_HAL_ATOMIC_FLAG_RELEASE,
+                    .width = width,
+                    .operation = IREE_HAL_ATOMIC_RMW_OPERATION_ADD,
+                    .target_error_mode = mode,
                 }));
             break;
         }
         IREE_ASSERT_OK(iree_hal_command_buffer_end(command_buffer));
 
         const iree_hal_buffer_binding_t binding = {
-            /*.buffer=*/indirect ? buffer.get() : nullptr,
-            /*.offset=*/0,
-            /*.length=*/indirect ? IREE_HAL_WHOLE_BUFFER : 0,
+            .buffer = indirect ? buffer.get() : nullptr,
+            .offset = 0,
+            .length = indirect ? IREE_HAL_WHOLE_BUFFER : 0,
         };
         const iree_hal_buffer_binding_table_t binding_table = {
-            /*.count=*/indirect ? 1u : 0u,
-            /*.bindings=*/indirect ? &binding : nullptr,
+            .count = indirect ? 1u : 0u,
+            .bindings = indirect ? &binding : nullptr,
         };
         SemaphoreList empty_wait;
         SemaphoreList signal(device_, {0}, {1});
@@ -331,19 +332,19 @@ class CommandBufferAtomicTest : public CtsTestBase<> {
 
     // Command recording order does not establish atomic execution dependencies.
     const iree_hal_atomic_store_params_t store_params = {
-        /*.value=*/10,
-        /*.flags=*/atomic_flags,
-        /*.width=*/width,
+        .value = 10,
+        .flags = atomic_flags,
+        .width = width,
     };
     IREE_ASSERT_OK(iree_hal_command_buffer_atomic_store(
         command_buffer, IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE,
         IREE_HAL_EXECUTION_STAGE_ATOMIC, target_ref, store_params));
 
     iree_hal_atomic_rmw_params_t rmw_params = {
-        /*.operand=*/5,
-        /*.flags=*/atomic_flags,
-        /*.width=*/width,
-        /*.operation=*/IREE_HAL_ATOMIC_RMW_OPERATION_ADD,
+        .operand = 5,
+        .flags = atomic_flags,
+        .width = width,
+        .operation = IREE_HAL_ATOMIC_RMW_OPERATION_ADD,
     };
     IREE_ASSERT_OK(iree_hal_command_buffer_atomic_rmw(
         command_buffer, IREE_HAL_EXECUTION_STAGE_ATOMIC,
@@ -432,20 +433,20 @@ class CommandBufferAtomicTest : public CtsTestBase<> {
 
     // Command recording order does not establish atomic execution dependencies.
     const iree_hal_atomic_store_params_t store_params = {
-        /*.value=*/0x12,
-        /*.flags=*/atomic_flags,
-        /*.width=*/width,
+        .value = 0x12,
+        .flags = atomic_flags,
+        .width = width,
     };
     IREE_ASSERT_OK(iree_hal_command_buffer_atomic_store(
         command_buffer, IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE,
         IREE_HAL_EXECUTION_STAGE_ATOMIC, target_ref, store_params));
 
     iree_hal_atomic_wait_params_t wait_params = {
-        /*.value=*/0x2,
-        /*.mask=*/0xF,
-        /*.flags=*/atomic_flags,
-        /*.width=*/width,
-        /*.condition=*/IREE_HAL_ATOMIC_WAIT_CONDITION_EQUAL,
+        .value = 0x2,
+        .mask = 0xF,
+        .flags = atomic_flags,
+        .width = width,
+        .condition = IREE_HAL_ATOMIC_WAIT_CONDITION_EQUAL,
     };
     IREE_ASSERT_OK(iree_hal_command_buffer_atomic_wait(
         command_buffer, IREE_HAL_EXECUTION_STAGE_ATOMIC,

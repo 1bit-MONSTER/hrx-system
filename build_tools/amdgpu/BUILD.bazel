@@ -37,6 +37,12 @@ iree_py_library(
     srcs = ["target_map_data.py"],
 )
 
+iree_py_library(
+    name = "target_map",
+    srcs = ["target_map.py"],
+    deps = [":target_map_data"],
+)
+
 iree_py_test(
     name = "target_map_data_test",
     srcs = ["target_map_data_test.py"],

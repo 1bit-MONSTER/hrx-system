@@ -95,6 +95,20 @@ typedef enum loom_amdgpu_mask_select_recipe_e {
 // Sparse ordered lane recipes retained only for immediates or equal inputs.
 typedef struct loom_amdgpu_select_lane_plan_t loom_amdgpu_select_lane_plan_t;
 
+// Retained state for independently selected packed payload elements.
+typedef struct loom_amdgpu_packed_select_payload_t {
+  // Bitfield insertion with a literal mask when the target supports it.
+  loom_low_lower_resolved_descriptor_t merge_descriptor;
+  // Materializes an SGPR mask for a register-form merge; empty for literals.
+  loom_low_lower_resolved_descriptor_t mask_constant_descriptor;
+  // Interned immediate name used by mask constants.
+  loom_string_id_t imm32_attr_name_id;
+  // Number of logical payload elements, excluding physical tail padding.
+  uint32_t element_count;
+  // Number of bits selected by each independent predicate.
+  uint32_t element_bit_count;
+} loom_amdgpu_packed_select_payload_t;
+
 typedef struct loom_amdgpu_vector_select_plan_t {
   // Source condition selecting true lanes.
   loom_value_id_t condition;
@@ -143,20 +157,8 @@ typedef struct loom_amdgpu_vector_select_plan_t {
         uint8_t false_value;
       } operands;
     } mask;
-    // Independent element choices are merged into their packed payload words.
-    struct {
-      // Bitfield insertion with a literal mask when the target supports it.
-      loom_low_lower_resolved_descriptor_t merge_descriptor;
-      // Materializes an SGPR mask for a register-form merge; empty for
-      // literals.
-      loom_low_lower_resolved_descriptor_t mask_constant_descriptor;
-      // Interned immediate name used by mask constants.
-      loom_string_id_t imm32_attr_name_id;
-      // Number of logical payload elements, excluding physical tail padding.
-      uint32_t element_count;
-      // Number of bits selected by each independent predicate.
-      uint32_t element_bit_count;
-    } packed;
+    // Independent element choices merged into their packed payload words.
+    loom_amdgpu_packed_select_payload_t packed;
   } payload;
   // Result vector value.
   loom_value_id_t result;

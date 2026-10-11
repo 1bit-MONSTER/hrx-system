@@ -158,9 +158,10 @@ TEST_P(VulkanFileTest, NativeFileShortReadExceedsStagingRingFails) {
   SemaphoreList read_signal(device_, {0}, {1});
   ResourceRefCountObservation observation = {&target_buffer.get()->resource};
   std::future<uint32_t> observed_ref_count = observation.result.get_future();
-  iree_async_semaphore_timepoint_t timepoint = {};
-  timepoint.callback = ObserveResourceRefCount;
-  timepoint.user_data = &observation;
+  iree_async_semaphore_timepoint_t timepoint = {
+      .callback = ObserveResourceRefCount,
+      .user_data = &observation,
+  };
   IREE_ASSERT_OK(iree_async_semaphore_acquire_timepoint(
       reinterpret_cast<iree_async_semaphore_t*>(read_signal.semaphores[0]), 1,
       &timepoint));

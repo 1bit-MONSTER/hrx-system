@@ -60,15 +60,15 @@ class MemoryScopeTest : public ::testing::Test {
 
 TEST(MemoryTransitionRecipeTest, ValidatesEffectsAndQueueOperationShape) {
   iree_hal_memory_transition_recipe_info_t operation = {
-      /*.kind=*/IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
-      /*.executor=*/IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE,
-      /*.operation=*/IREE_HAL_MEMORY_TRANSITION_OPERATION_RELEASE_TO_SYSTEM,
-      /*.range_granularity=*/64,
+      .kind = IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
+      .executor = IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE,
+      .operation = IREE_HAL_MEMORY_TRANSITION_OPERATION_RELEASE_TO_SYSTEM,
+      .range_granularity = 64,
   };
   iree_hal_memory_transition_recipe_t recipe = {
-      /*.effects=*/{IREE_HAL_MEMORY_EFFECT_RANGE_RELEASE_TO_SYSTEM},
-      /*.operation_count=*/1,
-      /*.operations=*/&operation,
+      .effects = {IREE_HAL_MEMORY_EFFECT_RANGE_RELEASE_TO_SYSTEM},
+      .operation_count = 1,
+      .operations = &operation,
   };
   IREE_EXPECT_OK(iree_hal_memory_transition_recipe_validate(&recipe));
 
@@ -96,25 +96,28 @@ TEST(MemoryTransitionRecipeTest, ValidatesEffectsAndQueueOperationShape) {
 
 TEST(MemoryTransitionRecipeTest, QueueFamilyAdmitsItsHostExecutors) {
   iree_hal_queue_family_spec_t family_spec = {};
-  iree_hal_queue_family_t family = {};
-  family.spec = &family_spec;
+  iree_hal_queue_family_t family = {
+      .spec = &family_spec,
+  };
   iree_hal_memory_transition_recipe_info_t operation = {
-      /*.kind=*/IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
-      /*.executor=*/IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_API,
-      /*.operation=*/IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH,
-      /*.range_granularity=*/64,
+      .kind = IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
+      .executor = IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_API,
+      .operation = IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH,
+      .range_granularity = 64,
   };
   iree_hal_memory_transition_recipe_t recipe = {
-      /*.effects=*/{IREE_HAL_MEMORY_EFFECT_HOST_FLUSH},
-      /*.operation_count=*/1,
-      /*.operations=*/&operation,
+      .effects = {IREE_HAL_MEMORY_EFFECT_HOST_FLUSH},
+      .operation_count = 1,
+      .operations = &operation,
   };
-  iree_hal_buffer_barrier_t range = {};
-  range.recipe = &recipe;
-  iree_hal_barrier_t barrier = {};
-  barrier.effects = recipe.effects;
-  barrier.buffer_barrier_count = 1;
-  barrier.buffer_barriers = &range;
+  iree_hal_buffer_barrier_t range = {
+      .recipe = &recipe,
+  };
+  iree_hal_barrier_t barrier = {
+      .effects = recipe.effects,
+      .buffer_barrier_count = 1,
+      .buffer_barriers = &range,
+  };
   IREE_EXPECT_STATUS_IS(IREE_STATUS_UNIMPLEMENTED,
                         iree_hal_barrier_validate(&barrier, &family));
   family_spec.flags = IREE_HAL_QUEUE_FAMILY_SPEC_FLAG_HOST_MEMORY_BARRIERS;

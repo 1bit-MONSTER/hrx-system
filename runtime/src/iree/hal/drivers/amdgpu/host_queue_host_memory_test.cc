@@ -52,15 +52,15 @@ class TestLogicalDevice {
         device_, create_context_.frontier_tracker(), host_allocator,
         &device_group_));
     const iree_hal_pool_family_access_t family_access = {
-        /*.family=*/iree_hal_queue_family(queue()),
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+        .family = iree_hal_queue_family(queue()),
+        .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
     };
     const iree_hal_pool_scope_t scope = {
-        /*.family_count=*/1,
-        /*.families=*/&family_access,
+        .family_count = 1,
+        .families = &family_access,
     };
     const iree_hal_pool_import_class_t import_class = {
-        /*.storage_class=*/iree_hal_make_external_storage_class(
+        .storage_class = iree_hal_make_external_storage_class(
             IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
     };
     iree_hal_slab_pool_options_t pool_options;
@@ -124,10 +124,11 @@ class HostQueueHostMemoryTest : public ::testing::Test {
   iree_status_t ImportHostAllocationBuffer(iree_hal_pool_t* pool,
                                            std::vector<uint8_t>* data,
                                            iree_hal_buffer_t** out_buffer) {
-    iree_hal_external_storage_t external_buffer = {};
-    external_buffer.storage_class = iree_hal_make_external_storage_class(
-        IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
-    external_buffer.byte_length = data->size();
+    iree_hal_external_storage_t external_buffer = {
+        .storage_class = iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+        .byte_length = data->size(),
+    };
     external_buffer.payload.host_pointer = data->data();
     return iree_hal_pool_import_buffer(
         pool, &external_buffer,
@@ -141,10 +142,10 @@ class HostQueueHostMemoryTest : public ::testing::Test {
                                             iree_hal_buffer_t** out_buffer) {
     *out_buffer = NULL;
     const iree_hal_amdgpu_buffer_spec_t spec = {
-        /*.type=*/IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE,
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
-        /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+        .type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE,
+        .access = IREE_HAL_MEMORY_ACCESS_ALL,
+        .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
+        .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
     };
 
     iree_hal_buffer_t* buffer = NULL;

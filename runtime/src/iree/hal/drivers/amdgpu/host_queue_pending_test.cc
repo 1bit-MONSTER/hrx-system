@@ -134,13 +134,12 @@ static iree_status_t CreateHostVisibleTransferBuffer(
     iree_hal_allocator_t* allocator, iree_device_size_t buffer_size,
     iree_hal_buffer_t** out_buffer) {
   const iree_hal_amdgpu_buffer_spec_t spec = {
-      /*.type=*/IREE_HAL_MEMORY_TYPE_OPTIMAL |
-          IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
-          IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER |
-          IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
-      /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+      .type = IREE_HAL_MEMORY_TYPE_OPTIMAL | IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
+              IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .usage =
+          IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED,
+      .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
   };
   return iree_hal_amdgpu_allocator_allocate_direct_buffer(
       allocator, spec, buffer_size, out_buffer);
@@ -234,10 +233,11 @@ static iree_status_t CreateExplicitFixedBlockPool(
       device_group, queue_family,
       IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
       /*host_access=*/{}, iree_allocator_system(), backing_pool.out()));
-  iree_hal_fixed_block_pool_options_t options = {};
-  options.block_size = block_size;
-  options.blocks_per_slab = 1;
-  options.frontier_capacity = 2;
+  iree_hal_fixed_block_pool_options_t options = {
+      .block_size = block_size,
+      .blocks_per_slab = 1,
+      .frontier_capacity = 2,
+  };
   IREE_RETURN_IF_ERROR(iree::hal::cts::CreateFiniteBlockPool(
       backing_pool, options, iree_allocator_system(), out_pool));
   *out_native_pool = backing_pool.release();
@@ -521,8 +521,8 @@ TEST_F(HostQueuePendingTest,
   IREE_ASSERT_OK(iree_hal_amdgpu_host_queue_enqueue_host_action(
       queue, wait_list,
       iree_hal_amdgpu_reclaim_action_t{
-          /*.fn=*/RecordHostAction,
-          /*.user_data=*/&action_state,
+          .fn = RecordHostAction,
+          .user_data = &action_state,
       },
       /*operation_resources=*/NULL, /*operation_resource_count=*/0,
       (iree_hal_amdgpu_queue_barrier_t){0}));
@@ -631,8 +631,8 @@ TEST_F(HostQueuePendingTest, CapacityParkedHostActionRetriesAfterPostDrain) {
     status = iree_hal_amdgpu_host_queue_enqueue_host_action(
         queue, iree_hal_semaphore_list_empty(),
         iree_hal_amdgpu_reclaim_action_t{
-            /*.fn=*/RecordHostAction,
-            /*.user_data=*/&action_state,
+            .fn = RecordHostAction,
+            .user_data = &action_state,
         },
         /*operation_resources=*/NULL, /*operation_resource_count=*/0,
         (iree_hal_amdgpu_queue_barrier_t){0});
