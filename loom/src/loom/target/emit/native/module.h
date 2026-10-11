@@ -52,7 +52,11 @@ typedef struct loom_native_module_elf_target_t {
   // Emits one definition to a writable, seekable stream. symbol_indices maps
   // module symbol IDs to native symbols; section_index locates these bytes.
   // Temporary schedules, allocations, and instructions use function_arena and
-  // expire after this call. Only stream bytes and appended fixups survive.
+  // expire after this call. When requested, compile_report receives compact
+  // per-function records before scratch retires; retained strings must belong
+  // to the module, target descriptors, or invocation scratch. The module owner
+  // merges these records and owns their cleanup. Stream bytes and appended
+  // fixups survive independently of reporting.
   iree_status_t (*emit_function)(const loom_target_emit_request_t* request,
                                  const loom_target_entry_t* entry,
                                  const void* context,

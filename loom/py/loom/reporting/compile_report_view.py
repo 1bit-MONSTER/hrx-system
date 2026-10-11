@@ -311,6 +311,33 @@ _METRIC_SPECS = (
         "next_worse.additional_units",
     ),
     _analysis("schedule_node_count", "schedule nodes", "schedule_node_count"),
+    _analysis("frame_build_count", "frame builds", "planning.frame_build_count"),
+    _analysis(
+        "allocation_run_count", "allocation runs", "planning.allocation_run_count"
+    ),
+    *(
+        _analysis(key, label, "planning.repair." + key)
+        for key, label in (
+            ("iteration_count", "repair iterations"),
+            ("rematerialized_operand_count", "rematerialized operands"),
+            ("retained_placement_count", "retained producer placements"),
+            ("live_range_split_operand_count", "split live-range operands"),
+            ("spill_materialization_batch_count", "spill materialization batches"),
+        )
+    ),
+    *(
+        _analysis(
+            arena + "_used_bytes_high_water",
+            label + " arena used high water",
+            "planning.memory." + arena + ".used_bytes_high_water",
+            "bytes",
+        )
+        for arena, label in (
+            ("frame_arena", "frame"),
+            ("repair_arena", "repair"),
+            ("scratch_arena", "scratch"),
+        )
+    ),
     _analysis(
         "schedule_dependency_count",
         "schedule dependencies",

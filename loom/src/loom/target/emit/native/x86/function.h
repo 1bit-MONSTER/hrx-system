@@ -107,12 +107,15 @@ iree_status_t loom_x86_function_prepare(
 // |symbol_indices| translates retained module symbol IDs into object symbols.
 // |fixups| has space for |function->symbol_fixup_count| records relative to the
 // supplied section contribution. Both may be NULL when the function has no
-// symbol references.
+// symbol references. The optional instruction count includes expanded
+// descriptor sequences, entry/exit preservation, and upper-vector-state
+// cleanup.
 iree_status_t loom_x86_function_write(const loom_x86_function_t* function,
                                       const uint32_t* symbol_indices,
                                       iree_host_size_t section_index,
                                       loom_native_object_fixup_t* fixups,
                                       iree_io_stream_t* stream,
+                                      uint64_t* out_instruction_count,
                                       iree_arena_allocator_t* arena);
 
 #ifdef __cplusplus

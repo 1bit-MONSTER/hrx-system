@@ -74,8 +74,10 @@ TEST_F(FunctionTest, EmptyLeafNeedsOnlyReturn) {
   function.block_starts = block_starts;
   function.block_count = 1;
 
+  uint64_t instruction_count = 0;
   IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
-                                         stream_, &arena_));
+                                         stream_, &instruction_count, &arena_));
+  EXPECT_EQ(instruction_count, 1u);
   EXPECT_EQ(Read(), Encode(Instruction(LOOM_X86_ENCODING_FORM_RETURN)));
 }
 
@@ -86,8 +88,10 @@ TEST_F(FunctionTest, DirtyUpperVectorStateCleansBeforeReturn) {
   function.block_count = 1;
   function.may_dirty_upper_vector_state = true;
 
+  uint64_t instruction_count = 0;
   IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
-                                         stream_, &arena_));
+                                         stream_, &instruction_count, &arena_));
+  EXPECT_EQ(instruction_count, 2u);
   EXPECT_EQ(Read(), std::string("\xc5\xf8\x77\xc3", 4));
 }
 
@@ -99,8 +103,10 @@ TEST_F(FunctionTest, DirtyUpperVectorStatePreservesWideResult) {
   function.may_dirty_upper_vector_state = true;
   function.has_upper_vector_result = true;
 
+  uint64_t instruction_count = 0;
   IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
-                                         stream_, &arena_));
+                                         stream_, &instruction_count, &arena_));
+  EXPECT_EQ(instruction_count, 1u);
   EXPECT_EQ(Read(), Encode(Instruction(LOOM_X86_ENCODING_FORM_RETURN)));
 }
 
@@ -119,8 +125,10 @@ TEST_F(FunctionTest, DirtyUpperVectorStateCleansBeforeEligibleCall) {
   function.upper_vector_call_cleanup_indices = cleanup_indices;
   function.upper_vector_call_cleanup_count = IREE_ARRAYSIZE(cleanup_indices);
 
+  uint64_t instruction_count = 0;
   IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
-                                         stream_, &arena_));
+                                         stream_, &instruction_count, &arena_));
+  EXPECT_EQ(instruction_count, 4u);
   EXPECT_EQ(Read(), std::string("\xc5\xf8\x77", 3) + Encode(instructions[0]) +
                         std::string("\xc5\xf8\x77\xc3", 4));
 }
@@ -143,7 +151,7 @@ TEST_F(FunctionTest, PackedVectorRecipeUsesOrdinaryWriterPath) {
   };
 
   IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
-                                         stream_, &arena_));
+                                         stream_, nullptr, &arena_));
   EXPECT_EQ(Read(), std::string("\x62\xa1\x6d\x40\xfe\xcb\xc3", 7));
 }
 
@@ -166,7 +174,7 @@ TEST_F(FunctionTest, ReadOnlyDataUsesGenericObjectFixup) {
   loom_native_object_fixup_t fixup = {};
 
   IREE_ASSERT_OK(loom_x86_function_write(&function, symbol_indices, 5, &fixup,
-                                         stream_, &arena_));
+                                         stream_, nullptr, &arena_));
 
   EXPECT_EQ(Read(), std::string("\xc5\xfa\x6f\x0d\0\0\0\0\xc3", 9));
   EXPECT_EQ(fixup.section_contribution_index, 5u);
@@ -209,7 +217,7 @@ TEST_F(FunctionTest, RestoreStackAndRegistersAfterResultTransport) {
       /*.stack=*/{24, 16, {}},
   };
   IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
-                                         stream_, &arena_));
+                                         stream_, nullptr, &arena_));
 
   loom_x86_encoding_operands_t rbx = {};
   rbx.inputs[0] = 3;
@@ -272,7 +280,7 @@ TEST_F(FunctionTest, BranchesSkipEntryTransportAndPreservation) {
   const std::string prefix = Encode(Instruction(LOOM_X86_ENCODING_FORM_RETURN));
   IREE_ASSERT_OK(iree_io_stream_write(stream_, prefix.size(), prefix.data()));
   IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
-                                         stream_, &arena_));
+                                         stream_, nullptr, &arena_));
   EXPECT_EQ(iree_io_stream_offset(stream_), iree_io_stream_length(stream_));
 
   const size_t branch_length = Encode(instructions[1]).size();
@@ -312,8 +320,10 @@ TEST_F(FunctionTest, RealignmentRestoresTheSavedStackPointerBeforePops) {
   function.stack.realignment.mask = -64;
   function.stack.realignment.saved_pointer_offset = 8;
   function.stack.realignment.scratch_register = 11;
+  uint64_t instruction_count = 0;
   IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
-                                         stream_, &arena_));
+                                         stream_, &instruction_count, &arena_));
+  EXPECT_EQ(instruction_count, 8u);
 
   loom_x86_encoding_operands_t rbx = {};
   rbx.inputs[0] = 3;
@@ -374,7 +384,7 @@ TEST_F(FunctionTest, SymbolFixupsKeepSectionOffsetsAndTheirOwnNamespace) {
   const uint32_t symbol_indices[] = {4, 1, 3};
   loom_native_object_fixup_t fixups[2];
   IREE_ASSERT_OK(loom_x86_function_write(&function, symbol_indices, 5, fixups,
-                                         stream_, &arena_));
+                                         stream_, nullptr, &arena_));
   // SUB rsp,8 occupies seven bytes. The first LEA's disp32 begins three bytes
   // later; the CALL's displacement follows its one-byte opcode.
   EXPECT_EQ(fixups[0].section_contribution_index, 5u);
@@ -400,7 +410,7 @@ TEST_F(FunctionTest, FramePointerDoesNotSuppressOutgoingStackRealignment) {
   function.stack.has_frame_pointer = true;
   function.stack.realignment.mask = -32;
   IREE_ASSERT_OK(loom_x86_function_write(&function, nullptr, 0, nullptr,
-                                         stream_, &arena_));
+                                         stream_, nullptr, &arena_));
 
   loom_x86_encoding_operands_t rbx = {};
   rbx.inputs[0] = 3;

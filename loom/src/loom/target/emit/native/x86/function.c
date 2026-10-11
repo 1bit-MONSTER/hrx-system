@@ -1112,50 +1112,62 @@ typedef struct loom_x86_branch_fixup_t {
   uint32_t target;
 } loom_x86_branch_fixup_t;
 
+// The writer accumulates physical instruction counts where bytes are emitted.
+// Branch relocation overwrites existing fields and contributes no instructions.
+typedef struct loom_x86_function_writer_t {
+  // Borrowed output stream for the current function.
+  iree_io_stream_t* stream;
+  // Physical instructions emitted, including the preservation envelope.
+  uint64_t instruction_count;
+} loom_x86_function_writer_t;
+
 static iree_status_t loom_x86_function_write_encoding(
-    iree_io_stream_t* stream, loom_x86_encoding_form_t form,
+    loom_x86_function_writer_t* writer, loom_x86_encoding_form_t form,
     uint16_t encoding_id, loom_x86_encoding_operands_t operands) {
   loom_x86_encoded_instruction_t instruction;
   loom_x86_encode_instruction(form, encoding_id, &operands, &instruction);
-  return iree_io_stream_write(stream, instruction.length, instruction.bytes);
+  writer->instruction_count += instruction.instruction_count;
+  return iree_io_stream_write(writer->stream, instruction.length,
+                              instruction.bytes);
 }
 
 static iree_status_t loom_x86_function_write_stack(
-    iree_io_stream_t* stream, loom_x86_encoding_form_t form, uint8_t reg) {
+    loom_x86_function_writer_t* writer, loom_x86_encoding_form_t form,
+    uint8_t reg) {
   return loom_x86_function_write_encoding(
-      stream, form, 0, (loom_x86_encoding_operands_t){.inputs = {reg}});
+      writer, form, 0, (loom_x86_encoding_operands_t){.inputs = {reg}});
 }
 
 static iree_status_t loom_x86_function_write_stack_enter(
-    const loom_x86_function_t* function, iree_io_stream_t* stream) {
+    const loom_x86_function_t* function, loom_x86_function_writer_t* writer) {
   if (function->stack.has_frame_pointer) {
     IREE_RETURN_IF_ERROR(loom_x86_function_write_encoding(
-        stream, LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
+        writer, LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
         (loom_x86_encoding_operands_t){.result = 5, .inputs = {4}}));
   } else if (function->stack.realignment.mask) {
     IREE_RETURN_IF_ERROR(loom_x86_function_write_encoding(
-        stream, LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
+        writer, LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
         (loom_x86_encoding_operands_t){
             .result = function->stack.realignment.scratch_register,
             .inputs = {4}}));
   }
   if (function->stack.realignment.mask) {
     IREE_RETURN_IF_ERROR(loom_x86_function_write_encoding(
-        stream, LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+        writer, LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
         0x81 | (4u << 9) | LOOM_X86_ENCODING_REX_W,
         (loom_x86_encoding_operands_t){
             .immediate = function->stack.realignment.mask, .result = 4}));
   }
   if (function->stack.allocation_size) {
     IREE_RETURN_IF_ERROR(loom_x86_function_write_encoding(
-        stream, LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+        writer, LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
         0x81 | (5u << 9) | LOOM_X86_ENCODING_REX_W,
         (loom_x86_encoding_operands_t){
             .immediate = function->stack.allocation_size, .result = 4}));
   }
   if (function->stack.realignment.mask && !function->stack.has_frame_pointer) {
     IREE_RETURN_IF_ERROR(loom_x86_function_write_encoding(
-        stream, LOOM_X86_ENCODING_FORM_STORE, 0x89 | LOOM_X86_ENCODING_REX_W,
+        writer, LOOM_X86_ENCODING_FORM_STORE, 0x89 | LOOM_X86_ENCODING_REX_W,
         (loom_x86_encoding_operands_t){
             .immediate = function->stack.realignment.saved_pointer_offset,
             .inputs = {function->stack.realignment.scratch_register, 4}}));
@@ -1164,15 +1176,15 @@ static iree_status_t loom_x86_function_write_stack_enter(
 }
 
 static iree_status_t loom_x86_function_write_stack_leave(
-    const loom_x86_function_t* function, iree_io_stream_t* stream) {
+    const loom_x86_function_t* function, loom_x86_function_writer_t* writer) {
   if (function->stack.has_frame_pointer) {
     return loom_x86_function_write_encoding(
-        stream, LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
+        writer, LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
         (loom_x86_encoding_operands_t){.result = 4, .inputs = {5}});
   }
   if (function->stack.realignment.mask) {
     return loom_x86_function_write_encoding(
-        stream, LOOM_X86_ENCODING_FORM_LOAD, 0x8b | LOOM_X86_ENCODING_REX_W,
+        writer, LOOM_X86_ENCODING_FORM_LOAD, 0x8b | LOOM_X86_ENCODING_REX_W,
         (loom_x86_encoding_operands_t){
             .immediate = function->stack.realignment.saved_pointer_offset,
             .result = 4,
@@ -1180,7 +1192,7 @@ static iree_status_t loom_x86_function_write_stack_leave(
   }
   if (function->stack.allocation_size) {
     return loom_x86_function_write_encoding(
-        stream, LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+        writer, LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
         0x81 | LOOM_X86_ENCODING_REX_W,
         (loom_x86_encoding_operands_t){
             .immediate = function->stack.allocation_size, .result = 4});
@@ -1189,9 +1201,10 @@ static iree_status_t loom_x86_function_write_stack_leave(
 }
 
 static iree_status_t loom_x86_function_write_upper_vector_state_cleanup(
-    iree_io_stream_t* stream) {
+    loom_x86_function_writer_t* writer) {
   static const uint8_t bytes[] = {0xc5, 0xf8, 0x77};
-  return iree_io_stream_write(stream, sizeof(bytes), bytes);
+  ++writer->instruction_count;
+  return iree_io_stream_write(writer->stream, sizeof(bytes), bytes);
 }
 
 iree_status_t loom_x86_function_write(const loom_x86_function_t* function,
@@ -1199,7 +1212,12 @@ iree_status_t loom_x86_function_write(const loom_x86_function_t* function,
                                       iree_host_size_t section_index,
                                       loom_native_object_fixup_t* symbol_fixups,
                                       iree_io_stream_t* stream,
+                                      uint64_t* out_instruction_count,
                                       iree_arena_allocator_t* arena) {
+  if (out_instruction_count) {
+    *out_instruction_count = 0;
+  }
+  loom_x86_function_writer_t writer = {.stream = stream};
   const iree_io_stream_pos_t function_start = iree_io_stream_offset(stream);
   iree_io_stream_pos_t* block_offsets = NULL;
   loom_x86_branch_fixup_t* fixups = NULL;
@@ -1211,12 +1229,12 @@ iree_status_t loom_x86_function_write(const loom_x86_function_t* function,
   iree_status_t status = iree_ok_status();
   for (uint8_t reg = 0; reg < 16 && iree_status_is_ok(status); ++reg) {
     if (function->saved_registers & (1u << reg)) {
-      status = loom_x86_function_write_stack(stream,
+      status = loom_x86_function_write_stack(&writer,
                                              LOOM_X86_ENCODING_FORM_PUSH, reg);
     }
   }
   if (iree_status_is_ok(status)) {
-    status = loom_x86_function_write_stack_enter(function, stream);
+    status = loom_x86_function_write_stack_enter(function, &writer);
   }
   iree_host_size_t fixup_count = 0;
   iree_host_size_t symbol_fixup_index = 0;
@@ -1232,7 +1250,7 @@ iree_status_t loom_x86_function_write(const loom_x86_function_t* function,
     if (function->may_dirty_upper_vector_state &&
         call_cleanup_index < function->upper_vector_call_cleanup_count &&
         function->upper_vector_call_cleanup_indices[call_cleanup_index] == i) {
-      status = loom_x86_function_write_upper_vector_state_cleanup(stream);
+      status = loom_x86_function_write_upper_vector_state_cleanup(&writer);
       ++call_cleanup_index;
       if (!iree_status_is_ok(status)) {
         break;
@@ -1242,6 +1260,7 @@ iree_status_t loom_x86_function_write(const loom_x86_function_t* function,
     loom_x86_encode_instruction(prepared->encoding_format_id,
                                 prepared->encoding_id, &prepared->operands,
                                 &instruction);
+    writer.instruction_count += instruction.instruction_count;
     const bool is_call =
         prepared->encoding_format_id == LOOM_X86_ENCODING_FORM_CALL;
     const bool is_symbol_address =
@@ -1273,22 +1292,22 @@ iree_status_t loom_x86_function_write(const loom_x86_function_t* function,
     block_offsets[block++] = iree_io_stream_offset(stream);
   }
   if (iree_status_is_ok(status)) {
-    status = loom_x86_function_write_stack_leave(function, stream);
+    status = loom_x86_function_write_stack_leave(function, &writer);
   }
   for (uint8_t i = 16; i > 0 && iree_status_is_ok(status); --i) {
     const uint8_t reg = i - 1;
     if (function->saved_registers & (1u << reg)) {
-      status = loom_x86_function_write_stack(stream, LOOM_X86_ENCODING_FORM_POP,
-                                             reg);
+      status = loom_x86_function_write_stack(&writer,
+                                             LOOM_X86_ENCODING_FORM_POP, reg);
     }
   }
   if (iree_status_is_ok(status) && function->may_dirty_upper_vector_state &&
       !function->has_upper_vector_result) {
-    status = loom_x86_function_write_upper_vector_state_cleanup(stream);
+    status = loom_x86_function_write_upper_vector_state_cleanup(&writer);
   }
   if (iree_status_is_ok(status)) {
-    status =
-        loom_x86_function_write_stack(stream, LOOM_X86_ENCODING_FORM_RETURN, 0);
+    status = loom_x86_function_write_stack(&writer,
+                                           LOOM_X86_ENCODING_FORM_RETURN, 0);
   }
   const iree_io_stream_pos_t end = iree_io_stream_offset(stream);
   for (iree_host_size_t i = 0; i < fixup_count && iree_status_is_ok(status);
@@ -1311,6 +1330,9 @@ iree_status_t loom_x86_function_write(const loom_x86_function_t* function,
   }
   if (iree_status_is_ok(status)) {
     status = iree_io_stream_seek(stream, IREE_IO_STREAM_SEEK_SET, end);
+  }
+  if (iree_status_is_ok(status) && out_instruction_count) {
+    *out_instruction_count = writer.instruction_count;
   }
   return status;
 }

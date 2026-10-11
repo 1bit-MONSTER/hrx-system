@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//build_tools/bazel:executable.bzl", "iree_executable_test")
+load("//build_tools/bazel:python.bzl", "iree_py_test")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "loom_cc_library",
@@ -173,6 +174,8 @@ loom_cc_library(
         "//loom/src/loom/codegen/low:target_binding",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/target/emit/native:module",
+        "//loom/src/loom/target/reporting:low",
+        "//loom/src/loom/target/reporting:report",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/io:stream",
@@ -210,6 +213,28 @@ loom_check_test(
     target_compatible_with = loom_config_compatible_with([
         "//loom/config/target/arch:x86",
     ]),
+)
+
+iree_py_test(
+    name = "report_test",
+    srcs = ["report_test.py"],
+    args = [
+        "$(rootpath //loom/src/loom/tools/loom-compile:loom-compile)",
+        "$(rootpath test/callable.loom)",
+        "$(rootpath test/hal_dispatch.loom)",
+    ],
+    data = [
+        "test/callable.loom",
+        "test/hal_dispatch.loom",
+        "//loom/src/loom/tools/loom-compile",
+    ],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+    ]),
+    deps = [
+        "//loom/py/loom/reporting",
+        "//loom/py/loom/tools:compile_report",
+    ],
 )
 
 # The native object is a normal linker input. The caller contains no compiler
