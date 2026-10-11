@@ -487,7 +487,7 @@ iree_status_t loom_check_trial_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
-// LOOM_OP_CHECK_COMPARE: Ends a trial by independently invoking target and oracle subjects and checking their explicit typed observations. A single subject is used for both profiles; an optional second subject supplies the oracle implementation.
+// LOOM_OP_CHECK_COMPARE: Ends a trial by independently invoking target and oracle subjects and checking their explicit typed observations. A single subject is used for both profiles; an optional second subject supplies the oracle implementation. Call parameters configure the target. A distinct ordinary function oracle receives only the shared arguments; another product-shaped oracle receives the same call parameters as the target.
 // check.compare<@logarithm>(%bits) : (i32) -> [actual(%actual: f32), expected(%expected: f32)] {
 //   check.expect.close actual(%actual) expected(%expected) atol(0.0) rtol(1.0e-6) nan(same) : f32
 // }

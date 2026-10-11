@@ -687,8 +687,15 @@ iree_status_t loom_check_compare_verify(const loom_module_t* module,
        oracle_callee.symbol_id == callee.symbol_id)) {
     return iree_ok_status();
   }
+  const loom_symbol_t* oracle_symbol =
+      loom_check_lookup_subject(module, oracle_callee);
+  const loom_value_slice_t oracle_parameters =
+      oracle_symbol && loom_symbol_implements(oracle_symbol,
+                                              LOOM_SYMBOL_INTERFACE_CALLABLE)
+          ? (loom_value_slice_t){0}
+          : parameters;
   return loom_check_verify_compare_subject(
-      module, op, oracle_callee, parameters, arguments, expected_results,
+      module, op, oracle_callee, oracle_parameters, arguments, expected_results,
       IREE_SV("expected results"), emitter);
 }
 

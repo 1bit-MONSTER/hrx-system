@@ -1223,72 +1223,11 @@ loom_test_module(
 endif()
 
 if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
-    aiter_swiglu_f16_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "aiter_swiglu_f16_checks.loom"
-    "aiter_swiglu_f16_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=aiter_swiglu_f16"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
-    flash_attention_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "flash_attention_checks.loom"
-    "flash_attention_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=flash_attention"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
-    llama_rms_norm_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "llama_rms_norm_checks.loom"
-    "llama_rms_norm_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=llama_rms_norm"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
     aiter_swiglu_f16_module
   SRCS
     "aiter_swiglu_f16.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/aiter_swiglu_f16_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/aiter_swiglu_f16_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/aiter_swiglu_f16_checks.loom"
   INPUTOPTS
     "cxx:approximate-functions=true"
 )
@@ -1300,10 +1239,6 @@ loom_test_module(
     flash_attention_module
   SRCS
     "flash_attention.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/flash_attention_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/flash_attention_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/flash_attention_checks.loom"
   INPUTOPTS
     "cxx:approximate-functions=true"
 )
@@ -1315,10 +1250,6 @@ loom_test_module(
     llama_rms_norm_module
   SRCS
     "llama_rms_norm.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/llama_rms_norm_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/llama_rms_norm_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/llama_rms_norm_checks.loom"
   INPUTOPTS
     "cxx:approximate-functions=true"
 )
