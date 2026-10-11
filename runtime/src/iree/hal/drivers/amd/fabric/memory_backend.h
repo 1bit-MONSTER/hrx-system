@@ -34,8 +34,9 @@ typedef struct iree_hal_amd_fabric_memory_family_t {
   iree_hal_buffer_usage_t supported_usage;
   // Native permissions required even when logical HAL usage is narrower.
   amdf_memory_access_t minimum_access;
-  // Private host access required by the engine, independent of public mappings.
-  amdf_memory_map_flags_t host_access;
+  // Usages implemented through a private CPU view, independent of public
+  // mappings. These require qualified host/device cache transitions.
+  iree_hal_buffer_usage_t host_usage;
   // Number of entries in |bindings|.
   uint32_t binding_count;
   // Borrowed unique non-HOST interfaces prepared for this family's buffers.

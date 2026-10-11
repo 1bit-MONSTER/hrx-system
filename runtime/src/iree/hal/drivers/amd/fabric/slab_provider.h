@@ -29,6 +29,8 @@ typedef struct iree_hal_amd_fabric_import_route_t {
   iree_hal_pool_import_class_t policy;
   // Profile qualified against the provider's complete device access set.
   amdf_memory_profile_t profile;
+  // Correlated backing flags required for this route and its exports.
+  amdf_memory_flags_t required_flags;
 } iree_hal_amd_fabric_import_route_t;
 
 // Cold native construction contract copied into one slab provider.

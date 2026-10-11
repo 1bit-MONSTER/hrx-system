@@ -556,6 +556,18 @@ TEST_P(QueueAllocaTest, NestedBufferPoolsPreserveRangesAndOwnership) {
   IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
       arena_backing, 32, 448, &tlsf_options, iree_allocator_system(),
       arena.out()));
+  // The finite allocator rounds inward to independently maintainable ranges.
+  // Private CPU transfers can require this granularity without public maps.
+  const auto source_memory = iree_hal_buffer_memory_view(source);
+  const iree_device_size_t alignment = std::max<iree_device_size_t>(
+      16, source_memory.backing->maintenance_alignment);
+  const iree_device_size_t arena_begin =
+      iree_device_align(source_memory.offset + 1056, alignment) -
+      source_memory.offset;
+  const iree_device_size_t arena_end =
+      ((source_memory.offset + 1504) & ~(alignment - 1)) - source_memory.offset;
+  const iree_device_size_t second_begin =
+      arena_begin + iree_device_align(64, alignment);
   arena_backing.reset();
   Ref<iree_hal_buffer_t> first;
   Ref<iree_hal_buffer_t> second;
@@ -578,10 +590,10 @@ TEST_P(QueueAllocaTest, NestedBufferPoolsPreserveRangesAndOwnership) {
     if (i >= 1024 && i < 1536) {
       expected = 0x33;
     }
-    if (i >= 1056 && i < 1120) {
+    if (i >= arena_begin && i < arena_begin + 64) {
       expected = 0xAB;
     }
-    if (i >= 1120 && i < 1184) {
+    if (i >= second_begin && i < second_begin + 64) {
       expected = 0xCD;
     }
     ASSERT_EQ(expected, values[i]) << "byte " << i;
@@ -593,7 +605,7 @@ TEST_P(QueueAllocaTest, NestedBufferPoolsPreserveRangesAndOwnership) {
   iree_hal_pool_stats_t stats;
   iree_hal_pool_query_stats(arena, &stats);
   EXPECT_EQ(0u, stats.reservation_count);
-  EXPECT_EQ(448u, stats.bytes_committed);
+  EXPECT_EQ(arena_end - arena_begin, stats.bytes_committed);
   iree_hal_pool_query_stats(blocks, &stats);
   EXPECT_EQ(2u, stats.reservation_count);
   arena.reset();

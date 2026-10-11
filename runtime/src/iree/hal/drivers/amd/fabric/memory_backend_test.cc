@@ -68,7 +68,8 @@ struct FakeNative {
     out_info->kind = self->memory_class == AMDF_MEMORY_CLASS_LOCAL
                          ? AMDF_MEMORY_SCOPE_KIND_LOCAL
                          : AMDF_MEMORY_SCOPE_KIND_SYSTEM;
-    out_info->memory_profile_count = self->registration_enabled ? 2 : 1;
+    out_info->memory_profile_count =
+        self->registration_enabled || self->native_transport_enabled ? 2 : 1;
     return AMDF_STATUS_OK;
   }
 
@@ -78,7 +79,9 @@ struct FakeNative {
       amdf_memory_profile_t* out_profile,
       amdf_memory_access_capabilities_t* out_capabilities) {
     auto* self = reinterpret_cast<FakeNative*>(base_scope);
-    EXPECT_LT(profile_ordinal, self->registration_enabled ? 2u : 1u);
+    EXPECT_LT(
+        profile_ordinal,
+        self->registration_enabled || self->native_transport_enabled ? 2u : 1u);
     EXPECT_EQ(access_count, 2u);
     EXPECT_EQ(accesses[0].device, self->devices[0]);
     EXPECT_EQ(accesses[1].device, self->devices[1]);
@@ -119,7 +122,7 @@ struct FakeNative {
         : self->supports_private_mapping
             ? AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE
             : AMDF_MEMORY_MAP_FLAG_READ;
-    if (profile_ordinal == 1) {
+    if (profile_ordinal == 1 && self->registration_enabled) {
       out_profile->roles =
           AMDF_MEMORY_PROFILE_ROLE_REGISTER | AMDF_MEMORY_PROFILE_ROLE_HOST_MAP;
       out_profile->allocation = {};
@@ -131,6 +134,22 @@ struct FakeNative {
       out_profile->registration.minimum_alignment = 1;
       out_profile->registration.maximum_alignment = 4096;
       out_profile->registration.native_byte_length_granularity = 4096;
+    }
+    if (self->native_transport_enabled) {
+      out_profile->roles |= AMDF_MEMORY_PROFILE_ROLE_EXPORT;
+      out_profile->supported_flags |= AMDF_MEMORY_FLAG_SHAREABLE;
+      out_profile->external_memory_support_count = 1;
+      auto& support = out_profile->external_memory_support[0];
+      support.type = AMDF_EXTERNAL_MEMORY_TYPE_DMA_BUF_FD;
+      support.flags = AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_EXPORT;
+      support.byte_length_alignment = 192;
+      if (profile_ordinal == 1) {
+        out_profile->roles &= ~AMDF_MEMORY_PROFILE_ROLE_CREATE;
+        out_profile->roles |= AMDF_MEMORY_PROFILE_ROLE_IMPORT;
+        out_profile->import = out_profile->allocation;
+        out_profile->allocation = {};
+        support.flags |= AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_IMPORT;
+      }
     }
     return AMDF_STATUS_OK;
   }
@@ -148,17 +167,30 @@ struct FakeNative {
                            const amdf_memory_profile_pair_query_t* query,
                            amdf_memory_pair_info_t* out_info) {
     auto* self = reinterpret_cast<FakeNative*>(base_scope);
-    const bool registered = query->memory_profile_ordinal == 1;
-    EXPECT_LT(query->memory_profile_ordinal,
-              self->registration_enabled ? 2u : 1u);
+    const bool registered =
+        query->memory_profile_ordinal == 1 && self->registration_enabled;
+    const bool imported =
+        query->memory_profile_ordinal == 1 && self->native_transport_enabled;
+    EXPECT_LT(
+        query->memory_profile_ordinal,
+        self->registration_enabled || self->native_transport_enabled ? 2u : 1u);
     EXPECT_EQ(query->registered_host_cacheability,
               registered ? AMDF_HOST_CACHEABILITY_WRITE_BACK
                          : AMDF_HOST_CACHEABILITY_UNKNOWN);
     EXPECT_EQ(query->access_count, 2u);
     EXPECT_EQ(query->required_flags, self->required_flags);
+    EXPECT_EQ(query->external_memory_type,
+              imported ? AMDF_EXTERNAL_MEMORY_TYPE_DMA_BUF_FD
+                       : AMDF_EXTERNAL_MEMORY_TYPE_NONE);
+    EXPECT_EQ(query->external_memory_provenance.words[0], 0u);
+    EXPECT_EQ(query->external_memory_provenance.words[1], 0u);
     EXPECT_EQ(query->accesses[0].device, self->devices[0]);
     EXPECT_EQ(query->accesses[1].device, self->devices[1]);
     ++self->pair_query_count;
+    if (imported && (query->producer.kind == AMDF_MEMORY_SITE_KIND_HOST ||
+                     query->consumer.kind == AMDF_MEMORY_SITE_KIND_HOST)) {
+      return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+    }
     if (registered && self->registration_transition_unknown) {
       return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
     }
@@ -228,6 +260,9 @@ struct FakeNative {
     auto* self = reinterpret_cast<FakeNative*>(scope);
     EXPECT_EQ(info->access_count, 2u);
     EXPECT_EQ(info->required_flags, self->required_flags);
+    if (self->native_transport_enabled) {
+      EXPECT_EQ(info->byte_length % 12288, 0u);
+    }
     for (uint32_t i = 0; i < info->access_count; ++i) {
       EXPECT_EQ(info->accesses[i].device, self->devices[i]);
       EXPECT_EQ(info->accesses[i].requirements.address_kinds,
@@ -351,6 +386,8 @@ struct FakeNative {
   bool require_device_transition = false;
   // Whether a separate host registration profile is offered.
   bool registration_enabled = false;
+  // Native handle profile with device reach and unqualified CPU cache access.
+  bool native_transport_enabled = false;
   // Missing native visibility qualification for the registration route.
   bool registration_transition_unknown = false;
   // Arms host allocation failure once native attachment/bindings are complete.
@@ -387,8 +424,7 @@ class MemoryBackendTest : public ::testing::Test {
           IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
       native_families_[i].minimum_access =
           AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
-      native_families_[i].host_access =
-          AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE;
+      native_families_[i].host_usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
       native_families_[i].binding_count = 1;
       native_families_[i].bindings = &binding_descriptions_[i];
       iree_hal_amd_fabric_memory_backend_options_t memory_options = {
@@ -640,7 +676,9 @@ TEST_F(MemoryBackendTest, PublishesQueueGlobalDeviceTransition) {
 TEST_F(MemoryBackendTest, RejectsProfileWithoutPrivateReadWriteMapping) {
   native_.supports_private_mapping = false;
   iree_hal_pool_t* pool = nullptr;
-  iree_status_t status = CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool);
+  iree_status_t status =
+      CreatePool(IREE_HAL_BUFFER_USAGE_TRANSFER, &pool, /*interfaces=*/0,
+                 IREE_HAL_MEMORY_ACCESS_NONE);
   EXPECT_THAT(status, StatusIs(iree::StatusCode::kUnavailable));
   iree_status_free(status);
   EXPECT_EQ(pool, nullptr);
@@ -723,6 +761,68 @@ TEST_F(MemoryBackendTest, RegistrationRequiresItsOwnVisibilityQualification) {
                         CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
   EXPECT_EQ(pool, nullptr);
   EXPECT_EQ(native_.create_count, 0);
+}
+
+TEST_F(MemoryBackendTest, NativeImportsQualifyExactTransportAndPrivateCpuUses) {
+  native_.native_transport_enabled = true;
+  native_.required_flags = 0;
+  iree_hal_pool_import_class_t import_class = {
+      {IREE_HAL_EXTERNAL_STORAGE_TYPE_DMA_BUF_FD, {0, 0}}, {}};
+  pool_options_.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+  pool_options_.imports.class_count = 1;
+  pool_options_.imports.classes = &import_class;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool,
+                            /*interfaces=*/0, IREE_HAL_MEMORY_ACCESS_NONE));
+  iree_hal_pool_import_requirements_t requirements;
+  ASSERT_TRUE(iree_hal_pool_query_import_requirements(
+      pool, import_class.storage_class, &requirements));
+  EXPECT_EQ(requirements.byte_length_granularity, 12288u);
+  iree_hal_pool_release(pool);
+  pool = nullptr;
+
+  native_.required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
+                        CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+  EXPECT_EQ(pool, nullptr);
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNAVAILABLE,
+      CreatePool(IREE_HAL_BUFFER_USAGE_TRANSFER, &pool, /*interfaces=*/0,
+                 IREE_HAL_MEMORY_ACCESS_NONE));
+  EXPECT_EQ(pool, nullptr);
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNAVAILABLE,
+      CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool, /*interfaces=*/0,
+                 IREE_HAL_MEMORY_ACCESS_NONE, IREE_HAL_BUFFER_USAGE_STORAGE));
+  EXPECT_EQ(pool, nullptr);
+  EXPECT_EQ(native_.create_count, 0);
+
+  // Matching the transport type does not admit an unqualified protocol.
+  import_class.storage_class.provenance[0] = 1;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNAVAILABLE,
+      CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool, /*interfaces=*/0,
+                 IREE_HAL_MEMORY_ACCESS_NONE));
+  EXPECT_EQ(pool, nullptr);
+}
+
+TEST_F(MemoryBackendTest, NativeExportsCaptureShareableConstructionAndExtent) {
+  native_.native_transport_enabled = true;
+  native_.required_flags = AMDF_MEMORY_FLAG_SHAREABLE;
+  const iree_hal_external_storage_class_t storage_class = {
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_DMA_BUF_FD, {0, 0}};
+  pool_options_.owned.exports = {1, &storage_class};
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool,
+                            /*interfaces=*/0, IREE_HAL_MEMORY_ACCESS_NONE));
+  iree_hal_buffer_t* buffer = nullptr;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(64, 1),
+      iree_infinite_timeout(), &buffer));
+  EXPECT_EQ(iree_hal_buffer_byte_length(buffer), 64u);
+  EXPECT_EQ(native_.map_count, 0);
+  iree_hal_buffer_release(buffer);
+  iree_hal_pool_release(pool);
 }
 
 TEST_F(MemoryBackendTest, CoherentOwnedAndCachedImportedUseMappingRecipes) {
@@ -898,7 +998,7 @@ TEST_F(MemoryBackendTest, MixedEnginesAllocateOneBackingWithExactBindings) {
 
 TEST_F(MemoryBackendTest, DeviceOnlyContractOmitsHostBindingAndHostQueries) {
   for (uint32_t i = 0; i < 2; ++i) {
-    native_families_[i].host_access = 0;
+    native_families_[i].host_usage = 0;
     native_families_[i].minimum_access = AMDF_MEMORY_ACCESS_READ;
     binding_descriptions_[i] = {IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS,
                                 AMDF_MEMORY_ADDRESS_GPU};
@@ -1040,7 +1140,7 @@ TEST_F(MemoryBackendTest, CpuExecutionUsesNativeHostViewWithoutPublicMapping) {
 
 TEST_F(MemoryBackendTest, CpuReadOnlyAccessDoesNotRequirePrivateWrites) {
   for (auto& family : native_families_) {
-    family.host_access = 0;
+    family.host_usage = 0;
   }
   native_.supports_private_mapping = false;
   iree_hal_pool_t* pool = nullptr;

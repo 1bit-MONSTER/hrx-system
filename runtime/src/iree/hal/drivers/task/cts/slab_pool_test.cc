@@ -336,7 +336,7 @@ TEST_P(TaskSlabPoolTest, ImportsFiniteExternalRangeWithExactOwnership) {
   EXPECT_TRUE(iree_hal_pool_query_import_requirements(
       source, host_pointer_class, &import_requirements));
   EXPECT_EQ(import_requirements.base_alignment, 1u);
-  EXPECT_EQ(import_requirements.byte_length_alignment, 1u);
+  EXPECT_EQ(import_requirements.byte_length_granularity, 1u);
   EXPECT_FALSE(iree_hal_pool_query_import_requirements(
       source,
       iree_hal_make_external_storage_class(

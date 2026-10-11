@@ -6,7 +6,100 @@
 
 #include "iree/hal/drivers/amd/fabric/memory.h"
 
+#include "iree/base/internal/math.h"
 #include "iree/hal/drivers/amd/status.h"
+
+amdf_external_memory_type_t iree_hal_amd_fabric_memory_external_type(
+    iree_hal_external_storage_type_t type) {
+  switch (type) {
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER:
+      return AMDF_EXTERNAL_MEMORY_TYPE_HOST_POINTER;
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS:
+      return AMDF_EXTERNAL_MEMORY_TYPE_DEVICE_ADDRESS;
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_DMA_BUF_FD:
+      return AMDF_EXTERNAL_MEMORY_TYPE_DMA_BUF_FD;
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_OPAQUE_FD:
+      return AMDF_EXTERNAL_MEMORY_TYPE_OPAQUE_FD;
+    case IREE_HAL_EXTERNAL_STORAGE_TYPE_D3D12_RESOURCE:
+      return AMDF_EXTERNAL_MEMORY_TYPE_D3D12_RESOURCE;
+    default:
+      return AMDF_EXTERNAL_MEMORY_TYPE_NONE;
+  }
+}
+
+const amdf_external_memory_support_t*
+iree_hal_amd_fabric_memory_external_support(
+    const amdf_memory_profile_t* profile,
+    iree_hal_external_storage_class_t storage_class,
+    amdf_external_memory_support_flags_t required_flags) {
+  const amdf_external_memory_type_t type =
+      iree_hal_amd_fabric_memory_external_type(storage_class.type);
+  for (uint32_t i = 0; i < profile->external_memory_support_count; ++i) {
+    const amdf_external_memory_support_t* support =
+        &profile->external_memory_support[i];
+    if (type != AMDF_EXTERNAL_MEMORY_TYPE_NONE && support->type == type &&
+        iree_all_bits_set(support->flags, required_flags) &&
+        support->provenance.words[0] == storage_class.provenance[0] &&
+        support->provenance.words[1] == storage_class.provenance[1]) {
+      return support;
+    }
+  }
+  return NULL;
+}
+
+static bool iree_hal_amd_fabric_memory_constrain_extent(
+    const amdf_external_memory_support_t* support,
+    amdf_memory_construction_capabilities_t* capabilities) {
+  if (support->maximum_byte_length) {
+    capabilities->maximum_byte_length = iree_min(
+        capabilities->maximum_byte_length, support->maximum_byte_length);
+  }
+  return iree_math_checked_lcm_u64(capabilities->byte_length_granularity,
+                                   support->byte_length_alignment,
+                                   &capabilities->byte_length_granularity) &&
+         capabilities->byte_length_granularity <=
+             capabilities->maximum_byte_length;
+}
+
+bool iree_hal_amd_fabric_memory_constrain_profile(
+    iree_hal_external_storage_class_t source_class,
+    iree_hal_pool_export_classes_t exports, amdf_memory_profile_t* profile) {
+  amdf_memory_construction_capabilities_t* capabilities = &profile->allocation;
+  if (source_class.type == IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER) {
+    capabilities = &profile->registration;
+  } else if (source_class.type != IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE) {
+    capabilities = &profile->import;
+    if (!iree_hal_amd_fabric_memory_constrain_extent(
+            iree_hal_amd_fabric_memory_external_support(
+                profile, source_class,
+                AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_IMPORT),
+            capabilities)) {
+      return false;
+    }
+  }
+  for (iree_host_size_t i = 0; i < exports.class_count; ++i) {
+    if (exports.classes[i].type ==
+        IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER) {
+      continue;
+    }
+    const amdf_external_memory_support_t* support =
+        iree_hal_amd_fabric_memory_external_support(
+            profile, exports.classes[i],
+            AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_EXPORT);
+    if (!iree_hal_amd_fabric_memory_constrain_extent(support, capabilities)) {
+      return false;
+    }
+    const uint64_t prefix = capabilities->native_byte_length_prefix;
+    if (prefix &&
+        (!iree_all_bits_set(support->flags,
+                            AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_SOURCE_OFFSET) ||
+         !support->source_offset_alignment ||
+         prefix % support->source_offset_alignment)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 void iree_hal_amd_fabric_memory_deinitialize(
     const amdf_api_t* api, iree_hal_device_event_sink_t event_sink,
@@ -43,6 +136,25 @@ static iree_status_t iree_hal_amd_fabric_memory_prepare(
   IREE_RETURN_IF_ERROR(IREE_HAL_AMD_STATUS_FROM_AMDF(
       api->memory_query_info(memory->handle, &memory->info),
       "memory_query_info"));
+  for (iree_host_size_t i = 0; i < options->exports.class_count; ++i) {
+    const iree_hal_external_storage_class_t storage_class =
+        options->exports.classes[i];
+    if (storage_class.type == IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER) {
+      continue;
+    }
+    const amdf_external_memory_support_t* support =
+        iree_hal_amd_fabric_memory_external_support(
+            &options->profile, storage_class,
+            AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_EXPORT);
+    if (memory->info.source_byte_offset &&
+        (!iree_all_bits_set(support->flags,
+                            AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_SOURCE_OFFSET) ||
+         !support->source_offset_alignment ||
+         memory->info.source_byte_offset % support->source_offset_alignment)) {
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "native attachment origin cannot be exported");
+    }
+  }
   memory->exports = options->exports;
   memory->maintenance_range =
       iree_hal_make_buffer_range(0, memory->info.byte_length);
@@ -126,6 +238,14 @@ iree_status_t iree_hal_amd_fabric_memory_register(
     iree_hal_device_event_sink_t event_sink,
     iree_hal_amd_fabric_memory_t* out_memory) {
   *out_memory = (iree_hal_amd_fabric_memory_t){0};
+  if (storage->byte_length >
+          options->profile.registration.maximum_byte_length ||
+      storage->byte_length %
+          options->profile.registration.byte_length_granularity) {
+    return iree_make_status(
+        IREE_STATUS_OUT_OF_RANGE,
+        "host storage extent violates the import/export contract");
+  }
   amdf_host_cacheability_t cacheability = AMDF_HOST_CACHEABILITY_UNKNOWN;
   switch (storage->host_cacheability) {
     case IREE_HAL_HOST_CACHEABILITY_WRITE_BACK:
@@ -171,6 +291,66 @@ iree_status_t iree_hal_amd_fabric_memory_register(
       memory.maintenance_range.byte_length =
           storage->byte_length - memory.maintenance_range.byte_offset;
     }
+    *out_memory = memory;
+  } else {
+    iree_hal_amd_fabric_memory_deinitialize(api, event_sink, &memory);
+  }
+  return status;
+}
+
+iree_status_t iree_hal_amd_fabric_memory_import(
+    const amdf_api_t* api, const iree_hal_amd_fabric_memory_options_t* options,
+    const iree_hal_external_storage_t* storage,
+    iree_hal_device_event_sink_t event_sink,
+    iree_hal_amd_fabric_memory_t* out_memory) {
+  *out_memory = (iree_hal_amd_fabric_memory_t){0};
+  if (storage->byte_length > options->profile.import.maximum_byte_length ||
+      storage->byte_length % options->profile.import.byte_length_granularity) {
+    return iree_make_status(
+        IREE_STATUS_OUT_OF_RANGE,
+        "external storage extent violates the import/export contract");
+  }
+  amdf_external_memory_t external = {
+      .type =
+          iree_hal_amd_fabric_memory_external_type(storage->storage_class.type),
+      .provenance = {{storage->storage_class.provenance[0],
+                      storage->storage_class.provenance[1]}},
+      .byte_length = storage->byte_length,
+      .physical_backing_id = {{storage->physical_backing_id.words[0],
+                               storage->physical_backing_id.words[1]}},
+  };
+  switch (external.type) {
+    case AMDF_EXTERNAL_MEMORY_TYPE_DMA_BUF_FD:
+    case AMDF_EXTERNAL_MEMORY_TYPE_OPAQUE_FD:
+      external.payload.file_descriptor = storage->payload.file_descriptor;
+      break;
+    case AMDF_EXTERNAL_MEMORY_TYPE_D3D12_RESOURCE:
+      external.payload.native_handle = storage->payload.win32_handle;
+      break;
+    case AMDF_EXTERNAL_MEMORY_TYPE_DEVICE_ADDRESS:
+      external.payload.device_address = storage->payload.device_address;
+      break;
+    default:
+      IREE_ASSERT_UNREACHABLE("qualified native import has no HAL payload");
+      break;
+  }
+  const amdf_memory_import_info_t import_info = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_IMPORT_INFO,
+      .structure_size = sizeof(import_info),
+      .memory_profile_ordinal = options->profile.ordinal,
+      .access_count = options->access_count,
+      .required_flags = options->required_flags,
+      .minimum_alignment = options->profile.import.minimum_alignment,
+      .accesses = options->accesses,
+  };
+  iree_hal_amd_fabric_memory_t memory = {0};
+  IREE_RETURN_IF_ERROR(IREE_HAL_AMD_STATUS_FROM_AMDF(
+      api->memory_import(options->scope, &import_info, &external,
+                         &memory.handle),
+      "memory_import"));
+  iree_status_t status =
+      iree_hal_amd_fabric_memory_prepare(api, options, &memory);
+  if (iree_status_is_ok(status)) {
     *out_memory = memory;
   } else {
     iree_hal_amd_fabric_memory_deinitialize(api, event_sink, &memory);

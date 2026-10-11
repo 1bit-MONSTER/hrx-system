@@ -90,11 +90,12 @@ class PoolTest : public CtsTestBase<> {
         &requirements);
     EXPECT_TRUE(supported);
     EXPECT_TRUE(iree_device_size_is_power_of_two(requirements.base_alignment));
-    EXPECT_TRUE(
-        iree_device_size_is_power_of_two(requirements.byte_length_alignment));
-    const iree_device_size_t byte_length = iree_device_align(
-        std::max(kAllocationSize, requirements.min_byte_length),
-        requirements.byte_length_alignment);
+    EXPECT_NE(requirements.byte_length_granularity, 0u);
+    const iree_device_size_t byte_length =
+        ((std::max(kAllocationSize, requirements.min_byte_length) - 1) /
+             requirements.byte_length_granularity +
+         1) *
+        requirements.byte_length_granularity;
     EXPECT_TRUE(requirements.max_byte_length == 0 ||
                 byte_length <= requirements.max_byte_length);
     const iree_device_size_t alignment =

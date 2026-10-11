@@ -1171,9 +1171,9 @@ static iree_status_t iree_io_parameter_index_provider_load(
           iree_host_ptr_has_alignment(
               host_allocation.data,
               (iree_host_size_t)import_requirements.base_alignment) &&
-          iree_device_size_has_alignment(
-              host_allocation.data_length,
-              import_requirements.byte_length_alignment)) {
+          host_allocation.data_length %
+                  import_requirements.byte_length_granularity ==
+              0) {
         iree_hal_external_storage_t external_buffer = {
             .storage_class = storage_class,
             .payload.host_pointer = host_allocation.data,

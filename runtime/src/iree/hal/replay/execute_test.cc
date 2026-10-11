@@ -1733,10 +1733,13 @@ TEST(ReplayExecuteTest, ExecutesRecordedHostAllocationFileRead) {
   iree_hal_pool_import_requirements_t import_requirements;
   ASSERT_TRUE(iree_hal_pool_query_import_requirements(
       storage_pool, host_pointer_class, &import_requirements));
-  const iree_device_size_t file_length = iree_device_align(
-      std::max<iree_device_size_t>(sizeof(expected_file_contents),
-                                   import_requirements.min_byte_length),
-      import_requirements.byte_length_alignment);
+  const iree_device_size_t file_length =
+      ((std::max<iree_device_size_t>(sizeof(expected_file_contents),
+                                     import_requirements.min_byte_length) -
+        1) /
+           import_requirements.byte_length_granularity +
+       1) *
+      import_requirements.byte_length_granularity;
   ASSERT_LE(file_length, static_cast<iree_device_size_t>(IREE_HOST_SIZE_MAX));
   ASSERT_TRUE(import_requirements.max_byte_length == 0 ||
               file_length <= import_requirements.max_byte_length);

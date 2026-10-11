@@ -221,7 +221,7 @@ iree_status_t iree_hal_amd_xdna_device_create(
         .supported_usage =
             IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH,
         .minimum_access = context->data_source.capabilities.guaranteed_access,
-        .host_access = AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE,
+        .host_usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
         .binding_count = IREE_ARRAYSIZE(bindings),
         .bindings = bindings,
     };

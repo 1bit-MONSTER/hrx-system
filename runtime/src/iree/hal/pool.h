@@ -325,8 +325,9 @@ typedef struct iree_hal_pool_import_requirements_t {
   // Required power-of-two alignment of the external storage base address.
   iree_device_size_t base_alignment;
 
-  // Required power-of-two alignment of the external storage byte length.
-  iree_device_size_t byte_length_alignment;
+  // Nonzero granularity in bytes. The external storage byte length must be a
+  // multiple of this value, which need not be a power of two.
+  iree_device_size_t byte_length_granularity;
 } iree_hal_pool_import_requirements_t;
 
 // Running statistics for a pool. All values are atomic snapshots; they may

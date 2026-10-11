@@ -54,6 +54,26 @@ typedef struct iree_hal_amd_fabric_memory_options_t {
   iree_hal_pool_export_classes_t exports;
 } iree_hal_amd_fabric_memory_options_t;
 
+// Maps transport vocabulary only. NONE means libamdf has no representation;
+// native profile qualification establishes actual support and provenance.
+amdf_external_memory_type_t iree_hal_amd_fabric_memory_external_type(
+    iree_hal_external_storage_type_t type);
+
+// Finds one exact transport/provenance/role in a captured native profile.
+// The returned entry is borrowed from |profile|; NULL means unsupported.
+const amdf_external_memory_support_t*
+iree_hal_amd_fabric_memory_external_support(
+    const amdf_memory_profile_t* profile,
+    iree_hal_external_storage_class_t storage_class,
+    amdf_external_memory_support_flags_t required_flags);
+
+// Narrows one captured construction profile to the exact import/export
+// geometry. NONE selects owned allocation. Returns false if no extent can
+// satisfy the correlated requirements. Transport support is already qualified.
+bool iree_hal_amd_fabric_memory_constrain_profile(
+    iree_hal_external_storage_class_t source_class,
+    iree_hal_pool_export_classes_t exports, amdf_memory_profile_t* profile);
+
 // Allocates native backing, rounding the extent to the profile granularity.
 // A nonzero host_access creates the requested view before publication. Failure
 // leaves out_memory empty; native cleanup failures are reported to event_sink.
@@ -67,6 +87,15 @@ iree_status_t iree_hal_amd_fabric_memory_allocate(
 // The source is borrowed throughout, including rollback after attachment.
 // Success owns only the native attachment and optional persistent mapping.
 iree_status_t iree_hal_amd_fabric_memory_register(
+    const amdf_api_t* api, const iree_hal_amd_fabric_memory_options_t* options,
+    const iree_hal_external_storage_t* storage,
+    iree_hal_device_event_sink_t event_sink,
+    iree_hal_amd_fabric_memory_t* out_memory);
+
+// Imports a borrowed native transport using a qualified IMPORT profile.
+// Success owns an independent attachment. The source transport, including its
+// callback, remains entirely with the caller on both success and failure.
+iree_status_t iree_hal_amd_fabric_memory_import(
     const amdf_api_t* api, const iree_hal_amd_fabric_memory_options_t* options,
     const iree_hal_external_storage_t* storage,
     iree_hal_device_event_sink_t event_sink,

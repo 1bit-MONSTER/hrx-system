@@ -268,9 +268,16 @@ static iree_status_t iree_hal_amd_fabric_slab_provider_import_slab(
       iree_hal_amd_fabric_slab_handle_create(provider, &handle));
   iree_hal_amd_fabric_memory_options_t options = provider->options.memory;
   options.profile = route->profile;
+  options.required_flags = route->required_flags;
   options.exports = route->policy.exports;
-  iree_status_t status = iree_hal_amd_fabric_memory_register(
-      provider->api, &options, storage, provider->event_sink, &handle->memory);
+  iree_status_t status =
+      storage->storage_class.type == IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER
+          ? iree_hal_amd_fabric_memory_register(provider->api, &options,
+                                                storage, provider->event_sink,
+                                                &handle->memory)
+          : iree_hal_amd_fabric_memory_import(provider->api, &options, storage,
+                                              provider->event_sink,
+                                              &handle->memory);
   if (iree_status_is_ok(status)) {
     status = iree_hal_amd_fabric_slab_handle_bind(provider, handle);
   }
@@ -305,13 +312,16 @@ static bool iree_hal_amd_fabric_slab_provider_query_import_requirements(
   if (!route) {
     return false;
   }
+  const bool registered =
+      storage_class.type == IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
   const amdf_memory_construction_capabilities_t* capabilities =
-      &route->profile.registration;
+      registered ? &route->profile.registration : &route->profile.import;
   *out_requirements = (iree_hal_pool_import_requirements_t){
       .min_byte_length = capabilities->byte_length_granularity,
       .max_byte_length = capabilities->maximum_byte_length,
-      .base_alignment = capabilities->registered_host_pointer_alignment,
-      .byte_length_alignment = capabilities->byte_length_granularity,
+      .base_alignment =
+          registered ? capabilities->registered_host_pointer_alignment : 1,
+      .byte_length_granularity = capabilities->byte_length_granularity,
   };
   return true;
 }

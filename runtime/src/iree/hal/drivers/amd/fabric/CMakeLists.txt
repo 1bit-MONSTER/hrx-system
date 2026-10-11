@@ -54,6 +54,7 @@ iree_cc_library(
   DEPS
     amdf::headers
     iree::base
+    iree::base::internal
     iree::hal
     iree::hal::drivers::amd::status
   PUBLIC
@@ -200,6 +201,7 @@ iree_cc_library(
   SRCS
     "memory_backend.c"
   DEPS
+    ::memory
     ::memory_transition
     ::slab_provider
     amdf::headers

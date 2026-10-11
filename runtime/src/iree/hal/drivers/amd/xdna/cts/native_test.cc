@@ -158,6 +158,7 @@ class XdnaNativeTest : public ::testing::Test {
       iree_hal_file_release(file);
     }
     iree_async_proactor_pool_release(file_pool_);
+    iree_hal_pool_release(import_pool_);
     iree_hal_pool_release(memory_pool_);
     iree_hal_executable_release(alternate_executable_);
     iree_hal_executable_release(executable_);
@@ -207,8 +208,8 @@ class XdnaNativeTest : public ::testing::Test {
 
   void MakeBuffer(iree_hal_buffer_t** out_buffer) {
     if (!memory_pool_) {
-      CreateMemoryPool(IREE_HAL_BUFFER_USAGE_TRANSFER |
-                       IREE_HAL_BUFFER_USAGE_STORAGE);
+      IREE_ASSERT_OK(CreateMemoryPool(IREE_HAL_BUFFER_USAGE_TRANSFER |
+                                      IREE_HAL_BUFFER_USAGE_STORAGE));
     }
     iree_hal_buffer_t* allocation = nullptr;
     IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
@@ -230,20 +231,21 @@ class XdnaNativeTest : public ::testing::Test {
     semaphores_.push_back(*out_semaphore);
   }
 
-  void CreateMemoryPool(
+  iree_status_t CreateMemoryPool(
       iree_hal_buffer_usage_t usage,
-      iree_hal_memory_access_t host_access = IREE_HAL_MEMORY_ACCESS_ALL) {
+      iree_hal_memory_access_t host_access = IREE_HAL_MEMORY_ACCESS_ALL,
+      const iree_hal_slab_pool_options_t* requested_options = nullptr) {
     if (memory_pool_) {
-      return;
+      return iree_ok_status();
     }
     iree_async_frontier_tracker_t* tracker = nullptr;
-    IREE_ASSERT_OK(iree_async_frontier_tracker_create(
+    IREE_RETURN_IF_ERROR(iree_async_frontier_tracker_create(
         iree_async_frontier_tracker_options_default(), iree_allocator_system(),
         &tracker));
     iree_status_t status = iree_hal_device_group_create_from_device(
         device_, tracker, iree_allocator_system(), &device_group_);
     iree_async_frontier_tracker_release(tracker);
-    IREE_ASSERT_OK(status);
+    IREE_RETURN_IF_ERROR(status);
 
     const iree_hal_pool_family_access_t family_access = {
         .family = iree_hal_queue_family(queue_),
@@ -261,9 +263,9 @@ class XdnaNativeTest : public ::testing::Test {
     };
     iree_hal_slab_pool_options_t options;
     iree_hal_slab_pool_options_initialize(&options);
-    IREE_ASSERT_OK(iree_hal_slab_pool_create(device_group_, scope, &options,
-                                             iree_allocator_system(),
-                                             &memory_pool_));
+    return iree_hal_slab_pool_create(
+        device_group_, scope, requested_options ? requested_options : &options,
+        iree_allocator_system(), &memory_pool_);
   }
 
   void ImportNativeFile(iree_string_view_t path,
@@ -334,6 +336,8 @@ class XdnaNativeTest : public ::testing::Test {
   iree_hal_device_group_t* device_group_ = nullptr;
   // Owned native slab pool selected from the sealed topology.
   iree_hal_pool_t* memory_pool_ = nullptr;
+  // Optional external-storage import pool, released after imported buffers.
+  iree_hal_pool_t* import_pool_ = nullptr;
   // Loaded real compiler image.
   iree_hal_executable_t* executable_ = nullptr;
   // Reflected function token.
@@ -402,9 +406,26 @@ TEST_F(XdnaNativeTest, ConsumerBeforeProducerCapturesArguments) {
   CheckOutput(output, expected_lhs, expected_rhs);
 }
 
-TEST_F(XdnaNativeTest, SlabPoolAllocationExecutesThroughPreparedBindings) {
-  ASSERT_NO_FATAL_FAILURE(CreateMemoryPool(IREE_HAL_BUFFER_USAGE_TRANSFER |
-                                           IREE_HAL_BUFFER_USAGE_STORAGE));
+class XdnaNativeSlabTest
+    : public XdnaNativeTest,
+      public ::testing::WithParamInterface<iree_hal_external_storage_type_t> {};
+
+TEST_P(XdnaNativeSlabTest, ExecutesThroughPreparedBindings) {
+  const iree_hal_external_storage_class_t storage_class = {GetParam(), {0, 0}};
+  const bool exported = GetParam() != IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE;
+  iree_hal_slab_pool_options_t options;
+  iree_hal_slab_pool_options_initialize(&options);
+  if (exported) {
+    options.owned.exports = {1, &storage_class};
+  }
+  iree_status_t status = CreateMemoryPool(
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      IREE_HAL_MEMORY_ACCESS_ALL, &options);
+  if (exported && iree_status_is_unavailable(status)) {
+    iree_status_free(status);
+    GTEST_SKIP() << "Native provider has no DMA-BUF transport";
+  }
+  IREE_ASSERT_OK(status);
   ASSERT_NO_FATAL_FAILURE(LoadMultiply());
   iree_hal_semaphore_t* progress = nullptr;
   ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&progress));
@@ -464,9 +485,48 @@ TEST_F(XdnaNativeTest, SlabPoolAllocationExecutesThroughPreparedBindings) {
       queue_, {1, &progress, &wait_value}, {1, &progress, &progress_value},
       updates.size(), updates.data(), /*barriers=*/NULL));
 
+  std::array<iree_hal_buffer_t*, 3> execution_bindings = bindings;
+  if (exported) {
+    IREE_ASSERT_OK(iree_hal_semaphore_wait(progress, progress_value,
+                                           iree_infinite_timeout(),
+                                           IREE_ASYNC_WAIT_FLAG_NONE));
+    // Native handles carry device reach. The source owner's qualified CPU
+    // mapping performs uploads/downloads; the alias only promises dispatch.
+    iree_hal_pool_family_access_t family = {};
+    family.family = iree_hal_queue_family(queue_);
+    family.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
+    family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA;
+    iree_hal_pool_scope_t scope = {};
+    scope.family_count = 1;
+    scope.families = &family;
+    const iree_hal_pool_import_class_t import_class = {storage_class, {}};
+    iree_hal_slab_pool_options_initialize(&options);
+    options.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
+    options.imports = {1, &import_class};
+    IREE_ASSERT_OK(iree_hal_slab_pool_create(device_group_, scope, &options,
+                                             iree_allocator_system(),
+                                             &import_pool_));
+    for (size_t i = 0; i < bindings.size(); ++i) {
+      iree_hal_external_storage_t storage = {};
+      iree_hal_buffer_range_t logical_range = {};
+      IREE_ASSERT_OK(iree_hal_buffer_export(
+          bindings[i], iree_hal_make_buffer_range(0, kBytes), storage_class,
+          &storage, &logical_range));
+      EXPECT_EQ(logical_range.byte_offset, kBytes);
+      EXPECT_EQ(logical_range.byte_length, kBytes);
+      EXPECT_GE(storage.byte_length, 3 * kBytes);
+      status = iree_hal_pool_import_buffer(
+          import_pool_, &storage, logical_range, &execution_bindings[i]);
+      iree_hal_external_storage_release(&storage);
+      IREE_ASSERT_OK(status);
+      buffers_.push_back(execution_bindings[i]);
+    }
+  }
+
   std::array<iree_hal_buffer_ref_t, 3> binding_refs;
   for (size_t i = 0; i < binding_refs.size(); ++i) {
-    binding_refs[i] = iree_hal_make_buffer_ref(bindings[i], 0, kBytes);
+    binding_refs[i] =
+        iree_hal_make_buffer_ref(execution_bindings[i], 0, kBytes);
   }
   wait_value = progress_value;
   ++progress_value;
@@ -505,8 +565,13 @@ TEST_F(XdnaNativeTest, SlabPoolAllocationExecutesThroughPreparedBindings) {
   }
 }
 
+INSTANTIATE_TEST_SUITE_P(
+    OwnedAndImported, XdnaNativeSlabTest,
+    ::testing::Values(IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE,
+                      IREE_HAL_EXTERNAL_STORAGE_TYPE_DMA_BUF_FD));
+
 TEST_F(XdnaNativeTest, FilesRoundTripThroughDeferredDeviceOnlyBuffers) {
-  ASSERT_NO_FATAL_FAILURE(CreateMemoryPool(
+  IREE_ASSERT_OK(CreateMemoryPool(
       IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
       IREE_HAL_MEMORY_ACCESS_NONE));
   ASSERT_NO_FATAL_FAILURE(LoadMultiply());
@@ -946,7 +1011,7 @@ TEST_F(XdnaNativeTest, FailedDependencyFailsOnlyItsConsumer) {
 }
 
 TEST_F(XdnaNativeTest, ReadOnlyPoolPreservesNativePermissionRequirements) {
-  CreateMemoryPool(IREE_HAL_BUFFER_USAGE_STORAGE_READ);
+  IREE_ASSERT_OK(CreateMemoryPool(IREE_HAL_BUFFER_USAGE_STORAGE_READ));
   iree_hal_buffer_t* buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
       memory_pool_, iree_hal_make_pool_reservation_request(kBytes, 1),
@@ -1240,26 +1305,32 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
   }
 
   void ImportRegisteredStorage(iree_hal_buffer_t** out_buffer) {
-    constexpr size_t kStorageLength = 8192;
-    IREE_ASSERT_OK(iree_allocator_malloc_aligned(iree_allocator_system(),
-                                                 kStorageLength, 4096, 0,
-                                                 &registered_storage_));
-    memset(registered_storage_, 0xCC, kStorageLength);
+    iree_hal_external_storage_class_t storage_class = {};
+    storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+    iree_hal_pool_import_requirements_t requirements;
+    ASSERT_TRUE(iree_hal_pool_query_import_requirements(
+        memory_pool_, storage_class, &requirements));
+    registered_storage_length_ =
+        ((iree_max(8192, requirements.min_byte_length) - 1) /
+             requirements.byte_length_granularity +
+         1) *
+        requirements.byte_length_granularity;
+    IREE_ASSERT_OK(iree_allocator_malloc_aligned(
+        iree_allocator_system(), registered_storage_length_,
+        iree_max(64, requirements.base_alignment), 0, &registered_storage_));
+    memset(registered_storage_, 0xCC, registered_storage_length_);
     iree_hal_external_storage_t storage = {};
-    storage.storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+    storage.storage_class = storage_class;
     storage.payload.host_pointer = registered_storage_;
-    storage.byte_length = kStorageLength;
-    storage.maintenance_range = iree_hal_make_buffer_range(0, kStorageLength);
+    storage.byte_length = registered_storage_length_;
+    storage.maintenance_range =
+        iree_hal_make_buffer_range(0, registered_storage_length_);
     storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
     storage.release = +[](void* user_data, iree_hal_external_storage_class_t,
                           iree_hal_external_storage_payload_t) {
       ++*static_cast<int*>(user_data);
     };
     storage.release_user_data = &registration_release_count_;
-    iree_hal_pool_import_requirements_t requirements;
-    ASSERT_TRUE(iree_hal_pool_query_import_requirements(
-        memory_pool_, storage.storage_class, &requirements));
-    EXPECT_LE(requirements.base_alignment, 4096u);
     iree_hal_buffer_t* imported = nullptr;
     IREE_ASSERT_OK(iree_hal_pool_import_buffer(
         memory_pool_, &storage, iree_hal_make_buffer_range(kBytes, 5 * kBytes),
@@ -1268,14 +1339,12 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
     EXPECT_EQ(storage.byte_length, 0u);
     EXPECT_EQ(storage.release, nullptr);
     EXPECT_EQ(registration_release_count_, 0);
-    iree_hal_external_storage_class_t storage_class = {};
-    storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
     iree_hal_buffer_range_t range;
     IREE_ASSERT_OK(iree_hal_buffer_export(
         imported, iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER),
         storage_class, &storage, &range));
     EXPECT_EQ(storage.payload.host_pointer, registered_storage_);
-    EXPECT_EQ(storage.byte_length, kStorageLength);
+    EXPECT_EQ(storage.byte_length, registered_storage_length_);
     EXPECT_EQ(storage.release, nullptr);
     EXPECT_EQ(range.byte_offset, kBytes);
     EXPECT_EQ(range.byte_length, 5 * kBytes);
@@ -1300,6 +1369,8 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
   std::vector<iree_hal_command_buffer_t*> commands_;
   // Application allocation retained until every native attachment is released.
   void* registered_storage_ = nullptr;
+  // Caller extent satisfying the captured native registration requirements.
+  iree_host_size_t registered_storage_length_ = 0;
   // Original imported transport callback, independent of borrowed reimports.
   int registration_release_count_ = 0;
 };
@@ -1475,7 +1546,7 @@ TEST_P(CpuXdnaNativeTest, CpuNpuCpuKernelsShareOneBacking) {
     for (size_t i = 0; i < kBytes; ++i) {
       EXPECT_EQ(bytes[i], 0xCC) << i;
     }
-    for (size_t i = 6 * kBytes; i < 8192; ++i) {
+    for (size_t i = 6 * kBytes; i < registered_storage_length_; ++i) {
       EXPECT_EQ(bytes[i], 0xCC) << i;
     }
     EXPECT_EQ(registration_release_count_, 0);

@@ -44,6 +44,7 @@ iree_runtime_cc_library(
     deps = [
         "//libamdf:headers",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/drivers/amd:status",
     ],
@@ -150,6 +151,7 @@ iree_runtime_cc_library(
     srcs = ["memory_backend.c"],
     hdrs = ["memory_backend.h"],
     deps = [
+        ":memory",
         ":memory_transition",
         ":slab_provider",
         "//libamdf:headers",

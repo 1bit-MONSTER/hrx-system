@@ -308,7 +308,7 @@ static bool iree_hal_vulkan_slab_provider_query_import_requirements(
       .min_byte_length = provider->min_alignment,
       .max_byte_length = 0,
       .base_alignment = provider->min_alignment,
-      .byte_length_alignment = provider->min_alignment,
+      .byte_length_granularity = provider->min_alignment,
   };
   return true;
 }

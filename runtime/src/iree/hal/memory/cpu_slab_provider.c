@@ -137,7 +137,7 @@ static bool iree_hal_cpu_slab_provider_query_import_requirements(
       .min_byte_length = 1,
       .max_byte_length = IREE_HOST_SIZE_MAX,
       .base_alignment = 1,
-      .byte_length_alignment = 1,
+      .byte_length_granularity = 1,
   };
   return true;
 }
