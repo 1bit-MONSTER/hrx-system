@@ -748,6 +748,7 @@ def test_validate_c_table_shape_checks_deferred_resource_storage() -> None:
         (LowerAttrCopyKind.I64_ARRAY_READ_ONLY_ELEMENTS, True),
         (LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_SEGMENT, True),
         (LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_WORDS, True),
+        (LowerAttrCopyKind.OPERAND_SEGMENT_EXACT_BITS_READ_ONLY, True),
     ):
         emit = LowerEmit(
             kind=LowerEmitKind.DESCRIPTOR_CONST,
@@ -1569,6 +1570,21 @@ def test_guard_row_emits_low_value_representation_payload() -> None:
     assert guard_payload_row(row) == [".u64 = UINT64_C(17)"]
 
 
+def test_guard_row_emits_exact_operand_segment_payload() -> None:
+    row = LowerGuard(
+        kind=GuardKind.OPERAND_SEGMENT_EXACT_BITS,
+        attr_index=2,
+        u64=32,
+    )
+
+    fields = guard_row({}, row, payload_ordinal=1)
+
+    assert ".kind = LOOM_LOW_LOWER_GUARD_OPERAND_SEGMENT_EXACT_BITS" in fields
+    assert ".selector.attribute.attr_index = 2" in fields
+    assert ".payload_ordinal = 1" in fields
+    assert guard_payload_row(row) == [".u64 = UINT64_C(32)"]
+
+
 def test_guard_row_overlays_array_element_index_and_range() -> None:
     row = LowerGuard(
         kind=GuardKind.I64_ARRAY_ELEMENT_RANGE,
@@ -1667,6 +1683,23 @@ def test_attr_copy_row_emits_attr_minus_literal_payload() -> None:
     assert ".target_name_string_ref = TEST_STRING_SHIFT" in fields
     assert ".source_attr_index = 2" in fields
     assert ".literal_i64 = INT64_C(32)" in fields
+
+
+def test_attr_copy_row_emits_exact_operand_segment_projection() -> None:
+    fields = attr_copy_row(
+        LowerAttrCopy(
+            kind=LowerAttrCopyKind.OPERAND_SEGMENT_EXACT_BITS_READ_ONLY,
+            target_name="data",
+            source_operand_field_index=3,
+            source_element_bit_width=16,
+        ),
+        target_name_string_ref="TEST_STRING_DATA",
+    )
+
+    assert ".kind = LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY" in fields
+    assert ".source_operand_field_index = 3" in fields
+    assert ".source_element_bit_width = 16" in fields
+    assert not any("source_attr_index" in field for field in fields)
 
 
 def test_attr_copy_row_emits_source_memory_offset_literal_payload() -> None:

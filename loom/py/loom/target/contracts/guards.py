@@ -105,6 +105,7 @@ class GuardKind(Enum):
     VALUE_STATIC_DIM0_MULTIPLE = "value_static_dim0_multiple"
     LOW_VALUE_REGISTER_UNIT_COUNT_EQ = "low_value_register_unit_count_eq"
     OPERAND_SEGMENT_COUNT = "operand_segment_count"
+    OPERAND_SEGMENT_EXACT_BITS = "operand_segment_exact_bits"
     I64_ARRAY_COUNT = "i64_array_count"
     I64_ARRAY_ELEMENT_RANGE = "i64_array_element_range"
     I64_ARRAY_ELEMENTS_RANGE = "i64_array_elements_range"
@@ -159,6 +160,14 @@ def is_source_attr_guard_kind(kind: GuardKind) -> bool:
     return kind in _SOURCE_ATTR_GUARD_KINDS
 
 
+def _validate_guard_bit_width(kind: GuardKind, bit_width: int | None) -> None:
+    if kind == GuardKind.OPERAND_SEGMENT_EXACT_BITS:
+        if bit_width not in (8, 16, 32, 64):
+            raise ValueError(f"{kind.value} bit width must be 8, 16, 32, or 64")
+    elif bit_width is not None:
+        raise ValueError(f"{kind.value} guard cannot carry a bit width")
+
+
 @dataclass(frozen=True, slots=True)
 class GuardDiagnostic:
     """Authored structured diagnostic for a guard failure."""
@@ -203,6 +212,7 @@ class Guard:
     enum_keyword: str | None = None
     enum_keywords: tuple[str, ...] = ()
     count: int | None = None
+    bit_width: int | None = None
     element: int | None = None
     minimum: int | None = None
     maximum: int | None = None
@@ -505,6 +515,15 @@ class Guard:
     @classmethod
     def operand_segment_count(cls, field: str, count: int) -> Self:
         return cls(kind=GuardKind.OPERAND_SEGMENT_COUNT, field=field, count=count)
+
+    @classmethod
+    def operand_segment_exact_bits(cls, field: str, *, bit_width: int) -> Self:
+        """Requires a nonempty scalar segment with exact declared-width bits."""
+        return cls(
+            kind=GuardKind.OPERAND_SEGMENT_EXACT_BITS,
+            field=field,
+            bit_width=bit_width,
+        )
 
     @classmethod
     def i64_array_count(cls, field: str, count: int) -> Self:
@@ -970,6 +989,7 @@ class Guard:
             raise ValueError(f"{self.kind.value} guard cannot carry enum keywords")
         if self.count is not None and self.count < 0:
             raise ValueError(f"{self.kind.value} count must be non-negative")
+        _validate_guard_bit_width(self.kind, self.bit_width)
         if self.element is not None and self.element < 0:
             raise ValueError(f"{self.kind.value} element must be non-negative")
         if (
@@ -1066,6 +1086,14 @@ class Guard:
                 raise ValueError(
                     f"{source_op.name}: optional operand '{self.field}' "
                     "count must be zero or one"
+                )
+            return
+        if self.kind == GuardKind.OPERAND_SEGMENT_EXACT_BITS:
+            operand = _require_operand(source_op, self.field, subject)
+            if not operand.variadic:
+                raise ValueError(
+                    f"{source_op.name}: {subject} field '{self.field}' "
+                    "must be a variadic operand"
                 )
             return
         if self.kind in (

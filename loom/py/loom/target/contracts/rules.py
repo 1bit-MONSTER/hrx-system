@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum, unique
 from typing import Self
@@ -33,6 +33,7 @@ from loom.target.contracts.emits import (
     EmitRegisterSlice,
 )
 from loom.target.contracts.guards import Guard, GuardKind
+from loom.target.contracts.immediates import OperandSegmentProject
 from loom.target.contracts.kinds import ContractSystem, SourceValueKind
 from loom.target.contracts.source import ValueRef
 from loom.target.low_descriptors import Descriptor, DescriptorSet, OperandRole
@@ -321,9 +322,32 @@ class DescriptorRule:
                 source_ops=source_ops,
             )
             defined_temporaries.update(produced_temporaries)
+        self._validate_operand_segment_projections()
         self._validate_related_results()
         self._validate_source_memory_preservation()
         self._validate_per_lane_sequence()
+
+    def _validate_operand_segment_projections(self) -> None:
+        exact_segment_guards = {
+            (guard.field, guard.bit_width)
+            for guard in self.guards
+            if guard.kind is GuardKind.OPERAND_SEGMENT_EXACT_BITS
+        }
+        for emit in self.emit:
+            if not isinstance(emit, EmitDescriptorOp) or not isinstance(
+                emit.immediates, Mapping
+            ):
+                continue
+            for projection in emit.immediates.values():
+                if not isinstance(projection, OperandSegmentProject):
+                    continue
+                required_guard = (projection.source_operand, projection.bit_width)
+                if required_guard not in exact_segment_guards:
+                    raise ValueError(
+                        f"{self.source_op.name}: operand-segment projection for "
+                        f"'{projection.source_operand}' needs a matching "
+                        "operand_segment_exact_bits guard"
+                    )
 
     def _validate_source_graph_forest(self, source_ops: dict[str, Op]) -> None:
         endpoint_guards = {"": self.guards}

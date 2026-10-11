@@ -16,6 +16,7 @@
 #include "loom/codegen/low/lower/rule_match.h"
 #include "loom/codegen/low/lower/rule_source_memory.h"
 #include "loom/codegen/low/lower/rule_value.h"
+#include "loom/ir/context.h"
 #include "loom/ir/float_facts.h"
 #include "loom/ir/module.h"
 #include "loom/target/registers.h"
@@ -291,10 +292,13 @@ static iree_status_t loom_low_lower_rule_project_read_only_data(
     const loom_attribute_t* source_attrs,
     const loom_low_lower_attr_copy_t* attr_copy,
     loom_low_lower_read_only_data_id_t* out_id) {
-  IREE_ASSERT_LT(attr_copy->source_attr_index, source_op->attribute_count);
-  const loom_attribute_t source_attr =
-      source_attrs[attr_copy->source_attr_index];
-  IREE_ASSERT_EQ(source_attr.kind, LOOM_ATTR_I64_ARRAY);
+  loom_attribute_t source_attr = {0};
+  if (attr_copy->kind !=
+      LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY) {
+    IREE_ASSERT_LT(attr_copy->source_attr_index, source_op->attribute_count);
+    source_attr = source_attrs[attr_copy->source_attr_index];
+    IREE_ASSERT_EQ(source_attr.kind, LOOM_ATTR_I64_ARRAY);
+  }
 
   iree_host_size_t byte_length = 0;
   uint8_t* bytes = NULL;
@@ -366,6 +370,34 @@ static iree_status_t loom_low_lower_rule_project_read_only_data(
       }
       break;
     }
+    case LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY: {
+      const loom_op_vtable_t* vtable =
+          loom_op_vtable(loom_low_lower_context_module(context), source_op);
+      const loom_value_slice_t segment = loom_op_operand_field_span(
+          vtable, source_op, attr_copy->source_operand_field_index);
+      IREE_ASSERT_GT(segment.count, 0u);
+      const iree_host_size_t element_byte_count =
+          attr_copy->source_element_bit_width / 8;
+      const bool has_byte_length = iree_host_size_checked_mul(
+          segment.count, element_byte_count, &byte_length);
+      IREE_ASSERT(has_byte_length);
+      IREE_RETURN_IF_ERROR(loom_low_lower_allocate_planning_array(
+          context, segment.count, element_byte_count, (void**)&bytes));
+      const loom_module_t* module = loom_low_lower_context_module(context);
+      const loom_value_fact_table_t* fact_table =
+          loom_low_lower_context_fact_table(context);
+      for (iree_host_size_t i = 0; i < segment.count; ++i) {
+        uint64_t bits = 0;
+        const bool has_exact_bits = loom_low_lower_rule_value_exact_bits(
+            module, fact_table, segment.values[i],
+            attr_copy->source_element_bit_width, &bits);
+        IREE_ASSERT(has_exact_bits);
+        for (iree_host_size_t byte = 0; byte < element_byte_count; ++byte) {
+          bytes[i * element_byte_count + byte] = (uint8_t)(bits >> (byte * 8));
+        }
+      }
+      break;
+    }
     default:
       IREE_ASSERT_UNREACHABLE("unknown read-only data projection kind");
       IREE_BUILTIN_UNREACHABLE();
@@ -408,7 +440,8 @@ static iree_status_t loom_low_lower_rule_build_attrs(
     switch (attr_copy->kind) {
       case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_READ_ONLY_ELEMENTS:
       case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_READ_ONLY_BYTE_SEGMENT:
-      case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_READ_ONLY_BYTE_WORDS: {
+      case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_READ_ONLY_BYTE_WORDS:
+      case LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY: {
         loom_low_lower_read_only_data_id_t* ids =
             (loom_low_lower_read_only_data_id_t*)(read_only_attributes + 1);
         IREE_RETURN_IF_ERROR(loom_low_lower_rule_project_read_only_data(

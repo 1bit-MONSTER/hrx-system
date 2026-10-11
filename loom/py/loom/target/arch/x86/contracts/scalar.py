@@ -26,6 +26,9 @@ from loom.dialect.scf import defs as scf
 from loom.dialect.view import ALL_VIEW_OPS
 from loom.dialect.view import defs as view
 from loom.dsl import Op
+from loom.target.arch.x86.contracts.constants import (
+    floating_storage_scalar_constant_rule,
+)
 from loom.target.arch.x86.contracts.integer_division import (
     unsigned_constant_division_rules,
 )
@@ -64,6 +67,7 @@ _F8E4M3 = Scalar("f8E4M3")
 _F8E5M2 = Scalar("f8E5M2")
 _F16 = Scalar("f16")
 _BF16 = Scalar("bf16")
+_STORAGE_FLOATS = Scalar(("f8E4M3", "f8E5M2", "f16", "bf16"))
 _INDEX = Scalar("index")
 _OFFSET = Scalar("offset")
 
@@ -1007,6 +1011,10 @@ def _cases() -> Sequence[ContractCase]:
         *(
             _const_i32_rule(result_type, descriptor_lookup)
             for result_type in (_I8, _I16, _I32)
+        ),
+        floating_storage_scalar_constant_rule(
+            _STORAGE_FLOATS,
+            descriptor_lookup("x86.scalar.movimm.gpr32"),
         ),
         _const_i1_rule(descriptor_lookup),
         _const_scalar_i64_rule(descriptor_lookup),

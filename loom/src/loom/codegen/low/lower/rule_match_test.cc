@@ -18,6 +18,7 @@
 #include "loom/ops/index/ops.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/test/ops.h"
+#include "loom/ops/vector/ops.h"
 #include "loom/util/fact_table.h"
 
 namespace loom {
@@ -595,6 +596,73 @@ TEST_F(LowLowerRuleMatchTest, SelectsFirstMatchAndResetsReusedSelection) {
   EXPECT_EQ(selection.source_node_count, 0u);
   EXPECT_FALSE(selection.failure.has_source_op_span);
   EXPECT_EQ(selection.failure.diagnostic_index, LOOM_LOW_LOWER_DIAGNOSTIC_NONE);
+}
+
+TEST_F(LowLowerRuleMatchTest, MatchesExactScalarOperandSegments) {
+  const loom_value_id_t elements[] = {
+      loom_scalar_constant_result(BuildScalarConstant(3)),
+      loom_scalar_constant_result(BuildScalarConstant(-7)),
+  };
+  loom_op_t* from_elements_op = nullptr;
+  IREE_ASSERT_OK(loom_vector_from_elements_build(
+      &builder_, elements, IREE_ARRAYSIZE(elements),
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I32,
+                          loom_dim_pack_static(IREE_ARRAYSIZE(elements)), 0),
+      LOOM_LOCATION_UNKNOWN, &from_elements_op));
+
+  loom_low_lower_guard_t guard = {
+      .kind = LOOM_LOW_LOWER_GUARD_OPERAND_SEGMENT_EXACT_BITS,
+      .diagnostic_index = LOOM_LOW_LOWER_DIAGNOSTIC_NONE,
+      .payload_ordinal = 1,
+  };
+  guard.selector.attribute.attr_index = 0;
+  loom_low_lower_guard_payload_t guard_payload = {.u64 = 32};
+  const loom_low_lower_guard_ref_t guard_ref = 0;
+  loom_low_lower_rule_t rule = {.guard_count = 1};
+  const loom_low_lower_rule_span_t span = {
+      .source_op_kind = LOOM_OP_VECTOR_FROM_ELEMENTS,
+      .rule_start = 0,
+      .rule_count = 1,
+  };
+  const loom_low_lower_rule_set_t rule_set = {
+      .spans = &span,
+      .span_count = 1,
+      .rules = &rule,
+      .rule_count = 1,
+      .guard_payloads = &guard_payload,
+      .guard_payload_count = 1,
+      .guards = &guard,
+      .guard_count = 1,
+      .guard_refs = &guard_ref,
+      .guard_ref_count = 1,
+  };
+  loom_value_fact_table_t facts = {};
+  IREE_ASSERT_OK(loom_value_fact_table_initialize(&facts, &module_->arena,
+                                                  module_->values.count));
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(elements); ++i) {
+    IREE_ASSERT_OK(loom_value_fact_table_define(
+        &facts, elements[i], loom_value_facts_exact_i64(i == 0 ? 3 : -7)));
+  }
+
+  auto matches = [&](const loom_value_fact_table_t* fact_table) {
+    loom_low_lower_rule_match_context_t match_context = {
+        .module = module_,
+        .fact_table = fact_table,
+    };
+    loom_low_lower_rule_selection_t selection = {};
+    IREE_EXPECT_OK(loom_low_lower_rule_set_select_with_match_context(
+        &match_context, &rule_set, from_elements_op, &selection));
+    return selection.rule != nullptr;
+  };
+
+  EXPECT_TRUE(matches(&facts));
+  EXPECT_FALSE(matches(nullptr));
+  guard_payload.u64 = 16;
+  EXPECT_FALSE(matches(&facts));
+  guard_payload.u64 = 32;
+  IREE_ASSERT_OK(loom_value_fact_table_define(&facts, elements[1],
+                                              loom_value_facts_unknown()));
+  EXPECT_FALSE(matches(&facts));
 }
 
 TEST_F(LowLowerRuleMatchTest, MatchesI64AttributeSumsWithoutSignedOverflow) {

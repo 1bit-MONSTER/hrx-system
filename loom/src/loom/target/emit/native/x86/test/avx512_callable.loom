@@ -2,6 +2,18 @@ x86.target<avx512> @target
 
 global.rodata.def @reverse_i32x16_control = align(64) bytes("0f0000000e0000000d0000000c0000000b0000000a00000009000000080000000700000006000000050000000400000003000000020000000100000000000000")
 
+// Full-width exact source lanes use the AVX-512 immutable-load rule and retain
+// their floating-point bit patterns through object relocation and execution.
+func.def public target(@target) @write_exact_avx512_lanes(%output: buffer) {
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<8xf64>
+  %low = scalar.constant 1.25 : f64
+  %high = scalar.constant -2.5 : f64
+  %values = vector.from_elements %low, %high, %low, %high, %low, %high, %low, %high : vector<8xf64>
+  vector.store %values, %view[0] : vector<8xf64>, view<8xf64>
+  func.return
+}
+
 // Exercises ZMM construction and arithmetic, K-register comparison and logic,
 // masked selection, and deliberately unaligned stack transport.
 low.func.def public target<x86.avx512.core>(@target) abi(object_function) @avx512_select_i32x16(%scalar: reg<x86.gpr64>, %lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>, %fallback: reg<x86.gpr64>, %output: reg<x86.gpr64>) asm {

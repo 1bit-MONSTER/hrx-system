@@ -1486,6 +1486,25 @@ func.def @oversized_repeated_from_elements_preserves_uniform_fact() -> (i64) {
 
 // ====
 
+// Equal exact lane facts preserve a bounded uniform summary even when distinct
+// SSA values exceed the small static lane representation.
+func.def @oversized_equal_from_elements_preserves_uniform_fact() -> (i64) {
+  %c0 = scalar.constant 0 : i32
+  %c7a = scalar.constant 7 : i32
+  %c7b = scalar.constant 7 : i32
+  %v = vector.from_elements %c7a, %c7b, %c7a, %c7b, %c7a, %c7b, %c7a, %c7b, %c7a, %c7b, %c7a, %c7b, %c7a, %c7b, %c7a, %c7b, %c7a : vector<17xi32>
+  %r = vector.reduce<addi> %v, %c0 : vector<17xi32>, i32
+  %lo = test.fact_range_lo %r : i32 -> i64
+  func.return %lo : i64
+}
+// ----
+func.def @oversized_equal_from_elements_preserves_uniform_fact() -> (i64) {
+  %lo = scalar.constant 119 : i64
+  func.return %lo : i64
+}
+
+// ====
+
 // Structural summaries for vector.iota remain queryable on dynamic vectors.
 func.def @iota_summary_fact(%n: index) -> (i1) {
   %c0 = index.constant 0 : index

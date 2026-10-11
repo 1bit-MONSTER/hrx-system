@@ -378,6 +378,9 @@ enum loom_low_lower_attr_copy_kind_e {
   // Emits the signed i32 reciprocal arithmetic post-shift for an exact divisor
   // source value fact as an i64 packet attribute.
   LOOM_LOW_LOWER_ATTR_COPY_VALUE_I32_DIVISOR_MAGIC_SHIFT = 47,
+  // Interns the exact declared-width bits of every scalar in a source operand
+  // segment as little-endian data and emits the reserved read-only data symbol.
+  LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY = 48,
   // Maximum attribute-copy kind plus one.
   LOOM_LOW_LOWER_ATTR_COPY_COUNT_,
 };
@@ -412,8 +415,13 @@ typedef struct loom_low_lower_attr_copy_t {
   uint16_t value_ref_index;
   // Attribute projection operation to perform.
   loom_low_lower_attr_copy_kind_t kind;
-  // Primary source op attribute ordinal consumed by projection rows.
-  uint8_t source_attr_index;
+  // Kind-selected primary source field ordinal.
+  union {
+    // Source op attribute ordinal consumed by attribute projection rows.
+    uint8_t source_attr_index;
+    // Source operand field ordinal consumed by operand-segment projections.
+    uint8_t source_operand_field_index;
+  };
   // Number of source elements consumed by PACK_ELEMENTS rows, byte stride used
   // by I64_ARRAY_LANE_BYTE, SHUFFLE_MASK_CHUNK, and READ_ONLY_BYTE_SEGMENT
   // rows, scale used by VALUE_TYPE rows, or source enum case span used by
@@ -858,6 +866,10 @@ typedef enum loom_low_lower_guard_kind_e {
   // Source divisor facts select the signed i32 reciprocal arithmetic shape in
   // payload.u64, a loom_low_lower_signed_divisor_magic_kind_t.
   LOOM_LOW_LOWER_GUARD_VALUE_I32_DIVISOR_MAGIC_KIND = 43,
+  // Every value in the nonempty source operand segment selected by
+  // selector.attribute.attr_index must be a scalar with an exact bit pattern
+  // and the payload.u64 declared width.
+  LOOM_LOW_LOWER_GUARD_OPERAND_SEGMENT_EXACT_BITS = 44,
   // Maximum guard kind value plus one.
   LOOM_LOW_LOWER_GUARD_COUNT_,
 } loom_low_lower_guard_kind_t;

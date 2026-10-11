@@ -7,6 +7,7 @@
 #include "loom/codegen/low/lower/rule_value.h"
 
 #include <cstdint>
+#include <limits>
 
 #include "iree/base/internal/arena.h"
 #include "iree/base/internal/math.h"
@@ -70,6 +71,18 @@ class LowLowerRuleValueTest : public ::testing::Test {
         i32_type,
         bf16_vector_type,
         f32_vector_type,
+        loom_type_scalar(LOOM_SCALAR_TYPE_I8),
+        loom_type_scalar(LOOM_SCALAR_TYPE_I16),
+        loom_type_scalar(LOOM_SCALAR_TYPE_I32),
+        loom_type_scalar(LOOM_SCALAR_TYPE_I64),
+        loom_type_scalar(LOOM_SCALAR_TYPE_F8E4M3),
+        loom_type_scalar(LOOM_SCALAR_TYPE_F8E5M2),
+        loom_type_scalar(LOOM_SCALAR_TYPE_F16),
+        loom_type_scalar(LOOM_SCALAR_TYPE_BF16),
+        loom_type_scalar(LOOM_SCALAR_TYPE_F32),
+        loom_type_scalar(LOOM_SCALAR_TYPE_F64),
+        loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+        loom_type_scalar(LOOM_SCALAR_TYPE_I1),
     };
     loom_op_t* function_op = nullptr;
     IREE_ASSERT_OK(loom_func_def_build(
@@ -83,7 +96,7 @@ class LowLowerRuleValueTest : public ::testing::Test {
 
     uint16_t argument_count = 0;
     arguments_ = loom_func_like_arg_ids(function_, &argument_count);
-    ASSERT_EQ(argument_count, 4u);
+    ASSERT_EQ(argument_count, 16u);
     loom_builder_t body_builder;
     loom_builder_initialize(
         module_, &module_->arena,
@@ -376,6 +389,84 @@ TEST_F(LowLowerRuleValueTest, ProjectsExactScalarFacts) {
   ASSERT_TRUE(loom_value_facts_as_exact_float(LOOM_SCALAR_TYPE_F32, float_facts,
                                               &exact_float));
   EXPECT_DOUBLE_EQ(exact_float, 1.5);
+}
+
+TEST_F(LowLowerRuleValueTest, ProjectsExactDeclaredWidthScalarBits) {
+  const uint64_t expected_integer_bits[] = {
+      UINT64_C(0xFE),
+      UINT64_C(0xFFFE),
+      UINT64_C(0xFFFFFFFE),
+      UINT64_C(0xFFFFFFFFFFFFFFFE),
+  };
+  const uint32_t integer_bit_widths[] = {8, 16, 32, 64};
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(integer_bit_widths); ++i) {
+    const loom_value_id_t value_id = arguments_[4 + i];
+    IREE_ASSERT_OK(loom_value_fact_table_define(
+        &fact_table_, value_id, loom_value_facts_exact_i64(-2)));
+    uint64_t bits = 0;
+    ASSERT_TRUE(loom_low_lower_rule_value_exact_bits(
+        module_, &fact_table_, value_id, integer_bit_widths[i], &bits));
+    EXPECT_EQ(bits, expected_integer_bits[i]);
+  }
+
+  const uint64_t expected_float_bits[] = {
+      UINT64_C(0x3C),   UINT64_C(0x3E),       UINT64_C(0x3E00),
+      UINT64_C(0x3FC0), UINT64_C(0x3FC00000), UINT64_C(0x3FF8000000000000),
+  };
+  const loom_scalar_type_t float_types[] = {
+      LOOM_SCALAR_TYPE_F8E4M3, LOOM_SCALAR_TYPE_F8E5M2, LOOM_SCALAR_TYPE_F16,
+      LOOM_SCALAR_TYPE_BF16,   LOOM_SCALAR_TYPE_F32,    LOOM_SCALAR_TYPE_F64,
+  };
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(float_types); ++i) {
+    const loom_value_id_t value_id = arguments_[8 + i];
+    IREE_ASSERT_OK(loom_value_fact_table_define(
+        &fact_table_, value_id,
+        loom_value_facts_exact_float(float_types[i], 1.5)));
+    uint64_t bits = 0;
+    ASSERT_TRUE(loom_low_lower_rule_value_exact_bits(
+        module_, &fact_table_, value_id,
+        loom_scalar_type_bitwidth(float_types[i]), &bits));
+    EXPECT_EQ(bits, expected_float_bits[i]);
+  }
+}
+
+TEST_F(LowLowerRuleValueTest, RejectsUnavailableOrNonPayloadScalarBits) {
+  uint64_t bits = 0;
+  EXPECT_FALSE(loom_low_lower_rule_value_exact_bits(
+      module_, /*fact_table=*/nullptr, arguments_[4], 8, &bits));
+
+  IREE_ASSERT_OK(loom_value_fact_table_define(&fact_table_, arguments_[4],
+                                              loom_value_facts_exact_i64(7)));
+  EXPECT_FALSE(loom_low_lower_rule_value_exact_bits(module_, &fact_table_,
+                                                    arguments_[4], 16, &bits));
+  EXPECT_FALSE(loom_low_lower_rule_value_exact_bits(module_, &fact_table_,
+                                                    arguments_[14], 64, &bits));
+  EXPECT_FALSE(loom_low_lower_rule_value_exact_bits(module_, &fact_table_,
+                                                    arguments_[15], 1, &bits));
+  EXPECT_FALSE(loom_low_lower_rule_value_exact_bits(module_, &fact_table_,
+                                                    arguments_[2], 16, &bits));
+
+  IREE_ASSERT_OK(loom_value_fact_table_define(
+      &fact_table_, arguments_[12],
+      loom_value_facts_exact_float(LOOM_SCALAR_TYPE_F32,
+                                   std::numeric_limits<double>::quiet_NaN())));
+  EXPECT_FALSE(loom_low_lower_rule_value_exact_bits(module_, &fact_table_,
+                                                    arguments_[12], 32, &bits));
+
+  IREE_ASSERT_OK(loom_value_fact_table_define(
+      &fact_table_, arguments_[12],
+      loom_value_facts_exact_float(LOOM_SCALAR_TYPE_F32, -0.0)));
+  ASSERT_TRUE(loom_low_lower_rule_value_exact_bits(module_, &fact_table_,
+                                                   arguments_[12], 32, &bits));
+  EXPECT_EQ(bits, UINT64_C(0x80000000));
+
+  IREE_ASSERT_OK(loom_value_fact_table_define(
+      &fact_table_, arguments_[13],
+      loom_value_facts_exact_float(LOOM_SCALAR_TYPE_F64,
+                                   std::numeric_limits<double>::infinity())));
+  ASSERT_TRUE(loom_low_lower_rule_value_exact_bits(module_, &fact_table_,
+                                                   arguments_[13], 64, &bits));
+  EXPECT_EQ(bits, UINT64_C(0x7FF0000000000000));
 }
 
 TEST_F(LowLowerRuleValueTest, ProjectsUnsignedNumeratorBounds) {

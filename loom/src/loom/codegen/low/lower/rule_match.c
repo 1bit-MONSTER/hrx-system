@@ -1186,6 +1186,27 @@ static iree_status_t loom_low_lower_rule_guard_matches(
           loom_low_lower_rule_set_guard_payload(rule_set, guard)->u64;
       return iree_ok_status();
     }
+    case LOOM_LOW_LOWER_GUARD_OPERAND_SEGMENT_EXACT_BITS: {
+      const loom_op_vtable_t* vtable =
+          loom_op_vtable(match_context->module, source_op);
+      const loom_value_slice_t segment = loom_op_operand_field_span(
+          vtable, source_op, guard->selector.attribute.attr_index);
+      if (segment.count == 0) {
+        return iree_ok_status();
+      }
+      const uint32_t bit_width =
+          (uint32_t)loom_low_lower_rule_set_guard_payload(rule_set, guard)->u64;
+      uint64_t bits = 0;
+      for (iree_host_size_t i = 0; i < segment.count; ++i) {
+        if (!loom_low_lower_rule_value_exact_bits(
+                match_context->module, match_context->fact_table,
+                segment.values[i], bit_width, &bits)) {
+          return iree_ok_status();
+        }
+      }
+      *out_matches = true;
+      return iree_ok_status();
+    }
     case LOOM_LOW_LOWER_GUARD_VALUE_SIGNED_BIT_COUNT:
       return loom_low_lower_rule_value_facts_fit_bit_count(
           match_context, rule_set, source_op,

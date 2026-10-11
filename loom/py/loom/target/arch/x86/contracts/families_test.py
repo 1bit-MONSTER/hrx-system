@@ -38,12 +38,15 @@ from loom.target.arch.x86.vector_families import (
     INTEGER_ELEMENTS,
     STORAGE_ELEMENTS,
     X86_LANE_FAMILIES,
+    X86_VECTOR_STORAGE_FAMILIES,
 )
 from loom.target.contracts import (
     DescriptorRule,
     GuardKind,
+    OperandSegmentProject,
     Scalar,
     ValueAliasRule,
+    ValueProject,
     ValueRef,
     Vector,
 )
@@ -89,6 +92,21 @@ def test_scalar_signed_narrow_extensions_use_native_carriers() -> None:
         (Scalar("i8"), Scalar("i32"), "x86.scalar.movsx.i8.gpr32"),
         (Scalar("i16"), Scalar("i32"), "x86.scalar.movsx.i16.gpr32"),
     }
+
+
+def test_scalar_storage_float_constants_share_one_bit_preserving_rule() -> None:
+    storage_type = Scalar(tuple(element.name for element in STORAGE_ELEMENTS))
+    rules = tuple(
+        case
+        for case in X86_SCALAR_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule)
+        and case.source_op is scalar_conversion.scalar_constant
+        and _value_type_guard(case, "result") == storage_type
+    )
+    assert len(rules) == 1
+    rule = rules[0]
+    assert rule.descriptor.key == "x86.scalar.movimm.gpr32"
+    assert rule.emit[0].immediates == {"imm32": ValueProject.float_bits("result")}
 
 
 def test_uniform_shift_rules_cover_native_types_widths_and_count_forms() -> None:
@@ -281,6 +299,67 @@ def test_avx2_lane_movement_covers_every_payload_type_and_width() -> None:
     }
     assert actual == expected
     assert len(rules) == len(expected)
+
+
+def test_exact_lane_construction_covers_every_payload_type_and_width() -> None:
+    register_suffixes = {128: "xmm", 256: "ymm", 512: "zmm"}
+    for fragment, vector_bit_widths, descriptor_prefix in (
+        (
+            X86_AVX2_CONTRACT_FRAGMENT,
+            AVX2_VECTOR_BIT_WIDTHS,
+            "x86.avx2.vmovdqu.rodata",
+        ),
+        (
+            X86_AVX512_CONTRACT_FRAGMENT,
+            AVX512_VECTOR_BIT_WIDTHS,
+            "x86.avx512.vmovdqu64.rodata",
+        ),
+    ):
+        rules = tuple(
+            case
+            for case in fragment.cases
+            if isinstance(case, DescriptorRule)
+            and case.source_op is vector.vector_from_elements
+        )
+        expected = {
+            (
+                Vector(
+                    family.element_names,
+                    lanes=vector_bit_width // family.element_bit_width,
+                ),
+                vector_bit_width // family.element_bit_width,
+                family.element_bit_width,
+                f"{descriptor_prefix}.{register_suffixes[vector_bit_width]}",
+            )
+            for family in X86_VECTOR_STORAGE_FAMILIES
+            for vector_bit_width in vector_bit_widths
+        }
+        actual = set()
+        for rule in rules:
+            count_guard = next(
+                guard
+                for guard in rule.guards
+                if guard.kind is GuardKind.OPERAND_SEGMENT_COUNT
+            )
+            exact_guard = next(
+                guard
+                for guard in rule.guards
+                if guard.kind is GuardKind.OPERAND_SEGMENT_EXACT_BITS
+            )
+            projection = rule.emit[0].immediates["data"]
+            assert isinstance(projection, OperandSegmentProject)
+            assert projection.source_operand == "elements"
+            assert projection.bit_width == exact_guard.bit_width
+            actual.add(
+                (
+                    _value_type_guard(rule, "result"),
+                    count_guard.count,
+                    exact_guard.bit_width,
+                    rule.descriptor.key,
+                )
+            )
+        assert actual == expected
+        assert len(rules) == len(expected)
 
 
 def test_avx512_lane_movement_covers_every_zmm_payload_type() -> None:

@@ -53,8 +53,8 @@ class VectorLaneFamily:
 
 
 @dataclass(frozen=True, slots=True)
-class VectorShuffleFamily:
-    """Bit-compatible shuffle strategy shared by source element types."""
+class VectorStorageFamily:
+    """Bit-compatible vector storage shared by source element types."""
 
     element_bit_width: int
     element_names: tuple[str, ...]
@@ -98,12 +98,14 @@ X86_LANE_FAMILIES = (
     VectorLaneFamily(64, ("i64",), "vpextrq", "vpinsrq"),
 )
 
-AVX2_SHUFFLE_FAMILIES = (
-    VectorShuffleFamily(8, ("i8", "f8E4M3", "f8E5M2")),
-    VectorShuffleFamily(16, ("i16", "f16", "bf16")),
-    VectorShuffleFamily(32, ("i32", "f32")),
-    VectorShuffleFamily(64, ("i64", "f64")),
+X86_VECTOR_STORAGE_FAMILIES = (
+    VectorStorageFamily(8, ("i8", "f8E4M3", "f8E5M2")),
+    VectorStorageFamily(16, ("i16", "f16", "bf16")),
+    VectorStorageFamily(32, ("i32", "f32")),
+    VectorStorageFamily(64, ("i64", "f64")),
 )
+
+AVX2_SHUFFLE_FAMILIES = X86_VECTOR_STORAGE_FAMILIES
 
 AVX2_INTEGER_BINARY_FAMILIES = (
     *(

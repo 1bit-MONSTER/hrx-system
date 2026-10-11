@@ -46,6 +46,7 @@ from loom.target.contracts import (
     GuardKind,
     LowerAttrCopyKind,
     LowerEmitKind,
+    OperandSegmentProject,
     OrdinalValueAliasRule,
     RecipeRule,
     Scalar,
@@ -85,6 +86,7 @@ from loom.target.low_descriptors import (
     EnumDomain,
     EnumValue,
     Immediate,
+    ImmediateFlag,
     ImmediateKind,
     MemorySpace,
 )
@@ -1873,6 +1875,80 @@ def test_compile_lower_rule_set_offsets_variadic_operand_elements() -> None:
     ]
     assert tuple(value_ref.index for value_ref in value_refs) == (0, 0, 0, 0)
     assert tuple(value_ref.element_index for value_ref in value_refs) == (0, 1, 2, 3)
+
+
+def test_compile_lower_rule_set_projects_exact_operand_segment_data() -> None:
+    descriptor = replace(
+        TEST_LOW_FROM_ELEMENTS_V4I32_DESCRIPTOR,
+        immediates=(
+            Immediate(
+                "data",
+                ImmediateKind.ORDINAL,
+                flags=(
+                    ImmediateFlag.SYMBOLIC,
+                    ImmediateFlag.RELATIVE,
+                    ImmediateFlag.READ_ONLY_DATA,
+                ),
+                bit_width=32,
+                unsigned_max=(2**32) - 1,
+            ),
+        ),
+    )
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        descriptors=tuple(
+            descriptor
+            if row.key == TEST_LOW_FROM_ELEMENTS_V4I32_DESCRIPTOR.key
+            else row
+            for row in TEST_LOW_CORE_DESCRIPTOR_SET.descriptors
+        ),
+    )
+    table = ContractFragment(
+        name="test.from-elements-exact-data",
+        descriptor_set=descriptor_set,
+        cases=(
+            DescriptorRule(
+                source_op=vector.vector_from_elements,
+                descriptor=descriptor,
+                guards=(
+                    Guard.operand_segment_count("elements", 4),
+                    Guard.operand_segment_exact_bits("elements", bit_width=32),
+                    Guard.value_type("result", Vector("i32", lanes=4)),
+                ),
+                emit=(
+                    EmitDescriptorOp(
+                        descriptor=descriptor,
+                        operands={
+                            f"lane{i}": ValueRef.operand("elements", element=i)
+                            for i in range(4)
+                        },
+                        results={"dst": ValueRef.result("result")},
+                        immediates={
+                            "data": OperandSegmentProject.exact_bits_read_only(
+                                "elements", bit_width=32
+                            )
+                        },
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    compiled = compile_lower_rule_set(table, dialect_ops={"vector": ALL_VECTOR_OPS})
+
+    guard = next(
+        row
+        for row in compiled.guards
+        if row.kind is GuardKind.OPERAND_SEGMENT_EXACT_BITS
+    )
+    assert guard.attr_index == 0
+    assert guard.u64 == 32
+    assert len(compiled.attr_copies) == 1
+    attr_copy = compiled.attr_copies[0]
+    assert attr_copy.kind is LowerAttrCopyKind.OPERAND_SEGMENT_EXACT_BITS_READ_ONLY
+    assert attr_copy.source_operand_field_index == 0
+    assert attr_copy.source_element_bit_width == 32
+    assert attr_copy.kind.is_read_only_data
 
 
 def test_compile_lower_rule_set_orders_variadic_arity_before_value_guards() -> None:

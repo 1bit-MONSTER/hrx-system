@@ -265,6 +265,7 @@ loom_cc_test(
         "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scalar",
         "//loom/src/loom/ops/test",
+        "//loom/src/loom/ops/vector",
         "//loom/src/loom/util:fact_table",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",

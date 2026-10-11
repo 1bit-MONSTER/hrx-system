@@ -334,6 +334,30 @@ def floating_scalar_constant_bits_rule(
     )
 
 
+def floating_storage_scalar_constant_rule(
+    result_type: TypePattern,
+    move_descriptor: Descriptor,
+) -> DescriptorRule:
+    """Constructs a storage float in its integer carrier from exact bits."""
+    return DescriptorRule(
+        source_op=scalar_conversion.scalar_constant,
+        descriptor=move_descriptor,
+        guards=(
+            Guard.attr_kind("value", "f64"),
+            Guard.value_type("result", result_type),
+            Guard.value_exact_float("result"),
+        ),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=move_descriptor,
+                results={"dst": ValueRef.result("result")},
+                immediates={"imm32": ValueProject.float_bits("result")},
+                form=DescriptorEmitForm.CONST,
+            ),
+        ),
+    )
+
+
 def f32_scalar_constant_rule(
     move_descriptor: Descriptor,
     bitcast_descriptor: Descriptor,
