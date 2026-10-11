@@ -38,6 +38,8 @@ iree_py_library(
     "packet_program.py"
     "power_of_two_scale.py"
     "predicate_concat.py"
+    "predicate_slice.py"
+    "predicate_words.py"
     "reduction.py"
     "scalar_program.py"
     "structural.py"
@@ -136,6 +138,7 @@ iree_py_test(
     "integer_division_test.py"
     "nonlinear_test.py"
     "predicate_concat_test.py"
+    "predicate_slice_test.py"
     "structural_test.py"
     "../../../../../../tools/pytest_style_runner.py"
   ARGS
@@ -146,6 +149,7 @@ iree_py_test(
     "loom.target.arch.amd.xdna.aie2p.contracts.integer_division_test"
     "loom.target.arch.amd.xdna.aie2p.contracts.nonlinear_test"
     "loom.target.arch.amd.xdna.aie2p.contracts.predicate_concat_test"
+    "loom.target.arch.amd.xdna.aie2p.contracts.predicate_slice_test"
     "loom.target.arch.amd.xdna.aie2p.contracts.structural_test"
   DEPS
     loom::py::loom::target::arch::amd::xdna::aie2p::contracts::contracts
