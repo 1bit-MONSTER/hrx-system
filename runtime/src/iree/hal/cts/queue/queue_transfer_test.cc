@@ -408,7 +408,12 @@ TEST_P(QueueTransferTest, EmptyTransferValidatesAndCapturesBoundaries) {
                         iree_hal_queue_transfer(transfer_queue_, empty, signal,
                                                 0, nullptr, &barriers));
   action.effects.bits = IREE_HAL_MEMORY_EFFECT_HOST_FLUSH;
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNIMPLEMENTED,
+  const auto missing_host_operand_status =
+      iree_any_bit_set(iree_hal_queue_family(transfer_queue_)->spec->flags,
+                       IREE_HAL_QUEUE_FAMILY_SPEC_FLAG_HOST_MEMORY_BARRIERS)
+          ? IREE_STATUS_INVALID_ARGUMENT
+          : IREE_STATUS_UNIMPLEMENTED;
+  IREE_EXPECT_STATUS_IS(missing_host_operand_status,
                         iree_hal_queue_transfer(transfer_queue_, empty, signal,
                                                 0, nullptr, &barriers));
   action.effects.bits = 0;

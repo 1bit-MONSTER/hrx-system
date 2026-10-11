@@ -25,8 +25,8 @@ iree_hal_atomic_capabilities_t iree_hal_task_atomic_capabilities(
 
 // Resolves one validated HAL barrier to the ordering required in the task
 // driver's coherent CPU memory domain. Ranged queue actions are conservatively
-// promoted to CPU-wide fences; non-coherent mappings use explicit host
-// maintenance instead.
+// promoted to CPU-wide fences. Host cache recipes require separate maintenance
+// in addition to the ordering resolved here.
 iree_hal_atomic_flags_t iree_hal_task_barrier_resolve_atomic_flags(
     const iree_hal_barrier_t* barrier);
 

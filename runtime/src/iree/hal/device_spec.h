@@ -408,6 +408,9 @@ typedef enum iree_hal_queue_family_spec_flag_bits_e {
 
   // Additional exact hardware queues may be acquired after device creation.
   IREE_HAL_QUEUE_FAMILY_SPEC_FLAG_DYNAMIC_ACQUISITION = 1u << 0,
+  // Barriers may execute qualified HOST_DIRECT and HOST_API cache recipes
+  // through prepared CPU execution bindings, independently of public maps.
+  IREE_HAL_QUEUE_FAMILY_SPEC_FLAG_HOST_MEMORY_BARRIERS = 1u << 1,
 } iree_hal_queue_family_spec_flag_bits_t;
 
 // Canonical ordinal of one execution-resource constraint group within a queue

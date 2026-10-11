@@ -269,7 +269,8 @@ IREE_API_EXPORT iree_status_t iree_hal_command_buffer_end_debug_group(
 }
 
 IREE_API_EXPORT iree_status_t
-iree_hal_barrier_validate(const iree_hal_barrier_t* barrier) {
+iree_hal_barrier_validate(const iree_hal_barrier_t* barrier,
+                          const iree_hal_queue_family_t* queue_family) {
   if (IREE_UNLIKELY(
           !barrier ||
           (barrier->memory_barrier_count && !barrier->memory_barriers) ||
@@ -281,16 +282,21 @@ iree_hal_barrier_validate(const iree_hal_barrier_t* barrier) {
     return iree_make_status(IREE_STATUS_UNAVAILABLE,
                             "memory transition is not qualified");
   }
+  const bool supports_host =
+      iree_any_bit_set(queue_family->spec->flags,
+                       IREE_HAL_QUEUE_FAMILY_SPEC_FLAG_HOST_MEMORY_BARRIERS);
   const uint32_t queue_effects =
       IREE_HAL_MEMORY_EFFECT_GLOBAL_RELEASE_TO_SYSTEM |
       IREE_HAL_MEMORY_EFFECT_GLOBAL_ACQUIRE_FROM_SYSTEM |
       IREE_HAL_MEMORY_EFFECT_RANGE_RELEASE_TO_SYSTEM |
-      IREE_HAL_MEMORY_EFFECT_RANGE_ACQUIRE_FROM_SYSTEM;
+      IREE_HAL_MEMORY_EFFECT_RANGE_ACQUIRE_FROM_SYSTEM |
+      (supports_host ? IREE_HAL_MEMORY_EFFECT_HOST_FLUSH |
+                           IREE_HAL_MEMORY_EFFECT_HOST_INVALIDATE
+                     : 0);
   if (IREE_UNLIKELY(barrier->effects.bits & ~queue_effects)) {
     return iree_make_status(
         IREE_STATUS_UNIMPLEMENTED,
-        "barrier requires queue effects; host and program actions require "
-        "their qualified executor");
+        "barrier effects require an executor unavailable on this queue family");
   }
   const iree_hal_barrier_flags_t supported_flags =
       IREE_HAL_BARRIER_FLAG_ACQUIRE_SYSTEM_SCOPE |
@@ -337,12 +343,24 @@ iree_hal_barrier_validate(const iree_hal_barrier_t* barrier) {
     IREE_RETURN_IF_ERROR(
         iree_hal_memory_transition_recipe_validate(buffer_barrier->recipe));
     for (uint32_t j = 0; j < buffer_barrier->recipe->operation_count; ++j) {
-      if (IREE_UNLIKELY(buffer_barrier->recipe->operations[j].executor !=
-                        IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE)) {
-        return iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "buffer barrier recipe does not execute on a queue");
+      const iree_hal_memory_transition_executor_t executor =
+          buffer_barrier->recipe->operations[j].executor;
+      if (IREE_UNLIKELY(
+              executor != IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE &&
+              !(supports_host &&
+                (executor == IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT ||
+                 executor == IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_API)))) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "buffer barrier recipe executor is unavailable "
+                                "on this queue family");
       }
+#if !defined(IREE_ARCH_X86_64) && !defined(IREE_ARCH_X86_32)
+      if (executor == IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT) {
+        return iree_make_status(
+            IREE_STATUS_UNAVAILABLE,
+            "direct host cache recipe requires an x86 host");
+      }
+#endif  // !IREE_ARCH_X86_*
     }
     recipe_effects |= buffer_barrier->recipe->effects.bits;
   }
@@ -355,7 +373,7 @@ iree_hal_barrier_validate(const iree_hal_barrier_t* barrier) {
   if (IREE_UNLIKELY(recipe_effects != required_recipe_effects)) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
-        "buffer barrier recipes do not cover the ranged queue effects");
+        "buffer barrier recipes do not cover the ranged effects");
   }
   return iree_ok_status();
 }
@@ -364,7 +382,8 @@ IREE_API_EXPORT iree_status_t
 iree_hal_command_buffer_barrier(iree_hal_command_buffer_t* command_buffer,
                                 const iree_hal_barrier_t* barrier) {
   IREE_ASSERT_ARGUMENT(command_buffer);
-  IREE_RETURN_IF_ERROR(iree_hal_barrier_validate(barrier));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_barrier_validate(barrier, command_buffer->queue_family));
   IREE_TRACE_ZONE_BEGIN(z0);
   IF_VALIDATING(command_buffer, {
     IREE_RETURN_AND_END_ZONE_IF_ERROR(

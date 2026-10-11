@@ -367,8 +367,8 @@ static void iree_hal_amdgpu_driver_destroy(iree_hal_driver_t* base_driver) {
 }
 
 static iree_status_t iree_hal_amdgpu_driver_query_available_devices(
-    iree_hal_driver_t* base_driver, iree_allocator_t host_allocator,
-    iree_host_size_t* out_device_info_count,
+    iree_hal_driver_t* base_driver, iree_string_view_t driver_name,
+    iree_allocator_t host_allocator, iree_host_size_t* out_device_info_count,
     iree_hal_device_info_t** out_device_infos) {
   iree_hal_amdgpu_driver_t* driver = iree_hal_amdgpu_driver_cast(base_driver);
   *out_device_info_count = 0;

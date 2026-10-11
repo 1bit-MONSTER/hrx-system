@@ -10,22 +10,9 @@
 
 void iree_hal_amd_xdna_memory_deinitialize(iree_hal_amd_xdna_context_t* context,
                                            iree_hal_amd_xdna_memory_t* memory) {
-  if (memory->mapping) {
-    amdf_status_t status = context->api->host_mapping_destroy(memory->mapping);
-    if (!amdf_status_is_ok(status)) {
-      iree_hal_amd_xdna_context_report(context, status, "host_mapping_destroy");
-      return;
-    }
-  }
-  if (memory->handle) {
-    // memory_destroy consumes its handle even on native cleanup failure; the
-    // provider preserves any backing required by failed detach as a leak.
-    amdf_status_t status = context->api->memory_destroy(memory->handle);
-    if (!amdf_status_is_ok(status)) {
-      iree_hal_amd_xdna_context_report(context, status, "memory_destroy");
-    }
-  }
-  *memory = (iree_hal_amd_xdna_memory_t){0};
+  iree_hal_amd_fabric_memory_deinitialize(context->api, context->event_sink,
+                                          &memory->storage);
+  memory->device_address = 0;
 }
 
 iree_status_t iree_hal_amd_xdna_memory_allocate(
@@ -33,58 +20,24 @@ iree_status_t iree_hal_amd_xdna_memory_allocate(
     const iree_hal_amd_xdna_memory_source_t* source, uint64_t byte_length,
     uint64_t alignment, iree_hal_amd_xdna_memory_t* out_memory) {
   *out_memory = (iree_hal_amd_xdna_memory_t){0};
-  const uint64_t granularity =
-      source->profile.allocation.byte_length_granularity;
-  uint64_t allocation_length = 0;
-  if (!iree_checked_add_u64(iree_max(byte_length, 1), granularity - 1,
-                            &allocation_length) ||
-      allocation_length > IREE_HOST_SIZE_MAX) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "XDNA allocation extent overflows host size");
-  }
-  allocation_length = allocation_length / granularity * granularity;
-  const amdf_memory_create_info_t create_info = {
-      .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
-      .structure_size = sizeof(create_info),
-      .memory_profile_ordinal = source->profile.ordinal,
+  const iree_hal_amd_fabric_memory_options_t options = {
+      .scope = source->scope,
+      .profile = source->profile,
       .access_count = 1,
-      .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE,
-      .byte_length = allocation_length,
-      .minimum_alignment =
-          iree_max(alignment, source->profile.allocation.minimum_alignment),
       .accesses = &source->access,
+      .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE,
+      .host_access = AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE,
   };
   iree_hal_amd_xdna_memory_t memory = {0};
-  IREE_RETURN_IF_ERROR(IREE_HAL_AMD_STATUS_FROM_AMDF(
-      context->api->memory_create(source->scope, &create_info, &memory.handle),
-      "memory_create"));
-  const amdf_memory_map_info_t map_info = {
-      .type = AMDF_STRUCTURE_TYPE_MEMORY_MAP_INFO,
-      .structure_size = sizeof(map_info),
-      .byte_length = allocation_length,
-      .flags = AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE,
-  };
+  IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_memory_allocate(
+      context->api, &options, byte_length, alignment, context->event_sink,
+      &memory.storage));
   iree_status_t status = IREE_HAL_AMD_STATUS_FROM_AMDF(
-      context->api->memory_map(memory.handle, &map_info, &memory.mapping),
-      "memory_map");
-  amdf_host_mapping_info_t mapping_info = {
-      .type = AMDF_STRUCTURE_TYPE_HOST_MAPPING_INFO,
-      .structure_size = sizeof(mapping_info),
-  };
+      context->api->memory_query_address(memory.storage.handle, 0,
+                                         source->address_kind,
+                                         &memory.device_address),
+      "memory_query_address");
   if (iree_status_is_ok(status)) {
-    status = IREE_HAL_AMD_STATUS_FROM_AMDF(
-        context->api->host_mapping_query_info(memory.mapping, &mapping_info),
-        "host_mapping_query_info");
-  }
-  if (iree_status_is_ok(status)) {
-    status = IREE_HAL_AMD_STATUS_FROM_AMDF(
-        context->api->memory_query_address(
-            memory.handle, 0, source->address_kind, &memory.device_address),
-        "memory_query_address");
-  }
-  if (iree_status_is_ok(status)) {
-    memory.contents = iree_make_byte_span(mapping_info.pointer, byte_length);
-    memory.host_cacheability = mapping_info.cacheability;
     *out_memory = memory;
   } else {
     iree_hal_amd_xdna_memory_deinitialize(context, &memory);
@@ -92,110 +45,8 @@ iree_status_t iree_hal_amd_xdna_memory_allocate(
   return status;
 }
 
-//===----------------------------------------------------------------------===//
-// Native buffers
-//===----------------------------------------------------------------------===//
-
-typedef struct iree_hal_amd_xdna_buffer_t {
-  // Logical HAL allocation and view metadata.
-  iree_hal_buffer_t base;
-  // Borrowed native device owner.
-  iree_hal_amd_xdna_context_t* context;
-  // Allocator owning the HAL wrapper.
-  iree_allocator_t host_allocator;
-  // Native allocation and mapping borrowed from the storage owner.
-  iree_hal_amd_xdna_memory_t* memory;
-  // Byte position of this view in the native mapping.
-  iree_device_size_t storage_offset;
-  // Storage-owner callback invoked before freeing this wrapper.
-  iree_hal_buffer_release_callback_t release_callback;
-} iree_hal_amd_xdna_buffer_t;
-
-static const iree_hal_buffer_vtable_t iree_hal_amd_xdna_buffer_vtable;
-
-const iree_hal_buffer_binding_layout_t* iree_hal_amd_xdna_buffer_binding_layout(
-    void) {
-  static const uint16_t types[] = {
-      IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
-      IREE_HAL_BUFFER_INTERFACE_HOST,
-  };
-  static const iree_hal_buffer_binding_layout_t layout = {
-      .byte_length = sizeof(iree_hal_buffer_native_binding_t) *
-                     IREE_HAL_AMD_XDNA_BUFFER_BINDING_COUNT,
-      .binding_count = IREE_ARRAYSIZE(types),
-      .host_binding_index = IREE_HAL_AMD_XDNA_BUFFER_BINDING_HOST,
-      .types = types,
-  };
-  return &layout;
-}
-
-static void iree_hal_amd_xdna_buffer_destroy(iree_hal_buffer_t* base_buffer) {
-  iree_hal_amd_xdna_buffer_t* buffer = (iree_hal_amd_xdna_buffer_t*)base_buffer;
-  if (buffer->release_callback.fn) {
-    buffer->release_callback.fn(buffer->release_callback.user_data,
-                                base_buffer);
-  }
-  iree_allocator_free(buffer->host_allocator, buffer);
-}
-
-static iree_status_t iree_hal_amd_xdna_buffer_map_range(
-    iree_hal_buffer_t* base_buffer, iree_hal_mapping_mode_t mode,
-    iree_hal_memory_access_t access, iree_hal_buffer_map_flags_t flags,
-    iree_device_size_t offset, iree_device_size_t length,
-    iree_hal_buffer_mapping_t* mapping) {
-  iree_hal_amd_xdna_buffer_t* buffer = (iree_hal_amd_xdna_buffer_t*)base_buffer;
-  mapping->contents = iree_make_byte_span(
-      buffer->memory->contents.data + buffer->storage_offset + offset, length);
-  return iree_ok_status();
-}
-
-static iree_status_t iree_hal_amd_xdna_buffer_unmap_range(
-    iree_hal_buffer_t* buffer, iree_device_size_t offset,
-    iree_device_size_t length, iree_hal_buffer_mapping_t* mapping) {
-  return iree_ok_status();
-}
-
-static iree_status_t iree_hal_amd_xdna_buffer_invalidate_range(
-    iree_hal_buffer_t* base_buffer, iree_device_size_t offset,
-    iree_device_size_t length) {
-  iree_hal_amd_xdna_buffer_t* buffer = (iree_hal_amd_xdna_buffer_t*)base_buffer;
-  return IREE_HAL_AMD_STATUS_FROM_AMDF(
-      buffer->context->api->host_mapping_cache_control(
-          buffer->memory->mapping, AMDF_HOST_CACHE_OPERATION_INVALIDATE,
-          buffer->storage_offset + offset, length),
-      "host_mapping_cache_control(INVALIDATE)");
-}
-
-static iree_status_t iree_hal_amd_xdna_buffer_flush_range(
-    iree_hal_buffer_t* base_buffer, iree_device_size_t offset,
-    iree_device_size_t length) {
-  iree_hal_amd_xdna_buffer_t* buffer = (iree_hal_amd_xdna_buffer_t*)base_buffer;
-  return IREE_HAL_AMD_STATUS_FROM_AMDF(
-      buffer->context->api->host_mapping_cache_control(
-          buffer->memory->mapping, AMDF_HOST_CACHE_OPERATION_FLUSH,
-          buffer->storage_offset + offset, length),
-      "host_mapping_cache_control(FLUSH)");
-}
-
-static iree_status_t iree_hal_amd_xdna_buffer_export_range(
-    iree_hal_buffer_t* buffer, iree_device_size_t local_byte_offset,
-    iree_device_size_t local_byte_length,
-    iree_hal_external_storage_class_t requested_class,
-    iree_hal_external_storage_t* out_storage,
-    iree_hal_buffer_range_t* out_logical_range) {
-  (void)buffer;
-  (void)local_byte_offset;
-  (void)local_byte_length;
-  (void)requested_class;
-  (void)out_storage;
-  (void)out_logical_range;
-  return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                          "XDNA buffer export is not supported");
-}
-
 iree_status_t iree_hal_amd_xdna_buffer_resolve_binding_slot(
-    iree_hal_amd_xdna_context_t* context, const iree_hal_queue_family_t* family,
-    const iree_hal_buffer_t* buffer,
+    const iree_hal_queue_family_t* family, const iree_hal_buffer_t* buffer,
     iree_hal_buffer_native_binding_slot_t* out_slot) {
   *out_slot = (iree_hal_buffer_native_binding_slot_t){
       .index = IREE_HAL_BUFFER_NATIVE_BINDING_INDEX_NONE,
@@ -229,24 +80,8 @@ iree_status_t iree_hal_amd_xdna_buffer_resolve_binding_slot(
     return iree_ok_status();
   }
 
-  iree_hal_buffer_t* allocation = iree_hal_buffer_allocated_buffer(buffer);
-  if (!iree_hal_resource_is((iree_hal_resource_t*)allocation,
-                            &iree_hal_amd_xdna_buffer_vtable)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "XDNA dispatch requires a prepared shim DMA buffer binding");
-  }
-  const iree_hal_amd_xdna_buffer_t* native_buffer =
-      (const iree_hal_amd_xdna_buffer_t*)allocation;
-  if (native_buffer->context != context) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "buffer belongs to another XDNA device");
-  }
-  *out_slot = (iree_hal_buffer_native_binding_slot_t){
-      .index = IREE_HAL_AMD_XDNA_BUFFER_BINDING_SHIM_DMA,
-      .type = IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
-  };
-  return iree_ok_status();
+  return iree_make_status(IREE_STATUS_PERMISSION_DENIED,
+                          "XDNA dispatch requires a prepared memory contract");
 }
 
 iree_status_t iree_hal_amd_xdna_buffer_load_device_address(
@@ -265,43 +100,6 @@ iree_status_t iree_hal_amd_xdna_buffer_load_device_address(
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "XDNA binding address overflows");
   }
-  return iree_ok_status();
-}
-
-static const iree_hal_buffer_vtable_t iree_hal_amd_xdna_buffer_vtable = {
-    .destroy = iree_hal_amd_xdna_buffer_destroy,
-    .export_range = iree_hal_amd_xdna_buffer_export_range,
-    .map_range = iree_hal_amd_xdna_buffer_map_range,
-    .unmap_range = iree_hal_amd_xdna_buffer_unmap_range,
-    .invalidate_range = iree_hal_amd_xdna_buffer_invalidate_range,
-    .flush_range = iree_hal_amd_xdna_buffer_flush_range,
-};
-
-iree_status_t iree_hal_amd_xdna_buffer_wrap(
-    iree_hal_buffer_placement_t placement, iree_hal_amd_xdna_context_t* context,
-    iree_hal_amd_xdna_buffer_storage_t storage,
-    iree_device_size_t allocation_size, iree_hal_memory_type_t memory_type,
-    iree_hal_memory_access_t allowed_access,
-    iree_hal_buffer_usage_t allowed_usage,
-    iree_hal_buffer_release_callback_t release_callback,
-    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer) {
-  *out_buffer = NULL;
-  iree_hal_amd_xdna_buffer_t* buffer = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(host_allocator, sizeof(*buffer), (void**)&buffer));
-  iree_hal_buffer_initialize(placement, &buffer->base, allocation_size, 0,
-                             allocation_size, memory_type, allowed_access,
-                             allowed_usage, &iree_hal_amd_xdna_buffer_vtable,
-                             &buffer->base);
-  buffer->context = context;
-  buffer->host_allocator = host_allocator;
-  buffer->memory = storage.memory;
-  buffer->storage_offset = storage.offset;
-  buffer->release_callback = release_callback;
-  buffer->base.memory.bindings = storage.bindings;
-  buffer->base.memory.binding_offset = storage.offset;
-  buffer->base.host_binding_index = storage.host_binding_index;
-  *out_buffer = &buffer->base;
   return iree_ok_status();
 }
 

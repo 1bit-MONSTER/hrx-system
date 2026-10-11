@@ -4,11 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "iree/hal/drivers/amd/xdna/memory_transition.h"
+#include "iree/hal/drivers/amd/fabric/memory_transition.h"
 
 #include "iree/base/internal/math.h"
 
-static iree_status_t iree_hal_amd_xdna_memory_translate_atomic_scope(
+static iree_status_t iree_hal_amd_fabric_memory_translate_atomic_scope(
     amdf_atomic_scope_t source, iree_hal_atomic_reach_scope_t* out_scope) {
   switch (source) {
     case AMDF_ATOMIC_SCOPE_NONE:
@@ -30,7 +30,7 @@ static iree_status_t iree_hal_amd_xdna_memory_translate_atomic_scope(
   }
 }
 
-static iree_status_t iree_hal_amd_xdna_memory_translate_host_instruction(
+static iree_status_t iree_hal_amd_fabric_memory_translate_host_instruction(
     amdf_host_cache_instruction_t source,
     iree_hal_host_cache_instruction_t* out_instruction) {
   switch (source) {
@@ -53,7 +53,7 @@ static iree_status_t iree_hal_amd_xdna_memory_translate_host_instruction(
   }
 }
 
-static iree_status_t iree_hal_amd_xdna_memory_translate_host_fence(
+static iree_status_t iree_hal_amd_fabric_memory_translate_host_fence(
     amdf_host_cache_fence_t source, iree_hal_host_cache_fence_t* out_fence) {
   switch (source) {
     case AMDF_HOST_CACHE_FENCE_NONE:
@@ -72,7 +72,7 @@ static iree_status_t iree_hal_amd_xdna_memory_translate_host_fence(
   }
 }
 
-static iree_status_t iree_hal_amd_xdna_memory_translate_transition(
+static iree_status_t iree_hal_amd_fabric_memory_translate_transition(
     const amdf_cache_transition_t* source,
     iree_hal_memory_transition_action_t action,
     iree_hal_memory_transition_recipe_info_t* out_info) {
@@ -154,11 +154,11 @@ static iree_status_t iree_hal_amd_xdna_memory_translate_transition(
     out_info->operation =
         is_release ? IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH
                    : IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_INVALIDATE;
-    IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_memory_translate_host_instruction(
+    IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_memory_translate_host_instruction(
         source->host_instruction, &out_info->host.instruction));
-    IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_memory_translate_host_fence(
+    IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_memory_translate_host_fence(
         source->host_fence_before, &out_info->host.fence_before));
-    IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_memory_translate_host_fence(
+    IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_memory_translate_host_fence(
         source->host_fence_after, &out_info->host.fence_after));
     if (source->executor == AMDF_CACHE_TRANSITION_EXECUTOR_HOST_API &&
         (out_info->host.instruction != IREE_HAL_HOST_CACHE_INSTRUCTION_NONE ||
@@ -188,7 +188,7 @@ static iree_status_t iree_hal_amd_xdna_memory_translate_transition(
   return iree_ok_status();
 }
 
-iree_status_t iree_hal_amd_xdna_memory_translate_pair(
+iree_status_t iree_hal_amd_fabric_memory_translate_pair(
     const amdf_memory_pair_info_t* source,
     iree_hal_memory_pair_info_t* out_pair) {
   memset(out_pair, 0, sizeof(*out_pair));
@@ -204,15 +204,15 @@ iree_status_t iree_hal_amd_xdna_memory_translate_pair(
     out_pair->estimated_fixed_cost_nanoseconds =
         source->estimated_fixed_cost_nanoseconds;
   }
-  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_memory_translate_transition(
+  IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_memory_translate_transition(
       &source->release, IREE_HAL_MEMORY_TRANSITION_RELEASE,
       &out_pair->release));
-  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_memory_translate_transition(
+  IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_memory_translate_transition(
       &source->acquire, IREE_HAL_MEMORY_TRANSITION_ACQUIRE,
       &out_pair->acquire));
-  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_memory_translate_atomic_scope(
+  IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_memory_translate_atomic_scope(
       source->atomic_reach.scope_32, &out_pair->atomic_reach.scope_32));
-  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_memory_translate_atomic_scope(
+  IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_memory_translate_atomic_scope(
       source->atomic_reach.scope_64, &out_pair->atomic_reach.scope_64));
   return iree_ok_status();
 }

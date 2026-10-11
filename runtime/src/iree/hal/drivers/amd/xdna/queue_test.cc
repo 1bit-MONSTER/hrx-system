@@ -18,10 +18,11 @@
 #include "iree/async/event.h"
 #include "iree/async/semaphore.h"
 #include "iree/async/util/proactor_pool.h"
+#include "iree/hal/drivers/amd/fabric/buffer.h"
+#include "iree/hal/drivers/amd/fabric/memory_backend.h"
 #include "iree/hal/drivers/amd/xdna/device.h"
 #include "iree/hal/drivers/amd/xdna/image/testing/image_fixture.h"
 #include "iree/hal/drivers/amd/xdna/memory.h"
-#include "iree/hal/drivers/amd/xdna/memory_backend.h"
 #include "iree/hal/drivers/amd/xdna/queue_frontier.h"
 #include "iree/hal/drivers/amd/xdna/semaphore.h"
 #include "iree/hal/memory/slab_cache.h"
@@ -632,6 +633,27 @@ struct NativeProvider {
   bool context_destroy_saw_queue = false;
 };
 
+enum {
+  IREE_HAL_AMD_XDNA_BUFFER_BINDING_SHIM_DMA = 0,
+  IREE_HAL_AMD_XDNA_BUFFER_BINDING_HOST = 1,
+  IREE_HAL_AMD_XDNA_BUFFER_BINDING_COUNT = 2,
+};
+
+const iree_hal_buffer_binding_layout_t* DirectBufferBindingLayout(void) {
+  static const uint16_t types[] = {
+      IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
+      IREE_HAL_BUFFER_INTERFACE_HOST,
+  };
+  static const iree_hal_buffer_binding_layout_t layout = {
+      /*.byte_length=*/sizeof(iree_hal_buffer_native_binding_t) *
+          IREE_HAL_AMD_XDNA_BUFFER_BINDING_COUNT,
+      /*.binding_count=*/IREE_ARRAYSIZE(types),
+      /*.host_binding_index=*/IREE_HAL_AMD_XDNA_BUFFER_BINDING_HOST,
+      /*.types=*/types,
+  };
+  return &layout;
+}
+
 class QueueHarness {
  public:
   enum class CapturedResourceState {
@@ -681,6 +703,8 @@ class QueueHarness {
     context->data_source.profile.allocation.minimum_alignment = 4;
     context->data_source.profile.allocation.maximum_alignment = 32768;
     context->data_source.profile.allocation.maximum_byte_length = UINT32_MAX;
+    context->data_source.capabilities.guaranteed_access =
+        AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
     context->data_source.address_kind = AMDF_MEMORY_ADDRESS_XDNA_DMA;
     context->data_source.access.device =
         reinterpret_cast<amdf_device_t*>(&native);
@@ -810,6 +834,16 @@ class QueueHarness {
                                               IREE_HAL_BUFFER_USAGE_MAPPING,
       iree_device_size_t allocation_size = 64) {
     *out_buffer = nullptr;
+    // Supply the memory namespace independently of queue completion topology.
+    // Tests that exercise group construction supply the real group namespace;
+    // the remaining queue tests control only the completion frontier
+    // themselves.
+    auto* memory_family =
+        const_cast<iree_hal_queue_family_t*>(iree_hal_queue_family(queue));
+    if (!memory_family->memory.domain) {
+      memory_family->memory.domain = this;
+      memory_family->memory.queue_scope_id = 2;
+    }
     DirectBufferStorage* storage = nullptr;
     IREE_ASSERT_OK(iree_allocator_malloc(host_allocator, sizeof(*storage),
                                          reinterpret_cast<void**>(&storage)));
@@ -820,10 +854,30 @@ class QueueHarness {
         context, &context->data_source, allocation_size, /*alignment=*/1,
         &storage->memory);
     if (iree_status_is_ok(status)) {
+      status = iree_hal_memory_contract_create(
+          memory_family->memory.domain,
+          group ? iree_hal_device_group_memory_scope_count(group) : 4,
+          DirectBufferBindingLayout(), host_allocator, &storage->contract);
+    }
+    if (iree_status_is_ok(status)) {
+      storage->contract->allowed_access = allowed_access;
+      storage->contract->allowed_usage = allowed_usage;
+      storage->contract->host.access = allowed_access;
+      storage->contract->host.modes =
+          IREE_HAL_MAPPING_MODE_SCOPED | IREE_HAL_MAPPING_MODE_PERSISTENT;
+      const auto* family = iree_hal_queue_family(queue);
+      for (uint32_t id = family->memory.queue_scope_id;
+           id <= family->memory.queue_scope_id + 1; ++id) {
+        auto* access = &storage->contract->scopes[id];
+        access->usage = allowed_usage;
+        access->interfaces = 1u << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA;
+        access->bindings[IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA] =
+            IREE_HAL_AMD_XDNA_BUFFER_BINDING_SHIM_DMA;
+      }
       storage->bindings[IREE_HAL_AMD_XDNA_BUFFER_BINDING_SHIM_DMA]
           .device_address = storage->memory.device_address;
       storage->bindings[IREE_HAL_AMD_XDNA_BUFFER_BINDING_HOST].host_pointer =
-          storage->memory.contents.data;
+          storage->memory.storage.contents.data;
       iree_hal_memory_type_t memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
                                            IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
                                            IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
@@ -832,18 +886,18 @@ class QueueHarness {
                            AMDF_MEMORY_FLAG_HOST_COHERENT)) {
         memory_type |= IREE_HAL_MEMORY_TYPE_HOST_COHERENT;
       }
-      if (storage->memory.host_cacheability ==
+      if (storage->memory.storage.host_cacheability ==
           AMDF_HOST_CACHEABILITY_WRITE_BACK) {
         memory_type |= IREE_HAL_MEMORY_TYPE_HOST_CACHED;
       }
-      status = iree_hal_amd_xdna_buffer_wrap(
+      status = iree_hal_amd_fabric_buffer_wrap(
           (iree_hal_buffer_placement_t){
               /*.device=*/device,
               /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
           },
-          context,
-          (iree_hal_amd_xdna_buffer_storage_t){
-              /*.memory=*/&storage->memory,
+          context->api,
+          (iree_hal_amd_fabric_buffer_storage_t){
+              /*.memory=*/&storage->memory.storage,
               /*.bindings=*/storage->bindings,
               /*.host_binding_index=*/IREE_HAL_AMD_XDNA_BUFFER_BINDING_HOST,
           },
@@ -853,9 +907,13 @@ class QueueHarness {
               /*.user_data=*/storage,
           },
           host_allocator, out_buffer);
+      if (iree_status_is_ok(status)) {
+        (*out_buffer)->memory.contract = storage->contract;
+      }
     }
     if (!iree_status_is_ok(status)) {
       iree_hal_amd_xdna_memory_deinitialize(context, &storage->memory);
+      iree_hal_memory_contract_release(storage->contract);
       iree_allocator_free(host_allocator, storage);
     }
     IREE_ASSERT_OK(status);
@@ -993,9 +1051,15 @@ class QueueHarness {
   }
 
   struct DirectBufferStorage {
+    // Borrowed native lifetime owner.
     iree_hal_amd_xdna_context_t* context;
+    // Allocator owning this fixture storage.
     iree_allocator_t host_allocator;
+    // Native backing with its XDNA address.
     iree_hal_amd_xdna_memory_t memory;
+    // Prepared scope and binding facts, borrowed by the buffer view.
+    iree_hal_memory_contract_t* contract;
+    // Published native addresses in the fixture layout.
     iree_hal_buffer_native_binding_t
         bindings[IREE_HAL_AMD_XDNA_BUFFER_BINDING_COUNT];
   };
@@ -1005,6 +1069,7 @@ class QueueHarness {
     (void)buffer;
     auto* storage = static_cast<DirectBufferStorage*>(user_data);
     iree_hal_amd_xdna_memory_deinitialize(storage->context, &storage->memory);
+    iree_hal_memory_contract_release(storage->contract);
     iree_allocator_free(storage->host_allocator, storage);
   }
 
@@ -1056,8 +1121,7 @@ class PreparedContractBuffer {
     IREE_ASSERT_OK(iree_hal_memory_contract_create(
         iree_hal_device_group_memory_domain(harness.group),
         iree_hal_device_group_memory_scope_count(harness.group),
-        iree_hal_amd_xdna_buffer_binding_layout(), iree_allocator_system(),
-        &contract_));
+        DirectBufferBindingLayout(), iree_allocator_system(), &contract_));
     for (iree_hal_memory_site_kind_t kind :
          {IREE_HAL_MEMORY_SITE_QUEUE, IREE_HAL_MEMORY_SITE_PROGRAM}) {
       iree_hal_memory_scope_t scope;
@@ -1126,9 +1190,10 @@ TEST(XdnaDeviceTest, PublishesMemoryProgressBackend) {
   ASSERT_NE(base, nullptr);
   EXPECT_EQ(base->type, IREE_HAL_MEMORY_BACKEND_AMDF);
   const auto* backend =
-      reinterpret_cast<const iree_hal_amd_xdna_memory_backend_t*>(base);
+      reinterpret_cast<const iree_hal_amd_fabric_memory_backend_t*>(base);
   EXPECT_EQ(backend->device, harness.device);
-  EXPECT_NE(backend->context, nullptr);
+  EXPECT_EQ(backend->native.device, harness.context->device);
+  EXPECT_EQ(backend->native.scope, harness.context->data_source.scope);
   EXPECT_NE(backend->notification, nullptr);
   EXPECT_NE(backend->maintenance, nullptr);
   ASSERT_NE(backend->epoch_query.fn, nullptr);

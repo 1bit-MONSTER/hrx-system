@@ -44,6 +44,7 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/drivers/amd:status",
+        "//runtime/src/iree/hal/drivers/amd/fabric",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/aie2p:npu2",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/aie2p:target",
     ],
@@ -59,6 +60,7 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/drivers/amd:status",
+        "//runtime/src/iree/hal/drivers/amd/fabric:memory",
     ],
 )
 
@@ -71,95 +73,6 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/threading",
         "//runtime/src/iree/hal/memory:tlsf",
-    ],
-)
-
-iree_runtime_cc_library(
-    name = "slab_provider",
-    srcs = ["slab_provider.c"],
-    hdrs = ["slab_provider.h"],
-    deps = [
-        ":memory",
-        "//libamdf:headers",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal",
-        "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/drivers/amd:status",
-        "//runtime/src/iree/hal/memory:slab_provider",
-    ],
-)
-
-iree_runtime_cc_test(
-    name = "slab_provider_test",
-    srcs = ["slab_provider_test.cc"],
-    deps = [
-        ":slab_provider",
-        "//libamdf:headers",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/memory:slab_provider",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-    ],
-)
-
-iree_runtime_cc_library(
-    name = "memory_transition",
-    srcs = ["memory_transition.c"],
-    hdrs = ["memory_transition.h"],
-    deps = [
-        "//libamdf:headers",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal",
-        "//runtime/src/iree/hal",
-    ],
-)
-
-iree_runtime_cc_test(
-    name = "memory_transition_test",
-    srcs = ["memory_transition_test.cc"],
-    deps = [
-        ":memory_transition",
-        "//libamdf:headers",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/hal",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-    ],
-)
-
-iree_runtime_cc_library(
-    name = "memory_backend",
-    srcs = ["memory_backend.c"],
-    hdrs = ["memory_backend.h"],
-    deps = [
-        ":context",
-        ":memory_transition",
-        ":slab_provider",
-        "//libamdf:headers",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal",
-        "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/drivers/amd:status",
-        "//runtime/src/iree/hal/memory:maintenance",
-        "//runtime/src/iree/hal/memory:passthrough_pool",
-    ],
-)
-
-iree_runtime_cc_test(
-    name = "memory_backend_test",
-    srcs = ["memory_backend_test.cc"],
-    deps = [
-        ":memory_backend",
-        "//libamdf:headers",
-        "//runtime/src/iree/async",
-        "//runtime/src/iree/async:platform",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/memory:maintenance_thread",
-        "//runtime/src/iree/hal/testing:mock_device",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
@@ -312,6 +225,8 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base/threading",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/drivers/amd:status",
+        "//runtime/src/iree/hal/drivers/amd/fabric:buffer",
+        "//runtime/src/iree/hal/drivers/amd/fabric:file_transfer",
     ],
 )
 
@@ -368,7 +283,6 @@ iree_runtime_cc_library(
         ":context",
         ":executable",
         ":memory",
-        ":memory_backend",
         ":queue",
         ":semaphore",
         "//libamdf:headers",
@@ -377,23 +291,10 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal",
         "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/amd/fabric:memory_backend",
         "//runtime/src/iree/hal/memory:maintenance_thread",
         "//runtime/src/iree/hal/utils:device_spec_builder",
-    ],
-)
-
-iree_runtime_cc_library(
-    name = "driver",
-    srcs = ["driver.c"],
-    hdrs = ["driver.h"],
-    deps = [
-        ":context",
-        ":device",
-        "//libamdf:amdf_static",
-        "//libamdf:headers",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/drivers/amd:status",
+        "//runtime/src/iree/hal/utils:files",
     ],
 )
 
@@ -403,7 +304,6 @@ iree_runtime_cc_test(
     deps = [
         ":device",
         ":memory",
-        ":memory_backend",
         ":queue",
         ":queue_frontier",
         ":semaphore",
@@ -412,6 +312,8 @@ iree_runtime_cc_test(
         "//runtime/src/iree/async/util:proactor_pool",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/amd/fabric:buffer",
+        "//runtime/src/iree/hal/drivers/amd/fabric:memory_backend",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testing:image_fixture",
         "//runtime/src/iree/hal/memory:slab_cache",
         "//runtime/src/iree/hal/memory:tlsf_pool",

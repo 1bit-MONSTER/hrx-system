@@ -1,0 +1,161 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+#include "iree/hal/drivers/amd/fabric/file_transfer.h"
+
+#include "iree/async/file.h"
+#include "iree/async/proactor.h"
+#include "iree/hal/drivers/amd/fabric/buffer.h"
+#include "iree/hal/utils/memory_file.h"
+
+iree_status_t iree_hal_amd_fabric_file_transfer_initialize(
+    iree_hal_file_t* file, iree_hal_memory_access_t file_access,
+    uint64_t file_offset, iree_hal_buffer_t* buffer,
+    iree_device_size_t buffer_offset, iree_device_size_t length,
+    iree_hal_amd_fabric_file_transfer_t* out_transfer) {
+  memset(out_transfer, 0, sizeof(*out_transfer));
+  iree_async_file_t* async_file = iree_hal_file_async_handle(file);
+  iree_byte_span_t file_contents = iree_byte_span_empty();
+  if (!async_file) {
+    if (!iree_hal_memory_file_isa(file)) {
+      return iree_make_status(
+          IREE_STATUS_UNAVAILABLE,
+          "AMD queue file transfers require a memory file or an async file "
+          "handle");
+    }
+    IREE_RETURN_IF_ERROR(iree_hal_memory_file_contents(file, &file_contents));
+  }
+  out_transfer->file = file;
+  out_transfer->buffer = buffer;
+  out_transfer->file_access = file_access;
+  out_transfer->file_offset = file_offset;
+  out_transfer->buffer_offset = buffer_offset;
+  out_transfer->length = length;
+  out_transfer->file_contents = file_contents;
+  out_transfer->async.file = async_file;
+  iree_hal_file_retain(file);
+  iree_hal_buffer_retain(buffer);
+  return iree_ok_status();
+}
+
+void iree_hal_amd_fabric_file_transfer_deinitialize(
+    iree_hal_amd_fabric_file_transfer_t* transfer) {
+  iree_hal_buffer_release(transfer->buffer);
+  iree_hal_file_release(transfer->file);
+}
+
+iree_status_t iree_hal_amd_fabric_file_transfer_finish(
+    iree_hal_amd_fabric_file_transfer_t* transfer) {
+  if (transfer->file_access == IREE_HAL_MEMORY_ACCESS_READ) {
+    return iree_hal_amd_fabric_buffer_flush_host_range(
+        transfer->buffer, transfer->buffer_offset, transfer->length);
+  }
+  return iree_ok_status();
+}
+
+iree_status_t iree_hal_amd_fabric_file_transfer_prepare(
+    iree_hal_amd_fabric_file_transfer_t* transfer) {
+  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_hal_buffer_native_host_span(
+              transfer->buffer, transfer->buffer_offset, transfer->length,
+              &transfer->buffer_contents));
+  if (transfer->file_access == IREE_HAL_MEMORY_ACCESS_WRITE) {
+    IREE_RETURN_AND_END_ZONE_IF_ERROR(
+        z0, iree_hal_amd_fabric_buffer_invalidate_host_range(
+                transfer->buffer, transfer->buffer_offset, transfer->length));
+  }
+  iree_status_t status = iree_ok_status();
+  if (!transfer->async.file) {
+    uint8_t* file_data = transfer->file_contents.data + transfer->file_offset;
+    if (transfer->file_access == IREE_HAL_MEMORY_ACCESS_READ) {
+      memmove(transfer->buffer_contents.data, file_data,
+              transfer->buffer_contents.data_length);
+    } else {
+      memmove(file_data, transfer->buffer_contents.data,
+              transfer->buffer_contents.data_length);
+    }
+    status = iree_hal_amd_fabric_file_transfer_finish(transfer);
+  }
+  IREE_TRACE_ZONE_END(z0);
+  return status;
+}
+
+static iree_status_t iree_hal_amd_fabric_file_transfer_issue(
+    iree_hal_amd_fabric_file_transfer_t* transfer,
+    iree_async_completion_fn_t completion) {
+  const iree_host_size_t offset = transfer->async.bytes_transferred;
+  // Native request lengths are bounded independently of the HAL range. A
+  // power-of-two ceiling preserves direct-I/O alignment between full chunks.
+  const iree_host_size_t length = iree_min(
+      transfer->buffer_contents.data_length - offset, UINT32_C(1) << 30);
+  const iree_async_span_t span =
+      iree_async_span_from_ptr(transfer->buffer_contents.data + offset, length);
+  iree_async_operation_t* operation = NULL;
+  if (transfer->file_access == IREE_HAL_MEMORY_ACCESS_READ) {
+    iree_async_file_read_operation_t* read = &transfer->async.read;
+    iree_async_operation_zero(&read->base, sizeof(*read));
+    iree_async_operation_initialize(
+        &read->base, IREE_ASYNC_OPERATION_TYPE_FILE_READ,
+        IREE_ASYNC_OPERATION_FLAG_NONE, completion, transfer);
+    read->file = transfer->async.file;
+    read->offset = transfer->file_offset + offset;
+    read->buffer = span;
+    operation = &read->base;
+  } else {
+    iree_async_file_write_operation_t* write = &transfer->async.write;
+    iree_async_operation_zero(&write->base, sizeof(*write));
+    iree_async_operation_initialize(
+        &write->base, IREE_ASYNC_OPERATION_TYPE_FILE_WRITE,
+        IREE_ASYNC_OPERATION_FLAG_NONE, completion, transfer);
+    write->file = transfer->async.file;
+    write->offset = transfer->file_offset + offset;
+    write->buffer = span;
+    operation = &write->base;
+  }
+  return iree_async_proactor_submit_one(transfer->async.file->proactor,
+                                        operation);
+}
+
+static void iree_hal_amd_fabric_file_transfer_complete(
+    void* user_data, iree_async_operation_t* operation, iree_status_t status,
+    iree_async_completion_flags_t flags) {
+  (void)operation;
+  (void)flags;
+  iree_hal_amd_fabric_file_transfer_t* transfer = user_data;
+  if (iree_status_is_ok(status)) {
+    const iree_host_size_t byte_count =
+        transfer->file_access == IREE_HAL_MEMORY_ACCESS_READ
+            ? transfer->async.read.bytes_read
+            : transfer->async.write.bytes_written;
+    transfer->async.bytes_transferred += byte_count;
+    if (byte_count == 0) {
+      status = iree_make_status(
+          IREE_STATUS_OUT_OF_RANGE,
+          "file %s stopped after %" PRIhsz " of %" PRIhsz " bytes",
+          transfer->file_access == IREE_HAL_MEMORY_ACCESS_READ ? "read"
+                                                               : "write",
+          transfer->async.bytes_transferred,
+          transfer->buffer_contents.data_length);
+    } else if (transfer->async.bytes_transferred <
+               transfer->buffer_contents.data_length) {
+      status = iree_hal_amd_fabric_file_transfer_issue(
+          transfer, iree_hal_amd_fabric_file_transfer_complete);
+      if (iree_status_is_ok(status)) {
+        return;
+      }
+    }
+  }
+  transfer->async.callback.fn(transfer->async.callback.user_data, status);
+}
+
+iree_status_t iree_hal_amd_fabric_file_transfer_submit(
+    iree_hal_amd_fabric_file_transfer_t* transfer,
+    iree_hal_amd_fabric_file_transfer_callback_t callback) {
+  transfer->async.callback = callback;
+  return iree_hal_amd_fabric_file_transfer_issue(
+      transfer, iree_hal_amd_fabric_file_transfer_complete);
+}

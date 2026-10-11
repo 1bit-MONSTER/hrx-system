@@ -20,6 +20,7 @@ iree_cc_library(
   DEPS
     amdf::headers
     iree::base
+    iree::hal
   PUBLIC
 )
 endif()
@@ -38,6 +39,27 @@ iree_cc_test(
     iree::testing::gtest_main
   LABELS
     "iree-build-requirement=libamdf"
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
+    driver
+  HDRS
+    "driver.h"
+  SRCS
+    "driver.c"
+  DEPS
+    ::status
+    amdf::amdf_static
+    amdf::headers
+    iree::base
+    iree::hal
+    iree::hal::drivers::amd::fabric
+    iree::hal::drivers::amd::xdna::context
+    iree::hal::drivers::amd::xdna::device
+  PUBLIC
 )
 endif()
 

@@ -24,6 +24,7 @@ static iree_status_t iree_hal_task_driver_factory_enumerate(
     const iree_hal_driver_info_t** out_driver_infos) {
   static const iree_hal_driver_info_t driver_infos[1] = {
       {
+          .driver_id = 0,
           .driver_name = IREE_SVL("task"),
           .full_name = IREE_SVL("CPU execution using the "
                                 "IREE multithreading task system"),
@@ -35,14 +36,8 @@ static iree_status_t iree_hal_task_driver_factory_enumerate(
 }
 
 static iree_status_t iree_hal_task_driver_factory_try_create(
-    void* self, iree_string_view_t driver_name, iree_allocator_t host_allocator,
+    void* self, iree_hal_driver_id_t driver_id, iree_allocator_t host_allocator,
     iree_hal_driver_t** out_driver) {
-  if (!iree_string_view_equal(driver_name, IREE_SV("task"))) {
-    return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                            "no driver '%.*s' is provided by this factory",
-                            (int)driver_name.size, driver_name.data);
-  }
-
   iree_hal_task_device_params_t default_params;
   iree_hal_task_device_params_initialize(&default_params);
   if (FLAG_task_abort_on_failure) {
@@ -75,8 +70,8 @@ static iree_status_t iree_hal_task_driver_factory_try_create(
   // and loaders for loading executables.
   if (iree_status_is_ok(status)) {
     status = iree_hal_task_driver_create(
-        driver_name, &default_params, executor_count, executors, loader_count,
-        loaders, device_allocator, host_allocator, out_driver);
+        IREE_SV("task"), &default_params, executor_count, executors,
+        loader_count, loaders, device_allocator, host_allocator, out_driver);
   }
 
   for (iree_host_size_t i = 0; i < executor_count; ++i) {

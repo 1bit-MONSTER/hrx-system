@@ -88,8 +88,8 @@ static iree_status_t iree_hal_amd_xdna_command_slab_create(
   if (iree_status_is_ok(status)) {
     slab->memory_byte_offset =
         (alignment - slab->memory.device_address % alignment) % alignment;
-    if (slab->memory_byte_offset >= slab->memory.contents.data_length ||
-        slab->memory.contents.data_length - 1 >
+    if (slab->memory_byte_offset >= slab->memory.storage.contents.data_length ||
+        slab->memory.storage.contents.data_length - 1 >
             UINT64_MAX - slab->memory.device_address) {
       status = iree_make_status(
           IREE_STATUS_OUT_OF_RANGE,
@@ -99,7 +99,7 @@ static iree_status_t iree_hal_amd_xdna_command_slab_create(
   uint64_t managed_byte_length = 0;
   if (iree_status_is_ok(status)) {
     managed_byte_length =
-        (slab->memory.contents.data_length - slab->memory_byte_offset) &
+        (slab->memory.storage.contents.data_length - slab->memory_byte_offset) &
         ~(alignment - 1);
     if (managed_byte_length < minimum_managed_byte_length) {
       status =
@@ -237,10 +237,10 @@ iree_status_t iree_hal_amd_xdna_command_arena_allocate(
       (alignment - block_device_address % alignment) % alignment;
   const uint64_t memory_byte_offset = block_byte_offset + alignment_padding;
   *out_allocation = (iree_hal_amd_xdna_command_allocation_t){
-      .memory = selected_slab->memory.handle,
-      .mapping = selected_slab->memory.mapping,
+      .memory = selected_slab->memory.storage.handle,
+      .mapping = selected_slab->memory.storage.mapping,
       .contents = iree_make_byte_span(
-          selected_slab->memory.contents.data + memory_byte_offset,
+          selected_slab->memory.storage.contents.data + memory_byte_offset,
           byte_length),
       .memory_byte_offset = memory_byte_offset,
       .device_address =

@@ -306,7 +306,8 @@ static iree_status_t iree_hal_queue_validate_barrier_list(
   }
   for (iree_host_size_t i = 0; i < barriers->count; ++i) {
     const iree_hal_barrier_t* barrier = &barriers->values[i];
-    IREE_RETURN_IF_ERROR(iree_hal_barrier_validate(barrier));
+    IREE_RETURN_IF_ERROR(
+        iree_hal_barrier_validate(barrier, iree_hal_queue_family(queue)));
     for (iree_host_size_t j = 0; j < barrier->buffer_barrier_count; ++j) {
       const iree_hal_buffer_ref_t ref = barrier->buffer_barriers[j].buffer_ref;
       if (IREE_UNLIKELY(!ref.buffer)) {
@@ -319,6 +320,20 @@ static iree_status_t iree_hal_queue_validate_barrier_list(
       IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_family_usage(
           ref.buffer, iree_hal_queue_family(queue),
           IREE_HAL_BUFFER_USAGE_NONE));
+      const iree_hal_memory_transition_recipe_t* recipe =
+          barrier->buffer_barriers[j].recipe;
+      const uint32_t effects = recipe ? recipe->effects.bits : 0;
+      const iree_hal_memory_access_t access =
+          ((effects & IREE_HAL_MEMORY_EFFECT_HOST_FLUSH)
+               ? IREE_HAL_MEMORY_ACCESS_WRITE
+               : 0) |
+          ((effects & IREE_HAL_MEMORY_EFFECT_HOST_INVALIDATE)
+               ? IREE_HAL_MEMORY_ACCESS_READ
+               : 0);
+      if (access) {
+        IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_access(
+            iree_hal_buffer_allowed_access(ref.buffer), access));
+      }
     }
   }
   return iree_ok_status();

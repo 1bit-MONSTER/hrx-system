@@ -16,10 +16,10 @@ iree_runtime_cc_library(
     name = "registration",
     srcs = ["driver_module.c"],
     hdrs = ["driver_module.h"],
-    defines = ["IREE_HAVE_HAL_XDNA_DRIVER_MODULE=1"],
+    defines = ["IREE_HAVE_HAL_AMD_DRIVER_MODULE=1"],
     deps = [
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/drivers/amd/xdna:driver",
+        "//runtime/src/iree/hal/drivers/amd:driver",
     ],
 )

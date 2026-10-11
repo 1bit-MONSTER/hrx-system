@@ -40,7 +40,7 @@ iree_runtime_cc_library(
             ":external_registry_api",
         ] + iree_select({
             "//runtime/config/hal:driver_xdna": [
-                "//runtime/src/iree/hal/drivers/amd/xdna/registration",
+                "//runtime/src/iree/hal/drivers/amd/registration",
             ],
             "//conditions:default": [],
         }) + iree_select({

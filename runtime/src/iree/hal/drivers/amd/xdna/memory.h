@@ -7,55 +7,21 @@
 #ifndef IREE_HAL_DRIVERS_AMD_XDNA_MEMORY_H_
 #define IREE_HAL_DRIVERS_AMD_XDNA_MEMORY_H_
 
+#include "iree/hal/drivers/amd/fabric/memory.h"
 #include "iree/hal/drivers/amd/xdna/context.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// One provider-owned allocation with a persistent host mapping and a prepared
-// native address. The context outlives this owner and every device use.
+// XDNA-private storage with the exact address consumed by firmware or shim DMA.
+// The native context owns the source scope and outlives this storage.
 typedef struct iree_hal_amd_xdna_memory_t {
-  // Owned native storage, consumed at deinitialization.
-  amdf_memory_t* handle;
-  // Owned host view, destroyed before the native storage.
-  amdf_host_mapping_t* mapping;
-  // Borrowed host pointer and exact logical extent.
-  iree_byte_span_t contents;
-  // Address in the allocation source's declared native domain.
+  // Common backing and persistent host mapping.
+  iree_hal_amd_fabric_memory_t storage;
+  // Address in the source's selected execution domain.
   uint64_t device_address;
-  // Observed cache class of the persistent host mapping.
-  amdf_host_cacheability_t host_cacheability;
 } iree_hal_amd_xdna_memory_t;
-
-// Prepared native storage borrowed by one materialized buffer view. The memory
-// owner, mapping, and binding table must outlive the returned buffer.
-typedef struct iree_hal_amd_xdna_buffer_storage_t {
-  // Native allocation and persistent host mapping used by public map calls.
-  iree_hal_amd_xdna_memory_t* memory;
-  // Complete native binding table for byte zero of the owning allocation.
-  const iree_hal_buffer_native_binding_t* bindings;
-  // Private host execution slot in |bindings|.
-  uint16_t host_binding_index;
-  // Byte position of this view within the owning allocation.
-  iree_device_size_t offset;
-} iree_hal_amd_xdna_buffer_storage_t;
-
-// Native slots published by XDNA buffers without a memory contract.
-// Contract-backed storage may assign the same interfaces to different slot
-// indices.
-enum iree_hal_amd_xdna_buffer_binding_index_e {
-  // Address used by ordinary external buffer relocations.
-  IREE_HAL_AMD_XDNA_BUFFER_BINDING_SHIM_DMA = 0,
-  // Private host execution address used by mappings and host queue operations.
-  IREE_HAL_AMD_XDNA_BUFFER_BINDING_HOST = 1,
-  // Number of generic native slots in a buffer without a memory contract.
-  IREE_HAL_AMD_XDNA_BUFFER_BINDING_COUNT = 2,
-};
-
-// Complete native table format published by buffers without a memory contract.
-const iree_hal_buffer_binding_layout_t* iree_hal_amd_xdna_buffer_binding_layout(
-    void);
 
 // Allocates native backing and establishes its map/address before publication.
 // Failure leaves |out_memory| empty with no cleanup obligation.
@@ -69,18 +35,6 @@ iree_status_t iree_hal_amd_xdna_memory_allocate(
 void iree_hal_amd_xdna_memory_deinitialize(iree_hal_amd_xdna_context_t* context,
                                            iree_hal_amd_xdna_memory_t* memory);
 
-// Creates a HAL buffer view over provider-owned native storage. Destruction
-// invokes |release_callback| and frees only the wrapper; the callback owner
-// controls the storage lifetime. Failure leaves |out_buffer| NULL.
-iree_status_t iree_hal_amd_xdna_buffer_wrap(
-    iree_hal_buffer_placement_t placement, iree_hal_amd_xdna_context_t* context,
-    iree_hal_amd_xdna_buffer_storage_t storage,
-    iree_device_size_t allocation_size, iree_hal_memory_type_t memory_type,
-    iree_hal_memory_access_t allowed_access,
-    iree_hal_buffer_usage_t allowed_usage,
-    iree_hal_buffer_release_callback_t release_callback,
-    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
-
 // Creates the allocation metadata facade used for heap discovery and VMM.
 // The context is borrowed and outlives the allocator.
 iree_status_t iree_hal_amd_xdna_allocator_create(
@@ -89,12 +43,11 @@ iree_status_t iree_hal_amd_xdna_allocator_create(
 
 // Captures the stable shim-DMA slot prepared for |family|'s program site.
 // Contract-backed buffers may come from any driver in the same memory domain.
-// Buffers without a contract must wrap storage allocated from |context|. This
-// performs no native registration and does not read a potentially unpublished
+// Every buffer must carry a prepared contract. This performs no native
+// registration and does not read a potentially unpublished
 // slot value.
 iree_status_t iree_hal_amd_xdna_buffer_resolve_binding_slot(
-    iree_hal_amd_xdna_context_t* context, const iree_hal_queue_family_t* family,
-    const iree_hal_buffer_t* buffer,
+    const iree_hal_queue_family_t* family, const iree_hal_buffer_t* buffer,
     iree_hal_buffer_native_binding_slot_t* out_slot);
 
 // Loads the shim-DMA address after the caller's allocation prerequisites have

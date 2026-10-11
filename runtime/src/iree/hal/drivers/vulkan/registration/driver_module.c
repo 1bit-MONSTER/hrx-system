@@ -50,6 +50,7 @@ static iree_status_t iree_hal_vulkan_driver_factory_enumerate(
     void* self, iree_host_size_t* out_driver_info_count,
     const iree_hal_driver_info_t** out_driver_infos) {
   static const iree_hal_driver_info_t default_driver_info = {
+      .driver_id = 0,
       .driver_name = IREE_SVL("vulkan"),
       .full_name = IREE_SVL("Vulkan HAL Rewrite Scaffold"),
   };
@@ -59,14 +60,8 @@ static iree_status_t iree_hal_vulkan_driver_factory_enumerate(
 }
 
 static iree_status_t iree_hal_vulkan_driver_factory_try_create(
-    void* self, iree_string_view_t driver_name, iree_allocator_t host_allocator,
+    void* self, iree_hal_driver_id_t driver_id, iree_allocator_t host_allocator,
     iree_hal_driver_t** out_driver) {
-  if (!iree_string_view_equal(driver_name, IREE_SV("vulkan"))) {
-    return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                            "no driver '%.*s' is provided by this factory",
-                            (int)driver_name.size, driver_name.data);
-  }
-
   iree_hal_vulkan_driver_options_t options;
   iree_hal_vulkan_driver_options_initialize(&options);
 
@@ -130,8 +125,8 @@ static iree_status_t iree_hal_vulkan_driver_factory_try_create(
         ~IREE_HAL_VULKAN_DEVICE_FLAG_DEDICATED_COMPUTE_QUEUE;
   }
 
-  return iree_hal_vulkan_driver_create(driver_name, &options, /*syms=*/NULL,
-                                       host_allocator, out_driver);
+  return iree_hal_vulkan_driver_create(
+      IREE_SV("vulkan"), &options, /*syms=*/NULL, host_allocator, out_driver);
 }
 
 IREE_API_EXPORT iree_status_t

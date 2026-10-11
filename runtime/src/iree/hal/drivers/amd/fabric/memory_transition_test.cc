@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "iree/hal/drivers/amd/xdna/memory_transition.h"
+#include "iree/hal/drivers/amd/fabric/memory_transition.h"
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -30,7 +30,7 @@ TEST(MemoryTransitionTest, PreservesHostReleaseRecipeAndPairFacts) {
   source.estimated_fixed_cost_nanoseconds = 17;
 
   iree_hal_memory_pair_info_t pair;
-  IREE_ASSERT_OK(iree_hal_amd_xdna_memory_translate_pair(&source, &pair));
+  IREE_ASSERT_OK(iree_hal_amd_fabric_memory_translate_pair(&source, &pair));
   EXPECT_EQ(pair.flags, IREE_HAL_MEMORY_PAIR_SHARED_BACKING_REACHABLE |
                             IREE_HAL_MEMORY_PAIR_MAPPING_SOURCE |
                             IREE_HAL_MEMORY_PAIR_FIXED_COST_KNOWN);
@@ -59,7 +59,7 @@ TEST(MemoryTransitionTest, PreservesQueueAcquireRecipe) {
   source.acquire.operation = AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM;
 
   iree_hal_memory_pair_info_t pair;
-  IREE_ASSERT_OK(iree_hal_amd_xdna_memory_translate_pair(&source, &pair));
+  IREE_ASSERT_OK(iree_hal_amd_fabric_memory_translate_pair(&source, &pair));
   EXPECT_EQ(pair.release.kind, IREE_HAL_MEMORY_TRANSITION_KIND_NONE);
   EXPECT_EQ(pair.acquire.kind, IREE_HAL_MEMORY_TRANSITION_KIND_GLOBAL);
   EXPECT_EQ(pair.acquire.executor, IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE);
@@ -76,7 +76,7 @@ TEST(MemoryTransitionTest, RejectsMalformedSuccessfulResult) {
 
   iree_hal_memory_pair_info_t pair;
   iree_status_t status =
-      iree_hal_amd_xdna_memory_translate_pair(&source, &pair);
+      iree_hal_amd_fabric_memory_translate_pair(&source, &pair);
   EXPECT_THAT(status, StatusIs(iree::StatusCode::kFailedPrecondition));
   iree_status_free(status);
 }

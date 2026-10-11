@@ -86,6 +86,10 @@ typedef struct iree_hal_cmd_block_processor_context_t {
   // Number of entries in |binding_table|.
   iree_host_size_t binding_table_length;
 
+  // Original HAL bindings borrowed through completion for HOST_API owners.
+  // Ordinary commands use only the compact pointer/length table above.
+  iree_hal_buffer_binding_table_t native_binding_table;
+
   // First block-state storage slot. Single-worker contexts reuse this slot;
   // multi-worker contexts allocate one slot per recorded block.
   iree_hal_cmd_block_state_t* state_storage;

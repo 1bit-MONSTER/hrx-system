@@ -87,3 +87,21 @@ iree_status_t iree_hal_amd_status_from_amdf_status(const char* file,
       "[%s] libamdf %s status 0x%08X", operation,
       iree_hal_amd_status_domain_string(domain), code);
 }
+
+void iree_hal_amd_report_failure(iree_hal_device_event_sink_t event_sink,
+                                 iree_string_view_t driver_id,
+                                 amdf_status_t status, const char* operation) {
+  const iree_hal_device_driver_failure_event_t payload = {
+      .record_length = sizeof(payload),
+      .abi_version = IREE_HAL_DEVICE_DRIVER_FAILURE_EVENT_ABI_VERSION_0,
+      .status_code = iree_hal_amd_status_code_from_amdf(status),
+      .backend_result_code = status,
+      .message = iree_make_cstring_view(operation),
+  };
+  iree_hal_device_event_t event = iree_hal_device_event_default();
+  event.type = IREE_HAL_DEVICE_EVENT_TYPE_DRIVER_FAILURE;
+  event.severity = IREE_HAL_DEVICE_EVENT_SEVERITY_ERROR;
+  event.source.driver_id = driver_id;
+  event.payload = iree_make_const_byte_span(&payload, sizeof(payload));
+  iree_hal_device_event_sink_publish(event_sink, &event);
+}

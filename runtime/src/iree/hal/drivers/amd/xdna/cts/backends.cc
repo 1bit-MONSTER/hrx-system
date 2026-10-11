@@ -8,7 +8,7 @@
 
 #include "iree/hal/api.h"
 #include "iree/hal/cts/util/registry.h"
-#include "iree/hal/drivers/amd/xdna/driver.h"
+#include "iree/hal/drivers/amd/driver.h"
 
 namespace iree::hal::cts {
 
@@ -17,13 +17,14 @@ static iree_status_t CreateXdnaDevice(
     iree_hal_driver_t** out_driver, iree_hal_device_t** out_device) {
   iree_hal_driver_t* driver = nullptr;
   iree_status_t status =
-      iree_hal_amd_xdna_driver_create(iree_allocator_system(), &driver);
+      iree_hal_amd_driver_create(iree_allocator_system(), &driver);
 
   iree_host_size_t device_count = 0;
   iree_hal_device_info_t* device_infos = nullptr;
   if (iree_status_is_ok(status)) {
     status = iree_hal_driver_query_available_devices(
-        driver, iree_allocator_system(), &device_count, &device_infos);
+        driver, IREE_SV("xdna"), iree_allocator_system(), &device_count,
+        &device_infos);
   }
   iree_allocator_free(iree_allocator_system(), device_infos);
   if (iree_status_is_ok(status) && device_count == 0) {
@@ -84,7 +85,7 @@ static bool xdna_registered_ =
                "IndirectCommandBufferBindingTableRetainedUntilSignal",
                "reusable command buffers are outside the XDNA v1 surface"},
           }},
-         {"async_queue"},
+         {"async_queue", "file_io"},
      }),
      true);
 

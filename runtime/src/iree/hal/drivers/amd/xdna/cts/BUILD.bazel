@@ -22,7 +22,7 @@ iree_runtime_cc_library(
     deps = [
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/cts/util:registry",
-        "//runtime/src/iree/hal/drivers/amd/xdna:driver",
+        "//runtime/src/iree/hal/drivers/amd:driver",
     ],
     alwayslink = True,
 )
@@ -35,18 +35,32 @@ iree_runtime_hal_cts_test_suite(
 iree_runtime_cc_test(
     name = "native_test",
     srcs = ["native_test.cc"],
+    target_compatible_with = select({
+        "//runtime/config/hal:driver_task": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "//runtime/config/hal:driver_xdna": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
     deps = [
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/util:proactor_pool",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/drivers/amd/xdna:driver",
+        "//runtime/src/iree/hal/drivers/amd/registration",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:add_i32",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:add_i32_npu4",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:mul_i32",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:mul_i32_npu4",
+        "//runtime/src/iree/hal/drivers/task:device",
+        "//runtime/src/iree/hal/drivers/task/executable",
+        "//runtime/src/iree/hal/drivers/task/executable/library:util",
+        "//runtime/src/iree/hal/utils:files",
+        "//runtime/src/iree/io:file_handle",
+        "//runtime/src/iree/task",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
+        "//runtime/src/iree/testing:temp_file",
     ],
 )
 
@@ -59,7 +73,7 @@ iree_runtime_cc_benchmark(
         "//runtime/src/iree/async/util:proactor_pool",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/drivers/amd/xdna:driver",
+        "//runtime/src/iree/hal/drivers/amd:driver",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:add_i32",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:add_i32_npu4",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testdata:mul_i32",

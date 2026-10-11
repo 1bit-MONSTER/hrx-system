@@ -7,6 +7,7 @@
 #include "iree/hal/drivers/amd/xdna/barrier.h"
 
 #include "iree/hal/command_buffer.h"
+#include "iree/hal/device_spec.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 
@@ -61,7 +62,10 @@ TEST(BarrierTest, RejectsRangedQueueOperations) {
       /*.buffer_barrier_count=*/1,
       /*.buffer_barriers=*/&range,
   };
-  IREE_EXPECT_OK(iree_hal_barrier_validate(&barrier));
+  iree_hal_queue_family_spec_t family_spec = {};
+  iree_hal_queue_family_t family = {};
+  family.spec = &family_spec;
+  IREE_EXPECT_OK(iree_hal_barrier_validate(&barrier, &family));
   const iree_hal_barrier_list_t list = {1, &barrier};
 
   iree_hal_queue_barriers_t barriers = {&list, nullptr};

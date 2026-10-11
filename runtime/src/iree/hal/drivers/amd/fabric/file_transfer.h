@@ -1,0 +1,102 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+#ifndef IREE_HAL_DRIVERS_AMD_FABRIC_FILE_TRANSFER_H_
+#define IREE_HAL_DRIVERS_AMD_FABRIC_FILE_TRANSFER_H_
+
+#include "iree/async/operations/file.h"
+#include "iree/hal/api.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Consumes terminal I/O status on the imported file's proactor. Successful
+// reads still require finish on the engine's host service before publication.
+typedef struct iree_hal_amd_fabric_file_transfer_callback_t {
+  // Called exactly once after accepted I/O has retired, including on failure.
+  void (*fn)(void* user_data, iree_status_t status);
+  // Borrowed engine operation owning the transfer storage.
+  void* user_data;
+} iree_hal_amd_fabric_file_transfer_callback_t;
+
+// Placed state for a file transfer through a prepared host execution binding.
+// The engine owns dependency resolution, host execution, and final signaling.
+// This state owns neither a worker nor staging allocations. Initialization and
+// deinitialization bracket accepted I/O and the engine's final cache work.
+typedef struct iree_hal_amd_fabric_file_transfer_t {
+  // Retained file keeping its imported handle or host allocation live.
+  iree_hal_file_t* file;
+  // Retained logical buffer; backing retirement remains caller-ordered.
+  iree_hal_buffer_t* buffer;
+  // Exactly READ (file to buffer) or WRITE (buffer to file).
+  iree_hal_memory_access_t file_access;
+  // Byte position within the file.
+  uint64_t file_offset;
+  // Byte position within the logical buffer.
+  iree_device_size_t buffer_offset;
+  // Exact requested byte count.
+  iree_device_size_t length;
+  // Borrowed host file storage when no native I/O handle is present.
+  iree_byte_span_t file_contents;
+  // Host execution view resolved only after producer dependencies complete.
+  iree_byte_span_t buffer_contents;
+  // Platform I/O state, unused for memory files.
+  struct {
+    // Native handle retained through |file|; its proactor remains borrowed.
+    iree_async_file_t* file;
+    // Byte count completed across all native requests.
+    iree_host_size_t bytes_transferred;
+    // Terminal callback returning ownership to the engine.
+    iree_hal_amd_fabric_file_transfer_callback_t callback;
+    union {
+      // Placed read request reused after each partial completion.
+      iree_async_file_read_operation_t read;
+      // Placed write request reused after each partial completion.
+      iree_async_file_write_operation_t write;
+    };
+  } async;
+} iree_hal_amd_fabric_file_transfer_t;
+
+// Captures a nonempty transfer already validated by HAL queue_read/write.
+// Supports memory files and platform files imported for async I/O. Failure
+// leaves an empty transfer that may be deinitialized. Buffer storage need not
+// be committed yet.
+iree_status_t iree_hal_amd_fabric_file_transfer_initialize(
+    iree_hal_file_t* file, iree_hal_memory_access_t file_access,
+    uint64_t file_offset, iree_hal_buffer_t* buffer,
+    iree_device_size_t buffer_offset, iree_device_size_t length,
+    iree_hal_amd_fabric_file_transfer_t* out_transfer);
+
+// Releases captured operands after all native I/O and host work have retired,
+// or when an operation is rejected before starting. Does not free placed state.
+void iree_hal_amd_fabric_file_transfer_deinitialize(
+    iree_hal_amd_fabric_file_transfer_t* transfer);
+
+// Resolves committed buffer storage and acquires source bytes on the host
+// service, after dependencies and the caller's before barrier. Memory files
+// complete their copy and publication here. Platform files are ready to submit.
+iree_status_t iree_hal_amd_fabric_file_transfer_prepare(
+    iree_hal_amd_fabric_file_transfer_t* transfer);
+
+// Submits prepared platform I/O, continuing partial requests until the exact
+// range completes or an error occurs. Failure retains caller ownership and does
+// not invoke |callback|. Success transfers ownership through the final callback
+// on the file's proactor, which may differ from the engine's progress owner.
+iree_status_t iree_hal_amd_fabric_file_transfer_submit(
+    iree_hal_amd_fabric_file_transfer_t* transfer,
+    iree_hal_amd_fabric_file_transfer_callback_t callback);
+
+// Publishes successfully read bytes on the host service before the engine's
+// after barrier and completion signal. Writes have no remaining host work.
+iree_status_t iree_hal_amd_fabric_file_transfer_finish(
+    iree_hal_amd_fabric_file_transfer_t* transfer);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif
+
+#endif  // IREE_HAL_DRIVERS_AMD_FABRIC_FILE_TRANSFER_H_

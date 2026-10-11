@@ -477,6 +477,15 @@ typedef struct iree_hal_buffer_mapping_transition_t {
   const iree_hal_memory_transition_recipe_t* recipe;
 } iree_hal_buffer_mapping_transition_t;
 
+// Executes one already-qualified HOST_DIRECT recipe over a resolved CPU range.
+// The producer validated the instruction, fences, granularity and complete
+// cache-line envelope on this host architecture. The caller owns those cache
+// lines and establishes execution dependencies; this performs no validation,
+// mapping, allocation, native API call or recipe selection.
+IREE_API_EXPORT void iree_hal_memory_transition_execute_host_direct(
+    const iree_hal_memory_transition_recipe_info_t* recipe, const void* pointer,
+    iree_device_size_t length);
+
 // Executes explicit host maintenance on the calling executor without waiting
 // for a device. HOST_API invokes the mapping's native operation even on
 // CPU-coherent memory. Async callers place this operation on their existing

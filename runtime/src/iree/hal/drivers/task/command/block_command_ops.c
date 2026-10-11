@@ -190,6 +190,40 @@ iree_status_t iree_hal_cmd_build_fence(iree_hal_cmd_block_builder_t* builder,
 }
 
 //===----------------------------------------------------------------------===//
+// Cache maintenance
+//===----------------------------------------------------------------------===//
+
+iree_status_t iree_hal_cmd_build_cache(
+    iree_hal_cmd_block_builder_t* builder,
+    const iree_hal_memory_transition_recipe_info_t* recipe,
+    iree_hal_buffer_ref_t buffer_ref, iree_hal_cmd_fixup_t** out_fixups,
+    iree_hal_cmd_build_token_t* out_token) {
+  const uint16_t binding_count =
+      recipe->executor == IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT ? 1
+                                                                          : 0;
+  iree_hal_cmd_cache_t* command = NULL;
+  *out_fixups = NULL;
+  *out_token = (iree_hal_cmd_build_token_t){
+      .cmd_bytes = sizeof(*command),
+      .flags = IREE_HAL_CMD_FLAG_NONE,
+      .fixup_count = binding_count,
+      .binding_count = binding_count,
+      .tile_count = 1,
+  };
+  IREE_RETURN_IF_ERROR(iree_hal_cmd_block_builder_append_cmd(
+      builder, IREE_HAL_CMD_CACHE, IREE_HAL_CMD_FLAG_NONE, sizeof(*command),
+      binding_count, binding_count, 1, (void**)&command, out_fixups));
+  command->recipe = *recipe;
+  command->buffer_ref = buffer_ref;
+  if (binding_count) {
+    command->target_binding = builder->total_binding_count - 1;
+    (*out_fixups)[0].data_index = command->target_binding;
+  }
+  out_token->command = &command->header;
+  return iree_ok_status();
+}
+
+//===----------------------------------------------------------------------===//
 // ATOMIC
 //===----------------------------------------------------------------------===//
 

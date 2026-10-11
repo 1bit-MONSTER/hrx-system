@@ -16,8 +16,11 @@
 #include "iree/async/util/proactor_pool.h"
 #include "iree/hal/device_group.h"
 #include "iree/hal/drivers/task/device.h"
+#include "iree/io/file_contents.h"
+#include "iree/io/file_handle.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "iree/testing/temp_file.h"
 
 namespace {
 
@@ -83,6 +86,353 @@ class TaskQueueTest : public ::testing::TestWithParam<iree_host_size_t> {
   // Proactor pool shared by each short-lived device in the test.
   iree_async_proactor_pool_t* proactor_pool_ = nullptr;
 };
+
+// Native memory dependency with deliberately separate CPU and device views.
+// The actual Task recorder, dependency scheduler and cache executor are tested.
+struct CacheBuffer : iree_hal_buffer_t {
+  // CPU cache contents used by prepared execution bindings.
+  alignas(64) std::array<uint8_t, 128> host = {};
+  // Bytes observed by the remote execution domain.
+  std::array<uint8_t, 128> remote = {};
+  // Stable prepared CPU view.
+  iree_hal_buffer_native_binding_t binding = {};
+  // Native invalidations completed before CPU reads.
+  size_t invalidations = 0;
+  // Native publications completed before remote reads.
+  size_t publications = 0;
+  // Injected native failure propagated through the operation's completion.
+  iree_status_code_t failure = IREE_STATUS_OK;
+  // Worker performing the last native maintenance callback.
+  std::thread::id maintenance_thread;
+
+  CacheBuffer() {
+    static const iree_hal_buffer_vtable_t vtable = {
+        /*.destroy=*/[](iree_hal_buffer_t* base) {
+          delete static_cast<CacheBuffer*>(base);
+        },
+        /*.export_range=*/nullptr,
+        /*.map_range=*/nullptr,
+        /*.unmap_range=*/nullptr,
+        /*.invalidate_range=*/
+        [](iree_hal_buffer_t* base, iree_device_size_t offset,
+           iree_device_size_t length) {
+          auto* buffer = static_cast<CacheBuffer*>(base);
+          ++buffer->invalidations;
+          buffer->maintenance_thread = std::this_thread::get_id();
+          if (buffer->failure) {
+            return iree_status_from_code(buffer->failure);
+          }
+          memcpy(buffer->host.data() + offset, buffer->remote.data() + offset,
+                 length);
+          return iree_ok_status();
+        },
+        /*.flush_range=*/
+        [](iree_hal_buffer_t* base, iree_device_size_t offset,
+           iree_device_size_t length) {
+          auto* buffer = static_cast<CacheBuffer*>(base);
+          ++buffer->publications;
+          buffer->maintenance_thread = std::this_thread::get_id();
+          if (buffer->failure) {
+            return iree_status_from_code(buffer->failure);
+          }
+          memcpy(buffer->remote.data() + offset, buffer->host.data() + offset,
+                 length);
+          return iree_ok_status();
+        },
+        /*.query_memory=*/nullptr,
+        /*.allocation=*/nullptr,
+    };
+    iree_hal_buffer_initialize(
+        iree_hal_buffer_placement_undefined(), this, host.size(), 0,
+        host.size(), IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+        IREE_HAL_MEMORY_ACCESS_ALL,
+        IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER, &vtable,
+        this);
+    binding.host_pointer = host.data();
+    memory.bindings = &binding;
+    host_binding_index = 0;
+  }
+};
+
+// An owned descriptor that can be destroyed or changed immediately after
+// capture.
+struct CacheBarrier {
+  // Single native action.
+  iree_hal_memory_transition_recipe_info_t action = {};
+  // Prepared recipe borrowing the action above.
+  iree_hal_memory_transition_recipe_t recipe = {};
+  // Logical operand borrowing the recipe above.
+  iree_hal_buffer_barrier_t range = {};
+  // Ordered boundary passed to the HAL.
+  iree_hal_barrier_t barrier = {};
+  // One-shot list borrowing the boundary above.
+  iree_hal_barrier_list_t list = {};
+
+  CacheBarrier(iree_hal_buffer_ref_t ref,
+               iree_hal_memory_transition_operation_t operation) {
+    action.kind = IREE_HAL_MEMORY_TRANSITION_KIND_RANGE;
+    action.executor = IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_API;
+    action.operation = operation;
+    action.range_granularity = 1;
+    recipe.effects.bits =
+        operation == IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH
+            ? IREE_HAL_MEMORY_EFFECT_HOST_FLUSH
+            : IREE_HAL_MEMORY_EFFECT_HOST_INVALIDATE;
+    recipe.operation_count = 1;
+    recipe.operations = &action;
+    range.buffer_ref = ref;
+    range.recipe = &recipe;
+    barrier.source_stage_mask = IREE_HAL_EXECUTION_STAGE_TRANSFER;
+    barrier.target_stage_mask = IREE_HAL_EXECUTION_STAGE_TRANSFER;
+    barrier.effects = recipe.effects;
+    barrier.buffer_barrier_count = 1;
+    barrier.buffer_barriers = &range;
+    list = {1, &barrier};
+  }
+};
+
+TEST_P(TaskQueueTest, RecordedCacheRecipesSurviveBindingAndReplay) {
+  iree_hal_device_group_t* group = nullptr;
+  IREE_ASSERT_OK(CreateDeviceGroup(&group));
+  auto* device = iree_hal_device_group_device_at(group, 0);
+  auto* queue = iree_hal_device_queue(device, 0, 0);
+  auto* source = new CacheBuffer();
+  auto* target = new CacheBuffer();
+  // Explicit cache actions must still execute for external protocols whose
+  // backing is advertised as coherent to ordinary CPU accesses.
+  source->memory_type |= IREE_HAL_MEMORY_TYPE_HOST_COHERENT;
+  target->memory_type |= IREE_HAL_MEMORY_TYPE_HOST_COHERENT;
+  iree_hal_semaphore_t* done = nullptr;
+  IREE_ASSERT_OK(
+      iree_hal_semaphore_create(device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
+                                IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &done));
+  uint64_t value = 0;
+  for (iree_hal_command_buffer_mode_t mode :
+       {0u, static_cast<uint32_t>(IREE_HAL_COMMAND_BUFFER_MODE_UNRETAINED)}) {
+    for (iree_host_size_t binding_count : {0, 2}) {
+      iree_hal_command_buffer_t* commands = nullptr;
+      IREE_ASSERT_OK(iree_hal_command_buffer_create(
+          iree_hal_queue_family(queue), mode,
+          IREE_HAL_COMMAND_CATEGORY_TRANSFER, binding_count, &commands));
+      auto source_ref = binding_count
+                            ? iree_hal_make_indirect_buffer_ref(0, 3, 24)
+                            : iree_hal_make_buffer_ref(source, 10, 24);
+      auto target_ref = binding_count
+                            ? iree_hal_make_indirect_buffer_ref(1, 2, 24)
+                            : iree_hal_make_buffer_ref(target, 7, 24);
+      CacheBarrier acquire(
+          source_ref, IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_INVALIDATE);
+      CacheBarrier release(target_ref,
+                           IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH);
+      IREE_ASSERT_OK(iree_hal_command_buffer_begin(commands));
+      IREE_ASSERT_OK(
+          iree_hal_command_buffer_barrier(commands, &acquire.barrier));
+      IREE_ASSERT_OK(iree_hal_command_buffer_copy_buffer(
+          commands, source_ref, target_ref, IREE_HAL_COPY_FLAG_NONE));
+      IREE_ASSERT_OK(
+          iree_hal_command_buffer_barrier(commands, &release.barrier));
+      IREE_ASSERT_OK(iree_hal_command_buffer_end(commands));
+      EXPECT_EQ(iree_atomic_load(&source->resource.ref_count,
+                                 iree_memory_order_relaxed),
+                !binding_count && !mode ? 2 : 1);
+      acquire.action = {};
+      release.action = {};
+      const iree_hal_buffer_binding_t values[] = {{source, 7, 32},
+                                                  {target, 5, 32}};
+      for (uint8_t replay = 1; replay <= 3; ++replay) {
+        source->remote.fill(replay);
+        source->host.fill(0);
+        target->host.fill(0xA5);
+        target->remote.fill(0xA5);
+        ++value;
+        const iree_hal_semaphore_list_t signals = {1, &done, &value};
+        IREE_ASSERT_OK(iree_hal_queue_execute(
+            queue, {}, signals, commands, {binding_count, values},
+            IREE_HAL_QUEUE_EXECUTE_FLAG_NONE));
+        IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
+            signals, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+        for (size_t i = 0; i < target->remote.size(); ++i) {
+          EXPECT_EQ(target->remote[i], i >= 7 && i < 31 ? replay : 0xA5) << i;
+        }
+        EXPECT_EQ(source->invalidations, value);
+        EXPECT_EQ(target->publications, value);
+      }
+      iree_hal_command_buffer_release(commands);
+    }
+  }
+  iree_hal_semaphore_release(done);
+  iree_hal_buffer_release(source);
+  iree_hal_buffer_release(target);
+  iree_hal_device_group_release(group);
+}
+
+TEST_P(TaskQueueTest, OneShotCacheDefaultsAndExplicitEmptyBoundaries) {
+  iree_hal_device_group_t* group = nullptr;
+  IREE_ASSERT_OK(CreateDeviceGroup(&group));
+  auto* device = iree_hal_device_group_device_at(group, 0);
+  auto* queue = iree_hal_device_queue(device, 0, 0);
+  auto* source = new CacheBuffer();
+  auto* target = new CacheBuffer();
+  iree_hal_semaphore_t* done = nullptr;
+  IREE_ASSERT_OK(
+      iree_hal_semaphore_create(device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
+                                IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &done));
+  const iree_hal_barrier_list_t empty = {};
+  const iree_hal_queue_barriers_t no_cache = {&empty, &empty};
+  CacheBarrier acquire(iree_hal_make_buffer_ref(source, 10, 24),
+                       IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_INVALIDATE);
+  CacheBarrier release(iree_hal_make_buffer_ref(target, 7, 24),
+                       IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH);
+  const iree_hal_queue_barriers_t explicit_cache = {&acquire.list,
+                                                    &release.list};
+  uint64_t value = 0;
+  for (const iree_hal_queue_barriers_t* barriers :
+       {static_cast<const iree_hal_queue_barriers_t*>(nullptr), &no_cache,
+        &explicit_cache}) {
+    source->remote.fill(0x37);
+    source->host.fill(0x19);
+    target->host.fill(0xA5);
+    target->remote.fill(0xA5);
+    ++value;
+    const iree_hal_semaphore_list_t signals = {1, &done, &value};
+    IREE_ASSERT_OK(iree_hal_queue_copy(queue, {}, signals, source, 10, target,
+                                       7, 24, barriers,
+                                       IREE_HAL_COPY_FLAG_NONE));
+    IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
+        signals, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+    EXPECT_EQ(target->host[7], barriers == &no_cache ? 0x19 : 0x37);
+    EXPECT_EQ(target->remote[7], barriers == &no_cache ? 0xA5 : 0x37);
+    EXPECT_EQ(target->remote[6], 0xA5);
+    EXPECT_EQ(target->remote[31], 0xA5);
+  }
+  EXPECT_EQ(source->invalidations, 2u);
+  EXPECT_EQ(target->publications, 2u);
+  iree_hal_semaphore_release(done);
+  iree_hal_buffer_release(source);
+  iree_hal_buffer_release(target);
+  iree_hal_device_group_release(group);
+}
+
+TEST_P(TaskQueueTest, CacheFailureFailsCompletionBeforeDependentWork) {
+  for (bool recorded : {false, true}) {
+    for (bool fail_acquire : {true, false}) {
+      iree_hal_device_group_t* group = nullptr;
+      IREE_ASSERT_OK(CreateDeviceGroup(&group));
+      auto* device = iree_hal_device_group_device_at(group, 0);
+      auto* queue = iree_hal_device_queue(device, 0, 0);
+      auto* source = new CacheBuffer();
+      auto* target = new CacheBuffer();
+      source->remote.fill(0x37);
+      (fail_acquire ? source : target)->failure = IREE_STATUS_DATA_LOSS;
+      iree_hal_semaphore_t* done = nullptr;
+      IREE_ASSERT_OK(
+          iree_hal_semaphore_create(device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+                                    0, IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &done));
+      uint64_t value = 1;
+      const iree_hal_semaphore_list_t signals = {1, &done, &value};
+      if (recorded) {
+        iree_hal_command_buffer_t* commands = nullptr;
+        IREE_ASSERT_OK(iree_hal_command_buffer_create(
+            iree_hal_queue_family(queue), IREE_HAL_COMMAND_BUFFER_MODE_ONE_SHOT,
+            IREE_HAL_COMMAND_CATEGORY_TRANSFER, 0, &commands));
+        CacheBarrier acquire(
+            iree_hal_make_buffer_ref(source, 10, 24),
+            IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_INVALIDATE);
+        CacheBarrier release(iree_hal_make_buffer_ref(target, 7, 24),
+                             IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH);
+        IREE_ASSERT_OK(iree_hal_command_buffer_begin(commands));
+        IREE_ASSERT_OK(
+            iree_hal_command_buffer_barrier(commands, &acquire.barrier));
+        IREE_ASSERT_OK(iree_hal_command_buffer_copy_buffer(
+            commands, acquire.range.buffer_ref, release.range.buffer_ref,
+            IREE_HAL_COPY_FLAG_NONE));
+        IREE_ASSERT_OK(
+            iree_hal_command_buffer_barrier(commands, &release.barrier));
+        IREE_ASSERT_OK(iree_hal_command_buffer_end(commands));
+        IREE_ASSERT_OK(
+            iree_hal_queue_execute(queue, {}, signals, commands, {},
+                                   IREE_HAL_QUEUE_EXECUTE_FLAG_NONE));
+        iree_hal_command_buffer_release(commands);
+      } else {
+        IREE_ASSERT_OK(iree_hal_queue_copy(queue, {}, signals, source, 10,
+                                           target, 7, 24, nullptr,
+                                           IREE_HAL_COPY_FLAG_NONE));
+      }
+      IREE_EXPECT_STATUS_IS(
+          IREE_STATUS_DATA_LOSS,
+          iree_hal_semaphore_list_wait(signals, iree_infinite_timeout(),
+                                       IREE_ASYNC_WAIT_FLAG_NONE));
+      EXPECT_EQ(target->host[7], fail_acquire ? 0 : 0x37);
+      EXPECT_EQ(target->remote[7], 0);
+      iree_hal_semaphore_release(done);
+      iree_hal_buffer_release(source);
+      iree_hal_buffer_release(target);
+      iree_hal_device_group_release(group);
+    }
+  }
+}
+
+TEST_P(TaskQueueTest, AsyncFileReadPublishesBeforeCompletion) {
+  iree_hal_device_group_t* group = nullptr;
+  IREE_ASSERT_OK(CreateDeviceGroup(&group));
+  auto* device = iree_hal_device_group_device_at(group, 0);
+  auto* queue = iree_hal_device_queue(device, 0, 0);
+  auto* target = new CacheBuffer();
+  std::array<uint8_t, 32> input;
+  input.fill(0x67);
+  iree::testing::TempFilePath path("task_cache_file");
+  IREE_ASSERT_OK(iree_io_file_contents_write(
+      path.path_view(), iree_make_const_byte_span(input.data(), input.size()),
+      iree_allocator_system()));
+  iree_io_file_handle_t* handle = nullptr;
+  IREE_ASSERT_OK(iree_io_file_handle_open(
+      IREE_IO_FILE_MODE_READ | IREE_IO_FILE_MODE_RANDOM_ACCESS |
+          IREE_IO_FILE_MODE_ASYNC,
+      path.path_view(), iree_allocator_system(), &handle));
+  iree_hal_file_t* file = nullptr;
+  IREE_ASSERT_OK(iree_hal_file_import(device, nullptr,
+                                      IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+                                      IREE_HAL_MEMORY_ACCESS_READ, handle,
+                                      IREE_HAL_EXTERNAL_FILE_FLAG_NONE, &file));
+  iree_io_file_handle_release(handle);
+  ASSERT_NE(iree_hal_file_async_handle(file), nullptr);
+  iree_hal_semaphore_t* done = nullptr;
+  IREE_ASSERT_OK(
+      iree_hal_semaphore_create(device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
+                                IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &done));
+  uint64_t value = 1;
+  const iree_hal_semaphore_list_t signals = {1, &done, &value};
+  IREE_ASSERT_OK(iree_hal_queue_read(queue, {}, signals, file, 3, target, 7, 24,
+                                     nullptr, IREE_HAL_READ_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_semaphore_list_wait(signals, iree_infinite_timeout(),
+                                              IREE_ASYNC_WAIT_FLAG_NONE));
+  EXPECT_EQ(target->publications, 1u);
+  for (size_t i = 0; i < target->remote.size(); ++i) {
+    EXPECT_EQ(target->remote[i], i >= 7 && i < 31 ? 0x67 : 0) << i;
+  }
+  std::thread::id control_worker;
+  const auto capture_worker = iree_hal_make_host_call(
+      [](void* user_data, const uint64_t[4], iree_hal_host_call_context_t*) {
+        *static_cast<std::thread::id*>(user_data) = std::this_thread::get_id();
+        return iree_ok_status();
+      },
+      &control_worker);
+  uint64_t captured = 2;
+  const uint64_t args[4] = {};
+  const iree_hal_semaphore_list_t captured_signals = {1, &done, &captured};
+  IREE_ASSERT_OK(iree_hal_queue_host_call(queue, signals, captured_signals,
+                                          capture_worker, args,
+                                          IREE_HAL_HOST_CALL_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
+      captured_signals, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+  if (GetParam() == 1) {
+    EXPECT_EQ(target->maintenance_thread, control_worker);
+  }
+  iree_hal_file_release(file);
+  iree_hal_semaphore_release(done);
+  iree_hal_buffer_release(target);
+  iree_hal_device_group_release(group);
+}
 
 TEST_P(TaskQueueTest, ExecutesBindingsWithDeclaredPermissions) {
   iree_hal_device_group_t* device_group = nullptr;

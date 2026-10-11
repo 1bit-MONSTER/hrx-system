@@ -116,6 +116,7 @@ iree_cc_library(
     iree::base::internal::cpu
     iree::base::threading
     iree::base::threading::thread
+    iree::hal
     iree::hal::drivers::task::atomic
     iree::hal::drivers::task::executable
     iree::hal::drivers::task::profile

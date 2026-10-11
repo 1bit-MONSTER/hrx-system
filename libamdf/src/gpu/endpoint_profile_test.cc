@@ -53,6 +53,59 @@ amdf_gpu_endpoint_properties_t MakeProperties(
   return properties;
 }
 
+TEST(GpuEndpointProfileTest, ClassifiesHardwareIndependentlyOfQueueSupport) {
+  struct TestCase {
+    // Native GFX IP major, minor, and stepping.
+    uint32_t gfx_ip[3];
+    // Hardware family independent of the provider's queue implementations.
+    amdf_gpu_architecture_t architecture;
+  };
+  const TestCase test_cases[] = {
+      {{6, 0, 0}, AMDF_GPU_ARCHITECTURE_GCN},
+      {{7, 0, 1}, AMDF_GPU_ARCHITECTURE_GCN},
+      {{8, 0, 3}, AMDF_GPU_ARCHITECTURE_GCN},
+      {{9, 0, 0}, AMDF_GPU_ARCHITECTURE_GCN},
+      {{9, 0, 2}, AMDF_GPU_ARCHITECTURE_GCN},
+      {{9, 0, 4}, AMDF_GPU_ARCHITECTURE_GCN},
+      {{9, 0, 6}, AMDF_GPU_ARCHITECTURE_GCN},
+      {{9, 0, 8}, AMDF_GPU_ARCHITECTURE_CDNA},
+      {{9, 0, 9}, AMDF_GPU_ARCHITECTURE_GCN},
+      {{9, 0, 10}, AMDF_GPU_ARCHITECTURE_CDNA},
+      {{9, 0, 12}, AMDF_GPU_ARCHITECTURE_GCN},
+      {{9, 4, 0}, AMDF_GPU_ARCHITECTURE_CDNA},
+      {{9, 4, 1}, AMDF_GPU_ARCHITECTURE_CDNA},
+      {{9, 4, 2}, AMDF_GPU_ARCHITECTURE_CDNA},
+      {{9, 5, 0}, AMDF_GPU_ARCHITECTURE_CDNA},
+      {{10, 1, 0}, AMDF_GPU_ARCHITECTURE_RDNA},
+      {{10, 3, 6}, AMDF_GPU_ARCHITECTURE_RDNA},
+      {{11, 0, 0}, AMDF_GPU_ARCHITECTURE_RDNA},
+      {{11, 5, 1}, AMDF_GPU_ARCHITECTURE_RDNA},
+      {{11, 7, 2}, AMDF_GPU_ARCHITECTURE_RDNA},
+      {{12, 0, 1}, AMDF_GPU_ARCHITECTURE_RDNA},
+      {{12, 5, 0}, AMDF_GPU_ARCHITECTURE_RDNA},
+      {{12, 5, 1}, AMDF_GPU_ARCHITECTURE_RDNA},
+      {{9, 6, 0}, AMDF_GPU_ARCHITECTURE_UNKNOWN},
+      {{13, 0, 0}, AMDF_GPU_ARCHITECTURE_UNKNOWN},
+  };
+  for (const TestCase& test_case : test_cases) {
+    SCOPED_TRACE(::testing::Message()
+                 << test_case.gfx_ip[0] << '.' << test_case.gfx_ip[1] << '.'
+                 << test_case.gfx_ip[2]);
+    auto properties = MakeProperties(test_case.gfx_ip[0], test_case.gfx_ip[1],
+                                     test_case.gfx_ip[2], 0, 64, 104, 32, 32,
+                                     64u * 1024u, 1, 8);
+    properties.queue_family_count = 0;
+    amdf_gpu_endpoint_profile_t profile = {};
+    ASSERT_TRUE(amdf_gpu_endpoint_profile_initialize(&properties, &profile));
+    EXPECT_EQ(amdf_gpu_endpoint_architecture(
+                  amdf_gpu_endpoint_profile_get_info(&profile)),
+              test_case.architecture);
+  }
+  amdf_gpu_endpoint_info_t unqualified = {};
+  EXPECT_EQ(amdf_gpu_endpoint_architecture(&unqualified),
+            AMDF_GPU_ARCHITECTURE_UNKNOWN);
+}
+
 TEST(GpuEndpointProfileTest, QualifiesRdnaCdnaAndMultiXccProfiles) {
   struct TestCase {
     const char* name;

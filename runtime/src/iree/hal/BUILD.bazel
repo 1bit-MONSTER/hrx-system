@@ -183,6 +183,19 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
+    name = "driver_registry_test",
+    srcs = ["driver_registry_test.cc"],
+    deps = [
+        ":hal",
+        "//runtime/src/iree/async/util:proactor_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal/testing:mock_device",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_test(
     name = "device_test",
     srcs = ["device_test.cc"],
     deps = [

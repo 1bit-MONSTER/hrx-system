@@ -250,8 +250,9 @@ typedef struct iree_hal_buffer_barrier_t {
   iree_hal_access_scope_t target_scope;
   // Direct or indirect logical buffer range the barrier applies to.
   iree_hal_buffer_ref_t buffer_ref;
-  // Prepared ranged queue actions for this buffer range, or NULL when this is
-  // only an ordinary local access dependency. Recording copies all actions.
+  // Prepared range actions supported by the recording queue family, or NULL
+  // when this is only an ordinary local access dependency. CPU families may
+  // execute host cache recipes. Recording copies all actions.
   const iree_hal_memory_transition_recipe_t* recipe;
 } iree_hal_buffer_barrier_t;
 
@@ -277,10 +278,12 @@ typedef struct iree_hal_barrier_t {
   const iree_hal_buffer_barrier_t* buffer_barriers;
 } iree_hal_barrier_t;
 
-// Validates the descriptor and its local queue effects. This does not validate
-// buffer binding slots or the receiving queue's native resource compatibility.
+// Validates the descriptor and recipe executors admitted by |queue_family|.
+// Host cache recipes require HOST_MEMORY_BARRIERS family support. This does not
+// validate buffer binding slots or native resource compatibility.
 IREE_API_EXPORT iree_status_t
-iree_hal_barrier_validate(const iree_hal_barrier_t* barrier);
+iree_hal_barrier_validate(const iree_hal_barrier_t* barrier,
+                          const iree_hal_queue_family_t* queue_family);
 
 // Resolves validated global effects into their equivalent explicit flags.
 // This is a value transform; it queries no buffers, contracts or native driver.

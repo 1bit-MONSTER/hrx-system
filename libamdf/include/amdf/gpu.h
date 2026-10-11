@@ -108,6 +108,52 @@ typedef struct amdf_gpu_endpoint_info_t {
   } topology;
 } amdf_gpu_endpoint_info_t;
 
+/// Hardware architecture family, independent of available execution services.
+typedef uint32_t amdf_gpu_architecture_t;
+enum amdf_gpu_architecture_e {
+  /// The GFX IP identity is outside the architectures known to these headers.
+  AMDF_GPU_ARCHITECTURE_UNKNOWN = 0,
+  /// Graphics Core Next, including pre-CDNA GFX9 targets.
+  AMDF_GPU_ARCHITECTURE_GCN = 1,
+  /// Radeon DNA graphics and compute architecture.
+  AMDF_GPU_ARCHITECTURE_RDNA = 2,
+  /// Compute DNA architecture.
+  AMDF_GPU_ARCHITECTURE_CDNA = 3,
+};
+
+/// Classifies a qualified endpoint's hardware architecture without native
+/// calls.
+///
+/// The result describes hardware identity only. Queue families, memory access,
+/// and executable support require their own queries. In particular, GFX9
+/// includes both GCN and CDNA; compute-only or display capability does not
+/// distinguish them. Unknown future IP versions remain UNKNOWN.
+static inline amdf_gpu_architecture_t amdf_gpu_endpoint_architecture(
+    const amdf_gpu_endpoint_info_t* info) {
+  switch (info->gfx_ip.major) {
+    case 6:
+    case 7:
+    case 8:
+      return AMDF_GPU_ARCHITECTURE_GCN;
+    case 9:
+      if (info->gfx_ip.minor == 0) {
+        return info->gfx_ip.stepping == 8 || info->gfx_ip.stepping == 10
+                   ? AMDF_GPU_ARCHITECTURE_CDNA
+                   : AMDF_GPU_ARCHITECTURE_GCN;
+      }
+      if (info->gfx_ip.minor == 4 || info->gfx_ip.minor == 5) {
+        return AMDF_GPU_ARCHITECTURE_CDNA;
+      }
+      return AMDF_GPU_ARCHITECTURE_UNKNOWN;
+    case 10:
+    case 11:
+    case 12:
+      return AMDF_GPU_ARCHITECTURE_RDNA;
+    default:
+      return AMDF_GPU_ARCHITECTURE_UNKNOWN;
+  }
+}
+
 /// Parameters used to materialize one program-independent GPU device.
 ///
 /// A device owns one native GPU execution and address domain. Queue,

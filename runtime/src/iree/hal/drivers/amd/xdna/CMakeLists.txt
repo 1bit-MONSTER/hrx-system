@@ -53,6 +53,7 @@ iree_cc_library(
     amdf::headers
     iree::base
     iree::hal
+    iree::hal::drivers::amd::fabric
     iree::hal::drivers::amd::status
     iree::hal::drivers::amd::xdna::image::aie2p::npu2
     iree::hal::drivers::amd::xdna::image::aie2p::target
@@ -73,6 +74,7 @@ iree_cc_library(
     amdf::headers
     iree::base
     iree::hal
+    iree::hal::drivers::amd::fabric::memory
     iree::hal::drivers::amd::status
   PUBLIC
 )
@@ -92,125 +94,6 @@ iree_cc_library(
     iree::base::threading
     iree::hal::memory::tlsf
   PUBLIC
-)
-endif()
-
-if(AMDF_BUILD)
-iree_cc_library(
-  NAME
-    slab_provider
-  HDRS
-    "slab_provider.h"
-  SRCS
-    "slab_provider.c"
-  DEPS
-    ::memory
-    amdf::headers
-    iree::base
-    iree::base::internal
-    iree::hal
-    iree::hal::drivers::amd::status
-    iree::hal::memory::slab_provider
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD)
-iree_cc_test(
-  NAME
-    slab_provider_test
-  SRCS
-    "slab_provider_test.cc"
-  DEPS
-    ::slab_provider
-    amdf::headers
-    iree::base
-    iree::hal
-    iree::hal::memory::slab_provider
-    iree::testing::gtest
-    iree::testing::gtest_main
-  LABELS
-    "iree-build-requirement=libamdf"
-)
-endif()
-
-if(AMDF_BUILD)
-iree_cc_library(
-  NAME
-    memory_transition
-  HDRS
-    "memory_transition.h"
-  SRCS
-    "memory_transition.c"
-  DEPS
-    amdf::headers
-    iree::base
-    iree::base::internal
-    iree::hal
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD)
-iree_cc_test(
-  NAME
-    memory_transition_test
-  SRCS
-    "memory_transition_test.cc"
-  DEPS
-    ::memory_transition
-    amdf::headers
-    iree::base
-    iree::hal
-    iree::testing::gtest
-    iree::testing::gtest_main
-  LABELS
-    "iree-build-requirement=libamdf"
-)
-endif()
-
-if(AMDF_BUILD)
-iree_cc_library(
-  NAME
-    memory_backend
-  HDRS
-    "memory_backend.h"
-  SRCS
-    "memory_backend.c"
-  DEPS
-    ::context
-    ::memory_transition
-    ::slab_provider
-    amdf::headers
-    iree::base
-    iree::base::internal
-    iree::hal
-    iree::hal::drivers::amd::status
-    iree::hal::memory::maintenance
-    iree::hal::memory::passthrough_pool
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD)
-iree_cc_test(
-  NAME
-    memory_backend_test
-  SRCS
-    "memory_backend_test.cc"
-  DEPS
-    ::memory_backend
-    amdf::headers
-    iree::async
-    iree::async::platform
-    iree::base
-    iree::hal
-    iree::hal::memory::maintenance_thread
-    iree::hal::testing::mock_device
-    iree::testing::gtest
-    iree::testing::gtest_main
-  LABELS
-    "iree-build-requirement=libamdf"
 )
 endif()
 
@@ -412,6 +295,8 @@ iree_cc_library(
     iree::base
     iree::base::threading
     iree::hal
+    iree::hal::drivers::amd::fabric::buffer
+    iree::hal::drivers::amd::fabric::file_transfer
     iree::hal::drivers::amd::status
   PUBLIC
 )
@@ -489,7 +374,6 @@ iree_cc_library(
     ::context
     ::executable
     ::memory
-    ::memory_backend
     ::queue
     ::semaphore
     amdf::headers
@@ -498,28 +382,10 @@ iree_cc_library(
     iree::base
     iree::base::internal
     iree::hal
+    iree::hal::drivers::amd::fabric::memory_backend
     iree::hal::memory::maintenance_thread
     iree::hal::utils::device_spec_builder
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD)
-iree_cc_library(
-  NAME
-    driver
-  HDRS
-    "driver.h"
-  SRCS
-    "driver.c"
-  DEPS
-    ::context
-    ::device
-    amdf::amdf_static
-    amdf::headers
-    iree::base
-    iree::hal
-    iree::hal::drivers::amd::status
+    iree::hal::utils::files
   PUBLIC
 )
 endif()
@@ -533,7 +399,6 @@ iree_cc_test(
   DEPS
     ::device
     ::memory
-    ::memory_backend
     ::queue
     ::queue_frontier
     ::semaphore
@@ -542,6 +407,8 @@ iree_cc_test(
     iree::async::util::proactor_pool
     iree::base
     iree::hal
+    iree::hal::drivers::amd::fabric::buffer
+    iree::hal::drivers::amd::fabric::memory_backend
     iree::hal::drivers::amd::xdna::image::testing::image_fixture
     iree::hal::memory::slab_cache
     iree::hal::memory::tlsf_pool

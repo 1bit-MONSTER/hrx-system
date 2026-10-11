@@ -12,19 +12,8 @@
 void iree_hal_amd_xdna_context_report(
     const iree_hal_amd_xdna_context_t* context, amdf_status_t status,
     const char* operation) {
-  const iree_hal_device_driver_failure_event_t payload = {
-      .record_length = sizeof(payload),
-      .abi_version = IREE_HAL_DEVICE_DRIVER_FAILURE_EVENT_ABI_VERSION_0,
-      .status_code = IREE_STATUS_UNKNOWN,
-      .backend_result_code = status,
-      .message = iree_make_cstring_view(operation),
-  };
-  iree_hal_device_event_t event = iree_hal_device_event_default();
-  event.type = IREE_HAL_DEVICE_EVENT_TYPE_DRIVER_FAILURE;
-  event.severity = IREE_HAL_DEVICE_EVENT_SEVERITY_ERROR;
-  event.source.driver_id = IREE_SV("xdna");
-  event.payload = iree_make_const_byte_span(&payload, sizeof(payload));
-  iree_hal_device_event_sink_publish(context->event_sink, &event);
+  iree_hal_amd_report_failure(context->event_sink, IREE_SV("xdna"), status,
+                              operation);
 }
 
 void iree_hal_amd_xdna_context_destroy(iree_hal_amd_xdna_context_t* context) {
@@ -52,7 +41,7 @@ void iree_hal_amd_xdna_context_destroy(iree_hal_amd_xdna_context_t* context) {
       return;
     }
   }
-  iree_hal_driver_release(context->driver);
+  iree_hal_amd_fabric_release(context->fabric);
   iree_allocator_free(context->host_allocator, context);
 }
 
@@ -203,28 +192,42 @@ static iree_status_t iree_hal_amd_xdna_context_open(
 }
 
 iree_status_t iree_hal_amd_xdna_context_create(
-    iree_hal_driver_t* driver, const amdf_api_t* api,
-    const amdf_xdna_api_t* xdna, amdf_instance_t* instance,
-    amdf_memory_scope_t* system_scope, const amdf_endpoint_id_t* endpoint_id,
-    uint32_t column_count, iree_hal_device_event_sink_t event_sink,
-    iree_allocator_t host_allocator,
+    iree_hal_amd_fabric_t* fabric, const amdf_endpoint_id_t* endpoint_id,
+    iree_host_size_t param_count, const iree_string_pair_t* params,
+    iree_hal_device_event_sink_t event_sink, iree_allocator_t host_allocator,
     iree_hal_amd_xdna_context_t** out_context) {
   *out_context = NULL;
+  uint32_t column_count = 1;
+  for (iree_host_size_t i = 0; i < param_count; ++i) {
+    if (!iree_string_view_equal(params[i].key, IREE_SV("columns")) ||
+        !iree_string_view_atoi_uint32(params[i].value, &column_count)) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "XDNA accepts only the integer device parameter 'columns'");
+    }
+  }
   if (column_count == 0 || column_count > 8) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "XDNA context columns must be in [1, 8]");
   }
+  const void* extension = NULL;
+  IREE_RETURN_IF_ERROR(IREE_HAL_AMD_STATUS_FROM_AMDF(
+      fabric->api->query_extension(
+          AMDF_EXTENSION_XDNA, AMDF_XDNA_EXTENSION_VERSION_1,
+          AMDF_XDNA_EXTENSION_VERSION_LATEST, &extension),
+      "query_extension(XDNA)"));
   iree_hal_amd_xdna_context_t* context = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(host_allocator, sizeof(*context),
                                              (void**)&context));
   context->host_allocator = host_allocator;
-  context->driver = driver;
-  iree_hal_driver_retain(driver);
-  context->api = api;
-  context->xdna = xdna;
+  context->fabric = fabric;
+  iree_hal_amd_fabric_retain(fabric);
+  context->api = fabric->api;
+  context->xdna = extension;
   context->event_sink = event_sink;
   iree_status_t status = iree_hal_amd_xdna_context_open(
-      context, instance, system_scope, endpoint_id, column_count);
+      context, fabric->instance, fabric->system_scope, endpoint_id,
+      column_count);
   if (iree_status_is_ok(status)) {
     *out_context = context;
   } else {
