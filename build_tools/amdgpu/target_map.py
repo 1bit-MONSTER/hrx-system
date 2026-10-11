@@ -300,6 +300,30 @@ def exact_targets_for_code_object(code_object_target):
     ]
 
 
+def exact_targets_for_selection(selection):
+    """Expands one public target selector to compatible physical processors."""
+    exact = set(exact_targets())
+    code_objects = set(code_object_targets())
+    overlays = {
+        overlay.target: overlay.processor for overlay in AMDGPU_TARGET_OVERLAY_INFOS
+    }
+    families = {family: family_targets(targets) for family, targets in TARGET_FAMILIES}
+    if selection in overlays:
+        return [overlays[selection]]
+    if selection in code_objects:
+        return exact_targets_for_code_object(selection)
+    if selection in exact:
+        return [selection]
+    if selection in families:
+        return families[selection]
+    available = sorted(set(overlays) | code_objects | exact | set(families))
+    raise ValueError(
+        "unknown AMDGPU target selector '{}'. Available selectors include: {}".format(
+            selection, ", ".join(available)
+        )
+    )
+
+
 def expand_device_binary_target_selections(selections):
     """Expands public target selectors to ordered device-binary target names."""
     exact = set(exact_targets())

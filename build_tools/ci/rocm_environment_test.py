@@ -33,9 +33,9 @@ class NativeGpuSelectionTest(unittest.TestCase):
         # Native ROCr output identifies hardware, not its enumeration ordinal.
         self.output = (
             "Agent 1\n  Uuid:                    CPU-XX\n"
+            "  Name:                    Test CPU\n"
             "  Device Type:             CPU\n  BDFID:                   0\n"
-            "Agent 2\n  Uuid:                    GPU-af47ea8fb2cb9b42\n"
-            "  Device Type:             GPU\n  BDFID:                   17920\n"
+            + self.gpu_agent(2, "gfx1100", "GPU-af47ea8fb2cb9b42", 17920)
         )
         self.add_node("7", 144, 17920, 0xAF47EA8FB2CB9B42)
         self.add_node("2", 168, 42496, 0x0123456789ABCDEF)
@@ -46,6 +46,15 @@ class NativeGpuSelectionTest(unittest.TestCase):
             st_mode=stat.S_IFCHR | 0o660, st_rdev=os.makedev(226, 144)
         )
 
+    @staticmethod
+    def gpu_agent(number, processor, uuid, location):
+        return (
+            f"Agent {number}\n  Name:                    {processor}\n"
+            f"  Uuid:                    {uuid}\n"
+            f"  Device Type:             GPU\n"
+            f"  BDFID:                   {location}\n"
+        )
+
     def add_node(self, name, minor, location, unique):
         node = self.topology / name
         node.mkdir()
@@ -54,20 +63,32 @@ class NativeGpuSelectionTest(unittest.TestCase):
             f"location_id {location}\nunique_id {unique}\ndrm_render_minor {minor}\n"
         )
 
-    def select(self):
+    def select(self, compatible_processors=("gfx1100",), rocr_visible_devices="0"):
         # Only the native character-device stat is substituted; discovery and
         # correlation read the external ROCr/sysfs records through real files.
         with mock.patch.object(Path, "stat", return_value=self.metadata):
             return rocm_environment.select_native_gpu(
-                self.output, self.topology, self.drm, self.devices
+                self.output,
+                compatible_processors,
+                self.topology,
+                self.drm,
+                self.devices,
+                rocr_visible_devices,
             )
 
     def test_correlates_uuid_and_pci_to_render_identity(self):
-        self.assertEqual(self.select(), "linux_device:226:144")
+        self.assertEqual(
+            self.select(),
+            rocm_environment.NativeGpuSelection(
+                processor="gfx1100",
+                rocr_visible_device="GPU-af47ea8fb2cb9b42",
+                native_identity="linux_device:226:144",
+            ),
+        )
 
     def test_uuid_disambiguates_same_bdf_in_another_domain(self):
         self.add_node("9", 176, 17920, 0x1122334455667788)
-        self.assertEqual(self.select(), "linux_device:226:144")
+        self.assertEqual(self.select().native_identity, "linux_device:226:144")
 
     def test_bdf_must_still_match_the_uuid(self):
         self.output = self.output.replace("17920", "42496")
@@ -76,7 +97,9 @@ class NativeGpuSelectionTest(unittest.TestCase):
 
     def test_single_bdf_can_identify_an_agent_without_a_uuid(self):
         self.output = self.output.replace("GPU-af47ea8fb2cb9b42", "GPU-XX")
-        self.assertEqual(self.select(), "linux_device:226:144")
+        selection = self.select(rocr_visible_devices="7")
+        self.assertEqual(selection.native_identity, "linux_device:226:144")
+        self.assertEqual(selection.rocr_visible_device, "7")
 
     def test_ambiguous_bdf_without_uuid_is_rejected(self):
         self.output = self.output.replace("GPU-af47ea8fb2cb9b42", "GPU-XX")
@@ -89,12 +112,60 @@ class NativeGpuSelectionTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Unrecognized ROCr GPU UUID"):
             self.select()
 
-    def test_missing_or_multiple_visible_gpus_require_an_allocation(self):
-        for output in ("", self.output + self.output):
+    def test_selects_compatible_gpu_from_multiple_allocated_devices(self):
+        self.output += self.gpu_agent(3, "gfx1030", "GPU-0123456789abcdef", 42496)
+        selection = self.select(
+            compatible_processors=("gfx1100", "gfx1101", "gfx1102", "gfx1103"),
+            rocr_visible_devices="0,1",
+        )
+        self.assertEqual(selection.processor, "gfx1100")
+        self.assertEqual(selection.rocr_visible_device, "GPU-af47ea8fb2cb9b42")
+
+    def test_selects_first_when_multiple_allocated_gpus_are_compatible(self):
+        self.output += self.gpu_agent(3, "gfx1101", "GPU-0123456789abcdef", 42496)
+        selection = self.select(
+            compatible_processors=("gfx1100", "gfx1101"),
+            rocr_visible_devices="0,1",
+        )
+        self.assertEqual(selection.processor, "gfx1100")
+        self.assertEqual(selection.rocr_visible_device, "GPU-af47ea8fb2cb9b42")
+
+    def test_selects_later_compatible_gpu_in_allocation_order(self):
+        self.output = (
+            "Agent 1\n  Name:                    Test CPU\n"
+            "  Uuid:                    CPU-XX\n"
+            "  Device Type:             CPU\n  BDFID:                   0\n"
+            + self.gpu_agent(2, "gfx1030", "GPU-0123456789abcdef", 42496)
+            + self.gpu_agent(3, "gfx1100", "GPU-af47ea8fb2cb9b42", 17920)
+        )
+        selection = self.select(rocr_visible_devices="0,1")
+        self.assertEqual(selection.processor, "gfx1100")
+        self.assertEqual(selection.rocr_visible_device, "GPU-af47ea8fb2cb9b42")
+
+    def test_missing_or_incompatible_gpu_is_rejected(self):
+        for output in ("", self.output):
             with self.subTest(output=output):
                 self.output = output
-                with self.assertRaisesRegex(RuntimeError, "requires one visible"):
-                    self.select()
+                with self.assertRaisesRegex(RuntimeError, "has no GPU compatible"):
+                    self.select(compatible_processors=("gfx942",))
+
+    def test_unknown_uuid_requires_consistent_visibility_order(self):
+        self.output = self.output.replace("GPU-af47ea8fb2cb9b42", "GPU-XX")
+        with self.assertRaisesRegex(RuntimeError, "does not identify the 1 visible"):
+            self.select(rocr_visible_devices="0,1")
+
+    def test_exports_one_verified_gpu_for_subsequent_steps(self):
+        environment_path = self.root / "github_env"
+        selection = self.select()
+        rocm_environment.export_native_gpu_selection(environment_path, selection)
+        self.assertEqual(
+            environment_path.read_text(),
+            "ROCR_VISIBLE_DEVICES=GPU-af47ea8fb2cb9b42\n"
+            "HIP_VISIBLE_DEVICES=0\n"
+            "CUDA_VISIBLE_DEVICES=0\n"
+            "GPU_DEVICE_ORDINAL=0\n"
+            "AMDF_CTS_GPU_NATIVE_IDENTITY=linux_device:226:144\n",
+        )
 
     def test_render_node_device_number_must_match(self):
         self.metadata.st_rdev = os.makedev(226, 168)
@@ -110,6 +181,39 @@ class NativeGpuSelectionTest(unittest.TestCase):
         (self.drm / "renderD144" / "dev").write_text("226:168\n")
         with self.assertRaisesRegex(RuntimeError, "does not match"):
             self.select()
+
+
+class AmdgpuTargetSelectionTest(unittest.TestCase):
+    def test_expands_physical_processors_from_public_selectors(self):
+        self.assertEqual(
+            rocm_environment.target_map.exact_targets_for_selection("gfx110X-all"),
+            ["gfx1100", "gfx1101", "gfx1102", "gfx1103"],
+        )
+        self.assertEqual(
+            rocm_environment.target_map.exact_targets_for_selection("gfx1100"),
+            ["gfx1100"],
+        )
+        self.assertEqual(
+            rocm_environment.target_map.exact_targets_for_selection("gfx11-generic"),
+            [
+                "gfx1100",
+                "gfx1101",
+                "gfx1102",
+                "gfx1103",
+                "gfx1150",
+                "gfx1151",
+                "gfx1152",
+                "gfx1153",
+            ],
+        )
+        self.assertEqual(
+            rocm_environment.target_map.exact_targets_for_selection("gfx1250-a0"),
+            ["gfx1250"],
+        )
+
+    def test_rejects_unknown_target_selector(self):
+        with self.assertRaisesRegex(ValueError, "unknown AMDGPU target selector"):
+            rocm_environment.target_map.exact_targets_for_selection("gfx-future")
 
 
 class RocmSupervisorTest(unittest.TestCase):

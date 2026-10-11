@@ -18,14 +18,32 @@ import stat
 import subprocess
 import sys
 import tempfile
+from collections.abc import Collection
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
+from build_tools.amdgpu import target_map
+
+
+@dataclass(frozen=True)
+class NativeGpuSelection:
+    """One allocated GPU selected for runtime and native device access."""
+
+    processor: str
+    rocr_visible_device: str
+    native_identity: str
+
 
 def select_native_gpu(
-    output: str, topology_path: Path, drm_path: Path, device_path: Path
-) -> str:
-    """Correlates the visible ROCr agent with KFD and its actual render node."""
+    output: str,
+    compatible_processors: Collection[str],
+    topology_path: Path,
+    drm_path: Path,
+    device_path: Path,
+    rocr_visible_devices: str | None,
+) -> NativeGpuSelection:
+    """Selects a compatible ROCr agent and verifies its native render node."""
     agents = []
     for block in re.split(r"^Agent \d+\s*$", output, flags=re.MULTILINE)[1:]:
         fields = dict(
@@ -33,11 +51,18 @@ def select_native_gpu(
         )
         if fields.get("Device Type") == "GPU":
             agents.append(fields)
-    if len(agents) != 1:
+    compatible = [
+        (index, agent)
+        for index, agent in enumerate(agents)
+        if agent.get("Name") in compatible_processors
+    ]
+    if not compatible:
+        visible_processors = [agent.get("Name", "<unknown>") for agent in agents]
         raise RuntimeError(
-            f"Native CTS allocation requires one visible ROCr GPU, found {len(agents)}"
+            "Native CTS allocation has no GPU compatible with "
+            f"{sorted(compatible_processors)}; visible GPUs: {visible_processors}"
         )
-    agent = agents[0]
+    agent_index, agent = compatible[0]
     location = int(agent["BDFID"])
     uuid = re.fullmatch(r"GPU-([0-9a-fA-F]{16})", agent["Uuid"])
     if uuid is None and agent["Uuid"] != "GPU-XX":
@@ -72,11 +97,48 @@ def select_native_gpu(
     ):
         raise RuntimeError(f"{node} does not match its KFD/DRM device identity")
     identity = f"linux_device:{major}:{minor}"
+    if uuid is not None:
+        rocr_visible_device = agent["Uuid"]
+    elif rocr_visible_devices is not None:
+        allocated_devices = [
+            device.strip() for device in rocr_visible_devices.split(",")
+        ]
+        if len(allocated_devices) != len(agents) or any(
+            not device for device in allocated_devices
+        ):
+            raise RuntimeError(
+                f"ROCR_VISIBLE_DEVICES={rocr_visible_devices!r} does not identify "
+                f"the {len(agents)} visible GPUs"
+            )
+        rocr_visible_device = allocated_devices[agent_index]
+    else:
+        rocr_visible_device = str(agent_index)
     print(
-        f"Native CTS GPU: {agent['Uuid']}, BDFID {location}, {node}, {identity}",
+        f"Native CTS GPU: {agent['Name']}, {agent['Uuid']}, BDFID {location}, "
+        f"{node}, {identity}",
         flush=True,
     )
-    return identity
+    return NativeGpuSelection(
+        processor=agent["Name"],
+        rocr_visible_device=rocr_visible_device,
+        native_identity=identity,
+    )
+
+
+def export_native_gpu_selection(
+    environment_path: Path, selection: NativeGpuSelection
+) -> None:
+    """Narrows subsequent runtime enumeration to the verified native GPU."""
+    with environment_path.open("a") as environment_file:
+        environment_file.write(
+            f"ROCR_VISIBLE_DEVICES={selection.rocr_visible_device}\n"
+        )
+        environment_file.write("HIP_VISIBLE_DEVICES=0\n")
+        environment_file.write("CUDA_VISIBLE_DEVICES=0\n")
+        environment_file.write("GPU_DEVICE_ORDINAL=0\n")
+        environment_file.write(
+            f"AMDF_CTS_GPU_NATIVE_IDENTITY={selection.native_identity}\n"
+        )
 
 
 def print_proc_file(path: Path) -> str:
@@ -242,6 +304,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--diagnose", type=int, metavar="PID")
     parser.add_argument("--export-libamdf-gpu-selection", action="store_true")
+    parser.add_argument("--amdgpu-target")
     args = parser.parse_args()
     if args.diagnose is not None:
         diagnose_process(args.diagnose)
@@ -262,6 +325,10 @@ def main() -> int:
     signal.signal(signal.SIGTERM, handle_termination)
     try:
         if args.export_libamdf_gpu_selection:
+            if args.amdgpu_target is None:
+                raise RuntimeError(
+                    "--amdgpu-target is required when exporting the native GPU selection"
+                )
             with tempfile.TemporaryFile(mode="w+") as output_file:
                 status = run_probe(
                     ["rocminfo"], timeout_tool=timeout_tool, stdout=output_file
@@ -270,23 +337,22 @@ def main() -> int:
                 output = output_file.read()
             print(output, end="", flush=True)
             if status == 0:
-                identity = select_native_gpu(
+                selection = select_native_gpu(
                     output,
+                    target_map.exact_targets_for_selection(args.amdgpu_target),
                     Path("/sys/class/kfd/kfd/topology/nodes"),
                     Path("/sys/class/drm"),
                     Path("/dev/dri"),
+                    os.environ.get("ROCR_VISIBLE_DEVICES"),
                 )
                 previous = os.environ.get("AMDF_CTS_GPU_NATIVE_IDENTITY")
-                if previous is not None and previous != identity:
+                if previous is not None and previous != selection.native_identity:
                     raise RuntimeError(
                         f"AMDF_CTS_GPU_NATIVE_IDENTITY={previous!r} conflicts with "
-                        f"the ROCr allocation {identity}"
+                        f"the ROCr allocation {selection.native_identity}"
                     )
                 if github_env := os.environ.get("GITHUB_ENV"):
-                    with Path(github_env).open("a") as environment_file:
-                        environment_file.write(
-                            f"AMDF_CTS_GPU_NATIVE_IDENTITY={identity}\n"
-                        )
+                    export_native_gpu_selection(Path(github_env), selection)
         else:
             status = run_probe(["rocminfo"], timeout_tool=timeout_tool)
     except KeyboardInterrupt:
