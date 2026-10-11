@@ -461,8 +461,11 @@ iree_status_t loom_amdgpu_select_vector_select_plan(
   };
   if (packed_mask) {
     out_plan->payload_kind = LOOM_AMDGPU_SELECT_PAYLOAD_KIND_PACKED_DATA;
-    out_plan->payload.packed.element_count = storage.element_count;
-    out_plan->payload.packed.element_bit_count = storage.element_bit_count;
+    out_plan->payload.packed = (loom_amdgpu_packed_select_payload_t){
+        .imm32_attr_name_id = LOOM_STRING_ID_INVALID,
+        .element_count = storage.element_count,
+        .element_bit_count = storage.element_bit_count,
+    };
     bool literal_present = false;
     IREE_RETURN_IF_ERROR(loom_amdgpu_resolve_descriptor_ref_if_present(
         context, LOOM_AMDGPU_DESCRIPTOR_REF_V_BFI_B32_SRC0_LIT,
