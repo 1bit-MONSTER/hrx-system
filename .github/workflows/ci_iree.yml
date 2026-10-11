@@ -578,12 +578,17 @@ jobs:
           $outputName = if ("${{ matrix.kind }}" -eq 'amd_client') { 'iree-bazel-client' } else { 'iree-bazel-windows' }
           $buildRoot = Join-Path $selectedDrive.Root 'hrx'
           $outputDir = Join-Path $buildRoot $outputName
+          # Keep compiler paths short and stable across runners. The toolchain
+          # is small enough for the system volume; build outputs and caches are
+          # the high-volume state that belong on the dedicated build volume.
+          $rocmRoot = Join-Path $env:SystemDrive 'r'
           $environment = [ordered]@{
-            BAZEL_LLVM = Join-Path $outputDir 'rocm-root\lib\llvm'
+            BAZEL_LLVM = Join-Path $rocmRoot 'lib\llvm'
             HRX_DOWNLOAD_CACHE_DIR = Join-Path $outputDir 'downloads'
             HRX_OUTPUT_DIR = $outputDir
-            HRX_ROCM_ROOT = Join-Path $outputDir 'rocm-root'
-            IREE_CI_BAZEL_OUTPUT_ROOT = (Join-Path $selectedDrive.Root 'b').Replace('\', '/')
+            HRX_ROCM_ROOT = $rocmRoot
+            IREE_CI_BAZEL_OUTPUT_BASE = (Join-Path $selectedDrive.Root 'b').Replace('\', '/')
+            IREE_CI_FAILURE_ARTIFACT_DIR = Join-Path $outputDir 'failure-evidence'
             PIP_CACHE_DIR = Join-Path $outputDir 'caches\pip'
           }
           New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
@@ -592,6 +597,7 @@ jobs:
               Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           }
           Write-Output "Selected Windows build root $buildRoot with $([math]::Round($selectedDrive.Free / 1GB, 1)) GiB free."
+          Write-Output "Using stable toolchain root $rocmRoot and Bazel output base $($environment.IREE_CI_BAZEL_OUTPUT_BASE)."
 
       - name: Set up Node.js
         if: matrix.kind == 'repository'
@@ -617,7 +623,9 @@ jobs:
       - name: Install developer tools
         shell: powershell
         run: |
-          "startup --output_user_root=$env:IREE_CI_BAZEL_OUTPUT_ROOT" |
+          # Avoid Bazel's workspace hash beneath the mapped build volume so the
+          # physical MSVC execution path remains within native tool limits.
+          "startup --output_base=$env:IREE_CI_BAZEL_OUTPUT_BASE" |
             Out-File -FilePath .bazelrc.local -Encoding ascii -Append
           if ("${{ matrix.host_toolchain }}" -eq "msvc") {
             "build --config=windows-msvc" |
