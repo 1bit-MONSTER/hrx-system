@@ -192,7 +192,7 @@ class QueueBenchmark : public benchmark::Fixture {
     }
 
     if (iree_status_is_ok(status)) {
-      status = iree_hal_driver_registry_get_driver(
+      status = iree_hal_driver_registry_acquire_driver(
           iree_hal_driver_registry_default(), iree_make_cstring_view("amdgpu"),
           &driver_);
     }

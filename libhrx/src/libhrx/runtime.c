@@ -727,7 +727,7 @@ static hrx_status_t hrx_create_iree_amdgpu_driver(
     status = iree_hal_amdgpu_driver_module_register(registry);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_hal_driver_registry_get_driver(
+    status = iree_hal_driver_registry_acquire_driver(
         registry, iree_make_cstring_view("amdgpu"), out_driver);
   }
   iree_hal_driver_registry_free(registry);

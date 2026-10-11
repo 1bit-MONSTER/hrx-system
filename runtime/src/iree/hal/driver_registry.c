@@ -321,7 +321,7 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_enumerate(
   return status;
 }
 
-IREE_API_EXPORT iree_status_t iree_hal_driver_registry_get_driver(
+IREE_API_EXPORT iree_status_t iree_hal_driver_registry_acquire_driver(
     iree_hal_driver_registry_t* registry, iree_string_view_t driver_name,
     iree_hal_driver_t** out_driver) {
   IREE_ASSERT_ARGUMENT(registry);
@@ -428,7 +428,8 @@ IREE_API_EXPORT iree_status_t iree_hal_create_device(
   iree_string_view_t driver_name = iree_uri_schema(device_uri);
   iree_hal_driver_t* driver = NULL;
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_hal_driver_registry_get_driver(registry, driver_name, &driver),
+      z0,
+      iree_hal_driver_registry_acquire_driver(registry, driver_name, &driver),
       "creating driver for device '%.*s'", (int)device_uri.size,
       device_uri.data);
 

@@ -29,11 +29,12 @@ static iree_status_t CreateTaskDevice(
     status = iree_ok_status();
   }
 
-  // Create the driver. This sets up the task executor pool, executable loaders,
-  // and heap allocator via the driver module's flag-based configuration.
+  // Acquire the driver. Its first creation sets up the task executor pool,
+  // executable loaders, and heap allocator from the module's flag
+  // configuration.
   iree_hal_driver_t* driver = nullptr;
   if (iree_status_is_ok(status)) {
-    status = iree_hal_driver_registry_get_driver(
+    status = iree_hal_driver_registry_acquire_driver(
         iree_hal_driver_registry_default(), iree_make_cstring_view("task"),
         &driver);
   }

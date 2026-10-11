@@ -156,11 +156,11 @@ TEST(DriverRegistryTest, SharesAliasesButSeparatesCanonicalIdsAndRegistries) {
   IREE_ASSERT_OK(
       iree_hal_driver_registry_register_factory(registry_, factory.get()));
   iree_hal_driver_t *gpu = nullptr, *npu = nullptr, *separate = nullptr;
-  IREE_ASSERT_OK(
-      iree_hal_driver_registry_get_driver(registry_, IREE_SV("rdna"), &gpu));
-  IREE_ASSERT_OK(
-      iree_hal_driver_registry_get_driver(registry_, IREE_SV("xdna"), &npu));
-  IREE_ASSERT_OK(iree_hal_driver_registry_get_driver(
+  IREE_ASSERT_OK(iree_hal_driver_registry_acquire_driver(
+      registry_, IREE_SV("rdna"), &gpu));
+  IREE_ASSERT_OK(iree_hal_driver_registry_acquire_driver(
+      registry_, IREE_SV("xdna"), &npu));
+  IREE_ASSERT_OK(iree_hal_driver_registry_acquire_driver(
       registry_, IREE_SV("separate"), &separate));
   EXPECT_EQ(gpu, npu);
   EXPECT_NE(gpu, separate);
@@ -172,7 +172,7 @@ TEST(DriverRegistryTest, SharesAliasesButSeparatesCanonicalIdsAndRegistries) {
   IREE_ASSERT_OK(
       iree_hal_driver_registry_register_factory(other_registry, factory.get()));
   iree_hal_driver_t* independent = nullptr;
-  IREE_ASSERT_OK(iree_hal_driver_registry_get_driver(
+  IREE_ASSERT_OK(iree_hal_driver_registry_acquire_driver(
       other_registry, IREE_SV("rdna"), &independent));
   EXPECT_NE(gpu, independent);
   iree_hal_driver_registry_free(other_registry);
@@ -202,7 +202,7 @@ TEST(DriverRegistryTest, ConcurrentAliasesCreateOneDriver) {
   std::array<std::thread, 8> threads;
   for (size_t i = 0; i < threads.size(); ++i) {
     threads[i] = std::thread([&, i] {
-      IREE_EXPECT_OK(iree_hal_driver_registry_get_driver(
+      IREE_EXPECT_OK(iree_hal_driver_registry_acquire_driver(
           registry_, i & 1 ? IREE_SV("xdna") : IREE_SV("rdna"), &drivers[i]));
     });
   }
@@ -231,7 +231,7 @@ TEST(DriverRegistryTest, FactoryPrecedenceAndRemovalPreserveOtherEntries) {
   IREE_ASSERT_OK(
       iree_hal_driver_registry_register_factory(registry_, original.get()));
   iree_hal_driver_t* original_driver = nullptr;
-  IREE_ASSERT_OK(iree_hal_driver_registry_get_driver(
+  IREE_ASSERT_OK(iree_hal_driver_registry_acquire_driver(
       registry_, IREE_SV("device"), &original_driver));
   IREE_ASSERT_OK(
       iree_hal_driver_registry_register_factory(registry_, middle.get()));
@@ -240,7 +240,7 @@ TEST(DriverRegistryTest, FactoryPrecedenceAndRemovalPreserveOtherEntries) {
   IREE_ASSERT_OK(
       iree_hal_driver_registry_unregister_factory(registry_, middle.get()));
   iree_hal_driver_t* override_driver = nullptr;
-  IREE_ASSERT_OK(iree_hal_driver_registry_get_driver(
+  IREE_ASSERT_OK(iree_hal_driver_registry_acquire_driver(
       registry_, IREE_SV("device"), &override_driver));
   EXPECT_NE(original_driver, override_driver);
   IREE_ASSERT_OK(iree_hal_driver_registry_unregister_factory(
@@ -248,7 +248,7 @@ TEST(DriverRegistryTest, FactoryPrecedenceAndRemovalPreserveOtherEntries) {
   iree_hal_driver_release(override_driver);
   EXPECT_EQ(override_factory.destroy_count, 1);
   iree_hal_driver_t* restored_driver = nullptr;
-  IREE_ASSERT_OK(iree_hal_driver_registry_get_driver(
+  IREE_ASSERT_OK(iree_hal_driver_registry_acquire_driver(
       registry_, IREE_SV("device"), &restored_driver));
   EXPECT_EQ(original_driver, restored_driver);
   iree_hal_driver_release(restored_driver);
@@ -269,17 +269,17 @@ TEST(DriverRegistryTest, FailuresRemainVisibleAndConstructionCanBeRetried) {
   iree_hal_driver_t* driver = nullptr;
   factory.enumeration_status = IREE_STATUS_PERMISSION_DENIED;
   IREE_EXPECT_STATUS_IS(StatusCode::kPermissionDenied,
-                        iree_hal_driver_registry_get_driver(
+                        iree_hal_driver_registry_acquire_driver(
                             registry_, IREE_SV("device"), &driver));
   EXPECT_EQ(driver, nullptr);
   factory.enumeration_status = IREE_STATUS_OK;
   factory.creation_status = IREE_STATUS_RESOURCE_EXHAUSTED;
   IREE_EXPECT_STATUS_IS(StatusCode::kResourceExhausted,
-                        iree_hal_driver_registry_get_driver(
+                        iree_hal_driver_registry_acquire_driver(
                             registry_, IREE_SV("device"), &driver));
   EXPECT_EQ(driver, nullptr);
   factory.creation_status = IREE_STATUS_OK;
-  IREE_ASSERT_OK(iree_hal_driver_registry_get_driver(
+  IREE_ASSERT_OK(iree_hal_driver_registry_acquire_driver(
       registry_, IREE_SV("device"), &driver));
   EXPECT_EQ(factory.creation_ids.size(), 2u);
   iree_hal_driver_release(driver);
@@ -287,7 +287,7 @@ TEST(DriverRegistryTest, FailuresRemainVisibleAndConstructionCanBeRetried) {
       iree_hal_driver_registry_unregister_factory(registry_, factory.get()));
   IREE_ASSERT_OK(
       iree_hal_driver_registry_register_factory(registry_, factory.get()));
-  IREE_ASSERT_OK(iree_hal_driver_registry_get_driver(
+  IREE_ASSERT_OK(iree_hal_driver_registry_acquire_driver(
       registry_, IREE_SV("device"), &driver));
   EXPECT_EQ(factory.creation_ids.size(), 3u);
   iree_hal_driver_release(driver);

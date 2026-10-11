@@ -152,11 +152,12 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_registry_enumerate(
 // drivers with newer registrations when multiple factories provide the same
 // driver name.
 //
-// The caller releases |out_driver| with iree_hal_driver_release. Separate
+// On success, the caller owns one reference in |out_driver| and must release it
+// with iree_hal_driver_release. On failure, |out_driver| is NULL. Separate
 // registries or direct driver constructors provide independent instances.
 // Thread-safe. Discovery and creation are serialized by the registry; this is
 // a cold construction API, never a recording or submission operation.
-IREE_API_EXPORT iree_status_t iree_hal_driver_registry_get_driver(
+IREE_API_EXPORT iree_status_t iree_hal_driver_registry_acquire_driver(
     iree_hal_driver_registry_t* registry, iree_string_view_t driver_name,
     iree_hal_driver_t** out_driver);
 

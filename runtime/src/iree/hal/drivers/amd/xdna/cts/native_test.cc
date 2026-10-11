@@ -35,7 +35,7 @@ class AmdDriverNativeTest : public ::testing::Test {
     IREE_ASSERT_OK(
         iree_hal_driver_registry_allocate(iree_allocator_system(), &registry_));
     IREE_ASSERT_OK(iree_hal_amd_driver_module_register(registry_));
-    IREE_ASSERT_OK(iree_hal_driver_registry_get_driver(
+    IREE_ASSERT_OK(iree_hal_driver_registry_acquire_driver(
         registry_, IREE_SV("xdna"), &driver_));
     IREE_ASSERT_OK(iree_async_proactor_pool_create(
         1, nullptr, iree_async_proactor_pool_options_default(),
@@ -111,7 +111,7 @@ class XdnaNativeTest : public ::testing::Test {
     IREE_ASSERT_OK(
         iree_hal_driver_registry_allocate(iree_allocator_system(), &registry_));
     IREE_ASSERT_OK(iree_hal_amd_driver_module_register(registry_));
-    IREE_ASSERT_OK(iree_hal_driver_registry_get_driver(
+    IREE_ASSERT_OK(iree_hal_driver_registry_acquire_driver(
         registry_, IREE_SV("xdna"), &driver_));
     iree_host_size_t count = 0;
     iree_hal_device_info_t* infos = nullptr;

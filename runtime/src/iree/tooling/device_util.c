@@ -116,7 +116,7 @@ static iree_status_t iree_hal_flags_list_driver_devices(
     iree_hal_driver_registry_t* driver_registry, iree_string_view_t driver_name,
     iree_allocator_t host_allocator, bool fail_on_driver_error, FILE* file) {
   iree_hal_driver_t* driver = NULL;
-  iree_status_t driver_status = iree_hal_driver_registry_get_driver(
+  iree_status_t driver_status = iree_hal_driver_registry_acquire_driver(
       driver_registry, driver_name, &driver);
   if (!iree_status_is_ok(driver_status) && fail_on_driver_error) {
     // Driver could not be created (not found, unavailable, etc) and user asked
@@ -221,7 +221,7 @@ static iree_status_t iree_hal_flags_dump_driver_devices(
   fprintf(stdout, "\n");
 
   iree_hal_driver_t* driver = NULL;
-  iree_status_t driver_status = iree_hal_driver_registry_get_driver(
+  iree_status_t driver_status = iree_hal_driver_registry_acquire_driver(
       driver_registry, driver_name, &driver);
   if (!iree_status_is_ok(driver_status) && fail_on_driver_error) {
     // Driver could not be created (not found, unavailable, etc) and user asked
