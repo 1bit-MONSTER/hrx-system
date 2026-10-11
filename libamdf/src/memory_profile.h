@@ -18,7 +18,7 @@
 // Properties established separately for each device consumer.
 #define AMDF_MEMORY_ACCESS_FLAGS                                     \
   (AMDF_MEMORY_FLAG_QUEUE_STORAGE | AMDF_MEMORY_FLAG_HOST_COHERENT | \
-   AMDF_MEMORY_FLAG_DEVICE_ADDRESS)
+   AMDF_MEMORY_FLAG_DEVICE_ADDRESS | AMDF_MEMORY_FLAG_MAPPING_SOURCE)
 
 // One native placement/acquisition contract for a single consumer. Scope
 // selection composes these native facts into backing and access capabilities;

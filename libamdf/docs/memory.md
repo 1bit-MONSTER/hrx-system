@@ -376,6 +376,99 @@ Genuinely context-private memory obtains its ownership qualification from its
 scope. Equal firmware instruction addresses in different private scopes can
 name different storage without changing the ordinary shared-data pointer model.
 
+## Stable reservations and replaceable backing
+
+A serving pool can keep a tensor's GPU address stable while committing,
+replacing, or releasing its physical slabs. An `amdf_memory_reservation_t`
+owns those addresses; ordinary `amdf_memory_t` resources own the backing.
+Replacing a mapping changes which backing an address reaches, not the address
+stored in a program. Detaching a range leaves its addresses reserved and
+inaccessible until another mapping is installed.
+
+The caller queries `device_query_memory_reservation_capabilities` for an
+already-live consumer's address domain. The result supplies address bounds,
+reservation and mapping granularity, alignment limits, and exact permission
+constraints. `required_access` identifies permission bits that the native
+domain cannot deny. The request names its complete live consumer set; a
+successful GPU reservation provides one common base address to that set.
+Unsupported combinations fail as a whole.
+
+Backing uses the existing scope-taking construction operations. Each consumer
+that will supply replacement mappings requests
+`AMDF_MEMORY_FLAG_MAPPING_SOURCE` in its access requirements. Profile queries
+admit that request, and construction prepares its reusable native handles
+before returning. An ordinary allocation without that requirement pays no
+additional mapping-source preparation cost. A mapping never exports, imports,
+or lazily registers its source on first use.
+
+`memory_reservation_query_access_info` returns the stable base even when the
+reservation has no backing. Access ordinals preserve caller order. Consumers
+with the same `mapping_access_ordinal` share native page tables: a replacement
+through either affects both, and they must request the same maximum access.
+Two device handles do not create independent page tables when their native
+process domain is shared.
+
+After retiring every affected user, the caller supplies a vector of ranges:
+
+```c
+amdf_memory_mapping_update_t replacement = {
+    .target_byte_offset = arena_offset,
+    .byte_length = slab_length,
+    .memory = new_slab,
+    .memory_access_ordinal = slab_gpu_access,
+    .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+    .source_byte_offset = slab_offset,
+};
+status = api->memory_reservation_update(arena, arena_gpu_access, 1,
+                                       &replacement);
+```
+
+Success establishes the replacement's translation readiness before returning.
+The next operation on an existing queue can use the unchanged arena address.
+This is not merely a page-table edit or a data-cache barrier. A null `memory`,
+with zero source fields and access, detaches the destination; successful detach
+releases that mapping's borrow of the old backing. Other aliases and users
+retain their own lifetime requirements.
+
+Destination ranges within one batch must not overlap. Source ranges may repeat,
+so one slab can supply several aliases. Source offsets are relative to logical
+byte zero, including for imports with a prefix. The provider adds the native
+prefix once and splits a range across native allocation chunks where required.
+Page alignment applies to that resulting native source offset. Mapping access
+cannot exceed either the prepared source's permissions or the reservation's
+consumer contract. `memory_map` remains a CPU-view operation; it does not change
+GPU mappings.
+
+Updates are explicit cold operations. They can allocate temporary descriptors,
+serialize native VM mutation, and wait for native mapping readiness. Linux
+publishes DRM page-table work and completes KFD compute-PASID invalidation;
+Windows waits for the mapping's paging fence. Neither path discovers old users
+or waits for all application queues. A HAL schedules this host operation using
+its ordinary dependency edges, then publishes its ordinary completion signal.
+Reservation queries remain cached and allocation-free, and dispatch gains no
+mapping lookup, source list, or extra synchronization step.
+
+On Linux the instance serializes its foreground VM mutations through native
+completion. A PROCESS-lifetime KFD context can also be used by foreign driver
+clients; their VM mutations require caller coordination with reservation updates
+and destruction. The instance's lock cannot order calls made outside that
+instance. INSTANCE lifetime supplies a separate native KFD context.
+
+The reservation borrows its devices and backing without retaining either.
+The caller keeps each source alive until every installed alias and executing
+user has finished. `memory_reservation_destroy` clears its complete bounds,
+including holes, establishes removal readiness, then releases the addresses.
+It requires no installed-mapping ledger. Successful final removal permits
+releasing the detached sources while their execution queues remain alive.
+
+Request-validation failure changes nothing. A native failure after mutation
+can leave partial mappings and makes that native projection unusable except
+for final destruction. The caller retains old and proposed backing until
+checked removal succeeds. Failed destruction consumes the reservation handle
+but does not authorize backing reuse; unsafe native resources remain leaked
+without a retained libamdf cleanup object. There is no rollback promise,
+implicit retry, or second retirement mechanism.
+
 ## Native resources and activation
 
 The instance owns shared native driver connections. Explicit device creation
@@ -705,10 +798,10 @@ supplies only its leased bytes, not ownership of surrounding pages suitable for
 registration. Persistent registered pools keep data ownership separate from
 connection and message lifetimes.
 
-The memory ABI establishes native address mappings as part of construction. It
-does not expose separate virtual-address reservation, alias/remap operations or
-live budget accounting. Those are distinct services, not hidden side effects
-of command submission or additional responsibilities of a memory scope.
+Ordinary memory construction establishes its fixed native access. Explicit
+reservations add stable addresses whose backing can change independently;
+neither mechanism adds allocation policy or live budget accounting. Scopes
+continue to describe obtainable storage, not application pools or schedulers.
 
 Libamdf owns the native machinery that makes memory usable. The caller owns what
 the bytes mean, how work moves through them, and when they can be reused.

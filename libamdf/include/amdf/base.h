@@ -85,8 +85,11 @@ typedef uint32_t amdf_abi_version_t;
 /// Activated kernel queue information includes native notification types.
 #define AMDF_ABI_VERSION_5 ((amdf_abi_version_t)5)
 
+/// Stable address reservations and explicit ordinary-backing mapping sources.
+#define AMDF_ABI_VERSION_6 ((amdf_abi_version_t)6)
+
 /// The most recent ABI version described by this header.
-#define AMDF_ABI_VERSION_LATEST AMDF_ABI_VERSION_5
+#define AMDF_ABI_VERSION_LATEST AMDF_ABI_VERSION_6
 
 /// The unmangled symbol used to acquire the immutable API table.
 #define AMDF_QUERY_API_SYMBOL "amdf_query_api"
@@ -221,6 +224,12 @@ enum amdf_structure_type_e {
   AMDF_STRUCTURE_TYPE_MEMORY_ACCESS_CAPABILITIES = 20,
   /// An `amdf_memory_profile_pair_query_t` input structure.
   AMDF_STRUCTURE_TYPE_MEMORY_PROFILE_PAIR_QUERY = 21,
+  /// Live address-domain reservation and mapping limits.
+  AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES = 22,
+  /// Explicit live consumers and geometry for a stable reservation.
+  AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CREATE_INFO = 23,
+  /// Cached stable address and alias-domain facts for one consumer.
+  AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO = 24,
 };
 
 /// Identifier of an optional API table compiled into the providing library.

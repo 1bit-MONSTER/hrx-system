@@ -66,6 +66,7 @@ amdf_cts_test_suite(
         "handoff_test.cc",
         "indirect_test.cc",
         "lds_test.cc",
+        "mapping_test.cc",
         "resource_test.cc",
         "timestamp_test.cc",
         "wait_test.cc",
@@ -80,6 +81,8 @@ amdf_cts_test_suite(
     deps = [
         ":command_fixture",
         ":dispatch_fixture",
+        "//libamdf/cts/gpu/kernels:byte_copy_unaligned",
+        "//libamdf/cts/gpu/kernels:byte_copy_unaligned_kernels",
         "//libamdf/cts/gpu/kernels:lds_exchange",
         "//libamdf/cts/gpu/kernels:lds_exchange_kernels",
         "//libamdf/cts/gpu/kernels:transform",

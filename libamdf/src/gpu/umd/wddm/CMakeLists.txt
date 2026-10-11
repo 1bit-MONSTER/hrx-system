@@ -49,6 +49,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR 
 iree_cc_library(
   NAME
     memory
+  HDRS
+    "memory.h"
   SRCS
     "memory.c"
   DEPS
@@ -58,6 +60,25 @@ iree_cc_library(
     libamdf::src::allocator
     libamdf::src::gpu::umd::memory
     libamdf::src::platform::windows::host_cache
+    libamdf::src::platform::windows::kmt_api
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
+    memory_reservation
+  SRCS
+    "memory_reservation.c"
+  DEPS
+    ::device_state
+    ::memory
+    ::memory_profile
+    amdf::headers
+    libamdf::src::allocator
+    libamdf::src::gpu::umd::memory_reservation
+    libamdf::src::platform::windows::kmt_api
   PUBLIC
 )
 endif()
@@ -152,6 +173,7 @@ iree_cc_library(
     ::instance
     ::kernel_queue
     ::memory
+    ::memory_reservation
     ::user_queue
     amdf::headers
   PUBLIC
@@ -193,6 +215,8 @@ iree_cc_test(
     libamdf::src::allocator
     libamdf::src::gpu::umd::endpoint_profile
     libamdf::src::gpu::umd::kernel_queue
+    libamdf::src::gpu::umd::memory
+    libamdf::src::gpu::umd::memory_reservation
     libamdf::src::gpu::umd::sparse_mapping_test_support
     libamdf::src::platform
     libamdf::src::platform::windows::endpoint
@@ -286,11 +310,13 @@ iree_cc_test(
   DEPS
     ::device_state
     ::memory
+    ::memory_reservation
     amdf::headers
     iree::third_party::google_test
     iree::third_party::google_test_main
     libamdf::src::allocator
     libamdf::src::gpu::umd::memory
+    libamdf::src::gpu::umd::memory_reservation
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.gpu"

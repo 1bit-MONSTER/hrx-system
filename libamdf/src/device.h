@@ -16,6 +16,15 @@ extern "C" {
 #endif  // __cplusplus
 
 typedef struct amdf_device_vtable_t {
+  // Reads live-domain reservation limits without native work or allocation.
+  amdf_status_t (*query_memory_reservation_capabilities)(
+      amdf_device_t* device, uint32_t address_domain_ordinal,
+      amdf_memory_reservation_capabilities_t* out_capabilities);
+  // Creates one validated same-provider consumer group transactionally.
+  amdf_status_t (*reservation_create)(
+      amdf_instance_t* instance,
+      const amdf_memory_reservation_create_info_t* create_info,
+      amdf_memory_reservation_t** out_reservation);
   // Copies one immutable memory profile into caller-private result storage.
   amdf_status_t (*query_memory_profile)(
       amdf_device_t* device, uint32_t memory_profile_ordinal,

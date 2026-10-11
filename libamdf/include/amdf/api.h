@@ -9,6 +9,7 @@
 
 #include "amdf/base.h"
 #include "amdf/memory.h"
+#include "amdf/memory_reservation.h"
 #include "amdf/queue.h"
 
 #ifdef __cplusplus
@@ -633,6 +634,65 @@ typedef struct amdf_api_t {
   amdf_status_t(AMDF_CALL* kernel_queue_request_notification)(
       amdf_kernel_queue_t* queue, uint64_t submission,
       const amdf_native_event_t* event);
+
+  /// Queries reservation support for an already-live device address domain.
+  /// Unsupported domains return UNSUPPORTED with output unchanged. This cached
+  /// query performs no allocation, lock, native call or lazy initialization.
+  amdf_status_t(AMDF_CALL* device_query_memory_reservation_capabilities)(
+      amdf_device_t* device, uint32_t address_domain_ordinal,
+      amdf_memory_reservation_capabilities_t* out_capabilities);
+
+  /// Reserves stable addresses for explicit live consumers without allocating
+  /// application backing. GPU consumers share a common address when creation
+  /// succeeds; an unsupported native consumer combination fails as a whole.
+  /// Devices and instance are borrowed, with no retention or lifetime tracking.
+  /// This cold operation may allocate, lock and enter the native driver.
+  /// Failure leaves out_reservation unchanged and creates no cleanup
+  /// obligation.
+  amdf_status_t(AMDF_CALL* memory_reservation_create)(
+      amdf_instance_t* instance,
+      const amdf_memory_reservation_create_info_t* create_info,
+      amdf_memory_reservation_t** out_reservation);
+
+  /// Copies a stable address and native alias-domain facts for one consumer.
+  /// An unbacked address is queryable but not dereferenceable. This thread-safe
+  /// query performs no allocation, locking, syscall or lazy initialization.
+  /// Failure leaves out_info unchanged.
+  amdf_status_t(AMDF_CALL* memory_reservation_query_access_info)(
+      amdf_memory_reservation_t* reservation, uint32_t access_ordinal,
+      amdf_memory_reservation_access_info_t* out_info);
+
+  /// Replaces or removes mappings after the caller completes affected users.
+  /// Success establishes translation readiness for subsequent device accesses;
+  /// successful detach permits releasing the removed backing after its other
+  /// users and aliases finish. No execution dependencies are inferred or
+  /// waited. The caller serializes mutation/destruction of the same
+  /// reservation. Mapping sources must have been created with MAPPING_SOURCE
+  /// access. All descriptors are validated before native mutation. Validation
+  /// failure changes nothing. A native failure can leave partial mappings and
+  /// makes the affected native projection unusable except for terminal
+  /// destruction. Old and proposed backing must remain alive until checked
+  /// removal succeeds. The library retains no source objects or
+  /// installed-mapping ledger. This cold operation may allocate temporary
+  /// descriptors, lock native VM mutation and wait for mapping readiness. Zero
+  /// updates is an empty operation on a healthy projection.
+  ///
+  /// Linux PROCESS lifetime can share its native context with foreign KFD
+  /// clients. The caller serializes those clients' VM mutations against these
+  /// updates and final destruction; an instance's mutation lock cannot order
+  /// calls made outside that instance.
+  amdf_status_t(AMDF_CALL* memory_reservation_update)(
+      amdf_memory_reservation_t* reservation, uint32_t access_ordinal,
+      uint32_t update_count, const amdf_memory_mapping_update_t* updates);
+
+  /// Clears the complete reservation, including holes, and releases its VA.
+  /// The caller has completed all affected execution and owns exclusive access.
+  /// Success certifies removal before backing may be reused. Native failure
+  /// consumes this handle but preserves unsafe native resources; it does not
+  /// authorize recycling backing that might still be mapped. No retry owner,
+  /// source registry or implicit device-execution wait is created.
+  amdf_status_t(AMDF_CALL* memory_reservation_destroy)(
+      amdf_memory_reservation_t* reservation);
 } amdf_api_t;
 
 /// Function type used to acquire the immutable API table.

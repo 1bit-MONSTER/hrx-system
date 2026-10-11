@@ -52,6 +52,13 @@ Discovery is passive, device creation is explicit, and allocation establishes
 the requested consumer access before publishing the resource. The HAL owns
 suballocation and retires memory before destroying its required native owners.
 
+Stable GPU reservations separate addresses from physical backing. A pool can
+commit slabs, replace backing, or detach ranges without changing the addresses
+stored in programs. Explicit mapping-source preparation and checked translation
+readiness let existing queues immediately use a replacement; the runtime owns
+last-use ordering and backing lifetime. No allocation registry or per-dispatch
+mapping walk is required.
+
 Execution uses caller-prepared native commands. A user queue exposes queue
 state and doorbells; a kernel-mediated queue supplies the required platform
 transport. GPU packet construction and XDNA executable loading, relocation,

@@ -41,6 +41,10 @@ enum amdf_memory_flag_bits_e {
   AMDF_MEMORY_FLAG_HOST_COHERENT = UINT64_C(1) << 4,
   /// A stable device address is established before creation returns.
   AMDF_MEMORY_FLAG_DEVICE_ADDRESS = UINT64_C(1) << 5,
+  /// Native mapping-source handles are prepared before construction returns.
+  /// This access may supply ordinary backing to stable address reservations.
+  /// It does not transfer backing ownership or track installed aliases.
+  AMDF_MEMORY_FLAG_MAPPING_SOURCE = UINT64_C(1) << 6,
 };
 
 /// Exact device page-table access granted to one memory attachment.
@@ -381,7 +385,8 @@ typedef struct amdf_memory_access_requirements_t {
   amdf_memory_access_t access;
   /// Reserved for compatible growth; must be zero.
   uint32_t reserved;
-  /// Required access properties: QUEUE_STORAGE, HOST_COHERENT, DEVICE_ADDRESS.
+  /// Required access properties: QUEUE_STORAGE, HOST_COHERENT, DEVICE_ADDRESS,
+  /// MAPPING_SOURCE.
   amdf_memory_flags_t flags;
   /// Interfaces whose complete logical-range addresses must be established.
   amdf_memory_address_kinds_t address_kinds;

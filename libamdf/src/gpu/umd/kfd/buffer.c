@@ -7,6 +7,8 @@
 #define _GNU_SOURCE
 #include "libamdf/src/gpu/umd/kfd/buffer.h"
 
+#include <drm/drm.h>
+#include <fcntl.h>
 #include <linux/kfd_ioctl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -283,4 +285,35 @@ uint64_t amdf_gpu_kfd_buffer_handle(const amdf_gpu_kfd_buffer_t* buffer) {
 
 size_t amdf_gpu_kfd_buffer_byte_length(const amdf_gpu_kfd_buffer_t* buffer) {
   return buffer->byte_length;
+}
+
+amdf_status_t amdf_gpu_kfd_buffer_export_gem(amdf_gpu_kfd_buffer_t* buffer,
+                                             int render_descriptor,
+                                             uint32_t* out_handle) {
+  struct kfd_ioctl_export_dmabuf_args export = {
+      .handle = buffer->handle,
+      .flags = O_CLOEXEC,
+  };
+  if (ioctl(buffer->device->descriptor, AMDKFD_IOC_EXPORT_DMABUF, &export) !=
+      0) {
+    return amdf_linux_error(errno);
+  }
+  struct drm_prime_handle import = {.fd = (int)export.dmabuf_fd};
+  amdf_status_t status = AMDF_STATUS_OK;
+  if (ioctl(render_descriptor, DRM_IOCTL_PRIME_FD_TO_HANDLE, &import) != 0) {
+    status = amdf_linux_error(errno);
+  }
+  const amdf_status_t close_status = amdf_linux_file_close(&import.fd);
+  if (!amdf_status_is_ok(close_status)) {
+    status = close_status;
+  }
+  if (amdf_status_is_ok(status)) {
+    *out_handle = import.handle;
+  } else if (import.handle != 0) {
+    struct drm_gem_close release = {.handle = import.handle};
+    if (ioctl(render_descriptor, DRM_IOCTL_GEM_CLOSE, &release) != 0) {
+      status = amdf_linux_error(errno);
+    }
+  }
+  return status;
 }

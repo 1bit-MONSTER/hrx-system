@@ -247,6 +247,7 @@ amdf_cc_library(
         ":device_state",
         "//libamdf/src:allocator",
         "//libamdf/src/platform/linux:file",
+        "//third_party:linux_drm_uapi",
         "//third_party:linux_kfd_uapi",
     ],
 )
@@ -285,6 +286,7 @@ amdf_cc_library(
 amdf_cc_library(
     name = "memory",
     srcs = ["memory.c"],
+    hdrs = ["memory.h"],
     target_compatible_with = KFD_COMPATIBILITY,
     deps = [
         ":buffer",
@@ -296,6 +298,7 @@ amdf_cc_library(
         "//libamdf/src/platform/linux:dma_buf",
         "//libamdf/src/platform/linux:file",
         "//libamdf/src/platform/linux:host_cache",
+        "//third_party:linux_drm_uapi",
         "//third_party:linux_kfd_uapi",
     ],
 )
@@ -314,6 +317,23 @@ amdf_cc_test(
         "//third_party:google_test",
         "//third_party:google_test_main",
         "//third_party:linux_amdgpu_uapi",
+    ],
+)
+
+amdf_cc_library(
+    name = "memory_reservation",
+    srcs = ["memory_reservation.c"],
+    target_compatible_with = KFD_COMPATIBILITY,
+    deps = [
+        ":buffer",
+        ":device_state",
+        ":memory",
+        "//libamdf/src:allocator",
+        "//libamdf/src/gpu/umd:memory_reservation",
+        "//libamdf/src/platform/linux:file",
+        "//third_party:linux_amdgpu_uapi",
+        "//third_party:linux_drm_uapi",
+        "//third_party:linux_kfd_uapi",
     ],
 )
 
@@ -401,6 +421,7 @@ amdf_cc_library(
         ":instance",
         ":kernel_queue",
         ":memory",
+        ":memory_reservation",
         ":user_queue",
     ],
 )

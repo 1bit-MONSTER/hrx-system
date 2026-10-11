@@ -208,6 +208,19 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "memory_reservation",
+    srcs = ["memory_reservation.c"],
+    hdrs = ["memory_reservation.h"],
+    visibility = ["//libamdf/src:__subpackages__"],
+    deps = [
+        ":allocator",
+        ":device",
+        ":memory_resource",
+        ":structure",
+    ],
+)
+
+amdf_cc_library(
     name = "memory_pair",
     srcs = ["memory_pair.c"],
     hdrs = ["memory_pair.h"],
@@ -218,6 +231,7 @@ amdf_cc_test(
     name = "memory_test",
     srcs = [
         "memory_construction_test.cc",
+        "memory_reservation_test.cc",
         "memory_test.cc",
         "memory_test_fixture.cc",
         "memory_test_fixture.h",
@@ -229,6 +243,7 @@ amdf_cc_test(
         ":host_mapping",
         ":instance",
         ":memory",
+        ":memory_reservation",
         ":memory_scope",
         ":memory_scope_state",
         "//third_party:google_test",
@@ -324,6 +339,7 @@ amdf_cc_library(
         ":instance",
         ":kernel_queue",
         ":memory",
+        ":memory_reservation",
         ":pci",
         ":structure",
         ":user_queue",

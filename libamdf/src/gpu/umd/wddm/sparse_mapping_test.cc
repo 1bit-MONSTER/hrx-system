@@ -19,6 +19,8 @@
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/gpu/umd/endpoint_profile.h"
 #include "libamdf/src/gpu/umd/kernel_queue.h"
+#include "libamdf/src/gpu/umd/memory.h"
+#include "libamdf/src/gpu/umd/memory_reservation.h"
 #include "libamdf/src/gpu/umd/wddm/device.h"
 #include "libamdf/src/gpu/umd/wddm/sparse_mapping_queue_test.h"
 #include "libamdf/src/platform/endpoint.h"
@@ -51,10 +53,8 @@ void RequireStatus(amdf_status_t status, const char* operation) {
 
 // One retained native allocation and its independent fixed GPU alias.
 struct NativeAllocation {
-  // Allocation handle used by every replaceable alias.
-  D3DKMT_HANDLE handle = 0;
-  // Native grouping resource, or zero when the allocation is ungrouped.
-  D3DKMT_HANDLE resource = 0;
+  // Ordinary provider backing with eagerly prepared mapping-source access.
+  amdf_gpu_umd_memory_t* memory = nullptr;
   // Committed CPU pages for system storage, absent for device-local storage.
   void* host_pointer = nullptr;
   // Base of the independent GPU address reservation.
@@ -178,8 +178,19 @@ class WddmSparseMappingBackend final : public SparseMappingBackend {
     Require(amdf_kmt_api_supports_gpu_memory(device_->kmt),
             "native GPU memory operations available");
     reservation_byte_length_ = reservation_byte_length;
-    for (auto& address : reservation_addresses) {
-      address = Reserve(reservation_byte_length_);
+    for (size_t i = 0; i < reservations_.size(); ++i) {
+      RequireStatus(amdf_gpu_umd_memory_reservation_create(
+                        amdf_allocator_system(), 1, &device_,
+                        reservation_byte_length_, 0, &reservations_[i]),
+                    "create provider GPU reservation");
+      uint32_t owner = 0;
+      uint64_t granularity = 0;
+      amdf_memory_access_t required_access = 0;
+      amdf_gpu_umd_memory_reservation_query_access(
+          reservations_[i], 0, &reservation_addresses[i], &owner, &granularity,
+          &required_access);
+      Require(kSparseSlabByteLength % granularity == 0,
+              "source slabs meet queried mapping geometry");
     }
 
     backing_.reserve(backing_count);
@@ -237,25 +248,11 @@ class WddmSparseMappingBackend final : public SparseMappingBackend {
   }
 
   void Attach(std::span<const SparseMapping> mappings) override {
-    uint64_t fence = 0;
-    for (const auto& mapping : mappings) {
-      fence = std::max(
-          fence,
-          Map(reservation_addresses[mapping.reservation] + mapping.byte_offset,
-              backing_[mapping.backing].handle, kSparseSlabByteLength,
-              AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE));
-    }
-    WaitForPaging(fence);
+    Update(mappings, AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE);
   }
 
   void Detach(std::span<const SparseMapping> mappings) override {
-    uint64_t fence = 0;
-    for (const auto& mapping : mappings) {
-      fence = std::max(fence, Map(reservation_addresses[mapping.reservation] +
-                                      mapping.byte_offset,
-                                  0, kSparseSlabByteLength, 0));
-    }
-    WaitForPaging(fence);
+    Update(mappings, 0);
   }
 
   void Execute(std::span<const uint32_t> words,
@@ -291,11 +288,10 @@ class WddmSparseMappingBackend final : public SparseMappingBackend {
     // Clear the complete reservations, including holes, without enumerating
     // their installed mappings. Completion precedes backing release while the
     // same queue is alive; queue teardown cannot supply this guarantee.
-    uint64_t fence = 0;
-    for (uint64_t address : reservation_addresses) {
-      fence = std::max(fence, Map(address, 0, reservation_byte_length_, 0));
+    for (auto* reservation : reservations_) {
+      RequireStatus(amdf_gpu_umd_memory_reservation_destroy(reservation),
+                    "complete provider final detach and VA release");
     }
-    WaitForPaging(fence);
     for (const auto& allocation : backing_) {
       ReleaseAllocation(allocation);
     }
@@ -308,9 +304,6 @@ class WddmSparseMappingBackend final : public SparseMappingBackend {
                     "destroy persistent SDMA queue");
     }
     ReleaseAllocation(transport_);
-    for (uint64_t address : reservation_addresses) {
-      ReleaseReservation(address, reservation_byte_length_);
-    }
     RequireStatus(amdf_gpu_umd_device_destroy(device_),
                   "destroy native device");
     RequireStatus(amdf_gpu_umd_instance_destroy(instance_),
@@ -324,47 +317,32 @@ class WddmSparseMappingBackend final : public SparseMappingBackend {
   }
 
  private:
-  uint64_t Reserve(uint64_t byte_length) {
-    D3DDDI_RESERVEGPUVIRTUALADDRESS reserve = {};
-    reserve.hAdapter = device_->adapter;
-    reserve.Size = byte_length;
-    RequireStatus(amdf_kmt_make_status(
-                      device_->kmt->reserve_gpu_virtual_address(&reserve)),
-                  "reserve independent GPU address range");
-    Require(reserve.VirtualAddress != 0, "native GPU reservation has a base");
-    return reserve.VirtualAddress;
-  }
-
-  // Prior GPU users have completed before changing any mapping. A map's paging
-  // fence publishes the new translation before later access. NoAccess removes
-  // backing without giving up the independently reserved address range.
-  uint64_t Map(uint64_t address, D3DKMT_HANDLE allocation, uint64_t byte_length,
-               amdf_memory_access_t access) {
-    D3DDDI_MAPGPUVIRTUALADDRESS map = {};
-    map.hPagingQueue = device_->paging_queue;
-    map.BaseAddress = address;
-    map.hAllocation = allocation;
-    map.SizeInPages = byte_length / AMDF_WINDOWS_GPU_PAGE_SIZE;
-    if (allocation != 0) {
-      map.Protection.Write = (access & AMDF_MEMORY_ACCESS_WRITE) != 0;
-      map.Protection.Execute = (access & AMDF_MEMORY_ACCESS_EXECUTE) != 0;
-    } else {
-      map.Protection.NoAccess = 1;
+  void Update(std::span<const SparseMapping> mappings,
+              amdf_memory_access_t access) {
+    for (size_t i = 0; i < reservations_.size(); ++i) {
+      std::vector<amdf_gpu_umd_mapping_update_t> updates;
+      for (const auto& mapping : mappings) {
+        if (mapping.reservation != i) {
+          continue;
+        }
+        updates.push_back({
+            .target_byte_offset = mapping.byte_offset,
+            .byte_length = kSparseSlabByteLength,
+            .memory = access != 0 ? backing_[mapping.backing].memory : nullptr,
+            .access = access,
+        });
+      }
+      if (updates.empty()) {
+        continue;
+      }
+      bool mutated = false;
+      RequireStatus(
+          amdf_gpu_umd_memory_reservation_update(
+              reservations_[i], 0, static_cast<uint32_t>(updates.size()),
+              updates.data(), &mutated),
+          "complete provider mapping update");
+      Require(mutated, "nonempty mapping update reached native publication");
     }
-    const NTSTATUS status = device_->kmt->map_gpu_virtual_address(&map);
-    if (!amdf_kmt_status_is_success_or_pending(status)) {
-      RequireStatus(amdf_kmt_make_status(status), "change GPU mapping");
-    }
-    Require(map.VirtualAddress == address,
-            "retain exact requested GPU address");
-    return map.PagingFenceValue;
-  }
-
-  void WaitForPaging(uint64_t fence) {
-    RequireStatus(amdf_kmt_wait_for_paging(device_->kmt, device_->device,
-                                           device_->paging_sync_object,
-                                           device_->paging_fence, fence),
-                  "complete native paging without reset");
   }
 
   NativeAllocation Allocate(uint64_t byte_length,
@@ -374,76 +352,45 @@ class WddmSparseMappingBackend final : public SparseMappingBackend {
     allocation.byte_length =
         (byte_length + AMDF_WINDOWS_GPU_RESERVATION_GRANULARITY - 1) &
         ~(AMDF_WINDOWS_GPU_RESERVATION_GRANULARITY - 1);
-    allocation.device_address = Reserve(allocation.byte_length);
-    amdf_wkmi_bridge_gpu_allocation_create_info_t create = {};
-    create.structure_size = sizeof(create);
-    create.device_handle = device_->device;
-    create.domain = domain;
+    const bool system = domain == AMDF_WKMI_BRIDGE_GPU_ALLOCATION_DOMAIN_SYSTEM;
+    amdf_memory_native_profile_t profile = {};
+    RequireStatus(amdf_gpu_umd_device_query_memory_profile(
+                      device_, system ? 0 : 1, &profile),
+                  "query ordinary native backing profile");
+    amdf_memory_native_create_info_t create = {};
     create.byte_length = allocation.byte_length;
-    if (domain == AMDF_WKMI_BRIDGE_GPU_ALLOCATION_DOMAIN_LOCAL) {
-      create.placement_device_address = allocation.device_address;
-    } else {
-      allocation.host_pointer =
-          VirtualAlloc(nullptr, static_cast<SIZE_T>(allocation.byte_length),
-                       MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-      Require(allocation.host_pointer != nullptr,
-              "allocate coherent host pages");
-      create.host_pointer = allocation.host_pointer;
-      create.flags = AMDF_WKMI_BRIDGE_GPU_ALLOCATION_FLAG_FINE_GRAIN;
+    create.device_access = access;
+    create.required_flags =
+        AMDF_MEMORY_FLAG_MAPPING_SOURCE |
+        (system ? AMDF_MEMORY_FLAG_HOST_COHERENT : UINT64_C(0));
+    amdf_gpu_umd_memory_result_t result = {};
+    RequireStatus(
+        amdf_gpu_umd_memory_prepare(device_, 0, nullptr, &profile, &create,
+                                    &allocation.memory, &result),
+        "prepare ordinary backing and eager mapping access");
+    allocation.device_address = result.device_address;
+    if (system) {
+      const amdf_memory_map_info_t map = {
+          .type = AMDF_STRUCTURE_TYPE_MEMORY_MAP_INFO,
+          .structure_size = sizeof(map),
+          .byte_length = allocation.byte_length,
+          .flags = AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE,
+      };
+      amdf_gpu_umd_host_mapping_t* view = nullptr;
+      amdf_gpu_umd_host_mapping_result_t mapped = {};
+      RequireStatus(
+          amdf_gpu_umd_memory_map(allocation.memory, &profile.host_mapping,
+                                  &map, &view, &mapped),
+          "obtain native backing host view");
+      allocation.host_pointer = mapped.pointer;
+      amdf_gpu_umd_host_mapping_destroy(view);
     }
-    uint32_t count = 0;
-    RequireStatus(amdf_gpu_wddm_wkmi_adapter_create_allocations(
-                      &device_->wkmi_adapter, &create, 1, &allocation.handle,
-                      &allocation.resource, &count),
-                  "allocate retained native backing");
-    Require(count == 1 && allocation.handle != 0,
-            "complete single native allocation");
-    WaitForPaging(Map(allocation.device_address, allocation.handle,
-                      allocation.byte_length, access));
-    D3DDDI_MAKERESIDENT resident = {};
-    resident.hPagingQueue = device_->paging_queue;
-    resident.NumAllocations = 1;
-    resident.AllocationList = &allocation.handle;
-    resident.Flags.CantTrimFurther = 1;
-    const NTSTATUS status = device_->kmt->make_resident(&resident);
-    if (!amdf_kmt_status_is_success_or_pending(status)) {
-      RequireStatus(amdf_kmt_make_status(status),
-                    "make native backing resident");
-    }
-    WaitForPaging(resident.PagingFenceValue);
-    Require(resident.NumAllocations == 1, "native backing is resident");
     return allocation;
   }
 
-  void ReleaseReservation(uint64_t address, uint64_t byte_length) {
-    D3DKMT_FREEGPUVIRTUALADDRESS release = {};
-    release.hAdapter = device_->adapter;
-    release.BaseAddress = address;
-    release.Size = byte_length;
-    RequireStatus(
-        amdf_kmt_make_status(device_->kmt->free_gpu_virtual_address(&release)),
-        "release GPU reservation");
-  }
-
   void ReleaseAllocation(const NativeAllocation& allocation) {
-    WaitForPaging(Map(allocation.device_address, 0, allocation.byte_length, 0));
-    D3DKMT_DESTROYALLOCATION2 destroy = {};
-    destroy.hDevice = device_->device;
-    destroy.hResource = allocation.resource;
-    if (allocation.resource == 0) {
-      destroy.phAllocationList = &allocation.handle;
-      destroy.AllocationCount = 1;
-    }
-    destroy.Flags.AssumeNotInUse = 1;
-    destroy.Flags.SynchronousDestroy = 1;
-    RequireStatus(
-        amdf_kmt_make_status(device_->kmt->destroy_allocation(&destroy)),
-        "destroy detached backing synchronously");
-    ReleaseReservation(allocation.device_address, allocation.byte_length);
-    if (allocation.host_pointer != nullptr) {
-      Require(VirtualFree(allocation.host_pointer, 0, MEM_RELEASE) != 0,
-              "release retired host pages");
-    }
+    RequireStatus(amdf_gpu_umd_memory_destroy(allocation.memory),
+                  "release detached ordinary backing");
   }
 
   // Native lifetime policy exercised by this test instance.
@@ -472,6 +419,8 @@ class WddmSparseMappingBackend final : public SparseMappingBackend {
   uint64_t progress_ = 0;
   // Byte length of each independent sparse reservation.
   uint64_t reservation_byte_length_ = 0;
+  // Provider-owned address groups, cleared before retained backing is released.
+  std::array<amdf_gpu_umd_memory_reservation_t*, 2> reservations_ = {};
   // Retained slabs whose identities do not change during replacement.
   std::vector<NativeAllocation> backing_;
   // Coherent upload, readback, capture, completion and command storage.

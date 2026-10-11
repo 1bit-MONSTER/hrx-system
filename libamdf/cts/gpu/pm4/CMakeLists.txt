@@ -84,6 +84,7 @@ iree_cc_library(
     "handoff_test.cc"
     "indirect_test.cc"
     "lds_test.cc"
+    "mapping_test.cc"
     "resource_test.cc"
     "timestamp_test.cc"
     "wait_test.cc"
@@ -93,6 +94,8 @@ iree_cc_library(
     ::dispatch_fixture
     amdf::headers
     iree::third_party::google_test
+    libamdf::cts::gpu::kernels::byte_copy_unaligned
+    libamdf::cts::gpu::kernels::byte_copy_unaligned_kernels
     libamdf::cts::gpu::kernels::lds_exchange
     libamdf::cts::gpu::kernels::lds_exchange_kernels
     libamdf::cts::gpu::kernels::transform

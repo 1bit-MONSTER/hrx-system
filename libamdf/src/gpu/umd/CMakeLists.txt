@@ -100,6 +100,19 @@ endif()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    memory_reservation
+  HDRS
+    "memory_reservation.h"
+  DEPS
+    ::memory
+    amdf::headers
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     kernel_queue
   HDRS
     "kernel_queue.h"

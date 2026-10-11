@@ -5,8 +5,9 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #define _GNU_SOURCE
-#include "libamdf/src/gpu/umd/memory.h"
+#include "libamdf/src/gpu/umd/kfd/memory.h"
 
+#include <drm/drm.h>
 #include <emmintrin.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -35,6 +36,15 @@ struct amdf_gpu_umd_memory_t {
   void* host_pointer;
   // Construction properties determining native allocation and host policy.
   amdf_memory_flags_t flags;
+  // Number of unique prepared render-VM source handles in the trailing array.
+  uint32_t source_count;
+  // Eager source handles for the requested native consumer group.
+  struct {
+    // Borrowed exact render connection, shared by aliases of the same VM.
+    int descriptor;
+    // Owned GEM reference released before the original KFD residency owner.
+    uint32_t handle;
+  } sources[];
 };
 
 // Native allocation plan derived from one selected memory profile.
@@ -88,6 +98,15 @@ static void amdf_gpu_kfd_memory_plan(
 }
 
 amdf_status_t amdf_gpu_umd_memory_destroy(amdf_gpu_umd_memory_t* memory) {
+  while (memory->source_count != 0) {
+    const uint32_t i = memory->source_count - 1;
+    struct drm_gem_close release = {.handle = memory->sources[i].handle};
+    if (ioctl(memory->sources[i].descriptor, DRM_IOCTL_GEM_CLOSE, &release) !=
+        0) {
+      return amdf_linux_error(errno);
+    }
+    --memory->source_count;
+  }
   if (memory->buffer != NULL) {
     const amdf_status_t status = amdf_gpu_kfd_buffer_destroy(memory->buffer);
     if (!amdf_status_is_ok(status)) {
@@ -97,6 +116,17 @@ amdf_status_t amdf_gpu_umd_memory_destroy(amdf_gpu_umd_memory_t* memory) {
   }
   amdf_free(memory->device->host_allocator, memory);
   return AMDF_STATUS_OK;
+}
+
+uint32_t amdf_gpu_kfd_memory_mapping_handle(amdf_gpu_umd_memory_t* memory,
+                                            amdf_gpu_umd_device_t* device) {
+  for (uint32_t i = 0; i < memory->source_count; ++i) {
+    if (memory->sources[i].descriptor == device->render_descriptor) {
+      return memory->sources[i].handle;
+    }
+  }
+  amdf_assert(false && "MAPPING_SOURCE construction prepares every consumer");
+  return 0;
 }
 
 void amdf_gpu_umd_memory_abandon(amdf_gpu_umd_memory_t* memory) {
@@ -249,9 +279,18 @@ amdf_status_t amdf_gpu_umd_memory_prepare(
   amdf_gpu_kfd_memory_plan_t plan = {0};
   amdf_gpu_kfd_memory_plan(device, profile, create_info, &plan);
   amdf_gpu_umd_memory_t* memory = NULL;
-  amdf_status_t status =
-      amdf_calloc(device->host_allocator, sizeof(*memory),
-                  amdf_alignof(amdf_gpu_umd_memory_t), (void**)&memory);
+  const size_t source_capacity =
+      (plan.flags & AMDF_MEMORY_FLAG_MAPPING_SOURCE) != 0
+          ? (size_t)peer_count + 1
+          : 0;
+  if (source_capacity >
+      (SIZE_MAX - sizeof(*memory)) / sizeof(memory->sources[0])) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE);
+  }
+  amdf_status_t status = amdf_calloc(
+      device->host_allocator,
+      sizeof(*memory) + source_capacity * sizeof(memory->sources[0]),
+      amdf_alignof(amdf_gpu_umd_memory_t), (void**)&memory);
   if (!amdf_status_is_ok(status)) {
     return status;
   }
@@ -287,6 +326,26 @@ amdf_status_t amdf_gpu_umd_memory_prepare(
     status = amdf_gpu_kfd_memory_query_dma_buf(memory, &info);
     if (amdf_status_is_ok(status)) {
       memory->physical_backing_id = info.physical_backing_id;
+    }
+  }
+  for (size_t i = 0; amdf_status_is_ok(status) && i < source_capacity; ++i) {
+    const int descriptor =
+        (i == 0 ? device : peer_devices[i - 1])->render_descriptor;
+    uint32_t j = 0;
+    while (j < memory->source_count &&
+           memory->sources[j].descriptor != descriptor) {
+      ++j;
+    }
+    if (j != memory->source_count) {
+      continue;
+    }
+    uint32_t handle = 0;
+    status =
+        amdf_gpu_kfd_buffer_export_gem(memory->buffer, descriptor, &handle);
+    if (amdf_status_is_ok(status)) {
+      memory->sources[j].descriptor = descriptor;
+      memory->sources[j].handle = handle;
+      ++memory->source_count;
     }
   }
   if (amdf_status_is_ok(status)) {

@@ -1,0 +1,131 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+#ifndef AMDF_MEMORY_RESERVATION_H_
+#define AMDF_MEMORY_RESERVATION_H_
+
+#include "amdf/memory.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/// Stable device addresses with independently replaceable physical backing.
+/// The reservation borrows its live devices and owns no application backing.
+typedef struct amdf_memory_reservation_t amdf_memory_reservation_t;
+
+/// Live-domain limits for host-completed virtual-memory updates.
+typedef struct amdf_memory_reservation_capabilities_t {
+  /// Must be AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES.
+  amdf_structure_type_t type;
+  /// Must be at least sizeof(amdf_memory_reservation_capabilities_t).
+  uint32_t structure_size;
+  /// Optional output extension chain. No extensions are defined.
+  void* next;
+  /// Exact permissions accepted by mapping updates in this domain.
+  amdf_memory_access_t supported_access;
+  /// Permissions that every nonempty mapping must include on this domain.
+  amdf_memory_access_t required_access;
+  /// Consumer-local address domain described by these limits.
+  uint32_t address_domain_ordinal;
+  /// Reserved for compatible growth; zero.
+  uint32_t reserved;
+  /// Largest reservation length in bytes.
+  uint64_t maximum_byte_length;
+  /// Required reservation length and minimum base alignment in bytes.
+  uint64_t reservation_granularity;
+  /// Strongest power-of-two minimum base alignment accepted by creation.
+  uint64_t maximum_alignment;
+  /// Required destination offset, native source offset and length alignment.
+  uint64_t mapping_granularity;
+  /// Inclusive lower bound of a complete reservation's address interval.
+  uint64_t minimum_address;
+  /// Inclusive upper bound of a complete reservation's address interval.
+  uint64_t maximum_address;
+} amdf_memory_reservation_capabilities_t;
+
+/// One explicitly initialized consumer of a reservation.
+typedef struct amdf_memory_reservation_access_t {
+  /// Borrowed live device, kept alive through reservation destruction.
+  amdf_device_t* device;
+  /// Consumer-local address domain selected from live capabilities.
+  uint32_t address_domain_ordinal;
+  /// Maximum permissions that updates may establish for this consumer.
+  amdf_memory_access_t access;
+} amdf_memory_reservation_access_t;
+
+/// Parameters for reserving addresses without allocating application backing.
+typedef struct amdf_memory_reservation_create_info_t {
+  /// Must be AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CREATE_INFO.
+  amdf_structure_type_t type;
+  /// Must be at least sizeof(amdf_memory_reservation_create_info_t).
+  uint32_t structure_size;
+  /// Optional input extension chain. No extensions are defined.
+  const void* next;
+  /// Nonzero length shared by all requested consumers.
+  uint64_t byte_length;
+  /// Minimum power-of-two base alignment, or zero for provider policy.
+  uint64_t minimum_alignment;
+  /// Nonzero number of caller-ordered, unique live consumers.
+  uint32_t access_count;
+  /// Reserved for compatible growth; must be zero.
+  uint32_t reserved;
+  /// Consumers belonging to the instance, borrowed only for this call.
+  const amdf_memory_reservation_access_t* accesses;
+} amdf_memory_reservation_create_info_t;
+
+/// Immutable facts of one reservation's consumer projection.
+typedef struct amdf_memory_reservation_access_info_t {
+  /// Must be AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO.
+  amdf_structure_type_t type;
+  /// Must be at least sizeof(amdf_memory_reservation_access_info_t).
+  uint32_t structure_size;
+  /// Optional output extension chain. No extensions are defined.
+  void* next;
+  /// Exact live consumer, not an allocation owner.
+  amdf_device_id_t device_id;
+  /// Resource-local ordinal identifying this projection.
+  uint32_t ordinal;
+  /// First ordinal sharing this native mapping state. Updates through any of
+  /// these aliases affect all of them; they are not independent address spaces.
+  uint32_t mapping_access_ordinal;
+  /// Consumer-local address domain of the stable address.
+  uint32_t address_domain_ordinal;
+  /// Maximum permissions admitted by this reservation projection.
+  amdf_memory_access_t access;
+  /// Stable device base, queryable even when none of the range is backed.
+  uint64_t address;
+  /// Complete reserved length in bytes.
+  uint64_t byte_length;
+  /// Required native mapping offset and length alignment in bytes.
+  uint64_t mapping_granularity;
+  /// Device reset epoch in which this address remains valid.
+  uint64_t reset_epoch;
+} amdf_memory_reservation_access_info_t;
+
+/// One replacement or detach within a stable reservation.
+/// Destination ranges in a batch must not overlap. Source ranges may repeat.
+typedef struct amdf_memory_mapping_update_t {
+  /// Byte offset in the destination reservation.
+  uint64_t target_byte_offset;
+  /// Nonzero length wholly contained by the destination and any source.
+  uint64_t byte_length;
+  /// Ordinary prepared backing, or NULL to detach the destination range.
+  /// The caller keeps backing alive through its last installed alias and user.
+  amdf_memory_t* memory;
+  /// Source access prepared for this exact live consumer, or zero for detach.
+  uint32_t memory_access_ordinal;
+  /// Exact installed permissions, or zero for detach.
+  amdf_memory_access_t access;
+  /// Offset from the source's logical byte zero, or zero for detach.
+  uint64_t source_byte_offset;
+} amdf_memory_mapping_update_t;
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif
+
+#endif  // AMDF_MEMORY_RESERVATION_H_

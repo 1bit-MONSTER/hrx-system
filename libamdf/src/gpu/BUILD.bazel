@@ -25,10 +25,12 @@ amdf_cc_library(
     srcs = [
         "device.c",
         "memory.c",
+        "memory_reservation.c",
     ],
     hdrs = [
         "device.h",
         "memory.h",
+        "memory_reservation.h",
     ],
     deps = [
         "//libamdf/src:allocator",
@@ -38,10 +40,13 @@ amdf_cc_library(
         "//libamdf/src:instance",
         "//libamdf/src:memory",
         "//libamdf/src:memory_profile",
+        "//libamdf/src:memory_reservation",
+        "//libamdf/src:memory_resource",
         "//libamdf/src:structure",
         "//libamdf/src/gpu/umd:device",
         "//libamdf/src/gpu/umd:instance",
         "//libamdf/src/gpu/umd:memory",
+        "//libamdf/src/gpu/umd:memory_reservation",
         "//libamdf/src/platform",
     ],
 )

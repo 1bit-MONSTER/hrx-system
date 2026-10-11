@@ -78,6 +78,13 @@ amdf_cc_test(
 )
 
 amdf_cc_library(
+    name = "memory_reservation",
+    hdrs = ["memory_reservation.h"],
+    visibility = ["//libamdf/src/gpu:__subpackages__"],
+    deps = [":memory"],
+)
+
+amdf_cc_library(
     name = "kernel_queue",
     hdrs = ["kernel_queue.h"],
     visibility = ["//libamdf/src/gpu:__subpackages__"],
