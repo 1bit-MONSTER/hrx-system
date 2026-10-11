@@ -518,7 +518,7 @@ TEST_F(SlabProviderTest, FailedBindingReleasesMappingAndBacking) {
   EXPECT_EQ(native_.destroy_count, 1);
 }
 
-TEST_F(SlabProviderTest, RegisteredStorageExportsExactBorrowedSubranges) {
+TEST_F(SlabProviderTest, RegisteredStorageUsesOnlyAuthorizedEnvelope) {
   const iree_hal_external_storage_class_t storage_class = {
       IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER, {0, 0}};
   iree_hal_pool_import_class_t policy = {storage_class, {1, &storage_class}};
@@ -531,16 +531,23 @@ TEST_F(SlabProviderTest, RegisteredStorageExportsExactBorrowedSubranges) {
   storage.payload.host_pointer = bytes;
   storage.byte_length = sizeof(bytes);
   storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  storage.maintenance_range = iree_hal_make_buffer_range(64, 128);
   iree_hal_imported_slab_t imported = {};
   IREE_ASSERT_OK(
       iree_hal_slab_provider_import_slab(provider_, &storage, &imported));
   EXPECT_EQ(storage.payload.host_pointer, bytes);
-  EXPECT_EQ(imported.slab.base_ptr, bytes);
-  EXPECT_EQ(imported.slab.length, sizeof(bytes));
+  EXPECT_EQ(storage.byte_length, sizeof(bytes));
+  EXPECT_EQ(imported.storage_offset, 64u);
+  EXPECT_EQ(imported.slab.base_ptr, bytes + 64);
+  EXPECT_EQ(imported.slab.length, 128u);
+  EXPECT_EQ(imported.slab.maintenance_range.byte_offset, 0u);
+  EXPECT_EQ(imported.slab.maintenance_range.byte_length, 128u);
+  ASSERT_EQ(native_.created_lengths.size(), 1u);
+  EXPECT_EQ(native_.created_lengths[0], 128u);
   EXPECT_GE(imported.properties.allocation_alignment, 64u);
   iree_hal_buffer_t* buffer = nullptr;
   IREE_ASSERT_OK(iree_hal_slab_provider_wrap_buffer(
-      provider_, &imported.slab, 64, 128, IREE_HAL_MEMORY_ACCESS_ALL,
+      provider_, &imported.slab, 0, 128, IREE_HAL_MEMORY_ACCESS_ALL,
       IREE_HAL_BUFFER_USAGE_STORAGE, iree_hal_buffer_release_callback_null(),
       &buffer));
   iree_hal_buffer_t* subspan = nullptr;
@@ -551,11 +558,11 @@ TEST_F(SlabProviderTest, RegisteredStorageExportsExactBorrowedSubranges) {
   IREE_ASSERT_OK(
       iree_hal_buffer_export(subspan, iree_hal_make_buffer_range(8, 16),
                              storage_class, &exported, &logical_range));
-  EXPECT_EQ(exported.payload.host_pointer, bytes);
-  EXPECT_EQ(exported.byte_length, sizeof(bytes));
+  EXPECT_EQ(exported.payload.host_pointer, bytes + 64);
+  EXPECT_EQ(exported.byte_length, 128u);
   EXPECT_EQ(exported.host_cacheability, IREE_HAL_HOST_CACHEABILITY_WRITE_BACK);
   EXPECT_EQ(exported.release, nullptr);
-  EXPECT_EQ(logical_range.byte_offset, 88u);
+  EXPECT_EQ(logical_range.byte_offset, 24u);
   EXPECT_EQ(logical_range.byte_length, 16u);
   iree_hal_external_storage_release(&exported);
   EXPECT_EQ(native_.destroy_count, 0);
@@ -588,6 +595,14 @@ TEST_F(SlabProviderTest, FailedRegistrationPublicationPreservesCallerStorage) {
   };
   storage.release_user_data = &release_count;
   iree_hal_imported_slab_t imported = {};
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      iree_hal_slab_provider_import_slab(provider_, &storage, &imported));
+  EXPECT_EQ(native_.create_count, 0);
+  EXPECT_EQ(imported.slab.provider_handle, 0u);
+  EXPECT_EQ(release_count, 0);
+  storage.maintenance_range =
+      iree_hal_make_buffer_range(0, IREE_HAL_WHOLE_BUFFER);
   for (const auto cacheability : {IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
                                   IREE_HAL_HOST_CACHEABILITY_WRITE_COMBINED,
                                   IREE_HAL_HOST_CACHEABILITY_UNCACHED}) {

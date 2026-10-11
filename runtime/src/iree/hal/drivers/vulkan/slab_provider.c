@@ -265,6 +265,14 @@ static iree_status_t iree_hal_vulkan_slab_provider_import_slab(
   iree_hal_vulkan_slab_provider_t* provider =
       iree_hal_vulkan_slab_provider_cast(base_provider);
   IREE_TRACE_ZONE_BEGIN(z0);
+  iree_hal_external_storage_t registration;
+  iree_device_size_t storage_offset = 0;
+  if (storage->storage_class.type ==
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER) {
+    storage_offset = storage->maintenance_range.byte_offset;
+    registration = iree_hal_slab_provider_registration_view(storage);
+    storage = &registration;
+  }
 
   const iree_hal_vulkan_buffer_spec_t buffer_spec = {
       .type = provider->properties.memory_type,
@@ -287,6 +295,7 @@ static iree_status_t iree_hal_vulkan_slab_provider_import_slab(
     out_import->slab.base_ptr = (uint8_t*)(uintptr_t)device_address;
     out_import->slab.length = storage->byte_length;
     out_import->slab.provider_handle = (uint64_t)(uintptr_t)buffer;
+    out_import->storage_offset = storage_offset;
     iree_hal_vulkan_slab_provider_populate_properties(
         provider, iree_hal_buffer_memory_type(buffer), &out_import->properties);
     out_import->properties.supported_usage =

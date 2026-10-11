@@ -406,6 +406,140 @@ TEST_F(XdnaNativeTest, ConsumerBeforeProducerCapturesArguments) {
   CheckOutput(output, expected_lhs, expected_rhs);
 }
 
+enum class FirstWriterStorage {
+  kOwned,
+  kRegisteredUntouched,
+  kRegisteredPrewritten,
+};
+
+class XdnaFirstWriterTest
+    : public XdnaNativeTest,
+      public ::testing::WithParamInterface<FirstWriterStorage> {
+ protected:
+  void TearDown() override {
+    XdnaNativeTest::TearDown();
+    iree_allocator_free_aligned(iree_allocator_system(), registered_storage_);
+  }
+
+  // Caller-owned storage kept live until every native attachment is retired.
+  void* registered_storage_ = nullptr;
+};
+
+TEST_P(XdnaFirstWriterTest, NativeConstructionPreparesFirstDeviceWrite) {
+  ASSERT_NO_FATAL_FAILURE(LoadMultiply());
+  const iree_hal_pool_import_class_t import_class = {
+      .storage_class = {IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER, {0, 0}},
+  };
+  iree_hal_slab_pool_options_t options;
+  iree_hal_slab_pool_options_initialize(&options);
+  options.imports = {1, &import_class};
+  IREE_ASSERT_OK(CreateMemoryPool(
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      IREE_HAL_MEMORY_ACCESS_ALL, &options));
+  std::array<iree_hal_buffer_t*, 3> buffers = {};
+  const size_t owned_count = GetParam() == FirstWriterStorage::kOwned ? 3 : 2;
+  for (size_t i = 0; i < owned_count; ++i) {
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        memory_pool_, iree_hal_make_pool_reservation_request(kBytes, 64),
+        iree_infinite_timeout(), &buffers[i]));
+    buffers_.push_back(buffers[i]);
+  }
+
+  iree_host_size_t guard_length = 0;
+  iree_host_size_t registration_length = 0;
+  if (GetParam() != FirstWriterStorage::kOwned) {
+    iree_hal_pool_import_requirements_t requirements;
+    ASSERT_TRUE(iree_hal_pool_query_import_requirements(
+        memory_pool_, import_class.storage_class, &requirements));
+    guard_length = iree_max(64, requirements.base_alignment);
+    registration_length = (kBytes + requirements.byte_length_granularity - 1) /
+                          requirements.byte_length_granularity *
+                          requirements.byte_length_granularity;
+    const iree_host_size_t allocation_length =
+        guard_length + registration_length + guard_length;
+    IREE_ASSERT_OK(iree_allocator_malloc_aligned(
+        iree_allocator_system(), allocation_length, guard_length, 0,
+        &registered_storage_));
+    auto* bytes = static_cast<uint8_t*>(registered_storage_);
+    memset(bytes, 0xA5, guard_length);
+    memset(bytes + guard_length + registration_length, 0xA5, guard_length);
+    if (GetParam() == FirstWriterStorage::kRegisteredPrewritten) {
+      memset(bytes + guard_length, 0xCC, registration_length);
+    }
+    iree_hal_external_storage_t storage = {
+        .storage_class = import_class.storage_class,
+        .payload = {.host_pointer = registered_storage_},
+        .byte_length = allocation_length,
+        .host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+        .maintenance_range = {guard_length, registration_length},
+    };
+    IREE_ASSERT_OK(iree_hal_pool_import_buffer(
+        memory_pool_, &storage,
+        iree_hal_make_buffer_range(guard_length, kBytes), &buffers[2]));
+    buffers_.push_back(buffers[2]);
+  }
+
+  std::array<uint32_t, 16> lhs, rhs;
+  for (size_t i = 0; i < lhs.size(); ++i) {
+    lhs[i] = static_cast<uint32_t>(i) - 7;
+    rhs[i] = 0x12345678u + static_cast<uint32_t>(i);
+  }
+  iree_hal_semaphore_t* progress = nullptr;
+  ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&progress));
+  uint64_t uploaded = 1, dispatched = 2, downloaded = 3;
+  iree_hal_transfer_operation_t uploads[2] = {};
+  for (size_t i = 0; i < IREE_ARRAYSIZE(uploads); ++i) {
+    uploads[i].type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPDATE;
+    uploads[i].update.source_buffer = i == 0 ? lhs.data() : rhs.data();
+    uploads[i].update.target_buffer = buffers[i];
+    uploads[i].update.length = kBytes;
+  }
+  IREE_ASSERT_OK(iree_hal_queue_transfer(queue_, {}, {1, &progress, &uploaded},
+                                         IREE_ARRAYSIZE(uploads), uploads,
+                                         /*barriers=*/nullptr));
+  std::array<iree_hal_buffer_ref_t, 3> bindings;
+  for (size_t i = 0; i < bindings.size(); ++i) {
+    bindings[i] = iree_hal_make_buffer_ref(buffers[i], 0, kBytes);
+  }
+  // Only input uploads publish host writes. After native construction, the
+  // caller never clears, reads, flushes, or acquires the output before
+  // dispatch. Explicit empty boundaries keep dispatch defaults from hiding
+  // missing cold preparation.
+  const iree_hal_barrier_list_t empty = {};
+  const iree_hal_queue_barriers_t barriers = {
+      .before = &empty,
+      .after = &empty,
+  };
+  IREE_ASSERT_OK(iree_hal_queue_dispatch(
+      queue_, {1, &progress, &uploaded}, {1, &progress, &dispatched},
+      executable_, function_, iree_hal_make_static_dispatch_config(1, 1, 1), {},
+      {bindings.size(), bindings.data()}, &barriers,
+      IREE_HAL_DISPATCH_FLAG_NONE));
+  std::array<uint32_t, 16> output;
+  IREE_ASSERT_OK(iree_hal_queue_download(
+      queue_, {1, &progress, &dispatched}, {1, &progress, &downloaded},
+      buffers[2], 0, output.data(), kBytes, /*barriers=*/nullptr));
+  IREE_ASSERT_OK(iree_hal_semaphore_wait(progress, downloaded,
+                                         iree_infinite_timeout(),
+                                         IREE_ASYNC_WAIT_FLAG_NONE));
+  for (size_t i = 0; i < output.size(); ++i) {
+    EXPECT_EQ(output[i], lhs[i] * rhs[i]) << i;
+  }
+  if (registered_storage_) {
+    const auto* bytes = static_cast<const uint8_t*>(registered_storage_);
+    for (size_t i = 0; i < guard_length; ++i) {
+      EXPECT_EQ(bytes[i], 0xA5) << i;
+      EXPECT_EQ(bytes[guard_length + registration_length + i], 0xA5) << i;
+    }
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    Storage, XdnaFirstWriterTest,
+    ::testing::Values(FirstWriterStorage::kOwned,
+                      FirstWriterStorage::kRegisteredUntouched,
+                      FirstWriterStorage::kRegisteredPrewritten));
+
 class XdnaNativeSlabTest
     : public XdnaNativeTest,
       public ::testing::WithParamInterface<iree_hal_external_storage_type_t> {};

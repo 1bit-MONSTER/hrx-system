@@ -644,13 +644,12 @@ static void iree_hal_passthrough_pool_import_rollback_on_owner(
 
 static void iree_hal_passthrough_pool_imported_buffer_release(
     void* user_data, iree_hal_buffer_t* buffer) {
-  (void)buffer;
   iree_hal_passthrough_pool_allocation_state_t* allocation = user_data;
   iree_hal_passthrough_pool_t* pool =
       (iree_hal_passthrough_pool_t*)allocation->pool;
   iree_hal_memory_trace_free(&pool->trace,
                              iree_hal_passthrough_pool_trace_address(
-                                 &allocation->slab, buffer->byte_offset));
+                                 &allocation->slab, buffer->memory.offset));
   iree_slim_mutex_lock(&pool->retirement_mutex);
   IREE_ASSERT_EQ(allocation->retirement_state,
                  IREE_HAL_PASSTHROUGH_POOL_RETIREMENT_LIVE);
@@ -662,14 +661,19 @@ static void iree_hal_passthrough_pool_imported_buffer_release(
 
 static iree_status_t iree_hal_passthrough_pool_validate_imported_slab(
     const iree_hal_passthrough_pool_t* pool,
-    const iree_hal_external_storage_t* storage,
+    iree_hal_buffer_range_t logical_range,
     const iree_hal_imported_slab_t* imported_slab) {
   const iree_hal_slab_provider_properties_t* properties =
       &imported_slab->properties;
-  if (imported_slab->slab.length != storage->byte_length) {
+  if (logical_range.byte_offset < imported_slab->storage_offset ||
+      logical_range.byte_offset - imported_slab->storage_offset >
+          imported_slab->slab.length ||
+      logical_range.byte_length >
+          imported_slab->slab.length -
+              (logical_range.byte_offset - imported_slab->storage_offset)) {
     return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "native import changed the external storage extent");
+        IREE_STATUS_OUT_OF_RANGE,
+        "logical import range is outside the native attachment envelope");
   }
   if (!iree_device_size_is_power_of_two(properties->allocation_alignment) ||
       !iree_device_size_is_power_of_two(properties->maintenance_alignment)) {
@@ -729,11 +733,13 @@ static iree_status_t iree_hal_passthrough_pool_import_buffer(
   const bool native_attached = iree_status_is_ok(status);
   if (iree_status_is_ok(status)) {
     status = iree_hal_passthrough_pool_validate_imported_slab(
-        pool, inout_storage, &call.imported_slab);
+        pool, logical_range, &call.imported_slab);
   }
 
   iree_hal_buffer_t* buffer = NULL;
+  iree_device_size_t slab_offset = 0;
   if (iree_status_is_ok(status)) {
+    slab_offset = logical_range.byte_offset - call.imported_slab.storage_offset;
     allocation->slab = call.imported_slab.slab;
     iree_hal_slab_buffer_backing_initialize(
         pool->slab_provider, &allocation->slab, &call.imported_slab.properties,
@@ -753,7 +759,7 @@ static iree_status_t iree_hal_passthrough_pool_import_buffer(
             ? base_pool->memory_contract->allowed_usage
             : call.imported_slab.properties.supported_usage;
     status = iree_hal_slab_provider_wrap_buffer(
-        pool->slab_provider, &allocation->slab, logical_range.byte_offset,
+        pool->slab_provider, &allocation->slab, slab_offset,
         logical_range.byte_length, allowed_access, allowed_usage,
         release_callback, &buffer);
   }
@@ -761,7 +767,7 @@ static iree_status_t iree_hal_passthrough_pool_import_buffer(
   if (iree_status_is_ok(status)) {
     buffer->memory.contract = base_pool->memory_contract;
     buffer->memory.backing = &allocation->buffer_backing.facts;
-    buffer->memory.offset = logical_range.byte_offset;
+    buffer->memory.offset = slab_offset;
     allocation->external_storage = *inout_storage;
     memset(inout_storage, 0, sizeof(*inout_storage));
     iree_atomic_fetch_add(&pool->allocation_count, 1,
@@ -775,8 +781,7 @@ static iree_status_t iree_hal_passthrough_pool_import_buffer(
     iree_slim_mutex_unlock(&pool->retirement_mutex);
     iree_hal_memory_trace_alloc(
         &pool->trace,
-        iree_hal_passthrough_pool_trace_address(&allocation->slab,
-                                                logical_range.byte_offset),
+        iree_hal_passthrough_pool_trace_address(&allocation->slab, slab_offset),
         logical_range.byte_length);
     *out_buffer = buffer;
   } else {

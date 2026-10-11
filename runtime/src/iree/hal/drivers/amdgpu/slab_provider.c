@@ -722,6 +722,14 @@ static iree_status_t iree_hal_amdgpu_slab_provider_import_slab(
   iree_hal_amdgpu_slab_provider_t* provider =
       iree_hal_amdgpu_slab_provider_cast(base_provider);
   IREE_TRACE_ZONE_BEGIN(z0);
+  iree_hal_external_storage_t registration;
+  iree_device_size_t storage_offset = 0;
+  if (storage->storage_class.type ==
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER) {
+    storage_offset = storage->maintenance_range.byte_offset;
+    registration = iree_hal_slab_provider_registration_view(storage);
+    storage = &registration;
+  }
 
   if (!provider->import_allocator) {
     IREE_RETURN_AND_END_ZONE_IF_ERROR(
@@ -767,6 +775,7 @@ static iree_status_t iree_hal_amdgpu_slab_provider_import_slab(
       out_import->slab.base_ptr = (uint8_t*)(uintptr_t)device_address;
       out_import->slab.length = storage->byte_length;
       out_import->slab.provider_handle = (uint64_t)(uintptr_t)slab_handle;
+      out_import->storage_offset = storage_offset;
       out_import->properties = (iree_hal_slab_provider_properties_t){
           .memory_type = iree_hal_buffer_memory_type(imported_buffer),
           .supported_usage = iree_hal_buffer_allowed_usage(imported_buffer),

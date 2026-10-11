@@ -128,6 +128,8 @@ class HostQueueHostMemoryTest : public ::testing::Test {
         .storage_class = iree_hal_make_external_storage_class(
             IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
         .byte_length = data->size(),
+        .host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+        .maintenance_range = iree_hal_make_buffer_range(0, data->size()),
     };
     external_buffer.payload.host_pointer = data->data();
     return iree_hal_pool_import_buffer(
@@ -196,11 +198,12 @@ TEST_F(HostQueueHostMemoryTest, ImportedHostCopyPublishesWritesAndOffsets) {
   constexpr iree_device_size_t kTransferLength = 257;
   constexpr size_t kHostAllocationSize = 512;
 
+  // Caller storage remains live through native attachment retirement.
+  std::vector<uint8_t> source_data(kHostAllocationSize, 0x11);
+  std::vector<uint8_t> target_data(kHostAllocationSize, 0xC7);
   TestLogicalDevice test_device;
   IREE_ASSERT_OK(test_device.Initialize(&libhsa_, &topology_, host_allocator_));
 
-  std::vector<uint8_t> source_data(kHostAllocationSize, 0x11);
-  std::vector<uint8_t> target_data(kHostAllocationSize, 0xC7);
   Ref<iree_hal_buffer_t> source_host_buffer;
   IREE_ASSERT_OK(ImportHostAllocationBuffer(
       test_device.host_import_pool(), &source_data, source_host_buffer.out()));

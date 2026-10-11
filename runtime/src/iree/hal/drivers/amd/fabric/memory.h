@@ -95,6 +95,10 @@ iree_status_t iree_hal_amd_fabric_memory_allocate(
     iree_hal_amd_fabric_memory_t* out_memory);
 
 // Registers caller-owned host storage using a qualified REGISTER profile.
+// The provider supplies a borrowed registration view of the source's
+// maintenance envelope, with logical byte zero at the registered pointer.
+// The caller excludes all cache lines intersecting that envelope during the
+// call, including aliases, while native construction prepares cache readiness.
 // The source is borrowed throughout, including rollback after attachment.
 // Success owns only the native attachment and optional persistent mapping.
 iree_status_t iree_hal_amd_fabric_memory_register(

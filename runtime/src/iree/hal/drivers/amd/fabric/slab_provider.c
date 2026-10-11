@@ -314,6 +314,14 @@ static iree_status_t iree_hal_amd_fabric_slab_provider_import_slab(
     return iree_make_status(IREE_STATUS_UNAVAILABLE,
                             "external storage class was not admitted");
   }
+  iree_hal_external_storage_t registration;
+  iree_device_size_t storage_offset = 0;
+  if (storage->storage_class.type ==
+      IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER) {
+    storage_offset = storage->maintenance_range.byte_offset;
+    registration = iree_hal_slab_provider_registration_view(storage);
+    storage = &registration;
+  }
   iree_hal_amd_fabric_slab_handle_t* handle = NULL;
   IREE_RETURN_IF_ERROR(
       iree_hal_amd_fabric_slab_handle_create(provider, &handle));
@@ -333,8 +341,9 @@ static iree_status_t iree_hal_amd_fabric_slab_provider_import_slab(
     status = iree_hal_amd_fabric_slab_handle_bind(provider, handle);
   }
   if (iree_status_is_ok(status)) {
-    iree_hal_amd_fabric_slab_initialize(handle, storage->byte_length,
+    iree_hal_amd_fabric_slab_initialize(handle, handle->memory.info.byte_length,
                                         &out_import->slab);
+    out_import->storage_offset = storage_offset;
     // Registration can establish a page cover without deriving a physical
     // identity. Preserve an identity already qualified by the storage source.
     if (!out_import->slab.physical_backing_id.words[0] &&

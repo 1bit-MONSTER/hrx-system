@@ -251,6 +251,11 @@ iree_status_t iree_hal_amd_fabric_memory_register(
     iree_hal_device_event_sink_t event_sink,
     iree_hal_amd_fabric_memory_t* out_memory) {
   *out_memory = (iree_hal_amd_fabric_memory_t){0};
+  if (!storage->payload.host_pointer || !storage->byte_length) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "host registration requires a nonempty "
+                            "source-owned maintenance envelope");
+  }
   if (storage->byte_length >
           options->profile.registration.maximum_byte_length ||
       storage->byte_length %

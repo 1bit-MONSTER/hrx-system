@@ -33,6 +33,27 @@ iree_status_t iree_hal_slab_provider_acquire_slab(
                                         out_slab);
 }
 
+iree_hal_external_storage_t iree_hal_slab_provider_registration_view(
+    const iree_hal_external_storage_t* storage) {
+  const iree_device_size_t byte_offset = storage->maintenance_range.byte_offset;
+  const iree_device_size_t byte_length =
+      storage->maintenance_range.byte_length == IREE_HAL_WHOLE_BUFFER
+          ? storage->byte_length - byte_offset
+          : storage->maintenance_range.byte_length;
+  return (iree_hal_external_storage_t){
+      .storage_class = storage->storage_class,
+      .payload = {.host_pointer =
+                      storage->payload.host_pointer
+                          ? (uint8_t*)storage->payload.host_pointer +
+                                byte_offset
+                          : NULL},
+      .byte_length = byte_length,
+      .host_cacheability = storage->host_cacheability,
+      .maintenance_range = {0, byte_length},
+      .physical_backing_id = storage->physical_backing_id,
+  };
+}
+
 iree_status_t iree_hal_slab_provider_import_slab(
     iree_hal_slab_provider_t* provider,
     const iree_hal_external_storage_t* storage,

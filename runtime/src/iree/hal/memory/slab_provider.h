@@ -148,6 +148,8 @@ typedef struct iree_hal_slab_t {
 typedef struct iree_hal_imported_slab_t {
   // Provider-owned attachment released with release_slab.
   iree_hal_slab_t slab;
+  // Offset of slab byte zero within the caller's external storage extent.
+  iree_device_size_t storage_offset;
   // Exact immutable properties of this attachment.
   iree_hal_slab_provider_properties_t properties;
 } iree_hal_imported_slab_t;
@@ -197,10 +199,20 @@ iree_status_t iree_hal_slab_provider_acquire_slab(
     iree_hal_slab_provider_t* provider, iree_device_size_t min_length,
     iree_device_size_t min_alignment, iree_hal_slab_t* out_slab);
 
+// Returns a borrowed HOST_POINTER view of the source's maintenance envelope.
+// Pool import has validated its bounds. Native registration providers use this
+// view to limit cold cache preparation to lines intersecting the authorized
+// extent. Native page coverage may extend beyond it. The original external
+// transport retains its ownership and release payload.
+iree_hal_external_storage_t iree_hal_slab_provider_registration_view(
+    const iree_hal_external_storage_t* storage);
+
 // Attaches the provider to a caller-selected external storage extent. The
 // provider borrows |storage| for this call and acquires any native references
 // required by the returned slab. It never consumes or releases the external
-// transport owner. On failure |out_import| remains zeroed.
+// transport owner. A provider may attach only the source-authorized
+// registration envelope; out_import->storage_offset locates that slab within
+// |storage|. On failure |out_import| remains zeroed.
 iree_status_t iree_hal_slab_provider_import_slab(
     iree_hal_slab_provider_t* provider,
     const iree_hal_external_storage_t* storage,
@@ -391,7 +403,7 @@ struct iree_hal_slab_provider_vtable_t {
   void (*query_properties)(const iree_hal_slab_provider_t* provider,
                            iree_hal_slab_provider_properties_t* out_properties);
 
-  // Attaches to one exact external storage extent without consuming its
+  // Attaches to external storage without consuming its
   // transport owner. NULL when this provider cannot import external storage.
   iree_status_t (*import_slab)(iree_hal_slab_provider_t* provider,
                                const iree_hal_external_storage_t* storage,

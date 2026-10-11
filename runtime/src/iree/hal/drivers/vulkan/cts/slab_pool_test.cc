@@ -453,27 +453,30 @@ TEST_P(VulkanSlabPoolTest, ImportsHostStorageThroughSelectedNativeRoute) {
       requirements.byte_length_granularity);
   const iree_device_size_t allocation_alignment =
       std::max<iree_device_size_t>(requirements.base_alignment, 4096);
-  ASSERT_LE(allocation_size, IREE_HOST_SIZE_MAX);
-  ASSERT_LE(allocation_alignment, IREE_HOST_SIZE_MAX);
+  const iree_device_size_t storage_length =
+      allocation_alignment + allocation_size;
+  ASSERT_LE(storage_length, IREE_HOST_SIZE_MAX);
   ImportedHostAllocation allocation;
   IREE_ASSERT_OK(iree_allocator_malloc_aligned(
-      iree_allocator_system(), static_cast<iree_host_size_t>(allocation_size),
+      iree_allocator_system(), static_cast<iree_host_size_t>(storage_length),
       static_cast<iree_host_size_t>(allocation_alignment), /*offset=*/0,
       &allocation.pointer));
-  std::memset(allocation.pointer, 0, static_cast<size_t>(allocation_size));
+  std::memset(allocation.pointer, 0, static_cast<size_t>(storage_length));
 
   iree_hal_external_storage_t storage = {
       .storage_class = import_class.storage_class,
-      .byte_length = allocation_size,
+      .byte_length = storage_length,
   };
   storage.payload.host_pointer = allocation.pointer;
   storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
-  storage.maintenance_range = iree_hal_make_buffer_range(0, allocation_size);
+  storage.maintenance_range =
+      iree_hal_make_buffer_range(allocation_alignment, allocation_size);
   storage.release = ReleaseImportedHostAllocation;
   storage.release_user_data = &allocation;
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_import_buffer(
-      source, &storage, iree_hal_make_buffer_range(0, allocation_size),
+      source, &storage,
+      iree_hal_make_buffer_range(allocation_alignment, allocation_size),
       buffer.out()));
   EXPECT_EQ(storage.storage_class.type, IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE);
 
@@ -493,6 +496,8 @@ TEST_P(VulkanSlabPoolTest, ImportsHostStorageThroughSelectedNativeRoute) {
   uint32_t result = 0;
   std::memcpy(&result, mapping.contents.data, sizeof(result));
   EXPECT_EQ(result, value);
+  EXPECT_EQ(mapping.contents.data,
+            static_cast<uint8_t*>(allocation.pointer) + allocation_alignment);
   IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
 
   buffer.reset();
