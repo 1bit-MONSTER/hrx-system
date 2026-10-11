@@ -7,6 +7,7 @@
 #ifndef LOOMCXX_CHECK_H_
 #define LOOMCXX_CHECK_H_
 
+#include <loomcxx/index.h>
 #include <loomcxx/shape.h>
 
 // Declares a correctness case with immutable scalar and scalar-record values,
@@ -26,14 +27,6 @@
   [[loom::check_benchmark(record_name)]] void name()
 
 namespace loom::type {
-
-// Native target-independent index value supplied by structured Loom regions.
-// Implicit conversion restores ordinary unsigned C++ arithmetic inside called
-// functions without changing the region's index-typed boundary.
-class [[loom::type("index")]] index {
- public:
-  operator unsigned long long() const;
-};
 
 // A dense tensor handle whose logical dimensions precede its element type,
 // matching Loom tensor syntax. Copies share storage owned by the check runner;
@@ -136,6 +129,12 @@ template <__SIZE_TYPE__ Count, class T>
 [[loom::op("check.generate.fill")]]
 loom::type::tensor<loom::type::shape<Count>, T> fill(T value);
 
+// Generates a runtime element count with one compile-time scalar payload.
+template <class T>
+[[loom::op("check.generate.fill")]]
+loom::type::tensor<loom::type::shape<loom::type::dynamic>, T> fill(
+    loom::type::index element_count, T value);
+
 // Generates offset + step * index for Count elements. A positive period wraps
 // the linear index before applying the step.
 template <__SIZE_TYPE__ Count, class T>
@@ -146,12 +145,31 @@ template <__SIZE_TYPE__ Count, class T>
 loom::type::tensor<loom::type::shape<Count>, T> iota(T offset, T step,
                                                      __SIZE_TYPE__ period);
 
+// Generates a runtime element count. A positive constant period wraps the
+// linear index before applying the step.
+template <class T>
+[[loom::op("check.generate.iota")]]
+loom::type::tensor<loom::type::shape<loom::type::dynamic>, T> iota(
+    loom::type::index element_count, T offset, T step);
+template <class T>
+[[loom::op("check.generate.iota")]]
+loom::type::tensor<loom::type::shape<loom::type::dynamic>, T> iota(
+    loom::type::index element_count, T offset, T step, __SIZE_TYPE__ period);
+
 // Aliases Count elements beginning at a compile-time element offset. The
 // selected range must lie within source; no data is copied.
 template <__SIZE_TYPE__ Count, class SourceShape, class T>
 [[loom::op("check.tensor.view")]]
 loom::type::tensor<loom::type::shape<Count>, T> slice(
     loom::type::tensor<SourceShape, T> source, __SIZE_TYPE__ element_offset);
+
+// Aliases a runtime element count beginning at a compile-time element offset.
+// The selected range is checked against source when the scenario is realized.
+template <class SourceShape, class T>
+[[loom::op("check.tensor.view")]]
+loom::type::tensor<loom::type::shape<loom::type::dynamic>, T> slice(
+    loom::type::tensor<SourceShape, T> source, __SIZE_TYPE__ element_offset,
+    loom::type::index element_count);
 
 // Launches a statically named kernel using its declared geometry and configs.
 // A configured kernel's typed workloads precede its ABI arguments in one

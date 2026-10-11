@@ -7,9 +7,13 @@
 #ifndef LOOM_IMPORT_CXX_BINDING_INDEX_VALUES_H_
 #define LOOM_IMPORT_CXX_BINDING_INDEX_VALUES_H_
 
+#include <cxx/attributes.h>
+#include <cxx/symbols_fwd.h>
 #include <cxx/types_fwd.h>
 
 #include <cstdint>
+#include <optional>
+#include <span>
 #include <string_view>
 
 #include "loom/import/cxx/source/source.h"
@@ -40,6 +44,35 @@ bool is_unsigned_component(uint32_t mask, size_t index);
 loom_value_id_t cast_index(Value value, bool unsigned_source,
                            loom_builder_t* builder,
                            loom_location_id_t location);
+
+// Source projection of index.cast. The concrete C++ specialization retains
+// the operand's signedness so emission can preserve integer value semantics.
+class IndexCastIntrinsic {
+ public:
+  static bool supports(std::string_view name);
+
+  // Unknown operations return nullopt. A recognized operation with an invalid
+  // source signature diagnoses at owner.
+  static std::optional<IndexCastIntrinsic> resolve(
+      cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
+      cxx::FunctionSymbol* function, const cxx::Attribute& attribute,
+      cxx::AST* owner);
+
+  // Converts the single admitted scalar operand to High index.
+  Value call(std::span<const Value> arguments, loom_builder_t* builder,
+             loom_location_id_t location) const;
+
+  bool equivalent(const IndexCastIntrinsic& other) const {
+    return unsigned_source_ == other.unsigned_source_;
+  }
+
+ private:
+  explicit IndexCastIntrinsic(bool unsigned_source)
+      : unsigned_source_(unsigned_source) {}
+
+  // Whether the source integer uses unsigned C++ value semantics.
+  bool unsigned_source_;
+};
 
 }  // namespace loom::cxx_import
 

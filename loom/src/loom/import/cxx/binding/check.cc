@@ -42,6 +42,16 @@ bool is_workload_type(Types& types, const cxx::Type* type) {
   return record && annotated(record->definition(), "workload");
 }
 
+void require_tensor_extent(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
+                           Types& types, const cxx::Type* type,
+                           cxx::AST* owner) {
+  if (!types.is_index(type, owner)) {
+    diagnostics.reject(unit, owner,
+                       "dynamic tensor extent requires loom::type::index; use "
+                       "loom::index::cast in its generating function");
+  }
+}
+
 }  // namespace
 
 std::optional<CheckIntrinsic::Operation> CheckIntrinsic::parse_operation(
@@ -147,31 +157,48 @@ std::optional<CheckIntrinsic> CheckIntrinsic::resolve(
       break;
     }
     case Operation::Fill: {
-      if (parameters.size() != 1 || returns_void) {
+      if (returns_void) {
         fail("check.generate.fill requires one scalar and a tensor result");
       }
       result.result_tensor = &require_tensor(unit, diagnostics, types,
                                              signature->returnType(), owner);
-      if (types.unqualified(parameters[0]) !=
+      size_t payload_index = result.result_tensor->is_dynamic() ? 1 : 0;
+      if (parameters.size() != payload_index + 1) {
+        fail(
+            "check.generate.fill requires an optional runtime extent, one "
+            "scalar, and a tensor result");
+      }
+      if (result.result_tensor->is_dynamic()) {
+        require_tensor_extent(unit, diagnostics, types, parameters[0], owner);
+      }
+      if (types.unqualified(parameters[payload_index]) !=
           result.result_tensor->element_type) {
         fail("check.generate.fill payload must match its tensor element type");
       }
       break;
     }
     case Operation::Iota: {
-      if ((parameters.size() != 2 && parameters.size() != 3) || returns_void) {
-        fail(
-            "check.generate.iota requires offset, step, an optional period, "
-            "and a tensor result");
+      if (returns_void) {
+        fail("check.generate.iota requires a tensor result");
       }
       result.result_tensor = &require_tensor(unit, diagnostics, types,
                                              signature->returnType(), owner);
-      if (types.unqualified(parameters[0]) !=
+      size_t payload_index = result.result_tensor->is_dynamic() ? 1 : 0;
+      if ((parameters.size() != payload_index + 2 &&
+           parameters.size() != payload_index + 3)) {
+        fail(
+            "check.generate.iota requires an optional runtime extent, "
+            "offset, step, an optional period, and a tensor result");
+      }
+      if (result.result_tensor->is_dynamic()) {
+        require_tensor_extent(unit, diagnostics, types, parameters[0], owner);
+      }
+      if (types.unqualified(parameters[payload_index]) !=
               result.result_tensor->element_type ||
-          types.unqualified(parameters[1]) !=
+          types.unqualified(parameters[payload_index + 1]) !=
               result.result_tensor->element_type ||
-          (parameters.size() == 3 &&
-           !unit.typeTraits().is_integral(parameters[2]))) {
+          (parameters.size() == payload_index + 3 &&
+           !unit.typeTraits().is_integral(parameters[payload_index + 2]))) {
         fail(
             "check.generate.iota offset and step must match the tensor "
             "element type, with an integer period");
@@ -204,7 +231,7 @@ std::optional<CheckIntrinsic> CheckIntrinsic::resolve(
       break;
     }
     case Operation::Slice: {
-      if (parameters.size() != 2 || returns_void ||
+      if (returns_void || parameters.size() < 2 ||
           !unit.typeTraits().is_integral(parameters[1])) {
         fail(
             "check.tensor.view requires a tensor, an element offset and a "
@@ -214,6 +241,15 @@ std::optional<CheckIntrinsic> CheckIntrinsic::resolve(
           &require_tensor(unit, diagnostics, types, parameters[0], owner);
       result.result_tensor = &require_tensor(unit, diagnostics, types,
                                              signature->returnType(), owner);
+      size_t parameter_count = result.result_tensor->is_dynamic() ? 3 : 2;
+      if (parameters.size() != parameter_count) {
+        fail(
+            "check.tensor.view requires a tensor, an element offset, an "
+            "optional runtime extent and a tensor result");
+      }
+      if (result.result_tensor->is_dynamic()) {
+        require_tensor_extent(unit, diagnostics, types, parameters[2], owner);
+      }
       if (result.source_tensor->element_type !=
           result.result_tensor->element_type) {
         fail("check.tensor.view must preserve its source element type");

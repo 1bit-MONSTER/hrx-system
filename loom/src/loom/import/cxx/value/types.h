@@ -179,15 +179,26 @@ struct ViewPartition final : Partition {
   std::vector<std::string> component_names;
 };
 
-// Canonical dense rank-one tensor handle. Its static shape and element type
-// refine one High tensor value; copying a handle preserves its storage alias.
+// Canonical dense rank-one tensor handle. A dynamic extent is transported
+// before the dependent High tensor so its type references this binding's own
+// dimension identity across calls and region boundaries.
 struct TensorPartition final : Partition {
+  // Binds the High tensor type to |dynamic_extents|. Static tensors require an
+  // empty span; dynamic tensors require their one transported dimension.
+  loom_type_t bind_type(std::span<const loom_value_id_t> dynamic_extents) const;
+  // Returns the tensor handle from one complete component binding.
+  loom_value_id_t tensor_value(
+      std::span<const loom_value_id_t> components) const;
+  bool is_dynamic() const { return extent < 0; }
+
   // Concrete source specialization retaining copy and lifetime semantics.
   cxx::ClassSymbol* source;
   // Source element type used for generation payloads and scalar admission.
   const cxx::Type* element_type;
-  // High tensor representation, with an inline static extent.
-  loom_type_t type;
+  // High scalar representation of one logical element.
+  loom_scalar_type_t element;
+  // Static element count, or -1 for one transported dynamic extent.
+  int64_t extent;
   // Source element byte width used to translate element origins to bytes.
   uint64_t element_bytes;
 };

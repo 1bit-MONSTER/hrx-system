@@ -108,6 +108,20 @@ void ShapeExtents::assign(std::span<const int64_t> extents) {
   std::copy(extents.begin(), extents.end(), overflow_extents_.get());
 }
 
+loom_type_t TensorPartition::bind_type(
+    std::span<const loom_value_id_t> dynamic_extents) const {
+  IREE_ASSERT(dynamic_extents.size() == (is_dynamic() ? 1u : 0u));
+  auto dimension = is_dynamic() ? loom_dim_pack_dynamic(dynamic_extents[0])
+                                : loom_dim_pack_static(extent);
+  return loom_type_shaped_1d(LOOM_TYPE_TENSOR, element, dimension, 0);
+}
+
+loom_value_id_t TensorPartition::tensor_value(
+    std::span<const loom_value_id_t> components) const {
+  IREE_ASSERT(components.size() == component_count);
+  return components.back();
+}
+
 const cxx::Type* Types::unqualified(const cxx::Type* type) {
   return unit_.typeTraits().remove_cv(type);
 }
@@ -139,7 +153,9 @@ const Partition& Types::partition(const cxx::Type* input, cxx::AST* owner) {
 
 bool Types::requires_binding(const cxx::Type* input, cxx::AST* owner) {
   const auto& admitted = partition(input, owner);
-  if (admitted.kind == ValueKind::View) {
+  if (admitted.kind == ValueKind::View ||
+      (admitted.kind == ValueKind::Tensor &&
+       static_cast<const TensorPartition&>(admitted).is_dynamic())) {
     return true;
   }
   return admitted.kind == ValueKind::Record
@@ -554,9 +570,9 @@ const TensorPartition* Types::tensor(const cxx::ClassType* input,
   }
   auto extents =
       parse_shape(cxx::template_argument_type(arguments[0]), "tensor", owner);
-  if (extents.size() != 1 || extents[0] < 0) {
+  if (extents.size() != 1) {
     diagnostics_.reject(unit_, owner,
-                        "check tensors currently require one static extent");
+                        "check tensors currently require rank one");
   }
   auto* element = cxx::template_argument_type(arguments[1]);
   auto element_type = get(element, owner);
@@ -569,18 +585,18 @@ const TensorPartition* Types::tensor(const cxx::ClassType* input,
                         "tensor elements require unqualified non-boolean "
                         "scalar types");
   }
-  if (static_cast<uint64_t>(extents[0]) > INT64_MAX / *bytes) {
+  if (extents[0] >= 0 &&
+      static_cast<uint64_t>(extents[0]) > INT64_MAX / *bytes) {
     diagnostics_.reject(unit_, owner,
                         "tensor extent has an unrepresentable byte length");
   }
   auto result = std::make_unique<TensorPartition>();
   result->kind = ValueKind::Tensor;
-  result->component_count = 1;
+  result->component_count = extents[0] < 0 ? 2 : 1;
   result->source = source;
   result->element_type = element;
-  result->type = loom_type_shaped_1d(LOOM_TYPE_TENSOR,
-                                     loom_type_element_type(element_type),
-                                     loom_dim_pack_static(extents[0]), 0);
+  result->element = loom_type_element_type(element_type);
+  result->extent = extents[0];
   result->element_bytes = *bytes;
   auto* admitted = result.get();
   tensors_.emplace(source, std::move(result));
@@ -664,9 +680,16 @@ void Types::append_component_names(const Partition& partition,
     case ValueKind::Index:
     case ValueKind::OpaqueDialect:
     case ValueKind::Encoding:
-    case ValueKind::Tensor:
       append({});
       return;
+    case ValueKind::Tensor: {
+      const auto& tensor = static_cast<const TensorPartition&>(partition);
+      if (tensor.is_dynamic()) {
+        append("dim0");
+      }
+      append({});
+      return;
+    }
     case ValueKind::Pointer:
       append({});
       append("byte_offset");
@@ -797,7 +820,13 @@ loom_type_t Types::get(const cxx::Type* input, cxx::AST* ast) {
         return loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
       }
       if (admitted && admitted->kind == ValueKind::Tensor) {
-        return static_cast<const TensorPartition*>(admitted)->type;
+        const auto& tensor = static_cast<const TensorPartition&>(*admitted);
+        if (tensor.is_dynamic()) {
+          diagnostics_.reject(
+              unit_, ast,
+              "dynamic tensor types require a bound extent identity");
+        }
+        return tensor.bind_type({});
       }
       if (admitted && admitted->kind == ValueKind::OpaqueDialect) {
         return static_cast<const OpaqueDialectPartition*>(admitted)->type;
@@ -998,9 +1027,17 @@ void Types::append_bound(const cxx::Type* input, cxx::AST* owner,
       output.push_back(loom_type_encoding_with_role(
           static_cast<const EncodingPartition&>(admitted).role));
       return;
-    case ValueKind::Tensor:
-      output.push_back(static_cast<const TensorPartition&>(admitted).type);
+    case ValueKind::Tensor: {
+      const auto& tensor = static_cast<const TensorPartition&>(admitted);
+      if (tensor.is_dynamic()) {
+        IREE_ASSERT(identities.size() == tensor.component_count);
+        output.push_back(loom_type_scalar(LOOM_SCALAR_TYPE_INDEX));
+        output.push_back(tensor.bind_type(identities.first(1)));
+      } else {
+        output.push_back(tensor.bind_type({}));
+      }
       return;
+    }
     case ValueKind::Record: {
       const auto& record = static_cast<const RecordPartition&>(admitted);
       for (const auto& member : record.members) {

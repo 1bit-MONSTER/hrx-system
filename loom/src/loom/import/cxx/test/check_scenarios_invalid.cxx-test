@@ -111,7 +111,7 @@ LOOM_CHECK_SCENARIO(ordinary_pointer_argument) {
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
         const auto output = loom::check::fill<1, unsigned>(0u);
-        // ERROR@+1: LOWERING/059 "ordinary C++ pointer parameters retain a byte offset and cannot bind a one-component check tensor"
+        // ERROR@+1: LOWERING/059 "ordinary C++ pointer parameters retain a byte offset and cannot bind a check tensor handle"
         loom::check::compare<pointer_subject>(output, [] {});
       });
 }

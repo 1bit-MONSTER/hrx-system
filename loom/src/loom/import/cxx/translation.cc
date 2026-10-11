@@ -224,11 +224,19 @@ class Translator final : private Initialization::Evaluation {
         auto suffix = partition.component_names[index];
         name(components[index], suffix.empty() ? hint : hint + "_" + suffix);
       }
+    } else if (value.is_tensor()) {
+      const auto& partition =
+          static_cast<const TensorPartition&>(value.partition());
+      auto components = value.components();
+      if (partition.is_dynamic()) {
+        name(components[0], hint + "_dim0");
+      }
+      name(partition.tensor_value(components), hint);
     } else if (value.is_pointer()) {
       auto pointer = value.pointer();
       name(pointer.root, hint);
       name(pointer.byte_offset, hint + "_byte_offset");
-    } else if (value.is_buffer() || value.is_encoding() || value.is_tensor()) {
+    } else if (value.is_buffer() || value.is_encoding()) {
       name(value.components()[0], hint);
     } else {
       name(value.ssa(), hint);
