@@ -530,8 +530,11 @@ iree_status_t iree_hal_block_command_buffer_create(
   command_buffer->late_binding_count = 0;
   command_buffer->late_binding_capacity = 0;
 
-  iree_status_t status =
-      iree_hal_resource_set_allocate(block_pool, &command_buffer->resource_set);
+  iree_status_t status = iree_ok_status();
+  if (!iree_any_bit_set(mode, IREE_HAL_COMMAND_BUFFER_MODE_UNRETAINED)) {
+    status = iree_hal_resource_set_allocate(block_pool,
+                                            &command_buffer->resource_set);
+  }
   if (iree_status_is_ok(status)) {
     *out_command_buffer = &command_buffer->base;
   } else {
@@ -677,6 +680,38 @@ static iree_status_t iree_hal_block_command_buffer_barrier(
         iree_hal_cmd_build_fence(&command_buffer->builder, atomic_flags));
     IREE_RETURN_IF_ERROR(
         iree_hal_cmd_block_builder_barrier(&command_buffer->builder));
+  }
+  for (iree_host_size_t i = 0; i < barrier->buffer_barrier_count; ++i) {
+    const iree_hal_buffer_barrier_t* range = &barrier->buffer_barriers[i];
+    if (!range->recipe) {
+      continue;
+    }
+    IREE_RETURN_IF_ERROR(iree_hal_resource_set_insert_strided(
+        command_buffer->resource_set, 1, &range->buffer_ref,
+        offsetof(iree_hal_buffer_ref_t, buffer),
+        sizeof(iree_hal_buffer_ref_t)));
+    for (uint32_t j = 0; j < range->recipe->operation_count; ++j) {
+      const iree_hal_memory_transition_recipe_info_t* recipe =
+          &range->recipe->operations[j];
+      if (recipe->executor == IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE) {
+        continue;
+      }
+      iree_hal_cmd_fixup_t* fixups = NULL;
+      iree_hal_cmd_build_token_t token;
+      IREE_RETURN_IF_ERROR(iree_hal_cmd_build_cache(&command_buffer->builder,
+                                                    recipe, range->buffer_ref,
+                                                    &fixups, &token));
+      if (fixups) {
+        iree_status_t status = iree_hal_block_command_buffer_resolve_refs(
+            command_buffer, 1, &range->buffer_ref, fixups);
+        if (!iree_status_is_ok(status)) {
+          iree_hal_cmd_build_rollback(&command_buffer->builder, token);
+          return status;
+        }
+      }
+      IREE_RETURN_IF_ERROR(
+          iree_hal_cmd_block_builder_barrier(&command_buffer->builder));
+    }
   }
   iree_hal_block_command_buffer_profile_append_barrier(command_buffer);
   return iree_ok_status();

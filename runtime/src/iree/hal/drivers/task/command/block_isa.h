@@ -26,6 +26,7 @@
 #include "iree/base/alignment.h"
 #include "iree/base/api.h"
 #include "iree/hal/atomic.h"
+#include "iree/hal/command_buffer.h"
 #include "iree/hal/drivers/task/executable/library/abi.h"
 
 typedef struct iree_hal_task_executable_t iree_hal_task_executable_t;
@@ -51,6 +52,7 @@ typedef enum iree_hal_cmd_opcode_e {
   IREE_HAL_CMD_ATOMIC_STORE = 8,  // Atomically store to a buffer location.
   IREE_HAL_CMD_ATOMIC_RMW = 9,    // Atomically update a buffer location.
   IREE_HAL_CMD_FENCE = 10,        // Apply CPU memory ordering.
+  IREE_HAL_CMD_CACHE = 11,        // Execute a prepared CPU cache recipe.
 } iree_hal_cmd_opcode_t;
 
 typedef uint8_t iree_hal_cmd_flags_t;
@@ -592,6 +594,19 @@ typedef struct iree_hal_cmd_fence_t {
 } iree_hal_cmd_fence_t;
 
 static_assert(sizeof(iree_hal_cmd_fence_t) == 8, "fence command is 1 qword");
+
+// CACHE: one selected host maintenance operation. The recorder isolates each
+// operation so recipes keep their native ordering even with multiple workers.
+typedef struct iree_hal_cmd_cache_t {
+  // Command header with opcode CACHE.
+  iree_hal_cmd_header_t header;
+  // Resolved CPU pointer slot used by HOST_DIRECT recipes.
+  uint16_t target_binding;
+  // Exact native operation copied at recording time.
+  iree_hal_memory_transition_recipe_info_t recipe;
+  // Native buffer owner and range for HOST_API; length also bounds HOST_DIRECT.
+  iree_hal_buffer_ref_t buffer_ref;
+} iree_hal_cmd_cache_t;
 
 //===----------------------------------------------------------------------===//
 // BARRIER, BRANCH, RETURN commands

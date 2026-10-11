@@ -13,8 +13,10 @@ iree_cc_library(
   NAME
     queue
   HDRS
+    "memory_barrier.h"
     "queue.h"
   SRCS
+    "memory_barrier.c"
     "queue.c"
   DEPS
     iree::async
@@ -52,9 +54,11 @@ iree_cc_test(
     iree::base
     iree::hal
     iree::hal::drivers::task::device
+    iree::io::file_handle
     iree::task
     iree::testing::gtest
     iree::testing::gtest_main
+    iree::testing::temp_file
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CMAKE_SYSTEM_NAME STREQUAL "Windows")

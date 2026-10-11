@@ -304,6 +304,7 @@ static uint32_t iree_hal_cmd_region_tile_count(
       case IREE_HAL_CMD_ATOMIC_STORE:
       case IREE_HAL_CMD_ATOMIC_RMW:
       case IREE_HAL_CMD_FENCE:
+      case IREE_HAL_CMD_CACHE:
         tile_count += 1;
         break;
       default:
@@ -1219,6 +1220,41 @@ static uint32_t iree_hal_cmd_execute_fence(const iree_hal_cmd_fence_t* command,
   return 1;
 }
 
+static iree_status_t iree_hal_cmd_execute_cache(
+    const iree_hal_cmd_cache_t* command, void** binding_ptrs,
+    const size_t* binding_lengths,
+    iree_hal_buffer_binding_table_t binding_table,
+    iree_atomic_int64_t* tile_index, int32_t region_epoch,
+    uint32_t worker_count, uint32_t* out_tiles_completed) {
+  *out_tiles_completed = 0;
+  if (!iree_hal_cmd_claim_single_tile(tile_index, region_epoch, worker_count)) {
+    return iree_ok_status();
+  }
+  if (command->recipe.executor ==
+      IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT) {
+    const iree_device_size_t length =
+        command->buffer_ref.length == IREE_HAL_WHOLE_BUFFER
+            ? binding_lengths[command->target_binding]
+            : command->buffer_ref.length;
+    iree_hal_memory_transition_execute_host_direct(
+        &command->recipe, binding_ptrs[command->target_binding], length);
+  } else {
+    iree_hal_buffer_ref_t ref;
+    IREE_RETURN_IF_ERROR(iree_hal_buffer_binding_table_resolve_ref(
+        binding_table, command->buffer_ref, &ref));
+    if (command->recipe.operation ==
+        IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH) {
+      IREE_RETURN_IF_ERROR(
+          iree_hal_buffer_flush_host_range(ref.buffer, ref.offset, ref.length));
+    } else {
+      IREE_RETURN_IF_ERROR(iree_hal_buffer_invalidate_host_range(
+          ref.buffer, ref.offset, ref.length));
+    }
+  }
+  *out_tiles_completed = 1;
+  return iree_ok_status();
+}
+
 // Executes an UPDATE command. Copies inline host data from .text to a device
 // buffer. UPDATE commands are at most one transfer tile because the inline
 // source payload is capped by the block ISA command size.
@@ -1441,6 +1477,20 @@ static uint32_t iree_hal_cmd_block_processor_process_region(
             (const iree_hal_cmd_fence_t*)cmd, tile_idx, region_epoch,
             context->worker_count);
         break;
+      case IREE_HAL_CMD_CACHE: {
+        uint32_t cache_tiles = 0;
+        iree_status_t status = iree_hal_cmd_execute_cache(
+            (const iree_hal_cmd_cache_t*)cmd, binding_ptrs, binding_lengths,
+            context->native_binding_table, tile_idx, region_epoch,
+            context->worker_count, &cache_tiles);
+        if (IREE_UNLIKELY(!iree_status_is_ok(status))) {
+          iree_hal_cmd_block_processor_report_error(context, status);
+          IREE_TRACE_ZONE_END(z_region);
+          return tiles_completed;
+        }
+        tiles_completed += cache_tiles;
+        break;
+      }
       default: {
         iree_hal_cmd_block_processor_report_error(
             context,
@@ -1730,6 +1780,14 @@ static iree_status_t iree_hal_cmd_block_processor_execute_single_worker(
               (const iree_hal_cmd_fence_t*)cmd, /*tile_index=*/NULL,
               /*region_epoch=*/0, /*worker_count=*/1);
           break;
+        case IREE_HAL_CMD_CACHE: {
+          uint32_t cache_tiles = 0;
+          IREE_RETURN_IF_ERROR(iree_hal_cmd_execute_cache(
+              (const iree_hal_cmd_cache_t*)cmd, binding_ptrs, binding_lengths,
+              context->native_binding_table, NULL, 0, 1, &cache_tiles));
+          *out_tiles_executed += cache_tiles;
+          break;
+        }
         case IREE_HAL_CMD_BARRIER: {
           // Single-worker: barriers are no-ops (execution is sequential).
           break;

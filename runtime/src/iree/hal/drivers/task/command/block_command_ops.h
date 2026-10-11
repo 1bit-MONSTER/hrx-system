@@ -133,6 +133,15 @@ iree_status_t iree_hal_cmd_build_update(iree_hal_cmd_block_builder_t* builder,
 iree_status_t iree_hal_cmd_build_fence(iree_hal_cmd_block_builder_t* builder,
                                        iree_hal_atomic_flags_t atomic_flags);
 
+// Captures a host cache action. HOST_DIRECT returns one ordinary pointer fixup;
+// HOST_API preserves its native buffer reference and returns no fixup. The
+// caller isolates the command in its own region and retains direct buffers.
+iree_status_t iree_hal_cmd_build_cache(
+    iree_hal_cmd_block_builder_t* builder,
+    const iree_hal_memory_transition_recipe_info_t* recipe,
+    iree_hal_buffer_ref_t buffer_ref, iree_hal_cmd_fixup_t** out_fixups,
+    iree_hal_cmd_build_token_t* out_token);
+
 //===----------------------------------------------------------------------===//
 // ATOMIC
 //===----------------------------------------------------------------------===//

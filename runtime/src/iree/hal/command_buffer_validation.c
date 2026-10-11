@@ -138,7 +138,7 @@ static iree_status_t iree_hal_command_buffer_validate_buffer_requirements(
     iree_hal_buffer_binding_t binding = {
         .buffer = buffer_ref.buffer,
         .offset = 0,
-        .length = buffer_ref.offset + buffer_ref.length,
+        .length = iree_hal_buffer_byte_length(buffer_ref.buffer),
     };
     return iree_hal_command_buffer_validate_binding_requirements(
         command_buffer, validation_state, binding, requirements);
@@ -244,8 +244,36 @@ iree_status_t iree_hal_command_buffer_barrier_validation(
     iree_hal_command_buffer_t* command_buffer,
     iree_hal_command_buffer_validation_state_t* validation_state,
     const iree_hal_barrier_t* barrier) {
-  return iree_hal_command_buffer_validate_categories(
-      command_buffer, validation_state, /*required_categories=*/0);
+  IREE_RETURN_IF_ERROR(iree_hal_command_buffer_validate_categories(
+      command_buffer, validation_state, /*required_categories=*/0));
+  for (iree_host_size_t i = 0; i < barrier->buffer_barrier_count; ++i) {
+    const iree_hal_buffer_barrier_t* range = &barrier->buffer_barriers[i];
+    const iree_hal_buffer_ref_t ref = range->buffer_ref;
+    if (ref.buffer) {
+      IREE_RETURN_IF_ERROR(
+          iree_hal_buffer_validate_range(ref.buffer, ref.offset, ref.length));
+    } else if (ref.length != IREE_HAL_WHOLE_BUFFER &&
+               ref.offset > IREE_DEVICE_SIZE_MAX - ref.length) {
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "barrier range overflows");
+    }
+    const uint32_t effects = range->recipe ? range->recipe->effects.bits : 0;
+    const iree_hal_buffer_binding_requirements_t requirements = {
+        .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+        .access = ((effects & IREE_HAL_MEMORY_EFFECT_HOST_FLUSH)
+                       ? IREE_HAL_MEMORY_ACCESS_WRITE
+                       : 0) |
+                  ((effects & IREE_HAL_MEMORY_EFFECT_HOST_INVALIDATE)
+                       ? IREE_HAL_MEMORY_ACCESS_READ
+                       : 0),
+        .max_byte_offset = ref.length == IREE_HAL_WHOLE_BUFFER
+                               ? ref.offset
+                               : ref.offset + ref.length,
+    };
+    IREE_RETURN_IF_ERROR(iree_hal_command_buffer_validate_buffer_requirements(
+        command_buffer, validation_state, ref, requirements));
+  }
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_command_buffer_atomic_target_validation(

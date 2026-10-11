@@ -89,8 +89,10 @@ iree_hal_atomic_flags_t iree_hal_task_barrier_resolve_atomic_flags(
       continue;
     }
     for (uint32_t j = 0; j < buffer_barrier->recipe->operation_count; ++j) {
-      if (buffer_barrier->recipe->operations[j].operation ==
-          IREE_HAL_MEMORY_TRANSITION_OPERATION_RELEASE_TO_SYSTEM) {
+      const iree_hal_memory_transition_operation_t operation =
+          buffer_barrier->recipe->operations[j].operation;
+      if (operation == IREE_HAL_MEMORY_TRANSITION_OPERATION_RELEASE_TO_SYSTEM ||
+          operation == IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH) {
         flags |= IREE_HAL_ATOMIC_FLAG_RELEASE;
       } else {
         flags |= IREE_HAL_ATOMIC_FLAG_ACQUIRE;

@@ -37,6 +37,7 @@
 #include "iree/hal/api.h"
 #include "iree/hal/drivers/task/command/block_processor.h"
 #include "iree/hal/drivers/task/profile.h"
+#include "iree/hal/drivers/task/queue/memory_barrier.h"
 #include "iree/task/executor.h"
 #include "iree/task/process.h"
 #include "iree/task/scope.h"
@@ -101,6 +102,12 @@ enum iree_hal_task_queue_op_flag_bits_e {
   IREE_HAL_TASK_QUEUE_OP_FLAG_AFTER_ACQUIRE = 1u << 3,
   // Payload publication before terminal completion signals.
   IREE_HAL_TASK_QUEUE_OP_FLAG_AFTER_RELEASE = 1u << 4,
+  // Conservative acquisition of the one-shot operation's read operands.
+  IREE_HAL_TASK_QUEUE_OP_FLAG_BEFORE_DEFAULT = 1u << 5,
+  // Conservative publication of the one-shot operation's written operands.
+  IREE_HAL_TASK_QUEUE_OP_FLAG_AFTER_DEFAULT = 1u << 6,
+  // Successful file I/O returned from the proactor for worker maintenance.
+  IREE_HAL_TASK_QUEUE_OP_FLAG_COMPLETING_IO = 1u << 7,
 };
 
 typedef struct iree_hal_task_queue_op_t iree_hal_task_queue_op_t;
@@ -146,6 +153,9 @@ struct iree_hal_task_queue_op_t {
   // Resources retained until all have retired (command buffers, binding
   // table buffers, etc.). Allocated from the small block pool.
   iree_hal_resource_set_t* resource_set;
+
+  // Arena-owned host recipes, NULL when only fences/default operands suffice.
+  iree_hal_task_queue_memory_barriers_t* memory_barriers;
 
   // Frontier tracker advanced when the operation completes.
   iree_async_frontier_tracker_t* frontier_tracker;
