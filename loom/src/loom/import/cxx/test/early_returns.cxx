@@ -5,6 +5,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <hip/hip_runtime.h>
+#include <loomcxx/check.h>
+#include <loomcxx/view.h>
 
 __device__ __forceinline__ int first(const int* input, unsigned index,
                                      unsigned length) {
@@ -100,4 +102,136 @@ __global__
   output[base + 4u] = 0;
   publish(output, base + 4u, value);
   output[base + 5u] = state(value);
+}
+
+template <unsigned Count>
+void early_return_input(loom::type::buffer<int> input) {
+  auto values =
+      loom::buffer::view<Count>(input, {}, loom::encoding::layout::dense<1>());
+  for (unsigned position = 0; position < Count; ++position) {
+    loom::view::store((int)((position * 7u) % 9u) - 3, values, position);
+  }
+}
+
+void early_return_input_1(loom::type::buffer<int> input) {
+  early_return_input<1>(input);
+}
+
+void early_return_input_17(loom::type::buffer<int> input) {
+  early_return_input<17>(input);
+}
+
+void early_return_input_33(loom::type::buffer<int> input) {
+  early_return_input<33>(input);
+}
+
+void early_return_input_64(loom::type::buffer<int> input) {
+  early_return_input<64>(input);
+}
+
+int early_return_value(unsigned position) {
+  return (int)((position * 7u) % 9u) - 3;
+}
+
+void early_returns_oracle(loom::type::buffer<int> input,
+                          loom::type::buffer<int> output, unsigned length) {
+  static_cast<void>(input);
+  loom::assume(length <= 64u);
+  auto output_values =
+      loom::buffer::view<64, 6>(output, {}, loom::encoding::layout::dense<2>());
+  for (unsigned lane = 0; lane < length; ++lane) {
+    loom::assume(lane < 64u);
+    int value = early_return_value(lane);
+    int classified = -7;
+    int trace = 1;
+    if (lane + 1u < length) {
+      int next_value = early_return_value(lane + 1u);
+      trace = 2;
+      if (next_value < 0) {
+        classified = -next_value;
+      } else if (next_value == 0) {
+        trace = 3;
+        classified = 3;
+      } else {
+        classified = next_value + 4;
+      }
+    }
+    int total = 0;
+    for (unsigned step = 0; step < 3u; ++step) {
+      total += lane + step < length ? early_return_value(lane + step) : -7;
+    }
+    int chosen =
+        value < 0 ? ((lane & 1u) ? -11 : -13) : ((lane & 1u) ? 17 : 19);
+    int published = value < 0 ? 11 : value;
+    int final_state = value < 0 ? value + 1 : (value == 0 ? 5 : value + 7);
+    loom::view::store(classified, output_values, lane, 0);
+    loom::view::store(trace, output_values, lane, 1);
+    loom::view::store(total, output_values, lane, 2);
+    loom::view::store(chosen, output_values, lane, 3);
+    loom::view::store(published, output_values, lane, 4);
+    loom::view::store(final_state, output_values, lane, 5);
+  }
+}
+
+LOOM_CHECK_SCENARIO(early_return_values) {
+  loom::check::trial<1>(
+      [](loom::check::ordinal trial, loom::check::entropy entropy) {
+        const auto input = loom::check::fill<int, 1>(0);
+        loom::check::generate<early_return_input_1>(input);
+        const auto storage = loom::check::fill<int, 416>(-123);
+        const auto output = loom::check::slice<384>(storage, 16);
+        loom::check::compare<early_returns, early_returns_oracle>(
+            input, output, 0u, [&] {
+              loom::check::expect_bitwise(input, input);
+              loom::check::expect_bitwise(storage, storage);
+            });
+      });
+  loom::check::trial<1>(
+      [](loom::check::ordinal trial, loom::check::entropy entropy) {
+        const auto input = loom::check::fill<int, 1>(0);
+        loom::check::generate<early_return_input_1>(input);
+        const auto storage = loom::check::fill<int, 416>(-123);
+        const auto output = loom::check::slice<384>(storage, 16);
+        loom::check::compare<early_returns, early_returns_oracle>(
+            input, output, 1u, [&] {
+              loom::check::expect_bitwise(input, input);
+              loom::check::expect_bitwise(storage, storage);
+            });
+      });
+  loom::check::trial<1>(
+      [](loom::check::ordinal trial, loom::check::entropy entropy) {
+        const auto input = loom::check::fill<int, 17>(0);
+        loom::check::generate<early_return_input_17>(input);
+        const auto storage = loom::check::fill<int, 416>(-123);
+        const auto output = loom::check::slice<384>(storage, 16);
+        loom::check::compare<early_returns, early_returns_oracle>(
+            input, output, 17u, [&] {
+              loom::check::expect_bitwise(input, input);
+              loom::check::expect_bitwise(storage, storage);
+            });
+      });
+  loom::check::trial<1>(
+      [](loom::check::ordinal trial, loom::check::entropy entropy) {
+        const auto input = loom::check::fill<int, 33>(0);
+        loom::check::generate<early_return_input_33>(input);
+        const auto storage = loom::check::fill<int, 416>(-123);
+        const auto output = loom::check::slice<384>(storage, 16);
+        loom::check::compare<early_returns, early_returns_oracle>(
+            input, output, 33u, [&] {
+              loom::check::expect_bitwise(input, input);
+              loom::check::expect_bitwise(storage, storage);
+            });
+      });
+  loom::check::trial<1>(
+      [](loom::check::ordinal trial, loom::check::entropy entropy) {
+        const auto input = loom::check::fill<int, 64>(0);
+        loom::check::generate<early_return_input_64>(input);
+        const auto storage = loom::check::fill<int, 416>(-123);
+        const auto output = loom::check::slice<384>(storage, 16);
+        loom::check::compare<early_returns, early_returns_oracle>(
+            input, output, 64u, [&] {
+              loom::check::expect_bitwise(input, input);
+              loom::check::expect_bitwise(storage, storage);
+            });
+      });
 }

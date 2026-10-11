@@ -612,8 +612,11 @@ if(LOOM_TARGET_ARCH_VM)
 loom_execution_test(
   NAME
     volatile_values_test_execute_vm_reference_test
+  CORRECTNESS_ONLY
   MODULE
     "::volatile_values_test_module"
+  RUNNER_ARGS
+    "--case=volatile_values"
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
     "loom-execution-profile=vm_reference"
@@ -1069,6 +1072,24 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
+    control_flow_module
+  SRCS
+    "control_flow.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    early_returns_module
+  SRCS
+    "early_returns.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
     enum_values_module
   SRCS
     "enum_values.cxx"
@@ -1132,9 +1153,36 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
+    pointer_walk_module
+  SRCS
+    "pointer_walk.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    short_circuit_module
+  SRCS
+    "short_circuit.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
     symbol_exports_module
   SRCS
     "symbol_exports.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    vector_depth_module
+  SRCS
+    "vector_depth.cxx"
 )
 endif()
 
@@ -1153,6 +1201,15 @@ loom_test_module(
     vector_math_module
   SRCS
     "vector_math.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    volatile_memory_module
+  SRCS
+    "volatile_memory.cxx"
 )
 endif()
 
@@ -1180,44 +1237,6 @@ loom_generated_file_family(
   ARGS
     "kernel"
     "--group=aiter_swiglu_f16"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
-    control_flow_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "control_flow_checks.loom"
-    "control_flow_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=control_flow"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
-    early_returns_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "early_returns_checks.loom"
-    "early_returns_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=early_returns"
   TESTONLY
 )
 endif()
@@ -1261,82 +1280,6 @@ loom_generated_file_family(
 endif()
 
 if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
-    pointer_walk_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "pointer_walk_checks.loom"
-    "pointer_walk_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=pointer_walk"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
-    short_circuit_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "short_circuit_checks.loom"
-    "short_circuit_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=short_circuit"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
-    vector_depth_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "vector_depth_checks.loom"
-    "vector_depth_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=vector_depth"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_generated_file_family(
-  NAME
-    volatile_memory_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "volatile_memory_checks.loom"
-    "volatile_memory_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=volatile_memory"
-  TESTONLY
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
     aiter_swiglu_f16_module
@@ -1348,36 +1291,6 @@ loom_test_module(
     "${CMAKE_CURRENT_BINARY_DIR}/aiter_swiglu_f16_checks.loom"
   INPUTOPTS
     "cxx:approximate-functions=true"
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_test_module(
-  NAME
-    control_flow_module
-  SRCS
-    "control_flow.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/control_flow_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/control_flow_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/control_flow_checks.loom"
-  INPUTOPTS
-
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_test_module(
-  NAME
-    early_returns_module
-  SRCS
-    "early_returns.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/early_returns_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/early_returns_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/early_returns_checks.loom"
-  INPUTOPTS
-
 )
 endif()
 
@@ -1408,66 +1321,6 @@ loom_test_module(
     "${CMAKE_CURRENT_BINARY_DIR}/llama_rms_norm_checks.loom"
   INPUTOPTS
     "cxx:approximate-functions=true"
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_test_module(
-  NAME
-    pointer_walk_module
-  SRCS
-    "pointer_walk.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/pointer_walk_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/pointer_walk_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/pointer_walk_checks.loom"
-  INPUTOPTS
-
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_test_module(
-  NAME
-    short_circuit_module
-  SRCS
-    "short_circuit.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/short_circuit_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/short_circuit_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/short_circuit_checks.loom"
-  INPUTOPTS
-
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_test_module(
-  NAME
-    vector_depth_module
-  SRCS
-    "vector_depth.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/vector_depth_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/vector_depth_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/vector_depth_checks.loom"
-  INPUTOPTS
-
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_test_module(
-  NAME
-    volatile_memory_module
-  SRCS
-    "volatile_memory.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/volatile_memory_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/volatile_memory_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/volatile_memory_checks.loom"
-  INPUTOPTS
-
 )
 endif()
 

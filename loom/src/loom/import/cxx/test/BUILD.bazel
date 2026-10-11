@@ -382,6 +382,8 @@ loom_test(
         "volatile_memory.cxx",
         "volatile_values.loom",
     ],
+    benchmark_smoke = False,
+    case = "volatile_values",
     execution_profiles = [VM_REFERENCE_PROFILE],
     target_compatible_with = _HOST_COMPATIBILITY,
 )
@@ -517,6 +519,8 @@ loom_test_module(
         "assumptions",
         "constant_loops",
         "configured_workgroup_storage",
+        "control_flow",
+        "early_returns",
         "enum_values",
         "integer_increment",
         "mxfp_group_dot",
@@ -524,9 +528,13 @@ loom_test_module(
         "packed_float16_conversion",
         "packed_float8_conversion",
         "packed_group_dot",
+        "pointer_walk",
+        "short_circuit",
         "symbol_exports",
+        "vector_depth",
         "vector_lookup",
         "vector_math",
+        "volatile_memory",
         "workload_configuration",
     ]
 ]
@@ -536,14 +544,8 @@ loom_test_module(
 # Target packages select applicable modules and own their execution policy.
 _GENERATED_KERNEL_SOURCES = [
     "aiter_swiglu_f16",
-    "control_flow",
-    "early_returns",
     "flash_attention",
     "llama_rms_norm",
-    "pointer_walk",
-    "short_circuit",
-    "vector_depth",
-    "volatile_memory",
 ]
 
 _AUTHORED_KERNEL_SOURCES = [

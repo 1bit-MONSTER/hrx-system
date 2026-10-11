@@ -4056,35 +4056,12 @@ loom_execution_test(
 endif()
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_generated_file_family(
-  NAME
-    packed_byte_shifts_checks_gen
-  GENERATOR
-    loom::py::loom::gen::test::cxx_kernel_cases
-  OUTPUTS
-    "packed_byte_shifts_checks.loom"
-    "packed_byte_shifts_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  ARGS
-    "kernel"
-    "--group=packed_byte_shifts"
-  TESTONLY
-)
-endif()
-
 if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_test_module(
   NAME
     packed_byte_shifts_test_module
   SRCS
     "packed_byte_shifts.cxx"
-    "${CMAKE_CURRENT_BINARY_DIR}/packed_byte_shifts_checks.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/packed_byte_shifts_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/packed_byte_shifts_checks.loom"
 )
 endif()
 
