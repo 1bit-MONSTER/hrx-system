@@ -145,3 +145,24 @@ low.func.def target<wasm.core.simd128> abi(wasm_function) @wide_lane_shuffle(%wi
   %result = i8x16.shuffle %wide, %wide, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7
   return %result
 }
+
+// ====
+
+// Partial narrow floating and integer vectors share the same v128 payload.
+// The bitcasts remain aliases when a following descriptor consumes the value.
+func.def @partial_float_bitcast_alias(%input: vector<8xf16>) -> (vector<8xf16>) {
+  %head = vector.slice %input[0] : vector<8xf16> -> vector<3xf16>
+  %tail = vector.slice %input[3] : vector<8xf16> -> vector<5xf16>
+  %head_bits = vector.bitcast %head : vector<3xf16> to vector<3xi16>
+  %preserved_bits = vector.ori %head_bits, %head_bits : vector<3xi16>
+  %preserved = vector.bitcast %preserved_bits : vector<3xi16> to vector<3xf16>
+  %result = vector.concat<0> %preserved, %tail : vector<3xf16>, vector<5xf16> -> vector<8xf16>
+  func.return %result : vector<8xf16>
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @partial_float_bitcast_alias(%preserved: reg<wasm.v128>) -> (reg<wasm.v128>) asm {
+  %tail = i8x16.shuffle %preserved, %preserved, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 0, 0, 0, 0, 0
+  %result = i8x16.shuffle %preserved, %tail, 0, 1, 2, 3, 4, 5, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25
+  return %result
+}

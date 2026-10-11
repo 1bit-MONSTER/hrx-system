@@ -589,19 +589,24 @@ static iree_status_t loom_vector_legalize_build_select(
   return iree_ok_status();
 }
 
-// Builds an exact F32 number-preferring extremum without expanding lanes.
+// Builds an exact number-preferring extremum without expanding lanes.
 // Ordered comparisons select unequal numeric operands. Equal finite operands
 // have identical bits, except for opposing signed zeros: OR selects -0 for
 // minimum and AND selects +0 for maximum. The final selects choose the numeric
 // peer when exactly one operand is NaN.
-static iree_status_t loom_vector_legalize_build_f32_number_extremum(
+static iree_status_t loom_vector_legalize_build_number_extremum(
     loom_builder_t* builder, loom_location_id_t location,
     loom_vector_float_extremum_kind_t kind, uint8_t fastmath,
     loom_value_id_t lhs, loom_value_id_t rhs, loom_type_t type,
     loom_value_id_t* out_result) {
+  loom_numeric_float_encoding_t encoding = {0};
+  const bool has_encoding =
+      loom_numeric_float_encoding(loom_type_element_type(type), &encoding);
+  IREE_ASSERT(has_encoding && "floating extremum type must have an encoding");
+  (void)has_encoding;
   loom_type_t integer_type = type;
   integer_type.header =
-      loom_type_make_header(loom_type_kind(type), LOOM_SCALAR_TYPE_I32,
+      loom_type_make_header(loom_type_kind(type), encoding.integer_type,
                             loom_type_rank(type), loom_type_flags(type));
   loom_type_t predicate_type = type;
   predicate_type.header =
@@ -670,61 +675,9 @@ static iree_status_t loom_vector_legalize_build_f32_number_extremum(
                                            rhs, rhs_checked, out_result);
 }
 
-static bool loom_vector_legalize_f32_aggregate_is_supported(
-    const loom_target_legalization_context_t* context, const loom_op_t* op) {
-  return !context->source_function_has_unsupported_vector_carrier &&
-         loom_target_legalization_op_has_source_vector_carriers(context, op);
-}
-
-static iree_status_t loom_vector_legalize_f32_number_extremum(
-    const loom_target_legalizer_entry_t* entry,
-    loom_target_legalization_context_t* context, loom_op_t* op,
-    loom_target_legalizer_result_t* out_result) {
-  (void)entry;
-  *out_result = (loom_target_legalizer_result_t){
-      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
-  };
-  if (!loom_vector_legalize_f32_aggregate_is_supported(context, op)) {
-    return iree_ok_status();
-  }
-  loom_rewriter_t* rewriter = context->rewriter;
-  loom_builder_t* builder = &rewriter->builder;
-  loom_builder_set_before(builder, op);
-  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
-  const loom_type_t type =
-      loom_module_value_type(context->module, loom_op_results(op)[0]);
-  loom_value_id_t replacement = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_vector_legalize_build_f32_number_extremum(
-      builder, op->location,
-      loom_vector_minnumf_isa(op) ? LOOM_VECTOR_FLOAT_EXTREMUM_MINIMUM
-                                  : LOOM_VECTOR_FLOAT_EXTREMUM_MAXIMUM,
-      op->instance_flags, loom_op_operands(op)[0], loom_op_operands(op)[1],
-      type, &replacement));
-  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
-      rewriter, op, &replacement, 1, checkpoint));
-  IREE_RETURN_IF_ERROR(
-      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
-  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_vector_legalize_f32_clamp(
-    const loom_target_legalizer_entry_t* entry,
-    loom_target_legalization_context_t* context, loom_op_t* op,
-    loom_target_legalizer_result_t* out_result) {
-  (void)entry;
-  *out_result = (loom_target_legalizer_result_t){
-      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
-  };
-  if (!loom_vector_legalize_f32_aggregate_is_supported(context, op)) {
-    return iree_ok_status();
-  }
-  loom_rewriter_t* rewriter = context->rewriter;
-  loom_builder_t* builder = &rewriter->builder;
-  loom_builder_set_before(builder, op);
-  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
-  const loom_type_t type =
-      loom_module_value_type(context->module, loom_vector_clampf_result(op));
+static iree_status_t loom_vector_legalize_build_clamp(
+    loom_builder_t* builder, loom_op_t* op, loom_type_t type,
+    loom_value_id_t* out_result) {
   loom_type_t predicate_type = type;
   predicate_type.header =
       loom_type_make_header(loom_type_kind(type), LOOM_SCALAR_TYPE_I1,
@@ -754,10 +707,10 @@ static iree_status_t loom_vector_legalize_f32_clamp(
       break;
     }
     case LOOM_VECTOR_CLAMPF_MODE_NUMBER: {
-      IREE_RETURN_IF_ERROR(loom_vector_legalize_build_f32_number_extremum(
+      IREE_RETURN_IF_ERROR(loom_vector_legalize_build_number_extremum(
           builder, op->location, LOOM_VECTOR_FLOAT_EXTREMUM_MAXIMUM, fastmath,
           value, lower, type, &lower_bounded));
-      IREE_RETURN_IF_ERROR(loom_vector_legalize_build_f32_number_extremum(
+      IREE_RETURN_IF_ERROR(loom_vector_legalize_build_number_extremum(
           builder, op->location, LOOM_VECTOR_FLOAT_EXTREMUM_MINIMUM, fastmath,
           lower_bounded, upper, type, &replacement));
       break;
@@ -777,29 +730,18 @@ static iree_status_t loom_vector_legalize_f32_clamp(
       IREE_ASSERT_UNREACHABLE("verified vector clamp has an invalid mode");
       IREE_BUILTIN_UNREACHABLE();
   }
-  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
-      rewriter, op, &replacement, 1, checkpoint));
-  IREE_RETURN_IF_ERROR(
-      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
-  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  *out_result = replacement;
   return iree_ok_status();
 }
 
 // Number-preferring extrema already implement signed-zero ordering. An
 // unordered comparison adds the IEEE NaN policy without changing numeric
 // operands or exposing a NaN payload guarantee.
-static iree_status_t loom_vector_legalize_ieee_extrema(
-    const loom_target_legalizer_entry_t* entry,
-    loom_target_legalization_context_t* context, loom_op_t* op,
-    loom_target_legalizer_result_t* out_result) {
-  (void)entry;
-  loom_rewriter_t* rewriter = context->rewriter;
-  loom_builder_t* builder = &rewriter->builder;
-  loom_builder_set_before(builder, op);
-  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+static iree_status_t loom_vector_legalize_build_ieee_extremum(
+    loom_builder_t* builder, loom_op_t* op, loom_type_t type,
+    loom_value_id_t* out_result) {
   const loom_value_id_t lhs = loom_op_operands(op)[0];
   const loom_value_id_t rhs = loom_op_operands(op)[1];
-  const loom_type_t type = loom_module_value_type(context->module, lhs);
   loom_type_t predicate_type = type;
   predicate_type.header =
       loom_type_make_header(loom_type_kind(type), LOOM_SCALAR_TYPE_I1,
@@ -825,12 +767,71 @@ static iree_status_t loom_vector_legalize_ieee_extrema(
       builder, loom_vector_cmpf_result(unordered),
       loom_vector_constant_result(nan), loom_op_results(number)[0], type,
       op->location, &select));
-  const loom_value_id_t replacement = loom_vector_select_result(select);
+  *out_result = loom_vector_select_result(select);
+  return iree_ok_status();
+}
+
+iree_status_t loom_vector_float_extrema_rewrite_op(loom_rewriter_t* rewriter,
+                                                   loom_op_t* op,
+                                                   bool* out_rewritten) {
+  *out_rewritten = false;
+  if (!loom_vector_minnumf_isa(op) && !loom_vector_maxnumf_isa(op) &&
+      !loom_vector_minimumf_isa(op) && !loom_vector_maximumf_isa(op) &&
+      !loom_vector_clampf_isa(op)) {
+    return iree_ok_status();
+  }
+
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_type_t type =
+      loom_module_value_type(rewriter->module, loom_op_results(op)[0]);
+  loom_value_id_t replacement = LOOM_VALUE_ID_INVALID;
+  if (loom_vector_minnumf_isa(op) || loom_vector_maxnumf_isa(op)) {
+    IREE_RETURN_IF_ERROR(loom_vector_legalize_build_number_extremum(
+        builder, op->location,
+        loom_vector_minnumf_isa(op) ? LOOM_VECTOR_FLOAT_EXTREMUM_MINIMUM
+                                    : LOOM_VECTOR_FLOAT_EXTREMUM_MAXIMUM,
+        op->instance_flags, loom_op_operands(op)[0], loom_op_operands(op)[1],
+        type, &replacement));
+  } else if (loom_vector_clampf_isa(op)) {
+    IREE_RETURN_IF_ERROR(
+        loom_vector_legalize_build_clamp(builder, op, type, &replacement));
+  } else {
+    IREE_RETURN_IF_ERROR(loom_vector_legalize_build_ieee_extremum(
+        builder, op, type, &replacement));
+  }
   IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
       rewriter, op, &replacement, 1, checkpoint));
   IREE_RETURN_IF_ERROR(
       loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
-  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  *out_rewritten = true;
+  return iree_ok_status();
+}
+
+static bool loom_vector_legalize_f32_aggregate_is_supported(
+    const loom_target_legalization_context_t* context, const loom_op_t* op) {
+  return !context->source_function_has_unsupported_vector_carrier &&
+         loom_target_legalization_op_has_source_vector_carriers(context, op);
+}
+
+static iree_status_t loom_vector_legalize_f32_extrema(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!loom_vector_legalize_f32_aggregate_is_supported(context, op)) {
+    return iree_ok_status();
+  }
+  bool rewritten = false;
+  IREE_RETURN_IF_ERROR(
+      loom_vector_float_extrema_rewrite_op(context->rewriter, op, &rewritten));
+  if (rewritten) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  }
   return iree_ok_status();
 }
 
@@ -934,31 +935,31 @@ static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
         .root_kind = LOOM_OP_VECTOR_CLAMPF,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_UNHANDLED,
-        .legalize = loom_vector_legalize_f32_clamp,
+        .legalize = loom_vector_legalize_f32_extrema,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MINNUMF,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_UNHANDLED,
-        .legalize = loom_vector_legalize_f32_number_extremum,
+        .legalize = loom_vector_legalize_f32_extrema,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MAXNUMF,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_UNHANDLED,
-        .legalize = loom_vector_legalize_f32_number_extremum,
+        .legalize = loom_vector_legalize_f32_extrema,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MINIMUMF,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
-        .legalize = loom_vector_legalize_ieee_extrema,
+        .legalize = loom_vector_legalize_f32_extrema,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MAXIMUMF,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
-        .legalize = loom_vector_legalize_ieee_extrema,
+        .legalize = loom_vector_legalize_f32_extrema,
     },
     // Combining operations share one complete reference family. Native target
     // contracts retain precedence; explicit rejection selects the ordinary

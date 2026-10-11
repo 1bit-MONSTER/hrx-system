@@ -9,6 +9,7 @@
 #ifndef LOOM_TRANSFORMS_VECTOR_TARGET_LEGALIZATION_H_
 #define LOOM_TRANSFORMS_VECTOR_TARGET_LEGALIZATION_H_
 
+#include "loom/ops/vector/ops.h"
 #include "loom/target/legalization.h"
 
 #ifdef __cplusplus
@@ -26,6 +27,14 @@ iree_status_t loom_vector_from_elements_linearize_rewrite_op(
 // transposes with an identity lane permutation become a shape-only bitcast.
 iree_status_t loom_vector_transpose_to_shuffle_rewrite_op(
     loom_rewriter_t* rewriter, loom_op_t* op, bool* out_rewritten);
+
+// Rewrites one vector floating extremum or clamp into exact comparisons,
+// same-width integer bit operations, and selects. The replacement preserves
+// source payloads and performs no floating-point narrowing. Returns false for
+// operations outside the supported extremum family.
+iree_status_t loom_vector_float_extrema_rewrite_op(loom_rewriter_t* rewriter,
+                                                   loom_op_t* op,
+                                                   bool* out_rewritten);
 
 // Returns the generic vector legalizer provider. Pipelines should compose this
 // after target-specific providers so native target rewrites win before scalar

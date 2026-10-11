@@ -12,6 +12,7 @@
 #include "loom/ops/vector/ops.h"
 #include "loom/target/arch/wasm/descriptors/descriptors.h"
 #include "loom/target/arch/wasm/descriptors/low_registry.h"
+#include "loom/target/arch/wasm/legalization_float.h"
 #include "loom/target/arch/wasm/low_verify.h"
 #include "loom/target/arch/wasm/math_policy.h"
 #include "loom/target/arch/wasm/ops/ops.h"
@@ -280,13 +281,45 @@ static const loom_target_legalizer_rule_t kLoomWasmLegalizerRules[] = {
         .legalize = loom_wasm_legalize_float8_to_bfloat_extension,
     },
     {
+        .root_kind = LOOM_OP_VECTOR_CMPF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_wasm_legalize_vector_cmpf,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MINIMUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_wasm_legalize_vector_float_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MAXIMUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_wasm_legalize_vector_float_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MINNUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_wasm_legalize_vector_float_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MAXNUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_wasm_legalize_vector_float_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_CLAMPF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_wasm_legalize_vector_float_extrema,
+    },
+    {
         .root_kind = LOOM_OP_VECTOR_LOAD,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER_PAYLOAD,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER_PAYLOAD |
+                                       LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
         .legalize = loom_wasm_legalize_vector_load,
     },
     {
         .root_kind = LOOM_OP_VECTOR_STORE,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER_PAYLOAD,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER_PAYLOAD |
+                                       LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
         .legalize = loom_wasm_legalize_vector_store,
     },
     {

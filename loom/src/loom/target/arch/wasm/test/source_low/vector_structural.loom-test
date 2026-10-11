@@ -137,3 +137,24 @@ low.func.def target<wasm.core.simd128> abi(wasm_function) @roundtrip_rank3_middl
   %result = i8x16.shuffle %even, %odd, 0, 1, 2, 3, 4, 5, 6, 7, 16, 17, 18, 19, 20, 21, 22, 23
   return %result
 }
+
+// ====
+
+// Callback-planned slices must publish their physical result carrier before a
+// following descriptor-planned operation queries its operand types.
+func.def @select_cross_packet_slices(%condition: vector<4xi1>, %lhs: vector<4xi32>, %rhs: vector<4xi32>) -> (vector<4xi32>) {
+  %forward = vector.concat<0> %lhs, %rhs : vector<4xi32>, vector<4xi32> -> vector<8xi32>
+  %reverse = vector.concat<0> %rhs, %lhs : vector<4xi32>, vector<4xi32> -> vector<8xi32>
+  %true_value = vector.slice %forward[2] : vector<8xi32> -> vector<4xi32>
+  %false_value = vector.slice %reverse[1] : vector<8xi32> -> vector<4xi32>
+  %result = vector.select %condition, %true_value, %false_value : vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @select_cross_packet_slices(%condition: reg<wasm.v128>, %lhs: reg<wasm.v128>, %rhs: reg<wasm.v128>) -> (reg<wasm.v128>) asm {
+  %true_value = i8x16.shuffle %lhs, %rhs, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23
+  %false_value = i8x16.shuffle %rhs, %lhs, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
+  %result = v128.bitselect %true_value, %false_value, %condition
+  return %result
+}
