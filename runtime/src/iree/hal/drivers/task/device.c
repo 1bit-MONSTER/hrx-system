@@ -400,6 +400,7 @@ iree_status_t iree_hal_task_device_create(
           .small_block_pool = &device->small_block_pool,
           .large_block_pool = &device->large_block_pool,
           .device_allocator = device->device_allocator,
+          .memory_maintenance = device->memory_backend.maintenance,
       };
       status = iree_hal_task_queue_initialize(&queue_create_params,
                                               &device->queues[i]);
@@ -583,6 +584,7 @@ static iree_status_t iree_hal_task_device_acquire_queue(
       .small_block_pool = &device->small_block_pool,
       .large_block_pool = &device->large_block_pool,
       .device_allocator = device->device_allocator,
+      .memory_maintenance = device->memory_backend.maintenance,
   };
   const iree_hal_task_queue_release_slot_callback_t release_slot = {
       .fn = iree_hal_task_device_release_dynamic_queue_slot,

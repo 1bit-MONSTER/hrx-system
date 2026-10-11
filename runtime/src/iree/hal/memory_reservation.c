@@ -418,17 +418,15 @@ static iree_status_t iree_hal_memory_mapping_batch_execute(
   return status;
 }
 
-IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_queue_map(
-    iree_hal_queue_t* queue, iree_hal_semaphore_list_t waits,
-    iree_hal_semaphore_list_t signals, iree_host_size_t mapping_count,
-    const iree_hal_memory_mapping_t* mappings,
-    iree_hal_queue_map_flags_t flags) {
-  const uint64_t args[4] = {0};
+IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_prepare_map(
+    iree_hal_queue_t* queue, iree_host_size_t mapping_count,
+    const iree_hal_memory_mapping_t* mappings, iree_hal_queue_map_flags_t flags,
+    iree_hal_host_call_t* out_call) {
+  *out_call = (iree_hal_host_call_t){0};
   if (!mapping_count) {
-    return iree_hal_queue_host_call(
-        queue, waits, signals,
-        iree_hal_make_host_call(iree_hal_memory_mapping_batch_execute, NULL),
-        args, 0);
+    *out_call =
+        iree_hal_make_host_call(iree_hal_memory_mapping_batch_execute, NULL);
+    return iree_ok_status();
   }
   const void* domain = iree_hal_queue_family(queue)->memory.domain;
   iree_host_size_t capacity = 0;
@@ -485,12 +483,25 @@ IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_queue_map(
     }
   }
   if (iree_status_is_ok(status)) {
-    status = iree_hal_queue_host_call(
-        queue, waits, signals,
-        iree_hal_make_host_call_with_resource(
-            iree_hal_memory_mapping_batch_execute, batch, &batch->resource),
-        args, 0);
+    *out_call = iree_hal_make_host_call_with_resource(
+        iree_hal_memory_mapping_batch_execute, batch, &batch->resource);
+  } else {
+    iree_hal_resource_release(batch);
   }
-  iree_hal_resource_release(batch);
+  return status;
+}
+
+IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_queue_map(
+    iree_hal_queue_t* queue, iree_hal_semaphore_list_t waits,
+    iree_hal_semaphore_list_t signals, iree_host_size_t mapping_count,
+    const iree_hal_memory_mapping_t* mappings,
+    iree_hal_queue_map_flags_t flags) {
+  iree_hal_host_call_t call;
+  IREE_RETURN_IF_ERROR(iree_hal_memory_reservation_prepare_map(
+      queue, mapping_count, mappings, flags, &call));
+  const uint64_t args[4] = {0};
+  iree_status_t status =
+      iree_hal_queue_host_call(queue, waits, signals, call, args, 0);
+  iree_hal_resource_release(call.resource);
   return status;
 }

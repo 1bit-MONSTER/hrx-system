@@ -765,6 +765,9 @@ enum iree_hal_profile_queue_event_type_e {
 
   // Atomic read-modify-write submitted through a queue operation.
   IREE_HAL_PROFILE_QUEUE_EVENT_TYPE_ATOMIC_RMW = 14u,
+
+  // Batched virtual address mapping submitted through a queue operation.
+  IREE_HAL_PROFILE_QUEUE_EVENT_TYPE_MAP = 15u,
 };
 
 // Bitfield specifying properties of one queue event record.

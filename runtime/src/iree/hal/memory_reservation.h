@@ -8,6 +8,7 @@
 #define IREE_HAL_MEMORY_RESERVATION_H_
 
 #include "iree/hal/memory_scope.h"
+#include "iree/hal/queue.h"
 #include "iree/hal/semaphore.h"
 
 #ifdef __cplusplus
@@ -156,6 +157,17 @@ IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
     const iree_hal_memory_reservation_vtable_t* vtable,
     iree_allocator_t host_allocator,
     iree_hal_memory_reservation_t* reservation);
+
+// Validates and captures one complete batch for synchronous native publication.
+// The returned call owns one resource reference, released by its recipient.
+// Its callback runs once after queue prerequisites, returns a terminal status,
+// and does not publish signals itself. Cancellation only releases the resource.
+// Queue implementations choose their existing cold execution owner and retain
+// operation/frontier ownership until the callback returns.
+IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_prepare_map(
+    iree_hal_queue_t* queue, iree_host_size_t mapping_count,
+    const iree_hal_memory_mapping_t* mappings, iree_hal_queue_map_flags_t flags,
+    iree_hal_host_call_t* out_call);
 
 // Captures one batch and executes it through the queue's existing host-call
 // owner. Used by backends with synchronous native mapping publication. Native

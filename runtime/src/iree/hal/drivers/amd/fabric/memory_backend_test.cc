@@ -8,7 +8,11 @@
 
 #include <array>
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
+#include <functional>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 #include "iree/async/frontier_tracker.h"
@@ -434,6 +438,9 @@ struct FakeNative {
     auto* device =
         reinterpret_cast<Device*>(reservation->accesses[ordinal].device);
     auto* self = reservation->owner;
+    if (self->before_update) {
+      self->before_update();
+    }
     ++self->update_count;
     self->last_updates.assign(updates, updates + count);
     for (uint32_t i = 0; i < count; ++i) {
@@ -470,6 +477,8 @@ struct FakeNative {
   std::vector<amdf_memory_mapping_update_t> last_updates;
   // Native partial failure returned after accepting an update.
   amdf_status_t update_failure = AMDF_STATUS_OK;
+  // Optional native work gate, used to prove independent CPU queue progress.
+  std::function<void()> before_update;
   // Consuming terminal native destruction result.
   amdf_status_t destroy_failure = AMDF_STATUS_OK;
 
@@ -665,6 +674,23 @@ class MemoryBackendTest : public ::testing::Test {
     IREE_CHECK_OK(
         iree_hal_device_group_resolve_memory_scope(group_, site, &scope));
     return scope;
+  }
+
+  iree_status_t CreateReservation(
+      iree_hal_memory_reservation_t** out_reservation) {
+    native_.mapping_enabled = true;
+    binding_descriptions_[0] = {IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS,
+                                AMDF_MEMORY_ADDRESS_GPU};
+    native_families_[0].host_usage = 0;
+    const iree_hal_pool_family_access_t family = {
+        /*.family=*/families_[0],
+        /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
+    };
+    const iree_hal_pool_scope_t scope = {1, &family, {}};
+    const iree_hal_memory_reservation_options_t options = {
+        /*.byte_length=*/16384};
+    return iree_hal_memory_reservation_create(group_, scope, &options,
+                                              allocator_, out_reservation);
   }
 
   // Host allocator shared by all test owners.
@@ -1593,19 +1619,8 @@ INSTANTIATE_TEST_SUITE_P(ProjectionIdentity, ReservationBackendTest,
                          ::testing::Values(false, true));
 
 TEST_F(MemoryBackendTest, NativeMappingFailureReachesQueueCompletion) {
-  native_.mapping_enabled = true;
-  binding_descriptions_[0] = {IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS,
-                              AMDF_MEMORY_ADDRESS_GPU};
-  native_families_[0].host_usage = 0;
-  iree_hal_pool_family_access_t family = {};
-  family.family = families_[0];
-  family.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
-  const iree_hal_pool_scope_t scope = {1, &family, {}};
-  const iree_hal_memory_reservation_options_t options = {
-      /*.byte_length=*/16384};
   iree_hal_memory_reservation_t* reservation = nullptr;
-  IREE_ASSERT_OK(iree_hal_memory_reservation_create(group_, scope, &options,
-                                                    allocator_, &reservation));
+  IREE_ASSERT_OK(CreateReservation(&reservation));
   iree_hal_semaphore_t* done = nullptr;
   IREE_ASSERT_OK(iree_hal_semaphore_create(
       cpu_device_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0, 0, &done));
@@ -1629,21 +1644,113 @@ TEST_F(MemoryBackendTest, NativeMappingFailureReachesQueueCompletion) {
   iree_hal_semaphore_release(done);
 }
 
+TEST_F(MemoryBackendTest, SlowNativeMappingLeavesTheSingleCpuWorkerAvailable) {
+  iree_hal_memory_reservation_t* reservation = nullptr;
+  IREE_ASSERT_OK(CreateReservation(&reservation));
+  iree_hal_semaphore_t* done = nullptr;
+  IREE_ASSERT_OK(iree_hal_semaphore_create(
+      cpu_device_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0, 0, &done));
+  struct NativeWork {
+    // Protects the native entry and release predicates.
+    std::mutex mutex;
+    // Publishes native entry and independent CPU work completion.
+    std::condition_variable condition;
+    // True once the actual native update callback is blocked.
+    bool entered = false;
+    // Set only by the independent CPU queue operation.
+    bool released = false;
+  } work;
+  native_.before_update = [&] {
+    std::unique_lock<std::mutex> lock(work.mutex);
+    work.entered = true;
+    work.condition.notify_all();
+    work.condition.wait(lock, [&] { return work.released; });
+  };
+  uint64_t value = 1;
+  const iree_hal_semaphore_list_t signals = {1, &done, &value};
+  const iree_hal_memory_mapping_t mapping = {
+      /*.reservation=*/reservation,
+      /*.scope=*/ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
+      /*.target_range=*/{0, 4096},
+  };
+  auto* queue = iree_hal_device_queue(cpu_device_, 0, 0);
+  IREE_ASSERT_OK(iree_hal_queue_map(queue, {}, signals, 1, &mapping, 0));
+  {
+    std::unique_lock<std::mutex> lock(work.mutex);
+    work.condition.wait(lock, [&] { return work.entered; });
+  }
+  const uint64_t args[4] = {};
+  iree_status_t status = iree_hal_queue_host_call(
+      queue, {}, {},
+      iree_hal_make_host_call(
+          +[](void* user_data, const uint64_t*, iree_hal_host_call_context_t*) {
+            auto* work = static_cast<NativeWork*>(user_data);
+            std::lock_guard<std::mutex> lock(work->mutex);
+            work->released = true;
+            work->condition.notify_all();
+            return iree_ok_status();
+          },
+          &work),
+      args, 0);
+  if (!iree_status_is_ok(status)) {
+    std::lock_guard<std::mutex> lock(work.mutex);
+    work.released = true;
+    work.condition.notify_all();
+  }
+  IREE_ASSERT_OK(status);
+  IREE_ASSERT_OK(
+      iree_hal_semaphore_wait(done, value, iree_infinite_timeout(), 0));
+  EXPECT_EQ(native_.update_count, 1);
+  native_.before_update = {};
+  IREE_ASSERT_OK(iree_hal_memory_reservation_destroy(reservation));
+  iree_hal_semaphore_release(done);
+}
+
+TEST_F(MemoryBackendTest, NativeMappingFailureFailsFrontierWithoutSignals) {
+  iree_hal_memory_reservation_t* reservation = nullptr;
+  IREE_ASSERT_OK(CreateReservation(&reservation));
+  alignas(iree_async_frontier_t)
+      uint8_t frontier_storage[sizeof(iree_async_frontier_t) +
+                               sizeof(iree_async_frontier_entry_t)] = {};
+  auto* frontier = reinterpret_cast<iree_async_frontier_t*>(frontier_storage);
+  iree_async_frontier_initialize(frontier, 1);
+  frontier->entries[0] = {
+      iree_hal_device_topology_info(cpu_device_)->frontier.base_axis, 1};
+  struct Completion {
+    // Terminal status transferred from the queue's frontier failure.
+    iree_status_t status = iree_ok_status();
+    // Publishes status after the callback's last non-atomic access.
+    std::atomic<bool> ready{false};
+  } completion;
+  iree_async_frontier_waiter_t waiter = {};
+  IREE_ASSERT_OK(iree_async_frontier_tracker_wait(
+      tracker_, frontier,
+      +[](void* user_data, iree_status_t status) {
+        auto* completion = static_cast<Completion*>(user_data);
+        completion->status = status;
+        completion->ready.store(true, std::memory_order_release);
+      },
+      &completion, &waiter));
+  const iree_hal_memory_mapping_t mapping = {
+      /*.reservation=*/reservation,
+      /*.scope=*/ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
+      /*.target_range=*/{0, 4096},
+  };
+  native_.update_failure = amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
+  IREE_ASSERT_OK(iree_hal_queue_map(iree_hal_device_queue(cpu_device_, 0, 0),
+                                    {}, {}, 1, &mapping, 0));
+  while (!completion.ready.load(std::memory_order_acquire)) {
+    std::this_thread::yield();
+  }
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_DATA_LOSS, completion.status);
+  EXPECT_EQ(native_.update_count, 1);
+  IREE_ASSERT_OK(iree_hal_memory_reservation_destroy(reservation));
+}
+
 TEST_F(MemoryBackendTest,
        ConsumesFailedReservationDestructionWithoutDeferringToViews) {
-  native_.mapping_enabled = true;
-  binding_descriptions_[0] = {IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS,
-                              AMDF_MEMORY_ADDRESS_GPU};
-  native_families_[0].host_usage = 0;
-  iree_hal_pool_family_access_t family = {};
-  family.family = families_[0];
-  family.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
-  const iree_hal_pool_scope_t scope = {1, &family, {}};
-  const iree_hal_memory_reservation_options_t options = {
-      /*.byte_length=*/16384};
   iree_hal_memory_reservation_t* reservation = nullptr;
-  IREE_ASSERT_OK(iree_hal_memory_reservation_create(group_, scope, &options,
-                                                    allocator_, &reservation));
+  IREE_ASSERT_OK(CreateReservation(&reservation));
   iree_hal_buffer_t* view = iree_hal_memory_reservation_buffer(reservation);
   iree_hal_buffer_retain(view);
   native_.destroy_failure = amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
