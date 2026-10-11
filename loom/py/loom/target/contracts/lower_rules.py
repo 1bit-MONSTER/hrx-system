@@ -141,6 +141,7 @@ from loom.target.contracts.rules import (
     OrdinalValueAliasRule,
     RecipeRule,
     SourceNodeRelation,
+    UnsupportedRule,
     ValueAliasRule,
     ValueElideRule,
     contract_case_priority,
@@ -366,6 +367,8 @@ class _LowerRuleSetCompiler:
                 self._append_elide_rule(authored_case_index, contract_case)
             elif isinstance(contract_case, RecipeRule):
                 self._append_recipe_rule(authored_case_index, contract_case)
+            elif isinstance(contract_case, UnsupportedRule):
+                continue
 
         guard_ranges = [(rule.guard_start, rule.guard_count) for rule in self._rules]
         guard_ranges.extend(
@@ -1196,6 +1199,31 @@ class _LowerRuleSetCompiler:
                             ),
                         ),
                     ),
+                )
+            )
+            return
+
+        if guard.kind == GuardKind.LOW_VALUE_REPRESENTATION:
+            if guard.count is None or guard.count < 0 or guard.count >= 0xFFFF:
+                raise ValueError(
+                    f"{source_op.name}: representation guard needs an ID in [0, 65534]"
+                )
+            self._guards.append(
+                LowerGuard(
+                    kind=guard.kind,
+                    value_ref_index=value_ref_index,
+                    diagnostic_index=self._append_diagnostic_ref(
+                        source_op,
+                        _guard_diagnostic(
+                            guard,
+                            _named_constraint_diagnostic(
+                                "field",
+                                guard.field,
+                                f"low_representation.{guard.count}",
+                            ),
+                        ),
+                    ),
+                    u64=guard.count,
                 )
             )
             return
