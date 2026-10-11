@@ -183,7 +183,20 @@ static iree_status_t iree_hal_amd_fabric_memory_prepare(
       "host_mapping_query_info"));
   memory->contents =
       iree_make_byte_span(mapping_info.pointer, memory->info.byte_length);
-  memory->host_cacheability = mapping_info.cacheability;
+  switch (mapping_info.cacheability) {
+    case AMDF_HOST_CACHEABILITY_WRITE_BACK:
+      memory->host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+      break;
+    case AMDF_HOST_CACHEABILITY_WRITE_COMBINED:
+      memory->host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_COMBINED;
+      break;
+    case AMDF_HOST_CACHEABILITY_UNCACHED:
+      memory->host_cacheability = IREE_HAL_HOST_CACHEABILITY_UNCACHED;
+      break;
+    default:
+      memory->host_cacheability = IREE_HAL_HOST_CACHEABILITY_UNKNOWN;
+      break;
+  }
   return iree_ok_status();
 }
 
@@ -286,6 +299,7 @@ iree_status_t iree_hal_amd_fabric_memory_register(
   iree_status_t status =
       iree_hal_amd_fabric_memory_prepare(api, options, &memory);
   if (iree_status_is_ok(status)) {
+    memory.host_cacheability = storage->host_cacheability;
     memory.maintenance_range = storage->maintenance_range;
     if (memory.maintenance_range.byte_length == IREE_HAL_WHOLE_BUFFER) {
       memory.maintenance_range.byte_length =
@@ -351,6 +365,11 @@ iree_status_t iree_hal_amd_fabric_memory_import(
   iree_status_t status =
       iree_hal_amd_fabric_memory_prepare(api, options, &memory);
   if (iree_status_is_ok(status)) {
+    memory.maintenance_range = storage->maintenance_range;
+    if (memory.maintenance_range.byte_length == IREE_HAL_WHOLE_BUFFER) {
+      memory.maintenance_range.byte_length =
+          storage->byte_length - memory.maintenance_range.byte_offset;
+    }
     *out_memory = memory;
   } else {
     iree_hal_amd_fabric_memory_deinitialize(api, event_sink, &memory);

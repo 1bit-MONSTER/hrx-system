@@ -123,6 +123,16 @@ static iree_hal_vulkan_buffer_t* iree_hal_vulkan_buffer_cast(
   return (iree_hal_vulkan_buffer_t*)base_value;
 }
 
+iree_hal_buffer_allocation_info_t iree_hal_vulkan_buffer_allocation_info(
+    iree_hal_buffer_t* base_buffer) {
+  const iree_hal_vulkan_buffer_t* buffer =
+      iree_hal_vulkan_buffer_cast(base_buffer);
+  return (iree_hal_buffer_allocation_info_t){
+      .byte_length = buffer->mapping_state->device_memory_size,
+      .byte_offset = buffer->device_memory_offset,
+  };
+}
+
 const iree_hal_buffer_binding_layout_t* iree_hal_vulkan_buffer_binding_layout(
     void) {
   static const uint16_t types[] = {

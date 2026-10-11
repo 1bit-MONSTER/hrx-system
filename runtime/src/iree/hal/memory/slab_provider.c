@@ -235,9 +235,6 @@ static void iree_hal_slab_buffer_prefault(void* user_data,
 void iree_hal_slab_buffer_backing_initialize(
     iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
     const iree_hal_slab_provider_properties_t* properties,
-    iree_hal_buffer_range_t maintenance_range,
-    iree_hal_host_cacheability_t host_cacheability,
-    iree_hal_physical_memory_id_t physical_backing_id,
     iree_async_notification_t* notification,
     iree_async_frontier_tracker_t* tracker,
     iree_hal_memory_maintenance_t* maintenance,
@@ -255,11 +252,17 @@ void iree_hal_slab_buffer_backing_initialize(
       .tracker = tracker,
       .maintenance = maintenance,
       .advice = &out_backing->advice,
-      .maintenance_range = maintenance_range,
-      .host_cacheability = host_cacheability,
-      .physical_backing_id = physical_backing_id,
-      .allocation_alignment = properties->allocation_alignment,
+      .maintenance_range = slab->maintenance_range,
+      .host_cacheability = slab->host_cacheability,
+      .physical_backing_id = slab->physical_backing_id,
+      .native_allocation = slab->native_allocation,
+      .allocation_alignment = slab->allocation_alignment,
       .maintenance_alignment = properties->maintenance_alignment,
       .atomic_operations = properties->atomic_operations,
   };
+  if (out_backing->facts.maintenance_range.byte_length ==
+      IREE_HAL_WHOLE_BUFFER) {
+    out_backing->facts.maintenance_range.byte_length =
+        slab->length - slab->maintenance_range.byte_offset;
+  }
 }

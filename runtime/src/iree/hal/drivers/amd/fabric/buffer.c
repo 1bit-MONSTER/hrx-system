@@ -124,7 +124,9 @@ static iree_status_t iree_hal_amd_fabric_buffer_export_native(
         .storage_class = requested_class,
         .byte_length = value->source_byte_offset + value->byte_length,
         .maintenance_range = iree_hal_make_buffer_range(
-            value->source_byte_offset, value->byte_length),
+            value->source_byte_offset +
+                buffer->memory->maintenance_range.byte_offset,
+            buffer->memory->maintenance_range.byte_length),
         .physical_backing_id = {{value->physical_backing_id.words[0],
                                  value->physical_backing_id.words[1]}},
         .release = iree_hal_amd_fabric_external_storage_release,
@@ -178,26 +180,11 @@ static iree_status_t iree_hal_amd_fabric_buffer_export_range(
         local_byte_length);
     return iree_ok_status();
   }
-  iree_hal_host_cacheability_t cacheability =
-      IREE_HAL_HOST_CACHEABILITY_UNKNOWN;
-  switch (memory->host_cacheability) {
-    case AMDF_HOST_CACHEABILITY_WRITE_BACK:
-      cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
-      break;
-    case AMDF_HOST_CACHEABILITY_WRITE_COMBINED:
-      cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_COMBINED;
-      break;
-    case AMDF_HOST_CACHEABILITY_UNCACHED:
-      cacheability = IREE_HAL_HOST_CACHEABILITY_UNCACHED;
-      break;
-    default:
-      break;
-  }
   *out_storage = (iree_hal_external_storage_t){
       .storage_class = requested_class,
       .payload = {.host_pointer = memory->contents.data},
       .byte_length = memory->contents.data_length,
-      .host_cacheability = cacheability,
+      .host_cacheability = memory->host_cacheability,
       .maintenance_range = memory->maintenance_range,
   };
   if (base_buffer->memory.backing) {

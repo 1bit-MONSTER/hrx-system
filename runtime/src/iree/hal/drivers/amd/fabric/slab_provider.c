@@ -197,6 +197,29 @@ static iree_status_t iree_hal_amd_fabric_slab_handle_bind(
   return status;
 }
 
+// Publishes achieved allocation facts without widening the requested slab view.
+static void iree_hal_amd_fabric_slab_initialize(
+    iree_hal_amd_fabric_slab_handle_t* handle, iree_device_size_t length,
+    iree_hal_slab_t* out_slab) {
+  const iree_hal_amd_fabric_memory_t* memory = &handle->memory;
+  *out_slab = (iree_hal_slab_t){
+      .base_ptr = memory->contents.data,
+      .length = length,
+      .provider_handle = (uint64_t)(uintptr_t)handle,
+      .native_allocation =
+          {
+              .byte_length = memory->info.native_allocation_byte_length,
+              .byte_offset = memory->info.source_byte_offset,
+              .granularity = memory->info.native_allocation_granularity,
+          },
+      .maintenance_range = memory->maintenance_range,
+      .host_cacheability = memory->host_cacheability,
+      .physical_backing_id = {{memory->info.physical_backing_id.words[0],
+                               memory->info.physical_backing_id.words[1]}},
+      .allocation_alignment = memory->info.alignment,
+  };
+}
+
 static iree_status_t iree_hal_amd_fabric_slab_provider_acquire_slab(
     iree_hal_slab_provider_t* base_provider, iree_device_size_t min_length,
     iree_device_size_t min_alignment, iree_hal_slab_t* out_slab) {
@@ -222,9 +245,7 @@ static iree_status_t iree_hal_amd_fabric_slab_provider_acquire_slab(
     status = iree_hal_amd_fabric_slab_handle_bind(provider, handle);
   }
   if (iree_status_is_ok(status)) {
-    out_slab->base_ptr = handle->memory.contents.data;
-    out_slab->length = min_length;
-    out_slab->provider_handle = (uint64_t)(uintptr_t)handle;
+    iree_hal_amd_fabric_slab_initialize(handle, min_length, out_slab);
     iree_atomic_fetch_add(&provider->total_acquired, 1,
                           iree_memory_order_relaxed);
   } else {
@@ -282,11 +303,14 @@ static iree_status_t iree_hal_amd_fabric_slab_provider_import_slab(
     status = iree_hal_amd_fabric_slab_handle_bind(provider, handle);
   }
   if (iree_status_is_ok(status)) {
-    out_import->slab = (iree_hal_slab_t){
-        .base_ptr = handle->memory.contents.data,
-        .length = storage->byte_length,
-        .provider_handle = (uint64_t)(uintptr_t)handle,
-    };
+    iree_hal_amd_fabric_slab_initialize(handle, storage->byte_length,
+                                        &out_import->slab);
+    // Registration can establish a page cover without deriving a physical
+    // identity. Preserve an identity already qualified by the storage source.
+    if (!out_import->slab.physical_backing_id.words[0] &&
+        !out_import->slab.physical_backing_id.words[1]) {
+      out_import->slab.physical_backing_id = storage->physical_backing_id;
+    }
     out_import->properties = provider->properties;
     out_import->properties.allocation_alignment = handle->memory.info.alignment;
     out_import->properties.max_allocation_alignment =

@@ -898,7 +898,7 @@ class QueueHarness {
         memory_type |= IREE_HAL_MEMORY_TYPE_HOST_COHERENT;
       }
       if (storage->memory.storage.host_cacheability ==
-          AMDF_HOST_CACHEABILITY_WRITE_BACK) {
+          IREE_HAL_HOST_CACHEABILITY_WRITE_BACK) {
         memory_type |= IREE_HAL_MEMORY_TYPE_HOST_CACHED;
       }
       status = iree_hal_amd_fabric_buffer_wrap(

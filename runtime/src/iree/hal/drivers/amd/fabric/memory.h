@@ -25,8 +25,8 @@ typedef struct iree_hal_amd_fabric_memory_t {
   amdf_host_mapping_t* mapping;
   // Borrowed host pointer and logical extent; empty without a host view.
   iree_byte_span_t contents;
-  // Observed cache class; UNKNOWN without a host view.
-  amdf_host_cacheability_t host_cacheability;
+  // Cache class of the native or registered host view, when established.
+  iree_hal_host_cacheability_t host_cacheability;
   // Achieved attachment geometry and physical identity, captured once.
   amdf_memory_info_t info;
   // Storage-relative envelope available for host cache maintenance.

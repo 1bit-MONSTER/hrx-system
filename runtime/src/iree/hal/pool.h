@@ -346,7 +346,9 @@ typedef struct iree_hal_pool_stats_t {
   // Does not include quarantine owned by a backing pool or native allocator.
   iree_device_size_t bytes_quarantined;
 
-  // Total physical memory committed (slabs or VMM pages).
+  // Backing bytes committed to this pool. Owning leaves count native payload
+  // extents; nested pools count their retained ranges. These per-pool totals
+  // are not additive across a backing-pool chain or imported aliases.
   iree_device_size_t bytes_committed;
 
   // Budget limit in bytes (0 = unlimited).

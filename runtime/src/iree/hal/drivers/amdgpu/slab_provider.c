@@ -686,6 +686,16 @@ static iree_status_t iree_hal_amdgpu_slab_provider_acquire_slab(
     // would incorrectly inflate HAL buffer byte lengths in pass-through pools.
     out_slab->length = min_length;
     out_slab->provider_handle = (uint64_t)(uintptr_t)slab_handle;
+    out_slab->native_allocation.byte_length = allocation_size;
+    out_slab->native_allocation.granularity = provider->allocation_granule;
+    out_slab->maintenance_range =
+        iree_hal_make_buffer_range(0, allocation_size);
+    out_slab->host_cacheability =
+        iree_any_bit_set(provider->owned.memory_type,
+                         IREE_HAL_MEMORY_TYPE_HOST_CACHED)
+            ? IREE_HAL_HOST_CACHEABILITY_WRITE_BACK
+            : IREE_HAL_HOST_CACHEABILITY_UNKNOWN;
+    out_slab->allocation_alignment = provider->allocation_alignment;
     iree_hal_memory_trace_alloc(&provider->trace, base_ptr, allocation_size);
     iree_atomic_fetch_add(&provider->total_acquired, 1,
                           iree_memory_order_relaxed);
@@ -768,6 +778,11 @@ static iree_status_t iree_hal_amdgpu_slab_provider_import_slab(
               iree_hal_amdgpu_atomic_memory_expand_capabilities(
                   native->atomic_memory_cells),
       };
+      out_import->slab.maintenance_range = storage->maintenance_range;
+      out_import->slab.host_cacheability = storage->host_cacheability;
+      out_import->slab.physical_backing_id = storage->physical_backing_id;
+      out_import->slab.allocation_alignment =
+          out_import->properties.allocation_alignment;
       iree_hal_memory_trace_alloc(&provider->trace, out_import->slab.base_ptr,
                                   out_import->slab.length);
       iree_atomic_fetch_add(&provider->total_acquired, 1,

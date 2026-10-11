@@ -910,6 +910,22 @@ typedef struct iree_hal_buffer_range_advice_t {
                       const iree_hal_asan_allocation_layout_t* layout);
 } iree_hal_buffer_range_advice_t;
 
+// Native allocation or registered page-cover geometry established by the
+// storage provider. A registration's cover may differ from the original source
+// allocation. This is informational and grants neither access to padding nor
+// an ownership claim.
+// Unknown geometry is zero; a host pointer alone does not establish its source
+// allocation extent. This excludes driver/allocator metadata, reserved virtual
+// address slack and residency accounting.
+typedef struct iree_hal_buffer_allocation_info_t {
+  // Complete native allocation payload extent, including known padding.
+  iree_device_size_t byte_length;
+  // Backing coordinate zero within the native allocation payload.
+  iree_device_size_t byte_offset;
+  // Native allocation-size granularity, or zero when not established.
+  iree_device_size_t granularity;
+} iree_hal_buffer_allocation_info_t;
+
 // Immutable cold facts embedded in the owner of prepared native storage.
 // This is borrowed value data, not another resource or an origin-pool link.
 // The sealed device group and the allocation epoch must outlive all consumers.
@@ -928,7 +944,10 @@ typedef struct iree_hal_buffer_backing_facts_t {
   // Source-established host cacheability of the backing storage.
   iree_hal_host_cacheability_t host_cacheability;
   // Physical identity established by the storage source, when available.
+  // Identity alone does not establish byte correspondence between attachments.
   iree_hal_physical_memory_id_t physical_backing_id;
+  // Native payload geometry, independent of visible and maintenance ranges.
+  iree_hal_buffer_allocation_info_t native_allocation;
   // Guaranteed power-of-two alignment of byte zero in native coordinates.
   iree_device_size_t allocation_alignment;
   // Minimum independently maintained byte granule; one for coherent storage.

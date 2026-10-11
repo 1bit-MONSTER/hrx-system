@@ -230,7 +230,9 @@ iree_cc_test(
     iree::base
     iree::hal
     iree::hal::drivers::task::device
+    iree::hal::memory::fixed_block_pool
     iree::hal::memory::maintenance_thread
+    iree::hal::memory::slab_cache
     iree::hal::testing::mock_device
     iree::task
     iree::testing::gtest

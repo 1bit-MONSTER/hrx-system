@@ -162,6 +162,11 @@ static iree_status_t iree_hal_test_opaque_slab_provider_acquire_slab(
   out_slab->base_ptr = (uint8_t*)(uintptr_t)1;
   out_slab->length = min_length;
   out_slab->provider_handle = (uint64_t)(uintptr_t)backing;
+  out_slab->native_allocation.byte_length = min_length;
+  out_slab->native_allocation.granularity = 1;
+  out_slab->maintenance_range = iree_hal_make_buffer_range(0, min_length);
+  out_slab->host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  out_slab->allocation_alignment = IREE_HAL_HEAP_BUFFER_ALIGNMENT;
   return iree_ok_status();
 }
 

@@ -125,6 +125,18 @@ TEST_P(PoolTest, BaselineConstruction) {
     EXPECT_TRUE(
         iree_all_bits_set(iree_hal_buffer_allowed_usage(buffer), usage));
     EXPECT_GE(iree_hal_buffer_allocation_size(buffer), kAllocationSize);
+    const auto memory = iree_hal_buffer_memory_view(buffer);
+    ASSERT_NE(memory.backing, nullptr);
+    EXPECT_GE(memory.backing->native_allocation.byte_length,
+              memory.backing->native_allocation.byte_offset + kAllocationSize);
+    EXPECT_TRUE(
+        iree_device_size_is_power_of_two(memory.backing->allocation_alignment));
+    iree_hal_pool_stats_t stats;
+    iree_hal_pool_query_stats(pool, &stats);
+    EXPECT_EQ(stats.bytes_reserved,
+              memory.backing->native_allocation.byte_length);
+    EXPECT_EQ(stats.bytes_committed,
+              memory.backing->native_allocation.byte_length);
   }
 }
 

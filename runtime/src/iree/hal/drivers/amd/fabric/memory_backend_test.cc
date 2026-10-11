@@ -16,7 +16,9 @@
 #include "iree/async/util/proactor_pool.h"
 #include "iree/hal/device_group.h"
 #include "iree/hal/drivers/task/device.h"
+#include "iree/hal/memory/fixed_block_pool.h"
 #include "iree/hal/memory/maintenance_thread.h"
+#include "iree/hal/memory/slab_cache.h"
 #include "iree/hal/slab_pool.h"
 #include "iree/hal/testing/mock_device.h"
 #include "iree/task/executor.h"
@@ -114,6 +116,7 @@ struct FakeNative {
     out_profile->allocation.minimum_alignment = 4096;
     out_profile->allocation.maximum_alignment = UINT64_C(1) << 20;
     out_profile->allocation.native_byte_length_granularity = 4096;
+    out_profile->allocation.native_byte_length_prefix = self->native_prefix;
     out_profile->host_mapping.maximum_byte_length = UINT64_C(1) << 30;
     out_profile->host_mapping.byte_offset_granularity = 1;
     out_profile->host_mapping.byte_length_granularity = 1;
@@ -248,8 +251,10 @@ struct FakeNative {
     FakeNative* owner;
     // Aligned host bytes modeling the native allocation.
     void* data;
-    // Complete rounded native byte extent.
+    // Usable extent after native construction rounding.
     uint64_t byte_length;
+    // Identity assigned to the native allocation.
+    uint64_t identity;
     // Whether the native object borrows application storage.
     bool registered;
   };
@@ -271,13 +276,13 @@ struct FakeNative {
     }
     auto* memory =
         new Memory{self, info->registered_host_pointer, info->byte_length,
+                   static_cast<uint64_t>(++self->create_count),
                    info->registered_host_pointer != nullptr};
     if (!memory->registered) {
       IREE_CHECK_OK(iree_allocator_malloc_aligned(
           iree_allocator_system(), info->byte_length, info->minimum_alignment,
           0, &memory->data));
     }
-    ++self->create_count;
     *out_memory = reinterpret_cast<amdf_memory_t*>(memory);
     return AMDF_STATUS_OK;
   }
@@ -298,8 +303,14 @@ struct FakeNative {
     out_info->byte_length = memory->byte_length;
     const uintptr_t pointer = reinterpret_cast<uintptr_t>(memory->data);
     out_info->alignment = memory->registered ? pointer & (~pointer + 1) : 4096;
-    out_info->native_allocation_byte_length = memory->byte_length;
+    out_info->source_byte_offset =
+        memory->registered ? pointer % 4096 : memory->owner->native_prefix;
+    out_info->native_allocation_byte_length = iree_device_align(
+        out_info->source_byte_offset + memory->byte_length, 4096);
     out_info->native_allocation_granularity = 4096;
+    if (!memory->registered) {
+      out_info->physical_backing_id = {{0xA, memory->identity}};
+    }
     return AMDF_STATUS_OK;
   }
 
@@ -346,6 +357,8 @@ struct FakeNative {
   amdf_memory_class_t memory_class = AMDF_MEMORY_CLASS_SYSTEM;
   // Whether this profile has any host mapping route.
   bool host_mappable = true;
+  // Native payload preceding usable byte zero for owned allocations.
+  uint64_t native_prefix = 0;
   // Native permissions that cannot be narrowed by the caller.
   amdf_memory_access_t minimum_access =
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
@@ -649,6 +662,103 @@ TEST_F(MemoryBackendTest, PublishesCanonicalPerDeviceBindings) {
   iree_hal_pool_release(pool);
 }
 
+TEST_F(MemoryBackendTest,
+       NestedPoolsAndCacheShareNativeFactsAndPhysicalCharge) {
+  native_.native_prefix = 128;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+  iree_hal_slab_cache_options_t cache_options;
+  iree_hal_slab_cache_options_initialize(&cache_options);
+  cache_options.slab = iree_hal_make_pool_reservation_request(4096, 128);
+  cache_options.max_count = 1;
+  iree_hal_pool_t* cache = nullptr;
+  IREE_ASSERT_OK(
+      iree_hal_slab_cache_create(pool, &cache_options, allocator_, &cache));
+
+  const iree_hal_buffer_backing_facts_t* original_backing = nullptr;
+  for (int iteration = 0; iteration < 2; ++iteration) {
+    iree_hal_buffer_t* slab = nullptr;
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        cache, cache_options.slab, iree_infinite_timeout(), &slab));
+    const auto memory = iree_hal_buffer_memory_view(slab);
+    ASSERT_NE(memory.backing, nullptr);
+    if (!iteration) {
+      original_backing = memory.backing;
+    }
+    EXPECT_EQ(memory.backing, original_backing);
+    EXPECT_EQ(iree_hal_buffer_byte_length(slab), 4096u);
+    EXPECT_EQ(memory.backing->native_allocation.byte_length, 8192u);
+    EXPECT_EQ(memory.backing->native_allocation.byte_offset, 128u);
+    EXPECT_EQ(memory.backing->native_allocation.granularity, 4096u);
+    EXPECT_EQ(memory.backing->allocation_alignment, 4096u);
+    EXPECT_EQ(memory.backing->maintenance_range.byte_offset, 0u);
+    EXPECT_EQ(memory.backing->maintenance_range.byte_length, 4096u);
+    EXPECT_EQ(memory.backing->host_cacheability,
+              IREE_HAL_HOST_CACHEABILITY_WRITE_BACK);
+    EXPECT_EQ(memory.backing->physical_backing_id.words[0], 0xAu);
+    EXPECT_EQ(memory.backing->physical_backing_id.words[1], 1u);
+
+    iree_hal_fixed_block_pool_options_t child_options = {};
+    child_options.block_size = 256;
+    iree_hal_pool_t* child = nullptr;
+    IREE_ASSERT_OK(iree_hal_fixed_block_pool_create_from_buffer(
+        slab, 128, 2048, &child_options, allocator_, &child));
+    iree_hal_buffer_t* buffer = nullptr;
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        child, iree_hal_make_pool_reservation_request(256, 128),
+        iree_infinite_timeout(), &buffer));
+    const auto child_memory = iree_hal_buffer_memory_view(buffer);
+    EXPECT_EQ(child_memory.backing, memory.backing);
+    EXPECT_EQ(child_memory.bindings, memory.bindings);
+    EXPECT_EQ(child_memory.offset, memory.offset + 128);
+    const uint8_t pattern = 0x45 + iteration;
+    iree_hal_buffer_mapping_t mapping;
+    IREE_ASSERT_OK(iree_hal_buffer_map_range(
+        buffer, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_WRITE,
+        IREE_HAL_BUFFER_MAP_FLAG_NONE, 0, 256, &mapping));
+    memset(mapping.contents.data, pattern, mapping.contents.data_length);
+    IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
+    IREE_ASSERT_OK(iree_hal_buffer_map_range(
+        slab, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_READ,
+        IREE_HAL_BUFFER_MAP_FLAG_NONE, 128, 256, &mapping));
+    for (iree_host_size_t i = 0; i < mapping.contents.data_length; ++i) {
+      EXPECT_EQ(mapping.contents.data[i], pattern) << i;
+    }
+    IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
+    iree_hal_buffer_release(buffer);
+    iree_hal_pool_release(child);
+    iree_hal_buffer_release(slab);
+
+    iree_hal_pool_stats_t stats;
+    iree_hal_pool_query_stats(pool, &stats);
+    EXPECT_EQ(stats.bytes_reserved, 8192u);
+    EXPECT_EQ(stats.bytes_committed, 8192u);
+    EXPECT_EQ(native_.create_count, 1);
+    EXPECT_EQ(native_.destroy_count, 0);
+  }
+  iree_hal_slab_cache_stats_t cache_stats;
+  IREE_ASSERT_OK(iree_hal_slab_cache_query_stats(cache, &cache_stats));
+  EXPECT_EQ(cache_stats.ready_count, 1u);
+  EXPECT_EQ(cache_stats.hit_count, 1u);
+
+  iree_hal_pool_trim(cache, IREE_HAL_POOL_TRIM_FLAG_ALL, 0);
+  iree_hal_memory_maintenance_call(
+      maintenance_,
+      [](void* user_data) {
+        auto* owner = static_cast<iree_hal_memory_maintenance_t*>(user_data);
+        while (iree_hal_memory_maintenance_run_one(owner)) {
+        }
+      },
+      maintenance_);
+  iree_hal_pool_stats_t stats;
+  iree_hal_pool_query_stats(pool, &stats);
+  EXPECT_EQ(stats.bytes_reserved, 0u);
+  EXPECT_EQ(stats.bytes_committed, 0u);
+  EXPECT_EQ(native_.destroy_count, 1);
+  iree_hal_pool_release(cache);
+  iree_hal_pool_release(pool);
+}
+
 TEST_F(MemoryBackendTest, PublishesQueueGlobalDeviceTransition) {
   native_.require_device_transition = true;
   iree_hal_pool_t* pool = nullptr;
@@ -724,22 +834,46 @@ TEST_F(MemoryBackendTest, JoinsOwnedAndRegisteredVisibilityAtConstruction) {
       IREE_STATUS_UNAVAILABLE,
       iree_hal_buffer_export(owned, iree_hal_make_buffer_range(0, 64),
                              storage_class, &exported, &range));
-  alignas(128) uint8_t bytes[512] = {};
+  alignas(4096) uint8_t allocation[4096] = {};
+  uint8_t* bytes = allocation + 128;
   iree_hal_external_storage_t storage = {};
   storage.storage_class = storage_class;
   storage.payload.host_pointer = bytes;
-  storage.byte_length = sizeof(bytes);
+  storage.byte_length = 512;
   storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  storage.maintenance_range = iree_hal_make_buffer_range(128, 256);
+  storage.physical_backing_id = {{0xC, 0x1234}};
   iree_hal_buffer_t* imported = nullptr;
   IREE_ASSERT_OK(iree_hal_pool_import_buffer(
       pool, &storage, iree_hal_make_buffer_range(128, 256), &imported));
   EXPECT_EQ(storage.byte_length, 0u);
+  const auto memory = iree_hal_buffer_memory_view(imported);
+  ASSERT_NE(memory.backing, nullptr);
+  EXPECT_EQ(memory.offset, 128u);
+  EXPECT_EQ(memory.backing->native_allocation.byte_length, 4096u);
+  EXPECT_EQ(memory.backing->native_allocation.byte_offset, 128u);
+  EXPECT_EQ(memory.backing->native_allocation.granularity, 4096u);
+  EXPECT_EQ(memory.backing->allocation_alignment, 128u);
+  EXPECT_EQ(memory.backing->host_cacheability,
+            IREE_HAL_HOST_CACHEABILITY_WRITE_BACK);
+  EXPECT_EQ(memory.backing->maintenance_range.byte_offset, 128u);
+  EXPECT_EQ(memory.backing->maintenance_range.byte_length, 256u);
+  EXPECT_EQ(memory.backing->physical_backing_id.words[0], 0xCu);
+  EXPECT_EQ(memory.backing->physical_backing_id.words[1], 0x1234u);
+  iree_hal_pool_stats_t stats;
+  iree_hal_pool_query_stats(pool, &stats);
+  EXPECT_EQ(stats.bytes_reserved, 4096u);
+  EXPECT_EQ(stats.bytes_committed, 4096u);
   IREE_ASSERT_OK(iree_hal_buffer_export(imported,
                                         iree_hal_make_buffer_range(32, 64),
                                         storage_class, &exported, &range));
   EXPECT_EQ(exported.payload.host_pointer, bytes);
   EXPECT_EQ(range.byte_offset, 160u);
   EXPECT_EQ(range.byte_length, 64u);
+  EXPECT_EQ(exported.physical_backing_id.words[0], 0xCu);
+  EXPECT_EQ(exported.physical_backing_id.words[1], 0x1234u);
+  EXPECT_EQ(exported.maintenance_range.byte_offset, 128u);
+  EXPECT_EQ(exported.maintenance_range.byte_length, 256u);
   EXPECT_EQ(native_.pair_query_count, query_count);
   iree_hal_external_storage_release(&exported);
   iree_hal_buffer_release(imported);

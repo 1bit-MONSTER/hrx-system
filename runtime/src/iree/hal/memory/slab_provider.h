@@ -123,6 +123,23 @@ typedef struct iree_hal_slab_t {
   // interprets this however it needs: a pointer to internal state, an
   // allocation handle, a VMM mapping descriptor, etc.
   uint64_t provider_handle;
+
+  // Native payload geometry. Owned acquisitions report their complete payload
+  // charge; imported attachments may have unknown source allocation geometry.
+  iree_hal_buffer_allocation_info_t native_allocation;
+
+  // Source-qualified maintenance envelope in slab coordinates. WHOLE_BUFFER
+  // extends to slab length; owned slabs may control additional native padding.
+  iree_hal_buffer_range_t maintenance_range;
+
+  // Cache class established by the source mapping, or UNKNOWN without a view.
+  iree_hal_host_cacheability_t host_cacheability;
+
+  // Native or external-source physical identity, when established.
+  iree_hal_physical_memory_id_t physical_backing_id;
+
+  // Guaranteed alignment of logical slab byte zero for this acquisition.
+  iree_device_size_t allocation_alignment;
 } iree_hal_slab_t;
 
 // One native attachment to caller-selected external storage. Properties
@@ -290,9 +307,6 @@ typedef struct iree_hal_slab_buffer_backing_t {
 void iree_hal_slab_buffer_backing_initialize(
     iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
     const iree_hal_slab_provider_properties_t* properties,
-    iree_hal_buffer_range_t maintenance_range,
-    iree_hal_host_cacheability_t host_cacheability,
-    iree_hal_physical_memory_id_t physical_backing_id,
     iree_async_notification_t* notification,
     iree_async_frontier_tracker_t* tracker,
     iree_hal_memory_maintenance_t* maintenance,

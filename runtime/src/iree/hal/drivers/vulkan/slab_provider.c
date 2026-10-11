@@ -236,6 +236,16 @@ static iree_status_t iree_hal_vulkan_slab_provider_acquire_slab(
     out_slab->base_ptr = (uint8_t*)(uintptr_t)device_address;
     out_slab->length = iree_hal_buffer_allocation_size(buffer);
     out_slab->provider_handle = (uint64_t)(uintptr_t)buffer;
+    out_slab->native_allocation =
+        iree_hal_vulkan_buffer_allocation_info(buffer);
+    out_slab->maintenance_range =
+        iree_hal_make_buffer_range(0, out_slab->length);
+    out_slab->host_cacheability =
+        iree_any_bit_set(iree_hal_buffer_memory_type(buffer),
+                         IREE_HAL_MEMORY_TYPE_HOST_CACHED)
+            ? IREE_HAL_HOST_CACHEABILITY_WRITE_BACK
+            : IREE_HAL_HOST_CACHEABILITY_UNKNOWN;
+    out_slab->allocation_alignment = min_alignment;
     iree_hal_memory_trace_alloc(&provider->trace, out_slab->base_ptr,
                                 out_slab->length);
     iree_atomic_fetch_add(&provider->total_acquired, 1,
@@ -281,6 +291,11 @@ static iree_status_t iree_hal_vulkan_slab_provider_import_slab(
         provider, iree_hal_buffer_memory_type(buffer), &out_import->properties);
     out_import->properties.supported_usage =
         iree_hal_buffer_allowed_usage(buffer);
+    out_import->slab.maintenance_range = storage->maintenance_range;
+    out_import->slab.host_cacheability = storage->host_cacheability;
+    out_import->slab.physical_backing_id = storage->physical_backing_id;
+    out_import->slab.allocation_alignment =
+        out_import->properties.allocation_alignment;
     iree_hal_memory_trace_alloc(&provider->trace, out_import->slab.base_ptr,
                                 out_import->slab.length);
     iree_atomic_fetch_add(&provider->total_acquired, 1,

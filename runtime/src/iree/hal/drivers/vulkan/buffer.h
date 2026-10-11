@@ -164,6 +164,12 @@ iree_status_t iree_hal_vulkan_buffer_handle(iree_hal_buffer_t* buffer,
                                             VkDeviceMemory* out_memory,
                                             VkBuffer* out_handle);
 
+// Returns captured native payload geometry for a directly allocated dense
+// buffer. This trusted provider query performs no native call and excludes
+// subspan and sparse wrappers.
+iree_hal_buffer_allocation_info_t iree_hal_vulkan_buffer_allocation_info(
+    iree_hal_buffer_t* buffer);
+
 // Returns the byte length of the Vulkan buffer handle backing |buffer|.
 iree_status_t iree_hal_vulkan_buffer_handle_length(
     iree_hal_buffer_t* buffer, VkDeviceSize* out_handle_length);

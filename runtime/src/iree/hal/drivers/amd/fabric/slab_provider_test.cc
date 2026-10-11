@@ -668,6 +668,7 @@ TEST_P(NativeTransportTest, TransactionalImportAndIndependentExport) {
   EXPECT_EQ(memcmp(&storage, &original_storage, sizeof(storage)), 0);
   EXPECT_EQ(imported.slab.length, 768u);
   EXPECT_EQ(imported.slab.base_ptr, nullptr);
+  EXPECT_EQ(imported.slab.maintenance_range.byte_length, 0u);
   EXPECT_EQ(native_.import_count, 2);
   EXPECT_EQ(native_.map_count, 0);
 
@@ -696,6 +697,7 @@ TEST_P(NativeTransportTest, TransactionalImportAndIndependentExport) {
                                                     transport.storage_class));
   EXPECT_EQ(exported.payload.device_address, 5678u);
   EXPECT_EQ(exported.byte_length, 768u);
+  EXPECT_EQ(exported.maintenance_range.byte_length, 0u);
   EXPECT_EQ(exported.physical_backing_id.words[0], 123u);
   EXPECT_EQ(exported.physical_backing_id.words[1], 456u);
   EXPECT_EQ(logical_range.byte_offset, 112u);

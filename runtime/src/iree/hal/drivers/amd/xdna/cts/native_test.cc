@@ -515,12 +515,36 @@ TEST_P(XdnaNativeSlabTest, ExecutesThroughPreparedBindings) {
       EXPECT_EQ(logical_range.byte_offset, kBytes);
       EXPECT_EQ(logical_range.byte_length, kBytes);
       EXPECT_GE(storage.byte_length, 3 * kBytes);
+      const auto maintenance_range = storage.maintenance_range;
       status = iree_hal_pool_import_buffer(
           import_pool_, &storage, logical_range, &execution_bindings[i]);
       iree_hal_external_storage_release(&storage);
       IREE_ASSERT_OK(status);
       buffers_.push_back(execution_bindings[i]);
+      const auto owned = iree_hal_buffer_memory_view(bindings[i]);
+      const auto imported = iree_hal_buffer_memory_view(execution_bindings[i]);
+      ASSERT_NE(owned.backing, nullptr);
+      ASSERT_NE(imported.backing, nullptr);
+      EXPECT_TRUE(owned.backing->physical_backing_id.words[0] ||
+                  owned.backing->physical_backing_id.words[1]);
+      EXPECT_EQ(imported.backing->physical_backing_id.words[0],
+                owned.backing->physical_backing_id.words[0]);
+      EXPECT_EQ(imported.backing->physical_backing_id.words[1],
+                owned.backing->physical_backing_id.words[1]);
+      EXPECT_EQ(imported.backing->native_allocation.byte_length,
+                owned.backing->native_allocation.byte_length);
+      EXPECT_EQ(
+          imported.backing->native_allocation.byte_offset + imported.offset,
+          owned.backing->native_allocation.byte_offset + owned.offset);
+      EXPECT_EQ(imported.backing->maintenance_range.byte_offset,
+                maintenance_range.byte_offset);
+      EXPECT_EQ(imported.backing->maintenance_range.byte_length,
+                maintenance_range.byte_length);
     }
+    iree_hal_pool_stats_t stats;
+    iree_hal_pool_query_stats(import_pool_, &stats);
+    EXPECT_EQ(stats.bytes_reserved, 0u);
+    EXPECT_EQ(stats.bytes_committed, 0u);
   }
 
   std::array<iree_hal_buffer_ref_t, 3> binding_refs;
@@ -1025,6 +1049,19 @@ TEST_F(XdnaNativeTest, ReadOnlyPoolPreservesNativePermissionRequirements) {
 TEST_F(XdnaNativeTest, AllocationPublishesItsActualMemoryProperties) {
   iree_hal_buffer_t* buffer = nullptr;
   ASSERT_NO_FATAL_FAILURE(MakeBuffer(&buffer));
+  const auto memory = iree_hal_buffer_memory_view(buffer);
+  ASSERT_NE(memory.backing, nullptr);
+  EXPECT_EQ(memory.offset, kBytes);
+  EXPECT_GE(memory.backing->native_allocation.byte_length,
+            memory.backing->native_allocation.byte_offset + 3 * kBytes);
+  EXPECT_GT(memory.backing->native_allocation.granularity, 0u);
+  EXPECT_GE(memory.backing->allocation_alignment, 1u);
+  iree_hal_pool_stats_t stats;
+  iree_hal_pool_query_stats(memory_pool_, &stats);
+  EXPECT_EQ(stats.bytes_reserved,
+            memory.backing->native_allocation.byte_length);
+  EXPECT_EQ(stats.bytes_committed,
+            memory.backing->native_allocation.byte_length);
   EXPECT_EQ(iree_hal_buffer_allocation_placement(buffer).device, device_);
   EXPECT_TRUE(iree_all_bits_set(
       iree_hal_buffer_memory_type(buffer),
