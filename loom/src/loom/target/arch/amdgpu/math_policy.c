@@ -165,6 +165,15 @@ static void loom_amdgpu_math_policy_query(
     return;
   }
 
+  if (query->element_type == LOOM_SCALAR_TYPE_F64 &&
+      (query->math_op == LOOM_TARGET_MATH_OP_CEILF ||
+       query->math_op == LOOM_TARGET_MATH_OP_FLOORF ||
+       query->math_op == LOOM_TARGET_MATH_OP_ROUNDEVENF ||
+       query->math_op == LOOM_TARGET_MATH_OP_TRUNCF)) {
+    *out_decision = loom_amdgpu_math_keep(IREE_SV("math.op.native_f64"));
+    return;
+  }
+
   if (query->element_type != LOOM_SCALAR_TYPE_F32) {
     *out_decision = loom_amdgpu_math_reject(IREE_SV("math.element.f32"));
     return;
