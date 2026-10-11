@@ -259,7 +259,9 @@ low.func.def target<amdgpu.rdna4.core>(@target) @gfx1200_private_store_before_gl
 // ====
 // RUN: emit amdgpu-assembly @global_store_before_tied_atomic strategy=source
 
-// Source-reuse and memory-completion requirements share one full store wait.
+// Same-wave memory ordering lets the atomic issue before store completion.
+// XCNT still protects the tied source from replay, and program exit drains the
+// earlier store.
 amdgpu.target<gfx1250> @target
 
 low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @global_store_before_tied_atomic(%offset: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>, %resource: reg<amdgpu.sgpr x4>, %scalar_offset: reg<amdgpu.sgpr>) asm {

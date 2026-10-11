@@ -92,6 +92,18 @@ also separates register hazards from synchronization. Reaching a nonzero wait
 threshold is useful only with the target's documented counter ordering and
 the compiler's accounting of every intervening instruction.
 
+Completion is also distinct from same-wave issue ordering. Ordinary vector
+loads, stores and atomics from one wave retain program order when they access
+the same address, so an overlapping later VMEM access does not by itself need
+the earlier access to retire first. The compiler must still preserve their
+issue-order dependency. Register-result readiness, source-register reuse,
+program exit, volatile accesses that order different addresses, generic/flat
+accesses that can reach LDS, and cross-wave synchronization retain their own
+completion requirements. Loom applies this rule only to dependency links that
+retain both endpoint instructions; a conservative CFG frontier does not retain
+enough producer identity to prove the nonvolatile case. [RDNA4 vector-memory
+ordering][rdna4-vector-order] [LLVM alias-wait insertion][llvm-alias-waits]
+
 For a workgroup with several contributing waves, each wave participates in
 the required release, the group rendezvous joins those contributions, and the
 designated publisher performs the outward release before publishing control.
@@ -309,6 +321,8 @@ own publication/completion mechanism supplies the matching half. The
 conditions across several stages.
 
 [llvm-order]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L7485-L7604
+[rdna4-vector-order]: https://www.amd.com/content/dam/amd/en/documents/radeon-tech-docs/instruction-set-architectures/rdna4-instruction-set-architecture.pdf
+[llvm-alias-waits]: https://github.com/llvm/llvm-project/blob/1dac88b2aad1af472a4f4d5b7d87930e6e557d1f/llvm/lib/Target/AMDGPU/SIInsertWaitcnts.cpp#L2460-L2465
 [cdna5-counters]: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/instruction-set-architectures/amd-instinct-cdna5-instruction-set-architecture.pdf#page=61
 [cdna5-scopes]: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/instruction-set-architectures/amd-instinct-cdna5-instruction-set-architecture.pdf#page=44
 [cdna5-xml]: https://gpuopen.com/download/AMD_GPU_MR_ISA_XML_2026_08_06.zip
