@@ -1074,6 +1074,22 @@ func.def @splat_constant_to_vector_constant() -> (vector<4xi32>) {
 
 // ====
 
+// Distinct scalar SSA values with identical exact facts form one uniform
+// vector, including beyond the bounded per-lane fact representation.
+func.def @equal_exact_elements_to_vector_constant() -> (vector<17xi32>) {
+  %a = scalar.constant 7 : i32
+  %b = scalar.constant 7 : i32
+  %v = vector.from_elements %a, %b, %a, %b, %a, %b, %a, %b, %a, %b, %a, %b, %a, %b, %a, %b, %a : vector<17xi32>
+  func.return %v : vector<17xi32>
+}
+// ----
+func.def @equal_exact_elements_to_vector_constant() -> (vector<17xi32>) {
+  %v = vector.constant 7 : vector<17xi32>
+  func.return %v : vector<17xi32>
+}
+
+// ====
+
 // Uniform vector facts let lanewise ops materialize vector constants.
 func.def @addi_uniform_constants_to_vector_constant() -> (vector<4xi32>) {
   %a = vector.constant 2 : vector<4xi32>

@@ -953,7 +953,14 @@ static iree_status_t loom_vector_canonicalize_from_elements(
     }
   }
   if (!all_elements_equal) {
-    return loom_vector_from_elements_fold_source(op, rewriter, out_changed);
+    loom_value_facts_t element_facts = {0};
+    const loom_value_id_t result = loom_vector_from_elements_result(op);
+    if (!loom_vector_query_all_equal_element(
+            &rewriter->fact_table->context,
+            loom_rewriter_value_facts(rewriter, result), &element_facts) ||
+        !loom_value_facts_is_exact(element_facts)) {
+      return loom_vector_from_elements_fold_source(op, rewriter, out_changed);
+    }
   }
 
   loom_type_t result_type = {0};
