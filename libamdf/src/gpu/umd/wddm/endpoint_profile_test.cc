@@ -222,6 +222,8 @@ TEST_F(WindowsGpuEndpointProfileTest, DiscoveryDoesNotQueryMemory) {
   EnableMemoryOperations();
   state_.memory_capabilities_status = kFailure;
   state_.virtual_address_bit_count = 0;
+  instance_.kmt.update_gpu_virtual_address = UnexpectedMemoryOperation;
+  instance_.kmt.wait_on_hardware_queue = UnexpectedMemoryOperation;
   amdf_gpu_endpoint_profile_t* profile = nullptr;
   ASSERT_EQ(amdf_gpu_umd_create_endpoint_profile(
                 endpoint_, instance_.host_allocator, &profile),
@@ -229,6 +231,15 @@ TEST_F(WindowsGpuEndpointProfileTest, DiscoveryDoesNotQueryMemory) {
   ASSERT_NE(profile, nullptr);
   EXPECT_EQ(profile->info.gfx_ip.major, 11u);
   EXPECT_EQ(state_.memory_query_count, 0u);
+  ASSERT_GT(profile->queue_family_count, 0u);
+  for (uint32_t i = 0; i < profile->queue_family_count; ++i) {
+    const auto& family = profile->queue_families[i];
+    if ((family.publication_modes & AMDF_QUEUE_PUBLICATION_MODE_KERNEL) != 0) {
+      EXPECT_NE(family.kernel_queue_capabilities &
+                    AMDF_KERNEL_QUEUE_CAPABILITY_VIRTUAL_MEMORY,
+                0u);
+    }
+  }
   EXPECT_EQ(state_.query_bridge_close_success_count(), 1u);
   amdf_free(instance_.host_allocator, profile);
 }

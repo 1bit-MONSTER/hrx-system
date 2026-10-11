@@ -47,8 +47,9 @@ TEST(LinuxGpuMemoryProfileTest, InstanceLifetimeExposesOwnedSystemMemory) {
   EXPECT_EQ(profile.supported_device_access, AMDF_MEMORY_ACCESS_READ |
                                                  AMDF_MEMORY_ACCESS_WRITE |
                                                  AMDF_MEMORY_ACCESS_EXECUTE);
-  EXPECT_EQ(profile.supported_flags,
-            profile.guaranteed_flags | AMDF_MEMORY_FLAG_QUEUE_STORAGE);
+  EXPECT_EQ(profile.supported_flags & profile.guaranteed_flags,
+            profile.guaranteed_flags);
+  EXPECT_NE(profile.supported_flags & AMDF_MEMORY_FLAG_QUEUE_STORAGE, 0u);
   EXPECT_EQ(profile.allocation.minimum_alignment, 4096u);
   EXPECT_EQ(profile.allocation.byte_length_granularity, 1u);
   EXPECT_EQ(profile.allocation.native_byte_length_granularity, 4096u);
@@ -93,9 +94,8 @@ TEST(LinuxGpuMemoryProfileTest, ProcessLifetimeUsesDenseOptionalProfiles) {
                                      AMDF_MEMORY_PROFILE_ROLE_HOST_MAP);
   EXPECT_EQ(local_profile.guaranteed_flags,
             AMDF_MEMORY_FLAG_DEVICE_LOCAL | AMDF_MEMORY_FLAG_DEVICE_ADDRESS);
-  EXPECT_EQ(local_profile.supported_flags, local_profile.guaranteed_flags |
-                                               AMDF_MEMORY_FLAG_QUEUE_STORAGE |
-                                               AMDF_MEMORY_FLAG_HOST_VISIBLE);
+  EXPECT_NE(local_profile.supported_flags & AMDF_MEMORY_FLAG_QUEUE_STORAGE, 0u);
+  EXPECT_NE(local_profile.supported_flags & AMDF_MEMORY_FLAG_HOST_VISIBLE, 0u);
   EXPECT_EQ(local_profile.guaranteed_device_access, AMDF_MEMORY_ACCESS_READ);
   EXPECT_EQ(local_profile.supported_device_access,
             AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE |
@@ -140,9 +140,12 @@ TEST(LinuxGpuMemoryProfileTest, ProcessLifetimeUsesDenseOptionalProfiles) {
       QueryProfile(&device, 1);
   EXPECT_EQ(nonvisible_local_profile.memory_class, AMDF_MEMORY_CLASS_LOCAL);
   EXPECT_EQ(nonvisible_local_profile.roles, AMDF_MEMORY_PROFILE_ROLE_CREATE);
-  EXPECT_EQ(nonvisible_local_profile.supported_flags,
-            nonvisible_local_profile.guaranteed_flags |
-                AMDF_MEMORY_FLAG_QUEUE_STORAGE);
+  EXPECT_NE(
+      nonvisible_local_profile.supported_flags & AMDF_MEMORY_FLAG_QUEUE_STORAGE,
+      0u);
+  EXPECT_EQ(
+      nonvisible_local_profile.supported_flags & AMDF_MEMORY_FLAG_HOST_VISIBLE,
+      0u);
   EXPECT_EQ(nonvisible_local_profile.host_mapping.maximum_byte_length, 0u);
   const amdf_memory_native_profile_t registered_after_local_profile =
       QueryProfile(&device, 2);

@@ -27,11 +27,35 @@ TEST(KfdUserQueueNativeTest, FailedVmFaultQueryPreservesOutput) {
 }
 
 TEST(KfdUserQueueNativeTest, DestroyPreservesNativeErrorDomain) {
+  pthread_mutex_t memory_mutex = PTHREAD_MUTEX_INITIALIZER;
   amdf_gpu_umd_device_t device = {};
   device.descriptor = -1;
+  device.memory_mutex = &memory_mutex;
   const auto* native_api = amdf_gpu_kfd_user_queue_default_native_api();
   EXPECT_EQ(native_api->queue_destroy(native_api->user_data, &device, 47),
             amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, EBADF));
+  ASSERT_EQ(pthread_mutex_trylock(&memory_mutex), 0);
+  EXPECT_EQ(pthread_mutex_unlock(&memory_mutex), 0);
+  EXPECT_EQ(pthread_mutex_destroy(&memory_mutex), 0);
+}
+
+TEST(KfdUserQueueNativeTest,
+     FailedCreateReleasesSerializationAndPreservesOutput) {
+  pthread_mutex_t memory_mutex = PTHREAD_MUTEX_INITIALIZER;
+  amdf_gpu_umd_device_t device = {};
+  device.descriptor = -1;
+  device.memory_mutex = &memory_mutex;
+  kfd_ioctl_create_queue_args arguments;
+  std::memset(&arguments, 0xA5, sizeof(arguments));
+  const auto original = arguments;
+  const auto* native_api = amdf_gpu_kfd_user_queue_default_native_api();
+  EXPECT_EQ(
+      native_api->queue_create(native_api->user_data, &device, &arguments),
+      amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, EBADF));
+  EXPECT_EQ(std::memcmp(&arguments, &original, sizeof(arguments)), 0);
+  ASSERT_EQ(pthread_mutex_trylock(&memory_mutex), 0);
+  EXPECT_EQ(pthread_mutex_unlock(&memory_mutex), 0);
+  EXPECT_EQ(pthread_mutex_destroy(&memory_mutex), 0);
 }
 
 }  // namespace

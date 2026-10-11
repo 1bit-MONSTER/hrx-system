@@ -22,17 +22,24 @@ endfunction()
 function(amdf_windows_sidecar_library)
   cmake_parse_arguments(
     _RULE
-    ""
+    "TESTONLY"
     "NAME"
     "SRCS;DEPS;LINKOPTS"
     ${ARGN}
   )
+  if(_RULE_TESTONLY AND NOT IREE_BUILD_TESTS)
+    return()
+  endif()
   if(NOT _RULE_NAME)
     message(FATAL_ERROR "amdf_windows_sidecar_library requires NAME.")
   endif()
   if(NOT _RULE_SRCS)
     message(FATAL_ERROR
       "amdf_windows_sidecar_library requires at least one source file.")
+  endif()
+  set(_TESTONLY)
+  if(_RULE_TESTONLY)
+    set(_TESTONLY TESTONLY)
   endif()
 
   iree_cc_library(
@@ -45,6 +52,7 @@ function(amdf_windows_sidecar_library)
     LINKOPTS
       ${_RULE_LINKOPTS}
     SHARED
+    ${_TESTONLY}
   )
 
   iree_package_name(_PACKAGE_NAME)
@@ -56,11 +64,13 @@ function(amdf_windows_sidecar_library)
     OUTPUT_NAME "${_RULE_NAME}"
     RUNTIME_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:amdf>"
   )
-  install(
-    TARGETS ${_TARGET_NAME}
-    COMPONENT AMDF
-    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-  )
+  if(NOT _RULE_TESTONLY)
+    install(
+      TARGETS ${_TARGET_NAME}
+      COMPONENT AMDF
+      RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    )
+  endif()
 endfunction()
 
 # Standalone implementation tests share the DLL's private release ABI.

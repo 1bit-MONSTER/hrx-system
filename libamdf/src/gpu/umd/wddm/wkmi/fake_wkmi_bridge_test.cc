@@ -118,7 +118,7 @@ GpuBufferPrepareImport(amdf_wkmi_bridge_gpu_adapter_t*,
 
 amdf_wkmi_bridge_api_t api = {
     sizeof(amdf_wkmi_bridge_api_t),
-    AMDF_WKMI_BRIDGE_ABI_VERSION_5,
+    AMDF_WKMI_BRIDGE_ABI_VERSION_6,
     GpuAdapterOpen,
     GpuAdapterClose,
     GpuAllocationQueryLayout,

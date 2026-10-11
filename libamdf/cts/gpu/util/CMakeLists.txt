@@ -12,6 +12,20 @@ iree_add_all_subdirs()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    sparse_mapping_layout
+  HDRS
+    "sparse_mapping_layout.h"
+  DEPS
+    amdf::headers
+    iree::third_party::google_test
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     memory
   HDRS
     "memory.h"

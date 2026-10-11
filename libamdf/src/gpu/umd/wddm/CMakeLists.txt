@@ -49,6 +49,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR 
 iree_cc_library(
   NAME
     memory
+  HDRS
+    "memory.h"
   SRCS
     "memory.c"
   DEPS
@@ -58,6 +60,26 @@ iree_cc_library(
     libamdf::src::allocator
     libamdf::src::gpu::umd::memory
     libamdf::src::platform::windows::host_cache
+    libamdf::src::platform::windows::kmt_api
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
+    memory_reservation
+  SRCS
+    "memory_reservation.c"
+  DEPS
+    ::device_state
+    ::kernel_queue
+    ::memory
+    ::memory_profile
+    amdf::headers
+    libamdf::src::allocator
+    libamdf::src::gpu::umd::memory_reservation
+    libamdf::src::platform::windows::kmt_api
   PUBLIC
 )
 endif()
@@ -66,12 +88,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR 
 iree_cc_library(
   NAME
     kernel_queue
+  HDRS
+    "kernel_queue.h"
   SRCS
     "kernel_queue.c"
   DEPS
     ::device_state
     amdf::headers
     libamdf::src::allocator
+    libamdf::src::atomics
     libamdf::src::gpu::umd::kernel_queue
     libamdf::src::gpu::umd::wddm::wkmi::adapter
     libamdf::src::platform::wait
@@ -152,9 +177,62 @@ iree_cc_library(
     ::instance
     ::kernel_queue
     ::memory
+    ::memory_reservation
     ::user_queue
     amdf::headers
   PUBLIC
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+amdf_windows_sidecar_library(
+  NAME
+    sparse_mapping_queue_test_helper
+  SRCS
+    "${PROJECT_SOURCE_DIR}/libamdf/src/gpu/umd/wddm/wkmi/dxcore_loader_compatibility.cc"
+    "sparse_mapping_queue_test.cc"
+    "sparse_mapping_queue_test.h"
+  LINKOPTS
+    "gdi32.lib"
+  DEPS
+    amdf::headers
+    iree::third_party::amdf_wkmi
+  TESTONLY
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_test(
+  NAME
+    sparse_mapping_test
+  SRCS
+    "sparse_mapping_queue_test.h"
+    "sparse_mapping_test.cc"
+  DATA
+    "libamdf::src::gpu::umd::wddm::sparse_mapping_queue_test_helper"
+  DEPS
+    ::device_state
+    amdf::amdf_static
+    amdf::headers
+    iree::third_party::google_test
+    iree::third_party::google_test_main
+    libamdf::src::allocator
+    libamdf::src::gpu::umd::endpoint_profile
+    libamdf::src::gpu::umd::kernel_queue
+    libamdf::src::gpu::umd::memory
+    libamdf::src::gpu::umd::memory_reservation
+    libamdf::src::gpu::umd::sparse_mapping_test_support
+    libamdf::src::platform
+    libamdf::src::platform::windows::endpoint
+    libamdf::src::wait
+  ENV
+    "AMDF_SPARSE_MAPPING_QUEUE_TEST_PATH={{$<TARGET_FILE:libamdf::src::gpu::umd::wddm::sparse_mapping_queue_test_helper>}}"
+  LABELS
+    "iree-run-requirement=libamdf.resource.amd_gpu"
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.gpu"
+  RESOURCE_GROUP
+    gpu-device
 )
 endif()
 
@@ -235,12 +313,15 @@ iree_cc_test(
     "memory_test.cc"
   DEPS
     ::device_state
+    ::kernel_queue
     ::memory
+    ::memory_reservation
     amdf::headers
     iree::third_party::google_test
     iree::third_party::google_test_main
     libamdf::src::allocator
     libamdf::src::gpu::umd::memory
+    libamdf::src::gpu::umd::memory_reservation
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.gpu"

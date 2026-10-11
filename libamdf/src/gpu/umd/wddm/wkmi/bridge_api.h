@@ -36,8 +36,11 @@ extern "C" {
 // First version carrying native CPU atomic route properties.
 #define AMDF_WKMI_BRIDGE_ABI_VERSION_5 5u
 
+// First version exposing borrowed native queue handles for mapping ordering.
+#define AMDF_WKMI_BRIDGE_ABI_VERSION_6 6u
+
 // Most recent private bridge ABI version described by this header.
-#define AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST AMDF_WKMI_BRIDGE_ABI_VERSION_5
+#define AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST AMDF_WKMI_BRIDGE_ABI_VERSION_6
 
 // Result of one bridge operation.
 typedef uint32_t amdf_wkmi_bridge_result_t;
@@ -203,13 +206,17 @@ typedef struct amdf_wkmi_bridge_gpu_kernel_queue_info_t {
   const volatile uint64_t* progress_fence_pointer;
   // GPU address of the monotonic progress fence.
   uint64_t progress_fence_device_address;
+  // Execution context borrowed through queue destruction.
+  uint32_t context_handle;
+  // Hardware queue borrowed for native dependency publication.
+  uint32_t queue_handle;
 } amdf_wkmi_bridge_gpu_kernel_queue_info_t;
 
 #ifdef __cplusplus
-static_assert(sizeof(amdf_wkmi_bridge_gpu_kernel_queue_info_t) == 40,
+static_assert(sizeof(amdf_wkmi_bridge_gpu_kernel_queue_info_t) == 48,
               "WKMI queue info ABI must remain stable");
 #else
-_Static_assert(sizeof(amdf_wkmi_bridge_gpu_kernel_queue_info_t) == 40,
+_Static_assert(sizeof(amdf_wkmi_bridge_gpu_kernel_queue_info_t) == 48,
                "WKMI queue info ABI must remain stable");
 #endif
 

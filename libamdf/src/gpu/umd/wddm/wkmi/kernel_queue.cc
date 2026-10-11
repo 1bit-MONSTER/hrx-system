@@ -200,6 +200,8 @@ amdf_wkmi_bridge_result_t CreateNativeQueue(
   info.command_buffer_alignment = kCommandBufferAlignment;
   info.maximum_command_buffer_byte_length = kMaximumCommandBufferByteLength;
   info.progress_fence_handle = create_queue.hHwQueueProgressFence;
+  info.context_handle = queue->context;
+  info.queue_handle = queue->handle;
   info.progress_fence_pointer = static_cast<const volatile uint64_t*>(
       create_queue.HwQueueProgressFenceCPUVirtualAddress);
   info.progress_fence_device_address =

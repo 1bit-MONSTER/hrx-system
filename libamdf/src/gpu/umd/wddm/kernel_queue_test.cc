@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "libamdf/src/gpu/umd/kernel_queue.h"
+#include "libamdf/src/gpu/umd/wddm/kernel_queue.h"
 
 #include <ntstatus.h>
 
@@ -43,6 +43,14 @@ struct FakeQueueState {
   HANDLE deferred_wait_event = nullptr;
   // Number of cold-path device-state diagnostics.
   uint32_t diagnostic_count = 0;
+  // Native mapping publication outcome.
+  NTSTATUS mapping_status = STATUS_SUCCESS;
+  // Native dependency publication outcome after mapping acceptance.
+  NTSTATUS ordering_status = STATUS_SUCCESS;
+  // Predecessor observed by native mapping publication.
+  uint64_t mapping_predecessor = 0;
+  // Queue wait point, absent when mapping publication was rejected.
+  uint64_t ordering_point = 0;
 };
 
 FakeQueueState* current_state = nullptr;
@@ -84,6 +92,8 @@ amdf_wkmi_bridge_result_t AMDF_WKMI_BRIDGE_CALL FakeCreateQueue(
   out_info->progress_fence_handle = 0x20;
   out_info->progress_fence_pointer = &state->progress;
   out_info->progress_fence_device_address = 0x10000;
+  out_info->context_handle = 0x30;
+  out_info->queue_handle = 0x40;
   *out_native_status = 0;
   *out_queue = reinterpret_cast<amdf_wkmi_bridge_gpu_kernel_queue_t*>(state);
   return AMDF_WKMI_BRIDGE_RESULT_SUCCESS;
@@ -144,6 +154,23 @@ class WindowsGpuKernelQueueTest : public ::testing::Test {
     bridge_.gpu_kernel_queue_destroy = FakeDestroyQueue;
     kmt_.get_device_state = FakeGetDeviceState;
     kmt_.wait_from_cpu = FakeWaitFromCpu;
+    kmt_.update_gpu_virtual_address =
+        [](const D3DKMT_UPDATEGPUVIRTUALADDRESS* update) {
+          EXPECT_EQ(update->hDevice, 0x10u);
+          EXPECT_EQ(update->hContext, 0x30u);
+          EXPECT_EQ(update->hFenceObject, 0x20u);
+          EXPECT_EQ(update->Flags.DoNotWait, 0u);
+          current_state->mapping_predecessor = update->FenceValue;
+          return current_state->mapping_status;
+        };
+    kmt_.wait_on_hardware_queue =
+        [](const D3DKMT_SUBMITWAITFORSYNCOBJECTSTOHWQUEUE* wait) {
+          EXPECT_EQ(wait->hHwQueue, 0x40u);
+          EXPECT_EQ(wait->ObjectCount, 1u);
+          EXPECT_EQ(wait->ObjectHandleArray[0], 0x20u);
+          current_state->ordering_point = wait->FenceValueArray[0];
+          return current_state->ordering_status;
+        };
     device_.host_allocator = {&state_, Allocate, nullptr, Free};
     device_.device = 0x10;
     device_.kmt = &kmt_;
@@ -184,6 +211,59 @@ class WindowsGpuKernelQueueTest : public ::testing::Test {
   // Production UMD queue under test.
   amdf_gpu_umd_kernel_queue_t* queue_ = nullptr;
 };
+
+TEST_F(WindowsGpuKernelQueueTest,
+       MappingWaitUsesTheSameProgressWithoutCpuWait) {
+  D3DDDI_UPDATEGPUVIRTUALADDRESS_OPERATION operation = {};
+  operation.OperationType = D3DDDI_UPDATEGPUVIRTUALADDRESS_UNMAP;
+  bool mutated = false;
+  bool accepted = false;
+  EXPECT_EQ(amdf_gpu_wddm_kernel_queue_update_memory(queue_, 1, &operation, 19,
+                                                     &mutated, &accepted),
+            AMDF_STATUS_OK);
+  EXPECT_TRUE(mutated);
+  EXPECT_TRUE(accepted);
+  EXPECT_EQ(state_.mapping_predecessor, 18u);
+  EXPECT_EQ(state_.ordering_point, 19u);
+  EXPECT_EQ(state_.wait_count, 0u);
+  EXPECT_EQ(state_.progress, 0u);
+}
+
+TEST_F(WindowsGpuKernelQueueTest,
+       RejectedMappingDoesNotEnqueueAnUnresolvableWait) {
+  state_.mapping_status = STATUS_NO_MEMORY;
+  D3DDDI_UPDATEGPUVIRTUALADDRESS_OPERATION operation = {};
+  bool mutated = false;
+  bool accepted = false;
+  EXPECT_EQ(amdf_gpu_wddm_kernel_queue_update_memory(queue_, 1, &operation, 19,
+                                                     &mutated, &accepted),
+            amdf_kmt_make_status(STATUS_NO_MEMORY));
+  EXPECT_TRUE(mutated);
+  EXPECT_FALSE(accepted);
+  EXPECT_EQ(state_.ordering_point, 0u);
+  EXPECT_EQ(amdf_gpu_umd_kernel_queue_query_terminal_status(queue_),
+            AMDF_STATUS_OK);
+}
+
+TEST_F(WindowsGpuKernelQueueTest,
+       FailedDependencyPreservesAcceptanceAndFailsQueue) {
+  state_.ordering_status = STATUS_NO_MEMORY;
+  D3DDDI_UPDATEGPUVIRTUALADDRESS_OPERATION operation = {};
+  bool mutated = false;
+  bool accepted = false;
+  const auto failure = amdf_kmt_make_status(STATUS_NO_MEMORY);
+  EXPECT_EQ(amdf_gpu_wddm_kernel_queue_update_memory(queue_, 1, &operation, 19,
+                                                     &mutated, &accepted),
+            failure);
+  EXPECT_TRUE(mutated);
+  EXPECT_TRUE(accepted);
+  EXPECT_EQ(amdf_gpu_umd_kernel_queue_query_terminal_status(queue_), failure);
+  EXPECT_EQ(Submit(20), failure);
+  EXPECT_TRUE(state_.submitted_values.empty());
+  EXPECT_EQ(amdf_gpu_umd_kernel_queue_query_progress(queue_), 0u);
+  state_.progress = 19;
+  EXPECT_EQ(amdf_gpu_umd_kernel_queue_query_progress(queue_), 19u);
+}
 
 TEST_F(WindowsGpuKernelQueueTest, BridgeFailureConsumesProviderOwner) {
   state_.destroy_status = STATUS_DEVICE_BUSY;

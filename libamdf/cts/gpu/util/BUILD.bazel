@@ -12,6 +12,19 @@ package(
     licenses = ["notice"],
 )
 
+# The native witnesses and public CTS consume the same application layout and
+# byte oracle. This fixture has no provider access or implementation dependency.
+amdf_cc_library(
+    name = "sparse_mapping_layout",
+    testonly = True,
+    hdrs = ["sparse_mapping_layout.h"],
+    visibility = [
+        "//libamdf/cts:__subpackages__",
+        "//libamdf/src/gpu/umd:__pkg__",
+    ],
+    deps = ["//third_party:google_test"],
+)
+
 amdf_cc_library(
     name = "memory",
     testonly = True,

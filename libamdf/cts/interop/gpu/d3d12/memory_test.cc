@@ -15,6 +15,7 @@
 #include <windows.h>
 #include <wrl/client.h>
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <utility>
@@ -96,6 +97,9 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
   }
 
   void TearDown() override {
+    if (reservation_cleanup_failed_) {
+      return;
+    }
     if (pending_submission_ != 0) {
       ADD_FAILURE() << "Native work has not retired; retaining its backing.";
       return;
@@ -106,6 +110,9 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
         queue_ = nullptr;
       }
       ASSERT_EQ(status, AMDF_STATUS_OK);
+    }
+    if (reservation_ != nullptr) {
+      ASSERT_NO_FATAL_FAILURE(ReleaseReservation());
     }
     if (command_mapping_ != nullptr) {
       ASSERT_EQ(api_->host_mapping_destroy(command_mapping_), AMDF_STATUS_OK);
@@ -152,8 +159,12 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
         buffer_.Get(), nullptr, GENERIC_ALL, nullptr, &shared_)));
   }
 
-  void OpenSharedBuffer() {
+  void OpenSharedBuffer(uint64_t source_byte_offset = kSourceOffset,
+                        uint64_t byte_length = kDestinationOffset +
+                                               kWordCount * 4 - kSourceOffset) {
     amdf_external_memory_t transport = Transport();
+    transport.source_byte_offset = source_byte_offset;
+    transport.byte_length = byte_length;
     transport.release = ReleaseSource;
     transport.release_user_data = &release_count_;
     const uint32_t releases_before = release_count_;
@@ -170,14 +181,13 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
     info.type = AMDF_STRUCTURE_TYPE_MEMORY_INFO;
     info.structure_size = sizeof(info);
     ASSERT_EQ(api_->memory_query_info(imported_memory_, &info), AMDF_STATUS_OK);
-    ASSERT_EQ(info.source_byte_offset, kSourceOffset);
-    ASSERT_EQ(info.byte_length,
-              kDestinationOffset + kWordCount * 4 - kSourceOffset);
+    ASSERT_EQ(info.source_byte_offset, source_byte_offset);
+    ASSERT_EQ(info.byte_length, byte_length);
     ASSERT_GE(info.native_allocation_byte_length, kByteLength);
     ASSERT_EQ(api_->memory_query_address(imported_memory_, 0,
                                          AMDF_MEMORY_ADDRESS_GPU, &address_),
               AMDF_STATUS_OK);
-    address_ -= kSourceOffset;
+    address_ -= source_byte_offset;
   }
 
   void CopyD3D12(ID3D12Resource* source, ID3D12Resource* destination) {
@@ -261,7 +271,8 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
         IID_PPV_ARGS(out_resource))));
   }
 
-  void PrepareNativeCopy(uint32_t family_ordinal) {
+  void PrepareNativeCopy(uint32_t family_ordinal, uint64_t source_address,
+                         uint64_t destination_address) {
     amdf_gpu_kernel_queue_create_info_t queue = {};
     queue.type = AMDF_STRUCTURE_TYPE_GPU_KERNEL_QUEUE_CREATE_INFO;
     queue.structure_size = sizeof(queue);
@@ -305,8 +316,8 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
                               *pm4_profile_);
     commands.SystemBarrier();
     for (uint32_t i = 0; i < kWordCount; ++i) {
-      commands.CopyData32(address_ + kSourceOffset + i * sizeof(uint32_t),
-                          address_ + kDestinationOffset + i * sizeof(uint32_t));
+      commands.CopyData32(source_address + i * sizeof(uint32_t),
+                          destination_address + i * sizeof(uint32_t));
     }
     commands.SystemBarrier();
     commands.PadToEightWords();
@@ -424,7 +435,9 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
   void RunRoundTrip(uint32_t family_ordinal) {
     ASSERT_NO_FATAL_FAILURE(CreateSharedBuffer());
     ASSERT_NO_FATAL_FAILURE(OpenSharedBuffer());
-    ASSERT_NO_FATAL_FAILURE(PrepareNativeCopy(family_ordinal));
+    ASSERT_NO_FATAL_FAILURE(PrepareNativeCopy(family_ordinal,
+                                              address_ + kSourceOffset,
+                                              address_ + kDestinationOffset));
     ComPtr<ID3D12Resource> upload;
     ComPtr<ID3D12Resource> readback;
     ASSERT_NO_FATAL_FAILURE(CreateStaging(D3D12_HEAP_TYPE_UPLOAD, &upload));
@@ -475,10 +488,147 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
     readback->Unmap(0, &no_write);
     ASSERT_EQ(difference, 0);
   }
+
+  void ReleaseReservation() {
+    const amdf_status_t status =
+        api_->memory_reservation_destroy(std::exchange(reservation_, nullptr));
+    reservation_cleanup_failed_ = !amdf_status_is_ok(status);
+    ASSERT_EQ(status, AMDF_STATUS_OK);
+  }
+
+  enum class MappingPublication { kHostCompleted, kQueueOrdered };
+
+  void RunMappingReplacement(uint32_t family_ordinal,
+                             MappingPublication publication) {
+    amdf_memory_reservation_capabilities_t capabilities = {};
+    capabilities.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES;
+    capabilities.structure_size = sizeof(capabilities);
+    const amdf_status_t status =
+        api_->device_query_memory_reservation_capabilities(device_, 0,
+                                                           &capabilities);
+    if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+      GTEST_SKIP() << "host-completed GPU mapping updates are unavailable";
+    }
+    ASSERT_EQ(status, AMDF_STATUS_OK);
+    memory_access_.requirements.flags |= AMDF_MEMORY_FLAG_MAPPING_SOURCE;
+    memory_access_.requirements.access |= capabilities.required_access;
+    import_info_.memory_profile_ordinal = FindMemoryProfileOrdinal(
+        local_scope_,
+        AMDF_MEMORY_PROFILE_ROLE_IMPORT | AMDF_MEMORY_PROFILE_ROLE_EXPORT,
+        import_info_.required_flags, memory_access_.requirements);
+    ASSERT_NE(import_info_.memory_profile_ordinal,
+              AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN);
+    const uint64_t granularity = capabilities.mapping_granularity;
+    ASSERT_GE(granularity, kWordCount * 4u);
+    ASSERT_LE(granularity, kByteLength / 5);
+    // An unaligned logical prefix combined with a nonzero logical source
+    // offset must select the native page once, not omit or repeat the prefix.
+    const uint64_t prefix = granularity / 2;
+    ASSERT_NO_FATAL_FAILURE(OpenSharedBuffer(prefix, kByteLength - prefix));
+    const amdf_memory_reservation_access_t access = {
+        device_, 0, memory_access_.requirements.access};
+    const amdf_memory_reservation_create_info_t create = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CREATE_INFO,
+        .structure_size = sizeof(create),
+        .byte_length = capabilities.reservation_granularity,
+        .access_count = 1,
+        .accesses = &access,
+    };
+    ASSERT_GE(create.byte_length, 2 * granularity);
+    ASSERT_EQ(
+        api_->memory_reservation_create(instance_, &create, &reservation_),
+        AMDF_STATUS_OK);
+    amdf_memory_reservation_access_info_t projection = {};
+    projection.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO;
+    projection.structure_size = sizeof(projection);
+    ASSERT_EQ(api_->memory_reservation_query_access_info(reservation_, 0,
+                                                         &projection),
+              AMDF_STATUS_OK);
+    ASSERT_NO_FATAL_FAILURE(PrepareNativeCopy(
+        family_ordinal, projection.address, projection.address + granularity));
+    if (publication == MappingPublication::kQueueOrdered) {
+      amdf_kernel_queue_info_t queue_info = {};
+      queue_info.type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_INFO;
+      queue_info.structure_size = sizeof(queue_info);
+      ASSERT_EQ(api_->kernel_queue_query_info(queue_, &queue_info),
+                AMDF_STATUS_OK);
+      if ((queue_info.capabilities &
+           AMDF_KERNEL_QUEUE_CAPABILITY_VIRTUAL_MEMORY) == 0) {
+        GTEST_SKIP() << "native queue-ordered mappings are not advertised";
+      }
+    }
+    ComPtr<ID3D12Resource> upload;
+    ComPtr<ID3D12Resource> readback;
+    ASSERT_NO_FATAL_FAILURE(CreateStaging(D3D12_HEAP_TYPE_UPLOAD, &upload));
+    ASSERT_NO_FATAL_FAILURE(CreateStaging(D3D12_HEAP_TYPE_READBACK, &readback));
+    std::vector<uint32_t> expected(kByteLength / 4);
+    for (uint32_t i = 0; i < expected.size(); ++i) {
+      expected[i] = 0x5a13b87du ^ (i * 0x9e3779b9u);
+    }
+    void* pointer = nullptr;
+    const D3D12_RANGE no_read = {0, 0};
+    ASSERT_TRUE(SUCCEEDED(upload->Map(0, &no_read, &pointer)));
+    std::memcpy(pointer, expected.data(), kByteLength);
+    const D3D12_RANGE full_range = {0, kByteLength};
+    upload->Unmap(0, &full_range);
+    ASSERT_NO_FATAL_FAILURE(CopyD3D12(upload.Get(), buffer_.Get()));
+
+    // Both generations use the same command storage and queue. Foreign API
+    // allocations and submissions never intervene between mapping and access.
+    for (uint32_t generation = 0; generation < 2; ++generation) {
+      const uint64_t source_offset = (generation == 0 ? 1 : 4) * granularity;
+      const uint64_t destination_offset =
+          (generation == 0 ? 2 : 3) * granularity;
+      const std::array<amdf_memory_mapping_update_t, 2> updates = {{
+          {.target_byte_offset = 0,
+           .byte_length = granularity,
+           .memory = imported_memory_,
+           .access = access.access,
+           .source_byte_offset = source_offset - prefix},
+          {.target_byte_offset = granularity,
+           .byte_length = granularity,
+           .memory = imported_memory_,
+           .access = access.access,
+           .source_byte_offset = destination_offset - prefix},
+      }};
+      if (publication == MappingPublication::kQueueOrdered) {
+        ASSERT_EQ(api_->kernel_queue_update_memory(
+                      queue_, reservation_, 0, updates.size(), updates.data(),
+                      &pending_submission_),
+                  AMDF_STATUS_OK);
+      } else {
+        ASSERT_EQ(api_->memory_reservation_update(
+                      reservation_, 0, updates.size(), updates.data()),
+                  AMDF_STATUS_OK);
+      }
+      ASSERT_NO_FATAL_FAILURE(ExecuteNativeCopy());
+      for (uint32_t i = 0; i < kWordCount; ++i) {
+        expected[destination_offset / 4 + i] = expected[source_offset / 4 + i];
+      }
+      ASSERT_NO_FATAL_FAILURE(CopyD3D12(buffer_.Get(), readback.Get()));
+      ASSERT_TRUE(SUCCEEDED(readback->Map(0, &full_range, &pointer)));
+      const int difference = std::memcmp(pointer, expected.data(), kByteLength);
+      readback->Unmap(0, &no_read);
+      ASSERT_EQ(difference, 0) << "generation=" << generation;
+    }
+    ASSERT_NO_FATAL_FAILURE(ReleaseReservation());
+    ASSERT_NO_FATAL_FAILURE(DestroyImportedStorage());
+    // The foreign owner remains usable after checked removal and native close.
+    ASSERT_NO_FATAL_FAILURE(CopyD3D12(buffer_.Get(), readback.Get()));
+    ASSERT_TRUE(SUCCEEDED(readback->Map(0, &full_range, &pointer)));
+    const int difference = std::memcmp(pointer, expected.data(), kByteLength);
+    readback->Unmap(0, &no_read);
+    ASSERT_EQ(difference, 0);
+  }
+
   // Typed import request using the fixture's complete consumer set.
   amdf_memory_import_info_t import_info_ = {};
   // Public memory that owns native access to the foreign resource.
   amdf_memory_t* imported_memory_ = nullptr;
+  // Stable alias range borrowing the imported storage until checked removal.
+  amdf_memory_reservation_t* reservation_ = nullptr;
+  // Consuming removal failure preserves the import and native dependencies.
+  bool reservation_cleanup_failed_ = false;
   // Number of source transports consumed by successful imports.
   uint32_t release_count_ = 0;
   // Factory used to locate the matching foreign API adapter.
@@ -571,6 +721,14 @@ class D3D12Pm4MemoryInteropTest : public D3D12MemoryInteropTest {
 
 TEST_F(D3D12Pm4MemoryInteropTest, ForeignNativeForeignRoundTrip) {
   RunRoundTrip(family_ordinal_);
+}
+
+TEST_F(D3D12Pm4MemoryInteropTest, ReplacesImportedSlicesOnAnExistingQueue) {
+  RunMappingReplacement(family_ordinal_, MappingPublication::kHostCompleted);
+}
+
+TEST_F(D3D12Pm4MemoryInteropTest, QueueOrdersImportedSliceReplacement) {
+  RunMappingReplacement(family_ordinal_, MappingPublication::kQueueOrdered);
 }
 
 TEST_F(D3D12MemoryInteropTest, ImportOwnsBackingAfterSourceRelease) {

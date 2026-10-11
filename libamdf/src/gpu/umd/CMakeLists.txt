@@ -12,6 +12,22 @@ iree_add_all_subdirs()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    sparse_mapping_test_support
+  HDRS
+    "sparse_mapping_test.h"
+  DEPS
+    amdf::headers
+    iree::third_party::google_test
+    libamdf::cts::gpu::sdma::encoding::commands
+    libamdf::cts::gpu::util::sparse_mapping_layout
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     instance
   HDRS
     "instance.h"
@@ -79,6 +95,20 @@ iree_cc_test(
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.gpu"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
+    memory_reservation
+  HDRS
+    "memory_reservation.h"
+  DEPS
+    ::kernel_queue
+    ::memory
+    amdf::headers
+  PUBLIC
 )
 endif()
 

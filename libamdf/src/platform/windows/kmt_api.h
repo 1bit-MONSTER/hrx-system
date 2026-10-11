@@ -65,6 +65,10 @@ typedef struct amdf_kmt_api_t {
   PFND3DKMT_FREEGPUVIRTUALADDRESS free_gpu_virtual_address;
   // Establishes one allocation mapping in a device address space.
   PFND3DKMT_MAPGPUVIRTUALADDRESS map_gpu_virtual_address;
+  // Applies a vector after a queue fence and signals the following point.
+  PFND3DKMT_UPDATEGPUVIRTUALADDRESS update_gpu_virtual_address;
+  // Orders later hardware commands after a native monitored-fence point.
+  PFND3DKMT_SUBMITWAITFORSYNCOBJECTSTOHWQUEUE wait_on_hardware_queue;
   // Establishes residency without forcing a device error on exhaustion.
   PFND3DKMT_MAKERESIDENT make_resident;
   // Locks one allocation for explicit host access.

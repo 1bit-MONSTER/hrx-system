@@ -16,6 +16,7 @@
 #include "libamdf/src/device.h"
 #include "libamdf/src/endpoint.h"
 #include "libamdf/src/gpu/device.h"
+#include "libamdf/src/gpu/memory_reservation.h"
 #include "libamdf/src/gpu/umd/kernel_queue.h"
 #include "libamdf/src/kernel_queue.h"
 #include "libamdf/src/memory_resource.h"
@@ -35,6 +36,8 @@ struct amdf_gpu_umd_kernel_queue_t {
   amdf_status_t wait_status = AMDF_STATUS_OK;
   // Native cleanup result after the shared layer establishes retirement.
   amdf_status_t destroy_status = AMDF_STATUS_OK;
+  // Ordering failure injected only after a mapping update is accepted.
+  amdf_status_t mapping_order_status = AMDF_STATUS_OK;
   // Number of final native release attempts.
   uint32_t destroy_count = 0;
   // Native publication schedule controlled by the concurrency scenario.
@@ -127,6 +130,18 @@ class GpuKernelQueueTest
     return amdf_gpu_kernel_queue_create(&device.base, &create, &queue);
   }
 
+  amdf_status_t Update(uint64_t* out_submission) {
+    target.device = &device.base;
+    target.info.byte_length = 4096;
+    target.info.mapping_granularity = 4096;
+    reservation.host_allocator = amdf_allocator_system();
+    reservation.access_count = 1;
+    reservation.accesses = &target;
+    const amdf_memory_mapping_update_t update = {.byte_length = 4096};
+    return amdf_kernel_queue_update_memory(queue, &reservation, 0, 1, &update,
+                                           out_submission);
+  }
+
   amdf_kernel_queue_status_t Query() {
     amdf_kernel_queue_status_t status = {};
     status.type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS;
@@ -151,7 +166,77 @@ class GpuKernelQueueTest
   amdf_gpu_kernel_command_t command = {};
   // Production queue under test.
   amdf_kernel_queue_t* queue = nullptr;
+  // Borrowed reservation projection used to exercise common admission too.
+  amdf_memory_reservation_t reservation = {};
+  // Canonical projection stores native mutation failure without a registry.
+  amdf_memory_reservation_access_state_t target = {};
 };
+
+TEST_P(GpuKernelQueueTest, MappingAndCommandsShareProgressAndCapacity) {
+  ASSERT_EQ(CreateQueue(2), AMDF_STATUS_OK);
+  uint64_t command_point = 0;
+  ASSERT_EQ(Submit(&command_point), AMDF_STATUS_OK);
+  uint64_t mapping_point = 0;
+  ASSERT_EQ(Update(&mapping_point), AMDF_STATUS_OK);
+  EXPECT_GT(mapping_point, command_point);
+  uint64_t rejected = 9876;
+  EXPECT_EQ(Submit(&rejected), amdf_make_api_status(AMDF_STATUS_CODE_BUSY));
+  EXPECT_EQ(Update(&rejected), amdf_make_api_status(AMDF_STATUS_CODE_BUSY));
+  EXPECT_EQ(rejected, 9876u);
+  EXPECT_EQ(Query().retired_submission, 0u);
+  device.native.queue.progress = mapping_point;
+  EXPECT_EQ(Submit(&command_point), AMDF_STATUS_OK);
+  EXPECT_GT(command_point, mapping_point);
+}
+
+TEST_P(GpuKernelQueueTest, UnsupportedAndEmptyMappingRequestsAcceptNothing) {
+  queue->info.capabilities = 0;
+  uint64_t rejected = 9876;
+  EXPECT_EQ(Update(&rejected),
+            amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED));
+  EXPECT_EQ(amdf_kernel_queue_update_memory(queue, &reservation, 0, 0, nullptr,
+                                            &rejected),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  EXPECT_EQ(rejected, 9876u);
+  EXPECT_EQ(device.native.queue.submitted, 0u);
+  uint64_t command_point = 0;
+  EXPECT_EQ(Submit(&command_point), AMDF_STATUS_OK);
+}
+
+TEST_P(GpuKernelQueueTest, MappingAdmissionCannotEnterNativeThrottle) {
+  uint64_t point = 0;
+  for (uint32_t i = 0; i < 128; ++i) {
+    ASSERT_EQ(Submit(&point), AMDF_STATUS_OK);
+  }
+  uint64_t rejected = 9876;
+  EXPECT_EQ(Update(&rejected), amdf_make_api_status(AMDF_STATUS_CODE_BUSY));
+  EXPECT_EQ(rejected, 9876u);
+  // The smaller mapping window does not clamp command capacity.
+  ASSERT_EQ(Submit(&point), AMDF_STATUS_OK);
+  device.native.queue.progress = point;
+  EXPECT_EQ(Update(&point), AMDF_STATUS_OK);
+}
+
+TEST_P(GpuKernelQueueTest, AcceptedMappingFailureIsNotReplayedOrRetired) {
+  const auto failure =
+      amdf_make_status(AMDF_STATUS_DOMAIN_NTSTATUS, 0xc000000d);
+  device.native.queue.mapping_order_status = failure;
+  uint64_t accepted = 0;
+  EXPECT_EQ(Update(&accepted), AMDF_STATUS_OK);
+  ASSERT_NE(accepted, 0u);
+  EXPECT_EQ(Query().terminal_status, failure);
+  EXPECT_EQ(Query().state, AMDF_QUEUE_STATE_FAILED);
+  EXPECT_EQ(Query().retired_submission, 0u);
+  EXPECT_EQ(amdf_kernel_queue_destroy(queue),
+            amdf_make_api_status(AMDF_STATUS_CODE_BUSY));
+  uint64_t rejected = 9876;
+  EXPECT_EQ(Update(&rejected), failure);
+  EXPECT_EQ(Submit(&rejected), failure);
+  EXPECT_EQ(rejected, 9876u);
+  device.native.queue.progress = accepted;
+  EXPECT_EQ(amdf_kernel_queue_wait(queue, accepted, 0, 0), failure);
+  EXPECT_EQ(Query().retired_submission, accepted);
+}
 
 TEST_P(GpuKernelQueueTest, QueryDoesNotRetireNativeCompletion) {
   uint64_t submission = 0;
@@ -420,6 +505,25 @@ INSTANTIATE_TEST_SUITE_P(CommandFormats, GpuKernelQueueTest,
 }  // namespace
 
 extern "C" {
+
+uint32_t amdf_gpu_umd_kernel_queue_mapping_capacity(
+    const amdf_gpu_umd_kernel_queue_t*) {
+  return 128;
+}
+
+amdf_status_t amdf_gpu_memory_reservation_update_on_queue(
+    amdf_memory_reservation_t*, amdf_gpu_umd_kernel_queue_t* queue, uint32_t,
+    uint32_t, const amdf_memory_mapping_update_t*, uint64_t submission,
+    bool* mutation_started, bool* accepted) {
+  const auto status = amdf_gpu_umd_kernel_queue_submit(queue, 0, 0, submission);
+  if (!amdf_status_is_ok(status)) {
+    return status;
+  }
+  *mutation_started = true;
+  *accepted = true;
+  queue->terminal_status = queue->mapping_order_status;
+  return queue->mapping_order_status;
+}
 
 amdf_status_t amdf_endpoint_register_device(amdf_endpoint_t*) {
   return AMDF_STATUS_OK;

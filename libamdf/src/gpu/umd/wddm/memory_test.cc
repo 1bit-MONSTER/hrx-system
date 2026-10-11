@@ -13,6 +13,7 @@
 
 #include "gtest/gtest.h"
 #include "libamdf/src/allocator.h"
+#include "libamdf/src/gpu/umd/memory_reservation.h"
 #include "libamdf/src/gpu/umd/wddm/device.h"
 
 namespace {
@@ -83,6 +84,8 @@ struct FakeMemoryState {
   std::vector<uint64_t> wait_targets;
   // Native cache ranges observed when publishing noncoherent host writes.
   std::vector<D3DKMT_INVALIDATECACHE> invalidations;
+  // Native range updates observed while exercising reservation replacement.
+  std::vector<D3DDDI_MAPGPUVIRTUALADDRESS> mappings;
 };
 
 FakeMemoryState* current_state = nullptr;
@@ -426,6 +429,210 @@ TEST_F(WindowsGpuMemoryTest, BorrowsHostViewsAcrossNativeAllocationChunks) {
   EXPECT_EQ(state_.operations.size(), native_operation_count);
   EXPECT_EQ(state_.metadata_free_count, 0u);
   EXPECT_EQ(amdf_gpu_umd_memory_destroy(memory), AMDF_STATUS_OK);
+  EXPECT_EQ(state_.metadata_free_count, 1u);
+}
+
+TEST_F(WindowsGpuMemoryTest,
+       ReservationMapsRangesAcrossPreparedAllocationChunks) {
+  state_.allocation_count = 2;
+  create_info_.required_flags |= AMDF_MEMORY_FLAG_MAPPING_SOURCE;
+  amdf_gpu_umd_memory_t* memory = nullptr;
+  amdf_gpu_umd_memory_result_t result = {};
+  ASSERT_EQ(amdf_gpu_umd_memory_prepare(&device_, 0, nullptr, &profile_,
+                                        &create_info_, &memory, &result),
+            AMDF_STATUS_OK);
+  kmt_.reserve_gpu_virtual_address =
+      [](D3DDDI_RESERVEGPUVIRTUALADDRESS* reserve) {
+        reserve->VirtualAddress = 0x200000;
+        return static_cast<NTSTATUS>(0);
+      };
+  kmt_.map_gpu_virtual_address = [](D3DDDI_MAPGPUVIRTUALADDRESS* map) {
+    current_state->operations.push_back(Operation::kMap);
+    current_state->mappings.push_back(*map);
+    map->VirtualAddress = map->BaseAddress;
+    map->PagingFenceValue = current_state->next_paging_fence++;
+    return kStatusPending;
+  };
+  kmt_.free_gpu_virtual_address =
+      [](const D3DKMT_FREEGPUVIRTUALADDRESS* release) {
+        current_state->operations.push_back(Operation::kFreeAddress);
+        EXPECT_EQ(release->BaseAddress, UINT64_C(0x200000));
+        EXPECT_EQ(release->Size, 65536u);
+        EXPECT_EQ(current_state->paging_fence,
+                  current_state->next_paging_fence - 1);
+        return static_cast<NTSTATUS>(0);
+      };
+  amdf_gpu_umd_device_t* devices[] = {&device_};
+  amdf_gpu_umd_memory_reservation_t* reservation = nullptr;
+  ASSERT_EQ(amdf_gpu_umd_memory_reservation_create(
+                device_.host_allocator, 1, devices, 65536, 0, &reservation),
+            AMDF_STATUS_OK);
+  state_.operations.clear();
+  const amdf_gpu_umd_mapping_update_t update = {
+      .target_byte_offset = 8192,
+      .byte_length = 8192,
+      .memory = memory,
+      .source_byte_offset = 28672,
+      .access = AMDF_MEMORY_ACCESS_READ,
+  };
+  bool mutated = false;
+  ASSERT_EQ(amdf_gpu_umd_memory_reservation_update(reservation, 0, 1, &update,
+                                                   &mutated),
+            AMDF_STATUS_OK);
+  ASSERT_TRUE(mutated);
+  ASSERT_EQ(state_.mappings.size(), 2u);
+  EXPECT_EQ(state_.mappings[0].hAllocation, 0x20u);
+  EXPECT_EQ(state_.mappings[0].BaseAddress, UINT64_C(0x202000));
+  EXPECT_EQ(state_.mappings[0].OffsetInPages, 7u);
+  EXPECT_EQ(state_.mappings[0].SizeInPages, 1u);
+  EXPECT_EQ(state_.mappings[1].hAllocation, 0x21u);
+  EXPECT_EQ(state_.mappings[1].BaseAddress, UINT64_C(0x203000));
+  EXPECT_EQ(state_.mappings[1].OffsetInPages, 0u);
+  EXPECT_EQ(state_.mappings[1].SizeInPages, 1u);
+  EXPECT_EQ(state_.mappings[0].Protection.Write, 0u);
+  EXPECT_EQ(state_.operations,
+            (std::vector<Operation>{Operation::kMap, Operation::kMap,
+                                    Operation::kWait}));
+  // The queued form preserves the same chunk boundaries and permissions in a
+  // single vector. Only native dependencies are substituted, not translation.
+  bridge_.gpu_kernel_queue_create =
+      [](amdf_wkmi_bridge_gpu_adapter_t*,
+         const amdf_wkmi_bridge_gpu_kernel_queue_create_info_t*,
+         amdf_wkmi_bridge_gpu_kernel_queue_t** queue,
+         amdf_wkmi_bridge_gpu_kernel_queue_info_t* info,
+         uint32_t*) -> amdf_wkmi_bridge_result_t {
+    *queue =
+        reinterpret_cast<amdf_wkmi_bridge_gpu_kernel_queue_t*>(current_state);
+    *info = {};
+    info->progress_fence_pointer = &current_state->paging_fence;
+    info->progress_fence_handle = 0x50;
+    info->context_handle = 0x60;
+    info->queue_handle = 0x70;
+    return AMDF_WKMI_BRIDGE_RESULT_SUCCESS;
+  };
+  bridge_.gpu_kernel_queue_destroy =
+      [](amdf_wkmi_bridge_gpu_kernel_queue_t*,
+         uint32_t*) -> amdf_wkmi_bridge_result_t {
+    return AMDF_WKMI_BRIDGE_RESULT_SUCCESS;
+  };
+  kmt_.update_gpu_virtual_address =
+      [](const D3DKMT_UPDATEGPUVIRTUALADDRESS* native) {
+        EXPECT_EQ(native->NumOperations, 2u);
+        EXPECT_EQ(native->FenceValue, 9u);
+        for (uint32_t i = 0; i < native->NumOperations; ++i) {
+          const auto& operation = native->Operations[i];
+          EXPECT_EQ(operation.OperationType,
+                    D3DDDI_UPDATEGPUVIRTUALADDRESS_MAP_PROTECT);
+          EXPECT_EQ(operation.MapProtect.hAllocation, 0x20u + i);
+          EXPECT_EQ(operation.MapProtect.BaseAddress,
+                    UINT64_C(0x202000) + i * 4096);
+          EXPECT_EQ(operation.MapProtect.SizeInBytes, 4096u);
+          EXPECT_EQ(operation.MapProtect.AllocationOffsetInBytes,
+                    i == 0 ? 28672u : 0u);
+          EXPECT_EQ(operation.MapProtect.Protection.Write, 0u);
+          EXPECT_EQ(operation.MapProtect.Protection.Execute, 0u);
+        }
+        return static_cast<NTSTATUS>(0);
+      };
+  kmt_.wait_on_hardware_queue =
+      [](const D3DKMT_SUBMITWAITFORSYNCOBJECTSTOHWQUEUE* wait) {
+        EXPECT_EQ(wait->hHwQueue, 0x70u);
+        EXPECT_EQ(wait->FenceValueArray[0], 10u);
+        return static_cast<NTSTATUS>(0);
+      };
+  amdf_gpu_umd_kernel_queue_t* queue = nullptr;
+  ASSERT_EQ(amdf_gpu_umd_kernel_queue_create(
+                &device_, AMDF_QUEUE_COMMAND_TYPE_GPU_PM4, &queue),
+            AMDF_STATUS_OK);
+  bool accepted = false;
+  mutated = false;
+  ASSERT_EQ(amdf_gpu_umd_memory_reservation_update_on_queue(
+                reservation, queue, 0, 1, &update, 10, &mutated, &accepted),
+            AMDF_STATUS_OK);
+  EXPECT_TRUE(mutated);
+  EXPECT_TRUE(accepted);
+  ASSERT_EQ(amdf_gpu_umd_kernel_queue_destroy(queue), AMDF_STATUS_OK);
+  ASSERT_EQ(amdf_gpu_umd_memory_reservation_destroy(reservation),
+            AMDF_STATUS_OK);
+  ASSERT_EQ(state_.mappings.size(), 3u);
+  EXPECT_EQ(state_.mappings.back().Protection.NoAccess, 1u);
+  EXPECT_EQ(state_.mappings.back().hAllocation, 0u);
+  EXPECT_EQ(state_.mappings.back().BaseAddress, UINT64_C(0x200000));
+  EXPECT_EQ(state_.mappings.back().SizeInPages, 16u);
+  EXPECT_EQ(state_.operations.back(), Operation::kFreeAddress);
+  kmt_.free_gpu_virtual_address = FakeFreeGpuVirtualAddress;
+  ASSERT_EQ(amdf_gpu_umd_memory_destroy(memory), AMDF_STATUS_OK);
+}
+
+TEST_F(WindowsGpuMemoryTest,
+       FinalClearFollowsPartialUpdatesOnTheirPagingQueue) {
+  auto second = device_;
+  second.device = 0x11;
+  second.paging_queue = 0x31;
+  amdf_gpu_umd_device_t* devices[] = {&device_, &second};
+  amdf_gpu_umd_memory_reservation_t* reservation = nullptr;
+  ASSERT_EQ(amdf_gpu_umd_memory_reservation_create(
+                device_.host_allocator, 2, devices, 65536, 0, &reservation),
+            AMDF_STATUS_OK);
+  kmt_.map_gpu_virtual_address = [](D3DDDI_MAPGPUVIRTUALADDRESS* map) {
+    current_state->operations.push_back(Operation::kMap);
+    EXPECT_EQ(map->hPagingQueue, 0x31u);
+    current_state->mappings.push_back(*map);
+    if (current_state->mappings.size() == 2) {
+      return kStatusNoMemory;
+    }
+    map->VirtualAddress = map->BaseAddress;
+    map->PagingFenceValue = current_state->next_paging_fence++;
+    return kStatusPending;
+  };
+  kmt_.wait_from_cpu =
+      [](const D3DKMT_WAITFORSYNCHRONIZATIONOBJECTFROMCPU* wait) {
+        current_state->operations.push_back(Operation::kWait);
+        EXPECT_EQ(wait->hDevice, 0x11u);
+        EXPECT_EQ(wait->FenceValueArray[0],
+                  current_state->next_paging_fence - 1);
+        current_state->paging_fence = wait->FenceValueArray[0];
+        return static_cast<NTSTATUS>(0);
+      };
+  const amdf_gpu_umd_mapping_update_t updates[] = {
+      {.target_byte_offset = 0, .byte_length = 4096},
+      {.target_byte_offset = 8192, .byte_length = 4096},
+  };
+  bool mutated = false;
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_update(reservation, 1, 2, updates,
+                                                   &mutated),
+            amdf_kmt_make_status(kStatusNoMemory));
+  ASSERT_TRUE(mutated);
+  EXPECT_EQ(std::count(state_.operations.begin(), state_.operations.end(),
+                       Operation::kFreeAddress),
+            0);
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_destroy(reservation),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(state_.mappings.back().Protection.NoAccess, 1u);
+  EXPECT_EQ(state_.mappings.back().SizeInPages, 16u);
+  EXPECT_EQ(state_.operations,
+            (std::vector<Operation>{
+                Operation::kReserveAddress, Operation::kMap, Operation::kMap,
+                Operation::kMap, Operation::kWait, Operation::kFreeAddress}));
+  EXPECT_EQ(state_.metadata_free_count, 1u);
+}
+
+TEST_F(WindowsGpuMemoryTest,
+       FailedFinalClearConsumesOwnerWithoutReleasingAddress) {
+  amdf_gpu_umd_device_t* devices[] = {&device_};
+  amdf_gpu_umd_memory_reservation_t* reservation = nullptr;
+  ASSERT_EQ(amdf_gpu_umd_memory_reservation_create(
+                device_.host_allocator, 1, devices, 65536, 0, &reservation),
+            AMDF_STATUS_OK);
+  kmt_.map_gpu_virtual_address = [](D3DDDI_MAPGPUVIRTUALADDRESS*) {
+    current_state->operations.push_back(Operation::kMap);
+    return kStatusNoMemory;
+  };
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_destroy(reservation),
+            amdf_kmt_make_status(kStatusNoMemory));
+  EXPECT_EQ(
+      state_.operations,
+      (std::vector<Operation>{Operation::kReserveAddress, Operation::kMap}));
   EXPECT_EQ(state_.metadata_free_count, 1u);
 }
 

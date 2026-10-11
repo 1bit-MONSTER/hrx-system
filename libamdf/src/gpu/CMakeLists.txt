@@ -30,9 +30,11 @@ iree_cc_library(
   HDRS
     "device.h"
     "memory.h"
+    "memory_reservation.h"
   SRCS
     "device.c"
     "memory.c"
+    "memory_reservation.c"
   DEPS
     amdf::headers
     libamdf::src::allocator
@@ -40,11 +42,15 @@ iree_cc_library(
     libamdf::src::endpoint
     libamdf::src::gpu::umd::device
     libamdf::src::gpu::umd::instance
+    libamdf::src::gpu::umd::kernel_queue
     libamdf::src::gpu::umd::memory
+    libamdf::src::gpu::umd::memory_reservation
     libamdf::src::host_mapping
     libamdf::src::instance
     libamdf::src::memory
     libamdf::src::memory_profile
+    libamdf::src::memory_reservation
+    libamdf::src::memory_resource
     libamdf::src::platform
     libamdf::src::structure
   PUBLIC

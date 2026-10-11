@@ -11,6 +11,7 @@
 
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/gpu/umd/wddm/device.h"
+#include "libamdf/src/gpu/umd/wddm/memory.h"
 #include "libamdf/src/gpu/umd/wddm/memory_profile.h"
 #include "libamdf/src/platform/windows/host_cache.h"
 
@@ -59,6 +60,22 @@ struct amdf_gpu_umd_memory_t {
   // Native allocation handles in increasing byte-offset order.
   D3DKMT_HANDLE allocation_handles[];
 };
+
+amdf_gpu_wddm_memory_span_t amdf_gpu_wddm_memory_span(
+    const amdf_gpu_umd_memory_t* memory, uint64_t byte_offset) {
+  const uint64_t index =
+      byte_offset / memory->maximum_native_allocation_byte_length;
+  const uint64_t offset =
+      byte_offset % memory->maximum_native_allocation_byte_length;
+  const uint64_t remaining = memory->byte_length - byte_offset;
+  const uint64_t available =
+      memory->maximum_native_allocation_byte_length - offset;
+  return (amdf_gpu_wddm_memory_span_t){
+      .allocation = memory->allocation_handles[index],
+      .byte_offset = offset,
+      .byte_length = remaining < available ? remaining : available,
+  };
+}
 
 static bool amdf_windows_gpu_align_up(uint64_t value, uint64_t alignment,
                                       uint64_t* out_value) {
@@ -424,7 +441,7 @@ amdf_status_t amdf_gpu_umd_memory_prepare_import(
   }
   memory->device = device;
   memory->allocation_capacity = 1;
-  memory->flags = profile->guaranteed_flags;
+  memory->flags = profile->guaranteed_flags | import_info->required_flags;
   memory->device_access = import_info->device_access;
   *memory_state = memory;
   if (!DuplicateHandle(GetCurrentProcess(),

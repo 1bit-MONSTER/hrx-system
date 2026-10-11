@@ -298,6 +298,25 @@ endif()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
+    memory_reservation
+  HDRS
+    "memory_reservation.h"
+  SRCS
+    "memory_reservation.c"
+  DEPS
+    ::allocator
+    ::device
+    ::kernel_queue
+    ::memory_resource
+    ::structure
+    amdf::headers
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
     memory_pair
   HDRS
     "memory_pair.h"
@@ -321,6 +340,7 @@ iree_cc_test(
     memory_test
   SRCS
     "memory_construction_test.cc"
+    "memory_reservation_test.cc"
     "memory_test.cc"
     "memory_test_fixture.cc"
     "memory_test_fixture.h"
@@ -331,6 +351,7 @@ iree_cc_test(
     ::host_mapping
     ::instance
     ::memory
+    ::memory_reservation
     ::memory_scope
     ::memory_scope_state
     amdf::headers
@@ -461,6 +482,7 @@ iree_cc_library(
     ::instance
     ::kernel_queue
     ::memory
+    ::memory_reservation
     ::pci
     ::structure
     ::user_queue

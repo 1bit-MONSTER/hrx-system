@@ -9,6 +9,12 @@
 #include <stddef.h>
 
 // KFD exposes user-published queues, not this kernel-submission service.
+uint32_t amdf_gpu_umd_kernel_queue_mapping_capacity(
+    const amdf_gpu_umd_kernel_queue_t* queue) {
+  (void)queue;
+  return 0;
+}
+
 amdf_status_t amdf_gpu_umd_kernel_queue_create(
     amdf_gpu_umd_device_t* device, amdf_queue_command_type_t command_type,
     amdf_gpu_umd_kernel_queue_t** out_queue) {

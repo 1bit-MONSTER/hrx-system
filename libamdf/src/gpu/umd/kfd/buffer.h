@@ -90,6 +90,13 @@ uint64_t amdf_gpu_kfd_buffer_handle(const amdf_gpu_kfd_buffer_t* buffer);
 // Returns the page-covered native backing length in bytes.
 size_t amdf_gpu_kfd_buffer_byte_length(const amdf_gpu_kfd_buffer_t* buffer);
 
+// Prepares an owned GEM handle for an existing KFD allocation in the exact
+// acquired render VM. Closing the temporary DMA-BUF leaves the KFD residency
+// owner intact. Failure consumes partial transport and preserves the output.
+amdf_status_t amdf_gpu_kfd_buffer_export_gem(amdf_gpu_kfd_buffer_t* buffer,
+                                             int render_descriptor,
+                                             uint32_t* out_handle);
+
 // Releases the GPU mapping, allocation, CPU VA reservation, and object.
 // Failure retains the object and unreleased resources with the caller.
 amdf_status_t amdf_gpu_kfd_buffer_destroy(amdf_gpu_kfd_buffer_t* buffer);

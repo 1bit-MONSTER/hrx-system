@@ -14,6 +14,21 @@ package(
 )
 
 amdf_cc_library(
+    name = "sparse_mapping_test_support",
+    testonly = True,
+    hdrs = ["sparse_mapping_test.h"],
+    visibility = [
+        "//libamdf/src/gpu/umd/kfd:__pkg__",
+        "//libamdf/src/gpu/umd/wddm:__pkg__",
+    ],
+    deps = [
+        "//libamdf/cts/gpu/sdma/encoding:commands",
+        "//libamdf/cts/gpu/util:sparse_mapping_layout",
+        "//third_party:google_test",
+    ],
+)
+
+amdf_cc_library(
     name = "instance",
     hdrs = ["instance.h"],
     visibility = [
@@ -60,6 +75,16 @@ amdf_cc_test(
         ":memory",
         "//third_party:google_test",
         "//third_party:google_test_main",
+    ],
+)
+
+amdf_cc_library(
+    name = "memory_reservation",
+    hdrs = ["memory_reservation.h"],
+    visibility = ["//libamdf/src/gpu:__subpackages__"],
+    deps = [
+        ":kernel_queue",
+        ":memory",
     ],
 )
 

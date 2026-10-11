@@ -31,7 +31,9 @@ deployment-representative measurements retain the deployment's actual policy.
 | Immutable object and address queries | Validate the public request and copy or directly index retained facts. | Locks, allocation, lazy initialization, ownership-counter updates and native queries. |
 | Scope-profile and visibility planning | Qualify a proposed consumer set and exact producer/consumer pair, using temporary host storage. | Device activation, native allocation, mapping and execution. This is not an allocation-free per-dispatch query. |
 | Device, memory, context and queue creation | Acquire the native resources, address mappings, residency, packet storage and completion objects required by the requested resource. | Deferring that resource's preparation to a metadata query or its first publication. |
-| Kernel publication | Claim publication, check pending capacity, resolve the caller-owned command range, fill required transport fields and publish natively. Capacity pressure can reclaim completed credits; XDNA also consumes completed command results before packet reuse. | Library locks, allocation, lazy setup, command parsing/copying, indirect-buffer scans and completion waits. |
+| Reservation creation and host-completed mapping updates | Reserve addresses, prepare publication transport, validate explicit range vectors, publish native mappings and wait for their translation readiness. | Discovering old users, retaining source objects, keeping an installed-mapping ledger, or deferring publication to the next payload access. |
+| Queue-ordered mapping publication | Validate and translate range vectors using temporary descriptor storage, claim existing queue capacity, and publish native mapping/dependency operations. | Waiting for execution in libamdf, creating a worker, retaining backing, or introducing a second progress sequence. |
+| Kernel command publication | Claim publication, check pending capacity, resolve the caller-owned command range, fill required transport fields and publish natively. Capacity pressure can reclaim completed credits; XDNA also consumes completed command results before packet reuse. | Library locks, allocation, lazy setup, command parsing/copying, indirect-buffer scans and completion waits. |
 | Read-only kernel status query | Read established retirement and cached terminal state without mutating either. | Native completion checks, command-result consumption, retirement, library locks, allocation, lazy setup, system calls and active polling. |
 | Explicit kernel progress refresh | Observe available native progress and consume completed command results without waiting for a particular submission. Native observation can require nonblocking system calls; result inspection scales with the newly completed prefix. | Allocation, resource creation, lazy setup, sleep and active polling. |
 | Explicit waiting | Refresh native progress, inspect command results and establish retirement; query clocks, poll within the requested budget, yield and enter native waits. | Allocation or first-wait resource creation. Wait-event serialization consumes the same deadline. |
@@ -47,6 +49,23 @@ already holds the owning handle alive through the operation.
 planning storage scales with the declared consumer set. The result is sufficient
 for each successfully admitted backing with matching construction inputs, so
 recording and submission can reuse it without querying individual bindings.
+
+Mapping-source access is explicit allocation/import preparation. Linux prepares
+reusable GEM handles once for the requested native consumers; Windows uses the
+ordinary resource's existing native allocation handles. Unchanged allocations
+pay no additional native source-preparation cost. Mapping updates may allocate
+temporary range vectors and serialize cold native VM mutations. The Linux lock
+extends through publication and compute-PASID invalidation, not through
+application execution. Neither reservation size nor installed mapping count
+adds work to address queries or queue publication.
+
+`kernel_queue_update_memory` is a cold mapping operation, not the allocation-free
+command-publication path. It shares the queue's publisher and progress counters
+but may allocate range descriptors. Windows bounds mapping admission to a
+128-point unretired prefix, independently of the configured command capacity.
+Unsupported providers return `UNSUPPORTED`; the runtime schedules the explicit
+host-completed operation on its existing executor instead of paying a hidden
+host wait inside native queue publication.
 
 ## Native storage and borrowed views
 

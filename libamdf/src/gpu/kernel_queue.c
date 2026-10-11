@@ -13,6 +13,7 @@
 #include "libamdf/src/device.h"
 #include "libamdf/src/endpoint.h"
 #include "libamdf/src/gpu/device.h"
+#include "libamdf/src/gpu/memory_reservation.h"
 #include "libamdf/src/gpu/umd/kernel_queue.h"
 #include "libamdf/src/kernel_queue.h"
 #include "libamdf/src/memory.h"
@@ -61,9 +62,13 @@ static amdf_status_t amdf_gpu_kernel_queue_query_status(
       amdf_atomic_uint64_load_acquire(&queue->retired);
   out_status->terminal_status =
       amdf_gpu_umd_kernel_queue_query_terminal_status(queue->umd);
-  out_status->state = amdf_status_is_ok(out_status->terminal_status)
-                          ? AMDF_QUEUE_STATE_ACTIVE
-                          : AMDF_QUEUE_STATE_DEVICE_LOST;
+  out_status->state =
+      amdf_status_is_ok(out_status->terminal_status)
+          ? AMDF_QUEUE_STATE_ACTIVE
+          : (out_status->terminal_status ==
+                     amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST)
+                 ? AMDF_QUEUE_STATE_DEVICE_LOST
+                 : AMDF_QUEUE_STATE_FAILED);
   return AMDF_STATUS_OK;
 }
 
@@ -123,12 +128,74 @@ static amdf_status_t amdf_gpu_kernel_queue_destroy_native(
   return status;
 }
 
+// One publication owner serves both commands and mapping changes. Capacity is
+// caller-selected per operation; successful admission leaves the claim held.
+static amdf_status_t amdf_gpu_kernel_queue_claim(amdf_gpu_kernel_queue_t* queue,
+                                                 uint32_t capacity,
+                                                 uint64_t* out_submission) {
+  uint32_t expected = 0;
+  if (!amdf_atomic_uint32_compare_exchange_acq_rel(&queue->publishing,
+                                                   &expected, 1)) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_BUSY);
+  }
+  const uint64_t last_submitted =
+      amdf_atomic_uint64_load_acquire(&queue->submitted);
+  uint64_t retired = amdf_atomic_uint64_load_acquire(&queue->retired);
+  amdf_status_t status = AMDF_STATUS_OK;
+  if (last_submitted - retired >= capacity) {
+    retired = amdf_gpu_kernel_queue_refresh_retirement(queue);
+    status = amdf_gpu_umd_kernel_queue_query_terminal_status(queue->umd);
+    if (amdf_status_is_ok(status) && last_submitted - retired >= capacity) {
+      status = amdf_make_api_status(AMDF_STATUS_CODE_BUSY);
+    }
+  }
+  // UINT64_MAX is reserved for native monitored-fence reset notification.
+  if (amdf_status_is_ok(status) && last_submitted == UINT64_MAX - 1) {
+    status = amdf_make_api_status(AMDF_STATUS_CODE_RESOURCE_EXHAUSTED);
+  }
+  if (amdf_status_is_ok(status)) {
+    *out_submission = last_submitted + 1;
+  } else {
+    amdf_atomic_uint32_store_release(&queue->publishing, 0);
+  }
+  return status;
+}
+
+static amdf_status_t amdf_gpu_kernel_queue_update_memory(
+    amdf_kernel_queue_t* base_queue, amdf_memory_reservation_t* reservation,
+    uint32_t access_ordinal, uint32_t update_count,
+    const amdf_memory_mapping_update_t* updates, bool* mutation_started,
+    uint64_t* accepted_submission) {
+  amdf_gpu_kernel_queue_t* queue = (amdf_gpu_kernel_queue_t*)base_queue;
+  uint32_t capacity = amdf_gpu_umd_kernel_queue_mapping_capacity(queue->umd);
+  if (capacity > base_queue->info.maximum_pending_submission_count) {
+    capacity = base_queue->info.maximum_pending_submission_count;
+  }
+  uint64_t submission = 0;
+  amdf_status_t status =
+      amdf_gpu_kernel_queue_claim(queue, capacity, &submission);
+  if (!amdf_status_is_ok(status)) {
+    return status;
+  }
+  bool accepted = false;
+  status = amdf_gpu_memory_reservation_update_on_queue(
+      reservation, queue->umd, access_ordinal, update_count, updates,
+      submission, mutation_started, &accepted);
+  if (accepted) {
+    amdf_atomic_uint64_store_release(&queue->submitted, submission);
+    *accepted_submission = submission;
+  }
+  amdf_atomic_uint32_store_release(&queue->publishing, 0);
+  return status;
+}
+
 static const amdf_kernel_queue_vtable_t amdf_gpu_kernel_queue_vtable = {
     .query_status = amdf_gpu_kernel_queue_query_status,
     .refresh_status = amdf_gpu_kernel_queue_refresh_status,
     .request_notification = amdf_gpu_kernel_queue_request_notification,
     .wait = amdf_gpu_kernel_queue_wait,
     .destroy_native = amdf_gpu_kernel_queue_destroy_native,
+    .update_memory = amdf_gpu_kernel_queue_update_memory,
 };
 
 amdf_status_t AMDF_CALL amdf_gpu_kernel_queue_create(
@@ -197,6 +264,10 @@ amdf_status_t AMDF_CALL amdf_gpu_kernel_queue_create(
         amdf_gpu_device_get_umd(device), family_info.command_type, &queue->umd);
   }
   if (amdf_status_is_ok(status)) {
+    if (amdf_gpu_umd_kernel_queue_mapping_capacity(queue->umd) != 0) {
+      queue->base.info.capabilities |=
+          AMDF_KERNEL_QUEUE_CAPABILITY_VIRTUAL_MEMORY;
+    }
     *out_queue = &queue->base;
   } else {
     if (queue->base.device != NULL) {
@@ -261,39 +332,19 @@ amdf_status_t AMDF_CALL amdf_gpu_kernel_queue_submit(
   }
 
   amdf_gpu_kernel_queue_t* queue = (amdf_gpu_kernel_queue_t*)base_queue;
-  uint32_t expected = 0;
-  if (!amdf_atomic_uint32_compare_exchange_acq_rel(&queue->publishing,
-                                                   &expected, 1)) {
-    return amdf_make_api_status(AMDF_STATUS_CODE_BUSY);
+  uint64_t submission = 0;
+  status = amdf_gpu_kernel_queue_claim(
+      queue, base_queue->info.maximum_pending_submission_count, &submission);
+  if (!amdf_status_is_ok(status)) {
+    return status;
   }
-
-  const uint64_t last_submitted =
-      amdf_atomic_uint64_load_acquire(&queue->submitted);
-  uint64_t retired = amdf_atomic_uint64_load_acquire(&queue->retired);
-  if (last_submitted - retired >=
-      base_queue->info.maximum_pending_submission_count) {
-    retired = amdf_gpu_kernel_queue_refresh_retirement(queue);
-    status = amdf_gpu_umd_kernel_queue_query_terminal_status(queue->umd);
-    if (amdf_status_is_ok(status) &&
-        last_submitted - retired >=
-            base_queue->info.maximum_pending_submission_count) {
-      status = amdf_make_api_status(AMDF_STATUS_CODE_BUSY);
-    }
-  }
-  // UINT64_MAX is reserved for native monitored-fence reset notification.
-  if (amdf_status_is_ok(status) && last_submitted == UINT64_MAX - 1) {
-    status = amdf_make_api_status(AMDF_STATUS_CODE_RESOURCE_EXHAUSTED);
-  }
+  status = amdf_gpu_umd_kernel_queue_submit(
+      queue->umd,
+      access->addresses[AMDF_MEMORY_ADDRESS_GPU] + command->byte_offset,
+      command->byte_length, submission);
   if (amdf_status_is_ok(status)) {
-    const uint64_t submission = last_submitted + 1;
-    status = amdf_gpu_umd_kernel_queue_submit(
-        queue->umd,
-        access->addresses[AMDF_MEMORY_ADDRESS_GPU] + command->byte_offset,
-        command->byte_length, submission);
-    if (amdf_status_is_ok(status)) {
-      amdf_atomic_uint64_store_release(&queue->submitted, submission);
-      *out_submission = submission;
-    }
+    amdf_atomic_uint64_store_release(&queue->submitted, submission);
+    *out_submission = submission;
   }
   amdf_atomic_uint32_store_release(&queue->publishing, 0);
   return status;

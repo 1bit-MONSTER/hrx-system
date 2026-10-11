@@ -223,8 +223,9 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
     profile.guaranteed_flags =
         AMDF_MEMORY_FLAG_HOST_VISIBLE | AMDF_MEMORY_FLAG_SHAREABLE |
         AMDF_MEMORY_FLAG_HOST_COHERENT | AMDF_MEMORY_FLAG_DEVICE_ADDRESS;
-    profile.supported_flags =
-        profile.guaranteed_flags | AMDF_MEMORY_FLAG_QUEUE_STORAGE;
+    profile.supported_flags = profile.guaranteed_flags |
+                              AMDF_MEMORY_FLAG_QUEUE_STORAGE |
+                              AMDF_MEMORY_FLAG_MAPPING_SOURCE;
     profile.guaranteed_device_access = AMDF_MEMORY_ACCESS_READ;
     profile.supported_device_access = AMDF_MEMORY_ACCESS_READ |
                                       AMDF_MEMORY_ACCESS_WRITE |
@@ -273,8 +274,9 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
     profile.roles = AMDF_MEMORY_PROFILE_ROLE_CREATE;
     profile.guaranteed_flags =
         AMDF_MEMORY_FLAG_DEVICE_LOCAL | AMDF_MEMORY_FLAG_DEVICE_ADDRESS;
-    profile.supported_flags =
-        profile.guaranteed_flags | AMDF_MEMORY_FLAG_QUEUE_STORAGE;
+    profile.supported_flags = profile.guaranteed_flags |
+                              AMDF_MEMORY_FLAG_QUEUE_STORAGE |
+                              AMDF_MEMORY_FLAG_MAPPING_SOURCE;
     if ((topology->memory_features &
          AMDF_GPU_DEVICE_FEATURE_HOST_VISIBLE_LOCAL_MEMORY) != 0) {
       profile.roles |= AMDF_MEMORY_PROFILE_ROLE_HOST_MAP;
