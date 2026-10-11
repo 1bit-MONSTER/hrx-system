@@ -20,6 +20,25 @@
 #define LOOM_REWRITER_INITIAL_WORKLIST_CAPACITY 64
 #define LOOM_REWRITER_INITIAL_REGION_STACK_CAPACITY 8
 
+loom_op_t* loom_rewriter_value_defining_op(const loom_rewriter_t* rewriter,
+                                           loom_value_id_t value_id) {
+  const loom_value_id_t identity =
+      loom_rewriter_value_identity(rewriter, value_id);
+  if (identity != value_id &&
+      !loom_type_equal(loom_module_value_type(rewriter->module, identity),
+                       loom_module_value_type(rewriter->module, value_id))) {
+    return NULL;
+  }
+  const loom_value_t* value = loom_module_value(rewriter->module, identity);
+  if (loom_value_is_block_arg(value)) {
+    return NULL;
+  }
+  loom_op_t* definition = loom_value_def_op(value);
+  return definition && !iree_any_bit_set(definition->flags, LOOM_OP_FLAG_DEAD)
+             ? definition
+             : NULL;
+}
+
 bool loom_rewriter_prefers_fma(const loom_rewriter_t* rewriter,
                                loom_type_t value_type, uint8_t fastmath_flags) {
   const loom_target_math_policy_t* policy = rewriter->math_policy;

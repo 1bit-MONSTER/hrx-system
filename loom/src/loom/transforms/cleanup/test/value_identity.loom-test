@@ -1,0 +1,329 @@
+// RUN: pass canonicalize
+
+// Assumptions retain the actual producer, including each result of a tuple.
+func.def @shift_identity_tuple(%value: i32) -> (i32, i32, i32) {
+  %c2 = scalar.constant 2 : i32
+  %c3 = scalar.constant 3 : i32
+  %left = scalar.shli %value, %c2 : i32
+  %unsigned = scalar.shrui %value, %c2 : i32
+  %signed = scalar.shrsi %value, %c2 : i32
+  %a, %b, %c = scalar.assume %left, %unsigned, %signed [ne(%left, 0), ne(%unsigned, 0), ne(%signed, 0)] : i32, i32, i32
+  %x = scalar.shli %a, %c3 : i32
+  %y = scalar.shrui %b, %c3 : i32
+  %z = scalar.shrsi %c, %c3 : i32
+  func.return %x, %y, %z : i32, i32, i32
+}
+// ----
+func.def @shift_identity_tuple(%value: i32) -> (i32, i32, i32) {
+  %19 = scalar.constant 5 : i32
+  %x = scalar.shli %value, %19 : i32
+  %17 = scalar.constant 5 : i32
+  %y = scalar.shrui %value, %17 : i32
+  %15 = scalar.constant 5 : i32
+  %z = scalar.shrsi %value, %15 : i32
+  func.return %x, %y, %z : i32, i32, i32
+}
+
+// ====
+
+// Producer identity does not remove the shift's no-wrap contract.
+func.def @flagged_shift(%value: i16) -> (i16) {
+  %c1 = scalar.constant 1 : i16
+  %inner = scalar.shli<nsw> %value, %c1 : i16
+  %bounded = scalar.assume %inner [ne(%inner, 0)] : i16
+  %result = scalar.shli %bounded, %c1 : i16
+  func.return %result : i16
+}
+// ----
+func.def @flagged_shift(%value: i16) -> (i16) {
+  %c1 = scalar.constant 1 : i16
+  %inner = scalar.shli<nsw> %value, %c1 : i16
+  %bounded = scalar.assume %inner [ne(%inner, 0)] : i16
+  %result = scalar.shli %bounded, %c1 : i16
+  func.return %result : i16
+}
+
+// ====
+
+func.def @integer_cast_identity(%signed: i8, %unsigned: i16) -> (i8, i16) {
+  %signed_wide = scalar.extsi %signed : i8 to i64
+  %unsigned_wide = scalar.extui %unsigned : i16 to i32
+  %a, %b = scalar.assume %signed_wide, %unsigned_wide [ne(%signed_wide, 0), ne(%unsigned_wide, 0)] : i64, i32
+  %x = scalar.trunci %a : i64 to i8
+  %y = scalar.trunci %b : i32 to i16
+  func.return %x, %y : i8, i16
+}
+// ----
+func.def @integer_cast_identity(%signed: i8, %unsigned: i16) -> (i8, i16) {
+  func.return %signed, %unsigned : i8, i16
+}
+
+// ====
+
+func.def @float_cast_identity(%value: f32) -> (f32, f32) {
+  %wide = scalar.extf %value : f32 to f64
+  %assumed = scalar.assume %wide [finite(%wide)] : f64
+  %roundtrip = scalar.fptrunc %assumed : f64 to f32
+  %negated = scalar.negf %value : f32
+  %finite = scalar.assume %negated [finite(%negated)] : f32
+  %positive = scalar.negf %finite : f32
+  func.return %roundtrip, %positive : f32, f32
+}
+// ----
+func.def @float_cast_identity(%value: f32) -> (f32, f32) {
+  func.return %value, %value : f32, f32
+}
+
+// ====
+
+// Reinterpreting bits is distinct from the numeric facts on the identity.
+func.def @bitcast_identity(%value: f32) -> (f32) {
+  %bits = scalar.bitcast %value : f32 to i32
+  %assumed = scalar.assume %bits [ne(%bits, 0)] : i32
+  %result = scalar.bitcast %assumed : i32 to f32
+  func.return %result : f32
+}
+// ----
+func.def @bitcast_identity(%value: f32) -> (f32) {
+  func.return %value : f32
+}
+
+// ====
+
+// The original value must not inherit the branch's refined interval.
+func.def @guarded_identity(%value: i32, %take: i1) -> (i32, i1) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %inner = scalar.shrui %value, %c1 : i32
+  %result = scf.if %take -> (i32) {
+    %bounded = scalar.assume %inner [range(%inner, 0, 10)] : i32
+    %outer = scalar.shrui %bounded, %c1 : i32
+    scf.yield %outer : i32
+  } else {
+    scf.yield %c0 : i32
+  }
+  %limit = scalar.constant 10 : i32
+  %original = scalar.cmpi slt, %inner, %limit : i32
+  func.return %result, %original : i32, i1
+}
+// ----
+func.def @guarded_identity(%value: i32, %take: i1) -> (i32, i1) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %inner = scalar.shrui %value, %c1 : i32
+  %result = scf.if %take -> (i32) {
+    %bounded = scalar.assume %inner [range(%inner, 0, 10)] : i32
+    %outer = scalar.shrui %bounded, %c1 : i32
+    scf.yield %outer : i32
+  } else {
+    scf.yield %c0 : i32
+  }
+  %limit = scalar.constant 10 : i32
+  %original = scalar.cmpi slt, %inner, %limit : i32
+  func.return %result, %original : i32, i1
+}
+
+// ====
+
+// Numeric identity does not imply sole ownership through a shared alias.
+func.def @shared_assumption_preserves_add(%value: i32, %other: i32) -> (i32, i32) {
+  %c3 = scalar.constant 3 : i32
+  %inner = scalar.addi %value, %c3 : i32
+  %assumed = scalar.assume %inner [ne(%inner, 0)] : i32
+  %result = scalar.addi %assumed, %other : i32
+  func.return %result, %assumed : i32, i32
+}
+// ----
+func.def @shared_assumption_preserves_add(%value: i32, %other: i32) -> (i32, i32) {
+  %c3 = scalar.constant 3 : i32
+  %inner = scalar.addi %value, %c3 : i32
+  %assumed = scalar.assume %inner [ne(%inner, 0)] : i32
+  %result = scalar.addi %assumed, %other : i32
+  func.return %result, %assumed : i32, i32
+}
+
+// ====
+
+// No bounded producer walk: six identities still expose the original division.
+func.def @deep_index_identity(%value: index) -> (index) {
+  %bounded = index.assume %value [range(%value, 0, 4095)] : index
+  %radix = index.constant 16 : index
+  %quotient = index.div %bounded, %radix : index
+  %a = index.assume %quotient [ne(%quotient, 0)] : index
+  %b = index.assume %a [ne(%a, 0)] : index
+  %c = index.assume %b [ne(%b, 0)] : index
+  %d = index.assume %c [ne(%c, 0)] : index
+  %e = index.assume %d [ne(%d, 0)] : index
+  %f = index.assume %e [ne(%e, 0)] : index
+  %scaled = index.mul %f, %radix : index
+  %remainder = index.rem %bounded, %radix : index
+  %result = index.add %scaled, %remainder : index
+  func.return %result : index
+}
+// ----
+func.def @deep_index_identity(%value: index) -> (index) {
+  %bounded = index.assume %value [range(%value, 0, 4095)] : index
+  func.return %bounded : index
+}
+
+// ====
+
+// Incremental replacement of the identity's input must update its root.
+func.def @rewritten_producer(%value: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %sum = scalar.addi %value, %c0 : i32
+  %shifted = scalar.shrui %sum, %c1 : i32
+  %a = scalar.assume %shifted [ne(%shifted, 0)] : i32
+  %b = scalar.assume %a [ne(%a, 0)] : i32
+  %result = scalar.shrui %b, %c1 : i32
+  func.return %result : i32
+}
+// ----
+func.def @rewritten_producer(%value: i32) -> (i32) {
+  %9 = scalar.constant 2 : i32
+  %result = scalar.shrui %value, %9 : i32
+  func.return %result : i32
+}
+
+// ====
+
+func.def @vector_cast_identity(%input: vector<4xi8>) -> (vector<4xi8>) {
+  %rows = index.constant 2 : index
+  %columns = index.constant 2 : index
+  %wide = vector.extui %input : vector<4xi8> to vector<4xi32>
+  %fragment = vector.fragment<lhs> %wide shape [%rows, %columns] : vector<4xi32>
+  %result = vector.trunci %fragment : vector<4xi32> to vector<4xi8>
+  func.return %result : vector<4xi8>
+}
+// ----
+func.def @vector_cast_identity(%input: vector<4xi8>) -> (vector<4xi8>) {
+  func.return %input : vector<4xi8>
+}
+
+// ====
+
+func.def @vector_extract_identity(%input: f32) -> (f32) {
+  %rows = index.constant 2 : index
+  %columns = index.constant 2 : index
+  %wide = vector.splat %input : vector<4xf32>
+  %fragment = vector.fragment<lhs> %wide shape [%rows, %columns] : vector<4xf32>
+  %result = vector.extract %fragment[2] : vector<4xf32> -> f32
+  func.return %result : f32
+}
+// ----
+func.def @vector_extract_identity(%input: f32) -> (f32) {
+  func.return %input : f32
+}
+
+// ====
+
+// All shift kinds preserve a shared consumed intermediate.
+func.def @shared_shift_values(%value: i64) -> (i64, i64, i64, i64, i64, i64) {
+  %c2 = scalar.constant 2 : i64
+  %left = scalar.shli %value, %c2 : i64
+  %logical = scalar.shrui %value, %c2 : i64
+  %arithmetic = scalar.shrsi %value, %c2 : i64
+  %a = scalar.shli %left, %c2 : i64
+  %b = scalar.shrui %logical, %c2 : i64
+  %c = scalar.shrsi %arithmetic, %c2 : i64
+  func.return %left, %logical, %arithmetic, %a, %b, %c : i64, i64, i64, i64, i64, i64
+}
+// ----
+func.def @shared_shift_values(%value: i64) -> (i64, i64, i64, i64, i64, i64) {
+  %c2 = scalar.constant 2 : i64
+  %left = scalar.shli %value, %c2 : i64
+  %logical = scalar.shrui %value, %c2 : i64
+  %arithmetic = scalar.shrsi %value, %c2 : i64
+  %a = scalar.shli %left, %c2 : i64
+  %b = scalar.shrui %logical, %c2 : i64
+  %c = scalar.shrsi %arithmetic, %c2 : i64
+  func.return %left, %logical, %arithmetic, %a, %b, %c : i64, i64, i64, i64, i64, i64
+}
+
+// ====
+
+// The consumed alias has one use, but its original producer is shared.
+func.def @shared_shift_producer(%value: i32) -> (i32, i32) {
+  %c2 = scalar.constant 2 : i32
+  %inner = scalar.shrui %value, %c2 : i32
+  %bounded = scalar.assume %inner [range(%inner, 0, 511)] : i32
+  %outer = scalar.shrui %bounded, %c2 : i32
+  func.return %inner, %outer : i32, i32
+}
+// ----
+func.def @shared_shift_producer(%value: i32) -> (i32, i32) {
+  %c2 = scalar.constant 2 : i32
+  %inner = scalar.shrui %value, %c2 : i32
+  %bounded = scalar.assume %inner [range(%inner, 0, 511)] : i32
+  %outer = scalar.shrui %bounded, %c2 : i32
+  func.return %inner, %outer : i32, i32
+}
+
+// ====
+
+// The original producer has one use, but its refined alias is shared.
+func.def @shared_shift_alias(%value: i32) -> (i32, i32) {
+  %c2 = scalar.constant 2 : i32
+  %inner = scalar.shrui %value, %c2 : i32
+  %bounded = scalar.assume %inner [range(%inner, 0, 511)] : i32
+  %outer = scalar.shrui %bounded, %c2 : i32
+  func.return %bounded, %outer : i32, i32
+}
+
+// ----
+func.def @shared_shift_alias(%value: i32) -> (i32, i32) {
+  %c2 = scalar.constant 2 : i32
+  %inner = scalar.shrui %value, %c2 : i32
+  %bounded = scalar.assume %inner [range(%inner, 0, 511)] : i32
+  %outer = scalar.shrui %bounded, %c2 : i32
+  func.return %bounded, %outer : i32, i32
+}
+
+// ====
+
+// Index shifts use the target's carrier width and the same identity relation.
+test.target<quirky> @target32
+
+func.def target(@target32) @index_shift_identity(%value: index) -> (index, index, index) {
+  %c2 = index.constant 2 : index
+  %c3 = index.constant 3 : index
+  %left = index.shli %value, %c2 : index
+  %logical = index.shrui %value, %c2 : index
+  %arithmetic = index.shrsi %value, %c2 : index
+  %a, %b, %c = index.assume %left, %logical, %arithmetic [ne(%left, 0), ne(%logical, 0), ne(%arithmetic, 0)] : index, index, index
+  %x = index.shli %a, %c3 : index
+  %y = index.shrui %b, %c3 : index
+  %z = index.shrsi %c, %c3 : index
+  func.return %x, %y, %z : index, index, index
+}
+
+// ----
+test.target<quirky> @target32
+
+func.def target(@target32) @index_shift_identity(%value: index) -> (index, index, index) {
+  %19 = index.constant 5 : index
+  %x = index.shli %value, %19 : index
+  %17 = index.constant 5 : index
+  %y = index.shrui %value, %17 : index
+  %15 = index.constant 5 : index
+  %z = index.shrsi %value, %15 : index
+  func.return %x, %y, %z : index, index, index
+}
+
+// ====
+
+// Sharing at the producer, refined alias, or direct input keeps both shifts.
+test.target<low_core> @target64
+
+func.def target(@target64) @index_shared_shifts(%value: index) -> (index, index, index, index, index, index) {
+  %c2 = index.constant 2 : index
+  %left = index.shli %value, %c2 : index
+  %logical = index.shrui %value, %c2 : index
+  %arithmetic = index.shrsi %value, %c2 : index
+  %a, %b = index.assume %left, %logical [ne(%left, 0), ne(%logical, 0)] : index, index
+  %x = index.shli %a, %c2 : index
+  %y = index.shrui %b, %c2 : index
+  %z = index.shrsi %arithmetic, %c2 : index
+  func.return %left, %b, %arithmetic, %x, %y, %z : index, index, index, index, index, index
+}
