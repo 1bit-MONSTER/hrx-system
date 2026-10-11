@@ -555,11 +555,14 @@ loom_check_test_suite(
         ["test/source_low/*.loom-test"],
         exclude = [
             "test/source_low/memory_stability.loom-test",
-            "test/source_low/source_low_memory_float64.loom-test",
         ],
     ),
     compile_targets = {
         "test/source_low/float64_narrow.loom-test": [
+            "//loom/target/amdgpu:" + target
+            for target in LOOM_AMDGPU_SUPPORTED_TARGETS
+        ],
+        "test/source_low/memory_float64_carrier.loom-test": [
             "//loom/target/amdgpu:" + target
             for target in LOOM_AMDGPU_SUPPORTED_TARGETS
         ],
@@ -606,15 +609,6 @@ loom_check_test_suite(
         ],
     },
     test_name_prefix_to_strip = "test/source_low/",
-)
-
-loom_check_test(
-    name = "source_low_memory_float64",
-    src = "test/source_low/source_low_memory_float64.loom-test",
-    compile_targets = [
-        "//loom/target/amdgpu:" + target
-        for target in LOOM_AMDGPU_SUPPORTED_TARGETS
-    ],
 )
 
 #===------------------------------------------------------------------------===#
