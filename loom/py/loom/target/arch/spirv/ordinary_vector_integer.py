@@ -27,8 +27,8 @@ from loom.target.arch.spirv.scalar_alu import (
     SIGNED_INTEGER_COMPARE_PREDICATES,
     UNSIGNED_INTEGER_BINARY_OPERATIONS,
     UNSIGNED_ORDERED_INTEGER_COMPARE_PREDICATES,
+    ComparePredicate,
     IntegerAluTypePair,
-    IntegerComparePredicate,
     ScalarBinaryOperation,
 )
 
@@ -158,7 +158,7 @@ def _integer_view_instruction(
 
 def _compare_instruction(
     operand_type: OrdinaryVectorType,
-    predicate: IntegerComparePredicate,
+    predicate: ComparePredicate,
 ) -> OrdinaryVectorInstruction:
     result_type = OrdinaryVectorType(
         BOOLEAN_ORDINARY_VECTOR_COMPONENT_TYPE,

@@ -62,11 +62,21 @@ class ScalarBinaryOperation:
 
 
 @dataclass(frozen=True, slots=True)
-class IntegerComparePredicate:
+class ComparePredicate:
     source_predicate: str
     descriptor_suffix: str
     mnemonic: str
     opcode: str
+
+
+@dataclass(frozen=True, slots=True)
+class FloatCompareType:
+    scalar: ScalarAluType
+    control_feature_atoms: tuple[str, ...]
+
+    @property
+    def feature_bits(self) -> int:
+        return self.scalar.feature_bits | feature_bits_value(self.control_feature_atoms)
 
 
 INTEGER_SCALAR_ALU_TYPE_PAIRS = (
@@ -158,6 +168,34 @@ FLOAT_SCALAR_ALU_TYPES = (
         suffix="f64",
         scalar_enum="LOOM_SPIRV_SCALAR_TYPE_F64",
         feature_atoms=("float64",),
+    ),
+)
+
+# SPIR-V otherwise permits implementations to flush subnormal operands and to
+# assume that NaNs, infinities, and signed zero are absent. A strict cmpf needs
+# both controls for the operand width so its ordered and unordered predicates
+# retain Loom's IEEE semantics.
+FLOAT_COMPARE_TYPES = (
+    FloatCompareType(
+        scalar=FLOAT_SCALAR_ALU_TYPES[0],
+        control_feature_atoms=(
+            "float16_64_denorm_preserve",
+            "float16_signed_zero_inf_nan_preserve",
+        ),
+    ),
+    FloatCompareType(
+        scalar=FLOAT_SCALAR_ALU_TYPES[1],
+        control_feature_atoms=(
+            "float32_denorm_preserve",
+            "float32_signed_zero_inf_nan_preserve",
+        ),
+    ),
+    FloatCompareType(
+        scalar=FLOAT_SCALAR_ALU_TYPES[2],
+        control_feature_atoms=(
+            "float16_64_denorm_preserve",
+            "float64_signed_zero_inf_nan_preserve",
+        ),
     ),
 )
 
@@ -273,56 +311,56 @@ FLOAT_BINARY_OPERATIONS = (
 )
 
 INTEGER_COMPARE_PREDICATES = (
-    IntegerComparePredicate("eq", "i_equal", "OpIEqual", "LOOM_SPIRV_OP_I_EQUAL"),
-    IntegerComparePredicate(
+    ComparePredicate("eq", "i_equal", "OpIEqual", "LOOM_SPIRV_OP_I_EQUAL"),
+    ComparePredicate(
         "ne",
         "i_not_equal",
         "OpINotEqual",
         "LOOM_SPIRV_OP_I_NOT_EQUAL",
     ),
-    IntegerComparePredicate(
+    ComparePredicate(
         "slt",
         "s_less_than",
         "OpSLessThan",
         "LOOM_SPIRV_OP_S_LESS_THAN",
     ),
-    IntegerComparePredicate(
+    ComparePredicate(
         "sle",
         "s_less_than_equal",
         "OpSLessThanEqual",
         "LOOM_SPIRV_OP_S_LESS_THAN_EQUAL",
     ),
-    IntegerComparePredicate(
+    ComparePredicate(
         "sgt",
         "s_greater_than",
         "OpSGreaterThan",
         "LOOM_SPIRV_OP_S_GREATER_THAN",
     ),
-    IntegerComparePredicate(
+    ComparePredicate(
         "sge",
         "s_greater_than_equal",
         "OpSGreaterThanEqual",
         "LOOM_SPIRV_OP_S_GREATER_THAN_EQUAL",
     ),
-    IntegerComparePredicate(
+    ComparePredicate(
         "ult",
         "u_less_than",
         "OpULessThan",
         "LOOM_SPIRV_OP_U_LESS_THAN",
     ),
-    IntegerComparePredicate(
+    ComparePredicate(
         "ule",
         "u_less_than_equal",
         "OpULessThanEqual",
         "LOOM_SPIRV_OP_U_LESS_THAN_EQUAL",
     ),
-    IntegerComparePredicate(
+    ComparePredicate(
         "ugt",
         "u_greater_than",
         "OpUGreaterThan",
         "LOOM_SPIRV_OP_U_GREATER_THAN",
     ),
-    IntegerComparePredicate(
+    ComparePredicate(
         "uge",
         "u_greater_than_equal",
         "OpUGreaterThanEqual",
@@ -346,4 +384,73 @@ OFFSET64_COMPARE_PREDICATES = tuple(
     row
     for row in INTEGER_COMPARE_PREDICATES
     if row.source_predicate in ("eq", "ne", "ult", "ule", "ugt", "uge")
+)
+
+FLOAT_COMPARE_PREDICATES = (
+    ComparePredicate("oeq", "f_ord_equal", "OpFOrdEqual", "LOOM_SPIRV_OP_F_ORD_EQUAL"),
+    ComparePredicate(
+        "ogt",
+        "f_ord_greater_than",
+        "OpFOrdGreaterThan",
+        "LOOM_SPIRV_OP_F_ORD_GREATER_THAN",
+    ),
+    ComparePredicate(
+        "oge",
+        "f_ord_greater_than_equal",
+        "OpFOrdGreaterThanEqual",
+        "LOOM_SPIRV_OP_F_ORD_GREATER_THAN_EQUAL",
+    ),
+    ComparePredicate(
+        "olt",
+        "f_ord_less_than",
+        "OpFOrdLessThan",
+        "LOOM_SPIRV_OP_F_ORD_LESS_THAN",
+    ),
+    ComparePredicate(
+        "ole",
+        "f_ord_less_than_equal",
+        "OpFOrdLessThanEqual",
+        "LOOM_SPIRV_OP_F_ORD_LESS_THAN_EQUAL",
+    ),
+    ComparePredicate(
+        "one",
+        "f_ord_not_equal",
+        "OpFOrdNotEqual",
+        "LOOM_SPIRV_OP_F_ORD_NOT_EQUAL",
+    ),
+    ComparePredicate("ord", "ordered", "OpOrdered", "LOOM_SPIRV_OP_ORDERED"),
+    ComparePredicate(
+        "ueq", "f_unord_equal", "OpFUnordEqual", "LOOM_SPIRV_OP_F_UNORD_EQUAL"
+    ),
+    ComparePredicate(
+        "ugt",
+        "f_unord_greater_than",
+        "OpFUnordGreaterThan",
+        "LOOM_SPIRV_OP_F_UNORD_GREATER_THAN",
+    ),
+    ComparePredicate(
+        "uge",
+        "f_unord_greater_than_equal",
+        "OpFUnordGreaterThanEqual",
+        "LOOM_SPIRV_OP_F_UNORD_GREATER_THAN_EQUAL",
+    ),
+    ComparePredicate(
+        "ult",
+        "f_unord_less_than",
+        "OpFUnordLessThan",
+        "LOOM_SPIRV_OP_F_UNORD_LESS_THAN",
+    ),
+    ComparePredicate(
+        "ule",
+        "f_unord_less_than_equal",
+        "OpFUnordLessThanEqual",
+        "LOOM_SPIRV_OP_F_UNORD_LESS_THAN_EQUAL",
+    ),
+    ComparePredicate(
+        "une",
+        "f_unord_not_equal",
+        "OpFUnordNotEqual",
+        "LOOM_SPIRV_OP_F_UNORD_NOT_EQUAL",
+    ),
+    ComparePredicate("uno", "unordered", "OpUnordered", "LOOM_SPIRV_OP_UNORDERED"),
 )

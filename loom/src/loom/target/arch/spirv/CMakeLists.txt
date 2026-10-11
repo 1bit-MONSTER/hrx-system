@@ -549,6 +549,7 @@ loom_check_test_suite(
     "test/source_low/numeric_bfloat_widen.loom-test"
     "test/source_low/numeric_extended_math.loom-test"
     "test/source_low/numeric_float_arithmetic.loom-test"
+    "test/source_low/numeric_float_comparison.loom-test"
     "test/source_low/numeric_integer_extrema.loom-test"
     "test/source_low/numeric_narrow_address.loom-test"
     "test/source_low/numeric_narrow_float_carriers.loom-test"

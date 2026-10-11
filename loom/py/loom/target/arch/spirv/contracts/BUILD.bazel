@@ -92,6 +92,7 @@ iree_py_test(
 iree_py_test(
     name = "contracts_test",
     srcs = [
+        "comparison_test.py",
         "conversion_test.py",
         "float_narrowing_test.py",
         "float_payload_test.py",
@@ -99,6 +100,7 @@ iree_py_test(
         "//loom/py/loom/tools:pytest_style_runner.py",
     ],
     args = [
+        "loom.target.arch.spirv.contracts.comparison_test",
         "loom.target.arch.spirv.contracts.conversion_test",
         "loom.target.arch.spirv.contracts.float_narrowing_test",
         "loom.target.arch.spirv.contracts.float_payload_test",
@@ -109,6 +111,7 @@ iree_py_test(
         ":contracts",
         "//loom/py/loom/target/arch/spirv:features",
         "//loom/py/loom/target/arch/spirv:ordinary_vector_conversion",
+        "//loom/py/loom/target/arch/spirv:scalar_alu",
     ],
 )
 

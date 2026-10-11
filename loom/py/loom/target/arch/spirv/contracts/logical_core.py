@@ -108,6 +108,8 @@ from loom.target.arch.spirv.scalar_alu import (
     BOOLEAN_BINARY_OPERATIONS,
     BOOLEAN_CONSTANTS,
     FLOAT_BINARY_OPERATIONS,
+    FLOAT_COMPARE_PREDICATES,
+    FLOAT_COMPARE_TYPES,
     FLOAT_SCALAR_ALU_TYPES,
     INTEGER_BITWISE_BINARY_OPERATIONS,
     INTEGER_SCALAR_ALU_TYPE_PAIRS,
@@ -118,8 +120,8 @@ from loom.target.arch.spirv.scalar_alu import (
     UNSIGNED_INTEGER_BINARY_OPERATIONS,
     UNSIGNED_ORDERED_INTEGER_COMPARE_PREDICATES,
     BooleanConstant,
+    ComparePredicate,
     IntegerAluTypePair,
-    IntegerComparePredicate,
     ScalarAluType,
     ScalarBinaryOperation,
 )
@@ -585,7 +587,7 @@ def _unsigned_binary_rule(
 
 def _compare_rule(
     source_op: Op,
-    predicate: IntegerComparePredicate,
+    predicate: ComparePredicate,
     type_pattern: TypePattern,
     descriptor_key: str,
 ) -> DescriptorRule:
@@ -614,7 +616,7 @@ def _compare_rule(
 
 def _unsigned_compare_rule(
     source_op: Op,
-    predicate: IntegerComparePredicate,
+    predicate: ComparePredicate,
     scalar_pair: IntegerAluTypePair,
 ) -> DescriptorRule:
     descriptor = _descriptor(
@@ -1538,6 +1540,16 @@ def _compare_rules() -> tuple[DescriptorRule, ...]:
         )
         for scalar_pair in INTEGER_SCALAR_ALU_TYPE_PAIRS
         for predicate in UNSIGNED_ORDERED_INTEGER_COMPARE_PREDICATES
+    )
+    rules.extend(
+        _compare_rule(
+            scalar_comparison.scalar_cmpf,
+            predicate,
+            _numeric_type_pattern(compare_type.scalar),
+            f"spirv.op_{predicate.descriptor_suffix}.{compare_type.scalar.suffix}",
+        )
+        for compare_type in FLOAT_COMPARE_TYPES
+        for predicate in FLOAT_COMPARE_PREDICATES
     )
     return tuple(rules)
 

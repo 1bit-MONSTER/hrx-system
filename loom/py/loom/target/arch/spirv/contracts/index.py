@@ -17,7 +17,7 @@ from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET
 from loom.target.arch.spirv.scalar_alu import (
     INTEGER_COMPARE_PREDICATES,
     INTEGER_SCALAR_ALU_TYPE_PAIRS,
-    IntegerComparePredicate,
+    ComparePredicate,
 )
 from loom.target.contracts import (
     AttrProject,
@@ -923,7 +923,7 @@ def _index_cttz_rule() -> DescriptorRule:
 
 def _direct_compare_rule(
     type_pattern: TypePattern,
-    predicate: IntegerComparePredicate,
+    predicate: ComparePredicate,
     descriptor_key: str,
 ) -> DescriptorRule:
     descriptor = _descriptor(descriptor_key)
@@ -949,7 +949,7 @@ def _direct_compare_rule(
     )
 
 
-def _index_compare_rule(predicate: IntegerComparePredicate) -> DescriptorRule:
+def _index_compare_rule(predicate: ComparePredicate) -> DescriptorRule:
     if predicate.source_predicate in ("eq", "ne", "slt", "sle", "sgt", "sge"):
         return _direct_compare_rule(
             _INDEX,
@@ -991,7 +991,7 @@ def _index_compare_rule(predicate: IntegerComparePredicate) -> DescriptorRule:
     )
 
 
-def _offset_compare_rule(predicate: IntegerComparePredicate) -> DescriptorRule:
+def _offset_compare_rule(predicate: ComparePredicate) -> DescriptorRule:
     if predicate.source_predicate in ("eq", "ne", "ult", "ule", "ugt", "uge"):
         return _direct_compare_rule(
             _OFFSET,

@@ -103,12 +103,14 @@ iree_py_test(
   MAIN
     "../../../../tools/pytest_style_runner.py"
   SRCS
+    "comparison_test.py"
     "conversion_test.py"
     "float_narrowing_test.py"
     "float_payload_test.py"
     "index_test.py"
     "../../../../tools/pytest_style_runner.py"
   ARGS
+    "loom.target.arch.spirv.contracts.comparison_test"
     "loom.target.arch.spirv.contracts.conversion_test"
     "loom.target.arch.spirv.contracts.float_narrowing_test"
     "loom.target.arch.spirv.contracts.float_payload_test"
@@ -117,6 +119,7 @@ iree_py_test(
     loom::py::loom::target::arch::spirv::contracts::contracts
     loom::py::loom::target::arch::spirv::features
     loom::py::loom::target::arch::spirv::ordinary_vector_conversion
+    loom::py::loom::target::arch::spirv::scalar_alu
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"

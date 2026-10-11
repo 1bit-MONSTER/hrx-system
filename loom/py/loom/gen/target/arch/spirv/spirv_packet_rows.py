@@ -79,6 +79,8 @@ from loom.target.arch.spirv.scalar_alu import (  # noqa: E402
     BOOLEAN_BINARY_OPERATIONS,
     BOOLEAN_CONSTANTS,
     FLOAT_BINARY_OPERATIONS,
+    FLOAT_COMPARE_PREDICATES,
+    FLOAT_COMPARE_TYPES,
     FLOAT_SCALAR_ALU_TYPES,
     INTEGER_BITWISE_BINARY_OPERATIONS,
     INTEGER_SCALAR_ALU_TYPE_PAIRS,
@@ -1086,7 +1088,7 @@ def _mul_add_rows() -> list[_PacketRow]:
     ]
 
 
-def _integer_compare_rows() -> list[_PacketRow]:
+def _compare_rows() -> list[_PacketRow]:
     offset64_value = _offset64_value()
     bool_value = _bool_value()
     rows = [
@@ -1114,6 +1116,22 @@ def _integer_compare_rows() -> list[_PacketRow]:
             )
             for scalar_pair in INTEGER_SCALAR_ALU_TYPE_PAIRS
             for predicate in UNSIGNED_ORDERED_INTEGER_COMPARE_PREDICATES
+        ]
+    )
+    rows.extend(
+        [
+            _PacketRow(
+                f"spirv.op_{predicate.descriptor_suffix}.{compare_type.scalar.suffix}",
+                opcode=predicate.opcode,
+                form="LOOM_SPIRV_PACKET_FORM_COMPARE_SAME_TYPE",
+                result_type=bool_value,
+                operand_types=(
+                    _alu_scalar_value(compare_type.scalar),
+                    _alu_scalar_value(compare_type.scalar),
+                ),
+            )
+            for compare_type in FLOAT_COMPARE_TYPES
+            for predicate in FLOAT_COMPARE_PREDICATES
         ]
     )
     rows.extend(
@@ -1223,7 +1241,7 @@ def _packet_rows() -> tuple[_PacketRow, ...]:
         *_coordinate_binary_rows(),
         *_coordinate_unary_rows(),
         *_mul_add_rows(),
-        *_integer_compare_rows(),
+        *_compare_rows(),
         *_select_rows(),
         *_storage_buffer_rows(),
         *_raw_storage_buffer_byte_rows(),
