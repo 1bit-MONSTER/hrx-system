@@ -29,6 +29,7 @@ def test_index_bit_operation_descriptors_cover_every_family(target) -> None:
     for key, semantic in (
         ("s_clz_i32_u32", "integer.ctlz.u32.native_zero_minus_one"),
         ("v_clz_i32_u32", "integer.ctlz.u32.native_zero_minus_one"),
+        ("v_cls_i32", "integer.cls.i32.native_all_sign_minus_one"),
         ("s_ctz_i32_b32", "integer.cttz.u32.native_zero_minus_one"),
         ("v_ctz_i32_b32", "integer.cttz.u32.native_zero_minus_one"),
         ("s_bcnt1_i32_b32", "integer.ctpop.u32"),
@@ -42,6 +43,9 @@ def test_index_bit_operation_descriptors_cover_every_family(target) -> None:
     )
     assert overlays["amdgpu.v_clz_i32_u32"].instruction_name == (
         "V_FFBH_U32" if cdna else "V_CLZ_I32_U32"
+    )
+    assert overlays["amdgpu.v_cls_i32"].instruction_name == (
+        "V_FFBH_I32" if cdna else "V_CLS_I32"
     )
 
 

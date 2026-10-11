@@ -122,6 +122,7 @@ def _integer_bit_count_overlays(
     vector_ctz_instruction_name: str = "V_FFBL_B32",
     scalar_clz_instruction_name: str = "S_FLBIT_I32_B32",
     vector_clz_instruction_name: str = "V_FFBH_U32",
+    vector_cls_instruction_name: str = "V_FFBH_I32",
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     return (
         _s_bcnt1_i32_overlay(32, sop1_encoding_condition),
@@ -147,6 +148,11 @@ def _integer_bit_count_overlays(
             descriptor_key="amdgpu.v_clz_i32_u32",
             semantic_tag="integer.ctlz.u32.native_zero_minus_one",
         ),
+        replace(
+            _v_ctz_i32_b32_overlay(vector_cls_instruction_name),
+            descriptor_key="amdgpu.v_cls_i32",
+            semantic_tag="integer.cls.i32.native_all_sign_minus_one",
+        ),
     )
 
 
@@ -159,6 +165,7 @@ def _rdna_integer_bit_count_overlays(
         vector_ctz_instruction_name="V_CTZ_I32_B32",
         scalar_clz_instruction_name="S_CLZ_I32_U32",
         vector_clz_instruction_name="V_CLZ_I32_U32",
+        vector_cls_instruction_name="V_CLS_I32",
     )
 
 
