@@ -12,7 +12,12 @@ from loom.target.arch.amdgpu.descriptors.common import (
     _REG_PART_VGPR_LOW16,
     _REG_VGPR,
 )
-from loom.target.arch.amdgpu.descriptors.sets import _gfx12_core_overlays
+from loom.target.arch.amdgpu.descriptors.sets import (
+    _gfx11_core_overlays,
+    _gfx12_core_overlays,
+    _gfx125x_core_overlays,
+)
+from loom.target.low_descriptors import EffectKind
 
 
 def test_gfx12_vector_store_family_exposes_cache_scope() -> None:
@@ -36,6 +41,100 @@ def test_gfx12_vector_store_family_exposes_cache_scope() -> None:
         assert "scope" in {immediate.field_name for immediate in store.immediates}, (
             store.descriptor_key
         )
+
+
+def test_rdna4_global_transpose_load_family_covers_widths_and_address_forms() -> None:
+    expected = {
+        "amdgpu.global_load_tr_b64": (
+            64,
+            2,
+            2,
+            "memory.load.transpose.b8x8",
+            32,
+        ),
+        "amdgpu.global_load_tr_b64_saddr": (
+            64,
+            2,
+            1,
+            "memory.load.transpose.b8x8",
+            32,
+        ),
+        "amdgpu.global_load_tr_b64.w64": (
+            64,
+            1,
+            2,
+            "memory.load.transpose.b8x8",
+            64,
+        ),
+        "amdgpu.global_load_tr_b64_saddr.w64": (
+            64,
+            1,
+            1,
+            "memory.load.transpose.b8x8",
+            64,
+        ),
+        "amdgpu.global_load_tr_b128": (
+            128,
+            4,
+            2,
+            "memory.load.transpose.b16x8",
+            32,
+        ),
+        "amdgpu.global_load_tr_b128_saddr": (
+            128,
+            4,
+            1,
+            "memory.load.transpose.b16x8",
+            32,
+        ),
+        "amdgpu.global_load_tr_b128.w64": (
+            128,
+            2,
+            2,
+            "memory.load.transpose.b16x8",
+            64,
+        ),
+        "amdgpu.global_load_tr_b128_saddr.w64": (
+            128,
+            2,
+            1,
+            "memory.load.transpose.b16x8",
+            64,
+        ),
+    }
+    for overlay_rows in (_gfx12_core_overlays(), _gfx125x_core_overlays()):
+        overlays = {overlay.descriptor_key: overlay for overlay in overlay_rows}
+        for descriptor_key, (
+            width_bits,
+            result_units,
+            address_units,
+            semantic_tag,
+            wave_size,
+        ) in expected.items():
+            overlay = overlays[descriptor_key]
+            assert overlay.instruction_name == f"GLOBAL_LOAD_TR_B{width_bits}"
+            low_mnemonic_suffix = "_w64" if wave_size == 64 else ""
+            assert overlay.mnemonic == (
+                f"global_load_tr_b{width_bits}{low_mnemonic_suffix}"
+            )
+            assert overlay.semantic_tag == semantic_tag
+            assert tuple(
+                operand.descriptor_operand.unit_count for operand in overlay.operands
+            )[:2] == (result_units, address_units)
+            assert any(
+                effect.kind is EffectKind.CONVERGENT for effect in overlay.effects
+            )
+            assert (overlay.operands[0].size_exception_reason is not None) == (
+                wave_size == 64
+            )
+            if wave_size == 64:
+                assert overlay.asm_forms is not None
+                assert overlay.asm_forms[0].native_assembly_mnemonic == (
+                    f"global_load_tr_b{width_bits}"
+                )
+
+    gfx11_keys = {overlay.descriptor_key for overlay in _gfx11_core_overlays()}
+    assert gfx11_keys.isdisjoint(expected)
 
 
 @pytest.mark.parametrize("target", _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS)

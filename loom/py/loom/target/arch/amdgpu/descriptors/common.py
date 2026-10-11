@@ -1392,12 +1392,14 @@ def _native_amdgpu_gfx12_load_temporal_immediate(
 def _global_vaddr_asm(
     *,
     mnemonic: str,
+    native_assembly_mnemonic: str | None = None,
     results: tuple[str, ...] = (),
     operands: tuple[str, ...],
     immediates: tuple[str, ...],
 ) -> tuple[AsmForm, ...]:
     return _asm(
         mnemonic=f"{mnemonic}_vaddr",
+        native_assembly_mnemonic=native_assembly_mnemonic,
         results=results,
         operands=operands,
         immediates=immediates,
@@ -1408,6 +1410,7 @@ def _global_vaddr_asm(
 def _global_saddr_asm(
     *,
     mnemonic: str,
+    native_assembly_mnemonic: str | None = None,
     results: tuple[str, ...] = (),
     operands: tuple[str, ...],
     implicit_m0: bool = False,
@@ -1417,6 +1420,7 @@ def _global_saddr_asm(
         operands = (*operands, "m0")
     return _asm(
         mnemonic=f"{mnemonic}_saddr",
+        native_assembly_mnemonic=native_assembly_mnemonic,
         results=results,
         operands=operands,
         immediates=immediates,
