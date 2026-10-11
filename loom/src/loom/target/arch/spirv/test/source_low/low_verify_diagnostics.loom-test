@@ -22,6 +22,53 @@ low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({legacy = true
 
 // RUN: verify
 
+spirv.target<vulkan1_3> @hal_target {abi = hal_kernel}
+
+low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (buffer, i16) -> ()}) workgroup_size(1, 1, 1) @logical_abi_layout(%value: reg<spirv.id : i16>) asm {
+  %input = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  return
+}
+
+// ====
+
+// RUN: verify
+
+spirv.target<vulkan1_3> @hal_target {abi = hal_kernel}
+
+// Dead binding imports may be absent while the authored ABI remains intact.
+low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(1, 1, 1) @logical_abi_sparse_bindings() asm {
+  %second = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  return
+}
+
+// ====
+
+// RUN: verify
+
+spirv.target<vulkan1_3> @hal_target {abi = hal_kernel}
+
+// ERROR@+1: SPIRV/030 {function_name="logical_abi_type_mismatch"}
+low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (i64) -> ()}) workgroup_size(1, 1, 1) @logical_abi_type_mismatch(%value: reg<spirv.id : i32>) asm {
+  return
+}
+
+// ====
+
+// RUN: verify
+
+spirv.target<vulkan1_3> @hal_target {abi = hal_kernel}
+
+// ERROR@+1: SPIRV/030 {function_name="logical_abi_binding_duplicate"}
+low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(1, 1, 1) @logical_abi_binding_duplicate() asm {
+  %first = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %duplicate = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  return
+}
+
+// ====
+
+// RUN: verify
+
 spirv.target<vulkan1_3> @target
 
 // ERROR@+1: SPIRV/005 {function_name="untyped_id_register", value_name="value", actual_type="reg<spirv.id>"}

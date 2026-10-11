@@ -236,7 +236,7 @@ kernel.def target(@hal_target_scalar_payloads) @spirv_hal_direct_scalar_payload_
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target_scalar_payloads) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_direct_scalar_payload_abi(%i8: reg<spirv.id : i8>, %byte_offset_aligned: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target_scalar_payloads) abi_layout({signature = (i8, buffer, offset) -> ()}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_direct_scalar_payload_abi(%i8: reg<spirv.id : i8>, %byte_offset_aligned: reg<spirv.offset64>) asm {
   %output_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %10 = OpPtrAccessChain.storage_buffer.i8.byte_offset %output_aligned, %byte_offset_aligned
   OpStore.storage_buffer.i8 %10, %i8
@@ -338,7 +338,7 @@ kernel.def target(@hal_target) @spirv_dynamic_builtin_storage_buffer_i32() {
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target) workgroup_size(1, 2, 1) workgroup_count(4, 1, 3) @spirv_dynamic_builtin_storage_buffer_i32() asm {
+low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(1, 2, 1) workgroup_count(4, 1, 3) @spirv_dynamic_builtin_storage_buffer_i32() asm {
   %input_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %workgroup_x = OpLoadBuiltin.workgroup_id.x
@@ -405,7 +405,7 @@ kernel.def target(@hal_target) @spirv_hal_resource_storage_buffer_i32() {
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_resource_storage_buffer_i32(%byte_offset_aligned: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (buffer, buffer, offset) -> ()}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_resource_storage_buffer_i32(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %input_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %14 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input_aligned, %byte_offset_aligned
@@ -439,7 +439,7 @@ kernel.def target(@hal_target) @spirv_hal_resource_storage_buffer_i32_guard() {
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_resource_storage_buffer_i32_guard(%byte_offset_aligned: reg<spirv.offset64>, %limit: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (buffer, buffer, offset, offset) -> ()}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_resource_storage_buffer_i32_guard(%byte_offset_aligned: reg<spirv.offset64>, %limit: reg<spirv.offset64>) asm {
   %input_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %inside = OpULessThan.offset64 %byte_offset_aligned, %limit
@@ -476,7 +476,7 @@ kernel.def target(@hal_target) @spirv_hal_resource_storage_buffer_f32() {
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_resource_storage_buffer_f32(%byte_offset_aligned: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (buffer, buffer, offset) -> ()}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_resource_storage_buffer_f32(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %input_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %17 = OpPtrAccessChain.storage_buffer.f32.byte_offset %input_aligned, %byte_offset_aligned
@@ -512,7 +512,7 @@ kernel.def target(@hal_target) @spirv_hal_resource_storage_buffer_i64() {
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_resource_storage_buffer_i64(%byte_offset_aligned: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (buffer, buffer, offset) -> ()}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_resource_storage_buffer_i64(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %input_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %19 = OpPtrAccessChain.storage_buffer.i64.byte_offset %input_aligned, %byte_offset_aligned
@@ -572,7 +572,7 @@ kernel.def target(@hal_target) @spirv_hal_resource_storage_buffer_feature_widths
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_resource_storage_buffer_feature_widths(%byte_offset_aligned: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, offset) -> ()}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_resource_storage_buffer_feature_widths(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %input_i8_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_i8_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %input_i16_aligned = resource<hal_binding> {index = 2, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
@@ -674,7 +674,7 @@ kernel.def target(@hal_target) @spirv_hal_scalar_conversions() {
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_scalar_conversions(%byte_offset_aligned: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, offset) -> ()}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_scalar_conversions(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %input_i8_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_ext_i32_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_extui_i32_aligned = resource<hal_binding> {index = 2, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
@@ -792,7 +792,7 @@ kernel.def target(@hal_target_coop_f16) @spirv_hal_cooperative_matrix_f16_loop()
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target_coop_f16) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_cooperative_matrix_f16(%byte_offset_aligned: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target_coop_f16) abi_layout({signature = (buffer, buffer, buffer, buffer, offset) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_cooperative_matrix_f16(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %lhs_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %rhs_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %init_aligned = resource<hal_binding> {index = 2, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
@@ -809,7 +809,7 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_f16) workgroup_size(3
   return
 }
 
-low.kernel.def target<spirv.logical.core>(@hal_target_coop_f16) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_cooperative_matrix_f16_loop(%byte_offset_aligned: reg<spirv.offset64>, %iteration_count: reg<spirv.id : index>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target_coop_f16) abi_layout({signature = (buffer, buffer, buffer, buffer, offset, index) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_cooperative_matrix_f16_loop(%byte_offset_aligned: reg<spirv.offset64>, %iteration_count: reg<spirv.id : index>) asm {
   %lhs_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %rhs_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %init_aligned = resource<hal_binding> {index = 2, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
@@ -861,7 +861,7 @@ kernel.def target(@hal_target_coop_bf16) @spirv_hal_cooperative_matrix_bf16() {
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target_coop_bf16) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_cooperative_matrix_bf16(%byte_offset_aligned: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target_coop_bf16) abi_layout({signature = (buffer, buffer, buffer, buffer, offset) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_cooperative_matrix_bf16(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %lhs_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %rhs_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %init_aligned = resource<hal_binding> {index = 2, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
@@ -939,7 +939,7 @@ kernel.def target(@hal_target_coop_i8) @spirv_hal_cooperative_matrix_s8() {
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target_coop_i8) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_cooperative_matrix_u8(%byte_offset_aligned: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target_coop_i8) abi_layout({signature = (buffer, buffer, buffer, buffer, offset) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_cooperative_matrix_u8(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %lhs_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %rhs_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %init_aligned = resource<hal_binding> {index = 2, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
@@ -956,7 +956,7 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_i8) workgroup_size(32
   return
 }
 
-low.kernel.def target<spirv.logical.core>(@hal_target_coop_i8) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_cooperative_matrix_s8(%byte_offset_aligned: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target_coop_i8) abi_layout({signature = (buffer, buffer, buffer, buffer, offset) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_cooperative_matrix_s8(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %lhs_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %rhs_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %init_aligned = resource<hal_binding> {index = 2, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>

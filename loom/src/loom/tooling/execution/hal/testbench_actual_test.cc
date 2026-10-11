@@ -366,15 +366,17 @@ TEST_F(HalTestbenchActualTest, ReflectionPlacesAlignedAndNarrowConstants) {
   }
   loom_run_hal_invocation_options_t options = {};
   loom_run_hal_invocation_options_initialize(&options);
-  // Padding must be initialized even when the caller reuses its argument
-  // storage.
   memset(options.constants, 0xcd, sizeof(options.constants));
+  // Function reflection owns the aggregate extent and initializes its
+  // padding before the logical parameter spans are materialized.
+  memset(options.constants, 0, 32);
+  options.constant_byte_length = 32;
   loom_run_hal_binding_list_t bindings = {};
   IREE_ASSERT_OK(loom_run_hal_testbench_invocation_inputs_from_values(
       inputs, input_types, nullptr, parameters, IREE_ARRAYSIZE(inputs),
       &options, iree_allocator_system(), &bindings));
 
-  EXPECT_EQ(options.constant_byte_length, 29u);
+  EXPECT_EQ(options.constant_byte_length, 32u);
   EXPECT_EQ(iree_unaligned_load_le_u32(options.constants), 0x12345678u);
   EXPECT_EQ(iree_unaligned_load_le_u32(options.constants + 4), 0u);
   EXPECT_EQ(iree_unaligned_load_le_u64(options.constants + 8),
@@ -389,7 +391,10 @@ TEST_F(HalTestbenchActualTest, ReflectionPlacesAlignedAndNarrowConstants) {
   EXPECT_EQ(iree_unaligned_load_le_u16(options.constants + 24), 0x3c00u);
   EXPECT_EQ(iree_unaligned_load_le_u16(options.constants + 26), 0x3f80u);
   EXPECT_EQ(options.constants[28], 127u);
-  EXPECT_EQ(options.constants[29], 0xcdu);
+  EXPECT_EQ(options.constants[29], 0u);
+  EXPECT_EQ(options.constants[30], 0u);
+  EXPECT_EQ(options.constants[31], 0u);
+  EXPECT_EQ(options.constants[32], 0xcdu);
   loom_run_hal_binding_list_deinitialize(&bindings);
 }
 

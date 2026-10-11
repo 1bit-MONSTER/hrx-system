@@ -434,19 +434,22 @@ ERR_SPIRV_029 = ErrorDef(
     ),
 )
 
-# ERR_SPIRV_030: SPIR-V low boundary carries target-specific ABI layout state.
+# ERR_SPIRV_030: SPIR-V low boundary has an invalid ABI layout.
 ERR_SPIRV_030 = ErrorDef(
     domain=ErrorDomain.SPIRV,
     code=30,
     severity=Severity.ERROR,
-    summary="SPIR-V low boundary has target-specific ABI layout metadata.",
+    summary="SPIR-V low boundary has invalid ABI layout metadata.",
     message=(
-        "SPIR-V low function '@{function_name}' cannot carry target-specific "
-        "abi_layout metadata; boundary value meaning must be encoded in "
-        "structural register types"
+        "SPIR-V low function '@{function_name}' may carry only a resultless "
+        "logical 'signature' for a HAL kernel, and that signature must match "
+        "its structural direct arguments and retained binding resources"
     ),
     params=(ErrorParam("function_name", ParamKind.STRING),),
-    fix_hint="Attach the exact public value type to each SPIR-V Low register",
+    fix_hint=(
+        "Remove target-specific ABI layout state or regenerate the logical "
+        "HAL signature and binding ordinals from the source kernel boundary"
+    ),
 )
 
 ALL_SPIRV_ERRORS: tuple[ErrorDef, ...] = (

@@ -39,6 +39,10 @@ uint8_t loom_low_function_allocation(const loom_op_t* function_op);
 // Returns the low schedule mode attr value, or 0 when absent.
 uint8_t loom_low_function_schedule(const loom_op_t* function_op);
 
+// Returns the target-owned ABI layout, or an empty slice when absent.
+loom_named_attr_slice_t loom_low_function_abi_layout(
+    const loom_op_t* function_op);
+
 // Returns the executable body region of |function_op|, or NULL when absent.
 loom_region_t* loom_low_function_body(loom_op_t* function_op);
 

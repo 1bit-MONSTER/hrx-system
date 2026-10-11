@@ -345,6 +345,7 @@ loom_check_test_suite(
     "test/ordinary_vector_integer.loom-test"
     "test/ordinary_vector_integer_conversion.loom-test"
     "test/ordinary_vector_structure.loom-test"
+    "test/parameter_reflection.loom-test"
     "test/scalar_abi.loom-test"
     "test/scalar_operations.loom-test"
     "test/schedule_scopes.loom-test"

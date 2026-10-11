@@ -52,6 +52,17 @@ uint8_t loom_low_function_schedule(const loom_op_t* function_op) {
   return 0;
 }
 
+loom_named_attr_slice_t loom_low_function_abi_layout(
+    const loom_op_t* function_op) {
+  if (loom_low_func_def_isa(function_op)) {
+    return loom_low_func_def_abi_layout(function_op);
+  }
+  if (loom_low_kernel_def_isa(function_op)) {
+    return loom_low_kernel_def_abi_layout(function_op);
+  }
+  return loom_named_attr_slice_empty();
+}
+
 loom_region_t* loom_low_function_body(loom_op_t* function_op) {
   if (loom_low_func_def_isa(function_op)) {
     return loom_low_func_def_body(function_op);

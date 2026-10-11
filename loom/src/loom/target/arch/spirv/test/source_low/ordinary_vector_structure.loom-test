@@ -46,7 +46,7 @@ kernel.def @ordinary_vector_structure_i32() {
 }
 
 // ----
-low.kernel.def target<spirv.logical.core> workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @ordinary_vector_structure_i32() asm {
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @ordinary_vector_structure_i32() asm {
   %input_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %36 = OpConstant.offset64 0
