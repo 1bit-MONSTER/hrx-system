@@ -449,26 +449,15 @@ static loomc_status_t loomc_spirv_vulkaninfo_add_subgroup_features(
       provenance);
 }
 
-static loomc_status_t loomc_spirv_vulkaninfo_add_float32_denorm_feature(
+static loomc_status_t loomc_spirv_vulkaninfo_read_float_control_independence(
     loomc_spirv_vulkaninfo_import_t* import, iree_string_view_t object,
-    loomc_string_view_t provenance) {
-  loomc_target_fact_state_t preserve_state = LOOMC_TARGET_FACT_STATE_UNKNOWN;
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_bool_feature(
-      import, object, IREE_SV("shaderDenormPreserveFloat32"), &preserve_state));
-  if (preserve_state == LOOMC_TARGET_FACT_STATE_UNKNOWN) {
-    return loomc_ok_status();
-  }
-
+    iree_string_view_t key, loomc_target_fact_state_t* out_state) {
+  *out_state = LOOMC_TARGET_FACT_STATE_UNKNOWN;
   iree_string_view_t independence = iree_string_view_empty();
-  iree_status_t status = loomc_spirv_vulkaninfo_try_lookup(
-      object, IREE_SV("denormBehaviorIndependence"), &independence);
+  iree_status_t status =
+      loomc_spirv_vulkaninfo_try_lookup(object, key, &independence);
   if (!iree_status_is_ok(status)) {
     return loomc_spirv_vulkaninfo_fail_iree_status(import, status);
-  }
-  if (preserve_state == LOOMC_TARGET_FACT_STATE_FALSE) {
-    return loomc_spirv_vulkaninfo_add_feature_fact(
-        import, LOOMC_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
-        LOOMC_TARGET_FACT_STATE_FALSE, provenance);
   }
   if (iree_string_view_is_empty(independence) ||
       loomc_spirv_vulkaninfo_is_null(independence)) {
@@ -497,14 +486,67 @@ static loomc_status_t loomc_spirv_vulkaninfo_add_float32_denorm_feature(
     return loomc_spirv_vulkaninfo_fail_iree_status(
         import,
         iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                         "vulkaninfo denormBehaviorIndependence '%.*s' is "
-                         "invalid",
-                         (int)independence.size, independence.data));
+                         "vulkaninfo float-control independence '%.*s' is "
+                         "invalid for field '%.*s'",
+                         (int)independence.size, independence.data,
+                         (int)key.size, key.data));
   }
-  return loomc_spirv_vulkaninfo_add_feature_fact(
+  *out_state = independent ? LOOMC_TARGET_FACT_STATE_TRUE
+                           : LOOMC_TARGET_FACT_STATE_FALSE;
+  return loomc_ok_status();
+}
+
+static loomc_status_t loomc_spirv_vulkaninfo_add_float_control_features(
+    loomc_spirv_vulkaninfo_import_t* import, iree_string_view_t object,
+    loomc_string_view_t provenance) {
+  loomc_target_fact_state_t denorm16 = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  loomc_target_fact_state_t denorm32 = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  loomc_target_fact_state_t denorm64 = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  loomc_target_fact_state_t rte16 = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  loomc_target_fact_state_t rte32 = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  loomc_target_fact_state_t rte64 = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  loomc_target_fact_state_t denorm_independence =
+      LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  loomc_target_fact_state_t rounding_independence =
+      LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_bool_feature(
+      import, object, IREE_SV("shaderDenormPreserveFloat16"), &denorm16));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_bool_feature(
+      import, object, IREE_SV("shaderDenormPreserveFloat32"), &denorm32));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_bool_feature(
+      import, object, IREE_SV("shaderDenormPreserveFloat64"), &denorm64));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_bool_feature(
+      import, object, IREE_SV("shaderRoundingModeRTEFloat16"), &rte16));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_bool_feature(
+      import, object, IREE_SV("shaderRoundingModeRTEFloat32"), &rte32));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_bool_feature(
+      import, object, IREE_SV("shaderRoundingModeRTEFloat64"), &rte64));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_float_control_independence(
+      import, object, IREE_SV("denormBehaviorIndependence"),
+      &denorm_independence));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_float_control_independence(
+      import, object, IREE_SV("roundingModeIndependence"),
+      &rounding_independence));
+
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_feature_fact(
       import, LOOMC_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
-      independent ? LOOMC_TARGET_FACT_STATE_TRUE
-                  : LOOMC_TARGET_FACT_STATE_FALSE,
+      loomc_spirv_vulkaninfo_and_fact_states(denorm32, denorm_independence),
+      provenance));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_feature_fact(
+      import, LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
+      loomc_spirv_vulkaninfo_and_fact_states(
+          loomc_spirv_vulkaninfo_and_fact_states(denorm16, denorm64),
+          denorm_independence),
+      provenance));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_feature_fact(
+      import, LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
+      loomc_spirv_vulkaninfo_and_fact_states(
+          loomc_spirv_vulkaninfo_and_fact_states(rte16, rte64),
+          rounding_independence),
+      provenance));
+  return loomc_spirv_vulkaninfo_add_feature_fact(
+      import, LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
+      loomc_spirv_vulkaninfo_and_fact_states(rte32, rounding_independence),
       provenance);
 }
 
@@ -911,14 +953,14 @@ static loomc_status_t loomc_spirv_vulkaninfo_import_feature_properties(
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_subgroup_features(
       import, subgroup_properties, IREE_SV("supportedOperations"),
       loomc_make_cstring_view("vulkaninfo:supportedOperations")));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_float32_denorm_feature(
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_float_control_features(
       import, vulkan12_properties,
       loomc_make_cstring_view(
-          "vulkaninfo:VkPhysicalDeviceVulkan12Properties.float32Denorm")));
-  return loomc_spirv_vulkaninfo_add_float32_denorm_feature(
+          "vulkaninfo:VkPhysicalDeviceVulkan12Properties.floatControls")));
+  return loomc_spirv_vulkaninfo_add_float_control_features(
       import, float_controls_properties,
       loomc_make_cstring_view(
-          "vulkaninfo:VkPhysicalDeviceFloatControlsProperties.float32Denorm"));
+          "vulkaninfo:VkPhysicalDeviceFloatControlsProperties.floatControls"));
 }
 
 static const loomc_spirv_vulkaninfo_feature_field_t

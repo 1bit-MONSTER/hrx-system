@@ -166,6 +166,24 @@ static const loomc_spirv_iree_hal_feature_row_t
             .provenance = "iree-hal:vulkan.device.float32_denorm_preserve",
         },
         {
+            .required_device_flags =
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_DENORM_PRESERVE,
+            .feature = LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
+            .provenance = "iree-hal:vulkan.device.float16_64_denorm_preserve",
+        },
+        {
+            .required_device_flags =
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_ROUNDING_RTE,
+            .feature = LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
+            .provenance = "iree-hal:vulkan.device.float16_64_rounding_rte",
+        },
+        {
+            .required_device_flags =
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE,
+            .feature = LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
+            .provenance = "iree-hal:vulkan.device.float32_rounding_rte",
+        },
+        {
             .required_subgroup_operations =
                 LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_BALLOT_BIT,
             .feature = LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,

@@ -179,10 +179,18 @@ TEST(SpirvFeaturesTest, PreparesAllFeaturesIncludingDenormPreservation) {
                                                 &feature_set));
   EXPECT_TRUE(loom_spirv_feature_set_has_atom(
       &feature_set, LOOM_SPIRV_FEATURE_ATOM_FLOAT32_DENORM_PRESERVE));
+  EXPECT_TRUE(loom_spirv_feature_set_has_atom(
+      &feature_set, LOOM_SPIRV_FEATURE_ATOM_FLOAT16_64_DENORM_PRESERVE));
+  EXPECT_TRUE(loom_spirv_feature_set_has_atom(
+      &feature_set, LOOM_SPIRV_FEATURE_ATOM_FLOAT16_64_ROUNDING_RTE));
+  EXPECT_TRUE(loom_spirv_feature_set_has_atom(
+      &feature_set, LOOM_SPIRV_FEATURE_ATOM_FLOAT32_ROUNDING_RTE));
   EXPECT_TRUE(
       ContainsExtension(feature_set, IREE_SV("SPV_KHR_float_controls")));
   EXPECT_TRUE(
       ContainsCapability(feature_set, LOOM_SPIRV_CAPABILITY_DENORM_PRESERVE));
+  EXPECT_TRUE(
+      ContainsCapability(feature_set, LOOM_SPIRV_CAPABILITY_ROUNDING_MODE_RTE));
 }
 
 TEST(SpirvFeaturesTest, PreparesCooperativeFeatureAtomsWithoutBda) {

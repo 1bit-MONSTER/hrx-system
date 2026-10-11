@@ -27,6 +27,12 @@ typedef enum iree_hal_vulkan_device_spec_flag_bits_e {
   IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE = 0u,
   // F32 subnormals can be preserved independently of other floating widths.
   IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE = 1u << 0,
+  // F16/F64 subnormals can be preserved together without changing F32.
+  IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_DENORM_PRESERVE = 1u << 1,
+  // F16/F64 can use round-to-nearest-even together without changing F32.
+  IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_ROUNDING_RTE = 1u << 2,
+  // F32 can use round-to-nearest-even independently of other widths.
+  IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE = 1u << 3,
 } iree_hal_vulkan_device_spec_flag_bits_t;
 
 // Borrowed view of encoded Vulkan cooperative matrix property rows.

@@ -191,8 +191,17 @@ typedef enum loomc_spirv_feature_e {
   /// Subgroup ballot operations.
   LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT = 33,
 
+  /// F16/F64 DenormPreserve modes selectable together without changing F32.
+  LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE = 34,
+
+  /// F16/F64 RoundingModeRTE modes selectable together without changing F32.
+  LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE = 35,
+
+  /// F32 RoundingModeRTE independent of other floating-point widths.
+  LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE = 36,
+
   /// Number of public SPIR-V feature identifiers.
-  LOOMC_SPIRV_FEATURE_COUNT = 34,
+  LOOMC_SPIRV_FEATURE_COUNT = 37,
 } loomc_spirv_feature_t;
 
 /// Bitset of `loomc_spirv_feature_t` values.

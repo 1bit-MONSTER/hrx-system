@@ -190,7 +190,14 @@ TEST(TargetSpirvVulkaninfoTest, ImportsGpuinfoProfileWrapper) {
           "VkPhysicalDeviceVulkan12Properties": {
             "denormBehaviorIndependence":
               "VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY",
-            "shaderDenormPreserveFloat32": true
+            "roundingModeIndependence":
+              "VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY",
+            "shaderDenormPreserveFloat16": true,
+            "shaderDenormPreserveFloat32": true,
+            "shaderDenormPreserveFloat64": true,
+            "shaderRoundingModeRTEFloat16": true,
+            "shaderRoundingModeRTEFloat32": true,
+            "shaderRoundingModeRTEFloat64": true
           }
         },
         "features": {
@@ -291,6 +298,9 @@ TEST(TargetSpirvVulkaninfoTest, ImportsGpuinfoProfileWrapper) {
       LOOMC_SPIRV_FEATURE_WORKGROUP_FLOAT64_ATOMIC_ADD,
       LOOMC_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
+      LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
+      LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
+      LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
   };
   for (loomc_spirv_feature_t feature : extended_features) {
     ExpectFeatureState(profile.get(), feature, LOOMC_TARGET_FACT_STATE_TRUE);

@@ -579,6 +579,25 @@ static iree_status_t iree_hal_vulkan_device_spec_populate_facet(
     vulkan_spec.flags |=
         IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE;
   }
+  if (float_controls->shaderDenormPreserveFloat16 &&
+      float_controls->shaderDenormPreserveFloat64 &&
+      float_controls->denormBehaviorIndependence !=
+          VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE) {
+    vulkan_spec.flags |=
+        IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_DENORM_PRESERVE;
+  }
+  if (float_controls->shaderRoundingModeRTEFloat16 &&
+      float_controls->shaderRoundingModeRTEFloat64 &&
+      float_controls->roundingModeIndependence !=
+          VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE) {
+    vulkan_spec.flags |=
+        IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_ROUNDING_RTE;
+  }
+  if (float_controls->shaderRoundingModeRTEFloat32 &&
+      float_controls->roundingModeIndependence !=
+          VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE) {
+    vulkan_spec.flags |= IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE;
+  }
 
   iree_host_size_t property_count = 0;
   const VkCooperativeMatrixPropertiesKHR* source_properties = NULL;

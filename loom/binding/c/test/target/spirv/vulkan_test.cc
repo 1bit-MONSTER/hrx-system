@@ -39,7 +39,14 @@ struct MockVulkanDevice {
   VkSubgroupFeatureFlags subgroup_operations = VK_SUBGROUP_FEATURE_BASIC_BIT;
   VkShaderFloatControlsIndependence denorm_behavior_independence =
       VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE;
+  VkShaderFloatControlsIndependence rounding_mode_independence =
+      VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE;
+  VkBool32 shader_denorm_preserve_float16 = VK_FALSE;
   VkBool32 shader_denorm_preserve_float32 = VK_FALSE;
+  VkBool32 shader_denorm_preserve_float64 = VK_FALSE;
+  VkBool32 shader_rounding_mode_rte_float16 = VK_FALSE;
+  VkBool32 shader_rounding_mode_rte_float32 = VK_FALSE;
+  VkBool32 shader_rounding_mode_rte_float64 = VK_FALSE;
   VkBool32 shader_float64 = VK_TRUE;
   VkBool32 shader_int16 = VK_TRUE;
   VkBool32 shader_int64 = VK_FALSE;
@@ -118,8 +125,20 @@ void VKAPI_PTR MockGetPhysicalDeviceProperties2(
             reinterpret_cast<VkPhysicalDeviceVulkan12Properties*>(out);
         vulkan12->denormBehaviorIndependence =
             g_mock_vulkan_device->denorm_behavior_independence;
+        vulkan12->roundingModeIndependence =
+            g_mock_vulkan_device->rounding_mode_independence;
+        vulkan12->shaderDenormPreserveFloat16 =
+            g_mock_vulkan_device->shader_denorm_preserve_float16;
         vulkan12->shaderDenormPreserveFloat32 =
             g_mock_vulkan_device->shader_denorm_preserve_float32;
+        vulkan12->shaderDenormPreserveFloat64 =
+            g_mock_vulkan_device->shader_denorm_preserve_float64;
+        vulkan12->shaderRoundingModeRTEFloat16 =
+            g_mock_vulkan_device->shader_rounding_mode_rte_float16;
+        vulkan12->shaderRoundingModeRTEFloat32 =
+            g_mock_vulkan_device->shader_rounding_mode_rte_float32;
+        vulkan12->shaderRoundingModeRTEFloat64 =
+            g_mock_vulkan_device->shader_rounding_mode_rte_float64;
         break;
       }
       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES: {
@@ -127,8 +146,20 @@ void VKAPI_PTR MockGetPhysicalDeviceProperties2(
             reinterpret_cast<VkPhysicalDeviceFloatControlsProperties*>(out);
         float_controls->denormBehaviorIndependence =
             g_mock_vulkan_device->denorm_behavior_independence;
+        float_controls->roundingModeIndependence =
+            g_mock_vulkan_device->rounding_mode_independence;
+        float_controls->shaderDenormPreserveFloat16 =
+            g_mock_vulkan_device->shader_denorm_preserve_float16;
         float_controls->shaderDenormPreserveFloat32 =
             g_mock_vulkan_device->shader_denorm_preserve_float32;
+        float_controls->shaderDenormPreserveFloat64 =
+            g_mock_vulkan_device->shader_denorm_preserve_float64;
+        float_controls->shaderRoundingModeRTEFloat16 =
+            g_mock_vulkan_device->shader_rounding_mode_rte_float16;
+        float_controls->shaderRoundingModeRTEFloat32 =
+            g_mock_vulkan_device->shader_rounding_mode_rte_float32;
+        float_controls->shaderRoundingModeRTEFloat64 =
+            g_mock_vulkan_device->shader_rounding_mode_rte_float64;
         break;
       }
       default:
@@ -548,7 +579,14 @@ TEST(TargetSpirvVulkanTest, UsesExtensionFeatureStructsBeforeCorePromotion) {
   device.vulkan_memory_model_device_scope = VK_TRUE;
   device.denorm_behavior_independence =
       VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY;
+  device.rounding_mode_independence =
+      VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY;
+  device.shader_denorm_preserve_float16 = VK_TRUE;
   device.shader_denorm_preserve_float32 = VK_TRUE;
+  device.shader_denorm_preserve_float64 = VK_TRUE;
+  device.shader_rounding_mode_rte_float16 = VK_TRUE;
+  device.shader_rounding_mode_rte_float32 = VK_TRUE;
+  device.shader_rounding_mode_rte_float64 = VK_TRUE;
   TargetProfilePtr profile =
       CreateVulkanProfile(target_environment.get(), device);
 
@@ -574,6 +612,13 @@ TEST(TargetSpirvVulkanTest, UsesExtensionFeatureStructsBeforeCorePromotion) {
                      LOOMC_TARGET_FACT_STATE_TRUE);
   ExpectFeatureState(profile.get(), LOOMC_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
                      LOOMC_TARGET_FACT_STATE_TRUE);
+  ExpectFeatureState(profile.get(),
+                     LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
+                     LOOMC_TARGET_FACT_STATE_TRUE);
+  ExpectFeatureState(profile.get(), LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
+                     LOOMC_TARGET_FACT_STATE_TRUE);
+  ExpectFeatureState(profile.get(), LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
+                     LOOMC_TARGET_FACT_STATE_TRUE);
 #if defined(VK_KHR_cooperative_matrix)
   ExpectFeatureState(profile.get(), LOOMC_SPIRV_FEATURE_COOPERATIVE_MATRIX_KHR,
                      LOOMC_TARGET_FACT_STATE_UNKNOWN);
@@ -592,7 +637,14 @@ TEST(TargetSpirvVulkanTest, PreservesExtendedCompilerFeatureFamily) {
   device.subgroup_operations |= VK_SUBGROUP_FEATURE_BALLOT_BIT;
   device.denorm_behavior_independence =
       VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY;
+  device.rounding_mode_independence =
+      VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY;
+  device.shader_denorm_preserve_float16 = VK_TRUE;
   device.shader_denorm_preserve_float32 = VK_TRUE;
+  device.shader_denorm_preserve_float64 = VK_TRUE;
+  device.shader_rounding_mode_rte_float16 = VK_TRUE;
+  device.shader_rounding_mode_rte_float32 = VK_TRUE;
+  device.shader_rounding_mode_rte_float64 = VK_TRUE;
   device.shader_int64 = VK_TRUE;
   device.vulkan_memory_model = VK_TRUE;
   device.vulkan_memory_model_device_scope = VK_TRUE;
@@ -633,6 +685,9 @@ TEST(TargetSpirvVulkanTest, PreservesExtendedCompilerFeatureFamily) {
       LOOMC_SPIRV_FEATURE_WORKGROUP_FLOAT64_ATOMIC_ADD,
       LOOMC_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
+      LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
+      LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
+      LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
   };
   for (loomc_spirv_feature_t feature : expected_features) {
     ExpectFeatureState(profile.get(), feature, LOOMC_TARGET_FACT_STATE_TRUE);

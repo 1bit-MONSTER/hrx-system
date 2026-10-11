@@ -404,6 +404,36 @@ FEATURE_ATOMS = (
         capabilities=("LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_BALLOT",),
         opcodes=("LOOM_SPIRV_OP_GROUP_NON_UNIFORM_BALLOT",),
     ),
+    FeatureAtom(
+        key="float16_64_denorm_preserve",
+        c_suffix="FLOAT16_64_DENORM_PRESERVE",
+        name="spirv.float16_64_denorm_preserve",
+        doc="F16/F64 DenormPreserve modes selectable together without changing F32.",
+        required=("vulkan_shader",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
+        extensions=("SPV_KHR_float_controls",),
+        capabilities=("LOOM_SPIRV_CAPABILITY_DENORM_PRESERVE",),
+    ),
+    FeatureAtom(
+        key="float16_64_rounding_rte",
+        c_suffix="FLOAT16_64_ROUNDING_RTE",
+        name="spirv.float16_64_rounding_rte",
+        doc="F16/F64 RoundingModeRTE modes selectable together without changing F32.",
+        required=("vulkan_shader",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
+        extensions=("SPV_KHR_float_controls",),
+        capabilities=("LOOM_SPIRV_CAPABILITY_ROUNDING_MODE_RTE",),
+    ),
+    FeatureAtom(
+        key="float32_rounding_rte",
+        c_suffix="FLOAT32_ROUNDING_RTE",
+        name="spirv.float32_rounding_rte",
+        doc="F32 RoundingModeRTE independent of other floating-point widths.",
+        required=("vulkan_shader",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
+        extensions=("SPV_KHR_float_controls",),
+        capabilities=("LOOM_SPIRV_CAPABILITY_ROUNDING_MODE_RTE",),
+    ),
 )
 
 FEATURE_PROFILES = (

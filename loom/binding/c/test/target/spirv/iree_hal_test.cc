@@ -415,7 +415,10 @@ TEST(LoomcSpirvIreeHalTargetTest, PreservesExtendedCompilerFeatureFamily) {
       enabled_features, kCompleteDeviceSpecFlags, &device_spec,
       /*cooperative_matrix_property_count=*/0,
       /*cooperative_matrix_properties=*/nullptr,
-      IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE,
+      IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE |
+          IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_DENORM_PRESERVE |
+          IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_ROUNDING_RTE |
+          IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE,
       /*subgroup_supported_operations=*/kVulkanSubgroupFeatureBallotBit));
   FakeHalDevice device = {};
   InitializeFakeDevice(device_spec.get(), &device);
@@ -445,6 +448,9 @@ TEST(LoomcSpirvIreeHalTargetTest, PreservesExtendedCompilerFeatureFamily) {
       LOOMC_SPIRV_FEATURE_WORKGROUP_FLOAT64_ATOMIC_ADD,
       LOOMC_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
+      LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
+      LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
+      LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
   };
   for (loomc_spirv_feature_t feature : expected_features) {
     loomc_target_fact_state_t state = LOOMC_TARGET_FACT_STATE_UNKNOWN;

@@ -703,6 +703,9 @@ TEST(TargetSpirvProfileTest, AcceptsEveryExtendedCompilerFeature) {
       LOOMC_SPIRV_FEATURE_WORKGROUP_FLOAT64_ATOMIC_ADD,
       LOOMC_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
+      LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
+      LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
+      LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
   };
   loomc_spirv_feature_fact_t facts[sizeof(features) / sizeof(features[0])] = {};
   for (size_t i = 0; i < sizeof(features) / sizeof(features[0]); ++i) {
