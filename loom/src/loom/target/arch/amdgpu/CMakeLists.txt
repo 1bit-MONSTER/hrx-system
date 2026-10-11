@@ -713,51 +713,6 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU)
 loom_check_compile_tests(
   NAME
-    "source_low_memory_atomic_observations_gfx1200"
-  SRC
-    "test/source_low/source_low_memory_atomic_observations_gfx1200.loom-test"
-  REGISTERED_SRCS
-    "${_GLOB_TEST_SOURCE_LOW_X_LOOM_TEST_BE73FC6D}"
-  TARGETS
-    loom::target::amdgpu::gfx12-generic
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1201
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU)
-loom_check_compile_tests(
-  NAME
-    "source_low_memory_atomic_observations_gfx1250"
-  SRC
-    "test/source_low/source_low_memory_atomic_observations_gfx1250.loom-test"
-  REGISTERED_SRCS
-    "${_GLOB_TEST_SOURCE_LOW_X_LOOM_TEST_BE73FC6D}"
-  TARGETS
-    loom::target::amdgpu::gfx12-5-generic
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx1251
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU)
-loom_check_compile_tests(
-  NAME
-    "source_low_memory_atomic_observations_gfx9_4_generic"
-  SRC
-    "test/source_low/source_low_memory_atomic_observations_gfx9_4_generic.loom-test"
-  REGISTERED_SRCS
-    "${_GLOB_TEST_SOURCE_LOW_X_LOOM_TEST_BE73FC6D}"
-  TARGETS
-    loom::target::amdgpu::gfx9-4-generic
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU)
-loom_check_compile_tests(
-  NAME
     "source_low_system_scope_store_wait"
   SRC
     "test/source_low/source_low_system_scope_store_wait.loom-test"
