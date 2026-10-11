@@ -44,8 +44,8 @@ def _clang_tidy_compile_args(compile_args, compiler):
         if arg not in _CLANG_TIDY_UNSUPPORTED_COMPILE_ARGS and arg not in resource_includes
     ]
 
-    # The analysis command uses a synthetic compiler name, losing the driver
-    # mode normally selected by clang-cl or cl.exe. Keep MSVC options active.
+    # A toolchain wrapper may not have a driver-recognized name. Preserve the
+    # configured driver mode when the compile action uses MSVC options.
     if compiler in ["clang-cl", "msvc-cl"]:
         filtered_args.append("--driver-mode=cl")
 
@@ -210,6 +210,7 @@ def _run_clang_tidy_action(ctx, target, cc_toolchain, feature_configuration, sou
     outputs = [report]
     args = ctx.actions.args()
     args.add("--clang-tidy", ctx.executable._clang_tidy)
+    args.add("--compiler", compile_command.compiler)
     args.add("--plugin", ctx.executable._plugin)
     args.add("--source", source)
     args.add("--output", report)
@@ -258,6 +259,7 @@ def _run_recursion_summary_action(ctx, target, cc_toolchain, feature_configurati
     summary = ctx.actions.declare_file(_recursion_summary_path(target.label, source))
     args = ctx.actions.args()
     args.add("--clang-tidy", ctx.executable._clang_tidy)
+    args.add("--compiler", compile_command.compiler)
     args.add("--plugin", ctx.executable._plugin)
     args.add("--source", source)
     args.add("--output", report)

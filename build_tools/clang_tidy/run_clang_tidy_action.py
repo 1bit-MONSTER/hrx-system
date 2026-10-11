@@ -23,6 +23,7 @@ def parse_arguments(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     delimiter = argv.index("--")
     parser = argparse.ArgumentParser()
     parser.add_argument("--clang-tidy", required=True, type=Path)
+    parser.add_argument("--compiler", required=True, type=Path)
     parser.add_argument("--plugin", required=True, type=Path)
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
@@ -81,6 +82,9 @@ def main(argv: list[str]) -> int:
     # strips positional inputs and appends an absolute path; clang-cl can parse
     # a POSIX path beginning with /w as a warning option instead of a source.
     # A command database retains the relative input from the native build action.
+    # The actual compiler path also determines implicit SDK and standard-library
+    # discovery, including headers installed beside a non-system toolchain.
+    compiler_command = [str(args.compiler), *compile_args]
     with tempfile.TemporaryDirectory(prefix="iree-clang-tidy-") as directory:
         database = Path(directory) / "compile_commands.json"
         database.write_text(
@@ -89,7 +93,7 @@ def main(argv: list[str]) -> int:
                     {
                         "directory": str(Path.cwd()),
                         "file": str(args.source),
-                        "arguments": ["clang-tool", *compile_args],
+                        "arguments": compiler_command,
                     }
                 ]
             ),
@@ -118,7 +122,7 @@ def main(argv: list[str]) -> int:
         print(shlex.join(command), file=sys.stderr)
         print(
             "compiler command:",
-            shlex.join(["clang-tool", *compile_args]),
+            shlex.join(compiler_command),
             file=sys.stderr,
         )
         if output:

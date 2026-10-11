@@ -32,13 +32,17 @@ _ARGS = parse_arguments()
 
 
 class ActionRunnerTest(unittest.TestCase):
-    def run_analysis(self, compiler_args: list[str]) -> tuple[int, str]:
+    def run_analysis(
+        self, compiler_args: list[str], *, compiler: str = "clang"
+    ) -> tuple[int, str]:
         with tempfile.TemporaryDirectory() as directory:
             report = Path(directory) / "diagnostics.txt"
             result = run_clang_tidy_action.main(
                 [
                     "--clang-tidy",
                     _ARGS.clang_tidy,
+                    "--compiler",
+                    compiler,
                     "--plugin",
                     _ARGS.plugin,
                     "--config-file",
@@ -77,6 +81,27 @@ class ActionRunnerTest(unittest.TestCase):
                 self.assertIn(
                     "IREE clang-tidy plugin smoke diagnostic [iree-smoke]", output
                 )
+
+    def test_compiler_relative_standard_headers_reach_analysis(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            compiler = root / "bin" / "clang++"
+            compiler.parent.mkdir()
+            headers = root / "include" / "c++" / "v1"
+            headers.mkdir(parents=True)
+            header_name = "iree_action_runner_standard_header.h"
+            (headers / header_name).write_text(
+                "using iree_action_runner_standard_type = int;\n",
+                encoding="utf-8",
+            )
+            result, output = self.run_analysis(
+                ["-x", "c++", "-std=c++20", "-stdlib=libc++", "-include", header_name],
+                compiler=str(compiler),
+            )
+            self.assertEqual(result, 0, output)
+            self.assertIn(
+                "IREE clang-tidy plugin smoke diagnostic [iree-smoke]", output
+            )
 
     def test_compiler_failure_reaches_the_caller_and_report(self):
         result, output = self.run_analysis(
