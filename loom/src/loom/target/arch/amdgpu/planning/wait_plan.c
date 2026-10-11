@@ -870,6 +870,46 @@ loom_amdgpu_wait_plan_build_packet_transfer_dependency_links(
       builder, producer_nodes, value_count, consumer_node, UINT32_MAX);
 }
 
+static bool loom_amdgpu_wait_plan_node_is_volatile_memory(
+    const loom_amdgpu_wait_plan_builder_t* builder, uint32_t node_index) {
+  const loom_low_schedule_node_t* node = &builder->schedule->nodes[node_index];
+  return node->descriptor != NULL &&
+         iree_any_bit_set(node->op->instance_flags,
+                          LOOM_MEMORY_ACCESS_FLAG_VOLATILE);
+}
+
+// Returns the completion counters still required by an exact memory-effect
+// dependency. Vector memory instructions issued by one wave observe an
+// earlier same-address VMEM access in issue order, so a later VMEM-only access
+// does not need to wait for that access to complete. The schedule dependency
+// still preserves issue order, and register readiness, physical reuse, and
+// program-exit completion retain their independent waits.
+//
+// Both endpoint nodes are required to prove that the accesses are
+// nonvolatile. Incoming conservative CFG state intentionally bypasses this
+// filter because it aggregates producers by memory space and counter class and
+// cannot prove that every reaching producer is nonvolatile.
+static uint32_t loom_amdgpu_wait_plan_required_memory_completion_mask(
+    const loom_amdgpu_wait_plan_builder_t* builder, uint32_t producer_node,
+    uint32_t consumer_node, uint32_t counter_mask) {
+  if ((counter_mask & LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM) == 0) {
+    return counter_mask;
+  }
+  if (loom_amdgpu_wait_plan_node_is_volatile_memory(builder, producer_node) ||
+      loom_amdgpu_wait_plan_node_is_volatile_memory(builder, consumer_node)) {
+    return counter_mask;
+  }
+  const loom_amdgpu_wait_frontier_node_t* consumer_memory =
+      &builder->classification.frontier_nodes[consumer_node];
+  const uint32_t consumer_counters =
+      consumer_memory->read_counter_mask | consumer_memory->write_counter_mask;
+  if (consumer_counters == 0 ||
+      (consumer_counters & ~LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM) != 0) {
+    return counter_mask;
+  }
+  return counter_mask & ~LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM;
+}
+
 static uint32_t loom_amdgpu_wait_plan_memory_effect_counter_mask(
     const loom_amdgpu_wait_plan_builder_t* builder, uint32_t producer_node,
     uint32_t consumer_node) {
@@ -893,7 +933,8 @@ static uint32_t loom_amdgpu_wait_plan_memory_effect_counter_mask(
                        LOOM_AMDGPU_WAIT_NODE_STATE_DEPENDENCY_WRITE)) {
     counter_mask |= producer_memory->read_counter_mask;
   }
-  return counter_mask;
+  return loom_amdgpu_wait_plan_required_memory_completion_mask(
+      builder, producer_node, consumer_node, counter_mask);
 }
 
 static loom_amdgpu_wait_plan_reason_t
@@ -963,6 +1004,8 @@ static iree_status_t loom_amdgpu_wait_plan_visit_memory_completion_edge(
   } else {
     counter_mask = loom_amdgpu_wait_counter_mask(producer->counter_id);
   }
+  counter_mask = loom_amdgpu_wait_plan_required_memory_completion_mask(
+      builder, producer->node_index, consumer->node_index, counter_mask);
   if (counter_mask == 0) {
     return iree_ok_status();
   }
