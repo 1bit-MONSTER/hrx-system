@@ -587,7 +587,7 @@ jobs:
             HRX_DOWNLOAD_CACHE_DIR = Join-Path $outputDir 'downloads'
             HRX_OUTPUT_DIR = $outputDir
             HRX_ROCM_ROOT = $rocmRoot
-            IREE_CI_BAZEL_OUTPUT_BASE = (Join-Path $selectedDrive.Root 'b').Replace('\', '/')
+            IREE_CI_BAZEL_OUTPUT_BASE = (Join-Path $selectedDrive.Root 'o').Replace('\', '/')
             IREE_CI_FAILURE_ARTIFACT_DIR = Join-Path $outputDir 'failure-evidence'
             PIP_CACHE_DIR = Join-Path $outputDir 'caches\pip'
           }
