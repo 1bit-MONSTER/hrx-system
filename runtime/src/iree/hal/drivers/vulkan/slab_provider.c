@@ -245,7 +245,7 @@ static iree_status_t iree_hal_vulkan_slab_provider_acquire_slab(
                          IREE_HAL_MEMORY_TYPE_HOST_CACHED)
             ? IREE_HAL_HOST_CACHEABILITY_WRITE_BACK
             : IREE_HAL_HOST_CACHEABILITY_UNKNOWN;
-    out_slab->allocation_alignment = min_alignment;
+    out_slab->allocation_alignment = iree_max(alignment, native_alignment);
     iree_hal_memory_trace_alloc(&provider->trace, out_slab->base_ptr,
                                 out_slab->length);
     iree_atomic_fetch_add(&provider->total_acquired, 1,

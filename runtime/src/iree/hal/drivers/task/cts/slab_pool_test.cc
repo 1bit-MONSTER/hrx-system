@@ -1179,11 +1179,12 @@ TEST_P(TaskSlabPoolTest, QueueMappingSourcesRecycleThroughSharedSlabCache) {
   tlsf_options.tlsf_options.frontier_capacity = 4;
   IREE_ASSERT_OK(iree_hal_tlsf_pool_create(
       cache, &tlsf_options, iree_allocator_system(), children[0].out()));
-  iree_hal_fixed_block_pool_options_t block_options = {};
-  block_options.block_size = kUnit;
-  block_options.blocks_per_slab = 4;
-  block_options.alignment = kUnit;
-  block_options.frontier_capacity = 4;
+  iree_hal_fixed_block_pool_options_t block_options = {
+      .block_size = kUnit,
+      .blocks_per_slab = 4,
+      .frontier_capacity = 4,
+      .alignment = kUnit,
+  };
   IREE_ASSERT_OK(iree_hal_fixed_block_pool_create(
       cache, &block_options, iree_allocator_system(), children[1].out()));
   for (auto& family : families_) {

@@ -683,12 +683,13 @@ class MemoryBackendTest : public ::testing::Test {
                                 AMDF_MEMORY_ADDRESS_GPU};
     native_families_[0].host_usage = 0;
     const iree_hal_pool_family_access_t family = {
-        /*.family=*/families_[0],
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
+        .family = families_[0],
+        .usage = IREE_HAL_BUFFER_USAGE_STORAGE,
     };
     const iree_hal_pool_scope_t scope = {1, &family, {}};
     const iree_hal_memory_reservation_options_t options = {
-        /*.byte_length=*/16384};
+        .byte_length = 16384,
+    };
     return iree_hal_memory_reservation_create(group_, scope, &options,
                                               allocator_, out_reservation);
   }
@@ -845,8 +846,9 @@ TEST_F(MemoryBackendTest,
     EXPECT_EQ(memory.backing->physical_backing_id.words[0], 0xAu);
     EXPECT_EQ(memory.backing->physical_backing_id.words[1], 1u);
 
-    iree_hal_fixed_block_pool_options_t child_options = {};
-    child_options.block_size = 256;
+    iree_hal_fixed_block_pool_options_t child_options = {
+        .block_size = 256,
+    };
     iree_hal_pool_t* child = nullptr;
     IREE_ASSERT_OK(iree_hal_fixed_block_pool_create_from_buffer(
         slab, 128, 2048, &child_options, allocator_, &child));
@@ -983,8 +985,9 @@ TEST_F(MemoryBackendTest, JoinsOwnedAndRegisteredVisibilityAtConstruction) {
                              storage_class, &exported, &range));
   alignas(4096) uint8_t allocation[4096] = {};
   uint8_t* bytes = allocation + 128;
-  iree_hal_external_storage_t storage = {};
-  storage.storage_class = storage_class;
+  iree_hal_external_storage_t storage = {
+      .storage_class = storage_class,
+  };
   storage.payload.host_pointer = bytes;
   storage.byte_length = 512;
   storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
@@ -1196,8 +1199,9 @@ TEST_F(MemoryBackendTest, WrapperFailureRollsBackBeforeConsumingStorage) {
     // Callback executions, read only after pool retirement joins.
     int count;
   } release_state = {&native_, 0};
-  iree_hal_external_storage_t storage = {};
-  storage.storage_class = import_class.storage_class;
+  iree_hal_external_storage_t storage = {
+      .storage_class = import_class.storage_class,
+  };
   storage.payload.host_pointer = bytes;
   storage.byte_length = sizeof(bytes);
   storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
@@ -1526,7 +1530,8 @@ TEST_P(ReservationBackendTest, MapsExactConsumersThroughNativeProjections) {
   }
   const iree_hal_pool_scope_t scope = {families.size(), families.data(), {}};
   const iree_hal_memory_reservation_options_t options = {
-      /*.byte_length=*/16384};
+      .byte_length = 16384,
+  };
   std::array<iree_hal_memory_reservation_t*, 2> reservations = {};
   for (auto& reservation : reservations) {
     IREE_ASSERT_OK(iree_hal_memory_reservation_create(
@@ -1552,12 +1557,14 @@ TEST_P(ReservationBackendTest, MapsExactConsumersThroughNativeProjections) {
   const iree_hal_semaphore_list_t signals = {1, &done, &value};
   std::array<iree_hal_memory_mapping_t, 2> mappings = {};
   for (uint32_t i = 0; i < 2; ++i) {
-    mappings[i] = {/*.reservation=*/reservations[i],
-                   /*.scope=*/i ? second : first,
-                   /*.target_range=*/{4096, 8192},
-                   /*.source=*/view,
-                   /*.source_offset=*/4096,
-                   /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL};
+    mappings[i] = {
+        .reservation = reservations[i],
+        .scope = i ? second : first,
+        .target_range = {4096, 8192},
+        .source = view,
+        .source_offset = 4096,
+        .access = IREE_HAL_MEMORY_ACCESS_ALL,
+    };
   }
   auto* queue = iree_hal_device_queue(cpu_device_, 0, 0);
   IREE_ASSERT_OK(iree_hal_queue_map(queue, waits, signals, mappings.size(),
@@ -1627,9 +1634,9 @@ TEST_F(MemoryBackendTest, NativeMappingFailureReachesQueueCompletion) {
   uint64_t value = 1;
   const iree_hal_semaphore_list_t signals = {1, &done, &value};
   const iree_hal_memory_mapping_t mapping = {
-      /*.reservation=*/reservation,
-      /*.scope=*/ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
-      /*.target_range=*/{0, 4096},
+      .reservation = reservation,
+      .scope = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
+      .target_range = {0, 4096},
   };
   native_.update_failure = amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
   IREE_ASSERT_OK(iree_hal_queue_map(iree_hal_device_queue(cpu_device_, 0, 0),
@@ -1669,9 +1676,9 @@ TEST_F(MemoryBackendTest, SlowNativeMappingLeavesTheSingleCpuWorkerAvailable) {
   uint64_t value = 1;
   const iree_hal_semaphore_list_t signals = {1, &done, &value};
   const iree_hal_memory_mapping_t mapping = {
-      /*.reservation=*/reservation,
-      /*.scope=*/ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
-      /*.target_range=*/{0, 4096},
+      .reservation = reservation,
+      .scope = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
+      .target_range = {0, 4096},
   };
   auto* queue = iree_hal_device_queue(cpu_device_, 0, 0);
   IREE_ASSERT_OK(iree_hal_queue_map(queue, {}, signals, 1, &mapping, 0));
@@ -1732,9 +1739,9 @@ TEST_F(MemoryBackendTest, NativeMappingFailureFailsFrontierWithoutSignals) {
       },
       &completion, &waiter));
   const iree_hal_memory_mapping_t mapping = {
-      /*.reservation=*/reservation,
-      /*.scope=*/ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
-      /*.target_range=*/{0, 4096},
+      .reservation = reservation,
+      .scope = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
+      .target_range = {0, 4096},
   };
   native_.update_failure = amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
   IREE_ASSERT_OK(iree_hal_queue_map(iree_hal_device_queue(cpu_device_, 0, 0),
@@ -1762,12 +1769,14 @@ TEST_F(MemoryBackendTest,
 
 TEST_F(MemoryBackendTest,
        RejectsUnavailableReservationConsumersBeforeAllocation) {
-  iree_hal_pool_family_access_t family = {};
-  family.family = families_[0];
-  family.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
+  iree_hal_pool_family_access_t family = {
+      .family = families_[0],
+      .usage = IREE_HAL_BUFFER_USAGE_STORAGE,
+  };
   const iree_hal_pool_scope_t scope = {1, &family, {}};
   const iree_hal_memory_reservation_options_t options = {
-      /*.byte_length=*/16384};
+      .byte_length = 16384,
+  };
   iree_hal_memory_reservation_t* reservation = nullptr;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
                         iree_hal_memory_reservation_create(

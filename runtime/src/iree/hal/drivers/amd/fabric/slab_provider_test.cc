@@ -525,8 +525,9 @@ TEST_F(SlabProviderTest, RegisteredStorageExportsExactBorrowedSubranges) {
   CreateProvider(AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE,
                  &policy);
   alignas(64) uint8_t bytes[256] = {};
-  iree_hal_external_storage_t storage = {};
-  storage.storage_class = storage_class;
+  iree_hal_external_storage_t storage = {
+      .storage_class = storage_class,
+  };
   storage.payload.host_pointer = bytes;
   storage.byte_length = sizeof(bytes);
   storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
@@ -575,8 +576,9 @@ TEST_F(SlabProviderTest, FailedRegistrationPublicationPreservesCallerStorage) {
                  &policy);
   alignas(64) uint8_t bytes[128] = {};
   int release_count = 0;
-  iree_hal_external_storage_t storage = {};
-  storage.storage_class = storage_class;
+  iree_hal_external_storage_t storage = {
+      .storage_class = storage_class,
+  };
   storage.payload.host_pointer = bytes;
   storage.byte_length = sizeof(bytes);
   storage.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
@@ -644,8 +646,9 @@ TEST_P(NativeTransportTest, TransactionalImportAndIndependentExport) {
   EXPECT_EQ(requirements.byte_length_granularity, 192u);
 
   int source_release_count = 0;
-  iree_hal_external_storage_t storage = {};
-  storage.storage_class = transport.storage_class;
+  iree_hal_external_storage_t storage = {
+      .storage_class = transport.storage_class,
+  };
   storage.payload.device_address = 1234;
   storage.byte_length = 768;
   storage.physical_backing_id = {{123, 456}};

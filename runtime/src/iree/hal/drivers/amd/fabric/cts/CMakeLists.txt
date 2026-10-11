@@ -6,7 +6,7 @@
 #                                                                              #
 # To disable autogeneration for this file entirely, delete this header.        #
 ################################################################################
-set(IREE_CXX_STANDARD 20)
+
 iree_add_all_subdirs()
 
 if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND IREE_HAL_DRIVER_TASK)

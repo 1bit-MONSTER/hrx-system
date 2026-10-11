@@ -492,13 +492,15 @@ TEST_P(XdnaNativeSlabTest, ExecutesThroughPreparedBindings) {
                                            IREE_ASYNC_WAIT_FLAG_NONE));
     // Native handles carry device reach. The source owner's qualified CPU
     // mapping performs uploads/downloads; the alias only promises dispatch.
-    iree_hal_pool_family_access_t family = {};
-    family.family = iree_hal_queue_family(queue_);
-    family.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
-    family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA;
-    iree_hal_pool_scope_t scope = {};
-    scope.family_count = 1;
-    scope.families = &family;
+    iree_hal_pool_family_access_t family = {
+        .family = iree_hal_queue_family(queue_),
+        .usage = IREE_HAL_BUFFER_USAGE_STORAGE,
+        .interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
+    };
+    iree_hal_pool_scope_t scope = {
+        .family_count = 1,
+        .families = &family,
+    };
     const iree_hal_pool_import_class_t import_class = {storage_class, {}};
     iree_hal_slab_pool_options_initialize(&options);
     options.owned.mode = IREE_HAL_SLAB_POOL_IMPORT_ONLY;
@@ -1342,8 +1344,9 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
   }
 
   void ImportRegisteredStorage(iree_hal_buffer_t** out_buffer) {
-    iree_hal_external_storage_class_t storage_class = {};
-    storage_class.type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER;
+    iree_hal_external_storage_class_t storage_class = {
+        .type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER,
+    };
     iree_hal_pool_import_requirements_t requirements;
     ASSERT_TRUE(iree_hal_pool_query_import_requirements(
         memory_pool_, storage_class, &requirements));
@@ -1356,8 +1359,9 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
         iree_allocator_system(), registered_storage_length_,
         iree_max(64, requirements.base_alignment), 0, &registered_storage_));
     memset(registered_storage_, 0xCC, registered_storage_length_);
-    iree_hal_external_storage_t storage = {};
-    storage.storage_class = storage_class;
+    iree_hal_external_storage_t storage = {
+        .storage_class = storage_class,
+    };
     storage.payload.host_pointer = registered_storage_;
     storage.byte_length = registered_storage_length_;
     storage.maintenance_range =

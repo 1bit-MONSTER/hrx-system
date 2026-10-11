@@ -53,9 +53,10 @@ class FabricMemoryReservationTest
       ASSERT_EQ(api_->endpoint_open(fabric_->instance,
                                     &fabric_->endpoints[i].id, &endpoint_),
                 AMDF_STATUS_OK);
-      amdf_endpoint_info_t info = {};
-      info.type = AMDF_STRUCTURE_TYPE_ENDPOINT_INFO;
-      info.structure_size = sizeof(info);
+      amdf_endpoint_info_t info = {
+          .type = AMDF_STRUCTURE_TYPE_ENDPOINT_INFO,
+          .structure_size = sizeof(info),
+      };
       ASSERT_EQ(api_->endpoint_query_info(endpoint_, &info), AMDF_STATUS_OK);
       bool selected = false;
       for (uint32_t f = 0; f < info.queue_family_count; ++f) {
@@ -82,9 +83,10 @@ class FabricMemoryReservationTest
     if (!endpoint_) {
       GTEST_SKIP() << "no host-published SDMA family";
     }
-    amdf_gpu_endpoint_info_t target = {};
-    target.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
-    target.structure_size = sizeof(target);
+    amdf_gpu_endpoint_info_t target = {
+        .type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO,
+        .structure_size = sizeof(target),
+    };
     ASSERT_EQ(gpu_->endpoint_query_info(endpoint_, &target), AMDF_STATUS_OK);
     char target_name[32];
     std::snprintf(target_name, sizeof(target_name), "gfx%u%x%x",
@@ -97,9 +99,10 @@ class FabricMemoryReservationTest
     };
     ASSERT_EQ(gpu_->device_create(endpoint_, &create, &native_device_),
               AMDF_STATUS_OK);
-    amdf_memory_reservation_capabilities_t capabilities = {};
-    capabilities.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES;
-    capabilities.structure_size = sizeof(capabilities);
+    amdf_memory_reservation_capabilities_t capabilities = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES,
+        .structure_size = sizeof(capabilities),
+    };
     const auto capability_status =
         api_->device_query_memory_reservation_capabilities(native_device_, 0,
                                                            &capabilities);
@@ -140,13 +143,14 @@ class FabricMemoryReservationTest
     family_.bindings = &binding_;
     const auto* host = reinterpret_cast<const iree_hal_host_memory_backend_t*>(
         iree_hal_device_memory_backend(cpu_));
-    iree_hal_amd_fabric_memory_backend_options_t memory_options = {};
-    memory_options.api = api_;
-    memory_options.instance = fabric_->instance;
-    memory_options.scope = fabric_->system_scope;
-    memory_options.device = native_device_;
-    memory_options.memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
-    memory_options.families = &family_;
+    iree_hal_amd_fabric_memory_backend_options_t memory_options = {
+        .api = api_,
+        .instance = fabric_->instance,
+        .scope = fabric_->system_scope,
+        .device = native_device_,
+        .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL,
+        .families = &family_,
+    };
     iree_hal_amd_fabric_memory_backend_initialize(
         device_, &memory_options, host->notification, host->maintenance,
         host->epoch_query, &backend_);
@@ -184,7 +188,9 @@ class FabricMemoryReservationTest
     access_.requirements = 0;
     scope.host = {};
     const iree_hal_memory_reservation_options_t reservation_options = {
-        .byte_length = granularity_, .mapping_granularity = granularity_};
+        .byte_length = granularity_,
+        .mapping_granularity = granularity_,
+    };
     const auto physical_charge = iree_hal_buffer_memory_view(backing_)
                                      .backing->native_allocation.byte_length;
     for (size_t i = 0; i < reservations_.size(); ++i) {
@@ -303,7 +309,8 @@ class FabricMemoryReservationTest
       const iree_hal_buffer_native_binding_slot_t slot = {
           .index = buffer->memory.contract->scopes[scope_.id]
                        .bindings[IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS],
-          .type = IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS};
+          .type = IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS,
+      };
       commands.CopyLinear(
           iree_hal_buffer_native_binding(buffer, slot).device_address,
           source_address + (2 + i) * granularity_, 256);
@@ -413,12 +420,14 @@ TEST_P(FabricMemoryReservationTest, BatchedReplacementChangesRealGpuAddresses) {
   }
   std::array<iree_hal_memory_mapping_t, 2> mappings = {};
   for (uint32_t i = 0; i < 2; ++i) {
-    mappings[i] = {.reservation = reservations_[i],
-                   .scope = scope_,
-                   .target_range = {0, granularity_},
-                   .source = backing_,
-                   .source_offset = i * granularity_,
-                   .access = IREE_HAL_MEMORY_ACCESS_ALL};
+    mappings[i] = {
+        .reservation = reservations_[i],
+        .scope = scope_,
+        .target_range = {0, granularity_},
+        .source = backing_,
+        .source_offset = i * granularity_,
+        .access = IREE_HAL_MEMORY_ACCESS_ALL,
+    };
   }
   IREE_ASSERT_OK(Map(mappings));
   ASSERT_NO_FATAL_FAILURE(CopyAndVerify(0x1000, 0x2000));

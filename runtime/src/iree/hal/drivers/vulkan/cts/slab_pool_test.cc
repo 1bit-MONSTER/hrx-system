@@ -450,7 +450,7 @@ TEST_P(VulkanSlabPoolTest, ImportsHostStorageThroughSelectedNativeRoute) {
       source, import_class.storage_class, &requirements));
   const iree_device_size_t allocation_size = iree_device_align(
       std::max<iree_device_size_t>(requirements.min_byte_length, 4096),
-      requirements.byte_length_alignment);
+      requirements.byte_length_granularity);
   const iree_device_size_t allocation_alignment =
       std::max<iree_device_size_t>(requirements.base_alignment, 4096);
   ASSERT_LE(allocation_size, IREE_HOST_SIZE_MAX);
