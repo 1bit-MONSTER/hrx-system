@@ -587,7 +587,7 @@ jobs:
             HRX_DOWNLOAD_CACHE_DIR = Join-Path $outputDir 'downloads'
             HRX_OUTPUT_DIR = $outputDir
             HRX_ROCM_ROOT = $rocmRoot
-            IREE_CI_BAZEL_OUTPUT_PATH_BACKING = Join-Path $outputDir 'bazel-out'
+            IREE_CI_BAZEL_EXECROOT_BACKING = Join-Path $outputDir 'bazel-execroot'
             IREE_CI_BAZEL_OUTPUT_BASE = (Join-Path $env:SystemDrive 'o').Replace('\', '/')
             IREE_CI_FAILURE_ARTIFACT_DIR = Join-Path $outputDir 'failure-evidence'
             PIP_CACHE_DIR = Join-Path $outputDir 'caches\pip'
@@ -626,25 +626,26 @@ jobs:
         run: |
           # Bazel resolves B: through the Azure volume's per-VM C:\<GUID>
           # mount, which makes action and runfiles paths too long for MSVC.
-          # Keep the logical execroot and its workspace symlink forest short
-          # while storing generated outputs on the high-capacity build volume.
+          # Keep the logical execroot short while storing its contents on the
+          # high-capacity build volume. Test launchers resolve declared source
+          # runfiles through Bazel instead of depending on this physical tree.
           $outputBase = $env:IREE_CI_BAZEL_OUTPUT_BASE.Replace('/', '\')
-          $outputPath = Join-Path $outputBase 'execroot\_main\bazel-out'
-          $backing = $env:IREE_CI_BAZEL_OUTPUT_PATH_BACKING
-          New-Item -ItemType Directory -Path (Split-Path $outputPath) -Force | Out-Null
+          $execroot = Join-Path $outputBase 'execroot'
+          $backing = $env:IREE_CI_BAZEL_EXECROOT_BACKING
+          New-Item -ItemType Directory -Path $outputBase -Force | Out-Null
           if ([IO.Path]::GetPathRoot($outputBase) -ne [IO.Path]::GetPathRoot($backing)) {
             New-Item -ItemType Directory -Path $backing -Force | Out-Null
-            if (Test-Path -LiteralPath $outputPath) {
-              $item = Get-Item -LiteralPath $outputPath -Force
+            if (Test-Path -LiteralPath $execroot) {
+              $item = Get-Item -LiteralPath $execroot -Force
               $actualTarget = @($item.Target) | Select-Object -First 1
               if ($item.LinkType -ne 'Junction' -or
                   [IO.Path]::GetFullPath($actualTarget) -ne [IO.Path]::GetFullPath($backing)) {
-                throw "Bazel output path $outputPath is not the expected junction to $backing."
+                throw "Bazel execroot $execroot is not the expected junction to $backing."
               }
             } else {
-              New-Item -ItemType Junction -Path $outputPath -Target $backing | Out-Null
+              New-Item -ItemType Junction -Path $execroot -Target $backing | Out-Null
             }
-            Write-Output "Using short Bazel output path $outputPath backed by $backing."
+            Write-Output "Using short Bazel execroot $execroot backed by $backing."
           }
           "startup --output_base=$env:IREE_CI_BAZEL_OUTPUT_BASE" |
             Out-File -FilePath .bazelrc.local -Encoding ascii -Append
