@@ -337,6 +337,25 @@ amdf_cc_library(
     ],
 )
 
+amdf_cc_test(
+    name = "memory_reservation_test",
+    srcs = ["memory_reservation_test.cc"],
+    linkopts = ["-Wl,--wrap=ioctl"],
+    target_compatible_with = KFD_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        ":memory_reservation",
+        "//libamdf/src:allocator",
+        "//libamdf/src/gpu/umd:memory_reservation",
+        "//libamdf/src/platform/linux:file",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
+        "//third_party:linux_amdgpu_uapi",
+        "//third_party:linux_drm_uapi",
+        "//third_party:linux_kfd_uapi",
+    ],
+)
+
 amdf_cc_library(
     name = "endpoint_profile",
     srcs = ["endpoint_profile.c"],
