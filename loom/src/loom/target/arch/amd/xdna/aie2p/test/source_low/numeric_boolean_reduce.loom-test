@@ -189,3 +189,25 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @any_negative_i32x
   %any = nez %13
   return %any
 }
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:core target-legalize{mode=final},canonicalize
+
+// Predicate reductions use structural lane limits rather than numeric packet
+// bit widths. Wide predicates retain native 64-lane reduction packets.
+func.def @i1x128_any(%values: vector<128xi1>) -> (i1) {
+  %false = scalar.constant false : i1
+  %any = vector.reduce<ori> %values, %false : vector<128xi1>, i1
+  func.return %any : i1
+}
+
+// ----
+func.def @i1x128_any(%values: vector<128xi1>) -> (i1) {
+  %false = scalar.constant false : i1
+  %4 = vector.slice %values[0] : vector<128xi1> -> vector<64xi1>
+  %5 = vector.slice %values[64] : vector<128xi1> -> vector<64xi1>
+  %6 = vector.ori %4, %5 : vector<64xi1>
+  %any = vector.reduce<ori> %6, %false : vector<64xi1>, i1
+  func.return %any : i1
+}

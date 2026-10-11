@@ -233,6 +233,53 @@ static iree_status_t loom_vector_packet_memory_shape_constrain(
   return iree_ok_status();
 }
 
+// Constrains a geometric packet shape to widths whose projected reduction is
+// target-native. The full packets dominate reduction cost; a shorter terminal
+// packet retains the existing bounded reference fallback when no exact target
+// recipe covers its lane count.
+static iree_status_t loom_vector_packet_reduce_shape_constrain(
+    loom_target_legalization_context_t* context, const loom_op_t* op,
+    const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
+    loom_vector_packet_shape_t* inout_shape, bool* out_supported) {
+  *out_supported = false;
+  uint32_t lane_count = 0;
+  if (!loom_vector_packet_static_lane_count(vector_type, &lane_count) ||
+      lane_count != inout_shape->lane_count) {
+    return iree_ok_status();
+  }
+
+  uint32_t selected_lane_count = 0;
+  for (uint8_t i = 0; i < policy->native_bit_count_count; ++i) {
+    const uint32_t candidate_lane_count =
+        loom_vector_packet_lane_count_for_bit_count(
+            policy, vector_type, policy->native_bit_counts[i]);
+    if (candidate_lane_count == 0 || candidate_lane_count >= lane_count ||
+        candidate_lane_count > inout_shape->chunk_lane_count) {
+      continue;
+    }
+    const loom_target_contract_vector_lane_projection_t projection = {
+        .source_lane_count = lane_count,
+        .projected_lane_count = candidate_lane_count,
+    };
+    loom_target_contract_query_result_t query_result =
+        loom_target_contract_query_result_empty();
+    IREE_RETURN_IF_ERROR(
+        loom_target_legalization_query_contract_with_vector_lane_projection(
+            context, op, projection, &query_result));
+    if (query_result.outcome == LOOM_TARGET_CONTRACT_QUERY_LEGAL) {
+      selected_lane_count = iree_max(selected_lane_count, candidate_lane_count);
+    }
+  }
+  if (selected_lane_count == 0) {
+    return iree_ok_status();
+  }
+
+  inout_shape->chunk_lane_count = selected_lane_count;
+  inout_shape->chunk_count = (lane_count - 1u) / selected_lane_count + 1u;
+  *out_supported = true;
+  return iree_ok_status();
+}
+
 // Uniform producers do not need axis-aware slicing, so their packet plan can
 // cover any static logical shape in row-major lane order.
 static bool loom_vector_packet_uniform_shape_from_type(
@@ -2043,7 +2090,7 @@ static bool loom_vector_packet_reduce_can_fold_packets(
 static iree_status_t loom_vector_packet_static_reduce(
     loom_vector_packetization_t* packetization, loom_value_id_t input,
     const loom_vector_packet_shape_t* shape, loom_op_t* reduce_op,
-    loom_value_id_t* out_accumulator) {
+    bool fold_packet_inputs, loom_value_id_t* out_accumulator) {
   loom_builder_t* builder = &packetization->context->rewriter->builder;
   const loom_combining_kind_t kind = loom_vector_reduce_kind(reduce_op);
   const uint8_t fastmath_flags = loom_vector_reduce_fastmath(reduce_op);
@@ -2052,6 +2099,7 @@ static iree_status_t loom_vector_packet_static_reduce(
   const loom_value_id_t initial_accumulator =
       loom_vector_reduce_init(reduce_op);
   const bool fold_packets =
+      fold_packet_inputs &&
       loom_vector_packet_reduce_can_fold_packets(kind, fastmath_flags);
   loom_value_id_t accumulator = initial_accumulator;
   loom_value_id_t folded_packet = LOOM_VALUE_ID_INVALID;
@@ -2071,7 +2119,16 @@ static iree_status_t loom_vector_packet_static_reduce(
     const loom_type_t packet_type = loom_module_value_type(
         packetization->context->module, packetized_input->packet);
 
-    if (fold_packets && folded_packet != LOOM_VALUE_ID_INVALID &&
+    if (!fold_packets) {
+      loom_op_t* packet_reduce_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_vector_reduce_build(
+          builder, kind, fastmath_flags, packetized_input->packet, accumulator,
+          result_type, reduce_op->location, &packet_reduce_op));
+      accumulator = loom_vector_reduce_result(packet_reduce_op);
+      continue;
+    }
+
+    if (folded_packet != LOOM_VALUE_ID_INVALID &&
         loom_type_equal(folded_packet_type, packet_type)) {
       IREE_RETURN_IF_ERROR(loom_vector_combining_build(
           builder, kind, fastmath_flags, folded_packet,
@@ -2626,6 +2683,17 @@ iree_status_t loom_vector_packet_legalize_reduce(
   if (!loom_vector_packet_shape_from_type(policy, input_type, &shape)) {
     return iree_ok_status();
   }
+  bool packet_reduction_supported = false;
+  IREE_RETURN_IF_ERROR(loom_vector_packet_reduce_shape_constrain(
+      context, op, policy, input_type, &shape, &packet_reduction_supported));
+  if (!packet_reduction_supported) {
+    // Keep the reduction and its decomposable producer graph under one plan.
+    // A scalar-width packet lets the same graph materializer rebuild source
+    // lanes without first constructing a native vector that the reduction
+    // would immediately extract again.
+    shape.chunk_lane_count = 1;
+    shape.chunk_count = shape.lane_count;
+  }
 
   loom_vector_packetization_t packetization = {0};
   loom_vector_packetization_initialize(context, policy, &packetization);
@@ -2675,11 +2743,13 @@ iree_status_t loom_vector_packet_legalize_reduce(
       loom_vector_packet_has_captured_values(&packetization);
   const bool requires_static_slices =
       loom_vector_packet_requires_static_slices(&packetization);
-  if ((has_snapshots || has_captured_values || requires_static_slices) &&
+  if ((!packet_reduction_supported || has_snapshots || has_captured_values ||
+       requires_static_slices) &&
       loom_vector_packet_static_expansion_is_bounded(&packetization, &shape)) {
     loom_value_id_t accumulator = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(loom_vector_packet_static_reduce(
-        &packetization, input, &shape, op, &accumulator));
+        &packetization, input, &shape, op,
+        /*fold_packet_inputs=*/packet_reduction_supported, &accumulator));
     IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
         rewriter, op, &accumulator, 1, value_checkpoint));
     IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(

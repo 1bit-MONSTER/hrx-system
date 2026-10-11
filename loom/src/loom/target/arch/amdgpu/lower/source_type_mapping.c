@@ -637,20 +637,49 @@ iree_status_t loom_amdgpu_map_contract_value(
     const loom_op_t* source_op, loom_value_id_t source_value_id,
     loom_low_lower_rule_mapped_value_t* out_mapped_value) {
   (void)user_data;
-  (void)source_op;
   *out_mapped_value = loom_low_lower_rule_mapped_value_none();
-  const loom_type_t source_type =
-      loom_module_value_type(environment->module, source_value_id);
+  const loom_type_t source_type = loom_target_contract_query_value_type(
+      environment->vector_lane_projection, environment->module,
+      source_value_id);
   loom_amdgpu_source_value_analysis_t* analysis = NULL;
   if (loom_amdgpu_source_value_register_shape_needs_analysis(source_type)) {
     IREE_RETURN_IF_ERROR(loom_amdgpu_source_value_analysis_for_contract_query(
         environment, &analysis));
   }
   loom_amdgpu_register_shape_t shape = {0};
-  if (loom_amdgpu_source_value_cached_register_shape(
-          environment->module, environment->fact_table,
-          environment->view_regions, analysis, source_value_id, source_type,
-          &shape)) {
+  bool has_shape = false;
+  if (environment->vector_lane_projection.source_lane_count != 0) {
+    // Register-shape cache entries describe authored types. Projected packet
+    // queries can ask several widths for the same value and must derive each
+    // candidate independently instead of reusing the authored-width answer.
+    has_shape = loom_amdgpu_source_value_register_shape(
+        environment->module, environment->fact_table, environment->view_regions,
+        analysis, source_value_id, source_type, &shape);
+    // Reduction results follow their vector input into VGPRs. Source-value
+    // analysis sees authored operands, so reproduce that producer rule with
+    // the projected input type for candidate-width queries.
+    if (loom_vector_reduce_isa(source_op) &&
+        source_value_id == loom_vector_reduce_result(source_op)) {
+      const loom_type_t projected_input_type =
+          loom_target_contract_query_value_type(
+              environment->vector_lane_projection, environment->module,
+              loom_vector_reduce_input(source_op));
+      if (loom_amdgpu_vector_32bit_register_count(projected_input_type) != 0) {
+        const loom_amdgpu_scalar_value_register_mapping_t* mapping =
+            loom_amdgpu_scalar_value_register_mapping_for_type(source_type);
+        if (mapping != NULL) {
+          shape = mapping->default_shape;
+          shape.class_id = LOOM_AMDGPU_REG_CLASS_ID_VGPR;
+          has_shape = true;
+        }
+      }
+    }
+  } else {
+    has_shape = loom_amdgpu_source_value_cached_register_shape(
+        environment->module, environment->fact_table, environment->view_regions,
+        analysis, source_value_id, source_type, &shape);
+  }
+  if (has_shape) {
     IREE_RETURN_IF_ERROR(loom_amdgpu_apply_query_selected_representation(
         environment, source_value_id, source_type, &shape));
     loom_amdgpu_map_contract_register(environment, shape.class_id,
