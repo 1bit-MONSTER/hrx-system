@@ -8,62 +8,10 @@
 
 import argparse
 import math
-import random
 import struct
 from pathlib import Path
 
-from loom.gen.test.kernel_fixture import Arrays, Case, rounded, signed_bits
-
-
-def attention(arrays):
-    cases = []
-    for queries, keys, magnitude in [(1, 1, 1), (3, 17, 1), (5, 33, 16)]:
-        rng = random.Random(730 + queries + keys)
-        query = [rounded(rng.uniform(-magnitude, magnitude), "f32") for _ in range(queries * 64)]
-        key = [rounded(rng.uniform(-magnitude, magnitude), "f32") for _ in range(keys * 64)]
-        value = [rounded(rng.uniform(-2, 2), "f32") for _ in range(keys * 64)]
-        expected = []
-        for row in range(queries):
-            scores = [math.fsum(query[row * 64 + channel] * key[item * 64 + channel] for channel in range(64)) * 0.125 for item in range(keys)]
-            maximum = max(scores)
-            weights = [math.exp(score - maximum) for score in scores]
-            denominator = math.fsum(weights)
-            expected.extend(math.fsum(weights[item] * value[item * 64 + channel] for item in range(keys)) / denominator for channel in range(64))
-        case = Case(arrays, f"attention_{queries}_{keys}_{magnitude}", "f32", queries * 64)
-        for name, values in [("query", query), ("key", key), ("value", value)]:
-            case.array(name, values)
-        case.scalar("queries", queries, "i32")
-        case.scalar("keys", keys, "i32")
-        case.launch(
-            "flash_attention", "%query, %key, %value, %output, %queries, %keys", f"tensor<{len(query)}xf32>, tensor<{len(key)}xf32>, tensor<{len(value)}xf32>, tensor<{len(expected)}xf32>, i32, i32"
-        )
-        cases.append(case.finish(expected, 0.0003))
-    return "kernel.decl @flash_attention() launch(%query: buffer, %key: buffer, %value: buffer, %output: buffer, %query_count: i32, %key_count: i32)\n\n" + "\n".join(cases)
-
-
-def swiglu(arrays):
-    cases = []
-    for columns in [1, 31, 65, 129]:
-        rng = random.Random(920 + columns)
-        values = [rounded(rng.uniform(-16, 16), "f16") for _ in range(6 * columns)]
-        expected = []
-        alpha = rounded(1.702, "f32")
-        for row in range(3):
-            for column in range(columns):
-                gate = min(values[row * 2 * columns + column], 7)
-                linear = min(max(values[row * 2 * columns + columns + column], -7), 7)
-                expected.append(rounded(gate / (1 + math.exp(-alpha * gate)) * (linear + 1), "f16"))
-        case = Case(arrays, f"swiglu_f16_{columns}", "f16", len(expected))
-        case.array("input", values)
-        case.scalar("columns", columns, "i32")
-        case.launch("aiter_swiglu_f16", "%input, %output, %columns", f"tensor<{len(values)}xf16>, tensor<{len(expected)}xf16>, i32")
-        cases.append(case.finish(expected, 0.002))
-    return "kernel.decl @aiter_swiglu_f16() launch(%input: buffer, %output: buffer, %columns: i32)\n\n" + "\n".join(cases)
-
-
-def launch_grid(kernel, x, y=1, z=1):
-    return "".join(f"config.def @{kernel}.workgroup_count.{axis} = {count} : index\n" for axis, count in zip("xyz", (x, y, z), strict=True)) + "\n"
-
+from loom.gen.test.kernel_fixture import Arrays, Case, signed_bits
 
 IQ4NL_CODEBOOK = [-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113]
 
@@ -298,8 +246,6 @@ def q4k_q8_swiglu(arrays):
 
 
 KERNEL_GROUPS = {
-    "aiter_swiglu_f16": lambda arrays: launch_grid("aiter_swiglu_f16", 3) + swiglu(arrays),
-    "flash_attention": lambda arrays: launch_grid("flash_attention", 3) + attention(arrays),
     "iq4xs_blocks": iq4xs_blocks,
     "iq4xs_gate_up": iq4xs_gate_up,
     "q4k_q8_swiglu": q4k_q8_swiglu,
