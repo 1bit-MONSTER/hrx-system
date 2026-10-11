@@ -61,6 +61,7 @@ class LowerAttrCopyKind(Enum):
     I64_LOG2 = "i64_log2"
     I64_ARRAY_ELEMENT = "i64_array_element"
     I64_ARRAY_ELEMENT_PLUS_LITERAL = "i64_array_element_plus_literal"
+    I64_ARRAY_LITERAL_MINUS_ELEMENT = "i64_array_literal_minus_element"
     I64_ARRAY_ELEMENT_QUOTIENT = "i64_array_element_quotient"
     I64_ARRAY_ELEMENT_REMAINDER = "i64_array_element_remainder"
     I64_ARRAY_PACK_ELEMENTS = "i64_array_pack_elements"

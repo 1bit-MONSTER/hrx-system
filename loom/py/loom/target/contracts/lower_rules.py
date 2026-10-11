@@ -2365,6 +2365,19 @@ class _LowerRuleSetCompiler:
                 source_element_index=project.element,
                 literal_i64=project.literal_i64,
             )
+        if project.kind == AttrProjectKind.I64_ARRAY_LITERAL_MINUS_ELEMENT:
+            if project.element is None:
+                raise ValueError(
+                    f"{source_op.name}: i64-array literal-minus-element "
+                    "projection needs an element"
+                )
+            return LowerAttrCopy(
+                kind=LowerAttrCopyKind.I64_ARRAY_LITERAL_MINUS_ELEMENT,
+                target_name=target_name,
+                source_attr_index=source_attr_index,
+                source_element_index=project.element,
+                literal_i64=project.literal_i64,
+            )
         if project.kind in (
             AttrProjectKind.I64_ARRAY_ELEMENT_QUOTIENT,
             AttrProjectKind.I64_ARRAY_ELEMENT_REMAINDER,

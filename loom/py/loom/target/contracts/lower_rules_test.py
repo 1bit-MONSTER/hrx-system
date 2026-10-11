@@ -44,6 +44,7 @@ from loom.target.contracts import (
     Guard,
     GuardDiagnostic,
     GuardKind,
+    LowerAttrCopy,
     LowerAttrCopyKind,
     LowerEmitKind,
     OperandSegmentProject,
@@ -3229,45 +3230,64 @@ def test_compile_lower_rule_set_compiles_i64_attr_sum_guard() -> None:
     assert guard.literal_i64 == 32
 
 
-def test_compile_lower_rule_set_compiles_i64_array_element_offset_projection() -> None:
-    table = ContractFragment(
-        name="test.array-element-offset",
-        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
-        cases=(
-            DescriptorRule(
-                source_op=vector.vector_extract,
-                descriptor=TEST_LOW_CONST_I32_DESCRIPTOR,
-                guards=(
-                    Guard.value_type("source", Vector("i32", lanes=32)),
-                    Guard.value_type("result", Scalar("i32")),
-                    Guard.i64_array_element_range("static_indices", 0, 16, 31),
-                ),
-                emit=(
-                    EmitDescriptorOp(
-                        descriptor=TEST_LOW_CONST_I32_DESCRIPTOR,
-                        results={"dst": ValueRef.result("result")},
-                        immediates={
-                            "i32_value": AttrProject.i64_array_element_plus_literal(
-                                "static_indices", element=0, literal=-16
-                            )
-                        },
-                        form=DescriptorEmitForm.CONST,
+def test_compile_lower_rule_set_compiles_i64_array_element_arithmetic() -> None:
+    def compile_projection(project: AttrProject) -> LowerAttrCopy:
+        table = ContractFragment(
+            name="test.array-element-arithmetic",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(
+                DescriptorRule(
+                    source_op=vector.vector_extract,
+                    descriptor=TEST_LOW_CONST_I32_DESCRIPTOR,
+                    guards=(
+                        Guard.value_type("source", Vector("i32", lanes=32)),
+                        Guard.value_type("result", Scalar("i32")),
+                        Guard.i64_array_element_range("static_indices", 0, 16, 31),
+                    ),
+                    emit=(
+                        EmitDescriptorOp(
+                            descriptor=TEST_LOW_CONST_I32_DESCRIPTOR,
+                            results={"dst": ValueRef.result("result")},
+                            immediates={"i32_value": project},
+                            form=DescriptorEmitForm.CONST,
+                        ),
                     ),
                 ),
             ),
+        )
+        compiled = compile_lower_rule_set(table, dialect_ops={"vector": ALL_VECTOR_OPS})
+        return compiled.attr_copies[0]
+
+    for project, expected_kind, expected_literal in (
+        (
+            AttrProject.i64_array_element_plus_literal(
+                "static_indices", element=0, literal=-16
+            ),
+            LowerAttrCopyKind.I64_ARRAY_ELEMENT_PLUS_LITERAL,
+            -16,
         ),
-    )
-
-    compiled = compile_lower_rule_set(table, dialect_ops={"vector": ALL_VECTOR_OPS})
-
-    attr_copy = compiled.attr_copies[0]
-    assert attr_copy.kind == LowerAttrCopyKind.I64_ARRAY_ELEMENT_PLUS_LITERAL
-    assert attr_copy.source_attr_index == 0
-    assert attr_copy.source_element_index == 0
-    assert attr_copy.literal_i64 == -16
+        (
+            AttrProject.i64_array_literal_minus_element(
+                "static_indices", element=0, literal=32
+            ),
+            LowerAttrCopyKind.I64_ARRAY_LITERAL_MINUS_ELEMENT,
+            32,
+        ),
+    ):
+        attr_copy = compile_projection(project)
+        assert attr_copy.kind == expected_kind
+        assert attr_copy.source_attr_index == 0
+        assert attr_copy.source_element_index == 0
+        assert attr_copy.literal_i64 == expected_literal
 
     _expect_value_error(
         lambda: AttrProject.i64_array_element_plus_literal(
+            "static_indices", element=0, literal=2**63
+        ),
+        "literal must fit signed i64",
+    )
+    _expect_value_error(
+        lambda: AttrProject.i64_array_literal_minus_element(
             "static_indices", element=0, literal=2**63
         ),
         "literal must fit signed i64",

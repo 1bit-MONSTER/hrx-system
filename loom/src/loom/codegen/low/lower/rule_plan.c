@@ -530,6 +530,18 @@ static iree_status_t loom_low_lower_rule_build_attrs(
         attrs[i].value = loom_attr_i64(projected_value);
         break;
       }
+      case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_LITERAL_MINUS_ELEMENT: {
+        const loom_attribute_t source_attr =
+            source_attrs[attr_copy->source_attr_index];
+        int64_t projected_value = 0;
+        const bool has_projected_value = iree_checked_sub_i64(
+            attr_copy->literal_i64,
+            source_attr.i64_array[attr_copy->source_element_index],
+            &projected_value);
+        IREE_ASSERT(has_projected_value);
+        attrs[i].value = loom_attr_i64(projected_value);
+        break;
+      }
       case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_ELEMENT_QUOTIENT:
       case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_ELEMENT_REMAINDER: {
         IREE_ASSERT_LT(attr_copy->source_attr_index,
