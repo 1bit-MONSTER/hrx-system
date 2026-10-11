@@ -209,7 +209,7 @@ static iree_status_t loom_spirv_module_abi_emit_bda_parameters(
 
   iree_string_builder_reset(text);
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
-      text, "iree.vulkan.bda.v1[%.*s].parameters=", (int)entry_name.size,
+      text, "iree.vulkan.bda.parameters.v1[%.*s]=", (int)entry_name.size,
       entry_name.data));
   uint16_t binding_ordinal = 0;
   iree_host_size_t direct_argument_ordinal = 0;

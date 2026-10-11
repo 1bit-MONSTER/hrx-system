@@ -12,7 +12,7 @@ kernel.def @mixed_parameter_reflection() {
 // ----
 CHECK: OpModuleProcessed "iree.vulkan.bda.v1[mixed_parameter_reflection].constant_length=64"
 CHECK: OpModuleProcessed "iree.vulkan.bda.v1[mixed_parameter_reflection].bindings=3"
-CHECK: OpModuleProcessed "iree.vulkan.bda.v1[mixed_parameter_reflection].parameters=b0;c0,1;c4,1;c8,2;c12,4;c16,1;c20,1;c24,2;c28,2;c32,4;b1;c36,8;c44,8;c52,4;c56,8;b2"
+CHECK: OpModuleProcessed "iree.vulkan.bda.parameters.v1[mixed_parameter_reflection]=b0;c0,1;c4,1;c8,2;c12,4;c16,1;c20,1;c24,2;c28,2;c32,4;b1;c36,8;c44,8;c52,4;c56,8;b2"
 
 // ====
 
@@ -26,4 +26,4 @@ kernel.def @empty_parameter_reflection() {
 // ----
 CHECK: OpModuleProcessed "iree.vulkan.bda.v1[empty_parameter_reflection].constant_length=0"
 CHECK: OpModuleProcessed "iree.vulkan.bda.v1[empty_parameter_reflection].bindings=0"
-CHECK: OpModuleProcessed "iree.vulkan.bda.v1[empty_parameter_reflection].parameters="
+CHECK: OpModuleProcessed "iree.vulkan.bda.parameters.v1[empty_parameter_reflection]="

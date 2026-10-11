@@ -665,7 +665,7 @@ static iree_status_t iree_hal_vulkan_spirv_parse_bda_parameters(
       }
       parameter->type = IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT;
       parameter->offset = (uint16_t)constant_offset;
-      parameter->size = (uint16_t)constant_size;
+      parameter->size = (uint8_t)constant_size;
     } else {
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
@@ -748,15 +748,6 @@ static iree_status_t iree_hal_vulkan_spirv_parse_bda_metadata_field(
     return iree_ok_status();
   }
 
-  if (iree_string_view_consume_prefix(&value, IREE_SV("parameters="))) {
-    if (state->has_parameters) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "Vulkan BDA metadata parameter table is duplicated");
-    }
-    return iree_hal_vulkan_spirv_parse_bda_parameters(value, state);
-  }
-
   if (iree_string_view_consume_prefix(&value, IREE_SV("binding."))) {
     iree_string_view_t ordinal_text = iree_string_view_empty();
     iree_string_view_t requirement_text = iree_string_view_empty();
@@ -819,16 +810,19 @@ static int iree_hal_vulkan_spirv_bda_metadata_compare_names(const void* lhs,
   return iree_string_view_compare(lhs_state->entry_name, rhs_state->entry_name);
 }
 
-static iree_status_t iree_hal_vulkan_spirv_parse_bda_metadata_string(
-    iree_string_view_t value, iree_host_size_t entry_count,
-    iree_hal_vulkan_spirv_bda_metadata_parse_state_t* states) {
-  if (!iree_string_view_consume_prefix(&value, IREE_SV("iree.vulkan.bda.v1"))) {
-    return iree_ok_status();
-  }
+static iree_status_t iree_hal_vulkan_spirv_lookup_bda_metadata_entry(
+    iree_string_view_t value, const char* metadata_kind,
+    iree_host_size_t entry_count,
+    iree_hal_vulkan_spirv_bda_metadata_parse_state_t* states,
+    iree_hal_vulkan_spirv_bda_metadata_parse_state_t** out_state,
+    iree_string_view_t* out_suffix) {
+  *out_state = NULL;
+  *out_suffix = iree_string_view_empty();
   if (iree_string_view_is_empty(value) ||
       iree_string_view_starts_with(value, IREE_SV("."))) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "Vulkan BDA v1 metadata requires an entry name");
+                            "Vulkan %s metadata requires an entry name",
+                            metadata_kind);
   }
   if (!iree_string_view_consume_prefix(&value, IREE_SV("["))) {
     return iree_ok_status();  // A different metadata version.
@@ -838,24 +832,69 @@ static iree_status_t iree_hal_vulkan_spirv_parse_bda_metadata_string(
   if (name_end == IREE_STRING_VIEW_NPOS || name_end == 0) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
-        "Vulkan BDA metadata requires a nonempty [entry] name");
+        "Vulkan %s metadata requires a nonempty [entry] name", metadata_kind);
   }
   const iree_hal_vulkan_spirv_bda_metadata_parse_state_t key = {
       .entry_name = iree_string_view_substr(value, 0, name_end),
   };
-  iree_hal_vulkan_spirv_bda_metadata_parse_state_t* state =
-      bsearch(&key, states, entry_count, sizeof(states[0]),
-              iree_hal_vulkan_spirv_bda_metadata_compare_names);
-  if (!state) {
+  *out_state = bsearch(&key, states, entry_count, sizeof(states[0]),
+                       iree_hal_vulkan_spirv_bda_metadata_compare_names);
+  if (!*out_state) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "Vulkan BDA metadata names unknown entry '%.*s'",
-                            (int)key.entry_name.size, key.entry_name.data);
+                            "Vulkan %s metadata names unknown entry '%.*s'",
+                            metadata_kind, (int)key.entry_name.size,
+                            key.entry_name.data);
+  }
+  *out_suffix = iree_string_view_remove_prefix(value, name_end + 1);
+  return iree_ok_status();
+}
+
+static iree_status_t iree_hal_vulkan_spirv_parse_bda_parameter_metadata_string(
+    iree_string_view_t value, iree_host_size_t entry_count,
+    iree_hal_vulkan_spirv_bda_metadata_parse_state_t* states) {
+  if (!iree_string_view_consume_prefix(
+          &value, IREE_SV("iree.vulkan.bda.parameters.v1"))) {
+    return iree_ok_status();
+  }
+  iree_hal_vulkan_spirv_bda_metadata_parse_state_t* state = NULL;
+  iree_string_view_t suffix = iree_string_view_empty();
+  IREE_RETURN_IF_ERROR(iree_hal_vulkan_spirv_lookup_bda_metadata_entry(
+      value, "BDA parameter v1", entry_count, states, &state, &suffix));
+  if (state == NULL || state->populate_binding_requirements) {
+    return iree_ok_status();
+  }
+  if (!iree_string_view_consume_prefix(&suffix, IREE_SV("="))) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "Vulkan BDA parameter metadata must follow '[entry]='");
+  }
+  if (state->has_parameters) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "Vulkan BDA parameter table is duplicated");
   }
   return iree_status_annotate_f(
-      iree_hal_vulkan_spirv_parse_bda_metadata_field(
-          iree_string_view_remove_prefix(value, name_end + 1), state),
-      "SPIR-V BDA entry point '%.*s'", (int)key.entry_name.size,
-      key.entry_name.data);
+      iree_hal_vulkan_spirv_parse_bda_parameters(suffix, state),
+      "SPIR-V BDA entry point '%.*s'", (int)state->entry_name.size,
+      state->entry_name.data);
+}
+
+static iree_status_t iree_hal_vulkan_spirv_parse_bda_metadata_string(
+    iree_string_view_t value, iree_host_size_t entry_count,
+    iree_hal_vulkan_spirv_bda_metadata_parse_state_t* states) {
+  if (!iree_string_view_consume_prefix(&value, IREE_SV("iree.vulkan.bda.v1"))) {
+    return iree_ok_status();
+  }
+  iree_hal_vulkan_spirv_bda_metadata_parse_state_t* state = NULL;
+  iree_string_view_t suffix = iree_string_view_empty();
+  IREE_RETURN_IF_ERROR(iree_hal_vulkan_spirv_lookup_bda_metadata_entry(
+      value, "BDA v1", entry_count, states, &state, &suffix));
+  if (state == NULL) {
+    return iree_ok_status();
+  }
+  return iree_status_annotate_f(
+      iree_hal_vulkan_spirv_parse_bda_metadata_field(suffix, state),
+      "SPIR-V BDA entry point '%.*s'", (int)state->entry_name.size,
+      state->entry_name.data);
 }
 
 static iree_status_t iree_hal_vulkan_spirv_scan_bda_metadata_strings(
@@ -878,6 +917,9 @@ static iree_status_t iree_hal_vulkan_spirv_scan_bda_metadata_strings(
     iree_string_view_t value = iree_string_view_empty();
     IREE_RETURN_IF_ERROR(iree_hal_vulkan_spirv_module_processed_string(
         operands, word_count, &value));
+    IREE_RETURN_IF_ERROR(
+        iree_hal_vulkan_spirv_parse_bda_parameter_metadata_string(
+            value, entry_count, states));
     IREE_RETURN_IF_ERROR(iree_hal_vulkan_spirv_parse_bda_metadata_string(
         value, entry_count, states));
   }
@@ -888,7 +930,7 @@ static iree_status_t iree_hal_vulkan_spirv_validate_bda_metadata(
     const iree_hal_vulkan_spirv_bda_metadata_parse_state_t* state) {
   const iree_hal_vulkan_spirv_bda_dispatch_metadata_t* metadata =
       state->metadata;
-  if (!metadata->is_present) {
+  if (!metadata->is_present && !state->has_parameters) {
     return iree_ok_status();
   }
   if (metadata->root_push_constant_offset != 0) {

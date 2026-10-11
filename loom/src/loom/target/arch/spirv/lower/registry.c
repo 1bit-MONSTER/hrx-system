@@ -391,14 +391,14 @@ static iree_status_t loom_spirv_map_abi_layout(
   loom_string_id_t signature_key = LOOM_STRING_ID_INVALID;
   IREE_RETURN_IF_ERROR(
       loom_module_intern_string(module, IREE_SV("signature"), &signature_key));
-  const loom_named_attr_t field = {
+  loom_named_attr_t* field = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate(scratch_arena, sizeof(*field), (void**)&field));
+  *field = (loom_named_attr_t){
       .name_id = signature_key,
       .value = loom_attr_type(loom_module_lookup_type_id(module, signature)),
   };
-  loom_attribute_t layout = {0};
-  IREE_RETURN_IF_ERROR(loom_module_make_canonical_attr_dict(
-      module, loom_make_named_attr_slice(&field, 1), &layout));
-  *out_abi_layout = loom_attr_as_dict(layout);
+  *out_abi_layout = loom_make_named_attr_slice(field, 1);
   return iree_ok_status();
 }
 
