@@ -54,14 +54,13 @@ typedef struct loom_low_lower_participation_t {
   const loom_low_lower_participation_condition_t* condition;
 } loom_low_lower_participation_t;
 
-// Returns retained subgroup participation for one source operation. The caller
-// must have enabled detail reports. The first query summarizes the root CFG
-// once in the function arena; nested structured operations use shared
-// uniformity proofs. Comparison operands are expanded by the shared expression
-// owner, so target observers only read indexed summaries and never walk source
-// producers. The source IR and fact snapshot must remain immutable for this
-// report lifetime. Status represents allocation failure; unproven participation
-// is UNKNOWN.
+// Returns retained subgroup participation for one source operation. The first
+// query summarizes the root CFG once in the analysis arena; nested structured
+// operations use shared uniformity proofs. Comparison operands are expanded by
+// the shared expression owner, so consumers only read indexed summaries and
+// never walk source producers. The source IR and fact snapshot must remain
+// immutable for this analysis lifetime. Status represents allocation failure;
+// unproven participation is UNKNOWN.
 iree_status_t loom_low_lower_source_subgroup_participation(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_low_lower_participation_t* out_participation);
