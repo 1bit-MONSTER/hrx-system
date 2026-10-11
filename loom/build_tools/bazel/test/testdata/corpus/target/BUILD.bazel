@@ -8,17 +8,11 @@ load(
     "//loom/build_tools/bazel:defs.bzl",
     "loom_corpus_build",
     "loom_execution_profile",
-    "loom_legacy_case_test",
     "loom_scenario_test",
     "loom_target_profile",
     "loom_target_set",
 )
-load(
-    "//loom/build_tools/bazel/test/testdata/corpus:catalog.bzl",
-    "TEST_CORPUS",
-    "TEST_LEGACY_CASES",
-    "TEST_SCENARIOS",
-)
+load("//loom/build_tools/bazel/test/testdata/corpus:catalog.bzl", "TEST_CORPUS")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -103,7 +97,15 @@ _EXECUTION_PROFILES = [
 
 loom_scenario_test(
     name = "scenario_execution",
-    catalog = TEST_SCENARIOS,
+    allowed_failures = {
+        "reference": {
+            "sample/other.loom:@other_scenario": "TARGET/003,EXPECT/003",
+        },
+    },
+    catalog = TEST_CORPUS,
+    excludes = {
+        "sample/excluded.loom": "This fixture proves whole-source execution exclusion.",
+    },
     execution_profiles = _EXECUTION_PROFILES,
     tags = ["manual"],
     xfails = {
@@ -111,22 +113,4 @@ loom_scenario_test(
             "sample/nested/fixture.loom:@fixture_scenario": "TARGET/003,EXPECT/003",
         },
     },
-)
-
-loom_legacy_case_test(
-    name = "legacy_execution",
-    allowed_failures = {
-        "reference": {
-            "sample/other.loom:@other_case": "TARGET/003,EXPECT/003",
-        },
-    },
-    catalog = TEST_LEGACY_CASES,
-    excludes = {
-        "sample/excluded.loom": "This fixture is excluded from execution as well as compilation.",
-    },
-    execution_profiles = _EXECUTION_PROFILES,
-    profile_sources = {
-        "selected_reference": ["sample/other.loom"],
-    },
-    tags = ["manual"],
 )

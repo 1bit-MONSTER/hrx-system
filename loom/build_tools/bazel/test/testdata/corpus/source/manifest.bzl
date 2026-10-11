@@ -11,11 +11,9 @@ load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_manifest")
 SAMPLE_CORPUS = loom_corpus_manifest(
     name = "sample",
     package = "//loom/build_tools/bazel/test/testdata/corpus/source",
-    scenario_srcs = [
-        "nested/fixture.loom",
-    ],
-    legacy_case_srcs = [
+    srcs = [
         "excluded.loom",
+        "nested/fixture.loom",
         "other.loom",
     ],
 )

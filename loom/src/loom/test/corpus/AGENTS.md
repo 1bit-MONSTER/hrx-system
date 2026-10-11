@@ -13,11 +13,10 @@ independent oracle through `check.compare`, and checks the observable results.
 Values crossing the subject boundary remain runtime values so target
 compilation cannot specialize on generated inputs.
 
-`legacy_case_srcs` in each `manifest.bzl` is a closed, shrinking quarantine for
-sources that still use direct `check.case` records. Its membership may only
-decrease. Each source uses exactly one harness. A conversion moves the complete
-source to `scenario_srcs` and removes repeated literal inputs and expected
-outputs instead of transliterating each old case into a one-trial scenario.
+Each `manifest.bzl` lists scenario sources in one `srcs` inventory shared by
+compilation and execution. A corpus source without an authored scenario is
+invalid; direct `check.case` records belong in focused dialect or runner tests,
+not the correctness corpus.
 
 Target packages execute the shared scenario catalog. A missing implementation
 is an xfail on the exact scenario and diagnostic so an implementation or a

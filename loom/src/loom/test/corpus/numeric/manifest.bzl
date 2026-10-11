@@ -11,7 +11,7 @@ load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_manifest")
 NUMERIC_CORPUS = loom_corpus_manifest(
     name = "numeric",
     package = "//loom/src/loom/test/corpus/numeric",
-    scenario_srcs = [
+    srcs = [
         "conversion/bfloat_rounding.loom",
         "conversion/conversion.loom",
         "conversion/f32_narrowing.loom",
@@ -85,7 +85,5 @@ NUMERIC_CORPUS = loom_corpus_manifest(
         "vector/packed_selection.loom",
         "vector/reductions.loom",
         "vector/selection.loom",
-    ],
-    legacy_case_srcs = [
     ],
 )

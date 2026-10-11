@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_build", "loom_scenario_test")
-load("//loom/src/loom/test/corpus:catalog.bzl", "LOOM_CORPUS", "LOOM_SCENARIOS")
+load("//loom/src/loom/test/corpus:catalog.bzl", "LOOM_CORPUS")
 load("//loom/src/loom/tooling/target/wasm:execution_profiles.bzl", "WASM_HOSTED_PROFILE")
 
 package(default_visibility = ["//visibility:public"])
@@ -175,6 +175,8 @@ _SCENARIO_KERNEL_SOURCES = [
     "memory/atomic/private.loom",
     "memory/atomic/vector.loom",
     "memory/atomic/workgroup/cmpxchg.loom",
+    "memory/atomic/workgroup/global.loom",
+    "memory/atomic/workgroup/observations.loom",
     "memory/atomic/workgroup/panel_stream.loom",
     "memory/atomic/workgroup/vector.loom",
     "memory/packed/alignment.loom",
@@ -346,7 +348,7 @@ loom_corpus_build(
 
 loom_scenario_test(
     name = "execution",
-    catalog = LOOM_SCENARIOS,
+    catalog = LOOM_CORPUS,
     excludes = _NO_KERNEL_SCENARIO_EXCLUDES,
     execution_profiles = [WASM_HOSTED_PROFILE],
     xfails = {

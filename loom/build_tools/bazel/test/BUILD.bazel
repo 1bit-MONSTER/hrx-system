@@ -203,7 +203,7 @@ loom_corpus_test(
     name = "corpus_execution_fixture",
     allowed_failures = {
         "reference": {
-            "sample/other.loom:@other_case": "TARGET/003,EXPECT/003",
+            "sample/other.loom:@other_scenario": "TARGET/003,EXPECT/003",
         },
     },
     catalog = TEST_CORPUS,

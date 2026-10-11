@@ -7,15 +7,9 @@
 load(
     "//loom/build_tools/bazel:defs.bzl",
     "loom_corpus_build",
-    "loom_legacy_case_test",
     "loom_scenario_test",
 )
-load(
-    "//loom/src/loom/test/corpus:catalog.bzl",
-    "LOOM_CORPUS",
-    "LOOM_LEGACY_CASES",
-    "LOOM_SCENARIOS",
-)
+load("//loom/src/loom/test/corpus:catalog.bzl", "LOOM_CORPUS")
 load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
 
 package(default_visibility = ["//visibility:public"])
@@ -121,11 +115,6 @@ _NO_KERNEL_ARTIFACT_EXCLUDES = {
     for source in _NO_DEVICE_SUBJECTS + _ADAPTER_ONLY_SCENARIOS
 }
 
-_NO_HARDWARE_SUBJECT_EXCLUDES = {
-    source: "The source has no AMDGPU device subject."
-    for source in _NO_DEVICE_SUBJECTS
-}
-
 loom_corpus_build(
     name = "all",
     all_roots_xfail = {
@@ -147,7 +136,7 @@ loom_corpus_build(
 
 loom_scenario_test(
     name = "scenario_execution",
-    catalog = LOOM_SCENARIOS,
+    catalog = LOOM_CORPUS,
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
     xfails = {
         AMDGPU_HARDWARE_PROFILE.name: {
@@ -217,17 +206,7 @@ loom_scenario_test(
     },
 )
 
-loom_legacy_case_test(
-    name = "legacy_execution",
-    catalog = LOOM_LEGACY_CASES,
-    excludes = _NO_HARDWARE_SUBJECT_EXCLUDES,
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
-)
-
 test_suite(
     name = "execution",
-    tests = [
-        ":legacy_execution",
-        ":scenario_execution",
-    ],
+    tests = [":scenario_execution"],
 )

@@ -11,7 +11,7 @@ load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_manifest")
 MEMORY_CORPUS = loom_corpus_manifest(
     name = "memory",
     package = "//loom/src/loom/test/corpus/memory",
-    scenario_srcs = [
+    srcs = [
         "address/address.loom",
         "address/biased_offsets.loom",
         "address/carrier_casts.loom",
@@ -45,6 +45,8 @@ MEMORY_CORPUS = loom_corpus_manifest(
         "atomic/private.loom",
         "atomic/vector.loom",
         "atomic/workgroup/cmpxchg.loom",
+        "atomic/workgroup/global.loom",
+        "atomic/workgroup/observations.loom",
         "atomic/workgroup/panel_stream.loom",
         "atomic/workgroup/vector.loom",
         "buffer/allocation_freshness.loom",
@@ -80,9 +82,5 @@ MEMORY_CORPUS = loom_corpus_manifest(
         "view/strided_recurrence.loom",
         "view/subview.loom",
         "view/window_walk.loom",
-    ],
-    legacy_case_srcs = [
-        "atomic/workgroup/global.loom",
-        "atomic/workgroup/observations.loom",
     ],
 )

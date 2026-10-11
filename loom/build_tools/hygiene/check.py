@@ -10,10 +10,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from pathlib import Path
 
 from build_tools.devtools.command_line import batch_path_commands
+
+_SCENARIO_CORPUS_PREFIXES = tuple(
+    f"loom/src/loom/test/corpus/{family}/"
+    for family in ("control", "function", "kernel", "memory", "numeric")
+)
+_CHECK_RECORD_PATTERN = re.compile(r"^\s*check\.(case|scenario)(?:\s|$)")
 
 
 def check_module_headers(paths: list[str], root: Path) -> bool:
@@ -41,6 +48,39 @@ def check_module_headers(paths: list[str], root: Path) -> bool:
                     )
                     ok = False
                     break
+    return ok
+
+
+def check_corpus_scenarios(paths: list[str], root: Path) -> bool:
+    """Requires every manifest-owned corpus module to use scenarios."""
+    ok = True
+    for path in paths:
+        if not path.startswith(_SCENARIO_CORPUS_PREFIXES) or not path.endswith(".loom"):
+            continue
+        source = root / path
+        if not source.is_file():
+            continue
+        has_scenario = False
+        for line_number, line in enumerate(
+            source.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            match = _CHECK_RECORD_PATTERN.match(line)
+            if not match:
+                continue
+            if match.group(1) == "scenario":
+                has_scenario = True
+            else:
+                print(
+                    f"{path}:{line_number}: manifest-owned corpus modules must "
+                    "use check.scenario instead of check.case"
+                )
+                ok = False
+        if not has_scenario:
+            print(
+                f"{path}:1: manifest-owned corpus modules must define at least "
+                "one check.scenario"
+            )
+            ok = False
     return ok
 
 
@@ -96,10 +136,11 @@ def main() -> int:
             paths, source_manifest.parent
         ):
             return 1
-        if arguments.check == "authoring" and not check_module_headers(
-            paths, source_manifest.parent
-        ):
-            return 1
+        if arguments.check == "authoring":
+            valid_headers = check_module_headers(paths, source_manifest.parent)
+            valid_scenarios = check_corpus_scenarios(paths, source_manifest.parent)
+            if not valid_headers or not valid_scenarios:
+                return 1
         flags = {
             "templates": ["--check-templates", "--template-root=."],
             "format": ["--check"],

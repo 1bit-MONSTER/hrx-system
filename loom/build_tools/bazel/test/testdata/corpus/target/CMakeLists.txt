@@ -98,11 +98,16 @@ loom_corpus_test(
     "reference"
   MANIFESTS
     "sample"
-  SOURCES
-    "sample/nested/fixture.loom"
+  EXCLUDES
+    "sample/excluded.loom"
+    "This fixture proves whole-source execution exclusion."
   XFAILS
     "sample/nested/fixture.loom"
     "@fixture_scenario"
+    "TARGET/003,EXPECT/003"
+  ALLOWED_FAILURES
+    "sample/other.loom"
+    "@other_scenario"
     "TARGET/003,EXPECT/003"
   RUNNER_ARGS
     "--max-samples-per-case=1"
@@ -121,52 +126,9 @@ loom_corpus_test(
     "selected_reference"
   MANIFESTS
     "sample"
-  SOURCES
-    "sample/nested/fixture.loom"
-  LABELS
-    "manual"
-    "loom-execution-profile=selected_reference"
-    "loom-target-family=test"
-    "loom-target-class=cpu"
-    "loom-executor=reference"
-)
-
-loom_corpus_test(
-  NAME
-    "legacy_execution"
-  PROFILE
-    "reference"
-  MANIFESTS
-    "sample"
   EXCLUDES
     "sample/excluded.loom"
-    "This fixture is excluded from execution as well as compilation."
-  ALLOWED_FAILURES
-    "sample/other.loom"
-    "@other_case"
-    "TARGET/003,EXPECT/003"
-  RUNNER_ARGS
-    "--max-samples-per-case=1"
-  LABELS
-    "manual"
-    "loom-execution-profile=reference"
-    "loom-target-family=test"
-    "loom-target-class=cpu"
-    "loom-executor=reference"
-)
-
-loom_corpus_test(
-  NAME
-    "legacy_execution"
-  PROFILE
-    "selected_reference"
-  MANIFESTS
-    "sample"
-  SOURCES
-    "sample/other.loom"
-  EXCLUDES
-    "sample/excluded.loom"
-    "This fixture is excluded from execution as well as compilation."
+    "This fixture proves whole-source execution exclusion."
   LABELS
     "manual"
     "loom-execution-profile=selected_reference"
