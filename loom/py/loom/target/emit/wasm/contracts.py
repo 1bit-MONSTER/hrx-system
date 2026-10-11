@@ -68,9 +68,9 @@ from loom.target.contracts.templates import (
     ReductionDescriptorCase,
     reduction_descriptor_rules,
 )
+from loom.target.emit.wasm.float_extension import float_extension_rules
 from loom.target.emit.wasm.float_narrowing import float_narrowing_rules
 from loom.target.emit.wasm.predicate import predicate_rules
-from loom.target.emit.wasm.vector_float_extension import float_extension_rules
 from loom.target.emit.wasm.vector_integer_arithmetic import (
     integer_arithmetic_rules,
 )
