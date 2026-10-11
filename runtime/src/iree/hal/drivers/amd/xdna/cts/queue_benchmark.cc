@@ -84,8 +84,8 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
 
  protected:
   iree_status_t Initialize() {
-    IREE_RETURN_IF_ERROR(
-        iree_hal_amd_driver_create(iree_allocator_system(), &driver_));
+    IREE_RETURN_IF_ERROR(iree_hal_amd_driver_create(
+        AMDF_NATIVE_LIFETIME_PROCESS, iree_allocator_system(), &driver_));
     iree_host_size_t device_count = 0;
     iree_hal_device_info_t* device_infos = nullptr;
     IREE_RETURN_IF_ERROR(iree_hal_driver_query_available_devices(

@@ -24,7 +24,8 @@ static iree_status_t iree_hal_amd_driver_factory_enumerate(
 static iree_status_t iree_hal_amd_driver_factory_try_create(
     void* self, iree_hal_driver_id_t driver_id, iree_allocator_t host_allocator,
     iree_hal_driver_t** out_driver) {
-  return iree_hal_amd_driver_create(host_allocator, out_driver);
+  return iree_hal_amd_driver_create(AMDF_NATIVE_LIFETIME_PROCESS,
+                                    host_allocator, out_driver);
 }
 
 IREE_API_EXPORT iree_status_t

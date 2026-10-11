@@ -89,6 +89,7 @@ static iree_status_t iree_hal_amd_fabric_discover(
 }
 
 iree_status_t iree_hal_amd_fabric_create(const amdf_api_t* api,
+                                         amdf_native_lifetime_t native_lifetime,
                                          iree_allocator_t host_allocator,
                                          iree_hal_amd_fabric_t** out_fabric) {
   *out_fabric = NULL;
@@ -101,6 +102,7 @@ iree_status_t iree_hal_amd_fabric_create(const amdf_api_t* api,
   const amdf_instance_create_info_t create_info = {
       .type = AMDF_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
       .structure_size = sizeof(create_info),
+      .native_lifetime = native_lifetime,
   };
   iree_status_t status = IREE_HAL_AMD_STATUS_FROM_AMDF(
       api->instance_create(&create_info, &fabric->instance), "instance_create");

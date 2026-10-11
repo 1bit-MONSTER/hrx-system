@@ -27,7 +27,8 @@ namespace {
 // The memory adapter and Task queue are real HAL implementations. Only GPU
 // family metadata uses a mock device until the GPU execution HAL exists; all
 // address mutation and GPU execution use the public native API and hardware.
-class FabricMemoryReservationTest : public ::testing::Test {
+class FabricMemoryReservationTest
+    : public ::testing::TestWithParam<amdf_native_lifetime_t> {
  protected:
   void SetUp() override {
     ASSERT_EQ(
@@ -39,7 +40,11 @@ class FabricMemoryReservationTest : public ::testing::Test {
                               AMDF_GPU_EXTENSION_VERSION_LATEST, &extension),
         AMDF_STATUS_OK);
     gpu_ = static_cast<const amdf_gpu_api_t*>(extension);
-    IREE_ASSERT_OK(iree_hal_amd_fabric_create(api_, allocator_, &fabric_));
+    IREE_ASSERT_OK(
+        iree_hal_amd_fabric_create(api_, GetParam(), allocator_, &fabric_));
+    RecordProperty("native_lifetime", GetParam() == AMDF_NATIVE_LIFETIME_PROCESS
+                                          ? "process"
+                                          : "instance");
     for (uint32_t i = 0; i < fabric_->endpoint_count && !endpoint_; ++i) {
       if (fabric_->endpoints[i].engine_kind != AMDF_ENGINE_KIND_GPU) {
         continue;
@@ -372,7 +377,7 @@ class FabricMemoryReservationTest : public ::testing::Test {
   size_t ring_words_ = 0;
 };
 
-TEST_F(FabricMemoryReservationTest, BatchedReplacementChangesRealGpuAddresses) {
+TEST_P(FabricMemoryReservationTest, BatchedReplacementChangesRealGpuAddresses) {
   auto* words = reinterpret_cast<uint32_t*>(host_mapping_.contents.data);
   const size_t stride = granularity_ / sizeof(uint32_t);
   std::memset(words, 0, host_mapping_.contents.data_length);
@@ -401,5 +406,14 @@ TEST_F(FabricMemoryReservationTest, BatchedReplacementChangesRealGpuAddresses) {
   }
   IREE_ASSERT_OK(Map(mappings));
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    NativeLifetime, FabricMemoryReservationTest,
+    ::testing::Values(AMDF_NATIVE_LIFETIME_PROCESS,
+                      AMDF_NATIVE_LIFETIME_INSTANCE),
+    [](const ::testing::TestParamInfo<amdf_native_lifetime_t>& info) {
+      return info.param == AMDF_NATIVE_LIFETIME_PROCESS ? "Process"
+                                                        : "Instance";
+    });
 
 }  // namespace

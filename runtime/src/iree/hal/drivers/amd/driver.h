@@ -7,6 +7,7 @@
 #ifndef IREE_HAL_DRIVERS_AMD_DRIVER_H_
 #define IREE_HAL_DRIVERS_AMD_DRIVER_H_
 
+#include "amdf/base.h"
 #include "iree/hal/api.h"
 
 #ifdef __cplusplus
@@ -16,6 +17,10 @@ extern "C" {
 // Creates an independent AMD driver and native libamdf fabric. Devices retain
 // that fabric independently of the driver and registry. Discovery is passive;
 // execution extensions are negotiated only when their devices are created.
+// |native_lifetime| is passed unchanged to libamdf. PROCESS supports Linux KFD
+// host registration and requires coordination with foreign KFD VM mutations.
+// INSTANCE bounds acquired native state to this fabric's lifetime; unsupported
+// native services fail explicitly. It does not promise isolated GPU addresses.
 //
 // The implemented execution scheme is `xdna`. A bare scheme selects its first
 // endpoint; `xdna:N` and `xdna://N` index the same family-local discovery list.
@@ -24,7 +29,8 @@ extern "C" {
 // removal, reset, or reboot; they are not persistent machine identifiers.
 // Identity selection still requires the endpoint to match the requested family.
 // The `columns` XDNA parameter selects context width (default 1).
-iree_status_t iree_hal_amd_driver_create(iree_allocator_t host_allocator,
+iree_status_t iree_hal_amd_driver_create(amdf_native_lifetime_t native_lifetime,
+                                         iree_allocator_t host_allocator,
                                          iree_hal_driver_t** out_driver);
 
 #ifdef __cplusplus
