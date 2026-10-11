@@ -640,8 +640,9 @@ static iree_status_t loom_low_lower_source_candidate_add(
       IREE_RETURN_IF_ERROR(iree_arena_allocate(
           &context->analysis_arena, allocation_size, (void**)&graph));
       graph->source_node_count = source_node_count;
-      memcpy(graph->source_nodes, source_nodes,
-             (iree_host_size_t)source_node_count * sizeof(*source_nodes));
+      for (uint8_t i = 0; i < source_node_count; ++i) {
+        graph->source_nodes[i] = source_nodes[i];
+      }
       loom_low_lower_source_graph_alternative_set_candidate_user_data(
           alternative, graph);
     }
