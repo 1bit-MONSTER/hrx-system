@@ -196,8 +196,8 @@ static iree_status_t AllocationLifetimeCtl(void* self,
 static iree_allocator_t AllocationLifetimeAllocator(
     AllocationLifetimeState* state) {
   iree_allocator_t allocator = {
-      /*.self=*/state,
-      /*.ctl=*/AllocationLifetimeCtl,
+      .self = state,
+      .ctl = AllocationLifetimeCtl,
   };
   return allocator;
 }

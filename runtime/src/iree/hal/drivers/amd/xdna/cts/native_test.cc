@@ -246,18 +246,18 @@ class XdnaNativeTest : public ::testing::Test {
     IREE_ASSERT_OK(status);
 
     const iree_hal_pool_family_access_t family_access = {
-        /*.family=*/iree_hal_queue_family(queue_),
-        /*.usage=*/usage,
-        /*.interfaces=*/UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
+        .family = iree_hal_queue_family(queue_),
+        .usage = usage,
+        .interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
     };
     const iree_hal_pool_scope_t scope = {
-        /*.family_count=*/1,
-        /*.families=*/&family_access,
-        /*.host=*/
-        {
-            /*.access=*/host_access,
-            /*.modes=*/host_access ? IREE_HAL_MAPPING_MODE_SCOPED : 0u,
-        },
+        .family_count = 1,
+        .families = &family_access,
+        .host =
+            {
+                .access = host_access,
+                .modes = host_access ? IREE_HAL_MAPPING_MODE_SCOPED : 0u,
+            },
     };
     iree_hal_slab_pool_options_t options;
     iree_hal_slab_pool_options_initialize(&options);
@@ -477,8 +477,9 @@ TEST_F(XdnaNativeTest, SlabPoolAllocationExecutesThroughPreparedBindings) {
       IREE_HAL_DISPATCH_FLAG_NONE));
 
   std::array<uint32_t, 48> output;
-  iree_hal_transfer_operation_t download = {};
-  download.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;
+  iree_hal_transfer_operation_t download = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+  };
   download.download.source_buffer = roots[2];
   download.download.target = output.data();
   download.download.length = sizeof(output);
@@ -1000,12 +1001,13 @@ struct CpuAddExecutable : iree_hal_task_executable_t {
     static const iree_hal_executable_dispatch_v0_t functions[] = {Add};
     static const char* const names[] = {"add_u32"};
     static const auto attributes = [] {
-      iree_hal_executable_dispatch_attrs_v0_t value = {};
-      value.constant_byte_length = sizeof(uint32_t);
-      value.binding_count = 1;
-      value.workgroup_size_x = 1;
-      value.workgroup_size_y = 1;
-      value.workgroup_size_z = 1;
+      iree_hal_executable_dispatch_attrs_v0_t value = {
+          .binding_count = 1,
+          .workgroup_size_x = 1,
+          .workgroup_size_y = 1,
+          .workgroup_size_z = 1,
+          .constant_byte_length = sizeof(uint32_t),
+      };
       return value;
     }();
     static const auto library = [] {
@@ -1145,9 +1147,10 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
     families[1].usage = families[0].usage;
     families[1].interfaces = UINT64_C(1)
                              << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA;
-    iree_hal_pool_scope_t scope = {};
-    scope.family_count = IREE_ARRAYSIZE(families);
-    scope.families = families;
+    iree_hal_pool_scope_t scope = {
+        .family_count = IREE_ARRAYSIZE(families),
+        .families = families,
+    };
     scope.host.access = host_access;
     scope.host.modes = host_access ? IREE_HAL_MAPPING_MODE_SCOPED : 0u;
     iree_hal_slab_pool_options_t options;
@@ -1158,9 +1161,10 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
   }
 
   iree_hal_memory_scope_t QueueScope(iree_hal_queue_t* queue) {
-    iree_hal_memory_site_t site = {};
-    site.kind = IREE_HAL_MEMORY_SITE_QUEUE;
-    site.family = iree_hal_queue_family(queue);
+    iree_hal_memory_site_t site = {
+        .kind = IREE_HAL_MEMORY_SITE_QUEUE,
+        .family = iree_hal_queue_family(queue),
+    };
     iree_hal_memory_scope_t scope;
     IREE_CHECK_OK(iree_hal_device_group_resolve_memory_scope(device_group_,
                                                              site, &scope));
@@ -1178,13 +1182,15 @@ class CpuXdnaNativeTest : public XdnaNativeTest,
         QueueScope(release ? queue_ : cpu_queue_), action, &pair));
     const auto transition = iree_hal_memory_transition_query(table, pair);
     const auto* recipe = iree_hal_memory_transition_recipe(table, pair, action);
-    iree_hal_buffer_barrier_t range = {};
-    range.buffer_ref = reference;
-    range.recipe = recipe;
-    iree_hal_barrier_t barrier = {};
-    barrier.source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH;
-    barrier.target_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH;
-    barrier.effects = release ? transition.release : transition.acquire;
+    iree_hal_buffer_barrier_t range = {
+        .buffer_ref = reference,
+        .recipe = recipe,
+    };
+    iree_hal_barrier_t barrier = {
+        .source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+        .target_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+        .effects = release ? transition.release : transition.acquire,
+    };
     barrier.buffer_barrier_count = recipe ? 1 : 0;
     barrier.buffer_barriers = recipe ? &range : nullptr;
     // The qualified XDNA DMA side requires no additional payload cache action.
@@ -1300,8 +1306,9 @@ TEST_P(CpuXdnaNativeTest, CpuNpuCpuKernelsShareOneBacking) {
       initial[32 + i] = static_cast<uint32_t>(0xFFFFFF00u + i * 11 + replay);
     }
     std::array<uint32_t, 80> result = {};
-    iree_hal_transfer_operation_t download = {};
-    download.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;
+    iree_hal_transfer_operation_t download = {
+        .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+    };
     download.download.source_buffer = root;
     download.download.target = result.data();
     download.download.length = sizeof(result);
@@ -1342,8 +1349,9 @@ TEST_P(CpuXdnaNativeTest, CpuNpuCpuKernelsShareOneBacking) {
           {1, &npu_bindings[0]},
           /*barriers=*/nullptr, IREE_HAL_DISPATCH_FLAG_NONE));
     }
-    iree_hal_transfer_operation_t upload = {};
-    upload.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPDATE;
+    iree_hal_transfer_operation_t upload = {
+        .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPDATE,
+    };
     upload.update.source_buffer = initial.data();
     upload.update.target_buffer = root;
     upload.update.length = sizeof(initial);
@@ -1365,8 +1373,9 @@ TEST_P(CpuXdnaNativeTest, CpuNpuCpuKernelsShareOneBacking) {
       EXPECT_EQ(result[64 + i], initial[64 + i]) << i;
     }
     if (public_mapping) {
-      iree_hal_memory_site_t site = {};
-      site.kind = IREE_HAL_MEMORY_SITE_HOST;
+      iree_hal_memory_site_t site = {
+          .kind = IREE_HAL_MEMORY_SITE_HOST,
+      };
       iree_hal_memory_scope_t host_scope;
       IREE_ASSERT_OK(iree_hal_device_group_resolve_memory_scope(
           device_group_, site, &host_scope));

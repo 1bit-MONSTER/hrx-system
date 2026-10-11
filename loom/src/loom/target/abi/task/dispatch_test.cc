@@ -58,13 +58,12 @@ class HalDispatchTest : public ::testing::Test {
     }
     ASSERT_NE(queue_, nullptr);
     const iree_hal_pool_family_access_t family_access = {
-        /*.family=*/iree_hal_queue_family(queue_),
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
-            IREE_HAL_BUFFER_USAGE_TRANSFER,
+        .family = iree_hal_queue_family(queue_),
+        .usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER,
     };
     const iree_hal_pool_scope_t pool_scope = {
-        /*.family_count=*/1,
-        /*.families=*/&family_access,
+        .family_count = 1,
+        .families = &family_access,
     };
     iree_hal_slab_pool_options_t pool_options;
     iree_hal_slab_pool_options_initialize(&pool_options);
@@ -96,8 +95,9 @@ class HalDispatchTest : public ::testing::Test {
     const std::vector<char> bytes((std::istreambuf_iterator<char>(input)),
                                   std::istreambuf_iterator<char>());
     ASSERT_FALSE(bytes.empty());
-    iree_hal_executable_target_selection_t selection = {.family =
-                                                            IREE_SV("cpu")};
+    iree_hal_executable_target_selection_t selection = {
+        .family = IREE_SV("cpu"),
+    };
     const auto target = iree_hal_device_spec_select_executable_target(
         iree_hal_device_spec(device_), &selection);
     ASSERT_EQ(target.outcome,

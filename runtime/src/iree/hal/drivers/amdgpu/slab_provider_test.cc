@@ -111,8 +111,9 @@ TEST_F(SlabProviderTest, CapturesAccessBeforeNativeAcquisition) {
     iree_hal_amdgpu_access_agent_list_t agents;
     IREE_ASSERT_OK(iree_hal_amdgpu_access_agent_list_resolve_memory_agents(
         &topology_, family_affinity, &agents));
-    iree_hal_amdgpu_slab_provider_options_t options = {};
-    options.memory_pool = memory_pool;
+    iree_hal_amdgpu_slab_provider_options_t options = {
+        .memory_pool = memory_pool,
+    };
     options.owned.memory_type = properties.memory_type;
     options.owned.supported_usage = properties.supported_usage;
     options.exposed.memory_type = properties.memory_type;

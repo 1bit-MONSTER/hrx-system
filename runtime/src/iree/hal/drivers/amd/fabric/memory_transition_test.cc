@@ -14,10 +14,11 @@ namespace {
 using ::iree::testing::status::StatusIs;
 
 TEST(MemoryTransitionTest, PreservesHostReleaseRecipeAndPairFacts) {
-  amdf_memory_pair_info_t source = {};
-  source.flags = AMDF_MEMORY_PAIR_FLAG_SHARED_BACKING_REACHABLE |
-                 AMDF_MEMORY_PAIR_FLAG_MAPPING_SOURCE |
-                 AMDF_MEMORY_PAIR_FLAG_FIXED_COST_KNOWN;
+  amdf_memory_pair_info_t source = {
+      .flags = AMDF_MEMORY_PAIR_FLAG_SHARED_BACKING_REACHABLE |
+               AMDF_MEMORY_PAIR_FLAG_MAPPING_SOURCE |
+               AMDF_MEMORY_PAIR_FLAG_FIXED_COST_KNOWN,
+  };
   source.release.kind = AMDF_CACHE_TRANSITION_KIND_RANGE;
   source.release.executor = AMDF_CACHE_TRANSITION_EXECUTOR_HOST_DIRECT;
   source.release.host_operation = AMDF_HOST_CACHE_OPERATION_FLUSH;
@@ -51,8 +52,9 @@ TEST(MemoryTransitionTest, PreservesHostReleaseRecipeAndPairFacts) {
 }
 
 TEST(MemoryTransitionTest, PreservesQueueAcquireRecipe) {
-  amdf_memory_pair_info_t source = {};
-  source.flags = AMDF_MEMORY_PAIR_FLAG_SHARED_BACKING_REACHABLE;
+  amdf_memory_pair_info_t source = {
+      .flags = AMDF_MEMORY_PAIR_FLAG_SHARED_BACKING_REACHABLE,
+  };
   source.release.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
   source.acquire.kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL;
   source.acquire.executor = AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE;

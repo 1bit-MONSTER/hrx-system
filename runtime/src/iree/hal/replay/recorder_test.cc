@@ -111,25 +111,25 @@ static iree_status_t CreateTestPool(
   *out_pool = nullptr;
   iree_hal_device_t* device = iree_hal_device_group_device_at(group, 0);
   const iree_hal_pool_family_access_t family_access = {
-      /*.family=*/iree_hal_device_queue_family(device, 0),
-      /*.usage=*/family_usage,
-      /*.interfaces=*/0,
-      /*.requirements=*/0,
-      /*.atomic_operations=*/atomic_operations,
+      .family = iree_hal_device_queue_family(device, 0),
+      .usage = family_usage,
+      .interfaces = 0,
+      .requirements = 0,
+      .atomic_operations = atomic_operations,
   };
   const iree_hal_memory_access_t host_access =
       host_mapping_modes
           ? static_cast<iree_hal_memory_access_t>(IREE_HAL_MEMORY_ACCESS_ALL)
           : IREE_HAL_MEMORY_ACCESS_NONE;
   const iree_hal_pool_scope_t scope = {
-      /*.family_count=*/family_usage ? 1u : 0u,
-      /*.families=*/family_usage ? &family_access : nullptr,
-      /*.host=*/
-      {
-          /*.access=*/host_access,
-          /*.modes=*/host_mapping_modes,
-          /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
-      },
+      .family_count = family_usage ? 1u : 0u,
+      .families = family_usage ? &family_access : nullptr,
+      .host =
+          {
+              .access = host_access,
+              .modes = host_mapping_modes,
+              .cacheability = IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
+          },
   };
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);
@@ -651,9 +651,9 @@ TEST(ReplayRecorderTest, RecordsExactQueueTransferTransaction) {
       /*initial_value=*/0, IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &signal_semaphore));
   uint64_t signal_value = 1;
   const iree_hal_semaphore_list_t signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&signal_semaphore,
-      /*.payload_values=*/&signal_value,
+      .count = 1,
+      .semaphores = &signal_semaphore,
+      .payload_values = &signal_value,
   };
 
   const uint8_t fill_pattern = 0xA5;
@@ -764,15 +764,15 @@ TEST(ReplayRecorderTest, WaitfulUploadRemainsLiveAndIsMarkedUnsupported) {
       /*initial_value=*/0, IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &signal_semaphore));
   uint64_t wait_value = 1;
   const iree_hal_semaphore_list_t wait_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&wait_semaphore,
-      /*.payload_values=*/&wait_value,
+      .count = 1,
+      .semaphores = &wait_semaphore,
+      .payload_values = &wait_value,
   };
   uint64_t signal_value = 1;
   const iree_hal_semaphore_list_t signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&signal_semaphore,
-      /*.payload_values=*/&signal_value,
+      .count = 1,
+      .semaphores = &signal_semaphore,
+      .payload_values = &signal_value,
   };
 
   uint8_t upload_data[] = {0x10, 0x11, 0x12, 0x13};
@@ -834,9 +834,9 @@ TEST(ReplayRecorderTest, WrappedDeviceRecordsHostCallAsUnsupported) {
       IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &signal_semaphore));
   uint64_t signal_value = 1;
   const iree_hal_semaphore_list_t signal_semaphore_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&signal_semaphore,
-      /*.payload_values=*/&signal_value,
+      .count = 1,
+      .semaphores = &signal_semaphore,
+      .payload_values = &signal_value,
   };
   const uint64_t args[4] = {0, 1, 2, 3};
   IREE_ASSERT_OK(iree_hal_queue_host_call(
@@ -896,22 +896,22 @@ TEST(ReplayRecorderTest, WrappedImportsAndExportsPreserveNativeBufferViews) {
       iree_hal_make_external_storage_class(
           IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
   const iree_hal_pool_import_class_t import_class = {
-      /*.storage_class=*/host_pointer_class,
-      /*.exports=*/
-      {
-          /*.class_count=*/1,
-          /*.classes=*/&host_pointer_class,
-      },
+      .storage_class = host_pointer_class,
+      .exports =
+          {
+              .class_count = 1,
+              .classes = &host_pointer_class,
+          },
   };
   const iree_hal_pool_scope_t scope = {
-      /*.family_count=*/0,
-      /*.families=*/nullptr,
-      /*.host=*/
-      {
-          /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-          /*.modes=*/IREE_HAL_MAPPING_MODE_PERSISTENT,
-          /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
-      },
+      .family_count = 0,
+      .families = nullptr,
+      .host =
+          {
+              .access = IREE_HAL_MEMORY_ACCESS_ALL,
+              .modes = IREE_HAL_MAPPING_MODE_PERSISTENT,
+              .cacheability = IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
+          },
   };
   iree_hal_slab_pool_options_t pool_options;
   iree_hal_slab_pool_options_initialize(&pool_options);
@@ -924,9 +924,10 @@ TEST(ReplayRecorderTest, WrappedImportsAndExportsPreserveNativeBufferViews) {
   IREE_ASSERT_OK(iree_hal_slab_pool_create(wrapped_group, scope, &pool_options,
                                            iree_allocator_system(), &pool));
 
-  iree_hal_external_storage_t external_buffer = {};
-  external_buffer.storage_class = host_pointer_class;
-  external_buffer.byte_length = sizeof(imported_storage);
+  iree_hal_external_storage_t external_buffer = {
+      .storage_class = host_pointer_class,
+      .byte_length = sizeof(imported_storage),
+  };
   external_buffer.payload.host_pointer = imported_storage;
   external_buffer.host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
   external_buffer.maintenance_range =
@@ -1245,7 +1246,7 @@ TEST(ReplayRecorderTest, WrappedDeviceRecordsQueueExecuteWithSparseBindings) {
       signal_values,
   };
   const iree_hal_buffer_binding_t bindings[] = {
-      {/*.buffer=*/nullptr, /*.offset=*/0, /*.length=*/0},
+      {.buffer = nullptr, .offset = 0, .length = 0},
       {buffer, /*offset=*/0, IREE_HAL_WHOLE_BUFFER},
   };
   IREE_ASSERT_OK(iree_hal_queue_execute(
@@ -1292,11 +1293,11 @@ TEST(ReplayRecorderTest, RecordsAndReplaysCommandBufferAtomicOperations) {
   ASSERT_NE(nullptr, wrapped_queue);
 
   const iree_hal_atomic_operation_capabilities_t atomic_operations = {
-      /*.device_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_NONE,
-      /*.device_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAG_NONE,
-      /*.system_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE |
-          IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_XOR,
-      /*.system_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAG_WAIT,
+      .device_scope_32 = IREE_HAL_ATOMIC_OPERATION_FLAG_NONE,
+      .device_scope_64 = IREE_HAL_ATOMIC_OPERATION_FLAG_NONE,
+      .system_scope_32 = IREE_HAL_ATOMIC_OPERATION_FLAG_STORE |
+                         IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_XOR,
+      .system_scope_64 = IREE_HAL_ATOMIC_OPERATION_FLAG_WAIT,
   };
   iree_hal_pool_t* pool = nullptr;
   IREE_ASSERT_OK(CreateTestPool(
@@ -1463,11 +1464,11 @@ TEST(ReplayRecorderTest, RecordsAndReplaysVersion2ExactQueueAtomicOperations) {
   ASSERT_NE(nullptr, queue);
 
   const iree_hal_atomic_operation_capabilities_t atomic_operations = {
-      /*.device_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_NONE,
-      /*.device_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAG_NONE,
-      /*.system_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
-      /*.system_scope_64=*/IREE_HAL_ATOMIC_OPERATION_FLAG_WAIT |
-          IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_ADD,
+      .device_scope_32 = IREE_HAL_ATOMIC_OPERATION_FLAG_NONE,
+      .device_scope_64 = IREE_HAL_ATOMIC_OPERATION_FLAG_NONE,
+      .system_scope_32 = IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
+      .system_scope_64 = IREE_HAL_ATOMIC_OPERATION_FLAG_WAIT |
+                         IREE_HAL_ATOMIC_OPERATION_FLAG_RMW_ADD,
   };
   iree_hal_pool_t* pool = nullptr;
   IREE_ASSERT_OK(CreateTestPool(wrapped_group, IREE_HAL_BUFFER_USAGE_STORAGE,
@@ -1785,9 +1786,9 @@ static iree_status_t RecorderVmmAllocatorReserve(
                             "test reservation exceeds backing storage");
   }
   const iree_hal_buffer_placement_t placement = {
-      /*.device=*/nullptr,
-      /*.queue_family_affinity=*/queue_family_affinity,
-      /*.flags=*/IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE,
+      .device = nullptr,
+      .queue_family_affinity = queue_family_affinity,
+      .flags = IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE,
   };
   IREE_RETURN_IF_ERROR(iree_hal_heap_buffer_wrap(
       placement,
@@ -1956,21 +1957,20 @@ static iree_status_t RecorderVmmAllocatorAdvise(
 }
 
 const iree_hal_allocator_vtable_t recorder_vmm_allocator_vtable = {
-    /*.destroy=*/RecorderVmmAllocatorDestroy,
-    /*.host_allocator=*/RecorderVmmAllocatorHostAllocator,
-    /*.query_statistics=*/nullptr,
-    /*.query_memory_heaps=*/nullptr,
-    /*.supports_virtual_memory=*/RecorderVmmAllocatorSupportsVirtualMemory,
-    /*.virtual_memory_query_granularity=*/
-    RecorderVmmAllocatorQueryGranularity,
-    /*.virtual_memory_reserve=*/RecorderVmmAllocatorReserve,
-    /*.virtual_memory_release=*/RecorderVmmAllocatorRelease,
-    /*.physical_memory_allocate=*/RecorderVmmAllocatorAllocatePhysicalMemory,
-    /*.physical_memory_free=*/RecorderVmmAllocatorFreePhysicalMemory,
-    /*.virtual_memory_map=*/RecorderVmmAllocatorMap,
-    /*.virtual_memory_unmap=*/RecorderVmmAllocatorUnmap,
-    /*.virtual_memory_protect=*/RecorderVmmAllocatorProtect,
-    /*.virtual_memory_advise=*/RecorderVmmAllocatorAdvise,
+    .destroy = RecorderVmmAllocatorDestroy,
+    .host_allocator = RecorderVmmAllocatorHostAllocator,
+    .query_statistics = nullptr,
+    .query_memory_heaps = nullptr,
+    .supports_virtual_memory = RecorderVmmAllocatorSupportsVirtualMemory,
+    .virtual_memory_query_granularity = RecorderVmmAllocatorQueryGranularity,
+    .virtual_memory_reserve = RecorderVmmAllocatorReserve,
+    .virtual_memory_release = RecorderVmmAllocatorRelease,
+    .physical_memory_allocate = RecorderVmmAllocatorAllocatePhysicalMemory,
+    .physical_memory_free = RecorderVmmAllocatorFreePhysicalMemory,
+    .virtual_memory_map = RecorderVmmAllocatorMap,
+    .virtual_memory_unmap = RecorderVmmAllocatorUnmap,
+    .virtual_memory_protect = RecorderVmmAllocatorProtect,
+    .virtual_memory_advise = RecorderVmmAllocatorAdvise,
 };
 
 static iree_hal_allocator_t* CreateRecorderVmmAllocator(
@@ -1997,10 +1997,11 @@ static iree_hal_allocator_t* WrapRecorderVmmAllocator(
 }
 
 static iree_hal_physical_memory_params_t RecorderVmmPhysicalParams() {
-  iree_hal_physical_memory_params_t params = {};
-  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.queue_family_affinity = kRecorderVmmQueueFamilyAffinity;
+  iree_hal_physical_memory_params_t params = {
+      .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      .usage = IREE_HAL_BUFFER_USAGE_STORAGE,
+      .queue_family_affinity = kRecorderVmmQueueFamilyAffinity,
+  };
   return params;
 }
 

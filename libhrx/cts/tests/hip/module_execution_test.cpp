@@ -1358,8 +1358,9 @@ TEST(HipModuleExecutionTest, CooperativeLaunchPreservesStreamAndGraphOrdering) {
         function, kWorkgroupCount, 1, 1, kWorkgroupSize, 1, 1,
         /*shared_memory_bytes=*/0, stream, arguments);
   };
-  hipLaunchAttribute cooperative_attribute = {};
-  cooperative_attribute.id = hipLaunchAttributeCooperative;
+  hipLaunchAttribute cooperative_attribute = {
+      .id = hipLaunchAttributeCooperative,
+  };
   cooperative_attribute.val.cooperative = 1;
   auto launch_runtime_extended = [&](hipStream_t stream, uint32_t incarnation) {
     hipDeviceptr_t scratch_argument = scratch;

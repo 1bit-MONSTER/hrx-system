@@ -39,18 +39,18 @@ static iree_status_t CreateHostImportPool(
     iree_hal_atomic_operation_capabilities_t atomic_operations,
     iree_hal_pool_t** out_pool) {
   const iree_hal_pool_family_access_t family_access = {
-      /*.family=*/family,
-      /*.usage=*/usage,
-      /*.interfaces=*/0,
-      /*.requirements=*/0,
-      /*.atomic_operations=*/atomic_operations,
+      .family = family,
+      .usage = usage,
+      .interfaces = 0,
+      .requirements = 0,
+      .atomic_operations = atomic_operations,
   };
   const iree_hal_pool_scope_t scope = {
-      /*.family_count=*/1,
-      /*.families=*/&family_access,
+      .family_count = 1,
+      .families = &family_access,
   };
   const iree_hal_pool_import_class_t import_class = {
-      /*.storage_class=*/iree_hal_make_external_storage_class(
+      .storage_class = iree_hal_make_external_storage_class(
           IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
   };
   iree_hal_slab_pool_options_t options;
@@ -74,7 +74,7 @@ TEST_P(TaskBufferAccessTest, DirectionalStorageBindings) {
   };
   const iree_hal_atomic_operation_capabilities_t no_atomics = {};
   const iree_hal_atomic_operation_capabilities_t write_atomics = {
-      /*.system_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
+      .system_scope_32 = IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
   };
   Ref<iree_hal_pool_t> read_pool;
   IREE_ASSERT_OK(CreateHostImportPool(
@@ -146,9 +146,10 @@ TEST_P(TaskBufferAccessTest, DirectionalStorageBindings) {
       const iree_hal_buffer_ref_t atomic_ref =
           indirect ? iree_hal_make_indirect_buffer_ref(2, 0, sizeof(uint32_t))
                    : iree_hal_make_buffer_ref(buffers[2], 0, sizeof(uint32_t));
-      iree_hal_atomic_store_params_t store = {};
-      store.width = IREE_HAL_ATOMIC_WIDTH_32;
-      store.flags = IREE_HAL_ATOMIC_FLAG_RELEASE;
+      iree_hal_atomic_store_params_t store = {
+          .flags = IREE_HAL_ATOMIC_FLAG_RELEASE,
+          .width = IREE_HAL_ATOMIC_WIDTH_32,
+      };
       IREE_ASSERT_OK(iree_hal_command_buffer_atomic_store(
           command_buffer, IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE,
           IREE_HAL_EXECUTION_STAGE_DISPATCH, atomic_ref, store));
@@ -229,18 +230,18 @@ TEST_P(TaskBufferAccessTest, ExecutionOnlyNestedViews) {
   const iree_hal_buffer_usage_t usage =
       IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
   const iree_hal_pool_family_access_t family_access = {
-      /*.family=*/iree_hal_queue_family(queue),
-      /*.usage=*/usage,
-      /*.interfaces=*/0,
-      /*.requirements=*/0,
-      /*.atomic_operations=*/
-      {
-          /*.system_scope_32=*/IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
-      },
+      .family = iree_hal_queue_family(queue),
+      .usage = usage,
+      .interfaces = 0,
+      .requirements = 0,
+      .atomic_operations =
+          {
+              .system_scope_32 = IREE_HAL_ATOMIC_OPERATION_FLAG_STORE,
+          },
   };
   const iree_hal_pool_scope_t scope = {
-      /*.family_count=*/1,
-      /*.families=*/&family_access,
+      .family_count = 1,
+      .families = &family_access,
   };
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);

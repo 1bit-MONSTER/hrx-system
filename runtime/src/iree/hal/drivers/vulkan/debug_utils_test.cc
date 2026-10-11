@@ -90,11 +90,12 @@ static VKAPI_ATTR void VKAPI_CALL FakeCmdInsertDebugUtilsLabelEXT(
 }
 
 static iree_hal_vulkan_device_syms_t MakeDebugUtilsSyms() {
-  iree_hal_vulkan_device_syms_t syms = {};
-  syms.vkSetDebugUtilsObjectNameEXT = FakeSetDebugUtilsObjectNameEXT;
-  syms.vkCmdBeginDebugUtilsLabelEXT = FakeCmdBeginDebugUtilsLabelEXT;
-  syms.vkCmdEndDebugUtilsLabelEXT = FakeCmdEndDebugUtilsLabelEXT;
-  syms.vkCmdInsertDebugUtilsLabelEXT = FakeCmdInsertDebugUtilsLabelEXT;
+  iree_hal_vulkan_device_syms_t syms = {
+      .vkSetDebugUtilsObjectNameEXT = FakeSetDebugUtilsObjectNameEXT,
+      .vkCmdBeginDebugUtilsLabelEXT = FakeCmdBeginDebugUtilsLabelEXT,
+      .vkCmdEndDebugUtilsLabelEXT = FakeCmdEndDebugUtilsLabelEXT,
+      .vkCmdInsertDebugUtilsLabelEXT = FakeCmdInsertDebugUtilsLabelEXT,
+  };
   return syms;
 }
 

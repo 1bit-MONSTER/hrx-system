@@ -14,8 +14,9 @@
 namespace {
 
 TEST(KfdUserQueueNativeTest, FailedVmFaultQueryPreservesOutput) {
-  amdf_gpu_umd_device_t device = {};
-  device.render_descriptor = -1;
+  amdf_gpu_umd_device_t device = {
+      .render_descriptor = -1,
+  };
   struct drm_amdgpu_info_gpuvm_fault fault;
   std::memset(&fault, 0xA5, sizeof(fault));
   const struct drm_amdgpu_info_gpuvm_fault original_fault = fault;
@@ -28,9 +29,10 @@ TEST(KfdUserQueueNativeTest, FailedVmFaultQueryPreservesOutput) {
 
 TEST(KfdUserQueueNativeTest, DestroyPreservesNativeErrorDomain) {
   pthread_mutex_t memory_mutex = PTHREAD_MUTEX_INITIALIZER;
-  amdf_gpu_umd_device_t device = {};
-  device.descriptor = -1;
-  device.memory_mutex = &memory_mutex;
+  amdf_gpu_umd_device_t device = {
+      .descriptor = -1,
+      .memory_mutex = &memory_mutex,
+  };
   const auto* native_api = amdf_gpu_kfd_user_queue_default_native_api();
   EXPECT_EQ(native_api->queue_destroy(native_api->user_data, &device, 47),
             amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, EBADF));
@@ -42,9 +44,10 @@ TEST(KfdUserQueueNativeTest, DestroyPreservesNativeErrorDomain) {
 TEST(KfdUserQueueNativeTest,
      FailedCreateReleasesSerializationAndPreservesOutput) {
   pthread_mutex_t memory_mutex = PTHREAD_MUTEX_INITIALIZER;
-  amdf_gpu_umd_device_t device = {};
-  device.descriptor = -1;
-  device.memory_mutex = &memory_mutex;
+  amdf_gpu_umd_device_t device = {
+      .descriptor = -1,
+      .memory_mutex = &memory_mutex,
+  };
   kfd_ioctl_create_queue_args arguments;
   std::memset(&arguments, 0xA5, sizeof(arguments));
   const auto original = arguments;

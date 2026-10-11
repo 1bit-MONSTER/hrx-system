@@ -30,8 +30,8 @@ class ValueIOTest : public ::testing::Test {
     IREE_ASSERT_OK(
         iree_tooling_value_io_context_allocate(host_allocator_, &context_));
     const iree_hal_pool_host_access_t host_access = {
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
-        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+        .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+        .modes = IREE_HAL_MAPPING_MODE_SCOPED,
     };
     IREE_ASSERT_OK(iree_hal_heap_pool_create(host_access, host_allocator_,
                                              host_allocator_, &pool_));

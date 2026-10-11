@@ -131,9 +131,9 @@ static iree_status_t vmm_test_allocator_virtual_memory_reserve(
                             "test reservation exceeds backing storage");
   }
   const iree_hal_buffer_placement_t placement = {
-      /*.device=*/nullptr,
-      /*.queue_family_affinity=*/queue_family_affinity,
-      /*.flags=*/IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE,
+      .device = nullptr,
+      .queue_family_affinity = queue_family_affinity,
+      .flags = IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE,
   };
   IREE_RETURN_IF_ERROR(iree_hal_heap_buffer_wrap(
       placement,
@@ -306,22 +306,20 @@ static iree_status_t vmm_test_allocator_virtual_memory_advise(
 }
 
 const iree_hal_allocator_vtable_t vmm_test_allocator_vtable = {
-    /*.destroy=*/vmm_test_allocator_destroy,
-    /*.host_allocator=*/vmm_test_allocator_host_allocator,
-    /*.query_statistics=*/nullptr,
-    /*.query_memory_heaps=*/nullptr,
-    /*.supports_virtual_memory=*/vmm_test_allocator_supports_virtual_memory,
-    /*.virtual_memory_query_granularity=*/
-    vmm_test_allocator_query_granularity,
-    /*.virtual_memory_reserve=*/vmm_test_allocator_virtual_memory_reserve,
-    /*.virtual_memory_release=*/vmm_test_allocator_virtual_memory_release,
-    /*.physical_memory_allocate=*/
-    vmm_test_allocator_physical_memory_allocate,
-    /*.physical_memory_free=*/vmm_test_allocator_physical_memory_free,
-    /*.virtual_memory_map=*/vmm_test_allocator_virtual_memory_map,
-    /*.virtual_memory_unmap=*/vmm_test_allocator_virtual_memory_unmap,
-    /*.virtual_memory_protect=*/vmm_test_allocator_virtual_memory_protect,
-    /*.virtual_memory_advise=*/vmm_test_allocator_virtual_memory_advise,
+    .destroy = vmm_test_allocator_destroy,
+    .host_allocator = vmm_test_allocator_host_allocator,
+    .query_statistics = nullptr,
+    .query_memory_heaps = nullptr,
+    .supports_virtual_memory = vmm_test_allocator_supports_virtual_memory,
+    .virtual_memory_query_granularity = vmm_test_allocator_query_granularity,
+    .virtual_memory_reserve = vmm_test_allocator_virtual_memory_reserve,
+    .virtual_memory_release = vmm_test_allocator_virtual_memory_release,
+    .physical_memory_allocate = vmm_test_allocator_physical_memory_allocate,
+    .physical_memory_free = vmm_test_allocator_physical_memory_free,
+    .virtual_memory_map = vmm_test_allocator_virtual_memory_map,
+    .virtual_memory_unmap = vmm_test_allocator_virtual_memory_unmap,
+    .virtual_memory_protect = vmm_test_allocator_virtual_memory_protect,
+    .virtual_memory_advise = vmm_test_allocator_virtual_memory_advise,
 };
 
 static iree_status_t CreateVmmTestAllocator(
@@ -405,8 +403,8 @@ class ReplayVmmExecutionTest : public ::testing::Test {
 
   void Reserve(OperationRecord* record, bool unaligned = false) {
     const iree_hal_replay_allocator_virtual_memory_reserve_payload_t payload = {
-        /*.queue_family_affinity=*/kQueueFamilyAffinity,
-        /*.size=*/kReservationSize,
+        .queue_family_affinity = kQueueFamilyAffinity,
+        .size = kReservationSize,
     };
     record->Reset(
         IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_RESERVE,
@@ -416,11 +414,12 @@ class ReplayVmmExecutionTest : public ::testing::Test {
   }
 
   void AllocatePhysical(OperationRecord* record, bool unaligned = false) {
-    iree_hal_replay_allocator_physical_memory_allocate_payload_t payload = {};
-    payload.allocation_size = kReservationSize;
-    payload.queue_family_affinity = kQueueFamilyAffinity;
-    payload.usage = IREE_HAL_BUFFER_USAGE_STORAGE;
-    payload.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
+    iree_hal_replay_allocator_physical_memory_allocate_payload_t payload = {
+        .allocation_size = kReservationSize,
+        .queue_family_affinity = kQueueFamilyAffinity,
+        .usage = IREE_HAL_BUFFER_USAGE_STORAGE,
+        .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+    };
     record->Reset(
         IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
         IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
@@ -430,11 +429,11 @@ class ReplayVmmExecutionTest : public ::testing::Test {
 
   void Map(OperationRecord* record, bool unaligned = false) {
     const iree_hal_replay_allocator_virtual_memory_map_payload_t payload = {
-        /*.virtual_buffer_id=*/kVirtualBufferId,
-        /*.physical_memory_id=*/kPhysicalMemoryId,
-        /*.virtual_offset=*/kVirtualOffset,
-        /*.physical_offset=*/kPhysicalOffset,
-        /*.size=*/kMappingSize,
+        .virtual_buffer_id = kVirtualBufferId,
+        .physical_memory_id = kPhysicalMemoryId,
+        .virtual_offset = kVirtualOffset,
+        .physical_offset = kPhysicalOffset,
+        .size = kMappingSize,
     };
     record->Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_MAP,
                   IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_MAP,
@@ -471,13 +470,13 @@ TEST_F(ReplayVmmExecutionTest, ReplaysCompletePackedLifecycle) {
 
   const iree_hal_replay_allocator_virtual_memory_protect_payload_t
       protect_payload = {
-          /*.virtual_buffer_id=*/kVirtualBufferId,
-          /*.virtual_offset=*/kVirtualOffset,
-          /*.size=*/kMappingSize,
-          /*.queue_family_affinity=*/kQueueFamilyAffinity,
-          /*.access_scope=*/IREE_HAL_VIRTUAL_MEMORY_ACCESS_SCOPE_ALL,
-          /*.reserved0=*/0,
-          /*.protection=*/IREE_HAL_MEMORY_PROTECTION_READ_WRITE,
+          .virtual_buffer_id = kVirtualBufferId,
+          .virtual_offset = kVirtualOffset,
+          .size = kMappingSize,
+          .queue_family_affinity = kQueueFamilyAffinity,
+          .access_scope = IREE_HAL_VIRTUAL_MEMORY_ACCESS_SCOPE_ALL,
+          .reserved0 = 0,
+          .protection = IREE_HAL_MEMORY_PROTECTION_READ_WRITE,
       };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT,
@@ -491,11 +490,11 @@ TEST_F(ReplayVmmExecutionTest, ReplaysCompletePackedLifecycle) {
 
   const iree_hal_replay_allocator_virtual_memory_advise_payload_t
       advise_payload = {
-          /*.virtual_buffer_id=*/kVirtualBufferId,
-          /*.virtual_offset=*/kVirtualOffset,
-          /*.size=*/kMappingSize,
-          /*.queue_family_affinity=*/kQueueFamilyAffinity,
-          /*.advice=*/IREE_HAL_MEMORY_ADVICE_WILL_NEED,
+          .virtual_buffer_id = kVirtualBufferId,
+          .virtual_offset = kVirtualOffset,
+          .size = kMappingSize,
+          .queue_family_affinity = kQueueFamilyAffinity,
+          .advice = IREE_HAL_MEMORY_ADVICE_WILL_NEED,
       };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_ADVISE,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_ADVISE,
@@ -507,9 +506,9 @@ TEST_F(ReplayVmmExecutionTest, ReplaysCompletePackedLifecycle) {
 
   const iree_hal_replay_allocator_virtual_memory_unmap_payload_t unmap_payload =
       {
-          /*.virtual_buffer_id=*/kVirtualBufferId,
-          /*.virtual_offset=*/kVirtualOffset,
-          /*.size=*/kMappingSize,
+          .virtual_buffer_id = kVirtualBufferId,
+          .virtual_offset = kVirtualOffset,
+          .size = kMappingSize,
       };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP,
@@ -520,7 +519,7 @@ TEST_F(ReplayVmmExecutionTest, ReplaysCompletePackedLifecycle) {
 
   const iree_hal_replay_allocator_physical_memory_free_payload_t free_payload =
       {
-          /*.physical_memory_id=*/kPhysicalMemoryId,
+          .physical_memory_id = kPhysicalMemoryId,
       };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_FREE,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_PHYSICAL_MEMORY_FREE,
@@ -529,7 +528,7 @@ TEST_F(ReplayVmmExecutionTest, ReplaysCompletePackedLifecycle) {
   IREE_ASSERT_OK(Replay(record));
   const iree_hal_replay_allocator_virtual_memory_release_payload_t
       release_payload = {
-          /*.virtual_buffer_id=*/kVirtualBufferId,
+          .virtual_buffer_id = kVirtualBufferId,
       };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_RELEASE,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_RELEASE,
@@ -558,11 +557,11 @@ TEST_F(ReplayVmmExecutionTest, RejectsInvalidIdsTypesAndRanges) {
   AllocatePhysical(&record);
 
   iree_hal_replay_allocator_virtual_memory_map_payload_t map_payload = {
-      /*.virtual_buffer_id=*/kVirtualBufferId,
-      /*.physical_memory_id=*/kPhysicalMemoryId,
-      /*.virtual_offset=*/kVirtualOffset,
-      /*.physical_offset=*/kPhysicalOffset,
-      /*.size=*/0,
+      .virtual_buffer_id = kVirtualBufferId,
+      .physical_memory_id = kPhysicalMemoryId,
+      .virtual_offset = kVirtualOffset,
+      .physical_offset = kPhysicalOffset,
+      .size = 0,
   };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_MAP,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_MAP,
@@ -594,9 +593,9 @@ TEST_F(ReplayVmmExecutionTest, RejectsInvalidIdsTypesAndRanges) {
 
   const iree_hal_replay_allocator_virtual_memory_unmap_payload_t
       uncovered_payload = {
-          /*.virtual_buffer_id=*/kVirtualBufferId,
-          /*.virtual_offset=*/kVirtualOffset + kMappingSize,
-          /*.size=*/kMappingSize,
+          .virtual_buffer_id = kVirtualBufferId,
+          .virtual_offset = kVirtualOffset + kMappingSize,
+          .size = kMappingSize,
       };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP,
@@ -605,13 +604,13 @@ TEST_F(ReplayVmmExecutionTest, RejectsInvalidIdsTypesAndRanges) {
   EXPECT_EQ(0u, state_.unmap_attempt_count);
 
   iree_hal_replay_allocator_virtual_memory_protect_payload_t protect_payload = {
-      /*.virtual_buffer_id=*/kVirtualBufferId,
-      /*.virtual_offset=*/kVirtualOffset,
-      /*.size=*/kMappingSize,
-      /*.queue_family_affinity=*/kQueueFamilyAffinity,
-      /*.access_scope=*/IREE_HAL_VIRTUAL_MEMORY_ACCESS_SCOPE_DEVICE,
-      /*.reserved0=*/1,
-      /*.protection=*/IREE_HAL_MEMORY_PROTECTION_READ,
+      .virtual_buffer_id = kVirtualBufferId,
+      .virtual_offset = kVirtualOffset,
+      .size = kMappingSize,
+      .queue_family_affinity = kQueueFamilyAffinity,
+      .access_scope = IREE_HAL_VIRTUAL_MEMORY_ACCESS_SCOPE_DEVICE,
+      .reserved0 = 1,
+      .protection = IREE_HAL_MEMORY_PROTECTION_READ,
   };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT,
@@ -621,9 +620,9 @@ TEST_F(ReplayVmmExecutionTest, RejectsInvalidIdsTypesAndRanges) {
 
   const iree_hal_replay_allocator_virtual_memory_unmap_payload_t unmap_payload =
       {
-          /*.virtual_buffer_id=*/kVirtualBufferId,
-          /*.virtual_offset=*/kVirtualOffset,
-          /*.size=*/kMappingSize,
+          .virtual_buffer_id = kVirtualBufferId,
+          .virtual_offset = kVirtualOffset,
+          .size = kMappingSize,
       };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP,
@@ -636,8 +635,8 @@ TEST_F(ReplayVmmExecutionTest, BackendFailuresRetainRetryableObjects) {
   state_.fail_reserve = true;
   const iree_hal_replay_allocator_virtual_memory_reserve_payload_t
       reserve_payload = {
-          /*.queue_family_affinity=*/kQueueFamilyAffinity,
-          /*.size=*/kReservationSize,
+          .queue_family_affinity = kQueueFamilyAffinity,
+          .size = kReservationSize,
       };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_RESERVE,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_RESERVE,
@@ -650,8 +649,9 @@ TEST_F(ReplayVmmExecutionTest, BackendFailuresRetainRetryableObjects) {
 
   state_.fail_physical_allocate = true;
   iree_hal_replay_allocator_physical_memory_allocate_payload_t
-      allocate_payload = {};
-  allocate_payload.allocation_size = kReservationSize;
+      allocate_payload = {
+          .allocation_size = kReservationSize,
+      };
   record.Reset(
       IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
       IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE,
@@ -664,11 +664,11 @@ TEST_F(ReplayVmmExecutionTest, BackendFailuresRetainRetryableObjects) {
 
   state_.fail_map = true;
   const iree_hal_replay_allocator_virtual_memory_map_payload_t map_payload = {
-      /*.virtual_buffer_id=*/kVirtualBufferId,
-      /*.physical_memory_id=*/kPhysicalMemoryId,
-      /*.virtual_offset=*/kVirtualOffset,
-      /*.physical_offset=*/kPhysicalOffset,
-      /*.size=*/kMappingSize,
+      .virtual_buffer_id = kVirtualBufferId,
+      .physical_memory_id = kPhysicalMemoryId,
+      .virtual_offset = kVirtualOffset,
+      .physical_offset = kPhysicalOffset,
+      .size = kMappingSize,
   };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_MAP,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_MAP,
@@ -679,7 +679,7 @@ TEST_F(ReplayVmmExecutionTest, BackendFailuresRetainRetryableObjects) {
 
   const iree_hal_replay_allocator_physical_memory_free_payload_t free_payload =
       {
-          /*.physical_memory_id=*/kPhysicalMemoryId,
+          .physical_memory_id = kPhysicalMemoryId,
       };
   state_.fail_physical_free = true;
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_FREE,
@@ -693,7 +693,7 @@ TEST_F(ReplayVmmExecutionTest, BackendFailuresRetainRetryableObjects) {
 
   const iree_hal_replay_allocator_virtual_memory_release_payload_t
       release_payload = {
-          /*.virtual_buffer_id=*/kVirtualBufferId,
+          .virtual_buffer_id = kVirtualBufferId,
       };
   state_.fail_release = true;
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_RELEASE,
@@ -714,9 +714,9 @@ TEST_F(ReplayVmmExecutionTest, FailedUnmapRetainsDependenciesUntilRetry) {
 
   const iree_hal_replay_allocator_virtual_memory_unmap_payload_t unmap_payload =
       {
-          /*.virtual_buffer_id=*/kVirtualBufferId,
-          /*.virtual_offset=*/kVirtualOffset,
-          /*.size=*/kMappingSize,
+          .virtual_buffer_id = kVirtualBufferId,
+          .virtual_offset = kVirtualOffset,
+          .size = kMappingSize,
       };
   state_.fail_unmap = true;
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP,
@@ -727,7 +727,7 @@ TEST_F(ReplayVmmExecutionTest, FailedUnmapRetainsDependenciesUntilRetry) {
 
   const iree_hal_replay_allocator_physical_memory_free_payload_t free_payload =
       {
-          /*.physical_memory_id=*/kPhysicalMemoryId,
+          .physical_memory_id = kPhysicalMemoryId,
       };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_FREE,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_PHYSICAL_MEMORY_FREE,
@@ -737,7 +737,7 @@ TEST_F(ReplayVmmExecutionTest, FailedUnmapRetainsDependenciesUntilRetry) {
 
   const iree_hal_replay_allocator_virtual_memory_release_payload_t
       release_payload = {
-          /*.virtual_buffer_id=*/kVirtualBufferId,
+          .virtual_buffer_id = kVirtualBufferId,
       };
   record.Reset(IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_RELEASE,
                IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_RELEASE,

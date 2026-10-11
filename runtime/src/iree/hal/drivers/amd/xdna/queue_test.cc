@@ -505,9 +505,10 @@ struct NativeProvider {
           },
           self, iree_infinite_timeout());
     }
-    amdf_kernel_queue_status_t checked = {};
-    checked.type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS;
-    checked.structure_size = sizeof(checked);
+    amdf_kernel_queue_status_t checked = {
+        .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS,
+        .structure_size = sizeof(checked),
+    };
     const amdf_status_t status = Refresh(queue, &checked);
     if (!amdf_status_is_ok(status)) {
       return status;
@@ -645,11 +646,11 @@ const iree_hal_buffer_binding_layout_t* DirectBufferBindingLayout(void) {
       IREE_HAL_BUFFER_INTERFACE_HOST,
   };
   static const iree_hal_buffer_binding_layout_t layout = {
-      /*.byte_length=*/sizeof(iree_hal_buffer_native_binding_t) *
-          IREE_HAL_AMD_XDNA_BUFFER_BINDING_COUNT,
-      /*.binding_count=*/IREE_ARRAYSIZE(types),
-      /*.host_binding_index=*/IREE_HAL_AMD_XDNA_BUFFER_BINDING_HOST,
-      /*.types=*/types,
+      .byte_length = sizeof(iree_hal_buffer_native_binding_t) *
+                     IREE_HAL_AMD_XDNA_BUFFER_BINDING_COUNT,
+      .binding_count = IREE_ARRAYSIZE(types),
+      .host_binding_index = IREE_HAL_AMD_XDNA_BUFFER_BINDING_HOST,
+      .types = types,
   };
   return &layout;
 }
@@ -891,20 +892,20 @@ class QueueHarness {
         memory_type |= IREE_HAL_MEMORY_TYPE_HOST_CACHED;
       }
       status = iree_hal_amd_fabric_buffer_wrap(
-          (iree_hal_buffer_placement_t){
-              /*.device=*/device,
-              /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+          iree_hal_buffer_placement_t{
+              .device = device,
+              .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
           },
           context->api,
-          (iree_hal_amd_fabric_buffer_storage_t){
-              /*.memory=*/&storage->memory.storage,
-              /*.bindings=*/storage->bindings,
-              /*.host_binding_index=*/IREE_HAL_AMD_XDNA_BUFFER_BINDING_HOST,
+          iree_hal_amd_fabric_buffer_storage_t{
+              .memory = &storage->memory.storage,
+              .bindings = storage->bindings,
+              .host_binding_index = IREE_HAL_AMD_XDNA_BUFFER_BINDING_HOST,
           },
           allocation_size, memory_type, allowed_access, allowed_usage,
-          (iree_hal_buffer_release_callback_t){
-              /*.fn=*/ReleaseDirectBufferStorage,
-              /*.user_data=*/storage,
+          iree_hal_buffer_release_callback_t{
+              .fn = ReleaseDirectBufferStorage,
+              .user_data = storage,
           },
           host_allocator, out_buffer);
       if (iree_status_is_ok(status)) {
@@ -922,13 +923,13 @@ class QueueHarness {
   iree_status_t CreateSlabPool(iree_hal_buffer_usage_t usage,
                                iree_hal_pool_t** out_pool) {
     const iree_hal_pool_family_access_t access = {
-        /*.family=*/iree_hal_queue_family(queue),
-        /*.usage=*/usage,
-        /*.interfaces=*/UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
+        .family = iree_hal_queue_family(queue),
+        .usage = usage,
+        .interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
     };
     const iree_hal_pool_scope_t scope = {
-        /*.family_count=*/1,
-        /*.families=*/&access,
+        .family_count = 1,
+        .families = &access,
     };
     iree_hal_slab_pool_options_t options;
     iree_hal_slab_pool_options_initialize(&options);
@@ -1227,13 +1228,12 @@ TEST(XdnaQueueTest, QueueBarrierPreservesGlobalBoundaryOrdering) {
       IREE_HAL_SEMAPHORE_FLAG_NONE, &ready));
 
   const iree_hal_barrier_t global = {
-      /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
-      /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE,
-      /*.flags=*/IREE_HAL_BARRIER_FLAG_ACQUIRE_SYSTEM_SCOPE |
-          IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE,
-      /*.effects=*/
-      {IREE_HAL_MEMORY_EFFECT_GLOBAL_ACQUIRE_FROM_SYSTEM |
-       IREE_HAL_MEMORY_EFFECT_GLOBAL_RELEASE_TO_SYSTEM},
+      .source_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
+      .target_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_ISSUE,
+      .flags = IREE_HAL_BARRIER_FLAG_ACQUIRE_SYSTEM_SCOPE |
+               IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE,
+      .effects = {IREE_HAL_MEMORY_EFFECT_GLOBAL_ACQUIRE_FROM_SYSTEM |
+                  IREE_HAL_MEMORY_EFFECT_GLOBAL_RELEASE_TO_SYSTEM},
   };
   const iree_hal_barrier_list_t global_list = {1, &global};
   const iree_hal_queue_barriers_t barriers = {&global_list, &global_list};
@@ -1259,31 +1259,31 @@ TEST(XdnaQueueTest, QueueBarrierRejectsRangedQueueOperation) {
   ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(&buffer));
 
   const iree_hal_memory_transition_recipe_info_t operation = {
-      /*.kind=*/IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
-      /*.executor=*/IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE,
-      /*.operation=*/IREE_HAL_MEMORY_TRANSITION_OPERATION_RELEASE_TO_SYSTEM,
-      /*.range_granularity=*/64,
+      .kind = IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
+      .executor = IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE,
+      .operation = IREE_HAL_MEMORY_TRANSITION_OPERATION_RELEASE_TO_SYSTEM,
+      .range_granularity = 64,
   };
   const iree_hal_memory_transition_recipe_t recipe = {
-      /*.effects=*/{IREE_HAL_MEMORY_EFFECT_RANGE_RELEASE_TO_SYSTEM},
-      /*.operation_count=*/1,
-      /*.operations=*/&operation,
+      .effects = {IREE_HAL_MEMORY_EFFECT_RANGE_RELEASE_TO_SYSTEM},
+      .operation_count = 1,
+      .operations = &operation,
   };
   const iree_hal_buffer_barrier_t range = {
-      /*.source_scope=*/IREE_HAL_ACCESS_SCOPE_DISPATCH_WRITE,
-      /*.target_scope=*/IREE_HAL_ACCESS_SCOPE_MEMORY_READ,
-      /*.buffer_ref=*/iree_hal_make_buffer_ref(buffer, 0, 64),
-      /*.recipe=*/&recipe,
+      .source_scope = IREE_HAL_ACCESS_SCOPE_DISPATCH_WRITE,
+      .target_scope = IREE_HAL_ACCESS_SCOPE_MEMORY_READ,
+      .buffer_ref = iree_hal_make_buffer_ref(buffer, 0, 64),
+      .recipe = &recipe,
   };
   const iree_hal_barrier_t barrier = {
-      /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_DISPATCH,
-      /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
-      /*.flags=*/IREE_HAL_BARRIER_FLAG_NONE,
-      /*.effects=*/recipe.effects,
-      /*.memory_barrier_count=*/0,
-      /*.memory_barriers=*/nullptr,
-      /*.buffer_barrier_count=*/1,
-      /*.buffer_barriers=*/&range,
+      .source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+      .target_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
+      .flags = IREE_HAL_BARRIER_FLAG_NONE,
+      .effects = recipe.effects,
+      .memory_barrier_count = 0,
+      .memory_barriers = nullptr,
+      .buffer_barrier_count = 1,
+      .buffer_barriers = &range,
   };
   const iree_hal_barrier_list_t list = {1, &barrier};
   const iree_hal_queue_barriers_t barriers = {&list, nullptr};
@@ -1301,10 +1301,10 @@ TEST(XdnaQueueTest, DispatchAcceptsGlobalVisibilityBoundary) {
   ASSERT_NO_FATAL_FAILURE(harness.Initialize());
 
   const iree_hal_barrier_t global = {
-      /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_DISPATCH,
-      /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
-      /*.flags=*/IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE,
-      /*.effects=*/{IREE_HAL_MEMORY_EFFECT_GLOBAL_RELEASE_TO_SYSTEM},
+      .source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+      .target_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
+      .flags = IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE,
+      .effects = {IREE_HAL_MEMORY_EFFECT_GLOBAL_RELEASE_TO_SYSTEM},
   };
   const iree_hal_barrier_list_t global_list = {1, &global};
   const iree_hal_queue_barriers_t barriers = {nullptr, &global_list};
@@ -1476,8 +1476,8 @@ TEST(XdnaQueueTest, CachedQueueAllocationPublishesContractBeforeDispatch) {
   EXPECT_EQ(harness.native.memory_create_count, memory_create_count + 1);
   iree_hal_memory_scope_t program_scope;
   const iree_hal_memory_site_t program_site = {
-      /*.kind=*/IREE_HAL_MEMORY_SITE_PROGRAM,
-      /*.family=*/iree_hal_queue_family(harness.queue),
+      .kind = IREE_HAL_MEMORY_SITE_PROGRAM,
+      .family = iree_hal_queue_family(harness.queue),
   };
   IREE_ASSERT_OK(iree_hal_device_group_resolve_memory_scope(
       harness.group, program_site, &program_scope));
@@ -1552,7 +1552,7 @@ TEST(XdnaQueueTest, QueueTransfersUsePrivateCachedPoolMapping) {
   }
 
   const iree_hal_pool_reservation_request_t request = {
-      /*.allocation_size=*/64,
+      .allocation_size = 64,
   };
   iree_hal_buffer_t* buffer = nullptr;
   uint64_t value = 1;
@@ -1562,8 +1562,9 @@ TEST(XdnaQueueTest, QueueTransfersUsePrivateCachedPoolMapping) {
   const std::array<uint32_t, 4> expected = {
       UINT32_C(0x13579BDF), UINT32_C(0x2468ACE0), UINT32_C(0xA5A55A5A),
       UINT32_C(0xC001D00D)};
-  iree_hal_transfer_operation_t upload = {};
-  upload.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD;
+  iree_hal_transfer_operation_t upload = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+  };
   upload.upload.source = expected.data();
   upload.upload.target_buffer = buffer;
   upload.upload.length = sizeof(expected);
@@ -1573,8 +1574,9 @@ TEST(XdnaQueueTest, QueueTransfersUsePrivateCachedPoolMapping) {
                                          &upload, /*barriers=*/NULL));
 
   std::array<uint32_t, 4> actual = {};
-  iree_hal_transfer_operation_t download = {};
-  download.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;
+  iree_hal_transfer_operation_t download = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+  };
   download.download.source_buffer = buffer;
   download.download.target = actual.data();
   download.download.length = sizeof(actual);
@@ -1650,8 +1652,9 @@ TEST(XdnaQueueTest, QueueAllocationWaitsBeforeGrowingSourcePool) {
         IREE_HAL_SEMAPHORE_FLAG_NONE, semaphore));
   }
 
-  iree_hal_pool_reservation_request_t request = {};
-  request.allocation_size = 64;
+  iree_hal_pool_reservation_request_t request = {
+      .allocation_size = 64,
+  };
   iree_hal_buffer_t* buffer = nullptr;
   uint64_t value = 1;
   const size_t memory_create_count = harness.native.memory_create_count;
@@ -1710,8 +1713,9 @@ TEST(XdnaQueueTest, WarmQueueMemoryOperationsAllocateNoHostStorage) {
           IREE_HAL_SEMAPHORE_FLAG_NONE, semaphore));
     }
 
-    iree_hal_pool_reservation_request_t request = {};
-    request.allocation_size = 64;
+    iree_hal_pool_reservation_request_t request = {
+        .allocation_size = 64,
+    };
     iree_hal_buffer_t* anchor_buffer = nullptr;
     uint64_t anchor_value = 1;
     IREE_ASSERT_OK(iree_hal_queue_alloca(harness.queue, {},
@@ -2591,8 +2595,9 @@ TEST(XdnaQueueTest, HostProducerProgressesWithFullNativeQueue) {
       harness.device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
       IREE_HAL_SEMAPHORE_FLAG_NONE, &produced));
   const uint32_t payload = 0x12345678;
-  iree_hal_transfer_operation_t transfer = {};
-  transfer.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPDATE;
+  iree_hal_transfer_operation_t transfer = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPDATE,
+  };
   transfer.update.target_buffer = buffer;
   transfer.update.source_buffer = &payload;
   transfer.update.length = sizeof(payload);
@@ -2643,8 +2648,9 @@ TEST(XdnaQueueTest, BlockedNativePublicationDoesNotBlockHostOrProactor) {
       harness.device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
       IREE_HAL_SEMAPHORE_FLAG_NONE, &host_completion));
   const uint32_t payload = 0xA5C33C5A;
-  iree_hal_transfer_operation_t transfer = {};
-  transfer.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPDATE;
+  iree_hal_transfer_operation_t transfer = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPDATE,
+  };
   transfer.update.target_buffer = buffer;
   transfer.update.source_buffer = &payload;
   transfer.update.length = sizeof(payload);
@@ -2903,8 +2909,9 @@ TEST(XdnaQueueTest, WarmQueueOperationsAllocateNoHostStorage) {
 
   auto run_updates = [&](iree_const_byte_span_t source,
                          iree_hal_semaphore_t* completion) {
-    iree_hal_transfer_operation_t transfer = {};
-    transfer.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPDATE;
+    iree_hal_transfer_operation_t transfer = {
+        .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPDATE,
+    };
     transfer.update.source_buffer = source.data;
     transfer.update.target_buffer = transfer_buffer;
     transfer.update.length = source.data_length;
@@ -3054,14 +3061,15 @@ TEST(XdnaQueueTest, FinalPublicationAllowsImmediateDeviceRelease) {
       IREE_HAL_SEMAPHORE_FLAG_NONE, &first));
   ASSERT_NO_FATAL_FAILURE(harness.Submit(first));
   ASSERT_NO_FATAL_FAILURE(harness.Submit());
-  iree_async_semaphore_timepoint_t release_timepoint = {};
-  release_timepoint.callback =
-      +[](void* user_data, iree_async_semaphore_timepoint_t* timepoint,
-          iree_status_t status) {
-        IREE_EXPECT_OK(status);
-        static_cast<QueueHarness*>(user_data)->ReleaseDevice();
-      };
-  release_timepoint.user_data = &harness;
+  iree_async_semaphore_timepoint_t release_timepoint = {
+      .callback =
+          +[](void* user_data, iree_async_semaphore_timepoint_t* timepoint,
+              iree_status_t status) {
+            IREE_EXPECT_OK(status);
+            static_cast<QueueHarness*>(user_data)->ReleaseDevice();
+          },
+      .user_data = &harness,
+  };
   IREE_ASSERT_OK(iree_async_semaphore_acquire_timepoint(
       reinterpret_cast<iree_async_semaphore_t*>(harness.done), 1,
       &release_timepoint));

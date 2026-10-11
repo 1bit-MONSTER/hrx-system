@@ -68,10 +68,10 @@ class EventTimestampPoolTest : public ::testing::Test {
  protected:
   void SetUp() override {
     const iree_hal_pool_host_access_t host_access = {
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
-            IREE_HAL_MAPPING_MODE_PERSISTENT,
-        /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+        .access = IREE_HAL_MEMORY_ACCESS_ALL,
+        .modes =
+            IREE_HAL_MAPPING_MODE_SCOPED | IREE_HAL_MAPPING_MODE_PERSISTENT,
+        .cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
     };
     IREE_ASSERT_OK(
         iree_hal_heap_pool_create(host_access, counter_.AsAllocator(),

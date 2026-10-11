@@ -188,24 +188,24 @@ static iree_status_t CreateTransferPool(iree_hal_device_group_t* device_group,
                                         iree_hal_pool_t** out_pool) {
   iree_hal_device_t* device = iree_hal_device_group_device_at(device_group, 0);
   iree_hal_pool_family_access_t family = {
-      /*.family=*/iree_hal_device_queue_family(device, 0),
-      /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+      .family = iree_hal_device_queue_family(device, 0),
+      .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
   };
   iree_hal_pool_scope_t scope = {
-      /*.family_count=*/1,
-      /*.families=*/&family,
-      /*.host=*/
-      {
-          /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-          /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
-          /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
-      },
+      .family_count = 1,
+      .families = &family,
+      .host =
+          {
+              .access = IREE_HAL_MEMORY_ACCESS_ALL,
+              .modes = IREE_HAL_MAPPING_MODE_SCOPED,
+              .cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+          },
   };
   const iree_hal_external_storage_class_t host_pointer_class =
       iree_hal_make_external_storage_class(
           IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
   const iree_hal_pool_import_class_t import_class = {
-      /*.storage_class=*/host_pointer_class,
+      .storage_class = host_pointer_class,
   };
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);
@@ -298,27 +298,26 @@ TEST_F(ParameterIndexProviderTest, LoadImportsExactParameterRange) {
       IREE_HAL_SEMAPHORE_FLAG_DEFAULT, signal.out()));
 
   ParameterRequest request = {
-      /*.key=*/IREE_SV("weights"),
-      /*.span=*/
-      {/*.parameter_offset=*/3, /*.buffer_offset=*/0, /*.length=*/4},
+      .key = IREE_SV("weights"),
+      .span = {.parameter_offset = 3, .buffer_offset = 0, .length = 4},
   };
   uint64_t signal_value = 1;
   iree_hal_semaphore_t* signal_ptr = signal.get();
   iree_hal_semaphore_list_t signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&signal_ptr,
-      /*.payload_values=*/&signal_value,
+      .count = 1,
+      .semaphores = &signal_ptr,
+      .payload_values = &signal_value,
   };
   Ref<iree_hal_buffer_t, iree_hal_buffer_release> loaded_buffer;
   iree_io_parameter_emitter_t emitter = {
-      /*.fn=*/CaptureLoadedBuffer,
-      /*.user_data=*/loaded_buffer.out(),
+      .fn = CaptureLoadedBuffer,
+      .user_data = loaded_buffer.out(),
   };
   IREE_ASSERT_OK(iree_io_parameter_provider_load(
       provider.get(), device(), queue(), pool.get(),
       iree_hal_semaphore_list_empty(), signal_list, IREE_SV("model"),
       /*target_min_alignment=*/1, /*count=*/1,
-      {/*.fn=*/EnumerateParameterRequest, /*.user_data=*/&request}, emitter));
+      {.fn = EnumerateParameterRequest, .user_data = &request}, emitter));
   IREE_ASSERT_OK(iree_hal_semaphore_wait(signal.get(), signal_value,
                                          iree_infinite_timeout(),
                                          IREE_ASYNC_WAIT_FLAG_NONE));
@@ -356,24 +355,23 @@ TEST_F(ParameterIndexProviderTest, LoadAllocatesFullTargetSpan) {
       IREE_HAL_SEMAPHORE_FLAG_DEFAULT, signal.out()));
 
   ParameterRequest request = {
-      /*.key=*/IREE_SV("padding"),
-      /*.span=*/
-      {/*.parameter_offset=*/0, /*.buffer_offset=*/3, /*.length=*/4},
+      .key = IREE_SV("padding"),
+      .span = {.parameter_offset = 0, .buffer_offset = 3, .length = 4},
   };
   uint64_t signal_value = 1;
   iree_hal_semaphore_t* signal_ptr = signal.get();
   iree_hal_semaphore_list_t signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&signal_ptr,
-      /*.payload_values=*/&signal_value,
+      .count = 1,
+      .semaphores = &signal_ptr,
+      .payload_values = &signal_value,
   };
   Ref<iree_hal_buffer_t, iree_hal_buffer_release> loaded_buffer;
   IREE_ASSERT_OK(iree_io_parameter_provider_load(
       provider.get(), device(), queue(), pool.get(),
       iree_hal_semaphore_list_empty(), signal_list, IREE_SV("model"),
       /*target_min_alignment=*/16, /*count=*/1,
-      {/*.fn=*/EnumerateParameterRequest, /*.user_data=*/&request},
-      {/*.fn=*/CaptureLoadedBuffer, /*.user_data=*/loaded_buffer.out()}));
+      {.fn = EnumerateParameterRequest, .user_data = &request},
+      {.fn = CaptureLoadedBuffer, .user_data = loaded_buffer.out()}));
   IREE_ASSERT_OK(iree_hal_semaphore_wait(signal.get(), signal_value,
                                          iree_infinite_timeout(),
                                          IREE_ASYNC_WAIT_FLAG_NONE));

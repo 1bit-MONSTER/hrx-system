@@ -59,17 +59,19 @@ class VulkanBufferTest : public ::testing::Test {
   iree_status_t CreateSparseSubspan(iree_device_size_t byte_offset,
                                     VkDeviceAddress device_address) {
     g_sparse_device_address = device_address;
-    iree_hal_vulkan_device_syms_t syms = {};
-    syms.vkGetBufferDeviceAddress = FakeGetBufferDeviceAddress;
-    syms.vkDestroyBuffer = FakeDestroyBuffer;
+    iree_hal_vulkan_device_syms_t syms = {
+        .vkDestroyBuffer = FakeDestroyBuffer,
+        .vkGetBufferDeviceAddress = FakeGetBufferDeviceAddress,
+    };
     iree_hal_buffer_placement_t placement =
         iree_hal_buffer_placement_undefined();
     placement.device =
         reinterpret_cast<iree_hal_device_t*>(static_cast<uintptr_t>(0x1000));
-    VkMemoryRequirements memory_requirements = {};
-    memory_requirements.size = 64;
-    memory_requirements.alignment = 1;
-    memory_requirements.memoryTypeBits = 1;
+    VkMemoryRequirements memory_requirements = {
+        .size = 64,
+        .alignment = 1,
+        .memoryTypeBits = 1,
+    };
     iree_status_t status = iree_hal_vulkan_sparse_buffer_create_unbound(
         &syms, reinterpret_cast<VkDevice>(static_cast<uintptr_t>(0x2000)),
         placement, IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,

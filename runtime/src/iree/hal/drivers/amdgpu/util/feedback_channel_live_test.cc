@@ -306,13 +306,14 @@ TEST_F(FeedbackChannelLiveTest, DeviceProducerSignalsHost) {
       &libhsa, gpu_agent, &ring_memory_pool));
 
   iree_hal_amdgpu_feedback_channel_t channel = {};
-  iree_hal_amdgpu_feedback_channel_params_t channel_params = {};
-  channel_params.libhsa = &libhsa;
-  channel_params.device_agent = gpu_agent;
-  channel_params.control_memory_pool = control_memory_pool;
-  channel_params.ring_memory_pool = ring_memory_pool;
-  channel_params.topology = &topology;
-  channel_params.minimum_capacity = 4 * 1024;
+  iree_hal_amdgpu_feedback_channel_params_t channel_params = {
+      .libhsa = &libhsa,
+      .device_agent = gpu_agent,
+      .control_memory_pool = control_memory_pool,
+      .ring_memory_pool = ring_memory_pool,
+      .topology = &topology,
+      .minimum_capacity = 4 * 1024,
+  };
   IREE_ASSERT_OK(
       iree_hal_amdgpu_feedback_channel_initialize(&channel_params, &channel));
 

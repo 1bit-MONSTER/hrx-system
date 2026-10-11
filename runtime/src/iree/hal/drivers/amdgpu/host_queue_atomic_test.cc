@@ -88,17 +88,17 @@ class HostQueueAtomicTest
       iree_hal_buffer_t** out_buffer) {
     if (!import_pool->get()) {
       const iree_hal_pool_family_access_t family_access = {
-          /*.family=*/iree_hal_queue_family(test_device->queue(
+          .family = iree_hal_queue_family(test_device->queue(
               (iree_hal_queue_family_ordinal_t)physical_device_ordinal)),
-          /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE |
-              IREE_HAL_BUFFER_USAGE_TRANSFER,
+          .usage =
+              IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER,
       };
       const iree_hal_pool_scope_t scope = {
-          /*.family_count=*/1,
-          /*.families=*/&family_access,
+          .family_count = 1,
+          .families = &family_access,
       };
       const iree_hal_pool_import_class_t import_class = {
-          /*.storage_class=*/iree_hal_make_external_storage_class(
+          .storage_class = iree_hal_make_external_storage_class(
               IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
       };
       iree_hal_slab_pool_options_t options;
@@ -112,10 +112,11 @@ class HostQueueAtomicTest
           import_pool->out()));
     }
 
-    iree_hal_external_storage_t external_buffer = {};
-    external_buffer.storage_class = iree_hal_make_external_storage_class(
-        IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER);
-    external_buffer.byte_length = byte_length;
+    iree_hal_external_storage_t external_buffer = {
+        .storage_class = iree_hal_make_external_storage_class(
+            IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
+        .byte_length = byte_length,
+    };
     external_buffer.payload.host_pointer = host_pointer;
     external_buffer.maintenance_range =
         iree_hal_make_buffer_range(0, byte_length);
@@ -292,9 +293,9 @@ TEST_F(HostQueueAtomicTest,
   auto signal_and_wait = [&](auto submit) -> iree_status_t {
     ++completion_value;
     const iree_hal_semaphore_list_t signal_list = {
-        /*.count=*/1,
-        /*.semaphores=*/&completion_semaphore,
-        /*.payload_values=*/&completion_value,
+        .count = 1,
+        .semaphores = &completion_semaphore,
+        .payload_values = &completion_value,
     };
     IREE_RETURN_IF_ERROR(submit(signal_list));
     return iree_hal_semaphore_wait(completion, completion_value,
@@ -415,9 +416,9 @@ TEST_F(HostQueueAtomicTest, HostWaitForEarlierValueIgnoresLaterProducerEpoch) {
   iree_hal_semaphore_t* timeline_semaphore = timeline.get();
   uint64_t first_value = 1;
   const iree_hal_semaphore_list_t first_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&timeline_semaphore,
-      /*.payload_values=*/&first_value,
+      .count = 1,
+      .semaphores = &timeline_semaphore,
+      .payload_values = &first_value,
   };
   IREE_ASSERT_OK(iree_hal_queue_atomic_wait(
       queue, iree_hal_semaphore_list_empty(), first_signal_list, buffer,
@@ -434,9 +435,9 @@ TEST_F(HostQueueAtomicTest, HostWaitForEarlierValueIgnoresLaterProducerEpoch) {
 
   uint64_t second_value = 2;
   const iree_hal_semaphore_list_t second_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&timeline_semaphore,
-      /*.payload_values=*/&second_value,
+      .count = 1,
+      .semaphores = &timeline_semaphore,
+      .payload_values = &second_value,
   };
   IREE_ASSERT_OK(iree_hal_queue_atomic_wait(
       queue, iree_hal_semaphore_list_empty(), second_signal_list, buffer,
@@ -492,12 +493,14 @@ TEST_F(HostQueueAtomicTest, DirectWaitBeforeStoreOnIndependentQueue) {
       sizeof(storage), &release_latch, &import_pool, buffer.out()));
 
   const iree_hal_barrier_list_t empty = {};
-  iree_hal_barrier_t acquire = {};
-  acquire.flags = IREE_HAL_BARRIER_FLAG_ACQUIRE_SYSTEM_SCOPE;
+  iree_hal_barrier_t acquire = {
+      .flags = IREE_HAL_BARRIER_FLAG_ACQUIRE_SYSTEM_SCOPE,
+  };
   const iree_hal_barrier_list_t acquire_list = {1, &acquire};
   const iree_hal_queue_barriers_t wait_barriers = {&empty, &acquire_list};
-  iree_hal_barrier_t release = {};
-  release.flags = IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE;
+  iree_hal_barrier_t release = {
+      .flags = IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE,
+  };
   const iree_hal_barrier_list_t release_list = {1, &release};
   const iree_hal_queue_barriers_t store_barriers = {&release_list, &empty};
 
@@ -507,9 +510,9 @@ TEST_F(HostQueueAtomicTest, DirectWaitBeforeStoreOnIndependentQueue) {
   iree_hal_semaphore_t* wait_completion_semaphore = wait_completion.get();
   uint64_t wait_completion_value = 1;
   const iree_hal_semaphore_list_t wait_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&wait_completion_semaphore,
-      /*.payload_values=*/&wait_completion_value,
+      .count = 1,
+      .semaphores = &wait_completion_semaphore,
+      .payload_values = &wait_completion_value,
   };
   IREE_ASSERT_OK(iree_hal_queue_atomic_wait(
       wait_queue, iree_hal_semaphore_list_empty(), wait_signal_list, buffer,
@@ -529,9 +532,9 @@ TEST_F(HostQueueAtomicTest, DirectWaitBeforeStoreOnIndependentQueue) {
   iree_hal_semaphore_t* store_completion_semaphore = store_completion.get();
   uint64_t store_completion_value = 1;
   const iree_hal_semaphore_list_t store_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&store_completion_semaphore,
-      /*.payload_values=*/&store_completion_value,
+      .count = 1,
+      .semaphores = &store_completion_semaphore,
+      .payload_values = &store_completion_value,
   };
   IREE_ASSERT_OK(iree_hal_queue_atomic_store(
       store_queue, iree_hal_semaphore_list_empty(), store_signal_list, buffer,
@@ -579,9 +582,9 @@ TEST_F(HostQueueAtomicTest, DeferredDirectOperationsRetainTarget) {
   iree_hal_semaphore_t* gate_semaphore = gate.get();
   uint64_t gate_value = 1;
   const iree_hal_semaphore_list_t gate_wait_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&gate_semaphore,
-      /*.payload_values=*/&gate_value,
+      .count = 1,
+      .semaphores = &gate_semaphore,
+      .payload_values = &gate_value,
   };
   std::array<Ref<iree_hal_semaphore_t>, 3> completions;
   std::array<iree_hal_semaphore_t*, 3> completion_semaphores = {};
@@ -596,9 +599,9 @@ TEST_F(HostQueueAtomicTest, DeferredDirectOperationsRetainTarget) {
       IREE_HAL_ATOMIC_FLAG_SYSTEM_SCOPE;
 
   const iree_hal_semaphore_list_t wait_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&completion_semaphores[0],
-      /*.payload_values=*/&completion_values[0],
+      .count = 1,
+      .semaphores = &completion_semaphores[0],
+      .payload_values = &completion_values[0],
   };
   IREE_ASSERT_OK(iree_hal_queue_atomic_wait(
       queue, gate_wait_list, wait_signal_list, buffer, /*target_offset=*/0,
@@ -611,9 +614,9 @@ TEST_F(HostQueueAtomicTest, DeferredDirectOperationsRetainTarget) {
       },
       /*barriers=*/NULL));
   const iree_hal_semaphore_list_t store_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&completion_semaphores[1],
-      /*.payload_values=*/&completion_values[1],
+      .count = 1,
+      .semaphores = &completion_semaphores[1],
+      .payload_values = &completion_values[1],
   };
   IREE_ASSERT_OK(iree_hal_queue_atomic_store(
       queue, gate_wait_list, store_signal_list, buffer,
@@ -625,9 +628,9 @@ TEST_F(HostQueueAtomicTest, DeferredDirectOperationsRetainTarget) {
       },
       /*barriers=*/NULL));
   const iree_hal_semaphore_list_t rmw_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&completion_semaphores[2],
-      /*.payload_values=*/&completion_values[2],
+      .count = 1,
+      .semaphores = &completion_semaphores[2],
+      .payload_values = &completion_values[2],
   };
   IREE_ASSERT_OK(iree_hal_queue_atomic_rmw(
       queue, gate_wait_list, rmw_signal_list, buffer,
@@ -683,9 +686,9 @@ TEST_F(HostQueueAtomicTest, DeferredDirectMisalignmentFailsAndQueueRecovers) {
   iree_hal_semaphore_t* gate_semaphore = gate.get();
   uint64_t gate_value = 1;
   const iree_hal_semaphore_list_t wait_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&gate_semaphore,
-      /*.payload_values=*/&gate_value,
+      .count = 1,
+      .semaphores = &gate_semaphore,
+      .payload_values = &gate_value,
   };
   std::array<Ref<iree_hal_semaphore_t>, 2> failed_completions;
   std::array<iree_hal_semaphore_t*, 2> failed_completion_semaphores = {};
@@ -696,9 +699,9 @@ TEST_F(HostQueueAtomicTest, DeferredDirectMisalignmentFailsAndQueueRecovers) {
     failed_completion_semaphores[i] = failed_completions[i].get();
   }
   const iree_hal_semaphore_list_t failed_signal_list = {
-      /*.count=*/failed_completion_semaphores.size(),
-      /*.semaphores=*/failed_completion_semaphores.data(),
-      /*.payload_values=*/failed_completion_values.data(),
+      .count = failed_completion_semaphores.size(),
+      .semaphores = failed_completion_semaphores.data(),
+      .payload_values = failed_completion_values.data(),
   };
   IREE_ASSERT_OK(iree_hal_queue_atomic_store(
       queue, wait_list, failed_signal_list, misaligned_buffer,
@@ -737,9 +740,9 @@ TEST_F(HostQueueAtomicTest, DeferredDirectMisalignmentFailsAndQueueRecovers) {
   iree_hal_semaphore_t* valid_completion_semaphore = valid_completion.get();
   uint64_t valid_completion_value = 1;
   const iree_hal_semaphore_list_t valid_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&valid_completion_semaphore,
-      /*.payload_values=*/&valid_completion_value,
+      .count = 1,
+      .semaphores = &valid_completion_semaphore,
+      .payload_values = &valid_completion_value,
   };
   IREE_ASSERT_OK(iree_hal_queue_atomic_store(
       queue, iree_hal_semaphore_list_empty(), valid_signal_list, valid_buffer,
@@ -856,16 +859,16 @@ TEST_P(HostQueueAtomicTest, ReusableProgramRetainsAndRebindsResources) {
   iree_hal_semaphore_t* gate_semaphore = gate.get();
   uint64_t gate_value = 1;
   const iree_hal_semaphore_list_t first_wait_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&gate_semaphore,
-      /*.payload_values=*/&gate_value,
+      .count = 1,
+      .semaphores = &gate_semaphore,
+      .payload_values = &gate_value,
   };
   iree_hal_semaphore_t* completion_semaphore = completion.get();
   uint64_t first_completion_value = 1;
   const iree_hal_semaphore_list_t first_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&completion_semaphore,
-      /*.payload_values=*/&first_completion_value,
+      .count = 1,
+      .semaphores = &completion_semaphore,
+      .payload_values = &first_completion_value,
   };
   const iree_hal_buffer_binding_t first_binding = {
       .buffer = first_buffer.get(),
@@ -873,8 +876,8 @@ TEST_P(HostQueueAtomicTest, ReusableProgramRetainsAndRebindsResources) {
       .length = IREE_HAL_WHOLE_BUFFER,
   };
   const iree_hal_buffer_binding_table_t first_binding_table = {
-      /*.count=*/1,
-      /*.bindings=*/&first_binding,
+      .count = 1,
+      .bindings = &first_binding,
   };
   IREE_ASSERT_OK(iree_hal_queue_execute(
       queue, first_wait_list, first_signal_list, command_buffer,
@@ -883,9 +886,9 @@ TEST_P(HostQueueAtomicTest, ReusableProgramRetainsAndRebindsResources) {
   const iree_hal_semaphore_list_t second_wait_list = first_signal_list;
   uint64_t second_completion_value = 2;
   const iree_hal_semaphore_list_t second_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&completion_semaphore,
-      /*.payload_values=*/&second_completion_value,
+      .count = 1,
+      .semaphores = &completion_semaphore,
+      .payload_values = &second_completion_value,
   };
   const iree_hal_buffer_binding_t second_binding = {
       .buffer = second_buffer.get(),
@@ -893,8 +896,8 @@ TEST_P(HostQueueAtomicTest, ReusableProgramRetainsAndRebindsResources) {
       .length = IREE_HAL_WHOLE_BUFFER,
   };
   const iree_hal_buffer_binding_table_t second_binding_table = {
-      /*.count=*/1,
-      /*.bindings=*/&second_binding,
+      .count = 1,
+      .bindings = &second_binding,
   };
   IREE_ASSERT_OK(iree_hal_queue_execute(
       queue, second_wait_list, second_signal_list, command_buffer,
@@ -973,9 +976,9 @@ TEST_P(HostQueueAtomicTest, DeferredResolvedMisalignmentFailsAndQueueRecovers) {
   iree_hal_semaphore_t* gate_semaphore = gate.get();
   uint64_t gate_value = 1;
   const iree_hal_semaphore_list_t wait_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&gate_semaphore,
-      /*.payload_values=*/&gate_value,
+      .count = 1,
+      .semaphores = &gate_semaphore,
+      .payload_values = &gate_value,
   };
   Ref<iree_hal_semaphore_t> failed_completion;
   IREE_ASSERT_OK(
@@ -983,9 +986,9 @@ TEST_P(HostQueueAtomicTest, DeferredResolvedMisalignmentFailsAndQueueRecovers) {
   iree_hal_semaphore_t* failed_completion_semaphore = failed_completion.get();
   uint64_t failed_completion_value = 1;
   const iree_hal_semaphore_list_t failed_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&failed_completion_semaphore,
-      /*.payload_values=*/&failed_completion_value,
+      .count = 1,
+      .semaphores = &failed_completion_semaphore,
+      .payload_values = &failed_completion_value,
   };
   const iree_hal_buffer_binding_t misaligned_binding = {
       .buffer = misaligned_buffer.get(),
@@ -993,8 +996,8 @@ TEST_P(HostQueueAtomicTest, DeferredResolvedMisalignmentFailsAndQueueRecovers) {
       .length = IREE_HAL_WHOLE_BUFFER,
   };
   const iree_hal_buffer_binding_table_t misaligned_binding_table = {
-      /*.count=*/1,
-      /*.bindings=*/&misaligned_binding,
+      .count = 1,
+      .bindings = &misaligned_binding,
   };
   IREE_ASSERT_OK(iree_hal_queue_execute(
       queue, wait_list, failed_signal_list, command_buffer,
@@ -1031,17 +1034,17 @@ TEST_P(HostQueueAtomicTest, DeferredResolvedMisalignmentFailsAndQueueRecovers) {
   iree_hal_semaphore_t* incompatible_gate_semaphore = incompatible_gate.get();
   uint64_t incompatible_gate_value = 1;
   const iree_hal_semaphore_list_t incompatible_wait_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&incompatible_gate_semaphore,
-      /*.payload_values=*/&incompatible_gate_value,
+      .count = 1,
+      .semaphores = &incompatible_gate_semaphore,
+      .payload_values = &incompatible_gate_value,
   };
   iree_hal_semaphore_t* incompatible_completion_semaphore =
       incompatible_completion.get();
   uint64_t incompatible_completion_value = 1;
   const iree_hal_semaphore_list_t incompatible_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&incompatible_completion_semaphore,
-      /*.payload_values=*/&incompatible_completion_value,
+      .count = 1,
+      .semaphores = &incompatible_completion_semaphore,
+      .payload_values = &incompatible_completion_value,
   };
   const iree_hal_buffer_binding_t incompatible_binding = {
       .buffer = incompatible_buffer.get(),
@@ -1049,8 +1052,8 @@ TEST_P(HostQueueAtomicTest, DeferredResolvedMisalignmentFailsAndQueueRecovers) {
       .length = IREE_HAL_WHOLE_BUFFER,
   };
   const iree_hal_buffer_binding_table_t incompatible_binding_table = {
-      /*.count=*/1,
-      /*.bindings=*/&incompatible_binding,
+      .count = 1,
+      .bindings = &incompatible_binding,
   };
   IREE_ASSERT_OK(iree_hal_queue_execute(
       queue, incompatible_wait_list, incompatible_signal_list,
@@ -1082,9 +1085,9 @@ TEST_P(HostQueueAtomicTest, DeferredResolvedMisalignmentFailsAndQueueRecovers) {
   iree_hal_semaphore_t* valid_completion_semaphore = valid_completion.get();
   uint64_t valid_completion_value = 1;
   const iree_hal_semaphore_list_t valid_signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&valid_completion_semaphore,
-      /*.payload_values=*/&valid_completion_value,
+      .count = 1,
+      .semaphores = &valid_completion_semaphore,
+      .payload_values = &valid_completion_value,
   };
   const iree_hal_buffer_binding_t valid_binding = {
       .buffer = valid_buffer.get(),
@@ -1092,8 +1095,8 @@ TEST_P(HostQueueAtomicTest, DeferredResolvedMisalignmentFailsAndQueueRecovers) {
       .length = IREE_HAL_WHOLE_BUFFER,
   };
   const iree_hal_buffer_binding_table_t valid_binding_table = {
-      /*.count=*/1,
-      /*.bindings=*/&valid_binding,
+      .count = 1,
+      .bindings = &valid_binding,
   };
   IREE_ASSERT_OK(iree_hal_queue_execute(
       queue, iree_hal_semaphore_list_empty(), valid_signal_list, command_buffer,
@@ -1243,9 +1246,9 @@ TEST_P(HostQueueAtomicTest, SupportsWidthsConditionsAndRmwOperations) {
   iree_hal_semaphore_t* completion_semaphore = completion.get();
   uint64_t completion_value = 1;
   const iree_hal_semaphore_list_t signal_list = {
-      /*.count=*/1,
-      /*.semaphores=*/&completion_semaphore,
-      /*.payload_values=*/&completion_value,
+      .count = 1,
+      .semaphores = &completion_semaphore,
+      .payload_values = &completion_value,
   };
   const iree_hal_buffer_binding_t binding = {
       .buffer = buffer.get(),
@@ -1253,8 +1256,8 @@ TEST_P(HostQueueAtomicTest, SupportsWidthsConditionsAndRmwOperations) {
       .length = IREE_HAL_WHOLE_BUFFER,
   };
   const iree_hal_buffer_binding_table_t binding_table = {
-      /*.count=*/1,
-      /*.bindings=*/&binding,
+      .count = 1,
+      .bindings = &binding,
   };
   IREE_ASSERT_OK(iree_hal_queue_execute(
       queue, iree_hal_semaphore_list_empty(), signal_list, command_buffer,

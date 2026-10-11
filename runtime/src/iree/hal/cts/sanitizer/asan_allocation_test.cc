@@ -172,8 +172,8 @@ class AsanAllocationTest : public ::testing::TestWithParam<BackendInfo> {
         iree_hal_make_external_storage_class(
             IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS);
     const iree_hal_pool_export_classes_t exports = {
-        /*.class_count=*/1,
-        /*.classes=*/&device_address_class,
+        .class_count = 1,
+        .classes = &device_address_class,
     };
     IREE_ASSERT_OK(SanitizerCreateDevicePool(
         asan_device_.device_group(), queue(), exports, allocation_pool_.out()));
@@ -274,8 +274,9 @@ TEST_P(AsanAllocationTest, ScopedSourcesPreserveNativeSanitizerAdvice) {
     Ref<iree_hal_pool_t> pool;
     IREE_ASSERT_OK(iree_hal_tlsf_pool_create(
         source, &options, iree_allocator_system(), pool.out()));
-    iree_hal_pool_reservation_request_t request = {};
-    request.allocation_size = kAsanAllocationBufferLength;
+    iree_hal_pool_reservation_request_t request = {
+        .allocation_size = kAsanAllocationBufferLength,
+    };
     Ref<iree_hal_buffer_t> buffer;
     SemaphoreList allocated(device(), {0}, {1});
     IREE_ASSERT_OK(
@@ -398,10 +399,11 @@ TEST_P(AsanAllocationTest, QueueDeallocaReleaseReportsAfterSignal) {
     IREE_ASSERT_OK(SanitizerCreateDevicePool(
         asan_device_.device_group(), queue, /*exports=*/{}, native_pool.out()));
     if (kind == PoolKind::kFixedBlock) {
-      iree_hal_fixed_block_pool_options_t options = {};
-      options.block_size = kAsanAllocationBufferLength;
-      options.blocks_per_slab = 2;
-      options.asan = sanitizer->asan.pool_options;
+      iree_hal_fixed_block_pool_options_t options = {
+          .block_size = kAsanAllocationBufferLength,
+          .blocks_per_slab = 2,
+          .asan = sanitizer->asan.pool_options,
+      };
       IREE_ASSERT_OK(CreateFiniteBlockPool(
           native_pool, options, iree_allocator_system(), pool.out()));
       backing_pool = std::move(native_pool);
@@ -473,10 +475,11 @@ TEST_P(AsanAllocationTest, GuardedFiniteAllocaWaitsForInheritedHostUse) {
   uint64_t host_epoch = 0;
   for (bool use_tlsf : {false, true}) {
     SCOPED_TRACE(use_tlsf ? "TLSF" : "fixed block");
-    iree_hal_fixed_block_pool_options_t source_options = {};
-    source_options.block_size = 65536;
-    source_options.blocks_per_slab = 1;
-    source_options.frontier_capacity = 1;
+    iree_hal_fixed_block_pool_options_t source_options = {
+        .block_size = 65536,
+        .blocks_per_slab = 1,
+        .frontier_capacity = 1,
+    };
     Ref<iree_hal_pool_t> backing_pool;
     Ref<iree_hal_pool_t> source_pool;
     IREE_ASSERT_OK(SanitizerCreateDevicePool(asan_device_.device_group(),
@@ -513,15 +516,17 @@ TEST_P(AsanAllocationTest, GuardedFiniteAllocaWaitsForInheritedHostUse) {
         IREE_HAL_POOL_MATERIALIZE_FLAG_NONE, source.out()));
     Ref<iree_hal_pool_t> pool;
     if (use_tlsf) {
-      iree_hal_tlsf_pool_options_t options = {};
-      options.asan = sanitizer->asan.pool_options;
+      iree_hal_tlsf_pool_options_t options = {
+          .asan = sanitizer->asan.pool_options,
+      };
       IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
           source, 0, IREE_HAL_WHOLE_BUFFER, &options, iree_allocator_system(),
           pool.out()));
     } else {
-      iree_hal_fixed_block_pool_options_t options = {};
-      options.block_size = kAsanAllocationBufferLength;
-      options.asan = sanitizer->asan.pool_options;
+      iree_hal_fixed_block_pool_options_t options = {
+          .block_size = kAsanAllocationBufferLength,
+          .asan = sanitizer->asan.pool_options,
+      };
       IREE_ASSERT_OK(iree_hal_fixed_block_pool_create_from_buffer(
           source, 0, IREE_HAL_WHOLE_BUFFER, &options, iree_allocator_system(),
           pool.out()));

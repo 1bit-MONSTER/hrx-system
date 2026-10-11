@@ -334,13 +334,14 @@ TEST_F(LowLowerRuleValueTest, FactDerivedSourceRefsRequireFacts) {
         LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
         LOOM_LOW_LOWER_VALUE_REF_UNIFORM_ELEMENT_ORIGIN_OPERAND}) {
     const loom_low_lower_value_ref_t value_ref = {
-        /*.kind=*/static_cast<uint8_t>(kind),
-        /*.source_node_index=*/0,
-        /*.index=*/0,
+        .kind = static_cast<uint8_t>(kind),
+        .source_node_index = 0,
+        .index = 0,
     };
-    loom_low_lower_rule_set_t rule_set = {};
-    rule_set.value_refs = &value_ref;
-    rule_set.value_ref_count = 1;
+    loom_low_lower_rule_set_t rule_set = {
+        .value_refs = &value_ref,
+        .value_ref_count = 1,
+    };
     loom_value_id_t resolved = LOOM_VALUE_ID_INVALID;
     EXPECT_FALSE(loom_low_lower_rule_resolve_source_value_from_nodes(
         module_, /*fact_table=*/nullptr,

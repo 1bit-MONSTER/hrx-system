@@ -222,8 +222,9 @@ TEST_P(AmdgpuSlabPoolTest, NativeOnlyQueueAllocationKeepsZeroUsage) {
   }
   Ref<iree_hal_pool_t> source;
   IREE_ASSERT_OK(CreateSource(Scope(), source.out()));
-  iree_hal_pool_reservation_request_t request = {};
-  request.allocation_size = sizeof(uint32_t);
+  iree_hal_pool_reservation_request_t request = {
+      .allocation_size = sizeof(uint32_t),
+  };
   Ref<iree_hal_buffer_t> buffer;
   SemaphoreList allocated(devices_[0], {0}, {1});
   IREE_ASSERT_OK(
@@ -375,8 +376,9 @@ TEST_P(AmdgpuSlabPoolTest, PrivateHostBindingsSurviveQueuedCommitment) {
       source, scope, IREE_HAL_BUFFER_INTERFACE_HOST, &slot));
   EXPECT_EQ(iree_hal_pool_query_host_access(source).access,
             IREE_HAL_MEMORY_ACCESS_NONE);
-  iree_hal_pool_reservation_request_t request = {};
-  request.allocation_size = 32;
+  iree_hal_pool_reservation_request_t request = {
+      .allocation_size = 32,
+  };
   Ref<iree_hal_buffer_t> buffer;
   SemaphoreList allocated(devices_[1], {0}, {1});
   IREE_ASSERT_OK(
@@ -455,8 +457,9 @@ TEST_P(AmdgpuSlabPoolTest, HostOnlySourceDoesNotGrantQueueAccess) {
                           iree_hal_semaphore_list_empty(), buffer, 0,
                           sizeof(value), &value, sizeof(value),
                           /*barriers=*/NULL, IREE_HAL_FILL_FLAG_NONE));
-  iree_hal_pool_reservation_request_t request = {};
-  request.allocation_size = sizeof(value);
+  iree_hal_pool_reservation_request_t request = {
+      .allocation_size = sizeof(value),
+  };
   Ref<iree_hal_buffer_t> queued;
   SemaphoreList allocated(devices_[0], {0}, {1});
   IREE_EXPECT_STATUS_IS(
@@ -512,12 +515,12 @@ TEST_P(AmdgpuSlabPoolTest, ImportsHostStorageWithExactRangeAndOwnership) {
       device_address_class,
   };
   const iree_hal_pool_import_class_t import_class = {
-      /*.storage_class=*/host_pointer_class,
-      /*.exports=*/
-      {
-          /*.class_count=*/export_classes.size(),
-          /*.classes=*/export_classes.data(),
-      },
+      .storage_class = host_pointer_class,
+      .exports =
+          {
+              .class_count = export_classes.size(),
+              .classes = export_classes.data(),
+          },
   };
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);
@@ -551,14 +554,14 @@ TEST_P(AmdgpuSlabPoolTest, ImportsHostStorageWithExactRangeAndOwnership) {
   constexpr iree_device_size_t kLogicalOffset = 256;
   constexpr iree_device_size_t kLogicalLength = 1024;
   iree_hal_external_storage_t storage = {
-      /*.storage_class=*/host_pointer_class,
-      /*.payload=*/{/*.host_pointer=*/allocation.pointer},
-      /*.byte_length=*/storage_length,
-      /*.host_cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
-      /*.maintenance_range=*/iree_hal_make_buffer_range(0, storage_length),
-      /*.physical_backing_id=*/{{0xA11C, 0xBACC}},
-      /*.release=*/ReleaseImportedHostAllocation,
-      /*.release_user_data=*/&allocation,
+      .storage_class = host_pointer_class,
+      .payload = {.host_pointer = allocation.pointer},
+      .byte_length = storage_length,
+      .host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+      .maintenance_range = iree_hal_make_buffer_range(0, storage_length),
+      .physical_backing_id = {{0xA11C, 0xBACC}},
+      .release = ReleaseImportedHostAllocation,
+      .release_user_data = &allocation,
   };
   Ref<iree_hal_buffer_t> buffer;
   IREE_ASSERT_OK(iree_hal_pool_import_buffer(
@@ -655,15 +658,15 @@ TEST_P(AmdgpuSlabPoolTest, BroadImportPoolUsesCommonRouteGuarantees) {
           IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS);
   const iree_hal_pool_import_class_t import_classes[] = {
       {
-          /*.storage_class=*/host_pointer_class,
+          .storage_class = host_pointer_class,
       },
       {
-          /*.storage_class=*/device_address_class,
-          /*.exports=*/
-          {
-              /*.class_count=*/1,
-              /*.classes=*/&device_address_class,
-          },
+          .storage_class = device_address_class,
+          .exports =
+              {
+                  .class_count = 1,
+                  .classes = &device_address_class,
+              },
       },
   };
   iree_hal_slab_pool_options_t import_options;
@@ -763,12 +766,12 @@ TEST_P(AmdgpuSlabPoolTest, RejectsUnsatisfiedExternalRouteContracts) {
       iree_hal_make_external_storage_class(
           IREE_HAL_EXTERNAL_STORAGE_TYPE_DEVICE_ADDRESS);
   iree_hal_pool_import_class_t import_class = {
-      /*.storage_class=*/device_address_class,
-      /*.exports=*/
-      {
-          /*.class_count=*/1,
-          /*.classes=*/&host_pointer_class,
-      },
+      .storage_class = device_address_class,
+      .exports =
+          {
+              .class_count = 1,
+              .classes = &host_pointer_class,
+          },
   };
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);
@@ -783,10 +786,10 @@ TEST_P(AmdgpuSlabPoolTest, RejectsUnsatisfiedExternalRouteContracts) {
 
   const iree_hal_pool_import_class_t broad_classes[] = {
       {
-          /*.storage_class=*/host_pointer_class,
+          .storage_class = host_pointer_class,
       },
       {
-          /*.storage_class=*/device_address_class,
+          .storage_class = device_address_class,
       },
   };
   options.imports.class_count = IREE_ARRAYSIZE(broad_classes);
@@ -819,10 +822,11 @@ TEST_P(AmdgpuSlabPoolTest, SharedCacheFeedsBothPoliciesAcrossNativeOwners) {
   tlsf_options.tlsf_options.frontier_capacity = 4;
   IREE_ASSERT_OK(iree_hal_tlsf_pool_create(
       cache, &tlsf_options, iree_allocator_system(), children[0].out()));
-  iree_hal_fixed_block_pool_options_t block_options = {};
-  block_options.block_size = 256;
-  block_options.blocks_per_slab = 16;
-  block_options.frontier_capacity = 4;
+  iree_hal_fixed_block_pool_options_t block_options = {
+      .block_size = 256,
+      .blocks_per_slab = 16,
+      .frontier_capacity = 4,
+  };
   IREE_ASSERT_OK(iree_hal_fixed_block_pool_create(
       cache, &block_options, iree_allocator_system(), children[1].out()));
   const iree_hal_buffer_backing_facts_t* first_backing = nullptr;
@@ -830,8 +834,9 @@ TEST_P(AmdgpuSlabPoolTest, SharedCacheFeedsBothPoliciesAcrossNativeOwners) {
     for (uint32_t cycle = 0; cycle < 3; ++cycle) {
       const size_t allocating_device = cycle % 2;
       const size_t deallocating_device = 1 - allocating_device;
-      iree_hal_pool_reservation_request_t request = {};
-      request.allocation_size = 64;
+      iree_hal_pool_reservation_request_t request = {
+          .allocation_size = 64,
+      };
       Ref<iree_hal_buffer_t> buffer;
       SemaphoreList allocated(devices_[allocating_device], {0}, {1});
       IREE_ASSERT_OK(iree_hal_queue_alloca(

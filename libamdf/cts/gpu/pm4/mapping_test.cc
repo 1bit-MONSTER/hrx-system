@@ -78,9 +78,10 @@ class Pm4MappingTest : public Pm4DispatchTest {
                uint64_t command_byte_length = 65536) {
     ASSERT_NE(scope, nullptr);
     scope_ = scope;
-    amdf_memory_reservation_capabilities_t capabilities = {};
-    capabilities.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES;
-    capabilities.structure_size = sizeof(capabilities);
+    amdf_memory_reservation_capabilities_t capabilities = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES,
+        .structure_size = sizeof(capabilities),
+    };
     const amdf_status_t status =
         api_->device_query_memory_reservation_capabilities(device_, 0,
                                                            &capabilities);
@@ -156,14 +157,17 @@ class Pm4MappingTest : public Pm4DispatchTest {
     const bool system = scope_ == system_scope_;
     const amdf_memory_device_access_t attachment = {
         consumer,
-        {.access = access_,
-         .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
-                  AMDF_MEMORY_FLAG_MAPPING_SOURCE |
-                  (system ? AMDF_MEMORY_FLAG_HOST_COHERENT : UINT64_C(0))},
+        {
+            .access = access_,
+            .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
+                     AMDF_MEMORY_FLAG_MAPPING_SOURCE |
+                     (system ? AMDF_MEMORY_FLAG_HOST_COHERENT : UINT64_C(0)),
+        },
     };
-    amdf_memory_create_info_t create = {};
-    create.type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO;
-    create.structure_size = sizeof(create);
+    amdf_memory_create_info_t create = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
+        .structure_size = sizeof(create),
+    };
     create.required_flags =
         system ? AMDF_MEMORY_FLAG_HOST_VISIBLE : AMDF_MEMORY_FLAG_DEVICE_LOCAL;
     create.memory_profile_ordinal = FindGpuMemoryProfileOrdinal(
@@ -391,16 +395,20 @@ class Pm4MappingTest : public Pm4DispatchTest {
     ASSERT_NO_FATAL_FAILURE(CreateBacking(kSlabByteLength, &backing));
     const uint64_t page = reservation_info_.mapping_granularity;
     const amdf_memory_mapping_update_t aliases[] = {
-        {.target_byte_offset = kPlacementByteOffset,
-         .byte_length = 2 * page,
-         .memory = backing->memory,
-         .access = access_,
-         .source_byte_offset = page},
-        {.target_byte_offset = kPlacementByteOffset + kSlabByteLength,
-         .byte_length = 2 * page,
-         .memory = backing->memory,
-         .access = AMDF_MEMORY_ACCESS_READ | required_access_,
-         .source_byte_offset = page},
+        {
+            .target_byte_offset = kPlacementByteOffset,
+            .byte_length = 2 * page,
+            .memory = backing->memory,
+            .access = access_,
+            .source_byte_offset = page,
+        },
+        {
+            .target_byte_offset = kPlacementByteOffset + kSlabByteLength,
+            .byte_length = 2 * page,
+            .memory = backing->memory,
+            .access = AMDF_MEMORY_ACCESS_READ | required_access_,
+            .source_byte_offset = page,
+        },
     };
     ASSERT_EQ(api_->memory_reservation_update(reservation_, 0, 2, aliases),
               AMDF_STATUS_OK);
@@ -555,9 +563,10 @@ class Pm4MappingTest : public Pm4DispatchTest {
     ASSERT_EQ(api_->memory_reservation_create(instance_, &create,
                                               &second_reservation_),
               AMDF_STATUS_OK);
-    amdf_memory_reservation_access_info_t second = {};
-    second.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO;
-    second.structure_size = sizeof(second);
+    amdf_memory_reservation_access_info_t second = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO,
+        .structure_size = sizeof(second),
+    };
     ASSERT_EQ(api_->memory_reservation_query_access_info(second_reservation_, 0,
                                                          &second),
               AMDF_STATUS_OK);
@@ -647,9 +656,10 @@ class Pm4MappingTest : public Pm4DispatchTest {
   void RunSharedDomain(amdf_memory_scope_t* scope) {
     // This case deliberately owns a second logical device: its paging owner
     // and allocation handles must work with the first device's existing queue.
-    amdf_gpu_device_create_info_t device_create = {};
-    device_create.type = AMDF_STRUCTURE_TYPE_GPU_DEVICE_CREATE_INFO;
-    device_create.structure_size = sizeof(device_create);
+    amdf_gpu_device_create_info_t device_create = {
+        .type = AMDF_STRUCTURE_TYPE_GPU_DEVICE_CREATE_INFO,
+        .structure_size = sizeof(device_create),
+    };
     ASSERT_EQ(
         gpu_api_->device_create(endpoint_, &device_create, &second_device_),
         AMDF_STATUS_OK);
@@ -657,9 +667,10 @@ class Pm4MappingTest : public Pm4DispatchTest {
     if (IsSkipped()) {
       return;
     }
-    amdf_memory_reservation_access_info_t second = {};
-    second.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO;
-    second.structure_size = sizeof(second);
+    amdf_memory_reservation_access_info_t second = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO,
+        .structure_size = sizeof(second),
+    };
     ASSERT_EQ(
         api_->memory_reservation_query_access_info(reservation_, 1, &second),
         AMDF_STATUS_OK);
@@ -703,22 +714,27 @@ class Pm4MappingTest : public Pm4DispatchTest {
     }
     const amdf_memory_device_access_t attachment = {
         device_,
-        {.access = access_,
-         .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
-                  AMDF_MEMORY_FLAG_MAPPING_SOURCE |
-                  AMDF_MEMORY_FLAG_HOST_COHERENT},
+        {
+            .access = access_,
+            .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
+                     AMDF_MEMORY_FLAG_MAPPING_SOURCE |
+                     AMDF_MEMORY_FLAG_HOST_COHERENT,
+        },
     };
-    amdf_memory_scope_info_t scope_info = {};
-    scope_info.type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO;
-    scope_info.structure_size = sizeof(scope_info);
+    amdf_memory_scope_info_t scope_info = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO,
+        .structure_size = sizeof(scope_info),
+    };
     ASSERT_EQ(api_->memory_scope_query_info(scope_, &scope_info),
               AMDF_STATUS_OK);
-    amdf_memory_profile_t profile = {};
-    profile.type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE;
-    profile.structure_size = sizeof(profile);
-    amdf_memory_access_capabilities_t capabilities = {};
-    capabilities.type = AMDF_STRUCTURE_TYPE_MEMORY_ACCESS_CAPABILITIES;
-    capabilities.structure_size = sizeof(capabilities);
+    amdf_memory_profile_t profile = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE,
+        .structure_size = sizeof(profile),
+    };
+    amdf_memory_access_capabilities_t capabilities = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_ACCESS_CAPABILITIES,
+        .structure_size = sizeof(capabilities),
+    };
     uint32_t ordinal = AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN;
     for (uint32_t i = 0; i < scope_info.memory_profile_count; ++i) {
       const amdf_status_t status = api_->memory_scope_query_device_profile(
@@ -756,17 +772,18 @@ class Pm4MappingTest : public Pm4DispatchTest {
           (reinterpret_cast<uintptr_t>(storage) + alignment - 1) &
           ~(alignment - 1);
       std::memset(reinterpret_cast<void*>(pointer), 0, byte_length);
-      amdf_memory_create_info_t create = {};
-      create.type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO;
-      create.structure_size = sizeof(create);
-      create.memory_profile_ordinal = ordinal;
-      create.required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
-      create.byte_length = byte_length;
-      create.minimum_alignment = alignment;
-      create.access_count = 1;
-      create.accesses = &attachment;
-      create.registered_host_pointer = reinterpret_cast<void*>(pointer);
-      create.registered_host_cacheability = AMDF_HOST_CACHEABILITY_WRITE_BACK;
+      amdf_memory_create_info_t create = {
+          .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
+          .structure_size = sizeof(create),
+          .memory_profile_ordinal = ordinal,
+          .access_count = 1,
+          .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE,
+          .byte_length = byte_length,
+          .minimum_alignment = alignment,
+          .registered_host_pointer = reinterpret_cast<void*>(pointer),
+          .accesses = &attachment,
+          .registered_host_cacheability = AMDF_HOST_CACHEABILITY_WRITE_BACK,
+      };
       source = &backing_.emplace_back();
       source->Initialize(api_, scope_, create);
       // A failed construction rollback can retain native pins. Free caller

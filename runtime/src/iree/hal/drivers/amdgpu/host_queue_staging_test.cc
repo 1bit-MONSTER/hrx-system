@@ -156,15 +156,15 @@ class HostQueueStagingTest : public ::testing::Test {
           &device_group_));
 
       const iree_hal_pool_family_access_t family_access = {
-          /*.family=*/iree_hal_queue_family(queue()),
-          /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+          .family = iree_hal_queue_family(queue()),
+          .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
       };
       const iree_hal_pool_scope_t scope = {
-          /*.family_count=*/1,
-          /*.families=*/&family_access,
+          .family_count = 1,
+          .families = &family_access,
       };
       const iree_hal_pool_import_class_t import_class = {
-          /*.storage_class=*/iree_hal_make_external_storage_class(
+          .storage_class = iree_hal_make_external_storage_class(
               IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
       };
       iree_hal_slab_pool_options_t pool_options;
@@ -350,11 +350,10 @@ class HostQueueStagingTest : public ::testing::Test {
                                             uint8_t pattern,
                                             iree_hal_buffer_t** out_buffer) {
     const iree_hal_amdgpu_buffer_spec_t spec = {
-        /*.type=*/IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE,
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER |
-            IREE_HAL_BUFFER_USAGE_STORAGE,
-        /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+        .type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE,
+        .access = IREE_HAL_MEMORY_ACCESS_ALL,
+        .usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+        .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
     };
     IREE_RETURN_IF_ERROR(iree_hal_amdgpu_allocator_allocate_direct_buffer(
         allocator, spec, buffer_size, out_buffer));
@@ -741,14 +740,16 @@ TEST_F(HostQueueStagingTest, ConcurrentMultiChunkHostTransfersReuseSlots) {
             value += static_cast<uint8_t>(thread_index * 16 + 1);
           }
           iree_hal_transfer_operation_t upload = {
-              .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD};
+              .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+          };
           upload.upload.source = input.data();
           upload.upload.target_buffer = buffers[thread_index];
           upload.upload.length = input.size();
           IREE_ASSERT_OK(transfer_and_wait(upload));
 
           iree_hal_transfer_operation_t download = {
-              .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD};
+              .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+          };
           download.download.source_buffer = buffers[thread_index];
           download.download.target = output.data();
           download.download.length = output.size();
@@ -837,8 +838,8 @@ TEST_F(HostQueueStagingTest,
       MakeSemaphoreList(&alloca_signal_ptr, &alloca_signal_value);
 
   const iree_hal_pool_host_access_t host_access = {
-      /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
-      /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
+      .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+      .modes = IREE_HAL_MAPPING_MODE_SCOPED,
   };
   Ref<iree_hal_pool_t> transient_pool;
   IREE_ASSERT_OK(iree::hal::cts::CreateQueueSlabPool(
@@ -1059,10 +1060,10 @@ TEST_F(HostQueueStagingTest, ShortReadReleasesBuffersBeforeFailure) {
     IREE_ASSERT_OK(ImportNativeFile(test_device.base_device(), path,
                                     IREE_HAL_MEMORY_ACCESS_READ, file.out()));
     iree_hal_amdgpu_buffer_spec_t spec = {
-        /*.type=*/memory_type,
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
-        /*.queue_family_affinity=*/IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+        .type = memory_type,
+        .access = IREE_HAL_MEMORY_ACCESS_ALL,
+        .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
+        .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
     };
     if (iree_all_bits_set(memory_type, IREE_HAL_MEMORY_TYPE_HOST_VISIBLE)) {
       spec.usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
@@ -1088,7 +1089,8 @@ TEST_F(HostQueueStagingTest, ShortReadReleasesBuffersBeforeFailure) {
         MakeSemaphoreList(&signal_semaphore_ptr, &signal_value);
 
     iree_hal_barrier_t after_barrier = {
-        .flags = IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE};
+        .flags = IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE,
+    };
     const iree_hal_barrier_list_t after = {1, &after_barrier};
     const iree_hal_queue_barriers_t barriers = {nullptr, &after};
     IREE_ASSERT_OK(iree_hal_queue_read(
@@ -1113,7 +1115,8 @@ TEST_F(HostQueueStagingTest, ShortReadReleasesBuffersBeforeFailure) {
               completion->reference_count.set_value(iree_atomic_ref_count_load(
                   &completion->buffer->resource.ref_count));
             },
-        .user_data = &completion};
+        .user_data = &completion,
+    };
     IREE_ASSERT_OK(iree_async_semaphore_acquire_timepoint(
         reinterpret_cast<iree_async_semaphore_t*>(signal_semaphore.get()),
         signal_value, &timepoint));

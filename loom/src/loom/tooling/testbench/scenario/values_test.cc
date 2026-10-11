@@ -59,9 +59,9 @@ class ScenarioValuesTest : public ::testing::Test {
     RegisterDialect(LOOM_DIALECT_TEST, loom_test_dialect_vtables);
     IREE_ASSERT_OK(loom_context_finalize(&context_));
     const iree_hal_pool_host_access_t host_access = {
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
-        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED |
-            IREE_HAL_MAPPING_MODE_PERSISTENT,
+        .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+        .modes =
+            IREE_HAL_MAPPING_MODE_SCOPED | IREE_HAL_MAPPING_MODE_PERSISTENT,
     };
     IREE_ASSERT_OK(iree_hal_heap_pool_create(host_access, host_allocator_,
                                              host_allocator_, &pool_));

@@ -582,13 +582,13 @@ TEST(DeviceGroup, CreateWrappedPreservesTopology) {
   context->replacements[0] = replacement_a;
   context->replacements[1] = replacement_b;
   const iree_hal_device_group_wrapper_vtable_t wrapper_vtable = {
-      /*.destroy=*/DestroyDeviceGroupWrapperContext,
-      /*.replace_device=*/ReplaceDeviceWithRetainedMock,
-      /*.create_slab_pool=*/ObserveSlabPoolCreation,
+      .destroy = DestroyDeviceGroupWrapperContext,
+      .replace_device = ReplaceDeviceWithRetainedMock,
+      .create_slab_pool = ObserveSlabPoolCreation,
   };
   const iree_hal_device_group_wrapper_t wrapper = {
-      /*.self=*/context,
-      /*.vtable=*/&wrapper_vtable,
+      .self = context,
+      .vtable = &wrapper_vtable,
   };
 
   iree_hal_device_group_t* replacement_group = NULL;

@@ -269,19 +269,18 @@ static void iree_hal_test_opaque_slab_provider_query_properties(
 
 const iree_hal_slab_provider_vtable_t
     iree_hal_test_opaque_slab_provider_vtable = {
-        /*.destroy=*/iree_hal_test_opaque_slab_provider_destroy,
-        /*.acquire_slab=*/iree_hal_test_opaque_slab_provider_acquire_slab,
-        /*.release_slab=*/iree_hal_test_opaque_slab_provider_release_slab,
-        /*.wrap_buffer=*/iree_hal_test_opaque_slab_provider_wrap_buffer,
-        /*.validate_asan_options=*/
-        iree_hal_test_opaque_slab_provider_validate_asan_options,
-        /*.advise_asan_range=*/
-        iree_hal_test_opaque_slab_provider_advise_asan_range,
-        /*.prefault=*/iree_hal_test_opaque_slab_provider_prefault,
-        /*.trim=*/iree_hal_test_opaque_slab_provider_trim,
-        /*.query_stats=*/iree_hal_test_opaque_slab_provider_query_stats,
-        /*.query_properties=*/
-        iree_hal_test_opaque_slab_provider_query_properties,
+        .destroy = iree_hal_test_opaque_slab_provider_destroy,
+        .acquire_slab = iree_hal_test_opaque_slab_provider_acquire_slab,
+        .release_slab = iree_hal_test_opaque_slab_provider_release_slab,
+        .wrap_buffer = iree_hal_test_opaque_slab_provider_wrap_buffer,
+        .validate_asan_options =
+            iree_hal_test_opaque_slab_provider_validate_asan_options,
+        .advise_asan_range =
+            iree_hal_test_opaque_slab_provider_advise_asan_range,
+        .prefault = iree_hal_test_opaque_slab_provider_prefault,
+        .trim = iree_hal_test_opaque_slab_provider_trim,
+        .query_stats = iree_hal_test_opaque_slab_provider_query_stats,
+        .query_properties = iree_hal_test_opaque_slab_provider_query_properties,
 };
 
 static iree_hal_pool_reservation_request_t MakeReservationRequest(

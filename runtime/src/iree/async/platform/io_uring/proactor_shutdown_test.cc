@@ -144,9 +144,10 @@ extern "C" iree_host_size_t __wrap_iree_async_proactor_io_uring_process_cqe(
 
 TEST(IoUringEventSourceTest, CancellationFailureRetainsSourceAndProactor) {
   iree_async_proactor_io_uring_t proactor = {};
-  iree_async_event_source_t source = {};
-  source.flags = IREE_ASYNC_IO_URING_EVENT_SOURCE_FLAG_POLL_IN_FLIGHT |
-                 IREE_ASYNC_IO_URING_EVENT_SOURCE_FLAG_CANCEL_IN_FLIGHT;
+  iree_async_event_source_t source = {
+      .flags = IREE_ASYNC_IO_URING_EVENT_SOURCE_FLAG_POLL_IN_FLIGHT |
+               IREE_ASYNC_IO_URING_EVENT_SOURCE_FLAG_CANCEL_IN_FLIGHT,
+  };
   proactor.event_sources = &source;
   struct TerminalResult {
     int callback_count = 0;
@@ -161,10 +162,11 @@ TEST(IoUringEventSourceTest, CancellationFailureRetainsSourceAndProactor) {
       },
       &result,
   };
-  iree_io_uring_cqe_t cqe = {};
-  cqe.user_data = iree_io_uring_internal_encode(
-      IREE_IO_URING_TAG_EVENT_SOURCE_CANCEL, (uintptr_t)&source);
-  cqe.res = -EINVAL;
+  iree_io_uring_cqe_t cqe = {
+      .user_data = iree_io_uring_internal_encode(
+          IREE_IO_URING_TAG_EVENT_SOURCE_CANCEL, (uintptr_t)&source),
+      .res = -EINVAL,
+  };
 
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,

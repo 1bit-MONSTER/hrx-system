@@ -24,10 +24,11 @@ TEST(BarrierTest, AcceptsInherentVisibilityBoundaries) {
   barriers = {&empty, &empty};
   IREE_EXPECT_OK(iree_hal_amd_xdna_queue_barriers_validate(&barriers));
 
-  iree_hal_barrier_t global = {};
-  global.source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH;
-  global.target_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE;
-  global.flags = IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE;
+  iree_hal_barrier_t global = {
+      .source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+      .target_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
+      .flags = IREE_HAL_BARRIER_FLAG_RELEASE_SYSTEM_SCOPE,
+  };
   global.effects.bits = IREE_HAL_MEMORY_EFFECT_GLOBAL_RELEASE_TO_SYSTEM;
   const iree_hal_barrier_list_t global_list = {1, &global};
   barriers = {&global_list, nullptr};
@@ -36,35 +37,36 @@ TEST(BarrierTest, AcceptsInherentVisibilityBoundaries) {
 
 TEST(BarrierTest, RejectsRangedQueueOperations) {
   const iree_hal_memory_transition_recipe_info_t operation = {
-      /*.kind=*/IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
-      /*.executor=*/IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE,
-      /*.operation=*/IREE_HAL_MEMORY_TRANSITION_OPERATION_RELEASE_TO_SYSTEM,
-      /*.range_granularity=*/64,
+      .kind = IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
+      .executor = IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE,
+      .operation = IREE_HAL_MEMORY_TRANSITION_OPERATION_RELEASE_TO_SYSTEM,
+      .range_granularity = 64,
   };
   const iree_hal_memory_transition_recipe_t recipe = {
-      /*.effects=*/{IREE_HAL_MEMORY_EFFECT_RANGE_RELEASE_TO_SYSTEM},
-      /*.operation_count=*/1,
-      /*.operations=*/&operation,
+      .effects = {IREE_HAL_MEMORY_EFFECT_RANGE_RELEASE_TO_SYSTEM},
+      .operation_count = 1,
+      .operations = &operation,
   };
   const iree_hal_buffer_barrier_t range = {
-      /*.source_scope=*/IREE_HAL_ACCESS_SCOPE_DISPATCH_WRITE,
-      /*.target_scope=*/IREE_HAL_ACCESS_SCOPE_MEMORY_READ,
-      /*.buffer_ref=*/{},
-      /*.recipe=*/&recipe,
+      .source_scope = IREE_HAL_ACCESS_SCOPE_DISPATCH_WRITE,
+      .target_scope = IREE_HAL_ACCESS_SCOPE_MEMORY_READ,
+      .buffer_ref = {},
+      .recipe = &recipe,
   };
   const iree_hal_barrier_t barrier = {
-      /*.source_stage_mask=*/IREE_HAL_EXECUTION_STAGE_DISPATCH,
-      /*.target_stage_mask=*/IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
-      /*.flags=*/IREE_HAL_BARRIER_FLAG_NONE,
-      /*.effects=*/recipe.effects,
-      /*.memory_barrier_count=*/0,
-      /*.memory_barriers=*/nullptr,
-      /*.buffer_barrier_count=*/1,
-      /*.buffer_barriers=*/&range,
+      .source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+      .target_stage_mask = IREE_HAL_EXECUTION_STAGE_COMMAND_RETIRE,
+      .flags = IREE_HAL_BARRIER_FLAG_NONE,
+      .effects = recipe.effects,
+      .memory_barrier_count = 0,
+      .memory_barriers = nullptr,
+      .buffer_barrier_count = 1,
+      .buffer_barriers = &range,
   };
   iree_hal_queue_family_spec_t family_spec = {};
-  iree_hal_queue_family_t family = {};
-  family.spec = &family_spec;
+  iree_hal_queue_family_t family = {
+      .spec = &family_spec,
+  };
   IREE_EXPECT_OK(iree_hal_barrier_validate(&barrier, &family));
   const iree_hal_barrier_list_t list = {1, &barrier};
 

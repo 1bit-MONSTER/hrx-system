@@ -411,19 +411,19 @@ TEST_F(XdnaArtifactTest, RetainsArrayTargetBundleForHalExecution) {
   IREE_ASSERT_OK(ParseModule(IREE_SV(kResidentNeighborSource), &module));
 
   const loom_target_emit_request_t request = {
-      /*.target_environment=*/nullptr,
-      /*.low_descriptor_registry=*/&low_registry_.registry,
-      /*.module=*/module.get(),
-      /*.function_versions=*/nullptr,
-      /*.option_chain=*/nullptr,
-      /*.identifier=*/IREE_SV("module.xdna"),
-      /*.artifact_manifest=*/{},
-      /*.flags=*/LOOM_TARGET_EMIT_REQUEST_FLAG_RETAIN_TARGET_BUNDLE,
-      /*.compile_report=*/nullptr,
-      /*.diagnostic_emitter=*/{},
-      /*.max_errors=*/0,
-      /*.scratch_arena=*/&scratch_arena_,
-      /*.allocator=*/iree_allocator_system(),
+      .target_environment = nullptr,
+      .low_descriptor_registry = &low_registry_.registry,
+      .module = module.get(),
+      .function_versions = nullptr,
+      .option_chain = nullptr,
+      .identifier = IREE_SV("module.xdna"),
+      .artifact_manifest = {},
+      .flags = LOOM_TARGET_EMIT_REQUEST_FLAG_RETAIN_TARGET_BUNDLE,
+      .compile_report = nullptr,
+      .diagnostic_emitter = {},
+      .max_errors = 0,
+      .scratch_arena = &scratch_arena_,
+      .allocator = iree_allocator_system(),
   };
   bool emitted = false;
   IREE_ASSERT_OK(

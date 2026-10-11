@@ -234,8 +234,9 @@ TEST_P(DeviceSpecFloatControlsTest, CreatesSpecFromParams) {
   IREE_ASSERT_OK(
       iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
 
-  iree_hal_vulkan_physical_device_snapshot_t physical_device = {};
-  physical_device.ordinal = 3;
+  iree_hal_vulkan_physical_device_snapshot_t physical_device = {
+      .ordinal = 3,
+  };
   physical_device.float_controls_properties.shaderDenormPreserveFloat32 =
       GetParam().supported;
   physical_device.float_controls_properties.denormBehaviorIndependence =
@@ -280,23 +281,24 @@ TEST_P(DeviceSpecFloatControlsTest, CreatesSpecFromParams) {
   physical_device.calibrated_timestamp_time_domains =
       IREE_HAL_VULKAN_TIME_DOMAIN_DEVICE |
       IREE_HAL_VULKAN_TIME_DOMAIN_CLOCK_MONOTONIC;
-  VkCooperativeMatrixPropertiesKHR cooperative_matrix_property = {};
-  cooperative_matrix_property.sType =
-      VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR;
-  cooperative_matrix_property.MSize = 16;
-  cooperative_matrix_property.NSize = 16;
-  cooperative_matrix_property.KSize = 16;
-  cooperative_matrix_property.AType = VK_COMPONENT_TYPE_FLOAT16_KHR;
-  cooperative_matrix_property.BType = VK_COMPONENT_TYPE_FLOAT16_KHR;
-  cooperative_matrix_property.CType = VK_COMPONENT_TYPE_FLOAT32_KHR;
-  cooperative_matrix_property.ResultType = VK_COMPONENT_TYPE_FLOAT32_KHR;
-  cooperative_matrix_property.scope = VK_SCOPE_SUBGROUP_KHR;
+  VkCooperativeMatrixPropertiesKHR cooperative_matrix_property = {
+      .sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR,
+      .MSize = 16,
+      .NSize = 16,
+      .KSize = 16,
+      .AType = VK_COMPONENT_TYPE_FLOAT16_KHR,
+      .BType = VK_COMPONENT_TYPE_FLOAT16_KHR,
+      .CType = VK_COMPONENT_TYPE_FLOAT32_KHR,
+      .ResultType = VK_COMPONENT_TYPE_FLOAT32_KHR,
+      .scope = VK_SCOPE_SUBGROUP_KHR,
+  };
   physical_device.cooperative_matrix_property_count = 1;
   physical_device.cooperative_matrix_property_rows =
       &cooperative_matrix_property;
 
-  iree_hal_vulkan_device_plan_t device_plan = {};
-  device_plan.request_flags = IREE_HAL_VULKAN_REQUEST_FLAG_TRACING;
+  iree_hal_vulkan_device_plan_t device_plan = {
+      .request_flags = IREE_HAL_VULKAN_REQUEST_FLAG_TRACING,
+  };
   device_plan.enabled_features.general =
       IREE_HAL_VULKAN_FEATURE_REQUIRED_BASELINE |
       IREE_HAL_VULKAN_FEATURE_ENABLE_BUFFER_DEVICE_ADDRESSES |

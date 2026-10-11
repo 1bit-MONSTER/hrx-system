@@ -84,27 +84,28 @@ TEST(LoomcSpirvIreeHalExecutionTest,
       loomc_spirv_iree_hal_target_provider(),
   };
 
-  loomc::testing::target::IreeHalKernelExecutionTarget target = {};
-  target.label = "SPIR-V Vulkan";
-  target.device_uri = IREE_SV("vulkan");
-  target.target_profile_identifier = loomc_make_cstring_view("live-vulkan");
-  target.source_identifier =
-      loomc_make_cstring_view("double_i32_at_byte_offset.loom");
-  target.source_text = loomc_make_cstring_view(kSourceText);
-  target.kernel_export_name =
-      loomc_make_cstring_view("double_i32_at_byte_offset");
-  target.target_pipeline_identifier =
-      loomc_make_cstring_view("live-vulkan-prepared-low");
-  target.target_pipeline_kind = LOOMC_TARGET_PIPELINE_KIND_PREPARED_LOW;
-  target.control_flow_lowering = LOOMC_TARGET_CONTROL_FLOW_LOWERING_CFG;
-  target.source_to_low_max_errors = 20;
-  target.artifact_format = loomc_make_cstring_view(LOOMC_ARTIFACT_FORMAT_SPIRV);
-  target.artifact_identifier =
-      loomc_make_cstring_view("double_i32_at_byte_offset.spv");
-  target.target_providers = target_providers;
-  target.target_provider_count = 1;
-  target.create_target_environment = CreateSpirvTargetEnvironment;
-  target.validate_target_profile = ValidateSpirvVulkanProfile;
+  loomc::testing::target::IreeHalKernelExecutionTarget target = {
+      .label = "SPIR-V Vulkan",
+      .device_uri = IREE_SV("vulkan"),
+      .target_profile_identifier = loomc_make_cstring_view("live-vulkan"),
+      .source_identifier =
+          loomc_make_cstring_view("double_i32_at_byte_offset.loom"),
+      .source_text = loomc_make_cstring_view(kSourceText),
+      .kernel_export_name =
+          loomc_make_cstring_view("double_i32_at_byte_offset"),
+      .target_pipeline_identifier =
+          loomc_make_cstring_view("live-vulkan-prepared-low"),
+      .target_pipeline_kind = LOOMC_TARGET_PIPELINE_KIND_PREPARED_LOW,
+      .control_flow_lowering = LOOMC_TARGET_CONTROL_FLOW_LOWERING_CFG,
+      .source_to_low_max_errors = 20,
+      .artifact_format = loomc_make_cstring_view(LOOMC_ARTIFACT_FORMAT_SPIRV),
+      .artifact_identifier =
+          loomc_make_cstring_view("double_i32_at_byte_offset.spv"),
+      .target_providers = target_providers,
+      .target_provider_count = 1,
+      .create_target_environment = CreateSpirvTargetEnvironment,
+      .validate_target_profile = ValidateSpirvVulkanProfile,
+  };
 
   loomc::testing::target::RunIreeHalKernelExecutionTest(
       target, loomc::testing::target::RunIreeHalByteOffsetExecution);

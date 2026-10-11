@@ -131,8 +131,9 @@ TEST(EncodingTest, EvexNdsMemoryBroadcastAndMaskModifiers) {
   constexpr uint16_t kUnaryEncoding = 0x2a72;
   constexpr uint16_t kBinaryEncoding = 0x2e72;
 
-  loom_x86_encoding_operands_t operands = {};
-  operands.result = 17;
+  loom_x86_encoding_operands_t operands = {
+      .result = 17,
+  };
   operands.inputs[0] = 2;
   operands.inputs[1] = 18;
   operands.inputs[2] = 19;

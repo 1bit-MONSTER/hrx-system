@@ -125,18 +125,18 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
     iree_async_frontier_tracker_release(tracker);
     IREE_RETURN_IF_ERROR(status);
     const iree_hal_pool_family_access_t family_access = {
-        /*.family=*/iree_hal_queue_family(queue_),
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_DEFAULT,
-        /*.interfaces=*/UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
+        .family = iree_hal_queue_family(queue_),
+        .usage = IREE_HAL_BUFFER_USAGE_DEFAULT,
+        .interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
     };
     const iree_hal_pool_scope_t scope = {
-        /*.family_count=*/1,
-        /*.families=*/&family_access,
-        /*.host=*/
-        {
-            /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-            /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
-        },
+        .family_count = 1,
+        .families = &family_access,
+        .host =
+            {
+                .access = IREE_HAL_MEMORY_ACCESS_ALL,
+                .modes = IREE_HAL_MAPPING_MODE_SCOPED,
+            },
     };
     iree_hal_slab_pool_options_t pool_options;
     iree_hal_slab_pool_options_initialize(&pool_options);

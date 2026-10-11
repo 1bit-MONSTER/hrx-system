@@ -181,11 +181,12 @@ class FileTransferTest
     storage_.memory.mapping = reinterpret_cast<amdf_host_mapping_t*>(&storage_);
     storage_.api.host_mapping_cache_control = BufferStorage::CacheControl;
     storage_.binding.host_pointer = storage_.contents.data();
-    iree_hal_amd_fabric_buffer_storage_t backing = {};
-    backing.memory = &storage_.memory;
-    backing.bindings = &storage_.binding;
-    backing.host_binding_index = 0;
-    backing.offset = 8;
+    iree_hal_amd_fabric_buffer_storage_t backing = {
+        .memory = &storage_.memory,
+        .bindings = &storage_.binding,
+        .host_binding_index = 0,
+        .offset = 8,
+    };
     iree_hal_buffer_t* root = nullptr;
     IREE_ASSERT_OK(iree_hal_amd_fabric_buffer_wrap(
         {}, &storage_.api, backing, 192, IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,

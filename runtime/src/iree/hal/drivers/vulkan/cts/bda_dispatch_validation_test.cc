@@ -128,11 +128,12 @@ TEST_P(BdaDispatchValidationTest, QueueDispatchRejectsGrantsFromAnotherGroup) {
   IREE_ASSERT_OK(iree_hal_device_group_create_from_device(
       other_device, context.frontier_tracker(), iree_allocator_system(),
       other_group.out()));
-  iree_hal_pool_family_access_t access = {};
-  access.family = iree_hal_device_queue_family(
-      other_device, iree_hal_queue_family(dispatch_queue_)->ordinal);
-  access.usage = IREE_HAL_BUFFER_USAGE_STORAGE |
-                 IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS;
+  iree_hal_pool_family_access_t access = {
+      .family = iree_hal_device_queue_family(
+          other_device, iree_hal_queue_family(dispatch_queue_)->ordinal),
+      .usage = IREE_HAL_BUFFER_USAGE_STORAGE |
+               IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS,
+  };
   const iree_hal_pool_scope_t scope = {1, &access, {}};
   iree_hal_slab_pool_options_t options;
   iree_hal_slab_pool_options_initialize(&options);

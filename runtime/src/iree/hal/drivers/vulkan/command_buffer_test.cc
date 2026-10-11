@@ -25,14 +25,15 @@ namespace {
 static constexpr iree_hal_queue_priority_t kQueuePriority =
     IREE_HAL_QUEUE_PRIORITY_NORMAL;
 static const iree_hal_queue_family_spec_t kQueueFamilySpec = [] {
-  iree_hal_queue_family_spec_t spec = {};
-  spec.name = IREE_SV("test");
-  spec.priority_count = 1;
-  spec.priorities = &kQueuePriority;
-  spec.physical_device_affinity = 1;
-  spec.role_flags = IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_DISPATCH |
+  iree_hal_queue_family_spec_t spec = {
+      .name = IREE_SV("test"),
+      .priority_count = 1,
+      .priorities = &kQueuePriority,
+      .physical_device_affinity = 1,
+      .role_flags = IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_DISPATCH |
                     IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_TRANSFER |
-                    IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_ATOMIC;
+                    IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_ATOMIC,
+  };
   return spec;
 }();
 
@@ -263,16 +264,17 @@ static VKAPI_ATTR void VKAPI_CALL FakeCmdInsertDebugUtilsLabelEXT(
 }
 
 static iree_hal_vulkan_device_syms_t MakeNativeReplaySyms() {
-  iree_hal_vulkan_device_syms_t syms = {};
-  syms.vkBeginCommandBuffer = FakeBeginCommandBuffer;
-  syms.vkEndCommandBuffer = FakeEndCommandBuffer;
-  syms.vkCmdBeginDebugUtilsLabelEXT = FakeCmdBeginDebugUtilsLabelEXT;
-  syms.vkCmdEndDebugUtilsLabelEXT = FakeCmdEndDebugUtilsLabelEXT;
-  syms.vkCmdInsertDebugUtilsLabelEXT = FakeCmdInsertDebugUtilsLabelEXT;
-  syms.vkCmdPipelineBarrier2 = FakeCmdPipelineBarrier2;
-  syms.vkCmdPushConstants = FakeCmdPushConstants;
-  syms.vkCmdBindPipeline = FakeCmdBindPipeline;
-  syms.vkCmdDispatch = FakeCmdDispatch;
+  iree_hal_vulkan_device_syms_t syms = {
+      .vkBeginCommandBuffer = FakeBeginCommandBuffer,
+      .vkEndCommandBuffer = FakeEndCommandBuffer,
+      .vkCmdBeginDebugUtilsLabelEXT = FakeCmdBeginDebugUtilsLabelEXT,
+      .vkCmdEndDebugUtilsLabelEXT = FakeCmdEndDebugUtilsLabelEXT,
+      .vkCmdInsertDebugUtilsLabelEXT = FakeCmdInsertDebugUtilsLabelEXT,
+      .vkCmdPipelineBarrier2 = FakeCmdPipelineBarrier2,
+      .vkCmdBindPipeline = FakeCmdBindPipeline,
+      .vkCmdPushConstants = FakeCmdPushConstants,
+      .vkCmdDispatch = FakeCmdDispatch,
+  };
   return syms;
 }
 
@@ -290,11 +292,13 @@ class VulkanCommandBufferTest : public ::testing::Test {
   void SetUp() override {
     iree_arena_block_pool_initialize(block_size_, iree_allocator_system(),
                                      &block_pool_);
-    iree_hal_device_queue_spec_t queues = {};
-    queues.family_count = 1;
-    queues.families = &kQueueFamilySpec;
-    iree_hal_device_spec_params_t spec_params = {};
-    spec_params.queues = &queues;
+    iree_hal_device_queue_spec_t queues = {
+        .family_count = 1,
+        .families = &kQueueFamilySpec,
+    };
+    iree_hal_device_spec_params_t spec_params = {
+        .queues = &queues,
+    };
     iree_hal_device_spec_t* device_spec = nullptr;
     IREE_ASSERT_OK(iree_hal_device_spec_create(
         &spec_params, iree_allocator_system(), &device_spec));

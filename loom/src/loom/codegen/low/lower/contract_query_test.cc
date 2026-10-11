@@ -391,9 +391,10 @@ TEST(LowContractQueryTest,
   const uint64_t feature_mask_words[] = {1};
   loom_low_descriptor_t descriptors[2] = {};
   descriptors[0].feature_mask_word_count = 1;
-  loom_low_descriptor_set_t descriptor_set = {};
-  descriptor_set.feature_mask_words = feature_mask_words;
-  descriptor_set.feature_mask_word_count = IREE_ARRAYSIZE(feature_mask_words);
+  loom_low_descriptor_set_t descriptor_set = {
+      .feature_mask_words = feature_mask_words,
+      .feature_mask_word_count = IREE_ARRAYSIZE(feature_mask_words),
+  };
 
   loom_low_lower_emit_t emits[2] = {};
   emits[0].kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP;
@@ -464,26 +465,28 @@ TEST(LowContractQueryTest,
       nullptr,
   };
   const loom_low_lower_contract_query_options_t options = {
-      /*.contract_index=*/&index,
-      /*.rule_sets=*/
-      {
-          /*.count=*/IREE_ARRAYSIZE(rule_sets),
-          /*.values=*/rule_sets,
-      },
-      /*.map_value=*/{},
-      /*.can_materialize=*/{},
-      /*.descriptor_ref=*/
-      {
-          /*.fn=*/ResolveDescriptorFromArray,
-          /*.user_data=*/descriptors,
-      },
+      .contract_index = &index,
+      .rule_sets =
+          {
+              .count = IREE_ARRAYSIZE(rule_sets),
+              .values = rule_sets,
+          },
+      .map_value = {},
+      .can_materialize = {},
+      .descriptor_ref =
+          {
+              .fn = ResolveDescriptorFromArray,
+              .user_data = descriptors,
+          },
   };
   const loom_target_facts_t target_facts = MakeTargetFacts();
-  loom_target_contract_query_environment_t environment = {};
-  environment.target_facts = &target_facts;
-  environment.descriptor_set = &descriptor_set;
-  loom_op_t op = {};
-  op.kind = kSourceOpKind;
+  loom_target_contract_query_environment_t environment = {
+      .target_facts = &target_facts,
+      .descriptor_set = &descriptor_set,
+  };
+  loom_op_t op = {
+      .kind = kSourceOpKind,
+  };
 
   loom_target_contract_query_result_t result =
       loom_target_contract_query_result_empty();

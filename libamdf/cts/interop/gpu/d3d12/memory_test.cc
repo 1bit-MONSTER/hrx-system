@@ -582,16 +582,20 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
       const uint64_t destination_offset =
           (generation == 0 ? 2 : 3) * granularity;
       const std::array<amdf_memory_mapping_update_t, 2> updates = {{
-          {.target_byte_offset = 0,
-           .byte_length = granularity,
-           .memory = imported_memory_,
-           .access = access.access,
-           .source_byte_offset = source_offset - prefix},
-          {.target_byte_offset = granularity,
-           .byte_length = granularity,
-           .memory = imported_memory_,
-           .access = access.access,
-           .source_byte_offset = destination_offset - prefix},
+          {
+              .target_byte_offset = 0,
+              .byte_length = granularity,
+              .memory = imported_memory_,
+              .access = access.access,
+              .source_byte_offset = source_offset - prefix,
+          },
+          {
+              .target_byte_offset = granularity,
+              .byte_length = granularity,
+              .memory = imported_memory_,
+              .access = access.access,
+              .source_byte_offset = destination_offset - prefix,
+          },
       }};
       if (publication == MappingPublication::kQueueOrdered) {
         ASSERT_EQ(api_->kernel_queue_update_memory(

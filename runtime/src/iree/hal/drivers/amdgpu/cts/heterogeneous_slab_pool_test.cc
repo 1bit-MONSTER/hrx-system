@@ -123,10 +123,10 @@ class HeterogeneousSlabPoolTest : public CtsTestBase<> {
   iree_hal_pool_reservation_request_t MakeRequest(iree_hal_pool_t* pool) {
     iree_hal_pool_capabilities_t capabilities;
     iree_hal_pool_query_capabilities(pool, &capabilities);
-    iree_hal_pool_reservation_request_t request = {};
-    request.min_alignment =
-        iree_min(4096, capabilities.max_allocation_alignment);
-    request.allocation_size = 256;
+    iree_hal_pool_reservation_request_t request = {
+        .allocation_size = 256,
+        .min_alignment = iree_min(4096, capabilities.max_allocation_alignment),
+    };
     return request;
   }
 
@@ -176,10 +176,11 @@ TEST_P(HeterogeneousSlabPoolTest, BothQueuesPublishSharedNativeStorage) {
   tlsf_options.tlsf_options.frontier_capacity = 4;
   IREE_ASSERT_OK(iree_hal_tlsf_pool_create(
       cache, &tlsf_options, iree_allocator_system(), children[0].out()));
-  iree_hal_fixed_block_pool_options_t block_options = {};
-  block_options.block_size = 256;
-  block_options.blocks_per_slab = 16;
-  block_options.frontier_capacity = 4;
+  iree_hal_fixed_block_pool_options_t block_options = {
+      .block_size = 256,
+      .blocks_per_slab = 16,
+      .frontier_capacity = 4,
+  };
   IREE_ASSERT_OK(iree_hal_fixed_block_pool_create(
       cache, &block_options, iree_allocator_system(), children[1].out()));
 
@@ -190,8 +191,9 @@ TEST_P(HeterogeneousSlabPoolTest, BothQueuesPublishSharedNativeStorage) {
       SCOPED_TRACE(allocating_device);
       SemaphoreList gate(devices_[0], {0}, {1});
       SemaphoreList allocated(devices_[allocating_device], {0}, {1});
-      iree_hal_pool_reservation_request_t request = {};
-      request.allocation_size = 96;
+      iree_hal_pool_reservation_request_t request = {
+          .allocation_size = 96,
+      };
       Ref<iree_hal_buffer_t> buffer;
       IREE_ASSERT_OK(iree_hal_queue_alloca(queues_[allocating_device], gate,
                                            allocated, child, 1, &request,
@@ -275,9 +277,10 @@ TEST_P(HeterogeneousSlabPoolTest, BothQueuesPublishSharedNativeStorage) {
           IREE_HAL_DISPATCH_FLAG_NONE));
       // Native atomic validation reads the producer's trailing capability
       // cells, which must survive a Task-owned transient just like addresses.
-      iree_hal_atomic_store_params_t store = {};
-      store.width = IREE_HAL_ATOMIC_WIDTH_32;
-      store.value = 0x1234ABCD;
+      iree_hal_atomic_store_params_t store = {
+          .value = 0x1234ABCD,
+          .width = IREE_HAL_ATOMIC_WIDTH_32,
+      };
       SemaphoreList stored(devices_[1], {0}, {1});
       IREE_ASSERT_OK(iree_hal_queue_atomic_store(
           queues_[1], executed, stored, buffer, 84, store, /*barriers=*/NULL));

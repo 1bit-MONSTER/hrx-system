@@ -138,8 +138,9 @@ class PM4CommandDispatchTest : public ::testing::Test {
         .count = 1,
         .values = &output_ref,
     };
-    iree_hal_dispatch_config_t config = {};
-    config.workgroup_count_ref = parameter_ref;
+    iree_hal_dispatch_config_t config = {
+        .workgroup_count_ref = parameter_ref,
+    };
     IREE_RETURN_IF_ERROR(iree_hal_command_buffer_dispatch(
         command_buffer, workgroup_id_executable_,
         iree_hal_executable_function_from_index(0), config,
@@ -459,8 +460,9 @@ TEST_F(PM4CommandDispatchTest, DynamicParametersObservePriorDispatch) {
       .count = 1,
       .values = &output_ref,
   };
-  iree_hal_dispatch_config_t indirect_config = {};
-  indirect_config.workgroup_count_ref = parameter_ref;
+  iree_hal_dispatch_config_t indirect_config = {
+      .workgroup_count_ref = parameter_ref,
+  };
   IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
       command_buffer, workgroup_id_executable_,
       iree_hal_executable_function_from_index(0), indirect_config,
@@ -616,9 +618,10 @@ TEST_F(PM4CommandDispatchTest, RejectsImplicitBlockCountKernargs) {
       IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT, IREE_HAL_COMMAND_CATEGORY_DISPATCH,
       /*binding_capacity=*/0, command_buffer.out()));
   IREE_ASSERT_OK(iree_hal_command_buffer_begin(command_buffer));
-  iree_hal_dispatch_config_t config = {};
-  config.workgroup_count_ref = iree_hal_make_buffer_ref(
-      parameter_buffer, kParameterOffset, kParameterByteLength);
+  iree_hal_dispatch_config_t config = {
+      .workgroup_count_ref = iree_hal_make_buffer_ref(
+          parameter_buffer, kParameterOffset, kParameterByteLength),
+  };
   iree_hal_buffer_ref_t output_ref =
       iree_hal_make_buffer_ref(output_buffer, /*offset=*/0, sizeof(uint64_t));
   const iree_hal_buffer_ref_list_t bindings = {

@@ -101,10 +101,11 @@ TEST_P(VulkanAllocatorGuardrailTest, QueueAllocaAcceptsSparseSizedAllocation) {
 TEST_P(VulkanAllocatorGuardrailTest,
        CompletedDeallocationIsImmediatelyReusable) {
   constexpr iree_device_size_t kBlockSize = 512;
-  iree_hal_fixed_block_pool_options_t options = {};
-  options.block_size = kBlockSize;
-  options.blocks_per_slab = 1;
-  options.frontier_capacity = 2;
+  iree_hal_fixed_block_pool_options_t options = {
+      .block_size = kBlockSize,
+      .blocks_per_slab = 1,
+      .frontier_capacity = 2,
+  };
   Ref<iree_hal_pool_t> backing_pool;
   Ref<iree_hal_pool_t> pool;
   IREE_ASSERT_OK(

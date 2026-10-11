@@ -212,9 +212,9 @@ class BufferViewMatchersTest : public ::testing::Test {
   iree_hal_pool_t* pool_ = nullptr;
   virtual void SetUp() {
     const iree_hal_pool_host_access_t host_access = {
-        /*.access=*/IREE_HAL_MEMORY_ACCESS_ALL,
-        /*.modes=*/IREE_HAL_MAPPING_MODE_SCOPED,
-        /*.cacheability=*/IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+        .access = IREE_HAL_MEMORY_ACCESS_ALL,
+        .modes = IREE_HAL_MAPPING_MODE_SCOPED,
+        .cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
     };
     IREE_CHECK_OK(iree_hal_heap_pool_create(
         host_access, iree_allocator_system(), iree_allocator_system(), &pool_));

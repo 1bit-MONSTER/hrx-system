@@ -311,10 +311,10 @@ TEST_F(SlabCacheTest, NativePoolRequiresMaterialization) {
   ASSERT_EQ(result, IREE_HAL_POOL_ACQUIRE_OK_FRESH);
 
   iree_hal_pool_reservation_view_t view = {
-      /*.buffer=*/reinterpret_cast<iree_hal_buffer_t*>(uintptr_t{1}),
-      /*.byte_offset=*/2,
-      /*.byte_length=*/3,
-      /*.memory=*/{},
+      .buffer = reinterpret_cast<iree_hal_buffer_t*>(uintptr_t{1}),
+      .byte_offset = 2,
+      .byte_length = 3,
+      .memory = {},
   };
   EXPECT_FALSE(
       iree_hal_pool_query_reservation_views(native_, 1, &reservation, &view));

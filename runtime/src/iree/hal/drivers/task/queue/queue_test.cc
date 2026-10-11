@@ -107,40 +107,41 @@ struct CacheBuffer : iree_hal_buffer_t {
 
   CacheBuffer() {
     static const iree_hal_buffer_vtable_t vtable = {
-        /*.destroy=*/[](iree_hal_buffer_t* base) {
-          delete static_cast<CacheBuffer*>(base);
-        },
-        /*.export_range=*/nullptr,
-        /*.map_range=*/nullptr,
-        /*.unmap_range=*/nullptr,
-        /*.invalidate_range=*/
-        [](iree_hal_buffer_t* base, iree_device_size_t offset,
-           iree_device_size_t length) {
-          auto* buffer = static_cast<CacheBuffer*>(base);
-          ++buffer->invalidations;
-          buffer->maintenance_thread = std::this_thread::get_id();
-          if (buffer->failure) {
-            return iree_status_from_code(buffer->failure);
-          }
-          memcpy(buffer->host.data() + offset, buffer->remote.data() + offset,
-                 length);
-          return iree_ok_status();
-        },
-        /*.flush_range=*/
-        [](iree_hal_buffer_t* base, iree_device_size_t offset,
-           iree_device_size_t length) {
-          auto* buffer = static_cast<CacheBuffer*>(base);
-          ++buffer->publications;
-          buffer->maintenance_thread = std::this_thread::get_id();
-          if (buffer->failure) {
-            return iree_status_from_code(buffer->failure);
-          }
-          memcpy(buffer->remote.data() + offset, buffer->host.data() + offset,
-                 length);
-          return iree_ok_status();
-        },
-        /*.query_memory=*/nullptr,
-        /*.allocation=*/nullptr,
+        .destroy =
+            [](iree_hal_buffer_t* base) {
+              delete static_cast<CacheBuffer*>(base);
+            },
+        .export_range = nullptr,
+        .map_range = nullptr,
+        .unmap_range = nullptr,
+        .invalidate_range =
+            [](iree_hal_buffer_t* base, iree_device_size_t offset,
+               iree_device_size_t length) {
+              auto* buffer = static_cast<CacheBuffer*>(base);
+              ++buffer->invalidations;
+              buffer->maintenance_thread = std::this_thread::get_id();
+              if (buffer->failure) {
+                return iree_status_from_code(buffer->failure);
+              }
+              memcpy(buffer->host.data() + offset,
+                     buffer->remote.data() + offset, length);
+              return iree_ok_status();
+            },
+        .flush_range =
+            [](iree_hal_buffer_t* base, iree_device_size_t offset,
+               iree_device_size_t length) {
+              auto* buffer = static_cast<CacheBuffer*>(base);
+              ++buffer->publications;
+              buffer->maintenance_thread = std::this_thread::get_id();
+              if (buffer->failure) {
+                return iree_status_from_code(buffer->failure);
+              }
+              memcpy(buffer->remote.data() + offset,
+                     buffer->host.data() + offset, length);
+              return iree_ok_status();
+            },
+        .query_memory = nullptr,
+        .allocation = nullptr,
     };
     iree_hal_buffer_initialize(
         iree_hal_buffer_placement_undefined(), this, host.size(), 0,

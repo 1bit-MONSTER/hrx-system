@@ -79,9 +79,10 @@ amdf_status_t CtsDeviceCache::ResolveGpuEndpoint(
     }
     amdf_endpoint_t* endpoint = nullptr;
     status = OpenEndpoint(summaries[i].id, &endpoint);
-    amdf_endpoint_info_t info = {};
-    info.type = AMDF_STRUCTURE_TYPE_ENDPOINT_INFO;
-    info.structure_size = sizeof(info);
+    amdf_endpoint_info_t info = {
+        .type = AMDF_STRUCTURE_TYPE_ENDPOINT_INFO,
+        .structure_size = sizeof(info),
+    };
     if (amdf_status_is_ok(status)) {
       status = api_->endpoint_query_info(endpoint, &info);
     }

@@ -26,8 +26,8 @@ TEST(WebGPUBufferTest, PublishesNativeBindingThroughSubspans) {
   EXPECT_EQ(layout->types[0], IREE_HAL_BUFFER_INTERFACE_WEBGPU_BUFFER);
 
   const iree_hal_buffer_native_binding_slot_t slot = {
-      /*.index=*/IREE_HAL_WEBGPU_BUFFER_BINDING_RESOURCE,
-      /*.type=*/IREE_HAL_BUFFER_INTERFACE_WEBGPU_BUFFER,
+      .index = IREE_HAL_WEBGPU_BUFFER_BINDING_RESOURCE,
+      .type = IREE_HAL_BUFFER_INTERFACE_WEBGPU_BUFFER,
   };
   const iree_hal_buffer_native_binding_t root_binding =
       iree_hal_buffer_native_binding(buffer, slot);

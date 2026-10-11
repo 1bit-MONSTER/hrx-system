@@ -99,9 +99,9 @@ TEST_P(VulkanQueueDescriptorCacheTest,
       const uint8_t pattern[] = {static_cast<uint8_t>(0x21 + i + round), 0x87,
                                  0xDA, 0x4B};
       const iree_hal_semaphore_list_t signal = {
-          /*.count=*/1,
-          /*.semaphores=*/&signals.semaphores[i],
-          /*.payload_values=*/&signals.payload_values[i],
+          .count = 1,
+          .semaphores = &signals.semaphores[i],
+          .payload_values = &signals.payload_values[i],
       };
       status =
           iree_hal_queue_fill(transfer_only_queue, gate, signal, target, offset,
@@ -118,9 +118,9 @@ TEST_P(VulkanQueueDescriptorCacheTest,
     status = iree_status_join(
         status, iree_hal_semaphore_signal(gate.semaphores[0], 1, nullptr));
     const iree_hal_semaphore_list_t submitted = {
-        /*.count=*/submitted_count,
-        /*.semaphores=*/signals.semaphores.data(),
-        /*.payload_values=*/signals.payload_values.data(),
+        .count = submitted_count,
+        .semaphores = signals.semaphores.data(),
+        .payload_values = signals.payload_values.data(),
     };
     status = iree_status_join(
         status, iree_hal_semaphore_list_wait(submitted, iree_infinite_timeout(),

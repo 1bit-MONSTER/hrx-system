@@ -36,12 +36,12 @@ class VmmSlabProviderTest : public ::testing::Test {
         hrx_vmm_slab_provider_create(device->allocator.hal_allocator, params_,
                                      iree_allocator_system(), &provider_));
     const iree_hal_pool_family_access_t family_access = {
-        /*.family=*/iree_hal_queue_family(device->transfer_queue),
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_DEFAULT,
+        .family = iree_hal_queue_family(device->transfer_queue),
+        .usage = IREE_HAL_BUFFER_USAGE_DEFAULT,
     };
     const iree_hal_pool_scope_t scope = {
-        /*.family_count=*/1,
-        /*.families=*/&family_access,
+        .family_count = 1,
+        .families = &family_access,
     };
     iree_hal_slab_pool_options_t owner_options;
     iree_hal_slab_pool_options_initialize(&owner_options);
@@ -55,9 +55,10 @@ class VmmSlabProviderTest : public ::testing::Test {
     options.tlsf_options.alignment = 256;
     options.tlsf_options.frontier_capacity =
         IREE_HAL_MEMORY_TLSF_DEFAULT_FRONTIER_CAPACITY;
-    iree_hal_passthrough_pool_options_t backing_options = {};
-    backing_options.memory_contract = owner_pool_->memory_contract;
-    backing_options.epoch_query = owner_pool_->epoch_query;
+    iree_hal_passthrough_pool_options_t backing_options = {
+        .memory_contract = owner_pool_->memory_contract,
+        .epoch_query = owner_pool_->epoch_query,
+    };
     iree_hal_pool_t* backing_pool = nullptr;
     IREE_ASSERT_OK(iree_hal_passthrough_pool_create(
         backing_options, provider_, owner_pool_->notification,

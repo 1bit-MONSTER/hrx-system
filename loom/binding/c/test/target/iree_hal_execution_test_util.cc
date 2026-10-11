@@ -481,8 +481,8 @@ void RunIreeHalKernelExecutionTest(
   ASSERT_NE(dispatch_queue, nullptr);
   iree_hal_pool_family_access_t family_accesses[2] = {
       {
-          /*.family=*/iree_hal_queue_family(dispatch_queue),
-          /*.usage=*/IREE_HAL_BUFFER_USAGE_STORAGE,
+          .family = iree_hal_queue_family(dispatch_queue),
+          .usage = IREE_HAL_BUFFER_USAGE_STORAGE,
       },
   };
   iree_host_size_t family_access_count = 1;
@@ -490,13 +490,13 @@ void RunIreeHalKernelExecutionTest(
     family_accesses[0].usage |= IREE_HAL_BUFFER_USAGE_TRANSFER;
   } else {
     family_accesses[family_access_count++] = {
-        /*.family=*/iree_hal_queue_family(transfer_queue),
-        /*.usage=*/IREE_HAL_BUFFER_USAGE_TRANSFER,
+        .family = iree_hal_queue_family(transfer_queue),
+        .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
     };
   }
   const iree_hal_pool_scope_t pool_scope = {
-      /*.family_count=*/family_access_count,
-      /*.families=*/family_accesses,
+      .family_count = family_access_count,
+      .families = family_accesses,
   };
   iree_hal_slab_pool_options_t pool_options;
   iree_hal_slab_pool_options_initialize(&pool_options);

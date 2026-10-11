@@ -212,14 +212,15 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
     Ioctl(DRM_IOCTL_AMDGPU_CTX, &context, "create mapping-publication context");
     context_ = context.out.alloc.ctx_id;
 
-    amdf_gpu_umd_user_queue_create_info_t create = {};
-    create.command_type = family.command_type;
-    create.format_version = family.format_version;
-    create.priority = AMDF_QUEUE_PRIORITY_NORMAL;
-    create.producer_mode = AMDF_QUEUE_PRODUCER_MODE_SINGLE;
-    create.required_capabilities = AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER;
-    create.roles = family.roles;
-    create.ring_byte_length = family.minimum_ring_byte_length;
+    amdf_gpu_umd_user_queue_create_info_t create = {
+        .command_type = family.command_type,
+        .format_version = family.format_version,
+        .priority = AMDF_QUEUE_PRIORITY_NORMAL,
+        .producer_mode = AMDF_QUEUE_PRODUCER_MODE_SINGLE,
+        .required_capabilities = AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER,
+        .roles = family.roles,
+        .ring_byte_length = family.minimum_ring_byte_length,
+    };
     amdf_gpu_umd_user_queue_result_t queue_result = {};
     RequireStatus(amdf_gpu_umd_user_queue_create(device_, &create, &queue_,
                                                  &queue_result),
@@ -308,8 +309,9 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
     PublishMappings(std::span(&bo_entries_.back(), 1));
     amdf_gpu_kfd_device_unlock_memory(device_);
     for (size_t i = 0; i < backing_.size(); ++i) {
-      drm_gem_close release = {};
-      release.handle = bo_entries_[i].bo_handle;
+      drm_gem_close release = {
+          .handle = bo_entries_[i].bo_handle,
+      };
       Ioctl(DRM_IOCTL_GEM_CLOSE, &release, "close retained slab GEM handle");
       RequireStatus(amdf_gpu_kfd_buffer_destroy(backing_[i]),
                     "release retained slab");
@@ -323,8 +325,9 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
     context.in.ctx_id = context_;
     Ioctl(DRM_IOCTL_AMDGPU_CTX, &context,
           "release mapping-publication context");
-    drm_gem_close release = {};
-    release.handle = bo_entries_.back().bo_handle;
+    drm_gem_close release = {
+        .handle = bo_entries_.back().bo_handle,
+    };
     Ioctl(DRM_IOCTL_GEM_CLOSE, &release, "close transport GEM handle");
     RequireStatus(amdf_gpu_kfd_buffer_destroy(transport_), "release transport");
     for (uint64_t address : reservation_addresses) {
@@ -347,11 +350,12 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
       uint64_t byte_length, uint32_t flags,
       amdf_gpu_kfd_buffer_host_access_t host_access,
       amdf_gpu_kfd_buffer_t** out_buffer) {
-    amdf_gpu_kfd_buffer_create_info_t create = {};
-    create.native_flags = flags | AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE;
-    create.byte_length = byte_length;
-    create.alignment = device_->page_size;
-    create.host_access = host_access;
+    amdf_gpu_kfd_buffer_create_info_t create = {
+        .native_flags = flags | AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE,
+        .byte_length = byte_length,
+        .alignment = device_->page_size,
+        .host_access = host_access,
+    };
     amdf_gpu_kfd_buffer_result_t result = {};
     RequireStatus(
         amdf_gpu_kfd_buffer_create(device_, &create, out_buffer, &result),
@@ -366,8 +370,9 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
     Require(
         ioctl(device_->descriptor, AMDKFD_IOC_EXPORT_DMABUF, &export_args) == 0,
         "export KFD backing");
-    drm_prime_handle import_args = {};
-    import_args.fd = static_cast<int>(export_args.dmabuf_fd);
+    drm_prime_handle import_args = {
+        .fd = static_cast<int>(export_args.dmabuf_fd),
+    };
     Ioctl(DRM_IOCTL_PRIME_FD_TO_HANDLE, &import_args,
           "import backing into exact VM");
     Require(close(import_args.fd) == 0, "close temporary DMA-BUF transport");
@@ -381,11 +386,12 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
 
   void Update(uint32_t operation, uint32_t handle, uint64_t address,
               uint64_t byte_length) {
-    drm_amdgpu_gem_va update = {};
-    update.handle = handle;
-    update.operation = operation;
-    update.flags = AMDGPU_VM_DELAY_UPDATE | AMDGPU_VM_PAGE_READABLE |
-                   AMDGPU_VM_PAGE_WRITEABLE;
+    drm_amdgpu_gem_va update = {
+        .handle = handle,
+        .operation = operation,
+        .flags = AMDGPU_VM_DELAY_UPDATE | AMDGPU_VM_PAGE_READABLE |
+                 AMDGPU_VM_PAGE_WRITEABLE,
+    };
     update.va_address = address;
     update.map_size = byte_length;
     Ioctl(DRM_IOCTL_AMDGPU_GEM_VA, &update, "change sparse mapping");
@@ -401,10 +407,11 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
     ib.ib_bytes = ip_.ib_size_alignment;
     ib.ip_type = AMDGPU_HW_IP_DMA;
     ib.ring = ring_;
-    drm_amdgpu_bo_list_in list = {};
-    list.operation = AMDGPU_BO_LIST_OP_CREATE;
-    list.bo_number = static_cast<uint32_t>(sources.size());
-    list.bo_info_size = sizeof(sources[0]);
+    drm_amdgpu_bo_list_in list = {
+        .operation = AMDGPU_BO_LIST_OP_CREATE,
+        .bo_number = static_cast<uint32_t>(sources.size()),
+        .bo_info_size = sizeof(sources[0]),
+    };
     list.bo_info_ptr = reinterpret_cast<uintptr_t>(sources.data());
     std::array<drm_amdgpu_cs_chunk, 2> chunks = {};
     chunks[0].chunk_id = AMDGPU_CHUNK_ID_IB;
