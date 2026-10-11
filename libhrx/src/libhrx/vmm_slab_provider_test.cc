@@ -125,6 +125,17 @@ TEST_F(VmmSlabProviderTest, OwnedRangeSurvivesUntilItsFinalSubspan) {
       pool_,
       iree_hal_make_pool_reservation_request(4096, /*min_alignment=*/256),
       iree_infinite_timeout(), &owner));
+  const auto memory = iree_hal_buffer_memory_view(owner);
+  ASSERT_NE(memory.backing, nullptr);
+  EXPECT_GE(memory.backing->allocation_alignment, 256u);
+  EXPECT_EQ(memory.backing->native_allocation.byte_offset, 0u);
+  EXPECT_GT(memory.backing->native_allocation.byte_length, 0u);
+  ASSERT_GT(memory.backing->native_allocation.granularity, 0u);
+  EXPECT_EQ(memory.backing->native_allocation.byte_length %
+                memory.backing->native_allocation.granularity,
+            0u);
+  EXPECT_EQ(PoolStats().bytes_committed,
+            memory.backing->native_allocation.byte_length);
   iree_hal_buffer_t* root = iree_hal_buffer_allocated_buffer(owner);
   ASSERT_NE(owner, root);
   iree_hal_buffer_t* intermediate = nullptr;

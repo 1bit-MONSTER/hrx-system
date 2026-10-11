@@ -180,7 +180,6 @@ static iree_status_t hrx_vmm_slab_provider_retry_failed_releases(
 static iree_status_t hrx_vmm_slab_provider_acquire_slab(
     iree_hal_slab_provider_t* base_provider, iree_device_size_t min_length,
     iree_device_size_t alignment, iree_hal_slab_t* out_slab) {
-  (void)alignment;
   IREE_ASSERT_ARGUMENT(out_slab);
   *out_slab = (iree_hal_slab_t){0};
   if (IREE_UNLIKELY(min_length == 0)) {
@@ -248,6 +247,12 @@ static iree_status_t hrx_vmm_slab_provider_acquire_slab(
         IREE_STATUS_UNAVAILABLE,
         "VMM allocator returned a reservation without a device address");
   }
+  if (iree_status_is_ok(status) && alignment &&
+      !iree_device_size_has_alignment(device_address, alignment)) {
+    status = iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "VMM reservation does not satisfy the requested alignment");
+  }
 
   if (!iree_status_is_ok(status)) {
     iree_status_t release_status =
@@ -263,6 +268,13 @@ static iree_status_t hrx_vmm_slab_provider_acquire_slab(
   out_slab->base_ptr = (uint8_t*)(uintptr_t)device_address;
   out_slab->length = allocation_size;
   out_slab->provider_handle = (uint64_t)(uintptr_t)slab;
+  // The physical allocation covers the entire page-rounded reservation. The
+  // separate virtual address owner adds no second physical payload charge.
+  out_slab->native_allocation = (iree_hal_buffer_allocation_info_t){
+      .byte_length = allocation_size,
+      .granularity = provider->page_size,
+  };
+  out_slab->allocation_alignment = device_address & (~device_address + 1);
   iree_atomic_fetch_add(&provider->total_acquired, 1,
                         iree_memory_order_relaxed);
   return iree_ok_status();
