@@ -527,6 +527,16 @@ static iree_status_t loom_run_hal_testbench_reflect_function_parameters(
         (unsigned)function_info.parameter_count,
         provider->invocation->input_count);
   }
+  if (function_info.constant_byte_length >
+      sizeof(provider->invocation_options.constants)) {
+    return iree_make_status(
+        IREE_STATUS_OUT_OF_RANGE,
+        "loaded HAL function '%.*s' requires %u constant bytes but the "
+        "testbench supports %" PRIhsz,
+        (int)function_name.size, function_name.data,
+        (unsigned)function_info.constant_byte_length,
+        sizeof(provider->invocation_options.constants));
+  }
 
   iree_hal_executable_function_parameter_t* parameters = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
@@ -535,6 +545,12 @@ static iree_status_t loom_run_hal_testbench_reflect_function_parameters(
   iree_status_t status = iree_hal_executable_function_parameters(
       executable, function, function_info.parameter_count, parameters);
   if (iree_status_is_ok(status)) {
+    // Individual parameter spans exclude ABI padding. Preserve the reflected
+    // aggregate extent so terminal padding remains part of the dispatch.
+    memset(provider->invocation_options.constants, 0,
+           function_info.constant_byte_length);
+    provider->invocation_options.constant_byte_length =
+        function_info.constant_byte_length;
     provider->function_parameters = parameters;
     provider->function_parameter_count = function_info.parameter_count;
   } else {

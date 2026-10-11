@@ -138,6 +138,32 @@ static const loom_target_facts_t* loom_spirv_program_function_target_facts(
                                   : NULL;
 }
 
+static const loom_func_type_data_t*
+loom_spirv_program_function_logical_signature(const loom_module_t* module,
+                                              const loom_op_t* function_op) {
+  const loom_named_attr_slice_t layout =
+      loom_low_function_abi_layout(function_op);
+  if (layout.count == 0) {
+    return NULL;
+  }
+  IREE_ASSERT_EQ(layout.count, 1,
+                 "verified SPIR-V HAL kernel ABI layout field count");
+  IREE_ASSERT_LT(layout.entries[0].name_id, module->strings.count,
+                 "verified SPIR-V HAL kernel ABI layout field name");
+  IREE_ASSERT_EQ(layout.entries[0].value.kind, LOOM_ATTR_TYPE,
+                 "verified SPIR-V HAL kernel ABI layout field type");
+  IREE_ASSERT(iree_string_view_equal(
+      loom_string_table_get(&module->strings, layout.entries[0].name_id),
+      IREE_SV("signature")));
+  const loom_type_t signature =
+      loom_type_table_get(&module->types, layout.entries[0].value.type_id);
+  IREE_ASSERT(loom_type_is_function(signature));
+  const loom_func_type_data_t* data = loom_type_func_data(signature);
+  IREE_ASSERT_EQ(data->result_count, 0,
+                 "verified SPIR-V HAL kernel logical result count");
+  return data;
+}
+
 static iree_status_t loom_spirv_program_build_function(
     loom_spirv_program_build_t* build, loom_op_t* function_op,
     const loom_target_facts_t* selected_target_facts,
@@ -176,11 +202,18 @@ static iree_status_t loom_spirv_program_build_function(
   }
   IREE_RETURN_IF_ERROR(loom_spirv_program_validate_contract(build, &target));
 
+  const loom_func_type_data_t* logical_signature = NULL;
+  if (target_bundle->export_plan->abi_kind == LOOM_TARGET_ABI_HAL_KERNEL) {
+    logical_signature = loom_spirv_program_function_logical_signature(
+        build->module, function_op);
+  }
+
   IREE_ASSERT_LT(build->function_count, build->function_capacity);
   build->functions[build->function_count++] = (loom_spirv_function_plan_t){
       .function_op = function_op,
       .target_facts = target.target_facts,
       .descriptor_set = target.descriptor_set,
+      .logical_signature = logical_signature,
   };
   *out_disposition = LOOM_SPIRV_PROGRAM_FUNCTION_APPENDED;
   return iree_ok_status();

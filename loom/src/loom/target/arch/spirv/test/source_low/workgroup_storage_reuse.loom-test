@@ -204,7 +204,7 @@ kernel.def @uniform_branches_reuse_same_range() {
 }
 
 // ----
-low.kernel.def target<spirv.logical.core> workgroup_size(1, 1, 1) workgroup_count(2, 1, 1) @uniform_branches_reuse_same_range() asm {
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer) -> ()}) workgroup_size(1, 1, 1) workgroup_count(2, 1, 1) @uniform_branches_reuse_same_range() asm {
   %output = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %second = storage {byte_alignment = 4, byte_length = 128} : low.storage<workgroup>
   %workgroup = OpLoadBuiltin.workgroup_id.x

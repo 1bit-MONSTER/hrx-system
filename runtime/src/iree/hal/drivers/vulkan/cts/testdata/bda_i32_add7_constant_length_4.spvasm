@@ -37,6 +37,7 @@
                OpModuleProcessed "iree.vulkan.bda.v1[main]"
                OpModuleProcessed "iree.vulkan.bda.v1[main].bindings=2"
                OpModuleProcessed "iree.vulkan.bda.v1[main].constant_length=4"
+               OpModuleProcessed "iree.vulkan.bda.parameters.v1[main]=c0,4;b0;b1"
                OpDecorate %_runtimearr_ulong ArrayStride 8
                OpDecorate %AddressTable Block
                OpMemberDecorate %AddressTable 0 NonWritable

@@ -8,6 +8,7 @@
 
 #include <cstring>
 #include <initializer_list>
+#include <string>
 #include <vector>
 
 #include "iree/testing/gtest.h"
@@ -919,8 +920,9 @@ TEST(SpirvTest, ParsesBdaDispatchMetadata) {
   std::vector<uint32_t> module = MakeBdaMetadataModule({
       "iree.vulkan.bda.v1[main]",
       "iree.vulkan.bda.v1[main].bindings=2",
-      "iree.vulkan.bda.v1[main].constant_length=12",
+      "iree.vulkan.bda.v1[main].constant_length=20",
       "iree.vulkan.bda.v1[main].constant_offset=48",
+      "iree.vulkan.bda.parameters.v1[main]=c0,1;b0;c4,2;c8,4;c12,8;b1",
       "iree.vulkan.bda.v1[main].binding.1=16,64",
   });
 
@@ -935,9 +937,35 @@ TEST(SpirvTest, ParsesBdaDispatchMetadata) {
   EXPECT_EQ(0u, metadata.root_push_constant_offset);
   EXPECT_EQ(32u, metadata.root_push_constant_length);
   EXPECT_EQ(48u, metadata.constant_push_constant_offset);
-  EXPECT_EQ(12u, metadata.constant_byte_length);
+  EXPECT_EQ(20u, metadata.constant_byte_length);
   EXPECT_TRUE(metadata.binding_count_known);
   EXPECT_EQ(2u, metadata.binding_count);
+  ASSERT_EQ(6u, metadata.parameter_count);
+  ASSERT_NE(nullptr, metadata.parameters);
+  EXPECT_EQ(IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT,
+            metadata.parameters[0].type);
+  EXPECT_EQ(0u, metadata.parameters[0].offset);
+  EXPECT_EQ(1u, metadata.parameters[0].size);
+  EXPECT_EQ(IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_BINDING,
+            metadata.parameters[1].type);
+  EXPECT_EQ(0u, metadata.parameters[1].offset);
+  EXPECT_EQ(0u, metadata.parameters[1].size);
+  EXPECT_EQ(IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT,
+            metadata.parameters[2].type);
+  EXPECT_EQ(4u, metadata.parameters[2].offset);
+  EXPECT_EQ(2u, metadata.parameters[2].size);
+  EXPECT_EQ(IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT,
+            metadata.parameters[3].type);
+  EXPECT_EQ(8u, metadata.parameters[3].offset);
+  EXPECT_EQ(4u, metadata.parameters[3].size);
+  EXPECT_EQ(IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT,
+            metadata.parameters[4].type);
+  EXPECT_EQ(12u, metadata.parameters[4].offset);
+  EXPECT_EQ(8u, metadata.parameters[4].size);
+  EXPECT_EQ(IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_BINDING,
+            metadata.parameters[5].type);
+  EXPECT_EQ(1u, metadata.parameters[5].offset);
+  EXPECT_EQ(0u, metadata.parameters[5].size);
   ASSERT_EQ(2u, metadata.binding_requirement_count);
   EXPECT_EQ(1u, metadata.binding_requirements[0].minimum_alignment);
   EXPECT_EQ(0u, metadata.binding_requirements[0].minimum_length);
@@ -951,6 +979,7 @@ TEST(SpirvTest, IgnoresUnknownBdaDispatchMetadataVersions) {
   std::vector<uint32_t> module = MakeBdaMetadataModule({
       "some.other.tool.metadata",
       "iree.vulkan.bda.v10.bindings=2",
+      "iree.vulkan.bda.parameters.v10[main]=b0",
   });
 
   iree_hal_vulkan_spirv_compute_entry_point_t entry_point = {};
@@ -1002,6 +1031,8 @@ TEST(SpirvTest, JoinsBdaMetadataByEntryName) {
           "iree.vulkan.bda.v1[z].constant_length=4",
           "iree.vulkan.bda.v1[z].binding.1=4,12",
           "iree.vulkan.bda.v1[alias.with[brackets]].bindings=0",
+          "iree.vulkan.bda.v1[alias.with[brackets]].constant_length=0",
+          "iree.vulkan.bda.parameters.v1[alias.with[brackets]]=",
       },
       {"z", "alias.with[brackets]", "a", "missing"});
   iree_hal_vulkan_spirv_compute_entry_point_t entries[4] = {};
@@ -1017,21 +1048,118 @@ TEST(SpirvTest, JoinsBdaMetadataByEntryName) {
   EXPECT_EQ(metadata[0].binding_requirement_count, 2u);
   EXPECT_EQ(metadata[0].binding_requirements[0].minimum_alignment, 1u);
   EXPECT_EQ(metadata[0].binding_requirements[1].minimum_length, 12u);
+  EXPECT_EQ(metadata[0].parameter_count, 0u);
+  EXPECT_EQ(metadata[0].parameters, nullptr);
   EXPECT_TRUE(metadata[1].is_present);
   EXPECT_TRUE(metadata[1].binding_count_known);
   EXPECT_EQ(metadata[1].binding_count, 0u);
   EXPECT_EQ(metadata[1].constant_byte_length, 0u);
+  EXPECT_EQ(metadata[1].parameter_count, 0u);
   EXPECT_TRUE(metadata[2].is_present);
   EXPECT_EQ(metadata[2].binding_count, 1u);
   EXPECT_EQ(metadata[2].constant_byte_length, 8u);
   EXPECT_EQ(metadata[2].binding_requirement_count, 1u);
   EXPECT_EQ(metadata[2].binding_requirements[0].minimum_alignment, 16u);
   EXPECT_EQ(metadata[2].binding_requirements[0].minimum_length, 64u);
+  EXPECT_EQ(metadata[2].parameter_count, 0u);
+  EXPECT_EQ(metadata[2].parameters, nullptr);
   EXPECT_FALSE(metadata[3].is_present);
   for (auto& entry : metadata) {
     iree_hal_vulkan_spirv_bda_dispatch_metadata_deinitialize(
         &entry, iree_allocator_system());
   }
+}
+
+TEST(SpirvTest, RejectsMalformedBdaParameterMetadata) {
+  for (const char* invalid_parameters : {
+           "b0;",
+           "x0",
+           "c0",
+           "c0,3",
+           "b1;b0;c0,4;c4,8",
+           "b0;b1;c4,4;c0,8",
+           "b0;c0,4",
+           "b0;b1;c0,4",
+       }) {
+    SCOPED_TRACE(invalid_parameters);
+    std::string parameter_record = "iree.vulkan.bda.parameters.v1[main]=";
+    parameter_record.append(invalid_parameters);
+    const auto module = MakeBdaMetadataModule({
+        "iree.vulkan.bda.v1[main].bindings=2",
+        "iree.vulkan.bda.v1[main].constant_length=12",
+        parameter_record.c_str(),
+    });
+    iree_hal_vulkan_spirv_compute_entry_point_t entry_point = {};
+    IREE_ASSERT_OK(iree_hal_vulkan_spirv_parse_compute_entry_points(
+        module.data(), module.size(), 1, &entry_point));
+    iree_hal_vulkan_spirv_bda_dispatch_metadata_t metadata = {};
+    IREE_EXPECT_STATUS_IS(StatusCode::kInvalidArgument,
+                          iree_hal_vulkan_spirv_parse_bda_dispatch_metadata(
+                              module.data(), module.size(), 1, &entry_point,
+                              &metadata, iree_allocator_system()));
+    EXPECT_EQ(nullptr, metadata.parameters);
+    EXPECT_EQ(0u, metadata.parameter_count);
+    iree_hal_vulkan_spirv_bda_dispatch_metadata_deinitialize(
+        &metadata, iree_allocator_system());
+  }
+
+  for (const char* invalid_record : {
+           "iree.vulkan.bda.parameters.v1",
+           "iree.vulkan.bda.parameters.v1.value",
+           "iree.vulkan.bda.parameters.v1[",
+           "iree.vulkan.bda.parameters.v1[]=",
+           "iree.vulkan.bda.parameters.v1[unknown]=",
+           "iree.vulkan.bda.parameters.v1[main]value",
+       }) {
+    SCOPED_TRACE(invalid_record);
+    const auto module = MakeBdaMetadataModule({
+        "iree.vulkan.bda.v1[main].bindings=0",
+        "iree.vulkan.bda.v1[main].constant_length=0",
+        invalid_record,
+    });
+    iree_hal_vulkan_spirv_compute_entry_point_t entry_point = {};
+    IREE_ASSERT_OK(iree_hal_vulkan_spirv_parse_compute_entry_points(
+        module.data(), module.size(), 1, &entry_point));
+    iree_hal_vulkan_spirv_bda_dispatch_metadata_t metadata = {};
+    IREE_EXPECT_STATUS_IS(StatusCode::kInvalidArgument,
+                          iree_hal_vulkan_spirv_parse_bda_dispatch_metadata(
+                              module.data(), module.size(), 1, &entry_point,
+                              &metadata, iree_allocator_system()));
+    EXPECT_EQ(nullptr, metadata.parameters);
+    EXPECT_EQ(0u, metadata.parameter_count);
+    iree_hal_vulkan_spirv_bda_dispatch_metadata_deinitialize(
+        &metadata, iree_allocator_system());
+  }
+
+  const auto incomplete_module = MakeBdaMetadataModule({
+      "iree.vulkan.bda.parameters.v1[main]=",
+  });
+  iree_hal_vulkan_spirv_compute_entry_point_t entry_point = {};
+  IREE_ASSERT_OK(iree_hal_vulkan_spirv_parse_compute_entry_points(
+      incomplete_module.data(), incomplete_module.size(), 1, &entry_point));
+  iree_hal_vulkan_spirv_bda_dispatch_metadata_t metadata = {};
+  IREE_EXPECT_STATUS_IS(
+      StatusCode::kInvalidArgument,
+      iree_hal_vulkan_spirv_parse_bda_dispatch_metadata(
+          incomplete_module.data(), incomplete_module.size(), 1, &entry_point,
+          &metadata, iree_allocator_system()));
+  iree_hal_vulkan_spirv_bda_dispatch_metadata_deinitialize(
+      &metadata, iree_allocator_system());
+
+  const auto duplicate_module = MakeBdaMetadataModule({
+      "iree.vulkan.bda.v1[main].bindings=0",
+      "iree.vulkan.bda.v1[main].constant_length=0",
+      "iree.vulkan.bda.parameters.v1[main]=",
+      "iree.vulkan.bda.parameters.v1[main]=",
+  });
+  IREE_ASSERT_OK(iree_hal_vulkan_spirv_parse_compute_entry_points(
+      duplicate_module.data(), duplicate_module.size(), 1, &entry_point));
+  IREE_EXPECT_STATUS_IS(StatusCode::kInvalidArgument,
+                        iree_hal_vulkan_spirv_parse_bda_dispatch_metadata(
+                            duplicate_module.data(), duplicate_module.size(), 1,
+                            &entry_point, &metadata, iree_allocator_system()));
+  iree_hal_vulkan_spirv_bda_dispatch_metadata_deinitialize(
+      &metadata, iree_allocator_system());
 }
 
 TEST(SpirvTest, RejectsInvalidEntryMetadataAndReleasesAllEntries) {
@@ -1074,6 +1202,8 @@ TEST(SpirvTest, RejectsInvalidEntryMetadataAndReleasesAllEntries) {
       EXPECT_FALSE(entry.is_present);
       EXPECT_EQ(entry.binding_requirements, nullptr);
       EXPECT_EQ(entry.binding_requirement_count, 0u);
+      EXPECT_EQ(entry.parameters, nullptr);
+      EXPECT_EQ(entry.parameter_count, 0u);
     }
   }
 }

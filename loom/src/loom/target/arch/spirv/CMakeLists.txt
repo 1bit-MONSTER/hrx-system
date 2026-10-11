@@ -18,6 +18,18 @@ endif()
 iree_add_all_subdirs()
 
 if(LOOM_TARGET_ARCH_SPIRV)
+loom_cc_library(
+  NAME
+    bda_abi
+  HDRS
+    "bda_abi.h"
+  DEPS
+    iree::base
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV)
 loom_generated_cc_library(
   NAME
     error_defs
@@ -328,6 +340,7 @@ loom_cc_library(
   SRCS
     "low_verify.c"
   DEPS
+    ::bda_abi
     ::error_defs
     ::module_contract
     ::packet_rows
@@ -397,6 +410,8 @@ loom_cc_test(
   SRCS
     "provider_test.cc"
   DEPS
+    ::bda_abi
+    ::error_defs
     ::features
     ::profile
     ::provider
@@ -405,6 +420,8 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::analysis::symbol_facts
+    loom::codegen::low::text_asm
+    loom::codegen::low::verify
     loom::format::text::parser
     loom::ir
     loom::ops::op_defs
@@ -412,6 +429,7 @@ loom_cc_test(
     loom::ops::target
     loom::target::arch::spirv::records::target_records
     loom::target::provider
+    loom::testing::diagnostic_matchers
     loom::testing::module_ptr
   LABELS
     "iree-build-requirement=loom.target.arch.spirv"

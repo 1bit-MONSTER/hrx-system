@@ -10,6 +10,7 @@
 
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
+#include "loom/target/arch/spirv/bda_abi.h"
 #include "loom/target/arch/spirv/descriptors/descriptors.h"
 #include "loom/target/arch/spirv/registers.h"
 #include "loom/target/arch/spirv/scalar_types.h"
@@ -182,6 +183,65 @@ static iree_status_t loom_spirv_module_abi_bda_metadata_field(
                                                 iree_string_builder_view(text));
 }
 
+static uint8_t loom_spirv_module_abi_logical_parameter_byte_length(
+    loom_type_t logical_type, const loom_spirv_module_abi_slot_t* slot) {
+  IREE_ASSERT(loom_type_is_scalar(logical_type));
+  const loom_scalar_type_t element_type = loom_type_element_type(logical_type);
+  if (element_type == LOOM_SCALAR_TYPE_INDEX ||
+      element_type == LOOM_SCALAR_TYPE_OFFSET) {
+    return (uint8_t)(slot->constant_word_count * sizeof(uint32_t));
+  }
+  const int32_t bit_width = loom_scalar_type_bitwidth(element_type);
+  IREE_ASSERT_GT(bit_width, 0);
+  const uint8_t byte_length = (uint8_t)iree_max(1, bit_width / 8);
+  IREE_ASSERT_LE(byte_length, slot->constant_word_count * sizeof(uint32_t));
+  return byte_length;
+}
+
+static iree_status_t loom_spirv_module_abi_emit_bda_parameters(
+    loom_spirv_module_abi_context_t* context,
+    const loom_spirv_module_abi_plan_t* plan, iree_string_view_t entry_name,
+    iree_string_builder_t* text) {
+  const loom_func_type_data_t* signature =
+      context->function_plan->logical_signature;
+  if (signature == NULL) {
+    return iree_ok_status();
+  }
+
+  iree_string_builder_reset(text);
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+      text, "iree.vulkan.bda.parameters.v1[%.*s]=", (int)entry_name.size,
+      entry_name.data));
+  uint16_t binding_ordinal = 0;
+  iree_host_size_t direct_argument_ordinal = 0;
+  for (uint16_t i = 0; i < signature->arg_count; ++i) {
+    if (i != 0) {
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(text, ";"));
+    }
+    if (loom_type_is_buffer(signature->types[i])) {
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+          text, "b%" PRIu16, binding_ordinal++));
+      continue;
+    }
+    IREE_ASSERT_LT(direct_argument_ordinal, plan->arg_count);
+    const loom_spirv_module_abi_slot_t* slot =
+        &plan->args[direct_argument_ordinal++];
+    IREE_ASSERT_LE(slot->constant_word_offset,
+                   LOOM_SPIRV_BDA_MAX_REFLECTED_CONSTANT_WORD_OFFSET);
+    const uint8_t byte_length =
+        loom_spirv_module_abi_logical_parameter_byte_length(signature->types[i],
+                                                            slot);
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        text, "c%" PRIu16 ",%" PRIu8,
+        (uint16_t)(slot->constant_word_offset * sizeof(uint32_t)),
+        byte_length));
+  }
+  IREE_ASSERT_EQ(binding_ordinal, plan->bda_binding_count);
+  IREE_ASSERT_EQ(direct_argument_ordinal, plan->arg_count);
+  return loom_spirv_module_abi_module_processed(context,
+                                                iree_string_builder_view(text));
+}
+
 static void loom_spirv_module_abi_share_bda_root(
     loom_spirv_module_abi_context_t* context,
     loom_spirv_module_abi_plan_t* plan) {
@@ -194,6 +254,21 @@ static void loom_spirv_module_abi_share_bda_root(
   plan->bda_root.variable_id = root->root_variable_id;
 }
 
+static iree_status_t loom_spirv_module_abi_emit_scalar_value_type(
+    loom_spirv_module_abi_context_t* context,
+    loom_spirv_scalar_type_t scalar_type,
+    const loom_spirv_scalar_type_descriptor_t** out_descriptor,
+    uint32_t* out_type_id) {
+  const loom_spirv_scalar_type_descriptor_t* descriptor =
+      loom_spirv_scalar_type_descriptor(scalar_type);
+  IREE_ASSERT(descriptor != NULL);
+  loom_spirv_module_builder_require_feature_bits(
+      context->builder, descriptor->required_feature_bits);
+  *out_descriptor = descriptor;
+  return loom_spirv_emit_type_scalar(context->type_context, scalar_type,
+                                     out_type_id);
+}
+
 static iree_status_t loom_spirv_module_abi_slot_type_info(
     loom_spirv_module_abi_context_t* context,
     loom_spirv_value_type_t value_type,
@@ -201,11 +276,9 @@ static iree_status_t loom_spirv_module_abi_slot_type_info(
   *out_type_info = (loom_spirv_module_abi_slot_type_info_t){0};
   switch (value_type.value_class) {
     case LOOM_SPIRV_VALUE_CLASS_SCALAR: {
-      const loom_spirv_scalar_type_descriptor_t* descriptor =
-          loom_spirv_scalar_type_descriptor(value_type.scalar_type);
-      IREE_ASSERT(descriptor != NULL);
-      IREE_RETURN_IF_ERROR(loom_spirv_emit_type_scalar(
-          context->type_context, value_type.scalar_type,
+      const loom_spirv_scalar_type_descriptor_t* descriptor = NULL;
+      IREE_RETURN_IF_ERROR(loom_spirv_module_abi_emit_scalar_value_type(
+          context, value_type.scalar_type, &descriptor,
           &out_type_info->value_type_id));
       out_type_info->field_type_id = out_type_info->value_type_id;
       IREE_RETURN_IF_ERROR(
@@ -434,16 +507,25 @@ static iree_status_t loom_spirv_module_abi_build_raw_bda_plan(
         (uint16_t)(constant_word_count + slot->constant_word_count);
   }
 
+  const loom_func_type_data_t* signature =
+      context->function_plan->logical_signature;
   uint16_t binding_count = 0;
-  const loom_op_t* op = entry_block->first_op;
-  while (op != NULL &&
-         (loom_low_resource_isa(op) || loom_low_live_in_isa(op))) {
-    if (loom_low_resource_isa(op)) {
-      const uint16_t binding_ordinal =
-          loom_spirv_module_abi_bda_resource_binding_ordinal(context, op);
-      binding_count = iree_max(binding_count, (uint16_t)(binding_ordinal + 1));
+  if (signature != NULL) {
+    for (uint16_t i = 0; i < signature->arg_count; ++i) {
+      binding_count += loom_type_is_buffer(signature->types[i]);
     }
-    op = op->next_op;
+  } else {
+    const loom_op_t* op = entry_block->first_op;
+    while (op != NULL &&
+           (loom_low_resource_isa(op) || loom_low_live_in_isa(op))) {
+      if (loom_low_resource_isa(op)) {
+        const uint16_t binding_ordinal =
+            loom_spirv_module_abi_bda_resource_binding_ordinal(context, op);
+        binding_count =
+            iree_max(binding_count, (uint16_t)(binding_ordinal + 1));
+      }
+      op = op->next_op;
+    }
   }
 
   plan->kind = LOOM_SPIRV_MODULE_ABI_PLAN_HAL_KERNEL_RAW_BDA;
@@ -628,12 +710,10 @@ static iree_status_t loom_spirv_module_abi_materialize_bda_scalar_arg(
     loom_spirv_module_abi_context_t* context,
     const loom_spirv_module_abi_plan_t* plan,
     const loom_spirv_module_abi_slot_t* slot) {
-  const loom_spirv_scalar_type_descriptor_t* descriptor =
-      loom_spirv_scalar_type_descriptor(slot->value_type.scalar_type);
-  IREE_ASSERT(descriptor != NULL);
+  const loom_spirv_scalar_type_descriptor_t* descriptor = NULL;
   uint32_t result_type_id = 0;
-  IREE_RETURN_IF_ERROR(loom_spirv_emit_type_scalar(
-      context->type_context, slot->value_type.scalar_type, &result_type_id));
+  IREE_RETURN_IF_ERROR(loom_spirv_module_abi_emit_scalar_value_type(
+      context, slot->value_type.scalar_type, &descriptor, &result_type_id));
 
   uint32_t bits_type_id = 0;
   uint32_t bits_id = 0;
@@ -976,8 +1056,19 @@ iree_status_t loom_spirv_module_abi_emit_entry_metadata(
   if (plan->kind != LOOM_SPIRV_MODULE_ABI_PLAN_HAL_KERNEL_RAW_BDA) {
     return iree_ok_status();
   }
-  // One scratch buffer holds the entry name and the longest numeric field.
-  const iree_host_size_t text_capacity = entry_name.size + 80;
+  // One scratch buffer holds the entry name, numeric fields, and the compact
+  // logical parameter table. Each parameter token needs at most 15 bytes.
+  iree_host_size_t text_capacity = 0;
+  if (!iree_host_size_checked_mul(
+          context->function_plan->logical_signature
+              ? context->function_plan->logical_signature->arg_count
+              : 0,
+          15, &text_capacity) ||
+      !iree_host_size_checked_add(text_capacity, entry_name.size + 80,
+                                  &text_capacity)) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "SPIR-V BDA metadata text size overflows");
+  }
   char* text_storage = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate(
       context->scratch_arena, text_capacity, (void**)&text_storage));
@@ -992,8 +1083,10 @@ iree_status_t loom_spirv_module_abi_emit_entry_metadata(
   IREE_RETURN_IF_ERROR(loom_spirv_module_abi_bda_metadata_field(
       context, &text, entry_name,
       "constant_length=", (uint32_t)plan->bda_constant_word_count * 4u));
-  return loom_spirv_module_abi_bda_metadata_field(
-      context, &text, entry_name, "bindings=", plan->bda_binding_count);
+  IREE_RETURN_IF_ERROR(loom_spirv_module_abi_bda_metadata_field(
+      context, &text, entry_name, "bindings=", plan->bda_binding_count));
+  return loom_spirv_module_abi_emit_bda_parameters(context, plan, entry_name,
+                                                   &text);
 }
 
 iree_status_t loom_spirv_module_abi_emit_shared_bda_root(

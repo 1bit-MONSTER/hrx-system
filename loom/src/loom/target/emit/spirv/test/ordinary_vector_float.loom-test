@@ -59,6 +59,7 @@ kernel.def target(@target) @vector_float_rounding_snapshot() {
                OpModuleProcessed "iree.vulkan.bda.v1[vector_float_rounding_snapshot].constant_offset=32"
                OpModuleProcessed "iree.vulkan.bda.v1[vector_float_rounding_snapshot].constant_length=4"
                OpModuleProcessed "iree.vulkan.bda.v1[vector_float_rounding_snapshot].bindings=3"
+               OpModuleProcessed "iree.vulkan.bda.parameters.v1[vector_float_rounding_snapshot]=c0,4;b0;b1;b2"
                OpDecorate %_runtimearr_ulong ArrayStride 8
                OpDecorate %_struct_17 Block
                OpMemberDecorate %_struct_17 0 Offset 0

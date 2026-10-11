@@ -27,6 +27,9 @@ typedef struct loom_spirv_function_plan_t {
   const loom_target_facts_t* target_facts;
   // Dense descriptor set selected by the function's Low representation.
   const loom_low_descriptor_set_t* descriptor_set;
+  // Logical source signature retained for HAL parameter reflection.
+  // NULL when hand-authored Low IR did not declare a logical interface.
+  const loom_func_type_data_t* logical_signature;
 } loom_spirv_function_plan_t;
 
 // Returns the target bundle retained by |function_plan|.

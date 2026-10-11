@@ -172,7 +172,7 @@ kernel.def target(@hal_target_compact_matrix) @cooperative_matrix_accepts_explic
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target_compact_matrix) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @cooperative_matrix_accepts_explicit_compact_layout(%byte_offset_aligned: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target_compact_matrix) abi_layout({signature = (buffer, buffer, offset) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @cooperative_matrix_accepts_explicit_compact_layout(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %input_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %17 = OpPtrAccessChain.storage_buffer.f32.byte_offset %input_aligned, %byte_offset_aligned

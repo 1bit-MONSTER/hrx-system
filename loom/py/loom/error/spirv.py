@@ -434,19 +434,42 @@ ERR_SPIRV_029 = ErrorDef(
     ),
 )
 
-# ERR_SPIRV_030: SPIR-V low boundary carries target-specific ABI layout state.
+# ERR_SPIRV_030: SPIR-V low boundary has an invalid ABI layout.
 ERR_SPIRV_030 = ErrorDef(
     domain=ErrorDomain.SPIRV,
     code=30,
     severity=Severity.ERROR,
-    summary="SPIR-V low boundary has target-specific ABI layout metadata.",
+    summary="SPIR-V low boundary has invalid ABI layout metadata.",
     message=(
-        "SPIR-V low function '@{function_name}' cannot carry target-specific "
-        "abi_layout metadata; boundary value meaning must be encoded in "
-        "structural register types"
+        "SPIR-V low function '@{function_name}' may carry only a resultless "
+        "logical 'signature' for a HAL kernel, and that signature must match "
+        "its structural direct arguments and retained binding resources"
     ),
     params=(ErrorParam("function_name", ParamKind.STRING),),
-    fix_hint="Attach the exact public value type to each SPIR-V Low register",
+    fix_hint=(
+        "Remove target-specific ABI layout state or regenerate the logical "
+        "HAL signature and binding ordinals from the source kernel boundary"
+    ),
+)
+
+# ERR_SPIRV_031: SPIR-V raw-BDA reflected native offset is out of range.
+ERR_SPIRV_031 = ErrorDef(
+    domain=ErrorDomain.SPIRV,
+    code=31,
+    severity=Severity.ERROR,
+    summary="SPIR-V raw-BDA reflected parameter offset out of range.",
+    message=(
+        "SPIR-V raw-BDA HAL kernel '@{function_name}' direct value "
+        "'{value_name}' begins at constant-table byte offset "
+        "{constant_byte_offset}, producing native ABI byte offset "
+        "{native_byte_offset}, which exceeds the 16-bit HAL parameter range"
+    ),
+    params=(
+        ErrorParam("function_name", ParamKind.STRING),
+        ErrorParam("value_name", ParamKind.STRING),
+        ErrorParam("constant_byte_offset", ParamKind.U32),
+        ErrorParam("native_byte_offset", ParamKind.U32),
+    ),
 )
 
 ALL_SPIRV_ERRORS: tuple[ErrorDef, ...] = (
@@ -473,4 +496,5 @@ ALL_SPIRV_ERRORS: tuple[ErrorDef, ...] = (
     ERR_SPIRV_028,
     ERR_SPIRV_029,
     ERR_SPIRV_030,
+    ERR_SPIRV_031,
 )

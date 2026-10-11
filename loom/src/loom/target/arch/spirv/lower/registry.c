@@ -339,6 +339,69 @@ static iree_status_t loom_spirv_map_argument(
                              source_type, &out_argument->abi_type);
 }
 
+static iree_status_t loom_spirv_map_abi_layout(
+    void* user_data, loom_low_lower_context_t* context,
+    loom_low_lower_abi_layout_kind_t layout_kind, const loom_type_t* arg_types,
+    iree_host_size_t arg_count, const loom_type_t* result_types,
+    iree_host_size_t result_count, iree_arena_allocator_t* scratch_arena,
+    loom_named_attr_slice_t* out_abi_layout) {
+  (void)user_data;
+  (void)arg_types;
+  (void)result_types;
+  *out_abi_layout = loom_named_attr_slice_empty();
+  const loom_target_bundle_t* bundle = loom_low_lower_context_bundle(context);
+  if (layout_kind != LOOM_LOW_LOWER_ABI_LAYOUT_KIND_KERNEL ||
+      bundle->export_plan->abi_kind != LOOM_TARGET_ABI_HAL_KERNEL) {
+    return iree_ok_status();
+  }
+  IREE_ASSERT_EQ(result_count, 0,
+                 "SPIR-V HAL ABI layout reached a kernel with results");
+
+  uint16_t parameter_count = 0;
+  const loom_low_lower_abi_argument_t* argument_map =
+      loom_low_lower_context_argument_map(context, &parameter_count);
+  uint16_t source_argument_count = 0;
+  const loom_value_id_t* source_arguments = loom_func_like_arg_ids(
+      loom_low_lower_context_source_function(context), &source_argument_count);
+  IREE_ASSERT_EQ(source_argument_count, parameter_count,
+                 "SPIR-V HAL ABI layout reached an inconsistent argument map");
+
+  loom_type_t* parameter_types = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(scratch_arena, parameter_count,
+                                                 sizeof(*parameter_types),
+                                                 (void**)&parameter_types));
+  iree_host_size_t direct_argument_count = 0;
+  loom_module_t* module = loom_low_lower_context_module(context);
+  for (uint16_t i = 0; i < parameter_count; ++i) {
+    if (argument_map[i].kind == LOOM_LOW_LOWER_ABI_ARGUMENT_RESOURCE) {
+      // The HAL-visible interface receives bindings as buffers even though the
+      // target-low carrier is a physical storage-buffer address.
+      parameter_types[i] = loom_type_buffer();
+    } else {
+      parameter_types[i] = loom_module_value_type(module, source_arguments[i]);
+      ++direct_argument_count;
+    }
+  }
+  IREE_ASSERT_EQ(arg_count, direct_argument_count,
+                 "SPIR-V HAL ABI layout reached an inconsistent low signature");
+
+  loom_type_t signature = loom_type_none();
+  IREE_RETURN_IF_ERROR(loom_module_intern_function_type(
+      module, parameter_types, parameter_count, NULL, 0, &signature));
+  loom_string_id_t signature_key = LOOM_STRING_ID_INVALID;
+  IREE_RETURN_IF_ERROR(
+      loom_module_intern_string(module, IREE_SV("signature"), &signature_key));
+  loom_named_attr_t* field = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate(scratch_arena, sizeof(*field), (void**)&field));
+  *field = (loom_named_attr_t){
+      .name_id = signature_key,
+      .value = loom_attr_type(loom_module_lookup_type_id(module, signature)),
+  };
+  *out_abi_layout = loom_make_named_attr_slice(field, 1);
+  return iree_ok_status();
+}
+
 #include "loom/target/arch/spirv/contracts/tables.inl"
 
 static iree_status_t loom_spirv_preselect_op(void* user_data,
@@ -379,6 +442,7 @@ static void loom_spirv_mark_plan_storage_demands(
 static const loom_low_lower_policy_t kSpirvLowLowerPolicy = {
     .name = IREE_SVL("spirv-logical-lower"),
     .error_catalog = &loom_spirv_error_catalog,
+    .map_abi_layout = {.fn = loom_spirv_map_abi_layout, .user_data = NULL},
     .map_type = {.fn = loom_spirv_map_type, .user_data = NULL},
     .map_value = {.fn = loom_spirv_map_value, .user_data = NULL},
     .map_contract_value = {.fn = loom_spirv_map_contract_value,

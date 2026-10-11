@@ -67,6 +67,7 @@ loom_cc_library(
     ::module_builder
     iree::base
     iree::base::internal::arena
+    loom::target::arch::spirv::bda_abi
     loom::target::arch::spirv::scalar_types
     loom::target::arch::spirv::value_types
   PUBLIC
@@ -143,6 +144,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::ir
     loom::ops::low
+    loom::target::arch::spirv::bda_abi
     loom::target::arch::spirv::descriptors::descriptors_ids
     loom::target::arch::spirv::registers
     loom::target::arch::spirv::scalar_types
@@ -345,6 +347,7 @@ loom_check_test_suite(
     "test/ordinary_vector_integer.loom-test"
     "test/ordinary_vector_integer_conversion.loom-test"
     "test/ordinary_vector_structure.loom-test"
+    "test/parameter_reflection.loom-test"
     "test/scalar_abi.loom-test"
     "test/scalar_operations.loom-test"
     "test/schedule_scopes.loom-test"

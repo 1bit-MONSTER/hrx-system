@@ -11,6 +11,7 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
+#include "loom/target/arch/spirv/bda_abi.h"
 #include "loom/target/arch/spirv/descriptors/descriptors.h"
 #include "loom/target/arch/spirv/error_catalog.h"
 #include "loom/target/arch/spirv/module_contract.h"
@@ -66,6 +67,17 @@ typedef struct loom_spirv_low_verify_state_t {
   loom_spirv_low_value_type_table_t value_types;
   // Resolved or authored function ABI, or UNKNOWN before one is selected.
   loom_target_abi_kind_t abi_kind;
+  // Optional logical HAL signature retained independently of physical
+  // boundary registers and resources.
+  const loom_func_type_data_t* logical_signature;
+  // Number of buffer parameters declared by |logical_signature|.
+  uint16_t logical_binding_count;
+  // Number of direct parameters declared by |logical_signature|.
+  uint16_t logical_direct_arg_count;
+  // Binding ordinals retained by the function body after low DCE.
+  bool* observed_binding_slots;
+  // Whether retained HAL bindings uniquely map into |logical_signature|.
+  bool observed_bindings_match_signature;
   // True after a function-level diagnostic makes body-local checks unreliable.
   bool skip_body_checks;
 } loom_spirv_low_verify_state_t;
@@ -268,13 +280,64 @@ static iree_status_t loom_spirv_low_emit_abi_layout(
                              params, IREE_ARRAYSIZE(params));
 }
 
-static iree_status_t loom_spirv_low_verify_empty_abi_layout(
+static iree_status_t loom_spirv_low_verify_abi_layout(
     loom_low_verify_context_t* context, loom_spirv_low_verify_state_t* state) {
-  if (loom_spirv_low_boundary_attrs(state->function_op).count == 0) {
+  const loom_named_attr_slice_t layout =
+      loom_spirv_low_boundary_attrs(state->function_op);
+  if (layout.count == 0) {
     return iree_ok_status();
   }
-  IREE_RETURN_IF_ERROR(loom_spirv_low_emit_abi_layout(context, state));
-  state->skip_body_checks = true;
+
+  bool valid =
+      state->abi_kind == LOOM_TARGET_ABI_HAL_KERNEL && layout.count == 1;
+  const loom_func_type_data_t* signature = NULL;
+  if (valid) {
+    const loom_named_attr_t* field = &layout.entries[0];
+    valid = field->name_id < state->module->strings.count &&
+            iree_string_view_equal(
+                loom_string_table_get(&state->module->strings, field->name_id),
+                IREE_SV("signature")) &&
+            field->value.kind == LOOM_ATTR_TYPE;
+    if (valid) {
+      const loom_type_t type = loom_spirv_low_module_type_attr(
+          state->module, loom_attr_as_type_id(field->value));
+      valid = loom_type_is_function(type);
+      if (valid) {
+        signature = loom_type_func_data(type);
+        valid = signature->result_count == 0;
+      }
+    }
+  }
+
+  uint16_t binding_count = 0;
+  uint16_t direct_arg_count = 0;
+  for (uint16_t i = 0; valid && i < signature->arg_count; ++i) {
+    if (loom_type_is_buffer(signature->types[i])) {
+      ++binding_count;
+    } else if (loom_type_is_scalar(signature->types[i])) {
+      ++direct_arg_count;
+    } else {
+      valid = false;
+    }
+  }
+  if (!valid) {
+    IREE_RETURN_IF_ERROR(loom_spirv_low_emit_abi_layout(context, state));
+    state->skip_body_checks = true;
+    return iree_ok_status();
+  }
+
+  state->logical_signature = signature;
+  state->logical_binding_count = binding_count;
+  state->logical_direct_arg_count = direct_arg_count;
+  state->observed_bindings_match_signature = true;
+  if (binding_count != 0) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        state->arena, binding_count, sizeof(*state->observed_binding_slots),
+        (void**)&state->observed_binding_slots));
+    for (uint16_t i = 0; i < binding_count; ++i) {
+      state->observed_binding_slots[i] = false;
+    }
+  }
   return iree_ok_status();
 }
 
@@ -395,6 +458,83 @@ static bool loom_spirv_low_direct_constant_word_count(
   return false;
 }
 
+static bool loom_spirv_low_logical_scalar_matches_value_type(
+    loom_type_t logical_type, loom_spirv_value_type_t value_type) {
+  if (!loom_type_is_scalar(logical_type)) {
+    return false;
+  }
+  switch (loom_type_element_type(logical_type)) {
+    case LOOM_SCALAR_TYPE_I1:
+      return value_type.value_class == LOOM_SPIRV_VALUE_CLASS_BOOL;
+    case LOOM_SCALAR_TYPE_I8:
+    case LOOM_SCALAR_TYPE_F8E4M3:
+    case LOOM_SCALAR_TYPE_F8E5M2:
+      return value_type.value_class == LOOM_SPIRV_VALUE_CLASS_SCALAR &&
+             value_type.scalar_type == LOOM_SPIRV_SCALAR_TYPE_S8;
+    case LOOM_SCALAR_TYPE_I16:
+      return value_type.value_class == LOOM_SPIRV_VALUE_CLASS_SCALAR &&
+             value_type.scalar_type == LOOM_SPIRV_SCALAR_TYPE_S16;
+    case LOOM_SCALAR_TYPE_INDEX:
+    case LOOM_SCALAR_TYPE_I32:
+      return value_type.value_class == LOOM_SPIRV_VALUE_CLASS_SCALAR &&
+             value_type.scalar_type == LOOM_SPIRV_SCALAR_TYPE_S32;
+    case LOOM_SCALAR_TYPE_I64:
+      return value_type.value_class == LOOM_SPIRV_VALUE_CLASS_SCALAR &&
+             value_type.scalar_type == LOOM_SPIRV_SCALAR_TYPE_S64;
+    case LOOM_SCALAR_TYPE_F16:
+      return value_type.value_class == LOOM_SPIRV_VALUE_CLASS_SCALAR &&
+             value_type.scalar_type == LOOM_SPIRV_SCALAR_TYPE_F16;
+    case LOOM_SCALAR_TYPE_BF16:
+      return value_type.value_class == LOOM_SPIRV_VALUE_CLASS_SCALAR &&
+             (value_type.scalar_type == LOOM_SPIRV_SCALAR_TYPE_BF16 ||
+              value_type.scalar_type == LOOM_SPIRV_SCALAR_TYPE_S32);
+    case LOOM_SCALAR_TYPE_F32:
+      return value_type.value_class == LOOM_SPIRV_VALUE_CLASS_SCALAR &&
+             value_type.scalar_type == LOOM_SPIRV_SCALAR_TYPE_F32;
+    case LOOM_SCALAR_TYPE_F64:
+      return value_type.value_class == LOOM_SPIRV_VALUE_CLASS_SCALAR &&
+             value_type.scalar_type == LOOM_SPIRV_SCALAR_TYPE_F64;
+    case LOOM_SCALAR_TYPE_OFFSET:
+      return value_type.value_class == LOOM_SPIRV_VALUE_CLASS_OFFSET64;
+    case LOOM_SCALAR_TYPE_NONE:
+      return false;
+  }
+  return false;
+}
+
+static iree_status_t loom_spirv_low_verify_logical_signature(
+    loom_low_verify_context_t* context, loom_spirv_low_verify_state_t* state) {
+  if (state->logical_signature == NULL) {
+    return iree_ok_status();
+  }
+  if (state->entry_block == NULL ||
+      state->entry_block->arg_count != state->logical_direct_arg_count) {
+    IREE_RETURN_IF_ERROR(loom_spirv_low_emit_abi_layout(context, state));
+    state->skip_body_checks = true;
+    return iree_ok_status();
+  }
+
+  uint16_t direct_arg_index = 0;
+  for (uint16_t i = 0; i < state->logical_signature->arg_count; ++i) {
+    const loom_type_t logical_type = state->logical_signature->types[i];
+    if (loom_type_is_buffer(logical_type)) {
+      continue;
+    }
+    const loom_value_id_t value_id =
+        loom_block_arg_id(state->entry_block, direct_arg_index++);
+    loom_spirv_value_type_t value_type = {0};
+    const bool found = loom_spirv_low_value_type_table_lookup(
+        &state->value_types, value_id, &value_type);
+    if (!found || !loom_spirv_low_logical_scalar_matches_value_type(
+                      logical_type, value_type)) {
+      IREE_RETURN_IF_ERROR(loom_spirv_low_emit_abi_layout(context, state));
+      state->skip_body_checks = true;
+      return iree_ok_status();
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_spirv_low_emit_raw_bda_returns(
     loom_low_verify_context_t* context, loom_spirv_low_verify_state_t* state) {
   loom_diagnostic_param_t params[] = {
@@ -427,6 +567,22 @@ static iree_status_t loom_spirv_low_emit_raw_bda_constant_count(
       loom_param_u32(constant_word_count),
   };
   return loom_spirv_low_emit(context, state->function_op, LOOM_ERR_SPIRV_023,
+                             params, IREE_ARRAYSIZE(params));
+}
+
+static iree_status_t loom_spirv_low_emit_raw_bda_parameter_offset(
+    loom_low_verify_context_t* context, loom_spirv_low_verify_state_t* state,
+    loom_value_id_t value_id, uint32_t constant_word_offset) {
+  const uint32_t constant_byte_offset = constant_word_offset * sizeof(uint32_t);
+  loom_diagnostic_param_t params[] = {
+      loom_param_string(state->function_name),
+      loom_param_string(
+          loom_low_diagnostic_value_name(state->module, value_id)),
+      loom_param_u32(constant_byte_offset),
+      loom_param_u32(LOOM_SPIRV_BDA_ROOT_CONSTANT_BYTE_OFFSET +
+                     constant_byte_offset),
+  };
+  return loom_spirv_low_emit(context, state->function_op, LOOM_ERR_SPIRV_031,
                              params, IREE_ARRAYSIZE(params));
 }
 
@@ -486,6 +642,13 @@ static iree_status_t loom_spirv_low_verify_abi_shape(
                                                        &word_count)) {
           IREE_RETURN_IF_ERROR(loom_spirv_low_emit_raw_bda_direct_value(
               context, state, value_id, value_type));
+          continue;
+        }
+        if (state->logical_signature != NULL &&
+            constant_word_count >
+                LOOM_SPIRV_BDA_MAX_REFLECTED_CONSTANT_WORD_OFFSET) {
+          IREE_RETURN_IF_ERROR(loom_spirv_low_emit_raw_bda_parameter_offset(
+              context, state, value_id, constant_word_count));
           continue;
         }
         if (constant_word_count > UINT16_MAX - word_count) {
@@ -608,12 +771,23 @@ static iree_status_t loom_spirv_low_verify_resource(
       state->abi_kind != LOOM_TARGET_ABI_HAL_KERNEL) {
     return loom_spirv_low_emit_resource_abi(context, state, op);
   }
-  if (loom_low_resource_import_kind(op) !=
-      LOOM_LOW_RESOURCE_IMPORT_KIND_HAL_BINDING) {
+  const uint8_t import_kind = loom_low_resource_import_kind(op);
+  const int64_t index = loom_low_resource_index(op);
+  if (state->logical_signature != NULL &&
+      import_kind == LOOM_LOW_RESOURCE_IMPORT_KIND_HAL_BINDING && index >= 0 &&
+      index < UINT16_MAX) {
+    bool matches_signature = (uint64_t)index < state->logical_binding_count;
+    if (matches_signature) {
+      const uint16_t binding_ordinal = (uint16_t)index;
+      matches_signature = !state->observed_binding_slots[binding_ordinal];
+      state->observed_binding_slots[binding_ordinal] = true;
+    }
+    state->observed_bindings_match_signature &= matches_signature;
+  }
+  if (import_kind != LOOM_LOW_RESOURCE_IMPORT_KIND_HAL_BINDING) {
     IREE_RETURN_IF_ERROR(
         loom_spirv_low_emit_resource_import_kind(context, state, op));
   }
-  const int64_t index = loom_low_resource_index(op);
   if (index < 0 || index >= UINT16_MAX) {
     IREE_RETURN_IF_ERROR(
         loom_spirv_low_emit_resource_binding_range(context, state, op));
@@ -1335,7 +1509,7 @@ static iree_status_t loom_spirv_low_begin_function(
   if (state->body != NULL && state->body->block_count > 0) {
     state->entry_block = loom_region_const_entry_block(state->body);
   }
-  IREE_RETURN_IF_ERROR(loom_spirv_low_verify_empty_abi_layout(context, state));
+  IREE_RETURN_IF_ERROR(loom_spirv_low_verify_abi_layout(context, state));
   if (state->skip_body_checks) {
     return iree_ok_status();
   }
@@ -1345,7 +1519,11 @@ static iree_status_t loom_spirv_low_begin_function(
   if (state->skip_body_checks) {
     return iree_ok_status();
   }
-  return loom_spirv_low_verify_abi_shape(context, state);
+  IREE_RETURN_IF_ERROR(loom_spirv_low_verify_abi_shape(context, state));
+  if (state->skip_body_checks) {
+    return iree_ok_status();
+  }
+  return loom_spirv_low_verify_logical_signature(context, state);
 }
 
 static iree_status_t loom_spirv_low_verify_op(
@@ -1401,11 +1579,28 @@ static iree_status_t loom_spirv_low_verify_op(
   return loom_spirv_low_emit_unsupported_structural_op(context, state, op);
 }
 
+static iree_status_t loom_spirv_low_end_function(
+    const loom_low_verify_provider_t* provider,
+    loom_low_verify_context_t* context, void* provider_state) {
+  (void)provider;
+  loom_spirv_low_verify_state_t* state =
+      (loom_spirv_low_verify_state_t*)provider_state;
+  if (state == NULL || state->logical_signature == NULL ||
+      state->skip_body_checks) {
+    return iree_ok_status();
+  }
+  if (!state->observed_bindings_match_signature) {
+    return loom_spirv_low_emit_abi_layout(context, state);
+  }
+  return iree_ok_status();
+}
+
 const loom_low_verify_provider_t loom_spirv_low_verify_provider = {
     .name = IREE_SVL("spirv"),
     .begin_module = loom_spirv_low_begin_module,
     .begin_function = loom_spirv_low_begin_function,
     .verify_op = loom_spirv_low_verify_op,
+    .end_function = loom_spirv_low_end_function,
 };
 
 static const loom_low_verify_provider_t* const kLoomSpirvLowVerifyProviders[] =
