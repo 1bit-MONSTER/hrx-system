@@ -46,14 +46,14 @@ LOOM_CHECK_BENCHMARK(configured_benchmark, configured);
 LOOM_CHECK_SCENARIO(tensor_actions) {
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto storage = loom::check::fill<unsigned, 1>(0u);
+        const auto storage = loom::check::fill<1, unsigned>(0u);
         loom::check::compare<write_value, write_value_oracle>(storage, 7u, [&] {
           loom::check::expect_bitwise(storage, storage);
         });
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto storage = loom::check::fill<unsigned, 1>(0u);
+        const auto storage = loom::check::fill<1, unsigned>(0u);
         loom::check::invoke<write_value>(storage, 11u);
       });
 }

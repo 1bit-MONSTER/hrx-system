@@ -29,6 +29,7 @@ exports_files([
     "include/loomcxx/numeric.h",
     "include/loomcxx/predicate.h",
     "include/loomcxx/scalar.h",
+    "include/loomcxx/shape.h",
     "include/loomcxx/target.h",
     "include/loomcxx/target/amdgpu.h",
     "include/loomcxx/vector.h",

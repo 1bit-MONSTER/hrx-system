@@ -25,8 +25,8 @@ static loom::kernel::configuration configure_copy(unsigned item_count) {
 }
 
 LOOM_CHECK_CASE(configured_copy_case) {
-  const auto input = loom::check::iota<float, 67>(-1.0f, 0.25f, 8);
-  const auto output = loom::check::fill<float, 67>(0.0f);
+  const auto input = loom::check::iota<67, float>(-1.0f, 0.25f, 8);
+  const auto output = loom::check::fill<67, float>(0.0f);
   loom::check::launch<configured_copy>(loom::kernel::workload(67u), 67u, input,
                                        output);
   loom::check::expect_bitwise(output, input);

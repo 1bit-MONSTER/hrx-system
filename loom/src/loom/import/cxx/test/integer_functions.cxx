@@ -285,7 +285,7 @@ LOOM_CHECK_SCENARIO(integer_functions) {
   loom::check::trial<6>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto input = loom::check::generate<byte_input>(trial);
-    const auto output = loom::check::fill<unsigned, 2>(-123u);
+    const auto output = loom::check::fill<2, unsigned>(-123u);
     loom::check::compare<byte_observations, byte_oracle>(
         input, output, [&] { loom::check::expect_bitwise(output, output); });
   });
@@ -318,7 +318,7 @@ LOOM_CHECK_SCENARIO(integer_functions) {
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
         const auto value = loom::check::generate<wide_shift_value>(trial);
         const auto count = loom::check::generate<wide_shift_count>(trial);
-        const auto output = loom::check::fill<unsigned long long, 3>(-123ll);
+        const auto output = loom::check::fill<3, unsigned long long>(-123ll);
         loom::check::compare<wide_shift_observations, wide_shift_oracle>(
             value, count, output,
             [&] { loom::check::expect_bitwise(output, output); });

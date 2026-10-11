@@ -126,15 +126,16 @@ class BoundTypeStorage {
       dimension_payloads_;
 };
 
-// Bounded view extents with the former rank-two representation inline. Higher
-// ranks allocate one exact overflow array when their source type is admitted.
-class ViewExtents {
+// Bounded shaped-value extents with the former rank-two representation inline.
+// Higher ranks allocate one exact overflow array when their source type is
+// admitted.
+class ShapeExtents {
  public:
-  ViewExtents() = default;
-  ViewExtents(const ViewExtents&) = delete;
-  ViewExtents& operator=(const ViewExtents&) = delete;
-  ViewExtents(ViewExtents&&) = default;
-  ViewExtents& operator=(ViewExtents&&) = default;
+  ShapeExtents() = default;
+  ShapeExtents(const ShapeExtents&) = delete;
+  ShapeExtents& operator=(const ShapeExtents&) = delete;
+  ShapeExtents(ShapeExtents&&) = default;
+  ShapeExtents& operator=(ShapeExtents&&) = default;
 
   // Retains |extents| for the lifetime of this projection.
   void assign(std::span<const int64_t> extents);
@@ -173,7 +174,7 @@ struct ViewPartition final : Partition {
   // Semantic role of the attached layout or physical-storage encoding.
   loom_encoding_role_t encoding_role;
   // Static extent, or -1 when the axis has a transported dynamic extent.
-  ViewExtents extents;
+  ShapeExtents extents;
   // Component labels in transport order; an empty label names the view itself.
   std::vector<std::string> component_names;
 };
@@ -275,6 +276,8 @@ class Types {
   const OpaqueDialectPartition* opaque_dialect(const cxx::ClassType* input,
                                                std::string_view name,
                                                cxx::AST* owner);
+  ShapeExtents parse_shape(const cxx::Type* input, std::string_view value_kind,
+                           cxx::AST* owner);
   const ViewPartition* view(const cxx::ClassType* input, cxx::AST* owner);
   const TensorPartition* tensor(const cxx::ClassType* input, cxx::AST* owner);
   void append_component_names(const Partition& partition,

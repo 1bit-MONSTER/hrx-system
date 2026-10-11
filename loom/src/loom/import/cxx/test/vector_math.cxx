@@ -25,17 +25,17 @@ void ordered(float a, float b, float c, float d, float seed,
 }
 
 LOOM_CHECK_CASE(logical_lane_order) {
-  const auto storage = loom::check::fill<float, 4>(99.0f);
+  const auto storage = loom::check::fill<4, float>(99.0f);
   const auto output = loom::check::slice<2>(storage, 1);
   loom::check::launch<ordered>(16777216.0f, 1.0f, -16777216.0f, 2.0f, 0.0f,
                                output);
   // The first addition loses 1 at F32 precision, then cancellation leaves 2.
   // A reassociated tree can instead retain that 1 and produce 3.
-  loom::check::expect_bitwise(output, loom::check::fill<float, 2>(2.0f));
+  loom::check::expect_bitwise(output, loom::check::fill<2, float>(2.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 0),
-                              loom::check::fill<float, 1>(99.0f));
+                              loom::check::fill<1, float>(99.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 3),
-                              loom::check::fill<float, 1>(99.0f));
+                              loom::check::fill<1, float>(99.0f));
 }
 
 [[loom::kernel, loom::workgroup_size(1, 1, 1), loom::workgroup_count(1, 1, 1)]]
@@ -46,16 +46,16 @@ void fused(float a, float b, float seed, [[loom::noalias]] float* output) {
 }
 
 LOOM_CHECK_CASE(fused_accumulation) {
-  const auto storage = loom::check::fill<float, 3>(99.0f);
+  const auto storage = loom::check::fill<3, float>(99.0f);
   const auto output = loom::check::slice<1>(storage, 1);
   loom::check::launch<fused>(0x1.000002p0f, 0x1.fffffcp-1f, -1.0f, output);
   // (1 + 2^-23) * (1 - 2^-23) - 1 = -2^-46. Rounding the product
   // before adding the seed would lose the residual and produce zero.
-  loom::check::expect_bitwise(output, loom::check::fill<float, 1>(-0x1p-46f));
+  loom::check::expect_bitwise(output, loom::check::fill<1, float>(-0x1p-46f));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 0),
-                              loom::check::fill<float, 1>(99.0f));
+                              loom::check::fill<1, float>(99.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 2),
-                              loom::check::fill<float, 1>(99.0f));
+                              loom::check::fill<1, float>(99.0f));
 }
 
 [[loom::kernel, loom::workgroup_size(1, 1, 1), loom::workgroup_count(1, 1, 1)]]
@@ -87,14 +87,14 @@ void pair_arithmetic(
 LOOM_CHECK_CASE(pair_formats_and_seeds) {
   // Both formats encode lhs [1, 2, -3, 4] and rhs [5, -6, 7, 8].
   const auto half_lhs =
-      loom::check::fill<unsigned long long, 1>(0x4400C20040003C00ull);
+      loom::check::fill<1, unsigned long long>(0x4400C20040003C00ull);
   const auto half_rhs =
-      loom::check::fill<unsigned long long, 1>(0x48004700C6004500ull);
+      loom::check::fill<1, unsigned long long>(0x48004700C6004500ull);
   const auto bfloat_lhs =
-      loom::check::fill<unsigned long long, 1>(0x4080C04040003F80ull);
+      loom::check::fill<1, unsigned long long>(0x4080C04040003F80ull);
   const auto bfloat_rhs =
-      loom::check::fill<unsigned long long, 1>(0x410040E0C0C040A0ull);
-  const auto storage = loom::check::fill<float, 16>(99.0f);
+      loom::check::fill<1, unsigned long long>(0x410040E0C0C040A0ull);
+  const auto storage = loom::check::fill<16, float>(99.0f);
   const auto output = loom::check::slice<8>(storage, 4);
   loom::check::launch<pair_arithmetic>(half_lhs, half_rhs, bfloat_lhs,
                                        bfloat_rhs, 9.0f, -10.0f, output);
@@ -104,28 +104,28 @@ LOOM_CHECK_CASE(pair_formats_and_seeds) {
   // This is the case's accuracy requirement, independent of native result bits.
   constexpr double error_factor = 3.0 * 0x1p-24 / (1.0 - 3.0 * 0x1p-24);
   loom::check::expect_close(loom::check::slice<1>(output, 0),
-                            loom::check::fill<float, 1>(2.0f),
+                            loom::check::fill<1, float>(2.0f),
                             26.0 * error_factor, 0.0, "different");
   loom::check::expect_close(loom::check::slice<1>(output, 1),
-                            loom::check::fill<float, 1>(1.0f),
+                            loom::check::fill<1, float>(1.0f),
                             63.0 * error_factor, 0.0, "different");
   loom::check::expect_close(loom::check::slice<1>(output, 2),
-                            loom::check::fill<float, 1>(2.0f),
+                            loom::check::fill<1, float>(2.0f),
                             26.0 * error_factor, 0.0, "different");
   loom::check::expect_close(loom::check::slice<1>(output, 3),
-                            loom::check::fill<float, 1>(1.0f),
+                            loom::check::fill<1, float>(1.0f),
                             63.0 * error_factor, 0.0, "different");
   // Explicitly widened dotf uses ordered F32 FMAs, exact for these inputs.
   loom::check::expect_bitwise(loom::check::slice<1>(output, 4),
-                              loom::check::fill<float, 1>(2.0f));
+                              loom::check::fill<1, float>(2.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 5),
-                              loom::check::fill<float, 1>(1.0f));
+                              loom::check::fill<1, float>(1.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 6),
-                              loom::check::fill<float, 1>(2.0f));
+                              loom::check::fill<1, float>(2.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 7),
-                              loom::check::fill<float, 1>(1.0f));
+                              loom::check::fill<1, float>(1.0f));
   loom::check::expect_bitwise(loom::check::slice<4>(storage, 0),
-                              loom::check::fill<float, 4>(99.0f));
+                              loom::check::fill<4, float>(99.0f));
   loom::check::expect_bitwise(loom::check::slice<4>(storage, 12),
-                              loom::check::fill<float, 4>(99.0f));
+                              loom::check::fill<4, float>(99.0f));
 }

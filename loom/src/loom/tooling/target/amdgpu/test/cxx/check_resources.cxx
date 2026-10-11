@@ -18,18 +18,18 @@ void alias_update(unsigned* left, unsigned* right) {
 }
 
 LOOM_CHECK_CASE(alias_values) {
-  const auto storage = loom::check::fill<unsigned, 5>(37u);
+  const auto storage = loom::check::fill<5, unsigned>(37u);
   const auto copy = storage;
   const auto left = loom::check::slice<3>(copy, 1);
   const auto right = loom::check::slice<2>(left, 1);
   loom::check::launch<alias_update>(left, right);
   loom::check::expect_bitwise(loom::check::slice<2>(storage, 0),
-                              loom::check::fill<unsigned, 2>(37u));
+                              loom::check::fill<2, unsigned>(37u));
   loom::check::expect_bitwise(
       loom::check::slice<1>(storage, 2),
-      loom::check::fill<unsigned, 1>(CHECK_ALIAS_EXPECTED));
+      loom::check::fill<1, unsigned>(CHECK_ALIAS_EXPECTED));
   loom::check::expect_bitwise(loom::check::slice<2>(storage, 3),
-                              loom::check::fill<unsigned, 2>(37u));
+                              loom::check::fill<2, unsigned>(37u));
 }
 
 LOOM_CHECK_BENCHMARK(alias_values_benchmark, alias_values);

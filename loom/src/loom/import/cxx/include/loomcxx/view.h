@@ -12,17 +12,6 @@
 
 namespace loom::type {
 
-// Marks an extent whose value is supplied when a view is constructed.
-inline constexpr size_type dynamic = ~size_type{0};
-
-// A rank-generic logical shape. Static extents and dynamic-axis positions are
-// part of its C++ type in the same order Loom prints shaped IR types.
-template <size_type... Extents>
-struct [[loom::type("shape")]] shape {
-  // Number of logical axes.
-  static constexpr size_type rank = sizeof...(Extents);
-};
-
 // A typed, borrowed view. Static extents are part of Shape; each dynamic extent
 // is captured when the view is constructed. Role records whether the attached
 // encoding is an address layout or composed physical storage. The private

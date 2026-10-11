@@ -75,38 +75,38 @@ void wide_payloads(const unsigned long long* input, Floats2* floats,
 }
 
 LOOM_CHECK_CASE(packed_byte_order) {
-  const auto input = loom::check::fill<unsigned, 32>(0xFCFEFF80u);
-  const auto output = loom::check::fill<unsigned, 32>(0u);
+  const auto input = loom::check::fill<32, unsigned>(0xFCFEFF80u);
+  const auto output = loom::check::fill<32, unsigned>(0u);
   loom::check::launch<packed_bytes>(input, output);
   loom::check::expect_bitwise(output,
-                              loom::check::fill<unsigned, 32>(0x840200FDu));
+                              loom::check::fill<32, unsigned>(0x840200FDu));
   loom::check::expect_bitwise(input,
-                              loom::check::fill<unsigned, 32>(0xFCFEFF80u));
+                              loom::check::fill<32, unsigned>(0xFCFEFF80u));
 }
 
 LOOM_CHECK_CASE(packed_fp8_rescale) {
   // E4M3 [1, 1.25, 448, -0] rounds to [1, 1.375, 448, -0], covering a
   // midpoint, ordinary rounding, maximum finite saturation and signed zero.
-  const auto input = loom::check::fill<unsigned, 32>(0x807E3A38u);
-  const auto output = loom::check::fill<unsigned, 32>(0u);
+  const auto input = loom::check::fill<32, unsigned>(0x807E3A38u);
+  const auto output = loom::check::fill<32, unsigned>(0u);
   loom::check::launch<scale_packed_fp8>(input, output, 1.0625f);
   loom::check::expect_bitwise(output,
-                              loom::check::fill<unsigned, 32>(0x807E3B38u));
+                              loom::check::fill<32, unsigned>(0x807E3B38u));
   loom::check::expect_bitwise(input,
-                              loom::check::fill<unsigned, 32>(0x807E3A38u));
+                              loom::check::fill<32, unsigned>(0x807E3A38u));
 }
 
 LOOM_CHECK_CASE(raw_floating_payloads) {
   // Each source word is checked after a real store through every float type,
   // then loaded with that type by a separate kernel. Signed zero, subnormal
   // and NaN encodings are transported as bits, without floating arithmetic.
-  const auto input = loom::check::fill<unsigned, 32>(0x7F817E80u);
-  const auto fp8 = loom::check::fill<unsigned, 32>(0u);
-  const auto bf8 = loom::check::fill<unsigned, 32>(0u);
-  const auto half = loom::check::fill<unsigned, 32>(0u);
-  const auto bfloat = loom::check::fill<unsigned, 32>(0u);
-  const auto scalar = loom::check::fill<unsigned, 32>(0u);
-  const auto output = loom::check::fill<unsigned, 160>(0u);
+  const auto input = loom::check::fill<32, unsigned>(0x7F817E80u);
+  const auto fp8 = loom::check::fill<32, unsigned>(0u);
+  const auto bf8 = loom::check::fill<32, unsigned>(0u);
+  const auto half = loom::check::fill<32, unsigned>(0u);
+  const auto bfloat = loom::check::fill<32, unsigned>(0u);
+  const auto scalar = loom::check::fill<32, unsigned>(0u);
+  const auto output = loom::check::fill<160, unsigned>(0u);
   loom::check::launch<floating_payloads>(input, fp8, bf8, half, bfloat, scalar);
   loom::check::launch<floating_to_words>(fp8, bf8, half, bfloat, scalar,
                                          output);
@@ -116,17 +116,17 @@ LOOM_CHECK_CASE(raw_floating_payloads) {
   loom::check::expect_bitwise(bfloat, input);
   loom::check::expect_bitwise(scalar, input);
   loom::check::expect_bitwise(output,
-                              loom::check::fill<unsigned, 160>(0x7F817E80u));
+                              loom::check::fill<160, unsigned>(0x7F817E80u));
 }
 
 LOOM_CHECK_CASE(signed_zero_payloads) {
-  const auto input = loom::check::fill<unsigned, 32>(0x80000000u);
-  const auto fp8 = loom::check::fill<unsigned, 32>(0u);
-  const auto bf8 = loom::check::fill<unsigned, 32>(0u);
-  const auto half = loom::check::fill<unsigned, 32>(0u);
-  const auto bfloat = loom::check::fill<unsigned, 32>(0u);
-  const auto scalar = loom::check::fill<unsigned, 32>(0u);
-  const auto output = loom::check::fill<unsigned, 160>(0u);
+  const auto input = loom::check::fill<32, unsigned>(0x80000000u);
+  const auto fp8 = loom::check::fill<32, unsigned>(0u);
+  const auto bf8 = loom::check::fill<32, unsigned>(0u);
+  const auto half = loom::check::fill<32, unsigned>(0u);
+  const auto bfloat = loom::check::fill<32, unsigned>(0u);
+  const auto scalar = loom::check::fill<32, unsigned>(0u);
+  const auto output = loom::check::fill<160, unsigned>(0u);
   loom::check::launch<floating_payloads>(input, fp8, bf8, half, bfloat, scalar);
   loom::check::launch<floating_to_words>(fp8, bf8, half, bfloat, scalar,
                                          output);
@@ -136,33 +136,33 @@ LOOM_CHECK_CASE(signed_zero_payloads) {
   loom::check::expect_bitwise(bfloat, input);
   loom::check::expect_bitwise(scalar, input);
   loom::check::expect_bitwise(output,
-                              loom::check::fill<unsigned, 160>(0x80000000u));
+                              loom::check::fill<160, unsigned>(0x80000000u));
 }
 
 LOOM_CHECK_CASE(wide_word_order) {
   const auto input =
-      loom::check::fill<unsigned long long, 3>(0xFEDCBA9876543210ull);
-  const auto floats = loom::check::fill<unsigned long long, 1>(0ull);
-  const auto scalar = loom::check::fill<unsigned long long, 1>(0ull);
-  const auto reversed = loom::check::fill<unsigned long long, 1>(0ull);
+      loom::check::fill<3, unsigned long long>(0xFEDCBA9876543210ull);
+  const auto floats = loom::check::fill<1, unsigned long long>(0ull);
+  const auto scalar = loom::check::fill<1, unsigned long long>(0ull);
+  const auto reversed = loom::check::fill<1, unsigned long long>(0ull);
   loom::check::launch<wide_payloads>(input, floats, scalar, reversed);
   loom::check::expect_bitwise(
       reversed,
-      loom::check::fill<unsigned long long, 1>(0x1032547698BADCFEull));
+      loom::check::fill<1, unsigned long long>(0x1032547698BADCFEull));
   loom::check::expect_bitwise(floats, loom::check::slice<1>(input, 0));
   loom::check::expect_bitwise(scalar, loom::check::slice<1>(input, 0));
 }
 
 LOOM_CHECK_CASE(wide_nan_payload) {
   const auto input =
-      loom::check::fill<unsigned long long, 3>(0x7FF123456789ABCDull);
-  const auto floats = loom::check::fill<unsigned long long, 1>(0ull);
-  const auto scalar = loom::check::fill<unsigned long long, 1>(0ull);
-  const auto reversed = loom::check::fill<unsigned long long, 1>(0ull);
+      loom::check::fill<3, unsigned long long>(0x7FF123456789ABCDull);
+  const auto floats = loom::check::fill<1, unsigned long long>(0ull);
+  const auto scalar = loom::check::fill<1, unsigned long long>(0ull);
+  const auto reversed = loom::check::fill<1, unsigned long long>(0ull);
   loom::check::launch<wide_payloads>(input, floats, scalar, reversed);
   loom::check::expect_bitwise(
       reversed,
-      loom::check::fill<unsigned long long, 1>(0xCDAB89674523F17Full));
+      loom::check::fill<1, unsigned long long>(0xCDAB89674523F17Full));
   loom::check::expect_bitwise(floats, loom::check::slice<1>(input, 0));
   loom::check::expect_bitwise(scalar, loom::check::slice<1>(input, 0));
 }
@@ -193,35 +193,35 @@ void constexpr_payloads(Float8x4* fp8, BFloat8x4* bf8, Halves2* half,
 }
 
 LOOM_CHECK_CASE(constexpr_packed_scales) {
-  const auto input = loom::check::fill<float, 4>(2.0f);
-  const auto output = loom::check::fill<float, 4>(0.0f);
+  const auto input = loom::check::fill<4, float>(2.0f);
+  const auto output = loom::check::fill<4, float>(0.0f);
   const auto first = loom::check::slice<1>(output, 0);
   const auto second = loom::check::slice<1>(output, 1);
   const auto third = loom::check::slice<1>(output, 2);
   const auto fourth = loom::check::slice<1>(output, 3);
   loom::check::launch<constexpr_scale>(input, output);
-  loom::check::expect_bitwise(first, loom::check::fill<float, 1>(1.0f));
-  loom::check::expect_bitwise(second, loom::check::fill<float, 1>(2.0f));
-  loom::check::expect_bitwise(third, loom::check::fill<float, 1>(3.0f));
-  loom::check::expect_bitwise(fourth, loom::check::fill<float, 1>(4.0f));
+  loom::check::expect_bitwise(first, loom::check::fill<1, float>(1.0f));
+  loom::check::expect_bitwise(second, loom::check::fill<1, float>(2.0f));
+  loom::check::expect_bitwise(third, loom::check::fill<1, float>(3.0f));
+  loom::check::expect_bitwise(fourth, loom::check::fill<1, float>(4.0f));
 }
 
 LOOM_CHECK_CASE(constexpr_raw_payloads) {
-  const auto fp8 = loom::check::fill<unsigned, 1>(0u);
-  const auto bf8 = loom::check::fill<unsigned, 1>(0u);
-  const auto half = loom::check::fill<unsigned, 1>(0u);
-  const auto bfloat = loom::check::fill<unsigned, 1>(0u);
-  const auto scalar = loom::check::fill<unsigned, 1>(0u);
-  const auto wide = loom::check::fill<unsigned long long, 1>(0ULL);
+  const auto fp8 = loom::check::fill<1, unsigned>(0u);
+  const auto bf8 = loom::check::fill<1, unsigned>(0u);
+  const auto half = loom::check::fill<1, unsigned>(0u);
+  const auto bfloat = loom::check::fill<1, unsigned>(0u);
+  const auto scalar = loom::check::fill<1, unsigned>(0u);
+  const auto wide = loom::check::fill<1, unsigned long long>(0ULL);
   loom::check::launch<constexpr_payloads>(fp8, bf8, half, bfloat, scalar, wide);
-  loom::check::expect_bitwise(fp8, loom::check::fill<unsigned, 1>(0x7E7F0080u));
-  loom::check::expect_bitwise(bf8, loom::check::fill<unsigned, 1>(0x7D7E0080u));
+  loom::check::expect_bitwise(fp8, loom::check::fill<1, unsigned>(0x7E7F0080u));
+  loom::check::expect_bitwise(bf8, loom::check::fill<1, unsigned>(0x7D7E0080u));
   loom::check::expect_bitwise(half,
-                              loom::check::fill<unsigned, 1>(0x7C018000u));
+                              loom::check::fill<1, unsigned>(0x7C018000u));
   loom::check::expect_bitwise(bfloat,
-                              loom::check::fill<unsigned, 1>(0x7F818000u));
+                              loom::check::fill<1, unsigned>(0x7F818000u));
   loom::check::expect_bitwise(scalar,
-                              loom::check::fill<unsigned, 1>(0x7F812345u));
+                              loom::check::fill<1, unsigned>(0x7F812345u));
   loom::check::expect_bitwise(
-      wide, loom::check::fill<unsigned long long, 1>(0x7FF0000012345678ULL));
+      wide, loom::check::fill<1, unsigned long long>(0x7FF0000012345678ULL));
 }

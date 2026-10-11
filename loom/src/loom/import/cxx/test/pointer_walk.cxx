@@ -138,14 +138,14 @@ void pointer_walk_oracle(loom::type::buffer<int> input,
 LOOM_CHECK_SCENARIO(pointer_walk_values) {
   loom::check::trial<3>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<int, 512>(0);
+        const auto input = loom::check::fill<512, int>(0);
         loom::check::generate<pointer_walk_input>(input);
-        const auto counts = loom::check::fill<int, 7>(0);
+        const auto counts = loom::check::fill<7, int>(0);
         loom::check::generate<pointer_walk_counts>(counts);
         const auto start = loom::check::generate<pointer_walk_start>(trial);
         const auto displacement =
             loom::check::generate<pointer_walk_displacement>(trial);
-        const auto storage = loom::check::fill<int, 102>(-123);
+        const auto storage = loom::check::fill<102, int>(-123);
         const auto output = loom::check::slice<70>(storage, 16);
         loom::check::compare<pointer_walk, pointer_walk_oracle>(
             input, counts, output, 7u, start, displacement, [&] {

@@ -29,33 +29,33 @@ q8s32_specialize(
 }
 
 LOOM_CHECK_CASE(q8s32_values32) {
-  const auto weights = loom::check::fill<signed char, 32>(1);
-  const auto activations = loom::check::fill<unsigned short, 32>(0x3F80);
-  const auto scale = loom::check::fill<unsigned short, 1>(0x3F80);
-  const auto output = loom::check::fill<float, 1>(0.0f);
+  const auto weights = loom::check::fill<32, signed char>(1);
+  const auto activations = loom::check::fill<32, unsigned short>(0x3F80);
+  const auto scale = loom::check::fill<1, unsigned short>(0x3F80);
+  const auto output = loom::check::fill<1, float>(0.0f);
   loom::check::launch<q8s32_specialize>(weights, activations, scale, output);
   // 32 exact products per lane reduced across a 32-lane cluster.
-  loom::check::expect_bitwise(output, loom::check::fill<float, 1>(1024.0f));
+  loom::check::expect_bitwise(output, loom::check::fill<1, float>(1024.0f));
 }
 
 LOOM_CHECK_CASE(q8s32_values16) {
-  const auto weights = loom::check::fill<signed char, 32>(1);
-  const auto activations = loom::check::fill<unsigned short, 32>(0x3F80);
-  const auto scale = loom::check::fill<unsigned short, 1>(0x3F80);
-  const auto output = loom::check::fill<float, 1>(0.0f);
+  const auto weights = loom::check::fill<32, signed char>(1);
+  const auto activations = loom::check::fill<32, unsigned short>(0x3F80);
+  const auto scale = loom::check::fill<1, unsigned short>(0x3F80);
+  const auto output = loom::check::fill<1, float>(0.0f);
   loom::check::launch<q8s32_specialize>(weights, activations, scale, output);
   // 32 exact products per lane reduced across a 16-lane cluster.
-  loom::check::expect_bitwise(output, loom::check::fill<float, 1>(512.0f));
+  loom::check::expect_bitwise(output, loom::check::fill<1, float>(512.0f));
 }
 
 LOOM_CHECK_CASE(q8s32_values8) {
-  const auto weights = loom::check::fill<signed char, 32>(1);
-  const auto activations = loom::check::fill<unsigned short, 32>(0x3F80);
-  const auto scale = loom::check::fill<unsigned short, 1>(0x3F80);
-  const auto output = loom::check::fill<float, 1>(0.0f);
+  const auto weights = loom::check::fill<32, signed char>(1);
+  const auto activations = loom::check::fill<32, unsigned short>(0x3F80);
+  const auto scale = loom::check::fill<1, unsigned short>(0x3F80);
+  const auto output = loom::check::fill<1, float>(0.0f);
   loom::check::launch<q8s32_specialize>(weights, activations, scale, output);
   // 32 exact products per lane reduced across an 8-lane cluster.
-  loom::check::expect_bitwise(output, loom::check::fill<float, 1>(256.0f));
+  loom::check::expect_bitwise(output, loom::check::fill<1, float>(256.0f));
 }
 
 LOOM_CHECK_BENCHMARK(q8s32_values32_benchmark, q8s32_values32);

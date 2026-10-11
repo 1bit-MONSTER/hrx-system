@@ -9,7 +9,7 @@
 // ====
 #include <loomcxx/check.h>
 LOOM_CHECK_CASE(integer_tensors) {
-  const auto values = loom::check::fill<unsigned, 2>(1u);
+  const auto values = loom::check::fill<2, unsigned>(1u);
   // ERROR@+1: LOWERING/059 "check.expect.close requires floating-point scalar or tensor operands"
   loom::check::expect_close(values, values, 0.0, 0.0);
 }

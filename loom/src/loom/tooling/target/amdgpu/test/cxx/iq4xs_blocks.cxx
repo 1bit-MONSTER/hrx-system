@@ -226,12 +226,12 @@ void update_iq4xs_oracle(loom::type::buffer<unsigned char> blocks) {
 LOOM_CHECK_SCENARIO(iq4xs_block_values) {
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto storage = loom::check::fill<unsigned char, 1152>(0xa5u);
+        const auto storage = loom::check::fill<1152, unsigned char>(0xa5u);
         const auto blocks = loom::check::slice<1088>(storage, 32);
         loom::check::generate<generate_iq4xs_blocks>(blocks);
-        const auto codebook = loom::check::fill<signed char, 16>(0);
+        const auto codebook = loom::check::fill<16, signed char>(0);
         loom::check::generate<generate_iq4nl_codebook>(codebook);
-        const auto output_storage = loom::check::fill<float, 2080>(-123.0f);
+        const auto output_storage = loom::check::fill<2080, float>(-123.0f);
         const auto output_prefix = loom::check::slice<16>(output_storage, 0);
         const auto output = loom::check::slice<2048>(output_storage, 16);
         const auto output_suffix = loom::check::slice<16>(output_storage, 2064);
@@ -246,12 +246,12 @@ LOOM_CHECK_SCENARIO(iq4xs_block_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto storage = loom::check::fill<unsigned char, 1152>(0xa5u);
+        const auto storage = loom::check::fill<1152, unsigned char>(0xa5u);
         const auto blocks = loom::check::slice<1088>(storage, 32);
         loom::check::generate<generate_iq4xs_blocks>(blocks);
-        const auto codebook = loom::check::fill<signed char, 16>(0);
+        const auto codebook = loom::check::fill<16, signed char>(0);
         loom::check::generate<generate_iq4nl_codebook>(codebook);
-        const auto output_storage = loom::check::fill<float, 2080>(-123.0f);
+        const auto output_storage = loom::check::fill<2080, float>(-123.0f);
         const auto output_prefix = loom::check::slice<16>(output_storage, 0);
         const auto output = loom::check::slice<2048>(output_storage, 16);
         const auto output_suffix = loom::check::slice<16>(output_storage, 2064);
@@ -266,7 +266,7 @@ LOOM_CHECK_SCENARIO(iq4xs_block_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto storage = loom::check::fill<unsigned char, 1152>(0xa5u);
+        const auto storage = loom::check::fill<1152, unsigned char>(0xa5u);
         const auto blocks = loom::check::slice<1088>(storage, 32);
         loom::check::generate<generate_iq4xs_blocks>(blocks);
         loom::check::compare<update_iq4xs, update_iq4xs_oracle>(

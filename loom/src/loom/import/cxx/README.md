@@ -1343,14 +1343,14 @@ void update(unsigned* output, unsigned value) {
 }
 
 LOOM_CHECK_CASE(update_values) {
-  const auto storage = loom::check::fill<unsigned, 3>(37u);
+  const auto storage = loom::check::fill<3, unsigned>(37u);
   const auto middle = loom::check::slice<1>(storage, 1);
   loom::check::launch<update>(middle, 13u);
-  loom::check::expect_bitwise(middle, loom::check::fill<unsigned, 1>(13u));
+  loom::check::expect_bitwise(middle, loom::check::fill<1, unsigned>(13u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 0),
-                            loom::check::fill<unsigned, 1>(37u));
+                            loom::check::fill<1, unsigned>(37u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 2),
-                            loom::check::fill<unsigned, 1>(37u));
+                            loom::check::fill<1, unsigned>(37u));
 }
 LOOM_CHECK_BENCHMARK(update_benchmark, update_values);
 ```

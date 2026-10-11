@@ -76,10 +76,10 @@ void packed_byte_shift_oracle(loom::type::buffer<unsigned char> input,
 LOOM_CHECK_SCENARIO(packed_byte_shift_values) {
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<unsigned char, 2048>(0);
+        const auto input = loom::check::fill<2048, unsigned char>(0);
         loom::check::generate<packed_byte_shift_input>(input);
         const auto storage =
-            loom::check::fill<unsigned char, 38944>((unsigned char)-123);
+            loom::check::fill<38944, unsigned char>((unsigned char)-123);
         const auto output = loom::check::slice<38912>(storage, 16);
         loom::check::compare<packed_byte_shifts, packed_byte_shift_oracle>(
             input, output, [&] {

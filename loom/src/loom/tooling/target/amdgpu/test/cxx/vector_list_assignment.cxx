@@ -53,55 +53,55 @@ void assign_vector(const unsigned* input, Words4* output, unsigned* trace) {
 }
 
 LOOM_CHECK_CASE(braced_vector_assignment) {
-  const auto input = loom::check::fill<unsigned, 1>(7u);
-  const auto storage = loom::check::fill<unsigned, 40>(0xA5A5A5A5u);
+  const auto input = loom::check::fill<1, unsigned>(7u);
+  const auto storage = loom::check::fill<40, unsigned>(0xA5A5A5A5u);
   const auto output = loom::check::slice<32>(storage, 4);
-  const auto trace = loom::check::fill<unsigned, 1>(0u);
+  const auto trace = loom::check::fill<1, unsigned>(0u);
   loom::check::launch<assign_vector>(input, output, trace);
   loom::check::expect_bitwise(loom::check::slice<1>(output, 0),
-                              loom::check::fill<unsigned, 1>(7u));
+                              loom::check::fill<1, unsigned>(7u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 1),
-                              loom::check::fill<unsigned, 1>(8u));
+                              loom::check::fill<1, unsigned>(8u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 2),
-                              loom::check::fill<unsigned, 1>(9u));
+                              loom::check::fill<1, unsigned>(9u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 3),
-                              loom::check::fill<unsigned, 1>(10u));
+                              loom::check::fill<1, unsigned>(10u));
   // Partial assignments replace every lane, including zero-filled tails.
   loom::check::expect_bitwise(loom::check::slice<1>(output, 4),
-                              loom::check::fill<unsigned, 1>(7u));
+                              loom::check::fill<1, unsigned>(7u));
   loom::check::expect_bitwise(loom::check::slice<3>(output, 5),
-                              loom::check::fill<unsigned, 3>(0u));
+                              loom::check::fill<3, unsigned>(0u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 8),
-                              loom::check::fill<unsigned, 1>(8u));
+                              loom::check::fill<1, unsigned>(8u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 9),
-                              loom::check::fill<unsigned, 1>(9u));
+                              loom::check::fill<1, unsigned>(9u));
   loom::check::expect_bitwise(loom::check::slice<6>(output, 10),
-                              loom::check::fill<unsigned, 6>(0u));
+                              loom::check::fill<6, unsigned>(0u));
   // Floating lanes retain their numeric conversion and signed zero.
   loom::check::expect_bitwise(loom::check::slice<1>(output, 16),
-                              loom::check::fill<unsigned, 1>(0x40E00000u));
+                              loom::check::fill<1, unsigned>(0x40E00000u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 17),
-                              loom::check::fill<unsigned, 1>(0x80000000u));
+                              loom::check::fill<1, unsigned>(0x80000000u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 18),
-                              loom::check::fill<unsigned, 1>(0x3FC00000u));
+                              loom::check::fill<1, unsigned>(0x3FC00000u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 19),
-                              loom::check::fill<unsigned, 1>(0u));
+                              loom::check::fill<1, unsigned>(0u));
   loom::check::expect_bitwise(loom::check::slice<4>(output, 20),
                               loom::check::slice<4>(output, 0));
-  loom::check::expect_bitwise(trace, loom::check::fill<unsigned, 1>(12345u));
+  loom::check::expect_bitwise(trace, loom::check::fill<1, unsigned>(12345u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 24),
-                              loom::check::fill<unsigned, 1>(7u));
+                              loom::check::fill<1, unsigned>(7u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 25),
-                              loom::check::fill<unsigned, 1>(8u));
+                              loom::check::fill<1, unsigned>(8u));
   loom::check::expect_bitwise(loom::check::slice<2>(output, 26),
-                              loom::check::fill<unsigned, 2>(0u));
+                              loom::check::fill<2, unsigned>(0u));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 28),
-                              loom::check::fill<unsigned, 1>(0x0080FF07u));
+                              loom::check::fill<1, unsigned>(0x0080FF07u));
   loom::check::expect_bitwise(loom::check::slice<3>(output, 29),
-                              loom::check::fill<unsigned, 3>(0xA5A5A5A5u));
+                              loom::check::fill<3, unsigned>(0xA5A5A5A5u));
   loom::check::expect_bitwise(loom::check::slice<4>(storage, 0),
-                              loom::check::fill<unsigned, 4>(0xA5A5A5A5u));
+                              loom::check::fill<4, unsigned>(0xA5A5A5A5u));
   loom::check::expect_bitwise(loom::check::slice<4>(storage, 36),
-                              loom::check::fill<unsigned, 4>(0xA5A5A5A5u));
-  loom::check::expect_bitwise(input, loom::check::fill<unsigned, 1>(7u));
+                              loom::check::fill<4, unsigned>(0xA5A5A5A5u));
+  loom::check::expect_bitwise(input, loom::check::fill<1, unsigned>(7u));
 }

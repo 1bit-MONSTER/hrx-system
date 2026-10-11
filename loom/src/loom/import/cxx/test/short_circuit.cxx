@@ -123,9 +123,9 @@ void short_circuit_oracle(loom::type::buffer<int> input,
 LOOM_CHECK_SCENARIO(short_circuit_values) {
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<int, 1>(0);
+        const auto input = loom::check::fill<1, int>(0);
         loom::check::generate<short_circuit_input_1>(input);
-        const auto storage = loom::check::fill<int, 800>(-123);
+        const auto storage = loom::check::fill<800, int>(-123);
         const auto output = loom::check::slice<768>(storage, 16);
         loom::check::compare<short_circuit, short_circuit_oracle>(
             input, output, 0u, [&] {
@@ -135,9 +135,9 @@ LOOM_CHECK_SCENARIO(short_circuit_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<int, 1>(0);
+        const auto input = loom::check::fill<1, int>(0);
         loom::check::generate<short_circuit_input_1>(input);
-        const auto storage = loom::check::fill<int, 800>(-123);
+        const auto storage = loom::check::fill<800, int>(-123);
         const auto output = loom::check::slice<768>(storage, 16);
         loom::check::compare<short_circuit, short_circuit_oracle>(
             input, output, 1u, [&] {
@@ -147,9 +147,9 @@ LOOM_CHECK_SCENARIO(short_circuit_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<int, 17>(0);
+        const auto input = loom::check::fill<17, int>(0);
         loom::check::generate<short_circuit_input_17>(input);
-        const auto storage = loom::check::fill<int, 800>(-123);
+        const auto storage = loom::check::fill<800, int>(-123);
         const auto output = loom::check::slice<768>(storage, 16);
         loom::check::compare<short_circuit, short_circuit_oracle>(
             input, output, 17u, [&] {
@@ -159,9 +159,9 @@ LOOM_CHECK_SCENARIO(short_circuit_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<int, 33>(0);
+        const auto input = loom::check::fill<33, int>(0);
         loom::check::generate<short_circuit_input_33>(input);
-        const auto storage = loom::check::fill<int, 800>(-123);
+        const auto storage = loom::check::fill<800, int>(-123);
         const auto output = loom::check::slice<768>(storage, 16);
         loom::check::compare<short_circuit, short_circuit_oracle>(
             input, output, 33u, [&] {
@@ -171,9 +171,9 @@ LOOM_CHECK_SCENARIO(short_circuit_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<int, 64>(0);
+        const auto input = loom::check::fill<64, int>(0);
         loom::check::generate<short_circuit_input_64>(input);
-        const auto storage = loom::check::fill<int, 800>(-123);
+        const auto storage = loom::check::fill<800, int>(-123);
         const auto output = loom::check::slice<768>(storage, 16);
         loom::check::compare<short_circuit, short_circuit_oracle>(
             input, output, 64u, [&] {

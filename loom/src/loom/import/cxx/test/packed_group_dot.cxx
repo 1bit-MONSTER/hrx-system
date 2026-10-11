@@ -61,68 +61,68 @@ LOOM_CHECK_CASE(parallel_codes) {
   // Repeated table [-8, -3, 0, 7, -6, 5, -1, 2]. The low nibbles visit
   // entries 0..7 and the high nibbles visit 8..15 in each eight-byte group.
   const auto table =
-      loom::check::fill<unsigned long long, 2>(0x02FF05FA0700FDF8ull);
+      loom::check::fill<2, unsigned long long>(0x02FF05FA0700FDF8ull);
   const auto packed =
-      loom::check::fill<unsigned long long, 2>(0xF7E6D5C4B3A29180ull);
+      loom::check::fill<2, unsigned long long>(0xF7E6D5C4B3A29180ull);
   // BF16 activations repeat [1, 2, 3, 4] and [-4, 3, -2, 1].
   const auto low =
-      loom::check::fill<unsigned long long, 4>(0x4080404040003F80ull);
+      loom::check::fill<4, unsigned long long>(0x4080404040003F80ull);
   const auto high =
-      loom::check::fill<unsigned long long, 4>(0x3F80C0004040C080ull);
-  const auto storage = loom::check::fill<float, 3>(999.0f);
+      loom::check::fill<4, unsigned long long>(0x3F80C0004040C080ull);
+  const auto storage = loom::check::fill<3, float>(999.0f);
   const auto output = loom::check::slice<1>(storage, 1);
   loom::check::launch<decode_dot>(table, packed, low, high, output, 0.5f,
                                   3.25f);
   // Independent integer products per eight lanes sum to 96. Two groups,
   // scaled by one half and biased by 3.25, give exactly 99.25. Their absolute
   // products sum to 320, giving a scaled magnitude of 160 + 3.25 = 653/4.
-  loom::check::expect_close(output, loom::check::fill<float, 1>(99.25f),
+  loom::check::expect_close(output, loom::check::fill<1, float>(99.25f),
                             (653.0 / 4.0) * kGroupErrorFactor, 0.0,
                             "different");
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 0),
-                              loom::check::fill<float, 1>(999.0f));
+                              loom::check::fill<1, float>(999.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 2),
-                              loom::check::fill<float, 1>(999.0f));
+                              loom::check::fill<1, float>(999.0f));
   loom::check::expect_bitwise(
-      table, loom::check::fill<unsigned long long, 2>(0x02FF05FA0700FDF8ull));
+      table, loom::check::fill<2, unsigned long long>(0x02FF05FA0700FDF8ull));
   loom::check::expect_bitwise(
-      packed, loom::check::fill<unsigned long long, 2>(0xF7E6D5C4B3A29180ull));
+      packed, loom::check::fill<2, unsigned long long>(0xF7E6D5C4B3A29180ull));
   loom::check::expect_bitwise(
-      low, loom::check::fill<unsigned long long, 4>(0x4080404040003F80ull));
+      low, loom::check::fill<4, unsigned long long>(0x4080404040003F80ull));
   loom::check::expect_bitwise(
-      high, loom::check::fill<unsigned long long, 4>(0x3F80C0004040C080ull));
+      high, loom::check::fill<4, unsigned long long>(0x3F80C0004040C080ull));
 }
 
 LOOM_CHECK_CASE(crossed_codes) {
   const auto table =
-      loom::check::fill<unsigned long long, 2>(0x02FF05FA0700FDF8ull);
+      loom::check::fill<2, unsigned long long>(0x02FF05FA0700FDF8ull);
   // Reverse only the high nibbles: the two lookups select different codes.
   const auto packed =
-      loom::check::fill<unsigned long long, 2>(0x8796A5B4C3D2E1F0ull);
+      loom::check::fill<2, unsigned long long>(0x8796A5B4C3D2E1F0ull);
   const auto low =
-      loom::check::fill<unsigned long long, 4>(0x4080404040003F80ull);
+      loom::check::fill<4, unsigned long long>(0x4080404040003F80ull);
   const auto high =
-      loom::check::fill<unsigned long long, 4>(0x3F80C0004040C080ull);
-  const auto storage = loom::check::fill<float, 3>(999.0f);
+      loom::check::fill<4, unsigned long long>(0x3F80C0004040C080ull);
+  const auto storage = loom::check::fill<3, float>(999.0f);
   const auto output = loom::check::slice<1>(storage, 1);
   loom::check::launch<decode_dot>(table, packed, low, high, output, 0.5f,
                                   3.25f);
   // Independent integer products per eight lanes sum to -34. The full group's
   // absolute products sum to 276, giving a scaled magnitude of 138 + 3.25 =
   // 565/4.
-  loom::check::expect_close(output, loom::check::fill<float, 1>(-30.75f),
+  loom::check::expect_close(output, loom::check::fill<1, float>(-30.75f),
                             (565.0 / 4.0) * kGroupErrorFactor, 0.0,
                             "different");
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 0),
-                              loom::check::fill<float, 1>(999.0f));
+                              loom::check::fill<1, float>(999.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 2),
-                              loom::check::fill<float, 1>(999.0f));
+                              loom::check::fill<1, float>(999.0f));
   loom::check::expect_bitwise(
-      table, loom::check::fill<unsigned long long, 2>(0x02FF05FA0700FDF8ull));
+      table, loom::check::fill<2, unsigned long long>(0x02FF05FA0700FDF8ull));
   loom::check::expect_bitwise(
-      packed, loom::check::fill<unsigned long long, 2>(0x8796A5B4C3D2E1F0ull));
+      packed, loom::check::fill<2, unsigned long long>(0x8796A5B4C3D2E1F0ull));
   loom::check::expect_bitwise(
-      low, loom::check::fill<unsigned long long, 4>(0x4080404040003F80ull));
+      low, loom::check::fill<4, unsigned long long>(0x4080404040003F80ull));
   loom::check::expect_bitwise(
-      high, loom::check::fill<unsigned long long, 4>(0x3F80C0004040C080ull));
+      high, loom::check::fill<4, unsigned long long>(0x3F80C0004040C080ull));
 }

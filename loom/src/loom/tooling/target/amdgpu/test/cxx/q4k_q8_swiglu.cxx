@@ -502,19 +502,19 @@ LOOM_CHECK_SCENARIO(q4k_q8_swiglu_values) {
   loom::check::trial<1>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto q8_input =
-        loom::check::fill<unsigned char, kQ4KQ8InputByteCount>(0u);
+        loom::check::fill<kQ4KQ8InputByteCount, unsigned char>(0u);
     loom::check::generate<generate_q4k_q8_input>(q8_input);
     const auto route_ids =
-        loom::check::fill<int, kQ4KQ8TokenCount * kQ4KQ8RouteStride>(0);
+        loom::check::fill<kQ4KQ8TokenCount * kQ4KQ8RouteStride, int>(0);
     loom::check::generate<generate_q4k_q8_route_ids>(route_ids);
     const auto gate_weight =
-        loom::check::fill<unsigned char, kQ4KQ8WeightByteCount>(0u);
+        loom::check::fill<kQ4KQ8WeightByteCount, unsigned char>(0u);
     loom::check::generate<generate_q4k_weight<0>>(gate_weight);
     const auto up_weight =
-        loom::check::fill<unsigned char, kQ4KQ8WeightByteCount>(0u);
+        loom::check::fill<kQ4KQ8WeightByteCount, unsigned char>(0u);
     loom::check::generate<generate_q4k_weight<1>>(up_weight);
     const auto output_storage =
-        loom::check::fill<float, kQ4KQ8OutputElementCount + 32u>(-123.0f);
+        loom::check::fill<kQ4KQ8OutputElementCount + 32u, float>(-123.0f);
     const auto output_prefix = loom::check::slice<16>(output_storage, 0);
     const auto output =
         loom::check::slice<kQ4KQ8OutputElementCount>(output_storage, 16);

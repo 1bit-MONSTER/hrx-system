@@ -27,36 +27,36 @@ void expand_float16(
 LOOM_CHECK_CASE(uniform_float16_conversion) {
   // Literal payloads encode [1, -2, 0.5, -0.25] in each input format.
   const auto half =
-      loom::check::fill<unsigned long long, 1>(0xB4003800C0003C00ull);
+      loom::check::fill<1, unsigned long long>(0xB4003800C0003C00ull);
   const auto bfloat =
-      loom::check::fill<unsigned long long, 1>(0xBE803F00C0003F80ull);
-  const auto storage = loom::check::fill<float, 16>(99.0f);
+      loom::check::fill<1, unsigned long long>(0xBE803F00C0003F80ull);
+  const auto storage = loom::check::fill<16, float>(99.0f);
   const auto output = loom::check::slice<8>(storage, 4);
   loom::check::launch<expand_float16>(half, bfloat, output);
   loom::check::expect_bitwise(loom::check::slice<1>(output, 0),
-                              loom::check::fill<float, 1>(1.0f));
+                              loom::check::fill<1, float>(1.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 1),
-                              loom::check::fill<float, 1>(-2.0f));
+                              loom::check::fill<1, float>(-2.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 2),
-                              loom::check::fill<float, 1>(0.5f));
+                              loom::check::fill<1, float>(0.5f));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 3),
-                              loom::check::fill<float, 1>(-0.25f));
+                              loom::check::fill<1, float>(-0.25f));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 4),
-                              loom::check::fill<float, 1>(1.0f));
+                              loom::check::fill<1, float>(1.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 5),
-                              loom::check::fill<float, 1>(-2.0f));
+                              loom::check::fill<1, float>(-2.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 6),
-                              loom::check::fill<float, 1>(0.5f));
+                              loom::check::fill<1, float>(0.5f));
   loom::check::expect_bitwise(loom::check::slice<1>(output, 7),
-                              loom::check::fill<float, 1>(-0.25f));
+                              loom::check::fill<1, float>(-0.25f));
   loom::check::expect_bitwise(
-      half, loom::check::fill<unsigned long long, 1>(0xB4003800C0003C00ull));
+      half, loom::check::fill<1, unsigned long long>(0xB4003800C0003C00ull));
   loom::check::expect_bitwise(
-      bfloat, loom::check::fill<unsigned long long, 1>(0xBE803F00C0003F80ull));
+      bfloat, loom::check::fill<1, unsigned long long>(0xBE803F00C0003F80ull));
   loom::check::expect_bitwise(loom::check::slice<4>(storage, 0),
-                              loom::check::fill<float, 4>(99.0f));
+                              loom::check::fill<4, float>(99.0f));
   loom::check::expect_bitwise(loom::check::slice<4>(storage, 12),
-                              loom::check::fill<float, 4>(99.0f));
+                              loom::check::fill<4, float>(99.0f));
 }
 
 [[loom::kernel, loom::workgroup_size(1, 1, 1), loom::workgroup_count(1, 1, 1)]]
@@ -70,19 +70,19 @@ void convert_float16_integers(
 
 LOOM_CHECK_CASE(integer_float16_conversion) {
   // Codebook [-128, -1, 0, 127] and FP16 [1.5, -2.5, 0.5, -0.5].
-  const auto codebook = loom::check::fill<unsigned, 1>(0x7F00FF80u);
+  const auto codebook = loom::check::fill<1, unsigned>(0x7F00FF80u);
   const auto fractional =
-      loom::check::fill<unsigned long long, 1>(0xB8003800C1003E00ull);
-  const auto decoded = loom::check::fill<unsigned long long, 1>(0);
-  const auto truncated = loom::check::fill<int, 4>(42);
+      loom::check::fill<1, unsigned long long>(0xB8003800C1003E00ull);
+  const auto decoded = loom::check::fill<1, unsigned long long>(0);
+  const auto truncated = loom::check::fill<4, int>(42);
   loom::check::launch<convert_float16_integers>(codebook, fractional, decoded,
                                                 truncated);
   loom::check::expect_bitwise(
-      decoded, loom::check::fill<unsigned long long, 1>(0x42FE0000BF80C300ull));
+      decoded, loom::check::fill<1, unsigned long long>(0x42FE0000BF80C300ull));
   loom::check::expect_bitwise(loom::check::slice<1>(truncated, 0),
-                              loom::check::fill<int, 1>(1));
+                              loom::check::fill<1, int>(1));
   loom::check::expect_bitwise(loom::check::slice<1>(truncated, 1),
-                              loom::check::fill<int, 1>(-2));
+                              loom::check::fill<1, int>(-2));
   loom::check::expect_bitwise(loom::check::slice<2>(truncated, 2),
-                              loom::check::fill<int, 2>(0));
+                              loom::check::fill<2, int>(0));
 }

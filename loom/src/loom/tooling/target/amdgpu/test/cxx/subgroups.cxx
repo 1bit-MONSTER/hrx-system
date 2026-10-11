@@ -153,15 +153,15 @@ LOOM_CHECK_CASE(cooperative_wave32) {
   // Ordered global observations require the RDNA 3.5 system-scope provider.
   loom::check::require("hal.amdgpu.descriptor_set", "descriptor_set",
                        "amdgpu.rdna3_5.core");
-  const auto payload = loom::check::iota<unsigned, 96>(19, 13);
-  const auto publication = loom::check::fill<unsigned, 96>(1);
-  const auto output = loom::check::fill<unsigned, 98>(37);
+  const auto payload = loom::check::iota<96, unsigned>(19, 13);
+  const auto publication = loom::check::fill<96, unsigned>(1);
+  const auto output = loom::check::fill<98, unsigned>(37);
   loom::check::launch<cooperate_wave32>(payload, publication, output);
   const auto before = loom::check::slice<1>(output, 0);
   const auto values = loom::check::slice<96>(output, 1);
   const auto after = loom::check::slice<1>(output, 97);
-  const auto guard = loom::check::fill<unsigned, 1>(37);
-  const auto success = loom::check::fill<unsigned, 96>(0);
+  const auto guard = loom::check::fill<1, unsigned>(37);
+  const auto success = loom::check::fill<96, unsigned>(0);
   loom::check::expect_bitwise(values, success);
   loom::check::expect_bitwise(before, guard);
   loom::check::expect_bitwise(after, guard);
@@ -170,15 +170,15 @@ LOOM_CHECK_CASE(cooperative_wave32) {
 LOOM_CHECK_CASE(cooperative_wave64_tail) {
   loom::check::require("hal.amdgpu.descriptor_set", "descriptor_set",
                        "amdgpu.rdna3_5.core");
-  const auto payload = loom::check::iota<unsigned, 96>(19, 13);
-  const auto publication = loom::check::fill<unsigned, 96>(1);
-  const auto output = loom::check::fill<unsigned, 98>(37);
+  const auto payload = loom::check::iota<96, unsigned>(19, 13);
+  const auto publication = loom::check::fill<96, unsigned>(1);
+  const auto output = loom::check::fill<98, unsigned>(37);
   loom::check::launch<cooperate_wave64>(payload, publication, output);
   const auto before = loom::check::slice<1>(output, 0);
   const auto values = loom::check::slice<96>(output, 1);
   const auto after = loom::check::slice<1>(output, 97);
-  const auto guard = loom::check::fill<unsigned, 1>(37);
-  const auto success = loom::check::fill<unsigned, 96>(0);
+  const auto guard = loom::check::fill<1, unsigned>(37);
+  const auto success = loom::check::fill<96, unsigned>(0);
   loom::check::expect_bitwise(values, success);
   loom::check::expect_bitwise(before, guard);
   loom::check::expect_bitwise(after, guard);

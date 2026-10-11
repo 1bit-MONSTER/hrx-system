@@ -561,7 +561,7 @@ LOOM_CHECK_SCENARIO(assumptions_functions) {
                             loom::check::entropy entropy) {
     const auto first = loom::check::generate<assumption_pair_input>(trial, 0u);
     const auto second = loom::check::generate<assumption_pair_input>(trial, 1u);
-    const auto output = loom::check::fill<unsigned, 1>(-123u);
+    const auto output = loom::check::fill<1, unsigned>(-123u);
     loom::check::compare<bound_pair_observation, bound_pair_reference>(
         first, second, output,
         [&] { loom::check::expect_bitwise(output, output); });
@@ -575,7 +575,7 @@ LOOM_CHECK_SCENARIO(assumptions_functions) {
         const auto e = loom::check::generate<assumption_seven_input>(trial, 4u);
         const auto f = loom::check::generate<assumption_seven_input>(trial, 5u);
         const auto g = loom::check::generate<assumption_seven_input>(trial, 6u);
-        const auto output = loom::check::fill<unsigned, 1>(-123u);
+        const auto output = loom::check::fill<1, unsigned>(-123u);
         loom::check::compare<bound_seven_observation, bound_seven_reference>(
             a, b, c, d, e, f, g, output,
             [&] { loom::check::expect_bitwise(output, output); });
@@ -583,21 +583,21 @@ LOOM_CHECK_SCENARIO(assumptions_functions) {
   loom::check::trial<5>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto value = loom::check::generate<assumption_repeated_input>(trial);
-    const auto output = loom::check::fill<unsigned, 1>(-123u);
+    const auto output = loom::check::fill<1, unsigned>(-123u);
     loom::check::compare<bound_repeated_observation, bound_repeated_reference>(
         value, output, [&] { loom::check::expect_bitwise(output, output); });
   });
   loom::check::trial<6>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto value = loom::check::generate<assumption_capacity_input>(trial);
-    const auto output = loom::check::fill<unsigned, 1>(-123u);
+    const auto output = loom::check::fill<1, unsigned>(-123u);
     loom::check::compare<bound_capacity_observation, bound_capacity_reference>(
         value, output, [&] { loom::check::expect_bitwise(output, output); });
   });
   loom::check::trial<4>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto value = loom::check::generate<assumption_cast_size_input>(trial);
-    const auto output = loom::check::fill<unsigned, 2>(-123u);
+    const auto output = loom::check::fill<2, unsigned>(-123u);
     loom::check::compare<bound_cast_size_observations,
                          bound_cast_size_reference>(
         value, output, [&] { loom::check::expect_bitwise(output, output); });
@@ -605,28 +605,28 @@ LOOM_CHECK_SCENARIO(assumptions_functions) {
   loom::check::trial<256>([](loom::check::ordinal trial,
                              loom::check::entropy entropy) {
     const auto value = loom::check::generate<assumption_byte_input>(trial);
-    const auto output = loom::check::fill<unsigned, 1>(-123u);
+    const auto output = loom::check::fill<1, unsigned>(-123u);
     loom::check::compare<bound_byte_observation, bound_byte_reference>(
         value, output, [&] { loom::check::expect_bitwise(output, output); });
   });
   loom::check::trial<6>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto value = loom::check::generate<assumption_wide_input>(trial);
-    const auto output = loom::check::fill<unsigned, 1>(-123u);
+    const auto output = loom::check::fill<1, unsigned>(-123u);
     loom::check::compare<bound_wide_observation, bound_wide_reference>(
         value, output, [&] { loom::check::expect_bitwise(output, output); });
   });
   loom::check::trial<9>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto value = loom::check::generate<assumption_scoped_input>(trial);
-    const auto output = loom::check::fill<unsigned, 1>(-123u);
+    const auto output = loom::check::fill<1, unsigned>(-123u);
     loom::check::compare<bound_scoped_observation, bound_scoped_reference>(
         value, output, [&] { loom::check::expect_bitwise(output, output); });
   });
   loom::check::trial<5>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto value = loom::check::generate<assumption_inclusive_input>(trial);
-    const auto output = loom::check::fill<unsigned, 1>(-123u);
+    const auto output = loom::check::fill<1, unsigned>(-123u);
     loom::check::compare<bound_inclusive_observation,
                          bound_inclusive_reference>(
         value, output, [&] { loom::check::expect_bitwise(output, output); });
@@ -637,7 +637,7 @@ LOOM_CHECK_SCENARIO(assumptions_functions) {
             loom::check::generate<assumption_signed_input>(trial, 0u);
         const auto capacity =
             loom::check::generate<assumption_signed_input>(trial, 1u);
-        const auto output = loom::check::fill<unsigned, 1>(-123u);
+        const auto output = loom::check::fill<1, unsigned>(-123u);
         loom::check::compare<bound_signed_observation, bound_signed_reference>(
             hidden, capacity, output,
             [&] { loom::check::expect_bitwise(output, output); });
@@ -648,7 +648,7 @@ LOOM_CHECK_SCENARIO(assumptions_functions) {
         loom::check::generate<assumption_unsigned_input>(trial, 0u);
     const auto capacity =
         loom::check::generate<assumption_unsigned_input>(trial, 1u);
-    const auto output = loom::check::fill<unsigned, 1>(-123u);
+    const auto output = loom::check::fill<1, unsigned>(-123u);
     loom::check::compare<bound_unsigned_observation, bound_unsigned_reference>(
         tokens, capacity, output,
         [&] { loom::check::expect_bitwise(output, output); });
@@ -659,7 +659,7 @@ LOOM_CHECK_SCENARIO(assumption_kernel_values) {
   loom::check::trial<9>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto input = loom::check::generate<assumption_kernel_input>(trial);
-    const auto storage = loom::check::fill<unsigned, 800>(-123u);
+    const auto storage = loom::check::fill<800, unsigned>(-123u);
     const auto output = loom::check::slice<768>(storage, 16);
     loom::check::compare<assumption_kernel, assumption_kernel_oracle>(
         output, input, [&] { loom::check::expect_bitwise(storage, storage); });

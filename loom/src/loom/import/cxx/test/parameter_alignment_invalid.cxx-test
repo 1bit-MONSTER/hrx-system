@@ -106,7 +106,7 @@ template <unsigned Alignment>
     // ERROR@+1: LOWERING/059 "assume_aligned requires one positive power-of-two integer constant without calls or mutation"
     [[loom::assume_aligned(Alignment)]] unsigned* output) {}
 LOOM_CHECK_CASE(invalid_template_alignment) {
-  const auto output = loom::check::fill<unsigned, 16>(0u);
+  const auto output = loom::check::fill<16, unsigned>(0u);
   loom::check::launch<invalid_instance<48>>(output);
 }
 
@@ -119,7 +119,7 @@ template <unsigned Alignment>
   static_assert(Alignment != 64, "instantiated kernel diagnosis");
 }
 LOOM_CHECK_CASE(instantiation_error) {
-  const auto output = loom::check::fill<unsigned, 16>(0u);
+  const auto output = loom::check::fill<16, unsigned>(0u);
   loom::check::launch<diagnosed<64>>(output);
 }
 

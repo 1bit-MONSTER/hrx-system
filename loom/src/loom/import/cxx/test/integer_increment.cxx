@@ -113,7 +113,7 @@ LOOM_CHECK_SCENARIO(increment_values) {
                            loom::check::entropy entropy) {
     const auto input = loom::check::generate<increment_u8_input>(trial);
     const auto storage =
-        loom::check::fill<unsigned char, 160>((unsigned char)-123);
+        loom::check::fill<160, unsigned char>((unsigned char)-123);
     const auto output = loom::check::slice<128>(storage, 16);
     loom::check::compare<increment_u8, increment_u8_oracle>(
         output, input, [&] { loom::check::expect_bitwise(storage, storage); });
@@ -122,7 +122,7 @@ LOOM_CHECK_SCENARIO(increment_values) {
                            loom::check::entropy entropy) {
     const auto input = loom::check::generate<increment_u64_input>(trial);
     const auto storage =
-        loom::check::fill<unsigned long long, 160>((unsigned long long)-123ll);
+        loom::check::fill<160, unsigned long long>((unsigned long long)-123ll);
     const auto output = loom::check::slice<128>(storage, 16);
     loom::check::compare<increment_u64, increment_u64_oracle>(
         output, input, [&] { loom::check::expect_bitwise(storage, storage); });

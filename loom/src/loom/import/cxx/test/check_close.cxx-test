@@ -50,8 +50,8 @@ func.def @from_bits(%bits: i32) -> (f32) {
 // ====
 #include <loomcxx/check.h>
 LOOM_CHECK_CASE(tensor_error) {
-  const auto actual = loom::check::fill<float, 4>(3.125f);
-  const auto expected = loom::check::fill<float, 4>(3.0f);
+  const auto actual = loom::check::fill<4, float>(3.125f);
+  const auto expected = loom::check::fill<4, float>(3.0f);
   loom::check::expect_close(actual, expected, 0.125, 0.0);
 }
 

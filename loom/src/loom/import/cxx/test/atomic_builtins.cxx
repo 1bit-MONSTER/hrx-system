@@ -100,42 +100,42 @@ void builtin_updates(unsigned* storage, unsigned long long* wide,
 LOOM_CHECK_CASE(builtin_update_values) {
   loom::check::require("hal.amdgpu.descriptor_set", "descriptor_set",
                        "amdgpu.rdna3_5.core");
-  const auto storage = loom::check::fill<unsigned, 10>(37u);
-  const auto wide = loom::check::fill<unsigned long long, 4>(37ULL);
-  const auto evaluations = loom::check::fill<unsigned, 6>(0u);
-  const auto output = loom::check::fill<unsigned, 4>(37u);
+  const auto storage = loom::check::fill<10, unsigned>(37u);
+  const auto wide = loom::check::fill<4, unsigned long long>(37ULL);
+  const auto evaluations = loom::check::fill<6, unsigned>(0u);
+  const auto output = loom::check::fill<4, unsigned>(37u);
   loom::check::launch<builtin_updates>(storage, wide, evaluations, output);
-  loom::check::expect_bitwise(output, loom::check::fill<unsigned, 4>(0u));
+  loom::check::expect_bitwise(output, loom::check::fill<4, unsigned>(0u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 0),
-                              loom::check::fill<unsigned, 1>(37u));
+                              loom::check::fill<1, unsigned>(37u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 1),
-                              loom::check::fill<unsigned, 1>(49u));
+                              loom::check::fill<1, unsigned>(49u));
   loom::check::expect_bitwise(loom::check::slice<2>(storage, 2),
-                              loom::check::fill<unsigned, 2>(37u));
+                              loom::check::fill<2, unsigned>(37u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 4),
-                              loom::check::fill<unsigned, 1>(2147483647u));
+                              loom::check::fill<1, unsigned>(2147483647u));
   loom::check::expect_bitwise(loom::check::slice<2>(storage, 5),
-                              loom::check::fill<unsigned, 2>(37u));
+                              loom::check::fill<2, unsigned>(37u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 7),
-                              loom::check::fill<unsigned, 1>(13u));
+                              loom::check::fill<1, unsigned>(13u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 8),
-                              loom::check::fill<unsigned, 1>(7u));
+                              loom::check::fill<1, unsigned>(7u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 9),
-                              loom::check::fill<unsigned, 1>(37u));
+                              loom::check::fill<1, unsigned>(37u));
   loom::check::expect_bitwise(loom::check::slice<1>(wide, 0),
-                              loom::check::fill<unsigned long long, 1>(37ULL));
+                              loom::check::fill<1, unsigned long long>(37ULL));
   loom::check::expect_bitwise(
       loom::check::slice<1>(wide, 1),
-      loom::check::fill<unsigned long long, 1>(4294967300ULL));
+      loom::check::fill<1, unsigned long long>(4294967300ULL));
   loom::check::expect_bitwise(
       loom::check::slice<1>(wide, 2),
-      loom::check::fill<unsigned long long, 1>(4294967299ULL));
+      loom::check::fill<1, unsigned long long>(4294967299ULL));
   loom::check::expect_bitwise(loom::check::slice<1>(wide, 3),
-                              loom::check::fill<unsigned long long, 1>(37ULL));
+                              loom::check::fill<1, unsigned long long>(37ULL));
   loom::check::expect_bitwise(loom::check::slice<1>(evaluations, 0),
-                              loom::check::fill<unsigned, 1>(0u));
+                              loom::check::fill<1, unsigned>(0u));
   loom::check::expect_bitwise(loom::check::slice<4>(evaluations, 1),
-                              loom::check::fill<unsigned, 4>(2u));
+                              loom::check::fill<4, unsigned>(2u));
   loom::check::expect_bitwise(loom::check::slice<1>(evaluations, 5),
-                              loom::check::fill<unsigned, 1>(0u));
+                              loom::check::fill<1, unsigned>(0u));
 }

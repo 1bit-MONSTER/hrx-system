@@ -31,13 +31,13 @@ void wide_publication(unsigned long long* storage, unsigned long long* output) {
 
 LOOM_CHECK_CASE(interior_wide_atomic_observations) {
   const auto storage =
-      loom::check::fill<unsigned long long, 3>(0xfedcba9876543210ull);
-  const auto output = loom::check::fill<unsigned long long, 2>(0ull);
+      loom::check::fill<3, unsigned long long>(0xfedcba9876543210ull);
+  const auto output = loom::check::fill<2, unsigned long long>(0ull);
   loom::check::launch<wide_publication>(storage, output);
   const auto initial =
-      loom::check::fill<unsigned long long, 1>(0xfedcba9876543210ull);
+      loom::check::fill<1, unsigned long long>(0xfedcba9876543210ull);
   const auto published =
-      loom::check::fill<unsigned long long, 1>(0x1234567887654321ull);
+      loom::check::fill<1, unsigned long long>(0x1234567887654321ull);
   loom::check::expect_bitwise(loom::check::slice<1>(output, 0), initial);
   loom::check::expect_bitwise(loom::check::slice<1>(output, 1), published);
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 1), published);

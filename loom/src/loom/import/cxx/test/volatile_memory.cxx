@@ -297,9 +297,9 @@ void volatile_views_oracle(loom::type::buffer<unsigned> input,
 LOOM_CHECK_SCENARIO(volatile_memory_values) {
   loom::check::trial<4>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
-    const auto input = loom::check::fill<unsigned, 1>(0u);
+    const auto input = loom::check::fill<1, unsigned>(0u);
     loom::check::generate<volatile_scalar_input>(input, trial);
-    const auto storage = loom::check::fill<unsigned, 33>(-123u);
+    const auto storage = loom::check::fill<33, unsigned>(-123u);
     const auto output = loom::check::slice<1>(storage, 16);
     loom::check::compare<volatile_scalar_parameter,
                          volatile_scalar_parameter_oracle>(input, output, [&] {
@@ -309,9 +309,9 @@ LOOM_CHECK_SCENARIO(volatile_memory_values) {
   });
   loom::check::trial<1>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
-    const auto input = loom::check::fill<unsigned, 4>(0u);
+    const auto input = loom::check::fill<4, unsigned>(0u);
     loom::check::generate<volatile_parameter_input>(input);
-    const auto storage = loom::check::fill<unsigned, 36>(-123u);
+    const auto storage = loom::check::fill<36, unsigned>(-123u);
     const auto output = loom::check::slice<4>(storage, 16);
     loom::check::compare<volatile_vector_parameter_kernel,
                          volatile_vector_parameter_oracle>(input, output, [&] {
@@ -321,10 +321,10 @@ LOOM_CHECK_SCENARIO(volatile_memory_values) {
   });
   loom::check::trial<4>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<unsigned, 64>(0u);
+        const auto input = loom::check::fill<64, unsigned>(0u);
         loom::check::generate<volatile_input>(input);
         const auto count = loom::check::generate<volatile_memory_count>(trial);
-        const auto storage = loom::check::fill<unsigned, 160>(-123u);
+        const auto storage = loom::check::fill<160, unsigned>(-123u);
         const auto output = loom::check::slice<128>(storage, 16);
         loom::check::compare<volatile_memory, volatile_memory_oracle>(
             input, output, count, [&] {
@@ -334,10 +334,10 @@ LOOM_CHECK_SCENARIO(volatile_memory_values) {
       });
   loom::check::trial<4>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<unsigned, 64>(0u);
+        const auto input = loom::check::fill<64, unsigned>(0u);
         loom::check::generate<volatile_input>(input);
         const auto count = loom::check::generate<volatile_memory_count>(trial);
-        const auto storage = loom::check::fill<unsigned, 160>(-123u);
+        const auto storage = loom::check::fill<160, unsigned>(-123u);
         const auto output = loom::check::slice<128>(storage, 16);
         loom::check::compare<ordinary_memory, volatile_memory_oracle>(
             input, output, count, [&] {
@@ -347,9 +347,9 @@ LOOM_CHECK_SCENARIO(volatile_memory_values) {
       });
   loom::check::trial<3>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<unsigned, 4>(0u);
+        const auto input = loom::check::fill<4, unsigned>(0u);
         loom::check::generate<volatile_vector_input>(input, trial);
-        const auto storage = loom::check::fill<unsigned, 36>(-123u);
+        const auto storage = loom::check::fill<36, unsigned>(-123u);
         const auto output = loom::check::slice<4>(storage, 16);
         loom::check::compare<volatile_vectors, volatile_vectors_oracle>(
             input, output, [&] {
@@ -359,9 +359,9 @@ LOOM_CHECK_SCENARIO(volatile_memory_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<unsigned, 64>(0u);
+        const auto input = loom::check::fill<64, unsigned>(0u);
         loom::check::generate<volatile_input>(input);
-        const auto storage = loom::check::fill<unsigned, 96>(-123u);
+        const auto storage = loom::check::fill<96, unsigned>(-123u);
         const auto output = loom::check::slice<64>(storage, 16);
         loom::check::compare<volatile_shared, volatile_shared_oracle>(
             input, output, [&] {
@@ -371,11 +371,11 @@ LOOM_CHECK_SCENARIO(volatile_memory_values) {
       });
   loom::check::trial<3>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<unsigned, 64>(0u);
+        const auto input = loom::check::fill<64, unsigned>(0u);
         loom::check::generate<volatile_input>(input);
         const auto origin = loom::check::generate<volatile_view_origin>(trial);
         const auto stride = loom::check::generate<volatile_view_stride>(trial);
-        const auto storage = loom::check::fill<unsigned, 36>(-123u);
+        const auto storage = loom::check::fill<36, unsigned>(-123u);
         const auto output = loom::check::slice<4>(storage, 16);
         loom::check::compare<volatile_views, volatile_views_oracle>(
             input, output, origin, stride, [&] {
