@@ -39,7 +39,7 @@ iree_runtime_hal_cts_test_suite(
 )
 endif()
 
-if(AMDF_BUILD AND AMDF_FAMILY_XDNA)
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND IREE_HAL_DRIVER_TASK AND IREE_HAL_DRIVER_XDNA)
 iree_cc_test(
   NAME
     native_test
@@ -55,8 +55,12 @@ iree_cc_test(
     iree::hal::drivers::amd::xdna::image::testdata::add_i32_npu4
     iree::hal::drivers::amd::xdna::image::testdata::mul_i32
     iree::hal::drivers::amd::xdna::image::testdata::mul_i32_npu4
+    iree::hal::drivers::task::device
+    iree::hal::drivers::task::executable
+    iree::hal::drivers::task::executable::library::util
     iree::hal::utils::files
     iree::io::file_handle
+    iree::task
     iree::testing::gtest
     iree::testing::gtest_main
     iree::testing::temp_file

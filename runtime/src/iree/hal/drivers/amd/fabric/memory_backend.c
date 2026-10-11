@@ -185,18 +185,31 @@ static void iree_hal_amd_fabric_memory_accumulate_pair(
     query->maintenance_alignment =
         iree_max(query->maintenance_alignment, pair->acquire.range_granularity);
   }
+  if (producer->kind == IREE_HAL_AMD_FABRIC_MEMORY_SITE_HOST) {
+    query->host_coherent &=
+        pair->release.kind == IREE_HAL_MEMORY_TRANSITION_KIND_NONE;
+  }
+  if (consumer->kind == IREE_HAL_AMD_FABRIC_MEMORY_SITE_HOST) {
+    query->host_coherent &=
+        pair->acquire.kind == IREE_HAL_MEMORY_TRANSITION_KIND_NONE;
+  }
   if (producer->kind == IREE_HAL_AMD_FABRIC_MEMORY_SITE_HOST &&
       consumer->kind == IREE_HAL_AMD_FABRIC_MEMORY_SITE_QUEUE) {
     const bool coherent =
         pair->release.kind == IREE_HAL_MEMORY_TRANSITION_KIND_NONE;
-    query->host_coherent &= coherent;
     query->complete &= !consumer->requires_host_coherent || coherent;
   } else if (producer->kind == IREE_HAL_AMD_FABRIC_MEMORY_SITE_QUEUE &&
              consumer->kind == IREE_HAL_AMD_FABRIC_MEMORY_SITE_HOST) {
     const bool coherent =
         pair->acquire.kind == IREE_HAL_MEMORY_TRANSITION_KIND_NONE;
-    query->host_coherent &= coherent;
     query->complete &= !producer->requires_host_coherent || coherent;
+  } else if (producer->kind == IREE_HAL_AMD_FABRIC_MEMORY_SITE_HOST &&
+             consumer->kind == IREE_HAL_AMD_FABRIC_MEMORY_SITE_HOST &&
+             (producer->requires_host_coherent ||
+              consumer->requires_host_coherent)) {
+    query->complete &=
+        pair->release.kind == IREE_HAL_MEMORY_TRANSITION_KIND_NONE &&
+        pair->acquire.kind == IREE_HAL_MEMORY_TRANSITION_KIND_NONE;
   }
 }
 
@@ -213,19 +226,6 @@ static iree_status_t iree_hal_amd_fabric_memory_query_transition(
       consumer->kind == IREE_HAL_AMD_FABRIC_MEMORY_SITE_UNKNOWN) {
     return iree_ok_status();
   }
-  if (producer->kind == IREE_HAL_AMD_FABRIC_MEMORY_SITE_HOST &&
-      consumer->kind == IREE_HAL_AMD_FABRIC_MEMORY_SITE_HOST) {
-    *out_info = (iree_hal_memory_pair_info_t){
-        .flags = IREE_HAL_MEMORY_PAIR_SHARED_BACKING_REACHABLE |
-                 IREE_HAL_MEMORY_PAIR_FIXED_COST_KNOWN,
-        .release = {.kind = IREE_HAL_MEMORY_TRANSITION_KIND_NONE},
-        .acquire = {.kind = IREE_HAL_MEMORY_TRANSITION_KIND_NONE},
-        .atomic_reach = {.scope_32 = IREE_HAL_ATOMIC_REACH_SYSTEM,
-                         .scope_64 = IREE_HAL_ATOMIC_REACH_SYSTEM},
-    };
-    return iree_ok_status();
-  }
-
   query->native.producer = producer->native;
   query->native.consumer = consumer->native;
   amdf_memory_pair_info_t native = {
@@ -295,7 +295,8 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_emit_plan(
   if (host_access) {
     transition_sites[1].kind = IREE_HAL_AMD_FABRIC_MEMORY_SITE_HOST;
     transition_sites[1].native.kind = AMDF_MEMORY_SITE_KIND_HOST;
-    transition_sites[1].native.value.host_access = host_access;
+    transition_sites[1].native.value.host_access =
+        iree_hal_amd_fabric_memory_host_access(host.access);
   }
   memory_type |= IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
   if (host_access) {
@@ -392,9 +393,10 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_emit_plan(
       contract->scopes[queue_scope_id + 1] = bindings;
     }
     bool host_coherent = host.access != IREE_HAL_MEMORY_ACCESS_NONE;
-    for (uint32_t i = 0; i < access_count; ++i) {
-      host_coherent &= iree_all_bits_set(accesses[i].requirements.flags,
-                                         AMDF_MEMORY_FLAG_HOST_COHERENT);
+    for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
+      host_coherent |=
+          transition_sites[scope.families[i].family->memory.queue_scope_id]
+              .kind == IREE_HAL_AMD_FABRIC_MEMORY_SITE_HOST;
     }
     iree_hal_amd_fabric_memory_transition_query_t transition_query = {
         .owner = owner,
@@ -531,11 +533,58 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_query(
       ++matched_family_count;
       const iree_hal_memory_backend_t* base =
           iree_hal_device_memory_backend(device);
-      if (!base || base->type != IREE_HAL_MEMORY_BACKEND_AMDF ||
-          !base->factory_count || !base->factories ||
-          base->factories[0]->query != iree_hal_amd_fabric_slab_pool_query ||
+      // Published native buffers carry no atomic operation capabilities. A
+      // construction request must not promise more than those buffers expose.
+      const iree_hal_atomic_operation_capabilities_t atomic_operations = {0};
+      if (!base ||
+          !iree_hal_atomic_operation_capabilities_support(
+              atomic_operations, requested->atomic_operations) ||
           iree_any_bit_set(requested->requirements,
                            IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED)) {
+        supported = false;
+        break;
+      }
+      iree_hal_memory_scope_access_t* bindings = &family_bindings[family_index];
+      bindings->usage = requested->usage;
+      for (uint32_t type = 0; type < IREE_HAL_BUFFER_INTERFACE_COUNT; ++type) {
+        bindings->bindings[type] = IREE_HAL_BUFFER_NATIVE_BINDING_INDEX_NONE;
+      }
+      if (base->type == IREE_HAL_MEMORY_BACKEND_HOST) {
+        if (!iree_all_bits_set(
+                iree_hal_queue_family_spec(requested->family)->flags,
+                IREE_HAL_QUEUE_FAMILY_SPEC_FLAG_HOST_MEMORY_BARRIERS) ||
+            (requested->interfaces &
+             ~(UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_HOST))) {
+          supported = false;
+          break;
+        }
+        const amdf_memory_map_flags_t access =
+            iree_hal_amd_fabric_memory_host_access(
+                iree_hal_buffer_usage_access(requested->usage));
+        if (!access) {
+          supported = false;
+          break;
+        }
+        private_host_access |= access;
+        bindings->interfaces = 1u << IREE_HAL_BUFFER_INTERFACE_HOST;
+        bindings->bindings[IREE_HAL_BUFFER_INTERFACE_HOST] = 0;
+        const uint32_t queue_scope_id =
+            requested->family->memory.queue_scope_id;
+        transition_sites[queue_scope_id] =
+            (iree_hal_amd_fabric_memory_transition_site_t){
+                .kind = IREE_HAL_AMD_FABRIC_MEMORY_SITE_HOST,
+                .requires_host_coherent = iree_any_bit_set(
+                    requested->requirements,
+                    IREE_HAL_POOL_ACCESS_REQUIRE_COHERENT_WITH_HOST),
+                .native = {.kind = AMDF_MEMORY_SITE_KIND_HOST,
+                           .value.host_access = access},
+            };
+        transition_sites[queue_scope_id + 1] = transition_sites[queue_scope_id];
+        continue;
+      }
+      if (base->type != IREE_HAL_MEMORY_BACKEND_AMDF || !base->factory_count ||
+          !base->factories ||
+          base->factories[0]->query != iree_hal_amd_fabric_slab_pool_query) {
         supported = false;
         break;
       }
@@ -580,11 +629,6 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_query(
       if (iree_any_bit_set(requested->requirements,
                            IREE_HAL_POOL_ACCESS_REQUIRE_COHERENT_WITH_HOST)) {
         requirements->flags |= AMDF_MEMORY_FLAG_HOST_COHERENT;
-      }
-      iree_hal_memory_scope_access_t* bindings = &family_bindings[family_index];
-      bindings->usage = requested->usage;
-      for (uint32_t type = 0; type < IREE_HAL_BUFFER_INTERFACE_COUNT; ++type) {
-        bindings->bindings[type] = IREE_HAL_BUFFER_NATIVE_BINDING_INDEX_NONE;
       }
       for (uint32_t i = 0; i < family->binding_count; ++i) {
         const iree_hal_amd_fabric_memory_binding_t binding =

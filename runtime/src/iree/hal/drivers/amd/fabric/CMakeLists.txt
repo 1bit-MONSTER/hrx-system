@@ -213,7 +213,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD)
+if(AMDF_BUILD AND IREE_HAL_DRIVER_TASK)
 iree_cc_test(
   NAME
     memory_backend_test
@@ -224,10 +224,13 @@ iree_cc_test(
     amdf::headers
     iree::async
     iree::async::platform
+    iree::async::util::proactor_pool
     iree::base
     iree::hal
+    iree::hal::drivers::task::device
     iree::hal::memory::maintenance_thread
     iree::hal::testing::mock_device
+    iree::task
     iree::testing::gtest
     iree::testing::gtest_main
   LABELS

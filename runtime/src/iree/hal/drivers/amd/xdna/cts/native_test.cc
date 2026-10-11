@@ -16,6 +16,9 @@
 #include "iree/hal/drivers/amd/xdna/image/testdata/add_i32_npu4.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/mul_i32.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/mul_i32_npu4.h"
+#include "iree/hal/drivers/task/device.h"
+#include "iree/hal/drivers/task/executable/executable.h"
+#include "iree/hal/drivers/task/executable/library/util.h"
 #include "iree/hal/slab_pool.h"
 #include "iree/hal/utils/file_registry.h"
 #include "iree/io/file_contents.h"
@@ -978,5 +981,431 @@ TEST_F(XdnaNativeTest, AllocationPublishesItsActualMemoryProperties) {
             IREE_HAL_EXTERNAL_STORAGE_TYPE_NONE);
   EXPECT_EQ(logical_range.byte_length, 0u);
 }
+
+// Compiled CPU kernel using the same ABI as loaded Task executables. The
+// fixture supplies immutable library metadata; recording and dispatch use the
+// production Task implementation.
+struct CpuAddExecutable : iree_hal_task_executable_t {
+  static int Add(const iree_hal_executable_environment_v0_t*,
+                 const iree_hal_executable_dispatch_state_v0_t* dispatch,
+                 const iree_hal_executable_workgroup_state_v0_t* workgroup) {
+    uint32_t addend;
+    memcpy(&addend, dispatch->constants.data, sizeof(addend));
+    auto* values = static_cast<uint32_t*>(dispatch->binding_ptrs[0]);
+    values[workgroup->workgroup_id_x] += addend;
+    return 0;
+  }
+
+  static const iree_hal_executable_library_v0_t& Library() {
+    static const iree_hal_executable_dispatch_v0_t functions[] = {Add};
+    static const char* const names[] = {"add_u32"};
+    static const auto attributes = [] {
+      iree_hal_executable_dispatch_attrs_v0_t value = {};
+      value.constant_byte_length = sizeof(uint32_t);
+      value.binding_count = 1;
+      value.workgroup_size_x = 1;
+      value.workgroup_size_y = 1;
+      value.workgroup_size_z = 1;
+      return value;
+    }();
+    static const auto library = [] {
+      iree_hal_executable_library_v0_t value = {};
+      value.exports.count = 1;
+      value.exports.ptrs = functions;
+      value.exports.attrs = &attributes;
+      value.exports.names = names;
+      return value;
+    }();
+    return library;
+  }
+
+  explicit CpuAddExecutable(const iree_hal_queue_family_t* family) {
+    static const auto vtable = [] {
+      iree_hal_task_executable_vtable_t value = {};
+      value.base.destroy = +[](iree_hal_executable_t* base) {
+        auto* executable = reinterpret_cast<CpuAddExecutable*>(base);
+        iree_hal_task_executable_deinitialize(executable);
+        delete executable;
+      };
+      value.base.function_count =
+          +[](iree_hal_executable_t*) -> iree_host_size_t {
+        return Library().exports.count;
+      };
+      value.base.function_info =
+          +[](iree_hal_executable_t*, iree_hal_executable_function_t function,
+              iree_hal_executable_function_info_t* out_info) {
+            return iree_hal_executable_library_export_info(&Library(), function,
+                                                           out_info);
+          };
+      value.base.function_parameters =
+          +[](iree_hal_executable_t*, iree_hal_executable_function_t function,
+              iree_host_size_t capacity,
+              iree_hal_executable_function_parameter_t* out_parameters) {
+            return iree_hal_executable_library_export_parameters(
+                &Library(), function, capacity, out_parameters);
+          };
+      value.issue_call =
+          +[](iree_hal_task_executable_t* executable, iree_host_size_t,
+              const iree_hal_executable_dispatch_state_v0_t* dispatch,
+              const iree_hal_executable_workgroup_state_v0_t* workgroup,
+              uint32_t) {
+            Add(&executable->environment, dispatch, workgroup);
+            return iree_ok_status();
+          };
+      return value;
+    }();
+    iree_hal_task_executable_initialize(family, &vtable,
+                                        iree_allocator_system(), this);
+    dispatch_attrs = Library().exports.attrs;
+    dispatch_ptrs = Library().exports.ptrs;
+    export_count = Library().exports.count;
+    export_names = Library().exports.names;
+  }
+};
+
+enum class CpuHandoffMode {
+  kQueueDefaults,
+  kPublicMapping,
+  kRecordedDirect,
+  kRecordedDeferred,
+  kRecordedIndirect,
+};
+
+class CpuXdnaNativeTest : public XdnaNativeTest,
+                          public ::testing::WithParamInterface<CpuHandoffMode> {
+ protected:
+  void SetUp() override {
+    XdnaNativeTest::SetUp();
+    if (IsSkipped() || HasFatalFailure()) {
+      return;
+    }
+    iree_task_topology_t topology;
+    iree_task_topology_initialize_from_group_count(4, &topology);
+    iree_task_executor_options_t executor_options;
+    iree_task_executor_options_initialize(&executor_options);
+    iree_status_t status = iree_task_executor_create(
+        executor_options, &topology, iree_allocator_system(), &cpu_executor_);
+    iree_task_topology_deinitialize(&topology);
+    IREE_ASSERT_OK(status);
+    IREE_ASSERT_OK(iree_hal_allocator_create_heap(iree_allocator_system(),
+                                                  &cpu_allocator_));
+    IREE_ASSERT_OK(iree_async_proactor_pool_create(
+        1, nullptr, iree_async_proactor_pool_options_default(),
+        iree_allocator_system(), &cpu_proactor_pool_));
+    auto create_params = iree_hal_device_create_params_default();
+    create_params.proactor_pool = cpu_proactor_pool_;
+    iree_hal_task_device_params_t task_params;
+    iree_hal_task_device_params_initialize(&task_params);
+    IREE_ASSERT_OK(iree_hal_task_device_create(
+        IREE_SV("cpu"), &task_params, 1, &cpu_executor_, 0, nullptr,
+        cpu_allocator_, &create_params, iree_allocator_system(), &cpu_device_));
+    cpu_queue_ = iree_hal_device_queue(cpu_device_, 0, 0);
+    cpu_executable_ = new CpuAddExecutable(iree_hal_queue_family(cpu_queue_));
+  }
+
+  void TearDown() override {
+    for (auto* commands : commands_) {
+      iree_hal_command_buffer_release(commands);
+    }
+    if (cpu_executable_) {
+      iree_hal_executable_release(&cpu_executable_->base);
+    }
+    XdnaNativeTest::TearDown();
+    iree_hal_device_release(cpu_device_);
+    iree_async_proactor_pool_release(cpu_proactor_pool_);
+    iree_hal_allocator_release(cpu_allocator_);
+    iree_task_executor_release(cpu_executor_);
+  }
+
+  void CreateSharedPool(iree_hal_memory_access_t host_access) {
+    iree_async_frontier_tracker_t* tracker = nullptr;
+    IREE_ASSERT_OK(iree_async_frontier_tracker_create(
+        iree_async_frontier_tracker_options_default(), iree_allocator_system(),
+        &tracker));
+    iree_hal_device_group_builder_t builder;
+    iree_hal_device_group_builder_initialize(&builder, tracker);
+    iree_status_t status =
+        iree_hal_device_group_builder_add_device(&builder, cpu_device_);
+    if (iree_status_is_ok(status)) {
+      status = iree_hal_device_group_builder_add_device(&builder, device_);
+    }
+    if (iree_status_is_ok(status)) {
+      status = iree_hal_device_group_builder_finalize(
+          &builder, iree_allocator_system(), &device_group_);
+    }
+    iree_hal_device_group_builder_deinitialize(&builder);
+    iree_async_frontier_tracker_release(tracker);
+    IREE_ASSERT_OK(status);
+    iree_hal_pool_family_access_t families[2] = {};
+    families[0].family = iree_hal_queue_family(cpu_queue_);
+    families[0].usage =
+        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
+    families[0].interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_HOST;
+    families[1].family = iree_hal_queue_family(queue_);
+    families[1].usage = families[0].usage;
+    families[1].interfaces = UINT64_C(1)
+                             << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA;
+    iree_hal_pool_scope_t scope = {};
+    scope.family_count = IREE_ARRAYSIZE(families);
+    scope.families = families;
+    scope.host.access = host_access;
+    scope.host.modes = host_access ? IREE_HAL_MAPPING_MODE_SCOPED : 0u;
+    iree_hal_slab_pool_options_t options;
+    iree_hal_slab_pool_options_initialize(&options);
+    IREE_ASSERT_OK(iree_hal_slab_pool_create(device_group_, scope, &options,
+                                             iree_allocator_system(),
+                                             &memory_pool_));
+  }
+
+  iree_hal_memory_scope_t QueueScope(iree_hal_queue_t* queue) {
+    iree_hal_memory_site_t site = {};
+    site.kind = IREE_HAL_MEMORY_SITE_QUEUE;
+    site.family = iree_hal_queue_family(queue);
+    iree_hal_memory_scope_t scope;
+    IREE_CHECK_OK(iree_hal_device_group_resolve_memory_scope(device_group_,
+                                                             site, &scope));
+    return scope;
+  }
+
+  void RecordCpuWork(iree_hal_buffer_ref_t reference, uint32_t addend,
+                     iree_hal_memory_transition_action_t action,
+                     iree_hal_command_buffer_t** out_commands) {
+    const bool release = action == IREE_HAL_MEMORY_TRANSITION_RELEASE;
+    const auto table = iree_hal_pool_transition_table(memory_pool_);
+    iree_hal_memory_transition_pair_t pair;
+    IREE_ASSERT_OK(iree_hal_memory_transition_prepare_pair(
+        table, QueueScope(release ? cpu_queue_ : queue_),
+        QueueScope(release ? queue_ : cpu_queue_), action, &pair));
+    const auto transition = iree_hal_memory_transition_query(table, pair);
+    const auto* recipe = iree_hal_memory_transition_recipe(table, pair, action);
+    iree_hal_buffer_barrier_t range = {};
+    range.buffer_ref = reference;
+    range.recipe = recipe;
+    iree_hal_barrier_t barrier = {};
+    barrier.source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH;
+    barrier.target_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH;
+    barrier.effects = release ? transition.release : transition.acquire;
+    barrier.buffer_barrier_count = recipe ? 1 : 0;
+    barrier.buffer_barriers = recipe ? &range : nullptr;
+    // The qualified XDNA DMA side requires no additional payload cache action.
+    EXPECT_EQ((release ? transition.acquire : transition.release).bits, 0u);
+    IREE_ASSERT_OK(iree_hal_command_buffer_create(
+        iree_hal_queue_family(cpu_queue_), IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT,
+        IREE_HAL_COMMAND_CATEGORY_DISPATCH,
+        GetParam() == CpuHandoffMode::kRecordedIndirect ? 1 : 0, out_commands));
+    commands_.push_back(*out_commands);
+    IREE_ASSERT_OK(iree_hal_command_buffer_begin(*out_commands));
+    if (!release) {
+      IREE_ASSERT_OK(iree_hal_command_buffer_barrier(*out_commands, &barrier));
+    }
+    IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
+        *out_commands, &cpu_executable_->base,
+        iree_hal_executable_function_from_index(0),
+        iree_hal_make_static_dispatch_config(16, 1, 1),
+        iree_make_const_byte_span(&addend, sizeof(addend)), {1, &reference},
+        IREE_HAL_DISPATCH_FLAG_NONE));
+    if (release) {
+      IREE_ASSERT_OK(iree_hal_command_buffer_barrier(*out_commands, &barrier));
+    }
+    IREE_ASSERT_OK(iree_hal_command_buffer_end(*out_commands));
+  }
+
+  // Existing CPU services shared by all submissions in this test.
+  iree_task_executor_t* cpu_executor_ = nullptr;
+  // CPU device's ordinary allocation source.
+  iree_hal_allocator_t* cpu_allocator_ = nullptr;
+  // CPU asynchronous progress owner.
+  iree_async_proactor_pool_t* cpu_proactor_pool_ = nullptr;
+  // Task device retained independently of the sealed group.
+  iree_hal_device_t* cpu_device_ = nullptr;
+  // Borrowed provisioned CPU queue.
+  iree_hal_queue_t* cpu_queue_ = nullptr;
+  // Compiled CPU arithmetic kernel and immutable ABI metadata.
+  CpuAddExecutable* cpu_executable_ = nullptr;
+  // Recorded programs retained across three changing-input replays.
+  std::vector<iree_hal_command_buffer_t*> commands_;
+};
+
+TEST_P(CpuXdnaNativeTest, CpuNpuCpuKernelsShareOneBacking) {
+  const bool public_mapping = GetParam() == CpuHandoffMode::kPublicMapping;
+  ASSERT_NO_FATAL_FAILURE(CreateSharedPool(public_mapping
+                                               ? IREE_HAL_MEMORY_ACCESS_READ
+                                               : IREE_HAL_MEMORY_ACCESS_NONE));
+  ASSERT_NO_FATAL_FAILURE(LoadMultiply());
+  iree_hal_semaphore_t *start = nullptr, *progress = nullptr;
+  ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&start));
+  ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&progress));
+  uint64_t start_value = 1, allocated = 1;
+  const auto request = iree_hal_make_pool_reservation_request(5 * kBytes, 64);
+  iree_hal_buffer_t* root = nullptr;
+  const iree_hal_barrier_list_t empty = {};
+  const iree_hal_queue_barriers_t no_payload_barriers = {&empty, &empty};
+  const bool deferred = GetParam() == CpuHandoffMode::kRecordedDeferred ||
+                        GetParam() == CpuHandoffMode::kRecordedIndirect;
+  if (deferred) {
+    IREE_ASSERT_OK(iree_hal_queue_alloca(cpu_queue_, {1, &start, &start_value},
+                                         {1, &progress, &allocated},
+                                         memory_pool_, 1, &request, &root));
+  } else {
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        memory_pool_, request, iree_infinite_timeout(), &root));
+    IREE_ASSERT_OK(iree_hal_queue_barrier(
+        cpu_queue_, {1, &start, &start_value}, {1, &progress, &allocated},
+        &no_payload_barriers, IREE_HAL_QUEUE_BARRIER_FLAG_NONE));
+  }
+  buffers_.push_back(root);
+  iree_hal_buffer_mapping_t mapping;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_PERMISSION_DENIED,
+      iree_hal_buffer_map_range(root, IREE_HAL_MAPPING_MODE_SCOPED,
+                                public_mapping ? IREE_HAL_MEMORY_ACCESS_WRITE
+                                               : IREE_HAL_MEMORY_ACCESS_READ,
+                                IREE_HAL_BUFFER_MAP_FLAG_NONE, 0, kBytes,
+                                &mapping));
+  std::array<iree_hal_buffer_ref_t, 3> npu_bindings;
+  for (size_t i = 0; i < npu_bindings.size(); ++i) {
+    iree_hal_buffer_t* view = nullptr;
+    IREE_ASSERT_OK(iree_hal_buffer_subspan(root, (i + 1) * kBytes, kBytes,
+                                           iree_allocator_system(), &view));
+    buffers_.push_back(view);
+    npu_bindings[i] = iree_hal_make_buffer_ref(view, 0, kBytes);
+  }
+  const bool indirect = GetParam() == CpuHandoffMode::kRecordedIndirect;
+  const auto cpu_input =
+      indirect ? iree_hal_make_indirect_buffer_ref(0, kBytes, kBytes)
+               : iree_hal_make_buffer_ref(root, kBytes, kBytes);
+  const auto cpu_output =
+      indirect ? iree_hal_make_indirect_buffer_ref(0, 3 * kBytes, kBytes)
+               : iree_hal_make_buffer_ref(root, 3 * kBytes, kBytes);
+  const iree_hal_buffer_binding_t binding = {root, 0, 5 * kBytes};
+  const iree_hal_buffer_binding_table_t binding_table = {
+      indirect ? 1u : 0u, indirect ? &binding : nullptr};
+  iree_hal_command_buffer_t *producer = nullptr, *consumer = nullptr;
+  if (GetParam() != CpuHandoffMode::kQueueDefaults && !public_mapping) {
+    ASSERT_NO_FATAL_FAILURE(RecordCpuWork(
+        cpu_input, 7, IREE_HAL_MEMORY_TRANSITION_RELEASE, &producer));
+    ASSERT_NO_FATAL_FAILURE(RecordCpuWork(
+        cpu_output, 100, IREE_HAL_MEMORY_TRANSITION_ACQUIRE, &consumer));
+  }
+  uint64_t previous = allocated;
+  for (uint32_t replay = 0; replay < 3; ++replay) {
+    SCOPED_TRACE(replay);
+    uint64_t initialized = previous + 1, produced = previous + 2,
+             computed = previous + 3, consumed = previous + 4,
+             downloaded = previous + 5;
+    std::array<uint32_t, 80> initial;
+    initial.fill(0xA5A5A5A5u);
+    for (size_t i = 0; i < 16; ++i) {
+      initial[16 + i] = static_cast<uint32_t>(i * 97 + 13 + replay * 211);
+      initial[32 + i] = static_cast<uint32_t>(0xFFFFFF00u + i * 11 + replay);
+    }
+    std::array<uint32_t, 80> result = {};
+    iree_hal_transfer_operation_t download = {};
+    download.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;
+    download.download.source_buffer = root;
+    download.download.target = result.data();
+    download.download.length = sizeof(result);
+    IREE_ASSERT_OK(iree_hal_queue_transfer(
+        cpu_queue_, {1, &progress, &consumed}, {1, &progress, &downloaded}, 1,
+        &download, &no_payload_barriers));
+    // Submit consumers first: both queues must obey semaphore edges.
+    if (consumer) {
+      IREE_ASSERT_OK(iree_hal_queue_execute(
+          cpu_queue_, {1, &progress, &computed}, {1, &progress, &consumed},
+          consumer, binding_table, IREE_HAL_QUEUE_EXECUTE_FLAG_NONE));
+    } else {
+      const uint32_t addend = 100;
+      IREE_ASSERT_OK(iree_hal_queue_dispatch(
+          cpu_queue_, {1, &progress, &computed}, {1, &progress, &consumed},
+          &cpu_executable_->base, iree_hal_executable_function_from_index(0),
+          iree_hal_make_static_dispatch_config(16, 1, 1),
+          iree_make_const_byte_span(&addend, sizeof(addend)),
+          {1, &npu_bindings[2]},
+          /*barriers=*/nullptr, IREE_HAL_DISPATCH_FLAG_NONE));
+    }
+    IREE_ASSERT_OK(iree_hal_queue_dispatch(
+        queue_, {1, &progress, &produced}, {1, &progress, &computed},
+        executable_, function_, iree_hal_make_static_dispatch_config(1, 1, 1),
+        {}, {npu_bindings.size(), npu_bindings.data()}, &no_payload_barriers,
+        IREE_HAL_DISPATCH_FLAG_NONE));
+    if (producer) {
+      IREE_ASSERT_OK(iree_hal_queue_execute(
+          cpu_queue_, {1, &progress, &initialized}, {1, &progress, &produced},
+          producer, binding_table, IREE_HAL_QUEUE_EXECUTE_FLAG_NONE));
+    } else {
+      const uint32_t addend = 7;
+      IREE_ASSERT_OK(iree_hal_queue_dispatch(
+          cpu_queue_, {1, &progress, &initialized}, {1, &progress, &produced},
+          &cpu_executable_->base, iree_hal_executable_function_from_index(0),
+          iree_hal_make_static_dispatch_config(16, 1, 1),
+          iree_make_const_byte_span(&addend, sizeof(addend)),
+          {1, &npu_bindings[0]},
+          /*barriers=*/nullptr, IREE_HAL_DISPATCH_FLAG_NONE));
+    }
+    iree_hal_transfer_operation_t upload = {};
+    upload.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPDATE;
+    upload.update.source_buffer = initial.data();
+    upload.update.target_buffer = root;
+    upload.update.length = sizeof(initial);
+    IREE_ASSERT_OK(iree_hal_queue_transfer(
+        cpu_queue_, {1, &progress, &previous}, {1, &progress, &initialized}, 1,
+        &upload, /*barriers=*/nullptr));
+    if (!replay) {
+      IREE_ASSERT_OK(iree_hal_semaphore_signal(start, start_value, nullptr));
+    }
+    IREE_ASSERT_OK(iree_hal_semaphore_wait(progress, downloaded,
+                                           iree_infinite_timeout(),
+                                           IREE_ASYNC_WAIT_FLAG_NONE));
+    for (size_t i = 0; i < 16; ++i) {
+      EXPECT_EQ(result[i], initial[i]) << i;
+      EXPECT_EQ(result[16 + i], initial[16 + i] + 7) << i;
+      EXPECT_EQ(result[32 + i], initial[32 + i]) << i;
+      EXPECT_EQ(result[48 + i], (initial[16 + i] + 7) * initial[32 + i] + 100)
+          << i;
+      EXPECT_EQ(result[64 + i], initial[64 + i]) << i;
+    }
+    if (public_mapping) {
+      iree_hal_memory_site_t site = {};
+      site.kind = IREE_HAL_MEMORY_SITE_HOST;
+      iree_hal_memory_scope_t host_scope;
+      IREE_ASSERT_OK(iree_hal_device_group_resolve_memory_scope(
+          device_group_, site, &host_scope));
+      const auto transition = iree_hal_pool_query_transition(
+          memory_pool_, QueueScope(cpu_queue_), host_scope);
+      EXPECT_EQ(transition.release.bits, 0u);
+      EXPECT_EQ(transition.acquire.bits, 0u);
+      IREE_ASSERT_OK(iree_hal_buffer_map_range(
+          root, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_READ,
+          IREE_HAL_BUFFER_MAP_FLAG_NONE, 0, sizeof(result), &mapping));
+      EXPECT_EQ(memcmp(mapping.contents.data, result.data(), sizeof(result)),
+                0);
+      IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
+    }
+    previous = downloaded;
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SharedBacking, CpuXdnaNativeTest,
+    ::testing::Values(CpuHandoffMode::kQueueDefaults,
+                      CpuHandoffMode::kPublicMapping,
+                      CpuHandoffMode::kRecordedDirect,
+                      CpuHandoffMode::kRecordedDeferred,
+                      CpuHandoffMode::kRecordedIndirect),
+    [](const ::testing::TestParamInfo<CpuHandoffMode>& info) {
+      switch (info.param) {
+        case CpuHandoffMode::kQueueDefaults:
+          return "QueueDefaults";
+        case CpuHandoffMode::kPublicMapping:
+          return "PublicMapping";
+        case CpuHandoffMode::kRecordedDirect:
+          return "RecordedDirect";
+        case CpuHandoffMode::kRecordedDeferred:
+          return "RecordedDeferred";
+        case CpuHandoffMode::kRecordedIndirect:
+          return "RecordedIndirect";
+      }
+      return "";
+    });
 
 }  // namespace

@@ -13,10 +13,13 @@
 #include "iree/async/frontier_tracker.h"
 #include "iree/async/notification.h"
 #include "iree/async/proactor_platform.h"
+#include "iree/async/util/proactor_pool.h"
 #include "iree/hal/device_group.h"
+#include "iree/hal/drivers/task/device.h"
 #include "iree/hal/memory/maintenance_thread.h"
 #include "iree/hal/slab_pool.h"
 #include "iree/hal/testing/mock_device.h"
+#include "iree/task/executor.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 
@@ -141,10 +144,18 @@ struct FakeNative {
     out_info->flags = AMDF_MEMORY_PAIR_FLAG_SHARED_BACKING_REACHABLE;
     out_info->release.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
     out_info->acquire.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
-    if (query->producer.kind == AMDF_MEMORY_SITE_KIND_HOST) {
+    if (self->host_coherent &&
+        (query->producer.kind == AMDF_MEMORY_SITE_KIND_HOST ||
+         query->consumer.kind == AMDF_MEMORY_SITE_KIND_HOST)) {
+      return AMDF_STATUS_OK;
+    }
+    if (query->producer.kind == AMDF_MEMORY_SITE_KIND_HOST &&
+        query->consumer.kind == AMDF_MEMORY_SITE_KIND_HOST) {
+      out_info->flags |= AMDF_MEMORY_PAIR_FLAG_FIXED_COST_KNOWN;
+    } else if (query->producer.kind == AMDF_MEMORY_SITE_KIND_HOST) {
       CheckDeviceSite(self, query->consumer);
-      EXPECT_EQ(query->producer.value.host_access,
-                AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE);
+      EXPECT_TRUE(iree_any_bit_set(query->producer.value.host_access,
+                                   AMDF_MEMORY_MAP_FLAG_WRITE));
       out_info->release.kind = AMDF_CACHE_TRANSITION_KIND_RANGE;
       out_info->release.executor = AMDF_CACHE_TRANSITION_EXECUTOR_HOST_DIRECT;
       out_info->release.host_operation = AMDF_HOST_CACHE_OPERATION_FLUSH;
@@ -155,8 +166,8 @@ struct FakeNative {
           UINT64_C(64) << query->consumer.value.device.access_ordinal;
     } else if (query->consumer.kind == AMDF_MEMORY_SITE_KIND_HOST) {
       CheckDeviceSite(self, query->producer);
-      EXPECT_EQ(query->consumer.value.host_access,
-                AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE);
+      EXPECT_TRUE(iree_any_bit_set(query->consumer.value.host_access,
+                                   AMDF_MEMORY_MAP_FLAG_READ));
       out_info->acquire.kind = AMDF_CACHE_TRANSITION_KIND_RANGE;
       out_info->acquire.executor = AMDF_CACHE_TRANSITION_EXECUTOR_HOST_DIRECT;
       out_info->acquire.host_operation = AMDF_HOST_CACHE_OPERATION_INVALIDATE;
@@ -289,6 +300,8 @@ struct FakeNative {
   int pair_query_count = 0;
   // Whether the profile supports the provider's private read/write map.
   bool supports_private_mapping = true;
+  // Whether host/device visibility is coherent in both directions.
+  bool host_coherent = false;
   // Whether device visibility requires an explicit queue transition.
   bool require_device_transition = false;
 };
@@ -336,8 +349,30 @@ class MemoryBackendTest : public ::testing::Test {
           iree_hal_pool_epoch_query_null(), &backends_[i]);
     }
 
+    iree_task_topology_t topology;
+    iree_task_topology_initialize_from_group_count(1, &topology);
+    iree_task_executor_options_t executor_options;
+    iree_task_executor_options_initialize(&executor_options);
+    iree_status_t status = iree_task_executor_create(
+        executor_options, &topology, allocator_, &executor_);
+    iree_task_topology_deinitialize(&topology);
+    IREE_ASSERT_OK(status);
+    IREE_ASSERT_OK(iree_hal_allocator_create_heap(allocator_, &cpu_allocator_));
+    IREE_ASSERT_OK(iree_async_proactor_pool_create(
+        1, nullptr, iree_async_proactor_pool_options_default(), allocator_,
+        &proactor_pool_));
+    auto create_params = iree_hal_device_create_params_default();
+    create_params.proactor_pool = proactor_pool_;
+    iree_hal_task_device_params_t task_params;
+    iree_hal_task_device_params_initialize(&task_params);
+    IREE_ASSERT_OK(iree_hal_task_device_create(
+        IREE_SV("cpu"), &task_params, 1, &executor_, 0, nullptr, cpu_allocator_,
+        &create_params, allocator_, &cpu_device_));
+
     iree_hal_device_group_builder_t builder;
     iree_hal_device_group_builder_initialize(&builder, tracker_);
+    IREE_ASSERT_OK(
+        iree_hal_device_group_builder_add_device(&builder, cpu_device_));
     for (iree_hal_device_t* device : devices_) {
       IREE_ASSERT_OK(
           iree_hal_device_group_builder_add_device(&builder, device));
@@ -355,6 +390,10 @@ class MemoryBackendTest : public ::testing::Test {
     for (iree_hal_device_t* device : devices_) {
       iree_hal_device_release(device);
     }
+    iree_hal_device_release(cpu_device_);
+    iree_async_proactor_pool_release(proactor_pool_);
+    iree_hal_allocator_release(cpu_allocator_);
+    iree_task_executor_release(executor_);
     iree_async_frontier_tracker_release(tracker_);
     iree_hal_memory_maintenance_release(maintenance_);
     iree_async_notification_release(notification_);
@@ -364,16 +403,22 @@ class MemoryBackendTest : public ::testing::Test {
       iree_hal_buffer_usage_t usage, iree_hal_pool_t** out_pool,
       uint64_t interfaces = UINT64_C(1)
                             << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
-      iree_hal_memory_access_t host_access = IREE_HAL_MEMORY_ACCESS_ALL) {
-    iree_hal_pool_family_access_t accesses[2] = {};
+      iree_hal_memory_access_t host_access = IREE_HAL_MEMORY_ACCESS_ALL,
+      iree_hal_buffer_usage_t cpu_usage = IREE_HAL_BUFFER_USAGE_NONE,
+      iree_hal_atomic_operation_capabilities_t atomics = {}) {
+    iree_hal_pool_family_access_t accesses[3] = {};
     accesses[0].family = families_[1];
     accesses[0].usage = usage;
     accesses[0].interfaces = interfaces;
     accesses[1].family = families_[0];
     accesses[1].usage = usage;
     accesses[1].interfaces = interfaces;
+    accesses[1].atomic_operations = atomics;
+    accesses[2].family = iree_hal_device_queue_family(cpu_device_, 0);
+    accesses[2].usage = cpu_usage;
+    accesses[2].interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_HOST;
     iree_hal_pool_scope_t scope = {};
-    scope.family_count = IREE_ARRAYSIZE(accesses);
+    scope.family_count = cpu_usage ? 3 : 2;
     scope.families = accesses;
     scope.host.access = host_access;
     scope.host.modes = host_access ? IREE_HAL_MAPPING_MODE_SCOPED |
@@ -413,6 +458,14 @@ class MemoryBackendTest : public ::testing::Test {
   std::array<iree_hal_device_t*, 2> devices_ = {};
   // Canonical family identity for each mock device.
   std::array<const iree_hal_queue_family_t*, 2> families_ = {};
+  // Real CPU participant, ordered before native devices in the group.
+  iree_hal_device_t* cpu_device_ = nullptr;
+  // Existing CPU worker, allocator and proactor services.
+  iree_task_executor_t* executor_ = nullptr;
+  // CPU device's ordinary allocation source.
+  iree_hal_allocator_t* cpu_allocator_ = nullptr;
+  // CPU asynchronous progress owner.
+  iree_async_proactor_pool_t* proactor_pool_ = nullptr;
   // Capacity notification retained by each created pool.
   iree_async_notification_t* notification_ = nullptr;
   // Cold native allocation and retirement executor.
@@ -499,7 +552,7 @@ TEST_F(MemoryBackendTest, PublishesCanonicalPerDeviceBindings) {
 
   EXPECT_EQ(native_.scope_query_count, 1);
   EXPECT_EQ(native_.profile_query_count, 1);
-  EXPECT_EQ(native_.pair_query_count, 8);
+  EXPECT_EQ(native_.pair_query_count, 9);
   iree_hal_pool_release(pool);
 }
 
@@ -671,6 +724,134 @@ TEST_F(MemoryBackendTest, OneDeviceCanPublishSeveralAddressInterfaces) {
   iree_hal_pool_release(pool);
   iree_hal_memory_maintenance_call(maintenance_, +[](void*) {}, nullptr);
   EXPECT_EQ(native_.destroy_count, 1);
+}
+
+TEST_F(MemoryBackendTest, CpuExecutionUsesNativeHostViewWithoutPublicMapping) {
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool,
+                            /*interfaces=*/0, IREE_HAL_MEMORY_ACCESS_NONE,
+                            IREE_HAL_BUFFER_USAGE_STORAGE));
+  EXPECT_EQ(iree_hal_pool_query_host_access(pool).access,
+            IREE_HAL_MEMORY_ACCESS_NONE);
+  const auto* cpu_family = iree_hal_device_queue_family(cpu_device_, 0);
+  const auto cpu_queue = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, cpu_family);
+  const auto cpu_program =
+      ResolveScope(IREE_HAL_MEMORY_SITE_PROGRAM, cpu_family);
+  const auto npu_queue = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]);
+  for (const auto cpu : {cpu_queue, cpu_program}) {
+    const auto publication =
+        iree_hal_pool_query_transition(pool, cpu, npu_queue);
+    EXPECT_EQ(publication.release.bits, IREE_HAL_MEMORY_EFFECT_HOST_FLUSH);
+    EXPECT_EQ(publication.acquire.bits, 0u);
+    const auto observation =
+        iree_hal_pool_query_transition(pool, npu_queue, cpu);
+    EXPECT_EQ(observation.release.bits, 0u);
+    EXPECT_EQ(observation.acquire.bits, IREE_HAL_MEMORY_EFFECT_HOST_INVALIDATE);
+    iree_hal_buffer_native_binding_slot_t slot;
+    IREE_ASSERT_OK(iree_hal_pool_resolve_binding(
+        pool, cpu, IREE_HAL_BUFFER_INTERFACE_HOST, &slot));
+    EXPECT_EQ(slot.index, 0);
+  }
+  const auto local =
+      iree_hal_pool_query_transition(pool, cpu_queue, cpu_program);
+  EXPECT_EQ(local.release.bits, 0u);
+  EXPECT_EQ(local.acquire.bits, 0u);
+  iree_hal_buffer_t* buffer = nullptr;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(256, 64),
+      iree_infinite_timeout(), &buffer));
+  EXPECT_EQ(native_.create_count, 1);
+  EXPECT_EQ(native_.map_count, 1);
+  iree_byte_span_t span;
+  IREE_ASSERT_OK(iree_hal_buffer_native_host_span(buffer, 64, 128, &span));
+  EXPECT_EQ(span.data_length, 128u);
+  iree_hal_buffer_mapping_t mapping;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_PERMISSION_DENIED,
+      iree_hal_buffer_map_range(
+          buffer, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_READ,
+          IREE_HAL_BUFFER_MAP_FLAG_NONE, 0, 64, &mapping));
+  iree_hal_buffer_release(buffer);
+  iree_hal_pool_release(pool);
+  iree_hal_memory_maintenance_call(maintenance_, +[](void*) {}, nullptr);
+  EXPECT_EQ(native_.destroy_count, 1);
+  EXPECT_EQ(native_.unmap_count, 1);
+}
+
+TEST_F(MemoryBackendTest, CpuReadOnlyAccessDoesNotRequirePrivateWrites) {
+  for (auto& family : native_families_) {
+    family.host_access = 0;
+  }
+  native_.supports_private_mapping = false;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool,
+                            /*interfaces=*/0, IREE_HAL_MEMORY_ACCESS_NONE,
+                            IREE_HAL_BUFFER_USAGE_STORAGE_READ));
+  const auto cpu = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE,
+                                iree_hal_device_queue_family(cpu_device_, 0));
+  const auto npu = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]);
+  const auto observation = iree_hal_pool_query_transition(pool, npu, cpu);
+  EXPECT_EQ(observation.acquire.bits, IREE_HAL_MEMORY_EFFECT_HOST_INVALIDATE);
+  iree_hal_pool_release(pool);
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNAVAILABLE,
+      CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool, /*interfaces=*/0,
+                 IREE_HAL_MEMORY_ACCESS_NONE, IREE_HAL_BUFFER_USAGE_STORAGE));
+  EXPECT_EQ(pool, nullptr);
+}
+
+TEST_F(MemoryBackendTest, CoherentCpuTransitionsHaveNoCacheRecipe) {
+  native_.host_coherent = true;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool,
+                            /*interfaces=*/0, IREE_HAL_MEMORY_ACCESS_NONE,
+                            IREE_HAL_BUFFER_USAGE_STORAGE));
+  iree_hal_pool_capabilities_t capabilities;
+  iree_hal_pool_query_capabilities(pool, &capabilities);
+  EXPECT_TRUE(iree_any_bit_set(capabilities.memory_type,
+                               IREE_HAL_MEMORY_TYPE_HOST_COHERENT));
+  const auto cpu = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE,
+                                iree_hal_device_queue_family(cpu_device_, 0));
+  const auto device = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]);
+  const auto table = iree_hal_pool_transition_table(pool);
+  for (const auto producer : {cpu, device}) {
+    iree_hal_memory_transition_pair_t pair;
+    IREE_ASSERT_OK(iree_hal_memory_transition_prepare_pair(
+        table, producer, producer.id == cpu.id ? device : cpu,
+        IREE_HAL_MEMORY_TRANSITION_RELEASE, &pair));
+    const auto transition = iree_hal_memory_transition_query(table, pair);
+    EXPECT_EQ(transition.release.bits, 0u);
+    EXPECT_EQ(transition.acquire.bits, 0u);
+    EXPECT_EQ(iree_hal_memory_transition_recipe(
+                  table, pair, IREE_HAL_MEMORY_TRANSITION_RELEASE),
+              nullptr);
+    EXPECT_EQ(iree_hal_memory_transition_recipe(
+                  table, pair, IREE_HAL_MEMORY_TRANSITION_ACQUIRE),
+              nullptr);
+  }
+  iree_hal_pool_release(pool);
+}
+
+TEST_F(MemoryBackendTest, RejectsAtomicPromisesAbsentFromNativeBuffers) {
+  for (auto cell :
+       {&iree_hal_atomic_operation_capabilities_t::device_scope_32,
+        &iree_hal_atomic_operation_capabilities_t::device_scope_64,
+        &iree_hal_atomic_operation_capabilities_t::system_scope_32,
+        &iree_hal_atomic_operation_capabilities_t::system_scope_64}) {
+    for (uint32_t operation = 1;
+         operation <= IREE_HAL_ATOMIC_OPERATION_FLAGS_ALL; operation <<= 1) {
+      iree_hal_atomic_operation_capabilities_t atomics = {};
+      atomics.*cell = operation;
+      iree_hal_pool_t* pool = nullptr;
+      IREE_EXPECT_STATUS_IS(
+          IREE_STATUS_UNAVAILABLE,
+          CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool, /*interfaces=*/0,
+                     IREE_HAL_MEMORY_ACCESS_NONE, IREE_HAL_BUFFER_USAGE_STORAGE,
+                     atomics));
+      EXPECT_EQ(pool, nullptr);
+    }
+  }
+  EXPECT_EQ(native_.profile_query_count, 0);
 }
 
 }  // namespace

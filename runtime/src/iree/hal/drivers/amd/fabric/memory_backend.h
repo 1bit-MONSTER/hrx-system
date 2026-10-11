@@ -63,6 +63,9 @@ typedef struct iree_hal_amd_fabric_memory_backend_options_t {
 // Borrowed native and progress owners established during device creation.
 // Cold construction factories qualify complete family sets against these
 // owners without creating queues, contexts, or allocation payload.
+// HOST backend families with host-cache-barrier support can join the same
+// backing through its private CPU view. CPU queue/program visibility is
+// qualified independently of public application mapping permissions.
 typedef struct iree_hal_amd_fabric_memory_backend_t {
   // Generic AMDF schema and published construction factories.
   iree_hal_memory_backend_t base;
