@@ -148,6 +148,111 @@ check.scenario @integer_floating_values {
   check.return
 }
 
+// Wide integers require one rounding directly to f32. The kernel exercises
+// scalar and vector forms while the oracle converts each element independently.
+kernel.def @wide_integer_floating_shapes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%signed_input: buffer, %unsigned_input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %signed = buffer.view %signed_input[%base] : buffer -> view<4xi64>
+  %unsigned = buffer.view %unsigned_input[%base] : buffer -> view<4xi64>
+  %result = buffer.view %output[%base] : buffer -> view<14xf32>
+  %signed_scalar = view.load %signed[0] : view<4xi64> -> i64
+  %unsigned_scalar = view.load %unsigned[0] : view<4xi64> -> i64
+  %signed_scalar_f32 = scalar.sitofp %signed_scalar : i64 to f32
+  %unsigned_scalar_f32 = scalar.uitofp %unsigned_scalar : i64 to f32
+  view.store %signed_scalar_f32, %result[0] : f32, view<14xf32>
+  view.store %unsigned_scalar_f32, %result[1] : f32, view<14xf32>
+  %signed2 = vector.load %signed[0] : view<4xi64> -> vector<2xi64>
+  %unsigned2 = vector.load %unsigned[0] : view<4xi64> -> vector<2xi64>
+  %signed2_f32 = vector.sitofp %signed2 : vector<2xi64> to vector<2xf32>
+  %unsigned2_f32 = vector.uitofp %unsigned2 : vector<2xi64> to vector<2xf32>
+  vector.store %signed2_f32, %result[2] : vector<2xf32>, view<14xf32>
+  vector.store %unsigned2_f32, %result[4] : vector<2xf32>, view<14xf32>
+  %signed4 = vector.load %signed[0] : view<4xi64> -> vector<4xi64>
+  %unsigned4 = vector.load %unsigned[0] : view<4xi64> -> vector<4xi64>
+  %signed4_f32 = vector.sitofp %signed4 : vector<4xi64> to vector<4xf32>
+  %unsigned4_f32 = vector.uitofp %unsigned4 : vector<4xi64> to vector<4xf32>
+  vector.store %signed4_f32, %result[6] : vector<4xf32>, view<14xf32>
+  vector.store %unsigned4_f32, %result[10] : vector<4xf32>, view<14xf32>
+  kernel.return
+}
+
+func.def @wide_integer_floating_shapes_oracle(%signed_input: buffer, %unsigned_input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %signed = buffer.view %signed_input[%base] : buffer -> view<4xi64>
+  %unsigned = buffer.view %unsigned_input[%base] : buffer -> view<4xi64>
+  %result = buffer.view %output[%base] : buffer -> view<14xf32>
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %c2 = index.constant 2 : index
+  %step = index.constant 1 : index
+  %signed4_base = index.constant 6 : index
+  %unsigned2_base = index.constant 4 : index
+  %unsigned4_base = index.constant 10 : index
+  scf.for %i = [%begin to %end step %step] {
+    %signed_value = view.load %signed[%i] : view<4xi64> -> i64
+    %unsigned_value = view.load %unsigned[%i] : view<4xi64> -> i64
+    %signed_f32 = scalar.sitofp %signed_value : i64 to f32
+    %unsigned_f32 = scalar.uitofp %unsigned_value : i64 to f32
+    %signed4_position = index.add %signed4_base, %i : index
+    %unsigned4_position = index.add %unsigned4_base, %i : index
+    view.store %signed_f32, %result[%signed4_position] : f32, view<14xf32>
+    view.store %unsigned_f32, %result[%unsigned4_position] : f32, view<14xf32>
+    %first_two = index.cmp ult, %i, %c2 : index
+    scf.if %first_two {
+      %signed2_position = index.add %c2, %i : index
+      %unsigned2_position = index.add %unsigned2_base, %i : index
+      view.store %signed_f32, %result[%signed2_position] : f32, view<14xf32>
+      view.store %unsigned_f32, %result[%unsigned2_position] : f32, view<14xf32>
+    }
+  }
+  %signed_scalar = view.load %signed[0] : view<4xi64> -> i64
+  %unsigned_scalar = view.load %unsigned[0] : view<4xi64> -> i64
+  %signed_scalar_f32 = scalar.sitofp %signed_scalar : i64 to f32
+  %unsigned_scalar_f32 = scalar.uitofp %unsigned_scalar : i64 to f32
+  view.store %signed_scalar_f32, %result[0] : f32, view<14xf32>
+  view.store %unsigned_scalar_f32, %result[1] : f32, view<14xf32>
+  func.return
+}
+
+check.scenario @wide_integer_floating_values {
+  // These values lie immediately around f32 midpoints that an intervening f64
+  // conversion rounds onto the midpoint. They distinguish direct rounding.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %signed = check.generate.iota offset(9007199791611903) step(1) : tensor<4xi64>
+    %unsigned = check.generate.iota offset(-9223371487098961921) step(1) : tensor<4xi64>
+    %storage = check.generate.fill value(-123.0) : tensor<18xf32>
+    %output = check.tensor.view %storage offset(2) : tensor<18xf32> -> tensor<14xf32>
+    check.compare<@wide_integer_floating_shapes, @wide_integer_floating_shapes_oracle>(%signed, %unsigned, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<14xf32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<18xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %signed = check.generate.iota offset(-9007199791611906) step(1) : tensor<4xi64>
+    %unsigned = check.generate.iota offset(9007200865353726) step(1) : tensor<4xi64>
+    %storage = check.generate.fill value(-123.0) : tensor<18xf32>
+    %output = check.tensor.view %storage offset(2) : tensor<18xf32> -> tensor<14xf32>
+    check.compare<@wide_integer_floating_shapes, @wide_integer_floating_shapes_oracle>(%signed, %unsigned, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<14xf32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<18xf32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %unsigned_entropy = check.entropy.fork %entropy name("unsigned") : check.entropy
+    %signed_seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %unsigned_seed = check.entropy.read %unsigned_entropy[%trial] : check.entropy -> i64
+    %signed = check.generate.random.uniform seed(%signed_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<4xi64>
+    %unsigned = check.generate.random.uniform seed(%unsigned_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<4xi64>
+    %storage = check.generate.fill value(-123.0) : tensor<18xf32>
+    %output = check.tensor.view %storage offset(2) : tensor<18xf32> -> tensor<14xf32>
+    check.compare<@wide_integer_floating_shapes, @wide_integer_floating_shapes_oracle>(%signed, %unsigned, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<14xf32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<18xf32>
+    }
+  }
+  check.return
+}
+
 // All float-to-integer inputs are finite and within the destination range.
 // Narrow results use fractional values around zero and both signed boundaries;
 // wide results separately exercise the full signed and unsigned i32 domains.

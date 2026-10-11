@@ -11,6 +11,7 @@ from __future__ import annotations
 from loom.dialect.index import defs as index
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.scalar import bitwise as scalar_bitwise
+from loom.dialect.scalar import conversion as scalar_conversion
 from loom.dialect.scalar import defs as scalar_defs
 from loom.dialect.scalar import math as scalar_math
 from loom.dialect.vector import defs as vector
@@ -319,6 +320,45 @@ def test_f32_copysign_rules_try_literal_bfi_before_register_mask() -> None:
         ("amdgpu.v_bfi_b32.src0_lit",),
         ("amdgpu.s_mov_b32", "amdgpu.v_bfi_b32"),
     )
+
+
+def test_i64_to_f32_rules_preserve_single_rounding() -> None:
+    compiled = _compiled_arithmetic_rules()
+    expected_sequences = {
+        scalar_conversion.scalar_sitofp: (
+            "amdgpu.v_xor_b32",
+            "amdgpu.v_ashrrev_i32.src0_inline",
+            "amdgpu.v_add_u32.src0_inline",
+            "amdgpu.v_cls_i32",
+            "amdgpu.v_add_u32.lit",
+            "amdgpu.v_min_u32",
+            "amdgpu.v_lshlrev_b64",
+            "amdgpu.v_min_u32.src0_inline",
+            "amdgpu.v_or_b32",
+            "amdgpu.v_cvt_f32_i32",
+            "amdgpu.v_sub_u32.src0_inline",
+            "amdgpu.v_ldexp_f32",
+        ),
+        scalar_conversion.scalar_uitofp: (
+            "amdgpu.v_clz_i32_u32",
+            "amdgpu.v_min_u32.src0_inline",
+            "amdgpu.v_lshlrev_b64",
+            "amdgpu.v_min_u32.src0_inline",
+            "amdgpu.v_or_b32",
+            "amdgpu.v_cvt_f32_u32",
+            "amdgpu.v_sub_u32.src0_inline",
+            "amdgpu.v_ldexp_f32",
+        ),
+    }
+    for source_op, expected_sequence in expected_sequences.items():
+        matching_rules = tuple(
+            rule
+            for rule in _rules_for_source_op(compiled, source_op)
+            if set(_rule_type_patterns(compiled, rule))
+            == {Scalar("i64"), Scalar("f32")}
+        )
+        assert len(matching_rules) == 1
+        assert _rule_descriptor_keys(compiled, matching_rules[0]) == expected_sequence
 
 
 def test_integer_extrema_rules_prefer_encoded_constants() -> None:

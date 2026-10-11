@@ -150,6 +150,7 @@ _DESCRIPTOR_KEYS = (
     "amdgpu.v_sqrt_f32",
     "amdgpu.v_sqrt_f64",
     "amdgpu.v_rsq_f64",
+    "amdgpu.v_ldexp_f32",
     "amdgpu.v_ldexp_f64",
     "amdgpu.v_cmp_class_f64",
     "amdgpu.v_cmp_olt_f64",
@@ -205,8 +206,10 @@ _DESCRIPTOR_KEYS = (
     "amdgpu.v_cvt_i32_f32",
     "amdgpu.v_cvt_u32_f32",
     "amdgpu.v_add_u32",
+    "amdgpu.v_add_u32.src0_inline",
     "amdgpu.v_add_u32.lit",
     "amdgpu.v_sub_u32",
+    "amdgpu.v_sub_u32.src0_inline",
     "amdgpu.v_mul_lo_u32",
     "amdgpu.v_mad_u32_u24",
     "amdgpu.v_mad_u32_u24.src0_inline",
@@ -218,6 +221,7 @@ _DESCRIPTOR_KEYS = (
     "amdgpu.v_min_i32",
     "amdgpu.v_max_i32",
     "amdgpu.v_min_u32",
+    "amdgpu.v_min_u32.src0_inline",
     "amdgpu.v_max_u32",
     "amdgpu.v_and_b32",
     "amdgpu.v_and_b32.src0_inline",
@@ -244,6 +248,9 @@ _DESCRIPTOR_KEYS = (
     "amdgpu.v_ashrrev_i32.src0_inline",
     "amdgpu.v_lshrrev_b32",
     "amdgpu.v_lshrrev_b32.src0_inline",
+    "amdgpu.v_lshlrev_b64",
+    "amdgpu.v_clz_i32_u32",
+    "amdgpu.v_cls_i32",
 )
 
 _DESCRIPTOR_SET = build_amdgpu_contract_descriptor_set(
@@ -2768,6 +2775,188 @@ def _i64_to_f64_rule(source_op: Op, *, signed: bool) -> DescriptorRule:
     )
 
 
+def _i64_to_f32_rule(source_op: Op, *, signed: bool) -> DescriptorRule:
+    # Normalize the 64-bit integer into a signed or unsigned 32-bit value,
+    # retain a sticky low bit for exact rounding, convert once, and restore the
+    # exponent. Converting through F64 would double-round some inputs.
+    descriptors = {
+        key: _descriptor(f"amdgpu.{key}")
+        for key in (
+            "v_add_u32.lit",
+            "v_add_u32.src0_inline",
+            "v_ashrrev_i32.src0_inline",
+            "v_cls_i32",
+            "v_clz_i32_u32",
+            "v_cvt_f32_i32" if signed else "v_cvt_f32_u32",
+            "v_ldexp_f32",
+            "v_lshlrev_b64",
+            "v_min_u32",
+            "v_min_u32.src0_inline",
+            "v_or_b32",
+            "v_sub_u32.src0_inline",
+            "v_xor_b32",
+        )
+    }
+    source = ValueRef.operand("input", materializer=REGISTERS_VGPR_MATERIALIZER.name)
+    emit: list[ContractEmit] = [
+        EmitRegisterSlice(
+            source=source,
+            result=ValueRef.temporary("low_word"),
+            unit_count=1,
+        ),
+        EmitRegisterSlice(
+            source=source,
+            result=ValueRef.temporary("high_word"),
+            unit_offset=1,
+            unit_count=1,
+        ),
+    ]
+    if signed:
+        emit.extend(
+            (
+                EmitDescriptorOp(
+                    descriptor=descriptors["v_xor_b32"],
+                    operands={
+                        "lhs": ValueRef.temporary("low_word"),
+                        "rhs": ValueRef.temporary("high_word"),
+                    },
+                    results={"dst": ValueRef.temporary("sign_difference")},
+                    result_types={"dst": DescriptorResultType()},
+                ),
+                EmitDescriptorOp(
+                    descriptor=descriptors["v_ashrrev_i32.src0_inline"],
+                    operands={"value": ValueRef.temporary("sign_difference")},
+                    results={"dst": ValueRef.temporary("opposite_sign")},
+                    result_types={"dst": DescriptorResultType()},
+                    immediates={"imm32": 31},
+                ),
+                EmitDescriptorOp(
+                    descriptor=descriptors["v_add_u32.src0_inline"],
+                    operands={"rhs": ValueRef.temporary("opposite_sign")},
+                    results={"dst": ValueRef.temporary("maximum_shift")},
+                    result_types={"dst": DescriptorResultType()},
+                    immediates={"imm32": 32},
+                ),
+                EmitDescriptorOp(
+                    descriptor=descriptors["v_cls_i32"],
+                    operands={"input": ValueRef.temporary("high_word")},
+                    results={"dst": ValueRef.temporary("leading_sign_bits")},
+                    result_types={"dst": DescriptorResultType()},
+                ),
+                EmitDescriptorOp(
+                    descriptor=descriptors["v_add_u32.lit"],
+                    operands={"rhs": ValueRef.temporary("leading_sign_bits")},
+                    results={"dst": ValueRef.temporary("available_shift")},
+                    result_types={"dst": DescriptorResultType()},
+                    immediates={"imm32": 0xFFFFFFFF},
+                ),
+                EmitDescriptorOp(
+                    descriptor=descriptors["v_min_u32"],
+                    operands={
+                        "lhs": ValueRef.temporary("available_shift"),
+                        "rhs": ValueRef.temporary("maximum_shift"),
+                    },
+                    results={"dst": ValueRef.temporary("shift")},
+                    result_types={"dst": DescriptorResultType()},
+                ),
+            )
+        )
+    else:
+        emit.extend(
+            (
+                EmitDescriptorOp(
+                    descriptor=descriptors["v_clz_i32_u32"],
+                    operands={"input": ValueRef.temporary("high_word")},
+                    results={"dst": ValueRef.temporary("native_shift")},
+                    result_types={"dst": DescriptorResultType()},
+                ),
+                EmitDescriptorOp(
+                    descriptor=descriptors["v_min_u32.src0_inline"],
+                    operands={"rhs": ValueRef.temporary("native_shift")},
+                    results={"dst": ValueRef.temporary("shift")},
+                    result_types={"dst": DescriptorResultType()},
+                    immediates={"imm32": 32},
+                ),
+            )
+        )
+    emit.extend(
+        (
+            EmitDescriptorOp(
+                descriptor=descriptors["v_lshlrev_b64"],
+                operands={
+                    "shift": ValueRef.temporary("shift"),
+                    "value": source,
+                },
+                results={"dst": ValueRef.temporary("normalized")},
+                result_types={"dst": DescriptorResultType()},
+            ),
+            EmitRegisterSlice(
+                source=ValueRef.temporary("normalized"),
+                result=ValueRef.temporary("normalized_low"),
+                unit_count=1,
+            ),
+            EmitRegisterSlice(
+                source=ValueRef.temporary("normalized"),
+                result=ValueRef.temporary("normalized_high"),
+                unit_offset=1,
+                unit_count=1,
+            ),
+            EmitDescriptorOp(
+                descriptor=descriptors["v_min_u32.src0_inline"],
+                operands={"rhs": ValueRef.temporary("normalized_low")},
+                results={"dst": ValueRef.temporary("sticky")},
+                result_types={"dst": DescriptorResultType()},
+                immediates={"imm32": 1},
+            ),
+            EmitDescriptorOp(
+                descriptor=descriptors["v_or_b32"],
+                operands={
+                    "lhs": ValueRef.temporary("normalized_high"),
+                    "rhs": ValueRef.temporary("sticky"),
+                },
+                results={"dst": ValueRef.temporary("rounded_input")},
+                result_types={"dst": DescriptorResultType()},
+            ),
+            EmitDescriptorOp(
+                descriptor=descriptors["v_cvt_f32_i32" if signed else "v_cvt_f32_u32"],
+                operands={"input": ValueRef.temporary("rounded_input")},
+                results={"dst": ValueRef.temporary("converted")},
+                result_types={"dst": DescriptorResultType()},
+            ),
+            EmitDescriptorOp(
+                descriptor=descriptors["v_sub_u32.src0_inline"],
+                operands={"rhs": ValueRef.temporary("shift")},
+                results={"dst": ValueRef.temporary("exponent")},
+                result_types={"dst": DescriptorResultType()},
+                immediates={"imm32": 32},
+            ),
+            EmitDescriptorOp(
+                descriptor=descriptors["v_ldexp_f32"],
+                operands={
+                    "input": ValueRef.temporary("converted"),
+                    "exponent": ValueRef.temporary("exponent"),
+                },
+                results={"dst": ValueRef.result("result")},
+            ),
+        )
+    )
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=descriptors["v_cvt_f32_i32" if signed else "v_cvt_f32_u32"],
+        report_key=_report_key(source_op, "exact_i64_f32"),
+        guards=(
+            _value_type("input", _I64),
+            _value_type("result", _F32),
+            Guard.value_materializable("input", REGISTERS_VGPR_MATERIALIZER.name),
+            *(
+                Guard.descriptor_available(descriptor)
+                for descriptor in descriptors.values()
+            ),
+        ),
+        emit=tuple(emit),
+    )
+
+
 def _narrow_f32_to_integer_rule(
     source_op: Op,
     result_type: TypePattern,
@@ -4377,6 +4566,8 @@ def _rules() -> tuple[ContractCase, ...]:
                 "amdgpu.v_cvt_f64_u32",
             ),
             _bool_to_f64_rule(),
+            _i64_to_f32_rule(scalar_conversion.scalar_uitofp, signed=False),
+            _i64_to_f32_rule(scalar_conversion.scalar_sitofp, signed=True),
             _i64_to_f64_rule(scalar_conversion.scalar_uitofp, signed=False),
             _i64_to_f64_rule(scalar_conversion.scalar_sitofp, signed=True),
         )

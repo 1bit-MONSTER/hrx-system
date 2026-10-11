@@ -1064,6 +1064,18 @@ def _v_sub_u32_overlay(instruction_name: str, mnemonic: str) -> AmdgpuDescriptor
     )
 
 
+def _v_sub_u32_src0_inline_overlay(
+    instruction_name: str, mnemonic: str
+) -> AmdgpuDescriptorOverlay:
+    return _v_binary_src0_inline_overlay(
+        descriptor_key="amdgpu.v_sub_u32.src0_inline",
+        instruction_name=instruction_name,
+        mnemonic=mnemonic,
+        semantic_tag="integer.sub.u32",
+        constraints=_REMATERIALIZABLE_RESULT_CONSTRAINTS,
+    )
+
+
 def _v_sub_u32_lhs_tied_overlay(
     instruction_name: str, mnemonic: str
 ) -> AmdgpuDescriptorOverlay:
@@ -8170,6 +8182,7 @@ __all__ = (
     "_v_subrev_f32_src0_inline_overlay",
     "_v_sub_u32_lhs_tied_overlay",
     "_v_sub_u32_overlay",
+    "_v_sub_u32_src0_inline_overlay",
     "_v_ternary_float_overlay",
     "_v_unary_f32_overlay",
     "_v_xor_b32_literal_overlay",

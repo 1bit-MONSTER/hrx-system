@@ -43,3 +43,22 @@ def test_ldexp_descriptors_cover_every_family(target, bit_width: int) -> None:
         RegClassAlt(_REG_SGPR),
         RegClassAlt(_REG_VGPR),
     )
+
+
+@pytest.mark.parametrize("target", _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS)
+def test_unsigned_subtract_accepts_an_inline_lhs_on_every_family(target) -> None:
+    overlays = {
+        overlay.descriptor_key: overlay
+        for overlay in _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS[target].overlay_rows()
+    }
+    descriptor = overlays["amdgpu.v_sub_u32.src0_inline"]
+
+    assert descriptor.instruction_name == (
+        "V_SUB_U32" if target.startswith(("cdna", "gfx9_4")) else "V_SUB_NC_U32"
+    )
+    assert descriptor.semantic_tag == "integer.sub.u32"
+    assert tuple(
+        operand.descriptor_operand.field_name for operand in descriptor.operands
+    ) == ("dst", "rhs")
+    assert descriptor.immediates[0].field_name == "imm32"
+    assert descriptor.immediates[0].unsigned_max == 64
