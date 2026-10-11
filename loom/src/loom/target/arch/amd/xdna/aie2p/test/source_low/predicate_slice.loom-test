@@ -1,0 +1,78 @@
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @predicate_slice_aligned_word(%source: vector<64xi1>) -> (vector<32xi1>) {
+  %result = vector.slice %source[32] : vector<64xi1> -> vector<32xi1>
+  func.return %result : vector<32xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_slice_aligned_word(%source: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>) asm {
+  %5 = mov.short 0
+  %6 = predicate.shift.high32 %source, %5
+  %result = predicate.complete.zero.high32 %6, 0
+  return %result
+}
+
+// ====
+
+func.def @predicate_slice_cross_word(%source: vector<64xi1>) -> (vector<33xi1>) {
+  %result = vector.slice %source[31] : vector<64xi1> -> vector<33xi1>
+  func.return %result : vector<33xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_slice_cross_word(%source: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>) asm {
+  %5 = mov.short -31
+  %6 = mov.short 1
+  %7 = predicate.shift.low32 %source, %5
+  %8 = predicate.shift.high32 %source, %6
+  %9 = predicate.or.low32.rhs_tied %7, %8
+  %result = predicate.shift.high32.to.high32 %source, %5, %9
+  return %result
+}
+
+// ====
+
+func.def @predicate_slice_cross_carrier(%source: vector<128xi1>) -> (vector<65xi1>) {
+  %result = vector.slice %source[31] : vector<128xi1> -> vector<65xi1>
+  func.return %result : vector<65xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_slice_cross_carrier(%source: reg<aie2p.elpredicate x2>) -> (reg<aie2p.elpredicate x2>) asm {
+  %5 = slice %source[0] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %6 = slice %source[1] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %7 = mov.short -31
+  %8 = mov.short 1
+  %9 = predicate.shift.low32 %5, %7
+  %10 = predicate.shift.high32 %5, %8
+  %11 = predicate.or.low32.rhs_tied %9, %10
+  %12 = predicate.shift.high32 %5, %7
+  %13 = predicate.shift.low32 %6, %8
+  %14 = predicate.or.low32.to.high32 %12, %13, %11
+  %15 = predicate.shift.low32 %6, %7
+  %16 = predicate.shift.high32 %6, %8
+  %17 = predicate.or.low32.rhs_tied %15, %16
+  %18 = predicate.complete.zero.high32 %17, 0
+  %result = concat(%14, %18) : (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) -> reg<aie2p.elpredicate x2>
+  return %result
+}
+
+// ====
+
+func.def @predicate_slice_second_carrier(%source: vector<128xi1>) -> (vector<63xi1>) {
+  %result = vector.slice %source[65] : vector<128xi1> -> vector<63xi1>
+  func.return %result : vector<63xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_slice_second_carrier(%source: reg<aie2p.elpredicate x2>) -> (reg<aie2p.elpredicate>) asm {
+  %6 = slice %source[1] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %7 = mov.short -1
+  %8 = mov.short 31
+  %9 = predicate.shift.low32 %6, %7
+  %10 = predicate.shift.high32 %6, %8
+  %11 = predicate.or.low32.rhs_tied %9, %10
+  %result = predicate.shift.high32.to.high32 %6, %7, %11
+  return %result
+}

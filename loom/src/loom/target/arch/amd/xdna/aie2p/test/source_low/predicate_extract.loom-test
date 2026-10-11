@@ -1,6 +1,4 @@
 // TEMPLATE: loom/src/loom/test/corpus/source_low/layout_predicate_extract.loom-test
-// TEMPLATE-EXCLUDE: @predicate_tail_slice XDNA predicate extraction requires a scalar result.
-// TEMPLATE-EXCLUDE: @multidimensional_predicate_element XDNA predicate extraction requires a rank-one source.
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 // A singleton predicate vector and its only element share the same mask.
@@ -158,5 +156,37 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @dynamic_predicate
   %10 = vsub.8 %9, %9
   %11 = vsel.8 %10, %9, %mask
   %selected = vextract.8.reg %11, %lane
+  return %selected
+}
+
+// ====
+
+func.def @predicate_tail_slice(%mask: vector<2x2xi1>) -> (vector<2xi1>) {
+  %tail = vector.extract %mask[1] : vector<2x2xi1> -> vector<2xi1>
+  func.return %tail : vector<2xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_tail_slice(%mask: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>) asm {
+  %7 = mov.short -2
+  %8 = predicate.shift.low32 %mask, %7
+  %tail = predicate.complete.zero.high32 %8, 0
+  return %tail
+}
+
+// ====
+
+func.def @multidimensional_predicate_element(%mask: vector<2x2xi1>) -> (i1) {
+  %selected = vector.extract %mask[1, 0] : vector<2x2xi1> -> i1
+  func.return %selected : i1
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @multidimensional_predicate_element(%mask: reg<aie2p.elpredicate>) -> (reg<aie2p.er>) asm {
+  %7 = mov.short 1
+  %8 = vbcst.8 %7
+  %9 = vsub.8 %8, %8
+  %10 = vsel.8 %9, %8, %mask
+  %selected = vextract.8.imm %10, 2
   return %selected
 }

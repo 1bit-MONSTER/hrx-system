@@ -806,6 +806,7 @@ def attr_copy_row(
         LowerAttrCopyKind.I64_LOG2,
         LowerAttrCopyKind.I64_ARRAY_ELEMENT,
         LowerAttrCopyKind.I64_ARRAY_ELEMENT_PLUS_LITERAL,
+        LowerAttrCopyKind.I64_ARRAY_LITERAL_MINUS_ELEMENT,
         LowerAttrCopyKind.I64_ARRAY_ELEMENT_QUOTIENT,
         LowerAttrCopyKind.I64_ARRAY_ELEMENT_REMAINDER,
         LowerAttrCopyKind.I64_ARRAY_PACK_ELEMENTS,
@@ -845,6 +846,7 @@ def attr_copy_row(
     if row.kind in (
         LowerAttrCopyKind.I64_ARRAY_ELEMENT,
         LowerAttrCopyKind.I64_ARRAY_ELEMENT_PLUS_LITERAL,
+        LowerAttrCopyKind.I64_ARRAY_LITERAL_MINUS_ELEMENT,
         LowerAttrCopyKind.I64_ARRAY_ELEMENT_QUOTIENT,
         LowerAttrCopyKind.I64_ARRAY_ELEMENT_REMAINDER,
         LowerAttrCopyKind.I64_ARRAY_PACK_ELEMENTS,
@@ -904,6 +906,7 @@ def attr_copy_row(
     if row.kind in (
         LowerAttrCopyKind.I64_LITERAL,
         LowerAttrCopyKind.I64_ARRAY_ELEMENT_PLUS_LITERAL,
+        LowerAttrCopyKind.I64_ARRAY_LITERAL_MINUS_ELEMENT,
         LowerAttrCopyKind.I64_ARRAY_ELEMENT_QUOTIENT,
         LowerAttrCopyKind.I64_ARRAY_ELEMENT_REMAINDER,
         LowerAttrCopyKind.I64_ARRAY_LANE_BYTE,

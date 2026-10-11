@@ -64,6 +64,7 @@ class AttrProjectKind(Enum):
     I64_LOG2 = "i64_log2"
     I64_ARRAY_ELEMENT = "i64_array_element"
     I64_ARRAY_ELEMENT_PLUS_LITERAL = "i64_array_element_plus_literal"
+    I64_ARRAY_LITERAL_MINUS_ELEMENT = "i64_array_literal_minus_element"
     I64_ARRAY_ELEMENT_QUOTIENT = "i64_array_element_quotient"
     I64_ARRAY_ELEMENT_REMAINDER = "i64_array_element_remainder"
     I64_ARRAY_LANE_BYTE_OFFSET = "i64_array_lane_byte_offset"
@@ -222,6 +223,21 @@ class AttrProject:
     ) -> Self:
         return cls(
             kind=AttrProjectKind.I64_ARRAY_ELEMENT_PLUS_LITERAL,
+            source_attr=source_attr,
+            element=element,
+            literal_i64=literal,
+        )
+
+    @classmethod
+    def i64_array_literal_minus_element(
+        cls,
+        source_attr: str,
+        *,
+        element: int,
+        literal: int,
+    ) -> Self:
+        return cls(
+            kind=AttrProjectKind.I64_ARRAY_LITERAL_MINUS_ELEMENT,
             source_attr=source_attr,
             element=element,
             literal_i64=literal,
@@ -480,6 +496,7 @@ class AttrProject:
             )
         literal_kinds = (
             AttrProjectKind.I64_ARRAY_ELEMENT_PLUS_LITERAL,
+            AttrProjectKind.I64_ARRAY_LITERAL_MINUS_ELEMENT,
             AttrProjectKind.I64_ARRAY_ELEMENT_QUOTIENT,
             AttrProjectKind.I64_ARRAY_ELEMENT_REMAINDER,
             AttrProjectKind.I64_ARRAY_LANE_BYTE_OFFSET,
@@ -514,6 +531,7 @@ class AttrProject:
                 AttrProjectKind.I64_LOG2,
                 *mask_kinds,
                 AttrProjectKind.I64_ARRAY_ELEMENT_PLUS_LITERAL,
+                AttrProjectKind.I64_ARRAY_LITERAL_MINUS_ELEMENT,
                 AttrProjectKind.I64_ARRAY_LANE_BYTE_OFFSET,
                 AttrProjectKind.I64_ARRAY_SHUFFLE_MASK_CHUNK,
                 AttrProjectKind.I64_LITERAL_MINUS_ATTR,
@@ -669,6 +687,7 @@ class AttrProject:
         if self.kind in (
             AttrProjectKind.I64_ARRAY_ELEMENT,
             AttrProjectKind.I64_ARRAY_ELEMENT_PLUS_LITERAL,
+            AttrProjectKind.I64_ARRAY_LITERAL_MINUS_ELEMENT,
             AttrProjectKind.I64_ARRAY_ELEMENT_QUOTIENT,
             AttrProjectKind.I64_ARRAY_ELEMENT_REMAINDER,
             AttrProjectKind.I64_ARRAY_LANE_BYTE_OFFSET,

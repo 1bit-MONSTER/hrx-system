@@ -81,8 +81,8 @@ static iree_status_t loom_aie2p_legalize_linear_vector_shape(
 
   bool rewritten = false;
   if (loom_vector_extract_isa(op)) {
-    IREE_RETURN_IF_ERROR(loom_vector_extract_flatten_static_shape_rewrite_op(
-        context->pass, context->rewriter, op, &rewritten));
+    IREE_RETURN_IF_ERROR(
+        loom_vector_static_shape_rewrite_op(context, op, &rewritten));
   } else if (loom_vector_from_elements_isa(op)) {
     IREE_RETURN_IF_ERROR(loom_vector_from_elements_linearize_rewrite_op(
         context->rewriter, op, &rewritten));

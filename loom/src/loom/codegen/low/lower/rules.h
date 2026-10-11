@@ -381,6 +381,8 @@ enum loom_low_lower_attr_copy_kind_e {
   // Interns the exact declared-width bits of every scalar in a source operand
   // segment as little-endian data and emits the reserved read-only data symbol.
   LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY = 48,
+  // Emits literal_i64 minus one i64_array element.
+  LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_LITERAL_MINUS_ELEMENT = 49,
   // Maximum attribute-copy kind plus one.
   LOOM_LOW_LOWER_ATTR_COPY_COUNT_,
 };

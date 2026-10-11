@@ -20,6 +20,9 @@ from loom.target.arch.amd.xdna.aie2p.contracts.carrier import (
 from loom.target.arch.amd.xdna.aie2p.contracts.predicate_concat import (
     AIE2P_PREDICATE_CONCAT_RULES,
 )
+from loom.target.arch.amd.xdna.aie2p.contracts.predicate_slice import (
+    AIE2P_PREDICATE_SLICE_RULES,
+)
 from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
     AIE2P_CORE_DESCRIPTOR_SET,
 )
@@ -610,57 +613,6 @@ def _vector_slice_alias_rule(
     )
 
 
-def _predicate_slice_rule(
-    offset: int,
-    maximum_result_lanes: int,
-) -> DescriptorRule:
-    """Projects one packet-aligned predicate word interval into low bits."""
-
-    word_offset = offset % 32
-    word = "high32" if offset >= 32 else "low32"
-    constant = _descriptor("amd.xdna.aie2p.constant.i32.short")
-    shift = _descriptor(f"amd.xdna.aie2p.predicate.shift.{word}")
-    complete = _descriptor("amd.xdna.aie2p.predicate.complete.zero.high32")
-    shift_count = ValueRef.temporary("shift_count")
-    packet_bits = ValueRef.temporary("packet_bits")
-    emits: list[ContractEmit] = [
-        EmitDescriptorOp(
-            descriptor=constant,
-            results={"dst": shift_count},
-            result_types={"dst": DescriptorResultType()},
-            immediates={"i": -word_offset},
-            form=DescriptorEmitForm.CONST,
-        ),
-        EmitDescriptorOp(
-            descriptor=shift,
-            operands={"s0": ValueRef.operand("source"), "s1": shift_count},
-            results={"d0": packet_bits},
-            result_types={"d0": DescriptorResultType()},
-            form=DescriptorEmitForm.OP,
-        ),
-    ]
-    emits.append(
-        EmitDescriptorOp(
-            descriptor=complete,
-            operands={"storage": packet_bits},
-            results={"dst": ValueRef.result("result")},
-            immediates={"i": 0},
-            form=DescriptorEmitForm.OP,
-        )
-    )
-    return DescriptorRule(
-        source_op=vector.vector_slice,
-        descriptor=complete,
-        guards=_vector_slice_guards(
-            _I1_VECTOR,
-            Vector("i1", minimum_lanes=1, maximum_lanes=maximum_result_lanes),
-            offset,
-            offset,
-        ),
-        emit=tuple(emits),
-    )
-
-
 def _vector_slice_shift_rule(
     source_type: TypePattern,
     result_type: TypePattern,
@@ -1226,6 +1178,10 @@ def _register_concat_pair_rule(
 
 AIE2P_STRUCTURAL_RULES = (
     _vector_slice_alias_rule(_I1_VECTOR, _I1_VECTOR),
+    _vector_slice_alias_rule(
+        _WIDE_PREDICATE_VECTOR,
+        _WIDE_PREDICATE_VECTOR,
+    ),
     _vector_slice_carrier_rule(
         _WIDE_PREDICATE_VECTOR,
         _I1_VECTOR,
@@ -1238,16 +1194,7 @@ AIE2P_STRUCTURAL_RULES = (
         64,
         source_unit_offset=1,
     ),
-    *(
-        _predicate_slice_rule(offset, maximum_result_lanes)
-        for offset, maximum_result_lanes in (
-            (8, 8),
-            (16, 16),
-            (24, 8),
-            (32, 32),
-            (48, 16),
-        )
-    ),
+    *AIE2P_PREDICATE_SLICE_RULES,
     *(
         rule
         for (

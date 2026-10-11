@@ -153,6 +153,85 @@ static iree_status_t loom_vector_static_shape_linearize_indices(
   return iree_ok_status();
 }
 
+// Re-expresses a multidimensional extraction over a static vector shape as a
+// contiguous access into the flattened row-major carrier. The explicit
+// leading indices select one complete tail value, so their prefix ordinal
+// scales by the tail element count to produce the flat lane offset.
+static iree_status_t loom_vector_static_shape_extract_rewrite(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    bool* out_rewritten) {
+  const loom_value_id_t source = loom_vector_extract_source(op);
+  const loom_type_t source_type =
+      loom_module_value_type(context->module, source);
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, loom_vector_extract_result(op));
+  const loom_attribute_t static_indices =
+      loom_vector_extract_static_indices(op);
+  const loom_value_slice_t dynamic_indices = loom_vector_extract_indices(op);
+  uint64_t source_count = 0;
+  uint64_t result_count = 1;
+  if (loom_type_rank(source_type) <= 1 || static_indices.count == 0 ||
+      !loom_type_static_element_count(source_type, &source_count) ||
+      source_count == 0 || source_count > LOOM_DIM_MAX_STATIC_SIZE ||
+      (loom_type_is_vector(result_type) &&
+       (dynamic_indices.count != 0 ||
+        !loom_type_static_element_count(result_type, &result_count) ||
+        result_count == 0 || result_count > source_count))) {
+    return iree_ok_status();
+  }
+
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_set_before(&rewriter->builder, op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  loom_value_id_t dynamic_prefix_ordinal = LOOM_VALUE_ID_INVALID;
+  int64_t static_prefix_ordinal = 0;
+  IREE_RETURN_IF_ERROR(loom_vector_static_shape_linearize_indices(
+      &rewriter->builder, source_type, static_indices, dynamic_indices,
+      op->location, &dynamic_prefix_ordinal, &static_prefix_ordinal));
+
+  loom_value_id_t dynamic_offset = dynamic_prefix_ordinal;
+  int64_t static_offset = static_prefix_ordinal * (int64_t)result_count;
+
+  loom_value_id_t flat_source = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_vector_static_shape_flatten_value(
+      &rewriter->builder, source, source_type, source_count, op->location,
+      &flat_source));
+
+  loom_value_id_t flat_result = LOOM_VALUE_ID_INVALID;
+  loom_type_t flat_result_type = result_type;
+  const loom_value_id_t* dynamic_offsets = NULL;
+  iree_host_size_t dynamic_offset_count = 0;
+  if (dynamic_offset != LOOM_VALUE_ID_INVALID) {
+    dynamic_offsets = &dynamic_offset;
+    dynamic_offset_count = 1;
+    static_offset = INT64_MIN;
+  }
+  if (loom_type_is_vector(result_type)) {
+    flat_result_type =
+        loom_vector_static_shape_flat_type(result_type, result_count);
+    loom_op_t* slice_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_slice_build(
+        &rewriter->builder, flat_source, dynamic_offsets, dynamic_offset_count,
+        &static_offset, /*static_offsets_count=*/1, flat_result_type,
+        op->location, &slice_op));
+    flat_result = loom_vector_slice_result(slice_op);
+  } else {
+    loom_op_t* extract_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_extract_build(
+        &rewriter->builder, flat_source, dynamic_offsets, dynamic_offset_count,
+        &static_offset, /*static_indices_count=*/1, result_type, op->location,
+        &extract_op));
+    flat_result = loom_vector_extract_result(extract_op);
+  }
+
+  IREE_RETURN_IF_ERROR(loom_vector_static_shape_restore_result(
+      context, op, flat_result, flat_result_type, result_type,
+      value_checkpoint));
+  *out_rewritten = true;
+  return iree_ok_status();
+}
+
 // Maps a row-major result lane through trailing-axis broadcast semantics.
 // Missing leading source axes and singleton source axes both select lane zero.
 static uint64_t loom_vector_static_shape_broadcast_source_ordinal(
@@ -866,6 +945,9 @@ iree_status_t loom_vector_static_shape_rewrite_op(
     case LOOM_OP_VECTOR_BROADCAST:
       return loom_vector_static_shape_broadcast_rewrite(context, op,
                                                         out_rewritten);
+    case LOOM_OP_VECTOR_EXTRACT:
+      return loom_vector_static_shape_extract_rewrite(context, op,
+                                                      out_rewritten);
     case LOOM_OP_VECTOR_INSERT:
       return loom_vector_static_shape_insert_rewrite(context, op,
                                                      out_rewritten);

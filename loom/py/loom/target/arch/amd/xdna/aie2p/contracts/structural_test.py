@@ -238,29 +238,15 @@ def test_static_slices_project_logical_lanes_into_physical_carriers() -> None:
         }
 
 
-def test_predicate_packet_slices_project_aligned_words() -> None:
-    low = _slice_rule(_I1_VECTOR, _I1_VECTOR, 0, 0)
-    assert isinstance(low, ValueAliasRule)
-
-    for offset, maximum_result_lanes, word, shift_count in (
-        (8, 8, "low32", -8),
-        (16, 16, "low32", -16),
-        (24, 8, "low32", -24),
-        (32, 32, "high32", 0),
-        (48, 16, "high32", -16),
-    ):
-        result_type = Vector("i1", minimum_lanes=1, maximum_lanes=maximum_result_lanes)
-        rule = _slice_rule(_I1_VECTOR, result_type, offset, offset)
-        assert isinstance(rule, DescriptorRule)
-        assert [emit.descriptor.key for emit in rule.emit] == [
-            "amd.xdna.aie2p.constant.i32.short",
-            f"amd.xdna.aie2p.predicate.shift.{word}",
-            "amd.xdna.aie2p.predicate.complete.zero.high32",
-        ]
-        assert rule.emit[0].immediates == {"i": shift_count}
-
-
 def test_wide_predicate_packet_slices_project_el_carriers() -> None:
+    wide_alias = _slice_rule(
+        _WIDE_PREDICATE_VECTOR,
+        _WIDE_PREDICATE_VECTOR,
+        0,
+        0,
+    )
+    assert isinstance(wide_alias, ValueAliasRule)
+
     for offset, unit_offset in ((0, 0), (64, 1)):
         rule = _slice_rule(
             _WIDE_PREDICATE_VECTOR,

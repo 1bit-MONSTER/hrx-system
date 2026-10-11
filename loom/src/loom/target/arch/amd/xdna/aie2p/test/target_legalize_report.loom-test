@@ -304,6 +304,5 @@ func.def @partial_reduction_element_types(%i1_values: vector<2x2xi1>, %i1_init: 
 }
 
 // ----
-CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=11 scalarized=1 target_rewritten=11 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=11 *
-CHECK: COMPILE-REPORT: target_legalization[*] function=partial_reduction_element_types source_op=vector.reduce.axes * action=rewritten * legalizer=aie2p strategy=target * scalarized=true * created_ops=14 erased_ops=5
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=11 scalarized=0 target_rewritten=11 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=11 *
 CHECK: COMPILE-REPORT: target_legalization[*] function=partial_reduction_element_types source_op=vector.reduce.axes * action=rewritten * legalizer=aie2p strategy=target * scalarized=false * created_ops=5 erased_ops=1
