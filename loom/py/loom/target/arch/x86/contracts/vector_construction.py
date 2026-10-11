@@ -38,6 +38,7 @@ from loom.target.arch.x86.vector_families import (
     FP16_ELEMENT,
     INTEGER_ELEMENTS,
     STORAGE_ELEMENTS,
+    X86_VECTOR_STORAGE_FAMILIES,
     VectorElement,
 )
 from loom.target.contracts import (
@@ -47,6 +48,7 @@ from loom.target.contracts import (
     DescriptorRule,
     EmitDescriptorOp,
     Guard,
+    OperandSegmentProject,
     Scalar,
     TypePattern,
     ValueAliasRule,
@@ -272,6 +274,49 @@ def _vector_splat_rules(
             )
             for vector_bit_width in float_vector_bit_widths
         )
+    return tuple(rules)
+
+
+def _exact_lane_vector_rules(
+    descriptor_lookup: _DescriptorLookup,
+    *,
+    load_descriptor_prefix: str,
+    vector_bit_widths: tuple[int, ...],
+) -> tuple[DescriptorRule, ...]:
+    rules: list[DescriptorRule] = []
+    for family in X86_VECTOR_STORAGE_FAMILIES:
+        for vector_bit_width in vector_bit_widths:
+            lane_count = vector_bit_width // family.element_bit_width
+            descriptor = descriptor_lookup(
+                f"{load_descriptor_prefix}.{_REGISTER_SUFFIXES[vector_bit_width]}"
+            )
+            rules.append(
+                DescriptorRule(
+                    source_op=vector.vector_from_elements,
+                    descriptor=descriptor,
+                    guards=(
+                        Guard.operand_segment_count("elements", lane_count),
+                        Guard.operand_segment_exact_bits(
+                            "elements", bit_width=family.element_bit_width
+                        ),
+                        Guard.value_type(
+                            "result", Vector(family.element_names, lanes=lane_count)
+                        ),
+                    ),
+                    emit=(
+                        EmitDescriptorOp(
+                            descriptor=descriptor,
+                            results={"dst": ValueRef.result("result")},
+                            immediates={
+                                "data": OperandSegmentProject.exact_bits_read_only(
+                                    "elements", bit_width=family.element_bit_width
+                                )
+                            },
+                            form=DescriptorEmitForm.OP,
+                        ),
+                    ),
+                )
+            )
     return tuple(rules)
 
 
@@ -1070,6 +1115,11 @@ def avx2_vector_construction_rules(
             float_vector_bit_widths=AVX2_VECTOR_BIT_WIDTHS,
             broadcast_source=_IntegerBroadcastSource.XMM_LOW_LANE,
         ),
+        *_exact_lane_vector_rules(
+            descriptor_lookup,
+            load_descriptor_prefix="x86.avx2.vmovdqu.rodata",
+            vector_bit_widths=AVX2_VECTOR_BIT_WIDTHS,
+        ),
         *_vector_bitcast_alias_rules(AVX2_VECTOR_BIT_WIDTHS),
         *(
             _integer_iota_rule(
@@ -1171,6 +1221,11 @@ def avx512_vector_construction_rules(
             float_vector_bit_widths=AVX512_VECTOR_BIT_WIDTHS,
             broadcast_source=_IntegerBroadcastSource.GPR,
             priority=1,
+        ),
+        *_exact_lane_vector_rules(
+            descriptor_lookup,
+            load_descriptor_prefix="x86.avx512.vmovdqu64.rodata",
+            vector_bit_widths=AVX512_VECTOR_BIT_WIDTHS,
         ),
         *_vector_bitcast_alias_rules(AVX512_VECTOR_BIT_WIDTHS),
         *(

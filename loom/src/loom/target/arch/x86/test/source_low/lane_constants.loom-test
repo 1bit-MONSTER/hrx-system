@@ -1,0 +1,85 @@
+// Exact nonuniform lanes become one immutable load at every physical vector
+// width. Module interning shares equal payloads across functions while uniform
+// and mixed lanes retain their specialized construction paths.
+// RUN: emit source-low output=module
+
+x86.target<avx512> @target
+
+func.def target(@target) @construct_exact_lanes() -> (vector<16xi8>, vector<8xi16>, vector<8xf32>, vector<8xi64>) {
+  %i8_low = scalar.constant 1 : i8
+  %i8_high = scalar.constant -2 : i8
+  %xmm_bytes = vector.from_elements %i8_low, %i8_high, %i8_low, %i8_high, %i8_low, %i8_high, %i8_low, %i8_high, %i8_low, %i8_high, %i8_low, %i8_high, %i8_low, %i8_high, %i8_low, %i8_high : vector<16xi8>
+  %i16_low = scalar.constant 258 : i16
+  %i16_high = scalar.constant -3 : i16
+  %xmm_words = vector.from_elements %i16_low, %i16_high, %i16_low, %i16_high, %i16_low, %i16_high, %i16_low, %i16_high : vector<8xi16>
+  %f32_low = scalar.constant 1.5 : f32
+  %f32_high = scalar.constant -2.25 : f32
+  %ymm_dwords = vector.from_elements %f32_low, %f32_high, %f32_low, %f32_high, %f32_low, %f32_high, %f32_low, %f32_high : vector<8xf32>
+  %i64_low = scalar.constant 81985529216486895 : i64
+  %i64_high = scalar.constant -2 : i64
+  %zmm_qwords = vector.from_elements %i64_low, %i64_high, %i64_low, %i64_high, %i64_low, %i64_high, %i64_low, %i64_high : vector<8xi64>
+  func.return %xmm_bytes, %xmm_words, %ymm_dwords, %zmm_qwords : vector<16xi8>, vector<8xi16>, vector<8xf32>, vector<8xi64>
+}
+
+func.def target(@target) @reuse_exact_lanes() -> (vector<16xi8>) {
+  %low = scalar.constant 1 : i8
+  %high = scalar.constant -2 : i8
+  %result = vector.from_elements %low, %high, %low, %high, %low, %high, %low, %high, %low, %high, %low, %high, %low, %high, %low, %high : vector<16xi8>
+  func.return %result : vector<16xi8>
+}
+
+func.def target(@target) @construct_uniform_lanes() -> (vector<8xi16>) {
+  %left = scalar.constant 7 : i16
+  %right = scalar.constant 7 : i16
+  %result = vector.from_elements %left, %right, %left, %right, %left, %right, %left, %right : vector<8xi16>
+  func.return %result : vector<8xi16>
+}
+
+func.def target(@target) @construct_mixed_lanes(%dynamic: i32) -> (vector<4xi32>) {
+  %c1 = scalar.constant 1 : i32
+  %c2 = scalar.constant 2 : i32
+  %c3 = scalar.constant 3 : i32
+  %result = vector.from_elements %dynamic, %c1, %c2, %c3 : vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+// ----
+x86.target<avx512> @target
+
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = () -> (vector<16xi8>, vector<8xi16>, vector<8xf32>, vector<8xi64>)}) @construct_exact_lanes() -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.ymm>, reg<x86.zmm>) asm {
+  %xmm_bytes = avx2.vmovdqu.rodata.xmm @__low_rodata_c4c062ff
+  %xmm_words = avx2.vmovdqu.rodata.xmm @__low_rodata_4a75d4f7
+  %ymm_dwords = avx2.vmovdqu.rodata.ymm @__low_rodata_d73f477f
+  %zmm_qwords = avx512.vmovdqu64.rodata.zmm @__low_rodata_f14fa1bf
+  return %xmm_bytes, %xmm_words, %ymm_dwords, %zmm_qwords
+}
+
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = () -> (vector<16xi8>)}) @reuse_exact_lanes() -> (reg<x86.xmm>) asm {
+  %result = avx2.vmovdqu.rodata.xmm @__low_rodata_c4c062ff
+  return %result
+}
+
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = () -> (vector<8xi16>)}) @construct_uniform_lanes() -> (reg<x86.xmm>) asm {
+  %11 = mov.imm32 7
+  %result = avx512.vpbroadcastw.xmm %11
+  return %result
+}
+
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (i32) -> (vector<4xi32>)}) @construct_mixed_lanes(%dynamic: reg<x86.gpr32>) -> (reg<x86.xmm>) asm {
+  %c1 = mov.imm32 1
+  %c2 = mov.imm32 2
+  %c3 = mov.imm32 3
+  %18 = vpbroadcastd.xmm %dynamic
+  %19 = vpinsrd.xmm %18, %c1, 1
+  %20 = vpinsrd.xmm %19, %c2, 2
+  %result = vpinsrd.xmm %20, %c3, 3
+  return %result
+}
+
+global.rodata.def @__low_rodata_c4c062ff = align(16) bytes("01fe01fe01fe01fe01fe01fe01fe01fe")
+
+global.rodata.def @__low_rodata_4a75d4f7 = align(16) bytes("0201fdff0201fdff0201fdff0201fdff")
+
+global.rodata.def @__low_rodata_d73f477f = align(32) bytes("0000c03f000010c00000c03f000010c00000c03f000010c00000c03f000010c0")
+
+global.rodata.def @__low_rodata_f14fa1bf = align(64) bytes("efcdab8967452301feffffffffffffffefcdab8967452301feffffffffffffffefcdab8967452301feffffffffffffffefcdab8967452301feffffffffffffff")

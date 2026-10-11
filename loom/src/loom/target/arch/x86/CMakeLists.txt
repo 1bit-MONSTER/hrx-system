@@ -252,6 +252,7 @@ loom_check_test_suite(
     "test/source_low/carried_counter_store.loom-test"
     "test/source_low/function_boundary.loom-test"
     "test/source_low/function_storage.loom-test"
+    "test/source_low/lane_constants.loom-test"
     "test/source_low/loop_counter_offset.loom-test"
     "test/source_low/math_contraction.loom-test"
     "test/source_low/memory_access_flags.loom-test"
