@@ -39,6 +39,20 @@ iree_status_t iree_hal_amd_fabric_buffer_wrap(
     iree_hal_buffer_release_callback_t release_callback,
     iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
 
+// Acquires device writes for a prepared host execution binding. The caller has
+// resolved producer dependencies and validated this buffer-relative range.
+// Public mapping grants are independent of the implementation-owned binding.
+// Cache maintenance may block and belongs on the host execution service.
+iree_status_t iree_hal_amd_fabric_buffer_invalidate_host_range(
+    iree_hal_buffer_t* buffer, iree_device_size_t offset,
+    iree_device_size_t length);
+
+// Publishes writes through a prepared host execution binding before signaling
+// dependent device work. Uses the same range and ownership contract as acquire.
+iree_status_t iree_hal_amd_fabric_buffer_flush_host_range(
+    iree_hal_buffer_t* buffer, iree_device_size_t offset,
+    iree_device_size_t length);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

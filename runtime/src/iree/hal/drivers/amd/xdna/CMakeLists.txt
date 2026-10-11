@@ -295,6 +295,7 @@ iree_cc_library(
     iree::base
     iree::base::threading
     iree::hal
+    iree::hal::drivers::amd::fabric::buffer
     iree::hal::drivers::amd::status
   PUBLIC
 )

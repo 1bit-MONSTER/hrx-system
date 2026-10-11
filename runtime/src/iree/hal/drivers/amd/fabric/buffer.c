@@ -133,3 +133,29 @@ iree_status_t iree_hal_amd_fabric_buffer_wrap(
   *out_buffer = &buffer->base;
   return iree_ok_status();
 }
+
+iree_status_t iree_hal_amd_fabric_buffer_invalidate_host_range(
+    iree_hal_buffer_t* buffer, iree_device_size_t offset,
+    iree_device_size_t length) {
+  if (iree_all_bits_set(iree_hal_buffer_memory_type(buffer),
+                        IREE_HAL_MEMORY_TYPE_HOST_COHERENT)) {
+    return iree_ok_status();
+  }
+  const iree_hal_buffer_vtable_t* vtable =
+      (const iree_hal_buffer_vtable_t*)buffer->resource.vtable;
+  return vtable->invalidate_range(
+      buffer, iree_hal_buffer_byte_offset(buffer) + offset, length);
+}
+
+iree_status_t iree_hal_amd_fabric_buffer_flush_host_range(
+    iree_hal_buffer_t* buffer, iree_device_size_t offset,
+    iree_device_size_t length) {
+  if (iree_all_bits_set(iree_hal_buffer_memory_type(buffer),
+                        IREE_HAL_MEMORY_TYPE_HOST_COHERENT)) {
+    return iree_ok_status();
+  }
+  const iree_hal_buffer_vtable_t* vtable =
+      (const iree_hal_buffer_vtable_t*)buffer->resource.vtable;
+  return vtable->flush_range(
+      buffer, iree_hal_buffer_byte_offset(buffer) + offset, length);
+}

@@ -6,6 +6,7 @@
 
 #include "iree/hal/drivers/amd/xdna/queue_operation.h"
 
+#include "iree/hal/drivers/amd/fabric/buffer.h"
 #include "iree/hal/drivers/amd/xdna/barrier.h"
 #include "iree/hal/drivers/amd/xdna/transient_buffer.h"
 
@@ -123,47 +124,13 @@ void iree_hal_amd_xdna_operation_release_resources(
 // Queue transfers use the slab's persistent host execution binding. This
 // binding exists independently of public mapping grants, which describe host
 // API access and may intentionally be empty for device-only pool scopes.
-static const iree_hal_buffer_vtable_t*
-iree_hal_amd_xdna_buffer_execution_vtable(iree_hal_buffer_t* buffer) {
-  return (const iree_hal_buffer_vtable_t*)((const iree_hal_resource_t*)buffer)
-      ->vtable;
-}
-
-static iree_status_t iree_hal_amd_xdna_buffer_execution_invalidate(
-    iree_hal_buffer_t* buffer, iree_device_size_t offset,
-    iree_device_size_t length) {
-  if (iree_all_bits_set(iree_hal_buffer_memory_type(buffer),
-                        IREE_HAL_MEMORY_TYPE_HOST_COHERENT)) {
-    return iree_ok_status();
-  }
-  const iree_device_size_t allocation_offset =
-      iree_hal_buffer_byte_offset(buffer) + offset;
-  const iree_hal_buffer_vtable_t* vtable =
-      iree_hal_amd_xdna_buffer_execution_vtable(buffer);
-  return vtable->invalidate_range(buffer, allocation_offset, length);
-}
-
-static iree_status_t iree_hal_amd_xdna_buffer_execution_flush(
-    iree_hal_buffer_t* buffer, iree_device_size_t offset,
-    iree_device_size_t length) {
-  if (iree_all_bits_set(iree_hal_buffer_memory_type(buffer),
-                        IREE_HAL_MEMORY_TYPE_HOST_COHERENT)) {
-    return iree_ok_status();
-  }
-  const iree_device_size_t allocation_offset =
-      iree_hal_buffer_byte_offset(buffer) + offset;
-  const iree_hal_buffer_vtable_t* vtable =
-      iree_hal_amd_xdna_buffer_execution_vtable(buffer);
-  return vtable->flush_range(buffer, allocation_offset, length);
-}
-
 static iree_status_t iree_hal_amd_xdna_buffer_execution_read(
     iree_hal_buffer_t* buffer, iree_device_size_t offset,
     iree_device_size_t length, iree_byte_span_t* out_span) {
   IREE_RETURN_IF_ERROR(
       iree_hal_buffer_native_host_span(buffer, offset, length, out_span));
-  return iree_hal_amd_xdna_buffer_execution_invalidate(buffer, offset,
-                                                       out_span->data_length);
+  return iree_hal_amd_fabric_buffer_invalidate_host_range(
+      buffer, offset, out_span->data_length);
 }
 
 static iree_status_t iree_hal_amd_xdna_buffer_execution_write(
@@ -175,7 +142,7 @@ static iree_status_t iree_hal_amd_xdna_buffer_execution_write(
 static iree_status_t iree_hal_amd_xdna_buffer_execution_publish(
     iree_hal_buffer_t* buffer, iree_device_size_t offset,
     iree_device_size_t length) {
-  return iree_hal_amd_xdna_buffer_execution_flush(buffer, offset, length);
+  return iree_hal_amd_fabric_buffer_flush_host_range(buffer, offset, length);
 }
 
 static iree_status_t iree_hal_amd_xdna_update_execute(
