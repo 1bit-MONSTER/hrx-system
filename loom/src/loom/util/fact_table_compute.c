@@ -460,9 +460,10 @@ static loom_value_facts_t loom_value_fact_table_refine_cfg_recurrence(
       loom_value_fact_recurrence_set_lookup(&region->recurrences[loop_index],
                                             loom_value_def_index(value));
   loom_loop_recurrence_facts_t recurrence;
-  if (counter.trip_count_known && equation &&
-      loom_value_fact_recurrence_evaluate(table, module, equation,
-                                          counter.trip_count, &recurrence)) {
+  if (counter.trip_count_kind != LOOM_LOOP_TRIP_COUNT_UNKNOWN && equation &&
+      loom_value_fact_recurrence_evaluate(
+          table, module, equation, counter.trip_count, counter.trip_count_kind,
+          &recurrence)) {
     facts = loom_value_fact_recurrence_refine(facts, recurrence.values);
   }
   return facts;
@@ -490,7 +491,8 @@ static iree_status_t loom_value_fact_table_compute_cfg_block_arg(
   const bool exits_at_header =
       header_loop != LOOM_CFG_LOOP_NEST_NONE &&
       region->loops.loops[header_loop].header_index == block_index &&
-      region->inductions[header_loop].exits_at_header;
+      iree_any_bit_set(region->inductions[header_loop].flags,
+                       LOOM_VALUE_FACT_INDUCTION_EXITS_AT_HEADER);
 
   bool has_facts = false;
   loom_value_facts_t control_facts = loom_value_facts_unknown();
@@ -624,13 +626,13 @@ static iree_status_t loom_value_fact_table_compute_cfg_block_arg(
 static iree_status_t loom_value_fact_table_compute_cfg_forwarding(
     loom_value_fact_table_t* table, const loom_module_t* module,
     const loom_value_fact_cfg_region_t* region,
-    iree_host_size_t control_flow_component, uint32_t iteration,
+    iree_host_size_t control_flow_component, uint32_t iteration, bool widen,
     iree_arena_allocator_t* recurrence_arena, bool* out_changed) {
   IREE_RETURN_IF_ERROR(loom_value_fact_cfg_update_forwarding(
       region, control_flow_component, table->transient_arena));
   const loom_scc_t* blocks =
       &region->control_flow.components.values[control_flow_component];
-  if (iteration == 1) {
+  if (widen && iteration == 1) {
     for (iree_host_size_t i = 0; i < blocks->node_count; ++i) {
       IREE_RETURN_IF_ERROR(loom_value_fact_cfg_build_recurrences(
           table, module, region, (uint16_t)blocks->nodes[i], recurrence_arena));
@@ -645,7 +647,7 @@ static iree_status_t loom_value_fact_table_compute_cfg_forwarding(
         &region->arguments[component->nodes[0]];
     IREE_RETURN_IF_ERROR(loom_value_fact_table_compute_cfg_block_arg(
         table, module, region, component->is_cycle ? component : NULL,
-        argument->block_index, argument->argument_index, true, iteration, NULL,
+        argument->block_index, argument->argument_index, widen, iteration, NULL,
         NULL, out_changed));
   }
   return iree_ok_status();
@@ -884,8 +886,8 @@ static iree_status_t loom_value_fact_table_solve_cfg_component(
     // partition. An inner loop's initializer can live inside this component.
     if (iteration != 0) {
       IREE_RETURN_IF_ERROR(loom_value_fact_table_compute_cfg_forwarding(
-          table, module, region, component_index, iteration, scratch_arena,
-          &changed));
+          table, module, region, component_index, iteration, /*widen=*/true,
+          scratch_arena, &changed));
     }
     for (iree_host_size_t i = 0; i < component->node_count; ++i) {
       uint16_t block_index = blocks[i];
@@ -901,7 +903,21 @@ static iree_status_t loom_value_fact_table_solve_cfg_component(
       break;
     }
   }
-  if (!converged) {
+  if (converged) {
+    // The widening solve has established a post-fixed point. A descending
+    // transfer sweep can recover bounded inputs that reached a carried value
+    // after widening, without another convergence solve or new analysis.
+    bool changed = false;
+    IREE_RETURN_IF_ERROR(loom_value_fact_table_compute_cfg_forwarding(
+        table, module, region, component_index, /*iteration=*/0,
+        /*widen=*/false, scratch_arena, &changed));
+    if (changed) {
+      for (iree_host_size_t i = 0; i < component->node_count; ++i) {
+        IREE_RETURN_IF_ERROR(loom_value_fact_table_compute_cfg_block_tree(
+            table, module, region->graph.blocks[blocks[i]].block, &changed));
+      }
+    }
+  } else {
     loom_value_fact_cfg_saved_values_t initial_values = {0};
     if (!restart_values) {
       for (iree_host_size_t i = 0; i < component->node_count; ++i) {
