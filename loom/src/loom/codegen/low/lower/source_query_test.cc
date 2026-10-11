@@ -37,6 +37,8 @@ class LowLowerSourceQueryTest : public ::testing::Test {
     // Target-owned query outcome.
     loom_target_contract_query_outcome_t outcome =
         LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+    // True when the callback was invoked outside its accepted kind.
+    bool observed_unaccepted_op_kind = false;
     // True when the callback observed source-scope analyses.
     bool observed_source_scope = false;
   };
@@ -198,6 +200,8 @@ class LowLowerSourceQueryTest : public ::testing::Test {
                  loom_target_contract_query_result_t* out_result)
             -> iree_status_t {
           auto* probe = static_cast<QueryProbe*>(user_data);
+          probe->observed_unaccepted_op_kind |=
+              source_op->kind != probe->handled_op->kind;
           probe->observed_source_scope |=
               environment->value_domain != nullptr &&
               environment->view_regions != nullptr;
@@ -208,6 +212,8 @@ class LowLowerSourceQueryTest : public ::testing::Test {
           return iree_ok_status();
         },
         .user_data = probe,
+        .first_op_kind = probe->handled_op->kind,
+        .op_kind_count = 1,
     };
     options_.policy = policy;
   }
@@ -501,6 +507,7 @@ TEST_F(LowLowerSourceQueryTest, TargetOwnedContractComposesWithGeneratedCases) {
   IREE_ASSERT_OK(QueryContract(mapped_source_op_, &target_result));
   EXPECT_EQ(target_result.outcome, LOOM_TARGET_CONTRACT_QUERY_LEGAL);
   EXPECT_EQ(target_result.selected_descriptor, nullptr);
+  EXPECT_FALSE(probe.observed_unaccepted_op_kind);
   EXPECT_TRUE(probe.observed_source_scope);
 }
 

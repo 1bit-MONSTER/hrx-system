@@ -85,6 +85,11 @@ static const loom_target_legalizer_rule_t kSpirvLegalizerRules[] = {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .legalize = loom_spirv_legalize_vector_to_scalar,
     },
+    {
+        .root_kind = LOOM_OP_VECTOR_FPTRUNC,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_spirv_legalize_vector_to_scalar,
+    },
 };
 
 const loom_target_legalizer_provider_t

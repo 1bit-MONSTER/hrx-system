@@ -186,6 +186,7 @@ class OrdinaryVectorInstruction:
     result_type: OrdinaryVectorInstructionType
     operand_names: tuple[str, ...]
     operand_types: tuple[OrdinaryVectorInstructionType, ...]
+    feature_atoms: tuple[str, ...] = ()
     component_index_maximum: int | None = None
 
     def __post_init__(self) -> None:
@@ -196,7 +197,9 @@ class OrdinaryVectorInstruction:
 
     @property
     def feature_bits(self) -> int:
-        feature_bits = self.result_type.feature_bits
+        feature_bits = self.result_type.feature_bits | feature_bits_value(
+            self.feature_atoms
+        )
         for operand_type in self.operand_types:
             feature_bits |= operand_type.feature_bits
         return feature_bits

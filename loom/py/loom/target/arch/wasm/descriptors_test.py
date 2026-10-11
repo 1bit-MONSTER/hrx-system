@@ -173,6 +173,38 @@ def test_v128_not_uses_the_simd128_logical_opcode():
     assert [operand.field_name for operand in descriptor.operands] == ["dst", "input"]
 
 
+def test_float_to_integer_descriptors_cover_the_core_instruction_matrix():
+    descriptors = {
+        descriptor.key: descriptor
+        for descriptor in WASM_CORE_SIMD128_DESCRIPTOR_SET.descriptors
+    }
+    expected = {
+        f"wasm.{integer_type}.trunc_{float_type}_{signedness}": opcode
+        for integer_type, float_type, signedness, opcode in (
+            ("i32", "f32", "s", 0xA8),
+            ("i32", "f32", "u", 0xA9),
+            ("i32", "f64", "s", 0xAA),
+            ("i32", "f64", "u", 0xAB),
+            ("i64", "f32", "s", 0xAE),
+            ("i64", "f32", "u", 0xAF),
+            ("i64", "f64", "s", 0xB0),
+            ("i64", "f64", "u", 0xB1),
+        )
+    }
+    assert {
+        key: descriptor.encoding_id
+        for key, descriptor in descriptors.items()
+        if key.startswith(("wasm.i32.trunc_f", "wasm.i64.trunc_f"))
+    } == expected
+    for key in expected:
+        descriptor = descriptors[key]
+        assert not descriptor.immediates
+        assert [operand.field_name for operand in descriptor.operands] == [
+            "dst",
+            "input",
+        ]
+
+
 def test_integer_arithmetic_descriptors_match_the_simd128_instruction_matrix():
     expected = {
         ("i8x16", "abs"): (0x60, 1),

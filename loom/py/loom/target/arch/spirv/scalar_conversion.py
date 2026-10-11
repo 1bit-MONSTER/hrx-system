@@ -87,6 +87,40 @@ def _bit_width(scalar: ScalarAluType) -> int:
     return _BIT_WIDTHS[scalar.source_type]
 
 
+def _float_narrowing_feature_atoms(
+    source_width: int, result_width: int
+) -> tuple[str, ...]:
+    if result_width == 32:
+        behavior_atoms = (
+            "float32_denorm_preserve",
+            "float32_rounding_rte",
+        )
+    elif result_width == 16:
+        # Vulkan devices may expose F32 controls independently while coupling
+        # the F16 and F64 execution modes. The profile records that coupled
+        # promise as one feature per behavior.
+        behavior_atoms = (
+            "float16_64_denorm_preserve",
+            "float16_64_rounding_rte",
+        )
+    else:
+        raise ValueError(f"unsupported native float narrowing width {result_width}")
+
+    # Vulkan assumes NSZ, NotInf, and NotNaN when an entry point omits
+    # SignedZeroInfNanPreserve for any operand or result width used by an
+    # instruction. Native narrowing therefore needs the promise for both
+    # widths even though rounding and destination-denormal behavior are
+    # selected by the result format.
+    atoms = (
+        *behavior_atoms,
+        f"float{result_width}_signed_zero_inf_nan_preserve",
+        f"float{source_width}_signed_zero_inf_nan_preserve",
+    )
+    if source_width == 64 and result_width == 16:
+        atoms = (*atoms, "float64_to_float16_conversion")
+    return atoms
+
+
 def _integer_width_conversions() -> tuple[ScalarConversion, ...]:
     rows: list[ScalarConversion] = []
     for source_type in SIGNED_INTEGER_SCALAR_ALU_TYPES:
@@ -116,6 +150,11 @@ def _float_width_conversions() -> tuple[ScalarConversion, ...]:
                 continue
             source_width = _bit_width(source_type)
             result_width = _bit_width(result_type)
+            feature_atoms: tuple[str, ...] = ()
+            if source_width > result_width:
+                feature_atoms = _float_narrowing_feature_atoms(
+                    source_width, result_width
+                )
             rows.append(
                 ScalarConversion(
                     source_op_key="extf" if source_width < result_width else "fptrunc",
@@ -124,6 +163,7 @@ def _float_width_conversions() -> tuple[ScalarConversion, ...]:
                     opcode="LOOM_SPIRV_OP_F_CONVERT",
                     source_type=source_type,
                     result_type=result_type,
+                    feature_atoms=feature_atoms,
                 )
             )
     return tuple(rows)

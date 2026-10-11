@@ -299,6 +299,7 @@ iree_py_test(
   SRCS
     "descriptor_overlay_test.py"
     "descriptors/alignment_test.py"
+    "descriptors/alu_test.py"
     "descriptors/atomic_test.py"
     "descriptors/bitwise_test.py"
     "descriptors/memory_test.py"
@@ -313,6 +314,7 @@ iree_py_test(
     "../../../tools/pytest_style_runner.py"
   ARGS
     "loom.target.arch.amdgpu.descriptor_overlay_test"
+    "loom.target.arch.amdgpu.descriptors.alu_test"
     "loom.target.arch.amdgpu.descriptors.alignment_test"
     "loom.target.arch.amdgpu.descriptors.atomic_test"
     "loom.target.arch.amdgpu.descriptors.bitwise_test"

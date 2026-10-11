@@ -1,7 +1,9 @@
-// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low control-flow=structured-low
+// RUN: emit source-low output=low control-flow=structured-low
 
 // Loop-carried values retain each native shape without depending on vector memory.
-func.def @signed_widths(%first: i64, %second: i64, %third: i64, %count: index) -> (i64) {
+spirv.target<vulkan1_3> @target {contract_feature_bits = 1086626759166}
+
+func.def target(@target) @signed_widths(%first: i64, %second: i64, %third: i64, %count: index) -> (i64) {
   %begin = index.constant 0 : index
   %step = index.constant 1 : index
   %initial = vector.from_elements %first, %second, %third : vector<3xi64>
@@ -16,7 +18,7 @@ func.def @signed_widths(%first: i64, %second: i64, %third: i64, %count: index) -
 }
 
 // ----
-low.func.def target<spirv.logical.core> abi(shader_entry_point) @signed_widths(%first: reg<spirv.id : i64>, %second: reg<spirv.id : i64>, %third: reg<spirv.id : i64>, %count: reg<spirv.id : index>) -> (reg<spirv.id : i64>) asm {
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @signed_widths(%first: reg<spirv.id : i64>, %second: reg<spirv.id : i64>, %third: reg<spirv.id : i64>, %count: reg<spirv.id : index>) -> (reg<spirv.id : i64>) asm {
   %begin = OpConstant.i32 0 : reg<spirv.id : index>
   %step = OpConstant.i32 1 : reg<spirv.id : index>
   %initial = OpCompositeConstruct.v3i64 %first, %second, %third
@@ -34,7 +36,9 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @signed_widths(%
 
 // ====
 
-func.def @signed_floating(%first: f64, %second: f64, %count: index) -> (f64) {
+spirv.target<vulkan1_3> @target {contract_feature_bits = 2186138386942}
+
+func.def target(@target) @signed_floating(%first: f64, %second: f64, %count: index) -> (f64) {
   %begin = index.constant 0 : index
   %step = index.constant 1 : index
   %initial = vector.from_elements %first, %second : vector<2xf64>
@@ -50,7 +54,7 @@ func.def @signed_floating(%first: f64, %second: f64, %count: index) -> (f64) {
 }
 
 // ----
-low.func.def target<spirv.logical.core> abi(shader_entry_point) @signed_floating(%first: reg<spirv.id : f64>, %second: reg<spirv.id : f64>, %count: reg<spirv.id : index>) -> (reg<spirv.id : f64>) asm {
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @signed_floating(%first: reg<spirv.id : f64>, %second: reg<spirv.id : f64>, %count: reg<spirv.id : index>) -> (reg<spirv.id : f64>) asm {
   %begin = OpConstant.i32 0 : reg<spirv.id : index>
   %step = OpConstant.i32 1 : reg<spirv.id : index>
   %initial = OpCompositeConstruct.v2f64 %first, %second
@@ -67,7 +71,9 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @signed_floating
 
 // ====
 
-func.def @unsigned_floating(%input: f32, %count: index) -> (f32) {
+spirv.target<vulkan1_3> @target {contract_feature_bits = 1086626759166}
+
+func.def target(@target) @unsigned_floating(%input: f32, %count: index) -> (f32) {
   %begin = index.constant 0 : index
   %step = index.constant 1 : index
   %initial = vector.splat %input : vector<4xf32>
@@ -82,7 +88,7 @@ func.def @unsigned_floating(%input: f32, %count: index) -> (f32) {
 }
 
 // ----
-low.func.def target<spirv.logical.core> abi(shader_entry_point) @unsigned_floating(%input: reg<spirv.id : f32>, %count: reg<spirv.id : index>) -> (reg<spirv.id : f32>) asm {
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @unsigned_floating(%input: reg<spirv.id : f32>, %count: reg<spirv.id : index>) -> (reg<spirv.id : f32>) asm {
   %begin = OpConstant.i32 0 : reg<spirv.id : index>
   %step = OpConstant.i32 1 : reg<spirv.id : index>
   %initial = OpCompositeConstruct.v4f32 %input, %input, %input, %input
@@ -100,7 +106,9 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @unsigned_floati
 
 // ====
 
-func.def @singleton(%input: i32, %count: index) -> (i32) {
+spirv.target<vulkan1_3> @target {contract_feature_bits = 1086626759166}
+
+func.def target(@target) @singleton(%input: i32, %count: index) -> (i32) {
   %begin = index.constant 0 : index
   %step = index.constant 1 : index
   %initial = vector.splat %input : vector<1xi32>
@@ -114,7 +122,7 @@ func.def @singleton(%input: i32, %count: index) -> (i32) {
 }
 
 // ----
-low.func.def target<spirv.logical.core> abi(shader_entry_point) @singleton(%initial: reg<spirv.id : i32>, %count: reg<spirv.id : index>) -> (reg<spirv.id : i32>) asm {
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @singleton(%initial: reg<spirv.id : i32>, %count: reg<spirv.id : index>) -> (reg<spirv.id : i32>) asm {
   %begin = OpConstant.i32 0 : reg<spirv.id : index>
   %step = OpConstant.i32 1 : reg<spirv.id : index>
   %value = low.scf.for signed [%begin to %count step %step] iter_args(%initial: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) do(%iteration: reg<spirv.id : index>, %state: reg<spirv.id : i32>) {

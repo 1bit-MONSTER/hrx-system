@@ -63,6 +63,9 @@ _AMDGPU_CONTRACT_DESCRIPTOR_OVERLAY_BUILDERS: dict[
     ),
     "amdgpu.v_add_u32.lit": lambda: _v_add_u32_literal_overlay("V_ADD_NC_U32"),
     "amdgpu.v_sub_u32": lambda: _v_sub_u32_overlay("V_SUB_NC_U32", "v_sub_nc_u32"),
+    "amdgpu.v_sub_u32.src0_inline": lambda: _v_sub_u32_src0_inline_overlay(
+        "V_SUB_NC_U32", "v_sub_nc_u32"
+    ),
     "amdgpu.v_sub_u32.lhs_tied": lambda: _v_sub_u32_lhs_tied_overlay(
         "V_SUB_NC_U32", "v_sub_nc_u32"
     ),
@@ -166,6 +169,7 @@ _AMDGPU_CONTRACT_DESCRIPTOR_OVERLAY_BUILDERS: dict[
     "amdgpu.v_sqrt_f32": _v_sqrt_f32_overlay,
     "amdgpu.v_sqrt_f64": _v_sqrt_f64_overlay,
     "amdgpu.v_rsq_f64": _v_rsq_f64_overlay,
+    "amdgpu.v_ldexp_f32": _v_ldexp_f32_overlay,
     "amdgpu.v_ldexp_f64": _v_ldexp_f64_overlay,
     "amdgpu.v_rsq_f32": _v_rsq_f32_overlay,
     "amdgpu.v_rcp_f32": _v_rcp_f32_overlay,

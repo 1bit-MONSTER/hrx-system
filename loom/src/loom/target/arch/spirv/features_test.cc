@@ -172,17 +172,38 @@ TEST(SpirvFeaturesTest, ClosesTransitiveSubgroupBallotDependencies) {
                 LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT);
 }
 
-TEST(SpirvFeaturesTest, PreparesAllFeaturesIncludingDenormPreservation) {
+TEST(SpirvFeaturesTest, PreparesAllFloatControlFeatures) {
   loom_spirv_feature_set_t feature_set;
   IREE_ASSERT_OK(loom_spirv_feature_set_prepare(IREE_SV("test.all_features"),
                                                 LOOM_SPIRV_FEATURE_KNOWN_BITS,
                                                 &feature_set));
   EXPECT_TRUE(loom_spirv_feature_set_has_atom(
       &feature_set, LOOM_SPIRV_FEATURE_ATOM_FLOAT32_DENORM_PRESERVE));
+  EXPECT_TRUE(loom_spirv_feature_set_has_atom(
+      &feature_set, LOOM_SPIRV_FEATURE_ATOM_FLOAT16_64_DENORM_PRESERVE));
+  EXPECT_TRUE(loom_spirv_feature_set_has_atom(
+      &feature_set, LOOM_SPIRV_FEATURE_ATOM_FLOAT16_64_ROUNDING_RTE));
+  EXPECT_TRUE(loom_spirv_feature_set_has_atom(
+      &feature_set, LOOM_SPIRV_FEATURE_ATOM_FLOAT32_ROUNDING_RTE));
+  EXPECT_TRUE(loom_spirv_feature_set_has_atom(
+      &feature_set,
+      LOOM_SPIRV_FEATURE_ATOM_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE));
+  EXPECT_TRUE(loom_spirv_feature_set_has_atom(
+      &feature_set,
+      LOOM_SPIRV_FEATURE_ATOM_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE));
+  EXPECT_TRUE(loom_spirv_feature_set_has_atom(
+      &feature_set,
+      LOOM_SPIRV_FEATURE_ATOM_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE));
+  EXPECT_TRUE(loom_spirv_feature_set_has_atom(
+      &feature_set, LOOM_SPIRV_FEATURE_ATOM_FLOAT64_TO_FLOAT16_CONVERSION));
   EXPECT_TRUE(
       ContainsExtension(feature_set, IREE_SV("SPV_KHR_float_controls")));
   EXPECT_TRUE(
       ContainsCapability(feature_set, LOOM_SPIRV_CAPABILITY_DENORM_PRESERVE));
+  EXPECT_TRUE(
+      ContainsCapability(feature_set, LOOM_SPIRV_CAPABILITY_ROUNDING_MODE_RTE));
+  EXPECT_TRUE(ContainsCapability(
+      feature_set, LOOM_SPIRV_CAPABILITY_SIGNED_ZERO_INF_NAN_PRESERVE));
 }
 
 TEST(SpirvFeaturesTest, PreparesCooperativeFeatureAtomsWithoutBda) {

@@ -4,11 +4,12 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Exact packed narrow-float widening for Wasm SIMD128."""
+"""Exact narrow-float widening for Wasm SIMD128."""
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from loom.dialect.scalar import conversion as scalar_conversion
 from loom.dialect.vector import defs as vector
 from loom.target.contracts import (
     DescriptorEmitForm,
@@ -24,6 +25,8 @@ from loom.target.contracts import (
 from loom.target.low_descriptors import Descriptor
 
 _I32 = Scalar("i32")
+_F16_SCALAR = Scalar("f16")
+_F32_SCALAR = Scalar("f32")
 _F32_PACKET = Vector("f32", minimum_lanes=1, maximum_lanes=4)
 
 
@@ -157,6 +160,102 @@ class _PackedI32Program:
                 "false_value": false_value,
                 "condition": condition,
             },
+        )
+
+
+class _ScalarI32Program:
+    """Builds one straight-line scalar I32 descriptor program."""
+
+    def __init__(self, descriptor_lookup: Callable[[str], Descriptor]) -> None:
+        self._descriptor_lookup = descriptor_lookup
+        self.emits: list[EmitDescriptorOp] = []
+        self._constants: dict[int, ValueRef] = {}
+
+    def constant(self, result_name: str, value: int) -> ValueRef:
+        if existing := self._constants.get(value):
+            return existing
+        result = ValueRef.temporary(result_name)
+        self.emits.append(
+            EmitDescriptorOp(
+                descriptor=self._descriptor_lookup("wasm.i32.const"),
+                results={"dst": result},
+                result_types={"dst": _I32},
+                immediates={"i32_value": value},
+                form=DescriptorEmitForm.CONST,
+            )
+        )
+        self._constants[value] = result
+        return result
+
+    def operation(
+        self,
+        result_name: str,
+        descriptor_key: str,
+        operands: Mapping[str, ValueRef],
+    ) -> ValueRef:
+        result = ValueRef.temporary(result_name)
+        self.emits.append(
+            EmitDescriptorOp(
+                descriptor=self._descriptor_lookup(descriptor_key),
+                operands=operands,
+                results={"dst": result},
+                result_types={"dst": _I32},
+                form=DescriptorEmitForm.OP,
+            )
+        )
+        return result
+
+    def binary(
+        self,
+        result_name: str,
+        descriptor_key: str,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef:
+        return self.operation(
+            result_name,
+            descriptor_key,
+            {"lhs": lhs, "rhs": rhs},
+        )
+
+    def shift(
+        self,
+        result_name: str,
+        descriptor_key: str,
+        value: ValueRef,
+        count: ValueRef,
+    ) -> ValueRef:
+        return self.operation(
+            result_name,
+            descriptor_key,
+            {"lhs": value, "rhs": count},
+        )
+
+    def select(
+        self,
+        result_name: str,
+        true_value: ValueRef,
+        false_value: ValueRef,
+        condition: ValueRef,
+    ) -> ValueRef:
+        return self.operation(
+            result_name,
+            "wasm.i32.select",
+            {
+                "true_value": true_value,
+                "false_value": false_value,
+                "condition": condition,
+            },
+        )
+
+    def finish_float(self, bits: ValueRef) -> None:
+        self.emits.append(
+            EmitDescriptorOp(
+                descriptor=self._descriptor_lookup("wasm.f32.reinterpret_i32"),
+                operands={"input": bits},
+                results={"dst": ValueRef.result("result")},
+                form=DescriptorEmitForm.OP,
+            )
         )
 
 
@@ -429,6 +528,192 @@ def _bf16_widening_rule(
     )
 
 
+def _scalar_f16_widening_rule(
+    descriptor_lookup: Callable[[str], Descriptor],
+    type_guard: Callable[[str, TypePattern], Guard],
+) -> DescriptorRule:
+    program = _ScalarI32Program(descriptor_lookup)
+    input_value = ValueRef.operand("input")
+    bits = program.binary(
+        "bits",
+        "wasm.i32.and",
+        input_value,
+        program.constant("payload_mask", 0xFFFF),
+    )
+    sign = program.binary(
+        "sign",
+        "wasm.i32.and",
+        bits,
+        program.constant("sign_mask", 0x8000),
+    )
+    sign = program.shift(
+        "positioned_sign",
+        "wasm.i32.shl",
+        sign,
+        program.constant("sign_shift", 16),
+    )
+    mantissa = program.binary(
+        "mantissa",
+        "wasm.i32.and",
+        bits,
+        program.constant("mantissa_mask", 0x3FF),
+    )
+    exponent = program.shift(
+        "encoded_exponent",
+        "wasm.i32.shr_u",
+        bits,
+        program.constant("exponent_shift", 10),
+    )
+    exponent = program.binary(
+        "exponent",
+        "wasm.i32.and",
+        exponent,
+        program.constant("exponent_mask", 0x1F),
+    )
+
+    f32_exponent_shift = program.constant("f32_exponent_shift", 23)
+    normal_exponent = program.binary(
+        "normal_exponent",
+        "wasm.i32.add",
+        exponent,
+        program.constant("normal_bias", 112),
+    )
+    normal_exponent = program.shift(
+        "positioned_normal_exponent",
+        "wasm.i32.shl",
+        normal_exponent,
+        f32_exponent_shift,
+    )
+    f32_mantissa_shift = program.constant("f32_mantissa_shift", 13)
+    positioned_mantissa = program.shift(
+        "positioned_mantissa",
+        "wasm.i32.shl",
+        mantissa,
+        f32_mantissa_shift,
+    )
+    normal = program.binary(
+        "normal_unsigned",
+        "wasm.i32.or",
+        normal_exponent,
+        positioned_mantissa,
+    )
+    normal = program.binary("normal", "wasm.i32.or", sign, normal)
+
+    leading_zeros = program.operation(
+        "leading_zeros",
+        "wasm.i32.clz",
+        {"input": mantissa},
+    )
+    # A nonzero 10-bit mantissa has 22-31 leading zeros in its I32 carrier.
+    # Subtracting 21 yields the 1-10 shifts that place its leading one in the
+    # implicit-bit position. F32 exponent 113 then decreases by the same shift.
+    normalization_shift = program.binary(
+        "normalization_shift",
+        "wasm.i32.sub",
+        leading_zeros,
+        program.constant("normalization_bias", 21),
+    )
+    normalized_mantissa = program.shift(
+        "normalized_mantissa",
+        "wasm.i32.shl",
+        mantissa,
+        normalization_shift,
+    )
+    normalized_mantissa = program.binary(
+        "subnormal_payload",
+        "wasm.i32.and",
+        normalized_mantissa,
+        program.constant("mantissa_mask", 0x3FF),
+    )
+    normalized_mantissa = program.shift(
+        "positioned_subnormal_payload",
+        "wasm.i32.shl",
+        normalized_mantissa,
+        f32_mantissa_shift,
+    )
+    subnormal_exponent = program.binary(
+        "subnormal_exponent",
+        "wasm.i32.sub",
+        program.constant("subnormal_bias", 113),
+        normalization_shift,
+    )
+    subnormal_exponent = program.shift(
+        "positioned_subnormal_exponent",
+        "wasm.i32.shl",
+        subnormal_exponent,
+        f32_exponent_shift,
+    )
+    subnormal = program.binary(
+        "subnormal_unsigned",
+        "wasm.i32.or",
+        subnormal_exponent,
+        normalized_mantissa,
+    )
+    subnormal = program.binary("subnormal", "wasm.i32.or", sign, subnormal)
+
+    zero = program.constant("zero", 0)
+    mantissa_is_zero = program.binary(
+        "mantissa_is_zero",
+        "wasm.i32.eq",
+        mantissa,
+        zero,
+    )
+    zero_or_subnormal = program.select(
+        "zero_or_subnormal",
+        sign,
+        subnormal,
+        mantissa_is_zero,
+    )
+    exponent_is_zero = program.binary(
+        "exponent_is_zero",
+        "wasm.i32.eq",
+        exponent,
+        zero,
+    )
+    finite = program.select(
+        "finite",
+        zero_or_subnormal,
+        normal,
+        exponent_is_zero,
+    )
+
+    infinity = program.binary(
+        "infinity",
+        "wasm.i32.or",
+        sign,
+        program.constant("infinity_bits", 0x7F800000),
+    )
+    special = program.binary(
+        "special",
+        "wasm.i32.or",
+        infinity,
+        positioned_mantissa,
+    )
+    exponent_is_special = program.binary(
+        "exponent_is_special",
+        "wasm.i32.eq",
+        exponent,
+        program.constant("exponent_mask", 0x1F),
+    )
+    result_bits = program.select(
+        "result_bits",
+        special,
+        finite,
+        exponent_is_special,
+    )
+    program.finish_float(result_bits)
+    return DescriptorRule(
+        source_op=scalar_conversion.scalar_extf,
+        descriptor=program.emits[-1].descriptor,
+        guards=(
+            type_guard("input", _F16_SCALAR),
+            type_guard("result", _F32_SCALAR),
+        ),
+        emit=tuple(program.emits),
+        report_key="wasm.float_extension.scalar_exact_f16_to_f32",
+    )
+
+
 def float_extension_rules(
     descriptor_lookup: Callable[[str], Descriptor],
     type_guard: Callable[[str, TypePattern], Guard],
@@ -441,4 +726,5 @@ def float_extension_rules(
             for source_format in (_F8E4M3, _F8E5M2, _F16)
         ),
         _bf16_widening_rule(descriptor_lookup, type_guard),
+        _scalar_f16_widening_rule(descriptor_lookup, type_guard),
     )

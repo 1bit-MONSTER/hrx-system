@@ -68,9 +68,9 @@ from loom.target.contracts.templates import (
     ReductionDescriptorCase,
     reduction_descriptor_rules,
 )
+from loom.target.emit.wasm.float_extension import float_extension_rules
 from loom.target.emit.wasm.float_narrowing import float_narrowing_rules
 from loom.target.emit.wasm.predicate import predicate_rules
-from loom.target.emit.wasm.vector_float_extension import float_extension_rules
 from loom.target.emit.wasm.vector_integer_arithmetic import (
     integer_arithmetic_rules,
 )
@@ -697,6 +697,51 @@ def _narrow_integer_to_float_rule(
             EmitDescriptorOp(
                 descriptor=convert,
                 operands={"input": ValueRef.temporary("normalized")},
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
+def _float_to_predicate_rule(
+    source_type: TypePattern,
+    source_type_name: str,
+    signedness: str,
+) -> DescriptorRule:
+    convert = _descriptor(f"wasm.i32.trunc_{source_type_name}_{signedness}")
+    constant = _descriptor("wasm.i32.const")
+    mask = _descriptor("wasm.i32.and")
+    return DescriptorRule(
+        source_op=(
+            scalar_conversion.scalar_fptosi
+            if signedness == "s"
+            else scalar_conversion.scalar_fptoui
+        ),
+        descriptor=mask,
+        guards=(
+            _value_type("input", source_type),
+            _value_type("result", _I1),
+        ),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=convert,
+                operands={"input": ValueRef.operand("input")},
+                results={"dst": ValueRef.temporary("converted")},
+                result_types={"dst": _I32},
+            ),
+            EmitDescriptorOp(
+                descriptor=constant,
+                results={"dst": ValueRef.temporary("mask")},
+                result_types={"dst": _I32},
+                immediates={"i32_value": 1},
+                form=DescriptorEmitForm.CONST,
+            ),
+            EmitDescriptorOp(
+                descriptor=mask,
+                operands={
+                    "lhs": ValueRef.temporary("converted"),
+                    "rhs": ValueRef.temporary("mask"),
+                },
                 results={"dst": ValueRef.result("result")},
             ),
         ),
@@ -1555,6 +1600,39 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
             )
             for source_type, source_bit_count in ((_I1, 1), (_I8, 8), (_I16, 16))
             for result_type, result_type_name in ((_F32, "f32"), (_F64, "f64"))
+            for signedness in ("s", "u")
+        ),
+        *(
+            _conversion_rule(
+                source_op,
+                source_type,
+                result_type,
+                f"wasm.{result_type_name}.trunc_{source_type_name}_{signedness}",
+            )
+            for source_op, signedness in (
+                (scalar_conversion.scalar_fptosi, "s"),
+                (scalar_conversion.scalar_fptoui, "u"),
+            )
+            for source_type, source_type_name in ((_F32, "f32"), (_F64, "f64"))
+            for result_type, result_type_name in ((_I32, "i32"), (_I64, "i64"))
+        ),
+        *(
+            _conversion_rule(
+                source_op,
+                source_type,
+                result_type,
+                f"wasm.i32.trunc_{source_type_name}_{signedness}",
+            )
+            for source_op, signedness in (
+                (scalar_conversion.scalar_fptosi, "s"),
+                (scalar_conversion.scalar_fptoui, "u"),
+            )
+            for source_type, source_type_name in ((_F32, "f32"), (_F64, "f64"))
+            for result_type in (_I8, _I16)
+        ),
+        *(
+            _float_to_predicate_rule(source_type, source_type_name, signedness)
+            for source_type, source_type_name in ((_F32, "f32"), (_F64, "f64"))
             for signedness in ("s", "u")
         ),
         _conversion_rule(

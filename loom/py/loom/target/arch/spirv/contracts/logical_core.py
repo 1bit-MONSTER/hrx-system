@@ -57,6 +57,7 @@ from loom.target.arch.spirv.contracts.extended_math import (
     SPIRV_EXTENDED_MATH_CONTRACT_CASES,
 )
 from loom.target.arch.spirv.contracts.float8 import float8_narrow_rules
+from loom.target.arch.spirv.contracts.float_width import float_width_narrow_rules
 from loom.target.arch.spirv.contracts.index import (
     SPIRV_INDEX_CONVERSION_RULES,
     SPIRV_INDEX_NUMERIC_RULES,
@@ -1500,6 +1501,7 @@ def _conversion_rules() -> tuple[DescriptorRule, ...]:
             row.source_op_key == "fptrunc" and row.result_type.source_type == "bf16"
         )
     ]
+    rules.extend(float_width_narrow_rules())
     rules.extend(bfloat_narrow_rules())
     rules.append(bfloat_carrier_from_i16_rule())
     rules.append(bfloat_carrier_to_i16_rule())

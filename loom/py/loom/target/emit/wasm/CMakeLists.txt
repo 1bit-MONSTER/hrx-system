@@ -15,9 +15,9 @@ iree_py_library(
   SRCS
     "__init__.py"
     "contracts.py"
+    "float_extension.py"
     "float_narrowing.py"
     "predicate.py"
-    "vector_float_extension.py"
     "vector_integer_arithmetic.py"
     "vector_integer_extension.py"
     "vector_shifts.py"
@@ -107,14 +107,14 @@ iree_py_test(
 
 iree_py_test(
   NAME
-    vector_float_extension_test
+    float_extension_test
   MAIN
     "../../../tools/pytest_style_runner.py"
   SRCS
-    "vector_float_extension_test.py"
+    "float_extension_test.py"
     "../../../tools/pytest_style_runner.py"
   ARGS
-    "loom.target.emit.wasm.vector_float_extension_test"
+    "loom.target.emit.wasm.float_extension_test"
   DEPS
     loom::py::loom::target::emit::wasm::contracts
   PACKAGE_DIRS

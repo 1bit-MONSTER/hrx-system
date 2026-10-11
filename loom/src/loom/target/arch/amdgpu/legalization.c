@@ -31,6 +31,7 @@
 #include "loom/target/arch/amdgpu/lower/value/vector_transform.h"
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
 #include "loom/target/arch/amdgpu/target_info_defs.h"
+#include "loom/transforms/conversion/target_legalization.h"
 #include "loom/transforms/scalar/target_legalization.h"
 #include "loom/transforms/vector/packet_legalization.h"
 #include "loom/transforms/vector/shape_legalization.h"
@@ -42,6 +43,18 @@ static bool loom_amdgpu_legalizer_descriptor_set_is_amdgpu(
     const loom_low_descriptor_set_t* descriptor_set) {
   return descriptor_set != NULL &&
          descriptor_set->target_stable_id == LOOM_AMDGPU_TARGET_STABLE_ID;
+}
+
+static bool loom_amdgpu_match_narrow_float_to_i64(
+    const loom_target_legalizer_entry_t* entry,
+    const loom_target_legalization_context_t* context, const loom_op_t* op) {
+  (void)entry;
+  if (!loom_amdgpu_legalizer_descriptor_set_is_amdgpu(
+          context->descriptor_set)) {
+    return false;
+  }
+  return loom_type_element_type(loom_module_value_type(
+             context->module, loom_op_results(op)[0])) == LOOM_SCALAR_TYPE_I64;
 }
 
 static bool loom_amdgpu_legalizer_has_descriptor(
@@ -820,6 +833,42 @@ static const loom_target_legalizer_rule_t kAmdgpuLegalizerRules[] = {
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I32,
         .match = loom_amdgpu_match_scalar_multiply_add,
         .legalize = loom_amdgpu_legalize_scalar_multiply_add,
+    },
+    {
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .root_kind = LOOM_OP_SCALAR_FPTOSI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F16 |
+                                       LOOM_SCALAR_TYPE_SET_F8E4M3 |
+                                       LOOM_SCALAR_TYPE_SET_F8E5M2,
+        .match = loom_amdgpu_match_narrow_float_to_i64,
+        .legalize = loom_conversion_legalize_narrow_float_to_i64,
+    },
+    {
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .root_kind = LOOM_OP_SCALAR_FPTOUI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F16 |
+                                       LOOM_SCALAR_TYPE_SET_F8E4M3 |
+                                       LOOM_SCALAR_TYPE_SET_F8E5M2,
+        .match = loom_amdgpu_match_narrow_float_to_i64,
+        .legalize = loom_conversion_legalize_narrow_float_to_i64,
+    },
+    {
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .root_kind = LOOM_OP_VECTOR_FPTOSI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F16 |
+                                       LOOM_SCALAR_TYPE_SET_F8E4M3 |
+                                       LOOM_SCALAR_TYPE_SET_F8E5M2,
+        .match = loom_amdgpu_match_narrow_float_to_i64,
+        .legalize = loom_conversion_legalize_narrow_float_to_i64,
+    },
+    {
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .root_kind = LOOM_OP_VECTOR_FPTOUI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F16 |
+                                       LOOM_SCALAR_TYPE_SET_F8E4M3 |
+                                       LOOM_SCALAR_TYPE_SET_F8E5M2,
+        .match = loom_amdgpu_match_narrow_float_to_i64,
+        .legalize = loom_conversion_legalize_narrow_float_to_i64,
     },
     {
         .root_kind = LOOM_OP_VECTOR_BROADCAST,

@@ -55,10 +55,6 @@ class OrdinaryVectorConversion:
                 raise ValueError("scalar and vector conversion encodings must match")
             if component_type.feature_atoms != scalar_type.feature_atoms:
                 raise ValueError("scalar and vector conversion features must match")
-        if self.scalar_conversion.feature_atoms:
-            raise ValueError(
-                "native numeric conversions cannot drop instruction features"
-            )
 
     @property
     def instruction(self) -> OrdinaryVectorInstruction:
@@ -77,6 +73,7 @@ class OrdinaryVectorConversion:
             result_type=self.result_type,
             operand_names=("input",),
             operand_types=(self.source_type,),
+            feature_atoms=scalar_conversion.feature_atoms,
         )
 
 

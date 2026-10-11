@@ -18,7 +18,7 @@ from loom.target.contracts import (
     ValueRef,
     descriptor_by_key,
 )
-from loom.target.emit.wasm.vector_float_extension import float_extension_rules
+from loom.target.emit.wasm.float_extension import float_extension_rules
 
 
 def _descriptor(key):
@@ -38,6 +38,14 @@ def _rule(source_element: str) -> DescriptorRule:
     return next(rule for rule in _rules() if rule.report_key == report_key)
 
 
+def _scalar_f16_rule() -> DescriptorRule:
+    return next(
+        rule
+        for rule in _rules()
+        if rule.report_key == "wasm.float_extension.scalar_exact_f16_to_f32"
+    )
+
+
 def _evaluate_lane(rule: DescriptorRule, input_bits: int) -> int:
     values = {ValueRef.operand("input"): input_bits}
     for emit in rule.emit:
@@ -50,22 +58,39 @@ def _evaluate_lane(rule: DescriptorRule, input_bits: int) -> int:
             result = emit.immediates["i32_value"] & 0xFFFFFFFF
         elif ".extend_low_" in key:
             result = operands["input"]
-        elif key == "v128.and":
+        elif key == "v128.and" or key == "i32.and":
             result = operands["lhs"] & operands["rhs"]
-        elif key == "v128.or":
+        elif key == "v128.or" or key == "i32.or":
             result = operands["lhs"] | operands["rhs"]
-        elif key == "i32x4.add":
+        elif key == "i32x4.add" or key == "i32.add":
             result = operands["lhs"] + operands["rhs"]
-        elif key == "i32x4.sub":
+        elif key == "i32x4.sub" or key == "i32.sub":
             result = operands["lhs"] - operands["rhs"]
         elif key == "i32x4.eq":
             result = 0xFFFFFFFF if operands["lhs"] == operands["rhs"] else 0
+        elif key == "i32.eq":
+            result = 1 if operands["lhs"] == operands["rhs"] else 0
         elif key == "i32x4.lt_u":
             result = 0xFFFFFFFF if operands["lhs"] < operands["rhs"] else 0
+        elif key == "i32.clz":
+            value = operands["input"]
+            result = 32 if value == 0 else 32 - value.bit_length()
         elif key == "i32x4.shl":
             result = operands["value"] << (operands["count"] & 31)
+        elif key == "i32.shl":
+            result = operands["lhs"] << (operands["rhs"] & 31)
         elif key == "i32x4.shr_u":
             result = operands["value"] >> (operands["count"] & 31)
+        elif key == "i32.shr_u":
+            result = operands["lhs"] >> (operands["rhs"] & 31)
+        elif key == "i32.select":
+            result = (
+                operands["true_value"]
+                if operands["condition"]
+                else operands["false_value"]
+            )
+        elif key == "f32.reinterpret_i32":
+            result = operands["input"]
         else:
             assert key == "v128.bitselect"
             condition = operands["condition"]
@@ -128,7 +153,7 @@ def _reference_fp8(
 
 
 def test_rules_cover_the_complete_narrow_to_f32_packet_family():
-    rules = _rules()
+    rules = tuple(rule for rule in _rules() if rule.source_op.name == "vector.extf")
 
     assert {rule.report_key for rule in rules} == {
         "wasm.float_extension.exact_f8e4m3_to_f32",
@@ -168,6 +193,32 @@ def test_rules_cover_the_complete_narrow_to_f32_packet_family():
         "wasm.float_extension.exact_f16_to_f32": 69,
         "wasm.float_extension.exact_bf16_to_f32": 3,
     }
+
+
+def test_scalar_f16_widening_uses_scalar_integer_normalization():
+    rule = _scalar_f16_rule()
+    type_guards = {
+        guard.field: guard.type_pattern
+        for guard in rule.guards
+        if guard.kind is GuardKind.VALUE_TYPE
+    }
+
+    assert rule.source_op.name == "scalar.extf"
+    assert type_guards["input"].elements == ("f16",)
+    assert type_guards["result"].elements == ("f32",)
+    assert rule.emit[-1].descriptor.key == "wasm.f32.reinterpret_i32"
+    assert any(emit.descriptor.key == "wasm.i32.clz" for emit in rule.emit)
+    assert all(
+        not emit.descriptor.key.startswith(
+            (
+                "wasm.v128.",
+                "wasm.i8x16.",
+                "wasm.i16x8.",
+                "wasm.i32x4.",
+            )
+        )
+        for emit in rule.emit
+    )
 
 
 def test_bf16_widening_is_one_extension_and_one_shift():
@@ -224,6 +275,15 @@ def test_f16_widening_program_matches_boundary_encodings():
 @pytest.mark.exhaustive
 def test_f16_widening_program_matches_every_encoding():
     rule = _rule("f16")
+    for input_bits in range(1 << 16):
+        assert _evaluate_lane(rule, input_bits) == _reference_f16(input_bits), hex(
+            input_bits
+        )
+
+
+@pytest.mark.exhaustive
+def test_scalar_f16_widening_program_matches_every_encoding():
+    rule = _scalar_f16_rule()
     for input_bits in range(1 << 16):
         assert _evaluate_lane(rule, input_bits) == _reference_f16(input_bits), hex(
             input_bits

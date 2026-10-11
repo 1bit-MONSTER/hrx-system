@@ -25,6 +25,8 @@ enum {
   LOOMC_SPIRV_IREE_HAL_ENVIRONMENT_FACT_CAPACITY = 4,
   LOOMC_SPIRV_IREE_HAL_VULKAN_COMPONENT_TYPE_BFLOAT16_KHR = 1000141000,
   LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_BALLOT_BIT = 0x00000008,
+  // PCI-SIG vendor identifier reported by AMD Vulkan physical devices.
+  LOOMC_SPIRV_IREE_HAL_VULKAN_AMD_VENDOR_ID = 0x1002,
   LOOMC_SPIRV_IREE_HAL_VULKAN_API_VERSION_1_3 =
       LOOMC_SPIRV_IREE_HAL_VULKAN_API_VERSION(1, 3, 0),
 };
@@ -61,6 +63,7 @@ typedef struct loomc_spirv_iree_hal_feature_row_t {
       .provenance = "iree-hal:vulkan.atomic." source,            \
   }
 
+// clang-format off
 static const loomc_spirv_iree_hal_feature_row_t
     kLoomcSpirvIreeHalFeatureRows[] = {
         LOOMC_SPIRV_IREE_HAL_GENERAL_FEATURE_ROW(
@@ -166,6 +169,48 @@ static const loomc_spirv_iree_hal_feature_row_t
             .provenance = "iree-hal:vulkan.device.float32_denorm_preserve",
         },
         {
+            .required_device_flags =
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_DENORM_PRESERVE,
+            .feature = LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
+            .provenance = "iree-hal:vulkan.device.float16_64_denorm_preserve",
+        },
+        {
+            .required_device_flags =
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_64_ROUNDING_RTE,
+            .feature = LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
+            .provenance = "iree-hal:vulkan.device.float16_64_rounding_rte",
+        },
+        {
+            .required_device_flags =
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_ROUNDING_RTE,
+            .feature = LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
+            .provenance = "iree-hal:vulkan.device.float32_rounding_rte",
+        },
+        {
+            .required_device_flags =
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE,
+            .feature =
+                LOOMC_SPIRV_FEATURE_FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE,
+            .provenance =
+                "iree-hal:vulkan.device.float16_signed_zero_inf_nan_preserve",
+        },
+        {
+            .required_device_flags =
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE,
+            .feature =
+                LOOMC_SPIRV_FEATURE_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE,
+            .provenance =
+                "iree-hal:vulkan.device.float32_signed_zero_inf_nan_preserve",
+        },
+        {
+            .required_device_flags =
+                IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE,
+            .feature =
+                LOOMC_SPIRV_FEATURE_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE,
+            .provenance =
+                "iree-hal:vulkan.device.float64_signed_zero_inf_nan_preserve",
+        },
+        {
             .required_subgroup_operations =
                 LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_BALLOT_BIT,
             .feature = LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
@@ -173,6 +218,7 @@ static const loomc_spirv_iree_hal_feature_row_t
                 "iree-hal:vulkan.device.subgroup_supported_operations",
         },
 };
+// clang-format on
 
 #undef LOOMC_SPIRV_IREE_HAL_ATOMIC_FEATURE_ROW
 #undef LOOMC_SPIRV_IREE_HAL_GENERAL_FEATURE_ROW
@@ -511,6 +557,8 @@ static loomc_status_t loomc_spirv_iree_hal_query_facts(
     return loomc_spirv_iree_hal_fail_cstring(
         result, "IREE HAL device does not expose immutable device facts");
   }
+  const iree_hal_device_identity_spec_t* identity =
+      iree_hal_device_spec_identity(device_spec);
   const iree_hal_executable_target_selection_t target_selection = {
       .family = IREE_SV("spirv"),
       .target_key = IREE_SV("vulkan1.3+bda"),
@@ -580,6 +628,11 @@ static loomc_status_t loomc_spirv_iree_hal_query_facts(
       out_facts, true, LOOMC_SPIRV_FEATURE_VULKAN_SHADER, api_provenance));
   LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_bool_feature(
       out_facts, true, LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM, api_provenance));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_bool_feature(
+      out_facts,
+      identity->vendor_id != LOOMC_SPIRV_IREE_HAL_VULKAN_AMD_VENDOR_ID,
+      LOOMC_SPIRV_FEATURE_FLOAT64_TO_FLOAT16_CONVERSION,
+      loomc_make_cstring_view("iree-hal:identity.vendor_id")));
   LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_environment_fact(
       out_facts, LOOMC_SPIRV_ENVIRONMENT_MAX_SPIRV_VERSION,
       loomc_spirv_max_version_from_vulkan_api_version(

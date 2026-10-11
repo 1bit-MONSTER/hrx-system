@@ -25,35 +25,41 @@ static iree_status_t loom_conversion_build_exact(
   return loom_builder_finalize_op(builder, *out_op);
 }
 
-// Builds a shape-preserving conversion chain with an F32 intermediate. The
-// caller establishes that staging preserves the original rounding semantics.
-static iree_status_t loom_conversion_stage_f32(
+// Builds a shape-preserving conversion chain through the supplied intermediate
+// element types. The caller establishes that every stage preserves the
+// original conversion semantics.
+static iree_status_t loom_conversion_stage_chain(
     loom_target_legalization_context_t* context, loom_op_t* op,
-    loom_op_kind_t first_kind, loom_op_kind_t second_kind,
+    const loom_scalar_type_t* intermediate_elements,
+    iree_host_size_t intermediate_count, const loom_op_kind_t* stage_kinds,
     loom_target_legalizer_result_t* out_result) {
   const loom_value_id_t input = loom_op_operands(op)[0];
   const loom_type_t input_type = loom_module_value_type(context->module, input);
   const loom_type_t result_type =
       loom_module_value_type(context->module, loom_op_results(op)[0]);
-  loom_type_t intermediate_type = input_type;
-  intermediate_type.header = loom_type_make_header(
-      loom_type_kind(input_type), LOOM_SCALAR_TYPE_F32,
-      loom_type_rank(input_type), loom_type_flags(input_type));
-  IREE_RETURN_IF_ERROR(loom_module_intern_type(
-      context->module, intermediate_type, &intermediate_type));
 
   loom_rewriter_t* rewriter = context->rewriter;
   loom_builder_set_before(&rewriter->builder, op);
   const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
-  loom_op_t* intermediate = NULL;
-  IREE_RETURN_IF_ERROR(loom_conversion_build_exact(
-      &rewriter->builder, first_kind, input, intermediate_type, op->location,
-      &intermediate));
-  loom_op_t* converted = NULL;
-  IREE_RETURN_IF_ERROR(loom_conversion_build_exact(
-      &rewriter->builder, second_kind, loom_op_results(intermediate)[0],
-      result_type, op->location, &converted));
-  const loom_value_id_t replacement = loom_op_results(converted)[0];
+  loom_value_id_t stage_input = input;
+  for (iree_host_size_t stage_index = 0; stage_index <= intermediate_count;
+       ++stage_index) {
+    loom_type_t stage_result_type = result_type;
+    if (stage_index < intermediate_count) {
+      stage_result_type = input_type;
+      stage_result_type.header = loom_type_make_header(
+          loom_type_kind(input_type), intermediate_elements[stage_index],
+          loom_type_rank(input_type), loom_type_flags(input_type));
+      IREE_RETURN_IF_ERROR(loom_module_intern_type(
+          context->module, stage_result_type, &stage_result_type));
+    }
+    loom_op_t* stage = NULL;
+    IREE_RETURN_IF_ERROR(loom_conversion_build_exact(
+        &rewriter->builder, stage_kinds[stage_index], stage_input,
+        stage_result_type, op->location, &stage));
+    stage_input = loom_op_results(stage)[0];
+  }
+  const loom_value_id_t replacement = stage_input;
   IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
       rewriter, op, &replacement, 1, checkpoint));
   IREE_RETURN_IF_ERROR(
@@ -64,7 +70,43 @@ static iree_status_t loom_conversion_stage_f32(
   return iree_ok_status();
 }
 
-static bool loom_conversion_match_integer_to_narrow_float(
+static iree_status_t loom_conversion_stage_through(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_scalar_type_t intermediate_element, loom_op_kind_t first_kind,
+    loom_op_kind_t second_kind, loom_target_legalizer_result_t* out_result) {
+  const loom_scalar_type_t intermediate_elements[] = {intermediate_element};
+  const loom_op_kind_t stage_kinds[] = {first_kind, second_kind};
+  return loom_conversion_stage_chain(context, op, intermediate_elements,
+                                     IREE_ARRAYSIZE(intermediate_elements),
+                                     stage_kinds, out_result);
+}
+
+iree_status_t loom_conversion_legalize_narrow_float_to_i64(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  const bool is_signed =
+      op->kind == LOOM_OP_SCALAR_FPTOSI || op->kind == LOOM_OP_VECTOR_FPTOSI;
+  const bool is_vector = loom_type_is_vector(
+      loom_module_value_type(context->module, loom_op_operands(op)[0]));
+  const loom_scalar_type_t intermediate_elements[] = {
+      LOOM_SCALAR_TYPE_F32,
+      LOOM_SCALAR_TYPE_I32,
+  };
+  const loom_op_kind_t stage_kinds[] = {
+      is_vector ? LOOM_OP_VECTOR_EXTF : LOOM_OP_SCALAR_EXTF,
+      is_vector ? (is_signed ? LOOM_OP_VECTOR_FPTOSI : LOOM_OP_VECTOR_FPTOUI)
+                : (is_signed ? LOOM_OP_SCALAR_FPTOSI : LOOM_OP_SCALAR_FPTOUI),
+      is_vector ? (is_signed ? LOOM_OP_VECTOR_EXTSI : LOOM_OP_VECTOR_EXTUI)
+                : (is_signed ? LOOM_OP_SCALAR_EXTSI : LOOM_OP_SCALAR_EXTUI),
+  };
+  return loom_conversion_stage_chain(context, op, intermediate_elements,
+                                     IREE_ARRAYSIZE(intermediate_elements),
+                                     stage_kinds, out_result);
+}
+
+static bool loom_conversion_match_integer_to_float(
     const loom_target_legalizer_entry_t* entry,
     const loom_target_legalization_context_t* context, const loom_op_t* op) {
   (void)entry;
@@ -82,11 +124,13 @@ static bool loom_conversion_match_integer_to_narrow_float(
   // conversions single-rounded.
   const loom_scalar_type_t input_element = loom_type_element_type(
       loom_module_value_type(context->module, loom_op_operands(op)[0]));
-  return result_element == LOOM_SCALAR_TYPE_BF16 &&
-         loom_scalar_type_set_contains(LOOM_SCALAR_TYPE_SET_I1 |
-                                           LOOM_SCALAR_TYPE_SET_I8 |
-                                           LOOM_SCALAR_TYPE_SET_I16,
-                                       input_element);
+  const bool narrow_input = loom_scalar_type_set_contains(
+      LOOM_SCALAR_TYPE_SET_I1 | LOOM_SCALAR_TYPE_SET_I8 |
+          LOOM_SCALAR_TYPE_SET_I16,
+      input_element);
+  return narrow_input && (result_element == LOOM_SCALAR_TYPE_BF16 ||
+                          result_element == LOOM_SCALAR_TYPE_F32 ||
+                          result_element == LOOM_SCALAR_TYPE_F64);
 }
 
 static iree_status_t loom_conversion_legalize_integer_to_float(
@@ -101,8 +145,18 @@ static iree_status_t loom_conversion_legalize_integer_to_float(
   const loom_op_kind_t convert_kind =
       is_vector ? (is_signed ? LOOM_OP_VECTOR_SITOFP : LOOM_OP_VECTOR_UITOFP)
                 : (is_signed ? LOOM_OP_SCALAR_SITOFP : LOOM_OP_SCALAR_UITOFP);
-  return loom_conversion_stage_f32(
-      context, op, convert_kind,
+  const loom_scalar_type_t result_element = loom_type_element_type(
+      loom_module_value_type(context->module, loom_op_results(op)[0]));
+  if (result_element == LOOM_SCALAR_TYPE_F32 ||
+      result_element == LOOM_SCALAR_TYPE_F64) {
+    const loom_op_kind_t extend_kind =
+        is_vector ? (is_signed ? LOOM_OP_VECTOR_EXTSI : LOOM_OP_VECTOR_EXTUI)
+                  : (is_signed ? LOOM_OP_SCALAR_EXTSI : LOOM_OP_SCALAR_EXTUI);
+    return loom_conversion_stage_through(context, op, LOOM_SCALAR_TYPE_I32,
+                                         extend_kind, convert_kind, out_result);
+  }
+  return loom_conversion_stage_through(
+      context, op, LOOM_SCALAR_TYPE_F32, convert_kind,
       is_vector ? LOOM_OP_VECTOR_FPTRUNC : LOOM_OP_SCALAR_FPTRUNC, out_result);
 }
 
@@ -120,9 +174,10 @@ static iree_status_t loom_conversion_legalize_float_to_integer(
                 : (is_signed ? LOOM_OP_SCALAR_FPTOSI : LOOM_OP_SCALAR_FPTOUI);
   // Every F16/BF16/FP8 source value widens exactly, so the original toward-zero
   // conversion and its defined integer result domain are unchanged.
-  return loom_conversion_stage_f32(
-      context, op, is_vector ? LOOM_OP_VECTOR_EXTF : LOOM_OP_SCALAR_EXTF,
-      convert_kind, out_result);
+  return loom_conversion_stage_through(
+      context, op, LOOM_SCALAR_TYPE_F32,
+      is_vector ? LOOM_OP_VECTOR_EXTF : LOOM_OP_SCALAR_EXTF, convert_kind,
+      out_result);
 }
 
 static const loom_target_legalizer_rule_t kConversionLegalizerRules[] = {
@@ -130,28 +185,28 @@ static const loom_target_legalizer_rule_t kConversionLegalizerRules[] = {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .root_kind = LOOM_OP_SCALAR_SITOFP,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
-        .match = loom_conversion_match_integer_to_narrow_float,
+        .match = loom_conversion_match_integer_to_float,
         .legalize = loom_conversion_legalize_integer_to_float,
     },
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .root_kind = LOOM_OP_SCALAR_UITOFP,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
-        .match = loom_conversion_match_integer_to_narrow_float,
+        .match = loom_conversion_match_integer_to_float,
         .legalize = loom_conversion_legalize_integer_to_float,
     },
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .root_kind = LOOM_OP_VECTOR_SITOFP,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
-        .match = loom_conversion_match_integer_to_narrow_float,
+        .match = loom_conversion_match_integer_to_float,
         .legalize = loom_conversion_legalize_integer_to_float,
     },
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .root_kind = LOOM_OP_VECTOR_UITOFP,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
-        .match = loom_conversion_match_integer_to_narrow_float,
+        .match = loom_conversion_match_integer_to_float,
         .legalize = loom_conversion_legalize_integer_to_float,
     },
     {

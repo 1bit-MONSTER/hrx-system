@@ -1,0 +1,30 @@
+// RUN: pass target-legalize{mode=final},dce
+
+amdgpu.target<gfx1250> @target
+
+func.def target(@target) @convert_fp8_to_wide_integer(%e4m3: f8E4M3, %e5m2: f8E5M2, %e4m3_vector: vector<2xf8E4M3>, %e5m2_vector: vector<2xf8E5M2>) -> (i64, i64, vector<2xi64>, vector<2xi64>) {
+  %signed = scalar.fptosi %e4m3 : f8E4M3 to i64
+  %unsigned = scalar.fptoui %e5m2 : f8E5M2 to i64
+  %signed_vector = vector.fptosi %e5m2_vector : vector<2xf8E5M2> to vector<2xi64>
+  %unsigned_vector = vector.fptoui %e4m3_vector : vector<2xf8E4M3> to vector<2xi64>
+  func.return %signed, %unsigned, %signed_vector, %unsigned_vector : i64, i64, vector<2xi64>, vector<2xi64>
+}
+
+// ----
+amdgpu.target<gfx1250> @target
+
+func.def target(@target) @convert_fp8_to_wide_integer(%e4m3: f8E4M3, %e5m2: f8E5M2, %e4m3_vector: vector<2xf8E4M3>, %e5m2_vector: vector<2xf8E5M2>) -> (i64, i64, vector<2xi64>, vector<2xi64>) {
+  %21 = scalar.extf %e4m3 : f8E4M3 to f32
+  %22 = scalar.fptosi %21 : f32 to i32
+  %signed = scalar.extsi %22 : i32 to i64
+  %18 = scalar.extf %e5m2 : f8E5M2 to f32
+  %19 = scalar.fptoui %18 : f32 to i32
+  %unsigned = scalar.extui %19 : i32 to i64
+  %15 = vector.extf %e5m2_vector : vector<2xf8E5M2> to vector<2xf32>
+  %16 = vector.fptosi %15 : vector<2xf32> to vector<2xi32>
+  %signed_vector = vector.extsi %16 : vector<2xi32> to vector<2xi64>
+  %12 = vector.extf %e4m3_vector : vector<2xf8E4M3> to vector<2xf32>
+  %13 = vector.fptoui %12 : vector<2xf32> to vector<2xi32>
+  %unsigned_vector = vector.extui %13 : vector<2xi32> to vector<2xi64>
+  func.return %signed, %unsigned, %signed_vector, %unsigned_vector : i64, i64, vector<2xi64>, vector<2xi64>
+}

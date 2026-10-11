@@ -108,6 +108,14 @@ F16_FORMAT = NarrowFloatFormat(
     nan=NarrowFloatNan.PRESERVE_PAYLOAD,
 )
 
+F32_NARROW_FORMAT = NarrowFloatFormat(
+    exponent_bits=F32_FORMAT.exponent_bits,
+    mantissa_bits=F32_FORMAT.mantissa_bits,
+    exponent_bias=F32_FORMAT.exponent_bias,
+    overflow=NarrowFloatOverflow.INFINITY,
+    nan=NarrowFloatNan.PRESERVE_PAYLOAD,
+)
+
 BF16_FORMAT = NarrowFloatFormat(
     exponent_bits=8,
     mantissa_bits=7,

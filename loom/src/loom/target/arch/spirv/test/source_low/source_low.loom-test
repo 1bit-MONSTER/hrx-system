@@ -718,17 +718,69 @@ low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (
   OpStore.storage_buffer.f32 %94, %extended_f32
   %95 = OpPtrAccessChain.storage_buffer.f32.byte_offset %input_f32_aligned, %byte_offset_aligned
   %loaded_f32 = OpLoad.storage_buffer.f32 %95
-  %truncated_f16 = OpFConvert.f32.f16 %loaded_f32
-  %98 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output_fptrunc_f16_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.f16 %98, %truncated_f16
+  %97 = OpBitcast.f32.i32 %loaded_f32 : reg<spirv.id>
+  %98 = OpConstant.i32 -2147483648 : reg<spirv.id>
+  %99 = OpBitwiseAnd %97, %98 : reg<spirv.id>
+  %100 = OpConstant.i32 16 : reg<spirv.id>
+  %101 = OpShiftRightLogical %99, %100 : reg<spirv.id>
+  %102 = OpConstant.i32 2147483647 : reg<spirv.id>
+  %103 = OpBitwiseAnd %97, %102 : reg<spirv.id>
+  %104 = OpConstant.i32 8388607 : reg<spirv.id>
+  %105 = OpBitwiseAnd %103, %104 : reg<spirv.id>
+  %106 = OpConstant.i32 8388608 : reg<spirv.id>
+  %107 = OpBitwiseOr %105, %106 : reg<spirv.id>
+  %108 = OpConstant.i32 23 : reg<spirv.id>
+  %109 = OpShiftRightLogical %103, %108 : reg<spirv.id>
+  %110 = OpConstant.i32 112 : reg<spirv.id>
+  %111 = OpSGreaterThan %109, %110 : reg<spirv.id>
+  %112 = OpSelect %111, %110, %109 : reg<spirv.id>
+  %113 = OpConstant.i32 126 : reg<spirv.id>
+  %114 = OpISub %113, %112 : reg<spirv.id>
+  %115 = OpConstant.i32 31 : reg<spirv.id>
+  %116 = OpSGreaterThan %114, %115 : reg<spirv.id>
+  %117 = OpSelect %116, %115, %114 : reg<spirv.id>
+  %118 = OpShiftRightLogical %107, %117 : reg<spirv.id>
+  %119 = OpConstant.i32 1 : reg<spirv.id>
+  %120 = OpISub %117, %119 : reg<spirv.id>
+  %121 = OpShiftLeftLogical %119, %120 : reg<spirv.id>
+  %122 = OpISub %121, %119 : reg<spirv.id>
+  %123 = OpBitwiseAnd %118, %119 : reg<spirv.id>
+  %124 = OpIAdd %107, %122 : reg<spirv.id>
+  %125 = OpIAdd %124, %123 : reg<spirv.id>
+  %126 = OpShiftRightLogical %125, %117 : reg<spirv.id>
+  %127 = OpConstant.i32 13 : reg<spirv.id>
+  %128 = OpShiftRightLogical %103, %127 : reg<spirv.id>
+  %130 = OpBitwiseAnd %128, %119 : reg<spirv.id>
+  %131 = OpConstant.i32 -939520001 : reg<spirv.id>
+  %132 = OpIAdd %103, %131 : reg<spirv.id>
+  %133 = OpIAdd %132, %130 : reg<spirv.id>
+  %134 = OpShiftRightLogical %133, %127 : reg<spirv.id>
+  %135 = OpConstant.i32 947912704 : reg<spirv.id>
+  %136 = OpSLessThan %103, %135 : reg<spirv.id>
+  %137 = OpSelect %136, %126, %134 : reg<spirv.id>
+  %138 = OpConstant.i32 31744 : reg<spirv.id>
+  %139 = OpSGreaterThanEqual %137, %138 : reg<spirv.id>
+  %140 = OpSelect %139, %138, %137 : reg<spirv.id>
+  %143 = OpShiftRightLogical %105, %127 : reg<spirv.id>
+  %144 = OpBitwiseOr %138, %143 : reg<spirv.id>
+  %145 = OpConstant.i32 512 : reg<spirv.id>
+  %146 = OpBitwiseOr %144, %145 : reg<spirv.id>
+  %147 = OpConstant.i32 2139095040 : reg<spirv.id>
+  %148 = OpSGreaterThan %103, %147 : reg<spirv.id>
+  %149 = OpSelect %148, %146, %140 : reg<spirv.id>
+  %150 = OpBitwiseOr %101, %149 : reg<spirv.id>
+  %151 = OpBitcast.i32.v2f16 %150 : reg<spirv.id>
+  %truncated_f16 = OpCompositeExtract.v2f16.f16 %151, 0
+  %153 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output_fptrunc_f16_aligned, %byte_offset_aligned
+  OpStore.storage_buffer.f16 %153, %truncated_f16
   %converted_i16 = OpConvertFToS.f32.i16 %loaded_f32
-  %100 = OpPtrAccessChain.storage_buffer.i16.byte_offset %output_fptosi_i16_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.i16 %100, %converted_i16
-  %101 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input_i32_bits_aligned, %byte_offset_aligned
-  %loaded_i32_bits = OpLoad.storage_buffer.i32 %101
+  %155 = OpPtrAccessChain.storage_buffer.i16.byte_offset %output_fptosi_i16_aligned, %byte_offset_aligned
+  OpStore.storage_buffer.i16 %155, %converted_i16
+  %156 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input_i32_bits_aligned, %byte_offset_aligned
+  %loaded_i32_bits = OpLoad.storage_buffer.i32 %156
   %bitcast_f32 = OpBitcast.i32.f32 %loaded_i32_bits
-  %104 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_bitcast_f32_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.f32 %104, %bitcast_f32
+  %159 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_bitcast_f32_aligned, %byte_offset_aligned
+  OpStore.storage_buffer.f32 %159, %bitcast_f32
   return
 }
 

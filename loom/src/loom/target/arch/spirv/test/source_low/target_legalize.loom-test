@@ -1,5 +1,27 @@
 // RUN: pass target-legalize{mode=final},dce,canonicalize
 
+spirv.target<vulkan1_3> @target {contract_feature_bits = 33278}
+
+func.def target(@target) @scalarizes_unavailable_float_narrowing(%input: vector<2xf32>) -> (vector<2xf16>) {
+  %result = vector.fptrunc %input : vector<2xf32> to vector<2xf16>
+  func.return %result : vector<2xf16>
+}
+
+// ----
+spirv.target<vulkan1_3> @target {contract_feature_bits = 33278}
+
+func.def target(@target) @scalarizes_unavailable_float_narrowing(%input: vector<2xf32>) -> (vector<2xf16>) {
+  %3 = vector.extract %input[0] : vector<2xf32> -> f32
+  %4 = scalar.fptrunc %3 : f32 to f16
+  %5 = vector.extract %input[1] : vector<2xf32> -> f32
+  %6 = scalar.fptrunc %5 : f32 to f16
+  %result = vector.from_elements %4, %6 : vector<2xf16>
+  func.return %result : vector<2xf16>
+}
+
+// ====
+// RUN: pass target-legalize{mode=final},dce,canonicalize
+
 spirv.target<vulkan1_3> @target
 
 func.def target(@target) @reference_fallback_for_dense_logical_mma(%lhs_data: vector<4xi32>, %rhs_data: vector<4xi32>, %init_data: vector<4xi32>) -> (vector<4xi32>) {

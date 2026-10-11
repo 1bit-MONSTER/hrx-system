@@ -327,8 +327,9 @@ def _rdna_scalar_domain_fma_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
     )
 
 
-def _f64_arithmetic_support_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
+def _floating_arithmetic_support_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
     return (
+        _v_ldexp_f32_overlay(),
         _v_sub_f64_overlay(),
         _v_fma_f64_neg_a_overlay(),
         _v_fma_f64_neg_a_one_overlay(),
@@ -402,6 +403,7 @@ def _cdna_core_overlays(
             instruction_name="V_SUBB_CO_U32", mnemonic="v_subb_co_u32"
         ),
         _v_sub_u32_overlay("V_SUB_U32", "v_sub_u32"),
+        _v_sub_u32_src0_inline_overlay("V_SUB_U32", "v_sub_u32"),
         _v_sub_u32_lhs_tied_overlay("V_SUB_U32", "v_sub_u32"),
         _v_mov_b32_literal_overlay(),
         _v_mov_b32_copy_overlay(),
@@ -426,7 +428,7 @@ def _cdna_core_overlays(
         *_integer_bitwise_permute_overlays(include_vop3_literal_forms=False),
         *_v_binary_f32_overlays(),
         *_v_binary_f64_overlays(),
-        *_f64_arithmetic_support_overlays(),
+        *_floating_arithmetic_support_overlays(),
         *_v_binary_f16_overlays(),
         _v_med3_num_f32_overlay(),
         *_v_binary_f32_dpp_legacy_overlays(),
@@ -1105,6 +1107,7 @@ def _gfx11_core_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
         _v_sub_co_u32_overlay(),
         _v_sub_co_ci_u32_overlay(),
         _v_sub_u32_overlay("V_SUB_NC_U32", "v_sub_nc_u32"),
+        _v_sub_u32_src0_inline_overlay("V_SUB_NC_U32", "v_sub_nc_u32"),
         _v_sub_u32_lhs_tied_overlay("V_SUB_NC_U32", "v_sub_nc_u32"),
         _v_mov_b32_literal_overlay(),
         _v_mov_b32_copy_overlay(),
@@ -1133,7 +1136,7 @@ def _gfx11_core_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
         _v_permlanex16_b32_src12_inline_overlay(),
         *_v_binary_f32_overlays(),
         *_v_binary_f64_overlays(),
-        *_f64_arithmetic_support_overlays(),
+        *_floating_arithmetic_support_overlays(),
         *_v_binary_f16_overlays(),
         _v_med3_num_f32_overlay(),
         *_v_binary_f32_dpp16_overlays(),
@@ -1958,6 +1961,7 @@ def _rdna4_core_overlays(
         _v_sub_co_u32_overlay(),
         _v_sub_co_ci_u32_overlay(),
         _v_sub_u32_overlay("V_SUB_NC_U32", "v_sub_nc_u32"),
+        _v_sub_u32_src0_inline_overlay("V_SUB_NC_U32", "v_sub_nc_u32"),
         _v_sub_u32_lhs_tied_overlay("V_SUB_NC_U32", "v_sub_nc_u32"),
         _v_mov_b32_literal_overlay(),
         _v_mov_b32_copy_overlay(),
@@ -1985,7 +1989,7 @@ def _rdna4_core_overlays(
         _v_permlanex16_b32_src12_inline_overlay(),
         *_v_binary_f32_overlays(),
         *_v_binary_f64_overlays(minmax_instruction_suffix="_NUM"),
-        *_f64_arithmetic_support_overlays(),
+        *_floating_arithmetic_support_overlays(),
         *_v_binary_f16_overlays(),
         _v_med3_num_f32_overlay(
             instruction_name="V_MED3_NUM_F32",

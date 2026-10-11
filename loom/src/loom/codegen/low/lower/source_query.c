@@ -321,6 +321,21 @@ static bool loom_low_lower_source_query_op_has_related_rule(
   return false;
 }
 
+static iree_status_t loom_low_lower_source_query_target_contract(
+    loom_low_lower_context_t* context,
+    const loom_target_contract_query_environment_t* environment,
+    const loom_op_t* source_op,
+    loom_target_contract_query_result_t* out_result) {
+  *out_result = loom_target_contract_query_result_empty();
+  const loom_low_lower_op_contract_query_t* query =
+      &context->policy->query_op_contract;
+  if (query->fn == NULL ||
+      !loom_low_lower_op_contract_query_accepts(query, source_op->kind)) {
+    return iree_ok_status();
+  }
+  return query->fn(query->user_data, environment, source_op, out_result);
+}
+
 static iree_status_t loom_low_lower_source_query_one(
     loom_low_lower_context_t* context,
     const loom_target_contract_query_environment_t* environment,
@@ -333,12 +348,8 @@ static iree_status_t loom_low_lower_source_query_one(
         .rule_index = UINT16_MAX,
     };
   }
-  const loom_target_contract_query_callback_t query_op_contract =
-      context->policy->query_op_contract;
-  if (query_op_contract.fn != NULL) {
-    IREE_RETURN_IF_ERROR(query_op_contract.fn(
-        query_op_contract.user_data, environment, source_op, out_result));
-  }
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_query_target_contract(
+      context, environment, source_op, out_result));
   if (out_result->outcome != LOOM_TARGET_CONTRACT_QUERY_UNHANDLED) {
     return iree_ok_status();
   }
@@ -393,12 +404,8 @@ static iree_status_t loom_low_lower_source_query_coverage_visit(
   }
   loom_target_contract_query_result_t target_result =
       loom_target_contract_query_result_empty();
-  const loom_target_contract_query_callback_t query_op_contract =
-      state->context->policy->query_op_contract;
-  if (query_op_contract.fn != NULL) {
-    IREE_RETURN_IF_ERROR(query_op_contract.fn(
-        query_op_contract.user_data, state->environment, op, &target_result));
-  }
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_query_target_contract(
+      state->context, state->environment, op, &target_result));
   if (target_result.outcome != LOOM_TARGET_CONTRACT_QUERY_UNHANDLED) {
     return iree_ok_status();
   }
@@ -419,13 +426,8 @@ static iree_status_t loom_low_lower_source_query_collect_singletons(
     state->root_op = node->op;
     loom_target_contract_query_result_t target_result =
         loom_target_contract_query_result_empty();
-    const loom_target_contract_query_callback_t query_op_contract =
-        state->context->policy->query_op_contract;
-    if (query_op_contract.fn != NULL) {
-      IREE_RETURN_IF_ERROR(query_op_contract.fn(query_op_contract.user_data,
-                                                state->environment, node->op,
-                                                &target_result));
-    }
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_query_target_contract(
+        state->context, state->environment, node->op, &target_result));
     if (target_result.outcome != LOOM_TARGET_CONTRACT_QUERY_UNHANDLED) {
       const loom_op_t* source_nodes[] = {node->op};
       IREE_RETURN_IF_ERROR(loom_low_lower_source_query_coverage_add_graph(

@@ -105,10 +105,10 @@ func.def @compare_to_f64(%lhs: f64, %rhs: f64) -> (f64) {
 // ----
 low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @compare_to_f64(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
   %less = v_cmp_lt_f64 %lhs, %rhs
-  %9 = v_mov_b32 0
-  %10 = v_mov_b32 1
-  %11 = v_cndmask_b32 %9, %10, %less
-  %result = v_cvt_f64_u32 %11
+  %15 = s_mov_b32 0
+  %16 = v_mov_b32_copy %15
+  %17 = v_cndmask_b32_src1_inline %16, %less {true_value = 1}
+  %result = v_cvt_f64_u32 %17
   return %result
 }
 

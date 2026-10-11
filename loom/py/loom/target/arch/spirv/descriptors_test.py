@@ -105,6 +105,38 @@ def test_bfloat16_float32_conversions_are_bidirectional() -> None:
     assert narrowing.feature_bits == feature_bits_value(("bfloat16_type_khr",))
 
 
+def test_native_float_narrowing_requires_exact_execution_controls() -> None:
+    conversions = {
+        (row.source_type.source_type, row.result_type.source_type): row
+        for row in DIRECT_SCALAR_CONVERSIONS
+        if row.source_op_key == "fptrunc"
+    }
+    expected_features = {
+        ("f64", "f32"): (
+            "float32_denorm_preserve",
+            "float32_rounding_rte",
+            "float32_signed_zero_inf_nan_preserve",
+            "float64_signed_zero_inf_nan_preserve",
+        ),
+        ("f64", "f16"): (
+            "float16_64_denorm_preserve",
+            "float16_64_rounding_rte",
+            "float16_signed_zero_inf_nan_preserve",
+            "float64_signed_zero_inf_nan_preserve",
+            "float64_to_float16_conversion",
+        ),
+        ("f32", "f16"): (
+            "float16_64_denorm_preserve",
+            "float16_64_rounding_rte",
+            "float16_signed_zero_inf_nan_preserve",
+            "float32_signed_zero_inf_nan_preserve",
+        ),
+    }
+
+    for pair, feature_atoms in expected_features.items():
+        assert conversions[pair].feature_atoms == feature_atoms
+
+
 def test_control_barrier_descriptors_cover_the_complete_source_family() -> None:
     descriptors = {
         descriptor.key: descriptor

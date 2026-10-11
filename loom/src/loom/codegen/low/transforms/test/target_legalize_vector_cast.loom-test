@@ -102,21 +102,60 @@ func.def target(@test_target) @narrow_float_to_integer(%half: vector<1xf16>) -> 
   func.return %word : vector<1xi32>
 }
 
+func.def target(@test_target) @integer_to_standard_float(%flag: vector<1xi1>, %halfword: vector<1xi16>) -> (vector<1xf32>, vector<1xf32>, vector<1xf64>, vector<1xf64>) {
+  %signed_flag = vector.sitofp %flag : vector<1xi1> to vector<1xf32>
+  %unsigned_flag = vector.uitofp %flag : vector<1xi1> to vector<1xf32>
+  %signed_halfword = vector.sitofp %halfword : vector<1xi16> to vector<1xf64>
+  %unsigned_halfword = vector.uitofp %halfword : vector<1xi16> to vector<1xf64>
+  func.return %signed_flag, %unsigned_flag, %signed_halfword, %unsigned_halfword : vector<1xf32>, vector<1xf32>, vector<1xf64>, vector<1xf64>
+}
+
 // ----
 test.target<low_core> @test_target
 
 func.def target(@test_target) @integer_to_narrow_float(%halfword: vector<1xi16>) -> (vector<1xbf16>) {
-  %8 = vector.extract %halfword[0] : vector<1xi16> -> i16
-  %9 = scalar.sitofp %8 : i16 to f32
-  %10 = scalar.fptrunc %9 : f32 to bf16
-  %bfloat = vector.splat %10 : vector<1xbf16>
+  %18 = vector.extract %halfword[0] : vector<1xi16> -> i16
+  %25 = scalar.extui %18 : i16 to i32
+  %26 = scalar.constant 16 : i32
+  %27 = scalar.shli %25, %26 : i32
+  %28 = scalar.shrsi %27, %26 : i32
+  %24 = scalar.sitofp %28 : i32 to f32
+  %20 = scalar.fptrunc %24 : f32 to bf16
+  %bfloat = vector.splat %20 : vector<1xbf16>
   func.return %bfloat : vector<1xbf16>
 }
 
 func.def target(@test_target) @narrow_float_to_integer(%half: vector<1xf16>) -> (vector<1xi32>) {
-  %15 = vector.extract %half[0] : vector<1xf16> -> f16
-  %16 = scalar.extf %15 : f16 to f32
-  %17 = scalar.fptosi %16 : f32 to i32
-  %word = vector.splat %17 : vector<1xi32>
+  %31 = vector.extract %half[0] : vector<1xf16> -> f16
+  %32 = scalar.extf %31 : f16 to f32
+  %33 = scalar.fptosi %32 : f32 to i32
+  %word = vector.splat %33 : vector<1xi32>
   func.return %word : vector<1xi32>
+}
+
+func.def target(@test_target) @integer_to_standard_float(%flag: vector<1xi1>, %halfword: vector<1xi16>) -> (vector<1xf32>, vector<1xf32>, vector<1xf64>, vector<1xf64>) {
+  %66 = vector.extract %flag[0] : vector<1xi1> -> i1
+  %71 = scalar.constant -1 : i32
+  %72 = scalar.constant 0 : i32
+  %73 = scf.select %66, %71, %72 : i32
+  %68 = scalar.sitofp %73 : i32 to f32
+  %signed_flag = vector.splat %68 : vector<1xf32>
+  %56 = vector.extract %flag[0] : vector<1xi1> -> i1
+  %61 = scalar.constant 1 : i32
+  %62 = scalar.constant 0 : i32
+  %63 = scf.select %56, %61, %62 : i32
+  %58 = scalar.uitofp %63 : i32 to f32
+  %unsigned_flag = vector.splat %58 : vector<1xf32>
+  %45 = vector.extract %halfword[0] : vector<1xi16> -> i16
+  %50 = scalar.extui %45 : i16 to i32
+  %51 = scalar.constant 16 : i32
+  %52 = scalar.shli %50, %51 : i32
+  %53 = scalar.shrsi %52, %51 : i32
+  %47 = scalar.sitofp %53 : i32 to f64
+  %signed_halfword = vector.splat %47 : vector<1xf64>
+  %38 = vector.extract %halfword[0] : vector<1xi16> -> i16
+  %39 = scalar.extui %38 : i16 to i32
+  %40 = scalar.uitofp %39 : i32 to f64
+  %unsigned_halfword = vector.splat %40 : vector<1xf64>
+  func.return %signed_flag, %unsigned_flag, %signed_halfword, %unsigned_halfword : vector<1xf32>, vector<1xf32>, vector<1xf64>, vector<1xf64>
 }

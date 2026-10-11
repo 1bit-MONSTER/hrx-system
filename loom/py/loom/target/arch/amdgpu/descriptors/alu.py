@@ -1064,6 +1064,18 @@ def _v_sub_u32_overlay(instruction_name: str, mnemonic: str) -> AmdgpuDescriptor
     )
 
 
+def _v_sub_u32_src0_inline_overlay(
+    instruction_name: str, mnemonic: str
+) -> AmdgpuDescriptorOverlay:
+    return _v_binary_src0_inline_overlay(
+        descriptor_key="amdgpu.v_sub_u32.src0_inline",
+        instruction_name=instruction_name,
+        mnemonic=mnemonic,
+        semantic_tag="integer.sub.u32",
+        constraints=_REMATERIALIZABLE_RESULT_CONSTRAINTS,
+    )
+
+
 def _v_sub_u32_lhs_tied_overlay(
     instruction_name: str, mnemonic: str
 ) -> AmdgpuDescriptorOverlay:
@@ -5436,21 +5448,32 @@ def _v_rsq_f64_overlay() -> AmdgpuDescriptorOverlay:
     )
 
 
-def _v_ldexp_f64_overlay() -> AmdgpuDescriptorOverlay:
+def _v_ldexp_overlay(bit_width: int) -> AmdgpuDescriptorOverlay:
+    if bit_width not in (32, 64):
+        raise ValueError("V_LDEXP floating width must be 32 or 64")
+    units = bit_width // 32
     return AmdgpuDescriptorOverlay(
-        descriptor_key="amdgpu.v_ldexp_f64",
-        instruction_name="V_LDEXP_F64",
-        mnemonic="v_ldexp_f64",
+        descriptor_key=f"amdgpu.v_ldexp_f{bit_width}",
+        instruction_name=f"V_LDEXP_F{bit_width}",
+        mnemonic=f"v_ldexp_f{bit_width}",
         encoding_name="ENC_VOP3",
-        semantic_tag="float.ldexp.f64",
+        semantic_tag=f"float.ldexp.f{bit_width}",
         schedule_class=_SCHEDULE_VALU,
         operands=(
-            AmdgpuOperandOverlay("VDST", _vgpr_result(units=2)),
-            AmdgpuOperandOverlay("SRC0", _sgpr_vgpr_operand("input", units=2)),
+            AmdgpuOperandOverlay("VDST", _vgpr_result(units=units)),
+            AmdgpuOperandOverlay("SRC0", _sgpr_vgpr_operand("input", units=units)),
             AmdgpuOperandOverlay("SRC1", _sgpr_vgpr_operand("exponent")),
         ),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     )
+
+
+def _v_ldexp_f32_overlay() -> AmdgpuDescriptorOverlay:
+    return _v_ldexp_overlay(32)
+
+
+def _v_ldexp_f64_overlay() -> AmdgpuDescriptorOverlay:
+    return _v_ldexp_overlay(64)
 
 
 def _v_rcp_f64_overlay() -> AmdgpuDescriptorOverlay:
@@ -8145,6 +8168,7 @@ __all__ = (
     "_v_sqrt_f64_overlay",
     "_v_rsq_f64_overlay",
     "_v_ldexp_f64_overlay",
+    "_v_ldexp_f32_overlay",
     "_v_trunc_f32_overlay",
     "_v_sub_f16_overlay",
     "_v_sub_f32_literal_overlay",
@@ -8158,6 +8182,7 @@ __all__ = (
     "_v_subrev_f32_src0_inline_overlay",
     "_v_sub_u32_lhs_tied_overlay",
     "_v_sub_u32_overlay",
+    "_v_sub_u32_src0_inline_overlay",
     "_v_ternary_float_overlay",
     "_v_unary_f32_overlay",
     "_v_xor_b32_literal_overlay",
