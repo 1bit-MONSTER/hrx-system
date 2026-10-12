@@ -12,6 +12,34 @@
 #include "iree/hal/memory_backend.h"
 #include "iree/hal/queue.h"
 
+IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_query_capabilities(
+    iree_hal_device_group_t* group, iree_hal_pool_scope_t scope,
+    iree_allocator_t host_allocator,
+    iree_hal_memory_reservation_capabilities_t* out_capabilities) {
+  memset(out_capabilities, 0, sizeof(*out_capabilities));
+  if (!group) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "reservation group is null");
+  }
+  IREE_RETURN_IF_ERROR(iree_hal_pool_scope_validate(group, scope));
+  iree_status_t status = iree_ok_status();
+  for (iree_host_size_t i = 0;
+       i < iree_hal_device_group_device_count(group) &&
+       iree_status_is_ok(status) && !out_capabilities->max_byte_length;
+       ++i) {
+    const iree_hal_memory_backend_t* backend = iree_hal_device_memory_backend(
+        iree_hal_device_group_device_at(group, i));
+    if (backend && backend->query_reservation) {
+      status = backend->query_reservation(backend, group, scope, host_allocator,
+                                          out_capabilities);
+    }
+  }
+  if (!iree_status_is_ok(status)) {
+    memset(out_capabilities, 0, sizeof(*out_capabilities));
+  }
+  return status;
+}
+
 IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_create(
     iree_hal_device_group_t* group, iree_hal_pool_scope_t scope,
     const iree_hal_memory_reservation_options_t* options,

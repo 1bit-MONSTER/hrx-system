@@ -397,9 +397,11 @@ struct FakeNative {
         AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
     output->required_access = AMDF_MEMORY_ACCESS_READ;
     output->maximum_byte_length = UINT64_C(1) << 40;
-    output->reservation_granularity = 4096;
+    output->reservation_granularity =
+        native->owner->reservation_granularities[native->ordinal];
     output->maximum_alignment = UINT64_C(1) << 30;
-    output->mapping_granularity = 4096;
+    output->mapping_granularity =
+        native->owner->reservation_granularities[native->ordinal];
     return AMDF_STATUS_OK;
   }
 
@@ -467,6 +469,8 @@ struct FakeNative {
   std::array<Device, 2> native_devices = {};
   // Native capability admission for these dependency devices.
   bool mapping_enabled = false;
+  // Native address geometry per live consumer, before addresses are reserved.
+  std::array<uint64_t, 2> reservation_granularities = {4096, 4096};
   // Distinct logical consumers may share a single native mapping projection.
   bool alias_projections = true;
   // Number of live address owners, independent from physical allocations.
@@ -1541,6 +1545,57 @@ TEST_F(MemoryBackendTest, RejectsAtomicPromisesAbsentFromNativeBuffers) {
     }
   }
   EXPECT_EQ(native_.profile_query_count, 0);
+}
+
+TEST_F(MemoryBackendTest, QueriesReservationGeometryBeforeAcquiringAddresses) {
+  native_.mapping_enabled = true;
+  native_.reservation_granularities = {4096, 65536};
+  std::array<iree_hal_pool_family_access_t, 2> accesses = {};
+  for (size_t i = 0; i < accesses.size(); ++i) {
+    binding_descriptions_[i] = {IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS,
+                                AMDF_MEMORY_ADDRESS_GPU};
+    native_families_[i].host_usage = 0;
+    accesses[i].family = families_[i];
+    accesses[i].usage = IREE_HAL_BUFFER_USAGE_STORAGE;
+  }
+  iree_hal_pool_scope_t scope = {accesses.size(), accesses.data(), {}};
+  iree_hal_memory_reservation_capabilities_t capabilities;
+  IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+      group_, scope, allocator_, &capabilities));
+  EXPECT_EQ(capabilities.reservation_granularity, 65536u);
+  EXPECT_EQ(capabilities.mapping_granularity, 65536u);
+  EXPECT_EQ(capabilities.max_byte_length, UINT64_C(1) << 40);
+  EXPECT_EQ(capabilities.max_alignment, UINT64_C(1) << 30);
+  EXPECT_EQ(native_.reservation_count, 0);
+  EXPECT_EQ(native_.create_count, 0);
+
+  iree_hal_memory_reservation_options_t options = {.byte_length = 4096};
+  iree_hal_memory_reservation_t* reservation = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                        iree_hal_memory_reservation_create(
+                            group_, scope, &options, allocator_, &reservation));
+  EXPECT_EQ(reservation, nullptr);
+  EXPECT_EQ(native_.reservation_count, 0);
+  options.byte_length = capabilities.reservation_granularity;
+  IREE_ASSERT_OK(iree_hal_memory_reservation_create(group_, scope, &options,
+                                                    allocator_, &reservation));
+  EXPECT_EQ(iree_hal_memory_reservation_mapping_granularity(reservation),
+            capabilities.mapping_granularity);
+  EXPECT_EQ(native_.reservation_count, 1);
+  EXPECT_EQ(native_.create_count, 0);
+  IREE_ASSERT_OK(iree_hal_memory_reservation_destroy(reservation));
+
+  // Adding host access makes this device-only native reservation inadmissible.
+  // A capability query reports absence without manufacturing an error status.
+  scope.host.access = IREE_HAL_MEMORY_ACCESS_READ;
+  scope.host.modes = IREE_HAL_MAPPING_MODE_PERSISTENT;
+  IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+      group_, scope, allocator_, &capabilities));
+  EXPECT_EQ(capabilities.max_byte_length, 0u);
+  EXPECT_EQ(capabilities.reservation_granularity, 0u);
+  EXPECT_EQ(capabilities.mapping_granularity, 0u);
+  EXPECT_EQ(capabilities.max_alignment, 0u);
+  EXPECT_EQ(native_.reservation_count, 0);
 }
 
 class ReservationBackendTest : public MemoryBackendTest,

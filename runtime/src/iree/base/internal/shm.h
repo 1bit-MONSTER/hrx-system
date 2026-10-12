@@ -261,6 +261,10 @@ typedef struct iree_shm_mapping_update_t {
   iree_shm_access_t access;
 } iree_shm_mapping_update_t;
 
+// Returns whether this process has the native APIs needed for independently
+// replaceable shared mappings. Acquires no addresses or backing storage.
+bool iree_shm_reservation_is_supported(void);
+
 // Reserves an inaccessible interval. Length must be a nonzero multiple of the
 // replacement granularity. Zero alignment/granularity selects the normal page
 // size; nonzero values must be powers of two at least as large as that size.

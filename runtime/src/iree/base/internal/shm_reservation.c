@@ -36,12 +36,11 @@ typedef struct iree_shm_reservation_api_t {
   iree_shm_unmap_view2_fn_t unmap;
 } iree_shm_reservation_api_t;
 
-static iree_status_t iree_shm_reservation_resolve_api(
+static bool iree_shm_reservation_query_api(
     iree_shm_reservation_api_t* out_api) {
   HMODULE module = GetModuleHandleW(L"kernelbase.dll");
   if (!module) {
-    return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                            "Windows placeholder mappings are unavailable");
+    return false;
   }
   *out_api = (iree_shm_reservation_api_t){
       .allocate =
@@ -50,7 +49,12 @@ static iree_status_t iree_shm_reservation_resolve_api(
       .unmap =
           (iree_shm_unmap_view2_fn_t)GetProcAddress(module, "UnmapViewOfFile2"),
   };
-  if (!out_api->allocate || !out_api->map || !out_api->unmap) {
+  return out_api->allocate && out_api->map && out_api->unmap;
+}
+
+static iree_status_t iree_shm_reservation_resolve_api(
+    iree_shm_reservation_api_t* out_api) {
+  if (!iree_shm_reservation_query_api(out_api)) {
     return iree_make_status(IREE_STATUS_UNAVAILABLE,
                             "Windows placeholder mappings are unavailable");
   }
@@ -92,6 +96,17 @@ static iree_status_t iree_shm_reservation_prepare_unit(
 }
 
 #endif  // IREE_PLATFORM_WINDOWS
+
+bool iree_shm_reservation_is_supported(void) {
+#if defined(IREE_PLATFORM_WINDOWS)
+  iree_shm_reservation_api_t api;
+  return iree_shm_reservation_query_api(&api);
+#elif defined(IREE_PLATFORM_LINUX) || defined(IREE_PLATFORM_APPLE)
+  return true;
+#else
+  return false;
+#endif
+}
 
 iree_status_t iree_shm_reservation_initialize(
     iree_host_size_t byte_length, iree_host_size_t alignment,

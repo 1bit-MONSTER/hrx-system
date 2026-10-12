@@ -899,7 +899,14 @@ class AddressReservation {
 };
 
 TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
-  constexpr iree_device_size_t kUnit = 64 * 1024;
+  iree_hal_memory_reservation_capabilities_t capabilities;
+  IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+      group_, Scope(), iree_allocator_system(), &capabilities));
+  ASSERT_GT(capabilities.mapping_granularity, 0u);
+  const iree_device_size_t kUnit =
+      iree_max(64 * 1024, capabilities.reservation_granularity);
+  ASSERT_GE(capabilities.max_byte_length, 2 * kUnit);
+  ASSERT_GE(capabilities.max_alignment, kUnit);
   for (auto& family : families_) {
     family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
   }

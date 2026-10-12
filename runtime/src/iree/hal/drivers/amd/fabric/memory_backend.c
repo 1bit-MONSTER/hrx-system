@@ -1113,6 +1113,8 @@ void iree_hal_amd_fabric_memory_backend_initialize(
               .type = IREE_HAL_MEMORY_BACKEND_AMDF,
               .factory_count = IREE_ARRAYSIZE(factories),
               .factories = factories,
+              .query_reservation =
+                  iree_hal_amd_fabric_memory_reservation_query_capabilities,
               .reserve = iree_hal_amd_fabric_memory_reservation_create,
           },
       .device = device,

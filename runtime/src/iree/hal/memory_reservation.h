@@ -18,6 +18,32 @@ extern "C" {
 typedef struct iree_hal_queue_t iree_hal_queue_t;
 typedef struct iree_hal_memory_reservation_t iree_hal_memory_reservation_t;
 
+// Native address geometry for a complete simultaneous scope. A zero
+// max_byte_length means no backend supports that scope. These limits describe
+// addresses only; backing pools and their prepared mapping sources may impose
+// additional alignment and size requirements. Address availability is checked
+// at creation and is not guaranteed by a successful capability query.
+typedef struct iree_hal_memory_reservation_capabilities_t {
+  // Largest supported address interval, in bytes; zero when unsupported.
+  iree_device_size_t max_byte_length;
+  // Required multiple of the reservation length and minimum base alignment.
+  iree_device_size_t reservation_granularity;
+  // Minimum independently replaceable destination offset and length unit.
+  iree_device_size_t mapping_granularity;
+  // Largest accepted power-of-two minimum base alignment.
+  iree_device_size_t max_alignment;
+} iree_hal_memory_reservation_capabilities_t;
+
+// Queries geometry before acquiring addresses or physical backing. The same
+// complete-scope qualification is used by creation. Unsupported combinations
+// return OK with zeroed capabilities; invalid scope, native query, and metadata
+// allocation failures propagate. The allocator is used only for temporary
+// construction metadata. This is a cold planning operation.
+IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_query_capabilities(
+    iree_hal_device_group_t* group, iree_hal_pool_scope_t scope,
+    iree_allocator_t host_allocator,
+    iree_hal_memory_reservation_capabilities_t* out_capabilities);
+
 // Geometry of an address reservation, independent of physical storage pools.
 // Zero alignment/granularity selects the backend's minimum. The achieved
 // granularity is queried after creation and applies to every mapping range.

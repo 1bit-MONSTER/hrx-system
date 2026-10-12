@@ -86,6 +86,13 @@ typedef struct iree_hal_amd_fabric_memory_backend_t {
   iree_hal_pool_epoch_query_t epoch_query;
 } iree_hal_amd_fabric_memory_backend_t;
 
+// Queries complete-scope native address geometry without reserving addresses.
+// Uses the same native consumer qualification as reservation creation.
+iree_status_t iree_hal_amd_fabric_memory_reservation_query_capabilities(
+    const iree_hal_memory_backend_t* backend, iree_hal_device_group_t* group,
+    iree_hal_pool_scope_t scope, iree_allocator_t host_allocator,
+    iree_hal_memory_reservation_capabilities_t* out_capabilities);
+
 // Qualifies explicit native device address domains and creates the complete
 // reservation. Unsupported scopes return OK with no output. Address views
 // inherit no physical placement or visibility facts from future backing.

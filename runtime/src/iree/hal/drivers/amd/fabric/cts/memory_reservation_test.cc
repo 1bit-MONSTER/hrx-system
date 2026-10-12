@@ -165,6 +165,17 @@ class FabricMemoryReservationTest
     IREE_ASSERT_OK(status);
     access_.family = iree_hal_device_queue_family(device_, 0);
     access_.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
+    iree_hal_memory_reservation_capabilities_t reservation_capabilities;
+    IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+        group_, {1, &access_, {}}, allocator_, &reservation_capabilities));
+    ASSERT_EQ(reservation_capabilities.mapping_granularity,
+              capabilities.mapping_granularity);
+    ASSERT_EQ(reservation_capabilities.reservation_granularity, granularity_);
+    ASSERT_EQ(reservation_capabilities.max_byte_length,
+              capabilities.maximum_byte_length);
+    ASSERT_EQ(reservation_capabilities.max_alignment,
+              capabilities.maximum_alignment);
+    granularity_ = reservation_capabilities.reservation_granularity;
     access_.interfaces = UINT64_C(1)
                          << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
     access_.requirements = IREE_HAL_POOL_ACCESS_REQUIRE_COHERENT_WITH_HOST;

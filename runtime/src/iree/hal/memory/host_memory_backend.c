@@ -6,6 +6,8 @@
 
 #include "iree/hal/memory/host_memory_backend.h"
 
+#include "iree/base/internal/memory.h"
+#include "iree/base/internal/shm.h"
 #include "iree/hal/device_group.h"
 #include "iree/hal/memory/cpu_slab_provider.h"
 #include "iree/hal/memory/passthrough_pool.h"
@@ -293,6 +295,55 @@ static const iree_hal_slab_pool_factory_t* const
         &iree_hal_host_slab_pool_factory,
 };
 
+// Both query and creation use the same pool qualification for the complete
+// coherent scope. Address reservations cannot themselves be mapping sources.
+static iree_status_t iree_hal_host_memory_reservation_query_plan(
+    iree_hal_device_group_t* group, iree_hal_pool_scope_t scope,
+    iree_hal_slab_pool_plan_callback_t callback,
+    iree_allocator_t host_allocator) {
+  if (!iree_shm_reservation_is_supported()) {
+    return iree_ok_status();
+  }
+  for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
+    if (iree_any_bit_set(scope.families[i].interfaces,
+                         UINT64_C(1)
+                             << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE)) {
+      return iree_ok_status();
+    }
+  }
+  iree_hal_slab_pool_options_t pool_options;
+  iree_hal_slab_pool_options_initialize(&pool_options);
+  return iree_hal_host_slab_pool_query(NULL, group, scope, &pool_options,
+                                       callback, host_allocator);
+}
+
+static iree_status_t iree_hal_host_reservation_query_from_plan(
+    void* user_data, iree_hal_slab_pool_plan_t* plan) {
+  iree_hal_memory_reservation_capabilities_t* capabilities = user_data;
+  const iree_device_size_t page_size =
+      iree_memory_query_info().normal_page_size;
+  *capabilities = (iree_hal_memory_reservation_capabilities_t){
+      .max_byte_length = IREE_HOST_SIZE_MAX & ~(page_size - 1),
+      .reservation_granularity = page_size,
+      .mapping_granularity = page_size,
+      .max_alignment = (IREE_HOST_SIZE_MAX >> 1) + 1,
+  };
+  iree_hal_slab_pool_plan_destroy(plan);
+  return iree_ok_status();
+}
+
+static iree_status_t iree_hal_host_memory_backend_query_reservation(
+    const iree_hal_memory_backend_t* backend, iree_hal_device_group_t* group,
+    iree_hal_pool_scope_t scope, iree_allocator_t host_allocator,
+    iree_hal_memory_reservation_capabilities_t* out_capabilities) {
+  return iree_hal_host_memory_reservation_query_plan(
+      group, scope,
+      (iree_hal_slab_pool_plan_callback_t){
+          .fn = iree_hal_host_reservation_query_from_plan,
+          .user_data = out_capabilities},
+      host_allocator);
+}
+
 typedef struct iree_hal_host_reservation_create_state_t {
   // Borrowed reservation geometry during synchronous qualification.
   const iree_hal_memory_reservation_options_t* options;
@@ -320,22 +371,13 @@ static iree_status_t iree_hal_host_memory_backend_reserve(
     const iree_hal_memory_reservation_options_t* options,
     iree_allocator_t host_allocator,
     iree_hal_memory_reservation_t** out_reservation) {
-  for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
-    if (iree_any_bit_set(scope.families[i].interfaces,
-                         UINT64_C(1)
-                             << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE)) {
-      return iree_ok_status();
-    }
-  }
-  iree_hal_slab_pool_options_t pool_options;
-  iree_hal_slab_pool_options_initialize(&pool_options);
   iree_hal_host_reservation_create_state_t state = {
       .options = options,
       .host_allocator = host_allocator,
       .out_reservation = out_reservation,
   };
-  return iree_hal_host_slab_pool_query(
-      NULL, group, scope, &pool_options,
+  return iree_hal_host_memory_reservation_query_plan(
+      group, scope,
       (iree_hal_slab_pool_plan_callback_t){
           .fn = iree_hal_host_reservation_create_from_plan,
           .user_data = &state},
@@ -355,6 +397,8 @@ void iree_hal_host_memory_backend_initialize(
               .factory_count =
                   IREE_ARRAYSIZE(iree_hal_host_slab_pool_factories),
               .factories = iree_hal_host_slab_pool_factories,
+              .query_reservation =
+                  iree_hal_host_memory_backend_query_reservation,
               .reserve = iree_hal_host_memory_backend_reserve,
           },
       .slab_provider = slab_provider,

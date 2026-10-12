@@ -132,12 +132,23 @@ static const iree_hal_memory_reservation_vtable_t
         .update = iree_hal_amd_fabric_memory_reservation_update,
 };
 
-iree_status_t iree_hal_amd_fabric_memory_reservation_create(
+// Temporary qualification product; contains no native address or payload.
+typedef struct iree_hal_amd_fabric_reservation_plan_t {
+  // Prepared metadata adopted by creation or freed after a capability query.
+  iree_hal_amd_fabric_memory_reservation_t* reservation;
+  // Owned immutable execution contract for the requested scope.
+  iree_hal_memory_contract_t* contract;
+  // Complete-scope intersection of native address geometry.
+  iree_hal_memory_reservation_capabilities_t capabilities;
+  // Native consumers borrowed from the prepared metadata allocation.
+  amdf_memory_reservation_create_info_t native;
+} iree_hal_amd_fabric_reservation_plan_t;
+
+static iree_status_t iree_hal_amd_fabric_memory_reservation_prepare(
     const iree_hal_memory_backend_t* base, iree_hal_device_group_t* group,
-    iree_hal_pool_scope_t scope,
-    const iree_hal_memory_reservation_options_t* options,
-    iree_allocator_t host_allocator,
-    iree_hal_memory_reservation_t** out_reservation) {
+    iree_hal_pool_scope_t scope, iree_allocator_t host_allocator,
+    iree_hal_amd_fabric_reservation_plan_t* out_plan) {
+  *out_plan = (iree_hal_amd_fabric_reservation_plan_t){0};
   const iree_hal_amd_fabric_memory_backend_t* owner =
       (const iree_hal_amd_fabric_memory_backend_t*)base;
   if (!owner->native.instance || !scope.family_count || scope.host.access ||
@@ -184,8 +195,12 @@ iree_status_t iree_hal_amd_fabric_memory_reservation_create(
     reservation->projections[i] = IREE_HAL_MEMORY_SCOPE_INVALID;
   }
   bool supported = true;
-  iree_device_size_t granularity = iree_max(options->mapping_granularity, 1);
-  iree_device_size_t alignment = options->min_alignment;
+  iree_hal_memory_reservation_capabilities_t capabilities = {
+      .max_byte_length = IREE_DEVICE_SIZE_MAX,
+      .reservation_granularity = 1,
+      .mapping_granularity = 1,
+      .max_alignment = IREE_DEVICE_SIZE_MAX,
+  };
   iree_hal_buffer_usage_t usage = 0;
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0;
@@ -256,16 +271,17 @@ iree_status_t iree_hal_amd_fabric_memory_reservation_create(
         break;
       }
       ++reservation->access_count;
-      granularity =
-          iree_max(granularity, access->capabilities.mapping_granularity);
-      alignment =
-          iree_max(alignment, access->capabilities.reservation_granularity);
-      if (options->byte_length > access->capabilities.maximum_byte_length ||
-          options->byte_length % access->capabilities.reservation_granularity) {
-        status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                                  "reservation length exceeds native geometry");
-        break;
-      }
+      capabilities.mapping_granularity =
+          iree_max(capabilities.mapping_granularity,
+                   access->capabilities.mapping_granularity);
+      capabilities.reservation_granularity =
+          iree_max(capabilities.reservation_granularity,
+                   access->capabilities.reservation_granularity);
+      capabilities.max_byte_length =
+          iree_min(capabilities.max_byte_length,
+                   access->capabilities.maximum_byte_length);
+      capabilities.max_alignment = iree_min(
+          capabilities.max_alignment, access->capabilities.maximum_alignment);
     }
     const iree_hal_memory_access_t permissions =
         iree_hal_buffer_usage_access(requested->usage);
@@ -284,17 +300,16 @@ iree_status_t iree_hal_amd_fabric_memory_reservation_create(
     reservation->scope_accesses[id + 1] = a;
     usage |= requested->usage;
   }
+  capabilities.reservation_granularity = iree_max(
+      capabilities.reservation_granularity, capabilities.mapping_granularity);
+  supported &=
+      capabilities.reservation_granularity <= capabilities.max_byte_length &&
+      capabilities.reservation_granularity <= capabilities.max_alignment;
   for (uint32_t a = 0;
        a < reservation->access_count && supported && iree_status_is_ok(status);
        ++a) {
     const iree_hal_amd_fabric_reservation_access_t* access =
         &reservation->accesses[a];
-    if (alignment > access->capabilities.maximum_alignment ||
-        options->byte_length % granularity) {
-      status =
-          iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                           "reservation alignment exceeds native geometry");
-    }
     native_accesses[a] = access->native;
     types[a] = IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS;
   }
@@ -312,17 +327,74 @@ iree_status_t iree_hal_amd_fabric_memory_reservation_create(
         host_allocator, &contract);
   }
   if (contract && iree_status_is_ok(status)) {
-    const amdf_memory_reservation_create_info_t info = {
-        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CREATE_INFO,
-        .structure_size = sizeof(info),
-        .byte_length = options->byte_length,
-        .minimum_alignment = alignment,
-        .access_count = reservation->access_count,
-        .accesses = native_accesses,
+    contract->allowed_usage = usage;
+    contract->allowed_access = iree_hal_buffer_usage_access(usage);
+    *out_plan = (iree_hal_amd_fabric_reservation_plan_t){
+        .reservation = reservation,
+        .contract = contract,
+        .capabilities = capabilities,
+        .native =
+            {
+                .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CREATE_INFO,
+                .structure_size = sizeof(amdf_memory_reservation_create_info_t),
+                .access_count = reservation->access_count,
+                .accesses = native_accesses,
+            },
     };
+  } else {
+    iree_hal_memory_contract_release(contract);
+    iree_allocator_free(host_allocator, reservation);
+  }
+  return status;
+}
+
+iree_status_t iree_hal_amd_fabric_memory_reservation_query_capabilities(
+    const iree_hal_memory_backend_t* backend, iree_hal_device_group_t* group,
+    iree_hal_pool_scope_t scope, iree_allocator_t host_allocator,
+    iree_hal_memory_reservation_capabilities_t* out_capabilities) {
+  iree_hal_amd_fabric_reservation_plan_t plan;
+  IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_memory_reservation_prepare(
+      backend, group, scope, host_allocator, &plan));
+  *out_capabilities = plan.capabilities;
+  iree_hal_memory_contract_release(plan.contract);
+  iree_allocator_free(host_allocator, plan.reservation);
+  return iree_ok_status();
+}
+
+iree_status_t iree_hal_amd_fabric_memory_reservation_create(
+    const iree_hal_memory_backend_t* base, iree_hal_device_group_t* group,
+    iree_hal_pool_scope_t scope,
+    const iree_hal_memory_reservation_options_t* options,
+    iree_allocator_t host_allocator,
+    iree_hal_memory_reservation_t** out_reservation) {
+  const iree_hal_amd_fabric_memory_backend_t* owner =
+      (const iree_hal_amd_fabric_memory_backend_t*)base;
+  iree_hal_amd_fabric_reservation_plan_t plan;
+  IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_memory_reservation_prepare(
+      base, group, scope, host_allocator, &plan));
+  if (!plan.reservation) {
+    return iree_ok_status();
+  }
+  iree_hal_amd_fabric_memory_reservation_t* reservation = plan.reservation;
+  iree_hal_memory_contract_t* contract = plan.contract;
+  const iree_device_size_t granularity = iree_max(
+      options->mapping_granularity, plan.capabilities.mapping_granularity);
+  const iree_device_size_t alignment = iree_max(
+      options->min_alignment, plan.capabilities.reservation_granularity);
+  iree_status_t status = iree_ok_status();
+  if (options->byte_length > plan.capabilities.max_byte_length ||
+      options->byte_length % plan.capabilities.reservation_granularity ||
+      options->byte_length % granularity ||
+      alignment > plan.capabilities.max_alignment) {
+    status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "reservation exceeds native address geometry");
+  }
+  if (iree_status_is_ok(status)) {
+    plan.native.byte_length = options->byte_length;
+    plan.native.minimum_alignment = alignment;
     status = IREE_HAL_AMD_STATUS_FROM_AMDF(
         owner->native.api->memory_reservation_create(
-            owner->native.instance, &info, &reservation->native),
+            owner->native.instance, &plan.native, &reservation->native),
         "memory_reservation_create");
   }
   uint32_t projection_count = 0;
@@ -349,8 +421,6 @@ iree_status_t iree_hal_amd_fabric_memory_reservation_create(
     }
   }
   if (reservation->native && iree_status_is_ok(status)) {
-    contract->allowed_usage = usage;
-    contract->allowed_access = iree_hal_buffer_usage_access(usage);
     for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
       const uint32_t id = scope.families[i].family->memory.queue_scope_id;
       const uint32_t a = reservation->scope_accesses[id];
