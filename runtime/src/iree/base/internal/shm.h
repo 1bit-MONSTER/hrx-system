@@ -278,10 +278,19 @@ iree_status_t iree_shm_reservation_initialize(
 // validated before mutation. Sources remain caller-owned while aliases use
 // their backing. Success establishes CPU translation readiness; no execution
 // dependencies are inferred or waited. A native error may leave partial
-// updates; after such an error only terminal deinitialization is permitted.
+// updates; after such an error only full detach or deinitialization is
+// permitted. The owner preserves that failure even if later detach succeeds.
 iree_status_t iree_shm_reservation_update(
     iree_shm_reservation_t* reservation, iree_host_size_t update_count,
     const iree_shm_mapping_update_t* updates);
+
+// Removes all aliases, including after a partially failed update, while keeping
+// the complete address interval reserved. The caller has finished all users and
+// serializes this call with mapping updates and deinitialization. Success
+// certifies removal before backing may be reused, subject to its other aliases;
+// failure grants no reuse. The reservation remains owned on every result.
+// This operation neither retains sources nor resets the owner's failure state.
+iree_status_t iree_shm_reservation_detach(iree_shm_reservation_t* reservation);
 
 // Removes all aliases and releases the interval after the caller has completed
 // its users. Consumes and zeros the reservation even on failure. Failure may

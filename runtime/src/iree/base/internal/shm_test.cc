@@ -156,6 +156,35 @@ TEST_F(ShmReservationTest, IndependentReservationsShareOriginalStorage) {
   IREE_ASSERT_OK(iree_shm_reservation_deinitialize(&other));
 }
 
+TEST_F(ShmReservationTest, DetachesBackingWhileRetainingAddressesForReuse) {
+  const auto original = reservation_;
+  for (uint8_t generation : {17, 29}) {
+    std::memset(source_.base, generation, source_.size);
+    // Leave holes on both sides of a bound interval. Full detach must remove
+    // the installed views and preserve ownership of the untouched addresses.
+    const auto mapping = Mapping(granularity_, 0, 2 * granularity_);
+    IREE_ASSERT_OK(iree_shm_reservation_update(&reservation_, 1, &mapping));
+    EXPECT_EQ(reservation_.base[granularity_ + 7], generation);
+    reservation_.base[2 * granularity_ + 13] = generation + 1;
+    EXPECT_EQ(static_cast<uint8_t*>(source_.base)[granularity_ + 13],
+              generation + 1);
+
+    IREE_ASSERT_OK(iree_shm_reservation_detach(&reservation_));
+    EXPECT_EQ(reservation_.base, original.base);
+    EXPECT_EQ(reservation_.byte_length, original.byte_length);
+    EXPECT_EQ(reservation_.granularity, original.granularity);
+    EXPECT_EQ(reservation_.allocation_base, original.allocation_base);
+    EXPECT_EQ(reservation_.allocation_byte_length,
+              original.allocation_byte_length);
+    IREE_ASSERT_OK(iree_shm_reservation_detach(&reservation_));
+
+    // Checked removal authorizes releasing this generation's storage while
+    // the address owner remains live for the next generation.
+    iree_shm_close(&source_);
+    IREE_ASSERT_OK(iree_shm_create(nullptr, 4 * granularity_, &source_));
+  }
+}
+
 TEST_F(ShmTest, RequiredSizeZeroReturnsOnePage) {
   iree_host_size_t page = iree_shm_required_size(0);
   EXPECT_GT(page, 0);

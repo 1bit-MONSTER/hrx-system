@@ -263,6 +263,13 @@ iree_status_t iree_shm_reservation_update(
   return status;
 }
 
+iree_status_t iree_shm_reservation_detach(iree_shm_reservation_t* reservation) {
+  const iree_shm_mapping_update_t update = {
+      .byte_length = reservation->byte_length,
+  };
+  return iree_shm_reservation_update(reservation, 1, &update);
+}
+
 iree_status_t iree_shm_reservation_deinitialize(
     iree_shm_reservation_t* reservation) {
   if (!reservation->allocation_base) {
