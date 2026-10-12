@@ -51,6 +51,22 @@ static void loom_x86_encode_registers(
   loom_x86_encode_byte(instruction, 0xc0 | ((reg & 7) << 3) | (base & 7));
 }
 
+// Encodes an immediate whose compact opcode sign-extends an imm8 and whose
+// regular opcode sign-extends an imm32. Descriptor semantics and allocation are
+// identical for both forms, so byte width remains a native encoding decision.
+static void loom_x86_encode_sign_extended_immediate(
+    loom_x86_encoded_instruction_t* instruction, uint16_t encoding_id,
+    uint8_t compact_opcode, uint8_t reg, uint8_t base, int64_t immediate) {
+  uint8_t immediate_length = 4;
+  if (immediate >= INT8_MIN && immediate <= INT8_MAX) {
+    encoding_id =
+        (uint16_t)((encoding_id & ~UINT16_C(0x00ff)) | compact_opcode);
+    immediate_length = 1;
+  }
+  loom_x86_encode_registers(instruction, encoding_id, reg, base);
+  loom_x86_encode_integer(instruction, (uint64_t)immediate, immediate_length);
+}
+
 // Values outside the architectural register range represent missing address
 // components. They are private encoding state, never allocation locations.
 enum { LOOM_X86_ADDRESS_REGISTER_NONE = 16 };
@@ -367,12 +383,13 @@ void loom_x86_encode_instruction(
       loom_x86_encode_registers(instruction, encoding_id, extension, rhs);
       return;
     case LOOM_X86_ENCODING_FORM_MULTIPLY_IMMEDIATE:
-      loom_x86_encode_registers(instruction, encoding_id, result, lhs);
-      loom_x86_encode_integer(instruction, operands->immediate, 4);
+      loom_x86_encode_sign_extended_immediate(instruction, encoding_id, 0x6b,
+                                              result, lhs, operands->immediate);
       break;
     case LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE:
-      loom_x86_encode_registers(instruction, encoding_id, extension, result);
-      loom_x86_encode_integer(instruction, operands->immediate, 4);
+      loom_x86_encode_sign_extended_immediate(instruction, encoding_id, 0x83,
+                                              extension, result,
+                                              operands->immediate);
       break;
     case LOOM_X86_ENCODING_FORM_SHIFT_IMMEDIATE:
       loom_x86_encode_registers(instruction, encoding_id, extension, result);
@@ -390,8 +407,8 @@ void loom_x86_encode_instruction(
       break;
     case LOOM_X86_ENCODING_FORM_SUBTRACT_IF_UGE:
       loom_x86_encode_registers(instruction, 0x8b, result, lhs);
-      loom_x86_encode_registers(instruction, 0x81, 5, result);
-      loom_x86_encode_integer(instruction, operands->immediate, 4);
+      loom_x86_encode_sign_extended_immediate(instruction, 0x81, 0x83, 5,
+                                              result, operands->immediate);
       loom_x86_encode_registers(instruction, encoding_id, result, lhs);
       break;
     case LOOM_X86_ENCODING_FORM_COMPARE:
@@ -399,8 +416,8 @@ void loom_x86_encode_instruction(
       loom_x86_encode_predicate(instruction, (uint8_t)encoding_id, result);
       break;
     case LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE:
-      loom_x86_encode_registers(instruction, 0x81 | width_flags, 7, lhs);
-      loom_x86_encode_integer(instruction, operands->immediate, 4);
+      loom_x86_encode_sign_extended_immediate(
+          instruction, 0x81 | width_flags, 0x83, 7, lhs, operands->immediate);
       loom_x86_encode_predicate(instruction, (uint8_t)encoding_id, result);
       break;
     case LOOM_X86_ENCODING_FORM_CONSTANT:

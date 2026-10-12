@@ -397,15 +397,15 @@ TEST_F(FunctionTest, SymbolFixupsKeepSectionOffsetsAndTheirOwnNamespace) {
   loom_native_object_fixup_t fixups[2];
   IREE_ASSERT_OK(loom_x86_function_write(&function, symbol_indices, 5, fixups,
                                          stream_, nullptr, &arena_));
-  // SUB rsp,8 occupies seven bytes. The first LEA's disp32 begins three bytes
+  // SUB rsp,8 occupies four bytes. The first LEA's disp32 begins three bytes
   // later; the CALL's displacement follows its one-byte opcode.
   EXPECT_EQ(fixups[0].section_contribution_index, 5u);
-  EXPECT_EQ(fixups[0].section_offset, 10u);
+  EXPECT_EQ(fixups[0].section_offset, 7u);
   EXPECT_EQ(fixups[0].target_symbol_index, 3u);
   EXPECT_EQ(fixups[0].relocation_kind, LOOM_X86_RELOCATION_ADDRESS);
   EXPECT_EQ(fixups[0].addend, -4);
   EXPECT_EQ(fixups[1].section_contribution_index, 5u);
-  EXPECT_EQ(fixups[1].section_offset, 15u);
+  EXPECT_EQ(fixups[1].section_offset, 12u);
   EXPECT_EQ(fixups[1].target_symbol_index, 4u);
   EXPECT_EQ(fixups[1].relocation_kind, LOOM_X86_RELOCATION_CALL);
   EXPECT_EQ(fixups[1].addend, -4);
