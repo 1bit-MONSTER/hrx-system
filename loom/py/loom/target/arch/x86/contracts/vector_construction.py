@@ -30,6 +30,7 @@ from loom.target.arch.x86.contracts.rule_builders import (
     full_vector_type as _full_vector_type,
 )
 from loom.target.arch.x86.vector_families import (
+    AVX2_CARRIER_VECTOR_BIT_WIDTHS,
     AVX2_VECTOR_BIT_WIDTHS,
     AVX512_DIRECT_BROADCAST_VECTOR_BIT_WIDTHS,
     AVX512_FP16_VECTOR_BIT_WIDTHS,
@@ -1111,8 +1112,8 @@ def avx2_vector_construction_rules(
         *_vector_splat_rules(
             descriptor_lookup,
             descriptor_key_prefix="x86.avx2",
-            integer_vector_bit_widths=AVX2_VECTOR_BIT_WIDTHS,
-            float_vector_bit_widths=AVX2_VECTOR_BIT_WIDTHS,
+            integer_vector_bit_widths=AVX2_CARRIER_VECTOR_BIT_WIDTHS,
+            float_vector_bit_widths=AVX2_CARRIER_VECTOR_BIT_WIDTHS,
             broadcast_source=_IntegerBroadcastSource.XMM_LOW_LANE,
         ),
         *_exact_lane_vector_rules(

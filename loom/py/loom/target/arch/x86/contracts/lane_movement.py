@@ -18,7 +18,7 @@ from loom.target.arch.x86.contracts.rule_builders import (
     emit_descriptor_op as _op_emit,
 )
 from loom.target.arch.x86.vector_families import (
-    AVX2_VECTOR_BIT_WIDTHS,
+    AVX2_CARRIER_VECTOR_BIT_WIDTHS,
     AVX512_FP16_VECTOR_BIT_WIDTHS,
     AVX512_VECTOR_BIT_WIDTHS,
     X86_LANE_FAMILIES,
@@ -41,7 +41,6 @@ _F32 = Scalar("f32")
 _F64 = Scalar("f64")
 _I16 = Scalar("i16")
 _I64 = Scalar("i64")
-_V2F64 = Vector("f64", lanes=2)
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,7 +282,12 @@ def _lane_movement_rules(
     return tuple(rules)
 
 
-def _insert_f64_rule(lane: int, descriptor_lookup: _DescriptorLookup) -> DescriptorRule:
+def _insert_f64_rule(
+    lane: int,
+    descriptor_lookup: _DescriptorLookup,
+    *,
+    vector_lane_count: int = 2,
+) -> DescriptorRule:
     descriptor = descriptor_lookup("x86.avx2.vshufpd.xmm")
     # Each output lane comes from a different input. The scalar occupies the
     # low lane, so insertion selects its input order and the retained dest lane.
@@ -292,8 +296,8 @@ def _insert_f64_rule(lane: int, descriptor_lookup: _DescriptorLookup) -> Descrip
         descriptor=descriptor,
         guards=(
             Guard.value_type("value", _F64),
-            Guard.value_type("dest", _V2F64),
-            Guard.value_type("result", _V2F64),
+            Guard.value_type("dest", Vector("f64", lanes=vector_lane_count)),
+            Guard.value_type("result", Vector("f64", lanes=vector_lane_count)),
             Guard.operand_segment_count("indices", 0),
             Guard.i64_array_count("static_indices", 1),
             Guard.i64_array_element_range("static_indices", 0, lane, lane),
@@ -572,16 +576,17 @@ def avx2_lane_movement_rules(
     descriptor_lookup: _DescriptorLookup,
 ) -> tuple[ContractCase, ...]:
     return (
-        *_lane_movement_rules(AVX2_VECTOR_BIT_WIDTHS, descriptor_lookup),
+        *_lane_movement_rules(AVX2_CARRIER_VECTOR_BIT_WIDTHS, descriptor_lookup),
         *(
             _floating_extract_rule(element_name, vector_bit_width, descriptor_lookup)
             for element_name in ("f32", "f64")
-            for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+            for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
         ),
         *(
             _insert_f32_rule(vector_bit_width, descriptor_lookup)
-            for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+            for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
         ),
+        _insert_f64_rule(0, descriptor_lookup, vector_lane_count=1),
         _insert_f64_rule(0, descriptor_lookup),
         _insert_f64_rule(1, descriptor_lookup),
         _insert_f64_wide_rule(256, descriptor_lookup),

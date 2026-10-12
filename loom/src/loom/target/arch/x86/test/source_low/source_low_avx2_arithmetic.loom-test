@@ -145,3 +145,31 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
   %f64_result = vfmadd231sd.xmm %36, %f64_div, %f64_rhs
   return %f32_result, %f64_result
 }
+
+// ====
+
+// The function ABI carries a 64-bit vector in the low half of an XMM
+// register. Scalar fallback extracts, computes, and reconstructs that logical
+// payload without making its two inactive physical lanes observable.
+x86.target<avx2> @target
+
+func.def target(@target) @subnative_integer_multiply(%lhs: vector<2xi32>, %rhs: vector<2xi32>) -> (vector<2xi32>) {
+  %result = vector.muli %lhs, %rhs : vector<2xi32>
+  func.return %result : vector<2xi32>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<2xi32>, vector<2xi32>) -> (vector<2xi32>)}) @subnative_integer_multiply(%lhs: reg<x86.xmm>, %rhs: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %16 = vpextrd.xmm %lhs, 0
+  %17 = vpextrd.xmm %rhs, 0
+  %18 = copy %16 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %19 = imul.gpr32 %18, %17
+  %20 = vpextrd.xmm %lhs, 1
+  %21 = vpextrd.xmm %rhs, 1
+  %22 = copy %20 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %23 = imul.gpr32 %22, %21
+  %24 = vmovd.xmm.gpr32 %19
+  %25 = avx2.vpbroadcastd.xmm %24
+  %result = vpinsrd.xmm %25, %23, 1
+  return %result
+}

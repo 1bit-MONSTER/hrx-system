@@ -25,6 +25,7 @@ from loom.target.arch.x86.scalar_families import (
     X86_SCALAR_READ_MEMORY_FAMILIES,
 )
 from loom.target.arch.x86.vector_families import (
+    AVX2_CARRIER_VECTOR_BIT_WIDTHS,
     AVX2_FLOAT_REDUCTION_OPERATIONS,
     AVX2_INTEGER_REDUCTION_FAMILIES,
     AVX2_PACKED_FLOAT_REDUCTION_OPERATIONS,
@@ -576,7 +577,7 @@ def test_avx2_lane_movement_covers_every_payload_type_and_width() -> None:
             (0, vector_bit_width // row.element_bit_width - 1),
         )
         for row in X86_LANE_FAMILIES
-        for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
         for source_op in (vector.vector_extract, vector.vector_insert)
     }
     expected.update(
@@ -587,7 +588,7 @@ def test_avx2_lane_movement_covers_every_payload_type_and_width() -> None:
             (0, vector_bit_width // element_bit_width - 1),
         )
         for element_name, element_bit_width in (("f32", 32), ("f64", 64))
-        for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
         for source_op in (vector.vector_extract, vector.vector_insert)
         if not (
             element_name == "f64"
@@ -604,6 +605,14 @@ def test_avx2_lane_movement_covers_every_payload_type_and_width() -> None:
         )
         for lane in range(2)
     )
+    expected.add(
+        (
+            vector.vector_insert.name,
+            Vector("f64", lanes=1),
+            Scalar("f64"),
+            (0, 0),
+        )
+    )
     actual = {
         (
             rule.source_op.name,
@@ -618,6 +627,23 @@ def test_avx2_lane_movement_covers_every_payload_type_and_width() -> None:
         for rule in rules
     }
     assert actual == expected
+    assert len(rules) == len(expected)
+
+
+def test_avx2_splats_cover_every_register_carried_payload() -> None:
+    rules = tuple(
+        case
+        for case in X86_AVX2_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule)
+        and case.source_op is vector.vector_splat
+        and _value_type_guard(case, "scalar") != Scalar("i1")
+    )
+    expected = {
+        Vector(element.name, lanes=vector_bit_width // element.bit_width)
+        for element in (*INTEGER_ELEMENTS, *STORAGE_ELEMENTS, *FLOAT_ELEMENTS)
+        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+    }
+    assert {_value_type_guard(rule, "result") for rule in rules} == expected
     assert len(rules) == len(expected)
 
 
