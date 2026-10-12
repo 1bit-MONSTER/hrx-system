@@ -1270,6 +1270,15 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
+    vector_initializers_module
+  SRCS
+    "vector_initializers.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
     increment_values_module
   SRCS
     "increment_values.cxx"
@@ -1314,16 +1323,6 @@ loom_test_module(
   SRCS
     "typed_views.cxx"
     "typed_views.loom"
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_test_module(
-  NAME
-    vector_initializers_module
-  SRCS
-    "vector_initializers.cxx"
-    "vector_initializers.loom"
 )
 endif()
 

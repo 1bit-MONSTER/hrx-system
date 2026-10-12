@@ -553,6 +553,7 @@ _APPROXIMATE_KERNEL_SOURCES = [
 
 _AUTHORED_CXX_KERNEL_SOURCES = [
     "scheduled_sum",
+    "vector_initializers",
 ]
 
 _AUTHORED_SPLIT_KERNEL_SOURCES = [
@@ -561,7 +562,6 @@ _AUTHORED_SPLIT_KERNEL_SOURCES = [
     "shaped_intrinsics",
     "structured_continue",
     "typed_views",
-    "vector_initializers",
     "vector_values",
 ]
 
