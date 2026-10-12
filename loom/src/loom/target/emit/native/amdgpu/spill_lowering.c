@@ -83,6 +83,12 @@ typedef struct loom_amdgpu_spill_lowering_context_t {
   iree_host_size_t required_register_value_count;
   // Capacity of |required_register_value_ids|.
   iree_host_size_t required_register_value_capacity;
+  // VGPR values defined while spill lowering has widened EXEC.
+  loom_value_id_t* expanded_execution_value_ids;
+  // Number of entries in |expanded_execution_value_ids|.
+  iree_host_size_t expanded_execution_value_count;
+  // Capacity of |expanded_execution_value_ids|.
+  iree_host_size_t expanded_execution_value_capacity;
 } loom_amdgpu_spill_lowering_context_t;
 
 static iree_status_t loom_amdgpu_spill_lowering_record_required_register_value(
@@ -100,6 +106,35 @@ static iree_status_t loom_amdgpu_spill_lowering_record_required_register_value(
   context
       ->required_register_value_ids[context->required_register_value_count++] =
       value_id;
+  return iree_ok_status();
+}
+
+static iree_status_t
+loom_amdgpu_spill_lowering_record_expanded_execution_values(
+    loom_amdgpu_spill_lowering_context_t* context,
+    loom_value_id_t first_value_id) {
+  for (loom_value_id_t value_id = first_value_id;
+       value_id < context->module->values.count; ++value_id) {
+    const loom_type_t type = loom_module_value_type(context->module, value_id);
+    if (!loom_low_type_is_register(type) ||
+        loom_low_register_type_descriptor_set_stable_id(type) !=
+            context->descriptor_set->stable_id ||
+        loom_low_register_type_class_id(type) != context->vgpr_class_id) {
+      continue;
+    }
+    const iree_host_size_t minimum_capacity =
+        context->expanded_execution_value_count + 1;
+    if (minimum_capacity > context->expanded_execution_value_capacity) {
+      IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+          context->scratch_arena, context->expanded_execution_value_count,
+          iree_max(minimum_capacity, 8u),
+          sizeof(*context->expanded_execution_value_ids),
+          &context->expanded_execution_value_capacity,
+          (void**)&context->expanded_execution_value_ids));
+    }
+    context->expanded_execution_value_ids
+        [context->expanded_execution_value_count++] = value_id;
+  }
   return iree_ok_status();
 }
 
@@ -754,8 +789,8 @@ static iree_status_t loom_amdgpu_spill_lowering_load_chunk(
 }
 
 static iree_status_t loom_amdgpu_spill_lowering_rewrite_spill(
-    const loom_amdgpu_spill_lowering_context_t* context,
-    loom_rewriter_t* rewriter, loom_op_t* op) {
+    loom_amdgpu_spill_lowering_context_t* context, loom_rewriter_t* rewriter,
+    loom_op_t* op) {
   const loom_value_id_t value = loom_low_spill_value(op);
   const loom_type_t value_type = loom_module_value_type(context->module, value);
   loom_amdgpu_spill_register_t spill_register = {0};
@@ -803,6 +838,8 @@ static iree_status_t loom_amdgpu_spill_lowering_rewrite_spill(
     IREE_RETURN_IF_ERROR(loom_amdgpu_spill_lowering_enter_full_exec(
         context, rewriter, op->location, &saved_exec));
   }
+  const loom_value_id_t expanded_execution_value_start =
+      context->module->values.count;
   for (uint32_t chunk_start = 0; chunk_start < unit_count;) {
     uint32_t chunk_units = loom_amdgpu_spill_lowering_register_chunk_units(
         &spill_register, unit_count - chunk_start);
@@ -830,6 +867,9 @@ static iree_status_t loom_amdgpu_spill_lowering_rewrite_spill(
     chunk_start += chunk_units;
   }
   if (requires_full_exec) {
+    IREE_RETURN_IF_ERROR(
+        loom_amdgpu_spill_lowering_record_expanded_execution_values(
+            context, expanded_execution_value_start));
     IREE_RETURN_IF_ERROR(loom_amdgpu_spill_lowering_build_exec_write(
         context, rewriter, saved_exec, op->location));
   }
@@ -837,8 +877,8 @@ static iree_status_t loom_amdgpu_spill_lowering_rewrite_spill(
 }
 
 static iree_status_t loom_amdgpu_spill_lowering_rewrite_reload(
-    const loom_amdgpu_spill_lowering_context_t* context,
-    loom_rewriter_t* rewriter, loom_op_t* op) {
+    loom_amdgpu_spill_lowering_context_t* context, loom_rewriter_t* rewriter,
+    loom_op_t* op) {
   const loom_value_id_t result = loom_low_reload_result(op);
   const loom_type_t result_type =
       loom_module_value_type(context->module, result);
@@ -888,6 +928,8 @@ static iree_status_t loom_amdgpu_spill_lowering_rewrite_reload(
     IREE_RETURN_IF_ERROR(loom_amdgpu_spill_lowering_enter_full_exec(
         context, rewriter, op->location, &saved_exec));
   }
+  const loom_value_id_t expanded_execution_value_start =
+      context->module->values.count;
   const loom_value_id_t value_checkpoint =
       loom_rewriter_value_checkpoint(rewriter);
   loom_value_id_t* loaded_chunks = NULL;
@@ -921,6 +963,9 @@ static iree_status_t loom_amdgpu_spill_lowering_rewrite_reload(
     chunk_start += chunk_units;
   }
   if (requires_full_exec) {
+    IREE_RETURN_IF_ERROR(
+        loom_amdgpu_spill_lowering_record_expanded_execution_values(
+            context, expanded_execution_value_start));
     IREE_RETURN_IF_ERROR(loom_amdgpu_spill_lowering_build_exec_write(
         context, rewriter, saved_exec, op->location));
   }
@@ -1087,6 +1132,10 @@ iree_status_t loom_amdgpu_lower_spill_traffic(
         context.required_register_value_ids;
     out_result->required_register_value_count =
         context.required_register_value_count;
+    out_result->expanded_execution_value_ids =
+        context.expanded_execution_value_ids;
+    out_result->expanded_execution_value_count =
+        context.expanded_execution_value_count;
   }
   return status;
 }

@@ -364,6 +364,10 @@ static iree_status_t loom_amdgpu_loom_check_lower_spill_traffic(
   out_result->required_register_value_ids = result.required_register_value_ids;
   out_result->required_register_value_count =
       result.required_register_value_count;
+  out_result->expanded_execution_value_ids =
+      result.expanded_execution_value_ids;
+  out_result->expanded_execution_value_count =
+      result.expanded_execution_value_count;
   return iree_ok_status();
 }
 
