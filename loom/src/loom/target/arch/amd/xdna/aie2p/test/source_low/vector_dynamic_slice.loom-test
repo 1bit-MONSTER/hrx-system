@@ -1,0 +1,301 @@
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+func.def @i16_packet_local(%source: vector<24xi16>, %offset: index) -> (vector<12xi16>) {
+  %result = vector.slice %source[%offset] : vector<24xi16> -> vector<12xi16>
+  func.return %result : vector<12xi16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i16_packet_local(%source: reg<aie2p.vec256 x2>, %offset: reg<aie2p.er>) -> (reg<aie2p.vec256 x2>) asm {
+  %7 = mov.short 1
+  %8 = lshl %offset, %7
+  %result = vshift %source, %source, %8
+  return %result
+}
+
+// ====
+
+func.def @i8_packet_select(%source: vector<128xi8>, %offset: index) -> (vector<32xi8>) {
+  %result = vector.slice %source[%offset] : vector<128xi8> -> vector<32xi8>
+  func.return %result : vector<32xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i8_packet_select(%source: reg<aie2p.vec256 x4>, %offset: reg<aie2p.er>) -> (reg<aie2p.vec256 x2>) asm {
+  %7 = slice %source[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %8 = slice %source[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %9 = mov.short -6
+  %10 = lshl %offset, %9
+  %11 = select.mask %10, -1
+  %12 = vsel.32 %8, %7, %11
+  %13 = mov.short 63
+  %14 = and %offset, %13
+  %result = vshift %12, %8, %14
+  return %result
+}
+
+// ====
+
+func.def @f32_accumulator_to_x(%source: vector<64xf32>, %offset: index) -> (vector<20xf32>) {
+  %result = vector.slice %source[%offset] : vector<64xf32> -> vector<20xf32>
+  func.return %result : vector<20xf32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @f32_accumulator_to_x(%source: reg<aie2p.mbms x4>, %offset: reg<aie2p.er>) -> (reg<aie2p.vec256 x4>) asm {
+  %7 = slice %source[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %8 = vmov.accumulator512.to.vector512 %7
+  %9 = slice %source[1] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %10 = vmov.accumulator512.to.vector512 %9
+  %11 = slice %source[2] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %12 = vmov.accumulator512.to.vector512 %11
+  %13 = slice %source[3] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %14 = vmov.accumulator512.to.vector512 %13
+  %15 = mov.short -4
+  %16 = lshl %offset, %15
+  %17 = mov.short 1
+  %18 = and %16, %17
+  %19 = mov.short -1
+  %20 = lshl %16, %19
+  %21 = select.mask %18, -1
+  %22 = select.mask %20, -1
+  %23 = vsel.32 %10, %8, %21
+  %24 = vsel.32 %12, %23, %22
+  %25 = vsel.32 %12, %10, %21
+  %26 = vsel.32 %14, %25, %22
+  %27 = vsel.32 %14, %12, %21
+  %28 = vsel.32 %14, %27, %22
+  %29 = mov.short 15
+  %30 = and %offset, %29
+  %31 = mov.short 2
+  %32 = lshl %30, %31
+  %33 = vshift %24, %26, %32
+  %34 = vshift %26, %28, %32
+  %result = concat(%33, %34) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %result
+}
+
+// ====
+
+func.def @i64_accumulator_window(%source: vector<32xi64>, %offset: index) -> (vector<24xi64>) {
+  %result = vector.slice %source[%offset] : vector<32xi64> -> vector<24xi64>
+  func.return %result : vector<24xi64>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i64_accumulator_window(%source: reg<aie2p.mbms x4>, %offset: reg<aie2p.er>) -> (reg<aie2p.mbms x4>) asm {
+  %7 = slice %source[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %8 = vmov.accumulator512.to.vector512 %7
+  %9 = slice %source[1] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %10 = vmov.accumulator512.to.vector512 %9
+  %11 = slice %source[2] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %12 = vmov.accumulator512.to.vector512 %11
+  %13 = slice %source[3] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %14 = vmov.accumulator512.to.vector512 %13
+  %15 = mov.short -3
+  %16 = lshl %offset, %15
+  %17 = select.mask %16, -1
+  %18 = vsel.32 %10, %8, %17
+  %19 = vsel.32 %12, %10, %17
+  %20 = vsel.32 %14, %12, %17
+  %21 = mov.short 7
+  %22 = and %offset, %21
+  %23 = mov.short 3
+  %24 = lshl %22, %23
+  %25 = vshift %18, %19, %24
+  %26 = vshift %19, %20, %24
+  %27 = vshift %20, %14, %24
+  %28 = vmov.vector512.to.accumulator512 %25
+  %29 = vmov.vector512.to.accumulator512 %26
+  %30 = vmov.vector512.to.accumulator512 %27
+  %result = concat(%28, %29, %30, %30) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  return %result
+}
+
+// ====
+
+func.def @predicate_word_window(%source: vector<128xi1>, %offset: index) -> (vector<40xi1>) {
+  %result = vector.slice %source[%offset] : vector<128xi1> -> vector<40xi1>
+  func.return %result : vector<40xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_word_window(%source: reg<aie2p.elpredicate x2>, %offset: reg<aie2p.er>) -> (reg<aie2p.elpredicate>) asm {
+  %7 = slice %source[0] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %8 = slice %source[1] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %9 = mov.short 0
+  %10 = predicate.shift.high32 %7, %9
+  %11 = predicate.shift.high32 %8, %9
+  %12 = mov.short -5
+  %13 = lshl %offset, %12
+  %14 = mov.short 1
+  %15 = and %13, %14
+  %16 = mov.short -1
+  %17 = lshl %13, %16
+  %18 = vbcst.8 %15
+  %19 = vsub.8 %18, %18
+  %20 = vlt.u8x64 %19, %18
+  %21 = vbcst.8 %17
+  %22 = vsub.8 %21, %21
+  %23 = vlt.u8x64 %22, %21
+  %24 = predicate.xor.low32 %7, %10
+  %25 = predicate.and.low32.rhs_tied %20, %24
+  %26 = predicate.xor.low32.rhs_tied %7, %25
+  %27 = predicate.xor.low32 %26, %8
+  %28 = predicate.and.low32.rhs_tied %23, %27
+  %29 = predicate.xor.low32.rhs_tied %26, %28
+  %30 = predicate.xor.low32 %10, %8
+  %31 = predicate.and.low32.rhs_tied %20, %30
+  %32 = predicate.xor.low32.rhs_tied %10, %31
+  %33 = predicate.xor.low32 %32, %11
+  %34 = predicate.and.low32.rhs_tied %23, %33
+  %35 = predicate.xor.low32.rhs_tied %32, %34
+  %36 = predicate.xor.low32 %8, %11
+  %37 = predicate.and.low32.rhs_tied %20, %36
+  %38 = predicate.xor.low32.rhs_tied %8, %37
+  %39 = predicate.xor.low32 %38, %11
+  %40 = predicate.and.low32.rhs_tied %23, %39
+  %41 = predicate.xor.low32.rhs_tied %38, %40
+  %42 = mov.short 31
+  %43 = and %offset, %42
+  %44 = sub %9, %43
+  %45 = mov.short 32
+  %46 = sub %45, %43
+  %47 = vbcst.8 %43
+  %48 = vsub.8 %47, %47
+  %49 = vlt.u8x64 %48, %47
+  %50 = predicate.shift.low32 %29, %44
+  %51 = predicate.shift.low32 %35, %46
+  %52 = predicate.and.low32.rhs_tied %49, %51
+  %53 = predicate.or.low32.rhs_tied %50, %52
+  %54 = predicate.shift.low32 %35, %44
+  %55 = predicate.shift.low32 %41, %46
+  %56 = predicate.and.low32.rhs_tied %49, %55
+  %57 = predicate.or.low32.rhs_tied %54, %56
+  %result = predicate.or.low32.to.high32 %57, %57, %53
+  return %result
+}
+
+// ====
+
+func.def @dynamic_shaped_tail(%source: vector<2x3x4xi16>, %plane: index) -> (vector<3x4xi16>) {
+  %result = vector.extract %source[%plane] : vector<2x3x4xi16> -> vector<3x4xi16>
+  func.return %result : vector<3x4xi16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @dynamic_shaped_tail(%source: reg<aie2p.vec256 x2>, %plane: reg<aie2p.er>) -> (reg<aie2p.vec256 x2>) asm {
+  %12 = mov.short 12
+  %13 = mul %plane, %12
+  %14 = mov.short 1
+  %15 = lshl %13, %14
+  %result = vshift %source, %source, %15
+  return %result
+}
+
+// ====
+
+func.def @i16_wide_window(%source: vector<64xi16>, %offset: index) -> (vector<40xi16>) {
+  %result = vector.slice %source[%offset] : vector<64xi16> -> vector<40xi16>
+  func.return %result : vector<40xi16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i16_wide_window(%source: reg<aie2p.vec256 x4>, %offset: reg<aie2p.er>) -> (reg<aie2p.vec256 x4>) asm {
+  %7 = slice %source[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %8 = slice %source[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
+  %9 = mov.short 1
+  %10 = lshl %offset, %9
+  %11 = vshift %7, %8, %10
+  %12 = vshift %8, %8, %10
+  %result = concat(%11, %12) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %result
+}
+
+// ====
+
+func.def @predicate_narrow_word(%source: vector<64xi1>, %offset: index) -> (vector<16xi1>) {
+  %result = vector.slice %source[%offset] : vector<64xi1> -> vector<16xi1>
+  func.return %result : vector<16xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_narrow_word(%source: reg<aie2p.elpredicate>, %offset: reg<aie2p.er>) -> (reg<aie2p.elpredicate>) asm {
+  %7 = mov.short 0
+  %8 = predicate.shift.high32 %source, %7
+  %9 = mov.short -5
+  %10 = lshl %offset, %9
+  %11 = vbcst.8 %10
+  %12 = vsub.8 %11, %11
+  %13 = vlt.u8x64 %12, %11
+  %14 = predicate.xor.low32 %source, %8
+  %15 = predicate.and.low32.rhs_tied %13, %14
+  %16 = predicate.xor.low32.rhs_tied %source, %15
+  %17 = mov.short 31
+  %18 = and %offset, %17
+  %19 = sub %7, %18
+  %20 = mov.short 32
+  %21 = sub %20, %18
+  %22 = vbcst.8 %18
+  %23 = vsub.8 %22, %22
+  %24 = vlt.u8x64 %23, %22
+  %25 = predicate.shift.low32 %16, %19
+  %26 = predicate.shift.low32 %8, %21
+  %27 = predicate.and.low32.rhs_tied %24, %26
+  %28 = predicate.or.low32.rhs_tied %25, %27
+  %result = predicate.complete.zero.high32 %28, 0
+  return %result
+}
+
+// ====
+
+func.def @predicate_wide_result(%source: vector<128xi1>, %offset: index) -> (vector<96xi1>) {
+  %result = vector.slice %source[%offset] : vector<128xi1> -> vector<96xi1>
+  func.return %result : vector<96xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_wide_result(%source: reg<aie2p.elpredicate x2>, %offset: reg<aie2p.er>) -> (reg<aie2p.elpredicate x2>) asm {
+  %7 = slice %source[0] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %8 = slice %source[1] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %9 = mov.short 0
+  %10 = predicate.shift.high32 %7, %9
+  %11 = predicate.shift.high32 %8, %9
+  %12 = mov.short -5
+  %13 = lshl %offset, %12
+  %14 = vbcst.8 %13
+  %15 = vsub.8 %14, %14
+  %16 = vlt.u8x64 %15, %14
+  %17 = predicate.xor.low32 %7, %10
+  %18 = predicate.and.low32.rhs_tied %16, %17
+  %19 = predicate.xor.low32.rhs_tied %7, %18
+  %20 = predicate.xor.low32 %10, %8
+  %21 = predicate.and.low32.rhs_tied %16, %20
+  %22 = predicate.xor.low32.rhs_tied %10, %21
+  %23 = predicate.xor.low32 %8, %11
+  %24 = predicate.and.low32.rhs_tied %16, %23
+  %25 = predicate.xor.low32.rhs_tied %8, %24
+  %26 = mov.short 31
+  %27 = and %offset, %26
+  %28 = sub %9, %27
+  %29 = mov.short 32
+  %30 = sub %29, %27
+  %31 = vbcst.8 %27
+  %32 = vsub.8 %31, %31
+  %33 = vlt.u8x64 %32, %31
+  %34 = predicate.shift.low32 %19, %28
+  %35 = predicate.shift.low32 %22, %30
+  %36 = predicate.and.low32.rhs_tied %33, %35
+  %37 = predicate.or.low32.rhs_tied %34, %36
+  %38 = predicate.shift.low32 %22, %28
+  %39 = predicate.shift.low32 %25, %30
+  %40 = predicate.and.low32.rhs_tied %33, %39
+  %41 = predicate.or.low32.rhs_tied %38, %40
+  %42 = predicate.shift.low32 %25, %28
+  %43 = predicate.shift.low32 %11, %30
+  %44 = predicate.and.low32.rhs_tied %33, %43
+  %45 = predicate.or.low32.rhs_tied %42, %44
+  %46 = predicate.or.low32.to.high32 %41, %41, %37
+  %47 = predicate.complete.zero.high32 %45, 0
+  %result = concat(%46, %47) : (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) -> reg<aie2p.elpredicate x2>
+  return %result
+}

@@ -7,6 +7,9 @@
 """Tests for AMD XDNA AIE2P structural vector contracts."""
 
 from loom.dialect.vector import defs as vector
+from loom.target.arch.amd.xdna.aie2p.contracts.carrier import (
+    VECTOR_CARRIER_SPECS,
+)
 from loom.target.arch.amd.xdna.aie2p.contracts.structural import (
     _ACCUMULATOR_BITCAST_TYPE_GROUPS,
     _F32X32_ACCUMULATOR,
@@ -14,7 +17,6 @@ from loom.target.arch.amd.xdna.aie2p.contracts.structural import (
     _ORDINARY_1024_BITCAST_TYPES,
     _PACKED_VECTOR_ELEMENT_TYPES,
     _PREDICATE_VECTOR,
-    _VECTOR_CARRIER_SPECS,
     _WIDE_PREDICATE_VECTOR,
     _WIDE_VECTOR_BITCAST_TYPES,
     _WIDE_VECTOR_CONCAT_SPECS,
@@ -152,7 +154,7 @@ def _slice_rule(
 
 
 def test_static_slices_project_logical_lanes_into_physical_carriers() -> None:
-    for element_types, element_byte_count, wide_lane_maximum in _VECTOR_CARRIER_SPECS:
+    for element_types, element_byte_count, wide_lane_maximum in VECTOR_CARRIER_SPECS:
         carrier_lane_count = 64 // element_byte_count
         narrow_type = Vector(
             element_types,
@@ -359,7 +361,7 @@ def test_partial_concat_projects_one_verified_byte_cut_per_element_width() -> No
 
 
 def test_split_carrier_concat_covers_each_binary_input_partition() -> None:
-    for element_types, element_byte_count, wide_lane_maximum in _VECTOR_CARRIER_SPECS:
+    for element_types, element_byte_count, wide_lane_maximum in VECTOR_CARRIER_SPECS:
         carrier_lane_count = 64 // element_byte_count
         narrow_left = Vector(
             element_types,

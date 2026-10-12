@@ -982,6 +982,7 @@ loom_check_test_suite(
     "test/source_low/vector_concat_accumulator.loom-test"
     "test/source_low/vector_constant.loom-test"
     "test/source_low/vector_dot_interleave.loom-test"
+    "test/source_low/vector_dynamic_slice.loom-test"
     "test/source_low/vector_float_comparison.loom-test"
     "test/source_low/vector_index_conversion.loom-test"
     "test/source_low/vector_interleave.loom-test"

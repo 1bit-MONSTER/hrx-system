@@ -1,0 +1,238 @@
+// Runtime positions span the first and last valid windows and three interior
+// windows. Uneven strides force both packet-local shifts and packet selection.
+func.def @dynamic_ordinary_windows(%trial: index, %byte_input: buffer, %word_input: buffer, %byte_output: buffer, %word_output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 4)] : index
+  %byte_stride = index.constant 24 : index
+  %word_stride = index.constant 6 : index
+  %byte_offset = index.mul %ordinal, %byte_stride : index
+  %word_offset = index.mul %ordinal, %word_stride : index
+  %base = index.constant 0 : offset
+  %bytes = buffer.view %byte_input[%base] : buffer -> view<128xi8>
+  %words = buffer.view %word_input[%base] : buffer -> view<64xi16>
+  %byte_results = buffer.view %byte_output[%base] : buffer -> view<32xi8>
+  %word_results = buffer.view %word_output[%base] : buffer -> view<40xi16>
+  %byte_source = vector.load %bytes[0] : view<128xi8> -> vector<128xi8>
+  %word_source = vector.load %words[0] : view<64xi16> -> vector<64xi16>
+  %byte_window = vector.slice %byte_source[%byte_offset] : vector<128xi8> -> vector<32xi8>
+  %word_window = vector.slice %word_source[%word_offset] : vector<64xi16> -> vector<40xi16>
+  vector.store %byte_window, %byte_results[0] : vector<32xi8>, view<32xi8>
+  vector.store %word_window, %word_results[0] : vector<40xi16>, view<40xi16>
+  func.return
+}
+
+func.def @dynamic_ordinary_windows_oracle(%trial: index, %byte_input: buffer, %word_input: buffer, %byte_output: buffer, %word_output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 4)] : index
+  %byte_stride = index.constant 24 : index
+  %word_stride = index.constant 6 : index
+  %byte_offset = index.mul %ordinal, %byte_stride : index
+  %word_offset = index.mul %ordinal, %word_stride : index
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %byte_end = index.constant 32 : index
+  %word_end = index.constant 40 : index
+  %bytes = buffer.view %byte_input[%base] : buffer -> view<128xi8>
+  %words = buffer.view %word_input[%base] : buffer -> view<64xi16>
+  %byte_results = buffer.view %byte_output[%base] : buffer -> view<32xi8>
+  %word_results = buffer.view %word_output[%base] : buffer -> view<40xi16>
+  scf.for %i = [%begin to %byte_end step %step] {
+    %source_index = index.add %byte_offset, %i : index
+    %value = view.load %bytes[%source_index] : view<128xi8> -> i8
+    view.store %value, %byte_results[%i] : i8, view<32xi8>
+  }
+  scf.for %i = [%begin to %word_end step %step] {
+    %source_index = index.add %word_offset, %i : index
+    %value = view.load %words[%source_index] : view<64xi16> -> i16
+    view.store %value, %word_results[%i] : i16, view<40xi16>
+  }
+  func.return
+}
+
+check.scenario @dynamic_ordinary_window_values {
+  check.trial[5](%trial: index, %entropy: check.entropy) {
+    %bytes = check.generate.iota offset(-128) step(1) period(256) : tensor<128xi8>
+    %words = check.generate.iota offset(-32768) step(1031) : tensor<64xi16>
+    %byte_output = check.generate.fill value(91) : tensor<32xi8>
+    %word_output = check.generate.fill value(23130) : tensor<40xi16>
+    check.compare<@dynamic_ordinary_windows, @dynamic_ordinary_windows_oracle>(%trial, %bytes, %words, %byte_output, %word_output) : (index, tensor<128xi8>, tensor<64xi16>, tensor<32xi8>, tensor<40xi16>) -> () {
+      check.expect.bitwise actual(%byte_output) expected(%byte_output) : tensor<32xi8>
+      check.expect.bitwise actual(%word_output) expected(%word_output) : tensor<40xi16>
+    }
+  }
+  check.return
+}
+
+// Wide floating and integer windows exercise the accumulator source carrier,
+// including a result that remains in the accumulator carrier.
+func.def @dynamic_accumulator_windows(%trial: index, %float_input: buffer, %wide_input: buffer, %float_output: buffer, %wide_output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 4)] : index
+  %float_stride = index.constant 11 : index
+  %wide_stride = index.constant 2 : index
+  %float_offset = index.mul %ordinal, %float_stride : index
+  %wide_offset = index.mul %ordinal, %wide_stride : index
+  %base = index.constant 0 : offset
+  %floats = buffer.view %float_input[%base] : buffer -> view<64xf32>
+  %wide_values = buffer.view %wide_input[%base] : buffer -> view<32xi64>
+  %float_results = buffer.view %float_output[%base] : buffer -> view<20xf32>
+  %wide_results = buffer.view %wide_output[%base] : buffer -> view<24xi64>
+  %float_source = vector.load %floats[0] : view<64xf32> -> vector<64xf32>
+  %wide_source = vector.load %wide_values[0] : view<32xi64> -> vector<32xi64>
+  %float_window = vector.slice %float_source[%float_offset] : vector<64xf32> -> vector<20xf32>
+  %wide_window = vector.slice %wide_source[%wide_offset] : vector<32xi64> -> vector<24xi64>
+  vector.store %float_window, %float_results[0] : vector<20xf32>, view<20xf32>
+  vector.store %wide_window, %wide_results[0] : vector<24xi64>, view<24xi64>
+  func.return
+}
+
+func.def @dynamic_accumulator_windows_oracle(%trial: index, %float_input: buffer, %wide_input: buffer, %float_output: buffer, %wide_output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 4)] : index
+  %float_stride = index.constant 11 : index
+  %wide_stride = index.constant 2 : index
+  %float_offset = index.mul %ordinal, %float_stride : index
+  %wide_offset = index.mul %ordinal, %wide_stride : index
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %float_end = index.constant 20 : index
+  %wide_end = index.constant 24 : index
+  %floats = buffer.view %float_input[%base] : buffer -> view<64xf32>
+  %wide_values = buffer.view %wide_input[%base] : buffer -> view<32xi64>
+  %float_results = buffer.view %float_output[%base] : buffer -> view<20xf32>
+  %wide_results = buffer.view %wide_output[%base] : buffer -> view<24xi64>
+  scf.for %i = [%begin to %float_end step %step] {
+    %source_index = index.add %float_offset, %i : index
+    %value = view.load %floats[%source_index] : view<64xf32> -> f32
+    view.store %value, %float_results[%i] : f32, view<20xf32>
+  }
+  scf.for %i = [%begin to %wide_end step %step] {
+    %source_index = index.add %wide_offset, %i : index
+    %value = view.load %wide_values[%source_index] : view<32xi64> -> i64
+    view.store %value, %wide_results[%i] : i64, view<24xi64>
+  }
+  func.return
+}
+
+check.scenario @dynamic_accumulator_window_values {
+  check.trial[5](%trial: index, %entropy: check.entropy) {
+    %floats = check.generate.iota offset(-17.0) step(0.75) : tensor<64xf32>
+    %wide_values = check.generate.iota offset(-9223372036854775808) step(6148914691236517205) period(3) : tensor<32xi64>
+    %float_output = check.generate.fill value(123.0) : tensor<20xf32>
+    %wide_output = check.generate.fill value(-81985529216486896) : tensor<24xi64>
+    check.compare<@dynamic_accumulator_windows, @dynamic_accumulator_windows_oracle>(%trial, %floats, %wide_values, %float_output, %wide_output) : (index, tensor<64xf32>, tensor<32xi64>, tensor<20xf32>, tensor<24xi64>) -> () {
+      check.expect.bitwise actual(%float_output) expected(%float_output) : tensor<20xf32>
+      check.expect.bitwise actual(%wide_output) expected(%wide_output) : tensor<24xi64>
+    }
+  }
+  check.return
+}
+
+// The narrow result crosses 32-bit predicate words. The wide result crosses
+// both word and physical-carrier boundaries.
+func.def @dynamic_predicate_windows(%trial: index, %input: buffer, %narrow_output: buffer, %wide_output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 4)] : index
+  %narrow_stride = index.constant 22 : index
+  %wide_stride = index.constant 8 : index
+  %narrow_offset = index.mul %ordinal, %narrow_stride : index
+  %wide_offset = index.mul %ordinal, %wide_stride : index
+  %base = index.constant 0 : offset
+  %values = buffer.view %input[%base] : buffer -> view<128xi32>
+  %narrow_results = buffer.view %narrow_output[%base] : buffer -> view<40xi8>
+  %wide_results = buffer.view %wide_output[%base] : buffer -> view<96xi8>
+  %source = vector.load %values[0] : view<128xi32> -> vector<128xi32>
+  %c0 = vector.constant 0 : vector<128xi32>
+  %predicates = vector.cmpi ne, %source, %c0 : vector<128xi32> -> vector<128xi1>
+  %narrow_window = vector.slice %predicates[%narrow_offset] : vector<128xi1> -> vector<40xi1>
+  %wide_window = vector.slice %predicates[%wide_offset] : vector<128xi1> -> vector<96xi1>
+  %narrow_values = vector.extui %narrow_window : vector<40xi1> to vector<40xi8>
+  %wide_values = vector.extui %wide_window : vector<96xi1> to vector<96xi8>
+  vector.store %narrow_values, %narrow_results[0] : vector<40xi8>, view<40xi8>
+  vector.store %wide_values, %wide_results[0] : vector<96xi8>, view<96xi8>
+  func.return
+}
+
+func.def @dynamic_predicate_windows_oracle(%trial: index, %input: buffer, %narrow_output: buffer, %wide_output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 4)] : index
+  %narrow_stride = index.constant 22 : index
+  %wide_stride = index.constant 8 : index
+  %narrow_offset = index.mul %ordinal, %narrow_stride : index
+  %wide_offset = index.mul %ordinal, %wide_stride : index
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %narrow_end = index.constant 40 : index
+  %wide_end = index.constant 96 : index
+  %c0 = scalar.constant 0 : i32
+  %values = buffer.view %input[%base] : buffer -> view<128xi32>
+  %narrow_results = buffer.view %narrow_output[%base] : buffer -> view<40xi8>
+  %wide_results = buffer.view %wide_output[%base] : buffer -> view<96xi8>
+  scf.for %i = [%begin to %narrow_end step %step] {
+    %source_index = index.add %narrow_offset, %i : index
+    %value = view.load %values[%source_index] : view<128xi32> -> i32
+    %predicate = scalar.cmpi ne, %value, %c0 : i32
+    %result = scalar.extui %predicate : i1 to i8
+    view.store %result, %narrow_results[%i] : i8, view<40xi8>
+  }
+  scf.for %i = [%begin to %wide_end step %step] {
+    %source_index = index.add %wide_offset, %i : index
+    %value = view.load %values[%source_index] : view<128xi32> -> i32
+    %predicate = scalar.cmpi ne, %value, %c0 : i32
+    %result = scalar.extui %predicate : i1 to i8
+    view.store %result, %wide_results[%i] : i8, view<96xi8>
+  }
+  func.return
+}
+
+check.scenario @dynamic_predicate_window_values {
+  check.trial[5](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-64) step(1) : tensor<128xi32>
+    %narrow_output = check.generate.fill value(-85) : tensor<40xi8>
+    %wide_output = check.generate.fill value(90) : tensor<96xi8>
+    check.compare<@dynamic_predicate_windows, @dynamic_predicate_windows_oracle>(%trial, %input, %narrow_output, %wide_output) : (index, tensor<128xi32>, tensor<40xi8>, tensor<96xi8>) -> () {
+      check.expect.bitwise actual(%narrow_output) expected(%narrow_output) : tensor<40xi8>
+      check.expect.bitwise actual(%wide_output) expected(%wide_output) : tensor<96xi8>
+    }
+  }
+  check.return
+}
+
+// Dynamic extraction of a shaped tail must scale the selected outer ordinal by
+// the complete tail element count before flattening to a one-dimensional slice.
+func.def @dynamic_shaped_tail(%trial: index, %input: buffer, %output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 1)] : index
+  %base = index.constant 0 : offset
+  %values = buffer.view %input[%base] : buffer -> view<2x3x4xi16>
+  %results = buffer.view %output[%base] : buffer -> view<3x4xi16>
+  %source = vector.load %values[0, 0, 0] : view<2x3x4xi16> -> vector<2x3x4xi16>
+  %tail = vector.extract %source[%ordinal] : vector<2x3x4xi16> -> vector<3x4xi16>
+  vector.store %tail, %results[0, 0] : vector<3x4xi16>, view<3x4xi16>
+  func.return
+}
+
+func.def @dynamic_shaped_tail_oracle(%trial: index, %input: buffer, %output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 1)] : index
+  %plane_width = index.constant 12 : index
+  %plane_offset = index.mul %ordinal, %plane_width : index
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 12 : index
+  %step = index.constant 1 : index
+  %values = buffer.view %input[%base] : buffer -> view<24xi16>
+  %results = buffer.view %output[%base] : buffer -> view<12xi16>
+  scf.for %i = [%begin to %end step %step] {
+    %source_index = index.add %plane_offset, %i : index
+    %value = view.load %values[%source_index] : view<24xi16> -> i16
+    view.store %value, %results[%i] : i16, view<12xi16>
+  }
+  func.return
+}
+
+check.scenario @dynamic_shaped_tail_values {
+  check.trial[2](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-12) step(3) : tensor<24xi16>
+    %output = check.generate.fill value(23130) : tensor<12xi16>
+    check.compare<@dynamic_shaped_tail, @dynamic_shaped_tail_oracle>(%trial, %input, %output) : (index, tensor<24xi16>, tensor<12xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<12xi16>
+    }
+  }
+  check.return
+}

@@ -52,6 +52,12 @@ def _predicate_slice_rules() -> tuple[DescriptorRule | ValueAliasRule, ...]:
         rule
         for rule in AIE2P_STRUCTURAL_RULES
         if rule.source_op is vector.vector_slice
+        and any(
+            guard.kind is GuardKind.OPERAND_SEGMENT_COUNT
+            and guard.field == "offsets"
+            and guard.count == 0
+            for guard in rule.guards
+        )
         and _value_type_guard(rule, "source", 0).type_pattern.element == "i1"
     )
 

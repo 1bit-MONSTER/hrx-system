@@ -16,10 +16,10 @@ extern "C" {
 #endif
 
 // Rewrites supported static vector operations into rank-one structural
-// operations and shape-only bitcasts. Static tail extracts and mixed
-// static/dynamic scalar extracts and inserts are linearized while their
-// row-major source shape is visible. Rank-one singleton broadcasts become one
-// extract and one splat. Returns without rewriting dynamic shapes or
+// operations and shape-only bitcasts. Static and dynamically indexed tail
+// extracts and mixed static/dynamic scalar extracts and inserts are linearized
+// while their row-major source shape is visible. Rank-one singleton broadcasts
+// become one extract and one splat. Returns without rewriting dynamic shapes or
 // expansions above the static operation bound.
 iree_status_t loom_vector_static_shape_rewrite_op(
     loom_target_legalization_context_t* context, loom_op_t* op,

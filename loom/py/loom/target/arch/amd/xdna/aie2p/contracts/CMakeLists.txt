@@ -21,6 +21,7 @@ iree_py_library(
     "core.py"
     "core_contract.py"
     "data_path.py"
+    "dynamic_slice.py"
     "f32.py"
     "f32_accumulator.py"
     "f32_compare.py"
@@ -42,6 +43,7 @@ iree_py_library(
     "predicate_words.py"
     "reduction.py"
     "scalar_program.py"
+    "selection.py"
     "structural.py"
     "table.py"
   DEPS
@@ -133,6 +135,7 @@ iree_py_test(
   SRCS
     "accumulator_structural_test.py"
     "core_test.py"
+    "dynamic_slice_test.py"
     "floating_test.py"
     "i64_test.py"
     "integer_division_test.py"
@@ -144,6 +147,7 @@ iree_py_test(
   ARGS
     "loom.target.arch.amd.xdna.aie2p.contracts.accumulator_structural_test"
     "loom.target.arch.amd.xdna.aie2p.contracts.core_test"
+    "loom.target.arch.amd.xdna.aie2p.contracts.dynamic_slice_test"
     "loom.target.arch.amd.xdna.aie2p.contracts.floating_test"
     "loom.target.arch.amd.xdna.aie2p.contracts.i64_test"
     "loom.target.arch.amd.xdna.aie2p.contracts.integer_division_test"
@@ -166,6 +170,30 @@ iree_py_test(
     "${PROJECT_SOURCE_DIR}"
   TIMEOUT
     60
+)
+
+iree_py_test(
+  NAME
+    dynamic_slice_exhaustive_test
+  MAIN
+    "../../../../../../tools/pytest_style_runner.py"
+  SRCS
+    "dynamic_slice_test.py"
+    "../../../../../../tools/pytest_style_runner.py"
+  ARGS
+    "--include-exhaustive"
+    "loom.target.arch.amd.xdna.aie2p.contracts.dynamic_slice_test"
+  DEPS
+    loom::py::loom::target::arch::amd::xdna::aie2p::contracts::contracts
+    loom::py::loom::target::contracts::contracts
+  LABELS
+    "manual"
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    300
 )
 
 iree_py_test(

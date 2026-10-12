@@ -15,7 +15,12 @@ from loom.target.arch.amd.xdna.aie2p.contracts.accumulator_structural import (
     _F32X32_ACCUMULATOR,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.carrier import (
+    BITCAST_VECTOR_CARRIER_SPECS,
+    VECTOR_CARRIER_SPECS,
     concat_x_carriers_emits,
+)
+from loom.target.arch.amd.xdna.aie2p.contracts.dynamic_slice import (
+    AIE2P_DYNAMIC_VECTOR_SLICE_RULES,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.predicate_concat import (
     AIE2P_PREDICATE_CONCAT_RULES,
@@ -52,21 +57,6 @@ _PREDICATE_VECTOR = Vector("i1", minimum_static_elements=1, maximum_static_eleme
 _I32 = Scalar("i32")
 _INDEX = Scalar("index")
 
-# Ordinary vectors retain one or two full X carriers independently of their
-# logical extent. F32 excludes vector<32xf32>, whose accumulator contract uses
-# a distinct physical representation.
-_BITCAST_VECTOR_CARRIER_SPECS = (
-    (("i8", "f8E4M3", "f8E5M2"), 1, 128),
-    (("i16", "f16", "bf16"), 2, 64),
-    (("i32",), 4, 32),
-    (("f32",), 4, 31),
-    (("i64", "f64"), 8, 16),
-)
-_VECTOR_CARRIER_SPECS = (
-    *_BITCAST_VECTOR_CARRIER_SPECS,
-    (("index", "offset"), 4, 32),
-)
-
 # Every value matching these patterns and mapped to the ordinary vector file
 # occupies the same ordered pair of X carriers. The mapped-class guards on the
 # alias rules distinguish shaped 32-lane F32 values from flat vector<32xf32>,
@@ -77,7 +67,7 @@ _WIDE_VECTOR_BITCAST_TYPES = tuple(
         minimum_static_elements=64 // element_byte_count + 1,
         maximum_static_elements=128 // element_byte_count,
     )
-    for element_types, element_byte_count, _ in _BITCAST_VECTOR_CARRIER_SPECS
+    for element_types, element_byte_count, _ in BITCAST_VECTOR_CARRIER_SPECS
 )
 
 # Exact 1024-bit ordinary vector-file values that can cross the flat F32x32
@@ -88,7 +78,7 @@ _ORDINARY_1024_BITCAST_TYPES = tuple(
         minimum_static_elements=128 // element_byte_count,
         maximum_static_elements=128 // element_byte_count,
     )
-    for element_types, element_byte_count, _ in _BITCAST_VECTOR_CARRIER_SPECS
+    for element_types, element_byte_count, _ in BITCAST_VECTOR_CARRIER_SPECS
 )
 
 # Ordinary source vectors wider than one 512-bit X register are carried as two
@@ -1229,11 +1219,12 @@ AIE2P_STRUCTURAL_RULES = (
         )
     ),
     *_ACCUMULATOR_VECTOR_EXTRACT_RULES,
+    *AIE2P_DYNAMIC_VECTOR_SLICE_RULES,
     *_ACCUMULATOR_VECTOR_SLICE_RULES,
     *(
         rule
         for element_types, element_byte_count, wide_lane_maximum in (
-            _VECTOR_CARRIER_SPECS
+            VECTOR_CARRIER_SPECS
         )
         for rule in _vector_slice_rules(
             element_types,
@@ -1264,7 +1255,7 @@ AIE2P_STRUCTURAL_RULES = (
     *(
         rule
         for element_types, element_byte_count, wide_lane_maximum in (
-            _VECTOR_CARRIER_SPECS
+            VECTOR_CARRIER_SPECS
         )
         for rule in _vector_concat_split_carrier_rules(
             element_types,
