@@ -47,21 +47,20 @@ void iree_hal_vulkan_memory_backend_initialize(
     iree_hal_vulkan_memory_backend_t* backend);
 
 // Qualifies a complete Vulkan address scope without acquiring native resources.
-iree_status_t iree_hal_vulkan_memory_reservation_query_capabilities(
+iree_status_t iree_hal_vulkan_virtual_buffer_query_capabilities(
     const iree_hal_memory_backend_t* backend, iree_hal_device_group_t* group,
     iree_hal_pool_scope_t scope, iree_allocator_t host_allocator,
-    iree_hal_memory_reservation_capabilities_t* out_capabilities);
+    iree_hal_virtual_buffer_capabilities_t* out_capabilities);
 
-// Creates an explicit sparse VkBuffer owner and its stable ordinary HAL view.
-iree_status_t iree_hal_vulkan_memory_reservation_create(
+// Creates an ordinary virtual HAL buffer owning one sparse VkBuffer.
+iree_status_t iree_hal_vulkan_virtual_buffer_create(
     const iree_hal_memory_backend_t* backend, iree_hal_device_group_t* group,
     iree_hal_pool_scope_t scope,
-    const iree_hal_memory_reservation_options_t* options,
-    iree_allocator_t host_allocator,
-    iree_hal_memory_reservation_t** out_reservation);
+    const iree_hal_virtual_buffer_options_t* options,
+    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
 
 // Identifies a Vulkan reservation's allocated buffer before native binding use.
-bool iree_hal_vulkan_memory_reservation_buffer_isa(iree_hal_buffer_t* buffer);
+bool iree_hal_vulkan_virtual_buffer_isa(iree_hal_buffer_t* buffer);
 
 // Checks native owners and permission support before queue capture is accepted.
 iree_status_t iree_hal_vulkan_memory_mapping_batch_validate(
@@ -70,11 +69,11 @@ iree_status_t iree_hal_vulkan_memory_mapping_batch_validate(
 // Resolves committed sources and fills preallocated native vectors. Called only
 // after allocation dependencies publish. No mappings change until submission.
 iree_status_t iree_hal_vulkan_memory_mapping_batch_resolve(
-    iree_hal_memory_mapping_batch_t* batch,
+    iree_hal_memory_mapping_batch_t* batch, VkDevice logical_device,
     VkSparseBufferMemoryBindInfo* buffers, VkSparseMemoryBind* binds);
 
 // Poisons the batch's address owners after a failed native publication. Their
-// mappings are no longer certified; only explicit destruction remains valid.
+// mappings are no longer certified; checked detach remains available.
 void iree_hal_vulkan_memory_mapping_batch_fail(
     iree_hal_memory_mapping_batch_t* batch, iree_status_code_t failure_code);
 

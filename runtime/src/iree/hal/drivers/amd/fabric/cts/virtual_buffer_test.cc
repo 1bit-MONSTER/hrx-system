@@ -28,7 +28,7 @@ namespace {
 // The memory adapter and Task queue are real HAL implementations. Only GPU
 // family metadata uses a mock device until the GPU execution HAL exists; all
 // address mutation and GPU execution use the public native API and hardware.
-class FabricMemoryReservationTest
+class FabricVirtualBufferTest
     : public ::testing::TestWithParam<amdf_native_lifetime_t> {
  protected:
   void SetUp() override {
@@ -97,8 +97,14 @@ class FabricMemoryReservationTest
         .type = AMDF_STRUCTURE_TYPE_GPU_DEVICE_CREATE_INFO,
         .structure_size = sizeof(create),
     };
-    ASSERT_EQ(gpu_->device_create(endpoint_, &create, &native_device_),
-              AMDF_STATUS_OK);
+    const auto device_status =
+        gpu_->device_create(endpoint_, &create, &native_device_);
+    if (GetParam() == AMDF_NATIVE_LIFETIME_INSTANCE &&
+        device_status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+      GTEST_SKIP()
+          << "native driver does not support instance-isolated devices";
+    }
+    ASSERT_EQ(device_status, AMDF_STATUS_OK);
     amdf_memory_reservation_capabilities_t capabilities = {
         .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES,
         .structure_size = sizeof(capabilities),
@@ -165,8 +171,8 @@ class FabricMemoryReservationTest
     IREE_ASSERT_OK(status);
     access_.family = iree_hal_device_queue_family(device_, 0);
     access_.usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
-    iree_hal_memory_reservation_capabilities_t reservation_capabilities;
-    IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+    iree_hal_virtual_buffer_capabilities_t reservation_capabilities;
+    IREE_ASSERT_OK(iree_hal_virtual_buffer_query_capabilities(
         group_, {1, &access_, {}}, allocator_, &reservation_capabilities));
     ASSERT_EQ(reservation_capabilities.mapping_granularity,
               capabilities.mapping_granularity);
@@ -205,20 +211,20 @@ class FabricMemoryReservationTest
                          << IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS;
     access_.requirements = 0;
     scope.host = {};
-    const iree_hal_memory_reservation_options_t reservation_options = {
+    const iree_hal_virtual_buffer_options_t reservation_options = {
         .byte_length = granularity_,
         .mapping_granularity = granularity_,
     };
     const auto physical_charge = iree_hal_buffer_memory_view(backing_)
                                      .backing->native_allocation.byte_length;
     for (size_t i = 0; i < reservations_.size(); ++i) {
-      IREE_ASSERT_OK(iree_hal_memory_reservation_create(
+      IREE_ASSERT_OK(iree_hal_virtual_buffer_create(
           group_, scope, &reservation_options, allocator_, &reservations_[i]));
       iree_hal_tlsf_pool_options_t child_options = {};
       child_options.tlsf_options.alignment = 256;
       IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
-          iree_hal_memory_reservation_buffer(reservations_[i]), 256, 256,
-          &child_options, allocator_, &child_pools_[i]));
+          reservations_[i], 256, 256, &child_options, allocator_,
+          &child_pools_[i]));
       IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
           child_pools_[i], iree_hal_make_pool_reservation_request(256, 256),
           iree_infinite_timeout(), &children_[i]));
@@ -268,7 +274,7 @@ class FabricMemoryReservationTest
     for (auto*& reservation : reservations_) {
       auto* owner = reservation;
       reservation = nullptr;
-      IREE_ASSERT_OK(iree_hal_memory_reservation_destroy(owner));
+      iree_hal_buffer_release(owner);
     }
     if (queue_mapping_) {
       ASSERT_EQ(api_->user_queue_mapping_destroy(queue_mapping_),
@@ -407,7 +413,7 @@ class FabricMemoryReservationTest
   // Whether the persistent alias was acquired.
   bool mapped_ = false;
   // Independent address owners updated by each single HAL batch.
-  std::array<iree_hal_memory_reservation_t*, 2> reservations_ = {};
+  std::array<iree_hal_buffer_t*, 2> reservations_ = {};
   // Finite suballocators over unmapped virtual ranges, retained across remaps.
   std::array<iree_hal_pool_t*, 2> child_pools_ = {};
   // Stable interior buffer addresses actually read by the native GPU.
@@ -428,7 +434,7 @@ class FabricMemoryReservationTest
   size_t ring_words_ = 0;
 };
 
-TEST_P(FabricMemoryReservationTest, BatchedReplacementChangesRealGpuAddresses) {
+TEST_P(FabricVirtualBufferTest, BatchedReplacementChangesRealGpuAddresses) {
   // A shared group does not make native backing formats interchangeable.
   // Rejection leaves this live group usable for the valid GPU mappings below.
   {
@@ -436,15 +442,15 @@ TEST_P(FabricMemoryReservationTest, BatchedReplacementChangesRealGpuAddresses) {
         .family = iree_hal_device_queue_family(cpu_, 0),
         .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
     };
-    const iree_hal_memory_reservation_options_t options = {
+    const iree_hal_virtual_buffer_options_t options = {
         .byte_length = granularity_,
         .mapping_granularity = granularity_,
     };
-    iree_hal_memory_reservation_t* target = nullptr;
-    IREE_ASSERT_OK(iree_hal_memory_reservation_create(
+    iree_hal_buffer_t* target = nullptr;
+    IREE_ASSERT_OK(iree_hal_virtual_buffer_create(
         group_, {1, &family, {}}, &options, allocator_, &target));
     const iree_hal_memory_mapping_t mapping = {
-        .reservation = target,
+        .target = target,
         .scope = {iree_hal_device_group_memory_domain(group_),
                   IREE_HAL_MEMORY_SCOPE_ANY},
         .target_range = {0, granularity_},
@@ -452,12 +458,12 @@ TEST_P(FabricMemoryReservationTest, BatchedReplacementChangesRealGpuAddresses) {
         .access = IREE_HAL_MEMORY_ACCESS_ALL,
     };
     IREE_EXPECT_STATUS_IS(
-        IREE_STATUS_UNAVAILABLE,
+        IREE_STATUS_PERMISSION_DENIED,
         iree_hal_queue_map(iree_hal_device_queue(cpu_, 0, 0),
                            iree_hal_semaphore_list_empty(),
                            iree_hal_semaphore_list_empty(), 1, &mapping,
                            IREE_HAL_QUEUE_MAP_FLAG_NONE));
-    IREE_EXPECT_OK(iree_hal_memory_reservation_destroy(target));
+    iree_hal_buffer_release(target);
   }
   auto* words = reinterpret_cast<uint32_t*>(host_mapping_.contents.data);
   const size_t stride = granularity_ / sizeof(uint32_t);
@@ -469,7 +475,7 @@ TEST_P(FabricMemoryReservationTest, BatchedReplacementChangesRealGpuAddresses) {
   std::array<iree_hal_memory_mapping_t, 2> mappings = {};
   for (uint32_t i = 0; i < 2; ++i) {
     mappings[i] = {
-        .reservation = reservations_[i],
+        .target = reservations_[i],
         .scope = scope_,
         .target_range = {0, granularity_},
         .source = backing_,
@@ -510,7 +516,7 @@ TEST_P(FabricMemoryReservationTest, BatchedReplacementChangesRealGpuAddresses) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    NativeLifetime, FabricMemoryReservationTest,
+    NativeLifetime, FabricVirtualBufferTest,
     ::testing::Values(AMDF_NATIVE_LIFETIME_PROCESS,
                       AMDF_NATIVE_LIFETIME_INSTANCE),
     [](const ::testing::TestParamInfo<amdf_native_lifetime_t>& info) {

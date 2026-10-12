@@ -7431,12 +7431,47 @@ iree_status_t iree_hal_vulkan_queue_submit_sparse_bind(
   return status;
 }
 
+iree_status_t iree_hal_vulkan_queue_submit_sparse_bind_sync(
+    iree_hal_vulkan_queue_t* queue, iree_host_size_t buffer_count,
+    const VkSparseBufferMemoryBindInfo* buffer_binds) {
+  IREE_TRACE_ZONE_BEGIN(z0);
+  iree_hal_semaphore_t* signal_semaphore = NULL;
+  uint64_t signal_value = 1;
+  iree_status_t status = iree_hal_semaphore_create(
+      iree_hal_queue_family_device(iree_hal_queue_family(&queue->base)),
+      IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, /*initial_value=*/0,
+      IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &signal_semaphore);
+  if (iree_status_is_ok(status)) {
+    const iree_hal_semaphore_list_t signals = {
+        .count = 1,
+        .semaphores = &signal_semaphore,
+        .payload_values = &signal_value,
+    };
+    status = iree_hal_vulkan_queue_submit_sparse_bind(
+        queue, iree_hal_semaphore_list_empty(), signals, buffer_count,
+        buffer_binds);
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_semaphore_wait(signal_semaphore, signal_value,
+                                     iree_infinite_timeout(),
+                                     IREE_ASYNC_WAIT_FLAG_NONE);
+  }
+  iree_hal_semaphore_release(signal_semaphore);
+  IREE_TRACE_ZONE_END(z0);
+  return status;
+}
+
 static iree_status_t iree_hal_vulkan_queue_resolve_mapping_batch(
     iree_hal_vulkan_queue_t* queue,
     iree_hal_vulkan_queue_pending_submission_t* submission) {
-  return iree_hal_vulkan_memory_mapping_batch_resolve(
-      submission->sparse_bind.mapping_batch, submission->sparse_bind.buffers,
-      submission->sparse_bind.binds);
+  iree_hal_memory_mapping_batch_t* batch =
+      submission->sparse_bind.mapping_batch;
+  IREE_RETURN_IF_ERROR(iree_hal_vulkan_memory_mapping_batch_resolve(
+      batch, queue->logical_device, submission->sparse_bind.buffers,
+      submission->sparse_bind.binds));
+  submission->sparse_bind.buffer_count = (uint32_t)batch->entry_count;
+  submission->sparse_bind.bind_count = batch->update_count;
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_vulkan_queue_map(
@@ -7459,14 +7494,14 @@ static iree_status_t iree_hal_vulkan_queue_map(
       queue, signals, IREE_SV("signal")));
   iree_hal_memory_mapping_batch_t* batch = NULL;
   IREE_RETURN_IF_ERROR(iree_hal_memory_mapping_batch_create(
-      base_queue, mapping_count, mappings, flags, &batch));
+      base_queue, mapping_count, mappings, flags, queue->host_allocator,
+      &batch));
   iree_status_t status = iree_hal_vulkan_memory_mapping_batch_validate(
       batch, queue->logical_device);
   iree_hal_vulkan_queue_pending_submission_t* submission = NULL;
   if (iree_status_is_ok(status)) {
     status = iree_hal_vulkan_queue_create_sparse_submission(
-        queue, waits, signals, batch->entry_count, batch->update_count,
-        &submission);
+        queue, waits, signals, batch->capacity, batch->capacity, &submission);
   }
   if (iree_status_is_ok(status)) {
     submission->sparse_bind.mapping_batch = batch;

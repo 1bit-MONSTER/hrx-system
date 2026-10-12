@@ -213,12 +213,11 @@ void HrxLoader::load(const std::string& path) {
   LOAD(allocator_virtual_memory_protect_scoped);
 
   LOAD(device_query_memory_scope);
-  LOAD(memory_reservation_query_capabilities);
-  LOAD(memory_reservation_create);
-  LOAD(memory_reservation_buffer);
-  LOAD(memory_reservation_mapping_granularity);
-  LOAD(memory_reservation_resolve_projection);
-  LOAD(memory_reservation_destroy);
+  LOAD(virtual_buffer_query_capabilities);
+  LOAD(virtual_buffer_create);
+  LOAD(virtual_buffer_query_info);
+  LOAD(virtual_buffer_resolve_projection);
+  LOAD(virtual_buffer_detach);
   LOAD(allocator_query_mapping_requirements);
   LOAD(queue_map);
 

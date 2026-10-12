@@ -64,6 +64,7 @@ struct FakeNative {
     api.memory_reservation_create = ReservationCreate;
     api.memory_reservation_query_access_info = ReservationInfo;
     api.memory_reservation_update = ReservationUpdate;
+    api.memory_reservation_detach = ReservationDetach;
     api.memory_reservation_destroy = ReservationDestroy;
     for (uint32_t i = 0; i < 2; ++i) {
       native_devices[i] = {this, i};
@@ -409,6 +410,9 @@ struct FakeNative {
   ReservationCreate(amdf_instance_t* instance,
                     const amdf_memory_reservation_create_info_t* info,
                     amdf_memory_reservation_t** output) {
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(info->accesses) %
+                  alignof(amdf_memory_reservation_access_t),
+              0u);
     auto* self = reinterpret_cast<FakeNative*>(instance);
     auto* reservation =
         new Reservation{self,
@@ -456,6 +460,13 @@ struct FakeNative {
   }
 
   static amdf_status_t AMDF_CALL
+  ReservationDetach(amdf_memory_reservation_t* handle, uint32_t ordinal) {
+    auto* reservation = reinterpret_cast<Reservation*>(handle);
+    reservation->owner->detached_accesses.push_back(ordinal);
+    return reservation->owner->detach_failure;
+  }
+
+  static amdf_status_t AMDF_CALL
   ReservationDestroy(amdf_memory_reservation_t* handle) {
     auto* reservation = reinterpret_cast<Reservation*>(handle);
     auto* self = reservation->owner;
@@ -483,6 +494,10 @@ struct FakeNative {
   amdf_status_t update_failure = AMDF_STATUS_OK;
   // Optional native work gate, used to prove independent CPU queue progress.
   std::function<void()> before_update;
+  // Exact access ordinals passed to checked full removal.
+  std::vector<uint32_t> detached_accesses;
+  // Independent native removal result, preserving the original mapping error.
+  amdf_status_t detach_failure = AMDF_STATUS_OK;
   // Consuming terminal native destruction result.
   amdf_status_t destroy_failure = AMDF_STATUS_OK;
 
@@ -580,6 +595,20 @@ class MemoryBackendTest : public ::testing::Test {
           .device = native_.devices[i],
           .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
                          IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+          .event_sink =
+              {
+                  .fn =
+                      +[](void* user_data,
+                          const iree_hal_device_event_t* event) {
+                        auto* self = static_cast<MemoryBackendTest*>(user_data);
+                        const auto* payload = reinterpret_cast<
+                            const iree_hal_device_driver_failure_event_t*>(
+                            event->payload.data);
+                        self->native_failures_.push_back(
+                            payload->backend_result_code);
+                      },
+                  .user_data = this,
+              },
           .families = &native_families_[i],
       };
       iree_hal_amd_fabric_memory_backend_initialize(
@@ -680,8 +709,7 @@ class MemoryBackendTest : public ::testing::Test {
     return scope;
   }
 
-  iree_status_t CreateReservation(
-      iree_hal_memory_reservation_t** out_reservation) {
+  iree_status_t CreateReservation(iree_hal_buffer_t** out_reservation) {
     native_.mapping_enabled = true;
     binding_descriptions_[0] = {IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS,
                                 AMDF_MEMORY_ADDRESS_GPU};
@@ -691,13 +719,15 @@ class MemoryBackendTest : public ::testing::Test {
         .usage = IREE_HAL_BUFFER_USAGE_STORAGE,
     };
     const iree_hal_pool_scope_t scope = {1, &family, {}};
-    const iree_hal_memory_reservation_options_t options = {
+    const iree_hal_virtual_buffer_options_t options = {
         .byte_length = 16384,
     };
-    return iree_hal_memory_reservation_create(group_, scope, &options,
-                                              allocator_, out_reservation);
+    return iree_hal_virtual_buffer_create(group_, scope, &options, allocator_,
+                                          out_reservation);
   }
 
+  // Native failures delivered through the production diagnostic sink.
+  std::vector<uint64_t> native_failures_;
   // Host allocator shared by all test owners.
   iree_allocator_t allocator_;
   // Public construction policy used by each production pool creation.
@@ -1559,8 +1589,8 @@ TEST_F(MemoryBackendTest, QueriesReservationGeometryBeforeAcquiringAddresses) {
     accesses[i].usage = IREE_HAL_BUFFER_USAGE_STORAGE;
   }
   iree_hal_pool_scope_t scope = {accesses.size(), accesses.data(), {}};
-  iree_hal_memory_reservation_capabilities_t capabilities;
-  IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+  iree_hal_virtual_buffer_capabilities_t capabilities;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_capabilities(
       group_, scope, allocator_, &capabilities));
   EXPECT_EQ(capabilities.reservation_granularity, 65536u);
   EXPECT_EQ(capabilities.mapping_granularity, 65536u);
@@ -1569,27 +1599,28 @@ TEST_F(MemoryBackendTest, QueriesReservationGeometryBeforeAcquiringAddresses) {
   EXPECT_EQ(native_.reservation_count, 0);
   EXPECT_EQ(native_.create_count, 0);
 
-  iree_hal_memory_reservation_options_t options = {.byte_length = 4096};
-  iree_hal_memory_reservation_t* reservation = nullptr;
+  iree_hal_virtual_buffer_options_t options = {.byte_length = 4096};
+  iree_hal_buffer_t* reservation = nullptr;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
-                        iree_hal_memory_reservation_create(
+                        iree_hal_virtual_buffer_create(
                             group_, scope, &options, allocator_, &reservation));
   EXPECT_EQ(reservation, nullptr);
   EXPECT_EQ(native_.reservation_count, 0);
   options.byte_length = capabilities.reservation_granularity;
-  IREE_ASSERT_OK(iree_hal_memory_reservation_create(group_, scope, &options,
-                                                    allocator_, &reservation));
-  EXPECT_EQ(iree_hal_memory_reservation_mapping_granularity(reservation),
-            capabilities.mapping_granularity);
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_create(group_, scope, &options,
+                                                allocator_, &reservation));
+  iree_hal_virtual_buffer_info_t info;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_info(reservation, &info));
+  EXPECT_EQ(info.mapping_granularity, capabilities.mapping_granularity);
   EXPECT_EQ(native_.reservation_count, 1);
   EXPECT_EQ(native_.create_count, 0);
-  IREE_ASSERT_OK(iree_hal_memory_reservation_destroy(reservation));
+  iree_hal_buffer_release(reservation);
 
   // Adding host access makes this device-only native reservation inadmissible.
   // A capability query reports absence without manufacturing an error status.
   scope.host.access = IREE_HAL_MEMORY_ACCESS_READ;
   scope.host.modes = IREE_HAL_MAPPING_MODE_PERSISTENT;
-  IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_capabilities(
       group_, scope, allocator_, &capabilities));
   EXPECT_EQ(capabilities.max_byte_length, 0u);
   EXPECT_EQ(capabilities.reservation_granularity, 0u);
@@ -1628,20 +1659,20 @@ TEST_P(ReservationBackendTest, MapsExactConsumersThroughNativeProjections) {
     families[i].usage = IREE_HAL_BUFFER_USAGE_STORAGE;
   }
   const iree_hal_pool_scope_t scope = {families.size(), families.data(), {}};
-  const iree_hal_memory_reservation_options_t options = {
+  const iree_hal_virtual_buffer_options_t options = {
       .byte_length = 16384,
   };
-  std::array<iree_hal_memory_reservation_t*, 2> reservations = {};
+  std::array<iree_hal_buffer_t*, 2> reservations = {};
   for (auto& reservation : reservations) {
-    IREE_ASSERT_OK(iree_hal_memory_reservation_create(
-        group_, scope, &options, allocator_, &reservation));
+    IREE_ASSERT_OK(iree_hal_virtual_buffer_create(group_, scope, &options,
+                                                  allocator_, &reservation));
   }
   const auto first = ResolveScope(IREE_HAL_MEMORY_SITE_PROGRAM, families_[0]);
   const auto second = ResolveScope(IREE_HAL_MEMORY_SITE_PROGRAM, families_[1]);
   uint32_t first_projection, second_projection;
-  IREE_ASSERT_OK(iree_hal_memory_reservation_resolve_projection(
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_resolve_projection(
       reservations[0], first, &first_projection));
-  IREE_ASSERT_OK(iree_hal_memory_reservation_resolve_projection(
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_resolve_projection(
       reservations[0], second, &second_projection));
   EXPECT_EQ(first_projection == second_projection, native_.alias_projections);
 
@@ -1657,7 +1688,7 @@ TEST_P(ReservationBackendTest, MapsExactConsumersThroughNativeProjections) {
   std::array<iree_hal_memory_mapping_t, 2> mappings = {};
   for (uint32_t i = 0; i < 2; ++i) {
     mappings[i] = {
-        .reservation = reservations[i],
+        .target = reservations[i],
         .scope = i ? second : first,
         .target_range = {4096, 8192},
         .source = view,
@@ -1690,7 +1721,7 @@ TEST_P(ReservationBackendTest, MapsExactConsumersThroughNativeProjections) {
   mappings[0].scope = first;
 
   // Conflicts are checked by shared projection, even across exact consumers.
-  mappings[1].reservation = reservations[0];
+  mappings[1].target = reservations[0];
   if (!native_.alias_projections) {
     mappings[1].scope = first;
   }
@@ -1698,7 +1729,7 @@ TEST_P(ReservationBackendTest, MapsExactConsumersThroughNativeProjections) {
       IREE_STATUS_INVALID_ARGUMENT,
       iree_hal_queue_map(queue, {}, {}, mappings.size(), mappings.data(), 0));
   for (uint32_t i = 0; i < 2; ++i) {
-    mappings[i].reservation = reservations[i];
+    mappings[i].target = reservations[i];
     mappings[i].source = nullptr;
     mappings[i].source_offset = 0;
     mappings[i].access = 0;
@@ -1711,7 +1742,7 @@ TEST_P(ReservationBackendTest, MapsExactConsumersThroughNativeProjections) {
   EXPECT_EQ(native_.last_updates[0].memory, nullptr);
   EXPECT_EQ(native_.last_updates[0].access, 0u);
   for (auto* reservation : reservations) {
-    IREE_ASSERT_OK(iree_hal_memory_reservation_destroy(reservation));
+    iree_hal_buffer_release(reservation);
   }
   EXPECT_EQ(native_.reservation_count, 0);
   iree_hal_semaphore_release(gate);
@@ -1725,7 +1756,7 @@ INSTANTIATE_TEST_SUITE_P(ProjectionIdentity, ReservationBackendTest,
                          ::testing::Values(false, true));
 
 TEST_F(MemoryBackendTest, NativeMappingFailureReachesQueueCompletion) {
-  iree_hal_memory_reservation_t* reservation = nullptr;
+  iree_hal_buffer_t* reservation = nullptr;
   IREE_ASSERT_OK(CreateReservation(&reservation));
   iree_hal_semaphore_t* done = nullptr;
   IREE_ASSERT_OK(iree_hal_semaphore_create(
@@ -1733,7 +1764,7 @@ TEST_F(MemoryBackendTest, NativeMappingFailureReachesQueueCompletion) {
   uint64_t value = 1;
   const iree_hal_semaphore_list_t signals = {1, &done, &value};
   const iree_hal_memory_mapping_t mapping = {
-      .reservation = reservation,
+      .target = reservation,
       .scope = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
       .target_range = {0, 4096},
   };
@@ -1745,13 +1776,13 @@ TEST_F(MemoryBackendTest, NativeMappingFailureReachesQueueCompletion) {
       iree_hal_semaphore_wait(done, value, iree_infinite_timeout(), 0));
   EXPECT_EQ(native_.update_count, 1);
   EXPECT_EQ(native_.reservation_count, 1);
-  IREE_ASSERT_OK(iree_hal_memory_reservation_destroy(reservation));
+  iree_hal_buffer_release(reservation);
   EXPECT_EQ(native_.reservation_count, 0);
   iree_hal_semaphore_release(done);
 }
 
 TEST_F(MemoryBackendTest, SlowNativeMappingLeavesTheSingleCpuWorkerAvailable) {
-  iree_hal_memory_reservation_t* reservation = nullptr;
+  iree_hal_buffer_t* reservation = nullptr;
   IREE_ASSERT_OK(CreateReservation(&reservation));
   iree_hal_semaphore_t* done = nullptr;
   IREE_ASSERT_OK(iree_hal_semaphore_create(
@@ -1775,7 +1806,7 @@ TEST_F(MemoryBackendTest, SlowNativeMappingLeavesTheSingleCpuWorkerAvailable) {
   uint64_t value = 1;
   const iree_hal_semaphore_list_t signals = {1, &done, &value};
   const iree_hal_memory_mapping_t mapping = {
-      .reservation = reservation,
+      .target = reservation,
       .scope = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
       .target_range = {0, 4096},
   };
@@ -1808,12 +1839,12 @@ TEST_F(MemoryBackendTest, SlowNativeMappingLeavesTheSingleCpuWorkerAvailable) {
       iree_hal_semaphore_wait(done, value, iree_infinite_timeout(), 0));
   EXPECT_EQ(native_.update_count, 1);
   native_.before_update = {};
-  IREE_ASSERT_OK(iree_hal_memory_reservation_destroy(reservation));
+  iree_hal_buffer_release(reservation);
   iree_hal_semaphore_release(done);
 }
 
 TEST_F(MemoryBackendTest, NativeMappingFailureFailsFrontierWithoutSignals) {
-  iree_hal_memory_reservation_t* reservation = nullptr;
+  iree_hal_buffer_t* reservation = nullptr;
   IREE_ASSERT_OK(CreateReservation(&reservation));
   alignas(iree_async_frontier_t)
       uint8_t frontier_storage[sizeof(iree_async_frontier_t) +
@@ -1838,7 +1869,7 @@ TEST_F(MemoryBackendTest, NativeMappingFailureFailsFrontierWithoutSignals) {
       },
       &completion, &waiter));
   const iree_hal_memory_mapping_t mapping = {
-      .reservation = reservation,
+      .target = reservation,
       .scope = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]),
       .target_range = {0, 4096},
   };
@@ -1850,20 +1881,41 @@ TEST_F(MemoryBackendTest, NativeMappingFailureFailsFrontierWithoutSignals) {
   }
   IREE_EXPECT_STATUS_IS(IREE_STATUS_DATA_LOSS, completion.status);
   EXPECT_EQ(native_.update_count, 1);
-  IREE_ASSERT_OK(iree_hal_memory_reservation_destroy(reservation));
+  iree_hal_buffer_release(reservation);
 }
 
-TEST_F(MemoryBackendTest,
-       ConsumesFailedReservationDestructionWithoutDeferringToViews) {
-  iree_hal_memory_reservation_t* reservation = nullptr;
-  IREE_ASSERT_OK(CreateReservation(&reservation));
-  iree_hal_buffer_t* view = iree_hal_memory_reservation_buffer(reservation);
-  iree_hal_buffer_retain(view);
+TEST_F(MemoryBackendTest, FinalBufferReleaseOwnsNativeDestruction) {
+  iree_hal_buffer_t* buffer = nullptr;
+  IREE_ASSERT_OK(CreateReservation(&buffer));
+  iree_hal_buffer_t* view = nullptr;
+  IREE_ASSERT_OK(
+      iree_hal_buffer_subspan(buffer, 4096, 4096, allocator_, &view));
   native_.destroy_failure = amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_DATA_LOSS,
-                        iree_hal_memory_reservation_destroy(reservation));
-  EXPECT_EQ(native_.reservation_count, 0);
+  iree_hal_buffer_release(buffer);
+  EXPECT_EQ(native_.reservation_count, 1);
+  iree_hal_virtual_buffer_info_t info;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_info(view, &info));
+  EXPECT_EQ(info.mapping_byte_offset, 4096u);
+  EXPECT_TRUE(native_failures_.empty());
   iree_hal_buffer_release(view);
+  EXPECT_EQ(native_.reservation_count, 0);
+  EXPECT_EQ(native_failures_, (std::vector<uint64_t>{native_.destroy_failure}));
+}
+
+TEST_F(MemoryBackendTest, CheckedRemovalDoesNotReleaseAddresses) {
+  iree_hal_buffer_t* buffer = nullptr;
+  IREE_ASSERT_OK(CreateReservation(&buffer));
+  const auto scope = ResolveScope(IREE_HAL_MEMORY_SITE_PROGRAM, families_[0]);
+  native_.detach_failure = amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_DATA_LOSS,
+                        iree_hal_virtual_buffer_detach(buffer, scope));
+  EXPECT_EQ(native_.reservation_count, 1);
+  native_.detach_failure = AMDF_STATUS_OK;
+  IREE_EXPECT_OK(iree_hal_virtual_buffer_detach(buffer, scope));
+  EXPECT_EQ(native_.reservation_count, 1);
+  EXPECT_EQ(native_.detached_accesses, (std::vector<uint32_t>{0, 0}));
+  iree_hal_buffer_release(buffer);
+  EXPECT_EQ(native_.reservation_count, 0);
 }
 
 TEST_F(MemoryBackendTest,
@@ -1873,12 +1925,12 @@ TEST_F(MemoryBackendTest,
       .usage = IREE_HAL_BUFFER_USAGE_STORAGE,
   };
   const iree_hal_pool_scope_t scope = {1, &family, {}};
-  const iree_hal_memory_reservation_options_t options = {
+  const iree_hal_virtual_buffer_options_t options = {
       .byte_length = 16384,
   };
-  iree_hal_memory_reservation_t* reservation = nullptr;
+  iree_hal_buffer_t* reservation = nullptr;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
-                        iree_hal_memory_reservation_create(
+                        iree_hal_virtual_buffer_create(
                             group_, scope, &options, allocator_, &reservation));
   EXPECT_EQ(reservation, nullptr);
   EXPECT_EQ(native_.reservation_count, 0);

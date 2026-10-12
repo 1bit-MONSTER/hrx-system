@@ -378,22 +378,23 @@ static void AppendQueueExecuteRecord(
                      {iree_make_const_byte_span(&payload, sizeof(payload))});
 }
 
-static void AppendReservationDestroyRecord(
+static void AppendVirtualBufferDetachRecord(
     iree_hal_replay_file_writer_t* writer, uint64_t sequence_ordinal,
     iree_hal_replay_object_id_t device_id,
     iree_status_code_t status_code = IREE_STATUS_OK) {
+  const iree_hal_replay_virtual_buffer_detach_payload_t payload = {};
   const iree_hal_replay_file_record_metadata_t metadata = {
       .sequence_ordinal = sequence_ordinal,
       .device_id = device_id,
       .object_id = 21,
       .record_type = IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION,
-      .payload_type = IREE_HAL_REPLAY_PAYLOAD_TYPE_NONE,
-      .object_type = IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION,
-      .operation_code =
-          IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY,
+      .payload_type = IREE_HAL_REPLAY_PAYLOAD_TYPE_VIRTUAL_BUFFER_DETACH,
+      .object_type = IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER,
+      .operation_code = IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_DETACH,
       .status_code = static_cast<uint32_t>(status_code),
   };
-  AppendReplayRecord(writer, metadata, {});
+  AppendReplayRecord(writer, metadata,
+                     {iree_make_const_byte_span(&payload, sizeof(payload))});
 }
 
 static void AppendVmmProtectRecord(iree_hal_replay_file_writer_t* writer,
@@ -469,8 +470,8 @@ static void AppendMemoryBoundaryRecord(
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP:
       AppendVmmUnmapRecord(writer, sequence_ordinal, device_id);
       break;
-    case IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY:
-      AppendReservationDestroyRecord(writer, sequence_ordinal, device_id);
+    case IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_DETACH:
+      AppendVirtualBufferDetachRecord(writer, sequence_ordinal, device_id);
       break;
     default:
       FAIL() << "Unexpected memory completion boundary " << operation_code;
@@ -505,7 +506,7 @@ static void AppendScopeBeginRecord(iree_hal_replay_file_writer_t* writer,
 
 typedef enum QueueDependencyReplayShape {
   kForwardDependencyAcrossMemoryBoundary,
-  kForwardDependencyAcrossFailedReservationDestroyBoundary,
+  kForwardDependencyAcrossFailedDetach,
   kSatisfiedDependencyBeforeMemoryBoundary,
   kDeviceMemoryDependencyAcrossMemoryBoundary,
   kImmediateCompletionBehindDeviceMemoryWait,
@@ -515,7 +516,7 @@ typedef enum QueueDependencyReplayShape {
 static std::vector<uint8_t> MakeQueueDependencyReplay(
     QueueDependencyReplayShape shape,
     iree_hal_replay_operation_code_t boundary_operation =
-        IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY) {
+        IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_DETACH) {
   constexpr iree_hal_replay_object_id_t kDeviceId = 1;
   constexpr iree_hal_replay_object_id_t kConsumerQueueId = 2;
   constexpr iree_hal_replay_object_id_t kProducerQueueId = 3;
@@ -567,16 +568,15 @@ static std::vector<uint8_t> MakeQueueDependencyReplay(
     AppendScopeBeginRecord(writer, sequence_ordinal++);
     AppendQueueObjectRecord(writer, sequence_ordinal++, kDeviceId,
                             kProducerQueueId, /*queue_ordinal=*/1);
-  } else if (shape ==
-             kForwardDependencyAcrossFailedReservationDestroyBoundary) {
-    AppendReservationDestroyRecord(writer, sequence_ordinal++, kDeviceId,
-                                   IREE_STATUS_INTERNAL);
+  } else if (shape == kForwardDependencyAcrossFailedDetach) {
+    AppendVirtualBufferDetachRecord(writer, sequence_ordinal++, kDeviceId,
+                                    IREE_STATUS_INTERNAL);
   } else {
     AppendMemoryBoundaryRecord(writer, sequence_ordinal++, kDeviceId,
                                boundary_operation);
   }
   if (shape == kForwardDependencyAcrossMemoryBoundary ||
-      shape == kForwardDependencyAcrossFailedReservationDestroyBoundary ||
+      shape == kForwardDependencyAcrossFailedDetach ||
       shape == kCallbackErrorBeforeProducer) {
     AppendQueueBarrierRecord(writer, sequence_ordinal++, kDeviceId,
                              kProducerQueueId, kSemaphoreId,
@@ -597,7 +597,7 @@ typedef enum OpaqueDispatchReplayShape {
 static std::vector<uint8_t> MakeOpaqueDispatchReplay(
     OpaqueDispatchReplayShape shape,
     iree_hal_replay_operation_code_t boundary_operation =
-        IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY) {
+        IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_DETACH) {
   constexpr iree_hal_replay_object_id_t kDeviceId = 1;
   constexpr iree_hal_replay_object_id_t kQueueId = 2;
   constexpr iree_hal_replay_object_id_t kCommandBufferId = 3;
@@ -662,7 +662,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Values(
         IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT,
         IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP,
-        IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY));
+        IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_DETACH));
 
 TEST_P(ReplayMemoryBoundaryTest,
        RejectsForwardQueueDependencyAcrossMemoryBoundaryBeforeExecution) {
@@ -684,25 +684,13 @@ TEST_P(ReplayMemoryBoundaryTest,
   EXPECT_EQ(plan, nullptr);
 }
 
-TEST(
-    ReplayExecuteTest,
-    RejectsForwardQueueDependencyAcrossFailedReservationDestroyBoundaryBeforeExecution) {
-  std::vector<uint8_t> storage = MakeQueueDependencyReplay(
-      kForwardDependencyAcrossFailedReservationDestroyBoundary);
+TEST(ReplayExecuteTest, FailedDetachDoesNotIntroduceCompletionBoundary) {
+  std::vector<uint8_t> storage =
+      MakeQueueDependencyReplay(kForwardDependencyAcrossFailedDetach);
   iree_hal_replay_plan_t* plan = nullptr;
-
-  iree::Status status =
-      iree::internal::ConsumeForTest(iree_hal_replay_plan_create(
-          GetCapturedFileContents(storage), iree_allocator_system(), &plan));
-
-  EXPECT_EQ(status.code(), iree::StatusCode::kFailedPrecondition);
-  EXPECT_THAT(
-      status.ToString(),
-      ::testing::HasSubstr(
-          "replay completion boundary at sequence 5 cannot wait for queue "
-          "operation at sequence 4 with an unresolved forward or "
-          "device-memory dependency"));
-  EXPECT_EQ(plan, nullptr);
+  IREE_ASSERT_OK(iree_hal_replay_plan_create(GetCapturedFileContents(storage),
+                                             iree_allocator_system(), &plan));
+  iree_hal_replay_plan_destroy(plan);
 }
 
 TEST_P(ReplayMemoryBoundaryTest,

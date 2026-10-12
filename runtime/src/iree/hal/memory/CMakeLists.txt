@@ -16,7 +16,7 @@ iree_cc_library(
     "host_memory_backend.h"
   SRCS
     "host_memory_backend.c"
-    "host_memory_reservation.c"
+    "host_virtual_buffer.c"
   DEPS
     ::cpu_slab_provider
     ::passthrough_pool

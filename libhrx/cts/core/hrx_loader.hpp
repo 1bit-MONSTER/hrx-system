@@ -183,15 +183,13 @@ class HrxLoader {
 
   // Address owners and batched mappings.
   decltype(&hrx_device_query_memory_scope) device_query_memory_scope;
-  decltype(&hrx_memory_reservation_query_capabilities)
-      memory_reservation_query_capabilities;
-  decltype(&hrx_memory_reservation_create) memory_reservation_create;
-  decltype(&hrx_memory_reservation_buffer) memory_reservation_buffer;
-  decltype(&hrx_memory_reservation_mapping_granularity)
-      memory_reservation_mapping_granularity;
-  decltype(&hrx_memory_reservation_resolve_projection)
-      memory_reservation_resolve_projection;
-  decltype(&hrx_memory_reservation_destroy) memory_reservation_destroy;
+  decltype(&hrx_virtual_buffer_query_capabilities)
+      virtual_buffer_query_capabilities;
+  decltype(&hrx_virtual_buffer_create) virtual_buffer_create;
+  decltype(&hrx_virtual_buffer_query_info) virtual_buffer_query_info;
+  decltype(&hrx_virtual_buffer_resolve_projection)
+      virtual_buffer_resolve_projection;
+  decltype(&hrx_virtual_buffer_detach) virtual_buffer_detach;
   decltype(&hrx_allocator_query_mapping_requirements)
       allocator_query_mapping_requirements;
   decltype(&hrx_queue_map) queue_map;

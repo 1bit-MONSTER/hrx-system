@@ -13,8 +13,8 @@ package(
 )
 
 iree_runtime_cc_test(
-    name = "memory_reservation_test",
-    srcs = ["memory_reservation_test.cc"],
+    name = "virtual_buffer_test",
+    srcs = ["virtual_buffer_test.cc"],
     target_compatible_with = ["@platforms//cpu:x86_64"] + select({
         "//runtime/config/hal:driver_task": [],
         "//conditions:default": ["@platforms//:incompatible"],

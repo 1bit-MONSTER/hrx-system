@@ -155,7 +155,6 @@ typedef struct hrx_allocator_s* hrx_allocator_t;
 typedef struct hrx_semaphore_s* hrx_semaphore_t;
 typedef struct hrx_stream_s* hrx_stream_t;
 typedef struct hrx_buffer_s* hrx_buffer_t;
-typedef struct hrx_memory_reservation_s* hrx_memory_reservation_t;
 typedef struct hrx_fence_s* hrx_fence_t;
 typedef struct hrx_buffer_view_s* hrx_buffer_view_t;
 typedef struct hrx_executable_s* hrx_executable_t;
@@ -839,7 +838,7 @@ HRX_API hrx_status_t hrx_buffer_view_dim(hrx_buffer_view_t buffer_view,
                                          size_t dim, int64_t* value);
 
 //===----------------------------------------------------------------------===//
-// Address reservations and mapping
+// Virtual buffers and mapping
 //===----------------------------------------------------------------------===//
 
 // Access site selected within a device's sealed group.
@@ -868,14 +867,14 @@ HRX_API hrx_status_t hrx_device_query_memory_scope(
 // Complete simultaneous access to one address reservation. All families of
 // every listed device participate. Devices must belong to the same sealed
 // group; the arrays are borrowed only for query/construction.
-typedef struct hrx_memory_reservation_scope_t {
+typedef struct hrx_virtual_buffer_scope_t {
   // Nonzero number of distinct participating devices.
   size_t device_count;
   // Devices whose first entry supplies the stable buffer's device identity.
   const hrx_device_t* devices;
   // Required public host mapping access, or NONE for execution-only addresses.
   hrx_memory_access_t host_access;
-} hrx_memory_reservation_scope_t;
+} hrx_virtual_buffer_scope_t;
 
 // Caller-declared prior state. No installed-source table is maintained by HRX.
 typedef enum hrx_memory_mapping_operation_t {
@@ -889,7 +888,7 @@ typedef enum hrx_memory_mapping_operation_t {
   HRX_MEMORY_MAPPING_OPERATION_PROTECT = 3,
 } hrx_memory_mapping_operation_t;
 
-typedef struct hrx_memory_reservation_capabilities_t {
+typedef struct hrx_virtual_buffer_capabilities_t {
   // Largest address interval in bytes; zero means the scope is unsupported.
   size_t max_byte_length;
   // Required reservation length multiple and minimum base alignment.
@@ -900,53 +899,60 @@ typedef struct hrx_memory_reservation_capabilities_t {
   size_t max_alignment;
   // Supported operations, with bit N corresponding to mapping operation N.
   uint32_t operations;
-} hrx_memory_reservation_capabilities_t;
+} hrx_virtual_buffer_capabilities_t;
 
 // Cold query: acquires no addresses or physical payload. Unsupported scopes
 // return OK with zero capabilities; invalid scope and native failures
 // propagate.
-HRX_API hrx_status_t hrx_memory_reservation_query_capabilities(
-    hrx_memory_reservation_scope_t scope,
-    hrx_memory_reservation_capabilities_t* out_capabilities);
+HRX_API hrx_status_t hrx_virtual_buffer_query_capabilities(
+    hrx_virtual_buffer_scope_t scope,
+    hrx_virtual_buffer_capabilities_t* out_capabilities);
 
-typedef struct hrx_memory_reservation_options_t {
+typedef struct hrx_virtual_buffer_options_t {
   // Nonzero virtual buffer length in bytes.
   size_t byte_length;
   // Minimum power-of-two base alignment; zero selects the native minimum.
   size_t min_alignment;
   // Minimum power-of-two mapping unit; zero selects the native minimum.
   size_t mapping_granularity;
-} hrx_memory_reservation_options_t;
+} hrx_virtual_buffer_options_t;
 
-// Reserves addresses without allocating physical payload. On success the caller
-// owns one explicit reservation; on failure the output is NULL.
-HRX_API hrx_status_t
-hrx_memory_reservation_create(hrx_memory_reservation_scope_t scope,
-                              const hrx_memory_reservation_options_t* options,
-                              hrx_memory_reservation_t* out_reservation);
+// Reserves addresses without physical payload and returns one owned ordinary
+// buffer reference. On failure the output is NULL. Buffer references and views
+// keep addresses live; installed backing remains independently caller-owned.
+HRX_API hrx_status_t hrx_virtual_buffer_create(
+    hrx_virtual_buffer_scope_t scope,
+    const hrx_virtual_buffer_options_t* options, hrx_buffer_t* out_buffer);
 
-// Returns a borrowed ordinary buffer view. It may be retained, but that retains
-// only metadata after explicit destruction, never the addresses or backing.
-HRX_API hrx_buffer_t
-hrx_memory_reservation_buffer(hrx_memory_reservation_t reservation);
+typedef struct hrx_virtual_buffer_info_t {
+  // Visible byte zero in the native target's mapping coordinates, in bytes.
+  size_t mapping_byte_offset;
+  // Achieved independently replaceable mapping unit, in bytes.
+  size_t mapping_granularity;
+  // Supported operations, with bit N corresponding to mapping operation N.
+  uint32_t operations;
+  // Number of native page-table projections owned by the root buffer.
+  uint32_t projection_count;
+} hrx_virtual_buffer_info_t;
 
-// Returns the achieved independently replaceable mapping unit in bytes.
-HRX_API size_t hrx_memory_reservation_mapping_granularity(
-    hrx_memory_reservation_t reservation);
+// Queries achieved geometry after any asynchronous allocation has committed.
+HRX_API hrx_status_t hrx_virtual_buffer_query_info(
+    hrx_buffer_t buffer, hrx_virtual_buffer_info_t* out_info);
 
-// Resolves one concrete admitted scope to its native page-table projection.
-// Equal IDs within this reservation mean an update at either site affects both.
-// The all-sites token is not a concrete projection.
-HRX_API hrx_status_t hrx_memory_reservation_resolve_projection(
-    hrx_memory_reservation_t reservation, hrx_memory_scope_t scope,
-    uint32_t* out_projection);
+// Resolves one concrete scope to a native page-table projection. Equal IDs on
+// the same native root share mapping state. An all-sites scope is not concrete.
+HRX_API hrx_status_t hrx_virtual_buffer_resolve_projection(
+    hrx_buffer_t buffer, hrx_memory_scope_t scope, uint32_t* out_projection);
 
-// Consumes the owner on every outcome; NULL is a no-op. All mapping and
-// execution work must first complete. Success certifies native removal; failure
-// does not certify that formerly mapped backing is reusable. Retained views
-// preserve metadata only and must not access these addresses after destruction.
-HRX_API hrx_status_t
-hrx_memory_reservation_destroy(hrx_memory_reservation_t reservation);
+// Removes all mappings at the selected scope without releasing addresses. The
+// buffer must cover the complete native target. The caller has completed all
+// affected execution and accepted mapping work and serializes mutation. This
+// cold call may wait for native removal, including after partial mapping
+// failure. It preserves any earlier failure; only success certifies backing
+// reuse, subject to other aliases and users. A zero scope selects all admitted
+// sites.
+HRX_API hrx_status_t hrx_virtual_buffer_detach(hrx_buffer_t buffer,
+                                               hrx_memory_scope_t scope);
 
 typedef uint32_t hrx_memory_mapping_source_flags_t;
 // Each binding must cover the entire native allocation at source offset zero.
@@ -972,8 +978,8 @@ HRX_API hrx_status_t hrx_allocator_query_mapping_requirements(
     hrx_memory_mapping_requirements_t* out_requirements);
 
 typedef struct hrx_memory_mapping_t {
-  // Borrowed explicit address owner.
-  hrx_memory_reservation_t reservation;
+  // Borrowed virtual target buffer or view.
+  hrx_buffer_t target;
   // Prepared scope token; zero selects all admitted projections.
   hrx_memory_scope_t scope;
   // Byte offset within the stable reservation view.
@@ -1000,8 +1006,8 @@ typedef uint64_t hrx_queue_map_flags_t;
 // satisfied; queue submission order alone does not establish ordering. An empty
 // batch is a dependency edge. Backing must remain live while installed.
 // BORROW_BUFFERS also omits the optional HAL wrapper retention through
-// completion; neither mode retains backing after completion or extends the
-// address owner.
+// completion. Captured target references keep their address range live; neither
+// mode retains backing after completion or extends an ended allocation epoch.
 HRX_API hrx_status_t hrx_queue_map(
     hrx_device_t device, hrx_queue_affinity_t affinity,
     const hrx_semaphore_list_t* wait_semaphores,
@@ -1013,7 +1019,7 @@ HRX_API hrx_status_t hrx_queue_map(
 //===----------------------------------------------------------------------===//
 
 // Deprecated compatibility surface for the ROCr-backed HIP implementation.
-// New callers use explicit memory reservations, ordinary MAPPING_SOURCE
+// New callers use virtual buffers, ordinary MAPPING_SOURCE
 // buffers, and hrx_queue_map. Scalar physical handles are initially unmapped
 // and belong to the allocator that created them. They cannot be used as
 // queue_map sources.

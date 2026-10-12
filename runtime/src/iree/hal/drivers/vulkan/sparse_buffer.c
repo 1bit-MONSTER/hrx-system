@@ -206,52 +206,6 @@ static void iree_hal_vulkan_sparse_buffer_free_unowned_handle(
   iree_allocator_free(buffer->host_allocator, buffer);
 }
 
-// Submits the initial fully resident binding and waits for native publication.
-static iree_status_t iree_hal_vulkan_sparse_buffer_bind_sync(
-    iree_hal_vulkan_queue_t* sparse_binding_queue,
-    iree_hal_buffer_placement_t placement, VkBuffer handle,
-    iree_host_size_t bind_count, const VkSparseMemoryBind binds[]) {
-  if (!bind_count || bind_count > UINT32_MAX) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "Vulkan sparse bind count must be in [1, %u]",
-                            UINT32_MAX);
-  }
-  IREE_TRACE_ZONE_BEGIN(z0);
-  IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)bind_count);
-
-  iree_hal_semaphore_t* signal_semaphore = NULL;
-  uint64_t signal_value = 1;
-  iree_status_t status = iree_hal_semaphore_create(
-      placement.device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-      /*initial_value=*/0, IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &signal_semaphore);
-  if (iree_status_is_ok(status)) {
-    const iree_hal_semaphore_list_t signal_semaphore_list = {
-        .count = 1,
-        .semaphores = &signal_semaphore,
-        .payload_values = &signal_value,
-    };
-    const VkSparseBufferMemoryBindInfo buffer_bind = {
-        .buffer = handle,
-        .bindCount = (uint32_t)bind_count,
-        .pBinds = binds,
-    };
-    IREE_TRACE_ZONE_BEGIN_NAMED(z1, "queue_submit_sparse_bind");
-    status = iree_hal_vulkan_queue_submit_sparse_bind(
-        sparse_binding_queue, iree_hal_semaphore_list_empty(),
-        signal_semaphore_list, 1, &buffer_bind);
-    IREE_TRACE_ZONE_END(z1);
-  }
-  if (iree_status_is_ok(status)) {
-    status = iree_hal_semaphore_wait(signal_semaphore, signal_value,
-                                     iree_infinite_timeout(),
-                                     IREE_ASYNC_WAIT_FLAG_NONE);
-  }
-  iree_hal_semaphore_release(signal_semaphore);
-
-  IREE_TRACE_ZONE_END(z0);
-  return status;
-}
-
 static iree_status_t iree_hal_vulkan_sparse_buffer_commit_sync(
     iree_hal_vulkan_sparse_buffer_t* buffer,
     iree_hal_vulkan_queue_t* sparse_binding_queue,
@@ -282,12 +236,15 @@ static iree_status_t iree_hal_vulkan_sparse_buffer_commit_sync(
         memory_allocate_flags, buffer->physical_blocks, binds);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_hal_vulkan_sparse_buffer_bind_sync(
-        sparse_binding_queue, placement,
-        (VkBuffer)buffer->native
-            .bindings[IREE_HAL_VULKAN_BUFFER_BINDING_RESOURCE]
-            .vulkan.buffer,
-        physical_block_count, binds);
+    const VkSparseBufferMemoryBindInfo buffer_bind = {
+        .buffer = (VkBuffer)buffer->native
+                      .bindings[IREE_HAL_VULKAN_BUFFER_BINDING_RESOURCE]
+                      .vulkan.buffer,
+        .bindCount = (uint32_t)physical_block_count,
+        .pBinds = binds,
+    };
+    status = iree_hal_vulkan_queue_submit_sparse_bind_sync(sparse_binding_queue,
+                                                           1, &buffer_bind);
   }
 
   iree_allocator_free(buffer->host_allocator, binds);

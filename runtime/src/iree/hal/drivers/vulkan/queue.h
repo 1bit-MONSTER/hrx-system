@@ -477,6 +477,13 @@ iree_status_t iree_hal_vulkan_queue_submit_sparse_bind(
     iree_host_size_t buffer_count,
     const VkSparseBufferMemoryBindInfo* buffer_binds);
 
+// Publishes sparse binds and waits for their completion. This cold path is used
+// for initial sparse backing and explicit checked removal. The caller has
+// retired all conflicting uses and keeps native resources live through return.
+iree_status_t iree_hal_vulkan_queue_submit_sparse_bind_sync(
+    iree_hal_vulkan_queue_t* queue, iree_host_size_t buffer_count,
+    const VkSparseBufferMemoryBindInfo* buffer_binds);
+
 // Submits a buffer fill ordered by queue semaphores.
 iree_status_t iree_hal_vulkan_queue_submit_fill(
     iree_hal_vulkan_queue_t* queue,

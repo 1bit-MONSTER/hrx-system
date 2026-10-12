@@ -9,9 +9,11 @@
 #include "iree/hal/memory/cpu_slab_provider.h"
 #include "iree/hal/memory/host_memory_backend.h"
 
-typedef struct iree_hal_host_memory_reservation_t {
-  // Stable HAL view and explicit native lifecycle.
-  iree_hal_memory_reservation_t base;
+typedef struct iree_hal_host_virtual_buffer_t {
+  // Ordinary buffer resource owning the native address interval.
+  iree_hal_virtual_buffer_t base;
+  // Borrowed diagnostic sink owned by the creating device.
+  iree_hal_device_event_sink_t event_sink;
   // Owned process address interval, initially inaccessible.
   iree_shm_reservation_t native;
   // Sticky native replacement failure, serialized by the caller's queue edges.
@@ -22,37 +24,57 @@ typedef struct iree_hal_host_memory_reservation_t {
   iree_hal_buffer_backing_facts_t backing;
   // Captured process page-table identity per admitted scope.
   uint32_t projections[];
-} iree_hal_host_memory_reservation_t;
+} iree_hal_host_virtual_buffer_t;
 
-static iree_status_t iree_hal_host_memory_reservation_close(
-    iree_hal_memory_reservation_t* base) {
-  iree_hal_host_memory_reservation_t* reservation =
-      (iree_hal_host_memory_reservation_t*)base;
-  return iree_shm_reservation_deinitialize(&reservation->native);
+static void iree_hal_host_virtual_buffer_destroy(iree_hal_buffer_t* base) {
+  iree_hal_host_virtual_buffer_t* buffer =
+      (iree_hal_host_virtual_buffer_t*)base;
+  iree_status_t status = iree_shm_reservation_deinitialize(&buffer->native);
+  if (!iree_status_is_ok(status)) {
+    const iree_hal_device_driver_failure_event_t payload = {
+        .record_length = sizeof(payload),
+        .abi_version = IREE_HAL_DEVICE_DRIVER_FAILURE_EVENT_ABI_VERSION_0,
+        .status_code = iree_status_code(status),
+        .message = IREE_SV("shared virtual address release failed"),
+    };
+    iree_hal_device_event_t event = iree_hal_device_event_default();
+    event.type = IREE_HAL_DEVICE_EVENT_TYPE_DRIVER_FAILURE;
+    event.severity = IREE_HAL_DEVICE_EVENT_SEVERITY_ERROR;
+    event.payload = iree_make_const_byte_span(&payload, sizeof(payload));
+    iree_hal_device_event_sink_publish(buffer->event_sink, &event);
+    // The diagnostic sink consumes the teardown error. Unreleased native
+    // ranges remain unavailable for reuse; final release certifies no removal.
+    iree_status_free(status);
+  }
+  iree_hal_memory_contract_release(base->memory.contract);
+  iree_allocator_free(buffer->base.host_allocator, buffer);
 }
 
-static void iree_hal_host_memory_reservation_destroy(
-    iree_hal_memory_reservation_t* base) {
-  iree_allocator_free(base->host_allocator, base);
+static iree_status_t iree_hal_host_virtual_buffer_detach(
+    iree_hal_buffer_t* base, uint32_t scope_id) {
+  iree_hal_host_virtual_buffer_t* buffer =
+      (iree_hal_host_virtual_buffer_t*)base;
+  iree_status_t status = iree_shm_reservation_detach(&buffer->native);
+  buffer->failed |= !iree_status_is_ok(status);
+  return status;
 }
 
-static iree_status_t iree_hal_host_memory_reservation_update(
-    iree_hal_memory_reservation_t* base, uint32_t projection,
-    iree_host_size_t update_count,
+static iree_status_t iree_hal_host_virtual_buffer_update(
+    iree_hal_buffer_t* base, uint32_t projection, iree_host_size_t update_count,
     const iree_hal_memory_mapping_update_t* updates) {
-  iree_hal_host_memory_reservation_t* reservation =
-      (iree_hal_host_memory_reservation_t*)base;
+  iree_hal_host_virtual_buffer_t* reservation =
+      (iree_hal_host_virtual_buffer_t*)base;
   if (reservation->failed) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
-        "reservation requires destruction after native failure");
+        "mapping updates are unavailable after native failure");
   }
   iree_shm_mapping_update_t inline_updates[16];
   iree_shm_mapping_update_t* native_updates = inline_updates;
   if (update_count > IREE_ARRAYSIZE(inline_updates)) {
     IREE_RETURN_IF_ERROR(iree_allocator_malloc(
-        base->host_allocator, update_count * sizeof(*native_updates),
-        (void**)&native_updates));
+        reservation->base.host_allocator,
+        update_count * sizeof(*native_updates), (void**)&native_updates));
   }
   for (iree_host_size_t i = 0; i < update_count; ++i) {
     iree_shm_access_t access = 0;
@@ -78,32 +100,36 @@ static iree_status_t iree_hal_host_memory_reservation_update(
       &reservation->native, update_count, native_updates);
   reservation->failed = !iree_status_is_ok(status);
   if (native_updates != inline_updates) {
-    iree_allocator_free(base->host_allocator, native_updates);
+    iree_allocator_free(reservation->base.host_allocator, native_updates);
   }
   return status;
 }
 
-static const iree_hal_memory_reservation_vtable_t
-    iree_hal_host_memory_reservation_vtable = {
-        .close = iree_hal_host_memory_reservation_close,
-        .destroy = iree_hal_host_memory_reservation_destroy,
-        .update = iree_hal_host_memory_reservation_update,
+static const iree_hal_buffer_vtable_t iree_hal_host_virtual_buffer_vtable = {
+    .destroy = iree_hal_host_virtual_buffer_destroy,
+    .export_range = iree_hal_virtual_buffer_export_range,
+    .map_range = iree_hal_virtual_buffer_map_range,
+    .unmap_range = iree_hal_virtual_buffer_unmap_range,
+    .invalidate_range = iree_hal_virtual_buffer_invalidate_range,
+    .flush_range = iree_hal_virtual_buffer_flush_range,
+    .query_virtual = iree_hal_virtual_buffer_query_root,
+    .update_mappings = iree_hal_host_virtual_buffer_update,
+    .detach_mappings = iree_hal_host_virtual_buffer_detach,
 };
 
-iree_status_t iree_hal_host_memory_reservation_create(
+iree_status_t iree_hal_host_virtual_buffer_create(
     const iree_hal_host_memory_backend_t* backend,
     iree_async_frontier_tracker_t* frontier_tracker,
     iree_hal_memory_contract_t* contract,
-    const iree_hal_memory_reservation_options_t* options,
-    iree_allocator_t host_allocator,
-    iree_hal_memory_reservation_t** out_reservation) {
+    const iree_hal_virtual_buffer_options_t* options,
+    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer) {
   if (options->byte_length > IREE_HOST_SIZE_MAX ||
       options->min_alignment > IREE_HOST_SIZE_MAX ||
       options->mapping_granularity > IREE_HOST_SIZE_MAX) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "reservation exceeds host address space");
   }
-  iree_hal_host_memory_reservation_t* reservation = NULL;
+  iree_hal_host_virtual_buffer_t* reservation = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       host_allocator,
       sizeof(*reservation) + contract->scope_count * sizeof(uint32_t),
@@ -115,6 +141,7 @@ iree_status_t iree_hal_host_memory_reservation_create(
       iree_max((iree_host_size_t)options->mapping_granularity, page_size),
       &reservation->native);
   if (iree_status_is_ok(status)) {
+    reservation->event_sink = backend->event_sink;
     reservation->binding.host_pointer = reservation->native.base;
     reservation->backing = (iree_hal_buffer_backing_facts_t){
         .notification = backend->notification,
@@ -125,11 +152,11 @@ iree_status_t iree_hal_host_memory_reservation_create(
             iree_max(options->min_alignment, reservation->native.granularity),
         .maintenance_alignment = 1,
     };
-    iree_hal_memory_reservation_initialize(
+    iree_hal_virtual_buffer_initialize(
         contract, &reservation->binding, &reservation->backing,
         IREE_HAL_CPU_SLAB_PROVIDER_MEMORY_TYPE, options->byte_length,
         reservation->native.granularity, IREE_HAL_MEMORY_MAPPING_OPERATIONS_ALL,
-        IREE_HAL_MEMORY_BACKEND_HOST, &iree_hal_host_memory_reservation_vtable,
+        IREE_HAL_MEMORY_BACKEND_HOST, &iree_hal_host_virtual_buffer_vtable,
         host_allocator, &reservation->base);
     reservation->base.projection_count = 1;
     reservation->base.projections = reservation->projections;
@@ -137,7 +164,7 @@ iree_status_t iree_hal_host_memory_reservation_create(
       reservation->projections[i] =
           contract->scopes[i].interfaces ? 0 : IREE_HAL_MEMORY_SCOPE_INVALID;
     }
-    *out_reservation = &reservation->base;
+    *out_buffer = &reservation->base.buffer;
   } else {
     iree_allocator_free(host_allocator, reservation);
   }

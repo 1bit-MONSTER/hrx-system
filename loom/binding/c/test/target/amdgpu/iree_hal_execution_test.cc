@@ -210,7 +210,13 @@ class SparseTestBuffer {
   SparseTestBuffer& operator=(const SparseTestBuffer&) = delete;
 
   ~SparseTestBuffer() {
-    iree_status_t status = iree_hal_memory_reservation_destroy(reservation_);
+    iree_status_t status = iree_ok_status();
+    if (reservation_) {
+      const iree_hal_memory_scope_t scope = {
+          reservation_->memory.contract->domain, IREE_HAL_MEMORY_SCOPE_ANY};
+      status = iree_hal_virtual_buffer_detach(reservation_, scope);
+    }
+    iree_hal_buffer_release(reservation_);
     if (iree_status_is_ok(status)) {
       iree_hal_buffer_release(backing_);
     }
@@ -222,11 +228,11 @@ class SparseTestBuffer {
                            iree_hal_pool_t* source_pool,
                            iree_hal_queue_t* queue,
                            iree_device_size_t page_size) {
-    const iree_hal_memory_reservation_options_t options = {
+    const iree_hal_virtual_buffer_options_t options = {
         .byte_length = kHighPageOffset + page_size,
         .mapping_granularity = page_size,
     };
-    IREE_RETURN_IF_ERROR(iree_hal_memory_reservation_create(
+    IREE_RETURN_IF_ERROR(iree_hal_virtual_buffer_create(
         group, scope, &options, iree_allocator_system(), &reservation_));
     IREE_RETURN_IF_ERROR(iree_hal_pool_allocate_buffer(
         source_pool,
@@ -244,7 +250,7 @@ class SparseTestBuffer {
     std::array<iree_hal_memory_mapping_t, 2> mappings;
     for (size_t i = 0; i < mappings.size(); ++i) {
       mappings[i] = {
-          .reservation = reservation_,
+          .target = reservation_,
           .scope =
               {
                   .domain = iree_hal_device_group_memory_domain(group),
@@ -265,13 +271,11 @@ class SparseTestBuffer {
                                         IREE_ASYNC_WAIT_FLAG_NONE);
   }
 
-  iree_hal_buffer_t* get() const {
-    return iree_hal_memory_reservation_buffer(reservation_);
-  }
+  iree_hal_buffer_t* get() const { return reservation_; }
 
  private:
-  // Explicit address owner, closed before returning the mapped physical pages.
-  iree_hal_memory_reservation_t* reservation_ = nullptr;
+  // Virtual buffer retaining the address interval until final release.
+  iree_hal_buffer_t* reservation_ = nullptr;
   // Ordinary prepared backing for two distinct pages of the sparse buffer.
   iree_hal_buffer_t* backing_ = nullptr;
 };
@@ -296,8 +300,8 @@ void RunSparseByteOffsetExecution(
       .family_count = families[0].family == families[1].family ? 1u : 2u,
       .families = families.data(),
   };
-  iree_hal_memory_reservation_capabilities_t capabilities;
-  IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+  iree_hal_virtual_buffer_capabilities_t capabilities;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_capabilities(
       execution.device_group, scope, iree_allocator_system(), &capabilities));
   if (!capabilities.max_byte_length) {
     GTEST_SKIP() << "live device group does not support sparse virtual memory";

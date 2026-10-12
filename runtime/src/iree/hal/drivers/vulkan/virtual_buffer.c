@@ -11,9 +11,9 @@
 #include "iree/hal/drivers/vulkan/queue.h"
 #include "iree/hal/drivers/vulkan/sparse_buffer.h"
 
-typedef struct iree_hal_vulkan_memory_reservation_t {
-  // Explicit address owner and stable execution view.
-  iree_hal_memory_reservation_t base;
+typedef struct iree_hal_vulkan_virtual_buffer_t {
+  // Ordinary buffer resource owning the sparse address interval.
+  iree_hal_virtual_buffer_t base;
   // Device-owned native namespace and group progress services.
   const iree_hal_vulkan_memory_backend_t* backend;
   // Inline native resource facts borrowed by the stable view.
@@ -28,42 +28,67 @@ typedef struct iree_hal_vulkan_memory_reservation_t {
   VkDeviceSize mapping_alignment;
   // Scope-indexed aliases of this resource's one native page table.
   uint32_t projections[];
-} iree_hal_vulkan_memory_reservation_t;
+} iree_hal_vulkan_virtual_buffer_t;
 
-static iree_status_t iree_hal_vulkan_memory_reservation_close(
-    iree_hal_memory_reservation_t* base) {
-  iree_hal_vulkan_memory_reservation_t* reservation =
-      (iree_hal_vulkan_memory_reservation_t*)base;
-  iree_vkDestroyBuffer(IREE_VULKAN_DEVICE(reservation->backend->syms),
-                       reservation->backend->logical_device,
-                       (VkBuffer)reservation->native
-                           .bindings[IREE_HAL_VULKAN_BUFFER_BINDING_RESOURCE]
-                           .vulkan.buffer,
-                       /*pAllocator=*/NULL);
-  return iree_ok_status();
+static void iree_hal_vulkan_virtual_buffer_destroy(iree_hal_buffer_t* base) {
+  iree_hal_vulkan_virtual_buffer_t* buffer =
+      (iree_hal_vulkan_virtual_buffer_t*)base;
+  iree_vkDestroyBuffer(
+      IREE_VULKAN_DEVICE(buffer->backend->syms),
+      buffer->backend->logical_device,
+      (VkBuffer)buffer->native.bindings[IREE_HAL_VULKAN_BUFFER_BINDING_RESOURCE]
+          .vulkan.buffer,
+      /*pAllocator=*/NULL);
+  iree_hal_memory_contract_release(base->memory.contract);
+  iree_allocator_free(buffer->base.host_allocator, buffer);
 }
 
-static void iree_hal_vulkan_memory_reservation_destroy(
-    iree_hal_memory_reservation_t* base) {
-  iree_allocator_free(base->host_allocator, base);
+static iree_status_t iree_hal_vulkan_virtual_buffer_detach(
+    iree_hal_buffer_t* base, uint32_t scope_id) {
+  iree_hal_vulkan_virtual_buffer_t* buffer =
+      (iree_hal_vulkan_virtual_buffer_t*)base;
+  const VkSparseMemoryBind bind = {
+      .resourceOffset = base->memory.binding_offset,
+      .size = base->byte_length,
+  };
+  const VkSparseBufferMemoryBindInfo buffer_bind = {
+      .buffer = (VkBuffer)buffer->native
+                    .bindings[IREE_HAL_VULKAN_BUFFER_BINDING_RESOURCE]
+                    .vulkan.buffer,
+      .bindCount = 1,
+      .pBinds = &bind,
+  };
+  // Full removal is independent of the sticky mapping error and preserves it.
+  // The caller has retired every prior use and accepted mapping submission.
+  iree_status_t status = iree_hal_vulkan_queue_submit_sparse_bind_sync(
+      buffer->backend->sparse_binding_queue, 1, &buffer_bind);
+  if (!iree_status_is_ok(status)) {
+    int32_t expected = IREE_STATUS_OK;
+    iree_atomic_compare_exchange_strong(
+        &buffer->failure_code, &expected, iree_status_code(status),
+        iree_memory_order_release, iree_memory_order_relaxed);
+  }
+  return status;
 }
 
-static const iree_hal_memory_reservation_vtable_t
-    iree_hal_vulkan_memory_reservation_vtable = {
-        .close = iree_hal_vulkan_memory_reservation_close,
-        .destroy = iree_hal_vulkan_memory_reservation_destroy,
-        .update = NULL,
+static const iree_hal_buffer_vtable_t iree_hal_vulkan_virtual_buffer_vtable = {
+    .destroy = iree_hal_vulkan_virtual_buffer_destroy,
+    .export_range = iree_hal_virtual_buffer_export_range,
+    .map_range = iree_hal_virtual_buffer_map_range,
+    .unmap_range = iree_hal_virtual_buffer_unmap_range,
+    .invalidate_range = iree_hal_virtual_buffer_invalidate_range,
+    .flush_range = iree_hal_virtual_buffer_flush_range,
+    .query_virtual = iree_hal_virtual_buffer_query_root,
+    .detach_mappings = iree_hal_vulkan_virtual_buffer_detach,
 };
 
-bool iree_hal_vulkan_memory_reservation_buffer_isa(iree_hal_buffer_t* buffer) {
-  return iree_hal_memory_reservation_buffer_isa(buffer) &&
-         ((iree_hal_memory_reservation_t*)buffer)->vtable ==
-             &iree_hal_vulkan_memory_reservation_vtable;
+bool iree_hal_vulkan_virtual_buffer_isa(iree_hal_buffer_t* buffer) {
+  return iree_hal_resource_is(buffer, &iree_hal_vulkan_virtual_buffer_vtable);
 }
 
 typedef struct iree_hal_vulkan_reservation_plan_t {
   // Zero geometry denotes an unsupported complete scope.
-  iree_hal_memory_reservation_capabilities_t capabilities;
+  iree_hal_virtual_buffer_capabilities_t capabilities;
   // Native creation usage, including the driver's binding requirements.
   iree_hal_buffer_usage_t native_usage;
   // Interfaces supplied at every admitted queue and program scope.
@@ -79,7 +104,7 @@ typedef struct iree_hal_vulkan_reservation_plan_t {
 // Cold scope qualification uses only the sealed group's native owners. The
 // query and constructor consume the same plan without acquiring scratch
 // buffers.
-static void iree_hal_vulkan_memory_reservation_prepare(
+static void iree_hal_vulkan_virtual_buffer_prepare(
     const iree_hal_vulkan_memory_backend_t* backend,
     iree_hal_pool_scope_t scope, iree_hal_vulkan_reservation_plan_t* plan) {
   *plan = (iree_hal_vulkan_reservation_plan_t){0};
@@ -140,7 +165,7 @@ static void iree_hal_vulkan_memory_reservation_prepare(
       !plan->requirements.memoryTypeBits) {
     return;
   }
-  plan->capabilities = (iree_hal_memory_reservation_capabilities_t){
+  plan->capabilities = (iree_hal_virtual_buffer_capabilities_t){
       .max_byte_length = max_length - max_length % granularity,
       .reservation_granularity = granularity,
       .mapping_granularity = granularity,
@@ -153,27 +178,26 @@ static void iree_hal_vulkan_memory_reservation_prepare(
   };
 }
 
-iree_status_t iree_hal_vulkan_memory_reservation_query_capabilities(
+iree_status_t iree_hal_vulkan_virtual_buffer_query_capabilities(
     const iree_hal_memory_backend_t* base, iree_hal_device_group_t* group,
     iree_hal_pool_scope_t scope, iree_allocator_t host_allocator,
-    iree_hal_memory_reservation_capabilities_t* out_capabilities) {
+    iree_hal_virtual_buffer_capabilities_t* out_capabilities) {
   iree_hal_vulkan_reservation_plan_t plan;
-  iree_hal_vulkan_memory_reservation_prepare(
+  iree_hal_vulkan_virtual_buffer_prepare(
       (const iree_hal_vulkan_memory_backend_t*)base, scope, &plan);
   *out_capabilities = plan.capabilities;
   return iree_ok_status();
 }
 
-iree_status_t iree_hal_vulkan_memory_reservation_create(
+iree_status_t iree_hal_vulkan_virtual_buffer_create(
     const iree_hal_memory_backend_t* base, iree_hal_device_group_t* group,
     iree_hal_pool_scope_t scope,
-    const iree_hal_memory_reservation_options_t* options,
-    iree_allocator_t host_allocator,
-    iree_hal_memory_reservation_t** out_reservation) {
+    const iree_hal_virtual_buffer_options_t* options,
+    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer) {
   const iree_hal_vulkan_memory_backend_t* backend =
       (const iree_hal_vulkan_memory_backend_t*)base;
   iree_hal_vulkan_reservation_plan_t plan;
-  iree_hal_vulkan_memory_reservation_prepare(backend, scope, &plan);
+  iree_hal_vulkan_virtual_buffer_prepare(backend, scope, &plan);
   if (!plan.capabilities.max_byte_length) {
     return iree_ok_status();
   }
@@ -197,10 +221,10 @@ iree_status_t iree_hal_vulkan_memory_reservation_create(
 
   const uint32_t scope_count = iree_hal_device_group_memory_scope_count(group);
   iree_host_size_t total_size = 0;
-  IREE_RETURN_IF_ERROR(IREE_STRUCT_LAYOUT(
-      sizeof(iree_hal_vulkan_memory_reservation_t), &total_size,
-      IREE_STRUCT_FIELD(scope_count, uint32_t, NULL)));
-  iree_hal_vulkan_memory_reservation_t* reservation = NULL;
+  IREE_RETURN_IF_ERROR(
+      IREE_STRUCT_LAYOUT(sizeof(iree_hal_vulkan_virtual_buffer_t), &total_size,
+                         IREE_STRUCT_FIELD(scope_count, uint32_t, NULL)));
+  iree_hal_vulkan_virtual_buffer_t* reservation = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, total_size, (void**)&reservation));
   reservation->backend = backend;
@@ -273,18 +297,18 @@ iree_status_t iree_hal_vulkan_memory_reservation_create(
         .allocation_alignment = alignment,
         .maintenance_alignment = 1,
     };
-    iree_hal_memory_reservation_initialize(
+    iree_hal_virtual_buffer_initialize(
         contract, reservation->native.bindings, &reservation->backing,
         IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE, options->byte_length, granularity,
         plan.capabilities.operations, IREE_HAL_MEMORY_BACKEND_VULKAN,
-        &iree_hal_vulkan_memory_reservation_vtable, host_allocator,
+        &iree_hal_vulkan_virtual_buffer_vtable, host_allocator,
         &reservation->base);
     iree_hal_vulkan_buffer_initialize_bindings(
         &reservation->base.buffer, VK_NULL_HANDLE, handle, native_length,
         address, offset, &reservation->native);
     reservation->base.projection_count = 1;
     reservation->base.projections = reservation->projections;
-    *out_reservation = &reservation->base;
+    *out_buffer = &reservation->base.buffer;
   } else {
     iree_allocator_free(host_allocator, reservation);
   }
@@ -300,13 +324,12 @@ iree_status_t iree_hal_vulkan_memory_mapping_batch_validate(
   }
   for (iree_host_size_t i = 0; i < batch->entry_count; ++i) {
     const iree_hal_memory_mapping_batch_entry_t* entry = &batch->entries[i];
-    if (entry->reservation->vtable !=
-        &iree_hal_vulkan_memory_reservation_vtable) {
+    if (!iree_hal_vulkan_virtual_buffer_isa(&entry->target->buffer)) {
       return iree_make_status(IREE_STATUS_UNAVAILABLE,
                               "Vulkan queue requires Vulkan reservations");
     }
-    const iree_hal_vulkan_memory_reservation_t* reservation =
-        (const iree_hal_vulkan_memory_reservation_t*)entry->reservation;
+    const iree_hal_vulkan_virtual_buffer_t* reservation =
+        (const iree_hal_vulkan_virtual_buffer_t*)entry->target;
     if (reservation->backend->logical_device != logical_device) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "reservation belongs to another Vulkan device");
@@ -328,20 +351,22 @@ iree_status_t iree_hal_vulkan_memory_mapping_batch_validate(
 }
 
 iree_status_t iree_hal_vulkan_memory_mapping_batch_resolve(
-    iree_hal_memory_mapping_batch_t* batch,
+    iree_hal_memory_mapping_batch_t* batch, VkDevice logical_device,
     VkSparseBufferMemoryBindInfo* buffers, VkSparseMemoryBind* binds) {
   IREE_RETURN_IF_ERROR(iree_hal_memory_mapping_batch_resolve(batch));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_vulkan_memory_mapping_batch_validate(batch, logical_device));
   for (iree_host_size_t i = 0; i < batch->entry_count; ++i) {
     const iree_hal_memory_mapping_batch_entry_t* entry = &batch->entries[i];
-    const iree_hal_vulkan_memory_reservation_t* reservation =
-        (const iree_hal_vulkan_memory_reservation_t*)entry->reservation;
+    const iree_hal_vulkan_virtual_buffer_t* reservation =
+        (const iree_hal_vulkan_virtual_buffer_t*)entry->target;
     const iree_status_code_t failure_code =
         (iree_status_code_t)iree_atomic_load(&reservation->failure_code,
                                              iree_memory_order_acquire);
     if (failure_code != IREE_STATUS_OK) {
       return iree_make_status(failure_code,
-                              "Vulkan reservation requires destruction after "
-                              "a failed native mapping publication");
+                              "Vulkan mapping updates are unavailable after "
+                              "a failed native publication");
     }
     buffers[i] = (VkSparseBufferMemoryBindInfo){
         .buffer = (VkBuffer)reservation->native
@@ -392,8 +417,8 @@ iree_status_t iree_hal_vulkan_memory_mapping_batch_resolve(
 void iree_hal_vulkan_memory_mapping_batch_fail(
     iree_hal_memory_mapping_batch_t* batch, iree_status_code_t failure_code) {
   for (iree_host_size_t i = 0; i < batch->entry_count; ++i) {
-    iree_hal_vulkan_memory_reservation_t* reservation =
-        (iree_hal_vulkan_memory_reservation_t*)batch->entries[i].reservation;
+    iree_hal_vulkan_virtual_buffer_t* reservation =
+        (iree_hal_vulkan_virtual_buffer_t*)batch->entries[i].target;
     iree_atomic_store(&reservation->failure_code, failure_code,
                       iree_memory_order_release);
   }

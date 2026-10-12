@@ -609,19 +609,15 @@ class BdaMemoryReservation {
   BdaMemoryReservation(const BdaMemoryReservation&) = delete;
   BdaMemoryReservation& operator=(const BdaMemoryReservation&) = delete;
 
-  ~BdaMemoryReservation() {
-    IREE_EXPECT_OK(iree_hal_memory_reservation_destroy(reservation_));
-  }
+  ~BdaMemoryReservation() { iree_hal_buffer_release(reservation_); }
 
-  iree_hal_memory_reservation_t* owner() const { return reservation_; }
-  iree_hal_memory_reservation_t** out() { return &reservation_; }
-  iree_hal_buffer_t* get() const {
-    return iree_hal_memory_reservation_buffer(reservation_);
-  }
+  iree_hal_buffer_t* owner() const { return reservation_; }
+  iree_hal_buffer_t** out() { return &reservation_; }
+  iree_hal_buffer_t* get() const { return (reservation_); }
 
  private:
   // Explicit address owner, closed after all submitted accesses have completed.
-  iree_hal_memory_reservation_t* reservation_ = nullptr;
+  iree_hal_buffer_t* reservation_ = nullptr;
 };
 
 TEST_P(BdaSpirvTest, QueueDispatchExecutesBdaShader) {
@@ -1288,8 +1284,8 @@ TEST_P(BdaSpirvTest, CommandBufferExecutesBdaShaderWithSparseBindings) {
       .family_count = families[0].family == families[1].family ? 1u : 2u,
       .families = families.data(),
   };
-  iree_hal_memory_reservation_capabilities_t capabilities;
-  IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+  iree_hal_virtual_buffer_capabilities_t capabilities;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_capabilities(
       device_group_, scope, iree_allocator_system(), &capabilities));
   if (!capabilities.max_byte_length) {
     GTEST_SKIP() << "Vulkan sparse virtual memory is not available";
@@ -1320,21 +1316,21 @@ TEST_P(BdaSpirvTest, CommandBufferExecutesBdaShaderWithSparseBindings) {
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
       source_pool, iree_hal_make_pool_reservation_request(page_size, page_size),
       iree_infinite_timeout(), output_memory.out()));
-  const iree_hal_memory_reservation_options_t reservation_options = {
+  const iree_hal_virtual_buffer_options_t reservation_options = {
       .byte_length = page_size,
       .mapping_granularity = page_size,
   };
   BdaMemoryReservation input_buffer;
   BdaMemoryReservation output_buffer;
-  IREE_ASSERT_OK(iree_hal_memory_reservation_create(
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_create(
       device_group_, scope, &reservation_options, iree_allocator_system(),
       input_buffer.out()));
-  IREE_ASSERT_OK(iree_hal_memory_reservation_create(
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_create(
       device_group_, scope, &reservation_options, iree_allocator_system(),
       output_buffer.out()));
   iree_hal_memory_mapping_t mappings[2] = {
       {
-          .reservation = input_buffer.owner(),
+          .target = input_buffer.owner(),
           .scope =
               {
                   .domain = iree_hal_device_group_memory_domain(device_group_),
@@ -1346,7 +1342,7 @@ TEST_P(BdaSpirvTest, CommandBufferExecutesBdaShaderWithSparseBindings) {
           .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
       },
       {
-          .reservation = output_buffer.owner(),
+          .target = output_buffer.owner(),
           .scope =
               {
                   .domain = iree_hal_device_group_memory_domain(device_group_),

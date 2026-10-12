@@ -625,13 +625,10 @@ static bool iree_hal_replay_plan_is_completion_boundary(
       IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION) {
     return false;
   }
-  // Consuming destruction must drain even when capture reported a failure.
-  if (record->header.operation_code ==
-      IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY) {
-    return true;
-  }
   return record->header.status_code == IREE_STATUS_OK &&
          (record->header.operation_code ==
+              IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_DETACH ||
+          record->header.operation_code ==
               IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP ||
           record->header.operation_code ==
               IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT);
@@ -870,8 +867,6 @@ static iree_status_t iree_hal_replay_plan_prepare_record(
     return iree_ok_status();
   }
   if (record->header.status_code != IREE_STATUS_OK &&
-      record->header.operation_code !=
-          IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY &&
       record->header.operation_code !=
           IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_UNMAP_RANGE) {
     plan_record->kind = IREE_HAL_REPLAY_PLAN_RECORD_KIND_SKIP;

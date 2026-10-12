@@ -150,7 +150,7 @@ iree_runtime_cc_library(
     name = "memory_backend",
     srcs = [
         "memory_backend.c",
-        "memory_reservation.c",
+        "virtual_buffer.c",
     ],
     hdrs = ["memory_backend.h"],
     deps = [

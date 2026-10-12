@@ -16,12 +16,13 @@ class VirtualMemoryResources {
   ~VirtualMemoryResources() {
     bool detached = true;
     if (reservation) {
-      hrx_status_t status = hrx().memory_reservation_destroy(reservation);
+      hrx_status_t status = hrx().virtual_buffer_detach(reservation, {});
       detached = hrx_status_is_ok(status);
       CHECK(detached);
       hrx().status_ignore(status);
+      hrx().buffer_release(reservation);
     }
-    // A failed native close cannot authorize recycling possibly mapped backing.
+    // Failed removal cannot authorize recycling possibly mapped backing.
     if (detached) {
       hrx().buffer_release(source);
     }
@@ -42,9 +43,9 @@ class VirtualMemoryResources {
 
   // Borrowed execution device that outlives these resources.
   hrx_device_t device;
-  // Explicit address owner; closing it removes every remaining alias.
-  hrx_memory_reservation_t reservation = nullptr;
-  // Ordinary prepared backing retained until the address owner is destroyed.
+  // Ordinary virtual buffer retaining the address interval.
+  hrx_buffer_t reservation = nullptr;
+  // Ordinary prepared backing retained until checked removal succeeds.
   hrx_buffer_t source = nullptr;
   // Completion for synchronous test observation of each mapping batch.
   hrx_semaphore_t completion = nullptr;
@@ -56,12 +57,12 @@ class VirtualMemoryResources {
 
 TEST_CASE_METHOD(HrxTestFixture, "query reservation capabilities",
                  "[virtual_memory][query]") {
-  const hrx_memory_reservation_scope_t scope = {
+  const hrx_virtual_buffer_scope_t scope = {
       .device_count = 1,
       .devices = &device_,
   };
-  hrx_memory_reservation_capabilities_t capabilities;
-  REQUIRE_OK(hrx().memory_reservation_query_capabilities(scope, &capabilities));
+  hrx_virtual_buffer_capabilities_t capabilities;
+  REQUIRE_OK(hrx().virtual_buffer_query_capabilities(scope, &capabilities));
   if (capabilities.max_byte_length) {
     CHECK(capabilities.reservation_granularity > 0);
     CHECK(capabilities.mapping_granularity > 0);
@@ -69,10 +70,10 @@ TEST_CASE_METHOD(HrxTestFixture, "query reservation capabilities",
     CHECK(capabilities.operations &
           (1u << HRX_MEMORY_MAPPING_OPERATION_UNBIND));
   } else {
-    const hrx_memory_reservation_options_t options = {.byte_length = 65536};
-    hrx_memory_reservation_t reservation = nullptr;
+    const hrx_virtual_buffer_options_t options = {.byte_length = 65536};
+    hrx_buffer_t reservation = nullptr;
     hrx_status_t status =
-        hrx().memory_reservation_create(scope, &options, &reservation);
+        hrx().virtual_buffer_create(scope, &options, &reservation);
     CHECK(!hrx_status_is_ok(status));
     CHECK(reservation == nullptr);
     hrx().status_ignore(status);
@@ -82,14 +83,14 @@ TEST_CASE_METHOD(HrxTestFixture, "query reservation capabilities",
 TEST_CASE_METHOD(HrxTestFixture,
                  "batched virtual aliases share ordinary backing",
                  "[virtual_memory][lifecycle]") {
-  const hrx_memory_reservation_scope_t scope = {
+  const hrx_virtual_buffer_scope_t scope = {
       .device_count = 1,
       .devices = &device_,
   };
-  hrx_memory_reservation_capabilities_t capabilities;
-  REQUIRE_OK(hrx().memory_reservation_query_capabilities(scope, &capabilities));
+  hrx_virtual_buffer_capabilities_t capabilities;
+  REQUIRE_OK(hrx().virtual_buffer_query_capabilities(scope, &capabilities));
   if (!capabilities.max_byte_length) {
-    SKIP("The selected device has no explicit reservation backend.");
+    SKIP("The selected device has no virtual buffer backend.");
   }
   const hrx_memory_type_t memory_type =
       is_cpu() ? HRX_MEMORY_TYPE_HOST_LOCAL : HRX_MEMORY_TYPE_DEVICE_LOCAL;
@@ -101,13 +102,13 @@ TEST_CASE_METHOD(HrxTestFixture,
                                 requirements.recommended_granularity});
   REQUIRE(unit > 0);
   VirtualMemoryResources resources(device_);
-  const hrx_memory_reservation_options_t options = {
+  const hrx_virtual_buffer_options_t options = {
       .byte_length = 2 * unit,
       .min_alignment = unit,
       .mapping_granularity = unit,
   };
   REQUIRE_OK(
-      hrx().memory_reservation_create(scope, &options, &resources.reservation));
+      hrx().virtual_buffer_create(scope, &options, &resources.reservation));
   const hrx_buffer_params_t params = {
       .type = memory_type,
       .access = HRX_MEMORY_ACCESS_ALL,
@@ -119,7 +120,7 @@ TEST_CASE_METHOD(HrxTestFixture,
   std::array<hrx_memory_mapping_t, 2> mappings;
   for (size_t i = 0; i < mappings.size(); ++i) {
     mappings[i] = {
-        .reservation = resources.reservation,
+        .target = resources.reservation,
         .target_offset = i * unit,
         .byte_length = unit,
         .source = resources.source,
@@ -128,7 +129,7 @@ TEST_CASE_METHOD(HrxTestFixture,
     };
   }
   resources.Map(mappings.size(), mappings.data());
-  hrx_buffer_t view = hrx().memory_reservation_buffer(resources.reservation);
+  hrx_buffer_t view = resources.reservation;
   const std::array<uint32_t, 4> expected = {7, 13, 19, 23};
   REQUIRE_OK(hrx().synchronous_h2d(device_, expected.data(), view, 0,
                                    sizeof(expected)));

@@ -73,8 +73,6 @@ IREE_API_EXPORT const char* iree_hal_replay_object_type_string(
       return "host_call";
     case IREE_HAL_REPLAY_OBJECT_TYPE_QUEUE:
       return "queue";
-    case IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION:
-      return "memory_reservation";
     case IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER_MAPPING:
       return "buffer_mapping";
     default:
@@ -135,10 +133,10 @@ IREE_API_EXPORT const char* iree_hal_replay_operation_code_string(
       return "allocator.virtual_memory_protect";
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_ADVISE:
       return "allocator.virtual_memory_advise";
-    case IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_CREATE:
-      return "memory_reservation.create";
-    case IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY:
-      return "memory_reservation.destroy";
+    case IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_CREATE:
+      return "virtual_buffer.create";
+    case IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_DETACH:
+      return "virtual_buffer.detach";
     case IREE_HAL_REPLAY_OPERATION_CODE_POOL_CREATE_SLAB:
       return "pool.create_slab";
     case IREE_HAL_REPLAY_OPERATION_CODE_POOL_TRIM:
@@ -265,8 +263,10 @@ IREE_API_EXPORT const char* iree_hal_replay_payload_type_string(
       return "provisioned_queue_object";
     case IREE_HAL_REPLAY_PAYLOAD_TYPE_DYNAMIC_QUEUE_OBJECT:
       return "dynamic_queue_object";
-    case IREE_HAL_REPLAY_PAYLOAD_TYPE_MEMORY_RESERVATION_CREATE:
-      return "memory_reservation_create";
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_VIRTUAL_BUFFER_DETACH:
+      return "virtual_buffer_detach";
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_VIRTUAL_BUFFER_CREATE:
+      return "virtual_buffer_create";
     case IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_MAP:
       return "queue_map";
     case IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_CREATE_SLAB:

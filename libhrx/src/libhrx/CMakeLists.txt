@@ -48,13 +48,13 @@ iree_cc_library(
     "host_allocator.c"
     "mem_pool.c"
     "mem_pool_backing.c"
-    "memory_reservation.c"
     "queue_ops.c"
     "runtime.c"
     "semaphore.c"
     "status.c"
     "stream.c"
     "transfer.c"
+    "virtual_buffer.c"
   DEPS
     ${CMAKE_DL_LIBS}
     iree::async
@@ -124,13 +124,13 @@ iree_cc_library(
     "host_allocator.c"
     "mem_pool.c"
     "mem_pool_backing.c"
-    "memory_reservation.c"
     "queue_ops.c"
     "runtime.c"
     "semaphore.c"
     "status.c"
     "stream.c"
     "transfer.c"
+    "virtual_buffer.c"
   DEPS
     ${CMAKE_DL_LIBS}
     iree::async
@@ -224,9 +224,9 @@ iree_cc_test(
 
 iree_cc_test(
   NAME
-    memory_reservation_test
+    virtual_buffer_test
   SRCS
-    "memory_reservation_test.cc"
+    "virtual_buffer_test.cc"
   DEPS
     ::hrx_static
     iree::base

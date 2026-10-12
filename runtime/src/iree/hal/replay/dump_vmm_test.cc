@@ -488,8 +488,7 @@ TEST(ReplayDumpTest, RejectsReservedVmmPayloadFields) {
 
 TEST(ReplayDumpTest, EmitsReservationAndMappingBatchPayloads) {
   ReplayFileBuilder builder(/*capacity=*/4096);
-  const iree_hal_replay_memory_reservation_create_payload_t reservation = {
-      .buffer_id = 18,
+  const iree_hal_replay_virtual_buffer_create_payload_t reservation = {
       .byte_length = 16384,
       .min_alignment = 8192,
       .mapping_granularity = 4096,
@@ -508,10 +507,9 @@ TEST(ReplayDumpTest, EmitsReservationAndMappingBatchPayloads) {
       .sequence_ordinal = 0,
       .related_object_id = 17,
       .record_type = IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION,
-      .payload_type = IREE_HAL_REPLAY_PAYLOAD_TYPE_MEMORY_RESERVATION_CREATE,
-      .object_type = IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION,
-      .operation_code =
-          IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_CREATE,
+      .payload_type = IREE_HAL_REPLAY_PAYLOAD_TYPE_VIRTUAL_BUFFER_CREATE,
+      .object_type = IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER,
+      .operation_code = IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_CREATE,
   };
   builder.Append(reservation_metadata, IREE_ARRAYSIZE(reservation_payloads),
                  reservation_payloads);
@@ -527,7 +525,7 @@ TEST(ReplayDumpTest, EmitsReservationAndMappingBatchPayloads) {
   };
   const iree_hal_replay_memory_mapping_payload_t mappings[] = {
       {
-          .reservation_id = 17,
+          .target_buffer_id = 17,
           .scope_id = 2,
           .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
           .target_offset = 4096,
@@ -536,7 +534,7 @@ TEST(ReplayDumpTest, EmitsReservationAndMappingBatchPayloads) {
           .access = IREE_HAL_MEMORY_ACCESS_READ,
       },
       {
-          .reservation_id = 17,
+          .target_buffer_id = 17,
           .scope_id = 2,
           .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND,
           .target_offset = 12288,
@@ -571,7 +569,7 @@ TEST(ReplayDumpTest, EmitsReservationAndMappingBatchPayloads) {
     auto options = iree_hal_replay_dump_options_default();
     std::string output;
     IREE_ASSERT_OK(DumpReplayToString(input, &options, &output));
-    EXPECT_THAT(output, HasSubstr("buffer_id=18 byte_length=16384 "
+    EXPECT_THAT(output, HasSubstr("buffer_id=17 byte_length=16384 "
                                   "min_alignment=8192 mapping_granularity=4096 "
                                   "family_count=1"));
     EXPECT_THAT(output,
@@ -580,27 +578,27 @@ TEST(ReplayDumpTest, EmitsReservationAndMappingBatchPayloads) {
                 HasSubstr("signal_semaphores=[{semaphore_id=20 value=4}]"));
     EXPECT_THAT(
         output,
-        HasSubstr("mappings=[{reservation_id=17 scope_id=2 operation=1 "
+        HasSubstr("mappings=[{target_buffer_id=17 scope_id=2 operation=1 "
                   "target=[4096, +4096] access=0x00000001 "
                   "source={buffer_id=19 offset=8192 length=4096 slot=0}},"
-                  "{reservation_id=17 scope_id=2 operation=2 "
+                  "{target_buffer_id=17 scope_id=2 operation=2 "
                   "target=[12288, +4096] access=0x00000000 "
                   "source={buffer_id=0 offset=0 length=0 slot=0}}]"));
     options.format = IREE_HAL_REPLAY_DUMP_FORMAT_JSONL;
     output.clear();
     IREE_ASSERT_OK(DumpReplayToString(input, &options, &output));
     EXPECT_THAT(output,
-                HasSubstr("\"buffer_id\":18,\"byte_length\":16384,"
+                HasSubstr("\"buffer_id\":17,\"byte_length\":16384,"
                           "\"min_alignment\":8192,"
                           "\"mapping_granularity\":4096,\"family_count\":1"));
     EXPECT_THAT(
         output,
-        HasSubstr("\"mappings\":[{\"reservation_id\":17,\"scope_id\":2,"
+        HasSubstr("\"mappings\":[{\"target_buffer_id\":17,\"scope_id\":2,"
                   "\"operation\":1,"
                   "\"target_offset\":4096,\"byte_length\":4096,\"access\":1,"
                   "\"source\":{\"buffer_id\":19,\"offset\":8192,\"length\":"
                   "4096,\"buffer_slot\":0}},"
-                  "{\"reservation_id\":17,\"scope_id\":2,\"operation\":2,"
+                  "{\"target_buffer_id\":17,\"scope_id\":2,\"operation\":2,"
                   "\"target_offset\":12288,\"byte_length\":4096,\"access\":0,"
                   "\"source\":{\"buffer_id\":0,\"offset\":0,\"length\":0,"
                   "\"buffer_slot\":0}}]"));
@@ -608,8 +606,7 @@ TEST(ReplayDumpTest, EmitsReservationAndMappingBatchPayloads) {
 }
 
 TEST(ReplayDumpTest, RejectsTruncatedReservationAndMappingArrays) {
-  const iree_hal_replay_memory_reservation_create_payload_t reservation = {
-      .buffer_id = 18,
+  const iree_hal_replay_virtual_buffer_create_payload_t reservation = {
       .byte_length = 4096,
       .family_count = 1,
   };
@@ -623,13 +620,11 @@ TEST(ReplayDumpTest, RejectsTruncatedReservationAndMappingArrays) {
     const iree_hal_replay_file_record_metadata_t metadata = {
         .record_type = IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION,
         .payload_type = static_cast<iree_hal_replay_payload_type_t>(
-            is_mapping
-                ? IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_MAP
-                : IREE_HAL_REPLAY_PAYLOAD_TYPE_MEMORY_RESERVATION_CREATE),
+            is_mapping ? IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_MAP
+                       : IREE_HAL_REPLAY_PAYLOAD_TYPE_VIRTUAL_BUFFER_CREATE),
         .operation_code = static_cast<iree_hal_replay_operation_code_t>(
-            is_mapping
-                ? IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_MAP
-                : IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_CREATE),
+            is_mapping ? IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_MAP
+                       : IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_CREATE),
     };
     const auto payload =
         is_mapping

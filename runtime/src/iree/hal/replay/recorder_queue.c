@@ -17,7 +17,7 @@
 #include "iree/hal/replay/recorder_file.h"
 #include "iree/hal/replay/recorder_pool.h"
 #include "iree/hal/replay/recorder_record.h"
-#include "iree/hal/replay/recorder_reservation.h"
+#include "iree/hal/replay/recorder_virtual_buffer.h"
 
 typedef struct iree_hal_replay_recorder_transfer_storage_t {
   // Operations rewritten to reference resources owned by the wrapped device.

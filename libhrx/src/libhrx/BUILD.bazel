@@ -33,13 +33,13 @@ HRX_SRCS = [
     "host_allocator.c",
     "mem_pool.c",
     "mem_pool_backing.c",
-    "memory_reservation.c",
     "queue_ops.c",
     "runtime.c",
     "semaphore.c",
     "status.c",
     "stream.c",
     "transfer.c",
+    "virtual_buffer.c",
 ]
 
 HRX_HDRS = [
@@ -175,8 +175,8 @@ hrx_cc_test(
 )
 
 hrx_cc_test(
-    name = "memory_reservation_test",
-    srcs = ["memory_reservation_test.cc"],
+    name = "virtual_buffer_test",
+    srcs = ["virtual_buffer_test.cc"],
     deps = [
         ":hrx_static",
         "//runtime/src/iree/base",

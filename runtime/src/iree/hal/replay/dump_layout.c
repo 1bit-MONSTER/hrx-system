@@ -500,9 +500,9 @@ iree_status_t iree_hal_replay_dump_queue_payload_layout(
   return iree_ok_status();
 }
 
-iree_status_t iree_hal_replay_dump_memory_reservation_layout(
+iree_status_t iree_hal_replay_dump_virtual_buffer_layout(
     const iree_hal_replay_file_record_t* record,
-    const iree_hal_replay_memory_reservation_create_payload_t* payload,
+    const iree_hal_replay_virtual_buffer_create_payload_t* payload,
     iree_host_size_t* out_families_size) {
   iree_host_size_t total_size = 0;
   if (IREE_UNLIKELY(payload->reserved0 ||

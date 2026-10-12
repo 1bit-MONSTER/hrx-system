@@ -33,7 +33,6 @@ iree_cc_library(
     "fence.h"
     "file.h"
     "memory_backend.h"
-    "memory_reservation.h"
     "memory_scope.h"
     "pool.h"
     "pool_wait.h"
@@ -48,6 +47,7 @@ iree_cc_library(
     "string_util.h"
     "topology.h"
     "topology_builder.h"
+    "virtual_buffer.h"
   TEXTUAL_HDRS
     "profile_metrics.inc"
   SRCS
@@ -77,7 +77,6 @@ iree_cc_library(
     "fence.c"
     "file.c"
     "memory_backend.c"
-    "memory_reservation.c"
     "memory_scope.c"
     "pool.c"
     "pool_wait.c"
@@ -90,6 +89,7 @@ iree_cc_library(
     "string_util.c"
     "topology.c"
     "topology_builder.c"
+    "virtual_buffer.c"
   DEPS
     iree::async
     iree::base

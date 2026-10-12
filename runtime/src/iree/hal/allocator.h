@@ -242,7 +242,7 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_query_memory_heaps(
 //===----------------------------------------------------------------------===//
 
 // Deprecated scalar API retained for ROCr-backed HIP consumers. New callers
-// use iree_hal_memory_reservation_* and iree_hal_queue_map with ordinary
+// use iree_hal_virtual_buffer_* and iree_hal_queue_map with ordinary
 // prepared backing buffers. Legacy support is independent of reservation
 // support; backends implementing the new API may omit this entire surface.
 //

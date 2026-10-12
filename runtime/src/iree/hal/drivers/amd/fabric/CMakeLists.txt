@@ -200,7 +200,7 @@ iree_cc_library(
     "memory_backend.h"
   SRCS
     "memory_backend.c"
-    "memory_reservation.c"
+    "virtual_buffer.c"
   DEPS
     ::memory
     ::memory_transition

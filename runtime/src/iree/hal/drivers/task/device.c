@@ -419,7 +419,7 @@ iree_status_t iree_hal_task_device_create(
             .fn = iree_hal_task_device_query_pool_epoch,
             .user_data = device,
         },
-        &device->memory_backend);
+        device->event_sink, &device->memory_backend);
     *out_device = (iree_hal_device_t*)device;
   } else {
     iree_hal_device_release((iree_hal_device_t*)device);

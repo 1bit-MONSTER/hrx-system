@@ -397,7 +397,7 @@ bool iree_hal_vulkan_buffer_is_native(iree_hal_buffer_t* allocated_buffer) {
   return iree_hal_vulkan_buffer_isa(allocated_buffer) ||
          iree_hal_vulkan_sparse_buffer_isa(allocated_buffer) ||
          iree_hal_vulkan_transient_buffer_isa(allocated_buffer) ||
-         iree_hal_vulkan_memory_reservation_buffer_isa(allocated_buffer);
+         iree_hal_vulkan_virtual_buffer_isa(allocated_buffer);
 }
 
 iree_hal_vulkan_buffer_mapping_state_t* iree_hal_vulkan_buffer_mapping_state(

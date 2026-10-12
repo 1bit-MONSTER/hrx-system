@@ -573,8 +573,7 @@ void iree_hal_vulkan_memory_backend_initialize(
       .type = IREE_HAL_MEMORY_BACKEND_VULKAN,
       .factory_count = IREE_ARRAYSIZE(iree_hal_vulkan_slab_pool_factories),
       .factories = iree_hal_vulkan_slab_pool_factories,
-      .query_reservation =
-          iree_hal_vulkan_memory_reservation_query_capabilities,
-      .reserve = iree_hal_vulkan_memory_reservation_create,
+      .query_virtual_buffer = iree_hal_vulkan_virtual_buffer_query_capabilities,
+      .create_virtual_buffer = iree_hal_vulkan_virtual_buffer_create,
   };
 }

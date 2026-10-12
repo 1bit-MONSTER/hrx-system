@@ -25,8 +25,8 @@ static_assert(HRX_QUEUE_MAP_FLAG_BORROW_BUFFERS ==
 
 // Construction and capability queries are cold paths. Submission consumes the
 // resulting immutable scope tokens and native owners directly.
-static iree_status_t hrx_memory_reservation_prepare_scope(
-    hrx_memory_reservation_scope_t scope, iree_hal_pool_scope_t* out_scope) {
+static iree_status_t hrx_virtual_buffer_prepare_scope(
+    hrx_virtual_buffer_scope_t scope, iree_hal_pool_scope_t* out_scope) {
   *out_scope = (iree_hal_pool_scope_t){0};
   if (!scope.device_count || !scope.devices || !scope.devices[0]) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -118,28 +118,27 @@ hrx_status_t hrx_device_query_memory_scope(hrx_device_t device,
   return hrx_status_from_iree(status);
 }
 
-hrx_status_t hrx_memory_reservation_query_capabilities(
-    hrx_memory_reservation_scope_t scope,
-    hrx_memory_reservation_capabilities_t* out_capabilities) {
+hrx_status_t hrx_virtual_buffer_query_capabilities(
+    hrx_virtual_buffer_scope_t scope,
+    hrx_virtual_buffer_capabilities_t* out_capabilities) {
   if (!out_capabilities) {
     return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
                            "reservation capabilities output is NULL");
   }
-  *out_capabilities = (hrx_memory_reservation_capabilities_t){0};
+  *out_capabilities = (hrx_virtual_buffer_capabilities_t){0};
   iree_hal_pool_scope_t hal_scope;
-  iree_status_t status =
-      hrx_memory_reservation_prepare_scope(scope, &hal_scope);
+  iree_status_t status = hrx_virtual_buffer_prepare_scope(scope, &hal_scope);
   if (!iree_status_is_ok(status)) {
     return hrx_status_from_iree(status);
   }
-  iree_hal_memory_reservation_capabilities_t capabilities;
-  status = iree_hal_memory_reservation_query_capabilities(
+  iree_hal_virtual_buffer_capabilities_t capabilities;
+  status = iree_hal_virtual_buffer_query_capabilities(
       scope.devices[0]->hal_device_group, hal_scope, iree_allocator_system(),
       &capabilities);
   if (iree_status_is_ok(status) &&
       capabilities.reservation_granularity <= SIZE_MAX &&
       capabilities.mapping_granularity <= SIZE_MAX) {
-    *out_capabilities = (hrx_memory_reservation_capabilities_t){
+    *out_capabilities = (hrx_virtual_buffer_capabilities_t){
         .max_byte_length =
             (size_t)iree_min(capabilities.max_byte_length, SIZE_MAX),
         .reservation_granularity = (size_t)capabilities.reservation_granularity,
@@ -153,42 +152,36 @@ hrx_status_t hrx_memory_reservation_query_capabilities(
   return hrx_status_from_iree(status);
 }
 
-hrx_status_t hrx_memory_reservation_create(
-    hrx_memory_reservation_scope_t scope,
-    const hrx_memory_reservation_options_t* options,
-    hrx_memory_reservation_t* out_reservation) {
-  if (!out_reservation) {
+hrx_status_t hrx_virtual_buffer_create(
+    hrx_virtual_buffer_scope_t scope,
+    const hrx_virtual_buffer_options_t* options, hrx_buffer_t* out_buffer) {
+  if (!out_buffer) {
     return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
                            "reservation output is NULL");
   }
-  *out_reservation = NULL;
+  *out_buffer = NULL;
   if (!options) {
     return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
                            "reservation options are NULL");
   }
   iree_hal_pool_scope_t hal_scope;
-  iree_status_t status =
-      hrx_memory_reservation_prepare_scope(scope, &hal_scope);
+  iree_status_t status = hrx_virtual_buffer_prepare_scope(scope, &hal_scope);
   if (!iree_status_is_ok(status)) {
     return hrx_status_from_iree(status);
   }
-  hrx_memory_reservation_t reservation = NULL;
-  status = iree_allocator_malloc(iree_allocator_system(), sizeof(*reservation),
-                                 (void**)&reservation);
-  const iree_hal_memory_reservation_options_t hal_options = {
+  iree_hal_buffer_t* buffer = NULL;
+  const iree_hal_virtual_buffer_options_t hal_options = {
       .byte_length = options->byte_length,
       .min_alignment = options->min_alignment,
       .mapping_granularity = options->mapping_granularity,
   };
   if (iree_status_is_ok(status)) {
-    status = iree_hal_memory_reservation_create(
-        scope.devices[0]->hal_device_group, hal_scope, &hal_options,
-        iree_allocator_system(), &reservation->hal_reservation);
+    status = iree_hal_virtual_buffer_create(scope.devices[0]->hal_device_group,
+                                            hal_scope, &hal_options,
+                                            iree_allocator_system(), &buffer);
   }
   if (iree_status_is_ok(status)) {
     hrx_device_t device = scope.devices[0];
-    iree_hal_buffer_t* buffer =
-        iree_hal_memory_reservation_buffer(reservation->hal_reservation);
     // Construction required this interface for every family. The canonical
     // program coordinate and prepared slot are immutable producer facts.
     const iree_hal_queue_family_t* family =
@@ -210,52 +203,60 @@ hrx_status_t hrx_memory_reservation_create(
                         : (void*)(uintptr_t)binding.device_address;
     status = hrx_buffer_create_from_hal(
         buffer, device, HRX_MEMORY_TYPE_DEVICE_VISIBLE, options->byte_length,
-        pointer, &reservation->buffer);
+        pointer, out_buffer);
   }
   iree_allocator_free(iree_allocator_system(), (void*)hal_scope.families);
+  iree_hal_buffer_release(buffer);
+  return hrx_status_from_iree(status);
+}
+
+hrx_status_t hrx_virtual_buffer_query_info(
+    hrx_buffer_t buffer, hrx_virtual_buffer_info_t* out_info) {
+  if (!buffer || !out_info) {
+    return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
+                           "virtual buffer or info output is NULL");
+  }
+  *out_info = (hrx_virtual_buffer_info_t){0};
+  iree_hal_virtual_buffer_info_t info;
+  iree_status_t status =
+      iree_hal_virtual_buffer_query_info(buffer->hal_buffer, &info);
   if (iree_status_is_ok(status)) {
-    *out_reservation = reservation;
-  } else if (reservation) {
-    status = iree_status_join(status, iree_hal_memory_reservation_destroy(
-                                          reservation->hal_reservation));
-    iree_allocator_free(iree_allocator_system(), reservation);
+    *out_info = (hrx_virtual_buffer_info_t){
+        .mapping_byte_offset = (size_t)info.mapping_byte_offset,
+        .mapping_granularity = (size_t)info.mapping_granularity,
+        .operations = info.operations,
+        .projection_count = info.projection_count,
+    };
   }
   return hrx_status_from_iree(status);
 }
 
-hrx_buffer_t hrx_memory_reservation_buffer(
-    hrx_memory_reservation_t reservation) {
-  return reservation->buffer;
-}
-
-size_t hrx_memory_reservation_mapping_granularity(
-    hrx_memory_reservation_t reservation) {
-  return (size_t)iree_hal_memory_reservation_mapping_granularity(
-      reservation->hal_reservation);
-}
-
-hrx_status_t hrx_memory_reservation_resolve_projection(
-    hrx_memory_reservation_t reservation, hrx_memory_scope_t scope,
-    uint32_t* out_projection) {
-  if (!reservation || !out_projection) {
+hrx_status_t hrx_virtual_buffer_resolve_projection(hrx_buffer_t buffer,
+                                                   hrx_memory_scope_t scope,
+                                                   uint32_t* out_projection) {
+  if (!buffer || !out_projection) {
     return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
-                           "projection reservation or output is NULL");
+                           "projection buffer or output is NULL");
   }
   const iree_hal_memory_scope_t hal_scope = {scope.domain, scope.id};
-  return hrx_status_from_iree(iree_hal_memory_reservation_resolve_projection(
-      reservation->hal_reservation, hal_scope, out_projection));
+  return hrx_status_from_iree(iree_hal_virtual_buffer_resolve_projection(
+      buffer->hal_buffer, hal_scope, out_projection));
 }
 
-hrx_status_t hrx_memory_reservation_destroy(
-    hrx_memory_reservation_t reservation) {
-  if (!reservation) {
-    return hrx_ok_status();
+hrx_status_t hrx_virtual_buffer_detach(hrx_buffer_t buffer,
+                                       hrx_memory_scope_t scope) {
+  if (!buffer || !buffer->hal_buffer) {
+    return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
+                           "virtual buffer is NULL or has no HAL storage");
   }
-  iree_status_t status =
-      iree_hal_memory_reservation_destroy(reservation->hal_reservation);
-  hrx_buffer_release(reservation->buffer);
-  iree_allocator_free(iree_allocator_system(), reservation);
-  return hrx_status_from_iree(status);
+  const iree_hal_memory_contract_t* contract =
+      buffer->hal_buffer->memory.contract;
+  if (!scope.domain && !scope.id && contract) {
+    scope.domain = contract->domain;
+  }
+  const iree_hal_memory_scope_t hal_scope = {scope.domain, scope.id};
+  return hrx_status_from_iree(
+      iree_hal_virtual_buffer_detach(buffer->hal_buffer, hal_scope));
 }
 
 hrx_status_t hrx_allocator_query_mapping_requirements(

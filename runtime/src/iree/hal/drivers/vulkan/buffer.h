@@ -117,7 +117,7 @@ iree_status_t iree_hal_vulkan_buffer_create_borrowed(
 bool iree_hal_vulkan_buffer_isa(iree_hal_buffer_t* buffer);
 
 // Returns whether the allocated owner uses Vulkan's native binding format.
-// Includes dense, sparse, transient, and explicit reservation owners; native
+// Includes dense, sparse, transient, and virtual buffer resources; native
 // identity alone does not establish allocation completion or mapped residency.
 bool iree_hal_vulkan_buffer_is_native(iree_hal_buffer_t* allocated_buffer);
 

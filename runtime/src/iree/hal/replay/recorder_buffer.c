@@ -10,7 +10,6 @@
 
 #include "iree/hal/buffer_allocation.h"
 #include "iree/hal/replay/recorder_record.h"
-#include "iree/hal/replay/recorder_reservation.h"
 
 #define IREE_HAL_REPLAY_VTABLE_DISPATCH(resource, type_prefix, method_name) \
   ((const type_prefix##_vtable_t*)((const iree_hal_resource_t*)(resource))  \
@@ -56,8 +55,6 @@ static const iree_hal_buffer_vtable_t
 
 static bool iree_hal_replay_recorder_buffer_isa(
     iree_hal_buffer_t* base_buffer) {
-  base_buffer =
-      iree_hal_replay_recorder_reservation_buffer_proxy_or_self(base_buffer);
   return iree_hal_resource_is(base_buffer,
                               &iree_hal_replay_recorder_buffer_vtable) ||
          iree_hal_resource_is(
@@ -66,8 +63,6 @@ static bool iree_hal_replay_recorder_buffer_isa(
 
 static iree_hal_replay_recorder_buffer_t* iree_hal_replay_recorder_buffer_cast(
     iree_hal_buffer_t* base_buffer) {
-  base_buffer =
-      iree_hal_replay_recorder_reservation_buffer_proxy_or_self(base_buffer);
   IREE_ASSERT(iree_hal_replay_recorder_buffer_isa(base_buffer));
   return (iree_hal_replay_recorder_buffer_t*)base_buffer;
 }
@@ -701,6 +696,37 @@ iree_hal_replay_recorder_buffer_query_memory(
   return iree_hal_buffer_memory_view(buffer->base_buffer);
 }
 
+static iree_hal_virtual_buffer_view_t
+iree_hal_replay_recorder_buffer_query_virtual(
+    const iree_hal_buffer_t* base_buffer) {
+  const iree_hal_replay_recorder_buffer_t* buffer =
+      (const iree_hal_replay_recorder_buffer_t*)base_buffer;
+  return iree_hal_buffer_virtual_view(buffer->base_buffer);
+}
+
+static iree_status_t iree_hal_replay_recorder_buffer_detach_mappings(
+    iree_hal_buffer_t* base_buffer, uint32_t scope_id) {
+  iree_hal_replay_recorder_buffer_t* buffer =
+      (iree_hal_replay_recorder_buffer_t*)base_buffer;
+  iree_hal_replay_pending_record_t pending_record = {0};
+  iree_hal_replay_recorder_try_begin_operation(
+      buffer->recorder, buffer->device_id, buffer->buffer_id,
+      IREE_HAL_REPLAY_OBJECT_ID_NONE, IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER,
+      IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_DETACH,
+      IREE_HAL_REPLAY_PAYLOAD_TYPE_VIRTUAL_BUFFER_DETACH, &pending_record);
+  const iree_hal_memory_scope_t scope = {
+      .domain = base_buffer->memory.contract->domain, .id = scope_id};
+  iree_status_t status =
+      iree_hal_virtual_buffer_detach(buffer->base_buffer, scope);
+  const iree_hal_replay_virtual_buffer_detach_payload_t payload = {
+      .scope_id = scope_id,
+  };
+  const iree_const_byte_span_t iovec =
+      iree_make_const_byte_span(&payload, sizeof(payload));
+  return iree_hal_replay_recorder_end_passthrough_operation_with_payload(
+      &pending_record, status, 1, &iovec);
+}
+
 static iree_hal_buffer_allocation_profile_t
 iree_hal_replay_recorder_buffer_allocation_profile(iree_hal_buffer_t* buffer) {
   return iree_hal_buffer_allocation_profile(
@@ -751,6 +777,8 @@ static const iree_hal_buffer_vtable_t iree_hal_replay_recorder_buffer_vtable = {
     .invalidate_range = iree_hal_replay_recorder_buffer_invalidate_range,
     .flush_range = iree_hal_replay_recorder_buffer_flush_range,
     .query_memory = iree_hal_replay_recorder_buffer_query_memory,
+    .query_virtual = iree_hal_replay_recorder_buffer_query_virtual,
+    .detach_mappings = iree_hal_replay_recorder_buffer_detach_mappings,
 };
 
 static const iree_hal_buffer_vtable_t
@@ -762,5 +790,7 @@ static const iree_hal_buffer_vtable_t
         .invalidate_range = iree_hal_replay_recorder_buffer_invalidate_range,
         .flush_range = iree_hal_replay_recorder_buffer_flush_range,
         .query_memory = iree_hal_replay_recorder_buffer_query_memory,
+        .query_virtual = iree_hal_replay_recorder_buffer_query_virtual,
+        .detach_mappings = iree_hal_replay_recorder_buffer_detach_mappings,
         .allocation = &iree_hal_replay_recorder_buffer_allocation_vtable,
 };

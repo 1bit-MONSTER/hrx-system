@@ -23,7 +23,7 @@ iree_runtime_cc_library(
     name = "host_memory_backend",
     srcs = [
         "host_memory_backend.c",
-        "host_memory_reservation.c",
+        "host_virtual_buffer.c",
     ],
     hdrs = ["host_memory_backend.h"],
     deps = [

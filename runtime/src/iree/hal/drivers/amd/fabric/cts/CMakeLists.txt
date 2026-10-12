@@ -12,9 +12,9 @@ iree_add_all_subdirs()
 if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND IREE_HAL_DRIVER_TASK)
 iree_cc_test(
   NAME
-    memory_reservation_test
+    virtual_buffer_test
   SRCS
-    "memory_reservation_test.cc"
+    "virtual_buffer_test.cc"
   DEPS
     amdf::amdf_static
     amdf::headers

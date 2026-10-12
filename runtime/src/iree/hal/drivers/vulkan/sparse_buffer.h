@@ -38,7 +38,7 @@ VkMemoryRequirements iree_hal_vulkan_sparse_buffer_query_requirements(
 // and all allocated physical blocks.
 //
 // Sparse buffers are not host-mappable in this primitive. Independently mapped
-// addresses use memory_reservation.h; this helper creates fully resident
+// addresses use virtual_buffer.h; this helper creates fully resident
 // ordinary storage.
 iree_status_t iree_hal_vulkan_sparse_buffer_create_bound_sync(
     const iree_hal_vulkan_device_syms_t* syms, VkDevice logical_device,

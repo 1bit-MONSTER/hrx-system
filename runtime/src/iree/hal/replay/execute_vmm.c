@@ -237,13 +237,13 @@ static iree_status_t iree_hal_replay_executor_virtual_memory_advise(
       payload.advice);
 }
 
-static iree_status_t iree_hal_replay_executor_memory_reservation_create(
+static iree_status_t iree_hal_replay_executor_virtual_buffer_create(
     iree_hal_replay_executor_t* executor,
     const iree_hal_replay_file_record_t* record) {
   IREE_RETURN_IF_ERROR(iree_hal_replay_executor_require_payload(
-      record, IREE_HAL_REPLAY_PAYLOAD_TYPE_MEMORY_RESERVATION_CREATE,
-      sizeof(iree_hal_replay_memory_reservation_create_payload_t)));
-  iree_hal_replay_memory_reservation_create_payload_t payload;
+      record, IREE_HAL_REPLAY_PAYLOAD_TYPE_VIRTUAL_BUFFER_CREATE,
+      sizeof(iree_hal_replay_virtual_buffer_create_payload_t)));
+  iree_hal_replay_virtual_buffer_create_payload_t payload;
   memcpy(&payload, record->payload.data, sizeof(payload));
   iree_host_size_t family_payload_length = 0;
   iree_host_size_t payload_length = 0;
@@ -280,52 +280,50 @@ static iree_status_t iree_hal_replay_executor_memory_reservation_create(
                   (iree_hal_host_cacheability_t)payload.host_cacheability,
           },
   };
-  const iree_hal_memory_reservation_options_t options = {
+  const iree_hal_virtual_buffer_options_t options = {
       .byte_length = payload.byte_length,
       .min_alignment = payload.min_alignment,
       .mapping_granularity = payload.mapping_granularity,
   };
-  iree_hal_memory_reservation_t* reservation = NULL;
+  iree_hal_buffer_t* buffer = NULL;
   if (iree_status_is_ok(status)) {
-    status = iree_hal_memory_reservation_create(
-        executor->device_group, scope, &options, executor->host_allocator,
-        &reservation);
+    status =
+        iree_hal_virtual_buffer_create(executor->device_group, scope, &options,
+                                       executor->host_allocator, &buffer);
   }
   if (iree_status_is_ok(status)) {
-    iree_hal_buffer_t* buffer = iree_hal_memory_reservation_buffer(reservation);
-    iree_hal_buffer_retain(buffer);
     status = iree_hal_replay_executor_store(
         executor, record->header.related_object_id,
-        IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION,
-        (iree_hal_replay_object_entry_t){.value.memory_reservation =
-                                             reservation});
-    if (iree_status_is_ok(status)) {
-      status = iree_hal_replay_executor_store(
-          executor, payload.buffer_id, IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER,
-          (iree_hal_replay_object_entry_t){.value.buffer = buffer});
-    } else {
-      iree_hal_buffer_release(buffer);
-    }
+        IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER,
+        (iree_hal_replay_object_entry_t){.value.buffer = buffer});
   }
   iree_allocator_free(executor->host_allocator, families);
   return status;
 }
 
-static iree_status_t iree_hal_replay_executor_memory_reservation_destroy(
+static iree_status_t iree_hal_replay_executor_virtual_buffer_detach(
     iree_hal_replay_executor_t* executor,
     const iree_hal_replay_file_record_t* record) {
   IREE_RETURN_IF_ERROR(iree_hal_replay_executor_require_fixed_vmm_payload(
-      record, IREE_HAL_REPLAY_PAYLOAD_TYPE_NONE, 0));
+      record, IREE_HAL_REPLAY_PAYLOAD_TYPE_VIRTUAL_BUFFER_DETACH,
+      sizeof(iree_hal_replay_virtual_buffer_detach_payload_t)));
+  iree_hal_replay_virtual_buffer_detach_payload_t payload;
+  memcpy(&payload, record->payload.data, sizeof(payload));
+  if (payload.reserved0) {
+    return iree_make_status(IREE_STATUS_DATA_LOSS,
+                            "replay virtual buffer detach metadata is invalid");
+  }
   iree_hal_replay_object_entry_t* entry = NULL;
   IREE_RETURN_IF_ERROR(iree_hal_replay_executor_lookup(
-      executor, record->header.object_id,
-      IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION, &entry));
+      executor, record->header.object_id, IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER,
+      &entry));
   IREE_RETURN_IF_ERROR(
       iree_hal_replay_executor_drain_queue_completions(executor));
-  iree_hal_memory_reservation_t* reservation = entry->value.memory_reservation;
-  // Native destruction consumes ownership on every outcome.
-  memset(entry, 0, sizeof(*entry));
-  return iree_hal_memory_reservation_destroy(reservation);
+  const iree_hal_memory_scope_t scope = {
+      .domain = iree_hal_device_group_memory_domain(executor->device_group),
+      .id = payload.scope_id,
+  };
+  return iree_hal_virtual_buffer_detach(entry->value.buffer, scope);
 }
 
 static iree_status_t iree_hal_replay_executor_queue_map(
@@ -378,11 +376,11 @@ static iree_status_t iree_hal_replay_executor_queue_map(
       status = iree_make_status(IREE_STATUS_DATA_LOSS,
                                 "replay mapping descriptor is invalid");
     }
-    iree_hal_replay_object_entry_t* reservation_entry = NULL;
+    iree_hal_replay_object_entry_t* target_entry = NULL;
     if (iree_status_is_ok(status)) {
       status = iree_hal_replay_executor_lookup(
-          executor, mapping.reservation_id,
-          IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION, &reservation_entry);
+          executor, mapping.target_buffer_id,
+          IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER, &target_entry);
     }
     iree_hal_replay_object_entry_t* source_entry = NULL;
     if (iree_status_is_ok(status) && mapping.source_ref.buffer_id) {
@@ -392,7 +390,7 @@ static iree_status_t iree_hal_replay_executor_queue_map(
     }
     if (iree_status_is_ok(status)) {
       mappings[i] = (iree_hal_memory_mapping_t){
-          .reservation = reservation_entry->value.memory_reservation,
+          .target = target_entry->value.buffer,
           .scope =
               {
                   .domain = iree_hal_device_group_memory_domain(
@@ -434,12 +432,10 @@ iree_status_t iree_hal_replay_executor_replay_vmm_operation(
     iree_hal_replay_executor_t* executor,
     const iree_hal_replay_file_record_t* record) {
   switch (record->header.operation_code) {
-    case IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_CREATE:
-      return iree_hal_replay_executor_memory_reservation_create(executor,
-                                                                record);
-    case IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY:
-      return iree_hal_replay_executor_memory_reservation_destroy(executor,
-                                                                 record);
+    case IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_CREATE:
+      return iree_hal_replay_executor_virtual_buffer_create(executor, record);
+    case IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_DETACH:
+      return iree_hal_replay_executor_virtual_buffer_detach(executor, record);
     case IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_MAP:
       return iree_hal_replay_executor_queue_map(executor, record);
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_RELEASE:

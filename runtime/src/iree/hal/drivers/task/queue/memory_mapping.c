@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "iree/hal/drivers/task/queue/queue.h"
-#include "iree/hal/memory_reservation.h"
+#include "iree/hal/virtual_buffer.h"
 
 static void iree_hal_task_queue_map_execute(
     iree_hal_memory_maintenance_entry_t* entry) {
@@ -41,8 +41,10 @@ iree_status_t iree_hal_task_queue_submit_map(
   IREE_TRACE_ZONE_BEGIN(z0);
   iree_hal_task_queue_t* queue = (iree_hal_task_queue_t*)base_queue;
   iree_hal_host_call_t call;
-  iree_status_t status = iree_hal_memory_reservation_prepare_map(
-      base_queue, mapping_count, mappings, flags, &call);
+  iree_allocator_t host_allocator = iree_hal_device_host_allocator(
+      iree_hal_queue_family_device(iree_hal_queue_family(base_queue)));
+  iree_status_t status = iree_hal_memory_mapping_prepare(
+      base_queue, mapping_count, mappings, flags, host_allocator, &call);
   if (iree_status_is_ok(status)) {
     iree_hal_task_queue_op_t* operation = NULL;
     status = iree_hal_task_queue_submit_op_begin(

@@ -47,9 +47,8 @@ typedef struct iree_hal_device_group_t iree_hal_device_group_t;
 typedef struct iree_hal_pool_t iree_hal_pool_t;
 typedef struct iree_hal_pool_scope_t iree_hal_pool_scope_t;
 typedef struct iree_hal_slab_pool_options_t iree_hal_slab_pool_options_t;
-typedef struct iree_hal_memory_reservation_t iree_hal_memory_reservation_t;
-typedef struct iree_hal_memory_reservation_options_t
-    iree_hal_memory_reservation_options_t;
+typedef struct iree_hal_virtual_buffer_options_t
+    iree_hal_virtual_buffer_options_t;
 
 // Synchronous continuation for one slab-pool construction layer.
 //
@@ -70,17 +69,16 @@ typedef struct iree_hal_slab_pool_create_callback_t {
 // Synchronous continuation for one address-reservation construction layer.
 // The callback is valid only during the wrapping callback receiving it and
 // may be invoked at most once.
-typedef struct iree_hal_memory_reservation_create_callback_t {
+typedef struct iree_hal_virtual_buffer_create_callback_t {
   // Continues construction with the outer group's canonical scope identities.
   iree_status_t(IREE_API_PTR* fn)(
       void* user_data, iree_hal_device_group_t* request_group,
       const iree_hal_pool_scope_t* scope,
-      const iree_hal_memory_reservation_options_t* options,
-      iree_allocator_t host_allocator,
-      iree_hal_memory_reservation_t** out_reservation);
+      const iree_hal_virtual_buffer_options_t* options,
+      iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
   // Opaque synchronous continuation state.
   void* user_data;
-} iree_hal_memory_reservation_create_callback_t;
+} iree_hal_virtual_buffer_create_callback_t;
 
 // Stateful instrumentation around a replacement device group.
 //
@@ -112,15 +110,14 @@ typedef struct iree_hal_device_group_wrapper_vtable_t {
       const iree_hal_slab_pool_options_t* options,
       iree_allocator_t host_allocator, iree_hal_pool_t** out_pool);
 
-  // Observes and optionally decorates address ownership and its stable view.
+  // Observes and optionally decorates the ordinary virtual buffer resource.
   // |next| preserves the outer group and canonical family identities.
-  iree_status_t(IREE_API_PTR* create_memory_reservation)(
-      void* self, iree_hal_memory_reservation_create_callback_t next,
+  iree_status_t(IREE_API_PTR* create_virtual_buffer)(
+      void* self, iree_hal_virtual_buffer_create_callback_t next,
       iree_hal_device_group_t* request_group,
       const iree_hal_pool_scope_t* scope,
-      const iree_hal_memory_reservation_options_t* options,
-      iree_allocator_t host_allocator,
-      iree_hal_memory_reservation_t** out_reservation);
+      const iree_hal_virtual_buffer_options_t* options,
+      iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
 } iree_hal_device_group_wrapper_vtable_t;
 
 typedef struct iree_hal_device_group_wrapper_t {
@@ -147,14 +144,13 @@ IREE_API_EXPORT iree_status_t iree_hal_device_group_create_slab_pool(
     iree_allocator_t host_allocator, iree_hal_pool_t** out_pool);
 
 // Invokes group instrumentation around the terminal address constructor.
-// Intended for iree_hal_memory_reservation_create; ordinary callers use that
+// Intended for iree_hal_virtual_buffer_create; ordinary callers use that
 // public API. The supplied continuation is invoked synchronously.
-IREE_API_EXPORT iree_status_t iree_hal_device_group_create_memory_reservation(
+IREE_API_EXPORT iree_status_t iree_hal_device_group_create_virtual_buffer(
     iree_hal_device_group_t* group, const iree_hal_pool_scope_t* scope,
-    const iree_hal_memory_reservation_options_t* options,
-    iree_hal_memory_reservation_create_callback_t leaf,
-    iree_allocator_t host_allocator,
-    iree_hal_memory_reservation_t** out_reservation);
+    const iree_hal_virtual_buffer_options_t* options,
+    iree_hal_virtual_buffer_create_callback_t leaf,
+    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
 
 // Creates a single-device group.
 // Equivalent to initializing a builder, adding the device, and finalizing.
@@ -170,7 +166,7 @@ IREE_API_EXPORT iree_status_t iree_hal_device_group_create_from_device(
 // |replace_device|. Replacement devices must preserve canonical queue-family
 // ordinals and access semantics. Slab-pool construction is routed through
 // |create_slab_pool| when provided; address reservations similarly pass
-// through |create_memory_reservation|.
+// through |create_virtual_buffer|.
 IREE_API_EXPORT iree_status_t iree_hal_device_group_create_wrapped(
     iree_hal_device_group_t* source_group,
     iree_hal_device_group_wrapper_t wrapper, iree_allocator_t host_allocator,

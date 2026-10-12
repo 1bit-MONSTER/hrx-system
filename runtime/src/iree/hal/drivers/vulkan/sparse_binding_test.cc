@@ -41,7 +41,7 @@ class VulkanSparseBindingTest : public CtsTestBase<> {
         .usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
         .interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_VULKAN_BUFFER,
     };
-    IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+    IREE_ASSERT_OK(iree_hal_virtual_buffer_query_capabilities(
         device_group_, Scope(), iree_allocator_system(), &capabilities_));
     if (!capabilities_.max_byte_length) {
       GTEST_SKIP() << "Vulkan sparse residency and aliasing are unavailable";
@@ -51,7 +51,7 @@ class VulkanSparseBindingTest : public CtsTestBase<> {
 
   void TearDown() override {
     for (auto* reservation : reservations_) {
-      IREE_EXPECT_OK(iree_hal_memory_reservation_destroy(reservation));
+      iree_hal_buffer_release(reservation);
     }
     CtsTestBase::TearDown();
   }
@@ -63,16 +63,16 @@ class VulkanSparseBindingTest : public CtsTestBase<> {
   iree_status_t Reserve(iree_device_size_t length,
                         iree_hal_buffer_t** out_buffer,
                         iree_device_size_t alignment = 0) {
-    const iree_hal_memory_reservation_options_t options = {
+    const iree_hal_virtual_buffer_options_t options = {
         .byte_length = length,
         .min_alignment = alignment,
     };
-    iree_hal_memory_reservation_t* reservation = nullptr;
-    IREE_RETURN_IF_ERROR(iree_hal_memory_reservation_create(
-        device_group_, Scope(), &options, iree_allocator_system(),
-        &reservation));
+    iree_hal_buffer_t* reservation = nullptr;
+    IREE_RETURN_IF_ERROR(
+        iree_hal_virtual_buffer_create(device_group_, Scope(), &options,
+                                       iree_allocator_system(), &reservation));
     reservations_.push_back(reservation);
-    *out_buffer = iree_hal_memory_reservation_buffer(reservation);
+    *out_buffer = reservation;
     return iree_ok_status();
   }
 
@@ -89,12 +89,12 @@ class VulkanSparseBindingTest : public CtsTestBase<> {
 
   // Borrowed queue owned by the shared CTS device.
   iree_hal_vulkan_queue_t* sparse_queue_ = nullptr;
-  // Explicit address owners destroyed after completed native operations.
-  std::vector<iree_hal_memory_reservation_t*> reservations_;
+  // Owned virtual buffers released after completed native operations.
+  std::vector<iree_hal_buffer_t*> reservations_;
   // Complete execution scope used for address geometry and construction.
   iree_hal_pool_family_access_t family_ = {};
   // Cold address-only geometry, queried without creating native resources.
-  iree_hal_memory_reservation_capabilities_t capabilities_ = {};
+  iree_hal_virtual_buffer_capabilities_t capabilities_ = {};
 };
 
 TEST_P(VulkanSparseBindingTest, DeferredMultiBufferBindingsAliasAndReplace) {
@@ -289,24 +289,24 @@ TEST_P(VulkanSparseBindingTest, ReservationScopeAndGeometryQualification) {
   iree_hal_pool_scope_t scope = Scope();
   scope.host.access = IREE_HAL_MEMORY_ACCESS_ALL;
   scope.host.modes = IREE_HAL_MAPPING_MODE_PERSISTENT;
-  iree_hal_memory_reservation_capabilities_t capabilities;
-  IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+  iree_hal_virtual_buffer_capabilities_t capabilities;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_capabilities(
       device_group_, scope, iree_allocator_system(), &capabilities));
   EXPECT_EQ(0u, capabilities.max_byte_length);
-  iree_hal_memory_reservation_options_t options = {
+  iree_hal_virtual_buffer_options_t options = {
       .byte_length = capabilities_.reservation_granularity,
   };
-  iree_hal_memory_reservation_t* reservation = nullptr;
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
-                        iree_hal_memory_reservation_create(
-                            device_group_, scope, &options,
-                            iree_allocator_system(), &reservation));
+  iree_hal_buffer_t* reservation = nullptr;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNAVAILABLE,
+      iree_hal_virtual_buffer_create(device_group_, scope, &options,
+                                     iree_allocator_system(), &reservation));
   EXPECT_EQ(nullptr, reservation);
   options.byte_length += 1;
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
-                        iree_hal_memory_reservation_create(
-                            device_group_, Scope(), &options,
-                            iree_allocator_system(), &reservation));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_OUT_OF_RANGE,
+      iree_hal_virtual_buffer_create(device_group_, Scope(), &options,
+                                     iree_allocator_system(), &reservation));
   EXPECT_EQ(nullptr, reservation);
 }
 
@@ -348,7 +348,7 @@ TEST_P(VulkanSparseBindingTest, QueueMapCapturesPendingAllocations) {
   IREE_ASSERT_OK(
       iree_hal_device_group_resolve_memory_scope(device_group_, site, &scope));
   uint32_t projection = UINT32_MAX;
-  IREE_ASSERT_OK(iree_hal_memory_reservation_resolve_projection(
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_resolve_projection(
       reservations_[0], scope, &projection));
   EXPECT_EQ(0u, projection);
   iree_hal_memory_scope_t program_scope;
@@ -359,7 +359,7 @@ TEST_P(VulkanSparseBindingTest, QueueMapCapturesPendingAllocations) {
   IREE_ASSERT_OK(iree_hal_device_group_resolve_memory_scope(
       device_group_, program_site, &program_scope));
   uint32_t program_projection = UINT32_MAX;
-  IREE_ASSERT_OK(iree_hal_memory_reservation_resolve_projection(
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_resolve_projection(
       reservations_[0], program_scope, &program_projection));
   EXPECT_EQ(projection, program_projection);
   EXPECT_EQ(IREE_HAL_MEMORY_MAPPING_OPERATIONS_ALL, capabilities_.operations);
@@ -379,7 +379,7 @@ TEST_P(VulkanSparseBindingTest, QueueMapCapturesPendingAllocations) {
                               iree_allocator_system(), source.out()));
   std::array<iree_hal_memory_mapping_t, 4> mappings = {{
       {
-          .reservation = reservations_[0],
+          .target = reservations_[0],
           .scope = {.domain = scope.domain, .id = IREE_HAL_MEMORY_SCOPE_ANY},
           .target_range =
               {
@@ -390,7 +390,7 @@ TEST_P(VulkanSparseBindingTest, QueueMapCapturesPendingAllocations) {
           .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
       },
       {
-          .reservation = reservations_[0],
+          .target = reservations_[0],
           .scope = scope,
           .target_range =
               {
@@ -402,7 +402,7 @@ TEST_P(VulkanSparseBindingTest, QueueMapCapturesPendingAllocations) {
           .access = IREE_HAL_MEMORY_ACCESS_ALL,
       },
       {
-          .reservation = reservations_[1],
+          .target = reservations_[1],
           .scope = scope,
           .target_range =
               {
@@ -413,7 +413,7 @@ TEST_P(VulkanSparseBindingTest, QueueMapCapturesPendingAllocations) {
           .access = IREE_HAL_MEMORY_ACCESS_ALL,
       },
       {
-          .reservation = reservations_[1],
+          .target = reservations_[1],
           .scope = scope,
           .target_range =
               {
@@ -495,16 +495,30 @@ TEST_P(VulkanSparseBindingTest, QueueMapCapturesPendingAllocations) {
   ExpectPage(targets[0], 0, input[granularity / sizeof(uint32_t)]);
   ExpectPage(targets[1], granularity, output[0]);
 
+  // Checked full removal covers both mappings and holes while preserving the
+  // ordinary buffer and its native resource for subsequent queue operations.
+  VkDeviceMemory memory = VK_NULL_HANDLE;
+  VkBuffer handle = VK_NULL_HANDLE;
+  IREE_ASSERT_OK(iree_hal_vulkan_buffer_handle(targets[0], &memory, &handle));
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_detach(targets[0], scope));
+  VkBuffer retained_handle = VK_NULL_HANDLE;
+  IREE_ASSERT_OK(
+      iree_hal_vulkan_buffer_handle(targets[0], &memory, &retained_handle));
+  EXPECT_EQ(retained_handle, handle);
+  iree_hal_virtual_buffer_info_t info;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_info(targets[0], &info));
+  EXPECT_EQ(info.mapping_granularity, capabilities_.mapping_granularity);
+
   // General detach may span installed pages and holes. Backing is released
   // only after the entire batch has detached and all readers have completed.
   std::array<iree_hal_memory_mapping_t, 2> detach = {{
       {
-          .reservation = reservations_[0],
+          .target = reservations_[0],
           .scope = scope,
           .target_range = {.byte_length = 3 * granularity},
       },
       {
-          .reservation = reservations_[1],
+          .target = reservations_[1],
           .scope = scope,
           .target_range = {.byte_length = 2 * granularity},
           .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND,

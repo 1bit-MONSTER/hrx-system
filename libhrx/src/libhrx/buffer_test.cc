@@ -273,16 +273,16 @@ TEST_F(CpuBufferTest, PreparedBackingAliasesRemainOrdinaryStreamBuffers) {
                   .modes = IREE_HAL_MAPPING_MODE_PERSISTENT,
               },
       };
-      const iree_hal_memory_reservation_options_t options = {
+      const iree_hal_virtual_buffer_options_t options = {
           .byte_length = size,
           .mapping_granularity = size,
       };
-      iree_hal_memory_reservation_t* reservation = nullptr;
-      IREE_ASSERT_OK(iree_hal_memory_reservation_create(
+      iree_hal_buffer_t* reservation = nullptr;
+      IREE_ASSERT_OK(iree_hal_virtual_buffer_create(
           device_->hal_device_group, scope, &options, iree_allocator_system(),
           &reservation));
       iree_hal_memory_mapping_t mapping = {
-          .reservation = reservation,
+          .target = reservation,
           .scope = {iree_hal_device_group_memory_domain(
                         device_->hal_device_group),
                     IREE_HAL_MEMORY_SCOPE_ANY},
@@ -304,9 +304,9 @@ TEST_F(CpuBufferTest, PreparedBackingAliasesRemainOrdinaryStreamBuffers) {
           semaphore, value, iree_infinite_timeout(), /*flags=*/0));
 
       hrx_buffer_t alias = nullptr;
-      IREE_ASSERT_OK(hrx_buffer_create_from_hal(
-          iree_hal_memory_reservation_buffer(reservation), device_,
-          HRX_MEMORY_TYPE_HOST_LOCAL, size, nullptr, &alias));
+      IREE_ASSERT_OK(hrx_buffer_create_from_hal((reservation), device_,
+                                                HRX_MEMORY_TYPE_HOST_LOCAL,
+                                                size, nullptr, &alias));
       const uint8_t update = 0xA7;
       IREE_ASSERT_OK(hrx_status_to_iree(hrx_stream_fill_buffer(
           stream_, alias, 16, 64, &update, sizeof(update))));
@@ -327,7 +327,7 @@ TEST_F(CpuBufferTest, PreparedBackingAliasesRemainOrdinaryStreamBuffers) {
           &mapping, IREE_HAL_QUEUE_MAP_FLAG_NONE));
       IREE_ASSERT_OK(iree_hal_semaphore_wait(
           semaphore, value, iree_infinite_timeout(), /*flags=*/0));
-      IREE_ASSERT_OK(iree_hal_memory_reservation_destroy(reservation));
+      iree_hal_buffer_release(reservation);
       hrx_buffer_release(alias);
       hrx_buffer_release(backing);
       iree_hal_semaphore_release(semaphore);

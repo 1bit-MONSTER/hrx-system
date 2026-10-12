@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef IREE_HAL_REPLAY_RECORDER_RESERVATION_H_
-#define IREE_HAL_REPLAY_RECORDER_RESERVATION_H_
+#ifndef IREE_HAL_REPLAY_RECORDER_VIRTUAL_BUFFER_H_
+#define IREE_HAL_REPLAY_RECORDER_VIRTUAL_BUFFER_H_
 
 #include "iree/hal/api.h"
 #include "iree/hal/replay/recorder.h"
@@ -14,19 +14,13 @@
 extern "C" {
 #endif  // __cplusplus
 
-// Records address ownership independently from the stable execution view.
-iree_status_t iree_hal_replay_recorder_create_memory_reservation(
+// Records construction of an ordinary buffer owning virtual addresses.
+iree_status_t iree_hal_replay_recorder_create_virtual_buffer(
     iree_hal_replay_recorder_t* recorder,
-    iree_hal_memory_reservation_create_callback_t next,
+    iree_hal_virtual_buffer_create_callback_t next,
     iree_hal_device_group_t* request_group, const iree_hal_pool_scope_t* scope,
-    const iree_hal_memory_reservation_options_t* options,
-    iree_allocator_t host_allocator,
-    iree_hal_memory_reservation_t** out_reservation);
-
-// Returns the ordinary recording proxy for a reservation's stable view, or
-// |buffer| unchanged. Subspan callers first resolve their allocated buffer.
-iree_hal_buffer_t* iree_hal_replay_recorder_reservation_buffer_proxy_or_self(
-    iree_hal_buffer_t* buffer);
+    const iree_hal_virtual_buffer_options_t* options,
+    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
 
 // Captures one complete mapping batch and forwards native owners and sources.
 iree_status_t iree_hal_replay_recorder_queue_map(
@@ -41,4 +35,4 @@ iree_status_t iree_hal_replay_recorder_queue_map(
 }  // extern "C"
 #endif  // __cplusplus
 
-#endif  // IREE_HAL_REPLAY_RECORDER_RESERVATION_H_
+#endif  // IREE_HAL_REPLAY_RECORDER_VIRTUAL_BUFFER_H_

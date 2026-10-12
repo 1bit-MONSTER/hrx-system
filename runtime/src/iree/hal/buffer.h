@@ -1510,6 +1510,10 @@ iree_status_t iree_hal_heap_buffer_wrap(
 // iree_hal_buffer_t implementation details
 //===----------------------------------------------------------------------===//
 
+typedef struct iree_hal_virtual_buffer_view_t iree_hal_virtual_buffer_view_t;
+typedef struct iree_hal_memory_mapping_update_t
+    iree_hal_memory_mapping_update_t;
+
 typedef struct iree_hal_buffer_vtable_t {
   void(IREE_API_PTR* destroy)(iree_hal_buffer_t* buffer);
 
@@ -1550,6 +1554,21 @@ typedef struct iree_hal_buffer_vtable_t {
   // submission.
   iree_hal_buffer_memory_view_t(IREE_API_PTR* query_memory)(
       const iree_hal_buffer_t* buffer);
+  // Borrowed committed mapping target and its view offset. NULL for dense
+  // storage; transient and instrumentation buffers forward the current view.
+  iree_hal_virtual_buffer_view_t(IREE_API_PTR* query_virtual)(
+      const iree_hal_buffer_t* buffer);
+  // Completes a trusted resolved native mapping vector on the cold execution
+  // owner. NULL when publication requires a native queue implementation.
+  iree_status_t(IREE_API_PTR* update_mappings)(
+      iree_hal_buffer_t* buffer, uint32_t projection,
+      iree_host_size_t update_count,
+      const iree_hal_memory_mapping_update_t* updates);
+  // Checked full native-group removal preserving the buffer's addresses and
+  // prior failure. Called after all affected work retires, including on error.
+  // Instrumentation observes the operation before forwarding to native storage.
+  iree_status_t(IREE_API_PTR* detach_mappings)(iree_hal_buffer_t* buffer,
+                                               uint32_t scope_id);
   // Static queue allocation lifecycle, or NULL for ordinary buffer storage.
   const iree_hal_buffer_allocation_vtable_t* allocation;
 } iree_hal_buffer_vtable_t;

@@ -179,8 +179,8 @@ iree_cc_library(
     "recorder_queue.c"
     "recorder_queue.h"
     "recorder_record.h"
-    "recorder_reservation.c"
-    "recorder_reservation.h"
+    "recorder_virtual_buffer.c"
+    "recorder_virtual_buffer.h"
   DEPS
     ::digest
     ::file_writer
@@ -398,11 +398,11 @@ iree_cc_test(
 
 iree_cc_test(
   NAME
-    recorder_reservation_test
+    recorder_virtual_buffer_test
   SRCS
     "execute_operation.h"
     "execute_state.h"
-    "recorder_reservation_test.cc"
+    "recorder_virtual_buffer_test.cc"
   DEPS
     ::dump
     ::execute
@@ -414,6 +414,7 @@ iree_cc_test(
     iree::base
     iree::hal
     iree::hal::drivers::task::registration
+    iree::hal::memory::fixed_block_pool
     iree::io::file_handle
     iree::testing::gtest
     iree::testing::gtest_main

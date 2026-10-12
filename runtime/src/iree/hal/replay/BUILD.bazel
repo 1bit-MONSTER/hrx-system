@@ -159,8 +159,8 @@ iree_runtime_cc_library(
         "recorder_queue.c",
         "recorder_queue.h",
         "recorder_record.h",
-        "recorder_reservation.c",
-        "recorder_reservation.h",
+        "recorder_virtual_buffer.c",
+        "recorder_virtual_buffer.h",
     ],
     hdrs = [
         "recorder.h",
@@ -397,11 +397,11 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
-    name = "recorder_reservation_test",
+    name = "recorder_virtual_buffer_test",
     srcs = [
         "execute_operation.h",
         "execute_state.h",
-        "recorder_reservation_test.cc",
+        "recorder_virtual_buffer_test.cc",
     ],
     deps = [
         ":dump",
@@ -414,6 +414,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/drivers/task/registration",
+        "//runtime/src/iree/hal/memory:fixed_block_pool",
         "//runtime/src/iree/io:file_handle",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",

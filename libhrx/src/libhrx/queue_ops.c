@@ -142,9 +142,9 @@ hrx_status_t hrx_queue_map(hrx_device_t device, hrx_queue_affinity_t affinity,
   }
   for (size_t i = 0; i < mapping_count && iree_status_is_ok(status); ++i) {
     const hrx_memory_mapping_t* mapping = &mappings[i];
-    if (!mapping->reservation) {
+    if (!mapping->target || !mapping->target->hal_buffer) {
       status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "mapping reservation is NULL");
+                                "mapping target is NULL or has no HAL storage");
     } else if (mapping->source && !mapping->source->hal_buffer) {
       status =
           iree_make_status(IREE_STATUS_UNAVAILABLE,
@@ -152,11 +152,12 @@ hrx_status_t hrx_queue_map(hrx_device_t device, hrx_queue_affinity_t affinity,
     } else {
       const void* domain = mapping->scope.domain;
       if (!domain && mapping->scope.id == IREE_HAL_MEMORY_SCOPE_ANY) {
-        domain = mapping->reservation->hal_reservation->buffer.memory.contract
-                     ->domain;
+        const iree_hal_memory_contract_t* contract =
+            mapping->target->hal_buffer->memory.contract;
+        domain = contract ? contract->domain : NULL;
       }
       hal_mappings[i] = (iree_hal_memory_mapping_t){
-          .reservation = mapping->reservation->hal_reservation,
+          .target = mapping->target->hal_buffer,
           .scope = {domain, mapping->scope.id},
           .target_range = {mapping->target_offset, mapping->byte_length},
           .source = mapping->source ? mapping->source->hal_buffer : NULL,

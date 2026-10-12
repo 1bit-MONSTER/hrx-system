@@ -28,7 +28,7 @@ extern "C" {
 // independent identities in related_object_id: map creates the identity,
 // flush/invalidate use it, and unmap consumes it. Buffer range offsets are
 // relative to the captured buffer view. Both legacy scalar allocator VMM and
-// explicit reservation-owner/batched mapping records are supported.
+// ordinary virtual-buffer/batched mapping records are supported.
 #define IREE_HAL_REPLAY_FILE_VERSION_MINOR 8u
 
 // Minor version that first assigns atomic target-error mode payload bytes.
@@ -93,7 +93,6 @@ enum iree_hal_replay_object_type_e {
   IREE_HAL_REPLAY_OBJECT_TYPE_CHANNEL = 10u,
   IREE_HAL_REPLAY_OBJECT_TYPE_HOST_CALL = 11u,
   IREE_HAL_REPLAY_OBJECT_TYPE_QUEUE = 12u,
-  IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION = 13u,
   IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER_MAPPING = 14u,
 };
 
@@ -129,8 +128,8 @@ enum iree_hal_replay_operation_code_e {
   IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT = 112u,
   IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_ADVISE = 113u,
 
-  IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_CREATE = 140u,
-  IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY = 141u,
+  IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_CREATE = 140u,
+  IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_DETACH = 141u,
   IREE_HAL_REPLAY_OPERATION_CODE_POOL_CREATE_SLAB = 150u,
   IREE_HAL_REPLAY_OPERATION_CODE_POOL_TRIM = 151u,
   IREE_HAL_REPLAY_OPERATION_CODE_POOL_ALLOCATE_BUFFER = 152u,
@@ -223,8 +222,9 @@ enum iree_hal_replay_payload_type_e {
   IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_TRIM = 56u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_ALLOCATE_BUFFER = 57u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_IMPORT_BUFFER = 58u,
-  IREE_HAL_REPLAY_PAYLOAD_TYPE_MEMORY_RESERVATION_CREATE = 59u,
+  IREE_HAL_REPLAY_PAYLOAD_TYPE_VIRTUAL_BUFFER_CREATE = 59u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_MAP = 60u,
+  IREE_HAL_REPLAY_PAYLOAD_TYPE_VIRTUAL_BUFFER_DETACH = 62u,
 };
 
 // Type of one operation in a captured exact-queue transfer transaction.
@@ -341,11 +341,9 @@ typedef struct iree_hal_replay_pool_create_slab_payload_t {
 static_assert(sizeof(iree_hal_replay_pool_create_slab_payload_t) == 80,
               "slab pool replay header must be 80 bytes");
 
-// Address-owner construction followed by family_count family access rows.
-// The operation's related object is the owner; buffer_id names its stable view.
-typedef struct iree_hal_replay_memory_reservation_create_payload_t {
-  // Session-local ID of the independently retained stable buffer view.
-  iree_hal_replay_object_id_t buffer_id;
+// Virtual-buffer construction followed by family_count family access rows.
+// The operation's related object is the ordinary buffer being created.
+typedef struct iree_hal_replay_virtual_buffer_create_payload_t {
   // Requested stable virtual buffer length in bytes.
   uint64_t byte_length;
   // Requested power-of-two base alignment, or zero for the native minimum.
@@ -362,9 +360,19 @@ typedef struct iree_hal_replay_memory_reservation_create_payload_t {
   uint32_t host_cacheability;
   // Reserved for future construction policy; must be zero.
   uint32_t reserved0;
-} iree_hal_replay_memory_reservation_create_payload_t;
-static_assert(sizeof(iree_hal_replay_memory_reservation_create_payload_t) == 56,
-              "reservation replay header must be 56 bytes");
+} iree_hal_replay_virtual_buffer_create_payload_t;
+static_assert(sizeof(iree_hal_replay_virtual_buffer_create_payload_t) == 48,
+              "virtual buffer replay header must be 48 bytes");
+
+// Checked full removal for the buffer named by the operation's object ID.
+typedef struct iree_hal_replay_virtual_buffer_detach_payload_t {
+  // Canonical concrete scope ID whose projection is removed.
+  uint32_t scope_id;
+  // Reserved for future removal options; must be zero.
+  uint32_t reserved0;
+} iree_hal_replay_virtual_buffer_detach_payload_t;
+static_assert(sizeof(iree_hal_replay_virtual_buffer_detach_payload_t) == 8,
+              "virtual buffer detach payload must be 8 bytes");
 
 // One canonical queue-family access row in a pool or reservation scope.
 typedef struct iree_hal_replay_pool_family_access_payload_t {
@@ -866,8 +874,8 @@ static_assert(sizeof(iree_hal_replay_queue_map_payload_t) == 32,
 
 // One explicit mapping update, independent of process-local native handles.
 typedef struct iree_hal_replay_memory_mapping_payload_t {
-  // Session-local address owner ID.
-  iree_hal_replay_object_id_t reservation_id;
+  // Session-local ID of the ordinary target buffer.
+  iree_hal_replay_object_id_t target_buffer_id;
   // Canonical scope ID within the captured group, including ANY.
   uint32_t scope_id;
   // Caller-declared prior-state operation.

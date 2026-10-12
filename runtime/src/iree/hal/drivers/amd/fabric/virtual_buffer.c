@@ -22,13 +22,15 @@ typedef struct iree_hal_amd_fabric_reservation_access_t {
   uint32_t projection;
 } iree_hal_amd_fabric_reservation_access_t;
 
-typedef struct iree_hal_amd_fabric_memory_reservation_t {
-  // Stable HAL execution view and explicit address ownership.
-  iree_hal_memory_reservation_t base;
+typedef struct iree_hal_amd_fabric_virtual_buffer_t {
+  // Ordinary buffer resource owning the native address interval.
+  iree_hal_virtual_buffer_t base;
   // Borrowed group-lifetime core API.
   const amdf_api_t* api;
-  // Owned native reservation, consumed by checked close.
+  // Owned native reservation, released at final buffer destruction.
   amdf_memory_reservation_t* native;
+  // Borrowed diagnostic sink owned by the creating device.
+  iree_hal_device_event_sink_t event_sink;
   // Number of exact native consumers.
   uint32_t access_count;
   // Consumer facts in native access-ordinal order.
@@ -41,29 +43,37 @@ typedef struct iree_hal_amd_fabric_memory_reservation_t {
   iree_hal_buffer_native_binding_t* bindings;
   // Virtual geometry and borrowed progress services for child pools.
   iree_hal_buffer_backing_facts_t backing;
-} iree_hal_amd_fabric_memory_reservation_t;
+} iree_hal_amd_fabric_virtual_buffer_t;
 
-static iree_status_t iree_hal_amd_fabric_memory_reservation_close(
-    iree_hal_memory_reservation_t* base) {
-  iree_hal_amd_fabric_memory_reservation_t* reservation =
-      (iree_hal_amd_fabric_memory_reservation_t*)base;
+static void iree_hal_amd_fabric_virtual_buffer_destroy(
+    iree_hal_buffer_t* base) {
+  iree_hal_amd_fabric_virtual_buffer_t* buffer =
+      (iree_hal_amd_fabric_virtual_buffer_t*)base;
   const amdf_status_t status =
-      reservation->api->memory_reservation_destroy(reservation->native);
-  reservation->native = NULL;
-  return IREE_HAL_AMD_STATUS_FROM_AMDF(status, "memory_reservation_destroy");
+      buffer->api->memory_reservation_destroy(buffer->native);
+  if (status != AMDF_STATUS_OK) {
+    iree_hal_amd_report_failure(buffer->event_sink, IREE_SV("amd"), status,
+                                "memory_reservation_destroy");
+  }
+  iree_hal_memory_contract_release(base->memory.contract);
+  iree_allocator_free(buffer->base.host_allocator, buffer);
 }
 
-static void iree_hal_amd_fabric_memory_reservation_destroy(
-    iree_hal_memory_reservation_t* base) {
-  iree_allocator_free(base->host_allocator, base);
+static iree_status_t iree_hal_amd_fabric_virtual_buffer_detach(
+    iree_hal_buffer_t* base, uint32_t scope_id) {
+  iree_hal_amd_fabric_virtual_buffer_t* buffer =
+      (iree_hal_amd_fabric_virtual_buffer_t*)base;
+  return IREE_HAL_AMD_STATUS_FROM_AMDF(
+      buffer->api->memory_reservation_detach(buffer->native,
+                                             buffer->scope_accesses[scope_id]),
+      "memory_reservation_detach");
 }
 
-static iree_status_t iree_hal_amd_fabric_memory_reservation_update(
-    iree_hal_memory_reservation_t* base, uint32_t projection,
-    iree_host_size_t update_count,
+static iree_status_t iree_hal_amd_fabric_virtual_buffer_update(
+    iree_hal_buffer_t* base, uint32_t projection, iree_host_size_t update_count,
     const iree_hal_memory_mapping_update_t* updates) {
-  iree_hal_amd_fabric_memory_reservation_t* reservation =
-      (iree_hal_amd_fabric_memory_reservation_t*)base;
+  iree_hal_amd_fabric_virtual_buffer_t* reservation =
+      (iree_hal_amd_fabric_virtual_buffer_t*)base;
   if (update_count > UINT32_MAX) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "mapping vector exceeds native count capacity");
@@ -72,7 +82,7 @@ static iree_status_t iree_hal_amd_fabric_memory_reservation_update(
   amdf_memory_mapping_update_t* native_updates = inline_updates;
   if (update_count > IREE_ARRAYSIZE(inline_updates)) {
     IREE_RETURN_IF_ERROR(iree_allocator_malloc_array_uninitialized(
-        base->host_allocator, update_count, sizeof(*native_updates),
+        reservation->base.host_allocator, update_count, sizeof(*native_updates),
         (void**)&native_updates));
   }
   iree_status_t status = iree_ok_status();
@@ -121,31 +131,37 @@ static iree_status_t iree_hal_amd_fabric_memory_reservation_update(
     }
   }
   if (native_updates != inline_updates) {
-    iree_allocator_free(base->host_allocator, native_updates);
+    iree_allocator_free(reservation->base.host_allocator, native_updates);
   }
   return status;
 }
 
-static const iree_hal_memory_reservation_vtable_t
-    iree_hal_amd_fabric_memory_reservation_vtable = {
-        .close = iree_hal_amd_fabric_memory_reservation_close,
-        .destroy = iree_hal_amd_fabric_memory_reservation_destroy,
-        .update = iree_hal_amd_fabric_memory_reservation_update,
+static const iree_hal_buffer_vtable_t
+    iree_hal_amd_fabric_virtual_buffer_vtable = {
+        .destroy = iree_hal_amd_fabric_virtual_buffer_destroy,
+        .export_range = iree_hal_virtual_buffer_export_range,
+        .map_range = iree_hal_virtual_buffer_map_range,
+        .unmap_range = iree_hal_virtual_buffer_unmap_range,
+        .invalidate_range = iree_hal_virtual_buffer_invalidate_range,
+        .flush_range = iree_hal_virtual_buffer_flush_range,
+        .query_virtual = iree_hal_virtual_buffer_query_root,
+        .update_mappings = iree_hal_amd_fabric_virtual_buffer_update,
+        .detach_mappings = iree_hal_amd_fabric_virtual_buffer_detach,
 };
 
 // Temporary qualification product; contains no native address or payload.
 typedef struct iree_hal_amd_fabric_reservation_plan_t {
   // Prepared metadata adopted by creation or freed after a capability query.
-  iree_hal_amd_fabric_memory_reservation_t* reservation;
+  iree_hal_amd_fabric_virtual_buffer_t* reservation;
   // Owned immutable execution contract for the requested scope.
   iree_hal_memory_contract_t* contract;
   // Complete-scope intersection of native address geometry.
-  iree_hal_memory_reservation_capabilities_t capabilities;
+  iree_hal_virtual_buffer_capabilities_t capabilities;
   // Native consumers borrowed from the prepared metadata allocation.
   amdf_memory_reservation_create_info_t native;
 } iree_hal_amd_fabric_reservation_plan_t;
 
-static iree_status_t iree_hal_amd_fabric_memory_reservation_prepare(
+static iree_status_t iree_hal_amd_fabric_virtual_buffer_prepare(
     const iree_hal_memory_backend_t* base, iree_hal_device_group_t* group,
     iree_hal_pool_scope_t scope, iree_allocator_t host_allocator,
     iree_hal_amd_fabric_reservation_plan_t* out_plan) {
@@ -162,21 +178,29 @@ static iree_status_t iree_hal_amd_fabric_memory_reservation_prepare(
   iree_host_size_t projections_offset = 0, bindings_offset = 0;
   iree_host_size_t types_offset = 0, native_accesses_offset = 0;
   IREE_RETURN_IF_ERROR(IREE_STRUCT_LAYOUT(
-      sizeof(iree_hal_amd_fabric_memory_reservation_t), &total_size,
-      IREE_STRUCT_FIELD(scope.family_count,
-                        iree_hal_amd_fabric_reservation_access_t,
-                        &accesses_offset),
-      IREE_STRUCT_FIELD(scope_count, uint32_t, &scopes_offset),
-      IREE_STRUCT_FIELD(scope_count, uint32_t, &projections_offset),
-      IREE_STRUCT_FIELD(scope.family_count, iree_hal_buffer_native_binding_t,
-                        &bindings_offset),
-      IREE_STRUCT_FIELD(scope.family_count, uint16_t, &types_offset),
-      IREE_STRUCT_FIELD(scope.family_count, amdf_memory_reservation_access_t,
-                        &native_accesses_offset)));
-  iree_hal_amd_fabric_memory_reservation_t* reservation = NULL;
+      sizeof(iree_hal_amd_fabric_virtual_buffer_t), &total_size,
+      IREE_STRUCT_FIELD_ALIGNED(
+          scope.family_count, iree_hal_amd_fabric_reservation_access_t,
+          iree_alignof(iree_hal_amd_fabric_reservation_access_t),
+          &accesses_offset),
+      IREE_STRUCT_FIELD_ALIGNED(scope_count, uint32_t, iree_alignof(uint32_t),
+                                &scopes_offset),
+      IREE_STRUCT_FIELD_ALIGNED(scope_count, uint32_t, iree_alignof(uint32_t),
+                                &projections_offset),
+      IREE_STRUCT_FIELD_ALIGNED(
+          scope.family_count, iree_hal_buffer_native_binding_t,
+          iree_alignof(iree_hal_buffer_native_binding_t), &bindings_offset),
+      IREE_STRUCT_FIELD_ALIGNED(scope.family_count, uint16_t,
+                                iree_alignof(uint16_t), &types_offset),
+      IREE_STRUCT_FIELD_ALIGNED(scope.family_count,
+                                amdf_memory_reservation_access_t,
+                                iree_alignof(amdf_memory_reservation_access_t),
+                                &native_accesses_offset)));
+  iree_hal_amd_fabric_virtual_buffer_t* reservation = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, total_size, (void**)&reservation));
   reservation->api = owner->native.api;
+  reservation->event_sink = owner->native.event_sink;
   reservation->accesses =
       (iree_hal_amd_fabric_reservation_access_t*)((uint8_t*)reservation +
                                                   accesses_offset);
@@ -196,7 +220,7 @@ static iree_status_t iree_hal_amd_fabric_memory_reservation_prepare(
     reservation->projections[i] = IREE_HAL_MEMORY_SCOPE_INVALID;
   }
   bool supported = true;
-  iree_hal_memory_reservation_capabilities_t capabilities = {
+  iree_hal_virtual_buffer_capabilities_t capabilities = {
       .max_byte_length = IREE_DEVICE_SIZE_MAX,
       .reservation_granularity = 1,
       .mapping_granularity = 1,
@@ -213,7 +237,8 @@ static iree_status_t iree_hal_amd_fabric_memory_reservation_prepare(
             iree_hal_queue_family_device(requested->family));
     const iree_hal_atomic_operation_capabilities_t no_atomics = {0};
     if (!participant ||
-        participant->reserve != iree_hal_amd_fabric_memory_reservation_create ||
+        participant->create_virtual_buffer !=
+            iree_hal_amd_fabric_virtual_buffer_create ||
         requested->requirements ||
         !iree_hal_atomic_operation_capabilities_support(
             no_atomics, requested->atomic_operations) ||
@@ -350,12 +375,12 @@ static iree_status_t iree_hal_amd_fabric_memory_reservation_prepare(
   return status;
 }
 
-iree_status_t iree_hal_amd_fabric_memory_reservation_query_capabilities(
+iree_status_t iree_hal_amd_fabric_virtual_buffer_query_capabilities(
     const iree_hal_memory_backend_t* backend, iree_hal_device_group_t* group,
     iree_hal_pool_scope_t scope, iree_allocator_t host_allocator,
-    iree_hal_memory_reservation_capabilities_t* out_capabilities) {
+    iree_hal_virtual_buffer_capabilities_t* out_capabilities) {
   iree_hal_amd_fabric_reservation_plan_t plan;
-  IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_memory_reservation_prepare(
+  IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_virtual_buffer_prepare(
       backend, group, scope, host_allocator, &plan));
   *out_capabilities = plan.capabilities;
   iree_hal_memory_contract_release(plan.contract);
@@ -363,21 +388,20 @@ iree_status_t iree_hal_amd_fabric_memory_reservation_query_capabilities(
   return iree_ok_status();
 }
 
-iree_status_t iree_hal_amd_fabric_memory_reservation_create(
+iree_status_t iree_hal_amd_fabric_virtual_buffer_create(
     const iree_hal_memory_backend_t* base, iree_hal_device_group_t* group,
     iree_hal_pool_scope_t scope,
-    const iree_hal_memory_reservation_options_t* options,
-    iree_allocator_t host_allocator,
-    iree_hal_memory_reservation_t** out_reservation) {
+    const iree_hal_virtual_buffer_options_t* options,
+    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer) {
   const iree_hal_amd_fabric_memory_backend_t* owner =
       (const iree_hal_amd_fabric_memory_backend_t*)base;
   iree_hal_amd_fabric_reservation_plan_t plan;
-  IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_memory_reservation_prepare(
+  IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_virtual_buffer_prepare(
       base, group, scope, host_allocator, &plan));
   if (!plan.reservation) {
     return iree_ok_status();
   }
-  iree_hal_amd_fabric_memory_reservation_t* reservation = plan.reservation;
+  iree_hal_amd_fabric_virtual_buffer_t* reservation = plan.reservation;
   iree_hal_memory_contract_t* contract = plan.contract;
   const iree_device_size_t granularity = iree_max(
       options->mapping_granularity, plan.capabilities.mapping_granularity);
@@ -443,15 +467,15 @@ iree_status_t iree_hal_amd_fabric_memory_reservation_create(
         .allocation_alignment = alignment,
         .maintenance_alignment = 1,
     };
-    iree_hal_memory_reservation_initialize(
+    iree_hal_virtual_buffer_initialize(
         contract, reservation->bindings, &reservation->backing,
         IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE, options->byte_length, granularity,
         plan.capabilities.operations, IREE_HAL_MEMORY_BACKEND_AMDF,
-        &iree_hal_amd_fabric_memory_reservation_vtable, host_allocator,
+        &iree_hal_amd_fabric_virtual_buffer_vtable, host_allocator,
         &reservation->base);
     reservation->base.projection_count = projection_count;
     reservation->base.projections = reservation->projections;
-    *out_reservation = &reservation->base;
+    *out_buffer = &reservation->base.buffer;
   } else {
     if (reservation->native) {
       status = iree_status_join(
