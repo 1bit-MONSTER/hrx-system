@@ -43,6 +43,14 @@ bool loom_scalar_match_float8_to_bfloat_extension(
 iree_status_t loom_scalar_rewrite_float8_extension(
     loom_target_legalization_context_t* context, loom_op_t* op);
 
+// Applies the exact shared F32 extremum or clamp recipe. Target providers use
+// this callback to opt rejected native forms into portable decomposition while
+// leaving other target rejections authoritative.
+iree_status_t loom_scalar_legalize_f32_extrema(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result);
+
 // Returns the generic scalar legalizer provider. Pipelines should compose this
 // after target-specific providers so native target rewrites win before scalar
 // reference decomposition.

@@ -36,6 +36,14 @@ iree_status_t loom_vector_float_extrema_rewrite_op(loom_rewriter_t* rewriter,
                                                    loom_op_t* op,
                                                    bool* out_rewritten);
 
+// Applies the exact shared F32 vector extremum or clamp recipe when source
+// vector carriers remain legal. Target providers use this callback to opt
+// rejected native forms into portable decomposition.
+iree_status_t loom_vector_legalize_f32_extrema(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result);
+
 // Returns the generic vector legalizer provider. Pipelines should compose this
 // after target-specific providers so native target rewrites win before scalar
 // reference decomposition.

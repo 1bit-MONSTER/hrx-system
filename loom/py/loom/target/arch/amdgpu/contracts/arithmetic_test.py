@@ -41,6 +41,8 @@ from loom.target.contracts import (
 )
 
 _AFN_FASTMATH_FLAG = scalar_defs.FastMathFlags.case("afn").value
+_NNAN_FASTMATH_FLAG = scalar_defs.FastMathFlags.case("nnan").value
+_NSZ_FASTMATH_FLAG = scalar_defs.FastMathFlags.case("nsz").value
 
 
 def _compiled_arithmetic_rules() -> CompiledLowerRuleSet:
@@ -741,6 +743,7 @@ def test_clamp_rules_publish_existing_f32_fallback_recipes() -> None:
         ),
     ):
         recipes = {}
+        required_fastmath = {}
         for rule in _rules_for_source_op(compiled, source_op):
             if not rule.flags & LOWER_RULE_FLAG_CONTRACT_ONLY:
                 continue
@@ -756,9 +759,18 @@ def test_clamp_rules_publish_existing_f32_fallback_recipes() -> None:
                 for guard in guards
                 if guard.kind == GuardKind.DESCRIPTOR_AVAILABLE
             }
+            required_fastmath[mode_guards[0].u64] = {
+                guard.u64
+                for guard in guards
+                if guard.kind == GuardKind.INSTANCE_FLAGS_HAS_ALL
+            }
             assert set(_rule_type_patterns(compiled, rule)) == {expected_type}
 
         assert recipes == expected_descriptors
+        assert required_fastmath == {
+            0: set(),
+            1: {_NNAN_FASTMATH_FLAG, _NSZ_FASTMATH_FLAG},
+        }
 
 
 def test_packed_f32_arithmetic_rules_publish_native_pk_ops() -> None:

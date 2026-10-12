@@ -368,6 +368,7 @@ loom_cc_library(
   SRCS
     "legalization.c"
   DEPS
+    ::features
     iree::base
     loom::ir
     loom::ops::scalar
@@ -376,6 +377,7 @@ loom_cc_library(
     loom::target::arch::spirv::descriptors
     loom::target::legalization
     loom::transforms::scalar::target_legalization
+    loom::transforms::vector::target_legalization
     loom::transforms::vector::to_scalar
   PUBLIC
 )
@@ -550,6 +552,7 @@ loom_check_test_suite(
     "test/source_low/numeric_extended_math.loom-test"
     "test/source_low/numeric_float_arithmetic.loom-test"
     "test/source_low/numeric_float_comparison.loom-test"
+    "test/source_low/numeric_float_extrema.loom-test"
     "test/source_low/numeric_integer_extrema.loom-test"
     "test/source_low/numeric_narrow_address.loom-test"
     "test/source_low/numeric_narrow_float_carriers.loom-test"

@@ -1409,6 +1409,28 @@ static iree_status_t loom_scalar_legalize_ieee_extrema(
   return iree_ok_status();
 }
 
+iree_status_t loom_scalar_legalize_f32_extrema(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  switch (op->kind) {
+    case LOOM_OP_SCALAR_CLAMPF:
+      return loom_scalar_legalize_f32_clamp(entry, context, op, out_result);
+    case LOOM_OP_SCALAR_MINNUMF:
+    case LOOM_OP_SCALAR_MAXNUMF:
+      return loom_scalar_legalize_f32_number_extremum(entry, context, op,
+                                                      out_result);
+    case LOOM_OP_SCALAR_MINIMUMF:
+    case LOOM_OP_SCALAR_MAXIMUMF:
+      return loom_scalar_legalize_ieee_extrema(entry, context, op, out_result);
+    default:
+      *out_result = (loom_target_legalizer_result_t){
+          .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+      };
+      return iree_ok_status();
+  }
+}
+
 static iree_status_t loom_scalar_legalize_float_classification(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,

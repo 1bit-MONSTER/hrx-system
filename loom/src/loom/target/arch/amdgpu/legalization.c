@@ -36,6 +36,7 @@
 #include "loom/transforms/vector/packet_legalization.h"
 #include "loom/transforms/vector/shape_legalization.h"
 #include "loom/transforms/vector/table_legalization.h"
+#include "loom/transforms/vector/target_legalization.h"
 #include "loom/transforms/vector/to_scalar.h"
 #include "loom/transforms/view/atomic.h"
 
@@ -43,6 +44,27 @@ static bool loom_amdgpu_legalizer_descriptor_set_is_amdgpu(
     const loom_low_descriptor_set_t* descriptor_set) {
   return descriptor_set != NULL &&
          descriptor_set->target_stable_id == LOOM_AMDGPU_TARGET_STABLE_ID;
+}
+
+static bool loom_amdgpu_match_f32_clamp_decomposition(
+    const loom_target_legalizer_entry_t* entry,
+    const loom_target_legalization_context_t* context, const loom_op_t* op) {
+  (void)entry;
+  if (!loom_amdgpu_legalizer_descriptor_set_is_amdgpu(
+          context->descriptor_set)) {
+    return false;
+  }
+  if (loom_scalar_clampf_isa(op)) {
+    const loom_scalar_clampf_mode_t mode = loom_scalar_clampf_mode(op);
+    return mode == LOOM_SCALAR_CLAMPF_MODE_NUMBER ||
+           mode == LOOM_SCALAR_CLAMPF_MODE_IEEE;
+  }
+  if (!loom_vector_clampf_isa(op)) {
+    return false;
+  }
+  const loom_vector_clampf_mode_t mode = loom_vector_clampf_mode(op);
+  return mode == LOOM_VECTOR_CLAMPF_MODE_NUMBER ||
+         mode == LOOM_VECTOR_CLAMPF_MODE_IEEE;
 }
 
 static bool loom_amdgpu_match_narrow_float_to_i64(
@@ -833,6 +855,18 @@ static const loom_target_legalizer_rule_t kAmdgpuLegalizerRules[] = {
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I32,
         .match = loom_amdgpu_match_scalar_multiply_add,
         .legalize = loom_amdgpu_legalize_scalar_multiply_add,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_CLAMPF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .match = loom_amdgpu_match_f32_clamp_decomposition,
+        .legalize = loom_scalar_legalize_f32_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_CLAMPF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .match = loom_amdgpu_match_f32_clamp_decomposition,
+        .legalize = loom_vector_legalize_f32_extrema,
     },
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,

@@ -1,0 +1,167 @@
+// RUN: emit source-low output=low control-flow=structured-low
+
+spirv.target<vulkan1_3> @target {contract_feature_bits = 983547543582}
+
+func.def target(@target) @scalar_f32_extrema(%value: f32, %lower: f32, %upper: f32) -> (f32, f32, f32, f32, f32, f32) {
+  %minimum = scalar.minimumf %value, %lower : f32
+  %maximum = scalar.maximumf %value, %upper : f32
+  %minnum = scalar.minnumf %value, %lower : f32
+  %maxnum = scalar.maxnumf %value, %upper : f32
+  %number = scalar.clampf<number> %value, %lower, %upper : f32
+  %ieee = scalar.clampf<ieee> %value, %lower, %upper : f32
+  func.return %minimum, %maximum, %minnum, %maxnum, %number, %ieee : f32, f32, f32, f32, f32, f32
+}
+
+func.def target(@target) @vector_f32_extrema(%value0: f32, %value1: f32, %lower0: f32, %lower1: f32, %upper0: f32, %upper1: f32) -> (f32, f32, f32, f32, f32, f32) {
+  %value = vector.from_elements %value0, %value1 : vector<2xf32>
+  %lower = vector.from_elements %lower0, %lower1 : vector<2xf32>
+  %upper = vector.from_elements %upper0, %upper1 : vector<2xf32>
+  %minimum = vector.minimumf %value, %lower : vector<2xf32>
+  %maximum = vector.maximumf %value, %upper : vector<2xf32>
+  %minnum = vector.minnumf %value, %lower : vector<2xf32>
+  %maxnum = vector.maxnumf %value, %upper : vector<2xf32>
+  %number = vector.clampf<number> %value, %lower, %upper : vector<2xf32>
+  %ieee = vector.clampf<ieee> %value, %lower, %upper : vector<2xf32>
+  %minimum_lane = vector.extract %minimum[0] : vector<2xf32> -> f32
+  %maximum_lane = vector.extract %maximum[1] : vector<2xf32> -> f32
+  %minnum_lane = vector.extract %minnum[0] : vector<2xf32> -> f32
+  %maxnum_lane = vector.extract %maxnum[1] : vector<2xf32> -> f32
+  %number_lane = vector.extract %number[0] : vector<2xf32> -> f32
+  %ieee_lane = vector.extract %ieee[1] : vector<2xf32> -> f32
+  func.return %minimum_lane, %maximum_lane, %minnum_lane, %maxnum_lane, %number_lane, %ieee_lane : f32, f32, f32, f32, f32, f32
+}
+
+// ----
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @scalar_f32_extrema(%value: reg<spirv.id : f32>, %lower: reg<spirv.id : f32>, %upper: reg<spirv.id : f32>) -> (reg<spirv.id : f32>, reg<spirv.id : f32>, reg<spirv.id : f32>, reg<spirv.id : f32>, reg<spirv.id : f32>, reg<spirv.id : f32>) asm {
+  %279 = OpBitcast.f32.i32 %value
+  %280 = OpBitcast.f32.i32 %lower
+  %281 = OpBitwiseOr %279, %280
+  %282 = OpBitcast.i32.f32 %281
+  %283 = OpFOrdLessThan.f32 %value, %lower
+  %284 = OpFOrdLessThan.f32 %lower, %value
+  %285 = OpSelect.f32 %284, %lower, %282
+  %286 = OpSelect.f32 %283, %value, %285
+  %287 = OpFUnordNotEqual.f32 %value, %value
+  %288 = OpFUnordNotEqual.f32 %lower, %lower
+  %289 = OpSelect.f32 %288, %value, %286
+  %290 = OpSelect.f32 %287, %lower, %289
+  %291 = OpUnordered.f32 %value, %lower
+  %292 = OpConstant.f32 2143289344
+  %minimum = OpSelect.f32 %291, %292, %290
+  %294 = OpBitcast.f32.i32 %upper
+  %295 = OpBitwiseAnd %279, %294
+  %296 = OpBitcast.i32.f32 %295
+  %297 = OpFOrdGreaterThan.f32 %value, %upper
+  %298 = OpFOrdGreaterThan.f32 %upper, %value
+  %299 = OpSelect.f32 %298, %upper, %296
+  %300 = OpSelect.f32 %297, %value, %299
+  %301 = OpFUnordNotEqual.f32 %upper, %upper
+  %302 = OpSelect.f32 %301, %value, %300
+  %303 = OpSelect.f32 %287, %upper, %302
+  %304 = OpUnordered.f32 %value, %upper
+  %maximum = OpSelect.f32 %304, %292, %303
+  %306 = OpBitwiseAnd %279, %280
+  %307 = OpBitcast.i32.f32 %306
+  %308 = OpFOrdGreaterThan.f32 %value, %lower
+  %309 = OpFOrdGreaterThan.f32 %lower, %value
+  %310 = OpSelect.f32 %309, %lower, %307
+  %311 = OpSelect.f32 %308, %value, %310
+  %312 = OpSelect.f32 %288, %value, %311
+  %313 = OpSelect.f32 %287, %lower, %312
+  %314 = OpBitcast.f32.i32 %313
+  %315 = OpBitwiseOr %314, %294
+  %316 = OpBitcast.i32.f32 %315
+  %317 = OpFOrdLessThan.f32 %313, %upper
+  %318 = OpFOrdLessThan.f32 %upper, %313
+  %319 = OpSelect.f32 %318, %upper, %316
+  %320 = OpSelect.f32 %317, %313, %319
+  %321 = OpFUnordNotEqual.f32 %313, %313
+  %322 = OpSelect.f32 %301, %313, %320
+  %number = OpSelect.f32 %321, %upper, %322
+  %324 = OpSelect.f32 %291, %292, %313
+  %325 = OpBitcast.f32.i32 %324
+  %326 = OpBitwiseOr %325, %294
+  %327 = OpBitcast.i32.f32 %326
+  %328 = OpFOrdLessThan.f32 %324, %upper
+  %329 = OpFOrdLessThan.f32 %upper, %324
+  %330 = OpSelect.f32 %329, %upper, %327
+  %331 = OpSelect.f32 %328, %324, %330
+  %332 = OpFUnordNotEqual.f32 %324, %324
+  %333 = OpSelect.f32 %301, %324, %331
+  %334 = OpSelect.f32 %332, %upper, %333
+  %335 = OpUnordered.f32 %324, %upper
+  %ieee = OpSelect.f32 %335, %292, %334
+  return %minimum, %maximum, %290, %303, %number, %ieee
+}
+
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @vector_f32_extrema(%value0: reg<spirv.id : f32>, %value1: reg<spirv.id : f32>, %lower0: reg<spirv.id : f32>, %lower1: reg<spirv.id : f32>, %upper0: reg<spirv.id : f32>, %upper1: reg<spirv.id : f32>) -> (reg<spirv.id : f32>, reg<spirv.id : f32>, reg<spirv.id : f32>, reg<spirv.id : f32>, reg<spirv.id : f32>, reg<spirv.id : f32>) asm {
+  %value = OpCompositeConstruct.v2f32 %value0, %value1
+  %lower = OpCompositeConstruct.v2f32 %lower0, %lower1
+  %upper = OpCompositeConstruct.v2f32 %upper0, %upper1
+  %352 = OpBitcast.v2f32.v2i32 %value
+  %353 = OpBitcast.v2f32.v2i32 %lower
+  %354 = OpBitwiseOr.v2i32 %352, %353
+  %355 = OpBitcast.v2i32.v2f32 %354
+  %356 = OpFOrdLessThan.v2f32 %value, %lower
+  %357 = OpFOrdLessThan.v2f32 %lower, %value
+  %358 = OpSelect.v2f32 %357, %lower, %355
+  %359 = OpSelect.v2f32 %356, %value, %358
+  %360 = OpFUnordNotEqual.v2f32 %value, %value
+  %361 = OpFUnordNotEqual.v2f32 %lower, %lower
+  %362 = OpSelect.v2f32 %361, %value, %359
+  %363 = OpSelect.v2f32 %360, %lower, %362
+  %364 = OpUnordered.v2f32 %value, %lower
+  %365 = OpConstant.f32 2143289344
+  %366 = OpCompositeConstruct.v2f32 %365, %365
+  %minimum = OpSelect.v2f32 %364, %366, %363
+  %368 = OpBitcast.v2f32.v2i32 %upper
+  %369 = OpBitwiseAnd.v2i32 %352, %368
+  %370 = OpBitcast.v2i32.v2f32 %369
+  %371 = OpFOrdGreaterThan.v2f32 %value, %upper
+  %372 = OpFOrdGreaterThan.v2f32 %upper, %value
+  %373 = OpSelect.v2f32 %372, %upper, %370
+  %374 = OpSelect.v2f32 %371, %value, %373
+  %375 = OpFUnordNotEqual.v2f32 %upper, %upper
+  %376 = OpSelect.v2f32 %375, %value, %374
+  %377 = OpSelect.v2f32 %360, %upper, %376
+  %378 = OpUnordered.v2f32 %value, %upper
+  %maximum = OpSelect.v2f32 %378, %366, %377
+  %380 = OpBitwiseAnd.v2i32 %352, %353
+  %381 = OpBitcast.v2i32.v2f32 %380
+  %382 = OpFOrdGreaterThan.v2f32 %value, %lower
+  %383 = OpFOrdGreaterThan.v2f32 %lower, %value
+  %384 = OpSelect.v2f32 %383, %lower, %381
+  %385 = OpSelect.v2f32 %382, %value, %384
+  %386 = OpSelect.v2f32 %361, %value, %385
+  %387 = OpSelect.v2f32 %360, %lower, %386
+  %388 = OpBitcast.v2f32.v2i32 %387
+  %389 = OpBitwiseOr.v2i32 %388, %368
+  %390 = OpBitcast.v2i32.v2f32 %389
+  %391 = OpFOrdLessThan.v2f32 %387, %upper
+  %392 = OpFOrdLessThan.v2f32 %upper, %387
+  %393 = OpSelect.v2f32 %392, %upper, %390
+  %394 = OpSelect.v2f32 %391, %387, %393
+  %395 = OpFUnordNotEqual.v2f32 %387, %387
+  %396 = OpSelect.v2f32 %375, %387, %394
+  %number = OpSelect.v2f32 %395, %upper, %396
+  %398 = OpSelect.v2f32 %364, %366, %387
+  %399 = OpBitcast.v2f32.v2i32 %398
+  %400 = OpBitwiseOr.v2i32 %399, %368
+  %401 = OpBitcast.v2i32.v2f32 %400
+  %402 = OpFOrdLessThan.v2f32 %398, %upper
+  %403 = OpFOrdLessThan.v2f32 %upper, %398
+  %404 = OpSelect.v2f32 %403, %upper, %401
+  %405 = OpSelect.v2f32 %402, %398, %404
+  %406 = OpFUnordNotEqual.v2f32 %398, %398
+  %407 = OpSelect.v2f32 %375, %398, %405
+  %408 = OpSelect.v2f32 %406, %upper, %407
+  %409 = OpUnordered.v2f32 %398, %upper
+  %ieee = OpSelect.v2f32 %409, %366, %408
+  %minimum_lane = OpCompositeExtract.v2f32.f32 %minimum, 0
+  %maximum_lane = OpCompositeExtract.v2f32.f32 %maximum, 1
+  %minnum_lane = OpCompositeExtract.v2f32.f32 %363, 0
+  %maxnum_lane = OpCompositeExtract.v2f32.f32 %377, 1
+  %number_lane = OpCompositeExtract.v2f32.f32 %number, 0
+  %ieee_lane = OpCompositeExtract.v2f32.f32 %ieee, 1
+  return %minimum_lane, %maximum_lane, %minnum_lane, %maxnum_lane, %number_lane, %ieee_lane
+}

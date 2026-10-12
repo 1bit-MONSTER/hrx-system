@@ -101,6 +101,16 @@ func.def target(@target) @float_comparison_requires_ieee_controls(%lhs: f32, %rh
 
 spirv.target<vulkan1_3> @target
 
+func.def target(@target) @float_extrema_requires_ieee_controls(%lhs: f32, %rhs: f32) -> (f32) {
+  // ERROR@+1: TARGET/001 {op_name="scalar.minimumf"}
+  %result = scalar.minimumf %lhs, %rhs : f32
+  func.return %result : f32
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
 func.def target(@target) @unsupported_semantic_math(%input: f32) -> (f32) {
   // ERROR@+1: LOWERING/036 {op_name="scalar.logisticf", phase_name="legalize-math", policy_name="spirv-math", math_op="logisticf", lane_domain="scalar", element_type="f32", constraint_key="math.op.native_arithmetic"}
   %result = scalar.logisticf %input : f32
