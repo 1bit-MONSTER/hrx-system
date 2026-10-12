@@ -167,8 +167,11 @@ static iree_status_t loom_amdgpu_kernel_assembly_append_metadata(
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_cstring(builder, "  .amdhsa_reserve_vcc 0\n"));
   if (!has_architected_flat_scratch) {
-    IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(
-        builder, "  .amdhsa_reserve_flat_scratch 0\n"));
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        builder, "  .amdhsa_reserve_flat_scratch %u\n",
+        loom_amdgpu_kernel_assembly_flag(
+            record,
+            LOOM_AMDGPU_KERNEL_DESCRIPTOR_ENABLE_SGPR_FLAT_SCRATCH_INIT)));
   }
   IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(
       builder,

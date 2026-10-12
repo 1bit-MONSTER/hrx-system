@@ -34,7 +34,7 @@ typedef struct loom_amdgpu_kernel_record_t {
   loom_amdgpu_target_identity_t target_identity;
   // Processor facts selected by the AMDGPU target record.
   const loom_amdgpu_processor_info_t* processor;
-  // Hardware-entry envelope selected during native planning.
+  // Final entry instructions shared by text, binary, fixups, and metadata.
   const loom_amdgpu_kernel_entry_envelope_t* entry_envelope;
   // Function-local storage layout shared by metadata and instruction emission.
   loom_amdgpu_storage_layout_t storage_layout;

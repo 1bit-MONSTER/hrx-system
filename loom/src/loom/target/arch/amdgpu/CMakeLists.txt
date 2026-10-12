@@ -614,6 +614,7 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx1250-a0
     loom::target::amdgpu::gfx1251
     loom::target::amdgpu::gfx9-4-generic
+    loom::target::amdgpu::gfx90a
     loom::target::amdgpu::gfx940
     loom::target::amdgpu::gfx941
     loom::target::amdgpu::gfx942
@@ -650,6 +651,7 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx1250-a0
     loom::target::amdgpu::gfx1251
     loom::target::amdgpu::gfx9-4-generic
+    loom::target::amdgpu::gfx90a
     loom::target::amdgpu::gfx940
     loom::target::amdgpu::gfx941
     loom::target::amdgpu::gfx942
@@ -686,6 +688,7 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx1250-a0
     loom::target::amdgpu::gfx1251
     loom::target::amdgpu::gfx9-4-generic
+    loom::target::amdgpu::gfx90a
     loom::target::amdgpu::gfx940
     loom::target::amdgpu::gfx941
     loom::target::amdgpu::gfx942
@@ -741,6 +744,7 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx1250-a0
     loom::target::amdgpu::gfx1251
     loom::target::amdgpu::gfx9-4-generic
+    loom::target::amdgpu::gfx90a
     loom::target::amdgpu::gfx940
     loom::target::amdgpu::gfx941
     loom::target::amdgpu::gfx942
@@ -792,6 +796,7 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx1250-a0
     loom::target::amdgpu::gfx1251
     loom::target::amdgpu::gfx9-4-generic
+    loom::target::amdgpu::gfx90a
     loom::target::amdgpu::gfx940
     loom::target::amdgpu::gfx941
     loom::target::amdgpu::gfx942
@@ -828,6 +833,7 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx1250-a0
     loom::target::amdgpu::gfx1251
     loom::target::amdgpu::gfx9-4-generic
+    loom::target::amdgpu::gfx90a
     loom::target::amdgpu::gfx940
     loom::target::amdgpu::gfx941
     loom::target::amdgpu::gfx942
