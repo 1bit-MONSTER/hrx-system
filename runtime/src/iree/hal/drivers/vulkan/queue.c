@@ -461,14 +461,17 @@ struct iree_hal_vulkan_queue_pending_submission_t {
 
   // Queue-ordered sparse buffer memory binding payload.
   struct {
-    // Sparse buffer receiving the memory binds.
-    VkBuffer buffer;
+    // Sparse buffer vectors in the submission's trailing storage.
+    VkSparseBufferMemoryBindInfo* buffers;
 
-    // Queue-owned sparse memory bind array.
+    // Number of buffer vectors submitted in one native call.
+    uint32_t buffer_count;
+
+    // Flattened sparse memory binds in the submission's trailing storage.
     VkSparseMemoryBind* binds;
 
-    // Number of populated entries in |binds|.
-    uint32_t bind_count;
+    // Total populated entries across all buffer vectors.
+    iree_host_size_t bind_count;
   } sparse_bind;
 
   // Wait entries registered for software-resolved wait-before-signal edges.
@@ -3161,7 +3164,8 @@ static uint32_t iree_hal_vulkan_queue_profile_operation_count(
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_BARRIER:
       return 0;
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_SPARSE_BIND:
-      return submission->sparse_bind.bind_count;
+      return iree_hal_vulkan_queue_profile_count(
+          submission->sparse_bind.bind_count);
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_TRANSFER:
       return iree_hal_vulkan_queue_profile_count(
           submission->transfer.operation_count);
@@ -3244,7 +3248,8 @@ static uint64_t iree_hal_vulkan_queue_profile_payload_length(
     }
     case IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_SPARSE_BIND: {
       uint64_t total_length = 0;
-      for (uint32_t i = 0; i < submission->sparse_bind.bind_count; ++i) {
+      for (iree_host_size_t i = 0; i < submission->sparse_bind.bind_count;
+           ++i) {
         const VkDeviceSize bind_size = submission->sparse_bind.binds[i].size;
         if (total_length > UINT64_MAX - bind_size) {
           return UINT64_MAX;
@@ -4171,7 +4176,6 @@ static void iree_hal_vulkan_queue_pending_submission_destroy(
   if (submission->wait_entries) {
     iree_allocator_free(queue->host_allocator, submission->wait_entries);
   }
-  iree_allocator_free(queue->host_allocator, submission->sparse_bind.binds);
   iree_hal_vulkan_queue_release_descriptor_cache_sets(queue, submission);
   iree_hal_vulkan_queue_release_native_descriptor_pool(queue, submission);
   iree_hal_vulkan_queue_release_bda_publication(queue, submission);
@@ -5643,13 +5647,6 @@ static iree_status_t iree_hal_vulkan_queue_submit_sparse_bind_under_lock(
     iree_hal_vulkan_queue_t* queue,
     iree_hal_vulkan_queue_pending_submission_t* submission,
     const iree_hal_vulkan_queue_wait_resolution_t* resolution) {
-  if (!iree_all_bits_set(queue->queue_flags, VK_QUEUE_SPARSE_BINDING_BIT)) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Vulkan queue family %u does not support sparse binding",
-        queue->queue_family_index);
-  }
-
   VkSemaphore* wait_semaphores = NULL;
   uint64_t* wait_values = NULL;
   iree_status_t status = iree_hal_vulkan_queue_allocate_sparse_wait_arrays(
@@ -5672,18 +5669,13 @@ static iree_status_t iree_hal_vulkan_queue_submit_sparse_bind_under_lock(
         .signalSemaphoreValueCount = 1,
         .pSignalSemaphoreValues = &signal_value,
     };
-    VkSparseBufferMemoryBindInfo buffer_bind_info = {
-        .buffer = submission->sparse_bind.buffer,
-        .bindCount = submission->sparse_bind.bind_count,
-        .pBinds = submission->sparse_bind.binds,
-    };
     VkBindSparseInfo bind_info = {
         .sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO,
         .pNext = &timeline_info,
         .waitSemaphoreCount = resolution->wait_info_count,
         .pWaitSemaphores = wait_semaphores,
-        .bufferBindCount = 1,
-        .pBufferBinds = &buffer_bind_info,
+        .bufferBindCount = submission->sparse_bind.buffer_count,
+        .pBufferBinds = submission->sparse_bind.buffers,
         .signalSemaphoreCount = 1,
         .pSignalSemaphores = &signal_semaphore,
     };
@@ -5701,9 +5693,7 @@ static iree_status_t iree_hal_vulkan_queue_submit_sparse_bind_under_lock(
 
 static bool iree_hal_vulkan_queue_submission_uses_sparse_bind(
     const iree_hal_vulkan_queue_pending_submission_t* submission) {
-  return submission->kind ==
-             IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_SPARSE_BIND ||
-         submission->sparse_bind.bind_count != 0;
+  return submission->kind == IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_SPARSE_BIND;
 }
 
 static iree_status_t iree_hal_vulkan_queue_submit_native_under_lock(
@@ -5727,14 +5717,6 @@ static iree_status_t iree_hal_vulkan_queue_submit_native_under_lock(
       iree_atomic_load(&queue->stop_requested, iree_memory_order_acquire)) {
     status = iree_make_status(IREE_STATUS_CANCELLED,
                               "Vulkan queue is shutting down");
-  }
-  if (iree_status_is_ok(status) &&
-      iree_hal_vulkan_queue_submission_uses_sparse_bind(submission) &&
-      !iree_all_bits_set(queue->queue_flags, VK_QUEUE_SPARSE_BINDING_BIT)) {
-    status = iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Vulkan queue family %u does not support sparse binding",
-        queue->queue_family_index);
   }
   if (iree_status_is_ok(status)) {
     submission->epoch = queue->next_epoch_value;
@@ -7352,90 +7334,79 @@ iree_status_t iree_hal_vulkan_queue_submit_dealloca(
 iree_status_t iree_hal_vulkan_queue_submit_sparse_bind(
     iree_hal_vulkan_queue_t* queue,
     const iree_hal_semaphore_list_t wait_semaphore_list,
-    const iree_hal_semaphore_list_t signal_semaphore_list, VkBuffer buffer,
-    iree_host_size_t bind_count, const VkSparseMemoryBind* binds) {
-  IREE_ASSERT_ARGUMENT(queue);
+    const iree_hal_semaphore_list_t signal_semaphore_list,
+    iree_host_size_t buffer_count,
+    const VkSparseBufferMemoryBindInfo* buffer_binds) {
   IREE_TRACE_ZONE_BEGIN(z0);
-  IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)bind_count);
+  IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)buffer_count);
+  if (!iree_all_bits_set(queue->queue_flags, VK_QUEUE_SPARSE_BINDING_BIT)) {
+    IREE_RETURN_AND_END_ZONE_IF_ERROR(
+        z0, iree_make_status(
+                IREE_STATUS_FAILED_PRECONDITION,
+                "Vulkan queue family %u does not support sparse binding",
+                queue->queue_family_index));
+  }
+  if (!buffer_count || buffer_count > UINT32_MAX) {
+    IREE_RETURN_AND_END_ZONE_IF_ERROR(
+        z0, iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                             "Vulkan sparse buffer count must be in [1, %u]",
+                             UINT32_MAX));
+  }
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_hal_vulkan_queue_validate_semaphore_list(
+              queue, wait_semaphore_list, IREE_SV("wait")));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_hal_vulkan_queue_validate_semaphore_list(
+              queue, signal_semaphore_list, IREE_SV("signal")));
 
-  iree_status_t status = iree_ok_status();
-  if (!buffer) {
-    status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "Vulkan sparse bind buffer is NULL");
-  }
-  if (iree_status_is_ok(status) && !binds) {
-    status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "Vulkan sparse bind array is NULL");
-  }
-  if (iree_status_is_ok(status) &&
-      !iree_all_bits_set(queue->queue_flags, VK_QUEUE_SPARSE_BINDING_BIT)) {
-    status = iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "Vulkan queue family %u does not support sparse binding",
-        queue->queue_family_index);
-  }
-  if (iree_status_is_ok(status) && bind_count == 0) {
-    status = iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "Vulkan sparse bind submission must contain at least one bind");
-  }
-  if (iree_status_is_ok(status) && bind_count > UINT32_MAX) {
-    status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                              "too many Vulkan sparse buffer binds");
-  }
-  if (iree_status_is_ok(status)) {
-    status = iree_hal_vulkan_queue_validate_semaphore_list(
-        queue, wait_semaphore_list, IREE_SV("wait"));
-  }
-  if (iree_status_is_ok(status)) {
-    status = iree_hal_vulkan_queue_validate_semaphore_list(
-        queue, signal_semaphore_list, IREE_SV("signal"));
-  }
-
-  VkSparseMemoryBind* copied_binds = NULL;
-  if (iree_status_is_ok(status)) {
-    iree_host_size_t bind_storage_size = 0;
-    if (iree_host_size_checked_mul(bind_count, sizeof(*binds),
-                                   &bind_storage_size)) {
-      status = iree_allocator_malloc(queue->host_allocator, bind_storage_size,
-                                     (void**)&copied_binds);
-    } else {
-      status =
-          iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                           "Vulkan sparse bind array overflows host storage");
+  iree_host_size_t bind_count = 0;
+  for (iree_host_size_t i = 0; i < buffer_count; ++i) {
+    if (!iree_host_size_checked_add(bind_count, buffer_binds[i].bindCount,
+                                    &bind_count)) {
+      IREE_RETURN_AND_END_ZONE_IF_ERROR(
+          z0, iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                               "Vulkan sparse bind count overflows"));
     }
   }
-  if (iree_status_is_ok(status)) {
-    memcpy(copied_binds, binds, bind_count * sizeof(*binds));
-  }
+  iree_host_size_t buffers_offset = 0;
+  iree_host_size_t binds_offset = 0;
+  iree_host_size_t payload_storage_length = 0;
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, IREE_STRUCT_LAYOUT(
+              0, &payload_storage_length,
+              IREE_STRUCT_FIELD_ALIGNED(
+                  buffer_count, VkSparseBufferMemoryBindInfo,
+                  iree_alignof(VkSparseBufferMemoryBindInfo), &buffers_offset),
+              IREE_STRUCT_FIELD_ALIGNED(bind_count, VkSparseMemoryBind,
+                                        iree_alignof(VkSparseMemoryBind),
+                                        &binds_offset)));
 
+  iree_byte_span_t payload_storage = iree_byte_span_empty();
   iree_hal_vulkan_queue_pending_submission_t* submission = NULL;
-  if (iree_status_is_ok(status)) {
-    status = iree_hal_vulkan_queue_pending_submission_create(
-        queue, wait_semaphore_list, signal_semaphore_list,
-        IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_SPARSE_BIND,
-        (iree_hal_host_call_t){0}, /*args=*/NULL, IREE_HAL_HOST_CALL_FLAG_NONE,
-        /*payload_storage_length=*/0, /*out_payload_storage=*/NULL,
-        &submission);
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_hal_vulkan_queue_pending_submission_create(
+              queue, wait_semaphore_list, signal_semaphore_list,
+              IREE_HAL_VULKAN_QUEUE_SUBMISSION_KIND_SPARSE_BIND,
+              (iree_hal_host_call_t){0}, /*args=*/NULL,
+              IREE_HAL_HOST_CALL_FLAG_NONE, payload_storage_length,
+              &payload_storage, &submission));
+  submission->sparse_bind.buffers =
+      (VkSparseBufferMemoryBindInfo*)(payload_storage.data + buffers_offset);
+  submission->sparse_bind.buffer_count = (uint32_t)buffer_count;
+  submission->sparse_bind.binds =
+      (VkSparseMemoryBind*)(payload_storage.data + binds_offset);
+  submission->sparse_bind.bind_count = bind_count;
+  VkSparseMemoryBind* target_binds = submission->sparse_bind.binds;
+  for (iree_host_size_t i = 0; i < buffer_count; ++i) {
+    submission->sparse_bind.buffers[i] = buffer_binds[i];
+    submission->sparse_bind.buffers[i].pBinds = target_binds;
+    const iree_host_size_t bind_storage_length =
+        buffer_binds[i].bindCount * sizeof(*target_binds);
+    memcpy(target_binds, buffer_binds[i].pBinds, bind_storage_length);
+    target_binds += buffer_binds[i].bindCount;
   }
-  if (iree_status_is_ok(status)) {
-    submission->sparse_bind.buffer = buffer;
-    submission->sparse_bind.binds = copied_binds;
-    submission->sparse_bind.bind_count = (uint32_t)bind_count;
-    copied_binds = NULL;
-    status =
-        iree_hal_vulkan_queue_submit_captured_submission(queue, submission);
-    submission = NULL;
-  }
-  if (submission) {
-    if (!iree_status_is_ok(status)) {
-      iree_hal_vulkan_queue_fail_signal_list(submission->signal_semaphore_list,
-                                             iree_status_clone(status));
-    }
-    iree_hal_vulkan_queue_pending_submission_destroy(queue, submission);
-  }
-  iree_allocator_free(queue->host_allocator, copied_binds);
-
+  iree_status_t status =
+      iree_hal_vulkan_queue_submit_captured_submission(queue, submission);
   IREE_TRACE_ZONE_END(z0);
   return status;
 }

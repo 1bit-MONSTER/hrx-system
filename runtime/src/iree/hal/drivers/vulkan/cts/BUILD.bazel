@@ -179,6 +179,17 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
+    name = "sparse_binding_tests",
+    deps = [
+        ":backends",
+        "//runtime/src/iree/base/tooling:flags",
+        "//runtime/src/iree/hal/cts/util:registry",
+        "//runtime/src/iree/hal/cts/util:test_main",
+        "//runtime/src/iree/hal/drivers/vulkan:sparse_binding_test",
+    ],
+)
+
+iree_runtime_cc_test(
     name = "allocator_virtual_memory_tests",
     srcs = ["allocator_virtual_memory_test.cc"],
     deps = [

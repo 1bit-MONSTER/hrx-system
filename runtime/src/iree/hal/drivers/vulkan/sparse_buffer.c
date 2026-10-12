@@ -198,6 +198,11 @@ iree_status_t iree_hal_vulkan_sparse_buffer_bind_sync(
     iree_hal_vulkan_queue_t* sparse_binding_queue,
     iree_hal_buffer_placement_t placement, VkBuffer handle,
     iree_host_size_t bind_count, const VkSparseMemoryBind binds[]) {
+  if (!bind_count || bind_count > UINT32_MAX) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "Vulkan sparse bind count must be in [1, %u]",
+                            UINT32_MAX);
+  }
   IREE_TRACE_ZONE_BEGIN(z0);
   IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)bind_count);
 
@@ -212,10 +217,15 @@ iree_status_t iree_hal_vulkan_sparse_buffer_bind_sync(
         .semaphores = &signal_semaphore,
         .payload_values = &signal_value,
     };
+    const VkSparseBufferMemoryBindInfo buffer_bind = {
+        .buffer = handle,
+        .bindCount = (uint32_t)bind_count,
+        .pBinds = binds,
+    };
     IREE_TRACE_ZONE_BEGIN_NAMED(z1, "queue_submit_sparse_bind");
     status = iree_hal_vulkan_queue_submit_sparse_bind(
         sparse_binding_queue, iree_hal_semaphore_list_empty(),
-        signal_semaphore_list, handle, bind_count, binds);
+        signal_semaphore_list, 1, &buffer_bind);
     IREE_TRACE_ZONE_END(z1);
   }
   if (iree_status_is_ok(status)) {

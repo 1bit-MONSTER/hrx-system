@@ -381,6 +381,25 @@ endif()
 if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_test(
   NAME
+    sparse_binding_tests
+  DEPS
+    ::backends
+    iree::base::tooling::flags
+    iree::hal::cts::util::registry
+    iree::hal::cts::util::test_main
+    iree::hal::drivers::vulkan::sparse_binding_test
+  LABELS
+    "iree-build-requirement=runtime.hal.vulkan"
+    "iree-run-requirement=vulkan.resource.device"
+    "runtime-resource=vulkan-device"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+if(IREE_HAL_DRIVER_VULKAN)
+iree_cc_test(
+  NAME
     allocator_virtual_memory_tests
   SRCS
     "allocator_virtual_memory_test.cc"
