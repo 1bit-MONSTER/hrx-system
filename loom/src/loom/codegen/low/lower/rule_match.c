@@ -1515,6 +1515,21 @@ static bool loom_low_lower_rule_resolve_source_node(
   return true;
 }
 
+bool loom_low_lower_rule_first_source_node_matches(
+    const loom_low_lower_rule_match_context_t* match_context,
+    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
+    const loom_low_lower_rule_t* rule) {
+  if (loom_low_lower_rule_source_node_count(rule) == 0) {
+    return false;
+  }
+  const loom_low_lower_source_node_t* source_node =
+      &rule_set->source_nodes[loom_low_lower_rule_source_node_start(rule)];
+  const loom_op_t* source_nodes[LOOM_LOW_LOWER_MAX_SOURCE_NODES] = {source_op};
+  return loom_low_lower_rule_resolve_source_node(
+      match_context, rule_set, source_node, /*source_node_index=*/1,
+      source_nodes);
+}
+
 static bool loom_low_lower_rule_emission_source_node(
     const loom_low_lower_rule_match_context_t* match_context,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,

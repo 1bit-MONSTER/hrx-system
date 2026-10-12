@@ -84,6 +84,19 @@ typedef struct loom_low_lower_contract_case_callback_t {
   void* user_data;
 } loom_low_lower_contract_case_callback_t;
 
+typedef uint8_t loom_low_lower_contract_case_scope_t;
+
+enum loom_low_lower_contract_case_scope_e {
+  // Visits every generated contract case.
+  LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_ALL = 0,
+  // Visits lower rules without related nodes and non-rule contract systems.
+  LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_SINGLETON = 1,
+  // Visits only multi-operation lower rules whose first related edge resolves.
+  // Rejection-only nonmatches are omitted because this scope enumerates graph
+  // candidates rather than selecting diagnostics.
+  LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_SOURCE_GRAPH = 2,
+};
+
 typedef iree_status_t (*loom_low_lower_contract_match_fn_t)(
     void* user_data, const loom_target_contract_query_result_t* result,
     const loom_low_lower_rule_set_t* rule_set,
@@ -138,8 +151,8 @@ iree_status_t loom_low_lower_query_descriptor_matrix_contract(
     const loom_op_t* source_op, loom_contract_request_t* out_request,
     loom_target_contract_query_result_t* out_result);
 
-// Visits all generated lowering contract cases for |source_op| without
-// selecting a winner.
+// Visits generated lowering contract cases in |case_scope| for |source_op|
+// without selecting a winner.
 //
 // The caller supplies the match context because lowering and immutable-source
 // queries carry different value, memory and descriptor state. Candidate mode
@@ -151,12 +164,13 @@ iree_status_t loom_low_lower_visit_lowering_contract_cases(
     const loom_low_lower_contract_query_options_t* options,
     const loom_op_t* source_op,
     loom_low_lower_contract_case_iteration_mode_t iteration_mode,
+    loom_low_lower_contract_case_scope_t case_scope,
     loom_low_lower_rule_match_context_t* match_context,
     loom_low_lower_contract_case_callback_t callback,
     bool* out_used_candidate_index);
 
-// Visits generated target-query contract cases for |source_op| without
-// selecting a winner.
+// Visits generated target-query contract cases in |case_scope| for |source_op|
+// without selecting a winner.
 //
 // This has the same iteration contract as the lowering visitor but excludes
 // fragments that did not opt in to target contract queries. Such fragments may
@@ -166,6 +180,7 @@ iree_status_t loom_low_lower_visit_target_contract_cases(
     const loom_low_lower_contract_query_options_t* options,
     const loom_op_t* source_op,
     loom_low_lower_contract_case_iteration_mode_t iteration_mode,
+    loom_low_lower_contract_case_scope_t case_scope,
     loom_low_lower_rule_match_context_t* match_context,
     loom_low_lower_contract_case_callback_t callback,
     bool* out_used_candidate_index);
@@ -204,7 +219,7 @@ iree_status_t loom_low_lower_query_target_contract_with_selection(
 iree_status_t loom_low_lower_visit_target_contract_matches(
     const loom_target_contract_query_environment_t* environment,
     const loom_low_lower_contract_query_options_t* options,
-    const loom_op_t* source_op,
+    const loom_op_t* source_op, loom_low_lower_contract_case_scope_t case_scope,
     loom_low_lower_contract_match_callback_t callback);
 
 #ifdef __cplusplus

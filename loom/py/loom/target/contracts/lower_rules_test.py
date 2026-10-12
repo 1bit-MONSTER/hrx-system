@@ -584,7 +584,7 @@ def test_compile_backward_related_source_node() -> None:
     assert node_ref.source_node_index == 1
 
 
-def test_compile_nonlocal_source_graph_marks_the_whole_rule() -> None:
+def test_compile_source_graph_records_only_root_op_kind() -> None:
     fragment = ContractFragment(
         name="test.nonlocal-source-graph",
         descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
@@ -602,7 +602,7 @@ def test_compile_nonlocal_source_graph_marks_the_whole_rule() -> None:
                     ),
                     SourceNode.adjacent_unique_user(
                         "consumer",
-                        source_op=scalar_arithmetic.scalar_addi,
+                        source_op=scalar_arithmetic.scalar_subi,
                         parent="multiply",
                         parent_result=ValueRef.result("result"),
                         node_operand=ValueRef.operand("lhs"),
@@ -635,9 +635,9 @@ def test_compile_nonlocal_source_graph_marks_the_whole_rule() -> None:
         SourceNodeRelation.EXCLUSIVE_USER,
         SourceNodeRelation.ADJACENT_UNIQUE_USER,
     )
-    assert compiled.nonlocal_source_op_kinds == (
-        (scalar_arithmetic.scalar_muli.group.dialect_id << 8)
-        | ALL_SCALAR_OPS.index(scalar_arithmetic.scalar_muli),
+    assert compiled.source_graph_root_op_kinds == (
+        (scalar_arithmetic.scalar_addi.group.dialect_id << 8)
+        | ALL_SCALAR_OPS.index(scalar_arithmetic.scalar_addi),
     )
 
 
