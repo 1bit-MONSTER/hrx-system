@@ -205,10 +205,17 @@ TEST_F(FactTableTest, UndefinedEntriesRetainScopeMembershipAcrossGrowth) {
   IREE_ASSERT_OK(
       loom_value_fact_table_define(&table, 129, loom_value_facts_exact_i64(9)));
 
+  const loom_value_id_t* scope_values = nullptr;
+  iree_host_size_t scope_value_count = 0;
+  loom_value_fact_table_scope_values(&table, &scope_values, &scope_value_count);
+  ASSERT_EQ(scope_value_count, 2u);
+  EXPECT_EQ(scope_values[0], 2u);
+  EXPECT_EQ(scope_values[1], 129u);
+
   loom_value_fact_table_t clone;
   IREE_ASSERT_OK(loom_value_fact_table_initialize(&clone, &arena_, 4));
   IREE_ASSERT_OK(loom_value_fact_table_clone_values(
-      &clone, {&table, table.touched_values, table.touched_count}, nullptr));
+      &clone, {&table, scope_values, scope_value_count}, nullptr));
   EXPECT_FALSE(loom_value_fact_table_has_entry(&clone, 2));
   EXPECT_EQ(loom_value_fact_table_lookup(&clone, 129).range_lo, 9);
   IREE_ASSERT_OK(
@@ -216,6 +223,8 @@ TEST_F(FactTableTest, UndefinedEntriesRetainScopeMembershipAcrossGrowth) {
   EXPECT_EQ(table.touched_count, 2u);
 
   loom_value_fact_table_clear_scope(&table);
+  loom_value_fact_table_scope_values(&table, &scope_values, &scope_value_count);
+  EXPECT_EQ(scope_value_count, 0u);
   EXPECT_FALSE(loom_value_fact_table_has_entry(&table, 2));
   EXPECT_FALSE(loom_value_fact_table_has_entry(&table, 129));
   IREE_ASSERT_OK(loom_value_fact_table_define(&table, 129,

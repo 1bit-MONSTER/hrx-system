@@ -1731,6 +1731,18 @@ void loom_value_fact_table_contextual_query_values(
   *out_value_count = table->contextual_query_origins.touched_count;
 }
 
+void loom_value_fact_table_scope_values(const loom_value_fact_table_t* table,
+                                        const loom_value_id_t** out_value_ids,
+                                        iree_host_size_t* out_value_count) {
+  if (table == NULL) {
+    *out_value_ids = NULL;
+    *out_value_count = 0;
+    return;
+  }
+  *out_value_ids = table->touched_values;
+  *out_value_count = table->touched_count;
+}
+
 static iree_status_t loom_value_fact_table_clone_select_dependencies(
     loom_value_fact_table_t* target, const loom_value_fact_table_t* source,
     loom_value_id_t value_id) {

@@ -674,6 +674,14 @@ void loom_value_fact_table_contextual_query_values(
     const loom_value_fact_table_t* table, const loom_value_id_t** out_value_ids,
     iree_host_size_t* out_value_count);
 
+// Returns the sparse value index for the populated fact scope. The borrowed
+// values are unique, appear in first-definition order, and remain valid until
+// the scope is cleared. Values temporarily undefined during a cyclic solve
+// remain in the index so consumers observe the complete analyzed scope.
+void loom_value_fact_table_scope_values(const loom_value_fact_table_t* table,
+                                        const loom_value_id_t** out_value_ids,
+                                        iree_host_size_t* out_value_count);
+
 // Returns the canonical SSA identity retained for |value_id|, or |value_id|
 // itself when the table is NULL or no identity has been established. This is
 // an O(1) lookup, not an IR traversal. Identities have the same populated-scope

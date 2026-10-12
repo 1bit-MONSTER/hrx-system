@@ -205,6 +205,41 @@ static bool loom_integer_division_family_is_signed(
          family == LOOM_INTEGER_DIVISION_FAMILY_VECTOR_SIGNED;
 }
 
+// Uses the retained function-fact index to reject scopes that cannot contain a
+// quotient/remainder pair. This keeps ordinary functions off the structural
+// walker and dominance planner without reconstructing the analyzed scope.
+static bool loom_integer_division_has_pair_candidates(
+    const loom_module_t* module, const loom_value_fact_table_t* facts) {
+  const loom_value_id_t* scope_values = NULL;
+  iree_host_size_t scope_value_count = 0;
+  loom_value_fact_table_scope_values(facts, &scope_values, &scope_value_count);
+  uint32_t candidate_count = 0;
+  for (iree_host_size_t i = 0; i < scope_value_count; ++i) {
+    const loom_value_t* value = loom_module_value(module, scope_values[i]);
+    if (loom_value_is_block_arg(value)) {
+      continue;
+    }
+    const loom_op_t* op = loom_value_def_op(value);
+    if (!op || iree_any_bit_set(op->flags, LOOM_OP_FLAG_DEAD)) {
+      continue;
+    }
+    loom_integer_division_family_t family;
+    loom_integer_division_role_t role;
+    if (!loom_integer_division_match(op, &family, &role)) {
+      continue;
+    }
+    const loom_value_id_t divisor = loom_op_const_operands(op)[1];
+    if (loom_value_facts_is_exact(
+            loom_value_fact_table_lookup(facts, divisor))) {
+      continue;
+    }
+    if (++candidate_count == 2) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static iree_status_t loom_integer_division_inventory_op(
     void* user_data, loom_op_t* op, const loom_walk_context_t* context,
     loom_walk_result_t* out_result) {
@@ -625,6 +660,9 @@ iree_status_t loom_integer_division_combine(
     loom_integer_division_combine_result_t* out_result) {
   *out_result = (loom_integer_division_combine_result_t){0};
   if (!loom_func_like_body(function)) {
+    return iree_ok_status();
+  }
+  if (!loom_integer_division_has_pair_candidates(module, facts)) {
     return iree_ok_status();
   }
 
