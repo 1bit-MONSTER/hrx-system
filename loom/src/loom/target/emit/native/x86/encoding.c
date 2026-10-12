@@ -354,6 +354,9 @@ void loom_x86_encode_instruction(
   uint8_t extension = (encoding_id >> 9) & 7;
   uint16_t width_flags = encoding_id & LOOM_X86_ENCODING_REX_W;
   switch (form) {
+    case LOOM_X86_ENCODING_FORM_UNARY_RM:
+      loom_x86_encode_registers(instruction, encoding_id, extension, result);
+      break;
     case LOOM_X86_ENCODING_FORM_BINARY_RM_R:
       loom_x86_encode_registers(instruction, encoding_id, rhs, result);
       break;

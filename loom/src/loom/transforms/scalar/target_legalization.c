@@ -992,6 +992,84 @@ static iree_status_t loom_scalar_legalize_narrow_bit_count(
   return iree_ok_status();
 }
 
+// Composes signed-unary integer operations from target arithmetic primitives.
+// One-bit negation and absolute value are identities under wrapping i1
+// semantics. Narrow values use one signed i32 carrier so every intermediate
+// observes the authored sign while truncation preserves the minimum-value
+// wraparound case.
+static iree_status_t loom_scalar_legalize_signed_unary(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t input = loom_op_const_operands(op)[0];
+  const loom_type_t input_type = loom_module_value_type(context->module, input);
+  const int32_t input_width =
+      loom_scalar_type_bitwidth(loom_type_element_type(input_type));
+
+  loom_value_id_t replacement = input;
+  if (input_width > 1) {
+    const int32_t working_width = input_width < 32 ? 32 : input_width;
+    const loom_type_t working_type = loom_type_scalar(
+        working_width == 32 ? LOOM_SCALAR_TYPE_I32 : LOOM_SCALAR_TYPE_I64);
+    loom_value_id_t value = input;
+    if (input_width < working_width) {
+      loom_op_t* extension = NULL;
+      IREE_RETURN_IF_ERROR(loom_scalar_extsi_build(
+          builder, value, input_type, working_type, op->location, &extension));
+      value = loom_scalar_extsi_result(extension);
+    }
+
+    if (loom_scalar_negi_isa(op)) {
+      loom_value_id_t zero = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_scalar_constant(
+          builder, op->location, working_type, 0, &zero));
+      loom_op_t* subtraction = NULL;
+      IREE_RETURN_IF_ERROR(loom_scalar_subi_build(
+          builder, 0, zero, value, working_type, op->location, &subtraction));
+      replacement = loom_scalar_subi_result(subtraction);
+    } else {
+      loom_value_id_t shift_amount = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_scalar_legalize_build_scalar_constant(
+          builder, op->location, working_type, working_width - 1,
+          &shift_amount));
+      loom_op_t* shift = NULL;
+      IREE_RETURN_IF_ERROR(loom_scalar_shrsi_build(
+          builder, value, shift_amount, working_type, op->location, &shift));
+      const loom_value_id_t sign = loom_scalar_shrsi_result(shift);
+      loom_op_t* magnitude = NULL;
+      IREE_RETURN_IF_ERROR(loom_scalar_xori_build(
+          builder, value, sign, working_type, op->location, &magnitude));
+      loom_op_t* subtraction = NULL;
+      IREE_RETURN_IF_ERROR(loom_scalar_subi_build(
+          builder, 0, loom_scalar_xori_result(magnitude), sign, working_type,
+          op->location, &subtraction));
+      replacement = loom_scalar_subi_result(subtraction);
+    }
+
+    if (input_width < working_width) {
+      loom_op_t* truncation = NULL;
+      IREE_RETURN_IF_ERROR(loom_scalar_trunci_build(builder, replacement,
+                                                    working_type, input_type,
+                                                    op->location, &truncation));
+      replacement = loom_scalar_trunci_result(truncation);
+    }
+  }
+
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN,
+  };
+  return iree_ok_status();
+}
+
 static iree_status_t loom_scalar_legalize_narrow_cmpi(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
@@ -1403,6 +1481,16 @@ static iree_status_t loom_scalar_legalize_float_classification(
 }
 
 static const loom_target_legalizer_rule_t kScalarLegalizerRules[] = {
+    {
+        .root_kind = LOOM_OP_SCALAR_NEGI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
+        .legalize = loom_scalar_legalize_signed_unary,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_ABSI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
+        .legalize = loom_scalar_legalize_signed_unary,
+    },
     {
         .root_kind = LOOM_OP_SCALAR_CTLZI,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I1 |

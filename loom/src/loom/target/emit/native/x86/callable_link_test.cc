@@ -34,6 +34,10 @@ extern "C" uint32_t stored_eleven32(uint32_t v0, uint32_t v1, uint32_t v2,
                                     uint32_t v9, uint32_t v10);
 extern "C" uint32_t replace_narrow(uint8_t* bytes, uint16_t* words,
                                    uint64_t index, uint32_t replacement);
+extern "C" void signed_unary_i8(uint8_t input, uint8_t* output);
+extern "C" void signed_unary_i16(uint16_t input, uint16_t* output);
+extern "C" void signed_unary_i32(uint32_t input, uint32_t* output);
+extern "C" void signed_unary_i64(uint64_t input, uint64_t* output);
 extern "C" uint64_t high_mix(uint64_t unused, uint64_t factor, uint64_t word);
 extern "C" uint64_t recurrence(uint64_t first, uint64_t second,
                                uint64_t iterations);
@@ -180,6 +184,27 @@ extern "C" uint64_t saturated_permutation(uint64_t, uint64_t, uint64_t,
                                           uint64_t, uint64_t, uint32_t);
 
 namespace {
+
+template <typename T>
+struct SignedUnaryCase {
+  // Authored input bit pattern.
+  T input;
+  // Expected wrapping negation bit pattern.
+  T negative;
+  // Expected wrapping absolute-value bit pattern.
+  T absolute;
+};
+
+template <typename T, size_t N>
+void CheckSignedUnary(void (*function)(T, T*),
+                      const std::array<SignedUnaryCase<T>, N>& test_cases) {
+  for (const SignedUnaryCase<T>& test_case : test_cases) {
+    std::array<T, 2> output = {};
+    function(test_case.input, output.data());
+    EXPECT_EQ(output[0], test_case.negative);
+    EXPECT_EQ(output[1], test_case.absolute);
+  }
+}
 
 float FloatFromBits(uint32_t bits) {
   float value;
@@ -630,6 +655,38 @@ TEST(NativeCallableTest, NarrowIntegerBoundariesNormalizeCarriers) {
     EXPECT_EQ(call_narrow_i8(value), value & UINT8_MAX);
     EXPECT_EQ(call_narrow_i16(value), value & UINT16_MAX);
   }
+}
+
+TEST(NativeCallableTest, SignedUnaryWrapsAtEveryStorageWidth) {
+  CheckSignedUnary<uint8_t, 5>(signed_unary_i8, {{{0x00, 0x00, 0x00},
+                                                  {0x01, 0xff, 0x01},
+                                                  {0x7f, 0x81, 0x7f},
+                                                  {0x80, 0x80, 0x80},
+                                                  {0xff, 0x01, 0x01}}});
+  CheckSignedUnary<uint16_t, 5>(signed_unary_i16, {{{0x0000, 0x0000, 0x0000},
+                                                    {0x0001, 0xffff, 0x0001},
+                                                    {0x7fff, 0x8001, 0x7fff},
+                                                    {0x8000, 0x8000, 0x8000},
+                                                    {0xffff, 0x0001, 0x0001}}});
+  CheckSignedUnary<uint32_t, 5>(
+      signed_unary_i32,
+      {{{UINT32_C(0x00000000), UINT32_C(0x00000000), UINT32_C(0x00000000)},
+        {UINT32_C(0x00000001), UINT32_C(0xffffffff), UINT32_C(0x00000001)},
+        {UINT32_C(0x7fffffff), UINT32_C(0x80000001), UINT32_C(0x7fffffff)},
+        {UINT32_C(0x80000000), UINT32_C(0x80000000), UINT32_C(0x80000000)},
+        {UINT32_C(0xffffffff), UINT32_C(0x00000001), UINT32_C(0x00000001)}}});
+  CheckSignedUnary<uint64_t, 5>(
+      signed_unary_i64,
+      {{{UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000),
+         UINT64_C(0x0000000000000000)},
+        {UINT64_C(0x0000000000000001), UINT64_C(0xffffffffffffffff),
+         UINT64_C(0x0000000000000001)},
+        {UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000001),
+         UINT64_C(0x7fffffffffffffff)},
+        {UINT64_C(0x8000000000000000), UINT64_C(0x8000000000000000),
+         UINT64_C(0x8000000000000000)},
+        {UINT64_C(0xffffffffffffffff), UINT64_C(0x0000000000000001),
+         UINT64_C(0x0000000000000001)}}});
 }
 
 TEST(NativeCallableTest, HalfPrecisionCrossClassRegistersAndStack) {

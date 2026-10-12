@@ -38,6 +38,7 @@ class Form(IntEnum):
     ADDRESS_ADD_SCALE = 19
     # Values 20..26 are structural control and ABI forms in the C encoder.
     ADDRESS_PC_RELATIVE = 27
+    UNARY_RM = 28
 
 
 class Flag(IntFlag):

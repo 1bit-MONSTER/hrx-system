@@ -55,6 +55,7 @@ from loom.target.contracts import (
     ValueRef,
     binary_descriptor_rules,
     descriptor_by_key,
+    unary_descriptor_rules,
 )
 from loom.target.low_descriptors import Descriptor
 
@@ -913,6 +914,17 @@ def _cases() -> Sequence[ContractCase]:
                     (scalar_arithmetic.scalar_subi, "sub"),
                     (scalar_arithmetic.scalar_muli, "imul"),
                 )
+            ),
+            form=DescriptorEmitForm.OP,
+        ),
+        *unary_descriptor_rules(
+            tuple(
+                DirectDescriptorCase(
+                    scalar_arithmetic.scalar_negi,
+                    descriptor_lookup(f"x86.scalar.neg.gpr{register_width}"),
+                    type_pattern,
+                )
+                for type_pattern, register_width in ((_I32, 32), (_I64, 64))
             ),
             form=DescriptorEmitForm.OP,
         ),

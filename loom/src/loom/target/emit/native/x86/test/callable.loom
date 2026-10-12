@@ -165,6 +165,46 @@ func.def public @replace_narrow(%bytes: buffer, %words: buffer, %index: index, %
   func.return %result : i32
 }
 
+func.def public @signed_unary_i8(%input: i8, %output: buffer) {
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<2xi8>
+  %negative = scalar.negi %input : i8
+  %absolute = scalar.absi %input : i8
+  view.store %negative, %results[0] : i8, view<2xi8>
+  view.store %absolute, %results[1] : i8, view<2xi8>
+  func.return
+}
+
+func.def public @signed_unary_i16(%input: i16, %output: buffer) {
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<2xi16>
+  %negative = scalar.negi %input : i16
+  %absolute = scalar.absi %input : i16
+  view.store %negative, %results[0] : i16, view<2xi16>
+  view.store %absolute, %results[1] : i16, view<2xi16>
+  func.return
+}
+
+func.def public @signed_unary_i32(%input: i32, %output: buffer) {
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<2xi32>
+  %negative = scalar.negi %input : i32
+  %absolute = scalar.absi %input : i32
+  view.store %negative, %results[0] : i32, view<2xi32>
+  view.store %absolute, %results[1] : i32, view<2xi32>
+  func.return
+}
+
+func.def public @signed_unary_i64(%input: i64, %output: buffer) {
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<2xi64>
+  %negative = scalar.negi %input : i64
+  %absolute = scalar.absi %input : i64
+  view.store %negative, %results[0] : i64, view<2xi64>
+  view.store %absolute, %results[1] : i64, view<2xi64>
+  func.return
+}
+
 // Loop-carried values cross both the forward exit and the backward edge.
 // Their simultaneous transport belongs to the shared allocator's move plan.
 func.def public @recurrence(%first: i64, %second: i64, %iterations: i64) -> (i64) {

@@ -139,6 +139,38 @@ def _gpr64_destructive_binary_descriptor(
     )
 
 
+def _gpr_destructive_unary_descriptor(
+    *,
+    key: str,
+    mnemonic: str,
+    semantic_tag: str,
+    bit_count: int,
+    extension: int,
+) -> Descriptor:
+    result = _gpr32_result() if bit_count == 32 else _gpr64_result()
+    input_operand = (
+        _gpr32_operand("input") if bit_count == 32 else _gpr64_operand("input")
+    )
+    return Descriptor(
+        key=key,
+        encoding_format_id=Form.UNARY_RM,
+        encoding_id=encoding(
+            0xF7, extension=extension, flags=Flag.REX_W if bit_count == 64 else 0
+        ),
+        mnemonic=mnemonic,
+        semantic_tag=semantic_tag,
+        operands=(result, input_operand),
+        constraints=_GPR_DESTRUCTIVE_LHS_CONSTRAINTS,
+        asm_forms=_asm(
+            mnemonic=f"{mnemonic}.gpr{bit_count}",
+            results=("dst",),
+            operands=("input",),
+        ),
+        schedule_class=_SCHEDULE_SCALAR,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
 def _gpr_destructive_binary_descriptor(
     *,
     key: str,
@@ -526,6 +558,16 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
         opcode=0x29,
         mnemonic="sub",
         semantic_tag="integer.sub.i32",
+    ),
+    *(
+        _gpr_destructive_unary_descriptor(
+            key=f"x86.scalar.neg.gpr{bit_count}",
+            mnemonic="neg",
+            semantic_tag=f"integer.neg.i{bit_count}",
+            bit_count=bit_count,
+            extension=3,
+        )
+        for bit_count in (32, 64)
     ),
     _gpr32_destructive_binary_descriptor(
         key="x86.scalar.imul.gpr32",

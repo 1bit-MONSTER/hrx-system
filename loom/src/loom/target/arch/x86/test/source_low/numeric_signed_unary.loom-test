@@ -1,0 +1,100 @@
+// RUN: emit source-low target=x86:scalar output=low
+
+func.def @signed_unary_i1(%input: i1) -> (i1, i1) {
+  %negative = scalar.negi %input : i1
+  %absolute = scalar.absi %input : i1
+  func.return %negative, %absolute : i1, i1
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i1) -> (i1, i1)}) @signed_unary_i1(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  return %input, %input
+}
+
+// ====
+
+func.def @signed_unary_i8(%input: i8) -> (i8, i8) {
+  %negative = scalar.negi %input : i8
+  %absolute = scalar.absi %input : i8
+  func.return %negative, %absolute : i8, i8
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i8) -> (i8, i8)}) @signed_unary_i8(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %18 = movsx.i8.gpr32 %input
+  %19 = mov.imm32 0
+  %20 = copy %19 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %negative = sub.gpr32 %20, %18
+  %22 = copy %18 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %23 = sar.imm.gpr32 %22 {shift = 31}
+  %24 = copy %18 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %25 = xor.gpr32 %24, %23
+  %26 = copy %25 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %absolute = sub.gpr32 %26, %23
+  return %negative, %absolute
+}
+
+// ====
+
+func.def @signed_unary_i16(%input: i16) -> (i16, i16) {
+  %negative = scalar.negi %input : i16
+  %absolute = scalar.absi %input : i16
+  func.return %negative, %absolute : i16, i16
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i16) -> (i16, i16)}) @signed_unary_i16(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %18 = movsx.i16.gpr32 %input
+  %19 = mov.imm32 0
+  %20 = copy %19 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %negative = sub.gpr32 %20, %18
+  %22 = copy %18 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %23 = sar.imm.gpr32 %22 {shift = 31}
+  %24 = copy %18 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %25 = xor.gpr32 %24, %23
+  %26 = copy %25 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %absolute = sub.gpr32 %26, %23
+  return %negative, %absolute
+}
+
+// ====
+
+func.def @signed_unary_i32(%input: i32) -> (i32, i32) {
+  %negative = scalar.negi %input : i32
+  %absolute = scalar.absi %input : i32
+  func.return %negative, %absolute : i32, i32
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @signed_unary_i32(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %12 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
+  %negative = neg.gpr32 %12
+  %14 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
+  %15 = sar.imm.gpr32 %14 {shift = 31}
+  %16 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
+  %17 = xor.gpr32 %16, %15
+  %18 = copy %17 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %absolute = sub.gpr32 %18, %15
+  return %negative, %absolute
+}
+
+// ====
+
+func.def @signed_unary_i64(%input: i64) -> (i64, i64) {
+  %negative = scalar.negi %input : i64
+  %absolute = scalar.absi %input : i64
+  func.return %negative, %absolute : i64, i64
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @signed_unary_i64(%input: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %12 = copy %input : reg<x86.gpr64> -> reg<x86.gpr64>
+  %negative = neg.gpr64 %12
+  %14 = copy %input : reg<x86.gpr64> -> reg<x86.gpr64>
+  %15 = sar.imm.gpr64 %14 {shift = 63}
+  %16 = copy %input : reg<x86.gpr64> -> reg<x86.gpr64>
+  %17 = xor.gpr64 %16, %15
+  %18 = copy %17 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %absolute = sub.gpr64 %18, %15
+  return %negative, %absolute
+}

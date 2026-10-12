@@ -417,6 +417,24 @@ TEST(EncodingTest, RegisterDirectionAndWidth) {
                  {0x45, 0x01, 0xd1}, 1u << 9);
 }
 
+TEST(EncodingTest, DestructiveUnaryRegisterWidth) {
+  loom_x86_encoding_operands_t operands = {.result = 0};
+  operands.inputs[0] = 0;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_UNARY_RM, 0xf7 | (3u << 9), operands,
+                 {0xf7, 0xd8}, 1u << 0);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_UNARY_RM,
+                 0xf7 | (3u << 9) | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x48, 0xf7, 0xd8}, 1u << 0);
+
+  operands.result = 9;
+  operands.inputs[0] = 9;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_UNARY_RM, 0xf7 | (3u << 9), operands,
+                 {0x41, 0xf7, 0xd9}, 1u << 9);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_UNARY_RM,
+                 0xf7 | (3u << 9) | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x49, 0xf7, 0xd9}, 1u << 9);
+}
+
 TEST(EncodingTest, ByteRegisterPrefixAndFullWidthDefinition) {
   // MOVZX esi,sil requires a REX prefix even without extended registers.
   loom_x86_encoding_operands_t operands = {.result = 6};
