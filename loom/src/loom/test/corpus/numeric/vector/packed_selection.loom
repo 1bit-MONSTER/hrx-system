@@ -27,7 +27,8 @@ func.def inline @packed_select_masks(%trial: index) -> (vector<1xi1>, vector<3xi
 }
 
 // Scalar input loads keep operand formation independent of packed vector
-// memory. packed_memory_tails.loom owns odd-width memory transfer coverage.
+// memory. The partial numeric memory scenario below owns odd-width global
+// transfers; memory/packed/tails.loom owns staged storage coverage.
 func.def @select_packed_bytes(%trial: index, %true_input: buffer, %false_input: buffer, %output: buffer) {
   %position = index.assume %trial [range(%trial, 0, 255)] : index
   %mask1, %mask3, %mask4, %mask7, %mask8 = func.call @packed_select_masks(%position) : (index) -> (vector<1xi1>, vector<3xi1>, vector<4xi1>, vector<7xi1>, vector<8xi1>)
@@ -316,6 +317,84 @@ check.scenario @packed_word_selects {
     %output = check.generate.fill value(-21846) : tensor<70xi16>
     check.compare<@select_packed_words>(%packet, %true_input, %false_input, %output) : (index, tensor<256xi16>, tensor<256xi16>, tensor<70xi16>) -> () {
       check.expect.bitwise actual(%output) expected(%output) : tensor<70xi16>
+    }
+  }
+  check.return
+}
+
+// Naturally aligned spans exercise every numeric storage type through the
+// sub-v128 boundary. The chosen lane counts cover the 8+4+2+1 decomposition
+// and each element-width boundary; one guard byte checks the exact footprint.
+func.def @roundtrip_partial_numeric_memory(%input: buffer, %output: buffer) {
+  %o0 = index.constant 0 : offset
+  %o15 = index.constant 15 : offset
+  %o22 = index.constant 22 : offset
+  %o26 = index.constant 26 : offset
+  %o40 = index.constant 40 : offset
+  %o46 = index.constant 46 : offset
+  %o48 = index.constant 48 : offset
+  %o60 = index.constant 60 : offset
+  %o72 = index.constant 72 : offset
+  %o80 = index.constant 80 : offset
+  %input_i8 = buffer.view %input[%o0] : buffer -> view<15xi8>
+  %output_i8 = buffer.view %output[%o0] : buffer -> view<15xi8>
+  %input_e4 = buffer.view %input[%o15] : buffer -> view<7xf8E4M3>
+  %output_e4 = buffer.view %output[%o15] : buffer -> view<7xf8E4M3>
+  %input_e5 = buffer.view %input[%o22] : buffer -> view<3xf8E5M2>
+  %output_e5 = buffer.view %output[%o22] : buffer -> view<3xf8E5M2>
+  %input_i16 = buffer.view %input[%o26] : buffer -> view<7xi16>
+  %output_i16 = buffer.view %output[%o26] : buffer -> view<7xi16>
+  %input_f16 = buffer.view %input[%o40] : buffer -> view<3xf16>
+  %output_f16 = buffer.view %output[%o40] : buffer -> view<3xf16>
+  %input_bf16 = buffer.view %input[%o46] : buffer -> view<1xbf16>
+  %output_bf16 = buffer.view %output[%o46] : buffer -> view<1xbf16>
+  %input_i32 = buffer.view %input[%o48] : buffer -> view<3xi32>
+  %output_i32 = buffer.view %output[%o48] : buffer -> view<3xi32>
+  %input_f32 = buffer.view %input[%o60] : buffer -> view<3xf32>
+  %output_f32 = buffer.view %output[%o60] : buffer -> view<3xf32>
+  %input_i64 = buffer.view %input[%o72] : buffer -> view<1xi64>
+  %output_i64 = buffer.view %output[%o72] : buffer -> view<1xi64>
+  %input_f64 = buffer.view %input[%o80] : buffer -> view<1xf64>
+  %output_f64 = buffer.view %output[%o80] : buffer -> view<1xf64>
+  %i8 = vector.load %input_i8[0] : view<15xi8> -> vector<15xi8>
+  %e4 = vector.load %input_e4[0] : view<7xf8E4M3> -> vector<7xf8E4M3>
+  %e5 = vector.load %input_e5[0] : view<3xf8E5M2> -> vector<3xf8E5M2>
+  %i16 = vector.load %input_i16[0] : view<7xi16> -> vector<7xi16>
+  %f16 = vector.load %input_f16[0] : view<3xf16> -> vector<3xf16>
+  %bf16 = vector.load %input_bf16[0] : view<1xbf16> -> vector<1xbf16>
+  %i32 = vector.load %input_i32[0] : view<3xi32> -> vector<3xi32>
+  %f32 = vector.load %input_f32[0] : view<3xf32> -> vector<3xf32>
+  %i64 = vector.load %input_i64[0] : view<1xi64> -> vector<1xi64>
+  %f64 = vector.load %input_f64[0] : view<1xf64> -> vector<1xf64>
+  vector.store %i8, %output_i8[0] : vector<15xi8>, view<15xi8>
+  vector.store %e4, %output_e4[0] : vector<7xf8E4M3>, view<7xf8E4M3>
+  vector.store %e5, %output_e5[0] : vector<3xf8E5M2>, view<3xf8E5M2>
+  vector.store %i16, %output_i16[0] : vector<7xi16>, view<7xi16>
+  vector.store %f16, %output_f16[0] : vector<3xf16>, view<3xf16>
+  vector.store %bf16, %output_bf16[0] : vector<1xbf16>, view<1xbf16>
+  vector.store %i32, %output_i32[0] : vector<3xi32>, view<3xi32>
+  vector.store %f32, %output_f32[0] : vector<3xf32>, view<3xf32>
+  vector.store %i64, %output_i64[0] : vector<1xi64>, view<1xi64>
+  vector.store %f64, %output_f64[0] : vector<1xf64>, view<1xf64>
+  func.return
+}
+
+func.def @roundtrip_partial_numeric_memory_oracle(%input: buffer, %output: buffer) {
+  %o0 = index.constant 0 : offset
+  %o26 = index.constant 26 : offset
+  %length0 = index.constant 25 : offset
+  %length1 = index.constant 62 : offset
+  buffer.copy %input[%o0], %output[%o0], %length0
+  buffer.copy %input[%o26], %output[%o26], %length1
+  func.return
+}
+
+check.scenario @partial_numeric_memory_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-44) step(1) : tensor<88xi8>
+    %output = check.generate.fill value(91) : tensor<88xi8>
+    check.compare<@roundtrip_partial_numeric_memory, @roundtrip_partial_numeric_memory_oracle>(%input, %output) : (tensor<88xi8>, tensor<88xi8>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<88xi8>
     }
   }
   check.return

@@ -86,25 +86,21 @@ func.def @partial_i16(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: 
 
 // ----
 low.func.def target<wasm.core.simd128> abi(wasm_function) @partial_i16(%lhs_buffer: reg<wasm.i32>, %rhs_buffer: reg<wasm.i32>, %output_buffer: reg<wasm.i32>) asm {
-  %30 = i32.load16_u %lhs_buffer
-  %31 = i32.load16_u %lhs_buffer {offset = 2}
-  %32 = i32.load16_u %lhs_buffer {offset = 4}
-  %33 = i16x8.splat %30
-  %34 = i16x8.replace_lane %33, %31, 1
-  %lhs = i16x8.replace_lane %34, %32, 2
-  %36 = i32.load16_u %rhs_buffer
-  %37 = i32.load16_u %rhs_buffer {offset = 2}
-  %38 = i32.load16_u %rhs_buffer {offset = 4}
-  %39 = i16x8.splat %36
-  %40 = i16x8.replace_lane %39, %37, 1
-  %rhs = i16x8.replace_lane %40, %38, 2
+  %46 = i32.load %lhs_buffer
+  %47 = i32x4.splat %46
+  %48 = i32.load16_u %lhs_buffer {offset = 4}
+  %49 = i16x8.splat %48
+  %lhs = i8x16.shuffle %47, %49, 0, 1, 2, 3, 16, 17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  %51 = i32.load %rhs_buffer
+  %52 = i32x4.splat %51
+  %53 = i32.load16_u %rhs_buffer {offset = 4}
+  %54 = i16x8.splat %53
+  %rhs = i8x16.shuffle %52, %54, 0, 1, 2, 3, 16, 17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
   %result = i16x8.add %lhs, %rhs
-  %43 = i16x8.extract_lane_u %result, 0
-  %44 = i16x8.extract_lane_u %result, 1
-  %45 = i16x8.extract_lane_u %result, 2
-  i32.store16 %output_buffer, %43
-  i32.store16 %output_buffer, %44 {offset = 2}
-  i32.store16 %output_buffer, %45 {offset = 4}
+  %57 = i32x4.extract_lane %result, 0
+  i32.store %output_buffer, %57
+  %58 = i16x8.extract_lane_u %result, 2
+  i32.store16 %output_buffer, %58 {offset = 4}
   return
 }
 

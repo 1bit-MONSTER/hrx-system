@@ -72,6 +72,14 @@ typedef struct loom_target_vector_packet_lane_limit_t {
   uint16_t maximum_lane_count;
 } loom_target_vector_packet_lane_limit_t;
 
+typedef enum loom_target_vector_packet_policy_flag_bits_e {
+  LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_NONE = 0u,
+  // Leaves rejected dynamic windows attached to their decomposable producer
+  // graphs so target legalization can replay packets at runtime origins.
+  LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_DYNAMIC_WINDOW_REPLAY = 1u << 0,
+} loom_target_vector_packet_policy_flag_bits_t;
+typedef uint8_t loom_target_vector_packet_policy_flags_t;
+
 typedef struct loom_target_vector_packet_policy_t {
   // Native packet widths in bits used by structural memory and carrier
   // legalization. Widths are byte-aligned powers of two.
@@ -82,6 +90,8 @@ typedef struct loom_target_vector_packet_policy_t {
   uint8_t index_bit_count;
   // Physical target width of offset lanes. Zero uses the abstract source width.
   uint8_t offset_bit_count;
+  // Target-selected packet planning capabilities.
+  loom_target_vector_packet_policy_flags_t flags;
   // Sparse per-element lane ceilings for structural packet widths.
   const loom_target_vector_packet_lane_limit_t* structural_lane_limits;
   // Largest payload in bits that remains owned by ordinary structural

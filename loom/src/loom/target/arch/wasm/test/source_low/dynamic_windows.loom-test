@@ -1,0 +1,99 @@
+// RUN: emit source-low target=wasm:simd128 output=low control-flow=structured-low
+
+// A runtime-selected result that crosses a physical packet boundary streams
+// only the selected source packets.
+func.def @dynamic_byte_window(%trial0: index, %input: buffer, %output: buffer) {
+  %trial = index.assume %trial0 [range(%trial0, 0, 28)] : index
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %input[%base] : buffer -> view<48xi8>
+  %result_view = buffer.view %output[%base] : buffer -> view<20xi8>
+  %source = vector.load %source_view[0] : view<48xi8> -> vector<48xi8>
+  %result = vector.slice %source[%trial] : vector<48xi8> -> vector<20xi8>
+  vector.store %result, %result_view[0] : vector<20xi8>, view<20xi8>
+  func.return
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @dynamic_byte_window(%trial: reg<wasm.i32>, %input: reg<wasm.i32>, %output: reg<wasm.i32>) asm {
+  %26 = i32.add %input, %trial
+  %27 = v128.load %26
+  %29 = i32.load %26 {offset = 16}
+  v128.store %output, %27
+  i32.store %output, %29 {offset = 16}
+  return
+}
+
+// ====
+
+// Two predicate windows may independently replay one ordinary source read
+// when motion analysis proves that neither crosses a write.
+func.def @shared_dynamic_predicate_windows(%trial0: index, %input: buffer, %output: buffer) {
+  %trial = index.assume %trial0 [range(%trial0, 0, 4)] : index
+  %c4 = index.constant 4 : index
+  %second_offset = index.add %trial, %c4 : index
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %input[%base] : buffer -> view<12xi32>
+  %result_view = buffer.view %output[%base] : buffer -> view<8xi8>
+  %source = vector.load %source_view[0] : view<12xi32> -> vector<12xi32>
+  %c0 = vector.constant 0 : vector<12xi32>
+  %predicates = vector.cmpi ne, %source, %c0 : vector<12xi32> -> vector<12xi1>
+  %first = vector.slice %predicates[%trial] : vector<12xi1> -> vector<4xi1>
+  %second = vector.slice %predicates[%second_offset] : vector<12xi1> -> vector<4xi1>
+  %first_bytes = vector.extui %first : vector<4xi1> to vector<4xi8>
+  %second_bytes = vector.extui %second : vector<4xi1> to vector<4xi8>
+  vector.store %first_bytes, %result_view[0] : vector<4xi8>, view<8xi8>
+  vector.store %second_bytes, %result_view[4] : vector<4xi8>, view<8xi8>
+  func.return
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @shared_dynamic_predicate_windows(%trial: reg<wasm.i32>, %input: reg<wasm.i32>, %output: reg<wasm.i32>) asm {
+  %39 = i32.const 4
+  %40 = i32.mul %trial, %39
+  %41 = i32.add %input, %40
+  %42 = v128.load %41
+  %43 = i32.const 0
+  %44 = i32x4.splat %43
+  %45 = i32x4.ne %42, %44
+  %first = i8x16.shuffle %45, %45, 0, 4, 8, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  %50 = v128.load %41 {offset = 16}
+  %51 = i32x4.ne %50, %44
+  %second = i8x16.shuffle %51, %51, 0, 4, 8, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  %53 = i32.const 1
+  %54 = i8x16.splat %53
+  %56 = i8x16.splat %43
+  %first_bytes = v128.bitselect %54, %56, %first
+  %second_bytes = v128.bitselect %54, %56, %second
+  %59 = i32x4.extract_lane %first_bytes, 0
+  i32.store %output, %59
+  %60 = i32x4.extract_lane %second_bytes, 0
+  i32.store %output, %60 {offset = 4}
+  return
+}
+
+// ====
+
+// A leading dynamic coordinate selects one contiguous shaped tail. Flattening
+// retains the authored packed alignment on both views.
+func.def @dynamic_shaped_tail(%trial0: index, %input: buffer, %output: buffer) {
+  %trial = index.assume %trial0 [range(%trial0, 0, 1)] : index
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %input[%base] : buffer -> view<2x3x4xi16, align(1)>
+  %result_view = buffer.view %output[%base] : buffer -> view<3x4xi16, align(1)>
+  %source = vector.load %source_view[0, 0, 0] : view<2x3x4xi16, align(1)> -> vector<2x3x4xi16>
+  %result = vector.extract %source[%trial] : vector<2x3x4xi16> -> vector<3x4xi16>
+  vector.store %result, %result_view[0, 0] : vector<3x4xi16>, view<3x4xi16, align(1)>
+  func.return
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @dynamic_shaped_tail(%trial: reg<wasm.i32>, %input: reg<wasm.i32>, %output: reg<wasm.i32>) asm {
+  %39 = i32.const 24
+  %40 = i32.mul %trial, %39
+  %41 = i32.add %input, %40
+  %42 = v128.load %41
+  %46 = i64.load %41 {offset = 16}
+  v128.store %output, %42
+  i64.store %output, %46 {offset = 16}
+  return
+}

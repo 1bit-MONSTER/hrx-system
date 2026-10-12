@@ -594,6 +594,51 @@ static iree_status_t loom_vector_component_select(
 
   const loom_target_vector_packet_policy_t* policy =
       plan->context->vector_packet_policy;
+  if (iree_any_bit_set(
+          policy->flags,
+          LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_DYNAMIC_WINDOW_REPLAY)) {
+    // A rejected dynamic window owns the source-width producer graph. Eagerly
+    // materializing an escaping aggregate here would force the later window to
+    // index an SSA packet tuple at runtime. Native target window contracts keep
+    // their ordinary component behavior.
+    member_index = component->first_member_index;
+    while (member_index != LOOM_VECTOR_COMPONENT_INDEX_INVALID) {
+      const loom_vector_component_record_t* record =
+          &plan->records[member_index];
+      const loom_value_id_t result = loom_op_const_results(record->op)[0];
+      const loom_value_t* result_value =
+          loom_module_value(plan->context->module, result);
+      const loom_use_t* use = NULL;
+      loom_value_for_each_use(result_value, use) {
+        const loom_op_t* user_op = loom_use_user_op(*use);
+        if (!loom_vector_slice_isa(user_op) ||
+            loom_vector_slice_source(user_op) != result ||
+            loom_vector_slice_offsets(user_op).count == 0) {
+          continue;
+        }
+        const loom_type_t source_type =
+            loom_module_value_type(plan->context->module, result);
+        const loom_type_t window_type = loom_module_value_type(
+            plan->context->module, loom_vector_slice_result(user_op));
+        if (loom_type_rank(source_type) != 1 ||
+            loom_type_rank(window_type) != 1 ||
+            !loom_type_is_all_static(source_type) ||
+            !loom_type_is_all_static(window_type)) {
+          continue;
+        }
+        loom_target_contract_query_result_t window_result =
+            loom_target_contract_query_result_empty();
+        IREE_RETURN_IF_ERROR(loom_target_legalization_query_contract(
+            plan->context, user_op, &window_result));
+        if (window_result.outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL &&
+            window_result.outcome != LOOM_TARGET_CONTRACT_QUERY_INVALID_IR) {
+          return iree_ok_status();
+        }
+      }
+      member_index = record->next_member_index;
+    }
+  }
+
   for (uint8_t i = 0; i < policy->native_lane_count_count; ++i) {
     if ((component->candidate_bits & ((uint64_t)1u << i)) == 0) {
       continue;

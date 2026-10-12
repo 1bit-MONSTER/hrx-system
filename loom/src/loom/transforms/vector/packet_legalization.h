@@ -36,6 +36,16 @@ iree_status_t loom_vector_packet_legalize_insert(
     loom_target_legalization_context_t* context, loom_op_t* op,
     const loom_target_vector_packet_policy_t* policy, bool* out_rewritten);
 
+// Packetizes a rank-one dynamic slice by materializing its decomposable
+// producer graph directly at each runtime-selected result packet. Ordinary
+// reads may move to the selected packet origins when indexed motion analysis
+// proves that no write is crossed. Returns false through |out_rewritten| when
+// the slice is static, its producer graph cannot stream, or the expansion
+// exceeds the static bound.
+iree_status_t loom_vector_packet_legalize_dynamic_slice(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    const loom_target_vector_packet_policy_t* policy, bool* out_rewritten);
+
 // Packetizes a rank-one table lookup over the common lane interval supported
 // by both its index and result element types. The table remains one captured
 // SSA value. Existing index values supply static slices while decomposable

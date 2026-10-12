@@ -10,12 +10,12 @@ func.def @store_packetized_elements(%output: buffer, %a: i64, %b: i64, %c: i64, 
 
 // ----
 low.func.def target<wasm.core.simd128> abi(wasm_function) @store_packetized_elements(%output: reg<wasm.i32>, %a: reg<wasm.i64>, %b: reg<wasm.i64>, %c: reg<wasm.i64>, %d: reg<wasm.i64>, %e: reg<wasm.i64>) asm {
-  %24 = i64x2.splat %a
-  %25 = i64x2.replace_lane %24, %b, 1
-  %26 = i64x2.splat %c
-  %27 = i64x2.replace_lane %26, %d, 1
-  v128.store %output, %25
-  v128.store %output, %27 {offset = 16}
+  %26 = i64x2.splat %a
+  %27 = i64x2.replace_lane %26, %b, 1
+  %28 = i64x2.splat %c
+  %29 = i64x2.replace_lane %28, %d, 1
+  v128.store %output, %27
+  v128.store %output, %29 {offset = 16}
   i64.store %output, %e {offset = 32}
   return
 }
