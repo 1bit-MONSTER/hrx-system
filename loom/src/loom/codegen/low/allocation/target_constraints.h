@@ -340,8 +340,15 @@ void loom_low_allocation_target_constraints_record_move_failure(
     uint16_t reg_class_id, uint32_t budget_units, uint32_t peak_units,
     iree_string_view_t failure_code);
 
+// Returns the fixed value record for |value_ordinal|, or NULL when the value is
+// not fixed. The ordinal belongs to |fixed_value_domain|.
+const loom_low_allocation_resolved_fixed_value_t*
+loom_low_allocation_target_constraints_fixed_value_for_value_ordinal(
+    const loom_low_allocation_target_constraints_t* constraints,
+    loom_value_ordinal_t value_ordinal);
+
 // Returns the fixed value record for |value_id|, or NULL when the value is not
-// fixed.
+// fixed. Consumers retaining the local ordinal use the direct query above.
 const loom_low_allocation_resolved_fixed_value_t*
 loom_low_allocation_target_constraints_fixed_value_for_value(
     const loom_low_allocation_target_constraints_t* constraints,

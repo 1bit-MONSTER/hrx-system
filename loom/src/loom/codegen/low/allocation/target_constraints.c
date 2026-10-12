@@ -1377,6 +1377,21 @@ void loom_low_allocation_target_constraints_record_move_failure(
 }
 
 const loom_low_allocation_resolved_fixed_value_t*
+loom_low_allocation_target_constraints_fixed_value_for_value_ordinal(
+    const loom_low_allocation_target_constraints_t* constraints,
+    loom_value_ordinal_t value_ordinal) {
+  IREE_ASSERT_ARGUMENT(constraints);
+  if (constraints->fixed_value_count == 0) {
+    return NULL;
+  }
+  IREE_ASSERT_ARGUMENT(constraints->fixed_value_domain);
+  IREE_ASSERT_LT(value_ordinal, constraints->fixed_value_domain->value_count);
+  const uint32_t index =
+      constraints->fixed_value_indices_by_ordinal[value_ordinal];
+  return index != 0 ? &constraints->fixed_values[index - 1] : NULL;
+}
+
+const loom_low_allocation_resolved_fixed_value_t*
 loom_low_allocation_target_constraints_fixed_value_for_value(
     const loom_low_allocation_target_constraints_t* constraints,
     loom_value_id_t value_id) {
@@ -1389,8 +1404,8 @@ loom_low_allocation_target_constraints_fixed_value_for_value(
   if (ordinal == LOOM_VALUE_ORDINAL_INVALID) {
     return NULL;
   }
-  const uint32_t index = constraints->fixed_value_indices_by_ordinal[ordinal];
-  return index != 0 ? &constraints->fixed_values[index - 1] : NULL;
+  return loom_low_allocation_target_constraints_fixed_value_for_value_ordinal(
+      constraints, ordinal);
 }
 
 const loom_low_allocation_resolved_fixed_value_t*
