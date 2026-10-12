@@ -51,7 +51,9 @@ std::string LayoutName(const loom_amdgpu_matrix_fragment_layout_t* layout) {
 
 loom_amdgpu_fragment_memory_plan_t TransposedPlan(
     const loom_amdgpu_matrix_fragment_layout_t* layout,
-    loom_contract_operand_role_t role) {
+    loom_contract_operand_role_t role,
+    loom_value_fact_memory_space_t memory_space =
+        LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL) {
   const loom_matrix_fragment_role_layout_t* role_layout =
       loom_matrix_fragment_role_layout(layout, role);
   const uint16_t element_byte_count = role_layout->element_bit_count / 8u;
@@ -68,7 +70,8 @@ loom_amdgpu_fragment_memory_plan_t TransposedPlan(
       .payload_form = LOOM_AMDGPU_FRAGMENT_MEMORY_PAYLOAD_FORM_NATIVE,
       .packetization = LOOM_AMDGPU_FRAGMENT_MEMORY_PACKETIZATION_NATIVE,
   };
-  plan.source.memory_space = LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL;
+  plan.source.memory_space = memory_space;
+  plan.source.minimum_alignment = 8;
   if (role == LOOM_CONTRACT_OPERAND_ROLE_LHS) {
     // A is logically [M, K]. Column-major storage makes M contiguous and
     // requires the hardware exchange to recover the native lane layout.
@@ -149,9 +152,15 @@ TEST(AmdgpuFragmentMemoryTransposeTest, Gfx1200FamilyMatchesSemanticLayouts) {
       EXPECT_TRUE(choice.packet_address_sources_consumed_at_issue);
       for (uint16_t packet_index = 0; packet_index < choice.packet_count;
            ++packet_index) {
-        EXPECT_EQ(
+        EXPECT_TRUE(iree_all_bits_set(
             choice.packets[packet_index].flags,
-            LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_NATIVE_TRANSPOSE_LOAD);
+            LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_NATIVE_TRANSPOSE_LOAD));
+        EXPECT_EQ(
+            iree_all_bits_set(
+                choice.packets[packet_index].flags,
+                LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_FIRST_32_LANES_ONLY),
+            layout->wave_size == 64);
+        EXPECT_EQ(choice.packets[packet_index].issued_element_count, 8u);
       }
 
       loom_amdgpu_fragment_memory_apply_transpose_load(&choice, &plan);
@@ -262,7 +271,7 @@ TEST(AmdgpuFragmentMemoryTransposeTest,
   EXPECT_EQ(choice.address_layout.lane_terms[1].modulus, 2u);
   EXPECT_EQ(choice.address_layout.lane_terms[1].byte_stride, 16u);
   EXPECT_EQ(choice.address_layout.lane_terms[2].divisor, 16u);
-  EXPECT_EQ(choice.address_layout.lane_terms[2].modulus, 2u);
+  EXPECT_EQ(choice.address_layout.lane_terms[2].modulus, 0u);
   EXPECT_EQ(choice.address_layout.lane_terms[2].byte_stride, 512u);
   for (uint16_t register_index = 0; register_index < 4; ++register_index) {
     EXPECT_EQ(choice.address_layout.register_byte_offsets[register_index], 0u);
@@ -279,6 +288,149 @@ TEST(AmdgpuFragmentMemoryTransposeTest,
             LOOM_AMDGPU_DESCRIPTOR_REF_GLOBAL_LOAD_TR_B128_SADDR);
   EXPECT_EQ(choice.packets[1].register_index, 4u);
   EXPECT_EQ(choice.packets[1].result_register_count, 4u);
+}
+
+TEST(AmdgpuFragmentMemoryTransposeTest, Gfx950B16FamilyMatchesSemanticLayouts) {
+  loom_target_low_descriptor_registry_t registry = {};
+  loom_amdgpu_low_descriptor_registry_initialize(&registry);
+  const loom_low_descriptor_set_t* descriptor_set =
+      DescriptorSet(&registry, "gfx950");
+  ASSERT_NE(descriptor_set, nullptr);
+  const loom_amdgpu_matrix_feature_bits_t feature_bits =
+      MatrixFeatureBits("gfx950");
+  ASSERT_NE(feature_bits, 0u);
+
+  bool visited[LOOM_AMDGPU_MATRIX_FRAGMENT_LAYOUT_COUNT] = {};
+  uint32_t selected_role_count = 0;
+  uint32_t selected_16x16_role_count = 0;
+  uint32_t selected_32x32_role_count = 0;
+  for (iree_host_size_t i = 0;
+       i < loom_amdgpu_matrix_contract_descriptor_count(); ++i) {
+    const loom_amdgpu_matrix_contract_descriptor_t* contract =
+        loom_amdgpu_matrix_contract_descriptor_at(i);
+    const loom_amdgpu_matrix_fragment_layout_t* layout =
+        loom_amdgpu_matrix_contract_descriptor_fragment_layout(contract);
+    if (layout == nullptr || visited[layout->kind] ||
+        !loom_amdgpu_matrix_contract_is_available(contract, feature_bits,
+                                                  layout->wave_size)) {
+      continue;
+    }
+    visited[layout->kind] = true;
+    for (loom_contract_operand_role_t role :
+         {LOOM_CONTRACT_OPERAND_ROLE_LHS, LOOM_CONTRACT_OPERAND_ROLE_RHS}) {
+      const loom_matrix_fragment_role_layout_t* role_layout =
+          loom_matrix_fragment_role_layout(layout, role);
+      if (role_layout->element_bit_count != 16 ||
+          layout->tile_shape.block_count != 1 ||
+          role_layout->coordinate_element_stride != 1 ||
+          role_layout->reduction_group.storage_element_count != 0 ||
+          role_layout->register_count % 2 != 0) {
+        continue;
+      }
+
+      SCOPED_TRACE(LayoutName(layout) +
+                   (role == LOOM_CONTRACT_OPERAND_ROLE_LHS ? " lhs" : " rhs"));
+      loom_amdgpu_fragment_memory_plan_t plan =
+          TransposedPlan(layout, role, LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP);
+      loom_amdgpu_fragment_memory_transpose_choice_t choice = {};
+      ASSERT_TRUE(loom_amdgpu_fragment_memory_select_transpose_load(
+          descriptor_set, layout, &plan, &choice));
+      ASSERT_EQ(choice.packet_count, role_layout->register_count / 2u);
+      for (uint16_t packet_index = 0; packet_index < choice.packet_count;
+           ++packet_index) {
+        EXPECT_EQ(
+            choice.packets[packet_index].flags,
+            LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_NATIVE_TRANSPOSE_LOAD);
+        EXPECT_EQ(choice.packets[packet_index].issued_element_count, 4u);
+        EXPECT_EQ(choice.packets[packet_index].descriptor_ref,
+                  LOOM_AMDGPU_DESCRIPTOR_REF_DS_READ_B64_TR_B16);
+      }
+
+      loom_amdgpu_fragment_memory_apply_transpose_load(&choice, &plan);
+      loom_amdgpu_fragment_memory_issued_access_t
+          accesses[LOOM_AMDGPU_FRAGMENT_MEMORY_MAX_ISSUED_ACCESSES_PER_PACKET] =
+              {};
+      ASSERT_EQ(loom_amdgpu_fragment_memory_query_issued_accesses(
+                    &plan, &plan.packets[0], accesses),
+                1u);
+      EXPECT_EQ(accesses[0].element_count, 4u);
+      EXPECT_EQ(accesses[0].flags,
+                LOOM_AMDGPU_FRAGMENT_MEMORY_ISSUED_ACCESS_FLAG_NONE);
+
+      ++selected_role_count;
+      selected_16x16_role_count += layout->tile_shape.result_row_count == 16 &&
+                                   layout->tile_shape.result_column_count == 16;
+      selected_32x32_role_count += layout->tile_shape.result_row_count == 32 &&
+                                   layout->tile_shape.result_column_count == 32;
+    }
+  }
+  // Enumerate every available single-block, unpacked 16-bit role whose payload
+  // fills whole B64 packets, including the uncompressed sides of sparse
+  // contracts.
+  EXPECT_EQ(selected_role_count, 18u);
+  EXPECT_EQ(selected_16x16_role_count, 10u);
+  EXPECT_EQ(selected_32x32_role_count, 8u);
+}
+
+TEST(AmdgpuFragmentMemoryTransposeTest,
+     Gfx950B16RetainsExactLaneAndPacketAddresses) {
+  loom_target_low_descriptor_registry_t registry = {};
+  loom_amdgpu_low_descriptor_registry_initialize(&registry);
+  const loom_low_descriptor_set_t* descriptor_set =
+      DescriptorSet(&registry, "gfx950");
+  ASSERT_NE(descriptor_set, nullptr);
+  const auto* layout = loom_amdgpu_matrix_fragment_layout_for_kind(
+      LOOM_AMDGPU_MATRIX_FRAGMENT_LAYOUT_CDNA_MFMA_F32_16X16X32_BF16);
+  ASSERT_NE(layout, nullptr);
+  loom_amdgpu_fragment_memory_plan_t plan =
+      TransposedPlan(layout, LOOM_CONTRACT_OPERAND_ROLE_RHS,
+                     LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP);
+
+  loom_amdgpu_fragment_memory_transpose_choice_t choice = {};
+  ASSERT_TRUE(loom_amdgpu_fragment_memory_select_transpose_load(
+      descriptor_set, layout, &plan, &choice));
+  ASSERT_EQ(choice.packet_count, 2u);
+  EXPECT_EQ(choice.address_layout.primary_lane_divisor, 16u);
+  EXPECT_EQ(choice.address_layout.linear_lane_byte_stride, 0u);
+  ASSERT_EQ(choice.address_layout.lane_term_count, 2u);
+  EXPECT_EQ(choice.address_layout.lane_terms[0].divisor, 1u);
+  EXPECT_EQ(choice.address_layout.lane_terms[0].modulus, 16u);
+  EXPECT_EQ(choice.address_layout.lane_terms[0].byte_stride, 8u);
+  EXPECT_EQ(choice.address_layout.lane_terms[1].divisor, 16u);
+  EXPECT_EQ(choice.address_layout.lane_terms[1].modulus, 0u);
+  EXPECT_EQ(choice.address_layout.lane_terms[1].byte_stride, 256u);
+  for (uint16_t register_index = 0; register_index < 2; ++register_index) {
+    EXPECT_EQ(choice.address_layout.register_byte_offsets[register_index], 0u);
+  }
+  for (uint16_t register_index = 2; register_index < 4; ++register_index) {
+    EXPECT_EQ(choice.address_layout.register_byte_offsets[register_index],
+              128u);
+  }
+  EXPECT_EQ(choice.packets[0].descriptor_ref,
+            LOOM_AMDGPU_DESCRIPTOR_REF_DS_READ_B64_TR_B16);
+  EXPECT_EQ(choice.packets[0].register_index, 0u);
+  EXPECT_EQ(choice.packets[0].result_register_count, 2u);
+  EXPECT_EQ(choice.packets[1].descriptor_ref,
+            LOOM_AMDGPU_DESCRIPTOR_REF_DS_READ_B64_TR_B16);
+  EXPECT_EQ(choice.packets[1].register_index, 2u);
+  EXPECT_EQ(choice.packets[1].result_register_count, 2u);
+
+  plan.source.minimum_alignment = 4;
+  EXPECT_FALSE(loom_amdgpu_fragment_memory_select_transpose_load(
+      descriptor_set, layout, &plan, &choice));
+  plan.source.minimum_alignment = 8;
+  plan.source.memory_space = LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL;
+  EXPECT_FALSE(loom_amdgpu_fragment_memory_select_transpose_load(
+      descriptor_set, layout, &plan, &choice));
+
+  const auto* b8_layout = loom_amdgpu_matrix_fragment_layout_for_kind(
+      LOOM_AMDGPU_MATRIX_FRAGMENT_LAYOUT_CDNA_MFMA_F32_16X16X32_PACKED8);
+  ASSERT_NE(b8_layout, nullptr);
+  const loom_amdgpu_fragment_memory_plan_t b8_plan =
+      TransposedPlan(b8_layout, LOOM_CONTRACT_OPERAND_ROLE_RHS,
+                     LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP);
+  EXPECT_FALSE(loom_amdgpu_fragment_memory_select_transpose_load(
+      descriptor_set, b8_layout, &b8_plan, &choice));
 }
 
 TEST(AmdgpuFragmentMemoryTransposeTest, RejectsCompressedAndDynamicLayouts) {

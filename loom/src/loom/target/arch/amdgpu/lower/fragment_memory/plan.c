@@ -1781,14 +1781,24 @@ static iree_status_t loom_amdgpu_fragment_memory_selection_flags(
       !loom_vector_fragment_load_isa(source_op) ||
       (source->role != LOOM_CONTRACT_OPERAND_ROLE_LHS &&
        source->role != LOOM_CONTRACT_OPERAND_ROLE_RHS) ||
-      (source_access->memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL &&
-       source_access->memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_CONSTANT) ||
-      (element_bit_count != 8 && element_bit_count != 16) ||
-      (wave_size != 32 && wave_size != 64) ||
       !loom_amdgpu_fragment_memory_dynamic_base_is_subgroup_uniform(
-          source_access) ||
-      (!loom_amdgpu_descriptor_set_has_ref(descriptor_set, b64_ref) &&
-       !loom_amdgpu_descriptor_set_has_ref(descriptor_set, b128_ref))) {
+          source_access)) {
+    return iree_ok_status();
+  }
+  const bool rdna4_candidate =
+      (source_access->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL ||
+       source_access->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_CONSTANT) &&
+      (element_bit_count == 8 || element_bit_count == 16) &&
+      (wave_size == 32 || wave_size == 64) &&
+      (loom_amdgpu_descriptor_set_has_ref(descriptor_set, b64_ref) ||
+       loom_amdgpu_descriptor_set_has_ref(descriptor_set, b128_ref));
+  const bool cdna4_candidate =
+      source_access->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP &&
+      source_access->minimum_alignment >= 8 && element_bit_count == 16 &&
+      wave_size == 64 &&
+      loom_amdgpu_descriptor_set_has_ref(
+          descriptor_set, LOOM_AMDGPU_DESCRIPTOR_REF_DS_READ_B64_TR_B16);
+  if (!rdna4_candidate && !cdna4_candidate) {
     return iree_ok_status();
   }
 

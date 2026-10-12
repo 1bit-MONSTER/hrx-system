@@ -1008,13 +1008,13 @@ uint16_t loom_amdgpu_fragment_memory_query_issued_accesses(
   if (iree_all_bits_set(
           packet->flags,
           LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_NATIVE_TRANSPOSE_LOAD)) {
-    const loom_amdgpu_matrix_fragment_layout_t* layout =
-        loom_amdgpu_matrix_fragment_layout_for_kind(plan->layout_kind);
-    IREE_ASSERT_ARGUMENT(layout);
+    IREE_ASSERT_NE(packet->issued_element_count, 0u);
     loom_amdgpu_fragment_memory_set_issued_access(
-        packet->register_index, /*element_index=*/0, /*element_count=*/8,
-        packet->descriptor_ref,
-        layout->wave_size == 64
+        packet->register_index, /*element_index=*/0,
+        packet->issued_element_count, packet->descriptor_ref,
+        iree_all_bits_set(
+            packet->flags,
+            LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_FIRST_32_LANES_ONLY)
             ? LOOM_AMDGPU_FRAGMENT_MEMORY_ISSUED_ACCESS_FLAG_FIRST_32_LANES_ONLY
             : LOOM_AMDGPU_FRAGMENT_MEMORY_ISSUED_ACCESS_FLAG_NONE,
         &out_accesses[0]);

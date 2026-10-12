@@ -532,6 +532,31 @@ loom_check_compile_tests(
 endif()
 
 if(LOOM_TARGET_ARCH_AMDGPU)
+iree_native_test(
+  NAME
+    "fragment_memory_transpose_gfx950_loom_test"
+  WORKING_DIRECTORY "${IREE_ROOT_DIR}"
+  ARGS
+    "{{${CMAKE_CURRENT_SOURCE_DIR}/fragment_memory/transpose_gfx950.loom-test}}"
+  SRC
+    loom::tools::loom-check::loom-check-test
+  LABELS
+    "loom-check"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_check_compile_tests(
+  NAME
+    "fragment_memory_transpose_gfx950_loom_test"
+  SRC
+    "fragment_memory/transpose_gfx950.loom-test"
+  TARGETS
+    loom::target::amdgpu::gfx950
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
 loom_cc_test(
   NAME
     sanitizer_access_test

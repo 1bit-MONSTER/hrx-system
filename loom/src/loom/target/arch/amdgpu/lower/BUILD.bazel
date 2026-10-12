@@ -495,6 +495,12 @@ loom_check_test(
     compile_targets = ["//loom/target/amdgpu:gfx1200"],
 )
 
+loom_check_test(
+    name = "fragment_memory_transpose_gfx950_loom_test",
+    src = "fragment_memory/transpose_gfx950.loom-test",
+    compile_targets = ["//loom/target/amdgpu:gfx950"],
+)
+
 loom_cc_test(
     name = "sanitizer_access_test",
     srcs = ["sanitizer_access_test.cc"],

@@ -14,18 +14,31 @@
 #include "loom/target/arch/amdgpu/lower/matrix_fragment.h"
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
 
-typedef struct loom_amdgpu_fragment_memory_transpose_digit_t {
-  uint16_t divisor;
-  uint16_t modulus;
-} loom_amdgpu_fragment_memory_transpose_digit_t;
+typedef enum loom_amdgpu_fragment_memory_transpose_destination_e {
+  LOOM_AMDGPU_FRAGMENT_MEMORY_TRANSPOSE_DESTINATION_RDNA4 = 0,
+  LOOM_AMDGPU_FRAGMENT_MEMORY_TRANSPOSE_DESTINATION_CDNA4 = 1,
+} loom_amdgpu_fragment_memory_transpose_destination_t;
+
+enum {
+  // Largest issuer domain represented by an AMDGPU transpose geometry.
+  LOOM_AMDGPU_TRANSPOSE_MAX_ISSUING_LANE_COUNT = 64,
+  // Lane-ID bits needed to represent the largest issuer domain.
+  LOOM_AMDGPU_TRANSPOSE_LANE_BIT_COUNT = 6,
+};
 
 typedef struct loom_amdgpu_fragment_memory_transpose_geometry_t {
+  // Low descriptor implementing one physical transpose packet.
   loom_amdgpu_descriptor_ref_t descriptor_ref;
+  // Packet flags describing issuer participation.
+  loom_amdgpu_fragment_memory_packet_flags_t packet_flags;
+  // Fragment registers produced by one physical packet.
   uint16_t packet_register_count;
+  // Lanes that contribute addresses to the physical packet.
   uint8_t issuing_lane_count;
+  // Contiguous view elements read by each issuing lane.
   uint8_t loaded_element_count;
-  const loom_amdgpu_fragment_memory_transpose_digit_t* address_digits;
-  uint8_t address_digit_count;
+  // Hardware lane/register destination mapping.
+  loom_amdgpu_fragment_memory_transpose_destination_t destination;
 } loom_amdgpu_fragment_memory_transpose_geometry_t;
 
 static bool loom_amdgpu_fragment_memory_transpose_role_supported(
@@ -35,14 +48,10 @@ static bool loom_amdgpu_fragment_memory_transpose_role_supported(
   return plan->operation_kind == LOOM_LOW_SOURCE_MEMORY_OPERATION_LOAD &&
          (plan->role == LOOM_CONTRACT_OPERAND_ROLE_LHS ||
           plan->role == LOOM_CONTRACT_OPERAND_ROLE_RHS) &&
-         (plan->source.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL ||
-          plan->source.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_CONSTANT) &&
          plan->payload_form ==
              LOOM_AMDGPU_FRAGMENT_MEMORY_PAYLOAD_FORM_NATIVE &&
          plan->dynamic_base_is_subgroup_uniform && plan->view_rank == 2 &&
          layout->tile_shape.block_count == 1 &&
-         layout->tile_shape.result_row_count == 16 &&
-         layout->tile_shape.result_column_count == 16 &&
          role_layout->coordinate_element_stride == 1 &&
          role_layout->reduction_group.storage_element_count == 0 &&
          role_layout->reduction_group.logical_element_count == 0 &&
@@ -68,20 +77,13 @@ static bool loom_amdgpu_fragment_memory_transpose_static_strides(
 static bool loom_amdgpu_fragment_memory_rdna4_transpose_geometry(
     const loom_matrix_fragment_layout_t* layout,
     const loom_matrix_fragment_role_layout_t* role_layout,
+    const loom_amdgpu_fragment_memory_plan_t* plan,
     loom_amdgpu_fragment_memory_transpose_geometry_t* out_geometry) {
-  static const loom_amdgpu_fragment_memory_transpose_digit_t kWave32Digits[] = {
-      {.divisor = 1, .modulus = 8},
-      {.divisor = 8, .modulus = 2},
-      {.divisor = 16, .modulus = 2},
-  };
-  static const loom_amdgpu_fragment_memory_transpose_digit_t kWave64Digits[] = {
-      {.divisor = 1, .modulus = 4},
-      {.divisor = 4, .modulus = 2},
-      {.divisor = 8, .modulus = 2},
-      {.divisor = 16, .modulus = 2},
-  };
-
   *out_geometry = (loom_amdgpu_fragment_memory_transpose_geometry_t){0};
+  if (plan->source.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL &&
+      plan->source.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_CONSTANT) {
+    return false;
+  }
   const bool wave64 = layout->wave_size == 64;
   if (!wave64 && layout->wave_size != 32) {
     return false;
@@ -102,17 +104,61 @@ static bool loom_amdgpu_fragment_memory_rdna4_transpose_geometry(
     default:
       return false;
   }
+  out_geometry->packet_flags =
+      LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_NATIVE_TRANSPOSE_LOAD |
+      (wave64 ? LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_FIRST_32_LANES_ONLY
+              : 0);
   out_geometry->issuing_lane_count = 32;
   out_geometry->loaded_element_count = 8;
-  out_geometry->address_digits = wave64 ? kWave64Digits : kWave32Digits;
-  out_geometry->address_digit_count =
-      wave64 ? IREE_ARRAYSIZE(kWave64Digits) : IREE_ARRAYSIZE(kWave32Digits);
+  out_geometry->destination =
+      LOOM_AMDGPU_FRAGMENT_MEMORY_TRANSPOSE_DESTINATION_RDNA4;
   return true;
 }
 
-static void loom_amdgpu_fragment_memory_rdna4_transpose_destination(
+static bool loom_amdgpu_fragment_memory_cdna4_transpose_geometry(
+    const loom_matrix_fragment_layout_t* layout,
+    const loom_matrix_fragment_role_layout_t* role_layout,
+    const loom_amdgpu_fragment_memory_plan_t* plan,
+    loom_amdgpu_fragment_memory_transpose_geometry_t* out_geometry) {
+  *out_geometry = (loom_amdgpu_fragment_memory_transpose_geometry_t){0};
+  if (plan->source.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP ||
+      plan->source.minimum_alignment < 8 || layout->wave_size != 64 ||
+      role_layout->element_bit_count != 16) {
+    return false;
+  }
+  out_geometry->descriptor_ref = LOOM_AMDGPU_DESCRIPTOR_REF_DS_READ_B64_TR_B16;
+  out_geometry->packet_flags =
+      LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_NATIVE_TRANSPOSE_LOAD;
+  out_geometry->packet_register_count = 2;
+  out_geometry->issuing_lane_count = 64;
+  out_geometry->loaded_element_count = 4;
+  out_geometry->destination =
+      LOOM_AMDGPU_FRAGMENT_MEMORY_TRANSPOSE_DESTINATION_CDNA4;
+  return true;
+}
+
+static bool loom_amdgpu_fragment_memory_transpose_geometry(
+    const loom_matrix_fragment_layout_t* layout,
+    const loom_matrix_fragment_role_layout_t* role_layout,
+    const loom_amdgpu_fragment_memory_plan_t* plan,
+    loom_amdgpu_fragment_memory_transpose_geometry_t* out_geometry) {
+  return loom_amdgpu_fragment_memory_rdna4_transpose_geometry(
+             layout, role_layout, plan, out_geometry) ||
+         loom_amdgpu_fragment_memory_cdna4_transpose_geometry(
+             layout, role_layout, plan, out_geometry);
+}
+
+static void loom_amdgpu_fragment_memory_transpose_destination(
+    const loom_amdgpu_fragment_memory_transpose_geometry_t* geometry,
     uint16_t wave_size, uint8_t issuing_lane, uint8_t loaded_element,
     uint8_t* out_participant, uint8_t* out_packet_element) {
+  if (geometry->destination ==
+      LOOM_AMDGPU_FRAGMENT_MEMORY_TRANSPOSE_DESTINATION_CDNA4) {
+    *out_participant = (uint8_t)((issuing_lane / 16u) * 16u +
+                                 (issuing_lane % 4u) * 4u + loaded_element);
+    *out_packet_element = (issuing_lane % 16u) / 4u;
+    return;
+  }
   if (wave_size == 32) {
     *out_participant = (uint8_t)((issuing_lane / 8u) * 8u + loaded_element);
     *out_packet_element = issuing_lane % 8u;
@@ -184,9 +230,9 @@ static bool loom_amdgpu_fragment_memory_transpose_packet_offsets(
          loaded_element < geometry->loaded_element_count; ++loaded_element) {
       uint8_t participant = 0;
       uint8_t packet_element = 0;
-      loom_amdgpu_fragment_memory_rdna4_transpose_destination(
-          layout->wave_size, issuing_lane, loaded_element, &participant,
-          &packet_element);
+      loom_amdgpu_fragment_memory_transpose_destination(
+          geometry, layout->wave_size, issuing_lane, loaded_element,
+          &participant, &packet_element);
       uint64_t byte_offset = 0;
       if (!loom_amdgpu_fragment_memory_transpose_element_byte_offset(
               role_layout, plan, participant,
@@ -210,45 +256,84 @@ static bool loom_amdgpu_fragment_memory_transpose_lane_terms(
     const uint64_t* lane_offsets,
     loom_amdgpu_fragment_memory_address_layout_t* out_address_layout) {
   const uint64_t base_offset = lane_offsets[0];
-  for (uint8_t digit_index = 0; digit_index < geometry->address_digit_count;
-       ++digit_index) {
-    const loom_amdgpu_fragment_memory_transpose_digit_t* digit =
-        &geometry->address_digits[digit_index];
-    const uint64_t probe_offset = lane_offsets[digit->divisor];
+  uint32_t bit_byte_strides[LOOM_AMDGPU_TRANSPOSE_LANE_BIT_COUNT] = {0};
+  uint8_t lane_bit_count = 0;
+  for (uint8_t lane_bit = 0;
+       (UINT8_C(1) << lane_bit) < geometry->issuing_lane_count; ++lane_bit) {
+    const uint8_t divisor = UINT8_C(1) << lane_bit;
+    const uint64_t probe_offset = lane_offsets[divisor];
     if (probe_offset < base_offset || probe_offset - base_offset > UINT32_MAX) {
       return false;
     }
-    const uint32_t byte_stride = (uint32_t)(probe_offset - base_offset);
-    if (byte_stride == 0) {
-      continue;
-    }
-    loom_amdgpu_fragment_memory_lane_term_t* term =
-        &out_address_layout->lane_terms[out_address_layout->lane_term_count++];
-    *term = (loom_amdgpu_fragment_memory_lane_term_t){
-        .divisor = digit->divisor,
-        .modulus = digit->modulus,
-        .byte_stride = byte_stride,
-    };
-    out_address_layout->lane_address_cost +=
-        (uint8_t)(2u + (digit->divisor > 1 ? 1u : 0u) +
-                  (digit->modulus > 1 ? 1u : 0u));
+    bit_byte_strides[lane_bit] = (uint32_t)(probe_offset - base_offset);
+    lane_bit_count = lane_bit + 1u;
   }
 
   for (uint8_t lane = 0; lane < geometry->issuing_lane_count; ++lane) {
     uint64_t expected_offset = base_offset;
-    for (uint8_t term_index = 0;
-         term_index < out_address_layout->lane_term_count; ++term_index) {
-      const loom_amdgpu_fragment_memory_lane_term_t* term =
-          &out_address_layout->lane_terms[term_index];
-      const uint32_t digit = (lane / term->divisor) % term->modulus;
-      expected_offset += (uint64_t)digit * term->byte_stride;
+    for (uint8_t lane_bit = 0; lane_bit < lane_bit_count; ++lane_bit) {
+      if ((lane & (UINT8_C(1) << lane_bit)) != 0) {
+        expected_offset += bit_byte_strides[lane_bit];
+      }
     }
     if (expected_offset != lane_offsets[lane]) {
       return false;
     }
   }
+
+  if (bit_byte_strides[0] != 0) {
+    bool linear = true;
+    for (uint8_t lane_bit = 1; lane_bit < lane_bit_count; ++lane_bit) {
+      linear &= (uint64_t)bit_byte_strides[lane_bit] ==
+                (uint64_t)bit_byte_strides[0] * (UINT32_C(1) << lane_bit);
+    }
+    if (linear) {
+      out_address_layout->linear_lane_byte_stride = bit_byte_strides[0];
+      out_address_layout->lane_address_cost = 1;
+      out_address_layout->primary_lane_divisor = geometry->issuing_lane_count;
+      return true;
+    }
+  }
+
+  for (uint8_t lane_bit = 0; lane_bit < lane_bit_count;) {
+    const uint32_t byte_stride = bit_byte_strides[lane_bit];
+    if (byte_stride == 0) {
+      ++lane_bit;
+      continue;
+    }
+    uint8_t run_bit_count = 1;
+    while (lane_bit + run_bit_count < lane_bit_count &&
+           (uint64_t)bit_byte_strides[lane_bit + run_bit_count] ==
+               (uint64_t)byte_stride * (UINT32_C(1) << run_bit_count)) {
+      ++run_bit_count;
+    }
+    if (out_address_layout->lane_term_count ==
+        IREE_ARRAYSIZE(out_address_layout->lane_terms)) {
+      return false;
+    }
+    loom_amdgpu_fragment_memory_lane_term_t* term =
+        &out_address_layout->lane_terms[out_address_layout->lane_term_count++];
+    *term = (loom_amdgpu_fragment_memory_lane_term_t){
+        .divisor = UINT16_C(1) << lane_bit,
+        .modulus = lane_bit + run_bit_count == lane_bit_count
+                       ? 0
+                       : UINT16_C(1) << run_bit_count,
+        .byte_stride = byte_stride,
+    };
+    out_address_layout->lane_address_cost +=
+        (uint8_t)(2u + (term->divisor > 1 ? 1u : 0u) +
+                  (term->modulus > 1 ? 1u : 0u));
+    lane_bit += run_bit_count;
+  }
+  if (out_address_layout->lane_term_count == 0) {
+    out_address_layout->primary_lane_divisor = 1;
+    return true;
+  }
+  const loom_amdgpu_fragment_memory_lane_term_t* first_term =
+      &out_address_layout->lane_terms[0];
   out_address_layout->primary_lane_divisor =
-      geometry->address_digits[0].modulus;
+      first_term->divisor == 1 && first_term->modulus > 1 ? first_term->modulus
+                                                          : first_term->divisor;
   return true;
 }
 
@@ -268,8 +353,8 @@ bool loom_amdgpu_fragment_memory_select_transpose_load(
   }
 
   loom_amdgpu_fragment_memory_transpose_geometry_t geometry;
-  if (!loom_amdgpu_fragment_memory_rdna4_transpose_geometry(layout, role_layout,
-                                                            &geometry) ||
+  if (!loom_amdgpu_fragment_memory_transpose_geometry(layout, role_layout, plan,
+                                                      &geometry) ||
       role_layout->register_count % geometry.packet_register_count != 0 ||
       !loom_amdgpu_descriptor_set_has_ref(descriptor_set,
                                           geometry.descriptor_ref)) {
@@ -283,7 +368,7 @@ bool loom_amdgpu_fragment_memory_select_transpose_load(
               role_layout),
       .payload_registers_per_element = 1,
   };
-  uint64_t canonical_lane_offsets[32];
+  uint64_t canonical_lane_offsets[LOOM_AMDGPU_TRANSPOSE_MAX_ISSUING_LANE_COUNT];
   if (!loom_amdgpu_fragment_memory_transpose_packet_offsets(
           layout, role_layout, plan, &geometry, /*register_index=*/0,
           canonical_lane_offsets) ||
@@ -295,7 +380,7 @@ bool loom_amdgpu_fragment_memory_select_transpose_load(
   for (uint16_t register_index = 0;
        register_index < role_layout->register_count;
        register_index += geometry.packet_register_count) {
-    uint64_t lane_offsets[32];
+    uint64_t lane_offsets[LOOM_AMDGPU_TRANSPOSE_MAX_ISSUING_LANE_COUNT];
     if (!loom_amdgpu_fragment_memory_transpose_packet_offsets(
             layout, role_layout, plan, &geometry, register_index,
             lane_offsets) ||
@@ -318,8 +403,8 @@ bool loom_amdgpu_fragment_memory_select_transpose_load(
     }
     out_choice->packets[out_choice->packet_count++] =
         (loom_amdgpu_fragment_memory_packet_plan_t){
-            .flags =
-                LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_NATIVE_TRANSPOSE_LOAD,
+            .flags = geometry.packet_flags,
+            .issued_element_count = geometry.loaded_element_count,
             .descriptor_ref = geometry.descriptor_ref,
             .register_index = register_index,
             .result_register_count = geometry.packet_register_count,
