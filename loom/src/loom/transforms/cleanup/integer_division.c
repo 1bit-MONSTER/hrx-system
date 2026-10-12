@@ -113,8 +113,8 @@ typedef struct loom_integer_division_planner_t {
   loom_module_t* module;
   // Retained canonical value facts.
   const loom_value_fact_table_t* facts;
-  // Arena retaining plans and candidates through application.
-  iree_arena_allocator_t* plan_arena;
+  // Pass arena retaining plans and candidates through application.
+  iree_arena_allocator_t* arena;
   // First selected plan across function regions.
   loom_integer_division_plan_t* first_plan;
   // Last selected plan across function regions.
@@ -537,9 +537,52 @@ static iree_status_t loom_integer_division_observe_candidate(
   return iree_ok_status();
 }
 
+static iree_status_t loom_integer_division_plan_region_scratch(
+    loom_integer_division_region_planner_t* region_planner,
+    loom_region_t* region, const loom_integer_division_inventory_t* inventory,
+    iree_arena_allocator_t* arena) {
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, inventory->scope_count, sizeof(*region_planner->scopes),
+      (void**)&region_planner->scopes));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, inventory->candidate_count, sizeof(*region_planner->bindings),
+      (void**)&region_planner->bindings));
+  const iree_host_size_t bucket_count = iree_host_size_next_power_of_two(
+      (iree_host_size_t)inventory->candidate_count * 2);
+  region_planner->bucket_mask = bucket_count - 1;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, bucket_count, sizeof(*region_planner->bucket_heads),
+      (void**)&region_planner->bucket_heads));
+  memset(region_planner->bucket_heads, 0xFF,
+         bucket_count * sizeof(*region_planner->bucket_heads));
+
+  IREE_RETURN_IF_ERROR(loom_dominance_walk_create(
+      region_planner->planner->module, region,
+      (loom_dominance_walk_callbacks_t){
+          .user_data = region_planner,
+          .enter_scope = loom_integer_division_enter_scope,
+          .leave_scope = loom_integer_division_leave_scope,
+      },
+      arena, &region_planner->dominance_walk));
+  while (true) {
+    loom_dominance_walk_cursor_t cursor;
+    IREE_RETURN_IF_ERROR(
+        loom_dominance_walk_next(region_planner->dominance_walk, &cursor));
+    if (!cursor.op) {
+      break;
+    }
+    loom_integer_division_family_t family;
+    loom_integer_division_role_t role;
+    if (loom_integer_division_match(cursor.op, &family, &role)) {
+      IREE_RETURN_IF_ERROR(loom_integer_division_observe_candidate(
+          region_planner, cursor.op, family, role));
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_integer_division_plan_region(
-    loom_integer_division_planner_t* planner, loom_region_t* region,
-    iree_arena_allocator_t* region_arena) {
+    loom_integer_division_planner_t* planner, loom_region_t* region) {
   loom_integer_division_inventory_t inventory;
   IREE_RETURN_IF_ERROR(loom_integer_division_inventory_region(
       planner->module, planner->facts, region, &inventory));
@@ -551,49 +594,18 @@ static iree_status_t loom_integer_division_plan_region(
       .planner = planner,
   };
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      region_arena, inventory.scope_count, sizeof(*region_planner.scopes),
-      (void**)&region_planner.scopes));
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      planner->plan_arena, inventory.candidate_count,
+      planner->arena, inventory.candidate_count,
       sizeof(*region_planner.candidates), (void**)&region_planner.candidates));
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      planner->plan_arena, inventory.candidate_count / 2,
+      planner->arena, inventory.candidate_count / 2,
       sizeof(*region_planner.plans), (void**)&region_planner.plans));
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      region_arena, inventory.candidate_count, sizeof(*region_planner.bindings),
-      (void**)&region_planner.bindings));
-  const iree_host_size_t bucket_count = iree_host_size_next_power_of_two(
-      (iree_host_size_t)inventory.candidate_count * 2);
-  region_planner.bucket_mask = bucket_count - 1;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      region_arena, bucket_count, sizeof(*region_planner.bucket_heads),
-      (void**)&region_planner.bucket_heads));
-  memset(region_planner.bucket_heads, 0xFF,
-         bucket_count * sizeof(*region_planner.bucket_heads));
 
-  IREE_RETURN_IF_ERROR(loom_dominance_walk_create(
-      planner->module, region,
-      (loom_dominance_walk_callbacks_t){
-          .user_data = &region_planner,
-          .enter_scope = loom_integer_division_enter_scope,
-          .leave_scope = loom_integer_division_leave_scope,
-      },
-      region_arena, &region_planner.dominance_walk));
-  while (true) {
-    loom_dominance_walk_cursor_t cursor;
-    IREE_RETURN_IF_ERROR(
-        loom_dominance_walk_next(region_planner.dominance_walk, &cursor));
-    if (!cursor.op) {
-      break;
-    }
-    loom_integer_division_family_t family;
-    loom_integer_division_role_t role;
-    if (loom_integer_division_match(cursor.op, &family, &role)) {
-      IREE_RETURN_IF_ERROR(loom_integer_division_observe_candidate(
-          &region_planner, cursor.op, family, role));
-    }
-  }
-  return iree_ok_status();
+  const iree_arena_checkpoint_t scratch_checkpoint =
+      iree_arena_checkpoint_save(planner->arena);
+  const iree_status_t status = loom_integer_division_plan_region_scratch(
+      &region_planner, region, &inventory, planner->arena);
+  iree_arena_checkpoint_restore(&scratch_checkpoint);
+  return status;
 }
 
 static iree_status_t loom_integer_division_build_combined(
@@ -666,14 +678,12 @@ iree_status_t loom_integer_division_combine(
     return iree_ok_status();
   }
 
-  iree_arena_allocator_t plan_arena;
-  iree_arena_allocator_t region_arena;
-  iree_arena_initialize(parent_arena->block_pool, &plan_arena);
-  iree_arena_initialize(parent_arena->block_pool, &region_arena);
+  const iree_arena_checkpoint_t planner_checkpoint =
+      iree_arena_checkpoint_save(parent_arena);
   loom_integer_division_planner_t planner = {
       .module = module,
       .facts = facts,
-      .plan_arena = &plan_arena,
+      .arena = parent_arena,
   };
   iree_status_t status = iree_ok_status();
   for (uint8_t i = 0;
@@ -683,14 +693,13 @@ iree_status_t loom_integer_division_combine(
     if (!region) {
       continue;
     }
-    iree_arena_reset(&region_arena);
-    status = loom_integer_division_plan_region(&planner, region, &region_arena);
+    status = loom_integer_division_plan_region(&planner, region);
   }
 
   loom_rewriter_t rewriter;
   bool rewriter_initialized = false;
   if (iree_status_is_ok(status) && planner.first_plan) {
-    loom_rewriter_initialize(&rewriter, module, &plan_arena);
+    loom_rewriter_initialize(&rewriter, module, parent_arena);
     rewriter_initialized = true;
     status = loom_rewriter_enable_worklist(&rewriter);
     for (loom_integer_division_plan_t* plan = planner.first_plan;
@@ -713,7 +722,6 @@ iree_status_t loom_integer_division_combine(
   if (rewriter_initialized) {
     loom_rewriter_deinitialize(&rewriter);
   }
-  iree_arena_deinitialize(&region_arena);
-  iree_arena_deinitialize(&plan_arena);
+  iree_arena_checkpoint_restore(&planner_checkpoint);
   return status;
 }
