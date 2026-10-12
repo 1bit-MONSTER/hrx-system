@@ -255,19 +255,20 @@ static iree_status_t loom_low_lower_match_contract_case(
     bool include_descriptor_matrix,
     loom_low_lower_rule_match_context_t* match_context,
     loom_low_lower_contract_case_match_t* out_match) {
-  *out_match = (loom_low_lower_contract_case_match_t){
-      .kind = LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_SKIP,
-      .selection = {.rule_index = UINT16_MAX},
-      .result = loom_target_contract_query_result_empty(),
-  };
   const loom_target_contract_index_t* index = options->contract_index;
   const loom_target_contract_case_t* contract_case = &index->cases[case_index];
   const loom_target_contract_binding_t* binding =
       &index->bindings[contract_case->binding_index];
   if (domain == LOOM_LOW_LOWER_CONTRACT_CASE_DOMAIN_TARGET_QUERY &&
       !loom_target_contract_fragment_queries_target(binding->fragment)) {
+    out_match->kind = LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_SKIP;
     return iree_ok_status();
   }
+  *out_match = (loom_low_lower_contract_case_match_t){
+      .kind = LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_SKIP,
+      .selection = {.rule_index = UINT16_MAX},
+      .result = loom_target_contract_query_result_empty(),
+  };
   if (contract_case->system == LOOM_TARGET_CONTRACT_SYSTEM_UNSUPPORTED) {
     out_match->kind = LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_UNSUPPORTED;
     return iree_ok_status();
@@ -311,6 +312,7 @@ static iree_status_t loom_low_lower_visit_contract_cases(
     const loom_op_t* source_op,
     loom_low_lower_contract_case_iteration_mode_t iteration_mode,
     loom_low_lower_contract_case_domain_t domain,
+    loom_low_lower_contract_case_scope_t case_scope,
     loom_low_lower_rule_match_context_t* match_context,
     loom_low_lower_contract_case_callback_t callback,
     bool* out_used_candidate_index) {
@@ -337,6 +339,33 @@ static iree_status_t loom_low_lower_visit_contract_cases(
   }
   uint16_t case_index = UINT16_MAX;
   while (loom_low_lower_contract_case_iterator_next(&iterator, &case_index)) {
+    const loom_target_contract_case_t* contract_case =
+        &index->cases[case_index];
+    if (case_scope != LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_ALL) {
+      uint16_t rule_index = UINT16_MAX;
+      const bool has_lower_rule = loom_low_lower_contract_case_lower_rule_index(
+          index, contract_case, &rule_index);
+      bool is_source_graph = false;
+      const loom_low_lower_rule_set_t* rule_set = NULL;
+      if (has_lower_rule) {
+        const loom_target_contract_binding_t* binding =
+            &index->bindings[contract_case->binding_index];
+        rule_set = options->rule_sets.values[binding->rule_set_index];
+        is_source_graph = loom_low_lower_rule_source_node_count(
+                              &rule_set->rules[rule_index]) != 0;
+      }
+      const bool select_source_graph =
+          case_scope == LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_SOURCE_GRAPH;
+      if (has_lower_rule ? is_source_graph != select_source_graph
+                         : select_source_graph) {
+        continue;
+      }
+      if (select_source_graph && !loom_low_lower_rule_first_source_node_matches(
+                                     match_context, rule_set, source_op,
+                                     &rule_set->rules[rule_index])) {
+        continue;
+      }
+    }
     loom_low_lower_contract_case_match_t match;
     IREE_RETURN_IF_ERROR(loom_low_lower_match_contract_case(
         environment, options, source_op, case_index, domain,
@@ -360,13 +389,14 @@ iree_status_t loom_low_lower_visit_lowering_contract_cases(
     const loom_low_lower_contract_query_options_t* options,
     const loom_op_t* source_op,
     loom_low_lower_contract_case_iteration_mode_t iteration_mode,
+    loom_low_lower_contract_case_scope_t case_scope,
     loom_low_lower_rule_match_context_t* match_context,
     loom_low_lower_contract_case_callback_t callback,
     bool* out_used_candidate_index) {
   return loom_low_lower_visit_contract_cases(
       environment, options, source_op, iteration_mode,
-      LOOM_LOW_LOWER_CONTRACT_CASE_DOMAIN_LOWERING, match_context, callback,
-      out_used_candidate_index);
+      LOOM_LOW_LOWER_CONTRACT_CASE_DOMAIN_LOWERING, case_scope, match_context,
+      callback, out_used_candidate_index);
 }
 
 iree_status_t loom_low_lower_visit_target_contract_cases(
@@ -374,13 +404,14 @@ iree_status_t loom_low_lower_visit_target_contract_cases(
     const loom_low_lower_contract_query_options_t* options,
     const loom_op_t* source_op,
     loom_low_lower_contract_case_iteration_mode_t iteration_mode,
+    loom_low_lower_contract_case_scope_t case_scope,
     loom_low_lower_rule_match_context_t* match_context,
     loom_low_lower_contract_case_callback_t callback,
     bool* out_used_candidate_index) {
   return loom_low_lower_visit_contract_cases(
       environment, options, source_op, iteration_mode,
-      LOOM_LOW_LOWER_CONTRACT_CASE_DOMAIN_TARGET_QUERY, match_context, callback,
-      out_used_candidate_index);
+      LOOM_LOW_LOWER_CONTRACT_CASE_DOMAIN_TARGET_QUERY, case_scope,
+      match_context, callback, out_used_candidate_index);
 }
 
 static iree_status_t loom_low_lower_materialize_target_contract_case(
@@ -726,7 +757,7 @@ static void loom_low_lower_contract_query_match_state_initialize(
 iree_status_t loom_low_lower_visit_target_contract_matches(
     const loom_target_contract_query_environment_t* environment,
     const loom_low_lower_contract_query_options_t* options,
-    const loom_op_t* source_op,
+    const loom_op_t* source_op, loom_low_lower_contract_case_scope_t case_scope,
     loom_low_lower_contract_match_callback_t callback) {
   if (options->contract_index == NULL || callback.fn == NULL) {
     return iree_ok_status();
@@ -741,7 +772,8 @@ iree_status_t loom_low_lower_visit_target_contract_matches(
   };
   return loom_low_lower_visit_target_contract_cases(
       environment, options, source_op,
-      LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES, &state.match_context,
+      LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES, case_scope,
+      &state.match_context,
       (loom_low_lower_contract_case_callback_t){
           .fn = loom_low_lower_visit_target_contract_match_case,
           .user_data = &visit_state,

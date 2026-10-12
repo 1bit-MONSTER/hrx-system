@@ -11,6 +11,7 @@
 #include "loom/codegen/low/lower/context.h"
 #include "loom/codegen/low/lower/contract_query.h"
 #include "loom/codegen/low/lower/rule_match.h"
+#include "loom/codegen/low/lower/source_graph_nodes.h"
 #include "loom/codegen/low/lower/source_graph_placement.h"
 #include "loom/codegen/low/lower/source_graph_plan.h"
 #include "loom/ir/module.h"
@@ -35,41 +36,11 @@ struct loom_low_lower_source_query_alternative_t {
   loom_low_lower_source_graph_alternative_state_t state;
 };
 
-typedef struct loom_low_lower_source_query_node_t {
-  // Next source node participating in at least one multi-node graph.
-  struct loom_low_lower_source_query_node_t* next;
-  // Immutable source operation represented by this node.
-  const loom_op_t* op;
-  // Dense function-local identity used by the shared resolver.
-  uint32_t index;
-} loom_low_lower_source_query_node_t;
-
-typedef struct loom_low_lower_source_query_zero_result_entry_t {
-  // Result-less source operation, or NULL for an empty slot.
-  const loom_op_t* op;
-  // Dense source graph node for |op|.
-  loom_low_lower_source_query_node_t* node;
-} loom_low_lower_source_query_zero_result_entry_t;
-
 typedef struct loom_low_lower_source_query_coverage_t {
-  // First participating source node in discovery order.
-  loom_low_lower_source_query_node_t* first_node;
-  // Last participating source node in discovery order.
-  loom_low_lower_source_query_node_t* last_node;
-  // Source-value-ordinal indexed nodes for operations producing results.
-  loom_low_lower_source_query_node_t** value_nodes;
-  // Number of entries in value_nodes.
-  loom_value_ordinal_t value_node_count;
-  // Sparse identity index for result-less graph roots.
-  loom_low_lower_source_query_zero_result_entry_t* zero_result_entries;
-  // Number of populated zero_result_entries.
-  iree_host_size_t zero_result_count;
-  // Power-of-two capacity of zero_result_entries.
-  iree_host_size_t zero_result_capacity;
+  // Sparse source operations participating in multi-node graphs.
+  loom_low_lower_source_graph_node_index_t nodes;
   // Shared candidate ownership resolver.
   loom_low_lower_source_graph_plan_t* graph_plan;
-  // Number of participating source nodes.
-  uint32_t node_count;
   // True after all source graphs in the function have been selected.
   bool prepared;
   // True while the one-time source walk is collecting graphs.
@@ -87,151 +58,7 @@ typedef struct loom_low_lower_source_query_coverage_build_state_t {
   loom_low_lower_source_query_coverage_t* coverage;
   // Root operation whose contract candidates are being visited.
   const loom_op_t* root_op;
-  // True while collecting multi-node graphs; false while adding singletons.
-  bool collect_multi_node_graphs;
 } loom_low_lower_source_query_coverage_build_state_t;
-
-static iree_host_size_t loom_low_lower_source_query_op_hash(
-    const loom_op_t* op) {
-  uint64_t value = (uint64_t)(uintptr_t)op >> 4;
-  value ^= value >> 16;
-  return (iree_host_size_t)(value * UINT64_C(0x9e3779b97f4a7c15));
-}
-
-static bool loom_low_lower_source_query_op_value_ordinal(
-    const loom_low_lower_context_t* context, const loom_op_t* op,
-    loom_value_ordinal_t* out_ordinal) {
-  *out_ordinal = LOOM_VALUE_ORDINAL_INVALID;
-  if (op->result_count == 0 ||
-      !loom_local_value_domain_is_acquired(&context->lowering->value_domain)) {
-    return false;
-  }
-  const loom_value_ordinal_t ordinal = loom_local_value_domain_try_ordinal(
-      &context->lowering->value_domain, loom_op_const_results(op)[0]);
-  if (ordinal == LOOM_VALUE_ORDINAL_INVALID) {
-    return false;
-  }
-  *out_ordinal = ordinal;
-  return true;
-}
-
-static loom_low_lower_source_query_node_t*
-loom_low_lower_source_query_coverage_lookup_node(
-    const loom_low_lower_context_t* context,
-    const loom_low_lower_source_query_coverage_t* coverage,
-    const loom_op_t* op) {
-  loom_value_ordinal_t ordinal = LOOM_VALUE_ORDINAL_INVALID;
-  if (loom_low_lower_source_query_op_value_ordinal(context, op, &ordinal)) {
-    return coverage->value_nodes != NULL && ordinal < coverage->value_node_count
-               ? coverage->value_nodes[ordinal]
-               : NULL;
-  }
-  if (coverage->zero_result_capacity == 0) {
-    return NULL;
-  }
-  const iree_host_size_t mask = coverage->zero_result_capacity - 1;
-  iree_host_size_t slot = loom_low_lower_source_query_op_hash(op) & mask;
-  while (coverage->zero_result_entries[slot].op != NULL) {
-    if (coverage->zero_result_entries[slot].op == op) {
-      return coverage->zero_result_entries[slot].node;
-    }
-    slot = (slot + 1) & mask;
-  }
-  return NULL;
-}
-
-static void loom_low_lower_source_query_coverage_insert_zero_result(
-    loom_low_lower_source_query_zero_result_entry_t* entries,
-    iree_host_size_t capacity, const loom_op_t* op,
-    loom_low_lower_source_query_node_t* node) {
-  const iree_host_size_t mask = capacity - 1;
-  iree_host_size_t slot = loom_low_lower_source_query_op_hash(op) & mask;
-  while (entries[slot].op != NULL && entries[slot].op != op) {
-    slot = (slot + 1) & mask;
-  }
-  entries[slot] = (loom_low_lower_source_query_zero_result_entry_t){
-      .op = op,
-      .node = node,
-  };
-}
-
-static iree_status_t loom_low_lower_source_query_coverage_get_node(
-    loom_low_lower_context_t* context,
-    loom_low_lower_source_query_coverage_t* coverage, const loom_op_t* op,
-    loom_low_lower_source_query_node_t** out_node) {
-  *out_node =
-      loom_low_lower_source_query_coverage_lookup_node(context, coverage, op);
-  if (*out_node != NULL) {
-    return iree_ok_status();
-  }
-  if (coverage->node_count == UINT32_MAX) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "source query graph node count overflow");
-  }
-  loom_low_lower_source_query_node_t* node = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate(&context->analysis_arena,
-                                           sizeof(*node), (void**)&node));
-  *node = (loom_low_lower_source_query_node_t){
-      .op = op,
-      .index = coverage->node_count++,
-  };
-  if (coverage->last_node != NULL) {
-    coverage->last_node->next = node;
-  } else {
-    coverage->first_node = node;
-  }
-  coverage->last_node = node;
-
-  loom_value_ordinal_t ordinal = LOOM_VALUE_ORDINAL_INVALID;
-  if (loom_low_lower_source_query_op_value_ordinal(context, op, &ordinal)) {
-    if (coverage->value_nodes == NULL) {
-      coverage->value_node_count = context->lowering->value_domain.value_count;
-      IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-          &context->analysis_arena, coverage->value_node_count,
-          sizeof(*coverage->value_nodes), (void**)&coverage->value_nodes));
-      memset(coverage->value_nodes, 0,
-             (iree_host_size_t)coverage->value_node_count *
-                 sizeof(*coverage->value_nodes));
-    }
-    IREE_ASSERT_LT(ordinal, coverage->value_node_count);
-    coverage->value_nodes[ordinal] = node;
-    *out_node = node;
-    return iree_ok_status();
-  }
-
-  if (coverage->zero_result_capacity == 0 ||
-      coverage->zero_result_count >= coverage->zero_result_capacity / 2) {
-    const iree_host_size_t new_capacity =
-        coverage->zero_result_capacity == 0
-            ? 8
-            : coverage->zero_result_capacity * 2;
-    if (new_capacity < coverage->zero_result_capacity) {
-      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                              "source query coverage capacity overflow");
-    }
-    loom_low_lower_source_query_zero_result_entry_t* new_entries = NULL;
-    IREE_RETURN_IF_ERROR(
-        iree_arena_allocate_array(&context->analysis_arena, new_capacity,
-                                  sizeof(*new_entries), (void**)&new_entries));
-    memset(new_entries, 0, new_capacity * sizeof(*new_entries));
-    for (iree_host_size_t i = 0; i < coverage->zero_result_capacity; ++i) {
-      const loom_low_lower_source_query_zero_result_entry_t entry =
-          coverage->zero_result_entries[i];
-      if (entry.op != NULL) {
-        loom_low_lower_source_query_coverage_insert_zero_result(
-            new_entries, new_capacity, entry.op, entry.node);
-      }
-    }
-    coverage->zero_result_entries = new_entries;
-    coverage->zero_result_capacity = new_capacity;
-  }
-
-  loom_low_lower_source_query_coverage_insert_zero_result(
-      coverage->zero_result_entries, coverage->zero_result_capacity, op, node);
-  ++coverage->zero_result_count;
-  *out_node = node;
-  return iree_ok_status();
-}
 
 static iree_status_t loom_low_lower_source_query_coverage_add_graph(
     loom_low_lower_source_query_coverage_build_state_t* state,
@@ -242,9 +69,9 @@ static iree_status_t loom_low_lower_source_query_coverage_add_graph(
     loom_low_lower_source_graph_alternative_state_t alternative_state) {
   uint32_t node_indices[LOOM_LOW_LOWER_MAX_SOURCE_NODES];
   for (uint8_t i = 0; i < source_node_count; ++i) {
-    loom_low_lower_source_query_node_t* node = NULL;
-    IREE_RETURN_IF_ERROR(loom_low_lower_source_query_coverage_get_node(
-        state->context, state->coverage, source_nodes[i], &node));
+    loom_low_lower_source_graph_node_t* node = NULL;
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_node_index_get_or_add(
+        &state->coverage->nodes, source_nodes[i], &node));
     node_indices[i] = node->index;
   }
   loom_low_lower_source_graph_edge_t edges[LOOM_LOW_LOWER_MAX_SOURCE_NODES - 1];
@@ -366,9 +193,6 @@ static iree_status_t loom_low_lower_source_query_collect_contract_match(
       (loom_low_lower_source_query_coverage_build_state_t*)user_data;
   const uint8_t source_node_count =
       selection->rule != NULL ? selection->source_node_count : 1;
-  if ((source_node_count > 1) != state->collect_multi_node_graphs) {
-    return iree_ok_status();
-  }
   if (selection->rule != NULL) {
     bool placement_legal = false;
     IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_placement_evaluate(
@@ -410,9 +234,9 @@ static iree_status_t loom_low_lower_source_query_coverage_visit(
     return iree_ok_status();
   }
   state->root_op = op;
-  state->collect_multi_node_graphs = true;
   return loom_low_lower_visit_target_contract_matches(
       state->environment, state->options, op,
+      LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_SOURCE_GRAPH,
       (loom_low_lower_contract_match_callback_t){
           .fn = loom_low_lower_source_query_collect_contract_match,
           .user_data = state,
@@ -421,24 +245,24 @@ static iree_status_t loom_low_lower_source_query_coverage_visit(
 
 static iree_status_t loom_low_lower_source_query_collect_singletons(
     loom_low_lower_source_query_coverage_build_state_t* state) {
-  for (loom_low_lower_source_query_node_t* node = state->coverage->first_node;
+  for (loom_low_lower_source_graph_node_t* node = state->coverage->nodes.first;
        node != NULL; node = node->next) {
-    state->root_op = node->op;
+    state->root_op = node->source_op;
     loom_target_contract_query_result_t target_result =
         loom_target_contract_query_result_empty();
     IREE_RETURN_IF_ERROR(loom_low_lower_source_query_target_contract(
-        state->context, state->environment, node->op, &target_result));
+        state->context, state->environment, node->source_op, &target_result));
     if (target_result.outcome != LOOM_TARGET_CONTRACT_QUERY_UNHANDLED) {
-      const loom_op_t* source_nodes[] = {node->op};
+      const loom_op_t* source_nodes[] = {node->source_op};
       IREE_RETURN_IF_ERROR(loom_low_lower_source_query_coverage_add_graph(
           state, source_nodes, /*source_node_count=*/1,
           /*rule_set=*/NULL, /*rule=*/NULL, /*priority=*/0, &target_result,
           LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FIXED));
       continue;
     }
-    state->collect_multi_node_graphs = false;
     IREE_RETURN_IF_ERROR(loom_low_lower_visit_target_contract_matches(
-        state->environment, state->options, node->op,
+        state->environment, state->options, node->source_op,
+        LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_SINGLETON,
         (loom_low_lower_contract_match_callback_t){
             .fn = loom_low_lower_source_query_collect_contract_match,
             .user_data = state,
@@ -485,6 +309,9 @@ static iree_status_t loom_low_lower_source_query_prepare_coverage(
     IREE_RETURN_IF_ERROR(iree_arena_allocate(
         &context->analysis_arena, sizeof(*coverage), (void**)&coverage));
     memset(coverage, 0, sizeof(*coverage));
+    loom_low_lower_source_graph_node_index_initialize(
+        &context->lowering->value_domain, &context->analysis_arena,
+        &coverage->nodes);
     context->source_query_coverage = coverage;
   }
   *out_coverage = coverage;
@@ -704,9 +531,9 @@ static iree_status_t loom_low_lower_source_query_contract(
         context, &query_environment, &query_options, &coverage);
   }
   if (iree_status_is_ok(status) && coverage != NULL && coverage->prepared) {
-    const loom_low_lower_source_query_node_t* node =
-        loom_low_lower_source_query_coverage_lookup_node(context, coverage,
-                                                         source_op);
+    const loom_low_lower_source_graph_node_t* node =
+        loom_low_lower_source_graph_node_index_lookup(&coverage->nodes,
+                                                      source_op);
     const loom_low_lower_source_graph_alternative_t* alternative =
         node != NULL ? loom_low_lower_source_graph_plan_selected_alternative(
                            coverage->graph_plan, node->index)

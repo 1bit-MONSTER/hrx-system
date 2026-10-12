@@ -38,6 +38,12 @@ iree_py_library(
 )
 
 iree_py_library(
+    name = "scalar_families",
+    srcs = ["scalar_families.py"],
+    deps = [":package_init"],
+)
+
+iree_py_library(
     name = "native_vector",
     srcs = [
         "native_vector.py",
@@ -78,6 +84,7 @@ iree_py_library(
     ],
     deps = [
         ":native_vector",
+        ":scalar_families",
         ":target_info",
         ":vector_families",
         "//loom/py/loom/target:low_descriptors",

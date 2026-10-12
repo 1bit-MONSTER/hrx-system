@@ -79,6 +79,11 @@ _I64_MAX = (2**63) - 1
 _DISP32_MIN = -(2**31)
 _DISP32_MAX = (2**31) - 1
 
+# Immediate arithmetic retains a separately loaded value and avoids
+# materializing the constant in a register. Source-graph scores weight priority
+# by covered node count, so this must exceed the two-node read-memory score.
+_SCALAR_INTEGER_IMMEDIATE_PRIORITY = 3
+
 _ADDRESS_FORM_DIAGNOSTIC = GuardDiagnostic(
     subject_role="address-form",
     subject_name="x86-scalar",
@@ -171,6 +176,7 @@ def _integer_binary_rules(
     descriptor_lookup: _DescriptorLookup,
     *,
     constant_operands: Sequence[str] = ("rhs", "lhs"),
+    immediate_priority: int = 0,
 ) -> Iterable[DescriptorRule]:
     descriptor = descriptor_lookup(f"x86.scalar.{operation}.imm.gpr{register_width}")
     for constant_field in constant_operands:
@@ -193,6 +199,7 @@ def _integer_binary_rules(
                     immediates={"imm32": ValueProject.exact_i64(constant_field)},
                 ),
             ),
+            priority=immediate_priority,
         )
     yield from binary_descriptor_rules(
         (
@@ -1025,6 +1032,7 @@ def _cases() -> Sequence[ContractCase]:
                 register_width,
                 descriptor_lookup,
                 constant_operands=("rhs",) if operation == "sub" else ("rhs", "lhs"),
+                immediate_priority=_SCALAR_INTEGER_IMMEDIATE_PRIORITY,
             )
         ),
         *unary_descriptor_rules(
@@ -1053,7 +1061,12 @@ def _cases() -> Sequence[ContractCase]:
                 (scalar_bitwise.scalar_xori, "xor"),
             )
             for rule in _integer_binary_rules(
-                source_op, type_pattern, operation, register_width, descriptor_lookup
+                source_op,
+                type_pattern,
+                operation,
+                register_width,
+                descriptor_lookup,
+                immediate_priority=_SCALAR_INTEGER_IMMEDIATE_PRIORITY,
             )
         ),
         *(

@@ -379,6 +379,13 @@ void loom_x86_encode_instruction(
     case LOOM_X86_ENCODING_FORM_BINARY_R_RM:
       loom_x86_encode_registers(instruction, encoding_id, result, rhs);
       break;
+    case LOOM_X86_ENCODING_FORM_BINARY_R_MEMORY:
+      loom_x86_encode_memory(instruction, encoding_id, result, rhs,
+                             operands->has_index
+                                 ? operands->inputs[2]
+                                 : LOOM_X86_ADDRESS_REGISTER_NONE,
+                             operands->scale, (int32_t)operands->immediate);
+      break;
     case LOOM_X86_ENCODING_FORM_MULTIPLY_HIGH:
       loom_x86_encode_registers(instruction, encoding_id, extension, rhs);
       return;

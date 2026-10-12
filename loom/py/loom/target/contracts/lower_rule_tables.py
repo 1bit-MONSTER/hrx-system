@@ -379,7 +379,7 @@ class CompiledLowerRuleSet:
     type_patterns: tuple[LowerTypePattern, ...]
     value_refs: tuple[LowerValueRef, ...]
     source_nodes: tuple[LowerSourceNode, ...]
-    nonlocal_source_op_kinds: tuple[int, ...]
+    source_graph_root_op_kinds: tuple[int, ...]
     source_memories: tuple[LowerSourceMemory, ...]
     guards: tuple[LowerGuard, ...]
     attr_copies: tuple[LowerAttrCopy, ...]

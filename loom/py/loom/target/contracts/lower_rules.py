@@ -416,16 +416,12 @@ class _LowerRuleSetCompiler:
             for index, rule in enumerate(rules)
         )
         spans = _build_spans(rules, self._op_ordinals)
-        nonlocal_source_op_kinds = tuple(
+        source_graph_root_op_kinds = tuple(
             sorted(
                 {
-                    _op_kind_value(source_node.source_op, self._op_ordinals)
-                    for source_node in source_nodes
-                    if source_node.relation
-                    in (
-                        SourceNodeRelation.EXCLUSIVE_USER,
-                        SourceNodeRelation.EXCLUSIVE_DEFINITION,
-                    )
+                    _op_kind_value(rule.source_op, self._op_ordinals)
+                    for rule in rules
+                    if rule.source_node_count != 0
                 }
             )
         )
@@ -437,7 +433,7 @@ class _LowerRuleSetCompiler:
             type_patterns=tuple(self._type_patterns),
             value_refs=tuple(self._value_refs),
             source_nodes=source_nodes,
-            nonlocal_source_op_kinds=nonlocal_source_op_kinds,
+            source_graph_root_op_kinds=source_graph_root_op_kinds,
             source_memories=tuple(self._source_memories),
             guards=guards,
             attr_copies=tuple(self._attr_copies),

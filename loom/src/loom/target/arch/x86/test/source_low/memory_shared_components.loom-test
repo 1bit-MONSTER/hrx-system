@@ -25,7 +25,7 @@ func.def @shared_loop_origin(%input: buffer, %row: index, %column: index) -> (i3
 // ----
 CHECK: %origin = lea *, %bounded_column
 CHECK: %position = lea %origin, %iteration
-CHECK: %value = mov.load.indexed.gpr32 %input, %position {disp32 = 0, scale = 4}
+CHECK: %next = add.load.indexed.gpr32 *, %input, %position {disp32 = 0, scale = 4}
 
 // ====
 
@@ -48,9 +48,9 @@ func.def @shared_static_suffix(%input: buffer, %row: index, %column: index) -> (
 
 // ----
 CHECK: %origin = lea *, %bounded_column
-CHECK: %first = mov.load.indexed.gpr32 %input, %origin {disp32 = 0, scale = 4}
 CHECK: * = copy %origin : reg<x86.gpr64> -> reg<x86.gpr64>
 CHECK: %second = mov.load.indexed.gpr32 %input, * {disp32 = 32, scale = 1}
+CHECK: %sum = add.load.indexed.gpr32 *, %input, %origin {disp32 = 0, scale = 4}
 
 // ====
 
@@ -113,5 +113,5 @@ func.def @nested_scoped_origin(%input: buffer, %row: index, %column: index) -> (
 // ----
 CHECK: %origin = lea *, %bounded_column
 CHECK: %value = mov.load.indexed.gpr32<volatile> * {disp32 = 32, scale = 1}
-CHECK: %last = mov.load.indexed.gpr32<volatile> * {disp32 = 32, scale = 1}
+CHECK: %result = add.load.indexed.gpr32<volatile> *, %input, * {disp32 = 32, scale = 1}
 CHECK-NOT: * = mov.imm64 64

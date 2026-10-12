@@ -116,20 +116,37 @@ const loom_target_contract_case_t kContractCases[] = {
 template <loom_op_kind_t OpKind>
 class SingleOpContract {
  public:
-  SingleOpContract() { entries_[loom_op_dialect_index(OpKind)] = {0, 1}; }
+  SingleOpContract(
+      const loom_target_contract_case_t* cases = kContractCases,
+      uint16_t case_count = IREE_ARRAYSIZE(kContractCases),
+      const loom_target_contract_binding_t* bindings = kContractBindings,
+      uint8_t binding_count = IREE_ARRAYSIZE(kContractBindings),
+      const loom_op_kind_t* source_graph_root_op_kinds = nullptr,
+      uint16_t source_graph_root_op_kind_count = 0) {
+    entries_[loom_op_dialect_index(OpKind)] = {0, case_count};
+    dialect_ = {IREE_ARRAYSIZE(entries_), entries_};
+    index_ = {
+        .dialect_base_id = OpKind >> 8,
+        .dialect_count = 1,
+        .dialects = &dialect_,
+        .case_count = case_count,
+        .cases = cases,
+        .binding_count = binding_count,
+        .source_graph_root_op_kind_count = source_graph_root_op_kind_count,
+        .bindings = bindings,
+        .selection_data = nullptr,
+        .source_graph_root_op_kinds = source_graph_root_op_kinds,
+    };
+  }
   const loom_target_contract_index_t* index() const { return &index_; }
 
  private:
   // One populated op span in this fixture's source dialect.
   loom_target_contract_op_entry_t entries_[(OpKind & 0xFF) + 1] = {};
   // Dense dialect table borrowed by the index.
-  loom_target_contract_dialect_table_t dialect_ = {IREE_ARRAYSIZE(entries_),
-                                                   entries_};
+  loom_target_contract_dialect_table_t dialect_ = {};
   // Query-ready index, with the same representation as generated policy tables.
-  loom_target_contract_index_t index_ = {
-      OpKind >> 8, 1, &dialect_,         1,       kContractCases,
-      1,           0, kContractBindings, nullptr, nullptr,
-  };
+  loom_target_contract_index_t index_ = {};
 };
 
 class LowContractQuerySourceMemoryTest : public ::testing::Test {
@@ -404,29 +421,10 @@ TEST(LowContractQueryTest, LoweringVisitorIncludesNonQueryFragment) {
       .binding_index = 0,
       .row_index = 0,
   };
-  loom_target_contract_op_entry_t entries[(kSourceOpKind & 0xFF) + 1] = {};
-  entries[loom_op_dialect_index(kSourceOpKind)] = {
-      .case_start = 0,
-      .case_count = 1,
-  };
-  const loom_target_contract_dialect_table_t dialect = {
-      .op_count = IREE_ARRAYSIZE(entries),
-      .op_entries = entries,
-  };
-  const loom_target_contract_index_t index = {
-      .dialect_base_id = kSourceOpKind >> 8,
-      .dialect_count = 1,
-      .dialects = &dialect,
-      .case_count = 1,
-      .cases = &contract_case,
-      .binding_count = 1,
-      .nonlocal_source_op_kind_count = 0,
-      .bindings = &binding,
-      .selection_data = nullptr,
-      .nonlocal_source_op_kinds = nullptr,
-  };
+  const SingleOpContract<kSourceOpKind> contract(&contract_case, 1, &binding,
+                                                 1);
   const loom_low_lower_contract_query_options_t options = {
-      .contract_index = &index,
+      .contract_index = contract.index(),
       .rule_sets =
           {
               .count = IREE_ARRAYSIZE(rule_sets),
@@ -467,17 +465,187 @@ TEST(LowContractQueryTest, LoweringVisitorIncludesNonQueryFragment) {
   };
   IREE_ASSERT_OK(loom_low_lower_visit_lowering_contract_cases(
       &environment, &options, &op,
-      LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES, &match_context,
-      callback, /*out_used_candidate_index=*/nullptr));
+      LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES,
+      LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_ALL, &match_context, callback,
+      /*out_used_candidate_index=*/nullptr));
   EXPECT_EQ(lowering_state.count, 1);
 
   loom_low_lower_contract_case_callback_t target_query_callback = callback;
   target_query_callback.user_data = &target_query_state;
   IREE_ASSERT_OK(loom_low_lower_visit_target_contract_cases(
       &environment, &options, &op,
-      LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES, &match_context,
+      LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES,
+      LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_ALL, &match_context,
       target_query_callback, /*out_used_candidate_index=*/nullptr));
   EXPECT_EQ(target_query_state.count, 0);
+}
+
+TEST(LowContractQueryTest, SingletonScopeSkipsGraphCasesBeforeMatching) {
+  loom_low_lower_rule_t rules[2] = {};
+  rules[1].source_node_span = LOOM_LOW_LOWER_SOURCE_NODE_SPAN(0, 1);
+  const loom_low_lower_rule_set_t rule_set = {
+      .rules = rules,
+      .rule_count = IREE_ARRAYSIZE(rules),
+  };
+  const loom_low_lower_rule_set_t* rule_sets[] = {&rule_set};
+
+  const loom_target_contract_fragment_t fragment = {};
+  const loom_target_contract_binding_t binding = {
+      .fragment = &fragment,
+      .rule_set_index = 0,
+  };
+  const loom_target_contract_case_t contract_cases[] = {
+      {
+          .system = LOOM_TARGET_CONTRACT_SYSTEM_VALUE_ELIDE,
+          .binding_index = 0,
+          .row_index = 0,
+      },
+      {
+          .system = LOOM_TARGET_CONTRACT_SYSTEM_VALUE_ELIDE,
+          .binding_index = 0,
+          .row_index = 1,
+      },
+  };
+  const SingleOpContract<kSourceOpKind> contract(
+      contract_cases, IREE_ARRAYSIZE(contract_cases), &binding, 1,
+      &kSourceOpKind, 1);
+  const loom_low_lower_contract_query_options_t options = {
+      .contract_index = contract.index(),
+      .rule_sets =
+          {
+              .count = IREE_ARRAYSIZE(rule_sets),
+              .values = rule_sets,
+          },
+  };
+  const loom_target_facts_t target_facts = MakeTargetFacts();
+  const loom_target_contract_query_environment_t environment = {
+      .module = nullptr,
+      .function = {},
+      .target_facts = &target_facts,
+  };
+  loom_low_lower_rule_match_context_t match_context = {
+      .bundle = &kTargetBundle,
+  };
+  loom_op_t op = {
+      .kind = kSourceOpKind,
+  };
+
+  struct VisitState {
+    uint16_t expected_case_index;
+    const loom_low_lower_rule_t* expected_rule;
+    int count;
+  } state = {};
+  const loom_low_lower_contract_case_callback_t callback = {
+      .fn = [](void* user_data, uint16_t case_index,
+               const loom_low_lower_contract_case_match_t* match,
+               bool* out_stop) -> iree_status_t {
+        auto* state = static_cast<VisitState*>(user_data);
+        EXPECT_EQ(case_index, state->expected_case_index);
+        EXPECT_EQ(match->kind, LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_LOWER_RULE);
+        EXPECT_EQ(match->selection.rule, state->expected_rule);
+        ++state->count;
+        *out_stop = false;
+        return iree_ok_status();
+      },
+      .user_data = &state,
+  };
+
+  state.expected_case_index = 0;
+  state.expected_rule = &rules[0];
+  IREE_ASSERT_OK(loom_low_lower_visit_lowering_contract_cases(
+      &environment, &options, &op,
+      LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES,
+      LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_SINGLETON, &match_context, callback,
+      /*out_used_candidate_index=*/nullptr));
+  EXPECT_EQ(state.count, 1);
+}
+
+TEST_F(LowContractQuerySourceMemoryTest,
+       SourceGraphScopeSkipsCaseWhenFirstEdgeCannotResolve) {
+  const loom_value_id_t source_value = BuildOffsetConstant(0);
+  const loom_op_t* source_op =
+      loom_value_def_op(loom_module_value(module_, source_value));
+  const loom_low_lower_value_ref_t value_refs[] = {
+      {
+          .kind = LOOM_LOW_LOWER_VALUE_REF_RESULT,
+          .source_node_index = 0,
+      },
+      {
+          .kind = LOOM_LOW_LOWER_VALUE_REF_OPERAND,
+          .source_node_index = 1,
+      },
+  };
+  const loom_low_lower_source_node_t source_node = {
+      .relation = LOOM_LOW_LOWER_SOURCE_NODE_EXCLUSIVE_USER,
+      .parent_node_index = 0,
+      .source_op_kind = LOOM_OP_INDEX_ASSUME,
+      .parent_value_ref_index = 0,
+      .node_value_ref_index = 1,
+  };
+  const loom_low_lower_rule_t rule = {
+      .source_node_span = LOOM_LOW_LOWER_SOURCE_NODE_SPAN(0, 1),
+  };
+  const loom_low_lower_rule_set_t rule_set = {
+      .rules = &rule,
+      .rule_count = 1,
+      .value_refs = value_refs,
+      .value_ref_count = IREE_ARRAYSIZE(value_refs),
+      .source_nodes = &source_node,
+      .source_node_count = 1,
+  };
+  const loom_low_lower_rule_set_t* rule_sets[] = {&rule_set};
+  const loom_target_contract_fragment_t fragment = {};
+  const loom_target_contract_binding_t binding = {
+      .fragment = &fragment,
+      .rule_set_index = 0,
+  };
+  const loom_target_contract_case_t contract_case = {
+      .system = LOOM_TARGET_CONTRACT_SYSTEM_VALUE_ELIDE,
+      .binding_index = 0,
+      .row_index = 0,
+  };
+  const loom_op_kind_t root_op_kind = LOOM_OP_INDEX_CONSTANT;
+  const SingleOpContract<LOOM_OP_INDEX_CONSTANT> contract(
+      &contract_case, 1, &binding, 1, &root_op_kind, 1);
+  const loom_low_lower_contract_query_options_t options = {
+      .contract_index = contract.index(),
+      .rule_sets =
+          {
+              .count = IREE_ARRAYSIZE(rule_sets),
+              .values = rule_sets,
+          },
+  };
+  const loom_target_facts_t target_facts = MakeTargetFacts();
+  const loom_target_contract_query_environment_t environment = {
+      .module = module_,
+      .function = function_,
+      .target_facts = &target_facts,
+  };
+  loom_low_lower_rule_match_context_t match_context = {
+      .module = module_,
+      .function = function_,
+      .bundle = &kTargetBundle,
+  };
+  int visit_count = 0;
+  const loom_low_lower_contract_case_callback_t callback = {
+      .fn = [](void* user_data, uint16_t case_index,
+               const loom_low_lower_contract_case_match_t* match,
+               bool* out_stop) -> iree_status_t {
+        (void)case_index;
+        (void)match;
+        ++*static_cast<int*>(user_data);
+        *out_stop = false;
+        return iree_ok_status();
+      },
+      .user_data = &visit_count,
+  };
+
+  IREE_ASSERT_OK(loom_low_lower_visit_lowering_contract_cases(
+      &environment, &options, source_op,
+      LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES,
+      LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_SOURCE_GRAPH, &match_context, callback,
+      /*out_used_candidate_index=*/nullptr));
+  EXPECT_EQ(visit_count, 0);
 }
 
 TEST(LowContractQueryTest,

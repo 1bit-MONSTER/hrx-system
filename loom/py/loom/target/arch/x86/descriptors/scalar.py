@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from loom.target.arch.x86.scalar_families import (
+    X86_SCALAR_READ_MEMORY_FAMILIES,
+)
 from loom.target.low_descriptors import (
     Constraint,
     ConstraintKind,
@@ -56,6 +59,8 @@ from .common import (
     _RESOURCE_STORE,
     _SCHEDULE_ADDRESS,
     _SCHEDULE_CONTROL,
+    _SCHEDULE_MEMORY_ALU_GPR32,
+    _SCHEDULE_MEMORY_ALU_GPR64,
     _SCHEDULE_MEMORY_LOAD_GPR32,
     _SCHEDULE_MEMORY_LOAD_GPR64,
     _SCHEDULE_MEMORY_STORE_GPR32,
@@ -70,7 +75,7 @@ from .common import (
     _gpr64_result,
 )
 from .encoding import Flag, Form, encoding
-from .memory import memory_descriptors
+from .memory import memory_descriptors, read_memory_binary_descriptors
 
 # Physical IDs follow the native GPR encoding order, including width aliases.
 _GPR_NAMES = (
@@ -600,6 +605,35 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
         form=Form.BINARY_R_RM,
         mnemonic="imul",
         semantic_tag="integer.mul.i64",
+    ),
+    *(
+        descriptor
+        for width, register_class, register_suffix, schedule_class in (
+            (
+                32,
+                _REG_GPR32,
+                "gpr32",
+                _SCHEDULE_MEMORY_ALU_GPR32,
+            ),
+            (
+                64,
+                _REG_GPR64,
+                "gpr64",
+                _SCHEDULE_MEMORY_ALU_GPR64,
+            ),
+        )
+        for family in X86_SCALAR_READ_MEMORY_FAMILIES
+        for descriptor in read_memory_binary_descriptors(
+            key_prefix=f"x86.scalar.{family.descriptor_operation}",
+            mnemonic=family.mnemonic,
+            register_class=register_class,
+            register_suffix=register_suffix,
+            semantic_tag=f"integer.{family.semantic}.i{width}",
+            width_bits=width,
+            schedule_class=schedule_class,
+            opcode=family.opcode,
+            encoding_flags=Flag.REX_W if width == 64 else 0,
+        )
     ),
     Descriptor(
         key="x86.scalar.mul.high.gpr64",
@@ -1176,6 +1210,30 @@ X86_SCALAR_DESCRIPTOR_SET = DescriptorSet(
             latency_cycles=4,
             minimum_issue_separation_cycles=4,
             issue_uses=(IssueUse(_RESOURCE_LOAD, cycles=1, units=1),),
+            flags=(ScheduleClassFlag.MAY_LOAD,),
+            model_quality=ModelQuality.ESTIMATED,
+        ),
+        ScheduleClass(
+            _SCHEDULE_MEMORY_ALU_GPR32,
+            latency_kind=LatencyKind.ESTIMATE,
+            latency_cycles=4,
+            minimum_issue_separation_cycles=4,
+            issue_uses=(
+                IssueUse(_RESOURCE_LOAD, cycles=1, units=1),
+                IssueUse(_RESOURCE_SCALAR, cycles=1, units=1),
+            ),
+            flags=(ScheduleClassFlag.MAY_LOAD,),
+            model_quality=ModelQuality.ESTIMATED,
+        ),
+        ScheduleClass(
+            _SCHEDULE_MEMORY_ALU_GPR64,
+            latency_kind=LatencyKind.ESTIMATE,
+            latency_cycles=4,
+            minimum_issue_separation_cycles=4,
+            issue_uses=(
+                IssueUse(_RESOURCE_LOAD, cycles=1, units=1),
+                IssueUse(_RESOURCE_SCALAR, cycles=1, units=1),
+            ),
             flags=(ScheduleClassFlag.MAY_LOAD,),
             model_quality=ModelQuality.ESTIMATED,
         ),

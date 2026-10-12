@@ -24,12 +24,12 @@ package(
 loom_target_contract_file_family(
     name = "contract_tables_gen",
     args = [
-        "--contract-index=LOOM_X86_SCALAR_CONTRACT:x86.scalar",
-        "--contract-index=LOOM_X86_AVX2_CONTRACT:x86.scalar,x86.avx2",
-        "--contract-index=LOOM_X86_AVX512_CONTRACT:x86.scalar,x86.avx2,x86.avx512",
+        "--contract-index=LOOM_X86_SCALAR_CONTRACT:x86.scalar,x86.scalar.read_memory",
+        "--contract-index=LOOM_X86_AVX2_CONTRACT:x86.scalar,x86.scalar.read_memory,x86.avx2",
+        "--contract-index=LOOM_X86_AVX512_CONTRACT:x86.scalar,x86.scalar.read_memory,x86.avx2,x86.avx512",
         "--contract-index=LOOM_X86_PACKED_DOT_CONTRACT:x86.packed_dot",
-        "--contract-index=LOOM_X86_AVX2_FEATURES_CONTRACT:x86.scalar,x86.avx2,x86.avx_ne_convert,x86.packed_dot",
-        "--contract-index=LOOM_X86_AVX512_FEATURES_CONTRACT:x86.scalar,x86.avx2,x86.avx512,x86.avx512_fp16,x86.avx_ne_convert,x86.avx512_bf16,x86.packed_dot",
+        "--contract-index=LOOM_X86_AVX2_FEATURES_CONTRACT:x86.scalar,x86.scalar.read_memory,x86.avx2,x86.avx_ne_convert,x86.packed_dot",
+        "--contract-index=LOOM_X86_AVX512_FEATURES_CONTRACT:x86.scalar,x86.scalar.read_memory,x86.avx2,x86.avx512,x86.avx512_fp16,x86.avx_ne_convert,x86.avx512_bf16,x86.packed_dot",
     ],
     comment = "Generating x86 contract table families",
     fragments = {
@@ -40,6 +40,7 @@ loom_target_contract_file_family(
         "avx_ne_convert": "x86.avx_ne_convert",
         "packed_dot": "x86.packed_dot",
         "scalar": "x86.scalar",
+        "scalar_read_memory": "x86.scalar.read_memory",
     },
     generator = "//loom/py/loom/gen/target/contracts:x86_contract_table_family",
     index_output = "tables.inl",
@@ -55,6 +56,16 @@ loom_target_contract_cc_libraries(
         "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scalar",
         "//loom/src/loom/ops/scf",
+        "//loom/src/loom/ops/view",
+    ],
+)
+
+loom_target_contract_cc_libraries(
+    name = "scalar_read_memory",
+    contract_deps = ["//loom/src/loom/target:contract"],
+    lower_rule_deps = [
+        "//loom/src/loom/codegen/low/lower",
+        "//loom/src/loom/ops/scalar",
         "//loom/src/loom/ops/view",
     ],
 )
@@ -139,6 +150,8 @@ loom_cc_library(
         "packed_dot_lower_rules.h",
         "scalar.h",
         "scalar_lower_rules.h",
+        "scalar_read_memory.h",
+        "scalar_read_memory_lower_rules.h",
     ],
     deps = [
         ":avx2",
@@ -155,6 +168,8 @@ loom_cc_library(
         ":packed_dot_lower_rules",
         ":scalar",
         ":scalar_lower_rules",
+        ":scalar_read_memory",
+        ":scalar_read_memory_lower_rules",
     ],
 )
 

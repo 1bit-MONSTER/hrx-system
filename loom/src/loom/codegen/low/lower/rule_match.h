@@ -195,6 +195,14 @@ bool loom_low_lower_rule_selections_have_same_source_graph(
     const loom_low_lower_rule_selection_t* lhs,
     const loom_low_lower_rule_selection_t* rhs);
 
+// Returns true when the first related node of |rule| resolves from |source_op|.
+// This is an exact necessary condition used to prune source-graph candidates;
+// full matching still resolves every node and evaluates every guard.
+bool loom_low_lower_rule_first_source_node_matches(
+    const loom_low_lower_rule_match_context_t* match_context,
+    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
+    const loom_low_lower_rule_t* rule);
+
 // Initializes a rule match context backed by a mutable lowering context.
 // |source_memory_state| retains the canonical source-memory plan across every
 // candidate rule inspected for one source op.

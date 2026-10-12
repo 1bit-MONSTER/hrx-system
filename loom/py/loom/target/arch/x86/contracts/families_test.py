@@ -6,15 +6,23 @@
 
 from loom.dialect.index import defs as index
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
+from loom.dialect.scalar import bitwise as scalar_bitwise
 from loom.dialect.scalar import conversion as scalar_conversion
 from loom.dialect.scalar import math as scalar_math
 from loom.dialect.vector import defs as vector
+from loom.dialect.view import defs as view
 from loom.target.arch.x86.contracts.avx2 import X86_AVX2_CONTRACT_FRAGMENT
 from loom.target.arch.x86.contracts.avx512 import X86_AVX512_CONTRACT_FRAGMENT
 from loom.target.arch.x86.contracts.scalar import X86_SCALAR_CONTRACT_FRAGMENT
+from loom.target.arch.x86.contracts.scalar_read_memory import (
+    X86_SCALAR_READ_MEMORY_CONTRACT_FRAGMENT,
+)
 from loom.target.arch.x86.descriptors import (
     X86_AVX2_DESCRIPTOR_SET,
     X86_AVX512_CORE_DESCRIPTOR_SET,
+)
+from loom.target.arch.x86.scalar_families import (
+    X86_SCALAR_READ_MEMORY_FAMILIES,
 )
 from loom.target.arch.x86.vector_families import (
     AVX2_FLOAT_REDUCTION_OPERATIONS,
@@ -43,9 +51,12 @@ from loom.target.arch.x86.vector_families import (
 )
 from loom.target.contracts import (
     DescriptorRule,
+    EmitDescriptorOp,
     GuardKind,
     OperandSegmentProject,
     Scalar,
+    SourceMemoryOperation,
+    SourceNodeRelation,
     ValueAliasRule,
     ValueProject,
     ValueRef,
@@ -266,6 +277,96 @@ def test_scalar_integer_arithmetic_immediates_cover_native_carriers() -> None:
             ("rhs",) if source_op is scalar_arithmetic.scalar_subi else ("rhs", "lhs")
         )
     }
+    assert all(
+        rule.priority == 3
+        for rule in X86_SCALAR_CONTRACT_FRAGMENT.cases
+        if isinstance(rule, DescriptorRule)
+        and rule.source_op in operation_names
+        and ".imm.gpr" in rule.descriptor.key
+    )
+
+
+def test_scalar_integer_read_memory_rules_cover_native_carriers() -> None:
+    assert not X86_SCALAR_READ_MEMORY_CONTRACT_FRAGMENT.target_contract_query
+    source_operations = {
+        "addi": scalar_arithmetic.scalar_addi,
+        "subi": scalar_arithmetic.scalar_subi,
+        "muli": scalar_arithmetic.scalar_muli,
+        "andi": scalar_bitwise.scalar_andi,
+        "ori": scalar_bitwise.scalar_ori,
+        "xori": scalar_bitwise.scalar_xori,
+    }
+    assert {
+        (
+            family.source_operation,
+            family.descriptor_operation,
+            family.commutative,
+        )
+        for family in X86_SCALAR_READ_MEMORY_FAMILIES
+    } == {
+        ("addi", "add", True),
+        ("subi", "sub", False),
+        ("muli", "imul", True),
+        ("andi", "and", True),
+        ("ori", "or", True),
+        ("xori", "xor", True),
+    }
+    expected_reports = {
+        (
+            f"native_memory_integer_{family.descriptor_operation}_i{width}_"
+            f"{loaded_operand}",
+            source_operations[family.source_operation],
+            family.descriptor_operation,
+            width,
+            loaded_operand,
+        )
+        for family in X86_SCALAR_READ_MEMORY_FAMILIES
+        for width in (32, 64)
+        for loaded_operand in (("lhs", "rhs") if family.commutative else ("rhs",))
+    }
+    report_groups = {}
+    for rule in X86_SCALAR_READ_MEMORY_CONTRACT_FRAGMENT.cases:
+        if (
+            not isinstance(rule, DescriptorRule)
+            or rule.source_op is not view.view_load
+            or not rule.report_key.startswith("native_memory_integer_")
+        ):
+            continue
+        report_groups.setdefault(rule.report_key, []).append(rule)
+
+    assert set(report_groups) == {report for report, *_ in expected_reports}
+    for report, source_op, operation, width, loaded_operand in expected_reports:
+        rules = report_groups[report]
+        assert len(rules) == 9
+        for rule in rules:
+            assert rule.priority == 1
+            assert len(rule.source_nodes) == 1
+            consumer = rule.source_nodes[0]
+            assert consumer.name == "consumer"
+            assert consumer.source_op is source_op
+            assert consumer.relation is SourceNodeRelation.EXCLUSIVE_USER
+            assert consumer.node_value.field == loaded_operand
+            assert all(
+                guard.type_pattern == Scalar(f"i{width}")
+                for guard in consumer.guards
+                if guard.kind is GuardKind.VALUE_TYPE
+            )
+            memory_emits = tuple(
+                emit
+                for emit in rule.emit
+                if isinstance(emit, EmitDescriptorOp)
+                and emit.descriptor is rule.descriptor
+            )
+            assert len(memory_emits) == 1
+            memory_emit = memory_emits[0]
+            assert memory_emit.descriptor.key.startswith(f"x86.scalar.{operation}.load")
+            assert memory_emit.descriptor.key.endswith(f".gpr{width}")
+            assert memory_emit.source_memory.operation is SourceMemoryOperation.LOAD
+            assert memory_emit.results["dst"].source_node == "consumer"
+            accumulator_operand = "rhs" if loaded_operand == "lhs" else "lhs"
+            assert memory_emit.operands["lhs"] == ValueRef.operand(
+                accumulator_operand, source_node="consumer"
+            )
 
 
 def test_address_arithmetic_uses_immediates_after_specialized_lea_forms() -> None:

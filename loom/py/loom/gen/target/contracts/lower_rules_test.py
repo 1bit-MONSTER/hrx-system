@@ -162,7 +162,7 @@ def _compiled_lower_rule_set(
         type_patterns=type_patterns,
         value_refs=value_refs,
         source_nodes=source_nodes,
-        nonlocal_source_op_kinds=(),
+        source_graph_root_op_kinds=(),
         source_memories=source_memories,
         guards=guards,
         attr_copies=attr_copies,
