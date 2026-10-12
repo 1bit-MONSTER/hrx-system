@@ -13,7 +13,7 @@
 // Properties of physical backing, independent of a consumer's access.
 #define AMDF_MEMORY_BACKING_FLAGS                                  \
   (AMDF_MEMORY_FLAG_HOST_VISIBLE | AMDF_MEMORY_FLAG_DEVICE_LOCAL | \
-   AMDF_MEMORY_FLAG_SHAREABLE)
+   AMDF_MEMORY_FLAG_SHAREABLE | AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE)
 
 // Properties established separately for each device consumer.
 #define AMDF_MEMORY_ACCESS_FLAGS                                     \

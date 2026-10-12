@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-/// Stable device addresses with independently replaceable physical backing.
+/// Stable host or device addresses with independently replaceable backing.
 /// The reservation borrows its live devices and owns no application backing.
 typedef struct amdf_memory_reservation_t amdf_memory_reservation_t;
 
@@ -49,12 +49,19 @@ typedef struct amdf_memory_reservation_capabilities_t {
 
 /// One explicitly initialized consumer of a reservation.
 typedef struct amdf_memory_reservation_access_t {
-  /// Borrowed live device, kept alive through reservation destruction.
+  /// Borrowed live device, or NULL for the process host address space.
+  /// The caller keeps a live device alive through reservation destruction.
   amdf_device_t* device;
-  /// Consumer-local address domain selected from live capabilities.
+  /// Consumer-local address domain, or ADDRESS_DOMAIN_ORDINAL_NONE for host.
   uint32_t address_domain_ordinal;
   /// Maximum permissions that updates may establish for this consumer.
   amdf_memory_access_t access;
+  /// Minimum mapping offset/length unit, or zero for provider policy.
+  /// Must be a power-of-two multiple of the native mapping granularity and
+  /// divide the reservation length. The returned geometry also satisfies any
+  /// consumers sharing this native mapping group. Host mappings are replaced
+  /// in these units, including on platforms requiring whole-view removal.
+  uint64_t mapping_granularity;
 } amdf_memory_reservation_access_t;
 
 /// Parameters for reserving addresses without allocating application backing.
@@ -69,11 +76,11 @@ typedef struct amdf_memory_reservation_create_info_t {
   uint64_t byte_length;
   /// Minimum power-of-two base alignment, or zero for provider policy.
   uint64_t minimum_alignment;
-  /// Nonzero number of caller-ordered, unique live consumers.
+  /// Nonzero number of caller-ordered, unique host/live-device consumers.
   uint32_t access_count;
   /// Reserved for compatible growth; must be zero.
   uint32_t reserved;
-  /// Consumers belonging to the instance, borrowed only for this call.
+  /// Consumers borrowed only for this call; live devices belong to instance.
   const amdf_memory_reservation_access_t* accesses;
 } amdf_memory_reservation_create_info_t;
 
@@ -85,7 +92,7 @@ typedef struct amdf_memory_reservation_access_info_t {
   uint32_t structure_size;
   /// Optional output extension chain. No extensions are defined.
   void* next;
-  /// Exact live consumer, not an allocation owner.
+  /// Exact live consumer, or all-zero for the host projection.
   amdf_device_id_t device_id;
   /// Resource-local ordinal identifying this projection.
   uint32_t ordinal;
@@ -96,13 +103,17 @@ typedef struct amdf_memory_reservation_access_info_t {
   uint32_t address_domain_ordinal;
   /// Maximum permissions admitted by this reservation projection.
   amdf_memory_access_t access;
-  /// Stable device base, queryable even when none of the range is backed.
+  /// Interpretation of address; HOST for a process pointer.
+  amdf_memory_address_kind_t address_kind;
+  /// Reserved for compatible growth; zero.
+  uint32_t reserved;
+  /// Stable base, queryable even when none of the range is backed.
   uint64_t address;
   /// Complete reserved length in bytes.
   uint64_t byte_length;
   /// Required native mapping offset and length alignment in bytes.
   uint64_t mapping_granularity;
-  /// Device reset epoch in which this address remains valid.
+  /// Device reset epoch, or zero for a host projection.
   uint64_t reset_epoch;
 } amdf_memory_reservation_access_info_t;
 
@@ -116,7 +127,8 @@ typedef struct amdf_memory_mapping_update_t {
   /// Ordinary prepared backing, or NULL to detach the destination range.
   /// The caller keeps backing alive through its last installed alias and user.
   amdf_memory_t* memory;
-  /// Source access prepared for this exact live consumer, or zero for detach.
+  /// Source access prepared for this exact live device. Must be zero for a
+  /// host projection (which uses backing, not a device access) or detach.
   uint32_t memory_access_ordinal;
   /// Exact installed permissions, or zero for detach.
   amdf_memory_access_t access;

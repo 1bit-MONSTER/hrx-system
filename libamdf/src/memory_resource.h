@@ -34,6 +34,10 @@ typedef struct amdf_memory_vtable_t {
                        const amdf_host_mapping_capabilities_t* capabilities,
                        const amdf_memory_map_info_t* map_info,
                        amdf_host_mapping_t** out_mapping);
+  // Returns the prepared OS source handle when HOST_MAPPING_SOURCE is set.
+  // The handle is borrowed from this backing, with no native work or lookup.
+  uintptr_t (*host_mapping_source)(amdf_memory_t* memory,
+                                   uint32_t access_ordinal);
   // Releases the exact native state owned by a memory implementation.
   amdf_status_t (*destroy_native)(amdf_memory_t* memory,
                                   uint32_t access_ordinal);

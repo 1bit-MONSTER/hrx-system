@@ -13,6 +13,24 @@
 extern "C" {
 #endif
 
+// One prepared WRITE_BACK source and its persistent ordinary host view.
+typedef struct amdf_platform_host_backing_t {
+  // Native section/file handle borrowed by explicit alias updates.
+  uintptr_t handle;
+  // Persistent host mapping owned alongside the native source.
+  void* pointer;
+} amdf_platform_host_backing_t;
+
+// Creates remappable system backing and its persistent host view. Failure
+// leaves the output unchanged and retains no caller cleanup obligation.
+amdf_status_t amdf_platform_host_backing_create(
+    uint64_t byte_length, amdf_platform_host_backing_t* out_backing);
+
+// Removes the persistent view before releasing its source. A failed removal
+// retains native ownership; callers may discard metadata at terminal teardown.
+amdf_status_t amdf_platform_host_backing_destroy(
+    amdf_platform_host_backing_t* backing, uint64_t byte_length);
+
 // Allocates write-back system virtual memory. The validated length is a
 // multiple of the platform host allocation granularity; no accelerator is
 // involved.

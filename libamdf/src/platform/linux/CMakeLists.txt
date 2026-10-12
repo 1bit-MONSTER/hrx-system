@@ -53,6 +53,20 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND AMDF_BUILD)
 iree_cc_library(
   NAME
+    host_reservation
+  SRCS
+    "host_reservation.c"
+  DEPS
+    ::file
+    amdf::headers
+    libamdf::src::platform::host_reservation
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND AMDF_BUILD)
+iree_cc_library(
+  NAME
     dma_buf
   HDRS
     "dma_buf.h"

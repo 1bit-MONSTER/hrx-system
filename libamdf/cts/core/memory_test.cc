@@ -188,9 +188,9 @@ TEST_F(HostMemoryTest, AllocatesOneBackingWithoutAnAccelerator) {
       .structure_size = sizeof(producer),
       .kind = AMDF_MEMORY_SITE_KIND_HOST,
   };
-  producer.value.host_mapping = mappings_[0];
+  producer.value.host.mapping = mappings_[0];
   amdf_memory_site_t consumer = producer;
-  consumer.value.host_mapping = mappings_[1];
+  consumer.value.host.mapping = mappings_[1];
   amdf_memory_pair_info_t pair = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_PAIR_INFO,
       .structure_size = sizeof(pair),
@@ -232,6 +232,12 @@ TEST_F(HostMemoryTest, BorrowsCallerStorageWithoutTakingOwnership) {
   };
   create_info.byte_length = storage_.size() - 2;
   amdf_memory_t* memory = nullptr;
+  create_info.required_flags |= AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE;
+  EXPECT_EQ(
+      amdf_status_code(api_->memory_create(scope_, &create_info, &memory)),
+      AMDF_STATUS_CODE_UNSUPPORTED);
+  EXPECT_EQ(memory, nullptr);
+  create_info.required_flags &= ~AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE;
   ASSERT_EQ(api_->memory_create(scope_, &create_info, &memory), AMDF_STATUS_OK);
   memories_.push_back(memory);
   amdf_host_mapping_info_t info = {};

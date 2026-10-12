@@ -74,8 +74,8 @@ class Pm4MappingTest : public Pm4DispatchTest {
     ASSERT_FALSE(cleanup_failed_);
   }
 
-  void Prepare(amdf_memory_scope_t* scope,
-               uint64_t command_byte_length = 65536) {
+  void Prepare(amdf_memory_scope_t* scope, uint64_t command_byte_length = 65536,
+               uint64_t secondary_mapping_granularity = 0) {
     ASSERT_NE(scope, nullptr);
     scope_ = scope;
     amdf_memory_reservation_capabilities_t capabilities = {
@@ -99,7 +99,8 @@ class Pm4MappingTest : public Pm4DispatchTest {
     required_access_ = capabilities.required_access;
     access_ = kReadWrite | required_access_;
     const amdf_memory_reservation_access_t accesses[] = {
-        {device_, 0, access_}, {second_device_, 0, access_}};
+        {device_, 0, access_, 0},
+        {second_device_, 0, access_, secondary_mapping_granularity}};
     const amdf_memory_reservation_create_info_t create = {
         .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CREATE_INFO,
         .structure_size = sizeof(create),
@@ -715,7 +716,7 @@ class Pm4MappingTest : public Pm4DispatchTest {
     ASSERT_EQ(
         gpu_api_->device_create(endpoint_, &device_create, &second_device_),
         AMDF_STATUS_OK);
-    ASSERT_NO_FATAL_FAILURE(Prepare(scope));
+    ASSERT_NO_FATAL_FAILURE(Prepare(scope, 65536, kSlabByteLength));
     if (IsSkipped()) {
       return;
     }
@@ -729,6 +730,8 @@ class Pm4MappingTest : public Pm4DispatchTest {
     ASSERT_EQ(second.mapping_access_ordinal,
               reservation_info_.mapping_access_ordinal);
     ASSERT_EQ(second.address, reservation_info_.address);
+    ASSERT_EQ(second.mapping_granularity, kSlabByteLength);
+    ASSERT_EQ(reservation_info_.mapping_granularity, kSlabByteLength);
 
     GpuMemory* primary_backing = nullptr;
     GpuMemory* secondary_backing = nullptr;

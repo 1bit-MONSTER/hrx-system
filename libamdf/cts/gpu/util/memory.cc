@@ -83,7 +83,7 @@ amdf_memory_site_t GpuMemory::HostSite() const {
       .structure_size = sizeof(site),
       .kind = AMDF_MEMORY_SITE_KIND_HOST,
   };
-  site.value.host_mapping = mapping;
+  site.value.host.mapping = mapping;
   return site;
 }
 

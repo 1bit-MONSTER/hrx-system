@@ -68,7 +68,7 @@ TEST_F(MemoryTest, HostSitesUseTheSelectedPeerAndPreserveNativeApiOperations) {
       .structure_size = sizeof(host),
       .kind = AMDF_MEMORY_SITE_KIND_HOST,
   };
-  host.value.host_mapping = &mapping;
+  host.value.host.mapping = &mapping;
   amdf_memory_pair_info_t pair = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_PAIR_INFO,
       .structure_size = sizeof(pair),
@@ -131,7 +131,7 @@ TEST_F(MemoryTest, HostSitesUseTheSelectedPeerAndPreserveNativeApiOperations) {
   for (uint32_t kind :
        std::array<uint32_t, 2>{AMDF_MEMORY_SITE_KIND_HOST, UINT32_MAX}) {
     host.kind = kind;
-    host.value.host_mapping = nullptr;
+    host.value.host.mapping = nullptr;
     EXPECT_EQ(
         amdf_status_code(amdf_memory_query_pair_info(&host, &coherent, &pair)),
         AMDF_STATUS_CODE_INVALID_ARGUMENT);
@@ -180,7 +180,7 @@ TEST_F(MemoryTest, HostAtomicReachUsesOnlyTheExactPeersSystemWidths) {
       .structure_size = sizeof(host),
       .kind = AMDF_MEMORY_SITE_KIND_HOST,
   };
-  host.value.host_mapping = &mapping;
+  host.value.host.mapping = &mapping;
   amdf_memory_site_t device = MakeMemorySite(memory, 3);
   device.value.device.access_ordinal = 1;
   amdf_memory_pair_info_t pair = {

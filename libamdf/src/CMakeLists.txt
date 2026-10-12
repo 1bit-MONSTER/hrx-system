@@ -306,10 +306,14 @@ iree_cc_library(
   DEPS
     ::allocator
     ::device
+    ::host_memory
+    ::instance
     ::kernel_queue
     ::memory_resource
     ::structure
     amdf::headers
+    libamdf::src::platform::host_reservation
+    libamdf::src::platform::native_host_reservation
   PUBLIC
 )
 endif()

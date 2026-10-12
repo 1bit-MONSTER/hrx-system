@@ -215,9 +215,13 @@ amdf_cc_library(
     deps = [
         ":allocator",
         ":device",
+        ":host_memory",
+        ":instance",
         ":kernel_queue",
         ":memory_resource",
         ":structure",
+        "//libamdf/src/platform:host_reservation",
+        "//libamdf/src/platform:native_host_reservation",
     ],
 )
 

@@ -30,6 +30,27 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "host_reservation",
+    hdrs = ["host_reservation.h"],
+    visibility = ["//libamdf/src:__subpackages__"],
+)
+
+amdf_cc_library(
+    name = "native_host_reservation",
+    target_compatible_with = select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//libamdf/src:__pkg__"],
+    deps = select({
+        "@platforms//os:linux": ["//libamdf/src/platform/linux:host_reservation"],
+        "@platforms//os:windows": ["//libamdf/src/platform/windows:host_reservation"],
+        "//conditions:default": [],
+    }),
+)
+
+amdf_cc_library(
     name = "native_host_memory",
     target_compatible_with = select({
         "@platforms//os:linux": [],

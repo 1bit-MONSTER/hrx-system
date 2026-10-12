@@ -54,10 +54,19 @@ amdf_status_t AMDF_CALL amdf_device_query_memory_reservation_capabilities(
     amdf_device_t* device, uint32_t address_domain_ordinal,
     amdf_memory_reservation_capabilities_t* out_capabilities);
 
+amdf_status_t AMDF_CALL
+amdf_instance_query_host_memory_reservation_capabilities(
+    amdf_instance_t* instance,
+    amdf_memory_reservation_capabilities_t* out_capabilities);
+
 amdf_status_t AMDF_CALL amdf_memory_reservation_create(
     amdf_instance_t* instance,
     const amdf_memory_reservation_create_info_t* create_info,
     amdf_memory_reservation_t** out_reservation);
+
+amdf_status_t AMDF_CALL amdf_memory_reservation_map(
+    amdf_memory_reservation_t* reservation, uint32_t access_ordinal,
+    const amdf_memory_map_info_t* map_info, amdf_host_mapping_t** out_mapping);
 
 amdf_status_t AMDF_CALL amdf_memory_reservation_query_access_info(
     amdf_memory_reservation_t* reservation, uint32_t access_ordinal,

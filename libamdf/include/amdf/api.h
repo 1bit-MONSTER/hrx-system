@@ -304,6 +304,9 @@ typedef struct amdf_api_t {
   /// in the resource. The result describes visibility over corresponding bytes
   /// reachable by both sites; callers select those ranges and provide ordering.
   /// It does not establish synchronization or report host atomic capabilities.
+  /// A reservation host site supplies source_memory explicitly. Its answer is
+  /// conditional on the caller installing corresponding bytes of that backing;
+  /// the query neither checks current bindings nor discovers a source by VA.
   /// The operation performs no allocation, native query, import, mapping,
   /// cache transition, locking, lazy initialization or wait. It composes the
   /// two sites' retained facts without scanning other allocations or consumers.
@@ -349,6 +352,9 @@ typedef struct amdf_api_t {
   /// A nonempty request executes the advertised operation even when the
   /// memory's attached device is host-coherent. It never waits for device
   /// execution or supplies an execution dependency.
+  /// For a reservation view, callers ensure the complete range is backed with
+  /// the required permissions and is not concurrently replaced. There is no
+  /// mapping-table lookup or per-slab work on this path.
   /// The mapping's cache recipe and native entry points are prepared before
   /// this call. No allocation, locking or lazy initialization occurs. Work
   /// scales with the affected cache lines or native allocation spans. A recipe
@@ -361,8 +367,9 @@ typedef struct amdf_api_t {
   /// Destroys one mapping after all host access to its pointer has stopped.
   ///
   /// The caller must have exclusive access. A valid mapping is consumed and
-  /// returns OK; NULL returns INVALID_ARGUMENT. The view borrows the memory's
-  /// persistent native mapping, whose unmapping occurs at memory destruction.
+  /// returns OK; NULL returns INVALID_ARGUMENT. The view borrows its memory's
+  /// persistent mapping or its reservation's addresses. Destroying the view
+  /// does not change reservation mappings or release their backing.
   /// No execution wait or cache transition is implied.
   amdf_status_t(AMDF_CALL* host_mapping_destroy)(amdf_host_mapping_t* mapping);
 
@@ -654,17 +661,39 @@ typedef struct amdf_api_t {
       amdf_device_t* device, uint32_t address_domain_ordinal,
       amdf_memory_reservation_capabilities_t* out_capabilities);
 
-  /// Reserves stable addresses for explicit live consumers without allocating
-  /// application backing. GPU consumers share a common address when creation
-  /// succeeds; an unsupported native consumer combination fails as a whole.
-  /// Devices and instance are borrowed, with no retention or lifetime tracking.
-  /// This cold operation may allocate, lock and enter the native driver.
-  /// Failure leaves out_reservation unchanged and creates no cleanup
+  /// Queries host reservation geometry without activating an accelerator.
+  /// This cold query may read native OS address limits and page geometry. It
+  /// allocates no backing and leaves output unchanged on failure. The host
+  /// address domain is ADDRESS_DOMAIN_ORDINAL_NONE.
+  amdf_status_t(AMDF_CALL* instance_query_host_memory_reservation_capabilities)(
+      amdf_instance_t* instance,
+      amdf_memory_reservation_capabilities_t* out_capabilities);
+
+  /// Reserves stable addresses for explicit host/live-device consumers without
+  /// allocating application backing. GPU consumers share a common address when
+  /// creation succeeds; an unsupported native consumer combination fails as a
+  /// whole. Devices and instance are borrowed, with no retention or lifetime
+  /// tracking. This cold operation may allocate, lock and enter the native
+  /// driver. Failure leaves out_reservation unchanged and creates no cleanup
   /// obligation.
   amdf_status_t(AMDF_CALL* memory_reservation_create)(
       amdf_instance_t* instance,
       const amdf_memory_reservation_create_info_t* create_info,
       amdf_memory_reservation_t** out_reservation);
+
+  /// Creates a lightweight host view of a reservation's host projection.
+  /// The view borrows the reservation, which must outlive it. It may cover
+  /// holes; creation does not install backing or make the range accessible.
+  /// The requested permissions must be available on the projection. Actual
+  /// accesses and cache operations require installed backing with those
+  /// permissions and external ordering against replacement. The immutable
+  /// WRITE_BACK recipe remains valid across every admitted replacement.
+  /// This cold operation allocates view metadata, not another native mapping.
+  /// Failure leaves out_mapping unchanged.
+  amdf_status_t(AMDF_CALL* memory_reservation_map)(
+      amdf_memory_reservation_t* reservation, uint32_t access_ordinal,
+      const amdf_memory_map_info_t* map_info,
+      amdf_host_mapping_t** out_mapping);
 
   /// Copies a stable address and native alias-domain facts for one consumer.
   /// An unbacked address is queryable but not dereferenceable. This thread-safe
@@ -679,11 +708,12 @@ typedef struct amdf_api_t {
   /// successful detach permits releasing the removed backing after its other
   /// users and aliases finish. No execution dependencies are inferred or
   /// waited. The caller serializes mutation/destruction of the same
-  /// reservation. Mapping sources must have been created with MAPPING_SOURCE
-  /// access. All descriptors are validated before native mutation. Validation
-  /// failure changes nothing. A native failure can leave partial mappings and
-  /// makes the affected native mapping group unusable except for full-group
-  /// detach or terminal destruction. Old and proposed backing stay alive until
+  /// reservation. Device sources require MAPPING_SOURCE access; host sources
+  /// require HOST_MAPPING_SOURCE backing. All descriptors are validated before
+  /// native mutation. Validation failure changes nothing. A native failure can
+  /// leave partial mappings and makes the affected native mapping group
+  /// unusable except for full-group detach or terminal destruction.
+  /// Old and proposed backing stay alive until
   /// checked removal succeeds. The library retains no source objects or
   /// installed-mapping ledger. This cold operation may allocate temporary
   /// descriptors, lock native VM mutation and wait for mapping readiness. Zero

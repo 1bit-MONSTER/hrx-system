@@ -171,6 +171,28 @@ amdf_status_t amdf_gpu_memory_reservation_create(
           reservation->umd, i, &access->info.address,
           &access->info.mapping_access_ordinal,
           &access->info.mapping_granularity, &access->required_access);
+      if (create_info->accesses[i].mapping_granularity != 0) {
+        access->info.mapping_granularity =
+            create_info->accesses[i].mapping_granularity;
+      }
+    }
+    // All units are powers of two. The strongest requested unit satisfies
+    // every logical consumer sharing the same native page tables.
+    for (uint32_t i = 0; i < count; ++i) {
+      const amdf_memory_reservation_access_info_t* info =
+          &reservation->base.accesses[i].info;
+      amdf_memory_reservation_access_info_t* group =
+          &reservation->base.accesses[info->mapping_access_ordinal].info;
+      if (info->mapping_granularity > group->mapping_granularity) {
+        group->mapping_granularity = info->mapping_granularity;
+      }
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+      amdf_memory_reservation_access_info_t* info =
+          &reservation->base.accesses[i].info;
+      info->mapping_granularity =
+          reservation->base.accesses[info->mapping_access_ordinal]
+              .info.mapping_granularity;
     }
     *out_reservation = &reservation->base;
   } else {

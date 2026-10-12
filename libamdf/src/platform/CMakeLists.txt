@@ -34,6 +34,35 @@ iree_cc_library(
 )
 endif()
 
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
+    host_reservation
+  HDRS
+    "host_reservation.h"
+  DEPS
+    amdf::headers
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+set(_native_host_reservation_platform_deps "")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  list(APPEND _native_host_reservation_platform_deps libamdf::src::platform::linux::host_reservation)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  list(APPEND _native_host_reservation_platform_deps libamdf::src::platform::windows::host_reservation)
+endif()
+iree_cc_library(
+  NAME
+    native_host_reservation
+  DEPS
+    amdf::headers
+    ${_native_host_reservation_platform_deps}
+  PUBLIC
+)
+endif()
+
 if(AMDF_BUILD AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 set(_native_host_memory_platform_deps "")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
