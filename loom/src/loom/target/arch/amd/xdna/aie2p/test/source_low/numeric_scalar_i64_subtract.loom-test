@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_scalar_i64_subtract.loom-test
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 func.def @uniform_subtract(%lhs: i64, %rhs: i64) -> (i64) {

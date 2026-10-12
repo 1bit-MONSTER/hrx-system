@@ -1,9 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/layout_predicate_extract.loom-test
-// TEMPLATE-EXCLUDE: @dynamic_predicate_element Wasm SIMD extraction requires a static element index.
-// TEMPLATE-EXCLUDE: @predicate_tail_slice Wasm SIMD predicate storage has four 32-bit lanes.
-// TEMPLATE-EXCLUDE: @multidimensional_predicate_element Wasm SIMD predicate storage has four 32-bit lanes.
-// TEMPLATE-EXCLUDE: @single_predicate Wasm SIMD predicate storage has four 32-bit lanes.
-// TEMPLATE-EXCLUDE: @merged_predicate Wasm requires structured control flow.
 // RUN: emit source-low target=wasm:simd128 output=low control-flow=structured-low
 
 func.def @predicate_lanes(%input: vector<4xi1>) -> (i1, i1) {

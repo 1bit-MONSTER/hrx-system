@@ -1,56 +1,30 @@
 # Source-Low Corpus
 
-This directory contains shared source programs for tests that assert lowered
-output or execution results. Shared input without its own expectations is
-exported data, not a standalone roundtrip test. Most files retain the
-`.loom-test` suffix because it selects the multi-case container format; package
-registration determines whether a file is a test. Their value comes from the
-consumers' assertions: selected instructions, addressing, access widths,
-returned values, or other observable behavior. Parser/printer roundtrip coverage
-belongs beside the corresponding format implementation.
+This directory contains standalone source programs used as explicit compiler
+or integration-test inputs. A `.loom-test` suffix selects the multi-case
+container format; package registration determines whether that container is a
+test. Source files without inline expectations are data, not parser/printer
+roundtrip tests.
 
-Several independently useful target fixtures share source through `TEMPLATE`;
-otherwise the source stays in its sole owning fixture. A standalone template
-container with only one consumer merely duplicates authored IR and is rejected
-by source hygiene. Each consumer owns its compiler options, RUN mode, and output
-assertions. TEMPLATE copies the common source without adding declarations,
-changing modifiers, or binding targets in the IR. Corpus membership does not
-require a backend matrix. Successful compilation alone adds no correctness
-assertion. Missing lowering support belongs in work tracking, not a list of
-expected errors copied across positive programs. Precise diagnostic expectations
-describe intentional rejection behavior and live beside the subsystem that owns
-that contract.
-
-Corpora without useful assertions for a target need no fixture or build
-registration. A mixed fixture excludes exact cases outside its assertion contract
-in its file preamble:
-
-```text
-// TEMPLATE: loom/src/loom/test/corpus/source_low/math_contraction.loom-test
-// TEMPLATE-EXCLUDE: @scalar_explicit Scalar F32 multiply/FMA lowering is not implemented for this profile.
-```
-
-`TEMPLATE-EXCLUDE` requires a reason and uses the same function-symbol identity
-as synchronization. Unknown or duplicate names fail, including when a corpus
-case is renamed or removed. All other cases remain synchronized, including new
-cases added to the corpus. Excluding every case is an error; an entirely
-excluded corpus has no fixture. A target's dedicated rejection tests cover its
-architectural boundary.
+Each build registration owns the target profiles against which its source must
+compile. Successful compilation provides target-coverage signal but is not a
+correctness assertion by itself. Target-specific lowering, report, and
+diagnostic fixtures keep their source beside their exact expectations under the
+owning target or pass. Missing lowering support belongs in work tracking rather
+than expected errors copied across positive programs.
 
 A case containing several functions has one public function or kernel entry and
 private helpers. The entry identifies the case and receives the requested
 compiler profile; call-graph specialization supplies helper targets in
-compiler-owned function versions. Helpers remain part of the shared input,
-including when a target preserves their call boundaries. Compiler options preserve source visibility.
+compiler-owned function versions. Compiler options preserve source visibility.
 
 Shared analysis and report semantics have focused tests beside the owning
-analysis or pass. The shared source-to-low tests use the backend-independent
-test Low target for behavior such as loop execution counts and nested emission
-accounting. Corpus programs here exercise backend capabilities such as memory
-lowering or instruction selection; duplicating a shared analysis assertion
-across target bindings adds no coverage of those semantics.
+analysis or pass. Backend-independent tests cover behavior such as loop
+execution counts and nested emission accounting. Corpus programs here exercise
+end-to-end compilation or provide data to integration tests without duplicating
+target-specific assertions.
 
-Do not put target-specific diagnostic or expected-failure cases here. Rejection
-tests belong beside the target or pass that owns the diagnostic vocabulary, where
-they can assert the exact structured error or remark without forcing every other
-target to inherit unrelated failure semantics.
+Target-specific diagnostics and expected failures stay beside the target or
+pass that owns the diagnostic vocabulary. Those fixtures can assert the exact
+structured error or remark without forcing other targets to inherit unrelated
+failure semantics.

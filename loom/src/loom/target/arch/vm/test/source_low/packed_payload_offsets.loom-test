@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/packed_payload_offsets.loom-test
 // RUN: emit source-low target=vm:core output=low
 
 func.def @packed4_payload_word_offset(%weights: buffer, %block0: index, %word0: index) -> (i32) {

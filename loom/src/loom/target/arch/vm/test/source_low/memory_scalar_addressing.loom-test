@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_scalar_addressing.loom-test
 // RUN: emit source-low target=vm:core output=low
 
 func.def @scalar_static_rank2_i32(%input: buffer, %output: buffer) -> (i32) {

@@ -1,8 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/math_contraction.loom-test
-// TEMPLATE-EXCLUDE: @vector4_contract This profile does not implement this vector callable ABI.
-// TEMPLATE-EXCLUDE: @vector4_reduce This profile does not implement this vector callable ABI.
-// TEMPLATE-EXCLUDE: @vector16_contract This profile does not implement this vector callable ABI.
-// TEMPLATE-EXCLUDE: @scalar_explicit Explicit fused semantics are checked in the target diagnostics fixture.
 // RUN: emit source-low target=spirv:vulkan1.3+bda output=low
 
 func.def @scalar_contract(%a: f32, %b: f32, %c: f32) -> (f32) {

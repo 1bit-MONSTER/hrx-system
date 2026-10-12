@@ -1,5 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/nested_view_selection.loom-test
-// TEMPLATE-EXCLUDE: @selection_with_side_effects Wasm requires structured control flow.
 // RUN: emit source-low target=wasm:simd128 output=low control-flow=structured-low
 
 // A derived selection retains both the selected buffer and its byte base.

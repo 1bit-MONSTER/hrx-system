@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_integer_widening.loom
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 func.def @widen_signed_word(%value: i32) -> (i64) {

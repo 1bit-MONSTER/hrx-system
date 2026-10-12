@@ -1,7 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/callable_values.loom-test
-// TEMPLATE-EXCLUDE: @call_mixed_i32 Wasm has no one-lane i32 vector carrier.
-// TEMPLATE-EXCLUDE: @call_mixed_i64 Wasm has no one-lane i64 vector carrier.
-// TEMPLATE-EXCLUDE: @call_loop Wasm has no one-lane i32 vector carrier.
 // RUN: emit source-low target=wasm:simd128 output=low
 
 func.def public @call_vector_result(%input: i32, %lane: index) -> (i32) where [range(%lane, 0, 3)] {

@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/sync_barrier.loom-test
 // RUN: emit source-low target=spirv:vulkan1.3+bda output=low control-flow=structured-low
 
 func.def @workgroup_barrier() {

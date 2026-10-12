@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/callable_values.loom-test
 // RUN: emit source-low target=spirv:vulkan1.3+bda output=low control-flow=structured-low
 
 // ERROR@+1: TARGET/033 {op_name="func.def", field_name="argument", actual_type="vector<1xi32>"}

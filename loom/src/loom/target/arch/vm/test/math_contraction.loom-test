@@ -1,7 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/math_contraction.loom-test
-// TEMPLATE-EXCLUDE: @vector4_contract This profile does not implement this vector callable ABI.
-// TEMPLATE-EXCLUDE: @vector4_reduce This profile does not implement this vector callable ABI.
-// TEMPLATE-EXCLUDE: @vector16_contract This profile does not implement this vector callable ABI.
 // RUN: emit source-low target=vm:core output=low
 
 func.def @scalar_contract(%a: f32, %b: f32, %c: f32) -> (f32) {

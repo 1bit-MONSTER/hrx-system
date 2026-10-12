@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/vector_v4.loom-test
 // RUN: emit source-low target=wasm:simd128 output=low
 
 func.def @i32x4_arith(%lhs: vector<4xi32>, %rhs: vector<4xi32>) -> (vector<4xi32>) {

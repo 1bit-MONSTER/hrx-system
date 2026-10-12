@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_address_widening.loom-test
 // RUN: emit source-low target=x86:avx2 output=low
 
 func.def @widen_address_domains(%coordinate: index, %byte_offset: offset) -> (i64, i64) {

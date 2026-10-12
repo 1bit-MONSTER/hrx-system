@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_scalar_f32.loom-test
 // RUN: emit source-low target=x86:avx512 output=low
 
 func.def @scalar_f32_arith(%lhs: f32, %rhs: f32, %bias: f32) -> (f32) {

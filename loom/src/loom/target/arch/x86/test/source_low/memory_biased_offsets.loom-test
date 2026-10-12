@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_biased_offsets.loom
 // RUN: emit source-low target=x86:avx2 output=low
 
 func.def @exchange_biased_word(%buffer: buffer, %position: index, %replacement: i32) -> (i32) {
