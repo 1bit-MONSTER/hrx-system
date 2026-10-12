@@ -28,7 +28,7 @@ namespace {
 using loomc::testing::HandlePtr;
 
 using BuilderPtr =
-    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_release>;
+    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_free>;
 using CompilerPtr = HandlePtr<loomc_compiler_t, loomc_compiler_release>;
 using ContextPtr = HandlePtr<loomc_context_t, loomc_context_release>;
 using LinkIndexPtr = HandlePtr<loomc_link_index_t, loomc_link_index_release>;
@@ -310,7 +310,7 @@ std::vector<uint8_t> CreateTwoModuleArchive(loomc_byte_span_t first,
 LinkIndexPtr CreateIndex(loomc_context_t* context, loomc_source_t* source,
                          loomc_link_provider_role_t role) {
   loomc_link_index_builder_t* builder = nullptr;
-  LOOMC_EXPECT_OK(loomc_link_index_builder_create(
+  LOOMC_EXPECT_OK(loomc_link_index_builder_allocate(
       context, nullptr, loomc_allocator_system(), &builder));
   BuilderPtr builder_ptr(builder);
   const loomc_link_index_source_options_t source_options = {

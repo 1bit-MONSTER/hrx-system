@@ -284,7 +284,7 @@ class ShmFactoryTest : public ::testing::TestWithParam<bool> {
 #else
     auto primitive = raw_.socket->primitive;
 #endif
-    IREE_ASSERT_OK(iree_async_local_stream_create(
+    IREE_ASSERT_OK(iree_async_local_stream_allocate(
         proactor_, primitive, IREE_NET_SHM_STORAGE_HANDLE_COUNT,
         iree_allocator_system(), &raw_.stream));
   }

@@ -671,7 +671,7 @@ TEST_P(ReplayMemoryBoundaryTest,
   iree_hal_replay_plan_t* plan = nullptr;
 
   iree::Status status =
-      iree::internal::ConsumeForTest(iree_hal_replay_plan_create(
+      iree::internal::ConsumeForTest(iree_hal_replay_plan_allocate(
           GetCapturedFileContents(storage), iree_allocator_system(), &plan));
 
   EXPECT_EQ(status.code(), iree::StatusCode::kFailedPrecondition);
@@ -688,9 +688,9 @@ TEST(ReplayExecuteTest, FailedDetachDoesNotIntroduceCompletionBoundary) {
   std::vector<uint8_t> storage =
       MakeQueueDependencyReplay(kForwardDependencyAcrossFailedDetach);
   iree_hal_replay_plan_t* plan = nullptr;
-  IREE_ASSERT_OK(iree_hal_replay_plan_create(GetCapturedFileContents(storage),
-                                             iree_allocator_system(), &plan));
-  iree_hal_replay_plan_destroy(plan);
+  IREE_ASSERT_OK(iree_hal_replay_plan_allocate(GetCapturedFileContents(storage),
+                                               iree_allocator_system(), &plan));
+  iree_hal_replay_plan_free(plan);
 }
 
 TEST_P(ReplayMemoryBoundaryTest,
@@ -699,10 +699,10 @@ TEST_P(ReplayMemoryBoundaryTest,
       kSatisfiedDependencyBeforeMemoryBoundary, GetParam());
   iree_hal_replay_plan_t* plan = nullptr;
 
-  IREE_ASSERT_OK(iree_hal_replay_plan_create(GetCapturedFileContents(storage),
-                                             iree_allocator_system(), &plan));
+  IREE_ASSERT_OK(iree_hal_replay_plan_allocate(GetCapturedFileContents(storage),
+                                               iree_allocator_system(), &plan));
 
-  iree_hal_replay_plan_destroy(plan);
+  iree_hal_replay_plan_free(plan);
 }
 
 TEST_P(ReplayMemoryBoundaryTest,
@@ -712,7 +712,7 @@ TEST_P(ReplayMemoryBoundaryTest,
   iree_hal_replay_plan_t* plan = nullptr;
 
   iree::Status status =
-      iree::internal::ConsumeForTest(iree_hal_replay_plan_create(
+      iree::internal::ConsumeForTest(iree_hal_replay_plan_allocate(
           GetCapturedFileContents(storage), iree_allocator_system(), &plan));
 
   EXPECT_EQ(status.code(), iree::StatusCode::kFailedPrecondition);
@@ -732,7 +732,7 @@ TEST_P(ReplayMemoryBoundaryTest,
   iree_hal_replay_plan_t* plan = nullptr;
 
   iree::Status status =
-      iree::internal::ConsumeForTest(iree_hal_replay_plan_create(
+      iree::internal::ConsumeForTest(iree_hal_replay_plan_allocate(
           GetCapturedFileContents(storage), iree_allocator_system(), &plan));
 
   EXPECT_EQ(status.code(), iree::StatusCode::kFailedPrecondition);
@@ -751,7 +751,7 @@ TEST(ReplayExecuteTest, RejectsOpaqueCommandBufferDispatchAtEndOfFile) {
   iree_hal_replay_plan_t* plan = nullptr;
 
   iree::Status status =
-      iree::internal::ConsumeForTest(iree_hal_replay_plan_create(
+      iree::internal::ConsumeForTest(iree_hal_replay_plan_allocate(
           GetCapturedFileContents(storage), iree_allocator_system(), &plan));
 
   EXPECT_EQ(status.code(), iree::StatusCode::kFailedPrecondition);
@@ -768,10 +768,10 @@ TEST(ReplayExecuteTest, AllowsBoundedCommandBufferAtEndOfFile) {
       MakeOpaqueDispatchReplay(kBoundedCommandBufferAtEndOfFile);
   iree_hal_replay_plan_t* plan = nullptr;
 
-  IREE_ASSERT_OK(iree_hal_replay_plan_create(GetCapturedFileContents(storage),
-                                             iree_allocator_system(), &plan));
+  IREE_ASSERT_OK(iree_hal_replay_plan_allocate(GetCapturedFileContents(storage),
+                                               iree_allocator_system(), &plan));
 
-  iree_hal_replay_plan_destroy(plan);
+  iree_hal_replay_plan_free(plan);
 }
 
 TEST(ReplayExecuteTest,
@@ -781,7 +781,7 @@ TEST(ReplayExecuteTest,
   iree_hal_replay_plan_t* plan = nullptr;
 
   iree::Status status =
-      iree::internal::ConsumeForTest(iree_hal_replay_plan_create(
+      iree::internal::ConsumeForTest(iree_hal_replay_plan_allocate(
           GetCapturedFileContents(storage), iree_allocator_system(), &plan));
 
   EXPECT_EQ(status.code(), iree::StatusCode::kFailedPrecondition);

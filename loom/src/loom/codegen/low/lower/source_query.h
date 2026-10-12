@@ -50,7 +50,7 @@ loom_target_contract_query_callback_t loom_low_lower_source_query_callback(
 // |arena|. Reference/access discovery may reach source callees. All queries in
 // the scope finish before mutating represented source; a rewrite retires the
 // scope before another query can observe the changed program.
-iree_status_t loom_low_lower_source_query_scope_create(
+iree_status_t loom_low_lower_source_query_scope_allocate(
     loom_module_t* module, loom_func_like_t source_function,
     const loom_low_lower_options_t* options, iree_arena_allocator_t* arena,
     loom_low_lower_source_query_scope_t** out_scope);

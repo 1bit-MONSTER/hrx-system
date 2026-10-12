@@ -165,7 +165,7 @@ class ExecutionBenchmark {
     iree_byte_sequence_t* sequence = nullptr;
     CheckIreeStatus(iree_byte_sequence_create_from_span_move(
         &image_bytes, iree_allocator_system(), &sequence));
-    CheckIreeStatus(iree_hal_amd_xdna_image_create(
+    CheckIreeStatus(iree_hal_amd_xdna_image_allocate(
         sequence, &target, iree_allocator_system(), &executable_));
     iree_byte_sequence_release(sequence);
     uint32_t entry_ordinal = 0;
@@ -218,7 +218,7 @@ class ExecutionBenchmark {
       iree_hal_buffer_release(binding.buffer);
       DestroyMemory(binding.storage);
     }
-    iree_hal_amd_xdna_image_destroy(executable_);
+    iree_hal_amd_xdna_image_free(executable_);
   }
 
  private:

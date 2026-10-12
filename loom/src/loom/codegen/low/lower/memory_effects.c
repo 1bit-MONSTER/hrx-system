@@ -123,7 +123,7 @@ iree_status_t loom_low_lower_record_memory_effect(
     loom_low_lower_context_t* context, const loom_op_t* low_op,
     uint16_t effect_ordinal, const loom_low_memory_access_summary_t* summary) {
   if (context->result->memory_accesses == NULL) {
-    IREE_RETURN_IF_ERROR(loom_low_memory_access_map_create(
+    IREE_RETURN_IF_ERROR(loom_low_memory_access_map_allocate(
         &context->module->arena, &context->result->memory_accesses));
   }
   return loom_low_memory_access_map_insert(context->result->memory_accesses,

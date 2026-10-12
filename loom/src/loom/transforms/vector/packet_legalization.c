@@ -1075,7 +1075,7 @@ static iree_status_t loom_vector_packet_classify_memory_loads(
       continue;
     }
     if (packetization->context->read_motion_barriers == NULL) {
-      IREE_RETURN_IF_ERROR(loom_motion_read_barrier_table_create(
+      IREE_RETURN_IF_ERROR(loom_motion_read_barrier_table_allocate(
           module, packetization->context->arena,
           &packetization->context->read_motion_barriers));
     }

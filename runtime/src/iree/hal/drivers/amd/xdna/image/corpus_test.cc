@@ -80,7 +80,7 @@ TEST_P(XdnaImageCorpusTest,
       source.segment_length = segment_length;
       iree_byte_sequence_initialize(&kSourceVtable, file->size, &source.base);
       iree_hal_amd_xdna_image_t* image = nullptr;
-      IREE_ASSERT_OK(iree_hal_amd_xdna_image_create(
+      IREE_ASSERT_OK(iree_hal_amd_xdna_image_allocate(
           &source.base, &target, iree_allocator_system(), &image));
       iree_byte_sequence_release(&source.base);
       EXPECT_FALSE(source.destroyed);
@@ -106,7 +106,7 @@ TEST_P(XdnaImageCorpusTest,
                                  source.bytes.data + load->file_range.offset));
         }
       }
-      iree_hal_amd_xdna_image_destroy(image);
+      iree_hal_amd_xdna_image_free(image);
       EXPECT_TRUE(source.destroyed);
     }
   }
@@ -125,7 +125,7 @@ TEST(XdnaImageSparseBindingTest, PreservesUnusedMiddleLaunchBinding) {
   source.segment_length = 7;
   iree_byte_sequence_initialize(&kSourceVtable, file->size, &source.base);
   iree_hal_amd_xdna_image_t* image = nullptr;
-  IREE_ASSERT_OK(iree_hal_amd_xdna_image_create(
+  IREE_ASSERT_OK(iree_hal_amd_xdna_image_allocate(
       &source.base, &target, iree_allocator_system(), &image));
   iree_byte_sequence_release(&source.base);
   EXPECT_FALSE(source.destroyed);
@@ -160,7 +160,7 @@ TEST(XdnaImageSparseBindingTest, PreservesUnusedMiddleLaunchBinding) {
   EXPECT_FALSE(referenced_bindings[1]);
   EXPECT_TRUE(referenced_bindings[2]);
 
-  iree_hal_amd_xdna_image_destroy(image);
+  iree_hal_amd_xdna_image_free(image);
   EXPECT_TRUE(source.destroyed);
 }
 

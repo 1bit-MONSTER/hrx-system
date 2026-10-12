@@ -650,7 +650,7 @@ IREE_API_EXPORT iree_status_t iree_hal_memory_mapping_batch_create(
   if (iree_status_is_ok(status)) {
     *out_batch = &batch->base;
   } else {
-    iree_hal_resource_release(batch);
+    iree_hal_memory_mapping_batch_release(&batch->base);
   }
   return status;
 }

@@ -72,7 +72,7 @@ static void StopEvents(iree_async_proactor_t* proactor,
       events,
       {+[](void* value) { *static_cast<bool*>(value) = true; }, &joined});
   PollUntil(proactor, [&] { return joined; });
-  iree_net_rdma_connection_events_destroy(events);
+  iree_net_rdma_connection_events_free(events);
 }
 
 // Native CM/QP owner consuming the production registration and event services.
@@ -93,7 +93,7 @@ class NativeConnection {
                    uint64_t address)
       : context_(context), proactor_(proactor) {
     library_ = iree_net_rdma_context_library(context);
-    IREE_CHECK_OK(iree_net_rdma_connection_events_create(
+    IREE_CHECK_OK(iree_net_rdma_connection_events_allocate(
         context, proactor, service_batch_size,
         {+[](void* user_data, const rdma_cm_event* event) {
            static_cast<NativeConnection*>(user_data)->OnEvent(*event);
@@ -103,7 +103,7 @@ class NativeConnection {
     iree_net_rdma_completion_queue_options_t queue_options = {};
     queue_options.capacity = 24;
     queue_options.service_batch_size = service_batch_size;
-    IREE_CHECK_OK(iree_net_rdma_completion_queue_create(
+    IREE_CHECK_OK(iree_net_rdma_completion_queue_allocate(
         context, proactor, queue_options,
         {+[](void* user_data, iree_host_size_t count,
              const ibv_wc* completions) {
@@ -147,7 +147,7 @@ class NativeConnection {
         completions_,
         {+[](void* value) { *static_cast<bool*>(value) = true; }, &joined});
     PollUntil(proactor_, [&] { return joined; });
-    iree_net_rdma_completion_queue_destroy(completions_);
+    iree_net_rdma_completion_queue_free(completions_);
     iree_async_region_release(region_);
   }
 
@@ -484,7 +484,7 @@ class ConnectionEventsTest
     IREE_ASSERT_OK(TestContextEnvironment::Acquire(0, &context_));
     library_ = iree_net_rdma_context_library(context_);
     CreateProactor(&proactor_);
-    IREE_ASSERT_OK(iree_net_rdma_connection_events_create(
+    IREE_ASSERT_OK(iree_net_rdma_connection_events_allocate(
         context_, proactor_, std::get<1>(GetParam()),
         {+[](void* user_data, const rdma_cm_event* event) {
            auto* self = static_cast<ConnectionEventsTest*>(user_data);
@@ -545,7 +545,7 @@ class ConnectionEventsTest
   void CreateColdEvents(iree_async_proactor_t* proactor,
                         uint32_t* resolved_count,
                         iree_net_rdma_connection_events_t** out_events) {
-    IREE_CHECK_OK(iree_net_rdma_connection_events_create(
+    IREE_CHECK_OK(iree_net_rdma_connection_events_allocate(
         context_, proactor, std::get<1>(GetParam()),
         {+[](void* user_data, const rdma_cm_event* event) {
            EXPECT_EQ(event->event, RDMA_CM_EVENT_ADDR_RESOLVED);
@@ -587,7 +587,7 @@ TEST_P(ConnectionEventsTest, BindCollisionUnwindsWithoutDispatch) {
   EXPECT_NE(result, 0);
   EXPECT_EQ(errno, EADDRINUSE);
   CheckCM(library_->rdma_destroy_id(id));
-  iree_net_rdma_connection_events_destroy(events);
+  iree_net_rdma_connection_events_free(events);
   EXPECT_EQ(resolved_count, 0u);
 }
 
@@ -658,7 +658,7 @@ TEST_P(ConnectionEventsTest, MonitorAllocationFailureLeavesColdOwner) {
       IREE_ASSERT_OK(iree_net_rdma_connection_events_activate(events));
       StopEvents(proactor, events);
     } else {
-      iree_net_rdma_connection_events_destroy(events);
+      iree_net_rdma_connection_events_free(events);
     }
     iree_async_proactor_release(proactor);
     EXPECT_EQ(resolved_count, 0u);
@@ -676,7 +676,7 @@ TEST_P(ConnectionEventsTest, ColdDeactivationCompletesInline) {
   EXPECT_TRUE(joined);
   IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
                         iree_net_rdma_connection_events_activate(events));
-  iree_net_rdma_connection_events_destroy(events);
+  iree_net_rdma_connection_events_free(events);
   EXPECT_EQ(resolved_count, 0u);
 }
 

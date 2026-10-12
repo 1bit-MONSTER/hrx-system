@@ -85,7 +85,7 @@ struct iree_net_shm_connection_t {
 
 void iree_net_shm_connection_channel_deinitialize(
     iree_net_shm_connection_channel_t* channel) {
-  iree_async_local_stream_destroy(channel->stream);
+  iree_async_local_stream_free(channel->stream);
 #if defined(IREE_PLATFORM_WINDOWS)
   iree_async_primitive_close(&channel->pipe);
 #else

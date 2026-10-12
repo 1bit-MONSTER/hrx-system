@@ -43,7 +43,7 @@ class LinkSourcesFixture {
         context_.get(), nullptr, loom_allocator(), &linker)));
     linker_.reset(linker);
     loomc_link_index_builder_t* builder = nullptr;
-    IREE_CHECK_OK(to_iree_status(loomc_link_index_builder_create(
+    IREE_CHECK_OK(to_iree_status(loomc_link_index_builder_allocate(
         context_.get(), nullptr, loom_allocator(), &builder)));
     LinkIndexBuilderPtr builder_ptr(builder);
     for (uint32_t provider = 0; provider < provider_count; ++provider) {

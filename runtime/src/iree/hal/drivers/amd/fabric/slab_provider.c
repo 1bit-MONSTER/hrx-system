@@ -163,7 +163,7 @@ static void iree_hal_amd_fabric_slab_provider_destroy(
   iree_allocator_free(provider->host_allocator, provider);
 }
 
-static iree_status_t iree_hal_amd_fabric_slab_handle_create(
+static iree_status_t iree_hal_amd_fabric_slab_handle_allocate(
     iree_hal_amd_fabric_slab_provider_t* provider,
     iree_hal_amd_fabric_slab_handle_t** out_handle) {
   const uint32_t binding_count = provider->options.binding_count;
@@ -267,7 +267,7 @@ static iree_status_t iree_hal_amd_fabric_slab_provider_acquire_slab(
   }
   iree_hal_amd_fabric_slab_handle_t* handle = NULL;
   IREE_RETURN_IF_ERROR(
-      iree_hal_amd_fabric_slab_handle_create(provider, &handle));
+      iree_hal_amd_fabric_slab_handle_allocate(provider, &handle));
   iree_status_t status = iree_hal_amd_fabric_memory_allocate(
       provider->api, &provider->options.memory, min_length, min_alignment,
       provider->event_sink, &handle->memory);
@@ -324,7 +324,7 @@ static iree_status_t iree_hal_amd_fabric_slab_provider_import_slab(
   }
   iree_hal_amd_fabric_slab_handle_t* handle = NULL;
   IREE_RETURN_IF_ERROR(
-      iree_hal_amd_fabric_slab_handle_create(provider, &handle));
+      iree_hal_amd_fabric_slab_handle_allocate(provider, &handle));
   iree_hal_amd_fabric_memory_options_t options = provider->options.memory;
   options.profile = route->profile;
   options.required_flags = route->required_flags;

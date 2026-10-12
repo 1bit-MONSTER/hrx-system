@@ -69,7 +69,7 @@ typedef struct loom_source_storage_packing_range_t {
 // their union. An empty interference callback keeps every source allocation
 // disjoint. Reserved ranges and subsequently placed allocations contribute to
 // the aggregate extent.
-iree_status_t loom_source_storage_packing_create(
+iree_status_t loom_source_storage_packing_allocate(
     loom_source_storage_packing_interference_callback_t interference,
     const loom_source_storage_packing_range_t* reserved_ranges,
     iree_host_size_t reserved_range_count, iree_arena_allocator_t* arena,

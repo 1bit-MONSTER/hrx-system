@@ -297,7 +297,7 @@ static const loom_low_memory_binding_t* loom_low_memory_binding_lookup(
   return probe.index != UINT32_MAX ? &map->bindings[probe.index] : NULL;
 }
 
-iree_status_t loom_low_memory_access_map_create(
+iree_status_t loom_low_memory_access_map_allocate(
     iree_arena_allocator_t* arena, loom_low_memory_access_map_t** out_map) {
   IREE_RETURN_IF_ERROR(
       iree_arena_allocate(arena, sizeof(**out_map), (void**)out_map));
@@ -420,7 +420,7 @@ struct loom_low_memory_access_clone_t {
   iree_host_size_t scope_capacity;
 };
 
-iree_status_t loom_low_memory_access_clone_create(
+iree_status_t loom_low_memory_access_clone_allocate(
     const loom_low_memory_access_map_t* source,
     loom_low_memory_access_map_t* target, iree_arena_allocator_t* scratch_arena,
     loom_low_memory_access_clone_t** out_clone) {

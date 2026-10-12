@@ -488,7 +488,7 @@ static iree_status_t loom_integer_division_plan_region_scratch(
       .user_data = region_planner->planner,
       .equal = loom_integer_division_equal,
   };
-  IREE_RETURN_IF_ERROR(loom_expression_walk_create(
+  IREE_RETURN_IF_ERROR(loom_expression_walk_allocate(
       region_planner->planner->module, region, &identity_policy,
       region_planner->planner->candidate_capacity, arena,
       &region_planner->expression_walk));

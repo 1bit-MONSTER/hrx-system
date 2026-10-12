@@ -1000,7 +1000,7 @@ iree_status_t iree_hal_amdgpu_allocator_create(
   if (iree_status_is_ok(status)) {
     iree_hal_allocator_statistics_t* statistics = NULL;
     IREE_STATISTICS(statistics = &allocator->statistics);
-    status = iree_hal_amdgpu_virtual_memory_state_create(
+    status = iree_hal_amdgpu_virtual_memory_state_allocate(
         libhsa, topology, (iree_hal_device_t*)logical_device, statistics,
         host_allocator, &allocator->virtual_memory);
   }
@@ -1020,7 +1020,7 @@ static void iree_hal_amdgpu_allocator_destroy(
       iree_hal_amdgpu_allocator_cast(base_allocator);
   IREE_TRACE_ZONE_BEGIN(z0);
 
-  iree_hal_amdgpu_virtual_memory_state_destroy(allocator->virtual_memory);
+  iree_hal_amdgpu_virtual_memory_state_free(allocator->virtual_memory);
   iree_allocator_free(allocator->host_allocator, allocator);
 
   IREE_TRACE_ZONE_END(z0);

@@ -374,7 +374,7 @@ static iree_status_t iree_hal_vulkan_profile_recorder_write_metadata(
       sizeof(*recorder_options->queue_records));
 }
 
-iree_status_t iree_hal_vulkan_profile_recorder_create(
+iree_status_t iree_hal_vulkan_profile_recorder_allocate(
     const iree_hal_vulkan_profile_recorder_options_t* recorder_options,
     const iree_hal_device_profiling_options_t* profiling_options,
     iree_allocator_t host_allocator,
@@ -442,12 +442,12 @@ iree_status_t iree_hal_vulkan_profile_recorder_create(
           status, iree_hal_profile_sink_end_session(recorder->options.sink,
                                                     &metadata, status_code));
     }
-    iree_hal_vulkan_profile_recorder_destroy(recorder);
+    iree_hal_vulkan_profile_recorder_free(recorder);
   }
   return status;
 }
 
-void iree_hal_vulkan_profile_recorder_destroy(
+void iree_hal_vulkan_profile_recorder_free(
     iree_hal_vulkan_profile_recorder_t* recorder) {
   if (!recorder) {
     return;

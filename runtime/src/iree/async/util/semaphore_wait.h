@@ -67,7 +67,7 @@ typedef struct iree_async_semaphore_wait_completion_t {
 // the tracker through |context|, retains each referenced semaphore, and
 // transfers the operation's LINKED continuation to it. Registration has not
 // begun when this returns.
-iree_status_t iree_async_semaphore_wait_tracker_create(
+iree_status_t iree_async_semaphore_wait_tracker_allocate(
     iree_async_semaphore_wait_context_t* context,
     iree_async_semaphore_wait_operation_t* operation,
     iree_async_semaphore_wait_enqueue_callback_t enqueue_callback,

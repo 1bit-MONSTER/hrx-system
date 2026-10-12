@@ -32,7 +32,7 @@ typedef struct loom_low_allocation_write_interference_t
 // read-retention rule. Other targets leave |out_interference| NULL and allocate
 // no state. Unit-liveness has already bounded the sum of register interval
 // widths to UINT32_MAX; retained and copy-unit domains are subsets of it.
-iree_status_t loom_low_allocation_write_interference_create(
+iree_status_t loom_low_allocation_write_interference_allocate(
     const loom_low_resolved_target_t* target,
     const loom_low_placement_table_t* placement,
     const loom_liveness_analysis_t* liveness, iree_arena_allocator_t* arena,

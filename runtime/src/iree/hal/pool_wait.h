@@ -32,7 +32,7 @@ typedef struct iree_hal_pool_wait_callback_t {
 // Returns FAILED_PRECONDITION if the pool has no capacity source; such a pool
 // must report allocation failure as a status instead of transient exhaustion.
 // The helper can be reused for successive allocation attempts.
-IREE_API_EXPORT iree_status_t iree_hal_pool_wait_create(
+IREE_API_EXPORT iree_status_t iree_hal_pool_wait_allocate(
     iree_hal_pool_t* pool, iree_allocator_t host_allocator,
     iree_hal_pool_wait_t** out_wait);
 
@@ -63,9 +63,9 @@ IREE_API_EXPORT void iree_hal_pool_wait_commit(
 // destruction or reuse; a completed round has nothing left to cancel.
 IREE_API_EXPORT void iree_hal_pool_wait_cancel(iree_hal_pool_wait_t* wait);
 
-// Destroys an idle helper. No prepared observation, committed round, or
+// Frees an idle helper. No prepared observation, committed round, or
 // external cancellation call may still reference it.
-IREE_API_EXPORT void iree_hal_pool_wait_destroy(iree_hal_pool_wait_t* wait);
+IREE_API_EXPORT void iree_hal_pool_wait_free(iree_hal_pool_wait_t* wait);
 
 #ifdef __cplusplus
 }  // extern "C"

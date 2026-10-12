@@ -102,7 +102,7 @@ static iree_status_t iree_net_rdma_context_select_device(
 }
 
 static void iree_net_rdma_context_destroy(iree_net_rdma_context_t* context) {
-  iree_net_rdma_device_events_destroy(context->events);
+  iree_net_rdma_device_events_free(context->events);
   if (context->protection_domain) {
     int error = context->library.ibv_dealloc_pd(context->protection_domain);
     if (error) {
@@ -155,7 +155,7 @@ iree_status_t iree_net_rdma_context_create(
     }
   }
   if (iree_status_is_ok(status)) {
-    status = iree_net_rdma_device_events_create(
+    status = iree_net_rdma_device_events_allocate(
         &context->library, context->device, context->port_number,
         host_allocator, &context->events);
   }

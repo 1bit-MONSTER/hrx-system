@@ -137,7 +137,7 @@ class XdnaExecutionFixture : public XdnaDeviceFixture {
     const auto* image_bytes = reinterpret_cast<const uint8_t*>(image->data);
     auto sequence = iree::hal::amd::xdna::testing::MakeOwnedByteSequence(
         std::vector<uint8_t>(image_bytes, image_bytes + image->size));
-    IREE_ASSERT_OK(iree_hal_amd_xdna_image_create(
+    IREE_ASSERT_OK(iree_hal_amd_xdna_image_allocate(
         sequence.get(), &target_, iree_allocator_system(), out_image));
     IREE_ASSERT_OK(iree_hal_amd_xdna_image_find_entry(
         *out_image,
@@ -189,7 +189,7 @@ class XdnaExecutionFixture : public XdnaDeviceFixture {
       api_->external_memory_release(&external_memory_);
     }
     ASSERT_NO_FATAL_FAILURE(DestroyMemory(&export_source_));
-    iree_hal_amd_xdna_image_destroy(executable_);
+    iree_hal_amd_xdna_image_free(executable_);
     executable_ = nullptr;
     XdnaDeviceFixture::TearDown();
   }

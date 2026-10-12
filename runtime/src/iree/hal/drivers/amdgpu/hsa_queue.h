@@ -46,12 +46,12 @@ typedef struct iree_hal_amdgpu_hsa_queue_params_t {
 // destroyed before returning. Cooperative queues accept only normal priority,
 // are created without applying a compute-unit mask to ROCr's agent-shared
 // queue, and require the complete execution-resource set.
-iree_status_t iree_hal_amdgpu_hsa_queue_create(
+iree_status_t iree_hal_amdgpu_hsa_queue_allocate(
     const iree_hal_amdgpu_hsa_queue_params_t* params, hsa_queue_t** out_queue);
 
 // Destroys |queue| and asserts the HSA teardown invariant.
-void iree_hal_amdgpu_hsa_queue_destroy(const iree_hal_amdgpu_libhsa_t* libhsa,
-                                       hsa_queue_t* queue);
+void iree_hal_amdgpu_hsa_queue_free(const iree_hal_amdgpu_libhsa_t* libhsa,
+                                    hsa_queue_t* queue);
 
 #ifdef __cplusplus
 }  // extern "C"

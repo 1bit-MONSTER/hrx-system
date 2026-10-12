@@ -197,7 +197,7 @@ bool loom_motion_op_is_ordinary_load(const loom_module_t* module,
 // fail queries. Rewrites may retain the table while replacing operations in
 // place, but must not move captured operations across observable effect
 // boundaries.
-iree_status_t loom_motion_read_barrier_table_create(
+iree_status_t loom_motion_read_barrier_table_allocate(
     const loom_module_t* module, iree_arena_allocator_t* arena,
     loom_motion_read_barrier_table_t** out_table);
 

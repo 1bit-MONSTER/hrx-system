@@ -910,7 +910,7 @@ static iree_status_t iree_async_proactor_io_uring_execute_semaphore_wait(
       .user_data = proactor,
   };
   iree_async_semaphore_wait_tracker_t* tracker = NULL;
-  IREE_RETURN_IF_ERROR(iree_async_semaphore_wait_tracker_create(
+  IREE_RETURN_IF_ERROR(iree_async_semaphore_wait_tracker_allocate(
       &proactor->semaphore_wait_context, wait_op, enqueue_callback,
       proactor->base.allocator, &tracker));
   iree_async_semaphore_wait_tracker_register_timepoints(tracker);

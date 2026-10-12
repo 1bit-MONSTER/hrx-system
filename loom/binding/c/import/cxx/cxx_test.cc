@@ -27,7 +27,7 @@ using ResultPtr = HandlePtr<loomc_result_t, loomc_result_release>;
 using CompilerPtr = HandlePtr<loomc_compiler_t, loomc_compiler_release>;
 using PassPtr = HandlePtr<loomc_pass_program_t, loomc_pass_program_release>;
 using LinkBuilderPtr =
-    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_release>;
+    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_free>;
 using LinkIndexPtr = HandlePtr<loomc_link_index_t, loomc_link_index_release>;
 using LinkerPtr = HandlePtr<loomc_linker_t, loomc_linker_release>;
 
@@ -213,7 +213,7 @@ TEST_F(CxxTest, RenamedExportsLinkWithTheirTypesAfterSourceRelease) {
           ")\n  func.return %result : " + result_type + "\n}\n";
       auto caller = Source("caller.loom", caller_text.c_str());
       loomc_link_index_builder_t* builder = nullptr;
-      LOOMC_ASSERT_OK(loomc_link_index_builder_create(
+      LOOMC_ASSERT_OK(loomc_link_index_builder_allocate(
           context_.get(), nullptr, loomc_allocator_system(), &builder));
       LinkBuilderPtr builder_owner(builder);
       loomc_link_index_source_options_t provider = {

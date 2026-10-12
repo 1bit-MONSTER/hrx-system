@@ -281,6 +281,19 @@ typedef struct iree_hal_memory_mapping_batch_t {
   iree_host_size_t update_count;
 } iree_hal_memory_mapping_batch_t;
 
+// Retains the captured mapping transaction. NULL is allowed.
+static inline void iree_hal_memory_mapping_batch_retain(
+    iree_hal_memory_mapping_batch_t* batch) {
+  iree_hal_resource_retain(batch);
+}
+
+// Releases a transaction reference and its captured views on final release.
+// NULL is allowed.
+static inline void iree_hal_memory_mapping_batch_release(
+    iree_hal_memory_mapping_batch_t* batch) {
+  iree_hal_resource_release(batch);
+}
+
 // Checks public logical arguments and captures the original buffer views.
 // Empty transactions return NULL; failure transfers no ownership. Native target
 // and source resolution runs after allocation prerequisites. The queue supplies

@@ -19,7 +19,7 @@ namespace {
 using loomc::testing::HandlePtr;
 
 using BuilderPtr =
-    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_release>;
+    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_free>;
 using ContextPtr = HandlePtr<loomc_context_t, loomc_context_release>;
 using LinkerPtr = HandlePtr<loomc_linker_t, loomc_linker_release>;
 using LinkIndexPtr = HandlePtr<loomc_link_index_t, loomc_link_index_release>;
@@ -47,7 +47,7 @@ class LinkProviderRootsTest : public ::testing::Test {
     linker_.reset(linker);
 
     loomc_link_index_builder_t* builder = nullptr;
-    LOOMC_ASSERT_OK(loomc_link_index_builder_create(
+    LOOMC_ASSERT_OK(loomc_link_index_builder_allocate(
         context_.get(), nullptr, loomc_allocator_system(), &builder));
     BuilderPtr builder_ptr(builder);
 

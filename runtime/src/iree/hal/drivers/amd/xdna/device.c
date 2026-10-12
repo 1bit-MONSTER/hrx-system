@@ -138,11 +138,11 @@ static void iree_hal_amd_xdna_device_finalize(void* user_data) {
   device->queue = NULL;
   iree_hal_queue_release(queue);
   iree_hal_allocator_release(device->allocator);
-  iree_hal_amd_xdna_command_arena_destroy(device->command_arena);
+  iree_hal_amd_xdna_command_arena_free(device->command_arena);
   iree_hal_memory_maintenance_release(device->memory.maintenance);
   iree_async_notification_release(device->memory.notification);
   iree_hal_device_spec_release(device->spec);
-  iree_hal_amd_xdna_context_destroy(device->context);
+  iree_hal_amd_xdna_context_free(device->context);
   iree_async_proactor_pool_entry_release(device->proactor_entry);
   iree_allocator_free(device->host_allocator, device);
 }
@@ -198,8 +198,8 @@ iree_status_t iree_hal_amd_xdna_device_create(
                                                 &device->allocator);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_hal_amd_xdna_command_arena_create(context, host_allocator,
-                                                    &device->command_arena);
+    status = iree_hal_amd_xdna_command_arena_allocate(context, host_allocator,
+                                                      &device->command_arena);
   }
   if (iree_status_is_ok(status)) {
     iree_hal_queue_family_initialize(
@@ -249,7 +249,7 @@ iree_status_t iree_hal_amd_xdna_device_create(
     *out_device = (iree_hal_device_t*)device;
   } else {
     iree_hal_queue_release(device->queue);
-    iree_hal_amd_xdna_command_arena_destroy(device->command_arena);
+    iree_hal_amd_xdna_command_arena_free(device->command_arena);
     iree_hal_allocator_release(device->allocator);
     iree_hal_memory_maintenance_release(device->memory.maintenance);
     iree_async_notification_release(device->memory.notification);

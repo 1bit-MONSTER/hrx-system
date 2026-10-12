@@ -517,7 +517,7 @@ static iree_status_t iree_tokenizer_regex_dfa_state_map_insert(
 }
 
 // Creates a new DFA state with the given NFA state set.
-static iree_status_t iree_tokenizer_regex_dfa_state_create(
+static iree_status_t iree_tokenizer_regex_dfa_state_allocate(
     iree_arena_allocator_t* arena,
     const iree_tokenizer_regex_nfa_state_set_t* nfa_states, uint32_t id,
     iree_tokenizer_regex_dfa_state_t** out_state) {
@@ -919,7 +919,7 @@ iree_status_t iree_tokenizer_regex_dfa_build(
 
   // Create start DFA state.
   iree_tokenizer_regex_dfa_state_t* start_state;
-  IREE_RETURN_IF_ERROR(iree_tokenizer_regex_dfa_state_create(
+  IREE_RETURN_IF_ERROR(iree_tokenizer_regex_dfa_state_allocate(
       arena, &current_set, 0, &start_state));
   iree_tokenizer_regex_compute_branch_masks(
       nfa, &current_set, nfa_reachable_branches, start_state);
@@ -975,7 +975,7 @@ iree_status_t iree_tokenizer_regex_dfa_build(
         iree_tokenizer_regex_dfa_state_map_find(&state_map, &unanchored_set);
     if (!unanchored_start) {
       // Create new state for unanchored start.
-      IREE_RETURN_IF_ERROR(iree_tokenizer_regex_dfa_state_create(
+      IREE_RETURN_IF_ERROR(iree_tokenizer_regex_dfa_state_allocate(
           arena, &unanchored_set, out_dfa->state_count, &unanchored_start));
       iree_tokenizer_regex_compute_branch_masks(
           nfa, &unanchored_set, nfa_reachable_branches, unanchored_start);
@@ -1083,7 +1083,7 @@ iree_status_t iree_tokenizer_regex_dfa_build(
         }
 
         // Create new DFA state.
-        IREE_RETURN_IF_ERROR(iree_tokenizer_regex_dfa_state_create(
+        IREE_RETURN_IF_ERROR(iree_tokenizer_regex_dfa_state_allocate(
             arena, &closure_set, out_dfa->state_count, &target_state));
         iree_tokenizer_regex_compute_branch_masks(
             nfa, &closure_set, nfa_reachable_branches, target_state);
@@ -1171,7 +1171,7 @@ iree_status_t iree_tokenizer_regex_dfa_build(
         }
 
         // Create new DFA state.
-        IREE_RETURN_IF_ERROR(iree_tokenizer_regex_dfa_state_create(
+        IREE_RETURN_IF_ERROR(iree_tokenizer_regex_dfa_state_allocate(
             arena, &closure_set, out_dfa->state_count, &range_target));
         iree_tokenizer_regex_compute_branch_masks(
             nfa, &closure_set, nfa_reachable_branches, range_target);

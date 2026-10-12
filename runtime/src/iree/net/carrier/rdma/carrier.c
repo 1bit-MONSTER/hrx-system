@@ -447,7 +447,7 @@ static void iree_net_rdma_carrier_progress_complete(
 
 static void iree_net_rdma_carrier_destroy(iree_net_carrier_t* base_carrier) {
   iree_net_rdma_carrier_t* carrier = iree_net_rdma_carrier_cast(base_carrier);
-  iree_net_rdma_direct_endpoint_destroy(carrier->direct);
+  iree_net_rdma_direct_endpoint_free(carrier->direct);
   iree_async_region_release(carrier->region);
   iree_async_proactor_release(carrier->proactor);
   iree_slim_mutex_deinitialize(&carrier->mutex);
@@ -737,7 +737,7 @@ iree_status_t iree_net_rdma_carrier_create(
       (iree_host_size_t)carrier->chunks.send_count * options.chunk_capacity;
   carrier->progress.base.completion_fn =
       iree_net_rdma_carrier_progress_complete;
-  iree_status_t status = iree_net_rdma_direct_endpoint_create(
+  iree_status_t status = iree_net_rdma_direct_endpoint_allocate(
       context, proactor, control, ordinal, local_sequence_number,
       direct_options, callbacks, NULL, host_allocator, &carrier->direct);
   iree_async_slab_t* slab = NULL;

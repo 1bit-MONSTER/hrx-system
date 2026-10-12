@@ -27,7 +27,7 @@ namespace {
 using loomc::testing::HandlePtr;
 
 using BuilderPtr =
-    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_release>;
+    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_free>;
 using ContextPtr = HandlePtr<loomc_context_t, loomc_context_release>;
 using LinkIndexPtr = HandlePtr<loomc_link_index_t, loomc_link_index_release>;
 using ModulePtr = HandlePtr<loomc_module_t, loomc_module_release>;
@@ -130,7 +130,7 @@ SourcePtr SerializeModuleToBytecode(const loomc_module_t* module,
 
 BuilderPtr CreateIndexBuilder(loomc_context_t* context) {
   loomc_link_index_builder_t* builder = nullptr;
-  loomc_status_t status = loomc_link_index_builder_create(
+  loomc_status_t status = loomc_link_index_builder_allocate(
       context, nullptr, loomc_allocator_system(), &builder);
   LOOMC_EXPECT_OK(status);
   return BuilderPtr(builder);

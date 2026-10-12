@@ -19,7 +19,7 @@ extern "C" {
 // bind/setup failure unwinds before monitoring begins. Stop closes admission
 // immediately and joins native monitoring and unfinished accepts on the poll
 // owner before its asynchronous callback authorizes destruction.
-iree_status_t iree_net_rdma_listener_create(
+iree_status_t iree_net_rdma_listener_allocate(
     iree_net_rdma_context_t* context, iree_async_proactor_t* proactor,
     const iree_async_address_t* address,
     const iree_net_rdma_connection_options_t* connection_options,

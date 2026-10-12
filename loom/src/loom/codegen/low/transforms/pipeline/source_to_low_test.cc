@@ -532,7 +532,7 @@ TEST_F(LowLowerPassTest, FinalizesPoliciesOnceWithoutAdditionalStorage) {
   selections.values[4].policy = &first;
   selections.values[5].policy = &first;
   loom_low_lower_module_state_t* module_state = nullptr;
-  IREE_ASSERT_OK(loom_low_lower_module_state_create(&arena, &module_state));
+  IREE_ASSERT_OK(loom_low_lower_module_state_allocate(&arena, &module_state));
   const iree_host_size_t retained_bytes = arena.used_allocation_size;
   IREE_ASSERT_OK(loom_low_source_selection_finalize_policies(
       module.get(), &selections, module_state, &arena));

@@ -221,15 +221,16 @@ typedef struct loom_dominance_walk_cursor_t {
   loom_trait_flags_t traits;
 } loom_dominance_walk_cursor_t;
 
-// Creates a traversal over |region| and all nested regions. Blocks are visited
-// in dominator preorder and operations retain block order. Nested regions are
-// visited after their owner and before its next operation. Scope callbacks let
-// clients maintain rollback maps without rescanning dominated subtrees.
+// Allocates a traversal over |region| and all nested regions. Blocks are
+// visited in dominator preorder and operations retain block order. Nested
+// regions are visited after their owner and before its next operation. Scope
+// callbacks let clients maintain rollback maps without rescanning dominated
+// subtrees.
 //
 // Erasing a returned regionless operation is supported because the next
 // operation is saved before returning. Changing block structure, successor
 // edges, or nested regions invalidates the walk.
-iree_status_t loom_dominance_walk_create(
+iree_status_t loom_dominance_walk_allocate(
     loom_module_t* module, loom_region_t* region,
     loom_dominance_walk_callbacks_t callbacks, iree_arena_allocator_t* arena,
     loom_dominance_walk_t** out_walk);
@@ -237,7 +238,7 @@ iree_status_t loom_dominance_walk_create(
 // Returns the dominance snapshot shared by the walk. CFG regions are added as
 // their scopes enter the traversal; queries from a returned cursor therefore
 // cover its enclosing CFGs without extracting them again. Queries remain valid
-// until the arena passed to loom_dominance_walk_create is reset or
+// until the arena passed to loom_dominance_walk_allocate is reset or
 // deinitialized.
 const loom_dominance_info_t* loom_dominance_walk_info(
     const loom_dominance_walk_t* walk);

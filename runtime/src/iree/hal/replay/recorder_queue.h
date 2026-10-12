@@ -46,6 +46,18 @@ typedef struct iree_hal_replay_recorder_queue_t {
   iree_hal_replay_object_id_t queue_id;
 } iree_hal_replay_recorder_queue_t;
 
+// Retains the queue through its HAL resource lifetime. NULL is allowed.
+static inline void iree_hal_replay_recorder_queue_retain(
+    iree_hal_replay_recorder_queue_t* queue) {
+  iree_hal_queue_retain((iree_hal_queue_t*)queue);
+}
+
+// Releases a queue reference. NULL is allowed.
+static inline void iree_hal_replay_recorder_queue_release(
+    iree_hal_replay_recorder_queue_t* queue) {
+  iree_hal_queue_release((iree_hal_queue_t*)queue);
+}
+
 // Initializes an embedded recording queue proxy with one owning reference.
 void iree_hal_replay_recorder_queue_initialize(
     const iree_hal_queue_family_t* queue_family,

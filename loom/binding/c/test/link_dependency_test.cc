@@ -21,7 +21,7 @@ namespace {
 using loomc::testing::HandlePtr;
 
 using BuilderPtr =
-    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_release>;
+    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_free>;
 using ContextPtr = HandlePtr<loomc_context_t, loomc_context_release>;
 using LinkIndexPtr = HandlePtr<loomc_link_index_t, loomc_link_index_release>;
 using ResultPtr = HandlePtr<loomc_result_t, loomc_result_release>;
@@ -60,7 +60,7 @@ class LinkDependencyTest : public ::testing::Test {
     workspace_.reset(workspace);
 
     loomc_link_index_builder_t* builder = nullptr;
-    LOOMC_ASSERT_OK(loomc_link_index_builder_create(
+    LOOMC_ASSERT_OK(loomc_link_index_builder_allocate(
         context_.get(), nullptr, loomc_allocator_system(), &builder));
     BuilderPtr builder_ptr(builder);
 

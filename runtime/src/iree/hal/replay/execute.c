@@ -897,8 +897,7 @@ static iree_status_t iree_hal_replay_plan_prepare_record(
   }
 }
 
-IREE_API_EXPORT void iree_hal_replay_plan_destroy(
-    iree_hal_replay_plan_t* plan) {
+IREE_API_EXPORT void iree_hal_replay_plan_free(iree_hal_replay_plan_t* plan) {
   if (!plan) {
     return;
   }
@@ -907,7 +906,7 @@ IREE_API_EXPORT void iree_hal_replay_plan_destroy(
   iree_allocator_free(host_allocator, plan);
 }
 
-IREE_API_EXPORT iree_status_t iree_hal_replay_plan_create(
+IREE_API_EXPORT iree_status_t iree_hal_replay_plan_allocate(
     iree_const_byte_span_t file_contents, iree_allocator_t host_allocator,
     iree_hal_replay_plan_t** out_plan) {
   IREE_ASSERT_ARGUMENT(out_plan);
@@ -991,7 +990,7 @@ IREE_API_EXPORT iree_status_t iree_hal_replay_plan_create(
   if (iree_status_is_ok(status)) {
     *out_plan = plan;
   } else {
-    iree_hal_replay_plan_destroy(plan);
+    iree_hal_replay_plan_free(plan);
   }
   return status;
 }
@@ -1248,9 +1247,9 @@ IREE_API_EXPORT iree_status_t iree_hal_replay_execute_file(
     iree_allocator_t host_allocator) {
   iree_hal_replay_plan_t* plan = NULL;
   IREE_RETURN_IF_ERROR(
-      iree_hal_replay_plan_create(file_contents, host_allocator, &plan));
+      iree_hal_replay_plan_allocate(file_contents, host_allocator, &plan));
   iree_status_t status =
       iree_hal_replay_plan_execute(plan, device_group, options, host_allocator);
-  iree_hal_replay_plan_destroy(plan);
+  iree_hal_replay_plan_free(plan);
   return status;
 }

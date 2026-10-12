@@ -508,6 +508,24 @@ iree_status_t iree_hal_buffer_view_create(
     iree_hal_buffer_view_t** out_buffer_view);
 ```
 
+The converse is checked for the `iree_`, `hrx_`, `loom_`, and `loomc_` C API
+namespaces: a `*_create` factory publishing a record pointer must return a
+reference-counted object. Independent native ABIs such as libamdf define their
+own lifecycle vocabulary. Complete records must have the
+offset-zero reference-count anchor, including embedded bases. Externally visible
+factories publish a type with matching typed `void` retain/release operations;
+opaque declarations expose the same ownership pair even when their layout is
+hidden. An embedded resource alone does not establish the enclosing owner's
+lifetime. Factories returning an existing base type, such as an ordinary HAL
+buffer, use that base type's ownership operations. Private helpers may use the
+generic resource interface internally.
+
+Adapter factories can publish foreign ABI handles such as `hipStream_t` and
+`hipDevResourceDesc_t`. Their ownership operations follow that ABI, including
+checked handle-registry lookup and consumption, so the typed-pair requirement
+applies only to published types in the four runtime namespaces. A visible
+adapter implementation still requires the offset-zero reference-count anchor.
+
 `allocate/free` naming is reserved for storage-oriented resources that are not
 themselves refcounted objects, and `initialize/deinitialize` naming is reserved
 for caller-owned storage passed as a single pointer.

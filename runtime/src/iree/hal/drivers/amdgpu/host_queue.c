@@ -1000,7 +1000,7 @@ iree_status_t iree_hal_amdgpu_host_queue_initialize(
         .error_callback_data = out_queue,
     };
     status =
-        iree_hal_amdgpu_hsa_queue_create(&hsa_queue_params, &hardware_queue);
+        iree_hal_amdgpu_hsa_queue_allocate(&hsa_queue_params, &hardware_queue);
   }
   iree_allocator_free(params->host_allocator, native_mask);
 
@@ -1195,7 +1195,7 @@ void iree_hal_amdgpu_host_queue_finish_deinitialize(
   // Destroy the hardware queue before the remaining host-side resources so the
   // HSA runtime cannot race a late error callback against signal teardown.
   if (queue->hardware_queue) {
-    iree_hal_amdgpu_hsa_queue_destroy(queue->libhsa, queue->hardware_queue);
+    iree_hal_amdgpu_hsa_queue_free(queue->libhsa, queue->hardware_queue);
     queue->hardware_queue = NULL;
   }
 

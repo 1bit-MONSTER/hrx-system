@@ -552,8 +552,8 @@ TEST(ReplayExecuteTest, ExecutesPreparedPlanRepeatedly) {
   iree_hal_device_group_release(source_group);
 
   iree_hal_replay_plan_t* plan = nullptr;
-  IREE_ASSERT_OK(iree_hal_replay_plan_create(GetCapturedFileContents(storage),
-                                             iree_allocator_system(), &plan));
+  IREE_ASSERT_OK(iree_hal_replay_plan_allocate(GetCapturedFileContents(storage),
+                                               iree_allocator_system(), &plan));
 
   std::vector<std::string> events;
   ReplayScopeCallbackState callback_state = {
@@ -570,7 +570,7 @@ TEST(ReplayExecuteTest, ExecutesPreparedPlanRepeatedly) {
   IREE_EXPECT_OK(iree_hal_replay_plan_execute(plan, replay_group, &options,
                                               iree_allocator_system()));
   iree_hal_device_group_release(replay_group);
-  iree_hal_replay_plan_destroy(plan);
+  iree_hal_replay_plan_free(plan);
 
   ASSERT_EQ(events.size(), 4u);
   EXPECT_EQ(events[0], "begin:execute");

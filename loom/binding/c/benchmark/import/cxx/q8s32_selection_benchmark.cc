@@ -347,7 +347,7 @@ class Q8S32SelectionFixture {
 
   iree_status_t BuildIndex() {
     loomc_link_index_builder_t* raw_builder = nullptr;
-    IREE_RETURN_IF_ERROR(to_iree_status(loomc_link_index_builder_create(
+    IREE_RETURN_IF_ERROR(to_iree_status(loomc_link_index_builder_allocate(
         context_.get(), /*options=*/nullptr, loom_allocator(), &raw_builder)));
     LinkIndexBuilderPtr builder(raw_builder);
     IREE_RETURN_IF_ERROR(

@@ -40,9 +40,9 @@ typedef struct loom_low_lower_source_memory_record_t {
   bool available;
 } loom_low_lower_source_memory_record_t;
 
-// Creates component interning scratch in the planning arena. The caller feeds
+// Allocates component interning scratch in the planning arena. The caller feeds
 // the existing dominance-ordered source traversal; no second IR walk is made.
-iree_status_t loom_low_lower_source_memory_builder_create(
+iree_status_t loom_low_lower_source_memory_builder_allocate(
     loom_low_lower_context_t* context,
     loom_low_lower_source_memory_builder_t** out_builder);
 

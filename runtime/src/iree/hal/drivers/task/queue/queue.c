@@ -1182,7 +1182,7 @@ static void iree_hal_task_queue_op_release_alloca_memory_wait(
       iree_hal_task_queue_alloca_release_reservations(operation);
       break;
   }
-  iree_hal_pool_wait_destroy(wait->capacity_wait);
+  iree_hal_pool_wait_free(wait->capacity_wait);
   wait->capacity_wait = NULL;
 }
 
@@ -1913,7 +1913,7 @@ static iree_status_t iree_hal_task_queue_drain_alloca_wait_for_capacity(
   IREE_RETURN_IF_ERROR(
       iree_hal_task_queue_alloca_memory_wait_ensure(operation, &wait));
   if (!wait->capacity_wait) {
-    IREE_RETURN_IF_ERROR(iree_hal_pool_wait_create(
+    IREE_RETURN_IF_ERROR(iree_hal_pool_wait_allocate(
         operation->alloca.pool, iree_arena_allocator(&operation->arena),
         &wait->capacity_wait));
   }
@@ -3540,7 +3540,7 @@ iree_status_t iree_hal_task_queue_initialize(
   }
 
   if (!iree_status_is_ok(status)) {
-    iree_hal_queue_release(&out_queue->base);
+    iree_hal_task_queue_release(out_queue);
   }
 
   IREE_TRACE_ZONE_END(z0);

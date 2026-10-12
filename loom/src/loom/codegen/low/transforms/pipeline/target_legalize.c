@@ -1591,7 +1591,7 @@ static iree_status_t loom_low_target_legalize_refresh_query_scope(
     const loom_value_fact_table_t* fact_table) {
   loom_low_target_legalize_deinitialize_query_scope(state);
   state->lower_options.fact_table = (loom_value_fact_table_t*)fact_table;
-  IREE_RETURN_IF_ERROR(loom_low_lower_source_query_scope_create(
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_query_scope_allocate(
       state->module, state->selection->func, &state->lower_options,
       state->query_scope_arena, &state->query_scope));
   state->legalization_context.value_domain =

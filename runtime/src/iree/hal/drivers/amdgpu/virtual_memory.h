@@ -58,7 +58,7 @@ typedef struct iree_hal_amdgpu_virtual_memory_placement_t {
 } iree_hal_amdgpu_virtual_memory_placement_t;
 
 // Creates the virtual-memory context for one AMDGPU allocator.
-iree_status_t iree_hal_amdgpu_virtual_memory_state_create(
+iree_status_t iree_hal_amdgpu_virtual_memory_state_allocate(
     const iree_hal_amdgpu_libhsa_t* libhsa,
     const iree_hal_amdgpu_topology_t* topology, iree_hal_device_t* device,
     iree_hal_allocator_statistics_t* statistics,
@@ -66,7 +66,7 @@ iree_status_t iree_hal_amdgpu_virtual_memory_state_create(
     iree_hal_amdgpu_virtual_memory_state_t** out_state);
 
 // Destroys an allocator-owned VMM context after all handles are released.
-void iree_hal_amdgpu_virtual_memory_state_destroy(
+void iree_hal_amdgpu_virtual_memory_state_free(
     iree_hal_amdgpu_virtual_memory_state_t* state);
 
 // Reserves a virtual buffer with no physical backing or access permissions.

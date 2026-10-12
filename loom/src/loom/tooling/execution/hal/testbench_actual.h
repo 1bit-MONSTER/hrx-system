@@ -309,7 +309,7 @@ iree_status_t loom_run_hal_testbench_actual_provider_materialize_invocation(
 // execution is destroyed; the pointer array itself is needed only during this
 // call. One execution may be reused across case executors but is submitted
 // serially; concurrent invocation requires a distinct execution object.
-iree_status_t loom_run_hal_testbench_actual_sequence_execution_create(
+iree_status_t loom_run_hal_testbench_actual_sequence_execution_allocate(
     const loom_testbench_case_plan_t* case_plan,
     iree_host_size_t provider_count,
     loom_run_hal_testbench_actual_provider_t* const* providers,
@@ -317,7 +317,7 @@ iree_status_t loom_run_hal_testbench_actual_sequence_execution_create(
     loom_run_hal_testbench_actual_sequence_execution_t** out_execution);
 
 // Releases storage and reusable command sequences owned by |execution|.
-void loom_run_hal_testbench_actual_sequence_execution_destroy(
+void loom_run_hal_testbench_actual_sequence_execution_free(
     loom_run_hal_testbench_actual_sequence_execution_t* execution);
 
 // Returns a testbench provider backed by |execution|.

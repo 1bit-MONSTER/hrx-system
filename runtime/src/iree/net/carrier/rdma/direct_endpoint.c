@@ -755,7 +755,7 @@ iree_status_t iree_net_rdma_direct_endpoint_connect(
   return iree_ok_status();
 }
 
-void iree_net_rdma_direct_endpoint_destroy(
+void iree_net_rdma_direct_endpoint_free(
     iree_net_rdma_direct_endpoint_t* endpoint) {
   if (!endpoint) {
     return;
@@ -773,7 +773,7 @@ void iree_net_rdma_direct_endpoint_destroy(
   iree_allocator_free(endpoint->host_allocator, endpoint);
 }
 
-iree_status_t iree_net_rdma_direct_endpoint_create(
+iree_status_t iree_net_rdma_direct_endpoint_allocate(
     iree_net_rdma_context_t* context, iree_async_proactor_t* proactor,
     iree_net_rdma_connection_control_t* control, uint32_t ordinal,
     uint32_t local_sequence_number,
@@ -869,7 +869,7 @@ iree_status_t iree_net_rdma_direct_endpoint_create(
   if (iree_status_is_ok(status)) {
     *out_endpoint = endpoint;
   } else {
-    iree_net_rdma_direct_endpoint_destroy(endpoint);
+    iree_net_rdma_direct_endpoint_free(endpoint);
   }
   return status;
 }

@@ -45,17 +45,17 @@ typedef struct iree_hal_amd_xdna_command_allocation_t {
 // ordinary backing grows in persistent slabs during cold executable loading.
 // The context is borrowed and must outlive the arena. Failure publishes no
 // output or cleanup obligation.
-iree_status_t iree_hal_amd_xdna_command_arena_create(
+iree_status_t iree_hal_amd_xdna_command_arena_allocate(
     iree_hal_amd_xdna_context_t* context, iree_allocator_t host_allocator,
     iree_hal_amd_xdna_command_arena_t** out_arena);
 
 // Releases an empty arena and its native instruction extent.
-void iree_hal_amd_xdna_command_arena_destroy(
+void iree_hal_amd_xdna_command_arena_free(
     iree_hal_amd_xdna_command_arena_t* arena);
 
 // Acquires an exclusive range satisfying |alignment|. Allocation is a cold
 // executable-growth operation; concurrent callers are serialized internally.
-iree_status_t iree_hal_amd_xdna_command_arena_allocate(
+iree_status_t iree_hal_amd_xdna_command_arena_allocate_range(
     iree_hal_amd_xdna_command_arena_t* arena, uint64_t byte_length,
     uint64_t alignment, iree_hal_amd_xdna_command_allocation_t* out_allocation);
 

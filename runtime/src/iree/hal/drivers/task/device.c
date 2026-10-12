@@ -608,7 +608,7 @@ static iree_status_t iree_hal_task_device_acquire_queue(
   if (iree_status_is_ok(status)) {
     *out_queue = &queue->base;
   } else if (queue_owns_slot) {
-    iree_hal_queue_release(&queue->base);
+    iree_hal_task_queue_release(queue);
   } else {
     iree_hal_task_device_release_dynamic_queue_slot(device, queue_index);
   }
@@ -816,7 +816,7 @@ static iree_status_t iree_hal_task_device_profiling_begin(
       .queue_records = queue_records,
   };
   iree_hal_task_profile_recorder_t* recorder = NULL;
-  iree_status_t status = iree_hal_task_profile_recorder_create(
+  iree_status_t status = iree_hal_task_profile_recorder_allocate(
       &recorder_options, options, device->host_allocator, &recorder);
   iree_allocator_free(device->host_allocator, queue_records);
   if (!iree_status_is_ok(status) || !recorder) {
@@ -862,7 +862,7 @@ static iree_status_t iree_hal_task_device_profiling_end(
                     iree_memory_order_relaxed);
 
   iree_status_t status = iree_hal_task_profile_recorder_end(recorder);
-  iree_hal_task_profile_recorder_destroy(recorder);
+  iree_hal_task_profile_recorder_free(recorder);
   return status;
 }
 

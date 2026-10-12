@@ -269,7 +269,7 @@ static iree_status_t iree_hal_replay_device_acquire_queue(
   if (iree_status_is_ok(status)) {
     *out_queue = &queue->base;
   } else {
-    iree_hal_queue_release(queue ? &queue->base : NULL);
+    iree_hal_replay_recorder_queue_release(queue);
   }
   return status;
 }

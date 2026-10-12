@@ -182,7 +182,7 @@ static iree_status_t iree_benchmark_loom_scenario_ensure_trial_executor(
   return iree_ok_status();
 }
 
-iree_status_t iree_benchmark_loom_scenario_execution_create(
+iree_status_t iree_benchmark_loom_scenario_execution_allocate(
     const iree_benchmark_loom_work_plan_execution_options_t* options,
     iree_benchmark_loom_scenario_execution_t** out_execution) {
   *out_execution = NULL;
@@ -195,7 +195,7 @@ iree_status_t iree_benchmark_loom_scenario_execution_create(
   return iree_ok_status();
 }
 
-void iree_benchmark_loom_scenario_execution_destroy(
+void iree_benchmark_loom_scenario_execution_free(
     iree_benchmark_loom_scenario_execution_t* execution) {
   if (execution == NULL) {
     return;

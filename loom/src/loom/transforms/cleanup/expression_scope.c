@@ -389,7 +389,7 @@ static loom_expression_inventory_t loom_expression_inventory(
   return inventory;
 }
 
-iree_status_t loom_expression_walk_create(
+iree_status_t loom_expression_walk_allocate(
     loom_module_t* module, loom_region_t* region,
     const loom_expression_identity_policy_t* identity_policy,
     uint32_t maximum_entry_count, iree_arena_allocator_t* arena,
@@ -421,7 +421,7 @@ iree_status_t loom_expression_walk_create(
                                                  sizeof(*walk->scopes),
                                                  (void**)&walk->scopes));
   memset(walk->bucket_heads, 0xFF, bucket_count * sizeof(*walk->bucket_heads));
-  IREE_RETURN_IF_ERROR(loom_dominance_walk_create(
+  IREE_RETURN_IF_ERROR(loom_dominance_walk_allocate(
       module, region,
       (loom_dominance_walk_callbacks_t){
           .user_data = walk,

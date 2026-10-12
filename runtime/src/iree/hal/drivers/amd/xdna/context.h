@@ -70,7 +70,7 @@ typedef struct iree_hal_amd_xdna_context_t {
 // Opens an endpoint and admits an exact logical context within |fabric|,
 // which is retained on success. The engine negotiates its own extension.
 // Failure publishes no output or cleanup obligation.
-iree_status_t iree_hal_amd_xdna_context_create(
+iree_status_t iree_hal_amd_xdna_context_allocate(
     iree_hal_amd_fabric_t* fabric, const amdf_endpoint_id_t* endpoint_id,
     iree_host_size_t param_count, const iree_string_pair_t* params,
     iree_hal_device_event_sink_t event_sink, iree_allocator_t host_allocator,
@@ -78,7 +78,7 @@ iree_status_t iree_hal_amd_xdna_context_create(
 
 // Releases an idle context after all memory and queue users have been released.
 // Native failure is diagnosed and the remaining ownership graph is left live.
-void iree_hal_amd_xdna_context_destroy(iree_hal_amd_xdna_context_t* context);
+void iree_hal_amd_xdna_context_free(iree_hal_amd_xdna_context_t* context);
 
 // Publishes a native failure without allocating an IREE status or aborting.
 void iree_hal_amd_xdna_context_report(

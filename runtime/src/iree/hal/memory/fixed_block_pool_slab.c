@@ -6,7 +6,7 @@
 
 #include "iree/hal/memory/fixed_block_pool_slab.h"
 
-iree_status_t iree_hal_fixed_block_pool_slab_create(
+iree_status_t iree_hal_fixed_block_pool_slab_allocate(
     const iree_hal_pool_buffer_range_t* range,
     const iree_hal_fixed_block_pool_geometry_t* geometry,
     const iree_hal_asan_pool_options_t* asan, iree_allocator_t host_allocator,
@@ -69,7 +69,7 @@ iree_status_t iree_hal_fixed_block_pool_slab_create(
     }
     *out_slab = slab;
   } else {
-    iree_hal_fixed_block_pool_slab_destroy(slab, NULL, host_allocator);
+    iree_hal_fixed_block_pool_slab_free(slab, NULL, host_allocator);
   }
   return status;
 }
@@ -104,8 +104,8 @@ iree_status_t iree_hal_fixed_block_pool_slab_acquire(
     range.memory.reuse_frontier = info.reuse_frontier;
   }
   if (iree_status_is_ok(status)) {
-    status = iree_hal_fixed_block_pool_slab_create(&range, geometry, asan,
-                                                   host_allocator, out_slab);
+    status = iree_hal_fixed_block_pool_slab_allocate(&range, geometry, asan,
+                                                     host_allocator, out_slab);
   }
   if (iree_status_is_ok(status)) {
     (*out_slab)->reservation = reservation;
@@ -145,9 +145,9 @@ bool iree_hal_fixed_block_pool_slab_merge_return(
   return true;
 }
 
-void iree_hal_fixed_block_pool_slab_destroy(
-    iree_hal_fixed_block_pool_slab_t* slab, iree_hal_pool_t* backing_pool,
-    iree_allocator_t host_allocator) {
+void iree_hal_fixed_block_pool_slab_free(iree_hal_fixed_block_pool_slab_t* slab,
+                                         iree_hal_pool_t* backing_pool,
+                                         iree_allocator_t host_allocator) {
   if (backing_pool) {
     iree_hal_pool_release_reservations(
         backing_pool, 1, &slab->reservation,

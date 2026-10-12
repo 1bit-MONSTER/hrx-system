@@ -29,7 +29,7 @@ using loomc::testing::HandlePtr;
 using ContextPtr = HandlePtr<loomc_context_t, loomc_context_release>;
 using SourcePtr = HandlePtr<loomc_source_t, loomc_source_release>;
 using BuilderPtr =
-    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_release>;
+    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_free>;
 using LinkIndexPtr = HandlePtr<loomc_link_index_t, loomc_link_index_release>;
 using ResultPtr = HandlePtr<loomc_result_t, loomc_result_release>;
 
@@ -70,7 +70,7 @@ SourcePtr CreateTextSource(const char* identifier, const char* source_text) {
 
 BuilderPtr CreateBuilder(loomc_context_t* context) {
   loomc_link_index_builder_t* builder = nullptr;
-  loomc_status_t status = loomc_link_index_builder_create(
+  loomc_status_t status = loomc_link_index_builder_allocate(
       context, nullptr, loomc_allocator_system(), &builder);
   LOOMC_EXPECT_OK(status);
   return BuilderPtr(builder);
@@ -101,16 +101,16 @@ TEST(LinkIndexTest, RejectsInvalidBlockSizes) {
       reinterpret_cast<loomc_link_index_builder_t*>(0x1);
   LOOMC_EXPECT_STATUS_IS(
       LOOMC_STATUS_INVALID_ARGUMENT,
-      loomc_link_index_builder_create(context.get(), &options,
-                                      loomc_allocator_system(), &builder));
+      loomc_link_index_builder_allocate(context.get(), &options,
+                                        loomc_allocator_system(), &builder));
   EXPECT_EQ(builder, nullptr);
 
   options.block_size = std::numeric_limits<loomc_host_size_t>::max();
   builder = reinterpret_cast<loomc_link_index_builder_t*>(0x1);
   LOOMC_EXPECT_STATUS_IS(
       LOOMC_STATUS_OUT_OF_RANGE,
-      loomc_link_index_builder_create(context.get(), &options,
-                                      loomc_allocator_system(), &builder));
+      loomc_link_index_builder_allocate(context.get(), &options,
+                                        loomc_allocator_system(), &builder));
   EXPECT_EQ(builder, nullptr);
 }
 

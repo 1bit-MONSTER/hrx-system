@@ -323,7 +323,7 @@ static iree_status_t loom_low_lower_source_query_prepare_coverage(
     return iree_ok_status();
   }
 
-  IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_plan_create(
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_plan_allocate(
       &context->analysis_arena, &coverage->graph_plan));
   coverage->preparing = true;
   loom_low_lower_source_query_coverage_build_state_t state = {
@@ -603,7 +603,7 @@ struct loom_low_lower_source_query_scope_t {
   bool value_domain_initialized;
 };
 
-iree_status_t loom_low_lower_source_query_scope_create(
+iree_status_t loom_low_lower_source_query_scope_allocate(
     loom_module_t* module, loom_func_like_t source_function,
     const loom_low_lower_options_t* options, iree_arena_allocator_t* arena,
     loom_low_lower_source_query_scope_t** out_scope) {

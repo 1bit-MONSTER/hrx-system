@@ -40,7 +40,7 @@ typedef struct iree_net_rdma_connection_events_callbacks_t {
 // proactor. Both callbacks and a nonzero service batch size are required.
 // Failure leaves output NULL. No native IDs, monitors or workers are created;
 // native ID setup can fail and unwind synchronously before activation.
-IREE_API_EXPORT iree_status_t iree_net_rdma_connection_events_create(
+IREE_API_EXPORT iree_status_t iree_net_rdma_connection_events_allocate(
     iree_net_rdma_context_t* context, iree_async_proactor_t* proactor,
     uint32_t service_batch_size,
     iree_net_rdma_connection_events_callbacks_t callbacks,
@@ -73,7 +73,7 @@ IREE_API_EXPORT void iree_net_rdma_connection_events_deactivate(
 // Destroys an inactive or deactivated service after all IDs have been destroyed
 // or migrated away. Native ID destruction disposes unread events and
 // undelivered listener requests; every obtained event was already acknowledged.
-IREE_API_EXPORT void iree_net_rdma_connection_events_destroy(
+IREE_API_EXPORT void iree_net_rdma_connection_events_free(
     iree_net_rdma_connection_events_t* events);
 
 #ifdef __cplusplus

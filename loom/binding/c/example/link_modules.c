@@ -104,7 +104,7 @@ static void link_modules_state_deinitialize(link_modules_state_t* state) {
   loomc_pass_program_release(state->pass_program);
   loomc_compiler_release(state->compiler);
   loomc_linker_release(state->linker);
-  loomc_link_index_builder_release(state->index_builder);
+  loomc_link_index_builder_free(state->index_builder);
   loomc_link_index_release(state->link_index);
   loomc_source_release(state->library_source);
   loomc_source_release(state->harness_source);
@@ -175,7 +175,7 @@ static loomc_status_t create_resources(link_modules_state_t* state) {
                                 &state->library_source);
   }
   if (loomc_status_is_ok(status)) {
-    status = loomc_link_index_builder_create(
+    status = loomc_link_index_builder_allocate(
         state->context, NULL, loomc_allocator_system(), &state->index_builder);
   }
   if (loomc_status_is_ok(status)) {

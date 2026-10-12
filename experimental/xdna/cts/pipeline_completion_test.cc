@@ -28,9 +28,9 @@ class XdnaPipelineCompletionTest : public XdnaExecutionFixture {
     const auto* bytes = reinterpret_cast<const uint8_t*>(image->data);
     auto sequence = iree::hal::amd::xdna::testing::MakeOwnedByteSequence(
         std::vector<uint8_t>(bytes, bytes + image->size));
-    iree_hal_amd_xdna_image_destroy(executable_);
+    iree_hal_amd_xdna_image_free(executable_);
     executable_ = nullptr;
-    IREE_ASSERT_OK(iree_hal_amd_xdna_image_create(
+    IREE_ASSERT_OK(iree_hal_amd_xdna_image_allocate(
         sequence.get(), &target_, iree_allocator_system(), &executable_));
     IREE_ASSERT_OK(
         iree_hal_amd_xdna_image_find_entry(executable_, name, &entry_ordinal_));

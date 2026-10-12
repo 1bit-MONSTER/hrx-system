@@ -352,7 +352,7 @@ static iree_status_t loom_low_lower_memory_components_publish(
   return iree_ok_status();
 }
 
-iree_status_t loom_low_lower_source_memory_builder_create(
+iree_status_t loom_low_lower_source_memory_builder_allocate(
     loom_low_lower_context_t* context,
     loom_low_lower_source_memory_builder_t** out_builder) {
   loom_low_lower_source_memory_builder_t* builder = NULL;

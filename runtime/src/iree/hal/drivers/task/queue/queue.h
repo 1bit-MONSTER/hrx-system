@@ -704,6 +704,16 @@ struct iree_hal_task_queue_t {
   uint32_t compute_worker_count;
 };
 
+// Retains the queue through its HAL resource lifetime. NULL is allowed.
+static inline void iree_hal_task_queue_retain(iree_hal_task_queue_t* queue) {
+  iree_hal_queue_retain((iree_hal_queue_t*)queue);
+}
+
+// Releases a queue reference. NULL is allowed.
+static inline void iree_hal_task_queue_release(iree_hal_task_queue_t* queue) {
+  iree_hal_queue_release((iree_hal_queue_t*)queue);
+}
+
 iree_status_t iree_hal_task_queue_initialize(
     const iree_hal_task_queue_create_params_t* params,
     iree_hal_task_queue_t* out_queue);

@@ -48,9 +48,9 @@ iree_status_t loom_cse_run(loom_pass_t* pass, loom_module_t* module,
     iree_arena_reset(&arena);
     loom_expression_walk_t* walk = NULL;
     status =
-        loom_expression_walk_create(module, region,
-                                    /*identity_policy=*/NULL,
-                                    /*maximum_entry_count=*/0, &arena, &walk);
+        loom_expression_walk_allocate(module, region,
+                                      /*identity_policy=*/NULL,
+                                      /*maximum_entry_count=*/0, &arena, &walk);
     loom_expression_barriers_t barriers = {0};
     while (iree_status_is_ok(status)) {
       loom_expression_cursor_t cursor;

@@ -85,7 +85,7 @@ class NativePair {
     queue_options.mode = completion_mode;
     service_batch_size_ = service_batch_size;
     for (uint32_t side = 0; side < 2; ++side) {
-      IREE_CHECK_OK(iree_net_rdma_completion_queue_create(
+      IREE_CHECK_OK(iree_net_rdma_completion_queue_allocate(
           iree_net_rdma_region_context(regions_[side]), proactor_,
           queue_options,
           {+[](void* user_data, iree_host_size_t count,
@@ -228,7 +228,7 @@ class NativePair {
           {+[](void* user_data) { *static_cast<bool*>(user_data) = true; },
            &joined});
       PollUntil(proactor_, [&] { return joined; });
-      iree_net_rdma_completion_queue_destroy(completion_queue);
+      iree_net_rdma_completion_queue_free(completion_queue);
     }
     EXPECT_EQ(proactor_->progress_list, nullptr);
     iree_async_proactor_release(proactor_);
@@ -504,7 +504,7 @@ TEST_P(CompletionQueueTest, DestructionDiscardsUnreadNativeNotification) {
         options, iree_allocator_system(), &proactor));
   }
   iree_net_rdma_completion_queue_t* completions = nullptr;
-  IREE_ASSERT_OK(iree_net_rdma_completion_queue_create(
+  IREE_ASSERT_OK(iree_net_rdma_completion_queue_allocate(
       contexts_[0], proactor, {32, std::get<1>(GetParam()), 0},
       {+[](void*, iree_host_size_t, const ibv_wc*) {
          ADD_FAILURE() << "The retired CQ must not dispatch unread work.";
@@ -551,7 +551,7 @@ TEST_P(CompletionQueueTest, DestructionDiscardsUnreadNativeNotification) {
       {+[](void* user_data) { *static_cast<bool*>(user_data) = true; },
        &joined});
   PollUntil(proactor, [&] { return joined; });
-  iree_net_rdma_completion_queue_destroy(completions);
+  iree_net_rdma_completion_queue_free(completions);
   iree_async_proactor_release(proactor);
 }
 

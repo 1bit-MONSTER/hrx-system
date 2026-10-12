@@ -65,7 +65,7 @@ struct loom_amdgpu_mask_write_wait_t {
   iree_host_size_t event_count;
 };
 
-iree_status_t loom_amdgpu_mask_write_wait_create(
+iree_status_t loom_amdgpu_mask_write_wait_allocate(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
     iree_arena_allocator_t* arena, loom_amdgpu_mask_write_wait_t** out_state) {

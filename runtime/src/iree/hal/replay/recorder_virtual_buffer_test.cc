@@ -632,9 +632,9 @@ TEST_F(ReplayRecorderVirtualBufferTest,
   // Host semaphore calls are outside the recorded HAL device surface. The
   // planner must reject this wait instead of submitting unreplayable work.
   iree_hal_replay_plan_t* plan = nullptr;
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_FAILED_PRECONDITION,
-      iree_hal_replay_plan_create(Recording(), iree_allocator_system(), &plan));
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
+                        iree_hal_replay_plan_allocate(
+                            Recording(), iree_allocator_system(), &plan));
   EXPECT_EQ(nullptr, plan);
 }
 

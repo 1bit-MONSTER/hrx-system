@@ -35,13 +35,13 @@ typedef struct iree_net_rdma_device_event_subscription_t {
 // Creates an owner and makes the exclusively owned native async_fd nonblocking.
 // Native/allocator failures leave output NULL. The selected port scopes link
 // failures; device failures affect every subscription.
-IREE_API_EXPORT iree_status_t iree_net_rdma_device_events_create(
+IREE_API_EXPORT iree_status_t iree_net_rdma_device_events_allocate(
     const iree_net_rdma_library_t* library, struct ibv_context* device,
     uint8_t port_number, iree_allocator_t host_allocator,
     iree_net_rdma_device_events_t** out_events);
 
 // Destroys an owner after every subscription and readiness monitor has joined.
-IREE_API_EXPORT void iree_net_rdma_device_events_destroy(
+IREE_API_EXPORT void iree_net_rdma_device_events_free(
     iree_net_rdma_device_events_t* events);
 
 // Subscribes to CQ errors, errors on QPs using the CQ, and device/port

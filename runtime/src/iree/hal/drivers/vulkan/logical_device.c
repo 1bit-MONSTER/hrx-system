@@ -1196,7 +1196,7 @@ static iree_status_t iree_hal_vulkan_logical_device_profiling_begin(
           IREE_HAL_VULKAN_LOGICAL_DEVICE_PROFILE_MEMORY_EVENT_CAPACITY,
   };
   iree_hal_vulkan_profile_recorder_t* recorder = NULL;
-  iree_status_t status = iree_hal_vulkan_profile_recorder_create(
+  iree_status_t status = iree_hal_vulkan_profile_recorder_allocate(
       &recorder_options, &resolved_options, device->host_allocator, &recorder);
   iree_allocator_free(device->host_allocator, queue_records);
   if (!iree_status_is_ok(status) || !recorder) {
@@ -1211,7 +1211,7 @@ static iree_status_t iree_hal_vulkan_logical_device_profiling_begin(
     device->profile.recorder = NULL;
     status = iree_status_join(status,
                               iree_hal_vulkan_profile_recorder_end(recorder));
-    iree_hal_vulkan_profile_recorder_destroy(recorder);
+    iree_hal_vulkan_profile_recorder_free(recorder);
     return status;
   }
 
@@ -1272,7 +1272,7 @@ static iree_status_t iree_hal_vulkan_logical_device_profiling_end(
 
   status =
       iree_status_join(status, iree_hal_vulkan_profile_recorder_end(recorder));
-  iree_hal_vulkan_profile_recorder_destroy(recorder);
+  iree_hal_vulkan_profile_recorder_free(recorder);
   return status;
 }
 

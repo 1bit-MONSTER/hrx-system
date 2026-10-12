@@ -1580,8 +1580,8 @@ iree_status_t loom_template_selection_run(loom_pass_t* pass,
             },
         .additional_call_capacity = state.statistics->selected_sites,
     };
-    status = loom_inline_callables_plan_create(pass, module, &options,
-                                               &state.inline_plan);
+    status = loom_inline_callables_plan_allocate(pass, module, &options,
+                                                 &state.inline_plan);
   } else if (iree_status_is_ok(status)) {
     status = loom_template_selection_analyze_exact_calls(&state);
   }

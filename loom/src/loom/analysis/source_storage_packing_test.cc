@@ -72,7 +72,7 @@ class SourceStoragePackingTest : public ::testing::Test {
     iree_arena_block_pool_initialize(4096, iree_allocator_system(),
                                      &block_pool_);
     iree_arena_initialize(&block_pool_, &arena_);
-    IREE_ASSERT_OK(loom_source_storage_packing_create(
+    IREE_ASSERT_OK(loom_source_storage_packing_allocate(
         loom_source_storage_packing_interference_callback_make(
             QueryInterference, &query_state_),
         nullptr, 0, &arena_, &packing_));
@@ -207,7 +207,7 @@ TEST_F(SourceStoragePackingTest, ExtentOverflowDoesNotChangeRequirement) {
 
 TEST_F(SourceStoragePackingTest, FixedRangesAndWorkerStorageShareOnePacking) {
   const loom_source_storage_packing_range_t fixed[] = {{64, 32}, {192, 16}};
-  IREE_ASSERT_OK(loom_source_storage_packing_create(
+  IREE_ASSERT_OK(loom_source_storage_packing_allocate(
       {}, fixed, IREE_ARRAYSIZE(fixed), &arena_, &packing_));
   EXPECT_EQ(Append(1, 80, 16), 96u);
   EXPECT_EQ(Append(2, 48, 16), 0u);
@@ -223,7 +223,7 @@ TEST_F(SourceStoragePackingTest, FixedRangesAndWorkerStorageShareOnePacking) {
 
 TEST_F(SourceStoragePackingTest, FixedReservationsSurviveSourceLifetimeReuse) {
   const loom_source_storage_packing_range_t fixed[] = {{32, 16}};
-  IREE_ASSERT_OK(loom_source_storage_packing_create(
+  IREE_ASSERT_OK(loom_source_storage_packing_allocate(
       loom_source_storage_packing_interference_callback_make(QueryInterference,
                                                              &query_state_),
       fixed, IREE_ARRAYSIZE(fixed), &arena_, &packing_));
@@ -242,7 +242,7 @@ TEST_F(SourceStoragePackingTest, FixedReservationsSurviveSourceLifetimeReuse) {
 
 TEST_F(SourceStoragePackingTest, FixedTailCountsWithoutOccupyingPrefix) {
   const loom_source_storage_packing_range_t fixed[] = {{960, 64}};
-  IREE_ASSERT_OK(loom_source_storage_packing_create(
+  IREE_ASSERT_OK(loom_source_storage_packing_allocate(
       {}, fixed, IREE_ARRAYSIZE(fixed), &arena_, &packing_));
   EXPECT_EQ(Append(1, 512, 64), 0u);
   EXPECT_EQ(loom_source_storage_packing_requirement(packing_).byte_length,
@@ -258,7 +258,7 @@ TEST_F(SourceStoragePackingTest, FixedTailCountsWithoutOccupyingPrefix) {
 
 TEST_F(SourceStoragePackingTest, EmptyAllocationsDoNotOccupyStorage) {
   const loom_source_storage_packing_range_t fixed[] = {{0, 64}};
-  IREE_ASSERT_OK(loom_source_storage_packing_create(
+  IREE_ASSERT_OK(loom_source_storage_packing_allocate(
       {}, fixed, IREE_ARRAYSIZE(fixed), &arena_, &packing_));
   EXPECT_EQ(Append(1, 0, 16), 0u);
   uint64_t empty_offset = UINT64_MAX;

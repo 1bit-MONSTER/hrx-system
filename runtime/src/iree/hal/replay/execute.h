@@ -26,7 +26,7 @@ enum iree_hal_replay_execute_flag_bits_t {
 // Prepared replay program created from a serialized `.ireereplay` file.
 //
 // Plans borrow the original file contents passed to
-// iree_hal_replay_plan_create and must not outlive that storage. Building a
+// iree_hal_replay_plan_allocate and must not outlive that storage. Building a
 // plan performs cold file-structure validation and prepares record descriptors
 // for repeated execution.
 typedef struct iree_hal_replay_plan_t iree_hal_replay_plan_t;
@@ -140,18 +140,18 @@ iree_hal_replay_execute_options_default(void) {
   return options;
 }
 
-// Creates a prepared replay plan from |file_contents|.
+// Allocates a prepared replay plan from |file_contents|.
 //
-// The plan borrows |file_contents| and must be destroyed before the bytes are
+// The plan borrows |file_contents| and must be freed before the bytes are
 // unmapped or freed. Planning validates the replay file envelope, sequence
 // ordinals, object-table capacity, and selected hot operation layouts so that
 // repeated execution can avoid reparsing the serialized stream.
-IREE_API_EXPORT iree_status_t iree_hal_replay_plan_create(
+IREE_API_EXPORT iree_status_t iree_hal_replay_plan_allocate(
     iree_const_byte_span_t file_contents, iree_allocator_t host_allocator,
     iree_hal_replay_plan_t** out_plan);
 
-// Destroys a prepared replay plan.
-IREE_API_EXPORT void iree_hal_replay_plan_destroy(iree_hal_replay_plan_t* plan);
+// Frees a prepared replay plan.
+IREE_API_EXPORT void iree_hal_replay_plan_free(iree_hal_replay_plan_t* plan);
 
 // Executes a prepared replay plan against |device_group|.
 //
@@ -170,9 +170,9 @@ IREE_API_EXPORT iree_status_t iree_hal_replay_plan_execute(
 // reproducers while leaving parallel replay strategies as an execution policy
 // that can be added later without changing the file format.
 //
-// This is a convenience wrapper that creates a temporary replay plan, executes
-// it once, and destroys it. Repeated execution should use
-// iree_hal_replay_plan_create and iree_hal_replay_plan_execute directly.
+// This is a convenience wrapper that allocates a temporary replay plan,
+// executes it once, and frees it. Repeated execution should use
+// iree_hal_replay_plan_allocate and iree_hal_replay_plan_execute directly.
 IREE_API_EXPORT iree_status_t iree_hal_replay_execute_file(
     iree_const_byte_span_t file_contents, iree_hal_device_group_t* device_group,
     const iree_hal_replay_execute_options_t* options,

@@ -64,11 +64,162 @@ void iree_atomic_ref_count_inc(iree_atomic_ref_count_t* ref_count);
 int iree_atomic_ref_count_dec(iree_atomic_ref_count_t* ref_count);
 iree_status_t iree_ok_status(void);
 
+void iree_clang_tidy_refcounted_retain(iree_clang_tidy_refcounted_t* resource);
+void iree_clang_tidy_refcounted_release(iree_clang_tidy_refcounted_t* resource);
+
 iree_status_t iree_clang_tidy_refcounted_create(
     iree_clang_tidy_refcounted_t** out_resource) {
   (void)out_resource;
   return iree_ok_status();
 }
+
+iree_status_t iree_clang_tidy_plain_create(
+    iree_clang_tidy_plain_allocated_t** out_storage) {
+  (void)out_storage;
+  return iree_ok_status();
+}
+
+static iree_status_t iree_clang_tidy_private_storage_create(
+    iree_clang_tidy_plain_allocated_t** out_storage) {
+  (void)out_storage;
+  return iree_ok_status();
+}
+
+iree_status_t hrx_clang_tidy_plain_create(
+    iree_clang_tidy_plain_allocated_t** out_storage);
+iree_status_t loom_clang_tidy_plain_create(
+    iree_clang_tidy_plain_allocated_t** out_storage);
+iree_status_t loomc_clang_tidy_plain_create(
+    iree_clang_tidy_plain_allocated_t** out_storage);
+
+// Native ABIs expose their own explicit creation/destruction contract.
+typedef struct amdf_clang_tidy_native_t {
+  // Exclusive native allocation owned by this handle.
+  void* allocation;
+} amdf_clang_tidy_native_t;
+int amdf_clang_tidy_native_create(amdf_clang_tidy_native_t** out_native) {
+  (void)out_native;
+  return 0;
+}
+int amdf_clang_tidy_native_destroy(amdf_clang_tidy_native_t* native);
+typedef struct amdf_clang_tidy_opaque_t amdf_clang_tidy_opaque_t;
+int amdf_clang_tidy_opaque_create(amdf_clang_tidy_opaque_t** out_native);
+int amdf_clang_tidy_opaque_destroy(amdf_clang_tidy_opaque_t* native);
+
+// An embedded resource does not supply the containing owner's public lifetime.
+typedef struct iree_clang_tidy_embedded_owner_t {
+  // Embedded resource with a lifetime distinct from its containing owner.
+  iree_clang_tidy_refcounted_t buffer;
+  // Independent owner destruction interface.
+  const void* separate_vtable;
+} iree_clang_tidy_embedded_owner_t;
+
+iree_status_t iree_clang_tidy_embedded_owner_create(
+    iree_clang_tidy_embedded_owner_t** out_owner) {
+  (void)out_owner;
+  return iree_ok_status();
+}
+
+iree_status_t iree_clang_tidy_embedded_owner_destroy(
+    iree_clang_tidy_embedded_owner_t* owner) {
+  (void)owner;
+  return iree_ok_status();
+}
+
+// Factories use the published base type's lifecycle, irrespective of their
+// name.
+iree_status_t iree_clang_tidy_virtual_buffer_create(
+    iree_clang_tidy_refcounted_t** out_buffer) {
+  (void)out_buffer;
+  return iree_ok_status();
+}
+
+static iree_status_t iree_clang_tidy_private_resource_create(
+    iree_clang_tidy_refcounted_with_base_t** out_resource) {
+  (void)out_resource;
+  return iree_ok_status();
+}
+
+iree_status_t iree_clang_tidy_refcounted_with_base_create(
+    iree_clang_tidy_refcounted_with_base_t** out_resource) {
+  (void)out_resource;
+  return iree_ok_status();
+}
+void iree_clang_tidy_refcounted_with_base_retain(
+    iree_clang_tidy_refcounted_with_base_t* resource);
+void iree_clang_tidy_refcounted_with_base_release(
+    iree_clang_tidy_refcounted_with_base_t* resource);
+
+typedef struct iree_clang_tidy_created_opaque_t
+    iree_clang_tidy_created_opaque_t;
+
+iree_status_t iree_clang_tidy_created_opaque_create(
+    iree_clang_tidy_created_opaque_t** out_resource);
+void iree_clang_tidy_created_opaque_retain(
+    iree_clang_tidy_created_opaque_t* resource);
+void iree_clang_tidy_created_opaque_release(
+    iree_clang_tidy_created_opaque_t* resource);
+
+typedef struct iree_clang_tidy_missing_opaque_t
+    iree_clang_tidy_missing_opaque_t;
+
+iree_status_t iree_clang_tidy_missing_opaque_create(
+    iree_clang_tidy_missing_opaque_t** out_resource);
+
+typedef struct iree_clang_tidy_wrong_lifetime_t {
+  // Object lifetime anchor whose published operations have wrong signatures.
+  iree_atomic_ref_count_t ref_count;
+} iree_clang_tidy_wrong_lifetime_t;
+
+iree_status_t iree_clang_tidy_wrong_lifetime_create(
+    iree_clang_tidy_wrong_lifetime_t** out_resource);
+// Neither a different pointee nor a status-returning release satisfies
+// lifetime.
+void iree_clang_tidy_wrong_lifetime_retain(
+    iree_clang_tidy_refcounted_t* resource);
+iree_status_t iree_clang_tidy_wrong_lifetime_release(
+    iree_clang_tidy_wrong_lifetime_t* resource);
+
+iree_status_t iree_clang_tidy_created_later_create(
+    iree_clang_tidy_refcounted_t** out_resource);
+iree_status_t iree_clang_tidy_created_later_create(
+    iree_clang_tidy_refcounted_t** out_resource) {
+  (void)out_resource;
+  return iree_ok_status();
+}
+
+// Opaque pointer typedefs publish their own lifecycle name, not the private
+// record tag used by their representation.
+typedef struct iree_clang_tidy_private_handle_s*
+    iree_clang_tidy_created_handle_t;
+void iree_clang_tidy_created_handle_retain(
+    iree_clang_tidy_created_handle_t resource);
+void iree_clang_tidy_created_handle_release(
+    iree_clang_tidy_created_handle_t resource);
+iree_status_t iree_clang_tidy_created_handle_create(
+    iree_clang_tidy_created_handle_t* out_resource);
+
+// Adapter functions retain a foreign ABI's handle spelling.
+typedef struct testStream_st {
+  // Reference count owned by the adapter's stream resource.
+  iree_atomic_ref_count_t ref_count;
+}* testStream_t;
+void iree_clang_tidy_stream_retain(testStream_t stream);
+void iree_clang_tidy_stream_release(testStream_t stream);
+iree_status_t iree_clang_tidy_stream_create(testStream_t* out_stream);
+iree_status_t iree_clang_tidy_context_stream_create(testStream_t* out_stream);
+
+// Foreign opaque handles can use checked registry lookup and consumption
+// rather than exposing the adapter's private refcount operations.
+typedef struct testContext_st* testContext_t;
+iree_status_t iree_clang_tidy_context_create(testContext_t* out_context);
+
+// A visible adapter implementation still requires a refcount anchor.
+typedef struct testPlain_st {
+  // Exclusive storage without resource ownership.
+  int payload;
+}* testPlain_t;
+iree_status_t iree_clang_tidy_foreign_plain_create(testPlain_t* out_storage);
 
 iree_status_t iree_clang_tidy_refcounted_allocate(
     iree_clang_tidy_refcounted_t** out_resource) {

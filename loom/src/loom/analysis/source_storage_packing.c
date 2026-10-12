@@ -45,7 +45,7 @@ struct loom_source_storage_packing_t {
   iree_host_size_t reservation_capacity;
 };
 
-iree_status_t loom_source_storage_packing_create(
+iree_status_t loom_source_storage_packing_allocate(
     loom_source_storage_packing_interference_callback_t interference,
     const loom_source_storage_packing_range_t* reserved_ranges,
     iree_host_size_t reserved_range_count, iree_arena_allocator_t* arena,

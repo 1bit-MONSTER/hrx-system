@@ -109,7 +109,7 @@ static void iree_hal_amdgpu_pm4_command_buffer_resident_allocation_free(
   iree_allocator_free(resident_pool->host_allocator, allocation);
 }
 
-iree_status_t iree_hal_amdgpu_pm4_command_buffer_resident_pool_create(
+iree_status_t iree_hal_amdgpu_pm4_command_buffer_resident_pool_allocate(
     const iree_hal_amdgpu_libhsa_t* libhsa, hsa_agent_t host_agent,
     hsa_agent_t device_agent, hsa_amd_memory_pool_t resident_memory_pool,
     hsa_amd_memory_pool_t host_staging_memory_pool,
@@ -246,7 +246,7 @@ void iree_hal_amdgpu_pm4_command_buffer_resident_pool_trim(
   IREE_TRACE_ZONE_END(z0);
 }
 
-void iree_hal_amdgpu_pm4_command_buffer_resident_pool_destroy(
+void iree_hal_amdgpu_pm4_command_buffer_resident_pool_free(
     iree_hal_amdgpu_pm4_command_buffer_resident_pool_t* resident_pool) {
   if (!resident_pool) {
     return;

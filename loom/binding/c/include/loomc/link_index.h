@@ -288,28 +288,28 @@ typedef struct loomc_link_index_symbol_t {
   loomc_link_symbol_flags_t flags;
 } loomc_link_index_symbol_t;
 
-/// Creates an empty link-index builder.
+/// Allocates an exclusively owned empty link-index builder.
 ///
 /// @param context Reusable Loom API context retained by the builder.
 /// @param options Builder options, or `NULL` for defaults.
 /// @param allocator Host allocator used for builder and frozen-index storage.
 /// @param out_builder Receives the mutable builder on success.
-/// @return OK when the builder was created.
+/// @return OK when the builder was allocated.
 ///
 /// @ownership
-/// The caller owns the returned builder and releases it with
-/// `loomc_link_index_builder_release`.
-LOOMC_API_EXPORT loomc_status_t loomc_link_index_builder_create(
+/// The caller owns the returned builder and frees it with
+/// `loomc_link_index_builder_free`.
+LOOMC_API_EXPORT loomc_status_t loomc_link_index_builder_allocate(
     loomc_context_t* context, const loomc_link_index_builder_options_t* options,
     loomc_allocator_t allocator, loomc_link_index_builder_t** out_builder);
 
-/// Releases a link-index builder.
+/// Frees a link-index builder.
 ///
-/// @param builder Builder to release. Passing `NULL` is allowed.
+/// @param builder Builder to free. Passing `NULL` is allowed.
 ///
 /// @thread_safety
 /// No other thread may be reserving, filling, or finishing `builder`.
-LOOMC_API_EXPORT void loomc_link_index_builder_release(
+LOOMC_API_EXPORT void loomc_link_index_builder_free(
     loomc_link_index_builder_t* builder);
 
 /// Reserves a deterministic source slot.
@@ -364,8 +364,8 @@ LOOMC_API_EXPORT loomc_status_t loomc_link_index_builder_add_source(
 /// infrastructure failure prevented result production.
 ///
 /// @ownership
-/// Finishing does not consume `builder`; the caller still releases it with
-/// `loomc_link_index_builder_release` after the call returns. The caller owns
+/// Finishing does not consume `builder`; the caller still frees it with
+/// `loomc_link_index_builder_free` after the call returns. The caller owns
 /// `out_link_index` on successful result state and releases it with
 /// `loomc_link_index_release`. The caller owns `out_result` and releases it
 /// with `loomc_result_release`.

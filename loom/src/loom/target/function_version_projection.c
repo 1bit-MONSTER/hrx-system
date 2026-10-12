@@ -373,9 +373,9 @@ static iree_status_t loom_target_function_version_clone_op(
   IREE_RETURN_IF_ERROR(loom_target_function_version_clone_schedules(
       &source->loop_pipelines, arena, &target->loop_pipelines));
   if (source->memory_accesses != NULL) {
-    IREE_RETURN_IF_ERROR(loom_low_memory_access_map_create(
+    IREE_RETURN_IF_ERROR(loom_low_memory_access_map_allocate(
         &module->arena, &target->memory_accesses));
-    IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_create(
+    IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_allocate(
         source->memory_accesses, target->memory_accesses, clone->scratch_arena,
         &scope->memory));
   }

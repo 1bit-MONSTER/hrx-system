@@ -171,7 +171,7 @@ static iree_status_t loom_amdgpu_source_alloca_layout_record_allocation(
         memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP
             ? loom_amdgpu_source_alloca_layout_query_workgroup_interference
             : loom_amdgpu_source_alloca_layout_query_conservative_interference;
-    IREE_RETURN_IF_ERROR(loom_source_storage_packing_create(
+    IREE_RETURN_IF_ERROR(loom_source_storage_packing_allocate(
         loom_source_storage_packing_interference_callback_make(interference_fn,
                                                                layout),
         NULL, 0, layout->arena, &segment->packing));

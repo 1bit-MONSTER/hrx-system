@@ -2226,11 +2226,11 @@ static iree_status_t loom_amdgpu_wait_state_plan_build_with_scratch(
           builder, LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_MASK_WRITE_DEPCTR) &&
       loom_low_resolved_target_bundle(&builder->schedule->target)
               ->snapshot->subgroup_size == 64) {
-    IREE_RETURN_IF_ERROR(loom_amdgpu_mask_write_wait_create(
+    IREE_RETURN_IF_ERROR(loom_amdgpu_mask_write_wait_allocate(
         builder->schedule, builder->allocation, builder->transient_arena,
         &builder->mask_writes));
   }
-  IREE_RETURN_IF_ERROR(loom_amdgpu_store_data_wait_create(
+  IREE_RETURN_IF_ERROR(loom_amdgpu_store_data_wait_allocate(
       builder->schedule, builder->allocation, builder->transient_arena,
       &builder->store_data));
   IREE_RETURN_IF_ERROR(loom_amdgpu_wait_state_allocate(builder));

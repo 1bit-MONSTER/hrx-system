@@ -455,8 +455,8 @@ static iree_status_t iree_hal_pool_allocate_buffer_direct(
           } else if (!capacity_wait) {
             // Only a failed fast attempt allocates cold wait state. Retry with
             // every source observed before submitting any asynchronous wait.
-            status = iree_hal_pool_wait_create(pool, pool->host_allocator,
-                                               &capacity_wait);
+            status = iree_hal_pool_wait_allocate(pool, pool->host_allocator,
+                                                 &capacity_wait);
           } else {
             status = iree_hal_pool_wait_for_capacity(capacity_wait, timeout);
           }
@@ -479,7 +479,7 @@ static iree_status_t iree_hal_pool_allocate_buffer_direct(
       retry = false;
     }
   }
-  iree_hal_pool_wait_destroy(capacity_wait);
+  iree_hal_pool_wait_free(capacity_wait);
 
   if (iree_status_is_ok(status)) {
     *out_buffer = buffer;

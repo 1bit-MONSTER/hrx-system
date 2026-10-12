@@ -148,7 +148,7 @@ class CommandProductFixture {
     source_size_ = loomc_source_contents(bytecode_source_ptr.get()).data_length;
 
     loomc_link_index_builder_t* builder = nullptr;
-    IREE_RETURN_IF_ERROR(to_iree_status(loomc_link_index_builder_create(
+    IREE_RETURN_IF_ERROR(to_iree_status(loomc_link_index_builder_allocate(
         context_.get(), /*options=*/nullptr, loom_allocator(), &builder)));
     LinkIndexBuilderPtr builder_ptr(builder);
     const loomc_link_index_source_options_t index_source_options = {

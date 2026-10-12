@@ -179,7 +179,7 @@ iree_status_t iree_benchmark_loom_run_work_plan(
       }
       case IREE_BENCHMARK_LOOM_WORK_ITEM_SCENARIO_TRIAL: {
         if (scenario_execution == NULL) {
-          status = iree_benchmark_loom_scenario_execution_create(
+          status = iree_benchmark_loom_scenario_execution_allocate(
               options, &scenario_execution);
         }
         if (iree_status_is_ok(status)) {
@@ -203,7 +203,7 @@ iree_status_t iree_benchmark_loom_run_work_plan(
           &hal_compile_contexts[i]);
     }
   }
-  iree_benchmark_loom_scenario_execution_destroy(scenario_execution);
+  iree_benchmark_loom_scenario_execution_free(scenario_execution);
   iree_allocator_free(options->host_allocator, hal_compile_contexts);
   return status;
 }

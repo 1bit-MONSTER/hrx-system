@@ -802,6 +802,18 @@ void iree_hal_amdgpu_host_queue_enqueue_post_drain_action(
     iree_hal_amdgpu_host_queue_post_drain_action_t* action,
     iree_hal_amdgpu_host_queue_post_drain_fn_t fn, void* user_data);
 
+// Retains the queue through its HAL resource lifetime. NULL is allowed.
+static inline void iree_hal_amdgpu_host_queue_retain(
+    iree_hal_amdgpu_host_queue_t* queue) {
+  iree_hal_queue_retain((iree_hal_queue_t*)queue);
+}
+
+// Releases a queue reference. NULL is allowed.
+static inline void iree_hal_amdgpu_host_queue_release(
+    iree_hal_amdgpu_host_queue_t* queue) {
+  iree_hal_queue_release((iree_hal_queue_t*)queue);
+}
+
 // Initializes a host queue in caller-provided memory.
 // The caller must allocate at least sizeof(iree_hal_amdgpu_host_queue_t).
 //

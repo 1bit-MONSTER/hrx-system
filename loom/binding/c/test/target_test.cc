@@ -43,7 +43,7 @@ namespace {
 using loomc::testing::HandlePtr;
 
 using BuilderPtr =
-    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_release>;
+    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_free>;
 using CompilerPtr = HandlePtr<loomc_compiler_t, loomc_compiler_release>;
 using ContextPtr = HandlePtr<loomc_context_t, loomc_context_release>;
 using LinkIndexPtr = HandlePtr<loomc_link_index_t, loomc_link_index_release>;
@@ -462,7 +462,7 @@ LinkerPtr CreateLinker(loomc_context_t* context) {
 
 BuilderPtr CreateLinkIndexBuilder(loomc_context_t* context) {
   loomc_link_index_builder_t* builder = nullptr;
-  loomc_status_t status = loomc_link_index_builder_create(
+  loomc_status_t status = loomc_link_index_builder_allocate(
       context, nullptr, loomc_allocator_system(), &builder);
   LOOMC_EXPECT_OK(status);
   return BuilderPtr(builder);

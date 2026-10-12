@@ -52,10 +52,10 @@ static iree_status_t iree_net_shm_factory_create_listener(
     iree_allocator_t host_allocator, iree_net_listener_t** out_listener) {
   (void)receive_pool;
   iree_net_shm_factory_t* factory = (iree_net_shm_factory_t*)base;
-  return iree_net_shm_listener_create(address, proactor, &factory->layout,
-                                      &factory->options.carrier,
-                                      factory->options.max_pending_connections,
-                                      callback, host_allocator, out_listener);
+  return iree_net_shm_listener_allocate(
+      address, proactor, &factory->layout, &factory->options.carrier,
+      factory->options.max_pending_connections, callback, host_allocator,
+      out_listener);
 }
 
 static const iree_net_transport_factory_vtable_t iree_net_shm_factory_vtable = {

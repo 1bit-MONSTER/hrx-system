@@ -68,7 +68,7 @@ struct loom_low_lower_module_state_t {
   bool finalized;
 };
 
-iree_status_t loom_low_lower_module_state_create(
+iree_status_t loom_low_lower_module_state_allocate(
     iree_arena_allocator_t* arena,
     loom_low_lower_module_state_t** out_module_state) {
   *out_module_state = NULL;
@@ -346,7 +346,7 @@ iree_status_t loom_low_lower_module_state_finalize(
   return status;
 }
 
-iree_status_t loom_low_lower_module_state_allocate(
+iree_status_t loom_low_lower_module_state_allocate_bytes(
     loom_low_lower_module_state_t* module_state, iree_host_size_t byte_length,
     void** out_ptr) {
   *out_ptr = NULL;

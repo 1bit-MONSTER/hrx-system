@@ -105,7 +105,7 @@ struct Peer {
   }
 
   void OpenStream() {
-    CheckStatus(iree_async_local_stream_create(
+    CheckStatus(iree_async_local_stream_allocate(
         proactor, channel, kHandleCount, iree_allocator_system(), &stream));
   }
 
@@ -119,7 +119,7 @@ struct Peer {
       CheckStatus(
           iree_async_proactor_poll(proactor, iree_infinite_timeout(), nullptr));
     }
-    iree_async_local_stream_destroy(stream);
+    iree_async_local_stream_free(stream);
     iree_async_primitive_close(&channel);
     iree_async_proactor_release(proactor);
   }

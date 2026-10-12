@@ -411,7 +411,7 @@ iree_status_t loom_low_source_to_low_run(loom_pass_t* pass,
   }
   if (iree_status_is_ok(status) && !emitted_error_diagnostics) {
     status =
-        loom_low_lower_module_state_create(&selection_arena, &module_state);
+        loom_low_lower_module_state_allocate(&selection_arena, &module_state);
   }
   if (iree_status_is_ok(status) && !emitted_error_diagnostics &&
       selected_declaration_count != 0) {

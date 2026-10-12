@@ -6,7 +6,7 @@
 
 #include "iree/hal/drivers/amdgpu/hsa_queue.h"
 
-iree_status_t iree_hal_amdgpu_hsa_queue_create(
+iree_status_t iree_hal_amdgpu_hsa_queue_allocate(
     const iree_hal_amdgpu_hsa_queue_params_t* params, hsa_queue_t** out_queue) {
   if (IREE_UNLIKELY((params->compute_unit_mask_bit_count == 0) !=
                     (params->compute_unit_mask == NULL))) {
@@ -83,13 +83,13 @@ iree_status_t iree_hal_amdgpu_hsa_queue_create(
   if (iree_status_is_ok(status)) {
     *out_queue = descriptor.queue;
   } else if (descriptor.queue) {
-    iree_hal_amdgpu_hsa_queue_destroy(params->libhsa, descriptor.queue);
+    iree_hal_amdgpu_hsa_queue_free(params->libhsa, descriptor.queue);
   }
   return status;
 }
 
-void iree_hal_amdgpu_hsa_queue_destroy(const iree_hal_amdgpu_libhsa_t* libhsa,
-                                       hsa_queue_t* queue) {
+void iree_hal_amdgpu_hsa_queue_free(const iree_hal_amdgpu_libhsa_t* libhsa,
+                                    hsa_queue_t* queue) {
   iree_hal_amdgpu_hsa_cleanup_assert_success(
       iree_hsa_queue_destroy_raw(libhsa, queue));
 }

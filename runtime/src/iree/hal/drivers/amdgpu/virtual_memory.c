@@ -212,7 +212,7 @@ static iree_status_t iree_hal_amdgpu_virtual_memory_resolve_range(
   return iree_ok_status();
 }
 
-iree_status_t iree_hal_amdgpu_virtual_memory_state_create(
+iree_status_t iree_hal_amdgpu_virtual_memory_state_allocate(
     const iree_hal_amdgpu_libhsa_t* libhsa,
     const iree_hal_amdgpu_topology_t* topology, iree_hal_device_t* device,
     iree_hal_allocator_statistics_t* statistics,
@@ -238,7 +238,7 @@ iree_status_t iree_hal_amdgpu_virtual_memory_state_create(
   return iree_ok_status();
 }
 
-void iree_hal_amdgpu_virtual_memory_state_destroy(
+void iree_hal_amdgpu_virtual_memory_state_free(
     iree_hal_amdgpu_virtual_memory_state_t* state) {
   if (!state) {
     return;

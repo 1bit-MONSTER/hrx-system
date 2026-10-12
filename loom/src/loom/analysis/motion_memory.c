@@ -476,8 +476,8 @@ IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_motion_memory_index_writes(
   return iree_ok_status();
 }
 
-iree_status_t loom_motion_memory_create(loom_movement_analysis_t* movement,
-                                        loom_motion_memory_t** out_memory) {
+iree_status_t loom_motion_memory_allocate(loom_movement_analysis_t* movement,
+                                          loom_motion_memory_t** out_memory) {
   iree_arena_allocator_t* arena = movement->expression_context.arena;
   loom_motion_memory_t* memory = NULL;
   IREE_RETURN_IF_ERROR(

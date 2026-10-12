@@ -35,7 +35,7 @@ using ByteSequencePtr =
 
 struct DirectoryDeleter {
   void operator()(iree_hal_amd_xdna_image_directory_t* directory) const {
-    iree_hal_amd_xdna_image_directory_destroy(directory);
+    iree_hal_amd_xdna_image_directory_free(directory);
   }
 };
 
@@ -68,7 +68,7 @@ static ByteSequencePtr make_owned_sequence(const std::vector<uint8_t>& bytes) {
 static DirectoryPtr open_directory(const std::vector<uint8_t>& bytes) {
   ByteSequencePtr sequence = make_owned_sequence(bytes);
   iree_hal_amd_xdna_image_directory_t* directory = nullptr;
-  IREE_CHECK_OK(iree_hal_amd_xdna_image_directory_create(
+  IREE_CHECK_OK(iree_hal_amd_xdna_image_directory_allocate(
       sequence.get(), iree_allocator_system(), &directory));
   return DirectoryPtr(directory);
 }
@@ -76,9 +76,9 @@ static DirectoryPtr open_directory(const std::vector<uint8_t>& bytes) {
 static Status open_directory_status(const std::vector<uint8_t>& bytes) {
   ByteSequencePtr sequence = make_owned_sequence(bytes);
   iree_hal_amd_xdna_image_directory_t* directory = nullptr;
-  Status status(iree_hal_amd_xdna_image_directory_create(
+  Status status(iree_hal_amd_xdna_image_directory_allocate(
       sequence.get(), iree_allocator_system(), &directory));
-  iree_hal_amd_xdna_image_directory_destroy(directory);
+  iree_hal_amd_xdna_image_directory_free(directory);
   return status;
 }
 
@@ -265,7 +265,7 @@ TEST(ImageDirectoryTest, ReadsFieldsAndPayloadAcrossArbitrarySegments) {
                                 &sequence.base);
 
   iree_hal_amd_xdna_image_directory_t* raw_directory = nullptr;
-  IREE_ASSERT_OK(iree_hal_amd_xdna_image_directory_create(
+  IREE_ASSERT_OK(iree_hal_amd_xdna_image_directory_allocate(
       &sequence.base, iree_allocator_system(), &raw_directory));
   DirectoryPtr directory(raw_directory);
   iree_byte_sequence_release(&sequence.base);

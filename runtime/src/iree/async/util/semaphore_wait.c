@@ -264,7 +264,7 @@ static void iree_async_semaphore_wait_tracker_timepoint_callback(
   iree_async_semaphore_wait_tracker_release_borrower(tracker);
 }
 
-iree_status_t iree_async_semaphore_wait_tracker_create(
+iree_status_t iree_async_semaphore_wait_tracker_allocate(
     iree_async_semaphore_wait_context_t* context,
     iree_async_semaphore_wait_operation_t* operation,
     iree_async_semaphore_wait_enqueue_callback_t enqueue_callback,

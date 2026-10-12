@@ -22,7 +22,7 @@ class SourceGraphPlanTest : public ::testing::Test {
     iree_arena_block_pool_initialize(4096, iree_allocator_system(),
                                      &block_pool_);
     iree_arena_initialize(&block_pool_, &arena_);
-    IREE_ASSERT_OK(loom_low_lower_source_graph_plan_create(&arena_, &plan_));
+    IREE_ASSERT_OK(loom_low_lower_source_graph_plan_allocate(&arena_, &plan_));
   }
 
   void TearDown() override {

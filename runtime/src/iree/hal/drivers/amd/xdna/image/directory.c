@@ -475,7 +475,7 @@ static iree_status_t iree_hal_amd_xdna_image_validate_program_headers(
   return iree_ok_status();
 }
 
-iree_status_t iree_hal_amd_xdna_image_directory_create(
+iree_status_t iree_hal_amd_xdna_image_directory_allocate(
     iree_byte_sequence_t* source_sequence, iree_allocator_t host_allocator,
     iree_hal_amd_xdna_image_directory_t** out_directory) {
   IREE_ASSERT_ARGUMENT(out_directory);
@@ -531,7 +531,7 @@ iree_status_t iree_hal_amd_xdna_image_directory_create(
   return status;
 }
 
-void iree_hal_amd_xdna_image_directory_destroy(
+void iree_hal_amd_xdna_image_directory_free(
     iree_hal_amd_xdna_image_directory_t* directory) {
   if (directory == NULL) {
     return;

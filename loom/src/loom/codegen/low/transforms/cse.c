@@ -137,10 +137,10 @@ static iree_status_t loom_low_cse_region(
     const loom_low_descriptor_set_t* descriptor_set,
     iree_arena_allocator_t* arena) {
   loom_expression_walk_t* walk = NULL;
-  IREE_RETURN_IF_ERROR(loom_expression_walk_create(module, region,
-                                                   /*identity_policy=*/NULL,
-                                                   /*maximum_entry_count=*/0,
-                                                   arena, &walk));
+  IREE_RETURN_IF_ERROR(loom_expression_walk_allocate(module, region,
+                                                     /*identity_policy=*/NULL,
+                                                     /*maximum_entry_count=*/0,
+                                                     arena, &walk));
   loom_low_cse_state_class_t* state_classes = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, descriptor_set->reg_class_count, sizeof(*state_classes),

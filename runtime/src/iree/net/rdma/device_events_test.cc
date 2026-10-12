@@ -27,11 +27,11 @@ class NativeEvents : public ibv_context {
     async_fd = descriptors_[0];
     library_.ibv_get_async_event = Get;
     library_.ibv_ack_async_event = Ack;
-    IREE_CHECK_OK(iree_net_rdma_device_events_create(
+    IREE_CHECK_OK(iree_net_rdma_device_events_allocate(
         &library_, this, 1, iree_allocator_system(), &events_));
   }
   ~NativeEvents() {
-    iree_net_rdma_device_events_destroy(events_);
+    iree_net_rdma_device_events_free(events_);
     for (int descriptor : descriptors_) {
       EXPECT_EQ(close(descriptor), 0);
     }
