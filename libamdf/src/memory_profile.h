@@ -114,12 +114,23 @@ typedef struct amdf_memory_native_create_info_t {
   void* registered_host_pointer;
 } amdf_memory_native_create_info_t;
 
+// Cache-ownership boundary of a native backing attachment.
+typedef enum amdf_memory_native_import_origin_e {
+  // External producers retain their explicit publication/synchronization duty.
+  AMDF_MEMORY_NATIVE_IMPORT_ORIGIN_EXTERNAL = 0,
+  // The common memory_create transaction owns first-device-writer readiness.
+  // It exclusively owns all affected cache lines until public publication.
+  AMDF_MEMORY_NATIVE_IMPORT_ORIGIN_CONSTRUCTION = 1,
+} amdf_memory_native_import_origin_t;
+
 // Validated permissions passed to one native external-backing preparer.
 typedef struct amdf_memory_native_import_info_t {
   // Exact permissions for the native consumer.
   amdf_memory_access_t device_access;
   // Required backing and native access properties.
   amdf_memory_flags_t required_flags;
+  // Whether initial cache readiness belongs to this unpublished construction.
+  amdf_memory_native_import_origin_t origin;
   // Requested power-of-two minimum alignment, or zero for profile policy.
   uint64_t minimum_alignment;
 } amdf_memory_native_import_info_t;

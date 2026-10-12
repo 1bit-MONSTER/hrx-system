@@ -289,6 +289,16 @@ amdf_status_t amdf_xdna_umd_memory_prepare_import(
         external_memory->byte_length, &dma_address);
   }
   if (amdf_status_is_ok(status)) {
+    if (import_info->origin == AMDF_MEMORY_NATIVE_IMPORT_ORIGIN_CONSTRUCTION) {
+      // A peer allocator's native initialization can leave dirty CPU lines.
+      // This unpublished memory_create transaction owns their initial release
+      // just as an XDNA-native allocation does. External imports instead keep
+      // the producer's explicit cache-publication contract.
+      amdf_linux_host_cache_transfer((uint8_t*)memory->buffer.host_pointer +
+                                         external_memory->source_byte_offset,
+                                     external_memory->byte_length,
+                                     device->cache_line_size);
+    }
     const uint64_t offset_alignment =
         external_memory->source_byte_offset == 0
             ? alignment

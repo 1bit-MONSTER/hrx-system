@@ -282,6 +282,7 @@ static amdf_status_t amdf_memory_prepare_import_access(
     amdf_memory_t* memory, uint32_t ordinal,
     const amdf_memory_scope_plan_t* plan,
     const amdf_memory_device_access_t* accesses,
+    amdf_memory_native_import_origin_t origin,
     amdf_memory_flags_t required_flags, uint64_t minimum_alignment,
     const amdf_external_memory_t* external_memory,
     amdf_memory_info_t* out_info) {
@@ -290,6 +291,7 @@ static amdf_status_t amdf_memory_prepare_import_access(
       .required_flags =
           required_flags |
           amdf_memory_scope_plan_required_access_flags(plan, accesses, ordinal),
+      .origin = origin,
       .minimum_alignment = minimum_alignment,
   };
   return accesses[ordinal].device->vtable->memory_prepare_import(
@@ -364,7 +366,8 @@ static amdf_status_t amdf_memory_prepare(
     amdf_memory_info_t native_info = {0};
     if (plan->shared_external_type != 0) {
       status = amdf_memory_prepare_import_access(
-          memory, i, plan, create_info->accesses, 0,
+          memory, i, plan, create_info->accesses,
+          AMDF_MEMORY_NATIVE_IMPORT_ORIGIN_CONSTRUCTION, 0,
           create_info->minimum_alignment, &shared_memory, &native_info);
     } else {
       status = amdf_memory_prepare_access(memory, i, plan, create_info,
@@ -498,7 +501,8 @@ amdf_status_t AMDF_CALL amdf_memory_import(
        ++i) {
     amdf_memory_info_t native_info = {0};
     status = amdf_memory_prepare_import_access(
-        memory, i, &plan, import_info->accesses, import_info->required_flags,
+        memory, i, &plan, import_info->accesses,
+        AMDF_MEMORY_NATIVE_IMPORT_ORIGIN_EXTERNAL, import_info->required_flags,
         import_info->minimum_alignment, inout_external_memory,
         i == 0 ? &memory->info : &native_info);
     if (amdf_status_is_ok(status) && i != 0 &&
