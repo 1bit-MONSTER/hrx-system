@@ -13,15 +13,14 @@ func.def target(@target) @scalar_i64_arithmetic(%lhs: i64, %rhs: i64, %factor: i
 
 // ----
 low.func.def target<x86.scalar.core>(@target) abi(object_function) @scalar_i64_arithmetic(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>, %factor: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
-  %bias = mov.imm64 17
-  %14 = copy %lhs : reg<x86.gpr64> -> reg<x86.gpr64>
-  %sum = add.gpr64 %14, %rhs
-  %16 = copy %sum : reg<x86.gpr64> -> reg<x86.gpr64>
-  %difference = sub.gpr64 %16, %factor
-  %18 = copy %difference : reg<x86.gpr64> -> reg<x86.gpr64>
-  %product = imul.gpr64 %18, %rhs
-  %20 = copy %product : reg<x86.gpr64> -> reg<x86.gpr64>
-  %result = add.gpr64 %20, %bias
+  %13 = copy %lhs : reg<x86.gpr64> -> reg<x86.gpr64>
+  %sum = add.gpr64 %13, %rhs
+  %15 = copy %sum : reg<x86.gpr64> -> reg<x86.gpr64>
+  %difference = sub.gpr64 %15, %factor
+  %17 = copy %difference : reg<x86.gpr64> -> reg<x86.gpr64>
+  %product = imul.gpr64 %17, %rhs
+  %19 = copy %product : reg<x86.gpr64> -> reg<x86.gpr64>
+  %result = add.imm.gpr64 %19 {imm32 = 17}
   return %result
 }
 

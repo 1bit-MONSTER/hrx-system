@@ -88,15 +88,13 @@ func.def @constant_index_operands(%input: buffer) -> (index, index, index, index
 low.func.def target<x86.avx2.core> abi(object_function) @constant_index_operands(%aligned_input: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>) asm {
   %word = mov.load.gpr32 %aligned_input {disp32 = 0}
   %value = movsxd.gpr64.gpr32 %word
-  %factor = mov.imm64 65
-  %26 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %masked = and.imm.gpr64 %26 {imm32 = 64}
-  %28 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %tagged = or.imm.gpr64 %28 {imm32 = 128}
-  %30 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
-  %toggled = xor.imm.gpr64 %30 {imm32 = -16}
-  %32 = copy %factor : reg<x86.gpr64> -> reg<x86.gpr64>
-  %scaled = imul.gpr64 %32, %value
+  %25 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %masked = and.imm.gpr64 %25 {imm32 = 64}
+  %27 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %tagged = or.imm.gpr64 %27 {imm32 = 128}
+  %29 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %toggled = xor.imm.gpr64 %29 {imm32 = -16}
+  %scaled = imul.imm.gpr64 %value {imm32 = 65}
   return %masked, %tagged, %toggled, %scaled
 }
 

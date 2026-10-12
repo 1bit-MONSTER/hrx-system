@@ -42,6 +42,32 @@ func.def public @mix(%input: i64, %delta: i64) -> (i64) {
   func.return %result : i64
 }
 
+// Exact constants become native immediate operands without materialized
+// registers. Arithmetic retains the source type's wrapping semantics.
+func.def public @immediate_mix32(%input: i32) -> (i32) {
+  %bias = scalar.constant 23 : i32
+  %factor = scalar.constant 129 : i32
+  %subtractend = scalar.constant 17 : i32
+  %biased = scalar.addi %input, %bias : i32
+  %scaled = scalar.muli %biased, %factor : i32
+  %result = scalar.subi %scaled, %subtractend : i32
+  func.return %result : i32
+}
+
+func.def public @immediate_mix64(%input: i64) -> (i64) {
+  %bias = scalar.constant -2147483648 : i64
+  %factor = scalar.constant 2147483647 : i64
+  %biased = scalar.addi %bias, %input : i64
+  %result = scalar.muli %biased, %factor : i64
+  func.return %result : i64
+}
+
+func.def public @immediate_scale(%coordinate: index) -> (offset) {
+  %stride = index.constant 65 : offset
+  %result = index.scale %coordinate, %stride : index, offset -> offset
+  func.return %result : offset
+}
+
 // Both exits return through the same native preservation envelope.
 func.def public @choose_mix(%input: i64, %delta: i64, %limit: i64) -> (i64) {
   %condition = scalar.cmpi ult, %input, %limit : i64
@@ -163,6 +189,106 @@ func.def public @replace_narrow(%bytes: buffer, %words: buffer, %index: index, %
   %shifted_word = scalar.shli %wide_word, %shift : i32
   %result = scalar.ori %wide_byte, %shifted_word : i32
   func.return %result : i32
+}
+
+func.def public @signed_unary_i8(%input: i8, %output: buffer) {
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<2xi8>
+  %negative = scalar.negi %input : i8
+  %absolute = scalar.absi %input : i8
+  view.store %negative, %results[0] : i8, view<2xi8>
+  view.store %absolute, %results[1] : i8, view<2xi8>
+  func.return
+}
+
+func.def public @signed_unary_i16(%input: i16, %output: buffer) {
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<2xi16>
+  %negative = scalar.negi %input : i16
+  %absolute = scalar.absi %input : i16
+  view.store %negative, %results[0] : i16, view<2xi16>
+  view.store %absolute, %results[1] : i16, view<2xi16>
+  func.return
+}
+
+func.def public @signed_unary_i32(%input: i32, %output: buffer) {
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<2xi32>
+  %negative = scalar.negi %input : i32
+  %absolute = scalar.absi %input : i32
+  view.store %negative, %results[0] : i32, view<2xi32>
+  view.store %absolute, %results[1] : i32, view<2xi32>
+  func.return
+}
+
+func.def public @signed_unary_i64(%input: i64, %output: buffer) {
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<2xi64>
+  %negative = scalar.negi %input : i64
+  %absolute = scalar.absi %input : i64
+  view.store %negative, %results[0] : i64, view<2xi64>
+  view.store %absolute, %results[1] : i64, view<2xi64>
+  func.return
+}
+
+func.def public @truncate_wide_to_bit(%input: i64) -> (i1) {
+  %result = scalar.trunci %input : i64 to i1
+  func.return %result : i1
+}
+
+func.def public @truncate_wide_to_byte(%input: i64) -> (i8) {
+  %result = scalar.trunci %input : i64 to i8
+  func.return %result : i8
+}
+
+func.def public @truncate_wide_to_halfword(%input: i64) -> (i16) {
+  %result = scalar.trunci %input : i64 to i16
+  func.return %result : i16
+}
+
+func.def public @truncate_wide_to_word(%input: i64) -> (i32) {
+  %result = scalar.trunci %input : i64 to i32
+  func.return %result : i32
+}
+
+func.def public @extend_signed_byte_to_halfword(%input: i8) -> (i16) {
+  %result = scalar.extsi %input : i8 to i16
+  func.return %result : i16
+}
+
+func.def public @extend_unsigned_byte_to_halfword(%input: i8) -> (i16) {
+  %result = scalar.extui %input : i8 to i16
+  func.return %result : i16
+}
+
+func.def public @extend_signed_byte_to_wide(%input: i8) -> (i64) {
+  %result = scalar.extsi %input : i8 to i64
+  func.return %result : i64
+}
+
+func.def public @extend_unsigned_byte_to_wide(%input: i8) -> (i64) {
+  %result = scalar.extui %input : i8 to i64
+  func.return %result : i64
+}
+
+func.def public @extend_signed_halfword_to_wide(%input: i16) -> (i64) {
+  %result = scalar.extsi %input : i16 to i64
+  func.return %result : i64
+}
+
+func.def public @extend_unsigned_halfword_to_wide(%input: i16) -> (i64) {
+  %result = scalar.extui %input : i16 to i64
+  func.return %result : i64
+}
+
+func.def public @extend_signed_predicate_to_wide(%input: i1) -> (i64) {
+  %result = scalar.extsi %input : i1 to i64
+  func.return %result : i64
+}
+
+func.def public @extend_unsigned_predicate_to_wide(%input: i1) -> (i64) {
+  %result = scalar.extui %input : i1 to i64
+  func.return %result : i64
 }
 
 // Loop-carried values cross both the forward exit and the backward edge.

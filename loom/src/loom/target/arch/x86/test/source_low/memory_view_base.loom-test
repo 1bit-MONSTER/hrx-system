@@ -21,9 +21,7 @@ func.def @exchange_fields(%buffer: buffer, %row_input: index, %column_input: ind
 
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) @exchange_fields(%buffer: reg<x86.gpr64>, %row: reg<x86.gpr64>, %column: reg<x86.gpr64>) -> (reg<x86.gpr32>) asm {
-  %row_stride = mov.imm64 64
-  %21 = copy %row : reg<x86.gpr64> -> reg<x86.gpr64>
-  %row_bytes = imul.gpr64 %21, %row_stride
+  %row_bytes = imul.imm.gpr64 %row {imm32 = 64}
   %column_bytes = lea.scale %column {disp32 = 0, scale = 8}
   %row_base = lea.disp %row_bytes {disp32 = 32}
   %base = lea %row_base, %column_bytes
@@ -56,13 +54,9 @@ func.def @copy_wide_vector(%source: buffer, %destination: buffer, %row_input: in
 
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) @copy_wide_vector(%source: reg<x86.gpr64>, %destination: reg<x86.gpr64>, %row: reg<x86.gpr64>, %column: reg<x86.gpr64>) asm {
-  %row_stride = mov.imm64 128
-  %column_stride = mov.imm64 32
   %header = mov.imm64 4294967424
-  %23 = copy %row : reg<x86.gpr64> -> reg<x86.gpr64>
-  %row_bytes = imul.gpr64 %23, %row_stride
-  %25 = copy %column : reg<x86.gpr64> -> reg<x86.gpr64>
-  %column_bytes = imul.gpr64 %25, %column_stride
+  %row_bytes = imul.imm.gpr64 %row {imm32 = 128}
+  %column_bytes = imul.imm.gpr64 %column {imm32 = 32}
   %row_base = lea %row_bytes, %header
   %base = lea %row_base, %column_bytes
   %values = vmovdqu32.load.indexed.ymm %source, %base {disp32 = 16, scale = 1}

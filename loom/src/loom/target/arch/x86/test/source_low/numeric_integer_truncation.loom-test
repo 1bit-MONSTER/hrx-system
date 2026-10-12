@@ -1,0 +1,62 @@
+// RUN: emit source-low target=x86:scalar output=low
+
+func.def @truncate_byte(%value: i8) -> (i1) {
+  %bit = scalar.trunci %value : i8 to i1
+  func.return %bit : i1
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i8) -> (i1)}) @truncate_byte(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %5 = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %bit = and.imm.gpr32 %5 {imm32 = 1}
+  return %bit
+}
+
+// ====
+
+func.def @truncate_halfword(%value: i16) -> (i1, i8) {
+  %bit = scalar.trunci %value : i16 to i1
+  %byte = scalar.trunci %value : i16 to i8
+  func.return %bit, %byte : i1, i8
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i16) -> (i1, i8)}) @truncate_halfword(%byte: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %8 = copy %byte : reg<x86.gpr32> -> reg<x86.gpr32>
+  %bit = and.imm.gpr32 %8 {imm32 = 1}
+  return %bit, %byte
+}
+
+// ====
+
+func.def @truncate_word(%value: i32) -> (i1, i8, i16) {
+  %bit = scalar.trunci %value : i32 to i1
+  %byte = scalar.trunci %value : i32 to i8
+  %halfword = scalar.trunci %value : i32 to i16
+  func.return %bit, %byte, %halfword : i1, i8, i16
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i32) -> (i1, i8, i16)}) @truncate_word(%halfword: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %11 = copy %halfword : reg<x86.gpr32> -> reg<x86.gpr32>
+  %bit = and.imm.gpr32 %11 {imm32 = 1}
+  return %bit, %halfword, %halfword
+}
+
+// ====
+
+func.def @truncate_wide(%value: i64) -> (i1, i8, i16, i32) {
+  %bit = scalar.trunci %value : i64 to i1
+  %byte = scalar.trunci %value : i64 to i8
+  %halfword = scalar.trunci %value : i64 to i16
+  %word = scalar.trunci %value : i64 to i32
+  func.return %bit, %byte, %halfword, %word : i1, i8, i16, i32
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i64) -> (i1, i8, i16, i32)}) @truncate_wide(%value: reg<x86.gpr64>) -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %14 = mov.trunc.gpr32.gpr64 %value
+  %bit = and.imm.gpr32 %14 {imm32 = 1}
+  %byte = mov.trunc.gpr32.gpr64 %value
+  return %bit, %byte, %byte, %byte
+}

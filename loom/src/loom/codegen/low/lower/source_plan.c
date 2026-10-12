@@ -390,7 +390,7 @@ static iree_status_t loom_low_lower_prepare_plan(
   if (observer != NULL) {
     IREE_RETURN_IF_ERROR(observer->end(observer_state, context));
   }
-  if (!loom_low_lower_context_should_stop(context)) {
+  if (!loom_low_lower_context_diagnostic_limit_reached(context)) {
     IREE_RETURN_IF_ERROR(loom_low_lower_source_memory_prepare(context));
   }
   if (context->result->error_count == 0) {
@@ -1555,7 +1555,7 @@ static iree_status_t loom_low_lower_source_candidate_resolve(
       source_candidate->kind = LOOM_LOW_LOWER_SOURCE_CANDIDATE_PLAN;
       source_candidate->data.selected_plan = &callback_state->selected_plan;
     }
-    if (!retry || loom_low_lower_context_should_stop(context)) {
+    if (!retry || loom_low_lower_context_diagnostic_limit_reached(context)) {
       return iree_ok_status();
     }
   }
@@ -1610,7 +1610,7 @@ static iree_status_t loom_low_lower_source_candidate_materialize(
     if (alternative == NULL) {
       IREE_RETURN_IF_ERROR(loom_low_lower_source_candidate_emit_rejection(
           context, &candidate_plan->nodes[node_index]));
-      if (loom_low_lower_context_should_stop(context)) {
+      if (loom_low_lower_context_diagnostic_limit_reached(context)) {
         return iree_ok_status();
       }
       continue;
@@ -1755,7 +1755,7 @@ static iree_status_t loom_low_lower_plan_region(
     if (!(skip_entry_block_args && block_index == 0)) {
       IREE_RETURN_IF_ERROR(loom_low_lower_structural_plan_block(
           context, block_arg_context_op, block));
-      if (loom_low_lower_context_should_stop(context)) {
+      if (loom_low_lower_context_diagnostic_limit_reached(context)) {
         return iree_ok_status();
       }
     }
@@ -1769,7 +1769,7 @@ static iree_status_t loom_low_lower_plan_region(
           context, op, &consumption_query, is_callable_exit, candidate_plan);
       loom_low_lower_planning_scope_end(context);
       IREE_RETURN_IF_ERROR(status);
-      if (loom_low_lower_context_should_stop(context)) {
+      if (loom_low_lower_context_diagnostic_limit_reached(context)) {
         return iree_ok_status();
       }
       if (context->lowering->source_plan.representation_plan != NULL &&
@@ -1788,7 +1788,7 @@ static iree_status_t loom_low_lower_plan_region(
         IREE_RETURN_IF_ERROR(loom_low_lower_plan_region(
             context, regions[i], op,
             /*skip_entry_block_args=*/false, candidate_plan));
-        if (loom_low_lower_context_should_stop(context)) {
+        if (loom_low_lower_context_diagnostic_limit_reached(context)) {
           return iree_ok_status();
         }
       }
@@ -1873,7 +1873,7 @@ static iree_status_t loom_low_lower_refine_plan_region(
             context, source_region, op, is_callable_exit, &previous_plan);
         loom_low_lower_planning_scope_end(context);
         IREE_RETURN_IF_ERROR(status);
-        if (loom_low_lower_context_should_stop(context)) {
+        if (loom_low_lower_context_diagnostic_limit_reached(context)) {
           return iree_ok_status();
         }
       }
@@ -1889,7 +1889,7 @@ static iree_status_t loom_low_lower_refine_plan_region(
         IREE_RETURN_IF_ERROR(loom_low_lower_refine_plan_region(
             context, regions[i], previous_plan_count,
             inout_previous_plan_index));
-        if (loom_low_lower_context_should_stop(context)) {
+        if (loom_low_lower_context_diagnostic_limit_reached(context)) {
           return iree_ok_status();
         }
       }
@@ -2011,22 +2011,21 @@ iree_status_t loom_low_lower_source_plan_build(
     if (active_candidate_plan != NULL) {
       bool complete = false;
       if (iree_status_is_ok(status) &&
-          !loom_low_lower_context_should_stop(context)) {
+          !loom_low_lower_context_diagnostic_limit_reached(context)) {
         IREE_ASSERT_EQ(active_candidate_plan->collection_node_index,
                        active_candidate_plan->node_capacity);
         status = loom_low_lower_source_candidate_resolve(active_candidate_plan,
                                                          &complete);
       }
       if (iree_status_is_ok(status) &&
-          !loom_low_lower_context_should_stop(context)) {
+          !loom_low_lower_context_diagnostic_limit_reached(context)) {
         status =
             loom_low_lower_source_candidate_materialize(active_candidate_plan);
       }
       (void)complete;
     }
   }
-  if (iree_status_is_ok(status) &&
-      !loom_low_lower_context_should_stop(context)) {
+  if (iree_status_is_ok(status) && context->result->error_count == 0) {
     loom_low_lower_source_value_storage_analyze(context);
     loom_value_ordinal_t previous_fact_storage_demand_count = 0;
     while (source_plan->fact_storage_demand_count != 0 &&
@@ -2056,8 +2055,7 @@ iree_status_t loom_low_lower_source_plan_build(
         status = loom_low_lower_refine_plan_region(
             context, source_body, previous_plan_count, &previous_plan_index);
       }
-      if (!iree_status_is_ok(status) ||
-          loom_low_lower_context_should_stop(context)) {
+      if (!iree_status_is_ok(status) || context->result->error_count != 0) {
         break;
       }
       IREE_ASSERT_EQ(previous_plan_index, previous_plan_count);
@@ -2065,13 +2063,11 @@ iree_status_t loom_low_lower_source_plan_build(
       loom_low_lower_source_value_storage_analyze(context);
     }
   }
-  if (iree_status_is_ok(status) &&
-      !loom_low_lower_context_should_stop(context) &&
+  if (iree_status_is_ok(status) && context->result->error_count == 0 &&
       active_candidate_plan != NULL) {
     status = loom_low_lower_source_candidate_retain_selected_data(context);
   }
-  if (iree_status_is_ok(status) &&
-      !loom_low_lower_context_should_stop(context)) {
+  if (iree_status_is_ok(status) && context->result->error_count == 0) {
     status = loom_low_lower_finalize_selected_plans(context);
   }
   if (iree_status_is_ok(status) && context->result->error_count == 0) {

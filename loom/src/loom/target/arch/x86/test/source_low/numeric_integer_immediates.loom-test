@@ -1,0 +1,143 @@
+// RUN: emit source-low target=x86:scalar output=low
+
+func.def @scalar_word_immediates(%value: i32) -> (i32, i32, i32, i32, i32) {
+  %positive = scalar.constant 23 : i32
+  %subtractend = scalar.constant 17 : i32
+  %lhs_factor = scalar.constant 129 : i32
+  %rhs_factor = scalar.constant 130 : i32
+  %lhs_sum = scalar.addi %positive, %value : i32
+  %rhs_sum = scalar.addi<nuw> %value, %positive : i32
+  %difference = scalar.subi<nuw> %value, %subtractend : i32
+  %lhs_product = scalar.muli %lhs_factor, %value : i32
+  %rhs_product = scalar.muli %value, %rhs_factor : i32
+  func.return %lhs_sum, %rhs_sum, %difference, %lhs_product, %rhs_product : i32, i32, i32, i32, i32
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @scalar_word_immediates(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %22 = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %lhs_sum = add.imm.gpr32 %22 {imm32 = 23}
+  %24 = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %rhs_sum = add.imm.gpr32 %24 {imm32 = 23}
+  %26 = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %difference = sub.imm.gpr32 %26 {imm32 = 17}
+  %lhs_product = imul.imm.gpr32 %value {imm32 = 129}
+  %rhs_product = imul.imm.gpr32 %value {imm32 = 130}
+  return %lhs_sum, %rhs_sum, %difference, %lhs_product, %rhs_product
+}
+
+// ====
+
+func.def @scalar_narrow_immediates(%byte: i8, %halfword: i16) -> (i8, i16) {
+  %byte_bias = scalar.constant 7 : i8
+  %byte_factor = scalar.constant 9 : i8
+  %halfword_subtractend = scalar.constant 31 : i16
+  %biased = scalar.addi %byte, %byte_bias : i8
+  %scaled = scalar.muli %biased, %byte_factor : i8
+  %difference = scalar.subi %halfword, %halfword_subtractend : i16
+  func.return %scaled, %difference : i8, i16
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i8, i16) -> (i8, i16)}) @scalar_narrow_immediates(%byte: reg<x86.gpr32>, %halfword: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %34 = movzx.u8.gpr32 %byte
+  %35 = imul.imm.gpr32 %34 {imm32 = 9}
+  %36 = movzx.u8.gpr32 %35
+  %37 = copy %36 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %scaled = add.imm.gpr32 %37 {imm32 = 63}
+  %39 = movzx.u16.gpr32 %halfword
+  %40 = copy %39 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %difference = add.imm.gpr32 %40 {imm32 = 65505}
+  return %scaled, %difference
+}
+
+// ====
+
+func.def @scalar_wide_immediate_boundaries(%value: i64) -> (i64, i64, i64, i64, i64, i64) {
+  %minimum = scalar.constant -2147483648 : i64
+  %maximum = scalar.constant 2147483647 : i64
+  %below = scalar.constant -2147483649 : i64
+  %above = scalar.constant 2147483648 : i64
+  %minimum_sum = scalar.addi %minimum, %value : i64
+  %maximum_sum = scalar.addi %value, %maximum : i64
+  %below_sum = scalar.addi %value, %below : i64
+  %maximum_difference = scalar.subi<nuw> %value, %maximum : i64
+  %above_difference = scalar.subi<nuw> %value, %above : i64
+  %maximum_product = scalar.muli %maximum, %value : i64
+  func.return %minimum_sum, %maximum_sum, %below_sum, %maximum_difference, %above_difference, %maximum_product : i64, i64, i64, i64, i64, i64
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @scalar_wide_immediate_boundaries(%value: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %below = mov.imm64 -2147483649
+  %above = mov.imm64 2147483648
+  %27 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %minimum_sum = add.imm.gpr64 %27 {imm32 = -2147483648}
+  %29 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %maximum_sum = add.imm.gpr64 %29 {imm32 = 2147483647}
+  %31 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %below_sum = add.gpr64 %31, %below
+  %33 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %maximum_difference = sub.imm.gpr64 %33 {imm32 = 2147483647}
+  %35 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %above_difference = sub.gpr64 %35, %above
+  %maximum_product = imul.imm.gpr64 %value {imm32 = 2147483647}
+  return %minimum_sum, %maximum_sum, %below_sum, %maximum_difference, %above_difference, %maximum_product
+}
+
+// ====
+
+func.def @address_immediate_realizations(%coordinate: index, %byte_offset: offset) -> (index, index, index, index, index, offset, offset) {
+  %scale4 = index.constant 4 : index
+  %scale65 = index.constant 65 : index
+  %wide_scale = index.constant 2147483649 : index
+  %large_offset = index.constant 2147483648 : offset
+  %displacement = index.constant 73 : offset
+  %scaled_address = index.mul %coordinate, %scale4 : index
+  %multiplied = index.mul %scale65, %coordinate : index
+  %wide_product = index.mul %coordinate, %wide_scale : index
+  %difference = index.sub %coordinate, %scale65 : index
+  %sum = index.add %coordinate, %scale65 : index
+  %offset_difference = index.sub %byte_offset, %large_offset : offset
+  %offset_sum = index.add %displacement, %byte_offset : offset
+  func.return %scaled_address, %multiplied, %wide_product, %difference, %sum, %offset_difference, %offset_sum : index, index, index, index, index, offset, offset
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @address_immediate_realizations(%coordinate: reg<x86.gpr64>, %byte_offset: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %wide_scale = mov.imm64 2147483649
+  %scaled_address = lea.scale %coordinate {disp32 = 0, scale = 4}
+  %multiplied = imul.imm.gpr64 %coordinate {imm32 = 65}
+  %35 = copy %coordinate : reg<x86.gpr64> -> reg<x86.gpr64>
+  %wide_product = imul.gpr64 %35, %wide_scale
+  %difference = lea.disp %coordinate {disp32 = -65}
+  %sum = lea.disp %coordinate {disp32 = 65}
+  %offset_difference = lea.disp %byte_offset {disp32 = -2147483648}
+  %offset_sum = lea.disp %byte_offset {disp32 = 73}
+  return %scaled_address, %multiplied, %wide_product, %difference, %sum, %offset_difference, %offset_sum
+}
+
+// ====
+
+func.def @physical_scale_immediates(%coordinate: index, %dynamic_stride: offset) -> (offset, offset, offset, offset) {
+  %scale4 = index.constant 4 : offset
+  %scale65 = index.constant 65 : offset
+  %wide_scale = index.constant 2147483648 : offset
+  %address = index.scale %coordinate, %scale4 : index, offset -> offset
+  %product = index.scale %coordinate, %scale65 : index, offset -> offset
+  %wide_product = index.scale %coordinate, %wide_scale : index, offset -> offset
+  %dynamic = index.scale %coordinate, %dynamic_stride : index, offset -> offset
+  func.return %address, %product, %wide_product, %dynamic : offset, offset, offset, offset
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @physical_scale_immediates(%coordinate: reg<x86.gpr64>, %dynamic_stride: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %wide_scale = mov.imm64 2147483648
+  %address = lea.scale %coordinate {disp32 = 0, scale = 4}
+  %product = imul.imm.gpr64 %coordinate {imm32 = 65}
+  %22 = copy %coordinate : reg<x86.gpr64> -> reg<x86.gpr64>
+  %wide_product = imul.gpr64 %22, %wide_scale
+  %24 = copy %coordinate : reg<x86.gpr64> -> reg<x86.gpr64>
+  %dynamic = imul.gpr64 %24, %dynamic_stride
+  return %address, %product, %wide_product, %dynamic
+}

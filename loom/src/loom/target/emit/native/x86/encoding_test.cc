@@ -417,6 +417,24 @@ TEST(EncodingTest, RegisterDirectionAndWidth) {
                  {0x45, 0x01, 0xd1}, 1u << 9);
 }
 
+TEST(EncodingTest, DestructiveUnaryRegisterWidth) {
+  loom_x86_encoding_operands_t operands = {.result = 0};
+  operands.inputs[0] = 0;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_UNARY_RM, 0xf7 | (3u << 9), operands,
+                 {0xf7, 0xd8}, 1u << 0);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_UNARY_RM,
+                 0xf7 | (3u << 9) | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x48, 0xf7, 0xd8}, 1u << 0);
+
+  operands.result = 9;
+  operands.inputs[0] = 9;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_UNARY_RM, 0xf7 | (3u << 9), operands,
+                 {0x41, 0xf7, 0xd9}, 1u << 9);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_UNARY_RM,
+                 0xf7 | (3u << 9) | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x49, 0xf7, 0xd9}, 1u << 9);
+}
+
 TEST(EncodingTest, ByteRegisterPrefixAndFullWidthDefinition) {
   // MOVZX esi,sil requires a REX prefix even without extended registers.
   loom_x86_encoding_operands_t operands = {.result = 6};
@@ -436,6 +454,23 @@ TEST(EncodingTest, ByteRegisterPrefixAndFullWidthDefinition) {
   // MOV esi,esi must still be emitted: it clears the high half of RSI.
   ExpectEncoding(LOOM_X86_ENCODING_FORM_MOVE, 0x8b, operands, {0x8b, 0xf6},
                  1u << 6);
+
+  // Narrow sources can directly define wide carriers. Unsigned forms retain
+  // a 32-bit destination because x86 zeroes its complete 64-bit register.
+  operands.result = 9;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MOVE,
+                 LOOM_X86_ENCODING_OPCODE_0F | 0xb6 | LOOM_X86_ENCODING_BYTE,
+                 operands, {0x44, 0x0f, 0xb6, 0xce}, 1u << 9);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MOVE,
+                 LOOM_X86_ENCODING_OPCODE_0F | 0xb7, operands,
+                 {0x44, 0x0f, 0xb7, 0xce}, 1u << 9);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MOVE,
+                 LOOM_X86_ENCODING_OPCODE_0F | 0xbe | LOOM_X86_ENCODING_BYTE |
+                     LOOM_X86_ENCODING_REX_W,
+                 operands, {0x4c, 0x0f, 0xbe, 0xce}, 1u << 9);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MOVE,
+                 LOOM_X86_ENCODING_OPCODE_0F | 0xbf | LOOM_X86_ENCODING_REX_W,
+                 operands, {0x4c, 0x0f, 0xbf, 0xce}, 1u << 9);
 }
 
 TEST(EncodingTest, AddressDisplacementAndSib) {
@@ -536,7 +571,7 @@ TEST(EncodingTest, ImmediateWidthsAndCountRegister) {
                  {0x41, 0x81, 0xc1, 0xff, 0xff, 0x07, 0xc4}, 1u << 9);
   operands.immediate = 1;
   ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE, 0x81 | (5u << 9),
-                 operands, {0x41, 0x81, 0xe9, 0x01, 0x00, 0x00, 0x00}, 1u << 9);
+                 operands, {0x41, 0x83, 0xe9, 0x01}, 1u << 9);
   operands.immediate = UINT32_MAX;
   // A 32-bit write represents this complete 64-bit constant without REX.W.
   ExpectEncoding(LOOM_X86_ENCODING_FORM_CONSTANT,
@@ -555,6 +590,123 @@ TEST(EncodingTest, ImmediateWidthsAndCountRegister) {
                  {0x49, 0xc1, 0xe9, 0x3f}, 1u << 9);
 }
 
+TEST(EncodingTest, SignedImmediateBoundariesUseShortestExactEncoding) {
+  loom_x86_encoding_operands_t operands = {
+      .result = 9,
+  };
+  operands.inputs[0] = 10;
+
+  // Group-one arithmetic uses opcode 83 only when the value survives signed
+  // imm8 extension. Both carrier widths otherwise retain opcode 81 and imm32.
+  operands.immediate = -129;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE, 0x81, operands,
+                 {0x41, 0x81, 0xc1, 0x7f, 0xff, 0xff, 0xff}, 1u << 9);
+  operands.immediate = -128;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE, 0x81, operands,
+                 {0x41, 0x83, 0xc1, 0x80}, 1u << 9);
+  operands.immediate = 127;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE, 0x81, operands,
+                 {0x41, 0x83, 0xc1, 0x7f}, 1u << 9);
+  operands.immediate = 128;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE, 0x81, operands,
+                 {0x41, 0x81, 0xc1, 0x80, 0x00, 0x00, 0x00}, 1u << 9);
+  operands.immediate = -129;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+                 0x81 | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x49, 0x81, 0xc1, 0x7f, 0xff, 0xff, 0xff}, 1u << 9);
+  operands.immediate = -128;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+                 0x81 | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x49, 0x83, 0xc1, 0x80}, 1u << 9);
+  operands.immediate = 127;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+                 0x81 | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x49, 0x83, 0xc1, 0x7f}, 1u << 9);
+  operands.immediate = 128;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+                 0x81 | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x49, 0x81, 0xc1, 0x80, 0x00, 0x00, 0x00}, 1u << 9);
+
+  // Two-operand IMUL has the same boundary with opcodes 6B and 69.
+  operands.immediate = -129;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MULTIPLY_IMMEDIATE, 0x69, operands,
+                 {0x45, 0x69, 0xca, 0x7f, 0xff, 0xff, 0xff}, 1u << 9);
+  operands.immediate = -128;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MULTIPLY_IMMEDIATE, 0x69, operands,
+                 {0x45, 0x6b, 0xca, 0x80}, 1u << 9);
+  operands.immediate = 127;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MULTIPLY_IMMEDIATE, 0x69, operands,
+                 {0x45, 0x6b, 0xca, 0x7f}, 1u << 9);
+  operands.immediate = 128;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MULTIPLY_IMMEDIATE, 0x69, operands,
+                 {0x45, 0x69, 0xca, 0x80, 0x00, 0x00, 0x00}, 1u << 9);
+  operands.immediate = -129;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MULTIPLY_IMMEDIATE,
+                 0x69 | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x4d, 0x69, 0xca, 0x7f, 0xff, 0xff, 0xff}, 1u << 9);
+  operands.immediate = -128;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MULTIPLY_IMMEDIATE,
+                 0x69 | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x4d, 0x6b, 0xca, 0x80}, 1u << 9);
+  operands.immediate = 127;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MULTIPLY_IMMEDIATE,
+                 0x69 | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x4d, 0x6b, 0xca, 0x7f}, 1u << 9);
+  operands.immediate = 128;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MULTIPLY_IMMEDIATE,
+                 0x69 | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x4d, 0x69, 0xca, 0x80, 0x00, 0x00, 0x00}, 1u << 9);
+
+  // Compare uses the same group-one encoding before SETB and MOVZX produce a
+  // canonical predicate. Result register seven exercises the byte-register
+  // REX prefix independently of the compared carrier width.
+  operands.result = 7;
+  operands.immediate = -129;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE, 0x92, operands,
+                 {0x41, 0x81, 0xfa, 0x7f, 0xff, 0xff, 0xff, 0x40, 0x0f, 0x92,
+                  0xc7, 0x40, 0x0f, 0xb6, 0xff},
+                 1u << 7, 3);
+  operands.immediate = -128;
+  ExpectEncoding(
+      LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE, 0x92, operands,
+      {0x41, 0x83, 0xfa, 0x80, 0x40, 0x0f, 0x92, 0xc7, 0x40, 0x0f, 0xb6, 0xff},
+      1u << 7, 3);
+  operands.immediate = 127;
+  ExpectEncoding(
+      LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE, 0x92, operands,
+      {0x41, 0x83, 0xfa, 0x7f, 0x40, 0x0f, 0x92, 0xc7, 0x40, 0x0f, 0xb6, 0xff},
+      1u << 7, 3);
+  operands.immediate = 128;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE, 0x92, operands,
+                 {0x41, 0x81, 0xfa, 0x80, 0x00, 0x00, 0x00, 0x40, 0x0f, 0x92,
+                  0xc7, 0x40, 0x0f, 0xb6, 0xff},
+                 1u << 7, 3);
+  operands.immediate = -129;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE,
+                 0x92 | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x49, 0x81, 0xfa, 0x7f, 0xff, 0xff, 0xff, 0x40, 0x0f, 0x92,
+                  0xc7, 0x40, 0x0f, 0xb6, 0xff},
+                 1u << 7, 3);
+  operands.immediate = -128;
+  ExpectEncoding(
+      LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE, 0x92 | LOOM_X86_ENCODING_REX_W,
+      operands,
+      {0x49, 0x83, 0xfa, 0x80, 0x40, 0x0f, 0x92, 0xc7, 0x40, 0x0f, 0xb6, 0xff},
+      1u << 7, 3);
+  operands.immediate = 127;
+  ExpectEncoding(
+      LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE, 0x92 | LOOM_X86_ENCODING_REX_W,
+      operands,
+      {0x49, 0x83, 0xfa, 0x7f, 0x40, 0x0f, 0x92, 0xc7, 0x40, 0x0f, 0xb6, 0xff},
+      1u << 7, 3);
+  operands.immediate = 128;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE,
+                 0x92 | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x49, 0x81, 0xfa, 0x80, 0x00, 0x00, 0x00, 0x40, 0x0f, 0x92,
+                  0xc7, 0x40, 0x0f, 0xb6, 0xff},
+                 1u << 7, 3);
+}
+
 TEST(EncodingTest, ConditionalSequences) {
   loom_x86_encoding_operands_t operands = {
       .result = 8,
@@ -571,8 +723,8 @@ TEST(EncodingTest, ConditionalSequences) {
   ExpectEncoding(
       LOOM_X86_ENCODING_FORM_SUBTRACT_IF_UGE,
       LOOM_X86_ENCODING_OPCODE_0F | 0x42, operands,
-      {0x44, 0x8b, 0xc7, 0x41, 0x81, 0xe8, 3, 0, 0, 0, 0x44, 0x0f, 0x42, 0xc7},
-      1u << 8, 3);
+      {0x44, 0x8b, 0xc7, 0x41, 0x83, 0xe8, 3, 0x44, 0x0f, 0x42, 0xc7}, 1u << 8,
+      3);
 }
 
 TEST(EncodingTest, WordStoreAndSignedExtension) {

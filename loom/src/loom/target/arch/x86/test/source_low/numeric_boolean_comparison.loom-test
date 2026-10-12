@@ -201,13 +201,11 @@ func.def public @conditional_signed_inversion(%input_bits: i32, %enabled_bits: i
 
 // ----
 low.func.def public target<x86.avx2.core> abi(object_function) @conditional_signed_inversion(%input_bits: reg<x86.gpr32>, %enabled_bits: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %c0 = mov.imm32 0
   %input = cmp.ne.imm.gpr32 %input_bits, 0
   %enabled = cmp.ne.imm.gpr32 %enabled_bits, 0
-  %22 = copy %enabled : reg<x86.gpr32> -> reg<x86.gpr32>
-  %23 = xor.gpr32 %22, %input
-  %24 = mov.imm32 -1
-  %25 = copy %c0 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %result = select.gpr32 %23, %24, %25
+  %18 = copy %enabled : reg<x86.gpr32> -> reg<x86.gpr32>
+  %19 = xor.gpr32 %18, %input
+  %20 = copy %19 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = neg.gpr32 %20
   return %result
 }

@@ -205,7 +205,7 @@ static iree_status_t loom_low_lower_control_plan_operands(
   iree_status_t status = iree_ok_status();
   for (uint16_t i = 0;
        i < terminator->operand_count && iree_status_is_ok(status) &&
-       !loom_low_lower_context_should_stop(context);
+       !loom_low_lower_context_diagnostic_limit_reached(context);
        ++i) {
     const loom_type_t required_type =
         is_branch
@@ -220,7 +220,8 @@ static iree_status_t loom_low_lower_control_plan_operands(
         context->policy->control_operand.user_data, context, terminator,
         operands[i], required_type, &recipe);
     if (!iree_status_is_ok(status) ||
-        loom_low_lower_context_should_stop(context) || recipe == NULL) {
+        loom_low_lower_context_diagnostic_limit_reached(context) ||
+        recipe == NULL) {
       continue;
     }
     if (context->lowering->control_plan == NULL) {
@@ -258,8 +259,9 @@ iree_status_t loom_low_lower_control_plan_build(
   iree_arena_allocator_t scratch_arena;
   iree_arena_initialize(context->module->arena.block_pool, &scratch_arena);
   iree_status_t status = iree_ok_status();
-  for (uint16_t i = 0; i < body->block_count && iree_status_is_ok(status) &&
-                       !loom_low_lower_context_should_stop(context);
+  for (uint16_t i = 0;
+       i < body->block_count && iree_status_is_ok(status) &&
+       !loom_low_lower_context_diagnostic_limit_reached(context);
        ++i) {
     const loom_op_t* terminator =
         loom_block_const_last_op(loom_region_block(body, i));
@@ -279,7 +281,7 @@ iree_status_t loom_low_lower_control_plan_build(
       }
     }
     if (iree_status_is_ok(status) &&
-        !loom_low_lower_context_should_stop(context) &&
+        !loom_low_lower_context_diagnostic_limit_reached(context) &&
         context->policy->control_operand.prepare != NULL) {
       status = loom_low_lower_control_plan_operands(context, terminator);
     }

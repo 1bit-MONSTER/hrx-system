@@ -56,6 +56,10 @@ class LowLowerSourcePlanTest : public ::testing::Test {
     iree_host_size_t plan_count = 0;
     bool overflow = false;
     SourcePlanObservation source_plan;
+    struct {
+      // Number of selected consumers whose target plans were finalized.
+      unsigned finalization_count = 0;
+    } rejected_producer;
     // Entry resources are validated before any definition is published.
     struct {
       // Number of planning callbacks after storage demand has settled.
@@ -232,6 +236,30 @@ class LowLowerSourcePlanTest : public ::testing::Test {
       loom_builder_restore(builder, saved_ip);
       return status;
     }
+    return iree_ok_status();
+  }
+
+  static iree_status_t SelectConsumerOnly(void* user_data,
+                                          loom_low_lower_context_t* context,
+                                          const loom_op_t* source_op,
+                                          loom_low_lower_plan_t* out_plan) {
+    (void)context;
+    auto* observer = static_cast<PlanObserver*>(user_data);
+    *out_plan = loom_low_lower_plan_empty();
+    if (source_op == observer->expected_source_ops[2]) {
+      *out_plan = loom_low_lower_plan_make(/*id=*/0, /*target_data=*/nullptr);
+    }
+    return iree_ok_status();
+  }
+
+  static iree_status_t FinalizeSelectedConsumer(
+      void* user_data, loom_low_lower_context_t* context,
+      const loom_op_t* source_op, loom_low_lower_plan_t plan) {
+    (void)plan;
+    auto* observer = static_cast<PlanObserver*>(user_data);
+    ++observer->rejected_producer.finalization_count;
+    (void)loom_low_lower_value_binding_type(
+        context, loom_op_const_operands(source_op)[0]);
     return iree_ok_status();
   }
 
@@ -495,6 +523,30 @@ TEST_F(LowLowerSourcePlanTest, PropagatesObserverEndFailureBeforeSelection) {
   EXPECT_FALSE(observer_.source_plan.invalid_lifecycle);
   EXPECT_FALSE(observer_.source_plan.selection_started);
   EXPECT_EQ(observer_.plan_count, 0u);
+}
+
+TEST_F(LowLowerSourcePlanTest,
+       RejectsIncompleteSelectionBeforeFinalizingConsumers) {
+  // Model a target that rejects two producers while selecting a live user.
+  // Finalization may inspect producer carriers only after every operation has
+  // a valid selection, so the rejected function must stop at that boundary.
+  policy_.contract = {};
+  policy_.select_op = {SelectConsumerOnly, &observer_};
+  policy_.finalize_plan = {FinalizeSelectedConsumer, &observer_};
+
+  const iree_host_size_t initial_value_count = module_->values.count;
+  loom_region_t* source_body = loom_func_like_body(function_);
+  const uint32_t initial_op_count =
+      loom_region_entry_block(source_body)->op_count;
+  IREE_ASSERT_OK(
+      loom_low_lower_function(module_, function_, &options_, &result_));
+
+  EXPECT_EQ(result_.error_count, 2u);
+  EXPECT_EQ(result_.low_func_op, nullptr);
+  EXPECT_EQ(observer_.rejected_producer.finalization_count, 0u);
+  EXPECT_FALSE(observer_.type_mapping.emission_started);
+  EXPECT_EQ(module_->values.count, initial_value_count);
+  EXPECT_EQ(loom_region_entry_block(source_body)->op_count, initial_op_count);
 }
 
 TEST_F(LowLowerSourcePlanTest, ExecutesExpandedControlAfterFactStorageRetires) {

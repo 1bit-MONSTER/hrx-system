@@ -56,6 +56,8 @@ typedef enum loom_x86_encoding_form_e {
   LOOM_X86_ENCODING_FORM_CALL = 26,
   // RIP-relative address with a signed displacement in the last four bytes.
   LOOM_X86_ENCODING_FORM_ADDRESS_PC_RELATIVE = 27,
+  // Unary operation with an opcode extension and destructive r/m operand.
+  LOOM_X86_ENCODING_FORM_UNARY_RM = 28,
 } loom_x86_encoding_form_t;
 
 // Native fixup identities. Object adapters supply their format's mapping.

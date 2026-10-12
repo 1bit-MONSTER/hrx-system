@@ -77,7 +77,7 @@ iree_string_view_t loom_low_lower_context_config_key(
   return loom_low_lower_config_key(loom_low_lower_context_bundle(context));
 }
 
-bool loom_low_lower_context_should_stop(
+bool loom_low_lower_context_diagnostic_limit_reached(
     const loom_low_lower_context_t* context) {
   return context->options->max_errors != 0 &&
          context->result->error_count >= context->options->max_errors;
@@ -91,7 +91,7 @@ static iree_status_t loom_low_lower_emit(loom_low_lower_context_t* context,
   if (loom_error_def_severity(error) == LOOM_DIAGNOSTIC_ERROR) {
     // Successful planning closes authored-input rejection before publication.
     IREE_ASSERT(context->low_func_op == NULL);
-    if (loom_low_lower_context_should_stop(context)) {
+    if (loom_low_lower_context_diagnostic_limit_reached(context)) {
       return iree_ok_status();
     }
     ++context->result->error_count;
