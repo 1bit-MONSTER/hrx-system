@@ -82,6 +82,7 @@ iree_cc_library(
     "dispatch_test.cc"
     "dma_test.cc"
     "handoff_test.cc"
+    "host_mapping_test.cc"
     "indirect_test.cc"
     "lds_test.cc"
     "mapping_test.cc"

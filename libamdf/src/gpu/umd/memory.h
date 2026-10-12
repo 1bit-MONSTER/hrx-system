@@ -92,6 +92,11 @@ amdf_status_t amdf_gpu_umd_memory_export(
     amdf_gpu_umd_memory_t* memory, const amdf_memory_export_info_t* export_info,
     amdf_external_memory_t* out_value);
 
+// Borrows the eagerly prepared host-alias source of backing constructed with
+// HOST_MAPPING_SOURCE. This infallible query performs no native operation.
+uintptr_t amdf_gpu_umd_memory_host_mapping_source(
+    amdf_gpu_umd_memory_t* memory);
+
 // Describes immutable access facts against an exact local queue family.
 // This shared query touches no native state and performs no allocation, lock,
 // system call or lazy initialization. Unqualified cache semantics return

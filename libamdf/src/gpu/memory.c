@@ -40,6 +40,12 @@ static amdf_status_t amdf_gpu_memory_export(
       amdf_gpu_memory_native(memory, access_ordinal), export_info, out_value);
 }
 
+static uintptr_t amdf_gpu_memory_host_mapping_source(amdf_memory_t* memory,
+                                                     uint32_t access_ordinal) {
+  return amdf_gpu_umd_memory_host_mapping_source(
+      amdf_gpu_memory_native(memory, access_ordinal));
+}
+
 static amdf_status_t amdf_gpu_memory_describe_site(
     amdf_memory_t* memory, uint32_t access_ordinal,
     uint32_t queue_family_ordinal,
@@ -153,6 +159,7 @@ static const amdf_memory_vtable_t amdf_gpu_memory_vtable = {
     .export_external = amdf_gpu_memory_export,
     .describe_site = amdf_gpu_memory_describe_site,
     .map = amdf_gpu_memory_map,
+    .host_mapping_source = amdf_gpu_memory_host_mapping_source,
     .destroy_native = amdf_gpu_memory_destroy_native,
     .abandon_native = amdf_gpu_memory_abandon_native,
 };

@@ -223,9 +223,9 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
     profile.guaranteed_flags =
         AMDF_MEMORY_FLAG_HOST_VISIBLE | AMDF_MEMORY_FLAG_SHAREABLE |
         AMDF_MEMORY_FLAG_HOST_COHERENT | AMDF_MEMORY_FLAG_DEVICE_ADDRESS;
-    profile.supported_flags = profile.guaranteed_flags |
-                              AMDF_MEMORY_FLAG_QUEUE_STORAGE |
-                              AMDF_MEMORY_FLAG_MAPPING_SOURCE;
+    profile.supported_flags =
+        profile.guaranteed_flags | AMDF_MEMORY_FLAG_QUEUE_STORAGE |
+        AMDF_MEMORY_FLAG_MAPPING_SOURCE | AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE;
     profile.guaranteed_device_access = AMDF_MEMORY_ACCESS_READ;
     profile.supported_device_access = AMDF_MEMORY_ACCESS_READ |
                                       AMDF_MEMORY_ACCESS_WRITE |

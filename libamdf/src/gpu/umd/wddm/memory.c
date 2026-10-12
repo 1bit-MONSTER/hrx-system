@@ -61,6 +61,13 @@ struct amdf_gpu_umd_memory_t {
   D3DKMT_HANDLE allocation_handles[];
 };
 
+uintptr_t amdf_gpu_umd_memory_host_mapping_source(
+    amdf_gpu_umd_memory_t* memory) {
+  (void)memory;
+  amdf_assert(false && "WDDM does not advertise HOST_MAPPING_SOURCE");
+  return 0;
+}
+
 amdf_gpu_wddm_memory_span_t amdf_gpu_wddm_memory_span(
     const amdf_gpu_umd_memory_t* memory, uint64_t byte_offset) {
   const uint64_t index =

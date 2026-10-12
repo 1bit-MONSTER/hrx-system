@@ -418,6 +418,14 @@ host mapping. Anonymous allocations retain their ordinary allocation path;
 arbitrary registered pointers are not independently remappable sources. A
 device mapping-source handle alone does not qualify backing for host aliases.
 
+A GPU-backed SYSTEM allocation can also advertise `HOST_MAPPING_SOURCE`.
+Linux KFD's WRITE_BACK GTT profile retains its DMA-BUF source during
+construction when requested. A CPU reservation can then install any admitted
+source range without another export or import, while the GPU keeps its
+ordinary access to the same physical bytes. The backing remains caller-owned
+through all aliases. LOCAL/WC backing, arbitrary registered pointers and
+Windows WDDM allocation handles do not provide this host-source capability.
+
 `memory_reservation_query_access_info` returns the stable base even when the
 reservation has no backing. Access ordinals preserve caller order. Consumers
 with the same `mapping_access_ordinal` share native page tables: a replacement
