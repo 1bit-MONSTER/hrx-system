@@ -714,16 +714,22 @@ iree_status_t loom_amdgpu_select_vector_fragment_repack_plan(
       .result_type = result_type,
   };
 
+  if (fact_table == NULL) {
+    *out_selected = true;
+    return iree_ok_status();
+  }
+  const loom_value_facts_t source_facts =
+      loom_value_fact_table_lookup(fact_table, source);
   loom_vector_fragment_fact_t source_fact = {0};
-  if (fact_table == NULL ||
-      !loom_vector_fragment_fact_query_value_facts(
-          &fact_table->context,
-          loom_value_fact_table_lookup(fact_table, source), &source_fact) ||
+  if (!loom_vector_fragment_fact_query_value_facts(
+          &fact_table->context, source_facts, &source_fact) ||
       source_fact.role_flags == 0 || result_role_flags == 0) {
     *out_selected = true;
     return iree_ok_status();
   }
   out_plan->source_role_flags = source_fact.role_flags;
+  out_plan->source_numeric_flags =
+      source_facts.flags & (LOOM_VALUE_FACT_NOT_NAN | LOOM_VALUE_FACT_FINITE);
 
   if (!loom_amdgpu_fragment_repack_shape_matches(
           fact_table, source_fact,
@@ -809,7 +815,7 @@ loom_amdgpu_emit_fragment_repack_narrow_source_registers_to_bf16(
   for (uint16_t i = 0; i < plan->source_register_count; ++i) {
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_f32_to_bf16_lane_with_descriptors(
         context, source_op, bf16_pack_descriptors, inout_source_registers[i],
-        /*source_flags=*/0, vgpr_type, &inout_source_registers[i]));
+        plan->source_numeric_flags, vgpr_type, &inout_source_registers[i]));
   }
   return iree_ok_status();
 }
@@ -1043,7 +1049,7 @@ static iree_status_t loom_amdgpu_emit_fragment_repack_packed_source_registers(
       IREE_RETURN_IF_ERROR(
           loom_amdgpu_emit_f32_pair_to_packed_bf16_with_descriptors(
               context, source_op, bf16_pack_descriptors, source_registers[i],
-              paired_source_registers[i], /*source_flags=*/0, vgpr_type,
+              paired_source_registers[i], plan->source_numeric_flags, vgpr_type,
               &out_packed_source_registers[i]));
     }
   }
@@ -1643,7 +1649,7 @@ loom_amdgpu_emit_fragment_repack_result_to_lhs_bf16_bpermute(
       IREE_RETURN_IF_ERROR(
           loom_amdgpu_emit_f32_pair_to_packed_bf16_with_descriptors(
               context, source_op, bf16_pack_descriptors, elements[0],
-              elements[1], /*source_flags=*/0, vgpr_type,
+              elements[1], plan->source_numeric_flags, vgpr_type,
               &result_registers[register_index]));
     }
   }
