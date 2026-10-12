@@ -149,6 +149,8 @@ class HrxBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         env_block = self._convert_string_list_block(
             "ENV", self._convert_test_env(env), sort=False
         )
+        target_compatible_with = kwargs.get("target_compatible_with")
+        self._emit_platform_guard_begin(target_compatible_with)
         if platform_deps_block:
             self._converter.body += platform_deps_block
         labels_block = self._convert_string_list_block("LABELS", tags)
@@ -170,6 +172,7 @@ class HrxBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             f"{resource_group_block}"
             f")\n\n"
         )
+        self._emit_platform_guard_end(target_compatible_with)
 
 
 def convert_unmatched_target(converter, target):

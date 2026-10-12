@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(IREE_HAL_DRIVER_AMDGPU)
 iree_amdgpu_binary_variants_embed_data(
   NAME
     amdgpu_executable_test_kernels
@@ -30,7 +31,9 @@ iree_amdgpu_binary_variants_embed_data(
   FLATTEN
   PUBLIC
 )
+endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_HAL_DRIVER_AMDGPU)
 iree_amdgpu_binary_variants_embed_data(
   NAME
     amdgpu_hip_printf_test_kernels
@@ -54,7 +57,9 @@ iree_amdgpu_binary_variants_embed_data(
   FLATTEN
   PUBLIC
 )
+endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_HAL_DRIVER_AMDGPU)
 iree_amdgpu_binary_variants_embed_data(
   NAME
     amdgpu_hip_cooperative_test_kernels
@@ -78,7 +83,9 @@ iree_amdgpu_binary_variants_embed_data(
   FLATTEN
   PUBLIC
 )
+endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_HAL_DRIVER_AMDGPU)
 iree_amdgpu_binary_variants_embed_data(
   NAME
     amdgpu_hip_module_library_test_kernels
@@ -102,6 +109,7 @@ iree_amdgpu_binary_variants_embed_data(
   FLATTEN
   PUBLIC
 )
+endif()
 
 iree_cc_library(
   NAME
@@ -308,6 +316,7 @@ hrx_cc_test(
     gpu-device
 )
 
+if(IREE_HAL_DRIVER_AMDGPU)
 hrx_cc_test(
   NAME
     hrx_cts_executable
@@ -331,6 +340,7 @@ hrx_cc_test(
   RESOURCE_GROUP
     gpu-device
 )
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_HAL_DRIVER_AMDGPU)
 iree_cc_test(
