@@ -12,6 +12,7 @@ from collections import Counter
 
 from loom.dialect.index import defs as index
 from loom.dialect.scf import defs as scf
+from loom.dsl import OpPhase
 from loom.target.arch.spirv.contracts.index import (
     SPIRV_INDEX_CONVERSION_RULES,
     SPIRV_INDEX_NUMERIC_RULES,
@@ -199,14 +200,19 @@ def test_index_numeric_contract_covers_the_complete_address_matrix() -> None:
     assert actual == expected
 
 
-def test_index_contract_accounts_for_every_registered_index_operation() -> None:
+def test_index_contract_accounts_for_every_target_lowered_index_operation() -> None:
     covered_ops = {
         rule.source_op
         for rule in (*SPIRV_INDEX_CONVERSION_RULES, *SPIRV_INDEX_NUMERIC_RULES)
         if rule.source_op is not scf.scf_select
     }
 
-    assert covered_ops == set(index.ALL_INDEX_OPS)
+    target_lowered_ops = {
+        operation
+        for operation in index.ALL_INDEX_OPS
+        if operation.effective_phase is not OpPhase.COMPILE_TIME_QUERY
+    }
+    assert covered_ops == target_lowered_ops
 
 
 def test_index_numeric_range_guards_have_spirv_diagnostics() -> None:

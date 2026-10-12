@@ -6,3 +6,10 @@ func.def @float_conversion_policy(%half: f16, %single: f32) -> (f32, bf16) {
   %narrow = scalar.fptrunc<daz|ftz> %single : f32 to bf16
   func.return %wide, %narrow : f32, bf16
 }
+
+// ====
+
+func.def @constexpr(%input: f32) -> (f32) {
+  %required = scalar.constexpr %input : f32
+  func.return %required : f32
+}

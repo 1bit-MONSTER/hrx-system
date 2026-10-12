@@ -58,3 +58,11 @@ func.def @index_assume(%n: index, %base: offset) -> (index, offset) {
   %n2, %base2 = index.assume %n, %base [multiple_of(%n, 16), multiple_of(%base, 64)] : index, offset
   func.return %n2, %base2 : index, offset
 }
+
+// ====
+
+func.def @constexpr(%coordinate: index, %byte_offset: offset) -> (index, offset) {
+  %required_coordinate = index.constexpr %coordinate : index
+  %required_byte_offset = index.constexpr %byte_offset : offset
+  func.return %required_coordinate, %required_byte_offset : index, offset
+}

@@ -37,6 +37,28 @@ func.def target(@test_target) @rejects_unresolved_compile_time_query(%schema: en
 }
 
 // ====
+// RUN: pass source-to-low
+
+test.target<low_core> @test_target
+
+func.def target(@test_target) @rejects_unresolved_scalar_constexpr(%value: i32) -> (i32) {
+  // ERROR@+1: TARGET/070 {op_name="scalar.constexpr"}
+  %required = scalar.constexpr %value : i32
+  func.return %required : i32
+}
+
+// ====
+// RUN: pass source-to-low
+
+test.target<low_core> @test_target
+
+func.def target(@test_target) @rejects_unresolved_index_constexpr(%value: index) -> (index) {
+  // ERROR@+1: TARGET/070 {op_name="index.constexpr"}
+  %required = index.constexpr %value : index
+  func.return %required : index
+}
+
+// ====
 // RUN: pass dce,canonicalize,source-to-low
 
 test.target<low_core> @test_target

@@ -4,15 +4,15 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Scalar analysis ops: constraints, assertions, and value properties.
+"""Scalar analysis ops: value predicates and compile-time contracts.
 
-These ops carry metadata about SSA values — they don't compute new
-values, they assert or constrain properties of existing ones. The
-optimizer and verifier use these constraints; codegen treats them as
-identity (the output equals the input).
+These ops preserve authored requirements on SSA values for analysis and
+specialization. Operations that reach code generation must explicitly define
+an executable identity contract; compile-time queries instead diagnose if
+specialization leaves them unresolved.
 """
 
-from loom.assembly import COLON, PredicateList, Refs, TypesOf
+from loom.assembly import COLON, PredicateList, Ref, Refs, TypeOf, TypesOf
 from loom.dialect.scalar.defs import scalar_ops
 from loom.dsl import (
     FACT_IDENTITY,
@@ -21,12 +21,15 @@ from loom.dsl import (
     AttrDef,
     Op,
     Operand,
+    OpPhase,
     Result,
+    SameType,
     VariadicValuesMatch,
 )
 
 __all__ = [
     "scalar_assume",
+    "scalar_constexpr",
     "ALL_ANALYSIS_OPS",
 ]
 
@@ -59,7 +62,30 @@ scalar_assume = Op(
 )
 
 # ============================================================================
+# scalar.constexpr — required compile-time scalar value
+# ============================================================================
+
+scalar_constexpr = Op(
+    "scalar.constexpr",
+    group=scalar_ops,
+    phase=OpPhase.COMPILE_TIME_QUERY,
+    doc=(
+        "Require a scalar payload value to become exact during specialization. "
+        "Configured canonicalization replaces the result with an ordinary "
+        "constant once exact facts are available; target lowering diagnoses "
+        "an unresolved requirement."
+    ),
+    operands=[Operand("input", PAYLOAD_SCALAR)],
+    results=[Result("result", PAYLOAD_SCALAR)],
+    constraints=[SameType("input", "result")],
+    traits=[PURE],
+    facts="loom_scalar_constexpr_facts",
+    format=[Ref("input"), COLON, TypeOf("result")],
+    examples=["%tile_size = scalar.constexpr %configured : i32"],
+)
+
+# ============================================================================
 # Registry
 # ============================================================================
 
-ALL_ANALYSIS_OPS: tuple[Op, ...] = (scalar_assume,)
+ALL_ANALYSIS_OPS: tuple[Op, ...] = (scalar_assume, scalar_constexpr)
