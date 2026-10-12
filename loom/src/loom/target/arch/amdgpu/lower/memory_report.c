@@ -238,7 +238,7 @@ static iree_status_t loom_amdgpu_record_fragment_memory_access_report(
   loom_low_lower_memory_subgroup_access_report_t subgroup_access = {0};
   IREE_RETURN_IF_ERROR(loom_amdgpu_fragment_memory_report_subgroup_access(
       context, source_op, layout, plan, &runtime_packet_offset, &issued,
-      &subgroup_access));
+      access->flags, &subgroup_access));
   loom_low_lower_memory_report_row_t row = {
       .function_name = loom_low_lower_context_function_name(context),
       .source_op_name =

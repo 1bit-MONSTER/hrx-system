@@ -10,6 +10,7 @@ load(
     "loom_cc_test",
     "loom_generated_file_family",
 )
+load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test")
 
 package(
     default_visibility = ["//visibility:private"],
@@ -122,6 +123,7 @@ loom_cc_library(
         "fragment_memory/packet.c",
         "fragment_memory/plan.c",
         "fragment_memory/publication_cost.c",
+        "fragment_memory/transpose.c",
         "legality.c",
         "mask.c",
         "materializers.c",
@@ -226,6 +228,7 @@ loom_cc_library(
         "fragment_memory/packet.h",
         "fragment_memory/plan.h",
         "fragment_memory/publication_cost.h",
+        "fragment_memory/transpose.h",
         "legality.h",
         "lower.h",
         "mask.h",
@@ -291,6 +294,7 @@ loom_cc_library(
         "//loom/src/loom/analysis:condition_facts",
         "//loom/src/loom/analysis:contract_vector",
         "//loom/src/loom/analysis:control_uniformity",
+        "//loom/src/loom/analysis:matrix_fragment_layout",
         "//loom/src/loom/analysis:source_storage_packing",
         "//loom/src/loom/analysis:storage_interference",
         "//loom/src/loom/analysis:storage_layout",
@@ -470,6 +474,31 @@ loom_cc_test(
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],
+)
+
+loom_cc_test(
+    name = "fragment_memory_transpose_test",
+    srcs = ["fragment_memory/transpose_test.cc"],
+    deps = [
+        ":lower",
+        "//loom/src/loom/target/arch/amdgpu:target_info",
+        "//loom/src/loom/target/arch/amdgpu/descriptors:low_registry",
+        "//loom/src/loom/target/arch/amdgpu/matrix:contract",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_check_test(
+    name = "fragment_memory_transpose_loom_test",
+    src = "fragment_memory/transpose.loom-test",
+    compile_targets = ["//loom/target/amdgpu:gfx1200"],
+)
+
+loom_check_test(
+    name = "fragment_memory_transpose_gfx950_loom_test",
+    src = "fragment_memory/transpose_gfx950.loom-test",
+    compile_targets = ["//loom/target/amdgpu:gfx950"],
 )
 
 loom_cc_test(

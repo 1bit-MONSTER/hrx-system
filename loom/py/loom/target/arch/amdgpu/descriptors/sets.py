@@ -2202,6 +2202,9 @@ def _rdna4_core_overlays(
             descriptor_key_suffix="_saddr",
             cache_fields=_GFX12_VECTOR_CACHE_FIELDS,
         ),
+        *_rdna4_global_transpose_load_overlays(
+            cache_fields=_GFX12_VECTOR_CACHE_FIELDS,
+        ),
         *_scratch_memory_overlays(
             instruction_suffixes=_BYTE_MEMORY_INSTRUCTION_SUFFIXES,
             mnemonic_suffixes=_BYTE_MEMORY_MNEMONIC_SUFFIXES,

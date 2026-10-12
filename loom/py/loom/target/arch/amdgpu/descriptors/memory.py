@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from .common import *
 
 _MEMORY_DWORD_VECTOR_WIDTHS = ((32, 1), (64, 2), (96, 3), (128, 4))
@@ -2850,6 +2852,8 @@ def _global_load_overlay(
     xml_has_m0: bool = False,
     global_read_memory: AmdgpuImplicitOperandOverlay | None = None,
     semantic_tag: str | None = None,
+    native_assembly_mnemonic: str | None = None,
+    result_size_exception_reason: str | None = None,
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> AmdgpuDescriptorOverlay:
     implicit_operands: tuple[AmdgpuImplicitOperandOverlay, ...] = (
@@ -2858,7 +2862,11 @@ def _global_load_overlay(
     if xml_has_m0:
         implicit_operands += (_IGNORE_REGISTER_MEMORY_M0,)
     operands: tuple[AmdgpuOperandOverlay, ...] = (
-        AmdgpuOperandOverlay(data_field_name, _vgpr_result(units=units)),
+        AmdgpuOperandOverlay(
+            data_field_name,
+            _vgpr_result(units=units),
+            size_exception_reason=result_size_exception_reason,
+        ),
         _global_addr_operand(
             address_field_name, units=address_units, has_saddr=saddr_off is None
         ),
@@ -2887,6 +2895,7 @@ def _global_load_overlay(
         flags=(DescriptorFlag.SIDE_EFFECTING,),
         asm_forms=_global_saddr_asm(
             mnemonic=mnemonic,
+            native_assembly_mnemonic=native_assembly_mnemonic,
             results=("dst",),
             operands=("addr", "saddr"),
             immediates=_memory_asm_immediate_names(cache_fields),
@@ -2894,11 +2903,63 @@ def _global_load_overlay(
         if saddr_off is None
         else _global_vaddr_asm(
             mnemonic=mnemonic,
+            native_assembly_mnemonic=native_assembly_mnemonic,
             results=("dst",),
             operands=("addr",),
             immediates=_memory_asm_immediate_names(cache_fields),
         ),
     )
+
+
+def _rdna4_global_transpose_load_overlays(
+    *,
+    cache_fields: tuple[tuple[str, int], ...],
+) -> tuple[AmdgpuDescriptorOverlay, ...]:
+    overlays: list[AmdgpuDescriptorOverlay] = []
+    for width_bits, wave32_units, semantic_tag in (
+        (64, 2, "memory.load.transpose.b8x8"),
+        (128, 4, "memory.load.transpose.b16x8"),
+    ):
+        native_mnemonic = f"global_load_tr_b{width_bits}"
+        for wave_size in (32, 64):
+            units = wave32_units * 32 // wave_size
+            wave_key_suffix = ".w64" if wave_size == 64 else ""
+            low_mnemonic_suffix = "_w64" if wave_size == 64 else ""
+            for address_key_suffix, saddr_off, address_units in (
+                ("", _GLOBAL_SADDR_OFF, 2),
+                ("_saddr", None, 1),
+            ):
+                overlay = _global_load_overlay(
+                    descriptor_key=(
+                        f"amdgpu.global_load_tr_b{width_bits}"
+                        f"{address_key_suffix}{wave_key_suffix}"
+                    ),
+                    instruction_name=f"GLOBAL_LOAD_TR_B{width_bits}",
+                    mnemonic=f"{native_mnemonic}{low_mnemonic_suffix}",
+                    native_assembly_mnemonic=(
+                        native_mnemonic if wave_size == 64 else None
+                    ),
+                    encoding_name="ENC_VGLOBAL",
+                    address_field_name="VADDR",
+                    data_field_name="VDST",
+                    offset_field_name="IOFFSET",
+                    offset_bit_width=24,
+                    saddr_off=saddr_off,
+                    width_bits=width_bits,
+                    units=units,
+                    address_units=address_units,
+                    semantic_tag=semantic_tag,
+                    result_size_exception_reason=(
+                        "rdna4-wave64-transpose-load-half-width-result"
+                        if wave_size == 64
+                        else None
+                    ),
+                    cache_fields=cache_fields,
+                )
+                overlays.append(
+                    replace(overlay, effects=(*overlay.effects, _CONVERGENT_EFFECT))
+                )
+    return tuple(overlays)
 
 
 def _global_load_b16_d16_overlay(
@@ -4378,6 +4439,7 @@ __all__ = (
     "_global_load_lds_overlay",
     "_global_load_lds_overlays",
     "_global_load_overlay",
+    "_rdna4_global_transpose_load_overlays",
     "_global_memory_overlays",
     "_global_store_b16_overlay",
     "_global_store_overlay",

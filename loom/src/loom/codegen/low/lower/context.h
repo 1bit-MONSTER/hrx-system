@@ -45,6 +45,8 @@ typedef struct loom_low_lower_source_query_coverage_t
     loom_low_lower_source_query_coverage_t;
 typedef struct loom_low_lower_source_graph_placement_t
     loom_low_lower_source_graph_placement_t;
+typedef struct loom_low_lower_participation_state_t
+    loom_low_lower_participation_state_t;
 
 typedef struct loom_low_lower_target_state_record_t {
   // Target-owned static key identifying this function-local state object.
@@ -72,6 +74,8 @@ typedef struct loom_low_lower_function_analysis_t {
   loom_view_region_table_t view_regions;
   // Source body multiplicities retained independently of optional reports.
   loom_low_lower_execution_counts_t execution_counts;
+  // Source control participation shared by target planning and reports.
+  loom_low_lower_participation_state_t* participation;
   // Shared source allocation provenance, accesses, and instance lifetimes.
   loom_storage_interference_t* storage_interference;
 } loom_low_lower_function_analysis_t;

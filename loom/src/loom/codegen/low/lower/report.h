@@ -30,8 +30,6 @@ typedef struct loom_low_lower_memory_report_row_t
     loom_low_lower_memory_report_row_t;
 typedef struct loom_low_lower_result_t loom_low_lower_result_t;
 typedef struct loom_low_lower_report_row_vec_t loom_low_lower_report_row_vec_t;
-typedef struct loom_low_lower_participation_state_t
-    loom_low_lower_participation_state_t;
 typedef struct loom_low_lower_selected_plan_t loom_low_lower_selected_plan_t;
 typedef struct loom_low_source_memory_access_plan_t
     loom_low_source_memory_access_plan_t;
@@ -45,8 +43,6 @@ typedef struct loom_low_lower_report_state_t {
   loom_low_lower_report_row_vec_t* selection_cursor;
   // Next row within |selection_cursor|, excluding claimed source operations.
   iree_host_size_t selection_index;
-  // Optional execution evidence for the current immutable source snapshot.
-  loom_low_lower_participation_state_t* participation;
   // Interned symbolic byte expressions used by memory interval rows.
   loom_low_lower_memory_expression_entry_t* memory_expression_entries;
   // Number of populated entries in |memory_expression_entries|.

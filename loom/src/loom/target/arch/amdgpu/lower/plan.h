@@ -1516,14 +1516,22 @@ typedef enum loom_amdgpu_fragment_memory_packet_flag_bits_e {
   // A wider packet was legal but rejected because fragment registers were not
   // contiguous in memory.
   LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_WIDER_NONCONTIGUOUS = 1u << 2,
+  // One hardware packet loads a contiguous memory row and transposes it into
+  // the target fragment's lane/register layout.
+  LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_NATIVE_TRANSPOSE_LOAD = 1u << 3,
+  // Only lanes 0 through 31 contribute addresses to the native transpose.
+  LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_FIRST_32_LANES_ONLY = 1u << 4,
 } loom_amdgpu_fragment_memory_packet_flag_bits_t;
 
 // Bitset of loom_amdgpu_fragment_memory_packet_flag_bits_t values.
-typedef uint32_t loom_amdgpu_fragment_memory_packet_flags_t;
+typedef uint16_t loom_amdgpu_fragment_memory_packet_flags_t;
 
 typedef struct loom_amdgpu_fragment_memory_packet_plan_t {
-  // Packet-local lowering strategy bits for non-native memory payloads.
+  // Packet-local lowering and physical-access geometry bits.
   loom_amdgpu_fragment_memory_packet_flags_t flags;
+  // Contiguous physical view elements loaded by each issuing lane. Zero for
+  // packets whose width follows ordinary payload geometry.
+  uint16_t issued_element_count;
   // Descriptor row selected for this packet.
   loom_amdgpu_descriptor_ref_t descriptor_ref;
   // First target fragment coordinate register covered by this packet.
