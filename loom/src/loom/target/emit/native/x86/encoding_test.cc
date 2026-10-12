@@ -454,6 +454,23 @@ TEST(EncodingTest, ByteRegisterPrefixAndFullWidthDefinition) {
   // MOV esi,esi must still be emitted: it clears the high half of RSI.
   ExpectEncoding(LOOM_X86_ENCODING_FORM_MOVE, 0x8b, operands, {0x8b, 0xf6},
                  1u << 6);
+
+  // Narrow sources can directly define wide carriers. Unsigned forms retain
+  // a 32-bit destination because x86 zeroes its complete 64-bit register.
+  operands.result = 9;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MOVE,
+                 LOOM_X86_ENCODING_OPCODE_0F | 0xb6 | LOOM_X86_ENCODING_BYTE,
+                 operands, {0x44, 0x0f, 0xb6, 0xce}, 1u << 9);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MOVE,
+                 LOOM_X86_ENCODING_OPCODE_0F | 0xb7, operands,
+                 {0x44, 0x0f, 0xb7, 0xce}, 1u << 9);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MOVE,
+                 LOOM_X86_ENCODING_OPCODE_0F | 0xbe | LOOM_X86_ENCODING_BYTE |
+                     LOOM_X86_ENCODING_REX_W,
+                 operands, {0x4c, 0x0f, 0xbe, 0xce}, 1u << 9);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_MOVE,
+                 LOOM_X86_ENCODING_OPCODE_0F | 0xbf | LOOM_X86_ENCODING_REX_W,
+                 operands, {0x4c, 0x0f, 0xbf, 0xce}, 1u << 9);
 }
 
 TEST(EncodingTest, AddressDisplacementAndSib) {

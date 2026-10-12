@@ -205,6 +205,66 @@ func.def public @signed_unary_i64(%input: i64, %output: buffer) {
   func.return
 }
 
+func.def public @truncate_wide_to_bit(%input: i64) -> (i1) {
+  %result = scalar.trunci %input : i64 to i1
+  func.return %result : i1
+}
+
+func.def public @truncate_wide_to_byte(%input: i64) -> (i8) {
+  %result = scalar.trunci %input : i64 to i8
+  func.return %result : i8
+}
+
+func.def public @truncate_wide_to_halfword(%input: i64) -> (i16) {
+  %result = scalar.trunci %input : i64 to i16
+  func.return %result : i16
+}
+
+func.def public @truncate_wide_to_word(%input: i64) -> (i32) {
+  %result = scalar.trunci %input : i64 to i32
+  func.return %result : i32
+}
+
+func.def public @extend_signed_byte_to_halfword(%input: i8) -> (i16) {
+  %result = scalar.extsi %input : i8 to i16
+  func.return %result : i16
+}
+
+func.def public @extend_unsigned_byte_to_halfword(%input: i8) -> (i16) {
+  %result = scalar.extui %input : i8 to i16
+  func.return %result : i16
+}
+
+func.def public @extend_signed_byte_to_wide(%input: i8) -> (i64) {
+  %result = scalar.extsi %input : i8 to i64
+  func.return %result : i64
+}
+
+func.def public @extend_unsigned_byte_to_wide(%input: i8) -> (i64) {
+  %result = scalar.extui %input : i8 to i64
+  func.return %result : i64
+}
+
+func.def public @extend_signed_halfword_to_wide(%input: i16) -> (i64) {
+  %result = scalar.extsi %input : i16 to i64
+  func.return %result : i64
+}
+
+func.def public @extend_unsigned_halfword_to_wide(%input: i16) -> (i64) {
+  %result = scalar.extui %input : i16 to i64
+  func.return %result : i64
+}
+
+func.def public @extend_signed_predicate_to_wide(%input: i1) -> (i64) {
+  %result = scalar.extsi %input : i1 to i64
+  func.return %result : i64
+}
+
+func.def public @extend_unsigned_predicate_to_wide(%input: i1) -> (i64) {
+  %result = scalar.extui %input : i1 to i64
+  func.return %result : i64
+}
+
 // Loop-carried values cross both the forward exit and the backward edge.
 // Their simultaneous transport belongs to the shared allocator's move plan.
 func.def public @recurrence(%first: i64, %second: i64, %iterations: i64) -> (i64) {

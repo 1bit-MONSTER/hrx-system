@@ -1,51 +1,89 @@
 // RUN: emit source-low target=x86:scalar output=low
 
-func.def @widen_signed_byte(%value: i8) -> (i32) {
-  %result = scalar.extsi %value : i8 to i32
-  func.return %result : i32
+func.def @widen_byte_to_halfword(%value: i8) -> (i16, i16) {
+  %signed = scalar.extsi %value : i8 to i16
+  %unsigned = scalar.extui %value : i8 to i16
+  func.return %signed, %unsigned : i16, i16
 }
 
 // ----
-low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i8) -> (i32)}) @widen_signed_byte(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %result = movsx.i8.gpr32 %value
-  return %result
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i8) -> (i16, i16)}) @widen_byte_to_halfword(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %signed = movsx.i8.gpr32 %value
+  %unsigned = movzx.u8.gpr32 %value
+  return %signed, %unsigned
 }
 
 // ====
 
-func.def @widen_signed_halfword(%value: i16) -> (i32) {
-  %result = scalar.extsi %value : i16 to i32
-  func.return %result : i32
+func.def @widen_byte_to_word(%value: i8) -> (i32, i32) {
+  %signed = scalar.extsi %value : i8 to i32
+  %unsigned = scalar.extui %value : i8 to i32
+  func.return %signed, %unsigned : i32, i32
 }
 
 // ----
-low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i16) -> (i32)}) @widen_signed_halfword(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %result = movsx.i16.gpr32 %value
-  return %result
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i8) -> (i32, i32)}) @widen_byte_to_word(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %signed = movsx.i8.gpr32 %value
+  %unsigned = movzx.u8.gpr32 %value
+  return %signed, %unsigned
 }
 
 // ====
 
-func.def @widen_unsigned_byte(%value: i8) -> (i32) {
-  %result = scalar.extui %value : i8 to i32
-  func.return %result : i32
+func.def @widen_byte_to_wide(%value: i8) -> (i64, i64) {
+  %signed = scalar.extsi %value : i8 to i64
+  %unsigned = scalar.extui %value : i8 to i64
+  func.return %signed, %unsigned : i64, i64
 }
 
 // ----
-low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i8) -> (i32)}) @widen_unsigned_byte(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %result = movzx.u8.gpr32 %value
-  return %result
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i8) -> (i64, i64)}) @widen_byte_to_wide(%value: reg<x86.gpr32>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %signed = movsx.i8.gpr64 %value
+  %unsigned = movzx.u8.gpr64 %value
+  return %signed, %unsigned
 }
 
 // ====
 
-func.def @widen_unsigned_halfword(%value: i16) -> (i32) {
-  %result = scalar.extui %value : i16 to i32
-  func.return %result : i32
+func.def @widen_halfword_to_word(%value: i16) -> (i32, i32) {
+  %signed = scalar.extsi %value : i16 to i32
+  %unsigned = scalar.extui %value : i16 to i32
+  func.return %signed, %unsigned : i32, i32
 }
 
 // ----
-low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i16) -> (i32)}) @widen_unsigned_halfword(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %result = movzx.u16.gpr32 %value
-  return %result
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i16) -> (i32, i32)}) @widen_halfword_to_word(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %signed = movsx.i16.gpr32 %value
+  %unsigned = movzx.u16.gpr32 %value
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @widen_halfword_to_wide(%value: i16) -> (i64, i64) {
+  %signed = scalar.extsi %value : i16 to i64
+  %unsigned = scalar.extui %value : i16 to i64
+  func.return %signed, %unsigned : i64, i64
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature = (i16) -> (i64, i64)}) @widen_halfword_to_wide(%value: reg<x86.gpr32>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %signed = movsx.i16.gpr64 %value
+  %unsigned = movzx.u16.gpr64 %value
+  return %signed, %unsigned
+}
+
+// ====
+
+func.def @widen_word_to_wide(%value: i32) -> (i64, i64) {
+  %signed = scalar.extsi %value : i32 to i64
+  %unsigned = scalar.extui %value : i32 to i64
+  func.return %signed, %unsigned : i64, i64
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @widen_word_to_wide(%value: reg<x86.gpr32>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %signed = movsxd.gpr64.gpr32 %value
+  %unsigned = movzx.gpr64.gpr32 %value
+  return %signed, %unsigned
 }

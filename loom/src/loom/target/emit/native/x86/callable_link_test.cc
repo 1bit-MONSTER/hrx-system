@@ -38,6 +38,18 @@ extern "C" void signed_unary_i8(uint8_t input, uint8_t* output);
 extern "C" void signed_unary_i16(uint16_t input, uint16_t* output);
 extern "C" void signed_unary_i32(uint32_t input, uint32_t* output);
 extern "C" void signed_unary_i64(uint64_t input, uint64_t* output);
+extern "C" bool truncate_wide_to_bit(uint64_t input);
+extern "C" uint8_t truncate_wide_to_byte(uint64_t input);
+extern "C" uint16_t truncate_wide_to_halfword(uint64_t input);
+extern "C" uint32_t truncate_wide_to_word(uint64_t input);
+extern "C" int16_t extend_signed_byte_to_halfword(int8_t input);
+extern "C" uint16_t extend_unsigned_byte_to_halfword(uint8_t input);
+extern "C" int64_t extend_signed_byte_to_wide(int8_t input);
+extern "C" uint64_t extend_unsigned_byte_to_wide(uint8_t input);
+extern "C" int64_t extend_signed_halfword_to_wide(int16_t input);
+extern "C" uint64_t extend_unsigned_halfword_to_wide(uint16_t input);
+extern "C" int64_t extend_signed_predicate_to_wide(bool input);
+extern "C" uint64_t extend_unsigned_predicate_to_wide(bool input);
 extern "C" uint64_t high_mix(uint64_t unused, uint64_t factor, uint64_t word);
 extern "C" uint64_t recurrence(uint64_t first, uint64_t second,
                                uint64_t iterations);
@@ -687,6 +699,26 @@ TEST(NativeCallableTest, SignedUnaryWrapsAtEveryStorageWidth) {
          UINT64_C(0x8000000000000000)},
         {UINT64_C(0xffffffffffffffff), UINT64_C(0x0000000000000001),
          UINT64_C(0x0000000000000001)}}});
+}
+
+TEST(NativeCallableTest, IntegerConversionsPreserveLogicalWidthSemantics) {
+  constexpr uint64_t kPayload = UINT64_C(0xfedcba98765489ab);
+  EXPECT_TRUE(truncate_wide_to_bit(kPayload));
+  EXPECT_FALSE(truncate_wide_to_bit(kPayload - 1));
+  EXPECT_EQ(truncate_wide_to_byte(kPayload), UINT8_C(0xab));
+  EXPECT_EQ(truncate_wide_to_halfword(kPayload), UINT16_C(0x89ab));
+  EXPECT_EQ(truncate_wide_to_word(kPayload), UINT32_C(0x765489ab));
+
+  EXPECT_EQ(extend_signed_byte_to_halfword(INT8_MIN), INT16_C(-128));
+  EXPECT_EQ(extend_unsigned_byte_to_halfword(UINT8_MAX), UINT16_C(255));
+  EXPECT_EQ(extend_signed_byte_to_wide(INT8_MIN), INT64_C(-128));
+  EXPECT_EQ(extend_unsigned_byte_to_wide(UINT8_MAX), UINT64_C(255));
+  EXPECT_EQ(extend_signed_halfword_to_wide(INT16_MIN), INT64_C(-32768));
+  EXPECT_EQ(extend_unsigned_halfword_to_wide(UINT16_MAX), UINT64_C(65535));
+  EXPECT_EQ(extend_signed_predicate_to_wide(false), INT64_C(0));
+  EXPECT_EQ(extend_signed_predicate_to_wide(true), INT64_C(-1));
+  EXPECT_EQ(extend_unsigned_predicate_to_wide(false), UINT64_C(0));
+  EXPECT_EQ(extend_unsigned_predicate_to_wide(true), UINT64_C(1));
 }
 
 TEST(NativeCallableTest, HalfPrecisionCrossClassRegistersAndStack) {

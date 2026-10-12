@@ -255,6 +255,86 @@ def _conversion_rule(
     )
 
 
+def _signed_boolean_extension_rule(
+    result_type: TypePattern,
+    register_width: int,
+    descriptor_lookup: _DescriptorLookup,
+) -> DescriptorRule:
+    # Scalar predicates are canonical 0/1 GPR32 carriers. Negation therefore
+    # produces the signed all-zero or all-one extension without constants or a
+    # conditional move. Wide results first establish a complete GPR64 value.
+    negate = descriptor_lookup(f"x86.scalar.neg.gpr{register_width}")
+    emit: list[EmitDescriptorOp] = []
+    source = ValueRef.operand("input")
+    if register_width == 64:
+        widen = descriptor_lookup("x86.scalar.movzx.gpr64.gpr32")
+        emit.append(
+            _op_emit(
+                descriptor=widen,
+                operands={"src": source},
+                results={"dst": ValueRef.temporary("unsigned")},
+                result_types={"dst": _I64},
+            )
+        )
+        source = ValueRef.temporary("unsigned")
+    emit.append(
+        _op_emit(
+            descriptor=negate,
+            operands={"input": source},
+            results={"dst": ValueRef.result("result")},
+        )
+    )
+    return DescriptorRule(
+        source_op=scalar_conversion.scalar_extsi,
+        descriptor=negate,
+        guards=(
+            Guard.value_type("input", _I1),
+            Guard.value_type("result", result_type),
+        ),
+        emit=tuple(emit),
+    )
+
+
+def _predicate_truncation_rule(
+    input_type: TypePattern,
+    input_width: int,
+    descriptor_lookup: _DescriptorLookup,
+) -> DescriptorRule:
+    # Integer truncation to i1 selects the low bit; it is not a nonzero test.
+    # The mask also preserves the canonical 0/1 predicate carrier invariant.
+    mask = descriptor_lookup("x86.scalar.and.imm.gpr32")
+    emit: list[EmitDescriptorOp] = []
+    source = ValueRef.operand("input")
+    if input_width == 64:
+        truncate = descriptor_lookup("x86.scalar.mov.trunc.gpr32.gpr64")
+        emit.append(
+            _op_emit(
+                descriptor=truncate,
+                operands={"src": source},
+                results={"dst": ValueRef.temporary("word")},
+                result_types={"dst": _I32},
+            )
+        )
+        source = ValueRef.temporary("word")
+    emit.append(
+        _op_emit(
+            descriptor=mask,
+            operands={"lhs": source},
+            results={"dst": ValueRef.result("result")},
+            immediates={"imm32": 1},
+        )
+    )
+    return DescriptorRule(
+        source_op=scalar_conversion.scalar_trunci,
+        descriptor=mask,
+        guards=(
+            Guard.value_type("input", input_type),
+            Guard.value_type("result", _I1),
+        ),
+        emit=tuple(emit),
+    )
+
+
 def _index_const_i64_rule(
     result_type: TypePattern,
     descriptor_lookup: _DescriptorLookup,
@@ -1107,28 +1187,88 @@ def _cases() -> Sequence[ContractCase]:
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _I16, _F16),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _BF16, _I16),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _I16, _BF16),
-        _conversion_alias_rule(scalar_conversion.scalar_trunci, _I32, _I8),
-        _conversion_alias_rule(scalar_conversion.scalar_trunci, _I32, _I16),
-        _conversion_alias_rule(scalar_conversion.scalar_extui, _I1, _I32),
+        *(
+            _conversion_alias_rule(
+                scalar_conversion.scalar_trunci, input_type, result_type
+            )
+            for input_type, result_type in (
+                (_I16, _I8),
+                (_I32, _I8),
+                (_I32, _I16),
+            )
+        ),
+        *(
+            _conversion_rule(
+                scalar_conversion.scalar_trunci,
+                _I64,
+                result_type,
+                "x86.scalar.mov.trunc.gpr32.gpr64",
+                descriptor_lookup,
+            )
+            for result_type in (_I8, _I16, _I32)
+        ),
+        *(
+            _predicate_truncation_rule(input_type, input_width, descriptor_lookup)
+            for input_type, input_width in (
+                (_I8, 8),
+                (_I16, 16),
+                (_I32, 32),
+                (_I64, 64),
+            )
+        ),
+        *(
+            _conversion_alias_rule(scalar_conversion.scalar_extui, _I1, result_type)
+            for result_type in (_I8, _I16, _I32)
+        ),
+        _conversion_rule(
+            scalar_conversion.scalar_extui,
+            _I1,
+            _I64,
+            "x86.scalar.movzx.gpr64.gpr32",
+            descriptor_lookup,
+        ),
+        *(
+            _signed_boolean_extension_rule(
+                result_type, register_width, descriptor_lookup
+            )
+            for result_type, register_width in (
+                (_I8, 32),
+                (_I16, 32),
+                (_I32, 32),
+                (_I64, 64),
+            )
+        ),
         *(
             _conversion_rule(
                 scalar_conversion.scalar_extui,
                 input_type,
-                _I32,
-                f"x86.scalar.movzx.u{width}.gpr32",
+                result_type,
+                f"x86.scalar.movzx.u{input_width}.gpr{carrier_width}",
                 descriptor_lookup,
             )
-            for input_type, width in ((_I8, 8), (_I16, 16))
+            for input_type, input_width, result_type, carrier_width in (
+                (_I8, 8, _I16, 32),
+                (_I8, 8, _I32, 32),
+                (_I8, 8, _I64, 64),
+                (_I16, 16, _I32, 32),
+                (_I16, 16, _I64, 64),
+            )
         ),
         *(
             _conversion_rule(
                 scalar_conversion.scalar_extsi,
                 input_type,
-                _I32,
-                f"x86.scalar.movsx.i{width}.gpr32",
+                result_type,
+                f"x86.scalar.movsx.i{input_width}.gpr{carrier_width}",
                 descriptor_lookup,
             )
-            for input_type, width in ((_I8, 8), (_I16, 16))
+            for input_type, input_width, result_type, carrier_width in (
+                (_I8, 8, _I16, 32),
+                (_I8, 8, _I32, 32),
+                (_I8, 8, _I64, 64),
+                (_I16, 16, _I32, 32),
+                (_I16, 16, _I64, 64),
+            )
         ),
         _conversion_rule(
             scalar_conversion.scalar_extsi,
@@ -1142,13 +1282,6 @@ def _cases() -> Sequence[ContractCase]:
             _I32,
             _I64,
             "x86.scalar.movzx.gpr64.gpr32",
-            descriptor_lookup,
-        ),
-        _conversion_rule(
-            scalar_conversion.scalar_trunci,
-            _I64,
-            _I32,
-            "x86.scalar.mov.trunc.gpr32.gpr64",
             descriptor_lookup,
         ),
         _add_disp_rule(

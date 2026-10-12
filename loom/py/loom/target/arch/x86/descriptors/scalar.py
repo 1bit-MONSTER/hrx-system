@@ -354,21 +354,27 @@ def _gpr64_to_gpr32_truncate_descriptor() -> Descriptor:
     )
 
 
-def _gpr_narrow_zero_extend_descriptor(bit_count: int) -> Descriptor:
+def _gpr_narrow_zero_extend_descriptor(
+    source_bit_count: int, result_bit_count: int
+) -> Descriptor:
     # The source owns a full GPR32 allocation unit, but MOVZX reads only its
-    # low byte or word. Independent operands permit distinct payload types.
+    # low byte or word. A GPR32 destination also defines the complete GPR64, so
+    # unsigned i64 results deliberately retain the shorter non-REX.W form.
     return Descriptor(
-        key=f"x86.scalar.movzx.u{bit_count}.gpr32",
+        key=f"x86.scalar.movzx.u{source_bit_count}.gpr{result_bit_count}",
         encoding_format_id=Form.MOVE,
         encoding_id=encoding(
-            0x0FB6 if bit_count == 8 else 0x0FB7,
-            flags=Flag.BYTE if bit_count == 8 else 0,
+            0x0FB6 if source_bit_count == 8 else 0x0FB7,
+            flags=Flag.BYTE if source_bit_count == 8 else 0,
         ),
         mnemonic="movzx",
-        semantic_tag=f"integer.extui.i{bit_count}.i32",
-        operands=(_gpr32_result(), _gpr32_operand("src")),
+        semantic_tag=f"integer.extui.i{source_bit_count}.i{result_bit_count}",
+        operands=(
+            _gpr32_result() if result_bit_count == 32 else _gpr64_result(),
+            _gpr32_operand("src"),
+        ),
         asm_forms=_asm(
-            mnemonic=f"movzx.u{bit_count}.gpr32",
+            mnemonic=f"movzx.u{source_bit_count}.gpr{result_bit_count}",
             results=("dst",),
             operands=("src",),
         ),
@@ -377,21 +383,27 @@ def _gpr_narrow_zero_extend_descriptor(bit_count: int) -> Descriptor:
     )
 
 
-def _gpr_narrow_sign_extend_descriptor(bit_count: int) -> Descriptor:
+def _gpr_narrow_sign_extend_descriptor(
+    source_bit_count: int, result_bit_count: int
+) -> Descriptor:
     # The source owns a full GPR32 allocation unit, but MOVSX reads only its
-    # low byte or word and defines the complete signed i32 carrier.
+    # low byte or word and defines the complete signed result carrier.
     return Descriptor(
-        key=f"x86.scalar.movsx.i{bit_count}.gpr32",
+        key=f"x86.scalar.movsx.i{source_bit_count}.gpr{result_bit_count}",
         encoding_format_id=Form.MOVE,
         encoding_id=encoding(
-            0x0FBE if bit_count == 8 else 0x0FBF,
-            flags=Flag.BYTE if bit_count == 8 else 0,
+            0x0FBE if source_bit_count == 8 else 0x0FBF,
+            flags=(Flag.BYTE if source_bit_count == 8 else 0)
+            | (Flag.REX_W if result_bit_count == 64 else 0),
         ),
         mnemonic="movsx",
-        semantic_tag=f"integer.extsi.i{bit_count}.i32",
-        operands=(_gpr32_result(), _gpr32_operand("src")),
+        semantic_tag=f"integer.extsi.i{source_bit_count}.i{result_bit_count}",
+        operands=(
+            _gpr32_result() if result_bit_count == 32 else _gpr64_result(),
+            _gpr32_operand("src"),
+        ),
         asm_forms=_asm(
-            mnemonic=f"movsx.i{bit_count}.gpr32",
+            mnemonic=f"movsx.i{source_bit_count}.gpr{result_bit_count}",
             results=("dst",),
             operands=("src",),
         ),
@@ -915,8 +927,16 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
         semantic_tag="integer.extui.i32.i64",
         asm_mnemonic="movzx.gpr64.gpr32",
     ),
-    *(_gpr_narrow_zero_extend_descriptor(width) for width in (8, 16)),
-    *(_gpr_narrow_sign_extend_descriptor(width) for width in (8, 16)),
+    *(
+        _gpr_narrow_zero_extend_descriptor(source_width, result_width)
+        for source_width in (8, 16)
+        for result_width in (32, 64)
+    ),
+    *(
+        _gpr_narrow_sign_extend_descriptor(source_width, result_width)
+        for source_width in (8, 16)
+        for result_width in (32, 64)
+    ),
     Descriptor(
         key="x86.scalar.movimm.gpr64",
         encoding_format_id=Form.CONSTANT,
