@@ -17,6 +17,8 @@ from loom.gen.target.low import attr_indices, c_spelling, validation
 from loom.gen.target.low.compiled import (
     CompiledAsmForm,
     CompiledAsmLayout,
+    CompiledAsmOperandType,
+    CompiledAsmResultType,
     CompiledDescriptorSet,
     CompiledNativeAsmValue,
     CompiledOperandForm,
@@ -24,7 +26,6 @@ from loom.gen.target.low.compiled import (
 )
 from loom.target.low_descriptors import (
     LOW_DESCRIPTOR_SET_ORDINAL_NONE,
-    AsmResultValueType,
     Descriptor,
     DescriptorSet,
     Hazard,
@@ -345,14 +346,12 @@ def _asm_layout_flags_expr(layout: CompiledAsmLayout) -> str:
 def _asm_layout_row_lines(layouts: Sequence[CompiledAsmLayout]) -> list[list[str]]:
     return [
         [
-            f".result_operand_index_start = {layout.result_operand_index_start},",
-            f".result_value_type_start = {layout.result_value_type_start if layout.result_value_type_start is not None else 'LOOM_LOW_ASM_RESULT_VALUE_TYPE_START_NONE'},",
-            f".operand_index_start = {layout.operand_index_start},",
+            f".result_type_start = {layout.result_type_start if layout.result_type_start is not None else 'LOOM_LOW_ASM_RESULT_TYPE_START_NONE'},",
+            f".tied_result_start = {layout.tied_result_start},",
             f".operand_segment_start = {layout.operand_segment_start},",
             f".immediate_start = {layout.immediate_start},",
             f".native_assembly_value_start = {layout.native_assembly_value_start},",
-            f".result_operand_index_count = {layout.result_operand_index_count},",
-            f".operand_index_count = {layout.operand_index_count},",
+            f".tied_result_count = {layout.tied_result_count},",
             f".operand_segment_count = {layout.operand_segment_count},",
             f".explicit_immediate_count = {layout.explicit_immediate_count},",
             f".native_assembly_value_count = {layout.native_assembly_value_count},",
@@ -362,15 +361,19 @@ def _asm_layout_row_lines(layouts: Sequence[CompiledAsmLayout]) -> list[list[str
     ]
 
 
-def _asm_result_value_type_row_lines(
-    value_types: Sequence[AsmResultValueType | None],
+def _asm_result_type_row_lines(
+    value_types: Sequence[CompiledAsmResultType],
 ) -> list[list[str]]:
     rows: list[list[str]] = []
     for value_type in value_types:
         if value_type is None:
-            rows.append([".kind = LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_NONE,"])
+            rows.append([".kind = LOOM_LOW_ASM_RESULT_TYPE_KIND_NONE,"])
             continue
-        kind = "LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_VECTOR" if value_type.vector_lane_count else "LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_SCALAR"
+        if isinstance(value_type, CompiledAsmOperandType):
+            kind = "TIED_OPERAND" if value_type.tied else "OPERAND"
+            rows.append([f".kind = LOOM_LOW_ASM_RESULT_TYPE_KIND_{kind},", f".operand_index = {value_type.operand_index},"])
+            continue
+        kind = "LOOM_LOW_ASM_RESULT_TYPE_KIND_VECTOR" if value_type.vector_lane_count else "LOOM_LOW_ASM_RESULT_TYPE_KIND_SCALAR"
         row = [
             f".kind = {kind},",
             f".element_type = LOOM_SCALAR_TYPE_{value_type.element_type.name},",
@@ -1047,13 +1050,13 @@ def emit_source_for_views(
                     for descriptor_key, descriptor_ordinal in view.descriptor_refs
                 ],
             )
-    if asm_table_storage.operand_indices:
-        c_arrays.append_value_array(
-            lines,
-            "uint16_t",
-            f"k{spec.c_table_prefix}AsmOperandIndices",
-            [str(operand_index) for operand_index in asm_table_storage.operand_indices],
-        )
+    _emit_array(
+        lines,
+        "loom_tied_result_t",
+        spec.c_table_prefix,
+        "AsmTiedResults",
+        [[f".result_index = {tie.result_index},", f".operand_index = {tie.operand_index},", ".has_type_change = false,"] for tie in asm_table_storage.tied_results],
+    )
     _emit_array(
         lines,
         "loom_low_asm_operand_segment_t",
@@ -1070,10 +1073,10 @@ def emit_source_for_views(
     )
     _emit_array(
         lines,
-        "loom_low_asm_result_value_type_t",
+        "loom_low_asm_result_type_t",
         spec.c_table_prefix,
-        "AsmResultValueTypes",
-        _asm_result_value_type_row_lines(asm_table_storage.result_value_types),
+        "AsmResultTypes",
+        _asm_result_type_row_lines(asm_table_storage.result_types),
     )
     _emit_array(
         lines,
@@ -1167,9 +1170,9 @@ def emit_source_for_views(
         "pressure_deltas": "pressure_delta_count",
         "asm_forms": "asm_form_count",
         "asm_layouts": "asm_layout_count",
-        "asm_operand_indices": "asm_operand_index_count",
+        "asm_tied_results": "asm_tied_result_count",
         "asm_operand_segments": "asm_operand_segment_count",
-        "asm_result_value_types": "asm_result_value_type_count",
+        "asm_result_types": "asm_result_type_count",
         "asm_immediates": "asm_immediate_count",
         "native_asm_values": "native_asm_value_count",
         "encoding_field_values": "encoding_field_value_count",
@@ -1338,9 +1341,9 @@ def emit_source_for_views(
                 view_lines,
             )
             append_optional_table(
-                "asm_operand_indices",
-                "AsmOperandIndices",
-                asm_table_storage.operand_indices,
+                "asm_tied_results",
+                "AsmTiedResults",
+                asm_table_storage.tied_results,
                 view_lines,
             )
             append_optional_table(
@@ -1350,9 +1353,9 @@ def emit_source_for_views(
                 view_lines,
             )
             append_optional_table(
-                "asm_result_value_types",
-                "AsmResultValueTypes",
-                asm_table_storage.result_value_types,
+                "asm_result_types",
+                "AsmResultTypes",
+                asm_table_storage.result_types,
                 view_lines,
             )
             append_optional_table(

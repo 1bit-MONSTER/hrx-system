@@ -275,6 +275,29 @@ class CompiledAsmOperandSegment:
     has_variadic_operand: bool
 
 
+@dataclass(frozen=True, slots=True)
+class CompiledAsmOperandType:
+    """Inherits an exact register type, including its semantic payload."""
+
+    # Canonical packet input supplying the complete result type.
+    operand_index: int
+    # True when this result also consumes the input's IR ownership by default.
+    tied: bool
+
+
+type CompiledAsmResultType = AsmResultValueType | CompiledAsmOperandType | None
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledAsmTiedResult:
+    """Default IR ownership tie without a type change."""
+
+    # Canonical packet result receiving ownership.
+    result_index: int
+    # Canonical packet input whose ownership is consumed.
+    operand_index: int
+
+
 @dataclass(slots=True)
 class CompiledAsmForm:
     descriptor_ordinal: int
@@ -282,10 +305,11 @@ class CompiledAsmForm:
     mnemonic: str
     native_assembly_mnemonic_label: str | None
     native_assembly_mnemonic: str | None
-    result_indices: tuple[int, ...]
-    operand_indices: tuple[int, ...]
     operand_segments: tuple[CompiledAsmOperandSegment, ...]
-    result_value_types: tuple[AsmResultValueType | None, ...]
+    # Result-indexed exact typing and default ownership, or an empty span.
+    result_types: tuple[CompiledAsmResultType, ...]
+    # Default IR ownership in descriptor constraint order.
+    tied_results: tuple[CompiledAsmTiedResult, ...]
     # Complete immediate order: explicit assembly fields, then descriptor suffix.
     immediates: tuple[CompiledAsmImmediate, ...]
     # Number of authored fields at the start of the complete immediate order.
@@ -305,22 +329,18 @@ class CompiledAsmForm:
 class CompiledAsmLayout:
     """Exact emitted formatting spans, independent of assembly identity."""
 
-    # First result operand index in the shared operand-index table.
-    result_operand_index_start: int
-    # First exact semantic result type, or None when no types are declared.
-    result_value_type_start: int | None
-    # First input operand index in the shared operand-index table.
-    operand_index_start: int
+    # First result type recipe, or None when all results use carrier inference.
+    result_type_start: int | None
+    # First default IR ownership tie.
+    tied_result_start: int
     # First delimited input operand segment.
     operand_segment_start: int
     # First row of the complete immediate order, including implicit fields.
     immediate_start: int
     # First native assembly value row.
     native_assembly_value_start: int
-    # Number of result operand indices.
-    result_operand_index_count: int
-    # Number of input operand indices.
-    operand_index_count: int
+    # Number of default IR ownership ties.
+    tied_result_count: int
     # Number of delimited input operand segments.
     operand_segment_count: int
     # Number of explicit spelling rows before the implicit descriptor suffix.
@@ -360,20 +380,20 @@ class CompiledAsmTableStorage:
 
     # Exact formatting layouts addressed by each form's layout index.
     layouts: list[CompiledAsmLayout] = field(default_factory=list)
-    # Result and operand indices addressed by assembly-form spans.
-    operand_indices: list[int] = field(default_factory=list)
+    # Default ownership rows copied directly into canonical IR operations.
+    tied_results: list[CompiledAsmTiedResult] = field(default_factory=list)
     # Delimited operand groups addressed by assembly-form spans.
     operand_segments: list[CompiledAsmOperandSegment] = field(default_factory=list)
-    # Exact semantic result types addressed by assembly-form spans.
-    result_value_types: list[AsmResultValueType | None] = field(default_factory=list)
+    # Result type recipes addressed by assembly-form spans.
+    result_types: list[CompiledAsmResultType] = field(default_factory=list)
     # Immediate projections addressed by assembly-form spans.
     immediates: list[CompiledAsmImmediate] = field(default_factory=list)
     # Native assembly values addressed by assembly-form spans.
     native_values: list[CompiledNativeAsmValue] = field(default_factory=list)
     # Indices of formatting layouts already in storage.
     _layout_indices: dict[CompiledAsmLayout, int] = field(default_factory=dict, init=False, repr=False)
-    # Starts of exact operand-index sequences already in storage.
-    _operand_index_starts: dict[tuple[int, ...], int] = field(
+    # Starts of exact default ownership sequences already in storage.
+    _tied_result_starts: dict[tuple[CompiledAsmTiedResult, ...], int] = field(
         default_factory=dict,
         init=False,
         repr=False,
@@ -381,7 +401,7 @@ class CompiledAsmTableStorage:
     # Starts of exact operand-segment sequences already in storage.
     _operand_segment_starts: dict[tuple[CompiledAsmOperandSegment, ...], int] = field(default_factory=dict, init=False, repr=False)
     # Starts of exact result-type sequences already in storage.
-    _result_value_type_starts: dict[tuple[AsmResultValueType | None, ...], int] = field(default_factory=dict, init=False, repr=False)
+    _result_type_starts: dict[tuple[CompiledAsmResultType, ...], int] = field(default_factory=dict, init=False, repr=False)
     # Starts of exact immediate sequences already in storage.
     _immediate_starts: dict[tuple[CompiledAsmImmediate, ...], int] = field(
         default_factory=dict,
@@ -399,22 +419,17 @@ class CompiledAsmTableStorage:
         """Interns each form's exact table spans into this storage."""
 
         for asm_form in asm_forms:
-            result_index_start, _ = append_interned_sequence(
-                asm_form.result_indices,
-                self.operand_indices,
-                self._operand_index_starts,
-            )
-            result_value_type_start = None
-            if asm_form.result_value_types:
-                result_value_type_start, _ = append_interned_sequence(
-                    asm_form.result_value_types,
-                    self.result_value_types,
-                    self._result_value_type_starts,
+            result_type_start = None
+            if asm_form.result_types:
+                result_type_start, _ = append_interned_sequence(
+                    asm_form.result_types,
+                    self.result_types,
+                    self._result_type_starts,
                 )
-            operand_index_start, _ = append_interned_sequence(
-                asm_form.operand_indices,
-                self.operand_indices,
-                self._operand_index_starts,
+            tied_result_start, _ = append_interned_sequence(
+                asm_form.tied_results,
+                self.tied_results,
+                self._tied_result_starts,
             )
             operand_segment_start, _ = append_interned_sequence(
                 asm_form.operand_segments,
@@ -432,14 +447,12 @@ class CompiledAsmTableStorage:
                 self._native_value_starts,
             )
             layout = CompiledAsmLayout(
-                result_operand_index_start=result_index_start,
-                result_value_type_start=result_value_type_start,
-                operand_index_start=operand_index_start,
+                result_type_start=result_type_start,
+                tied_result_start=tied_result_start,
                 operand_segment_start=operand_segment_start,
                 immediate_start=immediate_start,
                 native_assembly_value_start=native_assembly_value_start,
-                result_operand_index_count=len(asm_form.result_indices),
-                operand_index_count=len(asm_form.operand_indices),
+                tied_result_count=len(asm_form.tied_results),
                 operand_segment_count=len(asm_form.operand_segments),
                 explicit_immediate_count=asm_form.explicit_immediate_count,
                 native_assembly_value_count=len(asm_form.native_assembly_values),
@@ -458,9 +471,9 @@ class CompiledAsmTableStorage:
         # Validate their shared compact address space at its owning boundary.
         for table_name, rows in (
             ("layout", self.layouts),
-            ("operand index", self.operand_indices),
+            ("tied result", self.tied_results),
             ("operand segment", self.operand_segments),
-            ("result value type", self.result_value_types),
+            ("result type", self.result_types),
             ("immediate", self.immediates),
             ("native value", self.native_values),
         ):

@@ -1929,8 +1929,8 @@ def test_descriptor_set_view_rejects_local_schedule_definition() -> None:
         )
 
 
-@pytest.mark.parametrize("reverse_operands", [False, True])
-def test_descriptor_set_family_emits_prefix_view_local_asm_forms(reverse_operands: bool) -> None:
+@pytest.mark.parametrize("segmented_operands", [False, True])
+def test_descriptor_set_family_emits_prefix_view_local_asm_forms(segmented_operands: bool) -> None:
     storage_descriptor = replace(
         TEST_LOW_ADD_I32_DESCRIPTOR,
         asm_forms=(
@@ -1948,7 +1948,8 @@ def test_descriptor_set_family_emits_prefix_view_local_asm_forms(reverse_operand
             AsmForm(
                 mnemonic="add.i32",
                 results=("dst",),
-                operands=("rhs", "lhs") if reverse_operands else ("lhs", "rhs"),
+                operands=() if segmented_operands else ("lhs", "rhs"),
+                operand_segments=(AsmOperandSegment(AsmOperandSegmentDelimiter.PAREN, ("lhs", "rhs")),) if segmented_operands else (),
                 result_value_types=(AsmResultValueType(ScalarTypeKind.I32),),
             ),
         ),
@@ -1983,10 +1984,10 @@ def test_descriptor_set_family_emits_prefix_view_local_asm_forms(reverse_operand
     assert ".descriptors = kTestLowCoreDescriptors," in source
     assert ".descriptor_views = kTestLowCoreDescriptorViews," in source
     assert ".asm_forms = kTestLowViewCoreAsmForms," in source
-    assert source.count(".kind = LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_SCALAR,") == 1
-    expected_layout_count = 2 if reverse_operands else 1
-    assert source.count(".result_value_type_start = 0,") == expected_layout_count
-    assert (descriptor_view.asm_forms[0].layout_index == compiled.asm_forms[0].layout_index) == (not reverse_operands)
+    assert source.count(".kind = LOOM_LOW_ASM_RESULT_TYPE_KIND_SCALAR,") == 1
+    expected_layout_count = 2 if segmented_operands else 1
+    assert source.count(".result_type_start = 0,") == expected_layout_count
+    assert (descriptor_view.asm_forms[0].layout_index == compiled.asm_forms[0].layout_index) == (not segmented_operands)
     assert len(compiled.asm_table_storage.layouts) == expected_layout_count
     assert source.count(".asm_layouts = kTestLowCoreAsmLayouts,") == 2
 
@@ -2356,7 +2357,6 @@ def test_generator_emits_trailing_variadic_operand_segment() -> None:
     compiled = compiler.compile_descriptor_set(descriptor_set)
     generated = generate_descriptor_set(descriptor_set)
 
-    assert compiled.asm_forms[0].operand_indices == (1, 2)
     assert compiled.asm_table_storage.layouts[compiled.asm_forms[0].layout_index].operand_segment_start == 0
     assert compiled.asm_table_storage.operand_segments[0].operand_count == 2
     assert compiled.asm_table_storage.operand_segments[0].has_variadic_operand
@@ -2423,14 +2423,14 @@ def test_generator_emits_exact_asm_result_value_type() -> None:
     compiled = compiler.compile_descriptor_set(descriptor_set)
     generated = generate_descriptor_set(descriptor_set)
 
-    assert compiled.asm_table_storage.layouts[compiled.asm_forms[0].layout_index].result_value_type_start == 0
-    assert compiled.asm_table_storage.result_value_types == [AsmResultValueType(ScalarTypeKind.I32, vector_lane_count=4)]
-    assert "static const loom_low_asm_result_value_type_t kTestLowCoreAsmResultValueTypes[]" in generated.source
-    assert ".kind = LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_VECTOR," in generated.source
+    assert compiled.asm_table_storage.layouts[compiled.asm_forms[0].layout_index].result_type_start == 0
+    assert compiled.asm_table_storage.result_types == [AsmResultValueType(ScalarTypeKind.I32, vector_lane_count=4)]
+    assert "static const loom_low_asm_result_type_t kTestLowCoreAsmResultTypes[]" in generated.source
+    assert ".kind = LOOM_LOW_ASM_RESULT_TYPE_KIND_VECTOR," in generated.source
     assert ".element_type = LOOM_SCALAR_TYPE_I32," in generated.source
     assert ".vector_lane_count = 4," in generated.source
-    assert ".result_value_type_start = 0," in generated.source
-    assert ".asm_result_value_types = kTestLowCoreAsmResultValueTypes," in generated.source
+    assert ".result_type_start = 0," in generated.source
+    assert ".asm_result_types = kTestLowCoreAsmResultTypes," in generated.source
 
 
 def test_generator_emits_partial_multi_result_value_type_recipe() -> None:
@@ -2458,12 +2458,12 @@ def test_generator_emits_partial_multi_result_value_type_recipe() -> None:
     compiled = compiler.compile_descriptor_set(descriptor_set)
     generated = generate_descriptor_set(descriptor_set)
 
-    assert compiled.asm_table_storage.result_value_types == [
+    assert compiled.asm_table_storage.result_types == [
         AsmResultValueType(ScalarTypeKind.I32),
         None,
     ]
-    assert ".kind = LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_SCALAR," in generated.source
-    assert ".kind = LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_NONE," in generated.source
+    assert ".kind = LOOM_LOW_ASM_RESULT_TYPE_KIND_SCALAR," in generated.source
+    assert ".kind = LOOM_LOW_ASM_RESULT_TYPE_KIND_NONE," in generated.source
 
 
 def test_generator_rejects_misaligned_asm_result_value_types() -> None:
@@ -2566,7 +2566,7 @@ def test_generator_accepts_exact_type_for_same_register_value_type_result() -> N
     generated = generate_descriptor_set(descriptor_set)
 
     assert "LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE" in generated.source
-    assert "LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_SCALAR" in generated.source
+    assert "LOOM_LOW_ASM_RESULT_TYPE_KIND_SCALAR" in generated.source
 
 
 def test_generator_accepts_same_register_value_type_between_operands() -> None:
@@ -2694,7 +2694,7 @@ def test_generator_accepts_asm_form_implicit_packet_operand() -> None:
     generated = generate_descriptor_set(descriptor_set)
 
     assert "LOOM_LOW_OPERAND_FLAG_IMPLICIT" in generated.source
-    assert ".operand_index_count = 2," in generated.source
+    assert ".minimum_packet_operand_count = 2," in generated.source
 
 
 def test_compiler_indexes_every_descriptor_source_value_role() -> None:
@@ -2964,6 +2964,8 @@ def test_generator_emits_target_native_asm_immediate_values() -> None:
         ),
         asm_forms=(
             AsmForm(
+                results=("dst",),
+                operands=("lhs", "rhs"),
                 native_assembly_values=(
                     NativeAsmValue(
                         NativeAsmValueKind.IMMEDIATE_TARGET_FORMAT,
@@ -3004,6 +3006,8 @@ def test_generator_rejects_target_native_asm_immediate_oversized_bit_width() -> 
         ),
         asm_forms=(
             AsmForm(
+                results=("dst",),
+                operands=("lhs", "rhs"),
                 native_assembly_values=(
                     NativeAsmValue(
                         NativeAsmValueKind.IMMEDIATE_TARGET_FORMAT,
@@ -3037,6 +3041,8 @@ def test_generator_rejects_target_native_asm_immediate_missing_format() -> None:
         ),
         asm_forms=(
             AsmForm(
+                results=("dst",),
+                operands=("lhs", "rhs"),
                 native_assembly_values=(
                     NativeAsmValue(
                         NativeAsmValueKind.IMMEDIATE_TARGET_FORMAT,

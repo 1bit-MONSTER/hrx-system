@@ -107,6 +107,7 @@ iree_py_binary(
 iree_py_test(
     name = "low_descriptors_test",
     srcs = [
+        "assembly_test.py",
         "attr_indices_test.py",
         "compiler_test.py",
         "execution_validation_test.py",
@@ -117,6 +118,7 @@ iree_py_test(
         "//loom/py/loom/tools:pytest_style_runner.py",
     ],
     args = [
+        "loom.gen.target.low.assembly_test",
         "loom.gen.target.low.attr_indices_test",
         "loom.gen.target.low.compiler_test",
         "loom.gen.target.low.execution_validation_test",

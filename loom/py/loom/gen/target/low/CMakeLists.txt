@@ -95,6 +95,7 @@ iree_py_test(
   MAIN
     "../../../tools/pytest_style_runner.py"
   SRCS
+    "assembly_test.py"
     "attr_indices_test.py"
     "compiler_test.py"
     "execution_validation_test.py"
@@ -104,6 +105,7 @@ iree_py_test(
     "views_test.py"
     "../../../tools/pytest_style_runner.py"
   ARGS
+    "loom.gen.target.low.assembly_test"
     "loom.gen.target.low.attr_indices_test"
     "loom.gen.target.low.compiler_test"
     "loom.gen.target.low.execution_validation_test"

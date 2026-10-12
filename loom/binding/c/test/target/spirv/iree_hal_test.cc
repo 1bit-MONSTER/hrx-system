@@ -145,14 +145,14 @@ iree_status_t CreateVulkanDeviceSpec(
   iree_hal_device_spec_builder_t builder;
   iree_hal_device_spec_builder_initialize(iree_allocator_system(), &builder);
   const iree_hal_device_identity_spec_t identity = {
-      /*.logical_device_id=*/iree_string_view_empty(),
-      /*.display_name=*/iree_string_view_empty(),
-      /*.driver_id=*/iree_string_view_empty(),
-      /*.driver_version=*/iree_string_view_empty(),
-      /*.backend_id=*/iree_string_view_empty(),
-      /*.device_path=*/iree_string_view_empty(),
-      /*.vendor_name=*/iree_string_view_empty(),
-      /*.vendor_id=*/vendor_id,
+      .logical_device_id = iree_string_view_empty(),
+      .display_name = iree_string_view_empty(),
+      .driver_id = iree_string_view_empty(),
+      .driver_version = iree_string_view_empty(),
+      .backend_id = iree_string_view_empty(),
+      .device_path = iree_string_view_empty(),
+      .vendor_name = iree_string_view_empty(),
+      .vendor_id = vendor_id,
   };
   iree_status_t status =
       iree_hal_device_spec_builder_set_identity(&builder, &identity);

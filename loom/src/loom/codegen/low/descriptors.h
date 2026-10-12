@@ -17,6 +17,7 @@
 
 #include "iree/base/api.h"
 #include "iree/base/string_builder.h"
+#include "loom/ir/ir.h"
 #include "loom/ir/scalar_type.h"
 #include "loom/target/types.h"
 #include "loom/util/string_pool.h"
@@ -26,7 +27,7 @@ extern "C" {
 #endif
 
 // ABI version for descriptor sets consumed by this header.
-#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 56u
+#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 57u
 
 // Sentinel for absent target-family or descriptor-set stable IDs.
 #define LOOM_LOW_STABLE_ID_NONE UINT64_C(0)
@@ -44,8 +45,8 @@ extern "C" {
 // UINT16_MAX asm forms so canonical ordinals remain compact.
 #define LOOM_LOW_ASM_FORM_ORDINAL_NONE UINT16_MAX
 
-// Sentinel for asm forms without exact semantic result value types.
-#define LOOM_LOW_ASM_RESULT_VALUE_TYPE_START_NONE UINT16_MAX
+// Sentinel for asm forms whose results all use ordinary carrier inference.
+#define LOOM_LOW_ASM_RESULT_TYPE_START_NONE UINT16_MAX
 
 // Sentinel used before verification; verified descriptors must name a class.
 #define LOOM_LOW_SCHEDULE_CLASS_NONE UINT16_MAX
@@ -1323,28 +1324,38 @@ typedef struct loom_low_native_asm_value_t {
   loom_string_ref_t literal_string_ref;
 } loom_low_native_asm_value_t;
 
-enum loom_low_asm_result_value_type_kind_e {
-  // No exact semantic type is inferred for this result.
-  LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_NONE = 0,
+enum loom_low_asm_result_type_kind_e {
+  // Infer the carrier from the descriptor, without a semantic payload.
+  LOOM_LOW_ASM_RESULT_TYPE_KIND_NONE = 0,
   // Scalar semantic result type.
-  LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_SCALAR = 1,
+  LOOM_LOW_ASM_RESULT_TYPE_KIND_SCALAR = 1,
   // Static rank-1 vector semantic result type.
-  LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_VECTOR = 2,
+  LOOM_LOW_ASM_RESULT_TYPE_KIND_VECTOR = 2,
+  // Inherit the complete input register type without default IR ownership.
+  LOOM_LOW_ASM_RESULT_TYPE_KIND_OPERAND = 3,
+  // Inherit the complete input type and consume its IR ownership by default.
+  LOOM_LOW_ASM_RESULT_TYPE_KIND_TIED_OPERAND = 4,
 };
-typedef uint8_t loom_low_asm_result_value_type_kind_t;
+typedef uint8_t loom_low_asm_result_type_kind_t;
 
-// Exact semantic value type reconstructed for one target-asm result.
-typedef struct loom_low_asm_result_value_type_t {
-  // Shape category of the inferred semantic value type.
-  loom_low_asm_result_value_type_kind_t kind;
-  // Scalar type or vector element type.
+// Generation-owned type and default ownership recipe for one packet result.
+// Operand kinds preserve the complete register type, not just its payload.
+typedef struct loom_low_asm_result_type_t {
+  // Selects carrier-only, semantic payload, or complete operand inference.
+  loom_low_asm_result_type_kind_t kind;
+  // Scalar or vector element type; zero for operand and absent recipes.
   loom_scalar_type_t element_type;
-  // Static vector lane count, or zero for scalar and absent rows.
-  uint16_t vector_lane_count;
-} loom_low_asm_result_value_type_t;
+  // Kind-specific recipe payload.
+  union {
+    // Static vector lane count; zero for scalar and absent recipes.
+    uint16_t vector_lane_count;
+    // Canonical packet input index for OPERAND and TIED_OPERAND recipes.
+    uint16_t operand_index;
+  };
+} loom_low_asm_result_type_t;
 
-static_assert(sizeof(loom_low_asm_result_value_type_t) == 4,
-              "loom_low_asm_result_value_type_t must be 4 bytes");
+static_assert(sizeof(loom_low_asm_result_type_t) == 4,
+              "loom_low_asm_result_type_t must be 4 bytes");
 
 enum loom_low_asm_operand_segment_delimiter_e {
   // Unknown or uninitialized operand segment delimiter.
@@ -1390,17 +1401,15 @@ enum loom_low_asm_layout_flag_bits_e {
 typedef uint16_t loom_low_asm_layout_flags_t;
 
 // Interned formatting spans shared by assembly forms in one storage provider.
-// The spans describe descriptor-local positions, not descriptor identities or
-// mnemonic spellings. Forms in different descriptor-set views can share a
-// layout when all of their result, operand, immediate and native projections
-// and formatting flags agree.
+// Low assembly values follow canonical packet order. Descriptor rows own their
+// result counts and input coordinates; no separate assembly projection exists.
+// Views share layouts when their recipes, spans and formatting flags agree.
 typedef struct loom_low_asm_layout_t {
-  // First descriptor-local result operand index in asm_operand_indices.
-  uint16_t result_operand_index_start;
-  // First exact semantic result row, or START_NONE when none are declared.
-  uint16_t result_value_type_start;
-  // First descriptor-local input operand index in asm_operand_indices.
-  uint16_t operand_index_start;
+  // First result-indexed recipe, or START_NONE for carrier-only inference.
+  // The descriptor's result_count determines the span length.
+  uint16_t result_type_start;
+  // First default IR ownership row in asm_tied_results.
+  uint16_t tied_result_start;
   // First delimited input operand segment row.
   uint16_t operand_segment_start;
   // First row of the complete descriptor-local immediate order: explicit
@@ -1409,10 +1418,8 @@ typedef struct loom_low_asm_layout_t {
   uint16_t immediate_start;
   // First native assembly value row for this asm form.
   uint16_t native_assembly_value_start;
-  // Number of result operand indices for this asm form.
-  uint16_t result_operand_index_count;
-  // Number of input operand indices for this asm form.
-  uint16_t operand_index_count;
+  // Number of default IR ownership rows, in descriptor constraint order.
+  uint16_t tied_result_count;
   // Number of delimited input operand segments for this asm form.
   uint16_t operand_segment_count;
   // Number of explicit spelling rows before the implicit descriptor suffix.
@@ -1423,8 +1430,8 @@ typedef struct loom_low_asm_layout_t {
   loom_low_asm_layout_flags_t flags;
 } loom_low_asm_layout_t;
 
-static_assert(sizeof(loom_low_asm_layout_t) == 24,
-              "loom_low_asm_layout_t must be 24 bytes");
+static_assert(sizeof(loom_low_asm_layout_t) == 20,
+              "loom_low_asm_layout_t must be 20 bytes");
 
 // Assembly identity remains separate from its shared formatting layout so
 // mnemonic lookup and packet selection do not load formatting spans.
@@ -1513,18 +1520,19 @@ typedef struct loom_low_descriptor_set_t {
   const loom_low_asm_layout_t* asm_layouts;
   // Number of rows in the shared asm_layouts table.
   uint32_t asm_layout_count;
-  // Packed descriptor-local operand indices referenced by asm forms.
-  const uint16_t* asm_operand_indices;
-  // Number of descriptor-local operand index rows owned by this set.
-  uint32_t asm_operand_index_count;
+  // Default ownership rows with canonical packet indices and no type changes.
+  // Builders copy these read-only spans into operation-owned storage.
+  const loom_tied_result_t* asm_tied_results;
+  // Number of default ownership rows owned by this set.
+  uint32_t asm_tied_result_count;
   // Packed delimited operand segments referenced by asm forms.
   const loom_low_asm_operand_segment_t* asm_operand_segments;
   // Number of operand segment rows owned by this set.
   uint32_t asm_operand_segment_count;
-  // Packed exact semantic result rows referenced by asm forms.
-  const loom_low_asm_result_value_type_t* asm_result_value_types;
-  // Number of exact semantic result rows owned by this set.
-  uint32_t asm_result_value_type_count;
+  // Packed result type and ownership recipes referenced by asm forms.
+  const loom_low_asm_result_type_t* asm_result_types;
+  // Number of result recipes owned by this set.
+  uint32_t asm_result_type_count;
   // Packed immediate spelling rows referenced by asm forms.
   const loom_low_asm_immediate_t* asm_immediates;
   // Number of immediate spelling rows owned by this set.

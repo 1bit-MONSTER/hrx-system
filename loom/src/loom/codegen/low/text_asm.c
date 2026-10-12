@@ -39,14 +39,15 @@ loom_low_descriptor_text_asm_descriptor_set(
   return (const loom_low_descriptor_set_t*)descriptor_set;
 }
 
-static const loom_text_low_asm_form_t* loom_low_descriptor_text_asm_form_handle(
-    const loom_low_asm_form_t* asm_form) {
-  return (const loom_text_low_asm_form_t*)asm_form;
+static const loom_text_low_asm_form_t*
+loom_low_descriptor_text_asm_layout_handle(
+    const loom_low_asm_layout_t* layout) {
+  return (const loom_text_low_asm_form_t*)layout;
 }
 
-static const loom_low_asm_form_t* loom_low_descriptor_text_asm_form(
+static const loom_low_asm_layout_t* loom_low_descriptor_text_asm_layout(
     const loom_text_low_asm_form_t* asm_form) {
-  return (const loom_low_asm_form_t*)asm_form;
+  return (const loom_low_asm_layout_t*)asm_form;
 }
 
 static const loom_text_low_asm_descriptor_handle_t*
@@ -72,13 +73,13 @@ static void loom_low_descriptor_text_asm_make_packet(
   *out_packet = (loom_text_low_asm_packet_descriptor_t){
       .descriptor_set =
           loom_low_descriptor_text_asm_descriptor_set_handle(descriptor_set),
-      .form = loom_low_descriptor_text_asm_form_handle(asm_form),
+      .form = loom_low_descriptor_text_asm_layout_handle(layout),
       .descriptor = loom_low_descriptor_text_asm_descriptor_handle(descriptor),
       .descriptor_key = loom_low_descriptor_set_string(
           descriptor_set, descriptor->key_string_ref),
       .mnemonic = loom_low_descriptor_set_string(descriptor_set,
                                                  asm_form->mnemonic_string_ref),
-      .result_count = layout->result_operand_index_count,
+      .result_count = descriptor->result_count,
       .minimum_operand_count = descriptor->minimum_packet_operand_count,
       .operand_segment_count = layout->operand_segment_count,
       .has_variadic_operands =
@@ -152,107 +153,13 @@ static iree_status_t loom_low_descriptor_text_asm_diagnose_unknown_packet(
 }
 
 static const loom_low_operand_t* loom_low_descriptor_text_asm_result_operand(
-    const loom_text_low_asm_packet_descriptor_t* packet, uint16_t result_index,
-    uint16_t* out_descriptor_operand_index) {
+    const loom_text_low_asm_packet_descriptor_t* packet,
+    uint16_t result_index) {
   const loom_low_descriptor_set_t* descriptor_set =
       loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
   const loom_low_descriptor_t* descriptor =
       loom_low_descriptor_text_asm_descriptor(packet->descriptor);
-  const loom_low_asm_form_t* asm_form =
-      loom_low_descriptor_text_asm_form(packet->form);
-  const loom_low_asm_layout_t* layout =
-      &descriptor_set->asm_layouts[asm_form->layout_index];
-
-  const uint32_t asm_operand_index =
-      layout->result_operand_index_start + result_index;
-  const uint16_t descriptor_operand_index =
-      descriptor_set->asm_operand_indices[asm_operand_index];
-  *out_descriptor_operand_index = descriptor_operand_index;
-  return loom_low_descriptor_operand(descriptor_set, descriptor,
-                                     descriptor_operand_index);
-}
-
-static bool loom_low_descriptor_text_asm_find_packet_operand_index(
-    const loom_text_low_asm_packet_descriptor_t* packet,
-    uint16_t descriptor_operand_index, uint16_t* out_packet_operand_index) {
-  *out_packet_operand_index = 0;
-  const loom_low_descriptor_set_t* descriptor_set =
-      loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
-  const loom_low_asm_form_t* asm_form =
-      loom_low_descriptor_text_asm_form(packet->form);
-  const loom_low_asm_layout_t* layout =
-      &descriptor_set->asm_layouts[asm_form->layout_index];
-  for (uint16_t i = 0; i < layout->operand_index_count; ++i) {
-    const uint32_t asm_operand_index = layout->operand_index_start + i;
-    if (descriptor_set->asm_operand_indices[asm_operand_index] ==
-        descriptor_operand_index) {
-      *out_packet_operand_index = i;
-      return true;
-    }
-  }
-  return false;
-}
-
-static bool loom_low_descriptor_text_asm_find_packet_result_index(
-    const loom_text_low_asm_packet_descriptor_t* packet,
-    uint16_t descriptor_operand_index, uint16_t* out_packet_result_index) {
-  *out_packet_result_index = 0;
-  const loom_low_descriptor_set_t* descriptor_set =
-      loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
-  const loom_low_asm_form_t* asm_form =
-      loom_low_descriptor_text_asm_form(packet->form);
-  const loom_low_asm_layout_t* layout =
-      &descriptor_set->asm_layouts[asm_form->layout_index];
-  for (uint16_t i = 0; i < packet->result_count; ++i) {
-    const uint32_t asm_operand_index = layout->result_operand_index_start + i;
-    if (descriptor_set->asm_operand_indices[asm_operand_index] ==
-        descriptor_operand_index) {
-      *out_packet_result_index = i;
-      return true;
-    }
-  }
-  return false;
-}
-
-static bool loom_low_descriptor_text_asm_constraint_ties_result_type(
-    loom_low_constraint_kind_t kind) {
-  return kind == LOOM_LOW_CONSTRAINT_KIND_TIED ||
-         kind == LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE;
-}
-
-static iree_status_t loom_low_descriptor_text_asm_find_tied_packet_operand(
-    const loom_text_low_asm_packet_descriptor_t* packet,
-    uint16_t result_descriptor_operand_index, bool* out_found,
-    uint16_t* out_packet_operand_index) {
-  *out_found = false;
-  *out_packet_operand_index = 0;
-  const loom_low_descriptor_set_t* descriptor_set =
-      loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
-  const loom_low_descriptor_t* descriptor =
-      loom_low_descriptor_text_asm_descriptor(packet->descriptor);
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
-    const uint32_t constraint_index = descriptor->constraint_start + i;
-    const loom_low_constraint_t* constraint =
-        &descriptor_set->constraints[constraint_index];
-    if (!loom_low_descriptor_text_asm_constraint_ties_result_type(
-            constraint->kind)) {
-      continue;
-    }
-    if (constraint->lhs_operand_index != result_descriptor_operand_index) {
-      continue;
-    }
-    uint16_t packet_operand_index = 0;
-    if (!loom_low_descriptor_text_asm_find_packet_operand_index(
-            packet, constraint->rhs_operand_index, &packet_operand_index)) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "low asm result tie references an operand outside the asm form");
-    }
-    *out_found = true;
-    *out_packet_operand_index = packet_operand_index;
-    return iree_ok_status();
-  }
-  return iree_ok_status();
+  return loom_low_descriptor_operand(descriptor_set, descriptor, result_index);
 }
 
 static iree_status_t loom_low_descriptor_text_asm_append_reg_type(
@@ -348,37 +255,36 @@ static uint16_t loom_low_descriptor_text_asm_find_single_register_alt(
   return reg_class_id;
 }
 
-static const loom_low_asm_result_value_type_t*
-loom_low_descriptor_text_asm_result_value_type(
+static const loom_low_asm_result_type_t*
+loom_low_descriptor_text_asm_result_type(
     const loom_text_low_asm_packet_descriptor_t* packet,
     uint16_t result_index) {
   const loom_low_descriptor_set_t* descriptor_set =
       loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
-  const loom_low_asm_form_t* asm_form =
-      loom_low_descriptor_text_asm_form(packet->form);
   const loom_low_asm_layout_t* layout =
-      &descriptor_set->asm_layouts[asm_form->layout_index];
-  if (layout->result_value_type_start ==
-      LOOM_LOW_ASM_RESULT_VALUE_TYPE_START_NONE) {
+      loom_low_descriptor_text_asm_layout(packet->form);
+  if (layout->result_type_start == LOOM_LOW_ASM_RESULT_TYPE_START_NONE) {
     return NULL;
   }
-  const uint32_t value_type_index =
-      layout->result_value_type_start + result_index;
-  const loom_low_asm_result_value_type_t* value_type =
-      &descriptor_set->asm_result_value_types[value_type_index];
-  return value_type->kind == LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_NONE
-             ? NULL
-             : value_type;
+  const uint32_t value_type_index = layout->result_type_start + result_index;
+  const loom_low_asm_result_type_t* value_type =
+      &descriptor_set->asm_result_types[value_type_index];
+  return value_type->kind == LOOM_LOW_ASM_RESULT_TYPE_KIND_NONE ? NULL
+                                                                : value_type;
+}
+
+static bool loom_low_descriptor_text_asm_inherits_operand_type(
+    const loom_low_asm_result_type_t* recipe) {
+  return recipe != NULL &&
+         (recipe->kind == LOOM_LOW_ASM_RESULT_TYPE_KIND_OPERAND ||
+          recipe->kind == LOOM_LOW_ASM_RESULT_TYPE_KIND_TIED_OPERAND);
 }
 
 static loom_type_t loom_low_descriptor_text_asm_make_inferred_register_type(
-    const loom_text_low_asm_packet_descriptor_t* packet, uint16_t result_index,
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_asm_result_type_t* value_type,
     const loom_low_operand_t* operand, uint16_t reg_class_id,
     loom_register_type_data_t* out_register_data) {
-  const loom_low_descriptor_set_t* descriptor_set =
-      loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
-  const loom_low_asm_result_value_type_t* value_type =
-      loom_low_descriptor_text_asm_result_value_type(packet, result_index);
   if (value_type == NULL) {
     return loom_low_register_type(descriptor_set->stable_id, reg_class_id,
                                   operand->unit_count);
@@ -386,10 +292,10 @@ static loom_type_t loom_low_descriptor_text_asm_make_inferred_register_type(
 
   loom_type_t semantic_type = loom_type_none();
   switch (value_type->kind) {
-    case LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_SCALAR:
+    case LOOM_LOW_ASM_RESULT_TYPE_KIND_SCALAR:
       semantic_type = loom_type_scalar(value_type->element_type);
       break;
-    case LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_VECTOR:
+    case LOOM_LOW_ASM_RESULT_TYPE_KIND_VECTOR:
       semantic_type = loom_type_shaped_1d(
           LOOM_TYPE_VECTOR, value_type->element_type,
           loom_dim_pack_static(value_type->vector_lane_count), 0);
@@ -449,23 +355,18 @@ static iree_status_t loom_low_descriptor_text_asm_infer_result_type(
 
   const loom_low_descriptor_set_t* descriptor_set =
       loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
-  uint16_t descriptor_operand_index = 0;
   const loom_low_operand_t* operand =
-      loom_low_descriptor_text_asm_result_operand(packet, result_index,
-                                                  &descriptor_operand_index);
+      loom_low_descriptor_text_asm_result_operand(packet, result_index);
 
-  bool has_tied_operand = false;
-  uint16_t tied_operand_index = 0;
-  IREE_RETURN_IF_ERROR(loom_low_descriptor_text_asm_find_tied_packet_operand(
-      packet, descriptor_operand_index, &has_tied_operand,
-      &tied_operand_index));
-  if (has_tied_operand) {
-    if (tied_operand_index >= operand_count) {
+  const loom_low_asm_result_type_t* recipe =
+      loom_low_descriptor_text_asm_result_type(packet, result_index);
+  if (loom_low_descriptor_text_asm_inherits_operand_type(recipe)) {
+    if (recipe->operand_index >= operand_count) {
       return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                               "low asm tied operand index is out of range");
     }
     loom_type_t tied_type =
-        loom_module_value_type(module, operands[tied_operand_index]);
+        loom_module_value_type(module, operands[recipe->operand_index]);
     if (loom_low_descriptor_text_asm_result_accepts_type(descriptor_set,
                                                          operand, tied_type)) {
       *out_type = tied_type;
@@ -489,7 +390,7 @@ static iree_status_t loom_low_descriptor_text_asm_infer_result_type(
   loom_register_type_data_t register_data = {0};
   loom_type_t inferred_type =
       loom_low_descriptor_text_asm_make_inferred_register_type(
-          packet, result_index, operand, reg_class_id, &register_data);
+          descriptor_set, recipe, operand, reg_class_id, &register_data);
   return loom_module_intern_type(module, inferred_type, out_type);
 }
 
@@ -503,10 +404,8 @@ static iree_status_t loom_low_descriptor_text_asm_validate_result_type(
   *out_diagnostic_detail = iree_string_view_empty();
   const loom_low_descriptor_set_t* descriptor_set =
       loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
-  uint16_t descriptor_operand_index = 0;
   const loom_low_operand_t* operand =
-      loom_low_descriptor_text_asm_result_operand(packet, result_index,
-                                                  &descriptor_operand_index);
+      loom_low_descriptor_text_asm_result_operand(packet, result_index);
 
   if (!loom_low_descriptor_text_asm_result_accepts_type(descriptor_set, operand,
                                                         type)) {
@@ -516,20 +415,17 @@ static iree_status_t loom_low_descriptor_text_asm_validate_result_type(
         out_diagnostic_detail);
   }
 
-  bool has_tied_operand = false;
-  uint16_t tied_operand_index = 0;
-  IREE_RETURN_IF_ERROR(loom_low_descriptor_text_asm_find_tied_packet_operand(
-      packet, descriptor_operand_index, &has_tied_operand,
-      &tied_operand_index));
-  if (!has_tied_operand) {
+  const loom_low_asm_result_type_t* recipe =
+      loom_low_descriptor_text_asm_result_type(packet, result_index);
+  if (!loom_low_descriptor_text_asm_inherits_operand_type(recipe)) {
     return iree_ok_status();
   }
-  if (tied_operand_index >= operand_count) {
+  if (recipe->operand_index >= operand_count) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "low asm tied operand index is out of range");
   }
   loom_type_t tied_type =
-      loom_module_value_type(module, operands[tied_operand_index]);
+      loom_module_value_type(module, operands[recipe->operand_index]);
   if (!loom_type_equal(type, tied_type)) {
     *out_diagnostic_detail =
         IREE_SV("result type annotation must match tied operand type");
@@ -550,10 +446,8 @@ loom_low_descriptor_text_asm_result_type_annotation_required(
   *out_diagnostic_detail = iree_string_view_empty();
   const loom_low_descriptor_set_t* descriptor_set =
       loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
-  uint16_t descriptor_operand_index = 0;
   const loom_low_operand_t* operand =
-      loom_low_descriptor_text_asm_result_operand(packet, result_index,
-                                                  &descriptor_operand_index);
+      loom_low_descriptor_text_asm_result_operand(packet, result_index);
 
   if (!loom_low_descriptor_text_asm_result_accepts_type(descriptor_set, operand,
                                                         type)) {
@@ -562,18 +456,15 @@ loom_low_descriptor_text_asm_result_type_annotation_required(
     return iree_ok_status();
   }
 
-  bool has_tied_operand = false;
-  uint16_t tied_operand_index = 0;
-  IREE_RETURN_IF_ERROR(loom_low_descriptor_text_asm_find_tied_packet_operand(
-      packet, descriptor_operand_index, &has_tied_operand,
-      &tied_operand_index));
-  if (has_tied_operand) {
-    if (tied_operand_index >= operand_count) {
+  const loom_low_asm_result_type_t* recipe =
+      loom_low_descriptor_text_asm_result_type(packet, result_index);
+  if (loom_low_descriptor_text_asm_inherits_operand_type(recipe)) {
+    if (recipe->operand_index >= operand_count) {
       return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                               "low asm tied operand index is out of range");
     }
     loom_type_t tied_type =
-        loom_module_value_type(module, operands[tied_operand_index]);
+        loom_module_value_type(module, operands[recipe->operand_index]);
     if (!loom_type_equal(type, tied_type)) {
       *out_diagnostic_detail =
           IREE_SV("result type annotation must match tied operand type");
@@ -592,7 +483,7 @@ loom_low_descriptor_text_asm_result_type_annotation_required(
   loom_register_type_data_t register_data = {0};
   loom_type_t inferred_type =
       loom_low_descriptor_text_asm_make_inferred_register_type(
-          packet, result_index, operand, reg_class_id, &register_data);
+          descriptor_set, recipe, operand, reg_class_id, &register_data);
   *out_required = !loom_type_equal(type, inferred_type);
   return iree_ok_status();
 }
@@ -607,10 +498,8 @@ static void loom_low_descriptor_text_asm_immediate_descriptor(
       loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
   const loom_low_descriptor_t* descriptor =
       loom_low_descriptor_text_asm_descriptor(packet->descriptor);
-  const loom_low_asm_form_t* asm_form =
-      loom_low_descriptor_text_asm_form(packet->form);
   const loom_low_asm_layout_t* layout =
-      &descriptor_set->asm_layouts[asm_form->layout_index];
+      loom_low_descriptor_text_asm_layout(packet->form);
   const loom_low_asm_immediate_t* asm_immediate =
       &descriptor_set
            ->asm_immediates[layout->immediate_start + immediate_index];
@@ -630,98 +519,6 @@ static void loom_low_descriptor_text_asm_immediate_descriptor(
           ? loom_low_descriptor_set_string(descriptor_set,
                                            asm_immediate->name_string_ref)
           : out_immediate->field_name;
-}
-
-static iree_host_size_t loom_low_descriptor_text_asm_tied_result_count(
-    const loom_text_low_asm_packet_descriptor_t* packet) {
-  iree_host_size_t tied_result_count = 0;
-  const loom_low_descriptor_set_t* descriptor_set =
-      loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
-  const loom_low_descriptor_t* descriptor =
-      loom_low_descriptor_text_asm_descriptor(packet->descriptor);
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
-    const uint32_t constraint_index = descriptor->constraint_start + i;
-    if (descriptor_set->constraints[constraint_index].kind ==
-        LOOM_LOW_CONSTRAINT_KIND_TIED) {
-      ++tied_result_count;
-    }
-  }
-  return tied_result_count;
-}
-
-static iree_status_t loom_low_descriptor_text_asm_tied_result_at(
-    const loom_text_low_asm_packet_descriptor_t* packet,
-    iree_host_size_t tied_result_ordinal, loom_tied_result_t* out_tied_result) {
-  *out_tied_result = (loom_tied_result_t){0};
-  const loom_low_descriptor_set_t* descriptor_set =
-      loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
-  const loom_low_descriptor_t* descriptor =
-      loom_low_descriptor_text_asm_descriptor(packet->descriptor);
-
-  iree_host_size_t current_ordinal = 0;
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
-    const uint32_t constraint_index = descriptor->constraint_start + i;
-    const loom_low_constraint_t* constraint =
-        &descriptor_set->constraints[constraint_index];
-    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED) {
-      continue;
-    }
-    if (current_ordinal++ != tied_result_ordinal) {
-      continue;
-    }
-
-    uint16_t result_index = 0;
-    if (!loom_low_descriptor_text_asm_find_packet_result_index(
-            packet, constraint->lhs_operand_index, &result_index)) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "low asm tied result references a result outside the asm form");
-    }
-
-    uint16_t operand_index = 0;
-    if (!loom_low_descriptor_text_asm_find_packet_operand_index(
-            packet, constraint->rhs_operand_index, &operand_index)) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "low asm tied result references an operand outside the asm form");
-    }
-
-    *out_tied_result = (loom_tied_result_t){
-        .result_index = result_index,
-        .operand_index = operand_index,
-        .has_type_change = false,
-    };
-    return iree_ok_status();
-  }
-
-  IREE_BUILTIN_UNREACHABLE();
-}
-
-static iree_status_t loom_low_descriptor_text_asm_build_tied_results(
-    loom_builder_t* builder,
-    const loom_text_low_asm_packet_descriptor_t* packet,
-    const loom_tied_result_t** out_tied_results,
-    iree_host_size_t* out_tied_result_count) {
-  *out_tied_results = NULL;
-  *out_tied_result_count = 0;
-  const iree_host_size_t tied_result_count =
-      loom_low_descriptor_text_asm_tied_result_count(packet);
-  if (tied_result_count == 0) {
-    return iree_ok_status();
-  }
-
-  loom_tied_result_t* tied_results = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_arena_allocate_array(&builder->module->arena, tied_result_count,
-                                sizeof(*tied_results), (void**)&tied_results));
-
-  for (iree_host_size_t i = 0; i < tied_result_count; ++i) {
-    IREE_RETURN_IF_ERROR(loom_low_descriptor_text_asm_tied_result_at(
-        packet, i, &tied_results[i]));
-  }
-  *out_tied_results = tied_results;
-  *out_tied_result_count = tied_result_count;
-  return iree_ok_status();
 }
 
 static iree_status_t loom_low_descriptor_text_asm_build_packet(
@@ -758,8 +555,12 @@ static iree_status_t loom_low_descriptor_text_asm_build_packet(
   }
   if (iree_any_bit_set(build_flags,
                        LOOM_TEXT_LOW_ASM_PACKET_BUILD_FLAG_INFER_TIES)) {
-    IREE_RETURN_IF_ERROR(loom_low_descriptor_text_asm_build_tied_results(
-        builder, packet, &tied_results, &tied_result_count));
+    const loom_low_asm_layout_t* layout =
+        loom_low_descriptor_text_asm_layout(packet->form);
+    tied_result_count = layout->tied_result_count;
+    tied_results = tied_result_count ? descriptor_set->asm_tied_results +
+                                           layout->tied_result_start
+                                     : NULL;
   }
   return loom_low_build_resolved_descriptor_op(
       builder, descriptor_set, descriptor, instance_flags, operands,
@@ -775,10 +576,8 @@ static void loom_low_descriptor_text_asm_operand_segment_descriptor(
   *out_segment = (loom_text_low_asm_operand_segment_descriptor_t){0};
   const loom_low_descriptor_set_t* descriptor_set =
       loom_low_descriptor_text_asm_descriptor_set(packet->descriptor_set);
-  const loom_low_asm_form_t* asm_form =
-      loom_low_descriptor_text_asm_form(packet->form);
   const loom_low_asm_layout_t* layout =
-      &descriptor_set->asm_layouts[asm_form->layout_index];
+      loom_low_descriptor_text_asm_layout(packet->form);
   const uint32_t row_index = layout->operand_segment_start + segment_index;
   const loom_low_asm_operand_segment_t* segment =
       &descriptor_set->asm_operand_segments[row_index];
@@ -909,44 +708,28 @@ static iree_status_t loom_low_descriptor_text_asm_validate_immediates(
   return iree_ok_status();
 }
 
-static bool loom_low_descriptor_text_asm_tied_result_equal(
-    loom_tied_result_t lhs, loom_tied_result_t rhs) {
-  return lhs.result_index == rhs.result_index &&
-         lhs.operand_index == rhs.operand_index &&
-         lhs.has_type_change == rhs.has_type_change;
-}
-
-static iree_status_t
-loom_low_descriptor_text_asm_tied_results_require_annotation(
-    const loom_text_low_asm_packet_descriptor_t* packet, const loom_op_t* op,
-    bool* out_required) {
-  *out_required = false;
-  const iree_host_size_t expected_count =
-      loom_low_descriptor_text_asm_tied_result_count(packet);
-  if (op->tied_result_count != expected_count) {
-    *out_required = true;
-    return iree_ok_status();
+static bool loom_low_descriptor_text_asm_tied_results_require_annotation(
+    const loom_text_low_asm_packet_descriptor_t* packet, const loom_op_t* op) {
+  const loom_low_asm_layout_t* layout =
+      loom_low_descriptor_text_asm_layout(packet->form);
+  if (op->tied_result_count != layout->tied_result_count) {
+    return true;
   }
 
+  // Valid IR has at most one tie per result. Compare through the result-indexed
+  // recipes so authored tie order does not matter and no set search is needed.
   const loom_tied_result_t* actual_ties = loom_op_tied_results(op);
-  for (iree_host_size_t i = 0; i < expected_count; ++i) {
-    loom_tied_result_t expected_tie = {0};
-    IREE_RETURN_IF_ERROR(
-        loom_low_descriptor_text_asm_tied_result_at(packet, i, &expected_tie));
-    bool found = false;
-    for (uint16_t j = 0; j < op->tied_result_count; ++j) {
-      if (loom_low_descriptor_text_asm_tied_result_equal(expected_tie,
-                                                         actual_ties[j])) {
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      *out_required = true;
-      return iree_ok_status();
+  for (uint16_t i = 0; i < op->tied_result_count; ++i) {
+    const loom_tied_result_t* tie = &actual_ties[i];
+    const loom_low_asm_result_type_t* recipe =
+        loom_low_descriptor_text_asm_result_type(packet, tie->result_index);
+    if (recipe == NULL ||
+        recipe->kind != LOOM_LOW_ASM_RESULT_TYPE_KIND_TIED_OPERAND ||
+        recipe->operand_index != tie->operand_index || tie->has_type_change) {
+      return true;
     }
   }
-  return iree_ok_status();
+  return false;
 }
 
 static iree_status_t loom_low_descriptor_text_asm_describe_packet(
@@ -1024,9 +807,9 @@ static iree_status_t loom_low_descriptor_text_asm_describe_packet(
     if (op->result_count != packet.result_count || !operand_count_matches) {
       return iree_ok_status();
     }
-    IREE_RETURN_IF_ERROR(
-        loom_low_descriptor_text_asm_tied_results_require_annotation(
-            &packet, op, &requires_result_tie_annotation));
+    requires_result_tie_annotation =
+        loom_low_descriptor_text_asm_tied_results_require_annotation(&packet,
+                                                                     op);
   }
 
   *out_statement = (loom_text_low_asm_statement_t){

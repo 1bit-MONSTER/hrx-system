@@ -194,14 +194,14 @@ static iree_status_t loom_low_verify_tables_present(
       descriptor_set->asm_layouts, descriptor_set->asm_layout_count,
       "asm_layouts"));
   IREE_RETURN_IF_ERROR(loom_low_verify_pointer_for_count(
-      descriptor_set->asm_operand_indices,
-      descriptor_set->asm_operand_index_count, "asm_operand_indices"));
+      descriptor_set->asm_tied_results, descriptor_set->asm_tied_result_count,
+      "asm_tied_results"));
   IREE_RETURN_IF_ERROR(loom_low_verify_pointer_for_count(
       descriptor_set->asm_operand_segments,
       descriptor_set->asm_operand_segment_count, "asm_operand_segments"));
   IREE_RETURN_IF_ERROR(loom_low_verify_pointer_for_count(
-      descriptor_set->asm_result_value_types,
-      descriptor_set->asm_result_value_type_count, "asm_result_value_types"));
+      descriptor_set->asm_result_types, descriptor_set->asm_result_type_count,
+      "asm_result_types"));
   IREE_RETURN_IF_ERROR(loom_low_verify_pointer_for_count(
       descriptor_set->asm_immediates, descriptor_set->asm_immediate_count,
       "asm_immediates"));
@@ -382,51 +382,6 @@ static bool loom_low_operand_source_binding_is_valid(
     default:
       return false;
   }
-}
-
-static iree_status_t loom_low_verify_asm_operand_indices(
-    const loom_low_descriptor_set_t* descriptor_set,
-    const loom_low_descriptor_t* descriptor, uint32_t descriptor_index,
-    uint32_t start, uint16_t count, bool expect_result) {
-  for (uint16_t i = 0; i < count; ++i) {
-    const uint16_t operand_index =
-        descriptor_set->asm_operand_indices[start + i];
-    if (operand_index >= descriptor->operand_count) {
-      return iree_make_status(
-          IREE_STATUS_OUT_OF_RANGE,
-          "low asm form for descriptor %" PRIu32 " references operand %" PRIu16
-          " but descriptor has only %" PRIu16 " operands",
-          descriptor_index, operand_index, descriptor->operand_count);
-    }
-    for (uint16_t j = 0; j < i; ++j) {
-      if (descriptor_set->asm_operand_indices[start + j] == operand_index) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "low asm form for descriptor %" PRIu32
-                                " references operand %" PRIu16
-                                " more than once",
-                                descriptor_index, operand_index);
-      }
-    }
-    const loom_low_operand_t* operand =
-        loom_low_descriptor_operand(descriptor_set, descriptor, operand_index);
-    if (expect_result) {
-      if (operand_index >= descriptor->result_count ||
-          operand->role != LOOM_LOW_OPERAND_ROLE_RESULT) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "low asm form for descriptor %" PRIu32
-                                " result operand %" PRIu16
-                                " does not name a descriptor result",
-                                descriptor_index, operand_index);
-      }
-    } else if (!loom_low_operand_role_is_packet_operand(operand->role)) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "low asm form for descriptor %" PRIu32
-                              " operand %" PRIu16
-                              " does not name an explicit packet operand",
-                              descriptor_index, operand_index);
-    }
-  }
-  return iree_ok_status();
 }
 
 static iree_status_t loom_low_verify_asm_immediates(
@@ -841,66 +796,101 @@ static iree_status_t loom_low_verify_asm_form(
   }
   const loom_low_asm_layout_t* layout =
       &descriptor_set->asm_layouts[asm_form->layout_index];
-  if (descriptor->op_kind == LOOM_LOW_DESCRIPTOR_OP_KIND_CONST &&
-      (layout->result_operand_index_count != 1 ||
-       layout->operand_index_count != 0)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "low.const asm form %" PRIu32
-                            " must expose exactly one result and no operands",
-                            asm_form_index);
-  }
   IREE_RETURN_IF_ERROR(loom_low_verify_span(
-      layout->result_operand_index_start, layout->result_operand_index_count,
-      descriptor_set->asm_operand_index_count, "asm_operand_indices"));
-  if (layout->result_value_type_start !=
-      LOOM_LOW_ASM_RESULT_VALUE_TYPE_START_NONE) {
-    if (layout->result_operand_index_count == 0) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "low asm form %" PRIu32
-          " declares exact result value types but has no results",
-          asm_form_index);
+      layout->tied_result_start, layout->tied_result_count,
+      descriptor_set->asm_tied_result_count, "asm_tied_results"));
+  const loom_low_asm_result_type_t* result_types = NULL;
+  uint16_t ownership_recipe_count = 0;
+  if (layout->result_type_start != LOOM_LOW_ASM_RESULT_TYPE_START_NONE) {
+    if (descriptor->result_count == 0) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "low asm form %" PRIu32
+                              " declares result recipes but has no results",
+                              asm_form_index);
     }
     IREE_RETURN_IF_ERROR(loom_low_verify_span(
-        layout->result_value_type_start, layout->result_operand_index_count,
-        descriptor_set->asm_result_value_type_count, "asm_result_value_types"));
-    bool has_exact_value_type = false;
-    for (uint16_t i = 0; i < layout->result_operand_index_count; ++i) {
-      const loom_low_asm_result_value_type_t* value_type =
-          &descriptor_set
-               ->asm_result_value_types[layout->result_value_type_start + i];
-      if (value_type->kind == LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_NONE) {
-        continue;
-      }
-      has_exact_value_type = true;
-      const uint16_t result_operand_index =
-          descriptor_set
-              ->asm_operand_indices[layout->result_operand_index_start + i];
-      for (uint16_t j = 0; j < descriptor->constraint_count; ++j) {
-        const loom_low_constraint_t* constraint =
-            &descriptor_set->constraints[descriptor->constraint_start + j];
-        if (constraint->lhs_operand_index == result_operand_index &&
-            (constraint->kind == LOOM_LOW_CONSTRAINT_KIND_TIED ||
-             constraint->kind == LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE)) {
-          return iree_make_status(
-              IREE_STATUS_INVALID_ARGUMENT,
-              "low asm form %" PRIu32 " result %" PRIu16
-              " has both an exact result value type and operand inference",
-              asm_form_index, i);
-        }
+        layout->result_type_start, descriptor->result_count,
+        descriptor_set->asm_result_type_count, "asm_result_types"));
+    result_types = descriptor_set->asm_result_types + layout->result_type_start;
+    bool has_recipe = false;
+    for (uint16_t i = 0; i < descriptor->result_count; ++i) {
+      const loom_low_asm_result_type_t* recipe = &result_types[i];
+      has_recipe |= recipe->kind != LOOM_LOW_ASM_RESULT_TYPE_KIND_NONE;
+      ownership_recipe_count +=
+          recipe->kind == LOOM_LOW_ASM_RESULT_TYPE_KIND_TIED_OPERAND;
+      if ((recipe->kind == LOOM_LOW_ASM_RESULT_TYPE_KIND_OPERAND ||
+           recipe->kind == LOOM_LOW_ASM_RESULT_TYPE_KIND_TIED_OPERAND) &&
+          recipe->operand_index >= descriptor->minimum_packet_operand_count) {
+        return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                                "low asm form %" PRIu32
+                                " result recipe references an absent input",
+                                asm_form_index);
       }
     }
-    if (!has_exact_value_type) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "low asm form %" PRIu32
-          " exact result value type span contains only absent rows",
-          asm_form_index);
+    if (!has_recipe) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "low asm form %" PRIu32
+                              " result type span contains only absent rows",
+                              asm_form_index);
     }
   }
-  IREE_RETURN_IF_ERROR(loom_low_verify_span(
-      layout->operand_index_start, layout->operand_index_count,
-      descriptor_set->asm_operand_index_count, "asm_operand_indices"));
+  if (ownership_recipe_count != layout->tied_result_count) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "low asm form %" PRIu32
+        " ownership recipes disagree with default tie count",
+        asm_form_index);
+  }
+  uint16_t tied_result_count = 0;
+  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
+    const loom_low_constraint_t* constraint =
+        &descriptor_set->constraints[descriptor->constraint_start + i];
+    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED &&
+        constraint->kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE) {
+      continue;
+    }
+    const uint16_t result_index = constraint->lhs_operand_index;
+    const loom_low_operand_t* operand = loom_low_descriptor_operand(
+        descriptor_set, descriptor, constraint->rhs_operand_index);
+    if (result_types == NULL ||
+        (result_types[result_index].kind !=
+             LOOM_LOW_ASM_RESULT_TYPE_KIND_OPERAND &&
+         result_types[result_index].kind !=
+             LOOM_LOW_ASM_RESULT_TYPE_KIND_TIED_OPERAND) ||
+        result_types[result_index].operand_index !=
+            operand->source_value_index) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "low asm form %" PRIu32
+                              " result recipe disagrees with operand inference",
+                              asm_form_index);
+    }
+    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED) {
+      continue;
+    }
+    if (tied_result_count >= layout->tied_result_count) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "low asm form %" PRIu32 " omits default ties",
+                              asm_form_index);
+    }
+    const loom_tied_result_t* tie =
+        &descriptor_set->asm_tied_results[layout->tied_result_start +
+                                          tied_result_count++];
+    if (tie->result_index != result_index ||
+        tie->operand_index != operand->source_value_index ||
+        tie->has_type_change ||
+        result_types[result_index].kind !=
+            LOOM_LOW_ASM_RESULT_TYPE_KIND_TIED_OPERAND) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "low asm form %" PRIu32
+                              " has inconsistent default ties",
+                              asm_form_index);
+    }
+  }
+  if (tied_result_count != layout->tied_result_count) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "low asm form %" PRIu32 " has extra default ties",
+                            asm_form_index);
+  }
   IREE_RETURN_IF_ERROR(loom_low_verify_span(
       layout->operand_segment_start, layout->operand_segment_count,
       descriptor_set->asm_operand_segment_count, "asm_operand_segments"));
@@ -940,31 +930,22 @@ static iree_status_t loom_low_verify_asm_form(
     }
     segmented_operand_count += segment->operand_count;
   }
+  const uint32_t schema_operand_count =
+      descriptor->minimum_packet_operand_count +
+      loom_low_descriptor_has_variadic_operands(descriptor);
   if (layout->operand_segment_count != 0 &&
-      segmented_operand_count != layout->operand_index_count) {
+      segmented_operand_count != schema_operand_count) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "low asm form %" PRIu32 " operand segments cover %" PRIu32
-        " descriptor operands but the form contains %" PRIu16,
-        asm_form_index, segmented_operand_count, layout->operand_index_count);
+        " descriptor operands but the form contains %" PRIu32,
+        asm_form_index, segmented_operand_count, schema_operand_count);
   }
-  if (has_variadic_segment) {
-    const uint16_t descriptor_operand_index =
-        descriptor_set->asm_operand_indices[layout->operand_index_start +
-                                            layout->operand_index_count - 1];
-    const loom_low_operand_t* operand = loom_low_descriptor_operand(
-        descriptor_set, descriptor, descriptor_operand_index);
-    if (!iree_any_bit_set(operand->flags, LOOM_LOW_OPERAND_FLAG_VARIADIC)) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "low asm form %" PRIu32
-          " marks a variadic segment whose final descriptor operand is fixed",
-          asm_form_index);
-    }
-  } else if (loom_low_descriptor_has_variadic_operands(descriptor)) {
+  if (has_variadic_segment !=
+      loom_low_descriptor_has_variadic_operands(descriptor)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "low asm form %" PRIu32
-                            " does not segment its variadic descriptor operand",
+                            " variadic segment disagrees with descriptor",
                             asm_form_index);
   }
   IREE_RETURN_IF_ERROR(loom_low_verify_span(
@@ -979,14 +960,6 @@ static iree_status_t loom_low_verify_asm_form(
   IREE_RETURN_IF_ERROR(loom_low_verify_span(
       layout->native_assembly_value_start, layout->native_assembly_value_count,
       descriptor_set->native_asm_value_count, "native_asm_values"));
-  IREE_RETURN_IF_ERROR(loom_low_verify_asm_operand_indices(
-      descriptor_set, descriptor, asm_form->descriptor_ordinal,
-      layout->result_operand_index_start, layout->result_operand_index_count,
-      /*expect_result=*/true));
-  IREE_RETURN_IF_ERROR(loom_low_verify_asm_operand_indices(
-      descriptor_set, descriptor, asm_form->descriptor_ordinal,
-      layout->operand_index_start, layout->operand_index_count,
-      /*expect_result=*/false));
   IREE_RETURN_IF_ERROR(loom_low_verify_asm_immediates(
       descriptor_set, layout, descriptor, asm_form->descriptor_ordinal));
   IREE_RETURN_IF_ERROR(loom_low_verify_native_asm_values(
@@ -997,11 +970,19 @@ static iree_status_t loom_low_verify_asm_form(
   return iree_ok_status();
 }
 
-static iree_status_t loom_low_verify_asm_result_value_type(
-    const loom_low_asm_result_value_type_t* value_type,
-    uint32_t value_type_index) {
+static iree_status_t loom_low_verify_asm_result_type(
+    const loom_low_asm_result_type_t* value_type, uint32_t value_type_index) {
   switch (value_type->kind) {
-    case LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_NONE:
+    case LOOM_LOW_ASM_RESULT_TYPE_KIND_OPERAND:
+    case LOOM_LOW_ASM_RESULT_TYPE_KIND_TIED_OPERAND:
+      if (value_type->element_type != LOOM_SCALAR_TYPE_NONE) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "operand-inferred low asm result type %" PRIu32
+                                " must not declare a semantic element type",
+                                value_type_index);
+      }
+      return iree_ok_status();
+    case LOOM_LOW_ASM_RESULT_TYPE_KIND_NONE:
       if (value_type->element_type != LOOM_SCALAR_TYPE_NONE ||
           value_type->vector_lane_count != 0) {
         return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -1010,7 +991,7 @@ static iree_status_t loom_low_verify_asm_result_value_type(
                                 value_type_index);
       }
       return iree_ok_status();
-    case LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_SCALAR:
+    case LOOM_LOW_ASM_RESULT_TYPE_KIND_SCALAR:
       if (!loom_scalar_type_is_valid(value_type->element_type) ||
           value_type->vector_lane_count != 0) {
         return iree_make_status(
@@ -1020,7 +1001,7 @@ static iree_status_t loom_low_verify_asm_result_value_type(
             value_type_index);
       }
       return iree_ok_status();
-    case LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_VECTOR:
+    case LOOM_LOW_ASM_RESULT_TYPE_KIND_VECTOR:
       if (!loom_scalar_type_is_valid(value_type->element_type) ||
           value_type->vector_lane_count == 0) {
         return iree_make_status(
@@ -1040,14 +1021,14 @@ static iree_status_t loom_low_verify_asm_result_value_type(
 
 static iree_status_t loom_low_verify_asm_forms(
     const loom_low_descriptor_set_t* descriptor_set) {
-  for (uint32_t i = 0; i < descriptor_set->asm_result_value_type_count; ++i) {
-    IREE_RETURN_IF_ERROR(loom_low_verify_asm_result_value_type(
-        &descriptor_set->asm_result_value_types[i], i));
+  for (uint32_t i = 0; i < descriptor_set->asm_result_type_count; ++i) {
+    IREE_RETURN_IF_ERROR(loom_low_verify_asm_result_type(
+        &descriptor_set->asm_result_types[i], i));
   }
   if (descriptor_set->asm_form_count == 0) {
-    if (descriptor_set->asm_operand_index_count != 0 ||
+    if (descriptor_set->asm_tied_result_count != 0 ||
         descriptor_set->asm_operand_segment_count != 0 ||
-        descriptor_set->asm_result_value_type_count != 0 ||
+        descriptor_set->asm_result_type_count != 0 ||
         descriptor_set->asm_immediate_count != 0 ||
         descriptor_set->native_asm_value_count != 0) {
       return iree_make_status(

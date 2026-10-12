@@ -73,9 +73,11 @@ struct TestTables {
   loom_low_asm_form_t asm_forms[2];
   // Formatting layouts addressed independently of the sorted assembly forms.
   loom_low_asm_layout_t asm_layouts[2];
-  uint16_t asm_operand_indices[4];
+  // Default packet ownership copied from assembly layouts.
+  loom_tied_result_t asm_tied_results[1];
   loom_low_asm_operand_segment_t asm_operand_segments[1];
-  loom_low_asm_result_value_type_t asm_result_value_types[2];
+  // Exact result typing recipes addressed by assembly layouts.
+  loom_low_asm_result_type_t asm_result_types[2];
   loom_low_asm_immediate_t asm_immediates[1];
   loom_low_operand_t operands[4];
   // Descriptor-local references into the operand row pool.
@@ -253,9 +255,9 @@ void InitializeTestTables(TestTables* tables) {
   tables->set.descriptor_ref_count = IREE_ARRAYSIZE(tables->descriptor_refs);
   tables->set.asm_forms = tables->asm_forms;
   tables->set.asm_layouts = tables->asm_layouts;
-  tables->set.asm_operand_indices = tables->asm_operand_indices;
+  tables->set.asm_tied_results = tables->asm_tied_results;
   tables->set.asm_operand_segments = tables->asm_operand_segments;
-  tables->set.asm_result_value_types = tables->asm_result_value_types;
+  tables->set.asm_result_types = tables->asm_result_types;
   tables->set.asm_immediates = tables->asm_immediates;
   tables->set.operands = tables->operands;
   tables->set.operand_count = IREE_ARRAYSIZE(tables->operands);
@@ -290,11 +292,6 @@ void InitializeTestTables(TestTables* tables) {
 }
 
 void AddAsmForms(TestTables* tables) {
-  tables->asm_operand_indices[0] = 0;
-  tables->asm_operand_indices[1] = 1;
-  tables->asm_operand_indices[2] = 2;
-  tables->asm_operand_indices[3] = 0;
-
   tables->asm_immediates[0].immediate_index = 0;
   tables->asm_immediates[0].name_string_ref = LOOM_STRING_REF_NONE;
 
@@ -303,12 +300,8 @@ void AddAsmForms(TestTables* tables) {
       LOOM_STRING_REF_NONE;
   tables->asm_forms[0].descriptor_ordinal = 1;
   tables->asm_forms[0].layout_index = 0;
-  tables->asm_layouts[0].result_operand_index_start = 0;
-  tables->asm_layouts[0].result_value_type_start =
-      LOOM_LOW_ASM_RESULT_VALUE_TYPE_START_NONE;
-  tables->asm_layouts[0].result_operand_index_count = 1;
-  tables->asm_layouts[0].operand_index_start = 1;
-  tables->asm_layouts[0].operand_index_count = 2;
+  tables->asm_layouts[0].result_type_start =
+      LOOM_LOW_ASM_RESULT_TYPE_START_NONE;
   tables->asm_layouts[0].immediate_start = 0;
   tables->asm_layouts[0].explicit_immediate_count = 0;
 
@@ -317,37 +310,28 @@ void AddAsmForms(TestTables* tables) {
       LOOM_STRING_REF_NONE;
   tables->asm_forms[1].descriptor_ordinal = 0;
   tables->asm_forms[1].layout_index = 1;
-  tables->asm_layouts[1].result_operand_index_start = 3;
-  tables->asm_layouts[1].result_value_type_start =
-      LOOM_LOW_ASM_RESULT_VALUE_TYPE_START_NONE;
-  tables->asm_layouts[1].result_operand_index_count = 1;
-  tables->asm_layouts[1].operand_index_start = 4;
-  tables->asm_layouts[1].operand_index_count = 0;
+  tables->asm_layouts[1].result_type_start =
+      LOOM_LOW_ASM_RESULT_TYPE_START_NONE;
   tables->asm_layouts[1].immediate_start = 0;
   tables->asm_layouts[1].explicit_immediate_count = 1;
 
   tables->set.asm_form_count = IREE_ARRAYSIZE(tables->asm_forms);
   tables->set.asm_layout_count = IREE_ARRAYSIZE(tables->asm_layouts);
-  tables->set.asm_operand_index_count =
-      IREE_ARRAYSIZE(tables->asm_operand_indices);
   tables->set.asm_immediate_count = IREE_ARRAYSIZE(tables->asm_immediates);
   tables->descriptor_views[0].canonical_asm_form_ordinal = 1;
   tables->descriptor_views[1].canonical_asm_form_ordinal = 0;
 }
 
-void AddAsmResultValueTypes(TestTables* tables) {
+void AddAsmResultTypes(TestTables* tables) {
   AddAsmForms(tables);
-  tables->asm_layouts[0].result_value_type_start = 0;
-  tables->asm_layouts[1].result_value_type_start = 1;
-  tables->asm_result_value_types[0].kind =
-      LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_SCALAR;
-  tables->asm_result_value_types[0].element_type = LOOM_SCALAR_TYPE_I32;
-  tables->asm_result_value_types[1].kind =
-      LOOM_LOW_ASM_RESULT_VALUE_TYPE_KIND_VECTOR;
-  tables->asm_result_value_types[1].element_type = LOOM_SCALAR_TYPE_F32;
-  tables->asm_result_value_types[1].vector_lane_count = 4;
-  tables->set.asm_result_value_type_count =
-      IREE_ARRAYSIZE(tables->asm_result_value_types);
+  tables->asm_layouts[0].result_type_start = 0;
+  tables->asm_layouts[1].result_type_start = 1;
+  tables->asm_result_types[0].kind = LOOM_LOW_ASM_RESULT_TYPE_KIND_SCALAR;
+  tables->asm_result_types[0].element_type = LOOM_SCALAR_TYPE_I32;
+  tables->asm_result_types[1].kind = LOOM_LOW_ASM_RESULT_TYPE_KIND_VECTOR;
+  tables->asm_result_types[1].element_type = LOOM_SCALAR_TYPE_F32;
+  tables->asm_result_types[1].vector_lane_count = 4;
+  tables->set.asm_result_type_count = IREE_ARRAYSIZE(tables->asm_result_types);
 }
 
 void AddAddDescriptorConstraint(TestTables* tables,
@@ -1840,8 +1824,7 @@ TEST(LowDescriptorsTest, AcceptsAsmFormsAndLookup) {
   EXPECT_EQ(asm_form->descriptor_ordinal, 1u);
   const loom_low_asm_layout_t* layout =
       &tables.set.asm_layouts[asm_form->layout_index];
-  EXPECT_EQ(layout->result_operand_index_count, 1u);
-  EXPECT_EQ(layout->operand_index_count, 2u);
+  EXPECT_EQ(layout->tied_result_count, 0u);
 
   asm_form_ordinal =
       loom_low_descriptor_set_lookup_canonical_asm_form(&tables.set, 1);
@@ -1855,12 +1838,75 @@ TEST(LowDescriptorsTest, AcceptsAsmFormsAndLookup) {
   EXPECT_EQ(asm_form_ordinal, LOOM_LOW_ASM_FORM_ORDINAL_NONE);
 }
 
-TEST(LowDescriptorsTest, AcceptsAsmResultValueTypes) {
+TEST(LowDescriptorsTest, AcceptsAsmResultTypes) {
   TestTables tables;
   InitializeTestTables(&tables);
-  AddAsmResultValueTypes(&tables);
+  AddAsmResultTypes(&tables);
 
   IREE_ASSERT_OK(loom_low_descriptor_set_verify(&tables.set));
+}
+
+TEST(LowDescriptorsTest, OperandTypeAndOwnershipRecipes) {
+  for (auto kind :
+       {LOOM_LOW_CONSTRAINT_KIND_TIED, LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE}) {
+    TestTables tables;
+    InitializeTestTables(&tables);
+    AddAsmForms(&tables);
+    AddAddDescriptorConstraint(&tables, kind, 0, 1);
+    tables.asm_layouts[0].result_type_start = 0;
+    tables.set.asm_result_type_count = 1;
+    auto* recipe = &tables.asm_result_types[0];
+    recipe->kind = kind == LOOM_LOW_CONSTRAINT_KIND_TIED
+                       ? LOOM_LOW_ASM_RESULT_TYPE_KIND_TIED_OPERAND
+                       : LOOM_LOW_ASM_RESULT_TYPE_KIND_OPERAND;
+    recipe->operand_index = 0;
+    if (kind == LOOM_LOW_CONSTRAINT_KIND_TIED) {
+      tables.asm_layouts[0].tied_result_count = 1;
+      tables.set.asm_tied_result_count = 1;
+      tables.asm_tied_results[0] = {};
+    }
+    IREE_ASSERT_OK(loom_low_descriptor_set_verify(&tables.set));
+
+    if (kind == LOOM_LOW_CONSTRAINT_KIND_TIED) {
+      tables.asm_tied_results[0].has_type_change = true;
+      IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                            loom_low_descriptor_set_verify(&tables.set));
+      tables.asm_tied_results[0].has_type_change = false;
+      tables.asm_tied_results[0].operand_index = 1;
+      IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                            loom_low_descriptor_set_verify(&tables.set));
+      tables.asm_tied_results[0].operand_index = 0;
+      tables.asm_layouts[0].tied_result_count = 0;
+      IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                            loom_low_descriptor_set_verify(&tables.set));
+      tables.asm_layouts[0].tied_result_count = 1;
+    } else {
+      recipe->kind = LOOM_LOW_ASM_RESULT_TYPE_KIND_TIED_OPERAND;
+      IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                            loom_low_descriptor_set_verify(&tables.set));
+      recipe->kind = LOOM_LOW_ASM_RESULT_TYPE_KIND_OPERAND;
+    }
+    recipe->operand_index = 1;
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          loom_low_descriptor_set_verify(&tables.set));
+    recipe->operand_index = 2;
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                          loom_low_descriptor_set_verify(&tables.set));
+    recipe->operand_index = 0;
+    recipe->element_type = LOOM_SCALAR_TYPE_I32;
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          loom_low_descriptor_set_verify(&tables.set));
+  }
+}
+
+TEST(LowDescriptorsTest, RejectsAsmTieSpanOutOfRange) {
+  TestTables tables;
+  InitializeTestTables(&tables);
+  AddAsmForms(&tables);
+  tables.asm_layouts[0].tied_result_count = 1;
+
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                        loom_low_descriptor_set_verify(&tables.set));
 }
 
 TEST(LowDescriptorsTest, RejectsAsmLayoutIndexOutOfRange) {
@@ -1876,8 +1922,8 @@ TEST(LowDescriptorsTest, RejectsAsmLayoutIndexOutOfRange) {
 TEST(LowDescriptorsTest, RejectsAsmResultValueTypeSpanOutOfRange) {
   TestTables tables;
   InitializeTestTables(&tables);
-  AddAsmResultValueTypes(&tables);
-  tables.asm_layouts[1].result_value_type_start = 2;
+  AddAsmResultTypes(&tables);
+  tables.asm_layouts[1].result_type_start = 2;
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
                         loom_low_descriptor_set_verify(&tables.set));
@@ -1886,8 +1932,8 @@ TEST(LowDescriptorsTest, RejectsAsmResultValueTypeSpanOutOfRange) {
 TEST(LowDescriptorsTest, RejectsUnknownAsmResultValueTypeKind) {
   TestTables tables;
   InitializeTestTables(&tables);
-  AddAsmResultValueTypes(&tables);
-  tables.asm_result_value_types[0].kind = 3;
+  AddAsmResultTypes(&tables);
+  tables.asm_result_types[0].kind = 255;
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_low_descriptor_set_verify(&tables.set));
@@ -1896,8 +1942,8 @@ TEST(LowDescriptorsTest, RejectsUnknownAsmResultValueTypeKind) {
 TEST(LowDescriptorsTest, RejectsScalarAsmResultValueTypeWithLanes) {
   TestTables tables;
   InitializeTestTables(&tables);
-  AddAsmResultValueTypes(&tables);
-  tables.asm_result_value_types[0].vector_lane_count = 1;
+  AddAsmResultTypes(&tables);
+  tables.asm_result_types[0].vector_lane_count = 1;
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_low_descriptor_set_verify(&tables.set));
@@ -1906,8 +1952,8 @@ TEST(LowDescriptorsTest, RejectsScalarAsmResultValueTypeWithLanes) {
 TEST(LowDescriptorsTest, RejectsInvalidAsmResultValueElementType) {
   TestTables tables;
   InitializeTestTables(&tables);
-  AddAsmResultValueTypes(&tables);
-  tables.asm_result_value_types[0].element_type = LOOM_SCALAR_TYPE_COUNT_;
+  AddAsmResultTypes(&tables);
+  tables.asm_result_types[0].element_type = LOOM_SCALAR_TYPE_COUNT_;
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_low_descriptor_set_verify(&tables.set));
@@ -1916,8 +1962,8 @@ TEST(LowDescriptorsTest, RejectsInvalidAsmResultValueElementType) {
 TEST(LowDescriptorsTest, RejectsVectorAsmResultValueTypeWithoutLanes) {
   TestTables tables;
   InitializeTestTables(&tables);
-  AddAsmResultValueTypes(&tables);
-  tables.asm_result_value_types[1].vector_lane_count = 0;
+  AddAsmResultTypes(&tables);
+  tables.asm_result_types[1].vector_lane_count = 0;
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_low_descriptor_set_verify(&tables.set));
@@ -1926,8 +1972,8 @@ TEST(LowDescriptorsTest, RejectsVectorAsmResultValueTypeWithoutLanes) {
 TEST(LowDescriptorsTest, RejectsAbsentOnlyAsmResultValueTypeSpan) {
   TestTables tables;
   InitializeTestTables(&tables);
-  AddAsmResultValueTypes(&tables);
-  tables.asm_result_value_types[0] = {};
+  AddAsmResultTypes(&tables);
+  tables.asm_result_types[0] = {};
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_low_descriptor_set_verify(&tables.set));
@@ -1936,19 +1982,8 @@ TEST(LowDescriptorsTest, RejectsAbsentOnlyAsmResultValueTypeSpan) {
 TEST(LowDescriptorsTest, RejectsOperandInferredAsmResultValueType) {
   TestTables tables;
   InitializeTestTables(&tables);
-  AddAsmResultValueTypes(&tables);
+  AddAsmResultTypes(&tables);
   AddAddDescriptorConstraint(&tables, LOOM_LOW_CONSTRAINT_KIND_TIED, 0, 1);
-
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
-                        loom_low_descriptor_set_verify(&tables.set));
-}
-
-TEST(LowDescriptorsTest, RejectsConstAsmFormWithOperands) {
-  TestTables tables;
-  InitializeTestTables(&tables);
-  AddAsmForms(&tables);
-  tables.asm_layouts[1].operand_index_start = 1;
-  tables.asm_layouts[1].operand_index_count = 1;
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_low_descriptor_set_verify(&tables.set));
@@ -2046,16 +2081,6 @@ TEST(LowDescriptorsTest, RejectsMismatchedCanonicalAsmForm) {
   InitializeTestTables(&tables);
   AddAsmForms(&tables);
   tables.descriptor_views[0].canonical_asm_form_ordinal = 0;
-
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
-                        loom_low_descriptor_set_verify(&tables.set));
-}
-
-TEST(LowDescriptorsTest, RejectsAsmFormOperandWithResultRole) {
-  TestTables tables;
-  InitializeTestTables(&tables);
-  AddAsmForms(&tables);
-  tables.asm_operand_indices[1] = 0;
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_low_descriptor_set_verify(&tables.set));

@@ -569,6 +569,14 @@ class AsmOperandSegment:
 
 @dataclass(frozen=True, slots=True)
 class AsmForm:
+    """Low assembly spelling over canonical packet values.
+
+    Results and operands enumerate every explicit packet value in descriptor
+    order. Operand segments may group that order but cannot permute or omit
+    values. Implicit-state fields are not packet values. Native ISA spelling
+    can independently reorder or omit fields through native_assembly_values.
+    """
+
     mnemonic: str | None = None
     native_assembly_mnemonic: str | None = None
     results: tuple[str, ...] = ()
