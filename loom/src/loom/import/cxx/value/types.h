@@ -64,9 +64,9 @@ struct ArrayPartition final : Partition {
   bool requires_binding;
 };
 
-// Canonical typed source handle projected to one zero-origin High buffer.
-// The element type constrains source view construction but is not carried by
-// Loom's untyped buffer value.
+// Canonical typed source handle projected to one zero-origin High buffer. The
+// scalar or vector object type constrains source binding and view construction
+// but is not carried by Loom's untyped buffer value.
 struct BufferPartition final : Partition {
   // Concrete source specialization retaining copy and lifetime semantics.
   cxx::ClassSymbol* source;
@@ -179,9 +179,11 @@ struct ViewPartition final : Partition {
   std::vector<std::string> component_names;
 };
 
-// Canonical dense rank-one tensor handle. A dynamic extent is transported
-// before the dependent High tensor so its type references this binding's own
-// dimension identity across calls and region boundaries.
+// Canonical dense rank-one source tensor handle. Scalar objects project to one
+// High tensor axis. Vector objects append their logical lane axis so the High
+// tensor retains both the source object count and every scalar lane. A dynamic
+// object extent is transported before the dependent High tensor so its type
+// references this binding's own dimension identity across value boundaries.
 struct TensorPartition final : Partition {
   // Binds the High tensor type to |dynamic_extents|. Static tensors require an
   // empty span; dynamic tensors require their one transported dimension.
@@ -195,9 +197,13 @@ struct TensorPartition final : Partition {
   cxx::ClassSymbol* source;
   // Source element type used for generation payloads and scalar admission.
   const cxx::Type* element_type;
-  // High scalar representation of one logical element.
+  // Source scalar lane type; identical to element_type for scalar objects.
+  const cxx::Type* lane_type;
+  // High scalar representation of one logical lane.
   loom_scalar_type_t element;
-  // Static element count, or -1 for one transported dynamic extent.
+  // Number of scalar lanes in a vector object, or zero for a scalar object.
+  uint64_t vector_lane_count;
+  // Static source object count, or -1 for one transported dynamic extent.
   int64_t extent;
   // Source element byte width used to translate element origins to bytes.
   uint64_t element_bytes;

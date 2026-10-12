@@ -113,6 +113,10 @@ loom_type_t TensorPartition::bind_type(
   IREE_ASSERT(dynamic_extents.size() == (is_dynamic() ? 1u : 0u));
   auto dimension = is_dynamic() ? loom_dim_pack_dynamic(dynamic_extents[0])
                                 : loom_dim_pack_static(extent);
+  if (vector_lane_count) {
+    return loom_type_shaped_2d(LOOM_TYPE_TENSOR, element, dimension,
+                               loom_dim_pack_static(vector_lane_count), 0);
+  }
   return loom_type_shaped_1d(LOOM_TYPE_TENSOR, element, dimension, 0);
 }
 
@@ -258,14 +262,17 @@ const BufferPartition* Types::buffer(const cxx::ClassType* input,
   if (!element) {
     diagnostics_.reject(
         unit_, owner,
-        "buffer values require one supported non-boolean scalar element type");
+        "buffer values require one supported non-boolean scalar or vector "
+        "element type");
   }
   auto element_type = get(element, owner);
-  if (loom_type_kind(element_type) != LOOM_TYPE_SCALAR ||
+  if ((loom_type_kind(element_type) != LOOM_TYPE_SCALAR &&
+       loom_type_kind(element_type) != LOOM_TYPE_VECTOR) ||
       loom_type_element_type(element_type) == LOOM_SCALAR_TYPE_I1) {
     diagnostics_.reject(
         unit_, owner,
-        "buffer values require one supported non-boolean scalar element type");
+        "buffer values require one supported non-boolean scalar or vector "
+        "element type");
   }
   auto result = std::make_unique<BufferPartition>();
   result->kind = ValueKind::Buffer;
@@ -575,15 +582,18 @@ const TensorPartition* Types::tensor(const cxx::ClassType* input,
                         "check tensors currently require rank one");
   }
   auto* element = cxx::template_argument_type(arguments[1]);
-  auto element_type = get(element, owner);
+  auto projected_element = get(element, owner);
+  auto element_kind = loom_type_kind(projected_element);
+  auto* source_vector = vector(element);
+  auto* lane_type = source_vector ? source_vector->elementType() : element;
   auto bytes = unit_.control()->memoryLayout()->sizeOf(element);
-  if (loom_type_kind(element_type) != LOOM_TYPE_SCALAR ||
-      loom_type_element_type(element_type) == LOOM_SCALAR_TYPE_I1 ||
+  if ((element_kind != LOOM_TYPE_SCALAR && element_kind != LOOM_TYPE_VECTOR) ||
+      loom_type_element_type(projected_element) == LOOM_SCALAR_TYPE_I1 ||
       traits.is_const(element) || traits.is_volatile(element) || !bytes ||
       !*bytes) {
     diagnostics_.reject(unit_, owner,
                         "tensor elements require unqualified non-boolean "
-                        "scalar types");
+                        "scalar or vector types");
   }
   if (extents[0] >= 0 &&
       static_cast<uint64_t>(extents[0]) > INT64_MAX / *bytes) {
@@ -595,7 +605,9 @@ const TensorPartition* Types::tensor(const cxx::ClassType* input,
   result->component_count = extents[0] < 0 ? 2 : 1;
   result->source = source;
   result->element_type = element;
-  result->element = loom_type_element_type(element_type);
+  result->lane_type = lane_type;
+  result->element = loom_type_element_type(projected_element);
+  result->vector_lane_count = source_vector ? source_vector->elementCount() : 0;
   result->extent = extents[0];
   result->element_bytes = *bytes;
   auto* admitted = result.get();

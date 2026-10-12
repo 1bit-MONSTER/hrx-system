@@ -152,6 +152,8 @@ loom_check_test_suite(
     "vector_lookup.cxx-test"
     "vector_math.cxx-test"
     "vector_math_invalid.cxx-test"
+    "vector_tensors.cxx-test"
+    "vector_tensors_invalid.cxx-test"
     "vectors.cxx-test"
     "vectors_invalid.cxx-test"
     "view_values.cxx-test"
@@ -1268,6 +1270,15 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
+    vector_initializers_module
+  SRCS
+    "vector_initializers.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
     increment_values_module
   SRCS
     "increment_values.cxx"
@@ -1312,16 +1323,6 @@ loom_test_module(
   SRCS
     "typed_views.cxx"
     "typed_views.loom"
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_test_module(
-  NAME
-    vector_initializers_module
-  SRCS
-    "vector_initializers.cxx"
-    "vector_initializers.loom"
 )
 endif()
 
