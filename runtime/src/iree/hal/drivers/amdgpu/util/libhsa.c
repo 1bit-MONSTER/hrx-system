@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "iree/hal/drivers/amdgpu/util/libhsa.h"
+#include "iree/hal/drivers/amdgpu/util/libhsa_npu_gate.h"
 
 #include "iree/base/internal/debugging.h"
 #include "iree/base/internal/dynamic_library.h"
@@ -495,6 +496,11 @@ IREE_API_EXPORT iree_status_t iree_hal_amdgpu_libhsa_initialize(
   // table queries. Suppress the resulting LSAN reports for all of it.
   IREE_LEAK_CHECK_DISABLE_PUSH();
 
+#if !IREE_HAL_AMDGPU_LIBHSA_STATIC
+  if (iree_status_is_ok(status)) {
+    iree_hal_amdgpu_libhsa_gate_npu((const void*)out_libhsa->hsa_init);
+  }
+#endif  // !IREE_HAL_AMDGPU_LIBHSA_STATIC
   if (iree_status_is_ok(status)) {
     status = iree_hsa_init(IREE_LIBHSA(out_libhsa));
     if (iree_status_is_ok(status)) {
