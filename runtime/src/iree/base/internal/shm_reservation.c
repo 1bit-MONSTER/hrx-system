@@ -82,12 +82,16 @@ static iree_status_t iree_shm_reservation_prepare_unit(
     }
     return iree_ok_status();
   }
-  iree_host_size_t prefix = address - (uint8_t*)region.BaseAddress;
-  if (prefix && !VirtualFree(region.BaseAddress, prefix,
+  // VirtualQuery describes the suffix starting at the queried page. The
+  // placeholder itself begins at AllocationBase, which can precede that page.
+  iree_host_size_t prefix = address - (uint8_t*)region.AllocationBase;
+  if (prefix && !VirtualFree(region.AllocationBase, prefix,
                              MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER)) {
     return iree_shm_reservation_native_error("VirtualFree(prefix split)");
   }
-  if (region.RegionSize - prefix > granularity &&
+  iree_host_size_t remaining_length =
+      region.RegionSize - (address - (uint8_t*)region.BaseAddress);
+  if (remaining_length > granularity &&
       !VirtualFree(address, granularity,
                    MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER)) {
     return iree_shm_reservation_native_error("VirtualFree(unit split)");

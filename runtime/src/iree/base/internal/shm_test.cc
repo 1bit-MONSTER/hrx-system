@@ -118,6 +118,28 @@ TEST_F(ShmReservationTest, ValidatesCompleteVectorBeforeMutation) {
   EXPECT_EQ(reservation_.base[0], 22);
 }
 
+TEST_F(ShmReservationTest, PopulatesUntouchedSubrangesInAnyOrder) {
+  auto* source = static_cast<uint8_t*>(source_.base);
+  for (iree_host_size_t i = 0; i < 4; ++i) {
+    std::memset(source + i * granularity_, static_cast<int>(i + 1),
+                granularity_);
+  }
+
+  // Split both sides of an untouched placeholder, then its tail, its remaining
+  // prefix, and finally the first granule. No earlier mapping prepares a split.
+  const iree_host_size_t positions[] = {2, 3, 1, 0};
+  for (iree_host_size_t position : positions) {
+    auto update = Mapping(position * granularity_,
+                          (3 - position) * granularity_, granularity_);
+    IREE_ASSERT_OK(iree_shm_reservation_update(&reservation_, 1, &update));
+    for (iree_host_size_t i = 0; i < granularity_; ++i) {
+      ASSERT_EQ(reservation_.base[position * granularity_ + i], 4 - position);
+    }
+    reservation_.base[position * granularity_ + 7] = 73;
+    EXPECT_EQ(source[(3 - position) * granularity_ + 7], 73);
+  }
+}
+
 TEST_F(ShmReservationTest, IndependentReservationsShareOriginalStorage) {
   iree_shm_reservation_t other = {};
   IREE_ASSERT_OK(iree_shm_reservation_initialize(2 * granularity_, 0,
