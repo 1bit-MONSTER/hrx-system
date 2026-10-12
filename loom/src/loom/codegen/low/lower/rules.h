@@ -181,11 +181,12 @@ typedef struct loom_low_lower_value_materializer_t {
 } loom_low_lower_value_materializer_t;
 
 typedef struct loom_low_lower_rule_descriptor_ref_t {
-  // Rule-set string reference for the stable descriptor key.
-  loom_string_ref_t key_string_ref;
+  // Stable descriptor identity, independent of selected-view storage ordinals.
+  // The complete source descriptor domain is collision-checked at generation.
+  uint64_t stable_id;
 } loom_low_lower_rule_descriptor_ref_t;
-static_assert(sizeof(loom_low_lower_rule_descriptor_ref_t) == 4,
-              "loom_low_lower_rule_descriptor_ref_t must be 4 bytes");
+static_assert(sizeof(loom_low_lower_rule_descriptor_ref_t) == 8,
+              "loom_low_lower_rule_descriptor_ref_t must be 8 bytes");
 
 typedef struct loom_low_lower_value_ref_t {
   // Source value namespace being referenced.

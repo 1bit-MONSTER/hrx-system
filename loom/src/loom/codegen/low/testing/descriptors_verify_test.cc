@@ -7,6 +7,7 @@
 #include "loom/codegen/low/testing/descriptors_verify.h"
 
 #include <string>
+#include <utility>
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -69,7 +70,8 @@ enum : loom_string_ref_t {
 struct TestTables {
   loom_low_descriptor_t descriptors[2];
   loom_low_descriptor_view_t descriptor_views[2];
-  loom_low_descriptor_ref_t descriptor_refs[2];
+  // Descriptor ordinals ordered by stable identity.
+  uint32_t descriptor_refs[2];
   loom_low_asm_form_t asm_forms[2];
   // Formatting layouts addressed independently of the sorted assembly forms.
   loom_low_asm_layout_t asm_layouts[2];
@@ -231,10 +233,10 @@ void InitializeTestTables(TestTables* tables) {
   tables->descriptor_views[1].canonical_asm_form_ordinal =
       LOOM_LOW_ASM_FORM_ORDINAL_NONE;
 
-  tables->descriptor_refs[0].key_string_ref = TEST_STRING_REF(descriptor_add);
-  tables->descriptor_refs[0].descriptor_ordinal = 1;
-  tables->descriptor_refs[1].key_string_ref = TEST_STRING_REF(descriptor_const);
-  tables->descriptor_refs[1].descriptor_ordinal = 0;
+  tables->descriptor_refs[0] =
+      tables->descriptors[0].stable_id < tables->descriptors[1].stable_id ? 0
+                                                                          : 1;
+  tables->descriptor_refs[1] = 1 - tables->descriptor_refs[0];
 
   tables->set.abi_version = LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION;
   tables->set.generator_version = 7;
@@ -1733,10 +1735,7 @@ TEST(LowDescriptorsTest, RejectsDuplicateKeys) {
 TEST(LowDescriptorsTest, RejectsUnsortedDescriptorReferences) {
   TestTables tables;
   InitializeTestTables(&tables);
-  tables.descriptor_refs[0].key_string_ref = TEST_STRING_REF(descriptor_const);
-  tables.descriptor_refs[0].descriptor_ordinal = 0;
-  tables.descriptor_refs[1].key_string_ref = TEST_STRING_REF(descriptor_add);
-  tables.descriptor_refs[1].descriptor_ordinal = 1;
+  std::swap(tables.descriptor_refs[0], tables.descriptor_refs[1]);
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_low_descriptor_set_verify(&tables.set));
@@ -1746,6 +1745,15 @@ TEST(LowDescriptorsTest, RejectsIncompleteDescriptorReferences) {
   TestTables tables;
   InitializeTestTables(&tables);
   tables.set.descriptor_ref_count = 0;
+
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        loom_low_descriptor_set_verify(&tables.set));
+}
+
+TEST(LowDescriptorsTest, RejectsDuplicateDescriptorReferences) {
+  TestTables tables;
+  InitializeTestTables(&tables);
+  tables.descriptor_refs[1] = tables.descriptor_refs[0];
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_low_descriptor_set_verify(&tables.set));
@@ -1791,7 +1799,7 @@ TEST(LowDescriptorsTest, AcceptsConstDescriptorImplicitOperands) {
                              LOOM_LOW_OPERAND_FLAG_SCHEDULE_ONLY_STATE;
   tables.set.descriptor_count = 1;
   tables.set.descriptor_ordinal_count = 1;
-  tables.descriptor_refs[0] = tables.descriptor_refs[1];
+  tables.descriptor_refs[0] = 0;
   tables.set.descriptor_ref_count = 1;
 
   IREE_EXPECT_OK(loom_low_descriptor_set_verify(&tables.set));
@@ -2049,7 +2057,7 @@ TEST(LowDescriptorsTest, HidesDescriptorsOutsideSparseViewMembership) {
 TEST(LowDescriptorsTest, RejectsDescriptorReferenceOutsideBackingStorage) {
   TestTables tables;
   InitializeTestTables(&tables);
-  tables.descriptor_refs[0].descriptor_ordinal = 2;
+  tables.descriptor_refs[0] = 2;
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
                         loom_low_descriptor_set_verify(&tables.set));

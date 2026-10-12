@@ -47,7 +47,7 @@ from loom.target.contracts import (
     TypePattern,
 )
 from loom.target.contracts.diagnostics import DiagnosticParamKind
-from loom.target.low_descriptors import Descriptor
+from loom.target.low_descriptors import Descriptor, descriptor_stable_id
 
 _GUARD_VALUE_REF_KINDS = frozenset(
     (
@@ -540,8 +540,8 @@ def descriptor_ref_keys(table: CompiledLowerRuleSet, source_contract: ContractFr
     return tuple(descriptor.key for descriptor in source_contract.descriptor_set.descriptors if descriptor.key in used_keys)
 
 
-def descriptor_ref_row(key_string_ref: str) -> list[str]:
-    return [f".key_string_ref = {key_string_ref}"]
+def descriptor_ref_row(key: str) -> list[str]:
+    return [f".stable_id = UINT64_C(0x{descriptor_stable_id(key):016x})"]
 
 
 def _descriptor_ref_index(descriptor_refs: Mapping[str, int], descriptor: Descriptor | None) -> int:

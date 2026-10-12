@@ -430,7 +430,7 @@ TEST_F(LowContractQuerySourceMemoryTest,
 
 TEST(LowContractQueryTest, ContractIndexDescriptorRuleSelectsLegalCase) {
   loom_low_lower_rule_descriptor_ref_t descriptor_ref = {
-      .key_string_ref = kRuleStringDescriptor,
+      .stable_id = kDescriptorId,
   };
   loom_low_lower_emit_t emit = {
       .kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP,
@@ -1105,7 +1105,7 @@ TEST_F(LowContractQuerySourceMemoryTest,
 
 TEST(LowContractQueryTest, TargetSubgroupSizeRangeRequiresKnownInRangeSize) {
   loom_low_lower_rule_descriptor_ref_t descriptor_ref = {
-      .key_string_ref = kRuleStringDescriptor,
+      .stable_id = kDescriptorId,
   };
   loom_low_lower_guard_t guard = {};
   loom_low_lower_guard_payload_t guard_payload = {};

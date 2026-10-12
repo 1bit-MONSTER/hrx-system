@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from unittest.mock import patch
 
 import pytest
 
@@ -41,6 +42,7 @@ from loom.target.contracts import (
     contract_fragment_public_header,
     descriptor_by_semantic_tag,
 )
+from loom.target.contracts import descriptors as contract_descriptors
 from loom.target.contracts.diagnostics import string_param, target_diagnostic
 from loom.target.low_descriptors import Immediate, ImmediateFlag, ImmediateKind
 from loom.target.test.descriptors import (
@@ -119,6 +121,26 @@ def test_contract_fragment_requires_explicit_public_header() -> None:
         match=r"contract fragment 'test-low\.binary' requires public_header",
     ):
         contract_fragment_public_header(table)
+
+
+@pytest.mark.parametrize(
+    ("same_key", "message"),
+    [(True, "duplicate descriptor key"), (False, "stable ID collides")],
+)
+def test_contract_fragment_rejects_ambiguous_descriptor_identities(
+    same_key: bool, message: str
+) -> None:
+    descriptor = TEST_LOW_ADD_I32_DESCRIPTOR
+    other = descriptor if same_key else TEST_LOW_ADD_F32_DESCRIPTOR
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor, other)
+    )
+    # Even unused descriptors can appear in the selected target view.
+    with (
+        patch.object(contract_descriptors, "descriptor_stable_id", return_value=1),
+        pytest.raises(ValueError, match=message),
+    ):
+        ContractFragment(name="test.identity", descriptor_set=descriptor_set)
 
 
 def test_descriptor_rule_validates_related_source_nodes() -> None:

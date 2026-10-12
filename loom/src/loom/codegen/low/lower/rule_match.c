@@ -128,10 +128,10 @@ iree_status_t loom_low_lower_rule_resolve_descriptor_ref(
   }
   IREE_ASSERT(match_context->descriptor_set != NULL);
   IREE_ASSERT(rule_set->descriptor_refs != NULL);
-  const iree_string_view_t key = loom_low_lower_rule_set_string(
-      rule_set, rule_set->descriptor_refs[descriptor_ref].key_string_ref);
-  const uint32_t descriptor_ordinal = loom_low_descriptor_set_lookup_descriptor(
-      match_context->descriptor_set, key);
+  const uint32_t descriptor_ordinal =
+      loom_low_descriptor_set_lookup_descriptor_by_id(
+          match_context->descriptor_set,
+          rule_set->descriptor_refs[descriptor_ref].stable_id);
   if (descriptor_ordinal == LOOM_LOW_DESCRIPTOR_ORDINAL_NONE) {
     return iree_ok_status();
   }

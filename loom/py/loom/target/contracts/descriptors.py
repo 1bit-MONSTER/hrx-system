@@ -19,6 +19,7 @@ from loom.target.low_descriptors import (
     ImmediateKind,
     OperandFlag,
     OperandRole,
+    descriptor_stable_id,
 )
 from loom.target.low_descriptors import (
     Operand as DescriptorOperand,
@@ -59,14 +60,21 @@ def descriptor_by_semantic_tag(
 
 
 def _validate_descriptor_set_keys(descriptor_set: DescriptorSet) -> None:
-    seen = set[str]()
+    keys_by_id: dict[int, str] = {}
     for descriptor in descriptor_set.descriptors:
-        if descriptor.key in seen:
+        stable_id = descriptor_stable_id(descriptor.key)
+        previous_key = keys_by_id.get(stable_id)
+        if previous_key == descriptor.key:
             raise ValueError(
                 f"descriptor set '{descriptor_set.key}' has duplicate "
                 f"descriptor key '{descriptor.key}'"
             )
-        seen.add(descriptor.key)
+        if previous_key is not None:
+            raise ValueError(
+                f"descriptor '{descriptor.key}' stable ID collides with "
+                f"'{previous_key}' in set '{descriptor_set.key}'"
+            )
+        keys_by_id[stable_id] = descriptor.key
 
 
 def _require_descriptor(

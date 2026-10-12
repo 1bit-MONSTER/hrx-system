@@ -50,8 +50,8 @@ struct RequirementTables {
   loom_low_descriptor_t descriptors[1];
   // View-owned descriptor rows paired with the structural rows.
   loom_low_descriptor_view_t descriptor_views[1];
-  // Sorted descriptor key map owned by the test descriptor set.
-  loom_low_descriptor_ref_t descriptor_refs[1];
+  // Descriptor ordinals ordered by stable identity.
+  uint32_t descriptor_refs[1];
   // Operand/result rows referenced by the test descriptor.
   loom_low_operand_t operands[3];
   // Register class rows accepted by the test operands.
@@ -137,9 +137,7 @@ void InitializeRequirementTables(RequirementTables* tables) {
   tables->descriptor_views[0].schedule_class_id = 0;
   tables->descriptors[0].flags = LOOM_LOW_DESCRIPTOR_FLAG_DEAD_REMOVABLE;
 
-  tables->descriptor_refs[0].key_string_ref =
-      REQUIREMENT_STRING_REF(descriptor_add);
-  tables->descriptor_refs[0].descriptor_ordinal = 0;
+  tables->descriptor_refs[0] = 0;
 
   tables->set.abi_version = LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION;
   tables->set.generator_version = 7;
