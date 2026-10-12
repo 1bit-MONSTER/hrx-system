@@ -2412,6 +2412,46 @@ TEST(LowDescriptorsTest, RejectsIncorrectMinimumIssueCycles) {
                         loom_low_descriptor_set_verify(&tables.set));
 }
 
+TEST(LowDescriptorsTest, MinimumIssueCyclesCombineOnlyRequiredAliasDemand) {
+  TestTables tables;
+  InitializeTestTables(&tables);
+  loom_low_resource_t resources[] = {tables.resources[0], tables.resources[0]};
+  resources[0].capacity_per_cycle = 2;
+  resources[0].contention_group_id = 7;
+  resources[1].capacity_per_cycle = 2;
+  resources[1].contention_group_id = 7;
+  loom_low_issue_use_t uses[] = {
+      {/*resource_id=*/1, /*cycles=*/32, /*units=*/2, /*stage=*/10,
+       LOOM_LOW_ISSUE_USE_KIND_RESERVED},
+      {/*resource_id=*/0, /*cycles=*/3, /*units=*/1, /*stage=*/0,
+       LOOM_LOW_ISSUE_USE_KIND_REQUIRED},
+      {/*resource_id=*/1, /*cycles=*/2, /*units=*/2, /*stage=*/3,
+       LOOM_LOW_ISSUE_USE_KIND_REQUIRED},
+  };
+  tables.set.resources = resources;
+  tables.set.resource_count = IREE_ARRAYSIZE(resources);
+  tables.set.issue_uses = uses;
+  tables.set.issue_use_count = IREE_ARRAYSIZE(uses);
+  tables.schedule_classes[1].issue_use_count = IREE_ARRAYSIZE(uses);
+  tables.schedule_classes[1].minimum_issue_cycles = 4;
+  IREE_EXPECT_OK(loom_low_descriptor_set_verify(&tables.set));
+
+  for (uint16_t independent_group : {0, 8}) {
+    resources[1].contention_group_id = independent_group;
+    tables.schedule_classes[1].minimum_issue_cycles = 2;
+    IREE_EXPECT_OK(loom_low_descriptor_set_verify(&tables.set));
+  }
+
+  for (auto& use : uses) {
+    use.kind = LOOM_LOW_ISSUE_USE_KIND_RESERVED;
+  }
+  tables.schedule_classes[1].minimum_issue_cycles = 0;
+  IREE_EXPECT_OK(loom_low_descriptor_set_verify(&tables.set));
+  tables.schedule_classes[1].minimum_issue_cycles = 1;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        loom_low_descriptor_set_verify(&tables.set));
+}
+
 TEST(LowDescriptorsTest, RejectsZeroIssueUseCycles) {
   TestTables tables;
   InitializeTestTables(&tables);
