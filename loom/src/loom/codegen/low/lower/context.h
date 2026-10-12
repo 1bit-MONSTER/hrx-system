@@ -175,7 +175,7 @@ iree_status_t loom_low_lower_query_value(loom_low_lower_context_t* context,
                                          loom_type_t* out_low_type);
 
 // Returns true when the lowering context has reached its diagnostic limit.
-bool loom_low_lower_context_should_stop(
+bool loom_low_lower_context_diagnostic_limit_reached(
     const loom_low_lower_context_t* context);
 
 // Emits a TARGET-domain diagnostic with the standard target-low source

@@ -1359,7 +1359,7 @@ static iree_status_t loom_low_lower_function_plan_build(
     status = loom_low_lower_function_boundary_validate(context);
   }
   if (iree_status_is_ok(status) &&
-      !loom_low_lower_context_should_stop(context)) {
+      !loom_low_lower_context_diagnostic_limit_reached(context)) {
     status = loom_low_lower_source_plan_build(context, source_body);
   }
   if (iree_status_is_ok(status) && context->result->error_count == 0) {

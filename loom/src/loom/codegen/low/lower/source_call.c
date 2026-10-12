@@ -216,7 +216,7 @@ static iree_status_t loom_low_source_call_resolve_callee_target(
       &context->planning_arena, &target_valid, out_callee_target_facts));
   if (!target_valid) {
     *out_callee_descriptor_set = NULL;
-    if (!loom_low_lower_context_should_stop(context)) {
+    if (!loom_low_lower_context_diagnostic_limit_reached(context)) {
       ++context->result->error_count;
     }
   }

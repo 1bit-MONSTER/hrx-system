@@ -431,7 +431,7 @@ iree_status_t loom_low_lower_source_memory_prepare(
   for (loom_low_lower_source_memory_record_t* record =
            context->lowering->source_plan.memory.first;
        record && iree_status_is_ok(status) &&
-       !loom_low_lower_context_should_stop(context);
+       !loom_low_lower_context_diagnostic_limit_reached(context);
        record = record->next) {
     if (!record->available || !loom_memory_access_isa(loom_memory_access_cast(
                                   context->module, record->source_op))) {
@@ -446,7 +446,7 @@ iree_status_t loom_low_lower_source_memory_prepare(
   }
   context->lowering->source_plan.memory.current = NULL;
   if (iree_status_is_ok(status) &&
-      !loom_low_lower_context_should_stop(context)) {
+      !loom_low_lower_context_diagnostic_limit_reached(context)) {
     status = loom_low_lower_realizations_finalize(context);
   }
   iree_arena_deinitialize(&construction_arena);
