@@ -106,6 +106,78 @@ static iree_status_t hrx_hal_semaphore_lists_initialize(
   return status;
 }
 
+hrx_status_t hrx_queue_map(hrx_device_t device, hrx_queue_affinity_t affinity,
+                           const hrx_semaphore_list_t* wait_semaphores,
+                           const hrx_semaphore_list_t* signal_semaphores,
+                           size_t mapping_count,
+                           const hrx_memory_mapping_t* mappings,
+                           hrx_queue_map_flags_t flags) {
+  HRX_TRACE_ZONE_BEGIN(z0, "hrx_queue_map");
+  if (!device || (mapping_count && !mappings)) {
+    HRX_RETURN_AND_END_ZONE(
+        z0, hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
+                            "mapping device or descriptor array is NULL"));
+  }
+  iree_hal_queue_t* queue = NULL;
+  iree_status_t status = hrx_hal_device_select_queue(
+      device->hal_device, affinity, IREE_HAL_QUEUE_FAMILY_ROLE_FLAG_TRANSFER,
+      NULL, &queue);
+  if (!iree_status_is_ok(status)) {
+    HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(status));
+  }
+  hrx_hal_semaphore_lists_t semaphore_lists;
+  status = hrx_hal_semaphore_lists_initialize(
+      wait_semaphores, signal_semaphores, &semaphore_lists);
+  if (!iree_status_is_ok(status)) {
+    HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(status));
+  }
+  // Small transactions translate on the stack; the native queue captures the
+  // whole vector before returning. There is no per-installed-mapping state.
+  iree_hal_memory_mapping_t inline_mappings[8];
+  iree_hal_memory_mapping_t* hal_mappings = inline_mappings;
+  if (mapping_count > IREE_ARRAYSIZE(inline_mappings)) {
+    status = iree_allocator_malloc_array(iree_allocator_system(), mapping_count,
+                                         sizeof(*hal_mappings),
+                                         (void**)&hal_mappings);
+  }
+  for (size_t i = 0; i < mapping_count && iree_status_is_ok(status); ++i) {
+    const hrx_memory_mapping_t* mapping = &mappings[i];
+    if (!mapping->reservation) {
+      status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "mapping reservation is NULL");
+    } else if (mapping->source && !mapping->source->hal_buffer) {
+      status =
+          iree_make_status(IREE_STATUS_UNAVAILABLE,
+                           "mapping source has no prepared native storage");
+    } else {
+      const void* domain = mapping->scope.domain;
+      if (!domain && mapping->scope.id == IREE_HAL_MEMORY_SCOPE_ANY) {
+        domain = mapping->reservation->hal_reservation->buffer.memory.contract
+                     ->domain;
+      }
+      hal_mappings[i] = (iree_hal_memory_mapping_t){
+          .reservation = mapping->reservation->hal_reservation,
+          .scope = {domain, mapping->scope.id},
+          .target_range = {mapping->target_offset, mapping->byte_length},
+          .source = mapping->source ? mapping->source->hal_buffer : NULL,
+          .source_offset = mapping->source_offset,
+          .access = mapping->access,
+          .operation = (iree_hal_memory_mapping_operation_t)mapping->operation,
+      };
+    }
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_queue_map(
+        queue, semaphore_lists.wait.list, semaphore_lists.signal.list,
+        mapping_count, hal_mappings, (iree_hal_queue_map_flags_t)flags);
+  }
+  if (hal_mappings != inline_mappings) {
+    iree_allocator_free(iree_allocator_system(), hal_mappings);
+  }
+  hrx_hal_semaphore_lists_deinitialize(&semaphore_lists);
+  HRX_RETURN_AND_END_ZONE(z0, hrx_status_from_iree(status));
+}
+
 typedef struct hrx_host_call_thunk_t {
   hrx_host_call_fn_t callback;
   void* user_data;

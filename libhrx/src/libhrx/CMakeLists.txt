@@ -49,6 +49,7 @@ iree_cc_library(
     "host_allocator.c"
     "mem_pool.c"
     "mem_pool_backing.c"
+    "memory_reservation.c"
     "queue_ops.c"
     "runtime.c"
     "semaphore.c"
@@ -126,6 +127,7 @@ iree_cc_library(
     "host_allocator.c"
     "mem_pool.c"
     "mem_pool_backing.c"
+    "memory_reservation.c"
     "queue_ops.c"
     "runtime.c"
     "semaphore.c"
@@ -215,6 +217,20 @@ iree_cc_test(
     buffer_test
   SRCS
     "buffer_test.cc"
+  DEPS
+    ::hrx_static
+    iree::base
+    iree::hal
+    iree::testing::gtest
+    iree::testing::gtest_main
+    libhrx_defs
+)
+
+iree_cc_test(
+  NAME
+    memory_reservation_test
+  SRCS
+    "memory_reservation_test.cc"
   DEPS
     ::hrx_static
     iree::base

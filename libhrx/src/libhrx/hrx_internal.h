@@ -260,6 +260,14 @@ typedef struct hrx_device_s {
   char architecture[64];
 } hrx_device_s;
 
+// Explicit addresses with a separately retained ordinary buffer view.
+typedef struct hrx_memory_reservation_s {
+  // Native address owner consumed by explicit destruction.
+  iree_hal_memory_reservation_t* hal_reservation;
+  // Owned view retaining the primary device and its sealed group.
+  hrx_buffer_t buffer;
+} hrx_memory_reservation_s;
+
 // Timeline semaphore.
 typedef struct hrx_semaphore_s {
   iree_atomic_ref_count_t ref_count;
