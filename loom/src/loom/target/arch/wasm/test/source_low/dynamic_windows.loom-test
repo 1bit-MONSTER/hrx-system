@@ -48,26 +48,24 @@ func.def @shared_dynamic_predicate_windows(%trial0: index, %input: buffer, %outp
 
 // ----
 low.func.def target<wasm.core.simd128> abi(wasm_function) @shared_dynamic_predicate_windows(%trial: reg<wasm.i32>, %input: reg<wasm.i32>, %output: reg<wasm.i32>) asm {
-  %39 = i32.const 4
-  %40 = i32.mul %trial, %39
-  %41 = i32.add %input, %40
-  %42 = v128.load %41
-  %43 = i32.const 0
-  %44 = i32x4.splat %43
-  %45 = i32x4.ne %42, %44
-  %first = i8x16.shuffle %45, %45, 0, 4, 8, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-  %50 = v128.load %41 {offset = 16}
-  %51 = i32x4.ne %50, %44
-  %second = i8x16.shuffle %51, %51, 0, 4, 8, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-  %53 = i32.const 1
-  %54 = i8x16.splat %53
-  %56 = i8x16.splat %43
-  %first_bytes = v128.bitselect %54, %56, %first
-  %second_bytes = v128.bitselect %54, %56, %second
-  %59 = i32x4.extract_lane %first_bytes, 0
-  i32.store %output, %59
-  %60 = i32x4.extract_lane %second_bytes, 0
-  i32.store %output, %60 {offset = 4}
+  %33 = i32.const 4
+  %34 = i32.mul %trial, %33
+  %35 = i32.add %input, %34
+  %36 = v128.load %35
+  %37 = i32.const 0
+  %38 = i32x4.splat %37
+  %39 = i32x4.ne %36, %38
+  %first = i8x16.shuffle %39, %39, 0, 4, 8, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  %44 = v128.load %35 {offset = 16}
+  %45 = i32x4.ne %44, %38
+  %second = i8x16.shuffle %45, %45, 0, 4, 8, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  %47 = v128.const 72340172838076673, 72340172838076673
+  %first_bytes = v128.and %first, %47
+  %second_bytes = v128.and %second, %47
+  %51 = i32x4.extract_lane %first_bytes, 0
+  i32.store %output, %51
+  %52 = i32x4.extract_lane %second_bytes, 0
+  i32.store %output, %52 {offset = 4}
   return
 }
 
@@ -97,3 +95,211 @@ low.func.def target<wasm.core.simd128> abi(wasm_function) @dynamic_shaped_tail(%
   i64.store %output, %46 {offset = 16}
   return
 }
+
+// ====
+
+// An authored concat is an SSA snapshot: the runtime window selects from its
+// retained packets instead of replaying the packet producers.
+func.def @materialized_i8_window(%lhs: vector<16xi8>, %rhs: vector<16xi8>, %offset0: index) -> (vector<16xi8>) {
+  %offset = index.assume %offset0 [range(%offset0, 0, 16)] : index
+  %source = vector.concat<0> %lhs, %rhs : vector<16xi8>, vector<16xi8> -> vector<32xi8>
+  %result = vector.slice %source[%offset] : vector<32xi8> -> vector<16xi8>
+  func.return %result : vector<16xi8>
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @materialized_i8_window(%lhs: reg<wasm.v128>, %rhs: reg<wasm.v128>, %offset: reg<wasm.i32>) -> (reg<wasm.v128>) asm {
+  %12 = i32.const 15
+  %13 = i32.and %offset, %12
+  %14 = i8x16.splat %13
+  %15 = v128.const 506097522914230528, 1084818905618843912
+  %16 = i8x16.add %14, %15
+  %17 = v128.const 1157442765409226768, 1157442765409226768
+  %18 = i8x16.sub %16, %17
+  %19 = v128.const 0, 0
+  %20 = i32.const 0
+  %21 = i32.const 16
+  %22 = i32.ge_u %offset, %21
+  %23 = i32.sub %20, %22
+  %24 = i8x16.splat %23
+  %27 = v128.bitselect %rhs, %lhs, %24
+  %28 = v128.bitselect %19, %rhs, %24
+  %29 = i8x16.swizzle %27, %16
+  %30 = i8x16.swizzle %28, %18
+  %result = v128.or %29, %30
+  return %result
+}
+
+// ====
+
+func.def @materialized_bf16_window(%lhs: vector<8xbf16>, %rhs: vector<8xbf16>, %offset0: index) -> (vector<8xbf16>) {
+  %offset = index.assume %offset0 [range(%offset0, 0, 8)] : index
+  %source = vector.concat<0> %lhs, %rhs : vector<8xbf16>, vector<8xbf16> -> vector<16xbf16>
+  %result = vector.slice %source[%offset] : vector<16xbf16> -> vector<8xbf16>
+  func.return %result : vector<8xbf16>
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @materialized_bf16_window(%lhs: reg<wasm.v128>, %rhs: reg<wasm.v128>, %offset: reg<wasm.i32>) -> (reg<wasm.v128>) asm {
+  %12 = i32.const 2
+  %13 = i32.mul %offset, %12
+  %14 = i32.const 15
+  %15 = i32.and %13, %14
+  %16 = i8x16.splat %15
+  %17 = v128.const 506097522914230528, 1084818905618843912
+  %18 = i8x16.add %16, %17
+  %19 = v128.const 1157442765409226768, 1157442765409226768
+  %20 = i8x16.sub %18, %19
+  %21 = v128.const 0, 0
+  %22 = i32.const 0
+  %23 = i32.const 16
+  %24 = i32.ge_u %13, %23
+  %25 = i32.sub %22, %24
+  %26 = i8x16.splat %25
+  %29 = v128.bitselect %rhs, %lhs, %26
+  %30 = v128.bitselect %21, %rhs, %26
+  %31 = i8x16.swizzle %29, %18
+  %32 = i8x16.swizzle %30, %20
+  %result = v128.or %31, %32
+  return %result
+}
+
+// ====
+
+func.def @materialized_f32_window(%lhs: vector<4xf32>, %rhs: vector<4xf32>, %offset0: index) -> (vector<4xf32>) {
+  %offset = index.assume %offset0 [range(%offset0, 0, 4)] : index
+  %source = vector.concat<0> %lhs, %rhs : vector<4xf32>, vector<4xf32> -> vector<8xf32>
+  %result = vector.slice %source[%offset] : vector<8xf32> -> vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @materialized_f32_window(%lhs: reg<wasm.v128>, %rhs: reg<wasm.v128>, %offset: reg<wasm.i32>) -> (reg<wasm.v128>) asm {
+  %12 = i32.const 4
+  %13 = i32.mul %offset, %12
+  %14 = i32.const 15
+  %15 = i32.and %13, %14
+  %16 = i8x16.splat %15
+  %17 = v128.const 506097522914230528, 1084818905618843912
+  %18 = i8x16.add %16, %17
+  %19 = v128.const 1157442765409226768, 1157442765409226768
+  %20 = i8x16.sub %18, %19
+  %21 = v128.const 0, 0
+  %22 = i32.const 0
+  %23 = i32.const 16
+  %24 = i32.ge_u %13, %23
+  %25 = i32.sub %22, %24
+  %26 = i8x16.splat %25
+  %29 = v128.bitselect %rhs, %lhs, %26
+  %30 = v128.bitselect %21, %rhs, %26
+  %31 = i8x16.swizzle %29, %18
+  %32 = i8x16.swizzle %30, %20
+  %result = v128.or %31, %32
+  return %result
+}
+
+// ====
+
+func.def @materialized_i64_window(%lhs: vector<2xi64>, %rhs: vector<2xi64>, %offset0: index) -> (vector<2xi64>) {
+  %offset = index.assume %offset0 [range(%offset0, 0, 2)] : index
+  %source = vector.concat<0> %lhs, %rhs : vector<2xi64>, vector<2xi64> -> vector<4xi64>
+  %result = vector.slice %source[%offset] : vector<4xi64> -> vector<2xi64>
+  func.return %result : vector<2xi64>
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @materialized_i64_window(%lhs: reg<wasm.v128>, %rhs: reg<wasm.v128>, %offset: reg<wasm.i32>) -> (reg<wasm.v128>) asm {
+  %12 = i32.const 8
+  %13 = i32.mul %offset, %12
+  %14 = i32.const 15
+  %15 = i32.and %13, %14
+  %16 = i8x16.splat %15
+  %17 = v128.const 506097522914230528, 1084818905618843912
+  %18 = i8x16.add %16, %17
+  %19 = v128.const 1157442765409226768, 1157442765409226768
+  %20 = i8x16.sub %18, %19
+  %21 = v128.const 0, 0
+  %22 = i32.const 0
+  %23 = i32.const 16
+  %24 = i32.ge_u %13, %23
+  %25 = i32.sub %22, %24
+  %26 = i8x16.splat %25
+  %29 = v128.bitselect %rhs, %lhs, %26
+  %30 = v128.bitselect %21, %rhs, %26
+  %31 = i8x16.swizzle %29, %18
+  %32 = i8x16.swizzle %30, %20
+  %result = v128.or %31, %32
+  return %result
+}
+
+// ====
+
+func.def @materialized_predicate_window(%a: vector<16xi1>, %b: vector<16xi1>, %c: vector<16xi1>, %d: vector<16xi1>, %offset0: index) -> (vector<16xi8>) {
+  %offset = index.assume %offset0 [range(%offset0, 0, 48)] : index
+  %source = vector.concat<0> %a, %b, %c, %d : vector<16xi1>, vector<16xi1>, vector<16xi1>, vector<16xi1> -> vector<64xi1>
+  %window = vector.slice %source[%offset] : vector<64xi1> -> vector<16xi1>
+  %result = vector.extui %window : vector<16xi1> to vector<16xi8>
+  func.return %result : vector<16xi8>
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @materialized_predicate_window(%a: reg<wasm.v128>, %b: reg<wasm.v128>, %c: reg<wasm.v128>, %d: reg<wasm.v128>, %offset: reg<wasm.i32>) -> (reg<wasm.v128>) asm {
+  %26 = i32.const 15
+  %27 = i32.and %offset, %26
+  %28 = i8x16.splat %27
+  %29 = v128.const 506097522914230528, 1084818905618843912
+  %30 = i8x16.add %28, %29
+  %31 = v128.const 1157442765409226768, 1157442765409226768
+  %32 = i8x16.sub %30, %31
+  %33 = v128.const 0, 0
+  %34 = i32.const 0
+  %35 = i32.const 16
+  %36 = i32.ge_u %offset, %35
+  %37 = i32.sub %34, %36
+  %38 = i8x16.splat %37
+  %39 = i32.const 32
+  %40 = i32.ge_u %offset, %39
+  %41 = i32.sub %34, %40
+  %42 = i8x16.splat %41
+  %43 = i32.const 48
+  %44 = i32.ge_u %offset, %43
+  %45 = i32.sub %34, %44
+  %46 = i8x16.splat %45
+  %50 = v128.bitselect %b, %a, %38
+  %51 = v128.bitselect %c, %b, %38
+  %53 = v128.bitselect %c, %50, %42
+  %54 = v128.bitselect %d, %51, %42
+  %55 = v128.bitselect %d, %53, %46
+  %56 = v128.bitselect %33, %54, %46
+  %57 = i8x16.swizzle %55, %30
+  %58 = i8x16.swizzle %56, %32
+  %window = v128.or %57, %58
+  %60 = v128.const 72340172838076673, 72340172838076673
+  %result = v128.and %window, %60
+  return %result
+}
+
+// ====
+
+// RUN: with-checks compile-report target-legalize{mode=final},source-to-low
+
+wasm.target<simd128> @target
+
+// The target plan must remain visible as one packet-tuple operation. Scalarization
+// would replace this row with a lane-proportional reference rewrite.
+func.def target(@target) @materialized_predicate_window_report(%a: vector<16xi1>, %b: vector<16xi1>, %c: vector<16xi1>, %d: vector<16xi1>, %offset0: index, %output: buffer) {
+  %offset = index.assume %offset0 [range(%offset0, 0, 32)] : index
+  %source = vector.concat<0> %a, %b, %c, %d : vector<16xi1>, vector<16xi1>, vector<16xi1>, vector<16xi1> -> vector<64xi1>
+  %window = vector.slice %source[%offset] : vector<64xi1> -> vector<32xi1>
+  %result = vector.extui %window : vector<32xi1> to vector<32xi8>
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<32xi8>
+  vector.store %result, %results[0] : vector<32xi8>, view<32xi8>
+  func.return
+}
+
+// ----
+CHECK: COMPILE-REPORT: target_legalization * scalarized=0 *
+CHECK: COMPILE-REPORT: source_low[*] function=materialized_predicate_window_report source_op=vector.slice selection=plan plan_key=slice.dynamic-v128-packets emitted_ops=36
+CHECK: COMPILE-REPORT: source_low[*] function=materialized_predicate_window_report source_op=vector.extui selection=plan plan_key=predicate.extend-unsigned.v128-packets emitted_ops=6
+CHECK-NOT: scalarized=true

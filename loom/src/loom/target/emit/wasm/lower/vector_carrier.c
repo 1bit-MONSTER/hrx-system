@@ -61,6 +61,7 @@ loom_wasm_vector_carrier_t loom_wasm_vector_carrier_for_type(loom_type_t type) {
   if (element_type == LOOM_SCALAR_TYPE_I1 && loom_type_is_vector(type) &&
       loom_type_is_all_static(type) &&
       loom_type_static_element_count(type, &element_count)) {
+    physical_element_bit_count = 8;
     for (uint16_t candidate = 64; candidate >= 8; candidate /= 2) {
       if (element_count > 0 && element_count * candidate <= 128) {
         physical_element_bit_count = candidate;
