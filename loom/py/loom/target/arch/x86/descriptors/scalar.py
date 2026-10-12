@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from loom.target.arch.x86.scalar_families import (
@@ -79,6 +80,59 @@ from .common import (
 )
 from .encoding import Flag, Form, encoding
 from .memory import memory_descriptors, read_memory_binary_descriptors
+
+_NON_TRAPPING_SCALAR_FORMS = frozenset(
+    (
+        Form.BINARY_RM_R,
+        Form.BINARY_R_RM,
+        Form.MULTIPLY_IMMEDIATE,
+        Form.BINARY_IMMEDIATE,
+        Form.SHIFT_IMMEDIATE,
+        Form.SHIFT_COUNT,
+        Form.MOVE,
+        Form.SELECT,
+        Form.SUBTRACT_IF_UGE,
+        Form.COMPARE,
+        Form.COMPARE_IMMEDIATE,
+        Form.CONSTANT,
+        Form.ADDRESS_ADD,
+        Form.ADDRESS_DISPLACEMENT,
+        Form.ADDRESS_SCALE,
+        Form.ADDRESS_ADD_SCALE,
+        Form.ADDRESS_PC_RELATIVE,
+        Form.UNARY_RM,
+    )
+)
+
+_SPECULATION_FORBIDDEN_FLAGS = frozenset(
+    (
+        DescriptorFlag.SIDE_EFFECTING,
+        DescriptorFlag.TERMINATOR,
+        DescriptorFlag.BARRIER,
+        DescriptorFlag.UNIQUE_IDENTITY,
+        DescriptorFlag.VARIADIC_OPERANDS,
+        DescriptorFlag.STATE_ASSIGNMENT,
+    )
+)
+
+
+def _with_scalar_speculation_facts(descriptor: Descriptor) -> Descriptor:
+    """Marks total scalar instructions after excluding observable state."""
+    if (
+        Form(descriptor.encoding_format_id) not in _NON_TRAPPING_SCALAR_FORMS
+        or _SPECULATION_FORBIDDEN_FLAGS.intersection(descriptor.flags)
+        or descriptor.effects
+        or descriptor.storage_leases
+        or any(
+            OperandFlag.STATE_WRITE in operand.flags for operand in descriptor.operands
+        )
+    ):
+        return descriptor
+    return replace(
+        descriptor,
+        flags=(*descriptor.flags, DescriptorFlag.SAFE_TO_SPECULATE),
+    )
+
 
 # Physical IDs follow the native GPR encoding order, including width aliases.
 _GPR_NAMES = (
@@ -699,7 +753,7 @@ _CMP_PREDICATE_SETCC = (
 )
 
 
-X86_SCALAR_PREFIX_DESCRIPTORS = (
+_X86_SCALAR_PREFIX_DESCRIPTORS = (
     _gpr32_destructive_binary_descriptor(
         key="x86.scalar.add.gpr32",
         opcode=0x01,
@@ -714,7 +768,7 @@ X86_SCALAR_PREFIX_DESCRIPTORS = (
     ),
 )
 
-X86_SCALAR_SUFFIX_DESCRIPTORS = (
+_X86_SCALAR_SUFFIX_DESCRIPTORS = (
     Descriptor(
         key="x86.scalar.lea.symbol.gpr64",
         encoding_format_id=Form.ADDRESS_PC_RELATIVE,
@@ -1165,7 +1219,7 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
         ),
         asm_forms=_asm(results=("dst",), operands=("lhs", "rhs")),
         schedule_class=_SCHEDULE_ADDRESS,
-        flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
     ),
     Descriptor(
         key="x86.scalar.lea.disp.gpr64",
@@ -1186,7 +1240,7 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
             named_immediates=True,
         ),
         schedule_class=_SCHEDULE_ADDRESS,
-        flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
     ),
     Descriptor(
         key="x86.scalar.lea.scale.gpr64",
@@ -1207,7 +1261,7 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
             named_immediates=True,
         ),
         schedule_class=_SCHEDULE_ADDRESS,
-        flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
     ),
     Descriptor(
         key="x86.scalar.lea.add_scale.gpr64",
@@ -1229,7 +1283,7 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
             named_immediates=True,
         ),
         schedule_class=_SCHEDULE_ADDRESS,
-        flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
     ),
     Descriptor(
         key="x86.scalar.lea.add_scale.gpr32",
@@ -1251,10 +1305,18 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
             named_immediates=True,
         ),
         schedule_class=_SCHEDULE_ADDRESS,
-        flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
     ),
 )
 
+X86_SCALAR_PREFIX_DESCRIPTORS = tuple(
+    _with_scalar_speculation_facts(descriptor)
+    for descriptor in _X86_SCALAR_PREFIX_DESCRIPTORS
+)
+X86_SCALAR_SUFFIX_DESCRIPTORS = tuple(
+    _with_scalar_speculation_facts(descriptor)
+    for descriptor in _X86_SCALAR_SUFFIX_DESCRIPTORS
+)
 X86_SCALAR_DESCRIPTORS = (
     *X86_SCALAR_PREFIX_DESCRIPTORS,
     *X86_SCALAR_SUFFIX_DESCRIPTORS,
