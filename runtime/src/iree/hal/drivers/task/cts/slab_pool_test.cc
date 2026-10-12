@@ -1355,6 +1355,26 @@ TEST_P(TaskSlabPoolTest, QueueMappingSourcesRecycleThroughSharedSlabCache) {
   IREE_ASSERT_OK(iree_hal_slab_cache_query_stats(cache, &cache_stats));
   EXPECT_EQ(cache_stats.hit_count, 1u);
   EXPECT_EQ(cache_stats.ready_count, 1u);
+  const auto physical_charge = stats.bytes_committed;
+  EXPECT_GE(physical_charge, 4 * kUnit);
+
+  // Child pools return idle ranges to the shared cache. Only the cache's
+  // explicit trim releases that retained physical backing to the source.
+  for (auto& child : children) {
+    iree_hal_pool_trim(child, IREE_HAL_POOL_TRIM_FLAG_EXCESS, 0);
+  }
+  iree_hal_pool_trim(cache, IREE_HAL_POOL_TRIM_FLAG_EXCESS, 4 * kUnit);
+  JoinMaintenance(source);
+  iree_hal_pool_query_stats(source, &stats);
+  EXPECT_EQ(stats.bytes_committed, physical_charge);
+  IREE_ASSERT_OK(iree_hal_slab_cache_query_stats(cache, &cache_stats));
+  EXPECT_EQ(cache_stats.ready_count, 1u);
+
+  iree_hal_pool_trim(cache, IREE_HAL_POOL_TRIM_FLAG_EXCESS, 0);
+  JoinMaintenance(source);
+  iree_hal_pool_query_stats(source, &stats);
+  EXPECT_EQ(stats.bytes_committed, 0u);
+  EXPECT_EQ(stats.release_count, 1u);
 }
 
 CTS_REGISTER_EXECUTABLE_TEST_SUITE(TaskSlabPoolTest);
