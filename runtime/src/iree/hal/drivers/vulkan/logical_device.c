@@ -944,6 +944,7 @@ static iree_status_t iree_hal_vulkan_logical_device_assign_topology_info(
   device->memory_backend = (iree_hal_vulkan_memory_backend_t){
       .device = base_device,
       .allocator = (iree_hal_vulkan_allocator_t*)device->device_allocator,
+      .sparse_binding_queue = device->queues.sparse_binding,
       .syms = &device->syms,
       .logical_device = device->logical_device,
       .physical_device = &device->physical_device,

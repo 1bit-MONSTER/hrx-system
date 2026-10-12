@@ -379,6 +379,7 @@ iree_cc_library(
     "logical_device.h"
     "memory_backend.c"
     "memory_backend.h"
+    "memory_reservation.c"
     "physical_device.c"
     "physical_device.h"
     "physical_device_selection.c"

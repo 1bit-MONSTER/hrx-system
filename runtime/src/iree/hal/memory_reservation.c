@@ -176,6 +176,12 @@ static const iree_hal_buffer_vtable_t
         .flush_range = iree_hal_memory_reservation_flush_range,
 };
 
+IREE_API_EXPORT bool iree_hal_memory_reservation_buffer_isa(
+    iree_hal_buffer_t* buffer) {
+  return iree_hal_resource_is(buffer,
+                              &iree_hal_memory_reservation_buffer_vtable);
+}
+
 IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
     iree_hal_memory_contract_t* contract,
     const iree_hal_buffer_native_binding_t* bindings,

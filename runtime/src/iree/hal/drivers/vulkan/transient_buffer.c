@@ -48,7 +48,8 @@ struct iree_hal_vulkan_transient_buffer_t {
   iree_hal_pool_t* source_pool;
 
   // Stable table borrowed by views created before allocation commitment.
-  // Caller-ordered commit/decommit publishes and clears only these entries.
+  // Staging publishes native identities for queue emission; decommit clears
+  // them after the caller-ordered allocation epoch ends.
   iree_hal_vulkan_buffer_native_t native;
 
   // Optional queue-allocation reservation owned by this wrapper while armed.
@@ -176,6 +177,9 @@ void iree_hal_vulkan_transient_buffer_stage_backing(
   IREE_ASSERT_TRUE(buffer->committed_backing == NULL);
   iree_hal_buffer_retain(backing);
   buffer->staged_backing = backing;
+  iree_hal_buffer_memory_copy_bindings(&backing->memory,
+                                       iree_hal_vulkan_buffer_binding_layout(),
+                                       buffer->native.bindings);
   iree_slim_mutex_unlock(&buffer->mutex);
 }
 
@@ -188,9 +192,6 @@ void iree_hal_vulkan_transient_buffer_commit(iree_hal_buffer_t* base_buffer) {
     IREE_ASSERT_TRUE(buffer->staged_backing != NULL);
     IREE_ASSERT_TRUE(buffer->committed_backing == NULL);
     buffer->committed_backing = buffer->staged_backing;
-    iree_hal_buffer_memory_copy_bindings(
-        &buffer->committed_backing->memory,
-        iree_hal_vulkan_buffer_binding_layout(), buffer->native.bindings);
   }
   iree_slim_mutex_unlock(&buffer->mutex);
 }

@@ -11,7 +11,6 @@
 #include "iree/hal/cts/util/test_base.h"
 #include "iree/hal/drivers/vulkan/buffer.h"
 #include "iree/hal/drivers/vulkan/queue.h"
-#include "iree/hal/drivers/vulkan/sparse_buffer.h"
 
 namespace iree::hal::cts {
 namespace {
@@ -22,9 +21,6 @@ class VulkanSparseBindingTest : public CtsTestBase<> {
     CtsTestBase::SetUp();
     if (HasFatalFailure() || IsSkipped()) {
       return;
-    }
-    if (!iree_hal_allocator_supports_virtual_memory(device_allocator_)) {
-      GTEST_SKIP() << "Vulkan sparse residency and aliasing are unavailable";
     }
     const auto* queues =
         iree_hal_device_spec_queues(iree_hal_device_spec(device_));
@@ -40,23 +36,43 @@ class VulkanSparseBindingTest : public CtsTestBase<> {
         break;
       }
     }
+    family_ = {
+        .family = iree_hal_queue_family(transfer_queue_),
+        .usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+        .interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_VULKAN_BUFFER,
+    };
+    IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+        device_group_, Scope(), iree_allocator_system(), &capabilities_));
+    if (!capabilities_.max_byte_length) {
+      GTEST_SKIP() << "Vulkan sparse residency and aliasing are unavailable";
+    }
     ASSERT_NE(nullptr, sparse_queue_);
   }
 
   void TearDown() override {
-    for (auto* buffer : reservations_) {
-      IREE_EXPECT_OK(
-          iree_hal_allocator_virtual_memory_release(device_allocator_, buffer));
+    for (auto* reservation : reservations_) {
+      IREE_EXPECT_OK(iree_hal_memory_reservation_destroy(reservation));
     }
     CtsTestBase::TearDown();
   }
 
+  iree_hal_pool_scope_t Scope() const {
+    return {.family_count = 1, .families = &family_};
+  }
+
   iree_status_t Reserve(iree_device_size_t length,
-                        iree_hal_buffer_t** out_buffer) {
-    IREE_RETURN_IF_ERROR(iree_hal_allocator_virtual_memory_reserve(
-        device_allocator_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, length,
-        out_buffer));
-    reservations_.push_back(*out_buffer);
+                        iree_hal_buffer_t** out_buffer,
+                        iree_device_size_t alignment = 0) {
+    const iree_hal_memory_reservation_options_t options = {
+        .byte_length = length,
+        .min_alignment = alignment,
+    };
+    iree_hal_memory_reservation_t* reservation = nullptr;
+    IREE_RETURN_IF_ERROR(iree_hal_memory_reservation_create(
+        device_group_, Scope(), &options, iree_allocator_system(),
+        &reservation));
+    reservations_.push_back(reservation);
+    *out_buffer = iree_hal_memory_reservation_buffer(reservation);
     return iree_ok_status();
   }
 
@@ -74,20 +90,18 @@ class VulkanSparseBindingTest : public CtsTestBase<> {
   // Borrowed queue owned by the shared CTS device.
   iree_hal_vulkan_queue_t* sparse_queue_ = nullptr;
   // Explicit address owners destroyed after completed native operations.
-  std::vector<iree_hal_buffer_t*> reservations_;
+  std::vector<iree_hal_memory_reservation_t*> reservations_;
+  // Complete execution scope used for address geometry and construction.
+  iree_hal_pool_family_access_t family_ = {};
+  // Cold address-only geometry, queried without creating native resources.
+  iree_hal_memory_reservation_capabilities_t capabilities_ = {};
 };
 
 TEST_P(VulkanSparseBindingTest, DeferredMultiBufferBindingsAliasAndReplace) {
-  iree_hal_physical_memory_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
-  iree_device_size_t minimum_granularity = 0;
-  iree_device_size_t granularity = 0;
-  IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_query_granularity(
-      device_allocator_, params, &minimum_granularity, &granularity));
+  iree_device_size_t granularity = capabilities_.mapping_granularity;
   const iree_hal_pool_family_access_t family = {
       .family = iree_hal_queue_family(transfer_queue_),
-      .usage = params.usage,
+      .usage = family_.usage,
       .interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE,
   };
   const iree_hal_pool_scope_t scope = {.family_count = 1, .families = &family};
@@ -116,8 +130,9 @@ TEST_P(VulkanSparseBindingTest, DeferredMultiBufferBindingsAliasAndReplace) {
     IREE_ASSERT_OK(
         iree_hal_vulkan_buffer_handle(targets[i], &unused_memory, &handles[i]));
     VkMemoryRequirements requirements = {};
-    IREE_ASSERT_OK(iree_hal_vulkan_sparse_buffer_memory_requirements(
-        targets[i], &requirements));
+    iree_vkGetBufferMemoryRequirements(IREE_VULKAN_DEVICE(&sparse_queue_->syms),
+                                       sparse_queue_->logical_device,
+                                       handles[i], &requirements);
     memory_type_bits &= requirements.memoryTypeBits;
     ASSERT_EQ(0u, granularity % requirements.alignment);
   }
@@ -267,6 +282,250 @@ TEST_P(VulkanSparseBindingTest, DeferredMultiBufferBindingsAliasAndReplace) {
   IREE_ASSERT_OK(iree_hal_vulkan_queue_submit_sparse_bind(
       sparse_queue_, replaced, detached, buffers.size(), buffers.data()));
   IREE_ASSERT_OK(iree_hal_semaphore_list_wait(detached, iree_infinite_timeout(),
+                                              IREE_ASYNC_WAIT_FLAG_NONE));
+}
+
+TEST_P(VulkanSparseBindingTest, ReservationScopeAndGeometryQualification) {
+  iree_hal_pool_scope_t scope = Scope();
+  scope.host.access = IREE_HAL_MEMORY_ACCESS_ALL;
+  scope.host.modes = IREE_HAL_MAPPING_MODE_PERSISTENT;
+  iree_hal_memory_reservation_capabilities_t capabilities;
+  IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+      device_group_, scope, iree_allocator_system(), &capabilities));
+  EXPECT_EQ(0u, capabilities.max_byte_length);
+  iree_hal_memory_reservation_options_t options = {
+      .byte_length = capabilities_.reservation_granularity,
+  };
+  iree_hal_memory_reservation_t* reservation = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
+                        iree_hal_memory_reservation_create(
+                            device_group_, scope, &options,
+                            iree_allocator_system(), &reservation));
+  EXPECT_EQ(nullptr, reservation);
+  options.byte_length += 1;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                        iree_hal_memory_reservation_create(
+                            device_group_, Scope(), &options,
+                            iree_allocator_system(), &reservation));
+  EXPECT_EQ(nullptr, reservation);
+}
+
+TEST_P(VulkanSparseBindingTest, QueueMapCapturesPendingAllocations) {
+  iree_hal_pool_family_access_t source_family = family_;
+  source_family.interfaces = UINT64_C(1)
+                             << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  const iree_hal_pool_scope_t source_scope = {
+      .family_count = 1,
+      .families = &source_family,
+  };
+  iree_hal_slab_pool_options_t pool_options;
+  iree_hal_slab_pool_options_initialize(&pool_options);
+  Ref<iree_hal_pool_t> source_pool;
+  IREE_ASSERT_OK(
+      iree_hal_slab_pool_create(device_group_, source_scope, &pool_options,
+                                iree_allocator_system(), source_pool.out()));
+  const auto source_geometry =
+      iree_hal_pool_query_mapping_requirements(source_pool);
+  const auto granularity = iree_max(capabilities_.mapping_granularity,
+                                    source_geometry.minimum_granularity);
+  const auto alignment = iree_min(4 * granularity, capabilities_.max_alignment);
+  std::array<iree_hal_buffer_t*, 2> targets = {};
+  IREE_ASSERT_OK(Reserve(3 * granularity, &targets[0], alignment));
+  IREE_ASSERT_OK(Reserve(2 * granularity, &targets[1], alignment));
+  for (auto* target : targets) {
+    const auto address =
+        iree_hal_vulkan_buffer_native(target)
+            ->bindings[IREE_HAL_VULKAN_BUFFER_BINDING_DEVICE_ADDRESS]
+            .device_address +
+        target->memory.binding_offset;
+    EXPECT_EQ(0u, address & (alignment - 1));
+  }
+  iree_hal_memory_scope_t scope;
+  const iree_hal_memory_site_t site = {
+      .kind = IREE_HAL_MEMORY_SITE_QUEUE,
+      .family = family_.family,
+  };
+  IREE_ASSERT_OK(
+      iree_hal_device_group_resolve_memory_scope(device_group_, site, &scope));
+  uint32_t projection = UINT32_MAX;
+  IREE_ASSERT_OK(iree_hal_memory_reservation_resolve_projection(
+      reservations_[0], scope, &projection));
+  EXPECT_EQ(0u, projection);
+  iree_hal_memory_scope_t program_scope;
+  const iree_hal_memory_site_t program_site = {
+      .kind = IREE_HAL_MEMORY_SITE_PROGRAM,
+      .family = family_.family,
+  };
+  IREE_ASSERT_OK(iree_hal_device_group_resolve_memory_scope(
+      device_group_, program_site, &program_scope));
+  uint32_t program_projection = UINT32_MAX;
+  IREE_ASSERT_OK(iree_hal_memory_reservation_resolve_projection(
+      reservations_[0], program_scope, &program_projection));
+  EXPECT_EQ(projection, program_projection);
+  EXPECT_EQ(IREE_HAL_MEMORY_MAPPING_OPERATIONS_ALL, capabilities_.operations);
+
+  SemaphoreList gate(device_, {0}, {1});
+  SemaphoreList allocated(device_, {0}, {1});
+  const auto request =
+      iree_hal_make_pool_reservation_request(5 * granularity, 2 * granularity);
+  Ref<iree_hal_buffer_t> allocation;
+  IREE_ASSERT_OK(iree_hal_queue_alloca(transfer_queue_, gate, allocated,
+                                       source_pool, 1, &request,
+                                       allocation.out()));
+  // Both the source view and mapping array exist before backing is staged.
+  Ref<iree_hal_buffer_t> source;
+  IREE_ASSERT_OK(
+      iree_hal_buffer_subspan(allocation, granularity, 4 * granularity,
+                              iree_allocator_system(), source.out()));
+  std::array<iree_hal_memory_mapping_t, 4> mappings = {{
+      {
+          .reservation = reservations_[0],
+          .scope = {.domain = scope.domain, .id = IREE_HAL_MEMORY_SCOPE_ANY},
+          .target_range =
+              {
+                  .byte_length = granularity,
+              },
+          .source = source,
+          .access = IREE_HAL_MEMORY_ACCESS_ALL,
+          .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
+      },
+      {
+          .reservation = reservations_[0],
+          .scope = scope,
+          .target_range =
+              {
+                  .byte_offset = 2 * granularity,
+                  .byte_length = granularity,
+              },
+          .source = source,
+          .source_offset = 2 * granularity,
+          .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      },
+      {
+          .reservation = reservations_[1],
+          .scope = scope,
+          .target_range =
+              {
+                  .byte_length = granularity,
+              },
+          .source = source,
+          .source_offset = 3 * granularity,
+          .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      },
+      {
+          .reservation = reservations_[1],
+          .scope = scope,
+          .target_range =
+              {
+                  .byte_offset = granularity,
+                  .byte_length = granularity,
+              },
+          .source = source,
+          .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      },
+  }};
+  auto unsupported = mappings[0];
+  unsupported.access = IREE_HAL_MEMORY_ACCESS_READ;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNAVAILABLE,
+      iree_hal_queue_map(&sparse_queue_->base, {}, {}, 1, &unsupported,
+                         IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  SemaphoreList mapped(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(&sparse_queue_->base, allocated, mapped,
+                                    mappings.size(), mappings.data(),
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  mappings = {};
+  IREE_ASSERT_OK(iree_hal_semaphore_signal(gate.semaphores[0], 1, nullptr));
+
+  std::vector<uint32_t> input(4 * granularity / sizeof(uint32_t));
+  for (size_t i = 0; i < input.size(); ++i) {
+    input[i] = 0x56780000u + i;
+  }
+  SemaphoreList uploaded(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_upload(
+      transfer_queue_, mapped, uploaded, input.data(), source, 0,
+      input.size() * sizeof(uint32_t), nullptr));
+  IREE_ASSERT_OK(iree_hal_semaphore_list_wait(uploaded, iree_infinite_timeout(),
+                                              IREE_ASYNC_WAIT_FLAG_NONE));
+  ExpectPage(targets[0], 0, input[0]);
+  ExpectPage(targets[0], 2 * granularity,
+             input[2 * granularity / sizeof(uint32_t)]);
+  ExpectPage(targets[1], 0, input[3 * granularity / sizeof(uint32_t)]);
+  ExpectPage(targets[1], granularity, input[0]);
+
+  std::array<uint32_t, 64> output;
+  for (size_t i = 0; i < output.size(); ++i) {
+    output[i] = 0xFACE0000u + i;
+  }
+  SemaphoreList written(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_upload(transfer_queue_, uploaded, written,
+                                       output.data(), targets[0], 0,
+                                       sizeof(output), nullptr));
+  IREE_ASSERT_OK(iree_hal_semaphore_list_wait(written, iree_infinite_timeout(),
+                                              IREE_ASYNC_WAIT_FLAG_NONE));
+  ExpectPage(source, 0, output[0]);
+  ExpectPage(targets[1], granularity, output[0]);
+
+  // Revoke access without retaining a native installed-source ledger. The
+  // later protection operation supplies the same source explicitly.
+  auto protection = unsupported;
+  protection.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT;
+  protection.access = IREE_HAL_MEMORY_ACCESS_NONE;
+  SemaphoreList revoked(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(&sparse_queue_->base, written, revoked, 1,
+                                    &protection,
+                                    IREE_HAL_QUEUE_MAP_FLAG_BORROW_BUFFERS));
+  protection.access = IREE_HAL_MEMORY_ACCESS_ALL;
+  SemaphoreList restored(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(&sparse_queue_->base, revoked, restored, 1,
+                                    &protection, IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_semaphore_list_wait(restored, iree_infinite_timeout(),
+                                              IREE_ASYNC_WAIT_FLAG_NONE));
+  ExpectPage(targets[0], 0, output[0]);
+
+  auto replacement = protection;
+  replacement.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_REPLACE;
+  replacement.source_offset = granularity;
+  SemaphoreList replaced(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(&sparse_queue_->base, restored, replaced, 1,
+                                    &replacement,
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_semaphore_list_wait(replaced, iree_infinite_timeout(),
+                                              IREE_ASYNC_WAIT_FLAG_NONE));
+  ExpectPage(targets[0], 0, input[granularity / sizeof(uint32_t)]);
+  ExpectPage(targets[1], granularity, output[0]);
+
+  // General detach may span installed pages and holes. Backing is released
+  // only after the entire batch has detached and all readers have completed.
+  std::array<iree_hal_memory_mapping_t, 2> detach = {{
+      {
+          .reservation = reservations_[0],
+          .scope = scope,
+          .target_range = {.byte_length = 3 * granularity},
+      },
+      {
+          .reservation = reservations_[1],
+          .scope = scope,
+          .target_range = {.byte_length = 2 * granularity},
+          .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND,
+      },
+  }};
+  SemaphoreList detached(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(&sparse_queue_->base, replaced, detached,
+                                    detach.size(), detach.data(),
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  SemaphoreList deallocated(device_, {0}, {1});
+  auto* raw_allocation = allocation.get();
+  IREE_ASSERT_OK(iree_hal_queue_dealloca(transfer_queue_, detached, deallocated,
+                                         1, &raw_allocation));
+  IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
+      deallocated, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+  source.reset();
+  allocation.reset();
+  SemaphoreList empty(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(&sparse_queue_->base, deallocated, empty, 0,
+                                    nullptr, IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_semaphore_list_wait(empty, iree_infinite_timeout(),
                                               IREE_ASYNC_WAIT_FLAG_NONE));
 }
 

@@ -57,6 +57,8 @@ void iree_hal_vulkan_transient_buffer_attach_reservation(
 // Stages a materialized backing buffer view for a future commit. The backing
 // buffer is retained, but remains invisible to map/flush/invalidate calls until
 // iree_hal_vulkan_transient_buffer_commit() publishes it.
+// Native binding facts are published immediately for queue packet emission;
+// dependent queue operations order their use with allocation semaphore edges.
 void iree_hal_vulkan_transient_buffer_stage_backing(iree_hal_buffer_t* buffer,
                                                     iree_hal_buffer_t* backing);
 

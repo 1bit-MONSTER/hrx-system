@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "iree/base/threading/mutex.h"
+#include "iree/hal/drivers/vulkan/memory_backend.h"
 #include "iree/hal/drivers/vulkan/sparse_buffer.h"
 #include "iree/hal/drivers/vulkan/transient_buffer.h"
 
@@ -392,6 +393,13 @@ bool iree_hal_vulkan_buffer_isa(iree_hal_buffer_t* buffer) {
                               &iree_hal_vulkan_buffer_vtable);
 }
 
+bool iree_hal_vulkan_buffer_is_native(iree_hal_buffer_t* allocated_buffer) {
+  return iree_hal_vulkan_buffer_isa(allocated_buffer) ||
+         iree_hal_vulkan_sparse_buffer_isa(allocated_buffer) ||
+         iree_hal_vulkan_transient_buffer_isa(allocated_buffer) ||
+         iree_hal_vulkan_memory_reservation_buffer_isa(allocated_buffer);
+}
+
 iree_hal_vulkan_buffer_mapping_state_t* iree_hal_vulkan_buffer_mapping_state(
     iree_hal_buffer_t* buffer) {
   if (!iree_hal_vulkan_buffer_isa(buffer)) {
@@ -425,9 +433,7 @@ iree_status_t iree_hal_vulkan_buffer_resolve_backing(
     buffer = backing_buffer;
     allocated_buffer = iree_hal_buffer_allocated_buffer(buffer);
   }
-  if (!iree_hal_vulkan_buffer_isa(allocated_buffer) &&
-      !iree_hal_vulkan_sparse_buffer_isa(allocated_buffer) &&
-      !iree_hal_vulkan_transient_buffer_isa(allocated_buffer)) {
+  if (!iree_hal_vulkan_buffer_is_native(allocated_buffer)) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "buffer is not backed by the Vulkan HAL");
   }
@@ -496,9 +502,7 @@ iree_hal_vulkan_buffer_range_dword_alignment(
   iree_device_size_t offset_remainder = local_byte_offset % dword_size;
   offset_remainder += backing_buffer->memory.binding_offset % dword_size;
   allocated_buffer = iree_hal_buffer_allocated_buffer(backing_buffer);
-  if (!iree_hal_vulkan_buffer_isa(allocated_buffer) &&
-      !iree_hal_vulkan_sparse_buffer_isa(allocated_buffer) &&
-      !iree_hal_vulkan_transient_buffer_isa(allocated_buffer)) {
+  if (!iree_hal_vulkan_buffer_is_native(allocated_buffer)) {
     return IREE_HAL_VULKAN_BUFFER_RANGE_ALIGNMENT_UNKNOWN;
   }
   offset_remainder += iree_hal_vulkan_buffer_native(backing_buffer)

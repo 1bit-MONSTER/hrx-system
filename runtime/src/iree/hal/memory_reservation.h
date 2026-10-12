@@ -231,6 +231,11 @@ IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
     iree_allocator_t host_allocator,
     iree_hal_memory_reservation_t* reservation);
 
+// Identifies the common reservation wrapper before inspecting its backend.
+// The caller first resolves any ordinary subspan to its allocated buffer.
+IREE_API_EXPORT bool iree_hal_memory_reservation_buffer_isa(
+    iree_hal_buffer_t* buffer);
+
 // One normalized, nonoverlapping vector targeting a native projection. Entries
 // are established by capture; their source descriptors are filled by resolve.
 typedef struct iree_hal_memory_mapping_batch_entry_t {
