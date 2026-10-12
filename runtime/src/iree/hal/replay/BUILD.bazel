@@ -159,6 +159,8 @@ iree_runtime_cc_library(
         "recorder_queue.c",
         "recorder_queue.h",
         "recorder_record.h",
+        "recorder_reservation.c",
+        "recorder_reservation.h",
     ],
     hdrs = [
         "recorder.h",
@@ -335,6 +337,31 @@ iree_runtime_cc_test(
         "//runtime/src/iree/io:file_handle",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "recorder_reservation_test",
+    srcs = [
+        "execute_operation.h",
+        "execute_state.h",
+        "recorder_reservation_test.cc",
+    ],
+    deps = [
+        ":dump",
+        ":execute",
+        ":file_reader",
+        ":format",
+        ":recorder",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/util:proactor_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/task/registration",
+        "//runtime/src/iree/io:file_handle",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+        "//runtime/src/iree/testing:temp_file",
     ],
 )
 

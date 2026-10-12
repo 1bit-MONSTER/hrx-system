@@ -16,6 +16,11 @@
 extern "C" {
 #endif  // __cplusplus
 
+// Serializes validated scope families in canonical group coordinates.
+void iree_hal_replay_recorder_pool_capture_families(
+    const iree_hal_pool_scope_t* scope,
+    iree_hal_replay_pool_family_access_payload_t* family_payloads);
+
 // Records one complete slab-pool construction and wraps the returned pool.
 iree_status_t iree_hal_replay_recorder_create_slab_pool(
     iree_hal_replay_recorder_t* recorder,

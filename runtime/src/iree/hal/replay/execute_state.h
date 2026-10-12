@@ -48,6 +48,8 @@ typedef struct iree_hal_replay_object_entry_t {
     iree_hal_allocator_t* allocator;
     // Retained HAL pool.
     iree_hal_pool_t* pool;
+    // Explicit address owner, consumed independently from its buffer view.
+    iree_hal_memory_reservation_t* memory_reservation;
     // Retained HAL buffer.
     iree_hal_buffer_t* buffer;
     // Retained HAL command buffer.

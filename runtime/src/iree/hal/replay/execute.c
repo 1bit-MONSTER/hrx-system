@@ -554,9 +554,42 @@ static iree_status_t iree_hal_replay_plan_prepare_queue_dependency(
           payload.wait_semaphore_count, payload.signal_semaphore_count,
           /*trailing_payload_length=*/0, out_dependency);
     }
+    case IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_MAP: {
+      IREE_RETURN_IF_ERROR(iree_hal_replay_executor_require_payload(
+          record, IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_MAP,
+          sizeof(iree_hal_replay_queue_map_payload_t)));
+      iree_hal_replay_queue_map_payload_t payload;
+      memcpy(&payload, record->payload.data, sizeof(payload));
+      uint64_t mapping_payload_length = 0;
+      if (!iree_checked_mul_u64(
+              payload.mapping_count,
+              sizeof(iree_hal_replay_memory_mapping_payload_t),
+              &mapping_payload_length)) {
+        return iree_make_status(IREE_STATUS_DATA_LOSS,
+                                "replay mapping batch size overflows");
+      }
+      return iree_hal_replay_plan_prepare_queue_dependency_lists(
+          record, IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_MAP, sizeof(payload),
+          payload.wait_semaphore_count, payload.signal_semaphore_count,
+          mapping_payload_length, out_dependency);
+    }
     default:
       return iree_ok_status();
   }
+}
+
+static bool iree_hal_replay_plan_queue_waits_satisfied(
+    const iree_hal_replay_plan_queue_dependency_t* dependency,
+    const iree_hal_replay_plan_semaphore_state_t* semaphore_states) {
+  for (iree_host_size_t i = 0; i < dependency->wait_semaphore_count; ++i) {
+    iree_hal_replay_semaphore_timepoint_payload_t wait;
+    memcpy(&wait, dependency->wait_semaphore_data + i * sizeof(wait),
+           sizeof(wait));
+    if (semaphore_states[wait.semaphore_id].known_value < wait.value) {
+      return false;
+    }
+  }
+  return true;
 }
 
 static bool iree_hal_replay_plan_queue_dependency_can_complete(
@@ -570,15 +603,8 @@ static bool iree_hal_replay_plan_queue_dependency_can_complete(
       command_buffer_may_wait_on_device_memory[dependency->command_buffer_id]) {
     return false;
   }
-  for (iree_host_size_t i = 0; i < dependency->wait_semaphore_count; ++i) {
-    iree_hal_replay_semaphore_timepoint_payload_t wait;
-    memcpy(&wait, dependency->wait_semaphore_data + i * sizeof(wait),
-           sizeof(wait));
-    if (semaphore_states[wait.semaphore_id].known_value < wait.value) {
-      return false;
-    }
-  }
-  return true;
+  return iree_hal_replay_plan_queue_waits_satisfied(dependency,
+                                                    semaphore_states);
 }
 
 static void iree_hal_replay_plan_publish_queue_signals(
@@ -596,14 +622,19 @@ static void iree_hal_replay_plan_publish_queue_signals(
 static bool iree_hal_replay_plan_is_completion_boundary(
     const iree_hal_replay_file_record_t* record) {
   if (record->header.record_type !=
-          IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION ||
-      record->header.status_code != IREE_STATUS_OK) {
+      IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION) {
     return false;
   }
-  return record->header.operation_code ==
-             IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP ||
-         record->header.operation_code ==
-             IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT;
+  // Consuming destruction must drain even when capture reported a failure.
+  if (record->header.operation_code ==
+      IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY) {
+    return true;
+  }
+  return record->header.status_code == IREE_STATUS_OK &&
+         (record->header.operation_code ==
+              IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP ||
+          record->header.operation_code ==
+              IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT);
 }
 
 static iree_status_t iree_hal_replay_plan_verify_completion_dependencies(
@@ -767,9 +798,17 @@ static iree_status_t iree_hal_replay_plan_verify_completion_dependencies(
             "device-memory dependency",
             dependency.sequence_ordinal);
       } else if (dependency.signal_semaphore_count != 0) {
-        // Captured-signal submissions already wait immediately. If one cannot
-        // be proven to complete then replay cannot reach following records;
-        // leave that existing behavior outside this private-boundary check.
+        // Replay waits before proceeding past captured-signal submissions.
+        // A producer in a later record (or an unrecorded host signal) cannot
+        // satisfy this wait. Device-memory readiness remains runtime-owned.
+        if (!iree_hal_replay_plan_queue_waits_satisfied(&dependency,
+                                                        semaphore_states)) {
+          status = iree_make_status(
+              IREE_STATUS_FAILED_PRECONDITION,
+              "replay queue operation at sequence %" PRIu64
+              " waits for a semaphore value with no preceding producer",
+              dependency.sequence_ordinal);
+        }
         reaches_following_records = false;
       } else {
         pending_dependencies[pending_dependency_count++] = dependency;
@@ -830,7 +869,9 @@ static iree_status_t iree_hal_replay_plan_prepare_record(
       IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION) {
     return iree_ok_status();
   }
-  if (record->header.status_code != IREE_STATUS_OK) {
+  if (record->header.status_code != IREE_STATUS_OK &&
+      record->header.operation_code !=
+          IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY) {
     plan_record->kind = IREE_HAL_REPLAY_PLAN_RECORD_KIND_SKIP;
     return iree_ok_status();
   }

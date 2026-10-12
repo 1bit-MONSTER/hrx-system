@@ -24,9 +24,9 @@ extern "C" {
 // including file storage attachment.
 #define IREE_HAL_REPLAY_FILE_VERSION_MAJOR 13u
 
-// Minor version of the IREE HAL replay file format. Minor version 5 adds
-// explicit memory transition recipes to barrier records.
-#define IREE_HAL_REPLAY_FILE_VERSION_MINOR 5u
+// Minor version of the IREE HAL replay file format. Minor version 6 adds
+// explicit address reservation ownership and batched queue mapping.
+#define IREE_HAL_REPLAY_FILE_VERSION_MINOR 6u
 
 // Minor version that first assigns atomic target-error mode payload bytes.
 #define IREE_HAL_REPLAY_ATOMIC_TARGET_ERROR_MODE_VERSION_MINOR 3u
@@ -90,6 +90,7 @@ enum iree_hal_replay_object_type_e {
   IREE_HAL_REPLAY_OBJECT_TYPE_CHANNEL = 10u,
   IREE_HAL_REPLAY_OBJECT_TYPE_HOST_CALL = 11u,
   IREE_HAL_REPLAY_OBJECT_TYPE_QUEUE = 12u,
+  IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION = 13u,
 };
 
 // High-level HAL API operation kind.
@@ -124,6 +125,8 @@ enum iree_hal_replay_operation_code_e {
   IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT = 112u,
   IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_ADVISE = 113u,
 
+  IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_CREATE = 140u,
+  IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY = 141u,
   IREE_HAL_REPLAY_OPERATION_CODE_POOL_CREATE_SLAB = 150u,
   IREE_HAL_REPLAY_OPERATION_CODE_POOL_TRIM = 151u,
   IREE_HAL_REPLAY_OPERATION_CODE_POOL_ALLOCATE_BUFFER = 152u,
@@ -168,6 +171,7 @@ enum iree_hal_replay_operation_code_e {
   IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_ATOMIC_STORE = 611u,
   IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_ATOMIC_RMW = 612u,
   IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_TIMESTAMP = 613u,
+  IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_MAP = 614u,
 };
 
 // Producer-defined payload schema stored in record headers.
@@ -215,6 +219,8 @@ enum iree_hal_replay_payload_type_e {
   IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_TRIM = 56u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_ALLOCATE_BUFFER = 57u,
   IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_IMPORT_BUFFER = 58u,
+  IREE_HAL_REPLAY_PAYLOAD_TYPE_MEMORY_RESERVATION_CREATE = 59u,
+  IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_MAP = 60u,
 };
 
 // Type of one operation in a captured exact-queue transfer transaction.
@@ -331,7 +337,32 @@ typedef struct iree_hal_replay_pool_create_slab_payload_t {
 static_assert(sizeof(iree_hal_replay_pool_create_slab_payload_t) == 80,
               "slab pool replay header must be 80 bytes");
 
-// One canonical queue-family access row in a slab-pool construction request.
+// Address-owner construction followed by family_count family access rows.
+// The operation's related object is the owner; buffer_id names its stable view.
+typedef struct iree_hal_replay_memory_reservation_create_payload_t {
+  // Session-local ID of the independently retained stable buffer view.
+  iree_hal_replay_object_id_t buffer_id;
+  // Requested stable virtual buffer length in bytes.
+  uint64_t byte_length;
+  // Requested power-of-two base alignment, or zero for the native minimum.
+  uint64_t min_alignment;
+  // Requested mapping unit, or zero for the native minimum.
+  uint64_t mapping_granularity;
+  // Number of canonical queue-family access rows following this header.
+  uint64_t family_count;
+  // Required host access bits.
+  uint32_t host_access;
+  // Required host mapping modes.
+  uint32_t host_mapping_modes;
+  // Required host cacheability.
+  uint32_t host_cacheability;
+  // Reserved for future construction policy; must be zero.
+  uint32_t reserved0;
+} iree_hal_replay_memory_reservation_create_payload_t;
+static_assert(sizeof(iree_hal_replay_memory_reservation_create_payload_t) == 56,
+              "reservation replay header must be 56 bytes");
+
+// One canonical queue-family access row in a pool or reservation scope.
 typedef struct iree_hal_replay_pool_family_access_payload_t {
   // Device ordinal in the captured group.
   uint32_t device_ordinal;
@@ -813,6 +844,43 @@ typedef struct iree_hal_replay_buffer_ref_payload_t {
   // Reserved for future buffer reference metadata; must be zero.
   uint32_t reserved0;
 } iree_hal_replay_buffer_ref_payload_t;
+
+// Mapping transaction followed by wait timepoints, signal timepoints, and
+// mapping_count mapping rows. Flags preserve optional submission retention.
+typedef struct iree_hal_replay_queue_map_payload_t {
+  // Number of wait semaphore timepoints following this header.
+  uint64_t wait_semaphore_count;
+  // Number of signal semaphore timepoints following the waits.
+  uint64_t signal_semaphore_count;
+  // Number of mapping descriptors following the signals.
+  uint64_t mapping_count;
+  // Public queue mapping flags.
+  uint64_t flags;
+} iree_hal_replay_queue_map_payload_t;
+static_assert(sizeof(iree_hal_replay_queue_map_payload_t) == 32,
+              "mapping replay header must be 32 bytes");
+
+// One explicit mapping update, independent of process-local native handles.
+typedef struct iree_hal_replay_memory_mapping_payload_t {
+  // Session-local address owner ID.
+  iree_hal_replay_object_id_t reservation_id;
+  // Canonical scope ID within the captured group, including ANY.
+  uint32_t scope_id;
+  // Caller-declared prior-state operation.
+  uint32_t operation;
+  // Destination byte offset within the stable reservation view.
+  uint64_t target_offset;
+  // Destination byte length.
+  uint64_t byte_length;
+  // Direct source range; a zero buffer ID represents detachment.
+  iree_hal_replay_buffer_ref_payload_t source_ref;
+  // Required access permissions, including NONE for revocation.
+  uint32_t access;
+  // Reserved for future mapping metadata; must be zero.
+  uint32_t reserved0;
+} iree_hal_replay_memory_mapping_payload_t;
+static_assert(sizeof(iree_hal_replay_memory_mapping_payload_t) == 72,
+              "mapping replay row must be 72 bytes");
 
 // Header for an exact-queue transfer transaction followed by semaphore
 // timepoints, operation descriptors, and captured data bytes.

@@ -1730,6 +1730,9 @@ static iree_status_t iree_hal_replay_executor_replay_operation_with_barriers(
     case IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_FLUSH_RANGE:
     case IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_UNMAP_RANGE:
       return iree_hal_replay_executor_replay_object_operation(executor, record);
+    case IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_CREATE:
+    case IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY:
+    case IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_MAP:
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_RELEASE:
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_FREE:
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_MAP:
@@ -1838,8 +1841,11 @@ iree_status_t iree_hal_replay_executor_replay_unsupported(
 iree_status_t iree_hal_replay_executor_replay_operation(
     iree_hal_replay_executor_t* executor,
     const iree_hal_replay_file_record_t* record) {
-  if (IREE_UNLIKELY(record->header.status_code != IREE_STATUS_OK)) {
-    // Failed calls produced no replay object and are preserved only to explain
+  if (IREE_UNLIKELY(
+          record->header.status_code != IREE_STATUS_OK &&
+          record->header.operation_code !=
+              IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY)) {
+    // Failed non-consuming calls produced no replay object and only explain
     // host fallback branches. Replay follows the later successful calls the
     // original host issued after observing the failure.
     return iree_ok_status();

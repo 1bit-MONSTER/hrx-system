@@ -468,18 +468,26 @@ static const iree_hal_pool_vtable_t iree_hal_replay_recorder_pool_vtable = {
         iree_hal_replay_recorder_pool_query_import_requirements,
 };
 
-static iree_status_t iree_hal_replay_recorder_pool_device_ordinal(
-    iree_hal_device_group_t* group, const iree_hal_device_t* device,
-    uint32_t* out_ordinal) {
-  for (iree_host_size_t i = 0; i < iree_hal_device_group_device_count(group);
-       ++i) {
-    if (iree_hal_device_group_device_at(group, i) == device) {
-      *out_ordinal = (uint32_t)i;
-      return iree_ok_status();
-    }
+void iree_hal_replay_recorder_pool_capture_families(
+    const iree_hal_pool_scope_t* scope,
+    iree_hal_replay_pool_family_access_payload_t* family_payloads) {
+  for (iree_host_size_t i = 0; i < scope->family_count; ++i) {
+    const iree_hal_pool_family_access_t* access = &scope->families[i];
+    const iree_hal_device_topology_info_t* topology_info =
+        iree_hal_device_topology_info(
+            iree_hal_queue_family_device(access->family));
+    family_payloads[i] = (iree_hal_replay_pool_family_access_payload_t){
+        .device_ordinal = topology_info->topology_index,
+        .family_ordinal = iree_hal_queue_family_ordinal(access->family),
+        .usage = access->usage,
+        .interfaces = access->interfaces,
+        .requirements = access->requirements,
+        .atomic_device_scope_32 = access->atomic_operations.device_scope_32,
+        .atomic_device_scope_64 = access->atomic_operations.device_scope_64,
+        .atomic_system_scope_32 = access->atomic_operations.system_scope_32,
+        .atomic_system_scope_64 = access->atomic_operations.system_scope_64,
+    };
   }
-  return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                          "pool scope contains a foreign queue family");
 }
 
 iree_status_t iree_hal_replay_recorder_create_slab_pool(
@@ -538,24 +546,8 @@ iree_status_t iree_hal_replay_recorder_create_slab_pool(
         sizeof(*import_exports), (void**)&import_exports);
   }
 
-  for (iree_host_size_t i = 0;
-       i < scope->family_count && iree_status_is_ok(status); ++i) {
-    const iree_hal_pool_family_access_t* access = &scope->families[i];
-    uint32_t device_ordinal = 0;
-    status = iree_hal_replay_recorder_pool_device_ordinal(
-        request_group, iree_hal_queue_family_device(access->family),
-        &device_ordinal);
-    family_payloads[i] = (iree_hal_replay_pool_family_access_payload_t){
-        .device_ordinal = device_ordinal,
-        .family_ordinal = iree_hal_queue_family_ordinal(access->family),
-        .usage = access->usage,
-        .interfaces = access->interfaces,
-        .requirements = access->requirements,
-        .atomic_device_scope_32 = access->atomic_operations.device_scope_32,
-        .atomic_device_scope_64 = access->atomic_operations.device_scope_64,
-        .atomic_system_scope_32 = access->atomic_operations.system_scope_32,
-        .atomic_system_scope_64 = access->atomic_operations.system_scope_64,
-    };
+  if (iree_status_is_ok(status)) {
+    iree_hal_replay_recorder_pool_capture_families(scope, family_payloads);
   }
   for (iree_host_size_t i = 0;
        i < options->owned.exports.class_count && iree_status_is_ok(status);

@@ -23,6 +23,10 @@ static iree_status_t iree_hal_replay_executor_release_entry(
     case IREE_HAL_REPLAY_OBJECT_TYPE_POOL:
       iree_hal_pool_release(entry->value.pool);
       break;
+    case IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION:
+      status =
+          iree_hal_memory_reservation_destroy(entry->value.memory_reservation);
+      break;
     case IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER:
       if (entry->owning_allocator) {
         if (iree_hal_replay_executor_has_virtual_memory_mapping(executor,
@@ -115,6 +119,19 @@ iree_status_t iree_hal_replay_executor_deinitialize(
   if (!iree_status_is_ok(status)) {
     return status;
   }
+
+  // Explicit owners close before their caller-owned backing can be released.
+  // Buffer references preserve metadata only and never delay native teardown.
+  iree_status_t reservation_status = iree_ok_status();
+  for (iree_host_size_t i = executor->object_capacity; i > 0; --i) {
+    if (executor->objects[i - 1].type ==
+        IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION) {
+      reservation_status = iree_status_join(
+          reservation_status, iree_hal_replay_executor_release_entry(
+                                  executor, i - 1, &executor->objects[i - 1]));
+    }
+  }
+  IREE_RETURN_IF_ERROR(reservation_status);
 
   // Release leaf objects before queue, pool, allocator, and device roots
   // regardless of replay object id assignment.
@@ -915,7 +932,6 @@ iree_status_t iree_hal_replay_executor_finalize_queue_completion(
   IREE_ASSERT(completion ==
               &executor->queue_completions[executor->queue_completion_count]);
   ++executor->queue_completion_count;
-  iree_status_ignore(operation_status);
   iree_status_t status =
       flush_queue ? iree_hal_queue_flush(completion->queue) : iree_ok_status();
   if (!iree_status_is_ok(status) || !completion->wait_immediately) {

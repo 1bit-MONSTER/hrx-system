@@ -179,6 +179,8 @@ iree_cc_library(
     "recorder_queue.c"
     "recorder_queue.h"
     "recorder_record.h"
+    "recorder_reservation.c"
+    "recorder_reservation.h"
   DEPS
     ::digest
     ::file_writer
@@ -339,6 +341,30 @@ iree_cc_test(
     iree::io::file_handle
     iree::testing::gtest
     iree::testing::gtest_main
+)
+
+iree_cc_test(
+  NAME
+    recorder_reservation_test
+  SRCS
+    "execute_operation.h"
+    "execute_state.h"
+    "recorder_reservation_test.cc"
+  DEPS
+    ::dump
+    ::execute
+    ::file_reader
+    ::format
+    ::recorder
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    iree::hal
+    iree::hal::drivers::task::registration
+    iree::io::file_handle
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::testing::temp_file
 )
 
 iree_cc_test(

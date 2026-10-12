@@ -40,6 +40,31 @@ IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_query_capabilities(
   return status;
 }
 
+static iree_status_t iree_hal_memory_reservation_create_native(
+    void* user_data, iree_hal_device_group_t* group,
+    const iree_hal_pool_scope_t* scope,
+    const iree_hal_memory_reservation_options_t* options,
+    iree_allocator_t host_allocator,
+    iree_hal_memory_reservation_t** out_reservation) {
+  iree_status_t status = iree_ok_status();
+  for (iree_host_size_t i = 0; i < iree_hal_device_group_device_count(group) &&
+                               iree_status_is_ok(status) && !*out_reservation;
+       ++i) {
+    const iree_hal_memory_backend_t* backend = iree_hal_device_memory_backend(
+        iree_hal_device_group_device_at(group, i));
+    if (backend && backend->reserve) {
+      status = backend->reserve(backend, group, *scope, options, host_allocator,
+                                out_reservation);
+    }
+  }
+  if (iree_status_is_ok(status) && !*out_reservation) {
+    status =
+        iree_make_status(IREE_STATUS_UNAVAILABLE,
+                         "no memory backend supports this reservation scope");
+  }
+  return status;
+}
+
 IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_create(
     iree_hal_device_group_t* group, iree_hal_pool_scope_t scope,
     const iree_hal_memory_reservation_options_t* options,
@@ -53,23 +78,11 @@ IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_create(
                             "invalid reservation group or geometry");
   }
   IREE_RETURN_IF_ERROR(iree_hal_pool_scope_validate(group, scope));
-  iree_status_t status = iree_ok_status();
-  for (iree_host_size_t i = 0; i < iree_hal_device_group_device_count(group) &&
-                               iree_status_is_ok(status) && !*out_reservation;
-       ++i) {
-    const iree_hal_memory_backend_t* backend = iree_hal_device_memory_backend(
-        iree_hal_device_group_device_at(group, i));
-    if (backend && backend->reserve) {
-      status = backend->reserve(backend, group, scope, options, host_allocator,
-                                out_reservation);
-    }
-  }
-  if (iree_status_is_ok(status) && !*out_reservation) {
-    status =
-        iree_make_status(IREE_STATUS_UNAVAILABLE,
-                         "no memory backend supports this reservation scope");
-  }
-  return status;
+  const iree_hal_memory_reservation_create_callback_t leaf = {
+      .fn = iree_hal_memory_reservation_create_native,
+  };
+  return iree_hal_device_group_create_memory_reservation(
+      group, &scope, options, leaf, host_allocator, out_reservation);
 }
 
 IREE_API_EXPORT iree_hal_buffer_t* iree_hal_memory_reservation_buffer(
@@ -209,6 +222,7 @@ IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
   reservation->mapping_granularity = mapping_granularity;
   reservation->operations = operations;
   reservation->source_type = source_type;
+  reservation->closed = false;
 }
 
 //===----------------------------------------------------------------------===//
