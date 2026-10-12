@@ -200,6 +200,30 @@ events and event-capture overflow still fail the sample.
 capture an actual value always or only on failure. This is an evidence output,
 not the oracle: checked source still states how success is decided.
 
+```loom
+check.file.write.npy value(%output) path("nested/actual.npy") mode(always) : tensor<1024xf32>
+```
+
+`iree-test-loom module.loom --file-output-root=artifacts` writes that value to
+`artifacts/nested/actual.npy`, creating missing parent directories. The output
+root is required only when a write is performed, so a passing case with only
+`mode(on_failure)` writes needs no root. The test tool never chooses an implicit
+output location. The benchmark tool applies the same authored-path rules while
+retaining its per-run and artifact-bundle output defaults.
+
+Each performed write publishes buffered bytes before the case completes. A
+write or publication failure fails the case; publication does not promise
+durability across a system crash. Authored output paths are relative, use `/`
+separators, and contain no `..` components. Absolute, drive-qualified, empty,
+`-`, and embedded-NUL paths are rejected. These are lexical rules rather than
+a symbolic-link sandbox.
+
+Relative `check.file.read.npy` paths resolve beside the primary source or
+bytecode module. Stdin input resolves them from the working directory, and
+absolute fixture paths are accepted. Reads are independent of
+`--file-output-root`, so a later invocation names a previously exported file
+through its own module-relative path.
+
 ## A scenario compares independent executions
 
 [`check.scenario`](../reference/dialects/check/ops/scenario.md) describes a
