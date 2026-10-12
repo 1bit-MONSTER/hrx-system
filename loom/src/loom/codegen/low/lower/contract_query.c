@@ -255,19 +255,20 @@ static iree_status_t loom_low_lower_match_contract_case(
     bool include_descriptor_matrix,
     loom_low_lower_rule_match_context_t* match_context,
     loom_low_lower_contract_case_match_t* out_match) {
-  *out_match = (loom_low_lower_contract_case_match_t){
-      .kind = LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_SKIP,
-      .selection = {.rule_index = UINT16_MAX},
-      .result = loom_target_contract_query_result_empty(),
-  };
   const loom_target_contract_index_t* index = options->contract_index;
   const loom_target_contract_case_t* contract_case = &index->cases[case_index];
   const loom_target_contract_binding_t* binding =
       &index->bindings[contract_case->binding_index];
   if (domain == LOOM_LOW_LOWER_CONTRACT_CASE_DOMAIN_TARGET_QUERY &&
       !loom_target_contract_fragment_queries_target(binding->fragment)) {
+    out_match->kind = LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_SKIP;
     return iree_ok_status();
   }
+  *out_match = (loom_low_lower_contract_case_match_t){
+      .kind = LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_SKIP,
+      .selection = {.rule_index = UINT16_MAX},
+      .result = loom_target_contract_query_result_empty(),
+  };
   if (contract_case->system == LOOM_TARGET_CONTRACT_SYSTEM_UNSUPPORTED) {
     out_match->kind = LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_UNSUPPORTED;
     return iree_ok_status();
