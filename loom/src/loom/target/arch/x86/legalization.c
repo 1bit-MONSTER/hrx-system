@@ -99,6 +99,30 @@ static iree_status_t loom_x86_legalize_vector_float8_conversion(
   return iree_ok_status();
 }
 
+static iree_status_t loom_x86_legalize_vector_divrem(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!loom_x86_legalizer_descriptor_set_is_x86(context->descriptor_set)) {
+    return iree_ok_status();
+  }
+
+  // Preserve the quotient/remainder tuple while converting unsupported vector
+  // carriers to scalar lanes. Each lane can then select the paired native
+  // divide instead of the shared fallback splitting the source operation.
+  bool rewritten = false;
+  IREE_RETURN_IF_ERROR(loom_vector_descriptor_to_scalar_rewrite_op(
+      context->pass, context->rewriter, op, &rewritten));
+  if (rewritten) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  }
+  return iree_ok_status();
+}
+
 static const loom_target_legalizer_rule_t kX86LegalizerRules[] = {
     {
         .root_kind = LOOM_OP_SCALAR_EXTF,
@@ -120,6 +144,14 @@ static const loom_target_legalizer_rule_t kX86LegalizerRules[] = {
             LOOM_SCALAR_TYPE_SET_16BIT_FLOAT | LOOM_SCALAR_TYPE_SET_F32,
         .match = loom_x86_match_vector_float8_truncation,
         .legalize = loom_x86_legalize_vector_float8_conversion,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_DIVREMSI,
+        .legalize = loom_x86_legalize_vector_divrem,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_DIVREMUI,
+        .legalize = loom_x86_legalize_vector_divrem,
     },
     {
         .root_kind = LOOM_OP_VECTOR_DOT2F,

@@ -401,6 +401,73 @@ def _runtime_division_rule(
     )
 
 
+def _runtime_divrem_rule(
+    source_op: Op,
+    type_pattern: TypePattern,
+    bit_count: int,
+    *,
+    signed: bool,
+    descriptor_lookup: Callable[[str], Descriptor],
+) -> DescriptorRule:
+    operation = "divs" if signed else "divu"
+    suffix = f"gpr{bit_count}"
+    divide = descriptor_lookup(f"x86.scalar.{operation}.divrem.{suffix}")
+    low = descriptor_lookup(f"x86.scalar.dividend.low.{suffix}")
+    high = descriptor_lookup(
+        f"x86.scalar.dividend.{'sign_high' if signed else 'zero_high'}.{suffix}"
+    )
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=divide,
+        guards=tuple(
+            Guard.value_type(field, type_pattern)
+            for field in ("lhs", "rhs", "quotient", "remainder")
+        ),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=low,
+                operands={"src": ValueRef.operand("lhs")},
+                results={"dst": ValueRef.temporary("dividend_low")},
+                result_types={"dst": DescriptorResultType()},
+            ),
+            EmitDescriptorOp(
+                descriptor=high,
+                operands=(
+                    {"low": ValueRef.temporary("dividend_low")} if signed else {}
+                ),
+                results={"dst": ValueRef.temporary("dividend_high")},
+                result_types={"dst": DescriptorResultType()},
+            ),
+            EmitDescriptorOp(
+                descriptor=divide,
+                operands={
+                    "low": ValueRef.temporary("dividend_low"),
+                    "high": ValueRef.temporary("dividend_high"),
+                    "divisor": ValueRef.operand("rhs"),
+                },
+                results={
+                    "quotient": ValueRef.temporary("fixed_quotient"),
+                    "remainder": ValueRef.temporary("fixed_remainder"),
+                },
+                result_types={
+                    "quotient": DescriptorResultType(),
+                    "remainder": DescriptorResultType(),
+                },
+            ),
+            EmitRegisterCopy(
+                ValueRef.temporary("fixed_quotient"),
+                ValueRef.result("quotient"),
+                type_pattern,
+            ),
+            EmitRegisterCopy(
+                ValueRef.temporary("fixed_remainder"),
+                ValueRef.result("remainder"),
+                type_pattern,
+            ),
+        ),
+    )
+
+
 def runtime_integer_division_rules(
     descriptor_lookup: Callable[[str], Descriptor],
 ) -> tuple[DescriptorRule, ...]:
@@ -419,6 +486,17 @@ def runtime_integer_division_rules(
                 scalar_arithmetic.scalar_remsi,
             ),
         ):
+            rules.append(
+                _runtime_divrem_rule(
+                    scalar_arithmetic.scalar_divremsi
+                    if signed
+                    else scalar_arithmetic.scalar_divremui,
+                    type_pattern,
+                    bit_count,
+                    signed=signed,
+                    descriptor_lookup=descriptor_lookup,
+                )
+            )
             rules.append(
                 _runtime_division_rule(
                     quotient_op,
@@ -482,4 +560,13 @@ def runtime_integer_division_rules(
                 descriptor_lookup=descriptor_lookup,
             )
         )
+    rules.append(
+        _runtime_divrem_rule(
+            index.index_divrem,
+            _INDEX,
+            64,
+            signed=False,
+            descriptor_lookup=descriptor_lookup,
+        )
+    )
     return tuple(rules)

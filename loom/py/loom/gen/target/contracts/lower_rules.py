@@ -1226,7 +1226,7 @@ def _validate_c_table_shape(
         _require_u16(row.tied_result_start, f"{row_subject} tied-result start")
         _require_unsigned_bits(
             row.tied_result_count,
-            1,
+            2,
             f"{row_subject} tied-result count",
         )
         _require_table_range(

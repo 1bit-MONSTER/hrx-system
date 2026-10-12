@@ -137,6 +137,64 @@ def test_runtime_integer_division_rules_cover_native_carrier_family() -> None:
     assert max(constant_ordinals) < min(runtime_ordinals)
 
 
+def test_runtime_divrem_rules_preserve_paired_results() -> None:
+    divrem_ops = {
+        scalar_arithmetic.scalar_divremsi,
+        scalar_arithmetic.scalar_divremui,
+        index.index_divrem,
+    }
+    rules = tuple(
+        case
+        for case in X86_SCALAR_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule) and case.source_op in divrem_ops
+    )
+    actual = set()
+    for rule in rules:
+        divide = next(
+            emit
+            for emit in rule.emit
+            if isinstance(emit, EmitDescriptorOp) and emit.descriptor == rule.descriptor
+        )
+        assert tuple(divide.results) == ("quotient", "remainder")
+        assert tuple(divide.result_types) == ("quotient", "remainder")
+        assert {
+            guard.field for guard in rule.guards if guard.kind is GuardKind.VALUE_TYPE
+        } == {"lhs", "rhs", "quotient", "remainder"}
+        actual.add(
+            (
+                rule.source_op,
+                _value_type_guard(rule, "quotient"),
+                rule.descriptor.key,
+            )
+        )
+
+    expected = {
+        (
+            scalar_arithmetic.scalar_divremui,
+            Scalar(type_name),
+            f"x86.scalar.divu.divrem.gpr{bit_count}",
+        )
+        for type_name, bit_count in (("i32", 32), ("i64", 64))
+    }
+    expected.update(
+        (
+            scalar_arithmetic.scalar_divremsi,
+            Scalar(type_name),
+            f"x86.scalar.divs.divrem.gpr{bit_count}",
+        )
+        for type_name, bit_count in (("i32", 32), ("i64", 64))
+    )
+    expected.add(
+        (
+            index.index_divrem,
+            Scalar("index"),
+            "x86.scalar.divu.divrem.gpr64",
+        )
+    )
+    assert actual == expected
+    assert len(rules) == len(expected)
+
+
 def test_native_integer_division_descriptors_own_fixed_register_contracts() -> None:
     descriptors = {
         descriptor.key: descriptor for descriptor in X86_AVX2_DESCRIPTOR_SET.descriptors
@@ -194,6 +252,43 @@ def test_native_integer_division_descriptors_own_fixed_register_contracts() -> N
             OperandFlag.STATE_READ,
         )
         for operation in ("divu", "divs"):
+            paired_key = f"x86.scalar.{operation}.divrem.{suffix}"
+            expected_keys.add(paired_key)
+            paired = descriptors[paired_key]
+            assert tuple(operand.field_name for operand in paired.operands) == (
+                "quotient",
+                "remainder",
+                "low",
+                "high",
+                "divisor",
+            )
+            assert paired.operands[0].reg_alts[0].reg_class == low_class
+            assert paired.operands[1].reg_alts[0].reg_class == high_class
+            for result in paired.operands[:2]:
+                assert result.flags == (
+                    OperandFlag.IMPLICIT,
+                    OperandFlag.STATE_WRITE,
+                )
+            assert paired.operands[2].reg_alts[0].reg_class == low_class
+            assert paired.operands[3].reg_alts[0].reg_class == high_class
+            for operand in paired.operands[2:4]:
+                assert operand.flags == (
+                    OperandFlag.IMPLICIT,
+                    OperandFlag.STATE_READ,
+                )
+            assert tuple(
+                (
+                    constraint.kind,
+                    constraint.lhs_operand_index,
+                    constraint.rhs_operand_index,
+                )
+                for constraint in paired.constraints
+            ) == (
+                (ConstraintKind.TIED, 0, 2),
+                (ConstraintKind.DESTRUCTIVE, 0, 2),
+                (ConstraintKind.TIED, 1, 3),
+                (ConstraintKind.DESTRUCTIVE, 1, 3),
+            )
             for result_name, result_class, overwritten_class, tied_operand in (
                 ("quotient", low_class, high_class, 1),
                 ("remainder", high_class, low_class, 2),

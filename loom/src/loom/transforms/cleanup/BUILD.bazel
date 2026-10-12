@@ -124,10 +124,31 @@ loom_cc_library(
     visibility = ["//loom/src/loom/pass:__pkg__"],
     deps = [
         ":canonicalizer",
+        ":integer_division",
         ":pass_environment",
         "//loom/src/loom/pass:pipeline",
         "//loom/src/loom/pass:registry",
         "//loom/src/loom/pass:types",
+        "//loom/src/loom/pass:value_facts",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
+    name = "integer_division",
+    srcs = ["integer_division.c"],
+    hdrs = ["integer_division.h"],
+    visibility = ["//loom/src/loom/transforms/cleanup:__pkg__"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/util:dominance",
+        "//loom/src/loom/util:fact_table",
+        "//loom/src/loom/util:walk",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],

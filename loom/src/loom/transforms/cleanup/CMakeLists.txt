@@ -135,12 +135,35 @@ loom_cc_library(
     "canonicalize.c"
   DEPS
     ::canonicalizer
+    ::integer_division
     ::pass_environment
     iree::base
     iree::base::internal::arena
     loom::pass::pipeline
     loom::pass::registry
     loom::pass::types
+    loom::pass::value_facts
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    integer_division
+  HDRS
+    "integer_division.h"
+  SRCS
+    "integer_division.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ops::index
+    loom::ops::scalar
+    loom::ops::vector
+    loom::rewrite::rewriter
+    loom::util::dominance
+    loom::util::fact_table
+    loom::util::walk
   PUBLIC
 )
 

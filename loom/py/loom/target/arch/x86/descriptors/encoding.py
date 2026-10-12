@@ -80,6 +80,7 @@ def validate_descriptor_encoding(descriptor: Descriptor) -> None:
             OperandRole.RESOURCE,
         )
     )
+    form = None
     if is_vector:
         try:
             validate_vector_encoding_recipe(descriptor.encoding_format_id)
@@ -91,7 +92,7 @@ def validate_descriptor_encoding(descriptor: Descriptor) -> None:
         # VectorEncoding constructor has already rejected every unsupported
         # architectural map before producing this packed ID.
     else:
-        Form(descriptor.encoding_format_id)
+        form = Form(descriptor.encoding_format_id)
     inputs = sum(
         o.role
         in (
@@ -108,7 +109,7 @@ def validate_descriptor_encoding(descriptor: Descriptor) -> None:
     )
     if (
         inputs > (5 if is_vector else 3)
-        or results > 1
+        or results > (2 if form == Form.DIVIDE else 1)
         or len(descriptor.immediates) > 2
     ):
         raise ValueError(f"{descriptor.key}: native operand carrier overflow")
@@ -138,7 +139,7 @@ def validate_descriptor_encoding(descriptor: Descriptor) -> None:
                 )
         return
 
-    form = Form(descriptor.encoding_format_id)
+    assert form is not None
     address_base_input = {
         Form.LOAD: 0,
         Form.STORE: 1,

@@ -10,26 +10,16 @@ func.def @runtime_i32_division(%lhs: i32, %rhs: i32) -> (i32, i32, i32, i32) {
 
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) @runtime_i32_division(%lhs: reg<x86.gpr32>, %rhs: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
-  %16 = mov.dividend.low.gpr32 %lhs
-  %17 = sign.extend.dividend.gpr32 %16
-  %18 = divs.quotient.gpr32 %16, %17, %rhs
-  %signed_quotient = copy %18 : reg<x86.eax> -> reg<x86.gpr32>
-  %20 = cmp.eq.imm.gpr32 %rhs, -1
-  %21 = mov.imm32 1
-  %22 = copy %rhs : reg<x86.gpr32> -> reg<x86.gpr32>
-  %23 = select.gpr32 %20, %21, %22
-  %24 = mov.dividend.low.gpr32 %lhs
-  %25 = sign.extend.dividend.gpr32 %24
-  %26 = divs.remainder.gpr32 %24, %25, %23
-  %signed_remainder = copy %26 : reg<x86.edx> -> reg<x86.gpr32>
-  %28 = mov.dividend.low.gpr32 %lhs
-  %29 = zero.dividend.high.gpr32
-  %30 = divu.quotient.gpr32 %28, %29, %rhs
-  %unsigned_quotient = copy %30 : reg<x86.eax> -> reg<x86.gpr32>
-  %32 = mov.dividend.low.gpr32 %lhs
-  %33 = zero.dividend.high.gpr32
-  %34 = divu.remainder.gpr32 %32, %33, %rhs
-  %unsigned_remainder = copy %34 : reg<x86.edx> -> reg<x86.gpr32>
+  %20 = mov.dividend.low.gpr32 %lhs
+  %21 = sign.extend.dividend.gpr32 %20
+  %22, %23 = divs.divrem.gpr32 %20, %21, %rhs
+  %signed_quotient = copy %22 : reg<x86.eax> -> reg<x86.gpr32>
+  %signed_remainder = copy %23 : reg<x86.edx> -> reg<x86.gpr32>
+  %26 = mov.dividend.low.gpr32 %lhs
+  %27 = zero.dividend.high.gpr32
+  %28, %29 = divu.divrem.gpr32 %26, %27, %rhs
+  %unsigned_quotient = copy %28 : reg<x86.eax> -> reg<x86.gpr32>
+  %unsigned_remainder = copy %29 : reg<x86.edx> -> reg<x86.gpr32>
   return %signed_quotient, %signed_remainder, %unsigned_quotient, %unsigned_remainder
 }
 
@@ -68,26 +58,16 @@ func.def @runtime_i64_division(%lhs: i64, %rhs: i64) -> (i64, i64, i64, i64) {
 
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) @runtime_i64_division(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %16 = mov.dividend.low.gpr64 %lhs
-  %17 = sign.extend.dividend.gpr64 %16
-  %18 = divs.quotient.gpr64 %16, %17, %rhs
-  %signed_quotient = copy %18 : reg<x86.rax> -> reg<x86.gpr64>
-  %20 = cmp.eq.imm.gpr64 %rhs, -1
-  %21 = mov.imm64 1
-  %22 = copy %rhs : reg<x86.gpr64> -> reg<x86.gpr64>
-  %23 = select.gpr64 %20, %21, %22
-  %24 = mov.dividend.low.gpr64 %lhs
-  %25 = sign.extend.dividend.gpr64 %24
-  %26 = divs.remainder.gpr64 %24, %25, %23
-  %signed_remainder = copy %26 : reg<x86.rdx> -> reg<x86.gpr64>
-  %28 = mov.dividend.low.gpr64 %lhs
-  %29 = zero.dividend.high.gpr64
-  %30 = divu.quotient.gpr64 %28, %29, %rhs
-  %unsigned_quotient = copy %30 : reg<x86.rax> -> reg<x86.gpr64>
-  %32 = mov.dividend.low.gpr64 %lhs
-  %33 = zero.dividend.high.gpr64
-  %34 = divu.remainder.gpr64 %32, %33, %rhs
-  %unsigned_remainder = copy %34 : reg<x86.rdx> -> reg<x86.gpr64>
+  %20 = mov.dividend.low.gpr64 %lhs
+  %21 = sign.extend.dividend.gpr64 %20
+  %22, %23 = divs.divrem.gpr64 %20, %21, %rhs
+  %signed_quotient = copy %22 : reg<x86.rax> -> reg<x86.gpr64>
+  %signed_remainder = copy %23 : reg<x86.rdx> -> reg<x86.gpr64>
+  %26 = mov.dividend.low.gpr64 %lhs
+  %27 = zero.dividend.high.gpr64
+  %28, %29 = divu.divrem.gpr64 %26, %27, %rhs
+  %unsigned_quotient = copy %28 : reg<x86.rax> -> reg<x86.gpr64>
+  %unsigned_remainder = copy %29 : reg<x86.rdx> -> reg<x86.gpr64>
   return %signed_quotient, %signed_remainder, %unsigned_quotient, %unsigned_remainder
 }
 
@@ -103,14 +83,11 @@ func.def @runtime_index_division(%lhs_input: index, %rhs_input: index) -> (index
 
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) @runtime_index_division(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %12 = mov.dividend.low.gpr64 %lhs
-  %13 = zero.dividend.high.gpr64
-  %14 = divu.quotient.gpr64 %12, %13, %rhs
-  %quotient = copy %14 : reg<x86.rax> -> reg<x86.gpr64>
-  %16 = mov.dividend.low.gpr64 %lhs
-  %17 = zero.dividend.high.gpr64
-  %18 = divu.remainder.gpr64 %16, %17, %rhs
-  %remainder = copy %18 : reg<x86.rdx> -> reg<x86.gpr64>
+  %14 = mov.dividend.low.gpr64 %lhs
+  %15 = zero.dividend.high.gpr64
+  %16, %17 = divu.divrem.gpr64 %14, %15, %rhs
+  %quotient = copy %16 : reg<x86.rax> -> reg<x86.gpr64>
+  %remainder = copy %17 : reg<x86.rdx> -> reg<x86.gpr64>
   return %quotient, %remainder
 }
 
@@ -128,54 +105,57 @@ func.def @narrow_runtime_division(%lhs1: i1, %rhs1: i1, %lhs8: i8, %rhs8: i8, %l
 low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (i1, i1, i8, i8, i16, i16) -> (i1, i1, i8, i16)}) @narrow_runtime_division(%lhs1: reg<x86.gpr32>, %rhs1: reg<x86.gpr32>, %lhs8: reg<x86.gpr32>, %rhs8: reg<x86.gpr32>, %lhs16: reg<x86.gpr32>, %rhs16: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
   %41 = mov.dividend.low.gpr32 %lhs1
   %42 = zero.dividend.high.gpr32
-  %43 = divu.quotient.gpr32 %41, %42, %rhs1
-  %44 = copy %43 : reg<x86.eax> -> reg<x86.gpr32>
-  %45 = copy %44 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %unsigned_quotient1 = and.imm.gpr32 %45 {imm32 = 1}
-  %47 = mov.dividend.low.gpr32 %lhs1
-  %48 = zero.dividend.high.gpr32
-  %49 = divu.remainder.gpr32 %47, %48, %rhs1
-  %50 = copy %49 : reg<x86.edx> -> reg<x86.gpr32>
-  %51 = copy %50 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %signed_remainder1 = and.imm.gpr32 %51 {imm32 = 1}
-  %53 = movsx.i8.gpr32 %lhs8
-  %54 = movsx.i8.gpr32 %rhs8
-  %55 = mov.dividend.low.gpr32 %53
-  %56 = sign.extend.dividend.gpr32 %55
-  %57 = divs.quotient.gpr32 %55, %56, %54
-  %signed_quotient8 = copy %57 : reg<x86.eax> -> reg<x86.gpr32>
-  %59 = movzx.u16.gpr32 %lhs16
-  %60 = movzx.u16.gpr32 %rhs16
-  %61 = mov.dividend.low.gpr32 %59
-  %62 = zero.dividend.high.gpr32
-  %63 = divu.remainder.gpr32 %61, %62, %60
-  %unsigned_remainder16 = copy %63 : reg<x86.edx> -> reg<x86.gpr32>
+  %43, %44 = divu.divrem.gpr32 %41, %42, %rhs1
+  %45 = copy %43 : reg<x86.eax> -> reg<x86.gpr32>
+  %46 = copy %44 : reg<x86.edx> -> reg<x86.gpr32>
+  %47 = copy %45 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %unsigned_quotient1 = and.imm.gpr32 %47 {imm32 = 1}
+  %49 = copy %46 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %signed_remainder1 = and.imm.gpr32 %49 {imm32 = 1}
+  %51 = movsx.i8.gpr32 %lhs8
+  %52 = movsx.i8.gpr32 %rhs8
+  %53 = mov.dividend.low.gpr32 %51
+  %54 = sign.extend.dividend.gpr32 %53
+  %55 = divs.quotient.gpr32 %53, %54, %52
+  %signed_quotient8 = copy %55 : reg<x86.eax> -> reg<x86.gpr32>
+  %57 = movzx.u16.gpr32 %lhs16
+  %58 = movzx.u16.gpr32 %rhs16
+  %59 = mov.dividend.low.gpr32 %57
+  %60 = zero.dividend.high.gpr32
+  %61 = divu.remainder.gpr32 %59, %60, %58
+  %unsigned_remainder16 = copy %61 : reg<x86.edx> -> reg<x86.gpr32>
   return %unsigned_quotient1, %signed_remainder1, %signed_quotient8, %unsigned_remainder16
 }
 
 // ====
 
-func.def @vector_runtime_division(%lhs: vector<2xi32>, %rhs: vector<2xi32>) -> (vector<2xi32>) {
+func.def @vector_runtime_division(%lhs: vector<2xi32>, %rhs: vector<2xi32>) -> (vector<2xi32>, vector<2xi32>) {
   %quotient = vector.divui %lhs, %rhs : vector<2xi32>
-  func.return %quotient : vector<2xi32>
+  %remainder = vector.remui %lhs, %rhs : vector<2xi32>
+  func.return %quotient, %remainder : vector<2xi32>, vector<2xi32>
 }
 
 // ----
-low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (vector<2xi32>, vector<2xi32>) -> (vector<2xi32>)}) @vector_runtime_division(%lhs: reg<x86.xmm>, %rhs: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
-  %16 = vpextrd.xmm %lhs, 0
-  %17 = vpextrd.xmm %rhs, 0
-  %18 = mov.dividend.low.gpr32 %16
-  %19 = zero.dividend.high.gpr32
-  %20 = divu.quotient.gpr32 %18, %19, %17
-  %21 = copy %20 : reg<x86.eax> -> reg<x86.gpr32>
-  %22 = vpextrd.xmm %lhs, 1
-  %23 = vpextrd.xmm %rhs, 1
-  %24 = mov.dividend.low.gpr32 %22
-  %25 = zero.dividend.high.gpr32
-  %26 = divu.quotient.gpr32 %24, %25, %23
-  %27 = copy %26 : reg<x86.eax> -> reg<x86.gpr32>
-  %28 = vmovd.xmm.gpr32 %21
-  %29 = avx2.vpbroadcastd.xmm %28
-  %quotient = vpinsrd.xmm %29, %27, 1
-  return %quotient
+low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (vector<2xi32>, vector<2xi32>) -> (vector<2xi32>, vector<2xi32>)}) @vector_runtime_division(%lhs: reg<x86.xmm>, %rhs: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>) asm {
+  %26 = vpextrd.xmm %lhs, 0
+  %27 = vpextrd.xmm %rhs, 0
+  %28 = mov.dividend.low.gpr32 %26
+  %29 = zero.dividend.high.gpr32
+  %30, %31 = divu.divrem.gpr32 %28, %29, %27
+  %32 = copy %30 : reg<x86.eax> -> reg<x86.gpr32>
+  %33 = copy %31 : reg<x86.edx> -> reg<x86.gpr32>
+  %34 = vpextrd.xmm %lhs, 1
+  %35 = vpextrd.xmm %rhs, 1
+  %36 = mov.dividend.low.gpr32 %34
+  %37 = zero.dividend.high.gpr32
+  %38, %39 = divu.divrem.gpr32 %36, %37, %35
+  %40 = copy %38 : reg<x86.eax> -> reg<x86.gpr32>
+  %41 = copy %39 : reg<x86.edx> -> reg<x86.gpr32>
+  %42 = vmovd.xmm.gpr32 %32
+  %43 = avx2.vpbroadcastd.xmm %42
+  %quotient = vpinsrd.xmm %43, %40, 1
+  %45 = vmovd.xmm.gpr32 %33
+  %46 = avx2.vpbroadcastd.xmm %45
+  %remainder = vpinsrd.xmm %46, %41, 1
+  return %quotient, %remainder
 }

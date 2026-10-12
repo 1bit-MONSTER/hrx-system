@@ -718,7 +718,7 @@ def test_validate_c_table_shape_rejects_oversized_emit_count_fields() -> None:
         ("operand_ref_count", "operand-ref count", 3),
         ("result_ref_count", "result-ref count", 2),
         ("attr_copy_count", "attr-copy count", 5),
-        ("tied_result_count", "tied-result count", 1),
+        ("tied_result_count", "tied-result count", 2),
         ("accumulator_operand_index", "accumulator operand index", 2),
     ):
         field_value = 1 << bit_count
