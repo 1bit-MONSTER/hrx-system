@@ -1212,6 +1212,14 @@ iree_status_t loom_vector_to_scalar_try_materialize_def_lane(
   if (!loom_vector_to_scalar_resolve_descriptor(def_op->kind, &descriptor)) {
     return iree_ok_status();
   }
+  // Mechanical lane lowering clones one scalar operation and returns one
+  // value. Target legalization owns multi-result mechanical producers so their
+  // complete result tuple remains intact. Explicit lane programs such as
+  // deinterleave define how to select one result independently.
+  if (def_op->result_count != 1 &&
+      descriptor.lane_kind == LOOM_VECTOR_TO_SCALAR_LANE_GENERIC) {
+    return iree_ok_status();
+  }
   loom_value_t* value_record =
       loom_module_value(state->rewriter->module, value);
   uint16_t result_ordinal = loom_value_def_index(value_record);
