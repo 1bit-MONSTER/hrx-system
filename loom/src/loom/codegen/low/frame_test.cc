@@ -188,12 +188,12 @@ TEST_F(LowEmissionFrameTest, StorageLeaseFrameRetainsValueProducers) {
       static_cast<uint32_t>(load_node - frame.schedule.nodes));
 }
 
-TEST_F(LowEmissionFrameTest, CallTransportRetainsBoundaryRegisterClasses) {
+TEST_F(LowEmissionFrameTest, CallTransportRetainsLiveBoundaryRegisterClasses) {
   ModulePtr module = ParseModule(R"(
-low.func.decl target<test.low.core> @callee(%value: reg<test.pressure.alias32>) -> (reg<test.pressure.alias32>)
+low.func.decl target<test.low.core> @callee(%value: reg<test.pressure.alias32>) -> (reg<test.pressure.alias32>, reg<test.pressure.alias32>)
 
 low.func.def target<test.low.core> @caller(%value: reg<test.pressure.alias32>) -> (reg<test.pressure.alias32>) asm {
-  %result = low.func.call @callee(%value) : (reg<test.pressure.alias32>) -> (reg<test.pressure.alias32>)
+  %result, %unused = low.func.call @callee(%value) : (reg<test.pressure.alias32>) -> (reg<test.pressure.alias32>, reg<test.pressure.alias32>)
   return %result
 }
 )");
@@ -207,11 +207,18 @@ low.func.def target<test.low.core> @caller(%value: reg<test.pressure.alias32>) -
       .descriptor_reg_class_id = boundary_class,
       .location_base = 7,
   }};
-  const loom_low_allocation_abi_location_t results[] = {{
-      .location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
-      .descriptor_reg_class_id = boundary_class,
-      .location_base = 6,
-  }};
+  const loom_low_allocation_abi_location_t results[] = {
+      {
+          .location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
+          .descriptor_reg_class_id = boundary_class,
+          .location_base = 6,
+      },
+      {
+          .location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
+          .descriptor_reg_class_id = boundary_class,
+          .location_base = 5,
+      },
+  };
   loom_low_call_contract_t contract = {
       .arguments = arguments,
       .argument_count = IREE_ARRAYSIZE(arguments),
@@ -236,6 +243,7 @@ low.func.def target<test.low.core> @caller(%value: reg<test.pressure.alias32>) -
   ASSERT_EQ(frame.allocation.error_count, 0u);
   ASSERT_EQ(frame.allocation.call_move_count, 1u);
   const loom_low_allocation_call_moves_t& call = frame.allocation.call_moves[0];
+  EXPECT_EQ(call.result_count, 2u);
   ASSERT_EQ(call.arguments.count, 1u);
   ASSERT_EQ(call.results.count, 1u);
   const loom_low_move_t& argument =
