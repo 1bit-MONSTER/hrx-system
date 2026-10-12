@@ -19,6 +19,7 @@ loom_corpus_sources(
     "subgroup/ballot.loom"
     "subgroup/match.loom"
     "subgroup/reduce.loom"
+    "subgroup/scan.loom"
     "subgroup/shuffle_dynamic.loom"
     "subgroup/shuffle_participation.loom"
     "subgroup/transport.loom"
@@ -27,6 +28,7 @@ loom_corpus_sources(
     "workgroup/predicate_insertion.loom"
     "workgroup/reduce_partial.loom"
     "workgroup/reduce_tree.loom"
+    "workgroup/scan.loom"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

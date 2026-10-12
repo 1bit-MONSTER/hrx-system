@@ -44,11 +44,83 @@ func.def @subgroup_match_any_i32_oracle(%input: buffer, %output: buffer) {
 
 check.scenario @subgroup_match_any_i32_values {
   check.trial[16](%trial: index, %entropy: check.entropy) {
-    %seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
     %input = check.generate.random.uniform seed(%seed) range(-4 to 4) : tensor<32xi32>
     %output = check.generate.fill value(-1) : tensor<32xi64>
     check.compare<@subgroup_match_any_i32, @subgroup_match_any_i32_oracle>(%input, %output) : (tensor<32xi32>, tensor<32xi64>) -> () {
       check.expect.bitwise actual(%output) expected(%output) : tensor<32xi64>
+    }
+  }
+  check.return
+}
+
+// A 32-workitem launch gives match.all the same active mask on wave32 and on
+// a partial wave64 while exercising both the mask and predicate results.
+kernel.def @subgroup_match_all_i32() {
+  %unit = index.constant 1 : index
+  %items = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%input: buffer, %mask_output: buffer, %all_output: buffer) {
+  %base = index.constant 0 : offset
+  %lane = kernel.subgroup.lane.id : index
+  %input_view = buffer.view %input[%base] : buffer -> view<32xi32>
+  %mask_view = buffer.view %mask_output[%base] : buffer -> view<32xi64>
+  %all_view = buffer.view %all_output[%base] : buffer -> view<32xi32>
+  %value = view.load %input_view[%lane] : view<32xi32> -> i32
+  %mask, %all = kernel.subgroup.match.all %value : i32 -> i64, i1
+  %all_i32 = scalar.extui %all : i1 to i32
+  view.store %mask, %mask_view[%lane] : i64, view<32xi64>
+  view.store %all_i32, %all_view[%lane] : i32, view<32xi32>
+  kernel.return
+}
+
+func.def @subgroup_match_all_i32_oracle(%input: buffer, %mask_output: buffer, %all_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 32 : index
+  %step = index.constant 1 : index
+  %first = index.constant 0 : index
+  %true = scalar.constant true : i1
+  %zero_mask = scalar.constant 0 : i64
+  %active_mask = scalar.constant 4294967295 : i64
+  %input_view = buffer.view %input[%base] : buffer -> view<32xi32>
+  %mask_view = buffer.view %mask_output[%base] : buffer -> view<32xi64>
+  %all_view = buffer.view %all_output[%base] : buffer -> view<32xi32>
+  %first_value = view.load %input_view[%first] : view<32xi32> -> i32
+  %all = scf.for %lane = [%begin to %end step %step](%current = %true : i1) -> (i1) {
+    %value = view.load %input_view[%lane] : view<32xi32> -> i32
+    %equal = scalar.cmpi eq, %value, %first_value : i32
+    %next = scalar.andi %current, %equal : i1
+    scf.yield %next : i1
+  }
+  %mask = scf.select %all, %active_mask, %zero_mask : i64
+  %all_i32 = scalar.extui %all : i1 to i32
+  scf.for %lane = [%begin to %end step %step] {
+    view.store %mask, %mask_view[%lane] : i64, view<32xi64>
+    view.store %all_i32, %all_view[%lane] : i32, view<32xi32>
+  }
+  func.return
+}
+
+check.scenario @subgroup_match_all_i32_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(7) : tensor<32xi32>
+    %mask_output = check.generate.fill value(-1) : tensor<32xi64>
+    %all_output = check.generate.fill value(-1) : tensor<32xi32>
+    check.compare<@subgroup_match_all_i32, @subgroup_match_all_i32_oracle>(%input, %mask_output, %all_output) : (tensor<32xi32>, tensor<32xi64>, tensor<32xi32>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<32xi32>
+      check.expect.bitwise actual(%mask_output) expected(%mask_output) : tensor<32xi64>
+      check.expect.bitwise actual(%all_output) expected(%all_output) : tensor<32xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-16) step(1) : tensor<32xi32>
+    %mask_output = check.generate.fill value(-1) : tensor<32xi64>
+    %all_output = check.generate.fill value(-1) : tensor<32xi32>
+    check.compare<@subgroup_match_all_i32, @subgroup_match_all_i32_oracle>(%input, %mask_output, %all_output) : (tensor<32xi32>, tensor<32xi64>, tensor<32xi32>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<32xi32>
+      check.expect.bitwise actual(%mask_output) expected(%mask_output) : tensor<32xi64>
+      check.expect.bitwise actual(%all_output) expected(%all_output) : tensor<32xi32>
     }
   }
   check.return

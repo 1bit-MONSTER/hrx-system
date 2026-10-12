@@ -117,10 +117,21 @@ _NO_KERNEL_ARTIFACT_EXCLUDES = {
     for source in _NO_DEVICE_SUBJECTS + _ADAPTER_ONLY_SCENARIOS
 }
 
+_WAVE64_SUBGROUP_SCAN_XFAILS = {
+    "kernel/subgroup/scan.loom:@subgroup_scan_i32": "AMDGPU/023",
+}
+
+_WAVE64_SUBGROUP_SCAN_SOURCES = ["kernel/subgroup/scan.loom"]
+
 loom_corpus_build(
     name = "all",
     all_roots_xfail = {
         "//loom/target/amdgpu:all": ["numeric/conversion/float8_facts.loom"],
+        "//loom/target/amdgpu:gfx9-4-generic": _WAVE64_SUBGROUP_SCAN_SOURCES,
+        "//loom/target/amdgpu:gfx940": _WAVE64_SUBGROUP_SCAN_SOURCES,
+        "//loom/target/amdgpu:gfx941": _WAVE64_SUBGROUP_SCAN_SOURCES,
+        "//loom/target/amdgpu:gfx942": _WAVE64_SUBGROUP_SCAN_SOURCES,
+        "//loom/target/amdgpu:gfx950": _WAVE64_SUBGROUP_SCAN_SOURCES,
     },
     catalog = LOOM_CORPUS,
     excludes = {"//loom/target/amdgpu:all": _NO_KERNEL_ARTIFACT_EXCLUDES},
@@ -130,6 +141,11 @@ loom_corpus_build(
             "numeric/conversion/float8_facts.loom:@float8_facts": "TARGET/034",
             "numeric/vector/conversion.loom:@pack_nibbles": "AMDGPU/023,TARGET/003",
         },
+        "//loom/target/amdgpu:gfx9-4-generic": _WAVE64_SUBGROUP_SCAN_XFAILS,
+        "//loom/target/amdgpu:gfx940": _WAVE64_SUBGROUP_SCAN_XFAILS,
+        "//loom/target/amdgpu:gfx941": _WAVE64_SUBGROUP_SCAN_XFAILS,
+        "//loom/target/amdgpu:gfx942": _WAVE64_SUBGROUP_SCAN_XFAILS,
+        "//loom/target/amdgpu:gfx950": _WAVE64_SUBGROUP_SCAN_XFAILS,
         "//loom/target/amdgpu:without_bf16_fma": {
             "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_bf16": "TARGET/003",
         },
