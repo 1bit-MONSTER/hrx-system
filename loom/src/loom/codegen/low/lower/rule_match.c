@@ -2112,9 +2112,9 @@ void loom_low_lower_rule_materialize_diagnostic_params(
         (uint16_t)(diagnostic->param_start + stored_param_index);
     const loom_low_lower_diagnostic_param_ref_t param_ordinal =
         rule_set->diagnostic_param_refs[param_ref_index];
-    const loom_low_lower_diagnostic_param_t* row =
-        &rule_set->diagnostic_params[param_ordinal];
-    switch (row->kind) {
+    const loom_low_lower_diagnostic_value_t* value =
+        &rule_set->diagnostic_params.values[param_ordinal];
+    switch (rule_set->diagnostic_params.kinds[param_ordinal]) {
       case LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_TARGET_KEY:
         out_params[param_index] = loom_param_string(
             loom_low_lower_rule_target_key(match_context->bundle));
@@ -2136,29 +2136,27 @@ void loom_low_lower_rule_materialize_diagnostic_params(
             loom_param_string(loom_op_name(match_context->module, source_op));
         break;
       case LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL:
-        out_params[param_index] =
-            loom_param_string(loom_low_lower_rule_set_string(
-                rule_set, row->value.string_value_ref));
+        out_params[param_index] = loom_param_string(
+            loom_low_lower_rule_set_string(rule_set, value->string_value_ref));
         break;
       case LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_VALUE_TYPE: {
         const loom_value_id_t value_id = loom_low_lower_rule_source_value(
-            match_context->module, rule_set, source_op,
-            row->value.value_ref_index);
+            match_context->module, rule_set, source_op, value->value_ref_index);
         out_params[param_index] = loom_param_type(
             loom_low_lower_rule_match_value_type(match_context, value_id));
         break;
       }
       case LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_I64_LITERAL:
-        out_params[param_index] = loom_param_i64(row->value.i64_value);
+        out_params[param_index] = loom_param_i64(value->i64_value);
         break;
       case LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_U32_LITERAL:
-        out_params[param_index] = loom_param_u32(row->value.u32_value);
+        out_params[param_index] = loom_param_u32(value->u32_value);
         break;
       case LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_U64_LITERAL:
-        out_params[param_index] = loom_param_u64(row->value.u64_value);
+        out_params[param_index] = loom_param_u64(value->u64_value);
         break;
       case LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_BOOL_LITERAL:
-        out_params[param_index] = loom_param_bool(row->value.bool_value);
+        out_params[param_index] = loom_param_bool(value->bool_value);
         break;
       case LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_SOURCE_MEMORY_MINIMUM_ALIGNMENT:
         out_params[param_index] =

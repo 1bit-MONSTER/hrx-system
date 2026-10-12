@@ -3186,6 +3186,48 @@ def test_generator_derives_minimum_issue_cycles_from_resource_pressure() -> None
     assert compiled.resource_calendar_lookback_cycles == 0
 
 
+@pytest.mark.parametrize("alias_group", [0, 7, 8])
+@pytest.mark.parametrize("kind", list(IssueUseKind))
+@pytest.mark.parametrize("second_stage", [0, 2, 9])
+def test_generator_counts_only_additive_demand_by_contention_group(alias_group: int, kind: IssueUseKind, second_stage: int) -> None:
+    resource = replace(TEST_LOW_CORE_DESCRIPTOR_SET.resources[0], capacity_per_cycle=2, contention_group_id=7)
+    alias = replace(resource, name="test.alias", contention_group_id=alias_group)
+    schedule = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET.schedule_classes[1],
+        issue_uses=(
+            IssueUse(resource.name, cycles=3, units=1, kind=kind),
+            IssueUse(alias.name, cycles=3, units=1, stage=second_stage, kind=kind),
+        ),
+    )
+    compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, resources=(resource, alias), schedule_classes=(schedule,), descriptors=(TEST_LOW_ADD_I32_DESCRIPTOR,)))
+
+    # Overlap and stage gaps do not change additive demand. Separate resources
+    # each need ceil(3 / 2) cycles; aliases jointly need ceil(6 / 2).
+    expected = (3 if alias_group == 7 else 2) if kind == IssueUseKind.REQUIRED else 0
+    assert compiled.schedule_rows[0]["minimum_issue_cycles"] == expected
+
+
+@pytest.mark.parametrize("reservation_stage", [0, 3, 65535])
+def test_generator_reservations_do_not_inflate_required_demand(reservation_stage: int) -> None:
+    resource = replace(TEST_LOW_CORE_DESCRIPTOR_SET.resources[0], capacity_per_cycle=2)
+    reservation = IssueUse(resource.name, cycles=5, units=1, stage=reservation_stage, kind=IssueUseKind.RESERVED)
+    schedule = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET.schedule_classes[1],
+        issue_uses=(reservation, IssueUse(resource.name, cycles=3, units=1), reservation),
+        latency_cycles=100,
+        schedule_distance_cycles=100,
+        minimum_issue_separation_cycles=100,
+    )
+    compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, resources=(resource,), schedule_classes=(schedule,), descriptors=(TEST_LOW_ADD_I32_DESCRIPTOR,)))
+    assert compiled.schedule_rows[0]["minimum_issue_cycles"] == 2
+
+
+def test_generator_empty_resource_demand_has_zero_issue_cycles() -> None:
+    compiled = compiler.compile_descriptor_set(TEST_LOW_CORE_DESCRIPTOR_SET, DescriptorAllowlist(keys=(TEST_LOW_CONST_I32_DESCRIPTOR.key,)))
+    assert compiled.schedule_classes[0].issue_uses == ()
+    assert compiled.schedule_rows[0]["minimum_issue_cycles"] == 0
+
+
 def test_generator_shares_resource_calendar_horizons() -> None:
     schedule_classes = tuple(
         replace(schedule, issue_uses=(IssueUse("test.shared_b", cycles=3, units=1, stage=4),)) if schedule.name == "test.event.slow" else schedule

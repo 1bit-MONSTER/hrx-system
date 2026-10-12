@@ -473,29 +473,24 @@ enum loom_low_lower_diagnostic_param_kind_e {
   LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_SOURCE_MEMORY_MINIMUM_ALIGNMENT = 11,
 };
 
-typedef struct loom_low_lower_diagnostic_param_t {
-  // Parameter projection operation.
-  loom_low_lower_diagnostic_param_kind_t kind;
-  // Reserved padding available to future compact projection metadata.
-  uint8_t reserved[7];
-  // Projection payload selected by kind.
-  union {
-    // Rule-set string reference for STRING_LITERAL payloads.
-    loom_string_ref_t string_value_ref;
-    // Source value-ref row consumed by VALUE_TYPE rows.
-    uint16_t value_ref_index;
-    // Signed literal payload for I64_LITERAL rows.
-    int64_t i64_value;
-    // Unsigned literal payload for U32_LITERAL rows.
-    uint32_t u32_value;
-    // Unsigned literal payload for U64_LITERAL rows.
-    uint64_t u64_value;
-    // Boolean literal payload for BOOL_LITERAL rows.
-    bool bool_value;
-  } value;
-} loom_low_lower_diagnostic_param_t;
-static_assert(sizeof(loom_low_lower_diagnostic_param_t) == 16,
-              "loom_low_lower_diagnostic_param_t must be 16 bytes");
+// Native projection payload, indexed in parallel with its parameter kind.
+// Keeping the byte-sized kind separate avoids padding every aligned value.
+typedef union loom_low_lower_diagnostic_value_t {
+  // Rule-set string reference for STRING_LITERAL payloads.
+  loom_string_ref_t string_value_ref;
+  // Source value-ref row consumed by VALUE_TYPE rows.
+  uint16_t value_ref_index;
+  // Signed literal payload for I64_LITERAL rows.
+  int64_t i64_value;
+  // Unsigned literal payload for U32_LITERAL rows.
+  uint32_t u32_value;
+  // Unsigned literal payload for U64_LITERAL rows.
+  uint64_t u64_value;
+  // Boolean literal payload for BOOL_LITERAL rows.
+  bool bool_value;
+} loom_low_lower_diagnostic_value_t;
+static_assert(sizeof(loom_low_lower_diagnostic_value_t) == 8,
+              "loom_low_lower_diagnostic_value_t must be 8 bytes");
 
 // Ordinal into a rule set's interned diagnostic-parameter table.
 typedef uint16_t loom_low_lower_diagnostic_param_ref_t;
@@ -1352,10 +1347,15 @@ typedef struct loom_low_lower_rule_set_t {
   const loom_low_lower_rule_descriptor_ref_t* descriptor_refs;
   // Number of rows in descriptor_refs.
   uint16_t descriptor_ref_count;
-  // Interned diagnostic parameter projection rows.
-  const loom_low_lower_diagnostic_param_t* diagnostic_params;
-  // Number of rows in diagnostic_params.
-  uint16_t diagnostic_param_count;
+  // Interned diagnostic projections. Both columns share parameter ordinals.
+  struct {
+    // Projection operation for each parameter.
+    const loom_low_lower_diagnostic_param_kind_t* kinds;
+    // Native payload for each parameter, interpreted by its kind.
+    const loom_low_lower_diagnostic_value_t* values;
+    // Number of entries in each column.
+    uint16_t count;
+  } diagnostic_params;
   // Diagnostic parameter refs addressed by diagnostic param spans.
   const loom_low_lower_diagnostic_param_ref_t* diagnostic_param_refs;
   // Number of rows in diagnostic_param_refs.

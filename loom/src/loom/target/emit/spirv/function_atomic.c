@@ -54,12 +54,14 @@ static iree_status_t loom_spirv_emit_atomic_constants(
     loom_spirv_emit_state_t* state, const loom_spirv_packet_row_t* row,
     loom_spirv_atomic_ordering_t ordering, uint32_t* out_scope_id,
     uint32_t* out_semantics_id) {
+  const loom_spirv_packet_payload_t* payload =
+      loom_spirv_packet_row_payload(row);
   IREE_RETURN_IF_ERROR(loom_spirv_emit_u32_constant(
-      state->type_context, row->payload.atomic.memory_scope, out_scope_id));
+      state->type_context, payload->atomic.memory_scope, out_scope_id));
   return loom_spirv_emit_u32_constant(
       state->type_context,
       loom_spirv_atomic_memory_semantics(ordering,
-                                         row->payload.atomic.storage_semantics),
+                                         payload->atomic.storage_semantics),
       out_semantics_id);
 }
 
@@ -139,8 +141,10 @@ iree_status_t loom_spirv_emit_atomic_compare_exchange_packet(
 
   const int64_t failure_ordering_value =
       loom_spirv_emit_packet_immediate(packet);
+  const loom_spirv_packet_payload_t* payload =
+      loom_spirv_packet_row_payload(row);
   const loom_spirv_atomic_ordering_t success_ordering =
-      (loom_spirv_atomic_ordering_t)row->payload.atomic.success_ordering;
+      (loom_spirv_atomic_ordering_t)payload->atomic.success_ordering;
   const loom_spirv_atomic_ordering_t failure_ordering =
       (loom_spirv_atomic_ordering_t)failure_ordering_value;
   uint32_t scope_id = 0;
@@ -151,7 +155,7 @@ iree_status_t loom_spirv_emit_atomic_compare_exchange_packet(
   IREE_RETURN_IF_ERROR(loom_spirv_emit_u32_constant(
       state->type_context,
       loom_spirv_atomic_memory_semantics(failure_ordering,
-                                         row->payload.atomic.storage_semantics),
+                                         payload->atomic.storage_semantics),
       &failure_semantics_id));
 
   uint32_t result_id = 0;
@@ -174,8 +178,10 @@ static iree_status_t loom_spirv_emit_atomic_integer_type(
     loom_spirv_emit_state_t* state, const loom_spirv_packet_row_t* row,
     const loom_spirv_module_value_ref_t* pointer,
     uint32_t* out_integer_type_id) {
+  const loom_spirv_packet_payload_t* payload =
+      loom_spirv_packet_row_payload(row);
   const loom_spirv_scalar_type_t integer_scalar_type =
-      (loom_spirv_scalar_type_t)row->payload.atomic.integer_scalar;
+      (loom_spirv_scalar_type_t)payload->atomic.integer_scalar;
   IREE_ASSERT_EQ(pointer->value_type.scalar_type, integer_scalar_type);
   return loom_spirv_emit_type_scalar(state->type_context, integer_scalar_type,
                                      out_integer_type_id);
@@ -283,18 +289,20 @@ iree_status_t loom_spirv_emit_atomic_float_compare_exchange_packet(
 
   const int64_t failure_ordering_value =
       loom_spirv_emit_packet_immediate(packet);
+  const loom_spirv_packet_payload_t* payload =
+      loom_spirv_packet_row_payload(row);
   uint32_t scope_id = 0;
   uint32_t success_semantics_id = 0;
   IREE_RETURN_IF_ERROR(loom_spirv_emit_atomic_constants(
       state, row,
-      (loom_spirv_atomic_ordering_t)row->payload.atomic.success_ordering,
-      &scope_id, &success_semantics_id));
+      (loom_spirv_atomic_ordering_t)payload->atomic.success_ordering, &scope_id,
+      &success_semantics_id));
   uint32_t failure_semantics_id = 0;
   IREE_RETURN_IF_ERROR(loom_spirv_emit_u32_constant(
       state->type_context,
       loom_spirv_atomic_memory_semantics(
           (loom_spirv_atomic_ordering_t)failure_ordering_value,
-          row->payload.atomic.storage_semantics),
+          payload->atomic.storage_semantics),
       &failure_semantics_id));
 
   uint32_t integer_type_id = 0;
@@ -458,16 +466,18 @@ iree_status_t loom_spirv_emit_atomic_float_cas_packet(
       &expected_float_id));
 
   uint32_t replacement_float_id = 0;
-  if (row->payload.atomic.float_operation ==
+  const loom_spirv_packet_payload_t* payload =
+      loom_spirv_packet_row_payload(row);
+  if (payload->atomic.float_operation ==
       LOOM_SPIRV_ATOMIC_FLOAT_OPERATION_ADD) {
     IREE_RETURN_IF_ERROR(loom_spirv_module_emit_binary_result(
         state->builder, LOOM_SPIRV_OP_F_ADD, value.type_id, expected_float_id,
         value.id, &replacement_float_id));
   } else {
     IREE_RETURN_IF_ERROR(loom_spirv_emit_float_atomic_minmax(
-        state, row->payload.atomic.float_operation, value.type_id,
-        integer_type_id, expected_float_id, expected_id, value.id,
-        value_integer_id, &replacement_float_id));
+        state, payload->atomic.float_operation, value.type_id, integer_type_id,
+        expected_float_id, expected_id, value.id, value_integer_id,
+        &replacement_float_id));
   }
   uint32_t replacement_integer_id = 0;
   IREE_RETURN_IF_ERROR(loom_spirv_module_emit_unary_result(

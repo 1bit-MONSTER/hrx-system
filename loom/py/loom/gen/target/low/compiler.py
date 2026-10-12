@@ -325,54 +325,6 @@ def derive_instruction_classes(
     return tuple(instruction_class for instruction_class in InstructionClass if instruction_class in classes)
 
 
-def derive_minimum_issue_cycles(
-    schedule_class: ScheduleClass,
-    resources: dict[str, Resource],
-) -> int:
-    """Derives the schedule class's resource-throughput lower bound."""
-
-    unit_cycles_by_resource: dict[str, int] = {}
-    for issue_use in schedule_class.issue_uses:
-        resource = resources.get(issue_use.resource)
-        if resource is None:
-            raise ValueError(f"schedule class '{schedule_class.name}' references unknown resource '{issue_use.resource}'")
-        validation.validate_u16(
-            resource.capacity_per_cycle,
-            f"resource '{resource.name}' capacity per cycle",
-        )
-        if resource.capacity_per_cycle == 0:
-            raise ValueError(f"resource '{resource.name}' has zero capacity per cycle")
-        validation.validate_u16(
-            issue_use.cycles,
-            f"schedule class '{schedule_class.name}' issue-use cycles",
-        )
-        if issue_use.cycles == 0:
-            raise ValueError(f"schedule class '{schedule_class.name}' issue-use for resource '{resource.name}' has zero occupied cycles")
-        validation.validate_u16(
-            issue_use.units,
-            f"schedule class '{schedule_class.name}' issue-use units",
-        )
-        if issue_use.units == 0:
-            raise ValueError(f"schedule class '{schedule_class.name}' issue-use for resource '{resource.name}' consumes zero units")
-        if issue_use.units > resource.capacity_per_cycle:
-            raise ValueError(f"schedule class '{schedule_class.name}' issue-use for resource '{resource.name}' consumes {issue_use.units} units with capacity {resource.capacity_per_cycle}")
-        validation.validate_u16(
-            issue_use.stage,
-            f"schedule class '{schedule_class.name}' issue-use stage",
-        )
-        unit_cycles_by_resource[resource.name] = unit_cycles_by_resource.get(resource.name, 0) + issue_use.cycles * issue_use.units
-
-    minimum_issue_cycles = max(
-        ((unit_cycles + resources[resource_name].capacity_per_cycle - 1) // resources[resource_name].capacity_per_cycle for resource_name, unit_cycles in unit_cycles_by_resource.items()),
-        default=0,
-    )
-    validation.validate_u16(
-        minimum_issue_cycles,
-        f"schedule class '{schedule_class.name}' minimum issue cycles",
-    )
-    return minimum_issue_cycles
-
-
 def _compile_resource_calendars(
     resources: Sequence[Resource],
     schedule_classes: Sequence[ScheduleClass],
@@ -1154,7 +1106,7 @@ def compile_descriptor_set(
     )
     if physical_register_views != spec.physical_register_views:
         spec = replace(spec, physical_register_views=physical_register_views)
-    disjoint_schedule_classes = validation.validate_schedule_model(spec)
+    disjoint_schedule_classes, minimum_issue_cycles_by_class = validation.validate_schedule_model(spec)
     validation.validate_schedule_alternatives(spec)
     register_part_inputs = _dedupe_by_name(spec.register_parts, lambda item: item.name)
     resource_inputs = _dedupe_by_name(spec.resources, lambda item: item.name)
@@ -1351,8 +1303,6 @@ def compile_descriptor_set(
     for schedule_name in list(used_schedule_names):
         schedule_class = schedule_inputs[schedule_name]
         for issue_use in schedule_class.issue_uses:
-            if issue_use.resource not in resource_inputs:
-                raise ValueError(f"schedule class '{schedule_name}' references unknown resource '{issue_use.resource}'")
             used_resource_names.add(issue_use.resource)
         for hazard in schedule_class.hazards:
             if validation.hazard_reference_count(hazard) != 1:
@@ -1701,7 +1651,7 @@ def compile_descriptor_set(
                 "issue_use_count": len(schedule_class.issue_uses),
                 "hazard_start": hazard_start,
                 "hazard_count": len(schedule_class.hazards),
-                "minimum_issue_cycles": derive_minimum_issue_cycles(schedule_class, resource_inputs),
+                "minimum_issue_cycles": minimum_issue_cycles_by_class[schedule_class.name],
                 "pressure_delta_start": pressure_delta_start,
                 "pressure_delta_count": len(schedule_class.pressure_deltas),
             }
