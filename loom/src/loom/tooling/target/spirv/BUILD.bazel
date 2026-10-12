@@ -228,11 +228,11 @@ loom_generated_file(
     name = "float8_memory_binary",
     testonly = True,
     args = [
-        "$(location //loom/src/loom/test/corpus/source_low:memory_float8_conversion.loom)",
+        "$(location test/float8_memory.loom)",
         "--target=spirv:vulkan1.3+bda+extended-types",
     ],
     generator = "//loom/src/loom/tools/loom-compile:loom-compile",
-    inputs = ["//loom/src/loom/test/corpus/source_low:memory_float8_conversion.loom"],
+    inputs = ["test/float8_memory.loom"],
     output = "float8_memory.spv",
     output_flag = "--output=",
     target_compatible_with = _SPIRV_COMPILE_COMPATIBLE_WITH,

@@ -40,13 +40,13 @@ iree_py_test(
         "$(location //loom/src/loom/tools/loom-check:loom-check)",
         "$(location qualification_accepted.loom-test)",
         "$(location //loom/src/loom/tools/loom-compile:loom-compile)",
-        "$(location //loom/src/loom/test/corpus/source_low:memory_address_realizations.loom-test)",
+        "$(location memory_address_realizations.loom-test)",
         "$(location qualification_rejected.loom-test)",
     ],
     data = [
+        "memory_address_realizations.loom-test",
         "qualification_accepted.loom-test",
         "qualification_rejected.loom-test",
-        "//loom/src/loom/test/corpus/source_low:memory_address_realizations.loom-test",
         "//loom/src/loom/tools/loom-check",
         "//loom/src/loom/tools/loom-compile",
     ],
@@ -88,6 +88,25 @@ loom_check_compile_tests(
         "--config=test.fragment_bank.scratch_elements=32",
     ],
     targets = ["//loom/target/amdgpu:gfx1250"],
+)
+
+loom_check_compile_tests(
+    name = "memory_address_realizations",
+    src = "memory_address_realizations.loom-test",
+    targets = ["//loom/target/amdgpu:" + target for target in LOOM_AMDGPU_SUPPORTED_TARGETS],
+)
+
+# Ordered global atomics require RDNA memory-ordering support.
+loom_check_compile_tests(
+    name = "memory_atomic_preservation",
+    src = "memory_atomic_preservation.loom-test",
+    targets = [
+        "//loom/target/amdgpu:gfx11-generic",
+        "//loom/target/amdgpu:gfx1151",
+        "//loom/target/amdgpu:gfx12-generic",
+        "//loom/target/amdgpu:gfx1250",
+        "//loom/target/amdgpu:gfx12-5-generic",
+    ],
 )
 
 loom_check_compile_tests(

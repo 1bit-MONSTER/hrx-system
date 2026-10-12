@@ -21,10 +21,10 @@ iree_py_test(
     "{{$<TARGET_FILE:loom::tools::loom-check::loom-check>}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amdgpu/test/qualification_accepted.loom-test}}"
     "{{$<TARGET_FILE:loom::tools::loom-compile::loom-compile>}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_address_realizations.loom-test}}"
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amdgpu/test/memory_address_realizations.loom-test}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amdgpu/test/qualification_rejected.loom-test}}"
   DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_address_realizations.loom-test"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amdgpu/test/memory_address_realizations.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amdgpu/test/qualification_accepted.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amdgpu/test/qualification_rejected.loom-test"
     "loom::tools::loom-check::loom-check"
@@ -81,6 +81,55 @@ loom_check_compile_tests(
     "--config=test.fragment_bank.k_fragments=2"
     "--config=test.fragment_bank.workgroup_size=32"
     "--config=test.fragment_bank.scratch_elements=32"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_check_compile_tests(
+  NAME
+    "memory_address_realizations"
+  SRC
+    "memory_address_realizations.loom-test"
+  TARGETS
+    loom::target::amdgpu::gfx11-generic
+    loom::target::amdgpu::gfx1100
+    loom::target::amdgpu::gfx1101
+    loom::target::amdgpu::gfx1102
+    loom::target::amdgpu::gfx1103
+    loom::target::amdgpu::gfx1150
+    loom::target::amdgpu::gfx1151
+    loom::target::amdgpu::gfx1152
+    loom::target::amdgpu::gfx1153
+    loom::target::amdgpu::gfx1170
+    loom::target::amdgpu::gfx1171
+    loom::target::amdgpu::gfx1172
+    loom::target::amdgpu::gfx12-5-generic
+    loom::target::amdgpu::gfx12-generic
+    loom::target::amdgpu::gfx1200
+    loom::target::amdgpu::gfx1201
+    loom::target::amdgpu::gfx1250
+    loom::target::amdgpu::gfx1250-a0
+    loom::target::amdgpu::gfx1251
+    loom::target::amdgpu::gfx9-4-generic
+    loom::target::amdgpu::gfx940
+    loom::target::amdgpu::gfx941
+    loom::target::amdgpu::gfx942
+    loom::target::amdgpu::gfx950
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_check_compile_tests(
+  NAME
+    "memory_atomic_preservation"
+  SRC
+    "memory_atomic_preservation.loom-test"
+  TARGETS
+    loom::target::amdgpu::gfx11-generic
+    loom::target::amdgpu::gfx1151
+    loom::target::amdgpu::gfx12-5-generic
+    loom::target::amdgpu::gfx12-generic
+    loom::target::amdgpu::gfx1250
 )
 endif()
 

@@ -273,11 +273,12 @@ run through `loom-check`. This keeps IR available to the formatter and migration
 tools, and lets program tests share one runner instead of linking a compiler
 stack into each unit-test executable.
 
-Standalone source-lowering programs used directly by compiler or integration
-tests belong in the [common corpus](src/loom/test/corpus/source_low/README.md).
-Shared input without its own expectations is exported data, not a standalone
-roundtrip test. The `.loom-test` suffix may select the multi-case container
-format; build registration determines whether that container is a test.
+Target-neutral executable language semantics belong in the
+[semantic corpus](src/loom/test/corpus/README.md). A source used directly by one
+compiler or integration test lives beside that owner. Shared input without its
+own expectations is exported data, not a standalone roundtrip test. The
+`.loom-test` suffix may select the multi-case container format; build
+registration determines whether that container is a test.
 
 Target-specific lowering and diagnostic fixtures own their source and exact
 expectations together. Each fixture needs an independently useful assertion;
