@@ -25,6 +25,7 @@ iree_py_library(
         "logical_core.py",
         "memory.py",
         "ordinary_vector.py",
+        "ordinary_vector_alu.py",
         "predicate.py",
         "subgroup.py",
     ],
@@ -47,6 +48,7 @@ iree_py_library(
         "//loom/py/loom/target/arch/spirv:ordinary_vector",
         "//loom/py/loom/target/arch/spirv:ordinary_vector_bit_layout",
         "//loom/py/loom/target/arch/spirv:ordinary_vector_conversion",
+        "//loom/py/loom/target/arch/spirv:ordinary_vector_integer",
         "//loom/py/loom/target/arch/spirv:scalar_alu",
         "//loom/py/loom/target/arch/spirv:scalar_constant",
         "//loom/py/loom/target/arch/spirv:scalar_conversion",
@@ -85,6 +87,25 @@ iree_py_test(
     deps = [
         ":contracts",
         "//loom/py/loom/target/arch/spirv:ordinary_vector_bit_layout",
+        "//loom/py/loom/target/contracts",
+    ],
+)
+
+iree_py_test(
+    name = "ordinary_vector_alu_test",
+    srcs = [
+        "ordinary_vector_alu_test.py",
+        "//loom/py/loom/tools:pytest_style_runner.py",
+    ],
+    args = ["loom.target.arch.spirv.contracts.ordinary_vector_alu_test"],
+    main = "pytest_style_runner.py",
+    deps = [
+        ":contracts",
+        "//loom/py/loom/dialect/vector",
+        "//loom/py/loom/target/arch/spirv:ordinary_vector",
+        "//loom/py/loom/target/arch/spirv:ordinary_vector_float",
+        "//loom/py/loom/target/arch/spirv:ordinary_vector_integer",
+        "//loom/py/loom/target/arch/spirv:scalar_alu",
         "//loom/py/loom/target/contracts",
     ],
 )

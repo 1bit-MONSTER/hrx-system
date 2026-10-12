@@ -56,6 +56,7 @@ from loom.target.arch.spirv.ordinary_vector_conversion import (
 )
 from loom.target.arch.spirv.ordinary_vector_float import (
     ORDINARY_VECTOR_FLOAT_BINARY_INSTRUCTIONS,
+    ORDINARY_VECTOR_FLOAT_COMPARE_INSTRUCTIONS,
     ORDINARY_VECTOR_FLOAT_SCALE_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.ordinary_vector_integer import (
@@ -792,6 +793,11 @@ def test_floating_packets_preserve_operation_rounding() -> None:
                 )
     expected_keys.update(("spirv.op_f_convert.bf16.f32", "spirv.op_f_convert.f32.bf16"))
     assert {key for key, row in rows.items() if row.no_contraction} == expected_keys
+
+
+def test_generation_emits_complete_ordinary_vector_float_comparisons() -> None:
+    assert len(ORDINARY_VECTOR_FLOAT_COMPARE_INSTRUCTIONS) == 126
+    _assert_generated_ordinary_vector_instructions(ORDINARY_VECTOR_FLOAT_COMPARE_INSTRUCTIONS)
 
 
 def test_vector_scale_rows_keep_the_scalar_operand_type() -> None:

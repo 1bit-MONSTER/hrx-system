@@ -238,7 +238,6 @@ _ALL_PROFILE_XFAILS = {
     "numeric/float/extrema.loom:@float_extrema_f32": "TARGET/003",
     "numeric/integer/wide/address_comparison.loom:@mixed_width_index_comparisons": "SPIRV/026",
     "numeric/predicate/extract.loom:@predicate_extract": "TARGET/032",
-    "numeric/predicate/extract.loom:@predicate_logic_across_divergence": "TARGET/001",
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_fma": "TARGET/001",
 }
 
@@ -372,7 +371,6 @@ _ALL_ROOTS_XFAIL = [
     "numeric/conversion/quantization.loom",
     "numeric/float/extrema.loom",
     "numeric/integer/wide/address_comparison.loom",
-    "numeric/predicate/extract.loom",
 ]
 
 _SPIRV_EXECUTION_XFAILS = {
@@ -498,10 +496,6 @@ _SPIRV_EXECUTION_XFAILS = {
     "numeric/integer/wide/address_comparison.loom:@mixed_width_index_comparison_values": "SPIRV/026",
     "numeric/integer/wide/observations.loom:@wide_dynamic_lane_values": "TARGET/004",
     "numeric/predicate/extract.loom:@predicate_extract_values": "TARGET/032",
-    "numeric/predicate/extract.loom:@predicate_logic_across_divergence_values": "TARGET/001",
-    "numeric/predicate/lanes.loom:@predicate_lane_values": "TARGET/001",
-    "numeric/predicate/vector_logic.loom:@predicate_bitwise_values": "TARGET/001",
-    "numeric/predicate/vector_logic.loom:@predicate_select_values": "TARGET/001",
     # BF16-capable profiles reach the missing FMA contract; other devices reject
     # the narrow carrier before arithmetic selection.
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_bf16_values": "TARGET/001,TARGET/003",
@@ -516,8 +510,6 @@ _SPIRV_EXECUTION_XFAILS = {
     "numeric/vector/float_extrema.loom:@vector_float_extrema_f8e4m3_values": "TARGET/003",
     "numeric/vector/float_extrema.loom:@vector_float_extrema_f8e5m2_values": "TARGET/003",
     "numeric/vector/floating.loom:@vector_floating_values": "LOWERING/036",
-    "numeric/vector/integer_bitwise.loom:@vector_i32_bitwise_values": "TARGET/001",
-    "numeric/vector/integer_bitwise.loom:@vector_i64_bitwise_values": "TARGET/001",
     "numeric/vector/reductions.loom:@vector_axis_reduction_values": "TARGET/093",
     "numeric/vector/reductions.loom:@vector_bitwise_reduction_values": "TARGET/093",
     "numeric/vector/reductions.loom:@vector_empty_reduction_values": "TARGET/093",
