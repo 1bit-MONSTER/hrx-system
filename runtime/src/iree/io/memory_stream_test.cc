@@ -451,6 +451,7 @@ TEST(MemoryStreamTest, Write) {
   EXPECT_THAT(data,
               ElementsAre(write_buffer[0], write_buffer[1], write_buffer[2],
                           write_buffer[3], write_buffer[4]));
+  IREE_EXPECT_OK(iree_io_stream_flush(stream));
 
   iree_io_stream_release(stream);
 }

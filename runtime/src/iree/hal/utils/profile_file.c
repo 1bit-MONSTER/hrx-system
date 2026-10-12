@@ -388,7 +388,8 @@ static iree_status_t iree_hal_profile_file_sink_end_session(
   IREE_RETURN_IF_ERROR(iree_hal_profile_file_sink_write_record(
       sink, IREE_HAL_PROFILE_FILE_RECORD_TYPE_SESSION_END, metadata,
       session_status_code, /*iovec_count=*/0, /*iovecs=*/NULL));
-  return iree_hal_profile_file_sink_update_file_length(sink);
+  IREE_RETURN_IF_ERROR(iree_hal_profile_file_sink_update_file_length(sink));
+  return iree_io_stream_flush(sink->stream);
 }
 
 static const iree_hal_profile_sink_vtable_t iree_hal_profile_file_sink_vtable =

@@ -148,6 +148,7 @@ TEST(FileContents, StdioStreamFillMultiBytePattern) {
 
   const uint8_t pattern[] = {0x34, 0x12};
   IREE_EXPECT_OK(iree_io_stream_fill(stream, 3, pattern, sizeof(pattern)));
+  IREE_EXPECT_OK(iree_io_stream_flush(stream));
 
   iree_io_stream_release(stream);
 
