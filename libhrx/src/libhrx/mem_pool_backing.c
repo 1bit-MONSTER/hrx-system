@@ -84,14 +84,19 @@ typedef enum hrx_mem_pool_source_kind_e {
 } hrx_mem_pool_source_kind_t;
 
 static iree_hal_pool_t** hrx_mem_pool_backing_source_slot(
-    hrx_mem_pool_backing_t* backing, hrx_mem_pool_source_kind_t kind) {
+    hrx_mem_pool_backing_t* backing, hrx_mem_pool_source_kind_t kind,
+    hrx_buffer_usage_t usage) {
+  const bool mapping_source =
+      iree_any_bit_set(usage, HRX_BUFFER_USAGE_MAPPING_SOURCE);
   switch (kind) {
     case HRX_MEM_POOL_SOURCE_DEVICE:
-      return &backing->device_source;
+      return mapping_source ? &backing->device.mapping
+                            : &backing->device.ordinary;
     case HRX_MEM_POOL_SOURCE_UNCACHED_DEVICE:
-      return &backing->uncached_device_source;
+      return mapping_source ? &backing->uncached_device.mapping
+                            : &backing->uncached_device.ordinary;
     case HRX_MEM_POOL_SOURCE_HOST:
-      return &backing->host_source;
+      return mapping_source ? &backing->host.mapping : &backing->host.ordinary;
     case HRX_MEM_POOL_SOURCE_HOST_IMPORT:
       return &backing->host_import_source;
     case HRX_MEM_POOL_SOURCE_DEVICE_IMPORT:
@@ -105,7 +110,7 @@ static iree_hal_pool_t** hrx_mem_pool_backing_source_slot(
 // external storage. No source allocates payload until used.
 static iree_status_t hrx_mem_pool_backing_create_source(
     hrx_device_t device, hrx_mem_pool_source_kind_t kind,
-    iree_hal_pool_t** out_pool) {
+    hrx_buffer_usage_t usage, iree_hal_pool_t** out_pool) {
   const iree_hal_device_queue_spec_t* queues =
       iree_hal_device_spec_queues(iree_hal_device_spec(device->hal_device));
   iree_hal_pool_family_access_t* families = NULL;
@@ -117,6 +122,10 @@ static iree_status_t hrx_mem_pool_backing_create_source(
     families[i].family = iree_hal_device_queue_family(device->hal_device, i);
     families[i].usage =
         IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
+    if (iree_any_bit_set(usage, HRX_BUFFER_USAGE_MAPPING_SOURCE)) {
+      families[i].interfaces |= UINT64_C(1)
+                                << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+    }
     if (kind == HRX_MEM_POOL_SOURCE_UNCACHED_DEVICE) {
       families[i].requirements = IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED;
     } else if (kind == HRX_MEM_POOL_SOURCE_HOST ||
@@ -227,12 +236,13 @@ static iree_status_t hrx_mem_pool_backing_ensure_cache_locked(
 
   iree_hal_pool_t* backing_pool = NULL;
   iree_status_t status = iree_ok_status();
-  if (!backing->device_source) {
+  if (!backing->device.ordinary) {
     status = hrx_mem_pool_backing_create_source(
-        device, HRX_MEM_POOL_SOURCE_DEVICE, &backing->device_source);
+        device, HRX_MEM_POOL_SOURCE_DEVICE, HRX_BUFFER_USAGE_DEFAULT,
+        &backing->device.ordinary);
   }
   if (iree_status_is_ok(status)) {
-    backing_pool = backing->device_source;
+    backing_pool = backing->device.ordinary;
     iree_hal_pool_retain(backing_pool);
   }
   iree_hal_pool_t* backing_cache = NULL;
@@ -265,9 +275,12 @@ void hrx_mem_pool_backing_deinitialize(hrx_mem_pool_backing_t* backing) {
   // Every attached pool retains the device containing this owner.
   IREE_ASSERT(!backing->retention_head);
   iree_hal_pool_release(backing->cache);
-  iree_hal_pool_release(backing->device_source);
-  iree_hal_pool_release(backing->uncached_device_source);
-  iree_hal_pool_release(backing->host_source);
+  iree_hal_pool_release(backing->device.ordinary);
+  iree_hal_pool_release(backing->device.mapping);
+  iree_hal_pool_release(backing->uncached_device.ordinary);
+  iree_hal_pool_release(backing->uncached_device.mapping);
+  iree_hal_pool_release(backing->host.ordinary);
+  iree_hal_pool_release(backing->host.mapping);
   iree_hal_pool_release(backing->host_import_source);
   iree_hal_pool_release(backing->device_import_source);
   iree_slim_mutex_deinitialize(&backing->mutex);
@@ -275,16 +288,17 @@ void hrx_mem_pool_backing_deinitialize(hrx_mem_pool_backing_t* backing) {
 
 static iree_status_t hrx_mem_pool_backing_retain_source(
     hrx_device_t device, hrx_mem_pool_source_kind_t kind,
-    iree_hal_pool_t** out_pool) {
+    hrx_buffer_usage_t usage, iree_hal_pool_t** out_pool) {
   IREE_ASSERT_ARGUMENT(out_pool);
   *out_pool = NULL;
   hrx_mem_pool_backing_t* backing = &device->mem_pool_backing;
   iree_slim_mutex_lock(&backing->mutex);
   iree_hal_pool_t** source_slot =
-      hrx_mem_pool_backing_source_slot(backing, kind);
+      hrx_mem_pool_backing_source_slot(backing, kind, usage);
   iree_status_t status = iree_ok_status();
   if (!*source_slot) {
-    status = hrx_mem_pool_backing_create_source(device, kind, source_slot);
+    status =
+        hrx_mem_pool_backing_create_source(device, kind, usage, source_slot);
   }
   if (iree_status_is_ok(status)) {
     *out_pool = *source_slot;
@@ -296,14 +310,14 @@ static iree_status_t hrx_mem_pool_backing_retain_source(
 
 iree_status_t hrx_mem_pool_backing_retain_allocation_source(
     hrx_device_t device, hrx_memory_type_t memory_type,
-    iree_hal_pool_t** out_pool) {
+    hrx_buffer_usage_t usage, iree_hal_pool_t** out_pool) {
   hrx_mem_pool_source_kind_t kind = HRX_MEM_POOL_SOURCE_DEVICE;
   if (iree_all_bits_set(memory_type, HRX_MEMORY_TYPE_HOST_LOCAL)) {
     kind = HRX_MEM_POOL_SOURCE_HOST;
   } else if (iree_any_bit_set(memory_type, HRX_MEMORY_TYPE_DEVICE_UNCACHED)) {
     kind = HRX_MEM_POOL_SOURCE_UNCACHED_DEVICE;
   }
-  return hrx_mem_pool_backing_retain_source(device, kind, out_pool);
+  return hrx_mem_pool_backing_retain_source(device, kind, usage, out_pool);
 }
 
 iree_status_t hrx_mem_pool_backing_retain_import_source(
@@ -322,7 +336,8 @@ iree_status_t hrx_mem_pool_backing_retain_import_source(
                               "HRX has no source for external storage type %u",
                               (uint32_t)storage_class.type);
   }
-  return hrx_mem_pool_backing_retain_source(device, kind, out_pool);
+  return hrx_mem_pool_backing_retain_source(device, kind, HRX_BUFFER_USAGE_NONE,
+                                            out_pool);
 }
 
 iree_status_t hrx_mem_pool_backing_create_pool(hrx_device_t device,

@@ -24,6 +24,14 @@ typedef struct hrx_mem_pool_retention_t {
   uint64_t min_bytes_to_keep;
 } hrx_mem_pool_retention_t;
 
+// Lazily created owned-storage classes with different native requirements.
+typedef struct hrx_mem_pool_sources_t {
+  // Ordinary allocations with no requirement for independent native aliases.
+  iree_hal_pool_t* ordinary;
+  // Allocations prepared with the native mapping-source interface.
+  iree_hal_pool_t* mapping;
+} hrx_mem_pool_sources_t;
+
 // Device-owned backing shared by the device's public memory pools. The device
 // outlives its pools and buffers; the cache survives individual pool teardown.
 typedef struct hrx_mem_pool_backing_t {
@@ -31,12 +39,12 @@ typedef struct hrx_mem_pool_backing_t {
   iree_slim_mutex_t mutex;
   // Retained native storage cache, created on first pool allocation.
   iree_hal_pool_t* cache;
-  // Retained owned-allocation source for ordinary device storage.
-  iree_hal_pool_t* device_source;
-  // Retained owned-allocation source for uncached device storage.
-  iree_hal_pool_t* uncached_device_source;
-  // Retained owned-allocation source with required public host access.
-  iree_hal_pool_t* host_source;
+  // Retained sources for device storage, acquired only when requested.
+  hrx_mem_pool_sources_t device;
+  // Retained sources for uncached device storage.
+  hrx_mem_pool_sources_t uncached_device;
+  // Retained sources with required coherent public host access.
+  hrx_mem_pool_sources_t host;
   // Retained import-only source for caller-owned host pointers.
   iree_hal_pool_t* host_import_source;
   // Retained import-only source for native device addresses.
@@ -64,10 +72,12 @@ iree_status_t hrx_mem_pool_backing_create_pool(hrx_device_t device,
 // allocation. The caller must release the returned pool. Host-local storage
 // receives required coherent host access; device-uncached storage receives a
 // hard uncached family requirement; all other storage prefers the device's
-// physical placement.
+// physical placement. MAPPING_SOURCE usage selects native backing that can be
+// aliased into explicit reservations; the returned pool publishes its mapping
+// geometry before any payload allocation.
 iree_status_t hrx_mem_pool_backing_retain_allocation_source(
     hrx_device_t device, hrx_memory_type_t memory_type,
-    iree_hal_pool_t** out_pool);
+    hrx_buffer_usage_t usage, iree_hal_pool_t** out_pool);
 
 // Retains the device-owned import-only source for |storage_class|. Portable
 // host pointers and native device addresses are the supported HRX interop

@@ -208,7 +208,7 @@ typedef uint16_t hrx_memory_access_t;
 #define HRX_MEMORY_ACCESS_WRITE 0x02
 #define HRX_MEMORY_ACCESS_ALL 0x03
 
-// Buffer usage bitfield. Values match iree_hal_buffer_usage_t.
+// Buffer usage bitfield. Transfer, storage, and host-mapping values match HAL.
 typedef uint32_t hrx_buffer_usage_t;
 #define HRX_BUFFER_USAGE_NONE 0x00000000u
 #define HRX_BUFFER_USAGE_TRANSFER_SOURCE 0x00000001u
@@ -219,6 +219,11 @@ typedef uint32_t hrx_buffer_usage_t;
 #define HRX_BUFFER_USAGE_STORAGE 0x00000C00u
 #define HRX_BUFFER_USAGE_MAPPING_SCOPED 0x01000000u
 #define HRX_BUFFER_USAGE_MAPPING_PERSISTENT 0x02000000u
+// Owned backing prepared for explicit virtual-address mappings. The ordinary
+// buffer address remains usable. Callers retain the backing until every alias
+// is detached and all accesses have completed. Host-pointer import cannot
+// provide this capability.
+#define HRX_BUFFER_USAGE_MAPPING_SOURCE 0x04000000u
 #define HRX_BUFFER_USAGE_DEFAULT 0x00000C03u
 
 // Operation flags for hrx_buffer_map. READ/WRITE are permissions; DISCARD

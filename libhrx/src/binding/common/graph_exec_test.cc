@@ -437,7 +437,8 @@ TEST_F(GraphExecTest, BatchMemoryNodePreservesResolvedWriteSemantics) {
   const hrx_memory_type_t memory_type =
       HRX_MEMORY_TYPE_HOST_LOCAL | HRX_MEMORY_TYPE_DEVICE_VISIBLE;
   IREE_ASSERT_OK(hrx_mem_pool_backing_retain_allocation_source(
-      device_entry_.hrx_device, memory_type, &memory_pool));
+      device_entry_.hrx_device, memory_type, HRX_BUFFER_USAGE_DEFAULT,
+      &memory_pool));
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
       memory_pool,
       iree_hal_make_pool_reservation_request(sizeof(uint64_t),

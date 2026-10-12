@@ -66,8 +66,6 @@ hrx_status_t hrx_buffer_allocate(hrx_stream_t stream, size_t size,
   }
   memset(buf, 0, sizeof(*buf));
 
-  (void)usage;
-
   hrx_status_t flush_status = hrx_stream_flush(stream);
   if (!hrx_status_is_ok(flush_status)) {
     iree_allocator_free(iree_allocator_system(), buf);
@@ -89,7 +87,7 @@ hrx_status_t hrx_buffer_allocate(hrx_stream_t stream, size_t size,
   };
 
   iree_status_t status = hrx_mem_pool_backing_retain_allocation_source(
-      stream->device, mem_type, &buf->hal_pool);
+      stream->device, mem_type, usage, &buf->hal_pool);
   if (iree_status_is_ok(status)) {
     const iree_hal_pool_reservation_request_t request =
         iree_hal_make_pool_reservation_request((iree_device_size_t)size,

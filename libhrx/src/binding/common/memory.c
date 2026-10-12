@@ -1299,7 +1299,8 @@ iree_status_t iree_hal_streaming_memory_allocate_device(
   iree_hal_pool_t* pool = NULL;
   iree_hal_buffer_t* buffer = NULL;
   iree_status_t status = hrx_mem_pool_backing_retain_allocation_source(
-      context->device_entry->hrx_device, (hrx_memory_type_t)memory_type, &pool);
+      context->device_entry->hrx_device, (hrx_memory_type_t)memory_type,
+      HRX_BUFFER_USAGE_DEFAULT, &pool);
   if (iree_status_is_ok(status)) {
     const iree_hal_pool_reservation_request_t request =
         iree_hal_make_pool_reservation_request(size, /*min_alignment=*/64);
@@ -2161,7 +2162,8 @@ static iree_status_t iree_hal_streaming_memory_allocate_host_with_context_mode(
   iree_hal_pool_t* pool = NULL;
   iree_hal_buffer_t* buffer = NULL;
   iree_status_t status = hrx_mem_pool_backing_retain_allocation_source(
-      context->device_entry->hrx_device, (hrx_memory_type_t)memory_type, &pool);
+      context->device_entry->hrx_device, (hrx_memory_type_t)memory_type,
+      HRX_BUFFER_USAGE_DEFAULT, &pool);
   if (iree_status_is_ok(status)) {
     const iree_hal_pool_reservation_request_t request =
         iree_hal_make_pool_reservation_request(allocation_size, host_alignment);
