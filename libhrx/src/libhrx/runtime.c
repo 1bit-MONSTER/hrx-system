@@ -636,31 +636,70 @@ static iree_status_t hrx_profile_file_sink_create(
   return status;
 }
 
+// Maps one HRX_PROFILE_MODE token to HAL profiling data families.
+static bool hrx_profile_mode_token_families(
+    iree_string_view_t token,
+    iree_hal_device_profiling_data_families_t* out_families) {
+  if (iree_string_view_equal(token, IREE_SV("queue"))) {
+    *out_families = IREE_HAL_DEVICE_PROFILING_DATA_QUEUE_EVENTS;
+  } else if (iree_string_view_equal(token, IREE_SV("dispatch"))) {
+    *out_families = IREE_HAL_DEVICE_PROFILING_DATA_EXECUTABLE_METADATA |
+                    IREE_HAL_DEVICE_PROFILING_DATA_DEVICE_QUEUE_EVENTS |
+                    IREE_HAL_DEVICE_PROFILING_DATA_DISPATCH_EVENTS;
+  } else if (iree_string_view_equal(token, IREE_SV("executable"))) {
+    *out_families = IREE_HAL_DEVICE_PROFILING_DATA_EXECUTABLE_METADATA |
+                    IREE_HAL_DEVICE_PROFILING_DATA_EXECUTABLE_TRACES;
+  } else if (iree_string_view_equal(token, IREE_SV("memory"))) {
+    // Allocation/free/reservation lifecycle events with pool-stat snapshots.
+    *out_families = IREE_HAL_DEVICE_PROFILING_DATA_MEMORY_EVENTS;
+  } else if (iree_string_view_equal(token, IREE_SV("metrics"))) {
+    // Device metric samples (clocks, temperature, power, activity, memory),
+    // written when the capture is flushed or ended.
+    *out_families = IREE_HAL_DEVICE_PROFILING_DATA_DEVICE_METRICS;
+  } else if (iree_string_view_equal(token, IREE_SV("all"))) {
+    *out_families = IREE_HAL_DEVICE_PROFILING_DATA_QUEUE_EVENTS |
+                    IREE_HAL_DEVICE_PROFILING_DATA_EXECUTABLE_METADATA |
+                    IREE_HAL_DEVICE_PROFILING_DATA_DEVICE_QUEUE_EVENTS |
+                    IREE_HAL_DEVICE_PROFILING_DATA_DISPATCH_EVENTS |
+                    IREE_HAL_DEVICE_PROFILING_DATA_EXECUTABLE_TRACES;
+  } else {
+    return false;
+  }
+  return true;
+}
+
+// HRX_PROFILE_MODE is one mode or a comma-separated list of modes
+// (queue, dispatch, executable, memory, metrics, all); unset means queue.
 static iree_status_t hrx_get_profile_data_families(
     iree_hal_device_profiling_data_families_t* out_data_families) {
   IREE_ASSERT_ARGUMENT(out_data_families);
 
   const char* value = getenv("HRX_PROFILE_MODE");
-  if (!value || !value[0] || strcmp(value, "queue") == 0) {
+  if (!value || !value[0]) {
     *out_data_families = IREE_HAL_DEVICE_PROFILING_DATA_QUEUE_EVENTS;
-  } else if (strcmp(value, "dispatch") == 0) {
-    *out_data_families = IREE_HAL_DEVICE_PROFILING_DATA_EXECUTABLE_METADATA |
-                         IREE_HAL_DEVICE_PROFILING_DATA_DEVICE_QUEUE_EVENTS |
-                         IREE_HAL_DEVICE_PROFILING_DATA_DISPATCH_EVENTS;
-  } else if (strcmp(value, "executable") == 0) {
-    *out_data_families = IREE_HAL_DEVICE_PROFILING_DATA_EXECUTABLE_METADATA |
-                         IREE_HAL_DEVICE_PROFILING_DATA_EXECUTABLE_TRACES;
-  } else if (strcmp(value, "all") == 0) {
-    *out_data_families = IREE_HAL_DEVICE_PROFILING_DATA_QUEUE_EVENTS |
-                         IREE_HAL_DEVICE_PROFILING_DATA_EXECUTABLE_METADATA |
-                         IREE_HAL_DEVICE_PROFILING_DATA_DEVICE_QUEUE_EVENTS |
-                         IREE_HAL_DEVICE_PROFILING_DATA_DISPATCH_EVENTS |
-                         IREE_HAL_DEVICE_PROFILING_DATA_EXECUTABLE_TRACES;
-  } else {
+    return iree_ok_status();
+  }
+
+  iree_hal_device_profiling_data_families_t data_families =
+      IREE_HAL_DEVICE_PROFILING_DATA_NONE;
+  iree_string_view_t remaining = iree_make_cstring_view(value);
+  while (!iree_string_view_is_empty(remaining)) {
+    iree_string_view_t token = iree_string_view_empty();
+    iree_string_view_split(remaining, ',', &token, &remaining);
+    token = iree_string_view_trim(token);
+    iree_hal_device_profiling_data_families_t token_families =
+        IREE_HAL_DEVICE_PROFILING_DATA_NONE;
+    if (!hrx_profile_mode_token_families(token, &token_families)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "unsupported HRX_PROFILE_MODE '%s'", value);
+    }
+    data_families |= token_families;
+  }
+  if (data_families == IREE_HAL_DEVICE_PROFILING_DATA_NONE) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "unsupported HRX_PROFILE_MODE '%s'", value);
   }
-
+  *out_data_families = data_families;
   return iree_ok_status();
 }
 
