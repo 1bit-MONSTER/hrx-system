@@ -31,6 +31,14 @@ typedef enum loom_amdgpu_vopd_component_source_bits_e {
 } loom_amdgpu_vopd_component_source_bits_t;
 typedef uint8_t loom_amdgpu_vopd_component_source_mask_t;
 
+// Register field supplying one of the three VGPR source-cache read ports.
+typedef enum loom_amdgpu_vopd_cache_register_e {
+  LOOM_AMDGPU_VOPD_CACHE_REGISTER_NONE = 0,
+  LOOM_AMDGPU_VOPD_CACHE_REGISTER_SRC0 = 1,
+  LOOM_AMDGPU_VOPD_CACHE_REGISTER_VSRC1 = 2,
+  LOOM_AMDGPU_VOPD_CACHE_REGISTER_VDST = 3,
+} loom_amdgpu_vopd_cache_register_t;
+
 typedef enum loom_amdgpu_vopd_component_rule_flag_bits_e {
   // Component rule has no additional planning capabilities.
   LOOM_AMDGPU_VOPD_COMPONENT_FLAG_NONE = 0u,
@@ -38,6 +46,8 @@ typedef enum loom_amdgpu_vopd_component_rule_flag_bits_e {
   LOOM_AMDGPU_VOPD_COMPONENT_FLAG_COMMUTABLE_SOURCES = 1u << 0,
   // A same-op dual move routes its Y source through the SRC2 cache.
   LOOM_AMDGPU_VOPD_COMPONENT_FLAG_DUAL_MOV_SRC2_CACHE = 1u << 1,
+  // SRC0/SRC1 reads require opposite parity to retain the hardware interlock.
+  LOOM_AMDGPU_VOPD_COMPONENT_FLAG_SOURCE_PARITY = 1u << 2,
 } loom_amdgpu_vopd_component_rule_flag_bits_t;
 typedef uint8_t loom_amdgpu_vopd_component_rule_flags_t;
 
@@ -60,6 +70,9 @@ typedef struct loom_amdgpu_vopd_component_rule_t {
   loom_amdgpu_vopd_component_operand_layout_t operands;
   // Source operand slots that contain real VGPRs.
   loom_amdgpu_vopd_component_source_mask_t source_register_mask;
+  // Register fields read through SRC0, SRC1, and SRC2 caches, respectively.
+  // Literal FMAMK reads VSRC1 through SRC2; tied accumulates read VDST there.
+  uint8_t cache_registers[3];
   // Descriptor-derived component planning capabilities.
   loom_amdgpu_vopd_component_rule_flags_t flags;
 } loom_amdgpu_vopd_component_rule_t;
