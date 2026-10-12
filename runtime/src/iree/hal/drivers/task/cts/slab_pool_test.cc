@@ -907,6 +907,7 @@ TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
       iree_max(64 * 1024, capabilities.reservation_granularity);
   ASSERT_GE(capabilities.max_byte_length, 2 * kUnit);
   ASSERT_GE(capabilities.max_alignment, kUnit);
+  EXPECT_EQ(capabilities.operations, IREE_HAL_MEMORY_MAPPING_OPERATIONS_ALL);
   for (auto& family : families_) {
     family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
   }
@@ -988,12 +989,34 @@ TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
         kUnit, &initial[i], sizeof(float), nullptr, IREE_HAL_FILL_FLAG_NONE));
   }
   std::array<iree_hal_memory_mapping_t, 2> mappings = {{
-      {first, all, {0, 2 * kUnit}, backing, 0, IREE_HAL_MEMORY_ACCESS_ALL},
-      {second, all, {0, 2 * kUnit}, nested, 0, IREE_HAL_MEMORY_ACCESS_ALL},
+      {first,
+       all,
+       {0, 2 * kUnit},
+       backing,
+       0,
+       IREE_HAL_MEMORY_ACCESS_NONE,
+       IREE_HAL_MEMORY_MAPPING_OPERATION_BIND},
+      {second,
+       all,
+       {0, 2 * kUnit},
+       nested,
+       0,
+       IREE_HAL_MEMORY_ACCESS_NONE,
+       IREE_HAL_MEMORY_MAPPING_OPERATION_BIND},
   }};
-  SemaphoreList mapped(devices_[0], {0}, {1});
-  IREE_ASSERT_OK(iree_hal_queue_map(queues_[0], uploaded, mapped,
+  // HIP-style installation and access grants are separate calls. The recorder
+  // carries the source into each protection change; HAL owns no mapping ledger.
+  SemaphoreList bound(devices_[0], {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(queues_[0], uploaded, bound,
                                     mappings.size(), mappings.data(),
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  for (auto& mapping : mappings) {
+    mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT;
+    mapping.access = IREE_HAL_MEMORY_ACCESS_ALL;
+  }
+  SemaphoreList mapped(devices_[0], {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(queues_[0], bound, mapped, mappings.size(),
+                                    mappings.data(),
                                     IREE_HAL_QUEUE_MAP_FLAG_NONE));
   IREE_ASSERT_OK(Wait(mapped));
 
@@ -1015,6 +1038,9 @@ TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
                                          sizeof(old_values), nullptr));
   mappings[0].source = nested;
   mappings[1].source = backing;
+  for (auto& mapping : mappings) {
+    mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_REPLACE;
+  }
   IREE_EXPECT_OK(iree_hal_queue_map(queues_[1], old_done, replaced,
                                     mappings.size(), mappings.data(),
                                     IREE_HAL_QUEUE_MAP_FLAG_NONE));
@@ -1054,6 +1080,7 @@ TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
   EXPECT_THAT(result, ::testing::ElementsAre(11, 11, 11, 11));
 
   for (auto& mapping : mappings) {
+    mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND;
     mapping.source = nullptr;
     mapping.source_offset = 0;
     mapping.access = IREE_HAL_MEMORY_ACCESS_NONE;
@@ -1064,6 +1091,7 @@ TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
                                     IREE_HAL_QUEUE_MAP_FLAG_BORROW_BUFFERS));
   IREE_ASSERT_OK(Wait(detached));
   // Detached storage can immediately be mapped at another virtual range.
+  mappings[1].operation = IREE_HAL_MEMORY_MAPPING_OPERATION_BIND;
   mappings[1].source = nested;
   mappings[1].access = IREE_HAL_MEMORY_ACCESS_READ;
   SemaphoreList reused(devices_[0], {0}, {1});
@@ -1075,6 +1103,24 @@ TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
                                          second_child, 0, result.data(),
                                          sizeof(result), nullptr));
   IREE_ASSERT_OK(Wait(reuse_read));
+  EXPECT_THAT(result, ::testing::ElementsAre(11, 11, 11, 11));
+  mappings[1].operation = IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT;
+  mappings[1].access = IREE_HAL_MEMORY_ACCESS_NONE;
+  SemaphoreList revoked(devices_[0], {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(queues_[0], reuse_read, revoked, 1,
+                                    &mappings[1],
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  mappings[1].access = IREE_HAL_MEMORY_ACCESS_READ;
+  SemaphoreList restored(devices_[1], {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(queues_[1], revoked, restored, 1,
+                                    &mappings[1],
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  SemaphoreList restored_read(devices_[0], {0}, {1});
+  result.fill(0);
+  IREE_ASSERT_OK(iree_hal_queue_download(queues_[0], restored, restored_read,
+                                         second_child, 0, result.data(),
+                                         sizeof(result), nullptr));
+  IREE_ASSERT_OK(Wait(restored_read));
   EXPECT_THAT(result, ::testing::ElementsAre(11, 11, 11, 11));
   EXPECT_EQ(iree_hal_buffer_memory_view(backing)
                 .backing->native_allocation.byte_length,
@@ -1131,6 +1177,24 @@ TEST_P(TaskSlabPoolTest, RejectsMappingConflictsAndUnpreparedSources) {
       source, iree_hal_make_pool_reservation_request(2 * kUnit, kUnit),
       iree_infinite_timeout(), backing.out()));
   mapping.source = backing;
+  mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      iree_hal_queue_map(queues_[0], iree_hal_semaphore_list_empty(),
+                         iree_hal_semaphore_list_empty(), 1, &mapping,
+                         IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  mapping.source = nullptr;
+  for (auto operation : {IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
+                         IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT}) {
+    mapping.operation = operation;
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_INVALID_ARGUMENT,
+        iree_hal_queue_map(queues_[0], iree_hal_semaphore_list_empty(),
+                           iree_hal_semaphore_list_empty(), 1, &mapping,
+                           IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  }
+  mapping.source = backing;
+  mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_REPLACE;
   std::array<iree_hal_memory_mapping_t, 2> overlapping = {mapping, mapping};
   overlapping[1].source_offset = kUnit;
   IREE_EXPECT_STATUS_IS(

@@ -18,6 +18,26 @@ extern "C" {
 typedef struct iree_hal_queue_t iree_hal_queue_t;
 typedef struct iree_hal_memory_reservation_t iree_hal_memory_reservation_t;
 
+// Explicit mapping state supplied by the caller. These operations do not cause
+// HAL to discover or track installed sources. Backends can use native bind and
+// protection primitives when their APIs cannot replace arbitrary intervals.
+typedef enum iree_hal_memory_mapping_operation_e {
+  // Replaces any previous mapping in the range, including holes. A NULL source
+  // clears the range. This is the default for callers managing sparse ranges.
+  IREE_HAL_MEMORY_MAPPING_OPERATION_REPLACE = 0,
+  // Installs a non-NULL source in a range the caller knows is unbound.
+  IREE_HAL_MEMORY_MAPPING_OPERATION_BIND = 1,
+  // Removes a complete bound range. Requires a NULL source and zero access.
+  IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND = 2,
+  // Changes access to a bound range. The caller supplies the same source and
+  // source offset currently bound there, including when revoking all access.
+  IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT = 3,
+} iree_hal_memory_mapping_operation_t;
+
+// Bit set indexed by iree_hal_memory_mapping_operation_t.
+typedef uint32_t iree_hal_memory_mapping_operations_t;
+#define IREE_HAL_MEMORY_MAPPING_OPERATIONS_ALL UINT32_C(0xF)
+
 // Native address geometry for a complete simultaneous scope. A zero
 // max_byte_length means no backend supports that scope. These limits describe
 // addresses only; backing pools and their prepared mapping sources may impose
@@ -32,6 +52,8 @@ typedef struct iree_hal_memory_reservation_capabilities_t {
   iree_device_size_t mapping_granularity;
   // Largest accepted power-of-two minimum base alignment.
   iree_device_size_t max_alignment;
+  // Operations supported by every projection of the requested scope.
+  iree_hal_memory_mapping_operations_t operations;
 } iree_hal_memory_reservation_capabilities_t;
 
 // Queries geometry before acquiring addresses or physical backing. The same
@@ -109,6 +131,10 @@ iree_hal_memory_reservation_destroy(iree_hal_memory_reservation_t* reservation);
 // Target offsets and lengths satisfy the reservation's mapping granularity.
 // Native source offsets and lengths satisfy the source's independently prepared
 // granularity, which may be smaller than the target's replacement unit.
+// Binding and protection changes require their declared prior state. HAL does
+// not validate that state or retain the source after completion. Backing with
+// NONE access may be left detached natively; later protection changes supply
+// the source again so the backend can install it without retained bookkeeping.
 typedef struct iree_hal_memory_mapping_t {
   // Borrowed target address owner.
   iree_hal_memory_reservation_t* reservation;
@@ -122,8 +148,12 @@ typedef struct iree_hal_memory_mapping_t {
   iree_hal_buffer_t* source;
   // Byte offset within the logical source buffer; zero when detaching.
   iree_device_size_t source_offset;
-  // Required native access permissions; NONE when detaching.
+  // Required native access permissions; NONE revokes access. A non-NULL source
+  // with NONE access remains a logical binding owned entirely by the caller.
   iree_hal_memory_access_t access;
+  // Prior-state contract and requested update; zero selects general
+  // replacement.
+  iree_hal_memory_mapping_operation_t operation;
 } iree_hal_memory_mapping_t;
 
 //===----------------------------------------------------------------------===//
@@ -142,6 +172,8 @@ typedef struct iree_hal_memory_mapping_update_t {
   iree_hal_buffer_native_binding_t source;
   // Exact requested access permissions.
   iree_hal_memory_access_t access;
+  // Caller-declared binding state, already validated against backend support.
+  iree_hal_memory_mapping_operation_t operation;
 } iree_hal_memory_mapping_update_t;
 
 typedef struct iree_hal_memory_reservation_vtable_t {
@@ -170,6 +202,8 @@ struct iree_hal_memory_reservation_t {
   iree_device_size_t mapping_granularity;
   // Number of distinct native page-table projections.
   uint32_t projection_count;
+  // Supported operations, immutable after creation.
+  iree_hal_memory_mapping_operations_t operations;
   // Scope-indexed native projections; INVALID for excluded sites and ANY.
   const uint32_t* projections;
   // Explicit native destruction has consumed the address owner.
@@ -188,6 +222,7 @@ IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
     const iree_hal_buffer_backing_facts_t* backing,
     iree_hal_memory_type_t memory_type, iree_device_size_t byte_length,
     iree_device_size_t mapping_granularity,
+    iree_hal_memory_mapping_operations_t operations,
     const iree_hal_memory_reservation_vtable_t* vtable,
     iree_allocator_t host_allocator,
     iree_hal_memory_reservation_t* reservation);

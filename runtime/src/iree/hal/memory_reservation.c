@@ -182,6 +182,7 @@ IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
     const iree_hal_buffer_backing_facts_t* backing,
     iree_hal_memory_type_t memory_type, iree_device_size_t byte_length,
     iree_device_size_t mapping_granularity,
+    iree_hal_memory_mapping_operations_t operations,
     const iree_hal_memory_reservation_vtable_t* vtable,
     iree_allocator_t host_allocator,
     iree_hal_memory_reservation_t* reservation) {
@@ -199,6 +200,7 @@ IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
   reservation->vtable = vtable;
   reservation->host_allocator = host_allocator;
   reservation->mapping_granularity = mapping_granularity;
+  reservation->operations = operations;
 }
 
 //===----------------------------------------------------------------------===//
@@ -261,6 +263,21 @@ static iree_status_t iree_hal_memory_mapping_validate(
   const iree_hal_memory_reservation_t* reservation = mapping->reservation;
   const iree_hal_memory_contract_t* contract =
       reservation->buffer.memory.contract;
+  if ((unsigned)mapping->operation >
+          IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT ||
+      (mapping->operation == IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND &&
+       mapping->source) ||
+      ((mapping->operation == IREE_HAL_MEMORY_MAPPING_OPERATION_BIND ||
+        mapping->operation == IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT) &&
+       !mapping->source)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "mapping operation has an invalid source");
+  }
+  if (!(reservation->operations & (1u << mapping->operation))) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "reservation does not support mapping operation %u",
+                            (unsigned)mapping->operation);
+  }
   if (contract->domain != domain || mapping->scope.domain != domain ||
       mapping->scope.id >= contract->scope_count) {
     return iree_make_status(
@@ -283,8 +300,7 @@ static iree_status_t iree_hal_memory_mapping_validate(
                               "detach requires zero source offset and access");
     }
   } else {
-    if (!mapping->access ||
-        iree_any_bit_set(mapping->access, ~IREE_HAL_MEMORY_ACCESS_ALL) ||
+    if (iree_any_bit_set(mapping->access, ~IREE_HAL_MEMORY_ACCESS_ALL) ||
         !iree_all_bits_set(mapping->source->allowed_access, mapping->access) ||
         !iree_all_bits_set(reservation->buffer.allowed_access,
                            mapping->access)) {
@@ -355,7 +371,8 @@ static iree_status_t iree_hal_memory_mapping_capture(
         .source_offset = mapping->source_offset,
         .update = {.scope_id = id,
                    .target_range = mapping->target_range,
-                   .access = mapping->access},
+                   .access = mapping->access,
+                   .operation = mapping->operation},
     };
     if (!iree_any_bit_set(batch->flags,
                           IREE_HAL_QUEUE_MAP_FLAG_BORROW_BUFFERS)) {

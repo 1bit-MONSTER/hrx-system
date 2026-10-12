@@ -89,7 +89,8 @@ static iree_status_t iree_hal_amd_fabric_memory_reservation_update(
         continue;
       }
       const iree_hal_amd_fabric_mapping_source_t* source =
-          updates[i].source.mapping_source.descriptor;
+          updates[i].access ? updates[i].source.mapping_source.descriptor
+                            : NULL;
       amdf_memory_access_t permissions = 0;
       if (source) {
         permissions = access->capabilities.required_access;
@@ -200,6 +201,7 @@ static iree_status_t iree_hal_amd_fabric_memory_reservation_prepare(
       .reservation_granularity = 1,
       .mapping_granularity = 1,
       .max_alignment = IREE_DEVICE_SIZE_MAX,
+      .operations = IREE_HAL_MEMORY_MAPPING_OPERATIONS_ALL,
   };
   iree_hal_buffer_usage_t usage = 0;
   iree_status_t status = iree_ok_status();
@@ -444,6 +446,7 @@ iree_status_t iree_hal_amd_fabric_memory_reservation_create(
     iree_hal_memory_reservation_initialize(
         contract, reservation->bindings, &reservation->backing,
         IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE, options->byte_length, granularity,
+        plan.capabilities.operations,
         &iree_hal_amd_fabric_memory_reservation_vtable, host_allocator,
         &reservation->base);
     reservation->base.projection_count = projection_count;

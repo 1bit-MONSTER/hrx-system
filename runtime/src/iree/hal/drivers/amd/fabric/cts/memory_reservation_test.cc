@@ -437,15 +437,34 @@ TEST_P(FabricMemoryReservationTest, BatchedReplacementChangesRealGpuAddresses) {
         .target_range = {0, granularity_},
         .source = backing_,
         .source_offset = i * granularity_,
-        .access = IREE_HAL_MEMORY_ACCESS_ALL,
+        .access = IREE_HAL_MEMORY_ACCESS_NONE,
+        .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
     };
   }
   IREE_ASSERT_OK(Map(mappings));
+  for (auto& mapping : mappings) {
+    mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT;
+    mapping.access = IREE_HAL_MEMORY_ACCESS_ALL;
+  }
+  IREE_ASSERT_OK(Map(mappings));
   ASSERT_NO_FATAL_FAILURE(CopyAndVerify(0x1000, 0x2000));
+  for (auto& mapping : mappings) {
+    mapping.access = IREE_HAL_MEMORY_ACCESS_NONE;
+  }
+  IREE_ASSERT_OK(Map(mappings));
+  for (auto& mapping : mappings) {
+    mapping.access = IREE_HAL_MEMORY_ACCESS_ALL;
+  }
+  IREE_ASSERT_OK(Map(mappings));
+  ASSERT_NO_FATAL_FAILURE(CopyAndVerify(0x1000, 0x2000));
+  for (auto& mapping : mappings) {
+    mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_REPLACE;
+  }
   std::swap(mappings[0].source_offset, mappings[1].source_offset);
   IREE_ASSERT_OK(Map(mappings));
   ASSERT_NO_FATAL_FAILURE(CopyAndVerify(0x2000, 0x1000));
   for (auto& mapping : mappings) {
+    mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND;
     mapping.source = nullptr;
     mapping.source_offset = 0;
     mapping.access = 0;

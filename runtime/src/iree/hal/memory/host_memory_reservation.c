@@ -67,9 +67,10 @@ static iree_status_t iree_hal_host_memory_reservation_update(
     native_updates[i] = (iree_shm_mapping_update_t){
         .target_offset = (iree_host_size_t)updates[i].target_range.byte_offset,
         .byte_length = (iree_host_size_t)updates[i].target_range.byte_length,
-        .source = updates[i].source.mapping_source.descriptor,
+        .source = access ? updates[i].source.mapping_source.descriptor : NULL,
         .source_offset =
-            (iree_host_size_t)updates[i].source.mapping_source.offset,
+            access ? (iree_host_size_t)updates[i].source.mapping_source.offset
+                   : 0,
         .access = access,
     };
   }
@@ -127,7 +128,7 @@ iree_status_t iree_hal_host_memory_reservation_create(
     iree_hal_memory_reservation_initialize(
         contract, &reservation->binding, &reservation->backing,
         IREE_HAL_CPU_SLAB_PROVIDER_MEMORY_TYPE, options->byte_length,
-        reservation->native.granularity,
+        reservation->native.granularity, IREE_HAL_MEMORY_MAPPING_OPERATIONS_ALL,
         &iree_hal_host_memory_reservation_vtable, host_allocator,
         &reservation->base);
     reservation->base.projection_count = 1;

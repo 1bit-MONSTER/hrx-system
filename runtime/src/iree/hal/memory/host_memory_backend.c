@@ -327,6 +327,7 @@ static iree_status_t iree_hal_host_reservation_query_from_plan(
       .reservation_granularity = page_size,
       .mapping_granularity = page_size,
       .max_alignment = (IREE_HOST_SIZE_MAX >> 1) + 1,
+      .operations = IREE_HAL_MEMORY_MAPPING_OPERATIONS_ALL,
   };
   iree_hal_slab_pool_plan_destroy(plan);
   return iree_ok_status();
