@@ -670,12 +670,14 @@ typedef struct amdf_api_t {
       amdf_memory_reservation_capabilities_t* out_capabilities);
 
   /// Reserves stable addresses for explicit host/live-device consumers without
-  /// allocating application backing. GPU consumers share a common address when
-  /// creation succeeds; an unsupported native consumer combination fails as a
-  /// whole. Devices and instance are borrowed, with no retention or lifetime
-  /// tracking. This cold operation may allocate, lock and enter the native
-  /// driver. Failure leaves out_reservation unchanged and creates no cleanup
-  /// obligation.
+  /// allocating application backing. A request may combine host and GPU
+  /// consumers: the GPUs share a common GPU address, while the host projection
+  /// has its own base. An unsupported native combination fails as a whole.
+  /// Distinct mapping groups update independently, not as one cross-domain
+  /// transaction. Devices and instance are borrowed, with no retention or
+  /// lifetime tracking. This cold operation may allocate, lock and enter the
+  /// native driver. Failure leaves out_reservation unchanged and creates no
+  /// cleanup obligation.
   amdf_status_t(AMDF_CALL* memory_reservation_create)(
       amdf_instance_t* instance,
       const amdf_memory_reservation_create_info_t* create_info,

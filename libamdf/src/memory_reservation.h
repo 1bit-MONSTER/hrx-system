@@ -13,7 +13,26 @@
 extern "C" {
 #endif
 
+typedef struct amdf_memory_reservation_profile_t
+    amdf_memory_reservation_profile_t;
+
+// Explicit caller indices selected for one native reservation owner.
+typedef struct amdf_memory_reservation_group_t {
+  // Number of participating consumers, always nonzero.
+  uint32_t access_count;
+  // Borrowed caller ordinals, with the native owner first.
+  const uint32_t* access_ordinals;
+  // Borrowed construction facts indexed by original caller ordinal.
+  const amdf_memory_reservation_profile_t* profiles;
+} amdf_memory_reservation_group_t;
+
 typedef struct amdf_memory_reservation_vtable_t {
+  // Prepares a validated group in an unpublished common owner. Every return
+  // leaves acquired native state there for terminal construction cleanup.
+  amdf_status_t (*prepare)(
+      amdf_memory_reservation_t* reservation,
+      const amdf_memory_reservation_create_info_t* create_info,
+      const amdf_memory_reservation_group_t* group);
   // Applies validated, destination-ordered descriptors. Before native mutation
   // begins, sets mutation_started; failures before that point preserve state.
   amdf_status_t (*update)(amdf_memory_reservation_t* reservation,
@@ -24,9 +43,19 @@ typedef struct amdf_memory_reservation_vtable_t {
   // addresses. Native failure poisons the group; no source knowledge is needed.
   amdf_status_t (*detach)(amdf_memory_reservation_t* reservation,
                           uint32_t access_ordinal);
-  // Clears all aliases and consumes implementation metadata, even on failure.
-  amdf_status_t (*destroy)(amdf_memory_reservation_t* reservation);
+  // Consumes one native owner's state, even on failure. Common metadata and
+  // other independent owners remain live until common terminal destruction.
+  amdf_status_t (*destroy)(amdf_memory_reservation_t* reservation,
+                           uint32_t owner_ordinal);
 } amdf_memory_reservation_vtable_t;
+
+// Native limits and preparation protocol, resolved before resource creation.
+struct amdf_memory_reservation_profile_t {
+  // Complete live-domain geometry and permission envelope.
+  amdf_memory_reservation_capabilities_t capabilities;
+  // Matching operations prepare consumers together in one native owner.
+  const amdf_memory_reservation_vtable_t* vtable;
+};
 
 typedef struct amdf_memory_reservation_access_state_t {
   // Live consumer borrowed without retention.
@@ -37,16 +66,22 @@ typedef struct amdf_memory_reservation_access_state_t {
   amdf_memory_access_t required_access;
   // First native mutation failure for the canonical mapping access.
   amdf_status_t failure;
+  // Native operations selected for this consumer before preparation.
+  const amdf_memory_reservation_vtable_t* vtable;
+  // Owned native state, non-NULL only in its native owner record.
+  void* native;
+  // Caller ordinal owning this consumer's native state.
+  uint32_t native_owner_ordinal;
+  // Consumer ordinal within that native owner, independent of caller order.
+  uint32_t native_access_ordinal;
 } amdf_memory_reservation_access_state_t;
 
 struct amdf_memory_reservation_t {
   // Allocator copied from the instance, not a lifetime reference.
   amdf_allocator_t host_allocator;
-  // Provider operations selected at construction.
-  const amdf_memory_reservation_vtable_t* vtable;
   // Number of caller-ordered borrowed consumer records.
   uint32_t access_count;
-  // Records stored in the concrete provider allocation's tail.
+  // Records stored in this common owner's allocation tail.
   amdf_memory_reservation_access_state_t* accesses;
 };
 

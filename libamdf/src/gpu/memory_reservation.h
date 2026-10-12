@@ -14,14 +14,9 @@
 extern "C" {
 #endif
 
-amdf_status_t amdf_gpu_device_query_memory_reservation_capabilities(
+amdf_status_t amdf_gpu_device_query_memory_reservation_profile(
     amdf_device_t* device, uint32_t address_domain_ordinal,
-    amdf_memory_reservation_capabilities_t* out_capabilities);
-
-amdf_status_t amdf_gpu_memory_reservation_create(
-    amdf_instance_t* instance,
-    const amdf_memory_reservation_create_info_t* create_info,
-    amdf_memory_reservation_t** out_reservation);
+    amdf_memory_reservation_profile_t* out_profile);
 
 // Translates already validated public sources into exact native owners.
 amdf_status_t amdf_gpu_memory_reservation_update_on_queue(

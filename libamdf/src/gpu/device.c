@@ -42,9 +42,8 @@ static amdf_status_t amdf_gpu_device_destroy_native(
 }
 
 static const amdf_device_vtable_t amdf_gpu_device_vtable = {
-    .query_memory_reservation_capabilities =
-        amdf_gpu_device_query_memory_reservation_capabilities,
-    .reservation_create = amdf_gpu_memory_reservation_create,
+    .query_memory_reservation_profile =
+        amdf_gpu_device_query_memory_reservation_profile,
     .query_memory_profile = amdf_gpu_device_query_memory_profile,
     .memory_prepare = amdf_gpu_memory_prepare,
     .memory_prepare_import = amdf_gpu_memory_prepare_import,

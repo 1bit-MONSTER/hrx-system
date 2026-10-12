@@ -98,15 +98,30 @@ class Pm4MappingTest : public Pm4DispatchTest {
     ASSERT_EQ(kSlabByteLength % capabilities.mapping_granularity, 0u);
     required_access_ = capabilities.required_access;
     access_ = kReadWrite | required_access_;
+    amdf_memory_reservation_capabilities_t host_capabilities = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES,
+        .structure_size = sizeof(host_capabilities),
+    };
+    if (second_device_ != nullptr) {
+      ASSERT_EQ(api_->instance_query_host_memory_reservation_capabilities(
+                    instance_, &host_capabilities),
+                AMDF_STATUS_OK);
+      ASSERT_GE(host_capabilities.maximum_byte_length, kReservationByteLength);
+      ASSERT_GE(host_capabilities.maximum_alignment, kAlignment);
+    }
+    // Interleaving a CPU projection keeps logical GPU aliases independent of
+    // their caller ordinals while preserving the shared GPU mapping group.
     const amdf_memory_reservation_access_t accesses[] = {
         {device_, 0, access_, 0},
+        {nullptr, host_capabilities.address_domain_ordinal,
+         kReadWrite | host_capabilities.required_access, 0},
         {second_device_, 0, access_, secondary_mapping_granularity}};
     const amdf_memory_reservation_create_info_t create = {
         .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CREATE_INFO,
         .structure_size = sizeof(create),
         .byte_length = kReservationByteLength,
         .minimum_alignment = kAlignment,
-        .access_count = second_device_ == nullptr ? 1u : 2u,
+        .access_count = second_device_ == nullptr ? 1u : 3u,
         .accesses = accesses,
     };
     ASSERT_EQ(
@@ -725,13 +740,14 @@ class Pm4MappingTest : public Pm4DispatchTest {
         .structure_size = sizeof(second),
     };
     ASSERT_EQ(
-        api_->memory_reservation_query_access_info(reservation_, 1, &second),
+        api_->memory_reservation_query_access_info(reservation_, 2, &second),
         AMDF_STATUS_OK);
     ASSERT_EQ(second.mapping_access_ordinal,
               reservation_info_.mapping_access_ordinal);
     ASSERT_EQ(second.address, reservation_info_.address);
     ASSERT_EQ(second.mapping_granularity, kSlabByteLength);
     ASSERT_EQ(reservation_info_.mapping_granularity, kSlabByteLength);
+    ASSERT_EQ(api_->memory_reservation_detach(reservation_, 1), AMDF_STATUS_OK);
 
     GpuMemory* primary_backing = nullptr;
     GpuMemory* secondary_backing = nullptr;
@@ -747,7 +763,7 @@ class Pm4MappingTest : public Pm4DispatchTest {
     };
     // The first GPU action after publication executes on the other logical
     // device. No allocation or diagnostic submission supplies readiness.
-    ASSERT_EQ(api_->memory_reservation_update(reservation_, 1, 1, &update),
+    ASSERT_EQ(api_->memory_reservation_update(reservation_, 2, 1, &update),
               AMDF_STATUS_OK);
     ASSERT_NO_FATAL_FAILURE(
         WriteAndVerify(offset, 4096, 1, *secondary_backing));
@@ -757,7 +773,7 @@ class Pm4MappingTest : public Pm4DispatchTest {
     ASSERT_NO_FATAL_FAILURE(WriteAndVerify(offset, 4096, 2, *primary_backing));
     ASSERT_NO_FATAL_FAILURE(Verify(
         secondary_backing->device_address + kPayloadByteOffset, 4096, 1));
-    ASSERT_EQ(api_->memory_reservation_detach(reservation_, 1), AMDF_STATUS_OK);
+    ASSERT_EQ(api_->memory_reservation_detach(reservation_, 2), AMDF_STATUS_OK);
     ASSERT_NO_FATAL_FAILURE(ReleaseBacking(secondary_backing));
     ASSERT_NO_FATAL_FAILURE(ReleaseBacking(primary_backing));
   }

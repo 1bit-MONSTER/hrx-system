@@ -24,13 +24,17 @@ class Pm4HostMappingTest : public Pm4CommandTest,
       ASSERT_EQ(api_->host_mapping_destroy(view_), AMDF_STATUS_OK);
     }
     if (reservation_ != nullptr) {
-      const amdf_status_t detach =
-          api_->memory_reservation_detach(reservation_, 0);
-      EXPECT_EQ(detach, AMDF_STATUS_OK);
+      bool detached = true;
+      for (uint32_t ordinal = 0; ordinal < 2; ++ordinal) {
+        const amdf_status_t status =
+            api_->memory_reservation_detach(reservation_, ordinal);
+        EXPECT_EQ(status, AMDF_STATUS_OK);
+        detached &= amdf_status_is_ok(status);
+      }
       const amdf_status_t release =
           api_->memory_reservation_destroy(reservation_);
       EXPECT_EQ(release, AMDF_STATUS_OK);
-      if (!amdf_status_is_ok(detach) && !amdf_status_is_ok(release)) {
+      if (!detached && !amdf_status_is_ok(release)) {
         return;
       }
     }
@@ -45,24 +49,32 @@ class Pm4HostMappingTest : public Pm4CommandTest,
   amdf_host_mapping_t* view_ = nullptr;
 };
 
-TEST_P(Pm4HostMappingTest, ReplacesHostAliasesOfGpuBackingBeforeImmediateUse) {
+TEST_P(Pm4HostMappingTest, ReplacesCpuAndGpuViewsBeforeImmediateUse) {
   constexpr amdf_memory_access_t kReadWrite =
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
+  amdf_memory_reservation_capabilities_t gpu_capabilities = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES,
+      .structure_size = sizeof(gpu_capabilities),
+  };
+  ASSERT_EQ(api_->device_query_memory_reservation_capabilities(
+                device_, 0, &gpu_capabilities),
+            AMDF_STATUS_OK);
   const amdf_memory_device_access_t consumer = {
       device_,
       {
-          .access = kReadWrite,
-          .flags =
-              AMDF_MEMORY_FLAG_DEVICE_ADDRESS | AMDF_MEMORY_FLAG_HOST_COHERENT,
+          .access = kReadWrite | gpu_capabilities.required_access,
+          .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
+                   AMDF_MEMORY_FLAG_HOST_COHERENT |
+                   AMDF_MEMORY_FLAG_MAPPING_SOURCE,
       }};
   const amdf_memory_flags_t flags =
       AMDF_MEMORY_FLAG_HOST_VISIBLE | AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE;
-  const uint32_t profile_ordinal = FindGpuMemoryProfileOrdinal(
-      api_, system_scope_, device_, AMDF_MEMORY_PROFILE_ROLE_CREATE, flags,
-      consumer.requirements);
-  if (profile_ordinal == AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN) {
-    GTEST_SKIP() << "GPU backing does not supply replaceable host aliases";
-  }
+  amdf_memory_scope_info_t scope = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO,
+      .structure_size = sizeof(scope),
+  };
+  ASSERT_EQ(api_->memory_scope_query_info(system_scope_, &scope),
+            AMDF_STATUS_OK);
   amdf_memory_profile_t profile = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE,
       .structure_size = sizeof(profile),
@@ -71,10 +83,23 @@ TEST_P(Pm4HostMappingTest, ReplacesHostAliasesOfGpuBackingBeforeImmediateUse) {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_ACCESS_CAPABILITIES,
       .structure_size = sizeof(access_profile),
   };
-  ASSERT_EQ(api_->memory_scope_query_device_profile(
-                system_scope_, profile_ordinal, 1, &consumer, &profile,
-                &access_profile),
-            AMDF_STATUS_OK);
+  uint32_t profile_ordinal = AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN;
+  for (uint32_t ordinal = 0; ordinal < scope.memory_profile_count; ++ordinal) {
+    const auto status = api_->memory_scope_query_device_profile(
+        system_scope_, ordinal, 1, &consumer, &profile, &access_profile);
+    if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+      continue;
+    }
+    ASSERT_EQ(status, AMDF_STATUS_OK);
+    if ((profile.roles & AMDF_MEMORY_PROFILE_ROLE_CREATE) != 0 &&
+        (flags & ~profile.supported_flags) == 0) {
+      profile_ordinal = ordinal;
+      break;
+    }
+  }
+  if (profile_ordinal == AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN) {
+    GTEST_SKIP() << "GPU backing does not supply replaceable host aliases";
+  }
   amdf_memory_reservation_capabilities_t capabilities = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES,
       .structure_size = sizeof(capabilities),
@@ -84,24 +109,34 @@ TEST_P(Pm4HostMappingTest, ReplacesHostAliasesOfGpuBackingBeforeImmediateUse) {
             AMDF_STATUS_OK);
   const uint64_t unit =
       std::max({GetParam(), capabilities.mapping_granularity,
+                gpu_capabilities.mapping_granularity,
                 profile.allocation.native_byte_length_granularity});
   const size_t words = unit / sizeof(uint32_t);
-  const amdf_memory_reservation_access_t host_access = {
-      .address_domain_ordinal = capabilities.address_domain_ordinal,
-      .access = kReadWrite | capabilities.required_access,
-      .mapping_granularity = unit,
+  const amdf_memory_reservation_access_t accesses[] = {
+      {nullptr, capabilities.address_domain_ordinal,
+       kReadWrite | capabilities.required_access, unit},
+      {device_, gpu_capabilities.address_domain_ordinal,
+       consumer.requirements.access, unit},
   };
   const amdf_memory_reservation_create_info_t reservation_create = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CREATE_INFO,
       .structure_size = sizeof(reservation_create),
       .byte_length = 2 * unit,
       .minimum_alignment = unit,
-      .access_count = 1,
-      .accesses = &host_access,
+      .access_count = 2,
+      .accesses = accesses,
   };
   ASSERT_EQ(api_->memory_reservation_create(instance_, &reservation_create,
                                             &reservation_),
             AMDF_STATUS_OK);
+  amdf_memory_reservation_access_info_t gpu_address = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO,
+      .structure_size = sizeof(gpu_address),
+  };
+  ASSERT_EQ(
+      api_->memory_reservation_query_access_info(reservation_, 1, &gpu_address),
+      AMDF_STATUS_OK);
+  ASSERT_EQ(gpu_address.mapping_access_ordinal, 1u);
   const amdf_memory_map_info_t map = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_MAP_INFO,
       .structure_size = sizeof(map),
@@ -156,11 +191,17 @@ TEST_P(Pm4HostMappingTest, ReplacesHostAliasesOfGpuBackingBeforeImmediateUse) {
           .target_byte_offset = slot * unit,
           .byte_length = unit,
           .memory = backings[owners[epoch][slot]]->memory,
-          .access = host_access.access,
+          .access = accesses[0].access,
           .source_byte_offset = offsets[epoch][slot] * unit,
       };
     }
     ASSERT_EQ(api_->memory_reservation_update(reservation_, 0, updates.size(),
+                                              updates.data()),
+              AMDF_STATUS_OK);
+    for (auto& update : updates) {
+      update.access = accesses[1].access;
+    }
+    ASSERT_EQ(api_->memory_reservation_update(reservation_, 1, updates.size(),
                                               updates.data()),
               AMDF_STATUS_OK);
     amdf_memory_site_t host_site = {
@@ -191,10 +232,8 @@ TEST_P(Pm4HostMappingTest, ReplacesHostAliasesOfGpuBackingBeforeImmediateUse) {
                   view_, AMDF_HOST_CACHE_OPERATION_FLUSH, 0, unit),
               AMDF_STATUS_OK);
     commands.SystemBarrier();
-    commands.DmaCopy(
-        backings[owners[epoch][0]]->device_address + offsets[epoch][0] * unit,
-        backings[owners[epoch][1]]->device_address + offsets[epoch][1] * unit,
-        static_cast<uint32_t>(unit));
+    commands.DmaCopy(gpu_address.address, gpu_address.address + unit,
+                     static_cast<uint32_t>(unit));
     commands.WaitDma();
     commands.SystemBarrier();
     commands.WriteData32(completion->device_address, epoch + 1);
@@ -228,6 +267,7 @@ TEST_P(Pm4HostMappingTest, ReplacesHostAliasesOfGpuBackingBeforeImmediateUse) {
     }
   }
   ASSERT_EQ(api_->memory_reservation_detach(reservation_, 0), AMDF_STATUS_OK);
+  ASSERT_EQ(api_->memory_reservation_detach(reservation_, 1), AMDF_STATUS_OK);
 }
 
 INSTANTIATE_TEST_SUITE_P(MappingUnit, Pm4HostMappingTest,

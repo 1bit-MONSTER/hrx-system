@@ -389,9 +389,11 @@ The caller queries `device_query_memory_reservation_capabilities` for an
 already-live consumer's address domain. The result supplies address bounds,
 reservation and mapping granularity, alignment limits, and exact permission
 constraints. `required_access` identifies permission bits that the native
-domain cannot deny. The request names its complete live consumer set; a
-successful GPU reservation provides one common base address to that set.
-Unsupported combinations fail as a whole.
+domain cannot deny. The request names its complete consumer set, which may
+combine the host and live GPUs. GPU consumers receive one common GPU base;
+the host projection has its own base. Construction prepares every native
+owner before publishing the reservation. Unsupported combinations fail as a
+whole without creating a caller cleanup obligation.
 
 A CPU-only pool uses `instance_query_host_memory_reservation_capabilities`
 without activating any accelerator. Its reservation access has a null device
@@ -525,8 +527,13 @@ without tying its total reservation or physical allocation size to that unit.
 
 The host source ordinal in a mapping update is zero: CPU-only backing has no
 device-access record. Device and host source preparation are separate
-capabilities. CPU-only reservations and GPU reservations are individually
-supported; a combined host/device consumer set returns `UNSUPPORTED`.
+capabilities. One reservation can combine independent host and GPU mapping
+groups. Each update or detach names the affected group; replacing a host view
+does not update GPU page tables, and detaching a GPU group leaves the host
+view intact. When backing supports both source capabilities, the caller can
+install the same slab in both groups and publish new work only after both
+updates are ready. Libamdf neither tracks installed slabs nor turns separate
+native mutations into an atomic cross-domain transaction.
 
 ### Queue-ordered replacement
 
