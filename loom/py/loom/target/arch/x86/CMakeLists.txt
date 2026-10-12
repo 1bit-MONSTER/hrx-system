@@ -42,6 +42,15 @@ iree_py_library(
 
 iree_py_library(
   NAME
+    scalar_families
+  SRCS
+    "scalar_families.py"
+  DEPS
+    loom::py::loom::target::arch::x86::package_init
+)
+
+iree_py_library(
+  NAME
     native_vector
   SRCS
     "native_vector.py"
@@ -81,6 +90,7 @@ iree_py_library(
     "descriptors/simd128.py"
   DEPS
     loom::py::loom::target::arch::x86::native_vector
+    loom::py::loom::target::arch::x86::scalar_families
     loom::py::loom::target::arch::x86::target_info
     loom::py::loom::target::arch::x86::vector_families
     loom::py::loom::target::low_descriptors

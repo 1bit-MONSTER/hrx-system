@@ -16,6 +16,10 @@ from loom.gen.target.arch.x86 import x86_descriptors
 from loom.gen.target.low import compiler
 from loom.target.arch.x86 import descriptors as x86_descriptor_data
 from loom.target.arch.x86 import native_vector
+from loom.target.arch.x86.descriptors.encoding import Flag, Form, encoding
+from loom.target.arch.x86.scalar_families import (
+    X86_SCALAR_READ_MEMORY_FAMILIES,
+)
 from loom.target.arch.x86.target_info import (
     sorted_descriptor_set_infos,
     x86_descriptor_set_info_by_generator_target,
@@ -25,7 +29,19 @@ from loom.target.arch.x86.vector_encoding import (
     VECTOR_ENCODING_FORMAT_MARKER,
     VectorEncodingPrefix,
 )
-from loom.target.low_descriptors import Constraint, ConstraintKind, ImmediateKind, OperandAddressMapKind, OperandFlag, OperandRole, RegClassFlag
+from loom.target.low_descriptors import (
+    Constraint,
+    ConstraintKind,
+    DescriptorFlag,
+    EffectFlag,
+    EffectKind,
+    ImmediateKind,
+    OperandAddressMapKind,
+    OperandFlag,
+    OperandRole,
+    RegClassFlag,
+    ScheduleClassFlag,
+)
 
 
 class _RaisesValueError:
@@ -187,6 +203,66 @@ def test_bitwise_immediate_forms_are_shared_by_scalar_profiles() -> None:
                 assert immediate.bit_width == 32
                 assert immediate.signed_min == -(2**31)
                 assert immediate.unsigned_max == 2**31 - 1
+
+
+def test_scalar_read_memory_binary_forms_are_shared_by_scalar_profiles() -> None:
+    assert {(family.descriptor_operation, family.opcode) for family in X86_SCALAR_READ_MEMORY_FAMILIES} == {
+        ("add", 0x03),
+        ("sub", 0x2B),
+        ("imul", 0x0FAF),
+        ("and", 0x23),
+        ("or", 0x0B),
+        ("xor", 0x33),
+    }
+    for info in sorted_descriptor_set_infos():
+        if "x86.gpr32" not in info.register_classes:
+            continue
+        spec = x86_descriptors._descriptor_set_for_info(info)
+        descriptors = {descriptor.key: descriptor for descriptor in spec.descriptors}
+        schedules = {schedule.name: schedule for schedule in spec.schedule_classes}
+        for width in (32, 64):
+            register_class = f"x86.gpr{width}"
+            schedule_name = f"x86.memory.alu.gpr{width}"
+            schedule = schedules[schedule_name]
+            assert schedule.latency_cycles == 4
+            assert schedule.minimum_issue_separation_cycles == 4
+            assert tuple(use.resource for use in schedule.issue_uses) == (
+                "x86.load",
+                "x86.scalar",
+            )
+            assert schedule.flags == (ScheduleClassFlag.MAY_LOAD,)
+            for family in X86_SCALAR_READ_MEMORY_FAMILIES:
+                for address_suffix, immediate_fields in (
+                    ("", ("disp32",)),
+                    (".indexed", ("disp32", "scale")),
+                ):
+                    descriptor = descriptors[f"x86.scalar.{family.descriptor_operation}.load{address_suffix}.gpr{width}"]
+                    expected_encoding = encoding(
+                        family.opcode,
+                        flags=(Flag.REX_W if width == 64 else 0) | (Flag.INDEXED if address_suffix else 0),
+                    )
+                    assert descriptor.encoding_format_id == Form.BINARY_R_MEMORY
+                    assert descriptor.encoding_id == expected_encoding
+                    assert descriptor.constraints == (
+                        Constraint(ConstraintKind.TIED, 0, 1),
+                        Constraint(ConstraintKind.DESTRUCTIVE, 0, 1),
+                    )
+                    assert tuple(operand.role for operand in descriptor.operands) == (
+                        OperandRole.RESULT,
+                        OperandRole.OPERAND,
+                        OperandRole.RESOURCE,
+                        *((OperandRole.RESOURCE,) if address_suffix else ()),
+                    )
+                    assert {alternative.reg_class for operand in descriptor.operands[:2] for alternative in operand.reg_alts} == {register_class}
+                    assert all({alternative.reg_class for alternative in operand.reg_alts} == {"x86.gpr64"} for operand in descriptor.operands[2:])
+                    assert tuple(immediate.field_name for immediate in descriptor.immediates) == immediate_fields
+                    assert descriptor.flags == (DescriptorFlag.SIDE_EFFECTING,)
+                    assert len(descriptor.effects) == 1
+                    effect = descriptor.effects[0]
+                    assert effect.kind == EffectKind.READ
+                    assert effect.flags == (EffectFlag.DEPENDENCY,)
+                    assert effect.width_bits == width
+                    assert descriptor.schedule_class == schedule_name
 
 
 def test_storage_generation_emits_current_public_views() -> None:

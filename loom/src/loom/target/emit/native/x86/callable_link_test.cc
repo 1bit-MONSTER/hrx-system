@@ -20,6 +20,10 @@ extern "C" uint64_t mix(uint64_t input, uint64_t delta);
 extern "C" uint32_t immediate_mix32(uint32_t input);
 extern "C" uint64_t immediate_mix64(uint64_t input);
 extern "C" uint64_t immediate_scale(uint64_t coordinate);
+extern "C" uint32_t read_memory_mix32(const uint32_t* input, uint64_t position,
+                                      uint32_t seed);
+extern "C" uint64_t read_memory_mix64(const uint64_t* input, uint64_t position,
+                                      uint64_t seed);
 extern "C" uint64_t choose_mix(uint64_t input, uint64_t delta, uint64_t limit);
 extern "C" uint64_t preserve(uint64_t a, uint64_t b, uint64_t c, uint64_t d,
                              uint64_t e, uint64_t f);
@@ -201,6 +205,22 @@ extern "C" uint64_t saturated_permutation(uint64_t, uint64_t, uint64_t,
 namespace {
 
 template <typename T>
+T ExpectedReadMemoryMix(const std::array<T, 12>& values, size_t position,
+                        T seed) {
+  T value = values[position] + seed;
+  value += values[1];
+  value -= values[2];
+  value = values[3] * value;
+  value *= values[4];
+  value = values[5] & value;
+  value &= values[6];
+  value = values[7] | value;
+  value |= values[8];
+  value = values[9] ^ value;
+  return value ^ values[10];
+}
+
+template <typename T>
 struct SignedUnaryCase {
   // Authored input bit pattern.
   T input;
@@ -335,6 +355,40 @@ TEST(NativeCallableTest, IntegerImmediateArithmetic) {
     EXPECT_EQ(immediate_mix64(input),
               (input - UINT64_C(2147483648)) * UINT64_C(2147483647));
     EXPECT_EQ(immediate_scale(input), input * UINT64_C(65));
+  }
+}
+
+TEST(NativeCallableTest, ScalarReadMemoryArithmetic) {
+  const std::array<uint32_t, 12> values32 = {
+      UINT32_C(0x00000000), UINT32_C(0x00000001), UINT32_C(0x7fffffff),
+      UINT32_C(0x80000001), UINT32_C(0xfffffffb), UINT32_C(0x5a5aa5a5),
+      UINT32_C(0xf0ff0ff0), UINT32_C(0x01020408), UINT32_C(0x80402010),
+      UINT32_C(0xaaaaaaaa), UINT32_C(0x55555555), UINT32_C(0xffffffff),
+  };
+  const std::array<uint32_t, 4> seeds32 = {0, 1, UINT32_C(0x80000000),
+                                           UINT32_MAX};
+  for (size_t position : {size_t{0}, size_t{5}, size_t{11}}) {
+    for (uint32_t seed : seeds32) {
+      EXPECT_EQ(read_memory_mix32(values32.data(), position, seed),
+                ExpectedReadMemoryMix(values32, position, seed));
+    }
+  }
+
+  const std::array<uint64_t, 12> values64 = {
+      UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000001),
+      UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000001),
+      UINT64_C(0xfffffffffffffffb), UINT64_C(0x5a5aa5a55a5aa5a5),
+      UINT64_C(0xf0ff0ff00ff0ff0f), UINT64_C(0x0102040810204080),
+      UINT64_C(0x8040201008040201), UINT64_C(0xaaaaaaaaaaaaaaaa),
+      UINT64_C(0x5555555555555555), UINT64_C(0xffffffffffffffff),
+  };
+  const std::array<uint64_t, 4> seeds64 = {0, 1, UINT64_C(0x8000000000000000),
+                                           UINT64_MAX};
+  for (size_t position : {size_t{0}, size_t{5}, size_t{11}}) {
+    for (uint64_t seed : seeds64) {
+      EXPECT_EQ(read_memory_mix64(values64.data(), position, seed),
+                ExpectedReadMemoryMix(values64, position, seed));
+    }
   }
 }
 

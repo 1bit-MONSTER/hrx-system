@@ -329,6 +329,7 @@ loom_check_test_suite(
     "test/source_low/source_low_scalar_f32.loom-test"
     "test/source_low/source_low_scalar_i64.loom-test"
     "test/source_low/source_low_scalar_memory.loom-test"
+    "test/source_low/source_low_scalar_read_memory.loom-test"
     "test/source_low/source_low_schedule_scopes.loom-test"
     "test/source_low/source_low_v4.loom-test"
     "test/source_low/source_low_x86_shuffle.loom-test"

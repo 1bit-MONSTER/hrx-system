@@ -68,6 +68,66 @@ func.def public @immediate_scale(%coordinate: index) -> (offset) {
   func.return %result : offset
 }
 
+// Every operation consumes each legal loaded operand position. The dynamic
+// first access and static remaining accesses share the same borrowed extent.
+func.def public @read_memory_mix32(%input: buffer, %input_position: index, %seed: i32) -> (i32) {
+  %origin = index.constant 0 : offset
+  %position = index.assume %input_position [range(%input_position, 0, 11)] : index
+  %values = buffer.view %input[%origin] : buffer -> view<12xi32>
+  %loaded0 = view.load %values[%position] : view<12xi32> -> i32
+  %value0 = scalar.addi %loaded0, %seed : i32
+  %loaded1 = view.load %values[1] : view<12xi32> -> i32
+  %value1 = scalar.addi %value0, %loaded1 : i32
+  %loaded2 = view.load %values[2] : view<12xi32> -> i32
+  %value2 = scalar.subi %value1, %loaded2 : i32
+  %loaded3 = view.load %values[3] : view<12xi32> -> i32
+  %value3 = scalar.muli %loaded3, %value2 : i32
+  %loaded4 = view.load %values[4] : view<12xi32> -> i32
+  %value4 = scalar.muli %value3, %loaded4 : i32
+  %loaded5 = view.load %values[5] : view<12xi32> -> i32
+  %value5 = scalar.andi %loaded5, %value4 : i32
+  %loaded6 = view.load %values[6] : view<12xi32> -> i32
+  %value6 = scalar.andi %value5, %loaded6 : i32
+  %loaded7 = view.load %values[7] : view<12xi32> -> i32
+  %value7 = scalar.ori %loaded7, %value6 : i32
+  %loaded8 = view.load %values[8] : view<12xi32> -> i32
+  %value8 = scalar.ori %value7, %loaded8 : i32
+  %loaded9 = view.load %values[9] : view<12xi32> -> i32
+  %value9 = scalar.xori %loaded9, %value8 : i32
+  %loaded10 = view.load %values[10] : view<12xi32> -> i32
+  %result = scalar.xori %value9, %loaded10 : i32
+  func.return %result : i32
+}
+
+func.def public @read_memory_mix64(%input: buffer, %input_position: index, %seed: i64) -> (i64) {
+  %origin = index.constant 0 : offset
+  %position = index.assume %input_position [range(%input_position, 0, 11)] : index
+  %values = buffer.view %input[%origin] : buffer -> view<12xi64>
+  %loaded0 = view.load %values[%position] : view<12xi64> -> i64
+  %value0 = scalar.addi %loaded0, %seed : i64
+  %loaded1 = view.load %values[1] : view<12xi64> -> i64
+  %value1 = scalar.addi %value0, %loaded1 : i64
+  %loaded2 = view.load %values[2] : view<12xi64> -> i64
+  %value2 = scalar.subi %value1, %loaded2 : i64
+  %loaded3 = view.load %values[3] : view<12xi64> -> i64
+  %value3 = scalar.muli %loaded3, %value2 : i64
+  %loaded4 = view.load %values[4] : view<12xi64> -> i64
+  %value4 = scalar.muli %value3, %loaded4 : i64
+  %loaded5 = view.load %values[5] : view<12xi64> -> i64
+  %value5 = scalar.andi %loaded5, %value4 : i64
+  %loaded6 = view.load %values[6] : view<12xi64> -> i64
+  %value6 = scalar.andi %value5, %loaded6 : i64
+  %loaded7 = view.load %values[7] : view<12xi64> -> i64
+  %value7 = scalar.ori %loaded7, %value6 : i64
+  %loaded8 = view.load %values[8] : view<12xi64> -> i64
+  %value8 = scalar.ori %value7, %loaded8 : i64
+  %loaded9 = view.load %values[9] : view<12xi64> -> i64
+  %value9 = scalar.xori %loaded9, %value8 : i64
+  %loaded10 = view.load %values[10] : view<12xi64> -> i64
+  %result = scalar.xori %value9, %loaded10 : i64
+  func.return %result : i64
+}
+
 // Both exits return through the same native preservation envelope.
 func.def public @choose_mix(%input: i64, %delta: i64, %limit: i64) -> (i64) {
   %condition = scalar.cmpi ult, %input, %limit : i64

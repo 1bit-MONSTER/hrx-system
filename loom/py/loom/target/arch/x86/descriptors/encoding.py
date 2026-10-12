@@ -39,6 +39,7 @@ class Form(IntEnum):
     # Values 20..26 are structural control and ABI forms in the C encoder.
     ADDRESS_PC_RELATIVE = 27
     UNARY_RM = 28
+    BINARY_R_MEMORY = 29
 
 
 class Flag(IntFlag):
@@ -65,6 +66,17 @@ def validate_descriptor_encoding(descriptor: Descriptor) -> None:
     if not descriptor.encoding_format_id:
         return
     is_vector = bool(descriptor.encoding_format_id & VECTOR_ENCODING_FORMAT_MARKER)
+    input_operands = tuple(
+        operand
+        for operand in descriptor.operands
+        if operand.role
+        in (
+            OperandRole.OPERAND,
+            OperandRole.OPERAND_RESULT,
+            OperandRole.PREDICATE,
+            OperandRole.RESOURCE,
+        )
+    )
     if is_vector:
         try:
             validate_vector_encoding_recipe(descriptor.encoding_format_id)
@@ -109,17 +121,6 @@ def validate_descriptor_encoding(descriptor: Descriptor) -> None:
         except ValueError as error:
             raise ValueError(f"{descriptor.key}: {error}") from error
         if base_index is not None:
-            input_operands = tuple(
-                operand
-                for operand in descriptor.operands
-                if operand.role
-                in (
-                    OperandRole.OPERAND,
-                    OperandRole.OPERAND_RESULT,
-                    OperandRole.PREDICATE,
-                    OperandRole.RESOURCE,
-                )
-            )
             address_count = 2 if len(descriptor.immediates) == 2 else 1
             address_operands = input_operands[base_index : base_index + address_count]
             if len(address_operands) != address_count or any(
@@ -132,3 +133,27 @@ def validate_descriptor_encoding(descriptor: Descriptor) -> None:
                     f"{descriptor.key}: vector memory address must use adjacent "
                     "GPR64 resources"
                 )
+        return
+
+    form = Form(descriptor.encoding_format_id)
+    address_base_input = {
+        Form.LOAD: 0,
+        Form.STORE: 1,
+        Form.BINARY_R_MEMORY: 1,
+    }.get(form)
+    if address_base_input is None:
+        return
+    if not descriptor.immediates or descriptor.immediates[0].field_name != "disp32":
+        raise ValueError(f"{descriptor.key}: scalar memory form requires disp32")
+    address_count = 2 if len(descriptor.immediates) == 2 else 1
+    address_operands = input_operands[
+        address_base_input : address_base_input + address_count
+    ]
+    if len(address_operands) != address_count or any(
+        operand.role != OperandRole.RESOURCE
+        or {alternative.reg_class for alternative in operand.reg_alts} != {"x86.gpr64"}
+        for operand in address_operands
+    ):
+        raise ValueError(
+            f"{descriptor.key}: scalar memory address must use adjacent GPR64 resources"
+        )

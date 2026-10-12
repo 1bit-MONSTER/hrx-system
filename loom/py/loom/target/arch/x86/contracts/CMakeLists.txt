@@ -33,6 +33,7 @@ iree_py_library(
     "rule_builders.py"
     "scalar.py"
     "scalar_float.py"
+    "scalar_read_memory.py"
     "shuffle.py"
     "vector_arithmetic.py"
     "vector_construction.py"
@@ -46,6 +47,7 @@ iree_py_library(
     loom::py::loom::dialect::vector::vector
     loom::py::loom::dialect::view::view
     loom::py::loom::target::arch::x86::descriptors
+    loom::py::loom::target::arch::x86::scalar_families
     loom::py::loom::target::arch::x86::vector_families
     loom::py::loom::target::contracts::contracts
     loom::py::loom::target::emit::float_narrowing
@@ -136,7 +138,9 @@ iree_py_test(
     loom::py::loom::dialect::index::index
     loom::py::loom::dialect::scalar::scalar
     loom::py::loom::dialect::vector::vector
+    loom::py::loom::dialect::view::view
     loom::py::loom::target::arch::x86::descriptors
+    loom::py::loom::target::arch::x86::scalar_families
     loom::py::loom::target::arch::x86::vector_families
     loom::py::loom::target::contracts::contracts
   PACKAGE_DIRS

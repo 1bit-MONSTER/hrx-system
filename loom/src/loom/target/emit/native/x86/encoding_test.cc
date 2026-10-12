@@ -493,6 +493,36 @@ TEST(EncodingTest, AddressDisplacementAndSib) {
                  1u << 9);
 }
 
+TEST(EncodingTest, DestructiveBinaryMemorySource) {
+  loom_x86_encoding_operands_t operands = {
+      .result = 9,
+  };
+  operands.inputs[0] = 9;
+  operands.inputs[1] = 13;
+  // ADD r9d,[r13] needs the explicit zero displacement required by r13.
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_R_MEMORY, 0x03, operands,
+                 {0x45, 0x03, 0x4d, 0x00}, 1u << 9);
+
+  operands.inputs[1] = 12;
+  operands.inputs[2] = 10;
+  operands.immediate = -128;
+  operands.scale = 2;
+  operands.has_index = true;
+  // ADD r9,[r12+r10*4-128] exercises all three REX roles and a disp8.
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_R_MEMORY,
+                 0x03 | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x4f, 0x03, 0x4c, 0x94, 0x80}, 1u << 9);
+
+  operands.has_index = false;
+  operands.immediate = 128;
+  operands.scale = 0;
+  // IMUL r9d,[r12+128] covers a two-byte opcode and disp32.
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_R_MEMORY,
+                 LOOM_X86_ENCODING_OPCODE_0F | 0xaf, operands,
+                 {0x45, 0x0f, 0xaf, 0x8c, 0x24, 0x80, 0x00, 0x00, 0x00},
+                 1u << 9);
+}
+
 TEST(EncodingTest, PcRelativeAddressUsesNoBaseRegisterOrSib) {
   loom_x86_encoding_operands_t operands = {
       .immediate = -4,

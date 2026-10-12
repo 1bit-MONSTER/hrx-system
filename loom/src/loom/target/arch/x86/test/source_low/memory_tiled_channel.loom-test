@@ -25,9 +25,8 @@ low.func.def target<x86.avx2.core> abi(object_function) @tiled_channel_load(%inp
   %21 = copy %bounded_row : reg<x86.gpr64> -> reg<x86.gpr64>
   %22 = imul.gpr64 %21, %stride
   %linear = lea %22, %bounded_lane
-  %value = mov.load.indexed.gpr32 %input, %linear {disp32 = 0, scale = 4}
   %weight = mov.load.indexed.gpr32 %input, %bounded_lane {disp32 = 0, scale = 4}
-  %26 = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
-  %result = imul.gpr32 %26, %weight
+  %25 = copy %weight : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = imul.load.indexed.gpr32 %25, %input, %linear {disp32 = 0, scale = 4}
   return %result
 }

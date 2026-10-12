@@ -25,13 +25,14 @@ loom_target_contract_file_family(
     "avx_ne_convert=x86.avx_ne_convert"
     "packed_dot=x86.packed_dot"
     "scalar=x86.scalar"
+    "scalar_read_memory=x86.scalar.read_memory"
   ARGS
-    "--contract-index=LOOM_X86_SCALAR_CONTRACT:x86.scalar"
-    "--contract-index=LOOM_X86_AVX2_CONTRACT:x86.scalar,x86.avx2"
-    "--contract-index=LOOM_X86_AVX512_CONTRACT:x86.scalar,x86.avx2,x86.avx512"
+    "--contract-index=LOOM_X86_SCALAR_CONTRACT:x86.scalar,x86.scalar.read_memory"
+    "--contract-index=LOOM_X86_AVX2_CONTRACT:x86.scalar,x86.scalar.read_memory,x86.avx2"
+    "--contract-index=LOOM_X86_AVX512_CONTRACT:x86.scalar,x86.scalar.read_memory,x86.avx2,x86.avx512"
     "--contract-index=LOOM_X86_PACKED_DOT_CONTRACT:x86.packed_dot"
-    "--contract-index=LOOM_X86_AVX2_FEATURES_CONTRACT:x86.scalar,x86.avx2,x86.avx_ne_convert,x86.packed_dot"
-    "--contract-index=LOOM_X86_AVX512_FEATURES_CONTRACT:x86.scalar,x86.avx2,x86.avx512,x86.avx512_fp16,x86.avx_ne_convert,x86.avx512_bf16,x86.packed_dot"
+    "--contract-index=LOOM_X86_AVX2_FEATURES_CONTRACT:x86.scalar,x86.scalar.read_memory,x86.avx2,x86.avx_ne_convert,x86.packed_dot"
+    "--contract-index=LOOM_X86_AVX512_FEATURES_CONTRACT:x86.scalar,x86.scalar.read_memory,x86.avx2,x86.avx512,x86.avx512_fp16,x86.avx_ne_convert,x86.avx512_bf16,x86.packed_dot"
   COMMENT
     "Generating x86 contract table families"
 )
@@ -50,6 +51,19 @@ loom_target_contract_cc_libraries(
     loom::ops::index
     loom::ops::scalar
     loom::ops::scf
+    loom::ops::view
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86)
+loom_target_contract_cc_libraries(
+  NAME
+    scalar_read_memory
+  CONTRACT_DEPS
+    loom::target::contract
+  LOWER_RULE_DEPS
+    loom::codegen::low::lower
+    loom::ops::scalar
     loom::ops::view
 )
 endif()
@@ -154,6 +168,8 @@ loom_cc_library(
     "packed_dot_lower_rules.h"
     "scalar.h"
     "scalar_lower_rules.h"
+    "scalar_read_memory.h"
+    "scalar_read_memory_lower_rules.h"
   DEPS
     ::avx2
     ::avx2_lower_rules
@@ -169,6 +185,8 @@ loom_cc_library(
     ::packed_dot_lower_rules
     ::scalar
     ::scalar_lower_rules
+    ::scalar_read_memory
+    ::scalar_read_memory_lower_rules
   PUBLIC
 )
 endif()

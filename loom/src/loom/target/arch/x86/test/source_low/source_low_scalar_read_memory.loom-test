@@ -1,0 +1,172 @@
+// RUN: emit source-low target=x86:scalar output=low
+
+func.def @add_static_rhs(%input: buffer, %accumulator: i32) -> (i32) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<8xi32>
+  %loaded = view.load %source[3] : view<8xi32> -> i32
+  %result = scalar.addi %accumulator, %loaded : i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @add_static_rhs(%input: reg<x86.gpr64>, %accumulator: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %10 = copy %accumulator : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = add.load.gpr32 %10, %input {disp32 = 12}
+  return %result
+}
+
+// ====
+
+func.def @multiply_dynamic_lhs_after_pure_gap(%input: buffer, %position0: index, %a: i64, %b: i64) -> (i64) {
+  %base = index.constant 0 : offset
+  %position = index.assume %position0 [range(%position0, 0, 7)] : index
+  %source = buffer.view %input[%base] : buffer -> view<8xi64>
+  %loaded = view.load %source[%position] : view<8xi64> -> i64
+  %accumulator = scalar.addi %a, %b : i64
+  %result = scalar.muli %loaded, %accumulator : i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @multiply_dynamic_lhs_after_pure_gap(%input: reg<x86.gpr64>, %position: reg<x86.gpr64>, %a: reg<x86.gpr64>, %b: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %16 = copy %a : reg<x86.gpr64> -> reg<x86.gpr64>
+  %accumulator = add.gpr64 %16, %b
+  %18 = copy %accumulator : reg<x86.gpr64> -> reg<x86.gpr64>
+  %result = imul.load.indexed.gpr64 %18, %input, %position {disp32 = 0, scale = 8}
+  return %result
+}
+
+// ====
+
+func.def @subtract_indexed_rhs(%input: buffer, %position0: index, %accumulator: i32) -> (i32) {
+  %base = index.constant 16 : offset
+  %position = index.assume %position0 [range(%position0, 0, 7)] : index
+  %source = buffer.view %input[%base] : buffer -> view<8xi32>
+  %loaded = view.load %source[%position] : view<8xi32> -> i32
+  %result = scalar.subi %accumulator, %loaded : i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @subtract_indexed_rhs(%input: reg<x86.gpr64>, %position: reg<x86.gpr64>, %accumulator: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %13 = copy %accumulator : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = sub.load.indexed.gpr32 %13, %input, %position {disp32 = 16, scale = 4}
+  return %result
+}
+
+// ====
+
+func.def @xor_full_width_static(%input: buffer, %accumulator: i64) -> (i64) {
+  %base = index.constant 2147483648 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi64>
+  %loaded = view.load %source[0] : view<1xi64> -> i64
+  %result = scalar.xori %loaded, %accumulator : i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @xor_full_width_static(%input: reg<x86.gpr64>, %accumulator: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %10 = mov.imm64 2147483648
+  %11 = copy %accumulator : reg<x86.gpr64> -> reg<x86.gpr64>
+  %result = xor.load.indexed.gpr64 %11, %input, %10 {disp32 = 0, scale = 1}
+  return %result
+}
+
+// ====
+
+func.def @immediate_beats_read_memory(%input: buffer) -> (i32) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %loaded = view.load %source[0] : view<1xi32> -> i32
+  %mask = scalar.constant -65281 : i32
+  %result = scalar.andi %loaded, %mask : i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @immediate_beats_read_memory(%input: reg<x86.gpr64>) -> (reg<x86.gpr32>) asm {
+  %loaded = mov.load.gpr32 %input {disp32 = 0}
+  %10 = copy %loaded : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = and.imm.gpr32 %10 {imm32 = -65281}
+  return %result
+}
+
+// ====
+
+func.def @store_blocks_moved_load(%input: buffer, %output: buffer, %stored: i32, %a: i32, %b: i32) -> (i32) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<1xi32>
+  %loaded = view.load %source[0] : view<1xi32> -> i32
+  view.store %stored, %destination[0] : i32, view<1xi32>
+  %accumulator = scalar.addi %a, %b : i32
+  %result = scalar.addi %accumulator, %loaded : i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @store_blocks_moved_load(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %stored: reg<x86.gpr32>, %a: reg<x86.gpr32>, %b: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %loaded = mov.load.gpr32 %input {disp32 = 0}
+  mov.store.gpr32 %stored, %output {disp32 = 0}
+  %19 = copy %a : reg<x86.gpr32> -> reg<x86.gpr32>
+  %accumulator = add.gpr32 %19, %b
+  %21 = copy %accumulator : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = add.gpr32 %21, %loaded
+  return %result
+}
+
+// ====
+
+func.def @multiple_uses_keep_register_load(%input: buffer, %accumulator: i32) -> (i32, i32) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %loaded = view.load %source[0] : view<1xi32> -> i32
+  %result = scalar.addi %accumulator, %loaded : i32
+  func.return %loaded, %result : i32, i32
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @multiple_uses_keep_register_load(%input: reg<x86.gpr64>, %accumulator: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %loaded = mov.load.gpr32 %input {disp32 = 0}
+  %13 = copy %accumulator : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = add.gpr32 %13, %loaded
+  return %loaded, %result
+}
+
+// ====
+
+func.def @volatile_at_original_position(%input: buffer, %accumulator: i32) -> (i32) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %loaded = view.load<volatile> %source[0] : view<1xi32> -> i32
+  %result = scalar.addi %accumulator, %loaded : i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @volatile_at_original_position(%input: reg<x86.gpr64>, %accumulator: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %10 = copy %accumulator : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = add.load.gpr32<volatile> %10, %input {disp32 = 0}
+  return %result
+}
+
+// ====
+
+func.def @volatile_cannot_move(%input: buffer, %a: i32, %b: i32) -> (i32) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %loaded = view.load<volatile> %source[0] : view<1xi32> -> i32
+  %accumulator = scalar.addi %a, %b : i32
+  %result = scalar.addi %accumulator, %loaded : i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @volatile_cannot_move(%input: reg<x86.gpr64>, %a: reg<x86.gpr32>, %b: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %loaded = mov.load.gpr32<volatile> %input {disp32 = 0}
+  %14 = copy %a : reg<x86.gpr32> -> reg<x86.gpr32>
+  %accumulator = add.gpr32 %14, %b
+  %16 = copy %accumulator : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = add.gpr32 %16, %loaded
+  return %result
+}
