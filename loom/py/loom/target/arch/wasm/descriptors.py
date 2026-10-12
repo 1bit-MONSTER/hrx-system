@@ -349,6 +349,7 @@ _OP_V128_LOAD = _simd_encoding_id(0x00)
 _OP_V128_STORE = _simd_encoding_id(0x0B)
 _OP_V128_CONST = _simd_encoding_id(0x0C)
 _OP_I8X16_SHUFFLE = _simd_encoding_id(0x0D)
+_OP_I8X16_SWIZZLE = _simd_encoding_id(0x0E)
 _OP_I8X16_SPLAT = _simd_encoding_id(0x0F)
 _OP_I16X8_SPLAT = _simd_encoding_id(0x10)
 _OP_I32X4_SPLAT = _simd_encoding_id(0x11)
@@ -1449,6 +1450,20 @@ WASM_CORE_SIMD128_DESCRIPTOR_SET = DescriptorSet(
                     immediate.field_name for immediate in _SHUFFLE_BYTE_IMMEDIATES
                 ),
             ),
+            schedule_class=_SCHEDULE_SIMD_I32X4,
+            flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        ),
+        Descriptor(
+            key="wasm.i8x16.swizzle",
+            mnemonic="i8x16.swizzle",
+            semantic_tag="vector.swizzle.i8x16",
+            encoding_id=_OP_I8X16_SWIZZLE,
+            operands=(
+                _v128_result(),
+                _v128_operand("input"),
+                _v128_operand("indices"),
+            ),
+            asm_forms=_asm(results=("dst",), operands=("input", "indices")),
             schedule_class=_SCHEDULE_SIMD_I32X4,
             flags=(DescriptorFlag.DEAD_REMOVABLE,),
         ),

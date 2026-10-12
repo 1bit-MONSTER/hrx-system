@@ -77,6 +77,21 @@ def test_shuffle_has_sixteen_required_lanes_from_both_inputs():
         assert not immediate.flags
 
 
+def test_swizzle_has_dynamic_byte_indices():
+    descriptor = next(
+        descriptor
+        for descriptor in WASM_CORE_SIMD128_DESCRIPTOR_SET.descriptors
+        if descriptor.key == "wasm.i8x16.swizzle"
+    )
+    assert descriptor.encoding_id == 0xFD0E
+    assert [operand.field_name for operand in descriptor.operands] == [
+        "dst",
+        "input",
+        "indices",
+    ]
+    assert not descriptor.immediates
+
+
 def test_narrow_lanes_use_unsigned_extract_encodings_and_exact_lane_domains():
     descriptors = {
         descriptor.key: descriptor

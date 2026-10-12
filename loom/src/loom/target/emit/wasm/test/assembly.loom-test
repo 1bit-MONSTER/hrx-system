@@ -819,3 +819,31 @@ Disassembly of section CODE:
   local.get  2
   return
   end
+
+// ====
+
+// RUN: emit wasm-dis
+// REQUIRES: wasm-objdump
+
+wasm.target<simd128> @target
+
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @dynamic_byte_swizzle(%input: reg<wasm.v128>, %indices: reg<wasm.v128>) -> (reg<wasm.v128>) asm {
+  %result = i8x16.swizzle %input, %indices
+  return %result
+}
+
+// ----
+Disassembly of section CODE:
+
+<CODE>:
+        # 1 functions in section.
+
+<dynamic_byte_swizzle>:
+
+  local.get  0
+  local.get  1
+  i8x16.swizzle
+  local.set  0
+  local.get  0
+  return
+  end
