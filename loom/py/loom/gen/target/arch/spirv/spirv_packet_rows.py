@@ -271,12 +271,55 @@ class _PacketRow:
             return self.operand_types[:1]
         raise ValueError(f"{self.descriptor_key}: packet operand types do not fit")
 
-    def render(self, value_type_refs: dict[str, int]) -> str:
+    def payload_initializer(self) -> str:
+        # Member names are part of the identity: equal object bytes do not make
+        # different active union members interchangeable.
+        fields = []
+        if self.literal_word_count:
+            fields.append(f".scalar_constant.literal_word_count = {self.literal_word_count},")
+        if self.coordinate_byte_shift:
+            fields.append(f".access_chain.coordinate_byte_shift = {self.coordinate_byte_shift},")
+        if self.builtin is not None:
+            fields.append(f".builtin_load.builtin = {self.builtin},")
+        if self.component_index is not None:
+            fields.append(f".builtin_load.component_index = {self.component_index},")
+        if self.execution_scope is not None:
+            fields.append(f".barrier.execution_scope = {self.execution_scope},")
+        if self.group_operation_scope is not None:
+            fields.append(f".group_non_uniform.execution_scope = {self.group_operation_scope},")
+        if self.memory_scope is not None:
+            fields.append(f".barrier.memory_scope = {self.memory_scope},")
+        if self.memory_semantics is not None:
+            fields.append(f".barrier.memory_semantics = {self.memory_semantics},")
+        if self.cooperative_matrix_layout is not None:
+            fields.append(f".cooperative_matrix.layout = {self.cooperative_matrix_layout},")
+        if self.cooperative_matrix_element_stride:
+            fields.append(f".cooperative_matrix.element_stride = {self.cooperative_matrix_element_stride},")
+        if self.cooperative_matrix_operands is not None:
+            fields.append(f".cooperative_matrix.operands = {self.cooperative_matrix_operands},")
+        if self.atomic_scope is not None:
+            fields.append(f".atomic.memory_scope = {self.atomic_scope},")
+        if self.atomic_storage_semantics is not None:
+            fields.append(f".atomic.storage_semantics = {self.atomic_storage_semantics},")
+        if self.atomic_success_ordering is not None:
+            fields.append(f".atomic.success_ordering = {self.atomic_success_ordering},")
+        if self.atomic_integer_scalar is not None:
+            fields.append(f".atomic.integer_scalar = {self.atomic_integer_scalar},")
+        if self.atomic_float_operation is not None:
+            fields.append(f".atomic.float_operation = {self.atomic_float_operation},")
+        if self.extended_instruction_set is not None:
+            fields.append(f".extended_instruction.instruction_set = {self.extended_instruction_set},")
+        if self.extended_instruction is not None:
+            fields.append(f".extended_instruction.instruction = {self.extended_instruction},")
+        return "{ " + " ".join(fields) + " }" if fields else "{0}"
+
+    def render(self, value_type_refs: dict[str, int], payload_ref: int) -> str:
         encoded_operand_types = self.encoded_operand_types()
         lines = [
             f"    [{_descriptor_ref_constant_name(self.descriptor_key)}] =",
             "        {",
             f"            .opcode = {self.opcode},",
+            f"            .payload_ref = {payload_ref},",
             f"            .form = {self.form},",
             f"            .result_type_ref = {value_type_refs[self.result_type or _unknown_value()]},",
         ]
@@ -286,46 +329,10 @@ class _PacketRow:
             lines.extend(f"                    {value_type_refs[operand_type]}," for operand_type in encoded_operand_types)
             lines.append("                },")
         lines.append(f"            .operand_count = {len(self.operand_types)},")
-        if self.literal_word_count:
-            lines.append(f"            .payload.scalar_constant.literal_word_count = {self.literal_word_count},")
         if self.memory_alignment:
             lines.append(f"            .memory_alignment = {self.memory_alignment},")
         if self.no_contraction:
             lines.append("            .flags = LOOM_SPIRV_PACKET_FLAG_NO_CONTRACTION,")
-        if self.coordinate_byte_shift:
-            lines.append(f"            .payload.access_chain.coordinate_byte_shift = {self.coordinate_byte_shift},")
-        if self.builtin is not None:
-            lines.append(f"            .payload.builtin_load.builtin = {self.builtin},")
-        if self.component_index is not None:
-            lines.append(f"            .payload.builtin_load.component_index = {self.component_index},")
-        if self.execution_scope is not None:
-            lines.append(f"            .payload.barrier.execution_scope = {self.execution_scope},")
-        if self.group_operation_scope is not None:
-            lines.append(f"            .payload.group_non_uniform.execution_scope = {self.group_operation_scope},")
-        if self.memory_scope is not None:
-            lines.append(f"            .payload.barrier.memory_scope = {self.memory_scope},")
-        if self.memory_semantics is not None:
-            lines.append(f"            .payload.barrier.memory_semantics = {self.memory_semantics},")
-        if self.cooperative_matrix_layout is not None:
-            lines.append(f"            .payload.cooperative_matrix.layout = {self.cooperative_matrix_layout},")
-        if self.cooperative_matrix_element_stride:
-            lines.append(f"            .payload.cooperative_matrix.element_stride = {self.cooperative_matrix_element_stride},")
-        if self.cooperative_matrix_operands is not None:
-            lines.append(f"            .payload.cooperative_matrix.operands = {self.cooperative_matrix_operands},")
-        if self.atomic_scope is not None:
-            lines.append(f"            .payload.atomic.memory_scope = {self.atomic_scope},")
-        if self.atomic_storage_semantics is not None:
-            lines.append(f"            .payload.atomic.storage_semantics = {self.atomic_storage_semantics},")
-        if self.atomic_success_ordering is not None:
-            lines.append(f"            .payload.atomic.success_ordering = {self.atomic_success_ordering},")
-        if self.atomic_integer_scalar is not None:
-            lines.append(f"            .payload.atomic.integer_scalar = {self.atomic_integer_scalar},")
-        if self.atomic_float_operation is not None:
-            lines.append(f"            .payload.atomic.float_operation = {self.atomic_float_operation},")
-        if self.extended_instruction_set is not None:
-            lines.append(f"            .payload.extended_instruction.instruction_set = {self.extended_instruction_set},")
-        if self.extended_instruction is not None:
-            lines.append(f"            .payload.extended_instruction.instruction = {self.extended_instruction},")
         lines.append("        },")
         return "\n".join(lines)
 
@@ -1328,10 +1335,22 @@ def _interned_value_types(
     return tuple(value_types), value_type_refs
 
 
+def _interned_payloads(rows: tuple[_PacketRow, ...]) -> tuple[tuple[str, ...], tuple[int, ...]]:
+    payloads = {"{0}": 0}
+    row_refs = []
+    for row in rows:
+        payload = row.payload_initializer()
+        row_refs.append(payloads.setdefault(payload, len(payloads)))
+    if len(payloads) > 1 << 16:
+        raise ValueError("SPIR-V packet payload refs exceed uint16_t storage")
+    return tuple(payloads), tuple(row_refs)
+
+
 def generate_tables() -> str:
     rows = _packet_rows()
     _validate_rows(rows, SPIRV_LOGICAL_CORE_DESCRIPTOR_SET.descriptors)
     value_types, value_type_refs = _interned_value_types(rows)
+    payloads, payload_refs = _interned_payloads(rows)
     lines = [
         "// Copyright 2026 The IREE Authors",
         "//",
@@ -1348,8 +1367,12 @@ def generate_tables() -> str:
         *(f"    {value_type}," for value_type in value_types),
         "};",
         "",
+        "const loom_spirv_packet_payload_t loom_spirv_packet_payloads[] = {",
+        *(f"    {payload}," for payload in payloads),
+        "};",
+        "",
         "static const loom_spirv_packet_row_t kSpirvLogicalCorePacketRows[] = {",
-        *(row.render(value_type_refs) for row in rows),
+        *(row.render(value_type_refs, payload_ref) for row, payload_ref in zip(rows, payload_refs, strict=True)),
         "};",
         "",
     ]

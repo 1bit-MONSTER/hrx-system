@@ -70,74 +70,81 @@ enum loom_spirv_packet_flag_bits_e {
 };
 typedef uint8_t loom_spirv_packet_flags_t;
 
+// Form-specific packet literals interned independently of descriptor and type.
+// The packet row's form selects the active member.
+typedef union loom_spirv_packet_payload_t {
+  // Logical access-chain coordinate units.
+  struct {
+    // Exact right shift converting a byte offset to an element index.
+    // Byte-coordinate packets require an offset divisible by the element
+    // width. Zero also represents an already-materialized element index.
+    uint8_t coordinate_byte_shift;
+  } access_chain;
+  // Scalar-constant packet literals.
+  struct {
+    // Number of literal words emitted for the constant.
+    uint8_t literal_word_count;
+  } scalar_constant;
+  // Built-in input packet literals.
+  struct {
+    // SPIR-V BuiltIn enumerant.
+    uint32_t builtin;
+    // Vector component extracted from the built-in input.
+    uint8_t component_index;
+  } builtin_load;
+  // Control-barrier packet literals.
+  struct {
+    // SPIR-V execution scope literal.
+    uint32_t execution_scope;
+    // SPIR-V memory scope literal.
+    uint32_t memory_scope;
+    // SPIR-V memory semantics mask literal.
+    uint32_t memory_semantics;
+  } barrier;
+  // Group-non-uniform instruction literals.
+  struct {
+    // SPIR-V execution scope literal.
+    uint32_t execution_scope;
+  } group_non_uniform;
+  // Cooperative-matrix packet literals.
+  struct {
+    // Cooperative matrix layout literal for load/store rows.
+    uint32_t layout;
+    // Row stride in elements of the load/store pointer's pointee type.
+    uint32_t element_stride;
+    // Cooperative matrix operands mask literal for mul-add rows.
+    uint32_t operands;
+  } cooperative_matrix;
+  // Atomic instruction literals.
+  struct {
+    // SPIR-V memory Scope enumerant.
+    uint32_t memory_scope;
+    // Storage-class Memory Semantics bit used for ordered accesses.
+    uint32_t storage_semantics;
+    // Success ordering ordinal for compare-exchange packets.
+    uint8_t success_ordering;
+    // Integer scalar type used to bitcast floating-point atomics.
+    uint8_t integer_scalar;
+    // Floating-point combine operation selected for a CAS loop.
+    uint8_t float_operation;
+  } atomic;
+  // Extended-instruction packet literals.
+  struct {
+    // Imported instruction set selected for OpExtInst.
+    loom_spirv_extended_instruction_set_t instruction_set;
+    // Instruction enumerant defined by the selected instruction set.
+    uint32_t instruction;
+  } extended_instruction;
+} loom_spirv_packet_payload_t;
+
+static_assert(sizeof(loom_spirv_packet_payload_t) == 12,
+              "SPIR-V packet payloads must remain compact");
+
 typedef struct loom_spirv_packet_row_t {
-  // SPIR-V instruction opcode.
-  uint32_t opcode;
-  // Form-specific packet literals selected by form.
-  union {
-    // Logical access-chain coordinate units.
-    struct {
-      // Exact right shift converting a byte offset to an element index.
-      // Byte-coordinate packets require an offset divisible by the element
-      // width. Zero also represents an already-materialized element index.
-      uint8_t coordinate_byte_shift;
-    } access_chain;
-    // Scalar-constant packet literals.
-    struct {
-      // Number of literal words emitted for the constant.
-      uint8_t literal_word_count;
-    } scalar_constant;
-    // Built-in input packet literals.
-    struct {
-      // SPIR-V BuiltIn enumerant.
-      uint32_t builtin;
-      // Vector component extracted from the built-in input.
-      uint8_t component_index;
-    } builtin_load;
-    // Control-barrier packet literals.
-    struct {
-      // SPIR-V execution scope literal.
-      uint32_t execution_scope;
-      // SPIR-V memory scope literal.
-      uint32_t memory_scope;
-      // SPIR-V memory semantics mask literal.
-      uint32_t memory_semantics;
-    } barrier;
-    // Group-non-uniform instruction literals.
-    struct {
-      // SPIR-V execution scope literal.
-      uint32_t execution_scope;
-    } group_non_uniform;
-    // Cooperative-matrix packet literals.
-    struct {
-      // Cooperative matrix layout literal for load/store rows.
-      uint32_t layout;
-      // Row stride in elements of the load/store pointer's pointee type.
-      uint32_t element_stride;
-      // Cooperative matrix operands mask literal for mul-add rows.
-      uint32_t operands;
-    } cooperative_matrix;
-    // Atomic instruction literals.
-    struct {
-      // SPIR-V memory Scope enumerant.
-      uint32_t memory_scope;
-      // Storage-class Memory Semantics bit used for ordered accesses.
-      uint32_t storage_semantics;
-      // Success ordering ordinal for compare-exchange packets.
-      uint8_t success_ordering;
-      // Integer scalar type used to bitcast floating-point atomics.
-      uint8_t integer_scalar;
-      // Floating-point combine operation selected for a CAS loop.
-      uint8_t float_operation;
-    } atomic;
-    // Extended-instruction packet literals.
-    struct {
-      // Imported instruction set selected for OpExtInst.
-      loom_spirv_extended_instruction_set_t instruction_set;
-      // Instruction enumerant defined by the selected instruction set.
-      uint32_t instruction;
-    } extended_instruction;
-  } payload;
+  // SPIR-V instruction opcode, occupying the low 16 bits of its binary header.
+  uint16_t opcode;
+  // Ordinal into the shared payload table. Zero names the empty payload.
+  uint16_t payload_ref;
   // Sole result value-type table ref, or UNKNOWN for result-less packets.
   loom_spirv_packet_value_type_ref_t result_type_ref;
   // Required value-type refs for packet operands. Four-operand packets use one
@@ -154,11 +161,20 @@ typedef struct loom_spirv_packet_row_t {
   loom_spirv_packet_flags_t flags;
 } loom_spirv_packet_row_t;
 
-static_assert(sizeof(loom_spirv_packet_row_t) == 28,
+static_assert(sizeof(loom_spirv_packet_row_t) == 16,
               "SPIR-V packet rows must remain compact");
+
+// Generated native literals interned across all packet rows.
+extern const loom_spirv_packet_payload_t loom_spirv_packet_payloads[];
 
 // Generated value types interned across all packet rows.
 extern const loom_spirv_value_type_t loom_spirv_packet_value_types[];
+
+// Returns the form-specific literals required by |row|.
+static inline const loom_spirv_packet_payload_t* loom_spirv_packet_row_payload(
+    const loom_spirv_packet_row_t* row) {
+  return &loom_spirv_packet_payloads[row->payload_ref];
+}
 
 // Returns the result value type required by |row|.
 static inline loom_spirv_value_type_t loom_spirv_packet_row_result_type(
