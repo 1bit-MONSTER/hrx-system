@@ -334,8 +334,6 @@ iree_status_t loom_x86_function_abi_prepare(
       stack_bytes += iree_host_align(value->byte_length, 8u);
       out_abi->stack_argument_alignment = (uint8_t)iree_max(
           out_abi->stack_argument_alignment, iree_max(16u, alignment));
-      out_abi->has_simd_stack_argument |=
-          classification.abi_class == LOOM_X86_CALL_ABI_CLASS_SSE;
     }
   }
   if (stack_bytes > UINT32_MAX) {

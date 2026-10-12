@@ -560,7 +560,6 @@ low.func.decl target<x86.avx2.core> abi(object_function) abi_layout({signature =
   EXPECT_EQ(prepared.abi.arguments[16].stack_offset, 32u);
   EXPECT_EQ(prepared.abi.stack_argument_bytes, 64u);
   EXPECT_EQ(prepared.abi.stack_argument_alignment, 32u);
-  EXPECT_TRUE(prepared.abi.has_simd_stack_argument);
   EXPECT_TRUE(prepared.abi.has_upper_vector_register_argument);
   EXPECT_FALSE(prepared.abi.has_upper_vector_result);
 }
@@ -652,7 +651,6 @@ TEST_F(X86FunctionAbiTest, StackRowsRetainExactScalarAndVectorWidths) {
     EXPECT_EQ(prepared.abi.arguments[8].stack_offset, 0u);
     EXPECT_EQ(prepared.abi.stack_argument_bytes, test_case.stack_bytes);
     EXPECT_EQ(prepared.abi.stack_argument_alignment, test_case.stack_alignment);
-    EXPECT_TRUE(prepared.abi.has_simd_stack_argument);
   }
 }
 

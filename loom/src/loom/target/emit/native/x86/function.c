@@ -30,6 +30,12 @@ typedef struct loom_x86_incoming_fixup_t {
   uint32_t value_instruction;
 } loom_x86_incoming_fixup_t;
 
+typedef enum loom_x86_incoming_register_group_e {
+  LOOM_X86_INCOMING_REGISTER_GROUP_ALL = 0,
+  LOOM_X86_INCOMING_REGISTER_GROUP_GPR = 1,
+  LOOM_X86_INCOMING_REGISTER_GROUP_VECTOR = 2,
+} loom_x86_incoming_register_group_t;
+
 // Function-local projection of generic storage onto the native stack.
 typedef struct loom_x86_function_builder_t {
   // Prepared output under construction.
@@ -66,6 +72,10 @@ typedef struct loom_x86_function_builder_t {
     loom_x86_incoming_fixup_t* fixups;
     // Number of initialized incoming argument transfers.
     iree_host_size_t count;
+    // Local slot preserving R11 around post-move vector stack loads.
+    uint64_t vector_base_spill_offset;
+    // Reload of the saved pre-alignment RSP into R11, or UINT32_MAX.
+    uint32_t vector_base_reload_instruction;
   } incoming;
 } loom_x86_function_builder_t;
 
@@ -109,7 +119,7 @@ static iree_status_t loom_x86_function_append_storage(
 
 iree_host_size_t loom_x86_function_reserved_ranges(
     const loom_x86_function_abi_t* function_abi,
-    loom_low_allocation_reserved_range_t out_ranges[3]) {
+    loom_low_allocation_reserved_range_t out_ranges[2]) {
   const loom_low_descriptor_set_t* descriptor_set =
       function_abi->target.descriptor_set;
   if (LOOM_X86_REGISTER_CLASS_GPR64 >= descriptor_set->reg_class_count ||
@@ -124,16 +134,6 @@ iree_host_size_t loom_x86_function_reserved_ranges(
       .location_count = 1,
   };
   iree_host_size_t count = 1;
-  if (function_abi->has_simd_stack_argument &&
-      descriptor_set->reg_classes[LOOM_X86_REGISTER_CLASS_GPR64]
-              .allocatable_count > 5) {
-    out_ranges[count++] = (loom_low_allocation_reserved_range_t){
-        .register_class = IREE_SV("x86.gpr64"),
-        .location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
-        .location_base = 5,
-        .location_count = 1,
-    };
-  }
   if (function_abi->has_indirect_results &&
       descriptor_set->reg_classes[LOOM_X86_REGISTER_CLASS_GPR64]
               .allocatable_count > 15) {
@@ -203,17 +203,16 @@ static iree_status_t loom_x86_function_stack_frame(
   uint64_t allocation_size = builder->storage_byte_length;
   if (alignment > 16) {
     function->stack.realignment.mask = -(int32_t)alignment;
-    if (!function->stack.has_frame_pointer) {
-      // Storage admission bounds the extent to INT32_MAX, leaving ample room
-      // in this widened calculation for the restoration slot and padding.
-      const uint64_t saved_pointer_offset = iree_host_align(allocation_size, 8);
-      allocation_size = saved_pointer_offset + sizeof(uint64_t);
-      function->stack.realignment.saved_pointer_offset =
-          (uint32_t)saved_pointer_offset;
-      // SysV integer arguments occupy RDI, RSI, RDX, RCX, R8, and R9. R11 is
-      // available before entry transport; no SSA lifetime is pinned to it.
-      function->stack.realignment.scratch_register = 11;
-    }
+    // Storage admission bounds the extent to INT32_MAX, leaving ample room in
+    // this widened calculation for the restoration slot and padding.
+    const uint64_t saved_pointer_offset = iree_host_align(allocation_size, 8);
+    allocation_size = saved_pointer_offset + sizeof(uint64_t);
+    function->stack.realignment.saved_pointer_offset =
+        (uint32_t)saved_pointer_offset;
+    // SysV integer arguments occupy RDI, RSI, RDX, RCX, R8, and R9. R11 is
+    // available before entry transport; no SSA lifetime is pinned to it yet.
+    function->stack.realignment.scratch_register =
+        LOOM_X86_GPR_TRANSPORT_SCRATCH_REGISTER;
     allocation_size = iree_host_align(allocation_size, alignment);
   } else {
     // Entry RSP is 8 modulo 16 because CALL has pushed the return address.
@@ -237,16 +236,20 @@ static iree_status_t loom_x86_function_stack_frame(
     const loom_x86_incoming_fixup_t* fixup = &builder->incoming.fixups[i];
     loom_x86_instruction_t* load =
         &function->instructions[fixup->value_instruction];
-    if (function->stack.has_frame_pointer) {
-      load->operands.immediate += incoming_offset;
-    } else if (fixup->pointer_instruction != UINT32_MAX) {
+    if (fixup->pointer_instruction != UINT32_MAX) {
       function->instructions[fixup->pointer_instruction].operands.immediate =
           function->stack.realignment.saved_pointer_offset;
+    }
+    if (function->stack.realignment.mask) {
       load->operands.immediate += incoming_offset;
     } else {
       load->operands.immediate +=
           incoming_offset + function->stack.allocation_size;
     }
+  }
+  if (builder->incoming.vector_base_reload_instruction != UINT32_MAX) {
+    function->instructions[builder->incoming.vector_base_reload_instruction]
+        .operands.immediate = function->stack.realignment.saved_pointer_offset;
   }
   return iree_ok_status();
 }
@@ -301,21 +304,34 @@ static void loom_x86_function_normalize(loom_x86_function_t* function,
       UINT32_MAX);
 }
 
+static bool loom_x86_function_value_is_live(
+    const loom_low_allocation_table_t* allocation,
+    loom_value_ordinal_t value_ordinal) {
+  const loom_liveness_interval_t* interval =
+      loom_liveness_interval_for_value_ordinal(&allocation->liveness,
+                                               value_ordinal);
+  return interval && interval->start_point != interval->end_point;
+}
+
 static void loom_x86_function_normalize_arguments(
+    const loom_low_emission_frame_t* frame,
     loom_x86_function_builder_t* builder) {
   const loom_low_call_contract_t* contract =
       &builder->function_abi->call_contract;
   for (uint16_t i = 0; i < contract->argument_count; ++i) {
     const loom_low_allocation_abi_location_t* location =
         &contract->arguments[i];
-    if (location->location_kind ==
-        LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
-      loom_x86_function_normalize(
-          builder->function,
-          (loom_x86_call_abi_value_action_t)builder->function_abi->arguments[i]
-              .action,
-          location->location_base);
+    const loom_x86_call_abi_value_action_t action =
+        (loom_x86_call_abi_value_action_t)builder->function_abi->arguments[i]
+            .action;
+    if (location->location_kind !=
+            LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER ||
+        action == LOOM_X86_CALL_ABI_VALUE_ACTION_NONE ||
+        !loom_x86_function_value_is_live(&frame->allocation, i)) {
+      continue;
     }
+    loom_x86_function_normalize(builder->function, action,
+                                location->location_base);
   }
 }
 
@@ -424,6 +440,14 @@ static uint32_t loom_x86_function_transport_scratch(
              : LOOM_X86_VECTOR_TRANSPORT_SCRATCH_REGISTER;
 }
 
+static bool loom_x86_function_assignment_is_gpr(
+    const loom_low_allocation_assignment_t* assignment) {
+  const loom_x86_register_class_t register_class =
+      loom_x86_logical_register_class(assignment->descriptor_reg_class_id);
+  return register_class == LOOM_X86_REGISTER_CLASS_GPR32 ||
+         register_class == LOOM_X86_REGISTER_CLASS_GPR64;
+}
+
 static void loom_x86_function_append_local_storage_transport(
     const loom_low_emission_frame_t* frame,
     const loom_low_allocation_assignment_t* assignment,
@@ -454,18 +478,21 @@ static void loom_x86_function_append_abi_result_transport(
   loom_x86_function_append_transport(builder->function, &instruction);
 }
 
-// Incoming memory is anchored at the caller's RSP. With dynamic alignment the
-// saved pre-alignment pointer is loaded into the destination itself, so entry
-// transport needs no globally reserved address scratch register.
-static void loom_x86_function_incoming(const loom_low_emission_frame_t* frame,
-                                       loom_low_allocation_location_kind_t kind,
-                                       loom_x86_function_builder_t* builder) {
+// Incoming memory is anchored at the caller's RSP. A GPR destination can carry
+// the saved pre-alignment pointer into its own load. Vector destinations share
+// R11 while its allocated entry value is preserved in local storage.
+static void loom_x86_function_incoming(
+    const loom_low_emission_frame_t* frame,
+    loom_low_allocation_location_kind_t kind,
+    loom_x86_incoming_register_group_t register_group,
+    loom_x86_function_builder_t* builder) {
   loom_x86_function_t* function = builder->function;
   const loom_low_call_contract_t* contract =
       &builder->function_abi->call_contract;
   for (uint16_t i = 0; i < contract->argument_count; ++i) {
     if (contract->arguments[i].location_kind !=
-        LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED) {
+            LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED ||
+        !loom_x86_function_value_is_live(&frame->allocation, i)) {
       continue;
     }
     const loom_low_allocation_assignment_t* assignment =
@@ -474,22 +501,34 @@ static void loom_x86_function_incoming(const loom_low_emission_frame_t* frame,
     if (!assignment || assignment->location_kind != kind) {
       continue;
     }
+    const bool is_gpr = loom_x86_function_assignment_is_gpr(assignment);
+    if ((register_group == LOOM_X86_INCOMING_REGISTER_GROUP_GPR && !is_gpr) ||
+        (register_group == LOOM_X86_INCOMING_REGISTER_GROUP_VECTOR && is_gpr)) {
+      continue;
+    }
     const uint32_t destination = kind == LOOM_LOW_ALLOCATION_LOCATION_STORAGE
                                      ? loom_x86_function_transport_scratch(
                                            assignment->descriptor_reg_class_id)
                                      : assignment->location_base;
     loom_x86_incoming_fixup_t* fixup =
         &builder->incoming.fixups[builder->incoming.count++];
-    fixup->pointer_instruction = UINT32_MAX;
-    uint8_t base = function->stack.has_frame_pointer ? 5 : 4;
-    if (!function->stack.has_frame_pointer && builder->storage_alignment > 16) {
-      fixup->pointer_instruction = (uint32_t)function->instruction_count;
-      loom_x86_function_append(
-          function, LOOM_X86_ENCODING_FORM_LOAD, 0x8b | LOOM_X86_ENCODING_REX_W,
-          (loom_x86_encoding_operands_t){.result = (uint8_t)destination,
-                                         .inputs = {4}},
-          UINT32_MAX);
-      base = (uint8_t)destination;
+    *fixup = (loom_x86_incoming_fixup_t){
+        .pointer_instruction = UINT32_MAX,
+    };
+    uint8_t base = 4;
+    if (builder->storage_alignment > 16) {
+      if (is_gpr) {
+        fixup->pointer_instruction = (uint32_t)function->instruction_count;
+        loom_x86_function_append(
+            function, LOOM_X86_ENCODING_FORM_LOAD,
+            0x8b | LOOM_X86_ENCODING_REX_W,
+            (loom_x86_encoding_operands_t){.result = (uint8_t)destination,
+                                           .inputs = {4}},
+            UINT32_MAX);
+        base = (uint8_t)destination;
+      } else {
+        base = LOOM_X86_GPR_TRANSPORT_SCRATCH_REGISTER;
+      }
     }
     fixup->value_instruction = (uint32_t)function->instruction_count;
     loom_x86_transport_instruction_t load;
@@ -505,6 +544,39 @@ static void loom_x86_function_incoming(const loom_low_emission_frame_t* frame,
           builder);
     }
   }
+}
+
+static void loom_x86_function_begin_vector_stack_inputs(
+    loom_x86_function_builder_t* builder) {
+  loom_x86_function_t* function = builder->function;
+  if (builder->incoming.vector_base_spill_offset != UINT64_MAX) {
+    loom_x86_transport_instruction_t spill;
+    loom_x86_transport_select_storage(
+        LOOM_X86_STORAGE_TRANSFER_STORE, LOOM_X86_REGISTER_CLASS_GPR64,
+        LOOM_X86_GPR_TRANSPORT_SCRATCH_REGISTER, 4,
+        (int32_t)builder->incoming.vector_base_spill_offset, &spill);
+    loom_x86_function_append_transport(function, &spill);
+  }
+  builder->incoming.vector_base_reload_instruction =
+      (uint32_t)function->instruction_count;
+  loom_x86_function_append(
+      function, LOOM_X86_ENCODING_FORM_LOAD, 0x8b | LOOM_X86_ENCODING_REX_W,
+      (loom_x86_encoding_operands_t){
+          .result = LOOM_X86_GPR_TRANSPORT_SCRATCH_REGISTER, .inputs = {4}},
+      UINT32_MAX);
+}
+
+static void loom_x86_function_end_vector_stack_inputs(
+    loom_x86_function_builder_t* builder) {
+  if (builder->incoming.vector_base_spill_offset == UINT64_MAX) {
+    return;
+  }
+  loom_x86_transport_instruction_t restore;
+  loom_x86_transport_select_storage(
+      LOOM_X86_STORAGE_TRANSFER_LOAD, LOOM_X86_REGISTER_CLASS_GPR64,
+      LOOM_X86_GPR_TRANSPORT_SCRATCH_REGISTER, 4,
+      (int32_t)builder->incoming.vector_base_spill_offset, &restore);
+  loom_x86_function_append_transport(builder->function, &restore);
 }
 
 static iree_status_t loom_x86_function_call(
@@ -597,13 +669,17 @@ static iree_status_t loom_x86_function_call(
   for (uint16_t i = 0; i < callee_abi->call_contract.result_count; ++i) {
     const loom_low_allocation_abi_location_t* location =
         &callee_abi->call_contract.results[i];
-    if (location->location_kind ==
-        LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
-      loom_x86_function_normalize(
-          function,
-          (loom_x86_call_abi_value_action_t)callee_abi->results[i].action,
-          location->location_base);
+    const loom_x86_call_abi_value_action_t action =
+        (loom_x86_call_abi_value_action_t)callee_abi->results[i].action;
+    if (location->location_kind !=
+            LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER ||
+        action == LOOM_X86_CALL_ABI_VALUE_ACTION_NONE ||
+        !loom_x86_function_value_is_live(
+            &frame->allocation,
+            loom_low_schedule_node_const_result_ordinals(packet->node)[i])) {
+      continue;
     }
+    loom_x86_function_normalize(function, action, location->location_base);
   }
   // Storage destinations use fixed caller-clobbered scratch outside the ABI
   // result prefixes. Register result transport restores either scratch before
@@ -611,6 +687,11 @@ static iree_status_t loom_x86_function_call(
   for (uint16_t i = 0; i < packet->node->result_count; ++i) {
     if (callee_abi->call_contract.results[i].location_kind !=
         LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED) {
+      continue;
+    }
+    if (!loom_x86_function_value_is_live(
+            &frame->allocation,
+            loom_low_schedule_node_const_result_ordinals(packet->node)[i])) {
       continue;
     }
     const loom_low_allocation_assignment_t* result =
@@ -636,6 +717,11 @@ static iree_status_t loom_x86_function_call(
   for (uint16_t i = 0; i < packet->node->result_count; ++i) {
     if (callee_abi->call_contract.results[i].location_kind !=
         LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED) {
+      continue;
+    }
+    if (!loom_x86_function_value_is_live(
+            &frame->allocation,
+            loom_low_schedule_node_const_result_ordinals(packet->node)[i])) {
       continue;
     }
     const loom_low_allocation_assignment_t* result =
@@ -961,31 +1047,21 @@ iree_status_t loom_x86_function_prepare(
   const loom_low_schedule_table_t* schedule = &frame->schedule;
   loom_x86_function_t function = {
       .block_count = (uint32_t)schedule->block_count,
-      .saved_registers = function_abi->has_simd_stack_argument ? (1u << 5) : 0,
       .may_dirty_upper_vector_state =
           function_abi->has_upper_vector_register_argument,
       .has_upper_vector_result = function_abi->has_upper_vector_result,
-      .stack.has_frame_pointer = function_abi->has_simd_stack_argument,
   };
-  iree_host_size_t incoming_count = 0;
   iree_host_size_t normalization_count = 0;
-  for (uint16_t i = 0; i < function_abi->call_contract.argument_count; ++i) {
-    incoming_count += function_abi->call_contract.arguments[i].location_kind ==
-                      LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED;
-    normalization_count +=
-        function_abi->call_contract.arguments[i].location_kind ==
-            LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER &&
-        function_abi->arguments[i].action !=
-            LOOM_X86_CALL_ABI_VALUE_ACTION_NONE;
-  }
   iree_host_size_t outgoing_count = 0;
   iree_host_size_t indirect_call_count = 0;
-  iree_host_size_t indirect_call_result_count = 0;
+  iree_host_size_t indirect_call_result_instruction_count = 0;
   uint32_t outgoing_bytes = 0;
   uint32_t outgoing_alignment = schedule->call_node_count ? 16 : 0;
   for (iree_host_size_t i = 0; i < schedule->call_node_count; ++i) {
-    const loom_low_schedule_node_t* node =
-        &schedule->nodes[schedule->call_node_indices[i]];
+    const uint32_t node_index = schedule->call_node_indices[i];
+    const loom_low_schedule_node_t* node = &schedule->nodes[node_index];
+    const loom_low_packet_view_t packet =
+        loom_low_packet_at_node(schedule, node_index);
     const loom_x86_function_abi_t* callee_abi = loom_x86_module_abi_lookup(
         module_abi, loom_low_func_call_callee(node->op));
     IREE_ASSERT_NE(callee_abi, NULL);
@@ -998,11 +1074,26 @@ iree_status_t loom_x86_function_prepare(
     }
     indirect_call_count += callee_abi->has_indirect_results;
     for (uint16_t j = 0; j < callee_abi->call_contract.result_count; ++j) {
-      normalization_count +=
+      const loom_low_allocation_location_kind_t abi_kind =
+          callee_abi->call_contract.results[j].location_kind;
+      const bool needs_normalization =
           callee_abi->results[j].action != LOOM_X86_CALL_ABI_VALUE_ACTION_NONE;
-      indirect_call_result_count +=
-          callee_abi->call_contract.results[j].location_kind ==
-          LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED;
+      if (!needs_normalization &&
+          abi_kind != LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED) {
+        continue;
+      }
+      const bool is_live = loom_x86_function_value_is_live(
+          &frame->allocation,
+          loom_low_schedule_node_const_result_ordinals(node)[j]);
+      normalization_count += is_live && needs_normalization;
+      const loom_low_allocation_assignment_t* assignment =
+          loom_low_packet_result_assignment(&frame->allocation, &packet, j);
+      if (is_live && assignment != NULL &&
+          abi_kind == LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED) {
+        indirect_call_result_instruction_count +=
+            1u +
+            (assignment->location_kind == LOOM_LOW_ALLOCATION_LOCATION_STORAGE);
+      }
     }
   }
   iree_host_size_t indirect_result_count = 0;
@@ -1011,33 +1102,94 @@ iree_status_t loom_x86_function_prepare(
         function_abi->call_contract.results[i].location_kind ==
         LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED;
   }
-  // A descriptor is one encoding record; a return or conditional branch needs
-  // at most two. Allocation retains the exact number of final physical moves,
-  // including multi-unit transport and cycle scratch. Rare multi-unit storage
-  // packets grow this baseline geometrically as they are emitted.
-  const iree_host_size_t capacity =
-      schedule->scheduled_node_count + schedule->block_count +
-      frame->allocation.move_count + 2u * outgoing_count + 3u * incoming_count +
-      normalization_count + indirect_call_count +
-      2u * indirect_call_result_count + function_abi->has_indirect_results +
-      2u * indirect_result_count * frame->allocation.exit_move_count;
   loom_x86_function_builder_t builder = {
       .function = &function,
       .arena = arena,
-      .instruction_capacity = capacity,
-      .required_instruction_capacity = capacity,
       .source_op = frame->function_op,
       .emitter = emitter,
       .function_abi = function_abi,
       .module_abi = module_abi,
       .storage_byte_length = outgoing_bytes,
       .storage_alignment = outgoing_alignment,
+      .incoming =
+          {
+              .vector_base_spill_offset = UINT64_MAX,
+              .vector_base_reload_instruction = UINT32_MAX,
+          },
   };
   IREE_RETURN_IF_ERROR(
       loom_x86_function_storage_layout(frame, arena, &builder));
   if (builder.rejected) {
     return iree_ok_status();
   }
+  iree_host_size_t incoming_count = 0;
+  iree_host_size_t incoming_instruction_count = 0;
+  bool has_realigned_vector_stack_input = false;
+  bool preserves_vector_base_register = false;
+  for (uint16_t i = 0; i < function_abi->call_contract.argument_count; ++i) {
+    if (!loom_x86_function_value_is_live(&frame->allocation, i)) {
+      continue;
+    }
+    const loom_low_allocation_assignment_t* assignment =
+        loom_low_allocation_assignment_for_value_ordinal(&frame->allocation, i,
+                                                         NULL);
+    const loom_low_allocation_location_kind_t abi_kind =
+        function_abi->call_contract.arguments[i].location_kind;
+    if (abi_kind == LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
+      normalization_count += function_abi->arguments[i].action !=
+                             LOOM_X86_CALL_ABI_VALUE_ACTION_NONE;
+      preserves_vector_base_register |=
+          assignment->location_kind ==
+              LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER &&
+          loom_x86_function_assignment_is_gpr(assignment) &&
+          loom_x86_function_register(assignment) ==
+              LOOM_X86_GPR_TRANSPORT_SCRATCH_REGISTER;
+      continue;
+    }
+    if (abi_kind != LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED ||
+        (assignment->location_kind !=
+             LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER &&
+         assignment->location_kind != LOOM_LOW_ALLOCATION_LOCATION_STORAGE)) {
+      continue;
+    }
+    ++incoming_count;
+    ++incoming_instruction_count;
+    incoming_instruction_count +=
+        assignment->location_kind == LOOM_LOW_ALLOCATION_LOCATION_STORAGE;
+    if (builder.storage_alignment > 16) {
+      if (loom_x86_function_assignment_is_gpr(assignment)) {
+        ++incoming_instruction_count;
+      } else if (assignment->location_kind ==
+                 LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
+        has_realigned_vector_stack_input = true;
+      }
+    }
+  }
+  if (has_realigned_vector_stack_input) {
+    ++incoming_instruction_count;
+    if (preserves_vector_base_register) {
+      IREE_RETURN_IF_ERROR(loom_x86_function_append_storage(
+          sizeof(uint64_t), iree_alignof(uint64_t), &builder,
+          &builder.incoming.vector_base_spill_offset));
+      incoming_instruction_count += 2;
+    }
+  }
+  if (builder.rejected) {
+    return iree_ok_status();
+  }
+  // A descriptor is one encoding record; a return or conditional branch needs
+  // at most two. Allocation retains the exact number of final physical moves,
+  // including multi-unit transport and cycle scratch. Rare multi-unit storage
+  // packets grow this baseline geometrically as they are emitted.
+  const iree_host_size_t capacity =
+      schedule->scheduled_node_count + schedule->block_count +
+      frame->allocation.move_count + 2u * outgoing_count +
+      incoming_instruction_count + normalization_count + indirect_call_count +
+      indirect_call_result_instruction_count +
+      function_abi->has_indirect_results +
+      2u * indirect_result_count * frame->allocation.exit_move_count;
+  builder.instruction_capacity = capacity;
+  builder.required_instruction_capacity = capacity;
   IREE_RETURN_IF_ERROR(
       iree_arena_allocate_array(arena, capacity, sizeof(*function.instructions),
                                 (void**)&function.instructions));
@@ -1066,14 +1218,26 @@ iree_status_t loom_x86_function_prepare(
                                LOOM_X86_REGISTER_CLASS_GPR64,
                                LOOM_X86_INDIRECT_RESULT_POINTER_REGISTER));
   }
-  loom_x86_function_normalize_arguments(&builder);
+  loom_x86_function_normalize_arguments(frame, &builder);
   loom_x86_function_incoming(frame, LOOM_LOW_ALLOCATION_LOCATION_STORAGE,
-                             &builder);
+                             LOOM_X86_INCOMING_REGISTER_GROUP_ALL, &builder);
   iree_status_t status = loom_x86_function_moves(
       &frame->allocation, frame->allocation.entry_moves.moves, &builder);
   if (!builder.rejected && iree_status_is_ok(status)) {
-    loom_x86_function_incoming(
-        frame, LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, &builder);
+    if (has_realigned_vector_stack_input) {
+      loom_x86_function_begin_vector_stack_inputs(&builder);
+      loom_x86_function_incoming(
+          frame, LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
+          LOOM_X86_INCOMING_REGISTER_GROUP_VECTOR, &builder);
+      loom_x86_function_end_vector_stack_inputs(&builder);
+      loom_x86_function_incoming(
+          frame, LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
+          LOOM_X86_INCOMING_REGISTER_GROUP_GPR, &builder);
+    } else {
+      loom_x86_function_incoming(
+          frame, LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
+          LOOM_X86_INCOMING_REGISTER_GROUP_ALL, &builder);
+    }
   }
   for (uint32_t b = 0; b < schedule->block_count && !builder.rejected &&
                        iree_status_is_ok(status);
@@ -1141,11 +1305,7 @@ static iree_status_t loom_x86_function_write_stack(
 
 static iree_status_t loom_x86_function_write_stack_enter(
     const loom_x86_function_t* function, loom_x86_function_writer_t* writer) {
-  if (function->stack.has_frame_pointer) {
-    IREE_RETURN_IF_ERROR(loom_x86_function_write_encoding(
-        writer, LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
-        (loom_x86_encoding_operands_t){.result = 5, .inputs = {4}}));
-  } else if (function->stack.realignment.mask) {
+  if (function->stack.realignment.mask) {
     IREE_RETURN_IF_ERROR(loom_x86_function_write_encoding(
         writer, LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
         (loom_x86_encoding_operands_t){
@@ -1166,7 +1326,7 @@ static iree_status_t loom_x86_function_write_stack_enter(
         (loom_x86_encoding_operands_t){
             .immediate = function->stack.allocation_size, .result = 4}));
   }
-  if (function->stack.realignment.mask && !function->stack.has_frame_pointer) {
+  if (function->stack.realignment.mask) {
     IREE_RETURN_IF_ERROR(loom_x86_function_write_encoding(
         writer, LOOM_X86_ENCODING_FORM_STORE, 0x89 | LOOM_X86_ENCODING_REX_W,
         (loom_x86_encoding_operands_t){
@@ -1178,11 +1338,6 @@ static iree_status_t loom_x86_function_write_stack_enter(
 
 static iree_status_t loom_x86_function_write_stack_leave(
     const loom_x86_function_t* function, loom_x86_function_writer_t* writer) {
-  if (function->stack.has_frame_pointer) {
-    return loom_x86_function_write_encoding(
-        writer, LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
-        (loom_x86_encoding_operands_t){.result = 4, .inputs = {5}});
-  }
   if (function->stack.realignment.mask) {
     return loom_x86_function_write_encoding(
         writer, LOOM_X86_ENCODING_FORM_LOAD, 0x8b | LOOM_X86_ENCODING_REX_W,

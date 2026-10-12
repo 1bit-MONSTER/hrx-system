@@ -133,6 +133,12 @@ low.func.def public target<x86.avx2.core> abi(object_function) abi_layout({signa
   return %value
 }
 
+// Dead inputs retain their public SysV positions but require no normalization
+// or entry transport inside the function.
+low.func.def public target<x86.avx2.core> abi(object_function) abi_layout({signature = (i32, i1, i8, f8E4M3, f8E5M2, i16) -> (i32)}) @retain_first_narrow(%value: reg<x86.gpr32>, %unused_i1: reg<x86.gpr32>, %unused_i8: reg<x86.gpr32>, %unused_f8e4m3: reg<x86.gpr32>, %unused_f8e5m2: reg<x86.gpr32>, %unused_i16: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  return %value
+}
+
 low.func.decl import(native, "native_narrow_i1") target<x86.avx2.core> abi(object_function) abi_layout({signature = (i32) -> (i1)}) @native_narrow_i1(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>)
 
 low.func.decl import(native, "native_narrow_i8") target<x86.avx2.core> abi(object_function) abi_layout({signature = (i32) -> (i8)}) @native_narrow_i8(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>)
@@ -152,6 +158,13 @@ low.func.def public target<x86.avx2.core> abi(object_function) abi_layout({signa
 low.func.def public target<x86.avx2.core> abi(object_function) abi_layout({signature = (i32) -> (i32)}) @call_narrow_i16(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
   %result = low.func.call @native_narrow_i16(%value) : (reg<x86.gpr32>) -> (reg<x86.gpr32>)
   return %result
+}
+
+low.func.decl import(native, "native_ignored_i8_result") target<x86.avx2.core> abi(object_function) abi_layout({signature = () -> (i8)}) @native_ignored_i8_result() -> (reg<x86.gpr32>)
+
+low.func.def public target<x86.avx2.core> abi(object_function) abi_layout({signature = (i32) -> (i32)}) @ignore_narrow_call_result(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %unused = low.func.call @native_ignored_i8_result() : () -> (reg<x86.gpr32>)
+  return %value
 }
 
 // Half-precision scalars cross the platform boundary in XMM registers while

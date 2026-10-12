@@ -195,6 +195,7 @@ loom_cc_library(
         "//loom/src/loom/ops/low",
         "//loom/src/loom/tools/loom-check:execute",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/io:stream",
     ],
 )
 
@@ -202,6 +203,7 @@ loom_check_test_suite(
     name = "loom_check_file_test",
     srcs = [
         "test/function.loom-test",
+        "test/unused_abi_inputs.loom-test",
     ],
 )
 

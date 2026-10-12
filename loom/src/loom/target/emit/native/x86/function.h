@@ -78,18 +78,16 @@ typedef struct loom_x86_function_t {
       // Caller-clobbered register used before invocation transport.
       uint8_t scratch_register;
     } realignment;
-    // True when RBP retains the post-save RSP for incoming SIMD stack values.
-    bool has_frame_pointer;
   } stack;
 } loom_x86_function_t;
 
 // Returns the allocator reservations needed by the native function envelope.
 // Descriptor fragments without GPR values need no reservation: the envelope
-// may still address RSP/RBP directly because those registers cannot be assigned
-// from the fragment's value classes.
+// may still address RSP directly because it cannot be assigned from the
+// fragment's value classes.
 iree_host_size_t loom_x86_function_reserved_ranges(
     const loom_x86_function_abi_t* function_abi,
-    loom_low_allocation_reserved_range_t out_ranges[3]);
+    loom_low_allocation_reserved_range_t out_ranges[2]);
 
 // Materializes native instructions from an accepted allocated Low frame. The
 // retained SysV plan supplies entry, call, and result transport. Stack,
