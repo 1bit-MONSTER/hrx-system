@@ -152,6 +152,8 @@ loom_check_test_suite(
     "vector_lookup.cxx-test"
     "vector_math.cxx-test"
     "vector_math_invalid.cxx-test"
+    "vector_tensors.cxx-test"
+    "vector_tensors_invalid.cxx-test"
     "vectors.cxx-test"
     "vectors_invalid.cxx-test"
     "view_values.cxx-test"

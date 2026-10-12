@@ -27,6 +27,8 @@ TEST_F(TypesWithModuleTest, ProjectsSpecialAndRegisteredOpaqueHandles) {
   Source source(IREE_SV(R"(
     template<class T> struct [[loom::type("buffer")]] Buffer { T* data; };
     using WordBuffer = Buffer<unsigned>;
+    using Words4 = unsigned __attribute__((vector_size(16)));
+    using VectorBuffer = Buffer<Words4>;
     struct [[loom::type("index")]] Index {
       operator unsigned long long() const;
     };
@@ -53,6 +55,14 @@ TEST_F(TypesWithModuleTest, ProjectsSpecialAndRegisteredOpaqueHandles) {
   types.append(source_type("WordBuffer"), owner, buffer_signature);
   ASSERT_EQ(buffer_signature.size(), 1u);
   EXPECT_EQ(loom_type_kind(buffer_signature[0]), LOOM_TYPE_BUFFER);
+
+  const auto& vector_buffer = static_cast<const BufferPartition&>(
+      types.partition(source_type("VectorBuffer"), owner));
+  EXPECT_EQ(vector_buffer.component_count, 1u);
+  EXPECT_EQ(types.unqualified(vector_buffer.element_type),
+            types.unqualified(source_type("Words4")));
+  EXPECT_EQ(loom_type_kind(types.get(source_type("VectorBuffer"), owner)),
+            LOOM_TYPE_BUFFER);
 
   const auto& index = types.partition(source_type("Index"), owner);
   ASSERT_EQ(index.kind, ValueKind::Index);
@@ -463,6 +473,68 @@ TEST(TypesTest, BindsRuntimeTensorExtentAcrossValueBoundaries) {
   EXPECT_EQ(packet->component_names,
             (std::vector<std::string>{"values_dim0", "values", "tag"}));
   EXPECT_TRUE(types.requires_binding(source_type("Packet"), owner));
+}
+
+TEST(TypesTest, AppendsVectorLanesToTensorObjectShape) {
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  Source source(IREE_SV(R"(
+        namespace loom { namespace type {
+        using size_type = __SIZE_TYPE__;
+        inline constexpr size_type dynamic = ~size_type{0};
+        template <size_type... Extents>
+        struct [[loom::type("shape")]] shape {};
+        template <class Shape, class T>
+        struct [[loom::type("tensor")]] tensor { T* data; };
+        } }
+        using GnuWords = unsigned __attribute__((vector_size(16)));
+        using ExtBytes = unsigned char __attribute__((ext_vector_type(16)));
+        using Static = loom::type::tensor<loom::type::shape<7>, GnuWords>;
+        using Dynamic = loom::type::tensor<
+            loom::type::shape<loom::type::dynamic>, ExtBytes>;
+      )"),
+                IREE_SV("vector_tensors.cpp"), options);
+  Types types(source.unit(), source.diagnostics());
+  auto* owner = source.unit().ast();
+  auto source_type = [&](const char* name) {
+    return (*source.unit().globalScope()->find(name).begin())->type();
+  };
+
+  const auto& static_tensor = static_cast<const TensorPartition&>(
+      types.partition(source_type("Static"), owner));
+  EXPECT_EQ(static_tensor.component_count, 1u);
+  EXPECT_EQ(static_tensor.vector_lane_count, 4u);
+  EXPECT_EQ(static_tensor.element_bytes, 16u);
+  EXPECT_EQ(types.unqualified(static_tensor.lane_type),
+            source.unit().control()->getUnsignedIntType());
+  std::vector<loom_type_t> static_types;
+  types.append(source_type("Static"), owner, static_types);
+  ASSERT_EQ(static_types.size(), 1u);
+  EXPECT_EQ(loom_type_kind(static_types[0]), LOOM_TYPE_TENSOR);
+  EXPECT_EQ(loom_type_rank(static_types[0]), 2u);
+  EXPECT_EQ(loom_type_dim_static_size_at(static_types[0], 0), 7);
+  EXPECT_EQ(loom_type_dim_static_size_at(static_types[0], 1), 4);
+  EXPECT_EQ(loom_type_element_type(static_types[0]), LOOM_SCALAR_TYPE_I32);
+
+  const auto& dynamic_tensor = static_cast<const TensorPartition&>(
+      types.partition(source_type("Dynamic"), owner));
+  EXPECT_EQ(dynamic_tensor.component_count, 2u);
+  EXPECT_EQ(dynamic_tensor.vector_lane_count, 16u);
+  EXPECT_EQ(dynamic_tensor.element_bytes, 16u);
+  EXPECT_EQ(types.unqualified(dynamic_tensor.lane_type),
+            source.unit().control()->getUnsignedCharType());
+  const loom_value_id_t dynamic_ids[] = {41, 42};
+  BoundTypeStorage dynamic_storage;
+  std::vector<loom_type_t> dynamic_types;
+  types.append_bound(source_type("Dynamic"), owner, dynamic_ids,
+                     dynamic_storage, dynamic_types);
+  ASSERT_EQ(dynamic_types.size(), 2u);
+  EXPECT_EQ(loom_type_element_type(dynamic_types[0]), LOOM_SCALAR_TYPE_INDEX);
+  EXPECT_EQ(loom_type_kind(dynamic_types[1]), LOOM_TYPE_TENSOR);
+  EXPECT_EQ(loom_type_rank(dynamic_types[1]), 2u);
+  EXPECT_EQ(loom_type_dim_value_id_at(dynamic_types[1], 0), 41u);
+  EXPECT_EQ(loom_type_dim_static_size_at(dynamic_types[1], 1), 16);
+  EXPECT_EQ(loom_type_element_type(dynamic_types[1]), LOOM_SCALAR_TYPE_I8);
 }
 
 TEST(TypesTest, ProjectsEverySupportedViewRankAndEncodingRole) {

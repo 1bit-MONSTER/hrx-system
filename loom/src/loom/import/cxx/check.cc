@@ -706,8 +706,14 @@ class CheckBody {
         }
         const auto& tensor =
             static_cast<const TensorPartition&>(values[index].partition());
-        if (!expected_element || types_.unqualified(expected_element) !=
-                                     types_.unqualified(tensor.element_type)) {
+        bool exact_object_type =
+            expected_element && types_.unqualified(expected_element) ==
+                                    types_.unqualified(tensor.element_type);
+        bool scalar_lane_view = expected_partition.kind == ValueKind::Buffer &&
+                                tensor.vector_lane_count && expected_element &&
+                                types_.unqualified(expected_element) ==
+                                    types_.unqualified(tensor.lane_type);
+        if (!exact_object_type && !scalar_lane_view) {
           fail(source_arguments[index],
                "check tensor element type must match the subject buffer "
                "element type");

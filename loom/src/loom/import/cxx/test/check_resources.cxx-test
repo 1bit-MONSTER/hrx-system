@@ -139,7 +139,7 @@ void ordinary() {
 // RUN: verify
 #include <loomcxx/check.h>
 LOOM_CHECK_CASE(boolean_elements) {
-  // ERROR@+1: LOWERING/059 "tensor elements require unqualified non-boolean scalar types"
+  // ERROR@+1: LOWERING/059 "tensor elements require unqualified non-boolean scalar or vector types"
   const auto storage = loom::check::fill<1, bool>(true);
 }
 
@@ -147,7 +147,7 @@ LOOM_CHECK_CASE(boolean_elements) {
 // RUN: verify
 #include <loomcxx/check.h>
 LOOM_CHECK_CASE(qualified_elements) {
-  // ERROR@+1: LOWERING/059 "tensor elements require unqualified non-boolean scalar types"
+  // ERROR@+1: LOWERING/059 "tensor elements require unqualified non-boolean scalar or vector types"
   const auto storage = loom::check::fill<1, const unsigned>(7u);
 }
 

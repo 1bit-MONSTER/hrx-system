@@ -172,8 +172,10 @@ std::optional<CheckIntrinsic> CheckIntrinsic::resolve(
         require_tensor_extent(unit, diagnostics, types, parameters[0], owner);
       }
       if (types.unqualified(parameters[payload_index]) !=
-          result.result_tensor->element_type) {
-        fail("check.generate.fill payload must match its tensor element type");
+          types.unqualified(result.result_tensor->lane_type)) {
+        fail(
+            "check.generate.fill payload must match its tensor scalar lane "
+            "type");
       }
       break;
     }
@@ -194,9 +196,9 @@ std::optional<CheckIntrinsic> CheckIntrinsic::resolve(
         require_tensor_extent(unit, diagnostics, types, parameters[0], owner);
       }
       if (types.unqualified(parameters[payload_index]) !=
-              result.result_tensor->element_type ||
+              types.unqualified(result.result_tensor->lane_type) ||
           types.unqualified(parameters[payload_index + 1]) !=
-              result.result_tensor->element_type ||
+              types.unqualified(result.result_tensor->lane_type) ||
           (parameters.size() == payload_index + 3 &&
            !unit.typeTraits().is_integral(parameters[payload_index + 2]))) {
         fail(
@@ -221,7 +223,7 @@ std::optional<CheckIntrinsic> CheckIntrinsic::resolve(
         result.scalar_type = types.get(parameters[0], owner);
       } else if (partition.kind == ValueKind::Tensor &&
                  types.is_float(static_cast<const TensorPartition&>(partition)
-                                    .element_type)) {
+                                    .lane_type)) {
         result.source_tensor = static_cast<const TensorPartition*>(&partition);
       } else {
         fail(

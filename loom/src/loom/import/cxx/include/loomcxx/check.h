@@ -82,6 +82,27 @@ struct function_result<Result (*)(Args...)> {
 template <class Function>
 using function_result_t = typename function_result<Function>::type;
 
+template <class T>
+struct remove_reference {
+  using type = T;
+};
+
+template <class T>
+struct remove_reference<T&> {
+  using type = T;
+};
+
+template <class T>
+struct remove_reference<T&&> {
+  using type = T;
+};
+
+// Extracts the scalar lane type from a compiler vector extension. Substitution
+// removes vector overloads from scalar calls without requiring a type registry
+// in this frequently parsed header.
+template <class T>
+using vector_lane_t = typename remove_reference<decltype(T{}[0])>::type;
+
 }  // namespace detail
 
 // Declares Count independently replayable runtime trials. Body must be a
@@ -91,8 +112,9 @@ template <__SIZE_TYPE__ Count, class Body>
 [[loom::op("check.trial")]] void trial(Body body);
 
 // Invokes an ordinary function while realizing one trial recipe. Tensors bind
-// loom::type::buffer<T> parameters; scalar and scalar-record values remain
-// local to the trial.
+// loom::type::buffer<T> parameters; vector-object tensors may instead bind a
+// buffer of their scalar lane type for an explicitly lane-oriented oracle.
+// Scalar and scalar-record values remain local to the trial.
 template <auto Function, class... Args>
 [[loom::op("check.generate")]]
 detail::function_result_t<decltype(Function)> generate(Args... args);
@@ -129,11 +151,23 @@ template <__SIZE_TYPE__ Count, class T>
 [[loom::op("check.generate.fill")]]
 loom::type::tensor<loom::type::shape<Count>, T> fill(T value);
 
+// Generates Count vector objects by filling every scalar lane with value.
+template <__SIZE_TYPE__ Count, class T>
+[[loom::op("check.generate.fill")]]
+loom::type::tensor<loom::type::shape<Count>, T> fill(
+    detail::vector_lane_t<T> value);
+
 // Generates a runtime element count with one compile-time scalar payload.
 template <class T>
 [[loom::op("check.generate.fill")]]
 loom::type::tensor<loom::type::shape<loom::type::dynamic>, T> fill(
     loom::type::index element_count, T value);
+
+// Generates a runtime vector-object count by filling every scalar lane.
+template <class T>
+[[loom::op("check.generate.fill")]]
+loom::type::tensor<loom::type::shape<loom::type::dynamic>, T> fill(
+    loom::type::index element_count, detail::vector_lane_t<T> value);
 
 // Generates offset + step * index for Count elements. A positive period wraps
 // the linear index before applying the step.
@@ -145,6 +179,17 @@ template <__SIZE_TYPE__ Count, class T>
 loom::type::tensor<loom::type::shape<Count>, T> iota(T offset, T step,
                                                      __SIZE_TYPE__ period);
 
+// Generates one scalar-lane sequence across Count vector objects.
+template <__SIZE_TYPE__ Count, class T>
+[[loom::op("check.generate.iota")]]
+loom::type::tensor<loom::type::shape<Count>, T> iota(
+    detail::vector_lane_t<T> offset, detail::vector_lane_t<T> step);
+template <__SIZE_TYPE__ Count, class T>
+[[loom::op("check.generate.iota")]]
+loom::type::tensor<loom::type::shape<Count>, T> iota(
+    detail::vector_lane_t<T> offset, detail::vector_lane_t<T> step,
+    __SIZE_TYPE__ period);
+
 // Generates a runtime element count. A positive constant period wraps the
 // linear index before applying the step.
 template <class T>
@@ -155,6 +200,17 @@ template <class T>
 [[loom::op("check.generate.iota")]]
 loom::type::tensor<loom::type::shape<loom::type::dynamic>, T> iota(
     loom::type::index element_count, T offset, T step, __SIZE_TYPE__ period);
+
+template <class T>
+[[loom::op("check.generate.iota")]]
+loom::type::tensor<loom::type::shape<loom::type::dynamic>, T> iota(
+    loom::type::index element_count, detail::vector_lane_t<T> offset,
+    detail::vector_lane_t<T> step);
+template <class T>
+[[loom::op("check.generate.iota")]]
+loom::type::tensor<loom::type::shape<loom::type::dynamic>, T> iota(
+    loom::type::index element_count, detail::vector_lane_t<T> offset,
+    detail::vector_lane_t<T> step, __SIZE_TYPE__ period);
 
 // Aliases Count elements beginning at a compile-time element offset. The
 // selected range must lie within source; no data is copied.
