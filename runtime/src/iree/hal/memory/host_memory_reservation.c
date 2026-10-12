@@ -129,8 +129,8 @@ iree_status_t iree_hal_host_memory_reservation_create(
         contract, &reservation->binding, &reservation->backing,
         IREE_HAL_CPU_SLAB_PROVIDER_MEMORY_TYPE, options->byte_length,
         reservation->native.granularity, IREE_HAL_MEMORY_MAPPING_OPERATIONS_ALL,
-        &iree_hal_host_memory_reservation_vtable, host_allocator,
-        &reservation->base);
+        IREE_HAL_MEMORY_BACKEND_HOST, &iree_hal_host_memory_reservation_vtable,
+        host_allocator, &reservation->base);
     reservation->base.projection_count = 1;
     reservation->base.projections = reservation->projections;
     for (uint32_t i = 0; i < contract->scope_count; ++i) {

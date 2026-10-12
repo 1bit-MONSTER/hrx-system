@@ -446,7 +446,7 @@ iree_status_t iree_hal_amd_fabric_memory_reservation_create(
     iree_hal_memory_reservation_initialize(
         contract, reservation->bindings, &reservation->backing,
         IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE, options->byte_length, granularity,
-        plan.capabilities.operations,
+        plan.capabilities.operations, IREE_HAL_MEMORY_BACKEND_AMDF,
         &iree_hal_amd_fabric_memory_reservation_vtable, host_allocator,
         &reservation->base);
     reservation->base.projection_count = projection_count;

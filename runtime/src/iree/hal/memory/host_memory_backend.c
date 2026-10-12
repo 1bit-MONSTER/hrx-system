@@ -242,6 +242,15 @@ static iree_status_t iree_hal_host_slab_pool_query(
     iree_hal_memory_contract_t* contract = plan->contract;
     contract->host = host;
     contract->placement = plan->base.info.placement;
+    if (mapping_source) {
+      contract->mapping_source.type = IREE_HAL_MEMORY_BACKEND_HOST;
+      contract->mapping_source.requirements =
+          (iree_hal_pool_mapping_requirements_t){
+              .minimum_granularity = iree_memory_query_info().normal_page_size,
+              .recommended_granularity =
+                  iree_memory_query_info().normal_page_size,
+          };
+    }
     if (iree_any_bit_set(host.modes, IREE_HAL_MAPPING_MODE_SCOPED)) {
       usage |= IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED;
     }
@@ -254,6 +263,12 @@ static iree_status_t iree_hal_host_slab_pool_query(
     if (host.access) {
       contract->scopes[1].interfaces = 1u << IREE_HAL_BUFFER_INTERFACE_HOST;
       contract->scopes[1].bindings[IREE_HAL_BUFFER_INTERFACE_HOST] = 0;
+      if (mapping_source) {
+        contract->scopes[1].interfaces |=
+            1u << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+        contract->scopes[1].bindings[IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE] =
+            1;
+      }
     }
     for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
       const uint32_t queue_scope_id =

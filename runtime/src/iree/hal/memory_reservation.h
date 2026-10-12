@@ -204,6 +204,8 @@ struct iree_hal_memory_reservation_t {
   uint32_t projection_count;
   // Supported operations, immutable after creation.
   iree_hal_memory_mapping_operations_t operations;
+  // Native descriptor schema accepted by this address owner.
+  iree_hal_memory_backend_type_t source_type;
   // Scope-indexed native projections; INVALID for excluded sites and ANY.
   const uint32_t* projections;
   // Explicit native destruction has consumed the address owner.
@@ -223,6 +225,7 @@ IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
     iree_hal_memory_type_t memory_type, iree_device_size_t byte_length,
     iree_device_size_t mapping_granularity,
     iree_hal_memory_mapping_operations_t operations,
+    iree_hal_memory_backend_type_t source_type,
     const iree_hal_memory_reservation_vtable_t* vtable,
     iree_allocator_t host_allocator,
     iree_hal_memory_reservation_t* reservation);

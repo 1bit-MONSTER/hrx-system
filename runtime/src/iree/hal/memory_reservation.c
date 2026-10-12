@@ -183,6 +183,7 @@ IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
     iree_hal_memory_type_t memory_type, iree_device_size_t byte_length,
     iree_device_size_t mapping_granularity,
     iree_hal_memory_mapping_operations_t operations,
+    iree_hal_memory_backend_type_t source_type,
     const iree_hal_memory_reservation_vtable_t* vtable,
     iree_allocator_t host_allocator,
     iree_hal_memory_reservation_t* reservation) {
@@ -201,6 +202,7 @@ IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
   reservation->host_allocator = host_allocator;
   reservation->mapping_granularity = mapping_granularity;
   reservation->operations = operations;
+  reservation->source_type = source_type;
 }
 
 //===----------------------------------------------------------------------===//
@@ -331,6 +333,13 @@ static iree_status_t iree_hal_memory_mapping_capture(
                           source_contract->domain != target_contract->domain)) {
     return iree_make_status(IREE_STATUS_PERMISSION_DENIED,
                             "source has no mapping contract in this group");
+  }
+  if (source_contract &&
+      source_contract->mapping_source.requirements.minimum_granularity &&
+      source_contract->mapping_source.type != reservation->source_type) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "source and reservation use different native "
+                            "mapping formats");
   }
   const uint32_t begin = mapping->scope.id ? mapping->scope.id : 1;
   const uint32_t end =

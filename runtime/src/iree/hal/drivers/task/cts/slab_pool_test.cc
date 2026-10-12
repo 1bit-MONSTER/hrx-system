@@ -1149,6 +1149,9 @@ TEST_P(TaskSlabPoolTest, RejectsMappingConflictsAndUnpreparedSources) {
   constexpr iree_device_size_t kUnit = 64 * 1024;
   Ref<iree_hal_pool_t> ordinary;
   IREE_ASSERT_OK(CreateSource(ordinary.out()));
+  EXPECT_EQ(
+      iree_hal_pool_query_mapping_requirements(ordinary).minimum_granularity,
+      0u);
   Ref<iree_hal_buffer_t> unprepared;
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
       ordinary, iree_hal_make_pool_reservation_request(2 * kUnit, kUnit),
@@ -1237,6 +1240,12 @@ TEST_P(TaskSlabPoolTest, QueueMappingSourcesRecycleThroughSharedSlabCache) {
   }
   Ref<iree_hal_pool_t> source;
   IREE_ASSERT_OK(CreateSource(source.out()));
+  const auto requirements = iree_hal_pool_query_mapping_requirements(source);
+  ASSERT_GT(requirements.minimum_granularity, 0u);
+  EXPECT_EQ(requirements.recommended_granularity,
+            requirements.minimum_granularity);
+  EXPECT_EQ(kUnit % requirements.minimum_granularity, 0u);
+  EXPECT_EQ(requirements.flags, 0u);
   iree_hal_slab_cache_options_t cache_options;
   iree_hal_slab_cache_options_initialize(&cache_options);
   cache_options.slab = iree_hal_make_pool_reservation_request(4 * kUnit, kUnit);
@@ -1270,6 +1279,11 @@ TEST_P(TaskSlabPoolTest, QueueMappingSourcesRecycleThroughSharedSlabCache) {
       iree_hal_device_group_memory_domain(group_), IREE_HAL_MEMORY_SCOPE_ANY};
   const iree_hal_buffer_backing_facts_t* first_backing = nullptr;
   for (auto& child : children) {
+    const auto inherited = iree_hal_pool_query_mapping_requirements(child);
+    EXPECT_EQ(inherited.minimum_granularity, requirements.minimum_granularity);
+    EXPECT_EQ(inherited.recommended_granularity,
+              requirements.recommended_granularity);
+    EXPECT_EQ(inherited.flags, requirements.flags);
     // The source has no committed native binding until this gate is signaled.
     SemaphoreList gate(devices_[0], {0}, {1});
     SemaphoreList allocated(devices_[0], {0}, {1});

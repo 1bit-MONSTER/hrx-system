@@ -247,6 +247,13 @@ iree_hal_pool_query_host_access(const iree_hal_pool_t* pool) {
                                : (iree_hal_pool_host_access_t){0};
 }
 
+IREE_API_EXPORT iree_hal_pool_mapping_requirements_t
+iree_hal_pool_query_mapping_requirements(const iree_hal_pool_t* pool) {
+  return pool->memory_contract
+             ? pool->memory_contract->mapping_source.requirements
+             : (iree_hal_pool_mapping_requirements_t){0};
+}
+
 static const iree_hal_memory_scope_access_t*
 iree_hal_memory_contract_family_access(
     const iree_hal_memory_contract_t* contract,

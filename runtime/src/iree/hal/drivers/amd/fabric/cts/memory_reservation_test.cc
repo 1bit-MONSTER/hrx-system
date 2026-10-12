@@ -186,6 +186,13 @@ class FabricMemoryReservationTest
     iree_hal_slab_pool_options_initialize(&pool_options);
     IREE_ASSERT_OK(iree_hal_slab_pool_create(group_, scope, &pool_options,
                                              allocator_, &pool_));
+    const auto source_requirements =
+        iree_hal_pool_query_mapping_requirements(pool_);
+    ASSERT_EQ(source_requirements.minimum_granularity,
+              capabilities.mapping_granularity);
+    ASSERT_GE(source_requirements.recommended_granularity,
+              source_requirements.minimum_granularity);
+    ASSERT_EQ(source_requirements.flags, 0u);
     IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
         pool_,
         iree_hal_make_pool_reservation_request(6 * granularity_, granularity_),
@@ -422,6 +429,36 @@ class FabricMemoryReservationTest
 };
 
 TEST_P(FabricMemoryReservationTest, BatchedReplacementChangesRealGpuAddresses) {
+  // A shared group does not make native backing formats interchangeable.
+  // Rejection leaves this live group usable for the valid GPU mappings below.
+  {
+    const iree_hal_pool_family_access_t family = {
+        .family = iree_hal_device_queue_family(cpu_, 0),
+        .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
+    };
+    const iree_hal_memory_reservation_options_t options = {
+        .byte_length = granularity_,
+        .mapping_granularity = granularity_,
+    };
+    iree_hal_memory_reservation_t* target = nullptr;
+    IREE_ASSERT_OK(iree_hal_memory_reservation_create(
+        group_, {1, &family, {}}, &options, allocator_, &target));
+    const iree_hal_memory_mapping_t mapping = {
+        .reservation = target,
+        .scope = {iree_hal_device_group_memory_domain(group_),
+                  IREE_HAL_MEMORY_SCOPE_ANY},
+        .target_range = {0, granularity_},
+        .source = backing_,
+        .access = IREE_HAL_MEMORY_ACCESS_ALL,
+    };
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_UNAVAILABLE,
+        iree_hal_queue_map(iree_hal_device_queue(cpu_, 0, 0),
+                           iree_hal_semaphore_list_empty(),
+                           iree_hal_semaphore_list_empty(), 1, &mapping,
+                           IREE_HAL_QUEUE_MAP_FLAG_NONE));
+    IREE_EXPECT_OK(iree_hal_memory_reservation_destroy(target));
+  }
   auto* words = reinterpret_cast<uint32_t*>(host_mapping_.contents.data);
   const size_t stride = granularity_ / sizeof(uint32_t);
   std::memset(words, 0, host_mapping_.contents.data_length);

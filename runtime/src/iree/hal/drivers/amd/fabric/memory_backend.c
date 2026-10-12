@@ -602,6 +602,17 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_emit_plan(
     iree_hal_memory_contract_t* contract = plan->contract;
     contract->host = host;
     contract->placement = plan->base.info.placement;
+    for (uint16_t i = 0; i < binding_count; ++i) {
+      if (binding_requests[i].type ==
+          IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE) {
+        contract->mapping_source.type = IREE_HAL_MEMORY_BACKEND_AMDF;
+        contract->mapping_source.requirements.minimum_granularity =
+            iree_max(contract->mapping_source.requirements.minimum_granularity,
+                     binding_requests[i].mapping_granularity);
+      }
+    }
+    contract->mapping_source.requirements.recommended_granularity =
+        contract->mapping_source.requirements.minimum_granularity;
     if (host.access) {
       contract->scopes[1].interfaces = 1u << IREE_HAL_BUFFER_INTERFACE_HOST;
       contract->scopes[1].bindings[IREE_HAL_BUFFER_INTERFACE_HOST] = 0;

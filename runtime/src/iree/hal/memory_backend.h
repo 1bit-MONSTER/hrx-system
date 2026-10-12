@@ -14,16 +14,6 @@
 extern "C" {
 #endif  // __cplusplus
 
-typedef enum iree_hal_memory_backend_type_e {
-  IREE_HAL_MEMORY_BACKEND_HOST = 0,
-  IREE_HAL_MEMORY_BACKEND_AMDF = 1,
-  IREE_HAL_MEMORY_BACKEND_VULKAN = 2,
-  IREE_HAL_MEMORY_BACKEND_ROCR = 3,
-  IREE_HAL_MEMORY_BACKEND_IO = 4,
-  IREE_HAL_MEMORY_BACKEND_REMOTE = 5,
-  IREE_HAL_MEMORY_BACKEND_WEBGPU = 6,
-} iree_hal_memory_backend_type_t;
-
 typedef struct iree_hal_slab_pool_plan_t iree_hal_slab_pool_plan_t;
 typedef struct iree_hal_slab_pool_factory_t iree_hal_slab_pool_factory_t;
 
