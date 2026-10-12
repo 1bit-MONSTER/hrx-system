@@ -43,6 +43,7 @@ TEST_F(FunctionsTest, RootsQueueEachConcreteHelperOnceWithPrivateVisibility) {
   Locations locations(source.unit(), source.diagnostics(), module_);
   SymbolNames names(source.unit(), source.diagnostics());
   LaunchContracts launches(source.unit(), source.diagnostics());
+  FastMathContracts fastmath(source.unit(), source.diagnostics());
   FunctionContracts function_contracts(source.unit(), source.diagnostics());
   Intrinsics intrinsics(source.unit(), source.diagnostics(), types, locations,
                         names, launches, function_contracts, module_);
@@ -54,8 +55,8 @@ TEST_F(FunctionsTest, RootsQueueEachConcreteHelperOnceWithPrivateVisibility) {
                                        locations, names, module_);
   TemplateDefinitions template_definitions(source.unit(), source.diagnostics());
   Functions functions(source.unit(), source.diagnostics(), module_, intrinsics,
-                      launches, configs, function_contracts, target_definitions,
-                      template_definitions, names);
+                      launches, configs, fastmath, function_contracts,
+                      target_definitions, template_definitions, names);
   const iree_string_view_t roots[] = {IREE_SV("entry")};
   functions.select(roots);
   ASSERT_EQ(functions.pending().size(), 1u);
@@ -96,6 +97,7 @@ TEST_F(FunctionsTest,
   Locations locations(source.unit(), source.diagnostics(), module_);
   SymbolNames names(source.unit(), source.diagnostics());
   LaunchContracts launches(source.unit(), source.diagnostics());
+  FastMathContracts fastmath(source.unit(), source.diagnostics());
   FunctionContracts function_contracts(source.unit(), source.diagnostics());
   Intrinsics intrinsics(source.unit(), source.diagnostics(), types, locations,
                         names, launches, function_contracts, module_);
@@ -107,8 +109,8 @@ TEST_F(FunctionsTest,
                                        locations, names, module_);
   TemplateDefinitions template_definitions(source.unit(), source.diagnostics());
   Functions functions(source.unit(), source.diagnostics(), module_, intrinsics,
-                      launches, configs, function_contracts, target_definitions,
-                      template_definitions, names);
+                      launches, configs, fastmath, function_contracts,
+                      target_definitions, template_definitions, names);
   functions.select({});
   ASSERT_EQ(functions.pending().size(), 2u);
   auto defined =
@@ -140,6 +142,7 @@ TEST_F(FunctionsTest, ConfiguredScenarioRetainsItsNativeRegionSignature) {
   Locations locations(source.unit(), source.diagnostics(), module_);
   SymbolNames names(source.unit(), source.diagnostics());
   LaunchContracts launches(source.unit(), source.diagnostics());
+  FastMathContracts fastmath(source.unit(), source.diagnostics());
   FunctionContracts function_contracts(source.unit(), source.diagnostics());
   Intrinsics intrinsics(source.unit(), source.diagnostics(), types, locations,
                         names, launches, function_contracts, module_);
@@ -151,8 +154,8 @@ TEST_F(FunctionsTest, ConfiguredScenarioRetainsItsNativeRegionSignature) {
                                        locations, names, module_);
   TemplateDefinitions template_definitions(source.unit(), source.diagnostics());
   Functions functions(source.unit(), source.diagnostics(), module_, intrinsics,
-                      launches, configs, function_contracts, target_definitions,
-                      template_definitions, names);
+                      launches, configs, fastmath, function_contracts,
+                      target_definitions, template_definitions, names);
 
   functions.select({});
   ASSERT_EQ(functions.pending().size(), 1u);

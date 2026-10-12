@@ -286,6 +286,7 @@ bool Functions::admit_declaration(
                                         prototype);
     if (function && !function->isTemplatePattern()) {
       parameter_contracts_.declaration(function, prototype);
+      fastmath_.declaration(function, prototype);
       function_contracts_.declaration(function, prototype);
     }
   }
@@ -415,6 +416,12 @@ bool Functions::admit_declaration(
         }
         benchmarks_.push_back({function, target, attribute});
       });
+  if (found) {
+    if (auto* source = fastmath_.function_source(function)) {
+      diagnostics_.reject(unit_, source,
+                          "check declarations cannot carry fastmath contracts");
+    }
+  }
   if (!found &&
       ((annotated(function, "check_case") && !is_check_case(function)) ||
        annotated(function, "check_scenario") ||
@@ -561,6 +568,7 @@ loom_symbol_ref_t Functions::retain(cxx::FunctionSymbol* function,
       auto* prototype =
           cxx::getFunctionPrototype(function->declaration()->declarator);
       parameter_contracts_.declaration(function, prototype);
+      fastmath_.declaration(function, prototype);
       function_contracts_.declaration(function, prototype);
     }
   }

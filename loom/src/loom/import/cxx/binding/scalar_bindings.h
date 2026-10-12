@@ -42,7 +42,7 @@ const loom_cxx_scalar_binding_t* loom_cxx_scalar_binding_find(
     iree_string_view_t name);
 
 // Resolves one canonical scalar fast-math flag spelling.
-bool loom_cxx_scalar_flag_parse(iree_string_view_t name, uint8_t* out_flag);
+bool loom_cxx_fastmath_flag_parse(iree_string_view_t name, uint8_t* out_flag);
 
 #ifdef __cplusplus
 }

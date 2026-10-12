@@ -19,8 +19,8 @@ namespace loom::cxx_import {
 
 loom_value_id_t Vectors::convert(loom_value_id_t value,
                                  const cxx::Type* input_type,
-                                 const cxx::Type* output_type,
-                                 cxx::AST* owner) {
+                                 const cxx::Type* output_type, cxx::AST* owner,
+                                 uint8_t fastmath) {
   auto input = types_.get(input_type, owner);
   auto output = types_.get(output_type, owner);
   auto* vector = types_.vector(output_type);
@@ -33,7 +33,8 @@ loom_value_id_t Vectors::convert(loom_value_id_t value,
   }
   loom_op_t* op;
   if (loom_type_kind(input) == LOOM_TYPE_SCALAR) {
-    value = scalars_.convert(value, input_type, vector->elementType(), owner);
+    value = scalars_.convert(value, input_type, vector->elementType(), owner,
+                             fastmath);
     check(loom_vector_splat_build(&builder_, value, output,
                                   locations_.get(owner), &op));
   } else if (loom_type_kind(input) == LOOM_TYPE_VECTOR &&
@@ -103,7 +104,8 @@ loom_value_id_t Vectors::convert_elements(loom_value_id_t value,
 loom_value_id_t Vectors::binary(cxx::TokenKind token, loom_value_id_t left,
                                 loom_value_id_t right,
                                 const cxx::Type* input_type,
-                                const cxx::Type* output_type, cxx::AST* owner) {
+                                const cxx::Type* output_type, cxx::AST* owner,
+                                uint8_t fastmath) {
   auto input = types_.get(input_type, owner);
   auto output = types_.get(output_type, owner);
   auto* vector = types_.vector(input_type);
@@ -142,8 +144,8 @@ loom_value_id_t Vectors::binary(cxx::TokenKind token, loom_value_id_t left,
           LOOM_VECTOR_CMPF_PREDICATE_OEQ, LOOM_VECTOR_CMPF_PREDICATE_UNE,
           LOOM_VECTOR_CMPF_PREDICATE_OLT, LOOM_VECTOR_CMPF_PREDICATE_OLE,
           LOOM_VECTOR_CMPF_PREDICATE_OGT, LOOM_VECTOR_CMPF_PREDICATE_OGE};
-      check(loom_vector_cmpf_build(&builder_, 0, predicates[predicate], left,
-                                   right, input, mask_type, source, &op));
+      check(loom_vector_cmpf_build(&builder_, fastmath, predicates[predicate],
+                                   left, right, input, mask_type, source, &op));
     } else {
       auto selected =
           predicate >= 2 && unsigned_input ? predicate + 4 : predicate;
@@ -189,13 +191,14 @@ loom_value_id_t Vectors::binary(cxx::TokenKind token, loom_value_id_t left,
   if (!build) {
     diagnostics_.reject(unit_, owner, "unsupported vector binary operator");
   }
-  check(build(&builder_, 0, left, right, output, source, &op));
+  check(build(&builder_, fastmath, left, right, output, source, &op));
   return loom_op_results(op)[0];
 }
 
 loom_value_id_t Vectors::unary(cxx::TokenKind token, loom_value_id_t value,
                                const cxx::Type* input_type,
-                               const cxx::Type* output_type, cxx::AST* owner) {
+                               const cxx::Type* output_type, cxx::AST* owner,
+                               uint8_t fastmath) {
   auto input = types_.get(input_type, owner);
   auto output = types_.get(output_type, owner);
   bool floating = types_.is_float(types_.vector(input_type)->elementType());
@@ -206,7 +209,8 @@ loom_value_id_t Vectors::unary(cxx::TokenKind token, loom_value_id_t value,
       return value;
     case cxx::TokenKind::T_MINUS:
       if (floating) {
-        check(loom_vector_negf_build(&builder_, 0, value, output, source, &op));
+        check(loom_vector_negf_build(&builder_, fastmath, value, output, source,
+                                     &op));
       } else {
         check(loom_vector_negi_build(&builder_, value, output, source, &op));
       }
@@ -222,7 +226,8 @@ loom_value_id_t Vectors::unary(cxx::TokenKind token, loom_value_id_t value,
           &builder_, floating ? loom_attr_f64(0.0) : loom_attr_i64(0), input,
           source, &op));
       return binary(cxx::TokenKind::T_EQUAL_EQUAL, value,
-                    loom_op_results(op)[0], input_type, output_type, owner);
+                    loom_op_results(op)[0], input_type, output_type, owner,
+                    fastmath);
     default:
       diagnostics_.reject(unit_, owner, "unsupported vector unary operator");
   }

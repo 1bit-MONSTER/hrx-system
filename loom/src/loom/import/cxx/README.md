@@ -155,6 +155,53 @@ vector casts and `__builtin_bit_cast` continue to reinterpret equal-sized
 objects. The importer leaves vector legalization and instruction selection to
 the target compiler.
 
+## Floating-point permissions
+
+Ordinary C++ arithmetic is strict unless its lexical source scope grants
+specific Loom fast-math permissions. A trailing function attribute covers the
+complete definition without replacing natural operators:
+
+```cpp
+float accumulate(float sum, float value, float scale)
+    [[loom::fastmath("reassoc", "nnan", "ninf", "nsz")]] {
+  return sum + value * scale;
+}
+```
+
+The permissions become ordinary High IR attributes:
+
+```loom
+%scaled = scalar.mulf<reassoc|nnan|ninf|nsz> %value, %scale : f32
+%result = scalar.addf<reassoc|nnan|ninf|nsz> %sum, %scaled : f32
+```
+
+A leading statement attribute adds permissions within that statement and its
+nested control flow. This allows a numerically relaxed accumulation to remain
+local inside an otherwise strict helper:
+
+```cpp
+float update(float sum, float value, float scale) {
+  [[loom::fastmath("reassoc", "nsz")]] {
+    sum += value * scale;
+  }
+  return sum;
+}
+```
+
+Nested scopes add permissions to those already active. A called helper keeps
+the contract on its own definition; a caller's contract does not silently
+change separately emitted function bodies. Concrete template specializations
+retain the contract on their source definition. Repeated declarations may
+carry the same contract, while conflicting contracts are rejected.
+
+The accepted strings exactly match Loom's `reassoc`, `nnan`, `ninf`, `nsz`,
+`arcp`, `contract`, `afn`, and `fast` IR flags. Natural scalar and vector
+arithmetic, negation, comparisons, and floating truth conversion receive the
+active permissions. Explicit scalar, floating dot, and floating reduction
+intrinsics combine their declared flags with the lexical contract. Float
+precision conversions continue to use their independent `daz` and `ftz`
+subnormal contract.
+
 ## Vector dots and reductions
 
 `<loomcxx/vector.h>` exposes seeded dots and reductions without including other
@@ -218,8 +265,10 @@ width. Signed and unsigned extrema match their source element interpretation;
 IEEE minimum/maximum propagate NaNs, while the C99-style minnum/maxnum select
 the numeric operand when only one operand is NaN.
 
-Floating reductions preserve logical lane order by default. A custom operation
-declaration can select explicit permissions without changing the facade:
+Floating reductions preserve logical lane order by default. A lexical contract
+can relax both the reduction and surrounding arithmetic. A custom operation
+declaration remains useful when one call requires permissions that differ from
+its enclosing source scope:
 
 ```cpp
 template <class Vector, class Scalar>

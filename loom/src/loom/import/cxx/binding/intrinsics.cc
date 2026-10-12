@@ -8,6 +8,7 @@
 
 #include <cxx/ast.h>
 #include <cxx/attributes.h>
+#include <cxx/decl.h>
 #include <cxx/names.h>
 #include <cxx/symbols.h>
 #include <cxx/types.h>
@@ -103,6 +104,19 @@ void Intrinsics::declaration(cxx::FunctionSymbol* function,
     }
     return;
   }
+  auto* source = cxx::ast_cast<cxx::InitDeclaratorAST>(owner);
+  auto* prototype =
+      source ? cxx::getFunctionPrototype(source->declarator) : nullptr;
+  visit_loom_attributes(
+      unit_, prototype ? prototype->attributeList : nullptr,
+      [&](std::string_view name, cxx::AttributeAST* attribute) {
+        if (name == "fastmath") {
+          diagnostics_.reject(
+              unit_, attribute,
+              "fastmath requires a translated function body; intrinsic "
+              "permissions belong in loom::op");
+        }
+      });
 
   // Specifiers retain their own resolved arguments. A symbol's merged map
   // cannot distinguish conflicting source redeclarations.
@@ -261,8 +275,8 @@ Intrinsics::ScalarOperation Intrinsics::resolve_scalar_operation(
   for (size_t index = 1; index < attribute.arguments.size(); ++index) {
     uint8_t flag;
     if (!scalar->has_fastmath ||
-        !loom_cxx_scalar_flag_parse(view(attribute.arguments[index]->name()),
-                                    &flag)) {
+        !loom_cxx_fastmath_flag_parse(view(attribute.arguments[index]->name()),
+                                      &flag)) {
       diagnostics_.reject(unit_, owner,
                           "intrinsic has an unsupported fast-math flag");
     }

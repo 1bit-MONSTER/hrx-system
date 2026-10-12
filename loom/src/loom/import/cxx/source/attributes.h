@@ -48,8 +48,24 @@ enum class BindingAttributeScope {
   Function,
   Parameter,
   LocalDeclaration,
+  Statement,
+  CheckStatement,
   Local,
 };
+
+// Returns the raw leading attribute list carried by one statement kind.
+inline cxx::List<cxx::AttributeSpecifierAST*>* statement_attributes(
+    cxx::StatementAST* statement) {
+  cxx::List<cxx::AttributeSpecifierAST*>* attributes = nullptr;
+  cxx::visit(
+      [&](auto* node) {
+        if constexpr (requires { node->attributeList; }) {
+          attributes = node->attributeList;
+        }
+      },
+      statement);
+  return attributes;
+}
 
 // Rejects binding annotations outside their owning source positions.
 void reject_misplaced_binding_attributes(
@@ -65,9 +81,12 @@ void reject_misplaced_binding_declarator(
     cxx::FunctionDeclaratorChunkAST* parameter_owner = nullptr);
 
 // Checks one statement's leading attributes during its owner's body walk.
+// Scope distinguishes ordinary translated statements from check records,
+// whose bodies admit a different binding vocabulary.
 void reject_misplaced_binding_statement(cxx::TranslationUnit& unit,
                                         Diagnostics& diagnostics,
-                                        cxx::StatementAST* statement);
+                                        cxx::StatementAST* statement,
+                                        BindingAttributeScope scope);
 
 // Queries a semantic Loom annotation attached to a resolved source symbol.
 inline bool annotated(cxx::Symbol* symbol, std::string_view spelling) {

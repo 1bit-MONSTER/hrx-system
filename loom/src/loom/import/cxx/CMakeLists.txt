@@ -54,6 +54,7 @@ loom_cc_library(
     loom::import::cxx::binding::check
     loom::import::cxx::binding::config
     loom::import::cxx::binding::constexpr
+    loom::import::cxx::binding::fastmath
     loom::import::cxx::binding::function_contracts
     loom::import::cxx::binding::index_values
     loom::import::cxx::binding::intrinsics

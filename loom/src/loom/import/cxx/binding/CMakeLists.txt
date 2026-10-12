@@ -216,6 +216,29 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_cc_library(
   NAME
+    fastmath
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "fastmath.h"
+  SRCS
+    "fastmath.cc"
+  DEPS
+    ::scalar_bindings
+    iree::third_party::cxx_parser
+    loom::import::cxx::source
+    loom::import::cxx::source::attributes
+    loom::import::cxx::source::error
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
     target_requirements
   CXX_STANDARD
     23

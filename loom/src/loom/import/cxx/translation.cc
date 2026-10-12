@@ -30,6 +30,7 @@
 #include "loom/import/cxx/binding/assumptions.h"
 #include "loom/import/cxx/binding/config.h"
 #include "loom/import/cxx/binding/constexpr.h"
+#include "loom/import/cxx/binding/fastmath.h"
 #include "loom/import/cxx/binding/function_contracts.h"
 #include "loom/import/cxx/binding/intrinsics.h"
 #include "loom/import/cxx/binding/launch.h"
@@ -75,6 +76,7 @@ class Translator final : private Initialization::Evaluation {
         types_(unit, diagnostics, module),
         scalars_(unit, diagnostics, types_, locations_, builder_),
         names_(unit, diagnostics),
+        fastmath_(unit, diagnostics),
         function_contracts_(unit, diagnostics),
         configs_(unit, diagnostics, types_, scalars_, locations_, names_),
         target_definitions_(unit, diagnostics, locations_, names_, module),
@@ -88,13 +90,14 @@ class Translator final : private Initialization::Evaluation {
         intrinsics_(unit, diagnostics, types_, locations_, names_, launches_,
                     function_contracts_, module),
         functions_(unit, diagnostics, module, intrinsics_, launches_, configs_,
-                   function_contracts_, target_definitions_,
+                   fastmath_, function_contracts_, target_definitions_,
                    template_definitions_, names_),
         options_(options),
-        math_flags_(iree_any_bit_set(options.flags,
-                                     LOOM_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS)
-                        ? LOOM_SCALAR_FASTMATHFLAGS_AFN
-                        : 0) {
+        intrinsic_math_flags_(
+            iree_any_bit_set(options.flags,
+                             LOOM_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS)
+                ? LOOM_SCALAR_FASTMATHFLAGS_AFN
+                : 0) {
     loom_builder_initialize(module_, &module_->arena,
                             loom_module_block(module_), &builder_);
   }
@@ -109,6 +112,21 @@ class Translator final : private Initialization::Evaluation {
   }
 
  private:
+  class FastMathScope {
+   public:
+    FastMathScope(uint8_t& active, uint8_t value)
+        : active_(active), saved_(active) {
+      active_ = value;
+    }
+    ~FastMathScope() { active_ = saved_; }
+
+   private:
+    // Translator state installed for this lexical source subtree.
+    uint8_t& active_;
+    // Enclosing source subtree state restored on every exit path.
+    uint8_t saved_;
+  };
+
   [[noreturn]] void fail(cxx::AST* ast, const std::string& message) {
     diagnostics_.reject(unit_, ast, message);
   }
@@ -175,8 +193,10 @@ class Translator final : private Initialization::Evaluation {
                                   const cxx::Type* output_type,
                                   cxx::AST* owner) {
     return types_.vector(input_type) || types_.vector(output_type)
-               ? vectors_.convert(value, input_type, output_type, owner)
-               : scalars_.convert(value, input_type, output_type, owner);
+               ? vectors_.convert(value, input_type, output_type, owner,
+                                  lexical_fastmath_flags_)
+               : scalars_.convert(value, input_type, output_type, owner,
+                                  lexical_fastmath_flags_);
   }
 
   loom_value_id_t binary(cxx::TokenKind token, loom_value_id_t left,
@@ -184,9 +204,9 @@ class Translator final : private Initialization::Evaluation {
                          const cxx::Type* output_type, cxx::AST* owner) {
     return types_.vector(input_type)
                ? vectors_.binary(token, left, right, input_type, output_type,
-                                 owner)
+                                 owner, lexical_fastmath_flags_)
                : scalars_.binary(token, left, right, input_type, output_type,
-                                 owner);
+                                 owner, lexical_fastmath_flags_);
   }
 
   loom_type_t value_type(loom_value_id_t value) {
@@ -267,6 +287,8 @@ class Translator final : private Initialization::Evaluation {
     cxx::List<cxx::StatementAST*>* remaining;
     // Enclosing block's tail, or null at the function boundary.
     const ReturnSequence* continuation;
+    // Floating-point permissions at the lexical block boundary.
+    uint8_t fastmath;
   };
 
   struct Returned {
@@ -293,6 +315,10 @@ class Translator final : private Initialization::Evaluation {
   }
 
   void function_body(const FunctionBody& body_contract) {
+    FastMathScope math_scope(
+        lexical_fastmath_flags_,
+        lexical_fastmath_flags_ |
+            fastmath_.function(body_contract.source->symbol));
     current_function_ = body_contract;
     const auto& defined = current_function_;
     auto* body = defined.body;
@@ -352,7 +378,8 @@ class Translator final : private Initialization::Evaluation {
       }
       ++parameter_index;
     }
-    auto returned = return_sequence({body->statementList, nullptr});
+    auto returned = return_sequence(
+        {body->statementList, nullptr, lexical_fastmath_flags_});
     loom_op_t* terminator;
     if (defined.kind == FunctionKind::Kernel) {
       check(loom_kernel_return_build(&builder_, locations_.get(returned.source),
@@ -394,11 +421,11 @@ class Translator final : private Initialization::Evaluation {
   }
 
   Returned return_sequence(ReturnSequence sequence) {
+    FastMathScope math_scope(lexical_fastmath_flags_, sequence.fastmath);
     for (;;) {
       if (!sequence.remaining) {
         if (sequence.continuation) {
-          sequence = *sequence.continuation;
-          continue;
+          return return_sequence(*sequence.continuation);
         }
         if (current_function_.return_type->kind() != cxx::TypeKind::kVoid) {
           fail(current_function_.source,
@@ -516,6 +543,9 @@ class Translator final : private Initialization::Evaluation {
       }
       initialize_condition(branch->condition);
       ast = *branch->constexprValue ? branch->statement : branch->elseStatement;
+      if (ast) {
+        lexical_fastmath_flags_ |= fastmath_.statement(ast);
+      }
     }
     return ast;
   }
@@ -530,6 +560,9 @@ class Translator final : private Initialization::Evaluation {
 
   Returned returning_statement(cxx::StatementAST* ast,
                                const ReturnSequence& continuation) {
+    FastMathScope math_scope(
+        lexical_fastmath_flags_,
+        lexical_fastmath_flags_ | (ast ? fastmath_.statement(ast) : 0));
     ast = selected_statement(ast);
     if (auto* ret = cxx::ast_cast<cxx::ReturnStatementAST>(ast)) {
       bool returns_void =
@@ -556,7 +589,8 @@ class Translator final : private Initialization::Evaluation {
       return returned;
     }
     if (auto* compound = cxx::ast_cast<cxx::CompoundStatementAST>(ast)) {
-      return return_sequence({compound->statementList, &continuation});
+      return return_sequence(
+          {compound->statementList, &continuation, lexical_fastmath_flags_});
     }
     if (auto* branch = cxx::ast_cast<cxx::IfStatementAST>(ast);
         branch && control_->returns(branch) != ExitFlow::None) {
@@ -1337,7 +1371,7 @@ class Translator final : private Initialization::Evaluation {
       auto operand = expression(unary->expression);
       if (types_.vector(unary->expression->type)) {
         return vectors_.unary(unary->op, operand.ssa(), unary->expression->type,
-                              ast->type, ast);
+                              ast->type, ast, lexical_fastmath_flags_);
       }
       if (unary->op == cxx::TokenKind::T_PLUS) {
         return operand;
@@ -1347,8 +1381,8 @@ class Translator final : private Initialization::Evaluation {
       auto value = operand.ssa();
       if (unary->op == cxx::TokenKind::T_MINUS) {
         if (types_.is_float(ast->type)) {
-          check(
-              loom_scalar_negf_build(&builder_, 0, value, output, source, &op));
+          check(loom_scalar_negf_build(&builder_, lexical_fastmath_flags_,
+                                       value, output, source, &op));
         } else {
           auto zero =
               scalars_.integer(0, loom_type_element_type(output), source);
@@ -1359,8 +1393,8 @@ class Translator final : private Initialization::Evaluation {
       }
       if (unary->op == cxx::TokenKind::T_TILDE ||
           unary->op == cxx::TokenKind::T_EXCLAIM) {
-        value =
-            scalars_.convert(value, unary->expression->type, ast->type, ast);
+        value = scalars_.convert(value, unary->expression->type, ast->type, ast,
+                                 lexical_fastmath_flags_);
         auto mask =
             scalars_.integer(unary->op == cxx::TokenKind::T_EXCLAIM ? 1 : -1,
                              loom_type_element_type(output), source);
@@ -1451,9 +1485,9 @@ class Translator final : private Initialization::Evaluation {
         return result(op);
       }
       if (binding) {
-        auto called =
-            intrinsics_.call(*binding, source_arguments, value_arena_, storage_,
-                             ast, math_flags_, &builder_, source);
+        auto called = intrinsics_.call(
+            *binding, source_arguments, value_arena_, storage_, ast,
+            intrinsic_math_flags_ | lexical_fastmath_flags_, &builder_, source);
         if (!called.value) {
           fail(ast, "void intrinsic cannot be used as a value");
         }
@@ -1520,9 +1554,10 @@ class Translator final : private Initialization::Evaluation {
     return loom_op_results(op)[0];
   }
 
-  loom_value_id_t continuing_sequence(
-      cxx::CompoundStatementAST* owner,
-      cxx::List<cxx::StatementAST*>* remaining) {
+  loom_value_id_t continuing_sequence(cxx::CompoundStatementAST* owner,
+                                      cxx::List<cxx::StatementAST*>* remaining,
+                                      uint8_t fastmath) {
+    FastMathScope math_scope(lexical_fastmath_flags_, fastmath);
     while (remaining) {
       auto* child = remaining->value;
       remaining = remaining->next;
@@ -1531,7 +1566,7 @@ class Translator final : private Initialization::Evaluation {
         statement(child);
         continue;
       }
-      return continuing_tail(owner, child, remaining);
+      return continuing_tail(owner, child, remaining, fastmath);
     }
     return scalars_.integer(true, LOOM_SCALAR_TYPE_I1, locations_.get(owner));
   }
@@ -1540,14 +1575,18 @@ class Translator final : private Initialization::Evaluation {
   // their fallthrough values first and emit the shared source just once.
   loom_value_id_t continuing_tail(cxx::CompoundStatementAST* owner,
                                   cxx::StatementAST* ast,
-                                  cxx::List<cxx::StatementAST*>* remaining) {
+                                  cxx::List<cxx::StatementAST*>* remaining,
+                                  uint8_t continuation_fastmath) {
+    FastMathScope math_scope(
+        lexical_fastmath_flags_,
+        lexical_fastmath_flags_ | (ast ? fastmath_.statement(ast) : 0));
     ast = selected_statement(ast);
     auto flow = control_->continues(ast);
     if (flow == ExitFlow::None) {
       if (ast) {
         statement(ast);
       }
-      return continuing_sequence(owner, remaining);
+      return continuing_sequence(owner, remaining, continuation_fastmath);
     }
     if (flow == ExitFlow::All || !remaining) {
       return continuing_statement(ast);
@@ -1559,15 +1598,21 @@ class Translator final : private Initialization::Evaluation {
       auto condition = branch_condition(branch);
       return continuing_branch(
           owner, condition,
-          [&] { return continuing_tail(owner, branch->statement, remaining); },
           [&] {
-            return continuing_tail(owner, branch->elseStatement, remaining);
+            return continuing_tail(owner, branch->statement, remaining,
+                                   continuation_fastmath);
+          },
+          [&] {
+            return continuing_tail(owner, branch->elseStatement, remaining,
+                                   continuation_fastmath);
           });
     }
     auto fallthrough = continuing_statement(ast);
     return continuing_branch(
         owner, fallthrough,
-        [&] { return continuing_sequence(owner, remaining); },
+        [&] {
+          return continuing_sequence(owner, remaining, continuation_fastmath);
+        },
         [&] {
           return scalars_.integer(false, LOOM_SCALAR_TYPE_I1,
                                   locations_.get(ast));
@@ -1576,6 +1621,9 @@ class Translator final : private Initialization::Evaluation {
 
   loom_value_id_t continuing_statement(cxx::StatementAST* ast) {
     auto* source = ast;
+    FastMathScope math_scope(
+        lexical_fastmath_flags_,
+        lexical_fastmath_flags_ | (ast ? fastmath_.statement(ast) : 0));
     ast = selected_statement(ast);
     if (!ast) {
       return scalars_.integer(true, LOOM_SCALAR_TYPE_I1,
@@ -1589,7 +1637,8 @@ class Translator final : private Initialization::Evaluation {
       return scalars_.integer(false, LOOM_SCALAR_TYPE_I1, locations_.get(ast));
     }
     if (auto* compound = cxx::ast_cast<cxx::CompoundStatementAST>(ast)) {
-      return continuing_sequence(compound, compound->statementList);
+      return continuing_sequence(compound, compound->statementList,
+                                 lexical_fastmath_flags_);
     }
     // The retained path analysis propagates iteration exits through blocks
     // and conditionals only; nested loops consume their own continues.
@@ -1616,6 +1665,9 @@ class Translator final : private Initialization::Evaluation {
   }
 
   void statement(cxx::StatementAST* ast) {
+    FastMathScope math_scope(
+        lexical_fastmath_flags_,
+        lexical_fastmath_flags_ | (ast ? fastmath_.statement(ast) : 0));
     ast = selected_statement(ast);
     if (!ast) {
       return;
@@ -2105,7 +2157,8 @@ class Translator final : private Initialization::Evaluation {
           }
           auto called =
               intrinsics_.call(*binding, arguments, value_arena_, storage_, ast,
-                               math_flags_, &builder_, locations_.get(ast));
+                               intrinsic_math_flags_ | lexical_fastmath_flags_,
+                               &builder_, locations_.get(ast));
           if (called.value) {
             fail(ast, "value-producing intrinsic reached a void call");
           }
@@ -2163,6 +2216,8 @@ class Translator final : private Initialization::Evaluation {
   Scalars scalars_;
   // Shared output namespace for callables and configuration symbols.
   SymbolNames names_;
+  // Explicit lexical floating-point permissions indexed by source scope.
+  FastMathContracts fastmath_;
   // Callable predicates shared by definitions and template declarations.
   FunctionContracts function_contracts_;
   // Namespace-scope scalar configs retain key identity across source aliases.
@@ -2192,8 +2247,10 @@ class Translator final : private Initialization::Evaluation {
   Functions functions_;
   // Borrowed source configuration for this invocation.
   const loom_cxx_import_options_t& options_;
-  // Explicit source-level permission for approximate math function results.
-  uint8_t math_flags_;
+  // Invocation-level permission for approximate intrinsic function results.
+  uint8_t intrinsic_math_flags_;
+  // Function and nested statement permissions active at the insertion point.
+  uint8_t lexical_fastmath_flags_ = 0;
   // Source and native definition contracts for the body being translated.
   FunctionBody current_function_ = {};
   // Bound symbols, never identifier spellings, key source-to-SSA mappings.

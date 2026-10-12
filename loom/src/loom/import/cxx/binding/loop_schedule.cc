@@ -217,6 +217,9 @@ LoopSchedule::LoopSchedule(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
                                "recurrence as a string literal");
           }
           flags_ |= LOOM_SCF_FOR_BUILD_FLAG_HAS_UNROLL_SCHEDULE;
+        } else if (name == "fastmath") {
+          // The body translator owns lexical floating-point permissions.
+          return;
         } else {
           diagnostics.reject(unit, attribute,
                              "unsupported Loom loop attribute");

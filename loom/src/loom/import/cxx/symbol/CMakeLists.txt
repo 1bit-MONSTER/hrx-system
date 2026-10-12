@@ -45,6 +45,7 @@ loom_cc_library(
     ::names
     iree::third_party::cxx_parser
     loom::import::cxx::binding::config
+    loom::import::cxx::binding::fastmath
     loom::import::cxx::binding::function_contracts
     loom::import::cxx::binding::intrinsics
     loom::import::cxx::binding::launch

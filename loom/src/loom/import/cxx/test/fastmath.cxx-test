@@ -1,0 +1,257 @@
+// RUN: roundtrip
+// Lexical permissions cover natural scalar/vector arithmetic and control.
+using Float4 = float __attribute__((ext_vector_type(4)));
+
+float strict(float left, float right) { return -left + right / left; }
+
+Float4 vector_relaxed(Float4 left, Float4 right)
+    [[loom::fastmath("fast")]] {
+  return -(left + right) * right / left;
+}
+
+bool compare(float left, float right) [[loom::fastmath("nnan", "ninf")]] {
+  return left < right;
+}
+
+bool truth(float value) [[loom::fastmath("nnan")]] { return value; }
+
+float widen(_Float16 value) [[loom::fastmath("nsz")]] {
+  return float(value) + 1.0f;
+}
+
+float nested(float value, float scale)
+    [[loom::fastmath("nnan")]] {
+  float result = value + scale;
+  [[loom::fastmath("reassoc", "nsz")]] {
+    result += value * scale;
+  }
+  return result / scale;
+}
+
+template <class T>
+static T scaled(T value, T scale) [[loom::fastmath("contract")]] {
+  return value * scale + value;
+}
+
+float templated(float value, float scale) { return scaled(value, scale); }
+
+template <class Vector, class Scalar>
+[[loom::op("vector.reduce", "addf", "reassoc")]]
+Scalar sum(Vector, Scalar);
+
+float reduction(Float4 values, float seed) [[loom::fastmath("nsz")]] {
+  return sum(values, seed);
+}
+
+static float helper(float value, float scale)
+    [[loom::fastmath("reassoc")]] {
+  return value * scale + value;
+}
+
+float caller(float value, float scale) {
+  return helper(value, scale) + value;
+}
+
+float structured(float left, float right) {
+  [[loom::fastmath("nnan")]] if (left > right) {
+    return left + right;
+  } else {
+    return left - right;
+  }
+}
+
+float redeclared(float value, float scale) [[loom::fastmath("ninf")]];
+float redeclared(float value, float scale) { return value * scale; }
+
+float scheduled(float value, float scale) {
+  [[loom::fastmath("reassoc"), loom::unroll]]
+  for (unsigned i = 0; i < 2; ++i) {
+    value += scale * float(i);
+  }
+  return value;
+}
+
+float returning_scope(float value, bool early) {
+  [[loom::fastmath("nnan")]] if (early) {
+    return value * value;
+  }
+  return value + 1.0f;
+}
+
+float continuing_scope(float value, bool skip) {
+  for (unsigned i = 0; i < 2; ++i) {
+    [[loom::fastmath("ninf")]] if (skip) {
+      value *= 2.0f;
+      continue;
+    }
+    value += 1.0f;
+  }
+  return value * 3.0f;
+}
+
+[[loom::op("scalar.mulf", "contract")]]
+float multiply(float left, float right);
+
+float scalar_intrinsic(float left, float right)
+    [[loom::fastmath("nnan")]] {
+  return multiply(left, right);
+}
+
+[[loom::op("vector.dotf", "reassoc")]]
+float dot(Float4 left, Float4 right, float seed);
+
+float floating_dot(Float4 left, Float4 right, float seed)
+    [[loom::fastmath("nsz")]] {
+  return dot(left, right, seed);
+}
+
+// ----
+func.def public @strict(%left: f32, %right: f32) -> (f32) {
+  %3 = scalar.negf %left : f32
+  %4 = scalar.divf %right, %left : f32
+  %5 = scalar.addf %3, %4 : f32
+  func.return %5 : f32
+}
+
+func.def public @vector_relaxed(%left: vector<4xf32>, %right: vector<4xf32>) -> (vector<4xf32>) {
+  %9 = vector.addf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %left, %right : vector<4xf32>
+  %10 = vector.negf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %9 : vector<4xf32>
+  %11 = vector.mulf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %10, %right : vector<4xf32>
+  %12 = vector.divf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %11, %left : vector<4xf32>
+  func.return %12 : vector<4xf32>
+}
+
+func.def public @compare(%left: f32, %right: f32) -> (i1) {
+  %16 = scalar.cmpf<nnan|ninf> olt, %left, %right : f32
+  func.return %16 : i1
+}
+
+func.def public @truth(%value: f32) -> (i1) {
+  %19 = scalar.constant 0.0 : f32
+  %20 = scalar.cmpf<nnan> une, %value, %19 : f32
+  func.return %20 : i1
+}
+
+func.def public @widen(%value: f16) -> (f32) {
+  %23 = scalar.extf %value : f16 to f32
+  %24 = scalar.constant 1.0 : f32
+  %25 = scalar.addf<nsz> %23, %24 : f32
+  func.return %25 : f32
+}
+
+func.def public @nested(%value: f32, %scale: f32) -> (f32) {
+  %result$29 = scalar.addf<nnan> %value, %scale : f32
+  %30 = scalar.mulf<reassoc|nnan|nsz> %value, %scale : f32
+  %result$31 = scalar.addf<reassoc|nnan|nsz> %result$29, %30 : f32
+  %32 = scalar.divf<nnan> %result$31, %scale : f32
+  func.return %32 : f32
+}
+
+func.def public @templated(%value: f32, %scale: f32) -> (f32) {
+  %36 = func.call @scaled_float(%value, %scale) : (f32, f32) -> (f32)
+  func.return %36 : f32
+}
+
+func.def public @reduction(%values: vector<4xf32>, %seed: f32) -> (f32) {
+  %40 = vector.reduce<addf, reassoc|nsz> %values, %seed : vector<4xf32>, f32
+  func.return %40 : f32
+}
+
+func.def public @caller(%value: f32, %scale: f32) -> (f32) {
+  %44 = func.call @helper(%value, %scale) : (f32, f32) -> (f32)
+  %45 = scalar.addf %44, %value : f32
+  func.return %45 : f32
+}
+
+func.def public @structured(%left: f32, %right: f32) -> (f32) {
+  %49 = scalar.cmpf<nnan> ogt, %left, %right : f32
+  %50 = scf.if %49 -> (f32) {
+    %51 = scalar.addf<nnan> %left, %right : f32
+    scf.yield %51 : f32
+  } else {
+    %52 = scalar.subf<nnan> %left, %right : f32
+    scf.yield %52 : f32
+  }
+  func.return %50 : f32
+}
+
+func.def public @redeclared(%value: f32, %scale: f32) -> (f32) {
+  %56 = scalar.mulf<ninf> %value, %scale : f32
+  func.return %56 : f32
+}
+
+func.def public @scheduled(%value$57: f32, %scale: f32) -> (f32) {
+  %i = scalar.constant 0 : i32
+  %61 = index.cast %i : i32 to offset
+  %62 = scalar.constant 2 : i32
+  %63 = index.cast %62 : i32 to offset
+  %64 = index.constant 1 : offset
+  %value$67 = scf.for %i = [%61 to %63 step %64](%value$66 = %value$57 : f32) -> (f32) unroll {
+    %68 = index.cast %i : offset to i32
+    %69 = scalar.uitofp %68 : i32 to f32
+    %70 = scalar.mulf<reassoc> %scale, %69 : f32
+    %value$71 = scalar.addf<reassoc> %value$66, %70 : f32
+    scf.yield %value$71 : f32
+  }
+  func.return %value$67 : f32
+}
+
+func.def public @returning_scope(%value: f32, %early: i1) -> (f32) {
+  %75 = scf.if %early -> (f32) {
+    %76 = scalar.mulf<nnan> %value, %value : f32
+    scf.yield %76 : f32
+  } else {
+    %77 = scalar.constant 1.0 : f32
+    %78 = scalar.addf %value, %77 : f32
+    scf.yield %78 : f32
+  }
+  func.return %75 : f32
+}
+
+func.def public @continuing_scope(%value$79: f32, %skip: i1) -> (f32) {
+  %i = scalar.constant 0 : i32
+  %83 = index.cast %i : i32 to offset
+  %84 = scalar.constant 2 : i32
+  %85 = index.cast %84 : i32 to offset
+  %86 = index.constant 1 : offset
+  %value$89 = scf.for %i = [%83 to %85 step %86](%value$88 = %value$79 : f32) -> (f32) {
+    %90 = index.cast %i : offset to i32
+    %91, %value$92 = scf.if %skip -> (i1, f32) {
+      %93 = scalar.constant 2.0 : f32
+      %value = scalar.mulf<ninf> %value$88, %93 : f32
+      %95 = scalar.constant 0 : i1
+      scf.yield %95, %value : i1, f32
+    } else {
+      %96 = scalar.constant 1.0 : f32
+      %value = scalar.addf %value$88, %96 : f32
+      %98 = scalar.constant 1 : i1
+      scf.yield %98, %value : i1, f32
+    }
+    scf.yield %value$92 : f32
+  }
+  %99 = scalar.constant 3.0 : f32
+  %100 = scalar.mulf %value$89, %99 : f32
+  func.return %100 : f32
+}
+
+func.def public @scalar_intrinsic(%left: f32, %right: f32) -> (f32) {
+  %104 = scalar.mulf<nnan|contract> %left, %right : f32
+  func.return %104 : f32
+}
+
+func.def public @floating_dot(%left: vector<4xf32>, %right: vector<4xf32>, %seed: f32) -> (f32) {
+  %109 = vector.dotf<reassoc|nsz> %left, %right, %seed : vector<4xf32>, vector<4xf32>, f32
+  func.return %109 : f32
+}
+
+func.def @scaled_float(%value: f32, %scale: f32) -> (f32) {
+  %113 = scalar.mulf<contract> %value, %scale : f32
+  %114 = scalar.addf<contract> %113, %value : f32
+  func.return %114 : f32
+}
+
+func.def @helper(%value: f32, %scale: f32) -> (f32) {
+  %118 = scalar.mulf<reassoc> %value, %scale : f32
+  %119 = scalar.addf<reassoc> %118, %value : f32
+  func.return %119 : f32
+}

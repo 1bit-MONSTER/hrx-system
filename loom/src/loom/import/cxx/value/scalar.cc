@@ -34,8 +34,8 @@ loom_attribute_t integer_attribute(uint64_t bits, unsigned bytes) {
 
 loom_value_id_t Scalars::convert(loom_value_id_t value,
                                  const cxx::Type* input_type,
-                                 const cxx::Type* output_type,
-                                 cxx::AST* owner) {
+                                 const cxx::Type* output_type, cxx::AST* owner,
+                                 uint8_t fastmath) {
   auto input = types_.get(input_type, owner);
   auto output = types_.get(output_type, owner);
   if (loom_type_kind(input) != LOOM_TYPE_SCALAR ||
@@ -54,9 +54,9 @@ loom_value_id_t Scalars::convert(loom_value_id_t value,
         types_.is_float(input_type) ? loom_attr_f64(0.0) : loom_attr_i64(0),
         input, locations_.get(owner), &zero));
     if (types_.is_float(input_type)) {
-      check(loom_scalar_cmpf_build(&builder_, 0, LOOM_SCALAR_CMPF_PREDICATE_UNE,
-                                   value, loom_op_results(zero)[0],
-                                   locations_.get(owner), &op));
+      check(loom_scalar_cmpf_build(
+          &builder_, fastmath, LOOM_SCALAR_CMPF_PREDICATE_UNE, value,
+          loom_op_results(zero)[0], locations_.get(owner), &op));
     } else {
       check(loom_scalar_cmpi_build(&builder_, LOOM_SCALAR_CMPI_PREDICATE_NE,
                                    value, loom_op_results(zero)[0],
@@ -102,7 +102,8 @@ loom_value_id_t Scalars::convert(loom_value_id_t value,
 loom_value_id_t Scalars::binary(cxx::TokenKind token, loom_value_id_t left,
                                 loom_value_id_t right,
                                 const cxx::Type* input_type,
-                                const cxx::Type* output_type, cxx::AST* ast) {
+                                const cxx::Type* output_type, cxx::AST* ast,
+                                uint8_t fastmath) {
   auto source = locations_.get(ast);
   bool floating = types_.is_float(input_type);
   bool unsigned_input = types_.is_unsigned(input_type);
@@ -136,8 +137,8 @@ loom_value_id_t Scalars::binary(cxx::TokenKind token, loom_value_id_t left,
           LOOM_SCALAR_CMPF_PREDICATE_OEQ, LOOM_SCALAR_CMPF_PREDICATE_UNE,
           LOOM_SCALAR_CMPF_PREDICATE_OLT, LOOM_SCALAR_CMPF_PREDICATE_OLE,
           LOOM_SCALAR_CMPF_PREDICATE_OGT, LOOM_SCALAR_CMPF_PREDICATE_OGE};
-      check(loom_scalar_cmpf_build(&builder_, 0, predicates[predicate], left,
-                                   right, source, &op));
+      check(loom_scalar_cmpf_build(&builder_, fastmath, predicates[predicate],
+                                   left, right, source, &op));
     } else {
       auto selected = static_cast<loom_scalar_cmpi_predicate_t>(
           predicate >= 2 && unsigned_input ? predicate + 4 : predicate);
@@ -180,8 +181,8 @@ loom_value_id_t Scalars::binary(cxx::TokenKind token, loom_value_id_t left,
   if (!build) {
     diagnostics_.reject(unit_, ast, "unsupported binary operator");
   }
-  check(build(&builder_, 0, left, right, types_.get(output_type, ast), source,
-              &op));
+  check(build(&builder_, fastmath, left, right, types_.get(output_type, ast),
+              source, &op));
   return loom_op_results(op)[0];
 }
 
