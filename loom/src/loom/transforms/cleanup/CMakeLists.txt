@@ -154,6 +154,7 @@ loom_cc_library(
   SRCS
     "integer_division.c"
   DEPS
+    ::expression_scope
     iree::base
     iree::base::internal::arena
     loom::ir
@@ -161,9 +162,7 @@ loom_cc_library(
     loom::ops::scalar
     loom::ops::vector
     loom::rewrite::rewriter
-    loom::util::dominance
     loom::util::fact_table
-    loom::util::walk
   PUBLIC
 )
 

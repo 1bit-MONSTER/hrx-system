@@ -168,6 +168,8 @@ typedef struct loom_expression_binding_t {
 struct loom_expression_walk_t {
   // Module containing all visited operations.
   loom_module_t* module;
+  // Semantic identity selected by the caller.
+  loom_expression_identity_policy_t identity_policy;
   // Shared dominator-order operation and scope traversal.
   loom_dominance_walk_t* dominance_walk;
   // Innermost active dominance scope, including completed dominating blocks.
@@ -197,9 +199,16 @@ static iree_host_size_t loom_expression_scope_slot(
   while (walk->bucket_heads[slot] != UINT32_MAX) {
     const loom_expression_entry_t* entry =
         &walk->bindings[walk->bucket_heads[slot]].entry;
-    if (entry->hash == hash &&
-        loom_expression_equal(cursor->module, entry->op, cursor->op)) {
-      break;
+    if (entry->hash == hash) {
+      const bool equal =
+          walk->identity_policy.equal
+              ? walk->identity_policy.equal(walk->identity_policy.user_data,
+                                            cursor->module, entry->op,
+                                            cursor->op)
+              : loom_expression_equal(cursor->module, entry->op, cursor->op);
+      if (equal) {
+        break;
+      }
     }
     slot = (slot + 1) & walk->bucket_mask;
   }
@@ -380,18 +389,25 @@ static loom_expression_inventory_t loom_expression_inventory(
   return inventory;
 }
 
-iree_status_t loom_expression_walk_create(loom_module_t* module,
-                                          loom_region_t* region,
-                                          iree_arena_allocator_t* arena,
-                                          loom_expression_walk_t** out_walk) {
+iree_status_t loom_expression_walk_create(
+    loom_module_t* module, loom_region_t* region,
+    const loom_expression_identity_policy_t* identity_policy,
+    uint32_t maximum_entry_count, iree_arena_allocator_t* arena,
+    loom_expression_walk_t** out_walk) {
   *out_walk = NULL;
   loom_expression_walk_t* walk = NULL;
   IREE_RETURN_IF_ERROR(
       iree_arena_allocate(arena, sizeof(*walk), (void**)&walk));
-  *walk = (loom_expression_walk_t){.module = module};
+  *walk = (loom_expression_walk_t){
+      .module = module,
+      .identity_policy = identity_policy
+                             ? *identity_policy
+                             : (loom_expression_identity_policy_t){0},
+  };
   const loom_expression_inventory_t inventory =
       loom_expression_inventory(region);
-  const uint32_t definition_count = inventory.definition_count;
+  const uint32_t definition_count =
+      maximum_entry_count ? maximum_entry_count : inventory.definition_count;
   const iree_host_size_t bucket_count = iree_host_size_next_power_of_two(
       iree_max((iree_host_size_t)definition_count * 2, 1));
   walk->bucket_mask = bucket_count - 1;
@@ -436,6 +452,11 @@ iree_status_t loom_expression_walk_next(loom_expression_walk_t* walk,
   };
   walk->epoch += dominance_cursor.op->result_count != 0;
   return iree_ok_status();
+}
+
+const loom_dominance_info_t* loom_expression_walk_dominance_info(
+    const loom_expression_walk_t* walk) {
+  return loom_dominance_walk_info(walk->dominance_walk);
 }
 
 uint32_t loom_expression_observe_barriers(

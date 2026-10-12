@@ -6,16 +6,13 @@
 
 #include "loom/transforms/cleanup/integer_division.h"
 
-#include <string.h>
-
 #include "loom/ir/module.h"
 #include "loom/ir/structural_hash.h"
 #include "loom/ops/index/ops.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/rewrite/rewriter.h"
-#include "loom/util/dominance.h"
-#include "loom/util/walk.h"
+#include "loom/transforms/cleanup/expression_scope.h"
 
 typedef enum loom_integer_division_family_e {
   LOOM_INTEGER_DIVISION_FAMILY_SCALAR_SIGNED = 0,
@@ -29,19 +26,6 @@ typedef enum loom_integer_division_role_e {
   LOOM_INTEGER_DIVISION_ROLE_QUOTIENT = 0,
   LOOM_INTEGER_DIVISION_ROLE_REMAINDER = 1,
 } loom_integer_division_role_t;
-
-typedef struct loom_integer_division_key_t {
-  // Retained identity of the dividend.
-  loom_value_id_t lhs;
-  // Retained identity of the divisor.
-  loom_value_id_t rhs;
-  // Result type shared by both operations.
-  loom_type_t type;
-  // Scalar/index/vector and signedness family.
-  loom_integer_division_family_t family;
-  // Structural hash of all key fields.
-  uint32_t hash;
-} loom_integer_division_key_t;
 
 typedef struct loom_integer_division_plan_t loom_integer_division_plan_t;
 
@@ -79,35 +63,6 @@ struct loom_integer_division_plan_t {
   uint32_t candidate_count;
 };
 
-typedef struct loom_integer_division_binding_t {
-  // Normalized operand and result identity.
-  loom_integer_division_key_t key;
-  // Most recent candidate visible for the key.
-  loom_integer_division_candidate_t* candidate;
-  // Previous visible binding for this key.
-  uint32_t previous;
-  // Distance from key.hash to the occupied bucket.
-  uint32_t probe_distance;
-} loom_integer_division_binding_t;
-
-typedef struct loom_integer_division_scope_t {
-  // Enclosing dominance scope.
-  struct loom_integer_division_scope_t* parent;
-  // Binding count restored when leaving this scope.
-  uint32_t binding_start;
-  // Earliest binding visible across isolation boundaries.
-  uint32_t visible_start;
-} loom_integer_division_scope_t;
-
-typedef struct loom_integer_division_inventory_t {
-  // Retained canonical value facts used to exclude exact divisors.
-  const loom_value_fact_table_t* facts;
-  // Upper bound on candidate and binding records.
-  uint32_t candidate_count;
-  // Exact number of block scopes in the region tree.
-  iree_host_size_t scope_count;
-} loom_integer_division_inventory_t;
-
 typedef struct loom_integer_division_planner_t {
   // Module containing the immutable function snapshot.
   loom_module_t* module;
@@ -115,6 +70,16 @@ typedef struct loom_integer_division_planner_t {
   const loom_value_fact_table_t* facts;
   // Pass arena retaining plans and candidates through application.
   iree_arena_allocator_t* arena;
+  // Candidate records for the complete function fact scope.
+  loom_integer_division_candidate_t* candidates;
+  // Number of populated candidate records.
+  uint32_t candidate_count;
+  // Maximum candidate records derived from the retained fact index.
+  uint32_t candidate_capacity;
+  // Selected plan storage for the complete function.
+  loom_integer_division_plan_t* plans;
+  // Number of populated plans.
+  uint32_t plan_count;
   // First selected plan across function regions.
   loom_integer_division_plan_t* first_plan;
   // Last selected plan across function regions.
@@ -124,30 +89,8 @@ typedef struct loom_integer_division_planner_t {
 typedef struct loom_integer_division_region_planner_t {
   // Function-wide plan owner.
   loom_integer_division_planner_t* planner;
-  // Shared dominator-order walk.
-  loom_dominance_walk_t* dominance_walk;
-  // Innermost active rollback scope.
-  loom_integer_division_scope_t* active_scope;
-  // Fixed scope inventory owned by this region plan.
-  loom_integer_division_scope_t* scopes;
-  // Number of entered scopes.
-  iree_host_size_t scope_count;
-  // Candidate records owned by this region plan.
-  loom_integer_division_candidate_t* candidates;
-  // Number of populated candidate records.
-  uint32_t candidate_count;
-  // Selected plan storage owned by this region plan.
-  loom_integer_division_plan_t* plans;
-  // Number of populated plans.
-  uint32_t plan_count;
-  // Scoped rollback bindings.
-  loom_integer_division_binding_t* bindings;
-  // Latest binding index for each open-addressed key.
-  uint32_t* bucket_heads;
-  // Power-of-two bucket count minus one.
-  iree_host_size_t bucket_mask;
-  // Number of active bindings.
-  uint32_t binding_count;
+  // Shared dominance-scoped availability walk.
+  loom_expression_walk_t* expression_walk;
 } loom_integer_division_region_planner_t;
 
 static bool loom_integer_division_match(
@@ -205,10 +148,9 @@ static bool loom_integer_division_family_is_signed(
          family == LOOM_INTEGER_DIVISION_FAMILY_VECTOR_SIGNED;
 }
 
-// Uses the retained function-fact index to reject scopes that cannot contain a
-// quotient/remainder pair. This keeps ordinary functions off the structural
-// walker and dominance planner without reconstructing the analyzed scope.
-static bool loom_integer_division_has_pair_candidates(
+// Counts standalone division results directly from the retained function-fact
+// index. Ordinary functions never construct a structural or dominance walk.
+static uint32_t loom_integer_division_candidate_count(
     const loom_module_t* module, const loom_value_fact_table_t* facts) {
   const loom_value_id_t* scope_values = NULL;
   iree_host_size_t scope_value_count = 0;
@@ -233,142 +175,61 @@ static bool loom_integer_division_has_pair_candidates(
             loom_value_fact_table_lookup(facts, divisor))) {
       continue;
     }
-    if (++candidate_count == 2) {
-      return true;
-    }
+    ++candidate_count;
   }
-  return false;
+  return candidate_count;
 }
 
-static iree_status_t loom_integer_division_inventory_op(
-    void* user_data, loom_op_t* op, const loom_walk_context_t* context,
-    loom_walk_result_t* out_result) {
-  (void)context;
-  *out_result = LOOM_WALK_CONTINUE;
-  loom_integer_division_inventory_t* inventory =
-      (loom_integer_division_inventory_t*)user_data;
-  loom_integer_division_family_t family;
+static void loom_integer_division_identity(
+    const loom_integer_division_planner_t* planner, const loom_op_t* op,
+    loom_integer_division_family_t* out_family, loom_value_id_t* out_lhs,
+    loom_value_id_t* out_rhs, loom_type_t* out_type) {
   loom_integer_division_role_t role;
-  if (loom_integer_division_match(op, &family, &role)) {
-    const loom_value_id_t divisor = loom_op_const_operands(op)[1];
-    if (!loom_value_facts_is_exact(
-            loom_value_fact_table_lookup(inventory->facts, divisor))) {
-      ++inventory->candidate_count;
-    }
-  }
-  for (uint8_t i = 0; i < op->region_count; ++i) {
-    const loom_region_t* region = loom_op_regions(op)[i];
-    inventory->scope_count += region ? region->block_count : 0;
-  }
-  return iree_ok_status();
+  const bool matched = loom_integer_division_match(op, out_family, &role);
+  IREE_ASSERT(matched);
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  *out_lhs = loom_value_fact_table_query_identity(planner->facts, operands[0]);
+  *out_rhs = loom_value_fact_table_query_identity(planner->facts, operands[1]);
+  *out_type =
+      loom_module_value_type(planner->module, loom_op_const_results(op)[0]);
 }
 
-static iree_status_t loom_integer_division_inventory_region(
-    const loom_module_t* module, const loom_value_fact_table_t* facts,
-    loom_region_t* region, loom_integer_division_inventory_t* out_inventory) {
-  *out_inventory = (loom_integer_division_inventory_t){
-      .facts = facts,
-      .scope_count = region->block_count,
-  };
-  loom_walk_result_t walk_result = LOOM_WALK_CONTINUE;
-  return loom_walk_region(
-      module, region, LOOM_WALK_PRE_ORDER,
-      (loom_walk_callback_t){loom_integer_division_inventory_op, out_inventory},
-      &walk_result);
-}
-
-static uint32_t loom_integer_division_hash_key(
-    const loom_integer_division_key_t* key) {
+static uint32_t loom_integer_division_hash(
+    const loom_integer_division_planner_t* planner, const loom_op_t* op) {
+  loom_integer_division_family_t family;
+  loom_value_id_t lhs = LOOM_VALUE_ID_INVALID;
+  loom_value_id_t rhs = LOOM_VALUE_ID_INVALID;
+  loom_type_t type = loom_type_none();
+  loom_integer_division_identity(planner, op, &family, &lhs, &rhs, &type);
   uint32_t hash = loom_structural_hash_initialize();
-  hash = loom_structural_hash_mix_u8(hash, (uint8_t)key->family);
-  hash = loom_structural_hash_mix_u32(hash, key->lhs);
-  hash = loom_structural_hash_mix_u32(hash, key->rhs);
-  hash = loom_structural_hash_mix_u32(hash, loom_type_hash(key->type));
+  hash = loom_structural_hash_mix_u8(hash, (uint8_t)family);
+  hash = loom_structural_hash_mix_u32(hash, lhs);
+  hash = loom_structural_hash_mix_u32(hash, rhs);
+  hash = loom_structural_hash_mix_u32(hash, loom_type_hash(type));
   return loom_structural_hash_finalize(hash);
 }
 
-static bool loom_integer_division_key_equal(
-    const loom_integer_division_key_t* lhs,
-    const loom_integer_division_key_t* rhs) {
-  return lhs->family == rhs->family && lhs->lhs == rhs->lhs &&
-         lhs->rhs == rhs->rhs && loom_type_equal(lhs->type, rhs->type);
-}
-
-static iree_host_size_t loom_integer_division_find_slot(
-    const loom_integer_division_region_planner_t* planner,
-    const loom_integer_division_key_t* key) {
-  iree_host_size_t slot = key->hash & planner->bucket_mask;
-  while (planner->bucket_heads[slot] != UINT32_MAX) {
-    const loom_integer_division_binding_t* binding =
-        &planner->bindings[planner->bucket_heads[slot]];
-    if (binding->key.hash == key->hash &&
-        loom_integer_division_key_equal(&binding->key, key)) {
-      break;
-    }
-    slot = (slot + 1) & planner->bucket_mask;
-  }
-  return slot;
-}
-
-static loom_integer_division_candidate_t* loom_integer_division_find(
-    const loom_integer_division_region_planner_t* planner,
-    const loom_integer_division_key_t* key) {
-  const uint32_t index =
-      planner->bucket_heads[loom_integer_division_find_slot(planner, key)];
-  return index != UINT32_MAX && index >= planner->active_scope->visible_start
-             ? planner->bindings[index].candidate
-             : NULL;
-}
-
-static void loom_integer_division_insert(
-    loom_integer_division_region_planner_t* planner,
-    loom_integer_division_key_t key,
-    loom_integer_division_candidate_t* candidate) {
-  const iree_host_size_t slot = loom_integer_division_find_slot(planner, &key);
-  const uint32_t previous = planner->bucket_heads[slot];
-  const uint32_t index = planner->binding_count++;
-  planner->bindings[index] = (loom_integer_division_binding_t){
-      .key = key,
-      .candidate = candidate,
-      .previous = previous,
-      .probe_distance = (uint32_t)((slot - key.hash) & planner->bucket_mask),
-  };
-  planner->bucket_heads[slot] = index;
-}
-
-static iree_status_t loom_integer_division_enter_scope(
-    void* user_data, loom_dominance_walk_scope_flags_t flags) {
-  loom_integer_division_region_planner_t* planner =
-      (loom_integer_division_region_planner_t*)user_data;
-  loom_integer_division_scope_t* parent = planner->active_scope;
-  loom_integer_division_scope_t* scope =
-      &planner->scopes[planner->scope_count++];
-  const bool isolated = iree_any_bit_set(
-      flags, LOOM_DOMINANCE_WALK_SCOPE_FLAG_ISOLATED |
-                 LOOM_DOMINANCE_WALK_SCOPE_FLAG_INDEPENDENT_EXECUTION);
-  *scope = (loom_integer_division_scope_t){
-      .parent = parent,
-      .binding_start = planner->binding_count,
-      .visible_start =
-          !parent || isolated ? planner->binding_count : parent->visible_start,
-  };
-  planner->active_scope = scope;
-  return iree_ok_status();
-}
-
-static void loom_integer_division_leave_scope(void* user_data) {
-  loom_integer_division_region_planner_t* planner =
-      (loom_integer_division_region_planner_t*)user_data;
-  const uint32_t checkpoint = planner->active_scope->binding_start;
-  while (planner->binding_count > checkpoint) {
-    const loom_integer_division_binding_t* binding =
-        &planner->bindings[--planner->binding_count];
-    const iree_host_size_t slot =
-        ((iree_host_size_t)binding->key.hash + binding->probe_distance) &
-        planner->bucket_mask;
-    planner->bucket_heads[slot] = binding->previous;
-  }
-  planner->active_scope = planner->active_scope->parent;
+static bool loom_integer_division_equal(void* user_data,
+                                        const loom_module_t* module,
+                                        const loom_op_t* lhs_op,
+                                        const loom_op_t* rhs_op) {
+  (void)module;
+  const loom_integer_division_planner_t* planner =
+      (const loom_integer_division_planner_t*)user_data;
+  loom_integer_division_family_t lhs_family;
+  loom_integer_division_family_t rhs_family;
+  loom_value_id_t lhs_lhs = LOOM_VALUE_ID_INVALID;
+  loom_value_id_t lhs_rhs = LOOM_VALUE_ID_INVALID;
+  loom_value_id_t rhs_lhs = LOOM_VALUE_ID_INVALID;
+  loom_value_id_t rhs_rhs = LOOM_VALUE_ID_INVALID;
+  loom_type_t lhs_type = loom_type_none();
+  loom_type_t rhs_type = loom_type_none();
+  loom_integer_division_identity(planner, lhs_op, &lhs_family, &lhs_lhs,
+                                 &lhs_rhs, &lhs_type);
+  loom_integer_division_identity(planner, rhs_op, &rhs_family, &rhs_lhs,
+                                 &rhs_rhs, &rhs_type);
+  return lhs_family == rhs_family && lhs_lhs == rhs_lhs && lhs_rhs == rhs_rhs &&
+         loom_type_equal(lhs_type, rhs_type);
 }
 
 static loom_integer_division_candidate_t*
@@ -392,7 +253,7 @@ static bool loom_integer_division_candidate_uses_dominated(
     return false;
   }
   const loom_dominance_info_t* dominance =
-      loom_dominance_walk_info(planner->dominance_walk);
+      loom_expression_walk_dominance_info(planner->expression_walk);
   const loom_use_t* use = NULL;
   loom_value_for_each_use(value, use) {
     if (!loom_dominates_op(dominance, anchor, loom_use_user_op(*use))) {
@@ -442,7 +303,9 @@ static loom_integer_division_plan_t* loom_integer_division_create_plan(
     loom_integer_division_family_t family,
     loom_integer_division_candidate_t* quotient,
     loom_integer_division_candidate_t* remainder, loom_op_t* anchor) {
-  loom_integer_division_plan_t* plan = &planner->plans[planner->plan_count++];
+  loom_integer_division_planner_t* function_planner = planner->planner;
+  loom_integer_division_plan_t* plan =
+      &function_planner->plans[function_planner->plan_count++];
   *plan = (loom_integer_division_plan_t){
       .anchor = anchor,
       .quotient_name_source =
@@ -453,7 +316,6 @@ static loom_integer_division_plan_t* loom_integer_division_create_plan(
   };
   loom_integer_division_plan_append_chain(plan, quotient);
   loom_integer_division_plan_append_chain(plan, remainder);
-  loom_integer_division_planner_t* function_planner = planner->planner;
   if (function_planner->last_plan) {
     function_planner->last_plan->next = plan;
   } else {
@@ -464,49 +326,52 @@ static loom_integer_division_plan_t* loom_integer_division_create_plan(
 }
 
 static iree_status_t loom_integer_division_observe_candidate(
-    loom_integer_division_region_planner_t* planner, loom_op_t* op,
+    loom_integer_division_region_planner_t* planner,
+    const loom_expression_cursor_t* cursor,
     loom_integer_division_family_t family, loom_integer_division_role_t role) {
-  const loom_value_id_t* operands = loom_op_const_operands(op);
+  loom_op_t* op = cursor->op;
+  loom_integer_division_planner_t* function_planner = planner->planner;
+  const loom_value_id_t divisor = loom_op_const_operands(op)[1];
   if (loom_value_facts_is_exact(
-          loom_value_fact_table_lookup(planner->planner->facts, operands[1]))) {
+          loom_value_fact_table_lookup(function_planner->facts, divisor))) {
     return iree_ok_status();
   }
-
+  const uint32_t candidate_index = function_planner->candidate_count++;
+  IREE_ASSERT(candidate_index < function_planner->candidate_capacity);
   loom_integer_division_candidate_t* candidate =
-      &planner->candidates[planner->candidate_count++];
+      &function_planner->candidates[candidate_index];
   *candidate = (loom_integer_division_candidate_t){
       .op = op,
       .result = loom_op_const_results(op)[0],
       .role = role,
   };
-  loom_integer_division_key_t key = {
-      .lhs = loom_value_fact_table_query_identity(planner->planner->facts,
-                                                  operands[0]),
-      .rhs = loom_value_fact_table_query_identity(planner->planner->facts,
-                                                  operands[1]),
-      .type =
-          loom_module_value_type(planner->planner->module, candidate->result),
-      .family = family,
-  };
-  key.hash = loom_integer_division_hash_key(&key);
-
+  const uint32_t hash = loom_integer_division_hash(function_planner, op);
+  loom_expression_entry_t* existing_entry =
+      loom_expression_scope_find(cursor, hash, 0);
   loom_integer_division_candidate_t* existing =
-      loom_integer_division_find(planner, &key);
+      existing_entry ? &function_planner->candidates[existing_entry->metadata]
+                     : NULL;
+  const loom_expression_entry_t entry = {
+      .op = op,
+      .hash = hash,
+      .metadata = candidate_index,
+  };
   if (!existing) {
-    loom_integer_division_insert(planner, key, candidate);
+    loom_expression_scope_insert(cursor, entry);
     return iree_ok_status();
   }
   if (existing->plan) {
-    if (loom_dominates_op(loom_dominance_walk_info(planner->dominance_walk),
-                          existing->plan->anchor, op)) {
+    if (loom_dominates_op(
+            loom_expression_walk_dominance_info(planner->expression_walk),
+            existing->plan->anchor, op)) {
       loom_integer_division_plan_append(existing->plan, candidate);
     }
-    loom_integer_division_insert(planner, key, candidate);
+    loom_expression_scope_insert(cursor, entry);
     return iree_ok_status();
   }
   if (existing->role == role) {
     candidate->previous_same_role = existing;
-    loom_integer_division_insert(planner, key, candidate);
+    loom_expression_scope_insert(cursor, entry);
     return iree_ok_status();
   }
 
@@ -518,14 +383,14 @@ static iree_status_t loom_integer_division_observe_candidate(
   if (loom_integer_division_family_is_signed(family)) {
     anchor = loom_integer_division_oldest_candidate(quotient)->op;
     if (!loom_dominates_op(
-            loom_dominance_walk_info(planner->dominance_walk), anchor,
-            loom_integer_division_oldest_candidate(remainder)->op) &&
+            loom_expression_walk_dominance_info(planner->expression_walk),
+            anchor, loom_integer_division_oldest_candidate(remainder)->op) &&
         !loom_integer_division_chain_uses_dominated(planner, remainder,
                                                     anchor)) {
       // The quotient's stricter overflow domain cannot move above an earlier
       // signed remainder. Shadow those remainders with the quotient so a later
       // remainder can still combine at the quotient's original position.
-      loom_integer_division_insert(planner, key, candidate);
+      loom_expression_scope_insert(cursor, entry);
       return iree_ok_status();
     }
   } else {
@@ -533,41 +398,25 @@ static iree_status_t loom_integer_division_observe_candidate(
   }
   loom_integer_division_create_plan(planner, family, quotient, remainder,
                                     anchor);
-  loom_integer_division_insert(planner, key, candidate);
+  loom_expression_scope_insert(cursor, entry);
   return iree_ok_status();
 }
 
 static iree_status_t loom_integer_division_plan_region_scratch(
     loom_integer_division_region_planner_t* region_planner,
-    loom_region_t* region, const loom_integer_division_inventory_t* inventory,
-    iree_arena_allocator_t* arena) {
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, inventory->scope_count, sizeof(*region_planner->scopes),
-      (void**)&region_planner->scopes));
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, inventory->candidate_count, sizeof(*region_planner->bindings),
-      (void**)&region_planner->bindings));
-  const iree_host_size_t bucket_count = iree_host_size_next_power_of_two(
-      (iree_host_size_t)inventory->candidate_count * 2);
-  region_planner->bucket_mask = bucket_count - 1;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, bucket_count, sizeof(*region_planner->bucket_heads),
-      (void**)&region_planner->bucket_heads));
-  memset(region_planner->bucket_heads, 0xFF,
-         bucket_count * sizeof(*region_planner->bucket_heads));
-
-  IREE_RETURN_IF_ERROR(loom_dominance_walk_create(
-      region_planner->planner->module, region,
-      (loom_dominance_walk_callbacks_t){
-          .user_data = region_planner,
-          .enter_scope = loom_integer_division_enter_scope,
-          .leave_scope = loom_integer_division_leave_scope,
-      },
-      arena, &region_planner->dominance_walk));
+    loom_region_t* region, iree_arena_allocator_t* arena) {
+  const loom_expression_identity_policy_t identity_policy = {
+      .user_data = region_planner->planner,
+      .equal = loom_integer_division_equal,
+  };
+  IREE_RETURN_IF_ERROR(loom_expression_walk_create(
+      region_planner->planner->module, region, &identity_policy,
+      region_planner->planner->candidate_capacity, arena,
+      &region_planner->expression_walk));
   while (true) {
-    loom_dominance_walk_cursor_t cursor;
+    loom_expression_cursor_t cursor;
     IREE_RETURN_IF_ERROR(
-        loom_dominance_walk_next(region_planner->dominance_walk, &cursor));
+        loom_expression_walk_next(region_planner->expression_walk, &cursor));
     if (!cursor.op) {
       break;
     }
@@ -575,7 +424,7 @@ static iree_status_t loom_integer_division_plan_region_scratch(
     loom_integer_division_role_t role;
     if (loom_integer_division_match(cursor.op, &family, &role)) {
       IREE_RETURN_IF_ERROR(loom_integer_division_observe_candidate(
-          region_planner, cursor.op, family, role));
+          region_planner, &cursor, family, role));
     }
   }
   return iree_ok_status();
@@ -583,27 +432,13 @@ static iree_status_t loom_integer_division_plan_region_scratch(
 
 static iree_status_t loom_integer_division_plan_region(
     loom_integer_division_planner_t* planner, loom_region_t* region) {
-  loom_integer_division_inventory_t inventory;
-  IREE_RETURN_IF_ERROR(loom_integer_division_inventory_region(
-      planner->module, planner->facts, region, &inventory));
-  if (inventory.candidate_count < 2) {
-    return iree_ok_status();
-  }
-
   loom_integer_division_region_planner_t region_planner = {
       .planner = planner,
   };
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      planner->arena, inventory.candidate_count,
-      sizeof(*region_planner.candidates), (void**)&region_planner.candidates));
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      planner->arena, inventory.candidate_count / 2,
-      sizeof(*region_planner.plans), (void**)&region_planner.plans));
-
   const iree_arena_checkpoint_t scratch_checkpoint =
       iree_arena_checkpoint_save(planner->arena);
   const iree_status_t status = loom_integer_division_plan_region_scratch(
-      &region_planner, region, &inventory, planner->arena);
+      &region_planner, region, planner->arena);
   iree_arena_checkpoint_restore(&scratch_checkpoint);
   return status;
 }
@@ -674,7 +509,9 @@ iree_status_t loom_integer_division_combine(
   if (!loom_func_like_body(function)) {
     return iree_ok_status();
   }
-  if (!loom_integer_division_has_pair_candidates(module, facts)) {
+  const uint32_t candidate_capacity =
+      loom_integer_division_candidate_count(module, facts);
+  if (candidate_capacity < 2) {
     return iree_ok_status();
   }
 
@@ -684,8 +521,16 @@ iree_status_t loom_integer_division_combine(
       .module = module,
       .facts = facts,
       .arena = parent_arena,
+      .candidate_capacity = candidate_capacity,
   };
-  iree_status_t status = iree_ok_status();
+  iree_status_t status = iree_arena_allocate_array(
+      parent_arena, candidate_capacity, sizeof(*planner.candidates),
+      (void**)&planner.candidates);
+  if (iree_status_is_ok(status)) {
+    status = iree_arena_allocate_array(parent_arena, candidate_capacity / 2,
+                                       sizeof(*planner.plans),
+                                       (void**)&planner.plans);
+  }
   for (uint8_t i = 0;
        i < loom_func_like_region_count(function) && iree_status_is_ok(status);
        ++i) {
