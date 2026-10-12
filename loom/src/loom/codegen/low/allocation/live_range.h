@@ -107,6 +107,9 @@ bool loom_low_allocation_live_range_values_overlap(
 // storage units under descriptor aliasing and per-unit storage lifetimes.
 // Empty unit lifetimes, including unmaterialized aggregate parts, occupy no
 // storage even when another lifetime encloses their boundary point.
+// Expanded-execution definitions additionally conflict with concrete unit
+// storage spanning their definition point, independently of sparse semantic
+// segments.
 // Assignment sparse segment ranges, when present, index |storage_segments|.
 // A missing range makes only that assignment's reservation continuous.
 bool loom_low_allocation_live_range_assignments_conflict(

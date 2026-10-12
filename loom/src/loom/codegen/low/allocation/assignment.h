@@ -40,6 +40,11 @@ typedef enum loom_low_allocation_location_kind_e {
 enum loom_low_allocation_assignment_flag_bits_e {
   // Uses table-owned per-unit start points instead of |start_point| alone.
   LOOM_LOW_ALLOCATION_ASSIGNMENT_FLAG_REFINED_UNIT_STARTS = 1u << 0,
+  // The defining instruction writes outside the SSA value's semantic
+  // execution domain. Its physical destination must not overlap storage that
+  // survives the definition point in lanes or workers excluded by ordinary
+  // sparse liveness.
+  LOOM_LOW_ALLOCATION_ASSIGNMENT_FLAG_EXPANDED_EXECUTION_DEFINITION = 1u << 1,
 };
 typedef uint16_t loom_low_allocation_assignment_flags_t;
 

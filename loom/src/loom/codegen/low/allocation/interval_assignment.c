@@ -74,6 +74,25 @@ loom_low_allocation_interval_assignment_unit_point_start_for_value_ordinal(
       state->context->unit_liveness, state->context->liveness, value_ordinal);
 }
 
+static loom_low_allocation_assignment_flags_t
+loom_low_allocation_interval_assignment_flags_for_interval(
+    const loom_low_allocation_interval_assignment_state_t* state,
+    const loom_liveness_interval_t* interval,
+    loom_value_ordinal_t value_ordinal) {
+  if (interval->value_id >=
+          state->context->expanded_execution_values.bit_count ||
+      !iree_bitmap_test(state->context->expanded_execution_values,
+                        interval->value_id)) {
+    return 0;
+  }
+  IREE_ASSERT_EQ(
+      interval->definition_point,
+      state->context->unit_liveness->values[value_ordinal]
+          .acquisition_start_point,
+      "expanded-execution values must acquire storage at their definition");
+  return LOOM_LOW_ALLOCATION_ASSIGNMENT_FLAG_EXPANDED_EXECUTION_DEFINITION;
+}
+
 static uint32_t
 loom_low_allocation_interval_assignment_max_unit_end_point_for_interval(
     const loom_low_allocation_interval_assignment_state_t* state,
@@ -116,6 +135,7 @@ loom_low_allocation_interval_assignment_search_context(
                                 : NULL,
       .storage_leases = state->context->storage_leases,
       .required_register_values = state->context->required_register_values,
+      .expanded_execution_values = state->context->expanded_execution_values,
       .spill_traffic_by_value_ordinal = state->spill_traffic_by_value_ordinal,
       .scalar_packing = state->scalar_packing,
       .physical_domains = &state->physical_domains,
@@ -236,6 +256,8 @@ loom_low_allocation_interval_assignment_failure_candidate(
   loom_low_allocation_assignment_t candidate = {
       .value_id = interval->value_id,
       .descriptor_reg_class_id = capacity->descriptor_reg_class_id,
+      .flags = loom_low_allocation_interval_assignment_flags_for_interval(
+          state, interval, value_ordinal),
       .start_point = state->context->unit_liveness->values[value_ordinal]
                          .acquisition_start_point,
       .end_point =
@@ -747,6 +769,13 @@ loom_low_allocation_interval_assignment_prepare_assignment(
     const loom_low_allocation_assignment_t* assignment,
     loom_value_ordinal_t value_ordinal) {
   loom_low_allocation_assignment_t stored_assignment = *assignment;
+  const loom_liveness_interval_t* interval =
+      loom_liveness_interval_for_value_ordinal(state->context->liveness,
+                                               value_ordinal);
+  IREE_ASSERT_ARGUMENT(interval);
+  stored_assignment.flags |=
+      loom_low_allocation_interval_assignment_flags_for_interval(
+          state, interval, value_ordinal);
   if (stored_assignment.start_point ==
       state->context->unit_liveness->values[value_ordinal]
           .acquisition_start_point) {

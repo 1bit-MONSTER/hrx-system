@@ -217,6 +217,52 @@ static bool loom_low_allocation_live_range_storage_overlaps(
       storage_segments, lhs->liveness_segments, rhs->liveness_segments);
 }
 
+static bool loom_low_allocation_live_range_assignment_unit_live_at_point(
+    const uint32_t* unit_start_points, const uint32_t* unit_end_points,
+    iree_host_size_t unit_point_count,
+    const loom_low_allocation_assignment_t* assignment, uint32_t unit_offset,
+    uint32_t point) {
+  const uint32_t start_point =
+      loom_low_allocation_live_range_assignment_unit_start_point(
+          unit_start_points, unit_point_count, assignment, unit_offset);
+  const uint32_t end_point =
+      loom_low_allocation_live_range_assignment_unit_end_point(
+          unit_end_points, unit_point_count, assignment, unit_offset);
+  return start_point <= point && point < end_point;
+}
+
+// Returns true when either assignment defines its overlapping physical unit
+// outside ordinary sparse execution while the other assignment still owns
+// that unit. The expanded definition point is the assignment start: producers
+// may mark only fresh SSA definitions whose storage is acquired there.
+static bool
+loom_low_allocation_live_range_expanded_execution_definitions_conflict(
+    const uint32_t* unit_start_points, const uint32_t* unit_end_points,
+    iree_host_size_t unit_point_count,
+    const loom_low_allocation_assignment_t* lhs, uint32_t lhs_unit,
+    const loom_low_allocation_assignment_t* rhs, uint32_t rhs_unit) {
+  if (iree_any_bit_set(
+          lhs->flags,
+          LOOM_LOW_ALLOCATION_ASSIGNMENT_FLAG_EXPANDED_EXECUTION_DEFINITION) &&
+      loom_low_allocation_live_range_assignment_unit_live_at_point(
+          unit_start_points, unit_end_points, unit_point_count, lhs, lhs_unit,
+          lhs->start_point) &&
+      loom_low_allocation_live_range_assignment_unit_live_at_point(
+          unit_start_points, unit_end_points, unit_point_count, rhs, rhs_unit,
+          lhs->start_point)) {
+    return true;
+  }
+  return iree_any_bit_set(
+             rhs->flags,
+             LOOM_LOW_ALLOCATION_ASSIGNMENT_FLAG_EXPANDED_EXECUTION_DEFINITION) &&
+         loom_low_allocation_live_range_assignment_unit_live_at_point(
+             unit_start_points, unit_end_points, unit_point_count, rhs,
+             rhs_unit, rhs->start_point) &&
+         loom_low_allocation_live_range_assignment_unit_live_at_point(
+             unit_start_points, unit_end_points, unit_point_count, lhs,
+             lhs_unit, rhs->start_point);
+}
+
 bool loom_low_allocation_live_range_assignments_conflict(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_liveness_segment_t* storage_segments,
@@ -239,6 +285,9 @@ bool loom_low_allocation_live_range_assignments_conflict(
                                                             rhs)) {
     return false;
   }
+  const bool has_expanded_execution_definition = iree_any_bit_set(
+      lhs->flags | rhs->flags,
+      LOOM_LOW_ALLOCATION_ASSIGNMENT_FLAG_EXPANDED_EXECUTION_DEFINITION);
   const bool lhs_is_explicit =
       loom_low_allocation_storage_assignment_uses_explicit_physical_register(
           descriptor_set, lhs);
@@ -250,6 +299,21 @@ bool loom_low_allocation_live_range_assignments_conflict(
         !loom_low_allocation_storage_assignment_ranges_overlap(descriptor_set,
                                                                lhs, rhs)) {
       return false;
+    }
+    if (has_expanded_execution_definition) {
+      for (uint32_t lhs_unit = 0; lhs_unit < lhs->location_count; ++lhs_unit) {
+        for (uint32_t rhs_unit = 0; rhs_unit < rhs->location_count;
+             ++rhs_unit) {
+          if (loom_low_allocation_storage_assignment_subranges_overlap(
+                  descriptor_set, lhs, lhs_unit, rhs, rhs_unit,
+                  /*unit_count=*/1) &&
+              loom_low_allocation_live_range_expanded_execution_definitions_conflict(
+                  unit_start_points, unit_end_points, unit_point_count, lhs,
+                  lhs_unit, rhs, rhs_unit)) {
+            return true;
+          }
+        }
+      }
     }
     if (!loom_low_allocation_live_range_storage_overlaps(storage_segments, lhs,
                                                          rhs)) {
@@ -299,6 +363,20 @@ bool loom_low_allocation_live_range_assignments_conflict(
   const uint64_t overlap_end = lhs_end < rhs_end ? lhs_end : rhs_end;
   if (overlap_begin >= overlap_end) {
     return false;
+  }
+  if (has_expanded_execution_definition) {
+    for (uint64_t location = overlap_begin; location < overlap_end;
+         ++location) {
+      const uint32_t lhs_unit_offset =
+          (uint32_t)(location - lhs->location_base);
+      const uint32_t rhs_unit_offset =
+          (uint32_t)(location - rhs->location_base);
+      if (loom_low_allocation_live_range_expanded_execution_definitions_conflict(
+              unit_start_points, unit_end_points, unit_point_count, lhs,
+              lhs_unit_offset, rhs, rhs_unit_offset)) {
+        return true;
+      }
+    }
   }
   if (!loom_low_allocation_live_range_storage_overlaps(storage_segments, lhs,
                                                        rhs)) {
@@ -371,6 +449,13 @@ bool loom_low_allocation_live_range_sweep_assignments_conflict(
   IREE_ASSERT_ARGUMENT(storage_segments);
   IREE_ASSERT_GE(candidate->start_point, sweep_point,
                  "allocation candidates must not precede the active-set sweep");
+  if (iree_any_bit_set(
+          existing->flags | candidate->flags,
+          LOOM_LOW_ALLOCATION_ASSIGNMENT_FLAG_EXPANDED_EXECUTION_DEFINITION)) {
+    return loom_low_allocation_live_range_assignments_conflict(
+        descriptor_set, storage_segments, unit_start_points, unit_end_points,
+        unit_point_count, existing, candidate);
+  }
   const uint32_t range_start = existing->liveness_segments.start;
   const uint32_t range_end = range_start + existing->liveness_segments.count;
   IREE_ASSERT_GE(*inout_existing_segment_start, range_start);
