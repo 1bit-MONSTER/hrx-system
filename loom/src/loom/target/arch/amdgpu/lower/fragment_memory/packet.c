@@ -1005,6 +1005,22 @@ uint16_t loom_amdgpu_fragment_memory_query_issued_accesses(
     return 1;
   }
 
+  if (iree_all_bits_set(
+          packet->flags,
+          LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_NATIVE_TRANSPOSE_LOAD)) {
+    const loom_amdgpu_matrix_fragment_layout_t* layout =
+        loom_amdgpu_matrix_fragment_layout_for_kind(plan->layout_kind);
+    IREE_ASSERT_ARGUMENT(layout);
+    loom_amdgpu_fragment_memory_set_issued_access(
+        packet->register_index, /*element_index=*/0, /*element_count=*/8,
+        packet->descriptor_ref,
+        layout->wave_size == 64
+            ? LOOM_AMDGPU_FRAGMENT_MEMORY_ISSUED_ACCESS_FLAG_FIRST_32_LANES_ONLY
+            : LOOM_AMDGPU_FRAGMENT_MEMORY_ISSUED_ACCESS_FLAG_NONE,
+        &out_accesses[0]);
+    return 1;
+  }
+
   if (plan->operation_kind == LOOM_LOW_SOURCE_MEMORY_OPERATION_LOAD &&
       loom_amdgpu_fragment_memory_payload_form_is_load_fp8_to_16bit(
           plan->payload_form)) {
@@ -1405,6 +1421,11 @@ static iree_string_view_t loom_amdgpu_fragment_memory_fp8_strategy_key(
 static iree_string_view_t loom_amdgpu_fragment_memory_packet_strategy_key(
     const loom_amdgpu_fragment_memory_plan_t* plan,
     const loom_amdgpu_fragment_memory_packet_plan_t* packet) {
+  if (iree_all_bits_set(
+          packet->flags,
+          LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_NATIVE_TRANSPOSE_LOAD)) {
+    return IREE_SV("native_transpose_fragment_load");
+  }
   if (loom_amdgpu_fragment_memory_payload_form_is_load_fp8_to_16bit(
           plan->payload_form)) {
     return loom_amdgpu_fragment_memory_fp8_strategy_key(plan);

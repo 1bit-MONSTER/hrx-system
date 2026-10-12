@@ -98,6 +98,7 @@ loom_cc_library(
     "fragment_memory/packet.h"
     "fragment_memory/plan.h"
     "fragment_memory/publication_cost.h"
+    "fragment_memory/transpose.h"
     "legality.h"
     "lower.h"
     "mask.h"
@@ -204,6 +205,7 @@ loom_cc_library(
     "fragment_memory/packet.c"
     "fragment_memory/plan.c"
     "fragment_memory/publication_cost.c"
+    "fragment_memory/transpose.c"
     "legality.c"
     "mask.c"
     "materializers.c"
@@ -270,6 +272,7 @@ loom_cc_library(
     loom::analysis::condition_facts
     loom::analysis::contract_vector
     loom::analysis::control_uniformity
+    loom::analysis::matrix_fragment_layout
     loom::analysis::source_storage_packing
     loom::analysis::storage_interference
     loom::analysis::storage_layout
@@ -482,6 +485,49 @@ loom_cc_test(
     loom::target::arch::amdgpu::target_info
   LABELS
     "iree-build-requirement=loom.target.arch.amdgpu"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_test(
+  NAME
+    fragment_memory_transpose_test
+  SRCS
+    "fragment_memory/transpose_test.cc"
+  DEPS
+    ::lower
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::target::arch::amdgpu::descriptors::low_registry
+    loom::target::arch::amdgpu::matrix::contract
+    loom::target::arch::amdgpu::target_info
+  LABELS
+    "iree-build-requirement=loom.target.arch.amdgpu"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+iree_native_test(
+  NAME
+    "fragment_memory_transpose_loom_test"
+  WORKING_DIRECTORY "${IREE_ROOT_DIR}"
+  ARGS
+    "{{${CMAKE_CURRENT_SOURCE_DIR}/fragment_memory/transpose.loom-test}}"
+  SRC
+    loom::tools::loom-check::loom-check-test
+  LABELS
+    "loom-check"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_check_compile_tests(
+  NAME
+    "fragment_memory_transpose_loom_test"
+  SRC
+    "fragment_memory/transpose.loom-test"
+  TARGETS
+    loom::target::amdgpu::gfx1200
 )
 endif()
 

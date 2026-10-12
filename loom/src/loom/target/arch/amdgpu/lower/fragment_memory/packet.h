@@ -192,6 +192,9 @@ typedef enum loom_amdgpu_fragment_memory_issued_access_flag_bits_e {
   LOOM_AMDGPU_FRAGMENT_MEMORY_ISSUED_ACCESS_FLAG_NONE = 0u,
   // Only the selected cross-lane publication participants issue this access.
   LOOM_AMDGPU_FRAGMENT_MEMORY_ISSUED_ACCESS_FLAG_PUBLISHERS_ONLY = 1u << 0,
+  // The instruction consumes addresses from lanes 0 through 31. Wave64 lanes
+  // 32 through 63 receive results but do not issue physical memory accesses.
+  LOOM_AMDGPU_FRAGMENT_MEMORY_ISSUED_ACCESS_FLAG_FIRST_32_LANES_ONLY = 1u << 1,
 } loom_amdgpu_fragment_memory_issued_access_flag_bits_t;
 typedef uint8_t loom_amdgpu_fragment_memory_issued_access_flags_t;
 

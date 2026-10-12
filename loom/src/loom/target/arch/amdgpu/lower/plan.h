@@ -1516,6 +1516,9 @@ typedef enum loom_amdgpu_fragment_memory_packet_flag_bits_e {
   // A wider packet was legal but rejected because fragment registers were not
   // contiguous in memory.
   LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_WIDER_NONCONTIGUOUS = 1u << 2,
+  // One hardware packet loads a contiguous memory row and transposes it into
+  // the target fragment's lane/register layout.
+  LOOM_AMDGPU_FRAGMENT_MEMORY_PACKET_FLAG_NATIVE_TRANSPOSE_LOAD = 1u << 3,
 } loom_amdgpu_fragment_memory_packet_flag_bits_t;
 
 // Bitset of loom_amdgpu_fragment_memory_packet_flag_bits_t values.

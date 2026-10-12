@@ -298,6 +298,7 @@ iree_status_t loom_amdgpu_fragment_memory_report_subgroup_access(
     const loom_amdgpu_fragment_memory_plan_t* plan,
     const loom_amdgpu_fragment_memory_packet_offset_t* runtime_offset,
     const loom_low_descriptor_memory_effect_summary_t* issued,
+    loom_amdgpu_fragment_memory_issued_access_flags_t issued_access_flags,
     loom_low_lower_memory_subgroup_access_report_t* out_report) {
   static_assert(
       LOOM_MATRIX_FRAGMENT_AXIS_COUNT ==
@@ -356,8 +357,15 @@ iree_status_t loom_amdgpu_fragment_memory_report_subgroup_access(
     return iree_ok_status();
   }
   out_report->active_lane_proof = active_lane_proof.proof;
+  uint64_t issuing_lane_mask = active_lane_proof.active_lane_mask;
+  if (iree_any_bit_set(
+          issued_access_flags,
+          LOOM_AMDGPU_FRAGMENT_MEMORY_ISSUED_ACCESS_FLAG_FIRST_32_LANES_ONLY)) {
+    issuing_lane_mask &= UINT32_MAX;
+  }
+  IREE_ASSERT_NE(issuing_lane_mask, 0u);
   out_report->active_lane_count =
-      (uint8_t)iree_math_count_ones_u64(active_lane_proof.active_lane_mask);
+      (uint8_t)iree_math_count_ones_u64(issuing_lane_mask);
 
   if (!runtime_offset->is_subgroup_uniform) {
     out_report->lane_mapping = IREE_SV("runtime-axis-terms");
@@ -374,9 +382,8 @@ iree_status_t loom_amdgpu_fragment_memory_report_subgroup_access(
       IREE_SV("compiled-fragment-lane-register-layout");
 
   loom_amdgpu_memory_calculate_subgroup_geometry(
-      &plan->address_layout, layout->wave_size,
-      active_lane_proof.active_lane_mask, per_lane_packet_byte_count,
-      out_report);
+      &plan->address_layout, layout->wave_size, issuing_lane_mask,
+      per_lane_packet_byte_count, out_report);
   out_report->proof = IREE_SV("exact");
   return iree_ok_status();
 }

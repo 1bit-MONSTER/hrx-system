@@ -12,6 +12,7 @@
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/lower/lower.h"
 #include "loom/target/arch/amdgpu/lower/fragment_memory/address.h"
+#include "loom/target/arch/amdgpu/lower/fragment_memory/packet.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,6 +62,7 @@ iree_status_t loom_amdgpu_fragment_memory_report_subgroup_access(
     const loom_amdgpu_fragment_memory_plan_t* plan,
     const loom_amdgpu_fragment_memory_packet_offset_t* runtime_offset,
     const loom_low_descriptor_memory_effect_summary_t* issued,
+    loom_amdgpu_fragment_memory_issued_access_flags_t issued_access_flags,
     loom_low_lower_memory_subgroup_access_report_t* out_report);
 
 #ifdef __cplusplus
