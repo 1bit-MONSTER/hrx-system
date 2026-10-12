@@ -3936,10 +3936,11 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @gfx11_overlapping_copy(%s
   s_mov_b32 s3, s2
   s_mov_b32 s2, s1
   s_mov_b32 s1, s0
-  s_mov_b32 s4, s1
-  s_mov_b32 s5, s2
-  s_mov_b32 s6, s3
-  buffer_store_dword v0, v1, s[4:7], s8 offen offset:0
+  s_mov_b32 s0, s1
+  s_mov_b32 s1, s2
+  s_mov_b32 s2, s3
+  s_mov_b32 s3, s4
+  buffer_store_dword v0, v1, s[0:3], s5 offen offset:0
   s_endpgm
 
 // ====

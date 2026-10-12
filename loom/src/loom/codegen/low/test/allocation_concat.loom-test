@@ -1,4 +1,4 @@
-// RUN: with-checks emit low-allocation-json @concat_into_declared_edge_pair fixed=%state:physical_register:5:2
+// RUN: emit low-allocation-query @concat_into_declared_edge_pair spill-count values=%state,%low,%high,%pair fixed=%state:physical_register:5:2
 
 test.target<low_core> @target
 
@@ -18,7 +18,11 @@ low.func.def target<test.low.core>(@target) @concat_into_declared_edge_pair(%con
 }
 
 // ----
-CHECK: *"spill_count":0,*"name":"state"*"location":{"kind":"physical_register","base":5,"count":2}*"name":"low"*"location":{"kind":"physical_register","base":1,"count":1}*"name":"high"*"location":{"kind":"physical_register","base":3,"count":1}*"name":"pair"*"location":{"kind":"physical_register","base":5,"count":2}*
+spills: 0
+value %state: test.explicit32 -> physical_register[5:2]
+value %low: test.explicit32 -> physical_register[1:1]
+value %high: test.explicit32 -> physical_register[3:1]
+value %pair: test.explicit32 -> physical_register[5:2]
 
 // ====
 
@@ -54,7 +58,7 @@ CHECK: copies: coalesced=0 materialized=0
 
 // ====
 
-// RUN: emit low-allocation-json @reversed_physical_sources
+// RUN: emit low-allocation-query @reversed_physical_sources spill-count values=%high,%low,%pair
 
 test.target<low_core> @target
 
@@ -65,11 +69,14 @@ low.func.def target<test.low.core>(@target) @reversed_physical_sources(%high: re
 }
 
 // ----
-{"format":"loom.low.allocation.v0","function":"reversed_physical_sources","target":"target","descriptor_set":"test.low.core","allocation_mode":"virtual","assignment_count":3,"remark_count":0,"copy_decision_count":0,"spill_count":0,"spill_plan_count":0,"coalesced_copy_count":0,"materialized_copy_count":0,"assignments":[{"index":0,"value":{"id":3,"name":"pair","type":"reg<test.explicit32 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"test.explicit32"},"start_point":1,"end_point":2,"unit_count":2,"location":{"kind":"physical_register","base":4,"count":2}},{"index":1,"value":{"id":0,"name":"high","type":"reg<test.explicit32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"test.explicit32"},"start_point":0,"end_point":1,"unit_count":1,"location":{"kind":"physical_register","base":2,"count":1}},{"index":2,"value":{"id":1,"name":"low","type":"reg<test.explicit32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"test.explicit32"},"start_point":0,"end_point":1,"unit_count":1,"location":{"kind":"physical_register","base":0,"count":1}}],"spill_plans":[],"copy_decisions":[],"remarks":[]}
+spills: 0
+value %high: test.explicit32 -> physical_register[2:1]
+value %low: test.explicit32 -> physical_register[0:1]
+value %pair: test.explicit32 -> physical_register[4:2]
 
 // ====
 
-// RUN: emit low-allocation-json @physical_concat_avoids_live_alias fixed=%blocker:physical_register:0:1
+// RUN: emit low-allocation-query @physical_concat_avoids_live_alias spill-count values=%blocker,%high,%low,%pair fixed=%blocker:physical_register:0:1
 
 test.target<low_core> @target
 
@@ -80,11 +87,15 @@ low.func.def target<test.low.core>(@target) @physical_concat_avoids_live_alias(%
 }
 
 // ----
-{"format":"loom.low.allocation.v0","function":"physical_concat_avoids_live_alias","target":"target","descriptor_set":"test.low.core","allocation_mode":"virtual","assignment_count":4,"remark_count":0,"copy_decision_count":0,"spill_count":0,"spill_plan_count":0,"coalesced_copy_count":0,"materialized_copy_count":0,"assignments":[{"index":0,"value":{"id":5,"name":"pair","type":"reg<test.explicit32 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"test.explicit32"},"start_point":1,"end_point":2,"unit_count":2,"location":{"kind":"physical_register","base":5,"count":2}},{"index":1,"value":{"id":1,"name":"high","type":"reg<test.explicit32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"test.explicit32"},"start_point":0,"end_point":1,"unit_count":1,"location":{"kind":"physical_register","base":3,"count":1}},{"index":2,"value":{"id":2,"name":"low","type":"reg<test.explicit32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"test.explicit32"},"start_point":0,"end_point":1,"unit_count":1,"location":{"kind":"physical_register","base":1,"count":1}},{"index":3,"value":{"id":0,"name":"blocker","type":"reg<test.explicit32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"test.explicit32"},"start_point":0,"end_point":2,"unit_count":1,"location":{"kind":"physical_register","base":0,"count":1}}],"spill_plans":[],"copy_decisions":[],"remarks":[]}
+spills: 0
+value %blocker: test.explicit32 -> physical_register[0:1]
+value %high: test.explicit32 -> physical_register[3:1]
+value %low: test.explicit32 -> physical_register[1:1]
+value %pair: test.explicit32 -> physical_register[5:2]
 
 // ====
 
-// RUN: emit low-allocation-json @physical_concat_candidate_budget test.explicit32=3
+// RUN: emit low-allocation-query @physical_concat_candidate_budget spill-count values=%high,%low,%pair test.explicit32=3
 
 test.target<low_core> @target
 
@@ -95,11 +106,14 @@ low.func.def target<test.low.core>(@target) @physical_concat_candidate_budget(%h
 }
 
 // ----
-{"format":"loom.low.allocation.v0","function":"physical_concat_candidate_budget","target":"target","descriptor_set":"test.low.core","allocation_mode":"virtual","assignment_count":3,"remark_count":0,"copy_decision_count":0,"spill_count":0,"spill_plan_count":0,"coalesced_copy_count":0,"materialized_copy_count":0,"assignments":[{"index":0,"value":{"id":3,"name":"pair","type":"reg<test.explicit32 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"test.explicit32"},"start_point":1,"end_point":2,"unit_count":2,"location":{"kind":"physical_register","base":4,"count":2}},{"index":1,"value":{"id":0,"name":"high","type":"reg<test.explicit32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"test.explicit32"},"start_point":0,"end_point":1,"unit_count":1,"location":{"kind":"physical_register","base":2,"count":1}},{"index":2,"value":{"id":1,"name":"low","type":"reg<test.explicit32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"test.explicit32"},"start_point":0,"end_point":1,"unit_count":1,"location":{"kind":"physical_register","base":0,"count":1}}],"spill_plans":[],"copy_decisions":[],"remarks":[]}
+spills: 0
+value %high: test.explicit32 -> physical_register[2:1]
+value %low: test.explicit32 -> physical_register[0:1]
+value %pair: test.explicit32 -> physical_register[4:2]
 
 // ====
 
-// RUN: emit low-allocation-json @physical_concat_excludes_incomplete_view test.explicit32=2 output=none
+// RUN: emit low-allocation-query @physical_concat_excludes_incomplete_view failure test.explicit32=2
 
 test.target<low_core> @target
 
@@ -110,9 +124,12 @@ low.func.def target<test.low.core>(@target) @physical_concat_excludes_incomplete
   return %pair
 }
 
+// ----
+failure: unspillable-register-exhausted kind=no-assignable-location value=%pair class=test.explicit32 required=2 budget=2 peak=2
+
 // ====
 
-// RUN: emit low-allocation-json @physical_concat_broadcast_source
+// RUN: emit low-allocation-query @physical_concat_broadcast_source spill-count values=%value,%pair
 
 test.target<low_core> @target
 
@@ -123,11 +140,13 @@ low.func.def target<test.low.core>(@target) @physical_concat_broadcast_source(%v
 }
 
 // ----
-{"format":"loom.low.allocation.v0","function":"physical_concat_broadcast_source","target":"target","descriptor_set":"test.low.core","allocation_mode":"virtual","assignment_count":2,"remark_count":0,"copy_decision_count":0,"spill_count":0,"spill_plan_count":0,"coalesced_copy_count":0,"materialized_copy_count":0,"assignments":[{"index":0,"value":{"id":0,"name":"value","type":"reg<test.explicit32>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"test.explicit32"},"start_point":0,"end_point":1,"unit_count":1,"location":{"kind":"physical_register","base":0,"count":1}},{"index":1,"value":{"id":2,"name":"pair","type":"reg<test.explicit32 x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"test.explicit32"},"start_point":1,"end_point":2,"unit_count":2,"location":{"kind":"physical_register","base":4,"count":2}}],"spill_plans":[],"copy_decisions":[],"remarks":[]}
+spills: 0
+value %value: test.explicit32 -> physical_register[0:1]
+value %pair: test.explicit32 -> physical_register[4:2]
 
 // ====
 
-// RUN: with-checks emit low-allocation-json @partial_concat_keeps_live_source fixed=%low:physical_register:0:2 fixed=%high:physical_register:4:2
+// RUN: emit low-allocation-query @partial_concat_keeps_live_source spill-count values=%low,%high,%tuple,%copy copies=%copy fixed=%low:physical_register:0:2 fixed=%high:physical_register:4:2
 
 test.target<low_core> @target
 
@@ -140,11 +159,16 @@ low.func.def target<test.low.core>(@target) @partial_concat_keeps_live_source(%l
 }
 
 // ----
-CHECK: *"spill_count":0,*"name":"low"*"base":0,"count":2}*"name":"high"*"base":4,"count":2}*"name":"tuple"*"base":0,"count":4}*
+spills: 0
+value %low: test.phys -> physical_register[0:2]
+value %high: test.phys -> physical_register[4:2]
+value %tuple: test.phys -> physical_register[0:4]
+value %copy: test.phys -> physical_register[8:4]
+copy %tuple -> %copy: materialized
 
 // ====
 
-// RUN: with-checks emit low-allocation-json @partial_concat_preserves_unmatched_sources fixed=%first:physical_register:0:2 fixed=%second:physical_register:4:2 fixed=%third:physical_register:2:2
+// RUN: emit low-allocation-query @partial_concat_preserves_unmatched_sources spill-count values=%first,%second,%third,%tuple,%copy copies=%copy fixed=%first:physical_register:0:2 fixed=%second:physical_register:4:2 fixed=%third:physical_register:2:2
 
 test.target<low_core> @target
 
@@ -157,11 +181,17 @@ low.func.def target<test.low.core>(@target) @partial_concat_preserves_unmatched_
 }
 
 // ----
-CHECK: *"spill_count":0,*"name":"second"*"base":4,"count":2}*"name":"third"*"base":2,"count":2}*"name":"tuple"*"base":6,"count":6}*
+spills: 0
+value %first: test.phys -> physical_register[0:2]
+value %second: test.phys -> physical_register[4:2]
+value %third: test.phys -> physical_register[2:2]
+value %tuple: test.phys -> physical_register[6:6]
+value %copy: test.phys -> physical_register[6:6]
+copy %tuple -> %copy: coalesced
 
 // ====
 
-// RUN: with-checks emit low-allocation-json @partial_concat_preserves_tied_source fixed=%low:target_id:0:2 fixed=%high:target_id:4:2
+// RUN: emit low-allocation-query @partial_concat_preserves_tied_source spill-count values=%low,%high,%tuple,%result fixed=%low:target_id:0:2 fixed=%high:target_id:4:2
 
 test.target<low_core> @target
 
@@ -173,10 +203,11 @@ low.func.def target<test.low.core>(@target) @partial_concat_preserves_tied_sourc
 }
 
 // ----
-CHECK: *"spill_count":0,*
-CHECK: *"name":"tuple"*"base":2,"count":4}*
-CHECK: *"name":"low"*"base":0,"count":2}*
-CHECK: *"name":"result"*"base":2,"count":4}*
+spills: 0
+value %low: test.i32 -> target_id[0:2]
+value %high: test.i32 -> target_id[4:2]
+value %tuple: test.i32 -> target_id[2:4]
+value %result: test.i32 -> target_id[2:4]
 
 // ====
 
@@ -206,3 +237,82 @@ value %part: test.i32 -> target_id[3:1]
 value %sum: test.i32 -> target_id[4:1]
 value %pair: test.i32 -> target_id[3:2]
 value %state: test.i32 -> target_id[0:2]
+
+// ====
+
+// RUN: emit low-allocation-query @fixed_explicit_concat_sources spill-count values=%low,%high,%pair fixed=%low:physical_register:2:1 fixed=%high:physical_register:0:1
+
+test.target<low_core> @target
+
+// The fixed sources reverse l0's declared r0,r2 order. The prospective
+// reservation must reject l0 and use the disjoint l1 view instead.
+low.func.def target<test.low.core>(@target) @fixed_explicit_concat_sources(%low: reg<test.explicit32>, %high: reg<test.explicit32>) -> (reg<test.explicit32 x2>, reg<test.explicit32>, reg<test.explicit32>) asm {
+  %pair = concat(%low, %high) : (reg<test.explicit32>, reg<test.explicit32>) -> reg<test.explicit32 x2>
+  return %pair, %low, %high
+}
+
+// ----
+spills: 0
+value %low: test.explicit32 -> physical_register[2:1]
+value %high: test.explicit32 -> physical_register[0:1]
+value %pair: test.explicit32 -> physical_register[5:2]
+
+// ====
+
+// RUN: emit low-allocation-query @matching_fixed_explicit_concat_sources spill-count values=%low,%high,%pair fixed=%low:physical_register:0:1 fixed=%high:physical_register:2:1
+
+test.target<low_core> @target
+
+// Fixed sources matching a declared view still assemble directly in l0.
+low.func.def target<test.low.core>(@target) @matching_fixed_explicit_concat_sources(%low: reg<test.explicit32>, %high: reg<test.explicit32>) -> (reg<test.explicit32 x2>, reg<test.explicit32>, reg<test.explicit32>) asm {
+  %pair = concat(%low, %high) : (reg<test.explicit32>, reg<test.explicit32>) -> reg<test.explicit32 x2>
+  return %pair, %low, %high
+}
+
+// ----
+spills: 0
+value %low: test.explicit32 -> physical_register[0:1]
+value %high: test.explicit32 -> physical_register[2:1]
+value %pair: test.explicit32 -> physical_register[4:2]
+
+// ====
+
+// RUN: emit low-allocation-query @fixed_concat_sources spill-count values=%first,%second,%third,%fourth,%tuple fixed=%first:physical_register:0:1 fixed=%second:physical_register:2:1 fixed=%third:physical_register:1:1 fixed=%fourth:physical_register:4:1
+
+test.target<low_core> @target
+
+// Fixed sources whose physical order differs from their tuple order cannot be
+// exempted from a speculative result reservation. The tuple instead receives
+// independent storage while its retained sources keep their required locations.
+low.func.def target<test.low.core>(@target) @fixed_concat_sources(%first: reg<test.phys>, %second: reg<test.phys>, %third: reg<test.phys>, %fourth: reg<test.phys>) -> (reg<test.phys x4>, reg<test.phys>, reg<test.phys>) asm {
+  %tuple = concat(%first, %second, %third, %fourth) : (reg<test.phys>, reg<test.phys>, reg<test.phys>, reg<test.phys>) -> reg<test.phys x4>
+  return %tuple, %second, %third
+}
+
+// ----
+spills: 0
+value %first: test.phys -> physical_register[0:1]
+value %second: test.phys -> physical_register[2:1]
+value %third: test.phys -> physical_register[1:1]
+value %fourth: test.phys -> physical_register[4:1]
+value %tuple: test.phys -> physical_register[4:4]
+
+// ====
+
+// RUN: emit low-allocation-query @matching_fixed_concat_sources spill-count values=%first,%second,%third,%fourth,%tuple fixed=%first:physical_register:0:1 fixed=%second:physical_register:1:1 fixed=%third:physical_register:2:1 fixed=%fourth:physical_register:3:1
+
+test.target<low_core> @target
+
+// Compatible fixed sources still assemble directly into the result span.
+low.func.def target<test.low.core>(@target) @matching_fixed_concat_sources(%first: reg<test.phys>, %second: reg<test.phys>, %third: reg<test.phys>, %fourth: reg<test.phys>) -> (reg<test.phys x4>, reg<test.phys>, reg<test.phys>) asm {
+  %tuple = concat(%first, %second, %third, %fourth) : (reg<test.phys>, reg<test.phys>, reg<test.phys>, reg<test.phys>) -> reg<test.phys x4>
+  return %tuple, %second, %third
+}
+
+// ----
+spills: 0
+value %first: test.phys -> physical_register[0:1]
+value %second: test.phys -> physical_register[1:1]
+value %third: test.phys -> physical_register[2:1]
+value %fourth: test.phys -> physical_register[3:1]
+value %tuple: test.phys -> physical_register[0:4]

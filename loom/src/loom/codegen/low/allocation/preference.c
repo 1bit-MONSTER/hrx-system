@@ -79,8 +79,8 @@ loom_low_allocation_preference_assignment(
     return assignment;
   }
   const loom_low_allocation_resolved_fixed_value_t* fixed =
-      loom_low_allocation_target_constraints_fixed_value_for_value(
-          constraints, assignments->liveness->value_ids[ordinal]);
+      loom_low_allocation_target_constraints_fixed_value_for_value_ordinal(
+          constraints, ordinal);
   return fixed ? &fixed->assignment : NULL;
 }
 
@@ -203,9 +203,8 @@ loom_low_allocation_preference_structural_counterpart(
                : assigned;
   }
   const loom_low_allocation_resolved_fixed_value_t* fixed =
-      loom_low_allocation_target_constraints_fixed_value_for_value(
-          query->structural.constraints,
-          query->structural.assignments->liveness->value_ids[ordinal]);
+      loom_low_allocation_target_constraints_fixed_value_for_value_ordinal(
+          query->structural.constraints, ordinal);
   return fixed ? &fixed->assignment : NULL;
 }
 

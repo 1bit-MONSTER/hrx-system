@@ -141,6 +141,54 @@ static bool loom_low_allocation_concat_reservation_has_assigned_source(
   return false;
 }
 
+// Derives the complete source assignment whose related subrange aliases
+// |result|. This is a whole-value assignment because ignoring a fixed source
+// excludes its entire tied storage component from conflict queries.
+static iree_status_t
+loom_low_allocation_concat_reservation_source_assignment_for_result(
+    loom_low_allocation_search_context_t* context,
+    const loom_low_allocation_assignment_t* result,
+    const loom_low_placement_relation_t* relation,
+    const loom_liveness_interval_t* source_interval,
+    loom_low_allocation_class_capacity_t* out_capacity,
+    loom_low_allocation_assignment_t* out_assignment, bool* out_found) {
+  *out_assignment = (loom_low_allocation_assignment_t){0};
+  *out_found = false;
+  IREE_RETURN_IF_ERROR(loom_low_allocation_target_constraints_interval_capacity(
+      context->target_constraints, context->liveness, context->placement,
+      source_interval, out_capacity));
+  const bool result_is_explicit =
+      loom_low_allocation_storage_assignment_uses_explicit_physical_register(
+          context->descriptor_set, result);
+  uint32_t source_location_base = 0;
+  const bool found =
+      result_is_explicit && source_interval->unit_count == 1 &&
+              out_capacity->descriptor_reg_class_id ==
+                  result->descriptor_reg_class_id
+          ? loom_low_allocation_storage_assignment_unit_physical_register(
+                context->descriptor_set, result, relation->result_unit_offset,
+                &source_location_base)
+          : loom_low_allocation_storage_find_subrange_alias_location(
+                context->descriptor_set, out_capacity->descriptor_reg_class_id,
+                out_capacity->location_kind, source_interval->unit_count,
+                relation->source_unit_offset, result,
+                relation->result_unit_offset, relation->unit_count,
+                &source_location_base);
+  if (!found) {
+    return iree_ok_status();
+  }
+  *out_assignment = (loom_low_allocation_assignment_t){
+      .value_id = source_interval->value_id,
+      .descriptor_reg_class_id = out_capacity->descriptor_reg_class_id,
+      .unit_count = source_interval->unit_count,
+      .location_kind = out_capacity->location_kind,
+      .location_base = source_location_base,
+      .location_count = source_interval->unit_count,
+  };
+  *out_found = true;
+  return iree_ok_status();
+}
+
 static iree_status_t loom_low_allocation_concat_reservation_sources_fit(
     loom_low_allocation_search_context_t* context,
     const loom_low_allocation_assignment_t* result,
@@ -162,44 +210,33 @@ static iree_status_t loom_low_allocation_concat_reservation_sources_fit(
         loom_liveness_interval_for_value_ordinal(
             context->liveness, sibling_relation->source_ordinal);
     loom_low_allocation_class_capacity_t sibling_capacity = {0};
+    loom_low_allocation_assignment_t sibling_assignment = {0};
+    bool found_location = false;
     IREE_RETURN_IF_ERROR(
-        loom_low_allocation_target_constraints_interval_capacity(
-            context->target_constraints, context->liveness, context->placement,
-            sibling_interval, &sibling_capacity));
+        loom_low_allocation_concat_reservation_source_assignment_for_result(
+            context, result, sibling_relation, sibling_interval,
+            &sibling_capacity, &sibling_assignment, &found_location));
     const uint32_t sibling_alignment =
         loom_low_allocation_live_range_interval_alignment(
             context->descriptor_set, context->liveness,
             context->placement->operand_constraints_by_interval,
             sibling_interval);
-    uint32_t sibling_location_base = 0;
-    const bool found_location =
-        is_explicit && sibling_interval->unit_count == 1 &&
-                sibling_capacity.descriptor_reg_class_id ==
-                    result->descriptor_reg_class_id
-            ? loom_low_allocation_storage_assignment_unit_physical_register(
-                  context->descriptor_set, result,
-                  sibling_relation->result_unit_offset, &sibling_location_base)
-            : loom_low_allocation_storage_find_subrange_alias_location(
-                  context->descriptor_set,
-                  sibling_capacity.descriptor_reg_class_id,
-                  sibling_capacity.location_kind, sibling_interval->unit_count,
-                  sibling_relation->source_unit_offset, result,
-                  sibling_relation->result_unit_offset,
-                  sibling_relation->unit_count, &sibling_location_base);
     const loom_low_allocation_resolved_fixed_value_t* fixed =
-        loom_low_allocation_target_constraints_fixed_value_for_value(
-            context->target_constraints, sibling_interval->value_id);
+        loom_low_allocation_target_constraints_fixed_value_for_value_ordinal(
+            context->target_constraints, sibling_relation->source_ordinal);
     if (!found_location ||
-        (fixed != NULL &&
-         fixed->assignment.location_base != sibling_location_base) ||
+        (fixed != NULL && !loom_low_allocation_storage_assignment_ranges_equal(
+                              context->descriptor_set, &fixed->assignment,
+                              &sibling_assignment)) ||
         !loom_low_allocation_target_constraints_location_range_fits_capacity(
             context->descriptor_set, &sibling_capacity,
-            sibling_capacity.location_kind, sibling_location_base,
+            sibling_assignment.location_kind, sibling_assignment.location_base,
             sibling_interval->unit_count) ||
-        (!is_explicit && sibling_location_base % sibling_alignment != 0) ||
+        (!is_explicit &&
+         sibling_assignment.location_base % sibling_alignment != 0) ||
         loom_low_allocation_search_location_conflicts(
             context, sibling_interval, sibling_capacity.descriptor_reg_class_id,
-            sibling_capacity.location_kind, sibling_location_base,
+            sibling_assignment.location_kind, sibling_assignment.location_base,
             sibling_interval->unit_count,
             /*ignored_value_ids=*/NULL,
             /*ignored_value_count=*/0,
@@ -292,11 +329,11 @@ loom_low_allocation_concat_reservation_find_location_for_source(
     const loom_low_placement_relation_t* relation,
     const loom_liveness_interval_t* result_interval,
     const loom_low_placement_relation_range_t* result_range,
+    const loom_low_allocation_concat_reservation_sources_t* sources,
     loom_low_allocation_class_capacity_t source_capacity,
     loom_low_allocation_class_capacity_t capacity,
     uint32_t reservation_start_point,
     loom_low_allocation_assignment_flags_t reservation_flags,
-    const loom_value_id_t* ignored_value_ids, uint16_t ignored_value_count,
     const loom_low_allocation_preference_query_t* preferences,
     uint32_t default_result_location_base, uint32_t* out_result_location_base,
     bool* out_found) {
@@ -309,6 +346,9 @@ loom_low_allocation_concat_reservation_find_location_for_source(
       is_explicit &&
       loom_low_reg_class_uses_contiguous_physical_register_candidates(
           reg_class);
+  const bool inherits_result_location =
+      context->placement->relations[result_range->start].result_ordinal !=
+      relation->result_ordinal;
   if (is_explicit) {
     // A shared or broadcast source cannot independently reserve one assembly.
     // Downstream affinities may inherit a fresh result placement; already
@@ -324,6 +364,19 @@ loom_low_allocation_concat_reservation_find_location_for_source(
        result_interval->unit_count > capacity.max_units)) {
     return iree_ok_status();
   }
+  if (sources->fixed_constraint.kind ==
+      LOOM_LOW_ALLOCATION_CONCAT_FIXED_SOURCE_CONSTRAINT_INCOMPATIBLE) {
+    return iree_ok_status();
+  }
+  const bool has_required_result_location =
+      sources->fixed_constraint.kind ==
+      LOOM_LOW_ALLOCATION_CONCAT_FIXED_SOURCE_CONSTRAINT_LINEAR_LOCATION;
+  const uint32_t required_result_location_base =
+      sources->fixed_constraint.linear_result_location_base;
+  const bool must_verify_sibling_sources =
+      inherits_result_location ||
+      sources->fixed_constraint.kind ==
+          LOOM_LOW_ALLOCATION_CONCAT_FIXED_SOURCE_CONSTRAINT_EXPLICIT_CANDIDATE;
 
   const uint32_t result_alignment =
       loom_low_allocation_live_range_interval_alignment(
@@ -458,6 +511,16 @@ loom_low_allocation_concat_reservation_find_location_for_source(
       return iree_ok_status();
     }
   }
+  if (has_required_result_location &&
+      (required_result_location_base < first_base ||
+       required_result_location_base > last_base ||
+       required_result_location_base % result_alignment != 0 ||
+       !loom_low_allocation_target_constraints_location_range_fits_capacity(
+           descriptor_set, &capacity, capacity.location_kind,
+           required_result_location_base, result_interval->unit_count))) {
+    *out_found = found;
+    return iree_ok_status();
+  }
   // A join can inherit an already assigned predecessor's layout. Test those
   // candidates before first fit, without publishing the destination until
   // the complete source assembly is also feasible.
@@ -468,16 +531,20 @@ loom_low_allocation_concat_reservation_find_location_for_source(
                 context->placement, relation->result_ordinal)
           : (loom_low_placement_relation_range_t){0};
   const uint64_t candidate_count =
-      incoming.count +
-      (is_explicit
-           ? loom_low_allocation_storage_explicit_location_candidate_count(
-                 descriptor_set, capacity.descriptor_reg_class_id,
-                 result_interval->unit_count)
-           : (uint64_t)last_base / result_alignment + 1);
+      has_required_result_location
+          ? 1
+          : incoming.count +
+                (is_explicit
+                     ? loom_low_allocation_storage_explicit_location_candidate_count(
+                           descriptor_set, capacity.descriptor_reg_class_id,
+                           result_interval->unit_count)
+                     : (uint64_t)last_base / result_alignment + 1);
   for (uint64_t candidate_index = 0; candidate_index < candidate_count;
        ++candidate_index) {
     uint32_t base = 0;
-    if (candidate_index < incoming.count) {
+    if (has_required_result_location) {
+      base = required_result_location_base;
+    } else if (candidate_index < incoming.count) {
       const loom_low_placement_relation_t* edge =
           &context->placement->relations[incoming.start + candidate_index];
       if (!loom_low_placement_cause_is_edge(edge->cause) ||
@@ -574,8 +641,9 @@ loom_low_allocation_concat_reservation_find_location_for_source(
       }
     }
     if (loom_low_allocation_search_assignment_conflicts(
-            context, &reservation, ignored_value_ids, ignored_value_count,
-            ignored_value_ids, ignored_value_count,
+            context, &reservation, sources->ignored_value_ids,
+            sources->ignored_value_count, sources->ignored_value_ids,
+            sources->ignored_value_count,
             LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FOR_PRESSURE) ||
         loom_low_allocation_search_location_conflicts(
             context, source_interval, source_capacity.descriptor_reg_class_id,
@@ -588,8 +656,7 @@ loom_low_allocation_concat_reservation_find_location_for_source(
             LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FOR_PRESSURE)) {
       continue;
     }
-    if (context->placement->relations[result_range->start].result_ordinal !=
-        relation->result_ordinal) {
+    if (must_verify_sibling_sources) {
       bool sources_fit = false;
       IREE_RETURN_IF_ERROR(loom_low_allocation_concat_reservation_sources_fit(
           context, &reservation, result_range, relation->source_ordinal,
@@ -618,7 +685,7 @@ iree_status_t loom_low_allocation_concat_reservation_find(
     const loom_low_placement_relation_t* relation,
     const loom_liveness_interval_t* result_interval,
     const loom_low_placement_relation_range_t* result_range,
-    const loom_value_id_t* ignored_value_ids, uint16_t ignored_value_count,
+    const loom_low_allocation_concat_reservation_sources_t* sources,
     loom_low_allocation_assignment_t* out_assignment) {
   *out_assignment =
       (loom_low_allocation_assignment_t){.value_id = LOOM_VALUE_ID_INVALID};
@@ -629,7 +696,7 @@ iree_status_t loom_low_allocation_concat_reservation_find(
       context->target_constraints, context->liveness, context->placement,
       result_interval, &capacity));
 
-  if (ignored_value_count == 0) {
+  if (sources->ignored_value_count == 0) {
     return iree_ok_status();
   }
 
@@ -761,10 +828,9 @@ iree_status_t loom_low_allocation_concat_reservation_find(
   IREE_RETURN_IF_ERROR(
       loom_low_allocation_concat_reservation_find_location_for_source(
           context, source_interval, relation, result_interval, result_range,
-          source_capacity, capacity, reservation_start_point, reservation_flags,
-          ignored_value_ids, ignored_value_count, &preferences,
-          default_result_location_base, &result_location_base,
-          &found_result_location));
+          sources, source_capacity, capacity, reservation_start_point,
+          reservation_flags, &preferences, default_result_location_base,
+          &result_location_base, &found_result_location));
   if (!found_result_location) {
     return iree_ok_status();
   }

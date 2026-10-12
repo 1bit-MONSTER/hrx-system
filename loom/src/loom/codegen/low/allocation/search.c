@@ -166,10 +166,8 @@ static bool loom_low_allocation_search_hard_relation_conflicts(
           context->assignment_map, counterpart_ordinal, NULL);
   if (counterpart == NULL) {
     const loom_low_allocation_resolved_fixed_value_t* fixed =
-        loom_low_allocation_target_constraints_fixed_value_for_value(
-            context->target_constraints,
-            loom_low_placement_value_id(context->placement,
-                                        counterpart_ordinal));
+        loom_low_allocation_target_constraints_fixed_value_for_value_ordinal(
+            context->target_constraints, counterpart_ordinal);
     counterpart = fixed ? &fixed->assignment : NULL;
   }
   if (counterpart == NULL) {

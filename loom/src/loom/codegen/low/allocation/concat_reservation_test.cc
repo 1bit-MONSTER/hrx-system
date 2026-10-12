@@ -163,6 +163,10 @@ TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
       .placement = &placement,
       .storage_leases = &leases,
   };
+  const loom_low_allocation_concat_reservation_sources_t reservation_sources = {
+      .ignored_value_ids = value_ids,
+      .ignored_value_count = 2,
+  };
 
   const loom_low_placement_value_ref_t values[] = {
       {0, LOOM_LOW_PLACEMENT_VALUE_OPERAND, 0},
@@ -218,7 +222,7 @@ TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
         loom_low_allocation_assignment_t reservation;
         IREE_EXPECT_OK(loom_low_allocation_concat_reservation_find(
             &context, &intervals[0], &relations[0], &intervals[2],
-            &result_ranges[2], value_ids, 2, &reservation));
+            &result_ranges[2], &reservation_sources, &reservation));
         if (future_start == 5) {
           EXPECT_EQ(reservation.value_id, value_ids[2]);
           EXPECT_EQ(reservation.location_count, 4u);
@@ -266,7 +270,7 @@ TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
     loom_low_allocation_assignment_t reservation;
     IREE_ASSERT_OK(loom_low_allocation_concat_reservation_find(
         &context, &intervals[0], &relations[0], &intervals[2],
-        &result_ranges[2], value_ids, 2, &reservation));
+        &result_ranges[2], &reservation_sources, &reservation));
     EXPECT_EQ(reservation.value_id, value_ids[2]);
     EXPECT_EQ(reservation.location_base, tier_limit == 8 ? 3u : 4u);
   }
@@ -291,7 +295,7 @@ TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
     loom_low_allocation_assignment_t reservation;
     IREE_ASSERT_OK(loom_low_allocation_concat_reservation_find(
         &context, &intervals[0], &relations[0], &intervals[2],
-        &result_ranges[2], value_ids, 2, &reservation));
+        &result_ranges[2], &reservation_sources, &reservation));
     EXPECT_EQ(reservation.value_id, LOOM_VALUE_ID_INVALID);
   }
 
