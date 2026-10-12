@@ -24,6 +24,7 @@ extern "C" {
 #endif
 
 typedef struct loom_low_lower_context_t loom_low_lower_context_t;
+typedef struct loom_op_t loom_op_t;
 
 typedef union loom_low_lower_value_binding_t {
   // Canonical selected type, or INVALID before the producer publishes one.
@@ -33,6 +34,11 @@ typedef union loom_low_lower_value_binding_t {
   // Low value identity after materialization, including the elided sentinel.
   loom_value_id_t value;
 } loom_low_lower_value_binding_t;
+
+// Records carrier inheritance for every same-type tied result on |source_op|.
+// Type-changing ties retain independent target-selected carriers.
+void loom_low_lower_plan_tied_result_types(loom_low_lower_context_t* context,
+                                           const loom_op_t* source_op);
 
 // Publishes an already interned native type selected by a source producer.
 void loom_low_lower_plan_value_type_id(loom_low_lower_context_t* context,
@@ -53,6 +59,11 @@ iree_status_t loom_low_lower_plan_value_type(loom_low_lower_context_t* context,
 void loom_low_lower_inherit_value_type(loom_low_lower_context_t* context,
                                        loom_value_id_t source_value_id,
                                        loom_value_id_t result_value_id);
+
+// Returns true when definition-ordered planning has selected or inherited the
+// native carrier for |source_value_id|.
+bool loom_low_lower_value_binding_type_is_planned(
+    const loom_low_lower_context_t* context, loom_value_id_t source_value_id);
 
 // Returns the selected native type, or its equivalent emitted type after the
 // producer has materialized. The value must have a non-elided binding.

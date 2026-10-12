@@ -226,6 +226,10 @@ static iree_status_t loom_low_source_call_resolve_callee_target(
 static iree_status_t loom_low_source_call_map_result_type(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t source_result, loom_type_t* out_low_type) {
+  if (loom_low_lower_value_binding_type_is_planned(context, source_result)) {
+    *out_low_type = loom_low_lower_value_binding_type(context, source_result);
+    return iree_ok_status();
+  }
   const uint32_t previous_error_count = context->result->error_count;
   IREE_RETURN_IF_ERROR(loom_low_lower_map_value(context, source_op,
                                                 source_result, out_low_type));

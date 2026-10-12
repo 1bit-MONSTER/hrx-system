@@ -275,3 +275,33 @@ low.func.def target<amdgpu.rdna3_5.core>(@caller_target) abi(hal_kernel) @compos
   %doubled = v_add_u32 %value, %value
   return %doubled
 }
+
+// ====
+
+// A same-type tied result retains the consumed buffer's selected native
+// carrier even though the call result has no independent buffer-reference
+// facts. A later assumption can refine its semantic memory space without
+// reconstructing the physical representation selected before the call.
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @forward_buffer(%base: reg<amdgpu.sgpr x2>) -> (%base as reg<amdgpu.sgpr x2>) asm {
+  return %base
+}
+
+func.def target(@target) @tied_buffer_caller(%input: buffer) -> (i32) {
+  %input_global = buffer.assume.memory_space<global> %input : buffer
+  %forwarded = low.invoke inline @forward_buffer(%input_global) : (buffer) -> (%input_global as buffer)
+  %forwarded_global = buffer.assume.memory_space<global> %forwarded : buffer
+  %base = index.constant 0 : offset
+  %view = buffer.view %forwarded_global[%base] : buffer -> view<1xi32>
+  %value = view.load %view[0] : view<1xi32> -> i32
+  func.return %value : i32
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core>(@target) abi(hal_kernel) @tied_buffer_caller() -> (reg<amdgpu.vgpr>) asm {
+  %input_global = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %13 = v_mov_b32 0
+  %value = global_load_b32_saddr %13, %input_global
+  return %value
+}
