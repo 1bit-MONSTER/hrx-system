@@ -506,23 +506,31 @@ iree_status_t loom_amdgpu_emit_fmaf_literal_operand_form_diagnostic(
   }
   IREE_ASSERT_LT(descriptor_ref,
                  loom_amdgpu_arithmetic_lower_rule_set.descriptor_ref_count);
-  const iree_string_view_t descriptor_name = loom_low_lower_rule_set_string(
-      &loom_amdgpu_arithmetic_lower_rule_set,
-      loom_amdgpu_arithmetic_lower_rule_set.descriptor_refs[descriptor_ref]
-          .key_string_ref);
+  const loom_low_descriptor_set_t* descriptor_set =
+      loom_low_lower_context_descriptor_set(context);
+  const uint32_t descriptor_ordinal =
+      loom_low_descriptor_set_lookup_descriptor_by_id(
+          descriptor_set,
+          loom_amdgpu_arithmetic_lower_rule_set.descriptor_refs[descriptor_ref]
+              .stable_id);
+  // FMA rules establish availability before selection succeeds.
+  IREE_ASSERT_NE(descriptor_ordinal, LOOM_LOW_DESCRIPTOR_ORDINAL_NONE);
+  const loom_low_descriptor_t* descriptor =
+      loom_low_descriptor_set_descriptor_at(descriptor_set, descriptor_ordinal);
+  const loom_amdgpu_descriptor_ref_t selected_ref =
+      loom_amdgpu_descriptor_ref_for_descriptor(descriptor_set, descriptor);
   const bool selected_literal =
-      iree_string_view_equal(descriptor_name, IREE_SV("amdgpu.v_fmaak_f32")) ||
-      iree_string_view_equal(descriptor_name, IREE_SV("amdgpu.v_fmamk_f32")) ||
-      iree_string_view_equal(descriptor_name,
-                             IREE_SV("amdgpu.v_fmamk_f32.flush_product"));
+      selected_ref == LOOM_AMDGPU_DESCRIPTOR_REF_V_FMAAK_F32 ||
+      selected_ref == LOOM_AMDGPU_DESCRIPTOR_REF_V_FMAMK_F32 ||
+      selected_ref == LOOM_AMDGPU_DESCRIPTOR_REF_V_FMAMK_F32_FLUSH_PRODUCT;
   const bool selected_plain_fma =
-      iree_string_view_equal(descriptor_name, IREE_SV("amdgpu.v_fma_f32"));
+      selected_ref == LOOM_AMDGPU_DESCRIPTOR_REF_V_FMA_F32;
   if (!selected_literal && !selected_plain_fma) {
     return iree_ok_status();
   }
 
-  const loom_low_descriptor_set_t* descriptor_set =
-      loom_low_lower_context_descriptor_set(context);
+  const iree_string_view_t descriptor_name = loom_low_descriptor_set_string(
+      descriptor_set, descriptor->key_string_ref);
   const iree_string_view_t descriptor_set_name =
       loom_amdgpu_descriptor_set_key(descriptor_set);
   const iree_string_view_t decision_key =

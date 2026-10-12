@@ -318,7 +318,6 @@ def _generate_source(
     report_key_ordinals = {key: index + 1 for index, key in enumerate(report_keys)}
     string_pool = _build_string_pool(
         table,
-        descriptor_ref_keys=descriptor_ref_keys,
         report_keys=report_keys,
         source_memory_byte_offset_materializers=source_memory_byte_offset_materializers,
         source_memory_address_materializers=source_memory_address_materializers,
@@ -392,7 +391,7 @@ def _generate_source(
         lower_rule_rows.emit_optional_array(
             descriptor_refs_name,
             "loom_low_lower_rule_descriptor_ref_t",
-            [lower_rule_rows.descriptor_ref_row(string_pool.ref(_descriptor_ref_string_label(index))) for index, _ in enumerate(descriptor_ref_keys)],
+            [lower_rule_rows.descriptor_ref_row(key) for key in descriptor_ref_keys],
         )
     )
 
@@ -738,10 +737,6 @@ def _generate_source(
     return "\n".join(lines)
 
 
-def _descriptor_ref_string_label(index: int) -> str:
-    return f"descriptor_ref_{index}_key"
-
-
 def _source_memory_conversion_string_label(index: int, source_type: str) -> str:
     return f"source_memory_byte_offset_{index}_{source_type}_immediate"
 
@@ -769,15 +764,12 @@ def _report_key_string_label(index: int) -> str:
 def _build_string_pool(
     table: CompiledLowerRuleSet,
     *,
-    descriptor_ref_keys: tuple[str, ...],
     report_keys: tuple[str, ...],
     source_memory_byte_offset_materializers: tuple[SourceMemoryByteOffsetMaterializer, ...],
     source_memory_address_materializers: tuple[SourceMemoryAddressMaterializer, ...],
     c_enum_prefix: str,
 ) -> CStringPool:
     pool = CStringPool(c_enum_prefix)
-    for index, key in enumerate(descriptor_ref_keys):
-        pool.intern(_descriptor_ref_string_label(index), key)
     for index, row in enumerate(source_memory_byte_offset_materializers):
         pool.intern(
             _source_memory_byte_offset_string_label(index),

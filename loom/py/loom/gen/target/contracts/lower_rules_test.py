@@ -97,7 +97,7 @@ from loom.target.contracts import (
     compile_lower_rule_set,
 )
 from loom.target.contracts.diagnostics import DiagnosticParamKind
-from loom.target.low_descriptors import Immediate, ImmediateKind
+from loom.target.low_descriptors import Immediate, ImmediateKind, descriptor_stable_id
 from loom.target.test.descriptors import (
     TEST_LOW_ADD_F32_DESCRIPTOR,
     TEST_LOW_ADD_I32_DESCRIPTOR,
@@ -1309,6 +1309,33 @@ def test_generate_lower_rule_set_emits_report_key_ordinals() -> None:
     assert "static const loom_low_lower_emit_ref_t" in generated.source
     assert ".emit_refs = " in generated.source
     assert ".emit_ref_count = IREE_ARRAYSIZE(" in generated.source
+    stable_id = descriptor_stable_id(TEST_LOW_ADD_F32_DESCRIPTOR.key)
+    assert f".stable_id = UINT64_C(0x{stable_id:016x})" in generated.source
+    assert ".key_string_ref = " not in generated.source
+    assert TEST_LOW_ADD_F32_DESCRIPTOR.key not in generated.source
+
+
+def test_descriptor_identity_preserves_unavailable_descriptor_diagnostic() -> None:
+    descriptor = TEST_LOW_ADD_I32_DESCRIPTOR
+    table = ContractFragment(
+        name="test.low.descriptor_identity",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        public_header=_TEST_PUBLIC_HEADER,
+        cases=(
+            RecipeRule(
+                source_op=scalar_arithmetic.scalar_addi,
+                guards=(Guard.descriptor_available(descriptor),),
+            ),
+        ),
+    )
+
+    generated = generate_lower_rule_set(table, dialect_ops={"scalar": ALL_SCALAR_OPS})
+
+    stable_id = descriptor_stable_id(descriptor.key)
+    assert f".stable_id = UINT64_C(0x{stable_id:016x})" in generated.source
+    assert ".key_string_ref = " not in generated.source
+    assert descriptor.key in generated.source
+    assert ".string_value_ref = " in generated.source
 
 
 def test_validate_c_table_shape_rejects_invalid_report_key() -> None:
