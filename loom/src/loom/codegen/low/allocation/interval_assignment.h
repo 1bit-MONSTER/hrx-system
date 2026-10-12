@@ -80,6 +80,9 @@ typedef struct loom_low_allocation_interval_assignment_context_t {
   // Borrowed bitmap indexed by module value ID. Set values require register
   // storage throughout allocation.
   iree_bitmap_t required_register_values;
+  // Borrowed bitmap indexed by module value ID. Set values have definitions
+  // that write physical storage outside their semantic execution domain.
+  iree_bitmap_t expanded_execution_values;
   // Optional borrowed exclusive spill-traffic limit for this assignment
   // attempt. Reaching the limit ends the attempt with a partial result that
   // the comparison caller must discard. Null leaves the attempt unbounded.

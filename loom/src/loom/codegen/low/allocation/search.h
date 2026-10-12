@@ -68,6 +68,9 @@ typedef struct loom_low_allocation_search_context_t {
   // Borrowed bitmap indexed by module value ID. Set values require register
   // storage throughout allocation.
   iree_bitmap_t required_register_values;
+  // Borrowed bitmap indexed by module value ID. Set values have definitions
+  // that write physical storage outside their semantic execution domain.
+  iree_bitmap_t expanded_execution_values;
   // Scalar/aggregate lifetime preferences computed before coloring.
   loom_low_allocation_scalar_packing_t scalar_packing;
   // Optional retained scalar physical-domain preferences for this attempt.

@@ -32,6 +32,11 @@ typedef struct loom_amdgpu_spill_lowering_result_t {
   const loom_value_id_t* required_register_value_ids;
   // Number of entries in |required_register_value_ids|.
   iree_host_size_t required_register_value_count;
+  // Scratch-arena-owned VGPR values defined while EXEC is widened beyond the
+  // surrounding program point's semantic lane mask.
+  const loom_value_id_t* expanded_execution_value_ids;
+  // Number of entries in |expanded_execution_value_ids|.
+  iree_host_size_t expanded_execution_value_count;
 } loom_amdgpu_spill_lowering_result_t;
 
 // Rewrites low.spill/low.reload in |function_op| into descriptor-backed AMDGPU

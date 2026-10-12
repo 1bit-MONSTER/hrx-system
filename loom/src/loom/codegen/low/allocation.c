@@ -101,6 +101,7 @@ loom_low_allocation_make_interval_assignment_context(
       .entry_location_count = state->options->entry_location_count,
       .storage_transport = state->options->storage_transport,
       .required_register_values = state->options->required_register_values,
+      .expanded_execution_values = state->options->expanded_execution_values,
       .unit_liveness = &state->unit_liveness,
       .residency = state->options->residency,
       .storage_leases = storage_leases,

@@ -91,6 +91,9 @@ typedef struct loom_low_allocation_options_t {
   // Borrowed bitmap indexed by module value ID. Set values require register
   // storage throughout allocation.
   iree_bitmap_t required_register_values;
+  // Borrowed bitmap indexed by module value ID. Set values have definitions
+  // that write physical storage outside their semantic execution domain.
+  iree_bitmap_t expanded_execution_values;
 } loom_low_allocation_options_t;
 
 // Allocates one modeled target-low function body and writes an arena-owned
