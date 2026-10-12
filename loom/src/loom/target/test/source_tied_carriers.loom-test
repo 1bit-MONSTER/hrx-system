@@ -1,0 +1,25 @@
+// RUN: emit source-low output=low
+
+// Same-type tied results retain the consumed operand's selected carrier across
+// the source-to-Low boundary. The normalized call keeps the ownership transfer
+// explicit for later allocation.
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @forward(%value: reg<test.i32>) -> (%value as reg<test.i32>) asm {
+  return %value
+}
+
+func.def target(@target) @caller(%value: i32) -> (i32) {
+  %result = low.invoke noinline @forward(%value) : (i32) -> (%value as i32)
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<test.low.core>(@target) @forward(%value: reg<test.i32>) -> (%value as reg<test.i32>) asm {
+  return %value
+}
+
+low.func.def target<test.low.core>(@target) abi(object_function) @caller(%value: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = low.func.call pure noinline @forward(%value) : (reg<test.i32>) -> (%value as reg<test.i32>)
+  return %result
+}

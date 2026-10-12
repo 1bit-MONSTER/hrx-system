@@ -9,11 +9,34 @@
 #include "loom/codegen/low/lower/context.h"
 #include "loom/ir/module.h"
 
+void loom_low_lower_plan_tied_result_types(loom_low_lower_context_t* context,
+                                           const loom_op_t* source_op) {
+  const loom_tied_result_t* tied_results = loom_op_tied_results(source_op);
+  const loom_value_id_t* operands = loom_op_const_operands(source_op);
+  const loom_value_id_t* results = loom_op_const_results(source_op);
+  for (uint16_t i = 0; i < source_op->tied_result_count; ++i) {
+    const loom_tied_result_t tied_result = tied_results[i];
+    if (!tied_result.has_type_change) {
+      loom_low_lower_inherit_value_type(context,
+                                        operands[tied_result.operand_index],
+                                        results[tied_result.result_index]);
+    }
+  }
+}
+
 void loom_low_lower_plan_value_type_id(loom_low_lower_context_t* context,
                                        loom_value_id_t source_value_id,
                                        loom_type_id_t type_id) {
   const loom_value_ordinal_t ordinal =
       loom_low_lowering_frame_value_ordinal(context->lowering, source_value_id);
+  if (iree_any_bit_set(context->lowering->source_plan.value_flags[ordinal],
+                       LOOM_LOW_LOWER_VALUE_INHERITED_TYPE)) {
+    const loom_value_ordinal_t source =
+        context->lowering->value_bindings[ordinal].type_source;
+    IREE_ASSERT_EQ(context->lowering->value_bindings[source].type, type_id,
+                   "same-type tied result must retain its operand carrier");
+    return;
+  }
   context->lowering->value_bindings[ordinal].type = type_id;
   context->lowering->source_plan.value_flags[ordinal] &=
       ~LOOM_LOW_LOWER_VALUE_INHERITED_TYPE;
@@ -43,6 +66,16 @@ void loom_low_lower_inherit_value_type(loom_low_lower_context_t* context,
   context->lowering->value_bindings[result].type_source = source;
   context->lowering->source_plan.value_flags[result] |=
       LOOM_LOW_LOWER_VALUE_INHERITED_TYPE;
+}
+
+bool loom_low_lower_value_binding_type_is_planned(
+    const loom_low_lower_context_t* context, loom_value_id_t source_value_id) {
+  const loom_value_ordinal_t ordinal =
+      loom_low_lowering_frame_value_ordinal(context->lowering, source_value_id);
+  return context->lowering->value_bindings[ordinal].type !=
+             LOOM_TYPE_ID_INVALID ||
+         iree_any_bit_set(context->lowering->source_plan.value_flags[ordinal],
+                          LOOM_LOW_LOWER_VALUE_INHERITED_TYPE);
 }
 
 loom_type_t loom_low_lower_value_binding_type(
