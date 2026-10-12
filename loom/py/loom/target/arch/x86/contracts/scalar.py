@@ -30,6 +30,7 @@ from loom.target.arch.x86.contracts.constants import (
     floating_storage_scalar_constant_rule,
 )
 from loom.target.arch.x86.contracts.integer_division import (
+    runtime_integer_division_rules,
     unsigned_constant_division_rules,
 )
 from loom.target.arch.x86.contracts.memory import (
@@ -1127,7 +1128,7 @@ def _cases() -> Sequence[ContractCase]:
                 scalar_comparison.scalar_cmpi,
                 predicate,
                 _I64,
-                "gpr64",
+                descriptor_suffix,
                 descriptor_lookup,
             )
             for predicate in (
@@ -1142,6 +1143,7 @@ def _cases() -> Sequence[ContractCase]:
                 "ugt",
                 "uge",
             )
+            for descriptor_suffix in ("imm.gpr64", "gpr64")
         ),
         *(
             _const_i32_rule(result_type, descriptor_lookup)
@@ -1173,7 +1175,11 @@ def _cases() -> Sequence[ContractCase]:
         ),
         *(
             _integer_compare_rule(
-                index.index_cmp, predicate, type_pattern, "gpr64", descriptor_lookup
+                index.index_cmp,
+                predicate,
+                type_pattern,
+                descriptor_suffix,
+                descriptor_lookup,
             )
             for type_pattern in (_INDEX, _OFFSET)
             for predicate in (
@@ -1188,6 +1194,7 @@ def _cases() -> Sequence[ContractCase]:
                 "ugt",
                 "uge",
             )
+            for descriptor_suffix in ("imm.gpr64", "gpr64")
         ),
         _index_cast_i32_extend_rule(
             "x86.scalar.movzx.gpr64.gpr32",
@@ -1392,6 +1399,7 @@ def _cases() -> Sequence[ContractCase]:
             descriptor_lookup, diagnostic=_SOURCE_MEMORY_DIAGNOSTIC
         ),
         *unsigned_constant_division_rules(descriptor_lookup),
+        *runtime_integer_division_rules(descriptor_lookup),
     )
 
 

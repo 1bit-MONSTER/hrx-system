@@ -60,6 +60,12 @@ typedef enum loom_x86_encoding_form_e {
   LOOM_X86_ENCODING_FORM_UNARY_RM = 28,
   // Destructive register accumulator with a source memory operand.
   LOOM_X86_ENCODING_FORM_BINARY_R_MEMORY = 29,
+  // Zeroes the result register with the target's dependency-breaking idiom.
+  LOOM_X86_ENCODING_FORM_ZERO_REGISTER = 30,
+  // Sign-extends EAX/RAX into the fixed EDX:EAX or RDX:RAX dividend pair.
+  LOOM_X86_ENCODING_FORM_SIGN_EXTEND_DIVIDEND = 31,
+  // Divides the fixed EDX:EAX or RDX:RAX dividend by input 2.
+  LOOM_X86_ENCODING_FORM_DIVIDE = 32,
 } loom_x86_encoding_form_t;
 
 // Native fixup identities. Object adapters supply their format's mapping.

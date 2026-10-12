@@ -333,6 +333,7 @@ uint16_t loom_x86_encoding_gpr_writes(
     const loom_x86_encoding_operands_t* operands) {
   switch (form) {
     case LOOM_X86_ENCODING_FORM_MULTIPLY_HIGH:
+    case LOOM_X86_ENCODING_FORM_DIVIDE:
       return (1u << 0) | (1u << 2);
     case LOOM_X86_ENCODING_FORM_STORE:
     case LOOM_X86_ENCODING_FORM_JUMP:
@@ -373,6 +374,17 @@ void loom_x86_encode_instruction(
     case LOOM_X86_ENCODING_FORM_UNARY_RM:
       loom_x86_encode_registers(instruction, encoding_id, extension, result);
       break;
+    case LOOM_X86_ENCODING_FORM_ZERO_REGISTER:
+      loom_x86_encode_registers(instruction, encoding_id, result, result);
+      break;
+    case LOOM_X86_ENCODING_FORM_SIGN_EXTEND_DIVIDEND:
+      loom_x86_encode_prefix(instruction, encoding_id, 0, 0, 0, 0);
+      loom_x86_encode_opcode(instruction, encoding_id);
+      break;
+    case LOOM_X86_ENCODING_FORM_DIVIDE:
+      loom_x86_encode_registers(instruction, encoding_id, extension,
+                                operands->inputs[2]);
+      return;
     case LOOM_X86_ENCODING_FORM_BINARY_RM_R:
       loom_x86_encode_registers(instruction, encoding_id, rhs, result);
       break;

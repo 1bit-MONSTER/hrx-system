@@ -63,6 +63,7 @@ from .common import (
     _REG_ZMM,
     _RESOURCE_ADDRESS,
     _RESOURCE_CONTROL,
+    _RESOURCE_DIVISION,
     _RESOURCE_DOT,
     _RESOURCE_LOAD,
     _RESOURCE_MASK,
@@ -298,6 +299,11 @@ X86_AVX512_CORE_DESCRIPTOR_SET = DescriptorSet(
     ),
     resources=(
         Resource(_RESOURCE_SCALAR, capacity_per_cycle=1, kind=ResourceKind.SCALAR_ALU),
+        Resource(
+            _RESOURCE_DIVISION,
+            capacity_per_cycle=1,
+            kind=ResourceKind.PIPELINE,
+        ),
         Resource(
             _RESOURCE_VECTOR,
             capacity_per_cycle=4,

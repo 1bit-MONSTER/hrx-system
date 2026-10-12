@@ -435,6 +435,35 @@ TEST(EncodingTest, DestructiveUnaryRegisterWidth) {
                  {0x49, 0xf7, 0xd9}, 1u << 9);
 }
 
+TEST(EncodingTest, FixedDividendDivisionFamily) {
+  loom_x86_encoding_operands_t operands = {.result = 2};
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_ZERO_REGISTER, 0x31, operands,
+                 {0x31, 0xd2}, 1u << 2);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_ZERO_REGISTER,
+                 0x31 | LOOM_X86_ENCODING_REX_W, operands, {0x48, 0x31, 0xd2},
+                 1u << 2);
+
+  operands.inputs[0] = 0;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_SIGN_EXTEND_DIVIDEND, 0x99, operands,
+                 {0x99}, 1u << 2);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_SIGN_EXTEND_DIVIDEND,
+                 0x99 | LOOM_X86_ENCODING_REX_W, operands, {0x48, 0x99},
+                 1u << 2);
+
+  operands.inputs[1] = 2;
+  operands.inputs[2] = 9;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_DIVIDE, 0xf7 | (6u << 9), operands,
+                 {0x41, 0xf7, 0xf1}, (1u << 0) | (1u << 2));
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_DIVIDE, 0xf7 | (7u << 9), operands,
+                 {0x41, 0xf7, 0xf9}, (1u << 0) | (1u << 2));
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_DIVIDE,
+                 0xf7 | (6u << 9) | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x49, 0xf7, 0xf1}, (1u << 0) | (1u << 2));
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_DIVIDE,
+                 0xf7 | (7u << 9) | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x49, 0xf7, 0xf9}, (1u << 0) | (1u << 2));
+}
+
 TEST(EncodingTest, ByteRegisterPrefixAndFullWidthDefinition) {
   // MOVZX esi,sil requires a REX prefix even without extended registers.
   loom_x86_encoding_operands_t operands = {.result = 6};

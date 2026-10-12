@@ -870,7 +870,7 @@ static iree_status_t loom_scalar_legalize_widen_integer_operands(
   return iree_ok_status();
 }
 
-// Targets with 32-bit arithmetic can implement byte and halfword operations by
+// Targets with 32-bit arithmetic can implement narrower integer operations by
 // widening their inputs and truncating each result. Keeping that truncation at
 // the original operation boundary preserves wrapping before a later shift,
 // division, or comparison consumes the value.
@@ -1641,26 +1641,30 @@ static const loom_target_legalizer_rule_t kScalarLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_SCALAR_DIVSI,
-        .first_operand_element_types =
-            LOOM_SCALAR_TYPE_SET_I8 | LOOM_SCALAR_TYPE_SET_I16,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I1 |
+                                       LOOM_SCALAR_TYPE_SET_I8 |
+                                       LOOM_SCALAR_TYPE_SET_I16,
         .legalize = loom_scalar_legalize_narrow_binary,
     },
     {
         .root_kind = LOOM_OP_SCALAR_DIVUI,
-        .first_operand_element_types =
-            LOOM_SCALAR_TYPE_SET_I8 | LOOM_SCALAR_TYPE_SET_I16,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I1 |
+                                       LOOM_SCALAR_TYPE_SET_I8 |
+                                       LOOM_SCALAR_TYPE_SET_I16,
         .legalize = loom_scalar_legalize_narrow_binary,
     },
     {
         .root_kind = LOOM_OP_SCALAR_REMSI,
-        .first_operand_element_types =
-            LOOM_SCALAR_TYPE_SET_I8 | LOOM_SCALAR_TYPE_SET_I16,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I1 |
+                                       LOOM_SCALAR_TYPE_SET_I8 |
+                                       LOOM_SCALAR_TYPE_SET_I16,
         .legalize = loom_scalar_legalize_narrow_binary,
     },
     {
         .root_kind = LOOM_OP_SCALAR_REMUI,
-        .first_operand_element_types =
-            LOOM_SCALAR_TYPE_SET_I8 | LOOM_SCALAR_TYPE_SET_I16,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I1 |
+                                       LOOM_SCALAR_TYPE_SET_I8 |
+                                       LOOM_SCALAR_TYPE_SET_I16,
         .legalize = loom_scalar_legalize_narrow_binary,
     },
     {

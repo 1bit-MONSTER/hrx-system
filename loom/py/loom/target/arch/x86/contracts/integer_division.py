@@ -4,11 +4,12 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Unsigned constant division over word-sized numerators.
+"""Integer division rules for x86 scalar carriers.
 
-Rules describe arithmetic and instruction-form classes, independently of the
-divisor: exact reciprocals, one-LEA quotient products, and high-bit comparisons.
-One and powers of two are reduced by shared source canonicalization.
+Constant rules describe reciprocal, one-LEA quotient-product, and high-bit
+comparison forms independently of the divisor. One and powers of two are
+reduced by shared source canonicalization. Runtime rules expose the fixed
+accumulator inputs and results of native signed and unsigned division.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from loom.target.low_descriptors import Descriptor
 
 _I32 = Scalar("i32")
 _I64 = Scalar("i64")
+_I1 = Scalar("i1")
 _INDEX = Scalar("index")
 _DIVISOR_DIAGNOSTIC = GuardDiagnostic(
     subject_role="divisor",
@@ -292,3 +294,192 @@ def unsigned_constant_division_rules(
             _high_bit_rule(remainder_op, type_pattern, "remainder", descriptor_lookup),
         )
     )
+
+
+def _runtime_division_rule(
+    source_op: Op,
+    type_pattern: TypePattern,
+    bit_count: int,
+    *,
+    signed: bool,
+    remainder: bool,
+    sanitize_minus_one: bool,
+    descriptor_lookup: Callable[[str], Descriptor],
+    dividend_range: tuple[int, int] | None = None,
+    divisor_range: tuple[int, int] | None = None,
+) -> DescriptorRule:
+    operation = "divs" if signed else "divu"
+    result_name = "remainder" if remainder else "quotient"
+    suffix = f"gpr{bit_count}"
+    divide = descriptor_lookup(f"x86.scalar.{operation}.{result_name}.{suffix}")
+    guards = [
+        Guard.value_type(field, type_pattern) for field in ("lhs", "rhs", "result")
+    ]
+    if dividend_range is not None:
+        guards.append(Guard.value_i64_range("lhs", *dividend_range))
+    if divisor_range is not None:
+        guards.append(Guard.value_i64_range("rhs", *divisor_range))
+
+    emits: list[EmitDescriptorOp | EmitRegisterCopy] = []
+    divisor = ValueRef.operand("rhs")
+    if sanitize_minus_one:
+        compare = descriptor_lookup(f"x86.scalar.cmp.eq.imm.{suffix}")
+        constant = descriptor_lookup(f"x86.scalar.movimm.{suffix}")
+        select = descriptor_lookup(f"x86.scalar.select.{suffix}")
+        emits.extend(
+            (
+                EmitDescriptorOp(
+                    descriptor=compare,
+                    operands={"lhs": divisor},
+                    results={"dst": ValueRef.temporary("divisor_is_minus_one")},
+                    result_types={"dst": _I1},
+                    immediates={"imm32": -1},
+                ),
+                EmitDescriptorOp(
+                    descriptor=constant,
+                    results={"dst": ValueRef.temporary("one")},
+                    result_types={"dst": type_pattern},
+                    immediates={f"imm{bit_count}": 1},
+                    form=DescriptorEmitForm.CONST,
+                ),
+                EmitDescriptorOp(
+                    descriptor=select,
+                    operands={
+                        "condition": ValueRef.temporary("divisor_is_minus_one"),
+                        "true_value": ValueRef.temporary("one"),
+                        "false_value": divisor,
+                    },
+                    results={"dst": ValueRef.temporary("safe_divisor")},
+                    result_types={"dst": type_pattern},
+                ),
+            )
+        )
+        divisor = ValueRef.temporary("safe_divisor")
+
+    low = descriptor_lookup(f"x86.scalar.dividend.low.{suffix}")
+    high = descriptor_lookup(
+        f"x86.scalar.dividend.{'sign_high' if signed else 'zero_high'}.{suffix}"
+    )
+    emits.extend(
+        (
+            EmitDescriptorOp(
+                descriptor=low,
+                operands={"src": ValueRef.operand("lhs")},
+                results={"dst": ValueRef.temporary("dividend_low")},
+                result_types={"dst": DescriptorResultType()},
+            ),
+            EmitDescriptorOp(
+                descriptor=high,
+                operands=(
+                    {"low": ValueRef.temporary("dividend_low")} if signed else {}
+                ),
+                results={"dst": ValueRef.temporary("dividend_high")},
+                result_types={"dst": DescriptorResultType()},
+            ),
+            EmitDescriptorOp(
+                descriptor=divide,
+                operands={
+                    "low": ValueRef.temporary("dividend_low"),
+                    "high": ValueRef.temporary("dividend_high"),
+                    "divisor": divisor,
+                },
+                results={"dst": ValueRef.temporary("fixed_result")},
+                result_types={"dst": DescriptorResultType()},
+            ),
+            EmitRegisterCopy(
+                ValueRef.temporary("fixed_result"),
+                ValueRef.result("result"),
+                type_pattern,
+            ),
+        )
+    )
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=divide,
+        guards=tuple(guards),
+        emit=tuple(emits),
+    )
+
+
+def runtime_integer_division_rules(
+    descriptor_lookup: Callable[[str], Descriptor],
+) -> tuple[DescriptorRule, ...]:
+    """Returns native dynamic quotient and remainder rules for scalar carriers."""
+    rules: list[DescriptorRule] = []
+    for type_pattern, bit_count in ((_I32, 32), (_I64, 64)):
+        for signed, quotient_op, remainder_op in (
+            (
+                False,
+                scalar_arithmetic.scalar_divui,
+                scalar_arithmetic.scalar_remui,
+            ),
+            (
+                True,
+                scalar_arithmetic.scalar_divsi,
+                scalar_arithmetic.scalar_remsi,
+            ),
+        ):
+            rules.append(
+                _runtime_division_rule(
+                    quotient_op,
+                    type_pattern,
+                    bit_count,
+                    signed=signed,
+                    remainder=False,
+                    sanitize_minus_one=False,
+                    descriptor_lookup=descriptor_lookup,
+                )
+            )
+            if signed:
+                # IDIV traps on MIN / -1 even when only the representable zero
+                # remainder is observed. Fact-proven ranges avoid the guard;
+                # the general rule substitutes one for the equivalent
+                # remainder divisor while leaving zero divisors untouched.
+                minimum = -(2 ** (bit_count - 1))
+                maximum = 2 ** (bit_count - 1) - 1
+                for dividend_range, divisor_range in (
+                    ((minimum + 1, maximum), None),
+                    (None, (minimum, -2)),
+                    (None, (0, maximum)),
+                ):
+                    rules.append(
+                        _runtime_division_rule(
+                            remainder_op,
+                            type_pattern,
+                            bit_count,
+                            signed=True,
+                            remainder=True,
+                            sanitize_minus_one=False,
+                            descriptor_lookup=descriptor_lookup,
+                            dividend_range=dividend_range,
+                            divisor_range=divisor_range,
+                        )
+                    )
+            rules.append(
+                _runtime_division_rule(
+                    remainder_op,
+                    type_pattern,
+                    bit_count,
+                    signed=signed,
+                    remainder=True,
+                    sanitize_minus_one=signed,
+                    descriptor_lookup=descriptor_lookup,
+                )
+            )
+
+    for source_op, remainder in (
+        (index.index_div, False),
+        (index.index_rem, True),
+    ):
+        rules.append(
+            _runtime_division_rule(
+                source_op,
+                _INDEX,
+                64,
+                signed=False,
+                remainder=remainder,
+                sanitize_minus_one=False,
+                descriptor_lookup=descriptor_lookup,
+            )
+        )
+    return tuple(rules)

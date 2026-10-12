@@ -19,7 +19,6 @@ func.def @add_i32(%value: i32, %delta: i32) -> (i32) {
 // ====
 
 func.def public @call_mixed_i64(%input: vector<1xi64>, %delta: i64) -> (i64, i64) {
-  // ERROR@+1: TARGET/002 {op_name="vector.extract", field_name="source"}
   %value = vector.extract %input[0] : vector<1xi64> -> i64
   %mixed = func.call @add_i64(%value, %delta) : (i64, i64) -> (i64)
   %uniform = func.call @add_i64(%delta, %delta) : (i64, i64) -> (i64)
@@ -29,6 +28,20 @@ func.def public @call_mixed_i64(%input: vector<1xi64>, %delta: i64) -> (i64, i64
 func.def @add_i64(%value: i64, %delta: i64) -> (i64) {
   %result = scalar.addi %value, %delta : i64
   func.return %result : i64
+}
+
+// ----
+low.func.def public target<x86.avx2.core> abi(object_function) abi_layout({signature = (vector<1xi64>, i64) -> (i64, i64)}) @call_mixed_i64(%input: reg<x86.xmm>, %delta: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %value = vpextrq.xmm %input, 0
+  %mixed = low.func.call pure @add_i64(%value, %delta) : (reg<x86.gpr64>, reg<x86.gpr64>) -> (reg<x86.gpr64>)
+  %uniform = low.func.call pure @add_i64(%delta, %delta) : (reg<x86.gpr64>, reg<x86.gpr64>) -> (reg<x86.gpr64>)
+  return %mixed, %uniform
+}
+
+low.func.def target<x86.avx2.core> @add_i64(%value: reg<x86.gpr64>, %delta: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %21 = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %result = add.gpr64 %21, %delta
+  return %result
 }
 
 // ====
@@ -52,18 +65,15 @@ low.func.def public target<x86.avx2.core> abi(object_function) @call_vector_resu
   %c1 = mov.imm32 1
   %c2 = mov.imm32 2
   %c3 = mov.imm32 3
-  %31 = mov.imm64 3
-  %32 = cmp.eq.gpr64 %lane, %31
-  %33 = mov.imm64 2
-  %34 = cmp.eq.gpr64 %lane, %33
-  %35 = mov.imm64 1
-  %36 = cmp.eq.gpr64 %lane, %35
-  %37 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
-  %38 = select.gpr32 %36, %c1, %37
-  %39 = copy %38 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %40 = select.gpr32 %34, %c2, %39
-  %41 = copy %40 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %result = select.gpr32 %32, %c3, %41
+  %31 = cmp.eq.imm.gpr64 %lane, 3
+  %32 = cmp.eq.imm.gpr64 %lane, 2
+  %33 = cmp.eq.imm.gpr64 %lane, 1
+  %34 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
+  %35 = select.gpr32 %33, %c1, %34
+  %36 = copy %35 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %37 = select.gpr32 %32, %c2, %36
+  %38 = copy %37 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = select.gpr32 %31, %c3, %38
   return %result
 }
 

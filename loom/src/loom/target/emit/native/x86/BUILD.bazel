@@ -280,6 +280,25 @@ loom_generated_file(
 )
 
 loom_generated_file(
+    name = "runtime_division_object",
+    testonly = True,
+    args = [
+        "$(location test/runtime_division.loom)",
+        "--target=x86:avx2",
+    ],
+    generator = "//loom/src/loom/tools/loom-compile:loom-compile",
+    inputs = ["test/runtime_division.loom"],
+    output = "runtime_division.o",
+    output_flag = "--output=",
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+    ]) + [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+)
+
+loom_generated_file(
     name = "avx512_callable_object",
     testonly = True,
     args = [
@@ -345,6 +364,25 @@ loom_cc_test(
         "callable_link_test.cc",
         "packed_dot_callable.o",
         "vector_callable.o",
+    ],
+    copts = ["-mavx2"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+    ]) + [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    deps = [
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "runtime_division_link_test",
+    srcs = [
+        "runtime_division.o",
+        "runtime_division_link_test.cc",
     ],
     copts = ["-mavx2"],
     target_compatible_with = loom_config_compatible_with([

@@ -151,6 +151,28 @@ iree_py_test(
 
 iree_py_test(
   NAME
+    integer_division_test
+  MAIN
+    "../../../../tools/pytest_style_runner.py"
+  SRCS
+    "integer_division_test.py"
+    "../../../../tools/pytest_style_runner.py"
+  ARGS
+    "loom.target.arch.x86.contracts.integer_division_test"
+  DEPS
+    loom::py::loom::target::arch::x86::contracts::contracts
+    loom::py::loom::dialect::index::index
+    loom::py::loom::dialect::scalar::scalar
+    loom::py::loom::target::arch::x86::descriptors
+    loom::py::loom::target::contracts::contracts
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+)
+
+iree_py_test(
+  NAME
     predicate_test
   MAIN
     "../../../../tools/pytest_style_runner.py"
