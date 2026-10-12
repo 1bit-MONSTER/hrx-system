@@ -29,6 +29,8 @@ iree_runtime_cc_library(
     name = "libhsa",
     srcs = [
         "libhsa.c",
+        "libhsa_npu_gate.c",
+        "libhsa_npu_gate.h",
     ],
     hdrs = [
         "libhsa.h",

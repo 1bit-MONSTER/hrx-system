@@ -19,6 +19,8 @@ iree_cc_library(
     "libhsa_tables.h"
   SRCS
     "libhsa.c"
+    "libhsa_npu_gate.c"
+    "libhsa_npu_gate.h"
   DEPS
     iree::base
     iree::base::internal
