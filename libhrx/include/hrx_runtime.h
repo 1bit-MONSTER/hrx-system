@@ -159,7 +159,6 @@ typedef struct hrx_memory_reservation_s* hrx_memory_reservation_t;
 typedef struct hrx_fence_s* hrx_fence_t;
 typedef struct hrx_buffer_view_s* hrx_buffer_view_t;
 typedef struct hrx_executable_s* hrx_executable_t;
-typedef struct hrx_physical_memory_s* hrx_physical_memory_t;
 typedef struct hrx_event_s* hrx_event_t;
 typedef struct hrx_mem_pool_s* hrx_mem_pool_t;
 typedef struct hrx_graph_s* hrx_graph_t;
@@ -1007,61 +1006,6 @@ HRX_API hrx_status_t hrx_queue_map(
     const hrx_semaphore_list_t* wait_semaphores,
     const hrx_semaphore_list_t* signal_semaphores, size_t mapping_count,
     const hrx_memory_mapping_t* mappings, hrx_queue_map_flags_t flags);
-
-//===----------------------------------------------------------------------===//
-// Virtual memory (allocator methods)
-//===----------------------------------------------------------------------===//
-
-HRX_API hrx_status_t hrx_allocator_query_virtual_memory(
-    hrx_allocator_t allocator, hrx_memory_type_t mem_type, bool* supported,
-    size_t* min_page_size, size_t* recommended_page_size);
-
-HRX_API hrx_status_t hrx_allocator_virtual_memory_reserve(
-    hrx_allocator_t allocator, hrx_queue_affinity_t affinity, size_t size,
-    hrx_buffer_t* virtual_buffer);
-
-HRX_API hrx_status_t hrx_allocator_virtual_memory_release(
-    hrx_allocator_t allocator, hrx_buffer_t virtual_buffer);
-
-HRX_API hrx_status_t hrx_allocator_physical_memory_allocate(
-    hrx_allocator_t allocator, hrx_memory_type_t mem_type, size_t size,
-    hrx_physical_memory_t* physical);
-
-HRX_API hrx_status_t hrx_allocator_physical_memory_free(
-    hrx_allocator_t allocator, hrx_physical_memory_t physical);
-
-HRX_API hrx_status_t hrx_allocator_virtual_memory_map(
-    hrx_allocator_t allocator, hrx_buffer_t virtual_buffer,
-    size_t virtual_offset, hrx_physical_memory_t physical,
-    size_t physical_offset, size_t size);
-
-HRX_API hrx_status_t hrx_allocator_virtual_memory_unmap(
-    hrx_allocator_t allocator, hrx_buffer_t virtual_buffer,
-    size_t virtual_offset, size_t size);
-
-// Memory protection bitfield. Values match iree_hal_memory_protection_t.
-typedef uint64_t hrx_memory_protection_t;
-#define HRX_MEMORY_PROTECTION_NONE 0ull
-#define HRX_MEMORY_PROTECTION_READ (1ull << 0)
-#define HRX_MEMORY_PROTECTION_WRITE (1ull << 1)
-#define HRX_MEMORY_PROTECTION_READ_WRITE \
-  (HRX_MEMORY_PROTECTION_READ | HRX_MEMORY_PROTECTION_WRITE)
-
-typedef enum hrx_virtual_memory_access_scope_t {
-  HRX_VIRTUAL_MEMORY_ACCESS_SCOPE_ALL = 0,
-  HRX_VIRTUAL_MEMORY_ACCESS_SCOPE_HOST = 1,
-  HRX_VIRTUAL_MEMORY_ACCESS_SCOPE_DEVICE = 2,
-} hrx_virtual_memory_access_scope_t;
-
-HRX_API hrx_status_t hrx_allocator_virtual_memory_protect(
-    hrx_allocator_t allocator, hrx_buffer_t virtual_buffer,
-    size_t virtual_offset, size_t size, hrx_memory_protection_t protection);
-
-HRX_API hrx_status_t hrx_allocator_virtual_memory_protect_scoped(
-    hrx_allocator_t allocator, hrx_buffer_t virtual_buffer,
-    size_t virtual_offset, size_t size,
-    hrx_virtual_memory_access_scope_t access_scope,
-    hrx_memory_protection_t protection);
 
 //===----------------------------------------------------------------------===//
 // Events (stream synchronization points)

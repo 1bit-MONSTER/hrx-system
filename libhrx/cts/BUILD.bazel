@@ -428,8 +428,6 @@ hrx_cts_test(
 hrx_cts_test(
     name = "virtual_memory",
     srcs = ["tests/virtual_memory/virtual_memory_test.cpp"],
-    resource_group = GPU_DEVICE_RESOURCE_GROUP,
-    tags = AMD_GPU_CTS_TAGS,
 )
 
 hrx_cts_test(

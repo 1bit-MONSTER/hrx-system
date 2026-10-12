@@ -165,21 +165,20 @@ class HrxLoader {
   decltype(&hrx_buffer_view_rank) buffer_view_rank;
   decltype(&hrx_buffer_view_dim) buffer_view_dim;
 
-  // Virtual memory.
-  decltype(&hrx_allocator_query_virtual_memory) allocator_query_virtual_memory;
-  decltype(&hrx_allocator_virtual_memory_reserve)
-      allocator_virtual_memory_reserve;
-  decltype(&hrx_allocator_virtual_memory_release)
-      allocator_virtual_memory_release;
-  decltype(&hrx_allocator_physical_memory_allocate)
-      allocator_physical_memory_allocate;
-  decltype(&hrx_allocator_physical_memory_free) allocator_physical_memory_free;
-  decltype(&hrx_allocator_virtual_memory_map) allocator_virtual_memory_map;
-  decltype(&hrx_allocator_virtual_memory_unmap) allocator_virtual_memory_unmap;
-  decltype(&hrx_allocator_virtual_memory_protect)
-      allocator_virtual_memory_protect;
-  decltype(&hrx_allocator_virtual_memory_protect_scoped)
-      allocator_virtual_memory_protect_scoped;
+  // Address owners and batched mappings.
+  decltype(&hrx_device_query_memory_scope) device_query_memory_scope;
+  decltype(&hrx_memory_reservation_query_capabilities)
+      memory_reservation_query_capabilities;
+  decltype(&hrx_memory_reservation_create) memory_reservation_create;
+  decltype(&hrx_memory_reservation_buffer) memory_reservation_buffer;
+  decltype(&hrx_memory_reservation_mapping_granularity)
+      memory_reservation_mapping_granularity;
+  decltype(&hrx_memory_reservation_resolve_projection)
+      memory_reservation_resolve_projection;
+  decltype(&hrx_memory_reservation_destroy) memory_reservation_destroy;
+  decltype(&hrx_allocator_query_mapping_requirements)
+      allocator_query_mapping_requirements;
+  decltype(&hrx_queue_map) queue_map;
 
   // Memory pools.
   decltype(&hrx_mem_pool_create) mem_pool_create;

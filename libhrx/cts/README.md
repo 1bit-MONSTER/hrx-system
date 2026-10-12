@@ -16,7 +16,7 @@
 | `stream` | stream_test.cpp | Create, flush, synchronize, query, get_semaphore, timeline position, wait_on |
 | `stream_ops` | stream_ops_test.cpp | fill_buffer, copy_buffer, update_buffer with verification |
 | `refcount` | refcount_test.cpp | Retain/release on device, semaphore, stream, buffer |
-| `virtual_memory` | virtual_memory_test.cpp | Query support (expected false for the task driver), reserve failure on unsupported device |
+| `virtual_memory` | virtual_memory_test.cpp | Scope-qualified capabilities, batched aliases of ordinary backing, permission updates, exact transfer output, unsupported construction |
 
 ### Not Yet Tested (needs kernels or infrastructure)
 
@@ -30,7 +30,6 @@
 | `multithread` | Concurrent stream/semaphore stress tests |
 | `multidevice` | Cross-device copy, cross-device semaphore (needs multi-GPU) |
 | `fork` | fork() safety for DataLoader scenarios |
-| `virtual_memory` (full) | map/unmap/protect needs allocator with VM support (not available from the task driver) |
 
 ### Running
 

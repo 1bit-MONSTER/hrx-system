@@ -663,11 +663,6 @@ hrx_cc_test(
   ARGS
     "--hrx-library"
     "$<TARGET_FILE:libhrx::src::libhrx::hrx>"
-  LABELS
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-  RESOURCE_GROUP
-    gpu-device
 )
 
 hrx_cc_test(
