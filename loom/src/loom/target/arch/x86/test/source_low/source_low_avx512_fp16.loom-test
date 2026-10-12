@@ -143,21 +143,21 @@ low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_
   %73 = mov.imm32 32767
   %74 = vmovd.xmm.gpr32 %73
   %75 = vpbroadcastw.xmm %74
-  %absolute = vpand.xmm %selected, %75
+  %76 = vpand.xmm %selected, %75
   %77 = mov.imm32 -32768
   %78 = vmovd.xmm.gpr32 %77
   %79 = vpbroadcastw.xmm %78
-  %negated = vpxor.xmm %absolute, %79
-  %81 = vpand.xmm %negated, %75
+  %80 = vpxor.xmm %76, %79
+  %81 = vpand.xmm %80, %75
   %82 = vpand.xmm %xmm_rhs, %79
-  %restored = vpor.xmm %81, %82
+  %copied = vpor.xmm %81, %82
   %c0 = vxorps.zero.xmm
   %85 = mov.imm32 15872
   %86 = vmovd.xmm.gpr32 %85
   %constant = vpbroadcastw.xmm %86
-  %extended = vcvtph2psx.xmm.xmm %restored
+  %extended = vcvtph2psx.xmm.xmm %copied
   %truncated = vcvtps2phx.xmm.xmm %wide
-  %shuffled = vpshuflw.xmm %restored, 27
+  %shuffled = vpshuflw.xmm %copied, 27
   %with_zero = vaddph.xmm %shuffled, %c0
   %result = vaddph.xmm %with_zero, %constant
   return %result, %ymm_sub, %zmm_div, %cmp, %extended, %truncated

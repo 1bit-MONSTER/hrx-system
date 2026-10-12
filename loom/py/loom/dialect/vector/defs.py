@@ -3633,6 +3633,7 @@ vector_bitcast = Op(
     results=[Result("result", VECTOR)],
     constraints=[TotalBitCountEqual("input", "result")],
     facts="loom_vector_bitcast_facts",
+    canonicalize="loom_vector_bitcast_canonicalize",
     traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         Ref("input"),

@@ -325,19 +325,10 @@ func.def @linearize_rank3_boundary_tile(%input: buffer, %output: buffer, %origin
   %36 = index.constant 156 : index
   %37 = index.add %14, %36 : index
   %38 = vector.load %source[%37] : view<512xf32> -> vector<4xf32>
-  %71 = vector.concat<0> %17, %24 : vector<4xf32>, vector<4xf32> -> vector<8xf32>
-  %72 = vector.concat<0> %31, %38 : vector<4xf32>, vector<4xf32> -> vector<8xf32>
-  %73 = vector.concat<0> %71, %72 : vector<8xf32>, vector<8xf32> -> vector<16xf32>
-  %value = vector.bitcast %73 : vector<16xf32> to vector<2x2x4xf32>
-  %42 = vector.bitcast %value : vector<2x2x4xf32> to vector<16xf32>
-  %43 = vector.slice %42[0] : vector<16xf32> -> vector<4xf32>
-  vector.store %43, %destination[%16] : vector<4xf32>, view<512xf32>
-  %50 = vector.slice %42[4] : vector<16xf32> -> vector<4xf32>
-  vector.store %50, %destination[%23] : vector<4xf32>, view<512xf32>
-  %57 = vector.slice %42[8] : vector<16xf32> -> vector<4xf32>
-  vector.store %57, %destination[%30] : vector<4xf32>, view<512xf32>
-  %64 = vector.slice %42[12] : vector<16xf32> -> vector<4xf32>
-  vector.store %64, %destination[%37] : vector<4xf32>, view<512xf32>
+  vector.store %17, %destination[%16] : vector<4xf32>, view<512xf32>
+  vector.store %24, %destination[%23] : vector<4xf32>, view<512xf32>
+  vector.store %31, %destination[%30] : vector<4xf32>, view<512xf32>
+  vector.store %38, %destination[%37] : vector<4xf32>, view<512xf32>
   func.return
 }
 

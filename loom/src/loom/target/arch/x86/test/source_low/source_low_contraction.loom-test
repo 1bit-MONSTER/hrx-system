@@ -166,8 +166,8 @@ func.def target(@target) @packed_byte_bitcast_roundtrip(%bytes: vector<32xi8>) -
 }
 
 // ----
-low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_layout({signature = (vector<32xi8>) -> (vector<32xi8>)}) @packed_byte_bitcast_roundtrip(%result: reg<x86.ymm>) -> (reg<x86.ymm>) asm {
-  return %result
+low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_layout({signature = (vector<32xi8>) -> (vector<32xi8>)}) @packed_byte_bitcast_roundtrip(%bytes: reg<x86.ymm>) -> (reg<x86.ymm>) asm {
+  return %bytes
 }
 
 // ====
