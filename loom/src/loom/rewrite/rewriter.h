@@ -254,6 +254,32 @@ static inline loom_value_facts_t loom_rewriter_value_facts(
   return loom_value_fact_table_lookup(rewriter->fact_table, value_id);
 }
 
+// Returns the retained SSA identity without changing the facts attached to
+// |value_id|. This is an indexed lookup; identity chains are resolved by value
+// analysis. Without analysis, the value is its own identity.
+static inline loom_value_id_t loom_rewriter_value_identity(
+    const loom_rewriter_t* rewriter, loom_value_id_t value_id) {
+  return loom_value_fact_table_query_identity(rewriter->fact_table, value_id);
+}
+
+// Returns whether same-typed operands carry identical values using the retained
+// identity and exact integer facts. This does not prove sole ownership or
+// ordinary floating-point equality; NaN-sensitive patterns retain their
+// predicate rules.
+static inline bool loom_rewriter_values_equal(const loom_rewriter_t* rewriter,
+                                              loom_value_id_t lhs,
+                                              loom_value_id_t rhs) {
+  return loom_value_fact_table_values_equal(rewriter->fact_table, lhs, rhs);
+}
+
+// Returns the live producer of a value's retained identity, or NULL for block
+// arguments, erased producers, and identities with a different refined type.
+// This permits semantic producer matching across fact identities without
+// weakening the original value's facts or changing its uses. It does not prove
+// ownership: patterns that retire a producer must check its actual SSA uses.
+loom_op_t* loom_rewriter_value_defining_op(const loom_rewriter_t* rewriter,
+                                           loom_value_id_t value_id);
+
 // Materializes a constant value using the rewriter's callback.
 // Convenience for patterns that need to create constants (e.g.,
 // index values for shape dimensions) without depending on any

@@ -20,7 +20,9 @@ loom_check_test_suite(
     "fact_refinement.loom-test"
     "hint_lifetime.loom-test"
     "parameter_domains.loom-test"
+    "value_equality.loom-test"
     "value_facts.loom-test"
+    "value_identity.loom-test"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

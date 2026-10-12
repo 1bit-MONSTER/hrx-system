@@ -184,6 +184,12 @@ TEST_F(FactTableComputeTest, IdentityOnlyMutationReportsChangedFacts) {
   const loom_value_id_t second_result = loom_op_const_results(second)[0];
   EXPECT_EQ(loom_value_fact_table_query_identity(&table_, second_result),
             inputs_[0]);
+  EXPECT_TRUE(
+      loom_value_fact_table_values_equal(&table_, second_result, inputs_[0]));
+  EXPECT_TRUE(
+      loom_value_fact_table_values_equal(&table_, first_result, second_result));
+  EXPECT_FALSE(
+      loom_value_fact_table_values_equal(&table_, second_result, inputs_[1]));
   IREE_ASSERT_OK(loom_value_fact_table_compute_op_and_report(&table_, module_,
                                                              first, &changed));
   EXPECT_FALSE(changed);
@@ -198,8 +204,31 @@ TEST_F(FactTableComputeTest, IdentityOnlyMutationReportsChangedFacts) {
   EXPECT_TRUE(changed);
   EXPECT_EQ(loom_value_fact_table_query_identity(&table_, second_result),
             inputs_[1]);
+  EXPECT_TRUE(
+      loom_value_fact_table_values_equal(&table_, second_result, inputs_[1]));
+  EXPECT_FALSE(
+      loom_value_fact_table_values_equal(&table_, second_result, inputs_[0]));
   EXPECT_TRUE(loom_value_facts_is_unknown(
       loom_value_fact_table_lookup(&table_, second_result)));
+}
+
+TEST_F(FactTableComputeTest, ComparisonInferenceUsesRetainedIdentity) {
+  loom_op_t* alias = nullptr;
+  IREE_ASSERT_OK(BuildIdentity(inputs_[0], &alias));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, alias));
+  const loom_value_id_t refined = loom_op_const_results(alias)[0];
+  for (const auto predicate :
+       {LOOM_INDEX_CMP_PREDICATE_EQ, LOOM_INDEX_CMP_PREDICATE_NE}) {
+    loom_op_t* compare = nullptr;
+    IREE_ASSERT_OK(loom_index_cmp_build(&builder_, predicate, inputs_[0],
+                                        refined, LOOM_LOCATION_UNKNOWN,
+                                        &compare));
+    IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, compare));
+    const auto facts =
+        loom_value_fact_table_lookup(&table_, loom_index_cmp_result(compare));
+    EXPECT_TRUE(loom_value_facts_is_exact(facts));
+    EXPECT_EQ(facts.range_lo, predicate == LOOM_INDEX_CMP_PREDICATE_EQ);
+  }
 }
 
 TEST_F(FactTableComputeTest, OpaqueDefinitionsRetainSelectedInputs) {
@@ -615,10 +644,12 @@ TEST_F(FactTableComputeTest, IdentityCloneUndefineAndScopeReuse) {
   IREE_ASSERT_OK(loom_value_fact_table_clone_values(
       &clone, {&table_, &result, 1}, module_));
   EXPECT_EQ(loom_value_fact_table_query_identity(&clone, result), inputs_[0]);
+  EXPECT_TRUE(loom_value_fact_table_values_equal(&clone, result, inputs_[0]));
   EXPECT_FALSE(loom_value_fact_table_has_entry(&clone, inputs_[0]));
   EXPECT_FALSE(loom_value_fact_table_has_entry(&clone, inputs_[1]));
   loom_value_fact_table_undefine(&table_, result);
   EXPECT_EQ(loom_value_fact_table_query_identity(&table_, result), result);
+  EXPECT_FALSE(loom_value_fact_table_values_equal(&table_, result, inputs_[0]));
   bool changed = false;
   IREE_ASSERT_OK(loom_value_fact_table_compute_op_and_report(&table_, module_,
                                                              alias, &changed));
@@ -629,11 +660,15 @@ TEST_F(FactTableComputeTest, IdentityCloneUndefineAndScopeReuse) {
   loom_value_fact_table_clear_scope(&table_);
   EXPECT_EQ(table_.identities.entries, storage);
   EXPECT_EQ(loom_value_fact_table_query_identity(&table_, result), result);
+  EXPECT_FALSE(loom_value_fact_table_values_equal(&table_, result, inputs_[0]));
+  EXPECT_TRUE(loom_value_fact_table_values_equal(&clone, result, inputs_[0]));
   EXPECT_EQ(loom_value_fact_table_query_identity(&clone, result), inputs_[0]);
   IREE_ASSERT_OK(loom_op_set_operand(module_, alias, 0, inputs_[1]));
   IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, alias));
   EXPECT_EQ(table_.identities.entries, storage);
   EXPECT_EQ(loom_value_fact_table_query_identity(&table_, result), inputs_[1]);
+  EXPECT_TRUE(loom_value_fact_table_values_equal(&table_, result, inputs_[1]));
+  EXPECT_FALSE(loom_value_fact_table_values_equal(&table_, result, inputs_[0]));
 }
 
 TEST_F(FactTableComputeTest, NumericEqualityDoesNotCreateSSAIdentity) {
@@ -649,6 +684,8 @@ TEST_F(FactTableComputeTest, NumericEqualityDoesNotCreateSSAIdentity) {
   const loom_value_id_t second_result = loom_op_const_results(second)[0];
   EXPECT_NE(loom_value_fact_table_query_identity(&table_, first_result),
             loom_value_fact_table_query_identity(&table_, second_result));
+  EXPECT_TRUE(
+      loom_value_fact_table_values_equal(&table_, first_result, second_result));
   EXPECT_EQ(table_.identities.entries, nullptr);
 }
 

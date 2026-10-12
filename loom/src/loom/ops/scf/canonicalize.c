@@ -197,8 +197,8 @@ iree_status_t loom_scf_replace_results_and_erase(
 }
 
 static bool loom_scf_lookup_reachable_column_is_uniform(
-    loom_op_t* op, const bool* reachable_rows, uint16_t column,
-    loom_value_id_t* out_value) {
+    loom_op_t* op, loom_rewriter_t* rewriter, const bool* reachable_rows,
+    uint16_t column, loom_value_id_t* out_value) {
   loom_attribute_t case_keys = loom_scf_lookup_case_keys(op);
   loom_value_slice_t values = loom_scf_lookup_values(op);
   uint16_t result_count = op->result_count;
@@ -213,7 +213,7 @@ static bool loom_scf_lookup_reachable_column_is_uniform(
       first_value = value;
       continue;
     }
-    if (value != first_value) {
+    if (!loom_rewriter_values_equal(rewriter, value, first_value)) {
       return false;
     }
   }
@@ -231,12 +231,8 @@ static bool loom_scf_lookup_reachable_column_is_uniform(
 iree_status_t loom_scf_select_combine_integer_extremum(
     loom_op_t* op, loom_rewriter_t* rewriter, bool* out_changed) {
   *out_changed = false;
-  const loom_value_t* condition =
-      loom_module_value(rewriter->module, loom_scf_select_condition(op));
-  if (loom_value_is_block_arg(condition)) {
-    return iree_ok_status();
-  }
-  loom_op_t* comparison = loom_value_def_op(condition);
+  loom_op_t* comparison =
+      loom_rewriter_value_defining_op(rewriter, loom_scf_select_condition(op));
   if (!comparison || !loom_scalar_cmpi_isa(comparison)) {
     return iree_ok_status();
   }
@@ -245,10 +241,16 @@ iree_status_t loom_scf_select_combine_integer_extremum(
   loom_value_id_t rhs = loom_scalar_cmpi_rhs(comparison);
   loom_value_id_t true_value = loom_scf_select_true_value(op);
   loom_value_id_t false_value = loom_scf_select_false_value(op);
+  loom_type_t type = loom_module_value_type(rewriter->module, true_value);
+  if (!loom_type_equal(type, loom_module_value_type(rewriter->module, lhs))) {
+    return iree_ok_status();
+  }
   uint8_t predicate = loom_scalar_cmpi_predicate(comparison);
-  if (true_value == rhs && false_value == lhs) {
+  if (loom_rewriter_values_equal(rewriter, true_value, rhs) &&
+      loom_rewriter_values_equal(rewriter, false_value, lhs)) {
     predicate = loom_scalar_cmpi_swapped_predicate(predicate);
-  } else if (true_value != lhs || false_value != rhs) {
+  } else if (!loom_rewriter_values_equal(rewriter, true_value, lhs) ||
+             !loom_rewriter_values_equal(rewriter, false_value, rhs)) {
     return iree_ok_status();
   }
 
@@ -257,7 +259,6 @@ iree_status_t loom_scf_select_combine_integer_extremum(
   // extrema's definedness or requires a range proof.
   loom_builder_set_before(&rewriter->builder, op);
   loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
-  loom_type_t type = loom_module_value_type(rewriter->module, true_value);
   loom_op_t* extremum = NULL;
   switch ((loom_scalar_cmpi_predicate_t)predicate) {
     case LOOM_SCALAR_CMPI_PREDICATE_SLT:
@@ -303,20 +304,16 @@ iree_status_t loom_scf_select_combine_integer_extremum(
 static bool loom_scf_is_boolean_complement(loom_rewriter_t* rewriter,
                                            loom_value_id_t value,
                                            loom_value_id_t other) {
-  const loom_value_t* definition = loom_module_value(rewriter->module, value);
-  if (loom_value_is_block_arg(definition)) {
-    return false;
-  }
-  const loom_op_t* producer = loom_value_def_op(definition);
-  if (!loom_scalar_xori_isa(producer)) {
+  const loom_op_t* producer = loom_rewriter_value_defining_op(rewriter, value);
+  if (!producer || !loom_scalar_xori_isa(producer)) {
     return false;
   }
   const loom_value_id_t lhs = loom_scalar_xori_lhs(producer);
   const loom_value_id_t rhs = loom_scalar_xori_rhs(producer);
   loom_value_id_t complement = LOOM_VALUE_ID_INVALID;
-  if (lhs == other) {
+  if (loom_rewriter_values_equal(rewriter, lhs, other)) {
     complement = rhs;
-  } else if (rhs == other) {
+  } else if (loom_rewriter_values_equal(rewriter, rhs, other)) {
     complement = lhs;
   } else {
     return false;
@@ -415,7 +412,7 @@ iree_status_t loom_scf_select_canonicalize(loom_op_t* op,
                                            loom_rewriter_t* rewriter) {
   loom_value_id_t true_value = loom_scf_select_true_value(op);
   loom_value_id_t false_value = loom_scf_select_false_value(op);
-  if (true_value == false_value) {
+  if (loom_rewriter_values_equal(rewriter, true_value, false_value)) {
     return loom_scf_replace_results_and_erase(op, rewriter, &true_value, 1);
   }
 
@@ -518,7 +515,7 @@ static iree_status_t loom_scf_lookup_compact_uniform_columns(
   uint16_t forwarded_count = 0;
   for (uint16_t i = 0; i < op->result_count; ++i) {
     forwarded_results[i] = loom_scf_lookup_reachable_column_is_uniform(
-        op, reachable_rows, i, &replacements[i]);
+        op, rewriter, reachable_rows, i, &replacements[i]);
     if (forwarded_results[i]) {
       ++forwarded_count;
     }
@@ -534,7 +531,7 @@ static iree_status_t loom_scf_lookup_compact_uniform_columns(
           old_values.values[case_keys.count * op->result_count + i];
       loom_value_id_t source_value =
           old_values.values[first_reachable_row * op->result_count + i];
-      if (default_value != source_value) {
+      if (!loom_rewriter_values_equal(rewriter, default_value, source_value)) {
         default_row_matches_dead_source = false;
         break;
       }

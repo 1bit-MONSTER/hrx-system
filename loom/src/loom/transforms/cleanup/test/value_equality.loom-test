@@ -1,0 +1,237 @@
+// RUN: pass canonicalize
+
+// A local refinement preserves bits, but leaves the original facts unchanged.
+func.def @scalar_equalities(%value: i16, %take: i1) -> (i16, i16, i16, i16, i16, i16, i16, i16, i16, i16, i16) {
+  %refined = scalar.assume %value [ne(%value, 0)] : i16
+  %difference = scalar.subi %refined, %value : i16
+  %exclusive = scalar.xori %refined, %value : i16
+  %both = scalar.andi %refined, %value : i16
+  %either = scalar.ori %value, %refined : i16
+  %low = scalar.minsi %value, %refined : i16
+  %high = scalar.maxui %refined, %value : i16
+  %signed_quotient = scalar.divsi %value, %refined : i16
+  %unsigned_quotient = scalar.divui %refined, %value : i16
+  %signed_remainder = scalar.remsi %refined, %value : i16
+  %unsigned_remainder = scalar.remui %value, %refined : i16
+  %selected = scf.select %take, %value, %refined : i16
+  func.return %difference, %exclusive, %both, %either, %low, %high, %signed_quotient, %unsigned_quotient, %signed_remainder, %unsigned_remainder, %selected : i16, i16, i16, i16, i16, i16, i16, i16, i16, i16, i16
+}
+
+// ----
+func.def @scalar_equalities(%value: i16, %take: i1) -> (i16, i16, i16, i16, i16, i16, i16, i16, i16, i16, i16) {
+  %refined = scalar.assume %value [ne(%value, 0)] : i16
+  %difference = scalar.constant 0 : i16
+  %exclusive = scalar.constant 0 : i16
+  %signed_quotient = scalar.constant 1 : i16
+  %unsigned_quotient = scalar.constant 1 : i16
+  %signed_remainder = scalar.constant 0 : i16
+  %unsigned_remainder = scalar.constant 0 : i16
+  func.return %difference, %exclusive, %refined, %value, %value, %refined, %signed_quotient, %unsigned_quotient, %signed_remainder, %unsigned_remainder, %value : i16, i16, i16, i16, i16, i16, i16, i16, i16, i16, i16
+}
+
+// ====
+
+// Semantic equality does not justify removing an unproven zero divisor.
+func.def @possibly_zero_divisor(%value: i32) -> (i32, i32) {
+  %bounded = scalar.assume %value [range(%value, 0, 15)] : i32
+  %quotient = scalar.divui %value, %bounded : i32
+  %remainder = scalar.remui %bounded, %value : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ====
+
+func.def @cancel_refined_terms(%value: i64, %other: i64) -> (i64, i64, i64) {
+  %refined = scalar.assume %value [ne(%value, 0)] : i64
+  %difference = scalar.subi %other, %refined : i64
+  %restored = scalar.addi %difference, %value : i64
+  %sum = scalar.addi %other, %refined : i64
+  %cancelled = scalar.subi %sum, %value : i64
+  %exclusive = scalar.xori %value, %other : i64
+  %roundtrip = scalar.xori %exclusive, %refined : i64
+  func.return %restored, %cancelled, %roundtrip : i64, i64, i64
+}
+
+// ----
+func.def @cancel_refined_terms(%value: i64, %other: i64) -> (i64, i64, i64) {
+  func.return %other, %other, %other : i64, i64, i64
+}
+
+// ====
+
+func.def @index_equalities(%value: index, %take: i1) -> (index, index, index, index, index, index, index) {
+  %refined = index.assume %value [range(%value, 1, 1023)] : index
+  %difference = index.sub %refined, %value : index
+  %exclusive = index.xori %value, %refined : index
+  %both = index.andi %value, %refined : index
+  %either = index.ori %refined, %value : index
+  %quotient = index.div %value, %refined : index
+  %remainder = index.rem %refined, %value : index
+  %selected = scf.select %take, %refined, %value : index
+  func.return %difference, %exclusive, %both, %either, %quotient, %remainder, %selected : index, index, index, index, index, index, index
+}
+
+// ----
+func.def @index_equalities(%value: index, %take: i1) -> (index, index, index, index, index, index, index) {
+  %refined = index.assume %value [range(%value, 1, 1023)] : index
+  %difference = index.constant 0 : index
+  %exclusive = index.constant 0 : index
+  %quotient = index.constant 1 : index
+  %remainder = index.constant 0 : index
+  func.return %difference, %exclusive, %value, %refined, %quotient, %remainder, %refined : index, index, index, index, index, index, index
+}
+
+// ====
+
+// Identical intervals on different values do not prove runtime equality.
+func.def @equal_ranges_remain_distinct(%left: i32, %right: i32, %take: i1) -> (i32, i32) {
+  %a, %b = scalar.assume %left, %right [range(%left, 1, 15), range(%right, 1, 15)] : i32, i32
+  %difference = scalar.subi %a, %b : i32
+  %selected = scf.select %take, %a, %b : i32
+  func.return %difference, %selected : i32, i32
+}
+
+// ====
+
+// Excluding infinities still permits NaN and both signed zero encodings.
+func.def @float_identity(%value: f32, %take: i1) -> (i1, i1, i1, i1, i1, i1, f32, f32, f32) {
+  %refined = scalar.assume %value [not_inf(%value)] : f32
+  %ordered_equal = scalar.cmpf oeq, %value, %refined : f32
+  %unordered_equal = scalar.cmpf ueq, %value, %refined : f32
+  %ordered_not_equal = scalar.cmpf one, %value, %refined : f32
+  %unordered_not_equal = scalar.cmpf une, %value, %refined : f32
+  %ordered = scalar.cmpf ord, %value, %refined : f32
+  %finite_equal = scalar.cmpf<nnan> oeq, %value, %refined : f32
+  %sign = scalar.copysignf %value, %refined : f32
+  %selected = scf.select %take, %value, %refined : f32
+  %difference = scalar.subf %value, %refined : f32
+  func.return %ordered_equal, %unordered_equal, %ordered_not_equal, %unordered_not_equal, %ordered, %finite_equal, %sign, %selected, %difference : i1, i1, i1, i1, i1, i1, f32, f32, f32
+}
+
+// ----
+func.def @float_identity(%value: f32, %take: i1) -> (i1, i1, i1, i1, i1, i1, f32, f32, f32) {
+  %refined = scalar.assume %value [not_inf(%value)] : f32
+  %ordered_equal = scalar.cmpf oeq, %value, %refined : f32
+  %unordered_equal = scalar.constant true : i1
+  %ordered_not_equal = scalar.constant false : i1
+  %unordered_not_equal = scalar.cmpf une, %value, %refined : f32
+  %ordered = scalar.cmpf ord, %value, %refined : f32
+  %finite_equal = scalar.constant true : i1
+  %difference = scalar.subf %value, %refined : f32
+  func.return %ordered_equal, %unordered_equal, %ordered_not_equal, %unordered_not_equal, %ordered, %finite_equal, %value, %value, %difference : i1, i1, i1, i1, i1, i1, f32, f32, f32
+}
+
+// ====
+
+func.def @vector_integer_identity(%value: vector<4xi32>, %take: vector<4xi1>) -> (vector<4xi32>, vector<4xi32>, vector<4xi32>, vector<4xi32>, vector<4xi1>) {
+  %extent = index.constant 2 : index
+  %fragment = vector.fragment<lhs> %value shape [%extent, %extent] : vector<4xi32>
+  %difference = vector.subi %fragment, %value : vector<4xi32>
+  %exclusive = vector.xori %value, %fragment : vector<4xi32>
+  %both = vector.andi %fragment, %value : vector<4xi32>
+  %selected = vector.select %take, %value, %fragment : vector<4xi32>
+  %equal = vector.cmpi eq, %fragment, %value : vector<4xi32> -> vector<4xi1>
+  func.return %difference, %exclusive, %both, %selected, %equal : vector<4xi32>, vector<4xi32>, vector<4xi32>, vector<4xi32>, vector<4xi1>
+}
+
+// ----
+func.def @vector_integer_identity(%value: vector<4xi32>, %take: vector<4xi1>) -> (vector<4xi32>, vector<4xi32>, vector<4xi32>, vector<4xi32>, vector<4xi1>) {
+  %extent = index.constant 2 : index
+  %fragment = vector.fragment<lhs> %value shape [%extent, %extent] : vector<4xi32>
+  %difference = vector.constant 0 : vector<4xi32>
+  %exclusive = vector.constant 0 : vector<4xi32>
+  %equal = vector.constant true : vector<4xi1>
+  func.return %difference, %exclusive, %fragment, %value, %equal : vector<4xi32>, vector<4xi32>, vector<4xi32>, vector<4xi32>, vector<4xi1>
+}
+
+// ====
+
+func.def @vector_float_identity(%value: vector<4xf32>) -> (vector<4xi1>, vector<4xi1>, vector<4xi1>) {
+  %extent = index.constant 2 : index
+  %fragment = vector.fragment<lhs> %value shape [%extent, %extent] : vector<4xf32>
+  %ordered_equal = vector.cmpf oeq, %fragment, %value : vector<4xf32> -> vector<4xi1>
+  %unordered_equal = vector.cmpf ueq, %fragment, %value : vector<4xf32> -> vector<4xi1>
+  %finite_equal = vector.cmpf<nnan> oeq, %fragment, %value : vector<4xf32> -> vector<4xi1>
+  func.return %ordered_equal, %unordered_equal, %finite_equal : vector<4xi1>, vector<4xi1>, vector<4xi1>
+}
+
+// ----
+func.def @vector_float_identity(%value: vector<4xf32>) -> (vector<4xi1>, vector<4xi1>, vector<4xi1>) {
+  %extent = index.constant 2 : index
+  %fragment = vector.fragment<lhs> %value shape [%extent, %extent] : vector<4xf32>
+  %ordered_equal = vector.cmpf oeq, %fragment, %value : vector<4xf32> -> vector<4xi1>
+  %unordered_equal = vector.constant true : vector<4xi1>
+  %finite_equal = vector.constant true : vector<4xi1>
+  func.return %ordered_equal, %unordered_equal, %finite_equal : vector<4xi1>, vector<4xi1>, vector<4xi1>
+}
+
+// ====
+
+func.def @lookup_aliases(%selector: index, %value: index, %other: index) -> (index, index) {
+  %refined = index.assume %value [ne(%value, 0)] : index
+  %same, %different = scf.lookup %selector {
+    0 = (%value, %value),
+    1 = (%refined, %refined)
+  } default(%value, %other) : index, index
+  func.return %same, %different : index, index
+}
+
+// ----
+func.def @lookup_aliases(%selector: index, %value: index, %other: index) -> (index, index) {
+  %refined = index.assume %value [ne(%value, 0)] : index
+  %different = scf.lookup %selector {
+    0 = (%value),
+    1 = (%refined)
+  } default(%other) : index
+  func.return %value, %different : index, index
+}
+
+// ====
+
+// An alias can make a constructed vector uniform without an exact scalar value.
+func.def @uniform_elements(%value: f64) -> (vector<2xf64>) {
+  %refined = scalar.assume %value [not_inf(%value)] : f64
+  %result = vector.from_elements %value, %refined : vector<2xf64>
+  func.return %result : vector<2xf64>
+}
+
+// ----
+func.def @uniform_elements(%value: f64) -> (vector<2xf64>) {
+  %result = vector.splat %value : vector<2xf64>
+  func.return %result : vector<2xf64>
+}
+
+// ====
+
+func.def @insert_roundtrip(%value: vector<4xi8>) -> (vector<4xi8>) {
+  %extent = index.constant 2 : index
+  %fragment = vector.fragment<lhs> %value shape [%extent, %extent] : vector<4xi8>
+  %element = vector.extract %fragment[1] : vector<4xi8> -> i8
+  %result = vector.insert %element into %value[1] : i8, vector<4xi8>
+  func.return %result : vector<4xi8>
+}
+
+// ----
+func.def @insert_roundtrip(%value: vector<4xi8>) -> (vector<4xi8>) {
+  func.return %value : vector<4xi8>
+}
+
+// ====
+
+// Equality is width independent and does not strengthen either input's bounds.
+func.def @byte_and_offset(%value: i8, %position: offset, %take: i1) -> (i8, offset, offset) {
+  %byte = scalar.assume %value [ne(%value, 0)] : i8
+  %bounded = index.assume %position [range(%position, 1, 127)] : offset
+  %exclusive = scalar.xori %value, %byte : i8
+  %difference = index.sub %position, %bounded : offset
+  %selected = scf.select %take, %bounded, %position : offset
+  func.return %exclusive, %difference, %selected : i8, offset, offset
+}
+
+// ----
+func.def @byte_and_offset(%value: i8, %position: offset, %take: i1) -> (i8, offset, offset) {
+  %bounded = index.assume %position [range(%position, 1, 127)] : offset
+  %exclusive = scalar.constant 0 : i8
+  %difference = index.constant 0 : offset
+  func.return %exclusive, %difference, %bounded : i8, offset, offset
+}

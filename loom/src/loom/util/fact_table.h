@@ -471,9 +471,12 @@ static inline loom_value_facts_t loom_value_fact_table_lookup(
 uint64_t loom_value_fact_table_maximum_element_count(
     const loom_value_fact_table_t* table, loom_type_t type);
 
-// Returns true for the same valid SSA value or equal exact integer values.
-// Equal ranges do not prove runtime equality. A NULL table permits SSA identity
-// alone; invalid value IDs never compare equal.
+// Returns true for a shared retained identity or equal exact integer values.
+// Callers establish compatible types and interpretation; this is value
+// identity, not ordered floating-point equality (an identical NaN remains
+// unordered). Equal ranges do not prove runtime equality. A NULL table permits
+// raw SSA identity alone; invalid value IDs never compare equal. The query is
+// indexed and does not change either value's refined facts.
 bool loom_value_fact_table_values_equal(const loom_value_fact_table_t* table,
                                         loom_value_id_t lhs,
                                         loom_value_id_t rhs);
