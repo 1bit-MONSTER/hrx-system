@@ -184,7 +184,8 @@ typedef struct iree_hal_memory_reservation_vtable_t {
   void(IREE_API_PTR* destroy)(iree_hal_memory_reservation_t* reservation);
   // Completes one native projection vector synchronously. The implementation
   // owns sticky failure state after native mutation; preparation failures must
-  // not poison an unchanged reservation.
+  // not poison an unchanged reservation. NULL when updates require a native
+  // queue implementation; the synchronous adapter rejects that route.
   iree_status_t(IREE_API_PTR* update)(
       iree_hal_memory_reservation_t* reservation, uint32_t projection,
       iree_host_size_t update_count,
@@ -230,7 +231,54 @@ IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
     iree_allocator_t host_allocator,
     iree_hal_memory_reservation_t* reservation);
 
-// Validates and captures one complete batch for synchronous native publication.
+// One normalized, nonoverlapping vector targeting a native projection. Entries
+// are established by capture; their source descriptors are filled by resolve.
+typedef struct iree_hal_memory_mapping_batch_entry_t {
+  // Explicit address owner, retained through its buffer when requested.
+  iree_hal_memory_reservation_t* reservation;
+  // Exact native page-table projection within the address owner.
+  uint32_t projection;
+  // Number of updates in this projection's contiguous vector.
+  iree_host_size_t update_count;
+  // Validated coordinates and permissions, with sources resolved before use.
+  const iree_hal_memory_mapping_update_t* updates;
+} iree_hal_memory_mapping_batch_entry_t;
+
+// Queue-owned capture of one mapping transaction. Native queue adapters consume
+// these trusted normalized entries instead of repeating public validation or
+// discovering projection groups during issue. One allocation owns all metadata.
+// Retaining this packet keeps optional buffer wrappers alive, not their
+// explicit address owners or installed backing after completion.
+typedef struct iree_hal_memory_mapping_batch_t {
+  // Submission resource; release after native completion or cancellation.
+  iree_hal_resource_t resource;
+  // Number of distinct reservation/projection entries.
+  iree_host_size_t entry_count;
+  // Captured entries, ordered by address owner, projection and target offset.
+  const iree_hal_memory_mapping_batch_entry_t* entries;
+  // Total updates across all entries, for native payload sizing.
+  iree_host_size_t update_count;
+} iree_hal_memory_mapping_batch_t;
+
+// Validates and captures a mapping transaction without resolving native
+// sources. The caller owns one resource reference on success. An empty
+// transaction returns NULL and can be handled as an ordinary queue barrier.
+// Creation failure transfers no ownership. Buffer retention follows |flags|.
+IREE_API_EXPORT iree_status_t iree_hal_memory_mapping_batch_create(
+    iree_hal_queue_t* queue, iree_host_size_t mapping_count,
+    const iree_hal_memory_mapping_t* mappings, iree_hal_queue_map_flags_t flags,
+    iree_hal_memory_mapping_batch_t** out_batch);
+
+// Resolves every prepared source after prerequisite allocations have committed,
+// before any native mutation. Success fills the entry vectors' source bindings;
+// failure leaves all destinations unchanged. The native queue retains the
+// packet until completion and orders publication after its execution
+// prerequisites.
+IREE_API_EXPORT iree_status_t
+iree_hal_memory_mapping_batch_resolve(iree_hal_memory_mapping_batch_t* batch);
+
+// Captures one complete batch for synchronous native publication. Rejects
+// reservations that require a native queue adapter before any mutation.
 // The returned call owns one resource reference, released by its recipient.
 // Its callback runs once after queue prerequisites, returns a terminal status,
 // and does not publish signals itself. Cancellation only releases the resource.

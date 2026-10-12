@@ -206,7 +206,7 @@ IREE_API_EXPORT void iree_hal_memory_reservation_initialize(
 }
 
 //===----------------------------------------------------------------------===//
-// Captured host mapping transaction
+// Captured mapping transaction
 //===----------------------------------------------------------------------===//
 
 typedef struct iree_hal_memory_mapping_capture_t {
@@ -224,9 +224,9 @@ typedef struct iree_hal_memory_mapping_capture_t {
   iree_hal_memory_mapping_update_t update;
 } iree_hal_memory_mapping_capture_t;
 
-typedef struct iree_hal_memory_mapping_batch_t {
-  // Captured host-call owner, also released if the submission is cancelled.
-  iree_hal_resource_t resource;
+typedef struct iree_hal_memory_mapping_batch_storage_t {
+  // Queue-owned packet view, also released if the submission is cancelled.
+  iree_hal_memory_mapping_batch_t base;
   // Allocator for the single packet containing all arrays.
   iree_allocator_t host_allocator;
   // Buffer wrapper retention policy.
@@ -237,12 +237,12 @@ typedef struct iree_hal_memory_mapping_batch_t {
   iree_hal_memory_mapping_update_t* updates;
   // Captures sorted by target owner, projection and offset before submission.
   iree_hal_memory_mapping_capture_t captures[];
-} iree_hal_memory_mapping_batch_t;
+} iree_hal_memory_mapping_batch_storage_t;
 
 static void iree_hal_memory_mapping_batch_destroy(
     iree_hal_resource_t* resource) {
-  iree_hal_memory_mapping_batch_t* batch =
-      (iree_hal_memory_mapping_batch_t*)resource;
+  iree_hal_memory_mapping_batch_storage_t* batch =
+      (iree_hal_memory_mapping_batch_storage_t*)resource;
   if (!iree_any_bit_set(batch->flags, IREE_HAL_QUEUE_MAP_FLAG_BORROW_BUFFERS)) {
     for (iree_host_size_t i = 0; i < batch->count; ++i) {
       iree_hal_buffer_release(batch->captures[i].source);
@@ -323,7 +323,7 @@ static iree_status_t iree_hal_memory_mapping_validate(
 
 static iree_status_t iree_hal_memory_mapping_capture(
     const iree_hal_memory_mapping_t* mapping,
-    iree_hal_memory_mapping_batch_t* batch) {
+    iree_hal_memory_mapping_batch_storage_t* batch) {
   iree_hal_memory_reservation_t* reservation = mapping->reservation;
   const iree_hal_memory_contract_t* target_contract =
       reservation->buffer.memory.contract;
@@ -413,13 +413,10 @@ static int iree_hal_memory_mapping_compare(const void* lhs, const void* rhs) {
              : 0;
 }
 
-static iree_status_t iree_hal_memory_mapping_batch_execute(
-    void* user_data, const uint64_t args[4],
-    iree_hal_host_call_context_t* context) {
-  iree_hal_memory_mapping_batch_t* batch = user_data;
-  if (!batch) {
-    return iree_ok_status();
-  }
+IREE_API_EXPORT iree_status_t iree_hal_memory_mapping_batch_resolve(
+    iree_hal_memory_mapping_batch_t* base_batch) {
+  iree_hal_memory_mapping_batch_storage_t* batch =
+      (iree_hal_memory_mapping_batch_storage_t*)base_batch;
   IREE_TRACE_ZONE_BEGIN(z0);
   iree_status_t status = iree_ok_status();
   // Resolve every source after prerequisite allocations, before mutating any
@@ -427,7 +424,6 @@ static iree_status_t iree_hal_memory_mapping_batch_execute(
   for (iree_host_size_t i = 0; i < batch->count && iree_status_is_ok(status);
        ++i) {
     const iree_hal_memory_mapping_capture_t* capture = &batch->captures[i];
-    batch->updates[i] = capture->update;
     if (capture->source) {
       iree_hal_buffer_memory_view_t memory =
           iree_hal_buffer_memory_view(capture->source);
@@ -458,30 +454,16 @@ static iree_status_t iree_hal_memory_mapping_batch_execute(
       }
     }
   }
-  for (iree_host_size_t i = 0; i < batch->count && iree_status_is_ok(status);) {
-    iree_hal_memory_mapping_capture_t* first = &batch->captures[i];
-    iree_host_size_t end = i + 1;
-    while (end < batch->count &&
-           batch->captures[end].reservation == first->reservation &&
-           batch->captures[end].projection == first->projection) {
-      ++end;
-    }
-    status = first->reservation->vtable->update(
-        first->reservation, first->projection, end - i, &batch->updates[i]);
-    i = end;
-  }
   IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
-IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_prepare_map(
+IREE_API_EXPORT iree_status_t iree_hal_memory_mapping_batch_create(
     iree_hal_queue_t* queue, iree_host_size_t mapping_count,
     const iree_hal_memory_mapping_t* mappings, iree_hal_queue_map_flags_t flags,
-    iree_hal_host_call_t* out_call) {
-  *out_call = (iree_hal_host_call_t){0};
+    iree_hal_memory_mapping_batch_t** out_batch) {
+  *out_batch = NULL;
   if (!mapping_count) {
-    *out_call =
-        iree_hal_make_host_call(iree_hal_memory_mapping_batch_execute, NULL);
     return iree_ok_status();
   }
   const void* domain = iree_hal_queue_family(queue)->memory.domain;
@@ -497,23 +479,27 @@ IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_prepare_map(
   }
   const iree_host_size_t entry_size =
       sizeof(iree_hal_memory_mapping_capture_t) +
-      sizeof(iree_hal_memory_mapping_update_t);
+      sizeof(iree_hal_memory_mapping_update_t) +
+      sizeof(iree_hal_memory_mapping_batch_entry_t);
   if (capacity >
-      (IREE_HOST_SIZE_MAX - sizeof(iree_hal_memory_mapping_batch_t)) /
+      (IREE_HOST_SIZE_MAX - sizeof(iree_hal_memory_mapping_batch_storage_t)) /
           entry_size) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "mapping packet size overflows");
   }
   iree_allocator_t host_allocator = mappings[0].reservation->host_allocator;
-  iree_hal_memory_mapping_batch_t* batch = NULL;
+  iree_hal_memory_mapping_batch_storage_t* batch = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       host_allocator, sizeof(*batch) + capacity * entry_size, (void**)&batch));
   iree_hal_resource_initialize(&iree_hal_memory_mapping_batch_vtable,
-                               &batch->resource);
+                               &batch->base.resource);
   batch->host_allocator = host_allocator;
   batch->flags = flags;
   batch->updates =
       (iree_hal_memory_mapping_update_t*)(batch->captures + capacity);
+  iree_hal_memory_mapping_batch_entry_t* entries =
+      (iree_hal_memory_mapping_batch_entry_t*)(batch->updates + capacity);
+  batch->base.entries = entries;
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0; i < mapping_count && iree_status_is_ok(status);
        ++i) {
@@ -539,8 +525,71 @@ IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_prepare_map(
     }
   }
   if (iree_status_is_ok(status)) {
+    for (iree_host_size_t i = 0; i < batch->count; ++i) {
+      const iree_hal_memory_mapping_capture_t* capture = &batch->captures[i];
+      batch->updates[i] = capture->update;
+      if (!i || capture->reservation != batch->captures[i - 1].reservation ||
+          capture->projection != batch->captures[i - 1].projection) {
+        entries[batch->base.entry_count++] =
+            (iree_hal_memory_mapping_batch_entry_t){
+                .reservation = capture->reservation,
+                .projection = capture->projection,
+                .updates = &batch->updates[i],
+            };
+      }
+      ++entries[batch->base.entry_count - 1].update_count;
+    }
+    batch->base.update_count = batch->count;
+    *out_batch = &batch->base;
+  } else {
+    iree_hal_resource_release(batch);
+  }
+  return status;
+}
+
+static iree_status_t iree_hal_memory_mapping_batch_execute(
+    void* user_data, const uint64_t args[4],
+    iree_hal_host_call_context_t* context) {
+  iree_hal_memory_mapping_batch_t* batch = user_data;
+  if (!batch) {
+    return iree_ok_status();
+  }
+  IREE_TRACE_ZONE_BEGIN(z0);
+  iree_status_t status = iree_hal_memory_mapping_batch_resolve(batch);
+  for (iree_host_size_t i = 0;
+       i < batch->entry_count && iree_status_is_ok(status); ++i) {
+    const iree_hal_memory_mapping_batch_entry_t* entry = &batch->entries[i];
+    status = entry->reservation->vtable->update(
+        entry->reservation, entry->projection, entry->update_count,
+        entry->updates);
+  }
+  IREE_TRACE_ZONE_END(z0);
+  return status;
+}
+
+IREE_API_EXPORT iree_status_t iree_hal_memory_reservation_prepare_map(
+    iree_hal_queue_t* queue, iree_host_size_t mapping_count,
+    const iree_hal_memory_mapping_t* mappings, iree_hal_queue_map_flags_t flags,
+    iree_hal_host_call_t* out_call) {
+  *out_call = (iree_hal_host_call_t){0};
+  iree_hal_memory_mapping_batch_t* batch = NULL;
+  IREE_RETURN_IF_ERROR(iree_hal_memory_mapping_batch_create(
+      queue, mapping_count, mappings, flags, &batch));
+  iree_status_t status = iree_ok_status();
+  if (batch) {
+    for (iree_host_size_t i = 0;
+         i < batch->entry_count && iree_status_is_ok(status); ++i) {
+      if (!batch->entries[i].reservation->vtable->update) {
+        status = iree_make_status(
+            IREE_STATUS_UNAVAILABLE,
+            "reservation updates require a native mapping queue");
+      }
+    }
+  }
+  if (iree_status_is_ok(status)) {
     *out_call = iree_hal_make_host_call_with_resource(
-        iree_hal_memory_mapping_batch_execute, batch, &batch->resource);
+        iree_hal_memory_mapping_batch_execute, batch,
+        batch ? &batch->resource : NULL);
   } else {
     iree_hal_resource_release(batch);
   }
