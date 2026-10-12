@@ -1,0 +1,83 @@
+// RUN: pass canonicalize,cse
+
+config.def @schedule.scalar_tile = 5 : i32
+
+func.def @exact_scalar_contracts() -> (i1, i32, f32) {
+  %truth = scalar.constant true : i1
+  %integer = config.get @schedule.scalar_tile : i32
+  %c1 = scalar.constant 1 : i32
+  %sum = scalar.addi %integer, %c1 : i32
+  %floating = scalar.constant 1.5 : f32
+  %required_truth = scalar.constexpr %truth : i1
+  %required_sum = scalar.constexpr %sum : i32
+  %required_floating = scalar.constexpr %floating : f32
+  func.return %required_truth, %required_sum, %required_floating : i1, i32, f32
+}
+
+// ----
+config.def @schedule.scalar_tile = 5 : i32
+
+func.def @exact_scalar_contracts() -> (i1, i32, f32) {
+  %required_truth = scalar.constant true : i1
+  %required_sum = scalar.constant 6 : i32
+  %required_floating = scalar.constant 1.5 : f32
+  func.return %required_truth, %required_sum, %required_floating : i1, i32, f32
+}
+
+// ====
+
+config.def @schedule.index_tile = 7 : index
+
+func.def @exact_address_contracts() -> (index, offset) {
+  %tile = config.get @schedule.index_tile : index
+  %c1 = index.constant 1 : index
+  %sum = index.add %tile, %c1 : index
+  %byte_offset = index.constant 64 : offset
+  %required_sum = index.constexpr %sum : index
+  %required_byte_offset = index.constexpr %byte_offset : offset
+  func.return %required_sum, %required_byte_offset : index, offset
+}
+
+// ----
+config.def @schedule.index_tile = 7 : index
+
+func.def @exact_address_contracts() -> (index, offset) {
+  %required_sum = index.constant 8 : index
+  %required_byte_offset = index.constant 64 : offset
+  func.return %required_sum, %required_byte_offset : index, offset
+}
+
+// ====
+
+func.def @unresolved_contracts(%scalar: i32, %coordinate: index) -> (i32, index) {
+  %required_scalar = scalar.constexpr %scalar : i32
+  %required_coordinate = index.constexpr %coordinate : index
+  func.return %required_scalar, %required_coordinate : i32, index
+}
+
+// ====
+
+func.def @common_contract(%value: i32) -> (i32, i32) {
+  %first = scalar.constexpr %value : i32
+  %second = scalar.constexpr %value : i32
+  func.return %first, %second : i32, i32
+}
+
+// ----
+func.def @common_contract(%value: i32) -> (i32, i32) {
+  %first = scalar.constexpr %value : i32
+  func.return %first, %first : i32, i32
+}
+
+// ====
+
+func.def @dead_contract(%scalar: i32, %coordinate: index) {
+  %unused_scalar = scalar.constexpr %scalar : i32
+  %unused_coordinate = index.constexpr %coordinate : index
+  func.return
+}
+
+// ----
+func.def @dead_contract(%scalar: i32, %coordinate: index) {
+  func.return
+}

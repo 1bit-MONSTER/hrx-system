@@ -166,6 +166,25 @@ index_assume = Op(
     ],
 )
 
+index_constexpr = Op(
+    "index.constexpr",
+    group=index_ops,
+    phase=OpPhase.COMPILE_TIME_QUERY,
+    doc=(
+        "Require an index or offset value to become exact during "
+        "specialization. Configured canonicalization replaces the result with "
+        "an ordinary constant once exact facts are available; target lowering "
+        "diagnoses an unresolved requirement."
+    ),
+    operands=[Operand("input", ADDRESS)],
+    results=[Result("result", ADDRESS)],
+    constraints=[SameType("input", "result")],
+    traits=[PURE],
+    facts="loom_index_constexpr_facts",
+    format=[Ref("input"), COLON, TypeOf("result")],
+    examples=["%tile_count = index.constexpr %configured : index"],
+)
+
 # ============================================================================
 # Address-domain arithmetic
 # ============================================================================
@@ -521,4 +540,5 @@ ALL_INDEX_OPS: tuple[Op, ...] = (
     index_cttzi,
     index_ctpopi,
     index_cmp,
+    index_constexpr,
 )

@@ -50,6 +50,13 @@ void reject_misplaced_binding_attributes(
               std::string(name) +
                   " requires a leading pointer parameter attribute");
         }
+        if (name == "constexpr" &&
+            scope != BindingAttributeScope::LocalDeclaration) {
+          diagnostics.reject(
+              unit, attribute,
+              "constexpr requires a leading automatic const scalar "
+              "declaration attribute");
+        }
         if (name == "where" && scope != BindingAttributeScope::Declaration &&
             scope != BindingAttributeScope::Function) {
           diagnostics.reject(

@@ -12,6 +12,12 @@ def test_scalar_operation_phases_are_complete() -> None:
     operation_by_name = {operation.name: operation for operation in ALL_SCALAR_OPS}
     non_executable_names = {operation.name for operation in ALL_SCALAR_OPS if operation.effective_phase is not OpPhase.EXECUTABLE}
 
-    assert non_executable_names == {"scalar.assume", "scalar.poison"}
+    assert non_executable_names == {
+        "scalar.assume",
+        "scalar.constexpr",
+        "scalar.poison",
+    }
     assert operation_by_name["scalar.assume"].has_trait(FACT_IDENTITY.name)
+    assert operation_by_name["scalar.constexpr"].effective_phase is OpPhase.COMPILE_TIME_QUERY
+    assert not operation_by_name["scalar.constexpr"].has_trait(FACT_IDENTITY.name)
     assert operation_by_name["scalar.poison"].has_trait(POISON.name)

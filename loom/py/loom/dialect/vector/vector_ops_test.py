@@ -13,6 +13,7 @@ from loom.dsl import DECOMPOSABLE, FLOAT, I1, INTEGER, Op
 
 SCALAR_TO_VECTOR_SUFFIX_EXCLUSIONS = {
     "assume": "scalar.assume refines scalar predicate facts, not vector lanes.",
+    "constexpr": "scalar.constexpr must specialize before vector lowering.",
 }
 
 

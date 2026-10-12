@@ -678,6 +678,49 @@ specialization. `if constexpr` selects from source-known constants, including
 template arguments and exact config definitions; unresolved config declarations
 cannot select a C++ branch.
 
+## Required compile-time specialization
+
+A leading `[[loom::constexpr]]` attribute preserves the requirement that an
+automatic `const` scalar become exact during Loom specialization:
+
+```cpp
+[[loom::config("tuning.tile")]] extern const unsigned tile;
+
+unsigned tile_width() {
+  [[loom::constexpr]] const unsigned width = tile + 1u;
+  return width;
+}
+```
+
+The local imports as an ordinary named SSA value behind a compile-time query:
+
+```loom
+%tile = config.get @tuning.tile : i32
+%c1 = scalar.constant 1 : i32
+%sum = scalar.addi %tile, %c1 : i32
+%width = scalar.constexpr %sum : i32
+```
+
+Supplying `tuning.tile` makes configured canonicalization replace `%width` with
+an ordinary constant. An unresolved query reaching target lowering produces a
+source diagnostic at the attribute. This makes a scheduling, layout, storage,
+or target-selection assumption explicit at its C or C++ binding without fixing
+the value in the imported library.
+
+C++ `constexpr` has a different boundary: the source frontend must resolve it
+while checking template arguments, types, `static_assert`, and `if constexpr`.
+`[[loom::constexpr]]` accepts unresolved Loom values and records when the Loom
+compiler must finish specialization. Ordinary `const` locals carry no such
+requirement.
+
+Boolean, integer, floating-point, enum, and Loom index bindings use their native
+scalar or address-domain query. The attribute also applies to
+condition declarations; `while` and general `for` loops preserve it each time
+they recreate the decision value. The declaration must have automatic storage,
+remain non-volatile and non-addressable, and place the attribute before the
+declaration specifiers. Pointer, vector, array, and record bindings are not
+scalar specialization contracts. No facade header is required.
+
 ## Compile-time branches
 
 `if constexpr (expression)` imports only the source-selected arm. Template
