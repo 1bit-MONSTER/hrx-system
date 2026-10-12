@@ -209,8 +209,14 @@ amdf_cc_library(
 
 amdf_cc_library(
     name = "memory_reservation",
-    srcs = ["memory_reservation.c"],
-    hdrs = ["memory_reservation.h"],
+    srcs = [
+        "host_reservation.c",
+        "memory_reservation.c",
+    ],
+    hdrs = [
+        "host_reservation.h",
+        "memory_reservation.h",
+    ],
     visibility = ["//libamdf/src:__subpackages__"],
     deps = [
         ":allocator",

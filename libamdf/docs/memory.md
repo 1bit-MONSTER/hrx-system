@@ -535,6 +535,48 @@ install the same slab in both groups and publish new work only after both
 updates are ready. Libamdf neither tracks installed slabs nor turns separate
 native mutations into an atomic cross-domain transaction.
 
+### Shared CPU and NPU translations
+
+A Linux XDNA device using shared virtual addressing can join the host mapping
+group. Its projection reports `AMDF_MEMORY_ADDRESS_XDNA_DMA`; the CPU projection
+reports `AMDF_MEMORY_ADDRESS_HOST`. These projections share page tables, not
+necessarily the same numeric address. Both have the same
+`mapping_access_ordinal`. Installing or detaching through either projection
+changes their shared translations once. The GPU projection remains an
+independent mapping group.
+
+The backing is an ordinary joint GPU/NPU allocation. Its live profile must
+support `HOST_MAPPING_SOURCE`, and its NPU access must support `MAPPING_SOURCE`.
+Request those properties during construction: the GPU owner retains its native
+mapping source and the NPU attachment pins the same physical backing. Mapping
+admission checks every NPU sharing the host group, including when the update is
+issued through the CPU projection. A GPU-only allocation cannot bypass NPU
+preparation by entering through that alias. The host and NPU consumers request
+identical permission envelopes because their protections describe the same
+page tables.
+
+Replacement installs the offset-correct shared mapping and populates every
+native page before returning. Linux's synchronous process-page-table
+invalidation covers the SVA consumer; libamdf establishes the new CPU PTEs with
+one non-writing cache-line operation per native page. This preparation neither
+initializes the payload nor replaces the caller's data-visibility transitions.
+Its cost scales with native pages, not payload bytes or submission count.
+CPU-only reservations retain ordinary lazy faults.
+
+A pool can therefore keep a stable CPU view, GPU address and NPU binding across
+slab replacement. After the previous users finish, it updates the host/NPU
+group and the GPU group, applies the next users' required cache transitions,
+then publishes its existing readiness dependency. Immutable NPU command bytes
+continue to use the same bindings. No per-dispatch attachment or library-owned
+slab table is involved. An NPU-only reservation uses the same source and
+readiness contract without requiring a public CPU view.
+
+Live device capabilities admit this route only in native SVA mode. Linux IOVA
+and Windows MCDM devices return `UNSUPPORTED` for NPU reservations. Arbitrary
+registered storage and foreign DMA-BUF exporters do not acquire host-source
+eligibility from import alone. CPU and GPU reservation support remains
+independent of NPU admission.
+
 ### Queue-ordered replacement
 
 When a live kernel queue advertises

@@ -77,6 +77,13 @@ amdf_status_t amdf_linux_xdna_buffer_attach(
 amdf_status_t amdf_linux_xdna_buffer_deinitialize(
     int descriptor, amdf_linux_xdna_buffer_t* buffer);
 
+// Determines this live connection's address mode using one unmapped SHARE BO.
+// Cold device-activation operation: CREATE, GET_BO_INFO and checked GEM_CLOSE.
+// Failure publishes no mode; the connection owner closes the fd if local
+// cleanup fails. No mapping, payload access or execution context is created.
+amdf_status_t amdf_linux_xdna_buffer_query_sva(int descriptor, size_t page_size,
+                                               bool* out_sva);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

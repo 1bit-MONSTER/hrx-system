@@ -670,14 +670,15 @@ typedef struct amdf_api_t {
       amdf_memory_reservation_capabilities_t* out_capabilities);
 
   /// Reserves stable addresses for explicit host/live-device consumers without
-  /// allocating application backing. A request may combine host and GPU
-  /// consumers: the GPUs share a common GPU address, while the host projection
-  /// has its own base. An unsupported native combination fails as a whole.
-  /// Distinct mapping groups update independently, not as one cross-domain
-  /// transaction. Devices and instance are borrowed, with no retention or
-  /// lifetime tracking. This cold operation may allocate, lock and enter the
-  /// native driver. Failure leaves out_reservation unchanged and creates no
-  /// cleanup obligation.
+  /// allocating application backing. A request may combine host, GPU and NPU
+  /// consumers. GPUs share a common GPU address. Host/SVA consumers share
+  /// native translations, require equal permission envelopes and can have
+  /// different address encodings; each projection reports its address_kind. An
+  /// unsupported native combination fails as a whole. Distinct mapping groups
+  /// update independently, not as one cross-domain transaction. Devices and
+  /// instance are borrowed, with no retention or lifetime tracking. This cold
+  /// operation may allocate, lock and enter the native driver. Failure leaves
+  /// out_reservation unchanged and creates no cleanup obligation.
   amdf_status_t(AMDF_CALL* memory_reservation_create)(
       amdf_instance_t* instance,
       const amdf_memory_reservation_create_info_t* create_info,
@@ -711,15 +712,17 @@ typedef struct amdf_api_t {
   /// users and aliases finish. No execution dependencies are inferred or
   /// waited. The caller serializes mutation/destruction of the same
   /// reservation. Device sources require MAPPING_SOURCE access; host sources
-  /// require HOST_MAPPING_SOURCE backing. All descriptors are validated before
-  /// native mutation. Validation failure changes nothing. A native failure can
-  /// leave partial mappings and makes the affected native mapping group
-  /// unusable except for full-group detach or terminal destruction.
-  /// Old and proposed backing stay alive until
-  /// checked removal succeeds. The library retains no source objects or
-  /// installed-mapping ledger. This cold operation may allocate temporary
-  /// descriptors, lock native VM mutation and wait for mapping readiness. Zero
-  /// updates is an empty operation on a healthy projection.
+  /// require HOST_MAPPING_SOURCE backing. A shared host/SVA group requires
+  /// both: the backing must have prepared MAPPING_SOURCE access for every
+  /// device in that group, even for an update issued through its host
+  /// projection. All descriptors are validated before native mutation.
+  /// Validation failure changes nothing. A native failure can leave partial
+  /// mappings and makes the affected native mapping group unusable except for
+  /// full-group detach or terminal destruction. Old and proposed backing stay
+  /// alive until checked removal succeeds. The library retains no source
+  /// objects or installed-mapping ledger. This cold operation may allocate
+  /// temporary descriptors, lock native VM mutation and wait for mapping
+  /// readiness. Zero updates is an empty operation on a healthy projection.
   ///
   /// Linux PROCESS lifetime can share its native context with foreign KFD
   /// clients. The caller serializes those clients' VM mutations against these

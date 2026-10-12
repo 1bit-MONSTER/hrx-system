@@ -115,6 +115,12 @@ amdf_status_t amdf_xdna_umd_device_query_memory_profile(
   const amdf_status_t status = amdf_linux_xdna_query_memory_profile(
       device->profile, device->page_size, memory_profile_ordinal, out_profile);
   if (amdf_status_is_ok(status)) {
+    if (device->uses_sva && memory_profile_ordinal == 1) {
+      // The imported DMA-BUF attachment pins backing for independent SVA
+      // aliases. Offset-correct host-source admission belongs to its owner.
+      out_profile->guaranteed_flags |= AMDF_MEMORY_FLAG_MAPPING_SOURCE;
+      out_profile->supported_flags |= AMDF_MEMORY_FLAG_MAPPING_SOURCE;
+    }
     out_profile->visibility.describe_site = amdf_xdna_umd_memory_describe_site;
     out_profile->visibility.describe_host = amdf_xdna_umd_memory_describe_host;
     out_profile->visibility.data = device;

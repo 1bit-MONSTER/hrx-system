@@ -89,6 +89,7 @@ iree_cc_library(
     ::device_state
     amdf::headers
     libamdf::src::allocator
+    libamdf::src::memory_reservation
     libamdf::src::platform::linux::endpoint
     libamdf::src::platform::linux::file
     libamdf::src::platform::linux::host_cache

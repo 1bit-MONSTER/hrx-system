@@ -31,8 +31,14 @@ struct NativeBufferState {
   uint32_t query_count = 0;
   // Error returned instead of the initial mapping-offset query.
   int query_error = 0;
+  // Native allocation failure before handle publication.
+  int create_error = 0;
+  // Address reported before mapping: invalid for SVA, assigned for IOVA.
+  uint64_t device_address = AMDXDNA_INVALID_ADDR;
   // Number of native handle releases.
   uint32_t release_count = 0;
+  // Native handle-release failure.
+  int release_error = 0;
 };
 
 // Scoped to each single-threaded fixture invocation.
@@ -125,6 +131,58 @@ TEST_F(LinuxXdnaBufferMappingTest,
   EXPECT_EQ(buffer_.mapping.base, nullptr);
   ASSERT_EQ(amdf_linux_xdna_buffer_deinitialize(native_.descriptor, &buffer_),
             AMDF_STATUS_OK);
+  EXPECT_EQ(native_.release_count, 1u);
+}
+
+TEST_F(LinuxXdnaBufferMappingTest, SvaAdmissionNeedsNoHostMapping) {
+  bool uses_sva = false;
+  ASSERT_EQ(amdf_linux_xdna_buffer_query_sva(native_.descriptor,
+                                             native_.byte_length, &uses_sva),
+            AMDF_STATUS_OK);
+  EXPECT_TRUE(uses_sva);
+  EXPECT_EQ(native_.query_count, 1u);
+  EXPECT_EQ(native_.release_count, 1u);
+}
+
+TEST_F(LinuxXdnaBufferMappingTest, IovaAdmissionDoesNotInferAddressEquality) {
+  native_.device_address = UINT64_C(0x10000000);
+  bool uses_sva = true;
+  ASSERT_EQ(amdf_linux_xdna_buffer_query_sva(native_.descriptor,
+                                             native_.byte_length, &uses_sva),
+            AMDF_STATUS_OK);
+  EXPECT_FALSE(uses_sva);
+  EXPECT_EQ(native_.query_count, 1u);
+  EXPECT_EQ(native_.release_count, 1u);
+}
+
+TEST_F(LinuxXdnaBufferMappingTest, ModeAllocationFailurePreservesOutput) {
+  native_.create_error = ENOMEM;
+  bool uses_sva = true;
+  EXPECT_EQ(amdf_linux_xdna_buffer_query_sva(native_.descriptor,
+                                             native_.byte_length, &uses_sva),
+            amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, ENOMEM));
+  EXPECT_TRUE(uses_sva);
+  EXPECT_EQ(native_.query_count, 0u);
+  EXPECT_EQ(native_.release_count, 0u);
+}
+
+TEST_F(LinuxXdnaBufferMappingTest, ModeQueryFailureClosesBeforeReturning) {
+  native_.query_error = EIO;
+  bool uses_sva = true;
+  EXPECT_EQ(amdf_linux_xdna_buffer_query_sva(native_.descriptor,
+                                             native_.byte_length, &uses_sva),
+            amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, EIO));
+  EXPECT_TRUE(uses_sva);
+  EXPECT_EQ(native_.release_count, 1u);
+}
+
+TEST_F(LinuxXdnaBufferMappingTest, ModeReleaseFailureDoesNotPublishAdmission) {
+  native_.release_error = EBUSY;
+  bool uses_sva = false;
+  EXPECT_EQ(amdf_linux_xdna_buffer_query_sva(native_.descriptor,
+                                             native_.byte_length, &uses_sva),
+            amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, EBUSY));
+  EXPECT_FALSE(uses_sva);
   EXPECT_EQ(native_.release_count, 1u);
 }
 
@@ -231,6 +289,10 @@ extern "C" int __wrap_ioctl(int descriptor, unsigned long request, ...) {
   if (request == DRM_IOCTL_AMDXDNA_CREATE_BO) {
     auto* create = static_cast<amdxdna_drm_create_bo*>(argument);
     EXPECT_EQ(create->size, native_buffer->byte_length);
+    if (native_buffer->create_error != 0) {
+      errno = native_buffer->create_error;
+      return -1;
+    }
     create->handle = 17;
     return 0;
   }
@@ -243,15 +305,19 @@ extern "C" int __wrap_ioctl(int descriptor, unsigned long request, ...) {
           native_buffer->query_error != 0 ? native_buffer->query_error : ENXIO;
       return -1;
     }
-    // Host mapping is supported; device addressing is deliberately unavailable.
+    // Mapping attaches real CPU storage; the native address mode is controlled.
     info->map_offset = 0;
     info->vaddr = 0;
-    info->xdna_addr = AMDXDNA_INVALID_ADDR;
+    info->xdna_addr = native_buffer->device_address;
     return 0;
   }
   if (request == DRM_IOCTL_GEM_CLOSE) {
     EXPECT_EQ(static_cast<drm_gem_close*>(argument)->handle, 17u);
     ++native_buffer->release_count;
+    if (native_buffer->release_error != 0) {
+      errno = native_buffer->release_error;
+      return -1;
+    }
     return 0;
   }
   ADD_FAILURE() << "Unexpected native buffer request: " << request;

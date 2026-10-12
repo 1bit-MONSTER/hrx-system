@@ -55,6 +55,7 @@ typedef struct amdf_memory_reservation_access_t {
   /// Consumer-local address domain, or ADDRESS_DOMAIN_ORDINAL_NONE for host.
   uint32_t address_domain_ordinal;
   /// Maximum permissions that updates may establish for this consumer.
+  /// Consumers sharing host/SVA translations require identical envelopes.
   amdf_memory_access_t access;
   /// Minimum mapping offset/length unit, or zero for provider policy.
   /// Must be a power-of-two multiple of the native mapping granularity and
@@ -126,6 +127,8 @@ typedef struct amdf_memory_mapping_update_t {
   uint64_t byte_length;
   /// Ordinary prepared backing, or NULL to detach the destination range.
   /// The caller keeps backing alive through its last installed alias and user.
+  /// Host/SVA groups require HOST_MAPPING_SOURCE backing with prepared
+  /// MAPPING_SOURCE access for every device sharing their translations.
   amdf_memory_t* memory;
   /// Source access prepared for this exact live device. Must be zero for a
   /// host projection (which uses backing, not a device access) or detach.

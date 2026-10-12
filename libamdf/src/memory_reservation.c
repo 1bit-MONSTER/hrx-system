@@ -12,6 +12,7 @@
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/device.h"
 #include "libamdf/src/host_memory.h"
+#include "libamdf/src/host_reservation.h"
 #include "libamdf/src/instance.h"
 #include "libamdf/src/kernel_queue.h"
 #include "libamdf/src/memory_resource.h"
@@ -41,95 +42,6 @@ amdf_instance_query_host_memory_reservation_capabilities(
   }
   return status;
 }
-
-static amdf_status_t amdf_host_reservation_update(
-    amdf_memory_reservation_t* reservation, uint32_t access_ordinal,
-    uint32_t update_count, const amdf_memory_mapping_update_t* updates,
-    bool* mutation_started) {
-  const amdf_memory_reservation_access_info_t* target =
-      &reservation->accesses[access_ordinal].info;
-  amdf_status_t status = AMDF_STATUS_OK;
-  for (uint32_t i = 0; i < update_count && amdf_status_is_ok(status); ++i) {
-    const amdf_memory_mapping_update_t* update = &updates[i];
-    void* pointer =
-        (void*)(uintptr_t)(target->address + update->target_byte_offset);
-    *mutation_started = true;
-    if (update->memory != NULL) {
-      amdf_memory_t* source = update->memory;
-      const uint32_t owner = source->backing_access_ordinal;
-      status = amdf_platform_host_reservation_replace(
-          pointer, update->byte_length, target->mapping_granularity,
-          source->accesses[owner].vtable->host_mapping_source(source, owner),
-          source->info.source_byte_offset + update->source_byte_offset,
-          update->access);
-    } else {
-      status =
-          amdf_platform_host_reservation_clear(pointer, update->byte_length);
-    }
-  }
-  return status;
-}
-
-static amdf_status_t amdf_host_reservation_detach(
-    amdf_memory_reservation_t* reservation, uint32_t access_ordinal) {
-  const amdf_memory_reservation_access_info_t* info =
-      &reservation->accesses[access_ordinal].info;
-  return amdf_platform_host_reservation_clear((void*)(uintptr_t)info->address,
-                                              info->byte_length);
-}
-
-static amdf_status_t amdf_host_reservation_destroy(
-    amdf_memory_reservation_t* reservation, uint32_t owner_ordinal) {
-  const amdf_memory_reservation_access_info_t* info =
-      &reservation->accesses[owner_ordinal].info;
-  return amdf_platform_host_reservation_destroy((void*)(uintptr_t)info->address,
-                                                info->byte_length);
-}
-
-static amdf_status_t amdf_host_reservation_prepare(
-    amdf_memory_reservation_t* reservation,
-    const amdf_memory_reservation_create_info_t* create_info,
-    const amdf_memory_reservation_group_t* group) {
-  const uint32_t ordinal = group->access_ordinals[0];
-  const amdf_memory_reservation_capabilities_t* capabilities =
-      &group->profiles[ordinal].capabilities;
-  void* pointer = NULL;
-  const uint64_t alignment =
-      create_info->minimum_alignment > capabilities->reservation_granularity
-          ? create_info->minimum_alignment
-          : 0;
-  const amdf_status_t status = amdf_platform_host_reservation_create(
-      create_info->byte_length, alignment, &pointer);
-  if (amdf_status_is_ok(status)) {
-    amdf_memory_reservation_access_state_t* access =
-        &reservation->accesses[ordinal];
-    access->native = pointer;
-    access->required_access = capabilities->required_access;
-    access->info = (amdf_memory_reservation_access_info_t){
-        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO,
-        .structure_size = sizeof(access->info),
-        .ordinal = ordinal,
-        .mapping_access_ordinal = ordinal,
-        .address_domain_ordinal = AMDF_ADDRESS_DOMAIN_ORDINAL_NONE,
-        .access = create_info->accesses[ordinal].access,
-        .address_kind = AMDF_MEMORY_ADDRESS_HOST,
-        .address = (uintptr_t)pointer,
-        .byte_length = create_info->byte_length,
-        .mapping_granularity =
-            create_info->accesses[ordinal].mapping_granularity != 0
-                ? create_info->accesses[ordinal].mapping_granularity
-                : capabilities->mapping_granularity,
-    };
-  }
-  return status;
-}
-
-static const amdf_memory_reservation_vtable_t amdf_host_reservation_vtable = {
-    .prepare = amdf_host_reservation_prepare,
-    .update = amdf_host_reservation_update,
-    .detach = amdf_host_reservation_detach,
-    .destroy = amdf_host_reservation_destroy,
-};
 
 amdf_status_t AMDF_CALL amdf_device_query_memory_reservation_capabilities(
     amdf_device_t* device, uint32_t address_domain_ordinal,
@@ -182,6 +94,7 @@ static amdf_status_t amdf_memory_reservation_query_profile(
       return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
     }
     out_profile->vtable = &amdf_host_reservation_vtable;
+    out_profile->host.address_kind = AMDF_MEMORY_ADDRESS_HOST;
     status = amdf_platform_host_reservation_query_capabilities(
         &out_profile->capabilities);
   } else {

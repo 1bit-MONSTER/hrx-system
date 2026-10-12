@@ -23,6 +23,8 @@ struct amdf_xdna_umd_device_t {
   size_t page_size;
   // Qualified CLFLUSH cache-line length in bytes.
   uint32_t cache_line_size;
+  // Whether this connection consumes process page tables instead of IOVA.
+  bool uses_sva;
   // Firmware heap and persistent host mapping backing private instruction
   // memory.
   amdf_linux_xdna_buffer_t heap;

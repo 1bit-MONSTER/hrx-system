@@ -49,12 +49,35 @@ typedef struct amdf_memory_reservation_vtable_t {
                            uint32_t owner_ordinal);
 } amdf_memory_reservation_vtable_t;
 
+// A consumer of the process page tables, including biased device DMA views.
+// Native admission establishes that the callback can prepare every page of a
+// qualified source without modifying payload. NULL leaves ordinary CPU faults.
+typedef struct amdf_host_reservation_projection_t {
+  // Identity of the live consumer; zero for the CPU.
+  amdf_device_id_t device_id;
+  // Consumer reset epoch; zero for the CPU.
+  uint64_t reset_epoch;
+  // Constant displacement from the process address to the consumer's address.
+  uint64_t address_byte_offset;
+  // Interpretation of the displaced address.
+  amdf_memory_address_kind_t address_kind;
+  // Native page size used by prepare_translations, independent of mapping
+  // units.
+  uint64_t page_size;
+  // Populates an installed, pinned source for a device sharing process PTEs.
+  void (*prepare_translations)(void* pointer, uint64_t byte_length,
+                               uint64_t page_size);
+} amdf_host_reservation_projection_t;
+
 // Native limits and preparation protocol, resolved before resource creation.
 struct amdf_memory_reservation_profile_t {
   // Complete live-domain geometry and permission envelope.
   amdf_memory_reservation_capabilities_t capabilities;
   // Matching operations prepare consumers together in one native owner.
   const amdf_memory_reservation_vtable_t* vtable;
+  // Process-page-table projection, used only by the host reservation
+  // operations.
+  amdf_host_reservation_projection_t host;
 };
 
 typedef struct amdf_memory_reservation_access_state_t {
@@ -74,6 +97,14 @@ typedef struct amdf_memory_reservation_access_state_t {
   uint32_t native_owner_ordinal;
   // Consumer ordinal within that native owner, independent of caller order.
   uint32_t native_access_ordinal;
+  // Native host preparation retained only by a process-address-space owner.
+  struct {
+    // Smallest page unit required by the group's process-PTE consumers.
+    uint64_t page_size;
+    // Eager PTE preparation, or NULL when every consumer supports CPU faults.
+    void (*prepare_translations)(void* pointer, uint64_t byte_length,
+                                 uint64_t page_size);
+  } host;
 } amdf_memory_reservation_access_state_t;
 
 struct amdf_memory_reservation_t {

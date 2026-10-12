@@ -11,6 +11,7 @@
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/device.h"
 #include "libamdf/src/endpoint.h"
+#include "libamdf/src/memory_reservation.h"
 #include "libamdf/src/structure.h"
 #include "libamdf/src/xdna/device_profile.h"
 #include "libamdf/src/xdna/memory.h"
@@ -47,7 +48,23 @@ static amdf_status_t amdf_xdna_device_destroy_native(
   return status;
 }
 
+static amdf_status_t amdf_xdna_device_query_memory_reservation_profile(
+    amdf_device_t* base_device, uint32_t address_domain_ordinal,
+    amdf_memory_reservation_profile_t* out_profile) {
+  const amdf_xdna_device_t* device = (const amdf_xdna_device_t*)base_device;
+  const amdf_status_t status =
+      amdf_xdna_umd_device_query_memory_reservation_profile(
+          device->umd, address_domain_ordinal, out_profile);
+  if (amdf_status_is_ok(status)) {
+    out_profile->host.device_id = device->info.id;
+    out_profile->host.reset_epoch = device->info.reset_epoch;
+  }
+  return status;
+}
+
 static const amdf_device_vtable_t amdf_xdna_device_vtable = {
+    .query_memory_reservation_profile =
+        amdf_xdna_device_query_memory_reservation_profile,
     .query_memory_profile = amdf_xdna_device_query_memory_profile,
     .memory_prepare = amdf_xdna_memory_prepare,
     .memory_prepare_import = amdf_xdna_memory_prepare_import,

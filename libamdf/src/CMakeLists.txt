@@ -300,8 +300,10 @@ iree_cc_library(
   NAME
     memory_reservation
   HDRS
+    "host_reservation.h"
     "memory_reservation.h"
   SRCS
+    "host_reservation.c"
     "memory_reservation.c"
   DEPS
     ::allocator

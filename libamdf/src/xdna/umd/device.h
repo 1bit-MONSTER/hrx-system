@@ -16,6 +16,7 @@ extern "C" {
 #endif  // __cplusplus
 
 typedef struct amdf_xdna_umd_device_t amdf_xdna_umd_device_t;
+struct amdf_memory_reservation_profile_t;
 
 // Array layout reported by the driver after device activation.
 typedef struct amdf_xdna_umd_tile_metadata_t {
@@ -71,6 +72,12 @@ amdf_status_t amdf_xdna_umd_device_create(
 
 // Releases native XDNA device state in reverse ownership order.
 amdf_status_t amdf_xdna_umd_device_destroy(amdf_xdna_umd_device_t* device);
+
+// Resolves a live ordinary-domain mapping contract from cached native facts.
+// Unsupported providers return UNSUPPORTED; queries perform no native work.
+amdf_status_t amdf_xdna_umd_device_query_memory_reservation_profile(
+    amdf_xdna_umd_device_t* device, uint32_t address_domain_ordinal,
+    struct amdf_memory_reservation_profile_t* out_profile);
 
 #ifdef __cplusplus
 }  // extern "C"

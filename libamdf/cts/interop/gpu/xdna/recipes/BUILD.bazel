@@ -69,6 +69,7 @@ amdf_cts_test_suite(
     name = "execution",
     srcs = [
         "gpu_xdna_test.cc",
+        "reservation_test.cc",
         "resident_test.cc",
     ],
     target_compatible_with = (
