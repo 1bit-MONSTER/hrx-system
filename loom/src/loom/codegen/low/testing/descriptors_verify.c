@@ -3346,6 +3346,17 @@ static iree_status_t loom_low_verify_resource(
   return iree_ok_status();
 }
 
+static bool loom_low_resources_share_capacity(
+    const loom_low_descriptor_set_t* descriptor_set, uint16_t lhs_resource_id,
+    uint16_t rhs_resource_id) {
+  const uint16_t lhs_group =
+      descriptor_set->resources[lhs_resource_id].contention_group_id;
+  const uint16_t rhs_group =
+      descriptor_set->resources[rhs_resource_id].contention_group_id;
+  return lhs_resource_id == rhs_resource_id ||
+         (lhs_group != 0 && lhs_group == rhs_group);
+}
+
 static iree_status_t loom_low_verify_schedule_class_minimum_issue_cycles(
     const loom_low_descriptor_set_t* descriptor_set,
     uint32_t schedule_class_index) {
@@ -3356,16 +3367,22 @@ static iree_status_t loom_low_verify_schedule_class_minimum_issue_cycles(
     const uint32_t issue_use_index = schedule_class->issue_use_start + i;
     const loom_low_issue_use_t* issue_use =
         &descriptor_set->issue_uses[issue_use_index];
-    bool is_first_use_of_resource = true;
+    if (issue_use->kind != LOOM_LOW_ISSUE_USE_KIND_REQUIRED) {
+      continue;
+    }
+    bool is_first_required_use_of_resource = true;
     for (uint16_t j = 0; j < i; ++j) {
       const loom_low_issue_use_t* previous_issue_use =
           &descriptor_set->issue_uses[schedule_class->issue_use_start + j];
-      if (previous_issue_use->resource_id == issue_use->resource_id) {
-        is_first_use_of_resource = false;
+      if (previous_issue_use->kind == LOOM_LOW_ISSUE_USE_KIND_REQUIRED &&
+          loom_low_resources_share_capacity(descriptor_set,
+                                            previous_issue_use->resource_id,
+                                            issue_use->resource_id)) {
+        is_first_required_use_of_resource = false;
         break;
       }
     }
-    if (!is_first_use_of_resource) {
+    if (!is_first_required_use_of_resource) {
       continue;
     }
 
@@ -3373,7 +3390,10 @@ static iree_status_t loom_low_verify_schedule_class_minimum_issue_cycles(
     for (uint16_t j = i; j < schedule_class->issue_use_count; ++j) {
       const loom_low_issue_use_t* matching_issue_use =
           &descriptor_set->issue_uses[schedule_class->issue_use_start + j];
-      if (matching_issue_use->resource_id == issue_use->resource_id) {
+      if (matching_issue_use->kind == LOOM_LOW_ISSUE_USE_KIND_REQUIRED &&
+          loom_low_resources_share_capacity(descriptor_set,
+                                            matching_issue_use->resource_id,
+                                            issue_use->resource_id)) {
         resource_unit_cycles +=
             (uint64_t)matching_issue_use->cycles * matching_issue_use->units;
       }

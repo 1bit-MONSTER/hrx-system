@@ -291,22 +291,15 @@ TEST_F(LowContractQuerySourceMemoryTest,
   IREE_ASSERT_OK(loom_index_constant_build(
       &builder_, loom_attr_i64(0), loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET),
       LOOM_LOCATION_UNKNOWN, &source_op));
-  const loom_low_lower_diagnostic_param_t diagnostic_params[] = {
-      {
-          .kind = LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
-          .reserved = {},
-          .value = {.string_value_ref = kRuleStringField},
-      },
-      {
-          .kind = LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
-          .reserved = {},
-          .value = {.string_value_ref = kRuleStringValue},
-      },
-      {
-          .kind = LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
-          .reserved = {},
-          .value = {.string_value_ref = kRuleStringAttrKind},
-      },
+  const loom_low_lower_diagnostic_param_kind_t diagnostic_param_kinds[] = {
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
+  };
+  const loom_low_lower_diagnostic_value_t diagnostic_param_values[] = {
+      {.string_value_ref = kRuleStringField},
+      {.string_value_ref = kRuleStringValue},
+      {.string_value_ref = kRuleStringAttrKind},
   };
   const loom_low_lower_diagnostic_param_ref_t diagnostic_param_refs[] = {0, 1,
                                                                          2};
@@ -318,8 +311,12 @@ TEST_F(LowContractQuerySourceMemoryTest,
   };
   loom_low_lower_rule_set_t rule_set = {
       .string_pool = kRuleStringPool,
-      .diagnostic_params = diagnostic_params,
-      .diagnostic_param_count = IREE_ARRAYSIZE(diagnostic_params),
+      .diagnostic_params =
+          {
+              .kinds = diagnostic_param_kinds,
+              .values = diagnostic_param_values,
+              .count = IREE_ARRAYSIZE(diagnostic_param_kinds),
+          },
       .diagnostic_param_refs = diagnostic_param_refs,
       .diagnostic_param_ref_count = IREE_ARRAYSIZE(diagnostic_param_refs),
   };
@@ -343,6 +340,92 @@ TEST_F(LowContractQuerySourceMemoryTest,
   EXPECT_TRUE(iree_string_view_equal(params[5].string, IREE_SV("field")));
   EXPECT_TRUE(iree_string_view_equal(params[6].string, IREE_SV("value")));
   EXPECT_TRUE(iree_string_view_equal(params[7].string, IREE_SV("attr_kind")));
+}
+
+TEST_F(LowContractQuerySourceMemoryTest,
+       MaterializesNativeValuesThroughSharedParameterOrdinals) {
+  loom_op_t* source_op = nullptr;
+  IREE_ASSERT_OK(loom_index_constant_build(
+      &builder_, loom_attr_i64(0), loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET),
+      LOOM_LOCATION_UNKNOWN, &source_op));
+  const loom_low_lower_diagnostic_param_kind_t kinds[] = {
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_I64_LITERAL,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_I64_LITERAL,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_U64_LITERAL,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_U32_LITERAL,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_BOOL_LITERAL,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_BOOL_LITERAL,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_VALUE_TYPE,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_SOURCE_OP_NAME,
+  };
+  const loom_low_lower_diagnostic_value_t values[] = {
+      {.i64_value = INT64_MIN},
+      {.i64_value = INT64_MAX},
+      {.u64_value = UINT64_MAX},
+      {.u32_value = UINT32_MAX},
+      {.bool_value = false},
+      {.bool_value = true},
+      {.string_value_ref = kRuleStringField},
+      {.value_ref_index = 0},
+      {},
+  };
+  const loom_low_lower_diagnostic_param_ref_t refs[] = {
+      2, 0, 3, 1, 5, 4, 6, 7, 8, 2, 0,
+  };
+  const loom_low_lower_value_ref_t value_ref = {
+      .kind = LOOM_LOW_LOWER_VALUE_REF_RESULT,
+      .index = 0,
+  };
+  const loom_low_lower_diagnostic_t diagnostic = {
+      .param_count = IREE_ARRAYSIZE(refs),
+  };
+  const loom_low_lower_rule_set_t rule_set = {
+      .string_pool = kRuleStringPool,
+      .value_refs = &value_ref,
+      .value_ref_count = 1,
+      .diagnostic_params =
+          {
+              .kinds = kinds,
+              .values = values,
+              .count = IREE_ARRAYSIZE(kinds),
+          },
+      .diagnostic_param_refs = refs,
+      .diagnostic_param_ref_count = IREE_ARRAYSIZE(refs),
+  };
+  const loom_low_lower_rule_match_context_t match_context = {
+      .module = module_,
+      .function = function_,
+      .bundle = &kTargetBundle,
+  };
+  loom_diagnostic_param_t params[IREE_ARRAYSIZE(refs)] = {};
+  loom_low_lower_rule_materialize_diagnostic_params(
+      &match_context, &rule_set, source_op, &diagnostic, params);
+
+  EXPECT_EQ(params[0].kind, LOOM_PARAM_U64);
+  EXPECT_EQ(params[0].u64, UINT64_MAX);
+  EXPECT_EQ(params[1].kind, LOOM_PARAM_I64);
+  EXPECT_EQ(params[1].i64, INT64_MIN);
+  EXPECT_EQ(params[2].kind, LOOM_PARAM_U32);
+  EXPECT_EQ(params[2].u32, UINT32_MAX);
+  EXPECT_EQ(params[3].kind, LOOM_PARAM_I64);
+  EXPECT_EQ(params[3].i64, INT64_MAX);
+  EXPECT_EQ(params[4].kind, LOOM_PARAM_BOOL);
+  EXPECT_TRUE(params[4].boolean);
+  EXPECT_EQ(params[5].kind, LOOM_PARAM_BOOL);
+  EXPECT_FALSE(params[5].boolean);
+  EXPECT_EQ(params[6].kind, LOOM_PARAM_STRING);
+  EXPECT_TRUE(iree_string_view_equal(params[6].string, IREE_SV("field")));
+  EXPECT_EQ(params[7].kind, LOOM_PARAM_TYPE);
+  EXPECT_TRUE(loom_type_equal(params[7].type,
+                              loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET)));
+  EXPECT_EQ(params[8].kind, LOOM_PARAM_STRING);
+  EXPECT_TRUE(
+      iree_string_view_equal(params[8].string, IREE_SV("index.constant")));
+  EXPECT_EQ(params[9].kind, params[0].kind);
+  EXPECT_EQ(params[9].u64, params[0].u64);
+  EXPECT_EQ(params[10].kind, params[1].kind);
+  EXPECT_EQ(params[10].i64, params[1].i64);
 }
 
 TEST(LowContractQueryTest, ContractIndexDescriptorRuleSelectsLegalCase) {
@@ -1104,62 +1187,44 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleReportsRejectedCase) {
       .attr_kind = LOOM_ATTR_I64,
       .diagnostic_index = 0,
   };
-  loom_low_lower_diagnostic_param_t diagnostic_params[] = {
-      {
-          .kind = LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_TARGET_KEY,
-          .reserved = {},
-          .value = {},
-      },
-      {
-          .kind = LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_EXPORT_NAME,
-          .reserved = {},
-          .value = {},
-      },
-      {
-          .kind = LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_CONFIG_KEY,
-          .reserved = {},
-          .value = {},
-      },
-      {
-          .kind = LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_FUNCTION_NAME,
-          .reserved = {},
-          .value = {},
-      },
-      {
-          .kind = LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
-          .reserved = {},
-          .value = {.string_value_ref = kRuleStringSource},
-      },
-      {
-          .kind = LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
-          .reserved = {},
-          .value = {.string_value_ref = kRuleStringField},
-      },
-      {
-          .kind = LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
-          .reserved = {},
-          .value = {.string_value_ref = kRuleStringValue},
-      },
-      {
-          .kind = LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
-          .reserved = {},
-          .value = {.string_value_ref = kRuleStringAttrKind},
-      },
+  const loom_low_lower_diagnostic_param_kind_t diagnostic_param_kinds[] = {
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_TARGET_KEY,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_EXPORT_NAME,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_CONFIG_KEY,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_FUNCTION_NAME,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
+      LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,
+  };
+  const loom_low_lower_diagnostic_value_t diagnostic_param_values[] = {
+      {},
+      {},
+      {},
+      {},
+      {.string_value_ref = kRuleStringSource},
+      {.string_value_ref = kRuleStringField},
+      {.string_value_ref = kRuleStringValue},
+      {.string_value_ref = kRuleStringAttrKind},
   };
   const loom_low_lower_diagnostic_param_ref_t diagnostic_param_refs[] = {
       0, 1, 2, 3, 4, 5, 6, 7};
   const loom_low_lower_guard_ref_t guard_refs[] = {0};
   loom_low_lower_diagnostic_t diagnostic = {
       .error_ref = LOOM_ERR_TARGET_003_REF,
-      .param_count = IREE_ARRAYSIZE(diagnostic_params),
+      .param_count = IREE_ARRAYSIZE(diagnostic_param_kinds),
   };
   loom_low_lower_rule_t rule = {.guard_count = 1};
   loom_low_lower_rule_set_t rule_set = {
       .string_pool = kRuleStringPool,
       .rules = &rule,
       .rule_count = 1,
-      .diagnostic_params = diagnostic_params,
-      .diagnostic_param_count = IREE_ARRAYSIZE(diagnostic_params),
+      .diagnostic_params =
+          {
+              .kinds = diagnostic_param_kinds,
+              .values = diagnostic_param_values,
+              .count = IREE_ARRAYSIZE(diagnostic_param_kinds),
+          },
       .diagnostic_param_refs = diagnostic_param_refs,
       .diagnostic_param_ref_count = IREE_ARRAYSIZE(diagnostic_param_refs),
       .guards = &guard,

@@ -1113,9 +1113,11 @@ typedef struct loom_low_schedule_class_t {
   uint16_t hazard_count;
   // Schedule-class behavior and generated resource-use proofs.
   loom_low_schedule_class_flags_t flags;
-  // Minimum steady-state issue cycles required by one use of this class.
-  // Generated from resource demand and capacity; dependency latency and
-  // hazards are intentionally excluded.
+  // Additive resource demand per instruction, rounded up to whole cycles.
+  // Required unit-cycles sum across contention-group aliases; the maximum
+  // demand/capacity ratio across independent resources supplies the bound.
+  // Reservations can overlap across instructions and are not additive demand.
+  // Stage placement, dependency latency, and hazards are excluded.
   uint16_t minimum_issue_cycles;
   // Quality of the schedule model data.
   loom_low_model_quality_t model_quality;

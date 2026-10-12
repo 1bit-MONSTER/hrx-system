@@ -1152,7 +1152,8 @@ def rule_set_row(
     descriptor_ref_keys: tuple[str, ...],
     descriptor_refs_name: str,
     diagnostic_param_rows: tuple[tuple[LowerDiagnosticParam, int], ...],
-    diagnostic_params_name: str,
+    diagnostic_param_kinds_name: str,
+    diagnostic_param_values_name: str,
     diagnostic_param_refs: tuple[int, ...],
     diagnostic_param_refs_name: str,
     guard_payloads: tuple[tuple[str, ...], ...],
@@ -1265,12 +1266,8 @@ def rule_set_row(
         descriptor_ref_keys,
         descriptor_refs_name,
     )
-    _append_table_fields(
-        fields,
-        "diagnostic_params",
-        diagnostic_param_rows,
-        diagnostic_params_name,
-    )
+    if diagnostic_param_rows:
+        fields.append(f".diagnostic_params = {{.kinds = {diagnostic_param_kinds_name}, .values = {diagnostic_param_values_name}, .count = IREE_ARRAYSIZE({diagnostic_param_kinds_name})}}")
     _append_table_fields(
         fields,
         "diagnostic_param_refs",
@@ -1318,8 +1315,6 @@ def _table_count_field_name(field_name: str) -> str:
         return "source_memory_count"
     if field_name == "source_memory_diagnostics":
         return "source_memory_diagnostic_count"
-    if field_name == "diagnostic_params":
-        return "diagnostic_param_count"
     if field_name == "diagnostic_param_refs":
         return "diagnostic_param_ref_count"
     if field_name == "guard_refs":
@@ -1329,63 +1324,35 @@ def _table_count_field_name(field_name: str) -> str:
     return f"{field_name[:-1]}_count"
 
 
-def diagnostic_param_row(
+def diagnostic_value_row(
     row: LowerDiagnosticParam,
     *,
     string_value_ref: str | None = None,
 ) -> list[str]:
-    if row.kind == DiagnosticParamKind.STRING_LITERAL and string_value_ref is None:
-        raise ValueError("diagnostic string literal is missing its string reference")
-    fields: list[str] = []
-    _append_field(
-        fields,
-        "kind",
-        lower_rule_spelling.DIAGNOSTIC_PARAM_KIND_C_NAMES[row.kind],
-        always=True,
-    )
     if row.kind == DiagnosticParamKind.STRING_LITERAL:
-        _append_field(
-            fields,
-            "value",
-            f"{{.string_value_ref = {string_value_ref}}}",
-            always=True,
-        )
+        if string_value_ref is None:
+            raise ValueError("diagnostic string literal is missing its string reference")
+        return [f".string_value_ref = {string_value_ref}"]
     if row.kind == DiagnosticParamKind.VALUE_TYPE:
-        _append_field(
-            fields,
-            "value",
-            f"{{.value_ref_index = {row.value_ref_index}}}",
-            always=True,
-        )
+        return [f".value_ref_index = {row.value_ref_index}"]
     if row.kind == DiagnosticParamKind.I64_LITERAL:
-        _append_field(
-            fields,
-            "value",
-            f"{{.i64_value = {_c_i64_literal(row.i64_value)}}}",
-            always=True,
-        )
+        return [f".i64_value = {_c_i64_literal(row.i64_value)}"]
     if row.kind == DiagnosticParamKind.U32_LITERAL:
-        _append_field(
-            fields,
-            "value",
-            f"{{.u32_value = {row.u32_value}}}",
-            always=True,
-        )
+        return [f".u32_value = {row.u32_value}"]
     if row.kind == DiagnosticParamKind.U64_LITERAL:
-        _append_field(
-            fields,
-            "value",
-            f"{{.u64_value = {lower_rule_spelling.u64_c_literal(row.u64_value)}}}",
-            always=True,
-        )
+        return [f".u64_value = {lower_rule_spelling.u64_c_literal(row.u64_value)}"]
     if row.kind == DiagnosticParamKind.BOOL_LITERAL:
-        _append_field(
-            fields,
-            "value",
-            f"{{.bool_value = {str(row.bool_value).lower()}}}",
-            always=True,
-        )
-    return fields
+        return [f".bool_value = {str(row.bool_value).lower()}"]
+    if row.kind in (
+        DiagnosticParamKind.TARGET_KEY,
+        DiagnosticParamKind.EXPORT_NAME,
+        DiagnosticParamKind.CONFIG_KEY,
+        DiagnosticParamKind.FUNCTION_NAME,
+        DiagnosticParamKind.SOURCE_OP_NAME,
+        DiagnosticParamKind.SOURCE_MEMORY_MINIMUM_ALIGNMENT,
+    ):
+        return []
+    raise ValueError(f"unsupported diagnostic parameter kind: {row.kind}")
 
 
 def type_pattern_range(

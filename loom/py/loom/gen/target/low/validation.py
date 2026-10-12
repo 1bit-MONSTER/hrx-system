@@ -701,8 +701,8 @@ def _validate_timing_event_name(name: str, description: str) -> None:
         raise ValueError(f"{description} {name!r} must contain only lowercase letters, digits, '.', '_', or '-'")
 
 
-def validate_schedule_model(descriptor_set: DescriptorSet) -> frozenset[str]:
-    """Validates capacity and retains classes with disjoint issue-use intervals."""
+def validate_schedule_model(descriptor_set: DescriptorSet) -> tuple[frozenset[str], dict[str, int]]:
+    """Validates capacity and retains disjoint classes and resource-demand bounds."""
 
     resources: dict[str, Resource] = {}
     contention_group_capacities: dict[int, int] = {}
@@ -754,6 +754,7 @@ def validate_schedule_model(descriptor_set: DescriptorSet) -> frozenset[str]:
 
     schedule_class_names: set[str] = set()
     disjoint_schedule_classes: set[str] = set()
+    minimum_issue_cycles_by_class: dict[str, int] = {}
     for schedule_class in descriptor_set.schedule_classes:
         description = f"descriptor set '{descriptor_set.key}' schedule class '{schedule_class.name}'"
         if ScheduleClassFlag.DISJOINT_ISSUE_USES in schedule_class.flags:
@@ -773,6 +774,8 @@ def validate_schedule_model(descriptor_set: DescriptorSet) -> frozenset[str]:
 
         required_units: dict[tuple[str, int], int] = {}
         reserved_units: dict[tuple[str, int], int] = {}
+        required_unit_cycles: dict[str, int] = {}
+        minimum_issue_cycles = 0
         disjoint_issue_uses = True
         for issue_use in schedule_class.issue_uses:
             if not isinstance(issue_use.kind, IssueUseKind):
@@ -790,6 +793,13 @@ def validate_schedule_model(descriptor_set: DescriptorSet) -> frozenset[str]:
             if issue_use.units > resource.capacity_per_cycle:
                 raise ValueError(f"{description} consumes {issue_use.units} units of resource '{resource.name}' with capacity {resource.capacity_per_cycle}")
             calendar_key = f"group:{resource.contention_group_id}" if resource.contention_group_id != 0 else f"resource:{resource.name}"
+            # Reservations overlap even across instructions, so only required
+            # demand contributes to this additive throughput bound. Aliases
+            # consume one shared capacity rather than independent resources.
+            if issue_use.kind == IssueUseKind.REQUIRED:
+                unit_cycles = required_unit_cycles.get(calendar_key, 0) + issue_use.cycles * issue_use.units
+                required_unit_cycles[calendar_key] = unit_cycles
+                minimum_issue_cycles = max(minimum_issue_cycles, (unit_cycles + resource.capacity_per_cycle - 1) // resource.capacity_per_cycle)
             for cycle in range(issue_use.stage, issue_use.stage + issue_use.cycles):
                 key = (calendar_key, cycle)
                 if key in required_units or key in reserved_units:
@@ -803,6 +813,8 @@ def validate_schedule_model(descriptor_set: DescriptorSet) -> frozenset[str]:
                     raise ValueError(f"{description} consumes {units} units from {calendar_key} at relative cycle {cycle}, exceeding capacity {resource.capacity_per_cycle}")
         if schedule_class.issue_uses and disjoint_issue_uses:
             disjoint_schedule_classes.add(schedule_class.name)
+        validate_u16(minimum_issue_cycles, f"{description} minimum issue cycles")
+        minimum_issue_cycles_by_class[schedule_class.name] = minimum_issue_cycles
 
     for descriptor in descriptor_set.descriptors:
         for operand in descriptor.operands:
@@ -820,7 +832,7 @@ def validate_schedule_model(descriptor_set: DescriptorSet) -> frozenset[str]:
                 if timing_event_name is not None and timing_event_name not in timing_event_names:
                     raise ValueError(f"descriptor '{descriptor.key}' effect {effect_index} {endpoint_name} references unknown timing event '{timing_event_name}'")
 
-    return frozenset(disjoint_schedule_classes)
+    return frozenset(disjoint_schedule_classes), minimum_issue_cycles_by_class
 
 
 def _schedule_alternative_semantics(descriptor: Descriptor) -> Descriptor:
