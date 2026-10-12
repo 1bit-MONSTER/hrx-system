@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_tiled_channel.loom-test
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 // A flattened tile coordinate addresses the input while its remainder selects

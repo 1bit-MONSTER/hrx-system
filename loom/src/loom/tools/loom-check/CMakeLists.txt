@@ -207,23 +207,6 @@ loom_cc_library(
   PUBLIC
 )
 
-loom_cc_library(
-  NAME
-    template_sync
-  HDRS
-    "template_sync.h"
-  SRCS
-    "template_sync.c"
-  DEPS
-    iree::base
-    iree::base::internal::arena
-    loom::format::text::parser
-    loom::ir
-    loom::ops::op_defs
-    loom::testing::test_file
-  PUBLIC
-)
-
 loom_cc_test(
   NAME
     update_test
@@ -235,27 +218,6 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
-    loom::testing::test_file
-)
-
-loom_cc_test(
-  NAME
-    template_sync_test
-  SRCS
-    "template_sync_test.cc"
-  DEPS
-    ::template_sync
-    iree::base
-    iree::base::internal::arena
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::ir
-    loom::ops::config
-    loom::ops::func
-    loom::ops::index
-    loom::ops::kernel
-    loom::ops::pipeline
-    loom::ops::scalar
     loom::testing::test_file
 )
 
@@ -331,16 +293,12 @@ loom_cc_library(
     ::json_output
     ::output
     ::report
-    ::template_sync
     ::update
     iree::base
     iree::base::internal::arena
     iree::io::file_handle
-    loom::codegen::low::text_asm
     loom::ir
-    loom::target::provider
     loom::testing::test_file
-    loom::testing::test_file_format
     loom::tooling::io::file
     loom::tooling::io::source_path
     loom::util::stream

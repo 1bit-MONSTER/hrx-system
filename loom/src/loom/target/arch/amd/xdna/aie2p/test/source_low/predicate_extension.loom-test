@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/predicate_extension.loom-test
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 func.def @predicate_extension_i8(%condition: i1) -> (i8, i8) {

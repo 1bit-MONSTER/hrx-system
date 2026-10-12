@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_float8_constants.loom-test
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 func.def @float8_finite_constants() -> (f8E4M3, f8E5M2, f8E4M3, f8E5M2, f8E4M3, f8E5M2) {

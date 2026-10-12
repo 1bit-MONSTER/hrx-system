@@ -1,5 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/view_carriers.loom-test
-// TEMPLATE-EXCLUDE: @read_called_view The x86 object-function policy requires inlined calls.
 // RUN: emit source-low target=x86:avx2 output=low
 
 // Selecting views from different roots preserves their nonzero byte origins

@@ -273,26 +273,22 @@ run through `loom-check`. This keeps IR available to the formatter and migration
 tools, and lets program tests share one runner instead of linking a compiler
 stack into each unit-test executable.
 
-Source-lowering programs with meaningful consumers on several targets belong in
-the [common corpus](src/loom/test/corpus/source_low/README.md). Shared input without
-its own expectations is exported data, not a standalone roundtrip test. The
-`.loom-test` suffix may select the multi-case container format; build registration
-determines whether that container is a test. Target fixtures consume it through
-`TEMPLATE`, which copies the authoritative source without declaration overlays or
-semantic additions. Target profiles are compiler options in RUN directives. Each
-consumer contributes lowered-output expectations, execution results, or precise
-diagnostics for intentional rejection behavior. Successful compilation alone is
-not a correctness assertion, and a missing implementation is a work item rather
-than expected corpus behavior.
+Target-neutral executable language semantics belong in the
+[semantic corpus](src/loom/test/corpus/README.md). A source used directly by one
+compiler or integration test lives beside that owner. Shared input without its
+own expectations is exported data, not a standalone roundtrip test. The
+`.loom-test` suffix may select the multi-case container format; build
+registration determines whether that container is a test.
 
-Corpus membership does not require a copy for every backend or profile. Each
-instantiation needs an independently useful assertion. Mixed fixtures can use
-`TEMPLATE-EXCLUDE: @case <reason>` for cases outside their assertion contract;
-entirely unsupported corpora have no consumer. Analysis and transform invariants
-are tested beside their owner, using target-independent fixtures where possible,
-instead of duplicating the same assertion across physical targets. Text roundtrip
-tests belong to parser/printer coverage. Authored Low IR, target-specific
-configuration, and intentional rejection semantics stay with their owner.
+Target-specific lowering and diagnostic fixtures own their source and exact
+expectations together. Each fixture needs an independently useful assertion;
+successful compilation alone is not a correctness assertion, and a missing
+implementation is a work item rather than expected corpus behavior. Analysis
+and transform invariants are tested beside their owner, using target-independent
+fixtures where possible, instead of duplicating the same assertion across
+physical targets. Text roundtrip tests belong to parser/printer coverage.
+Authored Low IR, target-specific configuration, and intentional rejection
+semantics stay with their owner.
 
 A new `format/text:parser` dependency in a C++ unit-test target is a boundary
 review signal. Parsing is appropriate when the parser API itself is the subject;

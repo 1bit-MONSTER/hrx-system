@@ -112,23 +112,14 @@ static bool loom_test_file_is_requires_directive(iree_string_view_t line) {
                                       iree_make_cstring_view("// REQUIRES: "));
 }
 
-// Returns true if |line| starts with "// TEMPLATE:" (with or without
-// the trailing space).
-static bool loom_test_file_looks_like_template(iree_string_view_t line) {
-  return iree_string_view_starts_with(line,
-                                      iree_make_cstring_view("// TEMPLATE:"));
-}
-
-// Returns true if |line| is a well-formed TEMPLATE directive.
-static bool loom_test_file_is_template_directive(iree_string_view_t line) {
-  return iree_string_view_starts_with(line,
-                                      iree_make_cstring_view("// TEMPLATE: "));
-}
-
-// Returns true if |line| is a well-formed TEMPLATE-EXCLUDE directive.
-static bool loom_test_file_is_template_exclude_directive(
+// Returns true for removed TEMPLATE directives, including malformed spellings
+// that previously received dedicated diagnostics.
+static bool loom_test_file_looks_like_legacy_template_directive(
     iree_string_view_t line) {
-  return iree_string_view_starts_with(line, IREE_SV("// TEMPLATE-EXCLUDE: "));
+  return iree_string_view_starts_with(line, IREE_SV("// TEMPLATE:")) ||
+         iree_string_view_starts_with(line, IREE_SV("//TEMPLATE:")) ||
+         iree_string_view_starts_with(line, IREE_SV("// TEMPLATE-EXCLUDE:")) ||
+         iree_string_view_starts_with(line, IREE_SV("//TEMPLATE-EXCLUDE:"));
 }
 
 // Returns true if |line| starts with "// CASE:" (with or without
@@ -291,60 +282,6 @@ static bool loom_test_file_is_requirement_separator(char c) {
 static bool loom_test_file_is_requirement_name_char(char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
          (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.';
-}
-
-static bool loom_test_file_template_path_contains_parent_segment(
-    iree_string_view_t path) {
-  if (iree_string_view_equal(path, IREE_SV("..")) ||
-      iree_string_view_starts_with(path, IREE_SV("../")) ||
-      iree_string_view_ends_with(path, IREE_SV("/.."))) {
-    return true;
-  }
-  return iree_string_view_find(path, IREE_SV("/../"), 0) !=
-         IREE_STRING_VIEW_NPOS;
-}
-
-static bool loom_test_file_is_template_path_char(char c) {
-  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-         (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.' || c == '/';
-}
-
-static iree_status_t loom_test_file_parse_template_path(
-    iree_string_view_t value, iree_string_view_t* out_template_path) {
-  *out_template_path = iree_string_view_trim(value);
-  if (iree_string_view_is_empty(*out_template_path)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "TEMPLATE requires a root-relative path");
-  }
-  if (iree_string_view_starts_with_char(*out_template_path, '/')) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "TEMPLATE path must be relative, got '%.*s'",
-                            (int)out_template_path->size,
-                            out_template_path->data);
-  }
-  if (iree_string_view_starts_with(*out_template_path, IREE_SV("./"))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "TEMPLATE path must be root-relative, got '%.*s'",
-                            (int)out_template_path->size,
-                            out_template_path->data);
-  }
-  if (loom_test_file_template_path_contains_parent_segment(
-          *out_template_path)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "TEMPLATE path must not contain '..', got '%.*s'",
-                            (int)out_template_path->size,
-                            out_template_path->data);
-  }
-  for (iree_host_size_t i = 0; i < out_template_path->size; ++i) {
-    if (!loom_test_file_is_template_path_char(out_template_path->data[i])) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "invalid character '%c' in TEMPLATE path '%.*s'",
-                              out_template_path->data[i],
-                              (int)out_template_path->size,
-                              out_template_path->data);
-    }
-  }
-  return iree_ok_status();
 }
 
 static bool loom_test_file_requirement_list_contains(
@@ -971,12 +908,10 @@ static iree_status_t loom_test_file_extract_annotations(
 // Splits the raw case text (everything between case separators) into
 // directives, input, and expected sections.
 //
-// Directives (// RUN:, // REQUIRES:, // XFAIL:) are extracted from the top
-// of the case. File-level directives (// TEMPLATE:) are only accepted when
-// |allow_file_directives| is true. The header region consists of directives,
-// blank lines, and non-annotation comment lines — all consumed. The first
-// annotation line (// ERROR/WARNING/REMARK) or non-comment line starts the
-// body.
+// Directives (// RUN:, // REQUIRES:, // XFAIL:) are extracted from the top of
+// the case. The header region consists of directives, blank lines, and
+// non-annotation comment lines — all consumed. The first annotation line
+// (// ERROR/WARNING/REMARK) or non-comment line starts the body.
 //
 // Any line starting with "// RUN:", "// REQUIRES:", or "// XFAIL:" in the
 // body is always a mistake (misplaced or malformed directive) and produces an
@@ -988,7 +923,7 @@ static iree_status_t loom_test_file_extract_annotations(
 static iree_status_t loom_test_file_parse_case_sections(
     const char* source_start, iree_string_view_t case_text,
     loom_test_source_range_t separator_range, loom_test_case_t* out_case,
-    bool allow_file_directives, iree_arena_allocator_t* arena) {
+    iree_arena_allocator_t* arena) {
   memset(out_case, 0, sizeof(*out_case));
   out_case->mode = LOOM_TEST_MODE_ROUNDTRIP;
 
@@ -1122,26 +1057,11 @@ static iree_status_t loom_test_file_parse_case_sections(
       continue;
     }
 
-    if (loom_test_file_is_template_directive(trimmed)) {
-      if (!allow_file_directives || body_started) {
-        return iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "TEMPLATE directive is file-level metadata and must appear in the "
-            "preamble before the first // ==== separator");
-      }
-      body_start = loom_test_file_scanner_end(scanner, case_end);
-      continue;
-    }
-
-    if (loom_test_file_is_template_exclude_directive(trimmed)) {
-      if (!allow_file_directives || body_started) {
-        return iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "TEMPLATE-EXCLUDE requires a TEMPLATE file preamble and must "
-            "appear before the first case");
-      }
-      body_start = loom_test_file_scanner_end(scanner, case_end);
-      continue;
+    if (loom_test_file_looks_like_legacy_template_directive(trimmed)) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "TEMPLATE directives are no longer supported; fixtures must own "
+          "their source");
     }
 
     if (loom_test_file_looks_like_case(trimmed) ||
@@ -1165,31 +1085,22 @@ static iree_status_t loom_test_file_parse_case_sections(
     //   "//REQUIRES: foo" — missing space after //
     //   "// XFAIL:reason" — missing space after colon
     //   "//XFAIL: reason" — missing space after //
-    //   "// TEMPLATE:foo" — missing space after colon
-    //   "//TEMPLATE: foo" — missing space after //
     if (iree_string_view_starts_with(trimmed, IREE_SV("// INPUT:")) ||
         iree_string_view_starts_with(trimmed, IREE_SV("//INPUT:")) ||
         loom_test_file_looks_like_run(trimmed) ||
         loom_test_file_looks_like_requires(trimmed) ||
         loom_test_file_looks_like_xfail(trimmed) ||
-        loom_test_file_looks_like_template(trimmed) ||
-        iree_string_view_starts_with(trimmed,
-                                     IREE_SV("// TEMPLATE-EXCLUDE:")) ||
-        iree_string_view_starts_with(trimmed, IREE_SV("//TEMPLATE-EXCLUDE:")) ||
         iree_string_view_starts_with(trimmed,
                                      iree_make_cstring_view("//RUN:")) ||
         iree_string_view_starts_with(trimmed,
                                      iree_make_cstring_view("//REQUIRES:")) ||
         iree_string_view_starts_with(trimmed,
-                                     iree_make_cstring_view("//XFAIL:")) ||
-        iree_string_view_starts_with(trimmed,
-                                     iree_make_cstring_view("//TEMPLATE:"))) {
+                                     iree_make_cstring_view("//XFAIL:"))) {
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
           "malformed directive '%.*s'; expected '// RUN: <mode>', "
           "'// INPUT: <format> [options]', '// REQUIRES: <name>', '// XFAIL: "
-          "<reason>', '// TEMPLATE: <path>', or "
-          "'// TEMPLATE-EXCLUDE: @<case> <reason>'",
+          "<reason>'",
           (int)trimmed.size, trimmed.data);
     }
 
@@ -1290,149 +1201,6 @@ typedef struct loom_test_case_boundary_t {
   loom_test_source_range_t separator_range;
 } loom_test_case_boundary_t;
 
-static iree_status_t loom_test_file_parse_template_exclusion(
-    iree_string_view_t value, loom_test_template_exclusion_t* out_exclusion) {
-  value = iree_string_view_trim(value);
-  iree_host_size_t name_end =
-      iree_string_view_find_first_of(value, IREE_SV(" \t"), 0);
-  if (name_end == IREE_STRING_VIEW_NPOS || name_end <= 1 ||
-      !iree_string_view_starts_with_char(value, '@')) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "TEMPLATE-EXCLUDE requires '@<case> <reason>' with a nonempty reason");
-  }
-  out_exclusion->case_name = iree_string_view_substr(value, 1, name_end - 1);
-  out_exclusion->reason = iree_string_view_trim(
-      iree_string_view_substr(value, name_end, IREE_HOST_SIZE_MAX));
-  return iree_ok_status();
-}
-
-static iree_status_t loom_test_file_parse_template_directives_from_preamble(
-    const char* source_start, iree_string_view_t preamble_text,
-    iree_arena_allocator_t* arena, loom_test_file_t* file) {
-  iree_host_size_t exclusion_count = 0;
-  iree_string_view_t scanner = preamble_text;
-  while (!iree_string_view_is_empty(scanner)) {
-    iree_string_view_t line = loom_test_file_consume_line(&scanner);
-    exclusion_count += loom_test_file_is_template_exclude_directive(
-        iree_string_view_trim(line));
-  }
-  if (exclusion_count > 0) {
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        arena, exclusion_count, sizeof(loom_test_template_exclusion_t),
-        (void**)&file->template_exclusions.values));
-  }
-  scanner = preamble_text;
-  while (!iree_string_view_is_empty(scanner)) {
-    const char* line_start = scanner.data;
-    iree_string_view_t line = loom_test_file_consume_line(&scanner);
-    iree_string_view_t trimmed = iree_string_view_trim(line);
-    if (loom_test_file_is_template_exclude_directive(trimmed)) {
-      iree_string_view_t value = trimmed;
-      iree_string_view_consume_prefix(&value, IREE_SV("// TEMPLATE-EXCLUDE: "));
-      loom_test_template_exclusion_t exclusion;
-      IREE_RETURN_IF_ERROR(
-          loom_test_file_parse_template_exclusion(value, &exclusion));
-      for (iree_host_size_t i = 0; i < file->template_exclusions.count; ++i) {
-        if (iree_string_view_equal(
-                file->template_exclusions.values[i].case_name,
-                exclusion.case_name)) {
-          return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                  "duplicate TEMPLATE-EXCLUDE for @%.*s",
-                                  (int)exclusion.case_name.size,
-                                  exclusion.case_name.data);
-        }
-      }
-      file->template_exclusions.values[file->template_exclusions.count++] =
-          exclusion;
-      continue;
-    }
-    if (!loom_test_file_is_template_directive(trimmed)) {
-      continue;
-    }
-    if (file->has_template_directive) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "multiple TEMPLATE directives in one test file");
-    }
-    file->has_template_directive = true;
-    file->template_directive_range = loom_test_source_range_from_pointers(
-        source_start, line_start, line.data + line.size);
-    iree_string_view_t template_value = trimmed;
-    iree_string_view_consume_prefix(&template_value,
-                                    iree_make_cstring_view("// TEMPLATE: "));
-    IREE_RETURN_IF_ERROR(loom_test_file_parse_template_path(
-        template_value, &file->template_path));
-  }
-  return iree_ok_status();
-}
-
-static bool loom_test_file_line_is_file_preamble_comment(
-    iree_string_view_t trimmed) {
-  return iree_string_view_starts_with(trimmed, iree_make_cstring_view("//")) &&
-         !loom_test_file_is_annotation_line(trimmed) &&
-         !loom_test_file_is_expected_separator(trimmed) &&
-         !loom_test_file_is_case_separator(trimmed);
-}
-
-// Finds the leading file preamble used by template-synchronized files.
-//
-// Ordinary .loom-test files treat leading RUN/REQUIRES directives as part of
-// the first case. A TEMPLATE directive is different: it declares file-level
-// provenance, so the leading directive/comment block containing it is a real
-// file preamble. The preamble ends at the first blank line after the TEMPLATE
-// block, the first case separator, or the first IR/annotation line.
-static void loom_test_file_find_template_preamble_prefix(
-    iree_string_view_t source, loom_test_source_range_t* out_range) {
-  *out_range = loom_test_source_range_empty();
-  if (iree_string_view_is_empty(source)) {
-    return;
-  }
-
-  const char* source_end = source.data + source.size;
-  const char* preamble_end = source.data;
-  bool saw_template = false;
-  iree_string_view_t scanner = source;
-  while (!iree_string_view_is_empty(scanner)) {
-    iree_string_view_t line = loom_test_file_consume_line(&scanner);
-    iree_string_view_t trimmed = iree_string_view_trim(line);
-    const char* next_line = loom_test_file_scanner_end(scanner, source_end);
-
-    if (iree_string_view_is_empty(trimmed)) {
-      preamble_end = next_line;
-      if (saw_template) {
-        break;
-      }
-      continue;
-    }
-
-    if (loom_test_file_is_case_separator(trimmed)) {
-      break;
-    }
-
-    if (loom_test_file_is_template_directive(trimmed)) {
-      saw_template = true;
-      preamble_end = next_line;
-      continue;
-    }
-
-    if (loom_test_file_is_run_directive(trimmed) ||
-        loom_test_file_is_requires_directive(trimmed) ||
-        loom_test_file_line_is_file_preamble_comment(trimmed)) {
-      preamble_end = next_line;
-      continue;
-    }
-
-    break;
-  }
-
-  if (saw_template) {
-    *out_range = (loom_test_source_range_t){
-        .start_byte = 0,
-        .end_byte = (iree_host_size_t)(preamble_end - source.data),
-    };
-  }
-}
-
 iree_status_t loom_test_file_parse(iree_string_view_t source,
                                    iree_arena_allocator_t* arena,
                                    loom_test_file_t* out_file) {
@@ -1453,49 +1221,7 @@ iree_status_t loom_test_file_parse(iree_string_view_t source,
   out_file->default_requirements = NULL;
   out_file->default_requirement_count = 0;
 
-  loom_test_source_range_t template_preamble_range =
-      loom_test_source_range_empty();
-  loom_test_file_find_template_preamble_prefix(source,
-                                               &template_preamble_range);
-  if (!loom_test_source_range_is_empty(template_preamble_range)) {
-    iree_string_view_t preamble_text = iree_string_view_substr(
-        source, template_preamble_range.start_byte,
-        template_preamble_range.end_byte - template_preamble_range.start_byte);
-    IREE_RETURN_IF_ERROR(loom_test_file_parse_template_directives_from_preamble(
-        source.data, preamble_text, arena, out_file));
-
-    loom_test_case_t preamble_case;
-    IREE_RETURN_IF_ERROR(loom_test_file_parse_case_sections(
-        source.data, preamble_text, loom_test_source_range_empty(),
-        &preamble_case, /*allow_file_directives=*/true, arena));
-    if (!iree_string_view_is_empty(
-            iree_string_view_trim(preamble_case.input))) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "TEMPLATE directive must be in a pure file preamble");
-    }
-    if (preamble_case.has_run_directive) {
-      out_file->default_mode = preamble_case.mode;
-      out_file->default_output_flags = preamble_case.output_flags;
-      out_file->default_pipeline = preamble_case.pipeline;
-      out_file->default_format_target = preamble_case.format_target;
-      out_file->default_emit_target = preamble_case.emit_target;
-    }
-    out_file->default_input_options = preamble_case.input_options;
-    if (preamble_case.has_requires_directive) {
-      out_file->default_requirements = preamble_case.requirements;
-      out_file->default_requirement_count = preamble_case.requirement_count;
-    }
-  }
-
-  iree_string_view_t case_source = iree_string_view_substr(
-      source, template_preamble_range.end_byte, IREE_HOST_SIZE_MAX);
-  if (!loom_test_source_range_is_empty(template_preamble_range) &&
-      iree_string_view_is_empty(iree_string_view_trim(case_source))) {
-    out_file->cases = NULL;
-    out_file->case_count = 0;
-    return iree_ok_status();
-  }
+  iree_string_view_t case_source = source;
 
   // Count case separators to determine how many cases the file contains.
   // The first case starts at byte 0 (no leading separator needed), so
@@ -1542,8 +1268,6 @@ iree_status_t loom_test_file_parse(iree_string_view_t source,
 
   // The first separator must come after the first real case. A leading
   // separator creates an empty case 0 and hides the actual file default.
-  // Template-synchronized files use a real file preamble without a separator,
-  // handled above by slicing |case_source| past that preamble.
   if (case_count > 1) {
     iree_string_view_t first_boundary_text = {
         .data = boundaries[0].start,
@@ -1552,7 +1276,7 @@ iree_status_t loom_test_file_parse(iree_string_view_t source,
     loom_test_case_t first_boundary_case;
     IREE_RETURN_IF_ERROR(loom_test_file_parse_case_sections(
         source.data, first_boundary_text, boundaries[0].separator_range,
-        &first_boundary_case, /*allow_file_directives=*/false, arena));
+        &first_boundary_case, arena));
 
     if (iree_string_view_is_empty(
             iree_string_view_trim(first_boundary_case.input))) {
@@ -1575,7 +1299,7 @@ iree_status_t loom_test_file_parse(iree_string_view_t source,
     };
     IREE_RETURN_IF_ERROR(loom_test_file_parse_case_sections(
         source.data, case_text, boundaries[boundary_index].separator_range,
-        &out_file->cases[i], /*allow_file_directives=*/false, arena));
+        &out_file->cases[i], arena));
   }
 
   // The first case's RUN directive becomes the file default for inheritance by

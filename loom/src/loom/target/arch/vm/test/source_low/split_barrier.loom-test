@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/split_barrier.loom-test
 // RUN: emit source-low target=vm:core output=none
 
 func.def @split_workgroup_barrier(%value: i32) -> (i32) {

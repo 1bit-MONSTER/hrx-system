@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/uniform_predicate_control.loom-test
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 kernel.def @uniform_select_guard() {

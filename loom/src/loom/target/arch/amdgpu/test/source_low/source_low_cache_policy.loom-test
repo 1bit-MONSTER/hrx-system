@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_cache_policy_scopes.loom-test
 // RUN: emit source-low target=amdgpu:gfx1200 diagnostics=memory output=low
 
 kernel.def @cache_system_bypass_load_device_writeback_store() {

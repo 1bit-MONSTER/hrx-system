@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/packed_memory_consumers.loom-test
 // RUN: with-checks pass vector-memory-to-scalar,canonicalize,cse
 
 func.def @packed_word_lookup(%input: buffer, %table: buffer, %output: buffer) {

@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/shared_conditional_values.loom-test
 // RUN: emit source-low target=vm:core output=low
 
 func.def @shared_conditional_values(%input: buffer, %output: buffer) {

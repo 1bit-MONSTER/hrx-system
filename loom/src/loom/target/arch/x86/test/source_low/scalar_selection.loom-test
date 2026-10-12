@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/scalar_selection.loom-test
 // RUN: emit source-low target=x86:avx2 output=low
 
 func.def @scalar_selection(%condition: i1, %a_i1: i1, %b_i1: i1, %a_i32: i32, %b_i32: i32, %a_i64: i64, %b_i64: i64, %a_f32: f32, %b_f32: f32, %a_f64: f64, %b_f64: f64) -> (i1, i32, i64, f32, f64) {

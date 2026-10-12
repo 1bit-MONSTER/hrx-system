@@ -23,7 +23,6 @@ py_test(
     srcs = ["check_test.py"],
     args = [
         "$(rlocationpath :check)",
-        "$(rlocationpath //loom/src/loom/tools/loom-check:loom-check-test)",
         "$(rlocationpath //loom/src/loom/tools/loom-format:loom-format)",
         "$(rlocationpath //loom/py/loom/tools:loom-lint)",
         "$(rlocationpath //loom/build_tools:loom_source_lint)",
@@ -32,7 +31,6 @@ py_test(
         ":check",
         "//loom/build_tools:loom_source_lint",
         "//loom/py/loom/tools:loom-lint",
-        "//loom/src/loom/tools/loom-check:loom-check-test",
         "//loom/src/loom/tools/loom-format",
     ],
     tags = ["manual"],
@@ -46,13 +44,6 @@ test_suite(
         ":check_test",
         "//loom/py/loom/tools:source_inventory_test",
     ],
-)
-
-loom_hygiene_check(
-    name = "template_freshness",
-    testonly = True,
-    check = "templates",
-    tags = ["manual"],
 )
 
 loom_hygiene_check(
@@ -80,7 +71,6 @@ filegroup(
         ":authoring_policy",
         ":repository_policy",
         ":source_format",
-        ":template_freshness",
     ],
     tags = ["manual"],
 )

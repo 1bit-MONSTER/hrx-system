@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_scalar_f32.loom-test
 // RUN: emit source-low target=spirv:vulkan1.3+bda output=low control-flow=structured-low
 
 // XFAIL: SPIR-V fused multiply-add lowering is unsupported

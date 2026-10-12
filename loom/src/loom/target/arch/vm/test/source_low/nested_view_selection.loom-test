@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/nested_view_selection.loom-test
 // RUN: emit source-low target=vm:core output=low
 
 // A derived selection retains both the selected buffer and its byte base.

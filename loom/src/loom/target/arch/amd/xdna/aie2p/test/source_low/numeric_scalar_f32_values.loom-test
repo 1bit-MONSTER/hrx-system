@@ -1,7 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_scalar_f32_values.loom
-// TEMPLATE-EXCLUDE: @scalar_f32_arithmetic AIE2P scalar division requires arcp.
-// TEMPLATE-EXCLUDE: @scalar_f32_rounding AIE2P does not admit scalar floor.
-// TEMPLATE-EXCLUDE: @scalar_f32_sqrt AIE2P scalar square root requires afn.
 // RUN: emit source-low target=amd.xdna.aie2p:core output=none
 
 func.def @scalar_f32_signs(%magnitude: f32, %sign: f32) -> (f32, f32, f32) {

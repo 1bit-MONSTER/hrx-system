@@ -468,10 +468,10 @@ loom_generated_file(
   OUTPUT_FLAG
     "--output="
   ARGS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_float8_conversion.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/spirv/test/float8_memory.loom"
     "--target=spirv:vulkan1.3+bda+extended-types"
   INPUTS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_float8_conversion.loom"
+    "test/float8_memory.loom"
   TESTONLY
 )
 endif()

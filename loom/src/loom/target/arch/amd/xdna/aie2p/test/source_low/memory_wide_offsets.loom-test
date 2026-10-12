@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_scalar_wide_offsets.loom-test
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 func.def @scalar_wide_byte_offset(%input_storage: buffer, %output_storage: buffer, %byte_offset_input: offset) -> (i32) {

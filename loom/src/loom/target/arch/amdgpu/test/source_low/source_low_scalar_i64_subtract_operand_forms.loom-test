@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_scalar_i64_subtract.loom-test
 // RUN: pass target=amdgpu:gfx1151 source-to-low,low-select-operand-forms,low-cse,low-dce
 
 func.def @uniform_subtract(%lhs: i64, %rhs: i64) -> (i64) {

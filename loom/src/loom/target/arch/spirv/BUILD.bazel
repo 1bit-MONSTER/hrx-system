@@ -448,7 +448,7 @@ loom_check_test_suite(
     # Explicit-CFG corpora (carried_counter_store, selected_payload_transport,
     # shared_conditional_values, uniform_predicate_control) are inapplicable:
     # SPIR-V requires structured control flow. control_flow_legality owns that
-    # rejection contract; mixed corpora use per-case TEMPLATE-EXCLUDE directives.
+    # rejection contract.
     srcs = [
         "test/source_low/barrier.loom-test",
         "test/source_low/baseline.loom-test",

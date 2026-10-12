@@ -21,14 +21,11 @@
 extern "C" {
 #endif
 
-// Selects execution or explicit source maintenance. Ordinary execution does not
-// open TEMPLATE sources; checked-in fixtures are self-contained test inputs.
+// Selects execution or explicit expected-output maintenance.
 typedef enum loom_check_process_mode_e {
   LOOM_CHECK_PROCESS_EXECUTE = 0,
-  // Synchronizes template inputs and updates expected output in-place.
+  // Updates expected output in-place.
   LOOM_CHECK_PROCESS_UPDATE,
-  // Checks template freshness without executing cases or writing files.
-  LOOM_CHECK_PROCESS_CHECK_TEMPLATES,
 } loom_check_process_mode_t;
 
 typedef struct loom_check_process_options_t {
@@ -46,9 +43,6 @@ typedef struct loom_check_process_options_t {
   loom_check_json_output_mode_t json_output_mode;
   // Logical source path normalization used for diagnostics and loc() output.
   loom_tooling_source_path_options_t source_path_options;
-  // Filesystem root for explicit TEMPLATE checks and updates. An empty value
-  // resolves paths from the current working directory. Unused during execution.
-  iree_string_view_t template_root;
 } loom_check_process_options_t;
 
 // Reads a source from stdin or a file path, then processes it.

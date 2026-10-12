@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/packed_concat_tail.loom-test
 // RUN: emit source-low target=amdgpu:gfx11-generic output=low
 
 func.def @i8_terminal_tail(%body: vector<32xi8>, %tail: vector<1xi8>) -> (vector<33xi8>) {

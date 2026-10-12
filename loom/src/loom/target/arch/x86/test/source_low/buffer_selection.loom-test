@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/buffer_selection.loom-test
 // RUN: emit source-low target=x86:scalar output=low
 
 // A selected reference retains the ordinary buffer result ABI.

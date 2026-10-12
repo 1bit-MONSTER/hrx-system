@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/carried_counter_store.loom-test
 // RUN: with-checks compile-report target=amdgpu:gfx1151 source-to-low,low-dce
 
 func.def @carried_counter_store(%output: buffer) {

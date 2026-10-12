@@ -24,9 +24,7 @@ class QualificationTest(unittest.TestCase):
         source = Path(_ARGS.accepted).read_text()
         self.corpus.write_text(source, newline="\n")
         self.fixture = self.root / "fixture.loom-test"
-        self.fixture.write_text(
-            "// TEMPLATE: corpus.loom-test\n" + source, newline="\n"
-        )
+        self.fixture.write_text(source, newline="\n")
         self.rejected = self.root / "rejected.loom-test"
         self.rejected.write_bytes(Path(_ARGS.rejected).read_bytes())
 
@@ -98,7 +96,7 @@ class QualificationTest(unittest.TestCase):
         self.assertEqual(report["summary"]["passed"], 0)
         self.assertEqual(report["summary"]["failed"], 1)
 
-    def test_compilation_uses_concrete_cases_without_template_synchronization(self):
+    def test_compilation_uses_selected_concrete_cases(self):
         self.fixture.write_text(
             self.fixture.read_text().split("// ====", 1)[0], newline="\n"
         )
@@ -109,24 +107,11 @@ class QualificationTest(unittest.TestCase):
             report["summary"], {"total": 1, "passed": 1, "failed": 0, "skipped": 0}
         )
 
-    def test_compilation_needs_no_template_source(self):
-        self.corpus.unlink()
-        original = self.fixture.read_bytes()
-        result = self.check(self.fixture)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        report = json.loads(result.stdout)
-        self.assertEqual(
-            report["summary"], {"total": 2, "passed": 2, "failed": 0, "skipped": 0}
-        )
-        self.assertEqual(self.fixture.read_bytes(), original)
-
     def test_update_does_not_rewrite_targeted_input(self):
         original = self.fixture.read_bytes()
         result = self.check(self.fixture, "--update")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(
-            "cannot maintain template sources or update RUN goldens", result.stderr
-        )
+        self.assertIn("--target cannot be combined with --update", result.stderr)
         self.assertEqual(self.fixture.read_bytes(), original)
 
     def test_unknown_profile_is_not_a_skip(self):

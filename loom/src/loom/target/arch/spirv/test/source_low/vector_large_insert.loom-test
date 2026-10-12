@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/vector_large_insert.loom-test
 // RUN: emit source-low target=spirv:vulkan1.3+bda output=low control-flow=structured-low
 
 func.def @i64x16_insert_static(%values: vector<16xi64>, %value: i64) -> (vector<16xi64>) {

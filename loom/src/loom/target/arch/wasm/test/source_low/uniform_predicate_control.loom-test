@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/uniform_predicate_control.loom-test
 // RUN: emit source-low target=wasm:simd128 output=low control-flow=structured-low
 
 // ERROR@+1: TARGET/089 {descriptor_set="wasm.core.simd128", function_name="uniform_select_guard", op_name="kernel.def"}

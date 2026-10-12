@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_unsigned_remainder.loom-test
 // RUN: emit source-low target=amdgpu:gfx942 output=low
 
 func.def @unsigned_remainder_i32(%value: i32, %divisor: i32) -> (i32) {

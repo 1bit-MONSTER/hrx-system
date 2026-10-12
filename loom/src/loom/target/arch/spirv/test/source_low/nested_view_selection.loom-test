@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/nested_view_selection.loom-test
 // RUN: emit source-low target=spirv:vulkan1.3+bda output=low control-flow=structured-low
 
 // A derived selection retains both the selected buffer and its byte base.

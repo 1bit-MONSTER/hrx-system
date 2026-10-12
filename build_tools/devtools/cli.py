@@ -1241,10 +1241,7 @@ def handle_test(args: argparse.Namespace) -> CommandPlan:
             )
         )
         update_strategy_args = (
-            [
-                *BAZEL_TEST_UPDATE_STRATEGY_ARGS,
-                f"--test_arg=--template-root={REPO_ROOT}",
-            ]
+            BAZEL_TEST_UPDATE_STRATEGY_ARGS
             if bazel_test_requests_update(backend_args)
             else []
         )

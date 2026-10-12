@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/packed_dot_integer.loom-test
 // RUN: emit source-low target=amd.xdna.aie2p:core output=low
 
 func.def @dot4i_s8s8(%lhs: vector<4xi8>, %rhs: vector<4xi8>, %acc: vector<1xi32>) -> (vector<1xi32>) {

@@ -64,8 +64,6 @@ BAZEL_ALL_TESTS_QUERY = f"tests({BAZEL_FULL_TEST_TARGET})"
 BAZEL_GRAPH_EDGE_PATTERN = re.compile(r'^  "([^"]+)" -> "([^"]+)"$')
 LOOM_FORMAT_BAZEL_TARGET = "//loom/src/loom/tools/loom-format:loom-format"
 LOOM_FORMAT_CMAKE_TARGET = "loom::tools::loom-format"
-LOOM_CHECK_BAZEL_TARGET = "//loom/src/loom/tools/loom-check:loom-check-test"
-LOOM_CHECK_CMAKE_TARGET = "loom::tools::loom-check::loom-check-test"
 LOOM_LINT_PYTHON_SOURCE = "loom/py/loom/tools/source_lint.py"
 
 
@@ -307,37 +305,6 @@ def run_bazel_hygiene() -> bool:
             "//loom/build_tools/hygiene:checks",
         ],
         "Loom source hygiene",
-    )
-
-
-def run_cmake_template_checks(*, files_from: str | None) -> bool:
-    # A changed corpus can invalidate unchanged consumers. Check the complete
-    # source set; the native parser owns TEMPLATE discovery and comparison.
-    tracked_paths = tracked_lint_source_paths()
-    if tracked_paths is None:
-        return False
-    selected_paths = (
-        []
-        if files_from is None
-        else existing_lint_source_paths(selected_files(files_from))
-    )
-    check_paths = sorted(set(tracked_paths).union(selected_paths))
-    if not check_paths:
-        return True
-    checker_path = project_presubmit.build_and_resolve_executable(
-        PROJECT_NAME,
-        REPO_ROOT,
-        lane="cmake",
-        bazel_target=LOOM_CHECK_BAZEL_TARGET,
-        cmake_target=LOOM_CHECK_CMAKE_TARGET,
-        bazel_args=BAZEL_SOURCE_TOOL_ARGS,
-    )
-    if checker_path is None:
-        return False
-    return run_batched_path_command(
-        [str(checker_path), "--check-templates", "--template-root=."],
-        check_paths,
-        "Loom template freshness",
     )
 
 
@@ -623,7 +590,6 @@ def run_presubmit(args: argparse.Namespace) -> int:
         if args.lane == "bazel":
             ok = run_bazel_hygiene() and ok
         elif args.lane == "cmake":
-            ok = run_cmake_template_checks(files_from=args.files_from) and ok
             ok = run_cmake_source_lint(files_from=args.files_from) and ok
         else:
             raise ValueError(f"unknown lane: {args.lane}")

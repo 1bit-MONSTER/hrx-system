@@ -14,7 +14,6 @@
 // File format:
 //
 //   // RUN: roundtrip
-//   // TEMPLATE: loom/src/loom/test/corpus/vector/arithmetic.loom-test
 //   <input IR>
 //   // ----
 //   <expected output>
@@ -71,12 +70,6 @@
 //                           Skip the case when external tools or target
 //                           backends are unavailable.
 //   // XFAIL: <reason>      Mark case as expected failure.
-//   // TEMPLATE: <path>      Require this file to remain synchronized with a
-//                           root-relative corpus template. File-level only;
-//                           precommit checks freshness, not test execution.
-//   // TEMPLATE-EXCLUDE: @<case> <reason>
-//                           Omit one architecturally inapplicable template
-//                           case. File-level only; requires TEMPLATE.
 //
 // Separators:
 //   // ====                 Case separator. The first separator must appear
@@ -84,33 +77,15 @@
 //   // ----                 Input/expected separator within a case.
 //
 // RUN inheritance:
-//   A // RUN: directive in a template file preamble or in the first case sets
-//   the file-level default mode. Cases without their own // RUN: inherit from
-//   the file default. Cases with their own // RUN: override it. When no default
-//   // RUN: exists, the default is roundtrip.
+//   A // RUN: directive in the first case sets the file-level default mode.
+//   Cases without their own // RUN: inherit from the file default. Cases with
+//   their own // RUN: override it. When no default // RUN: exists, the default
+//   is roundtrip.
 //
 // REQUIRES inheritance:
-//   A // REQUIRES: directive in a template file preamble or in the first case
-//   sets file-level default environment requirements. Every case receives the
-//   file defaults, plus any case-local requirements it declares.
-//
-// TEMPLATE:
-//   A // TEMPLATE: directive in the leading file preamble declares the source
-//   corpus for a target-specific expectation file. Source hygiene checks
-//   rebuild the authoritative source in memory and reject stale concrete files;
-//   explicit updates synchronize them. Ordinary test execution uses the
-//   concrete fixture without reading the template. TEMPLATE is a provenance
-//   contract, not a linking mechanism or case namespace. The preamble is the
-//   leading directive/comment block containing TEMPLATE; do not add a // ====
-//   separator before the first real case. A case is identified by its sole
-//   func-like definition or, when private helpers are present, its unique
-//   public func-like definition. The helpers remain authoritative template
-//   source. // CASE directives are intentionally unsupported. TEMPLATE-EXCLUDE
-//   names an exact case symbol and requires a nonempty reason. Duplicate
-//   exclusions and names absent from the template are errors. The remaining
-//   cases keep their template order and synchronization contract. Entirely
-//   inapplicable corpora need no target fixture; excluding every case is an
-//   error instead of producing an empty passing test.
+//   A // REQUIRES: directive in the first case sets file-level default
+//   environment requirements. Every case receives the file defaults, plus any
+//   case-local requirements it declared.
 //
 // Annotations (for verify mode — uppercase to distinguish from comments):
 //   // ERROR: DOMAIN/CODE "substring"
@@ -360,14 +335,6 @@ typedef struct loom_test_case_t {
 // Test file
 //===----------------------------------------------------------------------===//
 
-// One explicitly inapplicable case from the file's authoritative template.
-typedef struct loom_test_template_exclusion_t {
-  // Exact function symbol name, without '@'. Borrows from the source.
-  iree_string_view_t case_name;
-  // Architectural reason for omitting this case. Borrows from the source.
-  iree_string_view_t reason;
-} loom_test_template_exclusion_t;
-
 // A parsed test file containing one or more cases. All internal
 // allocations live in the arena passed to loom_test_file_parse. The
 // caller owns the arena and deinitializes it to free everything.
@@ -376,20 +343,6 @@ typedef struct loom_test_file_t {
   loom_test_case_t* cases;
   // Number of test cases.
   iree_host_size_t case_count;
-  // Whether the file declares a corpus template source.
-  bool has_template_directive;
-  // Source range of the // TEMPLATE: directive line. Empty when absent.
-  loom_test_source_range_t template_directive_range;
-  // Root-relative corpus template path from // TEMPLATE:.
-  iree_string_view_t template_path;
-  // Explicitly inapplicable cases named by // TEMPLATE-EXCLUDE: directives.
-  struct {
-    // Arena-allocated entries whose strings borrow from the source.
-    loom_test_template_exclusion_t* values;
-    // Number of exclusions.
-    iree_host_size_t count;
-  } template_exclusions;
-
   // File-level default mode inherited by cases without their own // RUN:
   // directive. Defaults to ROUNDTRIP when no default // RUN: directive exists.
   loom_test_mode_t default_mode;

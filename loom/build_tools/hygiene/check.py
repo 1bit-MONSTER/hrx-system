@@ -84,36 +84,6 @@ def check_corpus_scenarios(paths: list[str], root: Path) -> bool:
     return ok
 
 
-def check_template_ownership(paths: list[str], root: Path) -> bool:
-    """Rejects template containers that do not actually share source."""
-    consumers: dict[str, list[str]] = {}
-    for path in paths:
-        source = root / path
-        if not source.is_file():
-            continue
-        for line in source.read_text(encoding="utf-8").splitlines():
-            if line.startswith("// TEMPLATE: "):
-                template = line.removeprefix("// TEMPLATE: ").strip()
-                consumers.setdefault(template, []).append(path)
-                break
-
-    ok = True
-    for template, template_consumers in sorted(consumers.items()):
-        template_path = root / template
-        if (
-            len(template_consumers) != 1
-            or template_path.suffix != ".loom-test"
-            or not template_path.is_file()
-        ):
-            continue
-        print(
-            f"{template_consumers[0]}:1: TEMPLATE source {template} has only "
-            "one consumer; keep the source in its owning fixture"
-        )
-        ok = False
-    return ok
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tool", type=Path, required=True)
@@ -121,7 +91,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--check",
-        choices=("templates", "format", "authoring", "repository"),
+        choices=("format", "authoring", "repository"),
         required=True,
     )
     arguments = parser.parse_args()
@@ -132,17 +102,12 @@ def main() -> int:
         commands = [[str(tool), "--manifest", str(source_manifest)]]
     else:
         paths = json.loads(source_manifest.read_text(encoding="utf-8"))
-        if arguments.check == "templates" and not check_template_ownership(
-            paths, source_manifest.parent
-        ):
-            return 1
         if arguments.check == "authoring":
             valid_headers = check_module_headers(paths, source_manifest.parent)
             valid_scenarios = check_corpus_scenarios(paths, source_manifest.parent)
             if not valid_headers or not valid_scenarios:
                 return 1
         flags = {
-            "templates": ["--check-templates", "--template-root=."],
             "format": ["--check"],
             "authoring": [],
         }[arguments.check]

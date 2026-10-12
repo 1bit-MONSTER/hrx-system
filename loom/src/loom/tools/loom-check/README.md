@@ -43,56 +43,6 @@ case separators, and expected output.
 
 ## Running And Updating Fixtures
 
-### Shared Corpus Templates
-
-A target fixture opts into a shared corpus with a file-preamble `TEMPLATE`
-directive. The checked-in fixture is self-contained: ordinary runs and
-`--target` compilation use its concrete input without reading the template.
-Template sources are not test runtime dependencies and need no `data` entries.
-
-Precommit checks freshness with `loom-check --check-templates`, using the same
-synchronizer as `--update`. It checks all tracked Loom sources, including
-unchanged consumers when only their shared template changes. This read-only
-mode accepts multiple files, ignores files without TEMPLATE, and never executes
-RUN directives or compares expectations:
-
-```bash
-iree-bazel-run //loom/src/loom/tools/loom-check -- \
-  --check-templates --template-root=. path/to/file.loom-test
-```
-
-`--update` copies each common case's source, including its declarations,
-modifiers, helpers, and comments, before updating output expectations. The
-consumer keeps its RUN options, REQUIRES/XFAIL directives, output expectations,
-and diagnostic annotations. An annotation whose source line changes requires an
-explicit update.
-Case identity is the sole function-like definition, or the unique public entry
-when a case includes private helpers.
-
-Homogeneous target selection belongs in the RUN compiler options. Synchronizing
-a template adds no declarations or target bindings and never substitutes a local
-definition for a common declaration. Source edits apply equally to old and new
-cases. A case-local RUN can select a different profile or ABI explicitly. A
-heterogeneous program with authored target relationships belongs in a dedicated
-target fixture.
-
-Architecturally inapplicable cases in a mixed fixture have explicit exclusions:
-
-```text
-// TEMPLATE: loom/src/loom/test/corpus/source_low/math_contraction.loom-test
-// TEMPLATE-EXCLUDE: @scalar_explicit Scalar F32 multiply/FMA lowering is not implemented for this profile.
-// RUN: emit source-low target=wasm:simd128 output=low
-```
-
-Each exclusion names one exact case and gives a reason. Duplicate or unknown
-names fail, so a removed or renamed case requires updating its exclusions.
-All remaining cases, including newly added cases, keep their synchronization
-contract. `--update` removes excluded cases from the concrete target fixture.
-An entirely inapplicable corpus needs no fixture or build registration;
-excluding every case is an error. A target's dedicated rejection tests cover
-its architectural boundary. Missing implementations within the target's source
-contract retain precise diagnostic coverage in the shared-corpus fixture.
-
 ### Focused Output Checks
 
 The test runner's `emit low-schedule-query @function` selects scheduler facts
@@ -213,9 +163,8 @@ iree-bazel-test --config=asan <loom-check-test-target> --test_arg=--update
 
 The `iree-bazel-test` wrapper detects `--test_arg=--update` and uses Bazel's
 standalone TestRunner strategy so update-capable tests can rewrite checked-in
-fixture files. It also supplies the checkout root for template synchronization;
-ordinary test launches need no template root. Prefer that path over direct tool
-invocations when updating repository tests.
+fixture files. Prefer that path over direct tool invocations when updating
+repository tests.
 
 Direct runs are useful for inspection:
 
