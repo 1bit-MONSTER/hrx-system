@@ -2480,8 +2480,7 @@ HIPAPI hipError_t hipMallocFromPoolAsync(void** ptr, size_t size,
                                          hipMemPool_t pool, hipStream_t stream);
 HIPAPI hipError_t hipFreeAsync(void* ptr, hipStream_t stream);
 
-// Virtual memory management, qualified by the device's reservation
-// capabilities.
+// Virtual memory management, qualified by the device's native VMM capability.
 HIPAPI hipError_t hipMemAddressReserve(void** ptr, size_t size,
                                        size_t alignment, void* addr,
                                        unsigned long long flags);

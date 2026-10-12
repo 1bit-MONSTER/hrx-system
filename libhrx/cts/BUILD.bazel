@@ -434,6 +434,21 @@ hrx_cts_test(
 )
 
 hrx_cts_test(
+    name = "legacy_virtual_memory",
+    srcs = ["tests/virtual_memory/legacy_virtual_memory_test.cpp"],
+    args = ["--hrx-device=cpu:0"],
+)
+
+hrx_cts_test(
+    name = "legacy_virtual_memory_gpu",
+    srcs = ["tests/virtual_memory/legacy_virtual_memory_test.cpp"],
+    args = ["--hrx-device=gpu:0"],
+    resource_group = GPU_DEVICE_RESOURCE_GROUP,
+    tags = AMD_GPU_CTS_TAGS,
+    target_compatible_with = _AMDGPU_CTS_COMPATIBILITY,
+)
+
+hrx_cts_test(
     name = "virtual_memory",
     srcs = ["tests/virtual_memory/virtual_memory_test.cpp"],
 )

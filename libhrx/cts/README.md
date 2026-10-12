@@ -17,6 +17,7 @@
 | `stream_ops` | stream_ops_test.cpp | fill_buffer, copy_buffer, update_buffer with verification |
 | `refcount` | refcount_test.cpp | Retain/release on device, semaphore, stream, buffer |
 | `virtual_memory` | virtual_memory_test.cpp | Scope-qualified capabilities, batched aliases of ordinary backing, permission updates, exact transfer output, unsupported construction |
+| `legacy_virtual_memory` / `legacy_virtual_memory_gpu` | legacy_virtual_memory_test.cpp | Scalar ABI support, native ROCr reservation/physical-handle lifecycle, scoped permissions and transfer output; CPU unsupported behavior |
 
 ### Not Yet Tested (needs kernels or infrastructure)
 

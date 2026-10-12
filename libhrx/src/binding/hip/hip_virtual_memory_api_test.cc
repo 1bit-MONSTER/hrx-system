@@ -27,6 +27,8 @@ class HipVirtualMemoryApiTest : public testing::Test {
               get_attribute(&supported_,
                             hipDeviceAttributeVirtualMemoryManagementSupported,
                             device_));
+    ASSERT_EQ(supported_, 1)
+        << "The ROCr HIP backend must retain native VMM support.";
     reserve_ =
         dso_.Resolve<decltype(&hipMemAddressReserve)>("hipMemAddressReserve");
     close_ = dso_.Resolve<decltype(&hipMemAddressFree)>("hipMemAddressFree");
@@ -88,7 +90,7 @@ class HipVirtualMemoryApiTest : public testing::Test {
   hrx::hip::testing::HipDso dso_;
   // Current physical placement device.
   int device_ = 0;
-  // Public capability value used to select the supported contract.
+  // Public capability value required by this native GPU test.
   int supported_ = 0;
   // Native allocation and mapping unit for this device.
   size_t unit_ = 0;
@@ -100,9 +102,9 @@ class HipVirtualMemoryApiTest : public testing::Test {
   std::array<bool, 3> mapped_ = {};
   // Creates an explicit address reservation.
   decltype(&hipMemAddressReserve) reserve_ = nullptr;
-  // Consumes an explicit address reservation.
+  // Consumes the reservation on success, retaining it on failure.
   decltype(&hipMemAddressFree) close_ = nullptr;
-  // Allocates ordinary prepared backing behind a HIP handle.
+  // Allocates initially unmapped physical backing behind a HIP handle.
   decltype(&hipMemCreate) create_ = nullptr;
   // Releases one public physical handle reference.
   decltype(&hipMemRelease) release_ = nullptr;
@@ -124,29 +126,14 @@ TEST_F(HipVirtualMemoryApiTest, CapabilityMatchesConstruction) {
   EXPECT_EQ(hipErrorInvalidValue, reserve_(nullptr, 65536, 0, nullptr, 0));
   EXPECT_EQ(hipErrorInvalidValue, set_access_(nullptr, 65536, nullptr, 0));
   const auto properties = Properties();
-  if (!supported_) {
-    void* address = reinterpret_cast<void*>(1);
-    EXPECT_EQ(hipErrorNotSupported, reserve_(&address, 65536, 0, nullptr, 0));
-    EXPECT_EQ(address, nullptr);
-    hipMemGenericAllocationHandle_t handle = nullptr;
-    EXPECT_EQ(hipErrorNotSupported, create_(&handle, 65536, &properties, 0));
-    EXPECT_EQ(handle, nullptr);
-    EXPECT_EQ(
-        hipErrorNotSupported,
-        granularity_(&unit_, &properties, hipMemAllocationGranularityMinimum));
-    return;
-  }
+
   ASSERT_EQ(hipSuccess, granularity_(&unit_, &properties,
                                      hipMemAllocationGranularityMinimum));
   EXPECT_GT(unit_, 0u);
   ASSERT_EQ(hipSuccess, reserve_(&address_, 3 * unit_, unit_, nullptr, 0));
 }
 
-TEST_F(HipVirtualMemoryApiTest,
-       BatchedPermissionsPreserveAliasesAndHandleLifetime) {
-  if (!supported_) {
-    GTEST_SKIP() << "The device has no explicit reservation backend.";
-  }
+TEST_F(HipVirtualMemoryApiTest, PermissionsPreserveAliasesAndHandleLifetime) {
   const auto properties = Properties();
   ASSERT_EQ(hipSuccess, granularity_(&unit_, &properties,
                                      hipMemAllocationGranularityMinimum));
