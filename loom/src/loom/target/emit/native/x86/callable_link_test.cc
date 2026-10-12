@@ -17,6 +17,9 @@ using F16 = _Float16;
 // These definitions are linked directly from the object emitted by Loom in a
 // separate build action. The compiler process exits before the link begins.
 extern "C" uint64_t mix(uint64_t input, uint64_t delta);
+extern "C" uint32_t immediate_mix32(uint32_t input);
+extern "C" uint64_t immediate_mix64(uint64_t input);
+extern "C" uint64_t immediate_scale(uint64_t coordinate);
 extern "C" uint64_t choose_mix(uint64_t input, uint64_t delta, uint64_t limit);
 extern "C" uint64_t preserve(uint64_t a, uint64_t b, uint64_t c, uint64_t d,
                              uint64_t e, uint64_t f);
@@ -307,6 +310,31 @@ TEST(NativeCallableTest, OrdinaryCLinkage) {
       second = sum;
     }
     ASSERT_EQ(recurrence(a, b, i % 23), first);
+  }
+}
+
+TEST(NativeCallableTest, IntegerImmediateArithmetic) {
+  const std::array<uint32_t, 6> words32 = {
+      0,          1, UINT32_C(127), UINT32_C(0x7fffffff), UINT32_C(0x80000000),
+      UINT32_MAX,
+  };
+  for (uint32_t input : words32) {
+    EXPECT_EQ(immediate_mix32(input),
+              (input + uint32_t{23}) * uint32_t{129} - uint32_t{17});
+  }
+
+  const std::array<uint64_t, 6> words64 = {
+      0,
+      1,
+      UINT64_C(127),
+      UINT64_C(0x7fffffffffffffff),
+      UINT64_C(0x8000000000000000),
+      UINT64_MAX,
+  };
+  for (uint64_t input : words64) {
+    EXPECT_EQ(immediate_mix64(input),
+              (input - UINT64_C(2147483648)) * UINT64_C(2147483647));
+    EXPECT_EQ(immediate_scale(input), input * UINT64_C(65));
   }
 }
 

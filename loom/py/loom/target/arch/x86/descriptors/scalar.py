@@ -636,23 +636,29 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
         schedule_class=_SCHEDULE_SCALAR,
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     ),
-    Descriptor(
-        key="x86.scalar.imul.imm.gpr64",
-        encoding_format_id=Form.MULTIPLY_IMMEDIATE,
-        encoding_id=encoding(0x69, flags=Flag.REX_W),
-        mnemonic="imul",
-        semantic_tag="integer.mul.signed_imm32.i64",
-        operands=(_gpr64_result(), _gpr64_operand("lhs")),
-        immediates=(_IMM32_IMMEDIATE,),
-        asm_forms=_asm(
-            mnemonic="imul.imm.gpr64",
-            results=("dst",),
-            operands=("lhs",),
-            immediates=("imm32",),
-            named_immediates=True,
-        ),
-        schedule_class=_SCHEDULE_SCALAR,
-        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    *(
+        Descriptor(
+            key=f"x86.scalar.imul.imm.gpr{width}",
+            encoding_format_id=Form.MULTIPLY_IMMEDIATE,
+            encoding_id=encoding(0x69, flags=Flag.REX_W if width == 64 else 0),
+            mnemonic="imul",
+            semantic_tag=f"integer.mul.signed_imm32.i{width}",
+            operands=(result(), operand("lhs")),
+            immediates=(_IMM32_IMMEDIATE,),
+            asm_forms=_asm(
+                mnemonic=f"imul.imm.gpr{width}",
+                results=("dst",),
+                operands=("lhs",),
+                immediates=("imm32",),
+                named_immediates=True,
+            ),
+            schedule_class=_SCHEDULE_SCALAR,
+            flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        )
+        for width, result, operand in (
+            (32, _gpr32_result, _gpr32_operand),
+            (64, _gpr64_result, _gpr64_operand),
+        )
     ),
     _gpr32_destructive_binary_descriptor(
         key="x86.scalar.and.gpr32",
@@ -692,20 +698,6 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
     ),
     *(
         _gpr_destructive_immediate_descriptor(
-            key=f"x86.scalar.{operation}.imm.gpr32",
-            encoding_form=Form.BINARY_IMMEDIATE,
-            encoding_id=encoding(0x81, extension=extension),
-            mnemonic=operation,
-            semantic_tag=f"integer.{operation}.signed_imm32.i32",
-            result=_gpr32_result(),
-            source=_gpr32_operand("lhs"),
-            immediate=_IMM32_IMMEDIATE,
-            asm_suffix="gpr32",
-        )
-        for operation, extension in (("add", 0), ("sub", 5))
-    ),
-    *(
-        _gpr_destructive_immediate_descriptor(
             key=f"x86.scalar.{operation}.imm.gpr{width}",
             encoding_form=Form.BINARY_IMMEDIATE,
             encoding_id=encoding(
@@ -722,7 +714,13 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
             (32, _gpr32_result, _gpr32_operand),
             (64, _gpr64_result, _gpr64_operand),
         )
-        for operation, extension in (("and", 4), ("or", 1), ("xor", 6))
+        for operation, extension in (
+            ("add", 0),
+            ("sub", 5),
+            ("and", 4),
+            ("or", 1),
+            ("xor", 6),
+        )
     ),
     _gpr32_destructive_shift_descriptor(
         key="x86.scalar.shl.imm.gpr32",

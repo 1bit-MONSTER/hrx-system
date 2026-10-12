@@ -42,6 +42,32 @@ func.def public @mix(%input: i64, %delta: i64) -> (i64) {
   func.return %result : i64
 }
 
+// Exact constants become native immediate operands without materialized
+// registers. Arithmetic retains the source type's wrapping semantics.
+func.def public @immediate_mix32(%input: i32) -> (i32) {
+  %bias = scalar.constant 23 : i32
+  %factor = scalar.constant 129 : i32
+  %subtractend = scalar.constant 17 : i32
+  %biased = scalar.addi %input, %bias : i32
+  %scaled = scalar.muli %biased, %factor : i32
+  %result = scalar.subi %scaled, %subtractend : i32
+  func.return %result : i32
+}
+
+func.def public @immediate_mix64(%input: i64) -> (i64) {
+  %bias = scalar.constant -2147483648 : i64
+  %factor = scalar.constant 2147483647 : i64
+  %biased = scalar.addi %bias, %input : i64
+  %result = scalar.muli %biased, %factor : i64
+  func.return %result : i64
+}
+
+func.def public @immediate_scale(%coordinate: index) -> (offset) {
+  %stride = index.constant 65 : offset
+  %result = index.scale %coordinate, %stride : index, offset -> offset
+  func.return %result : offset
+}
+
 // Both exits return through the same native preservation envelope.
 func.def public @choose_mix(%input: i64, %delta: i64, %limit: i64) -> (i64) {
   %condition = scalar.cmpi ult, %input, %limit : i64

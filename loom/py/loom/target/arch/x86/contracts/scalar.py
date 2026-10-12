@@ -163,15 +163,18 @@ def _negated_disp32_guards(field: str) -> tuple[Guard, ...]:
     )
 
 
-def _bitwise_rules(
+def _integer_binary_rules(
     source_op: Op,
     type_pattern: TypePattern,
     operation: str,
     register_width: int,
     descriptor_lookup: _DescriptorLookup,
+    *,
+    constant_operands: Sequence[str] = ("rhs", "lhs"),
 ) -> Iterable[DescriptorRule]:
     descriptor = descriptor_lookup(f"x86.scalar.{operation}.imm.gpr{register_width}")
-    for input_field, constant_field in (("lhs", "rhs"), ("rhs", "lhs")):
+    for constant_field in constant_operands:
+        input_field = "lhs" if constant_field == "rhs" else "rhs"
         yield DescriptorRule(
             source_op=source_op,
             descriptor=descriptor,
@@ -763,6 +766,31 @@ def _index_scale_rule(descriptor_lookup: _DescriptorLookup) -> DescriptorRule:
     )
 
 
+def _index_scale_immediate_rule(
+    descriptor_lookup: _DescriptorLookup,
+) -> DescriptorRule:
+    descriptor = descriptor_lookup("x86.scalar.imul.imm.gpr64")
+    return DescriptorRule(
+        source_op=index.index_scale,
+        descriptor=descriptor,
+        guards=(
+            Guard.value_type("index", _INDEX),
+            Guard.value_type("stride", _OFFSET),
+            Guard.value_type("result", _OFFSET),
+            Guard.value_exact_i64("stride"),
+            Guard.value_i64_range("stride", _I32_MIN, _I32_MAX),
+        ),
+        emit=(
+            _op_emit(
+                descriptor=descriptor,
+                operands={"lhs": ValueRef.operand("index")},
+                results={"dst": ValueRef.result("result")},
+                immediates={"imm32": ValueProject.exact_i64("stride")},
+            ),
+        ),
+    )
+
+
 def _shli_scale_rule(
     *,
     shift_amount: int,
@@ -915,6 +943,7 @@ def _scale_rules(descriptor_lookup: _DescriptorLookup) -> tuple[DescriptorRule, 
         )
         for scale in (1, 2, 4, 8)
     ]
+    rules.append(_index_scale_immediate_rule(descriptor_lookup))
     rules.append(_index_scale_rule(descriptor_lookup))
     for scale in (2, 4, 8):
         rules.append(
@@ -981,21 +1010,22 @@ def _cases() -> Sequence[ContractCase]:
         *_view_alias_rules(),
         _buffer_load_i8_u_rule(descriptor_lookup),
         _buffer_store_i8_rule(descriptor_lookup),
-        *binary_descriptor_rules(
-            tuple(
-                DirectDescriptorCase(
-                    source_op,
-                    descriptor_lookup(f"x86.scalar.{operation}.gpr{register_width}"),
-                    type_pattern,
-                )
-                for type_pattern, register_width in ((_I32, 32), (_I64, 64))
-                for source_op, operation in (
-                    (scalar_arithmetic.scalar_addi, "add"),
-                    (scalar_arithmetic.scalar_subi, "sub"),
-                    (scalar_arithmetic.scalar_muli, "imul"),
-                )
-            ),
-            form=DescriptorEmitForm.OP,
+        *(
+            rule
+            for type_pattern, register_width in ((_I32, 32), (_I64, 64))
+            for source_op, operation in (
+                (scalar_arithmetic.scalar_addi, "add"),
+                (scalar_arithmetic.scalar_subi, "sub"),
+                (scalar_arithmetic.scalar_muli, "imul"),
+            )
+            for rule in _integer_binary_rules(
+                source_op,
+                type_pattern,
+                operation,
+                register_width,
+                descriptor_lookup,
+                constant_operands=("rhs",) if operation == "sub" else ("rhs", "lhs"),
+            )
         ),
         *unary_descriptor_rules(
             tuple(
@@ -1022,7 +1052,7 @@ def _cases() -> Sequence[ContractCase]:
                 (scalar_bitwise.scalar_ori, "or"),
                 (scalar_bitwise.scalar_xori, "xor"),
             )
-            for rule in _bitwise_rules(
+            for rule in _integer_binary_rules(
                 source_op, type_pattern, operation, register_width, descriptor_lookup
             )
         ),
@@ -1326,13 +1356,12 @@ def _cases() -> Sequence[ContractCase]:
             form=DescriptorEmitForm.OP,
         ),
         *_scale_rules(descriptor_lookup),
-        *binary_descriptor_rules(
-            (
-                DirectDescriptorCase(
-                    index.index_mul, descriptor_lookup("x86.scalar.imul.gpr64"), _INDEX
-                ),
-            ),
-            form=DescriptorEmitForm.OP,
+        *_integer_binary_rules(
+            index.index_mul,
+            _INDEX,
+            "imul",
+            64,
+            descriptor_lookup,
         ),
         *(
             rule
@@ -1341,7 +1370,7 @@ def _cases() -> Sequence[ContractCase]:
                 (index.index_ori, "or"),
                 (index.index_xori, "xor"),
             )
-            for rule in _bitwise_rules(
+            for rule in _integer_binary_rules(
                 source_op, _INDEX, operation, 64, descriptor_lookup
             )
         ),

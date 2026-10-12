@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+from loom.dialect.index import defs as index
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.scalar import conversion as scalar_conversion
 from loom.dialect.scalar import math as scalar_math
@@ -212,6 +213,104 @@ def test_scalar_integer_conversions_cover_native_carrier_matrix() -> None:
             for result_type in (Scalar("i8"), Scalar("i16"), Scalar("i32"))
         ),
     }
+
+
+def _integer_immediate_rule_cells(source_ops) -> set[tuple]:
+    cells = set()
+    for rule in X86_SCALAR_CONTRACT_FRAGMENT.cases:
+        if (
+            not isinstance(rule, DescriptorRule)
+            or rule.source_op not in source_ops
+            or ".imm.gpr" not in rule.descriptor.key
+        ):
+            continue
+        exact_guard = next(
+            guard for guard in rule.guards if guard.kind == GuardKind.VALUE_EXACT_I64
+        )
+        assert any(
+            guard.kind == GuardKind.VALUE_I64_RANGE
+            and guard.field == exact_guard.field
+            and (guard.minimum, guard.maximum) == (-(2**31), (2**31) - 1)
+            for guard in rule.guards
+        )
+        assert rule.emit[0].immediates == {
+            "imm32": ValueProject.exact_i64(exact_guard.field),
+        }
+        cells.add(
+            (
+                rule.source_op,
+                _value_type_guard(rule, "result"),
+                exact_guard.field,
+                rule.descriptor.key,
+            )
+        )
+    return cells
+
+
+def test_scalar_integer_arithmetic_immediates_cover_native_carriers() -> None:
+    operation_names = {
+        scalar_arithmetic.scalar_addi: "add",
+        scalar_arithmetic.scalar_subi: "sub",
+        scalar_arithmetic.scalar_muli: "imul",
+    }
+    assert _integer_immediate_rule_cells(operation_names) == {
+        (
+            source_op,
+            Scalar(f"i{width}"),
+            constant_field,
+            f"x86.scalar.{operation}.imm.gpr{width}",
+        )
+        for source_op, operation in operation_names.items()
+        for width in (32, 64)
+        for constant_field in (
+            ("rhs",) if source_op is scalar_arithmetic.scalar_subi else ("rhs", "lhs")
+        )
+    }
+
+
+def test_address_arithmetic_uses_immediates_after_specialized_lea_forms() -> None:
+    operations = (index.index_mul, index.index_scale)
+    assert _integer_immediate_rule_cells(operations) == {
+        *(
+            (
+                index.index_mul,
+                Scalar("index"),
+                constant_field,
+                "x86.scalar.imul.imm.gpr64",
+            )
+            for constant_field in ("rhs", "lhs")
+        ),
+        *(
+            (
+                index.index_scale,
+                Scalar("offset"),
+                "stride",
+                "x86.scalar.imul.imm.gpr64",
+            ),
+        ),
+    }
+    authored_cases = tuple(X86_SCALAR_CONTRACT_FRAGMENT.cases)
+    for source_op, specialized_key, immediate_key in (
+        (index.index_mul, "x86.scalar.lea.scale.gpr64", "x86.scalar.imul.imm.gpr64"),
+        (index.index_scale, "x86.scalar.lea.scale.gpr64", "x86.scalar.imul.imm.gpr64"),
+    ):
+        specialized_indices = tuple(
+            ordinal
+            for ordinal, case in enumerate(authored_cases)
+            if isinstance(case, DescriptorRule)
+            and case.source_op is source_op
+            and case.descriptor.key == specialized_key
+        )
+        immediate_indices = tuple(
+            ordinal
+            for ordinal, case in enumerate(authored_cases)
+            if isinstance(case, DescriptorRule)
+            and case.source_op is source_op
+            and case.descriptor.key == immediate_key
+        )
+        assert specialized_indices
+        assert immediate_indices
+        assert max(specialized_indices) < min(immediate_indices)
 
 
 def test_scalar_storage_float_constants_share_one_bit_preserving_rule() -> None:
