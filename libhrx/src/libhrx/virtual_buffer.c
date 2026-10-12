@@ -3,25 +3,31 @@
 
 #include "hrx_internal.h"
 
-static_assert((int)HRX_MEMORY_SITE_HOST == IREE_HAL_MEMORY_SITE_HOST &&
-                  (int)HRX_MEMORY_SITE_QUEUE == IREE_HAL_MEMORY_SITE_QUEUE &&
-                  (int)HRX_MEMORY_SITE_PROGRAM == IREE_HAL_MEMORY_SITE_PROGRAM,
-              "memory sites must match HAL");
-static_assert((int)HRX_MEMORY_MAPPING_OPERATION_REPLACE ==
-                      IREE_HAL_MEMORY_MAPPING_OPERATION_REPLACE &&
-                  (int)HRX_MEMORY_MAPPING_OPERATION_BIND ==
-                      IREE_HAL_MEMORY_MAPPING_OPERATION_BIND &&
-                  (int)HRX_MEMORY_MAPPING_OPERATION_UNBIND ==
-                      IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND &&
-                  (int)HRX_MEMORY_MAPPING_OPERATION_PROTECT ==
-                      IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT,
-              "mapping operations must match HAL");
-static_assert(HRX_MEMORY_MAPPING_SOURCE_FLAG_WHOLE_ALLOCATION ==
-                  IREE_HAL_POOL_MAPPING_FLAG_WHOLE_ALLOCATION,
-              "mapping source restrictions must match HAL");
-static_assert(HRX_QUEUE_MAP_FLAG_BORROW_BUFFERS ==
-                  IREE_HAL_QUEUE_MAP_FLAG_BORROW_BUFFERS,
-              "mapping submission flags must match HAL");
+IREE_STATIC_ASSERT_ENUM_EQ(HRX_MEMORY_SITE_HOST, IREE_HAL_MEMORY_SITE_HOST,
+                           "memory sites must match HAL");
+IREE_STATIC_ASSERT_ENUM_EQ(HRX_MEMORY_SITE_QUEUE, IREE_HAL_MEMORY_SITE_QUEUE,
+                           "memory sites must match HAL");
+IREE_STATIC_ASSERT_ENUM_EQ(HRX_MEMORY_SITE_PROGRAM,
+                           IREE_HAL_MEMORY_SITE_PROGRAM,
+                           "memory sites must match HAL");
+IREE_STATIC_ASSERT_ENUM_EQ(HRX_MEMORY_MAPPING_OPERATION_REPLACE,
+                           IREE_HAL_MEMORY_MAPPING_OPERATION_REPLACE,
+                           "mapping operations must match HAL");
+IREE_STATIC_ASSERT_ENUM_EQ(HRX_MEMORY_MAPPING_OPERATION_BIND,
+                           IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
+                           "mapping operations must match HAL");
+IREE_STATIC_ASSERT_ENUM_EQ(HRX_MEMORY_MAPPING_OPERATION_UNBIND,
+                           IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND,
+                           "mapping operations must match HAL");
+IREE_STATIC_ASSERT_ENUM_EQ(HRX_MEMORY_MAPPING_OPERATION_PROTECT,
+                           IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT,
+                           "mapping operations must match HAL");
+IREE_STATIC_ASSERT_ENUM_EQ(HRX_MEMORY_MAPPING_SOURCE_FLAG_WHOLE_ALLOCATION,
+                           IREE_HAL_POOL_MAPPING_FLAG_WHOLE_ALLOCATION,
+                           "mapping source restrictions must match HAL");
+IREE_STATIC_ASSERT_ENUM_EQ(HRX_QUEUE_MAP_FLAG_BORROW_BUFFERS,
+                           IREE_HAL_QUEUE_MAP_FLAG_BORROW_BUFFERS,
+                           "mapping submission flags must match HAL");
 
 // Construction and capability queries are cold paths. Submission consumes the
 // resulting immutable scope tokens and native owners directly.
