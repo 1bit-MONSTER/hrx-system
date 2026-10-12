@@ -308,6 +308,118 @@ CHECK: vst.512.f32x16 %result, %output_view, 0
 
 // ====
 
+// RUN: emit source-low output=low
+
+aie2p.target<core> @target
+
+// Wide BF16 values loaded from a 16-byte-aligned view are assembled from
+// native chunks in the ordinary vector carrier consumed by dot2.
+func.def target(@target) @dot2_bf16x32_aligned16(%lhs: buffer, %rhs: buffer, %acc: buffer, %output: buffer) {
+  %lhs_aligned, %rhs_aligned, %acc_aligned, %output_aligned = buffer.assume.alignment %lhs, %rhs, %acc, %output {minimum_alignment = 16} : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_aligned[%base] : buffer -> view<32xbf16>
+  %rhs_view = buffer.view %rhs_aligned[%base] : buffer -> view<32xbf16>
+  %acc_view = buffer.view %acc_aligned[%base] : buffer -> view<16xf32>
+  %output_view = buffer.view %output_aligned[%base] : buffer -> view<16xf32>
+  %lhs_value = vector.load %lhs_view[0] : view<32xbf16> -> vector<32xbf16>
+  %rhs_value = vector.load %rhs_view[0] : view<32xbf16> -> vector<32xbf16>
+  %acc_value = vector.load %acc_view[0] : view<16xf32> -> vector<16xf32>
+  %result = vector.dot2f %lhs_value, %rhs_value, %acc_value : vector<32xbf16>, vector<32xbf16>, vector<16xf32>
+  vector.store %result, %output_view[0] : vector<16xf32>, view<16xf32>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @dot2_bf16x32_aligned16() asm {
+  %lhs_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %rhs_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %acc_view = resource<native_pointer> {index = 2, source_type = buffer} : reg<aie2p.ep>
+  %output_view = resource<native_pointer> {index = 3, source_type = buffer} : reg<aie2p.ep>
+  %34 = mov.short 0
+  %35 = vbcst.8 %34
+  %36 = slice %35[1] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %37 = vlda.128.i8x16 %lhs_view, 0
+  %38 = concat(%37, %36) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %39 = vlda.128.i8x16 %lhs_view, 16
+  %40 = concat(%39, %36) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %41 = mova.i32 48
+  %42 = vshift %35, %40, %41
+  %43 = mov.select 15
+  %44 = vsel.32 %42, %38, %43
+  %48 = vlda.128.i8x16 %lhs_view, 32
+  %49 = concat(%48, %36) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %50 = vlda.128.i8x16 %lhs_view, 48
+  %51 = concat(%50, %36) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %53 = vshift %35, %51, %41
+  %55 = vsel.32 %53, %49, %43
+  %56 = slice %44[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %57 = slice %55[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %lhs_value = concat(%56, %57) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %62 = vlda.128.i8x16 %rhs_view, 0
+  %63 = concat(%62, %36) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %64 = vlda.128.i8x16 %rhs_view, 16
+  %65 = concat(%64, %36) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %67 = vshift %35, %65, %41
+  %69 = vsel.32 %67, %63, %43
+  %73 = vlda.128.i8x16 %rhs_view, 32
+  %74 = concat(%73, %36) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %75 = vlda.128.i8x16 %rhs_view, 48
+  %76 = concat(%75, %36) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %78 = vshift %35, %76, %41
+  %80 = vsel.32 %78, %74, %43
+  %81 = slice %69[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %82 = slice %80[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %rhs_value = concat(%81, %82) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %87 = vlda.128.i8x16 %acc_view, 0
+  %88 = concat(%87, %36) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %89 = vlda.128.i8x16 %acc_view, 16
+  %90 = concat(%89, %36) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %92 = vshift %35, %90, %41
+  %94 = vsel.32 %92, %88, %43
+  %98 = vlda.128.i8x16 %acc_view, 32
+  %99 = concat(%98, %36) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %100 = vlda.128.i8x16 %acc_view, 48
+  %101 = concat(%100, %36) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %103 = vshift %35, %101, %41
+  %105 = vsel.32 %103, %99, %43
+  %106 = slice %94[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %107 = slice %105[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %acc_value = concat(%106, %107) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  %109 = mova.i32 2
+  %110 = vshuffle %lhs_value, %lhs_value, %109
+  %111 = vshuffle %rhs_value, %rhs_value, %109
+  %112 = mova.i32 3
+  %113 = vshuffle %lhs_value, %lhs_value, %112
+  %114 = vshuffle %rhs_value, %rhs_value, %112
+  %115 = acc.clear.f32x64
+  %116 = slice %115[1] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %117 = slice %115[2] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %118 = slice %115[3] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %119 = vmov.vector512.to.accumulator512 %acc_value
+  %120 = concat(%119, %116, %117, %118) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  %121 = mova.i32 60
+  %122 = vmac.bf16x32 %120, %110, %111, %121
+  %123 = vmac.bf16x32 %122, %113, %114, %121
+  %124 = slice %123[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
+  %result = vmov.accumulator512.to.vector512 %124
+  %126 = slice %result[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  vst.128.f32x4 %126, %output_view, 0
+  %127 = mova.i32 16
+  %128 = vshift %result, %result, %127
+  %129 = slice %128[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  vst.128.f32x4 %129, %output_view, 16
+  %130 = mova.i32 32
+  %131 = vshift %result, %result, %130
+  %132 = slice %131[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  vst.128.f32x4 %132, %output_view, 32
+  %134 = vshift %result, %result, %41
+  %135 = slice %134[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  vst.128.f32x4 %135, %output_view, 48
+  return
+}
+
+// ====
+
 // RUN: emit source-low output=none
 
 // Native BF16 multiplication loses signed zero and subnormal products.
