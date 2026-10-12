@@ -88,6 +88,38 @@ arguments to the ABI. Argument storage is published before the packet and
 stays unchanged through dispatch completion. [LLVM argument
 ABI][llvm-dispatch] · [HSA §3.3.3.1][hsa]
 
+### Host-written device-local arguments
+
+Addressability and publication are separate requirements when the host writes
+kernargs into CPU-visible local memory. A large-BAR mapping lets the CPU name
+the VRAM bytes, but those writes can remain in the host aperture after an
+ordinary store fence. The dispatch packet's acquire scope orders the GPU-side
+read after publication; it does not drain pending host-aperture writes.
+
+For a qualified HDP memory-flush mapping, the complete host-to-AQL sequence is:
+
+1. Write every argument byte and any compiler-required padding.
+2. Execute the host fence required by the mapping's write-combining policy.
+3. Volatile-write 1 to `KFD_MMIO_REMAP_HDP_MEM_FLUSH_CNTL`, then
+   volatile-read that same register.
+4. Publish the dispatch with a fence scope that acquires the argument backing.
+5. Retain the argument bytes unchanged until dispatch completion.
+
+The HDP operation is global rather than range-addressed. KFD exposes its
+register page as a separate device-lifetime allocation; it is not owned by the
+kernarg allocation. The [HDP mapping and operation](../../interop/rdma.md#native-register-mapping-and-lifetime)
+documents the remap offsets, mapping lifecycle, availability predicates, and
+the exact write/read operation. Absence of that mapping leaves host-written
+local memory without a qualified publication path, so the runtime uses
+host-coherent argument backing instead.
+
+HDP publication and AQL acquisition remain distinct. The host operation makes
+completed aperture writes visible at the target GPU, while the packet's
+acquire controls the consuming command processor and shader caches. Likewise,
+packet-slot retirement permits ring reuse but does not end the kernarg
+lifetime. [HDP and shader-cache boundary](../../interop/rdma.md#host-operation-and-return)
+· [AQL fence scopes](barriers.md#fence-scope-and-observers)
+
 The nominal workgroup product obeys the compiler's flat-workgroup-size
 attribute. That attribute and the uniform-workgroup property are separate
 contracts: an allowed nominal size does not imply that a partial final group
