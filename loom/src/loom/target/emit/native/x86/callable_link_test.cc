@@ -134,15 +134,26 @@ extern "C" double identity_f64(double value);
 extern "C" uint32_t widen_i1(bool value);
 extern "C" uint32_t widen_i8(uint8_t value);
 extern "C" uint32_t widen_i16(uint16_t value);
+extern "C" uint32_t retain_first_narrow(uint32_t value, bool unused_i1,
+                                        uint8_t unused_i8,
+                                        uint8_t unused_f8e4m3,
+                                        uint8_t unused_f8e5m2,
+                                        uint16_t unused_i16);
 extern "C" uint32_t call_narrow_i1(uint32_t value);
 extern "C" uint32_t call_narrow_i8(uint32_t value);
 extern "C" uint32_t call_narrow_i16(uint32_t value);
+extern "C" uint32_t ignore_narrow_call_result(uint32_t value);
 extern "C" bool native_narrow_i1(uint32_t value) { return value != 0; }
 extern "C" uint8_t native_narrow_i8(uint32_t value) {
   return static_cast<uint8_t>(value);
 }
 extern "C" uint16_t native_narrow_i16(uint32_t value) {
   return static_cast<uint16_t>(value);
+}
+static uint32_t ignored_i8_result_call_count = 0;
+extern "C" uint8_t native_ignored_i8_result() {
+  ++ignored_i8_result_call_count;
+  return 0xa5;
 }
 extern "C" F16 identity_f16(F16 value);
 extern "C" I32x8 identity_i32x8(I32x8 value);
@@ -747,6 +758,14 @@ TEST(NativeCallableTest, IntegerConversionsPreserveLogicalWidthSemantics) {
   EXPECT_EQ(extend_signed_predicate_to_wide(true), INT64_C(-1));
   EXPECT_EQ(extend_unsigned_predicate_to_wide(false), UINT64_C(0));
   EXPECT_EQ(extend_unsigned_predicate_to_wide(true), UINT64_C(1));
+}
+
+TEST(NativeCallableTest, UnusedNarrowBoundariesRetainObservableBehavior) {
+  EXPECT_EQ(retain_first_narrow(0x12345678u, true, 0xa5, 0x7f, 0x80, 0xa55a),
+            0x12345678u);
+  const uint32_t call_count = ignored_i8_result_call_count;
+  EXPECT_EQ(ignore_narrow_call_result(0x89abcdefu), 0x89abcdefu);
+  EXPECT_EQ(ignored_i8_result_call_count, call_count + 1);
 }
 
 TEST(NativeCallableTest, HalfPrecisionCrossClassRegistersAndStack) {

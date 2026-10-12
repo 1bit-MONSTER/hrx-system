@@ -6,6 +6,7 @@
 
 #include "loom/target/emit/native/x86/check/loom_check.h"
 
+#include "iree/io/vec_stream.h"
 #include "loom/analysis/symbol_facts.h"
 #include "loom/codegen/low/target_binding.h"
 #include "loom/ops/low/ops.h"
@@ -34,7 +35,8 @@ static bool loom_x86_loom_check_emit_provider_matches(
     const loom_check_emit_provider_t* provider,
     iree_string_view_t target_name) {
   (void)provider;
-  return iree_string_view_equal(target_name, IREE_SV("x86-frame"));
+  return iree_string_view_equal(target_name, IREE_SV("x86-frame")) ||
+         iree_string_view_equal(target_name, IREE_SV("x86-native-bytes"));
 }
 
 static iree_status_t loom_x86_loom_check_parse_key_value_option(
@@ -49,10 +51,10 @@ static iree_status_t loom_x86_loom_check_parse_key_value_option(
   if (iree_string_view_equal(name, IREE_SV("strategy"))) {
     if (options->has_schedule_strategy_option) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "duplicate x86 frame option 'strategy'");
+                              "duplicate x86 native option 'strategy'");
     }
     IREE_RETURN_IF_ERROR(loom_check_low_emit_parse_schedule_strategy(
-        value, IREE_SV("x86 frame"), &options->schedule_strategy));
+        value, IREE_SV("x86 native"), &options->schedule_strategy));
     options->has_schedule_strategy_option = true;
     *out_matched = true;
   }
@@ -68,7 +70,7 @@ static iree_status_t loom_x86_loom_check_parse_option(
     return iree_ok_status();
   }
   return loom_check_low_emit_parse_allocation_option(
-      token, IREE_SV("x86 frame"), options->allocation_budgets,
+      token, IREE_SV("x86 native"), options->allocation_budgets,
       IREE_ARRAYSIZE(options->allocation_budgets),
       &options->allocation_budget_count, &options->allocation_fixed_values);
 }
@@ -88,14 +90,13 @@ static iree_status_t loom_x86_loom_check_parse_emit_options(
   option_text = iree_string_view_trim(option_text);
   if (!iree_string_view_starts_with(symbol_name, IREE_SV("@"))) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "x86 frame requires a low function symbol name");
+                            "x86 native emit requires a low function symbol");
   }
   out_options->function_symbol_name =
       iree_string_view_substr(symbol_name, 1, IREE_HOST_SIZE_MAX);
   if (iree_string_view_is_empty(out_options->function_symbol_name)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "x86 frame low function symbol name is "
-                            "required");
+                            "x86 native emit function symbol is required");
   }
 
   IREE_RETURN_IF_ERROR(loom_check_low_emit_fixed_value_spec_list_initialize(
@@ -114,21 +115,11 @@ static iree_status_t loom_x86_loom_check_parse_emit_options(
   return iree_ok_status();
 }
 
-static iree_status_t loom_x86_loom_check_emit_frame(
-    const loom_low_emission_frame_t* frame,
-    const loom_x86_function_abi_t* function_abi,
-    const loom_x86_module_abi_t* module_abi, iree_string_builder_t* builder,
-    iree_diagnostic_emitter_t emitter, iree_arena_allocator_t* arena) {
-  loom_x86_function_t function;
-  bool accepted = false;
-  IREE_RETURN_IF_ERROR(loom_x86_function_prepare(
-      frame, function_abi, module_abi, emitter, arena, &accepted, &function));
-  if (!accepted) {
-    return iree_ok_status();
-  }
+static iree_status_t loom_x86_loom_check_format_frame(
+    const loom_x86_function_t* function, iree_string_builder_t* builder) {
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_cstring(builder, "callee-preserved:"));
-  if (!function.saved_registers) {
+  if (!function->saved_registers) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, " none"));
   }
   static const char* const register_names[] = {
@@ -137,36 +128,87 @@ static iree_status_t loom_x86_loom_check_emit_frame(
   };
   const char* separator = " ";
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(register_names); ++i) {
-    if (function.saved_registers & (1u << i)) {
+    if (function->saved_registers & (1u << i)) {
       IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
           builder, "%s%s", separator, register_names[i]));
       separator = ", ";
     }
   }
   IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, "\n"));
-  if (function.stack.allocation_size) {
+  if (function->stack.allocation_size) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         builder, "stack: %u bytes, alignment %u\n",
-        function.stack.allocation_size, function.stack.alignment));
+        function->stack.allocation_size, function->stack.alignment));
   }
-  if (function.stack.realignment.mask) {
+  if (function->stack.realignment.mask) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         builder, "realignment: %s, saved RSP at +%u\n",
-        register_names[function.stack.realignment.scratch_register],
-        function.stack.realignment.saved_pointer_offset));
+        register_names[function->stack.realignment.scratch_register],
+        function->stack.realignment.saved_pointer_offset));
   }
-  if (function.may_dirty_upper_vector_state &&
-      function.upper_vector_call_cleanup_count != 0) {
+  if (function->may_dirty_upper_vector_state &&
+      function->upper_vector_call_cleanup_count != 0) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         builder, "upper-state-call-cleanups: %zu\n",
-        function.upper_vector_call_cleanup_count));
+        function->upper_vector_call_cleanup_count));
   }
-  if (function.may_dirty_upper_vector_state &&
-      !function.has_upper_vector_result) {
+  if (function->may_dirty_upper_vector_state &&
+      !function->has_upper_vector_result) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(
         builder, "upper-state-cleanup: vzeroupper\n"));
   }
   return iree_ok_status();
+}
+
+static iree_status_t loom_x86_loom_check_append_native_bytes(
+    void* user_data, iree_const_byte_span_t block) {
+  iree_string_builder_t* builder = (iree_string_builder_t*)user_data;
+  for (iree_host_size_t i = 0; i < block.data_length; ++i) {
+    IREE_RETURN_IF_ERROR(
+        iree_string_builder_append_format(builder, " %02x", block.data[i]));
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_x86_loom_check_emit_native_bytes(
+    const loom_x86_function_t* function,
+    const loom_x86_module_abi_t* module_abi, iree_string_builder_t* builder,
+    iree_arena_allocator_t* arena) {
+  uint32_t* symbol_indices = NULL;
+  loom_native_object_fixup_t* fixups = NULL;
+  iree_io_stream_t* stream = NULL;
+  iree_status_t status = iree_arena_allocate_array(
+      arena, module_abi->symbol_count, sizeof(*symbol_indices),
+      (void**)&symbol_indices);
+  if (iree_status_is_ok(status)) {
+    for (iree_host_size_t i = 0; i < module_abi->symbol_count; ++i) {
+      symbol_indices[i] = (uint32_t)i;
+    }
+    status = iree_arena_allocate_array(arena, function->symbol_fixup_count,
+                                       sizeof(*fixups), (void**)&fixups);
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_io_vec_stream_create(IREE_IO_STREAM_MODE_WRITABLE |
+                                           IREE_IO_STREAM_MODE_SEEKABLE |
+                                           IREE_IO_STREAM_MODE_RESIZABLE,
+                                       256, iree_allocator_system(), &stream);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_x86_function_write(function, symbol_indices, 0, fixups,
+                                     stream, NULL, arena);
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_string_builder_append_cstring(builder, "code:");
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_io_vec_stream_enumerate_blocks(
+        stream, loom_x86_loom_check_append_native_bytes, builder);
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_string_builder_append_cstring(builder, "\n");
+  }
+  iree_io_stream_release(stream);
+  return status;
 }
 
 static iree_status_t loom_x86_loom_check_prepare_abis(
@@ -197,7 +239,7 @@ static iree_status_t loom_x86_loom_check_prepare_abis(
         (iree_diagnostic_emitter_t){0}, &target));
     if (target.descriptor_set == NULL) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "x86 frame function has no resolved target");
+                              "x86 native function has no resolved target");
     }
     bool supported = false;
     iree_string_view_t constraint = iree_string_view_empty();
@@ -243,7 +285,7 @@ static iree_status_t loom_x86_loom_check_emit_provider_execute(
   const loom_low_emission_frame_spill_free_options_t spill_free_options = {0};
   // The fixture supplies incoming value locations. Reserve RSP just as the
   // object provider does before allocation; the native envelope uses it.
-  loom_low_allocation_reserved_range_t reserved_ranges[3] = {
+  loom_low_allocation_reserved_range_t reserved_ranges[2] = {
       {{0}},
   };
   const iree_host_size_t reserved_range_count =
@@ -295,20 +337,34 @@ static iree_status_t loom_x86_loom_check_emit_provider_execute(
       .source_resolver = native_module->source_resolver,
   };
   IREE_ASSERT_NE(function_abi, NULL);
-  return loom_x86_loom_check_emit_frame(
-      &frame, function_abi, &module_abi, &request->result->actual_output,
+  loom_x86_function_t function;
+  bool accepted = false;
+  IREE_RETURN_IF_ERROR(loom_x86_function_prepare(
+      &frame, function_abi, &module_abi,
       (iree_diagnostic_emitter_t){
           .fn = loom_check_diagnostic_emitter_capture_emit,
           .user_data = &capture,
       },
-      request->case_arena);
+      request->case_arena, &accepted, &function));
+  if (!accepted) {
+    return iree_ok_status();
+  }
+  if (iree_string_view_equal(request->target_name,
+                             IREE_SV("x86-native-bytes"))) {
+    return loom_x86_loom_check_emit_native_bytes(
+        &function, &module_abi, &request->result->actual_output,
+        request->case_arena);
+  }
+  return loom_x86_loom_check_format_frame(&function,
+                                          &request->result->actual_output);
 }
 
 static iree_status_t loom_x86_loom_check_emit_provider_append_names(
     const loom_check_emit_provider_t* provider,
     iree_string_builder_t* builder) {
   (void)provider;
-  return iree_string_builder_append_cstring(builder, "x86-frame");
+  return iree_string_builder_append_cstring(builder,
+                                            "x86-frame, x86-native-bytes");
 }
 
 const loom_check_emit_provider_t loom_x86_native_loom_check_emit_provider = {

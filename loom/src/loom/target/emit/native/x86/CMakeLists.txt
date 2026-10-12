@@ -212,6 +212,7 @@ loom_cc_library(
     ::abi
     ::function
     iree::base
+    iree::io::stream
     loom::analysis::symbol_facts
     loom::codegen::low::target_binding
     loom::ops::low
@@ -226,6 +227,7 @@ loom_check_test_suite(
     loom_check_file_test
   SRCS
     "test/function.loom-test"
+    "test/unused_abi_inputs.loom-test"
 )
 endif()
 

@@ -256,10 +256,18 @@ static iree_status_t loom_low_allocation_build_entry_moves(
       /*out_input_flags=*/NULL);
 }
 
+// Physical instruction results retain assignments even when their semantic
+// intervals are empty. Boundary transport carries only live values; an empty
+// result remains in its ABI destination and is never read by the caller.
 static const loom_low_allocation_assignment_t*
-loom_low_allocation_call_assignment(
+loom_low_allocation_live_call_assignment(
     const loom_low_allocation_build_state_t* state,
     loom_value_ordinal_t ordinal) {
+  const loom_liveness_interval_t* interval =
+      loom_liveness_interval_for_value_ordinal(&state->liveness, ordinal);
+  if (!interval || interval->start_point == interval->end_point) {
+    return NULL;
+  }
   const uint32_t index =
       state->interval_assignment.assignment_indices_by_value_ordinal[ordinal];
   return index == UINT32_MAX ? NULL
@@ -278,7 +286,7 @@ static iree_host_size_t loom_low_allocation_boundary_unit_count(
   iree_host_size_t units = 0;
   for (uint16_t i = 0; i < count; ++i) {
     const loom_low_allocation_assignment_t* assignment =
-        loom_low_allocation_call_assignment(state, ordinals[i]);
+        loom_low_allocation_live_call_assignment(state, ordinals[i]);
     if (locations[i].location_kind != LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED &&
         assignment) {
       units += assignment->location_count;
@@ -287,7 +295,10 @@ static iree_host_size_t loom_low_allocation_boundary_unit_count(
   return units;
 }
 
-static iree_status_t loom_low_allocation_append_boundary_moves(
+// Keep the status-heavy parallel move builder out of the monolithic allocation
+// driver. Call-free functions never execute this path.
+IREE_ATTRIBUTE_NOINLINE static iree_status_t
+loom_low_allocation_append_boundary_moves(
     loom_low_allocation_build_state_t* state, const loom_op_t* owner_op,
     uint32_t point, const loom_low_allocation_abi_location_t* locations,
     const loom_value_ordinal_t* ordinals, uint16_t count,
@@ -296,7 +307,7 @@ static iree_status_t loom_low_allocation_append_boundary_moves(
   iree_host_size_t raw_count = 0;
   for (uint16_t i = 0; i < count; ++i) {
     const loom_low_allocation_assignment_t* assignment =
-        loom_low_allocation_call_assignment(state, ordinals[i]);
+        loom_low_allocation_live_call_assignment(state, ordinals[i]);
     if (locations[i].location_kind == LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED ||
         !assignment) {
       continue;
