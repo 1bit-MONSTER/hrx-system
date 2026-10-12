@@ -48,3 +48,38 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @f32_fma
   %result = v_fmamk_f32 %b, %c, 1073741824
   return %result
 }
+
+// ====
+
+amdgpu.target<gfx9-4-generic> @target
+
+func.def target(@target) @f32_literal_descriptor_unavailable(%a: f32, %c: f32) -> (f32) {
+  %scale = scalar.constant 2.0 : f32
+  // REMARK@+1: AMDGPU/030 {descriptor_name="amdgpu.v_fma_f32", operand_form="fmamk", source_operand_index="1", literal_role="multiply_rhs", descriptor_set_name="amdgpu.gfx9_4.generic.core", constant_form="exact_f32_literal", decision_key="rejected", reason_key="literal_descriptor_unavailable"}
+  %result = scalar.fmaf %a, %scale, %c : f32
+  func.return %result : f32
+}
+
+// ----
+low.func.def target<amdgpu.gfx9_4.generic.core>(@target) abi(hal_kernel) @f32_literal_descriptor_unavailable(%a: reg<amdgpu.vgpr>, %c: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %scale = v_mov_b32 1073741824
+  %result = v_fma_f32 %a, %scale, %c
+  return %result
+}
+
+// ====
+
+amdgpu.target<gfx9-4-generic> @target
+
+func.def target(@target) @f32_literal_product_flushing(%a: f32, %c: f32) -> (f32) {
+  %scale = scalar.constant 2.0 : f32
+  // REMARK@+1: AMDGPU/030 {descriptor_name="amdgpu.v_fmamk_f32.flush_product", operand_form="fmamk", source_operand_index="1", literal_role="multiply_rhs", descriptor_set_name="amdgpu.gfx9_4.generic.core", constant_form="exact_f32_literal", decision_key="selected", reason_key="literal_descriptor_selected"}
+  %result = scalar.fmaf<afn> %a, %scale, %c : f32
+  func.return %result : f32
+}
+
+// ----
+low.func.def target<amdgpu.gfx9_4.generic.core>(@target) abi(hal_kernel) @f32_literal_product_flushing(%a: reg<amdgpu.vgpr>, %c: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %result = v_fmamk_f32 %a, %c, 1073741824
+  return %result
+}

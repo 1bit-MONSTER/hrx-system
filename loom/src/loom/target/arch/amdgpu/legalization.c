@@ -22,6 +22,7 @@
 #include "loom/ops/vector/ops.h"
 #include "loom/ops/view/ops.h"
 #include "loom/target/arch/amdgpu/lower/atomic_ordering.h"
+#include "loom/target/arch/amdgpu/lower/descriptor_ref.h"
 #include "loom/target/arch/amdgpu/lower/encoding/vector_conversion.h"
 #include "loom/target/arch/amdgpu/lower/kinds.h"
 #include "loom/target/arch/amdgpu/lower/memory.h"
@@ -77,15 +78,6 @@ static bool loom_amdgpu_match_narrow_float_to_i64(
   }
   return loom_type_element_type(loom_module_value_type(
              context->module, loom_op_results(op)[0])) == LOOM_SCALAR_TYPE_I64;
-}
-
-static bool loom_amdgpu_legalizer_has_descriptor(
-    const loom_target_legalization_context_t* context,
-    iree_string_view_t descriptor_key) {
-  return context->descriptor_set != NULL &&
-         loom_low_descriptor_set_lookup_descriptor(context->descriptor_set,
-                                                   descriptor_key) !=
-             LOOM_LOW_DESCRIPTOR_ORDINAL_NONE;
 }
 
 static bool loom_amdgpu_facts_are_positive_u32_power_of_two(
@@ -147,8 +139,9 @@ static bool loom_amdgpu_match_scalar_multiply_add(
       context->fact_table, loom_scalar_muli_rhs(match.multiply_op));
   if ((loom_amdgpu_facts_are_positive_u32_power_of_two(lhs_facts) ||
        loom_amdgpu_facts_are_positive_u32_power_of_two(rhs_facts)) &&
-      loom_amdgpu_legalizer_has_descriptor(
-          context, IREE_SV("amdgpu.v_lshl_add_u32.shift_imm"))) {
+      loom_amdgpu_descriptor_set_has_ref(
+          context->descriptor_set,
+          LOOM_AMDGPU_DESCRIPTOR_REF_V_LSHL_ADD_U32_SHIFT_IMM)) {
     return true;
   }
 
@@ -157,11 +150,13 @@ static bool loom_amdgpu_match_scalar_multiply_add(
     return false;
   }
   return (loom_amdgpu_facts_are_inline_u24(lhs_facts) &&
-          loom_amdgpu_legalizer_has_descriptor(
-              context, IREE_SV("amdgpu.v_mad_u32_u24.src0_inline"))) ||
+          loom_amdgpu_descriptor_set_has_ref(
+              context->descriptor_set,
+              LOOM_AMDGPU_DESCRIPTOR_REF_V_MAD_U32_U24_SRC0_INLINE)) ||
          (loom_amdgpu_facts_are_inline_u24(rhs_facts) &&
-          loom_amdgpu_legalizer_has_descriptor(
-              context, IREE_SV("amdgpu.v_mad_u32_u24.src1_inline")));
+          loom_amdgpu_descriptor_set_has_ref(
+              context->descriptor_set,
+              LOOM_AMDGPU_DESCRIPTOR_REF_V_MAD_U32_U24_SRC1_INLINE));
 }
 
 static iree_status_t loom_amdgpu_legalize_scalar_multiply_add(

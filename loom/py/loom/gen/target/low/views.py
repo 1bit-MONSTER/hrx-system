@@ -25,6 +25,7 @@ from loom.target.low_descriptors import (
     RegClass,
     Resource,
     ScheduleClass,
+    descriptor_stable_id,
 )
 
 
@@ -32,14 +33,9 @@ def _descriptor_refs_for_ordinals(
     descriptors: Sequence[Descriptor],
     descriptor_ordinals: Sequence[int],
     uses_storage_ordinals: bool,
-) -> list[tuple[str, int]]:
-    return sorted(
-        (
-            descriptors[storage_ordinal].key,
-            storage_ordinal if uses_storage_ordinals else view_ordinal,
-        )
-        for view_ordinal, storage_ordinal in enumerate(descriptor_ordinals)
-    )
+) -> list[int]:
+    ordered = sorted(enumerate(descriptor_ordinals), key=lambda item: descriptor_stable_id(descriptors[item[1]].key))
+    return [storage_ordinal if uses_storage_ordinals else view_ordinal for view_ordinal, storage_ordinal in ordered]
 
 
 def _descriptor_membership_words(

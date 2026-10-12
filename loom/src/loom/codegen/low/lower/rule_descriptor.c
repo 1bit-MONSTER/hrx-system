@@ -71,10 +71,9 @@ iree_status_t loom_low_lower_rule_descriptor_cache_resolve(
   // descriptor ordinals plus one.
   uint32_t ordinal = ordinals[descriptor_ref];
   if (ordinal == 0) {
-    const iree_string_view_t key = loom_low_lower_rule_set_string(
-        rule_set, rule_set->descriptor_refs[descriptor_ref].key_string_ref);
-    const uint32_t resolved =
-        loom_low_descriptor_set_lookup_descriptor(cache->descriptor_set, key);
+    const uint32_t resolved = loom_low_descriptor_set_lookup_descriptor_by_id(
+        cache->descriptor_set,
+        rule_set->descriptor_refs[descriptor_ref].stable_id);
     ordinal = resolved == LOOM_LOW_DESCRIPTOR_ORDINAL_NONE ? UINT32_MAX
                                                            : resolved + 1;
     ordinals[descriptor_ref] = ordinal;

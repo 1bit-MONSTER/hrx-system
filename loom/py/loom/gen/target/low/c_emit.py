@@ -1023,32 +1023,20 @@ def emit_source_for_views(
                     for source_ordinal, alternative_ordinal in view.schedule_alternative_rows
                 ],
             )
-    storage_descriptor_ref_table_symbol = view_array_emitter.append_struct_array(
-        "loom_low_descriptor_ref_t",
+    storage_descriptor_ref_table_symbol = view_array_emitter.append_value_array(
+        "uint32_t",
         f"k{spec.c_table_prefix}DescriptorRefs",
-        [
-            [
-                f".key_string_ref = {pool.ref(f'descriptor_{descriptor_key}')},",
-                f".descriptor_ordinal = {descriptor_ordinal},",
-            ]
-            for descriptor_key, descriptor_ordinal in compiled.descriptor_refs
-        ],
+        [str(ordinal) for ordinal in compiled.descriptor_refs],
     )
     descriptor_ref_table_symbols: dict[str, str] = {}
     for view in views:
         if view.uses_storage_descriptor_ref_tables:
             descriptor_ref_table_symbols[view.spec.key] = storage_descriptor_ref_table_symbol
         else:
-            descriptor_ref_table_symbols[view.spec.key] = view_array_emitter.append_struct_array(
-                "loom_low_descriptor_ref_t",
+            descriptor_ref_table_symbols[view.spec.key] = view_array_emitter.append_value_array(
+                "uint32_t",
                 f"k{view.spec.c_table_prefix}DescriptorRefs",
-                [
-                    [
-                        f".key_string_ref = {pool.ref(f'descriptor_{descriptor_key}')},",
-                        f".descriptor_ordinal = {descriptor_ordinal},",
-                    ]
-                    for descriptor_key, descriptor_ordinal in view.descriptor_refs
-                ],
+                [str(ordinal) for ordinal in view.descriptor_refs],
             )
     _emit_array(
         lines,

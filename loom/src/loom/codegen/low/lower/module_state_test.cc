@@ -11,6 +11,7 @@
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/codegen/low/lower/rule_descriptor.h"
+#include "loom/codegen/low/lower/rule_match.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/global/ops.h"
@@ -50,8 +51,7 @@ TEST_F(LowLowerModuleStateTest, SharesDescriptorBindingsAcrossFunctions) {
   loom_low_lower_rule_descriptor_ref_t refs[2] = {};
   loom_low_lower_rule_set_t rules[2] = {};
   for (uint16_t i = 0; i < 2; ++i) {
-    refs[i].key_string_ref = (uint32_t)keys[i].size << 24;
-    rules[i].string_pool = {keys[i].data, (uint32_t)keys[i].size};
+    refs[i].stable_id = loom_low_descriptor_stable_id_from_key(keys[i]);
     rules[i].descriptor_refs = &refs[i];
     rules[i].descriptor_ref_count = 1;
   }
@@ -69,6 +69,14 @@ TEST_F(LowLowerModuleStateTest, SharesDescriptorBindingsAcrossFunctions) {
         const loom_low_descriptor_t* descriptor = nullptr;
         IREE_ASSERT_OK(loom_low_lower_rule_descriptor_cache_resolve(
             caches[list][set], index, 0, &descriptor));
+        const loom_low_lower_rule_match_context_t match_context = {
+            .descriptor_set = sets[set],
+        };
+        const loom_low_descriptor_t* uncached_descriptor = nullptr;
+        IREE_ASSERT_OK(loom_low_lower_rule_resolve_descriptor_ref(
+            &match_context, lists[list].values[index], 0,
+            &uncached_descriptor));
+        EXPECT_EQ(uncached_descriptor, descriptor);
         if (index == (list ^ set)) {
           ASSERT_NE(descriptor, nullptr);
           EXPECT_TRUE(
@@ -78,6 +86,10 @@ TEST_F(LowLowerModuleStateTest, SharesDescriptorBindingsAcrossFunctions) {
         } else {
           EXPECT_EQ(descriptor, nullptr);
         }
+        IREE_ASSERT_OK(loom_low_lower_rule_resolve_descriptor_ref(
+            &match_context, lists[list].values[index],
+            LOOM_LOW_LOWER_DESCRIPTOR_REF_NONE, &uncached_descriptor));
+        EXPECT_EQ(uncached_descriptor, nullptr);
       }
     }
   }
