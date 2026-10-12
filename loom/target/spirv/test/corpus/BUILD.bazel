@@ -96,6 +96,7 @@ _ADAPTER_ONLY_SCENARIOS = [
     "numeric/predicate/vector_logic.loom",
     "numeric/vector/address_conversion.loom",
     "numeric/vector/constants.loom",
+    "numeric/vector/dynamic_windows.loom",
     "numeric/vector/f32.loom",
     "numeric/vector/floating.loom",
     "numeric/vector/float_comparison.loom",

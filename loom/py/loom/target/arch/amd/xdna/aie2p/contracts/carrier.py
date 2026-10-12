@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Shared AIE2P X-carrier assembly helpers."""
+"""Shared AIE2P X-carrier shapes and assembly helpers."""
 
 from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
     AIE2P_CORE_DESCRIPTOR_SET,
@@ -17,6 +17,24 @@ from loom.target.contracts import (
     ValueRef,
     ValueTypeProject,
     descriptor_by_key,
+)
+
+# Ordinary vectors retain one or two full X carriers independently of their
+# logical extent. F32 excludes vector<32xf32>, whose accumulator contract uses
+# a distinct physical representation.
+BITCAST_VECTOR_CARRIER_SPECS = (
+    (("i8", "f8E4M3", "f8E5M2"), 1, 128),
+    (("i16", "f16", "bf16"), 2, 64),
+    (("i32",), 4, 32),
+    (("f32",), 4, 31),
+    (("i64", "f64"), 8, 16),
+)
+
+# Index-shaped values use the same 32-bit X representation as i32 values but
+# are excluded from source-level bitcasts.
+VECTOR_CARRIER_SPECS = (
+    *BITCAST_VECTOR_CARRIER_SPECS,
+    (("index", "offset"), 4, 32),
 )
 
 

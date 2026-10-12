@@ -165,6 +165,40 @@ def predicate_select_emits(
     )
 
 
+def predicate_low32_select_emits(
+    condition: ValueRef,
+    true_value: ValueRef,
+    false_value: ValueRef,
+    result: ValueRef,
+    *,
+    temporary_prefix: str = "",
+) -> tuple[EmitDescriptorOp, ...]:
+    """Selects one low predicate word without consuming either input."""
+
+    difference = ValueRef.temporary(f"{temporary_prefix}difference")
+    changes = ValueRef.temporary(f"{temporary_prefix}changes")
+    return (
+        _op_emit(
+            _descriptor("amd.xdna.aie2p.predicate.xor.low32"),
+            operands={"s0": false_value, "s1": true_value},
+            results={"d0": difference},
+            result_types={"d0": DescriptorResultType()},
+        ),
+        _op_emit(
+            _descriptor("amd.xdna.aie2p.predicate.and.low32.rhs_tied"),
+            operands={"s0": condition, "s1": difference},
+            results={"d0": changes},
+            result_types={"d0": DescriptorResultType()},
+        ),
+        _op_emit(
+            _descriptor("amd.xdna.aie2p.predicate.xor.low32.rhs_tied"),
+            operands={"s0": false_value, "s1": changes},
+            results={"d0": result},
+            result_types={"d0": DescriptorResultType()},
+        ),
+    )
+
+
 def x_select_mask_emit(
     condition: ValueRef,
     result: ValueRef,

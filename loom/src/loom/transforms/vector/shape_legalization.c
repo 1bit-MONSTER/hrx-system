@@ -174,8 +174,7 @@ static iree_status_t loom_vector_static_shape_extract_rewrite(
       !loom_type_static_element_count(source_type, &source_count) ||
       source_count == 0 || source_count > LOOM_DIM_MAX_STATIC_SIZE ||
       (loom_type_is_vector(result_type) &&
-       (dynamic_indices.count != 0 ||
-        !loom_type_static_element_count(result_type, &result_count) ||
+       (!loom_type_static_element_count(result_type, &result_count) ||
         result_count == 0 || result_count > source_count))) {
     return iree_ok_status();
   }
@@ -191,6 +190,17 @@ static iree_status_t loom_vector_static_shape_extract_rewrite(
       op->location, &dynamic_prefix_ordinal, &static_prefix_ordinal));
 
   loom_value_id_t dynamic_offset = dynamic_prefix_ordinal;
+  if (dynamic_offset != LOOM_VALUE_ID_INVALID && result_count != 1) {
+    loom_op_t* scale_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_index_constant_build(
+        &rewriter->builder, loom_attr_i64((int64_t)result_count),
+        loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), op->location, &scale_op));
+    loom_op_t* multiply_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_index_mul_build(
+        &rewriter->builder, dynamic_offset,
+        loom_index_constant_result(scale_op), op->location, &multiply_op));
+    dynamic_offset = loom_index_mul_result(multiply_op);
+  }
   int64_t static_offset = static_prefix_ordinal * (int64_t)result_count;
 
   loom_value_id_t flat_source = LOOM_VALUE_ID_INVALID;
