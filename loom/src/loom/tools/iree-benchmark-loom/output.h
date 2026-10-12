@@ -136,10 +136,10 @@ typedef struct iree_benchmark_loom_file_provider_t {
   iree_benchmark_loom_artifact_bundle_t* artifact_bundle;
   // Borrowed directory containing the input module for relative fixture reads.
   iree_string_view_t input_dir;
-  // Borrowed view into |output_dir_storage|.
-  iree_string_view_t output_dir;
-  // Owned directory receiving relative file outputs.
-  char* output_dir_storage;
+  // Borrowed view into |output_root_storage|.
+  iree_string_view_t output_root;
+  // Owned root for relative file outputs.
+  char* output_root_storage;
 } iree_benchmark_loom_file_provider_t;
 
 // Duplicates a string view into NUL-terminated storage owned by |allocator|.
@@ -150,20 +150,6 @@ iree_status_t iree_benchmark_loom_dup_string_view(iree_string_view_t value,
 // Appends |value| with path-unsafe characters rewritten for artifact leaves.
 iree_status_t iree_benchmark_loom_append_sanitized_path_component(
     iree_string_view_t value, iree_string_builder_t* builder);
-
-// Joins two filesystem path components into allocator-owned storage.
-iree_status_t iree_benchmark_loom_join_path(iree_string_view_t lhs,
-                                            iree_string_view_t rhs,
-                                            iree_allocator_t allocator,
-                                            char** out_path);
-
-// Creates |path| and any missing parent directories.
-iree_status_t iree_benchmark_loom_create_directory_if_needed(
-    iree_string_view_t path, iree_allocator_t allocator);
-
-// Creates the parent directory for |path| when it is non-empty.
-iree_status_t iree_benchmark_loom_create_parent_directory(
-    iree_string_view_t path, iree_allocator_t allocator);
 
 // Records a file observed by the run artifact bundle.
 iree_status_t iree_benchmark_loom_artifact_bundle_record_file(
@@ -216,8 +202,8 @@ iree_status_t iree_benchmark_loom_append_effective_profile_artifacts_dir(
 // Initializes a file provider used by check.file.read/write materialization.
 iree_status_t iree_benchmark_loom_file_provider_initialize(
     iree_string_view_t filename, iree_string_view_t run_id,
-    iree_string_view_t explicit_output_dir,
-    iree_string_view_t default_output_dir,
+    iree_string_view_t explicit_output_root,
+    iree_string_view_t default_output_root,
     iree_benchmark_loom_artifact_bundle_t* artifact_bundle,
     iree_allocator_t allocator,
     iree_benchmark_loom_file_provider_t* out_provider);

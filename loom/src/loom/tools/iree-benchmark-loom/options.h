@@ -92,8 +92,8 @@ typedef struct iree_benchmark_loom_options_t {
   iree_string_view_t output;
   // Selected result output format.
   iree_benchmark_loom_output_format_t output_format;
-  // Explicit directory receiving check.file.write.* outputs.
-  iree_string_view_t file_output_dir;
+  // Explicit root for check.file.write.* output paths.
+  iree_string_view_t file_output_root;
   // Explicit artifact bundle root directory, or empty when disabled.
   iree_string_view_t artifact_bundle_dir;
   // Artifact bundle policy controlling sidecar artifact classes.

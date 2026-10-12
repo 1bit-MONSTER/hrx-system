@@ -363,7 +363,7 @@ iree_status_t iree_benchmark_loom_run_file(
           benchmark_options->profile_artifacts_dir, &artifact_bundle);
   if (iree_status_is_ok(status)) {
     status = iree_benchmark_loom_file_provider_initialize(
-        filename, run_id, benchmark_options->file_output_dir,
+        filename, run_id, benchmark_options->file_output_root,
         artifact_bundle.file_output_dir, &artifact_bundle, allocator,
         &file_provider);
   }
@@ -373,7 +373,7 @@ iree_status_t iree_benchmark_loom_run_file(
       .results_path = iree_string_view_is_empty(results_output_path)
                           ? IREE_SV("-")
                           : results_output_path,
-      .file_output_dir = file_provider.output_dir,
+      .file_output_dir = file_provider.output_root,
       .profile_artifacts_dir = profile_artifacts_dir,
       .artifact_bundle_dir = artifact_bundle.dir,
       .artifact_bundle_policy = iree_benchmark_loom_artifact_bundle_policy_name(

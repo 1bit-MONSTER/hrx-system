@@ -55,9 +55,21 @@ iree_status_t loom_tooling_file_path_join(iree_string_view_t lhs,
                                           iree_allocator_t allocator,
                                           char** out_path);
 
+// Resolves |path| relative to |base_directory| into allocator-owned
+// NUL-terminated storage. Cross-platform absolute paths are preserved and an
+// empty base leaves relative paths in the working directory.
+iree_status_t loom_tooling_file_path_resolve(iree_string_view_t base_directory,
+                                             iree_string_view_t path,
+                                             iree_allocator_t allocator,
+                                             char** out_path);
+
 // Creates |path| and any missing parent directories.
 iree_status_t loom_tooling_create_directory_if_needed(
     iree_string_view_t path, iree_allocator_t allocator);
+
+// Creates the parent directory for |path| when it is nonempty.
+iree_status_t loom_tooling_create_parent_directory(iree_string_view_t path,
+                                                   iree_allocator_t allocator);
 
 // Reads |path| into |out_contents|, treating empty and "-" paths as stdin.
 iree_status_t loom_tooling_read_input_file(

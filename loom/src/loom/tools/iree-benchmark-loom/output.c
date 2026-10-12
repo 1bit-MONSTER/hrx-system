@@ -10,86 +10,14 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#if defined(IREE_PLATFORM_WINDOWS)
-#include <direct.h>
-#else
-#include <sys/types.h>
-#endif  // defined(IREE_PLATFORM_WINDOWS)
 
 #include "iree/base/internal/path.h"
 #include "iree/io/stdio_stream.h"
 #include "loom/tooling/io/file.h"
 
-static bool iree_benchmark_loom_path_is_absolute(iree_string_view_t path) {
-  if (iree_string_view_is_empty(path)) {
-    return false;
-  }
-  if (path.data[0] == '/' || path.data[0] == '\\') {
-    return true;
-  }
-  if (path.size >= 3 && path.data[1] == ':' &&
-      (path.data[2] == '/' || path.data[2] == '\\')) {
-    const char drive = path.data[0];
-    return (drive >= 'a' && drive <= 'z') || (drive >= 'A' && drive <= 'Z');
-  }
-  return false;
-}
-
-static iree_string_view_t iree_benchmark_loom_path_as_output_relative(
-    iree_string_view_t path) {
-  return iree_string_view_trim(path);
-}
-
 static bool iree_benchmark_loom_is_safe_output_path_char(char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
          (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' || c == '/';
-}
-
-static iree_status_t iree_benchmark_loom_validate_file_output_path(
-    iree_string_view_t path) {
-  if (loom_tooling_file_path_is_stdio(path)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "check.file.write paths must name a file; '-' "
-                            "would conflict with the result output stream");
-  }
-  if (iree_benchmark_loom_path_is_absolute(path)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "check.file.write path '%.*s' must be relative to --file-output-dir",
-        (int)path.size, path.data);
-  }
-
-  iree_string_view_t remaining =
-      iree_benchmark_loom_path_as_output_relative(iree_string_view_trim(path));
-  if (iree_string_view_is_empty(remaining)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "check.file.write path resolves to an empty "
-                            "artifact name");
-  }
-  while (!iree_string_view_is_empty(remaining)) {
-    iree_string_view_t component = iree_string_view_empty();
-    iree_string_view_split(remaining, '/', &component, &remaining);
-    if (iree_string_view_is_empty(component) ||
-        iree_string_view_equal(component, IREE_SV("."))) {
-      continue;
-    }
-    if (iree_string_view_equal(component, IREE_SV(".."))) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "check.file.write path '%.*s' must stay within --file-output-dir",
-          (int)path.size, path.data);
-    }
-    for (iree_host_size_t i = 0; i < component.size; ++i) {
-      if (component.data[i] == '\\') {
-        return iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "check.file.write path '%.*s' must use '/' separators",
-            (int)path.size, path.data);
-      }
-    }
-  }
-  return iree_ok_status();
 }
 
 static uint64_t iree_benchmark_loom_hash_string_view(uint64_t hash,
@@ -120,14 +48,6 @@ iree_status_t iree_benchmark_loom_append_sanitized_path_component(
     IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, "input"));
   }
   return iree_ok_status();
-}
-
-iree_status_t iree_benchmark_loom_join_path(iree_string_view_t lhs,
-                                            iree_string_view_t rhs,
-                                            iree_allocator_t allocator,
-                                            char** out_path) {
-  *out_path = NULL;
-  return iree_file_path_join(lhs, rhs, allocator, out_path);
 }
 
 iree_status_t iree_benchmark_loom_dup_string_view(iree_string_view_t value,
@@ -164,7 +84,7 @@ static iree_string_view_t iree_benchmark_loom_tmp_dir(void) {
   return iree_make_cstring_view(tmp_dir);
 }
 
-static iree_status_t iree_benchmark_loom_make_default_file_output_dir(
+static iree_status_t iree_benchmark_loom_make_default_file_output_root(
     iree_string_view_t filename, iree_string_view_t run_id,
     iree_allocator_t allocator, char** out_path) {
   *out_path = NULL;
@@ -186,13 +106,13 @@ static iree_status_t iree_benchmark_loom_make_default_file_output_dir(
 
   char* root_path = NULL;
   if (iree_status_is_ok(status)) {
-    status = iree_benchmark_loom_join_path(iree_benchmark_loom_tmp_dir(),
-                                           IREE_SV("iree-loom-benchmark"),
-                                           allocator, &root_path);
+    status = loom_tooling_file_path_join(iree_benchmark_loom_tmp_dir(),
+                                         IREE_SV("iree-loom-benchmark"),
+                                         allocator, &root_path);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_benchmark_loom_join_path(iree_make_cstring_view(root_path),
-                                           leaf, allocator, out_path);
+    status = loom_tooling_file_path_join(iree_make_cstring_view(root_path),
+                                         leaf, allocator, out_path);
   }
   iree_allocator_free(allocator, root_path);
   iree_string_builder_deinitialize(&leaf_builder);
@@ -219,7 +139,6 @@ iree_status_t iree_benchmark_loom_artifact_bundle_record_file(
   if (bundle == NULL || !bundle->enabled) {
     return iree_ok_status();
   }
-  path = iree_string_view_trim(path);
   if (iree_string_view_is_empty(path) ||
       loom_tooling_file_path_is_stdio(path) ||
       iree_benchmark_loom_artifact_bundle_has_file(bundle, kind, path)) {
@@ -266,8 +185,8 @@ iree_host_size_t iree_benchmark_loom_artifact_bundle_file_count(
 
 iree_status_t iree_benchmark_loom_file_provider_initialize(
     iree_string_view_t filename, iree_string_view_t run_id,
-    iree_string_view_t explicit_output_dir,
-    iree_string_view_t default_output_dir,
+    iree_string_view_t explicit_output_root,
+    iree_string_view_t default_output_root,
     iree_benchmark_loom_artifact_bundle_t* artifact_bundle,
     iree_allocator_t allocator,
     iree_benchmark_loom_file_provider_t* out_provider) {
@@ -278,19 +197,18 @@ iree_status_t iree_benchmark_loom_file_provider_initialize(
     out_provider->input_dir = iree_file_path_dirname(filename);
   }
 
-  iree_string_view_t output_dir = iree_string_view_trim(explicit_output_dir);
-  if (!iree_string_view_is_empty(output_dir)) {
+  if (!iree_string_view_is_empty(explicit_output_root)) {
     IREE_RETURN_IF_ERROR(iree_benchmark_loom_dup_string_view(
-        output_dir, allocator, &out_provider->output_dir_storage));
-  } else if (!iree_string_view_is_empty(default_output_dir)) {
+        explicit_output_root, allocator, &out_provider->output_root_storage));
+  } else if (!iree_string_view_is_empty(default_output_root)) {
     IREE_RETURN_IF_ERROR(iree_benchmark_loom_dup_string_view(
-        default_output_dir, allocator, &out_provider->output_dir_storage));
+        default_output_root, allocator, &out_provider->output_root_storage));
   } else {
-    IREE_RETURN_IF_ERROR(iree_benchmark_loom_make_default_file_output_dir(
-        filename, run_id, allocator, &out_provider->output_dir_storage));
+    IREE_RETURN_IF_ERROR(iree_benchmark_loom_make_default_file_output_root(
+        filename, run_id, allocator, &out_provider->output_root_storage));
   }
-  out_provider->output_dir =
-      iree_make_cstring_view(out_provider->output_dir_storage);
+  out_provider->output_root =
+      iree_make_cstring_view(out_provider->output_root_storage);
   return iree_ok_status();
 }
 
@@ -299,100 +217,8 @@ void iree_benchmark_loom_file_provider_deinitialize(
   if (provider == NULL) {
     return;
   }
-  iree_allocator_free(provider->host_allocator, provider->output_dir_storage);
+  iree_allocator_free(provider->host_allocator, provider->output_root_storage);
   memset(provider, 0, sizeof(*provider));
-}
-
-static iree_status_t iree_benchmark_loom_resolve_file_read_path(
-    const iree_benchmark_loom_file_provider_t* provider,
-    iree_string_view_t path, char** out_path) {
-  *out_path = NULL;
-  if (loom_tooling_file_path_is_stdio(path)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "check.file.read paths must name a file");
-  }
-  if (iree_benchmark_loom_path_is_absolute(path) ||
-      iree_string_view_is_empty(provider->input_dir)) {
-    return iree_benchmark_loom_dup_string_view(path, provider->host_allocator,
-                                               out_path);
-  }
-  return iree_benchmark_loom_join_path(provider->input_dir, path,
-                                       provider->host_allocator, out_path);
-}
-
-static iree_status_t iree_benchmark_loom_resolve_file_write_path(
-    const iree_benchmark_loom_file_provider_t* provider,
-    iree_string_view_t path, char** out_path) {
-  *out_path = NULL;
-  IREE_RETURN_IF_ERROR(iree_benchmark_loom_validate_file_output_path(path));
-  iree_string_view_t relative_path =
-      iree_benchmark_loom_path_as_output_relative(iree_string_view_trim(path));
-  return iree_benchmark_loom_join_path(provider->output_dir, relative_path,
-                                       provider->host_allocator, out_path);
-}
-
-iree_status_t iree_benchmark_loom_create_directory_if_needed(
-    iree_string_view_t path, iree_allocator_t allocator) {
-  path = iree_string_view_trim(path);
-  if (iree_string_view_is_empty(path)) {
-    return iree_ok_status();
-  }
-
-  char* storage = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_benchmark_loom_dup_string_view(path, allocator, &storage));
-  iree_host_size_t length = strlen(storage);
-  while (length > 1 && storage[length - 1] == '/') {
-    storage[--length] = '\0';
-  }
-  if (length == 1 && storage[0] == '/') {
-    iree_allocator_free(allocator, storage);
-    return iree_ok_status();
-  }
-
-  iree_status_t status = iree_ok_status();
-  for (iree_host_size_t i = 1; i < length && iree_status_is_ok(status); ++i) {
-    if (storage[i] != '/') {
-      continue;
-    }
-    storage[i] = '\0';
-    if (!(i == 2 && storage[1] == ':') && strlen(storage) != 0) {
-#if defined(IREE_PLATFORM_WINDOWS)
-      const int result = _mkdir(storage);
-#else
-      const int result = mkdir(storage, 0700);
-#endif  // defined(IREE_PLATFORM_WINDOWS)
-      if (result != 0 && errno != EEXIST) {
-        status = iree_make_status(IREE_STATUS_UNAVAILABLE,
-                                  "failed to create directory `%s`: %s",
-                                  storage, strerror(errno));
-      }
-    }
-    storage[i] = '/';
-  }
-  if (iree_status_is_ok(status)) {
-#if defined(IREE_PLATFORM_WINDOWS)
-    const int result = _mkdir(storage);
-#else
-    const int result = mkdir(storage, 0700);
-#endif  // defined(IREE_PLATFORM_WINDOWS)
-    if (result != 0 && errno != EEXIST) {
-      status = iree_make_status(IREE_STATUS_UNAVAILABLE,
-                                "failed to create directory `%s`: %s", storage,
-                                strerror(errno));
-    }
-  }
-  iree_allocator_free(allocator, storage);
-  return status;
-}
-
-iree_status_t iree_benchmark_loom_create_parent_directory(
-    iree_string_view_t path, iree_allocator_t allocator) {
-  iree_string_view_t parent = iree_file_path_dirname(path);
-  if (iree_string_view_is_empty(parent)) {
-    return iree_ok_status();
-  }
-  return iree_benchmark_loom_create_directory_if_needed(parent, allocator);
 }
 
 iree_status_t iree_benchmark_loom_jsonl_sink_initialize(
@@ -408,8 +234,7 @@ iree_status_t iree_benchmark_loom_jsonl_sink_initialize(
     return iree_ok_status();
   }
 
-  iree_status_t status =
-      iree_benchmark_loom_create_parent_directory(path, allocator);
+  iree_status_t status = loom_tooling_create_parent_directory(path, allocator);
   if (iree_status_is_ok(status)) {
     status = iree_io_stdio_file_open(path, "wb", allocator, &out_sink->file);
   }
@@ -491,7 +316,7 @@ iree_status_t iree_benchmark_loom_jsonl_sink_end(
 static iree_status_t iree_benchmark_loom_join_bundle_path(
     iree_string_view_t bundle_dir, iree_string_view_t child,
     iree_allocator_t allocator, char** out_path) {
-  return iree_benchmark_loom_join_path(bundle_dir, child, allocator, out_path);
+  return loom_tooling_file_path_join(bundle_dir, child, allocator, out_path);
 }
 
 iree_status_t iree_benchmark_loom_artifact_bundle_initialize(
@@ -522,8 +347,8 @@ iree_status_t iree_benchmark_loom_artifact_bundle_initialize(
       bundle_dir, allocator, &out_bundle->dir_storage);
   if (iree_status_is_ok(status)) {
     out_bundle->dir = iree_make_cstring_view(out_bundle->dir_storage);
-    status = iree_benchmark_loom_create_directory_if_needed(out_bundle->dir,
-                                                            allocator);
+    status =
+        loom_tooling_create_directory_if_needed(out_bundle->dir, allocator);
   }
   if (iree_status_is_ok(status)) {
     iree_string_view_t results_leaf = IREE_SV("results.json");
@@ -696,17 +521,23 @@ iree_status_t iree_benchmark_loom_open_file_for_read(
   iree_benchmark_loom_file_provider_t* provider =
       (iree_benchmark_loom_file_provider_t*)user_data;
   char* resolved_path = NULL;
-  IREE_RETURN_IF_ERROR(iree_benchmark_loom_resolve_file_read_path(
-      provider, path, &resolved_path));
+  IREE_RETURN_IF_ERROR(loom_tooling_file_path_resolve(
+      provider->input_dir, path, provider->host_allocator, &resolved_path));
+  iree_io_stream_t* stream = NULL;
   iree_status_t status = iree_io_stdio_stream_open(
       IREE_IO_STDIO_STREAM_MODE_READ, iree_make_cstring_view(resolved_path),
-      provider->host_allocator, out_stream);
+      provider->host_allocator, &stream);
   if (iree_status_is_ok(status)) {
     status = iree_benchmark_loom_artifact_bundle_record_file(
         provider->artifact_bundle, IREE_BENCHMARK_LOOM_BUNDLE_FILE_FIXTURE_READ,
         iree_make_cstring_view(resolved_path));
   }
   iree_allocator_free(provider->host_allocator, resolved_path);
+  if (iree_status_is_ok(status)) {
+    *out_stream = stream;
+  } else {
+    iree_io_stream_release(stream);
+  }
   return status;
 }
 
@@ -716,15 +547,16 @@ iree_status_t iree_benchmark_loom_open_file_for_write(
   iree_benchmark_loom_file_provider_t* provider =
       (iree_benchmark_loom_file_provider_t*)user_data;
   char* resolved_path = NULL;
-  IREE_RETURN_IF_ERROR(iree_benchmark_loom_resolve_file_write_path(
-      provider, path, &resolved_path));
+  IREE_RETURN_IF_ERROR(loom_tooling_file_path_join(
+      provider->output_root, path, provider->host_allocator, &resolved_path));
   iree_string_view_t resolved_path_view = iree_make_cstring_view(resolved_path);
-  iree_status_t status = iree_benchmark_loom_create_parent_directory(
+  iree_io_stream_t* stream = NULL;
+  iree_status_t status = loom_tooling_create_parent_directory(
       resolved_path_view, provider->host_allocator);
   if (iree_status_is_ok(status)) {
     status = iree_io_stdio_stream_open(
         IREE_IO_STDIO_STREAM_MODE_WRITE | IREE_IO_STDIO_STREAM_MODE_DISCARD,
-        resolved_path_view, provider->host_allocator, out_stream);
+        resolved_path_view, provider->host_allocator, &stream);
   }
   if (iree_status_is_ok(status)) {
     status = iree_benchmark_loom_artifact_bundle_record_file(
@@ -732,5 +564,10 @@ iree_status_t iree_benchmark_loom_open_file_for_write(
         resolved_path_view);
   }
   iree_allocator_free(provider->host_allocator, resolved_path);
+  if (iree_status_is_ok(status)) {
+    *out_stream = stream;
+  } else {
+    iree_io_stream_release(stream);
+  }
   return status;
 }

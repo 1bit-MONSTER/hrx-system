@@ -274,6 +274,9 @@ iree_status_t loom_check_file_read_npy_build(
     loom_type_t result_type,
     loom_location_id_t location,
     loom_op_t** out_op);
+iree_status_t loom_check_file_path_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
 
 // LOOM_OP_CHECK_FILE_WRITE_NPY: Writes a typed value to an NPY file according to a static output policy.
 // check.file.write.npy value(%actual) path("outputs/layer_norm.actual.npy") mode(on_failure) : tensor<1024xf32>
@@ -293,6 +296,9 @@ iree_status_t loom_check_file_write_npy_build(
     loom_optional uint8_t mode,
     loom_location_id_t location,
     loom_op_t** out_op);
+iree_status_t loom_check_file_path_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
 
 // LOOM_OP_CHECK_ORACLE_CALL: Calls a pluggable oracle provider for expected values.
 // %expected = check.oracle.call<reference.scalar> callee(@gemv_f32) inputs(%lhs, %rhs) : (tensor<[%m]x[%n]xf32>, tensor<[%n]xf32>) -> (tensor<[%m]xf32>)
