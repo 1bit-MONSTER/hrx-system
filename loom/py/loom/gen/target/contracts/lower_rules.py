@@ -497,13 +497,21 @@ def _generate_source(
         diagnostic_rows.append(fields)
 
     unique_diagnostic_params, diagnostic_param_refs = _intern_diagnostic_params(diagnostic_param_rows)
-    diagnostic_params_name = f"k{c_table_prefix}DiagnosticParams"
+    diagnostic_param_kinds_name = f"k{c_table_prefix}DiagnosticParamKinds"
+    lines.extend(
+        lower_rule_rows.emit_optional_value_array(
+            diagnostic_param_kinds_name,
+            "loom_low_lower_diagnostic_param_kind_t",
+            [lower_rule_spelling.DIAGNOSTIC_PARAM_KIND_C_NAMES[row.kind] for row, _ in unique_diagnostic_params],
+        )
+    )
+    diagnostic_param_values_name = f"k{c_table_prefix}DiagnosticParamValues"
     lines.extend(
         lower_rule_rows.emit_optional_array(
-            diagnostic_params_name,
-            "loom_low_lower_diagnostic_param_t",
+            diagnostic_param_values_name,
+            "loom_low_lower_diagnostic_value_t",
             [
-                lower_rule_rows.diagnostic_param_row(
+                lower_rule_rows.diagnostic_value_row(
                     row,
                     string_value_ref=(string_pool.ref(_diagnostic_param_string_label(source_index)) if row.kind == DiagnosticParamKind.STRING_LITERAL else None),
                 )
@@ -705,7 +713,8 @@ def _generate_source(
             descriptor_ref_keys=descriptor_ref_keys,
             descriptor_refs_name=descriptor_refs_name,
             diagnostic_param_rows=unique_diagnostic_params,
-            diagnostic_params_name=diagnostic_params_name,
+            diagnostic_param_kinds_name=diagnostic_param_kinds_name,
+            diagnostic_param_values_name=diagnostic_param_values_name,
             diagnostic_param_refs=diagnostic_param_refs,
             diagnostic_param_refs_name=diagnostic_param_refs_name,
             guard_payloads=guard_payloads,

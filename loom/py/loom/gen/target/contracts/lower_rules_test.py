@@ -19,8 +19,8 @@ from loom.gen.target.contracts.lower_rule_rows import (
     attr_copy_row,
     descriptor_ref_keys,
     diagnostic_has_implicit_target_context,
-    diagnostic_param_row,
     diagnostic_stored_params,
+    diagnostic_value_row,
     emit_row,
     guard_payload_row,
     guard_row,
@@ -1754,8 +1754,8 @@ def test_attr_copy_row_emits_static_dimension_projection_payload() -> None:
     assert ".literal_i64 = (-INT64_C(1))" in mask_fields
 
 
-def test_diagnostic_param_row_emits_portable_signed_i64_literal() -> None:
-    fields = diagnostic_param_row(
+def test_diagnostic_value_row_emits_portable_signed_i64_literal() -> None:
+    fields = diagnostic_value_row(
         LowerDiagnosticParam(
             name="value",
             kind=DiagnosticParamKind.I64_LITERAL,
@@ -1763,7 +1763,26 @@ def test_diagnostic_param_row_emits_portable_signed_i64_literal() -> None:
         )
     )
 
-    assert ".value = {.i64_value = (-INT64_C(2147483648))}" in fields
+    assert fields == [".i64_value = (-INT64_C(2147483648))"]
+
+
+def test_diagnostic_value_rows_preserve_native_payloads() -> None:
+    cases = (
+        (LowerDiagnosticParam("minimum", DiagnosticParamKind.I64_LITERAL, i64_value=-(1 << 63)), ".i64_value = INT64_MIN"),
+        (LowerDiagnosticParam("maximum", DiagnosticParamKind.I64_LITERAL, i64_value=(1 << 63) - 1), ".i64_value = INT64_C(9223372036854775807)"),
+        (LowerDiagnosticParam("unsigned", DiagnosticParamKind.U64_LITERAL, u64_value=(1 << 64) - 1), ".u64_value = UINT64_C(18446744073709551615)"),
+        (LowerDiagnosticParam("count", DiagnosticParamKind.U32_LITERAL, u32_value=(1 << 32) - 1), ".u32_value = 4294967295"),
+        (LowerDiagnosticParam("enabled", DiagnosticParamKind.BOOL_LITERAL, bool_value=True), ".bool_value = true"),
+        (LowerDiagnosticParam("disabled", DiagnosticParamKind.BOOL_LITERAL), ".bool_value = false"),
+        (LowerDiagnosticParam("value_type", DiagnosticParamKind.VALUE_TYPE, value_ref_index=7), ".value_ref_index = 7"),
+        (LowerDiagnosticParam("subject", DiagnosticParamKind.STRING_LITERAL, string_value="subject"), ".string_value_ref = TEST_STRING_SUBJECT"),
+    )
+    payload_kinds = set()
+    for row, expected in cases:
+        assert diagnostic_value_row(row, string_value_ref="TEST_STRING_SUBJECT") == [expected], row.kind
+        payload_kinds.add(row.kind)
+    for kind in set(DiagnosticParamKind) - payload_kinds:
+        assert diagnostic_value_row(LowerDiagnosticParam("projection", kind)) == []
 
 
 def test_generated_tables_intern_guards_and_diagnostic_params() -> None:
@@ -1928,6 +1947,27 @@ def test_generate_lower_rule_set_elides_authored_target_context_rows() -> None:
     assert "LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_CONFIG_KEY" not in generated.source
     assert "LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_FUNCTION_NAME" not in generated.source
     assert "LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_SOURCE_OP_NAME" not in generated.source
+    kinds = generated.source.split("DiagnosticParamKinds[] = {\n", 1)[1].split("\n};", 1)[0]
+    values = generated.source.split("DiagnosticParamValues[] = {\n", 1)[1].split("\n};", 1)[0]
+    assert kinds.splitlines() == [
+        "    LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,",
+        "    LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_VALUE_TYPE,",
+        "    LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_STRING_LITERAL,",
+    ]
+    assert values.count(".string_value_ref = ") == 2
+    assert values.count(".value_ref_index = ") == 1
+    assert ".diagnostic_params = {.kinds = " in generated.source
+    assert "DiagnosticParamKinds, .values = " in generated.source
+    assert "DiagnosticParamValues, .count = IREE_ARRAYSIZE(" in generated.source
+    assert "DiagnosticParamKinds)}" in generated.source
+
+
+def test_generate_empty_lower_rules_omit_diagnostic_columns() -> None:
+    generated = generate_lower_rule_set(_c_shape_contract(), dialect_ops={"scalar": ALL_SCALAR_OPS})
+
+    assert "DiagnosticParamKinds" not in generated.source
+    assert "DiagnosticParamValues" not in generated.source
+    assert ".diagnostic_params = " not in generated.source
 
 
 def test_generate_lower_rule_set_emits_static_element_count_type_pattern() -> None:
