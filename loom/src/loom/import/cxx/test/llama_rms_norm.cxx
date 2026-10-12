@@ -95,9 +95,9 @@ void llama_rms_norm_oracle(loom::type::buffer<float> input,
 LOOM_CHECK_SCENARIO(llama_rms_norm_values) {
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<float, 3>(0.0f);
+        const auto input = loom::check::fill<3, float>(0.0f);
         loom::check::generate<llama_rms_norm_input<3, 1>>(input);
-        const auto storage = loom::check::fill<float, 35>(-123.0f);
+        const auto storage = loom::check::fill<35, float>(-123.0f);
         const auto prefix = loom::check::slice<16>(storage, 0);
         const auto output = loom::check::slice<3>(storage, 16);
         const auto suffix = loom::check::slice<16>(storage, 19);
@@ -111,9 +111,9 @@ LOOM_CHECK_SCENARIO(llama_rms_norm_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<float, 99>(0.0f);
+        const auto input = loom::check::fill<99, float>(0.0f);
         loom::check::generate<llama_rms_norm_input<99, 33>>(input);
-        const auto storage = loom::check::fill<float, 131>(-123.0f);
+        const auto storage = loom::check::fill<131, float>(-123.0f);
         const auto prefix = loom::check::slice<16>(storage, 0);
         const auto output = loom::check::slice<99>(storage, 16);
         const auto suffix = loom::check::slice<16>(storage, 115);
@@ -127,9 +127,9 @@ LOOM_CHECK_SCENARIO(llama_rms_norm_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<float, 387>(0.0f);
+        const auto input = loom::check::fill<387, float>(0.0f);
         loom::check::generate<llama_rms_norm_input<387, 129>>(input);
-        const auto storage = loom::check::fill<float, 419>(-123.0f);
+        const auto storage = loom::check::fill<419, float>(-123.0f);
         const auto prefix = loom::check::slice<16>(storage, 0);
         const auto output = loom::check::slice<387>(storage, 16);
         const auto suffix = loom::check::slice<16>(storage, 403);

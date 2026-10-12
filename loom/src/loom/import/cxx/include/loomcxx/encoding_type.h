@@ -7,6 +7,8 @@
 #ifndef LOOMCXX_ENCODING_TYPE_H_
 #define LOOMCXX_ENCODING_TYPE_H_
 
+#include <loomcxx/shape.h>
+
 namespace loom::encoding {
 
 // Semantic role carried by an encoding value. Names match the encoding dialect.
@@ -15,8 +17,6 @@ enum class role { layout, schema, storage, transform };
 }  // namespace loom::encoding
 
 namespace loom::type {
-
-using size_type = __SIZE_TYPE__;
 
 // A value-owned encoding. Layouts and physical storage describe Rank logical
 // axes; schemas and numeric transforms have rank zero. Private storage

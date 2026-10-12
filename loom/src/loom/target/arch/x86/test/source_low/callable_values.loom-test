@@ -118,6 +118,19 @@ low.func.def target<x86.avx2.core> @scalar_add(%value: reg<x86.gpr32>, %delta: r
 
 // ====
 
+// Callable contracts retain argument and result identities across source-to-Low
+// boundary mapping. Results are signature values rather than body-local values.
+func.def public @preserve_contracts(%limit: index, %value: i32) -> (%bounded: index, %echo: i32) where [range(%limit, 1, 8), eq(%bounded, %limit), eq(%echo, %value)] {
+  func.return %limit, %value : index, i32
+}
+
+// ----
+low.func.def public target<x86.avx2.core> abi(object_function) @preserve_contracts(%limit: reg<x86.gpr64>, %value: reg<x86.gpr32>) -> (%bounded: reg<x86.gpr64>, %echo: reg<x86.gpr32>) where [range(%limit, 1, 8), eq(%bounded, %limit), eq(%echo, %value)] asm {
+  return %limit, %value
+}
+
+// ====
+
 // A separately compiled definition must use the same signature as its caller's
 // declaration. The declaration is resolved by IR linking, not a runtime import.
 func.def public @call_external(%value: i32) -> (i32) {
@@ -125,7 +138,7 @@ func.def public @call_external(%value: i32) -> (i32) {
   func.return %result : i32
 }
 
-func.decl @increment(%value: i32) -> (i32)
+func.decl @increment(%value: i32) -> (%result: i32) where [eq(%result, %value)]
 
 // ----
 low.func.def public target<x86.avx2.core> abi(object_function) @call_external(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
@@ -133,4 +146,4 @@ low.func.def public target<x86.avx2.core> abi(object_function) @call_external(%v
   return %result
 }
 
-low.func.decl target<x86.avx2.core> @increment(%value: reg<x86.gpr32>) -> (reg<x86.gpr32>)
+low.func.decl target<x86.avx2.core> @increment(%value: reg<x86.gpr32>) -> (%result: reg<x86.gpr32>) where [eq(%result, %value)]

@@ -461,6 +461,13 @@ class CheckBody {
           name(components[index], std::string(hint) + "_" + suffix);
         }
       }
+    } else if (value.is_tensor()) {
+      const auto& tensor =
+          static_cast<const TensorPartition&>(value.partition());
+      if (tensor.is_dynamic()) {
+        name(components[0], std::string(hint) + "_dim0");
+      }
+      name(tensor.tensor_value(components), hint);
     } else if (value.is_pointer()) {
       name(value.pointer().root, hint);
       name(value.pointer().byte_offset, std::string(hint) + "_byte_offset");
@@ -468,6 +475,40 @@ class CheckBody {
       name(components[0], hint);
     }
     return value;
+  }
+
+  loom_value_id_t dynamic_tensor_extent(cxx::ExpressionAST* source) {
+    return expression(source).ssa();
+  }
+
+  loom_type_t tensor_type(const TensorPartition& tensor,
+                          loom_value_id_t dynamic_extent) {
+    return tensor.is_dynamic()
+               ? tensor.bind_type(
+                     std::span<const loom_value_id_t>(&dynamic_extent, 1))
+               : tensor.bind_type({});
+  }
+
+  Value capture_tensor(const TensorPartition& tensor,
+                       loom_value_id_t dynamic_extent, loom_op_t* op) {
+    std::array<loom_value_id_t, 2> components;
+    size_t count = 0;
+    if (tensor.is_dynamic()) {
+      components[count++] = dynamic_extent;
+    }
+    components[count++] = loom_op_results(op)[0];
+    return value_arena_.capture(
+        tensor, std::span<const loom_value_id_t>(components).first(count));
+  }
+
+  void append_subject_value(Value value, std::vector<loom_value_id_t>& output) {
+    if (value.is_tensor()) {
+      const auto& tensor =
+          static_cast<const TensorPartition&>(value.partition());
+      output.push_back(tensor.tensor_value(value.components()));
+    } else {
+      value.append_to(output);
+    }
   }
 
   Value name(Value value, cxx::Symbol* symbol) {
@@ -688,7 +729,7 @@ class CheckBody {
             values[index].is_tensor()) {
           fail(source_arguments[index],
                "ordinary C++ pointer parameters retain a byte offset and "
-               "cannot bind a one-component check tensor");
+               "cannot bind a check tensor handle");
         }
         fail(source_arguments[index],
              "check action argument representation does not match the "
@@ -736,7 +777,7 @@ class CheckBody {
     values.reserve(sources.size() - first_argument);
     for (size_t index = first_argument; index < sources.size(); ++index) {
       values.push_back(expression(sources[index]));
-      values.back().append_to(result.arguments);
+      append_subject_value(values.back(), result.arguments);
     }
     result.sources.assign(sources.begin() + first_argument, sources.end());
     validate_subject_arguments(binding.subject, result.sources, values, call);
@@ -897,7 +938,7 @@ class CheckBody {
         for (auto* argument : cxx::ListView{call->expressionList}) {
           sources.push_back(argument);
           values.push_back(expression(argument));
-          values.back().append_to(arguments);
+          append_subject_value(values.back(), arguments);
         }
         validate_subject_arguments(binding.subject, sources, values, call);
         auto results = subject_results(binding.subject, call);
@@ -912,14 +953,26 @@ class CheckBody {
                                     {loom_op_results(op), op->result_count});
       }
       case Operation::Fill: {
-        check(loom_check_generate_fill_build(&builder_, constant(first->value),
-                                             binding.result_tensor->type,
-                                             location, &op));
-        return value_arena_.capture(*binding.result_tensor,
-                                    {loom_op_results(op), 1});
+        auto* payload = first;
+        loom_value_id_t dynamic_extent = LOOM_VALUE_ID_INVALID;
+        if (binding.result_tensor->is_dynamic()) {
+          dynamic_extent = dynamic_tensor_extent(payload->value);
+          payload = payload->next;
+        }
+        check(loom_check_generate_fill_build(
+            &builder_, constant(payload->value),
+            tensor_type(*binding.result_tensor, dynamic_extent), location,
+            &op));
+        return capture_tensor(*binding.result_tensor, dynamic_extent, op);
       }
       case Operation::Iota: {
-        auto* step = first->next;
+        auto* offset = first;
+        loom_value_id_t dynamic_extent = LOOM_VALUE_ID_INVALID;
+        if (binding.result_tensor->is_dynamic()) {
+          dynamic_extent = dynamic_tensor_extent(offset->value);
+          offset = offset->next;
+        }
+        auto* step = offset->next;
         loom_check_generate_iota_build_flags_t flags = 0;
         int64_t period = 0;
         if (step->next) {
@@ -935,30 +988,39 @@ class CheckBody {
           period = static_cast<int64_t>(*value);
         }
         check(loom_check_generate_iota_build(
-            &builder_, flags, constant(first->value), constant(step->value),
-            period, binding.result_tensor->type, location, &op));
-        return value_arena_.capture(*binding.result_tensor,
-                                    {loom_op_results(op), 1});
+            &builder_, flags, constant(offset->value), constant(step->value),
+            period, tensor_type(*binding.result_tensor, dynamic_extent),
+            location, &op));
+        return capture_tensor(*binding.result_tensor, dynamic_extent, op);
       }
       case Operation::Slice: {
         auto source = expression(first->value);
-        auto offset = integer_constant(unit_, first->next->value);
-        auto source_count =
-            loom_type_dim_static_size_at(binding.source_tensor->type, 0);
-        auto result_count =
-            loom_type_dim_static_size_at(binding.result_tensor->type, 0);
-        if (!offset || *offset < 0 || result_count > source_count ||
-            *offset > source_count - result_count) {
+        auto* offset_source = first->next;
+        auto offset = integer_constant(unit_, offset_source->value);
+        loom_value_id_t dynamic_extent = LOOM_VALUE_ID_INVALID;
+        if (binding.result_tensor->is_dynamic()) {
+          dynamic_extent = dynamic_tensor_extent(offset_source->next->value);
+        }
+        bool statically_in_bounds = offset && *offset >= 0;
+        if (statically_in_bounds && !binding.source_tensor->is_dynamic()) {
+          auto source_count = binding.source_tensor->extent;
+          statically_in_bounds &= *offset <= source_count;
+          if (!binding.result_tensor->is_dynamic()) {
+            statically_in_bounds &=
+                binding.result_tensor->extent <= source_count - *offset;
+          }
+        }
+        if (!statically_in_bounds) {
           fail(call,
                "check tensor slice must select an in-bounds constant element "
                "range");
         }
         check(loom_check_tensor_view_build(
-            &builder_, source.components()[0],
+            &builder_, binding.source_tensor->tensor_value(source.components()),
             *offset * binding.source_tensor->element_bytes,
-            binding.result_tensor->type, location, &op));
-        return value_arena_.capture(*binding.result_tensor,
-                                    {loom_op_results(op), 1});
+            tensor_type(*binding.result_tensor, dynamic_extent), location,
+            &op));
+        return capture_tensor(*binding.result_tensor, dynamic_extent, op);
       }
       case Operation::Equal:
       case Operation::Bitwise: {
@@ -967,8 +1029,17 @@ class CheckBody {
         auto build = binding.operation == Operation::Equal
                          ? loom_check_expect_equal_build
                          : loom_check_expect_bitwise_build;
-        check(build(&builder_, actual.components()[0], expected.components()[0],
-                    location, &op));
+        auto actual_value =
+            actual.is_tensor()
+                ? static_cast<const TensorPartition&>(actual.partition())
+                      .tensor_value(actual.components())
+                : actual.ssa();
+        auto expected_value =
+            expected.is_tensor()
+                ? static_cast<const TensorPartition&>(expected.partition())
+                      .tensor_value(expected.components())
+                : expected.ssa();
+        check(build(&builder_, actual_value, expected_value, location, &op));
         break;
       }
       case Operation::Requires:
@@ -987,9 +1058,19 @@ class CheckBody {
           fail(relative->next->value,
                "check NaN policy must be 'same' or 'different'");
         }
+        auto actual_value =
+            actual.is_tensor()
+                ? static_cast<const TensorPartition&>(actual.partition())
+                      .tensor_value(actual.components())
+                : actual.ssa();
+        auto expected_value =
+            expected.is_tensor()
+                ? static_cast<const TensorPartition&>(expected.partition())
+                      .tensor_value(expected.components())
+                : expected.ssa();
         check(loom_check_expect_close_build(
-            &builder_, actual.components()[0], expected.components()[0],
-            absolute_tolerance, relative_tolerance,
+            &builder_, actual_value, expected_value, absolute_tolerance,
+            relative_tolerance,
             nan == "same" ? LOOM_CHECK_EXPECT_CLOSE_NAN_SAME
                           : LOOM_CHECK_EXPECT_CLOSE_NAN_DIFFERENT,
             location, &op));
@@ -1011,7 +1092,7 @@ class CheckBody {
         }
         std::vector<loom_value_id_t> arguments;
         for (; argument; argument = argument->next) {
-          expression(argument->value).append_to(arguments);
+          append_subject_value(expression(argument->value), arguments);
         }
         auto symbol = functions_.declare(binding.kernel, call);
         check(loom_kernel_launch_build(&builder_, symbol, workloads.data(),

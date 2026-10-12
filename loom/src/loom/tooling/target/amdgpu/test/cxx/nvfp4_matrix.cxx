@@ -24,14 +24,14 @@ static loom::kernel::configuration configure_nvfp4_matrix() {
 
 LOOM_CHECK_CASE(nvfp4_matrix_ones) {
   // E2M1 code 0x2 and finite E4M3 code 0x38 both represent 1.0.
-  const auto lhs_payload = loom::check::fill<unsigned, 2>(0x22222222u);
-  const auto lhs_scale = loom::check::fill<unsigned, 1>(0x38u);
-  const auto rhs_payload = loom::check::fill<unsigned, 2>(0x22222222u);
-  const auto rhs_scale = loom::check::fill<unsigned, 1>(0x38u);
-  const auto output = loom::check::fill<float, 256>(0.0f);
+  const auto lhs_payload = loom::check::fill<2, unsigned>(0x22222222u);
+  const auto lhs_scale = loom::check::fill<1, unsigned>(0x38u);
+  const auto rhs_payload = loom::check::fill<2, unsigned>(0x22222222u);
+  const auto rhs_scale = loom::check::fill<1, unsigned>(0x38u);
+  const auto output = loom::check::fill<256, float>(0.0f);
   loom::check::launch<nvfp4_matrix>(lhs_payload, lhs_scale, rhs_payload,
                                     rhs_scale, output);
-  loom::check::expect_bitwise(output, loom::check::fill<float, 256>(16.0f));
+  loom::check::expect_bitwise(output, loom::check::fill<256, float>(16.0f));
 }
 
 LOOM_CHECK_BENCHMARK(nvfp4_matrix_ones_benchmark, nvfp4_matrix_ones);

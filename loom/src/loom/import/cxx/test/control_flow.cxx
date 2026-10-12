@@ -129,9 +129,9 @@ void control_flow_oracle(loom::type::buffer<int> counts,
 LOOM_CHECK_SCENARIO(control_flow_values) {
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto counts = loom::check::fill<int, 7>(0);
+        const auto counts = loom::check::fill<7, int>(0);
         loom::check::generate<control_flow_input>(counts);
-        const auto storage = loom::check::fill<int, 102>(-123);
+        const auto storage = loom::check::fill<102, int>(-123);
         const auto output = loom::check::slice<70>(storage, 16);
         loom::check::compare<control_flow, control_flow_oracle>(
             counts, output, 7u, [&] {

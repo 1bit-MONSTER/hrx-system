@@ -25,6 +25,7 @@
 #include "loom/import/cxx/binding/encoding.h"
 #include "loom/import/cxx/binding/fragment.h"
 #include "loom/import/cxx/binding/function_contracts.h"
+#include "loom/import/cxx/binding/index_values.h"
 #include "loom/import/cxx/binding/kernel.h"
 #include "loom/import/cxx/binding/launch.h"
 #include "loom/import/cxx/binding/scalar_bindings.h"
@@ -84,7 +85,7 @@ class Intrinsics {
                    ViewIntrinsic, AsyncIntrinsic, AtomicIntrinsic,
                    FenceIntrinsic, SubgroupIntrinsic, BarrierIntrinsic,
                    TargetIntrinsic, AssemblyIntrinsic, TemplateApplyIntrinsic,
-                   CheckIntrinsic>;
+                   CheckIntrinsic, IndexCastIntrinsic>;
 
   Intrinsics(cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
              Locations& locations, SymbolNames& names,

@@ -147,8 +147,8 @@ std::optional<ViewIntrinsic> ViewIntrinsic::resolve(
     }
     case Operation::LayoutStrided: {
       for (size_t index = 0; index < parameters.size(); ++index) {
-        if (require_integral(unit, diagnostics, types, parameters[index], owner,
-                             "layout stride")) {
+        if (require_index_value(unit, diagnostics, types, parameters[index],
+                                owner, "layout stride")) {
           result.unsigned_argument_mask_ |= uint32_t{1} << index;
         }
       }
@@ -183,7 +183,7 @@ std::optional<ViewIntrinsic> ViewIntrinsic::resolve(
             "buffer.view source element type must match its result view");
       }
       result.source_buffer_ = buffer;
-      result.unsigned_dimension_mask_ = require_integral_record(
+      result.unsigned_dimension_mask_ = require_index_record(
           unit, diagnostics, types, parameters[1],
           dynamic_extent_count(*result.result_view_), owner, "view dimensions");
       const auto& layout =
@@ -216,13 +216,13 @@ std::optional<ViewIntrinsic> ViewIntrinsic::resolve(
             unit, owner,
             "subview must preserve its source view rank and encoding role");
       }
-      result.unsigned_origin_mask_ = require_integral_record(
+      result.unsigned_origin_mask_ = require_index_record(
           unit, diagnostics, types, parameters[1],
           result.source_view_->extents.size(), owner, "subview origin");
       result.unsigned_dimension_mask_ =
-          require_integral_record(unit, diagnostics, types, parameters[2],
-                                  dynamic_extent_count(*result.result_view_),
-                                  owner, "subview dimensions");
+          require_index_record(unit, diagnostics, types, parameters[2],
+                               dynamic_extent_count(*result.result_view_),
+                               owner, "subview dimensions");
       result.result_source_type_ = signature->returnType();
       return result;
     }
@@ -235,8 +235,8 @@ std::optional<ViewIntrinsic> ViewIntrinsic::resolve(
           &require_view(unit, diagnostics, types, parameters[0], owner);
       require_count(result.source_view_->extents.size() + 1);
       for (size_t index = 1; index < parameters.size(); ++index) {
-        if (require_integral(unit, diagnostics, types, parameters[index], owner,
-                             "view index")) {
+        if (require_index_value(unit, diagnostics, types, parameters[index],
+                                owner, "view index")) {
           result.unsigned_argument_mask_ |= uint32_t{1} << index;
         }
       }
@@ -269,8 +269,8 @@ std::optional<ViewIntrinsic> ViewIntrinsic::resolve(
             "view.store value must match a mutable view element type");
       }
       for (size_t index = 2; index < parameters.size(); ++index) {
-        if (require_integral(unit, diagnostics, types, parameters[index], owner,
-                             "view index")) {
+        if (require_index_value(unit, diagnostics, types, parameters[index],
+                                owner, "view index")) {
           result.unsigned_argument_mask_ |= uint32_t{1} << index;
         }
       }

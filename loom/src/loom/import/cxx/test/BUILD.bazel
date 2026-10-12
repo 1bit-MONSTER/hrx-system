@@ -86,6 +86,7 @@ loom_check_test_suite(
         "float8_invalid.cxx-test",
         "frontend.cxx-test",
         "functions.cxx-test",
+        "index_views.cxx-test",
         "initializer_dependencies.cxx-test",
         "integer_intrinsics.cxx-test",
         "integer_widening.cxx-test",
@@ -548,10 +549,13 @@ _APPROXIMATE_KERNEL_SOURCES = [
     "llama_rms_norm",
 ]
 
-_AUTHORED_KERNEL_SOURCES = [
+_AUTHORED_CXX_KERNEL_SOURCES = [
+    "scheduled_sum",
+]
+
+_AUTHORED_SPLIT_KERNEL_SOURCES = [
     "increment_values",
     "record_values",
-    "scheduled_sum",
     "shaped_intrinsics",
     "structured_continue",
     "typed_views",
@@ -569,8 +573,17 @@ _AUTHORED_KERNEL_SOURCES = [
     for source in _APPROXIMATE_KERNEL_SOURCES
 ]
 
-# Authored scenarios replace generated harnesses and payload files as each
-# kernel family migrates.
+[
+    loom_test_module(
+        name = source + "_module",
+        srcs = [source + ".cxx"],
+        target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
+    )
+    for source in _AUTHORED_CXX_KERNEL_SOURCES
+]
+
+# Split modules retain their Loom scenarios until each scenario is authored in
+# its C++ source.
 [
     loom_test_module(
         name = source + "_module",
@@ -580,7 +593,7 @@ _AUTHORED_KERNEL_SOURCES = [
         ],
         target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
     )
-    for source in _AUTHORED_KERNEL_SOURCES
+    for source in _AUTHORED_SPLIT_KERNEL_SOURCES
 ]
 
 test_suite(

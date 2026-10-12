@@ -12,6 +12,7 @@
 #include <cxx/names.h>
 #include <cxx/symbols.h>
 #include <cxx/token.h>
+#include <cxx/types.h>
 
 #include <algorithm>
 #include <bit>
@@ -136,6 +137,15 @@ std::optional<loom_predicate_kind_t> helper_kind(cxx::TranslationUnit& unit,
 
 bool is_result_call(cxx::CallExpressionAST* call) {
   return annotation(direct_callee(call), "predicate_result");
+}
+
+bool is_index_source_type(cxx::TranslationUnit& unit, const cxx::Type* type) {
+  auto* source_type =
+      cxx::type_cast<cxx::ClassType>(unit.typeTraits().remove_cv(type));
+  auto* binding =
+      source_type ? annotation(source_type->definition(), "type") : nullptr;
+  return binding && binding->arguments.size() == 1 &&
+         binding->arguments[0]->name() == "index";
 }
 
 std::optional<PredicateValue> predicate_value(cxx::TranslationUnit& unit,
@@ -604,15 +614,19 @@ bool predicate_accepts_source_type(cxx::TranslationUnit& unit,
                                    loom_predicate_kind_t kind,
                                    const cxx::Type* type) {
   const auto traits = unit.typeTraits();
+  const bool is_index = is_index_source_type(unit, type);
   switch (kind) {
     case LOOM_PREDICATE_EQ:
     case LOOM_PREDICATE_NE:
-      return traits.is_arithmetic(type) || traits.is_enum(type);
+      return is_index || traits.is_arithmetic(type) || traits.is_enum(type);
     case LOOM_PREDICATE_NOT_NAN:
     case LOOM_PREDICATE_NOT_INF:
     case LOOM_PREDICATE_FINITE:
       return traits.is_floating_point(type);
     default: {
+      if (is_index) {
+        return true;
+      }
       auto representation = traits.integral_representation(type);
       return representation && representation->bits > 0 &&
              representation->bits <= 64;

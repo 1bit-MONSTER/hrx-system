@@ -28,18 +28,18 @@ void decode_codes(const Bytes4* input, Codes4* output) {
 LOOM_CHECK_CASE(packed_code_indices) {
   // Each packed result selects across codebook quarters. The high-nibble
   // lookup requires the zero-fill bound to survive C++ integer promotion.
-  const auto input = loom::check::fill<unsigned, 1>(0xFECB9854u);
-  const auto storage = loom::check::fill<unsigned, 4>(0xA5A5A5A5u);
+  const auto input = loom::check::fill<1, unsigned>(0xFECB9854u);
+  const auto storage = loom::check::fill<4, unsigned>(0xA5A5A5A5u);
   const auto output = loom::check::slice<2>(storage, 1);
   loom::check::launch<decode_codes>(input, output);
   // Indices [4, 8, 11, 14] select [-49, 1, 38, 89].
   loom::check::expect_bitwise(loom::check::slice<1>(output, 0),
-                              loom::check::fill<unsigned, 1>(0x592601CFu));
+                              loom::check::fill<1, unsigned>(0x592601CFu));
   // Indices [5, 9, 12, 15] select [-35, 13, 53, 113].
   loom::check::expect_bitwise(loom::check::slice<1>(output, 1),
-                              loom::check::fill<unsigned, 1>(0x71350DDDu));
+                              loom::check::fill<1, unsigned>(0x71350DDDu));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 0),
-                              loom::check::fill<unsigned, 1>(0xA5A5A5A5u));
+                              loom::check::fill<1, unsigned>(0xA5A5A5A5u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 3),
-                              loom::check::fill<unsigned, 1>(0xA5A5A5A5u));
+                              loom::check::fill<1, unsigned>(0xA5A5A5A5u));
 }

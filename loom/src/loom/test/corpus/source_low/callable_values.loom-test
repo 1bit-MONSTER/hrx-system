@@ -80,6 +80,14 @@ func.def @scalar_add(%value: i32, %delta: i32) -> (i32) {
 
 // ====
 
+// Callable contracts retain argument and result identities across source-to-Low
+// boundary mapping. Results are signature values rather than body-local values.
+func.def public @preserve_contracts(%limit: index, %value: i32) -> (%bounded: index, %echo: i32) where [range(%limit, 1, 8), eq(%bounded, %limit), eq(%echo, %value)] {
+  func.return %limit, %value : index, i32
+}
+
+// ====
+
 // A separately compiled definition must use the same signature as its caller's
 // declaration. The declaration is resolved by IR linking, not a runtime import.
 func.def public @call_external(%value: i32) -> (i32) {
@@ -87,4 +95,4 @@ func.def public @call_external(%value: i32) -> (i32) {
   func.return %result : i32
 }
 
-func.decl @increment(%value: i32) -> (i32)
+func.decl @increment(%value: i32) -> (%result: i32) where [eq(%result, %value)]

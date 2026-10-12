@@ -94,86 +94,86 @@ constexpr double kGroupErrorFactor = 64.0 * 0x1p-24 / (1.0 - 64.0 * 0x1p-24);
 
 LOOM_CHECK_CASE(mxfp4_dynamic_scale) {
   // E2M1 lanes repeat [0.5, 6, -2, -0.5, 3, -1, 1.5, -6].
-  const auto payload = loom::check::fill<unsigned, 4>(0xF3A59C71u);
+  const auto payload = loom::check::fill<4, unsigned>(0xF3A59C71u);
   // BF16 activations repeat [1, -2, 0.5, 4].
   const auto activations =
-      loom::check::fill<unsigned long long, 8>(0x40803F00C0003F80ull);
-  const auto identity = loom::check::fill<unsigned, 1>(127);
-  const auto half = loom::check::fill<unsigned, 1>(126);
-  const auto storage = loom::check::fill<float, 4>(999.0f);
+      loom::check::fill<8, unsigned long long>(0x40803F00C0003F80ull);
+  const auto identity = loom::check::fill<1, unsigned>(127);
+  const auto half = loom::check::fill<1, unsigned>(126);
+  const auto storage = loom::check::fill<4, float>(999.0f);
   const auto first = loom::check::slice<1>(storage, 1);
   const auto second = loom::check::slice<1>(storage, 2);
   loom::check::launch<mxfp4_decode_dot>(payload, identity, activations, first);
   loom::check::launch<mxfp4_decode_dot>(payload, half, activations, second);
   // Products sum to -32.75 per eight lanes, with absolute sum 45.25.
-  loom::check::expect_close(first, loom::check::fill<float, 1>(-131.0f),
+  loom::check::expect_close(first, loom::check::fill<1, float>(-131.0f),
                             181.0 * kGroupErrorFactor, 0.0, "different");
-  loom::check::expect_close(second, loom::check::fill<float, 1>(-65.5f),
+  loom::check::expect_close(second, loom::check::fill<1, float>(-65.5f),
                             90.5 * kGroupErrorFactor, 0.0, "different");
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 0),
-                              loom::check::fill<float, 1>(999.0f));
+                              loom::check::fill<1, float>(999.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 3),
-                              loom::check::fill<float, 1>(999.0f));
+                              loom::check::fill<1, float>(999.0f));
   loom::check::expect_bitwise(payload,
-                              loom::check::fill<unsigned, 4>(0xF3A59C71u));
+                              loom::check::fill<4, unsigned>(0xF3A59C71u));
   loom::check::expect_bitwise(
       activations,
-      loom::check::fill<unsigned long long, 8>(0x40803F00C0003F80ull));
-  loom::check::expect_bitwise(identity, loom::check::fill<unsigned, 1>(127));
-  loom::check::expect_bitwise(half, loom::check::fill<unsigned, 1>(126));
+      loom::check::fill<8, unsigned long long>(0x40803F00C0003F80ull));
+  loom::check::expect_bitwise(identity, loom::check::fill<1, unsigned>(127));
+  loom::check::expect_bitwise(half, loom::check::fill<1, unsigned>(126));
 }
 
 LOOM_CHECK_CASE(mxfp8_dynamic_scale) {
   // E4M3 lanes repeat [1.125, -1.25, 2.75, -4.5, 0.25, -0.125, 8, -16].
   const auto payload =
-      loom::check::fill<unsigned long long, 4>(0xD850A028C943BA39ull);
+      loom::check::fill<4, unsigned long long>(0xD850A028C943BA39ull);
   const auto activations =
-      loom::check::fill<unsigned long long, 8>(0x40803F00C0003F80ull);
-  const auto identity = loom::check::fill<unsigned, 1>(127);
-  const auto half = loom::check::fill<unsigned, 1>(126);
-  const auto storage = loom::check::fill<float, 4>(999.0f);
+      loom::check::fill<8, unsigned long long>(0x40803F00C0003F80ull);
+  const auto identity = loom::check::fill<1, unsigned>(127);
+  const auto half = loom::check::fill<1, unsigned>(126);
+  const auto storage = loom::check::fill<4, float>(999.0f);
   const auto first = loom::check::slice<1>(storage, 1);
   const auto second = loom::check::slice<1>(storage, 2);
   loom::check::launch<mxfp8_decode_dot>(payload, identity, activations, first);
   loom::check::launch<mxfp8_decode_dot>(payload, half, activations, second);
   // Products sum to -72.5 per eight lanes, with absolute sum 91.5.
-  loom::check::expect_close(first, loom::check::fill<float, 1>(-290.0f),
+  loom::check::expect_close(first, loom::check::fill<1, float>(-290.0f),
                             366.0 * kGroupErrorFactor, 0.0, "different");
-  loom::check::expect_close(second, loom::check::fill<float, 1>(-145.0f),
+  loom::check::expect_close(second, loom::check::fill<1, float>(-145.0f),
                             183.0 * kGroupErrorFactor, 0.0, "different");
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 0),
-                              loom::check::fill<float, 1>(999.0f));
+                              loom::check::fill<1, float>(999.0f));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 3),
-                              loom::check::fill<float, 1>(999.0f));
+                              loom::check::fill<1, float>(999.0f));
   loom::check::expect_bitwise(
-      payload, loom::check::fill<unsigned long long, 4>(0xD850A028C943BA39ull));
+      payload, loom::check::fill<4, unsigned long long>(0xD850A028C943BA39ull));
   loom::check::expect_bitwise(
       activations,
-      loom::check::fill<unsigned long long, 8>(0x40803F00C0003F80ull));
-  loom::check::expect_bitwise(identity, loom::check::fill<unsigned, 1>(127));
-  loom::check::expect_bitwise(half, loom::check::fill<unsigned, 1>(126));
+      loom::check::fill<8, unsigned long long>(0x40803F00C0003F80ull));
+  loom::check::expect_bitwise(identity, loom::check::fill<1, unsigned>(127));
+  loom::check::expect_bitwise(half, loom::check::fill<1, unsigned>(126));
 }
 
 LOOM_CHECK_CASE(mxfp4_scale_bytes) {
-  const auto payload = loom::check::fill<unsigned, 8>(0x11111111u);
+  const auto payload = loom::check::fill<8, unsigned>(0x11111111u);
   // 0.5 at E8M0 scales 0 and 128 gives exact BF16 subnormal 0x0020 and 1.0.
-  const auto scales = loom::check::fill<unsigned, 1>(0x00008000u);
-  const auto output = loom::check::fill<unsigned, 32>(0xFFFFFFFFu);
+  const auto scales = loom::check::fill<1, unsigned>(0x00008000u);
+  const auto output = loom::check::fill<32, unsigned>(0xFFFFFFFFu);
   loom::check::launch<mxfp4_group_bits>(payload, scales, output);
   loom::check::expect_bitwise(loom::check::slice<16>(output, 0),
-                              loom::check::fill<unsigned, 16>(0x00200020u));
+                              loom::check::fill<16, unsigned>(0x00200020u));
   loom::check::expect_bitwise(loom::check::slice<16>(output, 16),
-                              loom::check::fill<unsigned, 16>(0x3F803F80u));
+                              loom::check::fill<16, unsigned>(0x3F803F80u));
 }
 
 LOOM_CHECK_CASE(mxfp8_scale_bytes) {
-  const auto payload = loom::check::fill<unsigned char, 64>(0x38);
+  const auto payload = loom::check::fill<64, unsigned char>(0x38);
   // 1.0 at E8M0 scales 0 and 255 gives exact BF16 subnormal 0x0040 and NaN.
-  const auto scales = loom::check::fill<unsigned, 1>(0x0000FF00u);
-  const auto output = loom::check::fill<unsigned, 32>(0xFFFFFFFFu);
+  const auto scales = loom::check::fill<1, unsigned>(0x0000FF00u);
+  const auto output = loom::check::fill<32, unsigned>(0xFFFFFFFFu);
   loom::check::launch<mxfp8_group_bits>(payload, scales, output);
   loom::check::expect_bitwise(loom::check::slice<16>(output, 0),
-                              loom::check::fill<unsigned, 16>(0x00400040u));
+                              loom::check::fill<16, unsigned>(0x00400040u));
   loom::check::expect_bitwise(loom::check::slice<16>(output, 16),
-                              loom::check::fill<unsigned, 16>(0x7FC07FC0u));
+                              loom::check::fill<16, unsigned>(0x7FC07FC0u));
 }

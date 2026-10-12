@@ -256,7 +256,7 @@ LOOM_CHECK_CASE(forged_workload) {
 
 LOOM_CHECK_CASE(zero_iota_period) {
   // ERROR@+1: LOWERING/059 "check iota period must be a positive i64 integer constant"
-  const auto values = loom::check::iota<int, 4>(0, 1, 0);
+  const auto values = loom::check::iota<4, int>(0, 1, 0);
   loom::check::expect_bitwise(values, values);
 }
 
@@ -266,7 +266,7 @@ LOOM_CHECK_CASE(zero_iota_period) {
 static __SIZE_TYPE__ runtime_period() { return 4; }
 LOOM_CHECK_CASE(dynamic_iota_period) {
   // ERROR@+1: LOWERING/059 "check iota period must be a positive i64 integer constant"
-  const auto values = loom::check::iota<int, 4>(0, 1, runtime_period());
+  const auto values = loom::check::iota<4, int>(0, 1, runtime_period());
   loom::check::expect_bitwise(values, values);
 }
 
@@ -280,6 +280,7 @@ LOOM_CHECK_CASE(dynamic_iota_period) {
 // ====
 #include <loomcxx/check.h>
 
-// ERROR@+1: LOWERING/059 "check.generate.iota offset and step must match the tensor element type, with an integer period"
-[[loom::op("check.generate.iota")]] loom::check::tensor<int, 4> mixed_iota(
+// ERROR@+2: LOWERING/059 "check.generate.iota offset and step must match the tensor element type, with an integer period"
+[[loom::op("check.generate.iota")]]
+loom::type::tensor<loom::type::shape<4>, int> mixed_iota(
     float offset, int step);

@@ -77,11 +77,11 @@ void symbol_export_oracle(loom::type::buffer<unsigned> output,
 LOOM_CHECK_SCENARIO(symbol_export_values) {
   loom::check::trial<32>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<unsigned, 1>(0u);
+        const auto input = loom::check::fill<1, unsigned>(0u);
         const auto stream = loom::check::fork(entropy, "input");
         const auto random_word = loom::check::read(stream, trial);
         loom::check::generate<symbol_export_input>(input, trial, random_word);
-        const auto storage = loom::check::fill<unsigned, 33>(-123u);
+        const auto storage = loom::check::fill<33, unsigned>(-123u);
         const auto output = loom::check::slice<1>(storage, 16);
         loom::check::compare<entry, symbol_export_oracle>(output, input, [&] {
           loom::check::expect_bitwise(input, input);

@@ -406,6 +406,65 @@ TEST(TypesTest, ViewPartitionsBindEachDestinationShapeAndLayoutIdentity) {
   EXPECT_EQ(loom_type_element_type(packet_types[3]), LOOM_SCALAR_TYPE_I32);
 }
 
+TEST(TypesTest, BindsRuntimeTensorExtentAcrossValueBoundaries) {
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  Source source(
+      IREE_SV("namespace loom { namespace type { "
+              "using size_type = __SIZE_TYPE__; "
+              "inline constexpr size_type dynamic = ~size_type{0}; "
+              "template <size_type... Extents> "
+              "struct [[loom::type(\"shape\")]] shape {}; "
+              "template <class Shape, class T> "
+              "struct [[loom::type(\"tensor\")]] tensor { T* data; }; "
+              "} } "
+              "using Static = loom::type::tensor<loom::type::shape<7>, int>; "
+              "using Dynamic = loom::type::tensor<"
+              "loom::type::shape<loom::type::dynamic>, float>; "
+              "struct Packet { Dynamic values; unsigned tag; };"),
+      IREE_SV("tensors.cpp"), options);
+  Types types(source.unit(), source.diagnostics());
+  auto* owner = source.unit().ast();
+  auto source_type = [&](const char* name) {
+    return (*source.unit().globalScope()->find(name).begin())->type();
+  };
+
+  const auto& static_tensor = static_cast<const TensorPartition&>(
+      types.partition(source_type("Static"), owner));
+  EXPECT_EQ(static_tensor.component_count, 1u);
+  EXPECT_FALSE(static_tensor.is_dynamic());
+  EXPECT_FALSE(types.requires_binding(source_type("Static"), owner));
+  std::vector<loom_type_t> static_types;
+  types.append(source_type("Static"), owner, static_types);
+  ASSERT_EQ(static_types.size(), 1u);
+  EXPECT_EQ(loom_type_kind(static_types[0]), LOOM_TYPE_TENSOR);
+  EXPECT_EQ(loom_type_dim_static_size_at(static_types[0], 0), 7);
+  EXPECT_EQ(loom_type_element_type(static_types[0]), LOOM_SCALAR_TYPE_I32);
+
+  const auto& dynamic_tensor = static_cast<const TensorPartition&>(
+      types.partition(source_type("Dynamic"), owner));
+  EXPECT_EQ(dynamic_tensor.component_count, 2u);
+  EXPECT_TRUE(dynamic_tensor.is_dynamic());
+  EXPECT_TRUE(types.requires_binding(source_type("Dynamic"), owner));
+  const loom_value_id_t dynamic_ids[] = {41, 42};
+  BoundTypeStorage dynamic_storage;
+  std::vector<loom_type_t> dynamic_types;
+  types.append_bound(source_type("Dynamic"), owner, dynamic_ids,
+                     dynamic_storage, dynamic_types);
+  ASSERT_EQ(dynamic_types.size(), 2u);
+  EXPECT_EQ(loom_type_element_type(dynamic_types[0]), LOOM_SCALAR_TYPE_INDEX);
+  EXPECT_EQ(loom_type_kind(dynamic_types[1]), LOOM_TYPE_TENSOR);
+  EXPECT_EQ(loom_type_dim_value_id_at(dynamic_types[1], 0), 41u);
+  EXPECT_EQ(loom_type_element_type(dynamic_types[1]), LOOM_SCALAR_TYPE_F32);
+
+  const auto* packet = types.record(source_type("Packet"), owner);
+  ASSERT_NE(packet, nullptr);
+  EXPECT_EQ(packet->component_count, 3u);
+  EXPECT_EQ(packet->component_names,
+            (std::vector<std::string>{"values_dim0", "values", "tag"}));
+  EXPECT_TRUE(types.requires_binding(source_type("Packet"), owner));
+}
+
 TEST(TypesTest, ProjectsEverySupportedViewRankAndEncodingRole) {
   std::string source_text = R"(
     namespace loom { namespace encoding {

@@ -625,6 +625,7 @@ loom_cc_library(
     ::encoding
     ::fragment
     ::function_contracts
+    ::index_values
     ::kernel
     ::launch
     ::scalar_bindings

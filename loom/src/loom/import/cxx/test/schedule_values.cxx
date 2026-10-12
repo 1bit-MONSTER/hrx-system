@@ -136,7 +136,7 @@ LOOM_CHECK_SCENARIO(schedule_values_functions) {
   loom::check::trial<10>([](loom::check::ordinal trial,
                             loom::check::entropy entropy) {
     const auto count = loom::check::generate<schedule_input>(trial);
-    const auto output = loom::check::fill<unsigned, 8>(-123u);
+    const auto output = loom::check::fill<8, unsigned>(-123u);
     loom::check::compare<schedule_observations, schedule_oracle>(
         count, output, [&] { loom::check::expect_bitwise(output, output); });
   });

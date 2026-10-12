@@ -498,18 +498,18 @@ LOOM_CHECK_SCENARIO(iq4xs_gate_up_values) {
   loom::check::trial<1>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto input =
-        loom::check::fill<std::bfloat16_t, kIQ4XSInputSize>(0.0f);
+        loom::check::fill<kIQ4XSInputSize, std::bfloat16_t>(0.0f);
     loom::check::generate<generate_iq4xs_gate_up_input>(input);
-    const auto route_ids = loom::check::fill<int, kIQ4XSRouteCount>(0);
+    const auto route_ids = loom::check::fill<kIQ4XSRouteCount, int>(0);
     loom::check::generate<generate_iq4xs_route_ids>(route_ids);
     const auto gate_weight =
-        loom::check::fill<unsigned char, kIQ4XSWeightByteCount>(0u);
+        loom::check::fill<kIQ4XSWeightByteCount, unsigned char>(0u);
     loom::check::generate<generate_iq4xs_gate_up_weight<0>>(gate_weight);
     const auto up_weight =
-        loom::check::fill<unsigned char, kIQ4XSWeightByteCount>(0u);
+        loom::check::fill<kIQ4XSWeightByteCount, unsigned char>(0u);
     loom::check::generate<generate_iq4xs_gate_up_weight<1>>(up_weight);
     const auto output_storage =
-        loom::check::fill<float, kIQ4XSOutputElementCount + 32u>(-123.0f);
+        loom::check::fill<kIQ4XSOutputElementCount + 32u, float>(-123.0f);
     const auto output_prefix = loom::check::slice<16>(output_storage, 0);
     const auto output =
         loom::check::slice<kIQ4XSOutputElementCount>(output_storage, 16);

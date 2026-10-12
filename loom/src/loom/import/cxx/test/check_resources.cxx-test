@@ -5,12 +5,12 @@
 void update(unsigned* output, unsigned value) { output[0] = value; }
 LOOM_CHECK_CASE(resource_values) {
   loom::check::require("hal.amdgpu.descriptor_set", "descriptor_set", "amdgpu.rdna3_5.core");
-  const auto storage = loom::check::fill<unsigned, 4>(37u);
+  const auto storage = loom::check::fill<4, unsigned>(37u);
   const auto alias = storage;
   const auto selected = loom::check::slice<2>(alias, 1);
   loom::check::launch<update>(selected, 13u);
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 1),
-                            loom::check::fill<unsigned, 1>(13u));
+                            loom::check::fill<1, unsigned>(13u));
 }
 LOOM_CHECK_BENCHMARK(resource_benchmark, resource_values);
 // ----
@@ -27,7 +27,7 @@ CHECK: check.benchmark<@resource_values> @resource_benchmark
 unsigned runtime_value() { return 7; }
 LOOM_CHECK_CASE(runtime_fill) {
   // ERROR@+1: LOWERING/059 "check attributes require pure scalar constants"
-  const auto storage = loom::check::fill<unsigned, 1>(runtime_value());
+  const auto storage = loom::check::fill<1, unsigned>(runtime_value());
 }
 
 // ====
@@ -35,7 +35,7 @@ LOOM_CHECK_CASE(runtime_fill) {
 #include <loomcxx/check.h>
 unsigned runtime_value() { return 0; }
 LOOM_CHECK_CASE(runtime_offset) {
-  const auto storage = loom::check::fill<unsigned, 4>(7u);
+  const auto storage = loom::check::fill<4, unsigned>(7u);
   // ERROR@+1: LOWERING/059 "check tensor slice must select an in-bounds constant element range"
   const auto selected = loom::check::slice<1>(storage, runtime_value());
 }
@@ -44,7 +44,7 @@ LOOM_CHECK_CASE(runtime_offset) {
 // RUN: verify
 #include <loomcxx/check.h>
 LOOM_CHECK_CASE(past_end) {
-  const auto storage = loom::check::fill<unsigned, 4>(7u);
+  const auto storage = loom::check::fill<4, unsigned>(7u);
   // ERROR@+1: LOWERING/059 "check tensor slice must select an in-bounds constant element range"
   const auto selected = loom::check::slice<2>(storage, 3);
 }
@@ -53,7 +53,7 @@ LOOM_CHECK_CASE(past_end) {
 // RUN: verify
 #include <loomcxx/check.h>
 LOOM_CHECK_CASE(negative_offset) {
-  const auto storage = loom::check::fill<unsigned, 4>(7u);
+  const auto storage = loom::check::fill<4, unsigned>(7u);
   // ERROR@+1: LOWERING/059 "check tensor slice must select an in-bounds constant element range"
   const auto selected = loom::check::slice<1>(storage, -1);
 }
@@ -63,7 +63,7 @@ LOOM_CHECK_CASE(negative_offset) {
 #include <loomcxx/check.h>
 void ordinary(unsigned* output) { output[0] = 7; }
 LOOM_CHECK_CASE(not_a_kernel) {
-  const auto storage = loom::check::fill<unsigned, 1>(0u);
+  const auto storage = loom::check::fill<1, unsigned>(0u);
   // ERROR@+1: LOWERING/059 "kernel.launch requires a kernel as its first template argument"
   loom::check::launch<ordinary>(storage);
 }
@@ -74,7 +74,7 @@ LOOM_CHECK_CASE(not_a_kernel) {
 #include <loomcxx/kernel.h>
 [[loom::kernel]] void update(unsigned* output, unsigned value) { output[0] = value; }
 LOOM_CHECK_CASE(wrong_argument_count) {
-  const auto storage = loom::check::fill<unsigned, 1>(0u);
+  const auto storage = loom::check::fill<1, unsigned>(0u);
   // ERROR@+1: LOWERING/059 "kernel.launch arguments must match the kernel signature"
   loom::check::launch<update>(storage);
 }
@@ -85,7 +85,7 @@ LOOM_CHECK_CASE(wrong_argument_count) {
 #include <loomcxx/kernel.h>
 [[loom::kernel]] void update(unsigned* output, unsigned value) { output[0] = value; }
 LOOM_CHECK_CASE(wrong_scalar_type) {
-  const auto storage = loom::check::fill<unsigned, 1>(0u);
+  const auto storage = loom::check::fill<1, unsigned>(0u);
   // ERROR@+1: LOWERING/059 "kernel.launch scalar arguments must match the kernel parameter types"
   loom::check::launch<update>(storage, 7.0f);
 }
@@ -96,7 +96,7 @@ LOOM_CHECK_CASE(wrong_scalar_type) {
 #include <loomcxx/kernel.h>
 [[loom::kernel]] void update(unsigned* output) { output[0] = 7; }
 LOOM_CHECK_CASE(late_launch) {
-  const auto storage = loom::check::fill<unsigned, 1>(0u);
+  const auto storage = loom::check::fill<1, unsigned>(0u);
   loom::check::expect_bitwise(storage, storage);
   // ERROR@+1: LOWERING/059 "check expectations must be terminal"
   loom::check::launch<update>(storage);
@@ -132,7 +132,7 @@ LOOM_CHECK_CASE(runtime_metadata) {
 #include <loomcxx/check.h>
 void ordinary() {
   // ERROR@+1: LOWERING/059 "check declarations cannot be called from ordinary functions"
-  const auto storage = loom::check::fill<unsigned, 1>(0u);
+  const auto storage = loom::check::fill<1, unsigned>(0u);
 }
 
 // ====
@@ -140,7 +140,7 @@ void ordinary() {
 #include <loomcxx/check.h>
 LOOM_CHECK_CASE(boolean_elements) {
   // ERROR@+1: LOWERING/059 "tensor elements require unqualified non-boolean scalar types"
-  const auto storage = loom::check::fill<bool, 1>(true);
+  const auto storage = loom::check::fill<1, bool>(true);
 }
 
 // ====
@@ -148,15 +148,15 @@ LOOM_CHECK_CASE(boolean_elements) {
 #include <loomcxx/check.h>
 LOOM_CHECK_CASE(qualified_elements) {
   // ERROR@+1: LOWERING/059 "tensor elements require unqualified non-boolean scalar types"
-  const auto storage = loom::check::fill<const unsigned, 1>(7u);
+  const auto storage = loom::check::fill<1, const unsigned>(7u);
 }
 
 // ====
 // RUN: verify
 #include <loomcxx/check.h>
 LOOM_CHECK_CASE(overflowing_byte_length) {
-  // ERROR@+1: LOWERING/059 "tensor extent requires a nonnegative constant with a representable byte length"
-  const auto storage = loom::check::fill<unsigned long long, 0x2000000000000000ULL>(7ULL);
+  // ERROR@+1: LOWERING/059 "tensor extent has an unrepresentable byte length"
+  const auto storage = loom::check::fill<0x2000000000000000ULL, unsigned long long>(7ULL);
 }
 
 // ====

@@ -66,7 +66,7 @@ LOOM_CHECK_SCENARIO(missing_action) {
   loom::check::trial<1>(
       // ERROR@+1: LOWERING/059 "check trial requires one final compare or invoke"
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto storage = loom::check::fill<unsigned, 1>(0u);
+        const auto storage = loom::check::fill<1, unsigned>(0u);
       });
 }
 
@@ -110,8 +110,8 @@ void pointer_subject(unsigned* output) { output[0] = 1u; }
 LOOM_CHECK_SCENARIO(ordinary_pointer_argument) {
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto output = loom::check::fill<unsigned, 1>(0u);
-        // ERROR@+1: LOWERING/059 "ordinary C++ pointer parameters retain a byte offset and cannot bind a one-component check tensor"
+        const auto output = loom::check::fill<1, unsigned>(0u);
+        // ERROR@+1: LOWERING/059 "ordinary C++ pointer parameters retain a byte offset and cannot bind a check tensor handle"
         loom::check::compare<pointer_subject>(output, [] {});
       });
 }
@@ -125,7 +125,7 @@ void wrong_buffer_element(loom::type::buffer<float> output) {}
 LOOM_CHECK_SCENARIO(mismatched_buffer_element) {
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto output = loom::check::fill<unsigned, 1>(0u);
+        const auto output = loom::check::fill<1, unsigned>(0u);
         // ERROR@+1: LOWERING/059 "check tensor element type must match the subject buffer element type"
         loom::check::invoke<wrong_buffer_element>(output);
       });

@@ -151,8 +151,8 @@ void instantiated([[loom::noalias]] const T* input,
   output[0] = input[0];
 }
 LOOM_CHECK_CASE(noalias_instance) {
-  const auto input = loom::check::fill<unsigned, 1>(7u);
-  const auto output = loom::check::fill<unsigned, 1>(0u);
+  const auto input = loom::check::fill<1, unsigned>(7u);
+  const auto output = loom::check::fill<1, unsigned>(0u);
   loom::check::launch<instantiated<unsigned>>(input, output);
   loom::check::expect_bitwise(input, output);
 }

@@ -77,10 +77,10 @@ LOOM_CHECK_SCENARIO(aiter_swiglu_f16_values) {
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
         const auto input =
-            loom::check::fill<_Float16, 6>(static_cast<_Float16>(0.0f));
+            loom::check::fill<6, _Float16>(static_cast<_Float16>(0.0f));
         loom::check::generate<aiter_swiglu_f16_input<6, 1>>(input);
         const auto storage =
-            loom::check::fill<_Float16, 35>(static_cast<_Float16>(-123.0f));
+            loom::check::fill<35, _Float16>(static_cast<_Float16>(-123.0f));
         const auto prefix = loom::check::slice<16>(storage, 0);
         const auto output = loom::check::slice<3>(storage, 16);
         const auto suffix = loom::check::slice<16>(storage, 19);
@@ -95,10 +95,10 @@ LOOM_CHECK_SCENARIO(aiter_swiglu_f16_values) {
   loom::check::trial<1>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto input =
-        loom::check::fill<_Float16, 186>(static_cast<_Float16>(0.0f));
+        loom::check::fill<186, _Float16>(static_cast<_Float16>(0.0f));
     loom::check::generate<aiter_swiglu_f16_input<186, 31>>(input);
     const auto storage =
-        loom::check::fill<_Float16, 125>(static_cast<_Float16>(-123.0f));
+        loom::check::fill<125, _Float16>(static_cast<_Float16>(-123.0f));
     const auto prefix = loom::check::slice<16>(storage, 0);
     const auto output = loom::check::slice<93>(storage, 16);
     const auto suffix = loom::check::slice<16>(storage, 109);
@@ -113,10 +113,10 @@ LOOM_CHECK_SCENARIO(aiter_swiglu_f16_values) {
   loom::check::trial<1>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto input =
-        loom::check::fill<_Float16, 390>(static_cast<_Float16>(0.0f));
+        loom::check::fill<390, _Float16>(static_cast<_Float16>(0.0f));
     loom::check::generate<aiter_swiglu_f16_input<390, 65>>(input);
     const auto storage =
-        loom::check::fill<_Float16, 227>(static_cast<_Float16>(-123.0f));
+        loom::check::fill<227, _Float16>(static_cast<_Float16>(-123.0f));
     const auto prefix = loom::check::slice<16>(storage, 0);
     const auto output = loom::check::slice<195>(storage, 16);
     const auto suffix = loom::check::slice<16>(storage, 211);
@@ -131,10 +131,10 @@ LOOM_CHECK_SCENARIO(aiter_swiglu_f16_values) {
   loom::check::trial<1>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto input =
-        loom::check::fill<_Float16, 774>(static_cast<_Float16>(0.0f));
+        loom::check::fill<774, _Float16>(static_cast<_Float16>(0.0f));
     loom::check::generate<aiter_swiglu_f16_input<774, 129>>(input);
     const auto storage =
-        loom::check::fill<_Float16, 419>(static_cast<_Float16>(-123.0f));
+        loom::check::fill<419, _Float16>(static_cast<_Float16>(-123.0f));
     const auto prefix = loom::check::slice<16>(storage, 0);
     const auto output = loom::check::slice<387>(storage, 16);
     const auto suffix = loom::check::slice<16>(storage, 403);

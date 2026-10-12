@@ -1,0 +1,39 @@
+// RUN: roundtrip
+#include <loomcxx/kernel.h>
+#include <loomcxx/predicate.h>
+#include <loomcxx/view.h>
+
+loom::type::index bounded_index(loom::type::index position,
+                                loom::type::index count)
+    [[loom::where(loom::predicate::lt(position, count))]] {
+  return position;
+}
+
+float indexed_load(loom::type::buffer<float> input, unsigned count,
+                   unsigned position) {
+  auto extent = loom::index::cast(count);
+  auto coordinate = loom::index::cast(position);
+  loom::assume(loom::predicate::lt(coordinate, extent));
+  auto source = loom::buffer::view<loom::type::dynamic>(
+      input, loom::type::indices{extent},
+      loom::encoding::layout::dense<1>());
+  return loom::view::load(source, coordinate);
+}
+
+// ----
+func.def public @bounded_index(%position: index, %count: index) -> (index) where [lt(%position, %count)] {
+  func.return %position : index
+}
+
+func.def public @indexed_load(%input: buffer, %count: i32, %position: i32) -> (f32) {
+  %7 = scalar.extui %count : i32 to i64
+  %extent$8 = index.cast %7 : i64 to index
+  %9 = scalar.extui %position : i32 to i64
+  %coordinate$10 = index.cast %9 : i64 to index
+  %coordinate$11, %extent$12 = index.assume %coordinate$10, %extent$8 [lt(%coordinate$10, %extent$8)] : index, index
+  %source_layout = encoding.layout.dense : encoding<layout>
+  %14 = index.constant 0 : offset
+  %source = buffer.view %input[%14] : buffer -> view<[%extent$12]xf32, %source_layout>
+  %16 = view.load %source[%coordinate$11] : view<[%extent$12]xf32, %source_layout> -> f32
+  func.return %16 : f32
+}

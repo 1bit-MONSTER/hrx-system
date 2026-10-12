@@ -117,6 +117,19 @@ low.func.def target<vm.core> @scalar_add(%value: reg<vm.value : i32>, %delta: re
 
 // ====
 
+// Callable contracts retain argument and result identities across source-to-Low
+// boundary mapping. Results are signature values rather than body-local values.
+func.def public @preserve_contracts(%limit: index, %value: i32) -> (%bounded: index, %echo: i32) where [range(%limit, 1, 8), eq(%bounded, %limit), eq(%echo, %value)] {
+  func.return %limit, %value : index, i32
+}
+
+// ----
+low.func.def public target<vm.core> abi(vm_function) @preserve_contracts(%limit: reg<vm.value : i64>, %value: reg<vm.value : i32>) -> (%bounded: reg<vm.value : i64>, %echo: reg<vm.value : i32>) where [range(%limit, 1, 8), eq(%bounded, %limit), eq(%echo, %value)] asm {
+  return %limit, %value
+}
+
+// ====
+
 // A separately compiled definition must use the same signature as its caller's
 // declaration. The declaration is resolved by IR linking, not a runtime import.
 func.def public @call_external(%value: i32) -> (i32) {
@@ -124,7 +137,7 @@ func.def public @call_external(%value: i32) -> (i32) {
   func.return %result : i32
 }
 
-func.decl @increment(%value: i32) -> (i32)
+func.decl @increment(%value: i32) -> (%result: i32) where [eq(%result, %value)]
 
 // ----
 low.func.def public target<vm.core> abi(vm_function) @call_external(%value: reg<vm.value : i32>) -> (reg<vm.value : i32>) asm {
@@ -132,4 +145,4 @@ low.func.def public target<vm.core> abi(vm_function) @call_external(%value: reg<
   return %result
 }
 
-low.func.decl target<vm.core> @increment(%value: reg<vm.value : i32>) -> (reg<vm.value : i32>)
+low.func.decl target<vm.core> @increment(%value: reg<vm.value : i32>) -> (%result: reg<vm.value : i32>) where [eq(%result, %value)]

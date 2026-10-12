@@ -176,11 +176,11 @@ void flash_attention_oracle(loom::type::buffer<float> query,
 LOOM_CHECK_SCENARIO(flash_attention_values) {
   loom::check::trial<1>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
-    const auto query = loom::check::fill<float, 64>(0.0f);
-    const auto key = loom::check::fill<float, 64>(0.0f);
-    const auto value = loom::check::fill<float, 64>(0.0f);
+    const auto query = loom::check::fill<64, float>(0.0f);
+    const auto key = loom::check::fill<64, float>(0.0f);
+    const auto value = loom::check::fill<64, float>(0.0f);
     loom::check::generate<flash_attention_inputs<1, 1, 1>>(query, key, value);
-    const auto storage = loom::check::fill<float, 96>(-123.0f);
+    const auto storage = loom::check::fill<96, float>(-123.0f);
     const auto prefix = loom::check::slice<16>(storage, 0);
     const auto output = loom::check::slice<64>(storage, 16);
     const auto suffix = loom::check::slice<16>(storage, 80);
@@ -196,11 +196,11 @@ LOOM_CHECK_SCENARIO(flash_attention_values) {
   });
   loom::check::trial<1>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
-    const auto query = loom::check::fill<float, 192>(0.0f);
-    const auto key = loom::check::fill<float, 1088>(0.0f);
-    const auto value = loom::check::fill<float, 1088>(0.0f);
+    const auto query = loom::check::fill<192, float>(0.0f);
+    const auto key = loom::check::fill<1088, float>(0.0f);
+    const auto value = loom::check::fill<1088, float>(0.0f);
     loom::check::generate<flash_attention_inputs<3, 17, 1>>(query, key, value);
-    const auto storage = loom::check::fill<float, 224>(-123.0f);
+    const auto storage = loom::check::fill<224, float>(-123.0f);
     const auto prefix = loom::check::slice<16>(storage, 0);
     const auto output = loom::check::slice<192>(storage, 16);
     const auto suffix = loom::check::slice<16>(storage, 208);
@@ -216,11 +216,11 @@ LOOM_CHECK_SCENARIO(flash_attention_values) {
   });
   loom::check::trial<1>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
-    const auto query = loom::check::fill<float, 320>(0.0f);
-    const auto key = loom::check::fill<float, 2112>(0.0f);
-    const auto value = loom::check::fill<float, 2112>(0.0f);
+    const auto query = loom::check::fill<320, float>(0.0f);
+    const auto key = loom::check::fill<2112, float>(0.0f);
+    const auto value = loom::check::fill<2112, float>(0.0f);
     loom::check::generate<flash_attention_inputs<5, 33, 16>>(query, key, value);
-    const auto storage = loom::check::fill<float, 352>(-123.0f);
+    const auto storage = loom::check::fill<352, float>(-123.0f);
     const auto prefix = loom::check::slice<16>(storage, 0);
     const auto output = loom::check::slice<320>(storage, 16);
     const auto suffix = loom::check::slice<16>(storage, 336);

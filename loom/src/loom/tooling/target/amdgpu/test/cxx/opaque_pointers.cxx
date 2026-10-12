@@ -56,16 +56,16 @@ void initialize(unsigned* output, unsigned base, unsigned stride) {
 }
 
 LOOM_CHECK_CASE(opaque_roots_and_origins) {
-  const auto first = loom::check::fill<unsigned, 16>(0u);
-  const auto second = loom::check::fill<unsigned, 16>(0u);
-  const auto first_expected = loom::check::fill<unsigned, 16>(0u);
-  const auto second_expected = loom::check::fill<unsigned, 16>(0u);
+  const auto first = loom::check::fill<16, unsigned>(0u);
+  const auto second = loom::check::fill<16, unsigned>(0u);
+  const auto first_expected = loom::check::fill<16, unsigned>(0u);
+  const auto second_expected = loom::check::fill<16, unsigned>(0u);
   loom::check::launch<initialize>(first, 101u, 17u);
   loom::check::launch<initialize>(second, 503u, 29u);
   loom::check::launch<initialize>(first_expected, 101u, 17u);
   loom::check::launch<initialize>(second_expected, 503u, 29u);
-  const auto storage = loom::check::fill<unsigned, 12>(0xA5A5A5A5u);
-  const auto control = loom::check::fill<unsigned, 12>(0xA5A5A5A5u);
+  const auto storage = loom::check::fill<12, unsigned>(0xA5A5A5A5u);
+  const auto control = loom::check::fill<12, unsigned>(0xA5A5A5A5u);
   loom::check::launch<erased>(first, second, loom::check::slice<6>(storage, 0),
                               0u, 4u);
   loom::check::launch<erased>(first, second, loom::check::slice<6>(storage, 6),
@@ -77,24 +77,24 @@ LOOM_CHECK_CASE(opaque_roots_and_origins) {
   loom::check::expect_bitwise(storage, control);
   // First root, origin one, then single-element displacements.
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 1),
-                              loom::check::fill<unsigned, 1>(135u));
+                              loom::check::fill<1, unsigned>(135u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 2),
-                              loom::check::fill<unsigned, 1>(152u));
+                              loom::check::fill<1, unsigned>(152u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 3),
-                              loom::check::fill<unsigned, 1>(169u));
+                              loom::check::fill<1, unsigned>(169u));
   // Second root, origin three, then two-element displacements.
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 7),
-                              loom::check::fill<unsigned, 1>(648u));
+                              loom::check::fill<1, unsigned>(648u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 8),
-                              loom::check::fill<unsigned, 1>(706u));
+                              loom::check::fill<1, unsigned>(706u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 9),
-                              loom::check::fill<unsigned, 1>(764u));
+                              loom::check::fill<1, unsigned>(764u));
   loom::check::expect_bitwise(loom::check::slice<1>(storage, 0),
-                              loom::check::fill<unsigned, 1>(0xA5A5A5A5u));
+                              loom::check::fill<1, unsigned>(0xA5A5A5A5u));
   loom::check::expect_bitwise(loom::check::slice<3>(storage, 4),
-                              loom::check::fill<unsigned, 3>(0xA5A5A5A5u));
+                              loom::check::fill<3, unsigned>(0xA5A5A5A5u));
   loom::check::expect_bitwise(loom::check::slice<2>(storage, 10),
-                              loom::check::fill<unsigned, 2>(0xA5A5A5A5u));
+                              loom::check::fill<2, unsigned>(0xA5A5A5A5u));
   loom::check::expect_bitwise(first, first_expected);
   loom::check::expect_bitwise(second, second_expected);
 }

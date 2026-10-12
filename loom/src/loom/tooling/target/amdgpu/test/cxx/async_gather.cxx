@@ -146,8 +146,8 @@ LOOM_CHECK_SCENARIO(async_gather_finite_counts) {
   loom::check::trial<8>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto count = loom::check::generate<async_gather_record_count>(trial);
-    const auto input = loom::check::iota<int, kInputElementCount>(1, 1);
-    const auto output = loom::check::fill<int, kSubgroupSize>(-1);
+    const auto input = loom::check::iota<kInputElementCount, int>(1, 1);
+    const auto output = loom::check::fill<kSubgroupSize, int>(-1);
     loom::check::compare<async_gather_serial, async_gather_reference>(
         count, input, output,
         [&] { loom::check::expect_bitwise(output, output); });
@@ -157,22 +157,22 @@ LOOM_CHECK_SCENARIO(async_gather_finite_counts) {
 LOOM_CHECK_CASE(async_gather_repeated_reuse) {
   loom::check::require("hal.amdgpu.descriptor_set", "descriptor_set",
                        "amdgpu.cdna3.core");
-  const auto input = loom::check::iota<int, kInputElementCount>(1, 1);
-  const auto output = loom::check::fill<int, kSubgroupSize>(-1);
+  const auto input = loom::check::iota<kInputElementCount, int>(1, 1);
+  const auto output = loom::check::fill<kSubgroupSize, int>(-1);
   loom::check::launch<async_gather_serial>(kRecordCount, input, output);
   // Input[record, lane] is 1 + 64*record + lane. Mirrored-lane consumption
   // across N records therefore produces N*(64-lane) + 32*N*(N-1).
   loom::check::expect_bitwise(
-      output, loom::check::iota<int, kSubgroupSize>(2121792, -257));
+      output, loom::check::iota<kSubgroupSize, int>(2121792, -257));
 }
 
 LOOM_CHECK_CASE(async_gather_distinct_groups) {
   loom::check::require("hal.amdgpu.descriptor_set", "descriptor_set",
                        "amdgpu.cdna3.core");
-  const auto input = loom::check::iota<int, kInputElementCount>(1, 1);
-  const auto output = loom::check::fill<int, kSubgroupSize>(-1);
+  const auto input = loom::check::iota<kInputElementCount, int>(1, 1);
+  const auto output = loom::check::fill<kSubgroupSize, int>(-1);
   loom::check::launch<async_gather_two_groups>(input, output);
   // The first two records contribute (64-lane) + (128-lane).
   loom::check::expect_bitwise(output,
-                              loom::check::iota<int, kSubgroupSize>(192, -2));
+                              loom::check::iota<kSubgroupSize, int>(192, -2));
 }

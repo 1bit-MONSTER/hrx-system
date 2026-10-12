@@ -96,7 +96,7 @@ const loom_overflow_dim_t* BoundTypeStorage::retain_dimensions(
   return payload.data();
 }
 
-void ViewExtents::assign(std::span<const int64_t> extents) {
+void ShapeExtents::assign(std::span<const int64_t> extents) {
   IREE_ASSERT(!extents.empty() && extents.size() <= LOOM_TYPE_MAX_RANK);
   rank_ = extents.size();
   if (rank_ <= inline_extents_.size()) {
@@ -106,6 +106,20 @@ void ViewExtents::assign(std::span<const int64_t> extents) {
   }
   overflow_extents_ = std::make_unique<int64_t[]>(rank_);
   std::copy(extents.begin(), extents.end(), overflow_extents_.get());
+}
+
+loom_type_t TensorPartition::bind_type(
+    std::span<const loom_value_id_t> dynamic_extents) const {
+  IREE_ASSERT(dynamic_extents.size() == (is_dynamic() ? 1u : 0u));
+  auto dimension = is_dynamic() ? loom_dim_pack_dynamic(dynamic_extents[0])
+                                : loom_dim_pack_static(extent);
+  return loom_type_shaped_1d(LOOM_TYPE_TENSOR, element, dimension, 0);
+}
+
+loom_value_id_t TensorPartition::tensor_value(
+    std::span<const loom_value_id_t> components) const {
+  IREE_ASSERT(components.size() == component_count);
+  return components.back();
 }
 
 const cxx::Type* Types::unqualified(const cxx::Type* type) {
@@ -139,7 +153,9 @@ const Partition& Types::partition(const cxx::Type* input, cxx::AST* owner) {
 
 bool Types::requires_binding(const cxx::Type* input, cxx::AST* owner) {
   const auto& admitted = partition(input, owner);
-  if (admitted.kind == ValueKind::View) {
+  if (admitted.kind == ValueKind::View ||
+      (admitted.kind == ValueKind::Tensor &&
+       static_cast<const TensorPartition&>(admitted).is_dynamic())) {
     return true;
   }
   return admitted.kind == ValueKind::Record
@@ -397,6 +413,62 @@ const EncodingPartition* Types::encoding(const cxx::ClassType* input,
   return admitted;
 }
 
+ShapeExtents Types::parse_shape(const cxx::Type* input,
+                                std::string_view value_kind, cxx::AST* owner) {
+  auto* shape_type =
+      input ? cxx::type_cast<cxx::ClassType>(unqualified(input)) : nullptr;
+  auto* shape_source = shape_type ? shape_type->definition() : nullptr;
+  auto* shape_binding = shape_source ? type_binding(shape_source) : nullptr;
+  if (!shape_binding || shape_binding->arguments.size() != 1 ||
+      shape_binding->arguments[0]->name() != "shape") {
+    diagnostics_.reject(unit_, owner,
+                        std::string(value_kind) +
+                            " shape must be a loom::type::shape "
+                            "specialization");
+  }
+  auto* shape_pack = template_argument_pack(shape_source);
+  auto shape_arguments =
+      shape_pack ? std::span<cxx::Symbol* const>(shape_pack->elements())
+                 : std::span<cxx::Symbol* const>{};
+  if (shape_arguments.empty() || shape_arguments.size() > LOOM_TYPE_MAX_RANK) {
+    diagnostics_.reject(unit_, owner,
+                        std::string(value_kind) +
+                            " rank must be in Loom's supported range [1, 15]");
+  }
+
+  cxx::ASTInterpreter interpreter(&unit_);
+  auto pointer_bytes = unit_.control()->memoryLayout()->sizeOfPointer();
+  uint64_t dynamic = pointer_bytes == 4 ? UINT32_MAX : UINT64_MAX;
+  std::array<int64_t, LOOM_TYPE_MAX_RANK> parsed_extents;
+  for (size_t axis = 0; axis < shape_arguments.size(); ++axis) {
+    auto value = cxx::template_argument_value(shape_arguments[axis]);
+    auto number = value ? interpreter.toInt(*value) : std::nullopt;
+    if (!number) {
+      diagnostics_.reject(
+          unit_, owner,
+          std::string(value_kind) + " extents require constant size arguments");
+    }
+    uint64_t bits = static_cast<uint64_t>(*number);
+    if (pointer_bytes == 4) {
+      bits &= UINT32_MAX;
+    }
+    if (bits == dynamic) {
+      parsed_extents[axis] = -1;
+    } else if (*number < 0 || bits > LOOM_DIM_MAX_STATIC_SIZE) {
+      diagnostics_.reject(unit_, owner,
+                          std::string(value_kind) +
+                              " extent is outside Loom's static dimension "
+                              "range");
+    } else {
+      parsed_extents[axis] = static_cast<int64_t>(bits);
+    }
+  }
+  ShapeExtents result;
+  result.assign(
+      std::span<const int64_t>(parsed_extents).first(shape_arguments.size()));
+  return result;
+}
+
 const ViewPartition* Types::view(const cxx::ClassType* input, cxx::AST* owner) {
   auto* source = input->definition();
   if (auto found = views_.find(source); found != views_.end()) {
@@ -421,26 +493,8 @@ const ViewPartition* Types::view(const cxx::ClassType* input, cxx::AST* owner) {
                         "view values require shape, element, and encoding "
                         "role arguments");
   }
-  auto* shape_argument = cxx::template_argument_type(arguments[0]);
-  auto* shape_type =
-      shape_argument
-          ? cxx::type_cast<cxx::ClassType>(unqualified(shape_argument))
-          : nullptr;
-  auto* shape_source = shape_type ? shape_type->definition() : nullptr;
-  auto* shape_binding = shape_source ? type_binding(shape_source) : nullptr;
-  if (!shape_binding || shape_binding->arguments.size() != 1 ||
-      shape_binding->arguments[0]->name() != "shape") {
-    diagnostics_.reject(
-        unit_, owner, "view shape must be a loom::type::shape specialization");
-  }
-  auto* shape_pack = template_argument_pack(shape_source);
-  auto shape_arguments =
-      shape_pack ? std::span<cxx::Symbol* const>(shape_pack->elements())
-                 : std::span<cxx::Symbol* const>{};
-  if (shape_arguments.empty() || shape_arguments.size() > LOOM_TYPE_MAX_RANK) {
-    diagnostics_.reject(unit_, owner,
-                        "view rank must be in Loom's supported range [1, 15]");
-  }
+  auto extents =
+      parse_shape(cxx::template_argument_type(arguments[0]), "view", owner);
   auto* element_type = cxx::template_argument_type(arguments[1]);
   if (!element_type) {
     diagnostics_.reject(unit_, owner,
@@ -462,30 +516,10 @@ const ViewPartition* Types::view(const cxx::ClassType* input, cxx::AST* owner) {
   }
   auto encoding_role = role_value == 0 ? LOOM_ENCODING_ROLE_ADDRESS_LAYOUT
                                        : LOOM_ENCODING_ROLE_PHYSICAL_STORAGE;
-  auto pointer_bytes = unit_.control()->memoryLayout()->sizeOfPointer();
-  uint64_t dynamic = pointer_bytes == 4 ? UINT32_MAX : UINT64_MAX;
-  std::array<int64_t, LOOM_TYPE_MAX_RANK> extents;
   size_t dynamic_count = 0;
-  for (size_t axis = 0; axis < shape_arguments.size(); ++axis) {
-    auto value = cxx::template_argument_value(shape_arguments[axis]);
-    auto number = value ? interpreter.toInt(*value) : std::nullopt;
-    if (!number) {
-      diagnostics_.reject(unit_, owner,
-                          "view extents require constant size arguments");
-    }
-    uint64_t bits = static_cast<uint64_t>(*number);
-    if (pointer_bytes == 4) {
-      bits &= UINT32_MAX;
-    }
-    if (bits == dynamic) {
-      extents[axis] = -1;
+  for (auto extent : extents) {
+    if (extent < 0) {
       ++dynamic_count;
-    } else if (*number < 0 || bits > LOOM_DIM_MAX_STATIC_SIZE) {
-      diagnostics_.reject(unit_, owner,
-                          "view extent is outside Loom's static dimension "
-                          "range");
-    } else {
-      extents[axis] = static_cast<int64_t>(bits);
     }
   }
   auto result = std::make_unique<ViewPartition>();
@@ -496,8 +530,7 @@ const ViewPartition* Types::view(const cxx::ClassType* input, cxx::AST* owner) {
   result->element = loom_type_element_type(element);
   result->access_flags = memory_access_flags(element_type);
   result->encoding_role = encoding_role;
-  result->extents.assign(
-      std::span<const int64_t>(extents).first(shape_arguments.size()));
+  result->extents = std::move(extents);
   for (size_t axis = 0; axis < result->extents.size(); ++axis) {
     if (result->extents[axis] < 0) {
       result->component_names.push_back("dim" + std::to_string(axis));
@@ -533,10 +566,15 @@ const TensorPartition* Types::tensor(const cxx::ClassType* input,
   auto arguments = source->templateArguments();
   if (arguments.size() != 2) {
     diagnostics_.reject(unit_, owner,
-                        "rank-one tensor values require an element and extent "
-                        "argument");
+                        "tensor values require shape and element arguments");
   }
-  auto* element = cxx::template_argument_type(arguments[0]);
+  auto extents =
+      parse_shape(cxx::template_argument_type(arguments[0]), "tensor", owner);
+  if (extents.size() != 1) {
+    diagnostics_.reject(unit_, owner,
+                        "check tensors currently require rank one");
+  }
+  auto* element = cxx::template_argument_type(arguments[1]);
   auto element_type = get(element, owner);
   auto bytes = unit_.control()->memoryLayout()->sizeOf(element);
   if (loom_type_kind(element_type) != LOOM_TYPE_SCALAR ||
@@ -547,23 +585,18 @@ const TensorPartition* Types::tensor(const cxx::ClassType* input,
                         "tensor elements require unqualified non-boolean "
                         "scalar types");
   }
-  auto extent = cxx::template_argument_value(arguments[1]);
-  cxx::ASTInterpreter interpreter(&unit_);
-  auto count = extent ? interpreter.toInt(*extent) : std::nullopt;
-  if (!count || *count < 0 ||
-      static_cast<uint64_t>(*count) > INT64_MAX / *bytes) {
+  if (extents[0] >= 0 &&
+      static_cast<uint64_t>(extents[0]) > INT64_MAX / *bytes) {
     diagnostics_.reject(unit_, owner,
-                        "tensor extent requires a nonnegative constant with "
-                        "a representable byte length");
+                        "tensor extent has an unrepresentable byte length");
   }
   auto result = std::make_unique<TensorPartition>();
   result->kind = ValueKind::Tensor;
-  result->component_count = 1;
+  result->component_count = extents[0] < 0 ? 2 : 1;
   result->source = source;
   result->element_type = element;
-  result->type = loom_type_shaped_1d(LOOM_TYPE_TENSOR,
-                                     loom_type_element_type(element_type),
-                                     loom_dim_pack_static(*count), 0);
+  result->element = loom_type_element_type(element_type);
+  result->extent = extents[0];
   result->element_bytes = *bytes;
   auto* admitted = result.get();
   tensors_.emplace(source, std::move(result));
@@ -647,9 +680,16 @@ void Types::append_component_names(const Partition& partition,
     case ValueKind::Index:
     case ValueKind::OpaqueDialect:
     case ValueKind::Encoding:
-    case ValueKind::Tensor:
       append({});
       return;
+    case ValueKind::Tensor: {
+      const auto& tensor = static_cast<const TensorPartition&>(partition);
+      if (tensor.is_dynamic()) {
+        append("dim0");
+      }
+      append({});
+      return;
+    }
     case ValueKind::Pointer:
       append({});
       append("byte_offset");
@@ -780,7 +820,13 @@ loom_type_t Types::get(const cxx::Type* input, cxx::AST* ast) {
         return loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
       }
       if (admitted && admitted->kind == ValueKind::Tensor) {
-        return static_cast<const TensorPartition*>(admitted)->type;
+        const auto& tensor = static_cast<const TensorPartition&>(*admitted);
+        if (tensor.is_dynamic()) {
+          diagnostics_.reject(
+              unit_, ast,
+              "dynamic tensor types require a bound extent identity");
+        }
+        return tensor.bind_type({});
       }
       if (admitted && admitted->kind == ValueKind::OpaqueDialect) {
         return static_cast<const OpaqueDialectPartition*>(admitted)->type;
@@ -981,9 +1027,17 @@ void Types::append_bound(const cxx::Type* input, cxx::AST* owner,
       output.push_back(loom_type_encoding_with_role(
           static_cast<const EncodingPartition&>(admitted).role));
       return;
-    case ValueKind::Tensor:
-      output.push_back(static_cast<const TensorPartition&>(admitted).type);
+    case ValueKind::Tensor: {
+      const auto& tensor = static_cast<const TensorPartition&>(admitted);
+      if (tensor.is_dynamic()) {
+        IREE_ASSERT(identities.size() == tensor.component_count);
+        output.push_back(loom_type_scalar(LOOM_SCALAR_TYPE_INDEX));
+        output.push_back(tensor.bind_type(identities.first(1)));
+      } else {
+        output.push_back(tensor.bind_type({}));
+      }
       return;
+    }
     case ValueKind::Record: {
       const auto& record = static_cast<const RecordPartition&>(admitted);
       for (const auto& member : record.members) {

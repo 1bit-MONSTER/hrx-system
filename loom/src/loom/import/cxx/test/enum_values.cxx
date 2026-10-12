@@ -349,21 +349,21 @@ LOOM_CHECK_SCENARIO(enum_values_functions) {
   loom::check::trial<10>([](loom::check::ordinal trial,
                             loom::check::entropy entropy) {
     const auto input = loom::check::generate<enum_command_input>(trial);
-    const auto output = loom::check::fill<unsigned long long, 5>(-123ll);
+    const auto output = loom::check::fill<5, unsigned long long>(-123ll);
     loom::check::compare<enum_command_observations, enum_command_oracle>(
         input, output, [&] { loom::check::expect_bitwise(output, output); });
   });
   loom::check::trial<256>([](loom::check::ordinal trial,
                              loom::check::entropy entropy) {
     const auto input = loom::check::generate<enum_byte_input>(trial);
-    const auto output = loom::check::fill<unsigned, 2>(-123u);
+    const auto output = loom::check::fill<2, unsigned>(-123u);
     loom::check::compare<enum_byte_observations, enum_byte_oracle>(
         input, output, [&] { loom::check::expect_bitwise(output, output); });
   });
   loom::check::trial<256>([](loom::check::ordinal trial,
                              loom::check::entropy entropy) {
     const auto input = loom::check::generate<enum_signed_byte_input>(trial);
-    const auto output = loom::check::fill<long long, 2>(-123ll);
+    const auto output = loom::check::fill<2, long long>(-123ll);
     loom::check::compare<enum_signed_byte_observations,
                          enum_signed_byte_oracle>(
         input, output, [&] { loom::check::expect_bitwise(output, output); });
@@ -372,7 +372,7 @@ LOOM_CHECK_SCENARIO(enum_values_functions) {
                             loom::check::entropy entropy) {
     const auto left = loom::check::generate<enum_wide_pair_input>(trial, 0u);
     const auto right = loom::check::generate<enum_wide_pair_input>(trial, 1u);
-    const auto output = loom::check::fill<unsigned, 1>(-123u);
+    const auto output = loom::check::fill<1, unsigned>(-123u);
     loom::check::compare<enum_compare64_observation, enum_compare64_oracle>(
         left, right, output,
         [&] { loom::check::expect_bitwise(output, output); });
@@ -380,7 +380,7 @@ LOOM_CHECK_SCENARIO(enum_values_functions) {
   loom::check::trial<7>([](loom::check::ordinal trial,
                            loom::check::entropy entropy) {
     const auto input = loom::check::generate<enum_wide_input>(trial);
-    const auto output = loom::check::fill<unsigned, 1>(-123u);
+    const auto output = loom::check::fill<1, unsigned>(-123u);
     loom::check::compare<enum_inferred_unsigned_observation,
                          enum_inferred_unsigned_oracle>(
         input, output, [&] { loom::check::expect_bitwise(output, output); });
@@ -390,10 +390,10 @@ LOOM_CHECK_SCENARIO(enum_values_functions) {
 LOOM_CHECK_SCENARIO(enum_storage_values) {
   loom::check::trial<3>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<Byte, 64>((Byte)0);
+        const auto input = loom::check::fill<64, Byte>((Byte)0);
         loom::check::generate<enum_storage_u8_input>(input);
         const auto delta = loom::check::generate<enum_storage_u8_delta>(trial);
-        const auto storage = loom::check::fill<Byte, 96>((Byte)-123);
+        const auto storage = loom::check::fill<96, Byte>((Byte)-123);
         const auto output = loom::check::slice<64>(storage, 16);
         loom::check::compare<enum_storage_u8, enum_storage_u8_oracle>(
             input, output, delta, [&] {
@@ -403,10 +403,10 @@ LOOM_CHECK_SCENARIO(enum_storage_values) {
       });
   loom::check::trial<3>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<Short, 64>((Short)0);
+        const auto input = loom::check::fill<64, Short>((Short)0);
         loom::check::generate<enum_storage_u16_input>(input);
         const auto delta = loom::check::generate<enum_storage_u16_delta>(trial);
-        const auto storage = loom::check::fill<Short, 96>((Short)-123);
+        const auto storage = loom::check::fill<96, Short>((Short)-123);
         const auto output = loom::check::slice<64>(storage, 16);
         loom::check::compare<enum_storage_u16, enum_storage_u16_oracle>(
             input, output, delta, [&] {
@@ -416,10 +416,10 @@ LOOM_CHECK_SCENARIO(enum_storage_values) {
       });
   loom::check::trial<3>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<Word, 64>((Word)0);
+        const auto input = loom::check::fill<64, Word>((Word)0);
         loom::check::generate<enum_storage_u32_input>(input);
         const auto delta = loom::check::generate<enum_storage_u32_delta>(trial);
-        const auto storage = loom::check::fill<Word, 96>((Word)-123);
+        const auto storage = loom::check::fill<96, Word>((Word)-123);
         const auto output = loom::check::slice<64>(storage, 16);
         loom::check::compare<enum_storage_u32, enum_storage_u32_oracle>(
             input, output, delta, [&] {
@@ -429,10 +429,10 @@ LOOM_CHECK_SCENARIO(enum_storage_values) {
       });
   loom::check::trial<3>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto input = loom::check::fill<Long, 64>((Long)0);
+        const auto input = loom::check::fill<64, Long>((Long)0);
         loom::check::generate<enum_storage_u64_input>(input);
         const auto delta = loom::check::generate<enum_storage_u64_delta>(trial);
-        const auto storage = loom::check::fill<Long, 96>((Long)-123);
+        const auto storage = loom::check::fill<96, Long>((Long)-123);
         const auto output = loom::check::slice<64>(storage, 16);
         loom::check::compare<enum_storage_u64, enum_storage_u64_oracle>(
             input, output, delta, [&] {

@@ -140,10 +140,10 @@ void vector_depth_span_oracle(loom::type::buffer<unsigned> previous,
 LOOM_CHECK_SCENARIO(vector_depth_values) {
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto previous = loom::check::fill<unsigned, 16>(0u);
-        const auto depth = loom::check::fill<unsigned, 16>(0u);
+        const auto previous = loom::check::fill<16, unsigned>(0u);
+        const auto depth = loom::check::fill<16, unsigned>(0u);
         loom::check::generate<vector_depth_inputs<16>>(previous, depth);
-        const auto storage = loom::check::fill<unsigned, 48>(-123u);
+        const auto storage = loom::check::fill<48, unsigned>(-123u);
         const auto output = loom::check::slice<16>(storage, 16);
         loom::check::compare<vector_depth, vector_depth_oracle<16>>(
             previous, depth, output, 1u, [&] {
@@ -154,10 +154,10 @@ LOOM_CHECK_SCENARIO(vector_depth_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto previous = loom::check::fill<unsigned, 48>(0u);
-        const auto depth = loom::check::fill<unsigned, 48>(0u);
+        const auto previous = loom::check::fill<48, unsigned>(0u);
+        const auto depth = loom::check::fill<48, unsigned>(0u);
         loom::check::generate<vector_depth_inputs<48>>(previous, depth);
-        const auto storage = loom::check::fill<unsigned, 80>(-123u);
+        const auto storage = loom::check::fill<80, unsigned>(-123u);
         const auto output = loom::check::slice<48>(storage, 16);
         loom::check::compare<vector_depth, vector_depth_oracle<48>>(
             previous, depth, output, 3u, [&] {
@@ -168,10 +168,10 @@ LOOM_CHECK_SCENARIO(vector_depth_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto previous = loom::check::fill<unsigned, 112>(0u);
-        const auto depth = loom::check::fill<unsigned, 112>(0u);
+        const auto previous = loom::check::fill<112, unsigned>(0u);
+        const auto depth = loom::check::fill<112, unsigned>(0u);
         loom::check::generate<vector_depth_inputs<112>>(previous, depth);
-        const auto storage = loom::check::fill<unsigned, 144>(-123u);
+        const auto storage = loom::check::fill<144, unsigned>(-123u);
         const auto output = loom::check::slice<112>(storage, 16);
         loom::check::compare<vector_depth, vector_depth_oracle<112>>(
             previous, depth, output, 7u, [&] {
@@ -185,9 +185,9 @@ LOOM_CHECK_SCENARIO(vector_depth_values) {
 LOOM_CHECK_SCENARIO(vector_depth_span_values) {
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto previous = loom::check::fill<unsigned, 1>(0u);
+        const auto previous = loom::check::fill<1, unsigned>(0u);
         loom::check::generate<vector_depth_span_input<1>>(previous);
-        const auto storage = loom::check::fill<unsigned, 32>(-123u);
+        const auto storage = loom::check::fill<32, unsigned>(-123u);
         const auto output = loom::check::slice<0>(storage, 16);
         loom::check::compare<vector_depth_span, vector_depth_span_oracle<0>>(
             previous, output, 0u, 0xffff1234u, 0x137cfu, [&] {
@@ -197,9 +197,9 @@ LOOM_CHECK_SCENARIO(vector_depth_span_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto previous = loom::check::fill<unsigned, 1>(0u);
+        const auto previous = loom::check::fill<1, unsigned>(0u);
         loom::check::generate<vector_depth_span_input<1>>(previous);
-        const auto storage = loom::check::fill<unsigned, 33>(-123u);
+        const auto storage = loom::check::fill<33, unsigned>(-123u);
         const auto output = loom::check::slice<1>(storage, 16);
         loom::check::compare<vector_depth_span, vector_depth_span_oracle<1>>(
             previous, output, 1u, 0xffff1234u, 0x137cfu, [&] {
@@ -209,9 +209,9 @@ LOOM_CHECK_SCENARIO(vector_depth_span_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto previous = loom::check::fill<unsigned, 15>(0u);
+        const auto previous = loom::check::fill<15, unsigned>(0u);
         loom::check::generate<vector_depth_span_input<15>>(previous);
-        const auto storage = loom::check::fill<unsigned, 47>(-123u);
+        const auto storage = loom::check::fill<47, unsigned>(-123u);
         const auto output = loom::check::slice<15>(storage, 16);
         loom::check::compare<vector_depth_span, vector_depth_span_oracle<15>>(
             previous, output, 15u, 0xffff1234u, 0x137cfu, [&] {
@@ -221,9 +221,9 @@ LOOM_CHECK_SCENARIO(vector_depth_span_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto previous = loom::check::fill<unsigned, 16>(0u);
+        const auto previous = loom::check::fill<16, unsigned>(0u);
         loom::check::generate<vector_depth_span_input<16>>(previous);
-        const auto storage = loom::check::fill<unsigned, 48>(-123u);
+        const auto storage = loom::check::fill<48, unsigned>(-123u);
         const auto output = loom::check::slice<16>(storage, 16);
         loom::check::compare<vector_depth_span, vector_depth_span_oracle<16>>(
             previous, output, 16u, 0xffff1234u, 0x137cfu, [&] {
@@ -233,9 +233,9 @@ LOOM_CHECK_SCENARIO(vector_depth_span_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto previous = loom::check::fill<unsigned, 17>(0u);
+        const auto previous = loom::check::fill<17, unsigned>(0u);
         loom::check::generate<vector_depth_span_input<17>>(previous);
-        const auto storage = loom::check::fill<unsigned, 49>(-123u);
+        const auto storage = loom::check::fill<49, unsigned>(-123u);
         const auto output = loom::check::slice<17>(storage, 16);
         loom::check::compare<vector_depth_span, vector_depth_span_oracle<17>>(
             previous, output, 17u, 0xffff1234u, 0x137cfu, [&] {
@@ -245,9 +245,9 @@ LOOM_CHECK_SCENARIO(vector_depth_span_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto previous = loom::check::fill<unsigned, 31>(0u);
+        const auto previous = loom::check::fill<31, unsigned>(0u);
         loom::check::generate<vector_depth_span_input<31>>(previous);
-        const auto storage = loom::check::fill<unsigned, 63>(-123u);
+        const auto storage = loom::check::fill<63, unsigned>(-123u);
         const auto output = loom::check::slice<31>(storage, 16);
         loom::check::compare<vector_depth_span, vector_depth_span_oracle<31>>(
             previous, output, 31u, 0xffff1234u, 0x137cfu, [&] {
@@ -257,9 +257,9 @@ LOOM_CHECK_SCENARIO(vector_depth_span_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto previous = loom::check::fill<unsigned, 32>(0u);
+        const auto previous = loom::check::fill<32, unsigned>(0u);
         loom::check::generate<vector_depth_span_input<32>>(previous);
-        const auto storage = loom::check::fill<unsigned, 64>(-123u);
+        const auto storage = loom::check::fill<64, unsigned>(-123u);
         const auto output = loom::check::slice<32>(storage, 16);
         loom::check::compare<vector_depth_span, vector_depth_span_oracle<32>>(
             previous, output, 32u, 0xffff1234u, 0x137cfu, [&] {
@@ -269,9 +269,9 @@ LOOM_CHECK_SCENARIO(vector_depth_span_values) {
       });
   loom::check::trial<1>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
-        const auto previous = loom::check::fill<unsigned, 129>(0u);
+        const auto previous = loom::check::fill<129, unsigned>(0u);
         loom::check::generate<vector_depth_span_input<129>>(previous);
-        const auto storage = loom::check::fill<unsigned, 161>(-123u);
+        const auto storage = loom::check::fill<161, unsigned>(-123u);
         const auto output = loom::check::slice<129>(storage, 16);
         loom::check::compare<vector_depth_span, vector_depth_span_oracle<129>>(
             previous, output, 129u, 0xffff1234u, 0x137cfu, [&] {

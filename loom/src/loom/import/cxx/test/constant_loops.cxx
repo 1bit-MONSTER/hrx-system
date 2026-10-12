@@ -240,7 +240,7 @@ LOOM_CHECK_SCENARIO(constant_loops_functions) {
   loom::check::trial<13>([](loom::check::ordinal trial,
                             loom::check::entropy entropy) {
     const auto start = loom::check::generate<constant_loop_start>(trial);
-    const auto output = loom::check::fill<unsigned, 3>(-123u);
+    const auto output = loom::check::fill<3, unsigned>(-123u);
     loom::check::compare<constant_loop_function_observations,
                          constant_loop_function_oracle>(
         start, output, [&] { loom::check::expect_bitwise(output, output); });
@@ -248,7 +248,7 @@ LOOM_CHECK_SCENARIO(constant_loops_functions) {
   loom::check::trial<16>([](loom::check::ordinal trial,
                             loom::check::entropy entropy) {
     const auto start = loom::check::generate<constant_edge_start>(trial);
-    const auto output = loom::check::fill<unsigned, 1>(-123u);
+    const auto output = loom::check::fill<1, unsigned>(-123u);
     loom::check::compare<constant_edge_observation, constant_edge_oracle>(
         start, output, [&] { loom::check::expect_bitwise(output, output); });
   });
@@ -258,9 +258,9 @@ LOOM_CHECK_SCENARIO(constant_loop_cases) {
   loom::check::trial<13>(
       [](loom::check::ordinal trial, loom::check::entropy entropy) {
         const auto start = loom::check::generate<constant_loop_start>(trial);
-        const auto input = loom::check::fill<unsigned, 1280>(0u);
+        const auto input = loom::check::fill<1280, unsigned>(0u);
         loom::check::generate<constant_loop_input>(input);
-        const auto storage = loom::check::fill<unsigned, 800>(-123u);
+        const auto storage = loom::check::fill<800, unsigned>(-123u);
         const auto output = loom::check::slice<768>(storage, 16);
         loom::check::compare<constant_loops, constant_loops_oracle>(
             input, output, start, [&] {

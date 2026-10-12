@@ -47,15 +47,15 @@ void configured_workgroup_storage(unsigned* output) {
 }
 
 LOOM_CHECK_CASE(configured_workgroup_one_stage) {
-  const auto output = loom::check::fill<unsigned, kWorkgroupSize>(0u);
+  const auto output = loom::check::fill<kWorkgroupSize, unsigned>(0u);
   loom::check::launch<configured_workgroup_storage>(output);
   loom::check::expect_bitwise(
-      output, loom::check::iota<unsigned, kWorkgroupSize>(8u, 1u));
+      output, loom::check::iota<kWorkgroupSize, unsigned>(8u, 1u));
 }
 
 LOOM_CHECK_CASE(configured_workgroup_four_stages) {
-  const auto output = loom::check::fill<unsigned, kWorkgroupSize>(0u);
+  const auto output = loom::check::fill<kWorkgroupSize, unsigned>(0u);
   loom::check::launch<configured_workgroup_storage>(output);
   loom::check::expect_bitwise(
-      output, loom::check::iota<unsigned, kWorkgroupSize>(11u, 1u));
+      output, loom::check::iota<kWorkgroupSize, unsigned>(11u, 1u));
 }
