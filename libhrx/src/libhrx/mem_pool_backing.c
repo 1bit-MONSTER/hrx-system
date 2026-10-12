@@ -105,33 +105,56 @@ static iree_hal_pool_t** hrx_mem_pool_backing_source_slot(
   return NULL;
 }
 
-// HRX sources span every family of their device. Construction selects one
-// complete native policy; allocation and import then carry only geometry or
-// external storage. No source allocates payload until used.
+// Ordinary HRX sources span every family of their device. Remappable backing
+// spans the sealed group so later HIP access grants can name any participating
+// device. Construction qualifies that complete access set before allocation.
+// No source allocates payload until used.
 static iree_status_t hrx_mem_pool_backing_create_source(
     hrx_device_t device, hrx_mem_pool_source_kind_t kind,
     hrx_buffer_usage_t usage, iree_hal_pool_t** out_pool) {
-  const iree_hal_device_queue_spec_t* queues =
-      iree_hal_device_spec_queues(iree_hal_device_spec(device->hal_device));
+  const bool mapping_source =
+      iree_any_bit_set(usage, HRX_BUFFER_USAGE_MAPPING_SOURCE);
+  const iree_host_size_t device_count =
+      mapping_source
+          ? iree_hal_device_group_device_count(device->hal_device_group)
+          : 1;
+  iree_host_size_t family_count = 0;
+  for (iree_host_size_t i = 0; i < device_count; ++i) {
+    iree_hal_device_t* participant =
+        mapping_source
+            ? iree_hal_device_group_device_at(device->hal_device_group, i)
+            : device->hal_device;
+    family_count +=
+        iree_hal_device_spec_queues(iree_hal_device_spec(participant))
+            ->family_count;
+  }
   iree_hal_pool_family_access_t* families = NULL;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
-      iree_allocator_system(), queues->family_count * sizeof(*families),
-      (void**)&families));
-  memset(families, 0, queues->family_count * sizeof(*families));
-  for (iree_host_size_t i = 0; i < queues->family_count; ++i) {
-    families[i].family = iree_hal_device_queue_family(device->hal_device, i);
-    families[i].usage =
-        IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
-    if (iree_any_bit_set(usage, HRX_BUFFER_USAGE_MAPPING_SOURCE)) {
-      families[i].interfaces |= UINT64_C(1)
-                                << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
-    }
-    if (kind == HRX_MEM_POOL_SOURCE_UNCACHED_DEVICE) {
-      families[i].requirements = IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED;
-    } else if (kind == HRX_MEM_POOL_SOURCE_HOST ||
-               kind == HRX_MEM_POOL_SOURCE_HOST_IMPORT) {
-      families[i].requirements =
-          IREE_HAL_POOL_ACCESS_REQUIRE_COHERENT_WITH_HOST;
+  IREE_RETURN_IF_ERROR(
+      iree_allocator_malloc_array(iree_allocator_system(), family_count,
+                                  sizeof(*families), (void**)&families));
+  iree_host_size_t family_index = 0;
+  for (iree_host_size_t i = 0; i < device_count; ++i) {
+    iree_hal_device_t* participant =
+        mapping_source
+            ? iree_hal_device_group_device_at(device->hal_device_group, i)
+            : device->hal_device;
+    const iree_hal_device_queue_spec_t* queues =
+        iree_hal_device_spec_queues(iree_hal_device_spec(participant));
+    for (iree_host_size_t j = 0; j < queues->family_count; ++j) {
+      iree_hal_pool_family_access_t* family = &families[family_index++];
+      family->family = iree_hal_device_queue_family(participant, j);
+      family->usage =
+          IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_DISPATCH;
+      if (mapping_source) {
+        family->interfaces = UINT64_C(1)
+                             << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+      }
+      if (kind == HRX_MEM_POOL_SOURCE_UNCACHED_DEVICE) {
+        family->requirements = IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED;
+      } else if (kind == HRX_MEM_POOL_SOURCE_HOST ||
+                 kind == HRX_MEM_POOL_SOURCE_HOST_IMPORT) {
+        family->requirements = IREE_HAL_POOL_ACCESS_REQUIRE_COHERENT_WITH_HOST;
+      }
     }
   }
   const iree_hal_pool_host_access_t host = {
@@ -140,7 +163,7 @@ static iree_status_t hrx_mem_pool_backing_create_source(
       .cacheability = IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
   };
   iree_hal_pool_scope_t scope = {
-      .family_count = queues->family_count,
+      .family_count = family_count,
       .families = families,
   };
   iree_hal_slab_pool_options_t options;

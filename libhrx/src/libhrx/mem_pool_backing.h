@@ -73,8 +73,9 @@ iree_status_t hrx_mem_pool_backing_create_pool(hrx_device_t device,
 // receives required coherent host access; device-uncached storage receives a
 // hard uncached family requirement; all other storage prefers the device's
 // physical placement. MAPPING_SOURCE usage selects native backing that can be
-// aliased into explicit reservations; the returned pool publishes its mapping
-// geometry before any payload allocation.
+// aliased into explicit reservations on every device in the sealed group;
+// unsupported complete access sets fail construction. The returned pool
+// publishes its mapping geometry before any payload allocation.
 iree_status_t hrx_mem_pool_backing_retain_allocation_source(
     hrx_device_t device, hrx_memory_type_t memory_type,
     hrx_buffer_usage_t usage, iree_hal_pool_t** out_pool);

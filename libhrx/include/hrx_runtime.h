@@ -220,10 +220,11 @@ typedef uint32_t hrx_buffer_usage_t;
 #define HRX_BUFFER_USAGE_STORAGE 0x00000C00u
 #define HRX_BUFFER_USAGE_MAPPING_SCOPED 0x01000000u
 #define HRX_BUFFER_USAGE_MAPPING_PERSISTENT 0x02000000u
-// Owned backing prepared for explicit virtual-address mappings. The ordinary
-// buffer address remains usable. Callers retain the backing until every alias
-// is detached and all accesses have completed. Host-pointer import cannot
-// provide this capability.
+// Owned backing prepared for explicit virtual-address mappings throughout the
+// device's sealed group. The ordinary buffer address remains usable. Source
+// construction fails if that complete access set is unsupported.
+// Callers retain the backing until every alias is detached and all accesses
+// have completed. Host-pointer import cannot provide this capability.
 #define HRX_BUFFER_USAGE_MAPPING_SOURCE 0x04000000u
 #define HRX_BUFFER_USAGE_DEFAULT 0x00000C03u
 

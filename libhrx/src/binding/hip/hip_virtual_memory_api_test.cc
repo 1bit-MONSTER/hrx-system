@@ -1,0 +1,197 @@
+// Copyright 2026 The HRX Authors
+// SPDX-License-Identifier: Apache-2.0
+
+#include <array>
+
+#include "binding/hip/api.h"
+#include "binding/hip/hip_dso_test_util.h"
+#include "iree/testing/gtest.h"
+
+namespace {
+
+class HipVirtualMemoryApiTest : public testing::Test {
+ protected:
+  void SetUp() override {
+    ASSERT_TRUE(dso_.Open()) << dso_.error();
+    const auto initialize = dso_.Resolve<decltype(&hipInit)>("hipInit");
+    ASSERT_NE(initialize, nullptr);
+    ASSERT_EQ(hipSuccess, initialize(0));
+    const auto get_device =
+        dso_.Resolve<decltype(&hipGetDevice)>("hipGetDevice");
+    const auto get_attribute =
+        dso_.Resolve<decltype(&hipDeviceGetAttribute)>("hipDeviceGetAttribute");
+    ASSERT_NE(get_device, nullptr);
+    ASSERT_NE(get_attribute, nullptr);
+    ASSERT_EQ(hipSuccess, get_device(&device_));
+    ASSERT_EQ(hipSuccess,
+              get_attribute(&supported_,
+                            hipDeviceAttributeVirtualMemoryManagementSupported,
+                            device_));
+    reserve_ =
+        dso_.Resolve<decltype(&hipMemAddressReserve)>("hipMemAddressReserve");
+    close_ = dso_.Resolve<decltype(&hipMemAddressFree)>("hipMemAddressFree");
+    create_ = dso_.Resolve<decltype(&hipMemCreate)>("hipMemCreate");
+    release_ = dso_.Resolve<decltype(&hipMemRelease)>("hipMemRelease");
+    map_ = dso_.Resolve<decltype(&hipMemMap)>("hipMemMap");
+    unmap_ = dso_.Resolve<decltype(&hipMemUnmap)>("hipMemUnmap");
+    set_access_ = dso_.Resolve<decltype(&hipMemSetAccess)>("hipMemSetAccess");
+    get_access_ = dso_.Resolve<decltype(&hipMemGetAccess)>("hipMemGetAccess");
+    granularity_ = dso_.Resolve<decltype(&hipMemGetAllocationGranularity)>(
+        "hipMemGetAllocationGranularity");
+    copy_ = dso_.Resolve<decltype(&hipMemcpy)>("hipMemcpy");
+    ASSERT_NE(reserve_, nullptr);
+    ASSERT_NE(close_, nullptr);
+    ASSERT_NE(create_, nullptr);
+    ASSERT_NE(release_, nullptr);
+    ASSERT_NE(map_, nullptr);
+    ASSERT_NE(unmap_, nullptr);
+    ASSERT_NE(set_access_, nullptr);
+    ASSERT_NE(get_access_, nullptr);
+    ASSERT_NE(granularity_, nullptr);
+    ASSERT_NE(copy_, nullptr);
+  }
+
+  void TearDown() override {
+    for (size_t i = 0; i < mapped_.size(); ++i) {
+      if (mapped_[i]) {
+        EXPECT_EQ(hipSuccess, unmap_(Address(i), unit_));
+      }
+    }
+    if (address_) {
+      EXPECT_EQ(hipSuccess, close_(address_, 3 * unit_));
+    }
+    for (auto handle : handles_) {
+      if (handle) {
+        EXPECT_EQ(hipSuccess, release_(handle));
+      }
+    }
+    if (dso_.is_open()) {
+      const auto deinitialize = dso_.Resolve<hipError_t (*)()>("hipHALDeinit");
+      ASSERT_NE(deinitialize, nullptr);
+      EXPECT_EQ(hipSuccess, deinitialize());
+      EXPECT_TRUE(dso_.Close()) << dso_.error();
+    }
+  }
+
+  hipMemAllocationProp Properties() const {
+    return hipMemAllocationProp{
+        .type = hipMemAllocationTypePinned,
+        .location = {.type = hipMemLocationTypeDevice, .id = device_},
+    };
+  }
+
+  void* Address(size_t index) {
+    return static_cast<uint8_t*>(address_) + index * unit_;
+  }
+
+  // Exact runtime DSO whose public entry points are exercised.
+  hrx::hip::testing::HipDso dso_;
+  // Current physical placement device.
+  int device_ = 0;
+  // Public capability value used to select the supported contract.
+  int supported_ = 0;
+  // Native allocation and mapping unit for this device.
+  size_t unit_ = 0;
+  // Explicit address owner, released after installed aliases.
+  void* address_ = nullptr;
+  // Physical handles owned by this test until explicitly released.
+  std::array<hipMemGenericAllocationHandle_t, 2> handles_ = {};
+  // Successful bindings requiring teardown if an assertion stops the test.
+  std::array<bool, 3> mapped_ = {};
+  // Creates an explicit address reservation.
+  decltype(&hipMemAddressReserve) reserve_ = nullptr;
+  // Consumes an explicit address reservation.
+  decltype(&hipMemAddressFree) close_ = nullptr;
+  // Allocates ordinary prepared backing behind a HIP handle.
+  decltype(&hipMemCreate) create_ = nullptr;
+  // Releases one public physical handle reference.
+  decltype(&hipMemRelease) release_ = nullptr;
+  // Installs one inaccessible alias.
+  decltype(&hipMemMap) map_ = nullptr;
+  // Removes a mapped range before backing reuse.
+  decltype(&hipMemUnmap) unmap_ = nullptr;
+  // Updates permissions over all physical pieces of an interval.
+  decltype(&hipMemSetAccess) set_access_ = nullptr;
+  // Queries the HIP permission record for an address.
+  decltype(&hipMemGetAccess) get_access_ = nullptr;
+  // Queries required physical and virtual mapping geometry.
+  decltype(&hipMemGetAllocationGranularity) granularity_ = nullptr;
+  // Performs completed copies through the public HIP pointer lookup path.
+  decltype(&hipMemcpy) copy_ = nullptr;
+};
+
+TEST_F(HipVirtualMemoryApiTest, CapabilityMatchesConstruction) {
+  EXPECT_EQ(hipErrorInvalidValue, reserve_(nullptr, 65536, 0, nullptr, 0));
+  EXPECT_EQ(hipErrorInvalidValue, set_access_(nullptr, 65536, nullptr, 0));
+  const auto properties = Properties();
+  if (!supported_) {
+    void* address = reinterpret_cast<void*>(1);
+    EXPECT_EQ(hipErrorNotSupported, reserve_(&address, 65536, 0, nullptr, 0));
+    EXPECT_EQ(address, nullptr);
+    hipMemGenericAllocationHandle_t handle = nullptr;
+    EXPECT_EQ(hipErrorNotSupported, create_(&handle, 65536, &properties, 0));
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_EQ(
+        hipErrorNotSupported,
+        granularity_(&unit_, &properties, hipMemAllocationGranularityMinimum));
+    return;
+  }
+  ASSERT_EQ(hipSuccess, granularity_(&unit_, &properties,
+                                     hipMemAllocationGranularityMinimum));
+  EXPECT_GT(unit_, 0u);
+  ASSERT_EQ(hipSuccess, reserve_(&address_, 3 * unit_, unit_, nullptr, 0));
+}
+
+TEST_F(HipVirtualMemoryApiTest,
+       BatchedPermissionsPreserveAliasesAndHandleLifetime) {
+  if (!supported_) {
+    GTEST_SKIP() << "The device has no explicit reservation backend.";
+  }
+  const auto properties = Properties();
+  ASSERT_EQ(hipSuccess, granularity_(&unit_, &properties,
+                                     hipMemAllocationGranularityMinimum));
+  ASSERT_GT(unit_, 0u);
+  ASSERT_EQ(hipSuccess, reserve_(&address_, 3 * unit_, unit_, nullptr, 0));
+  for (size_t i = 0; i < handles_.size(); ++i) {
+    ASSERT_EQ(hipSuccess, create_(&handles_[i], unit_, &properties, 0));
+    ASSERT_EQ(hipSuccess, map_(Address(i), unit_, 0, handles_[i], 0));
+    mapped_[i] = true;
+  }
+  ASSERT_EQ(hipSuccess, map_(Address(2), unit_, 0, handles_[1], 0));
+  mapped_[2] = true;
+  hipMemAccessDesc access = {
+      .location = properties.location,
+      .flags = hipMemAccessFlagsProtReadWrite,
+  };
+  ASSERT_EQ(hipSuccess, set_access_(address_, 3 * unit_, &access, 1));
+  for (auto& handle : handles_) {
+    ASSERT_EQ(hipSuccess, release_(handle));
+    handle = nullptr;
+  }
+  const std::array<uint32_t, 4> expected = {7, 13, 19, 23};
+  ASSERT_EQ(hipSuccess, copy_(Address(1), expected.data(), sizeof(expected),
+                              hipMemcpyHostToDevice));
+  std::array<uint32_t, 4> observed = {};
+  ASSERT_EQ(hipSuccess, copy_(observed.data(), Address(2), sizeof(observed),
+                              hipMemcpyDeviceToHost));
+  EXPECT_EQ(observed, expected);
+  access.flags = hipMemAccessFlagsProtNone;
+  ASSERT_EQ(hipSuccess, set_access_(address_, 2 * unit_, &access, 1));
+  access.flags = hipMemAccessFlagsProtRead;
+  ASSERT_EQ(hipSuccess, set_access_(address_, 2 * unit_, &access, 1));
+  unsigned long long observed_access = 0;
+  ASSERT_EQ(hipSuccess,
+            get_access_(&observed_access, &access.location, Address(1)));
+  EXPECT_EQ(observed_access, hipMemAccessFlagsProtRead);
+  ASSERT_EQ(hipSuccess, copy_(observed.data(), Address(1), sizeof(observed),
+                              hipMemcpyDeviceToHost));
+  EXPECT_EQ(observed, expected);
+  ASSERT_EQ(hipSuccess, unmap_(address_, 2 * unit_));
+  mapped_[0] = mapped_[1] = false;
+  EXPECT_EQ(hipErrorInvalidValue, close_(address_, 3 * unit_));
+  ASSERT_EQ(hipSuccess, copy_(observed.data(), Address(2), sizeof(observed),
+                              hipMemcpyDeviceToHost));
+  EXPECT_EQ(observed, expected);
+}
+
+}  // namespace
