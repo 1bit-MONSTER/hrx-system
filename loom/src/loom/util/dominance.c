@@ -403,6 +403,8 @@ struct loom_dominance_walk_t {
   loom_module_t* module;
   // Arena owning the walk and all region scopes.
   iree_arena_allocator_t* arena;
+  // Dominance snapshot shared by traversal order and client queries.
+  loom_dominance_info_t dominance_info;
   // Scope lifetime notifications maintained in lockstep with active_scope.
   loom_dominance_walk_callbacks_t callbacks;
   // Top pending block frame.
@@ -492,17 +494,21 @@ static iree_status_t loom_dominance_walk_push_region(
   loom_dominance_walk_scope_t* scopes = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       walk->arena, region->block_count, sizeof(*scopes), (void**)&scopes));
-  loom_cfg_graph_t graph = {0};
-  loom_cfg_dominance_t dominance = {0};
+  loom_cfg_graph_t graph_storage = {0};
+  loom_cfg_dominance_t dominance_storage = {0};
   const bool has_cfg =
       region->block_count > 1 ||
       iree_any_bit_set(region->flags, LOOM_REGION_INSTANCE_FLAG_CFG);
   if (has_cfg) {
-    IREE_RETURN_IF_ERROR(
-        loom_cfg_graph_build(walk->module, region, walk->arena, &graph));
-    IREE_RETURN_IF_ERROR(
-        loom_cfg_dominance_build(&graph, walk->arena, &dominance));
+    IREE_RETURN_IF_ERROR(loom_cfg_graph_build(walk->module, region, walk->arena,
+                                              &graph_storage));
+    IREE_RETURN_IF_ERROR(loom_cfg_dominance_build(&graph_storage, walk->arena,
+                                                  &dominance_storage));
+    IREE_RETURN_IF_ERROR(loom_dominance_info_add_cfg_graph(
+        &walk->dominance_info, &graph_storage, &dominance_storage));
   }
+  const loom_cfg_graph_t* graph = &graph_storage;
+  const loom_cfg_dominance_t* dominance = &dominance_storage;
 
   for (uint16_t i = 0; i < region->block_count; ++i) {
     loom_block_t* block = loom_region_block(region, i);
@@ -516,15 +522,15 @@ static iree_status_t loom_dominance_walk_push_region(
       continue;
     }
     const uint16_t immediate_dominator =
-        !dominance.available ? LOOM_CFG_DOMINATOR_INVALID
-                             : dominance.immediate_dominators[i];
+        !dominance->available ? LOOM_CFG_DOMINATOR_INVALID
+                              : dominance->immediate_dominators[i];
     if (immediate_dominator != LOOM_CFG_DOMINATOR_INVALID &&
         immediate_dominator != i) {
       scope->parent = &scopes[immediate_dominator];
       scope->flags &= ~(LOOM_DOMINANCE_WALK_SCOPE_FLAG_ISOLATED |
                         LOOM_DOMINANCE_WALK_SCOPE_FLAG_INDEPENDENT_EXECUTION);
     }
-    if (loom_dominance_walk_cfg_state_barrier(&graph, &dominance, i)) {
+    if (loom_dominance_walk_cfg_state_barrier(graph, dominance, i)) {
       scope->flags |= LOOM_DOMINANCE_WALK_SCOPE_FLAG_STATE_BARRIER;
     }
   }
@@ -532,8 +538,8 @@ static iree_status_t loom_dominance_walk_push_region(
   // Unreachable roots are independent dominance scopes. Push in reverse
   // lexical order so the traversal remains deterministic.
   for (int32_t i = (int32_t)region->block_count - 1; i >= 0; --i) {
-    if (dominance.available &&
-        dominance.immediate_dominators[i] != LOOM_CFG_DOMINATOR_INVALID) {
+    if (dominance->available &&
+        dominance->immediate_dominators[i] != LOOM_CFG_DOMINATOR_INVALID) {
       continue;
     }
     scopes[i].previous_frame = walk->top;
@@ -541,8 +547,8 @@ static iree_status_t loom_dominance_walk_push_region(
   }
   // Reachable blocks are already in dominator preorder. Reverse the array onto
   // the pending stack to consume it in forward order.
-  for (iree_host_size_t i = dominance.preorder.count; i > 0; --i) {
-    const uint16_t block_index = dominance.preorder.values[i - 1];
+  for (iree_host_size_t i = dominance->preorder.count; i > 0; --i) {
+    const uint16_t block_index = dominance->preorder.values[i - 1];
     scopes[block_index].previous_frame = walk->top;
     walk->top = &scopes[block_index];
   }
@@ -565,11 +571,21 @@ iree_status_t loom_dominance_walk_create(
   *walk = (loom_dominance_walk_t){
       .module = module,
       .arena = arena,
+      .dominance_info =
+          {
+              .module = module,
+              .arena = arena,
+          },
       .callbacks = callbacks,
   };
   IREE_RETURN_IF_ERROR(loom_dominance_walk_push_region(walk, region, NULL, 0));
   *out_walk = walk;
   return iree_ok_status();
+}
+
+const loom_dominance_info_t* loom_dominance_walk_info(
+    const loom_dominance_walk_t* walk) {
+  return walk ? &walk->dominance_info : NULL;
 }
 
 iree_status_t loom_dominance_walk_next(

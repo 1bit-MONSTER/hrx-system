@@ -234,6 +234,14 @@ iree_status_t loom_dominance_walk_create(
     loom_dominance_walk_callbacks_t callbacks, iree_arena_allocator_t* arena,
     loom_dominance_walk_t** out_walk);
 
+// Returns the dominance snapshot shared by the walk. CFG regions are added as
+// their scopes enter the traversal; queries from a returned cursor therefore
+// cover its enclosing CFGs without extracting them again. Queries remain valid
+// until the arena passed to loom_dominance_walk_create is reset or
+// deinitialized.
+const loom_dominance_info_t* loom_dominance_walk_info(
+    const loom_dominance_walk_t* walk);
+
 // Returns the next live operation. A null cursor operation denotes completion.
 // Completion also leaves every remaining active scope. If an enter callback
 // fails, every previously entered scope is left before the error is returned.
