@@ -922,77 +922,6 @@ class LoomPresubmitTest(unittest.TestCase):
             ],
         )
 
-    def test_cmake_template_checks_include_unchanged_and_new_consumers(self):
-        checker_path = Path("/tools/loom-check-test")
-        with (
-            mock.patch.object(
-                self.presubmit,
-                "tracked_lint_source_paths",
-                return_value=["loom/corpus.loom", "loom/unchanged.loom-test"],
-            ),
-            mock.patch.object(
-                self.presubmit,
-                "selected_files",
-                return_value=["loom/corpus.loom", "loom/new.loom-test"],
-            ),
-            mock.patch.object(
-                self.presubmit,
-                "existing_lint_source_paths",
-                return_value=["loom/corpus.loom", "loom/new.loom-test"],
-            ),
-            mock.patch.object(
-                self.presubmit.project_presubmit,
-                "build_and_resolve_executable",
-                return_value=checker_path,
-            ) as build_checker,
-            mock.patch.object(
-                self.presubmit, "run_command", return_value=True
-            ) as run_command,
-        ):
-            self.assertTrue(
-                self.presubmit.run_cmake_template_checks(files_from="paths.txt")
-            )
-            build_checker.assert_called_once_with(
-                "loom",
-                self.presubmit.REPO_ROOT,
-                lane="cmake",
-                bazel_target="//loom/src/loom/tools/loom-check:loom-check-test",
-                cmake_target="loom::tools::loom-check::loom-check-test",
-                bazel_args=self.presubmit.BAZEL_SOURCE_TOOL_ARGS,
-            )
-            run_command.assert_called_once_with(
-                [
-                    str(checker_path),
-                    "--check-templates",
-                    "--template-root=.",
-                    "loom/corpus.loom",
-                    "loom/new.loom-test",
-                    "loom/unchanged.loom-test",
-                ],
-                "Loom template freshness",
-            )
-
-    def test_template_checks_propagate_discovery_and_build_failures(self):
-        for paths, expected in ((None, False), ([], True), (["loom/a.loom"], False)):
-            with (
-                self.subTest(paths=paths),
-                mock.patch.object(
-                    self.presubmit, "tracked_lint_source_paths", return_value=paths
-                ),
-                mock.patch.object(
-                    self.presubmit.project_presubmit,
-                    "build_and_resolve_executable",
-                    return_value=None,
-                ) as build_checker,
-                mock.patch.object(self.presubmit, "run_command") as run_command,
-            ):
-                self.assertEqual(
-                    self.presubmit.run_cmake_template_checks(files_from=None),
-                    expected,
-                )
-                self.assertEqual(build_checker.call_count, 1 if paths else 0)
-                run_command.assert_not_called()
-
     def test_bazel_hygiene_uses_one_invocation_and_execution_policy(self):
         for success in (False, True):
             with (
@@ -1110,9 +1039,6 @@ class LoomPresubmitTest(unittest.TestCase):
                 "run_source_format_maintenance",
                 return_value=True,
             ) as source_format_maintenance,
-            mock.patch.object(
-                self.presubmit, "run_cmake_template_checks", return_value=True
-            ),
             mock.patch.object(self.presubmit, "run_bazel_tests") as bazel_tests,
         ):
             self.assertEqual(self.presubmit.run_presubmit(args), 1)
@@ -1141,9 +1067,6 @@ class LoomPresubmitTest(unittest.TestCase):
                 self.presubmit, "run_source_format_maintenance"
             ) as source_format_maintenance,
             mock.patch.object(self.presubmit, "run_cmake_source_lint") as source_lint,
-            mock.patch.object(
-                self.presubmit, "run_cmake_template_checks"
-            ) as template_checks,
             mock.patch.object(self.presubmit, "run_bazel_hygiene") as bazel_hygiene,
             mock.patch.object(
                 self.presubmit, "run_bazel_tests", return_value=True
@@ -1154,7 +1077,6 @@ class LoomPresubmitTest(unittest.TestCase):
         generated_artifact_maintenance.assert_not_called()
         source_format_maintenance.assert_not_called()
         source_lint.assert_not_called()
-        template_checks.assert_not_called()
         bazel_hygiene.assert_not_called()
         bazel_tests.assert_called_once_with(None)
 

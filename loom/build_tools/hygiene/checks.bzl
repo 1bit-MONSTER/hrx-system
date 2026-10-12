@@ -40,7 +40,6 @@ _CHECKS = {
     "authoring": ("sources", "//loom/py/loom/tools:loom-lint", "LoomAuthoringPolicy"),
     "format": ("format_sources", "//loom/src/loom/tools/loom-format:loom-format", "LoomSourceFormat"),
     "repository": ("policy_sources", "//loom/build_tools:loom_source_lint", "LoomRepositoryPolicy"),
-    "templates": ("sources", "//loom/src/loom/tools/loom-check:loom-check-test", "LoomTemplateFreshness"),
 }
 
 def loom_hygiene_check(name, check, **kwargs):

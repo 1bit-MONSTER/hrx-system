@@ -181,7 +181,7 @@ def loom_check_compile_tests(name, src, targets, size = "small", tags = [], data
       targets: Typed compiler profile labels.
       size: Bazel test size.
       tags: Additional test tags.
-      data: Additional runtime data. TEMPLATE sources are not runtime inputs.
+      data: Additional runtime data.
       env: Test environment variables.
       **kwargs: Additional sh_test attributes, including compiler arguments.
 
@@ -242,8 +242,7 @@ def loom_check_test(
       src: Source .<format>-test file containing the test cases.
       size: Test size (default: "small").
       tags: Additional tags to apply to the test.
-      data: Additional runfiles made available to loom-check. TEMPLATE sources
-          are checked by precommit and are not runtime inputs.
+      data: Additional runfiles made available to loom-check.
       env: Additional test environment variables.
       runner: loom-check compatible runner binary.
       compile_targets: Typed profiles checked independently of RUN goldens.

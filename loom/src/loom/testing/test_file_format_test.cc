@@ -99,21 +99,6 @@ TEST_F(LoomTestFileFormatTest, FormatsInputAndPreservesExpectedOutput) {
             "purposefully noncanonical expected output\n");
 }
 
-TEST_F(LoomTestFileFormatTest, PreservesTemplateExclusionPreamble) {
-  const std::string preamble =
-      "// TEMPLATE: corpus.loom-test\n"
-      "// TEMPLATE-EXCLUDE: @cfg_case requires structured control flow\n"
-      "// RUN: pass cse\n\n";
-  const std::string source = preamble +
-                             "func.def @identity(%value:index)->(index){\n"
-                             "func.return %value:index\n}\n";
-  const std::string formatted = Format(iree_make_cstring_view(source.c_str()));
-  EXPECT_EQ(formatted, preamble +
-                           "func.def @identity(%value: index) -> (index) {\n"
-                           "  func.return %value : index\n}\n");
-  EXPECT_EQ(Format(iree_make_cstring_view(formatted.c_str())), formatted);
-}
-
 TEST_F(LoomTestFileFormatTest, FormatsInputAndPreservesChecks) {
   const iree_string_view_t source = IREE_SV(
       "// RUN: with-checks pass cse\n\n"

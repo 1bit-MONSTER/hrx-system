@@ -15,6 +15,9 @@
 
 namespace {
 
+using ::iree::testing::status::StatusIs;
+using ::testing::HasSubstr;
+
 class TestFileParseTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -307,167 +310,20 @@ TEST_F(TestFileParseTest, RequiresDirectiveAllowsWhitespaceSeparatedNames) {
   ExpectRequirementName(file_.cases[0], 2, "tool-backend");
 }
 
-TEST_F(TestFileParseTest, TemplateDirectiveInPreamble) {
-  IREE_ASSERT_OK(Parse(
-      "// TEMPLATE: loom/src/loom/test/corpus/vector/arithmetic.loom-test\n"
-      "// RUN: verify\n"
-      "\n"
-      "func.def @f() {}\n"));
-  ASSERT_EQ(file_.case_count, 1);
-  EXPECT_TRUE(file_.has_template_directive);
-  EXPECT_TRUE(iree_string_view_equal(
-      file_.template_path,
-      iree_make_cstring_view(
-          "loom/src/loom/test/corpus/vector/arithmetic.loom-test")));
-  ExpectRangeForFragment(
-      file_.template_directive_range,
-      "// TEMPLATE: loom/src/loom/test/corpus/vector/arithmetic.loom-test");
-  EXPECT_EQ(file_.default_mode, LOOM_TEST_MODE_VERIFY);
-  EXPECT_EQ(file_.cases[0].mode, LOOM_TEST_MODE_VERIFY);
-  EXPECT_TRUE(loom_test_source_range_is_empty(file_.cases[0].separator_range));
-}
-
-TEST_F(TestFileParseTest, TemplateDirectiveOnlyPreambleHasNoCases) {
-  IREE_ASSERT_OK(Parse(
-      "// TEMPLATE: loom/src/loom/test/corpus/vector/arithmetic.loom-test\n"
-      "// RUN: verify\n"
-      "\n"));
-  EXPECT_TRUE(file_.has_template_directive);
-  EXPECT_EQ(file_.default_mode, LOOM_TEST_MODE_VERIFY);
-  EXPECT_EQ(file_.case_count, 0);
-}
-
-TEST_F(TestFileParseTest, TemplateDirectiveRequiresPurePreamble) {
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      Parse("func.def @f() {}\n"
-            "// TEMPLATE: "
-            "loom/src/loom/test/corpus/vector/arithmetic.loom-test\n"
-            "func.def @g() {}\n"));
-}
-
-TEST_F(TestFileParseTest, TemplateDirectiveDoesNotRequireCaseSeparator) {
-  IREE_ASSERT_OK(
-      Parse("// TEMPLATE: "
-            "loom/src/loom/test/corpus/vector/arithmetic.loom-test\n"
-            "func.def @f() {}\n"));
-  ASSERT_EQ(file_.case_count, 1);
-  EXPECT_TRUE(file_.has_template_directive);
-}
-
-TEST_F(TestFileParseTest, TemplateDirectiveRejectsSeparatorBeforeFirstCase) {
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      Parse("// TEMPLATE: "
-            "loom/src/loom/test/corpus/vector/arithmetic.loom-test\n"
-            "\n"
-            "// ====\n"
-            "func.def @f() {}\n"));
-}
-
-TEST_F(TestFileParseTest, TemplateDirectiveInCaseErrors) {
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      Parse("func.def @first() {}\n"
-            "\n"
-            "// ====\n"
-            "\n"
-            "// TEMPLATE: "
-            "loom/src/loom/test/corpus/vector/arithmetic.loom-test\n"
-            "func.def @f() {}\n"));
-}
-
-TEST_F(TestFileParseTest, TemplateDirectiveEmptyPathErrors) {
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
-                        Parse("// TEMPLATE: \n"
-                              "func.def @f() {}\n"));
-}
-
-TEST_F(TestFileParseTest, TemplateDirectiveAbsolutePathErrors) {
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
-                        Parse("// TEMPLATE: /tmp/corpus.loom-test\n"
-                              "func.def @f() {}\n"));
-}
-
-TEST_F(TestFileParseTest, TemplateDirectiveParentSegmentErrors) {
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
-                        Parse("// TEMPLATE: runtime/src/../corpus.loom-test\n"
-                              "func.def @f() {}\n"));
-}
-
-TEST_F(TestFileParseTest, MultipleTemplateDirectivesError) {
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      Parse("// TEMPLATE: "
-            "loom/src/loom/test/corpus/vector/arithmetic.loom-test\n"
-            "// TEMPLATE: loom/src/loom/test/corpus/vector/memory.loom-test\n"
-            "\n"
-            "func.def @f() {}\n"));
-}
-
-TEST_F(TestFileParseTest, TemplateExclusionsInPreamble) {
-  IREE_ASSERT_OK(Parse(
-      "// TEMPLATE-EXCLUDE: @first requires explicit CFG support\n"
-      "// TEMPLATE: loom/src/loom/test/corpus/source_low/example.loom-test\n"
-      "// TEMPLATE-EXCLUDE: @last\t requires flat addressing \t\n"
-      "\n"
-      "func.def @middle() {}\n"));
-  ASSERT_EQ(file_.template_exclusions.count, 2);
-  EXPECT_TRUE(iree_string_view_equal(
-      file_.template_exclusions.values[0].case_name, IREE_SV("first")));
-  EXPECT_TRUE(iree_string_view_equal(file_.template_exclusions.values[0].reason,
-                                     IREE_SV("requires explicit CFG support")));
-  EXPECT_TRUE(iree_string_view_equal(
-      file_.template_exclusions.values[1].case_name, IREE_SV("last")));
-  EXPECT_TRUE(iree_string_view_equal(file_.template_exclusions.values[1].reason,
-                                     IREE_SV("requires flat addressing")));
-  ASSERT_EQ(file_.case_count, 1);
-  EXPECT_TRUE(iree_string_view_equal(file_.cases[0].input,
-                                     IREE_SV("func.def @middle() {}\n")));
-}
-
-TEST_F(TestFileParseTest, TemplateExclusionRequiresNameAndReason) {
-  const char* invalid_directives[] = {
-      "// TEMPLATE-EXCLUDE: \n",
-      "// TEMPLATE-EXCLUDE: @case\n",
-      "// TEMPLATE-EXCLUDE: @case \t\n",
-      "// TEMPLATE-EXCLUDE: case reason\n",
-      "// TEMPLATE-EXCLUDE: @ reason\n",
-      "// TEMPLATE-EXCLUDE:@case reason\n",
-      "//TEMPLATE-EXCLUDE: @case reason\n",
-  };
-  for (const char* directive : invalid_directives) {
+TEST_F(TestFileParseTest, LegacyTemplateDirectivesError) {
+  for (const char* directive : {
+           "// TEMPLATE: corpus.loom-test\n",
+           "//TEMPLATE: corpus.loom-test\n",
+           "// TEMPLATE-EXCLUDE: @case unsupported\n",
+           "//TEMPLATE-EXCLUDE: @case unsupported\n",
+       }) {
     SCOPED_TRACE(directive);
-    std::string source = "// TEMPLATE: corpus.loom-test\n";
-    source += directive;
-    source += "\nfunc.def @f() {}\n";
-    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT, Parse(source.c_str()));
+    std::string source = directive;
+    source += "func.def @f() {}\n";
+    iree::Status status(Parse(source.c_str()));
+    EXPECT_THAT(status, StatusIs(iree::StatusCode::kInvalidArgument));
+    EXPECT_THAT(status.ToString(), HasSubstr("no longer supported"));
   }
-}
-
-TEST_F(TestFileParseTest, TemplateExclusionRequiresTemplatePreamble) {
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      Parse("// TEMPLATE-EXCLUDE: @case requires explicit CFG support\n"
-            "func.def @f() {}\n"));
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      Parse("// TEMPLATE: corpus.loom-test\n"
-            "\n"
-            "func.def @f() {}\n"
-            "// ====\n"
-            "// TEMPLATE-EXCLUDE: @case requires explicit CFG support\n"
-            "func.def @g() {}\n"));
-}
-
-TEST_F(TestFileParseTest, DuplicateTemplateExclusionsError) {
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      Parse("// TEMPLATE: corpus.loom-test\n"
-            "// TEMPLATE-EXCLUDE: @case requires explicit CFG support\n"
-            "// TEMPLATE-EXCLUDE: @case requires flat addressing\n"
-            "\n"
-            "func.def @f() {}\n"));
 }
 
 TEST_F(TestFileParseTest, CaseDirectiveErrors) {

@@ -163,9 +163,8 @@ iree-bazel-test --config=asan <loom-check-test-target> --test_arg=--update
 
 The `iree-bazel-test` wrapper detects `--test_arg=--update` and uses Bazel's
 standalone TestRunner strategy so update-capable tests can rewrite checked-in
-fixture files. It also supplies the checkout root for template synchronization;
-ordinary test launches need no template root. Prefer that path over direct tool
-invocations when updating repository tests.
+fixture files. Prefer that path over direct tool invocations when updating
+repository tests.
 
 Direct runs are useful for inspection:
 
