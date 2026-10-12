@@ -83,7 +83,8 @@ static iree_status_t loom_amdgpu_emit_fragment_memory_f32_to_16bit_lane(
     loom_amdgpu_fragment_memory_payload_form_t payload_form,
     const loom_amdgpu_float16_pack_descriptors_t* float16_pack_descriptors,
     loom_value_id_t low_source, uint16_t source_register_count,
-    uint16_t register_index, loom_value_id_t low_scale, loom_type_t vgpr_type,
+    uint16_t register_index, loom_value_id_t low_scale,
+    loom_value_fact_flags_t round_numeric_flags, loom_type_t vgpr_type,
     loom_value_id_t* out_lane) {
   *out_lane = LOOM_VALUE_ID_INVALID;
   loom_value_id_t source_register = low_source;
@@ -101,7 +102,7 @@ static iree_status_t loom_amdgpu_emit_fragment_memory_f32_to_16bit_lane(
     case LOOM_AMDGPU_FRAGMENT_MEMORY_PAYLOAD_FORM_STORE_NARROW_F32_TO_BF16:
       return loom_amdgpu_emit_f32_to_bf16_lane_with_descriptors(
           context, source_op, float16_pack_descriptors, source_register,
-          /*source_flags=*/0, vgpr_type, out_lane);
+          round_numeric_flags, vgpr_type, out_lane);
     case LOOM_AMDGPU_FRAGMENT_MEMORY_PAYLOAD_FORM_STORE_NARROW_F32_TO_F16:
       return loom_amdgpu_emit_f32_to_f16_lane_with_descriptors(
           context, source_op, float16_pack_descriptors, source_register,
@@ -133,7 +134,8 @@ static iree_status_t loom_amdgpu_emit_fragment_memory_f32_pair_to_packed_16bit(
     loom_amdgpu_fragment_memory_payload_form_t payload_form,
     const loom_amdgpu_float16_pack_descriptors_t* float16_pack_descriptors,
     loom_value_id_t low_source, uint16_t register_index, loom_type_t vgpr_type,
-    loom_value_id_t low_scale, loom_value_id_t* out_packed) {
+    loom_value_id_t low_scale, loom_value_fact_flags_t round_numeric_flags,
+    loom_value_id_t* out_packed) {
   *out_packed = LOOM_VALUE_ID_INVALID;
   loom_value_id_t low_source_register = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(
@@ -155,7 +157,7 @@ static iree_status_t loom_amdgpu_emit_fragment_memory_f32_pair_to_packed_16bit(
     case LOOM_AMDGPU_FRAGMENT_MEMORY_PAYLOAD_FORM_STORE_NARROW_F32_TO_BF16:
       return loom_amdgpu_emit_f32_pair_to_packed_bf16_with_descriptors(
           context, source_op, float16_pack_descriptors, low_source_register,
-          high_source_register, /*source_flags=*/0, vgpr_type, out_packed);
+          high_source_register, round_numeric_flags, vgpr_type, out_packed);
     case LOOM_AMDGPU_FRAGMENT_MEMORY_PAYLOAD_FORM_STORE_NARROW_F32_TO_F16:
       return loom_amdgpu_emit_f32_pair_to_packed_f16_with_descriptors(
           context, source_op, float16_pack_descriptors, low_source_register,
@@ -185,7 +187,7 @@ iree_status_t loom_amdgpu_emit_fragment_memory_packed_16bit_packet(
       return loom_amdgpu_emit_fragment_memory_f32_to_16bit_lane(
           context, source_op, plan->payload_form, float16_pack_descriptors,
           low_payload, plan->register_count, register_index, low_scale,
-          vgpr_type, out_packet);
+          plan->narrowed_result.round_numeric_flags, vgpr_type, out_packet);
     }
     return loom_amdgpu_emit_fragment_memory_packed_16bit_lane(
         context, source_op, low_payload, plan->payload_register_count,
@@ -214,7 +216,7 @@ iree_status_t loom_amdgpu_emit_fragment_memory_packed_16bit_packet(
         loom_amdgpu_emit_fragment_memory_f32_pair_to_packed_16bit(
             context, source_op, plan->payload_form, float16_pack_descriptors,
             low_payload, source_register_index, vgpr_type, low_scale,
-            &packed_registers[i]));
+            plan->narrowed_result.round_numeric_flags, &packed_registers[i]));
   }
   return loom_amdgpu_build_fragment_memory_packet(
       context, source_op, packed_registers, packet_register_count, vgpr_type,

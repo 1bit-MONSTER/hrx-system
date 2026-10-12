@@ -9,7 +9,53 @@ from __future__ import annotations
 import pytest
 
 from loom.gen.target.arch.amdgpu.descriptors import amdgpu_vopd_component_tables
-from loom.target.arch.amdgpu.target_info import sorted_descriptor_set_infos
+from loom.target.arch.amdgpu.target_info import (
+    AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOPD_INTERLOCK_HAZARD,
+    sorted_descriptor_set_infos,
+)
+
+# Each row identifies the encoded register fields read through SRC0/SRC1/SRC2.
+# A literal does not consume a VGPR cache port. A tied accumulator reads the
+# destination through SRC2, even though it has no encoded source field.
+_CACHE_OPERANDS = {
+    "amdgpu.v_fmac_f32": (("operand", 1), ("operand", 2), ("result", 0)),
+    "amdgpu.v_fmaak_f32": (("operand", 0), ("operand", 1), None),
+    "amdgpu.v_fmamk_f32": (("operand", 0), None, ("operand", 1)),
+    "amdgpu.v_dot2_f32_f16": (("operand", 0), ("operand", 1), ("result", 0)),
+    "amdgpu.v_dot2_f32_bf16": (("operand", 0), ("operand", 1), ("result", 0)),
+    "amdgpu.v_sub_f32": (("operand", 0), ("operand", 1), None),
+    "amdgpu.v_mov_b32_copy": (("operand", 0), None, None),
+}
+
+
+@pytest.mark.parametrize("first_key", _CACHE_OPERANDS)
+@pytest.mark.parametrize("second_key", _CACHE_OPERANDS)
+@pytest.mark.parametrize("source_mask", [1, 3])
+def test_vopd_placement_matches_read_ports(first_key: str, second_key: str, source_mask: int) -> None:
+    tables = amdgpu_vopd_component_tables
+    components = {component.descriptor_key: component for component in tables._component_definitions()}
+    flags = frozenset({tables._COMPONENT_FLAG_SOURCE_PARITY}) if source_mask == 1 else frozenset()
+    recipe = tables._pair_placement_recipe(components[first_key], components[second_key], flags, flags)
+    assert len(recipe.alternatives) == 1
+
+    def location(ref):
+        kind = "result" if ref.kind == tables._PLACEMENT_VALUE_RESULT else "operand"
+        return kind, ref.index
+
+    actual = {(location(relation.result), location(relation.source), relation.location_mask) for relation in recipe.alternatives[0] if relation.kind == tables._PLACEMENT_DIFFERENT_MASKED}
+    expected = {(("result", 0), ("result", 0), 1)}
+    for first, second, mask in zip(_CACHE_OPERANDS[first_key], _CACHE_OPERANDS[second_key], (source_mask, source_mask, 1), strict=True):
+        if first is not None and second is not None:
+            expected.add((first, second, mask))
+    assert actual == expected
+
+
+def test_vopd_interlock_profiles() -> None:
+    assert {info.key for info in sorted_descriptor_set_infos() if info.flags & AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOPD_INTERLOCK_HAZARD} == {
+        "amdgpu.gfx11.generic.core",
+        "amdgpu.rdna3.core",
+        "amdgpu.rdna3_5.core",
+    }
 
 
 def test_vopd_descriptor_set_groups_follow_target_info() -> None:

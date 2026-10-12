@@ -224,6 +224,8 @@ static const loom_amdgpu_vopd_register_constraint_flag_name_t
          IREE_SVL("src0_bank")},
         {LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_VSRC1_BANK,
          IREE_SVL("vsrc1_bank")},
+        {LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_SRC2_BANK,
+         IREE_SVL("src2_bank")},
         {LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_X_DESTINATION_Y_SRC0,
          IREE_SVL("x_destination_y_src0_alias")},
         {LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_X_DESTINATION_Y_VSRC1,
@@ -753,20 +755,6 @@ static bool loom_amdgpu_vopd_bank_compatible(uint16_t x_register,
   return (x_register & bank_mask) != (y_register & bank_mask);
 }
 
-static bool loom_amdgpu_vopd_components_share_source_cache(
-    const loom_amdgpu_vopd_candidate_component_t* x,
-    const loom_amdgpu_vopd_candidate_component_t* y,
-    loom_amdgpu_vopd_component_source_mask_t source_mask) {
-  if (source_mask != LOOM_AMDGPU_VOPD_COMPONENT_SOURCE_SRC0 ||
-      x->rule->info->op != y->rule->info->op) {
-    return true;
-  }
-  const loom_amdgpu_vopd_component_rule_flags_t shared_flags =
-      x->rule->flags & y->rule->flags;
-  return !iree_any_bit_set(shared_flags,
-                           LOOM_AMDGPU_VOPD_COMPONENT_FLAG_DUAL_MOV_SRC2_CACHE);
-}
-
 static loom_amdgpu_vopd_register_constraint_flags_t
 loom_amdgpu_vopd_register_constraint_flags(
     const loom_amdgpu_vopd_candidate_pair_t* candidate) {
@@ -774,23 +762,36 @@ loom_amdgpu_vopd_register_constraint_flags(
   if (((candidate->x.vdst ^ candidate->y.vdst) & 1u) == 0) {
     flags |= LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_DESTINATION_PARITY;
   }
-  const loom_amdgpu_vopd_component_source_mask_t paired_source_registers =
-      candidate->x.rule->source_register_mask &
-      candidate->y.rule->source_register_mask;
-  if (iree_any_bit_set(paired_source_registers,
-                       LOOM_AMDGPU_VOPD_COMPONENT_SOURCE_SRC0) &&
-      loom_amdgpu_vopd_components_share_source_cache(
-          &candidate->x, &candidate->y,
-          LOOM_AMDGPU_VOPD_COMPONENT_SOURCE_SRC0) &&
-      !loom_amdgpu_vopd_bank_compatible(candidate->x.src0, candidate->y.src0,
-                                        3)) {
-    flags |= LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_SRC0_BANK;
-  }
-  if (iree_any_bit_set(paired_source_registers,
-                       LOOM_AMDGPU_VOPD_COMPONENT_SOURCE_VSRC1) &&
-      !loom_amdgpu_vopd_bank_compatible(candidate->x.vsrc1, candidate->y.vsrc1,
-                                        3)) {
-    flags |= LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_VSRC1_BANK;
+  const uint16_t x_registers[] = {0, candidate->x.src0, candidate->x.vsrc1,
+                                  candidate->x.vdst};
+  const uint16_t y_registers[] = {0, candidate->y.src0, candidate->y.vsrc1,
+                                  candidate->y.vdst};
+  const bool dual_move_separate_caches =
+      candidate->x.rule->info->op == candidate->y.rule->info->op &&
+      iree_all_bits_set(candidate->x.rule->flags & candidate->y.rule->flags,
+                        LOOM_AMDGPU_VOPD_COMPONENT_FLAG_DUAL_MOV_SRC2_CACHE);
+  const uint8_t source_bank_mask =
+      iree_any_bit_set(candidate->x.rule->flags | candidate->y.rule->flags,
+                       LOOM_AMDGPU_VOPD_COMPONENT_FLAG_SOURCE_PARITY)
+          ? 1
+          : 3;
+  static const loom_amdgpu_vopd_register_constraint_flags_t cache_flags[] = {
+      LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_SRC0_BANK,
+      LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_VSRC1_BANK,
+      LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_SRC2_BANK};
+  for (iree_host_size_t cache = 0; cache < 3; ++cache) {
+    uint8_t x_source = candidate->x.rule->cache_registers[cache];
+    uint8_t y_source = candidate->y.rule->cache_registers[cache];
+    if (dual_move_separate_caches) {
+      y_source = cache == 2 ? LOOM_AMDGPU_VOPD_CACHE_REGISTER_SRC0
+                            : LOOM_AMDGPU_VOPD_CACHE_REGISTER_NONE;
+    }
+    if (x_source && y_source &&
+        !loom_amdgpu_vopd_bank_compatible(x_registers[x_source],
+                                          y_registers[y_source],
+                                          cache == 2 ? 1 : source_bank_mask)) {
+      flags |= cache_flags[cache];
+    }
   }
   if (iree_any_bit_set(candidate->y.rule->source_register_mask,
                        LOOM_AMDGPU_VOPD_COMPONENT_SOURCE_SRC0) &&

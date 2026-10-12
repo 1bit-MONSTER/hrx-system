@@ -616,6 +616,45 @@ def test_avx2_scalar_float_arithmetic_covers_f32_and_f64() -> None:
     )
 
 
+def test_scalar_float_memory_covers_types_and_addressing_without_bitcasts() -> None:
+    for source_op, type_field in (
+        (view.view_load, "result"),
+        (view.view_store, "value"),
+    ):
+        for element_type, byte_count, mnemonic in (
+            ("f32", 4, "vmovss"),
+            ("f64", 8, "vmovsd"),
+        ):
+            rules = tuple(
+                case
+                for case in X86_AVX2_CONTRACT_FRAGMENT.cases
+                if isinstance(case, DescriptorRule)
+                and case.source_op is source_op
+                and _value_type_guard(case, type_field) == Scalar(element_type)
+            )
+            assert len(rules) == 9
+            for rule in rules:
+                emitted = tuple(
+                    emit for emit in rule.emit if isinstance(emit, EmitDescriptorOp)
+                )
+                memory = tuple(
+                    emit
+                    for emit in emitted
+                    if emit.descriptor.semantic_tag.startswith("memory.")
+                )
+                assert len(memory) == 1
+                assert memory[0].descriptor.key.startswith(f"x86.avx2.{mnemonic}.")
+                assert memory[0].source_memory is not None
+                assert memory[0].source_memory.element_byte_count == byte_count
+                assert memory[0].source_memory.vector_lane_count == 1
+                assert not any(
+                    emit.descriptor.key.startswith(
+                        ("x86.avx2.vmovd.", "x86.avx2.vmovq.")
+                    )
+                    for emit in emitted
+                )
+
+
 def test_avx2_lane_movement_covers_every_payload_type_and_width() -> None:
     rules = tuple(
         case

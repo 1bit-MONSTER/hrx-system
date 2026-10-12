@@ -191,7 +191,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @vopd_gap(%a: reg<amdgpu.vgpr>, 
   v_add_f32 v4, v0, v1
   s_delay_alu instid0(VALU_DEP_1) | instskip(SKIP_1) | instid1(VALU_DEP_1)
   v_readfirstlane_b32 s0, v4
-  v_dual_add_f32 v4, v0, v1 :: v_dual_mul_f32 v5, v2, v3
+  v_dual_add_f32 v4, v1, v0 :: v_dual_mul_f32 v5, v2, v3
   v_readfirstlane_b32 s1, v4
   s_endpgm
 

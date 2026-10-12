@@ -784,6 +784,34 @@ VMOVDQU64 = _instruction(
     _IMMEDIATES_1,
     _encoding(_EVEX, _MAP_1, 2, 1, 0x6F, (512,)),
 )
+VMOVSS_INDEXED_LOAD = _instruction(
+    "vmovss",
+    _INDEXED_LOAD,
+    _OPERANDS_19,
+    _IMMEDIATES_2,
+    _encoding(_VEX, _MAP_1, 2, 0, 0x10, (128,)),
+)
+VMOVSS_LOAD = _instruction(
+    "vmovss",
+    _LOAD,
+    _OPERANDS_18,
+    _IMMEDIATES_3,
+    _encoding(_VEX, _MAP_1, 2, 0, 0x10, (128,)),
+)
+VMOVSS_INDEXED_STORE_SOURCE = _instruction(
+    "vmovss",
+    _INDEXED_STORE,
+    _OPERANDS_1,
+    _IMMEDIATES_2,
+    _encoding(_VEX, _MAP_1, 2, 0, 0x11, (128,)),
+)
+VMOVSS_STORE_SOURCE = _instruction(
+    "vmovss",
+    _STORE,
+    _OPERANDS_0,
+    _IMMEDIATES_3,
+    _encoding(_VEX, _MAP_1, 2, 0, 0x11, (128,)),
+)
 VMOVSD_INDEXED_LOAD = _instruction(
     "vmovsd",
     _INDEXED_LOAD,
@@ -2077,6 +2105,12 @@ VECTOR_MEMORY = (
     VMOVDQU32_INDEXED_LOAD,
     VMOVDQU32_STORE_SOURCE,
     VMOVDQU32_INDEXED_STORE_SOURCE,
+)
+XMM_DWORD_MEMORY = (
+    VMOVSS_LOAD,
+    VMOVSS_INDEXED_LOAD,
+    VMOVSS_STORE_SOURCE,
+    VMOVSS_INDEXED_STORE_SOURCE,
 )
 XMM_QWORD_MEMORY = (
     VMOVSD_LOAD,

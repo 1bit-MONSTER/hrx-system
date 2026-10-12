@@ -63,7 +63,7 @@ typedef enum loom_amdgpu_vopd_register_constraint_flag_bits_e {
   LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_DESTINATION_PARITY = 1u << 0,
   // Component SRC0 VGPRs occupy the same register bank.
   LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_SRC0_BANK = 1u << 1,
-  // Component VSRC1 VGPRs occupy the same register bank.
+  // Component SRC1 cache inputs occupy the same register bank.
   LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_VSRC1_BANK = 1u << 2,
   // X destination aliases the Y SRC0 VGPR.
   LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_X_DESTINATION_Y_SRC0 = 1u << 3,
@@ -73,6 +73,8 @@ typedef enum loom_amdgpu_vopd_register_constraint_flag_bits_e {
   LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_Y_DESTINATION_X_SRC0 = 1u << 5,
   // Y destination aliases the X VSRC1 VGPR.
   LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_Y_DESTINATION_X_VSRC1 = 1u << 6,
+  // Component SRC2 cache inputs have the same register parity.
+  LOOM_AMDGPU_VOPD_REGISTER_CONSTRAINT_FLAG_SRC2_BANK = 1u << 7,
 } loom_amdgpu_vopd_register_constraint_flag_bits_t;
 typedef uint8_t loom_amdgpu_vopd_register_constraint_flags_t;
 

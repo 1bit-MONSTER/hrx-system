@@ -801,9 +801,10 @@ def x86_scalar_xmm_word_memory_rules(
     )
 
 
-def _vector_memory_type_rules(
+def _direct_memory_type_rules(
     descriptor_lookup: _DescriptorLookup,
     *,
+    operations: Sequence[tuple[Op, SourceMemoryOperation]],
     descriptor_key_prefix: str,
     register_suffix: str,
     value_type: TypePattern,
@@ -812,12 +813,9 @@ def _vector_memory_type_rules(
     diagnostic: GuardDiagnostic,
     priority: int = 0,
 ) -> tuple[DescriptorRule, ...]:
-    """Builds every addressing form for one exact vector transfer type."""
+    """Builds every addressing form for one exact native transfer type."""
     rules: list[DescriptorRule] = []
-    for source_op, operation in (
-        (vector.vector_load, SourceMemoryOperation.LOAD),
-        (vector.vector_store, SourceMemoryOperation.STORE),
-    ):
+    for source_op, operation in operations:
         for addressing in _MemoryAddressing:
             descriptor_key = _memory_descriptor_key(
                 descriptor_key_prefix,
@@ -860,6 +858,35 @@ def _vector_memory_type_rules(
     return tuple(rules)
 
 
+def x86_scalar_float_memory_rules(
+    descriptor_lookup: _DescriptorLookup,
+    *,
+    diagnostic: GuardDiagnostic,
+) -> tuple[DescriptorRule, ...]:
+    """Transfers scalar F32/F64 directly between memory and XMM carriers."""
+
+    return tuple(
+        rule
+        for element_type, element_byte_count, mnemonic in (
+            ("f32", 4, "vmovss"),
+            ("f64", 8, "vmovsd"),
+        )
+        for rule in _direct_memory_type_rules(
+            descriptor_lookup,
+            operations=(
+                (view.view_load, SourceMemoryOperation.LOAD),
+                (view.view_store, SourceMemoryOperation.STORE),
+            ),
+            descriptor_key_prefix=f"x86.avx2.{mnemonic}",
+            register_suffix="xmm",
+            value_type=Scalar(element_type),
+            element_byte_count=element_byte_count,
+            lane_count=1,
+            diagnostic=diagnostic,
+        )
+    )
+
+
 def x86_low_xmm_vector_memory_rules(
     descriptor_lookup: _DescriptorLookup,
     *,
@@ -873,8 +900,12 @@ def x86_low_xmm_vector_memory_rules(
 
     if element_byte_count * lane_count != 8:
         raise ValueError("low-XMM source memory requires an eight-byte payload")
-    return _vector_memory_type_rules(
+    return _direct_memory_type_rules(
         descriptor_lookup,
+        operations=(
+            (vector.vector_load, SourceMemoryOperation.LOAD),
+            (vector.vector_store, SourceMemoryOperation.STORE),
+        ),
         descriptor_key_prefix="x86.avx2.vmovsd",
         register_suffix="xmm",
         value_type=value_type,
@@ -985,8 +1016,12 @@ def x86_vector_memory_rules(
             lane_count = vector_byte_width // element_byte_count
             value_type = Vector(element_types, lanes=lane_count)
             rules.extend(
-                _vector_memory_type_rules(
+                _direct_memory_type_rules(
                     descriptor_lookup,
+                    operations=(
+                        (vector.vector_load, SourceMemoryOperation.LOAD),
+                        (vector.vector_store, SourceMemoryOperation.STORE),
+                    ),
                     descriptor_key_prefix=f"{descriptor_key_prefix}.vmovdqu32",
                     register_suffix=register_suffix,
                     value_type=value_type,

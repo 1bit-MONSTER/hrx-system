@@ -1011,8 +1011,14 @@ iree_status_t loom_vector_fragment_facts(
     fact.flags |= LOOM_VECTOR_FRAGMENT_FACT_FLAG_HAS_NATIVE_STORAGE;
   }
 
-  return loom_vector_fragment_fact_make_value_facts(context, fact,
-                                                    &result_facts[0]);
+  loom_value_facts_t fragment_facts = loom_value_facts_unknown();
+  IREE_RETURN_IF_ERROR(loom_vector_fragment_fact_make_value_facts(
+      context, fact, &fragment_facts));
+  // The layout interpretation leaves every physical element unchanged. Keep
+  // its numeric envelope alongside the new fragment extension.
+  result_facts[0] = operand_facts[0];
+  result_facts[0].extension_id = fragment_facts.extension_id;
+  return iree_ok_status();
 }
 
 iree_status_t loom_vector_fragment_repack_facts(

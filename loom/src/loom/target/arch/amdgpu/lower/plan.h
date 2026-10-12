@@ -1649,11 +1649,13 @@ typedef struct loom_amdgpu_fragment_memory_narrowed_result_plan_t {
   loom_value_id_t scale_source;
   // Optional packed 16-bit fragment source copied directly for narrowed stores.
   loom_value_id_t packed_source;
+  // Numeric facts shared by all F32 lanes after any scale and before rounding.
+  loom_value_fact_flags_t round_numeric_flags;
   // Exact 16-bit pattern shared by every rounded result lane, or
   // LOOM_AMDGPU_FRAGMENT_MEMORY_UNIFORM_BIT_PATTERN_INVALID.
   uint32_t uniform_bit_pattern;
 } loom_amdgpu_fragment_memory_narrowed_result_plan_t;
-static_assert(sizeof(loom_amdgpu_fragment_memory_narrowed_result_plan_t) == 16,
+static_assert(sizeof(loom_amdgpu_fragment_memory_narrowed_result_plan_t) == 20,
               "narrowed-result plans must stay compact");
 
 // Full-width origin contributions folded into a global fragment's scalar base.
@@ -1886,6 +1888,8 @@ typedef struct loom_amdgpu_fragment_repack_plan_t {
   uint32_t source_role_flags;
   // Result fragment role fact bitset.
   uint32_t result_role_flags;
+  // Numeric facts shared by every element of the source fragment.
+  loom_value_fact_flags_t source_numeric_flags;
   // Source vector type.
   loom_type_t source_type;
   // Result vector type.

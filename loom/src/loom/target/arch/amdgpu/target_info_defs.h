@@ -427,6 +427,9 @@ typedef enum loom_amdgpu_descriptor_set_info_flag_bits_e {
   // translation groups.
   LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_XCNT_SOURCE_RETENTION = UINT64_C(1)
                                                                << 16,
+  // Equal-parity SRC0/SRC1 reads can lose the VOPD forwarding interlock.
+  LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOPD_INTERLOCK_HAZARD = UINT64_C(1)
+                                                               << 17,
   // Descriptor-set info flags known by the AMDGPU target package.
   LOOM_AMDGPU_DESCRIPTOR_SET_INFO_KNOWN_FLAGS =
       LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_DESCRIPTOR_PACKET_ENCODING |
@@ -445,7 +448,8 @@ typedef enum loom_amdgpu_descriptor_set_info_flag_bits_e {
       LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_ATOMIC_F32_ADD_DENORMALS |
       LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_STORE_DATA_WAIT_STATES |
       LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_WAITS_BEFORE_SYSTEM_SCOPE_STORES |
-      LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_XCNT_SOURCE_RETENTION,
+      LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_XCNT_SOURCE_RETENTION |
+      LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOPD_INTERLOCK_HAZARD,
 } loom_amdgpu_descriptor_set_info_flag_bits_t;
 
 // Bitset of loom_amdgpu_descriptor_set_info_flag_bits_t values.

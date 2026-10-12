@@ -10,11 +10,57 @@ func.def @subview_scalar_strided(%input: buffer, %output: buffer) -> (f32) {
   %destination = buffer.view %output_aligned[%output_base] : buffer -> view<4x8xf32, %layout>
   %source_crop = view.subview %source[1, 2] : view<4x8xf32, %layout> -> view<2x3xf32, %layout>
   %destination_crop = view.subview %destination[1, 1] : view<4x8xf32, %layout> -> view<2x4xf32, %layout>
-  // ERROR@+1: TARGET/002 {field_name="result"}
   %value = view.load %source_crop[1, 1] : view<2x3xf32, %layout> -> f32
-  // ERROR@+1: TARGET/002 {field_name="value"}
   view.store %value, %destination_crop[1, 2] : f32, view<2x4xf32, %layout>
   func.return %value : f32
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (buffer, buffer) -> (f32)}) @subview_scalar_strided(%input_aligned: reg<x86.gpr64>, %output_aligned: reg<x86.gpr64>) -> (reg<x86.xmm>) asm {
+  %value = vmovss.load.xmm %input_aligned {disp32 = 84}
+  vmovss.store.xmm %value, %output_aligned {disp32 = 88}
+  return %value
+}
+
+// ====
+
+func.def @subview_f64_dynamic(%input: buffer, %output: buffer, %base: offset, %row: index, %column: index) -> (f64) {
+  %origin = index.assume %base [range(%base, 0, 24), multiple_of(%base, 8)] : offset
+  %row_bounded = index.assume %row [range(%row, 0, 1)] : index
+  %column_bounded = index.assume %column [range(%column, 0, 4)] : index
+  %layout = encoding.layout.strided [13, 1] : encoding<layout>
+  %source = buffer.view %input[%origin] : buffer -> view<4x8xf64, %layout>
+  %destination = buffer.view %output[%origin] : buffer -> view<4x8xf64, %layout>
+  %source_crop = view.subview %source[1, 1] : view<4x8xf64, %layout> -> view<2x5xf64, %layout>
+  %destination_crop = view.subview %destination[1, 1] : view<4x8xf64, %layout> -> view<2x5xf64, %layout>
+  %value = view.load %source_crop[%row_bounded, %column_bounded] : view<2x5xf64, %layout> -> f64
+  view.store %value, %destination_crop[%row_bounded, %column_bounded] : f64, view<2x5xf64, %layout>
+  func.return %value : f64
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (buffer, buffer, offset, index, index) -> (f64)}) @subview_f64_dynamic(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %origin: reg<x86.gpr64>, %row_bounded: reg<x86.gpr64>, %column_bounded: reg<x86.gpr64>) -> (reg<x86.xmm>) asm {
+  %21 = mov.imm64 104
+  %22 = copy %row_bounded : reg<x86.gpr64> -> reg<x86.gpr64>
+  %23 = imul.gpr64 %22, %21
+  %24 = copy %origin : reg<x86.gpr64> -> reg<x86.gpr64>
+  %25 = add.gpr64 %24, %23
+  %26 = mov.imm64 8
+  %27 = copy %column_bounded : reg<x86.gpr64> -> reg<x86.gpr64>
+  %28 = imul.gpr64 %27, %26
+  %29 = copy %25 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %30 = add.gpr64 %29, %28
+  %value = vmovsd.load.indexed.xmm %input, %30 {disp32 = 112, scale = 1}
+  %33 = copy %row_bounded : reg<x86.gpr64> -> reg<x86.gpr64>
+  %34 = imul.gpr64 %33, %21
+  %35 = copy %origin : reg<x86.gpr64> -> reg<x86.gpr64>
+  %36 = add.gpr64 %35, %34
+  %38 = copy %column_bounded : reg<x86.gpr64> -> reg<x86.gpr64>
+  %39 = imul.gpr64 %38, %26
+  %40 = copy %36 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %41 = add.gpr64 %40, %39
+  vmovsd.store.indexed.xmm %value, %output, %41 {disp32 = 112, scale = 1}
+  return %value
 }
 
 // ====

@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from loom.dialect.scalar import ALL_SCALAR_OPS
 from loom.dialect.scf import ALL_SCF_OPS
 from loom.dialect.vector import ALL_VECTOR_OPS
+from loom.dialect.view import ALL_VIEW_OPS
 from loom.target.arch.x86.contracts.float_narrowing import (
     x86_float_narrowing_rules,
 )
@@ -29,7 +30,10 @@ from loom.target.arch.x86.contracts.integer_reduction import (
 from loom.target.arch.x86.contracts.lane_movement import (
     avx2_lane_movement_rules,
 )
-from loom.target.arch.x86.contracts.memory import x86_vector_memory_rules
+from loom.target.arch.x86.contracts.memory import (
+    x86_scalar_float_memory_rules,
+    x86_vector_memory_rules,
+)
 from loom.target.arch.x86.contracts.predicate import avx2_predicate_rules
 from loom.target.arch.x86.contracts.scalar_float import avx2_scalar_float_rules
 from loom.target.arch.x86.contracts.shuffle import avx2_shuffle_rules
@@ -79,6 +83,9 @@ def _cases() -> Sequence[ContractCase]:
         *avx2_shuffle_rules(_descriptor),
         *avx2_vector_arithmetic_rules(_descriptor),
         *avx2_float_extrema_rules(_descriptor),
+        *x86_scalar_float_memory_rules(
+            _descriptor, diagnostic=_SOURCE_MEMORY_DIAGNOSTIC
+        ),
         *_memory_rules(),
         *avx2_integer_reduction_rules(_descriptor),
         *avx2_float_reduction_rules(_descriptor),
@@ -90,6 +97,7 @@ X86_AVX2_CONTRACT_DIALECT_OPS = {
     "scalar": ALL_SCALAR_OPS,
     "scf": ALL_SCF_OPS,
     "vector": ALL_VECTOR_OPS,
+    "view": ALL_VIEW_OPS,
 }
 
 X86_AVX2_CONTRACT_FRAGMENT = ContractFragment(

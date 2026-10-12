@@ -40,6 +40,7 @@ from loom.target.arch.amdgpu.isa_xml import (  # noqa: E402
 from loom.target.arch.amdgpu.names import amdgpu_c_identifier_fragment  # noqa: E402
 from loom.target.arch.amdgpu.target_info import (  # noqa: E402
     AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOPD_DUAL_MOV_SRC2_CACHE,
+    AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOPD_INTERLOCK_HAZARD,
     AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOPD_PACKETIZATION,
     AmdgpuDescriptorSetInfo,
     amdgpu_descriptor_set_ordinal,
@@ -65,6 +66,7 @@ _FORM_TIED_ACCUMULATE = "LOOM_AMDGPU_VOPD_COMPONENT_FORM_TIED_ACCUMULATE"
 _COMPONENT_FLAG_NONE = "LOOM_AMDGPU_VOPD_COMPONENT_FLAG_NONE"
 _COMPONENT_FLAG_COMMUTABLE_SOURCES = "LOOM_AMDGPU_VOPD_COMPONENT_FLAG_COMMUTABLE_SOURCES"
 _COMPONENT_FLAG_DUAL_MOV_SRC2_CACHE = "LOOM_AMDGPU_VOPD_COMPONENT_FLAG_DUAL_MOV_SRC2_CACHE"
+_COMPONENT_FLAG_SOURCE_PARITY = "LOOM_AMDGPU_VOPD_COMPONENT_FLAG_SOURCE_PARITY"
 _COMPONENT_FLAGS_NONE: frozenset[str] = frozenset()
 
 _LANE_XY = "LOOM_AMDGPU_VOPD_COMPONENT_LANE_XY"
@@ -80,6 +82,11 @@ _SOURCE_BINARY = "LOOM_AMDGPU_VOPD_COMPONENT_SOURCE_BINARY"
 _SOURCE_NONE = "LOOM_AMDGPU_VOPD_COMPONENT_SOURCE_NONE"
 _SOURCE_SRC0 = "LOOM_AMDGPU_VOPD_COMPONENT_SOURCE_SRC0"
 _SOURCE_VSRC1 = "LOOM_AMDGPU_VOPD_COMPONENT_SOURCE_VSRC1"
+
+_CACHE_NONE = "LOOM_AMDGPU_VOPD_CACHE_REGISTER_NONE"
+_CACHE_SRC0 = "LOOM_AMDGPU_VOPD_CACHE_REGISTER_SRC0"
+_CACHE_VSRC1 = "LOOM_AMDGPU_VOPD_CACHE_REGISTER_VSRC1"
+_CACHE_VDST = "LOOM_AMDGPU_VOPD_CACHE_REGISTER_VDST"
 
 _PLACEMENT_COMPONENT_FIRST = "0"
 _PLACEMENT_COMPONENT_SECOND = "1"
@@ -580,6 +587,8 @@ def _component_flags_for_descriptor_set(
             flags.add(_COMPONENT_FLAG_COMMUTABLE_SOURCES)
     if component.form == _FORM_REGISTER_MOV and descriptor_set_info.flags & AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOPD_DUAL_MOV_SRC2_CACHE:
         flags.add(_COMPONENT_FLAG_DUAL_MOV_SRC2_CACHE)
+    if descriptor_set_info.flags & AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOPD_INTERLOCK_HAZARD:
+        flags.add(_COMPONENT_FLAG_SOURCE_PARITY)
     return frozenset(flags)
 
 
@@ -811,17 +820,26 @@ def _component_sources_are_commutable(
     return _COMPONENT_FLAG_COMMUTABLE_SOURCES in component_flags
 
 
-def _components_share_source_cache(
-    first_component: _VopdComponentDefinition,
-    second_component: _VopdComponentDefinition,
-    source_mask: str,
-    first_component_flags: frozenset[str],
-    second_component_flags: frozenset[str],
-) -> bool:
-    if source_mask != _SOURCE_SRC0:
-        return True
-    has_separate_caches = _COMPONENT_FLAG_DUAL_MOV_SRC2_CACHE in first_component_flags and _COMPONENT_FLAG_DUAL_MOV_SRC2_CACHE in second_component_flags
-    return not (has_separate_caches and first_component.op_value == second_component.op_value)
+def _component_cache_registers(component: _VopdComponentDefinition) -> tuple[str, str, str]:
+    src0 = _CACHE_SRC0 if _component_has_source(component, _SOURCE_SRC0) else _CACHE_NONE
+    src1 = _CACHE_VSRC1 if _component_has_source(component, _SOURCE_VSRC1) else _CACHE_NONE
+    if component.form == _FORM_FMAMK_LITERAL:
+        return (src0, _CACHE_NONE, src1)
+    if component.form == _FORM_TIED_ACCUMULATE:
+        return (src0, src1, _CACHE_VDST)
+    return (src0, src1, _CACHE_NONE)
+
+
+def _cache_placement_ref(
+    pair_component: str,
+    component: _VopdComponentDefinition,
+    cache_register: str,
+    component_flags: frozenset[str],
+) -> _VopdPairPlacementValueRef:
+    if cache_register == _CACHE_VDST:
+        return _placement_result_ref(pair_component)
+    source_mask = _SOURCE_SRC0 if cache_register == _CACHE_SRC0 else _SOURCE_VSRC1
+    return _placement_source_ref(pair_component, component, _source_mask_for_component_orientation(source_mask, component_flags))
 
 
 def _pair_placement_relations(
@@ -840,6 +858,22 @@ def _pair_placement_relations(
             location_mask=0x1,
         )
     ]
+    first_caches = _component_cache_registers(first_component)
+    second_caches = _component_cache_registers(second_component)
+    if first_component.op_value == second_component.op_value and _COMPONENT_FLAG_DUAL_MOV_SRC2_CACHE in first_component_flags & second_component_flags:
+        second_caches = (_CACHE_NONE, _CACHE_NONE, _CACHE_SRC0)
+    source_bank_mask = 1 if _COMPONENT_FLAG_SOURCE_PARITY in first_component_flags | second_component_flags else 3
+    for first_register, second_register, bank_mask in zip(first_caches, second_caches, (source_bank_mask, source_bank_mask, 1), strict=True):
+        if first_register == _CACHE_NONE or second_register == _CACHE_NONE:
+            continue
+        relation = _VopdPairPlacementRelation(
+            result=_cache_placement_ref(_PLACEMENT_COMPONENT_FIRST, first_component, first_register, first_component_flags),
+            source=_cache_placement_ref(_PLACEMENT_COMPONENT_SECOND, second_component, second_register, second_component_flags),
+            kind=_PLACEMENT_DIFFERENT_MASKED,
+            location_mask=bank_mask,
+        )
+        if relation not in relations:
+            relations.append(relation)
     for source_mask in (_SOURCE_SRC0, _SOURCE_VSRC1):
         first_source_mask = _source_mask_for_component_orientation(
             source_mask,
@@ -854,33 +888,6 @@ def _pair_placement_relations(
             second_component,
             second_source_mask,
         )
-        if (
-            first_has_source
-            and second_has_source
-            and _components_share_source_cache(
-                first_component,
-                second_component,
-                source_mask,
-                first_component_flags,
-                second_component_flags,
-            )
-        ):
-            relations.append(
-                _VopdPairPlacementRelation(
-                    result=_placement_source_ref(
-                        _PLACEMENT_COMPONENT_FIRST,
-                        first_component,
-                        first_source_mask,
-                    ),
-                    source=_placement_source_ref(
-                        _PLACEMENT_COMPONENT_SECOND,
-                        second_component,
-                        second_source_mask,
-                    ),
-                    kind=_PLACEMENT_DIFFERENT_MASKED,
-                    location_mask=0x3,
-                )
-            )
         if second_has_source:
             relations.append(
                 _VopdPairPlacementRelation(
@@ -1294,6 +1301,7 @@ def _component_rule_initializer(
             f"                .vsrc1_index = {vsrc1_index},",
             "            },",
             f"        .source_register_mask = {component.source_register_mask},",
+            f"        .cache_registers = {{{', '.join(_component_cache_registers(component))}}},",
             f"        .flags = {_component_flags_initializer(rule.flags)},",
             "    },",
         ]

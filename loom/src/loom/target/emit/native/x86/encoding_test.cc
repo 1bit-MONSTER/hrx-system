@@ -293,6 +293,40 @@ TEST(EncodingTest, VectorMemoryDisplacementsAndCanonicalSib) {
                        {0xc4, 0xc1, 0x7a, 0x6f, 0x0c, 0x24});
 }
 
+TEST(EncodingTest, ScalarFloatMemoryWidthsAndAddressForms) {
+  loom_x86_encoding_operands_t operands = {
+      .immediate = -4,
+      .result = 10,
+      .inputs = {3, 1},
+      .scale = 3,
+      .has_index = true,
+  };
+  // LLVM MC reference: vmovss/vmovsd -4(%rbx,%rcx,8),%xmm10.
+  ExpectVectorEncoding(0xc1c0, 0x0910, operands,
+                       {0xc5, 0x7a, 0x10, 0x54, 0xcb, 0xfc});
+  ExpectVectorEncoding(0xc1c0, 0x0d10, operands,
+                       {0xc5, 0x7b, 0x10, 0x54, 0xcb, 0xfc});
+  // The same scalar widths with displacement-only addressing.
+  operands.has_index = false;
+  ExpectVectorEncoding(0xc1c0, 0x0910, operands,
+                       {0xc5, 0x7a, 0x10, 0x53, 0xfc});
+  ExpectVectorEncoding(0xc1c0, 0x0d10, operands,
+                       {0xc5, 0x7b, 0x10, 0x53, 0xfc});
+  operands.inputs[0] = 10;
+  operands.inputs[1] = 3;
+  operands.inputs[2] = 1;
+  operands.has_index = true;
+  ExpectVectorEncoding(0xd2c1, 0x0911, operands,
+                       {0xc5, 0x7a, 0x11, 0x54, 0xcb, 0xfc});
+  ExpectVectorEncoding(0xd2c1, 0x0d11, operands,
+                       {0xc5, 0x7b, 0x11, 0x54, 0xcb, 0xfc});
+  operands.has_index = false;
+  ExpectVectorEncoding(0xd2c1, 0x0911, operands,
+                       {0xc5, 0x7a, 0x11, 0x53, 0xfc});
+  ExpectVectorEncoding(0xd2c1, 0x0d11, operands,
+                       {0xc5, 0x7b, 0x11, 0x53, 0xfc});
+}
+
 TEST(EncodingTest, EveryVectorRecipeHasExactReferenceBytes) {
   struct Reference {
     uint16_t encoding_format_id;

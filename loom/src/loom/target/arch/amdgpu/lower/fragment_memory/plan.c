@@ -121,6 +121,8 @@ typedef struct loom_amdgpu_fragment_memory_narrowed_result_sources_t {
   loom_value_id_t scale_source;
   // Packed BF16 fragment source copied directly for narrowed stores.
   loom_value_id_t packed_source;
+  // Numeric facts for the scaled F32 value entering rounding.
+  loom_value_fact_flags_t round_numeric_flags;
   // Number of 32-bit registers in the packed source.
   uint16_t packed_register_count;
 } loom_amdgpu_fragment_memory_narrowed_result_sources_t;
@@ -769,6 +771,13 @@ loom_amdgpu_fragment_memory_narrowed_result_sources(
                 module, fact_table, payload, role_layout);
   if (sources.round_source == LOOM_VALUE_ID_INVALID) {
     return sources;
+  }
+
+  if (fact_table != NULL) {
+    const loom_value_facts_t round_facts =
+        loom_value_fact_table_lookup(fact_table, sources.round_source);
+    sources.round_numeric_flags =
+        round_facts.flags & (LOOM_VALUE_FACT_NOT_NAN | LOOM_VALUE_FACT_FINITE);
   }
 
   loom_value_fact_uniform_scale_origin_t scale_origin = {0};
@@ -1657,6 +1666,7 @@ static bool loom_amdgpu_fragment_memory_evaluate_prepared(
         .round_source = narrowed_result_sources.round_source,
         .scale_source = narrowed_result_sources.scale_source,
         .packed_source = narrowed_result_sources.packed_source,
+        .round_numeric_flags = narrowed_result_sources.round_numeric_flags,
         .uniform_bit_pattern =
             LOOM_AMDGPU_FRAGMENT_MEMORY_UNIFORM_BIT_PATTERN_INVALID,
     };

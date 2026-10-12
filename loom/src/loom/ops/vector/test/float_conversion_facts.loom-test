@@ -469,3 +469,31 @@ func.def @f64_partial_narrowing(%dynamic: f64) -> (vector<3xbf16>, i1, bf16) {
   %exact = scalar.constant 1.0078125 : bf16
   func.return %narrow, %is_nan, %exact : vector<3xbf16>, i1, bf16
 }
+
+// ====
+
+// Interpreting a physical payload as a fragment preserves its element classes.
+// The non-NaN scalar may be infinite; the F32 integer conversion is finite.
+func.def @fragment_numeric_envelope(%input: vector<4xi32>, %value: f32, %unknown: vector<4xf32>) -> (vector<4xi1>, vector<4xi1>, vector<4xi1>) {
+  %extent = index.constant 16 : index
+  %finite = vector.sitofp %input : vector<4xi32> to vector<4xf32>
+  %not_nan = scalar.assume %value [not_nan(%value)] : f32
+  %wide = vector.splat %not_nan : vector<4xf32>
+  %finite_fragment = vector.fragment<result> %finite shape [%extent, %extent] : vector<4xf32>
+  %not_nan_fragment = vector.fragment<result> %wide shape [%extent, %extent] : vector<4xf32>
+  %unknown_fragment = vector.fragment<result> %unknown shape [%extent, %extent] : vector<4xf32>
+  %is_finite = vector.isfinitef %finite_fragment : vector<4xf32> -> vector<4xi1>
+  %is_nan = vector.isnanf %not_nan_fragment : vector<4xf32> -> vector<4xi1>
+  %unknown_nan = vector.isnanf %unknown_fragment : vector<4xf32> -> vector<4xi1>
+  func.return %is_finite, %is_nan, %unknown_nan : vector<4xi1>, vector<4xi1>, vector<4xi1>
+}
+
+// ----
+func.def @fragment_numeric_envelope(%input: vector<4xi32>, %value: f32, %unknown: vector<4xf32>) -> (vector<4xi1>, vector<4xi1>, vector<4xi1>) {
+  %extent = index.constant 16 : index
+  %unknown_fragment = vector.fragment<result> %unknown shape [%extent, %extent] : vector<4xf32>
+  %is_finite = vector.constant true : vector<4xi1>
+  %is_nan = vector.constant false : vector<4xi1>
+  %unknown_nan = vector.isnanf %unknown_fragment : vector<4xf32> -> vector<4xi1>
+  func.return %is_finite, %is_nan, %unknown_nan : vector<4xi1>, vector<4xi1>, vector<4xi1>
+}
