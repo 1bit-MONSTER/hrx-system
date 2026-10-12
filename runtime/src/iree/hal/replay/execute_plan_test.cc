@@ -391,7 +391,7 @@ static void AppendReservationDestroyRecord(
       .object_type = IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION,
       .operation_code =
           IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY,
-      .status_code = status_code,
+      .status_code = static_cast<uint32_t>(status_code),
   };
   AppendReplayRecord(writer, metadata, {});
 }
