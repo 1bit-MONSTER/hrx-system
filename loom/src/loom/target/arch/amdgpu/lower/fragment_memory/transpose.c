@@ -285,7 +285,7 @@ static bool loom_amdgpu_fragment_memory_transpose_lane_terms(
     bool linear = true;
     for (uint8_t lane_bit = 1; lane_bit < lane_bit_count; ++lane_bit) {
       linear &= (uint64_t)bit_byte_strides[lane_bit] ==
-                (uint64_t)bit_byte_strides[0] * (UINT32_C(1) << lane_bit);
+                (uint64_t)bit_byte_strides[0] * (UINT64_C(1) << lane_bit);
     }
     if (linear) {
       out_address_layout->linear_lane_byte_stride = bit_byte_strides[0];
@@ -304,7 +304,7 @@ static bool loom_amdgpu_fragment_memory_transpose_lane_terms(
     uint8_t run_bit_count = 1;
     while (lane_bit + run_bit_count < lane_bit_count &&
            (uint64_t)bit_byte_strides[lane_bit + run_bit_count] ==
-               (uint64_t)byte_stride * (UINT32_C(1) << run_bit_count)) {
+               (uint64_t)byte_stride * (UINT64_C(1) << run_bit_count)) {
       ++run_bit_count;
     }
     if (out_address_layout->lane_term_count ==
