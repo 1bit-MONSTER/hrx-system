@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_access_flags.loom-test
 // RUN: emit source-low target=amdgpu:gfx1151 output=low
 
 func.def @observe_unused(%input: buffer) {

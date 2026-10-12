@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_index_operands.loom-test
 // RUN: emit source-low target=wasm:simd128 output=low
 
 func.def @uniform_lhs_index_operands(%input: buffer, %uniform: index) -> (index, index, index, index, index) {

@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/semantic_assertions.loom-test
 // RUN: emit source-low target=vm:core output=none
 
 kernel.def @semantic_value_assertion() {

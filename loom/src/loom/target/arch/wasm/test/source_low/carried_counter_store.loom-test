@@ -1,4 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/carried_counter_store.loom-test
 // RUN: emit source-low target=wasm:simd128 output=low
 
 // ERROR@+1: TARGET/089 {descriptor_set="wasm.core.simd128", function_name="carried_counter_store", op_name="func.def"}
