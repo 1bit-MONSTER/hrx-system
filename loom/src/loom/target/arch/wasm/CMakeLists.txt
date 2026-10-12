@@ -52,9 +52,11 @@ loom_cc_library(
     provider
   HDRS
     "legalization_float.h"
+    "legalization_memory.h"
     "provider.h"
   SRCS
     "legalization_float.c"
+    "legalization_memory.c"
     "provider.c"
   DEPS
     ::low_verify
@@ -63,6 +65,7 @@ loom_cc_library(
     loom::ir
     loom::ops::scalar
     loom::ops::vector
+    loom::ops::view
     loom::target::arch::wasm::descriptors
     loom::target::arch::wasm::descriptors::low_registry
     loom::target::arch::wasm::ops
@@ -72,6 +75,7 @@ loom_cc_library(
     loom::target::provider
     loom::transforms::scalar::target_legalization
     loom::transforms::vector::packet_legalization
+    loom::transforms::vector::shape_legalization
     loom::transforms::vector::target_legalization
     loom::transforms::vector::to_scalar
   PUBLIC
@@ -107,6 +111,7 @@ loom_check_test_suite(
     "test/source_low/carried_counter_store.loom-test"
     "test/source_low/control_flow_legality.loom-test"
     "test/source_low/dynamic_insert.loom-test"
+    "test/source_low/dynamic_windows.loom-test"
     "test/source_low/loop_counter_offset.loom-test"
     "test/source_low/math_contraction.loom-test"
     "test/source_low/memory_access_flags.loom-test"
@@ -134,6 +139,7 @@ loom_check_test_suite(
     "test/source_low/numeric_unsigned_remainder.loom-test"
     "test/source_low/numeric_vector_constants.loom-test"
     "test/source_low/numeric_vector_f32_values.loom-test"
+    "test/source_low/partial_vector_memory.loom-test"
     "test/source_low/predicate_carriers.loom-test"
     "test/source_low/predicate_extract.loom-test"
     "test/source_low/selected_payload_transport.loom-test"

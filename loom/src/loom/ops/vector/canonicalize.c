@@ -2821,6 +2821,36 @@ static iree_status_t loom_vector_canonicalize_contiguous_gather_scatter(
 // Conversions
 //===----------------------------------------------------------------------===//
 
+static iree_status_t loom_vector_canonicalize_bitcast(loom_op_t* op,
+                                                      loom_rewriter_t* rewriter,
+                                                      bool* out_changed) {
+  const loom_value_id_t input = loom_vector_bitcast_input(op);
+  const loom_type_t input_type =
+      loom_module_value_type(rewriter->module, input);
+  const loom_type_t result_type =
+      loom_module_value_type(rewriter->module, loom_vector_bitcast_result(op));
+  if (loom_type_equal(input_type, result_type)) {
+    IREE_RETURN_IF_ERROR(
+        loom_vector_replace_single_result_with_value(op, rewriter, input));
+    *out_changed = true;
+    return iree_ok_status();
+  }
+
+  loom_op_t* input_def = loom_rewriter_value_defining_op(rewriter, input);
+  if (!input_def || !loom_vector_bitcast_isa(input_def)) {
+    return iree_ok_status();
+  }
+  const loom_value_id_t inner_input = loom_vector_bitcast_input(input_def);
+  if (!loom_type_equal(loom_module_value_type(rewriter->module, inner_input),
+                       result_type)) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(
+      loom_vector_replace_single_result_with_value(op, rewriter, inner_input));
+  *out_changed = true;
+  return iree_ok_status();
+}
+
 static iree_status_t loom_vector_canonicalize_extf(loom_op_t* op,
                                                    loom_rewriter_t* rewriter,
                                                    bool* out_changed) {
@@ -2994,6 +3024,12 @@ iree_status_t loom_vector_insert_canonicalize(loom_op_t* op,
                                               loom_rewriter_t* rewriter) {
   return loom_vector_canonicalize_uniform_then(op, rewriter,
                                                loom_vector_canonicalize_insert);
+}
+
+iree_status_t loom_vector_bitcast_canonicalize(loom_op_t* op,
+                                               loom_rewriter_t* rewriter) {
+  bool changed = false;
+  return loom_vector_canonicalize_bitcast(op, rewriter, &changed);
 }
 
 iree_status_t loom_vector_extf_canonicalize(loom_op_t* op,

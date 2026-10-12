@@ -268,6 +268,7 @@ loom_cc_library(
     loom::ir
     loom::ops::index
     loom::ops::vector
+    loom::ops::view
     loom::rewrite::rewriter
     loom::target::legalization
   PUBLIC

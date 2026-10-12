@@ -10,7 +10,9 @@
 
 #include "loom/ir/module.h"
 #include "loom/ops/index/ops.h"
+#include "loom/ops/vector/memory.h"
 #include "loom/ops/vector/ops.h"
+#include "loom/ops/view/ops.h"
 
 // Bounds static structural expansion. Broadcast planning counts every new
 // slice, extract, and splat together with its flatten, concat, and restore
@@ -62,6 +64,29 @@ static iree_status_t loom_vector_static_shape_restore_result(
       context->rewriter, op, &replacement, 1, value_checkpoint));
   return loom_rewriter_replace_all_uses_and_erase(context->rewriter, op,
                                                   &replacement, 1);
+}
+
+static bool loom_vector_static_shape_memory_is_contiguous(
+    loom_type_t view_type, loom_type_t vector_type) {
+  if (!loom_type_is_view(view_type) || !loom_type_is_vector(vector_type) ||
+      loom_type_rank(vector_type) <= 1 ||
+      loom_type_rank(vector_type) > loom_type_rank(view_type) ||
+      !loom_type_is_all_static(view_type) ||
+      !loom_type_is_all_static(vector_type) || view_type.encoding_id != 0 ||
+      vector_type.encoding_id != 0 ||
+      !loom_type_element_type_equals(view_type, vector_type)) {
+    return false;
+  }
+  const uint8_t vector_rank = loom_type_rank(vector_type);
+  const uint8_t first_vector_axis = loom_type_rank(view_type) - vector_rank;
+  for (uint8_t vector_axis = 1; vector_axis < vector_rank; ++vector_axis) {
+    if (loom_type_dim_static_size_at(vector_type, vector_axis) !=
+        loom_type_dim_static_size_at(view_type,
+                                     first_vector_axis + vector_axis)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Linearizes mixed static and dynamic leading coordinates into one row-major
@@ -972,4 +997,105 @@ iree_status_t loom_vector_static_shape_rewrite_op(
     default:
       return iree_ok_status();
   }
+}
+
+iree_status_t loom_vector_static_shape_memory_rewrite_op(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    bool* out_rewritten) {
+  *out_rewritten = false;
+  const bool is_load = loom_vector_load_isa(op);
+  const bool is_store = loom_vector_store_isa(op);
+  if (!is_load && !is_store) {
+    return iree_ok_status();
+  }
+
+  const loom_value_id_t view =
+      is_load ? loom_vector_load_view(op) : loom_vector_store_view(op);
+  const loom_value_id_t vector_value =
+      is_load ? loom_vector_load_result(op) : loom_vector_store_value(op);
+  const loom_type_t view_type = loom_module_value_type(context->module, view);
+  const loom_type_t vector_type =
+      loom_module_value_type(context->module, vector_value);
+  uint64_t view_element_count = 0;
+  uint64_t vector_element_count = 0;
+  if (!loom_vector_static_shape_memory_is_contiguous(view_type, vector_type) ||
+      !loom_type_static_element_count(view_type, &view_element_count) ||
+      !loom_type_static_element_count(vector_type, &vector_element_count) ||
+      view_element_count == 0 || vector_element_count == 0 ||
+      view_element_count > LOOM_DIM_MAX_STATIC_SIZE ||
+      vector_element_count > view_element_count) {
+    return iree_ok_status();
+  }
+
+  const loom_attribute_t static_indices =
+      is_load ? loom_vector_load_static_indices(op)
+              : loom_vector_store_static_indices(op);
+  const loom_value_slice_t dynamic_indices =
+      is_load ? loom_vector_load_indices(op) : loom_vector_store_indices(op);
+  if (static_indices.kind != LOOM_ATTR_I64_ARRAY ||
+      static_indices.count != loom_type_rank(view_type)) {
+    return iree_ok_status();
+  }
+  loom_vector_memory_cache_policy_t cache_policy = {0};
+  if (!loom_vector_memory_cache_policy_from_op(context->module, op,
+                                               &cache_policy)) {
+    return iree_ok_status();
+  }
+
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  loom_value_id_t dynamic_index = LOOM_VALUE_ID_INVALID;
+  int64_t static_index = 0;
+  IREE_RETURN_IF_ERROR(loom_vector_static_shape_linearize_indices(
+      builder, view_type, static_indices, dynamic_indices, op->location,
+      &dynamic_index, &static_index));
+
+  loom_type_t flat_view_type = loom_type_shaped_1d(
+      LOOM_TYPE_VIEW, loom_type_element_type(view_type),
+      loom_dim_pack_static((int64_t)view_element_count), /*encoding_id=*/0);
+  flat_view_type = loom_type_view_with_alignment(
+      flat_view_type, loom_type_view_alignment(view_type));
+  loom_op_t* flat_view_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_view_bitcast_build(builder, view, flat_view_type,
+                                               op->location, &flat_view_op));
+  const loom_type_t flat_vector_type =
+      loom_vector_static_shape_flat_type(vector_type, vector_element_count);
+  const loom_value_id_t* flat_indices = NULL;
+  iree_host_size_t flat_index_count = 0;
+  if (dynamic_index != LOOM_VALUE_ID_INVALID) {
+    flat_indices = &dynamic_index;
+    flat_index_count = 1;
+    static_index = INT64_MIN;
+  }
+
+  if (is_load) {
+    loom_op_t* flat_load_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_load_build(
+        builder, cache_policy.build_flags, loom_vector_load_memory_flags(op),
+        loom_view_bitcast_result(flat_view_op), flat_indices, flat_index_count,
+        &static_index, /*static_indices_count=*/1, cache_policy.cache_scope,
+        cache_policy.cache_temporal, flat_vector_type, op->location,
+        &flat_load_op));
+    IREE_RETURN_IF_ERROR(loom_vector_static_shape_restore_result(
+        context, op, loom_vector_load_result(flat_load_op), flat_vector_type,
+        vector_type, value_checkpoint));
+  } else {
+    loom_value_id_t flat_value = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_vector_static_shape_flatten_value(
+        builder, vector_value, vector_type, vector_element_count, op->location,
+        &flat_value));
+    loom_op_t* flat_store_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_store_build(
+        builder, cache_policy.build_flags, loom_vector_store_memory_flags(op),
+        flat_value, loom_view_bitcast_result(flat_view_op), flat_indices,
+        flat_index_count, &static_index, /*static_indices_count=*/1,
+        cache_policy.cache_scope, cache_policy.cache_temporal, op->location,
+        &flat_store_op));
+    IREE_RETURN_IF_ERROR(loom_rewriter_erase(rewriter, op));
+  }
+  *out_rewritten = true;
+  return iree_ok_status();
 }

@@ -25,6 +25,14 @@ iree_status_t loom_vector_static_shape_rewrite_op(
     loom_target_legalization_context_t* context, loom_op_t* op,
     bool* out_rewritten);
 
+// Rewrites a dense contiguous vector.load or vector.store over a static
+// multidimensional vector footprint to one rank-one access through a row-major
+// view bitcast. Returns without rewriting dynamic, encoded, or non-contiguous
+// footprints.
+iree_status_t loom_vector_static_shape_memory_rewrite_op(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    bool* out_rewritten);
+
 #ifdef __cplusplus
 }
 #endif

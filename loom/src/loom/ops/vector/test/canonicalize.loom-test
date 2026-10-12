@@ -90,6 +90,32 @@ func.def @index_cast_identity(%value: vector<4xindex>) -> (vector<4xindex>) {
 
 // ====
 
+// Bitcasts to the input type are aliases.
+func.def @bitcast_identity(%value: vector<2x3xi16>) -> (vector<2x3xi16>) {
+  %result = vector.bitcast %value : vector<2x3xi16> to vector<2x3xi16>
+  func.return %result : vector<2x3xi16>
+}
+// ----
+func.def @bitcast_identity(%value: vector<2x3xi16>) -> (vector<2x3xi16>) {
+  func.return %value : vector<2x3xi16>
+}
+
+// ====
+
+// A bitcast immediately back to the original type is an alias even when both
+// the element type and shape changed in the intermediate representation.
+func.def @bitcast_inverse(%value: vector<2x3xi16>) -> (vector<2x3xi16>) {
+  %bytes = vector.bitcast %value : vector<2x3xi16> to vector<12xi8>
+  %result = vector.bitcast %bytes : vector<12xi8> to vector<2x3xi16>
+  func.return %result : vector<2x3xi16>
+}
+// ----
+func.def @bitcast_inverse(%value: vector<2x3xi16>) -> (vector<2x3xi16>) {
+  func.return %value : vector<2x3xi16>
+}
+
+// ====
+
 // A unary concat is the input value itself.
 func.def @concat_unary(%value: vector<4xi8>) -> (vector<4xi8>) {
   %result = vector.concat<0> %value : vector<4xi8> -> vector<4xi8>
