@@ -56,6 +56,8 @@ typedef struct loom_value_fact_condition_scratch_t
     loom_value_fact_condition_scratch_t;
 typedef struct loom_value_fact_exact_lane_origin_entry_t
     loom_value_fact_exact_lane_origin_entry_t;
+typedef struct loom_value_fact_vector_partitions_t
+    loom_value_fact_vector_partitions_t;
 typedef struct loom_condition_edge_projection_t
     loom_condition_edge_projection_t;
 typedef struct loom_cfg_graph_t loom_cfg_graph_t;
@@ -350,6 +352,9 @@ struct loom_value_fact_table_t {
   // Scope-local per-axis SSA layout strides. Allocated only for dynamic
   // explicit layouts; separate from numeric extensions that cross call scopes.
   loom_value_fact_layout_origins_t* layout_origins;
+
+  // Scope-local regular vector partitions indexed by logical vector value ID.
+  loom_value_fact_vector_partitions_t* vector_partitions;
 
   // Canonical transitive select conditions keyed by SSA value ID. Both the
   // index and dense roots have populated-scope lifetime and remain absent for

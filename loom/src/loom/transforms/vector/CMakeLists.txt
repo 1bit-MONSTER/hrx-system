@@ -221,6 +221,7 @@ loom_cc_library(
     loom::ops::vector
     loom::rewrite::rewriter
     loom::target::legalization
+    loom::util::fact_table
   PUBLIC
 )
 

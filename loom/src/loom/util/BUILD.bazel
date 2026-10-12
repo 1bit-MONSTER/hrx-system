@@ -247,6 +247,7 @@ loom_cc_library(
         "fact_recurrence.c",
         "fact_table.c",
         "fact_table_compute.c",
+        "fact_vector_partition.c",
         "reference_transfer.c",
     ],
     hdrs = [
@@ -257,6 +258,7 @@ loom_cc_library(
         "fact_loop.h",
         "fact_recurrence.h",
         "fact_table.h",
+        "fact_vector_partition.h",
         "reference_transfer.h",
     ],
     deps = [
@@ -291,6 +293,17 @@ loom_cc_library(
 loom_cc_test(
     name = "fact_layout_test",
     srcs = ["fact_layout_test.cc"],
+    deps = [
+        ":fact_table",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "fact_vector_partition_test",
+    srcs = ["fact_vector_partition_test.cc"],
     deps = [
         ":fact_table",
         "//runtime/src/iree/base/internal:arena",

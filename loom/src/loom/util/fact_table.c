@@ -15,6 +15,7 @@
 #include "loom/target/facts_builder.h"
 #include "loom/util/fact_cfg.h"
 #include "loom/util/fact_loop.h"
+#include "loom/util/fact_vector_partition.h"
 
 //===----------------------------------------------------------------------===//
 // Capacity management
@@ -441,6 +442,7 @@ void loom_value_fact_table_clear_scope(loom_value_fact_table_t* table) {
   table->contextual_query_origins.touched_count = 0;
   table->contextual_query_origins.origin_count = 0;
   table->layout_origins = NULL;
+  table->vector_partitions = NULL;
   table->select_dependencies.index = NULL;
   table->select_dependencies.roots = NULL;
   table->select_dependencies.capacity = 0;
@@ -916,6 +918,9 @@ void loom_value_fact_table_undefine(loom_value_fact_table_t* table,
                                     loom_value_id_t value_id) {
   if (table->layout_origins) {
     loom_value_fact_table_clear_layout_strides(table, value_id);
+  }
+  if (table->vector_partitions) {
+    loom_value_fact_table_clear_vector_partition(table, value_id);
   }
   const iree_host_size_t index =
       (iree_host_size_t)value_id - table->first_value_id;
@@ -1780,6 +1785,11 @@ iree_status_t loom_value_fact_table_clone_values(
           target, value_id,
           loom_value_fact_table_query_layout_strides(source, value_id)));
     }
+    if (source->vector_partitions || target->vector_partitions) {
+      IREE_RETURN_IF_ERROR(loom_value_fact_table_define_vector_partition(
+          target, value_id,
+          loom_value_fact_table_query_vector_partition(source, value_id)));
+    }
     loom_value_fact_uniform_element_origin_t uniform_origin = {0};
     if (loom_value_fact_table_lookup_uniform_element_origin(source, value_id,
                                                             &uniform_origin)) {
@@ -1992,6 +2002,10 @@ iree_status_t loom_value_fact_table_propagate_origins(
       IREE_RETURN_IF_ERROR(loom_value_fact_table_forward_layout_strides(
           table, operands[0], results[0]));
     }
+    if (table->vector_partitions) {
+      IREE_RETURN_IF_ERROR(loom_value_fact_table_forward_vector_partition(
+          table, operands[0], results[0]));
+    }
   }
   if (loom_traits_are_fact_identity(traits)) {
     const uint16_t pair_count = op->operand_count < op->result_count
@@ -2013,6 +2027,10 @@ iree_status_t loom_value_fact_table_propagate_origins(
               table, operands[i], results[i]));
       if (table->layout_origins) {
         IREE_RETURN_IF_ERROR(loom_value_fact_table_forward_layout_strides(
+            table, operands[i], results[i]));
+      }
+      if (table->vector_partitions) {
+        IREE_RETURN_IF_ERROR(loom_value_fact_table_forward_vector_partition(
             table, operands[i], results[i]));
       }
     }
