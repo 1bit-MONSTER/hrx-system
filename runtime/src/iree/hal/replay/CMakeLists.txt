@@ -195,6 +195,22 @@ iree_cc_library(
 
 iree_cc_test(
   NAME
+    dump_vmm_test
+  SRCS
+    "dump_vmm_test.cc"
+  DEPS
+    ::dump
+    ::file_reader
+    ::file_writer
+    iree::base
+    iree::hal
+    iree::io::file_handle
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+iree_cc_test(
+  NAME
     dump_test
   SRCS
     "dump_test.cc"
@@ -202,6 +218,22 @@ iree_cc_test(
     ::dump
     ::file_reader
     ::file_writer
+    iree::base
+    iree::hal
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+iree_cc_test(
+  NAME
+    execute_vmm_test
+  SRCS
+    "execute_operation.h"
+    "execute_state.h"
+    "execute_vmm_test.cc"
+  DEPS
+    ::execute
+    ::file_reader
     iree::base
     iree::hal
     iree::testing::gtest
@@ -231,6 +263,25 @@ iree_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     iree::testing::temp_file
+)
+
+iree_cc_test(
+  NAME
+    execute_plan_test
+  SRCS
+    "execute_plan_test.cc"
+  DEPS
+    ::execute
+    ::file_reader
+    ::file_writer
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    iree::hal
+    iree::hal::drivers::task::registration
+    iree::io::file_handle
+    iree::testing::gtest
+    iree::testing::gtest_main
 )
 
 iree_cc_test(
@@ -288,6 +339,23 @@ iree_cc_test(
   DEPS
     ::file
     iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+iree_cc_test(
+  NAME
+    recorder_vmm_test
+  SRCS
+    "recorder_allocator.h"
+    "recorder_vmm_test.cc"
+  DEPS
+    ::file_reader
+    ::format
+    ::recorder
+    iree::base
+    iree::hal
+    iree::io::file_handle
     iree::testing::gtest
     iree::testing::gtest_main
 )
