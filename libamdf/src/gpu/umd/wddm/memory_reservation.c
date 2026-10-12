@@ -23,7 +23,7 @@ struct amdf_gpu_umd_memory_reservation_t {
   // Application-visible extent, shared by the explicitly admitted consumers.
   uint64_t byte_length;
   // Device of the latest mutation. Its paging queue orders host-completed
-  // batches and final clear. The caller retires queued updates before clear.
+  // batches and detach. The caller retires queued updates before detach.
   amdf_gpu_umd_device_t* publisher;
   // Live devices sharing these native page tables, borrowed through release.
   amdf_gpu_umd_device_t* devices[];
@@ -202,8 +202,12 @@ amdf_status_t amdf_gpu_umd_memory_reservation_update(
   return status;
 }
 
-amdf_status_t amdf_gpu_umd_memory_reservation_destroy(
-    amdf_gpu_umd_memory_reservation_t* reservation) {
+amdf_status_t amdf_gpu_umd_memory_reservation_detach(
+    amdf_gpu_umd_memory_reservation_t* reservation, uint32_t access_ordinal) {
+  // All admitted aliases share this native group. Clear on the latest writer's
+  // paging queue even when called through another alias: a failed host update
+  // may have an accepted prefix still pending there.
+  (void)access_ordinal;
   amdf_gpu_umd_device_t* device = reservation->publisher;
   uint64_t fence = 0;
   amdf_status_t status = amdf_gpu_wddm_reservation_map(
@@ -213,6 +217,13 @@ amdf_status_t amdf_gpu_umd_memory_reservation_destroy(
         &device->status, device->kmt, device->device,
         device->paging_sync_object, device->paging_fence, fence);
   }
+  return status;
+}
+
+amdf_status_t amdf_gpu_umd_memory_reservation_destroy(
+    amdf_gpu_umd_memory_reservation_t* reservation) {
+  amdf_gpu_umd_device_t* device = reservation->publisher;
+  amdf_status_t status = amdf_gpu_umd_memory_reservation_detach(reservation, 0);
   if (amdf_status_is_ok(status)) {
     D3DKMT_FREEGPUVIRTUALADDRESS release = {0};
     release.hAdapter = device->adapter;

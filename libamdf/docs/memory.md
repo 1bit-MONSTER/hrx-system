@@ -416,12 +416,15 @@ amdf_memory_mapping_update_t replacement = {
     .byte_length = slab_length,
     .memory = new_slab,
     .memory_access_ordinal = slab_gpu_access,
-    .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+    .access = admitted_access,
     .source_byte_offset = slab_offset,
 };
 status = api->memory_reservation_update(arena, arena_gpu_access, 1,
                                        &replacement);
 ```
+
+`admitted_access` includes the intended permissions and the queried native
+`required_access` bits, within the source and reservation's supported access.
 
 Success establishes the replacement's translation readiness before returning.
 The next operation on an existing queue can use the unchanged arena address.
@@ -482,9 +485,9 @@ to avoid the native pending-update throttle. A full prefix returns `BUSY`
 without waiting; ordinary command capacity is unchanged.
 
 Acceptance is distinct from success at retirement. If native mapping is
-accepted but publication of the following queue dependency fails, the caller
-still receives the accepted point. The queue records terminal failure and
-rejects subsequent publication; the reservation projection becomes unusable.
+accepted but publication of the following queue dependency fails, the call
+still returns `OK` and the accepted point. The queue records terminal failure
+and rejects subsequent publication; the reservation projection becomes unusable.
 Queue status and waits report that failure. Independently observed progress,
 not failure alone, establishes retirement. No replay, second completion
 object, mapping registry, or retained source list is introduced.
@@ -504,23 +507,44 @@ on such queues instead of concealing that host wait.
 
 On Linux the instance serializes its foreground VM mutations through native
 completion. A PROCESS-lifetime KFD context can also be used by foreign driver
-clients; their VM mutations require caller coordination with reservation updates
-and destruction. The instance's lock cannot order calls made outside that
-instance. INSTANCE lifetime supplies a separate native KFD context.
+clients; their VM mutations require caller coordination with reservation
+updates, detach and destruction. The instance's lock cannot order calls made
+outside that instance. INSTANCE lifetime supplies a separate native KFD context.
 
-The reservation borrows its devices and backing without retaining either.
-The caller keeps each source alive until every installed alias and executing
-user has finished. `memory_reservation_destroy` clears its complete bounds,
-including holes, establishes removal readiness, then releases the addresses.
-It requires no installed-mapping ledger. Successful final removal permits
-releasing the detached sources while their execution queues remain alive.
+### Checked removal and address lifetime
+
+The reservation borrows its devices and backing without retaining either. The
+caller keeps each source alive until every installed alias and executing user
+has finished. A pool can remove backing while buffers still retain its address
+owner: `memory_reservation_detach(arena, access_ordinal)` clears the complete
+native mapping group, including holes, and establishes translation removal
+before returning success. It does not consume the reservation or release its
+addresses. Other aliases and users still require their own removal and
+completion before the pool reuses that backing.
+
+The caller completes affected execution and accepted queue-ordered mappings
+before detach, just as for a host-completed update. Libamdf orders removal
+behind any native prefix left by its own failed host update. Windows uses the
+last writer's paging queue even when detach is requested through another
+logical-device alias. This operation allocates no library metadata and needs
+no installed-mapping ledger; it may lock native VM mutation and wait for
+translation publication. It does not wait for application execution.
+
+After successful detach, a healthy reservation can accept new backing at the
+same addresses. `memory_reservation_destroy` independently clears any remaining
+mappings and releases the addresses. Final destruction is not required to
+certify removal before returning a slab to the pool.
 
 Request-validation failure changes nothing. A native failure after mutation
-can leave partial mappings and makes that native projection unusable except
-for final destruction. The caller retains old and proposed backing until
-checked removal succeeds. Failed destruction consumes the reservation handle
-but does not authorize backing reuse; unsafe native resources remain leaked
-without a retained libamdf cleanup object. There is no rollback promise,
+can leave partial mappings and makes that native mapping group unusable except
+for full-group detach or final destruction. The caller retains old and proposed
+backing until checked removal succeeds. Detach reports its own result and
+preserves the handle on every result; success does not reset an earlier
+mapping failure. A detach failure grants no backing reuse, poisons a healthy
+group and preserves an already-failed group's original error. Failed
+destruction consumes the reservation handle but does not authorize backing
+reuse; unsafe native resources remain leaked without a retained libamdf
+cleanup object. There is no rollback promise,
 implicit retry, or second retirement mechanism.
 
 ## Native resources and activation

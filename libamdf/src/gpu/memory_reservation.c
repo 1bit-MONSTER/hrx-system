@@ -84,6 +84,14 @@ amdf_status_t amdf_gpu_memory_reservation_update_on_queue(
                                            submission, accepted);
 }
 
+static amdf_status_t amdf_gpu_memory_reservation_detach(
+    amdf_memory_reservation_t* base, uint32_t access_ordinal) {
+  amdf_gpu_memory_reservation_t* reservation =
+      (amdf_gpu_memory_reservation_t*)base;
+  return amdf_gpu_umd_memory_reservation_detach(reservation->umd,
+                                                access_ordinal);
+}
+
 static amdf_status_t amdf_gpu_memory_reservation_destroy(
     amdf_memory_reservation_t* base) {
   amdf_gpu_memory_reservation_t* reservation =
@@ -97,6 +105,7 @@ static amdf_status_t amdf_gpu_memory_reservation_destroy(
 static const amdf_memory_reservation_vtable_t
     amdf_gpu_memory_reservation_vtable = {
         .update = amdf_gpu_memory_reservation_update,
+        .detach = amdf_gpu_memory_reservation_detach,
         .destroy = amdf_gpu_memory_reservation_destroy,
 };
 

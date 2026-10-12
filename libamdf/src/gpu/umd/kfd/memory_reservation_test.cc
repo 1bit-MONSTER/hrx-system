@@ -374,14 +374,30 @@ TEST_P(KfdMemoryReservationFailureTest, PropagatesNativePublicationError) {
   EXPECT_EQ(native_.allocation_count, 1u);
 }
 
+TEST_P(KfdMemoryReservationFailureTest,
+       FailedDetachPreservesAddressAndPublicationOwnership) {
+  ASSERT_NO_FATAL_FAILURE(Create());
+  native_.failure_request = GetParam();
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_detach(reservation_, 0),
+            amdf_linux_error(EIO));
+  EXPECT_EQ(native_.ready_count, 0u);
+  EXPECT_TRUE(IsReserved(address_));
+  EXPECT_TRUE(IsReserved(native_.transport_address));
+  EXPECT_EQ(native_.allocation_count, 1u);
+  EXPECT_EQ(native_.gem_count, 1u);
+  EXPECT_EQ(native_.context_count, 1u);
+}
+
 INSTANTIATE_TEST_SUITE_P(NativeCall, KfdMemoryReservationFailureTest,
-                         ::testing::Values(DRM_IOCTL_AMDGPU_CS,
+                         ::testing::Values(DRM_IOCTL_AMDGPU_GEM_VA,
+                                           DRM_IOCTL_AMDGPU_CS,
                                            DRM_IOCTL_AMDGPU_FENCE_TO_HANDLE,
                                            DRM_IOCTL_AMDGPU_WAIT_CS,
                                            SYNC_IOC_FILE_INFO,
                                            AMDKFD_IOC_MAP_MEMORY_TO_GPU));
 
-TEST_F(KfdMemoryReservationTest, ClearsEntireOwnerAfterPartialVectorFailure) {
+TEST_F(KfdMemoryReservationTest,
+       DetachesEntireGroupAfterPartialVectorFailureWithoutReleasingOwner) {
   ASSERT_NO_FATAL_FAILURE(Create());
   const amdf_gpu_umd_mapping_update_t updates[] = {
       {.target_byte_offset = 4096, .byte_length = 4096},
@@ -396,18 +412,39 @@ TEST_F(KfdMemoryReservationTest, ClearsEntireOwnerAfterPartialVectorFailure) {
   EXPECT_TRUE(mutation_started);
   EXPECT_EQ(native_.mutations.size(), 1u);
   EXPECT_EQ(native_.sequence, 0u);
-  EXPECT_EQ(amdf_gpu_umd_memory_reservation_destroy(reservation_),
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_detach(reservation_, 0),
             AMDF_STATUS_OK);
-  reservation_ = nullptr;
   ASSERT_EQ(native_.mutations.size(), 2u);
+  EXPECT_EQ(native_.mutations.back().operation, AMDGPU_VA_OP_CLEAR);
   EXPECT_EQ(native_.mutations.back().va_address, address_);
   EXPECT_EQ(native_.mutations.back().map_size, 32768u);
   EXPECT_EQ(native_.ready_count, 1u);
+  EXPECT_EQ(native_.allocation_count, 1u);
+  EXPECT_EQ(native_.gem_count, 1u);
+  EXPECT_EQ(native_.context_count, 1u);
+  EXPECT_TRUE(IsReserved(address_));
+  EXPECT_TRUE(IsReserved(native_.transport_address));
+  EXPECT_EQ(fcntl(native_.fence_descriptor, F_GETFD), -1);
+  EXPECT_EQ(errno, EBADF);
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_destroy(reservation_),
+            AMDF_STATUS_OK);
+  reservation_ = nullptr;
+  EXPECT_EQ(native_.ready_count, 2u);
   EXPECT_EQ(native_.allocation_count, 0u);
   EXPECT_EQ(native_.gem_count, 0u);
   EXPECT_EQ(native_.context_count, 0u);
   EXPECT_FALSE(IsReserved(address_));
   EXPECT_FALSE(IsReserved(native_.transport_address));
+}
+
+TEST_F(KfdMemoryReservationTest, DetachRejectsFailedPublicationFence) {
+  ASSERT_NO_FATAL_FAILURE(Create());
+  native_.fence_status = -ECANCELED;
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_detach(reservation_, 0),
+            amdf_linux_error(ECANCELED));
+  EXPECT_EQ(native_.ready_count, 0u);
+  EXPECT_EQ(native_.context_count, 1u);
+  EXPECT_TRUE(IsReserved(address_));
 }
 
 TEST_F(KfdMemoryReservationTest, FailedFinalClearPreservesAllNativeOwnership) {

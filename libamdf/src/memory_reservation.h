@@ -20,6 +20,10 @@ typedef struct amdf_memory_reservation_vtable_t {
                           uint32_t access_ordinal, uint32_t update_count,
                           const amdf_memory_mapping_update_t* updates,
                           bool* mutation_started);
+  // Clears one complete native mapping group without releasing its owner or
+  // addresses. Native failure poisons the group; no source knowledge is needed.
+  amdf_status_t (*detach)(amdf_memory_reservation_t* reservation,
+                          uint32_t access_ordinal);
   // Clears all aliases and consumes implementation metadata, even on failure.
   amdf_status_t (*destroy)(amdf_memory_reservation_t* reservation);
 } amdf_memory_reservation_vtable_t;
@@ -62,6 +66,9 @@ amdf_status_t AMDF_CALL amdf_memory_reservation_query_access_info(
 amdf_status_t AMDF_CALL amdf_memory_reservation_update(
     amdf_memory_reservation_t* reservation, uint32_t access_ordinal,
     uint32_t update_count, const amdf_memory_mapping_update_t* updates);
+
+amdf_status_t AMDF_CALL amdf_memory_reservation_detach(
+    amdf_memory_reservation_t* reservation, uint32_t access_ordinal);
 
 amdf_status_t AMDF_CALL
 amdf_memory_reservation_destroy(amdf_memory_reservation_t* reservation);

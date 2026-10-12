@@ -569,7 +569,7 @@ TEST_F(WindowsGpuMemoryTest,
 }
 
 TEST_F(WindowsGpuMemoryTest,
-       FinalClearFollowsPartialUpdatesOnTheirPagingQueue) {
+       DetachThroughAnotherAliasFollowsPartialUpdatesOnTheirPagingQueue) {
   auto second = device_;
   second.device = 0x11;
   second.paging_queue = 0x31;
@@ -610,14 +610,31 @@ TEST_F(WindowsGpuMemoryTest,
   EXPECT_EQ(std::count(state_.operations.begin(), state_.operations.end(),
                        Operation::kFreeAddress),
             0);
-  EXPECT_EQ(amdf_gpu_umd_memory_reservation_destroy(reservation),
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_detach(reservation, 0),
             AMDF_STATUS_OK);
   EXPECT_EQ(state_.mappings.back().Protection.NoAccess, 1u);
   EXPECT_EQ(state_.mappings.back().SizeInPages, 16u);
   EXPECT_EQ(state_.operations,
+            (std::vector<Operation>{Operation::kReserveAddress, Operation::kMap,
+                                    Operation::kMap, Operation::kMap,
+                                    Operation::kWait}));
+  EXPECT_EQ(state_.metadata_free_count, 0u);
+  uint64_t address = 0;
+  uint32_t mapping_ordinal = UINT32_MAX;
+  uint64_t granularity = 0;
+  amdf_memory_access_t required_access = 0;
+  amdf_gpu_umd_memory_reservation_query_access(reservation, 1, &address,
+                                               &mapping_ordinal, &granularity,
+                                               &required_access);
+  EXPECT_EQ(address, 0x100000u);
+  EXPECT_EQ(mapping_ordinal, 0u);
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_destroy(reservation),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(state_.operations,
             (std::vector<Operation>{
                 Operation::kReserveAddress, Operation::kMap, Operation::kMap,
-                Operation::kMap, Operation::kWait, Operation::kFreeAddress}));
+                Operation::kMap, Operation::kWait, Operation::kMap,
+                Operation::kWait, Operation::kFreeAddress}));
   EXPECT_EQ(state_.metadata_free_count, 1u);
 }
 
@@ -632,11 +649,52 @@ TEST_F(WindowsGpuMemoryTest,
     current_state->operations.push_back(Operation::kMap);
     return kStatusNoMemory;
   };
-  EXPECT_EQ(amdf_gpu_umd_memory_reservation_destroy(reservation),
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_detach(reservation, 0),
             amdf_kmt_make_status(kStatusNoMemory));
+  EXPECT_EQ(state_.metadata_free_count, 0u);
   EXPECT_EQ(
       state_.operations,
       (std::vector<Operation>{Operation::kReserveAddress, Operation::kMap}));
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_destroy(reservation),
+            amdf_kmt_make_status(kStatusNoMemory));
+  EXPECT_EQ(state_.operations,
+            (std::vector<Operation>{Operation::kReserveAddress, Operation::kMap,
+                                    Operation::kMap}));
+  EXPECT_EQ(state_.metadata_free_count, 1u);
+}
+
+TEST_F(WindowsGpuMemoryTest, FailedDetachReadinessPreservesOwnerAndAddress) {
+  amdf_gpu_umd_device_t* devices[] = {&device_};
+  amdf_gpu_umd_memory_reservation_t* reservation = nullptr;
+  ASSERT_EQ(amdf_gpu_umd_memory_reservation_create(
+                device_.host_allocator, 1, devices, 65536, 0, &reservation),
+            AMDF_STATUS_OK);
+  kmt_.map_gpu_virtual_address = [](D3DDDI_MAPGPUVIRTUALADDRESS* map) {
+    current_state->operations.push_back(Operation::kMap);
+    EXPECT_EQ(map->Protection.NoAccess, 1u);
+    EXPECT_EQ(map->hAllocation, 0u);
+    EXPECT_EQ(map->BaseAddress, 0x100000u);
+    EXPECT_EQ(map->SizeInPages, 16u);
+    map->VirtualAddress = map->BaseAddress;
+    map->PagingFenceValue = current_state->next_paging_fence++;
+    return kStatusPending;
+  };
+  kmt_.wait_from_cpu = [](const D3DKMT_WAITFORSYNCHRONIZATIONOBJECTFROMCPU*) {
+    current_state->operations.push_back(Operation::kWait);
+    return kStatusNoMemory;
+  };
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_detach(reservation, 0),
+            amdf_kmt_make_status(kStatusNoMemory));
+  EXPECT_EQ(state_.metadata_free_count, 0u);
+  EXPECT_EQ(state_.operations,
+            (std::vector<Operation>{Operation::kReserveAddress, Operation::kMap,
+                                    Operation::kWait}));
+  // Final destruction still consumes metadata but cannot release unproven VA.
+  EXPECT_EQ(amdf_gpu_umd_memory_reservation_destroy(reservation),
+            amdf_kmt_make_status(kStatusNoMemory));
+  EXPECT_EQ(std::count(state_.operations.begin(), state_.operations.end(),
+                       Operation::kFreeAddress),
+            0);
   EXPECT_EQ(state_.metadata_free_count, 1u);
 }
 

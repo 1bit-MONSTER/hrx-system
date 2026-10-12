@@ -88,8 +88,11 @@ typedef uint32_t amdf_abi_version_t;
 /// Stable reservations, ordinary backing sources and queue-ordered mappings.
 #define AMDF_ABI_VERSION_6 ((amdf_abi_version_t)6)
 
+/// Checked mapping removal independent of reservation destruction.
+#define AMDF_ABI_VERSION_7 ((amdf_abi_version_t)7)
+
 /// The most recent ABI version described by this header.
-#define AMDF_ABI_VERSION_LATEST AMDF_ABI_VERSION_6
+#define AMDF_ABI_VERSION_LATEST AMDF_ABI_VERSION_7
 
 /// The unmangled symbol used to acquire the immutable API table.
 #define AMDF_QUERY_API_SYMBOL "amdf_query_api"

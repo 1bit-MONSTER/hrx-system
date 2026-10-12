@@ -266,6 +266,28 @@ amdf_status_t AMDF_CALL amdf_kernel_queue_update_memory(
                                        update_count, updates, out_submission);
 }
 
+amdf_status_t AMDF_CALL amdf_memory_reservation_detach(
+    amdf_memory_reservation_t* reservation, uint32_t access_ordinal) {
+  if (reservation == NULL) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
+  }
+  if (access_ordinal >= reservation->access_count) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE);
+  }
+  // Full removal must reach the native provider even after a partial update
+  // failed. Neither successful removal nor a later error resets the first one.
+  const amdf_status_t status =
+      reservation->vtable->detach(reservation, access_ordinal);
+  const uint32_t mapping_access_ordinal =
+      reservation->accesses[access_ordinal].info.mapping_access_ordinal;
+  amdf_status_t* failure =
+      &reservation->accesses[mapping_access_ordinal].failure;
+  if (!amdf_status_is_ok(status) && amdf_status_is_ok(*failure)) {
+    *failure = status;
+  }
+  return status;
+}
+
 amdf_status_t AMDF_CALL
 amdf_memory_reservation_destroy(amdf_memory_reservation_t* reservation) {
   if (reservation == NULL) {

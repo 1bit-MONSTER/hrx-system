@@ -682,20 +682,44 @@ typedef struct amdf_api_t {
   /// reservation. Mapping sources must have been created with MAPPING_SOURCE
   /// access. All descriptors are validated before native mutation. Validation
   /// failure changes nothing. A native failure can leave partial mappings and
-  /// makes the affected native projection unusable except for terminal
-  /// destruction. Old and proposed backing must remain alive until checked
-  /// removal succeeds. The library retains no source objects or
+  /// makes the affected native mapping group unusable except for full-group
+  /// detach or terminal destruction. Old and proposed backing stay alive until
+  /// checked removal succeeds. The library retains no source objects or
   /// installed-mapping ledger. This cold operation may allocate temporary
   /// descriptors, lock native VM mutation and wait for mapping readiness. Zero
   /// updates is an empty operation on a healthy projection.
   ///
   /// Linux PROCESS lifetime can share its native context with foreign KFD
   /// clients. The caller serializes those clients' VM mutations against these
-  /// updates and final destruction; an instance's mutation lock cannot order
+  /// updates, detach and destruction; an instance's mutation lock cannot order
   /// calls made outside that instance.
   amdf_status_t(AMDF_CALL* memory_reservation_update)(
       amdf_memory_reservation_t* reservation, uint32_t access_ordinal,
       uint32_t update_count, const amdf_memory_mapping_update_t* updates);
+
+  /// Removes all mappings in one native mapping group, including holes, without
+  /// releasing addresses or consuming the reservation. access_ordinal selects
+  /// the group shared by accesses with the same mapping_access_ordinal.
+  /// The caller serializes mutation/destruction and completes all affected
+  /// execution and accepted queue-ordered mapping work before entering.
+  /// The provider orders removal after its own pending host-update prefix;
+  /// no application execution dependencies are inferred or waited.
+  ///
+  /// Success certifies complete translation removal before backing may be
+  /// reused, subject to its other aliases and users. Failure grants no reuse.
+  /// The handle, addresses and queryable access facts remain owned on every
+  /// result. Detach is admitted after a native mapping failure but does not
+  /// reset it: the group remains unusable for updates or execution. A healthy
+  /// group stays usable after successful detach. Native detach failure poisons
+  /// a healthy group; a previously failed group retains its original error.
+  /// This call reports the detach result, not the prior mapping error.
+  ///
+  /// This cold operation allocates no library metadata, retains no backing,
+  /// and uses no installed-mapping ledger. It may lock native VM mutation,
+  /// enter the driver and wait for translation removal readiness. It does not
+  /// bypass native device failure or create a retry owner or worker.
+  amdf_status_t(AMDF_CALL* memory_reservation_detach)(
+      amdf_memory_reservation_t* reservation, uint32_t access_ordinal);
 
   /// Clears the complete reservation, including holes, and releases its VA.
   /// The caller has completed all affected execution and owns exclusive access.
@@ -719,9 +743,10 @@ typedef struct amdf_api_t {
   /// the new translations. The caller separately orders other queues and native
   /// aliases. The returned point uses ordinary kernel_queue_wait/status: there
   /// is no separate mapping completion object. Success means acceptance, not
-  /// completed mutation. A failure after native acceptance latches terminal
-  /// queue failure, still returns the accepted point, and prevents subsequent
-  /// publication. Checked retirement and terminal status must both be observed.
+  /// completed mutation. A failure after native acceptance still returns OK
+  /// and the accepted point, latches terminal queue failure, and prevents
+  /// subsequent publication. Checked retirement and terminal status must both
+  /// be observed.
   /// Rejection leaves out_submission unchanged; a native mutation failure can
   /// poison the reservation as with reservation_update. Failed queues and
   /// projections never authorize recycling backing merely because they failed.

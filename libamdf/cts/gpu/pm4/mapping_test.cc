@@ -386,6 +386,58 @@ class Pm4MappingTest : public Pm4DispatchTest {
     RecordProperty("mapping_verified_retained_generations", 3);
   }
 
+  void RunDetachReuse(amdf_memory_scope_t* scope) {
+    ASSERT_NO_FATAL_FAILURE(Prepare(scope));
+    if (IsSkipped()) {
+      return;
+    }
+    std::array<GpuMemory*, 2> slabs = {};
+    for (auto& slab : slabs) {
+      ASSERT_NO_FATAL_FAILURE(CreateBacking(kSlabByteLength, &slab));
+    }
+    constexpr std::array<uint64_t, 2> kOffsets = {
+        kPlacementByteOffset, (UINT64_C(5) << 30) + kSlabByteLength};
+    std::array<amdf_memory_mapping_update_t, 2> updates = {};
+    for (uint32_t i = 0; i < slabs.size(); ++i) {
+      updates[i] = {
+          .target_byte_offset = kOffsets[i],
+          .byte_length = kSlabByteLength,
+          .memory = slabs[i]->memory,
+          .access = access_,
+      };
+    }
+    ASSERT_EQ(api_->memory_reservation_update(reservation_, 0, updates.size(),
+                                              updates.data()),
+              AMDF_STATUS_OK);
+    for (uint32_t i = 0; i < slabs.size(); ++i) {
+      ASSERT_NO_FATAL_FAILURE(
+          WriteAndVerify(kOffsets[i], 4096, i + 1, *slabs[i]));
+    }
+    ASSERT_EQ(api_->memory_reservation_detach(reservation_, 0), AMDF_STATUS_OK);
+    amdf_memory_reservation_access_info_t detached = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO,
+        .structure_size = sizeof(detached),
+    };
+    ASSERT_EQ(
+        api_->memory_reservation_query_access_info(reservation_, 0, &detached),
+        AMDF_STATUS_OK);
+    EXPECT_EQ(detached.address, reservation_info_.address);
+    EXPECT_EQ(detached.byte_length, reservation_info_.byte_length);
+    // Reclaim one slab while both the reservation and original queue remain
+    // live. Recycle the other into its neighbor's former address, then use it
+    // immediately without any allocation or queue recreation supplying a flush.
+    ASSERT_NO_FATAL_FAILURE(ReleaseBacking(slabs[0]));
+    updates[0].memory = slabs[1]->memory;
+    ASSERT_EQ(
+        api_->memory_reservation_update(reservation_, 0, 1, updates.data()),
+        AMDF_STATUS_OK);
+    ASSERT_NO_FATAL_FAILURE(WriteAndVerify(kOffsets[0], 4096, 3, *slabs[1]));
+    ASSERT_EQ(api_->memory_reservation_detach(reservation_, 0), AMDF_STATUS_OK);
+    ASSERT_NO_FATAL_FAILURE(ReleaseBacking(slabs[1]));
+    // Repeated full detach also covers an entirely empty, still-live group.
+    ASSERT_EQ(api_->memory_reservation_detach(reservation_, 0), AMDF_STATUS_OK);
+  }
+
   void RunSourceSlices(amdf_memory_scope_t* scope) {
     ASSERT_NO_FATAL_FAILURE(Prepare(scope));
     if (IsSkipped()) {
@@ -702,7 +754,7 @@ class Pm4MappingTest : public Pm4DispatchTest {
     ASSERT_NO_FATAL_FAILURE(WriteAndVerify(offset, 4096, 2, *primary_backing));
     ASSERT_NO_FATAL_FAILURE(Verify(
         secondary_backing->device_address + kPayloadByteOffset, 4096, 1));
-    ASSERT_NO_FATAL_FAILURE(ReleaseReservation(&reservation_));
+    ASSERT_EQ(api_->memory_reservation_detach(reservation_, 1), AMDF_STATUS_OK);
     ASSERT_NO_FATAL_FAILURE(ReleaseBacking(secondary_backing));
     ASSERT_NO_FATAL_FAILURE(ReleaseBacking(primary_backing));
   }
@@ -897,6 +949,17 @@ TEST_F(Pm4MappingTest,
     GTEST_SKIP() << "endpoint has no local storage scope";
   }
   RunReplacement(local_scope_);
+}
+
+TEST_F(Pm4MappingTest, SystemBackingDetachPreservesAddressesForReuse) {
+  RunDetachReuse(system_scope_);
+}
+
+TEST_F(Pm4MappingTest, LocalBackingDetachPreservesAddressesForReuse) {
+  if (local_scope_ == nullptr) {
+    GTEST_SKIP() << "endpoint has no local storage scope";
+  }
+  RunDetachReuse(local_scope_);
 }
 
 TEST_F(Pm4MappingTest, SystemBackingSlicesAndAliasesSharePhysicalStorage) {

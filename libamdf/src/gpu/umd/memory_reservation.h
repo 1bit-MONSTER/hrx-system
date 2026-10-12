@@ -72,6 +72,14 @@ amdf_status_t amdf_gpu_umd_memory_reservation_update_on_queue(
     uint32_t update_count, const amdf_gpu_umd_mapping_update_t* updates,
     uint64_t submission, bool* mutation_started, bool* accepted);
 
+// Clears the selected native group and publishes translation removal, ordered
+// after any accepted host-update prefix. Retains metadata, addresses and native
+// publication resources on every result. The caller has retired affected
+// execution and queue-ordered mutations. Native failure may leave partial
+// state.
+amdf_status_t amdf_gpu_umd_memory_reservation_detach(
+    amdf_gpu_umd_memory_reservation_t* reservation, uint32_t access_ordinal);
+
 // Checked complete removal before VA release; consumes metadata on any result.
 amdf_status_t amdf_gpu_umd_memory_reservation_destroy(
     amdf_gpu_umd_memory_reservation_t* reservation);

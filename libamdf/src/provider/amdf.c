@@ -19,9 +19,9 @@
 #include "libamdf/src/provider/extension.h"
 #include "libamdf/src/user_queue.h"
 
-static const amdf_api_t amdf_api_v6 = {
+static const amdf_api_t amdf_api_v7 = {
     .structure_size = sizeof(amdf_api_t),
-    .abi_version = AMDF_ABI_VERSION_6,
+    .abi_version = AMDF_ABI_VERSION_7,
     .instance_create = amdf_instance_create,
     .instance_destroy = amdf_instance_destroy,
     .endpoint_enumerate = amdf_endpoint_enumerate,
@@ -68,6 +68,7 @@ static const amdf_api_t amdf_api_v6 = {
     .memory_reservation_query_access_info =
         amdf_memory_reservation_query_access_info,
     .memory_reservation_update = amdf_memory_reservation_update,
+    .memory_reservation_detach = amdf_memory_reservation_detach,
     .memory_reservation_destroy = amdf_memory_reservation_destroy,
     .kernel_queue_update_memory = amdf_kernel_queue_update_memory,
 };
@@ -81,10 +82,10 @@ amdf_status_t AMDF_CALL amdf_query_api(amdf_abi_version_t minimum_version,
   if (minimum_version > maximum_version) {
     return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
   }
-  if (minimum_version > AMDF_ABI_VERSION_6 ||
-      maximum_version < AMDF_ABI_VERSION_6) {
+  if (minimum_version > AMDF_ABI_VERSION_7 ||
+      maximum_version < AMDF_ABI_VERSION_7) {
     return amdf_make_api_status(AMDF_STATUS_CODE_VERSION_MISMATCH);
   }
-  *out_api = &amdf_api_v6;
+  *out_api = &amdf_api_v7;
   return AMDF_STATUS_OK;
 }

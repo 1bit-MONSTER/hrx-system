@@ -30,6 +30,12 @@ struct NativeReservation {
   bool mutation_started = false;
   // Result returned by the next native operation.
   amdf_status_t update_status = AMDF_STATUS_OK;
+  // Logical alias selecting the native group on the last full detach.
+  uint32_t detach_ordinal = UINT32_MAX;
+  // Number of native full-group removal calls.
+  uint32_t detach_count = 0;
+  // Result returned by full-group removal without consuming the owner.
+  amdf_status_t detach_status = AMDF_STATUS_OK;
   // Number of terminal release calls after either success or failure.
   uint32_t destroy_count = 0;
 };
@@ -43,6 +49,13 @@ const amdf_memory_reservation_vtable_t kNativeReservationVtable = {
           native->updates.assign(updates, updates + count);
           *mutated = native->mutation_started;
           return native->update_status;
+        },
+    .detach =
+        [](amdf_memory_reservation_t* base, uint32_t access_ordinal) {
+          auto* native = reinterpret_cast<NativeReservation*>(base);
+          native->detach_ordinal = access_ordinal;
+          ++native->detach_count;
+          return native->detach_status;
         },
     .destroy =
         [](amdf_memory_reservation_t* base) {
@@ -67,6 +80,7 @@ class MemoryReservationTest : public MemoryTest {
       auto& access = native_.accesses[i];
       access.device = &devices_[i].base;
       access.info.ordinal = i;
+      access.info.address = 0x100000;
       access.info.access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
       access.info.byte_length = 65536;
       access.info.mapping_granularity = 4096;
@@ -178,6 +192,92 @@ TEST_F(MemoryReservationTest,
   EXPECT_EQ(native_.update_count, 3u);
   EXPECT_EQ(amdf_memory_reservation_destroy(&native_.base), AMDF_STATUS_OK);
   EXPECT_EQ(native_.destroy_count, 1u);
+}
+
+TEST_F(MemoryReservationTest, DetachValidatesTheSelectedGroup) {
+  EXPECT_EQ(amdf_memory_reservation_detach(nullptr, 0),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  EXPECT_EQ(amdf_memory_reservation_detach(&native_.base, 2),
+            amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE));
+  EXPECT_EQ(native_.detach_count, 0u);
+  EXPECT_EQ(amdf_memory_reservation_detach(&native_.base, 1), AMDF_STATUS_OK);
+  EXPECT_EQ(native_.detach_ordinal, 1u);
+  EXPECT_EQ(native_.destroy_count, 0u);
+  const amdf_memory_mapping_update_t update = {
+      .byte_length = 4096,
+      .memory = memory_,
+      .access = AMDF_MEMORY_ACCESS_READ,
+  };
+  EXPECT_EQ(amdf_memory_reservation_update(&native_.base, 0, 1, &update),
+            AMDF_STATUS_OK);
+}
+
+TEST_F(MemoryReservationTest,
+       DetachAfterPartialFailurePreservesAddressesAndOriginalFailure) {
+  const auto failure =
+      amdf_make_api_status(AMDF_STATUS_CODE_RESOURCE_EXHAUSTED);
+  const amdf_memory_mapping_update_t update = {
+      .byte_length = 4096,
+      .memory = memory_,
+      .access = AMDF_MEMORY_ACCESS_READ,
+  };
+  native_.update_status = failure;
+  native_.mutation_started = true;
+  ASSERT_EQ(amdf_memory_reservation_update(&native_.base, 0, 1, &update),
+            failure);
+  const amdf_memory_mapping_update_t full_remove = {.byte_length = 65536};
+  EXPECT_EQ(amdf_memory_reservation_update(&native_.base, 1, 1, &full_remove),
+            failure);
+  EXPECT_EQ(native_.update_count, 1u);
+
+  const auto detach_failure =
+      amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
+  native_.detach_status = detach_failure;
+  EXPECT_EQ(amdf_memory_reservation_detach(&native_.base, 1), detach_failure);
+  EXPECT_EQ(native_.detach_ordinal, 1u);
+  EXPECT_EQ(native_.destroy_count, 0u);
+  EXPECT_EQ(amdf_memory_reservation_update(&native_.base, 0, 1, &update),
+            failure);
+
+  // Native removal is now independently successful. It does not recover the
+  // group's original failed state or release its reserved addresses.
+  native_.detach_status = AMDF_STATUS_OK;
+  ASSERT_EQ(amdf_memory_reservation_detach(&native_.base, 1), AMDF_STATUS_OK);
+  EXPECT_EQ(native_.detach_count, 2u);
+  EXPECT_EQ(native_.destroy_count, 0u);
+  for (uint32_t i = 0; i < native_.base.access_count; ++i) {
+    amdf_memory_reservation_access_info_t info = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO,
+        .structure_size = sizeof(info),
+    };
+    ASSERT_EQ(
+        amdf_memory_reservation_query_access_info(&native_.base, i, &info),
+        AMDF_STATUS_OK);
+    EXPECT_EQ(info.address, 0x100000u);
+    EXPECT_EQ(info.byte_length, 65536u);
+    EXPECT_EQ(amdf_memory_reservation_update(&native_.base, i, 0, nullptr),
+              failure);
+  }
+  // The caller can release detached backing while retaining the reservation.
+  ASSERT_EQ(amdf_memory_destroy(memory_), AMDF_STATUS_OK);
+  memory_ = nullptr;
+  EXPECT_EQ(amdf_memory_reservation_destroy(&native_.base), AMDF_STATUS_OK);
+  EXPECT_EQ(native_.destroy_count, 1u);
+}
+
+TEST_F(MemoryReservationTest, DetachFailurePoisonsOnlyItsNativeGroup) {
+  native_.accesses[1].info.mapping_access_ordinal = 1;
+  const auto failure =
+      amdf_make_api_status(AMDF_STATUS_CODE_RESOURCE_EXHAUSTED);
+  native_.detach_status = failure;
+  EXPECT_EQ(amdf_memory_reservation_detach(&native_.base, 1), failure);
+  const amdf_memory_mapping_update_t remove = {.byte_length = 4096};
+  EXPECT_EQ(amdf_memory_reservation_update(&native_.base, 1, 1, &remove),
+            failure);
+  EXPECT_EQ(amdf_memory_reservation_update(&native_.base, 0, 1, &remove),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(native_.update_count, 1u);
+  EXPECT_EQ(native_.destroy_count, 0u);
 }
 
 TEST_F(MemoryReservationTest,
