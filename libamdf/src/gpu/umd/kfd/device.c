@@ -10,12 +10,20 @@
 #include <unistd.h>
 
 #include "libamdf/src/allocator.h"
+#include "libamdf/src/gpu/umd/kfd/hdp.h"
 #include "libamdf/src/gpu/umd/kfd/instance.h"
 #include "libamdf/src/gpu/umd/kfd/user_queue_native.h"
 #include "libamdf/src/platform/linux/endpoint.h"
 #include "libamdf/src/platform/linux/host_cache.h"
 
 amdf_status_t amdf_gpu_umd_device_destroy(amdf_gpu_umd_device_t* device) {
+  if (device->hdp != NULL) {
+    const amdf_status_t status = amdf_gpu_kfd_hdp_destroy(device->hdp);
+    device->hdp = NULL;
+    if (!amdf_status_is_ok(status)) {
+      return status;
+    }
+  }
   const amdf_allocator_t host_allocator = device->host_allocator;
   amdf_gpu_kfd_topology_deinitialize(&device->topology, host_allocator);
   amdf_free(host_allocator, device);
@@ -59,6 +67,9 @@ amdf_status_t amdf_gpu_umd_device_create(
         instance, endpoint, &device->topology, device->page_size,
         &device->render_descriptor);
     amdf_gpu_kfd_device_unlock_memory(device);
+  }
+  if (amdf_status_is_ok(status)) {
+    status = amdf_gpu_kfd_hdp_create(device, &device->hdp);
   }
   if (amdf_status_is_ok(status)) {
     *out_result = (amdf_gpu_umd_device_result_t){

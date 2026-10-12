@@ -14,6 +14,19 @@
 
 namespace {
 
+void CheckDeviceLocalIngressPair(const amdf_memory_pair_info_t& pair) {
+  ASSERT_NE(pair.flags & AMDF_MEMORY_PAIR_FLAG_SHARED_BACKING_REACHABLE, 0u);
+  ASSERT_EQ(pair.release.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
+  ASSERT_EQ(pair.release.executor, AMDF_CACHE_TRANSITION_EXECUTOR_HOST_API);
+  ASSERT_EQ(pair.release.host_operation, AMDF_HOST_CACHE_OPERATION_FLUSH);
+  ASSERT_EQ(pair.release.host_instruction, AMDF_HOST_CACHE_INSTRUCTION_NONE);
+  ASSERT_EQ(pair.release.host_fence_before, AMDF_HOST_CACHE_FENCE_NONE);
+  ASSERT_EQ(pair.release.host_fence_after, AMDF_HOST_CACHE_FENCE_NONE);
+  ASSERT_EQ(pair.acquire.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
+  ASSERT_EQ(pair.acquire.executor, AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE);
+  ASSERT_EQ(pair.acquire.operation, AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM);
+}
+
 TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
   const auto* kernel_product =
       kernels::transform::kKernels.Find(gpu_endpoint_info_);
@@ -112,6 +125,211 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
     }
   }
   RecordProperty("aql_payload_completed_epochs", kCounts.size());
+}
+
+TEST_F(AqlDispatchTest, HostPublishesDeviceLocalKernargsAcrossEpochs) {
+  if (local_scope_ == nullptr) {
+    GTEST_SKIP() << "GPU has no local-memory scope";
+  }
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
+  const amdf_memory_device_access_t attachment = {
+      device_,
+      {
+          .access = AMDF_MEMORY_ACCESS_READ,
+          .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS,
+      }};
+  const amdf_memory_flags_t required_flags =
+      AMDF_MEMORY_FLAG_HOST_VISIBLE | AMDF_MEMORY_FLAG_DEVICE_LOCAL;
+  amdf_memory_scope_info_t scope_info = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO,
+      .structure_size = sizeof(scope_info),
+  };
+  ASSERT_EQ(api_->memory_scope_query_info(local_scope_, &scope_info),
+            AMDF_STATUS_OK);
+  uint32_t profile_ordinal = AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN;
+  for (uint32_t ordinal = 0; ordinal < scope_info.memory_profile_count;
+       ++ordinal) {
+    amdf_memory_profile_t profile = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE,
+        .structure_size = sizeof(profile),
+    };
+    amdf_memory_access_capabilities_t capabilities = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_ACCESS_CAPABILITIES,
+        .structure_size = sizeof(capabilities),
+    };
+    const amdf_status_t status =
+        QueryMemoryProfile(local_scope_, ordinal, attachment.requirements,
+                           &profile, &capabilities);
+    if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+      continue;
+    }
+    ASSERT_EQ(status, AMDF_STATUS_OK);
+    if ((profile.roles & (AMDF_MEMORY_PROFILE_ROLE_CREATE |
+                          AMDF_MEMORY_PROFILE_ROLE_HOST_MAP)) ==
+            (AMDF_MEMORY_PROFILE_ROLE_CREATE |
+             AMDF_MEMORY_PROFILE_ROLE_HOST_MAP) &&
+        (required_flags & ~profile.supported_flags) == 0) {
+      profile_ordinal = ordinal;
+      break;
+    }
+  }
+  if (profile_ordinal == AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN) {
+    GTEST_SKIP() << "GPU has no CPU-visible local-memory profile";
+  }
+
+  amdf_memory_create_info_t creation = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
+      .structure_size = sizeof(creation),
+      .memory_profile_ordinal = profile_ordinal,
+      .access_count = 1,
+      .required_flags = required_flags,
+      .byte_length = 4096,
+      .minimum_alignment = 4096,
+      .accesses = &attachment,
+  };
+  const amdf_memory_profile_pair_query_t profile_query = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE_PAIR_QUERY,
+      .structure_size = sizeof(profile_query),
+      .memory_profile_ordinal = profile_ordinal,
+      .access_count = 1,
+      .required_flags = required_flags,
+      .accesses = &attachment,
+      .producer =
+          {
+              .kind = AMDF_MEMORY_SITE_KIND_HOST,
+              .value = {.host_access = AMDF_MEMORY_MAP_FLAG_WRITE},
+          },
+      .consumer =
+          {
+              .kind = AMDF_MEMORY_SITE_KIND_DEVICE,
+              .value =
+                  {
+                      .device =
+                          {
+                              .access_ordinal = 0,
+                              .queue_family_ordinal = family_.ordinal,
+                          },
+                  },
+          },
+  };
+  amdf_memory_pair_info_t prospective = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_PAIR_INFO,
+      .structure_size = sizeof(prospective),
+  };
+  const amdf_status_t prospective_status = api_->memory_scope_query_pair_info(
+      local_scope_, &profile_query, &prospective);
+  if (prospective_status ==
+      amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+    GTEST_SKIP() << "GPU has no qualified host-to-local publication path";
+  }
+  ASSERT_EQ(prospective_status, AMDF_STATUS_OK);
+  ASSERT_NO_FATAL_FAILURE(CheckDeviceLocalIngressPair(prospective));
+
+  GpuMemory* arguments = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(local_scope_, creation, &arguments));
+  ASSERT_EQ(arguments->info.memory_class, AMDF_MEMORY_CLASS_LOCAL);
+  ASSERT_EQ(arguments->host.cacheability,
+            AMDF_HOST_CACHEABILITY_WRITE_COMBINED);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
+  const auto argument_host = arguments->HostSite();
+  const auto argument_device = arguments->DeviceSite(family_.ordinal);
+  amdf_memory_pair_info_t concrete = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_PAIR_INFO,
+      .structure_size = sizeof(concrete),
+  };
+  ASSERT_EQ(
+      api_->memory_query_pair_info(&argument_host, &argument_device, &concrete),
+      AMDF_STATUS_OK);
+  ASSERT_NO_FATAL_FAILURE(CheckDeviceLocalIngressPair(concrete));
+
+  constexpr uint32_t kGridSize = 1024;
+  constexpr uint32_t kWordCount = 2048;
+  constexpr uint32_t kPayloadOffset = 16;
+  constexpr uint32_t kGuard = 0x759bf13du;
+  constexpr std::array<uint32_t, 2> kCounts = {1003, 997};
+  constexpr std::array<uint32_t, 2> kAddends = {7, 0x80000023u};
+  GpuMemory* input = nullptr;
+  GpuMemory* output = nullptr;
+  GpuMemory* completion = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(AMDF_MEMORY_ACCESS_READ,
+                                       kWordCount * sizeof(uint32_t), &input));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+                   kWordCount * sizeof(uint32_t), &output));
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(
+      AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &completion));
+  std::memset(completion->host.pointer, 0, completion->info.byte_length);
+  auto& signal = *static_cast<aql::Signal*>(completion->host.pointer);
+  signal.kind = 1;
+
+  GpuUserQueue* queue = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
+  uint64_t index = 0;
+  uint64_t descriptor_address = 0;
+  ASSERT_NO_FATAL_FAILURE(
+      PublishKernel(*queue, kernel, "aql_kernel", &index, &descriptor_address));
+
+  for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
+    std::array<uint32_t, kWordCount> upload;
+    std::array<uint32_t, kWordCount> expected;
+    std::array<uint32_t, kWordCount> download;
+    upload.fill(kGuard);
+    expected.fill(kGuard);
+    download.fill(kGuard);
+    for (uint32_t i = 0; i < kGridSize; ++i) {
+      const uint32_t value =
+          0xfffffff0u + i * 0x01030507u + epoch * 0x11111111u;
+      upload[kPayloadOffset + i] = value;
+      if (i < kCounts[epoch]) {
+        const uint32_t result =
+            static_cast<uint32_t>(uint64_t{value} * 3 + kAddends[epoch]);
+        expected[kPayloadOffset + i] = result;
+        download[kPayloadOffset + i] = ~result;
+      }
+    }
+    std::memcpy(input->host.pointer, upload.data(), sizeof(upload));
+    std::memcpy(output->host.pointer, download.data(), sizeof(download));
+    const kernels::transform::Arguments payload = {
+        input->device_address + kPayloadOffset * sizeof(uint32_t),
+        output->device_address + kPayloadOffset * sizeof(uint32_t),
+        kCounts[epoch],
+        kAddends[epoch],
+    };
+    std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
+    std::memcpy(arguments->host.pointer, &payload,
+                kernel.arguments.byte_length);
+    ASSERT_EQ(api_->host_mapping_cache_control(arguments->mapping,
+                                               AMDF_HOST_CACHE_OPERATION_FLUSH,
+                                               0, kernel.arguments.byte_length),
+              AMDF_STATUS_OK);
+    signal.value = 1;
+    const auto packet =
+        aql::Dispatch(aql::HeaderBarrier::kDisabled,
+                      {1,
+                       {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+                       {kGridSize, 1, 1}},
+                      kernel.private_segment_byte_length,
+                      kernel.group_segment_byte_length, descriptor_address,
+                      arguments->device_address, completion->device_address);
+    GpuStoreRelease(queue->host.write_index_address, index + 1);
+    aql::Publish(*queue, index++, packet);
+    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+    std::memcpy(download.data(), output->host.pointer, sizeof(download));
+    for (uint32_t i = 0; i < kWordCount; ++i) {
+      EXPECT_EQ(download[i], expected[i]) << "epoch=" << epoch << " word=" << i;
+    }
+    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, index));
+    if (HasFailure()) {
+      return;
+    }
+  }
+  RecordProperty("aql_device_local_kernarg_completed_epochs", kCounts.size());
 }
 
 TEST_F(AqlDispatchTest,

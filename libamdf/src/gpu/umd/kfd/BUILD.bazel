@@ -140,6 +140,37 @@ amdf_cc_library(
     ],
 )
 
+amdf_cc_library(
+    name = "hdp",
+    srcs = ["hdp.c"],
+    hdrs = ["hdp.h"],
+    target_compatible_with = KFD_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        "//libamdf/src:allocator",
+        "//libamdf/src/platform/linux:file",
+        "//third_party:linux_kfd_uapi",
+    ],
+)
+
+amdf_cc_test(
+    name = "hdp_test",
+    srcs = ["hdp_test.cc"],
+    linkopts = [
+        "-Wl,--wrap=ioctl",
+        "-Wl,--wrap=mmap",
+    ],
+    target_compatible_with = KFD_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        ":hdp",
+        "//libamdf/src:allocator",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
+        "//third_party:linux_kfd_uapi",
+    ],
+)
+
 amdf_cc_test(
     name = "instance_test",
     srcs = ["instance_test.cc"],
@@ -227,6 +258,7 @@ amdf_cc_library(
     target_compatible_with = KFD_COMPATIBILITY,
     deps = [
         ":device_state",
+        ":hdp",
         ":instance",
         ":topology",
         ":user_queue_native",
@@ -291,6 +323,7 @@ amdf_cc_library(
     deps = [
         ":buffer",
         ":device_state",
+        ":hdp",
         ":memory_profile",
         ":topology",
         "//libamdf/src:allocator",

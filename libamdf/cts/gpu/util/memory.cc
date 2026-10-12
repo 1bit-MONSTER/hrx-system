@@ -37,7 +37,6 @@ void GpuMemory::Initialize(const amdf_api_t* api, amdf_memory_scope_t* scope,
   if ((creation.required_flags & AMDF_MEMORY_FLAG_HOST_VISIBLE) == 0) {
     return;
   }
-  ASSERT_EQ(info.memory_class, AMDF_MEMORY_CLASS_SYSTEM);
   amdf_memory_map_info_t map = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_MAP_INFO,
       .structure_size = sizeof(map),
@@ -50,7 +49,10 @@ void GpuMemory::Initialize(const amdf_api_t* api, amdf_memory_scope_t* scope,
   ASSERT_EQ(api->host_mapping_query_info(mapping, &host), AMDF_STATUS_OK);
   ASSERT_NE(host.pointer, nullptr);
   ASSERT_EQ(host.byte_length, creation.byte_length);
-  ASSERT_EQ(host.cacheability, AMDF_HOST_CACHEABILITY_WRITE_BACK);
+  ASSERT_EQ(host.cacheability,
+            (access_info.flags & AMDF_MEMORY_FLAG_HOST_COHERENT) != 0
+                ? AMDF_HOST_CACHEABILITY_WRITE_BACK
+                : AMDF_HOST_CACHEABILITY_WRITE_COMBINED);
   // Initialization performs no cache maintenance. Each witness supplies its
   // own publication and visibility operations, including qualified no-ops.
 }

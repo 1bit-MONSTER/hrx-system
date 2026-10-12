@@ -608,6 +608,17 @@ need flushing before XDNA reads them. An explicit cache-control request performs
 the advertised operation even when one device is host-coherent. A CPU view has
 no device reset epoch; reset validity belongs to each device's access.
 
+CPU-visible GPU LOCAL backing is write-combined and has an additional device
+aperture boundary. When the provider owns a qualified HDP register mapping, a
+host-to-GPU pair reports a GLOBAL `HOST_API` flush. The caller writes the
+payload, invokes `host_mapping_cache_control` with `FLUSH`, and only then
+releases the dependency that permits the reported queue acquire and device
+read. The provider operation orders the host stores and publishes them through
+HDP as one transition; it is not a range cache-line operation. Without the
+device-lifetime HDP mapping, that direction returns `UNSUPPORTED` instead of
+advertising an incomplete fence-only recipe. GPU-to-host invalidation remains
+the mapping's separate directional contract.
+
 `memory_query_pair_info` describes the visibility transitions from one site's
 writes to another site's reads. The producer must permit writes and the
 consumer must permit reads; incompatible permissions return `UNSUPPORTED`.

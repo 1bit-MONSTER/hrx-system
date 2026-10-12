@@ -15,6 +15,11 @@
 
 typedef struct amdf_gpu_kfd_user_queue_native_api_t
     amdf_gpu_kfd_user_queue_native_api_t;
+typedef struct amdf_gpu_kfd_hdp_t amdf_gpu_kfd_hdp_t;
+
+// KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE spells bit 31 as a signed shift in the
+// native UAPI. Use its unsigned wire value when constructing allocation flags.
+#define AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE (UINT32_C(1) << 31)
 
 // Execution state borrowing its instance's KFD context and per-GPU VM binding.
 struct amdf_gpu_umd_device_t {
@@ -35,6 +40,8 @@ struct amdf_gpu_umd_device_t {
   size_t page_size;
   // Qualified host cache-line length in bytes.
   uint32_t cache_line_size;
+  // Optional device-lifetime HDP register mapping for host-write publication.
+  amdf_gpu_kfd_hdp_t* hdp;
   // Native KFD queue operations borrowed through device destruction.
   const amdf_gpu_kfd_user_queue_native_api_t* user_queue_native_api;
 };
