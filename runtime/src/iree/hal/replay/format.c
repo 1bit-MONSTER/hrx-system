@@ -75,6 +75,8 @@ IREE_API_EXPORT const char* iree_hal_replay_object_type_string(
       return "queue";
     case IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION:
       return "memory_reservation";
+    case IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER_MAPPING:
+      return "buffer_mapping";
     default:
       return "unknown";
   }

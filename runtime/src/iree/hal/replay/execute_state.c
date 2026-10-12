@@ -27,6 +27,13 @@ static iree_status_t iree_hal_replay_executor_release_entry(
       status =
           iree_hal_memory_reservation_destroy(entry->value.memory_reservation);
       break;
+    case IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER_MAPPING:
+      status =
+          iree_hal_buffer_unmap_range(&entry->value.buffer_mapping->mapping);
+      iree_hal_buffer_release(entry->value.buffer_mapping->storage);
+      iree_allocator_free(executor->host_allocator,
+                          entry->value.buffer_mapping);
+      break;
     case IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER:
       if (entry->owning_allocator) {
         if (iree_hal_replay_executor_has_virtual_memory_mapping(executor,
@@ -119,6 +126,21 @@ iree_status_t iree_hal_replay_executor_deinitialize(
   if (!iree_status_is_ok(status)) {
     return status;
   }
+
+  // End host maps before their address owners close. Keep their actual storage
+  // retained until all address owners have closed: a decommitted source may
+  // have surviving aliases backed only by these host-map storage references.
+  iree_status_t host_mapping_status = iree_ok_status();
+  for (iree_host_size_t i = executor->object_capacity; i > 0; --i) {
+    if (executor->objects[i - 1].type ==
+        IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER_MAPPING) {
+      host_mapping_status = iree_status_join(
+          host_mapping_status,
+          iree_hal_buffer_unmap_range(
+              &executor->objects[i - 1].value.buffer_mapping->mapping));
+    }
+  }
+  IREE_RETURN_IF_ERROR(host_mapping_status);
 
   // Explicit owners close before their caller-owned backing can be released.
   // Buffer references preserve metadata only and never delay native teardown.

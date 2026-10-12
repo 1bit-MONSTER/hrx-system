@@ -307,6 +307,7 @@ iree_runtime_cc_test(
         "recorder_buffer_test.cc",
     ],
     deps = [
+        ":file_reader",
         ":format",
         ":recorder",
         "//runtime/src/iree/base",

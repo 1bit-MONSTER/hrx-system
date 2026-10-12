@@ -34,6 +34,19 @@ typedef struct iree_hal_replay_physical_memory_entry_t {
   iree_hal_physical_memory_t* handle;
 } iree_hal_replay_physical_memory_entry_t;
 
+// One scoped host mapping, including a native owner redirected by map_range.
+typedef struct iree_hal_replay_buffer_mapping_entry_t {
+  // Native scoped mapping retained until consuming unmap.
+  iree_hal_buffer_mapping_t mapping;
+  // Retained actual storage, kept through address-owner cleanup on replay
+  // abort.
+  iree_hal_buffer_t* storage;
+  // Captured buffer whose coordinates describe host range operations.
+  iree_hal_replay_object_id_t buffer_id;
+  // Captured byte offset corresponding to the first mapped byte.
+  iree_device_size_t byte_offset;
+} iree_hal_replay_buffer_mapping_entry_t;
+
 // One retained object in the dense replay object table.
 typedef struct iree_hal_replay_object_entry_t {
   // Captured object type stored in this entry.
@@ -52,6 +65,8 @@ typedef struct iree_hal_replay_object_entry_t {
     iree_hal_memory_reservation_t* memory_reservation;
     // Retained HAL buffer.
     iree_hal_buffer_t* buffer;
+    // Owned scoped host mapping with a stable address until unmap.
+    iree_hal_replay_buffer_mapping_entry_t* buffer_mapping;
     // Retained HAL command buffer.
     iree_hal_command_buffer_t* command_buffer;
     // Retained executable and function mapping.

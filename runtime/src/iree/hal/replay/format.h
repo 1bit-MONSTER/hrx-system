@@ -24,9 +24,11 @@ extern "C" {
 // including file storage attachment.
 #define IREE_HAL_REPLAY_FILE_VERSION_MAJOR 13u
 
-// Minor version of the IREE HAL replay file format. Minor version 6 adds
-// explicit address reservation ownership and batched queue mapping.
-#define IREE_HAL_REPLAY_FILE_VERSION_MINOR 6u
+// Minor version of the IREE HAL replay file format. Minor version 7 assigns
+// scoped host mappings independent identities in related_object_id. Map creates
+// the identity; flush/invalidate use it and unmap consumes it. Buffer range
+// offsets are relative to the captured buffer view instead of native storage.
+#define IREE_HAL_REPLAY_FILE_VERSION_MINOR 7u
 
 // Minor version that first assigns atomic target-error mode payload bytes.
 #define IREE_HAL_REPLAY_ATOMIC_TARGET_ERROR_MODE_VERSION_MINOR 3u
@@ -91,6 +93,7 @@ enum iree_hal_replay_object_type_e {
   IREE_HAL_REPLAY_OBJECT_TYPE_HOST_CALL = 11u,
   IREE_HAL_REPLAY_OBJECT_TYPE_QUEUE = 12u,
   IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION = 13u,
+  IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER_MAPPING = 14u,
 };
 
 // High-level HAL API operation kind.
@@ -579,13 +582,13 @@ static_assert(
 
 // Payload describing a buffer byte range operation.
 typedef struct iree_hal_replay_buffer_range_payload_t {
-  // Byte offset within the underlying allocation passed to the driver vtable.
+  // Byte offset within the captured buffer view (native allocation before v7).
   uint64_t byte_offset;
   // Byte length of the range passed to the driver vtable.
   uint64_t byte_length;
   // Mapping mode bits for map operations, or zero otherwise.
   uint32_t mapping_mode;
-  // Memory access bits for map operations, or zero otherwise.
+  // Mapping access bits for map/unmap; zero for cache-range operations.
   uint16_t memory_access;
   // Operation-specific flags of the original mapping. Captured data writes
   // preserve bytes outside their range regardless of the original DISCARD.
@@ -596,15 +599,15 @@ typedef struct iree_hal_replay_buffer_range_payload_t {
 
 // Payload describing a buffer byte range operation with captured byte data.
 typedef struct iree_hal_replay_buffer_range_data_payload_t {
-  // Byte offset within the underlying allocation passed to the driver vtable.
+  // Byte offset within the captured buffer view (native allocation before v7).
   uint64_t byte_offset;
   // Byte length of the range passed to the driver vtable.
   uint64_t byte_length;
   // Captured byte length following this payload header.
   uint64_t data_length;
-  // Mapping mode bits for map operations, or zero otherwise.
+  // Reserved mapping mode bits; zero for captured flush/unmap data.
   uint32_t mapping_mode;
-  // Memory access bits for map operations, or zero otherwise.
+  // Access bits of the mapping supplying the captured data.
   uint16_t memory_access;
   // Operation-specific flags of the original mapping. Captured data writes
   // preserve bytes outside their range regardless of the original DISCARD.

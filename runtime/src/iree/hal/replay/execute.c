@@ -871,7 +871,9 @@ static iree_status_t iree_hal_replay_plan_prepare_record(
   }
   if (record->header.status_code != IREE_STATUS_OK &&
       record->header.operation_code !=
-          IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY) {
+          IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY &&
+      record->header.operation_code !=
+          IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_UNMAP_RANGE) {
     plan_record->kind = IREE_HAL_REPLAY_PLAN_RECORD_KIND_SKIP;
     return iree_ok_status();
   }

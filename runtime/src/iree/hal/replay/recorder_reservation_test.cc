@@ -372,6 +372,165 @@ TEST_F(ReplayRecorderReservationTest,
 #endif
 }
 
+TEST_F(ReplayRecorderReservationTest, ScopedHostMapsOutliveQueueDeallocation) {
+#if IREE_FILE_IO_ENABLE && \
+    (defined(IREE_PLATFORM_ANDROID) || defined(IREE_PLATFORM_LINUX))
+  iree::testing::TempFilePath output_path("iree_replay_host_mapping");
+  std::array<uint8_t, 64> initial_output = {};
+  IREE_ASSERT_OK(iree_io_file_contents_write(
+      output_path.path_view(),
+      iree_make_const_byte_span(initial_output.data(), initial_output.size()),
+      iree_allocator_system()));
+  iree_io_file_handle_t* file_handle = nullptr;
+  IREE_ASSERT_OK(iree_io_file_handle_open(
+      IREE_IO_FILE_MODE_READ | IREE_IO_FILE_MODE_WRITE |
+          IREE_IO_FILE_MODE_RANDOM_ACCESS,
+      output_path.path_view(), iree_allocator_system(), &file_handle));
+  iree_hal_file_t* file = nullptr;
+  IREE_ASSERT_OK(iree_hal_file_import(device_, nullptr,
+                                      IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
+                                      IREE_HAL_MEMORY_ACCESS_ALL, file_handle,
+                                      IREE_HAL_EXTERNAL_FILE_FLAG_NONE, &file));
+  iree_io_file_handle_release(file_handle);
+
+  iree_hal_pool_family_access_t family;
+  auto scope = Scope(&family);
+  iree_hal_memory_reservation_capabilities_t capabilities;
+  IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+      group_, scope, iree_allocator_system(), &capabilities));
+  const auto unit = capabilities.reservation_granularity;
+  const iree_hal_memory_reservation_options_t options = {
+      .byte_length = unit,
+      .min_alignment = unit,
+      .mapping_granularity = unit,
+  };
+  iree_hal_memory_reservation_t* reservation = nullptr;
+  IREE_ASSERT_OK(iree_hal_memory_reservation_create(
+      group_, scope, &options, iree_allocator_system(), &reservation));
+  family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  iree_hal_slab_pool_options_t pool_options;
+  iree_hal_slab_pool_options_initialize(&pool_options);
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(iree_hal_slab_pool_create(group_, scope, &pool_options,
+                                           iree_allocator_system(), &pool));
+  uint64_t allocated = 1;
+  auto request = iree_hal_make_pool_reservation_request(2 * unit, unit);
+  iree_hal_buffer_t* source = nullptr;
+  IREE_ASSERT_OK(iree_hal_queue_alloca(queue_, iree_hal_semaphore_list_empty(),
+                                       Point(&allocated), pool, 1, &request,
+                                       &source));
+  iree_hal_memory_mapping_t update = {
+      .reservation = reservation,
+      .scope = all_,
+      .target_range = iree_hal_make_buffer_range(0, unit),
+      .source = source,
+      .source_offset = unit,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
+  };
+  uint64_t mapped = 2;
+  IREE_ASSERT_OK(iree_hal_queue_map(queue_, Point(&allocated), Point(&mapped),
+                                    1, &update, IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  Wait(mapped);
+  iree_hal_buffer_t* tail = nullptr;
+  IREE_ASSERT_OK(iree_hal_buffer_subspan(source, unit + 32, 64,
+                                         iree_allocator_system(), &tail));
+  std::array<iree_hal_buffer_mapping_t, 2> host_maps;
+  IREE_ASSERT_OK(iree_hal_buffer_map_range(
+      tail, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_ALL,
+      IREE_HAL_BUFFER_MAP_FLAG_NONE, 0, 64, &host_maps[0]));
+  IREE_ASSERT_OK(iree_hal_buffer_map_range(
+      tail, IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_ALL,
+      IREE_HAL_BUFFER_MAP_FLAG_NONE, 16, 16, &host_maps[1]));
+  uint64_t deallocated = 3;
+  IREE_ASSERT_OK(iree_hal_queue_dealloca(queue_, Point(&mapped),
+                                         Point(&deallocated), 1, &source));
+  Wait(deallocated);
+  iree_hal_buffer_release(tail);
+  iree_hal_buffer_release(source);
+
+  // Both maps now own committed storage independently from the transient view.
+  std::memset(host_maps[0].contents.data, 0xA1, 64);
+  IREE_ASSERT_OK(iree_hal_buffer_mapping_flush_range(&host_maps[0], 4, 8));
+  IREE_ASSERT_OK(iree_hal_replay_recorder_scope_begin(
+      recorder_, IREE_SV("mapped_after_deallocation")));
+  IREE_ASSERT_OK(iree_hal_replay_recorder_scope_end(
+      recorder_, IREE_SV("mapped_after_deallocation")));
+  IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&host_maps[0]));
+  std::memset(host_maps[1].contents.data, 0xB2, 16);
+  IREE_ASSERT_OK(iree_hal_buffer_mapping_flush_range(&host_maps[1], 0, 16));
+  IREE_ASSERT_OK(
+      iree_hal_buffer_mapping_invalidate_range(&host_maps[1], 0, 16));
+  uint64_t written = 4;
+  IREE_ASSERT_OK(
+      iree_hal_queue_write(queue_, Point(&deallocated), Point(&written),
+                           iree_hal_memory_reservation_buffer(reservation), 32,
+                           file, 0, 64, nullptr, IREE_HAL_WRITE_FLAG_NONE));
+  update.source = nullptr;
+  update.source_offset = 0;
+  update.access = IREE_HAL_MEMORY_ACCESS_NONE;
+  update.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND;
+  uint64_t detached = 5;
+  IREE_ASSERT_OK(iree_hal_queue_map(queue_, Point(&written), Point(&detached),
+                                    1, &update, IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  Wait(detached);
+  IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&host_maps[1]));
+  IREE_ASSERT_OK(iree_hal_memory_reservation_destroy(reservation));
+  iree_hal_pool_release(pool);
+  iree_hal_file_release(file);
+  IREE_ASSERT_OK(iree_hal_replay_recorder_close(recorder_));
+
+  std::array<uint8_t, 64> expected;
+  expected.fill(0xA1);
+  std::fill_n(expected.begin() + 16, 16, 0xB2);
+  auto check_output = [&]() {
+    iree_io_file_contents_t* actual = nullptr;
+    IREE_ASSERT_OK(iree_io_file_contents_read(
+        output_path.path_view(), iree_allocator_system(), &actual));
+    ASSERT_EQ(expected.size(), actual->const_buffer.data_length);
+    EXPECT_EQ(0, std::memcmp(expected.data(), actual->const_buffer.data,
+                             expected.size()));
+    iree_io_file_contents_free(actual);
+  };
+  check_output();
+  IREE_ASSERT_OK(iree_io_file_contents_write(
+      output_path.path_view(),
+      iree_make_const_byte_span(initial_output.data(), initial_output.size()),
+      iree_allocator_system()));
+  auto* replay_group = CreateTaskDeviceGroup();
+  IREE_EXPECT_OK(iree_hal_replay_execute_file(
+      Recording(), replay_group, nullptr, iree_allocator_system()));
+  check_output();
+  IREE_ASSERT_OK(iree_io_file_contents_write(
+      output_path.path_view(),
+      iree_make_const_byte_span(initial_output.data(), initial_output.size()),
+      iree_allocator_system()));
+  // Abort while both maps and their alias remain live, then replay normally.
+  // Cleanup must unmap, close address owners, and finally release storage.
+  bool cancelled = false;
+  auto execute_options = iree_hal_replay_execute_options_default();
+  execute_options.scope_event_callback = {
+      .fn =
+          [](void* user_data, const iree_hal_replay_scope_event_t* event) {
+            *static_cast<bool*>(user_data) = true;
+            return iree_status_from_code(IREE_STATUS_CANCELLED);
+          },
+      .user_data = &cancelled,
+  };
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_CANCELLED,
+      iree_hal_replay_execute_file(Recording(), replay_group, &execute_options,
+                                   iree_allocator_system()));
+  EXPECT_TRUE(cancelled);
+  IREE_EXPECT_OK(iree_hal_replay_execute_file(
+      Recording(), replay_group, nullptr, iree_allocator_system()));
+  check_output();
+  iree_hal_device_group_release(replay_group);
+#else
+  GTEST_SKIP() << "File output replay requires POSIX file IO.";
+#endif
+}
+
 TEST_F(ReplayRecorderReservationTest,
        RejectsAnUnrecordedHostSignalBeforeExecution) {
   iree_hal_semaphore_t* gate = nullptr;

@@ -315,6 +315,7 @@ iree_cc_test(
     "recorder_buffer.h"
     "recorder_buffer_test.cc"
   DEPS
+    ::file_reader
     ::format
     ::recorder
     iree::base
