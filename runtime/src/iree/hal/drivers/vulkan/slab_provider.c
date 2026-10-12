@@ -53,6 +53,9 @@ typedef struct iree_hal_vulkan_slab_provider_t {
   // Minimum alignment used by whole-slab allocation requests.
   iree_device_size_t min_alignment;
 
+  // Prepared sparse source alignment, or zero for ordinary backing.
+  iree_device_size_t mapping_granularity;
+
   // Physical-device nonCoherentAtomSize used for mapped-memory ranges.
   VkDeviceSize non_coherent_atom_size;
 
@@ -151,6 +154,7 @@ iree_status_t iree_hal_vulkan_slab_provider_create(
   provider->properties.atomic_operations = options.atomic_operations;
   provider->queue_family_affinity_mask = options.queue_family_affinity_mask;
   provider->min_alignment = options.min_alignment;
+  provider->mapping_granularity = options.mapping_granularity;
   provider->non_coherent_atom_size =
       options.non_coherent_atom_size ? options.non_coherent_atom_size : 1;
   provider->total_acquired = IREE_ATOMIC_VAR_INIT(0);
@@ -220,6 +224,9 @@ static iree_status_t iree_hal_vulkan_slab_provider_acquire_slab(
       .usage = provider->properties.supported_usage,
       .queue_family_affinity = provider->queue_family_affinity_mask,
       .min_alignment = min_address_alignment,
+      .flags = provider->mapping_granularity
+                   ? IREE_HAL_VULKAN_BUFFER_ALLOCATION_FLAG_MAPPING_SOURCE
+                   : IREE_HAL_VULKAN_BUFFER_ALLOCATION_FLAG_NONE,
   };
   iree_hal_buffer_t* buffer = NULL;
   iree_status_t status =
@@ -233,6 +240,10 @@ static iree_status_t iree_hal_vulkan_slab_provider_acquire_slab(
   }
 
   if (iree_status_is_ok(status)) {
+    if (provider->mapping_granularity) {
+      iree_hal_vulkan_buffer_prepare_mapping_source(
+          buffer, buffer, provider->mapping_granularity);
+    }
     out_slab->base_ptr = (uint8_t*)(uintptr_t)device_address;
     out_slab->length = iree_hal_buffer_allocation_size(buffer);
     out_slab->provider_handle = (uint64_t)(uintptr_t)buffer;
@@ -391,12 +402,17 @@ static iree_status_t iree_hal_vulkan_slab_provider_wrap_buffer(
       .queue_family_affinity = provider->queue_family_affinity_mask,
       .flags = IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE,
   };
-  return iree_hal_vulkan_buffer_create_borrowed(
+  iree_status_t status = iree_hal_vulkan_buffer_create_borrowed(
       &provider->syms, provider->logical_device, placement, memory_type,
       allowed_access, allowed_usage, native->handle_length, handle_offset,
       allocation_size, memory_property_flags, provider->non_coherent_atom_size,
       device_memory, mapping_state, handle, device_address, release_callback,
       provider->host_allocator, out_buffer);
+  if (iree_status_is_ok(status) && provider->mapping_granularity) {
+    iree_hal_vulkan_buffer_prepare_mapping_source(
+        *out_buffer, slab_buffer, provider->mapping_granularity);
+  }
+  return status;
 }
 
 static iree_status_t iree_hal_vulkan_slab_provider_validate_asan_options(

@@ -324,7 +324,6 @@ iree_cc_library(
     "allocator.h"
     "barrier.h"
     "builtins.h"
-    "memory_backend.h"
     "queue.h"
     "semaphore.h"
     "sparse_binding_test.cc"

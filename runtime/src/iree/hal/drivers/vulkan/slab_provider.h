@@ -53,6 +53,9 @@ typedef struct iree_hal_vulkan_slab_provider_options_t {
   // Required whole-allocation alignment captured from native requirements.
   iree_device_size_t min_alignment;
 
+  // Sparse source alignment, or zero when the pool does not prepare mappings.
+  iree_device_size_t mapping_granularity;
+
   // Physical-device nonCoherentAtomSize used for mapped-memory ranges.
   VkDeviceSize non_coherent_atom_size;
 } iree_hal_vulkan_slab_provider_options_t;

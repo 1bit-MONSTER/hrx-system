@@ -10,6 +10,7 @@
 #include "iree/hal/drivers/vulkan/atomic.h"
 #include "iree/hal/drivers/vulkan/buffer.h"
 #include "iree/hal/drivers/vulkan/slab_provider.h"
+#include "iree/hal/drivers/vulkan/sparse_buffer.h"
 #include "iree/hal/memory/passthrough_pool.h"
 
 typedef struct iree_hal_vulkan_slab_pool_plan_t {
@@ -273,6 +274,24 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
   }
   const iree_hal_atomic_operation_capabilities_t atomic_operations =
       iree_hal_vulkan_atomic_capabilities(backend->enabled_features).operations;
+  bool mapping_source = false;
+  for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
+    mapping_source |=
+        iree_any_bit_set(scope.families[i].interfaces,
+                         1u << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE);
+  }
+  if (mapping_source) {
+    if (!iree_all_bits_set(
+            backend->enabled_features.general,
+            IREE_HAL_VULKAN_FEATURE_ENABLE_SPARSE_RESIDENCY_ALIASED) ||
+        options->imports.class_count) {
+      // Imported VkDeviceMemory requires matching external handle types on
+      // every sparse target at creation. This source format admits owned
+      // dense allocations only.
+      return iree_ok_status();
+    }
+    interfaces |= 1u << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  }
   iree_hal_buffer_usage_t usage = IREE_HAL_BUFFER_USAGE_NONE;
   iree_hal_queue_family_affinity_t families = 0;
   for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
@@ -317,8 +336,12 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
       .sType = VK_STRUCTURE_TYPE_DEVICE_BUFFER_MEMORY_REQUIREMENTS,
       .pCreateInfo = &create_info,
   };
+  VkMemoryDedicatedRequirements dedicated = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS,
+  };
   VkMemoryRequirements2 requirements = {
       .sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2,
+      .pNext = &dedicated,
   };
   // For fixed flags and usage, buffer memory types and alignment are
   // independent of size and sharing mode. No resource or payload is acquired.
@@ -327,6 +350,24 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
                                            &requirements);
 
   iree_device_size_t min_alignment = requirements.memoryRequirements.alignment;
+  iree_device_size_t mapping_granularity = 0;
+  if (mapping_source) {
+    if (dedicated.requiresDedicatedAllocation) {
+      return iree_ok_status();
+    }
+    const VkMemoryRequirements sparse_requirements =
+        iree_hal_vulkan_sparse_buffer_query_requirements(
+            backend->syms, backend->logical_device, backend->enabled_features,
+            native_usage);
+    if (!sparse_requirements.alignment ||
+        sparse_requirements.alignment > UINT32_MAX) {
+      return iree_ok_status();
+    }
+    mapping_granularity = sparse_requirements.alignment;
+    min_alignment = iree_max(min_alignment, mapping_granularity);
+    requirements.memoryRequirements.memoryTypeBits &=
+        sparse_requirements.memoryTypeBits;
+  }
   uint32_t external_memory_type_bits = 0;
   if (options->imports.class_count) {
     const VkExternalMemoryBufferCreateInfo external_create_info = {
@@ -438,6 +479,7 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
         .atomic_operations = atomic_operations,
         .queue_family_affinity_mask = families,
         .min_alignment = min_alignment,
+        .mapping_granularity = mapping_granularity,
         .non_coherent_atom_size = limits->nonCoherentAtomSize,
     };
     plan->progress.notification = backend->notification;
@@ -461,6 +503,14 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
       contract->allowed_access =
           iree_hal_buffer_usage_access(usage) | host.access;
       contract->allowed_usage = usage | mapping_usage;
+      if (mapping_source) {
+        contract->mapping_source.type = IREE_HAL_MEMORY_BACKEND_VULKAN;
+        contract->mapping_source.requirements =
+            (iree_hal_pool_mapping_requirements_t){
+                .minimum_granularity = mapping_granularity,
+                .recommended_granularity = mapping_granularity,
+            };
+      }
       for (iree_host_size_t j = 0; j < scope.family_count; ++j) {
         const uint32_t queue_scope_id =
             scope.families[j].family->memory.queue_scope_id;
@@ -473,6 +523,10 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
           if (interfaces & (1u << IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS)) {
             access->bindings[IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS] =
                 IREE_HAL_VULKAN_BUFFER_BINDING_DEVICE_ADDRESS;
+          }
+          if (mapping_source) {
+            access->bindings[IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE] =
+                IREE_HAL_VULKAN_BUFFER_BINDING_MAPPING_SOURCE;
           }
         }
       }

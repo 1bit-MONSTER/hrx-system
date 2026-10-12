@@ -1048,6 +1048,13 @@ iree_hal_vulkan_allocator_allocate_direct_buffer_with_memory_type_bits(
     use_sparse_allocation = !iree_hal_vulkan_allocator_allocation_size_in_range(
         allocator, allocation_size);
   }
+  if (iree_status_is_ok(status) && use_sparse_allocation &&
+      iree_any_bit_set(params->flags,
+                       IREE_HAL_VULKAN_BUFFER_ALLOCATION_FLAG_MAPPING_SOURCE)) {
+    status = iree_make_status(
+        IREE_STATUS_RESOURCE_EXHAUSTED,
+        "Vulkan mapping source exceeds the native dense allocation limit");
+  }
 
   iree_hal_vulkan_buffer_spec_t compat_params = *params;
   if (iree_status_is_ok(status) && use_sparse_allocation) {
@@ -1084,6 +1091,16 @@ iree_hal_vulkan_allocator_allocate_direct_buffer_with_memory_type_bits(
     max_allocation_size =
         iree_hal_vulkan_allocator_max_allocation_size_for_type(
             allocator, memory_placement.memory_type_index);
+  }
+  if (iree_status_is_ok(status) && !use_sparse_allocation &&
+      memory_requirements.size > max_allocation_size) {
+    if (iree_any_bit_set(
+            params->flags,
+            IREE_HAL_VULKAN_BUFFER_ALLOCATION_FLAG_MAPPING_SOURCE)) {
+      status = iree_make_status(
+          IREE_STATUS_RESOURCE_EXHAUSTED,
+          "Vulkan mapping source exceeds its memory type allocation limit");
+    }
   }
   if (iree_status_is_ok(status) && !use_sparse_allocation &&
       memory_requirements.size > max_allocation_size) {
@@ -1131,6 +1148,36 @@ iree_hal_vulkan_allocator_allocate_direct_buffer_with_memory_type_bits(
   }
 
   VkDeviceMemory device_memory = VK_NULL_HANDLE;
+  if (iree_status_is_ok(status) &&
+      iree_any_bit_set(params->flags,
+                       IREE_HAL_VULKAN_BUFFER_ALLOCATION_FLAG_MAPPING_SOURCE)) {
+    const VkBufferCreateInfo create_info = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = allocation_size,
+        .usage = iree_hal_vulkan_buffer_usage_from_hal(
+            allocator->enabled_features, compat_params.usage),
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+    };
+    const VkDeviceBufferMemoryRequirements query = {
+        .sType = VK_STRUCTURE_TYPE_DEVICE_BUFFER_MEMORY_REQUIREMENTS,
+        .pCreateInfo = &create_info,
+    };
+    VkMemoryDedicatedRequirements dedicated = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS,
+    };
+    VkMemoryRequirements2 requirements = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2,
+        .pNext = &dedicated,
+    };
+    iree_vkGetDeviceBufferMemoryRequirements(
+        IREE_VULKAN_DEVICE(&allocator->syms), allocator->logical_device, &query,
+        &requirements);
+    if (dedicated.requiresDedicatedAllocation) {
+      status = iree_make_status(
+          IREE_STATUS_UNAVAILABLE,
+          "Vulkan buffer requires dedicated memory and cannot supply mappings");
+    }
+  }
   if (iree_status_is_ok(status) && !use_sparse_allocation) {
     status = iree_hal_vulkan_allocator_allocate_memory(
         allocator, &memory_placement, compat_params.usage, &memory_requirements,
@@ -1187,6 +1234,7 @@ iree_hal_vulkan_allocator_allocate_direct_buffer_with_memory_type_bits(
           memory_placement.memory_type, compat_params.access,
           compat_params.usage, logical_allocation_size, byte_length,
           memory_placement.memory_property_flags,
+          memory_placement.memory_type_index,
           allocator->properties2.properties.limits.nonCoherentAtomSize,
           device_memory, /*device_memory_offset=*/handle_offset,
           memory_requirements.size, handle, (VkDeviceSize)allocation_size,
@@ -1505,6 +1553,7 @@ iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
         imported_memory_type, compat_params.access, compat_params.usage,
         allocation_size, external_buffer->byte_length,
         memory_placement.memory_property_flags,
+        memory_placement.memory_type_index,
         allocator->properties2.properties.limits.nonCoherentAtomSize,
         device_memory, /*device_memory_offset=*/0, memory_requirements.size,
         handle, (VkDeviceSize)allocation_size, /*handle_offset=*/0,

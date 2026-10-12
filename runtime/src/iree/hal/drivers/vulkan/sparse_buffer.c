@@ -11,6 +11,31 @@
 #include "iree/hal/drivers/vulkan/buffer.h"
 #include "iree/hal/drivers/vulkan/queue.h"
 
+VkMemoryRequirements iree_hal_vulkan_sparse_buffer_query_requirements(
+    const iree_hal_vulkan_device_syms_t* syms, VkDevice logical_device,
+    iree_hal_vulkan_features_t enabled_features,
+    iree_hal_buffer_usage_t usage) {
+  const VkBufferCreateInfo create_info = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .flags = VK_BUFFER_CREATE_SPARSE_BINDING_BIT |
+               VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT |
+               VK_BUFFER_CREATE_SPARSE_ALIASED_BIT,
+      .size = 4,
+      .usage = iree_hal_vulkan_buffer_usage_from_hal(enabled_features, usage),
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+  };
+  const VkDeviceBufferMemoryRequirements query = {
+      .sType = VK_STRUCTURE_TYPE_DEVICE_BUFFER_MEMORY_REQUIREMENTS,
+      .pCreateInfo = &create_info,
+  };
+  VkMemoryRequirements2 requirements = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2,
+  };
+  iree_vkGetDeviceBufferMemoryRequirements(
+      IREE_VULKAN_DEVICE(syms), logical_device, &query, &requirements);
+  return requirements.memoryRequirements;
+}
+
 //===----------------------------------------------------------------------===//
 // iree_hal_vulkan_sparse_buffer_t
 //===----------------------------------------------------------------------===//

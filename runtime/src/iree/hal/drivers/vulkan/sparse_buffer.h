@@ -9,6 +9,7 @@
 
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
+#include "iree/hal/drivers/vulkan/api.h"
 #include "iree/hal/drivers/vulkan/util/libvulkan.h"
 
 #ifdef __cplusplus
@@ -20,6 +21,14 @@ extern "C" {
 //===----------------------------------------------------------------------===//
 
 typedef struct iree_hal_vulkan_queue_t iree_hal_vulkan_queue_t;
+
+// Queries sparse buffer geometry without acquiring addresses or physical
+// storage. The caller has qualified sparse residency/aliasing feature support.
+// Alignment and memory types are fixed by flags and usage, independently of
+// buffer size and queue sharing mode.
+VkMemoryRequirements iree_hal_vulkan_sparse_buffer_query_requirements(
+    const iree_hal_vulkan_device_syms_t* syms, VkDevice logical_device,
+    iree_hal_vulkan_features_t enabled_features, iree_hal_buffer_usage_t usage);
 
 // Creates a fully-bound sparse Vulkan buffer.
 //

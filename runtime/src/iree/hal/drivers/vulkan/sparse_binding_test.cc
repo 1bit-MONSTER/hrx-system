@@ -9,9 +9,7 @@
 #include <vector>
 
 #include "iree/hal/cts/util/test_base.h"
-#include "iree/hal/drivers/vulkan/allocator.h"
 #include "iree/hal/drivers/vulkan/buffer.h"
-#include "iree/hal/drivers/vulkan/memory_backend.h"
 #include "iree/hal/drivers/vulkan/queue.h"
 #include "iree/hal/drivers/vulkan/sparse_buffer.h"
 
@@ -87,6 +85,25 @@ TEST_P(VulkanSparseBindingTest, DeferredMultiBufferBindingsAliasAndReplace) {
   iree_device_size_t granularity = 0;
   IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_query_granularity(
       device_allocator_, params, &minimum_granularity, &granularity));
+  const iree_hal_pool_family_access_t family = {
+      .family = iree_hal_queue_family(transfer_queue_),
+      .usage = params.usage,
+      .interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE,
+  };
+  const iree_hal_pool_scope_t scope = {.family_count = 1, .families = &family};
+  iree_hal_slab_pool_options_t options;
+  iree_hal_slab_pool_options_initialize(&options);
+  Ref<iree_hal_pool_t> source_pool;
+  IREE_ASSERT_OK(iree_hal_slab_pool_create(device_group_, scope, &options,
+                                           iree_allocator_system(),
+                                           source_pool.out()));
+  const auto source_requirements =
+      iree_hal_pool_query_mapping_requirements(source_pool);
+  ASSERT_GT(source_requirements.minimum_granularity, 0u);
+  EXPECT_EQ(source_requirements.minimum_granularity,
+            source_requirements.recommended_granularity);
+  EXPECT_EQ(0u, source_requirements.flags);
+  granularity = iree_max(granularity, source_requirements.minimum_granularity);
   ASSERT_GE(granularity, 256u);
 
   std::array<iree_hal_buffer_t*, 2> targets = {};
@@ -105,41 +122,40 @@ TEST_P(VulkanSparseBindingTest, DeferredMultiBufferBindingsAliasAndReplace) {
     ASSERT_EQ(0u, granularity % requirements.alignment);
   }
 
-  const auto* backend =
-      reinterpret_cast<const iree_hal_vulkan_memory_backend_t*>(
-          iree_hal_device_memory_backend(device_));
-  const auto& memory =
-      backend->physical_device->memory_properties2.memoryProperties;
-  uint32_t memory_type_index = UINT32_MAX;
-  for (uint32_t i = 0; i < memory.memoryTypeCount; ++i) {
-    if ((memory_type_bits & (1u << i)) &&
-        !iree_any_bit_set(memory.memoryTypes[i].propertyFlags,
-                          VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT |
-                              VK_MEMORY_PROPERTY_PROTECTED_BIT |
-                              VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD |
-                              VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD)) {
-      memory_type_index = i;
-      break;
-    }
-  }
-  ASSERT_NE(UINT32_MAX, memory_type_index);
-  const iree_hal_vulkan_buffer_spec_t spec = {
-      .type = IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
-      .access = IREE_HAL_MEMORY_ACCESS_ALL,
-      .usage = params.usage,
-      .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-  };
+  Ref<iree_hal_buffer_t> backing;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source_pool,
+      iree_hal_make_pool_reservation_request(5 * granularity, 2 * granularity),
+      iree_infinite_timeout(), backing.out()));
+  // A pooled view supplies pages without owning another physical allocation.
+  // The nonzero view origin must survive both provider wrapping and subspans.
   Ref<iree_hal_buffer_t> source;
-  IREE_ASSERT_OK(iree_hal_vulkan_allocator_allocate_direct_buffer_from_type(
-      backend->allocator, memory_type_index, &spec, 4 * granularity,
-      source.out()));
-  VkDeviceMemory source_memory = VK_NULL_HANDLE;
-  VkBuffer source_handle = VK_NULL_HANDLE;
-  IREE_ASSERT_OK(
-      iree_hal_vulkan_buffer_handle(source, &source_memory, &source_handle));
+  IREE_ASSERT_OK(iree_hal_buffer_subspan(backing, granularity, 4 * granularity,
+                                         iree_allocator_system(),
+                                         source.out()));
+  iree_hal_memory_scope_t memory_scope;
+  const iree_hal_memory_site_t site = {
+      .kind = IREE_HAL_MEMORY_SITE_QUEUE,
+      .family = family.family,
+  };
+  IREE_ASSERT_OK(iree_hal_device_group_resolve_memory_scope(device_group_, site,
+                                                            &memory_scope));
+  iree_hal_buffer_native_binding_slot_t slot;
+  IREE_ASSERT_OK(iree_hal_pool_resolve_binding(
+      source_pool, memory_scope, IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE,
+      &slot));
+  const auto binding = iree_hal_buffer_native_binding(source, slot);
+  ASSERT_NE(nullptr, binding.mapping_source.descriptor);
+  const auto native_source = iree_hal_vulkan_buffer_mapping_source_info(
+      binding.mapping_source.descriptor);
+  EXPECT_EQ(sparse_queue_->logical_device, native_source.logical_device);
+  ASSERT_NE(0u, memory_type_bits & (1u << native_source.memory_type_index));
+  const VkDeviceMemory source_memory = native_source.memory;
   ASSERT_TRUE(source_memory != VK_NULL_HANDLE);
-  const auto allocation = iree_hal_vulkan_buffer_allocation_info(source);
-  ASSERT_EQ(0u, allocation.byte_offset % granularity);
+  const VkDeviceSize source_offset = binding.mapping_source.offset;
+  ASSERT_GE(source_offset, granularity);
+  ASSERT_EQ(0u, source_offset % granularity);
+  ASSERT_GE(native_source.byte_length, source_offset + 4 * granularity);
 
   std::vector<uint32_t> input(4 * granularity / sizeof(uint32_t));
   for (size_t i = 0; i < input.size(); ++i) {
@@ -159,25 +175,25 @@ TEST_P(VulkanSparseBindingTest, DeferredMultiBufferBindingsAliasAndReplace) {
           .resourceOffset = 0,
           .size = granularity,
           .memory = source_memory,
-          .memoryOffset = allocation.byte_offset,
+          .memoryOffset = source_offset,
       },
       {
           .resourceOffset = 2 * granularity,
           .size = granularity,
           .memory = source_memory,
-          .memoryOffset = allocation.byte_offset + 2 * granularity,
+          .memoryOffset = source_offset + 2 * granularity,
       },
       {
           .resourceOffset = 0,
           .size = granularity,
           .memory = source_memory,
-          .memoryOffset = allocation.byte_offset + 3 * granularity,
+          .memoryOffset = source_offset + 3 * granularity,
       },
       {
           .resourceOffset = granularity,
           .size = granularity,
           .memory = source_memory,
-          .memoryOffset = allocation.byte_offset,
+          .memoryOffset = source_offset,
       },
   }};
   std::array<VkSparseBufferMemoryBindInfo, 2> buffers = {{
@@ -217,13 +233,13 @@ TEST_P(VulkanSparseBindingTest, DeferredMultiBufferBindingsAliasAndReplace) {
       .resourceOffset = 0,
       .size = granularity,
       .memory = source_memory,
-      .memoryOffset = allocation.byte_offset + granularity,
+      .memoryOffset = source_offset + granularity,
   };
   binds[1] = {
       .resourceOffset = granularity,
       .size = granularity,
       .memory = source_memory,
-      .memoryOffset = allocation.byte_offset + 2 * granularity,
+      .memoryOffset = source_offset + 2 * granularity,
   };
   buffers = {{{.buffer = handles[0], .bindCount = 1, .pBinds = &binds[0]},
               {.buffer = handles[1], .bindCount = 1, .pBinds = &binds[1]}}};
