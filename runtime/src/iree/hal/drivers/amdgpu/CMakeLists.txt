@@ -356,6 +356,8 @@ iree_cc_library(
     "transient_buffer.h"
     "tsan_state.c"
     "tsan_state.h"
+    "virtual_memory.c"
+    "virtual_memory.h"
   DEPS
     ${CMAKE_DL_LIBS}
     ::access_policy
@@ -488,6 +490,7 @@ iree_cc_library(
     "system_event.h"
     "transient_buffer.h"
     "tsan_state.h"
+    "virtual_memory.h"
   DEPS
     ::dispatch_concurrency
     ::profile_events

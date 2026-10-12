@@ -287,47 +287,6 @@ typedef struct iree_hal_device_memory_spec_t {
   iree_hal_device_memory_spec_flags_t flags;
 } iree_hal_device_memory_spec_t;
 
-// Native virtual address protection capabilities in the device catalog.
-// Concrete reservation mappings request permissions with memory access bits.
-enum iree_hal_memory_protection_bits_t {
-  // No access. Removes existing access permissions.
-  // Platform: PROT_NONE (POSIX), PAGE_NOACCESS (Windows), or equivalent.
-  IREE_HAL_MEMORY_PROTECTION_NONE = 0ull,
-
-  // Read-only access.
-  // Platform: PROT_READ (POSIX), PAGE_READONLY (Windows), or equivalent.
-  IREE_HAL_MEMORY_PROTECTION_READ = 1ull << 0,
-
-  // Write-only access (uncommon, typically combined with READ).
-  // This is not directly supported on all platforms and may require READ.
-  IREE_HAL_MEMORY_PROTECTION_WRITE = 1ull << 1,
-
-  // Read-write access (most common).
-  // Platform: PROT_READ|PROT_WRITE (POSIX), PAGE_READWRITE (Windows), or
-  // equivalent.
-  IREE_HAL_MEMORY_PROTECTION_READ_WRITE =
-      IREE_HAL_MEMORY_PROTECTION_READ | IREE_HAL_MEMORY_PROTECTION_WRITE,
-};
-typedef uint64_t iree_hal_memory_protection_t;
-
-// Native memory advice capabilities in the device catalog.
-enum iree_hal_memory_advice_bits_t {
-  // No specific advice. Use default behavior.
-  // Platform: MADV_NORMAL (POSIX).
-  IREE_HAL_MEMORY_ADVICE_NORMAL = 0ull,
-
-  // Will access this memory soon. Prefetch into cache/VRAM.
-  // Platform: MADV_WILLNEED (POSIX); no direct equivalent on Windows.
-  IREE_HAL_MEMORY_ADVICE_WILL_NEED = 1ull << 0,
-
-  // Don't need this memory anymore. Can discard and zero on next access.
-  // Platform: MADV_DONTNEED (POSIX - zeros immediately),
-  // MADV_FREE (POSIX - lazy); no direct equivalent on Windows.
-  // NOTE: On CPU, this may immediately free physical memory.
-  IREE_HAL_MEMORY_ADVICE_DONT_NEED = 1ull << 1,
-};
-typedef uint64_t iree_hal_memory_advice_t;
-
 // Stable virtual memory operation flags.
 typedef uint32_t iree_hal_virtual_memory_operation_flags_t;
 typedef enum iree_hal_virtual_memory_operation_flag_bits_e {
