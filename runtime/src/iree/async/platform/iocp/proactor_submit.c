@@ -152,27 +152,11 @@ static void iree_async_proactor_iocp_commit_socket_accept(
   memset(&accept_op->peer_address, 0, sizeof(accept_op->peer_address));
 
   // AcceptEx requires a pre-created accept socket of the same family/type.
-  // MSDN only documents AcceptEx for AF_INET/AF_INET6. AF_UNIX support is
-  // undocumented but works on Windows 10 1809+ where the AF_UNIX Winsock
-  // provider routes AcceptEx through its internal accept path.
-  int domain = AF_INET;
-  int socktype = SOCK_STREAM;
-  int protocol = IPPROTO_TCP;
-  switch (listen_socket->type) {
-    case IREE_ASYNC_SOCKET_TYPE_TCP6:
-      domain = AF_INET6;
-      protocol = IPPROTO_TCP;
-      break;
-    case IREE_ASYNC_SOCKET_TYPE_UNIX_STREAM:
-      domain = AF_UNIX;
-      protocol = 0;
-      break;
-    default:
-      break;
-  }
+  int domain =
+      listen_socket->type == IREE_ASYNC_SOCKET_TYPE_TCP6 ? AF_INET6 : AF_INET;
 
-  SOCKET accept_sock =
-      WSASocketW(domain, socktype, protocol, NULL, 0, WSA_FLAG_OVERLAPPED);
+  SOCKET accept_sock = WSASocketW(domain, SOCK_STREAM, IPPROTO_TCP, NULL, 0,
+                                  WSA_FLAG_OVERLAPPED);
   if (accept_sock == INVALID_SOCKET) {
     int wsa_error = WSAGetLastError();
     iree_async_proactor_iocp_post_win32_error(
@@ -194,8 +178,8 @@ static void iree_async_proactor_iocp_commit_socket_accept(
   carrier->data.accept.accept_socket = accept_sock;
   // Each address slot needs the maximum address size plus 16 bytes of
   // padding (AcceptEx requirement: at least 16 bytes more than the maximum
-  // address length for the transport protocol). sockaddr_storage covers all
-  // address families including AF_UNIX (sockaddr_un is 110 bytes on Windows).
+  // address length for the transport protocol). sockaddr_storage covers both
+  // supported address families.
   carrier->data.accept.local_address_length =
       (DWORD)(sizeof(struct sockaddr_storage) + 16);
   carrier->data.accept.remote_address_length =
@@ -327,11 +311,6 @@ static void iree_async_proactor_iocp_commit_socket_connect(
   }
 
   // TCP: use ConnectEx for overlapped (asynchronous) connection.
-  // MSDN only documents ConnectEx for AF_INET/AF_INET6. AF_UNIX stream sockets
-  // would reach this path but are currently blocked by auto_bind_if_needed
-  // (which rejects non-TCP/UDP types). If AF_UNIX connect support is added,
-  // note that ConnectEx with AF_UNIX is undocumented but appears to work on
-  // Windows 10 1809+ via the AF_UNIX Winsock provider.
   const struct sockaddr* target_addr =
       (const struct sockaddr*)connect_op->address.storage;
   int addr_length = (int)connect_op->address.length;

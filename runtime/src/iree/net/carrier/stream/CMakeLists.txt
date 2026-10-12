@@ -26,19 +26,13 @@ iree_cc_library(
   PUBLIC
 )
 
-set(_carrier_test_platform_deps "")
-if(CMAKE_SYSTEM_NAME STREQUAL "Android")
-  list(APPEND _carrier_test_platform_deps iree::async::platform::posix)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  list(APPEND _carrier_test_platform_deps iree::async::platform::posix)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-  list(APPEND _carrier_test_platform_deps iree::async::platform::posix)
-endif()
-iree_cc_test(
+iree_cc_library(
   NAME
-    carrier_test
+    carrier_test_suite
+  HDRS
+    "carrier_test_suite.h"
   SRCS
-    "carrier_test.cc"
+    "carrier_test_suite.cc"
   DEPS
     ::stream
     iree::async
@@ -46,8 +40,70 @@ iree_cc_test(
     iree::base
     iree::net::carrier
     iree::testing::gtest
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+iree_cc_library(
+  NAME
+    carrier_posix_test_support
+  SRCS
+    "carrier_posix_test.cc"
+  DEPS
+    ::carrier_test_suite
+    iree::async
+    iree::async::platform::posix
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+iree_cc_library(
+  NAME
+    carrier_win32_test_support
+  SRCS
+    "carrier_win32_test.cc"
+  DEPS
+    ::carrier_test_suite
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
+set(_carrier_test_platform_deps "")
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  list(APPEND _carrier_test_platform_deps ::carrier_win32_test_support)
+else()
+  list(APPEND _carrier_test_platform_deps ::carrier_posix_test_support)
+endif()
+iree_cc_test(
+  NAME
+    carrier_test
+  SRCS
+    "carrier_test.cc"
+  DEPS
+    ::carrier_test_suite
     iree::testing::gtest_main
     ${_carrier_test_platform_deps}
 )
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+iree_cc_test(
+  NAME
+    carrier_unix_test
+  SRCS
+    "carrier_unix_test.cc"
+  DEPS
+    ::carrier_posix_test_support
+    ::carrier_test_suite
+    iree::testing::gtest_main
+)
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

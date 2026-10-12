@@ -1635,22 +1635,12 @@ static void iree_async_proactor_iocp_complete_accept(
 
   if (should_rearm && iree_status_is_ok(io_status)) {
     // Create a new accept socket for the next accept.
-    int domain = AF_INET;
-    int protocol = IPPROTO_TCP;
-    switch (accept_op->listen_socket->type) {
-      case IREE_ASYNC_SOCKET_TYPE_TCP6:
-        domain = AF_INET6;
-        break;
-      case IREE_ASYNC_SOCKET_TYPE_UNIX_STREAM:
-        domain = AF_UNIX;
-        protocol = 0;
-        break;
-      default:
-        break;
-    }
+    int domain = accept_op->listen_socket->type == IREE_ASYNC_SOCKET_TYPE_TCP6
+                     ? AF_INET6
+                     : AF_INET;
 
-    SOCKET new_accept_sock =
-        WSASocketW(domain, SOCK_STREAM, protocol, NULL, 0, WSA_FLAG_OVERLAPPED);
+    SOCKET new_accept_sock = WSASocketW(domain, SOCK_STREAM, IPPROTO_TCP, NULL,
+                                        0, WSA_FLAG_OVERLAPPED);
     if (new_accept_sock == INVALID_SOCKET) {
       int wsa_error = WSAGetLastError();
       io_status = iree_make_status(

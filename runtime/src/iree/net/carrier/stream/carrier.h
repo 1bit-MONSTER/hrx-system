@@ -5,7 +5,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 // Socket carrier implementing reliable ordered byte-stream transport over TCP
-// (IPv4 or IPv6) and Unix domain stream sockets. No framing is added.
+// (IPv4 or IPv6) and, on POSIX backends, Unix domain stream sockets. No framing
+// is added. Windows IOCP supports TCP only.
 //
 // One logical send owns the ordered socket write lane at a time. Once all its
 // bytes are accepted, a zero-copy send may await source retirement in its own

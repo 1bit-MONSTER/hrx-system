@@ -212,11 +212,12 @@ typedef struct iree_async_iocp_carrier_t {
       SOCKET accept_socket;
       // Address output buffer. AcceptEx writes both local and remote addresses
       // here. Each address slot needs the maximum address size plus 16 bytes
-      // of padding (AcceptEx requirement). sockaddr_storage (128 bytes) covers
-      // all address families including AF_UNIX (sockaddr_un is 110 bytes).
+      // of padding (AcceptEx requirement). sockaddr_storage covers both IPv4
+      // and IPv6.
       uint8_t address_buffer[2 * (sizeof(struct sockaddr_storage) + 16)];
-      // Address lengths passed to AcceptEx and GetAcceptExSockaddrs.
+      // Local address length passed to AcceptEx and GetAcceptExSockaddrs.
       DWORD local_address_length;
+      // Remote address length passed to AcceptEx and GetAcceptExSockaddrs.
       DWORD remote_address_length;
     } accept;
 

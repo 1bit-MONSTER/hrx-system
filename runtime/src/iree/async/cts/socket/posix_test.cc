@@ -53,6 +53,24 @@ class SocketPosixTest : public SocketTestBase<> {
 };
 
 //===----------------------------------------------------------------------===//
+// Unix socket creation
+//===----------------------------------------------------------------------===//
+
+TEST_P(SocketPosixTest, CreateSocket_Unix) {
+  for (auto type : {IREE_ASYNC_SOCKET_TYPE_UNIX_STREAM,
+                    IREE_ASYNC_SOCKET_TYPE_UNIX_DGRAM}) {
+    SCOPED_TRACE(type);
+    iree_async_socket_t* socket = nullptr;
+    IREE_ASSERT_OK(iree_async_socket_create(
+        proactor_, type, IREE_ASYNC_SOCKET_OPTION_NONE, &socket));
+    ASSERT_NE(socket, nullptr);
+    EXPECT_EQ(iree_async_socket_query_state(socket),
+              IREE_ASYNC_SOCKET_STATE_CREATED);
+    iree_async_socket_release(socket);
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // Import tests: wrapping raw file descriptors
 //===----------------------------------------------------------------------===//
 

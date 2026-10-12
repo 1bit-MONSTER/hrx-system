@@ -42,8 +42,68 @@ class SocketWin32Test : public SocketTestBase<> {
 };
 
 //===----------------------------------------------------------------------===//
+// Socket type support
+//===----------------------------------------------------------------------===//
+
+TEST_P(SocketWin32Test, CreateSocket_UnixUnavailable) {
+  for (auto type : {IREE_ASYNC_SOCKET_TYPE_UNIX_STREAM,
+                    IREE_ASYNC_SOCKET_TYPE_UNIX_DGRAM}) {
+    SCOPED_TRACE(type);
+    iree_async_socket_t* socket = nullptr;
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_UNAVAILABLE,
+        iree_async_socket_create(proactor_, type, IREE_ASYNC_SOCKET_OPTION_NONE,
+                                 &socket));
+    EXPECT_EQ(socket, nullptr);
+    iree_async_socket_release(socket);
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // Import tests: wrapping Winsock SOCKET handles
 //===----------------------------------------------------------------------===//
+
+// Native AF_UNIX availability does not imply proactor lifecycle support. A
+// rejected import must leave the caller's handle open and unassociated.
+TEST_P(SocketWin32Test, ImportSocket_UnixUnavailablePreservesOwnership) {
+  SOCKET raw_socket =
+      WSASocketW(AF_UNIX, SOCK_STREAM, 0, nullptr, 0, WSA_FLAG_OVERLAPPED);
+  ASSERT_NE(raw_socket, INVALID_SOCKET) << WSAGetLastError();
+
+  iree_async_socket_t* socket = nullptr;
+  iree_status_t status = iree_async_socket_import(
+      proactor_, iree_async_primitive_from_win32_handle((uintptr_t)raw_socket),
+      IREE_ASYNC_SOCKET_TYPE_UNIX_STREAM, IREE_ASYNC_SOCKET_FLAG_NONE, &socket);
+  const bool imported = iree_status_is_ok(status);
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE, status);
+  EXPECT_EQ(socket, nullptr);
+  if (imported) {
+    iree_async_socket_release(socket);
+    return;
+  }
+
+  int socket_type = 0;
+  int socket_type_length = sizeof(socket_type);
+  EXPECT_EQ(getsockopt(raw_socket, SOL_SOCKET, SO_TYPE, (char*)&socket_type,
+                       &socket_type_length),
+            0);
+  EXPECT_EQ(socket_type, SOCK_STREAM);
+
+  // Association is irreversible. Success with a different completion port
+  // proves the rejected import did not bind the socket to its proactor.
+  HANDLE completion_port =
+      CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
+  EXPECT_NE(completion_port, nullptr) << GetLastError();
+  if (completion_port) {
+    EXPECT_EQ(CreateIoCompletionPort((HANDLE)raw_socket, completion_port, 0, 0),
+              completion_port)
+        << GetLastError();
+  }
+  EXPECT_EQ(closesocket(raw_socket), 0);
+  if (completion_port) {
+    EXPECT_TRUE(CloseHandle(completion_port));
+  }
+}
 
 // Import a raw Winsock SOCKET and verify it works with the proactor.
 TEST_P(SocketWin32Test, ImportSocket_FromWinsock) {

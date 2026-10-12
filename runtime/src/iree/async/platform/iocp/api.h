@@ -24,7 +24,7 @@ extern "C" {
 //   - Overlapped I/O: kernel performs I/O and posts completion packets
 //   - GetQueuedCompletionStatusEx: batch dequeue of completions
 //   - PostQueuedCompletionStatus: cross-thread wakeup and messaging
-//   - AcceptEx/ConnectEx: fully async socket operations
+//   - AcceptEx/ConnectEx: fully async TCP socket operations
 //   - NT wait completion packets: persistent event source monitoring
 //   - Wait completion packets or RegisterWaitForSingleObject: one-shot event
 //     waits and shared notification wake monitoring
@@ -38,6 +38,10 @@ extern "C" {
 // Requires Windows Vista+ (GetQueuedCompletionStatusEx, CancelIoEx). Sync
 // notification waits use WaitOnAddress (Windows 8+), and persistent event
 // sources require wait completion packets (Windows 8.1+).
+//
+// Sockets support IPv4 and IPv6 TCP/UDP. Unix domain socket creation and
+// import return UNAVAILABLE; the backend does not implement their connection
+// lifecycle. Local IPC uses the separate named-pipe operations.
 //
 // Returns IREE_STATUS_UNAVAILABLE if IOCP creation fails.
 iree_status_t iree_async_proactor_create_iocp(
