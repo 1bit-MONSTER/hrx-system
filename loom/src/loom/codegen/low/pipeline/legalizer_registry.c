@@ -8,6 +8,7 @@
 
 #include "loom/transforms/buffer/target_legalization.h"
 #include "loom/transforms/conversion/target_legalization.h"
+#include "loom/transforms/index/target_legalization.h"
 #include "loom/transforms/math/legalize.h"
 #include "loom/transforms/scalar/target_legalization.h"
 #include "loom/transforms/vector/target_legalization.h"
@@ -20,6 +21,7 @@ iree_status_t loom_low_legalizer_registry_storage_initialize(
   const loom_target_legalizer_provider_t* generic_providers[] = {
       loom_buffer_target_legalizer_provider(),
       loom_conversion_target_legalizer_provider(),
+      loom_index_target_legalizer_provider(),
       loom_math_target_legalizer_provider(),
       loom_scalar_target_legalizer_provider(),
       loom_vector_target_legalizer_provider(),

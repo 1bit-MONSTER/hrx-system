@@ -41,6 +41,14 @@ iree_status_t loom_vector_to_scalar_build_generic_lane_op(
     uint16_t operand_count, const loom_attribute_t* attrs, uint8_t attr_count,
     loom_type_t result_type, loom_value_id_t* out_result);
 
+// Builds a mechanical scalar lane operation with all of its fixed results.
+iree_status_t loom_vector_to_scalar_build_generic_lane_op_results(
+    loom_vector_to_scalar_state_t* state, loom_op_kind_t kind,
+    uint8_t instance_flags, const loom_value_id_t* operands,
+    uint16_t operand_count, const loom_attribute_t* attrs, uint8_t attr_count,
+    const loom_type_t* result_types, uint16_t result_count,
+    loom_value_id_t* out_results);
+
 iree_status_t loom_vector_to_scalar_build_scalar_binary(
     loom_vector_to_scalar_state_t* state, loom_op_kind_t kind,
     loom_value_id_t lhs, loom_value_id_t rhs, loom_type_t result_type,
@@ -114,6 +122,13 @@ iree_status_t loom_vector_to_scalar_build_terminal_extract(
 iree_status_t loom_vector_to_scalar_build_lane(
     loom_vector_to_scalar_state_t* state,
     loom_vector_to_scalar_index_list_t indices, loom_value_id_t* out_lane);
+
+// Builds all scalar results of one mechanical vector lane program. Operand
+// lanes are materialized once and shared by every result.
+iree_status_t loom_vector_to_scalar_build_generic_lanes(
+    loom_vector_to_scalar_state_t* state,
+    loom_vector_to_scalar_index_list_t indices, uint16_t result_count,
+    loom_value_id_t* out_lanes);
 
 // Materializes one logical lane, reusing scalar operands for constructed
 // vectors and selecting between them when the lane indices are dynamic.

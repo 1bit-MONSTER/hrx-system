@@ -43,6 +43,7 @@ loom_cc_library(
         "//loom/src/loom/target:legalization",
         "//loom/src/loom/transforms/buffer:target_legalization",
         "//loom/src/loom/transforms/conversion:target_legalization",
+        "//loom/src/loom/transforms/index:target_legalization",
         "//loom/src/loom/transforms/math:legalize",
         "//loom/src/loom/transforms/scalar:target_legalization",
         "//loom/src/loom/transforms/vector:target_legalization",

@@ -924,6 +924,83 @@ static iree_status_t loom_scalar_legalize_narrow_binary(
   return iree_ok_status();
 }
 
+// Preserves the shared quotient/remainder computation while widening narrow
+// integer carriers. Targets that accept the i32 combined operation can then
+// select one native divide; the portable fallback below splits only after a
+// target has declined that representation.
+static iree_status_t loom_scalar_legalize_divrem(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+
+  const loom_value_id_t* old_results = loom_op_const_results(op);
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, old_results[0]);
+  const int32_t bit_count =
+      loom_scalar_type_bitwidth(loom_type_element_type(result_type));
+  const bool is_signed = op->kind == LOOM_OP_SCALAR_DIVREMSI;
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  loom_value_id_t replacements[2] = {LOOM_VALUE_ID_INVALID,
+                                     LOOM_VALUE_ID_INVALID};
+
+  if (bit_count < 32) {
+    loom_value_id_t operands[2];
+    IREE_RETURN_IF_ERROR(loom_scalar_legalize_widen_integer_operands(
+        builder, op, is_signed, operands));
+    const loom_type_t working_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+    const loom_type_t working_result_types[2] = {working_type, working_type};
+    loom_op_t* widened = NULL;
+    if (is_signed) {
+      IREE_RETURN_IF_ERROR(loom_scalar_divremsi_build(
+          builder, operands[0], operands[1], working_result_types, op->location,
+          &widened));
+    } else {
+      IREE_RETURN_IF_ERROR(loom_scalar_divremui_build(
+          builder, operands[0], operands[1], working_result_types, op->location,
+          &widened));
+    }
+    for (uint16_t i = 0; i < IREE_ARRAYSIZE(replacements); ++i) {
+      loom_op_t* truncation = NULL;
+      IREE_RETURN_IF_ERROR(loom_scalar_trunci_build(
+          builder, loom_op_results(widened)[i], working_type, result_type,
+          op->location, &truncation));
+      replacements[i] = loom_scalar_trunci_result(truncation);
+    }
+  } else {
+    const loom_value_id_t lhs = loom_op_const_operands(op)[0];
+    const loom_value_id_t rhs = loom_op_const_operands(op)[1];
+    loom_op_t* quotient = NULL;
+    loom_op_t* remainder = NULL;
+    if (is_signed) {
+      IREE_RETURN_IF_ERROR(loom_scalar_divsi_build(
+          builder, lhs, rhs, result_type, op->location, &quotient));
+      IREE_RETURN_IF_ERROR(loom_scalar_remsi_build(
+          builder, lhs, rhs, result_type, op->location, &remainder));
+    } else {
+      IREE_RETURN_IF_ERROR(loom_scalar_divui_build(
+          builder, lhs, rhs, result_type, op->location, &quotient));
+      IREE_RETURN_IF_ERROR(loom_scalar_remui_build(
+          builder, lhs, rhs, result_type, op->location, &remainder));
+    }
+    replacements[0] = loom_op_results(quotient)[0];
+    replacements[1] = loom_op_results(remainder)[0];
+  }
+
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, replacements, IREE_ARRAYSIZE(replacements), checkpoint));
+  IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(
+      rewriter, op, replacements, IREE_ARRAYSIZE(replacements)));
+  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  return iree_ok_status();
+}
+
 // Count the source bits, not the carrier bits. The CTZ sentinel both supplies
 // the narrow zero result and proves that the widened count input is nonzero.
 static iree_status_t loom_scalar_legalize_narrow_bit_count(
@@ -1652,6 +1729,16 @@ static const loom_target_legalizer_rule_t kScalarLegalizerRules[] = {
                                        LOOM_SCALAR_TYPE_SET_I8 |
                                        LOOM_SCALAR_TYPE_SET_I16,
         .legalize = loom_scalar_legalize_narrow_binary,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_DIVREMSI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
+        .legalize = loom_scalar_legalize_divrem,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_DIVREMUI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
+        .legalize = loom_scalar_legalize_divrem,
     },
     {
         .root_kind = LOOM_OP_SCALAR_REMSI,

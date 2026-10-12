@@ -2834,6 +2834,49 @@ vector_divui = _lanewise_binary(
     canonicalize="loom_vector_uniform_result_canonicalize",
 )
 
+vector_divremsi = Op(
+    "vector.divremsi",
+    group=vector_ops,
+    phase=OpPhase.EXECUTABLE,
+    doc=(
+        "Lanewise signed integer quotient and remainder computed from one "
+        "division. Each quotient rounds toward zero and each remainder has "
+        "the sign of its dividend. Every divisor must be nonzero and every "
+        "quotient must be representable in the element type."
+    ),
+    operands=[Operand("lhs", VECTOR), Operand("rhs", VECTOR)],
+    results=[Result("quotient", VECTOR), Result("remainder", VECTOR)],
+    constraints=[
+        HasIntegerElement("quotient"),
+        HasIntegerElement("remainder"),
+        SameType("lhs", "rhs", "quotient", "remainder"),
+    ],
+    facts="loom_vector_divremsi_facts",
+    canonicalize="loom_vector_divremsi_canonicalize",
+    traits=[PURE, ELEMENTWISE],
+    format=[Ref("lhs"), COMMA, Ref("rhs"), COLON, TypeOf("quotient")],
+    examples=["%q, %r = vector.divremsi %lhs, %rhs : vector<8xi32>"],
+)
+
+vector_divremui = Op(
+    "vector.divremui",
+    group=vector_ops,
+    phase=OpPhase.EXECUTABLE,
+    doc=("Lanewise unsigned integer quotient and remainder computed from one division. Every divisor must be nonzero."),
+    operands=[Operand("lhs", VECTOR), Operand("rhs", VECTOR)],
+    results=[Result("quotient", VECTOR), Result("remainder", VECTOR)],
+    constraints=[
+        HasIntegerElement("quotient"),
+        HasIntegerElement("remainder"),
+        SameType("lhs", "rhs", "quotient", "remainder"),
+    ],
+    facts="loom_vector_divremui_facts",
+    canonicalize="loom_vector_divremui_canonicalize",
+    traits=[PURE, ELEMENTWISE],
+    format=[Ref("lhs"), COMMA, Ref("rhs"), COLON, TypeOf("quotient")],
+    examples=["%q, %r = vector.divremui %lhs, %rhs : vector<8xi32>"],
+)
+
 vector_remsi = _lanewise_binary(
     "vector.remsi",
     phase=OpPhase.EXECUTABLE,
@@ -4378,6 +4421,8 @@ VECTOR_INTEGER_ARITHMETIC_OPS: tuple[Op, ...] = (
     vector_muli,
     vector_divsi,
     vector_divui,
+    vector_divremsi,
+    vector_divremui,
     vector_remsi,
     vector_remui,
     vector_ceildivsi,

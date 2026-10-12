@@ -125,6 +125,49 @@ static iree_status_t loom_vector_legalize_descriptor(
   return iree_ok_status();
 }
 
+// Splits a combined vector division only after target providers have declined
+// it. The ordinary quotient and remainder operations can still select native
+// vector implementations independently on targets that provide them.
+static iree_status_t loom_vector_legalize_divrem(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t lhs = loom_op_const_operands(op)[0];
+  const loom_value_id_t rhs = loom_op_const_operands(op)[1];
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, loom_op_const_results(op)[0]);
+  loom_op_t* quotient = NULL;
+  loom_op_t* remainder = NULL;
+  if (op->kind == LOOM_OP_VECTOR_DIVREMSI) {
+    IREE_RETURN_IF_ERROR(loom_vector_divsi_build(builder, lhs, rhs, result_type,
+                                                 op->location, &quotient));
+    IREE_RETURN_IF_ERROR(loom_vector_remsi_build(builder, lhs, rhs, result_type,
+                                                 op->location, &remainder));
+  } else {
+    IREE_RETURN_IF_ERROR(loom_vector_divui_build(builder, lhs, rhs, result_type,
+                                                 op->location, &quotient));
+    IREE_RETURN_IF_ERROR(loom_vector_remui_build(builder, lhs, rhs, result_type,
+                                                 op->location, &remainder));
+  }
+  const loom_value_id_t replacements[2] = {
+      loom_op_results(quotient)[0],
+      loom_op_results(remainder)[0],
+  };
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, replacements, IREE_ARRAYSIZE(replacements), checkpoint));
+  IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(
+      rewriter, op, replacements, IREE_ARRAYSIZE(replacements)));
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN,
+  };
+  return iree_ok_status();
+}
+
 static iree_status_t loom_vector_legalize_non_dense_memory(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
@@ -1192,6 +1235,14 @@ static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
     {
         .root_kind = LOOM_OP_VECTOR_DIVUI,
         .legalize = loom_vector_legalize_descriptor,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_DIVREMSI,
+        .legalize = loom_vector_legalize_divrem,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_DIVREMUI,
+        .legalize = loom_vector_legalize_divrem,
     },
     {
         .root_kind = LOOM_OP_VECTOR_REMSI,

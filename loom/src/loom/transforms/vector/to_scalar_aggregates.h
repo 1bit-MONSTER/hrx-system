@@ -21,6 +21,12 @@ iree_status_t loom_vector_to_scalar_lower_splat(
 iree_status_t loom_vector_to_scalar_lower_aggregate(
     loom_vector_to_scalar_state_t* state, loom_value_id_t* out_replacement);
 
+// Reconstructs all same-shaped results of one mechanical scalar lane program.
+// Dynamic results share one loop nest and carry one aggregate per result.
+iree_status_t loom_vector_to_scalar_lower_aggregates(
+    loom_vector_to_scalar_state_t* state, uint16_t result_count,
+    loom_value_id_t* out_replacements);
+
 #ifdef __cplusplus
 }
 #endif

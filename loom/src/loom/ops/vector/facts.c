@@ -3409,6 +3409,33 @@ LOOM_VECTOR_WIDTH_BINARY_FACTS(loom_vector_divui_facts, loom_value_facts_divui)
 LOOM_VECTOR_INTEGER_BINARY_FACTS(loom_vector_remsi_facts,
                                  loom_value_facts_remsi)
 LOOM_VECTOR_WIDTH_BINARY_FACTS(loom_vector_remui_facts, loom_value_facts_remui)
+
+iree_status_t loom_vector_divremsi_facts(
+    loom_fact_context_t* context, const loom_module_t* module,
+    const loom_op_t* op, const loom_value_facts_t* operand_facts,
+    loom_value_facts_t* result_facts) {
+  IREE_RETURN_IF_ERROR(loom_vector_integer_binary_summary_facts(
+      context, /*bit_count=*/0, operand_facts, &result_facts[0],
+      loom_vector_divsi_facts_element));
+  return loom_vector_integer_binary_summary_facts(
+      context, /*bit_count=*/0, operand_facts, &result_facts[1],
+      loom_vector_remsi_facts_element);
+}
+
+iree_status_t loom_vector_divremui_facts(
+    loom_fact_context_t* context, const loom_module_t* module,
+    const loom_op_t* op, const loom_value_facts_t* operand_facts,
+    loom_value_facts_t* result_facts) {
+  const int32_t bit_count =
+      loom_scalar_type_bitwidth(loom_vector_result_element_type(module, op));
+  IREE_RETURN_IF_ERROR(loom_vector_integer_binary_summary_facts(
+      context, bit_count, operand_facts, &result_facts[0],
+      loom_value_facts_divui));
+  return loom_vector_integer_binary_summary_facts(
+      context, bit_count, operand_facts, &result_facts[1],
+      loom_value_facts_remui);
+}
+
 LOOM_VECTOR_UNARY_FACTS(loom_vector_negi_facts, loom_value_facts_negi)
 LOOM_VECTOR_UNARY_FACTS(loom_vector_absi_facts, loom_value_facts_absi)
 LOOM_VECTOR_WIDTH_BINARY_FACTS(loom_vector_minsi_facts, loom_value_facts_minsi)

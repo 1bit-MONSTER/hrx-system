@@ -68,6 +68,28 @@ class ScalarArithmeticMixin:
         result_names: Sequence[str] | None = ...,
         location_id: int | None = ...,
     ) -> ValueRef: ...
+    def divremsi(
+        self,
+        *,
+        lhs: ValueRef,
+        rhs: ValueRef,
+        results: list[Type | TiedResultSpec],
+        name: str | None = ...,
+        names: Sequence[str] | None = ...,
+        result_names: Sequence[str] | None = ...,
+        location_id: int | None = ...,
+    ) -> list[ValueRef]: ...
+    def divremui(
+        self,
+        *,
+        lhs: ValueRef,
+        rhs: ValueRef,
+        results: list[Type | TiedResultSpec],
+        name: str | None = ...,
+        names: Sequence[str] | None = ...,
+        result_names: Sequence[str] | None = ...,
+        location_id: int | None = ...,
+    ) -> list[ValueRef]: ...
     def remsi(
         self,
         *,

@@ -78,6 +78,8 @@ extern const loom_op_vtable_t loom_vector_subi_vtable;
 extern const loom_op_vtable_t loom_vector_muli_vtable;
 extern const loom_op_vtable_t loom_vector_divsi_vtable;
 extern const loom_op_vtable_t loom_vector_divui_vtable;
+extern const loom_op_vtable_t loom_vector_divremsi_vtable;
+extern const loom_op_vtable_t loom_vector_divremui_vtable;
 extern const loom_op_vtable_t loom_vector_remsi_vtable;
 extern const loom_op_vtable_t loom_vector_remui_vtable;
 extern const loom_op_vtable_t loom_vector_ceildivsi_vtable;

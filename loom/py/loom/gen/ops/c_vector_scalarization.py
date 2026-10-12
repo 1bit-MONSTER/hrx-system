@@ -127,8 +127,8 @@ def _seed_operand_index(op: Op) -> int:
 
 
 def _validate_pair(vector_op: Op, scalar_op: Op) -> None:
-    if len(vector_op.results) != 1 or len(scalar_op.results) != 1:
-        raise ValueError(f"{vector_op.name}: scalarization requires one vector and scalar result")
+    if not vector_op.results or len(vector_op.results) != len(scalar_op.results):
+        raise ValueError(f"{vector_op.name}: vector and scalar result counts must match and be nonzero")
     if any(operand.variadic or operand.optional for op in (vector_op, scalar_op) for operand in op.operands):
         raise ValueError(f"{vector_op.name}: mechanical scalarization requires fixed operands")
     if any(getattr(result, "variadic", False) for op in (vector_op, scalar_op) for result in op.results):
@@ -144,6 +144,13 @@ def _validate_pair(vector_op: Op, scalar_op: Op) -> None:
     scalar_result_names = tuple(result.name for result in scalar_op.results)
     if vector_result_names != scalar_result_names:
         raise ValueError(f"{vector_op.name}: vector results {vector_result_names} do not match {scalar_op.name} results {scalar_result_names}")
+    if len(vector_result_names) > 1:
+        vector_same_type_fields = _same_type_field_names(vector_op, vector_result_names[0])
+        scalar_same_type_fields = _same_type_field_names(scalar_op, scalar_result_names[0])
+        if any(name not in vector_same_type_fields for name in vector_result_names):
+            raise ValueError(f"{vector_op.name}: mechanical multi-result scalarization requires same-typed vector results")
+        if any(name not in scalar_same_type_fields for name in scalar_result_names):
+            raise ValueError(f"{scalar_op.name}: mechanical multi-result scalarization requires same-typed scalar results")
     vector_attrs = _non_flag_attr_signature(vector_op)
     scalar_attrs = _non_flag_attr_signature(scalar_op)
     if vector_attrs != scalar_attrs:

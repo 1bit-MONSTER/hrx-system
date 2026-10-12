@@ -19,7 +19,7 @@ from loom.gen.ops.c_vector_scalarization import (
 
 def test_every_decomposable_vector_op_has_a_reference_lane_program() -> None:
     decomposable_ops = {op.name for op in ALL_VECTOR_OPS if _is_shape_preserving_elementwise_vector_decomposable(op) or any(trait.name == "Decomposable" for trait in op.traits)}
-    generated_scalarizations = {row.vector_op.name for row in collect_vector_scalarization_rows()}
+    generated_scalarizations = {row.vector_op.name for row in collect_vector_scalarization_rows() if len(row.vector_op.results) == 1}
 
     assert decomposable_ops == generated_scalarizations | _EXPLICIT_VECTOR_LANE_PROGRAMS
 
@@ -35,3 +35,15 @@ def test_vector_casts_have_reference_lane_programs() -> None:
     cast_ops = {op.name for op in VECTOR_CAST_OPS}
 
     assert cast_ops - generated_scalarizations == {"vector.bitcast"}
+
+
+def test_multi_result_vector_ops_share_scalar_semantics() -> None:
+    rows = {row.vector_op.name: row for row in collect_vector_scalarization_rows()}
+
+    signed = rows["vector.divremsi"]
+    assert signed.scalar_op.name == "scalar.divremsi"
+    assert signed.seed_operand_index == 0xFF
+
+    unsigned = rows["vector.divremui"]
+    assert unsigned.scalar_op.name == "scalar.divremui"
+    assert unsigned.seed_operand_index == 0xFF

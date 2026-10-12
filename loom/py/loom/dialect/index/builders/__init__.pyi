@@ -106,6 +106,16 @@ class IndexBuilder(DialectBuilder):
         result_names: Sequence[str] | None = ...,
         location_id: int | None = ...,
     ) -> ValueRef: ...
+    def divrem(
+        self,
+        *,
+        lhs: ValueRef,
+        rhs: ValueRef,
+        name: str | None = ...,
+        names: Sequence[str] | None = ...,
+        result_names: Sequence[str] | None = ...,
+        location_id: int | None = ...,
+    ) -> list[ValueRef]: ...
     def min(
         self,
         *,

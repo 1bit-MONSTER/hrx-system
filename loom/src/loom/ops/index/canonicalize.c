@@ -1067,6 +1067,54 @@ iree_status_t loom_index_div_canonicalize(loom_op_t* op,
   return iree_ok_status();
 }
 
+iree_status_t loom_index_divrem_canonicalize(loom_op_t* op,
+                                             loom_rewriter_t* rewriter) {
+  const loom_value_id_t* old_results = loom_op_const_results(op);
+  const bool quotient_used =
+      loom_module_value_has_uses(rewriter->module, old_results[0]);
+  const bool remainder_used =
+      loom_module_value_has_uses(rewriter->module, old_results[1]);
+  int64_t exact_divisor = 0;
+  if (quotient_used && remainder_used &&
+      !loom_index_query_exact_i64(rewriter, loom_op_const_operands(op)[1],
+                                  &exact_divisor)) {
+    return iree_ok_status();
+  }
+
+  loom_builder_set_before(&rewriter->builder, op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  loom_value_id_t replacements[2] = {LOOM_VALUE_ID_INVALID,
+                                     LOOM_VALUE_ID_INVALID};
+  if (quotient_used) {
+    loom_op_t* quotient_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_index_div_build(&rewriter->builder, operands[0],
+                                              operands[1], op->location,
+                                              &quotient_op));
+    replacements[0] = loom_index_div_result(quotient_op);
+  }
+  if (remainder_used) {
+    loom_op_t* remainder_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_index_rem_build(&rewriter->builder, operands[0],
+                                              operands[1], op->location,
+                                              &remainder_op));
+    replacements[1] = loom_index_rem_result(remainder_op);
+  }
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, replacements, IREE_ARRAYSIZE(replacements),
+      value_checkpoint));
+  if (quotient_used) {
+    IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_with(
+        rewriter, old_results[0], replacements[0]));
+  }
+  if (remainder_used) {
+    IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_with(
+        rewriter, old_results[1], replacements[1]));
+  }
+  return loom_rewriter_erase(rewriter, op);
+}
+
 iree_status_t loom_index_rem_canonicalize(loom_op_t* op,
                                           loom_rewriter_t* rewriter) {
   loom_value_id_t lhs = loom_index_rem_lhs(op);

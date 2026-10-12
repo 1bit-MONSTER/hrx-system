@@ -77,6 +77,21 @@ static bool loom_vector_value_is_all_exact_i64(const loom_rewriter_t* rewriter,
          element.range_lo == expected_value;
 }
 
+static bool loom_vector_query_all_exact_i64(const loom_rewriter_t* rewriter,
+                                            loom_value_id_t value_id,
+                                            int64_t* out_value) {
+  loom_value_facts_t facts = loom_rewriter_value_facts(rewriter, value_id);
+  loom_value_facts_t element = {0};
+  if (!loom_vector_query_all_equal_element(&rewriter->fact_table->context,
+                                           facts, &element) ||
+      !loom_value_facts_is_exact(element) ||
+      loom_value_facts_is_float(element)) {
+    return false;
+  }
+  *out_value = element.range_lo;
+  return true;
+}
+
 static bool loom_vector_query_all_exact_float(const loom_rewriter_t* rewriter,
                                               loom_value_id_t value_id,
                                               double* out_value) {
@@ -2976,6 +2991,74 @@ iree_status_t loom_vector_uniform_result_canonicalize(
     loom_op_t* op, loom_rewriter_t* rewriter) {
   bool changed = false;
   return loom_vector_canonicalize_uniform_result(op, rewriter, &changed);
+}
+
+typedef iree_status_t (*loom_vector_divrem_component_builder_t)(
+    loom_builder_t* builder, loom_value_id_t lhs, loom_value_id_t rhs,
+    loom_type_t result_type, loom_location_id_t location, loom_op_t** out_op);
+
+static iree_status_t loom_vector_divrem_canonicalize(
+    loom_op_t* op, loom_rewriter_t* rewriter,
+    loom_vector_divrem_component_builder_t quotient_builder,
+    loom_vector_divrem_component_builder_t remainder_builder) {
+  const loom_value_id_t* old_results = loom_op_const_results(op);
+  const bool quotient_used =
+      loom_module_value_has_uses(rewriter->module, old_results[0]);
+  const bool remainder_used =
+      loom_module_value_has_uses(rewriter->module, old_results[1]);
+  int64_t exact_divisor = 0;
+  if (quotient_used && remainder_used &&
+      !loom_vector_query_all_exact_i64(rewriter, loom_op_const_operands(op)[1],
+                                       &exact_divisor)) {
+    return iree_ok_status();
+  }
+
+  loom_builder_set_before(&rewriter->builder, op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  const loom_type_t result_type =
+      loom_module_value_type(rewriter->module, old_results[0]);
+  loom_value_id_t replacements[2] = {LOOM_VALUE_ID_INVALID,
+                                     LOOM_VALUE_ID_INVALID};
+  if (quotient_used) {
+    loom_op_t* quotient_op = NULL;
+    IREE_RETURN_IF_ERROR(quotient_builder(&rewriter->builder, operands[0],
+                                          operands[1], result_type,
+                                          op->location, &quotient_op));
+    replacements[0] = loom_op_results(quotient_op)[0];
+  }
+  if (remainder_used) {
+    loom_op_t* remainder_op = NULL;
+    IREE_RETURN_IF_ERROR(remainder_builder(&rewriter->builder, operands[0],
+                                           operands[1], result_type,
+                                           op->location, &remainder_op));
+    replacements[1] = loom_op_results(remainder_op)[0];
+  }
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, replacements, IREE_ARRAYSIZE(replacements),
+      value_checkpoint));
+  if (quotient_used) {
+    IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_with(
+        rewriter, old_results[0], replacements[0]));
+  }
+  if (remainder_used) {
+    IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_with(
+        rewriter, old_results[1], replacements[1]));
+  }
+  return loom_rewriter_erase(rewriter, op);
+}
+
+iree_status_t loom_vector_divremsi_canonicalize(loom_op_t* op,
+                                                loom_rewriter_t* rewriter) {
+  return loom_vector_divrem_canonicalize(op, rewriter, loom_vector_divsi_build,
+                                         loom_vector_remsi_build);
+}
+
+iree_status_t loom_vector_divremui_canonicalize(loom_op_t* op,
+                                                loom_rewriter_t* rewriter) {
+  return loom_vector_divrem_canonicalize(op, rewriter, loom_vector_divui_build,
+                                         loom_vector_remui_build);
 }
 
 static iree_status_t loom_vector_canonicalize_uniform_then(

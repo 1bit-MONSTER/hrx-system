@@ -123,3 +123,68 @@ func.def target(@test_target) @signed_floor(%lhs: vector<2xi64>, %rhs: vector<2x
   %result = vector.insert %87 into %89[1] : i64, vector<2xi64>
   func.return %result : vector<2xi64>
 }
+
+// ====
+// RUN: pass target-legalize{mode=final,policy=reference-only},dce
+
+test.target<low_core> @test_target
+
+func.def target(@test_target) @narrow_combined(%lhs: i16, %rhs: i16) -> (i16, i16) {
+  %quotient, %remainder = scalar.divremsi %lhs, %rhs : i16
+  func.return %quotient, %remainder : i16, i16
+}
+
+func.def target(@test_target) @index_combined(%lhs: index, %rhs: index) -> (index, index) {
+  %quotient, %remainder = index.divrem %lhs, %rhs : index
+  func.return %quotient, %remainder : index, index
+}
+
+func.def target(@test_target) @vector_combined(%lhs: vector<2xi32>, %rhs: vector<2xi32>) -> (vector<2xi32>, vector<2xi32>) {
+  %quotient, %remainder = vector.divremui %lhs, %rhs : vector<2xi32>
+  func.return %quotient, %remainder : vector<2xi32>, vector<2xi32>
+}
+
+// ----
+test.target<low_core> @test_target
+
+func.def target(@test_target) @narrow_combined(%lhs: i16, %rhs: i16) -> (i16, i16) {
+  %30 = scalar.extui %lhs : i16 to i32
+  %31 = scalar.constant 16 : i32
+  %32 = scalar.shli %30, %31 : i32
+  %33 = scalar.shrsi %32, %31 : i32
+  %26 = scalar.extui %rhs : i16 to i32
+  %27 = scalar.constant 16 : i32
+  %28 = scalar.shli %26, %27 : i32
+  %29 = scalar.shrsi %28, %27 : i32
+  %24 = scalar.divsi %33, %29 : i32
+  %25 = scalar.remsi %33, %29 : i32
+  %quotient = scalar.trunci %24 : i32 to i16
+  %remainder = scalar.trunci %25 : i32 to i16
+  func.return %quotient, %remainder : i16, i16
+}
+
+func.def target(@test_target) @index_combined(%lhs: index, %rhs: index) -> (index, index) {
+  %quotient = index.div %lhs, %rhs : index
+  %remainder = index.rem %lhs, %rhs : index
+  func.return %quotient, %remainder : index, index
+}
+
+func.def target(@test_target) @vector_combined(%lhs: vector<2xi32>, %rhs: vector<2xi32>) -> (vector<2xi32>, vector<2xi32>) {
+  %47 = vector.extract %lhs[0] : vector<2xi32> -> i32
+  %48 = vector.extract %rhs[0] : vector<2xi32> -> i32
+  %49 = scalar.divui %47, %48 : i32
+  %50 = vector.extract %lhs[1] : vector<2xi32> -> i32
+  %51 = vector.extract %rhs[1] : vector<2xi32> -> i32
+  %52 = scalar.divui %50, %51 : i32
+  %54 = vector.splat %49 : vector<2xi32>
+  %quotient = vector.insert %52 into %54[1] : i32, vector<2xi32>
+  %38 = vector.extract %lhs[0] : vector<2xi32> -> i32
+  %39 = vector.extract %rhs[0] : vector<2xi32> -> i32
+  %40 = scalar.remui %38, %39 : i32
+  %41 = vector.extract %lhs[1] : vector<2xi32> -> i32
+  %42 = vector.extract %rhs[1] : vector<2xi32> -> i32
+  %43 = scalar.remui %41, %42 : i32
+  %45 = vector.splat %40 : vector<2xi32>
+  %remainder = vector.insert %43 into %45[1] : i32, vector<2xi32>
+  func.return %quotient, %remainder : vector<2xi32>, vector<2xi32>
+}
