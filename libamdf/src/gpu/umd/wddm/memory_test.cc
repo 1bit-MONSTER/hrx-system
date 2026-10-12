@@ -270,6 +270,10 @@ class WindowsGpuMemoryTest : public ::testing::Test {
     kmt_.make_resident = FakeMakeResident;
     kmt_.invalidate_cache = FakeUnexpectedInvalidateCache;
     kmt_.wait_from_cpu = FakeWaitFromCpu;
+    kmt_.get_device_state = [](D3DKMT_GETDEVICESTATE* query) -> NTSTATUS {
+      query->ExecutionState = D3DKMT_DEVICEEXECUTION_ACTIVE;
+      return 0;
+    };
     device_.host_allocator = amdf_allocator_system();
     device_.host_allocator.user_data = &state_;
     device_.host_allocator.free = [](void* user_data, void* allocation) {

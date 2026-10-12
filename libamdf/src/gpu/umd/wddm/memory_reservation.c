@@ -195,9 +195,9 @@ amdf_status_t amdf_gpu_umd_memory_reservation_update(
     }
   }
   if (amdf_status_is_ok(status)) {
-    status = amdf_kmt_wait_for_paging(device->kmt, device->device,
-                                      device->paging_sync_object,
-                                      device->paging_fence, fence);
+    status = amdf_kmt_device_status_wait_for_paging(
+        &device->status, device->kmt, device->device,
+        device->paging_sync_object, device->paging_fence, fence);
   }
   return status;
 }
@@ -209,9 +209,9 @@ amdf_status_t amdf_gpu_umd_memory_reservation_destroy(
   amdf_status_t status = amdf_gpu_wddm_reservation_map(
       device, reservation->address, reservation->byte_length, 0, 0, 0, &fence);
   if (amdf_status_is_ok(status)) {
-    status = amdf_kmt_wait_for_paging(device->kmt, device->device,
-                                      device->paging_sync_object,
-                                      device->paging_fence, fence);
+    status = amdf_kmt_device_status_wait_for_paging(
+        &device->status, device->kmt, device->device,
+        device->paging_sync_object, device->paging_fence, fence);
   }
   if (amdf_status_is_ok(status)) {
     D3DKMT_FREEGPUVIRTUALADDRESS release = {0};

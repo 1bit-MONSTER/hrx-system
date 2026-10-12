@@ -135,8 +135,8 @@ static amdf_status_t amdf_windows_xdna_memory_map_device_address(
   if (!amdf_kmt_status_is_success_or_pending(native_status)) {
     return amdf_kmt_make_status(native_status);
   }
-  amdf_status_t status = amdf_kmt_wait_for_paging(
-      memory->device->kmt, memory->device->device,
+  amdf_status_t status = amdf_kmt_device_status_wait_for_paging(
+      &memory->device->status, memory->device->kmt, memory->device->device,
       memory->device->paging_sync_object, memory->device->paging_fence,
       map.PagingFenceValue);
   if (amdf_status_is_ok(status)) {
@@ -164,8 +164,8 @@ static amdf_status_t amdf_windows_xdna_memory_make_resident(
   if (!amdf_kmt_status_is_success_or_pending(native_status)) {
     return amdf_kmt_make_status(native_status);
   }
-  amdf_status_t status = amdf_kmt_wait_for_paging(
-      memory->device->kmt, memory->device->device,
+  amdf_status_t status = amdf_kmt_device_status_wait_for_paging(
+      &memory->device->status, memory->device->kmt, memory->device->device,
       memory->device->paging_sync_object, memory->device->paging_fence,
       make_resident.PagingFenceValue);
   if (amdf_status_is_ok(status)) {

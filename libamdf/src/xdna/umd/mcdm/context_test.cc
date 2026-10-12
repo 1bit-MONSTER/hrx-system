@@ -301,6 +301,10 @@ class WindowsXdnaContextTest : public ::testing::Test {
     kmt_.make_resident = FakeMakeResident;
     kmt_.lock = FakeLock;
     kmt_.unlock = FakeUnlock;
+    kmt_.get_device_state = [](D3DKMT_GETDEVICESTATE* query) -> NTSTATUS {
+      query->ExecutionState = D3DKMT_DEVICEEXECUTION_ACTIVE;
+      return 0;
+    };
     kmt_.wait_from_cpu =
         [](const D3DKMT_WAITFORSYNCHRONIZATIONOBJECTFROMCPU*) -> NTSTATUS {
       ADD_FAILURE() << "Paging dependency completes synchronously";

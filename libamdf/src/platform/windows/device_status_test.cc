@@ -22,6 +22,14 @@ struct FakeDeviceState {
   D3DKMT_DEVICEEXECUTION_STATE execution_state = D3DKMT_DEVICEEXECUTION_ACTIVE;
   // Number of native diagnostics issued by the implementation.
   uint32_t query_count = 0;
+  // Result from the blocking native paging wait.
+  NTSTATUS wait_status = STATUS_SUCCESS;
+  // Number of waits issued before the independent device-state observation.
+  uint32_t wait_count = 0;
+  // Mapped paging progress supplied to the production completion helper.
+  volatile uint64_t paging_fence = 0;
+  // Native fence value published during a successful blocking wait.
+  uint64_t progress_after_wait = 7;
 };
 
 FakeDeviceState* current_state = nullptr;
@@ -34,11 +42,24 @@ NTSTATUS APIENTRY FakeGetDeviceState(D3DKMT_GETDEVICESTATE* query) {
   return current_state->query_status;
 }
 
+NTSTATUS APIENTRY
+FakeWaitFromCpu(const D3DKMT_WAITFORSYNCHRONIZATIONOBJECTFROMCPU* wait) {
+  EXPECT_EQ(wait->hDevice, 0x10u);
+  EXPECT_EQ(wait->ObjectCount, 1u);
+  EXPECT_EQ(wait->ObjectHandleArray[0], 0x20u);
+  EXPECT_EQ(wait->FenceValueArray[0], 7u);
+  EXPECT_EQ(current_state->query_count, 0u);
+  ++current_state->wait_count;
+  current_state->paging_fence = current_state->progress_after_wait;
+  return current_state->wait_status;
+}
+
 class DeviceStatusTest : public ::testing::Test {
  protected:
   void SetUp() override {
     current_state = &state_;
     api_.get_device_state = FakeGetDeviceState;
+    api_.wait_from_cpu = FakeWaitFromCpu;
     amdf_kmt_device_status_initialize(&status_);
   }
 
@@ -169,6 +190,100 @@ TEST_F(DeviceStatusTest, ConcurrentFatalErrorsPreserveOneCompleteCause) {
     EXPECT_EQ(result, terminal);
   }
   EXPECT_EQ(state_.query_count, 0u);
+}
+
+enum class PagingObservation {
+  kAlreadyRetired,
+  kBlockingWithMappedFence,
+  kBlockingWithoutMappedFence,
+};
+
+class DevicePagingTest
+    : public DeviceStatusTest,
+      public ::testing::WithParamInterface<PagingObservation> {
+ protected:
+  amdf_status_t CompletePaging() {
+    if (GetParam() == PagingObservation::kAlreadyRetired) {
+      state_.paging_fence = state_.progress_after_wait;
+    }
+    const volatile uint64_t* fence =
+        GetParam() == PagingObservation::kBlockingWithoutMappedFence
+            ? nullptr
+            : &state_.paging_fence;
+    return amdf_kmt_device_status_wait_for_paging(&status_, &api_, 0x10, 0x20,
+                                                  fence, 7);
+  }
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    NativeObservation, DevicePagingTest,
+    ::testing::Values(PagingObservation::kAlreadyRetired,
+                      PagingObservation::kBlockingWithMappedFence,
+                      PagingObservation::kBlockingWithoutMappedFence));
+
+TEST_P(DevicePagingTest, ActiveDevicePublishesRetiredPaging) {
+  EXPECT_EQ(CompletePaging(), AMDF_STATUS_OK);
+  EXPECT_EQ(state_.query_count, 1u);
+  EXPECT_EQ(state_.wait_count,
+            GetParam() == PagingObservation::kAlreadyRetired ? 0u : 1u);
+  EXPECT_EQ(amdf_kmt_device_status_query(&status_), AMDF_STATUS_OK);
+}
+
+TEST_P(DevicePagingTest, StoppedDeviceCannotPublishAnOrdinaryRetiredFence) {
+  state_.execution_state = D3DKMT_DEVICEEXECUTION_STOPPED;
+  const auto lost = amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
+  EXPECT_EQ(CompletePaging(), lost);
+  EXPECT_EQ(state_.query_count, 1u);
+  EXPECT_EQ(state_.paging_fence, 7u);
+  EXPECT_EQ(amdf_kmt_device_status_query(&status_), lost);
+  // Later successful native observations cannot restore this logical device.
+  state_.execution_state = D3DKMT_DEVICEEXECUTION_ACTIVE;
+  EXPECT_EQ(CompletePaging(), lost);
+  EXPECT_EQ(state_.query_count, 1u);
+}
+
+TEST_P(DevicePagingTest, FailedDeviceQueryCannotPublishPagingReadiness) {
+  state_.query_status = STATUS_ACCESS_DENIED;
+  EXPECT_EQ(CompletePaging(), amdf_kmt_make_status(STATUS_ACCESS_DENIED));
+  EXPECT_EQ(amdf_kmt_device_status_query(&status_), AMDF_STATUS_OK);
+}
+
+TEST_F(DeviceStatusTest, PagingResetSentinelIsNotRetirement) {
+  for (uint64_t initial : {UINT64_C(0), UINT64_MAX}) {
+    amdf_kmt_device_status_initialize(&status_);
+    state_.paging_fence = initial;
+    state_.progress_after_wait = UINT64_MAX;
+    const auto lost = amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
+    EXPECT_EQ(amdf_kmt_device_status_wait_for_paging(
+                  &status_, &api_, 0x10, 0x20, &state_.paging_fence, 7),
+              lost);
+    EXPECT_EQ(amdf_kmt_device_status_query(&status_), lost);
+    EXPECT_EQ(state_.query_count, 0u);
+  }
+  EXPECT_EQ(state_.wait_count, 1u);
+}
+
+TEST_F(DeviceStatusTest, NativeWaitFailureDoesNotPublishPagingReadiness) {
+  state_.wait_status = STATUS_NO_MEMORY;
+  EXPECT_EQ(amdf_kmt_device_status_wait_for_paging(&status_, &api_, 0x10, 0x20,
+                                                   &state_.paging_fence, 7),
+            amdf_kmt_make_status(STATUS_NO_MEMORY));
+  EXPECT_EQ(amdf_kmt_device_status_query(&status_), AMDF_STATUS_OK);
+}
+
+TEST_F(DeviceStatusTest, SynchronousPagingNeedsNoAdditionalObservation) {
+  EXPECT_EQ(amdf_kmt_device_status_wait_for_paging(&status_, &api_, 0x10, 0x20,
+                                                   &state_.paging_fence, 0),
+            AMDF_STATUS_OK);
+  // An immediate native clear still has its own checked result after failure.
+  amdf_kmt_device_status_record_reset(&status_);
+  EXPECT_EQ(amdf_kmt_device_status_wait_for_paging(&status_, &api_, 0x10, 0x20,
+                                                   &state_.paging_fence, 0),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(state_.query_count, 0u);
+  EXPECT_EQ(state_.wait_count, 0u);
+  EXPECT_EQ(amdf_kmt_device_status_query(&status_),
+            amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST));
 }
 
 }  // namespace

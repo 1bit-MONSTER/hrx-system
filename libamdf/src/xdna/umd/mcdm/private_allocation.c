@@ -45,10 +45,10 @@ _Static_assert(offsetof(amdf_windows_xdna_private_allocation_wire_t,
 
 static amdf_status_t amdf_windows_xdna_private_allocation_wait_for_paging(
     amdf_windows_xdna_private_allocation_t* allocation) {
-  return amdf_kmt_wait_for_paging(
-      allocation->device->kmt, allocation->device->device,
-      allocation->device->paging_sync_object, allocation->device->paging_fence,
-      allocation->pending_paging_fence);
+  return amdf_kmt_device_status_wait_for_paging(
+      &allocation->device->status, allocation->device->kmt,
+      allocation->device->device, allocation->device->paging_sync_object,
+      allocation->device->paging_fence, allocation->pending_paging_fence);
 }
 
 static void amdf_windows_xdna_private_allocation_clear_pending_paging(
@@ -251,14 +251,6 @@ amdf_status_t amdf_windows_xdna_private_allocation_destroy(
   if (allocation == NULL) {
     return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
   }
-  if (allocation->paging_operation_pending != 0) {
-    const amdf_status_t status =
-        amdf_windows_xdna_private_allocation_wait_for_paging(allocation);
-    if (!amdf_status_is_ok(status)) {
-      return status;
-    }
-    amdf_windows_xdna_private_allocation_clear_pending_paging(allocation);
-  }
   if (allocation->host_lock_owned != 0) {
     D3DKMT_UNLOCK2 unlock = {0};
     unlock.hDevice = allocation->device->device;
@@ -280,6 +272,11 @@ amdf_status_t amdf_windows_xdna_private_allocation_destroy(
       destroy.AllocationCount = 1;
     }
     destroy.Flags.AssumeNotInUse = 1;
+    // No execution may still use this allocation. Unpublished preparation may
+    // nevertheless retain accepted paging, whose result can be a permanent
+    // device failure. Native synchronous destruction reclaims that storage
+    // without requiring failed preparation to become successful first.
+    destroy.Flags.SynchronousDestroy = allocation->paging_operation_pending;
     const amdf_status_t status = amdf_kmt_make_status(
         allocation->device->kmt->destroy_allocation(&destroy));
     if (!amdf_status_is_ok(status)) {
@@ -288,6 +285,7 @@ amdf_status_t amdf_windows_xdna_private_allocation_destroy(
     allocation->resource = 0;
     allocation->allocation = 0;
   }
+  amdf_windows_xdna_private_allocation_clear_pending_paging(allocation);
   allocation->device_address = 0;
   allocation->firmware_address = 0;
   memset(&allocation->descriptor, 0, sizeof(allocation->descriptor));
