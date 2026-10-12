@@ -42,7 +42,10 @@ The caller creates code, kernarg, data and signal backing with the intended
 device access. Code requires executable access. Device addresses come from each
 memory attachment; a host mapping supplies a separate CPU view. The
 [memory contract](memory.md) determines how host writes become visible and which
-cache transitions the device requires.
+cache transitions the device requires. A CPU-written local kernarg allocation
+therefore uses its exact host-to-queue pair: the caller executes the reported
+host release after filling the arguments, then gives the dispatch the reported
+queue acquire and retains the bytes through completion.
 
 An executable image is not only its instruction bytes. The caller materializes
 the descriptor, every compiler-owned immutable object reachable by the selected

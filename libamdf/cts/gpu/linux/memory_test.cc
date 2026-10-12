@@ -233,14 +233,24 @@ class GpuLinuxMemoryTest : public GpuDeviceFixture {
                     AMDF_HOST_CACHE_INSTRUCTION_X86_CLFLUSH);
         } else {
           EXPECT_EQ(mapping_infos_[0].cache_line_size, 0u);
-          EXPECT_EQ(mapping_infos_[0].flush.kind,
-                    AMDF_CACHE_TRANSITION_KIND_GLOBAL);
-          EXPECT_EQ(mapping_infos_[0].flush.executor,
-                    AMDF_CACHE_TRANSITION_EXECUTOR_HOST_DIRECT);
-          EXPECT_EQ(mapping_infos_[0].flush.host_operation,
-                    AMDF_HOST_CACHE_OPERATION_FLUSH);
-          EXPECT_EQ(mapping_infos_[0].flush.host_fence_after,
-                    AMDF_HOST_CACHE_FENCE_X86_MFENCE);
+          if (mapping_infos_[0].flush.kind ==
+              AMDF_CACHE_TRANSITION_KIND_UNKNOWN) {
+            EXPECT_EQ(mapping_infos_[0].flush.executor,
+                      AMDF_CACHE_TRANSITION_EXECUTOR_NONE);
+          } else {
+            EXPECT_EQ(mapping_infos_[0].flush.kind,
+                      AMDF_CACHE_TRANSITION_KIND_GLOBAL);
+            EXPECT_EQ(mapping_infos_[0].flush.executor,
+                      AMDF_CACHE_TRANSITION_EXECUTOR_HOST_API);
+            EXPECT_EQ(mapping_infos_[0].flush.host_operation,
+                      AMDF_HOST_CACHE_OPERATION_FLUSH);
+            EXPECT_EQ(mapping_infos_[0].flush.host_instruction,
+                      AMDF_HOST_CACHE_INSTRUCTION_NONE);
+            EXPECT_EQ(mapping_infos_[0].flush.host_fence_before,
+                      AMDF_HOST_CACHE_FENCE_NONE);
+            EXPECT_EQ(mapping_infos_[0].flush.host_fence_after,
+                      AMDF_HOST_CACHE_FENCE_NONE);
+          }
           EXPECT_EQ(mapping_infos_[0].invalidate.kind,
                     AMDF_CACHE_TRANSITION_KIND_GLOBAL);
           EXPECT_EQ(mapping_infos_[0].invalidate.executor,
@@ -256,10 +266,13 @@ class GpuLinuxMemoryTest : public GpuDeviceFixture {
         EXPECT_EQ(static_cast<const uint8_t*>(
                       mapping_infos_[0].pointer)[info.byte_length - 1],
                   value);
-        EXPECT_EQ(api_->host_mapping_cache_control(
-                      mappings_[0], AMDF_HOST_CACHE_OPERATION_FLUSH, 0,
-                      info.byte_length),
-                  AMDF_STATUS_OK);
+        const amdf_status_t flush_status = api_->host_mapping_cache_control(
+            mappings_[0], AMDF_HOST_CACHE_OPERATION_FLUSH, 0, info.byte_length);
+        EXPECT_EQ(
+            flush_status,
+            mapping_infos_[0].flush.kind == AMDF_CACHE_TRANSITION_KIND_UNKNOWN
+                ? amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)
+                : AMDF_STATUS_OK);
         ASSERT_EQ(api_->host_mapping_destroy(mappings_[0]), AMDF_STATUS_OK);
         mappings_[0] = nullptr;
       } else {

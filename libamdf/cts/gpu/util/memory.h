@@ -10,7 +10,7 @@
 #include "amdf/amdf.h"
 
 // Case-owned backing with one exact GPU access. HOST_VISIBLE requests also
-// obtain a coherent SYSTEM host view; other backing remains unmapped.
+// obtain the profile's explicit host view; other backing remains unmapped.
 // Initialization and release are explicit: failed native cleanup must not
 // turn into an implicit destructor retry or premature backing reuse.
 struct GpuMemory {
