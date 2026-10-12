@@ -1259,6 +1259,15 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
+    scheduled_sum_module
+  SRCS
+    "scheduled_sum.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
     increment_values_module
   SRCS
     "increment_values.cxx"
@@ -1273,16 +1282,6 @@ loom_test_module(
   SRCS
     "record_values.cxx"
     "record_values.loom"
-)
-endif()
-
-if(LOOM_IMPORT_CXX)
-loom_test_module(
-  NAME
-    scheduled_sum_module
-  SRCS
-    "scheduled_sum.cxx"
-    "scheduled_sum.loom"
 )
 endif()
 
