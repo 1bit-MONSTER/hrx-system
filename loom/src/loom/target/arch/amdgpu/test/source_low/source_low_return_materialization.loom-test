@@ -242,6 +242,49 @@ low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @return_selected_buffer
 
 // ====
 
+// Semantic refinement keeps the consumed physical carrier until the callable
+// boundary selects a proven-narrow result.
+func.def @return_refined_ordinals(%coordinate0: index, %byte_offset0: offset) -> (index, offset) {
+  %coordinate, %byte_offset = index.assume %coordinate0, %byte_offset0 [range(%coordinate0, 0, 1024), range(%byte_offset0, 0, 4096)] : index, offset
+  func.return %coordinate, %byte_offset : index, offset
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @return_refined_ordinals(%coordinate: reg<amdgpu.sgpr>, %byte_offset: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %10 = slice %byte_offset[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  return %coordinate, %10
+}
+
+// ====
+
+// Multiple exits join callable result carriers without rewriting producer
+// bindings. The refined alias remains wide internally and is narrowed on its
+// return path; the constant already matches the result carrier.
+func.def @return_refined_or_constant(%byte_offset0: offset, %use_refined: i1) -> (offset) {
+  %byte_offset = index.assume %byte_offset0 [range(%byte_offset0, 0, 4096)] : offset
+  cfg.cond_br %use_refined, ^refined, ^constant
+^refined:
+  func.return %byte_offset : offset
+^constant:
+  %constant = index.constant 7 : offset
+  func.return %constant : offset
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @return_refined_or_constant(%byte_offset: reg<amdgpu.sgpr x2>, %use_refined: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %8 = s_mov_b32 0
+  %9 = s_cmp_lg_i32 %use_refined, %8
+  low.cond_br %9, ^refined, ^constant : reg<amdgpu.scc>
+^refined:
+  %10 = slice %byte_offset[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  return %10
+^constant:
+  %constant = s_mov_b32 7
+  return %constant
+}
+
+// ====
+
 // A non-returning body still has its declared callable result signature.
 func.def @never_returns() -> (i32) {
   cfg.br ^loop
