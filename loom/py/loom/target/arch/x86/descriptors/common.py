@@ -63,6 +63,7 @@ _RESOURCE_LOAD = "x86.load"
 _RESOURCE_STORE = "x86.store"
 _RESOURCE_ADDRESS = "x86.address"
 _RESOURCE_CONTROL = "x86.control"
+_RESOURCE_DIVISION = "x86.division"
 
 _SCHEDULE_SCALAR = "x86.scalar"
 _SCHEDULE_ADDRESS = "x86.address"
@@ -95,6 +96,8 @@ _SCHEDULE_MEMORY_STORE_XMM = "x86.memory.store.128"
 _SCHEDULE_MEMORY_STORE_YMM = "x86.memory.store.256"
 _SCHEDULE_MEMORY_STORE_ZMM = "x86.memory.store"
 _SCHEDULE_CONTROL = "x86.control"
+_SCHEDULE_DIVISION_GPR32 = "x86.division.gpr32"
+_SCHEDULE_DIVISION_GPR64 = "x86.division.gpr64"
 
 _GPR32_ALT = (RegClassAlt(_REG_GPR32),)
 _GPR64_ALT = (RegClassAlt(_REG_GPR64),)

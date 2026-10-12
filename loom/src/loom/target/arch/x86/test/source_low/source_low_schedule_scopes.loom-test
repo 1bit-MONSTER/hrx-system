@@ -110,49 +110,48 @@ func.def public target(@target) @partial_unrolled_helpers(%lhs: i32, %rhs: i32) 
 // ----
 low.func.def public target<x86.scalar.core>(@target) abi(object_function) @partial_unrolled_helpers(%lhs: reg<x86.gpr32>, %rhs: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
   %begin = mov.imm64 0
-  %end = mov.imm64 5
   %initial = mov.imm32 0
   low.br ^_bb1(%begin: reg<x86.gpr64>, %initial: reg<x86.gpr32>)
 ^_bb1(%i: reg<x86.gpr64>, %sum: reg<x86.gpr32>):
-  %59 = cmp.slt.gpr64 %i, %end
-  low.cond_br %59, ^_bb2, ^_bb6 : reg<x86.gpr32>
+  %58 = cmp.slt.imm.gpr64 %i, 5
+  low.cond_br %58, ^_bb2, ^_bb6 : reg<x86.gpr32>
 ^_bb2:
-  %60 = copy %lhs : reg<x86.gpr32> -> reg<x86.gpr32>
-  %left_input = add.gpr32 %60, %sum
-  %62 = copy %rhs : reg<x86.gpr32> -> reg<x86.gpr32>
-  %right_input = add.gpr32 %62, %sum
+  %59 = copy %lhs : reg<x86.gpr32> -> reg<x86.gpr32>
+  %left_input = add.gpr32 %59, %sum
+  %61 = copy %rhs : reg<x86.gpr32> -> reg<x86.gpr32>
+  %right_input = add.gpr32 %61, %sum
   low.schedule.begin
-  %value_copy$91 = copy %left_input : reg<x86.gpr32> -> reg<x86.gpr32>
-  %first$92 = add.gpr32 %value_copy$91, %left_input
+  %value_copy$90 = copy %left_input : reg<x86.gpr32> -> reg<x86.gpr32>
+  %first$91 = add.gpr32 %value_copy$90, %left_input
   low.schedule.phase
-  %first_copy$93 = copy %first$92 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %second$94 = add.gpr32 %first_copy$93, %first$92
+  %first_copy$92 = copy %first$91 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %second$93 = add.gpr32 %first_copy$92, %first$91
   low.schedule.end
   low.schedule.begin
-  %value_copy$87 = copy %right_input : reg<x86.gpr32> -> reg<x86.gpr32>
-  %first$88 = add.gpr32 %value_copy$87, %right_input
+  %value_copy$86 = copy %right_input : reg<x86.gpr32> -> reg<x86.gpr32>
+  %first$87 = add.gpr32 %value_copy$86, %right_input
   low.schedule.phase
-  %first_copy$89 = copy %first$88 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %second$90 = add.gpr32 %first_copy$89, %first$88
+  %first_copy$88 = copy %first$87 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %second$89 = add.gpr32 %first_copy$88, %first$87
   low.schedule.end
-  %66 = copy %second$94 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %pair = add.gpr32 %66, %second$90
-  %68 = copy %sum : reg<x86.gpr32> -> reg<x86.gpr32>
-  %next = add.gpr32 %68, %pair
+  %65 = copy %second$93 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %pair = add.gpr32 %65, %second$89
+  %67 = copy %sum : reg<x86.gpr32> -> reg<x86.gpr32>
+  %next = add.gpr32 %67, %pair
   %i_1 = lea.disp %i {disp32 = 1}
-  %71 = cmp.slt.gpr64 %i_1, %end
-  low.cond_br %71, ^_bb3, ^_bb4 : reg<x86.gpr32>
+  %70 = cmp.slt.imm.gpr64 %i_1, 5
+  low.cond_br %70, ^_bb3, ^_bb4 : reg<x86.gpr32>
 ^_bb3:
-  %72 = copy %lhs : reg<x86.gpr32> -> reg<x86.gpr32>
-  %left_input_1 = add.gpr32 %72, %next
-  %74 = copy %rhs : reg<x86.gpr32> -> reg<x86.gpr32>
-  %right_input_1 = add.gpr32 %74, %next
+  %71 = copy %lhs : reg<x86.gpr32> -> reg<x86.gpr32>
+  %left_input_1 = add.gpr32 %71, %next
+  %73 = copy %rhs : reg<x86.gpr32> -> reg<x86.gpr32>
+  %right_input_1 = add.gpr32 %73, %next
   low.schedule.begin
-  %value_copy$83 = copy %left_input_1 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %first$84 = add.gpr32 %value_copy$83, %left_input_1
+  %value_copy$82 = copy %left_input_1 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %first$83 = add.gpr32 %value_copy$82, %left_input_1
   low.schedule.phase
-  %first_copy$85 = copy %first$84 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %second$86 = add.gpr32 %first_copy$85, %first$84
+  %first_copy$84 = copy %first$83 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %second$85 = add.gpr32 %first_copy$84, %first$83
   low.schedule.end
   low.schedule.begin
   %value_copy$2 = copy %right_input_1 : reg<x86.gpr32> -> reg<x86.gpr32>
@@ -161,16 +160,16 @@ low.func.def public target<x86.scalar.core>(@target) abi(object_function) @parti
   %first_copy$4 = copy %first$3 : reg<x86.gpr32> -> reg<x86.gpr32>
   %second$5 = add.gpr32 %first_copy$4, %first$3
   low.schedule.end
-  %78 = copy %second$86 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %pair_1 = add.gpr32 %78, %second$5
-  %80 = copy %next : reg<x86.gpr32> -> reg<x86.gpr32>
-  %next_1 = add.gpr32 %80, %pair_1
+  %77 = copy %second$85 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %pair_1 = add.gpr32 %77, %second$5
+  %79 = copy %next : reg<x86.gpr32> -> reg<x86.gpr32>
+  %next_1 = add.gpr32 %79, %pair_1
   low.br ^_bb5(%next_1: reg<x86.gpr32>)
 ^_bb4:
   low.br ^_bb5(%next: reg<x86.gpr32>)
 ^_bb5(%55: reg<x86.gpr32>):
-  %82 = lea.disp %i {disp32 = 2}
-  low.br ^_bb1(%82: reg<x86.gpr64>, %55: reg<x86.gpr32>)
+  %81 = lea.disp %i {disp32 = 2}
+  low.br ^_bb1(%81: reg<x86.gpr64>, %55: reg<x86.gpr32>)
 ^_bb6:
   return %sum
 }

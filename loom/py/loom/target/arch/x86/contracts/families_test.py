@@ -7,6 +7,7 @@
 from loom.dialect.index import defs as index
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.scalar import bitwise as scalar_bitwise
+from loom.dialect.scalar import comparison as scalar_comparison
 from loom.dialect.scalar import conversion as scalar_conversion
 from loom.dialect.scalar import math as scalar_math
 from loom.dialect.vector import defs as vector
@@ -285,6 +286,63 @@ def test_scalar_integer_arithmetic_immediates_cover_native_carriers() -> None:
         and rule.source_op in operation_names
         and ".imm.gpr" in rule.descriptor.key
     )
+
+
+def test_scalar_integer_comparison_immediates_cover_native_carriers() -> None:
+    predicates = {
+        "eq",
+        "ne",
+        "slt",
+        "sle",
+        "sgt",
+        "sge",
+        "ult",
+        "ule",
+        "ugt",
+        "uge",
+    }
+    rules = tuple(
+        case
+        for case in X86_SCALAR_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule)
+        and case.source_op in (scalar_comparison.scalar_cmpi, index.index_cmp)
+        and ".imm.gpr" in case.descriptor.key
+    )
+    assert {
+        (
+            rule.source_op,
+            _value_type_guard(rule, "lhs"),
+            next(
+                guard.enum_keyword
+                for guard in rule.guards
+                if guard.kind is GuardKind.ENUM_ATTR_EQUALS
+            ),
+            rule.descriptor.key,
+        )
+        for rule in rules
+    } == {
+        *(
+            (
+                scalar_comparison.scalar_cmpi,
+                Scalar(f"i{width}"),
+                predicate,
+                f"x86.scalar.cmp.{predicate}.imm.gpr{width}",
+            )
+            for width in (32, 64)
+            for predicate in predicates
+        ),
+        *(
+            (
+                index.index_cmp,
+                Scalar(type_name),
+                predicate,
+                f"x86.scalar.cmp.{predicate}.imm.gpr64",
+            )
+            for type_name in ("index", "offset")
+            for predicate in predicates
+        ),
+    }
+    assert len(rules) == 4 * len(predicates)
 
 
 def test_scalar_integer_read_memory_rules_cover_native_carriers() -> None:

@@ -54,11 +54,14 @@ from .common import (
     _REG_GPR64,
     _RESOURCE_ADDRESS,
     _RESOURCE_CONTROL,
+    _RESOURCE_DIVISION,
     _RESOURCE_LOAD,
     _RESOURCE_SCALAR,
     _RESOURCE_STORE,
     _SCHEDULE_ADDRESS,
     _SCHEDULE_CONTROL,
+    _SCHEDULE_DIVISION_GPR32,
+    _SCHEDULE_DIVISION_GPR64,
     _SCHEDULE_MEMORY_ALU_GPR32,
     _SCHEDULE_MEMORY_ALU_GPR64,
     _SCHEDULE_MEMORY_LOAD_GPR32,
@@ -98,6 +101,8 @@ _GPR_NAMES = (
 )
 _REG_RAX = "x86.rax"
 _REG_RDX = "x86.rdx"
+_REG_EAX = "x86.eax"
+_REG_EDX = "x86.edx"
 _REG_ECX = "x86.ecx"
 _REG_RCX = "x86.rcx"
 
@@ -174,6 +179,138 @@ def _gpr_destructive_unary_descriptor(
         schedule_class=_SCHEDULE_SCALAR,
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     )
+
+
+def _fixed_gpr_operand(field_name: str, register_class: str) -> Operand:
+    return Operand(
+        field_name,
+        OperandRole.OPERAND,
+        (RegClassAlt(register_class),),
+        flags=(OperandFlag.IMPLICIT, OperandFlag.STATE_READ),
+    )
+
+
+def _fixed_gpr_result(field_name: str, register_class: str) -> Operand:
+    return Operand(
+        field_name,
+        OperandRole.RESULT,
+        (RegClassAlt(register_class),),
+        flags=(OperandFlag.IMPLICIT, OperandFlag.STATE_WRITE),
+    )
+
+
+def _division_descriptors(bit_count: int) -> tuple[Descriptor, ...]:
+    """Returns the explicit fixed-register preparation and divide family."""
+    accumulator_class = _REG_EAX if bit_count == 32 else _REG_RAX
+    high_class = _REG_EDX if bit_count == 32 else _REG_RDX
+    operand = _gpr32_operand if bit_count == 32 else _gpr64_operand
+    width_flags = Flag.REX_W if bit_count == 64 else 0
+    division_schedule = (
+        _SCHEDULE_DIVISION_GPR32 if bit_count == 32 else _SCHEDULE_DIVISION_GPR64
+    )
+    descriptors = [
+        Descriptor(
+            key=f"x86.scalar.dividend.low.gpr{bit_count}",
+            encoding_format_id=Form.MOVE,
+            encoding_id=encoding(0x8B, flags=width_flags),
+            mnemonic="mov.dividend.low",
+            semantic_tag=f"integer.dividend.low.i{bit_count}",
+            operands=(
+                _fixed_gpr_result("dst", accumulator_class),
+                operand("src"),
+            ),
+            asm_forms=_asm(
+                mnemonic=f"mov.dividend.low.gpr{bit_count}",
+                results=("dst",),
+                operands=("src",),
+            ),
+            schedule_class=_SCHEDULE_SCALAR,
+            flags=(
+                DescriptorFlag.DEAD_REMOVABLE,
+                DescriptorFlag.STATE_ASSIGNMENT,
+            ),
+        ),
+        Descriptor(
+            key=f"x86.scalar.dividend.zero_high.gpr{bit_count}",
+            encoding_format_id=Form.ZERO_REGISTER,
+            encoding_id=encoding(0x31, flags=width_flags),
+            mnemonic="zero.dividend.high",
+            semantic_tag=f"integer.dividend.high.zero.i{bit_count}",
+            operands=(_fixed_gpr_result("dst", high_class),),
+            asm_forms=_asm(
+                mnemonic=f"zero.dividend.high.gpr{bit_count}",
+                results=("dst",),
+            ),
+            schedule_class=_SCHEDULE_SCALAR,
+            flags=(
+                DescriptorFlag.DEAD_REMOVABLE,
+                DescriptorFlag.STATE_ASSIGNMENT,
+            ),
+        ),
+        Descriptor(
+            key=f"x86.scalar.dividend.sign_high.gpr{bit_count}",
+            encoding_format_id=Form.SIGN_EXTEND_DIVIDEND,
+            encoding_id=encoding(0x99, flags=width_flags),
+            mnemonic="sign.extend.dividend",
+            semantic_tag=f"integer.dividend.high.sign.i{bit_count}",
+            operands=(
+                _fixed_gpr_result("dst", high_class),
+                _fixed_gpr_operand("low", accumulator_class),
+            ),
+            asm_forms=_asm(
+                mnemonic=f"sign.extend.dividend.gpr{bit_count}",
+                results=("dst",),
+                operands=("low",),
+            ),
+            schedule_class=_SCHEDULE_SCALAR,
+            flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        ),
+    ]
+    for signed, mnemonic, extension in (
+        (False, "divu", 6),
+        (True, "divs", 7),
+    ):
+        for remainder in (False, True):
+            result_name = "remainder" if remainder else "quotient"
+            result_class = high_class if remainder else accumulator_class
+            overwritten_class = accumulator_class if remainder else high_class
+            tied_operand_index = 2 if remainder else 1
+            descriptors.append(
+                Descriptor(
+                    key=(f"x86.scalar.{mnemonic}.{result_name}.gpr{bit_count}"),
+                    encoding_format_id=Form.DIVIDE,
+                    encoding_id=encoding(0xF7, extension=extension, flags=width_flags),
+                    mnemonic=mnemonic,
+                    semantic_tag=(
+                        f"integer.div.{'signed' if signed else 'unsigned'}."
+                        f"{result_name}.i{bit_count}"
+                    ),
+                    operands=(
+                        _fixed_gpr_result("dst", result_class),
+                        _fixed_gpr_operand("low", accumulator_class),
+                        _fixed_gpr_operand("high", high_class),
+                        operand("divisor"),
+                        Operand(
+                            "other_result",
+                            OperandRole.IMPLICIT,
+                            (RegClassAlt(overwritten_class),),
+                            flags=(OperandFlag.IMPLICIT, OperandFlag.STATE_WRITE),
+                        ),
+                    ),
+                    constraints=(
+                        Constraint(ConstraintKind.TIED, 0, tied_operand_index),
+                        Constraint(ConstraintKind.DESTRUCTIVE, 0, tied_operand_index),
+                    ),
+                    asm_forms=_asm(
+                        mnemonic=f"{mnemonic}.{result_name}.gpr{bit_count}",
+                        results=("dst",),
+                        operands=("low", "high", "divisor"),
+                    ),
+                    schedule_class=division_schedule,
+                    flags=(DescriptorFlag.DEAD_REMOVABLE,),
+                )
+            )
+    return tuple(descriptors)
 
 
 def _gpr_destructive_binary_descriptor(
@@ -635,6 +772,11 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
             encoding_flags=Flag.REX_W if width == 64 else 0,
         )
     ),
+    *(
+        descriptor
+        for bit_count in (32, 64)
+        for descriptor in _division_descriptors(bit_count)
+    ),
     Descriptor(
         key="x86.scalar.mul.high.gpr64",
         encoding_format_id=Form.MULTIPLY_HIGH,
@@ -642,18 +784,8 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
         mnemonic="mul",
         semantic_tag="integer.mul.high.u64",
         operands=(
-            Operand(
-                "dst",
-                OperandRole.RESULT,
-                (RegClassAlt(_REG_RDX),),
-                flags=(OperandFlag.IMPLICIT,),
-            ),
-            Operand(
-                "lhs",
-                OperandRole.OPERAND,
-                (RegClassAlt(_REG_RAX),),
-                flags=(OperandFlag.IMPLICIT,),
-            ),
+            _fixed_gpr_result("dst", _REG_RDX),
+            _fixed_gpr_operand("lhs", _REG_RAX),
             _gpr64_operand("rhs"),
             Operand(
                 "low",
@@ -839,12 +971,13 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
         _gpr_compare_descriptor(
             predicate=predicate,
             setcc=setcc,
-            encoding_id=encoding(opcode),
-            semantic_tag=f"integer.cmp.{predicate}.i32",
-            lhs=_gpr32_operand("lhs"),
+            encoding_id=encoding(opcode, flags=Flag.REX_W if width == 64 else 0),
+            semantic_tag=f"integer.cmp.{predicate}.i{width}",
+            lhs=operand("lhs"),
             rhs=_IMM32_IMMEDIATE,
-            asm_suffix="imm.gpr32",
+            asm_suffix=f"imm.gpr{width}",
         )
+        for width, operand in ((32, _gpr32_operand), (64, _gpr64_operand))
         for predicate, setcc, opcode in _CMP_PREDICATE_SETCC
     ),
     *(
@@ -1139,7 +1272,7 @@ X86_SCALAR_DESCRIPTOR_SET = DescriptorSet(
         *(
             RegClass(
                 register_class,
-                64,
+                bit_count,
                 SpillSlotSpace.STACK,
                 flags=(
                     RegClassFlag.PHYSICAL,
@@ -1148,7 +1281,12 @@ X86_SCALAR_DESCRIPTOR_SET = DescriptorSet(
                 ),
                 physical_registers=(register,),
             )
-            for register_class, register in ((_REG_RAX, "rax"), (_REG_RDX, "rdx"))
+            for register_class, bit_count, register in (
+                (_REG_EAX, 32, "rax"),
+                (_REG_RAX, 64, "rax"),
+                (_REG_EDX, 32, "rdx"),
+                (_REG_RDX, 64, "rdx"),
+            )
         ),
         # Count carriers preserve the source width while both classes occupy
         # RCX. The shift instruction reads CL; ordinary copies use ECX/RCX.
@@ -1171,6 +1309,11 @@ X86_SCALAR_DESCRIPTOR_SET = DescriptorSet(
         Resource(_RESOURCE_SCALAR, capacity_per_cycle=1, kind=ResourceKind.SCALAR_ALU),
         Resource(_RESOURCE_LOAD, capacity_per_cycle=1, kind=ResourceKind.LOAD),
         Resource(_RESOURCE_STORE, capacity_per_cycle=1, kind=ResourceKind.STORE),
+        Resource(
+            _RESOURCE_DIVISION,
+            capacity_per_cycle=1,
+            kind=ResourceKind.PIPELINE,
+        ),
         Resource(
             _RESOURCE_ADDRESS,
             capacity_per_cycle=1,
@@ -1260,6 +1403,24 @@ X86_SCALAR_DESCRIPTOR_SET = DescriptorSet(
             issue_uses=(IssueUse(_RESOURCE_CONTROL, cycles=1, units=1),),
             flags=(ScheduleClassFlag.CONTROL,),
             model_quality=ModelQuality.EXACT,
+        ),
+        ScheduleClass(
+            _SCHEDULE_DIVISION_GPR32,
+            latency_kind=LatencyKind.VARIABLE,
+            latency_cycles=20,
+            minimum_issue_separation_cycles=6,
+            issue_uses=(IssueUse(_RESOURCE_DIVISION, cycles=1, units=1),),
+            model_quality=ModelQuality.FALLBACK,
+            instruction_classes=(InstructionClass.SCALAR_ALU,),
+        ),
+        ScheduleClass(
+            _SCHEDULE_DIVISION_GPR64,
+            latency_kind=LatencyKind.VARIABLE,
+            latency_cycles=40,
+            minimum_issue_separation_cycles=10,
+            issue_uses=(IssueUse(_RESOURCE_DIVISION, cycles=1, units=1),),
+            model_quality=ModelQuality.FALLBACK,
+            instruction_classes=(InstructionClass.SCALAR_ALU,),
         ),
     ),
     enum_domains=(

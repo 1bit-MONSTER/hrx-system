@@ -38,3 +38,43 @@ low.func.def public target<x86.scalar.core> abi(object_function) abi_layout({sig
   %36 = or.gpr32 %35, %condition
   return %36
 }
+
+// ====
+
+unsigned dynamic_unsigned_division(unsigned dividend, unsigned divisor) {
+  return (dividend / divisor) ^ (dividend % divisor);
+}
+
+// ----
+low.func.def public target<x86.scalar.core> abi(object_function) @dynamic_unsigned_division(%dividend: reg<x86.gpr32>, %divisor: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %9 = mov.dividend.low.gpr32 %dividend
+  %10 = zero.dividend.high.gpr32
+  %11 = divu.quotient.gpr32 %9, %10, %divisor
+  %12 = copy %11 : reg<x86.eax> -> reg<x86.gpr32>
+  %13 = mov.dividend.low.gpr32 %dividend
+  %14 = zero.dividend.high.gpr32
+  %15 = divu.remainder.gpr32 %13, %14, %divisor
+  %16 = copy %15 : reg<x86.edx> -> reg<x86.gpr32>
+  %17 = copy %12 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %18 = xor.gpr32 %17, %16
+  return %18
+}
+
+// ====
+
+long long dynamic_signed_remainder(long long dividend, long long divisor) {
+  return dividend % divisor;
+}
+
+// ----
+low.func.def public target<x86.scalar.core> abi(object_function) @dynamic_signed_remainder(%dividend: reg<x86.gpr64>, %divisor: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %7 = cmp.eq.imm.gpr64 %divisor, -1
+  %8 = mov.imm64 1
+  %9 = copy %divisor : reg<x86.gpr64> -> reg<x86.gpr64>
+  %10 = select.gpr64 %7, %8, %9
+  %11 = mov.dividend.low.gpr64 %dividend
+  %12 = sign.extend.dividend.gpr64 %11
+  %13 = divs.remainder.gpr64 %11, %12, %10
+  %14 = copy %13 : reg<x86.rdx> -> reg<x86.gpr64>
+  return %14
+}

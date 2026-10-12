@@ -1,0 +1,180 @@
+// Native runtime division exercises the complete scalar carrier family and
+// vector scalarization through the ordinary SysV object-function boundary.
+
+func.def public @runtime_division_i1(%lhs: i1, %rhs: i1, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<4xi32>
+  %signed_quotient = scalar.divsi %lhs, %rhs : i1
+  %signed_remainder = scalar.remsi %lhs, %rhs : i1
+  %unsigned_quotient = scalar.divui %lhs, %rhs : i1
+  %unsigned_remainder = scalar.remui %lhs, %rhs : i1
+  %signed_quotient_bits = scalar.extui %signed_quotient : i1 to i32
+  %signed_remainder_bits = scalar.extui %signed_remainder : i1 to i32
+  %unsigned_quotient_bits = scalar.extui %unsigned_quotient : i1 to i32
+  %unsigned_remainder_bits = scalar.extui %unsigned_remainder : i1 to i32
+  view.store %signed_quotient_bits, %results[0] : i32, view<4xi32>
+  view.store %signed_remainder_bits, %results[1] : i32, view<4xi32>
+  view.store %unsigned_quotient_bits, %results[2] : i32, view<4xi32>
+  view.store %unsigned_remainder_bits, %results[3] : i32, view<4xi32>
+  func.return
+}
+
+func.def public @runtime_unsigned_division_i1(%lhs: i1, %rhs: i1, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<2xi32>
+  %quotient = scalar.divui %lhs, %rhs : i1
+  %remainder = scalar.remui %lhs, %rhs : i1
+  %quotient_bits = scalar.extui %quotient : i1 to i32
+  %remainder_bits = scalar.extui %remainder : i1 to i32
+  view.store %quotient_bits, %results[0] : i32, view<2xi32>
+  view.store %remainder_bits, %results[1] : i32, view<2xi32>
+  func.return
+}
+
+func.def public @signed_remainder_i1(%lhs: i1, %rhs: i1) -> (i1) {
+  %result = scalar.remsi %lhs, %rhs : i1
+  func.return %result : i1
+}
+
+func.def public @runtime_division_i8(%lhs: i8, %rhs: i8, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<4xi32>
+  %signed_quotient = scalar.divsi %lhs, %rhs : i8
+  %signed_remainder = scalar.remsi %lhs, %rhs : i8
+  %unsigned_quotient = scalar.divui %lhs, %rhs : i8
+  %unsigned_remainder = scalar.remui %lhs, %rhs : i8
+  %signed_quotient_bits = scalar.extui %signed_quotient : i8 to i32
+  %signed_remainder_bits = scalar.extui %signed_remainder : i8 to i32
+  %unsigned_quotient_bits = scalar.extui %unsigned_quotient : i8 to i32
+  %unsigned_remainder_bits = scalar.extui %unsigned_remainder : i8 to i32
+  view.store %signed_quotient_bits, %results[0] : i32, view<4xi32>
+  view.store %signed_remainder_bits, %results[1] : i32, view<4xi32>
+  view.store %unsigned_quotient_bits, %results[2] : i32, view<4xi32>
+  view.store %unsigned_remainder_bits, %results[3] : i32, view<4xi32>
+  func.return
+}
+
+func.def public @signed_remainder_i8(%lhs: i8, %rhs: i8) -> (i8) {
+  %result = scalar.remsi %lhs, %rhs : i8
+  func.return %result : i8
+}
+
+func.def public @runtime_division_i16(%lhs: i16, %rhs: i16, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<4xi32>
+  %signed_quotient = scalar.divsi %lhs, %rhs : i16
+  %signed_remainder = scalar.remsi %lhs, %rhs : i16
+  %unsigned_quotient = scalar.divui %lhs, %rhs : i16
+  %unsigned_remainder = scalar.remui %lhs, %rhs : i16
+  %signed_quotient_bits = scalar.extui %signed_quotient : i16 to i32
+  %signed_remainder_bits = scalar.extui %signed_remainder : i16 to i32
+  %unsigned_quotient_bits = scalar.extui %unsigned_quotient : i16 to i32
+  %unsigned_remainder_bits = scalar.extui %unsigned_remainder : i16 to i32
+  view.store %signed_quotient_bits, %results[0] : i32, view<4xi32>
+  view.store %signed_remainder_bits, %results[1] : i32, view<4xi32>
+  view.store %unsigned_quotient_bits, %results[2] : i32, view<4xi32>
+  view.store %unsigned_remainder_bits, %results[3] : i32, view<4xi32>
+  func.return
+}
+
+func.def public @signed_remainder_i16(%lhs: i16, %rhs: i16) -> (i16) {
+  %result = scalar.remsi %lhs, %rhs : i16
+  func.return %result : i16
+}
+
+func.def public @runtime_division_i32(%lhs: i32, %rhs: i32, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<4xi32>
+  %signed_quotient = scalar.divsi %lhs, %rhs : i32
+  %signed_remainder = scalar.remsi %lhs, %rhs : i32
+  %unsigned_quotient = scalar.divui %lhs, %rhs : i32
+  %unsigned_remainder = scalar.remui %lhs, %rhs : i32
+  view.store %signed_quotient, %results[0] : i32, view<4xi32>
+  view.store %signed_remainder, %results[1] : i32, view<4xi32>
+  view.store %unsigned_quotient, %results[2] : i32, view<4xi32>
+  view.store %unsigned_remainder, %results[3] : i32, view<4xi32>
+  func.return
+}
+
+func.def public @signed_remainder_i32(%lhs: i32, %rhs: i32) -> (i32) {
+  %result = scalar.remsi %lhs, %rhs : i32
+  func.return %result : i32
+}
+
+func.def public @runtime_division_i64(%lhs: i64, %rhs: i64, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<4xi64>
+  %signed_quotient = scalar.divsi %lhs, %rhs : i64
+  %signed_remainder = scalar.remsi %lhs, %rhs : i64
+  %unsigned_quotient = scalar.divui %lhs, %rhs : i64
+  %unsigned_remainder = scalar.remui %lhs, %rhs : i64
+  view.store %signed_quotient, %results[0] : i64, view<4xi64>
+  view.store %signed_remainder, %results[1] : i64, view<4xi64>
+  view.store %unsigned_quotient, %results[2] : i64, view<4xi64>
+  view.store %unsigned_remainder, %results[3] : i64, view<4xi64>
+  func.return
+}
+
+func.def public @signed_remainder_i64(%lhs: i64, %rhs: i64) -> (i64) {
+  %result = scalar.remsi %lhs, %rhs : i64
+  func.return %result : i64
+}
+
+func.def public @runtime_index_division(%lhs: index, %rhs: index, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<2xi64>
+  %quotient = index.div %lhs, %rhs : index
+  %remainder = index.rem %lhs, %rhs : index
+  %quotient_i64 = index.cast %quotient : index to i64
+  %remainder_i64 = index.cast %remainder : index to i64
+  view.store %quotient_i64, %results[0] : i64, view<2xi64>
+  view.store %remainder_i64, %results[1] : i64, view<2xi64>
+  func.return
+}
+
+// Every input and intermediate remains observable across three fixed-register
+// operations, forcing allocation to preserve live values around RAX/RDX.
+func.def public @division_pressure_i64(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64) -> (i64) {
+  %quotient0 = scalar.divui %a, %b : i64
+  %remainder0 = scalar.remui %c, %d : i64
+  %quotient1 = scalar.divui %e, %f : i64
+  %mix0 = scalar.xori %quotient0, %remainder0 : i64
+  %mix1 = scalar.xori %mix0, %quotient1 : i64
+  %mix2 = scalar.xori %mix1, %a : i64
+  %mix3 = scalar.xori %mix2, %b : i64
+  %mix4 = scalar.xori %mix3, %c : i64
+  %mix5 = scalar.xori %mix4, %d : i64
+  %mix6 = scalar.xori %mix5, %e : i64
+  %result = scalar.xori %mix6, %f : i64
+  func.return %result : i64
+}
+
+// The i32 constant path uses MUL through EDX:EAX while the i64 dynamic path
+// uses DIV through RDX:RAX. Interleaving them proves that the allocator and
+// scheduler preserve values across the two width views of the same registers.
+func.def public @mixed_fixed_register_division(%lhs64: i64, %rhs64: i64, %lhs32: i32, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<4xi64>
+  %divisor32 = scalar.constant 7 : i32
+  %quotient64 = scalar.divui %lhs64, %rhs64 : i64
+  %quotient32 = scalar.divui %lhs32, %divisor32 : i32
+  %remainder64 = scalar.remui %lhs64, %rhs64 : i64
+  %remainder32 = scalar.remui %lhs32, %divisor32 : i32
+  %quotient32_wide = scalar.extui %quotient32 : i32 to i64
+  %remainder32_wide = scalar.extui %remainder32 : i32 to i64
+  view.store %quotient64, %results[0] : i64, view<4xi64>
+  view.store %quotient32_wide, %results[1] : i64, view<4xi64>
+  view.store %remainder64, %results[2] : i64, view<4xi64>
+  view.store %remainder32_wide, %results[3] : i64, view<4xi64>
+  func.return
+}
+
+func.def public @runtime_vector_division_u32x2(%lhs: vector<2xi32>, %rhs: vector<2xi32>, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<4xi32>
+  %quotient = vector.divui %lhs, %rhs : vector<2xi32>
+  %remainder = vector.remui %lhs, %rhs : vector<2xi32>
+  vector.store %quotient, %results[0] : vector<2xi32>, view<4xi32>
+  vector.store %remainder, %results[2] : vector<2xi32>, view<4xi32>
+  func.return
+}

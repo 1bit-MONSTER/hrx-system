@@ -313,6 +313,25 @@ endif()
 if(LOOM_TARGET_ARCH_X86 AND IREE_ARCH STREQUAL "x86_64" AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_generated_file(
   NAME
+    runtime_division_object
+  GENERATOR
+    loom::tools::loom-compile::loom-compile
+  OUTPUT
+    "runtime_division.o"
+  OUTPUT_FLAG
+    "--output="
+  ARGS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/native/x86/test/runtime_division.loom"
+    "--target=x86:avx2"
+  INPUTS
+    "test/runtime_division.loom"
+  TESTONLY
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86 AND IREE_ARCH STREQUAL "x86_64" AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_generated_file(
+  NAME
     avx512_callable_object
   GENERATOR
     loom::tools::loom-compile::loom-compile
@@ -378,6 +397,23 @@ loom_cc_test(
     "callable_link_test.cc"
     "packed_dot_callable.o"
     "vector_callable.o"
+  COPTS
+    "-mavx2"
+  DEPS
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.x86"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86 AND IREE_ARCH STREQUAL "x86_64" AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    runtime_division_link_test
+  SRCS
+    "runtime_division.o"
+    "runtime_division_link_test.cc"
   COPTS
     "-mavx2"
   DEPS

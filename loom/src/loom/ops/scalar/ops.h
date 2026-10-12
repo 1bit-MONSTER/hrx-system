@@ -255,7 +255,7 @@ iree_status_t loom_scalar_muli_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_SCALAR_DIVSI: Signed integer division (rounds toward zero).
+// LOOM_OP_SCALAR_DIVSI: Signed integer division rounding toward zero. The divisor must be nonzero and the quotient must be representable in the result type.
 // %result = scalar.divsi %lhs, %rhs : i32
 LOOM_DEFINE_ISA(loom_scalar_divsi_isa, LOOM_OP_SCALAR_DIVSI)
 LOOM_DEFINE_OPERAND(loom_scalar_divsi_lhs, 0)
@@ -272,7 +272,7 @@ iree_status_t loom_scalar_divsi_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_SCALAR_DIVUI: Unsigned integer division.
+// LOOM_OP_SCALAR_DIVUI: Unsigned integer division with a nonzero divisor.
 // %result = scalar.divui %lhs, %rhs : i32
 LOOM_DEFINE_ISA(loom_scalar_divui_isa, LOOM_OP_SCALAR_DIVUI)
 LOOM_DEFINE_OPERAND(loom_scalar_divui_lhs, 0)
@@ -289,7 +289,7 @@ iree_status_t loom_scalar_divui_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_SCALAR_REMSI: Signed integer remainder.
+// LOOM_OP_SCALAR_REMSI: Signed integer remainder with the sign of the dividend and a nonzero divisor. The minimum signed value modulo minus one is zero.
 // %result = scalar.remsi %lhs, %rhs : i32
 LOOM_DEFINE_ISA(loom_scalar_remsi_isa, LOOM_OP_SCALAR_REMSI)
 LOOM_DEFINE_OPERAND(loom_scalar_remsi_lhs, 0)
@@ -306,7 +306,7 @@ iree_status_t loom_scalar_remsi_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_SCALAR_REMUI: Unsigned integer remainder.
+// LOOM_OP_SCALAR_REMUI: Unsigned integer remainder with a nonzero divisor.
 // %result = scalar.remui %lhs, %rhs : i32
 LOOM_DEFINE_ISA(loom_scalar_remui_isa, LOOM_OP_SCALAR_REMUI)
 LOOM_DEFINE_OPERAND(loom_scalar_remui_lhs, 0)

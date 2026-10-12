@@ -259,13 +259,11 @@ func.def target(@target) @guarded_loaded_i64_index_address(%control: buffer, %ou
 // ----
 low.func.def target<x86.scalar.core>(@target) abi(object_function) @guarded_loaded_i64_index_address(%control: reg<x86.gpr64>, %output: reg<x86.gpr64>) asm {
   %row = mov.load.gpr64 %control {disp32 = 0}
-  %minimum_row = mov.imm64 0
-  %limit_i64 = mov.imm64 64
-  %nonnegative = cmp.sge.gpr64 %row, %minimum_row
-  %below = cmp.slt.gpr64 %row, %limit_i64
+  %nonnegative = cmp.sge.imm.gpr64 %row, 0
+  %below = cmp.slt.imm.gpr64 %row, 64
   %stored_value = mov.imm32 0
-  %22 = copy %nonnegative : reg<x86.gpr32> -> reg<x86.gpr32>
-  %guard = and.gpr32 %22, %below
+  %20 = copy %nonnegative : reg<x86.gpr32> -> reg<x86.gpr32>
+  %guard = and.gpr32 %20, %below
   low.cond_br %guard, ^_bb1, ^_bb2 : reg<x86.gpr32>
 ^_bb1:
   mov.store.indexed.gpr32 %stored_value, %output, %row {disp32 = 0, scale = 4}
@@ -527,14 +525,13 @@ func.def target(@target) @cfg_rotating_f32x4_memory(%input: buffer, %output: buf
 // ----
 low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (buffer, buffer, index, index, i1) -> ()}) @cfg_rotating_f32x4_memory(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %origin: reg<x86.gpr64>, %bound: reg<x86.gpr64>, %choice: reg<x86.gpr32>) asm {
   %start = mov.imm64 0
-  %limit = mov.imm64 2
   low.cond_br %choice, ^left, ^right : reg<x86.gpr32>
 ^left:
   low.br ^header(%start: reg<x86.gpr64>, %origin: reg<x86.gpr64>)
 ^right:
   low.br ^header(%start: reg<x86.gpr64>, %bound: reg<x86.gpr64>)
 ^header(%iteration: reg<x86.gpr64>, %first: reg<x86.gpr64>):
-  %again = cmp.slt.gpr64 %iteration, %limit
+  %again = cmp.slt.imm.gpr64 %iteration, 2
   low.cond_br %again, ^guard, ^exit : reg<x86.gpr32>
 ^guard:
   %end = lea.disp %first {disp32 = 3}

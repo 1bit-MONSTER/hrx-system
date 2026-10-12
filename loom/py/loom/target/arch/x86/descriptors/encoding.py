@@ -40,6 +40,9 @@ class Form(IntEnum):
     ADDRESS_PC_RELATIVE = 27
     UNARY_RM = 28
     BINARY_R_MEMORY = 29
+    ZERO_REGISTER = 30
+    SIGN_EXTEND_DIVIDEND = 31
+    DIVIDE = 32
 
 
 class Flag(IntFlag):
