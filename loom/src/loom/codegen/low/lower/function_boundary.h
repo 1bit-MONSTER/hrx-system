@@ -97,8 +97,8 @@ iree_status_t loom_low_lower_function_boundary_bind_entry_arguments(
     loom_low_lower_context_t* context, const loom_block_t* source_entry_block,
     loom_block_t* low_entry_block);
 
-// Remaps source callable predicates through the completed source-to-Low value
-// map and attaches them to the target-Low definition.
+// Remaps source callable predicates across the retained argument and result
+// boundary and attaches them to the target-Low definition.
 iree_status_t loom_low_lower_function_boundary_remap_predicates(
     loom_low_lower_context_t* context);
 

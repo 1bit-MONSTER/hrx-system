@@ -322,6 +322,16 @@ static iree_status_t loom_low_lower_attach_remapped_predicates(
       loom_attr_predicate_list(low_predicates, predicate_count));
 }
 
+static iree_status_t loom_low_lower_map_callable_results(
+    loom_func_like_t source_function, loom_func_like_t low_function,
+    loom_ir_remap_t* remap) {
+  IREE_ASSERT_EQ(source_function.op->result_count,
+                 low_function.op->result_count);
+  return loom_ir_remap_map_values(
+      remap, loom_op_const_results(source_function.op),
+      loom_op_const_results(low_function.op), source_function.op->result_count);
+}
+
 static iree_status_t loom_low_lower_create_func_op(
     loom_low_lower_context_t* context, loom_region_t* source_body,
     loom_symbol_ref_t low_func_ref, const loom_type_t* arg_types,
@@ -481,29 +491,42 @@ static iree_status_t loom_low_lower_create_kernel_op(
 iree_status_t loom_low_lower_function_boundary_remap_predicates(
     loom_low_lower_context_t* context) {
   uint16_t predicate_count = 0;
-  const loom_predicate_t* source_predicates =
-      loom_func_like_predicates(context->source_function, &predicate_count);
+  (void)loom_func_like_predicates(context->source_function, &predicate_count);
   if (predicate_count == 0) {
     return iree_ok_status();
   }
+
+  const loom_func_like_t low_function =
+      loom_func_like_cast(context->module, context->low_func_op);
+  uint16_t source_argument_count = 0;
+  const loom_value_id_t* source_arguments =
+      loom_func_like_arg_ids(context->source_function, &source_argument_count);
+  uint16_t low_argument_count = 0;
+  const loom_value_id_t* low_arguments =
+      loom_func_like_arg_ids(low_function, &low_argument_count);
+  IREE_ASSERT_EQ(source_argument_count,
+                 context->lowering->boundary.argument_map_count);
+  IREE_ASSERT_EQ(low_argument_count,
+                 context->lowering->boundary.argument_count);
 
   loom_ir_remap_t remap;
   IREE_RETURN_IF_ERROR(loom_ir_remap_initialize(
       context->module, context->module, context->function_arena,
       /*options=*/NULL, &remap));
-  for (uint16_t i = 0; i < predicate_count; ++i) {
-    for (uint8_t j = 0; j < source_predicates[i].arg_count; ++j) {
-      if (source_predicates[i].arg_tags[j] != LOOM_PRED_ARG_VALUE) {
-        continue;
-      }
-      loom_value_id_t source_value =
-          (loom_value_id_t)source_predicates[i].args[j];
-      loom_value_id_t low_value =
-          loom_low_lower_lookup_value(context, source_value);
-      IREE_RETURN_IF_ERROR(
-          loom_ir_remap_map_value(&remap, source_value, low_value));
+  uint16_t low_argument_index = 0;
+  for (uint16_t source_argument_index = 0;
+       source_argument_index < source_argument_count; ++source_argument_index) {
+    if (context->lowering->boundary.argument_map[source_argument_index].kind !=
+        LOOM_LOW_LOWER_ABI_ARGUMENT_DIRECT) {
+      continue;
     }
+    IREE_RETURN_IF_ERROR(
+        loom_ir_remap_map_value(&remap, source_arguments[source_argument_index],
+                                low_arguments[low_argument_index++]));
   }
+  IREE_ASSERT_EQ(low_argument_index, low_argument_count);
+  IREE_RETURN_IF_ERROR(loom_low_lower_map_callable_results(
+      context->source_function, low_function, &remap));
 
   return loom_low_lower_attach_remapped_predicates(context, &remap);
 }
@@ -648,13 +671,8 @@ static iree_status_t loom_low_lower_remap_decl_predicates(
     IREE_RETURN_IF_ERROR(
         loom_ir_remap_map_value(&remap, source_arguments[i], low_arguments[i]));
   }
-  const loom_value_id_t* source_results =
-      loom_op_const_results(context->source_function.op);
-  const loom_value_id_t* low_results = loom_op_const_results(low_function.op);
-  for (uint16_t i = 0; i < context->source_function.op->result_count; ++i) {
-    IREE_RETURN_IF_ERROR(
-        loom_ir_remap_map_value(&remap, source_results[i], low_results[i]));
-  }
+  IREE_RETURN_IF_ERROR(loom_low_lower_map_callable_results(
+      context->source_function, low_function, &remap));
   return loom_low_lower_attach_remapped_predicates(context, &remap);
 }
 
