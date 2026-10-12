@@ -25,9 +25,10 @@ class FastMathContracts {
   FastMathContracts(cxx::TranslationUnit& unit, Diagnostics& diagnostics)
       : unit_(unit), diagnostics_(diagnostics) {}
 
-  // Admits a trailing function contract and reconciles it across source
-  // redeclarations. Template patterns are admitted after specialization.
+  // Admits one leading or trailing function contract and reconciles it across
+  // source redeclarations. Template patterns are admitted after specialization.
   void declaration(cxx::FunctionSymbol* function,
+                   cxx::List<cxx::AttributeSpecifierAST*>* attributes,
                    cxx::FunctionDeclaratorChunkAST* prototype);
 
   // Returns the permissions established for this function body.

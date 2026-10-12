@@ -107,16 +107,19 @@ void Intrinsics::declaration(cxx::FunctionSymbol* function,
   auto* source = cxx::ast_cast<cxx::InitDeclaratorAST>(owner);
   auto* prototype =
       source ? cxx::getFunctionPrototype(source->declarator) : nullptr;
-  visit_loom_attributes(
-      unit_, prototype ? prototype->attributeList : nullptr,
-      [&](std::string_view name, cxx::AttributeAST* attribute) {
-        if (name == "fastmath") {
-          diagnostics_.reject(
-              unit_, attribute,
-              "fastmath requires a translated function body; intrinsic "
-              "permissions belong in loom::op");
-        }
-      });
+  auto reject_fastmath = [&](auto* list) {
+    visit_loom_attributes(
+        unit_, list, [&](std::string_view name, cxx::AttributeAST* attribute) {
+          if (name == "fastmath") {
+            diagnostics_.reject(
+                unit_, attribute,
+                "fastmath requires a translated function body; intrinsic "
+                "permissions belong in loom::op");
+          }
+        });
+  };
+  reject_fastmath(attributes);
+  reject_fastmath(prototype ? prototype->attributeList : nullptr);
 
   // Specifiers retain their own resolved arguments. A symbol's merged map
   // cannot distinguish conflicting source redeclarations.

@@ -158,12 +158,12 @@ the target compiler.
 ## Floating-point permissions
 
 Ordinary C++ arithmetic is strict unless its lexical source scope grants
-specific Loom fast-math permissions. A trailing function attribute covers the
-complete definition without replacing natural operators:
+Loom fast-math permissions. The no-argument shorthand grants the complete
+`fast` contract to a function without replacing natural operators:
 
 ```cpp
-float accumulate(float sum, float value, float scale)
-    [[loom::fastmath("reassoc", "nnan", "ninf", "nsz")]] {
+[[loom::fastmath]]
+float accumulate(float sum, float value, float scale) {
   return sum + value * scale;
 }
 ```
@@ -171,13 +171,15 @@ float accumulate(float sum, float value, float scale)
 The permissions become ordinary High IR attributes:
 
 ```loom
-%scaled = scalar.mulf<reassoc|nnan|ninf|nsz> %value, %scale : f32
-%result = scalar.addf<reassoc|nnan|ninf|nsz> %sum, %scaled : f32
+%scaled = scalar.mulf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %value, %scale : f32
+%result = scalar.addf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %sum, %scaled : f32
 ```
 
-A leading statement attribute adds permissions within that statement and its
-nested control flow. This allows a numerically relaxed accumulation to remain
-local inside an otherwise strict helper:
+An argument list grants only its named permissions. Function attributes may
+precede the declaration or follow its parameter list. A leading statement
+attribute adds permissions within that statement and its nested control flow,
+allowing a numerically relaxed accumulation to remain local inside an otherwise
+strict helper:
 
 ```cpp
 float update(float sum, float value, float scale) {
@@ -194,10 +196,10 @@ change separately emitted function bodies. Concrete template specializations
 retain the contract on their source definition. Repeated declarations may
 carry the same contract, while conflicting contracts are rejected.
 
-The accepted strings exactly match Loom's `reassoc`, `nnan`, `ninf`, `nsz`,
-`arcp`, `contract`, `afn`, and `fast` IR flags. Natural scalar and vector
-arithmetic, negation, comparisons, and floating truth conversion receive the
-active permissions. Explicit scalar, floating dot, and floating reduction
+The selective argument strings exactly match Loom's `reassoc`, `nnan`, `ninf`,
+`nsz`, `arcp`, `contract`, `afn`, and `fast` IR flags. Natural scalar and
+vector arithmetic, negation, comparisons, and floating truth conversion receive
+the active permissions. Explicit scalar, floating dot, and floating reduction
 intrinsics combine their declared flags with the lexical contract. Float
 precision conversions continue to use their independent `daz` and `ftz`
 subnormal contract.

@@ -17,6 +17,7 @@
 #include "loom/import/cxx/binding/scalar_bindings.h"
 #include "loom/import/cxx/source/attributes.h"
 #include "loom/import/cxx/source/error.h"
+#include "loom/ops/scalar/ops.h"
 
 namespace loom::cxx_import {
 namespace {
@@ -47,12 +48,16 @@ std::optional<ParsedContract> parse_contract(
         }
         source = attribute;
         auto* clause = attribute->attributeArgumentClause;
-        auto* arguments = clause ? clause->expressionList : nullptr;
+        if (!clause) {
+          flags = LOOM_SCALAR_FASTMATHFLAGS_FAST;
+          return;
+        }
+        auto* arguments = clause->expressionList;
         if (!arguments) {
           diagnostics.reject(
               unit, attribute,
-              "fastmath requires one or more floating-point permission "
-              "strings");
+              "fastmath argument lists cannot be empty; omit the argument "
+              "clause to grant the full fast contract");
         }
         for (auto* argument : cxx::ListView{arguments}) {
           auto* literal =
@@ -78,15 +83,26 @@ std::optional<ParsedContract> parse_contract(
 }  // namespace
 
 void FastMathContracts::declaration(
-    cxx::FunctionSymbol* function, cxx::FunctionDeclaratorChunkAST* prototype) {
-  if (!function || !prototype) {
+    cxx::FunctionSymbol* function,
+    cxx::List<cxx::AttributeSpecifierAST*>* attributes,
+    cxx::FunctionDeclaratorChunkAST* prototype) {
+  if (!function) {
     return;
   }
-  if (!prototype->attributeList) {
+  auto* trailing_attributes = prototype ? prototype->attributeList : nullptr;
+  if (!attributes && !trailing_attributes) {
     return;
   }
-  auto contract = parse_contract(unit_, diagnostics_, prototype->attributeList,
+  auto leading =
+      parse_contract(unit_, diagnostics_, attributes, "function declaration");
+  auto trailing = parse_contract(unit_, diagnostics_, trailing_attributes,
                                  "function declaration");
+  if (leading && trailing) {
+    diagnostics_.reject(
+        unit_, trailing->source,
+        "one fastmath contract is allowed per function declaration");
+  }
+  auto contract = leading ? leading : trailing;
   if (!contract) {
     return;
   }

@@ -286,12 +286,23 @@ bool Functions::admit_declaration(
                                         prototype);
     if (function && !function->isTemplatePattern()) {
       parameter_contracts_.declaration(function, prototype);
-      fastmath_.declaration(function, prototype);
+      fastmath_.declaration(function, attributes, prototype);
       function_contracts_.declaration(function, prototype);
     }
   }
   reject_misplaced_binding_attributes(unit_, diagnostics_, attributes,
                                       BindingAttributeScope::Declaration);
+  if (!function) {
+    visit_loom_attributes(
+        unit_, attributes,
+        [&](std::string_view name, cxx::AttributeAST* attribute) {
+          if (name == "fastmath") {
+            diagnostics_.reject(
+                unit_, attribute,
+                "fastmath requires a function declaration or statement");
+          }
+        });
+  }
   if (function) {
     visit_loom_attributes(
         unit_, attributes,
@@ -568,7 +579,8 @@ loom_symbol_ref_t Functions::retain(cxx::FunctionSymbol* function,
       auto* prototype =
           cxx::getFunctionPrototype(function->declaration()->declarator);
       parameter_contracts_.declaration(function, prototype);
-      fastmath_.declaration(function, prototype);
+      fastmath_.declaration(function, function->declaration()->attributeList,
+                            prototype);
       function_contracts_.declaration(function, prototype);
     }
   }

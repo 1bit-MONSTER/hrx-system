@@ -64,7 +64,8 @@ void reject_misplaced_binding_attributes(
               "where requires a trailing function attribute or a leading "
               "config declaration attribute");
         }
-        if (name == "fastmath" && scope != BindingAttributeScope::Function &&
+        if (name == "fastmath" && scope != BindingAttributeScope::Declaration &&
+            scope != BindingAttributeScope::Function &&
             scope != BindingAttributeScope::Statement) {
           if (scope == BindingAttributeScope::CheckStatement) {
             diagnostics.reject(
@@ -73,8 +74,8 @@ void reject_misplaced_binding_attributes(
           }
           diagnostics.reject(
               unit, attribute,
-              "fastmath requires a trailing function attribute or a leading "
-              "statement attribute");
+              "fastmath requires a function declaration attribute or a "
+              "leading statement attribute");
         }
       });
 }

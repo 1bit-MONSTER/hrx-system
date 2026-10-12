@@ -232,6 +232,7 @@ loom_cc_library(
     loom::import::cxx::source
     loom::import::cxx::source::attributes
     loom::import::cxx::source::error
+    loom::ops::scalar
   PUBLIC
 )
 endif()

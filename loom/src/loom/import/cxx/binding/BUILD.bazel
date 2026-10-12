@@ -158,6 +158,7 @@ loom_cc_library(
         "//loom/src/loom/import/cxx/source",
         "//loom/src/loom/import/cxx/source:attributes",
         "//loom/src/loom/import/cxx/source:error",
+        "//loom/src/loom/ops/scalar",
         "//third_party:cxx_parser",
     ],
 )

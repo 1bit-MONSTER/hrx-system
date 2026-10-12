@@ -4,8 +4,8 @@ using Float4 = float __attribute__((ext_vector_type(4)));
 
 float strict(float left, float right) { return -left + right / left; }
 
-Float4 vector_relaxed(Float4 left, Float4 right)
-    [[loom::fastmath("fast")]] {
+[[loom::fastmath]]
+Float4 vector_relaxed(Float4 left, Float4 right) {
   return -(left + right) * right / left;
 }
 
@@ -29,7 +29,8 @@ float nested(float value, float scale)
 }
 
 template <class T>
-static T scaled(T value, T scale) [[loom::fastmath("contract")]] {
+[[loom::fastmath]]
+static T scaled(T value, T scale) {
   return value * scale + value;
 }
 
@@ -103,6 +104,10 @@ float dot(Float4 left, Float4 right, float seed);
 float floating_dot(Float4 left, Float4 right, float seed)
     [[loom::fastmath("nsz")]] {
   return dot(left, right, seed);
+}
+
+float statement_fast(float left, float right) {
+  [[loom::fastmath]] return left * right;
 }
 
 // ----
@@ -244,14 +249,19 @@ func.def public @floating_dot(%left: vector<4xf32>, %right: vector<4xf32>, %seed
   func.return %109 : f32
 }
 
+func.def public @statement_fast(%left: f32, %right: f32) -> (f32) {
+  %113 = scalar.mulf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %left, %right : f32
+  func.return %113 : f32
+}
+
 func.def @scaled_float(%value: f32, %scale: f32) -> (f32) {
-  %113 = scalar.mulf<contract> %value, %scale : f32
-  %114 = scalar.addf<contract> %113, %value : f32
-  func.return %114 : f32
+  %117 = scalar.mulf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %value, %scale : f32
+  %118 = scalar.addf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %117, %value : f32
+  func.return %118 : f32
 }
 
 func.def @helper(%value: f32, %scale: f32) -> (f32) {
-  %118 = scalar.mulf<reassoc> %value, %scale : f32
-  %119 = scalar.addf<reassoc> %118, %value : f32
-  func.return %119 : f32
+  %122 = scalar.mulf<reassoc> %value, %scale : f32
+  %123 = scalar.addf<reassoc> %122, %value : f32
+  func.return %123 : f32
 }

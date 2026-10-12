@@ -1,12 +1,12 @@
 // RUN: verify
-// Function contracts follow the parameter list.
-// ERROR@+1: LOWERING/059 "fastmath requires a trailing function attribute or a leading statement attribute"
-[[loom::fastmath("nnan")]] float misplaced(float value) { return value; }
+// Contracts belong to functions or translated statements rather than objects.
+// ERROR@+1: LOWERING/059 "fastmath requires a function declaration or statement"
+[[loom::fastmath]] const float misplaced = 1.0f;
 
 // ====
-// Contracts require at least one permission.
-// ERROR@+1: LOWERING/059 "fastmath requires one or more floating-point permission strings"
-float empty(float value) [[loom::fastmath]] { return value; }
+// Empty parentheses are not the no-argument shorthand.
+// ERROR@+1: LOWERING/059 "fastmath argument lists cannot be empty; omit the argument clause to grant the full fast contract"
+float empty(float value) [[loom::fastmath()]] { return value; }
 
 // ====
 // Permissions use the exact Loom IR spellings.
@@ -37,6 +37,15 @@ float duplicate(float value)
 }
 
 // ====
+// Leading and trailing spellings still describe one declaration contract.
+[[loom::fastmath]]
+float positioned_duplicate(float value)
+    // ERROR@+1: LOWERING/059 "one fastmath contract is allowed per function declaration"
+    [[loom::fastmath("nnan")]] {
+  return value;
+}
+
+// ====
 // Redeclarations must describe one stable function contract.
 float conflict(float value) [[loom::fastmath("nnan")]];
 // ERROR@+1: LOWERING/059 "conflicting fastmath contracts across function redeclarations"
@@ -45,23 +54,21 @@ float conflict(float value) [[loom::fastmath("ninf")]] { return value; }
 // ====
 // Local declarations cannot own a lexical expression contract.
 float local(float value) {
-  // ERROR@+1: LOWERING/059 "fastmath requires a trailing function attribute or a leading statement attribute"
+  // ERROR@+1: LOWERING/059 "fastmath requires a function declaration attribute or a leading statement attribute"
   [[loom::fastmath("nnan")]] float copy = value;
   return copy;
 }
 
 // ====
 // Intrinsic declarations own per-operation permissions in loom::op.
-[[loom::op("scalar.mulf")]]
-float intrinsic(float left, float right)
-    // ERROR@+1: LOWERING/059 "fastmath requires a translated function body; intrinsic permissions belong in loom::op"
-    [[loom::fastmath("nnan")]];
+// ERROR@+1: LOWERING/059 "fastmath requires a translated function body; intrinsic permissions belong in loom::op"
+[[loom::op("scalar.mulf"), loom::fastmath]]
+float intrinsic(float left, float right);
 
 // ====
 // Check records use check dialect operations rather than an ordinary body.
-[[loom::check_case]] void check_record()
-    // ERROR@+1: LOWERING/059 "check declarations cannot carry fastmath contracts"
-    [[loom::fastmath("nnan")]] {}
+// ERROR@+1: LOWERING/059 "check declarations cannot carry fastmath contracts"
+[[loom::check_case, loom::fastmath]] void check_record() {}
 
 // ====
 // Check bodies do not lower ordinary floating-point expressions.
