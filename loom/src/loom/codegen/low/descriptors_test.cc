@@ -6,10 +6,84 @@
 
 #include "loom/codegen/low/descriptors.h"
 
+#include <algorithm>
+#include <array>
+
 #include "iree/testing/gtest.h"
 
 namespace loom {
 namespace {
+
+TEST(LowDescriptorsTest, LookupRetainsIdentityAcrossSharedViews) {
+  const char strings[] =
+      "test.alpha"
+      "test.beta"
+      "test.gamma";
+  std::array<loom_low_descriptor_t, 3> descriptors = {};
+  descriptors[0].key_string_ref = LOOM_STRING_REF(0, 10);
+  descriptors[1].key_string_ref = LOOM_STRING_REF(10, 9);
+  descriptors[2].key_string_ref = LOOM_STRING_REF(19, 10);
+  std::array<uint32_t, 3> references = {0, 1, 2};
+  loom_low_descriptor_set_t set = {
+      .string_pool = {strings, sizeof(strings) - 1},
+      .descriptors = descriptors.data(),
+      .descriptor_count = 3,
+      .descriptor_ordinal_count = 3,
+      .descriptor_refs = references.data(),
+      .descriptor_ref_count = 3,
+  };
+  for (auto& descriptor : descriptors) {
+    descriptor.stable_id = loom_low_descriptor_stable_id_from_key(
+        loom_low_descriptor_set_string(&set, descriptor.key_string_ref));
+  }
+  std::sort(references.begin(), references.end(),
+            [&](uint32_t lhs, uint32_t rhs) {
+              return descriptors[lhs].stable_id < descriptors[rhs].stable_id;
+            });
+
+  // A full view, prefix view and sparse view share the same immutable lookup
+  // index. Hidden ordinals must not be returned by either lookup entry point.
+  const uint64_t sparse_membership = 5;
+  const uint32_t visible_counts[] = {3, 1, 2};
+  for (uint32_t view = 0; view < 3; ++view) {
+    set.descriptor_ordinal_count = view == 1 ? 1 : 3;
+    set.descriptor_count = visible_counts[view];
+    set.descriptor_membership_words = view == 2 ? &sparse_membership : nullptr;
+    for (uint32_t ordinal = 0; ordinal < descriptors.size(); ++ordinal) {
+      const auto& descriptor = descriptors[ordinal];
+      const auto key =
+          loom_low_descriptor_set_string(&set, descriptor.key_string_ref);
+      const bool visible =
+          view == 0 || ordinal == 0 || (view == 2 && ordinal == 2);
+      const uint32_t expected =
+          visible ? ordinal : LOOM_LOW_DESCRIPTOR_ORDINAL_NONE;
+      EXPECT_EQ(loom_low_descriptor_set_lookup_descriptor_by_id(
+                    &set, descriptor.stable_id),
+                expected);
+      EXPECT_EQ(loom_low_descriptor_set_lookup_descriptor(&set, key), expected);
+    }
+    for (auto key : {IREE_SV(""), IREE_SV("test"), IREE_SV("test.alph"),
+                     IREE_SV("test.alpha.extra"), IREE_SV("test.delta")}) {
+      EXPECT_EQ(loom_low_descriptor_set_lookup_descriptor(&set, key),
+                LOOM_LOW_DESCRIPTOR_ORDINAL_NONE);
+      EXPECT_EQ(loom_low_descriptor_set_lookup_descriptor_by_id(
+                    &set, loom_low_descriptor_stable_id_from_key(key)),
+                LOOM_LOW_DESCRIPTOR_ORDINAL_NONE);
+    }
+    EXPECT_EQ(loom_low_descriptor_set_lookup_descriptor_by_id(
+                  &set, LOOM_LOW_STABLE_ID_NONE),
+              LOOM_LOW_DESCRIPTOR_ORDINAL_NONE);
+  }
+}
+
+TEST(LowDescriptorsTest, EmptyDescriptorLookup) {
+  const loom_low_descriptor_set_t set = {};
+  EXPECT_EQ(
+      loom_low_descriptor_set_lookup_descriptor(&set, IREE_SV("test.add")),
+      LOOM_LOW_DESCRIPTOR_ORDINAL_NONE);
+  EXPECT_EQ(loom_low_descriptor_set_lookup_descriptor_by_id(&set, 1),
+            LOOM_LOW_DESCRIPTOR_ORDINAL_NONE);
+}
 
 TEST(LowDescriptorsTest, SummarizesOnlyMemoryAttachedEffects) {
   loom_low_effect_t effects[6] = {};

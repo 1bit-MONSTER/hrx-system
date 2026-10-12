@@ -302,47 +302,29 @@ static iree_status_t loom_low_verify_descriptor_refs(
         " is smaller than available descriptor count %" PRIu32,
         descriptor_set->descriptor_ref_count, descriptor_set->descriptor_count);
   }
-  iree_string_view_t previous_key = iree_string_view_empty();
+  uint64_t previous_id = LOOM_LOW_STABLE_ID_NONE;
   uint32_t visible_ref_count = 0;
   for (uint32_t i = 0; i < descriptor_set->descriptor_ref_count; ++i) {
-    const loom_low_descriptor_ref_t* descriptor_ref =
-        &descriptor_set->descriptor_refs[i];
-    iree_string_view_t ref_key = iree_string_view_empty();
-    IREE_RETURN_IF_ERROR(loom_low_descriptor_set_string_impl(
-        descriptor_set, descriptor_ref->key_string_ref, /*allow_none=*/false,
-        &ref_key));
-    if (i > 0 && iree_string_view_compare(previous_key, ref_key) >= 0) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "low descriptor reference map is not strictly sorted near '%.*s'",
-          (int)ref_key.size, ref_key.data);
-    }
-    if (descriptor_ref->descriptor_ordinal >=
-        descriptor_set->descriptor_ref_count) {
+    const uint32_t ordinal = descriptor_set->descriptor_refs[i];
+    if (ordinal >= descriptor_set->descriptor_ref_count) {
       return iree_make_status(
           IREE_STATUS_OUT_OF_RANGE,
-          "low descriptor reference '%.*s' points at descriptor ordinal "
+          "low descriptor reference %" PRIu32
+          " points at descriptor ordinal "
           "%" PRIu32 " but backing storage has only %" PRIu32 " descriptors",
-          (int)ref_key.size, ref_key.data, descriptor_ref->descriptor_ordinal,
-          descriptor_set->descriptor_ref_count);
+          i, ordinal, descriptor_set->descriptor_ref_count);
     }
-    iree_string_view_t descriptor_key = iree_string_view_empty();
-    IREE_RETURN_IF_ERROR(loom_low_descriptor_set_string_impl(
-        descriptor_set,
-        descriptor_set->descriptors[descriptor_ref->descriptor_ordinal]
-            .key_string_ref,
-        /*allow_none=*/false, &descriptor_key));
-    if (!iree_string_view_equal(ref_key, descriptor_key)) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "low descriptor reference key '%.*s' does not "
-                              "match descriptor %" PRIu32 " key '%.*s'",
-                              (int)ref_key.size, ref_key.data,
-                              descriptor_ref->descriptor_ordinal,
-                              (int)descriptor_key.size, descriptor_key.data);
+    const uint64_t stable_id = descriptor_set->descriptors[ordinal].stable_id;
+    if (stable_id <= previous_id) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "low descriptor reference map is not strictly sorted by stable ID "
+          "at reference %" PRIu32,
+          i);
     }
-    visible_ref_count += loom_low_descriptor_set_has_descriptor(
-        descriptor_set, descriptor_ref->descriptor_ordinal);
-    previous_key = ref_key;
+    visible_ref_count +=
+        loom_low_descriptor_set_has_descriptor(descriptor_set, ordinal);
+    previous_id = stable_id;
   }
   if (visible_ref_count != descriptor_set->descriptor_count) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,

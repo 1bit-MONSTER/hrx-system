@@ -1835,17 +1835,18 @@ def compile_descriptor_set(
     for table_name, rows in compact_start_tables:
         validation.validate_u16_table_count(len(rows), f"descriptor set '{spec.key}' {table_name}")
 
-    descriptor_refs = sorted((descriptor.key, i) for i, descriptor in enumerate(selected_descriptors))
     schedule_alternative_rows = [
         (source_ordinal, descriptor_ordinals[alternative_key]) for source_ordinal, descriptor in enumerate(source_descriptors) for alternative_key in descriptor.schedule_alternatives
     ]
-    seen_stable_ids: dict[int, str] = {}
-    for descriptor in selected_descriptors:
+    ordinals_by_stable_id: dict[int, int] = {}
+    for ordinal, descriptor in enumerate(selected_descriptors):
         stable_id = descriptor_stable_id(descriptor.key)
-        previous_key = seen_stable_ids.get(stable_id)
-        if previous_key is not None:
+        previous_ordinal = ordinals_by_stable_id.get(stable_id)
+        if previous_ordinal is not None:
+            previous_key = selected_descriptors[previous_ordinal].key
             raise ValueError(f"descriptor '{descriptor.key}' stable ID collides with '{previous_key}'")
-        seen_stable_ids[stable_id] = descriptor.key
+        ordinals_by_stable_id[stable_id] = ordinal
+    descriptor_refs = [ordinals_by_stable_id[stable_id] for stable_id in sorted(ordinals_by_stable_id)]
 
     resource_calendar_lookback_cycles = max((max(0, -row.minimum_issue_separation_cycles) for row in event_separations), default=0)
     resource_calendars, resource_calendar_slot_count = _compile_resource_calendars(resources, schedule_classes, resource_calendar_lookback_cycles)

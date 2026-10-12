@@ -205,7 +205,8 @@ class CompiledDescriptorSet:
     operand_form_matches: list[CompiledOperandFormMatch]
     operand_form_operand_indices: list[int]
     descriptor_rows: list[dict[str, int]]
-    descriptor_refs: list[tuple[str, int]]
+    # Descriptor ordinals sorted by stable descriptor identity.
+    descriptor_refs: list[int]
     schedule_alternative_rows: list[tuple[int, int]]
     canonical_asm_form_ordinals: list[int | None]
     asm_forms: list[CompiledAsmForm]
@@ -224,7 +225,8 @@ class DescriptorSetView:
     storage_descriptor_ordinals: tuple[int, ...]
     descriptor_ordinal_count: int
     descriptor_membership_words: tuple[int, ...]
-    descriptor_refs: list[tuple[str, int]]
+    # View-addressable ordinals sorted by stable descriptor identity.
+    descriptor_refs: list[int]
     schedule_alternative_rows: list[tuple[int, int]]
     descriptor_rows: list[dict[str, int]]
     canonical_asm_form_ordinals: list[int | None]
@@ -234,7 +236,7 @@ class DescriptorSetView:
     uses_storage_descriptor_tables: bool
     # View-owned descriptor rows use shared storage ordinals.
     uses_storage_descriptor_view_tables: bool
-    # Descriptor-key references use shared storage ordinals.
+    # Stable-ID lookup references use shared storage ordinals.
     uses_storage_descriptor_ref_tables: bool
     uses_storage_asm_form_tables: bool
     uses_storage_operand_form_tables: bool

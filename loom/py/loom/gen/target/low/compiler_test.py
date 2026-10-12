@@ -6,6 +6,7 @@
 
 from dataclasses import replace
 from itertools import permutations
+from unittest.mock import patch
 
 import pytest
 
@@ -46,6 +47,7 @@ from loom.target.low_descriptors import (
     ResourceKind,
     ScheduleClass,
     ScheduleClassFlag,
+    descriptor_stable_id,
 )
 from loom.target.test.descriptors import (
     TEST_LOW_ADD_I32_DESCRIPTOR,
@@ -54,6 +56,21 @@ from loom.target.test.descriptors import (
     TEST_LOW_LOAD_V4I32_DESCRIPTOR,
     TEST_LOW_WRITE_LOW16_I32_DESCRIPTOR,
 )
+
+
+@pytest.mark.parametrize("descriptors", permutations((TEST_LOW_CONST_I32_DESCRIPTOR, TEST_LOW_ADD_I32_DESCRIPTOR, TEST_LOW_LOAD_V4I32_DESCRIPTOR)))
+def test_descriptor_lookup_orders_identities_without_reordering_storage(descriptors) -> None:
+    compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=descriptors))
+    assert [row.key for row in compiled.descriptors] == [row.key for row in descriptors]
+    assert sorted(compiled.descriptor_refs) == list(range(len(descriptors)))
+    identities = [descriptor_stable_id(compiled.descriptors[ordinal].key) for ordinal in compiled.descriptor_refs]
+    assert identities == sorted(identities)
+
+
+def test_descriptor_lookup_rejects_identity_collisions() -> None:
+    spec = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(TEST_LOW_CONST_I32_DESCRIPTOR, TEST_LOW_ADD_I32_DESCRIPTOR))
+    with patch.object(compiler, "descriptor_stable_id", return_value=1), pytest.raises(ValueError, match="stable ID collides"):
+        compiler.compile_descriptor_set(spec)
 
 
 @pytest.mark.parametrize("alignment", [0, 3, 6, 65536])

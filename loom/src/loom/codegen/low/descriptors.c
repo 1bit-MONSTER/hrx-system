@@ -504,30 +504,41 @@ uint32_t loom_low_descriptor_set_lookup_canonical_asm_form(
   return descriptor_view->canonical_asm_form_ordinal;
 }
 
-uint32_t loom_low_descriptor_set_lookup_descriptor(
-    const loom_low_descriptor_set_t* descriptor_set, iree_string_view_t key) {
+uint32_t loom_low_descriptor_set_lookup_descriptor_by_id(
+    const loom_low_descriptor_set_t* descriptor_set, uint64_t stable_id) {
   uint32_t low = 0;
   uint32_t high = descriptor_set->descriptor_ref_count;
   while (low < high) {
     const uint32_t mid = low + (high - low) / 2;
-    const loom_low_descriptor_ref_t* descriptor_ref =
-        &descriptor_set->descriptor_refs[mid];
-    iree_string_view_t descriptor_ref_key = loom_low_descriptor_set_string_view(
-        descriptor_set, descriptor_ref->key_string_ref);
-    const int comparison = iree_string_view_compare(descriptor_ref_key, key);
-    if (comparison == 0) {
-      return loom_low_descriptor_set_has_descriptor(
-                 descriptor_set, descriptor_ref->descriptor_ordinal)
-                 ? descriptor_ref->descriptor_ordinal
+    const uint32_t ordinal = descriptor_set->descriptor_refs[mid];
+    const uint64_t candidate_id =
+        descriptor_set->descriptors[ordinal].stable_id;
+    if (candidate_id == stable_id) {
+      return loom_low_descriptor_set_has_descriptor(descriptor_set, ordinal)
+                 ? ordinal
                  : LOOM_LOW_DESCRIPTOR_ORDINAL_NONE;
     }
-    if (comparison < 0) {
+    if (candidate_id < stable_id) {
       low = mid + 1;
     } else {
       high = mid;
     }
   }
   return LOOM_LOW_DESCRIPTOR_ORDINAL_NONE;
+}
+
+uint32_t loom_low_descriptor_set_lookup_descriptor(
+    const loom_low_descriptor_set_t* descriptor_set, iree_string_view_t key) {
+  const uint32_t ordinal = loom_low_descriptor_set_lookup_descriptor_by_id(
+      descriptor_set, loom_low_descriptor_stable_id_from_key(key));
+  if (ordinal == LOOM_LOW_DESCRIPTOR_ORDINAL_NONE) {
+    return ordinal;
+  }
+  const iree_string_view_t candidate_key = loom_low_descriptor_set_string_view(
+      descriptor_set, descriptor_set->descriptors[ordinal].key_string_ref);
+  return iree_string_view_equal(candidate_key, key)
+             ? ordinal
+             : LOOM_LOW_DESCRIPTOR_ORDINAL_NONE;
 }
 
 uint32_t loom_low_descriptor_set_lookup_asm_form(

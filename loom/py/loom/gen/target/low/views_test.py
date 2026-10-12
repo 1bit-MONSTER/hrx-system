@@ -19,11 +19,26 @@ from loom.gen.target.low.low_descriptors import (
     generate_descriptor_set,
     generate_descriptor_set_family,
 )
-from loom.target.low_descriptors import DescriptorSet, Hazard, HazardKind, PressureDelta
+from loom.target.low_descriptors import DescriptorSet, Hazard, HazardKind, PressureDelta, descriptor_stable_id
 from loom.target.test.descriptors import (
     TEST_LOW_ADD_I32_DESCRIPTOR,
+    TEST_LOW_CONST_I32_DESCRIPTOR,
     TEST_LOW_CORE_DESCRIPTOR_SET,
+    TEST_LOW_LOAD_V4I32_DESCRIPTOR,
 )
+
+
+@pytest.mark.parametrize("selected_ordinals", [(0,), (0, 1), (0, 2), (2, 0)])
+def test_descriptor_lookup_uses_the_view_ordinal_space(selected_ordinals) -> None:
+    storage = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(TEST_LOW_CONST_I32_DESCRIPTOR, TEST_LOW_ADD_I32_DESCRIPTOR, TEST_LOW_LOAD_V4I32_DESCRIPTOR))
+    compiled = compiler.compile_descriptor_set(storage)
+    spec = replace(storage, descriptors=tuple(storage.descriptors[ordinal] for ordinal in selected_ordinals))
+    view = views.descriptor_set_view_for_spec(compiled, spec)
+    lookup_descriptors = compiled.descriptors if view.uses_storage_descriptor_tables else view.descriptors
+    keys = [lookup_descriptors[ordinal].key for ordinal in view.descriptor_refs]
+    assert set(keys) == {descriptor.key for descriptor in spec.descriptors}
+    identities = [descriptor_stable_id(key) for key in keys]
+    assert identities == sorted(identities)
 
 
 def _view_spec() -> DescriptorSet:

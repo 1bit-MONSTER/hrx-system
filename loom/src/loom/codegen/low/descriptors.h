@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 // ABI version for descriptor sets consumed by this header.
-#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 57u
+#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 58u
 
 // Sentinel for absent target-family or descriptor-set stable IDs.
 #define LOOM_LOW_STABLE_ID_NONE UINT64_C(0)
@@ -1264,13 +1264,6 @@ typedef struct loom_low_operand_form_t {
   uint16_t match_count;
 } loom_low_operand_form_t;
 
-typedef struct loom_low_descriptor_ref_t {
-  // String-pool reference for the stable symbolic descriptor key.
-  loom_string_ref_t key_string_ref;
-  // Ordinal of the referenced descriptor row.
-  uint32_t descriptor_ordinal;
-} loom_low_descriptor_ref_t;
-
 // Encoding-equivalent physical form available to the target scheduler. Rows
 // are grouped by source descriptor ordinal and retain authored priority order.
 typedef struct loom_low_schedule_alternative_t {
@@ -1504,11 +1497,12 @@ typedef struct loom_low_descriptor_set_t {
   uint32_t descriptor_count;
   // Exclusive upper bound of descriptor ordinals addressable by this view.
   uint32_t descriptor_ordinal_count;
-  // Sorted symbolic descriptor-key reference rows. Shared backing storage may
-  // include references to descriptors outside the view; lookup filters those
-  // rows through |descriptor_membership_words|.
-  const loom_low_descriptor_ref_t* descriptor_refs;
-  // Number of symbolic descriptor-key reference rows in backing storage.
+  // Descriptor ordinals ordered by the referenced row's stable_id. Shared
+  // backing storage may include descriptors outside the view; lookup filters
+  // those ordinals through |descriptor_membership_words|. Generation rejects
+  // distinct keys with the same stable identity.
+  const uint32_t* descriptor_refs;
+  // Number of descriptor ordinal references in backing storage.
   uint32_t descriptor_ref_count;
   // Sparse encoding-equivalent physical forms available during scheduling.
   const loom_low_schedule_alternative_t* schedule_alternatives;
@@ -2081,9 +2075,18 @@ iree_string_view_t loom_low_hazard_reference_kind_name(
     loom_low_hazard_reference_kind_t kind);
 
 // Resolves a symbolic descriptor key to an ordinal in |descriptor_set|, or
-// returns LOOM_LOW_DESCRIPTOR_ORDINAL_NONE when no descriptor matches.
+// returns LOOM_LOW_DESCRIPTOR_ORDINAL_NONE when no visible descriptor matches.
+// Exact spelling is checked after stable-ID lookup so arbitrary textual input
+// cannot alias a registered descriptor through a hash collision.
 uint32_t loom_low_descriptor_set_lookup_descriptor(
     const loom_low_descriptor_set_t* descriptor_set, iree_string_view_t key);
+
+// Resolves an existing stable descriptor identity to a visible ordinal in
+// |descriptor_set|, or LOOM_LOW_DESCRIPTOR_ORDINAL_NONE when absent. Generated
+// references and descriptors retain these identities across different views;
+// descriptor storage ordinals are specific to each set.
+uint32_t loom_low_descriptor_set_lookup_descriptor_by_id(
+    const loom_low_descriptor_set_t* descriptor_set, uint64_t stable_id);
 
 // Resolves an unqualified asm mnemonic to an asm form ordinal in
 // |descriptor_set|, or returns LOOM_LOW_ASM_FORM_ORDINAL_NONE when no mnemonic
