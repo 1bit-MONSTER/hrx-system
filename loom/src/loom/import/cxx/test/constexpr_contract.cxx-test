@@ -1,0 +1,168 @@
+// RUN: pass canonicalize,cse,dce
+// A config-derived scalar remains an explicit specialization requirement.
+[[loom::config("schedule.tile")]] extern const unsigned tile;
+unsigned configured_tile() {
+  [[loom::constexpr]] const unsigned width = tile + 1u;
+  return width;
+}
+
+// ----
+config.decl @schedule.tile : i32
+
+func.def public @configured_tile() -> (i32) {
+  %tile = config.get @schedule.tile : i32
+  %3 = scalar.constant 1 : i32
+  %4 = scalar.addi %tile, %3 : i32
+  %width = scalar.constexpr %4 : i32
+  func.return %width : i32
+}
+
+// ====
+// Address-domain values use the matching index contract.
+#include <loomcxx/index.h>
+[[loom::config("schedule.count")]] extern const unsigned configured_count;
+loom::type::index configured_index() {
+  [[loom::constexpr]] const auto count =
+      loom::index::cast(configured_count);
+  return count;
+}
+
+// ----
+config.decl @schedule.count : i32
+
+func.def public @configured_index() -> (index) {
+  %configured_count = config.get @schedule.count : i32
+  %3 = scalar.extui %configured_count : i32 to i64
+  %4 = index.cast %3 : i64 to index
+  %count = index.constexpr %4 : index
+  func.return %count : index
+}
+
+// ====
+// Condition declarations retain the same required-specialization contract.
+[[loom::config("schedule.enabled")]] extern const bool enabled;
+unsigned configured_condition(unsigned value) {
+  if ([[loom::constexpr]] const bool selected = enabled) return value + 1u;
+  return value;
+}
+
+// ----
+config.decl @schedule.enabled : i1
+
+func.def public @configured_condition(%value: i32) -> (i32) {
+  %enabled = config.get @schedule.enabled : i1
+  %selected = scalar.constexpr %enabled : i1
+  %6 = scalar.constant 1 : i32
+  %7 = scalar.addi %value, %6 : i32
+  %8 = scf.select %selected, %7, %value : i32
+  func.return %8 : i32
+}
+
+// ====
+// Loop condition declarations recreate the binding on every iteration, so
+// both the preheader value and recurrence retain the specialization contract.
+unsigned specialized_loop(unsigned value) {
+  while ([[loom::constexpr]] const bool selected = value != 0u) {
+    --value;
+  }
+  return value;
+}
+
+// ----
+func.def public @specialized_loop(%value$0: i32) -> (i32) {
+  %2 = scalar.constant 0 : i32
+  %3 = scalar.cmpi ne, %value$0, %2 : i32
+  %selected$4 = scalar.constexpr %3 : i1
+  %value$9, %selected$10 = scf.while(%value = %value$0 : i32, %selected = %selected$4 : i1) -> (i32, i1) {
+    scf.condition %selected, %value, %selected : i1, i32, i1
+  } do(%value$7: i32, %selected$8: i1) {
+    %16 = scalar.constant -1 : i32
+    %value$17 = scalar.addi %value$7, %16 : i32
+    %14 = scalar.cmpi ne, %value$17, %2 : i32
+    %selected$15 = scalar.constexpr %14 : i1
+    scf.yield %value$17, %selected$15 : i32, i1
+  }
+  func.return %value$9 : i32
+}
+
+// ====
+// Numeric payload families preserve their native Loom scalar types.
+enum class Policy : unsigned char { fast = 2 };
+[[loom::config("schedule.scale")]] extern const float scale;
+[[loom::config("schedule.policy")]] extern const Policy policy;
+float configured_scale() {
+  [[loom::constexpr]] const float selected = scale;
+  return selected;
+}
+Policy configured_policy() {
+  [[loom::constexpr]] const Policy selected = policy;
+  return selected;
+}
+
+// ----
+config.decl @schedule.scale : f32
+
+config.decl @schedule.policy : i8
+
+func.def public @configured_scale() -> (f32) {
+  %scale = config.get @schedule.scale : f32
+  %selected = scalar.constexpr %scale : f32
+  func.return %selected : f32
+}
+
+func.def public @configured_policy() -> (i8) {
+  %policy = config.get @schedule.policy : i8
+  %selected = scalar.constexpr %policy : i8
+  func.return %selected : i8
+}
+
+// ====
+// One declaration contract applies independently to every declarator.
+unsigned multiple(unsigned left, unsigned right) {
+  [[loom::constexpr]] const unsigned first = left, second = right;
+  return first + second;
+}
+
+// ----
+func.def public @multiple(%left: i32, %right: i32) -> (i32) {
+  %first = scalar.constexpr %left : i32
+  %second = scalar.constexpr %right : i32
+  %5 = scalar.addi %first, %second : i32
+  func.return %5 : i32
+}
+
+// ====
+// Exact config definitions and ordinary C++ constexpr values erase to normal
+// constants through the same configured canonicalizer.
+[[loom::config("schedule.exact")]] const unsigned exact = 8u;
+unsigned exact_values() {
+  [[loom::constexpr]] const unsigned configured = exact + 1u;
+  [[loom::constexpr]] constexpr unsigned source = 4u;
+  return configured + source;
+}
+
+// ----
+config.def @schedule.exact = 8 : i32
+
+func.def public @exact_values() -> (i32) {
+  %9 = scalar.constant 13 : i32
+  func.return %9 : i32
+}
+
+// ====
+// C23 uses the same leading declaration attribute contract.
+// INPUT: cxx std=c23
+[[loom::config("schedule.c23")]] extern const unsigned tile;
+unsigned configured_c23(void) {
+  [[loom::constexpr]] const unsigned width = tile;
+  return width;
+}
+
+// ----
+config.decl @schedule.c23 : i32
+
+func.def public @configured_c23() -> (i32) {
+  %tile = config.get @schedule.c23 : i32
+  %width = scalar.constexpr %tile : i32
+  func.return %width : i32
+}

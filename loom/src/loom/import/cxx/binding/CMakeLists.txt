@@ -272,6 +272,34 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_cc_library(
   NAME
+    constexpr
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "constexpr.h"
+  SRCS
+    "constexpr.cc"
+  DEPS
+    iree::third_party::cxx_parser
+    loom::import::cxx::source
+    loom::import::cxx::source::attributes
+    loom::import::cxx::source::error
+    loom::import::cxx::source::locations
+    loom::import::cxx::value::types
+    loom::ir
+    loom::ops::index
+    loom::ops::op_defs
+    loom::ops::scalar
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
     constant_attributes
   CXX_STANDARD
     23

@@ -29,6 +29,7 @@
 #include "iree/base/api.h"
 #include "loom/import/cxx/binding/assumptions.h"
 #include "loom/import/cxx/binding/config.h"
+#include "loom/import/cxx/binding/constexpr.h"
 #include "loom/import/cxx/binding/function_contracts.h"
 #include "loom/import/cxx/binding/intrinsics.h"
 #include "loom/import/cxx/binding/launch.h"
@@ -445,8 +446,20 @@ class Translator final : private Initialization::Evaluation {
     return storage_.project(locals_.at(symbol).pointer, symbol->type(), owner);
   }
 
+  Value apply_constexpr_contract(Value value, ConstexprContract contract) {
+    if (!contract) {
+      return value;
+    }
+    auto required = cxx_import::apply_constexpr_contract(contract, value.ssa(),
+                                                         locations_, &builder_);
+    std::array<loom_value_id_t, 1> components = {required};
+    return value_arena_.capture(value.partition(), components);
+  }
+
   void initialize_variable(cxx::VariableSymbol* variable,
-                           cxx::ExpressionAST* initializer, cxx::AST* owner) {
+                           cxx::ExpressionAST* initializer,
+                           ConstexprContract constexpr_contract,
+                           cxx::AST* owner) {
     if (unit_.typeTraits().is_array(variable->type()) ||
         control_->addressed(variable) ||
         unit_.typeTraits().is_volatile(variable->type())) {
@@ -463,25 +476,32 @@ class Translator final : private Initialization::Evaluation {
     }
     types_.partition(variable->type(), owner);
     types_.admit_copy(variable->constructor(), variable->type(), owner);
-    values_[variable] =
-        name(expression(initializer), cxx::to_string(variable->name()));
+    auto value =
+        apply_constexpr_contract(expression(initializer), constexpr_contract);
+    values_[variable] = name(value, cxx::to_string(variable->name()));
   }
 
-  void initialize_condition(cxx::ExpressionAST* expression) {
+  ConstexprContract initialize_condition(cxx::ExpressionAST* expression) {
     auto* declaration = condition_declaration(expression);
     if (!declaration) {
-      return;
+      return {};
     }
     auto* variable = declaration->symbol;
-    reject_misplaced_binding_attributes(unit_, diagnostics_,
-                                        declaration->attributeList);
+    reject_misplaced_binding_attributes(
+        unit_, diagnostics_, declaration->attributeList,
+        BindingAttributeScope::LocalDeclaration);
     reject_misplaced_binding_declarator(unit_, diagnostics_,
                                         declaration->declarator);
+    auto constexpr_contract = admit_constexpr_contract(
+        unit_, diagnostics_, types_, declaration->attributeList, variable,
+        control_->addressed(variable), declaration);
     if (variable->isStatic() || variable->isExtern() ||
         variable->isThreadLocal()) {
       fail(declaration, "condition storage duration must be automatic");
     }
-    initialize_variable(variable, declaration->initializer, declaration);
+    initialize_variable(variable, declaration->initializer, constexpr_contract,
+                        declaration);
+    return constexpr_contract;
   }
 
   // Source-selected branches are transparent to every statement/exit path.
@@ -1634,16 +1654,24 @@ class Translator final : private Initialization::Evaluation {
       if (!simple) {
         fail(ast, "unsupported local declaration");
       }
-      reject_misplaced_binding_attributes(unit_, diagnostics_,
-                                          simple->attributeList);
+      reject_misplaced_binding_attributes(
+          unit_, diagnostics_, simple->attributeList,
+          BindingAttributeScope::LocalDeclaration);
+      if (!simple->initDeclaratorList) {
+        admit_constexpr_contract(unit_, diagnostics_, types_,
+                                 simple->attributeList, nullptr, false, simple);
+      }
       for (auto* variable : cxx::ListView{simple->initDeclaratorList}) {
         reject_misplaced_binding_declarator(unit_, diagnostics_,
                                             variable->declarator);
+        auto* source_variable =
+            cxx::symbol_cast<cxx::VariableSymbol>(variable->symbol);
+        auto constexpr_contract = admit_constexpr_contract(
+            unit_, diagnostics_, types_, simple->attributeList, source_variable,
+            source_variable && control_->addressed(source_variable), variable);
         if (cxx::symbol_cast<cxx::TypeAliasSymbol>(variable->symbol)) {
           continue;
         }
-        auto* source_variable =
-            cxx::symbol_cast<cxx::VariableSymbol>(variable->symbol);
         if (!source_variable || source_variable->isStatic() ||
             source_variable->isExtern() || source_variable->isThreadLocal()) {
           fail(ast, "local storage duration must be automatic or __shared__");
@@ -1674,7 +1702,8 @@ class Translator final : private Initialization::Evaluation {
           name(allocation.view, spelling + "_view");
           continue;
         }
-        initialize_variable(source_variable, variable->initializer, variable);
+        initialize_variable(source_variable, variable->initializer,
+                            constexpr_contract, variable);
       }
       return;
     }
@@ -1778,7 +1807,7 @@ class Translator final : private Initialization::Evaluation {
                         LoopTest test) {
     auto* declaration = condition_declaration(condition_expression);
     auto* decision = declaration ? declaration->symbol : nullptr;
-    initialize_condition(declaration);
+    auto constexpr_contract = initialize_condition(declaration);
     auto written = live_mutations(ast);
     if (decision && values_.contains(decision)) {
       std::erase(written, decision);
@@ -1817,7 +1846,8 @@ class Translator final : private Initialization::Evaluation {
     // A decision object is recreated after the body and for-loop increment.
     // The preheader supplied its first value, so every check sees a real value.
     if (decision) {
-      auto value = expression(declaration->initializer);
+      auto value = apply_constexpr_contract(
+          expression(declaration->initializer), constexpr_contract);
       if (auto found = locals_.find(decision); found != locals_.end()) {
         storage_.store({found->second.view, std::nullopt}, value.ssa(),
                        decision->type(), ast);

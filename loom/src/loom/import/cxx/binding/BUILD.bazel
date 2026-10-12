@@ -188,6 +188,26 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "constexpr",
+    srcs = ["constexpr.cc"],
+    hdrs = ["constexpr.h"],
+    cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
+    cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
+    deps = [
+        "//loom/src/loom/import/cxx/source",
+        "//loom/src/loom/import/cxx/source:attributes",
+        "//loom/src/loom/import/cxx/source:error",
+        "//loom/src/loom/import/cxx/source:locations",
+        "//loom/src/loom/import/cxx/value:types",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/scalar",
+        "//third_party:cxx_parser",
+    ],
+)
+
+loom_cc_library(
     name = "constant_attributes",
     srcs = ["constant_attributes.cc"],
     hdrs = ["constant_attributes.h"],

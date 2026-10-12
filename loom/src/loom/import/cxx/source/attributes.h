@@ -40,9 +40,16 @@ inline const cxx::Attribute* annotation(cxx::Symbol* symbol,
   return nullptr;
 }
 
-// Source positions with distinct binding owners. Declaration bindings own
-// namespace-scope symbols/configs; parameter bindings own entry preconditions.
-enum class BindingAttributeScope { Declaration, Function, Parameter, Local };
+// Source positions with distinct binding owners. Namespace declarations,
+// function prototypes, parameters and automatic declarations each admit their
+// own leading attributes; all other source positions are local and unowned.
+enum class BindingAttributeScope {
+  Declaration,
+  Function,
+  Parameter,
+  LocalDeclaration,
+  Local,
+};
 
 // Rejects binding annotations outside their owning source positions.
 void reject_misplaced_binding_attributes(
