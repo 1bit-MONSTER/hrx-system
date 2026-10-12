@@ -4324,6 +4324,14 @@ def _clampf_fallback_recipe_rules() -> tuple[RecipeRule, ...]:
             ),
             ("number", ("amdgpu.v_max_f32", "amdgpu.v_min_f32")),
         ):
+            fastmath_guards = (
+                (
+                    Guard.instance_flags_has_all("fastmath", "nnan"),
+                    Guard.instance_flags_has_all("fastmath", "nsz"),
+                )
+                if mode == "number"
+                else ()
+            )
             rules.append(
                 RecipeRule(
                     source_op=source_op,
@@ -4332,6 +4340,7 @@ def _clampf_fallback_recipe_rules() -> tuple[RecipeRule, ...]:
                         *_typed_guards(
                             ("value", "lower", "upper", "result"), type_pattern
                         ),
+                        *fastmath_guards,
                         *(
                             Guard.descriptor_available(_descriptor(key))
                             for key in descriptor_keys

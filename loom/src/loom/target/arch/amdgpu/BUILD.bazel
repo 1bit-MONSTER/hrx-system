@@ -387,6 +387,7 @@ loom_cc_library(
         "//loom/src/loom/transforms/vector:packet_legalization",
         "//loom/src/loom/transforms/vector:shape_legalization",
         "//loom/src/loom/transforms/vector:table_legalization",
+        "//loom/src/loom/transforms/vector:target_legalization",
         "//loom/src/loom/transforms/vector:to_scalar",
         "//loom/src/loom/transforms/view:atomic",
         "//runtime/src/iree/base",
@@ -562,11 +563,11 @@ loom_check_test_suite(
             "//loom/target/amdgpu:" + target
             for target in LOOM_AMDGPU_SUPPORTED_TARGETS
         ],
-        "test/source_low/memory_float64_carrier.loom-test": [
+        "test/source_low/immutable_storage.loom-test": [
             "//loom/target/amdgpu:" + target
             for target in LOOM_AMDGPU_SUPPORTED_TARGETS
         ],
-        "test/source_low/immutable_storage.loom-test": [
+        "test/source_low/memory_float64_carrier.loom-test": [
             "//loom/target/amdgpu:" + target
             for target in LOOM_AMDGPU_SUPPORTED_TARGETS
         ],

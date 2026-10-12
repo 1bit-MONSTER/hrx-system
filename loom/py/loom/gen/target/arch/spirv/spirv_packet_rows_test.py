@@ -56,6 +56,7 @@ from loom.target.arch.spirv.ordinary_vector_conversion import (
 )
 from loom.target.arch.spirv.ordinary_vector_float import (
     ORDINARY_VECTOR_FLOAT_BINARY_INSTRUCTIONS,
+    ORDINARY_VECTOR_FLOAT_COMPARE_INSTRUCTIONS,
     ORDINARY_VECTOR_FLOAT_SCALE_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.ordinary_vector_integer import (
@@ -64,6 +65,8 @@ from loom.target.arch.spirv.ordinary_vector_integer import (
 from loom.target.arch.spirv.scalar_alu import (
     BOOLEAN_BINARY_OPERATIONS,
     BOOLEAN_CONSTANTS,
+    FLOAT_COMPARE_PREDICATES,
+    FLOAT_COMPARE_TYPES,
     INTEGER_BITWISE_BINARY_OPERATIONS,
     INTEGER_SCALAR_ALU_TYPE_PAIRS,
     SIGNED_INTEGER_COMPARE_PREDICATES,
@@ -586,18 +589,31 @@ def test_generation_emits_complete_integer_boolean_packet_matrix() -> None:
         select_descriptor = _descriptor(select_descriptor_key)
         assert select_descriptor.feature_mask_words == expected_feature_mask
 
+    for compare_type in FLOAT_COMPARE_TYPES:
+        scalar = compare_type.scalar
+        expected_feature_mask = (compare_type.feature_bits,)
+        for predicate in FLOAT_COMPARE_PREDICATES:
+            descriptor_key = f"spirv.op_{predicate.descriptor_suffix}.{scalar.suffix}"
+            compare_row = _packet_row(descriptor_key)
+            assert compare_row.opcode == predicate.opcode
+            assert sum(scalar.scalar_enum in value_type for value_type in _packet_value_types(compare_row)) == 2
+            descriptor = _descriptor(descriptor_key)
+            assert descriptor.feature_mask_words == expected_feature_mask
+
     bool_select_row = _packet_row("spirv.op_select.bool")
     assert sum("LOOM_SPIRV_VALUE_CLASS_BOOL" in value_type for value_type in _packet_value_types(bool_select_row)) == 4
     assert _descriptor("spirv.op_select.bool").feature_mask_words == ()
 
 
-def test_generation_emits_integer_compare_and_select_rows() -> None:
+def test_generation_emits_compare_and_select_rows() -> None:
     tables = generate_tables()
 
     assert "SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_S_LESS_THAN_I32" in tables
     assert "SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_S_GREATER_THAN_I64" in tables
     assert "SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_U_LESS_THAN_U8" in tables
     assert "SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_U_LESS_THAN_EQUAL_OFFSET64" in tables
+    assert "SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_F_ORD_LESS_THAN_F32" in tables
+    assert "SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_UNORDERED_F64" in tables
     assert "SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_SELECT_F32" in tables
     assert "SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_SELECT_I64" in tables
     assert "SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_SELECT_I32" in tables
@@ -777,6 +793,11 @@ def test_floating_packets_preserve_operation_rounding() -> None:
                 )
     expected_keys.update(("spirv.op_f_convert.bf16.f32", "spirv.op_f_convert.f32.bf16"))
     assert {key for key, row in rows.items() if row.no_contraction} == expected_keys
+
+
+def test_generation_emits_complete_ordinary_vector_float_comparisons() -> None:
+    assert len(ORDINARY_VECTOR_FLOAT_COMPARE_INSTRUCTIONS) == 126
+    _assert_generated_ordinary_vector_instructions(ORDINARY_VECTOR_FLOAT_COMPARE_INSTRUCTIONS)
 
 
 def test_vector_scale_rows_keep_the_scalar_operand_type() -> None:

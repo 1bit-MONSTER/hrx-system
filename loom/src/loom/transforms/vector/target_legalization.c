@@ -815,7 +815,7 @@ static bool loom_vector_legalize_f32_aggregate_is_supported(
          loom_target_legalization_op_has_source_vector_carriers(context, op);
 }
 
-static iree_status_t loom_vector_legalize_f32_extrema(
+iree_status_t loom_vector_legalize_f32_extrema(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result) {

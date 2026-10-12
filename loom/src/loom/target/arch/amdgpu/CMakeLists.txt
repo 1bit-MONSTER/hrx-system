@@ -358,6 +358,7 @@ loom_cc_library(
     loom::transforms::vector::packet_legalization
     loom::transforms::vector::shape_legalization
     loom::transforms::vector::table_legalization
+    loom::transforms::vector::target_legalization
     loom::transforms::vector::to_scalar
     loom::transforms::view::atomic
   PUBLIC
@@ -622,9 +623,9 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU)
 loom_check_compile_tests(
   NAME
-    "memory_float64_carrier"
+    "immutable_storage"
   SRC
-    "test/source_low/memory_float64_carrier.loom-test"
+    "test/source_low/immutable_storage.loom-test"
   REGISTERED_SRCS
     "${_GLOB_TEST_SOURCE_LOW_X_LOOM_TEST_BE73FC6D}"
   TARGETS
@@ -658,9 +659,9 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU)
 loom_check_compile_tests(
   NAME
-    "immutable_storage"
+    "memory_float64_carrier"
   SRC
-    "test/source_low/immutable_storage.loom-test"
+    "test/source_low/memory_float64_carrier.loom-test"
   REGISTERED_SRCS
     "${_GLOB_TEST_SOURCE_LOW_X_LOOM_TEST_BE73FC6D}"
   TARGETS

@@ -11,7 +11,9 @@
 #include "loom/ops/vector/ops.h"
 #include "loom/rewrite/rewriter.h"
 #include "loom/target/arch/spirv/descriptors/descriptors.h"
+#include "loom/target/arch/spirv/features.h"
 #include "loom/transforms/scalar/target_legalization.h"
+#include "loom/transforms/vector/target_legalization.h"
 #include "loom/transforms/vector/to_scalar.h"
 
 static bool loom_spirv_legalizer_descriptor_set_is_spirv(
@@ -19,6 +21,24 @@ static bool loom_spirv_legalizer_descriptor_set_is_spirv(
   return descriptor_set != NULL &&
          descriptor_set->target_stable_id ==
              loom_spirv_logical_core_descriptor_set()->target_stable_id;
+}
+
+static bool loom_spirv_match_exact_f32_extrema(
+    const loom_target_legalizer_entry_t* entry,
+    const loom_target_legalization_context_t* context, const loom_op_t* op) {
+  (void)entry;
+  (void)op;
+  if (!loom_spirv_legalizer_descriptor_set_is_spirv(context->descriptor_set)) {
+    return false;
+  }
+  const loom_target_bundle_t* bundle =
+      loom_target_legalization_context_bundle(context);
+  const uint64_t required_features =
+      LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE |
+      LOOM_SPIRV_FEATURE_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE;
+  return bundle != NULL && bundle->config != NULL &&
+         iree_all_bits_set(bundle->config->contract_feature_bits,
+                           required_features);
 }
 
 static iree_status_t loom_spirv_legalize_vector_to_scalar(
@@ -69,6 +89,66 @@ static const loom_target_legalizer_rule_t kSpirvLegalizerRules[] = {
             LOOM_SCALAR_TYPE_SET_F8E4M3 | LOOM_SCALAR_TYPE_SET_F8E5M2,
         .match = loom_scalar_match_float8_to_bfloat_extension,
         .legalize = loom_spirv_legalize_float8_to_bfloat_extension,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_CLAMPF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .match = loom_spirv_match_exact_f32_extrema,
+        .legalize = loom_scalar_legalize_f32_clamp,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MINNUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .match = loom_spirv_match_exact_f32_extrema,
+        .legalize = loom_scalar_legalize_f32_number_extremum,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MAXNUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .match = loom_spirv_match_exact_f32_extrema,
+        .legalize = loom_scalar_legalize_f32_number_extremum,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MINIMUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .match = loom_spirv_match_exact_f32_extrema,
+        .legalize = loom_scalar_legalize_ieee_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MAXIMUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .match = loom_spirv_match_exact_f32_extrema,
+        .legalize = loom_scalar_legalize_ieee_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_CLAMPF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .match = loom_spirv_match_exact_f32_extrema,
+        .legalize = loom_vector_legalize_f32_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MINNUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .match = loom_spirv_match_exact_f32_extrema,
+        .legalize = loom_vector_legalize_f32_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MAXNUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .match = loom_spirv_match_exact_f32_extrema,
+        .legalize = loom_vector_legalize_f32_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MINIMUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .match = loom_spirv_match_exact_f32_extrema,
+        .legalize = loom_vector_legalize_f32_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MAXIMUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .match = loom_spirv_match_exact_f32_extrema,
+        .legalize = loom_vector_legalize_f32_extrema,
     },
     {
         .root_kind = LOOM_OP_VECTOR_LOAD,

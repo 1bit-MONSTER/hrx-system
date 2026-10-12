@@ -224,54 +224,144 @@ low.func.def target<amdgpu.rdna4m.core>(@target) abi(hal_kernel) @scalar_f32_cla
 
 amdgpu.target<gfx1100> @target
 
-func.def target(@target) @scalar_f32_clamp_fallbacks(%value: f32, %lower: f32, %upper: f32) -> (f32, f32) {
+func.def target(@target) @scalar_f32_clamp_fallbacks(%value: f32, %lower: f32, %upper: f32) -> (f32, f32, f32, f32) {
   %ordered = scalar.clampf<ordered> %value, %lower, %upper : f32
+  %relaxed_number = scalar.clampf<number, nnan|nsz> %value, %lower, %upper : f32
   %number = scalar.clampf<number> %value, %lower, %upper : f32
-  func.return %ordered, %number : f32, f32
+  %ieee = scalar.clampf<ieee> %value, %lower, %upper : f32
+  func.return %ordered, %relaxed_number, %number, %ieee : f32, f32, f32, f32
 }
 
 // ----
-low.func.def target<amdgpu.rdna3.core>(@target) abi(hal_kernel) @scalar_f32_clamp_fallbacks(%value: reg<amdgpu.vgpr>, %lower: reg<amdgpu.vgpr>, %upper: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
-  %12 = v_cmp_lt_f32 %value, %lower
-  %13 = v_cndmask_b32 %value, %lower, %12
-  %14 = v_cmp_gt_f32 %13, %upper
-  %ordered = v_cndmask_b32 %13, %upper, %14
-  %16 = v_max_f32 %value, %lower
-  %number = v_min_f32 %16, %upper
-  return %ordered, %number
+low.func.def target<amdgpu.rdna3.core>(@target) abi(hal_kernel) @scalar_f32_clamp_fallbacks(%value: reg<amdgpu.vgpr>, %lower: reg<amdgpu.vgpr>, %upper: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %52 = v_cmp_lt_f32 %value, %lower
+  %53 = v_cndmask_b32 %value, %lower, %52
+  %54 = v_cmp_gt_f32 %53, %upper
+  %ordered = v_cndmask_b32 %53, %upper, %54
+  %56 = v_max_f32 %value, %lower
+  %relaxed_number = v_min_f32 %56, %upper
+  %58 = v_and_b32 %value, %lower
+  %59 = v_cmp_gt_f32 %value, %lower
+  %60 = v_cmp_gt_f32 %lower, %value
+  %61 = v_cndmask_b32 %58, %lower, %60
+  %62 = v_cndmask_b32 %61, %value, %59
+  %63 = v_cmp_neq_f32 %value, %value
+  %64 = v_cmp_neq_f32 %lower, %lower
+  %65 = v_cndmask_b32 %62, %value, %64
+  %66 = v_cndmask_b32 %65, %lower, %63
+  %67 = v_or_b32 %66, %upper
+  %68 = v_cmp_lt_f32 %66, %upper
+  %69 = v_cmp_lt_f32 %upper, %66
+  %70 = v_cndmask_b32 %67, %upper, %69
+  %71 = v_cndmask_b32 %70, %66, %68
+  %72 = v_cmp_neq_f32 %66, %66
+  %73 = v_cmp_neq_f32 %upper, %upper
+  %74 = v_cndmask_b32 %71, %66, %73
+  %number = v_cndmask_b32 %74, %upper, %72
+  %76 = v_max_f32 %value, %value
+  %77 = v_max_f32 %lower, %lower
+  %78 = v_max_f32 %76, %77
+  %79 = v_cmp_u_f32 %value, %lower
+  %81 = v_cndmask_b32_src1_lit %78, %79, 2143289344
+  %82 = v_max_f32 %81, %81
+  %83 = v_max_f32 %upper, %upper
+  %84 = v_min_f32 %82, %83
+  %85 = v_cmp_u_f32 %81, %upper
+  %ieee = v_cndmask_b32_src1_lit %84, %85, 2143289344
+  return %ordered, %relaxed_number, %number, %ieee
 }
 
 // ====
 
 amdgpu.target<gfx1100> @target
 
-func.def target(@target) @vector_f32_clamp_fallbacks(%value: vector<2xf32>, %lower: vector<2xf32>, %upper: vector<2xf32>) -> (vector<2xf32>, vector<2xf32>) {
+func.def target(@target) @vector_f32_clamp_fallbacks(%value: vector<2xf32>, %lower: vector<2xf32>, %upper: vector<2xf32>) -> (vector<2xf32>, vector<2xf32>, vector<2xf32>, vector<2xf32>) {
   %ordered = vector.clampf<ordered> %value, %lower, %upper : vector<2xf32>
+  %relaxed_number = vector.clampf<number, nnan|nsz> %value, %lower, %upper : vector<2xf32>
   %number = vector.clampf<number> %value, %lower, %upper : vector<2xf32>
-  func.return %ordered, %number : vector<2xf32>, vector<2xf32>
+  %ieee = vector.clampf<ieee> %value, %lower, %upper : vector<2xf32>
+  func.return %ordered, %relaxed_number, %number, %ieee : vector<2xf32>, vector<2xf32>, vector<2xf32>, vector<2xf32>
 }
 
 // ----
-low.func.def target<amdgpu.rdna3.core>(@target) abi(hal_kernel) @vector_f32_clamp_fallbacks(%value: reg<amdgpu.vgpr x2>, %lower: reg<amdgpu.vgpr x2>, %upper: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
-  %12 = slice %value[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %13 = slice %lower[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %14 = slice %upper[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %15 = v_cmp_lt_f32 %12, %13
-  %16 = v_cndmask_b32 %12, %13, %15
-  %17 = v_cmp_gt_f32 %16, %14
-  %18 = v_cndmask_b32 %16, %14, %17
-  %19 = slice %value[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %20 = slice %lower[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %21 = slice %upper[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %22 = v_cmp_lt_f32 %19, %20
-  %23 = v_cndmask_b32 %19, %20, %22
-  %24 = v_cmp_gt_f32 %23, %21
-  %25 = v_cndmask_b32 %23, %21, %24
-  %ordered = concat(%18, %25) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %29 = v_max_f32 %12, %13
-  %31 = v_min_f32 %29, %14
-  %34 = v_max_f32 %19, %20
-  %36 = v_min_f32 %34, %21
-  %number = concat(%31, %36) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  return %ordered, %number
+low.func.def target<amdgpu.rdna3.core>(@target) abi(hal_kernel) @vector_f32_clamp_fallbacks(%value: reg<amdgpu.vgpr x2>, %lower: reg<amdgpu.vgpr x2>, %upper: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %52 = slice %value[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %53 = slice %lower[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %54 = slice %upper[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %55 = v_cmp_lt_f32 %52, %53
+  %56 = v_cndmask_b32 %52, %53, %55
+  %57 = v_cmp_gt_f32 %56, %54
+  %58 = v_cndmask_b32 %56, %54, %57
+  %59 = slice %value[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %60 = slice %lower[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %61 = slice %upper[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %62 = v_cmp_lt_f32 %59, %60
+  %63 = v_cndmask_b32 %59, %60, %62
+  %64 = v_cmp_gt_f32 %63, %61
+  %65 = v_cndmask_b32 %63, %61, %64
+  %ordered = concat(%58, %65) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %69 = v_max_f32 %52, %53
+  %71 = v_min_f32 %69, %54
+  %74 = v_max_f32 %59, %60
+  %76 = v_min_f32 %74, %61
+  %relaxed_number = concat(%71, %76) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %80 = v_and_b32 %52, %53
+  %83 = v_and_b32 %59, %60
+  %87 = v_cmp_gt_f32 %52, %53
+  %90 = v_cmp_gt_f32 %59, %60
+  %94 = v_cmp_gt_f32 %53, %52
+  %97 = v_cmp_gt_f32 %60, %59
+  %102 = v_cndmask_b32 %80, %53, %94
+  %106 = v_cndmask_b32 %83, %60, %97
+  %111 = v_cndmask_b32 %102, %52, %87
+  %115 = v_cndmask_b32 %106, %59, %90
+  %119 = v_cmp_neq_f32 %52, %52
+  %122 = v_cmp_neq_f32 %59, %59
+  %126 = v_cmp_neq_f32 %53, %53
+  %129 = v_cmp_neq_f32 %60, %60
+  %134 = v_cndmask_b32 %111, %52, %126
+  %138 = v_cndmask_b32 %115, %59, %129
+  %143 = v_cndmask_b32 %134, %53, %119
+  %147 = v_cndmask_b32 %138, %60, %122
+  %151 = v_or_b32 %143, %54
+  %154 = v_or_b32 %147, %61
+  %158 = v_cmp_lt_f32 %143, %54
+  %161 = v_cmp_lt_f32 %147, %61
+  %165 = v_cmp_lt_f32 %54, %143
+  %168 = v_cmp_lt_f32 %61, %147
+  %173 = v_cndmask_b32 %151, %54, %165
+  %177 = v_cndmask_b32 %154, %61, %168
+  %182 = v_cndmask_b32 %173, %143, %158
+  %186 = v_cndmask_b32 %177, %147, %161
+  %190 = v_cmp_neq_f32 %143, %143
+  %193 = v_cmp_neq_f32 %147, %147
+  %197 = v_cmp_neq_f32 %54, %54
+  %200 = v_cmp_neq_f32 %61, %61
+  %205 = v_cndmask_b32 %182, %143, %197
+  %209 = v_cndmask_b32 %186, %147, %200
+  %214 = v_cndmask_b32 %205, %54, %190
+  %218 = v_cndmask_b32 %209, %61, %193
+  %number = concat(%214, %218) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %222 = v_max_f32 %52, %52
+  %225 = v_max_f32 %59, %59
+  %229 = v_max_f32 %53, %53
+  %232 = v_max_f32 %60, %60
+  %236 = v_max_f32 %222, %229
+  %239 = v_max_f32 %225, %232
+  %243 = v_cmp_u_f32 %52, %53
+  %246 = v_cmp_u_f32 %59, %60
+  %253 = v_cndmask_b32_src1_lit %236, %243, 2143289344
+  %256 = v_cndmask_b32_src1_lit %239, %246, 2143289344
+  %260 = v_max_f32 %253, %253
+  %263 = v_max_f32 %256, %256
+  %267 = v_max_f32 %54, %54
+  %270 = v_max_f32 %61, %61
+  %274 = v_min_f32 %260, %267
+  %277 = v_min_f32 %263, %270
+  %281 = v_cmp_u_f32 %253, %54
+  %284 = v_cmp_u_f32 %256, %61
+  %288 = v_cndmask_b32_src1_lit %274, %281, 2143289344
+  %291 = v_cndmask_b32_src1_lit %277, %284, 2143289344
+  %ieee = concat(%288, %291) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  return %ordered, %relaxed_number, %number, %ieee
 }

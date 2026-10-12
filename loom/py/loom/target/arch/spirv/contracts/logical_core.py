@@ -92,6 +92,9 @@ from loom.target.arch.spirv.contracts.memory import (
 from loom.target.arch.spirv.contracts.ordinary_vector import (
     SPIRV_ORDINARY_VECTOR_CONTRACT_CASES,
 )
+from loom.target.arch.spirv.contracts.ordinary_vector_alu import (
+    SPIRV_ORDINARY_VECTOR_ALU_CONTRACT_CASES,
+)
 from loom.target.arch.spirv.contracts.predicate import integer_to_boolean_rule
 from loom.target.arch.spirv.contracts.subgroup import SPIRV_SUBGROUP_CONTRACT_CASES
 from loom.target.arch.spirv.cooperative_matrix import (
@@ -108,6 +111,8 @@ from loom.target.arch.spirv.scalar_alu import (
     BOOLEAN_BINARY_OPERATIONS,
     BOOLEAN_CONSTANTS,
     FLOAT_BINARY_OPERATIONS,
+    FLOAT_COMPARE_PREDICATES,
+    FLOAT_COMPARE_TYPES,
     FLOAT_SCALAR_ALU_TYPES,
     INTEGER_BITWISE_BINARY_OPERATIONS,
     INTEGER_SCALAR_ALU_TYPE_PAIRS,
@@ -118,8 +123,8 @@ from loom.target.arch.spirv.scalar_alu import (
     UNSIGNED_INTEGER_BINARY_OPERATIONS,
     UNSIGNED_ORDERED_INTEGER_COMPARE_PREDICATES,
     BooleanConstant,
+    ComparePredicate,
     IntegerAluTypePair,
-    IntegerComparePredicate,
     ScalarAluType,
     ScalarBinaryOperation,
 )
@@ -585,7 +590,7 @@ def _unsigned_binary_rule(
 
 def _compare_rule(
     source_op: Op,
-    predicate: IntegerComparePredicate,
+    predicate: ComparePredicate,
     type_pattern: TypePattern,
     descriptor_key: str,
 ) -> DescriptorRule:
@@ -614,7 +619,7 @@ def _compare_rule(
 
 def _unsigned_compare_rule(
     source_op: Op,
-    predicate: IntegerComparePredicate,
+    predicate: ComparePredicate,
     scalar_pair: IntegerAluTypePair,
 ) -> DescriptorRule:
     descriptor = _descriptor(
@@ -1539,6 +1544,16 @@ def _compare_rules() -> tuple[DescriptorRule, ...]:
         for scalar_pair in INTEGER_SCALAR_ALU_TYPE_PAIRS
         for predicate in UNSIGNED_ORDERED_INTEGER_COMPARE_PREDICATES
     )
+    rules.extend(
+        _compare_rule(
+            scalar_comparison.scalar_cmpf,
+            predicate,
+            _numeric_type_pattern(compare_type.scalar),
+            f"spirv.op_{predicate.descriptor_suffix}.{compare_type.scalar.suffix}",
+        )
+        for compare_type in FLOAT_COMPARE_TYPES
+        for predicate in FLOAT_COMPARE_PREDICATES
+    )
     return tuple(rules)
 
 
@@ -1585,6 +1600,7 @@ SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT = ContractFragment(
         *_vector_float_binary_rules(),
         *SPIRV_EXTENDED_MATH_CONTRACT_CASES,
         *SPIRV_ORDINARY_VECTOR_CONTRACT_CASES,
+        *SPIRV_ORDINARY_VECTOR_ALU_CONTRACT_CASES,
         *_compare_rules(),
         *_select_rules(),
         _raw_storage_buffer_byte_load_rule(),

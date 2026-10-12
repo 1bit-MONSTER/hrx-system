@@ -69,6 +69,7 @@ from loom.target.arch.spirv.ordinary_vector_conversion import (
 )
 from loom.target.arch.spirv.ordinary_vector_float import (
     ORDINARY_VECTOR_FLOAT_BINARY_INSTRUCTIONS,
+    ORDINARY_VECTOR_FLOAT_COMPARE_INSTRUCTIONS,
     ORDINARY_VECTOR_FLOAT_SCALE_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.ordinary_vector_integer import (
@@ -78,6 +79,8 @@ from loom.target.arch.spirv.scalar_alu import (
     BOOLEAN_BINARY_OPERATIONS,
     BOOLEAN_CONSTANTS,
     FLOAT_BINARY_OPERATIONS,
+    FLOAT_COMPARE_PREDICATES,
+    FLOAT_COMPARE_TYPES,
     FLOAT_SCALAR_ALU_TYPES,
     INTEGER_BITWISE_BINARY_OPERATIONS,
     INTEGER_SCALAR_ALU_TYPE_PAIRS,
@@ -91,8 +94,8 @@ from loom.target.arch.spirv.scalar_alu import (
     UNSIGNED_INTEGER_SCALAR_ALU_TYPES,
     UNSIGNED_ORDERED_INTEGER_COMPARE_PREDICATES,
     BooleanConstant,
+    ComparePredicate,
     IntegerAluTypePair,
-    IntegerComparePredicate,
     ScalarAluType,
     ScalarBinaryOperation,
 )
@@ -365,9 +368,10 @@ def _binary_same_type_descriptor(
 
 
 def _compare_descriptor(
-    predicate: IntegerComparePredicate,
+    predicate: ComparePredicate,
     *,
     scalar: ScalarAluType,
+    feature_bits: int,
     operands: tuple[Operand, Operand, Operand],
 ) -> Descriptor:
     suffix = scalar.suffix
@@ -380,7 +384,7 @@ def _compare_descriptor(
         mnemonic=mnemonic,
         semantic_tag=key,
         operands=operands,
-        feature_mask_words=(scalar.feature_bits,) if scalar.feature_bits else (),
+        feature_mask_words=(feature_bits,) if feature_bits else (),
         asm_forms=_asm(
             results=("dst",),
             operands=("lhs", "rhs"),
@@ -1638,6 +1642,7 @@ def _compare_descriptors() -> tuple[Descriptor, ...]:
         _compare_descriptor(
             predicate,
             scalar=scalar,
+            feature_bits=scalar.feature_bits,
             operands=(
                 _id_result(),
                 _id_operand("lhs"),
@@ -1652,6 +1657,7 @@ def _compare_descriptors() -> tuple[Descriptor, ...]:
             _compare_descriptor(
                 predicate,
                 scalar=scalar_pair.unsigned,
+                feature_bits=scalar_pair.unsigned.feature_bits,
                 operands=(
                     _id_result(),
                     _id_operand("lhs"),
@@ -1666,7 +1672,24 @@ def _compare_descriptors() -> tuple[Descriptor, ...]:
         [
             _compare_descriptor(
                 predicate,
+                scalar=compare_type.scalar,
+                feature_bits=compare_type.feature_bits,
+                operands=(
+                    _id_result(),
+                    _id_operand("lhs"),
+                    _id_operand("rhs"),
+                ),
+            )
+            for compare_type in FLOAT_COMPARE_TYPES
+            for predicate in FLOAT_COMPARE_PREDICATES
+        ]
+    )
+    descriptors.extend(
+        [
+            _compare_descriptor(
+                predicate,
                 scalar=OFFSET64_ALU_TYPE,
+                feature_bits=OFFSET64_ALU_TYPE.feature_bits,
                 operands=(
                     _id_result(),
                     _offset64_operand("lhs"),
@@ -1898,6 +1921,7 @@ SPIRV_LOGICAL_CORE_DESCRIPTOR_SET = DescriptorSet(
             for row in (
                 *ORDINARY_VECTOR_FLOAT_BINARY_INSTRUCTIONS,
                 *ORDINARY_VECTOR_FLOAT_SCALE_INSTRUCTIONS,
+                *ORDINARY_VECTOR_FLOAT_COMPARE_INSTRUCTIONS,
             )
         ),
         *(

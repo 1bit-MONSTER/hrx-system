@@ -1211,7 +1211,7 @@ static iree_status_t loom_scalar_legalize_build_f32_number_extremum(
                                            rhs, rhs_checked, out_result);
 }
 
-static iree_status_t loom_scalar_legalize_f32_number_extremum(
+iree_status_t loom_scalar_legalize_f32_number_extremum(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result) {
@@ -1235,7 +1235,7 @@ static iree_status_t loom_scalar_legalize_f32_number_extremum(
   return iree_ok_status();
 }
 
-static iree_status_t loom_scalar_legalize_f32_clamp(
+iree_status_t loom_scalar_legalize_f32_clamp(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result) {
@@ -1367,7 +1367,7 @@ static iree_status_t loom_scalar_legalize_exact_narrow_float(
 // Number-preferring extrema already implement signed-zero ordering. An
 // unordered comparison adds the IEEE NaN policy without changing numeric
 // operands or exposing a NaN payload guarantee.
-static iree_status_t loom_scalar_legalize_ieee_extrema(
+iree_status_t loom_scalar_legalize_ieee_extrema(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result) {

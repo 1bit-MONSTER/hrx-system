@@ -368,6 +368,7 @@ loom_cc_library(
   SRCS
     "legalization.c"
   DEPS
+    ::features
     iree::base
     loom::ir
     loom::ops::scalar
@@ -376,6 +377,7 @@ loom_cc_library(
     loom::target::arch::spirv::descriptors
     loom::target::legalization
     loom::transforms::scalar::target_legalization
+    loom::transforms::vector::target_legalization
     loom::transforms::vector::to_scalar
   PUBLIC
 )
@@ -549,6 +551,8 @@ loom_check_test_suite(
     "test/source_low/numeric_bfloat_widen.loom-test"
     "test/source_low/numeric_extended_math.loom-test"
     "test/source_low/numeric_float_arithmetic.loom-test"
+    "test/source_low/numeric_float_comparison.loom-test"
+    "test/source_low/numeric_float_extrema.loom-test"
     "test/source_low/numeric_integer_extrema.loom-test"
     "test/source_low/numeric_narrow_address.loom-test"
     "test/source_low/numeric_narrow_float_carriers.loom-test"
@@ -556,6 +560,7 @@ loom_check_test_suite(
     "test/source_low/numeric_scalar_f32.loom-test"
     "test/source_low/numeric_scalar_f32_values.loom-test"
     "test/source_low/numeric_unsigned_remainder.loom-test"
+    "test/source_low/ordinary_vector_alu.loom-test"
     "test/source_low/ordinary_vector_conversion.loom-test"
     "test/source_low/ordinary_vector_float.loom-test"
     "test/source_low/ordinary_vector_scale.loom-test"

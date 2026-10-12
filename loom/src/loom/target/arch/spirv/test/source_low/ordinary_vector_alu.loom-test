@@ -1,0 +1,85 @@
+// RUN: emit source-low output=low control-flow=structured-low
+
+spirv.target<vulkan1_3> @target {contract_feature_bits = 1086626759166}
+
+func.def target(@target) @integer_alu(%lhs0: i16, %lhs1: i16, %lhs2: i16, %rhs0: i16, %rhs1: i16, %rhs2: i16, %count: index) -> (i16) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %lhs = vector.from_elements %lhs0, %lhs1, %lhs2 : vector<3xi16>
+  %rhs = vector.from_elements %rhs0, %rhs1, %rhs2 : vector<3xi16>
+  %result = scf.for %iteration = [%begin to %count step %step](%state = %lhs : vector<3xi16>) -> (vector<3xi16>) {
+    %sum = vector.addi %state, %rhs : vector<3xi16>
+    %quotient = vector.divui %sum, %rhs : vector<3xi16>
+    %signed_less = vector.cmpi slt, %quotient, %rhs : vector<3xi16> -> vector<3xi1>
+    %unsigned_less = vector.cmpi ult, %quotient, %rhs : vector<3xi16> -> vector<3xi1>
+    %both = vector.andi %signed_less, %unsigned_less : vector<3xi1>
+    %selected = vector.select %both, %quotient, %sum : vector<3xi16>
+    scf.yield %selected : vector<3xi16>
+  }
+  %value = vector.extract %result[1] : vector<3xi16> -> i16
+  func.return %value : i16
+}
+
+// ----
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @integer_alu(%lhs0: reg<spirv.id : i16>, %lhs1: reg<spirv.id : i16>, %lhs2: reg<spirv.id : i16>, %rhs0: reg<spirv.id : i16>, %rhs1: reg<spirv.id : i16>, %rhs2: reg<spirv.id : i16>, %count: reg<spirv.id : index>) -> (reg<spirv.id : i16>) asm {
+  %begin = OpConstant.i32 0 : reg<spirv.id : index>
+  %step = OpConstant.i32 1 : reg<spirv.id : index>
+  %lhs = OpCompositeConstruct.v3i16 %lhs0, %lhs1, %lhs2
+  %rhs = OpCompositeConstruct.v3i16 %rhs0, %rhs1, %rhs2
+  %result = low.scf.for signed [%begin to %count step %step] iter_args(%lhs: reg<spirv.id : vector<3xi16>>) -> (reg<spirv.id : vector<3xi16>>) do(%iteration: reg<spirv.id : index>, %state: reg<spirv.id : vector<3xi16>>) {
+    %sum = OpIAdd.v3i16 %state, %rhs
+    %38 = OpBitcast.v3i16.v3u16 %sum
+    %39 = OpBitcast.v3i16.v3u16 %rhs
+    %40 = OpUDiv.v3u16 %38, %39
+    %quotient = OpBitcast.v3u16.v3i16 %40
+    %signed_less = OpSLessThan.v3i16 %quotient, %rhs
+    %43 = OpBitcast.v3i16.v3u16 %quotient
+    %unsigned_less = OpULessThan.v3u16 %43, %39
+    %both = OpLogicalAnd.v3bool %signed_less, %unsigned_less
+    %selected = OpSelect.v3i16 %both, %quotient, %sum
+    low.scf.yield %selected : reg<spirv.id : vector<3xi16>>
+  }
+  %value = OpCompositeExtract.v3i16.i16 %result, 1
+  return %value
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target {contract_feature_bits = 983547543582}
+
+func.def target(@target) @float_comparison(%lhs0: f32, %lhs1: f32, %rhs0: f32, %rhs1: f32, %count: index) -> (f32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %lhs = vector.from_elements %lhs0, %lhs1 : vector<2xf32>
+  %rhs = vector.from_elements %rhs0, %rhs1 : vector<2xf32>
+  %result = scf.for %iteration = [%begin to %count step %step](%state = %lhs : vector<2xf32>) -> (vector<2xf32>) {
+    %ordered_equal = vector.cmpf oeq, %state, %rhs : vector<2xf32> -> vector<2xi1>
+    %unordered_not_equal = vector.cmpf une, %state, %rhs : vector<2xf32> -> vector<2xi1>
+    %unordered = vector.cmpf uno, %state, %rhs : vector<2xf32> -> vector<2xi1>
+    %not_equal_or_unordered = vector.ori %unordered_not_equal, %unordered : vector<2xi1>
+    %condition = vector.xori %ordered_equal, %not_equal_or_unordered : vector<2xi1>
+    %selected = vector.select %condition, %state, %rhs : vector<2xf32>
+    scf.yield %selected : vector<2xf32>
+  }
+  %value = vector.extract %result[0] : vector<2xf32> -> f32
+  func.return %value : f32
+}
+
+// ----
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @float_comparison(%lhs0: reg<spirv.id : f32>, %lhs1: reg<spirv.id : f32>, %rhs0: reg<spirv.id : f32>, %rhs1: reg<spirv.id : f32>, %count: reg<spirv.id : index>) -> (reg<spirv.id : f32>) asm {
+  %begin = OpConstant.i32 0 : reg<spirv.id : index>
+  %step = OpConstant.i32 1 : reg<spirv.id : index>
+  %lhs = OpCompositeConstruct.v2f32 %lhs0, %lhs1
+  %rhs = OpCompositeConstruct.v2f32 %rhs0, %rhs1
+  %result = low.scf.for signed [%begin to %count step %step] iter_args(%lhs: reg<spirv.id : vector<2xf32>>) -> (reg<spirv.id : vector<2xf32>>) do(%iteration: reg<spirv.id : index>, %state: reg<spirv.id : vector<2xf32>>) {
+    %ordered_equal = OpFOrdEqual.v2f32 %state, %rhs
+    %unordered_not_equal = OpFUnordNotEqual.v2f32 %state, %rhs
+    %unordered = OpUnordered.v2f32 %state, %rhs
+    %not_equal_or_unordered = OpLogicalOr.v2bool %unordered_not_equal, %unordered
+    %condition = OpLogicalNotEqual.v2bool %ordered_equal, %not_equal_or_unordered
+    %selected = OpSelect.v2f32 %condition, %state, %rhs
+    low.scf.yield %selected : reg<spirv.id : vector<2xf32>>
+  }
+  %value = OpCompositeExtract.v2f32.f32 %result, 0
+  return %value
+}
