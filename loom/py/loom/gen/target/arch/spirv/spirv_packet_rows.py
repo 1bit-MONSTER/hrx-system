@@ -273,45 +273,50 @@ class _PacketRow:
 
     def payload_initializer(self) -> str:
         # Member names are part of the identity: equal object bytes do not make
-        # different active union members interchangeable.
-        fields = []
-        if self.literal_word_count:
-            fields.append(f".scalar_constant.literal_word_count = {self.literal_word_count},")
-        if self.coordinate_byte_shift:
-            fields.append(f".access_chain.coordinate_byte_shift = {self.coordinate_byte_shift},")
-        if self.builtin is not None:
-            fields.append(f".builtin_load.builtin = {self.builtin},")
-        if self.component_index is not None:
-            fields.append(f".builtin_load.component_index = {self.component_index},")
-        if self.execution_scope is not None:
-            fields.append(f".barrier.execution_scope = {self.execution_scope},")
-        if self.group_operation_scope is not None:
-            fields.append(f".group_non_uniform.execution_scope = {self.group_operation_scope},")
-        if self.memory_scope is not None:
-            fields.append(f".barrier.memory_scope = {self.memory_scope},")
-        if self.memory_semantics is not None:
-            fields.append(f".barrier.memory_semantics = {self.memory_semantics},")
-        if self.cooperative_matrix_layout is not None:
-            fields.append(f".cooperative_matrix.layout = {self.cooperative_matrix_layout},")
-        if self.cooperative_matrix_element_stride:
-            fields.append(f".cooperative_matrix.element_stride = {self.cooperative_matrix_element_stride},")
-        if self.cooperative_matrix_operands is not None:
-            fields.append(f".cooperative_matrix.operands = {self.cooperative_matrix_operands},")
-        if self.atomic_scope is not None:
-            fields.append(f".atomic.memory_scope = {self.atomic_scope},")
-        if self.atomic_storage_semantics is not None:
-            fields.append(f".atomic.storage_semantics = {self.atomic_storage_semantics},")
-        if self.atomic_success_ordering is not None:
-            fields.append(f".atomic.success_ordering = {self.atomic_success_ordering},")
-        if self.atomic_integer_scalar is not None:
-            fields.append(f".atomic.integer_scalar = {self.atomic_integer_scalar},")
-        if self.atomic_float_operation is not None:
-            fields.append(f".atomic.float_operation = {self.atomic_float_operation},")
-        if self.extended_instruction_set is not None:
-            fields.append(f".extended_instruction.instruction_set = {self.extended_instruction_set},")
-        if self.extended_instruction is not None:
-            fields.append(f".extended_instruction.instruction = {self.extended_instruction},")
-        return "{ " + " ".join(fields) + " }" if fields else "{0}"
+        # different active union members interchangeable. Explicitly brace each
+        # nested aggregate instead of relying on flattened member designators.
+        members = {
+            "scalar_constant": {
+                "literal_word_count": self.literal_word_count or None,
+            },
+            "access_chain": {
+                "coordinate_byte_shift": self.coordinate_byte_shift or None,
+            },
+            "builtin_load": {
+                "builtin": self.builtin,
+                "component_index": self.component_index,
+            },
+            "barrier": {
+                "execution_scope": self.execution_scope,
+                "memory_scope": self.memory_scope,
+                "memory_semantics": self.memory_semantics,
+            },
+            "group_non_uniform": {
+                "execution_scope": self.group_operation_scope,
+            },
+            "cooperative_matrix": {
+                "layout": self.cooperative_matrix_layout,
+                "element_stride": self.cooperative_matrix_element_stride or None,
+                "operands": self.cooperative_matrix_operands,
+            },
+            "atomic": {
+                "memory_scope": self.atomic_scope,
+                "storage_semantics": self.atomic_storage_semantics,
+                "success_ordering": self.atomic_success_ordering,
+                "integer_scalar": self.atomic_integer_scalar,
+                "float_operation": self.atomic_float_operation,
+            },
+            "extended_instruction": {
+                "instruction_set": self.extended_instruction_set,
+                "instruction": self.extended_instruction,
+            },
+        }
+        initializers = []
+        for member, fields in members.items():
+            field_initializers = [f".{name} = {value}," for name, value in fields.items() if value is not None]
+            if field_initializers:
+                initializers.append(f".{member} = {{ {' '.join(field_initializers)} }}")
+        return "{ " + ", ".join(initializers) + " }" if initializers else "{}"
 
     def render(self, value_type_refs: dict[str, int], payload_ref: int) -> str:
         encoded_operand_types = self.encoded_operand_types()
@@ -1336,7 +1341,7 @@ def _interned_value_types(
 
 
 def _interned_payloads(rows: tuple[_PacketRow, ...]) -> tuple[tuple[str, ...], tuple[int, ...]]:
-    payloads = {"{0}": 0}
+    payloads = {"{}": 0}
     row_refs = []
     for row in rows:
         payload = row.payload_initializer()

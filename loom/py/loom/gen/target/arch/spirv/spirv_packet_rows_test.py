@@ -103,7 +103,7 @@ def test_subgroup_ballot_row_carries_the_subgroup_execution_scope() -> None:
     assert row.form == "LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BALLOT"
     assert row.result_count == 1
     assert row.group_operation_scope == "LOOM_SPIRV_SCOPE_SUBGROUP"
-    assert row.payload_initializer() == "{ .group_non_uniform.execution_scope = LOOM_SPIRV_SCOPE_SUBGROUP, }"
+    assert row.payload_initializer() == "{ .group_non_uniform = { .execution_scope = LOOM_SPIRV_SCOPE_SUBGROUP, } }"
 
 
 def test_generation_emits_the_complete_control_barrier_family() -> None:
@@ -887,17 +887,37 @@ def test_payload_sharing_preserves_member_and_value_identity() -> None:
     payloads, refs = _interned_payloads(rows)
     assert refs == (0, 1, 1, 2, 3)
     assert payloads == (
-        "{0}",
-        "{ .scalar_constant.literal_word_count = 1, }",
-        "{ .scalar_constant.literal_word_count = 2, }",
-        "{ .access_chain.coordinate_byte_shift = 2, }",
+        "{}",
+        "{ .scalar_constant = { .literal_word_count = 1, } }",
+        "{ .scalar_constant = { .literal_word_count = 2, } }",
+        "{ .access_chain = { .coordinate_byte_shift = 2, } }",
     )
+
+
+def test_payload_initializers_brace_every_union_member() -> None:
+    payloads, _ = _interned_payloads(_packet_rows())
+    assert payloads[0] == "{}"
+    members = set()
+    for payload in payloads[1:]:
+        match = re.fullmatch(r"\{ \.(\w+) = \{ (?:\.\w+ = [^,{}]+, )+\} \}", payload)
+        assert match is not None, payload
+        members.add(match[1])
+    assert members == {
+        "access_chain",
+        "scalar_constant",
+        "builtin_load",
+        "barrier",
+        "group_non_uniform",
+        "cooperative_matrix",
+        "atomic",
+        "extended_instruction",
+    }
 
 
 def test_generation_retains_every_packet_payload_reference() -> None:
     rows = _packet_rows()
     payloads, refs = _interned_payloads(rows)
-    assert payloads[0] == "{0}"
+    assert payloads[0] == "{}"
     assert len(payloads) == len(set(payloads)) < len(rows)
     assert len(refs) == len(rows)
 
@@ -941,7 +961,7 @@ def test_generation_emits_complete_address_conversion_rows() -> None:
             suffix = f"{query.descriptor_suffix}_{dimension.source_keyword}".upper()
             assert f"SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_LOAD_BUILTIN_{suffix}" in tables
             assert query.builtin_enum in tables
-            assert f".builtin_load.component_index = {dimension.component_index}" in tables
+            assert f".builtin_load = {{ .builtin = {query.builtin_enum}, .component_index = {dimension.component_index}, }}" in tables
 
     for query in BUILTIN_SCALAR_INDEX_QUERIES:
         suffix = query.descriptor_suffix.upper()
