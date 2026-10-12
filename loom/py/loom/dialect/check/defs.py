@@ -750,6 +750,7 @@ check_file_read_npy = Op(
     examples=[
         '%input = check.file.read.npy path("fixtures/layer_norm/input.npy") : tensor<1024xf32>',
     ],
+    verify="loom_check_file_path_verify",
 )
 
 check_file_write_npy = Op(
@@ -772,6 +773,7 @@ check_file_write_npy = Op(
     examples=[
         'check.file.write.npy value(%actual) path("outputs/layer_norm.actual.npy") mode(on_failure) : tensor<1024xf32>',
     ],
+    verify="loom_check_file_path_verify",
 )
 
 

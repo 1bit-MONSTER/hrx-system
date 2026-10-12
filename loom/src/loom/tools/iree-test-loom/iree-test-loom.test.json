@@ -366,6 +366,86 @@
       }
     },
     {
+      "name": "publishes a checked tensor for a later invocation",
+      "steps": [
+        {
+          "name": "reject-missing-output-root",
+          "run": {
+            "tool": "iree-test-loom",
+            "args": [
+              "{srcdir}/testdata/file_cases.loom",
+              "--case=@write_actual"
+            ]
+          },
+          "exit": {
+            "nonzero": true
+          },
+          "stderr": {
+            "contains": ["check.file.write requires --file-output-root"]
+          }
+        },
+        {
+          "name": "encode-reader",
+          "run": {
+            "tool": "loom-link",
+            "args": [
+              "{srcdir}/testdata/file_cases.loom",
+              "--mode=merge",
+              "--to=bc",
+              "--output={tmp}/reader.loombc"
+            ]
+          }
+        },
+        {
+          "name": "write-actual",
+          "run": {
+            "tool": "iree-test-loom",
+            "args": [
+              "{srcdir}/testdata/file_cases.loom",
+              "--case=@write_actual",
+              "--file-output-root={tmp}/outputs"
+            ]
+          },
+          "stdout": {
+            "contains": ["\"failed_sample_count\":0", "\"passed\":true"]
+          },
+          "files": [
+            {
+              "path": "{tmp}/outputs/nested/actual.npy",
+              "non_empty": true
+            }
+          ]
+        },
+        {
+          "name": "read-actual",
+          "run": {
+            "tool": "iree-test-loom",
+            "args": ["{tmp}/reader.loombc", "--case=@read_actual"]
+          },
+          "stdout": {
+            "contains": ["\"failed_sample_count\":0", "\"passed\":true"]
+          }
+        },
+        {
+          "name": "reject-stdout-output-root",
+          "run": {
+            "tool": "iree-test-loom",
+            "args": [
+              "{tmp}/reader.loombc",
+              "--case=@read_actual",
+              "--file-output-root=-"
+            ]
+          },
+          "exit": {
+            "nonzero": true
+          },
+          "stderr": {
+            "contains": ["--file-output-root must name a directory, not '-'"]
+          }
+        }
+      ]
+    },
+    {
       "name": "rejects an unavailable explicit device",
       "run": {
         "tool": "iree-test-loom",

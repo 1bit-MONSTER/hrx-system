@@ -43,10 +43,15 @@ static iree_status_t loom_tooling_file_path_dup(iree_string_view_t path,
                                                 iree_allocator_t allocator,
                                                 char** out_path) {
   *out_path = NULL;
+  iree_host_size_t storage_size = 0;
+  if (!iree_host_size_checked_add(path.size, 1, &storage_size)) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "path storage size overflow");
+  }
   char* storage = NULL;
   IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(allocator, path.size + 1, (void**)&storage));
-  iree_string_view_to_cstring(path, storage, path.size + 1);
+      iree_allocator_malloc(allocator, storage_size, (void**)&storage));
+  iree_string_view_to_cstring(path, storage, storage_size);
   *out_path = storage;
   return iree_ok_status();
 }
@@ -84,7 +89,6 @@ iree_status_t loom_tooling_output_paths_validate_exclusive_stdout(
 }
 
 bool loom_tooling_file_path_has_trailing_separator(iree_string_view_t path) {
-  path = iree_string_view_trim(path);
   if (iree_string_view_is_empty(path)) {
     return false;
   }
@@ -96,7 +100,6 @@ iree_status_t loom_tooling_file_path_is_directory(iree_string_view_t path,
                                                   iree_allocator_t allocator,
                                                   bool* out_is_directory) {
   *out_is_directory = false;
-  path = iree_string_view_trim(path);
   if (iree_string_view_is_empty(path)) {
     return iree_ok_status();
   }
@@ -130,9 +133,37 @@ iree_status_t loom_tooling_file_path_join(iree_string_view_t lhs,
   return iree_file_path_join(lhs, rhs, allocator, out_path);
 }
 
+static bool loom_tooling_file_path_has_drive(iree_string_view_t path) {
+  if (path.size < 2 || path.data[1] != ':') {
+    return false;
+  }
+  const char drive = path.data[0];
+  return (drive >= 'a' && drive <= 'z') || (drive >= 'A' && drive <= 'Z');
+}
+
+static bool loom_tooling_file_path_is_absolute(iree_string_view_t path) {
+  if (iree_string_view_is_empty(path)) {
+    return false;
+  }
+  return path.data[0] == '/' || path.data[0] == '\\' ||
+         (loom_tooling_file_path_has_drive(path) && path.size >= 3 &&
+          (path.data[2] == '/' || path.data[2] == '\\'));
+}
+
+iree_status_t loom_tooling_file_path_resolve(iree_string_view_t base_directory,
+                                             iree_string_view_t path,
+                                             iree_allocator_t allocator,
+                                             char** out_path) {
+  *out_path = NULL;
+  if (loom_tooling_file_path_is_absolute(path) ||
+      iree_string_view_is_empty(base_directory)) {
+    return loom_tooling_file_path_dup(path, allocator, out_path);
+  }
+  return loom_tooling_file_path_join(base_directory, path, allocator, out_path);
+}
+
 iree_status_t loom_tooling_create_directory_if_needed(
     iree_string_view_t path, iree_allocator_t allocator) {
-  path = iree_string_view_trim(path);
   if (iree_string_view_is_empty(path)) {
     return iree_ok_status();
   }
@@ -186,6 +217,12 @@ iree_status_t loom_tooling_create_directory_if_needed(
   }
   iree_allocator_free(allocator, storage);
   return status;
+}
+
+iree_status_t loom_tooling_create_parent_directory(iree_string_view_t path,
+                                                   iree_allocator_t allocator) {
+  return loom_tooling_create_directory_if_needed(iree_file_path_dirname(path),
+                                                 allocator);
 }
 
 iree_status_t loom_tooling_read_input_file(

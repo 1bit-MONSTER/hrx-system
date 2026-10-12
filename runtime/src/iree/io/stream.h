@@ -67,6 +67,9 @@ typedef struct iree_io_stream_t iree_io_stream_t;
 IREE_API_EXPORT void iree_io_stream_retain(iree_io_stream_t* stream);
 
 // Releases the given |stream| from the caller.
+//
+// Release has no status channel. Callers that must observe buffered write
+// failures before release must call iree_io_stream_flush.
 IREE_API_EXPORT void iree_io_stream_release(iree_io_stream_t* stream);
 
 // Returns the mode of the stream indicating what operations may be performed.
@@ -114,6 +117,13 @@ iree_io_stream_read(iree_io_stream_t* stream, iree_host_size_t buffer_capacity,
 IREE_API_EXPORT iree_status_t
 iree_io_stream_write(iree_io_stream_t* stream, iree_host_size_t buffer_length,
                      const void* buffer);
+
+// Flushes implementation-managed write buffers and reports errors surfaced by
+// that operation. Requires the stream have IREE_IO_STREAM_MODE_WRITABLE. The
+// stream remains open at the same offset and may accept further writes. This
+// does not report later close failures or guarantee durable storage;
+// memory-backed streams have no pending writes and flush is a no-op.
+IREE_API_EXPORT iree_status_t iree_io_stream_flush(iree_io_stream_t* stream);
 
 // Writes a single character/byte to the stream.
 // Requires the stream have IREE_IO_STREAM_MODE_WRITABLE.
@@ -219,6 +229,8 @@ typedef struct iree_io_stream_vtable_t {
   iree_status_t(IREE_API_PTR* write)(iree_io_stream_t* stream,
                                      iree_host_size_t buffer_length,
                                      const void* buffer);
+  // Flushes pending writes without changing stream lifetime or offset.
+  iree_status_t(IREE_API_PTR* flush)(iree_io_stream_t* stream);
   iree_status_t(IREE_API_PTR* fill)(iree_io_stream_t* stream,
                                     iree_io_stream_pos_t count,
                                     const void* pattern,

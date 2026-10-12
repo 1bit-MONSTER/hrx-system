@@ -173,6 +173,9 @@ iree_hal_replay_file_writer_close(iree_hal_replay_file_writer_t* writer) {
                                  file_length);
   }
   if (iree_status_is_ok(status)) {
+    status = iree_io_stream_flush(writer->stream);
+  }
+  if (iree_status_is_ok(status)) {
     writer->closed = true;
   }
   return status;

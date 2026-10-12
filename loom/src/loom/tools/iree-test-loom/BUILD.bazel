@@ -216,6 +216,7 @@ loom_cc_binary(
 iree_execution_test_suite(
     name = "execution_test",
     data = [
+        "testdata/file_cases.loom",
         "testdata/library_cases.loom",
         "testdata/linked_input_cases.loom",
         "testdata/requirement_cases.loom",

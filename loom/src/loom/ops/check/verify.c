@@ -77,6 +77,78 @@ static iree_status_t loom_check_emit_result_type(
                          IREE_ARRAYSIZE(params));
 }
 
+static iree_status_t loom_check_emit_string_attr_value_error(
+    iree_diagnostic_emitter_t emitter, const loom_op_t* op,
+    loom_diagnostic_field_ref_t field, iree_string_view_t attribute_name,
+    iree_string_view_t actual_value, iree_string_view_t expected_constraint) {
+  const loom_diagnostic_param_t params[] = {
+      loom_param_with_field_ref(loom_param_string(attribute_name), field),
+      loom_param_string(actual_value),
+      loom_param_string(expected_constraint),
+  };
+  return loom_check_emit(emitter, op, LOOM_ERR_STRUCTURE_027, params,
+                         IREE_ARRAYSIZE(params));
+}
+
+static bool loom_check_file_path_has_drive_prefix(iree_string_view_t path) {
+  if (path.size < 2 || path.data[1] != ':') {
+    return false;
+  }
+  const char drive = path.data[0];
+  return (drive >= 'a' && drive <= 'z') || (drive >= 'A' && drive <= 'Z');
+}
+
+static bool loom_check_file_read_path_is_valid(iree_string_view_t path) {
+  return !iree_string_view_is_empty(path) &&
+         !iree_string_view_equal(path, IREE_SV("-")) &&
+         iree_string_view_find_char(path, '\0', 0) == IREE_STRING_VIEW_NPOS;
+}
+
+static bool loom_check_file_write_path_is_valid(iree_string_view_t path) {
+  if (!loom_check_file_read_path_is_valid(path) || path.data[0] == '/' ||
+      path.data[0] == '\\' || loom_check_file_path_has_drive_prefix(path) ||
+      iree_string_view_find_char(path, '\\', 0) != IREE_STRING_VIEW_NPOS) {
+    return false;
+  }
+  iree_string_view_t remaining = path;
+  while (!iree_string_view_is_empty(remaining)) {
+    iree_string_view_t component = iree_string_view_empty();
+    iree_string_view_split(remaining, '/', &component, &remaining);
+    if (iree_string_view_equal(component, IREE_SV(".."))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+iree_status_t loom_check_file_path_verify(const loom_module_t* module,
+                                          const loom_op_t* op,
+                                          iree_diagnostic_emitter_t emitter) {
+  if (loom_check_file_read_npy_isa(op)) {
+    const iree_string_view_t path = loom_string_table_get(
+        &module->strings, loom_check_file_read_npy_path(op));
+    if (loom_check_file_read_path_is_valid(path)) {
+      return iree_ok_status();
+    }
+    return loom_check_emit_string_attr_value_error(
+        emitter, op, loom_check_file_read_npy_path_diagnostic_ref(),
+        IREE_SV("path"), path,
+        IREE_SV("a non-empty file path other than '-' with no embedded NUL"));
+  }
+
+  const iree_string_view_t path = loom_string_table_get(
+      &module->strings, loom_check_file_write_npy_path(op));
+  if (loom_check_file_write_path_is_valid(path)) {
+    return iree_ok_status();
+  }
+  return loom_check_emit_string_attr_value_error(
+      emitter, op, loom_check_file_write_npy_path_diagnostic_ref(),
+      IREE_SV("path"), path,
+      IREE_SV("a non-empty relative '/'-separated file path other than '-' "
+              "with no '..' components, drive prefix, backslash, or embedded "
+              "NUL"));
+}
+
 static iree_status_t loom_check_emit_type_mismatch(
     iree_diagnostic_emitter_t emitter, const loom_op_t* op,
     iree_string_view_t actual_field, loom_type_t actual_type,

@@ -70,6 +70,89 @@ check.case @bad_literal_payload {
 
 // ====
 
+// File paths retain their authored spelling. Reads may name absolute fixtures;
+// writes use relative forward-slash-separated artifact names.
+check.case @valid_file_paths {
+  %value = check.literal value(1) : i32
+  %relative = check.file.read.npy path("../fixtures/input.npy") : tensor<1xi32>
+  %posix = check.file.read.npy path("/fixtures/input.npy") : tensor<1xi32>
+  %windows = check.file.read.npy path("C:\\fixtures\\input.npy") : tensor<1xi32>
+  check.file.write.npy value(%value) path("nested/./actual.npy") mode(always) : i32
+  check.file.write.npy value(%value) path(" ") mode(always) : i32
+  check.return
+}
+
+// ====
+
+check.case @empty_file_read_path {
+  // ERROR@+1: STRUCTURE/027 {attr_name="path", actual_value="", expected_constraint="a non-empty file path other than '-' with no embedded NUL"}
+  %value = check.file.read.npy path("") : tensor<1xi32>
+  check.return
+}
+
+// ====
+
+check.case @stdio_file_read_path {
+  // ERROR@+1: STRUCTURE/027 {attr_name="path", actual_value="-", expected_constraint="a non-empty file path other than '-' with no embedded NUL"}
+  %value = check.file.read.npy path("-") : tensor<1xi32>
+  check.return
+}
+
+// ====
+
+check.case @nul_file_read_path {
+  // ERROR@+1: STRUCTURE/027 {attr_name="path", expected_constraint="a non-empty file path other than '-' with no embedded NUL"}
+  %value = check.file.read.npy path("input\u0000.npy") : tensor<1xi32>
+  check.return
+}
+
+// ====
+
+check.case @absolute_file_write_path {
+  %value = check.literal value(1) : i32
+  // ERROR@+1: STRUCTURE/027 {attr_name="path", actual_value="/actual.npy", expected_constraint="a non-empty relative '/'-separated file path other than '-' with no '..' components, drive prefix, backslash, or embedded NUL"}
+  check.file.write.npy value(%value) path("/actual.npy") mode(always) : i32
+  check.return
+}
+
+// ====
+
+check.case @drive_relative_file_write_path {
+  %value = check.literal value(1) : i32
+  // ERROR@+1: STRUCTURE/027 {attr_name="path", actual_value="C:actual.npy", expected_constraint="a non-empty relative '/'-separated file path other than '-' with no '..' components, drive prefix, backslash, or embedded NUL"}
+  check.file.write.npy value(%value) path("C:actual.npy") mode(always) : i32
+  check.return
+}
+
+// ====
+
+check.case @parent_file_write_path {
+  %value = check.literal value(1) : i32
+  // ERROR@+1: STRUCTURE/027 {attr_name="path", actual_value="nested/../actual.npy", expected_constraint="a non-empty relative '/'-separated file path other than '-' with no '..' components, drive prefix, backslash, or embedded NUL"}
+  check.file.write.npy value(%value) path("nested/../actual.npy") mode(always) : i32
+  check.return
+}
+
+// ====
+
+check.case @backslash_file_write_path {
+  %value = check.literal value(1) : i32
+  // ERROR@+1: STRUCTURE/027 {attr_name="path", actual_value="nested\actual.npy", expected_constraint="a non-empty relative '/'-separated file path other than '-' with no '..' components, drive prefix, backslash, or embedded NUL"}
+  check.file.write.npy value(%value) path("nested\\actual.npy") mode(always) : i32
+  check.return
+}
+
+// ====
+
+check.case @nul_file_write_path {
+  %value = check.literal value(1) : i32
+  // ERROR@+1: STRUCTURE/027 {attr_name="path", expected_constraint="a non-empty relative '/'-separated file path other than '-' with no '..' components, drive prefix, backslash, or embedded NUL"}
+  check.file.write.npy value(%value) path("actual\u0000.npy") mode(always) : i32
+  check.return
+}
+
+// ====
+
 // Expectation operands must have the same type.
 check.case @bad_expect_types {
   %actual = check.literal value(1) : i32

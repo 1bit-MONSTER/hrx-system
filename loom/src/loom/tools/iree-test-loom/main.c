@@ -50,6 +50,11 @@ IREE_FLAG_LIST(
     string, library,
     "Source or bytecode library linked into the authored input. Repeat as "
     "--library=path.loombc. Libraries are linked whole in argument order.");
+IREE_FLAG_NAMED(
+    string, file_output_root, "file-output-root", "",
+    "Root for relative check.file.write paths. Required only when a "
+    "selected case writes a file. Parent directories are created as needed; "
+    "'-' is not a directory.");
 IREE_FLAG_NAMED(int32_t, max_samples_per_case, "max-samples-per-case",
                 LOOM_TESTBENCH_DEFAULT_MAX_SAMPLES_PER_CASE,
                 "Maximum number of samples planned per check.case.");
@@ -102,59 +107,9 @@ typedef struct iree_test_loom_file_provider_t {
   iree_allocator_t host_allocator;
   // Borrowed directory containing the input module for relative fixture reads.
   iree_string_view_t input_dir;
+  // Borrowed explicit root for authored relative file writes.
+  iree_string_view_t output_root;
 } iree_test_loom_file_provider_t;
-
-static bool iree_test_loom_path_is_absolute(iree_string_view_t path) {
-  if (iree_string_view_is_empty(path)) {
-    return false;
-  }
-  if (path.data[0] == '/' || path.data[0] == '\\') {
-    return true;
-  }
-  if (path.size >= 3 && path.data[1] == ':' &&
-      (path.data[2] == '/' || path.data[2] == '\\')) {
-    const char drive = path.data[0];
-    return (drive >= 'a' && drive <= 'z') || (drive >= 'A' && drive <= 'Z');
-  }
-  return false;
-}
-
-static iree_status_t iree_test_loom_dup_string_view(iree_string_view_t value,
-                                                    iree_allocator_t allocator,
-                                                    char** out_value) {
-  *out_value = NULL;
-  iree_host_size_t storage_size = 0;
-  if (!iree_host_size_checked_add(value.size, 1, &storage_size)) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "string storage size overflow");
-  }
-  char* storage = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(allocator, storage_size, (void**)&storage));
-  if (value.size != 0) {
-    memcpy(storage, value.data, value.size);
-  }
-  storage[value.size] = '\0';
-  *out_value = storage;
-  return iree_ok_status();
-}
-
-static iree_status_t iree_test_loom_resolve_file_read_path(
-    const iree_test_loom_file_provider_t* provider, iree_string_view_t path,
-    char** out_path) {
-  *out_path = NULL;
-  if (loom_tooling_file_path_is_stdio(path)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "check.file.read paths must name a file");
-  }
-  if (iree_test_loom_path_is_absolute(path) ||
-      iree_string_view_is_empty(provider->input_dir)) {
-    return iree_test_loom_dup_string_view(path, provider->host_allocator,
-                                          out_path);
-  }
-  return iree_file_path_join(provider->input_dir, path,
-                             provider->host_allocator, out_path);
-}
 
 static iree_status_t iree_test_loom_open_file_for_read(
     void* user_data, iree_string_view_t path, iree_io_stream_t** out_stream) {
@@ -162,13 +117,47 @@ static iree_status_t iree_test_loom_open_file_for_read(
   const iree_test_loom_file_provider_t* provider =
       (const iree_test_loom_file_provider_t*)user_data;
   char* resolved_path = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_test_loom_resolve_file_read_path(provider, path, &resolved_path));
+  IREE_RETURN_IF_ERROR(loom_tooling_file_path_resolve(
+      provider->input_dir, path, provider->host_allocator, &resolved_path));
   iree_status_t status = iree_io_stdio_stream_open(
       IREE_IO_STDIO_STREAM_MODE_READ, iree_make_cstring_view(resolved_path),
       provider->host_allocator, out_stream);
   iree_allocator_free(provider->host_allocator, resolved_path);
   return status;
+}
+
+static iree_status_t iree_test_loom_open_file_for_write(
+    void* user_data, iree_string_view_t path, iree_io_stream_t** out_stream) {
+  *out_stream = NULL;
+  const iree_test_loom_file_provider_t* provider =
+      (const iree_test_loom_file_provider_t*)user_data;
+  if (iree_string_view_is_empty(provider->output_root)) {
+    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                            "check.file.write requires --file-output-root");
+  }
+  char* resolved_path = NULL;
+  IREE_RETURN_IF_ERROR(loom_tooling_file_path_join(
+      provider->output_root, path, provider->host_allocator, &resolved_path));
+  const iree_string_view_t resolved_path_view =
+      iree_make_cstring_view(resolved_path);
+  iree_status_t status = loom_tooling_create_parent_directory(
+      resolved_path_view, provider->host_allocator);
+  if (iree_status_is_ok(status)) {
+    status = iree_io_stdio_stream_open(
+        IREE_IO_STDIO_STREAM_MODE_WRITE | IREE_IO_STDIO_STREAM_MODE_DISCARD,
+        resolved_path_view, provider->host_allocator, out_stream);
+  }
+  iree_allocator_free(provider->host_allocator, resolved_path);
+  return status;
+}
+
+static iree_status_t iree_test_loom_create_host_pool(
+    iree_allocator_t allocator, iree_hal_pool_t** out_pool) {
+  const iree_hal_pool_host_access_t host_access = {
+      .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
+      .modes = IREE_HAL_MAPPING_MODE_SCOPED | IREE_HAL_MAPPING_MODE_PERSISTENT,
+  };
+  return iree_hal_heap_pool_create(host_access, allocator, allocator, out_pool);
 }
 
 static iree_status_t iree_test_loom_require_loomc_result(
@@ -773,6 +762,7 @@ static void iree_test_loom_print_agents_markdown(FILE* stream) {
       "iree-test-loom module.loom --case=@case_q8_block_unroll_wg64\n"
       "iree-test-loom module.loom --case=@sampled_choice --sample=1\n"
       "iree-test-loom test.loom --library=motifs.loombc\n"
+      "iree-test-loom module.loom --file-output-root=artifacts\n"
       "iree-test-loom module.loom --max-samples-per-case=16\n"
       "iree-test-loom module.loom --pipeline=@hal_actual_pipeline\n"
       "iree-test-loom module.loom --device=amdgpu "
@@ -799,6 +789,17 @@ static void iree_test_loom_print_agents_markdown(FILE* stream) {
       "Comma-separated diagnostics express target-dependent failure modes; "
       "any\n"
       "other diagnostic fails the run.\n"
+      "\n"
+      "### Fixture files\n"
+      "\n"
+      "`check.file.read.npy` resolves relative paths beside the primary input\n"
+      "module, or in the working directory for stdin. Absolute read paths are\n"
+      "also accepted. `check.file.write.npy` requires an explicit\n"
+      "`--file-output-root` only when the write is performed; there is no\n"
+      "implicit output directory. Authored output paths are relative to that\n"
+      "directory, use '/' separators, and cannot contain '..' components.\n"
+      "Nested directories are created as needed. These lexical path rules do\n"
+      "not sandbox filesystem symlinks. '-' is not a file-output directory.\n"
       "\n"
       "### Kernel launches\n"
       "\n"
@@ -903,6 +904,7 @@ int iree_test_loom_main(int argc, char** argv,
   loom_run_hal_testbench_scenario_profile_t hal_scenario_profile = {0};
   iree_test_loom_xfail_list_t xfails = {0};
   iree_test_loom_diagnostic_capture_t diagnostic_capture = {0};
+  iree_hal_pool_t* case_host_pool = NULL;
   iree_hal_pool_t* scenario_host_pool = NULL;
   loom_testbench_device_event_capture_t device_event_capture = {0};
   bool device_event_capture_initialized = false;
@@ -971,6 +973,14 @@ int iree_test_loom_main(int argc, char** argv,
                               "--max-samples-per-case must be positive; got "
                               "%d",
                               (int)FLAG_max_samples_per_case);
+  }
+  const iree_string_view_t file_output_root =
+      iree_make_cstring_view(FLAG_file_output_root);
+  if (iree_status_is_ok(status) &&
+      iree_string_view_equal(file_output_root, IREE_SV("-"))) {
+    status =
+        iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                         "--file-output-root must name a directory, not '-'");
   }
   if (iree_status_is_ok(status)) {
     status = iree_test_loom_append_config_flags(&config_set);
@@ -1054,6 +1064,8 @@ int iree_test_loom_main(int argc, char** argv,
       .input_dir = iree_string_view_equal(filename, IREE_SV("<stdin>"))
                        ? iree_string_view_empty()
                        : iree_file_path_dirname(filename),
+      // Explicit root for authored relative file writes.
+      .output_root = file_output_root,
   };
   const loom_input_options_t input_options = loom_input_options_from_flags();
   if (iree_status_is_ok(status)) {
@@ -1265,9 +1277,18 @@ int iree_test_loom_main(int argc, char** argv,
     execution_options.materializer.open_read_file.fn =
         iree_test_loom_open_file_for_read;
     execution_options.materializer.open_read_file.user_data = &file_provider;
+    execution_options.materializer.open_write_file.fn =
+        iree_test_loom_open_file_for_write;
+    execution_options.materializer.open_write_file.user_data = &file_provider;
     scenario_materializer_options.host_allocator = allocator;
     scenario_materializer_options.open_read_file =
         execution_options.materializer.open_read_file;
+    if (iree_status_is_ok(status) && selected_case_count != 0) {
+      status = iree_test_loom_create_host_pool(allocator, &case_host_pool);
+      if (iree_status_is_ok(status)) {
+        execution_options.materializer.target_pool = case_host_pool;
+      }
+    }
     if (iree_status_is_ok(status)) {
       status = loom_testbench_device_event_capture_initialize(
           LOOM_TESTBENCH_DEVICE_EVENT_DEFAULT_CAPACITY, allocator,
@@ -1320,13 +1341,7 @@ int iree_test_loom_main(int argc, char** argv,
     if (iree_status_is_ok(status) && selected_scenario_count != 0) {
       // Scenario values are shared with host oracles. Each execution profile
       // stages those values into its own device storage as needed.
-      const iree_hal_pool_host_access_t host_access = {
-          .access = IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
-          .modes =
-              IREE_HAL_MAPPING_MODE_SCOPED | IREE_HAL_MAPPING_MODE_PERSISTENT,
-      };
-      status = iree_hal_heap_pool_create(host_access, allocator, allocator,
-                                         &scenario_host_pool);
+      status = iree_test_loom_create_host_pool(allocator, &scenario_host_pool);
       if (iree_status_is_ok(status)) {
         scenario_materializer_options.target_pool = scenario_host_pool;
       }
@@ -1525,6 +1540,7 @@ int iree_test_loom_main(int argc, char** argv,
   iree_arena_deinitialize(&execution_arena);
   iree_arena_deinitialize(&plan_arena);
   iree_hal_pool_release(scenario_host_pool);
+  iree_hal_pool_release(case_host_pool);
   loom_run_hal_testbench_context_deinitialize(&hal_context);
   loom_config_text_binding_set_deinitialize(&config_set);
   if (device_event_capture_initialized) {

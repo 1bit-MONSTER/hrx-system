@@ -265,7 +265,7 @@ specific compiler question.
 
 `check.file.read.npy` paths resolve relative to the input module.
 `check.file.write.npy` paths are relative and resolve under
-`--file-output-dir`, whose default is a source-specific directory below the
+`--file-output-root`, whose default is a source-specific directory below the
 platform temporary directory's `iree-loom-benchmark` root.
 `--profile-artifacts-dir=DIR` retains raw HAL profile bundles when counters,
 device metrics, executable traces, or later decoding are part of the evidence.

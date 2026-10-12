@@ -68,9 +68,10 @@ IREE_FLAG_NAMED(
     string, output_format, "output-format", "snapshot",
     "Benchmark result output format. Use 'snapshot' for one compact JSON "
     "document or 'jsonl' for newline-delimited lifecycle events.");
-IREE_FLAG_NAMED(string, file_output_dir, "file-output-dir", "",
-                "Directory receiving check.file.write.* outputs. Empty uses "
-                "$TMPDIR/iree-loom-benchmark/<source>_<hash>/ for this run.");
+IREE_FLAG_NAMED(string, file_output_root, "file-output-root", "",
+                "Root for relative check.file.write.* output paths. Empty "
+                "uses $TMPDIR/iree-loom-benchmark/<source>_<hash>/ for this "
+                "run.");
 IREE_FLAG_NAMED(
     string, artifact_bundle_dir, "artifact-bundle-dir", "",
     "Directory receiving a self-contained run bundle. When set and --output "
@@ -271,7 +272,7 @@ iree_status_t iree_benchmark_loom_options_from_flags(
   out_options->output = iree_make_cstring_view(FLAG_output);
   IREE_RETURN_IF_ERROR(iree_benchmark_loom_parse_output_format(
       iree_make_cstring_view(FLAG_output_format), &out_options->output_format));
-  out_options->file_output_dir = iree_make_cstring_view(FLAG_file_output_dir);
+  out_options->file_output_root = iree_make_cstring_view(FLAG_file_output_root);
   out_options->artifact_bundle_dir =
       iree_string_view_trim(iree_make_cstring_view(FLAG_artifact_bundle_dir));
   out_options->dry_run = FLAG_dry_run;
@@ -380,11 +381,11 @@ iree_status_t iree_benchmark_loom_options_from_flags(
         "--compare selects benchmark/case pairs directly and cannot be "
         "combined with --case");
   }
-  if (iree_string_view_equal(
-          iree_string_view_trim(out_options->file_output_dir), IREE_SV("-"))) {
+  if (iree_string_view_equal(out_options->file_output_root, IREE_SV("-"))) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
-        "--file-output-dir must name a directory; '-' is reserved for stdout");
+        "--file-output-root must name a directory; '-' is reserved for "
+        "stdout");
   }
   return iree_ok_status();
 }
