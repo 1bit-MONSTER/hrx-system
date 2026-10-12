@@ -806,13 +806,14 @@ TEST(ReplayDumpTest, RejectsTruncatedReservationAndMappingArrays) {
     ReplayFileBuilder builder(/*capacity=*/4096);
     const iree_hal_replay_file_record_metadata_t metadata = {
         .record_type = IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION,
-        .payload_type =
-            is_mapping ? IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_MAP
-                       : IREE_HAL_REPLAY_PAYLOAD_TYPE_MEMORY_RESERVATION_CREATE,
-        .operation_code =
+        .payload_type = static_cast<iree_hal_replay_payload_type_t>(
+            is_mapping
+                ? IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_MAP
+                : IREE_HAL_REPLAY_PAYLOAD_TYPE_MEMORY_RESERVATION_CREATE),
+        .operation_code = static_cast<iree_hal_replay_operation_code_t>(
             is_mapping
                 ? IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_MAP
-                : IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_CREATE,
+                : IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_CREATE),
     };
     const auto payload =
         is_mapping
