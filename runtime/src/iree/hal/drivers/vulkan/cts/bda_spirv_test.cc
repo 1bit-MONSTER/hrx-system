@@ -323,14 +323,6 @@ class BdaSpirvTest : public CtsTestBase<> {
   iree_hal_executable_t* executable_ = nullptr;
 };
 
-static iree_hal_physical_memory_params_t SparseDispatchMemoryParams() {
-  iree_hal_physical_memory_params_t params = {0};
-  params.type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE |
-                IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE;
-  return params;
-}
-
 static void ExpectNativeBindingRange(iree_hal_buffer_t* root,
                                      iree_hal_buffer_t* view,
                                      iree_device_size_t offset) {
@@ -611,62 +603,25 @@ TEST_P(BdaSpirvTest, PrepareRejectsBdaSpirvWithDescriptorVariable) {
   iree_hal_executable_release(executable);
 }
 
-class BdaSparseVirtualBufferRef {
+class BdaMemoryReservation {
  public:
-  explicit BdaSparseVirtualBufferRef(iree_hal_allocator_t* allocator)
-      : allocator_(allocator) {}
-  ~BdaSparseVirtualBufferRef() { reset(); }
+  BdaMemoryReservation() = default;
+  BdaMemoryReservation(const BdaMemoryReservation&) = delete;
+  BdaMemoryReservation& operator=(const BdaMemoryReservation&) = delete;
 
-  BdaSparseVirtualBufferRef(const BdaSparseVirtualBufferRef&) = delete;
-  BdaSparseVirtualBufferRef& operator=(const BdaSparseVirtualBufferRef&) =
-      delete;
+  ~BdaMemoryReservation() {
+    IREE_EXPECT_OK(iree_hal_memory_reservation_destroy(reservation_));
+  }
 
-  iree_hal_buffer_t* get() const { return buffer_; }
-  iree_hal_buffer_t** out() { return &buffer_; }
-
-  void reset() {
-    if (buffer_) {
-      IREE_EXPECT_OK(
-          iree_hal_allocator_virtual_memory_release(allocator_, buffer_));
-      buffer_ = nullptr;
-    }
+  iree_hal_memory_reservation_t* owner() const { return reservation_; }
+  iree_hal_memory_reservation_t** out() { return &reservation_; }
+  iree_hal_buffer_t* get() const {
+    return iree_hal_memory_reservation_buffer(reservation_);
   }
 
  private:
-  // Allocator that owns the virtual reservation.
-  iree_hal_allocator_t* allocator_ = nullptr;
-
-  // Reserved virtual sparse buffer released through |allocator_|.
-  iree_hal_buffer_t* buffer_ = nullptr;
-};
-
-class BdaSparsePhysicalMemoryRef {
- public:
-  explicit BdaSparsePhysicalMemoryRef(iree_hal_allocator_t* allocator)
-      : allocator_(allocator) {}
-  ~BdaSparsePhysicalMemoryRef() { reset(); }
-
-  BdaSparsePhysicalMemoryRef(const BdaSparsePhysicalMemoryRef&) = delete;
-  BdaSparsePhysicalMemoryRef& operator=(const BdaSparsePhysicalMemoryRef&) =
-      delete;
-
-  iree_hal_physical_memory_t* get() const { return memory_; }
-  iree_hal_physical_memory_t** out() { return &memory_; }
-
-  void reset() {
-    if (memory_) {
-      IREE_EXPECT_OK(
-          iree_hal_allocator_physical_memory_free(allocator_, memory_));
-      memory_ = nullptr;
-    }
-  }
-
- private:
-  // Allocator that owns the physical sparse memory.
-  iree_hal_allocator_t* allocator_ = nullptr;
-
-  // Physical sparse memory handle released through |allocator_|.
-  iree_hal_physical_memory_t* memory_ = nullptr;
+  // Explicit address owner, closed after all submitted accesses have completed.
+  iree_hal_memory_reservation_t* reservation_ = nullptr;
 };
 
 TEST_P(BdaSpirvTest, QueueDispatchExecutesBdaShader) {
@@ -1317,53 +1272,98 @@ TEST_P(BdaSpirvTest, NativeBindingsExecuteFromInteriorPoolRanges) {
 }
 
 TEST_P(BdaSpirvTest, CommandBufferExecutesBdaShaderWithSparseBindings) {
-  if (!iree_hal_allocator_supports_virtual_memory(device_allocator_)) {
+  std::array<iree_hal_pool_family_access_t, 2> families = {{
+      {
+          .family = iree_hal_queue_family(transfer_queue_),
+          .usage =
+              IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      },
+      {
+          .family = iree_hal_queue_family(dispatch_queue_),
+          .usage =
+              IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      },
+  }};
+  const iree_hal_pool_scope_t scope = {
+      .family_count = families[0].family == families[1].family ? 1u : 2u,
+      .families = families.data(),
+  };
+  iree_hal_memory_reservation_capabilities_t capabilities;
+  IREE_ASSERT_OK(iree_hal_memory_reservation_query_capabilities(
+      device_group_, scope, iree_allocator_system(), &capabilities));
+  if (!capabilities.max_byte_length) {
     GTEST_SKIP() << "Vulkan sparse virtual memory is not available";
   }
-
-  iree_hal_physical_memory_params_t params = SparseDispatchMemoryParams();
-  iree_device_size_t minimum_page_size = 0;
-  iree_device_size_t recommended_page_size = 0;
-  IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_query_granularity(
-      device_allocator_, params, &minimum_page_size, &recommended_page_size));
-  ASSERT_NE(0u, minimum_page_size);
-  ASSERT_GE(recommended_page_size, minimum_page_size);
-  ASSERT_GE(recommended_page_size, 8 * sizeof(int32_t));
-
-  BdaSparseVirtualBufferRef input_buffer(device_allocator_);
-  IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_reserve(
-      device_allocator_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-      recommended_page_size, input_buffer.out()));
-  BdaSparseVirtualBufferRef output_buffer(device_allocator_);
-  IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_reserve(
-      device_allocator_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-      recommended_page_size, output_buffer.out()));
-
-  BdaSparsePhysicalMemoryRef input_memory(device_allocator_);
-  IREE_ASSERT_OK(iree_hal_allocator_physical_memory_allocate(
-      device_allocator_, params, recommended_page_size, iree_allocator_system(),
-      input_memory.out()));
-  BdaSparsePhysicalMemoryRef output_memory(device_allocator_);
-  IREE_ASSERT_OK(iree_hal_allocator_physical_memory_allocate(
-      device_allocator_, params, recommended_page_size, iree_allocator_system(),
-      output_memory.out()));
-
-  IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_map(
-      device_allocator_, input_buffer.get(), /*virtual_offset=*/0,
-      input_memory.get(), /*physical_offset=*/0, recommended_page_size));
-  IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_map(
-      device_allocator_, output_buffer.get(), /*virtual_offset=*/0,
-      output_memory.get(), /*physical_offset=*/0, recommended_page_size));
-  IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_protect(
-      device_allocator_, input_buffer.get(), /*virtual_offset=*/0,
-      recommended_page_size, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-      IREE_HAL_VIRTUAL_MEMORY_ACCESS_SCOPE_DEVICE,
-      IREE_HAL_MEMORY_PROTECTION_READ_WRITE));
-  IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_protect(
-      device_allocator_, output_buffer.get(), /*virtual_offset=*/0,
-      recommended_page_size, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-      IREE_HAL_VIRTUAL_MEMORY_ACCESS_SCOPE_DEVICE,
-      IREE_HAL_MEMORY_PROTECTION_READ_WRITE));
+  for (auto& family : families) {
+    family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  }
+  iree_hal_slab_pool_options_t source_options;
+  iree_hal_slab_pool_options_initialize(&source_options);
+  Ref<iree_hal_pool_t> source_pool;
+  IREE_ASSERT_OK(
+      iree_hal_slab_pool_create(device_group_, scope, &source_options,
+                                iree_allocator_system(), source_pool.out()));
+  const auto requirements =
+      iree_hal_pool_query_mapping_requirements(source_pool);
+  const iree_device_size_t page_size = std::max(
+      {capabilities.reservation_granularity, capabilities.mapping_granularity,
+       requirements.minimum_granularity});
+  ASSERT_GE(page_size, 8 * sizeof(int32_t));
+  for (auto& family : families) {
+    family.interfaces = 0;
+  }
+  Ref<iree_hal_buffer_t> input_memory;
+  Ref<iree_hal_buffer_t> output_memory;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source_pool, iree_hal_make_pool_reservation_request(page_size, page_size),
+      iree_infinite_timeout(), input_memory.out()));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source_pool, iree_hal_make_pool_reservation_request(page_size, page_size),
+      iree_infinite_timeout(), output_memory.out()));
+  const iree_hal_memory_reservation_options_t reservation_options = {
+      .byte_length = page_size,
+      .mapping_granularity = page_size,
+  };
+  BdaMemoryReservation input_buffer;
+  BdaMemoryReservation output_buffer;
+  IREE_ASSERT_OK(iree_hal_memory_reservation_create(
+      device_group_, scope, &reservation_options, iree_allocator_system(),
+      input_buffer.out()));
+  IREE_ASSERT_OK(iree_hal_memory_reservation_create(
+      device_group_, scope, &reservation_options, iree_allocator_system(),
+      output_buffer.out()));
+  iree_hal_memory_mapping_t mappings[2] = {
+      {
+          .reservation = input_buffer.owner(),
+          .scope =
+              {
+                  .domain = iree_hal_device_group_memory_domain(device_group_),
+                  .id = IREE_HAL_MEMORY_SCOPE_ANY,
+              },
+          .target_range = iree_hal_make_buffer_range(0, page_size),
+          .source = input_memory.get(),
+          .access = IREE_HAL_MEMORY_ACCESS_ALL,
+          .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
+      },
+      {
+          .reservation = output_buffer.owner(),
+          .scope =
+              {
+                  .domain = iree_hal_device_group_memory_domain(device_group_),
+                  .id = IREE_HAL_MEMORY_SCOPE_ANY,
+              },
+          .target_range = iree_hal_make_buffer_range(0, page_size),
+          .source = output_memory.get(),
+          .access = IREE_HAL_MEMORY_ACCESS_ALL,
+          .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
+      },
+  };
+  SemaphoreList mapped(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(
+      transfer_queue_, iree_hal_semaphore_list_empty(), mapped,
+      IREE_ARRAYSIZE(mappings), mappings, IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_semaphore_list_wait(mapped, iree_infinite_timeout(),
+                                              IREE_ASYNC_WAIT_FLAG_NONE));
 
   std::array<Ref<iree_hal_buffer_t>, 2> views;
   iree_hal_buffer_t* roots[] = {input_buffer.get(), output_buffer.get()};
@@ -1426,12 +1426,17 @@ TEST_P(BdaSpirvTest, CommandBufferExecutesBdaShaderWithSparseBindings) {
   EXPECT_THAT(output_data, ContainerEq(std::vector<int32_t>{-1, -1, 12, 12, 12,
                                                             12, -1, -1}));
 
-  IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_unmap(
-      device_allocator_, output_buffer.get(), /*virtual_offset=*/0,
-      recommended_page_size));
-  IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_unmap(
-      device_allocator_, input_buffer.get(), /*virtual_offset=*/0,
-      recommended_page_size));
+  for (auto& mapping : mappings) {
+    mapping.source = nullptr;
+    mapping.access = IREE_HAL_MEMORY_ACCESS_NONE;
+    mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND;
+  }
+  SemaphoreList unmapped(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(
+      transfer_queue_, iree_hal_semaphore_list_empty(), unmapped,
+      IREE_ARRAYSIZE(mappings), mappings, IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_semaphore_list_wait(unmapped, iree_infinite_timeout(),
+                                              IREE_ASYNC_WAIT_FLAG_NONE));
 }
 
 class BdaSpirvReplayCacheTest : public BdaSpirvTest {};

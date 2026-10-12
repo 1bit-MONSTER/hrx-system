@@ -488,66 +488,22 @@ static void AppendQueueExecuteRecord(
                      {iree_make_const_byte_span(&payload, sizeof(payload))});
 }
 
-static void AppendVmmProtectRecord(iree_hal_replay_file_writer_t* writer,
-                                   uint64_t sequence_ordinal,
-                                   iree_hal_replay_object_id_t device_id) {
-  constexpr iree_hal_replay_object_id_t kAllocatorId = 20;
-  constexpr iree_hal_replay_object_id_t kVirtualBufferId = 21;
-  const iree_hal_replay_allocator_virtual_memory_protect_payload_t payload = {
-      .virtual_buffer_id = kVirtualBufferId,
-      .virtual_offset = 0,
-      .size = 4096,
-      .queue_family_affinity = iree_hal_make_queue_family_affinity(0),
-      .access_scope = IREE_HAL_VIRTUAL_MEMORY_ACCESS_SCOPE_DEVICE,
-      .reserved0 = 0,
-      .protection = IREE_HAL_MEMORY_PROTECTION_READ,
-  };
+static void AppendReservationDestroyRecord(
+    iree_hal_replay_file_writer_t* writer, uint64_t sequence_ordinal,
+    iree_hal_replay_object_id_t device_id,
+    iree_status_code_t status_code = IREE_STATUS_OK) {
   const iree_hal_replay_file_record_metadata_t metadata = {
       .sequence_ordinal = sequence_ordinal,
-      .thread_id = 0,
       .device_id = device_id,
-      .object_id = kAllocatorId,
-      .related_object_id = kVirtualBufferId,
+      .object_id = 21,
       .record_type = IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION,
-      .record_flags = IREE_HAL_REPLAY_FILE_RECORD_FLAG_NONE,
-      .payload_type =
-          IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT,
-      .object_type = IREE_HAL_REPLAY_OBJECT_TYPE_ALLOCATOR,
+      .payload_type = IREE_HAL_REPLAY_PAYLOAD_TYPE_NONE,
+      .object_type = IREE_HAL_REPLAY_OBJECT_TYPE_MEMORY_RESERVATION,
       .operation_code =
-          IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_PROTECT,
-      .status_code = IREE_STATUS_OK,
+          IREE_HAL_REPLAY_OPERATION_CODE_MEMORY_RESERVATION_DESTROY,
+      .status_code = status_code,
   };
-  AppendReplayRecord(writer, metadata,
-                     {iree_make_const_byte_span(&payload, sizeof(payload))});
-}
-
-static void AppendVmmUnmapRecord(iree_hal_replay_file_writer_t* writer,
-                                 uint64_t sequence_ordinal,
-                                 iree_hal_replay_object_id_t device_id) {
-  constexpr iree_hal_replay_object_id_t kAllocatorId = 20;
-  constexpr iree_hal_replay_object_id_t kVirtualBufferId = 21;
-  const iree_hal_replay_allocator_virtual_memory_unmap_payload_t payload = {
-      .virtual_buffer_id = kVirtualBufferId,
-      .virtual_offset = 0,
-      .size = 4096,
-  };
-  const iree_hal_replay_file_record_metadata_t metadata = {
-      .sequence_ordinal = sequence_ordinal,
-      .thread_id = 0,
-      .device_id = device_id,
-      .object_id = kAllocatorId,
-      .related_object_id = kVirtualBufferId,
-      .record_type = IREE_HAL_REPLAY_FILE_RECORD_TYPE_OPERATION,
-      .record_flags = IREE_HAL_REPLAY_FILE_RECORD_FLAG_NONE,
-      .payload_type =
-          IREE_HAL_REPLAY_PAYLOAD_TYPE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP,
-      .object_type = IREE_HAL_REPLAY_OBJECT_TYPE_ALLOCATOR,
-      .operation_code =
-          IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_UNMAP,
-      .status_code = IREE_STATUS_OK,
-  };
-  AppendReplayRecord(writer, metadata,
-                     {iree_make_const_byte_span(&payload, sizeof(payload))});
+  AppendReplayRecord(writer, metadata, {});
 }
 
 static void AppendScopeBeginRecord(iree_hal_replay_file_writer_t* writer,
@@ -577,10 +533,10 @@ static void AppendScopeBeginRecord(iree_hal_replay_file_writer_t* writer,
 }
 
 typedef enum QueueDependencyReplayShape {
-  kForwardDependencyAcrossVmmBoundary,
-  kForwardDependencyAcrossVmmUnmapBoundary,
-  kSatisfiedDependencyBeforeVmmBoundary,
-  kDeviceMemoryDependencyAcrossVmmBoundary,
+  kForwardDependencyAcrossReservationDestroyBoundary,
+  kForwardDependencyAcrossFailedReservationDestroyBoundary,
+  kSatisfiedDependencyBeforeReservationDestroyBoundary,
+  kDeviceMemoryDependencyAcrossReservationDestroyBoundary,
   kImmediateCompletionBehindDeviceMemoryWait,
   kCallbackErrorBeforeProducer,
 } QueueDependencyReplayShape;
@@ -608,7 +564,7 @@ static std::vector<uint8_t> MakeQueueDependencyReplay(
   AppendQueueObjectRecord(writer, sequence_ordinal++, kDeviceId,
                           kConsumerQueueId, /*queue_ordinal=*/0);
   if (shape != kCallbackErrorBeforeProducer &&
-      shape != kDeviceMemoryDependencyAcrossVmmBoundary &&
+      shape != kDeviceMemoryDependencyAcrossReservationDestroyBoundary &&
       shape != kImmediateCompletionBehindDeviceMemoryWait) {
     AppendQueueObjectRecord(writer, sequence_ordinal++, kDeviceId,
                             kProducerQueueId, /*queue_ordinal=*/1);
@@ -616,12 +572,12 @@ static std::vector<uint8_t> MakeQueueDependencyReplay(
   AppendSemaphoreCreateRecord(writer, sequence_ordinal++, kDeviceId,
                               kSemaphoreId);
 
-  if (shape == kSatisfiedDependencyBeforeVmmBoundary) {
+  if (shape == kSatisfiedDependencyBeforeReservationDestroyBoundary) {
     AppendQueueBarrierRecord(writer, sequence_ordinal++, kDeviceId,
                              kProducerQueueId, kSemaphoreId,
                              /*is_wait=*/false);
   }
-  if (shape == kDeviceMemoryDependencyAcrossVmmBoundary ||
+  if (shape == kDeviceMemoryDependencyAcrossReservationDestroyBoundary ||
       shape == kImmediateCompletionBehindDeviceMemoryWait) {
     AppendQueueAtomicWaitRecord(writer, sequence_ordinal++, kDeviceId,
                                 kConsumerQueueId);
@@ -638,13 +594,15 @@ static std::vector<uint8_t> MakeQueueDependencyReplay(
     AppendScopeBeginRecord(writer, sequence_ordinal++);
     AppendQueueObjectRecord(writer, sequence_ordinal++, kDeviceId,
                             kProducerQueueId, /*queue_ordinal=*/1);
-  } else if (shape == kForwardDependencyAcrossVmmUnmapBoundary) {
-    AppendVmmUnmapRecord(writer, sequence_ordinal++, kDeviceId);
+  } else if (shape ==
+             kForwardDependencyAcrossFailedReservationDestroyBoundary) {
+    AppendReservationDestroyRecord(writer, sequence_ordinal++, kDeviceId,
+                                   IREE_STATUS_INTERNAL);
   } else {
-    AppendVmmProtectRecord(writer, sequence_ordinal++, kDeviceId);
+    AppendReservationDestroyRecord(writer, sequence_ordinal++, kDeviceId);
   }
-  if (shape == kForwardDependencyAcrossVmmBoundary ||
-      shape == kForwardDependencyAcrossVmmUnmapBoundary ||
+  if (shape == kForwardDependencyAcrossReservationDestroyBoundary ||
+      shape == kForwardDependencyAcrossFailedReservationDestroyBoundary ||
       shape == kCallbackErrorBeforeProducer) {
     AppendQueueBarrierRecord(writer, sequence_ordinal++, kDeviceId,
                              kProducerQueueId, kSemaphoreId,
@@ -657,7 +615,7 @@ static std::vector<uint8_t> MakeQueueDependencyReplay(
 }
 
 typedef enum OpaqueDispatchReplayShape {
-  kDirectDispatchBeforeVmmBoundary,
+  kDirectDispatchBeforeReservationDestroyBoundary,
   kCommandBufferDispatchAtEndOfFile,
   kBoundedCommandBufferAtEndOfFile,
 } OpaqueDispatchReplayShape;
@@ -684,11 +642,11 @@ static std::vector<uint8_t> MakeOpaqueDispatchReplay(
   AppendDeviceObjectRecord(writer, sequence_ordinal++, kDeviceId);
   AppendQueueObjectRecord(writer, sequence_ordinal++, kDeviceId, kQueueId,
                           /*queue_ordinal=*/0);
-  if (shape == kDirectDispatchBeforeVmmBoundary) {
+  if (shape == kDirectDispatchBeforeReservationDestroyBoundary) {
     AppendDispatchRecord(writer, sequence_ordinal++, kDeviceId, kQueueId,
                          kExecutableId,
                          IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_DISPATCH);
-    AppendVmmProtectRecord(writer, sequence_ordinal++, kDeviceId);
+    AppendReservationDestroyRecord(writer, sequence_ordinal++, kDeviceId);
   } else {
     AppendCommandBufferCreateRecords(writer, &sequence_ordinal, kDeviceId,
                                      kCommandBufferId);
@@ -753,10 +711,32 @@ static IREE_ALLOCATOR_INLINE_STORAGE(g_callback_failure_host_storage,
                                      64 * 1024);
 static iree_hal_device_group_t* g_callback_failure_device_group = nullptr;
 
-TEST(ReplayExecuteTest,
-     RejectsForwardQueueDependencyAcrossVmmBoundaryBeforeExecution) {
-  std::vector<uint8_t> storage =
-      MakeQueueDependencyReplay(kForwardDependencyAcrossVmmBoundary);
+TEST(
+    ReplayExecuteTest,
+    RejectsForwardQueueDependencyAcrossReservationDestroyBoundaryBeforeExecution) {
+  std::vector<uint8_t> storage = MakeQueueDependencyReplay(
+      kForwardDependencyAcrossReservationDestroyBoundary);
+  iree_hal_replay_plan_t* plan = nullptr;
+
+  iree::Status status =
+      iree::internal::ConsumeForTest(iree_hal_replay_plan_create(
+          GetCapturedFileContents(storage), iree_allocator_system(), &plan));
+
+  EXPECT_EQ(status.code(), iree::StatusCode::kFailedPrecondition);
+  EXPECT_THAT(
+      status.ToString(),
+      ::testing::HasSubstr(
+          "replay completion boundary at sequence 5 cannot wait for queue "
+          "operation at sequence 4 with an unresolved forward or "
+          "device-memory dependency"));
+  EXPECT_EQ(plan, nullptr);
+}
+
+TEST(
+    ReplayExecuteTest,
+    RejectsForwardQueueDependencyAcrossFailedReservationDestroyBoundaryBeforeExecution) {
+  std::vector<uint8_t> storage = MakeQueueDependencyReplay(
+      kForwardDependencyAcrossFailedReservationDestroyBoundary);
   iree_hal_replay_plan_t* plan = nullptr;
 
   iree::Status status =
@@ -774,28 +754,9 @@ TEST(ReplayExecuteTest,
 }
 
 TEST(ReplayExecuteTest,
-     RejectsForwardQueueDependencyAcrossVmmUnmapBoundaryBeforeExecution) {
-  std::vector<uint8_t> storage =
-      MakeQueueDependencyReplay(kForwardDependencyAcrossVmmUnmapBoundary);
-  iree_hal_replay_plan_t* plan = nullptr;
-
-  iree::Status status =
-      iree::internal::ConsumeForTest(iree_hal_replay_plan_create(
-          GetCapturedFileContents(storage), iree_allocator_system(), &plan));
-
-  EXPECT_EQ(status.code(), iree::StatusCode::kFailedPrecondition);
-  EXPECT_THAT(
-      status.ToString(),
-      ::testing::HasSubstr(
-          "replay completion boundary at sequence 5 cannot wait for queue "
-          "operation at sequence 4 with an unresolved forward or "
-          "device-memory dependency"));
-  EXPECT_EQ(plan, nullptr);
-}
-
-TEST(ReplayExecuteTest, AllowsSatisfiedQueueDependencyBeforeVmmBoundary) {
-  std::vector<uint8_t> storage =
-      MakeQueueDependencyReplay(kSatisfiedDependencyBeforeVmmBoundary);
+     AllowsSatisfiedQueueDependencyBeforeReservationDestroyBoundary) {
+  std::vector<uint8_t> storage = MakeQueueDependencyReplay(
+      kSatisfiedDependencyBeforeReservationDestroyBoundary);
   iree_hal_replay_plan_t* plan = nullptr;
 
   IREE_ASSERT_OK(iree_hal_replay_plan_create(GetCapturedFileContents(storage),
@@ -804,10 +765,11 @@ TEST(ReplayExecuteTest, AllowsSatisfiedQueueDependencyBeforeVmmBoundary) {
   iree_hal_replay_plan_destroy(plan);
 }
 
-TEST(ReplayExecuteTest,
-     RejectsDeviceMemoryQueueDependencyAcrossVmmBoundaryBeforeExecution) {
-  std::vector<uint8_t> storage =
-      MakeQueueDependencyReplay(kDeviceMemoryDependencyAcrossVmmBoundary);
+TEST(
+    ReplayExecuteTest,
+    RejectsDeviceMemoryQueueDependencyAcrossReservationDestroyBoundaryBeforeExecution) {
+  std::vector<uint8_t> storage = MakeQueueDependencyReplay(
+      kDeviceMemoryDependencyAcrossReservationDestroyBoundary);
   iree_hal_replay_plan_t* plan = nullptr;
 
   iree::Status status =
@@ -824,9 +786,10 @@ TEST(ReplayExecuteTest,
   EXPECT_EQ(plan, nullptr);
 }
 
-TEST(ReplayExecuteTest, RejectsOpaqueDirectQueueDispatchBeforeVmmBoundary) {
+TEST(ReplayExecuteTest,
+     RejectsOpaqueDirectQueueDispatchBeforeReservationDestroyBoundary) {
   std::vector<uint8_t> storage =
-      MakeOpaqueDispatchReplay(kDirectDispatchBeforeVmmBoundary);
+      MakeOpaqueDispatchReplay(kDirectDispatchBeforeReservationDestroyBoundary);
   iree_hal_replay_plan_t* plan = nullptr;
 
   iree::Status status =

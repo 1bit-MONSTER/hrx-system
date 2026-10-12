@@ -596,8 +596,15 @@ void RunIreeHalKernelExecutionTest(
       executable_target, dispatch_queue, artifact, &executable));
   ExecutablePtr executable_ptr(executable);
 
-  execute({device.get(), pool_ptr.get(), transfer_queue, dispatch_queue,
-           executable_ptr.get(), launch_config});
+  execute({
+      .device_group = device_group.get(),
+      .device = device.get(),
+      .pool = pool_ptr.get(),
+      .transfer_queue = transfer_queue,
+      .dispatch_queue = dispatch_queue,
+      .executable = executable_ptr.get(),
+      .launch_config = launch_config,
+  });
 }
 
 void RunIreeHalByteOffsetExecution(const IreeHalKernelExecution& execution) {

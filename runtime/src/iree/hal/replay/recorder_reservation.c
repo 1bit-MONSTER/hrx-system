@@ -200,9 +200,8 @@ iree_status_t iree_hal_replay_recorder_create_memory_reservation(
     reservation->native_reservation = native_reservation;
     reservation->buffer_proxy =
         iree_hal_replay_recorder_buffer_initialize_proxy(
-            recorder, IREE_HAL_REPLAY_OBJECT_ID_NONE, buffer_id,
-            IREE_HAL_REPLAY_OBJECT_ID_NONE, NULL, native_buffer, host_allocator,
-            buffer_proxy);
+            recorder, IREE_HAL_REPLAY_OBJECT_ID_NONE, buffer_id, NULL,
+            native_buffer, host_allocator, buffer_proxy);
     reservation->recorder = recorder;
     reservation->reservation_id = reservation_id;
     iree_hal_memory_reservation_initialize(

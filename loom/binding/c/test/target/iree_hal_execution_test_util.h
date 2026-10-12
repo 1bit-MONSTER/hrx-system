@@ -82,6 +82,8 @@ struct IreeHalKernelExecutionTarget {
 
 // Borrowed execution objects valid for the duration of an execution callback.
 struct IreeHalKernelExecution {
+  // Borrowed sealed group owning the devices and memory backend.
+  iree_hal_device_group_t* device_group;
   // Live device that owns the executable and queues.
   iree_hal_device_t* device;
   // Explicit storage contract shared by dispatch and transfer operations.

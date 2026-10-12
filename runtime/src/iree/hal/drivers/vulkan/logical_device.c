@@ -34,6 +34,7 @@
 #include "iree/hal/drivers/vulkan/profile.h"
 #include "iree/hal/drivers/vulkan/queue.h"
 #include "iree/hal/drivers/vulkan/semaphore.h"
+#include "iree/hal/drivers/vulkan/sparse_buffer.h"
 #include "iree/hal/drivers/vulkan/syms.h"
 #include "iree/hal/utils/file_registry.h"
 
@@ -1419,6 +1420,16 @@ static iree_status_t iree_hal_vulkan_logical_device_initialize_device_spec(
       .device_plan = device_plan,
       .device_allocator = device->device_allocator,
   };
+  if (iree_all_bits_set(
+          device->enabled_features.general,
+          IREE_HAL_VULKAN_FEATURE_ENABLE_SPARSE_RESIDENCY_ALIASED) &&
+      iree_hal_vulkan_queue_assignment_has_sparse_binding(
+          &device_plan->queue_assignment)) {
+    spec_params.sparse_buffer_requirements =
+        iree_hal_vulkan_sparse_buffer_query_requirements(
+            &device->syms, device->logical_device, device->enabled_features,
+            IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE);
+  }
   return iree_hal_vulkan_device_spec_create(
       &spec_params, device->host_allocator, &device->device_spec);
 }

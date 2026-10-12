@@ -37,7 +37,6 @@ TEST(HeapAllocatorTest, DescribesCoherentHostMemory) {
   EXPECT_EQ(heap.atomic_operations.system_scope_64,
             expected_atomic_operations.system_scope_64);
   EXPECT_EQ(heap.min_alignment, IREE_HAL_HEAP_BUFFER_ALIGNMENT);
-  EXPECT_FALSE(iree_hal_allocator_supports_virtual_memory(allocator));
 
   iree_hal_allocator_release(allocator);
 }

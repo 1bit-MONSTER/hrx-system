@@ -29,6 +29,8 @@ typedef struct iree_hal_vulkan_device_spec_params_t {
   const iree_hal_vulkan_device_plan_t* device_plan;
   // Device allocator used to query stable allocation classes.
   iree_hal_allocator_t* device_allocator;
+  // Native sparse storage/transfer geometry, or zero when aliasing is disabled.
+  VkMemoryRequirements sparse_buffer_requirements;
 } iree_hal_vulkan_device_spec_params_t;
 
 // Encodes |spec| and adds it as a Vulkan driver-local facet to |builder|.

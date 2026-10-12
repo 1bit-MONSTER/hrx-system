@@ -37,10 +37,9 @@ VkMemoryRequirements iree_hal_vulkan_sparse_buffer_query_requirements(
 // is larger than maxMemoryAllocationSize. The returned HAL buffer owns |handle|
 // and all allocated physical blocks.
 //
-// Sparse buffers are not host-mappable in this primitive. Future virtual-memory
-// APIs can expose reserve/commit/decommit behavior directly, but this helper is
-// deliberately synchronous and fully resident so normal HAL buffers can use it
-// without gaining extra valid states.
+// Sparse buffers are not host-mappable in this primitive. Independently mapped
+// addresses use memory_reservation.h; this helper creates fully resident
+// ordinary storage.
 iree_status_t iree_hal_vulkan_sparse_buffer_create_bound_sync(
     const iree_hal_vulkan_device_syms_t* syms, VkDevice logical_device,
     iree_hal_vulkan_queue_t* sparse_binding_queue,
@@ -54,42 +53,8 @@ iree_status_t iree_hal_vulkan_sparse_buffer_create_bound_sync(
     VkMemoryAllocateFlags memory_allocate_flags,
     iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
 
-// Creates an unbound sparse Vulkan buffer representing a virtual address range.
-//
-// The returned HAL buffer owns |handle| but no physical VkDeviceMemory. Callers
-// map and unmap memory by submitting sparse bind operations against the
-// returned handle. The buffer must have been created with sparse
-// residency/aliasing flags when callers intend to partially bind or alias
-// physical memory.
-iree_status_t iree_hal_vulkan_sparse_buffer_create_unbound(
-    const iree_hal_vulkan_device_syms_t* syms, VkDevice logical_device,
-    iree_hal_buffer_placement_t placement, iree_hal_memory_type_t memory_type,
-    iree_hal_memory_access_t allowed_access,
-    iree_hal_buffer_usage_t allowed_usage, iree_device_size_t allocation_size,
-    iree_device_size_t byte_length, VkBuffer handle,
-    VkMemoryRequirements memory_requirements, iree_allocator_t host_allocator,
-    iree_hal_buffer_t** out_buffer);
-
 // Returns true if |buffer| is a Vulkan sparse HAL buffer.
 bool iree_hal_vulkan_sparse_buffer_isa(iree_hal_buffer_t* buffer);
-
-// Returns true if |buffer| is an unbound sparse virtual memory reservation.
-bool iree_hal_vulkan_sparse_buffer_is_virtual_reservation(
-    iree_hal_buffer_t* buffer);
-
-// Returns the Vulkan memory requirements for |buffer|.
-iree_status_t iree_hal_vulkan_sparse_buffer_memory_requirements(
-    iree_hal_buffer_t* buffer, VkMemoryRequirements* out_memory_requirements);
-
-// Submits sparse buffer memory binds and waits for them to complete.
-//
-// This is a host-synchronous allocator/control-path helper layered on the
-// nonblocking queue submission primitive. Queue operations that already have
-// HAL wait/signal edges should submit sparse binds directly through queue.h.
-iree_status_t iree_hal_vulkan_sparse_buffer_bind_sync(
-    iree_hal_vulkan_queue_t* sparse_binding_queue,
-    iree_hal_buffer_placement_t placement, VkBuffer handle,
-    iree_host_size_t bind_count, const VkSparseMemoryBind binds[]);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -208,22 +208,6 @@ iree_cc_test(
     iree::testing::gtest_main
 )
 
-iree_cc_test(
-  NAME
-    execute_vmm_test
-  SRCS
-    "execute_operation.h"
-    "execute_state.h"
-    "execute_vmm_test.cc"
-  DEPS
-    ::execute
-    ::file_reader
-    iree::base
-    iree::hal
-    iree::testing::gtest
-    iree::testing::gtest_main
-)
-
 if(TARGET iree::hal::drivers::task::registration)
 
 iree_cc_test(

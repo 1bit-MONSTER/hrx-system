@@ -190,21 +190,6 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
-    name = "allocator_virtual_memory_tests",
-    srcs = ["allocator_virtual_memory_test.cc"],
-    deps = [
-        ":backends",
-        ":bda_spirv_test_spv",
-        "//runtime/src/iree/base/tooling:flags",
-        "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/cts/util:registry",
-        "//runtime/src/iree/hal/cts/util:test_base",
-        "//runtime/src/iree/hal/cts/util:test_main",
-        "//runtime/src/iree/testing:gtest",
-    ],
-)
-
-iree_runtime_cc_test(
     name = "profiling_tests",
     srcs = ["profiling_test.cc"],
     deps = [
