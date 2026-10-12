@@ -1,0 +1,18 @@
+global.rodata.def @immutable_words = align(64) bytes("000000000100000002000000030000000400000005000000060000000700000008000000090000000a0000000b0000000c0000000d0000000e0000000f000000")
+
+kernel.def export("aql_immutable_data") @aql_immutable_data() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %mask = index.constant 15 : index
+  %position = index.andi %lane, %mask : index
+  %origin = index.constant 0 : offset
+  %storage = global.load @immutable_words : buffer
+  %words = buffer.view %storage[%origin] : buffer -> view<16xi32>
+  %value = view.load %words[%position] : view<16xi32> -> i32
+  %output_words = buffer.view %output[%origin] : buffer -> view<64xi32>
+  view.store %value, %output_words[%lane] : i32, view<64xi32>
+  kernel.return
+}

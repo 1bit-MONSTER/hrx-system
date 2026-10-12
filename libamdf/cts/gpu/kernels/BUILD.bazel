@@ -39,6 +39,8 @@ exports_files([
     "file_latency.loom",
     "file_staged.loom",
     "geometry_ids.loom",
+    "immutable_data.loom",
+    "immutable_data_alternate.loom",
     "lds_exchange.loom",
     "pattern_fill_unaligned.loom",
     "private_roundtrip.loom",
@@ -268,6 +270,28 @@ amdf_cts_gpu_kernel_set(
     srcs = ["transform_alternate.loom"],
     entry_point = "aql_transform",
     namespace = "kernels::transform_alternate",
+    targets = AMDF_CTS_GPU_KERNEL_TARGETS,
+)
+
+amdf_cc_library(
+    name = "immutable_data",
+    testonly = True,
+    hdrs = ["immutable_data.h"],
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "immutable_data_kernels",
+    srcs = ["immutable_data.loom"],
+    entry_point = "aql_immutable_data",
+    namespace = "kernels::immutable_data",
+    targets = AMDF_CTS_GPU_KERNEL_TARGETS,
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "immutable_data_alternate_kernels",
+    srcs = ["immutable_data_alternate.loom"],
+    entry_point = "aql_immutable_data",
+    namespace = "kernels::immutable_data_alternate",
     targets = AMDF_CTS_GPU_KERNEL_TARGETS,
 )
 
@@ -512,6 +536,9 @@ amdf_cc_test(
         ":file_staged_upload_kernels",
         ":geometry_ids",
         ":geometry_ids_kernels",
+        ":immutable_data",
+        ":immutable_data_alternate_kernels",
+        ":immutable_data_kernels",
         ":kernel",
         ":lds_exchange",
         ":lds_exchange_kernels",
@@ -600,14 +627,26 @@ py_test(
         "embed_test.py",
     ],
     args = loom_amdgpu_selected_descriptor_set_values({
-        capability: [
-            "--variant=%s=$(rootpath :transform_kernels_%s)" % (target, target)
-            for target in targets
-        ]
+        capability: (
+            [
+                "--variant=%s=$(rootpath :transform_kernels_%s)" % (target, target)
+                for target in targets
+            ] + [
+                "--immutable-variant=%s=$(rootpath :immutable_data_kernels_%s)" % (target, target)
+                for target in targets
+            ] + [
+                "--immutable-alternate-variant=%s=$(rootpath :immutable_data_alternate_kernels_%s)" % (target, target)
+                for target in targets
+            ]
+        )
         for capability, targets in _KERNEL_TARGETS_BY_CAPABILITY.items()
     }),
     data = loom_amdgpu_selected_descriptor_set_values({
-        capability: [":transform_kernels_" + target for target in targets]
+        capability: (
+            [":transform_kernels_" + target for target in targets] +
+            [":immutable_data_kernels_" + target for target in targets] +
+            [":immutable_data_alternate_kernels_" + target for target in targets]
+        )
         for capability, targets in _KERNEL_TARGETS_BY_CAPABILITY.items()
     }),
     main = "embed_test.py",

@@ -4,8 +4,9 @@ An AQL producer places a complete packet in a shared ring and transfers its
 ownership to the packet processor. Reservation chooses the packet's position;
 publication makes its contents executable; the doorbell notifies the processor
 that work is available. Consuming that packet releases a ring slot, while the
-task it names can continue using arguments, code, signals and payload memory.
-HSA System Architecture 1.2 §2.8 defines these separate transitions.
+task it names can continue using arguments, complete executable images,
+signals and payload memory. HSA System Architecture 1.2 §2.8 defines these
+separate transitions.
 [Queue mechanics][hsa]
 
 ## Queue representation and index units
@@ -113,9 +114,10 @@ use a 32-bit release store for this transition. [HSA §§2.8.3 and 2.9.5][hsa]
 
 A normal host producer follows this sequence:
 
-1. Prepare the native queue, mapped ring, indices and doorbell. Publish code,
-   arguments and input data for their actual consumers; packet publication
-   does not replace [executable publication](dispatch.md#executable-publication-and-final-use)
+1. Prepare the native queue, mapped ring, indices and doorbell. Publish the
+   complete executable image, arguments and input data for their actual
+   consumers; packet publication does not replace
+   [executable publication](dispatch.md#executable-publication-and-final-use)
    or the required [fence scopes](barriers.md#fence-scope-and-observers).
 2. Reserve a packet ID, then establish that its physical slot is writable.
 3. Write the packet body while its format remains INVALID. Preserve the
@@ -262,7 +264,7 @@ Three owners finish at different points:
 | Storage | Reuse or release boundary |
 | --- | --- |
 | One ring slot | The processor invalidates it and advances the read index. |
-| Arguments, executable code, payload and signals | Completion and visibility of their last independent users, including consumers on other queues. |
+| Arguments, complete executable images, payload and signals | Completion and visibility of their last independent users, including consumers on other queues. |
 | Ring allocation, indices and doorbell | The queue owner stops publication and completes native queue teardown before releasing the underlying resources. |
 
 AQL packets dispatch in order but can complete out of order. A last packet's

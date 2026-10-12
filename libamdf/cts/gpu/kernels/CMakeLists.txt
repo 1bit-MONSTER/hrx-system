@@ -824,6 +824,87 @@ amdf_cts_gpu_kernel_set(
 )
 endif()
 
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+iree_cc_library(
+  NAME
+    immutable_data
+  HDRS
+    "immutable_data.h"
+  DEPS
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE))
+amdf_cts_gpu_kernel_set(
+  NAME
+    "immutable_data_kernels"
+  SRCS
+    "immutable_data.loom"
+  TARGETS
+    "gfx1100"
+    "gfx1101"
+    "gfx1102"
+    "gfx1103"
+    "gfx1150"
+    "gfx1151"
+    "gfx1152"
+    "gfx1153"
+    "gfx1170"
+    "gfx1171"
+    "gfx1172"
+    "gfx1200"
+    "gfx1201"
+    "gfx1250"
+    "gfx1250-a0"
+    "gfx1251"
+    "gfx940"
+    "gfx941"
+    "gfx942"
+    "gfx950"
+  ENTRY_POINT
+    "aql_immutable_data"
+  NAMESPACE
+    "kernels::immutable_data"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE))
+amdf_cts_gpu_kernel_set(
+  NAME
+    "immutable_data_alternate_kernels"
+  SRCS
+    "immutable_data_alternate.loom"
+  TARGETS
+    "gfx1100"
+    "gfx1101"
+    "gfx1102"
+    "gfx1103"
+    "gfx1150"
+    "gfx1151"
+    "gfx1152"
+    "gfx1153"
+    "gfx1170"
+    "gfx1171"
+    "gfx1172"
+    "gfx1200"
+    "gfx1201"
+    "gfx1250"
+    "gfx1250-a0"
+    "gfx1251"
+    "gfx940"
+    "gfx941"
+    "gfx942"
+    "gfx950"
+  ENTRY_POINT
+    "aql_immutable_data"
+  NAMESPACE
+    "kernels::immutable_data_alternate"
+)
+endif()
+
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX11_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE))
 amdf_cts_gpu_kernel_set(
   NAME
@@ -1465,6 +1546,9 @@ iree_cc_test(
     ::file_staged_upload_kernels
     ::geometry_ids
     ::geometry_ids_kernels
+    ::immutable_data
+    ::immutable_data_alternate_kernels
+    ::immutable_data_kernels
     ::kernel
     ::lds_exchange
     ::lds_exchange_kernels
@@ -1591,36 +1675,74 @@ if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE)
   list(APPEND _embed_test_platform_args "--variant=gfx940={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx940.hsaco}}")
   list(APPEND _embed_test_platform_args "--variant=gfx941={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx941.hsaco}}")
   list(APPEND _embed_test_platform_args "--variant=gfx942={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx942.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx940={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx940.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx941={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx941.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx942={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx942.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx940={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx940.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx941={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx941.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx942={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx942.hsaco}}")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE)
   list(APPEND _embed_test_platform_args "--variant=gfx950={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx950.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx950={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx950.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx950={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx950.hsaco}}")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE)
   list(APPEND _embed_test_platform_args "--variant=gfx1100={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1100.hsaco}}")
   list(APPEND _embed_test_platform_args "--variant=gfx1101={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1101.hsaco}}")
   list(APPEND _embed_test_platform_args "--variant=gfx1102={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1102.hsaco}}")
   list(APPEND _embed_test_platform_args "--variant=gfx1103={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1103.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1100={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1100.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1101={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1101.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1102={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1102.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1103={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1103.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1100={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1100.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1101={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1101.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1102={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1102.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1103={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1103.hsaco}}")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE)
   list(APPEND _embed_test_platform_args "--variant=gfx1200={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1200.hsaco}}")
   list(APPEND _embed_test_platform_args "--variant=gfx1201={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1201.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1200={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1200.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1201={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1201.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1200={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1200.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1201={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1201.hsaco}}")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE)
   list(APPEND _embed_test_platform_args "--variant=gfx1250={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1250={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1250.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1250={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1250.hsaco}}")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE)
   list(APPEND _embed_test_platform_args "--variant=gfx1150={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1150.hsaco}}")
   list(APPEND _embed_test_platform_args "--variant=gfx1151={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1151.hsaco}}")
   list(APPEND _embed_test_platform_args "--variant=gfx1152={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1152.hsaco}}")
   list(APPEND _embed_test_platform_args "--variant=gfx1153={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1153.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1150={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1150.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1151={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1151.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1152={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1152.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1153={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1153.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1150={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1150.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1151={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1151.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1152={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1152.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1153={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1153.hsaco}}")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE)
   list(APPEND _embed_test_platform_args "--variant=gfx1170={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1170.hsaco}}")
   list(APPEND _embed_test_platform_args "--variant=gfx1171={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1171.hsaco}}")
   list(APPEND _embed_test_platform_args "--variant=gfx1172={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1172.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1170={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1170.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1171={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1171.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1172={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1172.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1170={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1170.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1171={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1171.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1172={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1172.hsaco}}")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE)
   list(APPEND _embed_test_platform_args "--variant=gfx1251={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1251.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1251={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1251.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1251={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1251.hsaco}}")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX9_4_GENERIC_CORE)
 endif()
@@ -1632,41 +1754,81 @@ if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE)
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE)
   list(APPEND _embed_test_platform_args "--variant=gfx1250-a0={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250-a0.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-variant=gfx1250-a0={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1250-a0.hsaco}}")
+  list(APPEND _embed_test_platform_args "--immutable-alternate-variant=gfx1250-a0={{${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1250-a0.hsaco}}")
 endif()
 set(_embed_test_platform_data "")
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx940.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx941.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx942.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx940.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx941.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx942.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx940.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx941.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx942.hsaco")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx950.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx950.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx950.hsaco")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1100.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1101.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1102.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1103.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1100.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1101.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1102.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1103.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1100.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1101.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1102.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1103.hsaco")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1200.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1201.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1200.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1201.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1200.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1201.hsaco")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1250.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1250.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250.hsaco")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1150.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1151.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1152.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1153.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1150.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1151.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1152.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1153.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1150.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1151.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1152.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1153.hsaco")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1170.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1171.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1172.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1170.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1171.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1172.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1170.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1171.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1172.hsaco")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1251.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1251.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1251.hsaco")
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX9_4_GENERIC_CORE)
@@ -1678,6 +1840,8 @@ endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE)
 endif()
 if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_alternate_kernels_gfx1250-a0.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/immutable_data_kernels_gfx1250-a0.hsaco")
   list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250-a0.hsaco")
 endif()
 iree_py_test(

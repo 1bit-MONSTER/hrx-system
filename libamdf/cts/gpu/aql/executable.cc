@@ -97,6 +97,8 @@ void Executable::Initialize(const amdf_api_t* api,
                                   image.byte_length);
   ::testing::Test::RecordProperty(prefix + "_descriptor_byte_offset",
                                   image.descriptor_byte_offset);
+  ::testing::Test::RecordProperty(prefix + "_rodata_byte_length",
+                                  image.rodata_byte_length);
 
   const uint64_t index = (*next_packet_index)++;
   GpuStoreRelease(queue.host.write_index_address, *next_packet_index);
