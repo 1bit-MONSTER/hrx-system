@@ -12,6 +12,7 @@
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/device.h"
 #include "libamdf/src/endpoint.h"
+#include "libamdf/src/host_memory.h"
 #include "libamdf/src/instance.h"
 #include "libamdf/src/platform/host_memory.h"
 #include "libamdf/src/structure.h"
@@ -985,10 +986,14 @@ static amdf_status_t amdf_memory_profile_describe_site(
         .flush = {.kind = AMDF_CACHE_TRANSITION_KIND_NONE},
         .invalidate = {.kind = AMDF_CACHE_TRANSITION_KIND_NONE},
     };
+  } else if (plan->backing_access_ordinal == plan->access_count) {
+    // Device registration does not own the CPU view or its cache policy.
+    const amdf_status_t status = amdf_host_memory_query_description(&host);
+    if (!amdf_status_is_ok(status)) {
+      return status;
+    }
   } else {
-    const uint32_t ordinal = plan->backing_access_ordinal == plan->access_count
-                                 ? peer->value.device.access_ordinal
-                                 : plan->backing_access_ordinal;
+    const uint32_t ordinal = plan->backing_access_ordinal;
     const amdf_memory_native_profile_t* native =
         &plan->native_profiles[ordinal];
     if (native->visibility.describe_host == NULL) {

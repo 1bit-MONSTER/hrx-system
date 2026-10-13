@@ -221,6 +221,7 @@ iree_cc_library(
     ::allocator
     ::device
     ::endpoint
+    ::host_memory
     ::instance
     ::memory_pair
     ::memory_profile

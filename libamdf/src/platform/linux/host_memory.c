@@ -16,6 +16,11 @@
 #include "libamdf/src/platform/linux/file.h"
 #include "libamdf/src/platform/linux/host_cache.h"
 
+// Stable Linux UAPI value, available at runtime since Linux 5.14. Naming it
+// locally lets builds use older sysroot headers without changing admission on
+// kernels that do not support fallible writable population.
+enum { AMDF_LINUX_MADV_POPULATE_WRITE = 23 };
+
 amdf_status_t amdf_platform_host_backing_create(
     uint64_t byte_length, amdf_platform_host_backing_t* out_backing) {
   int descriptor = memfd_create("libamdf", MFD_CLOEXEC);
@@ -105,7 +110,8 @@ amdf_status_t amdf_platform_host_memory_place(void* pointer,
               MPOL_BIND | MPOL_F_STATIC_NODES, nodes,
               (unsigned long)bit_count + 1, 0UL) != 0) {
     status = amdf_linux_error(errno);
-  } else if (madvise(pointer, (size_t)byte_length, MADV_POPULATE_WRITE) != 0) {
+  } else if (madvise(pointer, (size_t)byte_length,
+                     AMDF_LINUX_MADV_POPULATE_WRITE) != 0) {
     // Population has an error channel; ordinary first-touch stores could
     // instead fault the process when the selected node cannot supply pages.
     status = amdf_linux_error(errno);
@@ -114,9 +120,24 @@ amdf_status_t amdf_platform_host_memory_place(void* pointer,
   return status;
 }
 
-amdf_status_t amdf_platform_host_memory_query_cache_line_size(
-    uint32_t* out_line_size) {
-  return amdf_linux_host_cache_query_line_size(out_line_size);
+amdf_status_t amdf_platform_host_memory_query_cache_transition(
+    amdf_cache_transition_t* out_transition) {
+  uint32_t line_size = 0;
+  const amdf_status_t status =
+      amdf_linux_host_cache_query_line_size(&line_size);
+  if (!amdf_status_is_ok(status)) {
+    return status;
+  }
+  *out_transition = (amdf_cache_transition_t){
+      .kind = AMDF_CACHE_TRANSITION_KIND_RANGE,
+      .executor = AMDF_CACHE_TRANSITION_EXECUTOR_HOST_DIRECT,
+      .host_operation = AMDF_HOST_CACHE_OPERATION_FLUSH,
+      .host_instruction = AMDF_HOST_CACHE_INSTRUCTION_X86_CLFLUSH,
+      .host_fence_before = AMDF_HOST_CACHE_FENCE_X86_MFENCE,
+      .host_fence_after = AMDF_HOST_CACHE_FENCE_X86_MFENCE,
+      .range_granularity = line_size,
+  };
+  return AMDF_STATUS_OK;
 }
 
 amdf_status_t amdf_platform_host_memory_cache_control(void* pointer,

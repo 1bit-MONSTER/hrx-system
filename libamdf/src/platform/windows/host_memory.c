@@ -85,9 +85,17 @@ amdf_status_t amdf_platform_host_memory_place(void* pointer,
   return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
 }
 
-amdf_status_t amdf_platform_host_memory_query_cache_line_size(
-    uint32_t* out_line_size) {
-  *out_line_size = amdf_windows_host_cache_line_size();
+amdf_status_t amdf_platform_host_memory_query_cache_transition(
+    amdf_cache_transition_t* out_transition) {
+  *out_transition = (amdf_cache_transition_t){
+      .kind = AMDF_CACHE_TRANSITION_KIND_RANGE,
+      .executor = AMDF_CACHE_TRANSITION_EXECUTOR_HOST_DIRECT,
+      .host_operation = AMDF_HOST_CACHE_OPERATION_FLUSH,
+      .host_instruction = AMDF_HOST_CACHE_INSTRUCTION_X86_CLFLUSH,
+      .host_fence_before = AMDF_HOST_CACHE_FENCE_X86_MFENCE,
+      .host_fence_after = AMDF_HOST_CACHE_FENCE_X86_MFENCE,
+      .range_granularity = amdf_windows_host_cache_line_size(),
+  };
   return AMDF_STATUS_OK;
 }
 

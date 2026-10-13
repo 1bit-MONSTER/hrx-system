@@ -13,6 +13,11 @@
 extern "C" {
 #endif
 
+// Describes cache maintenance for platform-owned write-back pages. Profile
+// qualification and concrete host views use the same native host facts.
+amdf_status_t amdf_host_memory_query_description(
+    amdf_memory_host_description_t* out_description);
+
 // Prepares system backing in the resource's private host backing slot.
 // Borrowed pages remain caller-owned; allocation owns only the host VM range.
 amdf_status_t amdf_host_memory_prepare(
