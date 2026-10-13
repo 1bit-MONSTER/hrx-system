@@ -107,7 +107,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @buffer_narrow_capture(%resour
 }
 
 // ----
-  buffer_load_u8 v8, v0, s[32:35], s40 offen offset:0
+  buffer_load_ubyte v8, v0, s[32:35], s40 offen offset:0
   s_add_u32 s40, s40, 1
   s_waitcnt vmcnt(0) lgkmcnt(63)
   global_store_b32 v0, v8, s[44:45] offset:0
@@ -129,7 +129,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @buffer_tied_half_capture(%res
 }
 
 // ----
-  buffer_load_d16_hi_b16 v8, v0, s[32:35], s40 offen offset:0 glc:0 slc:0 dlc:0
+  buffer_load_short_d16_hi v8, v0, s[32:35], s40 offen offset:0
   s_add_u32 s40, s40, 2
   s_waitcnt vmcnt(0) lgkmcnt(63)
   global_store_b32 v0, v8, s[44:45] offset:0

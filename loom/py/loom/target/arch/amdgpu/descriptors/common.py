@@ -1392,49 +1392,6 @@ def _native_amdgpu_gfx12_temporal_immediate(
     )
 
 
-def _global_vaddr_asm(
-    *,
-    mnemonic: str,
-    native_assembly_mnemonic: str | None = None,
-    results: tuple[str, ...] = (),
-    operands: tuple[str, ...],
-    immediates: tuple[str, ...],
-    native_assembly_values: tuple[NativeAsmValue, ...] = (),
-) -> tuple[AsmForm, ...]:
-    return _asm(
-        mnemonic=f"{mnemonic}_vaddr",
-        native_assembly_mnemonic=native_assembly_mnemonic,
-        results=results,
-        operands=operands,
-        immediates=immediates,
-        named_immediates=True,
-        native_assembly_values=native_assembly_values,
-    )
-
-
-def _global_saddr_asm(
-    *,
-    mnemonic: str,
-    native_assembly_mnemonic: str | None = None,
-    results: tuple[str, ...] = (),
-    operands: tuple[str, ...],
-    implicit_m0: bool = False,
-    immediates: tuple[str, ...],
-    native_assembly_values: tuple[NativeAsmValue, ...] = (),
-) -> tuple[AsmForm, ...]:
-    if implicit_m0:
-        operands = (*operands, "m0")
-    return _asm(
-        mnemonic=f"{mnemonic}_saddr",
-        native_assembly_mnemonic=native_assembly_mnemonic,
-        results=results,
-        operands=operands,
-        immediates=immediates,
-        named_immediates=True,
-        native_assembly_values=native_assembly_values,
-    )
-
-
 def _literal_operand_form(
     *,
     replacement_descriptor: str,
@@ -3776,8 +3733,6 @@ __all__ = (
     "_global_atomic_effects",
     "_global_read_effect",
     "_global_to_lds_effects",
-    "_global_saddr_asm",
-    "_global_vaddr_asm",
     "_global_write_effect",
     "_hal_buffer_descriptor_pseudos",
     "_ignore_generic_atomic_memory",

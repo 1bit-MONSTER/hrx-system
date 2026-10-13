@@ -250,6 +250,7 @@ iree_py_library(
     "descriptors/matrix.py"
     "descriptors/matrix_schedule.py"
     "descriptors/memory.py"
+    "descriptors/memory_assembly.py"
     "descriptors/rdna3.py"
     "descriptors/rdna35.py"
     "descriptors/rdna4.py"

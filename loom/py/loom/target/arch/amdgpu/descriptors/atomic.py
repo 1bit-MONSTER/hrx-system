@@ -14,7 +14,11 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from .common import *
-from .memory import _native_memory_modifiers
+from .memory_assembly import (
+    _buffer_memory_asm,
+    _global_memory_asm,
+    _native_memory_modifiers,
+)
 
 
 def _flat_atomic_asm(
@@ -48,21 +52,13 @@ def _buffer_atomic_asm(
     cache_fields: tuple[tuple[str, int], ...],
     native_modifiers: tuple[NativeAsmValue, ...],
 ) -> tuple[AsmForm, ...]:
-    return _asm(
+    return _buffer_memory_asm(
         mnemonic=f"{mnemonic}_rtn" if returns_old_value else mnemonic,
-        native_assembly_mnemonic=mnemonic if returns_old_value else None,
+        native_assembly_mnemonic=mnemonic,
         results=("dst",) if returns_old_value else (),
         operands=("value", "resource", "vaddr", "soffset"),
         immediates=_memory_asm_immediate_names(cache_fields),
-        named_immediates=True,
-        native_assembly_values=(
-            _native_operand("value"),
-            _native_operand("vaddr"),
-            _native_operand("resource"),
-            _native_operand("soffset"),
-            _native_modifier_literal("offen"),
-            *native_modifiers,
-        ),
+        native_modifiers=native_modifiers,
     )
 
 
@@ -321,24 +317,16 @@ def _global_atomic_overlay(
         fixed_encoding_fields=fixed_encoding_fields,
         effects=_global_atomic_effects(width_bits, counter_id=counter_id),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=(_global_saddr_asm if saddr_off is None else _global_vaddr_asm)(
+        asm_forms=_global_memory_asm(
             mnemonic=f"{mnemonic}_rtn" if returns_old_value else mnemonic,
             native_assembly_mnemonic=mnemonic,
             results=("dst",) if returns_old_value else (),
             operands=("addr", "value", *(("saddr",) if saddr_off is None else ())),
             immediates=_memory_asm_immediate_names(cache_immediate_fields),
-            native_assembly_values=(
-                *((_native_result("dst"),) if returns_old_value else ()),
-                _native_operand("addr"),
-                _native_operand("value"),
-                _native_operand("saddr")
-                if saddr_off is None
-                else _native_literal("off"),
-                *_native_memory_modifiers(
-                    cache_fields,
-                    fixed_encoding_fields=fixed_encoding_fields,
-                    temporal_operation="atomic",
-                ),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields,
+                fixed_encoding_fields=fixed_encoding_fields,
+                temporal_operation="atomic",
             ),
         ),
     )
@@ -429,24 +417,16 @@ def _global_atomic_cmpswap_overlay(
         fixed_encoding_fields=fixed_encoding_fields,
         effects=_global_atomic_effects(width_bits, counter_id=_COUNTER_VMEM_LOAD),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=(_global_saddr_asm if saddr_off is None else _global_vaddr_asm)(
+        asm_forms=_global_memory_asm(
             mnemonic=f"{mnemonic}_rtn",
             native_assembly_mnemonic=mnemonic,
             results=("dst",),
             operands=("addr", "value", *(("saddr",) if saddr_off is None else ())),
             immediates=_memory_asm_immediate_names(cache_immediate_fields),
-            native_assembly_values=(
-                _native_result("dst"),
-                _native_operand("addr"),
-                _native_operand("value"),
-                _native_operand("saddr")
-                if saddr_off is None
-                else _native_literal("off"),
-                *_native_memory_modifiers(
-                    cache_fields,
-                    fixed_encoding_fields=fixed_encoding_fields,
-                    temporal_operation="atomic",
-                ),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields,
+                fixed_encoding_fields=fixed_encoding_fields,
+                temporal_operation="atomic",
             ),
         ),
     )

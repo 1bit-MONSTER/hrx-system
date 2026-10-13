@@ -2229,7 +2229,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@gfx1250_target) @gfx1250_vgpr_ms
   s_set_vgpr_msb 64
   v_lshlrev_b32 v268, 1, v12
   s_set_vgpr_msb 16385
-  global_load_d16_b16 v2, v12, s[0:1] offset:0
+  global_load_short_d16 v2, v12, s[0:1] offset:0
   s_wait_loadcnt loadcnt(0)
   v_lshlrev_b32 v3, 16, v2
   s_set_vgpr_msb 256
@@ -2701,7 +2701,7 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @gfx11_predicated_tile_swe
   s_mov_b32 s6, 0
   s_mov_b32 s7, 16
   s_mov_b32 s8, 128
-  global_load_d16_b16 v2, v1, s[0:1] offset:0
+  global_load_short_d16 v2, v1, s[0:1] offset:0
   v_cvt_f32_f16 v2, v2
   v_mov_b32 v3, v2
 .Lbb1:
@@ -3118,8 +3118,8 @@ low.func.def target<amdgpu.cdna4.core>(@gfx950_target) @gfx950_narrow_vmem_loads
 }
 
 // ----
-  buffer_load_u8 v1, v0, s[0:3], s4 offen offset:4
-  buffer_load_i16 v1, v0, s[0:3], s4 offen offset:8
+  buffer_load_ubyte v1, v0, s[0:3], s4 offen offset:4
+  buffer_load_sshort v1, v0, s[0:3], s4 offen offset:8
   global_load_ubyte v1, v0, s[6:7] offset:12
   global_load_sshort v0, v0, s[6:7] offset:16
   s_endpgm
@@ -3208,10 +3208,10 @@ low.func.def target<amdgpu.rdna4.core>(@gfx12_target) @gfx12_narrow_vmem_loads(%
 }
 
 // ----
-  buffer_load_u8 v1, v0, s[0:3], s4 offen offset:4
-  buffer_load_i16 v1, v0, s[0:3], s4 offen offset:8
-  global_load_u8 v1, v0, s[6:7] offset:12
-  global_load_i16 v0, v0, s[6:7] offset:16
+  buffer_load_ubyte v1, v0, s[0:3], s4 offen offset:4
+  buffer_load_sshort v1, v0, s[0:3], s4 offen offset:8
+  global_load_ubyte v1, v0, s[6:7] offset:12
+  global_load_sshort v0, v0, s[6:7] offset:16
   s_endpgm
 
 // ====
@@ -3227,9 +3227,9 @@ low.func.def target<amdgpu.rdna4.core>(@gfx12_target) @gfx12_vbuffer_vaddr_offse
 }
 
 // ----
-  buffer_load_dword v1, v0, s[0:3], null offen offset:4608 nv:0 scope:0 th:0
-  buffer_store_short v1, v0, s[0:3], null offen offset:1031 nv:0 scope:0 th:0
-  buffer_load_b96 v[0:2], v0, s[0:3], null offen offset:2049 nv:0 scope:0 th:0
+  buffer_load_dword v1, v0, s[0:3], null offen offset:4608
+  buffer_store_short v1, v0, s[0:3], null offen offset:1031
+  buffer_load_b96 v[0:2], v0, s[0:3], null offen offset:2049
   s_endpgm
 
 // ====

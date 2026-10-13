@@ -195,7 +195,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @lds_to_vmem_continuation(%addre
 // ----
   ds_load_u16_d16 v2, v0 offset:0
   s_waitcnt vmcnt(63) lgkmcnt(0)
-  global_load_d16_hi_b16 v2, v0, s[0:1] offset:0
+  global_load_short_d16_hi v2, v0, s[0:1] offset:0
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_add_u32 v0, v2, v1
   s_endpgm
@@ -216,7 +216,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @continued_result_materialized
 // The forced move is the first actual read of the continued value. Its LDS
 // wait must precede the move; the old VMEM half completed before continuation.
 // ----
-  global_load_d16_b16 v4, v0, s[0:1] offset:0
+  global_load_short_d16 v4, v0, s[0:1] offset:0
   s_waitcnt vmcnt(0) lgkmcnt(63)
   ds_load_u16_d16_hi v4, v0 offset:0
   s_waitcnt vmcnt(63) lgkmcnt(0)
@@ -268,7 +268,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @continued_result_coalesced_ed
 // ----
   ds_load_u16_d16 v4, v0 offset:0
   s_waitcnt vmcnt(63) lgkmcnt(0)
-  global_load_d16_hi_b16 v4, v0, s[0:1] offset:0
+  global_load_short_d16_hi v4, v0, s[0:1] offset:0
 .Lbb1:
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_add_u32 v0, v4, v1
@@ -289,8 +289,8 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @same_vmem_continuation_remain
 // Both halves use the same ordered result pipeline and can remain pending
 // together. The single final wait completes both halves.
 // ----
-  global_load_d16_b16 v2, v0, s[0:1] offset:0
-  global_load_d16_hi_b16 v2, v0, s[0:1] offset:2
+  global_load_short_d16 v2, v0, s[0:1] offset:0
+  global_load_short_d16_hi v2, v0, s[0:1] offset:2
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_add_u32 v0, v2, v1
   s_endpgm
@@ -368,7 +368,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @mixed_continuation_loop(%addr
   s_mov_b32 s3, 1
   s_mov_b32 s4, 0
 .Lbb1:
-  global_load_d16_b16 v4, v0, s[0:1] offset:0
+  global_load_short_d16 v4, v0, s[0:1] offset:0
   s_waitcnt vmcnt(0) lgkmcnt(63)
   ds_load_u16_d16_hi v4, v0 offset:0
   s_waitcnt vmcnt(63) lgkmcnt(0)

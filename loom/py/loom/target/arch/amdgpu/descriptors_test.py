@@ -5466,6 +5466,7 @@ def _assert_memory_vaddr_offset_overlay(
     width_bits: int,
     semantic_tag: str,
     mnemonic: str,
+    native_mnemonic: str,
     operand_units: int,
     payload_field_name: str,
     effect_kind: EffectKind,
@@ -5499,20 +5500,21 @@ def _assert_memory_vaddr_offset_overlay(
     assert forms is not None
     form = forms[0]
     assert form.mnemonic == f"{mnemonic}_vaddr_offset"
-    assert form.native_assembly_mnemonic == mnemonic
+    assert form.native_assembly_mnemonic == native_mnemonic
     payload_value_kind = (
         NativeAsmValueKind.RESULT
         if effect_kind == EffectKind.READ
         else NativeAsmValueKind.OPERAND
     )
-    assert form.native_assembly_values == (
+    assert form.native_assembly_values[:5] == (
         NativeAsmValue(payload_value_kind, field_name=payload_field_name),
         NativeAsmValue(NativeAsmValueKind.OPERAND, field_name="vaddr"),
         NativeAsmValue(NativeAsmValueKind.OPERAND, field_name="resource"),
         NativeAsmValue(
             NativeAsmValueKind.LITERAL,
-            literal=f"{fixed_soffset_native_spelling} offen",
+            literal=fixed_soffset_native_spelling,
         ),
+        NativeAsmValue(NativeAsmValueKind.MODIFIER_LITERAL, literal="offen"),
     )
     assert form.results == (("dst",) if effect_kind == EffectKind.READ else ())
     assert form.operands == (
@@ -5770,6 +5772,7 @@ def test_dwordx3_memory_descriptors_cover_cdna_and_rdna_families() -> None:
                 width_bits=96,
                 semantic_tag="memory.load.u96",
                 mnemonic=buffer_mnemonic,
+                native_mnemonic=buffer_mnemonic,
                 operand_units=3,
                 payload_field_name="dst",
                 effect_kind=EffectKind.READ,
@@ -5798,6 +5801,7 @@ def test_dwordx3_memory_descriptors_cover_cdna_and_rdna_families() -> None:
                 width_bits=96,
                 semantic_tag="memory.store.u96",
                 mnemonic=buffer_mnemonic.replace("load", "store"),
+                native_mnemonic=buffer_mnemonic.replace("load", "store"),
                 operand_units=3,
                 payload_field_name="value",
                 effect_kind=EffectKind.WRITE,
@@ -6447,6 +6451,7 @@ def test_vmem_narrow_load_descriptors_cover_active_xml_families() -> None:
                     width_bits=width_bits,
                     semantic_tag=global_semantic_tag,
                     mnemonic=f"buffer_load_{suffix}",
+                    native_mnemonic=f"buffer_load_{cdna_mnemonic_suffixes[suffix]}",
                     operand_units=1,
                     payload_field_name="dst",
                     effect_kind=EffectKind.READ,
@@ -6514,12 +6519,19 @@ def test_vmem_narrow_load_descriptors_cover_active_xml_families() -> None:
                     f"{scratch_mnemonic}{asm_suffix}"
                 )
 
-        for store_key, width_bits, semantic_tag, mnemonic in (
-            ("amdgpu.buffer_store_b8", 8, "memory.store.u8", "buffer_store_b8"),
+        for store_key, width_bits, semantic_tag, mnemonic, native_mnemonic in (
+            (
+                "amdgpu.buffer_store_b8",
+                8,
+                "memory.store.u8",
+                "buffer_store_b8",
+                "buffer_store_byte",
+            ),
             (
                 "amdgpu.buffer_store_b16",
                 16,
                 "memory.store.u16.low",
+                "buffer_store_short",
                 "buffer_store_short",
             ),
         ):
@@ -6534,6 +6546,7 @@ def test_vmem_narrow_load_descriptors_cover_active_xml_families() -> None:
                     width_bits=width_bits,
                     semantic_tag=semantic_tag,
                     mnemonic=mnemonic,
+                    native_mnemonic=native_mnemonic,
                     operand_units=1,
                     payload_field_name="value",
                     effect_kind=EffectKind.WRITE,
@@ -6560,6 +6573,7 @@ def test_vmem_narrow_load_descriptors_cover_active_xml_families() -> None:
                 width_bits=16,
                 semantic_tag="memory.load.u16.d16.low",
                 mnemonic="buffer_load_d16_b16",
+                native_mnemonic="buffer_load_short_d16",
                 operand_units=1,
                 payload_field_name="dst",
                 effect_kind=EffectKind.READ,

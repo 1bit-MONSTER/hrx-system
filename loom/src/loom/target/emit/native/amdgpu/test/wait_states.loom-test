@@ -245,7 +245,7 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @gfx11_vmem_store_byte_pay
 
 // ----
   v_add_u32 v0, v0, v1
-  global_store_b8 v2, v0, s[0:1] offset:0
+  global_store_byte v2, v0, s[0:1] offset:0
   s_waitcnt_vscnt vscnt(0)
   s_endpgm
 

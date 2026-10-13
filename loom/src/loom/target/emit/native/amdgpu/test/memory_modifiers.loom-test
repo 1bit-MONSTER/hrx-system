@@ -132,3 +132,92 @@ low.func.def target<amdgpu.rdna4.core>(@target) @temporal_hints(%address: reg<am
   flat_atomic_add_u32 v3, v[0:1], v2 offset:0 th:TH_ATOMIC_RETURN
   flat_atomic_add_u32 v0, v[0:1], v2 offset:0 scope:SCOPE_DEV th:TH_ATOMIC_NT_RETURN
   s_endpgm
+
+// ====
+
+// The scalar offset can be a register or an encoded inline zero. LDS transfers
+// keep their implicit m0 read in Low without printing it as a memory operand.
+// RUN: emit amdgpu-assembly @buffer_address_forms strategy=source waits=none
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @buffer_address_forms(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>, %m0: reg<amdgpu.m0>) asm {
+  %full = buffer_load_dword %resource, %address, %offset {offset = 4, glc = 1}
+  %vector = buffer_load_u8_vaddr_offset %resource, %address {offset = 8, slc = 1}
+  %scalar = buffer_load_dword_off_zero %resource {glc = 1, slc = 1}
+  buffer_store_dword %full, %resource, %address, %offset {glc = 1}
+  buffer_store_b8_vaddr_offset %vector, %resource, %address {slc = 1}
+  buffer_store_dword_off_zero %scalar, %resource {glc = 1, slc = 1}
+  buffer_load_lds_dword %resource, %address, %offset, %m0 {glc = 1}
+  buffer_load_lds_dword_vaddr_offset %resource, %address, %m0 {slc = 1}
+  buffer_load_lds_dword_off_zero %resource, %m0 {glc = 1, slc = 1}
+  return
+}
+// ----
+  buffer_load_dword v1, v0, s[4:7], s0 offen offset:4 glc
+  buffer_load_ubyte v2, v0, s[4:7], 0 offen offset:8 slc
+  buffer_load_dword v3, off, s[4:7], 0 offset:0 glc slc
+  buffer_store_dword v1, v0, s[4:7], s0 offen offset:0 glc
+  buffer_store_byte v2, v0, s[4:7], 0 offen offset:0 slc
+  buffer_store_dword v3, off, s[4:7], 0 offset:0 glc slc
+  buffer_load_dword v0, s[4:7], s0 offen offset:0 glc lds
+  buffer_load_dword v0, s[4:7], 0 offen offset:0 slc lds
+  buffer_load_dword off, s[4:7], 0 offset:0 glc slc lds
+  s_endpgm
+
+// ====
+
+// A high-half write preserves the low half through an explicit Low operand,
+// while native memory syntax contains just the shared physical destination.
+// RUN: emit amdgpu-assembly @partial_loads strategy=source waits=none
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @partial_loads(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>, %base: reg<amdgpu.sgpr x2>, %pointer: reg<amdgpu.vgpr x2>) asm {
+  %buffer_low = buffer_load_d16_b16 %resource, %address, %offset {glc = 1}
+  %buffer_full = buffer_load_d16_hi_b16 %buffer_low, %resource, %address, %offset {offset = 2, dlc = 1}
+  %buffer_vector_low = buffer_load_d16_b16_vaddr_offset %resource, %address {slc = 1}
+  %buffer_vector_full = buffer_load_d16_hi_b16_vaddr_offset %buffer_vector_low, %resource, %address {offset = 2, glc = 1}
+  %global_low = global_load_d16_b16_saddr %address, %base {glc = 1}
+  %global_full = global_load_d16_hi_b16_saddr %global_low, %address, %base {offset = 2, dlc = 1}
+  %pointer_low = global_load_d16_b16_vaddr %pointer {slc = 1}
+  %pointer_full = global_load_d16_hi_b16_vaddr %pointer_low, %pointer {offset = 2, glc = 1}
+  return
+}
+// ----
+  buffer_load_short_d16 v1, v0, s[4:7], s0 offen offset:0 glc
+  buffer_load_short_d16_hi v1, v0, s[4:7], s0 offen offset:2 dlc
+  buffer_load_short_d16 v1, v0, s[4:7], 0 offen offset:0 slc
+  buffer_load_short_d16_hi v1, v0, s[4:7], 0 offen offset:2 glc
+  global_load_short_d16 v1, v0, s[2:3] offset:0 glc
+  global_load_short_d16_hi v1, v0, s[2:3] offset:2 dlc
+  global_load_short_d16 v0, v[2:3], off offset:0 slc
+  global_load_short_d16_hi v0, v[2:3], off offset:2 glc
+  s_endpgm
+
+// ====
+
+// RDNA4 uses scope and temporal controls for ordinary buffer/global accesses,
+// including the null scalar-offset form used after address legalization.
+// RUN: emit amdgpu-assembly @scoped_address_forms strategy=source waits=none
+amdgpu.target<gfx1201> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @scoped_address_forms(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>, %base: reg<amdgpu.sgpr x2>, %pointer: reg<amdgpu.vgpr x2>) asm {
+  %buffer_full = buffer_load_dword %resource, %address, %offset {scope = 2, th = 1}
+  %buffer_vector = buffer_load_dword_vaddr_offset %resource, %address {offset = 4096, scope = 3, th = 3}
+  buffer_store_dword %buffer_full, %resource, %address, %offset {scope = 2, th = 7}
+  buffer_store_dword_vaddr_offset %buffer_vector, %resource, %address {offset = 4096, scope = 3, th = 3}
+  %global_scalar = global_load_b32_saddr %address, %base {scope = 2, th = 3}
+  %global_vector = global_load_b32_vaddr %pointer {scope = 3, th = 3}
+  global_store_b32_saddr %address, %global_scalar, %base {scope = 2, th = 3}
+  global_store_b32_vaddr %pointer, %global_vector {scope = 3, th = 3}
+  return
+}
+// ----
+  buffer_load_dword v1, v0, s[4:7], s0 offen offset:0 scope:SCOPE_DEV th:TH_LOAD_NT
+  buffer_load_dword v4, v0, s[4:7], null offen offset:4096 scope:SCOPE_SYS th:TH_LOAD_BYPASS
+  buffer_store_dword v1, v0, s[4:7], s0 offen offset:0 scope:SCOPE_DEV th:TH_STORE_NT_WB
+  buffer_store_dword v4, v0, s[4:7], null offen offset:4096 scope:SCOPE_SYS th:TH_STORE_BYPASS
+  global_load_b32 v1, v0, s[2:3] offset:0 scope:SCOPE_DEV th:TH_LOAD_LU
+  global_load_b32 v4, v[2:3], off offset:0 scope:SCOPE_SYS th:TH_LOAD_BYPASS
+  global_store_b32 v0, v1, s[2:3] offset:0 scope:SCOPE_DEV th:TH_STORE_WB
+  global_store_b32 v[2:3], v4, off offset:0 scope:SCOPE_SYS th:TH_STORE_BYPASS
+  s_endpgm

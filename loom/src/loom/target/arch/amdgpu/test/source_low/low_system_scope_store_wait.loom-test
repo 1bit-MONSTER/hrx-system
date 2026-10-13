@@ -29,9 +29,9 @@ low.func.def target<amdgpu.rdna4.core>(@target) @gfx1200_global_system_store_ass
 }
 
 // ----
-  global_store_b32 v0, v1, s[0:1] offset:0
+  global_store_b32 v0, v1, s[0:1] offset:0 scope:SCOPE_DEV
   s_wait_storecnt storecnt(0)
-  global_store_b32 v0, v1, s[0:1] offset:4
+  global_store_b32 v0, v1, s[0:1] offset:4 scope:SCOPE_SYS
   s_wait_storecnt storecnt(0)
   s_endpgm
 

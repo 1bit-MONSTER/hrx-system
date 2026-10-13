@@ -11,7 +11,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @global_d16_high_vector_addres
 }
 
 // ----
-  global_load_d16_hi_b16 v0, v[2:3], off offset:6
+  global_load_short_d16_hi v0, v[2:3], off offset:6
   s_waitcnt vmcnt(0) lgkmcnt(63)
   global_store_b32 v[2:3], v0, off offset:8
   s_waitcnt_vscnt vscnt(0)
@@ -29,7 +29,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @global_d16_high_scalar_addres
 }
 
 // ----
-  global_load_d16_hi_b16 v0, v1, s[0:1] offset:6
+  global_load_short_d16_hi v0, v1, s[0:1] offset:6
   s_waitcnt vmcnt(0) lgkmcnt(63)
   global_store_b32 v1, v0, s[0:1] offset:8
   s_waitcnt_vscnt vscnt(0)

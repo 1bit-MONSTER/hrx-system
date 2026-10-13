@@ -28,7 +28,29 @@ from loom.target.arch.amdgpu.descriptors.sets import (
     _gfx12_core_overlays,
     _gfx125x_core_overlays,
 )
-from loom.target.low_descriptors import EffectKind
+from loom.target.low_descriptors import EffectKind, NativeAsmValueKind
+
+
+@pytest.mark.parametrize("target", _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS)
+def test_native_memory_forms_preserve_every_authored_immediate(target: str) -> None:
+    prefixes = tuple(
+        f"amdgpu.{space}_{operation}_"
+        for space in ("buffer", "global", "flat")
+        for operation in ("load", "store", "atomic")
+    )
+    for overlay in _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS[target].overlay_rows():
+        if not overlay.descriptor_key.startswith(prefixes):
+            continue
+        assert overlay.asm_forms, overlay.descriptor_key
+        for form in overlay.asm_forms:
+            printed = {
+                value.field_name
+                for value in form.native_assembly_values
+                if value.kind is NativeAsmValueKind.IMMEDIATE_TARGET_FORMAT
+            }
+            assert printed == {field.field_name for field in overlay.immediates}, (
+                overlay.descriptor_key
+            )
 
 
 def test_native_temporal_hint_requires_indexed_scope() -> None:

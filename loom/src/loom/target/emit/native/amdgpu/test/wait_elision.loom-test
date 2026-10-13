@@ -25,7 +25,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @poll(%address: reg<amdgpu.vgp
   v_mov_b32 v1, 1
   s_mov_b32 s4, 4294967295
 .Lbb1:
-  global_load_b32 v2, v0, s[0:1] offset:0
+  global_load_b32 v2, v0, s[0:1] offset:0 glc
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_cmp_eq_i32 s[6:7], v2, v1
   s_delay_alu instid0(VALU_DEP_1)
