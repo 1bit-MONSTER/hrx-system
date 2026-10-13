@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "single-dispatch comparisons omit suppressed profile artifacts",
+      "run": {
+        "tool": "iree-benchmark-loom",
+        "args": [
+          "{srcdir}/benchmark_profile_policy.loom",
+          "--device=amdgpu",
+          "--measure=dispatch_complete",
+          "--compare=@single_baseline,@single_candidate",
+          "--repetitions=1",
+          "--iterations=1",
+          "--warmup-iterations=0",
+          "--batch-size=1",
+          "--min-time-ms=0",
+          "--warmup-time-ms=0",
+          "--max-batches=1",
+          "--profile-data=counter-ranges",
+          "--profile-artifacts-dir={tmp}/profiles",
+          "--artifact-bundle-dir={tmp}/bundle",
+          "--output-format=jsonl"
+        ]
+      },
+      "files": [
+        {
+          "path": "{tmp}/bundle/results.jsonl",
+          "contains": ["\"profile_suppressed_for_interleave\":true"]
+        },
+        {
+          "path": "{tmp}/bundle/manifest.json",
+          "non_empty": true,
+          "not_contains": [".irpf"]
+        },
+        {
+          "path": "{tmp}/profiles",
+          "exists": false
+        }
+      ]
+    },
+    {
+      "name": "dispatch-sequence comparisons preserve suppression in snapshots",
+      "run": {
+        "tool": "iree-benchmark-loom",
+        "args": [
+          "{srcdir}/benchmark_profile_policy.loom",
+          "--device=amdgpu",
+          "--measure=dispatch_complete",
+          "--compare=@sequence_baseline,@sequence_candidate",
+          "--repetitions=1",
+          "--iterations=1",
+          "--warmup-iterations=0",
+          "--batch-size=1",
+          "--min-time-ms=0",
+          "--warmup-time-ms=0",
+          "--max-batches=1",
+          "--profile-data=counter-ranges",
+          "--profile-artifacts-dir={tmp}/profiles",
+          "--artifact-bundle-dir={tmp}/bundle",
+          "--output-format=snapshot"
+        ]
+      },
+      "files": [
+        {
+          "path": "{tmp}/bundle/results.json",
+          "contains": ["\"profile_suppressed_for_interleave\":true"]
+        },
+        {
+          "path": "{tmp}/bundle/manifest.json",
+          "non_empty": true,
+          "not_contains": [".irpf"]
+        },
+        {
+          "path": "{tmp}/profiles",
+          "exists": false
+        }
+      ]
+    }
+  ]
+}

@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//build_tools/bazel:python.bzl", "iree_py_test")
+load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
 load("//build_tools/testing:build_defs.bzl", "iree_execution_test_suite")
 load("//loom/build_tools/amdgpu:descriptor_sets.bzl", "loom_amdgpu_descriptor_set_compatible_with")
 load("//loom/build_tools/amdgpu:target_config.bzl", "LOOM_AMDGPU_SUPPORTED_TARGETS")
@@ -32,6 +33,22 @@ package(
 _AMDGPU_ARTIFACTS_COMPATIBLE_WITH = loom_config_compatible_with([
     "//loom/config/target:amdgpu_artifacts",
 ])
+
+iree_execution_test_suite(
+    name = "benchmark_profile_policy_test",
+    data = ["benchmark_profile_policy.loom"],
+    manifests = ["benchmark_profile_policy.test.json"],
+    resource_group = GPU_DEVICE_RESOURCE_GROUP,
+    tags = [
+        "iree-run-requirement=runtime.resource.amd_gpu",
+        "runtime-resource=amd-gpu",
+    ],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/execute:amdgpu_hal",
+        "//loom/config/target/arch:vm",
+    ]),
+    tools = {"iree-benchmark-loom": "//loom/src/loom/tools/iree-benchmark-loom"},
+)
 
 iree_py_test(
     name = "qualification_test",
