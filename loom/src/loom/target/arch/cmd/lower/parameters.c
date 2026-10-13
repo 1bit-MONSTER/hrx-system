@@ -13,6 +13,7 @@
 #include "loom/ir/facts.h"
 #include "loom/ir/module.h"
 #include "loom/ops/command/ops.h"
+#include "loom/util/adaptive_sort.h"
 #include "loom/util/walk.h"
 
 enum {
@@ -34,8 +35,17 @@ typedef struct loom_cmd_parameter_source_row_t {
   // Exact byte length derived from the typed result view.
   uint64_t byte_length;
 
+  // Maximum requested extent for the canonical root/key, including this view.
+  uint64_t required_byte_length;
+
   // Minimum placement alignment derived from view facts and policy.
   uint64_t minimum_alignment;
+
+  // First source row referencing the same root and concrete key.
+  iree_host_size_t canonical_row;
+
+  // Dense requirement ordinal assigned during source-order placement.
+  iree_host_size_t requirement_index;
 } loom_cmd_parameter_source_row_t;
 
 typedef struct loom_cmd_parameter_source_range_t {
@@ -45,7 +55,11 @@ typedef struct loom_cmd_parameter_source_range_t {
   // Source command-program launch-binding ordinal owning the storage root.
   uint16_t source_binding_ordinal;
 
-  // Byte offset relative to the source launch-binding range.
+  // One-based parameter row for parameter-relative ranges, or zero for ranges
+  // already relative to the launch binding.
+  iree_host_size_t parameter_row;
+
+  // Byte offset relative to the parameter or source launch-binding range.
   uint64_t byte_offset;
 
   // Exact byte length of the derived range.
@@ -53,8 +67,9 @@ typedef struct loom_cmd_parameter_source_range_t {
 } loom_cmd_parameter_source_range_t;
 
 typedef struct loom_cmd_parameter_build_t {
-  // Immutable source module containing the command program.
-  const loom_module_t* module;
+  // Source module whose ordinal scratch indexes parameter roots during the
+  // walk.
+  loom_module_t* module;
 
   // Source program launch-binding values in signature order.
   const loom_value_id_t* binding_values;
@@ -76,6 +91,9 @@ typedef struct loom_cmd_parameter_build_t {
 
   // Number of allocated entries in |rows|.
   iree_host_size_t row_capacity;
+
+  // Number of unique root/key requirements among the source rows.
+  iree_host_size_t parameter_count;
 
   // Total bytes required to persist every concrete key.
   iree_host_size_t key_storage_length;
@@ -249,10 +267,19 @@ static iree_status_t loom_cmd_parameter_append_exact_view_ranges(
         exact_byte_offset < 0 || exact_byte_length < 0) {
       continue;
     }
+    const loom_value_id_t root_value =
+        loom_value_fact_view_reference_resolve_root_value(view_reference,
+                                                          result);
+    const loom_value_ordinal_t parameter_ordinal =
+        loom_module_value_ordinal_scratch_lookup(build->module, root_value);
+    const iree_host_size_t parameter_row =
+        parameter_ordinal != LOOM_VALUE_ORDINAL_INVALID
+            ? (iree_host_size_t)parameter_ordinal + 1
+            : 0;
     const uint16_t source_binding_ordinal =
-        loom_cmd_parameter_find_root_binding(
-            build, loom_value_fact_view_reference_resolve_root_value(
-                       view_reference, result));
+        parameter_row != 0
+            ? build->rows[parameter_row - 1].source_binding_ordinal
+            : loom_cmd_parameter_find_root_binding(build, root_value);
     if (source_binding_ordinal == UINT16_MAX) {
       continue;
     }
@@ -261,6 +288,7 @@ static iree_status_t loom_cmd_parameter_append_exact_view_ranges(
         (loom_cmd_parameter_source_range_t){
             .source_value = result,
             .source_binding_ordinal = source_binding_ordinal,
+            .parameter_row = parameter_row,
             .byte_offset = (uint64_t)exact_byte_offset,
             .byte_length = (uint64_t)exact_byte_length,
         };
@@ -314,16 +342,75 @@ static iree_status_t loom_cmd_parameter_visit(
       .source_binding_ordinal = source_binding_ordinal,
       .key = key,
       .byte_length = (uint64_t)exact_byte_length,
+      .required_byte_length = (uint64_t)exact_byte_length,
       .minimum_alignment =
           iree_max(view_reference.minimum_alignment,
                    (uint64_t)LOOM_CMD_PARAMETER_DEFAULT_ALIGNMENT),
   };
-  if (!iree_host_size_checked_add(build->key_storage_length, key.size,
-                                  &build->key_storage_length)) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "command parameter key table is too large");
-  }
+  loom_module_value_ordinal_scratch_set(
+      build->module, result_value,
+      (loom_value_ordinal_t)(build->row_count - 1));
   return iree_ok_status();
+}
+
+static bool loom_cmd_parameter_row_less(
+    const loom_cmd_parameter_source_row_t* rows,
+    const iree_host_size_t* lhs_index, const iree_host_size_t* rhs_index) {
+  const loom_cmd_parameter_source_row_t* lhs = &rows[*lhs_index];
+  const loom_cmd_parameter_source_row_t* rhs = &rows[*rhs_index];
+  if (lhs->source_binding_ordinal != rhs->source_binding_ordinal) {
+    return lhs->source_binding_ordinal < rhs->source_binding_ordinal;
+  }
+  const int key_order = iree_string_view_compare(lhs->key, rhs->key);
+  return key_order != 0 ? key_order < 0 : *lhs_index < *rhs_index;
+}
+
+LOOM_DEFINE_ADAPTIVE_SORT_WITH_CONTEXT(loom_cmd_parameter_sort_rows,
+                                       iree_host_size_t,
+                                       const loom_cmd_parameter_source_row_t*,
+                                       loom_cmd_parameter_row_less)
+
+// Immutable content identity is independent of SSA dominance and scheduling
+// scopes. Group the collected rows without revisiting IR, then retain the
+// first source occurrence for placement and aggregate its required footprint.
+static iree_status_t loom_cmd_parameter_group_rows(
+    loom_cmd_parameter_build_t* build) {
+  if (build->row_count == 0) {
+    return iree_ok_status();
+  }
+  iree_host_size_t* indices = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate_array(build->scratch_arena, build->row_count,
+                                sizeof(*indices), (void**)&indices));
+  for (iree_host_size_t i = 0; i < build->row_count; ++i) {
+    indices[i] = i;
+  }
+  loom_cmd_parameter_sort_rows(build->rows, indices, build->row_count);
+  iree_host_size_t canonical_index = indices[0];
+  iree_status_t status = iree_ok_status();
+  for (iree_host_size_t i = 0;
+       i < build->row_count && iree_status_is_ok(status); ++i) {
+    loom_cmd_parameter_source_row_t* row = &build->rows[indices[i]];
+    loom_cmd_parameter_source_row_t* canonical = &build->rows[canonical_index];
+    if (i == 0 ||
+        row->source_binding_ordinal != canonical->source_binding_ordinal ||
+        !iree_string_view_equal(row->key, canonical->key)) {
+      canonical_index = indices[i];
+      canonical = row;
+      ++build->parameter_count;
+      if (!iree_host_size_checked_add(build->key_storage_length, row->key.size,
+                                      &build->key_storage_length)) {
+        status = iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                                  "command parameter key table is too large");
+      }
+    }
+    row->canonical_row = canonical_index;
+    canonical->required_byte_length =
+        iree_max(canonical->required_byte_length, row->byte_length);
+    canonical->minimum_alignment =
+        iree_max(canonical->minimum_alignment, row->minimum_alignment);
+  }
+  return status;
 }
 
 static bool loom_cmd_parameter_align_offset(uint64_t value, uint64_t alignment,
@@ -345,14 +432,14 @@ static iree_status_t loom_cmd_parameter_allocate_requirement_table(
   iree_host_size_t entry_table_size = 0;
   if (!iree_host_size_checked_mul(root_count, sizeof(*table->roots),
                                   &root_table_size) ||
-      !iree_host_size_checked_mul(build->row_count, sizeof(*table->entries),
-                                  &entry_table_size)) {
+      !iree_host_size_checked_mul(build->parameter_count,
+                                  sizeof(*table->entries), &entry_table_size)) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "command parameter requirement table is too large");
   }
 
   table->root_count = root_count;
-  table->count = build->row_count;
+  table->count = build->parameter_count;
   iree_status_t status = iree_ok_status();
   if (root_table_size != 0) {
     status = iree_allocator_malloc(host_allocator, root_table_size,
@@ -373,7 +460,7 @@ static iree_status_t loom_cmd_parameter_allocate_requirement_table(
 }
 
 iree_status_t loom_cmd_parameter_layout_build(
-    const loom_module_t* module, loom_func_like_t program,
+    loom_module_t* module, loom_func_like_t program,
     const loom_value_fact_table_t* fact_table,
     iree_arena_allocator_t* scratch_arena, iree_allocator_t host_allocator,
     loom_cmd_buffer_binding_t* bindings, iree_host_size_t binding_count,
@@ -407,11 +494,18 @@ iree_status_t loom_cmd_parameter_layout_build(
       .fact_table = fact_table,
       .scratch_arena = scratch_arena,
   };
+  loom_module_value_ordinal_scratch_acquire(module);
   loom_walk_result_t walk_result = LOOM_WALK_CONTINUE;
-  IREE_RETURN_IF_ERROR(loom_walk_function(
+  iree_status_t walk_status = loom_walk_function(
       module, program, LOOM_WALK_PRE_ORDER,
-      (loom_walk_callback_t){loom_cmd_parameter_visit, &build}, &walk_result));
+      (loom_walk_callback_t){loom_cmd_parameter_visit, &build}, &walk_result);
+  for (iree_host_size_t i = 0; i < build.row_count; ++i) {
+    loom_module_value_ordinal_scratch_clear(module, build.rows[i].result_value);
+  }
+  loom_module_value_ordinal_scratch_release(module);
+  IREE_RETURN_IF_ERROR(walk_status);
   IREE_ASSERT_EQ(walk_result, LOOM_WALK_CONTINUE);
+  IREE_RETURN_IF_ERROR(loom_cmd_parameter_group_rows(&build));
 
   bool* fixed_bindings = NULL;
   uint64_t* placement_cursors = NULL;
@@ -481,21 +575,28 @@ iree_status_t loom_cmd_parameter_layout_build(
   }
 
   char* key_cursor = out_requirements->key_storage;
+  iree_host_size_t requirement_index = 0;
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0; i < build.row_count && iree_status_is_ok(status);
        ++i) {
-    const loom_cmd_parameter_source_row_t* source = &build.rows[i];
+    loom_cmd_parameter_source_row_t* source = &build.rows[i];
+    if (source->canonical_row != i) {
+      source->requirement_index =
+          build.rows[source->canonical_row].requirement_index;
+      continue;
+    }
+    source->requirement_index = requirement_index++;
     uint64_t byte_offset = 0;
     if (!loom_cmd_parameter_align_offset(
             placement_cursors[source->source_binding_ordinal],
             source->minimum_alignment, &byte_offset) ||
-        source->byte_length > UINT64_MAX - byte_offset) {
+        source->required_byte_length > UINT64_MAX - byte_offset) {
       status = iree_make_status(
           IREE_STATUS_RESOURCE_EXHAUSTED,
           "command parameter placement exceeds the 64-bit buffer range");
       break;
     }
-    const uint64_t byte_end = byte_offset + source->byte_length;
+    const uint64_t byte_end = byte_offset + source->required_byte_length;
     placement_cursors[source->source_binding_ordinal] = byte_end;
 
     const uint32_t fixed_buffer_index =
@@ -510,20 +611,14 @@ iree_status_t loom_cmd_parameter_layout_build(
     const iree_string_view_t owned_key =
         iree_make_string_view(key_cursor, source->key.size);
     key_cursor += source->key.size;
-    out_requirements->entries[i] = (loom_cmd_parameter_requirement_t){
-        .key = owned_key,
-        .source_binding_ordinal = source->source_binding_ordinal,
-        .fixed_buffer_index = fixed_buffer_index,
-        .byte_offset = byte_offset,
-        .byte_length = source->byte_length,
-        .minimum_alignment = source->minimum_alignment,
-    };
-    build.buffer_ranges[build.buffer_range_count++] =
-        (loom_cmd_parameter_source_range_t){
-            .source_value = source->result_value,
+    out_requirements->entries[source->requirement_index] =
+        (loom_cmd_parameter_requirement_t){
+            .key = owned_key,
             .source_binding_ordinal = source->source_binding_ordinal,
+            .fixed_buffer_index = fixed_buffer_index,
             .byte_offset = byte_offset,
-            .byte_length = source->byte_length,
+            .byte_length = source->required_byte_length,
+            .minimum_alignment = source->minimum_alignment,
         };
   }
 
@@ -536,30 +631,47 @@ iree_status_t loom_cmd_parameter_layout_build(
     IREE_ASSERT_EQ(key_cursor,
                    out_requirements->key_storage + build.key_storage_length);
   }
+  for (iree_host_size_t i = 0; i < build.row_count; ++i) {
+    const loom_cmd_parameter_source_row_t* source = &build.rows[i];
+    build.buffer_ranges[build.buffer_range_count++] =
+        (loom_cmd_parameter_source_range_t){
+            .source_value = source->result_value,
+            .source_binding_ordinal = source->source_binding_ordinal,
+            .parameter_row = i + 1,
+            .byte_offset = 0,
+            .byte_length = source->byte_length,
+        };
+  }
   IREE_ASSERT_EQ(build.buffer_range_count, required_buffer_range_count);
   for (iree_host_size_t i = 0; i < build.buffer_range_count; ++i) {
     const loom_cmd_parameter_source_range_t* source = &build.buffer_ranges[i];
     IREE_ASSERT_LT(source->source_binding_ordinal, binding_count);
     const loom_cmd_buffer_binding_t binding =
         bindings[source->source_binding_ordinal];
+    const uint64_t parameter_offset =
+        source->parameter_row != 0
+            ? out_requirements
+                  ->entries[build.rows[source->parameter_row - 1]
+                                .requirement_index]
+                  .byte_offset
+            : 0;
+    const uint64_t byte_offset = parameter_offset + source->byte_offset;
     if (binding.role == LOOM_CMD_BUFFER_ROLE_FIXED) {
       loom_cmd_parameter_root_requirement_t* root =
           &out_requirements->roots[binding.resource_index];
-      root->required_byte_length =
-          iree_max(root->required_byte_length,
-                   source->byte_offset + source->byte_length);
+      root->required_byte_length = iree_max(root->required_byte_length,
+                                            byte_offset + source->byte_length);
     }
-    IREE_ASSERT_LE(binding.byte_offset, UINT64_MAX - source->byte_offset);
+    IREE_ASSERT_LE(binding.byte_offset, UINT64_MAX - byte_offset);
     if (binding.byte_length != UINT64_MAX) {
-      IREE_ASSERT_LE(source->byte_offset, binding.byte_length);
-      IREE_ASSERT_LE(source->byte_length,
-                     binding.byte_length - source->byte_offset);
+      IREE_ASSERT_LE(byte_offset, binding.byte_length);
+      IREE_ASSERT_LE(source->byte_length, binding.byte_length - byte_offset);
     }
     resolved_buffer_ranges[i] = (loom_cmd_buffer_range_t){
         .source_value = source->source_value,
         .role = binding.role,
         .resource_index = binding.resource_index,
-        .byte_offset = binding.byte_offset + source->byte_offset,
+        .byte_offset = binding.byte_offset + byte_offset,
         .byte_length = source->byte_length,
     };
   }

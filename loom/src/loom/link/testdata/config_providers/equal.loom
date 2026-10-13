@@ -1,0 +1,1 @@
+config.def @count = 8 : %value: index where [power_of_two(%value)]

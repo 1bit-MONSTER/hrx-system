@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "loom/analysis/symbol_references.h"
+#include "loom/codegen/pass_environment.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/float_facts.h"
 #include "loom/ir/module.h"
@@ -21,7 +22,6 @@
 #include "loom/target/arch/cmd/lower/dispatch_counts.h"
 #include "loom/target/arch/cmd/lower/lower.h"
 #include "loom/target/arch/cmd/lower/parameters.h"
-#include "loom/target/arch/cmd/lower/program_composition.h"
 #include "loom/target/arch/cmd/lower/program_plan_requests.h"
 #include "loom/target/arch/cmd/lower/schedule.h"
 #include "loom/target/arch/cmd/lower/transients.h"
@@ -189,16 +189,18 @@ static iree_status_t loom_cmd_program_plan_normalize_roots(
         cleanup_pattern_provider_set, iree_arena_allocator(&registry_arena),
         &cleanup_pattern_registry_storage);
   }
-  const loom_cleanup_pass_capability_t cleanup_capability =
-      loom_cleanup_pass_capability_make(
-          loom_cleanup_pattern_registry_storage_registry(
-              &cleanup_pattern_registry_storage),
-          (loom_cleanup_canonicalizer_context_resolver_t){0});
-  const loom_pass_environment_capability_t* capabilities[] = {
-      &cleanup_capability.base,
-  };
+  // Configuration helpers retain their kernel's target contract. Resolve its
+  // facts before inlining into target-neutral command roots so launch counts
+  // use the same subgroup and resource facts as native kernel compilation.
+  loom_codegen_pass_environment_storage_t pass_environment_storage;
   const loom_pass_environment_t pass_environment =
-      loom_pass_environment_make(capabilities, IREE_ARRAYSIZE(capabilities));
+      loom_codegen_pass_environment_storage_initialize(
+          &(loom_codegen_pass_environment_options_t){
+              .cleanup_pattern_registry =
+                  loom_cleanup_pattern_registry_storage_registry(
+                      &cleanup_pattern_registry_storage),
+          },
+          NULL, &pass_environment_storage);
 
   const loom_pass_program_compile_options_t compile_options = {
       .registry = pass_registry,
@@ -643,12 +645,6 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
   if (iree_status_is_ok(status)) {
     memset(root_builds, 0, program_count * sizeof(*root_builds));
   }
-  loom_func_like_t* root_programs = NULL;
-  if (iree_status_is_ok(status)) {
-    status = iree_arena_allocate_array(&scratch_arena, program_count,
-                                       sizeof(*root_programs),
-                                       (void**)&root_programs);
-  }
   if (iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < program_count; ++i) {
       IREE_ASSERT(loom_symbol_ref_is_valid(program_refs[i]));
@@ -660,7 +656,6 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
       IREE_ASSERT(root->program_op != NULL);
       root->program = loom_func_like_cast(plan_module, root->program_op);
       IREE_ASSERT(loom_func_like_isa(root->program));
-      root_programs[i] = root->program;
     }
   }
 
@@ -681,11 +676,6 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
         plan_module, &references, configuration_functions,
         configuration_function_count, diagnostic_emitter, &scratch_arena,
         &kernel_entry_table, &valid);
-  }
-  if (valid && iree_status_is_ok(status)) {
-    status = loom_cmd_program_composition_flatten(
-        plan_module, &references, root_programs, program_count,
-        diagnostic_emitter, &scratch_arena, &valid);
   }
   if (valid && iree_status_is_ok(status)) {
     status = loom_cmd_program_plan_normalize_roots(

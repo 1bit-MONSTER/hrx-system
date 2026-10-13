@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -33,6 +34,56 @@ class FixtureBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
 
 
 class CMakeTestArgumentsTest(unittest.TestCase):
+    def test_filegroups_keep_package_identity_for_data_consumers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, build = root / "source", root / "build"
+            source.mkdir()
+            (source / "CMakeLists.txt").write_text(
+                "cmake_minimum_required(VERSION 3.26)\n"
+                "project(filegroup_packages NONE)\n"
+                'set(IREE_PACKAGE_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")\n'
+                "set(IREE_PACKAGE_ROOT_PREFIX fixture)\n"
+                'include("${IREE_REPO_ROOT}/build_tools/cmake/iree_macros.cmake")\n'
+                "add_custom_target(consumer)\n"
+                "iree_add_data_dependencies(NAME consumer\n"
+                "  DATA fixture::first::inputs fixture::second::inputs)\n"
+                "add_subdirectory(first)\n"
+                "add_subdirectory(second)\n"
+                "iree_finalize_target_dependencies()\n"
+            )
+            for name in ("first", "second"):
+                package = source / name
+                package.mkdir()
+                (package / "input.loom").write_text(name)
+                converter = SimpleNamespace(body="")
+                functions = FixtureBuildFileFunctions(
+                    converter=converter,
+                    targets=bazel_to_cmake_targets.TargetConverter(
+                        repo_map={"@hrx": ""}
+                    ),
+                    build_dir=str(package),
+                    repo_root=str(source),
+                )
+                functions.filegroup(name="inputs", srcs=["input.loom"])
+                (package / "CMakeLists.txt").write_text(converter.body)
+            configure_project(source, build)
+            build_project(build, "consumer")
+            stamps = [build / name / "inputs.stamp" for name in ("first", "second")]
+            timestamps = [stamp.stat().st_mtime_ns for stamp in stamps]
+            # Ninja can retain the completed output time in its build log.
+            # Make the input newer than that record and backdate the output so
+            # its next touch is observable even within one filesystem tick.
+            changed_input = source / "first/input.loom"
+            changed_input.write_text("changed")
+            changed_time = max(timestamps) + 2_000_000_000
+            os.utime(changed_input, ns=(changed_time, changed_time))
+            timestamps[0] -= 2_000_000_000
+            os.utime(stamps[0], ns=(timestamps[0], timestamps[0]))
+            build_project(build, "consumer")
+            self.assertGreater(stamps[0].stat().st_mtime_ns, timestamps[0])
+            self.assertEqual(stamps[1].stat().st_mtime_ns, timestamps[1])
+
     def test_converted_files_and_arguments_survive_generation_and_relocation(self):
         with tempfile.TemporaryDirectory(prefix="cmake test arguments ") as temporary:
             root = Path(temporary)

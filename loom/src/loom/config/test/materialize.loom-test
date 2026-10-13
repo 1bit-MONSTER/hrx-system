@@ -14,7 +14,7 @@ applied @model36.model.hidden_size = 4096
 status: OK
 materialized: 1
 ignored: 0
-config.def @model36.model.hidden_size = 4096 : index
+config.def @model36.model.hidden_size = 4096 : %value: index where [range(%value, 0, 8192), multiple_of(%value, 16)]
 
 func.def @read_hidden_size() -> (index) {
   %hidden_size = config.get @model36.model.hidden_size : index
@@ -126,3 +126,27 @@ config.decl @lanes : i8
 // ----
 status: OUT_OF_RANGE
 config.decl @lanes : i8
+
+// ====
+
+// RUN: emit config-materialize lanes=64
+
+// Previously resolved values retain their domain through later overrides.
+config.def @lanes = 32 : %value: index where [range(%value, 16, 128), multiple_of(%value, 16)]
+
+// ----
+applied @lanes = 64
+status: OK
+materialized: 1
+ignored: 0
+config.def @lanes = 64 : %value: index where [range(%value, 16, 128), multiple_of(%value, 16)]
+
+// ====
+
+// RUN: emit config-materialize lanes=65
+
+config.def @lanes = 32 : %value: index where [range(%value, 16, 128), multiple_of(%value, 16)]
+
+// ----
+status: INVALID_ARGUMENT
+config.def @lanes = 32 : %value: index where [range(%value, 16, 128), multiple_of(%value, 16)]
