@@ -136,7 +136,7 @@ struct iree_hal_amd_xdna_queue_t {
   iree_atomic_int32_t native_publication_blocked;
   // Potentially blocking native preparation and publication owner.
   iree_hal_amd_xdna_queue_service_t publisher;
-  // Potentially blocking mapped host transfer owner.
+  // Potentially blocking memory, transfer, and callback execution owner.
   iree_hal_amd_xdna_queue_service_t host_worker;
   // True after both progress services have been stopped and joined.
   bool services_shutdown;
@@ -622,6 +622,19 @@ static void iree_hal_amd_xdna_queue_enqueue_ready(
       !iree_status_is_ok(queue->failure_status)) {
     operation->status = iree_status_clone(queue->failure_status);
   }
+  if (iree_status_is_ok(operation->status) &&
+      operation->kind == IREE_HAL_AMD_XDNA_OPERATION_HOST_CALL &&
+      iree_any_bit_set(operation->host_call.flags,
+                       IREE_HAL_HOST_CALL_FLAG_NON_BLOCKING)) {
+    // Publish after dependencies resolve and before invoking the callback.
+    // The operation still retains callback state until invocation returns.
+    operation->status =
+        iree_hal_amd_xdna_operation_signal(operation, operation->device);
+    if (iree_status_is_ok(operation->status)) {
+      iree_hal_semaphore_list_release(operation->signals);
+      operation->signals = iree_hal_semaphore_list_empty();
+    }
+  }
   if (!iree_status_is_ok(operation->status) ||
       operation->kind == IREE_HAL_AMD_XDNA_OPERATION_BARRIER) {
     iree_hal_amd_xdna_operation_complete(operation);
@@ -630,6 +643,7 @@ static void iree_hal_amd_xdna_queue_enqueue_ready(
   if (operation->kind == IREE_HAL_AMD_XDNA_OPERATION_ALLOCA ||
       operation->kind == IREE_HAL_AMD_XDNA_OPERATION_DEALLOCA ||
       operation->kind == IREE_HAL_AMD_XDNA_OPERATION_TRANSFER ||
+      operation->kind == IREE_HAL_AMD_XDNA_OPERATION_HOST_CALL ||
       operation->kind == IREE_HAL_AMD_XDNA_OPERATION_FILE) {
     iree_hal_amd_xdna_queue_service_enqueue(&queue->host_worker,
                                             &operation->service_item);
@@ -2116,16 +2130,6 @@ static iree_status_t iree_hal_amd_xdna_queue_execute(
     iree_hal_queue_execute_flags_t flags) {
   return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
                           "XDNA queue does not support execute");
-}
-
-static iree_status_t iree_hal_amd_xdna_queue_host_call(
-    iree_hal_queue_t* queue,
-    const iree_hal_semaphore_list_t wait_semaphore_list,
-    const iree_hal_semaphore_list_t signal_semaphore_list,
-    iree_hal_host_call_t call, const uint64_t args[4],
-    iree_hal_host_call_flags_t flags) {
-  return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                          "XDNA queue does not support host_call");
 }
 
 static iree_status_t iree_hal_amd_xdna_queue_query_dispatch_concurrency(

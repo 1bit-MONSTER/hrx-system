@@ -74,10 +74,6 @@ static bool xdna_registered_ =
                "reusable command buffers are outside the XDNA v1 surface"},
               {"CommandBufferUpdateBufferTest.*",
                "reusable command buffers are outside the XDNA v1 surface"},
-              {"QueueHostCallTest.*",
-               "queue host calls are outside the XDNA v1 surface"},
-              {"AsyncQueueHostCallLifetimeTest.*",
-               "queue host calls are outside the XDNA v1 surface"},
               {"SemaphoreSubmissionTest."
                "TransferCommandBufferExecutesOnEveryTransferQueue",
                "reusable command buffers are outside the XDNA v1 surface"},

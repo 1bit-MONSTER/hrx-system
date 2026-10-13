@@ -120,6 +120,9 @@ void iree_hal_amd_xdna_operation_release_resources(
             operation->file.transfer);
       }
       break;
+    case IREE_HAL_AMD_XDNA_OPERATION_HOST_CALL:
+      iree_hal_resource_release(operation->host_call.call.resource);
+      break;
     case IREE_HAL_AMD_XDNA_OPERATION_BARRIER:
       break;
   }
@@ -442,6 +445,26 @@ static void iree_hal_amd_xdna_operation_execute_dealloca(
 void iree_hal_amd_xdna_operation_execute_host(
     iree_hal_amd_xdna_operation_t* operation) {
   switch (operation->kind) {
+    case IREE_HAL_AMD_XDNA_OPERATION_HOST_CALL: {
+      IREE_TRACE_ZONE_BEGIN_NAMED(z0, "iree_hal_amd_xdna_host_call");
+      iree_hal_host_call_context_t context = {
+          .queue = (iree_hal_queue_t*)operation->queue,
+          .signal_semaphore_list = operation->signals,
+      };
+      operation->status =
+          operation->host_call.call.fn(operation->host_call.call.user_data,
+                                       operation->host_call.args, &context);
+      IREE_TRACE_ZONE_END(z0);
+      if (iree_status_is_deferred(operation->status)) {
+        // The callback owns terminal publication through its cloned list.
+        // Retire only our captured references and callback-state resource.
+        iree_status_free(operation->status);
+        operation->status = iree_ok_status();
+        iree_hal_semaphore_list_release(operation->signals);
+        operation->signals = iree_hal_semaphore_list_empty();
+      }
+      break;
+    }
     case IREE_HAL_AMD_XDNA_OPERATION_ALLOCA:
       operation->status = iree_hal_amd_xdna_operation_execute_alloca(operation);
       break;
@@ -466,6 +489,21 @@ void iree_hal_amd_xdna_operation_execute_host(
     case IREE_HAL_AMD_XDNA_OPERATION_DISPATCH:
       IREE_BUILTIN_UNREACHABLE();
   }
+}
+
+iree_status_t iree_hal_amd_xdna_queue_host_call(
+    iree_hal_queue_t* base, iree_hal_semaphore_list_t waits,
+    iree_hal_semaphore_list_t signals, iree_hal_host_call_t call,
+    const uint64_t args[4], iree_hal_host_call_flags_t flags) {
+  iree_hal_amd_xdna_operation_t* operation = NULL;
+  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_operation_allocate(
+      (iree_hal_amd_xdna_queue_t*)base, waits, signals,
+      IREE_HAL_AMD_XDNA_OPERATION_HOST_CALL, &operation));
+  operation->host_call.call = call;
+  iree_hal_resource_retain(call.resource);
+  memcpy(operation->host_call.args, args, sizeof(operation->host_call.args));
+  operation->host_call.flags = flags;
+  return iree_hal_amd_xdna_operation_submit(operation);
 }
 
 static iree_status_t iree_hal_amd_xdna_validate_alloca_request(
