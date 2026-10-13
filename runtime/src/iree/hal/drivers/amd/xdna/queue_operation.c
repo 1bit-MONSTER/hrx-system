@@ -489,8 +489,9 @@ static iree_status_t iree_hal_amd_xdna_execution_transfer(
   return iree_hal_amd_xdna_transfer_execute(&transfer);
 }
 
-void iree_hal_amd_xdna_operation_execute_host(
+uint32_t iree_hal_amd_xdna_operation_execute_host(
     iree_hal_amd_xdna_operation_t* operation) {
+  uint32_t count = 0;
   switch (operation->kind) {
     case IREE_HAL_AMD_XDNA_OPERATION_HOST_CALL: {
       IREE_TRACE_ZONE_BEGIN_NAMED(z0, "iree_hal_amd_xdna_host_call");
@@ -501,6 +502,7 @@ void iree_hal_amd_xdna_operation_execute_host(
       operation->status =
           operation->host_call.call.fn(operation->host_call.call.user_data,
                                        operation->host_call.args, &context);
+      count = 1;
       IREE_TRACE_ZONE_END(z0);
       if (iree_status_is_deferred(operation->status)) {
         // The callback owns terminal publication through its cloned list.
@@ -514,9 +516,11 @@ void iree_hal_amd_xdna_operation_execute_host(
     }
     case IREE_HAL_AMD_XDNA_OPERATION_ALLOCA:
       operation->status = iree_hal_amd_xdna_operation_execute_alloca(operation);
+      count = (uint32_t)iree_min(operation->alloca.request_count, UINT32_MAX);
       break;
     case IREE_HAL_AMD_XDNA_OPERATION_DEALLOCA:
       iree_hal_amd_xdna_operation_execute_dealloca(operation);
+      count = (uint32_t)iree_min(operation->dealloca.buffer_count, UINT32_MAX);
       break;
     case IREE_HAL_AMD_XDNA_OPERATION_EXECUTE:
       while (operation->execution->cursor &&
@@ -525,6 +529,9 @@ void iree_hal_amd_xdna_operation_execute_host(
              iree_status_is_ok(operation->status)) {
         operation->status =
             iree_hal_amd_xdna_execution_transfer(operation->execution);
+        if (count < UINT32_MAX) {
+          ++count;
+        }
         if (iree_status_is_ok(operation->status)) {
           operation->execution->cursor = operation->execution->cursor->next;
         }
@@ -535,6 +542,9 @@ void iree_hal_amd_xdna_operation_execute_host(
            transfer && iree_status_is_ok(operation->status);
            transfer = transfer->next) {
         operation->status = iree_hal_amd_xdna_transfer_execute(transfer);
+        if (count < UINT32_MAX) {
+          ++count;
+        }
       }
       break;
     case IREE_HAL_AMD_XDNA_OPERATION_FILE:
@@ -543,11 +553,14 @@ void iree_hal_amd_xdna_operation_execute_host(
                                     operation->file.transfer)
                               : iree_hal_amd_fabric_file_transfer_prepare(
                                     operation->file.transfer);
+      count =
+          operation->file.io_completed || !operation->file.transfer->async.file;
       break;
     case IREE_HAL_AMD_XDNA_OPERATION_BARRIER:
     case IREE_HAL_AMD_XDNA_OPERATION_DISPATCH:
       IREE_BUILTIN_UNREACHABLE();
   }
+  return count;
 }
 
 iree_status_t iree_hal_amd_xdna_queue_host_call(

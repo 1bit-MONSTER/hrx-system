@@ -216,11 +216,24 @@ iree_runtime_cc_library(
 )
 
 iree_runtime_cc_library(
+    name = "profile",
+    srcs = ["profile.c"],
+    hdrs = ["profile.h"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/utils:profile_event_ring",
+    ],
+)
+
+iree_runtime_cc_library(
     name = "queue",
     srcs = [
         "queue.c",
         "queue_admission.c",
         "queue_operation.c",
+        "queue_profile.c",
     ],
     hdrs = [
         "queue.h",
@@ -233,6 +246,7 @@ iree_runtime_cc_library(
         ":command_buffer",
         ":context",
         ":executable",
+        ":profile",
         ":queue_frontier",
         ":queue_producer_index",
         ":queue_service",
@@ -379,6 +393,18 @@ iree_runtime_cc_test(
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testing:image_fixture",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "profile_test",
+    srcs = ["profile_test.cc"],
+    deps = [
+        ":queue_test_util",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

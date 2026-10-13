@@ -39,7 +39,8 @@
           "--min-time-ms=0",
           "--warmup-time-ms=0",
           "--max-batches=3",
-          "--profile-final-batch=false"
+          "--profile-final-batch=true",
+          "--profile-data=queue-events,host-execution"
         ]
       },
       "stdout": {
@@ -47,7 +48,9 @@
           "\"failed_sample_count\":0",
           "\"state\":\"ok\"",
           "\"physical_dispatches_per_batch\":195",
-          "\"command_buffer_ring_count\":1"
+          "\"command_buffer_ring_count\":1",
+          "\"requested\":true,\"executed\":true",
+          "\"dropped_record_count\":0"
         ]
       }
     }

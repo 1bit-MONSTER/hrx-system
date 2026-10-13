@@ -43,6 +43,15 @@ bool iree_hal_amd_xdna_queue_try_wait_epoch(iree_hal_queue_t* queue,
                                             iree_async_wait_flags_t flags,
                                             iree_status_t* out_status);
 
+// Captures host queue and execution records under the device profiling
+// contract. Native submission spans measure host preparation/publication, not
+// NPU work.
+iree_status_t iree_hal_amd_xdna_queue_profiling_begin(
+    iree_hal_queue_t* queue, uint32_t physical_device_ordinal,
+    const iree_hal_device_profiling_options_t* options);
+iree_status_t iree_hal_amd_xdna_queue_profiling_flush(iree_hal_queue_t* queue);
+iree_status_t iree_hal_amd_xdna_queue_profiling_end(iree_hal_queue_t* queue);
+
 // Releases currently unused operation and payload capture blocks.
 void iree_hal_amd_xdna_queue_trim(iree_hal_queue_t* queue);
 

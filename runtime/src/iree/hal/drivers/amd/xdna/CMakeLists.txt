@@ -294,6 +294,23 @@ endif()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
+    profile
+  HDRS
+    "profile.h"
+  SRCS
+    "profile.c"
+  DEPS
+    iree::base
+    iree::base::threading
+    iree::hal
+    iree::hal::utils::profile_event_ring
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
     queue
   HDRS
     "queue.h"
@@ -304,11 +321,13 @@ iree_cc_library(
     "queue.c"
     "queue_admission.c"
     "queue_operation.c"
+    "queue_profile.c"
   DEPS
     ::barrier
     ::command_buffer
     ::context
     ::executable
+    ::profile
     ::queue_frontier
     ::queue_producer_index
     ::queue_service
@@ -488,6 +507,23 @@ iree_cc_test(
     iree::base
     iree::hal
     iree::hal::drivers::amd::xdna::image::testing::image_fixture
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=libamdf"
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_test(
+  NAME
+    profile_test
+  SRCS
+    "profile_test.cc"
+  DEPS
+    ::queue_test_util
+    iree::base
+    iree::hal
     iree::testing::gtest
     iree::testing::gtest_main
   LABELS

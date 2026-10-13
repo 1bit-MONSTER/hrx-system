@@ -113,6 +113,9 @@ void iree_hal_amd_xdna_operation_complete(
                                    iree_status_code(operation->status),
                                    iree_status_message(operation->status));
   }
+  if (operation->profile) {
+    iree_hal_amd_xdna_operation_profile_complete(operation);
+  }
   iree_hal_amd_xdna_operation_release_resources(operation);
   if (iree_status_is_ok(operation->status)) {
     operation->status =

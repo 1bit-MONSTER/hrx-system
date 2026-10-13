@@ -25,6 +25,8 @@ typedef struct iree_hal_amd_xdna_command_buffer_t {
   iree_hal_amd_xdna_record_t* head;
   // Last command while recording.
   iree_hal_amd_xdna_record_t* tail;
+  // Number of executable records, retained during construction for profiling.
+  iree_host_size_t record_count;
   // Largest binding scratch required by any one dispatch.
   iree_host_size_t maximum_binding_count;
   // Total placed allocation size for each replay frame, computed at end().
@@ -94,6 +96,11 @@ iree_status_t iree_hal_amd_xdna_command_buffer_create(
     iree_hal_command_buffer_release(&buffer->base);
   }
   return status;
+}
+
+iree_host_size_t iree_hal_amd_xdna_command_buffer_record_count(
+    iree_hal_command_buffer_t* base) {
+  return ((iree_hal_amd_xdna_command_buffer_t*)base)->record_count;
 }
 
 static iree_status_t iree_hal_amd_xdna_command_buffer_begin(
@@ -188,6 +195,7 @@ static void iree_hal_amd_xdna_command_buffer_append(
     buffer->head = record;
   }
   buffer->tail = record;
+  ++buffer->record_count;
 }
 
 static iree_status_t iree_hal_amd_xdna_command_buffer_transfer(
@@ -263,11 +271,14 @@ static iree_status_t iree_hal_amd_xdna_command_buffer_dispatch(
     return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
                             "XDNA dispatch requires a whole-array invocation");
   }
+  bool is_array_invocation = true;
   for (uint32_t i = 0; i < 3; ++i) {
-    if (config.workgroup_count[i] > 1 || config.workgroup_size[i] > 1) {
-      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                              "XDNA function is one compiled array invocation");
-    }
+    is_array_invocation &=
+        config.workgroup_count[i] <= 1 && config.workgroup_size[i] <= 1;
+  }
+  if (!is_array_invocation) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "XDNA function is one compiled array invocation");
   }
   if (!config.workgroup_count[0] || !config.workgroup_count[1] ||
       !config.workgroup_count[2]) {
@@ -297,24 +308,29 @@ static iree_status_t iree_hal_amd_xdna_command_buffer_dispatch(
   record->dispatch.function = function;
   record->dispatch.binding_count = bindings.count;
   record->dispatch.bindings = (void*)((uint8_t*)record + bindings_offset);
-  for (uint32_t i = 0; i < bindings.count; ++i) {
+  iree_status_t status = iree_ok_status();
+  for (uint32_t i = 0; i < bindings.count && iree_status_is_ok(status); ++i) {
     if (!iree_hal_amd_xdna_function_uses_binding(function, i)) {
       continue;
     }
-    IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_command_buffer_capture_ref(
-        buffer, bindings.values[i]));
-    if (bindings.values[i].buffer) {
-      IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_function_capture_binding(
-          function, base->queue_family, i, bindings.values[i],
-          &record->dispatch.bindings[i]));
-    } else {
-      record->dispatch.bindings[i].buffer_ref = bindings.values[i];
+    status = iree_hal_amd_xdna_command_buffer_capture_ref(buffer,
+                                                          bindings.values[i]);
+    if (iree_status_is_ok(status)) {
+      if (bindings.values[i].buffer) {
+        status = iree_hal_amd_xdna_function_capture_binding(
+            function, base->queue_family, i, bindings.values[i],
+            &record->dispatch.bindings[i]);
+      } else {
+        record->dispatch.bindings[i].buffer_ref = bindings.values[i];
+      }
     }
   }
-  buffer->maximum_binding_count =
-      iree_max(buffer->maximum_binding_count, bindings.count);
-  iree_hal_amd_xdna_command_buffer_append(buffer, record);
-  return iree_ok_status();
+  if (iree_status_is_ok(status)) {
+    buffer->maximum_binding_count =
+        iree_max(buffer->maximum_binding_count, bindings.count);
+    iree_hal_amd_xdna_command_buffer_append(buffer, record);
+  }
+  return status;
 }
 
 iree_status_t iree_hal_amd_xdna_command_buffer_acquire_execution(
@@ -386,22 +402,29 @@ iree_status_t iree_hal_amd_xdna_execution_prepare_dispatch(
   const iree_hal_amd_xdna_record_t* record = execution->cursor;
   memcpy(execution->bindings, record->dispatch.bindings,
          record->dispatch.binding_count * sizeof(*execution->bindings));
-  for (uint32_t i = 0; i < record->dispatch.binding_count; ++i) {
+  iree_status_t status = iree_ok_status();
+  for (uint32_t i = 0;
+       i < record->dispatch.binding_count && iree_status_is_ok(status); ++i) {
     if (execution->bindings[i].buffer_ref.buffer ||
         !iree_hal_amd_xdna_function_uses_binding(record->dispatch.function,
                                                  i)) {
       continue;
     }
     iree_hal_buffer_ref_t reference;
-    IREE_RETURN_IF_ERROR(iree_hal_buffer_binding_table_resolve_ref(
-        execution->table, execution->bindings[i].buffer_ref, &reference));
-    IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_function_capture_binding(
-        record->dispatch.function, execution->owner->queue_family, i, reference,
-        &execution->bindings[i]));
+    status = iree_hal_buffer_binding_table_resolve_ref(
+        execution->table, execution->bindings[i].buffer_ref, &reference);
+    if (iree_status_is_ok(status)) {
+      status = iree_hal_amd_xdna_function_capture_binding(
+          record->dispatch.function, execution->owner->queue_family, i,
+          reference, &execution->bindings[i]);
+    }
   }
-  return iree_hal_amd_xdna_function_prepare(record->dispatch.function,
-                                            execution->bindings, out_invocation,
-                                            out_command);
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_amd_xdna_function_prepare(record->dispatch.function,
+                                                execution->bindings,
+                                                out_invocation, out_command);
+  }
+  return status;
 }
 
 static const iree_hal_command_buffer_vtable_t

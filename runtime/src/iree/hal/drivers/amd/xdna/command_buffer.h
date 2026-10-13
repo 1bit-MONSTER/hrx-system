@@ -54,6 +54,10 @@ typedef struct iree_hal_amd_xdna_record_t {
   };
 } iree_hal_amd_xdna_record_t;
 
+// Returns the number of executable commands retained at recording time.
+iree_host_size_t iree_hal_amd_xdna_command_buffer_record_count(
+    iree_hal_command_buffer_t* buffer);
+
 // Exclusive replay storage, recycled only after all accepted native commands
 // and host phases have completed. Its owner reference also retains recording
 // resources through asynchronous queue execution.

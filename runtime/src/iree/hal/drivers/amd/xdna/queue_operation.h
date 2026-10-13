@@ -95,6 +95,22 @@ typedef struct iree_hal_amd_xdna_transfer_t {
   iree_hal_amd_xdna_queue_payload_t update_payload;
 } iree_hal_amd_xdna_transfer_t;
 
+typedef uint32_t iree_hal_amd_xdna_operation_profile_flags_t;
+enum iree_hal_amd_xdna_operation_profile_flag_bits_e {
+  // The queue event has been appended or dropped by a full ring.
+  IREE_HAL_AMD_XDNA_OPERATION_PROFILE_FLAG_RECORDED = 1u << 0,
+  // The current execution phase runs on a progress service.
+  IREE_HAL_AMD_XDNA_OPERATION_PROFILE_FLAG_DEFERRED = 1u << 1,
+};
+
+// Optional operation-arena sidecar, accessed by the current execution owner.
+typedef struct iree_hal_amd_xdna_operation_profile_t {
+  // Public submission identity and readiness, captured once per transaction.
+  iree_hal_profile_queue_event_t event;
+  // Capture and execution-owner state for this operation.
+  iree_hal_amd_xdna_operation_profile_flags_t flags;
+} iree_hal_amd_xdna_operation_profile_t;
+
 // Captured queue transaction shared by submission and progress owners.
 struct iree_hal_amd_xdna_operation_t {
   // Placed admission callback that resolves causal state on the queue owner.
@@ -127,6 +143,8 @@ struct iree_hal_amd_xdna_operation_t {
   iree_host_size_t wait_resolution_offset;
   // Captured signal semaphores, retained through final publication.
   iree_hal_semaphore_list_t signals;
+  // Optional profiling state placed in the operation capture arena.
+  iree_hal_amd_xdna_operation_profile_t* profile;
   // Owning terminal operation status.
   iree_status_t status;
   // Causal lower bound retained through final publication.
@@ -258,6 +276,23 @@ static inline bool iree_hal_amd_xdna_operation_has_dispatch(
               IREE_HAL_AMD_XDNA_RECORD_DISPATCH);
 }
 
+// Captures profiling metadata before ownership transfers to queue execution.
+iree_status_t iree_hal_amd_xdna_operation_profile_capture(
+    iree_hal_amd_xdna_operation_t* operation);
+
+// Records the first observed execution readiness; subsequent phases are no-ops.
+void iree_hal_amd_xdna_operation_profile_ready(
+    iree_hal_amd_xdna_operation_t* operation);
+
+// Emits any submission that failed before becoming ready.
+void iree_hal_amd_xdna_operation_profile_complete(
+    iree_hal_amd_xdna_operation_t* operation);
+
+// Appends a complete host-work span, excluding asynchronous native execution.
+void iree_hal_amd_xdna_operation_profile_host_end(
+    iree_hal_amd_xdna_operation_t* operation, iree_time_t start,
+    iree_status_code_t status_code, uint32_t operation_count);
+
 // Creates an operation in queue-owned storage. The caller must submit or
 // discard the returned operation.
 iree_status_t iree_hal_amd_xdna_operation_allocate(
@@ -290,8 +325,9 @@ iree_status_t iree_hal_amd_xdna_operation_prepare_frontier_wait(
     iree_hal_amd_xdna_operation_t* operation);
 
 // Executes allocation, deallocation, transfers, callbacks, or file preparation
-// and publication on the host service. Disk I/O runs on its file's proactor.
-void iree_hal_amd_xdna_operation_execute_host(
+// and publication on the host service and returns the represented operation
+// count. Disk I/O runs on its file's proactor.
+uint32_t iree_hal_amd_xdna_operation_execute_host(
     iree_hal_amd_xdna_operation_t* operation);
 
 // Captures a callback for the existing host service, including optional state

@@ -129,6 +129,10 @@ static void iree_hal_amd_xdna_queue_start_claimed_dispatch(
   iree_hal_amd_xdna_queue_reserve_publication(queue, operation);
   iree_atomic_store(&queue->publisher_operation, (intptr_t)operation,
                     iree_memory_order_release);
+  if (operation->profile) {
+    operation->profile->flags |=
+        IREE_HAL_AMD_XDNA_OPERATION_PROFILE_FLAG_DEFERRED;
+  }
   iree_hal_amd_xdna_queue_service_enqueue(&queue->publisher,
                                           &operation->service_item);
 }
@@ -364,6 +368,11 @@ static void iree_hal_amd_xdna_publisher_execute(
   iree_hal_amd_xdna_queue_t* queue = user_data;
   iree_hal_amd_xdna_operation_t* operation =
       iree_hal_amd_xdna_operation_from_service_item(item);
+  iree_time_t profile_start = 0;
+  if (operation->profile) {
+    iree_hal_amd_xdna_operation_profile_ready(operation);
+    profile_start = iree_hal_amd_xdna_profile_host_begin(queue->profile);
+  }
   while (operation->native.publication.count <
              operation->native.publication.capacity &&
          iree_status_is_ok(operation->native.publication.status) &&
@@ -426,13 +435,31 @@ static void iree_hal_amd_xdna_publisher_execute(
       break;
     }
   }
+  if (profile_start) {
+    iree_hal_amd_xdna_operation_profile_host_end(
+        operation, profile_start,
+        iree_status_code(operation->native.publication.status),
+        operation->native.publication.count);
+  }
 }
 
 static void iree_hal_amd_xdna_host_worker_execute(
     void* user_data, iree_hal_amd_xdna_queue_service_item_t* item) {
-  (void)user_data;
-  iree_hal_amd_xdna_operation_execute_host(
-      iree_hal_amd_xdna_operation_from_service_item(item));
+  iree_hal_amd_xdna_queue_t* queue = user_data;
+  iree_hal_amd_xdna_operation_t* operation =
+      iree_hal_amd_xdna_operation_from_service_item(item);
+  iree_time_t start = 0;
+  if (operation->profile) {
+    operation->profile->flags |=
+        IREE_HAL_AMD_XDNA_OPERATION_PROFILE_FLAG_DEFERRED;
+    iree_hal_amd_xdna_operation_profile_ready(operation);
+    start = iree_hal_amd_xdna_profile_host_begin(queue->profile);
+  }
+  const uint32_t count = iree_hal_amd_xdna_operation_execute_host(operation);
+  if (start) {
+    iree_hal_amd_xdna_operation_profile_host_end(
+        operation, start, iree_status_code(operation->status), count);
+  }
 }
 
 static void iree_hal_amd_xdna_service_abandon(
@@ -481,6 +508,9 @@ void iree_hal_amd_xdna_queue_enqueue_ready(
       operation->kind == IREE_HAL_AMD_XDNA_OPERATION_BARRIER ||
       (operation->kind == IREE_HAL_AMD_XDNA_OPERATION_EXECUTE &&
        !operation->execution->cursor)) {
+    if (operation->profile && iree_status_is_ok(operation->status)) {
+      iree_hal_amd_xdna_operation_profile_ready(operation);
+    }
     iree_hal_amd_xdna_operation_complete(operation);
     return;
   }
@@ -1191,9 +1221,22 @@ static bool iree_hal_amd_xdna_operation_try_direct_publish(
 
 iree_status_t iree_hal_amd_xdna_operation_submit(
     iree_hal_amd_xdna_operation_t* operation) {
-  iree_status_t status = iree_ok_status();
+  iree_status_t status =
+      operation->queue->profile
+          ? iree_hal_amd_xdna_operation_profile_capture(operation)
+          : iree_ok_status();
+  if (!iree_status_is_ok(status)) {
+    iree_hal_amd_xdna_operation_discard(operation);
+    return status;
+  }
   if (iree_hal_amd_xdna_operation_try_direct_publish(operation, &status)) {
     return status;
+  }
+  if (operation->profile) {
+    operation->profile->event.flags |=
+        IREE_HAL_PROFILE_QUEUE_EVENT_FLAG_SOFTWARE_DEFERRED;
+    operation->profile->event.dependency_strategy =
+        IREE_HAL_PROFILE_QUEUE_DEPENDENCY_STRATEGY_SOFTWARE_DEFER;
   }
   status = iree_async_proactor_submit_one(operation->queue->proactor,
                                           &operation->admission);
@@ -1344,6 +1387,10 @@ static void iree_hal_amd_xdna_queue_destroy(iree_hal_queue_t* base) {
         queue->tracker, queue->axis,
         iree_status_from_code(IREE_STATUS_CANCELLED));
     iree_async_frontier_tracker_release(queue->tracker);
+  }
+  iree_status_t profile_status = iree_hal_amd_xdna_queue_profiling_end(base);
+  if (!iree_status_is_ok(profile_status)) {
+    iree_hal_amd_xdna_queue_report_status(queue, profile_status);
   }
   iree_status_free(queue->failure_status);
   iree_async_event_release(queue->event);
