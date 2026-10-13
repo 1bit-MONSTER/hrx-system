@@ -158,7 +158,9 @@ TEST_P(Pm4HostMappingTest, ReplacesCpuAndGpuViewsBeforeImmediateUse) {
       .access_count = 1,
       .required_flags = flags,
       .byte_length = 6 * unit,
-      .minimum_alignment = unit,
+      // Only reservation aliases need the requested mapping-unit alignment.
+      // The persistent source view follows the allocation profile's geometry.
+      .minimum_alignment = profile.allocation.minimum_alignment,
       .accesses = &consumer,
   };
   std::array<GpuMemory*, 2> backings = {};
