@@ -46,6 +46,17 @@ struct alignas(16) Q8_1Group {
 static_assert(sizeof(Q8_1Group) == 144);
 static_assert(__builtin_offsetof(Q8_1Group, quants) == 16);
 
+using Q8F16View = loom::type::view<
+    loom::type::shape<loom::type::dynamic, loom::type::dynamic,
+                      sizeof(Q8_1Group) / sizeof(std::float16_t)>,
+    const std::float16_t>;
+using Q8I8View =
+    loom::type::view<loom::type::shape<loom::type::dynamic, loom::type::dynamic,
+                                       sizeof(Q8_1Group)>,
+                     const signed char>;
+using WeightU32View =
+    loom::type::view<loom::type::shape<loom::type::dynamic>, const unsigned>;
+
 struct Q4ScaleMinimum {
   unsigned scale;
   unsigned minimum;
@@ -93,10 +104,9 @@ static LOOM_FORCE_INLINE Q4ScaleMinimum q4k_scale_from_header(unsigned scale0,
   return {scale, minimum};
 }
 
-static LOOM_FORCE_INLINE Q4ChunkPair q4k_chunk_pair(const Q4KBlock* block,
-                                                    unsigned group_pair,
-                                                    unsigned half,
-                                                    U32x4 header_words) {
+static LOOM_FORCE_INLINE Q4ChunkPair q4k_chunk_pair(
+    WeightU32View weights, unsigned weight_word_count, unsigned block_word_base,
+    unsigned group_pair, unsigned half, U32x4 header_words) {
   loom::assume(group_pair < 4u && half < 2u);
   F16x8 header_halves = __builtin_bit_cast(F16x8, header_words);
   float scale = float(header_halves[0]);
@@ -105,8 +115,10 @@ static LOOM_FORCE_INLINE Q4ChunkPair q4k_chunk_pair(const Q4KBlock* block,
   unsigned scale1 = header_words[2];
   unsigned scale2 = header_words[3];
 
-  const auto* chunks = reinterpret_cast<const U32x4*>(block->quants);
-  U32x4 packed = chunks[group_pair * 2u + half];
+  unsigned packed_word = block_word_base + 4u + (group_pair * 2u + half) * 4u;
+  unsigned packed_word_end = packed_word + 4u;
+  loom::assume(packed_word_end <= weight_word_count);
+  U32x4 packed = loom::vector::load<U32x4>(weights, {packed_word});
   U32x4 low_words = packed & 0x0f0f0f0fu;
   U32x4 high_words = (packed >> 4u) & 0x0f0f0f0fu;
   U8x16 low = __builtin_bit_cast(U8x16, low_words);
@@ -139,16 +151,18 @@ void ffn_routed_gate_up_q4k_q8_body(
     bool publish_output, unsigned token_count, unsigned token,
     unsigned route_count, unsigned route, unsigned route_stride,
     unsigned expert_count, unsigned output_size, unsigned channel,
-    unsigned lane, const Q8_1Group* q8_input, const int* route_ids,
-    const Q4KBlock* gate_weight, const Q4KBlock* up_weight, float* output);
+    unsigned lane, Q8F16View q8_f16, Q8I8View q8_i8, const int* route_ids,
+    WeightU32View gate_weight, WeightU32View up_weight,
+    unsigned weight_word_count, float* output);
 
 LOOM_TEMPLATE_DEF(ffn_routed_gate_up_q4k_q8_body)
 void ffn_routed_gate_up_swiglu_q4k_q8_body(
     bool publish_output, unsigned token_count, unsigned token,
     unsigned route_count, unsigned route, unsigned route_stride,
     unsigned expert_count, unsigned output_size, unsigned channel,
-    unsigned lane, const Q8_1Group* q8_input, const int* route_ids,
-    const Q4KBlock* gate_weight, const Q4KBlock* up_weight, float* output) {
+    unsigned lane, Q8F16View q8_f16, Q8I8View q8_i8, const int* route_ids,
+    WeightU32View gate_weight, WeightU32View up_weight,
+    unsigned weight_word_count, float* output) {
   loom::assume(token_count >= 1u && token_count <= 512u);
   loom::assume(route_count >= 1u && route_count <= 8u);
   loom::assume(route_stride >= 1u && route_stride <= 128u);
@@ -181,26 +195,34 @@ void ffn_routed_gate_up_swiglu_q4k_q8_body(
     unsigned q4_block = iteration * blocks_per_iteration + lane_q4_block;
     if (q4_block < q4_block_count) {
       unsigned q8_group = q4_block * 2u + q8_group_in_block;
-      const Q8_1Group* group = &q8_input[token * q8_group_count + q8_group];
-      const auto* q8_header_pairs =
-          reinterpret_cast<const F16x4*>(&group->scales_and_sums);
-      F16x4 q8_scales = q8_header_pairs[pair_in_q8_group];
+      F16x4 q8_scales = loom::vector::load<F16x4>(
+          q8_f16, {token, q8_group, pair_in_q8_group * 4u});
       float q8_low_scale = float(q8_scales[0]);
       float q8_low_sum = float(q8_scales[1]);
       float q8_high_scale = float(q8_scales[2]);
       float q8_high_sum = float(q8_scales[3]);
-      const auto* q8_chunks = reinterpret_cast<const I8x16*>(group->quants);
-      I8x16 q8_low = q8_chunks[q8_low_inner_block * 2u + q4_half];
-      I8x16 q8_high = q8_chunks[q8_high_inner_block * 2u + q4_half];
+      unsigned q8_low_offset = __builtin_offsetof(Q8_1Group, quants) +
+                               (q8_low_inner_block * 2u + q4_half) * 16u;
+      unsigned q8_high_offset = __builtin_offsetof(Q8_1Group, quants) +
+                                (q8_high_inner_block * 2u + q4_half) * 16u;
+      I8x16 q8_low =
+          loom::vector::load<I8x16>(q8_i8, {token, q8_group, q8_low_offset});
+      I8x16 q8_high =
+          loom::vector::load<I8x16>(q8_i8, {token, q8_group, q8_high_offset});
 
-      const Q4KBlock* gate_block = &gate_weight[row_block_base + q4_block];
-      const Q4KBlock* up_block = &up_weight[row_block_base + q4_block];
-      U32x4 gate_header = *reinterpret_cast<const U32x4*>(gate_block);
-      U32x4 up_header = *reinterpret_cast<const U32x4*>(up_block);
+      unsigned block_word_base =
+          (row_block_base + q4_block) * (sizeof(Q4KBlock) / sizeof(unsigned));
+      unsigned block_header_end = block_word_base + 4u;
+      loom::assume(block_header_end <= weight_word_count);
+      U32x4 gate_header =
+          loom::vector::load<U32x4>(gate_weight, {block_word_base});
+      U32x4 up_header = loom::vector::load<U32x4>(up_weight, {block_word_base});
       Q4ChunkPair gate =
-          q4k_chunk_pair(gate_block, q4_group_pair, q4_half, gate_header);
+          q4k_chunk_pair(gate_weight, weight_word_count, block_word_base,
+                         q4_group_pair, q4_half, gate_header);
       Q4ChunkPair up =
-          q4k_chunk_pair(up_block, q4_group_pair, q4_half, up_header);
+          q4k_chunk_pair(up_weight, weight_word_count, block_word_base,
+                         q4_group_pair, q4_half, up_header);
 
       gate_accumulator +=
           q4k_q8_1_dot(gate.low, gate.low_scale, gate.low_minimum, q8_low,
@@ -240,10 +262,6 @@ ffn_routed_gate_up_swiglu_q4k_q8(
     [[loom::noalias,
       loom::assume_aligned(64)]] const unsigned char* up_weight_storage,
     [[loom::noalias, loom::assume_aligned(64)]] float* output) {
-  const auto* q8_input = reinterpret_cast<const Q8_1Group*>(q8_input_storage);
-  const auto* gate_weight =
-      reinterpret_cast<const Q4KBlock*>(gate_weight_storage);
-  const auto* up_weight = reinterpret_cast<const Q4KBlock*>(up_weight_storage);
   loom::assume(token_count >= 1u && token_count <= ffn_token_capacity);
   loom::assume(route_count == ffn_route_count);
   loom::assume(route_stride >= 1u && route_stride <= 128u);
@@ -260,10 +278,30 @@ ffn_routed_gate_up_swiglu_q4k_q8(
   unsigned channel = channel_candidate;
   loom::assume(token < token_count && route < route_count &&
                channel < output_size);
-  ffn_routed_gate_up_q4k_q8_body(valid_token, token_count, token, route_count,
-                                 route, route_stride, expert_count, output_size,
-                                 channel, lane, q8_input, route_ids,
-                                 gate_weight, up_weight, output);
+
+  unsigned q4_block_count = ffn_input_size / 256u;
+  unsigned q8_group_count = ffn_input_size / 128u;
+  auto q8_f16 = loom::buffer::view<loom::type::dynamic, loom::type::dynamic,
+                                   sizeof(Q8_1Group) / sizeof(std::float16_t)>(
+      reinterpret_cast<const std::float16_t*>(q8_input_storage),
+      {token_count, q8_group_count}, loom::encoding::layout::dense<3>());
+  auto q8_i8 = loom::buffer::view<loom::type::dynamic, loom::type::dynamic,
+                                  sizeof(Q8_1Group)>(
+      reinterpret_cast<const signed char*>(q8_input_storage),
+      {token_count, q8_group_count}, loom::encoding::layout::dense<3>());
+  unsigned weight_word_count = expert_count * output_size * q4_block_count *
+                               (sizeof(Q4KBlock) / sizeof(unsigned));
+  auto gate_weight = loom::buffer::view<loom::type::dynamic>(
+      reinterpret_cast<const unsigned*>(gate_weight_storage),
+      {weight_word_count}, loom::encoding::layout::dense<1>());
+  auto up_weight = loom::buffer::view<loom::type::dynamic>(
+      reinterpret_cast<const unsigned*>(up_weight_storage), {weight_word_count},
+      loom::encoding::layout::dense<1>());
+
+  ffn_routed_gate_up_q4k_q8_body(
+      valid_token, token_count, token, route_count, route, route_stride,
+      expert_count, output_size, channel, lane, q8_f16, q8_i8, route_ids,
+      gate_weight, up_weight, weight_word_count, output);
 }
 
 constexpr unsigned kQ4KQ8TokenCount = 2u;
