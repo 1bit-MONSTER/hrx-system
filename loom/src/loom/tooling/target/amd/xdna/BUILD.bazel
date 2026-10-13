@@ -23,6 +23,17 @@ _XDNA_COMPILE_COMPATIBLE_WITH = loom_config_compatible_with([
 ])
 
 iree_execution_test_suite(
+    name = "loom_compile_execution_test",
+    data = ["test/resident_xdna.loom"],
+    manifests = ["test/loom-compile.test.json"],
+    tags = ["hostonly"],
+    target_compatible_with = _XDNA_COMPILE_COMPATIBLE_WITH,
+    tools = {
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
+iree_execution_test_suite(
     name = "loom_opt_trace",
     data = ["test/resident_publication.loom"],
     manifests = ["test/loom-opt.test.json"],

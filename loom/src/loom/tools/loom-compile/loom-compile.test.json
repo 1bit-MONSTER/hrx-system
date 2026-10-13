@@ -18,27 +18,6 @@
       "files": [{"path": "{tmp}/invalid.bin", "exists": false}]
     },
     {
-      "name": "selects the canonical XDNA kernel emitter",
-      "run": {
-        "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/resident_xdna.loom",
-          "--pipeline=none",
-          "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
-          "--output={tmp}/resident.xdna",
-          "--compile-report=summary",
-          "--compile-report-output={tmp}/resident-report.json"
-        ]
-      },
-      "files": [
-        {"path": "{tmp}/resident.xdna", "non_empty": true},
-        {
-          "path": "{tmp}/resident-report.json",
-          "non_empty": true
-        }
-      ]
-    },
-    {
       "name": "prints agent documentation",
       "run": {
         "tool": "loom-compile",
