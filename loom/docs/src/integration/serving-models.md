@@ -6,7 +6,7 @@ device queues, memory ownership, request scheduling and HTTP encoding. Adding
 a model that fits an existing modality changes the package, not the server's C
 code or executable.
 
-The [first-output walkthrough](../workflows/serve-models.md) runs a complete
+The [first-output walkthrough](../workflows/serving/serve-models.md) runs a complete
 arithmetic package before weights or neural accuracy enter the picture. That
 is a useful starting point for a port: changing its math preserves a working
 path through registration, execution, output and retirement.
@@ -214,5 +214,5 @@ does not establish these ownership or numerical contracts.
 and [compile reports](../workflows/compile-reports.md) provide the optimization
 loop once correctness is measurable. Real model shapes, memory traffic and
 independent error bounds guide layout, traversal, fusion and specialization.
-Microkernel speed is one input; [server observations](../workflows/observe-model-server.md)
+Microkernel speed is one input; [server observations](../workflows/serving/observe-model-server.md)
 and end-to-end useful throughput determine whether the change helps the workload.

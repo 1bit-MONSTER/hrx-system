@@ -45,7 +45,7 @@ A failed source package remains inspectable without stopping healthy peers.
 After correcting its inputs, unregistering and registering again starts an
 explicit new attempt with a new incarnation.
 
-The [model-document reference](../reference/serving-models.md) applies equally
+The [model-document reference](../../reference/serving-models.md) applies equally
 to startup `--model` arguments and HTTP registration. HTTP changes live state;
 the client owns persistence of those changes into its launch configuration.
 
@@ -186,5 +186,5 @@ callbacks publish outcomes; they do not tear down shared devices or pools.
 
 HTTP and source loading assume a trusted deployment. TCP/Unix listeners share
 the same authority; socket permissions, tunnels or an external proxy supply
-access control. [Command options](../reference/loom-serve.md) describe binding
+access control. [Command options](../../reference/loom-serve.md) describe binding
 and resource configuration.

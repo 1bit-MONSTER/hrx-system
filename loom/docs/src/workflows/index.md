@@ -5,15 +5,14 @@ start with binaries on `PATH` and ordinary `.loom` or `.loombc` inputs. Source
 checkout commands, Bazel labels, compiler internals, and target-specific runtime
 setup have separate owners.
 
-[Serve source-defined models](serve-models.md) starts an empty HTTP server,
-registers a complete model package and produces a checked response on CPU.
-Models can then be added or removed independently of the server process.
-[Connect model clients](connect-model-clients.md) configures Pi, Oh My Pi and
-Open WebUI against one mixed text, image and embedding catalog without client
-plugins or server-side compatibility shims.
-[Operate a model server](operate-model-server.md) covers admission, residency and
-memory pressure; [observe a model server](observe-model-server.md) explains
-status, metrics and independent-reader log streams.
+## Serving
+
+| Task | Workflow |
+| --- | --- |
+| Start a server and register a model | [Serve source-defined models](serving/serve-models.md) |
+| Use Loom from model clients | [Connect model clients](serving/connect-model-clients.md) |
+| Manage admission, residency and memory pressure | [Operate a model server](serving/operate-model-server.md) |
+| Inspect status, metrics and log streams | [Observe a model server](serving/observe-model-server.md) |
 
 Use [Agent-driven kernel development](agent-driven-kernel-development.md) when
 the task spans several tools and candidate iterations. It keeps numerical,
