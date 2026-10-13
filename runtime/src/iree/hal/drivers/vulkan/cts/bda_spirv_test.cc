@@ -933,50 +933,6 @@ TEST_P(BdaSpirvTest, TrimDropsIdleOversizedBdaPublicationBlock) {
   EXPECT_LE(BdaPublicationCacheStats().block_count, initial_block_count);
 }
 
-TEST_P(BdaSpirvTest, CommandBufferReusesCachedNativeReplay) {
-  if (NativeReplayCacheStats().max_instance_count == 0) {
-    GTEST_SKIP() << "Vulkan BDA native replay cache is disabled";
-  }
-  IREE_ASSERT_OK(iree_hal_device_trim(device_));
-  if (NativeReplayCacheStats().instance_count >=
-      NativeReplayCacheStats().max_instance_count) {
-    GTEST_SKIP() << "Vulkan BDA native replay cache is already full";
-  }
-
-  Ref<iree_hal_buffer_t> input_buffer;
-  Ref<iree_hal_buffer_t> output_buffer;
-  CreateInputOutputBuffers(&input_buffer, &output_buffer);
-
-  Ref<iree_hal_command_buffer_t> command_buffer;
-  CreateIndirectDispatchCommandBuffer(/*workgroup_count=*/kElementCount,
-                                      &command_buffer);
-
-  iree_hal_buffer_binding_t binding_table_entries[2];
-  iree_hal_buffer_binding_table_t binding_table = MakeBindingTable(
-      input_buffer.get(), output_buffer.get(), binding_table_entries);
-
-  const uint64_t initial_hit_count = NativeReplayCacheStats().hit_count;
-  const uint64_t initial_miss_count = NativeReplayCacheStats().miss_count;
-  const uint64_t initial_create_count = NativeReplayCacheStats().create_count;
-  const uint64_t initial_publication_bytes =
-      NativeReplayCacheStats().publication_bytes;
-
-  ExecuteCommandBufferAndWait(command_buffer.get(), binding_table);
-  ExpectOutput(output_buffer.get());
-  ExecuteCommandBufferAndWait(command_buffer.get(), binding_table);
-  ExpectOutput(output_buffer.get());
-
-  EXPECT_GE(NativeReplayCacheStats().miss_count - initial_miss_count, 1);
-  EXPECT_GE(NativeReplayCacheStats().create_count - initial_create_count, 1);
-  EXPECT_GE(NativeReplayCacheStats().hit_count - initial_hit_count, 1);
-  EXPECT_GE(
-      NativeReplayCacheStats().publication_bytes - initial_publication_bytes,
-      (uint64_t)(2 * sizeof(uint64_t)));
-
-  command_buffer.reset();
-  IREE_ASSERT_OK(iree_hal_device_trim(device_));
-}
-
 TEST_P(BdaSpirvTest, CommandBufferProfilingBypassesCachedNativeReplay) {
   if (NativeReplayCacheStats().max_instance_count == 0) {
     GTEST_SKIP() << "Vulkan BDA native replay cache is disabled";
@@ -1436,6 +1392,46 @@ TEST_P(BdaSpirvTest, CommandBufferExecutesBdaShaderWithSparseBindings) {
 }
 
 class BdaSpirvReplayCacheTest : public BdaSpirvTest {};
+
+TEST_P(BdaSpirvReplayCacheTest, CommandBufferReusesCachedNativeReplay) {
+  ASSERT_GE(NativeReplayCacheStats().max_instance_count, 1);
+  ASSERT_EQ(0, NativeReplayCacheStats().retained_instance_count);
+  IREE_ASSERT_OK(iree_hal_device_trim(device_));
+  ASSERT_EQ(0, NativeReplayCacheStats().instance_count);
+
+  Ref<iree_hal_buffer_t> input_buffer;
+  Ref<iree_hal_buffer_t> output_buffer;
+  CreateInputOutputBuffers(&input_buffer, &output_buffer);
+
+  Ref<iree_hal_command_buffer_t> command_buffer;
+  CreateIndirectDispatchCommandBuffer(/*workgroup_count=*/kElementCount,
+                                      &command_buffer);
+
+  iree_hal_buffer_binding_t binding_table_entries[2];
+  iree_hal_buffer_binding_table_t binding_table = MakeBindingTable(
+      input_buffer.get(), output_buffer.get(), binding_table_entries);
+
+  const uint64_t initial_hit_count = NativeReplayCacheStats().hit_count;
+  const uint64_t initial_miss_count = NativeReplayCacheStats().miss_count;
+  const uint64_t initial_create_count = NativeReplayCacheStats().create_count;
+  const uint64_t initial_publication_bytes =
+      NativeReplayCacheStats().publication_bytes;
+
+  ExecuteCommandBufferAndWait(command_buffer.get(), binding_table);
+  ExpectOutput(output_buffer.get());
+  ExecuteCommandBufferAndWait(command_buffer.get(), binding_table);
+  ExpectOutput(output_buffer.get());
+
+  EXPECT_GE(NativeReplayCacheStats().miss_count - initial_miss_count, 1);
+  EXPECT_GE(NativeReplayCacheStats().create_count - initial_create_count, 1);
+  EXPECT_GE(NativeReplayCacheStats().hit_count - initial_hit_count, 1);
+  EXPECT_GE(
+      NativeReplayCacheStats().publication_bytes - initial_publication_bytes,
+      (uint64_t)(2 * sizeof(uint64_t)));
+
+  command_buffer.reset();
+  IREE_ASSERT_OK(iree_hal_device_trim(device_));
+}
 
 TEST_P(BdaSpirvReplayCacheTest, TrimDropsIdleCachedNativeReplay) {
   ASSERT_EQ(0, NativeReplayCacheStats().retained_instance_count);
