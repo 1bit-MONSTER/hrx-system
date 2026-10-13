@@ -222,6 +222,8 @@ iree_cc_test(
     memory_backend_test
   SRCS
     "memory_backend_test.cc"
+    "memory_backend_test_base.h"
+    "virtual_buffer_test.cc"
   DEPS
     ::memory_backend
     amdf::headers

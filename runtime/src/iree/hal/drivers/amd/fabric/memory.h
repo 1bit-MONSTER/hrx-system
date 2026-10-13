@@ -40,8 +40,12 @@ typedef struct iree_hal_amd_fabric_memory_t {
 typedef struct iree_hal_amd_fabric_mapping_source_t {
   // Borrowed prepared backing; no installed alias retains this handle.
   amdf_memory_t* memory;
-  // Exact native consumer access selected by the binding's HAL scope.
-  uint32_t access_ordinal;
+  // Number of prepared native consumers in |accesses|.
+  uint32_t access_count;
+  // Borrowed provider-owned consumers in native memory access-ordinal order.
+  // A shared translation group may select a different consumer than the HAL
+  // scope naming this source; cold mapping batches resolve its exact ordinal.
+  const amdf_memory_device_access_t* accesses;
   // Native payload preceding logical source byte zero.
   uint64_t logical_byte_offset;
 } iree_hal_amd_fabric_mapping_source_t;

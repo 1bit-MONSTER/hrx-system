@@ -10,11 +10,11 @@
 iree_add_all_subdirs()
 
 if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND IREE_HAL_DRIVER_TASK)
-iree_cc_test(
+iree_cc_library(
   NAME
-    virtual_buffer_test
-  SRCS
-    "virtual_buffer_test.cc"
+    virtual_buffer_test_base
+  HDRS
+    "virtual_buffer_test_base.h"
   DEPS
     amdf::amdf_static
     amdf::headers
@@ -29,8 +29,21 @@ iree_cc_test(
     iree::hal::testing::mock_device
     iree::task
     iree::testing::gtest
-    iree::testing::gtest_main
     libamdf::cts::gpu::sdma::encoding::commands
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND IREE_HAL_DRIVER_TASK)
+iree_cc_test(
+  NAME
+    virtual_buffer_test
+  SRCS
+    "virtual_buffer_test.cc"
+  DEPS
+    ::virtual_buffer_test_base
+    iree::testing::gtest_main
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.gpu"
