@@ -115,6 +115,12 @@ amdf_status_t amdf_xdna_umd_device_query_memory_profile(
   const amdf_status_t status = amdf_linux_xdna_query_memory_profile(
       device->profile, device->page_size, memory_profile_ordinal, out_profile);
   if (amdf_status_is_ok(status)) {
+    if (device->uses_sva && memory_profile_ordinal == 1) {
+      // The imported DMA-BUF attachment pins backing for independent SVA
+      // aliases. Offset-correct host-source admission belongs to its owner.
+      out_profile->guaranteed_flags |= AMDF_MEMORY_FLAG_MAPPING_SOURCE;
+      out_profile->supported_flags |= AMDF_MEMORY_FLAG_MAPPING_SOURCE;
+    }
     out_profile->visibility.describe_site = amdf_xdna_umd_memory_describe_site;
     out_profile->visibility.describe_host = amdf_xdna_umd_memory_describe_host;
     out_profile->visibility.data = device;
@@ -289,6 +295,16 @@ amdf_status_t amdf_xdna_umd_memory_prepare_import(
         external_memory->byte_length, &dma_address);
   }
   if (amdf_status_is_ok(status)) {
+    if (import_info->origin == AMDF_MEMORY_NATIVE_IMPORT_ORIGIN_CONSTRUCTION) {
+      // A peer allocator's native initialization can leave dirty CPU lines.
+      // This unpublished memory_create transaction owns their initial release
+      // just as an XDNA-native allocation does. External imports instead keep
+      // the producer's explicit cache-publication contract.
+      amdf_linux_host_cache_transfer((uint8_t*)memory->buffer.host_pointer +
+                                         external_memory->source_byte_offset,
+                                     external_memory->byte_length,
+                                     device->cache_line_size);
+    }
     const uint64_t offset_alignment =
         external_memory->source_byte_offset == 0
             ? alignment

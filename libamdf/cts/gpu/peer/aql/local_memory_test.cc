@@ -67,7 +67,7 @@ struct JointMemory {
     result.kind =
         device < 0 ? AMDF_MEMORY_SITE_KIND_HOST : AMDF_MEMORY_SITE_KIND_DEVICE;
     if (device < 0) {
-      result.value.host_mapping = mapping;
+      result.value.host.mapping = mapping;
     } else {
       result.value.device = {memory, static_cast<uint32_t>(device), family};
     }

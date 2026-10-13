@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "libamdf/src/allocator.h"
+#include "libamdf/src/host_reservation.h"
 #include "libamdf/src/platform/linux/endpoint.h"
 #include "libamdf/src/platform/linux/file.h"
 #include "libamdf/src/platform/linux/host_cache.h"
@@ -110,6 +111,10 @@ amdf_status_t amdf_xdna_umd_device_create(
   if (amdf_status_is_ok(status)) {
     status = amdf_linux_host_cache_query_line_size(&device->cache_line_size);
   }
+  if (amdf_status_is_ok(status)) {
+    status = amdf_linux_xdna_buffer_query_sva(
+        device->descriptor, device->page_size, &device->uses_sva);
+  }
   amdf_xdna_umd_device_result_t result = {0};
   if (amdf_status_is_ok(status)) {
     status = amdf_linux_xdna_device_query_tiles(device, &result.tiles);
@@ -143,4 +148,42 @@ amdf_status_t amdf_xdna_umd_device_create(
     }
   }
   return status;
+}
+
+amdf_status_t amdf_xdna_umd_device_query_memory_reservation_profile(
+    amdf_xdna_umd_device_t* device, uint32_t address_domain_ordinal,
+    amdf_memory_reservation_profile_t* out_profile) {
+  if (address_domain_ordinal != 0 || !device->uses_sva) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  }
+  const uint64_t bias = device->profile->dma.byte_offset;
+  const uint64_t maximum =
+      (UINT64_C(1) << device->profile->dma.address_bit_count) - 1;
+  const uint64_t page_size = device->page_size;
+  *out_profile = (amdf_memory_reservation_profile_t){
+      .capabilities =
+          {
+              .supported_access =
+                  AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+              .required_access = AMDF_MEMORY_ACCESS_READ,
+              .address_domain_ordinal = 0,
+              .maximum_byte_length = (maximum - bias) & ~(page_size - 1),
+              .reservation_granularity = page_size,
+              .maximum_alignment =
+                  bias != 0 ? bias & (~bias + 1) : (SIZE_MAX / 2) + 1,
+              .mapping_granularity = page_size,
+              .minimum_address = page_size + bias,
+              .maximum_address = maximum,
+          },
+      .vtable = &amdf_host_reservation_vtable,
+      .host =
+          {
+              .address_byte_offset = bias,
+              .address_kind = AMDF_MEMORY_ADDRESS_XDNA_DMA,
+              .page_size = page_size,
+              .prepare_translations =
+                  amdf_linux_host_cache_prepare_translations,
+          },
+  };
+  return AMDF_STATUS_OK;
 }

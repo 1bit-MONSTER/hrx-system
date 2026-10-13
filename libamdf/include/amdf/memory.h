@@ -45,16 +45,20 @@ enum amdf_memory_flag_bits_e {
   /// This access may supply ordinary backing to stable address reservations.
   /// It does not transfer backing ownership or track installed aliases.
   AMDF_MEMORY_FLAG_MAPPING_SOURCE = UINT64_C(1) << 6,
+  /// Backing can supply independently replaceable WRITE_BACK host aliases.
+  /// Native source handles are prepared during construction. This property
+  /// does not follow from HOST_VISIBLE or a device's MAPPING_SOURCE access.
+  AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE = UINT64_C(1) << 7,
 };
 
-/// Exact device page-table access granted to one memory attachment.
+/// Exact page-table access granted to one memory attachment or projection.
 typedef uint32_t amdf_memory_access_t;
 enum amdf_memory_access_bit_e {
-  /// Device loads are permitted from the attachment.
+  /// Loads are permitted from the attachment or projection.
   AMDF_MEMORY_ACCESS_READ = 1u << 0,
-  /// Device stores are permitted to the attachment.
+  /// Stores are permitted to the attachment or projection.
   AMDF_MEMORY_ACCESS_WRITE = 1u << 1,
-  /// Device instruction fetches are permitted from the attachment.
+  /// Instruction fetches are permitted from the attachment or projection.
   AMDF_MEMORY_ACCESS_EXECUTE = 1u << 2,
 };
 
@@ -68,6 +72,8 @@ enum amdf_memory_address_kind_e {
   /// XDNA firmware buffer arguments or scoped instruction-storage addresses.
   /// This is not an address to place directly in a shim DMA descriptor.
   AMDF_MEMORY_ADDRESS_XDNA_FIRMWARE = 2,
+  /// A process host pointer, returned by a host reservation projection.
+  AMDF_MEMORY_ADDRESS_HOST = 3,
 };
 
 /// Set of address kinds, with bit `1 << amdf_memory_address_kind_t` set for
@@ -524,7 +530,8 @@ typedef struct amdf_memory_create_info_t {
   uint32_t memory_profile_ordinal;
   /// Number of entries in accesses; zero requests CPU-only system memory.
   uint32_t access_count;
-  /// Required backing properties: HOST_VISIBLE, DEVICE_LOCAL and SHAREABLE.
+  /// Required backing properties: HOST_VISIBLE, DEVICE_LOCAL, SHAREABLE and
+  /// HOST_MAPPING_SOURCE.
   amdf_memory_flags_t required_flags;
   /// Logical byte length established for every requested consumer. Native
   /// allocation rounding is reported separately and grants no additional
@@ -571,7 +578,8 @@ typedef struct amdf_memory_info_t {
   uint32_t access_count;
   /// Reserved for compatible growth; always zero.
   uint32_t reserved;
-  /// Achieved backing properties: HOST_VISIBLE, DEVICE_LOCAL and SHAREABLE.
+  /// Achieved backing properties: HOST_VISIBLE, DEVICE_LOCAL, SHAREABLE and
+  /// HOST_MAPPING_SOURCE.
   amdf_memory_flags_t flags;
   /// Byte offset of logical byte zero in the physical backing.
   uint64_t source_byte_offset;
@@ -635,7 +643,8 @@ typedef struct amdf_memory_import_info_t {
   uint32_t memory_profile_ordinal;
   /// Number of entries in accesses.
   uint32_t access_count;
-  /// Required backing properties: HOST_VISIBLE, DEVICE_LOCAL and SHAREABLE.
+  /// Required backing properties: HOST_VISIBLE, DEVICE_LOCAL, SHAREABLE and
+  /// HOST_MAPPING_SOURCE.
   amdf_memory_flags_t required_flags;
   /// Minimum power-of-two destination device-address alignment, or zero for
   /// profile policy. A nonzero external source offset must be divisible by
@@ -812,7 +821,7 @@ typedef struct amdf_host_mapping_info_t {
   amdf_host_cacheability_t cacheability;
   /// First mapped byte borrowed until `host_mapping_destroy` is called.
   void* pointer;
-  /// Byte offset of `pointer` within the logical memory attachment.
+  /// Byte offset of `pointer` within its memory or reservation owner.
   uint64_t memory_byte_offset;
   /// Mapped byte length.
   uint64_t byte_length;
@@ -864,8 +873,16 @@ typedef struct amdf_memory_site_t {
       /// Exact queue family used for access and cache transitions.
       uint32_t queue_family_ordinal;
     } device;
-    /// Host mapping supplying memory identity, range and cache behavior.
-    amdf_host_mapping_t* host_mapping;
+    /// Host view and the backing being qualified for that view.
+    struct {
+      /// Live mapping supplying the address range and immutable cache policy.
+      amdf_host_mapping_t* mapping;
+      /// Backing to qualify for a reservation view. Required for a reservation
+      /// view; NULL for a view created by memory_map, which knows its backing.
+      /// The query is conditional on corresponding bytes being installed. It
+      /// neither inspects current bindings nor retains this memory.
+      amdf_memory_t* source_memory;
+    } host;
   } value;
 } amdf_memory_site_t;
 

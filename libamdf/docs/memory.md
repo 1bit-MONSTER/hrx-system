@@ -378,7 +378,7 @@ name different storage without changing the ordinary shared-data pointer model.
 
 ## Stable reservations and replaceable backing
 
-A serving pool can keep a tensor's GPU address stable while committing,
+A serving pool can keep a tensor's host or GPU address stable while committing,
 replacing, or releasing its physical slabs. An `amdf_memory_reservation_t`
 owns those addresses; ordinary `amdf_memory_t` resources own the backing.
 Replacing a mapping changes which backing an address reaches, not the address
@@ -389,9 +389,21 @@ The caller queries `device_query_memory_reservation_capabilities` for an
 already-live consumer's address domain. The result supplies address bounds,
 reservation and mapping granularity, alignment limits, and exact permission
 constraints. `required_access` identifies permission bits that the native
-domain cannot deny. The request names its complete live consumer set; a
-successful GPU reservation provides one common base address to that set.
-Unsupported combinations fail as a whole.
+domain cannot deny. The request names its complete consumer set, which may
+combine the host and live GPUs. GPU consumers receive one common GPU base;
+the host projection has its own base. Construction prepares every native
+owner before publishing the reservation. Unsupported combinations fail as a
+whole without creating a caller cleanup obligation.
+
+A CPU-only pool uses `instance_query_host_memory_reservation_capabilities`
+without activating any accelerator. Its reservation access has a null device
+and the returned host address-domain ordinal. Host access info reports
+`AMDF_MEMORY_ADDRESS_HOST`; device projections report their address kind.
+`mapping_granularity` in the access request selects the independently
+replaceable unit, with zero selecting provider policy. A shared native group
+honors the strongest requested unit among its consumers. The unit is distinct
+from both backing allocation size and requested base alignment. Every mapping
+offset and length must satisfy the returned geometry.
 
 Backing uses the existing scope-taking construction operations. Each consumer
 that will supply replacement mappings requests
@@ -400,6 +412,21 @@ admit that request, and construction prepares its reusable native handles
 before returning. An ordinary allocation without that requirement pays no
 additional mapping-source preparation cost. A mapping never exports, imports,
 or lazily registers its source on first use.
+
+CPU backing instead requests `AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE` in
+`memory_create.required_flags`. The CPU-only SYSTEM CREATE profile supports
+this property. Construction prepares a native file or section and its ordinary
+host mapping. Anonymous allocations retain their ordinary allocation path;
+arbitrary registered pointers are not independently remappable sources. A
+device mapping-source handle alone does not qualify backing for host aliases.
+
+A GPU-backed SYSTEM allocation can also advertise `HOST_MAPPING_SOURCE`.
+Linux KFD's WRITE_BACK GTT profile retains its DMA-BUF source during
+construction when requested. A CPU reservation can then install any admitted
+source range without another export or import, while the GPU keeps its
+ordinary access to the same physical bytes. The backing remains caller-owned
+through all aliases. LOCAL/WC backing, arbitrary registered pointers and
+Windows WDDM allocation handles do not provide this host-source capability.
 
 `memory_reservation_query_access_info` returns the stable base even when the
 reservation has no backing. Access ordinals preserve caller order. Consumers
@@ -416,12 +443,15 @@ amdf_memory_mapping_update_t replacement = {
     .byte_length = slab_length,
     .memory = new_slab,
     .memory_access_ordinal = slab_gpu_access,
-    .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+    .access = admitted_access,
     .source_byte_offset = slab_offset,
 };
 status = api->memory_reservation_update(arena, arena_gpu_access, 1,
                                        &replacement);
 ```
+
+`admitted_access` includes the intended permissions and the queried native
+`required_access` bits, within the source and reservation's supported access.
 
 Success establishes the replacement's translation readiness before returning.
 The next operation on an existing queue can use the unchanged arena address.
@@ -447,6 +477,105 @@ or waits for all application queues. A HAL schedules this host operation using
 its ordinary dependency edges, then publishes its ordinary completion signal.
 Reservation queries remain cached and allocation-free, and dispatch gains no
 mapping lookup, source list, or extra synchronization step.
+
+### Stable host views
+
+`memory_reservation_map` creates an `amdf_host_mapping_t` borrowing a host
+projection. It does not map physical storage: the view can be created before
+the first slab is installed, and its pointer remains unchanged across
+replacement and detach. The caller keeps the reservation alive until the view
+is destroyed and accesses only installed ranges with the required permissions.
+
+```c
+amdf_memory_reservation_access_t host_access = {
+    .device = NULL,
+    .address_domain_ordinal = host_capabilities.address_domain_ordinal,
+    .access = host_capabilities.required_access |
+              AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+    .mapping_granularity = slab_length,
+};
+// Create the reservation with this access and derive one lightweight view.
+amdf_host_mapping_t* view;
+status = api->memory_reservation_map(arena, 0, &map_info, &view);
+amdf_host_mapping_info_t host = {
+    .type = AMDF_STRUCTURE_TYPE_HOST_MAPPING_INFO,
+    .structure_size = sizeof(host),
+};
+status = api->host_mapping_query_info(view, &host);
+
+// After successful backing installation and completion of previous users:
+memcpy((uint8_t*)host.pointer + offset, payload, length);
+status = api->host_mapping_cache_control(
+    view, AMDF_HOST_CACHE_OPERATION_FLUSH, offset, length);
+// Publish the caller's existing readiness dependency for the next users.
+```
+
+Readback observes completion, invalidates the stable view's range, then reads
+the same pointer. Cache operations use the view's immutable WRITE_BACK policy
+and direct address. Neither the HAL nor libamdf finds slabs or enumerates
+bindings for a flush or invalidate. Mapping admission requires explicitly
+prepared sources with matching cache semantics. A cache operation supplies no
+execution ordering and does not make a hole accessible.
+
+Linux installs a requested range with a fixed shared mapping of retained file
+backing. Windows installs one section view per caller-selected mapping unit;
+whole-view removal preserves its address placeholder. Placeholder splitting is
+lazy: reserving a large empty arena does not allocate a per-unit array or issue
+one native call per page. Native region queries occur only during cold Windows
+mutation and teardown, never on the cache path. A pool can select a large unit
+without tying its total reservation or physical allocation size to that unit.
+
+The host source ordinal in a mapping update is zero: CPU-only backing has no
+device-access record. Device and host source preparation are separate
+capabilities. One reservation can combine independent host and GPU mapping
+groups. Each update or detach names the affected group; replacing a host view
+does not update GPU page tables, and detaching a GPU group leaves the host
+view intact. When backing supports both source capabilities, the caller can
+install the same slab in both groups and publish new work only after both
+updates are ready. Libamdf neither tracks installed slabs nor turns separate
+native mutations into an atomic cross-domain transaction.
+
+### Shared CPU and NPU translations
+
+A Linux XDNA device using shared virtual addressing can join the host mapping
+group. Its projection reports `AMDF_MEMORY_ADDRESS_XDNA_DMA`; the CPU projection
+reports `AMDF_MEMORY_ADDRESS_HOST`. These projections share page tables, not
+necessarily the same numeric address. Both have the same
+`mapping_access_ordinal`. Installing or detaching through either projection
+changes their shared translations once. The GPU projection remains an
+independent mapping group.
+
+The backing is an ordinary joint GPU/NPU allocation. Its live profile must
+support `HOST_MAPPING_SOURCE`, and its NPU access must support `MAPPING_SOURCE`.
+Request those properties during construction: the GPU owner retains its native
+mapping source and the NPU attachment pins the same physical backing. Mapping
+admission checks every NPU sharing the host group, including when the update is
+issued through the CPU projection. A GPU-only allocation cannot bypass NPU
+preparation by entering through that alias. The host and NPU consumers request
+identical permission envelopes because their protections describe the same
+page tables.
+
+Replacement installs the offset-correct shared mapping and populates every
+native page before returning. Linux's synchronous process-page-table
+invalidation covers the SVA consumer; libamdf establishes the new CPU PTEs with
+one non-writing cache-line operation per native page. This preparation neither
+initializes the payload nor replaces the caller's data-visibility transitions.
+Its cost scales with native pages, not payload bytes or submission count.
+CPU-only reservations retain ordinary lazy faults.
+
+A pool can therefore keep a stable CPU view, GPU address and NPU binding across
+slab replacement. After the previous users finish, it updates the host/NPU
+group and the GPU group, applies the next users' required cache transitions,
+then publishes its existing readiness dependency. Immutable NPU command bytes
+continue to use the same bindings. No per-dispatch attachment or library-owned
+slab table is involved. An NPU-only reservation uses the same source and
+readiness contract without requiring a public CPU view.
+
+Live device capabilities admit this route only in native SVA mode. Linux IOVA
+and Windows MCDM devices return `UNSUPPORTED` for NPU reservations. Arbitrary
+registered storage and foreign DMA-BUF exporters do not acquire host-source
+eligibility from import alone. CPU and GPU reservation support remains
+independent of NPU admission.
 
 ### Queue-ordered replacement
 
@@ -482,9 +611,9 @@ to avoid the native pending-update throttle. A full prefix returns `BUSY`
 without waiting; ordinary command capacity is unchanged.
 
 Acceptance is distinct from success at retirement. If native mapping is
-accepted but publication of the following queue dependency fails, the caller
-still receives the accepted point. The queue records terminal failure and
-rejects subsequent publication; the reservation projection becomes unusable.
+accepted but publication of the following queue dependency fails, the call
+still returns `OK` and the accepted point. The queue records terminal failure
+and rejects subsequent publication; the reservation projection becomes unusable.
 Queue status and waits report that failure. Independently observed progress,
 not failure alone, establishes retirement. No replay, second completion
 object, mapping registry, or retained source list is introduced.
@@ -504,23 +633,44 @@ on such queues instead of concealing that host wait.
 
 On Linux the instance serializes its foreground VM mutations through native
 completion. A PROCESS-lifetime KFD context can also be used by foreign driver
-clients; their VM mutations require caller coordination with reservation updates
-and destruction. The instance's lock cannot order calls made outside that
-instance. INSTANCE lifetime supplies a separate native KFD context.
+clients; their VM mutations require caller coordination with reservation
+updates, detach and destruction. The instance's lock cannot order calls made
+outside that instance. INSTANCE lifetime supplies a separate native KFD context.
 
-The reservation borrows its devices and backing without retaining either.
-The caller keeps each source alive until every installed alias and executing
-user has finished. `memory_reservation_destroy` clears its complete bounds,
-including holes, establishes removal readiness, then releases the addresses.
-It requires no installed-mapping ledger. Successful final removal permits
-releasing the detached sources while their execution queues remain alive.
+### Checked removal and address lifetime
+
+The reservation borrows its devices and backing without retaining either. The
+caller keeps each source alive until every installed alias and executing user
+has finished. A pool can remove backing while buffers still retain its address
+owner: `memory_reservation_detach(arena, access_ordinal)` clears the complete
+native mapping group, including holes, and establishes translation removal
+before returning success. It does not consume the reservation or release its
+addresses. Other aliases and users still require their own removal and
+completion before the pool reuses that backing.
+
+The caller completes affected execution and accepted queue-ordered mappings
+before detach, just as for a host-completed update. Libamdf orders removal
+behind any native prefix left by its own failed host update. Windows uses the
+last writer's paging queue even when detach is requested through another
+logical-device alias. This operation allocates no library metadata and needs
+no installed-mapping ledger; it may lock native VM mutation and wait for
+translation publication. It does not wait for application execution.
+
+After successful detach, a healthy reservation can accept new backing at the
+same addresses. `memory_reservation_destroy` independently clears any remaining
+mappings and releases the addresses. Final destruction is not required to
+certify removal before returning a slab to the pool.
 
 Request-validation failure changes nothing. A native failure after mutation
-can leave partial mappings and makes that native projection unusable except
-for final destruction. The caller retains old and proposed backing until
-checked removal succeeds. Failed destruction consumes the reservation handle
-but does not authorize backing reuse; unsafe native resources remain leaked
-without a retained libamdf cleanup object. There is no rollback promise,
+can leave partial mappings and makes that native mapping group unusable except
+for full-group detach or final destruction. The caller retains old and proposed
+backing until checked removal succeeds. Detach reports its own result and
+preserves the handle on every result; success does not reset an earlier
+mapping failure. A detach failure grants no backing reuse, poisons a healthy
+group and preserves an already-failed group's original error. Failed
+destruction consumes the reservation handle but does not authorize backing
+reuse; unsafe native resources remain leaked without a retained libamdf
+cleanup object. There is no rollback promise,
 implicit retry, or second retirement mechanism.
 
 ## Native resources and activation
@@ -622,12 +772,16 @@ the mapping's separate directional contract.
 `memory_query_pair_info` describes the visibility transitions from one site's
 writes to another site's reads. The producer must permit writes and the
 consumer must permit reads; incompatible permissions return `UNSUPPORTED`.
-A DEVICE site selects `{memory, access_ordinal, queue_family_ordinal}`; a HOST
-site selects an `amdf_host_mapping_t`. That mapping supplies its own backing,
-range and cache behavior, without another memory argument or a synthetic CPU
-device. Two sites on one memory handle share backing even without an external
-physical identity. Distinct imported handles require qualified matching
-identities. Pair queries only read metadata; they neither perform the reported
+A DEVICE site selects `{memory, access_ordinal, queue_family_ordinal}`. A HOST
+site supplies `value.host.mapping`. An ordinary mapping knows its backing;
+`value.host.source_memory` is null. A reservation view instead requires that
+explicit source handle. Its visibility answer is conditional on corresponding
+source bytes being installed; the query does not inspect current bindings or
+retain the source. This permits planning transitions before installation while
+keeping cache operations independent of slab identity. Two sites on one memory
+handle share backing even without an external physical identity. Distinct
+imported handles require qualified matching identities. Pair queries only read
+metadata; they neither perform the reported
 cache operations nor supply ordering. Native host API requirements remain
 native operations, including Windows allocation-cache publication.
 

@@ -74,6 +74,7 @@ iree_cc_library(
     execution_cases
   SRCS
     "gpu_xdna_test.cc"
+    "reservation_test.cc"
     "resident_test.cc"
   DEPS
     ::device_fixture

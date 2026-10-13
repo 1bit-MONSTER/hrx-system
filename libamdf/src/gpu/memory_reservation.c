@@ -9,22 +9,13 @@
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/gpu/device.h"
 #include "libamdf/src/gpu/umd/memory_reservation.h"
-#include "libamdf/src/instance.h"
 #include "libamdf/src/memory_resource.h"
 
-typedef struct amdf_gpu_memory_reservation_t {
-  // Provider-neutral ownership and cached consumer metadata.
-  amdf_memory_reservation_t base;
-  // Complete native reservation group owned through terminal release.
-  amdf_gpu_umd_memory_reservation_t* umd;
-} amdf_gpu_memory_reservation_t;
-
-amdf_status_t amdf_gpu_device_query_memory_reservation_capabilities(
-    amdf_device_t* device, uint32_t address_domain_ordinal,
-    amdf_memory_reservation_capabilities_t* out_capabilities) {
-  return amdf_gpu_umd_query_memory_reservation_capabilities(
-      amdf_gpu_device_get_umd(device), address_domain_ordinal,
-      out_capabilities);
+static amdf_gpu_umd_memory_reservation_t* amdf_gpu_memory_reservation_native(
+    amdf_memory_reservation_t* reservation, uint32_t access_ordinal) {
+  return reservation
+      ->accesses[reservation->accesses[access_ordinal].native_owner_ordinal]
+      .native;
 }
 
 static amdf_status_t amdf_gpu_memory_reservation_apply(
@@ -32,8 +23,10 @@ static amdf_status_t amdf_gpu_memory_reservation_apply(
     uint32_t update_count, const amdf_memory_mapping_update_t* updates,
     bool* mutation_started, amdf_gpu_umd_kernel_queue_t* queue,
     uint64_t submission, bool* accepted) {
-  amdf_gpu_memory_reservation_t* reservation =
-      (amdf_gpu_memory_reservation_t*)base;
+  amdf_gpu_umd_memory_reservation_t* native_reservation =
+      amdf_gpu_memory_reservation_native(base, access_ordinal);
+  const uint32_t native_ordinal =
+      base->accesses[access_ordinal].native_access_ordinal;
   amdf_gpu_umd_mapping_update_t* native = NULL;
   amdf_status_t status = amdf_calloc_array(
       base->host_allocator, update_count, sizeof(*native),
@@ -56,10 +49,10 @@ static amdf_status_t amdf_gpu_memory_reservation_apply(
   }
   status = queue != NULL
                ? amdf_gpu_umd_memory_reservation_update_on_queue(
-                     reservation->umd, queue, access_ordinal, update_count,
+                     native_reservation, queue, native_ordinal, update_count,
                      native, submission, mutation_started, accepted)
                : amdf_gpu_umd_memory_reservation_update(
-                     reservation->umd, access_ordinal, update_count, native,
+                     native_reservation, native_ordinal, update_count, native,
                      mutation_started);
   amdf_free(base->host_allocator, native);
   return status;
@@ -84,88 +77,124 @@ amdf_status_t amdf_gpu_memory_reservation_update_on_queue(
                                            submission, accepted);
 }
 
+static amdf_status_t amdf_gpu_memory_reservation_detach(
+    amdf_memory_reservation_t* base, uint32_t access_ordinal) {
+  return amdf_gpu_umd_memory_reservation_detach(
+      amdf_gpu_memory_reservation_native(base, access_ordinal),
+      base->accesses[access_ordinal].native_access_ordinal);
+}
+
 static amdf_status_t amdf_gpu_memory_reservation_destroy(
-    amdf_memory_reservation_t* base) {
-  amdf_gpu_memory_reservation_t* reservation =
-      (amdf_gpu_memory_reservation_t*)base;
-  const amdf_status_t status =
-      amdf_gpu_umd_memory_reservation_destroy(reservation->umd);
-  amdf_free(base->host_allocator, reservation);
+    amdf_memory_reservation_t* base, uint32_t owner_ordinal) {
+  return amdf_gpu_umd_memory_reservation_destroy(
+      base->accesses[owner_ordinal].native);
+}
+
+static amdf_status_t amdf_gpu_memory_reservation_prepare(
+    amdf_memory_reservation_t* reservation,
+    const amdf_memory_reservation_create_info_t* create_info,
+    const amdf_memory_reservation_group_t* group) {
+  const amdf_allocator_t allocator = reservation->host_allocator;
+  const uint32_t count = group->access_count;
+  const uint32_t* ordinals = group->access_ordinals;
+  for (uint32_t i = 0; i < count; ++i) {
+    for (uint32_t j = 0; j < i; ++j) {
+      const amdf_memory_reservation_access_t* a =
+          &create_info->accesses[ordinals[i]];
+      const amdf_memory_reservation_access_t* b =
+          &create_info->accesses[ordinals[j]];
+      if (a->access != b->access && amdf_gpu_umd_devices_share_mapping_domain(
+                                        amdf_gpu_device_get_umd(a->device),
+                                        amdf_gpu_device_get_umd(b->device))) {
+        return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+      }
+    }
+  }
+  amdf_gpu_umd_device_t** devices = NULL;
+  amdf_status_t status =
+      amdf_calloc_array(allocator, count, sizeof(*devices),
+                        amdf_alignof(amdf_gpu_umd_device_t*), (void**)&devices);
+  amdf_gpu_umd_memory_reservation_t* native = NULL;
+  if (amdf_status_is_ok(status)) {
+    for (uint32_t i = 0; i < count; ++i) {
+      devices[i] =
+          amdf_gpu_device_get_umd(create_info->accesses[ordinals[i]].device);
+    }
+    status = amdf_gpu_umd_memory_reservation_create(
+        allocator, count, devices, create_info->byte_length,
+        create_info->minimum_alignment, &native);
+  }
+  amdf_free(allocator, devices);
+  if (amdf_status_is_ok(status)) {
+    reservation->accesses[ordinals[0]].native = native;
+    for (uint32_t i = 0; i < count; ++i) {
+      const uint32_t ordinal = ordinals[i];
+      amdf_memory_reservation_access_state_t* access =
+          &reservation->accesses[ordinal];
+      access->info = (amdf_memory_reservation_access_info_t){
+          .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO,
+          .structure_size = sizeof(access->info),
+          .device_id = amdf_gpu_device_get_info(access->device)->id,
+          .ordinal = ordinal,
+          .address_domain_ordinal =
+              create_info->accesses[ordinal].address_domain_ordinal,
+          .access = create_info->accesses[ordinal].access,
+          .byte_length = create_info->byte_length,
+          .reset_epoch = amdf_gpu_device_query_reset_epoch(access->device),
+      };
+      amdf_gpu_umd_memory_reservation_query_access(
+          native, i, &access->info.address,
+          &access->info.mapping_access_ordinal,
+          &access->info.mapping_granularity, &access->required_access);
+      access->info.mapping_access_ordinal =
+          ordinals[access->info.mapping_access_ordinal];
+      if (create_info->accesses[ordinal].mapping_granularity != 0) {
+        access->info.mapping_granularity =
+            create_info->accesses[ordinal].mapping_granularity;
+      }
+    }
+    // All units are powers of two. The strongest requested unit satisfies
+    // every logical consumer sharing the same native page tables.
+    for (uint32_t i = 0; i < count; ++i) {
+      const amdf_memory_reservation_access_info_t* info =
+          &reservation->accesses[ordinals[i]].info;
+      amdf_memory_reservation_access_info_t* group =
+          &reservation->accesses[info->mapping_access_ordinal].info;
+      if (info->mapping_granularity > group->mapping_granularity) {
+        group->mapping_granularity = info->mapping_granularity;
+      }
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+      amdf_memory_reservation_access_info_t* info =
+          &reservation->accesses[ordinals[i]].info;
+      info->mapping_granularity =
+          reservation->accesses[info->mapping_access_ordinal]
+              .info.mapping_granularity;
+    }
+  }
   return status;
 }
 
 static const amdf_memory_reservation_vtable_t
     amdf_gpu_memory_reservation_vtable = {
+        .prepare = amdf_gpu_memory_reservation_prepare,
         .update = amdf_gpu_memory_reservation_update,
+        .detach = amdf_gpu_memory_reservation_detach,
         .destroy = amdf_gpu_memory_reservation_destroy,
 };
 
-amdf_status_t amdf_gpu_memory_reservation_create(
-    amdf_instance_t* instance,
-    const amdf_memory_reservation_create_info_t* create_info,
-    amdf_memory_reservation_t** out_reservation) {
-  const amdf_allocator_t allocator = amdf_instance_host_allocator(instance);
-  const uint32_t count = create_info->access_count;
-  for (uint32_t i = 0; i < count; ++i) {
-    for (uint32_t j = 0; j < i; ++j) {
-      if (create_info->accesses[i].access != create_info->accesses[j].access &&
-          amdf_gpu_umd_devices_share_mapping_domain(
-              amdf_gpu_device_get_umd(create_info->accesses[i].device),
-              amdf_gpu_device_get_umd(create_info->accesses[j].device))) {
-        return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
-      }
-    }
-  }
-  amdf_gpu_memory_reservation_t* reservation = NULL;
-  amdf_status_t status = amdf_calloc_with_trailing(
-      allocator, sizeof(*reservation),
-      count * sizeof(amdf_memory_reservation_access_state_t),
-      amdf_alignof(amdf_gpu_memory_reservation_t), (void**)&reservation);
-  if (!amdf_status_is_ok(status)) {
-    return status;
-  }
-  reservation->base.host_allocator = allocator;
-  reservation->base.vtable = &amdf_gpu_memory_reservation_vtable;
-  reservation->base.access_count = count;
-  reservation->base.accesses =
-      (amdf_memory_reservation_access_state_t*)(reservation + 1);
-  amdf_gpu_umd_device_t** devices = NULL;
-  status =
-      amdf_calloc_array(allocator, count, sizeof(*devices),
-                        amdf_alignof(amdf_gpu_umd_device_t*), (void**)&devices);
+amdf_status_t amdf_gpu_device_query_memory_reservation_profile(
+    amdf_device_t* device, uint32_t address_domain_ordinal,
+    amdf_memory_reservation_profile_t* out_profile) {
+  amdf_memory_reservation_profile_t profile = {
+      .vtable = &amdf_gpu_memory_reservation_vtable,
+  };
+  const amdf_status_t status =
+      amdf_gpu_umd_query_memory_reservation_capabilities(
+          amdf_gpu_device_get_umd(device), address_domain_ordinal,
+          &profile.capabilities);
   if (amdf_status_is_ok(status)) {
-    for (uint32_t i = 0; i < count; ++i) {
-      devices[i] = amdf_gpu_device_get_umd(create_info->accesses[i].device);
-    }
-    status = amdf_gpu_umd_memory_reservation_create(
-        allocator, count, devices, create_info->byte_length,
-        create_info->minimum_alignment, &reservation->umd);
-  }
-  amdf_free(allocator, devices);
-  if (amdf_status_is_ok(status)) {
-    for (uint32_t i = 0; i < count; ++i) {
-      amdf_memory_reservation_access_state_t* access =
-          &reservation->base.accesses[i];
-      access->device = create_info->accesses[i].device;
-      access->info = (amdf_memory_reservation_access_info_t){
-          .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO,
-          .structure_size = sizeof(access->info),
-          .device_id = amdf_gpu_device_get_info(access->device)->id,
-          .ordinal = i,
-          .address_domain_ordinal =
-              create_info->accesses[i].address_domain_ordinal,
-          .access = create_info->accesses[i].access,
-          .byte_length = create_info->byte_length,
-          .reset_epoch = amdf_gpu_device_query_reset_epoch(access->device),
-      };
-      amdf_gpu_umd_memory_reservation_query_access(
-          reservation->umd, i, &access->info.address,
-          &access->info.mapping_access_ordinal,
-          &access->info.mapping_granularity, &access->required_access);
-    }
-    *out_reservation = &reservation->base;
-  } else {
-    amdf_free(allocator, reservation);
+    *out_profile = profile;
   }
   return status;
 }

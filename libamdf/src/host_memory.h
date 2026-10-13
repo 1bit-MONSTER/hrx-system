@@ -19,6 +19,13 @@ amdf_status_t amdf_host_memory_prepare(
     amdf_memory_t* memory, const amdf_memory_native_profile_t* profile,
     const amdf_memory_create_info_t* create_info, amdf_memory_info_t* out_info);
 
+// Creates a lightweight WRITE_BACK view borrowing a persistent host range.
+// memory is NULL for a reservation-owned range. Cache operations need only
+// the retained address, geometry and direct CPU recipe, never source lookup.
+amdf_status_t amdf_host_memory_create_view(
+    amdf_allocator_t host_allocator, amdf_memory_t* memory, void* base_pointer,
+    const amdf_memory_map_info_t* map_info, amdf_host_mapping_t** out_mapping);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

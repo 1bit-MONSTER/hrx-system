@@ -27,7 +27,8 @@ struct amdf_host_mapping_t {
   amdf_allocator_t host_allocator;
   // Implementation operations selected before the mapping is published.
   const amdf_host_mapping_vtable_t* vtable;
-  // Memory borrowed for the lifetime of this mapping.
+  // Fixed memory owner, or NULL for a view borrowing reservation addresses.
+  // A reservation view's visibility queries receive source memory explicitly.
   amdf_memory_t* memory;
   // Immutable properties established before publication.
   amdf_host_mapping_info_t info;

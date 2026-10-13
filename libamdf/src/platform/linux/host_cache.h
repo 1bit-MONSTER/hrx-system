@@ -22,6 +22,16 @@ amdf_status_t amdf_linux_host_cache_query_line_size(uint32_t* out_line_size);
 void amdf_linux_host_cache_transfer(void* pointer, uint64_t byte_length,
                                     uint32_t line_size);
 
+// Installs each CPU PTE for a pinned, offset-correct shared exporter mapping.
+// CLFLUSH faults through the exporter using read permission without modifying
+// payload or leaving dirty lines. PFNMAP mappings do not support MADV_POPULATE;
+// MAP_POPULATE can silently leave them absent. The caller supplies native page
+// geometry and guarantees read permission, cache support and stable backing.
+// Cold mapping operation, not a payload cache-ownership transition.
+void amdf_linux_host_cache_prepare_translations(void* pointer,
+                                                uint64_t byte_length,
+                                                uint64_t page_size);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

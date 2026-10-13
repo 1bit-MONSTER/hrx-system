@@ -75,6 +75,7 @@ amdf_cc_library(
         ":buffer",
         ":device_state",
         "//libamdf/src:allocator",
+        "//libamdf/src:memory_reservation",
         "//libamdf/src/platform/linux:endpoint",
         "//libamdf/src/platform/linux:file",
         "//libamdf/src/platform/linux:host_cache",

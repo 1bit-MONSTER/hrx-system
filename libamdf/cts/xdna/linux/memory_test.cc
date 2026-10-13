@@ -141,7 +141,7 @@ TEST_F(XdnaLinuxMemoryTest, PortableImportDoesNotInheritNativeHostProtocol) {
       .structure_size = sizeof(host),
       .kind = AMDF_MEMORY_SITE_KIND_HOST,
   };
-  host.value.host_mapping = mappings_[1];
+  host.value.host.mapping = mappings_[1];
   amdf_memory_pair_info_t pair = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_PAIR_INFO,
       .structure_size = sizeof(pair),

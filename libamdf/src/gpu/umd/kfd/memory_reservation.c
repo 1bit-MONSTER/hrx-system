@@ -473,15 +473,21 @@ amdf_status_t amdf_gpu_umd_memory_reservation_update(
   return status;
 }
 
+amdf_status_t amdf_gpu_umd_memory_reservation_detach(
+    amdf_gpu_umd_memory_reservation_t* reservation, uint32_t access_ordinal) {
+  amdf_gpu_kfd_reservation_target_t* target =
+      &reservation->targets[reservation->targets[access_ordinal].owner_ordinal];
+  return amdf_gpu_kfd_reservation_clear(target, reservation->address,
+                                        reservation->byte_length);
+}
+
 amdf_status_t amdf_gpu_umd_memory_reservation_destroy(
     amdf_gpu_umd_memory_reservation_t* reservation) {
   amdf_status_t status = AMDF_STATUS_OK;
   for (uint32_t i = 0;
        i < reservation->target_count && amdf_status_is_ok(status); ++i) {
     if (reservation->targets[i].owner_ordinal == i) {
-      status = amdf_gpu_kfd_reservation_clear(&reservation->targets[i],
-                                              reservation->address,
-                                              reservation->byte_length);
+      status = amdf_gpu_umd_memory_reservation_detach(reservation, i);
     }
   }
   return amdf_gpu_kfd_reservation_release(reservation, status);

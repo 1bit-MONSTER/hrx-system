@@ -348,7 +348,7 @@ class XdnaExecutionFixture : public XdnaDeviceFixture {
     host.type = AMDF_STRUCTURE_TYPE_MEMORY_SITE;
     host.structure_size = sizeof(host);
     host.kind = AMDF_MEMORY_SITE_KIND_HOST;
-    host.value.host_mapping = binding.storage.mapping;
+    host.value.host.mapping = binding.storage.mapping;
     amdf_memory_site_t device = {};
     device.type = AMDF_STRUCTURE_TYPE_MEMORY_SITE;
     device.structure_size = sizeof(device);

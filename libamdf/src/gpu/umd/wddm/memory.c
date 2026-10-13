@@ -61,6 +61,13 @@ struct amdf_gpu_umd_memory_t {
   D3DKMT_HANDLE allocation_handles[];
 };
 
+uintptr_t amdf_gpu_umd_memory_host_mapping_source(
+    amdf_gpu_umd_memory_t* memory) {
+  (void)memory;
+  amdf_assert(false && "WDDM does not advertise HOST_MAPPING_SOURCE");
+  return 0;
+}
+
 amdf_gpu_wddm_memory_span_t amdf_gpu_wddm_memory_span(
     const amdf_gpu_umd_memory_t* memory, uint64_t byte_offset) {
   const uint64_t index =
@@ -266,8 +273,8 @@ static amdf_status_t amdf_windows_gpu_memory_map_device_address(
     }
   }
   if (amdf_status_is_ok(status)) {
-    status = amdf_kmt_wait_for_paging(
-        memory->device->kmt, memory->device->device,
+    status = amdf_kmt_device_status_wait_for_paging(
+        &memory->device->status, memory->device->kmt, memory->device->device,
         memory->device->paging_sync_object, memory->device->paging_fence,
         last_paging_fence_value);
   }
@@ -286,8 +293,8 @@ static amdf_status_t amdf_windows_gpu_memory_make_resident(
   if (!amdf_kmt_status_is_success_or_pending(native_status)) {
     return amdf_kmt_make_status(native_status);
   }
-  const amdf_status_t status = amdf_kmt_wait_for_paging(
-      memory->device->kmt, memory->device->device,
+  const amdf_status_t status = amdf_kmt_device_status_wait_for_paging(
+      &memory->device->status, memory->device->kmt, memory->device->device,
       memory->device->paging_sync_object, memory->device->paging_fence,
       make_resident.PagingFenceValue);
   if (amdf_status_is_ok(status) &&

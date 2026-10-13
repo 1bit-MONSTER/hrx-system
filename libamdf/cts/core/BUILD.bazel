@@ -36,6 +36,7 @@ package(
     "allocator",
     "discovery",
     "memory",
+    "memory_reservation",
     "query",
 ]]
 
@@ -45,6 +46,7 @@ test_suite(
         ":allocator",
         ":discovery",
         ":memory",
+        ":memory_reservation",
         ":query",
     ],
     visibility = ["//visibility:public"],

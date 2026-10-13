@@ -62,6 +62,19 @@ amdf_status_t amdf_kmt_device_status_observe_error(
     amdf_kmt_device_status_t* device_status, const amdf_kmt_api_t* api,
     D3DKMT_HANDLE device, amdf_status_t operation_status);
 
+// Completes a cold mapping/residency operation before publishing its result.
+// A nonzero paging point requires both fence retirement and one native device
+// execution-state query: even an ordinary retired value may accompany device
+// failure. Reset sentinels and confirmed execution failures publish the shared
+// device latch. A zero point means the native operation completed synchronously
+// and needs no additional wait/query, including during terminal cleanup.
+// This may block and issues one diagnostic syscall after deferred completion;
+// normal command submission and progress sampling do not use this path.
+amdf_status_t amdf_kmt_device_status_wait_for_paging(
+    amdf_kmt_device_status_t* device_status, const amdf_kmt_api_t* api,
+    D3DKMT_HANDLE device, D3DKMT_HANDLE paging_sync_object,
+    const volatile uint64_t* current_paging_fence, uint64_t target_value);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

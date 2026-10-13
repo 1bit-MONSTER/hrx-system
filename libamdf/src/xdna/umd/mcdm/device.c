@@ -11,6 +11,15 @@
 #include "libamdf/src/xdna/umd/mcdm/device.h"
 #include "libamdf/src/xdna/umd/mcdm/tile_metadata.h"
 
+amdf_status_t amdf_xdna_umd_device_query_memory_reservation_profile(
+    amdf_xdna_umd_device_t* device, uint32_t address_domain_ordinal,
+    struct amdf_memory_reservation_profile_t* out_profile) {
+  (void)device;
+  (void)address_domain_ordinal;
+  (void)out_profile;
+  return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+}
+
 amdf_xdna_umd_context_capabilities_t amdf_xdna_umd_query_context_capabilities(
     const amdf_xdna_device_profile_t* profile) {
   amdf_xdna_umd_context_capabilities_t capabilities = {0};

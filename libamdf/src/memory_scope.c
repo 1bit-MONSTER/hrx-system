@@ -319,7 +319,9 @@ static amdf_memory_native_profile_t amdf_memory_host_profile(
           },
   };
   if (ordinal == 0) {
-    profile.roles |= AMDF_MEMORY_PROFILE_ROLE_CREATE;
+    profile.roles |= AMDF_MEMORY_PROFILE_ROLE_CREATE |
+                     AMDF_MEMORY_PROFILE_ROLE_MAPPING_SOURCE;
+    profile.supported_flags |= AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE;
     profile.allocation = (amdf_memory_construction_capabilities_t){
         .maximum_byte_length = maximum_byte_length,
         .byte_length_granularity = 1,

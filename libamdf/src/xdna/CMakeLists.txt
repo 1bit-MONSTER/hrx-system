@@ -90,6 +90,7 @@ iree_cc_library(
     libamdf::src::host_mapping
     libamdf::src::memory
     libamdf::src::memory_profile
+    libamdf::src::memory_reservation
     libamdf::src::memory_scope_state
     libamdf::src::structure
     libamdf::src::xdna::umd::context

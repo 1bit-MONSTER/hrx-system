@@ -96,7 +96,10 @@ amdf_status_t amdf_windows_xdna_private_allocation_publish(
     amdf_windows_xdna_private_allocation_t* allocation, uint64_t byte_offset,
     uint64_t byte_length);
 
-// Releases one private allocation in retryable reverse acquisition order.
+// Releases one private allocation after its execution users have retired.
+// Pending preparation is reclaimed by synchronous native destruction, not by
+// requiring its paging result to succeed. A failed native release preserves
+// the remaining ownership state for explicit retry.
 amdf_status_t amdf_windows_xdna_private_allocation_destroy(
     amdf_windows_xdna_private_allocation_t* allocation);
 

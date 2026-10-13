@@ -211,3 +211,26 @@ amdf_status_t amdf_linux_xdna_buffer_deinitialize(
   buffer->device_address = 0;
   return AMDF_STATUS_OK;
 }
+
+amdf_status_t amdf_linux_xdna_buffer_query_sva(int descriptor, size_t page_size,
+                                               bool* out_sva) {
+  amdf_linux_xdna_buffer_t buffer = {0};
+  amdf_status_t status = amdf_linux_xdna_buffer_create(
+      descriptor, AMDXDNA_BO_SHARE, page_size, &buffer);
+  struct amdxdna_drm_get_bo_info info = {.handle = buffer.handle};
+  if (amdf_status_is_ok(status) &&
+      ioctl(descriptor, DRM_IOCTL_AMDXDNA_GET_BO_INFO, &info) != 0) {
+    status = amdf_linux_error(errno);
+  }
+  const amdf_status_t cleanup =
+      amdf_linux_xdna_buffer_deinitialize(descriptor, &buffer);
+  if (!amdf_status_is_ok(cleanup)) {
+    status = cleanup;
+  }
+  if (amdf_status_is_ok(status)) {
+    // In IOVA mode GEM's open callback maps the complete ordinary SHARE BO
+    // before publishing its handle. SVA has no address until its first mmap.
+    *out_sva = info.xdna_addr == AMDXDNA_INVALID_ADDR;
+  }
+  return status;
+}

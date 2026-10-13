@@ -61,6 +61,15 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "host_reservation",
+    srcs = ["host_reservation.c"],
+    linkopts = ["onecore.lib"],
+    target_compatible_with = WINDOWS_COMPATIBILITY,
+    visibility = ["//libamdf/src/platform:__pkg__"],
+    deps = ["//libamdf/src/platform:host_reservation"],
+)
+
+amdf_cc_library(
     name = "device_status",
     srcs = ["device_status.c"],
     hdrs = ["device_status.h"],

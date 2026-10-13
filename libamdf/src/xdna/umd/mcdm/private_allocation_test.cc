@@ -47,6 +47,12 @@ struct FakeKmtState {
   uint32_t fail_wait_call = 0;
   // Number of paging waits observed.
   uint32_t wait_count = 0;
+  // One-based paging wait after which native execution reports STOPPED.
+  uint32_t stop_after_wait = 0;
+  // Native destruction result; failures preserve the allocation owner.
+  NTSTATUS destroy_status = 0;
+  // Native destruction completion policy captured from the request.
+  D3DDDICB_DESTROYALLOCATION2FLAGS destroy_flags = {};
   // Requested paging fence values in call order.
   std::vector<uint64_t> wait_targets;
   // Native operation order observed during realization and teardown.
@@ -91,7 +97,8 @@ FakeDestroyAllocation(const D3DKMT_DESTROYALLOCATION2* destroy) {
   g_fake_state->operations.push_back(Operation::kDestroy);
   EXPECT_EQ(destroy->hDevice, 0x10u);
   EXPECT_EQ(destroy->Flags.AssumeNotInUse, 1u);
-  return 0;
+  g_fake_state->destroy_flags = destroy->Flags;
+  return g_fake_state->destroy_status;
 }
 
 NTSTATUS APIENTRY FakeMapGpuVirtualAddress(D3DDDI_MAPGPUVIRTUALADDRESS* map) {
@@ -161,6 +168,14 @@ class WindowsXdnaPrivateAllocationTest : public ::testing::Test {
     kmt_.map_gpu_virtual_address = FakeMapGpuVirtualAddress;
     kmt_.make_resident = FakeMakeResident;
     kmt_.wait_from_cpu = FakeWaitFromCpu;
+    kmt_.get_device_state = [](D3DKMT_GETDEVICESTATE* query) -> NTSTATUS {
+      query->ExecutionState =
+          g_fake_state->stop_after_wait != 0 &&
+                  g_fake_state->wait_count >= g_fake_state->stop_after_wait
+              ? D3DKMT_DEVICEEXECUTION_STOPPED
+              : D3DKMT_DEVICEEXECUTION_ACTIVE;
+      return 0;
+    };
     kmt_.lock = FakeLock;
     kmt_.unlock = FakeUnlock;
     kmt_.invalidate_cache = FakeInvalidate;
@@ -230,7 +245,50 @@ TEST_F(WindowsXdnaPrivateAllocationTest,
   EXPECT_EQ(state_.operations[state_.operations.size() - 2],
             Operation::kUnlock);
   EXPECT_EQ(state_.operations.back(), Operation::kDestroy);
+  EXPECT_EQ(state_.destroy_flags.SynchronousDestroy, 0u);
   EXPECT_EQ(allocation.device, nullptr);
+}
+
+class WindowsXdnaFailedPagingTest
+    : public WindowsXdnaPrivateAllocationTest,
+      public ::testing::WithParamInterface<uint32_t> {};
+
+INSTANTIATE_TEST_SUITE_P(Preparation, WindowsXdnaFailedPagingTest,
+                         ::testing::Values(1u, 2u));
+
+TEST_P(WindowsXdnaFailedPagingTest,
+       ReclaimsPendingPagingWithoutDependingOnItsSuccess) {
+  state_.stop_after_wait = GetParam();
+  const amdf_windows_xdna_private_allocation_descriptor_t descriptor = {
+      .requested_byte_length = 8192,
+      .allocation_byte_length = 8192,
+      .type = 0x3328,
+      .flags = AMDF_WINDOWS_XDNA_PRIVATE_ALLOCATION_FLAG_DEVICE_ADDRESS,
+  };
+  amdf_windows_xdna_private_allocation_t allocation = {};
+  amdf_windows_xdna_private_allocation_initialize(&device_, &descriptor,
+                                                  &allocation);
+  EXPECT_EQ(amdf_windows_xdna_private_allocation_realize(&allocation),
+            amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST));
+  EXPECT_EQ(allocation.paging_operation_pending, 1u);
+
+  state_.destroy_status = kStatusUnsuccessful;
+  EXPECT_EQ(amdf_windows_xdna_private_allocation_destroy(&allocation),
+            amdf_kmt_make_status(kStatusUnsuccessful));
+  EXPECT_EQ(state_.destroy_flags.SynchronousDestroy, 1u);
+  EXPECT_NE(allocation.allocation, 0u);
+  EXPECT_EQ(allocation.device, &device_);
+  EXPECT_EQ(allocation.paging_operation_pending, 1u);
+
+  state_.destroy_status = 0;
+  EXPECT_EQ(amdf_windows_xdna_private_allocation_destroy(&allocation),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(state_.destroy_flags.SynchronousDestroy, 1u);
+  EXPECT_EQ(allocation.allocation, 0u);
+  EXPECT_EQ(allocation.device, nullptr);
+  EXPECT_EQ(allocation.paging_operation_pending, 0u);
+  // Cleanup uses the independent native reclamation result, not another wait.
+  EXPECT_EQ(state_.wait_count, GetParam());
 }
 
 TEST_F(WindowsXdnaPrivateAllocationTest,

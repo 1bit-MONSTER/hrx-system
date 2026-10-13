@@ -40,3 +40,13 @@ void amdf_linux_host_cache_transfer(void* pointer, uint64_t byte_length,
   _mm_clflush((const void*)last);
   _mm_mfence();
 }
+
+void amdf_linux_host_cache_prepare_translations(void* pointer,
+                                                uint64_t byte_length,
+                                                uint64_t page_size) {
+  _mm_mfence();
+  for (uint64_t offset = 0; offset < byte_length; offset += page_size) {
+    _mm_clflush((const uint8_t*)pointer + offset);
+  }
+  _mm_mfence();
+}

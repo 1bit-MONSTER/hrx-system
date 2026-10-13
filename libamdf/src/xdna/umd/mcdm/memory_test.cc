@@ -163,6 +163,10 @@ class WindowsXdnaMemoryTest : public ::testing::Test {
     kmt_.map_gpu_virtual_address = FakeMapGpuVirtualAddress;
     kmt_.make_resident = FakeMakeResident;
     kmt_.wait_from_cpu = FakeWaitFromCpu;
+    kmt_.get_device_state = [](D3DKMT_GETDEVICESTATE* query) -> NTSTATUS {
+      query->ExecutionState = D3DKMT_DEVICEEXECUTION_ACTIVE;
+      return 0;
+    };
     device_.host_allocator = amdf_allocator_system();
     device_.host_allocator.user_data = &state_;
     device_.host_allocator.free = [](void* user_data, void* allocation) {
@@ -332,6 +336,31 @@ TEST_F(WindowsXdnaMemoryTest, BorrowsIndependentSubrangesWithoutAllocating) {
   EXPECT_EQ(state_.metadata_free_count, 0u);
   EXPECT_EQ(amdf_xdna_umd_memory_destroy(memory), AMDF_STATUS_OK);
   EXPECT_EQ(state_.metadata_free_count, 1u);
+}
+
+TEST_F(WindowsXdnaMemoryTest,
+       StoppedDeviceRejectsMappingPublicationAndReclaimsConstruction) {
+  kmt_.get_device_state = [](D3DKMT_GETDEVICESTATE* query) -> NTSTATUS {
+    query->ExecutionState = D3DKMT_DEVICEEXECUTION_STOPPED;
+    return 0;
+  };
+  amdf_xdna_umd_memory_t* memory = nullptr;
+  amdf_xdna_umd_memory_result_t result;
+  std::memset(&result, 0xA5, sizeof(result));
+  const auto original = result;
+  EXPECT_EQ(amdf_xdna_umd_memory_prepare(&device_, &profile_, &create_info_,
+                                         &memory, &result),
+            amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST));
+  EXPECT_EQ(std::memcmp(&result, &original, sizeof(result)), 0);
+  EXPECT_EQ(state_.wait_targets, (std::vector<uint64_t>{1}));
+  EXPECT_EQ(amdf_kmt_device_status_query(&device_.status),
+            amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST));
+  ASSERT_NE(memory, nullptr);
+  // Synchronous allocation destruction reclaims failed native preparation;
+  // device failure does not authorize publishing or reusing the mapped range.
+  EXPECT_EQ(amdf_xdna_umd_memory_destroy(memory), AMDF_STATUS_OK);
+  EXPECT_EQ(state_.metadata_free_count, 1u);
+  EXPECT_EQ(state_.operations.back(), Operation::kDestroy);
 }
 
 TEST_F(WindowsXdnaMemoryTest, ExposesExactSystemMemoryProfile) {

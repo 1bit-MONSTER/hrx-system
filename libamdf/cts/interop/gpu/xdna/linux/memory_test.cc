@@ -709,7 +709,7 @@ void GpuXdnaMemoryInteropTest::ImportGpuSubrangeAndReleaseAllocation() {
       .structure_size = sizeof(host_site),
       .kind = AMDF_MEMORY_SITE_KIND_HOST,
   };
-  host_site.value.host_mapping = xdna_mapping_;
+  host_site.value.host.mapping = xdna_mapping_;
   amdf_memory_pair_info_t actual = qualified;
   ASSERT_EQ(api_->memory_query_pair_info(&host_site, &xdna_site, &actual),
             AMDF_STATUS_OK);
@@ -852,7 +852,7 @@ TEST_F(GpuXdnaMemoryInteropTest,
       .structure_size = sizeof(host_site),
       .kind = AMDF_MEMORY_SITE_KIND_HOST,
   };
-  host_site.value.host_mapping = gpu_mapping_;
+  host_site.value.host.mapping = gpu_mapping_;
   amdf_memory_site_t device_site = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_SITE,
       .structure_size = sizeof(device_site),
@@ -1006,7 +1006,7 @@ TEST_F(GpuXdnaMemoryInteropTest,
         site.structure_size = sizeof(site);
         site.kind = sites[i].kind;
         if (i == 2) {
-          site.value.host_mapping = gpu_mapping_;
+          site.value.host.mapping = gpu_mapping_;
         } else {
           site.value.device.memory = gpu_memory_;
           site.value.device.access_ordinal = i;

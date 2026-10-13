@@ -300,16 +300,22 @@ iree_cc_library(
   NAME
     memory_reservation
   HDRS
+    "host_reservation.h"
     "memory_reservation.h"
   SRCS
+    "host_reservation.c"
     "memory_reservation.c"
   DEPS
     ::allocator
     ::device
+    ::host_memory
+    ::instance
     ::kernel_queue
     ::memory_resource
     ::structure
     amdf::headers
+    libamdf::src::platform::host_reservation
+    libamdf::src::platform::native_host_reservation
   PUBLIC
 )
 endif()

@@ -284,16 +284,32 @@ class WddmSparseMappingBackend final : public SparseMappingBackend {
             "SDMA execution completed all transfers");
   }
 
-  void Release() override {
-    // Clear the complete reservations, including holes, without enumerating
-    // their installed mappings. Completion precedes backing release while the
-    // same queue is alive; queue teardown cannot supply this guarantee.
-    for (auto* reservation : reservations_) {
-      RequireStatus(amdf_gpu_umd_memory_reservation_destroy(reservation),
-                    "complete provider final detach and VA release");
+  void DetachReservations() {
+    for (size_t i = 0; i < reservations_.size(); ++i) {
+      RequireStatus(amdf_gpu_umd_memory_reservation_detach(reservations_[i], 0),
+                    "complete full-group detach without releasing VA");
+      uint64_t address = 0;
+      uint32_t owner = 0;
+      uint64_t granularity = 0;
+      amdf_memory_access_t required_access = 0;
+      amdf_gpu_umd_memory_reservation_query_access(
+          reservations_[i], 0, &address, &owner, &granularity,
+          &required_access);
+      Require(address == reservation_addresses[i],
+              "detach preserves the owned address interval");
     }
+  }
+
+  void Release() override {
+    // Backing release precedes both address and queue destruction. Neither
+    // destruction can supply the checked translation-removal guarantee.
+    DetachReservations();
     for (const auto& allocation : backing_) {
       ReleaseAllocation(allocation);
+    }
+    for (auto* reservation : reservations_) {
+      RequireStatus(amdf_gpu_umd_memory_reservation_destroy(reservation),
+                    "release detached address reservation");
     }
     if (software_scheduled_) {
       RequireStatus(
@@ -443,6 +459,54 @@ TEST_P(WddmSparseMappingTest, ReplacesRetainedBackingBeforeImmediateAccess) {
                     "storage; mapping replacement has not been exercised";
   }
   ExerciseSparseMappingReplacement(backend);
+}
+
+TEST_P(WddmSparseMappingTest, DetachPreservesAddressesForBackingReuse) {
+  WddmSparseMappingBackend backend(GetParam());
+  if (!backend.SelectEndpoint()) {
+    GTEST_SKIP() << "No native SDMA engine with coherent host storage";
+  }
+  constexpr uint64_t kOffset = (UINT64_C(1) << 32) + kSparseSlabByteLength;
+  constexpr uint64_t kPayloadByteLength = 4096;
+  constexpr size_t kWordCount = kPayloadByteLength / sizeof(uint32_t);
+  const std::array<SparseRange, 2> ranges = {{
+      {0, kOffset + 512, kPayloadByteLength / 2},
+      {1, 512, kPayloadByteLength / 2},
+  }};
+  std::array<SparseMapping, 2> mappings = {{
+      {0, kOffset, 0},
+      {1, 0, 1},
+  }};
+  backend.Initialize(2, kOffset + kSparseSlabByteLength, kPayloadByteLength);
+  for (uint32_t generation = 1; generation <= 2; ++generation) {
+    // Prepare every command before mapping; the first subsequent GPU access
+    // must see the new backing without an intervening allocation or dispatch.
+    const auto upload = SparseTransferCommands(
+        backend, ranges, mappings, SparseTransfer::kUpload, 3 * generation);
+    const auto readback =
+        SparseTransferCommands(backend, ranges, mappings,
+                               SparseTransfer::kReadback, 3 * generation + 1);
+    const auto physical = SparseTransferCommands(
+        backend, ranges, mappings, SparseTransfer::kPhysicalReadback,
+        3 * generation + 2);
+    for (size_t i = 0; i < kWordCount; ++i) {
+      backend.upload[i] = SparsePattern(generation, static_cast<uint32_t>(i));
+    }
+    backend.Attach(mappings);
+    ExecuteSparseTransfer(backend, upload);
+    ExecuteSparseTransfer(backend, readback);
+    bool correct = CheckSparseWords("detached address reuse", backend.readback,
+                                    kWordCount, generation);
+    ExecuteSparseTransfer(backend, physical);
+    correct &= CheckSparseWords("independent reused backing", backend.readback,
+                                kWordCount, generation);
+    backend.DetachReservations();
+    if (!correct) {
+      break;
+    }
+    std::swap(mappings[0].backing, mappings[1].backing);
+  }
+  backend.Release();
 }
 
 INSTANTIATE_TEST_SUITE_P(NativeLifetime, WddmSparseMappingTest,

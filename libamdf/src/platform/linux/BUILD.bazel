@@ -45,6 +45,17 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "host_reservation",
+    srcs = ["host_reservation.c"],
+    target_compatible_with = ["@platforms//os:linux"],
+    visibility = ["//libamdf/src/platform:__pkg__"],
+    deps = [
+        ":file",
+        "//libamdf/src/platform:host_reservation",
+    ],
+)
+
+amdf_cc_library(
     name = "dma_buf",
     srcs = ["dma_buf.c"],
     hdrs = ["dma_buf.h"],

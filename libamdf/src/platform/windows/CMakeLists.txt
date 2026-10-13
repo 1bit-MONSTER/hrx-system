@@ -84,6 +84,21 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD)
 iree_cc_library(
   NAME
+    host_reservation
+  SRCS
+    "host_reservation.c"
+  DEPS
+    amdf::headers
+    libamdf::src::platform::host_reservation
+  LINKOPTS
+    "onecore.lib"
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD)
+iree_cc_library(
+  NAME
     device_status
   HDRS
     "device_status.h"

@@ -39,6 +39,8 @@ struct amdf_gpu_umd_memory_t {
   amdf_memory_flags_t flags;
   // Number of unique prepared render-VM source handles in the trailing array.
   uint32_t source_count;
+  // Owned DMA-BUF for explicit host aliases, or -1 without that requirement.
+  int host_mapping_source;
   // Eager source handles for the requested native consumer group.
   struct {
     // Borrowed exact render connection, shared by aliases of the same VM.
@@ -99,6 +101,11 @@ static void amdf_gpu_kfd_memory_plan(
 }
 
 amdf_status_t amdf_gpu_umd_memory_destroy(amdf_gpu_umd_memory_t* memory) {
+  const amdf_status_t source_status =
+      amdf_linux_file_close(&memory->host_mapping_source);
+  if (!amdf_status_is_ok(source_status)) {
+    return source_status;
+  }
   while (memory->source_count != 0) {
     const uint32_t i = memory->source_count - 1;
     struct drm_gem_close release = {.handle = memory->sources[i].handle};
@@ -128,6 +135,11 @@ uint32_t amdf_gpu_kfd_memory_mapping_handle(amdf_gpu_umd_memory_t* memory,
   }
   amdf_assert(false && "MAPPING_SOURCE construction prepares every consumer");
   return 0;
+}
+
+uintptr_t amdf_gpu_umd_memory_host_mapping_source(
+    amdf_gpu_umd_memory_t* memory) {
+  return (uintptr_t)memory->host_mapping_source;
 }
 
 void amdf_gpu_umd_memory_abandon(amdf_gpu_umd_memory_t* memory) {
@@ -165,7 +177,7 @@ static amdf_status_t amdf_gpu_kfd_memory_open_dma_buf(
   return AMDF_STATUS_OK;
 }
 
-static amdf_status_t amdf_gpu_kfd_memory_query_dma_buf(
+static amdf_status_t amdf_gpu_kfd_memory_prepare_export(
     amdf_gpu_umd_memory_t* memory, amdf_linux_dma_buf_info_t* out_info) {
   int descriptor = -1;
   amdf_linux_dma_buf_info_t info;
@@ -174,9 +186,14 @@ static amdf_status_t amdf_gpu_kfd_memory_query_dma_buf(
   if (amdf_status_is_ok(status) && info.byte_length != memory->byte_length) {
     status = amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL);
   }
-  const amdf_status_t close_status = amdf_linux_file_close(&descriptor);
-  if (!amdf_status_is_ok(close_status)) {
-    status = close_status;
+  if (amdf_status_is_ok(status) &&
+      (memory->flags & AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE) != 0) {
+    memory->host_mapping_source = descriptor;
+  } else {
+    const amdf_status_t close_status = amdf_linux_file_close(&descriptor);
+    if (!amdf_status_is_ok(close_status)) {
+      status = close_status;
+    }
   }
   if (amdf_status_is_ok(status)) {
     *out_info = info;
@@ -320,6 +337,7 @@ amdf_status_t amdf_gpu_umd_memory_prepare(
     return status;
   }
   memory->device = device;
+  memory->host_mapping_source = -1;
   *memory_state = memory;
   memory->byte_length = plan.byte_length;
   const bool registered =
@@ -348,7 +366,7 @@ amdf_status_t amdf_gpu_umd_memory_prepare(
   if (amdf_status_is_ok(status) &&
       (profile->roles & AMDF_MEMORY_PROFILE_ROLE_EXPORT) != 0) {
     amdf_linux_dma_buf_info_t info;
-    status = amdf_gpu_kfd_memory_query_dma_buf(memory, &info);
+    status = amdf_gpu_kfd_memory_prepare_export(memory, &info);
     if (amdf_status_is_ok(status)) {
       memory->physical_backing_id = info.physical_backing_id;
     }

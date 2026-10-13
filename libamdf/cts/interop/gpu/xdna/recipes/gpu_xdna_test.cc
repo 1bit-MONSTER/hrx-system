@@ -606,6 +606,84 @@ class GpuXdnaRecipeTest : public GpuXdnaDeviceFixture {
     }
   }
 
+  void RunFirstDeviceWriter() {
+    amdf_memory_profile_t profile = {};
+    ASSERT_NO_FATAL_FAILURE(
+        FindProfile(accesses_, AMDF_MEMORY_PROFILE_ROLE_CREATE, &profile));
+    if (profile.ordinal == AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN) {
+      GTEST_SKIP() << "no joint GPU/NPU allocation profile";
+    }
+    const uint64_t granularity = profile.allocation.byte_length_granularity;
+    const amdf_memory_create_info_t create = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
+        .structure_size = sizeof(create),
+        .memory_profile_ordinal = profile.ordinal,
+        .access_count = static_cast<uint32_t>(accesses_.size()),
+        .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE,
+        .byte_length = (kBindingStorageByteLength + granularity - 1) /
+                       granularity * granularity,
+        .minimum_alignment = profile.allocation.minimum_alignment,
+        .accesses = accesses_.data(),
+    };
+    std::array<amdf_memory_pair_info_t, kGpuXdnaJointEdges.size()> pairs = {};
+    ASSERT_NO_FATAL_FAILURE(
+        QueryProfilePairs(create, 1, kGpuXdnaJointEdges, pairs));
+    std::array<uint64_t, 3> addresses = {};
+    for (size_t i = 0; i < bindings_.size(); ++i) {
+      ASSERT_NO_FATAL_FAILURE(bindings_[i].Create(api_, system_scope_, create));
+      ASSERT_NO_FATAL_FAILURE(
+          CheckConcretePairs(bindings_[i], 1, kGpuXdnaJointEdges, pairs));
+      ASSERT_EQ(api_->memory_query_address(bindings_[i].memory, 0,
+                                           AMDF_MEMORY_ADDRESS_XDNA_DMA,
+                                           &addresses[i]),
+                AMDF_STATUS_OK);
+      addresses[i] += kBindingByteOffset;
+    }
+    std::array<uint32_t, 16> expected = {};
+    for (size_t i = 0; i < expected.size(); ++i) {
+      const uint32_t lhs = 11 + 7 * i;
+      const uint32_t rhs = 23 + 13 * i;
+      StoreU32(bindings_[0].bytes(), kBindingByteOffset + 4 * i, lhs);
+      StoreU32(bindings_[1].bytes(), kBindingByteOffset + 4 * i, rhs);
+      expected[i] = lhs * rhs;
+    }
+    // Initial readiness belongs to construction. Only the two CPU-written
+    // inputs need publication; the output has had no caller payload access.
+    for (size_t i = 0; i < 2; ++i) {
+      ASSERT_EQ(HostTransition(bindings_[i], pairs[kGpuXdnaHostToXdna].release),
+                AMDF_STATUS_OK);
+    }
+    std::vector<uint8_t> storage(executable_.allocation_byte_length());
+    executable_.Load(storage);
+    ASSERT_TRUE(executable_.Bind(storage, addresses));
+    ASSERT_NO_FATAL_FAILURE(
+        execution_.Prepare(api_, xdna_api_, xdna_device_, xdna_family_, 1,
+                           executable_.ResolveInvocation(storage),
+                           executable_.allocation_alignment()));
+    ASSERT_EQ(
+        api_->host_mapping_cache_control(
+            execution_.instructions.mapping, AMDF_HOST_CACHE_OPERATION_FLUSH, 0,
+            execution_.instructions.info.byte_length),
+        AMDF_STATUS_OK);
+    const amdf_xdna_kernel_queue_submission_info_t submit = {
+        .type = AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_SUBMISSION_INFO,
+        .structure_size = sizeof(submit),
+        .command_count = 1,
+        .commands = &execution_.command,
+    };
+    uint64_t point = 0;
+    ASSERT_EQ(xdna_api_->kernel_queue_submit(execution_.queue, &submit, &point),
+              AMDF_STATUS_OK);
+    ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
+                                      AMDF_TIMEOUT_INFINITE, 0),
+              AMDF_STATUS_OK);
+    ASSERT_EQ(HostTransition(bindings_[2], pairs[kGpuXdnaXdnaToHost].acquire),
+              AMDF_STATUS_OK);
+    CheckBytes(
+        bindings_[2].bytes().subspan(kBindingByteOffset, kBindingByteLength),
+        {reinterpret_cast<const uint8_t*>(expected.data()), sizeof(expected)});
+  }
+
   // Fixed case workload, selected before endpoint and queue admission.
   const GpuOperation gpu_operation_;
   // Immutable arithmetic program borrowing build-generated Loom output.
@@ -639,6 +717,10 @@ class GpuXdnaRecipeTest : public GpuXdnaDeviceFixture {
 
 TEST_F(GpuXdnaRecipeTest, AllocatedRoundTrip) {
   RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_CREATE);
+}
+
+TEST_F(GpuXdnaRecipeTest, AllocatedFirstDeviceWriter) {
+  RunFirstDeviceWriter();
 }
 
 TEST_F(GpuXdnaRecipeTest, RegisteredRoundTrip) {
