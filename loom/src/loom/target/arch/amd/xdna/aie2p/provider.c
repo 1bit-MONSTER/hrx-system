@@ -52,12 +52,34 @@ static iree_status_t loom_aie2p_provider_build_string_attr(
   return iree_ok_status();
 }
 
+static iree_status_t loom_aie2p_provider_build_kernel_realization_run(
+    loom_builder_t* builder, void* user_data) {
+  (void)user_data;
+  loom_op_t* run_op = NULL;
+  return loom_pass_ir_build_run(builder, 0, IREE_SV("aie2p-realize-kernel"),
+                                loom_named_attr_slice_empty(), &run_op);
+}
+
 static iree_status_t loom_aie2p_provider_build_pipeline_lower_run(
     loom_builder_t* builder, void* user_data) {
   (void)user_data;
   loom_op_t* run_op = NULL;
   return loom_pass_ir_build_run(builder, 0, IREE_SV("aie2p-lower-pipeline"),
                                 loom_named_attr_slice_empty(), &run_op);
+}
+
+static iree_status_t loom_aie2p_provider_build_kernel_target_where(
+    loom_builder_t* builder, void* user_data) {
+  (void)user_data;
+  loom_named_attr_t contract_attr = {0};
+  IREE_RETURN_IF_ERROR(loom_aie2p_provider_build_string_attr(
+      builder, IREE_SV("contract"), IREE_SV("amd.xdna.aie2p.array"),
+      &contract_attr));
+  loom_op_t* where_op = NULL;
+  return loom_pass_ir_build_where(
+      builder, LOOM_PASS_WHERE_BUILD_FLAG_HAS_ATTRS, IREE_SV("target"),
+      loom_make_named_attr_slice(&contract_attr, 1),
+      loom_aie2p_provider_build_kernel_realization_run, NULL, &where_op);
 }
 
 static iree_status_t loom_aie2p_provider_build_pipeline_target_where(
@@ -74,6 +96,14 @@ static iree_status_t loom_aie2p_provider_build_pipeline_target_where(
       loom_aie2p_provider_build_pipeline_lower_run, NULL, &where_op);
 }
 
+static iree_status_t loom_aie2p_provider_build_pipeline_outline_run(
+    loom_builder_t* builder, void* user_data) {
+  (void)user_data;
+  loom_op_t* run_op = NULL;
+  return loom_pass_ir_build_run(builder, 0, IREE_SV("outline-pipeline-strands"),
+                                loom_named_attr_slice_empty(), &run_op);
+}
+
 static iree_status_t loom_aie2p_provider_contribute_pipeline(
     const loom_target_pipeline_contribution_t* contribution) {
   if (contribution->phase !=
@@ -81,6 +111,13 @@ static iree_status_t loom_aie2p_provider_contribute_pipeline(
     return iree_ok_status();
   }
   loom_op_t* for_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_pass_ir_build_for(
+      contribution->builder, LOOM_PASS_ANCHOR_FUNC,
+      loom_aie2p_provider_build_kernel_target_where, NULL, &for_op));
+  loom_op_t* if_changed_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_pass_ir_build_if_changed(
+      contribution->builder, loom_aie2p_provider_build_pipeline_outline_run,
+      NULL, &if_changed_op));
   return loom_pass_ir_build_for(contribution->builder, LOOM_PASS_ANCHOR_FUNC,
                                 loom_aie2p_provider_build_pipeline_target_where,
                                 NULL, &for_op);

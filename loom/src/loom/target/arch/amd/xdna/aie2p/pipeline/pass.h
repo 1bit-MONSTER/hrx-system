@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// AIE2P resident-pipeline lowering pass.
+// AIE2P kernel realization and resident-pipeline lowering passes.
 
 #ifndef LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_PIPELINE_PASS_H_
 #define LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_PIPELINE_PASS_H_
@@ -18,13 +18,19 @@
 extern "C" {
 #endif
 
+const loom_pass_info_t* loom_aie2p_kernel_realization_pass_info(void);
+
+iree_status_t loom_aie2p_kernel_realization_run(loom_pass_t* pass,
+                                                loom_module_t* module,
+                                                loom_func_like_t function);
+
 const loom_pass_info_t* loom_aie2p_pipeline_lower_pass_info(void);
 
 iree_status_t loom_aie2p_pipeline_lower_run(loom_pass_t* pass,
                                             loom_module_t* module,
                                             loom_func_like_t function);
 
-// Target pass registry containing the resident-pipeline lowering pass.
+// Target pass registry containing AIE2P execution-realization passes.
 extern const loom_pass_registry_t loom_aie2p_pipeline_pass_registry;
 
 #ifdef __cplusplus

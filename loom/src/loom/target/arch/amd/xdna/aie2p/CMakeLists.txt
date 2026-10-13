@@ -569,17 +569,32 @@ loom_cc_library(
   NAME
     pipeline_pass
   HDRS
+    "pipeline/kernel_realization.h"
     "pipeline/pass.h"
   SRCS
+    "pipeline/kernel_realization.c"
     "pipeline/pass.c"
   DEPS
     ::pipeline_native
+    ::target_facts
     iree::base
+    loom::analysis::symbolic_expr
+    loom::analysis::view_regions
     loom::ir
+    loom::ops::buffer
+    loom::ops::channel
+    loom::ops::index
+    loom::ops::kernel
+    loom::ops::op_defs
     loom::ops::pipeline
+    loom::ops::type_registry
     loom::pass::registry
     loom::pass::types
     loom::pass::value_facts
+    loom::rewrite::rewriter
+    loom::target::arch::amd::xdna::array_facts
+    loom::target::arch::amd::xdna::device_profile
+    loom::target::arch::amd::xdna::error_defs
     loom::target::function_version
   PUBLIC
 )
@@ -851,6 +866,7 @@ loom_check_test_suite(
     "test/descriptors/scalar_nonlinear.loom-test"
     "test/descriptors/scalar_stream.loom-test"
     "test/expansion_report.loom-test"
+    "test/kernel_realization.loom-test"
     "test/leaf_alignment.loom-test"
     "test/leaf_allocation.loom-test"
     "test/leaf_expansion_timing.loom-test"

@@ -583,10 +583,6 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
         IREE_STATUS_UNIMPLEMENTED,
         "HAL pipeline specialization arguments are not implemented");
   }
-  provider->sequence_representation =
-      is_pipeline
-          ? LOOM_RUN_HAL_DISPATCH_SEQUENCE_REPRESENTATION_DIRECT
-          : LOOM_RUN_HAL_DISPATCH_SEQUENCE_REPRESENTATION_COMMAND_BUFFER;
   IREE_RETURN_IF_ERROR(
       loom_run_hal_testbench_context_add_module_runtime_requirements(
           provider->context, provider->module, provider->sanitizer));
@@ -595,17 +591,6 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
   IREE_RETURN_IF_ERROR(loom_run_hal_testbench_module_symbol_name_from_ref(
       provider->native_module, provider->invocation->callee_ref,
       &entry_symbol));
-  if (is_pipeline) {
-    // Pipeline symbols lower directly to the exported array-program name and
-    // are not module functions before compilation. Kernel definitions may
-    // instead declare an explicit export symbol that the HAL executable uses.
-    provider->invocation_options.function_name = entry_symbol;
-  } else {
-    IREE_RETURN_IF_ERROR(loom_run_hal_testbench_resolve_export_name(
-        provider->module, entry_symbol,
-        &provider->invocation_options.function_name));
-  }
-
   loomc_iree_hal_target_selection_t selection = {0};
   loomc_result_t* result = NULL;
   iree_status_t status = loom_run_hal_testbench_context_select_target(
@@ -638,6 +623,24 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
           "selected HAL target profile has no native target snapshot");
     } else {
       provider->target_snapshot = target_bundle->snapshot;
+      const bool uses_direct_dispatch =
+          is_pipeline || (target_bundle->export_plan != NULL &&
+                          target_bundle->export_plan->abi_kind ==
+                              LOOM_TARGET_ABI_ARRAY_PROGRAM);
+      provider->sequence_representation =
+          uses_direct_dispatch
+              ? LOOM_RUN_HAL_DISPATCH_SEQUENCE_REPRESENTATION_DIRECT
+              : LOOM_RUN_HAL_DISPATCH_SEQUENCE_REPRESENTATION_COMMAND_BUFFER;
+      if (uses_direct_dispatch) {
+        // Directly dispatched artifacts retain the source entry name across
+        // lowering. Function-like HAL kernels may instead override the symbol
+        // exported by their executable container.
+        provider->invocation_options.function_name = entry_symbol;
+      } else {
+        status = loom_run_hal_testbench_resolve_export_name(
+            provider->module, entry_symbol,
+            &provider->invocation_options.function_name);
+      }
     }
   }
   loomc_result_release(result);
