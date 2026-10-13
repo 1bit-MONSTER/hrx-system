@@ -997,7 +997,9 @@ def _matrix_result_representation_table_lines(
             "const loom_amdgpu_matrix_result_coordinates_t",
             "    kLoomAmdgpuMatrixResultCoordinates[",
             "        LOOM_AMDGPU_MATRIX_RESULT_COORDINATE_COUNT] = {",
-            "    [LOOM_AMDGPU_MATRIX_RESULT_COORDINATE_NONE] = {0},",
+            "    [LOOM_AMDGPU_MATRIX_RESULT_COORDINATE_NONE] = {",
+            "        .representation_ids = {0},",
+            "    },",
         ]
     )
     for coordinate_id, coordinates in enumerate(catalog.result_coordinates, 1):
