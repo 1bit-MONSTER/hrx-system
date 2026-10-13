@@ -291,6 +291,7 @@ _NO_EXTENDED_TYPES_XFAILS = {
     "memory/packed/lookup_widths.loom:@lookup_computed_64": "TARGET/003",
     "memory/packed/lookup_widths.loom:@lookup_nibbles_16": "TARGET/003",
     "memory/packed/lookup_widths.loom:@lookup_nibbles_4": "TARGET/003",
+    "memory/packed/lookup_widths.loom:@lookup_nibbles_64": "TARGET/003",
     "memory/packed/lookup_widths.loom:@lookup_nibbles_8": "TARGET/003",
     "memory/packed/lookup_widths.loom:@lookup_short_computed_63": "TARGET/003",
     "memory/packed/lookup_widths.loom:@lookup_short_computed_64": "TARGET/003",

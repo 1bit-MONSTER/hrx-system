@@ -15,11 +15,11 @@ func.def @dynamic_byte_window(%trial0: index, %input: buffer, %output: buffer) {
 
 // ----
 low.func.def target<wasm.core.simd128> abi(wasm_function) @dynamic_byte_window(%trial: reg<wasm.i32>, %input: reg<wasm.i32>, %output: reg<wasm.i32>) asm {
-  %26 = i32.add %input, %trial
-  %27 = v128.load %26
-  %29 = i32.load %26 {offset = 16}
-  v128.store %output, %27
-  i32.store %output, %29 {offset = 16}
+  %28 = i32.add %input, %trial
+  %29 = v128.load %28
+  %31 = i32.load %28 {offset = 16}
+  v128.store %output, %29
+  i32.store %output, %31 {offset = 16}
   return
 }
 
@@ -285,8 +285,9 @@ low.func.def target<wasm.core.simd128> abi(wasm_function) @materialized_predicat
 
 wasm.target<simd128> @target
 
-// The target plan must remain visible as one packet-tuple operation. Scalarization
-// would replace this row with a lane-proportional reference rewrite.
+// The dynamic window remains one packet-tuple plan while its unsigned
+// extension reaches the store as two native packets. Scalarization would
+// replace these rows with a lane-proportional reference rewrite.
 func.def target(@target) @materialized_predicate_window_report(%a: vector<16xi1>, %b: vector<16xi1>, %c: vector<16xi1>, %d: vector<16xi1>, %offset0: index, %output: buffer) {
   %offset = index.assume %offset0 [range(%offset0, 0, 32)] : index
   %source = vector.concat<0> %a, %b, %c, %d : vector<16xi1>, vector<16xi1>, vector<16xi1>, vector<16xi1> -> vector<64xi1>
@@ -301,5 +302,5 @@ func.def target(@target) @materialized_predicate_window_report(%a: vector<16xi1>
 // ----
 CHECK: COMPILE-REPORT: target_legalization * scalarized=0 *
 CHECK: COMPILE-REPORT: source_low[*] function=materialized_predicate_window_report source_op=vector.slice selection=plan plan_key=slice.dynamic-v128-packets emitted_ops=36
-CHECK: COMPILE-REPORT: source_low[*] function=materialized_predicate_window_report source_op=vector.extui selection=plan plan_key=predicate.extend-unsigned.v128-packets emitted_ops=6
+CHECK-COUNT-2: COMPILE-REPORT: source_low[*] function=materialized_predicate_window_report source_op=vector.extui selection=plan plan_key=predicate.extend-unsigned.v128-packets emitted_ops=2
 CHECK-NOT: scalarized=true

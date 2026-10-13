@@ -143,3 +143,69 @@ func.def target(@target) @shared_packet_graph(%source: buffer, %destination: buf
   }
   func.return
 }
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @selected_lookup_consumer_packets() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%input: buffer, %table: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<17xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<16xi8>
+  %target = buffer.view %output[%base] : buffer -> view<34xf32>
+  %packed = vector.load %source[0] : view<17xi8> -> vector<17xi8>
+  %indices = vector.bitunpacku<4> %packed : vector<17xi8> -> vector<34xi8>
+  %entries = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<16xi8>, vector<34xi8> -> vector<34xi8>
+  %converted = vector.sitofp %values : vector<34xi8> to vector<34xf32>
+  vector.store %converted, %target[0] : vector<34xf32>, view<34xf32>
+  kernel.return
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+kernel.def target(@target) @selected_lookup_consumer_packets() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%input: buffer, %table: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<17xi8>
+  %table_view = buffer.view %table[%base] : buffer -> view<16xi8>
+  %target = buffer.view %output[%base] : buffer -> view<34xf32>
+  %packed = vector.load %source[0] : view<17xi8> -> vector<17xi8>
+  %indices = vector.bitunpacku<4> %packed : vector<17xi8> -> vector<34xi8>
+  %entries = vector.load %table_view[0] : view<16xi8> -> vector<16xi8>
+  %values = vector.table.lookup %entries[%indices] : vector<16xi8>, vector<34xi8> -> vector<34xi8>
+  %13 = vector.slice %values[0] : vector<34xi8> -> vector<4xi8>
+  %14 = vector.sitofp %13 : vector<4xi8> to vector<4xf32>
+  vector.store %14, %target[0] : vector<4xf32>, view<34xf32>
+  %15 = vector.slice %values[4] : vector<34xi8> -> vector<4xi8>
+  %16 = vector.sitofp %15 : vector<4xi8> to vector<4xf32>
+  vector.store %16, %target[4] : vector<4xf32>, view<34xf32>
+  %17 = vector.slice %values[8] : vector<34xi8> -> vector<4xi8>
+  %18 = vector.sitofp %17 : vector<4xi8> to vector<4xf32>
+  vector.store %18, %target[8] : vector<4xf32>, view<34xf32>
+  %19 = vector.slice %values[12] : vector<34xi8> -> vector<4xi8>
+  %20 = vector.sitofp %19 : vector<4xi8> to vector<4xf32>
+  vector.store %20, %target[12] : vector<4xf32>, view<34xf32>
+  %21 = vector.slice %values[16] : vector<34xi8> -> vector<4xi8>
+  %22 = vector.sitofp %21 : vector<4xi8> to vector<4xf32>
+  vector.store %22, %target[16] : vector<4xf32>, view<34xf32>
+  %23 = vector.slice %values[20] : vector<34xi8> -> vector<4xi8>
+  %24 = vector.sitofp %23 : vector<4xi8> to vector<4xf32>
+  vector.store %24, %target[20] : vector<4xf32>, view<34xf32>
+  %25 = vector.slice %values[24] : vector<34xi8> -> vector<4xi8>
+  %26 = vector.sitofp %25 : vector<4xi8> to vector<4xf32>
+  vector.store %26, %target[24] : vector<4xf32>, view<34xf32>
+  %27 = vector.slice %values[28] : vector<34xi8> -> vector<4xi8>
+  %28 = vector.sitofp %27 : vector<4xi8> to vector<4xf32>
+  vector.store %28, %target[28] : vector<4xf32>, view<34xf32>
+  %29 = vector.slice %values[32] : vector<34xi8> -> vector<2xi8>
+  %30 = vector.sitofp %29 : vector<2xi8> to vector<2xf32>
+  vector.store %30, %target[32] : vector<2xf32>, view<34xf32>
+  kernel.return
+}
