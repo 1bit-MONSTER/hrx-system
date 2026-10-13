@@ -26,6 +26,7 @@ from loom.ir import (
     Block,
     BufferType,
     DialectType,
+    DynamicEncoding,
     Module,
     Operation,
     Predicate,
@@ -1298,6 +1299,25 @@ class CxxRenderer:
 
     def _render_memory(self, operation: Operation) -> tuple[str, ...] | None:
         name = operation.name
+        if name == "encoding.layout.dense":
+            # Loom's dense layout value is rankless. Its C++ carrier acquires
+            # rank from each shaped use, so buffer.view projects it in context.
+            return ()
+        if name == "encoding.layout.strided":
+            resolved = self._resolved(operation)
+            strides = ", ".join(
+                self._mixed_indices(
+                    resolved,
+                    dynamic_field="strides",
+                    static_field="static_strides",
+                )
+            )
+            self._declare(
+                resolved.value_id("result"),
+                f"loom::encoding::layout::strided({strides})",
+                force_type="auto",
+            )
+            return ("static_strides",)
         if name == "buffer.alloca":
             resolved = self._resolved(operation)
             if resolved.value_ids("pool"):
@@ -1335,10 +1355,24 @@ class CxxRenderer:
                     operation,
                     "dynamic view requires explicit runtime-dimension projection",
                 )
-            if result_type.encoding is not None:
+            if isinstance(result_type.encoding, DynamicEncoding):
+                encoding_id = result_type.encoding.value_id
+                definition = self.definitions.get(encoding_id)
+                if definition is None:
+                    raise CxxRenderError(
+                        operation,
+                        "view encoding value is not defined in the projected scope",
+                    )
+                if definition.name == "encoding.layout.dense":
+                    encoding = f"loom::encoding::layout::dense<{result_type.rank}>()"
+                else:
+                    encoding = self.expression(encoding_id)
+            elif result_type.encoding is None:
+                encoding = f"loom::encoding::layout::dense<{result_type.rank}>()"
+            else:
                 raise CxxRenderError(
                     operation,
-                    "encoded view requires an explicit C++ encoding expression",
+                    "static view encoding has no explicit C++ value projection",
                 )
             if result_type.alignment is not None:
                 raise CxxRenderError(
@@ -1358,10 +1392,7 @@ class CxxRenderer:
                 for dimension in result_type.dims
                 if isinstance(dimension, StaticDim)
             )
-            expression = (
-                f"loom::buffer::view<{extents}>({pointer}, {{}}, "
-                f"loom::encoding::layout::dense<{result_type.rank}>())"
-            )
+            expression = f"loom::buffer::view<{extents}>({pointer}, {{}}, {encoding})"
             self._declare(result, expression)
             return ()
         if name == "view.subview":

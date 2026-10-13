@@ -50,6 +50,49 @@ def test_preserves_scalar_kernel_arguments() -> None:
     assert "unsigned element_count," in result
 
 
+def test_projects_explicit_dense_layout_at_shaped_use() -> None:
+    source = SOURCE_MODULE.replace(
+        "  %input_view = buffer.view %input[%zero] : buffer -> view<4xf32>\n",
+        "  %input_layout = encoding.layout.dense : encoding<layout>\n"
+        "  %input_view = buffer.view %input[%zero] : buffer -> "
+        "view<4xf32, %input_layout>\n",
+    ).replace(
+        "  %slice = view.subview %input_view[%43] : view<4xf32> -> view<1xf32>\n"
+        "  %value = view.load %slice[0] : view<1xf32> -> f32\n",
+        "  %slice = view.subview %input_view[%43] : "
+        "view<4xf32, %input_layout> -> view<1xf32, %input_layout>\n"
+        "  %value = view.load %slice[0] : view<1xf32, %input_layout> -> f32\n",
+    )
+
+    result = render_module(load_module(source.encode()))
+
+    assert (
+        "loom::buffer::view<4>(input, {}, loom::encoding::layout::dense<1>())" in result
+    )
+
+
+def test_projects_explicit_strided_layout_values() -> None:
+    source = SOURCE_MODULE.replace(
+        "  %input_view = buffer.view %input[%zero] : buffer -> view<4xf32>\n",
+        "  %row_stride = index.constant 8 : index\n"
+        "  %input_layout = encoding.layout.strided [%row_stride] : "
+        "encoding<layout>\n"
+        "  %input_view = buffer.view %input[%zero] : buffer -> "
+        "view<4xf32, %input_layout>\n",
+    ).replace(
+        "  %slice = view.subview %input_view[%43] : view<4xf32> -> view<1xf32>\n"
+        "  %value = view.load %slice[0] : view<1xf32> -> f32\n",
+        "  %slice = view.subview %input_view[%43] : "
+        "view<4xf32, %input_layout> -> view<1xf32, %input_layout>\n"
+        "  %value = view.load %slice[0] : view<1xf32, %input_layout> -> f32\n",
+    )
+
+    result = render_module(load_module(source.encode()))
+
+    assert "auto input_layout = loom::encoding::layout::strided(8ull);" in result
+    assert "loom::buffer::view<4>(input, {}, input_layout)" in result
+
+
 def test_projects_exposed_kernel_topology_family() -> None:
     source = SOURCE_MODULE.replace(
         "  %zero = index.constant 0 : offset\n",
