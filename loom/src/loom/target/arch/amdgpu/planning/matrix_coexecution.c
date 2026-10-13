@@ -168,6 +168,8 @@ struct loom_amdgpu_matrix_coexecution_t {
   iree_host_size_t active_vgpr_count;
   // Multi-block scratch lookup from physical VGPR to one outgoing frontier.
   loom_amdgpu_matrix_coexecution_frontier_node_t** frontier_lookup;
+  // Stable block-owned frontier head currently indexed by |frontier_lookup|.
+  loom_amdgpu_matrix_coexecution_frontier_node_t** indexed_frontier;
   // Number of physical VGPR units in the release lattice.
   uint32_t vgpr_count;
   // Active scratch-state epoch.
@@ -488,11 +490,22 @@ static iree_status_t loom_amdgpu_matrix_coexecution_merge_outgoing(
     loom_amdgpu_matrix_coexecution_frontier_node_t** inout_frontier,
     bool preserve_provenance, bool* out_changed) {
   *out_changed = false;
-  for (loom_amdgpu_matrix_coexecution_frontier_node_t* node = *inout_frontier;
-       node != NULL; node = node->next) {
-    IREE_ASSERT_LT(node->vgpr_index, coexecution->vgpr_count);
-    IREE_ASSERT(coexecution->frontier_lookup[node->vgpr_index] == NULL);
-    coexecution->frontier_lookup[node->vgpr_index] = node;
+  if (coexecution->active_vgpr_count == 0) {
+    return iree_ok_status();
+  }
+  if (coexecution->indexed_frontier != inout_frontier) {
+    if (coexecution->indexed_frontier != NULL) {
+      for (loom_amdgpu_matrix_coexecution_frontier_node_t* node =
+               *coexecution->indexed_frontier;
+           node != NULL; node = node->next) {
+        coexecution->frontier_lookup[node->vgpr_index] = NULL;
+      }
+    }
+    for (loom_amdgpu_matrix_coexecution_frontier_node_t* node = *inout_frontier;
+         node != NULL; node = node->next) {
+      coexecution->frontier_lookup[node->vgpr_index] = node;
+    }
+    coexecution->indexed_frontier = inout_frontier;
   }
   for (iree_host_size_t i = 0; i < coexecution->active_vgpr_count; ++i) {
     const uint32_t vgpr_index = coexecution->active_vgpr_indices[i];
@@ -544,10 +557,6 @@ static iree_status_t loom_amdgpu_matrix_coexecution_merge_outgoing(
         node->producer_nodes[channel] = LOOM_LOW_SCHEDULE_NODE_NONE;
       }
     }
-  }
-  for (loom_amdgpu_matrix_coexecution_frontier_node_t* node = *inout_frontier;
-       node != NULL; node = node->next) {
-    coexecution->frontier_lookup[node->vgpr_index] = NULL;
   }
   return iree_ok_status();
 }

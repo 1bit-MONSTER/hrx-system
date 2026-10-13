@@ -97,6 +97,8 @@ struct FixtureSpec {
   FixtureInputStage input_stage;
   // Generated target-low topology; empty for authored source fixtures.
   GeneratedMatrixShape generated_matrix;
+  // Alternative matrix branches feeding one join; zero for linear fixtures.
+  uint32_t matrix_branch_count = 0;
 };
 
 constexpr FixtureSpec kMemoryControl = {
@@ -290,15 +292,13 @@ low.kernel.def target<amdgpu.rdna4.gfx125x.core>(@target) abi_layout({constant_c
 )";
 }
 
-static std::string BuildMatrixSource(const FixtureSpec& spec) {
-  std::ostringstream source;
+static void BeginMatrixSource(std::ostringstream& source, const char* name) {
   source << R"(
 amdgpu.target<gfx1250> @target
 
 low.kernel.def target<amdgpu.rdna4.gfx125x.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 3, resource_count = 3, resource_offsets = [0, 8, 16], resource_parameter_indices = [0, 1, 2], uses_kernarg_segment_ptr = true}) export(")"
-         << spec.name
-         << R"(") workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @)"
-         << spec.name << R"(() {
+         << name << R"(") workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @)"
+         << name << R"(() {
   %lane = low.live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %input_view = low.resource<hal_binding> {extent = 4096, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %weight_view = low.resource<hal_binding> {extent = 4096, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
@@ -315,7 +315,11 @@ low.kernel.def target<amdgpu.rdna4.gfx125x.core>(@target) abi_layout({constant_c
   %lane_column = low.op<amdgpu.v_and_b32.src0_inline>(%lane) {imm32 = 15} : (reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr>
   %row_address = low.op<amdgpu.v_lshlrev_b32.src0_inline>(%lane_column) {imm32 = 5} : (reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr>
 )";
+}
 
+static std::string BuildMatrixSource(const FixtureSpec& spec) {
+  std::ostringstream source;
+  BeginMatrixSource(source, spec.name);
   std::string accumulator = "%initial_accumulator";
   for (uint32_t phase = 0; phase < spec.generated_matrix.phase_count; ++phase) {
     if (phase != 0) {
@@ -436,7 +440,67 @@ low.kernel.def target<amdgpu.rdna4.gfx125x.core>(@target) abi_layout({constant_c
   return source.str();
 }
 
+// Distinct source tuples stay live through the dispatch chain. Their matrix
+// release windows converge at one join even though only one branch executes.
+static std::string BuildMatrixJoinSource(const FixtureSpec& spec) {
+  std::ostringstream source;
+  BeginMatrixSource(source, spec.name);
+  for (uint32_t i = 0; i < spec.matrix_branch_count; ++i) {
+    for (uint32_t half = 0; half < 2; ++half) {
+      source << "  %input" << i << "_" << half
+             << " = low.op<amdgpu.global_load_b128_saddr>(%row_address, "
+                "%input_view) {offset = "
+             << i * 32 + half * 16
+             << "} : (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) -> "
+                "reg<amdgpu.vgpr x4>\n";
+    }
+    source << "  %input" << i << " = low.concat(%input" << i << "_0, %input"
+           << i
+           << "_1) : (reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>) -> "
+              "reg<amdgpu.vgpr x8>\n";
+  }
+  source << "  %selector = low.slice %input_view[0] : reg<amdgpu.sgpr x2> "
+            "-> reg<amdgpu.sgpr>\n";
+  for (uint32_t i = 0; i + 1 < spec.matrix_branch_count; ++i) {
+    source << "  %choice" << i
+           << " = low.const<amdgpu.s_mov_b32> {imm32 = " << i
+           << "} : reg<amdgpu.sgpr>\n"
+           << "  %selected" << i
+           << " = low.op<amdgpu.s_cmp_eq_i32>(%selector, %choice" << i
+           << ") : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.scc>\n"
+           << "  low.cond_br %selected" << i << ", ^path" << i << ", ^choose"
+           << i + 1 << " : reg<amdgpu.scc>\n^choose" << i + 1 << ":\n";
+  }
+  source << "  low.br ^path" << spec.matrix_branch_count - 1 << "\n";
+  for (uint32_t i = 0; i < spec.matrix_branch_count; ++i) {
+    source << "^path" << i << ":\n"
+           << "  %result" << i
+           << " = low.op<amdgpu.v_wmma_f32_16x16x32_bf16>(%input" << i
+           << ", %initial_accumulator, %initial_accumulator) "
+              "{matrix_a_reuse = 0, matrix_b_reuse = 0} : "
+              "(reg<amdgpu.vgpr x8>, reg<amdgpu.vgpr x8>, "
+              "reg<amdgpu.vgpr x8>) -> reg<amdgpu.vgpr x8>\n"
+           << "  %result_low" << i << " = low.slice %result" << i
+           << "[0] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr x4>\n"
+           << "  low.op<amdgpu.global_store_b128_saddr>(%row_address, "
+              "%result_low"
+           << i
+           << ", %output_view) {offset = 0} : "
+              "(reg<amdgpu.vgpr>, reg<amdgpu.vgpr x4>, "
+              "reg<amdgpu.sgpr x2>)\n"
+           << "  low.br ^join\n";
+  }
+  source << R"(^join:
+  low.return
+}
+)";
+  return source.str();
+}
+
 static std::string BuildGeneratedLowSource(const FixtureSpec& spec) {
+  if (spec.matrix_branch_count != 0) {
+    return BuildMatrixJoinSource(spec);
+  }
   return spec.generated_matrix.phase_count == 0 ? BuildMemoryControlSource()
                                                 : BuildMatrixSource(spec);
 }
@@ -803,6 +867,21 @@ static void BenchmarkPlan(benchmark::State& state, const FixtureSpec& spec,
   }
   RecordMetrics(state, fixture, reference_metrics);
 }
+
+static void BM_PacketPlan_MatrixJoin(benchmark::State& state) {
+  const FixtureSpec spec = {
+      .name = "matrix_join",
+      .input_stage = FixtureInputStage::kGeneratedLow,
+      .generated_matrix = {},
+      .matrix_branch_count = static_cast<uint32_t>(state.range(0)),
+  };
+  BenchmarkPlan(state, spec, PlanComponent::kComplete);
+}
+BENCHMARK(BM_PacketPlan_MatrixJoin)
+    ->Arg(8)
+    ->Arg(24)
+    ->Iterations(200)
+    ->Unit(benchmark::kNanosecond);
 
 static void BM_WaitPlan_MemoryControl(benchmark::State& state) {
   BenchmarkPlan(state, kMemoryControl, PlanComponent::kWait);
