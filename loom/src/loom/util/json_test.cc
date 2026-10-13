@@ -234,8 +234,9 @@ TEST(JsonEscape, AllControlChars) {
   };
   for (size_t i = 0; i < IREE_ARRAYSIZE(expected); ++i) {
     SCOPED_TRACE(i);
-    const char input = (char)i;
-    EXPECT_EQ(EscapeRaw(iree_make_string_view(&input, 1)), expected[i]);
+    const char input[] = {'a', (char)i, 'z'};
+    ExpectFragmentedString(iree_make_string_view(input, sizeof(input)),
+                           std::string("a") + expected[i] + "z");
   }
 }
 
@@ -634,8 +635,9 @@ TEST(JsonEscape, PropagatesSinkFailuresAtLiteralAndEscapeBoundaries) {
 }
 
 TEST(JsonString, StopsOnSinkFailuresIncludingTerminalBytesAndClosingQuote) {
-  for (const char* input : {"", "literal", "a\xf0\x9f\x98\x80\xe2\x80",
-                            "a\xe2\x80\"z", "a\xe2\x80\xa8\nb"}) {
+  for (const char* input :
+       {"", "literal", "a\x1fz", "a\xf0\x9f\x98\x80\xe2\x80", "a\xe2\x80\"z",
+        "a\xe2\x80\xa8\nb"}) {
     const auto source = iree_make_cstring_view(input);
     const std::string expected = EscapeQuoted(source);
     for (size_t limit = 0; limit < expected.size(); ++limit) {
