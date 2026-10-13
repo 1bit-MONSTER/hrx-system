@@ -1,0 +1,82 @@
+// Raw lane/element payloads have canonical matrix coordinates. Converting the
+// payload or storing it through a transposed layout must preserve that ownership,
+// including across a BF16 workgroup-memory round trip.
+amdgpu.target<gfx11-generic> @fragment_numeric_coordinates_gfx11 {subgroup_size = 32}
+
+kernel.def target(@fragment_numeric_coordinates_gfx11) @fragment_numeric_coordinates() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input_buffer: buffer, %direct_buffer: buffer, %roundtrip_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %origin = index.constant 0 : index
+  %extent = index.constant 16 : index
+  %payload_count = index.constant 8 : index
+  %lane0 = kernel.subgroup.lane.id : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 31)] : index
+  %input_offset = index.mul %lane, %payload_count : index
+  %input_global = buffer.assume.memory_space<global> %input_buffer : buffer
+  %direct_global = buffer.assume.memory_space<global> %direct_buffer : buffer
+  %roundtrip_global = buffer.assume.memory_space<global> %roundtrip_buffer : buffer
+  %transposed_layout = encoding.layout.strided [1, 16] : encoding<layout>
+  %input_view = buffer.view %input_global[%base] : buffer -> view<256xi32>
+  %direct_view = buffer.view %direct_global[%base] : buffer -> view<16x16xbf16, %transposed_layout>
+  %roundtrip_view = buffer.view %roundtrip_global[%base] : buffer -> view<16x16xf32, %transposed_layout>
+  %integers = vector.load %input_view[%input_offset] : view<256xi32> -> vector<8xi32>
+  %payload = vector.sitofp %integers : vector<8xi32> to vector<8xf32>
+  %fragment = vector.fragment<result> %payload shape [%extent, %extent] : vector<8xf32>
+  vector.fragment.store<result> %fragment, %direct_view[%origin, %origin] shape [%extent, %extent] : vector<8xf32>, view<16x16xbf16, %transposed_layout>
+  %bytes = index.constant 512 : offset
+  %shared = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %shared_view = buffer.view %shared[%base] : buffer -> view<16x16xbf16, %transposed_layout>
+  vector.fragment.store<result> %fragment, %shared_view[%origin, %origin] shape [%extent, %extent] : vector<8xf32>, view<16x16xbf16, %transposed_layout>
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %loaded = vector.fragment.load<result> %shared_view[%origin, %origin] shape [%extent, %extent] : view<16x16xbf16, %transposed_layout> -> vector<8xbf16>
+  %restored = vector.extf %loaded : vector<8xbf16> to vector<8xf32>
+  vector.fragment.store<result> %restored, %roundtrip_view[%origin, %origin] shape [%extent, %extent] : vector<8xf32>, view<16x16xf32, %transposed_layout>
+  kernel.return
+}
+
+func.def @fragment_numeric_coordinates_oracle(%input_buffer: buffer, %direct_buffer: buffer, %roundtrip_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %lane_count = index.constant 32 : index
+  %payload_count = index.constant 8 : index
+  %extent = index.constant 16 : index
+  %step = index.constant 1 : index
+  %row_step = index.constant 2 : index
+  %transposed_layout = encoding.layout.strided [1, 16] : encoding<layout>
+  %input_view = buffer.view %input_buffer[%base] : buffer -> view<256xi32>
+  %direct_view = buffer.view %direct_buffer[%base] : buffer -> view<16x16xbf16, %transposed_layout>
+  %roundtrip_view = buffer.view %roundtrip_buffer[%base] : buffer -> view<16x16xf32, %transposed_layout>
+  scf.for %lane = [%begin to %lane_count step %step] {
+    %row_parity = index.div %lane, %extent : index
+    %column = index.rem %lane, %extent : index
+    %input_offset = index.mul %lane, %payload_count : index
+    scf.for %element = [%begin to %payload_count step %step] {
+      %input_index = index.add %input_offset, %element : index
+      %integer = view.load %input_view[%input_index] : view<256xi32> -> i32
+      %value = scalar.sitofp %integer : i32 to f32
+      %narrow = scalar.fptrunc %value : f32 to bf16
+      %restored = scalar.extf %narrow : bf16 to f32
+      %row_offset = index.mul %element, %row_step : index
+      %row = index.add %row_parity, %row_offset : index
+      view.store %narrow, %direct_view[%row, %column] : bf16, view<16x16xbf16, %transposed_layout>
+      view.store %restored, %roundtrip_view[%row, %column] : f32, view<16x16xf32, %transposed_layout>
+    }
+  }
+  func.return
+}
+
+check.scenario public @fragment_numeric_coordinates_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(257) step(1) : tensor<256xi32>
+    %direct = check.generate.fill value(-1.0) : tensor<16x16xbf16>
+    %roundtrip = check.generate.fill value(-1.0) : tensor<16x16xf32>
+    check.compare<@fragment_numeric_coordinates, @fragment_numeric_coordinates_oracle>(%input, %direct, %roundtrip) : (tensor<256xi32>, tensor<16x16xbf16>, tensor<16x16xf32>) -> () {
+      check.expect.bitwise actual(%direct) expected(%direct) : tensor<16x16xbf16>
+      check.expect.bitwise actual(%roundtrip) expected(%roundtrip) : tensor<16x16xf32>
+    }
+  }
+  check.return
+}
