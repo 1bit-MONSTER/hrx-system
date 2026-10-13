@@ -7,6 +7,8 @@
 #ifndef IREE_HAL_DRIVERS_AMD_FABRIC_CTS_VIRTUAL_BUFFER_TEST_BASE_H_
 #define IREE_HAL_DRIVERS_AMD_FABRIC_CTS_VIRTUAL_BUFFER_TEST_BASE_H_
 
+#include <emmintrin.h>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -482,6 +484,8 @@ class FabricVirtualBufferTest
     std::atomic_ref<uint64_t>(
         *reinterpret_cast<uint64_t*>(queue_host_.write_index_address))
         .store(ring_words_ * sizeof(uint32_t), std::memory_order_release);
+    // Publish command and index stores before the write-only MMIO notification.
+    _mm_sfence();
     std::atomic_ref<uint64_t>(
         *reinterpret_cast<uint64_t*>(queue_host_.doorbell_address))
         .store(ring_words_ * sizeof(uint32_t), std::memory_order_release);

@@ -282,11 +282,12 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
       std::memcpy(ring, reinterpret_cast<const uint8_t*>(words.data()) + first,
                   words.size_bytes() - first);
     }
-    _mm_mfence();
     frontier_ += words.size_bytes();
     __atomic_store_n(
         reinterpret_cast<uint64_t*>(queue_view_.write_index_address), frontier_,
         __ATOMIC_RELEASE);
+    // Publish command and index stores before the write-only MMIO notification.
+    _mm_sfence();
     __atomic_store_n(reinterpret_cast<uint64_t*>(queue_view_.doorbell_address),
                      frontier_, __ATOMIC_RELEASE);
     while (__atomic_load_n(completion_, __ATOMIC_ACQUIRE) != completion_value) {

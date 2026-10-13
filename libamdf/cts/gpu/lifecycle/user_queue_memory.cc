@@ -6,6 +6,8 @@
 
 #include "libamdf/cts/gpu/lifecycle/user_queue_memory.h"
 
+#include <emmintrin.h>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -423,6 +425,8 @@ void UserQueueMemoryScenario::RunCopiesBetweenExactAccessAttachments(
   ::testing::Test::RecordProperty("lifecycle_observed_byte_length",
                                   static_cast<int>(2 * kMemoryByteLength));
   StoreRelease(write_index, stream.published_index);
+  // Publish command and index stores before the write-only MMIO notification.
+  _mm_sfence();
   StoreRelease(doorbell, stream.published_index);
 
   while (*reinterpret_cast<volatile uint32_t*>(completion) !=
