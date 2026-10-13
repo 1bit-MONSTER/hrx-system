@@ -4,14 +4,20 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required(VERSION 3.26)
+cmake_minimum_required(VERSION 3.26...4.2)
 project(iree_cmake_python_dependencies_test NONE)
 
+set(IREE_BUILD_TESTS ON)
+set(HRX_INSTALL_TESTS ON)
+set(HRX_INSTALL_TESTS_DIR share/tests)
+set(HRX_INSTALL_TESTS_COMPONENT FixtureTests)
 set(IREE_BINARY_DIR "${CMAKE_BINARY_DIR}")
 set(IREE_PACKAGE_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(IREE_PACKAGE_ROOT_PREFIX fixture)
 include("${IREE_REPO_ROOT}/build_tools/cmake/iree_macros.cmake")
 include("${IREE_REPO_ROOT}/build_tools/cmake/iree_python.cmake")
+include("${IREE_REPO_ROOT}/build_tools/cmake/iree_configure_testing.cmake")
+include("${IREE_REPO_ROOT}/libhrx/build_tools/cmake/hrx_installed_tests.cmake")
 
 option(IREE_TEST_REVERSE_DEPS "Reverse import precedence" OFF)
 option(IREE_TEST_MISSING_DEP "Reference a missing Python library" OFF)
@@ -24,11 +30,15 @@ if(IREE_TEST_MISSING_DEP)
   list(APPEND _ORDERED_DEPS ::missing)
 endif()
 
+# The tests are registered before their transitive parent-owned libraries.
+add_subdirectory(tests)
+
 # Forward declarations and several target spellings must reach the same library.
 iree_py_library(
   NAME generator
   MAIN generator.py
   SRCS generator.py
+  IMPORTS .
   DEPS ${_ORDERED_DEPS} ::diamond_left_${IREE_TEST_DIAMOND_DEPTH}
 )
 iree_py_library(NAME empty)
@@ -61,3 +71,6 @@ unset(IREE_PACKAGE_ROOT_DIR)
 unset(IREE_PACKAGE_ROOT_PREFIX)
 iree_py_library_collect_sources(_SOURCES fixture::generator)
 iree_py_library_collect_package_dirs(_PACKAGE_DIRS fixture_generator)
+iree_finalize_target_dependencies()
+iree_finalize_python_test_environments()
+hrx_create_installed_tests()

@@ -87,6 +87,25 @@ def test_check_families_preserve_source_and_build_policy_coverage():
         assert inventory(root)["policy_sources"] == sorted([paths[2], *paths[4:8]])
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "loom/src/loom/serve/runtime/program/testdata/compilation/invalid.loom",
+        "loom/src/loom/tooling/target/amdgpu/test/amdgpu_bad_return.loom",
+        "loom/src/loom/tools/iree-benchmark-loom/testdata/duplicate_symbol.loom",
+    ],
+)
+def test_negative_fixtures_retain_lint_coverage_without_canonical_formatting(path):
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        source = root / path
+        source.parent.mkdir(parents=True)
+        source.touch()
+        result = inventory(root)
+        assert result["sources"] == [path]
+        assert result["format_sources"] == []
+
+
 def test_directory_removal_and_file_directory_transitions_change_membership():
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)

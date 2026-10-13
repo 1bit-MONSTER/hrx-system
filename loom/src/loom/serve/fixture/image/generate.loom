@@ -1,0 +1,64 @@
+config.decl @fixture.pixels : %value: index where [range(%value, 1, 4096)]
+
+target.decl @fixture_target
+
+kernel.def target(@fixture_target) @colors() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%request: buffer, %colors: buffer) {
+  %origin = index.constant 0 : offset
+  %header = buffer.view %request[%origin] : buffer -> view<4xi32>
+  %output = buffer.view %colors[%origin] : buffer -> view<2xf32>
+  %seed = view.load %header[0] : view<4xi32> -> i32
+  %count = view.load %header[2] : view<4xi32> -> i32
+  %c1 = scalar.constant 1 : i32
+  %c0 = scalar.constant 0 : i32
+  %seed_bit = scalar.andi %seed, %c1 : i32
+  %count_bit = scalar.andi %count, %c1 : i32
+  %odd_seed = scalar.cmpi ne, %seed_bit, %c0 : i32
+  %odd_count = scalar.cmpi ne, %count_bit, %c0 : i32
+  %low = scalar.constant -1.0 : f32
+  %high = scalar.constant 1.0 : f32
+  %red = scf.select %odd_seed, %high, %low : f32
+  %green = scf.select %odd_count, %high, %low : f32
+  view.store %red, %output[0] : f32, view<2xf32>
+  view.store %green, %output[1] : f32, view<2xf32>
+  kernel.return
+}
+
+kernel.def target(@fixture_target) @pixels() {
+  %count = config.get @fixture.pixels : index
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%count, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%colors: buffer, %rgb: buffer) {
+  %count = config.get @fixture.pixels : index
+  %pixel = kernel.workgroup.id<x> : index
+  %valid = index.cmp ult, %pixel, %count : index
+  scf.if %valid {
+    %origin = index.constant 0 : offset
+    %palette = buffer.view %colors[%origin] : buffer -> view<2xf32>
+    %output = buffer.view %rgb[%origin] : buffer -> view<3x[%count]xf32>
+    %red = view.load %palette[0] : view<2xf32> -> f32
+    %green = view.load %palette[1] : view<2xf32> -> f32
+    %pixel32 = index.cast %pixel : index to i32
+    %c1 = scalar.constant 1 : i32
+    %c0 = scalar.constant 0 : i32
+    %bit = scalar.andi %pixel32, %c1 : i32
+    %odd = scalar.cmpi ne, %bit, %c0 : i32
+    %low = scalar.constant -1.0 : f32
+    %high = scalar.constant 1.0 : f32
+    %blue = scf.select %odd, %high, %low : f32
+    view.store %red, %output[0, %pixel] : f32, view<3x[%count]xf32>
+    view.store %green, %output[1, %pixel] : f32, view<3x[%count]xf32>
+    view.store %blue, %output[2, %pixel] : f32, view<3x[%count]xf32>
+  }
+  kernel.return
+}
+
+command.program.def public @generate_image() launch(%request: buffer, %rgb: buffer) {
+  %length = index.constant 8 : offset
+  %colors = buffer.alloca<global> align(16) %length : buffer
+  kernel.launch @colors(%request, %colors) : (buffer, buffer)
+  kernel.launch @pixels(%colors, %rgb) : (buffer, buffer)
+  command.return
+}

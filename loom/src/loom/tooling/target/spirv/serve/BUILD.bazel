@@ -1,0 +1,149 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@rules_python//python:defs.bzl", "py_test")
+load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/src/loom/serve/fixture/decision:sources.bzl", DECISION_SOURCES = "SOURCES")
+load("//loom/src/loom/serve/fixture/embedding:sources.bzl", EMBEDDING_SOURCES = "SOURCES", EMBEDDING_VARIANT_SOURCES = "VARIANT_SOURCES")
+load("//loom/src/loom/serve/fixture/image:sources.bzl", IMAGE_SOURCES = "SOURCES")
+load("//loom/src/loom/serve/fixture/text:sources.bzl", TEXT_SOURCES = "SOURCES")
+
+package(default_visibility = ["//visibility:private"])
+
+loom_cc_test(
+    name = "source_image_service_test",
+    args = [
+        "--model_source=$(rootpath //loom/src/loom/serve/fixture/image:prepare.loom)",
+        "--test_device=vulkan",
+    ],
+    data = IMAGE_SOURCES,
+    resource_group = GPU_DEVICE_RESOURCE_GROUP,
+    tags = [
+        "iree-run-requirement=vulkan.resource.device",
+    ],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+        "//loom/config/execute:spirv_vulkan_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        "//loom/src/loom/serve/service/image:source_service_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+py_test(
+    name = "catalog_test",
+    size = "medium",
+    srcs = ["//loom/src/loom/serve/server:catalog_test.py"],
+    args = [
+        "--server=$(rootpath //loom/src/loom/tools/loom-serve:loom-serve)",
+        "--fixture=$(rootpath //loom/src/loom/serve/fixture/image:model.json)",
+        "--fixture=$(rootpath //loom/src/loom/serve/fixture/embedding:model.json)",
+        "--fixture=$(rootpath //loom/src/loom/serve/fixture/decision:model.json)",
+        "--fixture=$(rootpath //loom/src/loom/serve/fixture/text:model.json)",
+        "--device=vulkan",
+        "--pool_backing=fixed",
+    ],
+    data = DECISION_SOURCES + EMBEDDING_SOURCES + IMAGE_SOURCES + TEXT_SOURCES + [
+        "//loom/src/loom/tools/loom-serve",
+    ],
+    main = "catalog_test.py",
+    tags = [
+        "iree-run-requirement=vulkan.resource.device",
+        "resource_group:" + GPU_DEVICE_RESOURCE_GROUP,
+    ],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+        "//loom/config/execute:spirv_vulkan_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        "//loom/src/loom/serve/server:catalog_test_util",
+        "//loom/src/loom/serve/testing:http",
+        "//loom/src/loom/serve/testing:logs",
+    ],
+)
+
+loom_cc_test(
+    name = "source_decision_service_test",
+    args = [
+        "--model_source=$(rootpath //loom/src/loom/serve/fixture/decision:prepare.loom)",
+        "--embedding_source=$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
+        "--test_device=vulkan",
+    ],
+    data = DECISION_SOURCES + EMBEDDING_SOURCES,
+    resource_group = GPU_DEVICE_RESOURCE_GROUP,
+    tags = [
+        "iree-run-requirement=vulkan.resource.device",
+    ],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+        "//loom/config/execute:spirv_vulkan_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        "//loom/src/loom/serve/service/finite/decision:source_service_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "source_embedding_service_test",
+    args = [
+        "--model_source=$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
+        "--test_device=vulkan",
+        "--gtest_filter=Workers/SourceEmbeddingServiceTest.*",
+    ],
+    data = EMBEDDING_SOURCES + EMBEDDING_VARIANT_SOURCES,
+    resource_group = GPU_DEVICE_RESOURCE_GROUP,
+    tags = [
+        "iree-run-requirement=vulkan.resource.device",
+    ],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+        "//loom/config/execute:spirv_vulkan_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        "//loom/src/loom/serve/service/finite/embedding:source_service_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "source_text_service_test",
+    args = [
+        "--model_source=$(rootpath //loom/src/loom/serve/fixture/text:prepare.loom)",
+        "--test_device=vulkan",
+        "--gtest_filter=Workers/SourceTextServiceTest.*:Workers/AdmissionServiceTest.*:SharedWorkers/PrefixServiceTest.*",
+    ],
+    data = TEXT_SOURCES,
+    resource_group = GPU_DEVICE_RESOURCE_GROUP,
+    tags = [
+        "iree-run-requirement=vulkan.resource.device",
+    ],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+        "//loom/config/execute:spirv_vulkan_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        "//loom/src/loom/serve/service/text:source_service_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)

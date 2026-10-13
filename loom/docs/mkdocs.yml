@@ -79,6 +79,9 @@ nav:
       - Command programs: guide/command-programs.md
   - Workflows:
       - Workflow map: workflows/index.md
+      - Serve source-defined models: workflows/serve-models.md
+      - Operate a model server: workflows/operate-model-server.md
+      - Observe a model server: workflows/observe-model-server.md
       - Agent-driven kernel development: workflows/agent-driven-kernel-development.md
       - Tune loop unrolling and pipelining: workflows/tune-loop-schedules.md
       - Search per-instance loop schedules: workflows/search-loop-schedules.md
@@ -98,6 +101,7 @@ nav:
           - GGML and llama.cpp: workflows/oracles/ggml-llama-cpp.md
   - Integration:
       - Integration map: integration/index.md
+      - Author serving model packages: integration/serving-models.md
       - Compose modules in memory: integration/module-composition.md
       - Parallelize kernel JIT compilation: integration/product-frontier.md
       - Use the JIT task pool: integration/jit-task-pool.md
@@ -106,6 +110,9 @@ nav:
       - Resident pipelines on XDNA: targets/xdna-pipelines.md
   - Reference:
       - Reference map: reference/index.md
+      - loom-serve: reference/loom-serve.md
+      - Serving model documents: reference/serving-models.md
+      - Serving HTTP profiles: reference/serving-http.md
       - Dialects: reference/dialects/index.md
       - Types: reference/types/index.md
       - Attributes: reference/attributes/index.md

@@ -15,6 +15,8 @@ from build_tools.cmake.test_environment import (
     REPO_ROOT,
     build_project,
     configure_project,
+    install_project,
+    test_project,
 )
 
 FIXTURE = REPO_ROOT / "build_tools/cmake/testdata/python_dependencies"
@@ -33,6 +35,7 @@ class CMakePythonDependenciesTest(unittest.TestCase):
                 build_project(build, "iree_generated_compile_inputs")
                 for output in outputs:
                     self.assertEqual(output.read_text(), expected)
+                test_project(build)
 
             check("left: initial\n")
             timestamps = [path.stat().st_mtime_ns for path in outputs]
@@ -43,6 +46,13 @@ class CMakePythonDependenciesTest(unittest.TestCase):
             check("left: changed\n")
             configure_project(source, build, "-DIREE_TEST_REVERSE_DEPS=ON")
             check("right: changed\n")
+
+            prefix = root / "installed"
+            install_project(build, prefix)
+            # Installed tests must not import from either original tree.
+            source.rename(root / "retired-source")
+            build.rename(root / "retired-build")
+            test_project(prefix / "share/tests")
 
     def test_shared_graph_work_scales_with_declarations(self):
         with tempfile.TemporaryDirectory() as temporary:

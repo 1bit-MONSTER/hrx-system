@@ -207,6 +207,58 @@ TEST(SpecialTokensBuild, SortsByLengthDescending) {
 // Match Tests
 //===----------------------------------------------------------------------===//
 
+class SpecialTokensLayoutTest : public ::testing::TestWithParam<uint32_t> {
+ protected:
+  void SetUp() override {
+    iree_tokenizer_special_tokens_builder_initialize(iree_allocator_system(),
+                                                     &builder_);
+    iree_tokenizer_special_tokens_initialize(&tokens_);
+  }
+
+  void TearDown() override {
+    iree_tokenizer_special_tokens_deinitialize(&tokens_);
+    iree_tokenizer_special_tokens_builder_deinitialize(&builder_);
+  }
+
+  // Owns copied source strings until final collection construction.
+  iree_tokenizer_special_tokens_builder_t builder_;
+  // Owns the packed metadata and strings exercised by matching.
+  iree_tokenizer_special_tokens_t tokens_;
+};
+
+TEST_P(SpecialTokensLayoutTest, AlignedMetadataMatchesEveryToken) {
+  for (uint32_t i = 0; i < GetParam(); ++i) {
+    const char content[] = {'<', static_cast<char>('0' + i), '>'};
+    IREE_ASSERT_OK(iree_tokenizer_special_tokens_builder_add(
+        &builder_, iree_make_string_view(content, sizeof(content)), i,
+        IREE_TOKENIZER_SPECIAL_TOKEN_FLAG_NONE));
+  }
+  IREE_ASSERT_OK(iree_tokenizer_special_tokens_builder_build(
+      &builder_, iree_allocator_system(), &tokens_));
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(tokens_.ids) %
+                alignof(iree_tokenizer_token_id_t),
+            0u);
+  EXPECT_EQ(
+      reinterpret_cast<uintptr_t>(tokens_.bstring_offsets) % alignof(uint32_t),
+      0u);
+  for (uint32_t i = 0; i < GetParam(); ++i) {
+    const char content[] = {'<', static_cast<char>('0' + i), '>'};
+    iree_tokenizer_special_tokens_encode_state_t state;
+    iree_tokenizer_special_tokens_encode_state_initialize(&state);
+    iree_host_size_t length = 0;
+    iree_tokenizer_token_id_t id = -1;
+    EXPECT_EQ(iree_tokenizer_special_tokens_match(
+                  &tokens_, iree_make_string_view(content, sizeof(content)),
+                  &length, &id, &state),
+              IREE_TOKENIZER_SPECIAL_TOKENS_MATCHED);
+    EXPECT_EQ(length, sizeof(content));
+    EXPECT_EQ(id, i);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(TokenCounts, SpecialTokensLayoutTest,
+                         ::testing::Range(1u, 9u));
+
 class SpecialTokensMatchTest : public ::testing::Test {
  protected:
   void SetUp() override {
