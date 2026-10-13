@@ -11,6 +11,24 @@
 
 namespace loom::vector {
 
+// Loads one contiguous native C++ vector at a full-rank logical origin. Result
+// selects its static register shape while the view supplies element type,
+// layout, extents, alignment, and observation semantics.
+template <class Result, class T, loom::type::size_type... Extents,
+          loom::encoding::role Role>
+[[loom::op("vector.load")]] Result load(
+    loom::type::view<loom::type::shape<Extents...>, T, Role> source,
+    loom::type::coordinates<sizeof...(Extents)> origin);
+
+// Stores one contiguous native C++ vector at a full-rank logical origin. Const
+// destination element types are rejected during source admission.
+template <class Vector, class T, loom::type::size_type... Extents,
+          loom::encoding::role Role>
+[[loom::op("vector.store")]] void store(
+    Vector value,
+    loom::type::view<loom::type::shape<Extents...>, T, Role> destination,
+    loom::type::coordinates<sizeof...(Extents)> origin);
+
 // Extracts a contiguous register subvector at a dynamic lane offset. Result
 // selects the retained lane count while preserving the source element type.
 template <class Result, class Source>

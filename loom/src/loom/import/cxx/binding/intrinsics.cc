@@ -151,6 +151,8 @@ void Intrinsics::declaration(cxx::FunctionSymbol* function,
       // validation. Retain the complete descriptor until those are known.
     } else if (selected->arguments.size() != 1 ||
                (!ViewIntrinsic::supports(selected->arguments[0]->name()) &&
+                !VectorMemoryIntrinsic::supports(
+                    selected->arguments[0]->name()) &&
                 !BufferIntrinsic::supports(selected->arguments[0]->name()) &&
                 !IndexCastIntrinsic::supports(selected->arguments[0]->name()) &&
                 !DecodeIntrinsic::supports(selected->arguments[0]->name()) &&
@@ -255,6 +257,10 @@ Intrinsics::Binding Intrinsics::resolve(cxx::FunctionSymbol* function,
   if (auto view = ViewIntrinsic::resolve(unit_, diagnostics_, types_, signature,
                                          attribute, owner)) {
     return *view;
+  }
+  if (auto memory = VectorMemoryIntrinsic::resolve(
+          unit_, diagnostics_, types_, signature, attribute, owner)) {
+    return *memory;
   }
   if (auto subgroup = SubgroupIntrinsic::resolve(unit_, diagnostics_, types_,
                                                  function, attribute, owner)) {
@@ -429,6 +435,9 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
   if (auto* view = std::get_if<ViewIntrinsic>(binding)) {
     return {view->call(arguments, types_, arena, storage, owner, builder,
                        location)};
+  }
+  if (auto* memory = std::get_if<VectorMemoryIntrinsic>(binding)) {
+    return {memory->call(arguments, builder, location)};
   }
   if (auto* async = std::get_if<AsyncIntrinsic>(binding)) {
     return {async->call(arguments, arena, builder, location)};

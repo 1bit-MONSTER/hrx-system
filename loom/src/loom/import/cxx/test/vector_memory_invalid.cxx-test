@@ -1,0 +1,24 @@
+// RUN: verify
+// Vector loads require a full-rank origin record.
+#include <loomcxx/vector.h>
+using Vector = float __attribute__((ext_vector_type(4)));
+using View = loom::type::view<loom::type::shape<4, 4>, const float>;
+// ERROR@+1: LOWERING/059 "vector memory origin has the wrong arity"
+[[loom::op("vector.load")]] Vector invalid(View, loom::type::coordinates<1>);
+
+// ====
+// Vector footprints preserve the view's scalar element type.
+#include <loomcxx/vector.h>
+using Vector = unsigned __attribute__((ext_vector_type(4)));
+using View = loom::type::view<loom::type::shape<16>, const float>;
+// ERROR@+1: LOWERING/059 "vector memory element type must match the view element type"
+[[loom::op("vector.load")]] Vector invalid(View, loom::type::coordinates<1>);
+
+// ====
+// Stores require mutable view elements.
+#include <loomcxx/vector.h>
+using Vector = float __attribute__((ext_vector_type(4)));
+using View = loom::type::view<loom::type::shape<16>, const float>;
+// ERROR@+1: LOWERING/059 "vector.store requires a mutable destination view"
+[[loom::op("vector.store")]] void invalid(Vector, View,
+                                            loom::type::coordinates<1>);

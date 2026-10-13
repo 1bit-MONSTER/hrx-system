@@ -32,6 +32,7 @@
 #include "loom/import/cxx/binding/shaped.h"
 #include "loom/import/cxx/binding/target.h"
 #include "loom/import/cxx/binding/template_apply.h"
+#include "loom/import/cxx/binding/vector_memory.h"
 #include "loom/import/cxx/binding/view.h"
 #include "loom/import/cxx/source/source.h"
 #include "loom/import/cxx/value/types.h"
@@ -82,10 +83,10 @@ class Intrinsics {
   using Binding =
       std::variant<ScalarBinding, ShapedIntrinsic, EncodingIntrinsic,
                    DecodeIntrinsic, FragmentIntrinsic, BufferIntrinsic,
-                   ViewIntrinsic, AsyncIntrinsic, AtomicIntrinsic,
-                   FenceIntrinsic, SubgroupIntrinsic, BarrierIntrinsic,
-                   TargetIntrinsic, AssemblyIntrinsic, TemplateApplyIntrinsic,
-                   CheckIntrinsic, IndexCastIntrinsic>;
+                   ViewIntrinsic, VectorMemoryIntrinsic, AsyncIntrinsic,
+                   AtomicIntrinsic, FenceIntrinsic, SubgroupIntrinsic,
+                   BarrierIntrinsic, TargetIntrinsic, AssemblyIntrinsic,
+                   TemplateApplyIntrinsic, CheckIntrinsic, IndexCastIntrinsic>;
 
   Intrinsics(cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
              Locations& locations, SymbolNames& names,
