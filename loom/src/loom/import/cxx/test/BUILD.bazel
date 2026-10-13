@@ -549,7 +549,7 @@ loom_test_module(
 # A source file and its independent reference cases form one test module.
 # Kernel names, launch configuration, and schedule variants belong to those files.
 # Target packages select applicable modules and own their execution policy.
-_APPROXIMATE_KERNEL_SOURCES = [
+_FAST_MATH_KERNEL_SOURCES = [
     "aiter_swiglu_f16",
     "flash_attention",
     "llama_rms_norm",
@@ -573,10 +573,10 @@ _AUTHORED_SPLIT_KERNEL_SOURCES = [
     loom_test_module(
         name = source + "_module",
         srcs = [source + ".cxx"],
-        inputopts = ["cxx:approximate-functions=true"],
+        inputopts = ["cxx:fp-model=fast"],
         target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
     )
-    for source in _APPROXIMATE_KERNEL_SOURCES
+    for source in _FAST_MATH_KERNEL_SOURCES
 ]
 
 [

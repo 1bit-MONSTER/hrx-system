@@ -17,9 +17,11 @@ IREE_STATIC_ASSERT_ENUM_EQ(LOOM_CXX_DATA_MODEL_LLP64,
 IREE_STATIC_ASSERT_ENUM_EQ(LOOM_CXX_DATA_MODEL_ILP32,
                            LOOMC_CXX_DATA_MODEL_ILP32,
                            "ILP32 data models must match");
-IREE_STATIC_ASSERT_ENUM_EQ(LOOM_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS,
-                           LOOMC_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS,
-                           "approximate-function flags must match");
+IREE_STATIC_ASSERT_ENUM_EQ(LOOM_CXX_FP_MODEL_PRECISE,
+                           LOOMC_CXX_FP_MODEL_PRECISE,
+                           "precise FP models must match");
+IREE_STATIC_ASSERT_ENUM_EQ(LOOM_CXX_FP_MODEL_FAST, LOOMC_CXX_FP_MODEL_FAST,
+                           "fast FP models must match");
 IREE_STATIC_ASSERT_ENUM_EQ(LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES,
                            LOOMC_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES,
                            "builtin-include flags must match");
@@ -84,6 +86,7 @@ iree_status_t loom_cxx_input_import_loomc(
       .standard = loomc_string_view_from_iree(parsed_options.standard),
       .triple = loomc_string_view_from_iree(parsed_options.triple),
       .data_model = (loomc_cxx_data_model_t)parsed_options.data_model,
+      .fp_model = (loomc_cxx_fp_model_t)parsed_options.fp_model,
       .flags = parsed_options.flags,
       .include_path_count = parsed_options.include_path_count,
       .system_include_path_count = parsed_options.system_include_path_count,

@@ -146,8 +146,8 @@ func.def public @widen(%value: f16) -> (f32) {
 
 func.def public @nested(%value: f32, %scale: f32) -> (f32) {
   %result$29 = scalar.addf<nnan> %value, %scale : f32
-  %30 = scalar.mulf<reassoc|nnan|nsz> %value, %scale : f32
-  %result$31 = scalar.addf<reassoc|nnan|nsz> %result$29, %30 : f32
+  %30 = scalar.mulf<reassoc|nsz> %value, %scale : f32
+  %result$31 = scalar.addf<reassoc|nsz> %result$29, %30 : f32
   %32 = scalar.divf<nnan> %result$31, %scale : f32
   func.return %32 : f32
 }
@@ -264,4 +264,69 @@ func.def @helper(%value: f32, %scale: f32) -> (f32) {
   %122 = scalar.mulf<reassoc> %value, %scale : f32
   %123 = scalar.addf<reassoc> %122, %value : f32
   func.return %123 : f32
+}
+
+// ====
+// INPUT: cxx fp-model=fast
+// Invocation policy is inherited and exact source contracts replace it.
+float inherited(float left, float right) { return left * right + left; }
+
+[[loom::fastmath(false)]]
+float precise(float left, float right) {
+  return left * right + left;
+}
+
+float mixed(float left, float right) {
+  float result = left * right;
+  [[loom::fastmath(false)]] { result += left / right; }
+  [[loom::fastmath("contract")]] { result += left * right; }
+  return result + right;
+}
+
+int integer_unchanged(int left, int right) { return left + right; }
+
+[[loom::op("scalar.cttzi")]] unsigned count_trailing_zeros(unsigned value);
+unsigned integer_intrinsic_unchanged(unsigned value) {
+  return count_trailing_zeros(value);
+}
+
+using Int4 = int __attribute__((ext_vector_type(4)));
+Int4 vector_integer_unchanged(Int4 left, Int4 right) { return left + right; }
+
+// ----
+func.def public @inherited(%left: f32, %right: f32) -> (f32) {
+  %3 = scalar.mulf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %left, %right : f32
+  %4 = scalar.addf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %3, %left : f32
+  func.return %4 : f32
+}
+
+func.def public @precise(%left: f32, %right: f32) -> (f32) {
+  %8 = scalar.mulf %left, %right : f32
+  %9 = scalar.addf %8, %left : f32
+  func.return %9 : f32
+}
+
+func.def public @mixed(%left: f32, %right: f32) -> (f32) {
+  %result$13 = scalar.mulf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %left, %right : f32
+  %14 = scalar.divf %left, %right : f32
+  %result$15 = scalar.addf %result$13, %14 : f32
+  %16 = scalar.mulf<contract> %left, %right : f32
+  %result$17 = scalar.addf<contract> %result$15, %16 : f32
+  %18 = scalar.addf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %result$17, %right : f32
+  func.return %18 : f32
+}
+
+func.def public @integer_unchanged(%left: i32, %right: i32) -> (i32) {
+  %22 = scalar.addi %left, %right : i32
+  func.return %22 : i32
+}
+
+func.def public @integer_intrinsic_unchanged(%value: i32) -> (i32) {
+  %25 = scalar.cttzi %value : i32
+  func.return %25 : i32
+}
+
+func.def public @vector_integer_unchanged(%left: vector<4xi32>, %right: vector<4xi32>) -> (vector<4xi32>) {
+  %29 = vector.addi %left, %right : vector<4xi32>
+  func.return %29 : vector<4xi32>
 }

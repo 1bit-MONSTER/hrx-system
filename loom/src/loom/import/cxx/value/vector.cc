@@ -191,7 +191,8 @@ loom_value_id_t Vectors::binary(cxx::TokenKind token, loom_value_id_t left,
   if (!build) {
     diagnostics_.reject(unit_, owner, "unsupported vector binary operator");
   }
-  check(build(&builder_, fastmath, left, right, output, source, &op));
+  const uint8_t flags = floating ? fastmath : 0;
+  check(build(&builder_, flags, left, right, output, source, &op));
   return loom_op_results(op)[0];
 }
 

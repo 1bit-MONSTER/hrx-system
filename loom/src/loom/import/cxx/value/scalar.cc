@@ -181,7 +181,8 @@ loom_value_id_t Scalars::binary(cxx::TokenKind token, loom_value_id_t left,
   if (!build) {
     diagnostics_.reject(unit_, ast, "unsupported binary operator");
   }
-  check(build(&builder_, fastmath, left, right, types_.get(output_type, ast),
+  const uint8_t flags = floating ? fastmath : 0;
+  check(build(&builder_, flags, left, right, types_.get(output_type, ast),
               source, &op));
   return loom_op_results(op)[0];
 }

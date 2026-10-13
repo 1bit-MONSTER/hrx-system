@@ -25,9 +25,10 @@ IREE_STATIC_ASSERT_ENUM_EQ(LOOMC_CXX_DATA_MODEL_ILP32,
                            LOOM_CXX_DATA_MODEL_ILP32,
                            "public ILP32 layout matches the native importer");
 IREE_STATIC_ASSERT_ENUM_EQ(
-    LOOMC_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS,
-    LOOM_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS,
-    "public approximate-functions flag matches the native importer");
+    LOOMC_CXX_FP_MODEL_PRECISE, LOOM_CXX_FP_MODEL_PRECISE,
+    "public precise FP model matches the native importer");
+IREE_STATIC_ASSERT_ENUM_EQ(LOOMC_CXX_FP_MODEL_FAST, LOOM_CXX_FP_MODEL_FAST,
+                           "public fast FP model matches the native importer");
 IREE_STATIC_ASSERT_ENUM_EQ(
     LOOMC_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES,
     LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES,
@@ -225,6 +226,7 @@ static loomc_status_t loomc_cxx_resolve_options(
   out_options->standard = iree_string_view_from_loomc(options->standard);
   out_options->triple = iree_string_view_from_loomc(options->triple);
   out_options->data_model = (loom_cxx_data_model_t)options->data_model;
+  out_options->fp_model = (loom_cxx_fp_model_t)options->fp_model;
   out_options->flags = options->flags;
   out_options->include_path_count = options->include_path_count;
   out_options->system_include_path_count = options->system_include_path_count;

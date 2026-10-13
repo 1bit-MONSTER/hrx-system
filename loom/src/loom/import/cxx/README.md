@@ -157,9 +157,27 @@ the target compiler.
 
 ## Floating-point permissions
 
-Ordinary C++ arithmetic is strict unless its lexical source scope grants
-Loom fast-math permissions. The no-argument shorthand grants the complete
-`fast` contract to a function without replacing natural operators:
+Ordinary C++ arithmetic inherits the invocation's floating-point model.
+`fp-model=precise` is the default and grants no Loom fast-math permissions;
+`fp-model=fast` grants the complete `fast` contract across the translation
+unit. Every permission is recorded on the imported High IR operations, so no
+hidden module-wide policy survives import.
+
+The standalone importer and public C API select the same policy:
+
+```shell
+loom-import-cxx --fp-model=fast kernel.cxx
+```
+
+```c
+loomc_cxx_import_options_t options = {
+    .fp_model = LOOMC_CXX_FP_MODEL_FAST,
+};
+```
+
+Source attributes replace that inherited policy for one function or statement.
+The no-argument shorthand grants the complete `fast` contract without
+replacing natural operators:
 
 ```cpp
 [[loom::fastmath]]
@@ -175,11 +193,11 @@ The permissions become ordinary High IR attributes:
 %result = scalar.addf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %sum, %scaled : f32
 ```
 
-An argument list grants only its named permissions. Function attributes may
-precede the declaration or follow its parameter list. A leading statement
-attribute adds permissions within that statement and its nested control flow,
-allowing a numerically relaxed accumulation to remain local inside an otherwise
-strict helper:
+An argument list establishes exactly its named permissions. Function
+attributes may precede the declaration or follow its parameter list. A leading
+statement attribute replaces the enclosing policy within that statement and
+its nested control flow, allowing a numerically relaxed accumulation to remain
+local inside an otherwise precise helper:
 
 ```cpp
 float update(float sum, float value, float scale) {
@@ -190,11 +208,22 @@ float update(float sum, float value, float scale) {
 }
 ```
 
-Nested scopes add permissions to those already active. A called helper keeps
-the contract on its own definition; a caller's contract does not silently
-change separately emitted function bodies. Concrete template specializations
-retain the contract on their source definition. Repeated declarations may
-carry the same contract, while conflicting contracts are rejected.
+`[[loom::fastmath(false)]]` establishes a precise island inside a globally fast
+invocation:
+
+```cpp
+[[loom::fastmath(false)]]
+float sensitive(float numerator, float denominator) {
+  return numerator / denominator;
+}
+```
+
+Nested scopes replace the active permissions and restore them on exit. A called
+helper keeps the contract on its own definition; a caller's contract does not
+silently change separately emitted function bodies. Concrete template
+specializations retain the contract on their source definition. Repeated
+declarations may carry the same contract, while conflicting contracts are
+rejected.
 
 The selective argument strings exactly match Loom's `reassoc`, `nnan`, `ninf`,
 `nsz`, `arcp`, `contract`, `afn`, and `fast` IR flags. Natural scalar and
@@ -501,11 +530,11 @@ quotes. The C++ provider accepts:
 | `std=c++23` | Source language standard, including supported C spellings. |
 | `triple=...` | Source ABI triple. |
 | `data-model=lp64` | `lp64`, `llp64`, or `ilp32` integer and pointer widths. |
+| `fp-model=precise` | `precise` or `fast` translation-unit floating-point policy. |
 | `root=entry` | Exported source function; repeat for multiple roots. |
 | `I=include` | User include directory, relative to the test file; repeatable. |
 | `isystem=include` | System include directory, relative to the test file; repeatable. |
 | `D=COUNT=8` | Macro definition; repeatable. `D=ENABLED` defines it to `1`. |
-| `approximate-functions=true` | Permit approximate mathematical functions. |
 | `builtin-includes=false` | Use explicit include paths without embedded headers. |
 
 Source locations use physical, case-relative lines. `#line` controls the presumed

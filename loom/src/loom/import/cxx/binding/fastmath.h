@@ -11,6 +11,7 @@
 #include <cxx/symbols_fwd.h>
 
 #include <cstdint>
+#include <optional>
 #include <unordered_map>
 
 #include "loom/import/cxx/source/source.h"
@@ -19,7 +20,7 @@ namespace loom::cxx_import {
 
 // Owns explicit floating-point relaxation contracts by semantic function
 // identity and decodes nested statement contracts during body translation.
-// Missing contracts preserve strict source semantics.
+// Missing contracts inherit the translation-unit or enclosing source policy.
 class FastMathContracts {
  public:
   FastMathContracts(cxx::TranslationUnit& unit, Diagnostics& diagnostics)
@@ -31,19 +32,20 @@ class FastMathContracts {
                    cxx::List<cxx::AttributeSpecifierAST*>* attributes,
                    cxx::FunctionDeclaratorChunkAST* prototype);
 
-  // Returns the permissions established for this function body.
-  uint8_t function(cxx::FunctionSymbol* function) const;
+  // Returns the exact permissions established for this function body, or no
+  // value when the body inherits the translation-unit policy.
+  std::optional<uint8_t> function(cxx::FunctionSymbol* function) const;
 
   // Returns the source contract established for this function, if any.
   cxx::AttributeAST* function_source(cxx::FunctionSymbol* function) const;
 
-  // Returns permissions added by one source statement. The caller retains the
-  // enclosing flags and restores them after the complete statement subtree.
-  uint8_t statement(cxx::StatementAST* statement);
+  // Returns the exact permissions established for one source statement, or no
+  // value when the statement inherits its enclosing policy.
+  std::optional<uint8_t> statement(cxx::StatementAST* statement);
 
  private:
   struct FunctionContract {
-    // Additive permission bits applied inside the function body.
+    // Exact permission bits applied inside the function body.
     uint8_t flags;
     // Source attribute owning diagnostics for incompatible function kinds.
     cxx::AttributeAST* source;

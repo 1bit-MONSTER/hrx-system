@@ -1236,7 +1236,7 @@ loom_test_module(
   SRCS
     "aiter_swiglu_f16.cxx"
   INPUTOPTS
-    "cxx:approximate-functions=true"
+    "cxx:fp-model=fast"
 )
 endif()
 
@@ -1247,7 +1247,7 @@ loom_test_module(
   SRCS
     "flash_attention.cxx"
   INPUTOPTS
-    "cxx:approximate-functions=true"
+    "cxx:fp-model=fast"
 )
 endif()
 
@@ -1258,7 +1258,7 @@ loom_test_module(
   SRCS
     "llama_rms_norm.cxx"
   INPUTOPTS
-    "cxx:approximate-functions=true"
+    "cxx:fp-model=fast"
 )
 endif()
 

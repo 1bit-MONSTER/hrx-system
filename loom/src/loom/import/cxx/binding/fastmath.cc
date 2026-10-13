@@ -23,7 +23,7 @@ namespace loom::cxx_import {
 namespace {
 
 struct ParsedContract {
-  // Additive permission bits decoded from the source attribute.
+  // Exact permission bits decoded from the source attribute.
   uint8_t flags;
   // Source attribute owning diagnostics and declaration provenance.
   cxx::AttributeAST* source;
@@ -59,7 +59,21 @@ std::optional<ParsedContract> parse_contract(
               "fastmath argument lists cannot be empty; omit the argument "
               "clause to grant the full fast contract");
         }
-        for (auto* argument : cxx::ListView{arguments}) {
+        auto argument_list = cxx::ListView{arguments};
+        if (!arguments->next) {
+          if (auto* literal = cxx::ast_cast<cxx::BoolLiteralExpressionAST>(
+                  arguments->value)) {
+            if (literal->isTrue) {
+              diagnostics.reject(
+                  unit, literal,
+                  "fastmath(true) is redundant; omit the argument clause to "
+                  "grant the full fast contract");
+            }
+            flags = 0;
+            return;
+          }
+        }
+        for (auto* argument : argument_list) {
           auto* literal =
               cxx::ast_cast<cxx::StringLiteralExpressionAST>(argument);
           uint8_t flag = 0;
@@ -116,9 +130,12 @@ void FastMathContracts::declaration(
   }
 }
 
-uint8_t FastMathContracts::function(cxx::FunctionSymbol* function) const {
+std::optional<uint8_t> FastMathContracts::function(
+    cxx::FunctionSymbol* function) const {
   auto found = functions_.find(function->canonical());
-  return found == functions_.end() ? 0 : found->second.flags;
+  return found == functions_.end()
+             ? std::nullopt
+             : std::optional<uint8_t>{found->second.flags};
 }
 
 cxx::AttributeAST* FastMathContracts::function_source(
@@ -127,13 +144,14 @@ cxx::AttributeAST* FastMathContracts::function_source(
   return found == functions_.end() ? nullptr : found->second.source;
 }
 
-uint8_t FastMathContracts::statement(cxx::StatementAST* statement) {
+std::optional<uint8_t> FastMathContracts::statement(
+    cxx::StatementAST* statement) {
   auto* attributes = statement_attributes(statement);
   if (!attributes) {
-    return 0;
+    return std::nullopt;
   }
   auto contract = parse_contract(unit_, diagnostics_, attributes, "statement");
-  return contract ? contract->flags : 0;
+  return contract ? std::optional<uint8_t>{contract->flags} : std::nullopt;
 }
 
 }  // namespace loom::cxx_import

@@ -21,11 +21,18 @@ typedef enum loom_cxx_data_model_e {
   LOOM_CXX_DATA_MODEL_ILP32 = 2,
 } loom_cxx_data_model_t;
 
+// Translation-unit floating-point transformation policy. Source fastmath
+// attributes may replace this default for individual functions or statements.
+typedef enum loom_cxx_fp_model_e {
+  // Preserve floating-point value and evaluation-order semantics.
+  LOOM_CXX_FP_MODEL_PRECISE = 0,
+  // Permit the complete Loom fast-math contract.
+  LOOM_CXX_FP_MODEL_FAST = 1,
+} loom_cxx_fp_model_t;
+
 typedef enum loom_cxx_import_flag_bits_e {
-  // Permit approximations for mathematical functions (Loom's AFN contract).
-  LOOM_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS = 1u << 0,
   // Omit the embedded system include root and use explicit source paths only.
-  LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES = 1u << 1,
+  LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES = 1u << 0,
 } loom_cxx_import_flag_bits_t;
 typedef uint32_t loom_cxx_import_flags_t;
 
@@ -85,7 +92,9 @@ typedef struct loom_cxx_import_options_t {
   iree_string_view_t triple;
   // Source integer and pointer widths. The default is LP64.
   loom_cxx_data_model_t data_model;
-  // Explicit permissions controlling imported source semantics.
+  // Default floating-point transformation policy. The default is precise.
+  loom_cxx_fp_model_t fp_model;
+  // Include delivery flags.
   loom_cxx_import_flags_t flags;
   // Include source ownership and lookup callback.
   loom_cxx_source_provider_t source_provider;
@@ -109,6 +118,10 @@ typedef struct loom_cxx_import_options_t {
   // Number of explicitly selected source roots.
   iree_host_size_t root_count;
 } loom_cxx_import_options_t;
+
+// Parses the canonical precise or fast floating-point model spelling.
+bool loom_cxx_fp_model_parse(iree_string_view_t value,
+                             loom_cxx_fp_model_t* out_model);
 
 void loom_cxx_import_options_initialize(loom_cxx_import_options_t* options);
 

@@ -464,10 +464,12 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
   std::vector<loom_value_id_t> overflow;
   auto flattened = flatten(arguments, inline_values, overflow);
   const auto& scalar = std::get<ScalarBinding>(admitted);
+  const uint8_t flags =
+      scalar.operation.flags |
+      (scalar.operation.scalar->has_fastmath ? math_flags : 0);
   loom_op_t* op;
-  check(scalar.operation.scalar->build(
-      builder, scalar.operation.flags | math_flags, flattened.data(),
-      scalar.type, location, &op));
+  check(scalar.operation.scalar->build(builder, flags, flattened.data(),
+                                       scalar.type, location, &op));
   return {Value(loom_op_results(op)[0])};
 }
 

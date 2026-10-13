@@ -141,7 +141,7 @@ func.def public @entry(%a: vector<4xf32>, %b: vector<4xf32>, %seed: f32) -> (f32
 }
 
 // ====
-// INPUT: cxx approximate-functions=true
+// INPUT: cxx fp-model=fast
 // Invocation permissions reach floating operations without polluting integers.
 template <class Vector, class Scalar>
 [[loom::op("vector.reduce", "addi")]] Scalar sum_integer(Vector, Scalar);
@@ -169,8 +169,8 @@ func.def public @integer_entry(%v: vector<4xi32>, %seed: i32) -> (i32) {
 func.def public @floating_entry(%a: vector<8xf16>, %b: vector<8xf16>, %seed: vector<4xf32>) -> (f32) {
   %partial = vector.dot2f %a, %b, %seed : vector<8xf16>, vector<8xf16>, vector<4xf32>
   %9 = scalar.constant 3.0 : f32
-  %10 = vector.dotf<afn> %seed, %partial, %9 : vector<4xf32>, vector<4xf32>, f32
-  %11 = vector.reduce<addf, reassoc|afn> %partial, %10 : vector<4xf32>, f32
+  %10 = vector.dotf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %seed, %partial, %9 : vector<4xf32>, vector<4xf32>, f32
+  %11 = vector.reduce<addf, reassoc|nnan|ninf|nsz|arcp|contract|afn> %partial, %10 : vector<4xf32>, f32
   func.return %11 : f32
 }
 

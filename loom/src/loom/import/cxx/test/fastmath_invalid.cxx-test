@@ -19,6 +19,11 @@ float unknown(float value) [[loom::fastmath("finite")]] { return value; }
 float numeric(float value) [[loom::fastmath(1)]] { return value; }
 
 // ====
+// The bare attribute is the one full-fast spelling.
+// ERROR@+1: LOWERING/059 "fastmath(true) is redundant; omit the argument clause to grant the full fast contract"
+float redundant_true(float value) [[loom::fastmath(true)]] { return value; }
+
+// ====
 // Repeated permissions are ambiguous rather than silently ignored.
 // ERROR@+1: LOWERING/059 "fastmath permissions must be unique"
 float repeated(float value) [[loom::fastmath("nnan", "nnan")]] { return value; }

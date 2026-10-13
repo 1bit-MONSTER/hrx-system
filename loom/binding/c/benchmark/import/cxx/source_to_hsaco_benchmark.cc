@@ -144,7 +144,7 @@ class CxxSourceScenarioBase : public TargetCompileScenario {
     loomc_cxx_import_options_t options = {
         .type = LOOMC_STRUCTURE_TYPE_CXX_IMPORT_OPTIONS,
         .structure_size = sizeof(options),
-        .flags = LOOMC_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS,
+        .fp_model = LOOMC_CXX_FP_MODEL_FAST,
         .roots = &root,
         .root_count = 1,
     };

@@ -33,6 +33,8 @@ IREE_FLAG(string, triple, "",
           "Source ABI triple; does not select an output target.");
 IREE_FLAG_NAMED(string, data_model, "data-model", "lp64",
                 "Source integer/pointer layout: lp64, llp64, or ilp32.");
+IREE_FLAG_NAMED(string, fp_model, "fp-model", "precise",
+                "Floating-point transformation policy: precise or fast.");
 IREE_FLAG_LIST_NAMED(string, include_path, "I", "User include directory.");
 IREE_FLAG_LIST_NAMED(string, system_include_path, "isystem",
                      "System include directory.");
@@ -43,8 +45,6 @@ IREE_FLAG_LIST(
     "Qualified source function to export; repeat for multiple roots.");
 IREE_FLAG(bool, cleanup, true,
           "Canonicalize, eliminate common expressions, and remove dead IR.");
-IREE_FLAG_NAMED(bool, approximate_functions, "approximate-functions", false,
-                "Permit approximate mathematical function results.");
 IREE_FLAG_NAMED(bool, builtin_includes, "builtin-includes", true,
                 "Search embedded Loom/HIP source headers when available.");
 
@@ -118,12 +118,14 @@ static iree_status_t loom_cxx_cli_import(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "unknown source data model '%s'", FLAG_data_model);
   }
+  if (!loom_cxx_fp_model_parse(iree_make_cstring_view(FLAG_fp_model),
+                               &options.fp_model)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "unknown floating-point model '%s'", FLAG_fp_model);
+  }
   if (strcmp(FLAG_to, "text") != 0 && strcmp(FLAG_to, "bc") != 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "unknown output format '%s'", FLAG_to);
-  }
-  if (FLAG_approximate_functions) {
-    options.flags |= LOOM_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS;
   }
   if (!FLAG_builtin_includes) {
     options.flags |= LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES;

@@ -34,12 +34,21 @@ typedef enum loomc_cxx_data_model_e {
   LOOMC_CXX_DATA_MODEL_ILP32 = 2,
 } loomc_cxx_data_model_t;
 
-/// Explicit source permissions and include delivery policy.
+/// Translation-unit floating-point transformation policy.
+///
+/// Source fastmath attributes may replace this default for individual
+/// functions or statements.
+typedef enum loomc_cxx_fp_model_e {
+  /// Preserve floating-point value and evaluation-order semantics.
+  LOOMC_CXX_FP_MODEL_PRECISE = 0,
+  /// Permit the complete Loom fast-math contract.
+  LOOMC_CXX_FP_MODEL_FAST = 1,
+} loomc_cxx_fp_model_t;
+
+/// Include delivery policy.
 typedef enum loomc_cxx_import_flag_bits_e {
-  /// Permit approximate mathematical functions (Loom's AFN contract).
-  LOOMC_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS = 1u << 0,
   /// Omit the embedded system include root; use caller paths/providers only.
-  LOOMC_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES = 1u << 1,
+  LOOMC_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES = 1u << 0,
 } loomc_cxx_import_flag_bits_t;
 /// Bitmask of loomc_cxx_import_flag_bits_t values.
 typedef uint32_t loomc_cxx_import_flags_t;
@@ -116,7 +125,7 @@ typedef struct loomc_cxx_define_t {
 
 /// Configuration for one source translation unit.
 ///
-/// Zero initialization selects C++26, LP64, strict math, visible definitions
+/// Zero initialization selects C++26, LP64, precise math, visible definitions
 /// as roots, and the embedded facade system root when built into the library.
 /// All strings, arrays, and callback state are borrowed until import returns.
 typedef struct loomc_cxx_import_options_t {
@@ -132,7 +141,9 @@ typedef struct loomc_cxx_import_options_t {
   loomc_string_view_t triple;
   /// Source integer and pointer layout.
   loomc_cxx_data_model_t data_model;
-  /// Source permissions and include delivery flags.
+  /// Default floating-point transformation policy.
+  loomc_cxx_fp_model_t fp_model;
+  /// Include delivery flags.
   loomc_cxx_import_flags_t flags;
   /// Optional include provider; embedded headers are resolved separately.
   loomc_cxx_source_provider_t source_provider;

@@ -93,11 +93,9 @@ class Translator final : private Initialization::Evaluation {
                    fastmath_, function_contracts_, target_definitions_,
                    template_definitions_, names_),
         options_(options),
-        intrinsic_math_flags_(
-            iree_any_bit_set(options.flags,
-                             LOOM_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS)
-                ? LOOM_SCALAR_FASTMATHFLAGS_AFN
-                : 0) {
+        default_fastmath_flags_(options.fp_model == LOOM_CXX_FP_MODEL_FAST
+                                    ? LOOM_SCALAR_FASTMATHFLAGS_FAST
+                                    : 0) {
     loom_builder_initialize(module_, &module_->arena,
                             loom_module_block(module_), &builder_);
   }
@@ -126,6 +124,10 @@ class Translator final : private Initialization::Evaluation {
     // Enclosing source subtree state restored on every exit path.
     uint8_t saved_;
   };
+
+  uint8_t resolve_fastmath(std::optional<uint8_t> contract) const {
+    return contract.value_or(lexical_fastmath_flags_);
+  }
 
   [[noreturn]] void fail(cxx::AST* ast, const std::string& message) {
     diagnostics_.reject(unit_, ast, message);
@@ -315,10 +317,9 @@ class Translator final : private Initialization::Evaluation {
   }
 
   void function_body(const FunctionBody& body_contract) {
-    FastMathScope math_scope(
-        lexical_fastmath_flags_,
-        lexical_fastmath_flags_ |
-            fastmath_.function(body_contract.source->symbol));
+    FastMathScope math_scope(lexical_fastmath_flags_,
+                             fastmath_.function(body_contract.source->symbol)
+                                 .value_or(default_fastmath_flags_));
     current_function_ = body_contract;
     const auto& defined = current_function_;
     auto* body = defined.body;
@@ -544,7 +545,9 @@ class Translator final : private Initialization::Evaluation {
       initialize_condition(branch->condition);
       ast = *branch->constexprValue ? branch->statement : branch->elseStatement;
       if (ast) {
-        lexical_fastmath_flags_ |= fastmath_.statement(ast);
+        if (auto contract = fastmath_.statement(ast)) {
+          lexical_fastmath_flags_ = *contract;
+        }
       }
     }
     return ast;
@@ -562,7 +565,7 @@ class Translator final : private Initialization::Evaluation {
                                const ReturnSequence& continuation) {
     FastMathScope math_scope(
         lexical_fastmath_flags_,
-        lexical_fastmath_flags_ | (ast ? fastmath_.statement(ast) : 0));
+        resolve_fastmath(ast ? fastmath_.statement(ast) : std::nullopt));
     ast = selected_statement(ast);
     if (auto* ret = cxx::ast_cast<cxx::ReturnStatementAST>(ast)) {
       bool returns_void =
@@ -1485,9 +1488,9 @@ class Translator final : private Initialization::Evaluation {
         return result(op);
       }
       if (binding) {
-        auto called = intrinsics_.call(
-            *binding, source_arguments, value_arena_, storage_, ast,
-            intrinsic_math_flags_ | lexical_fastmath_flags_, &builder_, source);
+        auto called =
+            intrinsics_.call(*binding, source_arguments, value_arena_, storage_,
+                             ast, lexical_fastmath_flags_, &builder_, source);
         if (!called.value) {
           fail(ast, "void intrinsic cannot be used as a value");
         }
@@ -1579,7 +1582,7 @@ class Translator final : private Initialization::Evaluation {
                                   uint8_t continuation_fastmath) {
     FastMathScope math_scope(
         lexical_fastmath_flags_,
-        lexical_fastmath_flags_ | (ast ? fastmath_.statement(ast) : 0));
+        resolve_fastmath(ast ? fastmath_.statement(ast) : std::nullopt));
     ast = selected_statement(ast);
     auto flow = control_->continues(ast);
     if (flow == ExitFlow::None) {
@@ -1623,7 +1626,7 @@ class Translator final : private Initialization::Evaluation {
     auto* source = ast;
     FastMathScope math_scope(
         lexical_fastmath_flags_,
-        lexical_fastmath_flags_ | (ast ? fastmath_.statement(ast) : 0));
+        resolve_fastmath(ast ? fastmath_.statement(ast) : std::nullopt));
     ast = selected_statement(ast);
     if (!ast) {
       return scalars_.integer(true, LOOM_SCALAR_TYPE_I1,
@@ -1667,7 +1670,7 @@ class Translator final : private Initialization::Evaluation {
   void statement(cxx::StatementAST* ast) {
     FastMathScope math_scope(
         lexical_fastmath_flags_,
-        lexical_fastmath_flags_ | (ast ? fastmath_.statement(ast) : 0));
+        resolve_fastmath(ast ? fastmath_.statement(ast) : std::nullopt));
     ast = selected_statement(ast);
     if (!ast) {
       return;
@@ -2155,10 +2158,9 @@ class Translator final : private Initialization::Evaluation {
             assembly->call(fragment, arguments, &builder_, locations_.get(ast));
             return;
           }
-          auto called =
-              intrinsics_.call(*binding, arguments, value_arena_, storage_, ast,
-                               intrinsic_math_flags_ | lexical_fastmath_flags_,
-                               &builder_, locations_.get(ast));
+          auto called = intrinsics_.call(*binding, arguments, value_arena_,
+                                         storage_, ast, lexical_fastmath_flags_,
+                                         &builder_, locations_.get(ast));
           if (called.value) {
             fail(ast, "value-producing intrinsic reached a void call");
           }
@@ -2247,8 +2249,8 @@ class Translator final : private Initialization::Evaluation {
   Functions functions_;
   // Borrowed source configuration for this invocation.
   const loom_cxx_import_options_t& options_;
-  // Invocation-level permission for approximate intrinsic function results.
-  uint8_t intrinsic_math_flags_;
+  // Translation-unit permissions inherited by unannotated function bodies.
+  uint8_t default_fastmath_flags_;
   // Function and nested statement permissions active at the insertion point.
   uint8_t lexical_fastmath_flags_ = 0;
   // Source and native definition contracts for the body being translated.
