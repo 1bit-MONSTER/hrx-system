@@ -189,6 +189,49 @@ def test_scalar_integer_constants_cover_every_fixed_width_type() -> None:
     }
 
 
+def test_scalar_integer_to_predicate_rules_preserve_the_low_bit() -> None:
+    actual = {source_type: [] for source_type in ("i8", "i16", "i32", "i64")}
+    for rule in WASM_CORE_SIMD128_CONTRACT_FRAGMENT.cases:
+        if rule.source_op is not conversion.scalar_trunci:
+            continue
+        input_type, result_type = _narrowing_pair(rule)
+        if result_type != "i1":
+            continue
+        actual[input_type].append(rule)
+
+    for source_type, rules in actual.items():
+        assert len(rules) == 2
+        normalized_rule, general_rule = rules
+        normalized_guard = next(
+            guard
+            for guard in normalized_rule.guards
+            if guard.kind is GuardKind.VALUE_I64_RANGE
+        )
+        assert (
+            normalized_guard.field,
+            normalized_guard.minimum,
+            normalized_guard.maximum,
+        ) == (
+            "input",
+            0,
+            1,
+        )
+        if source_type == "i64":
+            assert isinstance(normalized_rule, DescriptorRule)
+            assert tuple(emit.descriptor.key for emit in normalized_rule.emit) == (
+                "wasm.i32.wrap_i64",
+            )
+        else:
+            assert isinstance(normalized_rule, ValueAliasRule)
+
+        assert isinstance(general_rule, DescriptorRule)
+        assert tuple(emit.descriptor.key for emit in general_rule.emit) == (
+            *(("wasm.i32.wrap_i64",) if source_type == "i64" else ()),
+            "wasm.i32.const",
+            "wasm.i32.and",
+        )
+
+
 def test_scalar_float_to_integer_rules_cover_every_native_carrier_pair() -> None:
     actual = {}
     for rule in WASM_CORE_SIMD128_CONTRACT_FRAGMENT.cases:

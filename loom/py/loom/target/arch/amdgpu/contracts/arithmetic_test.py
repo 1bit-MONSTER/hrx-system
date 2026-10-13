@@ -1239,4 +1239,27 @@ def test_bitunpack_contract_preserves_packed_result_capacity() -> None:
                 for guard in guards
                 if guard.kind == GuardKind.VALUE_PACKED_INTEGER_LANES_FROM_PAYLOAD
             )
-        assert sorted(maximum_lane_counts) == [32, 64]
+        assert sorted(maximum_lane_counts) == [32, 32, 64]
+
+
+def test_bitpack_contract_covers_word_and_predicate_lanes() -> None:
+    compiled = _compiled_arithmetic_rules()
+    cases: set[tuple[str, str, int]] = set()
+
+    for rule in _rules_for_source_op(compiled, vector.vector_bitpack):
+        guards = compiled.guards[rule.guard_start : rule.guard_start + rule.guard_count]
+        types = tuple(
+            compiled.type_patterns[guard.type_pattern_index].type_pattern
+            for guard in guards
+            if guard.kind == GuardKind.VALUE_TYPE
+        )
+        width_guard = next(
+            guard for guard in guards if guard.kind == GuardKind.I64_RANGE
+        )
+        assert any(
+            guard.kind == GuardKind.VALUE_PACKED_INTEGER_PAYLOAD_FROM_LANES
+            for guard in guards
+        )
+        cases.add((types[0].element, types[1].element, width_guard.maximum_i64))
+
+    assert cases == {("i32", "i8", 8), ("i1", "i8", 1)}

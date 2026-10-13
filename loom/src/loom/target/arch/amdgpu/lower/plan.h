@@ -676,11 +676,19 @@ typedef struct loom_amdgpu_vector_conversion_plan_t {
 static_assert(sizeof(loom_amdgpu_vector_conversion_plan_t) == 48,
               "vector conversion plans must stay cache dense");
 
+typedef enum loom_amdgpu_bitpack_source_kind_e {
+  LOOM_AMDGPU_BITPACK_SOURCE_KIND_NONE = 0,
+  LOOM_AMDGPU_BITPACK_SOURCE_KIND_I32_LANES = 1,
+  LOOM_AMDGPU_BITPACK_SOURCE_KIND_I1_MASKS = 2,
+} loom_amdgpu_bitpack_source_kind_t;
+
 typedef struct loom_amdgpu_bitpack_plan_t {
-  // Source vector value containing unpacked i32 lanes.
+  // Source vector value containing unpacked integer lanes.
   loom_value_id_t source;
   // Result vector value containing packed i8 lanes.
   loom_value_id_t result;
+  // Selected source payload representation.
+  loom_amdgpu_bitpack_source_kind_t source_kind;
   // Number of low bits packed from each source lane.
   uint32_t width;
   // Number of unpacked source lanes.
@@ -695,6 +703,7 @@ typedef enum loom_amdgpu_bitunpack_result_kind_e {
   LOOM_AMDGPU_BITUNPACK_RESULT_KIND_NONE = 0,
   LOOM_AMDGPU_BITUNPACK_RESULT_KIND_I32_LANES = 1,
   LOOM_AMDGPU_BITUNPACK_RESULT_KIND_PACKED_I8 = 2,
+  LOOM_AMDGPU_BITUNPACK_RESULT_KIND_I1_MASKS = 3,
 } loom_amdgpu_bitunpack_result_kind_t;
 
 typedef struct loom_amdgpu_bitunpack_plan_t {
@@ -708,7 +717,7 @@ typedef struct loom_amdgpu_bitunpack_plan_t {
   uint32_t width;
   // Number of packed 32-bit source registers.
   uint32_t source_register_count;
-  // Number of packed 32-bit result registers.
+  // Number of 32-bit target register units in the result carrier.
   uint32_t result_register_count;
   // Number of unpacked result lanes.
   uint32_t lane_count;
