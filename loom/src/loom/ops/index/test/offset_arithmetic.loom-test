@@ -1,0 +1,204 @@
+// RUN: pass canonicalize
+
+// A targetless offset subtraction that may underflow retains the operation and
+// the complete representable unsigned source envelope.
+func.def @targetless_underflow_range(%input: offset) -> (offset, i64, i64) {
+  %bounded = index.assume %input [range(%input, 0, 1)] : offset
+  %c1 = index.constant 1 : offset
+  %wrapped = index.sub %bounded, %c1 : offset
+  %lo = test.fact_range_lo %wrapped : offset -> i64
+  %hi = test.fact_range_hi %wrapped : offset -> i64
+  func.return %wrapped, %lo, %hi : offset, i64, i64
+}
+
+// ----
+func.def @targetless_underflow_range(%input: offset) -> (offset, i64, i64) {
+  %bounded = index.assume %input [range(%input, 0, 1)] : offset
+  %c1 = index.constant 1 : offset
+  %wrapped = index.sub %bounded, %c1 : offset
+  %lo = scalar.constant 0 : i64
+  %hi = scalar.constant 9223372036854775807 : i64
+  func.return %wrapped, %lo, %hi : offset, i64, i64
+}
+
+// ====
+
+// Exact offset addition, subtraction, and scaling wrap in the selected 32-bit
+// unsigned carrier.
+test.target<low_core> @offset32 {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@offset32) @exact_wrap_32() -> (offset, offset, offset) {
+  %c0 = index.constant 0 : offset
+  %c1 = index.constant 1 : offset
+  %maximum = index.constant 4294967295 : offset
+  %cn1 = index.constant -1 : index
+  %c4 = index.constant 4 : offset
+  %underflow = index.sub %c0, %c1 : offset
+  %overflow = index.add %maximum, %c1 : offset
+  %scaled = index.scale %cn1, %c4 : index, offset -> offset
+  func.return %underflow, %overflow, %scaled : offset, offset, offset
+}
+
+// ----
+test.target<low_core> @offset32 {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@offset32) @exact_wrap_32() -> (offset, offset, offset) {
+  %underflow = index.constant 4294967295 : offset
+  %overflow = index.constant 0 : offset
+  %scaled = index.constant 4294967292 : offset
+  func.return %underflow, %overflow, %scaled : offset, offset, offset
+}
+
+// ====
+
+// The same mathematical inputs cross different modular boundaries in a
+// selected 64-bit offset carrier. Results in the U64 upper half remain dynamic
+// because the signed i64 fact lattice cannot represent them.
+test.target<low_core> @offset64 {index_bitwidth = 64, offset_bitwidth = 64}
+
+func.def target(@offset64) @exact_wrap_64() -> (offset, offset, offset) {
+  %c0 = index.constant 0 : offset
+  %c1 = index.constant 1 : offset
+  %maximum32 = index.constant 4294967295 : offset
+  %cn1 = index.constant -1 : index
+  %c4 = index.constant 4 : offset
+  %underflow = index.sub %c0, %c1 : offset
+  %sum = index.add %maximum32, %c1 : offset
+  %scaled = index.scale %cn1, %c4 : index, offset -> offset
+  func.return %underflow, %sum, %scaled : offset, offset, offset
+}
+
+// ----
+test.target<low_core> @offset64 {index_bitwidth = 64, offset_bitwidth = 64}
+
+func.def target(@offset64) @exact_wrap_64() -> (offset, offset, offset) {
+  %c0 = index.constant 0 : offset
+  %c1 = index.constant 1 : offset
+  %cn1 = index.constant -1 : index
+  %c4 = index.constant 4 : offset
+  %underflow = index.sub %c0, %c1 : offset
+  %sum = index.constant 4294967296 : offset
+  %scaled = index.scale %cn1, %c4 : index, offset -> offset
+  func.return %underflow, %sum, %scaled : offset, offset, offset
+}
+
+// ====
+
+// Interval wrapping preserves the power-of-two divisor while widening a
+// disjoint modular interval to the complete 32-bit unsigned range. An in-range
+// subtraction retains its precise interval.
+test.target<low_core> @offset32 {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@offset32) @interval_wrap_32(%crossing_input: offset, %safe_input: offset) -> (offset, offset, i64, i64, i64, i64, i64, i64) {
+  %crossing = index.assume %crossing_input [range(%crossing_input, 0, 4), multiple_of(%crossing_input, 4)] : offset
+  %safe = index.assume %safe_input [range(%safe_input, 4, 8), multiple_of(%safe_input, 4)] : offset
+  %c4 = index.constant 4 : offset
+  %wrapped = index.sub %crossing, %c4 : offset
+  %difference = index.sub %safe, %c4 : offset
+  %wrapped_lo = test.fact_range_lo %wrapped : offset -> i64
+  %wrapped_hi = test.fact_range_hi %wrapped : offset -> i64
+  %wrapped_divisor = test.fact_divisor %wrapped : offset -> i64
+  %difference_lo = test.fact_range_lo %difference : offset -> i64
+  %difference_hi = test.fact_range_hi %difference : offset -> i64
+  %difference_divisor = test.fact_divisor %difference : offset -> i64
+  func.return %wrapped, %difference, %wrapped_lo, %wrapped_hi, %wrapped_divisor, %difference_lo, %difference_hi, %difference_divisor : offset, offset, i64, i64, i64, i64, i64, i64
+}
+
+// ----
+test.target<low_core> @offset32 {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@offset32) @interval_wrap_32(%crossing_input: offset, %safe_input: offset) -> (offset, offset, i64, i64, i64, i64, i64, i64) {
+  %crossing = index.assume %crossing_input [range(%crossing_input, 0, 4), multiple_of(%crossing_input, 4)] : offset
+  %safe = index.assume %safe_input [range(%safe_input, 4, 8), multiple_of(%safe_input, 4)] : offset
+  %c4 = index.constant 4 : offset
+  %wrapped = index.sub %crossing, %c4 : offset
+  %difference = index.sub %safe, %c4 : offset
+  %wrapped_lo = scalar.constant 0 : i64
+  %wrapped_hi = scalar.constant 4294967295 : i64
+  %wrapped_divisor = scalar.constant 4 : i64
+  %difference_lo = scalar.constant 0 : i64
+  %difference_hi = scalar.constant 4 : i64
+  %difference_divisor = scalar.constant 4 : i64
+  func.return %wrapped, %difference, %wrapped_lo, %wrapped_hi, %wrapped_divisor, %difference_lo, %difference_hi, %difference_divisor : offset, offset, i64, i64, i64, i64, i64, i64
+}
+
+// ====
+
+// Symbolic cancellation stops at a possible modular boundary. The safe
+// subtraction still proves its unsigned order, so carrier awareness does not
+// disable ordinary in-range reasoning.
+test.target<low_core> @offset32 {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@offset32) @symbolic_wrap_barrier_32(%crossing_input: offset, %safe_input: offset, %coordinate_input: index) -> (i1, i1, i1) {
+  %crossing = index.assume %crossing_input [range(%crossing_input, 0, 1)] : offset
+  %safe = index.assume %safe_input [range(%safe_input, 1, 2)] : offset
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -1, 0)] : index
+  %c0 = index.constant 0 : offset
+  %c1 = index.constant 1 : offset
+  %c4 = index.constant 4 : offset
+  %wrapped = index.sub %crossing, %c1 : offset
+  %previous = index.sub %safe, %c1 : offset
+  %scaled = index.scale %coordinate, %c4 : index, offset -> offset
+  %crossing_order = index.cmp ult, %wrapped, %crossing : offset
+  %safe_order = index.cmp ult, %previous, %safe : offset
+  %scaled_order = index.cmp ule, %scaled, %c0 : offset
+  func.return %crossing_order, %safe_order, %scaled_order : i1, i1, i1
+}
+
+// ----
+test.target<low_core> @offset32 {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@offset32) @symbolic_wrap_barrier_32(%crossing_input: offset, %safe_input: offset, %coordinate_input: index) -> (i1, i1, i1) {
+  %crossing = index.assume %crossing_input [range(%crossing_input, 0, 1)] : offset
+  %coordinate = index.assume %coordinate_input [range(%coordinate_input, -1, 0)] : index
+  %c0 = index.constant 0 : offset
+  %c1 = index.constant 1 : offset
+  %c4 = index.constant 4 : offset
+  %wrapped = index.sub %crossing, %c1 : offset
+  %scaled = index.scale %coordinate, %c4 : index, offset -> offset
+  %crossing_order = index.cmp ult, %wrapped, %crossing : offset
+  %safe_order = scalar.constant true : i1
+  %scaled_order = index.cmp ule, %scaled, %c0 : offset
+  func.return %crossing_order, %safe_order, %scaled_order : i1, i1, i1
+}
+
+// ====
+
+// A 64-bit carrier and a targetless module need the same symbolic barrier even
+// though their unrepresentable wrapped values cannot be named in source facts.
+test.target<low_core> @offset64 {index_bitwidth = 64, offset_bitwidth = 64}
+
+func.def target(@offset64) @symbolic_wrap_barrier_64(%input: offset) -> (i1) {
+  %bounded = index.assume %input [range(%input, 0, 1)] : offset
+  %c1 = index.constant 1 : offset
+  %wrapped = index.sub %bounded, %c1 : offset
+  %order = index.cmp ult, %wrapped, %bounded : offset
+  func.return %order : i1
+}
+
+func.def @symbolic_wrap_barrier_targetless(%input: offset) -> (i1) {
+  %bounded = index.assume %input [range(%input, 0, 1)] : offset
+  %c1 = index.constant 1 : offset
+  %wrapped = index.sub %bounded, %c1 : offset
+  %order = index.cmp ult, %wrapped, %bounded : offset
+  func.return %order : i1
+}
+
+// ----
+test.target<low_core> @offset64 {index_bitwidth = 64, offset_bitwidth = 64}
+
+func.def target(@offset64) @symbolic_wrap_barrier_64(%input: offset) -> (i1) {
+  %bounded = index.assume %input [range(%input, 0, 1)] : offset
+  %c1 = index.constant 1 : offset
+  %wrapped = index.sub %bounded, %c1 : offset
+  %order = index.cmp ult, %wrapped, %bounded : offset
+  func.return %order : i1
+}
+
+func.def @symbolic_wrap_barrier_targetless(%input: offset) -> (i1) {
+  %bounded = index.assume %input [range(%input, 0, 1)] : offset
+  %c1 = index.constant 1 : offset
+  %wrapped = index.sub %bounded, %c1 : offset
+  %order = index.cmp ult, %wrapped, %bounded : offset
+  func.return %order : i1
+}

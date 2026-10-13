@@ -10,6 +10,7 @@
 #include "loom/analysis/symbolic_expr.h"
 #include "loom/analysis/symbolic_expr_proof.h"
 #include "loom/ir/module.h"
+#include "loom/ops/index/carrier.h"
 #include "loom/ops/index/compare.h"
 #include "loom/ops/index/ops.h"
 #include "loom/pass/value_facts.h"
@@ -54,8 +55,21 @@ static iree_status_t loom_index_symbolic_sub_pattern(
       loom_index_sub_rhs(op), &difference));
   switch (difference.kind) {
     case LOOM_SYMBOLIC_VALUE_DIFFERENCE_CONSTANT: {
+      loom_value_facts_t constant_facts =
+          loom_value_facts_exact_i64(difference.constant);
+      const loom_type_t result_type = loom_module_value_type(
+          rewriter->module, loom_op_const_results(op)[0]);
+      if (loom_type_element_type(result_type) == LOOM_SCALAR_TYPE_OFFSET) {
+        const loom_fact_context_t* fact_context =
+            rewriter->fact_table ? &rewriter->fact_table->context : NULL;
+        constant_facts =
+            loom_index_wrap_offset_facts(fact_context, constant_facts);
+        if (!loom_value_facts_is_exact(constant_facts)) {
+          return iree_ok_status();
+        }
+      }
       IREE_RETURN_IF_ERROR(loom_index_replace_single_result_with_exact_i64(
-          rewriter, op, difference.constant));
+          rewriter, op, constant_facts.range_lo));
       *out_changed = true;
       return iree_ok_status();
     }

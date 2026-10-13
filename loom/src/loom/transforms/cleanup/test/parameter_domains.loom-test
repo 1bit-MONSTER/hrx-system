@@ -175,7 +175,8 @@ func.def target(@native) @declared_wide_parameter(%position: index) -> (i64, i64
 
 // ====
 
-// A native index input does not limit the domain of computed address values.
+// Logical index arithmetic retains its mathematical source range. Offset
+// arithmetic wraps in the selected unsigned carrier.
 test.target<low_core> @native {index_bitwidth = 32, offset_bitwidth = 32}
 
 func.def target(@native) @wide_computed_values(%position: index, %bytes: offset) -> (i64, i64, i64, i64) {
@@ -197,7 +198,7 @@ func.def target(@native) @wide_computed_values(%position: index, %bytes: offset)
   %position_lo = scalar.constant 2147483648 : i64
   %position_hi = scalar.constant 6442450943 : i64
   %bytes_lo = scalar.constant 0 : i64
-  %bytes_hi = scalar.constant 9223372036854775807 : i64
+  %bytes_hi = scalar.constant 4294967295 : i64
   func.return %position_lo, %position_hi, %bytes_lo, %bytes_hi : i64, i64, i64, i64
 }
 

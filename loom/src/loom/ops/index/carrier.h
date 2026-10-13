@@ -24,6 +24,12 @@ extern "C" {
 int32_t loom_index_target_carrier_bitwidth(const loom_fact_context_t* context,
                                            loom_scalar_type_t scalar_type);
 
+// Maps mathematical offset facts into the selected unsigned carrier. A
+// targetless context uses the widest source carrier; an invalid carrier
+// produces the complete representable offset envelope.
+loom_value_facts_t loom_index_wrap_offset_facts(
+    const loom_fact_context_t* context, loom_value_facts_t mathematical_facts);
+
 // Returns true when |facts| fit the signed target carrier for |scalar_type|.
 // Targetless facts retain their mathematical source view.
 bool loom_index_value_facts_fit_signed_target_carrier(

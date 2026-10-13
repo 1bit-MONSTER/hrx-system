@@ -173,9 +173,9 @@ class SourceMemoryPlanTest : public ::testing::Test {
     return op;
   }
 
-  loom_value_id_t BuildIndexAssumeRange(loom_value_id_t source,
-                                        int64_t minimum_value,
-                                        int64_t maximum_value) {
+  loom_value_id_t BuildAssumeRange(loom_value_id_t source,
+                                   int64_t minimum_value,
+                                   int64_t maximum_value) {
     loom_predicate_t* predicate = nullptr;
     IREE_EXPECT_OK(iree_arena_allocate_array(
         &module_->arena, 1, sizeof(*predicate), (void**)&predicate));
@@ -187,12 +187,24 @@ class SourceMemoryPlanTest : public ::testing::Test {
         /*.reserved=*/{},
         /*.args=*/{source, minimum_value, maximum_value},
     };
-    const loom_type_t result_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+    const loom_type_t result_type = loom_module_value_type(module_, source);
     loom_op_t* op = nullptr;
     IREE_EXPECT_OK(loom_index_assume_build(&builder_, &source, 1, predicate, 1,
                                            &result_type, 1,
                                            LOOM_LOCATION_UNKNOWN, &op));
     return loom_index_assume_results(op).values[0];
+  }
+
+  loom_value_id_t BuildIndexAssumeRange(loom_value_id_t source,
+                                        int64_t minimum_value,
+                                        int64_t maximum_value) {
+    return BuildAssumeRange(source, minimum_value, maximum_value);
+  }
+
+  loom_value_id_t BuildOffsetAssumeRange(loom_value_id_t source,
+                                         int64_t minimum_value,
+                                         int64_t maximum_value) {
+    return BuildAssumeRange(source, minimum_value, maximum_value);
   }
 
   loom_value_id_t BuildDenseLayout() {

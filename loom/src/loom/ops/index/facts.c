@@ -48,6 +48,31 @@ static bool loom_index_cast_scalar_type(const loom_module_t* module,
   return true;
 }
 
+static void loom_index_wrap_offset_result_facts(
+    const loom_fact_context_t* context, const loom_module_t* module,
+    const loom_op_t* op, loom_value_facts_t* facts) {
+  int32_t bit_count =
+      loom_index_target_carrier_bitwidth(context, LOOM_SCALAR_TYPE_OFFSET);
+  if (bit_count == 0) {
+    bit_count = 64;
+  }
+  // Most address arithmetic remains inside every possible target carrier.
+  // Prove that before loading the result's segmented type record; only a
+  // mathematical result that may wrap needs to distinguish index from offset.
+  if (bit_count > 0 &&
+      loom_value_facts_unsigned_wrap_is_identity(*facts, (uint8_t)bit_count)) {
+    return;
+  }
+
+  const loom_type_t result_type =
+      loom_module_value_type(module, loom_op_const_results(op)[0]);
+  if (loom_type_element_type(result_type) != LOOM_SCALAR_TYPE_OFFSET) {
+    return;
+  }
+
+  *facts = loom_index_wrap_offset_facts(context, *facts);
+}
+
 iree_status_t loom_index_cast_facts(loom_fact_context_t* context,
                                     const loom_module_t* module,
                                     const loom_op_t* op,
@@ -98,7 +123,15 @@ iree_status_t loom_index_constexpr_facts(
   return iree_ok_status();
 }
 
-LOOM_INDEX_BINARY_FACTS(loom_index_add_facts, loom_value_facts_addi)
+iree_status_t loom_index_add_facts(loom_fact_context_t* context,
+                                   const loom_module_t* module,
+                                   const loom_op_t* op,
+                                   const loom_value_facts_t* operand_facts,
+                                   loom_value_facts_t* result_facts) {
+  loom_value_facts_addi(&operand_facts[0], &operand_facts[1], &result_facts[0]);
+  loom_index_wrap_offset_result_facts(context, module, op, &result_facts[0]);
+  return iree_ok_status();
+}
 
 typedef enum loom_index_assumed_order_flag_bits_e {
   LOOM_INDEX_ASSUMED_ORDER_NONE = 0,
@@ -238,11 +271,20 @@ iree_status_t loom_index_sub_facts(loom_fact_context_t* context,
     }
   }
   loom_value_facts_recompute_flags(&result_facts[0]);
+  loom_index_wrap_offset_result_facts(context, module, op, &result_facts[0]);
   return iree_ok_status();
 }
 
 LOOM_INDEX_BINARY_FACTS(loom_index_mul_facts, loom_value_facts_muli)
-LOOM_INDEX_BINARY_FACTS(loom_index_scale_facts, loom_value_facts_muli)
+iree_status_t loom_index_scale_facts(loom_fact_context_t* context,
+                                     const loom_module_t* module,
+                                     const loom_op_t* op,
+                                     const loom_value_facts_t* operand_facts,
+                                     loom_value_facts_t* result_facts) {
+  loom_value_facts_muli(&operand_facts[0], &operand_facts[1], &result_facts[0]);
+  loom_index_wrap_offset_result_facts(context, module, op, &result_facts[0]);
+  return iree_ok_status();
+}
 
 static void loom_index_div_result_facts(const loom_value_facts_t* operand_facts,
                                         loom_value_facts_t* result_facts) {

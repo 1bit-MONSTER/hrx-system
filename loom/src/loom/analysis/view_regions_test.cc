@@ -862,9 +862,24 @@ TEST_F(ViewRegionsTest, PrecomputesReusedMemoryIndexExpression) {
       table.expression_context, unrelated_index, &unrelated_summary));
 }
 
-TEST_F(ViewRegionsTest, ProvesSymbolicOffsetCancellation) {
+TEST_F(ViewRegionsTest, ProvesCarrierSafeSymbolicOffsetCancellation) {
   loom_value_id_t buffer = DefineBufferArg();
-  loom_value_id_t base_offset = DefineOffsetArg();
+  loom_value_id_t raw_base_offset = DefineOffsetArg();
+  const loom_predicate_t base_range = {
+      .kind = LOOM_PREDICATE_RANGE,
+      .arg_count = 3,
+      .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
+                   LOOM_PRED_ARG_CONST},
+      .reserved = {},
+      .args = {raw_base_offset, 0, 4096},
+  };
+  const loom_type_t offset_type = loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET);
+  loom_op_t* assume_op = nullptr;
+  IREE_ASSERT_OK(loom_index_assume_build(&builder_, &raw_base_offset, 1,
+                                         &base_range, 1, &offset_type, 1,
+                                         LOOM_LOCATION_UNKNOWN, &assume_op));
+  const loom_value_id_t base_offset =
+      loom_index_assume_results(assume_op).values[0];
   loom_value_id_t layout = BuildDenseLayout();
   loom_value_id_t sixty_four =
       loom_index_constant_result(BuildOffsetConstant(64));
@@ -899,16 +914,66 @@ TEST_F(ViewRegionsTest, ProvesSymbolicOffsetCancellation) {
   ASSERT_NE(second_region, nullptr);
   EXPECT_TRUE(loom_symbolic_expr_is_linear(&first_region->begin_byte_offset));
   ASSERT_EQ(first_region->begin_byte_offset.term_count, 1);
-  EXPECT_EQ(first_region->begin_byte_offset.terms[0].value_id, base_offset);
+  EXPECT_EQ(first_region->begin_byte_offset.terms[0].value_id, raw_base_offset);
   EXPECT_EQ(first_region->begin_byte_offset.constant, 0);
   EXPECT_TRUE(loom_symbolic_expr_is_linear(&second_region->begin_byte_offset));
   ASSERT_EQ(second_region->begin_byte_offset.term_count, 1);
-  EXPECT_EQ(second_region->begin_byte_offset.terms[0].value_id, base_offset);
+  EXPECT_EQ(second_region->begin_byte_offset.terms[0].value_id,
+            raw_base_offset);
   EXPECT_EQ(second_region->begin_byte_offset.constant, 64);
 
   bool no_overlap = false;
   IREE_ASSERT_OK(loom_view_regions_prove_no_overlap(
       &table, first_region, second_region, &no_overlap));
+  EXPECT_TRUE(no_overlap);
+}
+
+TEST_F(ViewRegionsTest, ProvesDisjointnessAcrossPotentialOffsetWrap) {
+  const loom_value_id_t buffer = DefineBufferArg();
+  const loom_value_id_t base_offset = DefineOffsetArg();
+  const loom_value_id_t layout = BuildDenseLayout();
+  const loom_value_id_t sixty_four =
+      loom_index_constant_result(BuildOffsetConstant(64));
+  loom_op_t* second_offset_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(&builder_, base_offset, sixty_four,
+                                      loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET),
+                                      LOOM_LOCATION_UNKNOWN,
+                                      &second_offset_op));
+  const loom_value_id_t second_offset = loom_index_add_result(second_offset_op);
+
+  loom_op_t* first_view_op = nullptr;
+  IREE_ASSERT_OK(loom_buffer_view_build(&builder_, buffer, base_offset,
+                                        ViewType1D(16, layout),
+                                        LOOM_LOCATION_UNKNOWN, &first_view_op));
+  loom_op_t* second_view_op = nullptr;
+  IREE_ASSERT_OK(loom_buffer_view_build(
+      &builder_, buffer, second_offset, ViewType1D(16, layout),
+      LOOM_LOCATION_UNKNOWN, &second_view_op));
+
+  loom_value_fact_table_t facts = {};
+  ComputeFacts(&facts);
+  loom_view_region_table_t table = {};
+  Analyze(&facts, &table);
+
+  const loom_view_region_t* first_region = nullptr;
+  IREE_ASSERT_OK(loom_view_region_table_get(
+      &table, loom_buffer_view_result(first_view_op), &first_region));
+  const loom_view_region_t* second_region = nullptr;
+  IREE_ASSERT_OK(loom_view_region_table_get(
+      &table, loom_buffer_view_result(second_view_op), &second_region));
+
+  ASSERT_NE(first_region, nullptr);
+  ASSERT_NE(second_region, nullptr);
+  ASSERT_TRUE(loom_symbolic_expr_is_linear(&second_region->begin_byte_offset));
+  ASSERT_EQ(second_region->begin_byte_offset.term_count, 1);
+  EXPECT_EQ(second_region->begin_byte_offset.terms[0].value_id, second_offset);
+  EXPECT_EQ(second_region->begin_byte_offset.constant, 0);
+  bool no_overlap = false;
+  IREE_ASSERT_OK(loom_view_regions_prove_no_overlap(
+      &table, first_region, second_region, &no_overlap));
+  // Linear order is unavailable across the wrap boundary, but the retained
+  // carrier congruence still proves that two 64-byte regions separated by 64
+  // bytes cannot overlap.
   EXPECT_TRUE(no_overlap);
 }
 

@@ -124,7 +124,7 @@ iree_status_t loom_index_assume_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
-// LOOM_OP_INDEX_ADD: Address-domain addition. Operands and result must all be index or all offset.
+// LOOM_OP_INDEX_ADD: Address-domain addition. Operands and result must all be index or all offset. Offset addition wraps modulo the selected target's unsigned offset carrier.
 // %r = index.add %lhs, %rhs : index
 LOOM_DEFINE_ISA(loom_index_add_isa, LOOM_OP_INDEX_ADD)
 LOOM_DEFINE_OPERAND(loom_index_add_lhs, 0)
@@ -141,7 +141,7 @@ iree_status_t loom_index_add_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_INDEX_SUB: Address-domain subtraction. Operands and result must all be index or all offset.
+// LOOM_OP_INDEX_SUB: Address-domain subtraction. Operands and result must all be index or all offset. Offset subtraction wraps modulo the selected target's unsigned offset carrier.
 // %r = index.sub %lhs, %rhs : index
 LOOM_DEFINE_ISA(loom_index_sub_isa, LOOM_OP_INDEX_SUB)
 LOOM_DEFINE_OPERAND(loom_index_sub_lhs, 0)
@@ -177,7 +177,7 @@ iree_status_t loom_index_mul_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_INDEX_SCALE: Scale a logical coordinate by a physical byte stride to produce a physical byte offset. This is the address-domain boundary for packed payload layouts: logical indices stay index values, byte strides stay offset values, and the result feeds byte-addressed buffer/view bases.
+// LOOM_OP_INDEX_SCALE: Scale a logical coordinate by a physical byte stride to produce a physical byte offset. This is the address-domain boundary for packed payload layouts: logical indices stay index values, byte strides stay offset values, and the result feeds byte-addressed buffer/view bases. The result wraps modulo the selected target's unsigned offset carrier.
 // %bytes = index.scale %lane, %byte_stride : index, offset -> offset
 LOOM_DEFINE_ISA(loom_index_scale_isa, LOOM_OP_INDEX_SCALE)
 LOOM_DEFINE_OPERAND(loom_index_scale_index, 0)

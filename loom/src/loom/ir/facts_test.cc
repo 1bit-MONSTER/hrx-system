@@ -675,6 +675,147 @@ TEST(FactsWrapInteger, PreservesDistributionButNotNonzero) {
   EXPECT_FALSE(loom_value_facts_is_non_negative(result));
 }
 
+TEST(FactsWrapUnsignedInteger, ExactAndCrossingRanges) {
+  loom_value_facts_t exact = loom_value_facts_wrap_unsigned_integer(
+      loom_value_facts_exact_i64(-1), 32);
+  EXPECT_TRUE(loom_value_facts_is_exact(exact));
+  EXPECT_EQ(exact.range_lo, (int64_t)UINT32_MAX);
+
+  loom_value_facts_t crossing = loom_value_facts_wrap_unsigned_integer(
+      loom_value_facts_make(-4, 0, 4), 32);
+  EXPECT_EQ(crossing.range_lo, 0);
+  EXPECT_EQ(crossing.range_hi, (int64_t)UINT32_MAX);
+  EXPECT_EQ(crossing.known_divisor, 4);
+
+  loom_value_facts_t wrapped = loom_value_facts_wrap_unsigned_integer(
+      loom_value_facts_make(INT64_C(4294967296), INT64_C(4294967299), 1), 32);
+  EXPECT_EQ(wrapped.range_lo, 0);
+  EXPECT_EQ(wrapped.range_hi, 3);
+
+  loom_value_facts_t signed_midpoint = loom_value_facts_wrap_unsigned_integer(
+      loom_value_facts_make(INT32_MAX, (int64_t)INT32_MAX + 1, 1), 32);
+  EXPECT_EQ(signed_midpoint.range_lo, INT32_MAX);
+  EXPECT_EQ(signed_midpoint.range_hi, (int64_t)INT32_MAX + 1);
+}
+
+TEST(FactsWrapUnsignedInteger, ExactBitPatterns) {
+  for (int32_t bit_count : {1, 4, 8, 16, 32, 63}) {
+    for (int64_t value :
+         {INT64_MIN, int64_t{-257}, int64_t{-129}, int64_t{-1}, int64_t{0},
+          int64_t{1}, int64_t{128}, int64_t{256}, INT64_MAX}) {
+      SCOPED_TRACE(bit_count);
+      SCOPED_TRACE(value);
+      const loom_value_facts_t result = loom_value_facts_wrap_unsigned_integer(
+          loom_value_facts_exact_i64(value), bit_count);
+      const uint64_t mask = (UINT64_C(1) << bit_count) - 1;
+      EXPECT_TRUE(loom_value_facts_is_exact(result));
+      EXPECT_EQ((uint64_t)result.range_lo, (uint64_t)value & mask);
+      EXPECT_GE(result.range_lo, 0);
+      EXPECT_LE((uint64_t)result.range_hi, mask);
+    }
+  }
+
+  const loom_value_facts_t positive64 = loom_value_facts_wrap_unsigned_integer(
+      loom_value_facts_exact_i64(INT64_MAX), 64);
+  EXPECT_TRUE(loom_value_facts_is_exact(positive64));
+  EXPECT_EQ(positive64.range_lo, INT64_MAX);
+}
+
+TEST(FactsWrapUnsignedInteger, RangesContainEveryPossibleValue) {
+  for (int64_t divisor : {1, 2, 3, 6, 16, 256, 512}) {
+    for (int64_t lo : {-300, -128, -32, 0, 30, 120, 255}) {
+      for (int64_t length : {0, 4, 20, 300}) {
+        SCOPED_TRACE(divisor);
+        SCOPED_TRACE(lo);
+        SCOPED_TRACE(length);
+        loom_value_facts_t source =
+            loom_value_facts_make(lo, lo + length, divisor);
+        if (length != 0) {
+          loom_value_facts_mark_lane_varying(&source);
+        }
+        const loom_value_facts_t result =
+            loom_value_facts_wrap_unsigned_integer(source, 8);
+        for (int64_t value = lo; value <= lo + length; ++value) {
+          if (value % source.known_divisor != 0) {
+            continue;
+          }
+          const int64_t wrapped = (uint64_t)value & UINT64_C(255);
+          EXPECT_LE(result.range_lo, wrapped);
+          EXPECT_GE(result.range_hi, wrapped);
+          EXPECT_EQ(wrapped % result.known_divisor, 0);
+        }
+        EXPECT_EQ(loom_value_facts_is_lane_varying(result), length != 0);
+      }
+    }
+  }
+}
+
+TEST(FactsWrapUnsignedInteger, ReducesDivisibilityAcrossWrap) {
+  loom_value_facts_t odd = loom_value_facts_wrap_unsigned_integer(
+      loom_value_facts_make(-15, -3, 3), 32);
+  EXPECT_EQ(odd.range_lo, INT64_C(4294967281));
+  EXPECT_EQ(odd.range_hi, INT64_C(4294967293));
+  EXPECT_EQ(odd.known_divisor, 1);
+
+  loom_value_facts_t power_of_two = loom_value_facts_wrap_unsigned_integer(
+      loom_value_facts_make(-16, -4, 4), 32);
+  EXPECT_EQ(power_of_two.range_lo, INT64_C(4294967280));
+  EXPECT_EQ(power_of_two.range_hi, INT64_C(4294967292));
+  EXPECT_EQ(power_of_two.known_divisor, 4);
+}
+
+TEST(FactsWrapUnsignedInteger, RetainsRepresentableWideValues) {
+  loom_value_facts_t source =
+      loom_value_facts_make(INT64_C(4611686018427387904), INT64_MAX - 7, 8);
+  loom_value_facts_mark_workgroup_uniform(&source);
+
+  loom_value_facts_t unsigned63 =
+      loom_value_facts_wrap_unsigned_integer(source, 63);
+  EXPECT_TRUE(loom_value_facts_unsigned_wrap_is_identity(source, 63));
+  EXPECT_TRUE(loom_value_facts_equal(unsigned63, source));
+
+  loom_value_facts_t unsigned64 =
+      loom_value_facts_wrap_unsigned_integer(source, 64);
+  EXPECT_TRUE(loom_value_facts_unsigned_wrap_is_identity(source, 64));
+  EXPECT_TRUE(loom_value_facts_equal(unsigned64, source));
+
+  // A nonexact range ending at INT64_MAX may extend past the fact lattice's
+  // saturation sentinel. Preserve soundness instead of treating the endpoint
+  // as a proven mathematical bound.
+  loom_value_facts_t saturated_source =
+      loom_value_facts_make(INT64_C(4611686018427387904), INT64_MAX, 8);
+  EXPECT_FALSE(
+      loom_value_facts_unsigned_wrap_is_identity(saturated_source, 64));
+  loom_value_facts_t saturated =
+      loom_value_facts_wrap_unsigned_integer(saturated_source, 64);
+  EXPECT_EQ(saturated.range_lo, 0);
+  EXPECT_EQ(saturated.range_hi, INT64_MAX);
+  EXPECT_EQ(saturated.known_divisor, 8);
+
+  loom_value_facts_t saturated63 =
+      loom_value_facts_wrap_unsigned_integer(saturated_source, 63);
+  EXPECT_EQ(saturated63.range_lo, 0);
+  EXPECT_EQ(saturated63.range_hi, INT64_MAX);
+  EXPECT_EQ(saturated63.known_divisor, 8);
+}
+
+TEST(FactsWrapUnsignedInteger, WidensUnrepresentableU64Results) {
+  loom_value_facts_t exact = loom_value_facts_wrap_unsigned_integer(
+      loom_value_facts_exact_i64(-1), 64);
+  EXPECT_EQ(exact.range_lo, 0);
+  EXPECT_EQ(exact.range_hi, INT64_MAX);
+  EXPECT_FALSE(loom_value_facts_is_exact(exact));
+
+  loom_value_facts_t source = loom_value_facts_make(-15, -3, 3);
+  loom_value_facts_mark_lane_varying(&source);
+  loom_value_facts_t result =
+      loom_value_facts_wrap_unsigned_integer(source, 64);
+  EXPECT_EQ(result.range_lo, 0);
+  EXPECT_EQ(result.range_hi, INT64_MAX);
+  EXPECT_EQ(result.known_divisor, 1);
+  EXPECT_TRUE(loom_value_facts_is_lane_varying(result));
+}
+
 TEST(FactsMaximum, NonNegativeFiniteRange) {
   int64_t maximum = -1;
   EXPECT_TRUE(loom_value_facts_as_non_negative_i64_maximum(

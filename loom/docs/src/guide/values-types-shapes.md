@@ -54,6 +54,15 @@ coordinates, and general indexing arithmetic. `offset` is the unsigned address
 domain for byte counts and byte positions. Its physical carrier may differ from
 the index carrier on the selected target.
 
+`offset` arithmetic uses that selected carrier directly. [`index.add`](../reference/dialects/index/ops/add.md),
+[`index.sub`](../reference/dialects/index/ops/sub.md), and
+[`index.scale`](../reference/dialects/index/ops/scale.md) wrap their `offset`
+results modulo the carrier width. On a target with a 32-bit offset carrier,
+subtracting one from zero therefore produces `4294967295`; a 64-bit carrier
+wraps at 64 bits. This defined arithmetic result does not prove that the offset
+names valid storage. Buffer and view accesses still require their ordinary
+bounds, alignment, and alias proofs.
+
 Fixed-width integers carry payload representation. Integer operations state the
 interpretation that matters at the use: signed and unsigned comparisons,
 extensions, packed-field extraction, and quantized dot products do not infer

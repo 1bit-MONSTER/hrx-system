@@ -29,7 +29,7 @@ enum loom_scalar_type_e {
   // computed values can require wider carriers. Arithmetic is signed.
   LOOM_SCALAR_TYPE_INDEX = 1,
   // Unsigned target-selected-width integer for buffer byte offsets and
-  // addressing. Arithmetic follows unsigned semantics. Its target carrier may
+  // addressing. Arithmetic wraps modulo the selected carrier width, which may
   // be wider than the index carrier.
   LOOM_SCALAR_TYPE_OFFSET = 2,
   // 1-bit integer. Boolean results (comparisons, predicates).

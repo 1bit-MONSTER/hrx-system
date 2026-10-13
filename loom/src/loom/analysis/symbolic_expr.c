@@ -819,7 +819,7 @@ typedef struct loom_symbolic_expr_expansion_frame_t {
   loom_value_id_t operand_values[3];
 
   // Fixed-width result domain that must preserve the mathematical expression,
-  // or zero for address arithmetic and operations with no signed wrap.
+  // or zero for nonwrapping arithmetic.
   uint8_t integer_bit_count;
 
   // Completed proof's memo state, or EMPTY while no proof is retained.
@@ -1197,8 +1197,23 @@ static iree_status_t loom_symbolic_expr_expansion_prepare_frame(
          frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_MULTIPLY_ADD) &&
         iree_any_bit_set(defining_op->instance_flags,
                          LOOM_INTEGER_OVERFLOW_FLAG_NSW);
-    if (loom_scalar_type_is_integer(scalar_type) &&
-        frame->kind != LOOM_SYMBOLIC_EXPR_EXPANSION_ASSUME && !no_signed_wrap) {
+    const bool wraps_in_offset_carrier =
+        scalar_type == LOOM_SCALAR_TYPE_OFFSET &&
+        (frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_ADD ||
+         frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_SUBTRACT ||
+         frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_MULTIPLY);
+    if (wraps_in_offset_carrier) {
+      const loom_fact_context_t* fact_context =
+          context->fact_table ? &context->fact_table->context : NULL;
+      const int32_t target_bit_count = loom_index_target_carrier_bitwidth(
+          fact_context, LOOM_SCALAR_TYPE_OFFSET);
+      // Targetless expressions use the widest source fact carrier. A selected
+      // carrier makes narrower modular boundaries visible to the same proof.
+      frame->integer_bit_count =
+          (uint8_t)(target_bit_count > 0 ? target_bit_count : 64);
+    } else if (loom_scalar_type_is_integer(scalar_type) &&
+               frame->kind != LOOM_SYMBOLIC_EXPR_EXPANSION_ASSUME &&
+               !no_signed_wrap) {
       frame->integer_bit_count =
           (uint8_t)loom_scalar_type_bitwidth(scalar_type);
     }
@@ -1285,11 +1300,16 @@ static iree_status_t loom_symbolic_expr_retain_product(
                                    right_expression->facts, &facts)) {
     return iree_ok_status();
   }
-  if (bit_count != 0 &&
-      !(bit_count == 1
-            ? loom_value_facts_fit_unsigned_bit_count(facts, 1)
-            : loom_value_facts_fit_signed_bit_count(facts, bit_count))) {
-    return iree_ok_status();
+  if (bit_count != 0) {
+    bool fits = false;
+    if (scalar_type == LOOM_SCALAR_TYPE_OFFSET || bit_count == 1) {
+      fits = loom_value_facts_fit_unsigned_bit_count(facts, bit_count);
+    } else {
+      fits = loom_value_facts_fit_signed_bit_count(facts, bit_count);
+    }
+    if (!fits) {
+      return iree_ok_status();
+    }
   }
   const loom_fact_context_t* fact_context =
       context->fact_table ? &context->fact_table->context : NULL;
@@ -1629,10 +1649,16 @@ iree_status_t loom_symbolic_expr_from_value(
       // Check the mathematical result before replacing its facts with the
       // producer's wrapped range. A potentially wrapping result remains its
       // own exact symbol; order proofs cannot cancel across this boundary.
-      bool fits = bit_count == 1 ? loom_value_facts_fit_unsigned_bit_count(
-                                       expression.facts, 1)
-                                 : loom_value_facts_fit_signed_bit_count(
-                                       expression.facts, bit_count);
+      const loom_scalar_type_t scalar_type = loom_type_element_type(
+          loom_module_value_type(context->module, completed_value));
+      bool fits = false;
+      if (scalar_type == LOOM_SCALAR_TYPE_OFFSET || bit_count == 1) {
+        fits = loom_value_facts_fit_unsigned_bit_count(expression.facts,
+                                                       bit_count);
+      } else {
+        fits =
+            loom_value_facts_fit_signed_bit_count(expression.facts, bit_count);
+      }
       if (bit_count == 64 &&
           frames[frame_count - 1].proof_state !=
               LOOM_SYMBOLIC_EXPR_MEMO_PRODUCT &&
