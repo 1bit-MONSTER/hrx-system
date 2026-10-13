@@ -188,6 +188,21 @@ loom_cc_library(
 
 loom_cc_test(
   NAME
+    registry_test
+  SRCS
+    "registry_test.cc"
+  DEPS
+    ::configuration
+    ::registry
+    iree::base
+    iree::io::file_handle
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::testing::temp_file
+)
+
+loom_cc_test(
+  NAME
     configuration_test
   SRCS
     "configuration_test.cc"

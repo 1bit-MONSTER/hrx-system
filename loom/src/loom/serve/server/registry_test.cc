@@ -1,0 +1,119 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+#include "loom/serve/server/registry.h"
+
+#include <filesystem>
+#include <string>
+
+#include "iree/io/file_contents.h"
+#include "iree/testing/gtest.h"
+#include "iree/testing/status_matchers.h"
+#include "iree/testing/temp_file.h"
+#include "loom/serve/server/configuration.h"
+
+namespace {
+
+class RegistryTest : public ::testing::TestWithParam<bool> {
+ protected:
+  void SetUp() override {
+    ASSERT_TRUE(path_);
+    const loom_serve_registration_factory_t factory = {
+        .kinds = 1u << LOOM_SERVE_MODEL_KIND_EMBEDDING,
+        .device_count = 2,
+        .create =
+            [](void*, const loom_serve_model_configuration_t*,
+               loom_serve_wake_callback_t, loom_serve_telemetry_stream_t*,
+               loom_serve_registration_t*, iree_allocator_t) {
+              ADD_FAILURE() << "Drained metadata must not prepare a model";
+              return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                                      "unexpected model preparation");
+            },
+    };
+    IREE_ASSERT_OK(loom_serve_registry_allocate(
+        0, nullptr, 1, factory, &registry_, iree_allocator_system()));
+  }
+
+  void TearDown() override {
+    IREE_EXPECT_OK(loom_serve_registry_free(registry_));
+    loom_serve_model_configuration_deinitialize(&configuration_);
+    if (path_.Exists()) {
+      EXPECT_TRUE(path_.Remove());
+    }
+  }
+
+  static std::string String(iree_string_view_t value) {
+    return std::string(value.data, value.size);
+  }
+
+  // Real model document in the runner-owned temporary directory.
+  iree::testing::TempFilePath path_{"model", ".json"};
+  // Loaded declaration until ownership transfers to a registered slot.
+  loom_serve_model_configuration_t configuration_ = {};
+  // Registry owning moved metadata; no model resources are activated.
+  loom_serve_registry_t* registry_ = nullptr;
+};
+
+TEST_P(RegistryTest, FileRegistrationOwnsAuthoredPathsAndSelectedBase) {
+  const bool explicit_base = GetParam();
+  const std::string expected_base =
+      explicit_base
+          ? "//files/models/vectors"
+          : std::filesystem::path(path_.path()).parent_path().string();
+  const std::string document =
+      R"({"name":"vectors","admission":"drained","device":1,)" +
+      std::string(explicit_base
+                      ? R"("base_directory":"//files/models/vectors",)"
+                      : "") +
+      R"("definition":{"kind":"embedding","assets":"weights",)"
+      R"("prepare":"boot.loombc","control":"run.loom",)"
+      R"("sources":["library/config.loom","library/kernel.loombc"],)"
+      R"("options":{"batch_units":64}}})";
+  IREE_ASSERT_OK(iree_io_file_contents_write(
+      path_.path_view(),
+      iree_make_const_byte_span(document.data(), document.size()),
+      iree_allocator_system()));
+  IREE_ASSERT_OK(loom_serve_model_configuration_load(
+      path_.path_view(), &configuration_, iree_allocator_system()));
+  ASSERT_TRUE(path_.Remove());
+
+  iree_host_size_t index = IREE_HOST_SIZE_MAX;
+  IREE_ASSERT_OK(
+      loom_serve_registry_register(registry_, &configuration_, &index));
+  EXPECT_EQ(index, 0u);
+  EXPECT_EQ(loom_serve_registry_count(registry_), 1u);
+  EXPECT_EQ(configuration_.name.data, nullptr);
+  EXPECT_EQ(configuration_.sources.values, nullptr);
+  const auto* model = loom_serve_registry_at(registry_, index);
+  EXPECT_EQ(model->phase, LOOM_SERVE_REGISTRATION_DECLARED);
+  EXPECT_TRUE(model->closed);
+  EXPECT_EQ(String(model->service.name), "vectors");
+  EXPECT_STREQ(model->service.endpoint, "/v1/embeddings");
+  EXPECT_EQ(model->configuration.device_index, 1u);
+  const auto& sources = model->configuration.sources;
+  EXPECT_EQ(String(sources.base_directory), expected_base);
+  EXPECT_EQ(String(sources.prepare), "boot.loombc");
+  EXPECT_EQ(String(sources.control), "run.loom");
+  ASSERT_EQ(sources.count, 2u);
+  EXPECT_EQ(String(sources.values[0]), "library/config.loom");
+  EXPECT_EQ(String(sources.values[1]), "library/kernel.loombc");
+  EXPECT_EQ(String(model->configuration.finite.assets), "weights");
+  EXPECT_EQ(String(model->configuration.options), R"({"batch_units":64})");
+
+  bool progress = true;
+  IREE_ASSERT_OK(loom_serve_registry_advance(registry_, index, {}, &progress));
+  EXPECT_FALSE(progress);
+  IREE_ASSERT_OK(loom_serve_registry_remove(
+      loom_serve_registry_at(registry_, index), LOOM_SERVE_REMOVAL_DRAIN));
+  IREE_ASSERT_OK(loom_serve_registry_advance(registry_, index, {}, &progress));
+  EXPECT_TRUE(progress);
+  EXPECT_EQ(loom_serve_registry_count(registry_), 0u);
+  EXPECT_EQ(loom_serve_registry_at(registry_, index)->service.name.size, 0u);
+}
+
+INSTANTIATE_TEST_SUITE_P(DirectoryBase, RegistryTest, ::testing::Bool());
+
+}  // namespace
