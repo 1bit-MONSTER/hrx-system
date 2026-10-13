@@ -25,7 +25,7 @@ extern "C" {
 // representation and its descriptor tables through all warm program consumers.
 typedef struct loom_serve_text_source_t {
   // Allocation policy for source-owned metadata and bytecode.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Copied diagnostics, extended by subsequent native stage compilation.
   loom_serve_compilation_report_t compilation;
   // Construction registry for canonical VM/HAL reference descriptors.
@@ -56,9 +56,9 @@ typedef struct loom_serve_text_source_t {
 // submission or shared pool mutation occurs. Option views are borrowed only
 // through this call; source-returned state may retain its own copied inputs.
 iree_status_t loom_serve_text_source_initialize(
-    const loom_serve_text_options_t* options,
+    const loom_serve_text_options_t* options, iree_allocator_t host_allocator,
     loom_serve_text_source_t* out_source,
-    loom_serve_text_storage_t* out_storage, iree_allocator_t allocator);
+    loom_serve_text_storage_t* out_storage);
 
 // Releases partial or complete construction after all native model/program
 // consumers have retired. Storage returned by initialize has its own owner.

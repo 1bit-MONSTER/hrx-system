@@ -9,14 +9,14 @@
 #include <string.h>
 
 iree_status_t loom_serve_block_pool_initialize(
-    uint32_t capacity, iree_allocator_t allocator,
+    uint32_t capacity, iree_allocator_t host_allocator,
     loom_serve_block_pool_t* out_pool) {
-  *out_pool = (loom_serve_block_pool_t){.allocator = allocator};
+  *out_pool = (loom_serve_block_pool_t){.host_allocator = host_allocator};
   if (!capacity) {
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-      allocator, capacity, 2 * sizeof(*out_pool->free_blocks),
+      host_allocator, capacity, 2 * sizeof(*out_pool->free_blocks),
       (void**)&out_pool->free_blocks));
   out_pool->references = out_pool->free_blocks + capacity;
   out_pool->capacity = capacity;
@@ -28,7 +28,7 @@ iree_status_t loom_serve_block_pool_initialize(
 }
 
 void loom_serve_block_pool_deinitialize(loom_serve_block_pool_t* pool) {
-  iree_allocator_free(pool->allocator, pool->free_blocks);
+  iree_allocator_free(pool->host_allocator, pool->free_blocks);
   memset(pool, 0, sizeof(*pool));
 }
 

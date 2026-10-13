@@ -17,7 +17,7 @@ namespace {
 class TokenizationTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    iree_string_builder_initialize(allocator_, &output_);
+    iree_string_builder_initialize(host_allocator_, &output_);
     IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(IREE_SV(R"({
           "model":{"type":"BPE","vocab":{
             "a":0,"b":1,"z":2,"zz":3,"<bos>":4,"<eos>":5,
@@ -38,7 +38,7 @@ class TokenizationTest : public ::testing::Test {
             "special_tokens":{
               "<bos>":{"id":"<bos>","ids":[4],"tokens":["<bos>"]},
               "<eos>":{"id":"<eos>","ids":[5],"tokens":["<eos>"]}}}})"),
-                                                        allocator_,
+                                                        host_allocator_,
                                                         &tokenizer_));
   }
   void TearDown() override {
@@ -49,13 +49,13 @@ class TokenizationTest : public ::testing::Test {
     iree_string_builder_reset(&output_);
     return loom_serve_http_tokenize(
         tokenizer_, iree_make_string_view(body.data(), body.size()), &output_,
-        allocator_);
+        host_allocator_);
   }
   iree_status_t Decode(const std::string& body) {
     iree_string_builder_reset(&output_);
     return loom_serve_http_detokenize(
         tokenizer_, iree_make_string_view(body.data(), body.size()), &output_,
-        allocator_);
+        host_allocator_);
   }
   std::string Output() {
     const auto value = iree_string_builder_view(&output_);
@@ -72,7 +72,7 @@ class TokenizationTest : public ::testing::Test {
     return result + "]}";
   }
   // Allocator for real tokenizer state and response serialization.
-  const iree_allocator_t allocator_ = iree_allocator_system();
+  const iree_allocator_t host_allocator_ = iree_allocator_system();
   // Immutable HF tokenizer with sparse IDs and special-token processing.
   iree_tokenizer_t* tokenizer_ = nullptr;
   // Response builder reset between requests, including rejected inputs.
@@ -153,7 +153,7 @@ TEST_F(TokenizationTest, ByteLevelDecodeKeepsCrossTokenUtf8State) {
                   "add_prefix_space":false,"trim_offsets":false,"use_regex":false},
                   "decoder":{"type":"ByteLevel","add_prefix_space":false,
                              "trim_offsets":false,"use_regex":false}})"),
-      allocator_, &bytes));
+      host_allocator_, &bytes));
   iree_tokenizer_free(tokenizer_);
   tokenizer_ = bytes;
   IREE_ASSERT_OK(Encode(R"({"content":"é"})"));
@@ -174,7 +174,7 @@ TEST_F(TokenizationTest, NormalizedTailsMatchTheCompleteTokenizer) {
                    {"type":"Replace","pattern":{"String":"ab"},"content":"z"},
                    {"type":"Replace","pattern":{"Regex":"\\s+"},"content":" "},
                    {"type":"Strip","strip_left":true,"strip_right":true}]}})"),
-                                           allocator_, &normalized));
+                                           host_allocator_, &normalized));
   iree_tokenizer_free(tokenizer_);
   tokenizer_ = normalized;
   for (const char* input :
@@ -187,7 +187,7 @@ TEST_F(TokenizationTest, NormalizedTailsMatchTheCompleteTokenizer) {
         IREE_TOKENIZER_ENCODE_FLAG_NONE,
         iree_tokenizer_make_token_output(expected, nullptr, nullptr,
                                          IREE_ARRAYSIZE(expected)),
-        allocator_, &count));
+        host_allocator_, &count));
     std::string response = "{\"tokens\":[";
     for (size_t i = 0; i < count; ++i) {
       if (i) {

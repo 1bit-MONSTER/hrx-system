@@ -21,18 +21,19 @@ namespace {
 class JsonTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    IREE_ASSERT_OK(iree_vm_environment_allocate(allocator_, &environment_));
+    IREE_ASSERT_OK(
+        iree_vm_environment_allocate(host_allocator_, &environment_));
     IREE_ASSERT_OK(iree_vm_ref_types_resolve(
         iree_vm_environment_lookup_ref_type_table(environment_, IREE_SV("vm")),
         &types_));
     IREE_ASSERT_OK(
-        loom_serve_json_module_create(environment_, &module_, allocator_));
+        loom_serve_json_module_create(environment_, host_allocator_, &module_));
     IREE_ASSERT_OK(
-        iree_vm_program_create({module_, {}}, allocator_, &program_));
+        iree_vm_program_create({module_, {}}, host_allocator_, &program_));
     IREE_ASSERT_OK(iree_vm_invocation_initialize(
         iree_make_byte_span(storage_, sizeof(storage_)), &invocation_));
-    IREE_ASSERT_OK(iree_vm_process_create(program_, invocation_, {}, allocator_,
-                                          &process_));
+    IREE_ASSERT_OK(iree_vm_process_create(program_, invocation_, {},
+                                          host_allocator_, &process_));
   }
   void TearDown() override {
     ResetCall();
@@ -52,7 +53,7 @@ class JsonTest : public ::testing::Test {
     iree_vm_buffer_t* buffer = nullptr;
     IREE_CHECK_OK(iree_vm_buffer_clone(
         IREE_VM_BUFFER_ACCESS_FLAG_READ,
-        iree_make_const_byte_span(text.data(), text.size()), 1, allocator_,
+        iree_make_const_byte_span(text.data(), text.size()), 1, host_allocator_,
         &buffer));
     return iree_vm_buffer_variant_from_ptr_move(&types_, &buffer);
   }
@@ -113,14 +114,14 @@ class JsonTest : public ::testing::Test {
     iree_vm_buffer_t* buffer = nullptr;
     IREE_RETURN_IF_ERROR(iree_vm_buffer_wrap(
         access, iree_make_byte_span(target.data(), target.size()),
-        iree_vm_buffer_release_callback_null(), allocator_, &buffer));
+        iree_vm_buffer_release_callback_null(), host_allocator_, &buffer));
     arguments_[3] = iree_vm_buffer_variant_from_ptr_move(&types_, &buffer);
     arguments_[4] = iree_vm_variant_from_i64(target_offset);
     return Invoke(IREE_SV("unescape"), 5, 1);
   }
 
   // Allocation policy for the actual native module and VM process.
-  const iree_allocator_t allocator_ = iree_allocator_system();
+  const iree_allocator_t host_allocator_ = iree_allocator_system();
   // Environment outliving the process and all buffer references.
   iree_vm_environment_t* environment_ = nullptr;
   // Canonical buffer reference identity.

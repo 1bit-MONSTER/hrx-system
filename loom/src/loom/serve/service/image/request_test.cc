@@ -19,7 +19,7 @@ TEST(ImageRequestTest, OwnsDecodedPromptAndFullWidthSeed) {
   loom_serve_image_request_t request;
   IREE_ASSERT_OK(loom_serve_image_request_initialize(
       iree_make_string_view(body.data(), body.size()), IREE_SV("test-image"),
-      384, 256, &request, iree_allocator_system()));
+      384, 256, iree_allocator_system(), &request));
   body.assign(body.size(), 'x');
   const auto prompt = iree_string_builder_view(&request.prompt);
   const char expected[] = "café 猫\n🤖\0x";
@@ -34,7 +34,7 @@ TEST(ImageRequestTest, EmptyPromptDefaultsAndJsonc) {
   loom_serve_image_request_t request;
   IREE_ASSERT_OK(loom_serve_image_request_initialize(
       IREE_SV(" \n{/* image */\"prompt\":\"\",} // done\n"),
-      IREE_SV("test-image"), 384, 256, &request, iree_allocator_system()));
+      IREE_SV("test-image"), 384, 256, iree_allocator_system(), &request));
   EXPECT_EQ(iree_string_builder_size(&request.prompt), 0u);
   EXPECT_EQ(request.seed, 0u);
   EXPECT_EQ(request.strength, 1.0f);
@@ -68,7 +68,7 @@ TEST(ImageRequestTest, RejectsMalformedOrUnsupportedRequests) {
         IREE_STATUS_INVALID_ARGUMENT,
         loom_serve_image_request_initialize(iree_make_cstring_view(body),
                                             IREE_SV("test-image"), 384, 256,
-                                            &request, iree_allocator_system()));
+                                            iree_allocator_system(), &request));
     EXPECT_EQ(request.prompt.buffer, nullptr);
     loom_serve_image_request_deinitialize(&request);
   }
@@ -80,7 +80,7 @@ TEST(ImageRequestTest, AllocationFailurePublishesNoOwnership) {
       IREE_STATUS_RESOURCE_EXHAUSTED,
       loom_serve_image_request_initialize(IREE_SV("{\"prompt\":\"x\"}"),
                                           IREE_SV("test-image"), 384, 256,
-                                          &request, iree_allocator_null()));
+                                          iree_allocator_null(), &request));
   EXPECT_EQ(request.prompt.buffer, nullptr);
   loom_serve_image_request_deinitialize(&request);
 }
@@ -91,7 +91,7 @@ TEST(ImageRequestTest, SeedOverflowPublishesNoOwnership) {
       IREE_STATUS_OUT_OF_RANGE,
       loom_serve_image_request_initialize(
           IREE_SV("{\"prompt\":\"x\",\"seed\":18446744073709551616}"),
-          IREE_SV("test-image"), 384, 256, &request, iree_allocator_system()));
+          IREE_SV("test-image"), 384, 256, iree_allocator_system(), &request));
   EXPECT_EQ(request.prompt.buffer, nullptr);
   loom_serve_image_request_deinitialize(&request);
 }

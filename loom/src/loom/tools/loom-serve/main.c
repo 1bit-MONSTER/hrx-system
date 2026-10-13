@@ -58,7 +58,6 @@ static iree_status_t loom_serve_main_ready(loom_serve_http_listener_t* listener,
 
 static void loom_serve_main_shutdown_requested(void* user_data,
                                                iree_async_signal_t signal) {
-  (void)signal;
   loom_serve_http_server_request_stop(user_data);
 }
 
@@ -167,7 +166,7 @@ int main(int argc, char** argv) {
         "capacity.\n");
     return EXIT_FAILURE;
   }
-  const iree_allocator_t allocator = iree_allocator_system();
+  const iree_allocator_t host_allocator = iree_allocator_system();
   const iree_flag_string_list_t bindings = FLAG_listen_list();
   const iree_string_view_t default_binding = IREE_SV("127.0.0.1:8080");
   const iree_host_size_t listener_count = bindings.count ? bindings.count : 1;
@@ -181,14 +180,14 @@ int main(int argc, char** argv) {
                               "startup models exceed model_capacity");
   }
   if (iree_status_is_ok(status) && models.count) {
-    status = iree_allocator_malloc_array(allocator, models.count,
+    status = iree_allocator_malloc_array(host_allocator, models.count,
                                          sizeof(*configurations),
                                          (void**)&configurations);
   }
   for (iree_host_size_t i = 0; i < models.count && iree_status_is_ok(status);
        ++i) {
-    status = loom_serve_model_configuration_load(models.values[i],
-                                                 &configurations[i], allocator);
+    status = loom_serve_model_configuration_load(
+        models.values[i], host_allocator, &configurations[i]);
   }
   if (iree_status_is_ok(status)) {
     status = iree_async_signal_block_default();
@@ -205,14 +204,14 @@ int main(int argc, char** argv) {
   loom_serve_model_registration_options_t registration_options = {0};
   if (iree_status_is_ok(status)) {
     status = iree_allocator_malloc_array(
-        allocator, listener_count, sizeof(*listeners), (void**)&listeners);
+        host_allocator, listener_count, sizeof(*listeners), (void**)&listeners);
   }
   if (iree_status_is_ok(status)) {
-    status = loom_serve_host_create_from_flags(&host, allocator);
+    status = loom_serve_host_create_from_flags(host_allocator, &host);
   }
   if (iree_status_is_ok(status)) {
-    status =
-        loom_serve_device_group_allocate_from_flags(host, &group, allocator);
+    status = loom_serve_device_group_allocate_from_flags(host, host_allocator,
+                                                         &group);
   }
   if (iree_status_is_ok(status)) {
     registration_options.device_group = group;
@@ -220,8 +219,8 @@ int main(int argc, char** argv) {
         (iree_duration_t)FLAG_heartbeat_ms * 1000000;
     status = loom_serve_registry_allocate(
         0, NULL, (iree_host_size_t)FLAG_model_capacity,
-        loom_serve_model_registration_factory(&registration_options), &registry,
-        allocator);
+        loom_serve_model_registration_factory(&registration_options),
+        host_allocator, &registry);
   }
   for (iree_host_size_t i = 0; i < models.count && iree_status_is_ok(status);
        ++i) {
@@ -236,14 +235,14 @@ int main(int argc, char** argv) {
     options.request_limits.body_byte_capacity =
         (iree_host_size_t)FLAG_request_body_bytes;
     status = loom_serve_http_server_allocate(
-        loom_serve_host_proactor_pool(host), &options, &server, allocator);
+        loom_serve_host_proactor_pool(host), &options, host_allocator, &server);
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_signals_allocate(
         loom_serve_host_proactor_pool(host),
         (iree_async_signal_callback_t){loom_serve_main_shutdown_requested,
                                        server},
-        &signals, allocator);
+        host_allocator, &signals);
   }
   for (iree_host_size_t i = 0; i < listener_count && iree_status_is_ok(status);
        ++i) {
@@ -251,8 +250,8 @@ int main(int argc, char** argv) {
         loom_serve_http_listener_options_default();
     options.address = addresses[i];
     options.backlog = FLAG_connections;
-    status = loom_serve_http_listener_allocate(server, &options, &listeners[i],
-                                               allocator);
+    status = loom_serve_http_listener_allocate(server, &options, host_allocator,
+                                               &listeners[i]);
   }
   for (iree_host_size_t i = 0; i < listener_count && iree_status_is_ok(status);
        ++i) {
@@ -269,14 +268,14 @@ int main(int argc, char** argv) {
             .holding_capacity = (iree_host_size_t)(FLAG_held_requests < 0
                                                        ? FLAG_connections / 2
                                                        : FLAG_held_requests)},
-        allocator);
+        host_allocator);
   }
   loom_serve_signals_free(signals);
   for (iree_host_size_t i = 0; listeners && i < listener_count; ++i) {
     status =
         iree_status_join(status, loom_serve_http_listener_free(listeners[i]));
   }
-  iree_allocator_free(allocator, listeners);
+  iree_allocator_free(host_allocator, listeners);
   loom_serve_http_server_free(server);
   iree_status_t registry_status = loom_serve_registry_free(registry);
   bool retained_resources = !iree_status_is_ok(registry_status);
@@ -294,7 +293,7 @@ int main(int argc, char** argv) {
   for (iree_host_size_t i = 0; configurations && i < models.count; ++i) {
     loom_serve_model_configuration_deinitialize(&configurations[i]);
   }
-  iree_allocator_free(allocator, configurations);
+  iree_allocator_free(host_allocator, configurations);
   if (!iree_status_is_ok(status)) {
     iree_status_fprint(stderr, status);
     iree_status_free(status);

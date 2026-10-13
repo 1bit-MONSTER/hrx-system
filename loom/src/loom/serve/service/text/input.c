@@ -18,8 +18,8 @@ static iree_vm_buffer_t* loom_serve_text_input_history(
 }
 
 void loom_serve_text_input_deinitialize(loom_serve_text_input_t* input,
-                                        iree_allocator_t allocator) {
-  iree_allocator_free(allocator, input->tokens);
+                                        iree_allocator_t host_allocator) {
+  iree_allocator_free(host_allocator, input->tokens);
   iree_vm_buffer_release(input->history);
   memset(input, 0, sizeof(*input));
 }
@@ -60,8 +60,8 @@ iree_status_t loom_serve_text_input_prepare(
           : prompt,
       LOOM_SERVE_TEXT_CHAT_INPUT_RENDERED,
       retained ? prefix.boundary : LOOM_SERVE_TEXT_CHAT_BOUNDARY_FRESH,
-      context_capacity - prefix_count, scratch + prefix_count, &count,
-      host_allocator));
+      context_capacity - prefix_count, host_allocator, scratch + prefix_count,
+      &count));
   count += prefix_count;
   if (count + chat->max_tokens - 1 > context_capacity - retained_count) {
     return iree_make_status(

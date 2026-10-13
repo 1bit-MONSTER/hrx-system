@@ -56,8 +56,8 @@ typedef struct loom_serve_device_options_t {
 // returns no group and releases partial state, including earlier devices.
 iree_status_t loom_serve_device_group_allocate(
     loom_serve_host_t* host, iree_host_size_t device_count,
-    const loom_serve_device_options_t* options,
-    loom_serve_device_group_t** out_group, iree_allocator_t host_allocator);
+    const loom_serve_device_options_t* options, iree_allocator_t host_allocator,
+    loom_serve_device_group_t** out_group);
 
 // Releases all device resources and the host reference without an implicit
 // device wait. The caller first drains every model domain and releases all

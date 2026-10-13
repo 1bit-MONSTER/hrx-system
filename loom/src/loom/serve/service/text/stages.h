@@ -48,7 +48,7 @@ iree_status_t loom_serve_text_stages_bind(
     loom_serve_device_t* device, const loom_serve_preparation_t* preparation,
     iree_host_size_t shared_count, iree_host_size_t stage_count,
     loom_serve_text_stage_t* stages, loom_serve_text_parameters_t* parameters,
-    iree_allocator_t allocator);
+    iree_allocator_t host_allocator);
 
 #ifdef __cplusplus
 }  // extern "C"

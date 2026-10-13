@@ -33,15 +33,15 @@ class ActivationTest : public ::testing::TestWithParam<uint32_t> {
 
   void SetUp() override {
     IREE_ASSERT_OK(
-        loom_serve_host_create(GetParam(), &host_, iree_allocator_system()));
+        loom_serve_host_create(GetParam(), iree_allocator_system(), &host_));
     const loom_serve_device_options_t options = {.uri = IREE_SV("task")};
-    IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &options, &group_,
-                                                    iree_allocator_system()));
+    IREE_ASSERT_OK(loom_serve_device_group_allocate(
+        host_, 1, &options, iree_allocator_system(), &group_));
     auto* device = loom_serve_device_group_at(group_, 0);
     IREE_ASSERT_OK(loom_serve_device_create_execution(device, &execution_));
     IREE_ASSERT_OK(loom_serve_residency_allocate(
         loom_serve_device_residency_cache(device), execution_, 0, nullptr,
-        &residency_, iree_allocator_system()));
+        iree_allocator_system(), &residency_));
     IREE_ASSERT_OK(iree_hal_semaphore_create(
         loom_serve_device_handle(device), IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
         IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &gate_));
@@ -50,7 +50,7 @@ class ActivationTest : public ::testing::TestWithParam<uint32_t> {
         loom_serve_execution_barrier(execution_, {1, &gate_, &value}));
     IREE_ASSERT_OK(loom_serve_activation_allocate(
         residency_, loom_serve_host_proactor_pool(host_), Wake, this,
-        &activation_, iree_allocator_system()));
+        iree_allocator_system(), &activation_));
   }
 
   void TearDown() override {

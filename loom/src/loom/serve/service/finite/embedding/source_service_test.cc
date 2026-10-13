@@ -52,7 +52,7 @@ struct ModelLifecycle {
   }
 
   static iree_status_t Drain(iree_task_process_t* process,
-                             const iree_task_worker_context_t*,
+                             const iree_task_worker_context_t* context,
                              iree_task_process_drain_result_t* result) {
     auto* self = static_cast<ModelLifecycle*>(process->user_data);
     if (!self->complete && self->retiring) {
@@ -111,7 +111,7 @@ struct ModelLifecycle {
   iree_status_t Run(loom_serve_device_t* device,
                     const loom_serve_finite_model_options_t& options) {
     IREE_RETURN_IF_ERROR(loom_serve_finite_load_allocate(
-        device, &options, Wake, this, &load, iree_allocator_system()));
+        device, &options, Wake, this, iree_allocator_system(), &load));
     return RunOwner(device);
   }
 
@@ -173,12 +173,12 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
 
   void SetUp() override {
     iree_notification_initialize(&notification_);
-    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), &host_, allocator_));
+    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), host_allocator_, &host_));
     const auto uri = iree_make_cstring_view(FLAG_test_device);
     const loom_serve_device_options_t device_options[] = {{.uri = uri},
                                                           {.uri = uri}};
     IREE_ASSERT_OK(loom_serve_device_group_allocate(
-        host_, DeviceCount(), device_options, &group_, allocator_));
+        host_, DeviceCount(), device_options, host_allocator_, &group_));
     device_ = loom_serve_device_group_at(group_, DeviceCount() - 1);
     const std::string source = FLAG_model_source;
     directory_ = source.substr(0, source.find_last_of('/'));
@@ -189,12 +189,13 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
       ASSERT_NO_FATAL_FAILURE(CreateService(0));
     }
     auto options = loom_serve_http_server_options_default();
-    IREE_ASSERT_OK(loom_serve_http_server_allocate(
-        loom_serve_host_proactor_pool(host_), &options, &server_, allocator_));
+    IREE_ASSERT_OK(
+        loom_serve_http_server_allocate(loom_serve_host_proactor_pool(host_),
+                                        &options, host_allocator_, &server_));
     auto listener_options = loom_serve_http_listener_options_default();
     listener_options.address = IREE_SV("127.0.0.1:0");
-    IREE_ASSERT_OK(loom_serve_http_listener_allocate(server_, &listener_options,
-                                                     &listener_, allocator_));
+    IREE_ASSERT_OK(loom_serve_http_listener_allocate(
+        server_, &listener_options, host_allocator_, &listener_));
   }
 
   void CreateModel(const std::string& directory) {
@@ -214,7 +215,7 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
   void CreateService(iree_duration_t heartbeat_interval) {
     IREE_ASSERT_OK(loom_serve_finite_service_allocate(
         host_, model_, loom_serve_embedding_protocol(), IREE_SV("fixture"), 16,
-        heartbeat_interval, nullptr, &service_, allocator_));
+        heartbeat_interval, nullptr, host_allocator_, &service_));
     interface_ = loom_serve_finite_service_interface(service_);
     EXPECT_EQ(interface_.capacity_domain,
               loom_serve_device_residency_cache(device_));
@@ -398,10 +399,10 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
     router_ = std::thread([this] {
       loom_serve_registry_t* registry = nullptr;
       IREE_ASSERT_OK(loom_serve_registry_allocate(1, &interface_, 0, {},
-                                                  &registry, allocator_));
+                                                  host_allocator_, &registry));
       status_ = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
-          {.request_quota = 16, .holding_capacity = 8}, allocator_);
+          {.request_quota = 16, .holding_capacity = 8}, host_allocator_);
       IREE_ASSERT_OK(loom_serve_registry_free(registry));
     });
   }
@@ -418,11 +419,11 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
       loom_serve_registry_t* registry = nullptr;
       IREE_ASSERT_OK(loom_serve_registry_allocate(
           service_ ? 1 : 0, &interface_, capacity,
-          loom_serve_model_registration_factory(&options), &registry,
-          allocator_));
+          loom_serve_model_registration_factory(&options), host_allocator_,
+          &registry));
       status_ = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
-          {.request_quota = 16, .holding_capacity = 8}, allocator_);
+          {.request_quota = 16, .holding_capacity = 8}, host_allocator_);
       EXPECT_TRUE(loom_serve_registry_counters(registry, &retired_counters_));
       status_ = iree_status_join(status_, loom_serve_registry_free(registry));
     });
@@ -576,7 +577,7 @@ global.rodata.def @policy = bytes("706f6c6963792e6c6f6f6d")
   }
 
   // Host allocator used by all production owners.
-  const iree_allocator_t allocator_ = iree_allocator_system();
+  const iree_allocator_t host_allocator_ = iree_allocator_system();
   // Shared CPU/JIT/task runtime.
   loom_serve_host_t* host_ = nullptr;
   // Application group enclosing every device and model resource.
@@ -836,8 +837,8 @@ TEST_P(ElasticEmbeddingServiceTest,
       .slab_size = 2 * 1024 * 1024,
       .memory_limit = 2 * 1024 * 1024,
   };
-  IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &options, &group_,
-                                                  allocator_));
+  IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &options,
+                                                  host_allocator_, &group_));
   device_ = loom_serve_device_group_at(group_, 0);
   StartManagedRouter();
   EXPECT_NE(Read(Send({}, "/v1/models", "GET")).find(R"("data":[])"),
@@ -1400,7 +1401,7 @@ TEST_P(ElasticEmbeddingServiceTest,
       .memory_limit = kSlabBytes,
   };
   IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &device_options,
-                                                  &group_, allocator_));
+                                                  host_allocator_, &group_));
   device_ = loom_serve_device_group_at(group_, 0);
   ASSERT_NO_FATAL_FAILURE(CreateModel(package));
   retained_ = std::exchange(model_, nullptr);

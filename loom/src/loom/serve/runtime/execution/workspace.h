@@ -29,7 +29,7 @@ typedef struct loom_serve_workspace_t loom_serve_workspace_t;
 iree_status_t loom_serve_workspace_create(
     iree_hal_device_group_t* group, iree_hal_pool_t* backing_pool,
     const iree_hal_asan_pool_options_t* asan_options,
-    loom_serve_workspace_t** out_workspace, iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator, loom_serve_workspace_t** out_workspace);
 
 // Retains the shared workspace. NULL is accepted.
 void loom_serve_workspace_retain(loom_serve_workspace_t* workspace);

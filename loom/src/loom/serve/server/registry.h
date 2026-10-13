@@ -76,8 +76,8 @@ typedef struct loom_serve_registration_factory_t {
                           const loom_serve_model_configuration_t* configuration,
                           loom_serve_wake_callback_t observer,
                           loom_serve_telemetry_stream_t* stream,
-                          loom_serve_registration_t* out_registration,
-                          iree_allocator_t allocator);
+                          iree_allocator_t host_allocator,
+                          loom_serve_registration_t* out_registration);
   // Optional shared-resource failure query after preparation fails. Returns
   // owned terminal failure if preparation disturbed shared backing, otherwise
   // OK so source/package errors remain local. Never guesses from status codes,
@@ -166,8 +166,8 @@ typedef struct loom_serve_registry_t loom_serve_registry_t;
 iree_status_t loom_serve_registry_allocate(
     iree_host_size_t service_count, const loom_serve_http_service_t* services,
     iree_host_size_t managed_capacity,
-    loom_serve_registration_factory_t factory,
-    loom_serve_registry_t** out_registry, iree_allocator_t allocator);
+    loom_serve_registration_factory_t factory, iree_allocator_t host_allocator,
+    loom_serve_registry_t** out_registry);
 
 // Requires the router to have retired. A failed model release preserves the
 // entire registry and its borrowed factory/device owners; it is not permission

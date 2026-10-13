@@ -43,22 +43,22 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
         .asset_directory = IREE_SV("."),
         .options = IREE_SV("{\"batch_units\":64}"),
     };
-    IREE_ASSERT_OK(loom_serve_finite_model_allocate(device_, &options, output,
-                                                    allocator_));
+    IREE_ASSERT_OK(loom_serve_finite_model_allocate(device_, &options,
+                                                    host_allocator_, output));
   }
   void SetUp() override {
     iree_notification_initialize(&notification_);
-    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), &host_, allocator_));
+    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), host_allocator_, &host_));
     const loom_serve_device_options_t options = {
         .uri = iree_make_cstring_view(FLAG_test_device),
     };
-    IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &options, &group_,
-                                                    allocator_));
+    IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &options,
+                                                    host_allocator_, &group_));
     device_ = loom_serve_device_group_at(group_, 0);
     ASSERT_NO_FATAL_FAILURE(CreateModel(FLAG_model_source, &models_[0]));
     IREE_ASSERT_OK(loom_serve_finite_service_allocate(
         host_, models_[0], loom_serve_decision_protocol(), IREE_SV("decisions"),
-        16, 0, nullptr, &services_[0], allocator_));
+        16, 0, nullptr, host_allocator_, &services_[0]));
     interfaces_[0] = loom_serve_finite_service_interface(services_[0]);
     EXPECT_EQ(interfaces_[0].capacity_domain,
               loom_serve_device_residency_cache(device_));
@@ -71,13 +71,13 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
          },
          this});
     auto http_options = loom_serve_http_server_options_default();
-    IREE_ASSERT_OK(
-        loom_serve_http_server_allocate(loom_serve_host_proactor_pool(host_),
-                                        &http_options, &server_, allocator_));
+    IREE_ASSERT_OK(loom_serve_http_server_allocate(
+        loom_serve_host_proactor_pool(host_), &http_options, host_allocator_,
+        &server_));
     auto listener_options = loom_serve_http_listener_options_default();
     listener_options.address = IREE_SV("127.0.0.1:0");
-    IREE_ASSERT_OK(loom_serve_http_listener_allocate(server_, &listener_options,
-                                                     &listener_, allocator_));
+    IREE_ASSERT_OK(loom_serve_http_listener_allocate(
+        server_, &listener_options, host_allocator_, &listener_));
   }
   void TearDown() override {
     if (router_.joinable()) {
@@ -181,21 +181,21 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
     ASSERT_NO_FATAL_FAILURE(CreateModel(FLAG_embedding_source, &models_[1]));
     IREE_ASSERT_OK(loom_serve_finite_service_allocate(
         host_, models_[1], loom_serve_embedding_protocol(), IREE_SV("vectors"),
-        16, 0, nullptr, &services_[1], allocator_));
+        16, 0, nullptr, host_allocator_, &services_[1]));
     interfaces_[1] = loom_serve_finite_service_interface(services_[1]);
     interfaces_[0].set_observer(interfaces_[0].self, {});
     router_ = std::thread([this] {
       loom_serve_registry_t* registry = nullptr;
       IREE_ASSERT_OK(loom_serve_registry_allocate(2, interfaces_, 0, {},
-                                                  &registry, allocator_));
+                                                  host_allocator_, &registry));
       status_ = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
-          {.request_quota = 16, .holding_capacity = 8}, allocator_);
+          {.request_quota = 16, .holding_capacity = 8}, host_allocator_);
       IREE_ASSERT_OK(loom_serve_registry_free(registry));
     });
   }
   // Allocator shared by all test-owned production components.
-  const iree_allocator_t allocator_ = iree_allocator_system();
+  const iree_allocator_t host_allocator_ = iree_allocator_system();
   // Real shared CPU/JIT executor and asynchronous I/O owner.
   loom_serve_host_t* host_ = nullptr;
   // Application group enclosing all model and device resources.

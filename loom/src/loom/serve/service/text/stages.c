@@ -92,7 +92,7 @@ iree_status_t loom_serve_text_stages_bind(
     loom_serve_device_t* device, const loom_serve_preparation_t* preparation,
     iree_host_size_t shared_count, iree_host_size_t stage_count,
     loom_serve_text_stage_t* stages, loom_serve_text_parameters_t* parameters,
-    iree_allocator_t allocator) {
+    iree_allocator_t host_allocator) {
   iree_status_t status = iree_ok_status();
   iree_host_size_t root_count = 0;
   for (iree_host_size_t i = 0; i < stage_count && iree_status_is_ok(status);
@@ -101,7 +101,7 @@ iree_status_t loom_serve_text_stages_bind(
     stage->program = *loom_serve_jit_stage_program(stage->compiled);
     const uint32_t count = stage->program.requirements.fixed_buffer_count;
     if (count) {
-      status = iree_allocator_malloc_array(allocator, count,
+      status = iree_allocator_malloc_array(host_allocator, count,
                                            sizeof(*stage->fixed_buffers),
                                            (void**)&stage->fixed_buffers);
       if (iree_status_is_ok(status)) {
@@ -113,18 +113,18 @@ iree_status_t loom_serve_text_stages_bind(
   IREE_RETURN_IF_ERROR(status);
   IREE_RETURN_IF_ERROR(loom_serve_text_check_layouts(preparation, shared_count,
                                                      stage_count, stages));
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(allocator, root_count,
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(host_allocator, root_count,
                                                    sizeof(*parameters->plans),
                                                    (void**)&parameters->plans));
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-      allocator, root_count, sizeof(*parameters->sources),
+      host_allocator, root_count, sizeof(*parameters->sources),
       (void**)&parameters->sources));
   loom_serve_weight_root_t* roots = NULL;
   iree_host_size_t* domains = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-      allocator, root_count, sizeof(*roots), (void**)&roots));
-  status = iree_allocator_malloc_array(allocator, root_count, sizeof(*domains),
-                                       (void**)&domains);
+      host_allocator, root_count, sizeof(*roots), (void**)&roots));
+  status = iree_allocator_malloc_array(host_allocator, root_count,
+                                       sizeof(*domains), (void**)&domains);
   if (iree_status_is_ok(status)) {
     iree_host_size_t root_index = 0;
     for (iree_host_size_t i = 0; i < stage_count; ++i) {
@@ -173,10 +173,10 @@ iree_status_t loom_serve_text_stages_bind(
           loom_serve_device_dispatch_queue(device),
           loom_serve_device_storage_pool(device),
           loom_serve_device_memory_pool(device), domain == 0 ? shared_count : 0,
-          count, roots, &parameters->plans[domain], allocator);
+          count, roots, host_allocator, &parameters->plans[domain]);
     }
   }
-  iree_allocator_free(allocator, domains);
-  iree_allocator_free(allocator, roots);
+  iree_allocator_free(host_allocator, domains);
+  iree_allocator_free(host_allocator, roots);
   return status;
 }

@@ -10,7 +10,7 @@
 
 struct loom_serve_registry_t {
   // Allocator owning the table and registration operations.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Model capabilities borrowed through final resource retirement.
   loom_serve_registration_factory_t factory;
   // Stable slots, never compacted while borrowers refer to their indices.
@@ -41,8 +41,8 @@ static void loom_serve_registry_add_counters(
 iree_status_t loom_serve_registry_allocate(
     iree_host_size_t service_count, const loom_serve_http_service_t* services,
     iree_host_size_t managed_capacity,
-    loom_serve_registration_factory_t factory,
-    loom_serve_registry_t** out_registry, iree_allocator_t allocator) {
+    loom_serve_registration_factory_t factory, iree_allocator_t host_allocator,
+    loom_serve_registry_t** out_registry) {
   *out_registry = NULL;
   if (managed_capacity > IREE_HOST_SIZE_MAX - service_count) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
@@ -66,16 +66,16 @@ iree_status_t loom_serve_registry_allocate(
     }
   }
   loom_serve_registry_t* registry = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(allocator, sizeof(*registry), (void**)&registry));
-  registry->allocator = allocator;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(host_allocator, sizeof(*registry),
+                                             (void**)&registry));
+  registry->host_allocator = host_allocator;
   registry->factory = factory;
   registry->capacity = service_count + managed_capacity;
   registry->count = service_count;
   registry->next_incarnation = 1;
   iree_status_t status = iree_ok_status();
   if (registry->capacity) {
-    status = iree_allocator_malloc_array(allocator, registry->capacity,
+    status = iree_allocator_malloc_array(host_allocator, registry->capacity,
                                          sizeof(*registry->models),
                                          (void**)&registry->models);
   }
@@ -87,7 +87,7 @@ iree_status_t loom_serve_registry_allocate(
     }
     *out_registry = registry;
   } else {
-    iree_allocator_free(allocator, registry);
+    iree_allocator_free(host_allocator, registry);
   }
   return status;
 }
@@ -112,8 +112,8 @@ iree_status_t loom_serve_registry_free(loom_serve_registry_t* registry) {
     loom_serve_telemetry_stream_free(model->stream);
     loom_serve_model_configuration_deinitialize(&model->configuration);
   }
-  iree_allocator_free(registry->allocator, registry->models);
-  iree_allocator_free(registry->allocator, registry);
+  iree_allocator_free(registry->host_allocator, registry->models);
+  iree_allocator_free(registry->host_allocator, registry);
   return iree_ok_status();
 }
 
@@ -161,7 +161,7 @@ iree_status_t loom_serve_registry_register(
   }
   loom_serve_registered_model_t* model = &registry->models[available];
   IREE_RETURN_IF_ERROR(loom_serve_telemetry_stream_allocate(
-      128, &model->stream, registry->allocator));
+      128, registry->host_allocator, &model->stream));
   model->configuration = *configuration;
   model->configuration.device_index = device_index;
   memset(configuration, 0, sizeof(*configuration));
@@ -347,7 +347,7 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
        model->parameter_operation == LOOM_SERVE_PARAMETER_OPERATION_WAITING)) {
     model->status = registry->factory.create(
         registry->factory.self, &model->configuration, observer, model->stream,
-        &model->registration, registry->allocator);
+        registry->host_allocator, &model->registration);
     model->phase = iree_status_is_ok(model->status)
                        ? LOOM_SERVE_REGISTRATION_PREPARING
                        : LOOM_SERVE_REGISTRATION_FAILED;

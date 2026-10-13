@@ -9,16 +9,16 @@
 #include <string.h>
 
 iree_status_t loom_serve_text_checkpoint_registry_initialize(
-    iree_host_size_t capacity, loom_serve_text_checkpoint_registry_t* registry,
-    iree_allocator_t host_allocator) {
-  *registry = (loom_serve_text_checkpoint_registry_t){
-      .allocator = host_allocator, .capacity = capacity};
+    iree_host_size_t capacity, iree_allocator_t host_allocator,
+    loom_serve_text_checkpoint_registry_t* out_registry) {
+  *out_registry = (loom_serve_text_checkpoint_registry_t){
+      .host_allocator = host_allocator, .capacity = capacity};
   if (!capacity) {
     return iree_ok_status();
   }
   return iree_allocator_malloc_array(host_allocator, capacity,
-                                     sizeof(*registry->entries),
-                                     (void**)&registry->entries);
+                                     sizeof(*out_registry->entries),
+                                     (void**)&out_registry->entries);
 }
 
 void loom_serve_text_checkpoint_registry_reset(
@@ -37,7 +37,7 @@ void loom_serve_text_checkpoint_registry_reset(
 
 void loom_serve_text_checkpoint_registry_deinitialize(
     loom_serve_text_checkpoint_registry_t* registry) {
-  iree_allocator_free(registry->allocator, registry->entries);
+  iree_allocator_free(registry->host_allocator, registry->entries);
   memset(registry, 0, sizeof(*registry));
 }
 

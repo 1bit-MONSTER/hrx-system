@@ -24,8 +24,8 @@ typedef struct loom_serve_signals_t loom_serve_signals_t;
 // Its storage remains valid until destroy returns.
 iree_status_t loom_serve_signals_allocate(iree_async_proactor_pool_t* pool,
                                           iree_async_signal_callback_t callback,
-                                          loom_serve_signals_t** out_signals,
-                                          iree_allocator_t allocator);
+                                          iree_allocator_t host_allocator,
+                                          loom_serve_signals_t** out_signals);
 
 // Unsubscribes on the poll owner and joins its final callback access before
 // releasing progress ownership. Outer application teardown only; NULL is safe.

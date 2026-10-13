@@ -36,7 +36,7 @@ struct loom_serve_device_t {
 
 struct loom_serve_device_group_t {
   // Allocation policy for the group and its per-device resources.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Retained workers and I/O services outliving every HAL device.
   loom_serve_host_t* host;
   // Completion registry outliving the shared HAL group.
@@ -68,22 +68,22 @@ static iree_hal_queue_t* loom_serve_device_select_queue(
 // CPU queues participate in the same worker budget as JIT and model services.
 // The driver retains the supplied executor, loaders and allocation policy.
 static iree_status_t loom_serve_task_driver_create(
-    loom_serve_host_t* host, iree_hal_driver_t** out_driver,
-    iree_allocator_t allocator) {
+    loom_serve_host_t* host, iree_allocator_t host_allocator,
+    iree_hal_driver_t** out_driver) {
   iree_hal_executable_loader_t* loaders[8] = {NULL};
   iree_host_size_t loader_count = 0;
   IREE_RETURN_IF_ERROR(iree_hal_create_all_available_executable_loaders(
-      IREE_ARRAYSIZE(loaders), &loader_count, loaders, allocator));
+      IREE_ARRAYSIZE(loaders), &loader_count, loaders, host_allocator));
   iree_hal_allocator_t* device_allocator = NULL;
   iree_status_t status =
-      iree_hal_allocator_create_heap(allocator, &device_allocator);
+      iree_hal_allocator_create_heap(host_allocator, &device_allocator);
   if (iree_status_is_ok(status)) {
     iree_hal_task_device_params_t params;
     iree_hal_task_device_params_initialize(&params);
     iree_task_executor_t* executor = loom_serve_host_executor(host);
     status = iree_hal_task_driver_create(
         IREE_SV("task"), &params, 1, &executor, loader_count, loaders,
-        device_allocator, allocator, out_driver);
+        device_allocator, host_allocator, out_driver);
   }
   iree_hal_allocator_release(device_allocator);
   for (iree_host_size_t i = 0; i < loader_count; ++i) {
@@ -98,7 +98,7 @@ static iree_status_t loom_serve_device_group_initialize(
     const loom_serve_device_options_t* options) {
   iree_hal_driver_registry_t* registry = NULL;
   IREE_RETURN_IF_ERROR(
-      iree_hal_driver_registry_allocate(group->allocator, &registry));
+      iree_hal_driver_registry_allocate(group->host_allocator, &registry));
   iree_status_t status = iree_hal_register_all_available_drivers(registry);
   // One driver per URI scheme during cold group construction. Several device
   // handles may share a driver context; repeated factory calls need not do so.
@@ -122,7 +122,7 @@ static iree_status_t loom_serve_device_group_initialize(
 #if defined(LOOM_SERVE_DRIVER_TASK)
       if (iree_string_view_equal(name, IREE_SV("task"))) {
         status = loom_serve_task_driver_create(
-            group->host, &drivers[driver_index].handle, group->allocator);
+            group->host, group->host_allocator, &drivers[driver_index].handle);
       } else
 #endif  // LOOM_SERVE_DRIVER_TASK
       {
@@ -140,7 +140,7 @@ static iree_status_t loom_serve_device_group_initialize(
     if (iree_status_is_ok(status)) {
       status = iree_hal_driver_create_device_by_uri(
           drivers[driver_index].handle, options[i].uri, &params,
-          group->allocator, &group->devices[i].handle);
+          group->host_allocator, &group->devices[i].handle);
     }
   }
   for (iree_host_size_t i = 0; i < driver_count; ++i) {
@@ -149,7 +149,7 @@ static iree_status_t loom_serve_device_group_initialize(
   iree_hal_driver_registry_free(registry);
   IREE_RETURN_IF_ERROR(status);
   IREE_RETURN_IF_ERROR(iree_async_frontier_tracker_create(
-      iree_async_frontier_tracker_options_default(), group->allocator,
+      iree_async_frontier_tracker_options_default(), group->host_allocator,
       &group->frontier_tracker));
   iree_hal_device_group_builder_t builder;
   iree_hal_device_group_builder_initialize(&builder, group->frontier_tracker);
@@ -159,8 +159,8 @@ static iree_status_t loom_serve_device_group_initialize(
                                                       group->devices[i].handle);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_hal_device_group_builder_finalize(&builder, group->allocator,
-                                                    &group->handle);
+    status = iree_hal_device_group_builder_finalize(
+        &builder, group->host_allocator, &group->handle);
   }
   iree_hal_device_group_builder_deinitialize(&builder);
   return status;
@@ -195,7 +195,7 @@ static iree_status_t loom_serve_device_initialize(
   };
   IREE_RETURN_IF_ERROR(
       iree_hal_slab_pool_create(group->handle, scope, &storage_options,
-                                group->allocator, &device->storage_pool));
+                                group->host_allocator, &device->storage_pool));
   iree_hal_asan_pool_options_t asan_options = {0};
   const iree_hal_device_sanitizer_spec_t* sanitizer =
       iree_hal_device_spec_sanitizer(iree_hal_device_spec(device->handle));
@@ -203,22 +203,22 @@ static iree_status_t loom_serve_device_initialize(
     asan_options = sanitizer->asan.pool_options;
   }
   IREE_RETURN_IF_ERROR(loom_serve_workspace_create(
-      group->handle, device->storage_pool, &asan_options, &device->workspace,
-      group->allocator));
+      group->handle, device->storage_pool, &asan_options, group->host_allocator,
+      &device->workspace));
   if (options->backing == LOOM_SERVE_DEVICE_BACKING_ELASTIC) {
     IREE_RETURN_IF_ERROR(loom_serve_memory_pool_allocate(
         device->handle, device->storage_pool,
         IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, options->slab_size,
-        options->memory_limit, &device->memory_pool, group->allocator));
+        options->memory_limit, group->host_allocator, &device->memory_pool));
   }
   return loom_serve_residency_cache_allocate(
-      device->memory_pool, &device->residency_cache, group->allocator);
+      device->memory_pool, group->host_allocator, &device->residency_cache);
 }
 
 iree_status_t loom_serve_device_group_allocate(
     loom_serve_host_t* host, iree_host_size_t device_count,
-    const loom_serve_device_options_t* options,
-    loom_serve_device_group_t** out_group, iree_allocator_t host_allocator) {
+    const loom_serve_device_options_t* options, iree_allocator_t host_allocator,
+    loom_serve_device_group_t** out_group) {
   *out_group = NULL;
   if (!device_count || device_count > IREE_HAL_TOPOLOGY_MAX_DEVICE_COUNT) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -241,7 +241,7 @@ iree_status_t loom_serve_device_group_allocate(
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       host_allocator, sizeof(*group) + device_count * sizeof(group->devices[0]),
       (void**)&group));
-  group->allocator = host_allocator;
+  group->host_allocator = host_allocator;
   group->host = host;
   group->device_count = device_count;
   loom_serve_host_retain(host);
@@ -292,7 +292,7 @@ iree_status_t loom_serve_device_group_free(loom_serve_device_group_t* group) {
   }
   iree_async_frontier_tracker_release(group->frontier_tracker);
   loom_serve_host_release(group->host);
-  iree_allocator_free(group->allocator, group);
+  iree_allocator_free(group->host_allocator, group);
   return status;
 }
 
@@ -366,9 +366,9 @@ iree_hal_queue_t* loom_serve_device_transfer_queue(
 
 iree_status_t loom_serve_device_create_execution(
     loom_serve_device_t* device, loom_serve_execution_t** out_execution) {
-  return loom_serve_execution_create(device->dispatch, device->transfer,
-                                     device->workspace,
-                                     device->owner->allocator, out_execution);
+  return loom_serve_execution_create(
+      device->dispatch, device->transfer, device->workspace,
+      device->owner->host_allocator, out_execution);
 }
 
 loom_serve_memory_pool_t* loom_serve_device_memory_pool(

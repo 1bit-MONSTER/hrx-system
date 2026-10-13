@@ -43,9 +43,8 @@ typedef struct loom_serve_http_request_parser_t
 
 // Creates an empty parser with explicit request capacities.
 iree_status_t loom_serve_http_request_parser_allocate(
-    loom_serve_http_request_limits_t limits,
-    loom_serve_http_request_parser_t** out_parser,
-    iree_allocator_t host_allocator);
+    loom_serve_http_request_limits_t limits, iree_allocator_t host_allocator,
+    loom_serve_http_request_parser_t** out_parser);
 
 // Destroys a parser and invalidates its completed request views. NULL is valid.
 void loom_serve_http_request_parser_free(

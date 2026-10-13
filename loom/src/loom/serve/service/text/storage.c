@@ -19,7 +19,7 @@ void loom_serve_text_storage_release_payloads(
 
 void loom_serve_text_storage_deinitialize(loom_serve_text_storage_t* storage) {
   loom_serve_text_storage_release_payloads(storage);
-  iree_allocator_free(storage->allocator, storage->regions);
+  iree_allocator_free(storage->host_allocator, storage->regions);
   memset(storage, 0, sizeof(*storage));
 }
 
@@ -28,9 +28,9 @@ void loom_serve_text_storage_deinitialize(loom_serve_text_storage_t* storage) {
 iree_status_t loom_serve_text_storage_initialize(
     const iree_vm_ref_types_t* types, iree_vm_variant_t* results,
     iree_host_size_t row_count, iree_host_size_t context_capacity,
-    iree_host_size_t pool_capacity, loom_serve_text_storage_t* storage,
-    iree_allocator_t allocator) {
-  *storage = (loom_serve_text_storage_t){.allocator = allocator};
+    iree_host_size_t pool_capacity, iree_allocator_t host_allocator,
+    loom_serve_text_storage_t* out_storage) {
+  *out_storage = (loom_serve_text_storage_t){.host_allocator = host_allocator};
   const iree_host_size_t lengths[] = {
       LOOM_SERVE_TEXT_STORAGE_ALLOCATION_COUNT * 3 * sizeof(int64_t),
       row_count * 4 * 2 * sizeof(int64_t),
@@ -43,14 +43,15 @@ iree_status_t loom_serve_text_storage_initialize(
        i < LOOM_SERVE_TEXT_STORAGE_RESULT_COUNT && iree_status_is_ok(status);
        ++i) {
     status = iree_vm_buffer_ptr_from_variant_move(types, &results[i],
-                                                  &storage->buffers[i]);
+                                                  &out_storage->buffers[i]);
     const iree_host_size_t length =
-        storage->buffers[i] ? iree_vm_buffer_length(storage->buffers[i]) : 0;
+        out_storage->buffers[i] ? iree_vm_buffer_length(out_storage->buffers[i])
+                                : 0;
     const bool geometry = i == LOOM_SERVE_TEXT_STORAGE_GEOMETRY;
     const bool origins = i == LOOM_SERVE_TEXT_STORAGE_TARGET_ORIGINS ||
                          i == LOOM_SERVE_TEXT_STORAGE_DRAFT_ORIGINS;
     if (iree_status_is_ok(status) &&
-        (!storage->buffers[i] ||
+        (!out_storage->buffers[i] ||
          (!origins &&
           (geometry ? (length < lengths[i] || (length - lengths[i]) % 40)
                     : length != lengths[i])))) {
@@ -59,13 +60,13 @@ iree_status_t loom_serve_text_storage_initialize(
                            "source storage result %zu has invalid size", i);
     }
     if (iree_status_is_ok(status)) {
-      status = iree_vm_buffer_map_read(storage->buffers[i], 0, length,
-                                       &storage->bytes[i]);
+      status = iree_vm_buffer_map_read(out_storage->buffers[i], 0, length,
+                                       &out_storage->bytes[i]);
     }
   }
   IREE_RETURN_IF_ERROR(status);
   const uint8_t* geometry =
-      storage->bytes[LOOM_SERVE_TEXT_STORAGE_GEOMETRY].data;
+      out_storage->bytes[LOOM_SERVE_TEXT_STORAGE_GEOMETRY].data;
   const uint64_t block_size = iree_unaligned_load_le_u64(geometry);
   const uint64_t map_origin = iree_unaligned_load_le_u64(geometry + 8);
   const uint64_t carry_stride = iree_unaligned_load_le_u64(geometry + 16);
@@ -76,17 +77,18 @@ iree_status_t loom_serve_text_storage_initialize(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "source cache geometry cannot represent this pool");
   }
-  storage->block_size = (iree_host_size_t)block_size;
-  storage->map_origin = map_origin;
-  storage->blocks_per_row = (context_capacity + block_size - 1) / block_size;
-  storage->carry_stride = carry_stride;
-  storage->feedback_split = feedback_split;
+  out_storage->block_size = (iree_host_size_t)block_size;
+  out_storage->map_origin = map_origin;
+  out_storage->blocks_per_row =
+      (context_capacity + block_size - 1) / block_size;
+  out_storage->carry_stride = carry_stride;
+  out_storage->feedback_split = feedback_split;
   const uint64_t slot_origin = iree_unaligned_load_le_u64(geometry + 32);
   const uint64_t slot_stride = iree_unaligned_load_le_u64(geometry + 40);
   const uint64_t slot_length = iree_unaligned_load_le_u64(geometry + 48);
   const uint64_t slot_count = iree_unaligned_load_le_u64(geometry + 56);
   const uint8_t* arena =
-      storage->bytes[LOOM_SERVE_TEXT_STORAGE_ALLOCATIONS].data + 24;
+      out_storage->bytes[LOOM_SERVE_TEXT_STORAGE_ALLOCATIONS].data + 24;
   const uint64_t arena_length = iree_unaligned_load_le_u64(arena);
   const uint64_t private_length = iree_unaligned_load_le_u64(arena + 16);
   if (!slot_length || slot_stride < slot_length || slot_count < row_count ||
@@ -98,14 +100,14 @@ iree_status_t loom_serve_text_storage_initialize(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "source recurrent slots exceed private storage");
   }
-  storage->recurrent.origin = slot_origin;
-  storage->recurrent.stride = slot_stride;
-  storage->recurrent.length = slot_length;
-  storage->recurrent.capacity = (uint32_t)slot_count;
+  out_storage->recurrent.origin = slot_origin;
+  out_storage->recurrent.stride = slot_stride;
+  out_storage->recurrent.length = slot_length;
+  out_storage->recurrent.capacity = (uint32_t)slot_count;
   // Row-private views must not alias any independently reusable state slot.
   for (iree_host_size_t i = 0; i < row_count * 4; ++i) {
     const uint8_t* view =
-        storage->bytes[LOOM_SERVE_TEXT_STORAGE_VIEWS].data + i * 16;
+        out_storage->bytes[LOOM_SERVE_TEXT_STORAGE_VIEWS].data + i * 16;
     const uint64_t origin = iree_unaligned_load_le_u64(view);
     const uint64_t length = iree_unaligned_load_le_u64(view + 8);
     const bool required = i % 4 != 1 || !pool_capacity;
@@ -131,17 +133,18 @@ iree_status_t loom_serve_text_storage_initialize(
   const iree_host_size_t table_allocations[] = {3, 10};
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(table_allocations); ++i) {
     const uint64_t length = iree_unaligned_load_le_u64(
-        storage->bytes[LOOM_SERVE_TEXT_STORAGE_ALLOCATIONS].data +
+        out_storage->bytes[LOOM_SERVE_TEXT_STORAGE_ALLOCATIONS].data +
         table_allocations[i] * 24);
     if (!length) {
       continue;
     }
     const iree_host_size_t payload_length =
-        storage->bytes[LOOM_SERVE_TEXT_STORAGE_TARGET_ORIGINS + i].data_length;
+        out_storage->bytes[LOOM_SERVE_TEXT_STORAGE_TARGET_ORIGINS + i]
+            .data_length;
     if (payload_length > length ||
         (pool_capacity &&
          (map_origin < payload_length || map_origin > length ||
-          storage->blocks_per_row >
+          out_storage->blocks_per_row >
               (length - map_origin) / (row_count * sizeof(uint32_t))))) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "source table %zu cannot fit its origin "
@@ -149,19 +152,20 @@ iree_status_t loom_serve_text_storage_initialize(
                               i);
     }
   }
-  storage->region_count =
-      (storage->bytes[LOOM_SERVE_TEXT_STORAGE_GEOMETRY].data_length - 64) / 40;
-  if ((storage->region_count != 0) != (pool_capacity != 0)) {
+  out_storage->region_count =
+      (out_storage->bytes[LOOM_SERVE_TEXT_STORAGE_GEOMETRY].data_length - 64) /
+      40;
+  if ((out_storage->region_count != 0) != (pool_capacity != 0)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "pooled state requires source cache regions");
   }
-  if (!storage->region_count) {
+  if (!out_storage->region_count) {
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-      allocator, storage->region_count, sizeof(*storage->regions),
-      (void**)&storage->regions));
-  for (iree_host_size_t i = 0; i < storage->region_count; ++i) {
+      host_allocator, out_storage->region_count, sizeof(*out_storage->regions),
+      (void**)&out_storage->regions));
+  for (iree_host_size_t i = 0; i < out_storage->region_count; ++i) {
     const uint8_t* record = geometry + 64 + i * 40;
     const uint64_t allocation = iree_unaligned_load_le_u64(record);
     const uint64_t origin = iree_unaligned_load_le_u64(record + 8);
@@ -174,10 +178,10 @@ iree_status_t loom_serve_text_storage_initialize(
                               "invalid cache region %zu", i);
     }
     const uint64_t length = iree_unaligned_load_le_u64(
-        storage->bytes[LOOM_SERVE_TEXT_STORAGE_ALLOCATIONS].data +
+        out_storage->bytes[LOOM_SERVE_TEXT_STORAGE_ALLOCATIONS].data +
         allocation * 24);
     const uint64_t private_length = iree_unaligned_load_le_u64(
-        storage->bytes[LOOM_SERVE_TEXT_STORAGE_ALLOCATIONS].data +
+        out_storage->bytes[LOOM_SERVE_TEXT_STORAGE_ALLOCATIONS].data +
         allocation * 24 + 16);
     const uint64_t blocks = pool_capacity / block_size;
     if (origin < private_length || origin > length ||
@@ -187,7 +191,7 @@ iree_status_t loom_serve_text_storage_initialize(
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "cache region %zu exceeds its allocation", i);
     }
-    storage->regions[i] = (loom_serve_text_cache_region_t){
+    out_storage->regions[i] = (loom_serve_text_cache_region_t){
         .allocation = allocation,
         .blocks = {origin, count, stride, block_bytes}};
   }
@@ -197,8 +201,9 @@ iree_status_t loom_serve_text_storage_initialize(
 iree_status_t loom_serve_text_storage_plan_snapshot(
     const loom_serve_text_storage_t* storage, iree_host_size_t carry_index,
     iree_hal_buffer_t* const* private_views, bool include_carry,
-    uint32_t block_count, const uint32_t* blocks, iree_host_size_t* out_count,
-    loom_serve_snapshot_range_t** out_ranges, iree_allocator_t allocator) {
+    uint32_t block_count, const uint32_t* blocks,
+    iree_allocator_t host_allocator, iree_host_size_t* out_count,
+    loom_serve_snapshot_range_t** out_ranges) {
   *out_count = 0;
   *out_ranges = NULL;
   include_carry &= storage->carry_stride != 0;
@@ -213,7 +218,7 @@ iree_status_t loom_serve_text_storage_plan_snapshot(
   }
   loom_serve_snapshot_range_t* ranges = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-      allocator, capacity, sizeof(*ranges), (void**)&ranges));
+      host_allocator, capacity, sizeof(*ranges), (void**)&ranges));
   iree_host_size_t count = 0;
   for (iree_host_size_t i = 0; i < 5; ++i) {
     if (private_views[i]) {

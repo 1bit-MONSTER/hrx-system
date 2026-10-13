@@ -554,7 +554,7 @@ struct CpuCompletion {
   bool released = false;
 
   static iree_status_t Run(iree_task_process_t* process,
-                           const iree_task_worker_context_t*,
+                           const iree_task_worker_context_t* context,
                            iree_task_process_drain_result_t* result) {
     auto* self = static_cast<CpuCompletion*>(process->user_data);
     self->service->Release();

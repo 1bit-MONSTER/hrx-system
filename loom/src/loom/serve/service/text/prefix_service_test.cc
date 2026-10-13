@@ -101,8 +101,8 @@ TEST_P(PrefixServiceTest, PressureReplaysWhenSelectedPrefixCannotFit) {
   model_ = nullptr;
   auto options = ModelOptions();
   options.pool_capacity = 16;
-  IREE_ASSERT_OK(
-      loom_serve_text_model_allocate(device_, &options, &model_, allocator_));
+  IREE_ASSERT_OK(loom_serve_text_model_allocate(device_, &options,
+                                                host_allocator_, &model_));
   // A partial two-page endpoint consumes six tokens. Restoring a full-pool
   // request would need its shared partial tail plus a private replacement.
   // Dropping the optional prefix makes all sixteen positions available.
@@ -141,7 +141,7 @@ TEST_P(PrefixServiceTest, StopRetiresAcceptedCaptureBeforeReleasingOwners) {
   options.chunk_size = 4;
   loom_serve_text_service_t* service = nullptr;
   IREE_ASSERT_OK(loom_serve_text_service_allocate(model_, &options, nullptr,
-                                                  &service, allocator_));
+                                                  host_allocator_, &service));
   const auto interface = loom_serve_text_service_interface(service);
   Observe(interface);
   const int client = Send(Request(Message("user", "abxabbxaxa"), 12));

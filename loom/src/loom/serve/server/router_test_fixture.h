@@ -75,7 +75,7 @@ class ObservationClient {
     IREE_ASSERT_OK(iree_net_carrier_set_handlers(
         carrier_,
         {[](void* self, iree_async_span_t bytes,
-            iree_async_buffer_lease_t*) -> iree_status_t {
+            iree_async_buffer_lease_t* lease) -> iree_status_t {
            static_cast<ObservationClient*>(self)->received_.append(
                reinterpret_cast<const char*>(iree_async_span_ptr(bytes)),
                bytes.length);
@@ -93,9 +93,8 @@ class ObservationClient {
         .generated_prefix = iree_net_send_prefix_from_bytes(
             iree_make_const_byte_span(request.data(), request.size())),
         .completion_callback = {
-            [](void*, iree_status_t status, iree_host_size_t) {
-              IREE_EXPECT_OK(status);
-            },
+            [](void* user_data, iree_status_t status,
+               iree_host_size_t bytes_sent) { IREE_EXPECT_OK(status); },
             nullptr}};
     IREE_ASSERT_OK(iree_net_carrier_send(carrier_, &params));
   }
@@ -252,7 +251,6 @@ struct ModelService {
                               loom_serve_http_connection_t* connection,
                               const loom_serve_http_request_t* request,
                               loom_serve_http_service_flags_t flags) {
-    (void)flags;
     auto* service = static_cast<ModelService*>(self);
     std::lock_guard<std::mutex> lock(service->mutex);
     service->pending.emplace_back(connection, request);
@@ -377,12 +375,12 @@ class HttpRouterTest : public ::testing::TestWithParam<int> {
     IREE_ASSERT_OK(status);
     auto options = loom_serve_http_server_options_default();
     options.connection_capacity = connection_capacity_;
-    IREE_ASSERT_OK(loom_serve_http_server_allocate(pool_, &options, &server_,
-                                                   iree_allocator_system()));
+    IREE_ASSERT_OK(loom_serve_http_server_allocate(
+        pool_, &options, iree_allocator_system(), &server_));
     auto listener_options = loom_serve_http_listener_options_default();
     listener_options.address = IREE_SV("127.0.0.1:0");
     IREE_ASSERT_OK(loom_serve_http_listener_allocate(
-        server_, &listener_options, &listener_, iree_allocator_system()));
+        server_, &listener_options, iree_allocator_system(), &listener_));
     IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
         IREE_SV(R"({"model":{"type":"BPE","vocab":{"a":0,"b":1},
                               "merges":[]},"decoder":{"type":"ByteFallback"}})"),
@@ -400,7 +398,7 @@ class HttpRouterTest : public ::testing::TestWithParam<int> {
       loom_serve_registry_t* registry = nullptr;
       IREE_ASSERT_OK(loom_serve_registry_allocate(
           IREE_ARRAYSIZE(services), services, managed_capacity_, factory_,
-          &registry, iree_allocator_system()));
+          iree_allocator_system(), &registry));
       status_ = loom_serve_router_run(
           executor_, server_, registry,
           {.request_quota = 4,
@@ -419,7 +417,6 @@ class HttpRouterTest : public ::testing::TestWithParam<int> {
     IREE_EXPECT_STATUS_IS(expected_code_, status_);
     for (auto* service : {&a_, &b_, &held_, &other_, &escaped_}) {
       for (auto& [connection, request] : service->pending) {
-        (void)request;
         loom_serve_http_connection_abort(connection);
       }
     }

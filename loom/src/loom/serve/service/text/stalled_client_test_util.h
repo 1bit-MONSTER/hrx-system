@@ -28,19 +28,20 @@ class StalledClient {
   void Send(loom_serve_http_server_t* server, const std::string& body,
             const char* target = "/v1/chat/completions",
             const char* method = "POST") {
-    const auto allocator = iree_allocator_system();
+    const auto host_allocator = iree_allocator_system();
     auto proactor_options = iree_async_proactor_options_default();
     proactor_options.threading_mode =
         IREE_ASYNC_PROACTOR_THREADING_CROSS_THREAD;
-    IREE_ASSERT_OK(iree_async_proactor_create_platform(proactor_options,
-                                                       allocator, &proactor_));
+    IREE_ASSERT_OK(iree_async_proactor_create_platform(
+        proactor_options, host_allocator, &proactor_));
     iree_async_proactor_t* server_proactor = nullptr;
     IREE_ASSERT_OK(iree_async_proactor_pool_get(
         loom_serve_http_server_proactor_pool(server), 0, &server_proactor));
     auto options = iree_net_loopback_carrier_options_default();
     options.max_send_operations = 1;
     IREE_ASSERT_OK(iree_net_loopback_carrier_create_pair(
-        proactor_, server_proactor, &options, allocator, &carrier_, &peer_));
+        proactor_, server_proactor, &options, host_allocator, &carrier_,
+        &peer_));
     iree_net_carrier_retain(peer_);
     uint64_t wait_value = 0;
     const bool consumed =
@@ -51,7 +52,7 @@ class StalledClient {
     ASSERT_TRUE(consumed);
     IREE_ASSERT_OK(iree_net_carrier_set_handlers(
         carrier_, {[](void* self, iree_async_span_t bytes,
-                      iree_async_buffer_lease_t*) -> iree_status_t {
+                      iree_async_buffer_lease_t* lease) -> iree_status_t {
                      auto* client = static_cast<StalledClient*>(self);
                      client->response_.append(reinterpret_cast<const char*>(
                                                   iree_async_span_ptr(bytes)),
@@ -77,9 +78,8 @@ class StalledClient {
         .generated_prefix = iree_net_send_prefix_from_bytes(
             iree_make_const_byte_span(request.data(), request.size())),
         .completion_callback = {
-            [](void*, iree_status_t status, iree_host_size_t) {
-              IREE_EXPECT_OK(status);
-            },
+            [](void* user_data, iree_status_t status,
+               iree_host_size_t bytes_sent) { IREE_EXPECT_OK(status); },
             nullptr}};
     IREE_ASSERT_OK(iree_net_carrier_send(carrier_, &params));
   }

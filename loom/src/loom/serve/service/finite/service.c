@@ -57,7 +57,7 @@ static const char finite_phases[][16] = {"idle",    "preparing", "batching",
 
 struct loom_serve_finite_service_t {
   // Allocator owning the queue, jobs and encoded results.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Shared source residency, borrowing the device owner through model lifetime.
   loom_serve_finite_model_t* model;
   // Immutable native modality contract, borrowed through service lifetime.
@@ -265,9 +265,9 @@ static void loom_serve_finite_job_destroy(loom_serve_finite_service_t* service,
   iree_vm_buffer_release(job->prepared.bytes);
   service->protocol->deinitialize(job->request);
   iree_string_builder_deinitialize(&job->response);
-  iree_allocator_free(service->allocator, (void*)job->body.data);
-  iree_allocator_free(service->allocator, job->rows);
-  iree_allocator_free(service->allocator, job);
+  iree_allocator_free(service->host_allocator, (void*)job->body.data);
+  iree_allocator_free(service->host_allocator, job->rows);
+  iree_allocator_free(service->host_allocator, job);
   --service->count;
 }
 
@@ -285,7 +285,6 @@ static void loom_serve_finite_finish(loom_serve_finite_service_t* service,
 static iree_status_t loom_serve_finite_cpu_run(
     iree_task_process_t* process, const iree_task_worker_context_t* context,
     iree_task_process_drain_result_t* result) {
-  (void)context;
   loom_serve_finite_service_t* service = process->user_data;
   result->completed = true;
   result->did_work = true;
@@ -302,8 +301,8 @@ static iree_status_t loom_serve_finite_cpu_run(
       if (job->prepared.bytes) {
         continue;
       }
-      job->status = service->protocol->initialize(job->body, job->request,
-                                                  service->allocator);
+      job->status = service->protocol->initialize(
+          job->body, service->host_allocator, job->request);
       // Parser range failures are malformed user numbers, not device errors.
       if (iree_status_is_invalid_argument(job->status) ||
           iree_status_is_out_of_range(job->status)) {
@@ -321,11 +320,11 @@ static iree_status_t loom_serve_finite_cpu_run(
         job->status = iree_ok_status();
       }
       if (iree_status_is_ok(status)) {
-        status =
-            iree_allocator_malloc_array(service->allocator, job->request->count,
-                                        sizeof(*job->rows), (void**)&job->rows);
+        status = iree_allocator_malloc_array(
+            service->host_allocator, job->request->count, sizeof(*job->rows),
+            (void**)&job->rows);
       }
-      iree_allocator_free(service->allocator, (void*)job->body.data);
+      iree_allocator_free(service->host_allocator, (void*)job->body.data);
       job->body = iree_string_view_empty();
     } else {
       for (iree_host_size_t row = 0; row < job->request->count; ++row) {
@@ -373,8 +372,6 @@ static void loom_serve_finite_schedule_cpu(loom_serve_finite_service_t* service,
 static void loom_serve_finite_device_completed(
     void* user_data, iree_async_operation_t* operation, iree_status_t status,
     iree_async_completion_flags_t flags) {
-  (void)operation;
-  (void)flags;
   loom_serve_finite_service_t* service = user_data;
   iree_slim_mutex_lock(&service->event.mutex);
   service->event.status = status;
@@ -711,7 +708,6 @@ static iree_status_t loom_serve_finite_accept(
     void* self, loom_serve_http_connection_t* connection,
     const loom_serve_http_request_t* request,
     loom_serve_http_service_flags_t flags) {
-  (void)flags;
   loom_serve_finite_service_t* service = self;
   const iree_time_t arrival_time = iree_time_now();
   const uint64_t id = loom_serve_finite_request_begin(service, arrival_time);
@@ -741,7 +737,7 @@ static iree_status_t loom_serve_finite_accept(
   }
   finite_job_t* job = NULL;
   iree_status_t status = iree_allocator_malloc(
-      service->allocator,
+      service->host_allocator,
       iree_sizeof_struct(finite_job_t) + service->protocol->request_size,
       (void**)&job);
   if (!iree_status_is_ok(status)) {
@@ -758,10 +754,10 @@ static iree_status_t loom_serve_finite_accept(
       (loom_serve_finite_request_t*)((uint8_t*)job +
                                      iree_sizeof_struct(finite_job_t));
   job->connection = connection;
-  iree_string_builder_initialize(service->allocator, &job->response);
+  iree_string_builder_initialize(service->host_allocator, &job->response);
   char* body = NULL;
   status = iree_allocator_clone(
-      service->allocator,
+      service->host_allocator,
       iree_make_const_byte_span(request->body.data, request->body.size),
       (void**)&body);
   if (iree_status_is_ok(status)) {
@@ -822,22 +818,22 @@ void loom_serve_finite_service_free(loom_serve_finite_service_t* service) {
   loom_serve_timer_deinitialize(&service->timer);
   iree_string_builder_deinitialize(&service->response);
   iree_slim_mutex_deinitialize(&service->event.mutex);
-  iree_allocator_free(service->allocator, service->pending);
-  iree_allocator_free(service->allocator, service->cohort);
-  iree_allocator_free(service->allocator, service->prepared);
-  iree_allocator_free(service->allocator, service->rows);
+  iree_allocator_free(service->host_allocator, service->pending);
+  iree_allocator_free(service->host_allocator, service->cohort);
+  iree_allocator_free(service->host_allocator, service->prepared);
+  iree_allocator_free(service->host_allocator, service->rows);
   if (service->telemetry.owns_stream) {
     loom_serve_telemetry_stream_free(service->telemetry.stream);
   }
-  iree_allocator_free_aligned(service->allocator, service);
+  iree_allocator_free_aligned(service->host_allocator, service);
 }
 
 iree_status_t loom_serve_finite_service_allocate(
     loom_serve_host_t* host, loom_serve_finite_model_t* model,
     const loom_serve_finite_protocol_t* protocol, iree_string_view_t name,
     iree_host_size_t capacity, iree_duration_t heartbeat_interval,
-    loom_serve_telemetry_stream_t* stream,
-    loom_serve_finite_service_t** out_service, iree_allocator_t allocator) {
+    loom_serve_telemetry_stream_t* stream, iree_allocator_t host_allocator,
+    loom_serve_finite_service_t** out_service) {
   *out_service = NULL;
   if (!name.size || !capacity || heartbeat_interval < 0 ||
       capacity > SIZE_MAX / sizeof(loom_serve_finite_prepared_t)) {
@@ -847,9 +843,9 @@ iree_status_t loom_serve_finite_service_allocate(
   }
   loom_serve_finite_service_t* service = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_aligned(
-      allocator, sizeof(*service), iree_alignof(loom_serve_finite_service_t), 0,
-      (void**)&service));
-  service->allocator = allocator;
+      host_allocator, sizeof(*service),
+      iree_alignof(loom_serve_finite_service_t), 0, (void**)&service));
+  service->host_allocator = host_allocator;
   service->model = model;
   service->protocol = protocol;
   service->name = name;
@@ -859,31 +855,32 @@ iree_status_t loom_serve_finite_service_allocate(
   service->executor = loom_serve_host_executor(host);
   iree_slim_mutex_initialize(&service->event.mutex);
   loom_serve_timer_initialize(&service->timer);
-  iree_string_builder_initialize(allocator, &service->response);
-  iree_status_t status = iree_allocator_malloc_array(allocator, capacity,
+  iree_string_builder_initialize(host_allocator, &service->response);
+  iree_status_t status = iree_allocator_malloc_array(host_allocator, capacity,
                                                      sizeof(*service->pending),
                                                      (void**)&service->pending);
   if (iree_status_is_ok(status)) {
-    status = iree_allocator_malloc_array(allocator, capacity,
+    status = iree_allocator_malloc_array(host_allocator, capacity,
                                          sizeof(*service->cohort),
                                          (void**)&service->cohort);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_allocator_malloc_array(allocator, capacity,
+    status = iree_allocator_malloc_array(host_allocator, capacity,
                                          sizeof(*service->prepared),
                                          (void**)&service->prepared);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_allocator_malloc_array(
-        allocator, capacity, sizeof(*service->rows), (void**)&service->rows);
+    status = iree_allocator_malloc_array(host_allocator, capacity,
+                                         sizeof(*service->rows),
+                                         (void**)&service->rows);
   }
   if (iree_status_is_ok(status)) {
     status = iree_async_proactor_pool_get(loom_serve_host_proactor_pool(host),
                                           0, &service->proactor);
   }
   if (iree_status_is_ok(status) && !stream) {
-    status = loom_serve_telemetry_stream_allocate(
-        128, &service->telemetry.stream, allocator);
+    status = loom_serve_telemetry_stream_allocate(128, host_allocator,
+                                                  &service->telemetry.stream);
   }
   if (iree_status_is_ok(status)) {
     loom_serve_timer_configure(&service->timer, service->proactor,

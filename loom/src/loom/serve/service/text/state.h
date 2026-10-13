@@ -89,7 +89,7 @@ typedef struct loom_serve_text_state_checkpoint_t {
 // every exported root, including failed queued uses.
 struct loom_serve_text_state_t {
   // Allocation policy for host metadata and tracked views.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Borrowed device, outliving this state and all virtual reservations.
   iree_hal_device_t* device;
   // Borrowed model timelines shared by its state maintenance and model work.
@@ -178,8 +178,8 @@ struct loom_serve_text_state_t {
 // model boundary's capacity checks. Source storage is initialized separately
 // before allocate consumes its declared roots and private views.
 void loom_serve_text_state_initialize(const loom_serve_text_options_t* options,
-                                      loom_serve_text_state_t* out_state,
-                                      iree_allocator_t allocator);
+                                      iree_allocator_t host_allocator,
+                                      loom_serve_text_state_t* out_state);
 
 // Allocates source-described storage and submits initialization on execution's
 // work timeline without waiting. The owner retains source payloads through

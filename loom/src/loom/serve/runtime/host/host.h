@@ -24,8 +24,8 @@ typedef struct loom_serve_host_t loom_serve_host_t;
 // Creates up to worker_count physical-core workers with compiler-sized stacks.
 // Worker count must be positive. Proactors are created lazily per NUMA node.
 iree_status_t loom_serve_host_create(iree_host_size_t worker_count,
-                                     loom_serve_host_t** out_host,
-                                     iree_allocator_t allocator);
+                                     iree_allocator_t host_allocator,
+                                     loom_serve_host_t** out_host);
 
 // Releases I/O infrastructure and joins the final executor owner. This is an
 // outer application teardown operation, never a task or completion callback.

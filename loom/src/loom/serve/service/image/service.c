@@ -57,7 +57,7 @@ enum { IMAGE_EVENT_CPU = 1u << 0, IMAGE_EVENT_DEVICE = 1u << 1 };
 
 struct loom_serve_image_service_t {
   // Allocator for queued inputs and encoded response storage.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Borrowed, serialized native model invocation.
   loom_serve_image_generator_t generator;
   // Copied model geometry and policy; the route name is borrowed.
@@ -298,7 +298,6 @@ static iree_status_t loom_serve_image_result_json(iree_string_builder_t* output,
 static iree_status_t loom_serve_image_cpu_run(
     iree_task_process_t* process, const iree_task_worker_context_t* context,
     iree_task_process_drain_result_t* result) {
-  (void)context;
   loom_serve_image_service_t* service = process->user_data;
   result->completed = true;
   result->did_work = true;
@@ -312,8 +311,8 @@ static iree_status_t loom_serve_image_cpu_run(
   const iree_time_t begin = iree_time_now();
   iree_byte_span_t png = iree_byte_span_empty();
   iree_status_t status = loom_serve_image_encode_rgb_f32_png(
-      service->options.width, service->options.height, service->cpu.rgb, &png,
-      service->allocator);
+      service->options.width, service->options.height, service->cpu.rgb,
+      service->host_allocator, &png);
   const iree_time_t encoded = iree_time_now();
   if (iree_status_is_ok(status)) {
     service->job.work.png_bytes = png.data_length;
@@ -321,7 +320,7 @@ static iree_status_t loom_serve_image_cpu_run(
         &service->cpu.response,
         iree_make_const_byte_span(png.data, png.data_length));
   }
-  iree_allocator_free(service->allocator, png.data);
+  iree_allocator_free(service->host_allocator, png.data);
   service->job.work.png_ns = encoded - begin;
   service->job.work.json_ns = iree_time_now() - encoded;
   return status;
@@ -369,8 +368,6 @@ static void loom_serve_image_start(loom_serve_image_service_t* service,
 static void loom_serve_image_device_completed(
     void* user_data, iree_async_operation_t* operation, iree_status_t status,
     iree_async_completion_flags_t flags) {
-  (void)operation;
-  (void)flags;
   loom_serve_image_service_t* service = user_data;
   iree_slim_mutex_lock(&service->events.mutex);
   service->events.status = iree_status_join(service->events.status, status);
@@ -605,7 +602,6 @@ static iree_status_t loom_serve_image_accept(
     void* self, loom_serve_http_connection_t* connection,
     const loom_serve_http_request_t* request,
     loom_serve_http_service_flags_t flags) {
-  (void)flags;
   loom_serve_image_service_t* service = self;
   image_pending_t pending = {
       .connection = connection,
@@ -633,7 +629,7 @@ static iree_status_t loom_serve_image_accept(
   }
   iree_status_t status = loom_serve_image_request_initialize(
       request->body, service->options.name, service->options.width,
-      service->options.height, &pending.job.request, service->allocator);
+      service->options.height, service->host_allocator, &pending.job.request);
   if (!iree_status_is_ok(status)) {
     iree_string_view_t message = iree_status_message(status);
     if (!message.size) {
@@ -862,7 +858,7 @@ void loom_serve_image_service_free(loom_serve_image_service_t* service) {
     return;
   }
   IREE_ASSERT(!loom_serve_image_is_pending(service));
-  const iree_allocator_t allocator = service->allocator;
+  const iree_allocator_t host_allocator = service->host_allocator;
   if (!service->stopping) {
     loom_serve_image_stop(service);
   }
@@ -875,7 +871,7 @@ void loom_serve_image_service_free(loom_serve_image_service_t* service) {
   loom_serve_timer_deinitialize(&service->timer);
   iree_string_builder_deinitialize(&service->cpu.response);
   iree_string_builder_deinitialize(&service->response);
-  iree_allocator_free(allocator, service->pending);
+  iree_allocator_free(host_allocator, service->pending);
   iree_slim_mutex_deinitialize(&service->events.mutex);
   if (service->telemetry.stream) {
     loom_serve_image_heartbeat(service);
@@ -883,14 +879,14 @@ void loom_serve_image_service_free(loom_serve_image_service_t* service) {
   if (service->telemetry.owns_stream) {
     loom_serve_telemetry_stream_free(service->telemetry.stream);
   }
-  iree_allocator_free_aligned(allocator, service);
+  iree_allocator_free_aligned(host_allocator, service);
 }
 
 iree_status_t loom_serve_image_service_allocate(
     loom_serve_host_t* host, loom_serve_image_generator_t generator,
     const loom_serve_image_service_options_t* options,
-    loom_serve_telemetry_stream_t* stream,
-    loom_serve_image_service_t** out_service, iree_allocator_t host_allocator) {
+    loom_serve_telemetry_stream_t* stream, iree_allocator_t host_allocator,
+    loom_serve_image_service_t** out_service) {
   *out_service = NULL;
   if (!generator.try_admit || !generator.prepare ||
       !generator.discard_prepared_request || !generator.submit ||
@@ -907,7 +903,7 @@ iree_status_t loom_serve_image_service_allocate(
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_aligned(
       host_allocator, sizeof(*service),
       iree_alignof(loom_serve_image_service_t), 0, (void**)&service));
-  service->allocator = host_allocator;
+  service->host_allocator = host_allocator;
   service->generator = generator;
   service->options = *options;
   service->telemetry.stream = stream;
@@ -920,8 +916,8 @@ iree_status_t loom_serve_image_service_allocate(
       host_allocator, options->pending_capacity, sizeof(*service->pending),
       (void**)&service->pending);
   if (iree_status_is_ok(status) && !stream) {
-    status = loom_serve_telemetry_stream_allocate(
-        128, &service->telemetry.stream, host_allocator);
+    status = loom_serve_telemetry_stream_allocate(128, host_allocator,
+                                                  &service->telemetry.stream);
     service->telemetry.owns_stream = iree_status_is_ok(status);
   }
   if (iree_status_is_ok(status)) {

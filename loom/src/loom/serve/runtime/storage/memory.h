@@ -41,7 +41,7 @@ iree_status_t loom_serve_memory_pool_allocate(
     iree_hal_device_t* device, iree_hal_pool_t* storage_pool,
     iree_hal_queue_family_affinity_t queue_affinity,
     iree_device_size_t slab_size, uint64_t limit_bytes,
-    loom_serve_memory_pool_t** out_pool, iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator, loom_serve_memory_pool_t** out_pool);
 
 void loom_serve_memory_pool_free(loom_serve_memory_pool_t* pool);
 

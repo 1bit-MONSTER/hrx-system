@@ -75,7 +75,7 @@ class ControlTest
     };
     const iree_hal_slab_pool_options_t pool_options = {};
     IREE_ASSERT_OK(iree_hal_slab_pool_create(group_, scope, &pool_options,
-                                             allocator_, &storage_pool_));
+                                             host_allocator_, &storage_pool_));
     iree_hal_asan_pool_options_t asan_options = {};
     const auto* sanitizer =
         iree_hal_device_spec_sanitizer(iree_hal_device_spec(device_));
@@ -84,9 +84,9 @@ class ControlTest
       asan_options = sanitizer->asan.pool_options;
     }
     IREE_ASSERT_OK(loom_serve_workspace_create(
-        group_, storage_pool_, &asan_options, &workspace_, allocator_));
+        group_, storage_pool_, &asan_options, host_allocator_, &workspace_));
     IREE_ASSERT_OK(loom_serve_execution_create(dispatch, transfer, workspace_,
-                                               allocator_, &execution_));
+                                               host_allocator_, &execution_));
     directory_ =
         std::filesystem::path(FLAG_control_sources).parent_path().string();
     const iree_string_view_t providers[] = {IREE_SV("kernels.loom")};
@@ -95,8 +95,8 @@ class ControlTest
         .count = IREE_ARRAYSIZE(providers),
         .values = providers};
     IREE_ASSERT_OK(loom_serve_jit_allocate(device_, dispatch, host_, &sources,
-                                           nullptr, &compilation_, allocator_,
-                                           &jit_));
+                                           nullptr, &compilation_,
+                                           host_allocator_, &jit_));
     IREE_ASSERT_OK(Prepare(family, "prefill_to_decode", &commands_[0]));
     IREE_ASSERT_OK(Prepare(family, "decode_transition", &commands_[1]));
     IREE_ASSERT_OK(Prepare(family, "device_continuation", &commands_[2]));
@@ -155,26 +155,26 @@ class ControlTest
   iree_status_t CreateDevice() {
     iree_hal_driver_registry_t* registry = nullptr;
     IREE_RETURN_IF_ERROR(
-        iree_hal_driver_registry_allocate(allocator_, &registry));
+        iree_hal_driver_registry_allocate(host_allocator_, &registry));
     iree_status_t status = iree_hal_register_all_available_drivers(registry);
     if (iree_status_is_ok(status)) {
-      status = loom_serve_host_create(2, &host_, allocator_);
+      status = loom_serve_host_create(2, host_allocator_, &host_);
     }
     if (iree_status_is_ok(status)) {
       auto params = iree_hal_device_create_params_default();
       params.proactor_pool = loom_serve_host_proactor_pool(host_);
       status = iree_hal_create_device(registry, IREE_SV("amdgpu"), &params,
-                                      allocator_, &device_);
+                                      host_allocator_, &device_);
     }
     iree_hal_driver_registry_free(registry);
     if (iree_status_is_ok(status)) {
       status = iree_async_frontier_tracker_create(
-          iree_async_frontier_tracker_options_default(), allocator_,
+          iree_async_frontier_tracker_options_default(), host_allocator_,
           &frontier_tracker_);
     }
     if (iree_status_is_ok(status)) {
       status = iree_hal_device_group_create_from_device(
-          device_, frontier_tracker_, allocator_, &group_);
+          device_, frontier_tracker_, host_allocator_, &group_);
     }
     return status;
   }
@@ -195,7 +195,7 @@ class ControlTest
 
   iree_status_t CreateModel() {
     IREE_RETURN_IF_ERROR(
-        iree_vm_environment_allocate(allocator_, &environment_));
+        iree_vm_environment_allocate(host_allocator_, &environment_));
     const iree_vm_ref_type_table_t* table = nullptr;
     IREE_RETURN_IF_ERROR(iree_hal_module_register_types(environment_, &table));
     IREE_RETURN_IF_ERROR(iree_hal_module_types_resolve(table, &types_));
@@ -210,32 +210,32 @@ class ControlTest
     options.binding_capacity = 12;
     options.stages = {IREE_ARRAYSIZE(stages), stages};
     options.feedback = {IREE_ARRAYSIZE(feedback), feedback};
-    IREE_RETURN_IF_ERROR(loom_serve_module_create(&types_, execution_, options,
-                                                  allocator_, &native_module_));
+    IREE_RETURN_IF_ERROR(loom_serve_module_create(
+        &types_, execution_, options, host_allocator_, &native_module_));
     const std::string path = directory_ + "/control.loom";
     iree_const_byte_span_t image;
     const iree_string_view_t roots[] = {IREE_SVL("step"), IREE_SVL("fork")};
     IREE_RETURN_IF_ERROR(loom_serve_jit_compile_vm(
         iree_make_cstring_view(path.c_str()), IREE_ARRAYSIZE(roots), roots,
-        &compilation_, allocator_, &image));
+        &compilation_, host_allocator_, &image));
     iree_status_t status = iree_vm_bytecode_module_create_trusted(
-        environment_, IREE_SV("model"), {image, allocator_}, allocator_,
-        &bytecode_module_);
+        environment_, IREE_SV("model"), {image, host_allocator_},
+        host_allocator_, &bytecode_module_);
     if (!iree_status_is_ok(status)) {
-      iree_allocator_free(allocator_, (void*)image.data);
+      iree_allocator_free(host_allocator_, (void*)image.data);
       return status;
     }
     iree_vm_module_t* libraries[] = {native_module_};
     IREE_RETURN_IF_ERROR(iree_vm_program_create(
         {bytecode_module_, iree_vm_module_span_from_array(libraries)},
-        allocator_, &program_));
+        host_allocator_, &program_));
     IREE_RETURN_IF_ERROR(iree_vm_invocation_initialize(
         iree_make_byte_span(invocation_storage_.data(),
                             invocation_storage_.size()),
         &invocation_));
     IREE_RETURN_IF_ERROR(iree_vm_process_create(program_, invocation_,
                                                 iree_vm_variant_span_empty(),
-                                                allocator_, &process_));
+                                                host_allocator_, &process_));
     return iree_vm_process_lookup_function(process_, IREE_SV("model"),
                                            IREE_SV("step"), &step_);
   }
@@ -326,7 +326,7 @@ class ControlTest
   // Schedule, counters/canary, and the command product's transient count slab.
   static constexpr std::array<size_t, 3> kContinuationLengths = {96, 16, 16};
   // Host allocation policy used for all runtime objects.
-  iree_allocator_t allocator_ = iree_allocator_system();
+  iree_allocator_t host_allocator_ = iree_allocator_system();
   // Copied compiler evidence retained beyond individual results.
   loom_serve_compilation_report_t compilation_ = {};
   // Shared compiler workers and I/O services outliving the device.

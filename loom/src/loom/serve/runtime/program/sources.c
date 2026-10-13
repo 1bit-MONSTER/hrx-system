@@ -23,11 +23,11 @@ bool loom_serve_path_is_absolute(iree_string_view_t path) {
 
 iree_status_t loom_serve_path_resolve(iree_string_view_t base,
                                       iree_string_view_t path,
-                                      iree_allocator_t allocator,
+                                      iree_allocator_t host_allocator,
                                       char** out_path) {
   *out_path = NULL;
   if (loom_serve_path_is_absolute(path)) {
-    return iree_file_path_join(iree_string_view_empty(), path, allocator,
+    return iree_file_path_join(iree_string_view_empty(), path, host_allocator,
                                out_path);
   }
 #if defined(IREE_PLATFORM_WINDOWS)
@@ -46,5 +46,5 @@ iree_status_t loom_serve_path_resolve(iree_string_view_t base,
         "relative model path '%.*s' requires a base directory", (int)path.size,
         path.data);
   }
-  return iree_file_path_join(base, path, allocator, out_path);
+  return iree_file_path_join(base, path, host_allocator, out_path);
 }

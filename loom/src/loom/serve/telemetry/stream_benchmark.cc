@@ -24,8 +24,8 @@ static loom_serve_telemetry_record_t Snapshot() {
 
 static loom_serve_telemetry_stream_t* CreatePopulatedStream(size_t capacity) {
   loom_serve_telemetry_stream_t* stream = nullptr;
-  IREE_CHECK_OK(loom_serve_telemetry_stream_allocate(capacity, &stream,
-                                                     iree_allocator_system()));
+  IREE_CHECK_OK(loom_serve_telemetry_stream_allocate(
+      capacity, iree_allocator_system(), &stream));
   auto record = Snapshot();
   for (size_t i = 0; i < capacity; ++i) {
     record.time_ns = iree_time_now();

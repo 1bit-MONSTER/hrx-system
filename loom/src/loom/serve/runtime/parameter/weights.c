@@ -52,7 +52,7 @@ typedef struct weight_storage_t {
 
 struct loom_serve_weights_t {
   // Allocator owning the plan and cold activation metadata.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Borrowed device enclosing the complete plan lifetime.
   iree_hal_device_t* device;
   // Borrowed native pool for fixed roots; outlives all resolved storage.
@@ -113,7 +113,7 @@ static const weight_span_t* loom_serve_weight_find(iree_host_size_t count,
 static iree_status_t loom_serve_weight_resolve_root(
     loom_serve_weights_t* weights, const loom_cmd_program_t* program,
     loom_cmd_program_parameter_root_t root, iree_host_size_t* span_count,
-    weight_span_t* spans, iree_allocator_t allocator,
+    weight_span_t* spans, iree_allocator_t host_allocator,
     iree_hal_buffer_t** out_buffer) {
   const iree_host_size_t prior_count = *span_count;
   const weight_span_t* shared = NULL;
@@ -153,7 +153,7 @@ static iree_status_t loom_serve_weight_resolve_root(
   }
   if (shared) {
     return iree_hal_buffer_subspan(shared->buffer, origin,
-                                   root.required_byte_length, allocator,
+                                   root.required_byte_length, host_allocator,
                                    out_buffer);
   }
   weight_storage_t* storage = &weights->storages[weights->storage_count];
@@ -171,8 +171,8 @@ static iree_status_t loom_serve_weight_resolve_root(
         iree_infinite_timeout(), out_buffer));
   }
   const iree_host_size_t storage_index = weights->storage_count++;
-  IREE_RETURN_IF_ERROR(
-      loom_serve_retirement_track(&weights->retirement, out_buffer, allocator));
+  IREE_RETURN_IF_ERROR(loom_serve_retirement_track(&weights->retirement,
+                                                   out_buffer, host_allocator));
   storage->buffer = *out_buffer;
   for (uint32_t i = 0; i < program->parameters.count; ++i) {
     const loom_cmd_program_parameter_t parameter =
@@ -234,13 +234,13 @@ typedef struct weight_preparation_t {
 static iree_status_t loom_serve_weight_query_preparer(
     loom_serve_program_t* program, const iree_vm_ref_types_t* types,
     iree_vm_function_t function, loom_cmd_program_parameter_t parameter,
-    iree_allocator_t allocator, iree_vm_buffer_t** out_root) {
+    iree_allocator_t host_allocator, iree_vm_buffer_t** out_root) {
   *out_root = NULL;
   iree_vm_buffer_t* key = NULL;
   IREE_RETURN_IF_ERROR(iree_vm_buffer_wrap(
       IREE_VM_BUFFER_ACCESS_FLAG_READ,
       iree_make_byte_span((void*)parameter.key.data, parameter.key.size),
-      iree_vm_buffer_release_callback_null(), allocator, &key));
+      iree_vm_buffer_release_callback_null(), host_allocator, &key));
   iree_vm_variant_t arguments[] = {
       iree_vm_buffer_variant_from_ptr_move(types, &key)};
   iree_vm_variant_t results[2] = {0};
@@ -294,21 +294,22 @@ static iree_string_view_t loom_serve_weight_preparer_name(
 static iree_status_t loom_serve_weight_prepare_policy(
     weight_preparation_t* job) {
   loom_serve_weights_t* weights = job->weights;
-  const iree_allocator_t allocator = weights->allocator;
+  const iree_allocator_t host_allocator = weights->host_allocator;
   iree_vm_environment_t* environment = NULL;
-  IREE_RETURN_IF_ERROR(iree_vm_environment_allocate(allocator, &environment));
+  IREE_RETURN_IF_ERROR(
+      iree_vm_environment_allocate(host_allocator, &environment));
   loom_serve_program_t* program = NULL;
   const iree_string_view_t roots[] = {IREE_SVL("prepare_weight")};
   char* policy_path = NULL;
   iree_status_t status = loom_serve_path_resolve(
-      job->base_directory, job->policy_path, allocator, &policy_path);
+      job->base_directory, job->policy_path, host_allocator, &policy_path);
   if (iree_status_is_ok(status)) {
     status = loom_serve_program_allocate(
         environment, iree_make_cstring_view(policy_path), IREE_ARRAYSIZE(roots),
         roots, iree_vm_module_span_empty(), loom_serve_jit_report(job->jit),
-        allocator, &program);
+        host_allocator, &program);
   }
-  iree_allocator_free(allocator, policy_path);
+  iree_allocator_free(host_allocator, policy_path);
   iree_vm_ref_types_t types = {0};
   if (iree_status_is_ok(status)) {
     status = iree_vm_ref_types_resolve(
@@ -322,12 +323,12 @@ static iree_status_t loom_serve_weight_prepare_policy(
         IREE_SV("prepare_weight"), &function);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_allocator_malloc_array(allocator, weights->span_count,
+    status = iree_allocator_malloc_array(host_allocator, weights->span_count,
                                          sizeof(*job->preparers),
                                          (void**)&job->preparers);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_allocator_malloc_array(allocator, weights->span_count,
+    status = iree_allocator_malloc_array(host_allocator, weights->span_count,
                                          sizeof(*job->span_preparers),
                                          (void**)&job->span_preparers);
   }
@@ -336,7 +337,7 @@ static iree_status_t loom_serve_weight_prepare_policy(
     iree_vm_buffer_t* root = NULL;
     status = loom_serve_weight_query_preparer(program, &types, function,
                                               weights->spans[i].parameter,
-                                              allocator, &root);
+                                              host_allocator, &root);
     job->span_preparers[i] = SIZE_MAX;
     if (iree_status_is_ok(status) && iree_vm_buffer_length(root)) {
       const iree_string_view_t name = loom_serve_weight_preparer_name(root);
@@ -363,7 +364,7 @@ static iree_status_t loom_serve_weight_prepare_policy(
 static void loom_serve_weight_preparation_finish(weight_preparation_t* job,
                                                  iree_status_t status) {
   loom_serve_weights_t* weights = job->weights;
-  const iree_allocator_t allocator = weights->allocator;
+  const iree_allocator_t host_allocator = weights->host_allocator;
   if (iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < weights->span_count; ++i) {
       const iree_host_size_t p = job->span_preparers[i];
@@ -377,11 +378,11 @@ static void loom_serve_weight_preparation_finish(weight_preparation_t* job,
     iree_vm_buffer_release(job->preparers[i].root);
     iree_hal_command_buffer_release(job->preparers[i].command);
   }
-  iree_allocator_free(allocator, job->preparers);
-  iree_allocator_free(allocator, job->span_preparers);
+  iree_allocator_free(host_allocator, job->preparers);
+  iree_allocator_free(host_allocator, job->span_preparers);
   const loom_serve_weights_completion_fn_t completion = job->completion;
   void* user_data = job->user_data;
-  iree_allocator_free(allocator, job);
+  iree_allocator_free(host_allocator, job);
   completion(user_data, status);
 }
 
@@ -441,27 +442,26 @@ static void loom_serve_weight_preparation_compiled(
 
 static void loom_serve_weight_preparation_execute(
     loomc_task_t* task, loomc_host_size_t worker_ordinal) {
-  (void)worker_ordinal;
   weight_preparation_t* job = (weight_preparation_t*)task;
-  const iree_allocator_t allocator = job->weights->allocator;
+  const iree_allocator_t host_allocator = job->weights->host_allocator;
   iree_status_t status = loom_serve_weight_prepare_policy(job);
   iree_io_parameter_index_t* index = NULL;
   if (iree_status_is_ok(status)) {
-    status = iree_io_parameter_index_create(allocator, &index);
+    status = iree_io_parameter_index_create(host_allocator, &index);
   }
   char* weights_path = NULL;
   if (iree_status_is_ok(status)) {
     status = loom_serve_path_resolve(job->base_directory, job->weights_path,
-                                     allocator, &weights_path);
+                                     host_allocator, &weights_path);
   }
   if (iree_status_is_ok(status)) {
     status = iree_tooling_append_parameter_file_to_index(
-        iree_make_cstring_view(weights_path), index, allocator);
+        iree_make_cstring_view(weights_path), index, host_allocator);
   }
-  iree_allocator_free(allocator, weights_path);
+  iree_allocator_free(host_allocator, weights_path);
   if (iree_status_is_ok(status)) {
     status = iree_io_parameter_index_provider_create(
-        iree_string_view_empty(), index, WEIGHT_LANES, allocator,
+        iree_string_view_empty(), index, WEIGHT_LANES, host_allocator,
         &job->weights->provider);
   }
   iree_io_parameter_index_release(index);
@@ -489,8 +489,8 @@ iree_status_t loom_serve_weights_prepare_async(
     iree_string_view_t policy_path,
     loom_serve_weights_completion_fn_t completion, void* user_data) {
   weight_preparation_t* job = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(weights->allocator, sizeof(*job), (void**)&job));
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(weights->host_allocator,
+                                             sizeof(*job), (void**)&job));
   loomc_task_initialize(&weight_preparation_vtable, &job->task);
   job->weights = weights;
   job->jit = jit;
@@ -504,7 +504,7 @@ iree_status_t loom_serve_weights_prepare_async(
   iree_status_t status = iree_status_from_loomc(
       loomc_task_sink_submit(loom_serve_host_compiler_sink(host), &job->task));
   if (!iree_status_is_ok(status)) {
-    iree_allocator_free(weights->allocator, job);
+    iree_allocator_free(weights->host_allocator, job);
   }
   return status;
 }
@@ -575,20 +575,20 @@ static iree_status_t loom_serve_weight_enumerate(
 
 static iree_status_t loom_serve_weight_stream(loom_serve_weights_t* weights) {
   IREE_TRACE_ZONE_BEGIN(z0);
-  const iree_allocator_t allocator = weights->allocator;
+  const iree_allocator_t host_allocator = weights->host_allocator;
   const iree_host_size_t span_count = weights->span_count;
   weight_span_t* spans = weights->spans;
   iree_hal_device_t* device = weights->device;
   weight_group_t* groups = NULL;
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_allocator_malloc_array(allocator, span_count, sizeof(*groups),
-                                      (void**)&groups));
+      z0, iree_allocator_malloc_array(host_allocator, span_count,
+                                      sizeof(*groups), (void**)&groups));
   iree_io_parameter_gather_t* gathers = NULL;
   iree_status_t status = iree_allocator_malloc_array(
-      allocator, span_count, sizeof(*gathers), (void**)&gathers);
+      host_allocator, span_count, sizeof(*gathers), (void**)&gathers);
   iree_hal_buffer_t** views = NULL;
   if (iree_status_is_ok(status)) {
-    status = iree_allocator_malloc_array(allocator, weights->storage_count,
+    status = iree_allocator_malloc_array(host_allocator, weights->storage_count,
                                          sizeof(*views), (void**)&views);
   }
   for (iree_host_size_t i = 0;
@@ -596,7 +596,7 @@ static iree_status_t loom_serve_weight_stream(loom_serve_weights_t* weights) {
     views[i] = weights->storages[i].buffer;
     iree_hal_buffer_retain(views[i]);
     status = loom_serve_retirement_track(&weights->activation.retirement,
-                                         &views[i], allocator);
+                                         &views[i], host_allocator);
   }
   iree_hal_semaphore_t* reads[WEIGHT_LANES] = {0};
   iree_hal_semaphore_t** ready = weights->activation.semaphores;
@@ -694,9 +694,9 @@ static iree_status_t loom_serve_weight_stream(loom_serve_weights_t* weights) {
       iree_hal_buffer_release(views[i]);
     }
   }
-  iree_allocator_free(allocator, views);
-  iree_allocator_free(allocator, gathers);
-  iree_allocator_free(allocator, groups);
+  iree_allocator_free(host_allocator, views);
+  iree_allocator_free(host_allocator, gathers);
+  iree_allocator_free(host_allocator, groups);
   IREE_TRACE_ZONE_END(z0);
   return status;
 }
@@ -706,12 +706,12 @@ iree_status_t loom_serve_weights_allocate(
     iree_hal_queue_t* dispatch, iree_hal_pool_t* storage_pool,
     loom_serve_memory_pool_t* pool, iree_host_size_t shared_root_count,
     iree_host_size_t root_count, const loom_serve_weight_root_t* roots,
-    loom_serve_weights_t** out_weights, iree_allocator_t host_allocator) {
+    iree_allocator_t host_allocator, loom_serve_weights_t** out_weights) {
   *out_weights = NULL;
   loom_serve_weights_t* weights = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(host_allocator, sizeof(*weights),
                                              (void**)&weights));
-  weights->allocator = host_allocator;
+  weights->host_allocator = host_allocator;
   weights->device = device;
   weights->transfer = transfer;
   weights->dispatch = dispatch;
@@ -910,10 +910,10 @@ iree_status_t loom_serve_weights_free(loom_serve_weights_t* weights) {
       iree_hal_command_buffer_release(weights->spans[i].prepare);
     }
     iree_io_parameter_provider_release(weights->provider);
-    iree_allocator_free(weights->allocator, weights->storages);
-    iree_allocator_free(weights->allocator, weights->keys);
-    iree_allocator_free(weights->allocator, weights->spans);
-    iree_allocator_free(weights->allocator, weights);
+    iree_allocator_free(weights->host_allocator, weights->storages);
+    iree_allocator_free(weights->host_allocator, weights->keys);
+    iree_allocator_free(weights->host_allocator, weights->spans);
+    iree_allocator_free(weights->host_allocator, weights);
   }
   return status;
 }

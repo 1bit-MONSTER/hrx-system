@@ -60,7 +60,7 @@ typedef enum text_step_kind_e {
 
 struct loom_serve_text_model_t {
   // Host allocation policy used for all owned resources.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Source-owned metadata and bytecode, independent of native model bindings.
   loom_serve_text_source_t source;
   // Borrowed shared owner outliving every model resource and host I/O payload.
@@ -243,8 +243,9 @@ static iree_status_t loom_serve_text_create_program(
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0;
        i < TEXT_HOST_BUFFER_COUNT && iree_status_is_ok(status); ++i) {
-    status = iree_vm_buffer_create(lengths[i], iree_alignof(int64_t),
-                                   runner->allocator, &runner->host.buffers[i]);
+    status =
+        iree_vm_buffer_create(lengths[i], iree_alignof(int64_t),
+                              runner->host_allocator, &runner->host.buffers[i]);
     if (iree_status_is_ok(status)) {
       status = iree_vm_buffer_map_write(runner->host.buffers[i], 0, lengths[i],
                                         &runner->host.bytes[i]);
@@ -259,7 +260,7 @@ static iree_status_t loom_serve_text_create_program(
   }
   loom_serve_stage_t* stages = NULL;
   IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc_array(runner->allocator, runner->stage_count,
+      iree_allocator_malloc_array(runner->host_allocator, runner->stage_count,
                                   sizeof(*stages), (void**)&stages));
   for (iree_host_size_t i = 0; i < runner->stage_count; ++i) {
     const loom_cmd_program_requirements_t* requirements =
@@ -282,26 +283,26 @@ static iree_status_t loom_serve_text_create_program(
       .feedback = {IREE_ARRAYSIZE(feedback), feedback},
   };
   status = loom_serve_module_create(&runner->source.types, runner->execution,
-                                    options, runner->allocator,
+                                    options, runner->host_allocator,
                                     &runner->native_module);
-  iree_allocator_free(runner->allocator, stages);
+  iree_allocator_free(runner->host_allocator, stages);
   IREE_RETURN_IF_ERROR(status);
   iree_vm_module_t* libraries[] = {runner->native_module, NULL, NULL, NULL};
-  status = loom_serve_input_module_create(runner->source.environment,
-                                          runner->source.tokenizer,
-                                          &libraries[1], runner->allocator);
+  status = loom_serve_input_module_create(
+      runner->source.environment, runner->source.tokenizer,
+      runner->host_allocator, &libraries[1]);
   if (iree_status_is_ok(status)) {
-    status = loom_serve_json_module_create(runner->source.environment,
-                                           &libraries[2], runner->allocator);
+    status = loom_serve_json_module_create(
+        runner->source.environment, runner->host_allocator, &libraries[2]);
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_text_chat_tools_module_create(
-        runner->source.environment, &libraries[3], runner->allocator);
+        runner->source.environment, runner->host_allocator, &libraries[3]);
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_program_link(runner->source.module,
                                      iree_vm_module_span_from_array(libraries),
-                                     runner->allocator, &runner->program);
+                                     runner->host_allocator, &runner->program);
   }
   iree_vm_module_release(libraries[3]);
   iree_vm_module_release(libraries[2]);
@@ -338,7 +339,7 @@ struct loom_serve_text_load_t {
   // Private bootstrap task; final release publishes completion to the owner.
   loomc_task_t task;
   // Allocation policy for this operation, independent of its model.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Partial model, transferred on every terminal outcome including failure.
   loom_serve_text_model_t* model;
   // Borrowed source paths and shapes, retained through terminal advance.
@@ -393,29 +394,28 @@ static iree_status_t loom_serve_text_load_prepare(
   model->context_capacity = options->context_capacity;
   if (model->shape_count) {
     IREE_RETURN_IF_ERROR(iree_allocator_clone(
-        model->allocator,
+        model->host_allocator,
         iree_make_const_byte_span(options->epoch_shapes,
                                   model->shape_count * sizeof(*model->shapes)),
         (void**)&model->shapes));
   }
   IREE_RETURN_IF_ERROR(loom_serve_text_source_initialize(
-      options, &model->source, &model->state.storage, model->allocator));
+      options, model->host_allocator, &model->source, &model->state.storage));
   const iree_host_size_t stage_count =
       loom_serve_preparation_stage_count(model->source.preparation);
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-      model->allocator, stage_count, sizeof(*model->stages),
+      model->host_allocator, stage_count, sizeof(*model->stages),
       (void**)&model->stages));
   model->stage_count = stage_count;
   return loom_serve_jit_allocate(model->device, model->dispatch,
                                  loom_serve_device_host(model->device_owner),
                                  &options->sources, &options->kernel_sanitizer,
-                                 &model->source.compilation, model->allocator,
-                                 &model->jit);
+                                 &model->source.compilation,
+                                 model->host_allocator, &model->jit);
 }
 
 static void loom_serve_text_load_execute(loomc_task_t* task,
                                          loomc_host_size_t worker_ordinal) {
-  (void)worker_ordinal;
   loom_serve_text_load_t* load = (loom_serve_text_load_t*)task;
   load->task_status = loom_serve_text_load_prepare(load);
 }
@@ -441,8 +441,6 @@ static void loom_serve_text_load_ready(void* user_data,
                                        iree_async_operation_t* operation,
                                        iree_status_t status,
                                        iree_async_completion_flags_t flags) {
-  (void)operation;
-  (void)flags;
   loom_serve_text_load_complete(user_data, status);
 }
 
@@ -452,7 +450,7 @@ static iree_status_t loom_serve_text_load_bind(loom_serve_text_model_t* model) {
   return loom_serve_text_stages_bind(
       model->device_owner, model->source.preparation,
       model->source.shared_stage_count, model->stage_count, model->stages,
-      &model->parameters, model->allocator);
+      &model->parameters, model->host_allocator);
 }
 
 static iree_status_t loom_serve_text_load_link(loom_serve_text_load_t* load) {
@@ -460,8 +458,8 @@ static iree_status_t loom_serve_text_load_link(loom_serve_text_load_t* load) {
   iree_status_t status = iree_ok_status();
   IREE_RETURN_IF_ERROR(loom_serve_residency_allocate(
       loom_serve_device_residency_cache(model->device_owner), model->execution,
-      model->parameters.count, model->parameters.plans, &model->residency,
-      model->allocator));
+      model->parameters.count, model->parameters.plans, model->host_allocator,
+      &model->residency));
   for (iree_host_size_t i = 0;
        i < model->stage_count && iree_status_is_ok(status); ++i) {
     loom_serve_text_stage_t* stage = &model->stages[i];
@@ -473,7 +471,7 @@ static iree_status_t loom_serve_text_load_link(loom_serve_text_load_t* load) {
   IREE_RETURN_IF_ERROR(loom_serve_text_state_allocate(
       &model->state, model->device_owner, model->execution));
   IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc_array(model->allocator, model->row_count,
+      iree_allocator_malloc_array(model->host_allocator, model->row_count,
                                   sizeof(*model->rows), (void**)&model->rows));
   for (iree_host_size_t i = 0; i < model->row_count; ++i) {
     model->rows[i].model = model;
@@ -481,7 +479,7 @@ static iree_status_t loom_serve_text_load_link(loom_serve_text_load_t* load) {
   }
   if (model->state.checkpoints.capacity) {
     IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-        model->allocator, model->state.checkpoints.capacity,
+        model->host_allocator, model->state.checkpoints.capacity,
         sizeof(*model->checkpoints), (void**)&model->checkpoints));
   }
   IREE_RETURN_IF_ERROR(loom_serve_text_create_program(model));
@@ -509,7 +507,7 @@ static iree_status_t loom_serve_text_load_link(loom_serve_text_load_t* load) {
 iree_status_t loom_serve_text_load_allocate(
     loom_serve_device_t* device, const loom_serve_text_options_t* options,
     loom_serve_text_load_wake_fn_t wake, void* user_data,
-    loom_serve_text_load_t** out_load, iree_allocator_t host_allocator) {
+    iree_allocator_t host_allocator, loom_serve_text_load_t** out_load) {
   *out_load = NULL;
   if (options->row_count < 1 || options->row_count > TEXT_ROW_CAPACITY) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -546,7 +544,7 @@ iree_status_t loom_serve_text_load_allocate(
   loom_serve_text_load_t* load = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, sizeof(*load), (void**)&load));
-  load->allocator = host_allocator;
+  load->host_allocator = host_allocator;
   load->options = *options;
   load->event.wake = wake;
   load->event.user_data = user_data;
@@ -556,7 +554,7 @@ iree_status_t loom_serve_text_load_allocate(
       host_allocator, sizeof(*load->model), (void**)&load->model);
   if (iree_status_is_ok(status)) {
     loom_serve_text_model_t* model = load->model;
-    model->allocator = host_allocator;
+    model->host_allocator = host_allocator;
     model->device_owner = device;
     model->device = loom_serve_device_handle(device);
     model->group = loom_serve_device_group(device);
@@ -568,7 +566,7 @@ iree_status_t loom_serve_text_load_allocate(
         retain_profile_metadata
             ? IREE_HAL_COMMAND_BUFFER_MODE_RETAIN_PROFILE_METADATA
             : IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT;
-    loom_serve_text_state_initialize(options, &model->state, host_allocator);
+    loom_serve_text_state_initialize(options, host_allocator, &model->state);
     *out_load = load;
   } else {
     iree_slim_mutex_deinitialize(&load->event.mutex);
@@ -687,7 +685,7 @@ void loom_serve_text_load_free(loom_serve_text_load_t* load) {
   }
   IREE_ASSERT(!load->model);
   iree_slim_mutex_deinitialize(&load->event.mutex);
-  iree_allocator_free(load->allocator, load);
+  iree_allocator_free(load->host_allocator, load);
 }
 
 static void loom_serve_text_load_notify(void* user_data) {
@@ -696,14 +694,14 @@ static void loom_serve_text_load_notify(void* user_data) {
 
 iree_status_t loom_serve_text_model_allocate(
     loom_serve_device_t* device, const loom_serve_text_options_t* options,
-    loom_serve_text_model_t** out_model, iree_allocator_t host_allocator) {
+    iree_allocator_t host_allocator, loom_serve_text_model_t** out_model) {
   *out_model = NULL;
   iree_notification_t notification;
   iree_notification_initialize(&notification);
   loom_serve_text_load_t* load = NULL;
   iree_status_t status = loom_serve_text_load_allocate(
-      device, options, loom_serve_text_load_notify, &notification, &load,
-      host_allocator);
+      device, options, loom_serve_text_load_notify, &notification,
+      host_allocator, &load);
   bool complete = false;
   while (iree_status_is_ok(status) && !complete) {
     const uint32_t ticket = iree_notification_prepare_wait(&notification);
@@ -792,21 +790,21 @@ iree_status_t loom_serve_text_model_free_retired(
   IREE_RETURN_IF_ERROR(loom_serve_text_state_deinitialize(&model->state));
   for (iree_host_size_t i = 0; i < model->stage_count; ++i) {
     loom_serve_jit_stage_free(model->stages[i].compiled);
-    iree_allocator_free(model->allocator, model->stages[i].fixed_buffers);
+    iree_allocator_free(model->host_allocator, model->stages[i].fixed_buffers);
   }
-  iree_allocator_free(model->allocator, model->shapes);
-  iree_allocator_free(model->allocator, model->stages);
-  iree_allocator_free(model->allocator, model->parameters.plans);
-  iree_allocator_free(model->allocator, model->parameters.sources);
+  iree_allocator_free(model->host_allocator, model->shapes);
+  iree_allocator_free(model->host_allocator, model->stages);
+  iree_allocator_free(model->host_allocator, model->parameters.plans);
+  iree_allocator_free(model->host_allocator, model->parameters.sources);
   loom_serve_jit_free(model->jit);
   for (iree_host_size_t i = 0; i < TEXT_HOST_BUFFER_COUNT; ++i) {
     iree_vm_buffer_release(model->host.buffers[i]);
   }
-  iree_allocator_free(model->allocator, model->rows);
-  iree_allocator_free(model->allocator, model->checkpoints);
+  iree_allocator_free(model->host_allocator, model->rows);
+  iree_allocator_free(model->host_allocator, model->checkpoints);
   loom_serve_execution_release(model->execution);
   loom_serve_text_source_deinitialize(&model->source);
-  iree_allocator_free(model->allocator, model);
+  iree_allocator_free(model->host_allocator, model);
   return iree_ok_status();
 }
 

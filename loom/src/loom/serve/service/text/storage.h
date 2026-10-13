@@ -37,7 +37,7 @@ typedef struct loom_serve_text_cache_region_t {
 // Validation establishes dimensions once; consumers use these facts directly.
 typedef struct loom_serve_text_storage_t {
   // Allocator owning parsed region metadata.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Source descriptors and upload payloads retained through initialization.
   iree_vm_buffer_t* buffers[LOOM_SERVE_TEXT_STORAGE_RESULT_COUNT];
   // Immutable mappings borrowing buffers until release_payloads.
@@ -76,8 +76,8 @@ typedef struct loom_serve_text_storage_t {
 iree_status_t loom_serve_text_storage_initialize(
     const iree_vm_ref_types_t* types, iree_vm_variant_t* results,
     iree_host_size_t row_count, iree_host_size_t context_capacity,
-    iree_host_size_t pool_capacity, loom_serve_text_storage_t* out_storage,
-    iree_allocator_t allocator);
+    iree_host_size_t pool_capacity, iree_allocator_t host_allocator,
+    loom_serve_text_storage_t* out_storage);
 
 // After initialization transfers retire, discard their source payloads while
 // keeping parsed geometry for growth, compaction and retained-state transfers.
@@ -94,8 +94,9 @@ void loom_serve_text_storage_deinitialize(loom_serve_text_storage_t* storage);
 iree_status_t loom_serve_text_storage_plan_snapshot(
     const loom_serve_text_storage_t* storage, iree_host_size_t carry_index,
     iree_hal_buffer_t* const* private_views, bool include_carry,
-    uint32_t block_count, const uint32_t* blocks, iree_host_size_t* out_count,
-    loom_serve_snapshot_range_t** out_ranges, iree_allocator_t allocator);
+    uint32_t block_count, const uint32_t* blocks,
+    iree_allocator_t host_allocator, iree_host_size_t* out_count,
+    loom_serve_snapshot_range_t** out_ranges);
 
 #ifdef __cplusplus
 }  // extern "C"

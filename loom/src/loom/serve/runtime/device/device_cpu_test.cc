@@ -13,7 +13,7 @@ class CpuDeviceTest : public ::testing::TestWithParam<uint32_t> {
  protected:
   void SetUp() override {
     IREE_ASSERT_OK(
-        loom_serve_host_create(GetParam(), &host_, iree_allocator_system()));
+        loom_serve_host_create(GetParam(), iree_allocator_system(), &host_));
   }
 
   void TearDown() override {
@@ -32,7 +32,7 @@ TEST_P(CpuDeviceTest, DevicesUseApplicationWorkerBudgetAndOneGroup) {
                                                  {.uri = IREE_SV("task")}};
   IREE_ASSERT_OK(
       loom_serve_device_group_allocate(host_, IREE_ARRAYSIZE(options), options,
-                                       &group_, iree_allocator_system()));
+                                       iree_allocator_system(), &group_));
   EXPECT_EQ(loom_serve_device_group_count(group_), 2u);
   auto* first = loom_serve_device_group_at(group_, 0);
   auto* second = loom_serve_device_group_at(group_, 1);
@@ -55,10 +55,10 @@ TEST_P(CpuDeviceTest, LaterUriFailureReleasesBorrowedWorkers) {
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_NOT_FOUND,
       loom_serve_device_group_allocate(host_, IREE_ARRAYSIZE(options), options,
-                                       &group_, iree_allocator_system()));
+                                       iree_allocator_system(), &group_));
   EXPECT_EQ(group_, nullptr);
-  IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, options, &group_,
-                                                  iree_allocator_system()));
+  IREE_ASSERT_OK(loom_serve_device_group_allocate(
+      host_, 1, options, iree_allocator_system(), &group_));
   EXPECT_EQ(loom_serve_device_group_count(group_), 1u);
 }
 

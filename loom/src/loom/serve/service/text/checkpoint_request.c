@@ -110,8 +110,8 @@ iree_status_t loom_serve_text_checkpoint_request_submit(
     loom_serve_text_checkpoint_registry_t* registry,
     loom_serve_text_checkpoint_source_t source, bool suspension_supported,
     loom_serve_text_telemetry_t* telemetry, iree_string_builder_t* scratch,
-    loom_serve_execution_frontier_t* out_frontier, bool* trim_pending,
-    iree_allocator_t host_allocator) {
+    bool* trim_pending, iree_allocator_t host_allocator,
+    loom_serve_execution_frontier_t* out_frontier) {
   const bool create = control->action == LOOM_SERVE_TEXT_CHECKPOINT_ACTION_PIN;
   const bool suspend =
       control->action == LOOM_SERVE_TEXT_CHECKPOINT_ACTION_SUSPEND;

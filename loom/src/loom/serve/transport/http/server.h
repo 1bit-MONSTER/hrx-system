@@ -45,7 +45,7 @@ loom_serve_http_server_options_t loom_serve_http_server_options_default(void);
 iree_status_t loom_serve_http_server_allocate(
     iree_async_proactor_pool_t* proactor_pool,
     const loom_serve_http_server_options_t* options,
-    loom_serve_http_server_t** out_server, iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator, loom_serve_http_server_t** out_server);
 
 // Cancels/drains accepted I/O and releases shared progress ownership. All
 // listeners have retired and the application has relinquished all request

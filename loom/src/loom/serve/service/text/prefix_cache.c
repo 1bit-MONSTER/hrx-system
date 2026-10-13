@@ -9,15 +9,16 @@
 #include <string.h>
 
 iree_status_t loom_serve_text_prefix_cache_initialize(
-    iree_host_size_t capacity, loom_serve_text_prefix_cache_t* cache,
-    iree_allocator_t allocator) {
-  *cache = (loom_serve_text_prefix_cache_t){.allocator = allocator,
-                                            .capacity = capacity};
+    iree_host_size_t capacity, iree_allocator_t host_allocator,
+    loom_serve_text_prefix_cache_t* out_cache) {
+  *out_cache = (loom_serve_text_prefix_cache_t){
+      .host_allocator = host_allocator, .capacity = capacity};
   if (!capacity) {
     return iree_ok_status();
   }
-  return iree_allocator_malloc_array(
-      allocator, capacity, sizeof(*cache->entries), (void**)&cache->entries);
+  return iree_allocator_malloc_array(host_allocator, capacity,
+                                     sizeof(*out_cache->entries),
+                                     (void**)&out_cache->entries);
 }
 
 void loom_serve_text_prefix_cache_reset(loom_serve_text_prefix_cache_t* cache,
@@ -27,7 +28,7 @@ void loom_serve_text_prefix_cache_reset(loom_serve_text_prefix_cache_t* cache,
     if (terminal_code == IREE_STATUS_OK) {
       loom_serve_text_checkpoint_release(entry->state);
     }
-    iree_allocator_free(cache->allocator, entry->tokens);
+    iree_allocator_free(cache->host_allocator, entry->tokens);
     memset(entry, 0, sizeof(*entry));
   }
   cache->count = 0;
@@ -35,7 +36,7 @@ void loom_serve_text_prefix_cache_reset(loom_serve_text_prefix_cache_t* cache,
 
 void loom_serve_text_prefix_cache_deinitialize(
     loom_serve_text_prefix_cache_t* cache) {
-  iree_allocator_free(cache->allocator, cache->entries);
+  iree_allocator_free(cache->host_allocator, cache->entries);
   memset(cache, 0, sizeof(*cache));
 }
 
@@ -63,7 +64,7 @@ void loom_serve_text_prefix_cache_release(
     loom_serve_text_prefix_cache_t* cache,
     loom_serve_text_prefix_entry_t* entry) {
   loom_serve_text_checkpoint_release(entry->state);
-  iree_allocator_free(cache->allocator, entry->tokens);
+  iree_allocator_free(cache->host_allocator, entry->tokens);
   memset(entry, 0, sizeof(*entry));
   --cache->count;
 }
@@ -119,7 +120,7 @@ iree_status_t loom_serve_text_prefix_cache_submit(
   }
   int32_t* copy = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_clone(
-      cache->allocator,
+      cache->host_allocator,
       iree_make_const_byte_span(tokens, count * sizeof(*tokens)),
       (void**)&copy));
   if (entry->state) {
@@ -134,7 +135,7 @@ iree_status_t loom_serve_text_prefix_cache_submit(
     loom_serve_text_prefix_cache_touch(cache, entry);
     ++cache->count;
   } else {
-    iree_allocator_free(cache->allocator, copy);
+    iree_allocator_free(cache->host_allocator, copy);
   }
   return status;
 }

@@ -23,15 +23,15 @@ IREE_FLAG(int64_t, memory_bytes, 0,
           "one device. Zero imposes no serving limit. Invocation workspace "
           "is accounted separately.");
 
-iree_status_t loom_serve_host_create_from_flags(loom_serve_host_t** out_host,
-                                                iree_allocator_t allocator) {
-  return loom_serve_host_create((iree_host_size_t)FLAG_workers, out_host,
-                                allocator);
+iree_status_t loom_serve_host_create_from_flags(iree_allocator_t host_allocator,
+                                                loom_serve_host_t** out_host) {
+  return loom_serve_host_create((iree_host_size_t)FLAG_workers, host_allocator,
+                                out_host);
 }
 
 iree_status_t loom_serve_device_group_allocate_from_flags(
-    loom_serve_host_t* host, loom_serve_device_group_t** out_group,
-    iree_allocator_t host_allocator) {
+    loom_serve_host_t* host, iree_allocator_t host_allocator,
+    loom_serve_device_group_t** out_group) {
   *out_group = NULL;
   const iree_string_view_list_t devices = iree_hal_device_flag_list();
   if (!devices.count) {
@@ -77,5 +77,5 @@ iree_status_t loom_serve_device_group_allocate_from_flags(
     };
   }
   return loom_serve_device_group_allocate(host, devices.count, options,
-                                          out_group, host_allocator);
+                                          host_allocator, out_group);
 }

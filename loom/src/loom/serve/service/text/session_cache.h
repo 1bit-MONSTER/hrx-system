@@ -26,7 +26,7 @@ typedef struct loom_serve_text_session_cache_entry_t {
 
 typedef struct loom_serve_text_session_cache_t {
   // Allocator owning the fixed record array.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Stable records, with one extra slot for a full-cache admission exchange.
   loom_serve_text_session_cache_entry_t* entries;
   // Configured retained endpoint bound, excluding the transient exchange slot.
@@ -47,8 +47,8 @@ bool loom_serve_text_session_cache_inspect(
 // reserves capacity+1 native endpoints when enabled and bounds capacity before
 // calling. Partial initialization may be reset and deinitialized.
 iree_status_t loom_serve_text_session_cache_initialize(
-    iree_host_size_t capacity, loom_serve_text_session_cache_t* cache,
-    iree_allocator_t allocator);
+    iree_host_size_t capacity, iree_allocator_t host_allocator,
+    loom_serve_text_session_cache_t* out_cache);
 
 // Ends logical lifetimes after all borrowers retire. Failed readiness leaves
 // accepted native handles to outer model destruction, as with explicit pins.

@@ -34,7 +34,7 @@ typedef struct finite_model_stage_t {
 
 struct loom_serve_finite_model_t {
   // Allocator owning this model and its host feedback storage.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Copied startup evidence, independent of every compiler result lifetime.
   loom_serve_compilation_report_t compilation;
   // Owned public identifier returned by the source bootstrap.
@@ -190,19 +190,19 @@ static iree_status_t loom_serve_finite_model_destroy_resources(
     for (uint32_t i = 0; i < model->stages.count; ++i) {
       loom_serve_jit_stage_free(model->stages.values[i].compiled);
     }
-    iree_allocator_free(model->allocator, model->stages.values);
+    iree_allocator_free(model->host_allocator, model->stages.values);
     loom_serve_preparation_free(model->preparation);
     iree_vm_buffer_release(model->invocation.plan);
     iree_vm_buffer_release(model->invocation.payload);
     iree_vm_environment_free(model->control.environment);
     loom_serve_execution_release(model->execution);
-    iree_allocator_free(model->allocator, model->weights.values);
-    iree_allocator_free(model->allocator, model->weights.plans);
-    iree_allocator_free(model->allocator, (void*)model->name.data);
+    iree_allocator_free(model->host_allocator, model->weights.values);
+    iree_allocator_free(model->host_allocator, model->weights.plans);
+    iree_allocator_free(model->host_allocator, (void*)model->name.data);
     loom_serve_jit_free(model->jit);
     iree_tokenizer_free(model->tokenizer);
-    iree_allocator_free(model->allocator, model->output.data);
-    iree_allocator_free(model->allocator, model);
+    iree_allocator_free(model->host_allocator, model->output.data);
+    iree_allocator_free(model->host_allocator, model);
   }
   return status;
 }
@@ -230,24 +230,24 @@ static iree_status_t loom_serve_finite_load_tokenizer(
     iree_string_view_t directory, iree_string_view_t asset) {
   char* resolved_directory = NULL;
   IREE_RETURN_IF_ERROR(loom_serve_path_resolve(
-      base_directory, directory, model->allocator, &resolved_directory));
+      base_directory, directory, model->host_allocator, &resolved_directory));
   char* path = NULL;
   iree_status_t status =
       loom_serve_path_resolve(iree_make_cstring_view(resolved_directory), asset,
-                              model->allocator, &path);
-  iree_allocator_free(model->allocator, resolved_directory);
+                              model->host_allocator, &path);
+  iree_allocator_free(model->host_allocator, resolved_directory);
   IREE_RETURN_IF_ERROR(status);
   iree_io_file_contents_t* contents = NULL;
   status = iree_io_file_contents_read(iree_make_cstring_view(path),
-                                      model->allocator, &contents);
+                                      model->host_allocator, &contents);
   if (iree_status_is_ok(status)) {
     status = iree_tokenizer_from_huggingface_json(
         iree_make_string_view((const char*)contents->const_buffer.data,
                               contents->const_buffer.data_length),
-        model->allocator, &model->tokenizer);
+        model->host_allocator, &model->tokenizer);
   }
   iree_io_file_contents_free(contents);
-  iree_allocator_free(model->allocator, path);
+  iree_allocator_free(model->host_allocator, path);
   return status;
 }
 
@@ -256,9 +256,9 @@ static iree_status_t loom_serve_finite_load_tokenizer(
 static iree_status_t loom_serve_finite_prepare(
     loom_serve_finite_model_t* model,
     const loom_serve_finite_model_options_t* options) {
-  const iree_allocator_t allocator = model->allocator;
-  IREE_RETURN_IF_ERROR(
-      iree_vm_environment_allocate(allocator, &model->control.environment));
+  const iree_allocator_t host_allocator = model->host_allocator;
+  IREE_RETURN_IF_ERROR(iree_vm_environment_allocate(
+      host_allocator, &model->control.environment));
   IREE_RETURN_IF_ERROR(
       iree_vm_ref_types_resolve(iree_vm_environment_lookup_ref_type_table(
                                     model->control.environment, IREE_SV("vm")),
@@ -266,13 +266,13 @@ static iree_status_t loom_serve_finite_prepare(
   char* path = NULL;
   IREE_RETURN_IF_ERROR(loom_serve_path_resolve(options->sources.base_directory,
                                                options->sources.prepare,
-                                               allocator, &path));
+                                               host_allocator, &path));
   iree_vm_module_t* modules[2] = {0};
   iree_status_t status = loom_serve_input_module_create(
-      model->control.environment, NULL, &modules[0], allocator);
+      model->control.environment, NULL, host_allocator, &modules[0]);
   if (iree_status_is_ok(status)) {
     status = loom_serve_json_module_create(model->control.environment,
-                                           &modules[1], allocator);
+                                           host_allocator, &modules[1]);
   }
   iree_vm_variant_t arguments[2] = {0};
   const iree_string_view_t inputs[] = {options->asset_directory,
@@ -280,7 +280,7 @@ static iree_status_t loom_serve_finite_prepare(
   for (iree_host_size_t i = 0;
        i < IREE_ARRAYSIZE(inputs) && iree_status_is_ok(status); ++i) {
     iree_vm_buffer_t* buffer = NULL;
-    status = iree_vm_buffer_create(inputs[i].size, 8, allocator, &buffer);
+    status = iree_vm_buffer_create(inputs[i].size, 8, host_allocator, &buffer);
     if (iree_status_is_ok(status)) {
       iree_byte_span_t bytes;
       status = iree_vm_buffer_map_write(buffer, 0, inputs[i].size, &bytes);
@@ -298,7 +298,7 @@ static iree_status_t loom_serve_finite_prepare(
         IREE_SV("prepare"), iree_vm_variant_span_from_array(arguments),
         iree_vm_variant_span_from_array(results),
         (iree_vm_module_span_t){modules, 2}, &model->compilation,
-        &model->preparation, allocator);
+        host_allocator, &model->preparation);
   }
   int64_t capacities[4] = {0};
   for (iree_host_size_t i = 0; i < 4 && iree_status_is_ok(status); ++i) {
@@ -330,7 +330,7 @@ static iree_status_t loom_serve_finite_prepare(
   }
   if (iree_status_is_ok(status)) {
     char* name = NULL;
-    status = iree_allocator_clone(allocator, metadata[1], (void**)&name);
+    status = iree_allocator_clone(host_allocator, metadata[1], (void**)&name);
     model->name = iree_make_string_view(name, metadata[1].data_length);
     model->batch_limit = (uint64_t)capacities[0];
     model->input_capacity = (iree_host_size_t)capacities[1];
@@ -355,11 +355,11 @@ static iree_status_t loom_serve_finite_prepare(
   iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
   iree_vm_module_release(modules[0]);
   iree_vm_module_release(modules[1]);
-  iree_allocator_free(allocator, path);
+  iree_allocator_free(host_allocator, path);
   if (iree_status_is_ok(status)) {
     const iree_host_size_t count =
         loom_serve_preparation_stage_count(model->preparation);
-    status = iree_allocator_malloc_array(allocator, count,
+    status = iree_allocator_malloc_array(host_allocator, count,
                                          sizeof(*model->stages.values),
                                          (void**)&model->stages.values);
     if (iree_status_is_ok(status)) {
@@ -465,17 +465,17 @@ static iree_status_t loom_serve_finite_check_layouts(
 
 static iree_status_t loom_serve_finite_create_control(
     loom_serve_finite_model_t* model, iree_vm_module_t* module) {
-  const iree_allocator_t allocator = model->allocator;
+  const iree_allocator_t host_allocator = model->host_allocator;
   IREE_RETURN_IF_ERROR(iree_vm_buffer_create(
-      model->stages.count * sizeof(int64_t), iree_alignof(int64_t), allocator,
-      &model->control.tags));
+      model->stages.count * sizeof(int64_t), iree_alignof(int64_t),
+      host_allocator, &model->control.tags));
   iree_byte_span_t tags = iree_byte_span_empty();
   IREE_RETURN_IF_ERROR(iree_vm_buffer_map_write(
       model->control.tags, 0, iree_vm_buffer_length(model->control.tags),
       &tags));
   loom_serve_stage_t* stages = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-      allocator, model->stages.count, sizeof(*stages), (void**)&stages));
+      host_allocator, model->stages.count, sizeof(*stages), (void**)&stages));
   for (uint32_t i = 0; i < model->stages.count; ++i) {
     const loom_cmd_program_t* program =
         loom_serve_jit_stage_program(model->stages.values[i].compiled);
@@ -500,28 +500,28 @@ static iree_status_t loom_serve_finite_create_control(
   iree_vm_buffer_t* read_only_tags = NULL;
   iree_status_t status = iree_vm_buffer_subspan(
       model->control.tags, 0, tags.data_length, IREE_VM_BUFFER_ACCESS_FLAG_READ,
-      allocator, &read_only_tags);
+      host_allocator, &read_only_tags);
   if (iree_status_is_ok(status)) {
     iree_vm_buffer_release(model->control.tags);
     model->control.tags = read_only_tags;
     status =
         loom_serve_module_create(&model->control.hal_types, model->execution,
-                                 options, allocator, &native_modules[0]);
+                                 options, host_allocator, &native_modules[0]);
   }
-  iree_allocator_free(allocator, stages);
+  iree_allocator_free(host_allocator, stages);
   if (iree_status_is_ok(status)) {
     status = loom_serve_input_module_create(model->control.environment,
-                                            model->tokenizer,
-                                            &native_modules[1], allocator);
+                                            model->tokenizer, host_allocator,
+                                            &native_modules[1]);
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_json_module_create(model->control.environment,
-                                           &native_modules[2], allocator);
+                                           host_allocator, &native_modules[2]);
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_program_link(module,
                                      (iree_vm_module_span_t){native_modules, 3},
-                                     allocator, &model->control.program);
+                                     host_allocator, &model->control.program);
   }
   iree_vm_module_release(native_modules[0]);
   iree_vm_module_release(native_modules[1]);
@@ -541,7 +541,7 @@ static iree_status_t loom_serve_finite_create_control(
 
 static iree_status_t loom_serve_finite_model_bind(
     loom_serve_finite_model_t* model) {
-  const iree_allocator_t allocator = model->allocator;
+  const iree_allocator_t host_allocator = model->host_allocator;
   iree_hal_device_t* device = loom_serve_device_handle(model->owner);
   iree_hal_queue_t* dispatch = loom_serve_device_dispatch_queue(model->owner);
   IREE_RETURN_IF_ERROR(loom_serve_finite_check_layouts(model));
@@ -552,11 +552,11 @@ static iree_status_t loom_serve_finite_model_bind(
   const uint32_t roots = program ? program->requirements.fixed_buffer_count : 0;
   if (roots) {
     IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-        allocator, roots, sizeof(*model->weights.values),
+        host_allocator, roots, sizeof(*model->weights.values),
         (void**)&model->weights.values));
     model->weights.count = roots;
     IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-        allocator, roots, sizeof(*model->weights.plans),
+        host_allocator, roots, sizeof(*model->weights.plans),
         (void**)&model->weights.plans));
   }
   iree_status_t status = iree_ok_status();
@@ -570,7 +570,7 @@ static iree_status_t loom_serve_finite_model_bind(
         device, loom_serve_device_transfer_queue(model->owner), dispatch,
         loom_serve_device_storage_pool(model->owner),
         loom_serve_device_memory_pool(model->owner), 0, 1, &root,
-        &model->weights.plans[i], allocator);
+        host_allocator, &model->weights.plans[i]);
   }
   return status;
 }
@@ -578,12 +578,12 @@ static iree_status_t loom_serve_finite_model_bind(
 static iree_status_t loom_serve_finite_model_link(
     loom_serve_finite_model_t* model, iree_vm_module_t* module,
     iree_hal_command_buffer_mode_t command_mode) {
-  const iree_allocator_t allocator = model->allocator;
+  const iree_allocator_t host_allocator = model->host_allocator;
   iree_hal_queue_t* dispatch = loom_serve_device_dispatch_queue(model->owner);
   IREE_RETURN_IF_ERROR(loom_serve_residency_allocate(
       loom_serve_device_residency_cache(model->owner), model->execution,
-      model->weights.count, model->weights.plans, &model->residency,
-      allocator));
+      model->weights.count, model->weights.plans, host_allocator,
+      &model->residency));
   for (uint32_t i = 0; i < model->stages.count; ++i) {
     finite_model_stage_t* stage = &model->stages.values[i];
     if (loom_serve_jit_stage_program(stage->compiled)) {
@@ -612,7 +612,7 @@ struct loom_serve_finite_load_t {
   // One private bootstrap task, retired before any native compilation starts.
   loomc_task_t task;
   // Allocator owning this operation, independent of the transferred model.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Owned partial model, transferred only after successful terminal advance.
   loom_serve_finite_model_t* model;
   // Borrowed immutable package inputs, retained by the registration owner.
@@ -657,37 +657,36 @@ static void loom_serve_finite_load_complete(void* user_data,
 static iree_status_t loom_serve_finite_load_prepare(
     loom_serve_finite_load_t* load) {
   loom_serve_finite_model_t* model = load->model;
-  const iree_allocator_t allocator = model->allocator;
+  const iree_allocator_t host_allocator = model->host_allocator;
   IREE_RETURN_IF_ERROR(loom_serve_finite_prepare(model, &load->options));
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
-      allocator, model->output.data_length, (void**)&model->output.data));
+      host_allocator, model->output.data_length, (void**)&model->output.data));
   const iree_vm_ref_type_table_t* table = NULL;
   IREE_RETURN_IF_ERROR(
       iree_hal_module_register_types(model->control.environment, &table));
   IREE_RETURN_IF_ERROR(
       iree_hal_module_types_resolve(table, &model->control.hal_types));
   char* path = NULL;
-  IREE_RETURN_IF_ERROR(
-      loom_serve_path_resolve(load->options.sources.base_directory,
-                              load->options.sources.control, allocator, &path));
+  IREE_RETURN_IF_ERROR(loom_serve_path_resolve(
+      load->options.sources.base_directory, load->options.sources.control,
+      host_allocator, &path));
   const iree_string_view_t roots[] = {
       IREE_SVL("prepare_request"), IREE_SVL("prepare_batch"), IREE_SVL("run")};
   iree_status_t status = loom_serve_program_compile(
       model->control.environment, iree_make_cstring_view(path),
-      IREE_ARRAYSIZE(roots), roots, &model->compilation, allocator,
+      IREE_ARRAYSIZE(roots), roots, &model->compilation, host_allocator,
       &load->module);
-  iree_allocator_free(allocator, path);
+  iree_allocator_free(host_allocator, path);
   IREE_RETURN_IF_ERROR(status);
-  return loom_serve_jit_allocate(loom_serve_device_handle(model->owner),
-                                 loom_serve_device_dispatch_queue(model->owner),
-                                 loom_serve_device_host(model->owner),
-                                 &load->options.sources, NULL,
-                                 &model->compilation, allocator, &model->jit);
+  return loom_serve_jit_allocate(
+      loom_serve_device_handle(model->owner),
+      loom_serve_device_dispatch_queue(model->owner),
+      loom_serve_device_host(model->owner), &load->options.sources, NULL,
+      &model->compilation, host_allocator, &model->jit);
 }
 
 static void loom_serve_finite_load_execute(loomc_task_t* task,
                                            loomc_host_size_t worker_ordinal) {
-  (void)worker_ordinal;
   loom_serve_finite_load_t* load = (loom_serve_finite_load_t*)task;
   load->task_status = loom_serve_finite_load_prepare(load);
 }
@@ -714,7 +713,7 @@ iree_status_t loom_serve_finite_load_allocate(
     loom_serve_device_t* device,
     const loom_serve_finite_model_options_t* options,
     loom_serve_finite_load_wake_fn_t wake, void* user_data,
-    loom_serve_finite_load_t** out_load, iree_allocator_t host_allocator) {
+    iree_allocator_t host_allocator, loom_serve_finite_load_t** out_load) {
   *out_load = NULL;
   bool retain_profile_metadata = false;
   IREE_RETURN_IF_ERROR(
@@ -723,7 +722,7 @@ iree_status_t loom_serve_finite_load_allocate(
   loom_serve_finite_load_t* load = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, sizeof(*load), (void**)&load));
-  load->allocator = host_allocator;
+  load->host_allocator = host_allocator;
   load->options = *options;
   load->command_mode =
       retain_profile_metadata
@@ -736,7 +735,7 @@ iree_status_t loom_serve_finite_load_allocate(
   iree_status_t status = iree_allocator_malloc(
       host_allocator, sizeof(*load->model), (void**)&load->model);
   if (iree_status_is_ok(status)) {
-    load->model->allocator = host_allocator;
+    load->model->host_allocator = host_allocator;
     load->model->owner = device;
     *out_load = load;
   } else {
@@ -859,7 +858,7 @@ iree_status_t loom_serve_finite_load_free(loom_serve_finite_load_t* load) {
   if (iree_status_is_ok(status)) {
     iree_vm_module_release(load->module);
     iree_slim_mutex_deinitialize(&load->event.mutex);
-    iree_allocator_free(load->allocator, load);
+    iree_allocator_free(load->host_allocator, load);
   }
   return status;
 }
@@ -871,14 +870,14 @@ static void loom_serve_finite_load_notify(void* user_data) {
 iree_status_t loom_serve_finite_model_allocate(
     loom_serve_device_t* device,
     const loom_serve_finite_model_options_t* options,
-    loom_serve_finite_model_t** out_model, iree_allocator_t host_allocator) {
+    iree_allocator_t host_allocator, loom_serve_finite_model_t** out_model) {
   *out_model = NULL;
   iree_notification_t notification;
   iree_notification_initialize(&notification);
   loom_serve_finite_load_t* load = NULL;
   iree_status_t status = loom_serve_finite_load_allocate(
-      device, options, loom_serve_finite_load_notify, &notification, &load,
-      host_allocator);
+      device, options, loom_serve_finite_load_notify, &notification,
+      host_allocator, &load);
   bool complete = false;
   while (iree_status_is_ok(status) && !complete) {
     const uint32_t ticket = iree_notification_prepare_wait(&notification);
@@ -1043,9 +1042,9 @@ iree_status_t loom_serve_finite_model_prepare_batch(
   iree_vm_buffer_t* ranges = NULL;
   iree_vm_buffer_t* packed = NULL;
   IREE_RETURN_IF_ERROR(
-      iree_vm_buffer_create(count * 16, 8, model->allocator, &ranges));
+      iree_vm_buffer_create(count * 16, 8, model->host_allocator, &ranges));
   iree_status_t status =
-      iree_vm_buffer_create(length, 8, model->allocator, &packed);
+      iree_vm_buffer_create(length, 8, model->host_allocator, &packed);
   iree_byte_span_t records = iree_byte_span_empty();
   iree_byte_span_t target = iree_byte_span_empty();
   if (iree_status_is_ok(status)) {

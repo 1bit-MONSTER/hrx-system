@@ -12,7 +12,7 @@
 
 struct loom_serve_signals_t {
   // Allocator owning the subscription controller.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Retained progress ownership shared with network and device work.
   iree_async_proactor_pool_entry_t* entry;
   // Borrowed application callback, detached before destroy returns.
@@ -55,8 +55,6 @@ static void loom_serve_signals_register(void* user_data,
                                         iree_async_operation_t* operation,
                                         iree_status_t status,
                                         iree_async_completion_flags_t flags) {
-  (void)operation;
-  (void)flags;
   loom_serve_signals_t* signals = user_data;
   iree_async_proactor_t* proactor =
       iree_async_proactor_pool_entry_proactor(signals->entry);
@@ -77,8 +75,6 @@ static void loom_serve_signals_unregister(void* user_data,
                                           iree_async_operation_t* operation,
                                           iree_status_t status,
                                           iree_async_completion_flags_t flags) {
-  (void)operation;
-  (void)flags;
   IREE_CHECK_OK(status);
   loom_serve_signals_t* signals = user_data;
   loom_serve_signals_unsubscribe(signals);
@@ -97,22 +93,22 @@ static void loom_serve_signals_destroy(loom_serve_signals_t* signals) {
   iree_async_proactor_pool_entry_release(signals->entry);
   iree_notification_deinitialize(&signals->notification);
   iree_slim_mutex_deinitialize(&signals->mutex);
-  iree_allocator_free(signals->allocator, signals);
+  iree_allocator_free(signals->host_allocator, signals);
 }
 
 iree_status_t loom_serve_signals_allocate(iree_async_proactor_pool_t* pool,
                                           iree_async_signal_callback_t callback,
-                                          loom_serve_signals_t** out_signals,
-                                          iree_allocator_t allocator) {
+                                          iree_allocator_t host_allocator,
+                                          loom_serve_signals_t** out_signals) {
   *out_signals = NULL;
   if (!callback.fn) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "signal callback is required");
   }
   loom_serve_signals_t* signals = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(allocator, sizeof(*signals), (void**)&signals));
-  signals->allocator = allocator;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(host_allocator, sizeof(*signals),
+                                             (void**)&signals));
+  signals->host_allocator = host_allocator;
   signals->callback = callback;
   iree_slim_mutex_initialize(&signals->mutex);
   iree_notification_initialize(&signals->notification);

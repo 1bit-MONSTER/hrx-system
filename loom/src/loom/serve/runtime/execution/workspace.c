@@ -53,7 +53,7 @@ struct loom_serve_workspace_t {
   // Ownership shared by resource bindings and independent execution domains.
   iree_atomic_ref_count_t ref_count;
   // Allocation policy for this owner and cold generation metadata.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Retained group enclosing native owners and captured memory scopes.
   iree_hal_device_group_t* group;
   // Immutable allocation-shaping policy selected for all consumers.
@@ -128,13 +128,13 @@ static void loom_serve_workspace_add_counters(
 }
 
 static void loom_serve_workspace_generation_destroy(
-    workspace_generation_t* generation, iree_allocator_t allocator) {
+    workspace_generation_t* generation, iree_allocator_t host_allocator) {
   if (!generation) {
     return;
   }
   iree_hal_pool_release(generation->pool);
   iree_hal_pool_release(generation->cache);
-  iree_allocator_free(allocator, generation);
+  iree_allocator_free(host_allocator, generation);
 }
 
 // Execution records retain the pool until the last root/queue user retires.
@@ -151,8 +151,8 @@ static void loom_serve_workspace_collect(loom_serve_workspace_t* workspace,
       scope_link = &scope->next;
     } else {
       *scope_link = scope->next;
-      iree_allocator_free(workspace->allocator, scope->roots);
-      iree_allocator_free(workspace->allocator, scope);
+      iree_allocator_free(workspace->host_allocator, scope->roots);
+      iree_allocator_free(workspace->host_allocator, scope);
     }
   }
   if (!workspace->current) {
@@ -170,7 +170,8 @@ static void loom_serve_workspace_collect(loom_serve_workspace_t* workspace,
     iree_hal_pool_query_stats(generation->pool, &statistics);
     loom_serve_workspace_add_counters(&workspace->retired, &statistics);
     *link = generation->next;
-    loom_serve_workspace_generation_destroy(generation, workspace->allocator);
+    loom_serve_workspace_generation_destroy(generation,
+                                            workspace->host_allocator);
   }
 }
 
@@ -192,27 +193,28 @@ void loom_serve_workspace_release(loom_serve_workspace_t* workspace) {
     workspace_generation_t* generation = workspace->current;
     while (generation) {
       workspace_generation_t* next = generation->next;
-      loom_serve_workspace_generation_destroy(generation, workspace->allocator);
+      loom_serve_workspace_generation_destroy(generation,
+                                              workspace->host_allocator);
       generation = next;
     }
     iree_slim_mutex_deinitialize(&workspace->mutex);
     iree_hal_pool_release(workspace->backing_pool);
     iree_hal_device_group_release(workspace->group);
-    iree_allocator_free(workspace->allocator, workspace);
+    iree_allocator_free(workspace->host_allocator, workspace);
   }
 }
 
 iree_status_t loom_serve_workspace_create(
     iree_hal_device_group_t* group, iree_hal_pool_t* backing_pool,
     const iree_hal_asan_pool_options_t* asan_options,
-    loom_serve_workspace_t** out_workspace, iree_allocator_t host_allocator) {
+    iree_allocator_t host_allocator, loom_serve_workspace_t** out_workspace) {
   *out_workspace = NULL;
   loom_serve_workspace_t* workspace = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(host_allocator, sizeof(*workspace),
                                              (void**)&workspace));
   iree_atomic_ref_count_init(&workspace->ref_count);
   iree_slim_mutex_initialize(&workspace->mutex);
-  workspace->allocator = host_allocator;
+  workspace->host_allocator = host_allocator;
   workspace->group = group;
   iree_hal_device_group_retain(workspace->group);
   workspace->asan = *asan_options;
@@ -263,8 +265,8 @@ iree_status_t loom_serve_workspace_acquire_pool(
   if (!current || current->length < workspace->length ||
       current->alignment < workspace->alignment) {
     workspace_generation_t* generation = NULL;
-    status = iree_allocator_malloc(workspace->allocator, sizeof(*generation),
-                                   (void**)&generation);
+    status = iree_allocator_malloc(workspace->host_allocator,
+                                   sizeof(*generation), (void**)&generation);
     if (iree_status_is_ok(status)) {
       generation->length = workspace->length;
       generation->alignment = workspace->alignment;
@@ -282,13 +284,13 @@ iree_status_t loom_serve_workspace_acquire_pool(
           workspace->backing_pool, &options, &cache_options.slab);
       if (iree_status_is_ok(status)) {
         status = iree_hal_slab_cache_create(
-            workspace->backing_pool, &cache_options, workspace->allocator,
+            workspace->backing_pool, &cache_options, workspace->host_allocator,
             &generation->cache);
       }
       if (iree_status_is_ok(status)) {
-        status =
-            iree_hal_tlsf_pool_create(generation->cache, &options,
-                                      workspace->allocator, &generation->pool);
+        status = iree_hal_tlsf_pool_create(generation->cache, &options,
+                                           workspace->host_allocator,
+                                           &generation->pool);
       }
     }
     if (iree_status_is_ok(status)) {
@@ -296,7 +298,8 @@ iree_status_t loom_serve_workspace_acquire_pool(
       workspace->current = generation;
       loom_serve_workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
     } else {
-      loom_serve_workspace_generation_destroy(generation, workspace->allocator);
+      loom_serve_workspace_generation_destroy(generation,
+                                              workspace->host_allocator);
     }
   }
   if (iree_status_is_ok(status)) {
@@ -335,7 +338,7 @@ iree_status_t loom_serve_workspace_scope_allocate(
     loom_serve_workspace_scope_t** out_scope) {
   *out_scope = NULL;
   loom_serve_workspace_scope_t* scope = NULL;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(workspace->allocator,
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(workspace->host_allocator,
                                              sizeof(*scope), (void**)&scope));
   scope->workspace = workspace;
   iree_slim_mutex_lock(&workspace->mutex);
@@ -361,13 +364,13 @@ iree_status_t loom_serve_workspace_scope_acquire(
     if (!scope->capacity || scope->count > scope->capacity / 2) {
       const iree_host_size_t capacity = iree_max(16, scope->capacity * 2);
       workspace_root_t* roots = NULL;
-      status = iree_allocator_malloc_array(workspace->allocator, capacity,
+      status = iree_allocator_malloc_array(workspace->host_allocator, capacity,
                                            sizeof(*roots), (void**)&roots);
       if (iree_status_is_ok(status)) {
         for (iree_host_size_t i = 0; i < scope->count; ++i) {
           roots[i] = scope->roots[(scope->head + i) % scope->capacity];
         }
-        iree_allocator_free(workspace->allocator, scope->roots);
+        iree_allocator_free(workspace->host_allocator, scope->roots);
         scope->roots = roots;
         scope->capacity = capacity;
         scope->head = 0;

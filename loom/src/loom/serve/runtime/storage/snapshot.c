@@ -12,7 +12,7 @@ struct loom_serve_snapshot_t {
   // Caller ownership and queue-captured views independently retain the payload.
   iree_atomic_ref_count_t ref_count;
   // Allocator owning the header and packed payload.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Number of logical bytes in data.
   iree_host_size_t length;
   // Concatenated retained ranges, independent of physical placement.
@@ -31,7 +31,7 @@ static iree_status_t loom_serve_snapshot_transfer(
     iree_hal_transfer_operation_type_t type) {
   iree_hal_buffer_t** views = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-      snapshot->allocator, buffer_count, sizeof(*views), (void**)&views));
+      snapshot->host_allocator, buffer_count, sizeof(*views), (void**)&views));
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0; i < buffer_count && iree_status_is_ok(status);
        ++i) {
@@ -41,7 +41,7 @@ static iree_status_t loom_serve_snapshot_transfer(
           iree_hal_buffer_byte_length(buffers[i]),
           (iree_hal_buffer_release_callback_t){loom_serve_snapshot_release_view,
                                                snapshot},
-          snapshot->allocator, &views[i]);
+          snapshot->host_allocator, &views[i]);
       if (iree_status_is_ok(status)) {
         iree_atomic_ref_count_inc(&snapshot->ref_count);
       }
@@ -83,15 +83,15 @@ static iree_status_t loom_serve_snapshot_transfer(
   for (iree_host_size_t i = 0; i < buffer_count; ++i) {
     iree_hal_buffer_release(views[i]);
   }
-  iree_allocator_free(snapshot->allocator, views);
+  iree_allocator_free(snapshot->host_allocator, views);
   return status;
 }
 
 iree_status_t loom_serve_snapshot_capture(
     loom_serve_execution_t* execution, iree_host_size_t buffer_count,
     iree_hal_buffer_t* const* buffers, iree_host_size_t range_count,
-    const loom_serve_snapshot_range_t* ranges,
-    loom_serve_snapshot_t** out_snapshot, iree_allocator_t host_allocator) {
+    const loom_serve_snapshot_range_t* ranges, iree_allocator_t host_allocator,
+    loom_serve_snapshot_t** out_snapshot) {
   *out_snapshot = NULL;
   iree_host_size_t length = 0;
   for (iree_host_size_t i = 0; i < range_count; ++i) {
@@ -106,7 +106,7 @@ iree_status_t loom_serve_snapshot_capture(
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_uninitialized(
       host_allocator, sizeof(*snapshot) + length, (void**)&snapshot));
   iree_atomic_ref_count_init(&snapshot->ref_count);
-  snapshot->allocator = host_allocator;
+  snapshot->host_allocator = host_allocator;
   snapshot->length = length;
   iree_status_t status = loom_serve_snapshot_transfer(
       snapshot, execution, buffer_count, buffers, range_count, ranges,
@@ -135,6 +135,6 @@ iree_host_size_t loom_serve_snapshot_size(
 
 void loom_serve_snapshot_release(loom_serve_snapshot_t* snapshot) {
   if (snapshot && iree_atomic_ref_count_dec(&snapshot->ref_count) == 1) {
-    iree_allocator_free(snapshot->allocator, snapshot);
+    iree_allocator_free(snapshot->host_allocator, snapshot);
   }
 }

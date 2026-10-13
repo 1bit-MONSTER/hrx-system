@@ -10,7 +10,7 @@ struct loom_serve_dispatch_t {
   // Shared ownership between the compiler stage and retained model module.
   iree_atomic_ref_count_t ref_count;
   // Allocator owning this descriptor and its trailing argument map.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Retained native executable loaded for the model's exact queue family.
   iree_hal_executable_t* executable;
   // Executable-local entry resolved at preparation.
@@ -32,14 +32,14 @@ void loom_serve_dispatch_retain(loom_serve_dispatch_t* dispatch) {
 void loom_serve_dispatch_release(loom_serve_dispatch_t* dispatch) {
   if (dispatch && iree_atomic_ref_count_dec(&dispatch->ref_count) == 1) {
     iree_hal_executable_release(dispatch->executable);
-    iree_allocator_free(dispatch->allocator, dispatch);
+    iree_allocator_free(dispatch->host_allocator, dispatch);
   }
 }
 
 iree_status_t loom_serve_dispatch_create(
     iree_hal_executable_t* executable, iree_hal_executable_function_t function,
-    iree_hal_dispatch_config_t config, loom_serve_dispatch_t** out_dispatch,
-    iree_allocator_t host_allocator) {
+    iree_hal_dispatch_config_t config, iree_allocator_t host_allocator,
+    loom_serve_dispatch_t** out_dispatch) {
   *out_dispatch = NULL;
   iree_hal_executable_function_info_t info;
   IREE_RETURN_IF_ERROR(
@@ -53,7 +53,7 @@ iree_status_t loom_serve_dispatch_create(
       host_allocator, sizeof(*dispatch), info.binding_count,
       sizeof(*dispatch->bindings), (void**)&dispatch));
   iree_atomic_ref_count_init(&dispatch->ref_count);
-  dispatch->allocator = host_allocator;
+  dispatch->host_allocator = host_allocator;
   dispatch->executable = executable;
   iree_hal_executable_retain(executable);
   dispatch->function = function;

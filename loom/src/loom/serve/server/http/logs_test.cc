@@ -18,7 +18,7 @@ class LogsTest : public ::testing::Test {
   void SetUp() override {
     iree_string_builder_initialize(iree_allocator_system(), &output_);
     IREE_ASSERT_OK(loom_serve_telemetry_stream_allocate(
-        128, &stream_, iree_allocator_system()));
+        128, iree_allocator_system(), &stream_));
     const auto identity = loom_serve_telemetry_stream_identity(stream_);
     prefix_ = std::to_string(identity.created_ns) + ":" +
               std::to_string(identity.ordinal) + ":";

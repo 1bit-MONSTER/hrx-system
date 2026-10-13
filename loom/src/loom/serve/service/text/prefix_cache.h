@@ -28,7 +28,7 @@ typedef struct loom_serve_text_prefix_entry_t {
 
 typedef struct loom_serve_text_prefix_cache_t {
   // Allocator owning records and their compact token copies.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Fixed records mutated only by the serialized service owner.
   loom_serve_text_prefix_entry_t* entries;
   // Configured endpoint bound; zero disables lookup and capture.
@@ -42,8 +42,8 @@ typedef struct loom_serve_text_prefix_cache_t {
 // Allocates host records only. Native checkpoint capacity is reserved by the
 // model configuration. Partial initialization supports reset/deinitialize.
 iree_status_t loom_serve_text_prefix_cache_initialize(
-    iree_host_size_t capacity, loom_serve_text_prefix_cache_t* cache,
-    iree_allocator_t allocator);
+    iree_host_size_t capacity, iree_allocator_t host_allocator,
+    loom_serve_text_prefix_cache_t* out_cache);
 
 // Releases normal completed owners. Failed readiness leaves native handles to
 // model destruction; host copies can retire after CPU borrowers relinquish.

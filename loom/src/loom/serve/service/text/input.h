@@ -42,7 +42,7 @@ typedef struct loom_serve_text_input_t {
 
 // Releases compact tokens and the host history reference; accepts zero state.
 void loom_serve_text_input_deinitialize(loom_serve_text_input_t* input,
-                                        iree_allocator_t allocator);
+                                        iree_allocator_t host_allocator);
 
 // Tests whether preparation still names the available immutable frontier.
 // The chat and optional required-prefix check were validated by prepare.

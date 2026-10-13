@@ -31,7 +31,7 @@ typedef struct preparation_stage_t {
 
 struct loom_serve_preparation_t {
   // Allocator owning the catalog and every copied string.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Number of initialized stages, including partial declarations on failure.
   iree_host_size_t stage_count;
   // Allocated stage capacity.
@@ -55,32 +55,34 @@ void loom_serve_preparation_free(loom_serve_preparation_t* preparation) {
   if (!preparation) {
     return;
   }
-  const iree_allocator_t allocator = preparation->allocator;
+  const iree_allocator_t host_allocator = preparation->host_allocator;
   for (iree_host_size_t i = 0; i < preparation->stage_count; ++i) {
     preparation_stage_t* stage = &preparation->stages[i];
-    iree_allocator_free(allocator, (void*)stage->declaration.root.data);
+    iree_allocator_free(host_allocator, (void*)stage->declaration.root.data);
     for (iree_host_size_t j = 0; j < stage->declaration.config.binding_count;
          ++j) {
-      iree_allocator_free(allocator, (void*)stage->config[j].key.data);
-      iree_allocator_free(allocator, (void*)stage->config[j].value.data);
+      iree_allocator_free(host_allocator, (void*)stage->config[j].key.data);
+      iree_allocator_free(host_allocator, (void*)stage->config[j].value.data);
     }
     for (iree_host_size_t j = 0; j < stage->declaration.parameter_count; ++j) {
-      iree_allocator_free(allocator, (void*)stage->parameters[j].path.data);
-      iree_allocator_free(allocator, (void*)stage->parameters[j].policy.data);
+      iree_allocator_free(host_allocator,
+                          (void*)stage->parameters[j].path.data);
+      iree_allocator_free(host_allocator,
+                          (void*)stage->parameters[j].policy.data);
     }
-    iree_allocator_free(allocator, stage->config);
-    iree_allocator_free(allocator, stage->parameters);
+    iree_allocator_free(host_allocator, stage->config);
+    iree_allocator_free(host_allocator, stage->parameters);
   }
-  iree_allocator_free(allocator, preparation->stages);
-  iree_allocator_free(allocator, preparation);
+  iree_allocator_free(host_allocator, preparation->stages);
+  iree_allocator_free(host_allocator, preparation);
 }
 
 static iree_status_t loom_serve_preparation_copy_string(
-    iree_string_view_t value, iree_allocator_t allocator,
+    iree_string_view_t value, iree_allocator_t host_allocator,
     iree_string_view_t* out_value) {
   char* data = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_clone(
-      allocator, iree_make_const_byte_span(value.data, value.size),
+      host_allocator, iree_make_const_byte_span(value.data, value.size),
       (void**)&data));
   *out_value = iree_make_string_view(data, value.size);
   return iree_ok_status();
@@ -119,7 +121,7 @@ static iree_status_t loom_serve_preparation_add_stage(
   }
   if (preparation->stage_count == preparation->stage_capacity) {
     IREE_RETURN_IF_ERROR(iree_allocator_grow_array(
-        preparation->allocator, preparation->stage_count + 1,
+        preparation->host_allocator, preparation->stage_count + 1,
         sizeof(*preparation->stages), &preparation->stage_capacity,
         (void**)&preparation->stages));
   }
@@ -130,7 +132,7 @@ static iree_status_t loom_serve_preparation_add_stage(
   stage->declaration.tag = (int64_t)iree_vm_call_value_argument_load(call, 0);
   stage->declaration.config.flags = LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED;
   IREE_RETURN_IF_ERROR(loom_serve_preparation_copy_string(
-      root, preparation->allocator, &stage->declaration.root));
+      root, preparation->host_allocator, &stage->declaration.root));
   iree_vm_call_value_result_store(call, 0, index);
   return iree_ok_status();
 }
@@ -144,20 +146,20 @@ static iree_status_t loom_serve_preparation_add_config(
   }
   if (stage->declaration.config.binding_count == stage->config_capacity) {
     IREE_RETURN_IF_ERROR(iree_allocator_grow_array(
-        preparation->allocator, stage->declaration.config.binding_count + 1,
-        sizeof(*stage->config), &stage->config_capacity,
-        (void**)&stage->config));
+        preparation->host_allocator,
+        stage->declaration.config.binding_count + 1, sizeof(*stage->config),
+        &stage->config_capacity, (void**)&stage->config));
   }
   stage->declaration.config.bindings = stage->config;
   loomc_config_binding_t* binding =
       &stage->config[stage->declaration.config.binding_count++];
   *binding = (loomc_config_binding_t){0};
   iree_string_view_t copied = iree_string_view_empty();
-  IREE_RETURN_IF_ERROR(
-      loom_serve_preparation_copy_string(key, preparation->allocator, &copied));
+  IREE_RETURN_IF_ERROR(loom_serve_preparation_copy_string(
+      key, preparation->host_allocator, &copied));
   binding->key = (loomc_string_view_t){copied.data, copied.size};
   IREE_RETURN_IF_ERROR(loom_serve_preparation_copy_string(
-      value, preparation->allocator, &copied));
+      value, preparation->host_allocator, &copied));
   binding->value = (loomc_string_view_t){copied.data, copied.size};
   return iree_ok_status();
 }
@@ -192,7 +194,7 @@ static iree_status_t loom_serve_preparation_add_parameter(
   }
   if (stage->declaration.parameter_count == stage->parameter_capacity) {
     IREE_RETURN_IF_ERROR(iree_allocator_grow_array(
-        preparation->allocator, stage->declaration.parameter_count + 1,
+        preparation->host_allocator, stage->declaration.parameter_count + 1,
         sizeof(*stage->parameters), &stage->parameter_capacity,
         (void**)&stage->parameters));
   }
@@ -201,10 +203,10 @@ static iree_status_t loom_serve_preparation_add_parameter(
       &stage->parameters[stage->declaration.parameter_count++];
   *parameter = (loom_serve_preparation_parameter_t){.binding = binding};
   char* joined = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_file_path_join(directory, path, preparation->allocator, &joined));
+  IREE_RETURN_IF_ERROR(iree_file_path_join(
+      directory, path, preparation->host_allocator, &joined));
   parameter->path = iree_make_cstring_view(joined);
-  return loom_serve_preparation_copy_string(policy, preparation->allocator,
+  return loom_serve_preparation_copy_string(policy, preparation->host_allocator,
                                             &parameter->policy);
 }
 
@@ -307,7 +309,7 @@ static const iree_vm_module_export_declaration_t preparation_exports[] = {
 
 static void loom_serve_preparation_module_destroy(iree_vm_module_t* base) {
   preparation_module_t* module = (preparation_module_t*)base;
-  iree_allocator_free(module->preparation->allocator, module);
+  iree_allocator_free(module->preparation->host_allocator, module);
 }
 
 static void loom_serve_preparation_module_query_export(
@@ -352,14 +354,13 @@ iree_status_t loom_serve_preparation_allocate(
     iree_vm_environment_t* environment, iree_string_view_t source_path,
     iree_string_view_t entry, iree_vm_variant_span_t arguments,
     iree_vm_variant_span_t results, iree_vm_module_span_t libraries,
-    loom_serve_compilation_report_t* report,
-    loom_serve_preparation_t** out_preparation,
-    iree_allocator_t host_allocator) {
+    loom_serve_compilation_report_t* report, iree_allocator_t host_allocator,
+    loom_serve_preparation_t** out_preparation) {
   *out_preparation = NULL;
   loom_serve_preparation_t* preparation = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       host_allocator, sizeof(*preparation), (void**)&preparation));
-  preparation->allocator = host_allocator;
+  preparation->host_allocator = host_allocator;
   preparation_module_t* module = NULL;
   iree_status_t status =
       iree_allocator_malloc(host_allocator, sizeof(*module), (void**)&module);

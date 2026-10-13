@@ -77,7 +77,7 @@ typedef struct loom_serve_finite_configuration_t {
 // paths are retained unchanged, with a separate local directory base.
 typedef struct loom_serve_model_configuration_t {
   // Allocator owning decoded strings, retained when this declaration is moved.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Selects the native modality contract and the configuration union member.
   loom_serve_model_kind_t kind;
   // Owned visible ASCII identifier used in JSON and HTTP header selectors.
@@ -117,8 +117,8 @@ typedef struct loom_serve_model_configuration_t {
 // All strings are copied. Failure releases partial state and zeros the output.
 iree_status_t loom_serve_model_configuration_initialize(
     iree_string_view_t json, iree_string_view_t document_directory,
-    loom_serve_model_configuration_t* out_model,
-    iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator,
+    loom_serve_model_configuration_t* out_model);
 void loom_serve_model_configuration_deinitialize(
     loom_serve_model_configuration_t* model);
 
@@ -126,8 +126,8 @@ void loom_serve_model_configuration_deinitialize(
 // This cold file-I/O entry belongs on a startup thread or preparation worker,
 // never on the HTTP owner. No program or parameter payload is read here.
 iree_status_t loom_serve_model_configuration_load(
-    iree_string_view_t path, loom_serve_model_configuration_t* out_model,
-    iree_allocator_t host_allocator);
+    iree_string_view_t path, iree_allocator_t host_allocator,
+    loom_serve_model_configuration_t* out_model);
 
 // Resolves this deployment's device against the caller's immutable group size.
 // Omission is accepted only with exactly one device. Both explicit and implied

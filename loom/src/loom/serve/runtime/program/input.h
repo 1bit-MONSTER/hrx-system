@@ -38,8 +38,8 @@ extern "C" {
 // On failure *out_module is NULL.
 iree_status_t loom_serve_input_module_create(iree_vm_environment_t* environment,
                                              const iree_tokenizer_t* tokenizer,
-                                             iree_vm_module_t** out_module,
-                                             iree_allocator_t host_allocator);
+                                             iree_allocator_t host_allocator,
+                                             iree_vm_module_t** out_module);
 
 #ifdef __cplusplus
 }  // extern "C"

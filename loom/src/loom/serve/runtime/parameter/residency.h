@@ -24,8 +24,8 @@ typedef struct loom_serve_residency_t loom_serve_residency_t;
 // Borrows pool. NULL pool supports fixed-backed consumers but
 // cannot reclaim their storage. Installs the pool's sole pressure policy.
 iree_status_t loom_serve_residency_cache_allocate(
-    loom_serve_memory_pool_t* pool, loom_serve_residency_cache_t** out_cache,
-    iree_allocator_t host_allocator);
+    loom_serve_memory_pool_t* pool, iree_allocator_t host_allocator,
+    loom_serve_residency_cache_t** out_cache);
 
 // All registered residencies must have been destroyed. Removes pressure policy.
 void loom_serve_residency_cache_free(loom_serve_residency_cache_t* cache);
@@ -48,7 +48,7 @@ iree_status_t loom_serve_residency_cache_trim(
 iree_status_t loom_serve_residency_allocate(
     loom_serve_residency_cache_t* cache, loom_serve_execution_t* execution,
     iree_host_size_t weight_count, loom_serve_weights_t* const* weights,
-    loom_serve_residency_t** out_residency, iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator, loom_serve_residency_t** out_residency);
 
 // Unregisters after all consumers have retired, including failed operations.
 // Terminal teardown may remove pins whose failed work has now actually retired.

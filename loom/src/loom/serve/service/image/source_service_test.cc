@@ -45,23 +45,24 @@ class SourceImageServiceTest
   static constexpr size_t kPixels = kWidth * kHeight;
 
   void SetUp() override {
-    IREE_ASSERT_OK(
-        loom_serve_host_create(std::get<0>(GetParam()), &host_, allocator_));
+    IREE_ASSERT_OK(loom_serve_host_create(std::get<0>(GetParam()),
+                                          host_allocator_, &host_));
     const loom_serve_device_options_t device_options = {
         .uri = iree_make_cstring_view(FLAG_test_device),
     };
     IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &device_options,
-                                                    &group_, allocator_));
+                                                    host_allocator_, &group_));
     device_ = loom_serve_device_group_at(group_, 0);
     const std::string source = FLAG_model_source;
     directory_ = source.substr(0, source.find_last_of('/'));
     auto options = loom_serve_http_server_options_default();
-    IREE_ASSERT_OK(loom_serve_http_server_allocate(
-        loom_serve_host_proactor_pool(host_), &options, &server_, allocator_));
+    IREE_ASSERT_OK(
+        loom_serve_http_server_allocate(loom_serve_host_proactor_pool(host_),
+                                        &options, host_allocator_, &server_));
     auto listener_options = loom_serve_http_listener_options_default();
     listener_options.address = IREE_SV("127.0.0.1:0");
-    IREE_ASSERT_OK(loom_serve_http_listener_allocate(server_, &listener_options,
-                                                     &listener_, allocator_));
+    IREE_ASSERT_OK(loom_serve_http_listener_allocate(
+        server_, &listener_options, host_allocator_, &listener_));
   }
 
   void TearDown() override {
@@ -92,12 +93,12 @@ class SourceImageServiceTest
       };
       loom_serve_image_service_t* service = nullptr;
       status_ = loom_serve_image_service_allocate(
-          host_, generator, &options, nullptr, &service, allocator_);
+          host_, generator, &options, nullptr, host_allocator_, &service);
       if (iree_status_is_ok(status_)) {
         const auto interface = loom_serve_image_service_interface(service);
         loom_serve_registry_t* registry = nullptr;
-        IREE_ASSERT_OK(loom_serve_registry_allocate(1, &interface, 0, {},
-                                                    &registry, allocator_));
+        IREE_ASSERT_OK(loom_serve_registry_allocate(
+            1, &interface, 0, {}, host_allocator_, &registry));
         status_ = loom_serve_router_run(
             loom_serve_host_executor(host_), server_, registry,
             {
@@ -105,7 +106,7 @@ class SourceImageServiceTest
                 .holding_capacity =
                     loom_serve_http_server_connection_capacity(server_) / 2,
             },
-            allocator_);
+            host_allocator_);
         IREE_ASSERT_OK(loom_serve_registry_free(registry));
       }
       loom_serve_image_service_free(service);
@@ -123,8 +124,8 @@ class SourceImageServiceTest
         .text_tokens = 32,
         .command_quantum = std::get<1>(GetParam()),
     };
-    IREE_ASSERT_OK(loom_serve_image_model_allocate(device_, &options, &model_,
-                                                   allocator_));
+    IREE_ASSERT_OK(loom_serve_image_model_allocate(device_, &options,
+                                                   host_allocator_, &model_));
   }
 
   void StartManaged() {
@@ -136,10 +137,10 @@ class SourceImageServiceTest
       loom_serve_registry_t* registry = nullptr;
       IREE_ASSERT_OK(loom_serve_registry_allocate(
           0, nullptr, 2, loom_serve_model_registration_factory(&options),
-          &registry, allocator_));
+          host_allocator_, &registry));
       status_ = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
-          {.request_quota = 16, .holding_capacity = 8}, allocator_);
+          {.request_quota = 16, .holding_capacity = 8}, host_allocator_);
       status_ = iree_status_join(status_, loom_serve_registry_free(registry));
     });
   }
@@ -233,8 +234,8 @@ class SourceImageServiceTest
     iree_byte_span_t png;
     IREE_EXPECT_OK(loom_serve_image_encode_rgb_f32_png(
         kWidth, kHeight,
-        iree_make_const_byte_span(pixels.data(), sizeof(pixels)), &png,
-        allocator_));
+        iree_make_const_byte_span(pixels.data(), sizeof(pixels)),
+        host_allocator_, &png));
     std::string encoded(iree_base64_encoded_size(png.data_length), '\0');
     size_t length = 0;
     IREE_EXPECT_OK(iree_base64_encode(
@@ -242,7 +243,7 @@ class SourceImageServiceTest
         iree_make_mutable_string_view(encoded.data(), encoded.size()),
         &length));
     encoded.resize(length);
-    iree_allocator_free(allocator_, png.data);
+    iree_allocator_free(host_allocator_, png.data);
     return encoded;
   }
 
@@ -264,7 +265,7 @@ class SourceImageServiceTest
       loom_serve_image_service_t* value = nullptr;
       IREE_ASSERT_OK(loom_serve_image_service_allocate(
           host_, loom_serve_image_model_generator(model_), &options, nullptr,
-          &value, allocator_));
+          host_allocator_, &value));
       service.reset(value);
       interface = loom_serve_image_service_interface(value);
       interface.set_observer(interface.self,
@@ -361,7 +362,7 @@ class SourceImageServiceTest
   }
 
   // Allocator for model, transport and expected encoded output.
-  const iree_allocator_t allocator_ = iree_allocator_system();
+  const iree_allocator_t host_allocator_ = iree_allocator_system();
   // Shared CPU/JIT resources outlive every model and service task.
   loom_serve_host_t* host_ = nullptr;
   // Application group enclosing all model and device resources.

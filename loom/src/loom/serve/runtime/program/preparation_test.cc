@@ -22,7 +22,7 @@ class PreparationTest : public ::testing::Test {
   loom_serve_compilation_report_t compilation = {};
 
   void SetUp() override {
-    IREE_ASSERT_OK(iree_vm_environment_allocate(allocator, &environment));
+    IREE_ASSERT_OK(iree_vm_environment_allocate(host_allocator, &environment));
   }
 
   void TearDown() override {
@@ -31,7 +31,7 @@ class PreparationTest : public ::testing::Test {
   }
 
   // Allocation policy for the environment and owned declaration copies.
-  const iree_allocator_t allocator = iree_allocator_system();
+  const iree_allocator_t host_allocator = iree_allocator_system();
   // Environment owning the reference types used during preparation.
   iree_vm_environment_t* environment = nullptr;
   // Owned declarations independent of the temporary source program.
@@ -43,7 +43,7 @@ TEST_F(PreparationTest, TextConfigurationCopiesValueSpelling) {
       environment, iree_make_cstring_view(FLAG_boundary_source),
       IREE_SV("text_config"), iree_vm_variant_span_empty(),
       iree_vm_variant_span_empty(), iree_vm_module_span_empty(), &compilation,
-      &preparation, allocator));
+      host_allocator, &preparation));
   const auto* stage = loom_serve_preparation_stage(preparation, 0);
   EXPECT_EQ(stage->kind, LOOM_SERVE_PREPARATION_STAGE_COMMAND);
   ASSERT_EQ(stage->config.binding_count, 1);
@@ -56,7 +56,7 @@ TEST_F(PreparationTest, DirectDeclarationRetainsProductAndSpecialization) {
       environment, iree_make_cstring_view(FLAG_boundary_source),
       IREE_SV("direct_config"), iree_vm_variant_span_empty(),
       iree_vm_variant_span_empty(), iree_vm_module_span_empty(), &compilation,
-      &preparation, allocator));
+      host_allocator, &preparation));
   ASSERT_EQ(loom_serve_preparation_stage_count(preparation), 1u);
   const auto* stage = loom_serve_preparation_stage(preparation, 0);
   EXPECT_EQ(stage->kind, LOOM_SERVE_PREPARATION_STAGE_DISPATCH);
@@ -72,7 +72,7 @@ TEST_F(PreparationTest, CatalogGrowthPreservesEveryDeclaration) {
   // gigabytes before reporting a catalog that only needs kilobytes.
   const iree_allocator_t bounded_allocator = {
       nullptr,
-      +[](void*, iree_allocator_command_t command, const void* params,
+      +[](void* self, iree_allocator_command_t command, const void* params,
           void** inout_pointer) -> iree_status_t {
         if (command != IREE_ALLOCATOR_COMMAND_FREE &&
             static_cast<const iree_allocator_alloc_params_t*>(params)
@@ -87,7 +87,7 @@ TEST_F(PreparationTest, CatalogGrowthPreservesEveryDeclaration) {
       environment, iree_make_cstring_view(FLAG_boundary_source),
       IREE_SV("large_catalog"), iree_vm_variant_span_empty(),
       iree_vm_variant_span_empty(), iree_vm_module_span_empty(), &compilation,
-      &preparation, bounded_allocator));
+      bounded_allocator, &preparation));
   ASSERT_EQ(loom_serve_preparation_stage_count(preparation), 33);
   for (size_t i = 0; i < 33; ++i) {
     const auto* stage = loom_serve_preparation_stage(preparation, i);
@@ -130,7 +130,7 @@ TEST_F(PreparationTest, InvalidDeclarationsReleasePartialOwnership) {
             environment, iree_make_cstring_view(FLAG_boundary_source),
             iree_make_cstring_view(test.entry), iree_vm_variant_span_empty(),
             iree_vm_variant_span_empty(), iree_vm_module_span_empty(),
-            &compilation, &preparation, allocator));
+            &compilation, host_allocator, &preparation));
     EXPECT_EQ(preparation, nullptr);
   }
 }
@@ -145,7 +145,7 @@ TEST_F(PreparationTest, EmbeddedNulCannotTruncateDeclarationStrings) {
             environment, iree_make_cstring_view(FLAG_boundary_source),
             IREE_SV("nul_string"), iree_vm_variant_span_from_array(arguments),
             iree_vm_variant_span_empty(), iree_vm_module_span_empty(),
-            &compilation, &preparation, allocator));
+            &compilation, host_allocator, &preparation));
     EXPECT_EQ(preparation, nullptr);
   }
 }

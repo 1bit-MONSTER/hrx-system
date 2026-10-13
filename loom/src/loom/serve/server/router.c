@@ -31,7 +31,7 @@ typedef struct router_tokenization_t {
   // Completed HTTP bytes copied by transport before this job is freed.
   iree_string_builder_t output;
   // Allocator owning this job and independent tokenizer scratch.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Nonblocking router wake, valid until all accepted jobs retire.
   loom_serve_wake_callback_t observer;
   // Joins release publication's final access before owner destruction.
@@ -72,7 +72,7 @@ typedef struct router_log_reader_t {
 
 typedef struct router_t {
   // Allocator for independently owned utility jobs and routing output.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Shared application workers, borrowed through final process release.
   iree_task_executor_t* executor;
   // Transport owning network readiness and claimed request storage.
@@ -196,7 +196,6 @@ static iree_status_t loom_serve_router_reject(
 static iree_status_t loom_serve_router_tokenization_run(
     iree_task_process_t* process, const iree_task_worker_context_t* context,
     iree_task_process_drain_result_t* result) {
-  (void)context;
   router_tokenization_t* job = process->user_data;
   result->did_work = true;
   result->completed = true;
@@ -206,10 +205,10 @@ static iree_status_t loom_serve_router_tokenization_run(
       "Connection: close\r\n\r\n"));
   if (iree_string_view_equal(job->request->target, IREE_SV("/tokenize"))) {
     return loom_serve_http_tokenize(job->tokenizer, job->request->body,
-                                    &job->output, job->allocator);
+                                    &job->output, job->host_allocator);
   }
   return loom_serve_http_detokenize(job->tokenizer, job->request->body,
-                                    &job->output, job->allocator);
+                                    &job->output, job->host_allocator);
 }
 
 static void loom_serve_router_tokenization_completed(
@@ -242,20 +241,20 @@ static iree_status_t loom_serve_router_tokenization_accept(
   }
   router_tokenization_t* job = NULL;
   iree_status_t status = iree_allocator_malloc_aligned(
-      router->allocator, sizeof(*job), iree_alignof(router_tokenization_t), 0,
-      (void**)&job);
+      router->host_allocator, sizeof(*job), iree_alignof(router_tokenization_t),
+      0, (void**)&job);
   if (!iree_status_is_ok(status)) {
     loom_serve_http_connection_abort(connection);
     return status;
   }
-  job->allocator = router->allocator;
+  job->host_allocator = router->host_allocator;
   job->tokenizer = tokenizer;
   job->service_index = service_index;
   job->connection = connection;
   job->request = request;
   job->observer = (loom_serve_wake_callback_t){loom_serve_router_wake, router};
   iree_slim_mutex_initialize(&job->mutex);
-  iree_string_builder_initialize(router->allocator, &job->output);
+  iree_string_builder_initialize(router->host_allocator, &job->output);
   iree_task_process_initialize(loom_serve_router_tokenization_run, 0, 1,
                                &job->process);
   job->process.user_data = job;
@@ -324,7 +323,7 @@ static void loom_serve_router_tokenizations_collect(router_t* router,
     router->stopping |= !iree_status_is_ok(router->status);
     iree_string_builder_deinitialize(&job->output);
     iree_slim_mutex_deinitialize(&job->mutex);
-    iree_allocator_free_aligned(router->allocator, job);
+    iree_allocator_free_aligned(router->host_allocator, job);
   }
 }
 
@@ -1216,8 +1215,8 @@ static iree_status_t loom_serve_router_register(
     const loom_serve_http_request_t* request) {
   loom_serve_model_configuration_t configuration;
   iree_status_t status = loom_serve_model_configuration_initialize(
-      request->body, iree_string_view_empty(), &configuration,
-      router->allocator);
+      request->body, iree_string_view_empty(), router->host_allocator,
+      &configuration);
   iree_host_size_t index = 0;
   if (iree_status_is_ok(status)) {
     status =
@@ -1686,7 +1685,6 @@ static void loom_serve_router_advance(router_t* router, bool* out_progress) {
 static iree_status_t loom_serve_router_drain(
     iree_task_process_t* process, const iree_task_worker_context_t* context,
     iree_task_process_drain_result_t* result) {
-  (void)context;
   router_t* router = process->user_data;
   if (!iree_slim_mutex_try_lock(&router->mutex)) {
     return iree_ok_status();
@@ -1729,7 +1727,7 @@ iree_status_t loom_serve_router_run(iree_task_executor_t* executor,
                             "holding capacity below transport capacity");
   }
   router_t router = {
-      .allocator = host_allocator,
+      .host_allocator = host_allocator,
       .executor = executor,
       .server = server,
       .registry = registry,

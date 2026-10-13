@@ -19,7 +19,7 @@ class TelemetryStreamTest : public ::testing::Test {
  protected:
   void SetUp() override {
     IREE_ASSERT_OK(loom_serve_telemetry_stream_allocate(
-        4, &stream_, iree_allocator_system()));
+        4, iree_allocator_system(), &stream_));
   }
   void TearDown() override { loom_serve_telemetry_stream_free(stream_); }
 
@@ -130,7 +130,7 @@ TEST_F(TelemetryStreamTest, OverwriteDuringCopyNeverReturnsTornRecord) {
 TEST_F(TelemetryStreamTest, IncarnationsAreDistinct) {
   loom_serve_telemetry_stream_t* other = nullptr;
   IREE_ASSERT_OK(
-      loom_serve_telemetry_stream_allocate(1, &other, iree_allocator_system()));
+      loom_serve_telemetry_stream_allocate(1, iree_allocator_system(), &other));
   EXPECT_NE(loom_serve_telemetry_stream_identity(stream_).ordinal,
             loom_serve_telemetry_stream_identity(other).ordinal);
   loom_serve_telemetry_stream_free(other);
@@ -141,7 +141,7 @@ TEST(TelemetryStream, RejectsInvalidCapacity) {
     loom_serve_telemetry_stream_t* stream = nullptr;
     IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                           loom_serve_telemetry_stream_allocate(
-                              capacity, &stream, iree_allocator_system()));
+                              capacity, iree_allocator_system(), &stream));
     EXPECT_EQ(stream, nullptr);
   }
 }

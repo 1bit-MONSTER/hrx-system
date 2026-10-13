@@ -19,7 +19,7 @@ typedef struct input_module_t {
   // Descriptor borrowing the module-owned reference type.
   iree_vm_module_descriptor_t descriptor;
   // Allocator owning the module and per-call tokenizer scratch.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Canonical buffer type, borrowed from the VM environment.
   iree_vm_ref_types_t types;
   // Optional immutable tokenizer, borrowed from the model owner.
@@ -33,7 +33,8 @@ typedef struct input_module_t {
 static iree_status_t loom_serve_input_encode_prefix(
     const iree_tokenizer_t* tokenizer, iree_string_view_t text,
     iree_tokenizer_encode_flags_t flags, iree_host_size_t capacity,
-    int32_t* output, iree_host_size_t* out_count, iree_allocator_t allocator) {
+    iree_allocator_t host_allocator, int32_t* out_tokens,
+    iree_host_size_t* out_count) {
   *out_count = 0;
   iree_host_size_t state_size = 0;
   IREE_RETURN_IF_ERROR(
@@ -46,7 +47,7 @@ static iree_status_t loom_serve_input_encode_prefix(
   }
   uint8_t* storage = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
-      allocator, state_size + transform_size, (void**)&storage));
+      host_allocator, state_size + transform_size, (void**)&storage));
   iree_tokenizer_encode_state_t* state = NULL;
   iree_status_t status = iree_tokenizer_encode_state_initialize(
       tokenizer, iree_make_byte_span(storage, state_size),
@@ -59,7 +60,7 @@ static iree_status_t loom_serve_input_encode_prefix(
     iree_host_size_t produced = 0;
     status = iree_tokenizer_encode_state_feed(
         state, text,
-        iree_tokenizer_make_token_output(output + count, NULL, NULL,
+        iree_tokenizer_make_token_output(out_tokens + count, NULL, NULL,
                                          capacity - count),
         &consumed, &produced);
     text = iree_string_view_substr(text, consumed, IREE_STRING_VIEW_NPOS);
@@ -70,8 +71,8 @@ static iree_status_t loom_serve_input_encode_prefix(
     // Finalize requires non-null output storage even for a zero token bound.
     const iree_host_size_t bound =
         iree_max(1, iree_tokenizer_encode_state_pending_token_bound(state));
-    status = iree_allocator_malloc_array(allocator, bound, sizeof(*pending),
-                                         (void**)&pending);
+    status = iree_allocator_malloc_array(host_allocator, bound,
+                                         sizeof(*pending), (void**)&pending);
     iree_host_size_t produced = 0;
     if (iree_status_is_ok(status)) {
       status = iree_tokenizer_encode_state_finalize(
@@ -81,7 +82,7 @@ static iree_status_t loom_serve_input_encode_prefix(
     if (iree_status_is_ok(status)) {
       produced = iree_min(produced, capacity - count);
       if (produced) {
-        memcpy(output + count, pending, produced * sizeof(*output));
+        memcpy(out_tokens + count, pending, produced * sizeof(*out_tokens));
       }
       count += produced;
     }
@@ -89,8 +90,8 @@ static iree_status_t loom_serve_input_encode_prefix(
   if (state) {
     iree_tokenizer_encode_state_deinitialize(state);
   }
-  iree_allocator_free(allocator, pending);
-  iree_allocator_free(allocator, storage);
+  iree_allocator_free(host_allocator, pending);
+  iree_allocator_free(host_allocator, storage);
   if (iree_status_is_ok(status)) {
     *out_count = count;
   }
@@ -148,9 +149,9 @@ static iree_status_t loom_serve_input_module_start(
                             "token output byte capacity overflow");
   }
   iree_vm_buffer_t* output = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_vm_buffer_create((iree_host_size_t)capacity * sizeof(int32_t),
-                            iree_alignof(int32_t), module->allocator, &output));
+  IREE_RETURN_IF_ERROR(iree_vm_buffer_create(
+      (iree_host_size_t)capacity * sizeof(int32_t), iree_alignof(int32_t),
+      module->host_allocator, &output));
   iree_byte_span_t storage = iree_byte_span_empty();
   iree_status_t status = iree_vm_buffer_map_write(
       output, 0, iree_vm_buffer_length(output), &storage);
@@ -158,7 +159,7 @@ static iree_status_t loom_serve_input_module_start(
   if (iree_status_is_ok(status) && capacity) {
     status = loom_serve_input_encode_prefix(
         module->tokenizer, text, flags, (iree_host_size_t)capacity,
-        (int32_t*)storage.data, &count, module->allocator);
+        module->host_allocator, (int32_t*)storage.data, &count);
   }
   if (iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < count; ++i) {
@@ -209,7 +210,7 @@ static const iree_vm_module_export_declaration_t input_exports[] = {
 
 static void loom_serve_input_module_destroy(iree_vm_module_t* base) {
   input_module_t* module = (input_module_t*)base;
-  iree_allocator_free(module->allocator, module);
+  iree_allocator_free(module->host_allocator, module);
 }
 static void loom_serve_input_module_query_export(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
@@ -247,8 +248,8 @@ static const iree_vm_module_vtable_t input_module_vtable = {
 
 iree_status_t loom_serve_input_module_create(iree_vm_environment_t* environment,
                                              const iree_tokenizer_t* tokenizer,
-                                             iree_vm_module_t** out_module,
-                                             iree_allocator_t host_allocator) {
+                                             iree_allocator_t host_allocator,
+                                             iree_vm_module_t** out_module) {
   *out_module = NULL;
   iree_vm_ref_types_t types = {0};
   IREE_RETURN_IF_ERROR(iree_vm_ref_types_resolve(
@@ -257,7 +258,7 @@ iree_status_t loom_serve_input_module_create(iree_vm_environment_t* environment,
   input_module_t* module = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, sizeof(*module), (void**)&module));
-  module->allocator = host_allocator;
+  module->host_allocator = host_allocator;
   module->types = types;
   module->tokenizer = tokenizer;
   module->descriptor = (iree_vm_module_descriptor_t){

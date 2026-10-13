@@ -38,7 +38,7 @@ class AdmissionServiceTest : public SourceTextServiceTest {
     options.session_cache_capacity = history == History::kCached ? 1 : 0;
     loom_serve_text_service_t* value = nullptr;
     IREE_ASSERT_OK(loom_serve_text_service_allocate(model_, &options, nullptr,
-                                                    &value, allocator_));
+                                                    host_allocator_, &value));
     auto destroy = [](loom_serve_text_service_t* service) {
       loom_serve_text_service_free(service, IREE_STATUS_OK);
     };
@@ -223,7 +223,7 @@ class AdmissionServiceTest : public SourceTextServiceTest {
     options.admission_overtakes = 2;
     loom_serve_text_service_t* value = nullptr;
     IREE_ASSERT_OK(loom_serve_text_service_allocate(model_, &options, nullptr,
-                                                    &value, allocator_));
+                                                    host_allocator_, &value));
     auto destroy = [](loom_serve_text_service_t* service) {
       loom_serve_text_service_free(service, IREE_STATUS_OK);
     };

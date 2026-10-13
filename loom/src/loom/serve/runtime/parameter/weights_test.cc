@@ -30,7 +30,7 @@ namespace {
 // and return so that the same sole worker can execute the accepted work.
 struct Preparation {
   static iree_status_t Submit(iree_task_process_t* process,
-                              const iree_task_worker_context_t*,
+                              const iree_task_worker_context_t* context,
                               iree_task_process_drain_result_t* result) {
     auto* self = static_cast<Preparation*>(process->user_data);
     auto status = loom_serve_weights_prepare_async(
@@ -100,7 +100,7 @@ struct Preparation {
 // public proactor multi-wait, not a worker join or a driver-specific callback.
 struct Activation {
   static iree_status_t Submit(iree_task_process_t* process,
-                              const iree_task_worker_context_t*,
+                              const iree_task_worker_context_t* context,
                               iree_task_process_drain_result_t* result) {
     auto* self = static_cast<Activation*>(process->user_data);
     auto status =
@@ -150,7 +150,7 @@ struct Activation {
   }
 
   static iree_status_t Unblock(iree_task_process_t* process,
-                               const iree_task_worker_context_t*,
+                               const iree_task_worker_context_t* context,
                                iree_task_process_drain_result_t* result) {
     auto* self = static_cast<Activation*>(process->user_data);
     auto status = iree_hal_semaphore_signal(self->gate, 1, nullptr);
@@ -166,8 +166,8 @@ struct Activation {
     return iree_ok_status();
   }
 
-  static void Ready(void* user_data, iree_async_operation_t*,
-                    iree_status_t status, iree_async_completion_flags_t) {
+  static void Ready(void* user_data, iree_async_operation_t* operation,
+                    iree_status_t status, iree_async_completion_flags_t flags) {
     auto* self = static_cast<Activation*>(user_data);
     std::lock_guard<std::mutex> lock(self->mutex);
     self->status = iree_status_join(self->status, status);
@@ -290,9 +290,9 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
         .slab_size = kSlabBytes,
         .memory_limit = GetParam() ? 2 * kSlabBytes : 0};
     loom_serve_host_t* host = nullptr;
-    IREE_ASSERT_OK(loom_serve_host_create(1, &host, allocator_));
-    auto status = loom_serve_device_group_allocate(host, 1, &options, &group_,
-                                                   allocator_);
+    IREE_ASSERT_OK(loom_serve_host_create(1, host_allocator_, &host));
+    auto status = loom_serve_device_group_allocate(host, 1, &options,
+                                                   host_allocator_, &group_);
     loom_serve_host_release(host);
     IREE_ASSERT_OK(status);
     device_owner_ = loom_serve_device_group_at(group_, 0);
@@ -311,7 +311,7 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
         .values = providers};
     IREE_ASSERT_OK(loom_serve_jit_allocate(
         device_, dispatch_, loom_serve_device_host(device_owner_), &sources,
-        nullptr, &compilation_, allocator_, &jit_));
+        nullptr, &compilation_, host_allocator_, &jit_));
     WriteCheckpoint(path_.path(), 0);
     IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
         loom_serve_device_storage_pool(device_owner_),
@@ -380,7 +380,7 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
     IREE_RETURN_IF_ERROR(loom_serve_weights_allocate(
         device_, transfer_, dispatch_,
         loom_serve_device_storage_pool(device_owner_), pool_, shared_count,
-        root_count, roots, plan, allocator_));
+        root_count, roots, host_allocator_, plan));
     const auto before = loom_serve_weights_statistics(*plan);
     Preparation preparation;
     preparation.weights = *plan;
@@ -410,8 +410,8 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
                          iree_host_size_t plan_count) {
     return loom_serve_residency_allocate(
         loom_serve_device_residency_cache(device_owner_), execution_,
-        plan_count, plans_.data() + first_plan, &residencies_[index],
-        allocator_);
+        plan_count, plans_.data() + first_plan, host_allocator_,
+        &residencies_[index]);
   }
 
   void RunPinned(iree_host_size_t index, int32_t first) {
@@ -459,7 +459,7 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
   }
 
   // Allocation policy for the real runtime and compiler.
-  iree_allocator_t allocator_ = iree_allocator_system();
+  iree_allocator_t host_allocator_ = iree_allocator_system();
   // Copied compiler evidence retained beyond individual results.
   loom_serve_compilation_report_t compilation_ = {};
   // Application group outliving all compiler, VM and I/O resources.
@@ -837,7 +837,7 @@ TEST_P(WeightsTest, ExplicitActivationCancellationJoinsAcceptedReadiness) {
   IREE_ASSERT_OK(loom_serve_activation_allocate(
       residencies_[0],
       loom_serve_host_proactor_pool(loom_serve_device_host(device_owner_)),
-      ActivationWake::Notify, &wake, &activation, allocator_));
+      ActivationWake::Notify, &wake, host_allocator_, &activation));
   loom_serve_activation_phase_t phase;
   IREE_ASSERT_OK(loom_serve_activation_advance(activation, 0, &phase));
   EXPECT_EQ(phase, LOOM_SERVE_ACTIVATION_LOADING);
@@ -885,7 +885,7 @@ TEST_P(WeightsTest, CancelledWarmupWithdrawsCapacityInterestWithoutLoading) {
   IREE_ASSERT_OK(loom_serve_activation_allocate(
       residencies_[1],
       loom_serve_host_proactor_pool(loom_serve_device_host(device_owner_)),
-      ActivationWake::Notify, &wake, &activation, allocator_));
+      ActivationWake::Notify, &wake, host_allocator_, &activation));
   loom_serve_activation_phase_t phase;
   IREE_ASSERT_OK(loom_serve_activation_advance(activation, 0, &phase));
   EXPECT_EQ(phase, LOOM_SERVE_ACTIVATION_WAITING);
@@ -905,7 +905,7 @@ TEST_P(WeightsTest, CancelledWarmupWithdrawsCapacityInterestWithoutLoading) {
   IREE_ASSERT_OK(loom_serve_activation_allocate(
       residencies_[1],
       loom_serve_host_proactor_pool(loom_serve_device_host(device_owner_)),
-      ActivationWake::Notify, &wake, &activation, allocator_));
+      ActivationWake::Notify, &wake, host_allocator_, &activation));
   IREE_ASSERT_OK(loom_serve_activation_advance(activation, 0, &phase));
   EXPECT_EQ(phase, LOOM_SERVE_ACTIVATION_LOADING);
   wake.Await();
@@ -927,7 +927,7 @@ TEST_P(WeightsTest, RejectedWarmupKeepsAcceptedLoadsProtectedUntilRetirement) {
   IREE_ASSERT_OK(loom_serve_activation_allocate(
       residencies_[0],
       loom_serve_host_proactor_pool(loom_serve_device_host(device_owner_)),
-      ActivationWake::Notify, &wake, &activation, allocator_));
+      ActivationWake::Notify, &wake, host_allocator_, &activation));
   loom_serve_activation_phase_t phase;
   IREE_ASSERT_STATUS_IS(IREE_STATUS_NOT_FOUND,
                         loom_serve_activation_advance(activation, 0, &phase));

@@ -40,8 +40,8 @@ class ConfigurationTest : public ::testing::Test {
                       iree_string_view_t directory = IREE_SV("models/local")) {
     loom_serve_model_configuration_deinitialize(&model_);
     return loom_serve_model_configuration_initialize(
-        iree_make_string_view(json.data(), json.size()), directory, &model_,
-        iree_allocator_system());
+        iree_make_string_view(json.data(), json.size()), directory,
+        iree_allocator_system(), &model_);
   }
 
   static std::string String(iree_string_view_t value) {

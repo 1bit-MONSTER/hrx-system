@@ -124,11 +124,11 @@ TEST_P(ImageServiceTest, HttpAndHeartbeatStayLiveDuringDeviceWait) {
   const auto [completion_mode, worker_count] = GetParam();
   loom_serve_host_t* host = nullptr;
   IREE_ASSERT_OK(
-      loom_serve_host_create(worker_count, &host, iree_allocator_system()));
+      loom_serve_host_create(worker_count, iree_allocator_system(), &host));
   loom_serve_device_group_t* group = nullptr;
   const loom_serve_device_options_t device_options = {.uri = IREE_SV("amdgpu")};
   IREE_ASSERT_OK(loom_serve_device_group_allocate(
-      host, 1, &device_options, &group, iree_allocator_system()));
+      host, 1, &device_options, iree_allocator_system(), &group));
   auto* device = loom_serve_device_group_at(group, 0);
   ImageGate gate;
   IREE_ASSERT_OK(loom_serve_device_create_execution(device, &gate.execution));
@@ -142,13 +142,13 @@ TEST_P(ImageServiceTest, HttpAndHeartbeatStayLiveDuringDeviceWait) {
   auto transport_options = loom_serve_http_server_options_default();
   loom_serve_http_server_t* server = nullptr;
   IREE_ASSERT_OK(loom_serve_http_server_allocate(
-      loom_serve_host_proactor_pool(host), &transport_options, &server,
-      iree_allocator_system()));
+      loom_serve_host_proactor_pool(host), &transport_options,
+      iree_allocator_system(), &server));
   auto listener_options = loom_serve_http_listener_options_default();
   listener_options.address = IREE_SV("127.0.0.1:0");
   loom_serve_http_listener_t* listener = nullptr;
   IREE_ASSERT_OK(loom_serve_http_listener_allocate(
-      server, &listener_options, &listener, iree_allocator_system()));
+      server, &listener_options, iree_allocator_system(), &listener));
 
   const loom_serve_image_generator_t generator = {
       &gate,
@@ -167,13 +167,13 @@ TEST_P(ImageServiceTest, HttpAndHeartbeatStayLiveDuringDeviceWait) {
   };
   loom_serve_image_service_t* image = nullptr;
   IREE_ASSERT_OK(loom_serve_image_service_allocate(
-      host, generator, &options, nullptr, &image, iree_allocator_system()));
+      host, generator, &options, nullptr, iree_allocator_system(), &image));
   const auto interface = loom_serve_image_service_interface(image);
   iree_status_t service_status = iree_ok_status();
   std::thread service([&] {
     loom_serve_registry_t* registry = nullptr;
-    IREE_ASSERT_OK(loom_serve_registry_allocate(1, &interface, 0, {}, &registry,
-                                                iree_allocator_system()));
+    IREE_ASSERT_OK(loom_serve_registry_allocate(
+        1, &interface, 0, {}, iree_allocator_system(), &registry));
     service_status = loom_serve_router_run(
         loom_serve_host_executor(host), server, registry,
         {.request_quota = options.pending_capacity, .holding_capacity = 8},
@@ -379,16 +379,16 @@ class ImageAdmissionTest
 
 TEST_P(ImageAdmissionTest, PreparedPayloadWaitsWithoutPinningSharedCapacity) {
   const auto [mode, workers] = GetParam();
-  const auto allocator = iree_allocator_system();
+  const auto host_allocator = iree_allocator_system();
   loom_serve_host_t* host = nullptr;
-  IREE_ASSERT_OK(loom_serve_host_create(workers, &host, allocator));
+  IREE_ASSERT_OK(loom_serve_host_create(workers, host_allocator, &host));
   loom_serve_device_group_t* group = nullptr;
   const loom_serve_device_options_t device_options[] = {
       {.uri = IREE_SV("amdgpu")}, {.uri = IREE_SV("amdgpu")}};
   const iree_host_size_t device_count =
       mode == AdmissionMode::kIndependent ? 2 : 1;
   IREE_ASSERT_OK(loom_serve_device_group_allocate(
-      host, device_count, device_options, &group, allocator));
+      host, device_count, device_options, host_allocator, &group));
   auto* device = loom_serve_device_group_at(group, 0);
   loom_serve_execution_t* execution = nullptr;
   IREE_ASSERT_OK(loom_serve_device_create_execution(device, &execution));
@@ -438,19 +438,19 @@ TEST_P(ImageAdmissionTest, PreparedPayloadWaitsWithoutPinningSharedCapacity) {
         .pending_capacity = 1,
         .heartbeat_interval = 0};
     IREE_ASSERT_OK(loom_serve_image_service_allocate(
-        host, generator, &options, nullptr, &images[i], allocator));
+        host, generator, &options, nullptr, host_allocator, &images[i]));
     services[i] = loom_serve_image_service_interface(images[i]);
   }
   auto transport_options = loom_serve_http_server_options_default();
   loom_serve_http_server_t* server = nullptr;
-  IREE_ASSERT_OK(
-      loom_serve_http_server_allocate(loom_serve_host_proactor_pool(host),
-                                      &transport_options, &server, allocator));
+  IREE_ASSERT_OK(loom_serve_http_server_allocate(
+      loom_serve_host_proactor_pool(host), &transport_options, host_allocator,
+      &server));
   auto listener_options = loom_serve_http_listener_options_default();
   listener_options.address = IREE_SV("127.0.0.1:0");
   loom_serve_http_listener_t* listener = nullptr;
   IREE_ASSERT_OK(loom_serve_http_listener_allocate(server, &listener_options,
-                                                   &listener, allocator));
+                                                   host_allocator, &listener));
   iree_status_t status = iree_ok_status();
   auto generated_events = [&](size_t index) {
     // With periodic records disabled, this bounded request history fits even
@@ -474,11 +474,11 @@ TEST_P(ImageAdmissionTest, PreparedPayloadWaitsWithoutPinningSharedCapacity) {
   size_t completed_events[2] = {};
   std::thread router([&] {
     loom_serve_registry_t* registry = nullptr;
-    IREE_ASSERT_OK(
-        loom_serve_registry_allocate(2, services, 0, {}, &registry, allocator));
+    IREE_ASSERT_OK(loom_serve_registry_allocate(2, services, 0, {},
+                                                host_allocator, &registry));
     status = loom_serve_router_run(
         loom_serve_host_executor(host), server, registry,
-        {.request_quota = 8, .holding_capacity = 8}, allocator);
+        {.request_quota = 8, .holding_capacity = 8}, host_allocator);
     IREE_ASSERT_OK(loom_serve_registry_free(registry));
     for (size_t i = 0; i < 2; ++i) {
       completed_events[i] = generated_events(i);

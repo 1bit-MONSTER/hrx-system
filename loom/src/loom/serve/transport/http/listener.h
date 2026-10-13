@@ -51,7 +51,7 @@ loom_serve_http_listener_options_t loom_serve_http_listener_options_default(
 iree_status_t loom_serve_http_listener_allocate(
     loom_serve_http_server_t* server,
     const loom_serve_http_listener_options_t* options,
-    loom_serve_http_listener_t** out_listener, iree_allocator_t allocator);
+    iree_allocator_t host_allocator, loom_serve_http_listener_t** out_listener);
 
 // Borrowed bound address, including an ephemeral port selected during bind.
 const iree_async_address_t* loom_serve_http_listener_address(

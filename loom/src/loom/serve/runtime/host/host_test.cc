@@ -18,7 +18,7 @@ TEST(HostTest, NullLifetimeOperations) {
 
 TEST(HostTest, CompilerAdapterUsesApplicationExecutor) {
   loom_serve_host_t* host = nullptr;
-  IREE_ASSERT_OK(loom_serve_host_create(1, &host, iree_allocator_system()));
+  IREE_ASSERT_OK(loom_serve_host_create(1, iree_allocator_system(), &host));
   EXPECT_EQ(
       loom_serve_host_executor(host),
       iree_task_executor_from_loomc_task_pool(loom_serve_host_task_pool(host)));
@@ -34,16 +34,16 @@ TEST(HostTest, InvalidCapacityAndAllocationFailureReturnNoHost) {
   loom_serve_host_t* host = nullptr;
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
-      loom_serve_host_create(0, &host, iree_allocator_system()));
+      loom_serve_host_create(0, iree_allocator_system(), &host));
   EXPECT_EQ(host, nullptr);
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
-      loom_serve_host_create(IREE_TASK_EXECUTOR_MAX_WORKER_COUNT + 1, &host,
-                             iree_allocator_system()));
+      loom_serve_host_create(IREE_TASK_EXECUTOR_MAX_WORKER_COUNT + 1,
+                             iree_allocator_system(), &host));
   EXPECT_EQ(host, nullptr);
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
-      loom_serve_host_create(1, &host, iree_allocator_null()));
+      loom_serve_host_create(1, iree_allocator_null(), &host));
   EXPECT_EQ(host, nullptr);
 }
 

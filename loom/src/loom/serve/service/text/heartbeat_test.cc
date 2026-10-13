@@ -26,7 +26,7 @@ class TextHeartbeatTest : public ::testing::Test {
         iree_allocator_system(), &pool_));
     IREE_ASSERT_OK(iree_async_proactor_pool_get(pool_, 0, &proactor_));
     IREE_ASSERT_OK(loom_serve_telemetry_stream_allocate(
-        8, &stream_, iree_allocator_system()));
+        8, iree_allocator_system(), &stream_));
   }
 
   void TearDown() override {

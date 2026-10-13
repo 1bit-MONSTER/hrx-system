@@ -14,7 +14,7 @@ namespace {
 class DeviceGroupTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    IREE_ASSERT_OK(loom_serve_host_create(1, &host_, iree_allocator_system()));
+    IREE_ASSERT_OK(loom_serve_host_create(1, iree_allocator_system(), &host_));
   }
 
   void TearDown() override {
@@ -54,7 +54,7 @@ TEST_F(DeviceGroupTest, LaterDeviceFailureReleasesEarlierHandle) {
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_NOT_FOUND,
       loom_serve_device_group_allocate(host_, IREE_ARRAYSIZE(options), options,
-                                       &group_, iree_allocator_system()));
+                                       iree_allocator_system(), &group_));
   EXPECT_EQ(group_, nullptr);
 }
 
@@ -69,7 +69,7 @@ TEST_F(DeviceGroupTest, LaterPoolFailureReleasesSealedGroupAndEarlierPool) {
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
       loom_serve_device_group_allocate(host_, IREE_ARRAYSIZE(options), options,
-                                       &group_, iree_allocator_system()));
+                                       iree_allocator_system(), &group_));
   EXPECT_EQ(group_, nullptr);
 }
 
@@ -85,7 +85,7 @@ TEST_F(DeviceGroupTest, SeparateBudgetsAndWholeGroupLifetime) {
        .memory_limit = 2 * kSlabBytes}};
   IREE_ASSERT_OK(
       loom_serve_device_group_allocate(host_, IREE_ARRAYSIZE(options), options,
-                                       &group_, iree_allocator_system()));
+                                       iree_allocator_system(), &group_));
   auto* first = loom_serve_device_group_at(group_, 0);
   auto* second = loom_serve_device_group_at(group_, 1);
   EXPECT_EQ(loom_serve_device_group(first), loom_serve_device_group(second));

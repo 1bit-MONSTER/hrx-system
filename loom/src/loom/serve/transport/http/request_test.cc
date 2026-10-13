@@ -104,7 +104,7 @@ iree_status_t ParseRequest(const std::vector<iree_const_byte_span_t>& chunks,
                            RequestSnapshot* out_snapshot) {
   loom_serve_http_request_parser_t* parser = nullptr;
   IREE_RETURN_IF_ERROR(loom_serve_http_request_parser_allocate(
-      limits, &parser, iree_allocator_system()));
+      limits, iree_allocator_system(), &parser));
   HttpRequestParserPtr parser_owner(parser);
   const loom_serve_http_request_t* request = nullptr;
   for (iree_const_byte_span_t chunk : chunks) {
@@ -169,7 +169,7 @@ TEST(HttpRequestTest, ParsesCapturedOpenAiGetAndLooksUpHeaders) {
   const std::string wire_request = CapturedGetRequest();
   loom_serve_http_request_parser_t* parser = nullptr;
   IREE_ASSERT_OK(loom_serve_http_request_parser_allocate(
-      DefaultLimits(), &parser, iree_allocator_system()));
+      DefaultLimits(), iree_allocator_system(), &parser));
   HttpRequestParserPtr parser_owner(parser);
   const loom_serve_http_request_t* request = nullptr;
   IREE_ASSERT_OK(loom_serve_http_request_parser_feed(
@@ -287,7 +287,7 @@ TEST(HttpRequestTest, TerminalStatesRejectAdditionalInput) {
   const std::string valid_request = CapturedGetRequest();
   loom_serve_http_request_parser_t* parser = nullptr;
   IREE_ASSERT_OK(loom_serve_http_request_parser_allocate(
-      DefaultLimits(), &parser, iree_allocator_system()));
+      DefaultLimits(), iree_allocator_system(), &parser));
   HttpRequestParserPtr parser_owner(parser);
   const loom_serve_http_request_t* request = nullptr;
   IREE_ASSERT_OK(loom_serve_http_request_parser_feed(
@@ -299,7 +299,7 @@ TEST(HttpRequestTest, TerminalStatesRejectAdditionalInput) {
 
   loom_serve_http_request_parser_t* failed_parser = nullptr;
   IREE_ASSERT_OK(loom_serve_http_request_parser_allocate(
-      DefaultLimits(), &failed_parser, iree_allocator_system()));
+      DefaultLimits(), iree_allocator_system(), &failed_parser));
   HttpRequestParserPtr failed_parser_owner(failed_parser);
   const std::string invalid_request = "GET / HTTP/1.0\r\nHost: local\r\n\r\n";
   IREE_EXPECT_STATUS_IS(

@@ -42,7 +42,7 @@ struct loom_serve_http_connection_t {
 
 struct loom_serve_http_server_t {
   // Allocator owning this server and its connection resources.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Immutable connection and request budgets established before network I/O.
   loom_serve_http_server_options_t options;
   // Protects peer publication, ownership, send counts and shutdown facts.
@@ -113,7 +113,6 @@ static void loom_serve_http_connection_error(void* user_data,
 
 static iree_status_t loom_serve_http_connection_receive(
     void* user_data, iree_async_span_t data, iree_async_buffer_lease_t* lease) {
-  (void)lease;
   loom_serve_http_connection_t* connection = user_data;
   const loom_serve_http_request_t* request = NULL;
   iree_status_t status =
@@ -135,7 +134,6 @@ static iree_status_t loom_serve_http_connection_receive(
 
 static void loom_serve_http_connection_send_completed(
     void* user_data, iree_status_t status, iree_host_size_t bytes_transferred) {
-  (void)bytes_transferred;
   loom_serve_http_connection_t* connection = user_data;
   loom_serve_http_server_t* server = connection->server;
   iree_slim_mutex_lock(&server->mutex);
@@ -182,7 +180,8 @@ bool loom_serve_http_server_try_accept(loom_serve_http_server_t* server,
   }
 
   iree_status_t status = loom_serve_http_request_parser_allocate(
-      server->options.request_limits, &connection->parser, server->allocator);
+      server->options.request_limits, server->host_allocator,
+      &connection->parser);
   if (iree_status_is_ok(status)) {
     status = iree_net_carrier_set_handlers(
         carrier, (iree_net_carrier_handlers_t){
@@ -269,8 +268,8 @@ void loom_serve_http_server_free(loom_serve_http_server_t* server) {
   loom_serve_telemetry_stream_free(server->diagnostics);
   iree_notification_deinitialize(&server->notification);
   iree_slim_mutex_deinitialize(&server->mutex);
-  iree_allocator_free(server->allocator, server->connections);
-  iree_allocator_free(server->allocator, server);
+  iree_allocator_free(server->host_allocator, server->connections);
+  iree_allocator_free(server->host_allocator, server);
 }
 
 loom_serve_http_server_options_t loom_serve_http_server_options_default(void) {
@@ -283,7 +282,7 @@ loom_serve_http_server_options_t loom_serve_http_server_options_default(void) {
 iree_status_t loom_serve_http_server_allocate(
     iree_async_proactor_pool_t* proactor_pool,
     const loom_serve_http_server_options_t* options,
-    loom_serve_http_server_t** out_server, iree_allocator_t host_allocator) {
+    iree_allocator_t host_allocator, loom_serve_http_server_t** out_server) {
   *out_server = NULL;
   if (!options->connection_capacity || options->connection_capacity > INT_MAX) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -292,13 +291,13 @@ iree_status_t loom_serve_http_server_allocate(
   loom_serve_http_server_t* server = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, sizeof(*server), (void**)&server));
-  server->allocator = host_allocator;
+  server->host_allocator = host_allocator;
   server->proactor_pool = proactor_pool;
   iree_async_proactor_pool_retain(proactor_pool);
   iree_slim_mutex_initialize(&server->mutex);
   iree_notification_initialize(&server->notification);
   iree_status_t status = loom_serve_telemetry_stream_allocate(
-      128, &server->diagnostics, host_allocator);
+      128, host_allocator, &server->diagnostics);
   if (iree_status_is_ok(status)) {
     iree_async_proactor_t* proactor = NULL;
     status = iree_async_proactor_pool_get(proactor_pool, 0, &proactor);

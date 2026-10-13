@@ -34,7 +34,7 @@ class OwnerTurn {
 
  private:
   static iree_status_t Drain(iree_task_process_t* process,
-                             const iree_task_worker_context_t*,
+                             const iree_task_worker_context_t* context,
                              iree_task_process_drain_result_t* result) {
     static_cast<OwnerTurn*>(process->user_data)->body_();
     result->completed = true;

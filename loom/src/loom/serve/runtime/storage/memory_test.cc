@@ -25,9 +25,9 @@ class MemoryTest : public ::testing::Test {
         .slab_size = kSlabSize,
         .memory_limit = 3 * kSlabSize};
     loom_serve_host_t* host = nullptr;
-    IREE_ASSERT_OK(loom_serve_host_create(1, &host, iree_allocator_system()));
-    auto status = loom_serve_device_group_allocate(host, 1, &options, &group,
-                                                   iree_allocator_system());
+    IREE_ASSERT_OK(loom_serve_host_create(1, iree_allocator_system(), &host));
+    auto status = loom_serve_device_group_allocate(
+        host, 1, &options, iree_allocator_system(), &group);
     loom_serve_host_release(host);
     IREE_ASSERT_OK(status);
     device = loom_serve_device_group_at(group, 0);
@@ -292,7 +292,7 @@ TEST_F(MemoryTest, FailedReclamationRetainsSharedFailureAndRemainingOwnership) {
   // The dependency releases real native backing before reporting a subsequent
   // failure. The requested capacity would now fit, but cannot be admitted.
   loom_serve_memory_pool_set_reclaimer(
-      pool, {first, [](void* self, uint64_t) -> iree_status_t {
+      pool, {first, [](void* self, uint64_t target_bytes) -> iree_status_t {
                auto* buffer = static_cast<loom_serve_virtual_buffer_t*>(self);
                loom_serve_virtual_buffer_begin_trim(buffer);
                IREE_RETURN_IF_ERROR(loom_serve_virtual_buffer_trim(buffer));

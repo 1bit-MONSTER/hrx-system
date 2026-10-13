@@ -10,7 +10,7 @@
 
 struct loom_serve_activation_t {
   // Allocator owning this cold operation, released after callback retirement.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Borrowed parameter group outliving this operation and any failed load.
   loom_serve_residency_t* residency;
   // Retained proactor progress ownership, shared with model and network I/O.
@@ -43,8 +43,6 @@ static void loom_serve_activation_ready(void* user_data,
                                         iree_async_operation_t* operation,
                                         iree_status_t status,
                                         iree_async_completion_flags_t flags) {
-  (void)operation;
-  (void)flags;
   loom_serve_activation_t* activation = user_data;
   iree_slim_mutex_lock(&activation->event.mutex);
   activation->event.status = status;
@@ -56,12 +54,12 @@ static void loom_serve_activation_ready(void* user_data,
 iree_status_t loom_serve_activation_allocate(
     loom_serve_residency_t* residency, iree_async_proactor_pool_t* pool,
     void (*wake)(void* user_data), void* user_data,
-    loom_serve_activation_t** out_activation, iree_allocator_t allocator) {
+    iree_allocator_t host_allocator, loom_serve_activation_t** out_activation) {
   *out_activation = NULL;
   loom_serve_activation_t* activation = NULL;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(allocator, sizeof(*activation),
-                                             (void**)&activation));
-  activation->allocator = allocator;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+      host_allocator, sizeof(*activation), (void**)&activation));
+  activation->host_allocator = host_allocator;
   activation->residency = residency;
   activation->event.wake = wake;
   activation->event.user_data = user_data;
@@ -71,7 +69,7 @@ iree_status_t loom_serve_activation_allocate(
     iree_slim_mutex_initialize(&activation->event.mutex);
     *out_activation = activation;
   } else {
-    iree_allocator_free(allocator, activation);
+    iree_allocator_free(host_allocator, activation);
   }
   return status;
 }
@@ -137,5 +135,5 @@ void loom_serve_activation_free(loom_serve_activation_t* activation) {
   IREE_ASSERT(activation->phase == LOOM_SERVE_ACTIVATION_COMPLETE);
   iree_async_proactor_pool_entry_release(activation->entry);
   iree_slim_mutex_deinitialize(&activation->event.mutex);
-  iree_allocator_free(activation->allocator, activation);
+  iree_allocator_free(activation->host_allocator, activation);
 }

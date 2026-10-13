@@ -56,7 +56,7 @@ iree_status_t loom_serve_image_load_allocate(
     loom_serve_device_t* device,
     const loom_serve_image_model_options_t* options,
     loom_serve_image_load_wake_fn_t wake, void* user_data,
-    loom_serve_image_load_t** out_load, iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator, loom_serve_image_load_t** out_load);
 
 enum loom_serve_image_load_flag_bits_e {
   // Stops subsequent phases, retiring any accepted CPU/JIT work before the
@@ -125,7 +125,7 @@ iree_status_t loom_serve_image_load_free(loom_serve_image_load_t* load);
 iree_status_t loom_serve_image_model_allocate(
     loom_serve_device_t* device,
     const loom_serve_image_model_options_t* options,
-    loom_serve_image_model_t** out_model, iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator, loom_serve_image_model_t** out_model);
 
 // Begins irreversible removal after service CPU tasks, waits and external
 // tokenizer borrowers retire. No further invocation/admission is allowed.

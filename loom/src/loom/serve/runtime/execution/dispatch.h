@@ -23,8 +23,8 @@ typedef struct loom_serve_dispatch_t loom_serve_dispatch_t;
 // checked here before the stage can accept work.
 iree_status_t loom_serve_dispatch_create(
     iree_hal_executable_t* executable, iree_hal_executable_function_t function,
-    iree_hal_dispatch_config_t config, loom_serve_dispatch_t** out_dispatch,
-    iree_allocator_t host_allocator);
+    iree_hal_dispatch_config_t config, iree_allocator_t host_allocator,
+    loom_serve_dispatch_t** out_dispatch);
 
 void loom_serve_dispatch_retain(loom_serve_dispatch_t* dispatch);
 void loom_serve_dispatch_release(loom_serve_dispatch_t* dispatch);

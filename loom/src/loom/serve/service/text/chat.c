@@ -127,7 +127,6 @@ static bool loom_serve_text_chat_is_identifier(iree_string_view_t name) {
 static iree_status_t loom_serve_text_chat_content_part(
     void* user_data, iree_host_size_t index, iree_json_value_type_t type,
     iree_string_view_t value) {
-  (void)index;
   if (type != IREE_JSON_VALUE_TYPE_OBJECT) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "chat content parts must be text objects");
@@ -287,8 +286,8 @@ iree_status_t loom_serve_text_chat_policy_initialize(
 static iree_status_t loom_serve_text_chat_render(
     const loom_serve_text_chat_policy_t* policy, iree_vm_function_t function,
     iree_host_size_t input_count, const iree_string_view_t* inputs,
-    iree_host_size_t scalar_count, const int64_t* scalars, int64_t* out_state,
-    iree_string_builder_t* output) {
+    iree_host_size_t scalar_count, const int64_t* scalars,
+    iree_string_builder_t* output, int64_t* out_state) {
   iree_vm_variant_t arguments[10] = {0};
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0; i < input_count && iree_status_is_ok(status);
@@ -348,8 +347,8 @@ iree_status_t loom_serve_text_chat_prepare_input(
     const loom_serve_text_chat_policy_t* policy, iree_string_view_t text,
     loom_serve_text_chat_input_format_t format,
     loom_serve_text_chat_boundary_t boundary, iree_host_size_t capacity,
-    int32_t* tokens, iree_host_size_t* out_count,
-    iree_allocator_t host_allocator) {
+    iree_allocator_t host_allocator, int32_t* out_tokens,
+    iree_host_size_t* out_count) {
   *out_count = 0;
   iree_vm_buffer_t* input = NULL;
   IREE_RETURN_IF_ERROR(iree_vm_buffer_wrap(
@@ -376,18 +375,18 @@ iree_status_t loom_serve_text_chat_prepare_input(
   }
   if (iree_status_is_ok(status) &&
       (!output || count < 0 || (uint64_t)count > capacity ||
-       (uint64_t)count > SIZE_MAX / sizeof(*tokens))) {
+       (uint64_t)count > SIZE_MAX / sizeof(*out_tokens))) {
     status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "source input returned invalid token storage");
   }
   iree_const_byte_span_t bytes = iree_const_byte_span_empty();
   if (iree_status_is_ok(status)) {
     status =
-        iree_vm_buffer_map_read(output, 0, count * sizeof(*tokens), &bytes);
+        iree_vm_buffer_map_read(output, 0, count * sizeof(*out_tokens), &bytes);
   }
   if (iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < (iree_host_size_t)count; ++i) {
-      tokens[i] = (int32_t)iree_unaligned_load_le_u32(bytes.data + i * 4);
+      out_tokens[i] = (int32_t)iree_unaligned_load_le_u32(bytes.data + i * 4);
     }
     *out_count = (iree_host_size_t)count;
   }
@@ -536,7 +535,7 @@ static iree_status_t loom_serve_text_chat_history_message(
   return loom_serve_text_chat_render(
       history->chat->policy, history->chat->policy->chat_message,
       IREE_ARRAYSIZE(inputs), inputs, IREE_ARRAYSIZE(scalars), scalars,
-      &history->state, &history->chat->prompt);
+      &history->chat->prompt, &history->state);
 }
 
 static iree_status_t loom_serve_text_chat_request_render(
@@ -632,13 +631,13 @@ static iree_status_t loom_serve_text_chat_request_render(
   const iree_string_view_t inputs[] = {body, history->chat->tool_schemas};
   IREE_RETURN_IF_ERROR(loom_serve_text_chat_render(
       history->chat->policy, history->chat->policy->chat_begin,
-      IREE_ARRAYSIZE(inputs), inputs, 0, NULL, &history->state,
-      &history->chat->prompt));
+      IREE_ARRAYSIZE(inputs), inputs, 0, NULL, &history->chat->prompt,
+      &history->state));
   IREE_RETURN_IF_ERROR(iree_json_enumerate_array_typed(
       fields[1].value, loom_serve_text_chat_history_message, history));
   return loom_serve_text_chat_render(
       history->chat->policy, history->chat->policy->chat_end, 0, NULL, 1,
-      &history->state, NULL, &history->chat->prompt);
+      &history->state, &history->chat->prompt, NULL);
 }
 
 iree_status_t loom_serve_text_chat_initialize(
@@ -673,7 +672,7 @@ void loom_serve_text_chat_deinitialize(loom_serve_text_chat_t* chat) {
 iree_status_t loom_serve_text_chat_text_end(
     const loom_serve_text_chat_policy_t* policy, iree_string_view_t response,
     iree_host_size_t previous_end, loom_serve_text_chat_output_phase_t phase,
-    iree_host_size_t* out_end, iree_allocator_t host_allocator) {
+    iree_allocator_t host_allocator, iree_host_size_t* out_end) {
   *out_end = previous_end;
   iree_vm_buffer_t* input = NULL;
   IREE_RETURN_IF_ERROR(iree_vm_buffer_wrap(
@@ -716,8 +715,8 @@ void loom_serve_text_chat_completion_deinitialize(
 static iree_status_t loom_serve_text_chat_checkpoint(
     const loom_serve_text_chat_policy_t* policy, iree_string_view_t prompt,
     iree_string_view_t content, iree_string_view_t tools,
-    loom_serve_text_chat_completion_t* completion,
-    iree_allocator_t host_allocator) {
+    iree_allocator_t host_allocator,
+    loom_serve_text_chat_completion_t* out_completion) {
   const iree_string_view_t inputs[] = {prompt, content, tools};
   iree_vm_variant_t arguments[3] = {0};
   iree_status_t status = iree_ok_status();
@@ -741,20 +740,20 @@ static iree_status_t loom_serve_text_chat_checkpoint(
   }
   if (iree_status_is_ok(status)) {
     status = iree_vm_buffer_ptr_from_variant_move(&policy->types, &result,
-                                                  &completion->storage);
+                                                  &out_completion->storage);
   }
-  if (iree_status_is_ok(status) && !completion->storage) {
+  if (iree_status_is_ok(status) && !out_completion->storage) {
     status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "source returned null checkpoint storage");
   }
   iree_const_byte_span_t bytes = iree_const_byte_span_empty();
   if (iree_status_is_ok(status)) {
-    status = iree_vm_buffer_map_read(completion->storage, 0,
-                                     iree_vm_buffer_length(completion->storage),
-                                     &bytes);
+    status = iree_vm_buffer_map_read(
+        out_completion->storage, 0,
+        iree_vm_buffer_length(out_completion->storage), &bytes);
   }
   if (iree_status_is_ok(status)) {
-    completion->transcript =
+    out_completion->transcript =
         iree_make_string_view((const char*)bytes.data, bytes.data_length);
   }
   iree_vm_variant_reset(&result);
@@ -870,7 +869,6 @@ typedef struct chat_parameter_names_t {
 static iree_status_t loom_serve_text_chat_required_parameter(
     void* user_data, iree_host_size_t index, iree_json_value_type_t type,
     iree_string_view_t value) {
-  (void)index;
   const chat_parameter_names_t* names = user_data;
   if (type != IREE_JSON_VALUE_TYPE_STRING ||
       !loom_serve_text_chat_is_identifier(value)) {
@@ -1103,7 +1101,7 @@ iree_status_t loom_serve_text_chat_complete(
   IREE_RETURN_IF_ERROR(
       loom_serve_text_chat_text_end(chat->policy, response, previous_end,
                                     LOOM_SERVE_TEXT_CHAT_OUTPUT_COMPLETE,
-                                    &result.text_end, tool_calls->allocator));
+                                    tool_calls->allocator, &result.text_end));
   const iree_string_view_t content =
       iree_string_view_substr(response, 0, result.text_end);
   const iree_string_view_t inputs[] = {
@@ -1119,7 +1117,7 @@ iree_status_t loom_serve_text_chat_complete(
   iree_string_builder_initialize(tool_calls->allocator, &tools.arguments);
   iree_status_t status = loom_serve_text_chat_render(
       chat->policy, chat->policy->parse_tools, IREE_ARRAYSIZE(inputs), inputs,
-      0, NULL, NULL, &parsed);
+      0, NULL, &parsed, NULL);
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(tool_calls, "[");
   }
@@ -1135,8 +1133,8 @@ iree_status_t loom_serve_text_chat_complete(
     result.tool_count = tools.count;
     status = loom_serve_text_chat_checkpoint(
         chat->policy, iree_string_builder_view(&chat->prompt), content,
-        iree_string_builder_view(&tools.rendered), &result,
-        tool_calls->allocator);
+        iree_string_builder_view(&tools.rendered), tool_calls->allocator,
+        &result);
   }
   iree_string_builder_deinitialize(&tools.arguments);
   iree_string_builder_deinitialize(&tools.rendered);
@@ -1244,7 +1242,7 @@ typedef struct chat_tools_module_t {
   // Descriptor borrowing the environment's reference types.
   iree_vm_module_descriptor_t descriptor;
   // Host allocation policy.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Canonical buffer reference identity.
   iree_vm_ref_types_t types;
 } chat_tools_module_t;
@@ -1277,7 +1275,7 @@ static iree_status_t loom_serve_text_chat_tools_start(
   IREE_RETURN_IF_ERROR(iree_json_enumerate_array_typed(
       inputs[0], loom_serve_text_chat_tool_schema, &schema));
   iree_string_builder_t output;
-  iree_string_builder_initialize(module->allocator, &output);
+  iree_string_builder_initialize(module->host_allocator, &output);
   iree_status_t status =
       loom_serve_text_chat_parse_xml(&schema, inputs[1], &output);
   iree_vm_buffer_t* buffer = NULL;
@@ -1286,7 +1284,7 @@ static iree_status_t loom_serve_text_chat_tools_start(
     status =
         iree_vm_buffer_clone(IREE_VM_BUFFER_ACCESS_FLAG_READ,
                              iree_make_const_byte_span(value.data, value.size),
-                             1, module->allocator, &buffer);
+                             1, module->host_allocator, &buffer);
   }
   if (iree_status_is_ok(status)) {
     iree_vm_ref_t result =
@@ -1306,7 +1304,7 @@ static const iree_vm_module_signature_type_t chat_tools_results[] = {
     {IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0}};
 static void loom_serve_text_chat_tools_destroy(iree_vm_module_t* base) {
   chat_tools_module_t* module = (chat_tools_module_t*)base;
-  iree_allocator_free(module->allocator, module);
+  iree_allocator_free(module->host_allocator, module);
 }
 static void loom_serve_text_chat_tools_query_export(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
@@ -1348,8 +1346,8 @@ static const iree_vm_module_vtable_t chat_tools_vtable = {
 };
 
 iree_status_t loom_serve_text_chat_tools_module_create(
-    iree_vm_environment_t* environment, iree_vm_module_t** out_module,
-    iree_allocator_t host_allocator) {
+    iree_vm_environment_t* environment, iree_allocator_t host_allocator,
+    iree_vm_module_t** out_module) {
   *out_module = NULL;
   iree_vm_ref_types_t types = {0};
   IREE_RETURN_IF_ERROR(iree_vm_ref_types_resolve(
@@ -1358,7 +1356,7 @@ iree_status_t loom_serve_text_chat_tools_module_create(
   chat_tools_module_t* module = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, sizeof(*module), (void**)&module));
-  module->allocator = host_allocator;
+  module->host_allocator = host_allocator;
   module->types = types;
   module->descriptor = (iree_vm_module_descriptor_t){
       .name = IREE_SVL("tools"),

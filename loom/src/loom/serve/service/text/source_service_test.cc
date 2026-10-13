@@ -41,7 +41,7 @@ TEST_P(SourceTextServiceTest, NonstreamingDisconnectRetiresAnAcceptedEpoch) {
   const auto options = ServiceOptions();
   loom_serve_text_service_t* value = nullptr;
   IREE_ASSERT_OK(loom_serve_text_service_allocate(model_, &options, nullptr,
-                                                  &value, allocator_));
+                                                  host_allocator_, &value));
   auto destroy = [](loom_serve_text_service_t* service) {
     loom_serve_text_service_free(service, IREE_STATUS_OK);
   };
@@ -107,7 +107,7 @@ TEST_P(SourceTextServiceTest, CheckpointClaimSurvivesDisconnectAndStopping) {
     const auto options = ServiceOptions();
     loom_serve_text_service_t* value = nullptr;
     IREE_ASSERT_OK(loom_serve_text_service_allocate(model_, &options, nullptr,
-                                                    &value, allocator_));
+                                                    host_allocator_, &value));
     auto destroy = [](loom_serve_text_service_t* service) {
       loom_serve_text_service_free(service, IREE_STATUS_OK);
     };
@@ -193,12 +193,12 @@ TEST_P(SourceTextServiceTest,
   loom_serve_text_chat_t first = {}, next = {};
   IREE_ASSERT_OK(loom_serve_text_chat_initialize(
       policy, policy->name, iree_make_cstring_view(first_body.c_str()), 4,
-      allocator_, &first));
+      host_allocator_, &first));
   IREE_ASSERT_OK(loom_serve_text_chat_initialize(
       policy, policy->name, iree_make_cstring_view(next_body.c_str()), 4,
-      allocator_, &next));
+      host_allocator_, &next));
   iree_string_builder_t tools;
-  iree_string_builder_initialize(allocator_, &tools);
+  iree_string_builder_initialize(host_allocator_, &tools);
   loom_serve_text_chat_completion_t completion = {};
   IREE_ASSERT_OK(loom_serve_text_chat_complete(&first, IREE_SV("b"), 0, 1,
                                                &tools, &completion));
@@ -212,7 +212,7 @@ TEST_P(SourceTextServiceTest,
   int32_t scratch[96];
   IREE_ASSERT_OK(loom_serve_text_input_prepare(&next, prefix, true,
                                                IREE_ARRAYSIZE(scratch), scratch,
-                                               &input, allocator_));
+                                               &input, host_allocator_));
   EXPECT_EQ(input.retained_count, 1u);
   EXPECT_EQ(std::vector<int32_t>(input.tokens, input.tokens + input.count),
             (std::vector<int32_t>{1, 3, 2}));
@@ -220,26 +220,27 @@ TEST_P(SourceTextServiceTest,
   std::fill(std::begin(scratch), std::end(scratch), -7);
   IREE_ASSERT_OK(loom_serve_text_input_prepare(&next, prefix, true,
                                                IREE_ARRAYSIZE(scratch), scratch,
-                                               &input, allocator_));
+                                               &input, host_allocator_));
   EXPECT_EQ(input.tokens, prepared);
   EXPECT_TRUE(std::all_of(std::begin(scratch), std::end(scratch),
                           [](int32_t value) { return value == -7; }));
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
       loom_serve_text_input_prepare(&next, {}, true, IREE_ARRAYSIZE(scratch),
-                                    scratch, &input, allocator_));
+                                    scratch, &input, host_allocator_));
   EXPECT_EQ(input.tokens, prepared);
   loom_serve_text_chat_completion_deinitialize(&completion);
   // Eviction releases native history independently. The prepared input's host
   // identity remains valid, but its suffix cannot be replayed as a fresh row.
   EXPECT_NE(input.history, nullptr);
-  IREE_ASSERT_OK(loom_serve_text_input_prepare(
-      &next, {}, false, IREE_ARRAYSIZE(scratch), scratch, &input, allocator_));
+  IREE_ASSERT_OK(loom_serve_text_input_prepare(&next, {}, false,
+                                               IREE_ARRAYSIZE(scratch), scratch,
+                                               &input, host_allocator_));
   EXPECT_EQ(input.retained_count, 0u);
   EXPECT_EQ(input.history, nullptr);
   EXPECT_EQ(std::vector<int32_t>(input.tokens, input.tokens + input.count),
             (std::vector<int32_t>{0, 1, 3, 2}));
-  loom_serve_text_input_deinitialize(&input, allocator_);
+  loom_serve_text_input_deinitialize(&input, host_allocator_);
   loom_serve_text_chat_deinitialize(&next);
   loom_serve_text_chat_deinitialize(&first);
   iree_string_builder_deinitialize(&tools);
@@ -626,7 +627,7 @@ TEST_P(SourceTextServiceTest, RejectedInputBacklogYieldsToReadyDecode) {
   const auto options = ServiceOptions();
   loom_serve_text_service_t* value = nullptr;
   IREE_ASSERT_OK(loom_serve_text_service_allocate(model_, &options, nullptr,
-                                                  &value, allocator_));
+                                                  host_allocator_, &value));
   auto destroy = [](loom_serve_text_service_t* service) {
     loom_serve_text_service_free(service, IREE_STATUS_OK);
   };
@@ -723,7 +724,7 @@ TEST_P(SourceTextServiceTest, StoppingAccountsForQueuedControlAndCpuBorrowers) {
   auto options = ServiceOptions();
   loom_serve_text_service_t* service = nullptr;
   IREE_ASSERT_OK(loom_serve_text_service_allocate(model_, &options, nullptr,
-                                                  &service, allocator_));
+                                                  host_allocator_, &service));
   auto destroy = [](loom_serve_text_service_t* value) {
     loom_serve_text_service_free(value, IREE_STATUS_OK);
   };
@@ -988,7 +989,7 @@ TEST_P(SourceTextServiceTest, CancelledPreparationRetainsPartialOwnership) {
         iree_notification_post(static_cast<iree_notification_t*>(payload),
                                IREE_ALL_WAITERS);
       },
-      &notification, &load, allocator_));
+      &notification, host_allocator_, &load));
   bool complete = false;
   IREE_ASSERT_OK(loom_serve_text_load_advance(load, 0, &complete));
   ASSERT_FALSE(complete);
@@ -1048,7 +1049,7 @@ TEST_P(SourceTextServiceTest, FailedLinkRetiresAcceptedInitialization) {
   };
   loom_serve_text_load_t* load = nullptr;
   IREE_ASSERT_OK(loom_serve_text_load_allocate(
-      device_, &options, wake, &notification, &load, allocator_));
+      device_, &options, wake, &notification, host_allocator_, &load));
   bool complete = false;
   iree_status_t status = iree_ok_status();
   while (!complete) {
@@ -1101,11 +1102,11 @@ TEST_P(ElasticTextServiceTest, RetirementOwnsAcceptedCheckpointCapture) {
       .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
   };
   IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &device_options,
-                                                  &group_, allocator_));
+                                                  host_allocator_, &group_));
   device_ = loom_serve_device_group_at(group_, 0);
   auto options = ModelOptions();
-  IREE_ASSERT_OK(
-      loom_serve_text_model_allocate(device_, &options, &model_, allocator_));
+  IREE_ASSERT_OK(loom_serve_text_model_allocate(device_, &options,
+                                                host_allocator_, &model_));
   const std::string prompt = "abxabbaaxbabx";
   std::vector<int32_t> tokens;
   for (const char character : prompt) {
@@ -1150,8 +1151,8 @@ TEST_P(ElasticTextServiceTest, RetirementOwnsAcceptedCheckpointCapture) {
   EXPECT_EQ(memory.retained.committed_bytes, 0u);
 
   // Same host, queues and parameter pool remain available to the replacement.
-  IREE_ASSERT_OK(
-      loom_serve_text_model_allocate(device_, &options, &model_, allocator_));
+  IREE_ASSERT_OK(loom_serve_text_model_allocate(device_, &options,
+                                                host_allocator_, &model_));
   row = loom_serve_text_model_row(model_, 0);
   IREE_ASSERT_OK(
       loom_serve_text_row_prefill(row, tokens.size(), tokens.data()));
@@ -1236,11 +1237,11 @@ TEST_P(ElasticTextServiceTest,
       .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
   };
   IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &device_options,
-                                                  &group_, allocator_));
+                                                  host_allocator_, &group_));
   device_ = loom_serve_device_group_at(group_, 0);
   auto options = ModelOptions();
-  IREE_ASSERT_OK(
-      loom_serve_text_model_allocate(device_, &options, &model_, allocator_));
+  IREE_ASSERT_OK(loom_serve_text_model_allocate(device_, &options,
+                                                host_allocator_, &model_));
   Start();
   const std::string base = "abxa";
   const std::string first = Content(Read(
@@ -1295,8 +1296,8 @@ TEST_P(SourceTextServiceTest, WideSourceEpochsRetainExactHttpHistory) {
     options.pool_capacity = 4 * ((options.context_capacity + 3) / 4 * 4);
     options.epoch_count = IREE_ARRAYSIZE(shapes);
     options.epoch_shapes = shapes;
-    IREE_ASSERT_OK(
-        loom_serve_text_model_allocate(device_, &options, &model_, allocator_));
+    IREE_ASSERT_OK(loom_serve_text_model_allocate(device_, &options,
+                                                  host_allocator_, &model_));
     EXPECT_EQ(loom_serve_text_model_prefill_capacity(model_), capacity);
     std::vector<int32_t> tokens(capacity - 9);
     Oracle reference;
@@ -1370,27 +1371,27 @@ TEST_P(SourceTextServiceTest,
   loom_serve_text_model_t* unsupported = nullptr;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_serve_text_model_allocate(
-                            device_, &options, &unsupported, allocator_));
+                            device_, &options, host_allocator_, &unsupported));
   EXPECT_EQ(unsupported, nullptr);
   options.draft_depth = 0;
   options.options = IREE_SV("{\"unknown\":true}");
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_serve_text_model_allocate(
-                            device_, &options, &unsupported, allocator_));
+                            device_, &options, host_allocator_, &unsupported));
   EXPECT_EQ(unsupported, nullptr);
   options.options = IREE_SV("{}");
   options.pool_capacity = 0;
   options.checkpoint_capacity = 0;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_serve_text_model_allocate(
-                            device_, &options, &unsupported, allocator_));
+                            device_, &options, host_allocator_, &unsupported));
   EXPECT_EQ(unsupported, nullptr);
   IREE_ASSERT_OK(loom_serve_text_model_free(model_));
   model_ = nullptr;
   ASSERT_NO_FATAL_FAILURE(WriteWeights(7));
   options = ModelOptions();
-  IREE_ASSERT_OK(
-      loom_serve_text_model_allocate(device_, &options, &model_, allocator_));
+  IREE_ASSERT_OK(loom_serve_text_model_allocate(device_, &options,
+                                                host_allocator_, &model_));
   Start();
   const std::string prompt = "axb";
   const std::string actual =
@@ -1409,11 +1410,11 @@ TEST_P(ElasticTextServiceTest, EndpointAliasesShareOneSuspendedPayload) {
       .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
   };
   IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &device_options,
-                                                  &group_, allocator_));
+                                                  host_allocator_, &group_));
   device_ = loom_serve_device_group_at(group_, 0);
   auto options = ModelOptions();
-  IREE_ASSERT_OK(
-      loom_serve_text_model_allocate(device_, &options, &model_, allocator_));
+  IREE_ASSERT_OK(loom_serve_text_model_allocate(device_, &options,
+                                                host_allocator_, &model_));
   auto* source = loom_serve_text_model_row(model_, 0);
   auto* target = loom_serve_text_model_row(model_, 1);
   const std::vector<int32_t> tokens = {0, 1, 2, 0};
@@ -1450,7 +1451,7 @@ TEST_P(SourceTextServiceTest,
   options.heartbeat_interval = iree_make_duration_ms(1);
   loom_serve_text_service_t* value = nullptr;
   IREE_ASSERT_OK(loom_serve_text_service_allocate(model_, &options, nullptr,
-                                                  &value, allocator_));
+                                                  host_allocator_, &value));
   auto destroy = [](loom_serve_text_service_t* service) {
     loom_serve_text_service_free(service, IREE_STATUS_OK);
   };

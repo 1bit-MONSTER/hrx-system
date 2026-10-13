@@ -11,7 +11,7 @@
 
 struct loom_serve_program_t {
   // Host allocation policy for the owner and all VM storage.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Owned linked program retaining bytecode and native libraries.
   iree_vm_program_t* program;
   // Owned process borrowing no session state.
@@ -31,7 +31,7 @@ void loom_serve_program_free(loom_serve_program_t* program) {
     iree_vm_invocation_deinitialize(program->invocation);
   }
   iree_vm_program_release(program->program);
-  iree_allocator_free(program->allocator, program);
+  iree_allocator_free(program->host_allocator, program);
 }
 
 iree_status_t loom_serve_program_compile(
@@ -63,7 +63,7 @@ iree_status_t loom_serve_program_link(iree_vm_module_t* module,
   loom_serve_program_t* program = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(host_allocator, sizeof(*program),
                                              (void**)&program));
-  program->allocator = host_allocator;
+  program->host_allocator = host_allocator;
   iree_status_t status =
       iree_vm_program_create((iree_vm_program_modules_t){module, libraries},
                              host_allocator, &program->program);

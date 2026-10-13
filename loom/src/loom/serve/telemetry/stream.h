@@ -31,8 +31,8 @@ typedef struct loom_serve_telemetry_identity_t {
 // zero. Storage survives all producer/reader accesses; no reader retains a
 // slot.
 iree_status_t loom_serve_telemetry_stream_allocate(
-    iree_host_size_t capacity, loom_serve_telemetry_stream_t** out_stream,
-    iree_allocator_t allocator);
+    iree_host_size_t capacity, iree_allocator_t host_allocator,
+    loom_serve_telemetry_stream_t** out_stream);
 void loom_serve_telemetry_stream_free(loom_serve_telemetry_stream_t* stream);
 
 loom_serve_telemetry_identity_t loom_serve_telemetry_stream_identity(

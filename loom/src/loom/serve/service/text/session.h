@@ -54,7 +54,7 @@ typedef struct loom_serve_text_session_lifetime_t {
 // that job exclusively borrows this session and the model invocation.
 typedef struct loom_serve_text_session_t {
   // Allocator for this session's reusable host storage.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Borrowed private device row in the shared model residency.
   loom_serve_text_row_t* row;
   // Owned logical session currently assigned to this reusable execution row.
@@ -123,8 +123,8 @@ loom_serve_http_request_snapshot_t loom_serve_text_session_request_snapshot(
 // acquired. The caller deinitializes the result on success or failure.
 iree_status_t loom_serve_text_session_initialize(
     loom_serve_text_row_t* row, const iree_tokenizer_t* tokenizer,
-    iree_host_size_t context_capacity, loom_serve_text_session_t* out_session,
-    iree_allocator_t host_allocator);
+    iree_host_size_t context_capacity, iree_allocator_t host_allocator,
+    loom_serve_text_session_t* out_session);
 
 // Releases host storage only. The caller has retired CPU borrowers and released
 // every HTTP claim; native row/reservation ownership remains with the service.

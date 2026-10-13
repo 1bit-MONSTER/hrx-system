@@ -37,16 +37,16 @@ bool loom_serve_text_session_cache_inspect(
 }
 
 iree_status_t loom_serve_text_session_cache_initialize(
-    iree_host_size_t capacity, loom_serve_text_session_cache_t* cache,
-    iree_allocator_t allocator) {
-  *cache = (loom_serve_text_session_cache_t){.allocator = allocator,
-                                             .capacity = capacity};
+    iree_host_size_t capacity, iree_allocator_t host_allocator,
+    loom_serve_text_session_cache_t* out_cache) {
+  *out_cache = (loom_serve_text_session_cache_t){
+      .host_allocator = host_allocator, .capacity = capacity};
   if (!capacity) {
     return iree_ok_status();
   }
-  return iree_allocator_malloc_array(allocator, capacity + 1,
-                                     sizeof(*cache->entries),
-                                     (void**)&cache->entries);
+  return iree_allocator_malloc_array(host_allocator, capacity + 1,
+                                     sizeof(*out_cache->entries),
+                                     (void**)&out_cache->entries);
 }
 
 void loom_serve_text_session_cache_reset(loom_serve_text_session_cache_t* cache,
@@ -67,7 +67,7 @@ void loom_serve_text_session_cache_reset(loom_serve_text_session_cache_t* cache,
 
 void loom_serve_text_session_cache_deinitialize(
     loom_serve_text_session_cache_t* cache) {
-  iree_allocator_free(cache->allocator, cache->entries);
+  iree_allocator_free(cache->host_allocator, cache->entries);
   memset(cache, 0, sizeof(*cache));
 }
 

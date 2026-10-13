@@ -36,8 +36,8 @@ typedef struct loom_serve_finite_protocol_t {
   iree_host_size_t request_size;
   // Initializes zeroed concrete storage; failure leaves it deinitializable.
   iree_status_t (*initialize)(iree_string_view_t body,
-                              loom_serve_finite_request_t* request,
-                              iree_allocator_t allocator);
+                              iree_allocator_t host_allocator,
+                              loom_serve_finite_request_t* out_request);
   // Releases all concrete request storage, including its source input buffer.
   void (*deinitialize)(loom_serve_finite_request_t* request);
   // Encodes trusted row spans from the checked source plan in client order.

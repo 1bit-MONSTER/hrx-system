@@ -33,12 +33,12 @@ class ResourcesTest : public ::testing::Test {
   }
   iree_status_t CreateCpuGroup() {
     IREE_RETURN_IF_ERROR(
-        loom_serve_host_create(1, &host_, iree_allocator_system()));
+        loom_serve_host_create(1, iree_allocator_system(), &host_));
     const loom_serve_device_options_t options[] = {{.uri = IREE_SV("task")},
                                                    {.uri = IREE_SV("task")}};
     return loom_serve_device_group_allocate(host_, IREE_ARRAYSIZE(options),
-                                            options, &group_,
-                                            iree_allocator_system());
+                                            options, iree_allocator_system(),
+                                            &group_);
   }
 
   // Application owner outliving all borrowed records.

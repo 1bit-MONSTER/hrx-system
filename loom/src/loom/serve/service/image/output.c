@@ -34,7 +34,7 @@ static void loom_serve_image_store_be32(uint8_t* target, uint32_t value) {
 
 iree_status_t loom_serve_image_encode_rgb_f32_png(
     uint32_t width, uint32_t height, iree_const_byte_span_t rgb,
-    iree_byte_span_t* out_png, iree_allocator_t host_allocator) {
+    iree_allocator_t host_allocator, iree_byte_span_t* out_png) {
   *out_png = iree_byte_span_empty();
   const uint64_t pixels = (uint64_t)width * height;
   if (!width || !height || width > INT32_MAX || height > INT32_MAX ||

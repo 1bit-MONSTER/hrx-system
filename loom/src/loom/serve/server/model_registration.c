@@ -22,8 +22,8 @@
 static iree_status_t loom_serve_registration_activate(
     loom_serve_activation_t** operation, loom_serve_residency_t* residency,
     loom_serve_host_t* host, loom_serve_wake_callback_t observer,
-    loom_serve_activation_flags_t flags,
-    loom_serve_activation_phase_t* out_phase, iree_allocator_t allocator) {
+    loom_serve_activation_flags_t flags, iree_allocator_t host_allocator,
+    loom_serve_activation_phase_t* out_phase) {
   *out_phase = LOOM_SERVE_ACTIVATION_COMPLETE;
   if (!*operation) {
     if (iree_any_bit_set(flags, LOOM_SERVE_ACTIVATION_FLAG_CANCEL)) {
@@ -31,7 +31,7 @@ static iree_status_t loom_serve_registration_activate(
     }
     IREE_RETURN_IF_ERROR(loom_serve_activation_allocate(
         residency, loom_serve_host_proactor_pool(host), observer.wake,
-        observer.user_data, operation, allocator));
+        observer.user_data, host_allocator, operation));
   }
   iree_status_t status =
       loom_serve_activation_advance(*operation, flags, out_phase);
@@ -44,7 +44,7 @@ static iree_status_t loom_serve_registration_activate(
 
 typedef struct finite_registration_t {
   // Allocator owning this operation, independent of model allocations.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Borrowed server capabilities and reporting policy.
   const loom_serve_model_registration_options_t* options;
   // Borrowed device resolved at declaration admission, alive through
@@ -97,7 +97,7 @@ static iree_status_t loom_serve_finite_registration_prepare(
             : loom_serve_decision_protocol(),
         configuration->name, configuration->pending_requests,
         registration->options->heartbeat_interval, registration->stream,
-        &registration->service, registration->allocator);
+        registration->host_allocator, &registration->service);
   }
   if (iree_status_is_ok(status)) {
     *out_service = loom_serve_finite_service_interface(registration->service);
@@ -133,7 +133,7 @@ static iree_status_t loom_serve_finite_registration_retire(void* self,
 
 static void loom_serve_finite_registration_destroy(void* self) {
   finite_registration_t* registration = self;
-  iree_allocator_free(registration->allocator, registration);
+  iree_allocator_free(registration->host_allocator, registration);
 }
 
 static loom_serve_residency_snapshot_t
@@ -163,18 +163,19 @@ static iree_status_t loom_serve_finite_registration_activate(
       &registration->activation,
       loom_serve_finite_model_residency(registration->model),
       loom_serve_device_host(registration->device), registration->observer,
-      flags, out_phase, registration->allocator);
+      flags, registration->host_allocator, out_phase);
 }
 
 static iree_status_t loom_serve_finite_registration_create(
     void* self, const loom_serve_model_configuration_t* configuration,
     loom_serve_wake_callback_t observer, loom_serve_telemetry_stream_t* stream,
-    loom_serve_registration_t* out_registration, iree_allocator_t allocator) {
+    iree_allocator_t host_allocator,
+    loom_serve_registration_t* out_registration) {
   const loom_serve_model_registration_options_t* options = self;
   finite_registration_t* registration = NULL;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(allocator, sizeof(*registration),
-                                             (void**)&registration));
-  registration->allocator = allocator;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+      host_allocator, sizeof(*registration), (void**)&registration));
+  registration->host_allocator = host_allocator;
   registration->options = options;
   registration->device = loom_serve_device_group_at(
       options->device_group, configuration->device_index);
@@ -187,7 +188,7 @@ static iree_status_t loom_serve_finite_registration_create(
       .options = configuration->options};
   iree_status_t status = loom_serve_finite_load_allocate(
       registration->device, &model_options, observer.wake, observer.user_data,
-      &registration->load, allocator);
+      host_allocator, &registration->load);
   if (iree_status_is_ok(status)) {
     *out_registration = (loom_serve_registration_t){
         .self = registration,
@@ -199,14 +200,14 @@ static iree_status_t loom_serve_finite_registration_create(
         .deactivate = loom_serve_finite_registration_deactivate,
         .destroy = loom_serve_finite_registration_destroy};
   } else {
-    iree_allocator_free(allocator, registration);
+    iree_allocator_free(host_allocator, registration);
   }
   return status;
 }
 
 typedef struct image_registration_t {
   // Allocator owning this operation, independent of model allocations.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Borrowed server capabilities and reporting policy.
   const loom_serve_model_registration_options_t* options;
   // Borrowed device resolved at declaration admission, alive through
@@ -262,7 +263,8 @@ static iree_status_t loom_serve_image_registration_prepare(
     status = loom_serve_image_service_allocate(
         loom_serve_device_host(registration->device),
         loom_serve_image_model_generator(registration->model), &service_options,
-        registration->stream, &registration->service, registration->allocator);
+        registration->stream, registration->host_allocator,
+        &registration->service);
   }
   if (iree_status_is_ok(status)) {
     *out_service = loom_serve_image_service_interface(registration->service);
@@ -298,7 +300,7 @@ static iree_status_t loom_serve_image_registration_retire(void* self,
 
 static void loom_serve_image_registration_destroy(void* self) {
   image_registration_t* registration = self;
-  iree_allocator_free(registration->allocator, registration);
+  iree_allocator_free(registration->host_allocator, registration);
 }
 
 static loom_serve_residency_snapshot_t loom_serve_image_registration_parameters(
@@ -327,18 +329,19 @@ static iree_status_t loom_serve_image_registration_activate(
       &registration->activation,
       loom_serve_image_model_residency(registration->model),
       loom_serve_device_host(registration->device), registration->observer,
-      flags, out_phase, registration->allocator);
+      flags, registration->host_allocator, out_phase);
 }
 
 static iree_status_t loom_serve_image_registration_create(
     void* self, const loom_serve_model_configuration_t* configuration,
     loom_serve_wake_callback_t observer, loom_serve_telemetry_stream_t* stream,
-    loom_serve_registration_t* out_registration, iree_allocator_t allocator) {
+    iree_allocator_t host_allocator,
+    loom_serve_registration_t* out_registration) {
   const loom_serve_model_registration_options_t* options = self;
   image_registration_t* registration = NULL;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(allocator, sizeof(*registration),
-                                             (void**)&registration));
-  registration->allocator = allocator;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+      host_allocator, sizeof(*registration), (void**)&registration));
+  registration->host_allocator = host_allocator;
   registration->options = options;
   registration->device = loom_serve_device_group_at(
       options->device_group, configuration->device_index);
@@ -356,7 +359,7 @@ static iree_status_t loom_serve_image_registration_create(
       .command_quantum = configuration->image.command_quantum};
   iree_status_t status = loom_serve_image_load_allocate(
       registration->device, &model_options, observer.wake, observer.user_data,
-      &registration->load, allocator);
+      host_allocator, &registration->load);
   if (iree_status_is_ok(status)) {
     *out_registration = (loom_serve_registration_t){
         .self = registration,
@@ -368,14 +371,14 @@ static iree_status_t loom_serve_image_registration_create(
         .deactivate = loom_serve_image_registration_deactivate,
         .destroy = loom_serve_image_registration_destroy};
   } else {
-    iree_allocator_free(allocator, registration);
+    iree_allocator_free(host_allocator, registration);
   }
   return status;
 }
 
 typedef struct text_registration_t {
   // Allocator owning this operation and its stable shape table.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Borrowed server capabilities and reporting policy.
   const loom_serve_model_registration_options_t* options;
   // Borrowed device resolved at declaration admission, alive through
@@ -435,7 +438,7 @@ static iree_status_t loom_serve_text_registration_prepare(
         .continuation_epochs = text->continuation_epochs};
     status = loom_serve_text_service_allocate(
         registration->model, &options, registration->stream,
-        &registration->service, registration->allocator);
+        registration->host_allocator, &registration->service);
   }
   if (iree_status_is_ok(status)) {
     *out_service = loom_serve_text_service_interface(registration->service);
@@ -466,7 +469,7 @@ static iree_status_t loom_serve_text_registration_retire(void* self,
 
 static void loom_serve_text_registration_destroy(void* self) {
   text_registration_t* registration = self;
-  iree_allocator_free(registration->allocator, registration);
+  iree_allocator_free(registration->host_allocator, registration);
 }
 
 static loom_serve_residency_snapshot_t loom_serve_text_registration_parameters(
@@ -495,18 +498,19 @@ static iree_status_t loom_serve_text_registration_activate(
       &registration->activation,
       loom_serve_text_model_residency(registration->model),
       loom_serve_device_host(registration->device), registration->observer,
-      flags, out_phase, registration->allocator);
+      flags, registration->host_allocator, out_phase);
 }
 
 static iree_status_t loom_serve_text_registration_create(
     void* self, const loom_serve_model_configuration_t* configuration,
     loom_serve_wake_callback_t observer, loom_serve_telemetry_stream_t* stream,
-    loom_serve_registration_t* out_registration, iree_allocator_t allocator) {
+    iree_allocator_t host_allocator,
+    loom_serve_registration_t* out_registration) {
   const loom_serve_model_registration_options_t* options = self;
   text_registration_t* registration = NULL;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(allocator, sizeof(*registration),
-                                             (void**)&registration));
-  registration->allocator = allocator;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+      host_allocator, sizeof(*registration), (void**)&registration));
+  registration->host_allocator = host_allocator;
   registration->options = options;
   registration->device = loom_serve_device_group_at(
       options->device_group, configuration->device_index);
@@ -535,7 +539,7 @@ static iree_status_t loom_serve_text_registration_create(
       .options = configuration->options};
   iree_status_t status = loom_serve_text_load_allocate(
       registration->device, &model_options, observer.wake, observer.user_data,
-      &registration->load, allocator);
+      host_allocator, &registration->load);
   if (iree_status_is_ok(status)) {
     *out_registration = (loom_serve_registration_t){
         .self = registration,
@@ -547,7 +551,7 @@ static iree_status_t loom_serve_text_registration_create(
         .deactivate = loom_serve_text_registration_deactivate,
         .destroy = loom_serve_text_registration_destroy};
   } else {
-    iree_allocator_free(allocator, registration);
+    iree_allocator_free(host_allocator, registration);
   }
   return status;
 }
@@ -555,17 +559,20 @@ static iree_status_t loom_serve_text_registration_create(
 static iree_status_t loom_serve_model_registration_create(
     void* self, const loom_serve_model_configuration_t* configuration,
     loom_serve_wake_callback_t observer, loom_serve_telemetry_stream_t* stream,
-    loom_serve_registration_t* out_registration, iree_allocator_t allocator) {
+    iree_allocator_t host_allocator,
+    loom_serve_registration_t* out_registration) {
   if (configuration->kind == LOOM_SERVE_MODEL_KIND_TEXT) {
-    return loom_serve_text_registration_create(
-        self, configuration, observer, stream, out_registration, allocator);
+    return loom_serve_text_registration_create(self, configuration, observer,
+                                               stream, host_allocator,
+                                               out_registration);
   }
   if (configuration->kind == LOOM_SERVE_MODEL_KIND_IMAGE) {
-    return loom_serve_image_registration_create(
-        self, configuration, observer, stream, out_registration, allocator);
+    return loom_serve_image_registration_create(self, configuration, observer,
+                                                stream, host_allocator,
+                                                out_registration);
   }
   return loom_serve_finite_registration_create(
-      self, configuration, observer, stream, out_registration, allocator);
+      self, configuration, observer, stream, host_allocator, out_registration);
 }
 
 static iree_status_t loom_serve_model_registration_query_status(void* self) {

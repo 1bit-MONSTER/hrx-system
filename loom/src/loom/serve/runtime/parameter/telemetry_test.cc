@@ -15,8 +15,8 @@ namespace {
 
 TEST(WeightTelemetry, RecordOwnsActivityAcrossProducerRetirement) {
   loom_serve_telemetry_stream_t* stream = nullptr;
-  IREE_ASSERT_OK(loom_serve_telemetry_stream_allocate(2, &stream,
-                                                      iree_allocator_system()));
+  IREE_ASSERT_OK(loom_serve_telemetry_stream_allocate(
+      2, iree_allocator_system(), &stream));
   loom_serve_weight_activity_t activity = {3, 1, 100, 40, 5};
   loom_serve_telemetry_record_weights(stream, 17, &activity);
   activity = {};

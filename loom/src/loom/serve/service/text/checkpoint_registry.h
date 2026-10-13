@@ -38,7 +38,7 @@ typedef struct loom_serve_text_checkpoint_entry_t {
 // device block allocator. Record pointers remain stable until deinitialization.
 typedef struct loom_serve_text_checkpoint_registry_t {
   // Allocator owning entries.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Owned records, allocated once during service construction.
   loom_serve_text_checkpoint_entry_t* entries;
   // Number of allocated records, independent of resident session rows.
@@ -48,8 +48,8 @@ typedef struct loom_serve_text_checkpoint_registry_t {
 // Allocates host records only. A zero capacity disables named endpoints.
 // The initialized result may be deinitialized after success or failure.
 iree_status_t loom_serve_text_checkpoint_registry_initialize(
-    iree_host_size_t capacity, loom_serve_text_checkpoint_registry_t* registry,
-    iree_allocator_t host_allocator);
+    iree_host_size_t capacity, iree_allocator_t host_allocator,
+    loom_serve_text_checkpoint_registry_t* out_registry);
 
 // Ends all named ownership after queued/CPU borrowers have retired. Successful
 // readiness permits native release; failed readiness leaves native handles with

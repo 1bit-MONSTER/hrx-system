@@ -18,19 +18,21 @@ namespace {
 class DecisionProtocolTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    IREE_ASSERT_OK(iree_allocator_malloc(allocator_, protocol_->request_size,
+    IREE_ASSERT_OK(iree_allocator_malloc(host_allocator_,
+                                         protocol_->request_size,
                                          reinterpret_cast<void**>(&request_)));
-    iree_string_builder_initialize(allocator_, &output_);
+    iree_string_builder_initialize(host_allocator_, &output_);
   }
   void TearDown() override {
     protocol_->deinitialize(request_);
-    iree_allocator_free(allocator_, request_);
+    iree_allocator_free(host_allocator_, request_);
     iree_string_builder_deinitialize(&output_);
   }
   iree_status_t Parse(const std::string& json) {
     protocol_->deinitialize(request_);
     return protocol_->initialize(
-        iree_make_string_view(json.data(), json.size()), request_, allocator_);
+        iree_make_string_view(json.data(), json.size()), host_allocator_,
+        request_);
   }
   iree_status_t Encode(const std::vector<std::vector<float>>& probabilities) {
     std::vector<std::vector<uint8_t>> storage(probabilities.size());
@@ -56,7 +58,7 @@ class DecisionProtocolTest : public ::testing::Test {
   const loom_serve_finite_protocol_t* protocol_ =
       loom_serve_decision_protocol();
   // Host allocator owning concrete protocol storage.
-  const iree_allocator_t allocator_ = iree_allocator_system();
+  const iree_allocator_t host_allocator_ = iree_allocator_system();
   // Complete request allocation; concrete protocol size comes from the
   // descriptor.
   loom_serve_finite_request_t* request_ = nullptr;

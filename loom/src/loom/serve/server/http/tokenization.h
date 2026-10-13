@@ -35,11 +35,11 @@ enum {
 iree_status_t loom_serve_http_tokenize(const iree_tokenizer_t* tokenizer,
                                        iree_string_view_t body,
                                        iree_string_builder_t* output,
-                                       iree_allocator_t allocator);
+                                       iree_allocator_t host_allocator);
 iree_status_t loom_serve_http_detokenize(const iree_tokenizer_t* tokenizer,
                                          iree_string_view_t body,
                                          iree_string_builder_t* output,
-                                         iree_allocator_t allocator);
+                                         iree_allocator_t host_allocator);
 
 #ifdef __cplusplus
 }  // extern "C"

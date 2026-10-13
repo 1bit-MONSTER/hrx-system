@@ -78,9 +78,8 @@ iree_status_t loom_serve_preparation_allocate(
     iree_vm_environment_t* environment, iree_string_view_t source_path,
     iree_string_view_t entry, iree_vm_variant_span_t arguments,
     iree_vm_variant_span_t results, iree_vm_module_span_t libraries,
-    loom_serve_compilation_report_t* report,
-    loom_serve_preparation_t** out_preparation,
-    iree_allocator_t host_allocator);
+    loom_serve_compilation_report_t* report, iree_allocator_t host_allocator,
+    loom_serve_preparation_t** out_preparation);
 
 void loom_serve_preparation_free(loom_serve_preparation_t* preparation);
 

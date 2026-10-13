@@ -130,8 +130,8 @@ void loom_serve_image_request_deinitialize(
 
 iree_status_t loom_serve_image_request_initialize(
     iree_string_view_t body, iree_string_view_t model, uint32_t width,
-    uint32_t height, loom_serve_image_request_t* out_request,
-    iree_allocator_t host_allocator) {
+    uint32_t height, iree_allocator_t host_allocator,
+    loom_serve_image_request_t* out_request) {
   memset(out_request, 0, sizeof(*out_request));
   out_request->strength = 1.0f;
   iree_string_builder_initialize(host_allocator, &out_request->prompt);

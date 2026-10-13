@@ -25,16 +25,19 @@ class RegistryTest : public ::testing::TestWithParam<bool> {
         .kinds = 1u << LOOM_SERVE_MODEL_KIND_EMBEDDING,
         .device_count = 2,
         .create =
-            [](void*, const loom_serve_model_configuration_t*,
-               loom_serve_wake_callback_t, loom_serve_telemetry_stream_t*,
-               loom_serve_registration_t*, iree_allocator_t) {
+            [](void* self,
+               const loom_serve_model_configuration_t* configuration,
+               loom_serve_wake_callback_t observer,
+               loom_serve_telemetry_stream_t* stream,
+               iree_allocator_t host_allocator,
+               loom_serve_registration_t* out_registration) {
               ADD_FAILURE() << "Drained metadata must not prepare a model";
               return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                                       "unexpected model preparation");
             },
     };
     IREE_ASSERT_OK(loom_serve_registry_allocate(
-        0, nullptr, 1, factory, &registry_, iree_allocator_system()));
+        0, nullptr, 1, factory, iree_allocator_system(), &registry_));
   }
 
   void TearDown() override {
@@ -77,7 +80,7 @@ TEST_P(RegistryTest, FileRegistrationOwnsAuthoredPathsAndSelectedBase) {
       iree_make_const_byte_span(document.data(), document.size()),
       iree_allocator_system()));
   IREE_ASSERT_OK(loom_serve_model_configuration_load(
-      path_.path_view(), &configuration_, iree_allocator_system()));
+      path_.path_view(), iree_allocator_system(), &configuration_));
   ASSERT_TRUE(path_.Remove());
 
   iree_host_size_t index = IREE_HOST_SIZE_MAX;

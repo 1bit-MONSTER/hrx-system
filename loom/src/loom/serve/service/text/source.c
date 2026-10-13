@@ -26,17 +26,17 @@ static iree_status_t loom_serve_text_load_tokenizer(
     iree_string_view_t locator, iree_string_view_t terminal_marker) {
   char* path = NULL;
   IREE_RETURN_IF_ERROR(loom_serve_path_resolve(base_directory, locator,
-                                               source->allocator, &path));
+                                               source->host_allocator, &path));
   iree_io_file_contents_t* contents = NULL;
   iree_status_t status = iree_io_file_contents_map(
-      iree_make_cstring_view(path), IREE_IO_FILE_ACCESS_READ, source->allocator,
-      &contents);
+      iree_make_cstring_view(path), IREE_IO_FILE_ACCESS_READ,
+      source->host_allocator, &contents);
   if (iree_status_is_ok(status)) {
     status = iree_tokenizer_from_huggingface_json(
-        loom_serve_text_file_text(contents), source->allocator,
+        loom_serve_text_file_text(contents), source->host_allocator,
         &source->tokenizer);
   }
-  iree_allocator_free(source->allocator, path);
+  iree_allocator_free(source->host_allocator, path);
   iree_io_file_contents_free(contents);
   IREE_RETURN_IF_ERROR(status);
   source->eos_token = iree_tokenizer_vocab_lookup(
@@ -53,9 +53,9 @@ static iree_status_t loom_serve_text_load_tokenizer(
 static iree_status_t loom_serve_text_prepare(
     loom_serve_text_source_t* source, const loom_serve_text_options_t* options,
     loom_serve_text_storage_t* storage) {
-  const iree_allocator_t allocator = source->allocator;
+  const iree_allocator_t host_allocator = source->host_allocator;
   IREE_RETURN_IF_ERROR(
-      iree_vm_environment_allocate(allocator, &source->environment));
+      iree_vm_environment_allocate(host_allocator, &source->environment));
   IREE_RETURN_IF_ERROR(
       iree_vm_ref_types_resolve(iree_vm_environment_lookup_ref_type_table(
                                     source->environment, IREE_SV("vm")),
@@ -63,11 +63,11 @@ static iree_status_t loom_serve_text_prepare(
   char* path = NULL;
   IREE_RETURN_IF_ERROR(loom_serve_path_resolve(options->sources.base_directory,
                                                options->sources.prepare,
-                                               allocator, &path));
+                                               host_allocator, &path));
   iree_vm_buffer_t* shapes = NULL;
   iree_status_t status =
       iree_vm_buffer_create(options->epoch_count * 2 * sizeof(int64_t),
-                            iree_alignof(int64_t), allocator, &shapes);
+                            iree_alignof(int64_t), host_allocator, &shapes);
   iree_byte_span_t shape_bytes = iree_byte_span_empty();
   if (iree_status_is_ok(status)) {
     status = iree_vm_buffer_map_write(shapes, 0, iree_vm_buffer_length(shapes),
@@ -87,7 +87,7 @@ static iree_status_t loom_serve_text_prepare(
         IREE_VM_BUFFER_ACCESS_FLAG_READ,
         iree_make_const_byte_span(options->weights_path.data,
                                   options->weights_path.size),
-        1, allocator, &weights);
+        1, host_allocator, &weights);
   }
   iree_vm_buffer_t* source_options = NULL;
   if (iree_status_is_ok(status)) {
@@ -97,7 +97,7 @@ static iree_status_t loom_serve_text_prepare(
     status =
         iree_vm_buffer_clone(IREE_VM_BUFFER_ACCESS_FLAG_READ,
                              iree_make_const_byte_span(json.data, json.size), 1,
-                             allocator, &source_options);
+                             host_allocator, &source_options);
   }
   iree_vm_variant_t arguments[] = {
       iree_vm_variant_from_i64((int64_t)options->prefill_capacity),
@@ -115,11 +115,11 @@ static iree_status_t loom_serve_text_prepare(
   iree_vm_module_t* modules[2] = {0};
   if (iree_status_is_ok(status)) {
     status = loom_serve_input_module_create(source->environment, NULL,
-                                            &modules[0], allocator);
+                                            host_allocator, &modules[0]);
   }
   if (iree_status_is_ok(status)) {
-    status = loom_serve_json_module_create(source->environment, &modules[1],
-                                           allocator);
+    status = loom_serve_json_module_create(source->environment, host_allocator,
+                                           &modules[1]);
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_preparation_allocate(
@@ -127,7 +127,7 @@ static iree_status_t loom_serve_text_prepare(
         iree_vm_variant_span_from_array(arguments),
         iree_vm_variant_span_from_array(results),
         iree_vm_module_span_from_array(modules), &source->compilation,
-        &source->preparation, allocator);
+        host_allocator, &source->preparation);
   }
   int64_t prefill_capacity = 0;
   int32_t shared_stage_count = 0;
@@ -174,8 +174,8 @@ static iree_status_t loom_serve_text_prepare(
   if (iree_status_is_ok(status)) {
     status = loom_serve_text_storage_initialize(
         &source->vm_types, results + 4, options->row_count,
-        options->context_capacity, options->pool_capacity, storage,
-        source->allocator);
+        options->context_capacity, options->pool_capacity,
+        source->host_allocator, storage);
   }
   if (iree_status_is_ok(status)) {
     const iree_host_size_t slots =
@@ -203,16 +203,16 @@ static iree_status_t loom_serve_text_prepare(
   iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
   iree_vm_module_release(modules[1]);
   iree_vm_module_release(modules[0]);
-  iree_allocator_free(allocator, path);
+  iree_allocator_free(host_allocator, path);
   return status;
 }
 
 iree_status_t loom_serve_text_source_initialize(
-    const loom_serve_text_options_t* options,
+    const loom_serve_text_options_t* options, iree_allocator_t host_allocator,
     loom_serve_text_source_t* out_source,
-    loom_serve_text_storage_t* out_storage, iree_allocator_t allocator) {
+    loom_serve_text_storage_t* out_storage) {
   memset(out_source, 0, sizeof(*out_source));
-  out_source->allocator = allocator;
+  out_source->host_allocator = host_allocator;
   IREE_RETURN_IF_ERROR(
       loom_serve_text_prepare(out_source, options, out_storage));
   const iree_vm_ref_type_table_t* table = NULL;
@@ -223,7 +223,7 @@ iree_status_t loom_serve_text_source_initialize(
   char* path = NULL;
   IREE_RETURN_IF_ERROR(loom_serve_path_resolve(options->sources.base_directory,
                                                options->sources.control,
-                                               allocator, &path));
+                                               host_allocator, &path));
   const iree_string_view_t roots[] = {
       IREE_SVL("step"),          IREE_SVL("epoch"),
       IREE_SVL("encode_epoch"),  IREE_SVL("publish_epoch"),
@@ -234,9 +234,9 @@ iree_status_t loom_serve_text_source_initialize(
       IREE_SVL("chat_end"),      IREE_SVL("parse_tools")};
   iree_status_t status = loom_serve_program_compile(
       out_source->environment, iree_make_cstring_view(path),
-      IREE_ARRAYSIZE(roots), roots, &out_source->compilation, allocator,
+      IREE_ARRAYSIZE(roots), roots, &out_source->compilation, host_allocator,
       &out_source->module);
-  iree_allocator_free(allocator, path);
+  iree_allocator_free(host_allocator, path);
   return status;
 }
 

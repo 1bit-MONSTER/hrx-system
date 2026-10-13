@@ -39,8 +39,8 @@ const loom_serve_finite_protocol_t* loom_serve_embedding_protocol(void);
 // and token lists are passed to source policy. No chat framing is applied.
 // Failure releases partial ownership and leaves a zeroed request.
 iree_status_t loom_serve_embedding_request_initialize(
-    iree_string_view_t body, loom_serve_embedding_request_t* out_request,
-    iree_allocator_t allocator);
+    iree_string_view_t body, iree_allocator_t host_allocator,
+    loom_serve_embedding_request_t* out_request);
 void loom_serve_embedding_request_deinitialize(
     loom_serve_embedding_request_t* request);
 

@@ -74,7 +74,7 @@ iree_status_t loom_serve_weights_allocate(
     iree_hal_queue_t* dispatch, iree_hal_pool_t* storage_pool,
     loom_serve_memory_pool_t* pool, iree_host_size_t shared_root_count,
     iree_host_size_t root_count, const loom_serve_weight_root_t* roots,
-    loom_serve_weights_t** out_weights, iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator, loom_serve_weights_t** out_weights);
 
 // Receives the terminal source preparation status on a shared task worker.
 // All preparation tasks/compiler accesses have retired before this callback.

@@ -49,8 +49,8 @@ TEST(TelemetryRecord, PublicationDoesNotRenderOrBorrowProducerPayload) {
             output, ",\"useful_tokens\":%" PRIu64, record->data.words[0]);
       }};
   loom_serve_telemetry_stream_t* stream = nullptr;
-  IREE_ASSERT_OK(loom_serve_telemetry_stream_allocate(2, &stream,
-                                                      iree_allocator_system()));
+  IREE_ASSERT_OK(loom_serve_telemetry_stream_allocate(
+      2, iree_allocator_system(), &stream));
   loom_serve_telemetry_record_t record = {
       .time_ns = 19,
       .request = 5,

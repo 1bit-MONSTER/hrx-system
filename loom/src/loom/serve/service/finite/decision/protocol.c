@@ -50,7 +50,7 @@ typedef struct decision_request_t {
   // Initial shared request member, including the owned source packet.
   loom_serve_finite_request_t base;
   // Allocator owning decoded IDs and native association tables.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Owned initialized question records in original request order.
   decision_question_t* questions;
   // Owned option records in each question's original public order.
@@ -112,11 +112,11 @@ static iree_status_t loom_serve_decision_fields(iree_string_view_t object,
 }
 
 static iree_status_t loom_serve_decision_id(iree_string_view_t raw,
-                                            iree_string_view_t* output,
-                                            iree_allocator_t allocator) {
+                                            iree_allocator_t host_allocator,
+                                            iree_string_view_t* out_value) {
   char* data = NULL;
   IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(allocator, raw.size + 1, (void**)&data));
+      iree_allocator_malloc(host_allocator, raw.size + 1, (void**)&data));
   iree_host_size_t length = 0;
   iree_status_t status =
       iree_json_unescape_string(raw, raw.size, data, &length);
@@ -127,9 +127,9 @@ static iree_status_t loom_serve_decision_id(iree_string_view_t raw,
                               "IDs must be nonempty UTF-8");
   }
   if (iree_status_is_ok(status)) {
-    *output = id;
+    *out_value = id;
   } else {
-    iree_allocator_free(allocator, data);
+    iree_allocator_free(host_allocator, data);
   }
   return status;
 }
@@ -194,7 +194,7 @@ static iree_status_t loom_serve_decision_option(decision_parser_t* parser,
   ++request->option_count;
   if (key.data) {
     IREE_RETURN_IF_ERROR(
-        loom_serve_decision_id(key, &option->id, request->allocator));
+        loom_serve_decision_id(key, request->host_allocator, &option->id));
   }
   const uint64_t record[5] = {
       key.data ? (uint64_t)(key.data - parser->body.data) : 0, key.size,
@@ -243,12 +243,11 @@ static iree_status_t loom_serve_decision_question(void* self,
                                                   iree_string_view_t key,
                                                   iree_json_value_type_t type,
                                                   iree_string_view_t value) {
-  (void)type;
   decision_parser_t* parser = self;
   decision_request_t* request = parser->request;
   decision_question_t* question = &request->questions[request->base.count++];
   IREE_RETURN_IF_ERROR(
-      loom_serve_decision_id(key, &question->id, request->allocator));
+      loom_serve_decision_id(key, request->host_allocator, &question->id));
   const uint32_t content = (1u << IREE_JSON_VALUE_TYPE_STRING) |
                            (1u << IREE_JSON_VALUE_TYPE_OBJECT) |
                            (1u << IREE_JSON_VALUE_TYPE_ARRAY);
@@ -352,8 +351,6 @@ static iree_status_t loom_serve_decision_count(void* self,
                                                iree_string_view_t key,
                                                iree_json_value_type_t type,
                                                iree_string_view_t value) {
-  (void)key;
-  (void)value;
   iree_host_size_t* count = self;
   if (type != IREE_JSON_VALUE_TYPE_OBJECT || *count == DECISION_MAX_QUESTIONS) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -374,7 +371,7 @@ static iree_status_t loom_serve_decision_packet(decision_parser_t* parser,
   const iree_host_size_t length = offset + parser->body.size;
   iree_vm_buffer_t* buffer = NULL;
   IREE_RETURN_IF_ERROR(
-      iree_vm_buffer_create(length, 8, request->allocator, &buffer));
+      iree_vm_buffer_create(length, 8, request->host_allocator, &buffer));
   iree_byte_span_t bytes;
   iree_status_t status = iree_vm_buffer_map_write(buffer, 0, length, &bytes);
   if (iree_status_is_ok(status)) {
@@ -400,9 +397,9 @@ static iree_status_t loom_serve_decision_packet(decision_parser_t* parser,
       iree_unaligned_store_le_u64(
           record + 16, offset + iree_unaligned_load_le_u64(record + 16));
     }
-    status = iree_vm_buffer_subspan(buffer, 0, length,
-                                    IREE_VM_BUFFER_ACCESS_FLAG_READ,
-                                    request->allocator, &request->base.input);
+    status = iree_vm_buffer_subspan(
+        buffer, 0, length, IREE_VM_BUFFER_ACCESS_FLAG_READ,
+        request->host_allocator, &request->base.input);
     if (iree_status_is_ok(status)) {
       request->json = iree_make_string_view((const char*)bytes.data + offset,
                                             parser->body.size);
@@ -475,18 +472,18 @@ static iree_status_t loom_serve_decision_parse(decision_parser_t* parser) {
                             "questions must not be empty");
   }
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-      request->allocator, count, sizeof(*request->questions),
+      request->host_allocator, count, sizeof(*request->questions),
       (void**)&request->questions));
   IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
       fields[2].value, loom_serve_decision_question, parser));
   iree_string_view_t* ids = NULL;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(request->allocator, count,
-                                                   sizeof(*ids), (void**)&ids));
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
+      request->host_allocator, count, sizeof(*ids), (void**)&ids));
   for (iree_host_size_t i = 0; i < count; ++i) {
     ids[i] = request->questions[i].id;
   }
   iree_status_t status = loom_serve_decision_unique(count, ids);
-  iree_allocator_free(request->allocator, ids);
+  iree_allocator_free(request->host_allocator, ids);
   if (iree_status_is_ok(status)) {
     status = loom_serve_decision_packet(parser, &fields[1]);
   }
@@ -497,27 +494,28 @@ static void loom_serve_decision_deinitialize(
     loom_serve_finite_request_t* base) {
   decision_request_t* request = (decision_request_t*)base;
   for (iree_host_size_t i = 0; i < base->count; ++i) {
-    iree_allocator_free(request->allocator,
+    iree_allocator_free(request->host_allocator,
                         (void*)request->questions[i].id.data);
   }
   for (iree_host_size_t i = 0; i < request->option_count; ++i) {
-    iree_allocator_free(request->allocator, (void*)request->options[i].id.data);
+    iree_allocator_free(request->host_allocator,
+                        (void*)request->options[i].id.data);
   }
-  iree_allocator_free(request->allocator, request->questions);
-  iree_allocator_free(request->allocator, request->options);
+  iree_allocator_free(request->host_allocator, request->questions);
+  iree_allocator_free(request->host_allocator, request->options);
   iree_vm_buffer_release(base->input);
   memset(request, 0, sizeof(*request));
 }
 
 static iree_status_t loom_serve_decision_initialize(
-    iree_string_view_t body, loom_serve_finite_request_t* base,
-    iree_allocator_t allocator) {
-  decision_request_t* request = (decision_request_t*)base;
-  request->allocator = allocator;
+    iree_string_view_t body, iree_allocator_t host_allocator,
+    loom_serve_finite_request_t* out_request) {
+  decision_request_t* request = (decision_request_t*)out_request;
+  request->host_allocator = host_allocator;
   decision_parser_t parser = {.body = body, .request = request};
-  iree_string_builder_initialize(allocator, &parser.options);
-  iree_string_builder_initialize(allocator, &parser.question_records);
-  iree_string_builder_initialize(allocator, &parser.option_records);
+  iree_string_builder_initialize(host_allocator, &parser.options);
+  iree_string_builder_initialize(host_allocator, &parser.question_records);
+  iree_string_builder_initialize(host_allocator, &parser.option_records);
   iree_status_t status = loom_serve_decision_parse(&parser);
   request->options =
       (decision_option_t*)iree_string_builder_take_storage(&parser.options);

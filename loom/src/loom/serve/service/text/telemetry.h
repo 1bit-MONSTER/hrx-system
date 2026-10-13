@@ -42,8 +42,8 @@ typedef struct loom_serve_text_telemetry_t {
 // when NULL. Only a private stream publishes a start here. The service destroys
 // an owned stream after retiring its heartbeat and all producer/consumer uses.
 iree_status_t loom_serve_text_telemetry_initialize(
-    loom_serve_telemetry_stream_t* stream,
-    loom_serve_text_telemetry_t* telemetry, iree_allocator_t allocator);
+    loom_serve_telemetry_stream_t* stream, iree_allocator_t host_allocator,
+    loom_serve_text_telemetry_t* out_telemetry);
 
 // Counts a protocol receipt exactly once, before validation and admission.
 loom_serve_text_receipt_t loom_serve_text_telemetry_begin(

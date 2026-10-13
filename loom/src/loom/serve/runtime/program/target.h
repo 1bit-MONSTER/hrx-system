@@ -33,8 +33,8 @@ typedef struct loom_serve_target_t {
 iree_status_t loom_serve_target_select(
     loomc_target_environment_t* environment, iree_hal_device_t* device,
     iree_hal_physical_device_affinity_t affinity,
-    loom_serve_compilation_report_t* report, loom_serve_target_t* out_target,
-    iree_allocator_t host_allocator);
+    loom_serve_compilation_report_t* report, iree_allocator_t host_allocator,
+    loom_serve_target_t* out_target);
 
 #ifdef __cplusplus
 }  // extern "C"

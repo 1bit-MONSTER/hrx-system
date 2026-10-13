@@ -24,7 +24,7 @@ extern "C" {
 // call.
 iree_status_t loom_serve_image_encode_rgb_f32_png(
     uint32_t width, uint32_t height, iree_const_byte_span_t rgb,
-    iree_byte_span_t* out_png, iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator, iree_byte_span_t* out_png);
 
 #ifdef __cplusplus
 }  // extern "C"

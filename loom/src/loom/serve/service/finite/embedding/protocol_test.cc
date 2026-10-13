@@ -19,7 +19,7 @@ TEST(EmbeddingProtocolTest, OwnsOrderedDecodedSequences) {
       R"({"model":"fixture","input":["a\u0000b","\u03bb"],"dimensions":2})";
   loom_serve_embedding_request_t request;
   IREE_ASSERT_OK(loom_serve_embedding_request_initialize(
-      iree_make_cstring_view(json.c_str()), &request, iree_allocator_system()));
+      iree_make_cstring_view(json.c_str()), iree_allocator_system(), &request));
   json.assign(json.size(), 'x');
   ASSERT_EQ(request.base.count, 2u);
   EXPECT_EQ(request.dimensions, 2u);
@@ -50,7 +50,7 @@ TEST(EmbeddingProtocolTest, DistinguishesSingleTokenSequenceAndBatches) {
                            R"({"model":"m","input":[[0,2,1]]})"}) {
     loom_serve_embedding_request_t request;
     IREE_ASSERT_OK(loom_serve_embedding_request_initialize(
-        iree_make_cstring_view(json), &request, iree_allocator_system()));
+        iree_make_cstring_view(json), iree_allocator_system(), &request));
     EXPECT_EQ(request.base.count, 1u);
     iree_const_byte_span_t bytes;
     IREE_ASSERT_OK(iree_vm_buffer_map_read(
@@ -81,8 +81,8 @@ TEST(EmbeddingProtocolTest, RejectsAmbiguousRequestsAndReleasesPartialInput) {
     SCOPED_TRACE(json);
     loom_serve_embedding_request_t request;
     iree::Status status(loom_serve_embedding_request_initialize(
-        iree_make_cstring_view(json.c_str()), &request,
-        iree_allocator_system()));
+        iree_make_cstring_view(json.c_str()), iree_allocator_system(),
+        &request));
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(request.base.input, nullptr);
     EXPECT_EQ(request.base.count, 0u);
@@ -94,7 +94,7 @@ TEST(EmbeddingProtocolTest, DecodesEncodingEnumAndDefersEmptyItemsToSource) {
   IREE_ASSERT_OK(loom_serve_embedding_request_initialize(
       IREE_SV(
           R"({"model":"m","input":[[],[0]],"encoding_format":"b\u0061se64"})"),
-      &request, iree_allocator_system()));
+      iree_allocator_system(), &request));
   EXPECT_EQ(request.base.count, 2u);
   EXPECT_EQ(request.encoding, LOOM_SERVE_EMBEDDING_ENCODING_BASE64);
   iree_const_byte_span_t bytes;

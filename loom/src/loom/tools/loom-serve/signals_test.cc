@@ -62,13 +62,13 @@ TEST(ServingSignalsTest, SubscriptionsRetireWithoutStoppingSharedProgress) {
   loom_serve_signals_t* first_signals = nullptr;
   loom_serve_signals_t* second_signals = nullptr;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
-                        loom_serve_signals_allocate(pool, {}, &first_signals,
-                                                    iree_allocator_system()));
+                        loom_serve_signals_allocate(
+                            pool, {}, iree_allocator_system(), &first_signals));
   EXPECT_EQ(first_signals, nullptr);
   IREE_ASSERT_OK(loom_serve_signals_allocate(
-      pool, first.Callback(), &first_signals, iree_allocator_system()));
+      pool, first.Callback(), iree_allocator_system(), &first_signals));
   IREE_ASSERT_OK(loom_serve_signals_allocate(
-      pool, second.Callback(), &second_signals, iree_allocator_system()));
+      pool, second.Callback(), iree_allocator_system(), &second_signals));
   first.expected = 1;
   second.expected = 1;
   ASSERT_EQ(kill(getpid(), SIGINT), 0);

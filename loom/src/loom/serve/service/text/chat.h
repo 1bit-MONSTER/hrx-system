@@ -65,8 +65,8 @@ void loom_serve_text_chat_policy_deinitialize(
 // consumes only the returned function records. The environment outlives the
 // module and every returned buffer.
 iree_status_t loom_serve_text_chat_tools_module_create(
-    iree_vm_environment_t* environment, iree_vm_module_t** out_module,
-    iree_allocator_t host_allocator);
+    iree_vm_environment_t* environment, iree_allocator_t host_allocator,
+    iree_vm_module_t** out_module);
 
 // Source input format. Rendered text passes through unchanged; user content
 // receives one user envelope and the assistant generation prefix.
@@ -93,8 +93,8 @@ iree_status_t loom_serve_text_chat_prepare_input(
     const loom_serve_text_chat_policy_t* policy, iree_string_view_t text,
     loom_serve_text_chat_input_format_t format,
     loom_serve_text_chat_boundary_t boundary, iree_host_size_t capacity,
-    int32_t* tokens, iree_host_size_t* out_count,
-    iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator, int32_t* out_tokens,
+    iree_host_size_t* out_count);
 
 // Indexed function-tool schema borrowing the request body. Names are literal
 // ASCII identifiers. The optional XML codec uses property types to recover
@@ -160,7 +160,7 @@ typedef enum loom_serve_text_chat_output_phase_e {
 iree_status_t loom_serve_text_chat_text_end(
     const loom_serve_text_chat_policy_t* policy, iree_string_view_t response,
     iree_host_size_t previous_end, loom_serve_text_chat_output_phase_t phase,
-    iree_host_size_t* out_end, iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator, iree_host_size_t* out_end);
 
 // Completed response metadata and its canonical retained-history checkpoint.
 // The source environment outlives this value; request/body/response storage

@@ -33,10 +33,10 @@ static iree_status_t loom_serve_text_session_quote(
 
 iree_status_t loom_serve_text_session_initialize(
     loom_serve_text_row_t* row, const iree_tokenizer_t* tokenizer,
-    iree_host_size_t context_capacity, loom_serve_text_session_t* out_session,
-    iree_allocator_t host_allocator) {
+    iree_host_size_t context_capacity, iree_allocator_t host_allocator,
+    loom_serve_text_session_t* out_session) {
   *out_session = (loom_serve_text_session_t){
-      .allocator = host_allocator,
+      .host_allocator = host_allocator,
       .row = row,
   };
   iree_string_builder_initialize(host_allocator, &out_session->response);
@@ -70,8 +70,8 @@ void loom_serve_text_session_deinitialize(loom_serve_text_session_t* session) {
     return;
   }
   loom_serve_text_session_release_request(session);
-  iree_allocator_free(session->allocator, session->decoder_storage.data);
-  iree_allocator_free(session->allocator, session->tokens);
+  iree_allocator_free(session->host_allocator, session->decoder_storage.data);
+  iree_allocator_free(session->host_allocator, session->tokens);
   iree_string_builder_deinitialize(&session->packet);
   iree_string_builder_deinitialize(&session->response);
   loom_serve_text_chat_completion_deinitialize(&session->completion);
@@ -266,7 +266,8 @@ iree_status_t loom_serve_text_session_append_tokens(
           session->request.chat.policy,
           iree_string_builder_view(&session->response),
           session->request.emitted_length,
-          LOOM_SERVE_TEXT_CHAT_OUTPUT_STREAMING, &text_end, session->allocator);
+          LOOM_SERVE_TEXT_CHAT_OUTPUT_STREAMING, session->host_allocator,
+          &text_end);
       if (iree_status_is_ok(status)) {
         status =
             loom_serve_text_emit_text(session, &response, text_end, scratch);

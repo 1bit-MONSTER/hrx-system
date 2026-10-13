@@ -48,11 +48,11 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
   loom_serve::testing::ModelDocument document_;
 
   void SetUp() override {
-    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), &host_, allocator_));
+    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), host_allocator_, &host_));
     const loom_serve_device_options_t device_options = {
         .uri = iree_make_cstring_view(ServiceTestDevice())};
     IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &device_options,
-                                                    &group_, allocator_));
+                                                    host_allocator_, &group_));
     device_ = loom_serve_device_group_at(group_, 0);
     const std::string source = ServiceTestSource();
     directory_ = source.substr(0, source.find_last_of('/'));
@@ -61,16 +61,16 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
     weights_ = iree::testing::MakeTempFilePath("text_fixture", ".safetensors");
     ASSERT_NO_FATAL_FAILURE(WriteWeights(2));
     auto options = ModelOptions();
-    IREE_ASSERT_OK(
-        loom_serve_text_model_allocate(device_, &options, &model_, allocator_));
+    IREE_ASSERT_OK(loom_serve_text_model_allocate(device_, &options,
+                                                  host_allocator_, &model_));
     auto server_options = loom_serve_http_server_options_default();
-    IREE_ASSERT_OK(
-        loom_serve_http_server_allocate(loom_serve_host_proactor_pool(host_),
-                                        &server_options, &server_, allocator_));
+    IREE_ASSERT_OK(loom_serve_http_server_allocate(
+        loom_serve_host_proactor_pool(host_), &server_options, host_allocator_,
+        &server_));
     auto listener_options = loom_serve_http_listener_options_default();
     listener_options.address = IREE_SV("127.0.0.1:0");
-    IREE_ASSERT_OK(loom_serve_http_listener_allocate(server_, &listener_options,
-                                                     &listener_, allocator_));
+    IREE_ASSERT_OK(loom_serve_http_listener_allocate(
+        server_, &listener_options, host_allocator_, &listener_));
   }
 
   void WriteWeights(uint32_t bias) {
@@ -139,18 +139,18 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
       options.schedule_mode = mode;
       loom_serve_text_service_t* service = nullptr;
       status_ = loom_serve_text_service_allocate(model_, &options, nullptr,
-                                                 &service, allocator_);
+                                                 host_allocator_, &service);
       if (iree_status_is_ok(status_)) {
         const auto interface = loom_serve_text_service_interface(service);
         loom_serve_registry_t* registry = nullptr;
-        IREE_ASSERT_OK(loom_serve_registry_allocate(1, &interface, 0, {},
-                                                    &registry, allocator_));
+        IREE_ASSERT_OK(loom_serve_registry_allocate(
+            1, &interface, 0, {}, host_allocator_, &registry));
         status_ = loom_serve_router_run(
             loom_serve_host_executor(host_), server_, registry,
             {.request_quota = options.row_count,
              .holding_capacity =
                  loom_serve_http_server_connection_capacity(server_) / 2},
-            allocator_);
+            host_allocator_);
         IREE_ASSERT_OK(loom_serve_registry_free(registry));
       }
       loom_serve_text_service_free(service, iree_status_code(status_));
@@ -166,10 +166,10 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
       loom_serve_registry_t* registry = nullptr;
       IREE_ASSERT_OK(loom_serve_registry_allocate(
           0, nullptr, 3, loom_serve_model_registration_factory(&options),
-          &registry, allocator_));
+          host_allocator_, &registry));
       status_ = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
-          {.request_quota = 16, .holding_capacity = 8}, allocator_);
+          {.request_quota = 16, .holding_capacity = 8}, host_allocator_);
       status_ = iree_status_join(status_, loom_serve_registry_free(registry));
     });
   }
@@ -453,7 +453,7 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
     auto options = ServiceOptions();
     loom_serve_text_service_t* value = nullptr;
     IREE_ASSERT_OK(loom_serve_text_service_allocate(model_, &options, nullptr,
-                                                    &value, allocator_));
+                                                    host_allocator_, &value));
     auto destroy = [](loom_serve_text_service_t* service) {
       loom_serve_text_service_free(service, IREE_STATUS_OK);
     };
@@ -569,7 +569,7 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
     options.session_cache_capacity = 1;
     loom_serve_text_service_t* value = nullptr;
     IREE_ASSERT_OK(loom_serve_text_service_allocate(model_, &options, nullptr,
-                                                    &value, allocator_));
+                                                    host_allocator_, &value));
     auto destroy = [](loom_serve_text_service_t* service) {
       loom_serve_text_service_free(service, IREE_STATUS_OK);
     };
@@ -643,7 +643,7 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
   }
 
   // Shared allocator for all production owners.
-  const iree_allocator_t allocator_ = iree_allocator_system();
+  const iree_allocator_t host_allocator_ = iree_allocator_system();
   // Host geometry buckets share one command in the source bootstrap.
   const loom_serve_packing_shape_t shapes_[3] = {{4, 1}, {16, 4}, {32, 4}};
   // External source package path.

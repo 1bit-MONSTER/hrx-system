@@ -39,8 +39,8 @@ typedef struct loom_serve_snapshot_range_t {
 iree_status_t loom_serve_snapshot_capture(
     loom_serve_execution_t* execution, iree_host_size_t buffer_count,
     iree_hal_buffer_t* const* buffers, iree_host_size_t range_count,
-    const loom_serve_snapshot_range_t* ranges,
-    loom_serve_snapshot_t** out_snapshot, iree_allocator_t host_allocator);
+    const loom_serve_snapshot_range_t* ranges, iree_allocator_t host_allocator,
+    loom_serve_snapshot_t** out_snapshot);
 
 // Enqueues restore of a completed snapshot into caller-admitted backed ranges
 // with the same logical lengths and order used for capture. Physical buffers

@@ -21,7 +21,7 @@ enum {
 
 struct loom_serve_http_listener_t {
   // Allocator owning the listener and connection construction resources.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Borrowed HTTP owner, joined after this listener retires.
   loom_serve_http_server_t* server;
   // Retained shared poll runner and proactor, independent of this binding.
@@ -74,19 +74,20 @@ static iree_status_t loom_serve_http_listener_create_carrier(
     iree_net_carrier_t** out_carrier) {
   *out_carrier = NULL;
   iree_async_slab_t* slab = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_async_slab_create(listener->receive, listener->allocator, &slab));
+  IREE_RETURN_IF_ERROR(iree_async_slab_create(listener->receive,
+                                              listener->host_allocator, &slab));
   iree_async_region_t* region = NULL;
   iree_status_t status = iree_async_proactor_register_slab(
       listener->proactor, slab, IREE_ASYNC_BUFFER_ACCESS_FLAG_WRITE, &region);
   iree_async_buffer_pool_t* pool = NULL;
   if (iree_status_is_ok(status)) {
-    status = iree_async_buffer_pool_create(region, listener->allocator, &pool);
+    status =
+        iree_async_buffer_pool_create(region, listener->host_allocator, &pool);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_net_stream_carrier_create(listener->proactor, socket, pool,
-                                            &listener->send,
-                                            listener->allocator, out_carrier);
+    status = iree_net_stream_carrier_create(
+        listener->proactor, socket, pool, &listener->send,
+        listener->host_allocator, out_carrier);
   }
   iree_async_buffer_pool_release(pool);
   iree_async_region_release(region);
@@ -184,8 +185,6 @@ static void loom_serve_http_listener_completed(
 static void loom_serve_http_listener_stop_received(
     void* user_data, iree_async_operation_t* operation, iree_status_t status,
     iree_async_completion_flags_t flags) {
-  (void)operation;
-  (void)flags;
   IREE_CHECK_OK(status);
   loom_serve_http_listener_t* listener = user_data;
   iree_slim_mutex_lock(&listener->mutex);
@@ -282,7 +281,7 @@ iree_status_t loom_serve_http_listener_free(
   iree_async_proactor_pool_entry_release(listener->entry);
   iree_notification_deinitialize(&listener->notification);
   iree_slim_mutex_deinitialize(&listener->mutex);
-  iree_allocator_free(listener->allocator, listener);
+  iree_allocator_free(listener->host_allocator, listener);
   return status;
 }
 
@@ -302,7 +301,8 @@ loom_serve_http_listener_options_t loom_serve_http_listener_options_default(
 iree_status_t loom_serve_http_listener_allocate(
     loom_serve_http_server_t* server,
     const loom_serve_http_listener_options_t* options,
-    loom_serve_http_listener_t** out_listener, iree_allocator_t allocator) {
+    iree_allocator_t host_allocator,
+    loom_serve_http_listener_t** out_listener) {
   *out_listener = NULL;
   if (options->backlog < 1 || !options->receive_buffer_size ||
       !iree_host_size_is_power_of_two(options->receive_buffer_count) ||
@@ -321,9 +321,9 @@ iree_status_t loom_serve_http_listener_allocate(
       : options->address.data[0] == '[' ? IREE_ASYNC_SOCKET_TYPE_TCP6
                                         : IREE_ASYNC_SOCKET_TYPE_TCP;
   loom_serve_http_listener_t* listener = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(allocator, sizeof(*listener), (void**)&listener));
-  listener->allocator = allocator;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(host_allocator, sizeof(*listener),
+                                             (void**)&listener));
+  listener->host_allocator = host_allocator;
   listener->server = server;
   listener->admission.semaphores[0] =
       loom_serve_http_server_capacity_semaphore(server);
@@ -343,8 +343,9 @@ iree_status_t loom_serve_http_listener_allocate(
   if (iree_status_is_ok(status)) {
     listener->proactor =
         iree_async_proactor_pool_entry_proactor(listener->entry);
-    status = iree_async_semaphore_create(listener->proactor, 0, 0, allocator,
-                                         &listener->admission.semaphores[1]);
+    status =
+        iree_async_semaphore_create(listener->proactor, 0, 0, host_allocator,
+                                    &listener->admission.semaphores[1]);
   }
   if (iree_status_is_ok(status)) {
     status = iree_async_socket_create(

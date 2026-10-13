@@ -18,7 +18,7 @@ extern "C" {
 // to the caller. Warm ownership changes allocate no host or device memory.
 typedef struct loom_serve_block_pool_t {
   // Allocator owning the fixed free-ID and reference arrays.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Total number of physical block IDs in this pool.
   uint32_t capacity;
   // Number of unowned IDs at the front of free_blocks.
@@ -33,7 +33,7 @@ typedef struct loom_serve_block_pool_t {
 // Failure leaves an empty pool that can be deinitialized. The caller owns all
 // backing storage addressed by these IDs.
 iree_status_t loom_serve_block_pool_initialize(
-    uint32_t capacity, iree_allocator_t allocator,
+    uint32_t capacity, iree_allocator_t host_allocator,
     loom_serve_block_pool_t* out_pool);
 
 // Releases metadata after every consumer of acquired IDs has retired.

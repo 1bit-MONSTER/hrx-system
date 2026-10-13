@@ -260,7 +260,7 @@ typedef void (*loom_serve_text_load_wake_fn_t)(void* user_data);
 iree_status_t loom_serve_text_load_allocate(
     loom_serve_device_t* device, const loom_serve_text_options_t* options,
     loom_serve_text_load_wake_fn_t wake, void* user_data,
-    loom_serve_text_load_t** out_load, iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator, loom_serve_text_load_t** out_load);
 
 enum loom_serve_text_load_flag_bits_e {
   // Irreversible cancellation stops new phases after accepted work returns.
@@ -296,7 +296,7 @@ void loom_serve_text_load_free(loom_serve_text_load_t* load);
 // borrowed only for this call. Failure releases partial ownership.
 iree_status_t loom_serve_text_model_allocate(
     loom_serve_device_t* device, const loom_serve_text_options_t* options,
-    loom_serve_text_model_t** out_model, iree_allocator_t host_allocator);
+    iree_allocator_t host_allocator, loom_serve_text_model_t** out_model);
 
 // Begins irreversible removal after service CPU tasks, waits and external
 // tokenizer borrowers retire. No model, row or checkpoint mutation is allowed

@@ -87,7 +87,7 @@ struct RegistrationDependency {
 
   static iree_status_t Prepare(void* self, bool cancel, bool* complete,
                                loom_serve_http_service_t* service,
-                               loom_serve_compilation_report_t*) {
+                               loom_serve_compilation_report_t* out_report) {
     auto* dependency = static_cast<Operation*>(self)->dependency;
     *complete = true;
     if (cancel) {
@@ -181,8 +181,8 @@ struct RegistrationDependency {
   static iree_status_t Create(
       void* self, const loom_serve_model_configuration_t* configuration,
       loom_serve_wake_callback_t observer,
-      loom_serve_telemetry_stream_t* stream,
-      loom_serve_registration_t* registration, iree_allocator_t) {
+      loom_serve_telemetry_stream_t* stream, iree_allocator_t host_allocator,
+      loom_serve_registration_t* out_registration) {
     auto* dependency = static_cast<RegistrationDependency*>(self);
     // Import fixture configuration before transferring it to the model owner.
     std::lock_guard<std::mutex> lock(dependency->mutex);
@@ -191,7 +191,7 @@ struct RegistrationDependency {
     dependency->observer = observer;
     dependency->stream = stream;
     ++dependency->created;
-    *registration = {
+    *out_registration = {
         .self = new Operation{dependency},
         .prepare = Prepare,
         .retire = Retire,

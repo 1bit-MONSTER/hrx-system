@@ -25,7 +25,7 @@ typedef struct telemetry_slot_t {
 
 struct loom_serve_telemetry_stream_t {
   // Allocator owning this object and its contiguous bounded slots.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Immutable lifetime identity, independent of physical wrap or model name.
   loom_serve_telemetry_identity_t identity;
   // Power-of-two physical record capacity.
@@ -41,8 +41,8 @@ struct loom_serve_telemetry_stream_t {
 static iree_atomic_uint64_t telemetry_ordinal = IREE_ATOMIC_VAR_INIT(0);
 
 iree_status_t loom_serve_telemetry_stream_allocate(
-    iree_host_size_t capacity, loom_serve_telemetry_stream_t** out_stream,
-    iree_allocator_t allocator) {
+    iree_host_size_t capacity, iree_allocator_t host_allocator,
+    loom_serve_telemetry_stream_t** out_stream) {
   *out_stream = NULL;
   if (!capacity || (capacity & (capacity - 1)) ||
       capacity > (SIZE_MAX - sizeof(loom_serve_telemetry_stream_t)) /
@@ -57,9 +57,9 @@ iree_status_t loom_serve_telemetry_stream_allocate(
   }
   loom_serve_telemetry_stream_t* stream = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
-      allocator, sizeof(*stream) + capacity * sizeof(*stream->slots),
+      host_allocator, sizeof(*stream) + capacity * sizeof(*stream->slots),
       (void**)&stream));
-  stream->allocator = allocator;
+  stream->host_allocator = host_allocator;
   stream->capacity = capacity;
   stream->identity.created_ns = iree_time_now();
   stream->identity.ordinal =
@@ -71,7 +71,7 @@ iree_status_t loom_serve_telemetry_stream_allocate(
 
 void loom_serve_telemetry_stream_free(loom_serve_telemetry_stream_t* stream) {
   if (stream) {
-    iree_allocator_free(stream->allocator, stream);
+    iree_allocator_free(stream->host_allocator, stream);
   }
 }
 

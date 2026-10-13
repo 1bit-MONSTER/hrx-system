@@ -16,7 +16,7 @@ struct loom_serve_host_t {
   // Application and dependent device owners of the shared host resources.
   iree_atomic_ref_count_t ref_count;
   // Allocation policy for the host and its shared services.
-  iree_allocator_t allocator;
+  iree_allocator_t host_allocator;
   // Worker executor shared by compiler and application processes.
   iree_task_executor_t* executor;
   // Loom task adapter retaining the same executor, with no private workers.
@@ -30,7 +30,6 @@ struct loom_serve_host_t {
 #if !IREE_PLATFORM_WASM
 static void loom_serve_host_proactor_failed(void* user_data,
                                             iree_status_t status) {
-  (void)user_data;
   // Fatal polling failure cannot retire accepted I/O storage. Operation-level
   // errors still flow through their normal completion callbacks.
   iree_status_abort(status);
@@ -38,8 +37,7 @@ static void loom_serve_host_proactor_failed(void* user_data,
 
 static iree_status_t loom_serve_host_proactor_thread_create(
     void* user_data, iree_async_proactor_t* proactor, uint32_t node_id,
-    iree_allocator_t allocator, void** out_runner) {
-  (void)user_data;
+    iree_allocator_t host_allocator, void** out_runner) {
   iree_async_proactor_thread_options_t options =
       iree_async_proactor_thread_options_default();
   options.debug_name = IREE_SV("loom-io");
@@ -49,16 +47,16 @@ static iree_status_t loom_serve_host_proactor_thread_create(
     iree_thread_affinity_set_group_any(node_id, &options.affinity);
   }
   iree_async_proactor_thread_t* thread = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_async_proactor_thread_create(proactor, options, allocator, &thread));
+  IREE_RETURN_IF_ERROR(iree_async_proactor_thread_create(
+      proactor, options, host_allocator, &thread));
   *out_runner = thread;
   return iree_ok_status();
 }
 #endif  // !IREE_PLATFORM_WASM
 
 iree_status_t loom_serve_host_create(iree_host_size_t worker_count,
-                                     loom_serve_host_t** out_host,
-                                     iree_allocator_t allocator) {
+                                     iree_allocator_t host_allocator,
+                                     loom_serve_host_t** out_host) {
   *out_host = NULL;
   if (!worker_count || worker_count > IREE_TASK_EXECUTOR_MAX_WORKER_COUNT) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -66,8 +64,8 @@ iree_status_t loom_serve_host_create(iree_host_size_t worker_count,
   }
   loom_serve_host_t* host = NULL;
   IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(allocator, sizeof(*host), (void**)&host));
-  host->allocator = allocator;
+      iree_allocator_malloc(host_allocator, sizeof(*host), (void**)&host));
+  host->host_allocator = host_allocator;
   iree_atomic_ref_count_init(&host->ref_count);
   iree_task_topology_t topology;
   iree_status_t status = iree_task_topology_initialize_from_physical_cores(
@@ -77,18 +75,18 @@ iree_status_t loom_serve_host_create(iree_host_size_t worker_count,
     iree_task_executor_options_t options;
     iree_task_executor_options_initialize(&options);
     options.worker_stack_size = 2 * 1024 * 1024;
-    status = iree_task_executor_create(options, &topology, allocator,
+    status = iree_task_executor_create(options, &topology, host_allocator,
                                        &host->executor);
     iree_task_topology_deinitialize(&topology);
   }
   if (iree_status_is_ok(status)) {
     status = iree_status_from_loomc(loomc_task_pool_allocate_from_iree_executor(
-        host->executor, loomc_allocator_from_iree(allocator),
+        host->executor, loomc_allocator_from_iree(host_allocator),
         &host->task_pool));
   }
   if (iree_status_is_ok(status)) {
     status = iree_status_from_loomc(loomc_task_queue_allocate(
-        host->task_pool, loomc_allocator_from_iree(allocator),
+        host->task_pool, loomc_allocator_from_iree(host_allocator),
         &host->compiler_queue));
   }
   if (iree_status_is_ok(status)) {
@@ -97,8 +95,9 @@ iree_status_t loom_serve_host_create(iree_host_size_t worker_count,
 #if !IREE_PLATFORM_WASM
     options.runner.create = loom_serve_host_proactor_thread_create;
 #endif  // !IREE_PLATFORM_WASM
-    status = iree_async_proactor_pool_create(
-        iree_numa_node_count(), NULL, options, allocator, &host->proactor_pool);
+    status =
+        iree_async_proactor_pool_create(iree_numa_node_count(), NULL, options,
+                                        host_allocator, &host->proactor_pool);
   }
   if (iree_status_is_ok(status)) {
     *out_host = host;
@@ -120,7 +119,7 @@ void loom_serve_host_release(loom_serve_host_t* host) {
     loomc_task_queue_free(host->compiler_queue);
     loomc_task_pool_free(host->task_pool);
     iree_task_executor_release(host->executor);
-    iree_allocator_free(host->allocator, host);
+    iree_allocator_free(host->host_allocator, host);
   }
 }
 

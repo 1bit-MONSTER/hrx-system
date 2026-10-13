@@ -13,7 +13,7 @@ namespace {
 class DeviceTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    IREE_ASSERT_OK(loom_serve_host_create(1, &host, iree_allocator_system()));
+    IREE_ASSERT_OK(loom_serve_host_create(1, iree_allocator_system(), &host));
   }
   void TearDown() override { loom_serve_host_release(host); }
 
@@ -26,9 +26,10 @@ TEST_F(DeviceTest, MissingDriverReleasesPartialOwnership) {
   const loom_serve_device_options_t options = {
       .uri = IREE_SV("unregistered-serving-device"),
   };
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_NOT_FOUND, loom_serve_device_group_allocate(
-                                                   host, 1, &options, &group,
-                                                   iree_allocator_system()));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_NOT_FOUND,
+      loom_serve_device_group_allocate(host, 1, &options,
+                                       iree_allocator_system(), &group));
   EXPECT_EQ(group, nullptr);
   IREE_EXPECT_OK(loom_serve_device_group_free(group));
 }
@@ -38,7 +39,7 @@ TEST_F(DeviceTest, AllocationFailureReturnsNoOwner) {
   const loom_serve_device_options_t options = {.uri = IREE_SV("amdgpu")};
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_serve_device_group_allocate(
-                            host, 1, &options, &group, iree_allocator_null()));
+                            host, 1, &options, iree_allocator_null(), &group));
   EXPECT_EQ(group, nullptr);
   IREE_EXPECT_OK(loom_serve_device_group_free(group));
 }
@@ -51,15 +52,15 @@ TEST_F(DeviceTest, InvalidBackingRejectsBeforeDeviceCreation) {
   };
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
-      loom_serve_device_group_allocate(host, 1, &options, &group,
-                                       iree_allocator_system()));
+      loom_serve_device_group_allocate(host, 1, &options,
+                                       iree_allocator_system(), &group));
   EXPECT_EQ(group, nullptr);
   options.memory_limit = 0;
   options.backing = static_cast<loom_serve_device_backing_t>(2);
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
-      loom_serve_device_group_allocate(host, 1, &options, &group,
-                                       iree_allocator_system()));
+      loom_serve_device_group_allocate(host, 1, &options,
+                                       iree_allocator_system(), &group));
   EXPECT_EQ(group, nullptr);
 }
 
@@ -69,8 +70,8 @@ TEST_F(DeviceTest, InvalidCountRejectsBeforeReadingOptions) {
   for (iree_host_size_t count : counts) {
     IREE_EXPECT_STATUS_IS(
         IREE_STATUS_INVALID_ARGUMENT,
-        loom_serve_device_group_allocate(host, count, nullptr, &group,
-                                         iree_allocator_system()));
+        loom_serve_device_group_allocate(host, count, nullptr,
+                                         iree_allocator_system(), &group));
     EXPECT_EQ(group, nullptr);
   }
 }
@@ -83,7 +84,7 @@ TEST_F(DeviceTest, EveryOptionIsValidatedBeforeCreatingDevices) {
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
       loom_serve_device_group_allocate(host, IREE_ARRAYSIZE(options), options,
-                                       &group, iree_allocator_system()));
+                                       iree_allocator_system(), &group));
   EXPECT_EQ(group, nullptr);
 }
 

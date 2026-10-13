@@ -28,8 +28,6 @@ static void loom_serve_timer_cancel_retired(void* user_data) {
 static void loom_serve_timer_deadline_completed(
     void* user_data, iree_async_operation_t* operation, iree_status_t status,
     iree_async_completion_flags_t flags) {
-  (void)operation;
-  (void)flags;
   loom_serve_timer_t* timer = user_data;
   iree_slim_mutex_lock(&timer->mutex);
   timer->events.status = iree_status_join(timer->events.status, status);
@@ -51,8 +49,6 @@ static void loom_serve_timer_deadline_completed(
 static void loom_serve_timer_stop_received(
     void* user_data, iree_async_operation_t* operation, iree_status_t status,
     iree_async_completion_flags_t flags) {
-  (void)operation;
-  (void)flags;
   loom_serve_timer_t* timer = user_data;
   iree_slim_mutex_lock(&timer->mutex);
   const bool cancel = iree_status_is_ok(status) &&

@@ -22,8 +22,8 @@ TEST(ImageOutputTest, ExactRgbConversionAndPngChecksums) {
   iree_unaligned_store_le_f32(rgb + 8, 1.0f);
   iree_byte_span_t png;
   IREE_ASSERT_OK(loom_serve_image_encode_rgb_f32_png(
-      1, 1, iree_make_const_byte_span(rgb, sizeof(rgb)), &png,
-      iree_allocator_system()));
+      1, 1, iree_make_const_byte_span(rgb, sizeof(rgb)),
+      iree_allocator_system(), &png));
   // One RGB pixel (0,128,255), with a complete zlib stream and all PNG CRCs.
   const uint8_t expected[] = {
       0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
@@ -52,8 +52,8 @@ TEST(ImageOutputTest, StoredBlockBoundariesAreIndependentOfRows) {
     }
     iree_byte_span_t png;
     IREE_ASSERT_OK(loom_serve_image_encode_rgb_f32_png(
-        width, height, iree_make_const_byte_span(rgb.data(), rgb.size()), &png,
-        iree_allocator_system()));
+        width, height, iree_make_const_byte_span(rgb.data(), rgb.size()),
+        iree_allocator_system(), &png));
     const uint8_t* cursor = png.data + 43;
     size_t decoded = 0;
     do {
@@ -89,8 +89,8 @@ TEST(ImageOutputTest, RejectsInvalidShapeAndDeviceOutput) {
     IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                           loom_serve_image_encode_rgb_f32_png(
                               shape.first, shape.second,
-                              iree_make_const_byte_span(rgb, sizeof(rgb)), &png,
-                              iree_allocator_system()));
+                              iree_make_const_byte_span(rgb, sizeof(rgb)),
+                              iree_allocator_system(), &png));
     EXPECT_EQ(png.data, nullptr);
   }
   for (float value : {2.0f, -2.0f, std::numeric_limits<float>::infinity(),
@@ -99,7 +99,7 @@ TEST(ImageOutputTest, RejectsInvalidShapeAndDeviceOutput) {
     IREE_EXPECT_STATUS_IS(IREE_STATUS_DATA_LOSS,
                           loom_serve_image_encode_rgb_f32_png(
                               1, 1, iree_make_const_byte_span(rgb, sizeof(rgb)),
-                              &png, iree_allocator_system()));
+                              iree_allocator_system(), &png));
     EXPECT_EQ(png.data, nullptr);
   }
 }

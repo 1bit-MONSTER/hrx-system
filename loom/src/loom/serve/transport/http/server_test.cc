@@ -33,8 +33,8 @@ class HttpServerTest : public ::testing::Test {
     auto options = loom_serve_http_server_options_default();
     options.connection_capacity = 24;
     options.request_limits.body_byte_capacity = 2 * 1024 * 1024;
-    IREE_ASSERT_OK(loom_serve_http_server_allocate(pool_, &options, &server_,
-                                                   iree_allocator_system()));
+    IREE_ASSERT_OK(loom_serve_http_server_allocate(
+        pool_, &options, iree_allocator_system(), &server_));
     IREE_ASSERT_OK(Listen(IREE_SV("127.0.0.1:0"), &listener_));
     // Unix socket names must fit sockaddr_un independently of the runner's
     // potentially long artifact directory. Listeners retire before this path.
@@ -64,8 +64,8 @@ class HttpServerTest : public ::testing::Test {
     auto options = loom_serve_http_listener_options_default();
     options.address = address;
     options.proactor_index = proactor_index;
-    return loom_serve_http_listener_allocate(server_, &options, out_listener,
-                                             iree_allocator_system());
+    return loom_serve_http_listener_allocate(
+        server_, &options, iree_allocator_system(), out_listener);
   }
 
   int Connect(loom_serve_http_listener_t* listener = nullptr) {
@@ -490,8 +490,8 @@ TEST_F(HttpServerTest, FailedUnixBindDoesNotRemoveAnotherListener) {
   loom_serve_http_listener_t* duplicate = nullptr;
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_FAILED_PRECONDITION,
-      loom_serve_http_listener_allocate(server_, &options, &duplicate,
-                                        iree_allocator_system()));
+      loom_serve_http_listener_allocate(server_, &options,
+                                        iree_allocator_system(), &duplicate));
   EXPECT_EQ(duplicate, nullptr);
   EXPECT_EQ(access(path.c_str(), F_OK), 0);
   IREE_ASSERT_OK(loom_serve_http_listener_free(first));

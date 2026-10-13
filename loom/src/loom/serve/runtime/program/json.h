@@ -42,8 +42,8 @@ extern "C" {
 // outlives the module and every returned reference; the module owns no model,
 // session, tokenizer, or asynchronous resource.
 iree_status_t loom_serve_json_module_create(iree_vm_environment_t* environment,
-                                            iree_vm_module_t** out_module,
-                                            iree_allocator_t host_allocator);
+                                            iree_allocator_t host_allocator,
+                                            iree_vm_module_t** out_module);
 
 #ifdef __cplusplus
 }  // extern "C"

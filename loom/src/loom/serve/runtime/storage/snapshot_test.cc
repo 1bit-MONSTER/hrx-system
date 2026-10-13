@@ -37,9 +37,9 @@ class SnapshotTest : public ::testing::Test {
         .slab_size = kSlabSize,
         .memory_limit = 256 * kSlabSize};
     loom_serve_host_t* host = nullptr;
-    IREE_ASSERT_OK(loom_serve_host_create(1, &host, iree_allocator_system()));
-    auto status = loom_serve_device_group_allocate(host, 1, &options, &group,
-                                                   iree_allocator_system());
+    IREE_ASSERT_OK(loom_serve_host_create(1, iree_allocator_system(), &host));
+    auto status = loom_serve_device_group_allocate(
+        host, 1, &options, iree_allocator_system(), &group);
     loom_serve_host_release(host);
     IREE_ASSERT_OK(status);
     device = loom_serve_device_group_at(group, 0);
@@ -118,7 +118,7 @@ TEST_F(SnapshotTest, LogicalRangesSurviveSourceDestructionAndFreshPlacement) {
                                                fills.data(), &completion));
   IREE_ASSERT_OK(loom_serve_snapshot_capture(
       execution, roots.size(), roots.data(), ranges.size(), ranges.data(),
-      &snapshot, iree_allocator_system()));
+      iree_allocator_system(), &snapshot));
   EXPECT_EQ(loom_serve_snapshot_size(snapshot), ranges.size() * 16);
   IREE_ASSERT_OK(loom_serve_execution_drain(execution));
   for (auto*& root : roots) {
@@ -233,7 +233,7 @@ TEST_F(SnapshotTest, LargeSparseStateSurvivesBackingReuseAndFreshPlacement) {
   }
   IREE_ASSERT_OK(loom_serve_snapshot_capture(
       execution, roots.size(), roots.data(), ranges.size(), ranges.data(),
-      &snapshot, iree_allocator_system()));
+      iree_allocator_system(), &snapshot));
   IREE_ASSERT_OK(loom_serve_execution_drain(execution));
   for (auto* reservation : reservations) {
     loom_serve_virtual_buffer_begin_trim(reservation);
@@ -282,7 +282,7 @@ TEST_F(SnapshotTest, LargeSparseStateSurvivesBackingReuseAndFreshPlacement) {
 // held until its completion callback schedules the independent unblock task.
 struct SnapshotTransfer {
   static iree_status_t Submit(iree_task_process_t* process,
-                              const iree_task_worker_context_t*,
+                              const iree_task_worker_context_t* context,
                               iree_task_process_drain_result_t* result) {
     auto* self = static_cast<SnapshotTransfer*>(process->user_data);
     auto local_ranges = self->ranges;
@@ -293,8 +293,8 @@ struct SnapshotTransfer {
                   self->roots.data(), local_ranges.size(), local_ranges.data())
             : loom_serve_snapshot_capture(
                   self->execution, self->roots.size(), self->roots.data(),
-                  local_ranges.size(), local_ranges.data(), &self->snapshot,
-                  iree_allocator_system());
+                  local_ranges.size(), local_ranges.data(),
+                  iree_allocator_system(), &self->snapshot);
     loom_serve_snapshot_release(std::exchange(self->snapshot, nullptr));
     local_ranges.fill({});
     std::array<iree_hal_transfer_operation_t, kRangeCount> downloads = {};
@@ -344,7 +344,7 @@ struct SnapshotTransfer {
   }
 
   static iree_status_t Unblock(iree_task_process_t* process,
-                               const iree_task_worker_context_t*,
+                               const iree_task_worker_context_t* context,
                                iree_task_process_drain_result_t* result) {
     auto* self = static_cast<SnapshotTransfer*>(process->user_data);
     iree_slim_mutex_lock(&self->retirement->mutex);
@@ -363,8 +363,8 @@ struct SnapshotTransfer {
     return iree_ok_status();
   }
 
-  static void Ready(void* user_data, iree_async_operation_t*,
-                    iree_status_t status, iree_async_completion_flags_t) {
+  static void Ready(void* user_data, iree_async_operation_t* operation,
+                    iree_status_t status, iree_async_completion_flags_t flags) {
     auto* self = static_cast<SnapshotTransfer*>(user_data);
     std::lock_guard<std::mutex> lock(self->mutex);
     self->status = iree_status_join(self->status, status);
@@ -495,8 +495,8 @@ TEST_P(AsyncSnapshotTest, OneWorkerSubmitsAndReleasesBeforeNativeRetirement) {
   if (restore) {
     IREE_ASSERT_OK(loom_serve_snapshot_capture(
         execution, transfer.roots.size(), transfer.roots.data(),
-        transfer.ranges.size(), transfer.ranges.data(), &transfer.snapshot,
-        iree_allocator_system()));
+        transfer.ranges.size(), transfer.ranges.data(), iree_allocator_system(),
+        &transfer.snapshot));
   }
   IREE_ASSERT_OK(loom_serve_execution_drain(execution));
   IREE_ASSERT_OK(iree_hal_semaphore_create(

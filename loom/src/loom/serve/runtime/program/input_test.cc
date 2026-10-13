@@ -26,7 +26,7 @@ class InputTest : public ::testing::TestWithParam<bool> {
   loom_serve_compilation_report_t compilation = {};
 
   void SetUp() override {
-    IREE_ASSERT_OK(iree_vm_environment_allocate(allocator, &environment));
+    IREE_ASSERT_OK(iree_vm_environment_allocate(host_allocator, &environment));
     IREE_ASSERT_OK(iree_vm_ref_types_resolve(
         iree_vm_environment_lookup_ref_type_table(environment, IREE_SV("vm")),
         &types));
@@ -52,15 +52,16 @@ class InputTest : public ::testing::TestWithParam<bool> {
     }
     configuration += "}";
     IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
-        iree_make_cstring_view(configuration.c_str()), allocator, &tokenizer));
+        iree_make_cstring_view(configuration.c_str()), host_allocator,
+        &tokenizer));
     IREE_ASSERT_OK(loom_serve_input_module_create(environment, tokenizer,
-                                                  &module, allocator));
+                                                  host_allocator, &module));
     const iree_string_view_t roots[] = {IREE_SVL("tokens"), IREE_SVL("find"),
                                         IREE_SVL("check")};
     IREE_ASSERT_OK(loom_serve_program_allocate(
         environment, iree_make_cstring_view(FLAG_input_source),
         IREE_ARRAYSIZE(roots), roots, (iree_vm_module_span_t){&module, 1},
-        &compilation, allocator, &program));
+        &compilation, host_allocator, &program));
   }
   void TearDown() override {
     loom_serve_program_free(program);
@@ -73,7 +74,7 @@ class InputTest : public ::testing::TestWithParam<bool> {
     IREE_CHECK_OK(
         iree_vm_buffer_clone(IREE_VM_BUFFER_ACCESS_FLAG_READ,
                              iree_make_const_byte_span(text.data, text.size), 1,
-                             allocator, &buffer));
+                             host_allocator, &buffer));
     return iree_vm_buffer_variant_from_ptr_move(&types, &buffer);
   }
   iree_status_t Invoke(iree_string_view_t entry,
@@ -87,7 +88,7 @@ class InputTest : public ::testing::TestWithParam<bool> {
                           arguments, results);
   }
   // Allocator for the actual tokenizer, module and VM process.
-  const iree_allocator_t allocator = iree_allocator_system();
+  const iree_allocator_t host_allocator = iree_allocator_system();
   // Environment outliving every returned reference.
   iree_vm_environment_t* environment = nullptr;
   // Canonical VM buffer reference type.
@@ -144,7 +145,7 @@ TEST_P(InputTest, BoundedModesMatchCompleteTokenizer) {
           tokenizer, iree_make_cstring_view(text), flags,
           iree_tokenizer_make_token_output(expected, nullptr, nullptr,
                                            IREE_ARRAYSIZE(expected)),
-          allocator, &expected_count));
+          host_allocator, &expected_count));
       for (int64_t capacity : {0, 1, 3, 4, 8}) {
         SCOPED_TRACE(::testing::Message() << "flags=" << flags << " text="
                                           << text << " capacity=" << capacity);

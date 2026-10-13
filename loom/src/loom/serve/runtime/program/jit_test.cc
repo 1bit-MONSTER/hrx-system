@@ -88,7 +88,7 @@ class FullStderr {
 // makes a hidden synchronous join deterministic instead of timing-dependent.
 struct Compilation {
   static iree_status_t Drain(iree_task_process_t* process,
-                             const iree_task_worker_context_t*,
+                             const iree_task_worker_context_t* context,
                              iree_task_process_drain_result_t* result) {
     auto* self = static_cast<Compilation*>(process->user_data);
     loom_serve_execution_release(self->retired_execution);
@@ -175,9 +175,9 @@ class JitTest : public ::testing::TestWithParam<int> {
   void SetUp() override {
     const loom_serve_device_options_t options = {.uri = IREE_SV("amdgpu")};
     loom_serve_host_t* host = nullptr;
-    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), &host, allocator_));
-    auto status = loom_serve_device_group_allocate(host, 1, &options, &group_,
-                                                   allocator_);
+    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), host_allocator_, &host));
+    auto status = loom_serve_device_group_allocate(host, 1, &options,
+                                                   host_allocator_, &group_);
     loom_serve_host_release(host);
     IREE_ASSERT_OK(status);
     device_owner_ = loom_serve_device_group_at(group_, 0);
@@ -194,7 +194,7 @@ class JitTest : public ::testing::TestWithParam<int> {
         .values = providers};
     IREE_ASSERT_OK(loom_serve_jit_allocate(
         device_, dispatch_, loom_serve_device_host(device_owner_), &sources,
-        nullptr, &compilation_, allocator_, &jit_));
+        nullptr, &compilation_, host_allocator_, &jit_));
   }
 
   void TearDown() override {
@@ -270,7 +270,7 @@ class JitTest : public ::testing::TestWithParam<int> {
 
   iree_status_t PrepareVm() {
     IREE_RETURN_IF_ERROR(
-        iree_vm_environment_allocate(allocator_, &environment_));
+        iree_vm_environment_allocate(host_allocator_, &environment_));
     const iree_vm_ref_type_table_t* table = nullptr;
     IREE_RETURN_IF_ERROR(iree_hal_module_register_types(environment_, &table));
     IREE_RETURN_IF_ERROR(iree_hal_module_types_resolve(table, &types_));
@@ -282,24 +282,24 @@ class JitTest : public ::testing::TestWithParam<int> {
     options.binding_capacity = 1;
     options.stages = {commands_[1] ? 2u : 1u, stages};
     IREE_RETURN_IF_ERROR(loom_serve_module_create(&types_, execution_, options,
-                                                  allocator_, &native_));
+                                                  host_allocator_, &native_));
     const std::string path = directory_ + "/control.loom";
     iree_const_byte_span_t image;
     const iree_string_view_t roots[] = {IREE_SVL("step"),
                                         IREE_SVL("selected_step")};
     IREE_RETURN_IF_ERROR(loom_serve_jit_compile_vm(
         iree_make_cstring_view(path.c_str()), IREE_ARRAYSIZE(roots), roots,
-        &compilation_, allocator_, &image));
+        &compilation_, host_allocator_, &image));
     auto status = iree_vm_bytecode_module_create_trusted(
-        environment_, IREE_SV("model"), {image, allocator_}, allocator_,
-        &bytecode_);
+        environment_, IREE_SV("model"), {image, host_allocator_},
+        host_allocator_, &bytecode_);
     if (!iree_status_is_ok(status)) {
-      iree_allocator_free(allocator_, (void*)image.data);
+      iree_allocator_free(host_allocator_, (void*)image.data);
       return status;
     }
     iree_vm_module_t* libraries[] = {native_};
     IREE_RETURN_IF_ERROR(iree_vm_program_create(
-        {bytecode_, iree_vm_module_span_from_array(libraries)}, allocator_,
+        {bytecode_, iree_vm_module_span_from_array(libraries)}, host_allocator_,
         &program_));
     IREE_RETURN_IF_ERROR(iree_vm_invocation_initialize(
         iree_make_byte_span(invocation_storage_.data(),
@@ -307,13 +307,13 @@ class JitTest : public ::testing::TestWithParam<int> {
         &invocation_));
     IREE_RETURN_IF_ERROR(iree_vm_process_create(program_, invocation_,
                                                 iree_vm_variant_span_empty(),
-                                                allocator_, &process_));
+                                                host_allocator_, &process_));
     return iree_vm_process_lookup_function(process_, IREE_SV("model"),
                                            IREE_SV("step"), &step_);
   }
 
   // Host allocation policy for all fixture resources.
-  iree_allocator_t allocator_ = iree_allocator_system();
+  iree_allocator_t host_allocator_ = iree_allocator_system();
   // Copied compiler evidence retained beyond individual results.
   loom_serve_compilation_report_t compilation_ = {};
   // Application group outliving all compiler, VM and I/O resources.
@@ -460,7 +460,7 @@ TEST_P(JitTest, SourceFailureOutlivesUnconstructedCatalogAndVm) {
       .values = providers};
   auto status = loom_serve_jit_allocate(
       device_, dispatch_, loom_serve_device_host(device_owner_), &sources,
-      nullptr, &report, allocator_, &invalid);
+      nullptr, &report, host_allocator_, &invalid);
   EXPECT_FALSE(iree_status_is_ok(status));
   EXPECT_EQ(invalid, nullptr);
   EXPECT_GT(report.severities[LOOMC_DIAGNOSTIC_SEVERITY_ERROR], 0u);
@@ -479,7 +479,7 @@ TEST_P(JitTest, SourceFailureOutlivesUnconstructedCatalogAndVm) {
   for (size_t i = 0; i < 10; ++i) {
     iree_const_byte_span_t image = {};
     status = loom_serve_jit_compile_vm(iree_make_cstring_view(path.c_str()), 1,
-                                       &root, &report, allocator_, &image);
+                                       &root, &report, host_allocator_, &image);
     EXPECT_FALSE(iree_status_is_ok(status));
     EXPECT_EQ(image.data, nullptr);
     iree_status_free(status);
@@ -504,7 +504,7 @@ TEST_P(JitTest, CompletedCatalogsRetireWithoutClosingSharedCompilerQueue) {
       .count = IREE_ARRAYSIZE(providers),
       .values = providers};
   IREE_ASSERT_OK(loom_serve_jit_allocate(device_, dispatch_, host, &sources,
-                                         nullptr, &peer_report, allocator_,
+                                         nullptr, &peer_report, host_allocator_,
                                          &peer));
   const loomc_config_options_t config = {
       nullptr, 0, {}, LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED};

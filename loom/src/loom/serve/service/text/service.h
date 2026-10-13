@@ -58,8 +58,8 @@ typedef struct loom_serve_text_service_t loom_serve_text_service_t;
 iree_status_t loom_serve_text_service_allocate(
     loom_serve_text_model_t* model,
     const loom_serve_text_service_options_t* options,
-    loom_serve_telemetry_stream_t* stream,
-    loom_serve_text_service_t** out_service, iree_allocator_t host_allocator);
+    loom_serve_telemetry_stream_t* stream, iree_allocator_t host_allocator,
+    loom_serve_text_service_t** out_service);
 
 // Returns borrowed callbacks for the shared owner loop. They take connection
 // claims and preserve model-local sessions/checkpoints. Each epoch gathers

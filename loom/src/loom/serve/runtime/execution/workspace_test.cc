@@ -38,12 +38,12 @@ class WorkspaceTest : public ::testing::TestWithParam<uint32_t> {
 
   void SetUp() override {
     IREE_ASSERT_OK(
-        loom_serve_host_create(GetParam(), &host_, iree_allocator_system()));
+        loom_serve_host_create(GetParam(), iree_allocator_system(), &host_));
     const loom_serve_device_options_t options[] = {{.uri = IREE_SV("task")},
                                                    {.uri = IREE_SV("task")}};
     IREE_ASSERT_OK(loom_serve_device_group_allocate(
-        host_, IREE_ARRAYSIZE(options), options, &group_,
-        iree_allocator_system()));
+        host_, IREE_ARRAYSIZE(options), options, iree_allocator_system(),
+        &group_));
     std::array<iree_hal_pool_family_access_t, 2> families = {};
     for (iree_host_size_t i = 0; i < families.size(); ++i) {
       auto* device = loom_serve_device_group_at(group_, i);
@@ -82,9 +82,9 @@ class WorkspaceTest : public ::testing::TestWithParam<uint32_t> {
     ASSERT_TRUE(iree_hal_memory_effects_is_empty(transition.acquire));
 
     const iree_hal_asan_pool_options_t asan_options = {};
-    IREE_ASSERT_OK(loom_serve_workspace_create(hal_group, backing_pool_,
-                                               &asan_options, &workspace_,
-                                               iree_allocator_system()));
+    IREE_ASSERT_OK(
+        loom_serve_workspace_create(hal_group, backing_pool_, &asan_options,
+                                    iree_allocator_system(), &workspace_));
     maintenance_ = backing_pool_->maintenance;
     // Only the workspace keeps the supplied source alive from this point on.
     iree_hal_pool_release(backing_pool_);
