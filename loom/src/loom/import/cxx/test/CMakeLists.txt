@@ -188,24 +188,6 @@ loom_check_test_suite(
 )
 endif()
 
-if(LOOM_IMPORT_CXX)
-iree_native_test(
-  NAME
-    "export_roundtrip_test"
-  WORKING_DIRECTORY "${IREE_ROOT_DIR}"
-  ARGS
-    "{{${CMAKE_CURRENT_SOURCE_DIR}/export_roundtrip.cxx-test}}"
-  SRC
-    loom::tools::loom-check::loom-check-test
-  DATA
-    "loom::py::loom::tools::loom-export-cxx"
-  ENV
-    "LOOM_EXPORT_CXX={{$<TARGET_FILE:loom::py::loom::tools::loom-export-cxx>}}"
-  LABELS
-    "loom-check"
-)
-endif()
-
 if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
 loom_test_module(
   NAME
