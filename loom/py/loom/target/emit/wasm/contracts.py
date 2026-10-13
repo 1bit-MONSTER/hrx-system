@@ -805,6 +805,78 @@ def _conversion_alias_rule(
     )
 
 
+def _integer_to_predicate_rules(
+    source_type: TypePattern,
+) -> tuple[ValueAliasRule | DescriptorRule, ...]:
+    type_guards = (
+        _value_type("input", source_type),
+        _value_type("result", _I1),
+    )
+    normalized_guard = Guard.value_i64_range("input", 0, 1)
+    if source_type != _I64:
+        normalized_rule: ValueAliasRule | DescriptorRule = ValueAliasRule(
+            source_op=scalar_conversion.scalar_trunci,
+            source=ValueRef.operand("input"),
+            result=ValueRef.result("result"),
+            guards=(*type_guards, normalized_guard),
+        )
+        normalize_emits: tuple[EmitDescriptorOp, ...] = ()
+        normalized_input = ValueRef.operand("input")
+    else:
+        wrap = _descriptor("wasm.i32.wrap_i64")
+        normalized_rule = DescriptorRule(
+            source_op=scalar_conversion.scalar_trunci,
+            descriptor=wrap,
+            guards=(*type_guards, normalized_guard),
+            emit=(
+                EmitDescriptorOp(
+                    descriptor=wrap,
+                    operands={"input": ValueRef.operand("input")},
+                    results={"dst": ValueRef.result("result")},
+                ),
+            ),
+            priority=1,
+        )
+        normalize_emits = (
+            EmitDescriptorOp(
+                descriptor=wrap,
+                operands={"input": ValueRef.operand("input")},
+                results={"dst": ValueRef.temporary("wrapped")},
+                result_types={"dst": _I32},
+            ),
+        )
+        normalized_input = ValueRef.temporary("wrapped")
+
+    constant = _descriptor("wasm.i32.const")
+    mask = _descriptor("wasm.i32.and")
+    return (
+        normalized_rule,
+        DescriptorRule(
+            source_op=scalar_conversion.scalar_trunci,
+            descriptor=mask,
+            guards=type_guards,
+            emit=(
+                *normalize_emits,
+                EmitDescriptorOp(
+                    descriptor=constant,
+                    results={"dst": ValueRef.temporary("mask")},
+                    result_types={"dst": _I32},
+                    immediates={"i32_value": 1},
+                    form=DescriptorEmitForm.CONST,
+                ),
+                EmitDescriptorOp(
+                    descriptor=mask,
+                    operands={
+                        "lhs": normalized_input,
+                        "rhs": ValueRef.temporary("mask"),
+                    },
+                    results={"dst": ValueRef.result("result")},
+                ),
+            ),
+        ),
+    )
+
+
 def _masked_extui_rule(
     source_type: TypePattern,
     mask: int,
@@ -1671,6 +1743,11 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
         # other cast, and every unmatched bitcast shape, deliberately enters
         # the shared lane-wise reference legalization family.
         *(UnsupportedRule(source_op=source_op) for source_op in vector.VECTOR_CAST_OPS),
+        *(
+            rule
+            for source_type in (_I8, _I16, _I32, _I64)
+            for rule in _integer_to_predicate_rules(source_type)
+        ),
         _conversion_alias_rule(scalar_conversion.scalar_trunci, _I32, _I8),
         _conversion_alias_rule(scalar_conversion.scalar_trunci, _I32, _I16),
         _conversion_alias_rule(scalar_conversion.scalar_extui, _I1, _I32),
