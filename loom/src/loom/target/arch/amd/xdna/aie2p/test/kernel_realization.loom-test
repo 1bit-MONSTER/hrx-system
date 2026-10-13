@@ -1,0 +1,20 @@
+// RUN: with-checks emit source-low output=module
+
+// Unit source kernels become finite array programs without changing the
+// authored kernel contract.
+aie2p.target<array> @device {device_profile = "amd.xdna.strix.17f0_10"}
+
+kernel.def target(@device) @unit_store() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%buffer: buffer) {
+  %c0 = index.constant 0 : offset
+  %view = buffer.view %buffer[%c0] : buffer -> view<16xi32>
+  %value = vector.constant 42 : vector<16xi32>
+  vector.store %value, %view[0] : vector<16xi32>, view<16xi32>
+  kernel.return
+}
+
+// ----
+CHECK: low.func.def inline target<amd.xdna.aie2p.core>* @__pipeline_worker_*() asm {
+CHECK: low.func.def public retain target<amd.xdna.aie2p.configuration>* abi(array_program) @unit_store() asm {
