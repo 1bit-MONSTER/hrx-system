@@ -868,6 +868,8 @@ typedef enum loom_low_lower_guard_kind_e {
   // selector.attribute.attr_index must be a scalar with an exact bit pattern
   // and the payload.u64 declared width.
   LOOM_LOW_LOWER_GUARD_OPERAND_SEGMENT_EXACT_BITS = 44,
+  // Source value facts must not be an exact non-floating integer.
+  LOOM_LOW_LOWER_GUARD_VALUE_NOT_EXACT_I64 = 45,
   // Maximum guard kind value plus one.
   LOOM_LOW_LOWER_GUARD_COUNT_,
 } loom_low_lower_guard_kind_t;
@@ -1091,7 +1093,7 @@ typedef struct loom_low_lower_emit_t {
   // Number of attributes copied onto the low packet.
   uint16_t attr_copy_count : 5;
   // Number of tied-result rows forwarded to the low packet builder.
-  uint16_t tied_result_count : 1;
+  uint16_t tied_result_count : 2;
   // Operand ordinal that carries the threaded scalar accumulator for
   // DESCRIPTOR_OP_ACCUMULATE_LANES.
   uint16_t accumulator_operand_index : 2;
@@ -1100,8 +1102,6 @@ typedef struct loom_low_lower_emit_t {
   // At least one attribute projects a private immutable payload. Planning
   // retains its data ID; execution publishes the symbol used by the packet.
   uint16_t has_read_only_data_attributes : 1;
-  // Reserved storage available to future emit parameters.
-  uint16_t reserved_count_bits : 1;
 } loom_low_lower_emit_t;
 static_assert(sizeof(loom_low_lower_emit_t) == 20,
               "loom_low_lower_emit_t must be 20 bytes");

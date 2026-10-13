@@ -17,6 +17,54 @@
 // At most this many predicates bound the number of full alias-list scans.
 #define LOOM_VALUE_FACT_PREDICATE_LINEAR_SCAN_LIMIT 4
 
+uint16_t loom_value_facts_export_integer_refinements(
+    loom_value_id_t value, loom_value_facts_t inferred_facts,
+    loom_value_facts_t proven_facts, loom_predicate_t* predicates,
+    uint16_t capacity) {
+  if (capacity == 0 || value == LOOM_VALUE_ID_INVALID ||
+      loom_value_facts_is_float(proven_facts) ||
+      loom_value_facts_is_unknown(proven_facts)) {
+    return 0;
+  }
+
+  uint16_t count = 0;
+  if (loom_value_facts_is_float(inferred_facts) ||
+      proven_facts.range_lo > inferred_facts.range_lo ||
+      proven_facts.range_hi < inferred_facts.range_hi) {
+    if (loom_value_facts_is_exact(proven_facts)) {
+      predicates[count++] = (loom_predicate_t){
+          .kind = LOOM_PREDICATE_EQ,
+          .arg_count = 2,
+          .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
+                       LOOM_PRED_ARG_NONE},
+          .args = {value, proven_facts.range_lo, 0},
+      };
+    } else {
+      predicates[count++] = (loom_predicate_t){
+          .kind = LOOM_PREDICATE_RANGE,
+          .arg_count = 3,
+          .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
+                       LOOM_PRED_ARG_CONST},
+          .args = {value, proven_facts.range_lo, proven_facts.range_hi},
+      };
+    }
+  }
+
+  if (count < capacity && proven_facts.known_divisor > 1 &&
+      !loom_value_facts_is_exact(proven_facts) &&
+      (loom_value_facts_is_float(inferred_facts) ||
+       inferred_facts.known_divisor % proven_facts.known_divisor != 0)) {
+    predicates[count++] = (loom_predicate_t){
+        .kind = LOOM_PREDICATE_MULTIPLE_OF,
+        .arg_count = 2,
+        .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
+                     LOOM_PRED_ARG_NONE},
+        .args = {value, proven_facts.known_divisor, 0},
+    };
+  }
+  return count;
+}
+
 typedef struct loom_value_fact_alias_map_t {
   // Borrowed alias IDs in result-fact order.
   const loom_value_id_t* values;

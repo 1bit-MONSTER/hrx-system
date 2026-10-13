@@ -135,24 +135,39 @@ iree_status_t loom_vector_to_scalar_build_generic_lane_op(
     uint8_t instance_flags, const loom_value_id_t* operands,
     uint16_t operand_count, const loom_attribute_t* attrs, uint8_t attr_count,
     loom_type_t result_type, loom_value_id_t* out_result) {
+  return loom_vector_to_scalar_build_generic_lane_op_results(
+      state, kind, instance_flags, operands, operand_count, attrs, attr_count,
+      &result_type, 1, out_result);
+}
+
+iree_status_t loom_vector_to_scalar_build_generic_lane_op_results(
+    loom_vector_to_scalar_state_t* state, loom_op_kind_t kind,
+    uint8_t instance_flags, const loom_value_id_t* operands,
+    uint16_t operand_count, const loom_attribute_t* attrs, uint8_t attr_count,
+    const loom_type_t* result_types, uint16_t result_count,
+    loom_value_id_t* out_results) {
   loom_builder_t* builder = &state->rewriter->builder;
   loom_op_t* scalar_op = NULL;
-  IREE_RETURN_IF_ERROR(loom_builder_allocate_op(builder, kind, operand_count, 1,
-                                                0, 0, attr_count,
+  IREE_RETURN_IF_ERROR(loom_builder_allocate_op(builder, kind, operand_count,
+                                                result_count, 0, 0, attr_count,
                                                 state->location, &scalar_op));
   scalar_op->instance_flags = instance_flags;
   loom_value_id_t* op_operands = loom_op_operands(scalar_op);
   for (uint16_t i = 0; i < operand_count; ++i) {
     op_operands[i] = operands[i];
   }
-  IREE_RETURN_IF_ERROR(loom_builder_define_value(
-      builder, result_type, &loom_op_results(scalar_op)[0]));
+  for (uint16_t i = 0; i < result_count; ++i) {
+    IREE_RETURN_IF_ERROR(loom_builder_define_value(
+        builder, result_types[i], &loom_op_results(scalar_op)[i]));
+  }
   loom_attribute_t* op_attrs = loom_op_attrs(scalar_op);
   for (uint8_t i = 0; i < attr_count; ++i) {
     op_attrs[i] = attrs[i];
   }
   IREE_RETURN_IF_ERROR(loom_builder_finalize_op(builder, scalar_op));
-  *out_result = loom_op_results(scalar_op)[0];
+  for (uint16_t i = 0; i < result_count; ++i) {
+    out_results[i] = loom_op_results(scalar_op)[i];
+  }
   return iree_ok_status();
 }
 
@@ -675,6 +690,35 @@ static iree_status_t loom_vector_to_scalar_build_generic_lane(
       state->result_scalar_type, out_lane);
 }
 
+iree_status_t loom_vector_to_scalar_build_generic_lanes(
+    loom_vector_to_scalar_state_t* state,
+    loom_vector_to_scalar_index_list_t indices, uint16_t result_count,
+    loom_value_id_t* out_lanes) {
+  loom_vector_to_scalar_record_lane_materialized(state);
+  loom_value_id_t lane_operands[4] = {0};
+  const uint16_t operand_count = state->op->operand_count;
+  IREE_ASSERT_LE(operand_count, IREE_ARRAYSIZE(lane_operands));
+  const loom_value_id_t* operands = loom_op_const_operands(state->op);
+  for (uint16_t i = 0; i < operand_count; ++i) {
+    IREE_RETURN_IF_ERROR(loom_vector_to_scalar_materialize_lane(
+        state, operands[i], indices, &lane_operands[i]));
+  }
+
+  loom_type_t* result_types = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate_array(state->rewriter->arena, result_count,
+                                sizeof(*result_types), (void**)&result_types));
+  const loom_value_id_t* results = loom_op_const_results(state->op);
+  for (uint16_t i = 0; i < result_count; ++i) {
+    result_types[i] = loom_vector_to_scalar_lane_type(
+        loom_module_value_type(state->rewriter->module, results[i]));
+  }
+  return loom_vector_to_scalar_build_generic_lane_op_results(
+      state, state->descriptor.lane_op_kind, state->op->instance_flags,
+      lane_operands, operand_count, loom_op_attrs(state->op),
+      state->op->attribute_count, result_types, result_count, out_lanes);
+}
+
 typedef iree_status_t (*loom_vector_to_scalar_lane_lowerer_t)(
     loom_vector_to_scalar_state_t* state,
     loom_vector_to_scalar_index_list_t indices, loom_value_id_t* out_lane);
@@ -1166,6 +1210,14 @@ iree_status_t loom_vector_to_scalar_try_materialize_def_lane(
 
   loom_vector_to_scalar_descriptor_t descriptor = {0};
   if (!loom_vector_to_scalar_resolve_descriptor(def_op->kind, &descriptor)) {
+    return iree_ok_status();
+  }
+  // Mechanical lane lowering clones one scalar operation and returns one
+  // value. Target legalization owns multi-result mechanical producers so their
+  // complete result tuple remains intact. Explicit lane programs such as
+  // deinterleave define how to select one result independently.
+  if (def_op->result_count != 1 &&
+      descriptor.lane_kind == LOOM_VECTOR_TO_SCALAR_LANE_GENERIC) {
     return iree_ok_status();
   }
   loom_value_t* value_record =

@@ -179,6 +179,31 @@ BINARY_FACTS(loom_scalar_divsi_facts, loom_value_facts_divsi)
 WIDTH_BINARY_FACTS(loom_scalar_divui_facts, loom_value_facts_divui)
 BINARY_FACTS(loom_scalar_remsi_facts, loom_value_facts_remsi)
 WIDTH_BINARY_FACTS(loom_scalar_remui_facts, loom_value_facts_remui)
+
+iree_status_t loom_scalar_divremsi_facts(
+    loom_fact_context_t* context, const loom_module_t* module,
+    const loom_op_t* op, const loom_value_facts_t* operand_facts,
+    loom_value_facts_t* result_facts) {
+  loom_value_facts_divsi(&operand_facts[0], &operand_facts[1],
+                         &result_facts[0]);
+  loom_value_facts_remsi(&operand_facts[0], &operand_facts[1],
+                         &result_facts[1]);
+  return iree_ok_status();
+}
+
+iree_status_t loom_scalar_divremui_facts(
+    loom_fact_context_t* context, const loom_module_t* module,
+    const loom_op_t* op, const loom_value_facts_t* operand_facts,
+    loom_value_facts_t* result_facts) {
+  const int32_t bit_count =
+      loom_scalar_type_bitwidth(loom_scalar_result_element_type(module, op));
+  loom_value_facts_divui(&operand_facts[0], &operand_facts[1], bit_count,
+                         &result_facts[0]);
+  loom_value_facts_remui(&operand_facts[0], &operand_facts[1], bit_count,
+                         &result_facts[1]);
+  return iree_ok_status();
+}
+
 WRAPPING_UNARY_FACTS(loom_scalar_negi_facts, loom_value_facts_negi)
 WRAPPING_UNARY_FACTS(loom_scalar_absi_facts, loom_value_facts_absi)
 WIDTH_BINARY_FACTS(loom_scalar_minsi_facts, loom_value_facts_minsi)

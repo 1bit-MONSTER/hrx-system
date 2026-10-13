@@ -68,6 +68,7 @@ loom_cc_library(
         "//loom/src/loom/rewrite:rewriter",
         "//loom/src/loom/target:legalization",
         "//loom/src/loom/util:numeric_format",
+        "//loom/src/loom/util:predicate_facts",
         "//runtime/src/iree/base",
     ],
 )

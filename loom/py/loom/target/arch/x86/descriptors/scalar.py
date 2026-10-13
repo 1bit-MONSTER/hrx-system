@@ -270,6 +270,38 @@ def _division_descriptors(bit_count: int) -> tuple[Descriptor, ...]:
         (False, "divu", 6),
         (True, "divs", 7),
     ):
+        descriptors.append(
+            Descriptor(
+                key=f"x86.scalar.{mnemonic}.divrem.gpr{bit_count}",
+                encoding_format_id=Form.DIVIDE,
+                encoding_id=encoding(0xF7, extension=extension, flags=width_flags),
+                mnemonic=mnemonic,
+                semantic_tag=(
+                    f"integer.div.{'signed' if signed else 'unsigned'}."
+                    f"divrem.i{bit_count}"
+                ),
+                operands=(
+                    _fixed_gpr_result("quotient", accumulator_class),
+                    _fixed_gpr_result("remainder", high_class),
+                    _fixed_gpr_operand("low", accumulator_class),
+                    _fixed_gpr_operand("high", high_class),
+                    operand("divisor"),
+                ),
+                constraints=(
+                    Constraint(ConstraintKind.TIED, 0, 2),
+                    Constraint(ConstraintKind.DESTRUCTIVE, 0, 2),
+                    Constraint(ConstraintKind.TIED, 1, 3),
+                    Constraint(ConstraintKind.DESTRUCTIVE, 1, 3),
+                ),
+                asm_forms=_asm(
+                    mnemonic=f"{mnemonic}.divrem.gpr{bit_count}",
+                    results=("quotient", "remainder"),
+                    operands=("low", "high", "divisor"),
+                ),
+                schedule_class=division_schedule,
+                flags=(DescriptorFlag.DEAD_REMOVABLE,),
+            )
+        )
         for remainder in (False, True):
             result_name = "remainder" if remainder else "quotient"
             result_class = high_class if remainder else accumulator_class

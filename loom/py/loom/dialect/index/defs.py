@@ -303,6 +303,21 @@ index_rem = binary_op(
     examples=["%r = index.rem %lane, %group_size : index"],
 )
 
+index_divrem = Op(
+    "index.divrem",
+    group=index_ops,
+    phase=OpPhase.EXECUTABLE,
+    doc=("Logical coordinate quotient and remainder computed together for non-negative index values with a positive divisor. Offsets are physical byte counts and cannot use this op."),
+    operands=[Operand("lhs", INDEX), Operand("rhs", INDEX)],
+    results=[Result("quotient", INDEX), Result("remainder", INDEX)],
+    constraints=[SameType("lhs", "rhs", "quotient", "remainder")],
+    canonicalize="loom_index_divrem_canonicalize",
+    facts="loom_index_divrem_facts",
+    traits=[PURE, DISTRIBUTION_TRANSFER],
+    format=[Ref("lhs"), COMMA, Ref("rhs"), COLON, TypeOf("quotient")],
+    examples=["%q, %r = index.divrem %lane, %group_size : index"],
+)
+
 index_min = binary_op(
     "index.min",
     group=index_ops,
@@ -525,6 +540,7 @@ ALL_INDEX_OPS: tuple[Op, ...] = (
     index_scale,
     index_div,
     index_rem,
+    index_divrem,
     index_min,
     index_max,
     index_madd,

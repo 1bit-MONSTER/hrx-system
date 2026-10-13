@@ -119,6 +119,41 @@ scalar_divui = binary_op(
     examples=["%result = scalar.divui %lhs, %rhs : i32"],
 )
 
+scalar_divremsi = Op(
+    "scalar.divremsi",
+    group=scalar_ops,
+    phase=OpPhase.EXECUTABLE,
+    doc=(
+        "Signed integer quotient and remainder computed from one division. "
+        "The quotient rounds toward zero, the remainder has the sign of the "
+        "dividend, the divisor must be nonzero, and the quotient must be "
+        "representable in the result type."
+    ),
+    operands=[Operand("lhs", INTEGER), Operand("rhs", INTEGER)],
+    results=[Result("quotient", INTEGER), Result("remainder", INTEGER)],
+    constraints=[SameType("lhs", "rhs", "quotient", "remainder")],
+    facts="loom_scalar_divremsi_facts",
+    canonicalize="loom_scalar_divremsi_canonicalize",
+    traits=[PURE, DISTRIBUTION_TRANSFER],
+    format=[Ref("lhs"), COMMA, Ref("rhs"), COLON, TypeOf("quotient")],
+    examples=["%q, %r = scalar.divremsi %lhs, %rhs : i32"],
+)
+
+scalar_divremui = Op(
+    "scalar.divremui",
+    group=scalar_ops,
+    phase=OpPhase.EXECUTABLE,
+    doc=("Unsigned integer quotient and remainder computed from one division with a nonzero divisor."),
+    operands=[Operand("lhs", INTEGER), Operand("rhs", INTEGER)],
+    results=[Result("quotient", INTEGER), Result("remainder", INTEGER)],
+    constraints=[SameType("lhs", "rhs", "quotient", "remainder")],
+    facts="loom_scalar_divremui_facts",
+    canonicalize="loom_scalar_divremui_canonicalize",
+    traits=[PURE, DISTRIBUTION_TRANSFER],
+    format=[Ref("lhs"), COMMA, Ref("rhs"), COLON, TypeOf("quotient")],
+    examples=["%q, %r = scalar.divremui %lhs, %rhs : i32"],
+)
+
 scalar_remsi = binary_op(
     "scalar.remsi",
     group=scalar_ops,
@@ -489,6 +524,8 @@ ALL_ARITHMETIC_OPS: tuple[Op, ...] = (
     scalar_muli,
     scalar_divsi,
     scalar_divui,
+    scalar_divremsi,
+    scalar_divremui,
     scalar_remsi,
     scalar_remui,
     scalar_ceildivsi,

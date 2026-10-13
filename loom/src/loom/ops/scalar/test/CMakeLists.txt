@@ -16,6 +16,7 @@ loom_check_test_suite(
     "boolean_comparison.loom-test"
     "bytecode.loom-test"
     "constexpr.loom-test"
+    "divrem.loom-test"
     "integer_extrema_facts.loom-test"
     "roundtrip.loom-test"
     "verify.loom-test"

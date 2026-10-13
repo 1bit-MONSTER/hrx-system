@@ -23,7 +23,7 @@ const loom_pass_info_t* loom_canonicalize_pass_info(void);
 // Returns immutable metadata for the pre-legalization combine pass.
 const loom_pass_info_t* loom_combine_pass_info(void);
 
-// Creates shared canonicalize/combine state from a textual option dictionary.
+// Creates canonicalizer state from a textual option dictionary.
 iree_status_t loom_canonicalizer_pass_create(loom_pass_t* pass,
                                              iree_string_view_t options);
 

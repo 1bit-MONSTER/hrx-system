@@ -1,0 +1,260 @@
+// RUN: pass combine
+
+// Every duplicate with the same retained operands is covered by one immutable
+// plan and one combined operation.
+func.def @scalar_unsigned_duplicates(%lhs: i32, %rhs: i32) -> (i32, i32, i32, i32) {
+  %quotient0 = scalar.divui %lhs, %rhs : i32
+  %quotient1 = scalar.divui %lhs, %rhs : i32
+  %remainder0 = scalar.remui %lhs, %rhs : i32
+  %remainder1 = scalar.remui %lhs, %rhs : i32
+  func.return %quotient0, %quotient1, %remainder0, %remainder1 : i32, i32, i32, i32
+}
+
+// ----
+func.def @scalar_unsigned_duplicates(%lhs: i32, %rhs: i32) -> (i32, i32, i32, i32) {
+  %quotient0, %remainder0 = scalar.divremui %lhs, %rhs : i32
+  func.return %quotient0, %quotient0, %remainder0, %remainder0 : i32, i32, i32, i32
+}
+
+// ====
+
+// Retained identities pair semantically identical operands without recovering
+// their producer chains from IR. The dead assumption is then removed by the
+// affected-operation worklist.
+func.def @retained_operand_identity(%lhs: i32, %rhs: i32) -> (i32, i32) {
+  %assumed = scalar.assume %lhs [ne(%lhs, 0)] : i32
+  %quotient = scalar.divui %lhs, %rhs : i32
+  %remainder = scalar.remui %assumed, %rhs : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ----
+func.def @retained_operand_identity(%lhs: i32, %rhs: i32) -> (i32, i32) {
+  %quotient, %remainder = scalar.divremui %lhs, %rhs : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ====
+
+// Unsigned quotient and remainder have the same nonzero-divisor domain, so the
+// first dominating operation is the cheapest insertion point in either order.
+func.def @unsigned_remainder_first(%lhs: i32, %rhs: i32) -> (i32, i32) {
+  %remainder = scalar.remui %lhs, %rhs : i32
+  %quotient = scalar.divui %lhs, %rhs : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ----
+func.def @unsigned_remainder_first(%lhs: i32, %rhs: i32) -> (i32, i32) {
+  %quotient, %remainder = scalar.divremui %lhs, %rhs : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ====
+
+// Signed combination stays at the quotient's stricter semantic domain. An
+// earlier remainder can move to that point only when every use is dominated.
+func.def @signed_remainder_before_quotient(%lhs: i64, %rhs: i64) -> (i64, i64) {
+  %remainder = scalar.remsi %lhs, %rhs : i64
+  %quotient = scalar.divsi %lhs, %rhs : i64
+  %sum = scalar.addi %remainder, %lhs : i64
+  func.return %quotient, %sum : i64, i64
+}
+
+// ----
+func.def @signed_remainder_before_quotient(%lhs: i64, %rhs: i64) -> (i64, i64) {
+  %quotient, %remainder = scalar.divremsi %lhs, %rhs : i64
+  %sum = scalar.addi %remainder, %lhs : i64
+  func.return %quotient, %sum : i64, i64
+}
+
+// ====
+
+// A use before the quotient keeps the first signed remainder in place. The
+// quotient can still combine with a later remainder.
+func.def @signed_early_remainder_use(%lhs: i64, %rhs: i64) -> (i64, i64, i64) {
+  %early_remainder = scalar.remsi %lhs, %rhs : i64
+  %early_sum = scalar.addi %early_remainder, %lhs : i64
+  %quotient = scalar.divsi %lhs, %rhs : i64
+  %late_remainder = scalar.remsi %lhs, %rhs : i64
+  func.return %early_sum, %quotient, %late_remainder : i64, i64, i64
+}
+
+// ----
+func.def @signed_early_remainder_use(%lhs: i64, %rhs: i64) -> (i64, i64, i64) {
+  %early_remainder = scalar.remsi %lhs, %rhs : i64
+  %early_sum = scalar.addi %early_remainder, %lhs : i64
+  %quotient, %late_remainder = scalar.divremsi %lhs, %rhs : i64
+  func.return %early_sum, %quotient, %late_remainder : i64, i64, i64
+}
+
+// ====
+
+// One dominating quotient can supply remainders in multiple successor blocks.
+func.def @cfg_dominating_quotient(%lhs: i32, %rhs: i32, %condition: i1) -> (i32, i32) {
+  %quotient = scalar.divui %lhs, %rhs : i32
+  cfg.cond_br %condition, ^left, ^right
+^left:
+  %left_remainder = scalar.remui %lhs, %rhs : i32
+  cfg.br ^join(%left_remainder: i32)
+^right:
+  %right_remainder = scalar.remui %lhs, %rhs : i32
+  cfg.br ^join(%right_remainder: i32)
+^join(%remainder: i32):
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ----
+func.def @cfg_dominating_quotient(%lhs: i32, %rhs: i32, %condition: i1) -> (i32, i32) {
+  %quotient, %left_remainder = scalar.divremui %lhs, %rhs : i32
+  cfg.cond_br %condition, ^left, ^right
+^left:
+  cfg.br ^join(%left_remainder: i32)
+^right:
+  cfg.br ^join(%left_remainder: i32)
+^join(%remainder: i32):
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ====
+
+// Candidates in sibling CFG scopes do not dominate each other and therefore
+// remain independent operations.
+func.def @cfg_sibling_candidates(%lhs: i32, %rhs: i32, %condition: i1) -> (i32) {
+  cfg.cond_br %condition, ^left, ^right
+^left:
+  %quotient = scalar.divui %lhs, %rhs : i32
+  %left = scalar.addi %quotient, %lhs : i32
+  cfg.br ^join(%left: i32)
+^right:
+  %remainder = scalar.remui %lhs, %rhs : i32
+  %right = scalar.addi %remainder, %lhs : i32
+  cfg.br ^join(%right: i32)
+^join(%result: i32):
+  func.return %result : i32
+}
+
+// ----
+func.def @cfg_sibling_candidates(%lhs: i32, %rhs: i32, %condition: i1) -> (i32) {
+  cfg.cond_br %condition, ^left, ^right
+^left:
+  %quotient = scalar.divui %lhs, %rhs : i32
+  %left = scalar.addi %quotient, %lhs : i32
+  cfg.br ^join(%left: i32)
+^right:
+  %remainder = scalar.remui %lhs, %rhs : i32
+  %right = scalar.addi %remainder, %lhs : i32
+  cfg.br ^join(%right: i32)
+^join(%result: i32):
+  func.return %result : i32
+}
+
+// ====
+
+// Index and vector operations use the same planner while retaining their own
+// public semantic operations.
+func.def @index_and_vector(%index_lhs: index, %index_rhs: index, %vector_lhs: vector<4xi32>, %vector_rhs: vector<4xi32>) -> (index, index, vector<4xi32>, vector<4xi32>) {
+  %index_quotient = index.div %index_lhs, %index_rhs : index
+  %index_remainder = index.rem %index_lhs, %index_rhs : index
+  %vector_remainder = vector.remsi %vector_lhs, %vector_rhs : vector<4xi32>
+  %vector_quotient = vector.divsi %vector_lhs, %vector_rhs : vector<4xi32>
+  func.return %index_quotient, %index_remainder, %vector_quotient, %vector_remainder : index, index, vector<4xi32>, vector<4xi32>
+}
+
+// ----
+func.def @index_and_vector(%index_lhs: index, %index_rhs: index, %vector_lhs: vector<4xi32>, %vector_rhs: vector<4xi32>) -> (index, index, vector<4xi32>, vector<4xi32>) {
+  %index_quotient, %index_remainder = index.divrem %index_lhs, %index_rhs : index
+  %vector_quotient, %vector_remainder = vector.divremsi %vector_lhs, %vector_rhs : vector<4xi32>
+  func.return %index_quotient, %index_remainder, %vector_quotient, %vector_remainder : index, index, vector<4xi32>, vector<4xi32>
+}
+
+// ====
+
+// Exact divisors retain the independent strength-reduction recipes selected by
+// canonicalization instead of being hidden behind a combined operation.
+func.def @exact_divisor(%value: i32) -> (i32, i32) {
+  %divisor = scalar.constant 8 : i32
+  %quotient = scalar.divui %value, %divisor : i32
+  %remainder = scalar.remui %value, %divisor : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ----
+func.def @exact_divisor(%value: i32) -> (i32, i32) {
+  %8 = scalar.constant 3 : i32
+  %quotient = scalar.shrui %value, %8 : i32
+  %6 = scalar.constant 7 : i32
+  %remainder = scalar.andi %value, %6 : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ====
+
+// RUN: pass combine
+
+// Non-power-of-two constants survive universal canonicalization and pair in
+// the same source combine that handles dynamic divisors.
+func.def @exact_non_power_of_two_divisor(%value: i32) -> (i32, i32) {
+  %divisor = scalar.constant 3 : i32
+  %quotient = scalar.divui %value, %divisor : i32
+  %remainder = scalar.remui %value, %divisor : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ----
+func.def @exact_non_power_of_two_divisor(%value: i32) -> (i32, i32) {
+  %divisor = scalar.constant 3 : i32
+  %quotient, %remainder = scalar.divremui %value, %divisor : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ====
+
+// RUN: pass combine
+
+// When facts bound the unsigned quotient to zero or one, separate operations
+// preserve the cheaper compare and conditional-subtract lowering. Scalar
+// constants use their unsigned bit pattern while index bounds come from facts.
+func.def @exact_boolean_unsigned_quotients(%word: i32, %position: index) -> (i32, i32, index, index) {
+  %word_divisor = scalar.constant -2147483647 : i32
+  %word_quotient = scalar.divui %word, %word_divisor : i32
+  %word_remainder = scalar.remui %word, %word_divisor : i32
+  %bounded = index.assume %position [range(%position, 0, 4294967295)] : index
+  %index_divisor = index.constant 4294967295 : index
+  %index_quotient = index.div %bounded, %index_divisor : index
+  %index_remainder = index.rem %bounded, %index_divisor : index
+  func.return %word_quotient, %word_remainder, %index_quotient, %index_remainder : i32, i32, index, index
+}
+
+// ----
+func.def @exact_boolean_unsigned_quotients(%word: i32, %position: index) -> (i32, i32, index, index) {
+  %word_divisor = scalar.constant -2147483647 : i32
+  %word_quotient = scalar.divui %word, %word_divisor : i32
+  %word_remainder = scalar.remui %word, %word_divisor : i32
+  %bounded = index.assume %position [range(%position, 0, 4294967295)] : index
+  %index_divisor = index.constant 4294967295 : index
+  %index_quotient = index.div %bounded, %index_divisor : index
+  %index_remainder = index.rem %bounded, %index_divisor : index
+  func.return %word_quotient, %word_remainder, %index_quotient, %index_remainder : i32, i32, index, index
+}
+
+// ====
+
+// RUN: pass combine
+
+// Exact index divisions retain their coordinate decomposition semantics for
+// topology and address analyses.
+func.def @exact_index_coordinate_digits(%position: index) -> (index, index) {
+  %radix = index.constant 5 : index
+  %major = index.div %position, %radix : index
+  %minor = index.rem %position, %radix : index
+  func.return %major, %minor : index, index
+}
+
+// ----
+func.def @exact_index_coordinate_digits(%position: index) -> (index, index) {
+  %radix = index.constant 5 : index
+  %major = index.div %position, %radix : index
+  %minor = index.rem %position, %radix : index
+  func.return %major, %minor : index, index
+}

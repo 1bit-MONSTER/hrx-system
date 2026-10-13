@@ -60,8 +60,10 @@ class ExpressionScopeTest : public ::testing::Test {
   }
 
   void Initialize() {
-    IREE_ASSERT_OK(
-        loom_expression_walk_create(module_, module_->body, &arena_, &walk_));
+    IREE_ASSERT_OK(loom_expression_walk_create(module_, module_->body,
+                                               /*identity_policy=*/nullptr,
+                                               /*maximum_entry_count=*/0,
+                                               &arena_, &walk_));
   }
 
   // Shared allocator for IR and analysis; their arena lifetimes stay separate.
@@ -169,12 +171,12 @@ TEST_F(ExpressionScopeTest,
   auto* existing = loom_expression_scope_find(&cursor, hash, 0);
   ASSERT_NE(existing, nullptr);
   EXPECT_EQ(existing->op, inner);
-  EXPECT_EQ(existing->epoch, inner_epoch);
+  EXPECT_EQ(existing->metadata, inner_epoch);
   cursor = Next(resumed);
   existing = loom_expression_scope_find(&cursor, hash, 0);
   ASSERT_NE(existing, nullptr);
   EXPECT_EQ(existing->op, outer);
-  EXPECT_EQ(existing->epoch, outer_epoch);
+  EXPECT_EQ(existing->metadata, outer_epoch);
   Next(nullptr);
 }
 
@@ -211,7 +213,7 @@ TEST_F(ExpressionScopeTest, ReplacingAnExpiredLocalBindingKeepsRollbackIntact) {
   auto* existing = loom_expression_scope_find(&cursor, hash, 0);
   ASSERT_NE(existing, nullptr);
   EXPECT_EQ(existing->op, second);
-  EXPECT_EQ(existing->epoch, cursor.epoch - 1);
+  EXPECT_EQ(existing->metadata, cursor.epoch - 1);
   cursor = Next(resumed);
   existing = loom_expression_scope_find(&cursor, hash, 0);
   ASSERT_NE(existing, nullptr);

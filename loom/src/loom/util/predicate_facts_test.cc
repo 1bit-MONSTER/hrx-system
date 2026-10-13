@@ -33,6 +33,42 @@ class PredicateFactsTest : public ::testing::Test {
   iree_arena_allocator_t arena_;
 };
 
+TEST(PredicateFactsExportTest, ExportsRangeAndDivisibility) {
+  constexpr loom_value_id_t kValue = 7;
+  loom_predicate_t predicates[2] = {};
+  const uint16_t count = loom_value_facts_export_integer_refinements(
+      kValue, loom_value_facts_unknown(), loom_value_facts_make(-12, 24, 4),
+      predicates, IREE_ARRAYSIZE(predicates));
+
+  ASSERT_EQ(count, 2);
+  EXPECT_EQ(predicates[0].kind, LOOM_PREDICATE_RANGE);
+  EXPECT_EQ(predicates[0].args[0], kValue);
+  EXPECT_EQ(predicates[0].args[1], -12);
+  EXPECT_EQ(predicates[0].args[2], 24);
+  EXPECT_EQ(predicates[1].kind, LOOM_PREDICATE_MULTIPLE_OF);
+  EXPECT_EQ(predicates[1].args[0], kValue);
+  EXPECT_EQ(predicates[1].args[1], 4);
+}
+
+TEST(PredicateFactsExportTest, ExactAndUnknownStayMinimal) {
+  loom_predicate_t predicate = {};
+  EXPECT_EQ(loom_value_facts_export_integer_refinements(
+                3, loom_value_facts_unknown(), loom_value_facts_exact_i64(42),
+                &predicate, 1),
+            1);
+  EXPECT_EQ(predicate.kind, LOOM_PREDICATE_EQ);
+  EXPECT_EQ(predicate.args[0], 3);
+  EXPECT_EQ(predicate.args[1], 42);
+  EXPECT_EQ(loom_value_facts_export_integer_refinements(
+                3, loom_value_facts_unknown(), loom_value_facts_unknown(),
+                &predicate, 1),
+            0);
+  EXPECT_EQ(loom_value_facts_export_integer_refinements(
+                3, loom_value_facts_make(0, 63, 1),
+                loom_value_facts_make(0, 63, 1), &predicate, 1),
+            0);
+}
+
 TEST_F(PredicateFactsTest, SmallListStaysAllocationFree) {
   loom_value_fact_table_t table = {0};
   IREE_ASSERT_OK(loom_value_fact_table_initialize(&table, &arena_, 1));

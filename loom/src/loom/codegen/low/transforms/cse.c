@@ -137,8 +137,10 @@ static iree_status_t loom_low_cse_region(
     const loom_low_descriptor_set_t* descriptor_set,
     iree_arena_allocator_t* arena) {
   loom_expression_walk_t* walk = NULL;
-  IREE_RETURN_IF_ERROR(
-      loom_expression_walk_create(module, region, arena, &walk));
+  IREE_RETURN_IF_ERROR(loom_expression_walk_create(module, region,
+                                                   /*identity_policy=*/NULL,
+                                                   /*maximum_entry_count=*/0,
+                                                   arena, &walk));
   loom_low_cse_state_class_t* state_classes = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, descriptor_set->reg_class_count, sizeof(*state_classes),
@@ -203,7 +205,7 @@ static iree_status_t loom_low_cse_region(
     loom_expression_entry_t candidate = {
         .op = cursor.op,
         .hash = loom_expression_hash(module, cursor.op),
-        .epoch = cursor.epoch,
+        .metadata = cursor.epoch,
     };
     loom_expression_lookup_flags_t flags = 0;
     if (iree_any_bit_set(identity.flags,
@@ -213,7 +215,7 @@ static iree_status_t loom_low_cse_region(
     }
     loom_expression_entry_t* existing =
         loom_expression_scope_find(&cursor, candidate.hash, flags);
-    if (existing && existing->epoch >= minimum_epoch) {
+    if (existing && existing->metadata >= minimum_epoch) {
       status = loom_expression_replace(module, cursor.op, existing->op);
       if (iree_status_is_ok(status)) {
         loom_pass_mark_changed(pass);

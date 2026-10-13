@@ -8,7 +8,9 @@
 
 #include "loom/pass/pipeline.h"
 #include "loom/pass/registry.h"
+#include "loom/pass/value_facts.h"
 #include "loom/transforms/cleanup/canonicalizer.h"
+#include "loom/transforms/cleanup/integer_division.h"
 #include "loom/transforms/cleanup/pass_environment.h"
 
 static const loom_pass_option_def_t kCanonicalizeOptions[] = {
@@ -64,6 +66,11 @@ typedef struct loom_canonicalize_pass_options_t {
   uint32_t max_iterations;
 } loom_canonicalize_pass_options_t;
 
+typedef iree_status_t (*loom_canonicalizer_post_run_fn_t)(
+    loom_module_t* module, loom_func_like_t function,
+    const loom_value_fact_table_t* facts, iree_arena_allocator_t* arena,
+    loom_canonicalizer_result_t* result, bool* out_changed);
+
 static iree_status_t loom_canonicalize_parse_option(void* user_data,
                                                     iree_string_view_t name,
                                                     iree_string_view_t value) {
@@ -116,7 +123,8 @@ iree_status_t loom_canonicalizer_pass_create(
 static iree_status_t loom_canonicalizer_run_pass(
     loom_pass_t* pass, loom_module_t* module, loom_func_like_t function,
     const loom_cleanup_pass_capability_t* cleanup_capability,
-    loom_canonicalizer_pattern_registries_t patterns) {
+    loom_canonicalizer_pattern_registries_t patterns,
+    loom_canonicalizer_post_run_fn_t post_run) {
   loom_canonicalizer_options_t run_options = {
       .patterns = patterns,
   };
@@ -143,6 +151,15 @@ static iree_status_t loom_canonicalizer_run_pass(
   loom_canonicalizer_result_t result;
   iree_status_t status = loom_canonicalizer_run_function(
       &canonicalizer, function, &run_options, &result);
+  if (iree_status_is_ok(status) && post_run) {
+    bool post_run_changed = false;
+    status = post_run(module, function,
+                      loom_canonicalizer_fact_table(&canonicalizer),
+                      pass->arena, &result, &post_run_changed);
+    if (!iree_status_is_ok(status) || post_run_changed) {
+      loom_pass_value_fact_owner_invalidate(pass->value_facts);
+    }
+  }
   if (iree_status_is_ok(status)) {
     if (result.changed) {
       loom_pass_mark_changed(pass);
@@ -158,6 +175,23 @@ static iree_status_t loom_canonicalizer_run_pass(
   return status;
 }
 
+static iree_status_t loom_combine_integer_division(
+    loom_module_t* module, loom_func_like_t function,
+    const loom_value_fact_table_t* facts, iree_arena_allocator_t* arena,
+    loom_canonicalizer_result_t* result, bool* out_changed) {
+  *out_changed = false;
+  loom_integer_division_combine_result_t combine_result;
+  IREE_RETURN_IF_ERROR(loom_integer_division_combine(module, function, facts,
+                                                     arena, &combine_result));
+  if (combine_result.combined_operation_count != 0) {
+    *out_changed = true;
+    result->changed = true;
+    result->boundary_maybe_changed = true;
+    result->ops_modified += combine_result.retired_operation_count;
+  }
+  return iree_ok_status();
+}
+
 iree_status_t loom_canonicalize_run(loom_pass_t* pass, loom_module_t* module,
                                     loom_func_like_t function) {
   const loom_cleanup_pass_capability_t* cleanup_capability =
@@ -167,7 +201,7 @@ iree_status_t loom_canonicalize_run(loom_pass_t* pass, loom_module_t* module,
   const loom_canonicalizer_pattern_registries_t patterns =
       loom_canonicalizer_pattern_registries_from_cleanup_registry(registry);
   return loom_canonicalizer_run_pass(pass, module, function, cleanup_capability,
-                                     patterns);
+                                     patterns, /*post_run=*/NULL);
 }
 
 iree_status_t loom_combine_run(loom_pass_t* pass, loom_module_t* module,
@@ -182,5 +216,5 @@ iree_status_t loom_combine_run(loom_pass_t* pass, loom_module_t* module,
       loom_canonicalizer_pattern_registries_from_cleanup_registry(registry);
   patterns.post_canonicalization = registry->source_combine;
   return loom_canonicalizer_run_pass(pass, module, function, cleanup_capability,
-                                     patterns);
+                                     patterns, loom_combine_integer_division);
 }

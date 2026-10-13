@@ -1,0 +1,56 @@
+// RUN: pass canonicalize
+
+// Combined coordinate division retains the facts of both standalone results.
+func.def @facts(%lhs0: index, %rhs0: index) -> (i64, i64, i64, i64) {
+  %lhs = index.assume %lhs0 [range(%lhs0, 0, 63)] : index
+  %rhs = index.assume %rhs0 [range(%rhs0, 4, 8)] : index
+  %quotient, %remainder = index.divrem %lhs, %rhs : index
+  %quotient_minimum = test.fact_range_lo %quotient : index -> i64
+  %quotient_maximum = test.fact_range_hi %quotient : index -> i64
+  %remainder_minimum = test.fact_range_lo %remainder : index -> i64
+  %remainder_maximum = test.fact_range_hi %remainder : index -> i64
+  func.return %quotient_minimum, %quotient_maximum, %remainder_minimum, %remainder_maximum : i64, i64, i64, i64
+}
+
+// ----
+func.def @facts(%lhs0: index, %rhs0: index) -> (i64, i64, i64, i64) {
+  %quotient_minimum = scalar.constant 0 : i64
+  %quotient_maximum = scalar.constant 15 : i64
+  %remainder_minimum = scalar.constant 0 : i64
+  %remainder_maximum = scalar.constant 7 : i64
+  func.return %quotient_minimum, %quotient_maximum, %remainder_minimum, %remainder_maximum : i64, i64, i64, i64
+}
+
+// ====
+
+// Exact divisors expose the ordinary coordinate operations for their existing
+// strength reductions.
+func.def @exact_divisor(%value0: index) -> (index, index) {
+  %value = index.assume %value0 [range(%value0, 0, 1024)] : index
+  %divisor = index.constant 8 : index
+  %quotient, %remainder = index.divrem %value, %divisor : index
+  func.return %quotient, %remainder : index, index
+}
+
+// ----
+func.def @exact_divisor(%value0: index) -> (index, index) {
+  %value = index.assume %value0 [range(%value0, 0, 1024)] : index
+  %11 = index.constant 3 : index
+  %quotient = index.shrui %value, %11 : index
+  %9 = index.constant 7 : index
+  %remainder = index.andi %value, %9 : index
+  func.return %quotient, %remainder : index, index
+}
+
+// ====
+
+func.def @dead_remainder(%lhs: index, %rhs: index) -> (index) {
+  %quotient, %remainder = index.divrem %lhs, %rhs : index
+  func.return %quotient : index
+}
+
+// ----
+func.def @dead_remainder(%lhs: index, %rhs: index) -> (index) {
+  %quotient = index.div %lhs, %rhs : index
+  func.return %quotient : index
+}

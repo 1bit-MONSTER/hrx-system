@@ -28,23 +28,24 @@ enum {
   LOOM_OP_INDEX_SCALE = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 6),
   LOOM_OP_INDEX_DIV = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 7),
   LOOM_OP_INDEX_REM = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 8),
-  LOOM_OP_INDEX_MIN = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 9),
-  LOOM_OP_INDEX_MAX = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 10),
-  LOOM_OP_INDEX_MADD = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 11),
-  LOOM_OP_INDEX_ANDI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 12),
-  LOOM_OP_INDEX_ORI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 13),
-  LOOM_OP_INDEX_XORI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 14),
-  LOOM_OP_INDEX_SHLI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 15),
-  LOOM_OP_INDEX_SHRSI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 16),
-  LOOM_OP_INDEX_SHRUI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 17),
-  LOOM_OP_INDEX_ROTLI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 18),
-  LOOM_OP_INDEX_ROTRI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 19),
-  LOOM_OP_INDEX_CTLZI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 20),
-  LOOM_OP_INDEX_CTTZI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 21),
-  LOOM_OP_INDEX_CTPOPI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 22),
-  LOOM_OP_INDEX_CMP = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 23),
-  LOOM_OP_INDEX_CONSTEXPR = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 24),
-  LOOM_OP_INDEX_COUNT_ = 25,
+  LOOM_OP_INDEX_DIVREM = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 9),
+  LOOM_OP_INDEX_MIN = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 10),
+  LOOM_OP_INDEX_MAX = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 11),
+  LOOM_OP_INDEX_MADD = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 12),
+  LOOM_OP_INDEX_ANDI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 13),
+  LOOM_OP_INDEX_ORI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 14),
+  LOOM_OP_INDEX_XORI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 15),
+  LOOM_OP_INDEX_SHLI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 16),
+  LOOM_OP_INDEX_SHRSI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 17),
+  LOOM_OP_INDEX_SHRUI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 18),
+  LOOM_OP_INDEX_ROTLI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 19),
+  LOOM_OP_INDEX_ROTRI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 20),
+  LOOM_OP_INDEX_CTLZI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 21),
+  LOOM_OP_INDEX_CTTZI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 22),
+  LOOM_OP_INDEX_CTPOPI = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 23),
+  LOOM_OP_INDEX_CMP = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 24),
+  LOOM_OP_INDEX_CONSTEXPR = LOOM_OP_KIND(LOOM_DIALECT_INDEX, 25),
+  LOOM_OP_INDEX_COUNT_ = 26,
 };
 
 // Address-domain comparison predicates.
@@ -229,6 +230,26 @@ iree_status_t loom_index_rem_build(
     loom_op_t** out_op);
 iree_status_t loom_index_rem_canonicalize(loom_op_t* op, loom_rewriter_t* rewriter);
 iree_status_t loom_index_rem_facts(
+    loom_fact_context_t* context,
+    const loom_module_t* module, const loom_op_t* op,
+    const loom_value_facts_t* operand_facts,
+    loom_value_facts_t* result_facts);
+
+// LOOM_OP_INDEX_DIVREM: Logical coordinate quotient and remainder computed together for non-negative index values with a positive divisor. Offsets are physical byte counts and cannot use this op.
+// %q, %r = index.divrem %lane, %group_size : index
+LOOM_DEFINE_ISA(loom_index_divrem_isa, LOOM_OP_INDEX_DIVREM)
+LOOM_DEFINE_OPERAND(loom_index_divrem_lhs, 0)
+LOOM_DEFINE_OPERAND(loom_index_divrem_rhs, 1)
+LOOM_DEFINE_RESULT(loom_index_divrem_quotient, 0)
+LOOM_DEFINE_RESULT(loom_index_divrem_remainder, 1)
+iree_status_t loom_index_divrem_build(
+    loom_builder_t* builder,
+    loom_value_id_t lhs,
+    loom_value_id_t rhs,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_index_divrem_canonicalize(loom_op_t* op, loom_rewriter_t* rewriter);
+iree_status_t loom_index_divrem_facts(
     loom_fact_context_t* context,
     const loom_module_t* module, const loom_op_t* op,
     const loom_value_facts_t* operand_facts,

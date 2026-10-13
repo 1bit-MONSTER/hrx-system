@@ -1,0 +1,62 @@
+// RUN: pass vector-to-scalar,canonicalize
+
+func.def @static_unsigned_divrem(%lhs: vector<2xi32>, %rhs: vector<2xi32>) -> (vector<2xi32>, vector<2xi32>) {
+  %quotient, %remainder = vector.divremui %lhs, %rhs : vector<2xi32>
+  func.return %quotient, %remainder : vector<2xi32>, vector<2xi32>
+}
+
+// ----
+func.def @static_unsigned_divrem(%lhs: vector<2xi32>, %rhs: vector<2xi32>) -> (vector<2xi32>, vector<2xi32>) {
+  %6 = vector.extract %lhs[0] : vector<2xi32> -> i32
+  %7 = vector.extract %rhs[0] : vector<2xi32> -> i32
+  %8, %9 = scalar.divremui %6, %7 : i32
+  %10 = vector.extract %lhs[1] : vector<2xi32> -> i32
+  %11 = vector.extract %rhs[1] : vector<2xi32> -> i32
+  %12, %13 = scalar.divremui %10, %11 : i32
+  %quotient = vector.from_elements %8, %12 : vector<2xi32>
+  %remainder = vector.from_elements %9, %13 : vector<2xi32>
+  func.return %quotient, %remainder : vector<2xi32>, vector<2xi32>
+}
+
+// ====
+
+func.def @dynamic_signed_divrem(%length: index, %lhs: vector<[%length]xi64>, %rhs: vector<[%length]xi64>) -> (vector<[%length]xi64>, vector<[%length]xi64>) {
+  %quotient, %remainder = vector.divremsi %lhs, %rhs : vector<[%length]xi64>
+  func.return %quotient, %remainder : vector<[%length]xi64>, vector<[%length]xi64>
+}
+
+// ----
+func.def @dynamic_signed_divrem(%length: index, %lhs: vector<[%length]xi64>, %rhs: vector<[%length]xi64>) -> (vector<[%length]xi64>, vector<[%length]xi64>) {
+  %7 = vector.constant 0 : vector<[%length]xi64>
+  %8 = vector.constant 0 : vector<[%length]xi64>
+  %9 = index.constant 0 : index
+  %10 = index.constant 1 : index
+  %quotient, %remainder = scf.for %11 = [%9 to %length step %10](%12 = %7 : vector<[%length]xi64>, %13 = %8 : vector<[%length]xi64>) -> (vector<[%length]xi64>, vector<[%length]xi64>) {
+    %16 = vector.extract %lhs[%11] : vector<[%length]xi64> -> i64
+    %17 = vector.extract %rhs[%11] : vector<[%length]xi64> -> i64
+    %18, %19 = scalar.divremsi %16, %17 : i64
+    %20 = vector.insert %18 into %12[%11] : i64, vector<[%length]xi64>
+    %21 = vector.insert %19 into %13[%11] : i64, vector<[%length]xi64>
+    scf.yield %20, %21 : vector<[%length]xi64>, vector<[%length]xi64>
+  }
+  func.return %quotient, %remainder : vector<[%length]xi64>, vector<[%length]xi64>
+}
+
+// ====
+
+func.def @extracted_sibling_results(%lhs: vector<2xi32>, %rhs: vector<2xi32>) -> (i32) {
+  %quotient, %remainder = vector.divremui %lhs, %rhs : vector<2xi32>
+  %quotient_lane = vector.extract %quotient[0] : vector<2xi32> -> i32
+  %remainder_lane = vector.extract %remainder[0] : vector<2xi32> -> i32
+  %result = scalar.addi %quotient_lane, %remainder_lane : i32
+  func.return %result : i32
+}
+
+// ----
+func.def @extracted_sibling_results(%lhs: vector<2xi32>, %rhs: vector<2xi32>) -> (i32) {
+  %8 = vector.extract %lhs[0] : vector<2xi32> -> i32
+  %9 = vector.extract %rhs[0] : vector<2xi32> -> i32
+  %10, %11 = scalar.divremui %8, %9 : i32
+  %result = scalar.addi %10, %11 : i32
+  func.return %result : i32
+}

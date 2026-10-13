@@ -21,6 +21,7 @@ loom_cc_library(
     loom::target::legalization
     loom::transforms::buffer::target_legalization
     loom::transforms::conversion::target_legalization
+    loom::transforms::index::target_legalization
     loom::transforms::math::legalize
     loom::transforms::scalar::target_legalization
     loom::transforms::vector::target_legalization

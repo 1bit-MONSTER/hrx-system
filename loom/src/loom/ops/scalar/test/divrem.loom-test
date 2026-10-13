@@ -1,0 +1,57 @@
+// RUN: pass canonicalize
+
+// Both results retain the ordinary unsigned division facts while sharing one
+// semantic operation.
+func.def @unsigned_facts(%lhs0: i8, %rhs0: i8) -> (i64, i64, i64, i64) {
+  %lhs = scalar.assume %lhs0 [range(%lhs0, 0, 63)] : i8
+  %rhs = scalar.assume %rhs0 [range(%rhs0, 4, 8)] : i8
+  %quotient, %remainder = scalar.divremui %lhs, %rhs : i8
+  %quotient_minimum = test.fact_range_lo %quotient : i8 -> i64
+  %quotient_maximum = test.fact_range_hi %quotient : i8 -> i64
+  %remainder_minimum = test.fact_range_lo %remainder : i8 -> i64
+  %remainder_maximum = test.fact_range_hi %remainder : i8 -> i64
+  func.return %quotient_minimum, %quotient_maximum, %remainder_minimum, %remainder_maximum : i64, i64, i64, i64
+}
+
+// ----
+func.def @unsigned_facts(%lhs0: i8, %rhs0: i8) -> (i64, i64, i64, i64) {
+  %quotient_minimum = scalar.constant 0 : i64
+  %quotient_maximum = scalar.constant 15 : i64
+  %remainder_minimum = scalar.constant 0 : i64
+  %remainder_maximum = scalar.constant 7 : i64
+  func.return %quotient_minimum, %quotient_maximum, %remainder_minimum, %remainder_maximum : i64, i64, i64, i64
+}
+
+// ====
+
+// Exact divisors expose the ordinary operations so their independent strength
+// reductions retain priority over combined target selection.
+func.def @exact_divisor(%value: i32) -> (i32, i32) {
+  %divisor = scalar.constant 8 : i32
+  %quotient, %remainder = scalar.divremui %value, %divisor : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ----
+func.def @exact_divisor(%value: i32) -> (i32, i32) {
+  %10 = scalar.constant 3 : i32
+  %quotient = scalar.shrui %value, %10 : i32
+  %8 = scalar.constant 7 : i32
+  %remainder = scalar.andi %value, %8 : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ====
+
+// A dead component does not force computation of the other architectural
+// result on targets where standalone division is cheaper.
+func.def @dead_remainder(%lhs: i64, %rhs: i64) -> (i64) {
+  %quotient, %remainder = scalar.divremsi %lhs, %rhs : i64
+  func.return %quotient : i64
+}
+
+// ----
+func.def @dead_remainder(%lhs: i64, %rhs: i64) -> (i64) {
+  %quotient = scalar.divsi %lhs, %rhs : i64
+  func.return %quotient : i64
+}

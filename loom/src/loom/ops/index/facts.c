@@ -244,29 +244,47 @@ iree_status_t loom_index_sub_facts(loom_fact_context_t* context,
 LOOM_INDEX_BINARY_FACTS(loom_index_mul_facts, loom_value_facts_muli)
 LOOM_INDEX_BINARY_FACTS(loom_index_scale_facts, loom_value_facts_muli)
 
+static void loom_index_div_result_facts(const loom_value_facts_t* operand_facts,
+                                        loom_value_facts_t* result_facts) {
+  if (!loom_value_facts_is_positive(operand_facts[1])) {
+    *result_facts = loom_value_facts_unknown();
+    loom_value_facts_propagate_binary_distribution(
+        operand_facts[0], operand_facts[1], result_facts);
+    return;
+  }
+  loom_value_facts_divui(&operand_facts[0], &operand_facts[1], 64,
+                         result_facts);
+  // The raw unsigned transfer establishes divisibility independently of the
+  // range. Keep that fact, but do not expose a raw-bit range for an index whose
+  // required nonnegative logical-coordinate domain has not been proven.
+  if (!loom_value_facts_is_non_negative(operand_facts[0])) {
+    const int64_t divisor = result_facts->known_divisor;
+    *result_facts = loom_value_facts_make(INT64_MIN, INT64_MAX, divisor);
+    loom_value_facts_propagate_binary_distribution(
+        operand_facts[0], operand_facts[1], result_facts);
+  }
+}
+
 iree_status_t loom_index_div_facts(loom_fact_context_t* context,
                                    const loom_module_t* module,
                                    const loom_op_t* op,
                                    const loom_value_facts_t* operand_facts,
                                    loom_value_facts_t* result_facts) {
-  if (!loom_value_facts_is_positive(operand_facts[1])) {
-    result_facts[0] = loom_value_facts_unknown();
-    loom_value_facts_propagate_binary_distribution(
-        operand_facts[0], operand_facts[1], &result_facts[0]);
-    return iree_ok_status();
-  }
-  loom_value_facts_divui(&operand_facts[0], &operand_facts[1], 64,
-                         &result_facts[0]);
-  // The raw unsigned transfer establishes divisibility independently of the
-  // range. Keep that fact, but do not expose a raw-bit range for an index whose
-  // required nonnegative logical-coordinate domain has not been proven.
-  if (!loom_value_facts_is_non_negative(operand_facts[0])) {
-    const int64_t divisor = result_facts[0].known_divisor;
-    result_facts[0] = loom_value_facts_make(INT64_MIN, INT64_MAX, divisor);
-    loom_value_facts_propagate_binary_distribution(
-        operand_facts[0], operand_facts[1], &result_facts[0]);
-  }
+  loom_index_div_result_facts(operand_facts, &result_facts[0]);
   return iree_ok_status();
+}
+
+static void loom_index_rem_result_facts(const loom_value_facts_t* operand_facts,
+                                        loom_value_facts_t* result_facts) {
+  if (!loom_value_facts_is_non_negative(operand_facts[0]) ||
+      !loom_value_facts_is_positive(operand_facts[1])) {
+    *result_facts = loom_value_facts_unknown();
+    loom_value_facts_propagate_binary_distribution(
+        operand_facts[0], operand_facts[1], result_facts);
+    return;
+  }
+  loom_value_facts_remui(&operand_facts[0], &operand_facts[1], 64,
+                         result_facts);
 }
 
 iree_status_t loom_index_rem_facts(loom_fact_context_t* context,
@@ -274,15 +292,17 @@ iree_status_t loom_index_rem_facts(loom_fact_context_t* context,
                                    const loom_op_t* op,
                                    const loom_value_facts_t* operand_facts,
                                    loom_value_facts_t* result_facts) {
-  if (!loom_value_facts_is_non_negative(operand_facts[0]) ||
-      !loom_value_facts_is_positive(operand_facts[1])) {
-    result_facts[0] = loom_value_facts_unknown();
-    loom_value_facts_propagate_binary_distribution(
-        operand_facts[0], operand_facts[1], &result_facts[0]);
-    return iree_ok_status();
-  }
-  loom_value_facts_remui(&operand_facts[0], &operand_facts[1], 64,
-                         &result_facts[0]);
+  loom_index_rem_result_facts(operand_facts, &result_facts[0]);
+  return iree_ok_status();
+}
+
+iree_status_t loom_index_divrem_facts(loom_fact_context_t* context,
+                                      const loom_module_t* module,
+                                      const loom_op_t* op,
+                                      const loom_value_facts_t* operand_facts,
+                                      loom_value_facts_t* result_facts) {
+  loom_index_div_result_facts(operand_facts, &result_facts[0]);
+  loom_index_rem_result_facts(operand_facts, &result_facts[1]);
   return iree_ok_status();
 }
 

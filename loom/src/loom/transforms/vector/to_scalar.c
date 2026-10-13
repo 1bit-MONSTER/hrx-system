@@ -760,10 +760,6 @@ static iree_status_t loom_vector_to_scalar_try_direct_lowerer(
 
 static iree_status_t loom_vector_to_scalar_lower_descriptor_op(
     loom_pass_t* pass, loom_rewriter_t* rewriter, loom_op_t* op) {
-  if (op->result_count != 1) {
-    return iree_ok_status();
-  }
-
   loom_vector_to_scalar_descriptor_t descriptor = {0};
   if (!loom_vector_to_scalar_resolve_descriptor(op->kind, &descriptor)) {
     return iree_ok_status();
@@ -783,6 +779,19 @@ static iree_status_t loom_vector_to_scalar_lower_descriptor_op(
       loom_vector_to_scalar_encoding_rejection_bits(&state) !=
           LOOM_CONTRACT_REJECTION_NONE) {
     return iree_ok_status();
+  }
+  if (op->result_count > 1) {
+    loom_value_id_t* replacements = NULL;
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        rewriter->arena, op->result_count, sizeof(*replacements),
+        (void**)&replacements));
+    IREE_RETURN_IF_ERROR(loom_vector_to_scalar_lower_aggregates(
+        &state, op->result_count, replacements));
+    if (loom_pass_has_error_diagnostics(pass)) {
+      return iree_ok_status();
+    }
+    return loom_vector_to_scalar_replace_results(&state, replacements,
+                                                 op->result_count);
   }
   loom_value_id_t replacement = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(

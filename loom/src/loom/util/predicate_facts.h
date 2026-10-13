@@ -13,6 +13,17 @@
 extern "C" {
 #endif
 
+// Exports directly representable refinements from |proven_facts| over
+// |inferred_facts| as predicates on |value|. A tighter exact or interval fact
+// contributes one equality or range predicate. Stronger divisibility
+// contributes one multiple-of predicate when the value is not exact. Unknown,
+// floating-point, and already-inferred facts contribute nothing. Returns the
+// number of predicates written, bounded by |capacity|.
+uint16_t loom_value_facts_export_integer_refinements(
+    loom_value_id_t value, loom_value_facts_t inferred_facts,
+    loom_value_facts_t proven_facts, loom_predicate_t* predicates,
+    uint16_t capacity);
+
 // Tightens one fact per SSA alias using predicates over those aliases and
 // externally referenced SSA values already defined in |table|. Literal
 // predicates refine their target alias directly. Binary relational predicates
