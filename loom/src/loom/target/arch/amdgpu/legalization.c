@@ -229,6 +229,14 @@ static bool loom_amdgpu_static_shape_carrier_type(
       *out_carrier_type =
           loom_module_value_type(module, loom_vector_broadcast_result(op));
       return true;
+    case LOOM_OP_VECTOR_CONCAT:
+      *out_carrier_type =
+          loom_module_value_type(module, loom_vector_concat_result(op));
+      return true;
+    case LOOM_OP_VECTOR_EXTRACT:
+      *out_carrier_type =
+          loom_module_value_type(module, loom_vector_extract_source(op));
+      return true;
     case LOOM_OP_VECTOR_INSERT:
       *out_carrier_type =
           loom_module_value_type(module, loom_vector_insert_dest(op));
@@ -255,19 +263,23 @@ static iree_status_t loom_amdgpu_legalize_static_vector_shape(
     return iree_ok_status();
   }
 
+  bool rewritten = false;
   loom_type_t carrier_type = loom_type_none();
   loom_amdgpu_vector_storage_t carrier_storage = {0};
-  if (!loom_amdgpu_static_shape_carrier_type(context->module, op,
-                                             &carrier_type) ||
-      !loom_amdgpu_type_vector_storage(carrier_type, &carrier_storage) ||
-      carrier_storage.register_count == 0 ||
-      carrier_storage.register_count > LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES) {
-    return iree_ok_status();
+  if (loom_amdgpu_static_shape_carrier_type(context->module, op,
+                                            &carrier_type) &&
+      loom_amdgpu_type_vector_storage(carrier_type, &carrier_storage) &&
+      carrier_storage.register_count != 0 &&
+      carrier_storage.register_count <=
+          LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES) {
+    IREE_RETURN_IF_ERROR(
+        loom_vector_static_shape_rewrite_op(context, op, &rewritten));
   }
-
-  bool rewritten = false;
-  IREE_RETURN_IF_ERROR(
-      loom_vector_static_shape_rewrite_op(context, op, &rewritten));
+  if (!rewritten && loom_vector_slice_isa(op) &&
+      loom_vector_slice_offsets(op).count != 0) {
+    IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_dynamic_slice(
+        context, op, context->vector_packet_policy, &rewritten));
+  }
   if (rewritten) {
     out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
   }
@@ -302,7 +314,7 @@ static iree_status_t loom_amdgpu_legalize_vector_shuffle(
   return iree_ok_status();
 }
 
-static iree_status_t loom_amdgpu_legalize_oversized_vector_store(
+static iree_status_t loom_amdgpu_legalize_vector_load(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result) {
@@ -315,8 +327,36 @@ static iree_status_t loom_amdgpu_legalize_oversized_vector_store(
     return iree_ok_status();
   }
   bool rewritten = false;
-  IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_store(
-      context, op, context->vector_packet_policy, &rewritten));
+  IREE_RETURN_IF_ERROR(
+      loom_vector_static_shape_memory_rewrite_op(context, op, &rewritten));
+  // Store-root packet legalization owns connected load/arithmetic components
+  // so that one plan can retain shared producers or stage fanout. Defer the
+  // rank-one load instead of packetizing it independently before that root is
+  // visited.
+  out_result->action = rewritten ? LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN
+                                 : LOOM_TARGET_LEGALIZER_ACTION_DEFER;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_amdgpu_legalize_vector_store(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!loom_amdgpu_legalizer_descriptor_set_is_amdgpu(
+          context->descriptor_set)) {
+    return iree_ok_status();
+  }
+  bool rewritten = false;
+  IREE_RETURN_IF_ERROR(
+      loom_vector_static_shape_memory_rewrite_op(context, op, &rewritten));
+  if (!rewritten) {
+    IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_store(
+        context, op, context->vector_packet_policy, &rewritten));
+  }
   // AMDGPU memory lowering owns stores that do not need packetization here.
   // Retain them for that lowering instead of invoking scalar reference stores.
   out_result->action = rewritten ? LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN
@@ -904,6 +944,14 @@ static const loom_target_legalizer_rule_t kAmdgpuLegalizerRules[] = {
         .legalize = loom_amdgpu_legalize_static_vector_shape,
     },
     {
+        .root_kind = LOOM_OP_VECTOR_CONCAT,
+        .legalize = loom_amdgpu_legalize_static_vector_shape,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_EXTRACT,
+        .legalize = loom_amdgpu_legalize_static_vector_shape,
+    },
+    {
         .root_kind = LOOM_OP_VECTOR_INSERT,
         .legalize = loom_amdgpu_legalize_static_vector_shape,
     },
@@ -938,8 +986,12 @@ static const loom_target_legalizer_rule_t kAmdgpuLegalizerRules[] = {
         .legalize = loom_amdgpu_legalize_atomic,
     },
     {
+        .root_kind = LOOM_OP_VECTOR_LOAD,
+        .legalize = loom_amdgpu_legalize_vector_load,
+    },
+    {
         .root_kind = LOOM_OP_VECTOR_STORE,
-        .legalize = loom_amdgpu_legalize_oversized_vector_store,
+        .legalize = loom_amdgpu_legalize_vector_store,
     },
     {
         .root_kind = LOOM_OP_VECTOR_FRAGMENT_STORE,

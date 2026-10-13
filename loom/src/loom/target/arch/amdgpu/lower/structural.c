@@ -24,10 +24,9 @@ static bool loom_amdgpu_vector_bitcast_storage_shape(
   *out_payload_bit_count = 0;
   *out_register_count = 0;
 
-  loom_amdgpu_vector_storage_t storage;
+  loom_amdgpu_vector_storage_t storage = {0};
   if (loom_amdgpu_type_vector_storage(type, &storage) &&
-      (storage.kind == LOOM_AMDGPU_VECTOR_STORAGE_KIND_FULL_32BIT ||
-       storage.kind == LOOM_AMDGPU_VECTOR_STORAGE_KIND_FULL_64BIT)) {
+      storage.kind != LOOM_AMDGPU_VECTOR_STORAGE_KIND_I1_MASK) {
     *out_payload_bit_count = storage.element_count * storage.element_bit_count;
     *out_register_count = storage.register_count;
     return true;

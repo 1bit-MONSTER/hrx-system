@@ -135,3 +135,142 @@ CHECK: scf.if * {
 CHECK: view.store * %output_view[*] : f32, view<64xf32>
 CHECK-NOT: vector.gather
 CHECK-NOT: vector.scatter
+
+// ====
+
+// RUN: pass target-legalize{mode=final,policy=require-native},canonicalize,cse
+
+amdgpu.target<gfx11-generic> @target
+
+// A rectangular history footprint keeps its row stride. Shared shape
+// legalization emits one contiguous row access for each logical history row.
+func.def target(@target) @strided_packed_history(%history: view<16x10240xbf16>, %start0: index, %channel: index, %replacement: vector<9x4xbf16>) -> (vector<9x4xbf16>) {
+  %start = index.assume %start0 [range(%start0, 0, 7)] : index
+  %loaded = vector.load %history[%start, %channel] : view<16x10240xbf16> -> vector<9x4xbf16>
+  vector.store %replacement, %history[%start, %channel] : vector<9x4xbf16>, view<16x10240xbf16>
+  func.return %loaded : vector<9x4xbf16>
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @strided_packed_history(%history: view<16x10240xbf16>, %start0: index, %channel: index, %replacement: vector<9x4xbf16>) -> (vector<9x4xbf16>) {
+  %start = index.assume %start0 [range(%start0, 0, 7)] : index
+  %33 = vector.load %history[%start, %channel] : view<16x10240xbf16> -> vector<4xbf16>
+  %34 = index.constant 1 : index
+  %35 = index.add %start, %34 : index
+  %36 = vector.load %history[%35, %channel] : view<16x10240xbf16> -> vector<4xbf16>
+  %37 = index.constant 2 : index
+  %38 = index.add %start, %37 : index
+  %39 = vector.load %history[%38, %channel] : view<16x10240xbf16> -> vector<4xbf16>
+  %40 = index.constant 3 : index
+  %41 = index.add %start, %40 : index
+  %42 = vector.load %history[%41, %channel] : view<16x10240xbf16> -> vector<4xbf16>
+  %43 = index.constant 4 : index
+  %44 = index.add %start, %43 : index
+  %45 = vector.load %history[%44, %channel] : view<16x10240xbf16> -> vector<4xbf16>
+  %46 = index.constant 5 : index
+  %47 = index.add %start, %46 : index
+  %48 = vector.load %history[%47, %channel] : view<16x10240xbf16> -> vector<4xbf16>
+  %49 = index.constant 6 : index
+  %50 = index.add %start, %49 : index
+  %51 = vector.load %history[%50, %channel] : view<16x10240xbf16> -> vector<4xbf16>
+  %52 = index.constant 7 : index
+  %53 = index.add %start, %52 : index
+  %54 = vector.load %history[%53, %channel] : view<16x10240xbf16> -> vector<4xbf16>
+  %55 = index.constant 8 : index
+  %56 = index.add %start, %55 : index
+  %57 = vector.load %history[%56, %channel] : view<16x10240xbf16> -> vector<4xbf16>
+  %60 = vector.concat<0> %33, %36 : vector<4xbf16>, vector<4xbf16> -> vector<8xbf16>
+  %61 = vector.concat<0> %39, %42 : vector<4xbf16>, vector<4xbf16> -> vector<8xbf16>
+  %62 = vector.concat<0> %45, %48 : vector<4xbf16>, vector<4xbf16> -> vector<8xbf16>
+  %63 = vector.concat<0> %51, %54 : vector<4xbf16>, vector<4xbf16> -> vector<8xbf16>
+  %64 = vector.concat<0> %60, %61 : vector<8xbf16>, vector<8xbf16> -> vector<16xbf16>
+  %65 = vector.concat<0> %62, %63 : vector<8xbf16>, vector<8xbf16> -> vector<16xbf16>
+  %66 = vector.concat<0> %64, %65 : vector<16xbf16>, vector<16xbf16> -> vector<32xbf16>
+  %67 = vector.concat<0> %66, %57 : vector<32xbf16>, vector<4xbf16> -> vector<36xbf16>
+  %loaded = vector.bitcast %67 : vector<36xbf16> to vector<9x4xbf16>
+  %7 = vector.bitcast %replacement : vector<9x4xbf16> to vector<36xbf16>
+  %8 = vector.slice %7[0] : vector<36xbf16> -> vector<4xbf16>
+  vector.store %8, %history[%start, %channel] : vector<4xbf16>, view<16x10240xbf16>
+  %11 = vector.slice %7[4] : vector<36xbf16> -> vector<4xbf16>
+  vector.store %11, %history[%35, %channel] : vector<4xbf16>, view<16x10240xbf16>
+  %14 = vector.slice %7[8] : vector<36xbf16> -> vector<4xbf16>
+  vector.store %14, %history[%38, %channel] : vector<4xbf16>, view<16x10240xbf16>
+  %17 = vector.slice %7[12] : vector<36xbf16> -> vector<4xbf16>
+  vector.store %17, %history[%41, %channel] : vector<4xbf16>, view<16x10240xbf16>
+  %20 = vector.slice %7[16] : vector<36xbf16> -> vector<4xbf16>
+  vector.store %20, %history[%44, %channel] : vector<4xbf16>, view<16x10240xbf16>
+  %23 = vector.slice %7[20] : vector<36xbf16> -> vector<4xbf16>
+  vector.store %23, %history[%47, %channel] : vector<4xbf16>, view<16x10240xbf16>
+  %26 = vector.slice %7[24] : vector<36xbf16> -> vector<4xbf16>
+  vector.store %26, %history[%50, %channel] : vector<4xbf16>, view<16x10240xbf16>
+  %29 = vector.slice %7[28] : vector<36xbf16> -> vector<4xbf16>
+  vector.store %29, %history[%53, %channel] : vector<4xbf16>, view<16x10240xbf16>
+  %32 = vector.slice %7[32] : vector<36xbf16> -> vector<4xbf16>
+  vector.store %32, %history[%56, %channel] : vector<4xbf16>, view<16x10240xbf16>
+  func.return %loaded : vector<9x4xbf16>
+}
+
+// ====
+
+// RUN: pass target-legalize{mode=final,policy=require-native},canonicalize,cse
+
+amdgpu.target<gfx11-generic> @target
+
+// Rank-three rectangular decomposition preserves row-major coordinates across
+// both outer dimensions, including independently dynamic origins.
+func.def target(@target) @strided_rank_three(%source: view<4x5x16xi16>, %plane0: index, %row0: index, %column: index) -> (vector<2x3x4xi16>) {
+  %plane = index.assume %plane0 [range(%plane0, 0, 2)] : index
+  %row = index.assume %row0 [range(%row0, 0, 2)] : index
+  %value = vector.load %source[%plane, %row, %column] : view<4x5x16xi16> -> vector<2x3x4xi16>
+  func.return %value : vector<2x3x4xi16>
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @strided_rank_three(%source: view<4x5x16xi16>, %plane0: index, %row0: index, %column: index) -> (vector<2x3x4xi16>) {
+  %plane = index.assume %plane0 [range(%plane0, 0, 2)] : index
+  %row = index.assume %row0 [range(%row0, 0, 2)] : index
+  %8 = vector.load %source[%plane, %row, %column] : view<4x5x16xi16> -> vector<4xi16>
+  %9 = index.constant 1 : index
+  %10 = index.add %row, %9 : index
+  %11 = vector.load %source[%plane, %10, %column] : view<4x5x16xi16> -> vector<4xi16>
+  %12 = index.constant 2 : index
+  %13 = index.add %row, %12 : index
+  %14 = vector.load %source[%plane, %13, %column] : view<4x5x16xi16> -> vector<4xi16>
+  %16 = index.add %plane, %9 : index
+  %17 = vector.load %source[%16, %row, %column] : view<4x5x16xi16> -> vector<4xi16>
+  %22 = vector.load %source[%16, %10, %column] : view<4x5x16xi16> -> vector<4xi16>
+  %27 = vector.load %source[%16, %13, %column] : view<4x5x16xi16> -> vector<4xi16>
+  %30 = vector.concat<0> %8, %11 : vector<4xi16>, vector<4xi16> -> vector<8xi16>
+  %31 = vector.concat<0> %14, %17 : vector<4xi16>, vector<4xi16> -> vector<8xi16>
+  %32 = vector.concat<0> %22, %27 : vector<4xi16>, vector<4xi16> -> vector<8xi16>
+  %33 = vector.concat<0> %30, %31 : vector<8xi16>, vector<8xi16> -> vector<16xi16>
+  %34 = vector.concat<0> %33, %32 : vector<16xi16>, vector<8xi16> -> vector<24xi16>
+  %value = vector.bitcast %34 : vector<24xi16> to vector<2x3x4xi16>
+  func.return %value : vector<2x3x4xi16>
+}
+
+// ====
+
+// RUN: pass target-legalize{mode=eager,policy=require-native}
+
+amdgpu.target<gfx11-generic> @target
+
+// Dynamic coordinate arithmetic counts toward the shared expansion bound. A
+// high-rank rectangular footprint remains intact when row legalization would
+// exceed that bound.
+func.def target(@target) @bounded_strided_expansion(%source: view<4x4x4x8xi16>, %batch: index, %plane: index, %row: index, %column: index) -> (vector<3x3x3x2xi16>) {
+  %value = vector.load %source[%batch, %plane, %row, %column] : view<4x4x4x8xi16> -> vector<3x3x3x2xi16>
+  func.return %value : vector<3x3x3x2xi16>
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @bounded_strided_expansion(%source: view<4x4x4x8xi16>, %batch: index, %plane: index, %row: index, %column: index) -> (vector<3x3x3x2xi16>) {
+  %value = vector.load %source[%batch, %plane, %row, %column] : view<4x4x4x8xi16> -> vector<3x3x3x2xi16>
+  func.return %value : vector<3x3x3x2xi16>
+}

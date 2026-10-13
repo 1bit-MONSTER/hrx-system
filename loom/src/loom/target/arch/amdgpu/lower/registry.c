@@ -1945,6 +1945,7 @@ static const uint16_t kAmdgpuVectorPacketBitCounts[] = {
 
 static const loom_target_vector_packet_policy_t kAmdgpuVectorPacketPolicy = {
     .native_bit_counts = kAmdgpuVectorPacketBitCounts,
+    .flags = LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_DYNAMIC_WINDOW_REPLAY,
     .maximum_unpacketized_bit_count =
         LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES * 32u,
     .native_bit_count_count = IREE_ARRAYSIZE(kAmdgpuVectorPacketBitCounts),
