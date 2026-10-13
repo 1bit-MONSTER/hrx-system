@@ -315,11 +315,21 @@ iree_status_t iree_hal_task_device_create(
   iree_status_t status = iree_hal_task_device_select_proactor(
       device->proactor_pool, default_node_id, &device->proactor);
   if (iree_status_is_ok(status)) {
+    // The shared physical identity can name a node only when all queues are
+    // constrained to it. Service locality alone does not constrain execution.
+    iree_hal_numa_node_t numa = {.node_id = default_node_id};
+    for (iree_host_size_t i = 1;
+         i < queue_count && numa.node_id != IREE_NUMA_NODE_ANY; ++i) {
+      if (iree_task_executor_numa_node(queue_executors[i]) != numa.node_id) {
+        numa.node_id = IREE_NUMA_NODE_ANY;
+      }
+    }
     iree_hal_task_device_spec_params_t spec_params = {
         .logical_device_id = identifier,
         .display_name = identifier,
         .driver_id = IREE_SV("task"),
         .backend_id = IREE_SV("task"),
+        .numa = numa.node_id != IREE_NUMA_NODE_ANY ? &numa : NULL,
         .queue_count = queue_count,
         .default_queue_worker_count =
             iree_task_executor_worker_count(queue_executors[0]),

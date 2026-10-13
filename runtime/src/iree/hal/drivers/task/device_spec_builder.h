@@ -25,6 +25,9 @@ typedef struct iree_hal_task_device_spec_params_t {
   iree_string_view_t driver_id;
   // Backend API identifier.
   iree_string_view_t backend_id;
+  // Common physical NUMA node of all queue executors, or NULL when unknown or
+  // spanning nodes. Borrowed only during construction.
+  const iree_hal_numa_node_t* numa;
   // Number of HAL queues exposed by the task device.
   iree_host_size_t queue_count;
   // Worker count used by the default dispatch queue.
