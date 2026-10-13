@@ -54,3 +54,20 @@ iree_runtime_cc_test(
         "//runtime/src/iree/testing:gtest_main",
     ],
 )
+
+iree_runtime_cc_test(
+    name = "memory_test",
+    srcs = ["linux/memory_test.cc"],
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ] + select({
+        "//runtime/config/hal:driver_task": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        ":virtual_buffer_test_base",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)

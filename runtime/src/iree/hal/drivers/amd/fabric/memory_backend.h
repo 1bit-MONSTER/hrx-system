@@ -53,7 +53,8 @@ typedef struct iree_hal_amd_fabric_memory_storage_t {
   // Exact physical-device affinity where allocation is enforced, or zero when
   // the native allocator makes no physical placement guarantee.
   iree_hal_physical_device_affinity_t physical_device_affinity;
-  // Conservative locality properties shared by every profile in this scope.
+  // Conservative locality of ordinary allocation in this scope. Explicit host
+  // placement may select remote pages and weaken device locality.
   iree_hal_memory_type_t memory_type;
   // Native owner permissions required even when no owner family participates.
   // Private owner attachment does not publish a HAL binding or access scope.

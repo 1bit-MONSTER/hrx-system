@@ -54,4 +54,24 @@ iree_cc_test(
 )
 endif()
 
+if(IREE_ARCH STREQUAL "x86_64" AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND IREE_HAL_DRIVER_TASK)
+iree_cc_test(
+  NAME
+    memory_test
+  SRCS
+    "linux/memory_test.cc"
+  DEPS
+    ::virtual_buffer_test_base
+    iree::base::threading
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.gpu"
+    "iree-run-requirement=libamdf.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

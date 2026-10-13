@@ -246,6 +246,8 @@ typedef struct iree_hal_amd_fabric_slab_pool_query_t {
   iree_hal_pool_scope_t scope;
   // Storage acquisition, placement and preference policy.
   const iree_hal_slab_pool_options_t* options;
+  // Requested topology node, borrowed during construction; NULL for automatic.
+  const iree_hal_topology_node_t* placement_node;
   // Number of unique native consumers in canonical group order.
   uint32_t access_count;
   // Complete native access set, independent of the storage owner.
@@ -472,6 +474,29 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_emit_plan(
     const amdf_memory_profile_t* profile,
     const iree_hal_amd_fabric_import_route_t* imports) {
   iree_hal_memory_type_t memory_type = storage->memory_type;
+  amdf_memory_placement_t native_placement = {0};
+  if (profile && query->placement_node &&
+      query->placement_node->kind == IREE_HAL_TOPOLOGY_NODE_KIND_HOST_NUMA &&
+      profile->memory_class == AMDF_MEMORY_CLASS_SYSTEM &&
+      iree_any_bit_set(profile->allocation.placement_kinds,
+                       UINT32_C(1) << AMDF_MEMORY_PLACEMENT_KIND_HOST_NUMA)) {
+    placement = (iree_hal_pool_placement_t){
+        .mode = IREE_HAL_POOL_PLACEMENT_REQUIRED,
+        .node = query->placement_node->ordinal,
+    };
+    native_placement = (amdf_memory_placement_t){
+        .kind = AMDF_MEMORY_PLACEMENT_KIND_HOST_NUMA,
+        .node = query->placement_node->local_ordinal,
+    };
+    // An explicit OS node can be remote from the native consumers. Profile
+    // qualification establishes access and visibility, not device locality.
+    memory_type &= ~IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
+  }
+  if (query->options->placement.mode == IREE_HAL_POOL_PLACEMENT_REQUIRED &&
+      (placement.mode != IREE_HAL_POOL_PLACEMENT_REQUIRED ||
+       placement.node != query->options->placement.node)) {
+    return iree_ok_status();
+  }
   uint16_t binding_count = query->binding_count;
   if (profile &&
       (!iree_all_bits_set(profile->roles, AMDF_MEMORY_PROFILE_ROLE_CREATE) ||
@@ -607,6 +632,7 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_emit_plan(
           {
               .scope = storage->scope,
               .profile = profile ? *profile : (amdf_memory_profile_t){0},
+              .placement = native_placement,
               .access_count = query->access_count,
               .accesses = plan->accesses,
               .required_flags =
@@ -864,8 +890,8 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_query_storage(
   return status;
 }
 
-// Only native storage with an enforced exact physical affinity can promise a
-// group placement node. SYSTEM storage does not imply a host NUMA policy.
+// Captures enforced native physical affinity. Host NUMA placement is qualified
+// separately against each allocation profile, independently of this affinity.
 static iree_hal_pool_placement_t iree_hal_amd_fabric_memory_storage_placement(
     const iree_hal_amd_fabric_memory_backend_t* owner,
     const iree_hal_amd_fabric_memory_storage_t* storage,
@@ -1215,6 +1241,11 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_query(
       .group = group,
       .scope = scope,
       .options = options,
+      .placement_node =
+          options->placement.mode == IREE_HAL_POOL_PLACEMENT_AUTOMATIC
+              ? NULL
+              : iree_hal_topology_node_at(iree_hal_device_group_topology(group),
+                                          options->placement.node),
       .access_count = access_count,
       .accesses = accesses,
       .family_bindings = family_bindings,
@@ -1259,7 +1290,7 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_query(
   for (uint32_t i = 0; i < access_count; ++i) {
     private_owner_access |= accesses[i].requirements.access;
   }
-  // CPU-only pools still need native owner permissions for their host view.
+  // Native-backed CPU-only routes need owner permissions for their host view.
   if (!access_count &&
       (iree_any_bit_set(private_host_access, AMDF_MEMORY_MAP_FLAG_READ) ||
        iree_any_bit_set(scope.host.access, IREE_HAL_MEMORY_ACCESS_READ))) {
@@ -1330,9 +1361,21 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_query(
           iree_hal_amd_fabric_memory_storage_placement(backend, &storage,
                                                        group);
       if (options->placement.mode == IREE_HAL_POOL_PLACEMENT_REQUIRED &&
+          !(query.placement_node->kind ==
+                IREE_HAL_TOPOLOGY_NODE_KIND_HOST_NUMA &&
+            !storage.physical_device_affinity) &&
           (placement.mode != IREE_HAL_POOL_PLACEMENT_REQUIRED ||
            placement.node != options->placement.node)) {
         continue;
+      }
+      if (!storage.physical_device_affinity && !access_count) {
+        // Platform-owned host pages need no native device attachment. Keep a
+        // separate device-owned candidate for native exports and imports that
+        // the zero-consumer route cannot provide.
+        iree_hal_amd_fabric_memory_storage_t host_storage = storage;
+        host_storage.memory_type &= ~IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
+        status = iree_hal_amd_fabric_slab_pool_query_storage(
+            backend, &host_storage, placement, &query);
       }
       iree_hal_amd_fabric_slab_pool_query_t storage_query = query;
       const iree_hal_amd_fabric_memory_backend_t* allocation_owner = backend;
@@ -1360,8 +1403,10 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_query(
         // SYSTEM construction chooses from the actual native consumers.
         allocation_owner = backends[0];
       }
-      status = iree_hal_amd_fabric_slab_pool_query_storage(
-          allocation_owner, &storage, placement, &storage_query);
+      if (iree_status_is_ok(status)) {
+        status = iree_hal_amd_fabric_slab_pool_query_storage(
+            allocation_owner, &storage, placement, &storage_query);
+      }
     }
   }
   iree_allocator_free(host_allocator, scratch);

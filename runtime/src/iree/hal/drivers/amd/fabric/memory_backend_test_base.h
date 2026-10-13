@@ -20,6 +20,7 @@
 #include "iree/async/notification.h"
 #include "iree/async/proactor_platform.h"
 #include "iree/async/util/proactor_pool.h"
+#include "iree/base/threading/numa.h"
 #include "iree/hal/device_group.h"
 #include "iree/hal/drivers/amd/fabric/memory_backend.h"
 #include "iree/hal/drivers/task/device.h"
@@ -102,7 +103,6 @@ struct FakeNative {
   static void CheckAccesses(const Scope* storage, uint32_t access_count,
                             const amdf_memory_device_access_t* accesses) {
     const auto* self = storage->owner;
-    ASSERT_GT(access_count, 0u);
     ASSERT_LE(access_count, self->devices.size());
     bool owner_present = storage->memory_class == AMDF_MEMORY_CLASS_SYSTEM;
     for (uint32_t i = 0; i < access_count; ++i) {
@@ -136,9 +136,16 @@ struct FakeNative {
     out_info->kind = storage->memory_class == AMDF_MEMORY_CLASS_LOCAL
                          ? AMDF_MEMORY_SCOPE_KIND_LOCAL
                          : AMDF_MEMORY_SCOPE_KIND_SYSTEM;
-    out_info->memory_profile_count =
-        self->registration_enabled || self->native_transport_enabled ? 2 : 1;
+    out_info->memory_profile_count = self->ProfileCount(storage);
     return AMDF_STATUS_OK;
+  }
+
+  uint32_t ProfileCount(const Scope* storage) const {
+    return (registration_enabled || native_transport_enabled ? 2u : 1u) +
+           (host_placement_enabled &&
+                    storage->memory_class == AMDF_MEMORY_CLASS_SYSTEM
+                ? 1u
+                : 0u);
   }
 
   static amdf_status_t AMDF_CALL MemoryScopeQueryDeviceProfile(
@@ -151,9 +158,13 @@ struct FakeNative {
     if (storage->profile_status != AMDF_STATUS_OK) {
       return storage->profile_status;
     }
-    EXPECT_LT(
-        profile_ordinal,
-        self->registration_enabled || self->native_transport_enabled ? 2u : 1u);
+    EXPECT_LT(profile_ordinal, self->ProfileCount(storage));
+    const bool placed = self->host_placement_enabled &&
+                        storage->memory_class == AMDF_MEMORY_CLASS_SYSTEM &&
+                        profile_ordinal == self->ProfileCount(storage) - 1;
+    if (!access_count && !placed) {
+      return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+    }
     CheckAccesses(storage, access_count, accesses);
     for (uint32_t i = 0; i < access_count; ++i) {
       const auto* device = reinterpret_cast<const Device*>(accesses[i].device);
@@ -186,6 +197,10 @@ struct FakeNative {
     out_profile->allocation.maximum_alignment = UINT64_C(1) << 20;
     out_profile->allocation.native_byte_length_granularity = 4096;
     out_profile->allocation.native_byte_length_prefix = self->native_prefix;
+    if (placed) {
+      out_profile->allocation.placement_kinds =
+          UINT32_C(1) << AMDF_MEMORY_PLACEMENT_KIND_HOST_NUMA;
+    }
     out_profile->host_mapping.maximum_byte_length = UINT64_C(1) << 30;
     out_profile->host_mapping.byte_offset_granularity = 1;
     out_profile->host_mapping.byte_length_granularity = 1;
@@ -194,7 +209,7 @@ struct FakeNative {
         : self->supports_private_mapping
             ? AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE
             : AMDF_MEMORY_MAP_FLAG_READ;
-    if (profile_ordinal == 1 && self->registration_enabled) {
+    if (!placed && profile_ordinal == 1 && self->registration_enabled) {
       out_profile->roles =
           AMDF_MEMORY_PROFILE_ROLE_REGISTER | AMDF_MEMORY_PROFILE_ROLE_HOST_MAP;
       out_profile->allocation = {};
@@ -207,7 +222,7 @@ struct FakeNative {
       out_profile->registration.maximum_alignment = 4096;
       out_profile->registration.native_byte_length_granularity = 4096;
     }
-    if (self->native_transport_enabled) {
+    if (!placed && self->native_transport_enabled) {
       out_profile->roles |= AMDF_MEMORY_PROFILE_ROLE_EXPORT;
       out_profile->supported_flags |= AMDF_MEMORY_FLAG_SHAREABLE;
       out_profile->external_memory_support_count = 1;
@@ -246,9 +261,7 @@ struct FakeNative {
         query->memory_profile_ordinal == 1 && self->registration_enabled;
     const bool imported =
         query->memory_profile_ordinal == 1 && self->native_transport_enabled;
-    EXPECT_LT(
-        query->memory_profile_ordinal,
-        self->registration_enabled || self->native_transport_enabled ? 2u : 1u);
+    EXPECT_LT(query->memory_profile_ordinal, self->ProfileCount(storage));
     EXPECT_EQ(query->registered_host_cacheability,
               registered ? AMDF_HOST_CACHEABILITY_WRITE_BACK
                          : AMDF_HOST_CACHEABILITY_UNKNOWN);
@@ -347,6 +360,8 @@ struct FakeNative {
     uint64_t byte_length;
     // Identity assigned to the native allocation.
     uint64_t identity;
+    // Native placement captured for owned construction only.
+    amdf_memory_placement_t placement;
     // Whether the native object borrows application storage.
     bool registered;
     // Native attachments captured in the construction request's order.
@@ -359,17 +374,27 @@ struct FakeNative {
     auto* storage = reinterpret_cast<Scope*>(scope);
     auto* self = storage->owner;
     self->created_scope = scope;
+    self->created_profile_ordinal = info->memory_profile_ordinal;
+    self->created_placement = info->placement;
     CheckAccesses(storage, info->access_count, info->accesses);
-    self->created_accesses.assign(info->accesses,
-                                  info->accesses + info->access_count);
+    self->created_accesses.clear();
+    if (info->access_count) {
+      self->created_accesses.assign(info->accesses,
+                                    info->accesses + info->access_count);
+    }
     EXPECT_EQ(info->required_flags, self->required_flags);
     if (self->native_transport_enabled) {
       EXPECT_EQ(info->byte_length % 12288, 0u);
     }
+    const uint64_t identity = ++self->create_count;
+    if (self->create_failure != AMDF_STATUS_OK) {
+      return self->create_failure;
+    }
     auto* memory = new Memory{self,
                               info->registered_host_pointer,
                               info->byte_length,
-                              static_cast<uint64_t>(++self->create_count),
+                              identity,
+                              info->placement,
                               info->registered_host_pointer != nullptr,
                               self->created_accesses};
     if (!memory->registered) {
@@ -395,6 +420,7 @@ struct FakeNative {
                                                  amdf_memory_info_t* out_info) {
     auto* memory = reinterpret_cast<Memory*>(handle);
     out_info->byte_length = memory->byte_length;
+    out_info->placement = memory->placement;
     const uintptr_t pointer = reinterpret_cast<uintptr_t>(memory->data);
     out_info->alignment = memory->registered ? pointer & (~pointer + 1) : 4096;
     out_info->source_byte_offset =
@@ -606,6 +632,10 @@ struct FakeNative {
   std::array<Scope, 2> local_scopes = {};
   // Scope actually used to acquire the last backing allocation.
   amdf_memory_scope_t* created_scope = nullptr;
+  // Exact allocation profile selected before allocating owned storage.
+  uint32_t created_profile_ordinal = UINT32_MAX;
+  // Exact native placement passed to the latest backing construction.
+  amdf_memory_placement_t created_placement = {};
   // Exact native attachment list passed to the latest backing construction.
   std::vector<amdf_memory_device_access_t> created_accesses;
   // Whether this profile has any host mapping route.
@@ -620,8 +650,10 @@ struct FakeNative {
   // Exact permissions the device profile and allocation must receive.
   amdf_memory_access_t device_access =
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
-  // Native allocation count observed across the maintenance handoff.
+  // Native allocation attempts observed across the maintenance handoff.
   std::atomic<int> create_count{0};
+  // Native allocation failure after the pool has selected its fixed contract.
+  amdf_status_t create_failure = AMDF_STATUS_OK;
   // Native destruction count observed across the maintenance handoff.
   std::atomic<int> destroy_count{0};
   // Explicit host-view creation count.
@@ -654,6 +686,8 @@ struct FakeNative {
   bool require_device_transition = false;
   // Whether a separate host registration profile is offered.
   bool registration_enabled = false;
+  // Separate host-owned allocation profile with enforceable NUMA placement.
+  bool host_placement_enabled = false;
   // Native handle profile with device reach and unqualified CPU cache access.
   bool native_transport_enabled = false;
   // Missing native visibility qualification for the registration route.
@@ -735,8 +769,13 @@ class MemoryBackendTest : public ::testing::Test {
           iree_hal_pool_epoch_query_null(), &backends_[i]);
     }
 
+    host_node_id_ = iree_numa_node_for_current_thread();
+    ASSERT_NE(host_node_id_, IREE_NUMA_NODE_ANY);
+    iree_thread_affinity_t affinity;
+    iree_thread_affinity_set_group_any(host_node_id_, &affinity);
     iree_task_topology_t topology;
-    iree_task_topology_initialize_from_group_count(1, &topology);
+    IREE_ASSERT_OK(iree_task_topology_initialize_from_thread_affinities(
+        1, &affinity, &topology));
     iree_task_executor_options_t executor_options;
     iree_task_executor_options_initialize(&executor_options);
     iree_status_t status = iree_task_executor_create(
@@ -832,6 +871,20 @@ class MemoryBackendTest : public ::testing::Test {
     return IREE_HAL_TOPOLOGY_NODE_ORDINAL_INVALID;
   }
 
+  uint32_t HostNode() {
+    const auto* topology = iree_hal_device_group_topology(group_);
+    for (iree_host_size_t i = 0; i < iree_hal_topology_node_count(topology);
+         ++i) {
+      const auto* node = iree_hal_topology_node_at(topology, i);
+      if (node->kind == IREE_HAL_TOPOLOGY_NODE_KIND_HOST_NUMA &&
+          node->local_ordinal == host_node_id_) {
+        return node->ordinal;
+      }
+    }
+    ADD_FAILURE() << "Task device has no host NUMA topology node";
+    return IREE_HAL_TOPOLOGY_NODE_ORDINAL_INVALID;
+  }
+
   iree_hal_memory_scope_t ResolveScope(
       iree_hal_memory_site_kind_t kind,
       const iree_hal_queue_family_t* family = nullptr) {
@@ -886,6 +939,8 @@ class MemoryBackendTest : public ::testing::Test {
   std::array<const iree_hal_queue_family_t*, 2> families_ = {};
   // Real CPU participant, ordered before native devices in the group.
   iree_hal_device_t* cpu_device_ = nullptr;
+  // Real physical node shared by the CPU participant's queue workers.
+  uint32_t host_node_id_ = IREE_NUMA_NODE_ANY;
   // Existing CPU worker, allocator and proactor services.
   iree_task_executor_t* executor_ = nullptr;
   // CPU device's ordinary allocation source.
