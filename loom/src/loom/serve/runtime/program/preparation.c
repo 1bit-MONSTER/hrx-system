@@ -75,9 +75,9 @@ void loom_serve_preparation_free(loom_serve_preparation_t* preparation) {
   iree_allocator_free(allocator, preparation);
 }
 
-static iree_status_t preparation_copy_string(iree_string_view_t value,
-                                             iree_allocator_t allocator,
-                                             iree_string_view_t* out_value) {
+static iree_status_t loom_serve_preparation_copy_string(
+    iree_string_view_t value, iree_allocator_t allocator,
+    iree_string_view_t* out_value) {
   char* data = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_clone(
       allocator, iree_make_const_byte_span(value.data, value.size),
@@ -86,7 +86,7 @@ static iree_status_t preparation_copy_string(iree_string_view_t value,
   return iree_ok_status();
 }
 
-static iree_status_t preparation_string_argument(
+static iree_status_t loom_serve_preparation_string_argument(
     const iree_vm_call_packet_t* call, iree_host_size_t ordinal,
     iree_string_view_t* out_value) {
   iree_vm_ref_t ref = iree_vm_ref_null();
@@ -108,11 +108,11 @@ static iree_status_t preparation_string_argument(
   return iree_ok_status();
 }
 
-static iree_status_t preparation_add_stage(
+static iree_status_t loom_serve_preparation_add_stage(
     loom_serve_preparation_t* preparation, const iree_vm_call_packet_t* call,
     loom_serve_preparation_stage_kind_t kind) {
   iree_string_view_t root = iree_string_view_empty();
-  IREE_RETURN_IF_ERROR(preparation_string_argument(call, 0, &root));
+  IREE_RETURN_IF_ERROR(loom_serve_preparation_string_argument(call, 0, &root));
   if (!root.size || preparation->stage_count == INT32_MAX) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "preparation requires a named, addressable stage");
@@ -129,13 +129,13 @@ static iree_status_t preparation_add_stage(
   stage->declaration.kind = kind;
   stage->declaration.tag = (int64_t)iree_vm_call_value_argument_load(call, 0);
   stage->declaration.config.flags = LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED;
-  IREE_RETURN_IF_ERROR(preparation_copy_string(root, preparation->allocator,
-                                               &stage->declaration.root));
+  IREE_RETURN_IF_ERROR(loom_serve_preparation_copy_string(
+      root, preparation->allocator, &stage->declaration.root));
   iree_vm_call_value_result_store(call, 0, index);
   return iree_ok_status();
 }
 
-static iree_status_t preparation_add_config(
+static iree_status_t loom_serve_preparation_add_config(
     loom_serve_preparation_t* preparation, preparation_stage_t* stage,
     iree_string_view_t key, iree_string_view_t value) {
   if (!key.size) {
@@ -154,15 +154,15 @@ static iree_status_t preparation_add_config(
   *binding = (loomc_config_binding_t){0};
   iree_string_view_t copied = iree_string_view_empty();
   IREE_RETURN_IF_ERROR(
-      preparation_copy_string(key, preparation->allocator, &copied));
+      loom_serve_preparation_copy_string(key, preparation->allocator, &copied));
   binding->key = (loomc_string_view_t){copied.data, copied.size};
-  IREE_RETURN_IF_ERROR(
-      preparation_copy_string(value, preparation->allocator, &copied));
+  IREE_RETURN_IF_ERROR(loom_serve_preparation_copy_string(
+      value, preparation->allocator, &copied));
   binding->value = (loomc_string_view_t){copied.data, copied.size};
   return iree_ok_status();
 }
 
-static iree_status_t preparation_add_parameter(
+static iree_status_t loom_serve_preparation_add_parameter(
     loom_serve_preparation_t* preparation, preparation_stage_t* stage,
     const iree_vm_call_packet_t* call) {
   if (stage->declaration.kind != LOOM_SERVE_PREPARATION_STAGE_COMMAND) {
@@ -173,9 +173,11 @@ static iree_status_t preparation_add_parameter(
   iree_string_view_t directory = iree_string_view_empty();
   iree_string_view_t path = iree_string_view_empty();
   iree_string_view_t policy = iree_string_view_empty();
-  IREE_RETURN_IF_ERROR(preparation_string_argument(call, 0, &directory));
-  IREE_RETURN_IF_ERROR(preparation_string_argument(call, 1, &path));
-  IREE_RETURN_IF_ERROR(preparation_string_argument(call, 2, &policy));
+  IREE_RETURN_IF_ERROR(
+      loom_serve_preparation_string_argument(call, 0, &directory));
+  IREE_RETURN_IF_ERROR(loom_serve_preparation_string_argument(call, 1, &path));
+  IREE_RETURN_IF_ERROR(
+      loom_serve_preparation_string_argument(call, 2, &policy));
   const uint32_t binding = (uint32_t)iree_vm_call_value_argument_load(call, 1);
   if ((!directory.size && !path.size) || !policy.size ||
       binding == UINT32_MAX) {
@@ -202,11 +204,11 @@ static iree_status_t preparation_add_parameter(
   IREE_RETURN_IF_ERROR(
       iree_file_path_join(directory, path, preparation->allocator, &joined));
   parameter->path = iree_make_cstring_view(joined);
-  return preparation_copy_string(policy, preparation->allocator,
-                                 &parameter->policy);
+  return loom_serve_preparation_copy_string(policy, preparation->allocator,
+                                            &parameter->policy);
 }
 
-static iree_status_t preparation_module_start(
+static iree_status_t loom_serve_preparation_module_start(
     iree_vm_module_t* base,
     const iree_vm_module_function_start_params_t* params,
     iree_vm_execution_outcome_t* out_outcome) {
@@ -215,10 +217,10 @@ static iree_status_t preparation_module_start(
   const iree_vm_call_packet_t* call = &params->call;
   iree_status_t status = iree_ok_status();
   if (params->function_ordinal == 0 || params->function_ordinal == 4) {
-    status = preparation_add_stage(preparation, call,
-                                   params->function_ordinal == 4
-                                       ? LOOM_SERVE_PREPARATION_STAGE_DISPATCH
-                                       : LOOM_SERVE_PREPARATION_STAGE_COMMAND);
+    status = loom_serve_preparation_add_stage(
+        preparation, call,
+        params->function_ordinal == 4 ? LOOM_SERVE_PREPARATION_STAGE_DISPATCH
+                                      : LOOM_SERVE_PREPARATION_STAGE_COMMAND);
   } else {
     const uint32_t index = (uint32_t)iree_vm_call_value_argument_load(call, 0);
     if (index >= preparation->stage_count) {
@@ -227,10 +229,11 @@ static iree_status_t preparation_module_start(
     }
     preparation_stage_t* stage = &preparation->stages[index];
     if (params->function_ordinal == 3) {
-      status = preparation_add_parameter(preparation, stage, call);
+      status = loom_serve_preparation_add_parameter(preparation, stage, call);
     } else {
       iree_string_view_t key = iree_string_view_empty();
-      IREE_RETURN_IF_ERROR(preparation_string_argument(call, 0, &key));
+      IREE_RETURN_IF_ERROR(
+          loom_serve_preparation_string_argument(call, 0, &key));
       iree_string_view_t value = iree_string_view_empty();
       char digits[32];
       if (params->function_ordinal == 1) {
@@ -239,9 +242,11 @@ static iree_status_t preparation_module_start(
                      (int64_t)iree_vm_call_value_argument_load(call, 1));
         value = iree_make_string_view(digits, length);
       } else {
-        IREE_RETURN_IF_ERROR(preparation_string_argument(call, 1, &value));
+        IREE_RETURN_IF_ERROR(
+            loom_serve_preparation_string_argument(call, 1, &value));
       }
-      status = preparation_add_config(preparation, stage, key, value);
+      status =
+          loom_serve_preparation_add_config(preparation, stage, key, value);
     }
   }
   if (iree_status_is_ok(status)) {
@@ -300,30 +305,30 @@ static const iree_vm_module_export_declaration_t preparation_exports[] = {
      .function_ordinal = 0},
 };
 
-static void preparation_module_destroy(iree_vm_module_t* base) {
+static void loom_serve_preparation_module_destroy(iree_vm_module_t* base) {
   preparation_module_t* module = (preparation_module_t*)base;
   iree_allocator_free(module->preparation->allocator, module);
 }
 
-static void preparation_module_query_export(
+static void loom_serve_preparation_module_query_export(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
     iree_vm_module_export_declaration_t* out_value) {
   *out_value = preparation_exports[ordinal];
 }
 
-static void preparation_module_query_callable(
+static void loom_serve_preparation_module_query_callable(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
     iree_vm_module_callable_type_declaration_t* out_value) {
   *out_value = preparation_callables[ordinal];
 }
 
-static void preparation_module_query_import_group(
+static void loom_serve_preparation_module_query_import_group(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
     iree_vm_module_import_group_t* out_value) {
   IREE_CHECK_UNREACHABLE("preparation module has no imports");
 }
 
-static void preparation_module_query_import(
+static void loom_serve_preparation_module_query_import(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
     iree_vm_module_import_declaration_t* out_value) {
   IREE_CHECK_UNREACHABLE("preparation module has no imports");
@@ -332,13 +337,13 @@ static void preparation_module_query_import(
 static const iree_vm_module_vtable_t preparation_module_vtable = {
     .structure_size = sizeof(iree_vm_module_vtable_t),
     .abi_version = IREE_VM_MODULE_ABI_VERSION_0,
-    .destroy = preparation_module_destroy,
-    .function_start = preparation_module_start,
+    .destroy = loom_serve_preparation_module_destroy,
+    .function_start = loom_serve_preparation_module_start,
     .function_resume = iree_vm_module_function_resume_unreachable,
-    .query_import_group = preparation_module_query_import_group,
-    .query_import = preparation_module_query_import,
-    .query_export = preparation_module_query_export,
-    .query_callable_type = preparation_module_query_callable,
+    .query_import_group = loom_serve_preparation_module_query_import_group,
+    .query_import = loom_serve_preparation_module_query_import,
+    .query_export = loom_serve_preparation_module_query_export,
+    .query_callable_type = loom_serve_preparation_module_query_callable,
     .query_presentation = iree_vm_module_query_presentation_none,
     .metadata_by_ordinal = iree_vm_module_metadata_by_ordinal_none,
 };

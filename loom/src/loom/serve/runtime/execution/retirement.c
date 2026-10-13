@@ -13,8 +13,8 @@ void loom_serve_retirement_initialize(loom_serve_retirement_t* retirement) {
   retirement->user_data = NULL;
 }
 
-static void retirement_release_view(void* user_data,
-                                    iree_hal_buffer_t* buffer) {
+static void loom_serve_retirement_release_view(void* user_data,
+                                               iree_hal_buffer_t* buffer) {
   loom_serve_retirement_t* retirement = user_data;
   iree_slim_mutex_lock(&retirement->mutex);
   --retirement->count;
@@ -32,7 +32,8 @@ iree_status_t loom_serve_retirement_track(loom_serve_retirement_t* retirement,
   IREE_RETURN_IF_ERROR(iree_hal_subspan_buffer_create_with_callback(
       *buffer, iree_hal_buffer_byte_offset(*buffer),
       iree_hal_buffer_byte_length(*buffer),
-      (iree_hal_buffer_release_callback_t){retirement_release_view, retirement},
+      (iree_hal_buffer_release_callback_t){loom_serve_retirement_release_view,
+                                           retirement},
       host_allocator, &view));
   iree_slim_mutex_lock(&retirement->mutex);
   ++retirement->count;
@@ -58,13 +59,14 @@ bool loom_serve_retirement_is_idle(loom_serve_retirement_t* retirement) {
   return retired;
 }
 
-static bool retirement_is_idle(void* user_data) {
+static bool loom_serve_retirement_is_idle_callback(void* user_data) {
   return loom_serve_retirement_is_idle(user_data);
 }
 
 void loom_serve_retirement_await(loom_serve_retirement_t* retirement) {
-  iree_notification_await(&retirement->notification, retirement_is_idle,
-                          retirement, iree_infinite_timeout());
+  iree_notification_await(&retirement->notification,
+                          loom_serve_retirement_is_idle_callback, retirement,
+                          iree_infinite_timeout());
 }
 
 void loom_serve_retirement_deinitialize(loom_serve_retirement_t* retirement) {

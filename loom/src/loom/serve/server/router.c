@@ -132,26 +132,26 @@ typedef struct router_t {
   } retirement;
 } router_t;
 
-static loom_serve_registered_model_t* router_model_at(const router_t* router,
-                                                      iree_host_size_t index) {
+static loom_serve_registered_model_t* loom_serve_router_model_at(
+    const router_t* router, iree_host_size_t index) {
   return loom_serve_registry_at(router->registry, index);
 }
 
-static void router_wake(void* user_data) {
+static void loom_serve_router_wake(void* user_data) {
   router_t* router = user_data;
   iree_task_executor_schedule_process(router->executor, &router->process);
 }
 
-static iree_status_t router_quote(iree_string_builder_t* output,
-                                  iree_string_view_t value) {
+static iree_status_t loom_serve_router_quote(iree_string_builder_t* output,
+                                             iree_string_view_t value) {
   loom_output_stream_t stream;
   loom_output_stream_for_builder(output, &stream);
   return loom_json_write_escaped_string(&stream, value);
 }
 
-static void router_send(router_t* router,
-                        loom_serve_http_connection_t* connection,
-                        iree_string_view_t response) {
+static void loom_serve_router_send(router_t* router,
+                                   loom_serve_http_connection_t* connection,
+                                   iree_string_view_t response) {
   if (loom_serve_http_connection_failed(connection) ||
       !loom_serve_http_connection_can_send(connection)) {
     loom_serve_http_connection_abort(connection);
@@ -167,11 +167,10 @@ static void router_send(router_t* router,
   }
 }
 
-static iree_status_t router_reject(router_t* router,
-                                   loom_serve_http_connection_t* connection,
-                                   int code, const char* reason,
-                                   iree_string_view_t message,
-                                   iree_string_builder_t* output) {
+static iree_status_t loom_serve_router_reject(
+    router_t* router, loom_serve_http_connection_t* connection, int code,
+    const char* reason, iree_string_view_t message,
+    iree_string_builder_t* output) {
   iree_string_builder_reset(output);
   iree_status_t status = iree_string_builder_append_format(
       output,
@@ -179,21 +178,22 @@ static iree_status_t router_reject(router_t* router,
       "close\r\n\r\n{\"error\":{\"message\":",
       code, reason);
   if (iree_status_is_ok(status)) {
-    status = router_quote(output, message);
+    status = loom_serve_router_quote(output, message);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(
         output, ",\"type\":\"loom_route_error\"}}");
   }
   if (iree_status_is_ok(status)) {
-    router_send(router, connection, iree_string_builder_view(output));
+    loom_serve_router_send(router, connection,
+                           iree_string_builder_view(output));
   } else {
     loom_serve_http_connection_abort(connection);
   }
   return status;
 }
 
-static iree_status_t router_tokenization_run(
+static iree_status_t loom_serve_router_tokenization_run(
     iree_task_process_t* process, const iree_task_worker_context_t* context,
     iree_task_process_drain_result_t* result) {
   (void)context;
@@ -212,15 +212,16 @@ static iree_status_t router_tokenization_run(
                                     &job->output, job->allocator);
 }
 
-static void router_tokenization_completed(iree_task_process_t* process,
-                                          iree_status_t status) {
+static void loom_serve_router_tokenization_completed(
+    iree_task_process_t* process, iree_status_t status) {
   router_tokenization_t* job = process->user_data;
   iree_slim_mutex_lock(&job->mutex);
   job->status = status;
   iree_slim_mutex_unlock(&job->mutex);
 }
 
-static void router_tokenization_released(iree_task_process_t* process) {
+static void loom_serve_router_tokenization_released(
+    iree_task_process_t* process) {
   router_tokenization_t* job = process->user_data;
   iree_slim_mutex_lock(&job->mutex);
   job->released = true;
@@ -228,16 +229,16 @@ static void router_tokenization_released(iree_task_process_t* process) {
   iree_slim_mutex_unlock(&job->mutex);
 }
 
-static iree_status_t router_tokenization_accept(
+static iree_status_t loom_serve_router_tokenization_accept(
     router_t* router, iree_host_size_t service_index,
     loom_serve_http_connection_t* connection,
     const loom_serve_http_request_t* request) {
   const iree_tokenizer_t* tokenizer =
-      router_model_at(router, service_index)->service.tokenizer;
+      loom_serve_router_model_at(router, service_index)->service.tokenizer;
   if (!tokenizer) {
-    return router_reject(router, connection, 404, "Not Found",
-                         IREE_SV("model has no tokenizer capability"),
-                         &router->output);
+    return loom_serve_router_reject(
+        router, connection, 404, "Not Found",
+        IREE_SV("model has no tokenizer capability"), &router->output);
   }
   router_tokenization_t* job = NULL;
   iree_status_t status = iree_allocator_malloc_aligned(
@@ -252,21 +253,23 @@ static iree_status_t router_tokenization_accept(
   job->service_index = service_index;
   job->connection = connection;
   job->request = request;
-  job->observer = (loom_serve_wake_callback_t){router_wake, router};
+  job->observer = (loom_serve_wake_callback_t){loom_serve_router_wake, router};
   iree_slim_mutex_initialize(&job->mutex);
   iree_string_builder_initialize(router->allocator, &job->output);
-  iree_task_process_initialize(router_tokenization_run, 0, 1, &job->process);
+  iree_task_process_initialize(loom_serve_router_tokenization_run, 0, 1,
+                               &job->process);
   job->process.user_data = job;
-  job->process.completion_fn = router_tokenization_completed;
-  job->process.release_fn = router_tokenization_released;
+  job->process.completion_fn = loom_serve_router_tokenization_completed;
+  job->process.release_fn = loom_serve_router_tokenization_released;
   job->next = router->tokenizations;
   router->tokenizations = job;
-  ++router_model_at(router, service_index)->tokenizer_count;
+  ++loom_serve_router_model_at(router, service_index)->tokenizer_count;
   iree_task_executor_schedule_process(router->executor, &job->process);
   return iree_ok_status();
 }
 
-static void router_tokenizations_collect(router_t* router, bool* out_progress) {
+static void loom_serve_router_tokenizations_collect(router_t* router,
+                                                    bool* out_progress) {
   router_tokenization_t** link = &router->tokenizations;
   while (*link) {
     router_tokenization_t* job = *link;
@@ -280,7 +283,7 @@ static void router_tokenizations_collect(router_t* router, bool* out_progress) {
     *out_progress = true;
     *link = job->next;
     loom_serve_registered_model_t* model =
-        router_model_at(router, job->service_index);
+        loom_serve_router_model_at(router, job->service_index);
     --model->tokenizer_count;
     const bool cancelled =
         router->stopping || model->removal == LOOM_SERVE_REMOVAL_ABORT;
@@ -296,14 +299,15 @@ static void router_tokenizations_collect(router_t* router, bool* out_progress) {
       if (cancelled) {
         loom_serve_http_connection_abort(job->connection);
       } else {
-        response_status = router_reject(router, job->connection,
-                                        too_large ? 413
-                                        : invalid ? 400
-                                                  : 500,
-                                        too_large ? "Content Too Large"
-                                        : invalid ? "Bad Request"
-                                                  : "Internal Server Error",
-                                        message, &job->output);
+        response_status =
+            loom_serve_router_reject(router, job->connection,
+                                     too_large ? 413
+                                     : invalid ? 400
+                                               : 500,
+                                     too_large ? "Content Too Large"
+                                     : invalid ? "Bad Request"
+                                               : "Internal Server Error",
+                                     message, &job->output);
       }
       // A utility owns only independent CPU state. Its failure cannot poison
       // a model timeline or authorize cancellation of another request.
@@ -313,8 +317,8 @@ static void router_tokenizations_collect(router_t* router, bool* out_progress) {
     } else if (cancelled) {
       loom_serve_http_connection_abort(job->connection);
     } else {
-      router_send(router, job->connection,
-                  iree_string_builder_view(&job->output));
+      loom_serve_router_send(router, job->connection,
+                             iree_string_builder_view(&job->output));
     }
     router->status = iree_status_join(router->status, status);
     router->stopping |= !iree_status_is_ok(router->status);
@@ -335,9 +339,10 @@ typedef struct router_selector_t {
   iree_string_view_t mode;
 } router_selector_t;
 
-static iree_status_t router_model_visit(void* user_data, iree_string_view_t key,
-                                        iree_json_value_type_t type,
-                                        iree_string_view_t value) {
+static iree_status_t loom_serve_router_model_visit(void* user_data,
+                                                   iree_string_view_t key,
+                                                   iree_json_value_type_t type,
+                                                   iree_string_view_t value) {
   router_selector_t* selector = user_data;
   iree_string_view_t* model = &selector->model;
   if (selector->removal && iree_string_view_equal(key, IREE_SV("mode"))) {
@@ -371,9 +376,9 @@ static iree_status_t router_model_visit(void* user_data, iree_string_view_t key,
   return iree_ok_status();
 }
 
-static iree_status_t router_model(const loom_serve_http_request_t* request,
-                                  bool control, loom_serve_removal_t* removal,
-                                  iree_string_builder_t* output) {
+static iree_status_t loom_serve_router_model(
+    const loom_serve_http_request_t* request, bool control,
+    loom_serve_removal_t* removal, iree_string_builder_t* output) {
   iree_string_view_t cursor = request->body;
   iree_string_view_t object;
   router_selector_t selector = {.control = control, .removal = removal};
@@ -383,8 +388,8 @@ static iree_status_t router_model(const loom_serve_http_request_t* request,
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "trailing request JSON");
   }
-  IREE_RETURN_IF_ERROR(
-      iree_json_enumerate_object_typed(object, router_model_visit, &selector));
+  IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
+      object, loom_serve_router_model_visit, &selector));
   const iree_string_view_t model = selector.model;
   if (!model.size) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -401,15 +406,16 @@ static iree_status_t router_model(const loom_serve_http_request_t* request,
   return iree_ok_status();
 }
 
-static loom_serve_http_service_flags_t router_service_flags(
+static loom_serve_http_service_flags_t loom_serve_router_service_flags(
     const router_t* router, iree_host_size_t selected) {
   const void* capacity_domain =
-      router_model_at(router, selected)->service.capacity_domain;
+      loom_serve_router_model_at(router, selected)->service.capacity_domain;
   if (!capacity_domain) {
     return 0;
   }
   for (iree_host_size_t i = 0; i < router->capacity; ++i) {
-    const loom_serve_registered_model_t* model = router_model_at(router, i);
+    const loom_serve_registered_model_t* model =
+        loom_serve_router_model_at(router, i);
     if (i == selected || model->service.capacity_domain != capacity_domain) {
       continue;
     }
@@ -426,7 +432,7 @@ static loom_serve_http_service_flags_t router_service_flags(
   return 0;
 }
 
-static const char* router_admission_phase(
+static const char* loom_serve_router_admission_phase(
     const loom_serve_registered_model_t* state,
     const loom_serve_http_service_snapshot_t* snapshot) {
   if (state->removal) {
@@ -441,7 +447,7 @@ static const char* router_admission_phase(
              : "drained";
 }
 
-static loom_serve_http_service_snapshot_t router_snapshot(
+static loom_serve_http_service_snapshot_t loom_serve_router_snapshot(
     const loom_serve_registered_model_t* model) {
   return model->phase == LOOM_SERVE_REGISTRATION_READY
              ? model->service.snapshot(model->service.self)
@@ -449,7 +455,7 @@ static loom_serve_http_service_snapshot_t router_snapshot(
                    .phase = loom_serve_registry_phase(model)};
 }
 
-static iree_status_t router_describe_parameters(
+static iree_status_t loom_serve_router_describe_parameters(
     const loom_serve_registered_model_t* model, iree_string_builder_t* output) {
   const loom_serve_residency_snapshot_t state =
       model->registration.parameters(model->registration.self);
@@ -467,7 +473,7 @@ static iree_status_t router_describe_parameters(
   return iree_string_builder_append_cstring(output, "}");
 }
 
-static iree_status_t router_describe_modalities(
+static iree_status_t loom_serve_router_describe_modalities(
     const char* key, iree_string_view_list_t modalities,
     iree_string_builder_t* output) {
   if (!modalities.count) {
@@ -482,7 +488,7 @@ static iree_status_t router_describe_modalities(
       status = iree_string_builder_append_cstring(output, ",");
     }
     if (iree_status_is_ok(status)) {
-      status = router_quote(output, modalities.values[i]);
+      status = loom_serve_router_quote(output, modalities.values[i]);
     }
   }
   if (iree_status_is_ok(status)) {
@@ -491,19 +497,19 @@ static iree_status_t router_describe_modalities(
   return status;
 }
 
-static iree_status_t router_describe_service(
+static iree_status_t loom_serve_router_describe_service(
     const loom_serve_registered_model_t* admission, bool include_status,
     iree_string_builder_t* output) {
   const loom_serve_http_service_t* service = &admission->service;
   IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(
       output, "{\"object\":\"model\",\"id\":"));
-  IREE_RETURN_IF_ERROR(router_quote(output, service->name));
+  IREE_RETURN_IF_ERROR(loom_serve_router_quote(output, service->name));
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output, ",\"created\":%" PRId64 ",\"owned_by\":\"local\"",
       admission->registration_time / 1000000000));
-  IREE_RETURN_IF_ERROR(router_describe_modalities(
+  IREE_RETURN_IF_ERROR(loom_serve_router_describe_modalities(
       "input_modalities", service->capabilities.input_modalities, output));
-  IREE_RETURN_IF_ERROR(router_describe_modalities(
+  IREE_RETURN_IF_ERROR(loom_serve_router_describe_modalities(
       "output_modalities", service->capabilities.output_modalities, output));
   if (service->capabilities.context_length) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
@@ -518,11 +524,11 @@ static iree_status_t router_describe_service(
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_cstring(output, ",\"loom\":{\"kind\":"));
   IREE_RETURN_IF_ERROR(
-      router_quote(output, iree_make_cstring_view(service->kind)));
+      loom_serve_router_quote(output, iree_make_cstring_view(service->kind)));
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_cstring(output, ",\"endpoint\":"));
-  IREE_RETURN_IF_ERROR(
-      router_quote(output, iree_make_cstring_view(service->endpoint)));
+  IREE_RETURN_IF_ERROR(loom_serve_router_quote(
+      output, iree_make_cstring_view(service->endpoint)));
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output, ",\"tokenize\":%s", service->tokenizer ? "true" : "false"));
   if (admission->incarnation) {
@@ -537,8 +543,8 @@ static iree_status_t router_describe_service(
       IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
           output, ",\"error\":{\"code\":%d,\"message\":",
           iree_status_code(admission->status)));
-      IREE_RETURN_IF_ERROR(
-          router_quote(output, iree_status_message(admission->status)));
+      IREE_RETURN_IF_ERROR(loom_serve_router_quote(
+          output, iree_status_message(admission->status)));
       IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(output, "}"));
     }
     const loom_serve_compilation_report_t* report = &admission->compilation;
@@ -561,13 +567,15 @@ static iree_status_t router_describe_service(
     }
     if (admission->phase == LOOM_SERVE_REGISTRATION_READY &&
         admission->registration.parameters) {
-      IREE_RETURN_IF_ERROR(router_describe_parameters(admission, output));
+      IREE_RETURN_IF_ERROR(
+          loom_serve_router_describe_parameters(admission, output));
     }
-    const loom_serve_http_service_snapshot_t state = router_snapshot(admission);
+    const loom_serve_http_service_snapshot_t state =
+        loom_serve_router_snapshot(admission);
     IREE_RETURN_IF_ERROR(
         iree_string_builder_append_cstring(output, ",\"status\":{\"phase\":"));
     IREE_RETURN_IF_ERROR(
-        router_quote(output, iree_make_cstring_view(state.phase)));
+        loom_serve_router_quote(output, iree_make_cstring_view(state.phase)));
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         output,
         ",\"queued_requests\":%zu,\"active_requests\":%zu,"
@@ -576,14 +584,14 @@ static iree_status_t router_describe_service(
         "\"tokenizer_requests\":%zu}",
         state.queued_requests, state.active_requests,
         state.oldest_queued_age / 1e9, state.oldest_active_age / 1e9,
-        router_admission_phase(admission, &state), admission->held_count,
-        admission->tokenizer_count));
+        loom_serve_router_admission_phase(admission, &state),
+        admission->held_count, admission->tokenizer_count));
   }
   return iree_string_builder_append_cstring(output, "}}");
 }
 
-static iree_status_t router_describe_server(const router_t* router,
-                                            iree_string_builder_t* output) {
+static iree_status_t loom_serve_router_describe_server(
+    const router_t* router, iree_string_builder_t* output) {
   const loom_serve_http_request_limits_t limits =
       loom_serve_http_server_request_limits(router->server);
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
@@ -608,8 +616,8 @@ static iree_status_t router_describe_server(const router_t* router,
 
 // Prometheus labels preserve UTF-8 and escape only backslash, quote and LF.
 // JSON escaping is different for control characters and Unicode separators.
-static iree_status_t router_metric_label(iree_string_builder_t* output,
-                                         iree_string_view_t value) {
+static iree_status_t loom_serve_router_metric_label(
+    iree_string_builder_t* output, iree_string_view_t value) {
   iree_status_t status = iree_string_builder_append_cstring(output, "\"");
   iree_host_size_t start = 0;
   for (iree_host_size_t i = 0; i < value.size && iree_status_is_ok(status);
@@ -645,14 +653,14 @@ static iree_status_t router_metric_label(iree_string_builder_t* output,
   return status;
 }
 
-static iree_status_t router_metric_identity(
+static iree_status_t loom_serve_router_metric_identity(
     iree_string_builder_t* output, const loom_serve_registered_model_t* model) {
   const loom_serve_http_service_t* service = &model->service;
   IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(output, "model="));
-  IREE_RETURN_IF_ERROR(router_metric_label(output, service->name));
+  IREE_RETURN_IF_ERROR(loom_serve_router_metric_label(output, service->name));
   IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(output, ",kind="));
-  IREE_RETURN_IF_ERROR(
-      router_metric_label(output, iree_make_cstring_view(service->kind)));
+  IREE_RETURN_IF_ERROR(loom_serve_router_metric_label(
+      output, iree_make_cstring_view(service->kind)));
   if (model->incarnation) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         output, ",incarnation=\"%" PRIu64 "\"", model->incarnation));
@@ -660,7 +668,7 @@ static iree_status_t router_metric_identity(
   return iree_ok_status();
 }
 
-static iree_status_t router_metric_sample(
+static iree_status_t loom_serve_router_metric_sample(
     iree_string_builder_t* output, const char* metric,
     const loom_serve_registered_model_t* model, const char* phase,
     double value) {
@@ -669,11 +677,11 @@ static iree_status_t router_metric_sample(
   }
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output, "loom_serve_model_%s{", metric));
-  IREE_RETURN_IF_ERROR(router_metric_identity(output, model));
+  IREE_RETURN_IF_ERROR(loom_serve_router_metric_identity(output, model));
   if (phase) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(output, ",phase="));
     IREE_RETURN_IF_ERROR(
-        router_metric_label(output, iree_make_cstring_view(phase)));
+        loom_serve_router_metric_label(output, iree_make_cstring_view(phase)));
   }
   return iree_string_builder_append_format(output, "} %.9g\n", value);
 }
@@ -707,13 +715,13 @@ static const router_counter_field_t router_counter_fields[] = {
      offsetof(loom_serve_telemetry_counters_t, batches)},
 };
 
-static uint64_t router_counter_value(
+static uint64_t loom_serve_router_counter_value(
     const loom_serve_telemetry_counters_t* counters,
     const router_counter_field_t* field) {
   return *(const uint64_t*)((const uint8_t*)counters + field->offset);
 }
 
-static iree_status_t router_metric_counters(router_t* router) {
+static iree_status_t loom_serve_router_metric_counters(router_t* router) {
   iree_string_builder_t* output = &router->output;
   loom_serve_telemetry_counters_t total;
   const bool available = loom_serve_registry_counters(router->registry, &total);
@@ -732,17 +740,18 @@ static iree_status_t router_metric_counters(router_t* router) {
         "# TYPE loom_serve_model_%s_total counter\n",
         field->name, field->description, field->name));
     for (iree_host_size_t i = 0; i < router->capacity; ++i) {
-      const loom_serve_registered_model_t* model = router_model_at(router, i);
+      const loom_serve_registered_model_t* model =
+          loom_serve_router_model_at(router, i);
       const loom_serve_http_service_t* service = &model->service;
       if (!service->telemetry.counters) {
         continue;
       }
       IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
           output, "loom_serve_model_%s_total{", field->name));
-      IREE_RETURN_IF_ERROR(router_metric_identity(output, model));
+      IREE_RETURN_IF_ERROR(loom_serve_router_metric_identity(output, model));
       IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
           output, "} %" PRIu64 "\n",
-          router_counter_value(service->telemetry.counters, field)));
+          loom_serve_router_counter_value(service->telemetry.counters, field)));
     }
     if (available) {
       IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
@@ -751,16 +760,17 @@ static iree_status_t router_metric_counters(router_t* router) {
           "# TYPE loom_serve_server_%s_total counter\n"
           "loom_serve_server_%s_total %" PRIu64 "\n",
           field->name, field->description, field->name, field->name,
-          router_counter_value(&total, field)));
+          loom_serve_router_counter_value(&total, field)));
     }
   }
   return iree_ok_status();
 }
 
-static iree_status_t router_metrics(router_t* router) {
+static iree_status_t loom_serve_router_metrics(router_t* router) {
   for (iree_host_size_t i = 0; i < router->capacity; ++i) {
-    loom_serve_registered_model_t* model = router_model_at(router, i);
-    model->snapshot = router_snapshot(model);
+    loom_serve_registered_model_t* model =
+        loom_serve_router_model_at(router, i);
+    model->snapshot = loom_serve_router_snapshot(model);
   }
   iree_string_builder_t* output = &router->output;
   iree_string_builder_reset(output);
@@ -774,9 +784,11 @@ static iree_status_t router_metrics(router_t* router) {
       "# TYPE loom_serve_model_queued_requests gauge\n");
   for (iree_host_size_t i = 0;
        i < router->capacity && iree_status_is_ok(status); ++i) {
-    const loom_serve_registered_model_t* model = router_model_at(router, i);
-    status = router_metric_sample(output, "queued_requests", model, NULL,
-                                  model->snapshot.queued_requests);
+    const loom_serve_registered_model_t* model =
+        loom_serve_router_model_at(router, i);
+    status =
+        loom_serve_router_metric_sample(output, "queued_requests", model, NULL,
+                                        model->snapshot.queued_requests);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(
@@ -787,9 +799,11 @@ static iree_status_t router_metrics(router_t* router) {
   }
   for (iree_host_size_t i = 0;
        i < router->capacity && iree_status_is_ok(status); ++i) {
-    const loom_serve_registered_model_t* model = router_model_at(router, i);
-    status = router_metric_sample(output, "active_requests", model, NULL,
-                                  model->snapshot.active_requests);
+    const loom_serve_registered_model_t* model =
+        loom_serve_router_model_at(router, i);
+    status =
+        loom_serve_router_metric_sample(output, "active_requests", model, NULL,
+                                        model->snapshot.active_requests);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(
@@ -799,9 +813,10 @@ static iree_status_t router_metrics(router_t* router) {
   }
   for (iree_host_size_t i = 0;
        i < router->capacity && iree_status_is_ok(status); ++i) {
-    const loom_serve_registered_model_t* model = router_model_at(router, i);
-    status =
-        router_metric_sample(output, "phase", model, model->snapshot.phase, 1);
+    const loom_serve_registered_model_t* model =
+        loom_serve_router_model_at(router, i);
+    status = loom_serve_router_metric_sample(output, "phase", model,
+                                             model->snapshot.phase, 1);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(
@@ -813,10 +828,11 @@ static iree_status_t router_metrics(router_t* router) {
   }
   for (iree_host_size_t i = 0;
        i < router->capacity && iree_status_is_ok(status); ++i) {
-    const loom_serve_registered_model_t* model = router_model_at(router, i);
-    status =
-        router_metric_sample(output, "oldest_queued_age_seconds", model, NULL,
-                             model->snapshot.oldest_queued_age / 1e9);
+    const loom_serve_registered_model_t* model =
+        loom_serve_router_model_at(router, i);
+    status = loom_serve_router_metric_sample(
+        output, "oldest_queued_age_seconds", model, NULL,
+        model->snapshot.oldest_queued_age / 1e9);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(
@@ -829,10 +845,11 @@ static iree_status_t router_metrics(router_t* router) {
   }
   for (iree_host_size_t i = 0;
        i < router->capacity && iree_status_is_ok(status); ++i) {
-    const loom_serve_registered_model_t* model = router_model_at(router, i);
-    status =
-        router_metric_sample(output, "oldest_active_age_seconds", model, NULL,
-                             model->snapshot.oldest_active_age / 1e9);
+    const loom_serve_registered_model_t* model =
+        loom_serve_router_model_at(router, i);
+    status = loom_serve_router_metric_sample(
+        output, "oldest_active_age_seconds", model, NULL,
+        model->snapshot.oldest_active_age / 1e9);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(
@@ -846,23 +863,24 @@ static iree_status_t router_metrics(router_t* router) {
   }
   for (iree_host_size_t i = 0;
        i < router->capacity && iree_status_is_ok(status); ++i) {
-    const loom_serve_registered_model_t* model = router_model_at(router, i);
-    status = router_metric_sample(output, "held_requests", model, NULL,
-                                  model->held_count);
+    const loom_serve_registered_model_t* model =
+        loom_serve_router_model_at(router, i);
+    status = loom_serve_router_metric_sample(output, "held_requests", model,
+                                             NULL, model->held_count);
     if (iree_status_is_ok(status)) {
-      status = router_metric_sample(output, "admission_open", model, NULL,
-                                    !model->closed);
+      status = loom_serve_router_metric_sample(output, "admission_open", model,
+                                               NULL, !model->closed);
     }
   }
   if (iree_status_is_ok(status)) {
-    status = router_metric_counters(router);
+    status = loom_serve_router_metric_counters(router);
   }
   return status;
 }
 
-static iree_status_t router_logs(router_t* router,
-                                 loom_serve_http_connection_t* connection,
-                                 const loom_serve_http_request_t* request) {
+static iree_status_t loom_serve_router_logs(
+    router_t* router, loom_serve_http_connection_t* connection,
+    const loom_serve_http_request_t* request) {
   const bool streaming =
       iree_string_view_equal(request->target, IREE_SV("/logz/stream"));
   iree_host_size_t service_index = router->capacity;
@@ -876,7 +894,7 @@ static iree_status_t router_logs(router_t* router,
     const loom_serve_http_service_t* service = NULL;
     for (iree_host_size_t i = 0; i < router->capacity; ++i) {
       const loom_serve_http_service_t* candidate =
-          &router_model_at(router, i)->service;
+          &loom_serve_router_model_at(router, i)->service;
       if (candidate->name.size &&
           iree_string_view_equal(name, candidate->name)) {
         service = candidate;
@@ -885,13 +903,14 @@ static iree_status_t router_logs(router_t* router,
       }
     }
     if (!service) {
-      return router_reject(router, connection, 404, "Not Found",
-                           IREE_SV("model is not registered"), &router->output);
+      return loom_serve_router_reject(router, connection, 404, "Not Found",
+                                      IREE_SV("model is not registered"),
+                                      &router->output);
     }
     if (!service->telemetry.stream) {
-      return router_reject(router, connection, 501, "Not Implemented",
-                           IREE_SV("model service has no telemetry stream"),
-                           &router->output);
+      return loom_serve_router_reject(
+          router, connection, 501, "Not Implemented",
+          IREE_SV("model service has no telemetry stream"), &router->output);
     }
     stream = service->telemetry.stream;
     counters = service->telemetry.counters;
@@ -907,9 +926,9 @@ static iree_status_t router_logs(router_t* router,
                                           &previous);
     if (cursor.size && previous.size &&
         !iree_string_view_equal(cursor, previous)) {
-      return router_reject(router, connection, 400, "Bad Request",
-                           IREE_SV("conflicting telemetry resume cursors"),
-                           &router->output);
+      return loom_serve_router_reject(
+          router, connection, 400, "Bad Request",
+          IREE_SV("conflicting telemetry resume cursors"), &router->output);
     }
     if (previous.size) {
       cursor = previous;
@@ -920,18 +939,18 @@ static iree_status_t router_logs(router_t* router,
   if (!iree_status_is_ok(status)) {
     const bool stale = iree_status_is_failed_precondition(status);
     iree_status_t response_status =
-        router_reject(router, connection, stale ? 409 : 400,
-                      stale ? "Conflict" : "Bad Request",
-                      iree_status_message(status), &router->output);
+        loom_serve_router_reject(router, connection, stale ? 409 : 400,
+                                 stale ? "Conflict" : "Bad Request",
+                                 iree_status_message(status), &router->output);
     // The HTTP error owns the copied diagnostic before this status retires.
     iree_status_free(status);
     return response_status;
   }
   if (streaming) {
     if (router->logs.count + router->held.count == router->logs.capacity) {
-      return router_reject(router, connection, 429, "Too Many Requests",
-                           IREE_SV("observation and holding capacity is full"),
-                           &router->output);
+      return loom_serve_router_reject(
+          router, connection, 429, "Too Many Requests",
+          IREE_SV("observation and holding capacity is full"), &router->output);
     }
     for (iree_host_size_t i = 0; i < router->logs.capacity; ++i) {
       if (!router->logs.values[i].connection) {
@@ -951,7 +970,8 @@ static iree_status_t router_logs(router_t* router,
                                        LOOM_SERVE_HTTP_LOGS_FLAG_HEADERS,
                                        &position, &router->output);
   if (iree_status_is_ok(status)) {
-    router_send(router, connection, iree_string_builder_view(&router->output));
+    loom_serve_router_send(router, connection,
+                           iree_string_builder_view(&router->output));
   } else {
     loom_serve_http_connection_abort(connection);
   }
@@ -960,7 +980,8 @@ static iree_status_t router_logs(router_t* router,
 
 // Observation never owns a model or stream across turns. Native removal may
 // reclaim and reuse the recorded registry slot while this peer has no credit.
-static iree_status_t router_logs_advance(router_t* router, bool* out_progress) {
+static iree_status_t loom_serve_router_logs_advance(router_t* router,
+                                                    bool* out_progress) {
   if (!router->logs.count) {
     return iree_ok_status();
   }
@@ -994,7 +1015,7 @@ static iree_status_t router_logs_advance(router_t* router, bool* out_progress) {
         total_available ? &total : NULL;
     if (reader->service_index < router->capacity) {
       const loom_serve_http_service_t* service =
-          &router_model_at(router, reader->service_index)->service;
+          &loom_serve_router_model_at(router, reader->service_index)->service;
       stream = service->telemetry.stream;
       counters = service->telemetry.counters;
     }
@@ -1073,36 +1094,38 @@ static iree_status_t router_logs_advance(router_t* router, bool* out_progress) {
   return status;
 }
 
-static iree_status_t router_admit(router_t* router,
-                                  iree_host_size_t service_index,
-                                  loom_serve_http_connection_t* connection,
-                                  const loom_serve_http_request_t* request) {
+static iree_status_t loom_serve_router_admit(
+    router_t* router, iree_host_size_t service_index,
+    loom_serve_http_connection_t* connection,
+    const loom_serve_http_request_t* request) {
   if (iree_string_view_equal(request->method, IREE_SV("POST")) &&
       (iree_string_view_equal(request->target, IREE_SV("/tokenize")) ||
        iree_string_view_equal(request->target, IREE_SV("/detokenize")))) {
-    return router_tokenization_accept(router, service_index, connection,
-                                      request);
+    return loom_serve_router_tokenization_accept(router, service_index,
+                                                 connection, request);
   }
   const loom_serve_http_service_t* service =
-      &router_model_at(router, service_index)->service;
-  return service->accept(service->self, connection, request,
-                         router_service_flags(router, service_index));
+      &loom_serve_router_model_at(router, service_index)->service;
+  return service->accept(
+      service->self, connection, request,
+      loom_serve_router_service_flags(router, service_index));
 }
 
-static void router_held_collect(router_t* router, bool* out_progress) {
+static void loom_serve_router_held_collect(router_t* router,
+                                           bool* out_progress) {
   iree_host_size_t remaining = 0;
   iree_host_size_t admitted = 0;
   for (iree_host_size_t i = 0; i < router->held.count; ++i) {
     const router_held_request_t entry = router->held.values[i];
     loom_serve_registered_model_t* state =
-        router_model_at(router, entry.service_index);
+        loom_serve_router_model_at(router, entry.service_index);
     if (router->stopping ||
         loom_serve_http_connection_failed(entry.connection)) {
       loom_serve_http_connection_abort(entry.connection);
     } else if (state->removal || !iree_status_is_ok(state->status)) {
       router->status = iree_status_join(
           router->status,
-          router_reject(
+          loom_serve_router_reject(
               router, entry.connection, state->removal ? 410 : 503,
               state->removal ? "Gone" : "Service Unavailable",
               state->removal
@@ -1114,8 +1137,9 @@ static void router_held_collect(router_t* router, bool* out_progress) {
                state->phase == LOOM_SERVE_REGISTRATION_READY &&
                admitted < router->request_capacity) {
       router->status = iree_status_join(
-          router->status, router_admit(router, entry.service_index,
-                                       entry.connection, entry.request));
+          router->status,
+          loom_serve_router_admit(router, entry.service_index, entry.connection,
+                                  entry.request));
       router->stopping |= !iree_status_is_ok(router->status);
       ++admitted;
     } else {
@@ -1128,10 +1152,9 @@ static void router_held_collect(router_t* router, bool* out_progress) {
   router->held.count = remaining;
 }
 
-static iree_status_t router_control(router_t* router,
-                                    iree_host_size_t service_index,
-                                    loom_serve_http_connection_t* connection,
-                                    int code) {
+static iree_status_t loom_serve_router_control(
+    router_t* router, iree_host_size_t service_index,
+    loom_serve_http_connection_t* connection, int code) {
   iree_string_builder_t* output = &router->output;
   iree_string_builder_reset(output);
   iree_status_t status = iree_string_builder_append_format(
@@ -1140,11 +1163,12 @@ static iree_status_t router_control(router_t* router,
       "Connection: close\r\n\r\n",
       code, code == 202 ? "Accepted" : "OK");
   if (iree_status_is_ok(status)) {
-    status = router_describe_service(router_model_at(router, service_index),
-                                     true, output);
+    status = loom_serve_router_describe_service(
+        loom_serve_router_model_at(router, service_index), true, output);
   }
   if (iree_status_is_ok(status)) {
-    router_send(router, connection, iree_string_builder_view(output));
+    loom_serve_router_send(router, connection,
+                           iree_string_builder_view(output));
   } else {
     loom_serve_http_connection_abort(connection);
   }
@@ -1152,7 +1176,7 @@ static iree_status_t router_control(router_t* router,
 }
 
 // A management error is terminal for this operation, not the serving process.
-static iree_status_t router_management_error(
+static iree_status_t loom_serve_router_management_error(
     router_t* router, loom_serve_http_connection_t* connection,
     iree_status_t status) {
   int code = 500;
@@ -1181,15 +1205,15 @@ static iree_status_t router_management_error(
   }
   loom_serve_http_server_record_error(router->server, status);
   iree_status_t response =
-      router_reject(router, connection, code, reason,
-                    iree_status_message(status), &router->output);
+      loom_serve_router_reject(router, connection, code, reason,
+                               iree_status_message(status), &router->output);
   iree_status_free(status);
   return response;
 }
 
-static iree_status_t router_register(router_t* router,
-                                     loom_serve_http_connection_t* connection,
-                                     const loom_serve_http_request_t* request) {
+static iree_status_t loom_serve_router_register(
+    router_t* router, loom_serve_http_connection_t* connection,
+    const loom_serve_http_request_t* request) {
   loom_serve_model_configuration_t configuration;
   iree_status_t status = loom_serve_model_configuration_initialize(
       request->body, iree_string_view_empty(), &configuration,
@@ -1201,20 +1225,20 @@ static iree_status_t router_register(router_t* router,
   }
   loom_serve_model_configuration_deinitialize(&configuration);
   if (!iree_status_is_ok(status)) {
-    return router_management_error(router, connection, status);
+    return loom_serve_router_management_error(router, connection, status);
   }
-  return router_control(router, index, connection, 202);
+  return loom_serve_router_control(router, index, connection, 202);
 }
 
-static iree_status_t router_trim(router_t* router,
-                                 loom_serve_http_connection_t* connection,
-                                 const loom_serve_http_request_t* request) {
+static iree_status_t loom_serve_router_trim(
+    router_t* router, loom_serve_http_connection_t* connection,
+    const loom_serve_http_request_t* request) {
   iree_host_size_t device_index = 0;
   uint64_t target_bytes = 0;
   iree_status_t status = loom_serve_resources_parse_trim(
       &router->resources, request->body, &device_index, &target_bytes);
   if (!iree_status_is_ok(status)) {
-    return router_management_error(router, connection, status);
+    return loom_serve_router_management_error(router, connection, status);
   }
   iree_string_builder_reset(&router->output);
   status = iree_string_builder_append_cstring(
@@ -1228,7 +1252,8 @@ static iree_status_t router_trim(router_t* router,
                                        target_bytes, &output);
   }
   if (iree_status_is_ok(status)) {
-    router_send(router, connection, iree_string_builder_view(&router->output));
+    loom_serve_router_send(router, connection,
+                           iree_string_builder_view(&router->output));
   } else {
     // A partial physical release is terminal for shared backing, not just this
     // request. Propagate to ordinary owner draining before admitting more work.
@@ -1237,15 +1262,15 @@ static iree_status_t router_trim(router_t* router,
   return status;
 }
 
-static iree_status_t router_inspect(router_t* router,
-                                    loom_serve_http_connection_t* connection,
-                                    const loom_serve_http_request_t* request,
-                                    loom_serve_http_inspection_kind_t kind) {
+static iree_status_t loom_serve_router_inspect(
+    router_t* router, loom_serve_http_connection_t* connection,
+    const loom_serve_http_request_t* request,
+    loom_serve_http_inspection_kind_t kind) {
   iree_string_view_t name;
   if (!loom_serve_http_request_lookup_header(request, IREE_SV("X-Loom-Model"),
                                              &name) ||
       !name.size || request->body.size) {
-    return router_reject(
+    return loom_serve_router_reject(
         router, connection, 400, "Bad Request",
         IREE_SV("inspection requires X-Loom-Model and no body"),
         &router->output);
@@ -1255,25 +1280,27 @@ static iree_status_t router_inspect(router_t* router,
   if (loom_serve_http_request_lookup_header(request, IREE_SV("X-Loom-Offset"),
                                             &offset_value) &&
       !loom_serve_http_inspection_offset(offset_value, &offset)) {
-    return router_reject(
+    return loom_serve_router_reject(
         router, connection, 400, "Bad Request",
         IREE_SV("X-Loom-Offset must be an unsigned decimal index"),
         &router->output);
   }
   loom_serve_registered_model_t* model = NULL;
   for (iree_host_size_t i = 0; i < router->capacity; ++i) {
-    loom_serve_registered_model_t* candidate = router_model_at(router, i);
+    loom_serve_registered_model_t* candidate =
+        loom_serve_router_model_at(router, i);
     if (iree_string_view_equal(name, candidate->service.name)) {
       model = candidate;
       break;
     }
   }
   if (!model) {
-    return router_reject(router, connection, 404, "Not Found",
-                         IREE_SV("model is not registered"), &router->output);
+    return loom_serve_router_reject(router, connection, 404, "Not Found",
+                                    IREE_SV("model is not registered"),
+                                    &router->output);
   }
   if (model->phase != LOOM_SERVE_REGISTRATION_READY) {
-    return router_reject(
+    return loom_serve_router_reject(
         router, connection, 409, "Conflict",
         IREE_SV("model has no live service; inspect /v1/status"),
         &router->output);
@@ -1281,7 +1308,7 @@ static iree_status_t router_inspect(router_t* router,
   const loom_serve_http_inspection_t* inspection = &model->service.inspection;
   if (kind == LOOM_SERVE_HTTP_INSPECT_REQUESTS ? !inspection->request_at
                                                : !inspection->session_at) {
-    return router_reject(
+    return loom_serve_router_reject(
         router, connection, 501, "Not Implemented",
         IREE_SV("model service does not expose this inventory"),
         &router->output);
@@ -1295,7 +1322,7 @@ static iree_status_t router_inspect(router_t* router,
       "Cache-Control: no-store\r\nConnection: close\r\n\r\n"
       "{\"object\":\"list\",\"model\":");
   if (iree_status_is_ok(status)) {
-    status = router_quote(output, name);
+    status = loom_serve_router_quote(output, name);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_format(
@@ -1324,37 +1351,39 @@ static iree_status_t router_inspect(router_t* router,
     status = iree_string_builder_append_cstring(output, "}");
   }
   if (iree_status_is_ok(status)) {
-    router_send(router, connection, iree_string_builder_view(output));
+    loom_serve_router_send(router, connection,
+                           iree_string_builder_view(output));
   } else {
     loom_serve_http_connection_abort(connection);
   }
   return status;
 }
 
-static iree_status_t router_accept(router_t* router,
-                                   loom_serve_http_connection_t* connection,
-                                   const loom_serve_http_request_t* request) {
+static iree_status_t loom_serve_router_accept(
+    router_t* router, loom_serve_http_connection_t* connection,
+    const loom_serve_http_request_t* request) {
   const iree_host_size_t service_count =
       loom_serve_registry_count(router->registry);
   iree_string_builder_t* output = &router->output;
   const bool get = iree_string_view_equal(request->method, IREE_SV("GET"));
   if (get && iree_string_view_equal(request->target, IREE_SV("/v1/requests"))) {
-    return router_inspect(router, connection, request,
-                          LOOM_SERVE_HTTP_INSPECT_REQUESTS);
+    return loom_serve_router_inspect(router, connection, request,
+                                     LOOM_SERVE_HTTP_INSPECT_REQUESTS);
   }
   if (get && iree_string_view_equal(request->target, IREE_SV("/v1/sessions"))) {
-    return router_inspect(router, connection, request,
-                          LOOM_SERVE_HTTP_INSPECT_SESSIONS);
+    return loom_serve_router_inspect(router, connection, request,
+                                     LOOM_SERVE_HTTP_INSPECT_SESSIONS);
   }
   if (get &&
       (iree_string_view_equal(request->target, IREE_SV("/logz")) ||
        iree_string_view_equal(request->target, IREE_SV("/logz/stream")))) {
-    return router_logs(router, connection, request);
+    return loom_serve_router_logs(router, connection, request);
   }
   if (get && iree_string_view_equal(request->target, IREE_SV("/metrics"))) {
-    iree_status_t status = router_metrics(router);
+    iree_status_t status = loom_serve_router_metrics(router);
     if (iree_status_is_ok(status)) {
-      router_send(router, connection, iree_string_builder_view(output));
+      loom_serve_router_send(router, connection,
+                             iree_string_builder_view(output));
     } else {
       loom_serve_http_connection_abort(connection);
     }
@@ -1362,9 +1391,10 @@ static iree_status_t router_accept(router_t* router,
   }
   if (get && (iree_string_view_equal(request->target, IREE_SV("/healthz")) ||
               iree_string_view_equal(request->target, IREE_SV("/readyz")))) {
-    router_send(router, connection,
-                IREE_SV("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-                        "Connection: close\r\n\r\n{\"status\":\"ready\"}"));
+    loom_serve_router_send(
+        router, connection,
+        IREE_SV("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                "Connection: close\r\n\r\n{\"status\":\"ready\"}"));
     return iree_ok_status();
   }
   const bool include_status =
@@ -1379,7 +1409,8 @@ static iree_status_t router_accept(router_t* router,
     bool first = true;
     for (iree_host_size_t i = 0;
          i < router->capacity && iree_status_is_ok(status); ++i) {
-      const loom_serve_registered_model_t* model = router_model_at(router, i);
+      const loom_serve_registered_model_t* model =
+          loom_serve_router_model_at(router, i);
       if (!model->service.name.size ||
           (!include_status && (model->phase != LOOM_SERVE_REGISTRATION_READY ||
                                model->removal != LOOM_SERVE_REMOVAL_NONE))) {
@@ -1390,7 +1421,8 @@ static iree_status_t router_accept(router_t* router,
       }
       first = false;
       if (iree_status_is_ok(status)) {
-        status = router_describe_service(model, include_status, output);
+        status =
+            loom_serve_router_describe_service(model, include_status, output);
       }
     }
     if (iree_status_is_ok(status)) {
@@ -1399,14 +1431,15 @@ static iree_status_t router_accept(router_t* router,
     if (iree_status_is_ok(status) && include_status) {
       status = iree_string_builder_append_cstring(output, ",\"server\":");
       if (iree_status_is_ok(status)) {
-        status = router_describe_server(router, output);
+        status = loom_serve_router_describe_server(router, output);
       }
     }
     if (iree_status_is_ok(status)) {
       status = iree_string_builder_append_cstring(output, "}");
     }
     if (iree_status_is_ok(status)) {
-      router_send(router, connection, iree_string_builder_view(output));
+      loom_serve_router_send(router, connection,
+                             iree_string_builder_view(output));
     } else {
       loom_serve_http_connection_abort(connection);
     }
@@ -1432,16 +1465,17 @@ static iree_status_t router_accept(router_t* router,
   if ((!checkpoint && !post) ||
       (checkpoint && !post &&
        !iree_string_view_equal(request->method, IREE_SV("DELETE")))) {
-    return router_reject(router, connection, 404, "Not Found",
-                         IREE_SV("unknown service endpoint"), output);
+    return loom_serve_router_reject(router, connection, 404, "Not Found",
+                                    IREE_SV("unknown service endpoint"),
+                                    output);
   }
   if (post &&
       iree_string_view_equal(request->target, IREE_SV("/v1/models/register"))) {
-    return router_register(router, connection, request);
+    return loom_serve_router_register(router, connection, request);
   }
   if (post &&
       iree_string_view_equal(request->target, IREE_SV("/v1/devices/trim"))) {
-    return router_trim(router, connection, request);
+    return loom_serve_router_trim(router, connection, request);
   }
   iree_string_view_t name;
   loom_serve_removal_t removal = LOOM_SERVE_REMOVAL_DRAIN;
@@ -1449,13 +1483,13 @@ static iree_status_t router_accept(router_t* router,
     if (!loom_serve_http_request_lookup_header(request, IREE_SV("X-Loom-Model"),
                                                &name)) {
       if (service_count != 1) {
-        return router_reject(
+        return loom_serve_router_reject(
             router, connection, 400, "Bad Request",
             IREE_SV("checkpoint operations require X-Loom-Model"), output);
       }
       for (iree_host_size_t i = 0; i < router->capacity; ++i) {
         const iree_string_view_t candidate =
-            router_model_at(router, i)->service.name;
+            loom_serve_router_model_at(router, i)->service.name;
         if (candidate.size) {
           name = candidate;
           break;
@@ -1464,10 +1498,10 @@ static iree_status_t router_accept(router_t* router,
     }
   } else {
     iree_status_t status =
-        router_model(request,
-                     drain || undrain || unregister || deactivate || activate ||
-                         pin || unpin,
-                     unregister ? &removal : NULL, output);
+        loom_serve_router_model(request,
+                                drain || undrain || unregister || deactivate ||
+                                    activate || pin || unpin,
+                                unregister ? &removal : NULL, output);
     if (!iree_status_is_ok(status)) {
       if (!iree_status_is_invalid_argument(status) &&
           !iree_status_is_out_of_range(status)) {
@@ -1476,60 +1510,62 @@ static iree_status_t router_accept(router_t* router,
       }
       loom_serve_http_server_record_error(router->server, status);
       iree_status_free(status);
-      return router_reject(router, connection, 400, "Bad Request",
-                           IREE_SV("invalid model selector or request JSON"),
-                           output);
+      return loom_serve_router_reject(
+          router, connection, 400, "Bad Request",
+          IREE_SV("invalid model selector or request JSON"), output);
     }
     name = iree_string_builder_view(output);
   }
   for (iree_host_size_t i = 0; i < router->capacity; ++i) {
-    loom_serve_registered_model_t* state = router_model_at(router, i);
+    loom_serve_registered_model_t* state =
+        loom_serve_router_model_at(router, i);
     if (state->service.name.size &&
         iree_string_view_equal(name, state->service.name)) {
       if (unregister) {
         iree_status_t status = loom_serve_registry_remove(state, removal);
         if (!iree_status_is_ok(status)) {
-          return router_management_error(router, connection, status);
+          return loom_serve_router_management_error(router, connection, status);
         }
-        return router_control(router, i, connection, 202);
+        return loom_serve_router_control(router, i, connection, 202);
       }
       if (pin || unpin) {
         iree_status_t status = loom_serve_registry_set_pinned(state, pin);
         if (!iree_status_is_ok(status)) {
-          return router_management_error(router, connection, status);
+          return loom_serve_router_management_error(router, connection, status);
         }
-        return router_control(router, i, connection, 200);
+        return loom_serve_router_control(router, i, connection, 200);
       }
       if (deactivate || activate) {
         iree_status_t status = activate ? loom_serve_registry_activate(state)
                                         : loom_serve_registry_deactivate(state);
         if (!iree_status_is_ok(status)) {
-          return router_management_error(router, connection, status);
+          return loom_serve_router_management_error(router, connection, status);
         }
-        return router_control(router, i, connection, 202);
+        return loom_serve_router_control(router, i, connection, 202);
       }
       if (drain || undrain) {
         if (undrain &&
             state->parameter_operation != LOOM_SERVE_PARAMETER_OPERATION_NONE) {
-          return router_reject(router, connection, 409, "Conflict",
-                               IREE_SV("parameter operation is still pending"),
-                               output);
+          return loom_serve_router_reject(
+              router, connection, 409, "Conflict",
+              IREE_SV("parameter operation is still pending"), output);
         }
         if (state->removal || (undrain && !iree_status_is_ok(state->status))) {
-          return router_reject(
+          return loom_serve_router_reject(
               router, connection, 409, "Conflict",
               IREE_SV("removing or failed registrations cannot be reopened"),
               output);
         }
         state->closed = drain;
-        return router_control(router, i, connection, 200);
+        return loom_serve_router_control(router, i, connection, 200);
       }
       if (state->removal) {
-        return router_reject(router, connection, 410, "Gone",
-                             IREE_SV("model is being unregistered"), output);
+        return loom_serve_router_reject(router, connection, 410, "Gone",
+                                        IREE_SV("model is being unregistered"),
+                                        output);
       }
       if (!iree_status_is_ok(state->status)) {
-        return router_reject(
+        return loom_serve_router_reject(
             router, connection, 503, "Service Unavailable",
             IREE_SV("model is unavailable; inspect /v1/status"), output);
       }
@@ -1537,7 +1573,7 @@ static iree_status_t router_accept(router_t* router,
           state->phase != LOOM_SERVE_REGISTRATION_READY) {
         if (router->held.count == router->held.capacity ||
             router->held.count + router->logs.count == router->logs.capacity) {
-          return router_reject(
+          return loom_serve_router_reject(
               router, connection, 429, "Too Many Requests",
               IREE_SV("model admission holding capacity is full"), output);
         }
@@ -1546,18 +1582,18 @@ static iree_status_t router_accept(router_t* router,
         ++state->held_count;
         return iree_ok_status();
       }
-      return router_admit(router, i, connection, request);
+      return loom_serve_router_admit(router, i, connection, request);
     }
   }
-  return router_reject(router, connection, 404, "Not Found",
-                       IREE_SV("model is not registered"), output);
+  return loom_serve_router_reject(router, connection, 404, "Not Found",
+                                  IREE_SV("model is not registered"), output);
 }
 
-static void router_advance(router_t* router, bool* out_progress) {
+static void loom_serve_router_advance(router_t* router, bool* out_progress) {
   router->stopping |= loom_serve_http_server_is_stopping(router->server);
   *out_progress = false;
-  router_tokenizations_collect(router, out_progress);
-  router_held_collect(router, out_progress);
+  loom_serve_router_tokenizations_collect(router, out_progress);
+  loom_serve_router_held_collect(router, out_progress);
   for (iree_host_size_t i = 0;
        i < router->request_capacity && !router->stopping; ++i) {
     const loom_serve_http_request_t* request = NULL;
@@ -1566,14 +1602,15 @@ static void router_advance(router_t* router, bool* out_progress) {
     if (!connection) {
       break;
     }
-    router->status = router_accept(router, connection, request);
+    router->status = loom_serve_router_accept(router, connection, request);
     router->stopping = !iree_status_is_ok(router->status) ||
                        loom_serve_http_server_is_stopping(router->server);
     *out_progress = true;
   }
   for (iree_host_size_t i = 0; i < router->capacity; ++i) {
     const iree_host_size_t index = (router->cursor + i) % router->capacity;
-    loom_serve_registered_model_t* model = router_model_at(router, index);
+    loom_serve_registered_model_t* model =
+        loom_serve_router_model_at(router, index);
     if (!model->service.name.size) {
       continue;
     }
@@ -1588,7 +1625,7 @@ static void router_advance(router_t* router, bool* out_progress) {
       const loom_serve_http_service_t* service = &model->service;
       bool progress = false;
       const loom_serve_http_service_flags_t flags =
-          router_service_flags(router, index) |
+          loom_serve_router_service_flags(router, index) |
           loom_serve_registry_service_flags(model) |
           (router->stopping ? LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING : 0);
       router->status = iree_status_join(
@@ -1601,23 +1638,25 @@ static void router_advance(router_t* router, bool* out_progress) {
         router->status,
         loom_serve_registry_advance(
             router->registry, index,
-            (loom_serve_wake_callback_t){router_wake, router}, &progress));
+            (loom_serve_wake_callback_t){loom_serve_router_wake, router},
+            &progress));
     router->stopping |= !iree_status_is_ok(router->status);
     *out_progress |= progress;
   }
   if (++router->cursor >= router->capacity) {
     router->cursor = 0;
   }
-  router->status = iree_status_join(router->status,
-                                    router_logs_advance(router, out_progress));
+  router->status = iree_status_join(
+      router->status, loom_serve_router_logs_advance(router, out_progress));
   router->stopping |= !iree_status_is_ok(router->status);
   if (router->stopping) {
-    router_held_collect(router, out_progress);
+    loom_serve_router_held_collect(router, out_progress);
   }
   bool pending = router->tokenizations != NULL || router->held.count != 0 ||
                  router->logs.count != 0;
   for (iree_host_size_t i = 0; i < router->capacity; ++i) {
-    loom_serve_registered_model_t* model = router_model_at(router, i);
+    loom_serve_registered_model_t* model =
+        loom_serve_router_model_at(router, i);
     if (router->stopping && model->incarnation &&
         model->removal != LOOM_SERVE_REMOVAL_ABORT) {
       router->status = iree_status_join(
@@ -1631,7 +1670,8 @@ static void router_advance(router_t* router, bool* out_progress) {
   }
   if (router->stopping && !pending) {
     for (iree_host_size_t i = 0; i < router->capacity; ++i) {
-      const loom_serve_registered_model_t* model = router_model_at(router, i);
+      const loom_serve_registered_model_t* model =
+          loom_serve_router_model_at(router, i);
       if (model->phase == LOOM_SERVE_REGISTRATION_READY) {
         model->service.set_observer(model->service.self,
                                     (loom_serve_wake_callback_t){0});
@@ -1643,16 +1683,16 @@ static void router_advance(router_t* router, bool* out_progress) {
   }
 }
 
-static iree_status_t router_drain(iree_task_process_t* process,
-                                  const iree_task_worker_context_t* context,
-                                  iree_task_process_drain_result_t* result) {
+static iree_status_t loom_serve_router_drain(
+    iree_task_process_t* process, const iree_task_worker_context_t* context,
+    iree_task_process_drain_result_t* result) {
   (void)context;
   router_t* router = process->user_data;
   if (!iree_slim_mutex_try_lock(&router->mutex)) {
     return iree_ok_status();
   }
   if (!router->completed) {
-    router_advance(router, &result->did_work);
+    loom_serve_router_advance(router, &result->did_work);
   }
   result->completed = router->completed;
   iree_slim_mutex_unlock(&router->mutex);
@@ -1660,7 +1700,7 @@ static iree_status_t router_drain(iree_task_process_t* process,
   return iree_ok_status();
 }
 
-static void router_released(iree_task_process_t* process) {
+static void loom_serve_router_released(iree_task_process_t* process) {
   router_t* router = process->user_data;
   iree_slim_mutex_lock(&router->retirement.mutex);
   router->retirement.released = true;
@@ -1668,7 +1708,7 @@ static void router_released(iree_task_process_t* process) {
   iree_slim_mutex_unlock(&router->retirement.mutex);
 }
 
-static bool router_is_released(void* user_data) {
+static bool loom_serve_router_is_released(void* user_data) {
   router_t* router = user_data;
   iree_slim_mutex_lock(&router->retirement.mutex);
   const bool released = router->retirement.released;
@@ -1719,23 +1759,25 @@ iree_status_t loom_serve_router_run(iree_task_executor_t* executor,
   iree_slim_mutex_initialize(&router.retirement.mutex);
   iree_notification_initialize(&router.retirement.notification);
   iree_string_builder_initialize(host_allocator, &router.output);
-  iree_task_process_initialize(router_drain, 0, 1, &router.process);
+  iree_task_process_initialize(loom_serve_router_drain, 0, 1, &router.process);
   iree_task_process_set_flags(&router.process,
                               IREE_TASK_PROCESS_FLAG_COMPUTE_SLOT);
   router.process.user_data = &router;
-  router.process.release_fn = router_released;
+  router.process.release_fn = loom_serve_router_released;
   for (iree_host_size_t i = 0; i < router.capacity; ++i) {
-    const loom_serve_registered_model_t* model = router_model_at(&router, i);
+    const loom_serve_registered_model_t* model =
+        loom_serve_router_model_at(&router, i);
     if (model->phase == LOOM_SERVE_REGISTRATION_READY) {
       model->service.set_observer(
           model->service.self,
-          (loom_serve_wake_callback_t){router_wake, &router});
+          (loom_serve_wake_callback_t){loom_serve_router_wake, &router});
     }
   }
   loom_serve_http_server_set_observer(
-      server, (loom_serve_wake_callback_t){router_wake, &router});
-  iree_notification_await(&router.retirement.notification, router_is_released,
-                          &router, iree_infinite_timeout());
+      server, (loom_serve_wake_callback_t){loom_serve_router_wake, &router});
+  iree_notification_await(&router.retirement.notification,
+                          loom_serve_router_is_released, &router,
+                          iree_infinite_timeout());
   iree_string_builder_deinitialize(&router.output);
   iree_allocator_free(host_allocator, router.logs.values);
   iree_allocator_free(host_allocator, router.held.values);

@@ -10,14 +10,15 @@
 
 #include "loom/util/json.h"
 
-static iree_status_t logs_quote(iree_string_builder_t* output,
-                                iree_string_view_t value) {
+static iree_status_t loom_serve_http_logs_quote(iree_string_builder_t* output,
+                                                iree_string_view_t value) {
   loom_output_stream_t stream;
   loom_output_stream_for_builder(output, &stream);
   return loom_json_write_escaped_string(&stream, value);
 }
 
-static bool logs_cursor(iree_string_view_t value, uint64_t fields[3]) {
+static bool loom_serve_http_logs_cursor(iree_string_view_t value,
+                                        uint64_t fields[3]) {
   for (iree_host_size_t i = 0; i < 3; ++i) {
     fields[i] = 0;
     iree_host_size_t length = 0;
@@ -47,7 +48,7 @@ iree_status_t loom_serve_http_logs_resume(
   const uint64_t head = loom_serve_telemetry_stream_head(stream);
   if (cursor.size) {
     uint64_t fields[3];
-    if (!logs_cursor(cursor, fields)) {
+    if (!loom_serve_http_logs_cursor(cursor, fields)) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "malformed telemetry cursor");
     }
@@ -92,12 +93,12 @@ iree_status_t loom_serve_http_logs_format(
   IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(output, prefix));
   IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(
       output, "{\"event\":\"stream\",\"scope\":"));
-  IREE_RETURN_IF_ERROR(
-      logs_quote(output, model.size ? IREE_SV("model") : IREE_SV("server")));
+  IREE_RETURN_IF_ERROR(loom_serve_http_logs_quote(
+      output, model.size ? IREE_SV("model") : IREE_SV("server")));
   if (model.size) {
     IREE_RETURN_IF_ERROR(
         iree_string_builder_append_cstring(output, ",\"model\":"));
-    IREE_RETURN_IF_ERROR(logs_quote(output, model));
+    IREE_RETURN_IF_ERROR(loom_serve_http_logs_quote(output, model));
   }
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output, ",\"counters_available\":%s", counters ? "true" : "false"));

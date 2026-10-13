@@ -120,7 +120,8 @@ struct loom_serve_finite_model_t {
 // Releases model-owned consumers, not borrowed upload/feedback payloads or the
 // storage protection those consumers still require. Partial loads use this same
 // sequence, with no submitted queue work to retire.
-static void finite_model_release_consumers(loom_serve_finite_model_t* model) {
+static void loom_serve_finite_model_release_consumers(
+    loom_serve_finite_model_t* model) {
   loom_serve_program_free(model->control.program);
   model->control.program = NULL;
   for (uint32_t i = 0; i < model->stages.count; ++i) {
@@ -146,7 +147,7 @@ void loom_serve_finite_model_retire(loom_serve_finite_model_t* model,
     loom_serve_weights_set_retirement_observer(model->weights.plans[i], wake,
                                                user_data);
   }
-  finite_model_release_consumers(model);
+  loom_serve_finite_model_release_consumers(model);
 }
 
 bool loom_serve_finite_model_is_retired(loom_serve_finite_model_t* model) {
@@ -164,12 +165,12 @@ bool loom_serve_finite_model_is_retired(loom_serve_finite_model_t* model) {
 
 // Consumes a retired model or a load that never submitted device work. A failed
 // platform release preserves the model and remaining reservation handles.
-static iree_status_t finite_model_destroy_resources(
+static iree_status_t loom_serve_finite_model_destroy_resources(
     loom_serve_finite_model_t* model) {
   if (!model) {
     return iree_ok_status();
   }
-  finite_model_release_consumers(model);
+  loom_serve_finite_model_release_consumers(model);
   IREE_ASSERT(loom_serve_finite_model_is_retired(model));
   loom_serve_residency_free(model->residency);
   model->residency = NULL;
@@ -208,7 +209,7 @@ static iree_status_t finite_model_destroy_resources(
 
 iree_status_t loom_serve_finite_model_free_retired(
     loom_serve_finite_model_t* model) {
-  return finite_model_destroy_resources(model);
+  return loom_serve_finite_model_destroy_resources(model);
 }
 
 iree_status_t loom_serve_finite_model_free(loom_serve_finite_model_t* model) {
@@ -220,13 +221,13 @@ iree_status_t loom_serve_finite_model_free(loom_serve_finite_model_t* model) {
   for (iree_host_size_t i = 0; i < model->weights.count; ++i) {
     loom_serve_weights_await_retirement(model->weights.plans[i]);
   }
-  return iree_status_join(status, finite_model_destroy_resources(model));
+  return iree_status_join(status,
+                          loom_serve_finite_model_destroy_resources(model));
 }
 
-static iree_status_t finite_load_tokenizer(loom_serve_finite_model_t* model,
-                                           iree_string_view_t base_directory,
-                                           iree_string_view_t directory,
-                                           iree_string_view_t asset) {
+static iree_status_t loom_serve_finite_load_tokenizer(
+    loom_serve_finite_model_t* model, iree_string_view_t base_directory,
+    iree_string_view_t directory, iree_string_view_t asset) {
   char* resolved_directory = NULL;
   IREE_RETURN_IF_ERROR(loom_serve_path_resolve(
       base_directory, directory, model->allocator, &resolved_directory));
@@ -252,7 +253,7 @@ static iree_status_t finite_load_tokenizer(loom_serve_finite_model_t* model,
 
 // Cold source results are consumed while their environment is live. Source
 // state survives destruction of the cold program and is opaque to this owner.
-static iree_status_t finite_prepare(
+static iree_status_t loom_serve_finite_prepare(
     loom_serve_finite_model_t* model,
     const loom_serve_finite_model_options_t* options) {
   const iree_allocator_t allocator = model->allocator;
@@ -345,7 +346,7 @@ static iree_status_t finite_prepare(
                               "source state must not be null");
   }
   if (iree_status_is_ok(status) && metadata[0].data_length) {
-    status = finite_load_tokenizer(
+    status = loom_serve_finite_load_tokenizer(
         model, options->sources.base_directory, options->asset_directory,
         iree_make_string_view((const char*)metadata[0].data,
                               metadata[0].data_length));
@@ -370,7 +371,8 @@ static iree_status_t finite_prepare(
 
 // The source catalog is external. Every retained shape must describe the same
 // immutable placement before a single checkpoint byte is loaded or shared.
-static iree_status_t finite_check_layouts(loom_serve_finite_model_t* model) {
+static iree_status_t loom_serve_finite_check_layouts(
+    loom_serve_finite_model_t* model) {
   const loom_cmd_program_t* canonical =
       loom_serve_jit_stage_program(model->stages.values[0].compiled);
   const iree_host_size_t binding_count = 3;
@@ -461,8 +463,8 @@ static iree_status_t finite_check_layouts(loom_serve_finite_model_t* model) {
   return iree_ok_status();
 }
 
-static iree_status_t finite_create_control(loom_serve_finite_model_t* model,
-                                           iree_vm_module_t* module) {
+static iree_status_t loom_serve_finite_create_control(
+    loom_serve_finite_model_t* model, iree_vm_module_t* module) {
   const iree_allocator_t allocator = model->allocator;
   IREE_RETURN_IF_ERROR(iree_vm_buffer_create(
       model->stages.count * sizeof(int64_t), iree_alignof(int64_t), allocator,
@@ -537,11 +539,12 @@ static iree_status_t finite_create_control(loom_serve_finite_model_t* model,
                                          IREE_SV("run"), &model->control.run);
 }
 
-static iree_status_t finite_model_bind(loom_serve_finite_model_t* model) {
+static iree_status_t loom_serve_finite_model_bind(
+    loom_serve_finite_model_t* model) {
   const iree_allocator_t allocator = model->allocator;
   iree_hal_device_t* device = loom_serve_device_handle(model->owner);
   iree_hal_queue_t* dispatch = loom_serve_device_dispatch_queue(model->owner);
-  IREE_RETURN_IF_ERROR(finite_check_layouts(model));
+  IREE_RETURN_IF_ERROR(loom_serve_finite_check_layouts(model));
   IREE_RETURN_IF_ERROR(
       loom_serve_device_create_execution(model->owner, &model->execution));
   const loom_cmd_program_t* program =
@@ -572,7 +575,7 @@ static iree_status_t finite_model_bind(loom_serve_finite_model_t* model) {
   return status;
 }
 
-static iree_status_t finite_model_link(
+static iree_status_t loom_serve_finite_model_link(
     loom_serve_finite_model_t* model, iree_vm_module_t* module,
     iree_hal_command_buffer_mode_t command_mode) {
   const iree_allocator_t allocator = model->allocator;
@@ -594,7 +597,7 @@ static iree_status_t finite_model_link(
   IREE_RETURN_IF_ERROR(loom_serve_execution_reserve_workspace(
       model->execution, iree_max(model->input_capacity, model->output_capacity),
       LOOM_SERVE_FINITE_BUFFER_ALIGNMENT));
-  return finite_create_control(model, module);
+  return loom_serve_finite_create_control(model, module);
 }
 
 typedef enum finite_load_phase_e {
@@ -641,7 +644,8 @@ struct loom_serve_finite_load_t {
   } event;
 };
 
-static void finite_load_complete(void* user_data, iree_status_t status) {
+static void loom_serve_finite_load_complete(void* user_data,
+                                            iree_status_t status) {
   loom_serve_finite_load_t* load = user_data;
   iree_slim_mutex_lock(&load->event.mutex);
   load->event.status = status;
@@ -650,10 +654,11 @@ static void finite_load_complete(void* user_data, iree_status_t status) {
   iree_slim_mutex_unlock(&load->event.mutex);
 }
 
-static iree_status_t finite_load_prepare(loom_serve_finite_load_t* load) {
+static iree_status_t loom_serve_finite_load_prepare(
+    loom_serve_finite_load_t* load) {
   loom_serve_finite_model_t* model = load->model;
   const iree_allocator_t allocator = model->allocator;
-  IREE_RETURN_IF_ERROR(finite_prepare(model, &load->options));
+  IREE_RETURN_IF_ERROR(loom_serve_finite_prepare(model, &load->options));
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       allocator, model->output.data_length, (void**)&model->output.data));
   const iree_vm_ref_type_table_t* table = NULL;
@@ -680,28 +685,29 @@ static iree_status_t finite_load_prepare(loom_serve_finite_load_t* load) {
                                  &model->compilation, allocator, &model->jit);
 }
 
-static void finite_load_execute(loomc_task_t* task,
-                                loomc_host_size_t worker_ordinal) {
+static void loom_serve_finite_load_execute(loomc_task_t* task,
+                                           loomc_host_size_t worker_ordinal) {
   (void)worker_ordinal;
   loom_serve_finite_load_t* load = (loom_serve_finite_load_t*)task;
-  load->task_status = finite_load_prepare(load);
+  load->task_status = loom_serve_finite_load_prepare(load);
 }
 
-static void finite_load_release(loomc_task_t* task) {
+static void loom_serve_finite_load_release(loomc_task_t* task) {
   loom_serve_finite_load_t* load = (loom_serve_finite_load_t*)task;
-  finite_load_complete(load, load->task_status);
+  loom_serve_finite_load_complete(load, load->task_status);
 }
 
 static const loomc_task_vtable_t finite_load_vtable = {
-    .execute = finite_load_execute,
-    .destroy = finite_load_release,
+    .execute = loom_serve_finite_load_execute,
+    .destroy = loom_serve_finite_load_release,
 };
 
-static void finite_load_compiled(void* user_data, iree_status_t status,
-                                 loom_serve_jit_stage_t* compiled) {
+static void loom_serve_finite_load_compiled(void* user_data,
+                                            iree_status_t status,
+                                            loom_serve_jit_stage_t* compiled) {
   loom_serve_finite_load_t* load = user_data;
   load->model->stages.values[load->index - 1].compiled = compiled;
-  finite_load_complete(load, status);
+  loom_serve_finite_load_complete(load, status);
 }
 
 iree_status_t loom_serve_finite_load_allocate(
@@ -779,16 +785,17 @@ iree_status_t loom_serve_finite_load_advance(
           iree_slim_mutex_lock(&load->event.mutex);
           load->event.pending = true;
           iree_slim_mutex_unlock(&load->event.mutex);
-          status = declaration->kind == LOOM_SERVE_PREPARATION_STAGE_DISPATCH
-                       ? loom_serve_jit_compile_dispatch_async(
-                             model->jit, declaration->root,
-                             &declaration->config, finite_load_compiled, load)
-                       : loom_serve_jit_compile_async(
-                             model->jit, declaration->root,
-                             &declaration->config, finite_load_compiled, load);
+          status =
+              declaration->kind == LOOM_SERVE_PREPARATION_STAGE_DISPATCH
+                  ? loom_serve_jit_compile_dispatch_async(
+                        model->jit, declaration->root, &declaration->config,
+                        loom_serve_finite_load_compiled, load)
+                  : loom_serve_jit_compile_async(
+                        model->jit, declaration->root, &declaration->config,
+                        loom_serve_finite_load_compiled, load);
           submitted = iree_status_is_ok(status);
         } else {
-          status = finite_model_bind(model);
+          status = loom_serve_finite_model_bind(model);
           load->index = 0;
           load->phase = FINITE_LOAD_WEIGHTS;
         }
@@ -806,14 +813,15 @@ iree_status_t loom_serve_finite_load_advance(
           status = loom_serve_weights_prepare_async(
               model->weights.plans[i], host, model->jit, load->command_mode,
               load->options.sources.base_directory, parameter->path,
-              parameter->policy, finite_load_complete, load);
+              parameter->policy, loom_serve_finite_load_complete, load);
           submitted = iree_status_is_ok(status);
         } else {
           load->phase = FINITE_LOAD_LINK;
         }
         break;
       case FINITE_LOAD_LINK:
-        status = finite_model_link(model, load->module, load->command_mode);
+        status = loom_serve_finite_model_link(model, load->module,
+                                              load->command_mode);
         load->phase = FINITE_LOAD_COMPLETE;
         break;
       case FINITE_LOAD_COMPLETE:
@@ -847,7 +855,7 @@ iree_status_t loom_serve_finite_load_free(loom_serve_finite_load_t* load) {
   if (!load) {
     return iree_ok_status();
   }
-  iree_status_t status = finite_model_destroy_resources(load->model);
+  iree_status_t status = loom_serve_finite_model_destroy_resources(load->model);
   if (iree_status_is_ok(status)) {
     iree_vm_module_release(load->module);
     iree_slim_mutex_deinitialize(&load->event.mutex);
@@ -856,7 +864,7 @@ iree_status_t loom_serve_finite_load_free(loom_serve_finite_load_t* load) {
   return status;
 }
 
-static void finite_load_notify(void* user_data) {
+static void loom_serve_finite_load_notify(void* user_data) {
   iree_notification_post((iree_notification_t*)user_data, IREE_ALL_WAITERS);
 }
 
@@ -868,9 +876,9 @@ iree_status_t loom_serve_finite_model_allocate(
   iree_notification_t notification;
   iree_notification_initialize(&notification);
   loom_serve_finite_load_t* load = NULL;
-  iree_status_t status =
-      loom_serve_finite_load_allocate(device, options, finite_load_notify,
-                                      &notification, &load, host_allocator);
+  iree_status_t status = loom_serve_finite_load_allocate(
+      device, options, loom_serve_finite_load_notify, &notification, &load,
+      host_allocator);
   bool complete = false;
   while (iree_status_is_ok(status) && !complete) {
     const uint32_t ticket = iree_notification_prepare_wait(&notification);
@@ -957,9 +965,9 @@ iree_status_t loom_serve_finite_model_prepare_request(
 
 // This is the external source-plan boundary. Native queries below directly
 // consume the checked offsets; they neither rescan nor revalidate the plan.
-static iree_status_t finite_check_plan(loom_serve_finite_model_t* model,
-                                       iree_host_size_t request_count,
-                                       const iree_host_size_t* expected_rows) {
+static iree_status_t loom_serve_finite_check_plan(
+    loom_serve_finite_model_t* model, iree_host_size_t request_count,
+    const iree_host_size_t* expected_rows) {
   iree_const_byte_span_t bytes;
   IREE_RETURN_IF_ERROR(iree_vm_buffer_map_read(
       model->invocation.plan, 0, iree_vm_buffer_length(model->invocation.plan),
@@ -1100,7 +1108,7 @@ iree_status_t loom_serve_finite_model_prepare_batch(
   }
   if (iree_status_is_ok(status)) {
     model->invocation.stage = (uint32_t)stage;
-    status = finite_check_plan(model, count, expected_rows);
+    status = loom_serve_finite_check_plan(model, count, expected_rows);
   }
   iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
   iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));

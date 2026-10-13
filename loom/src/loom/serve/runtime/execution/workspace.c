@@ -83,7 +83,7 @@ typedef enum workspace_collection_mode_e {
 
 // The scope owns one reference. Uniqueness proves the queue's allocation and
 // deallocation records have retired, independently of semaphore readiness.
-static bool workspace_root_release(workspace_root_t root) {
+static bool loom_serve_workspace_root_release(workspace_root_t root) {
   if (iree_atomic_ref_count_load(
           &((iree_hal_resource_t*)root.buffer)->ref_count) != 1) {
     return false;
@@ -93,10 +93,11 @@ static bool workspace_root_release(workspace_root_t root) {
   return true;
 }
 
-static void workspace_scope_collect(loom_serve_workspace_scope_t* scope,
-                                    workspace_collection_mode_t mode) {
+static void loom_serve_workspace_scope_collect(
+    loom_serve_workspace_scope_t* scope, workspace_collection_mode_t mode) {
   if (mode == WORKSPACE_COLLECTION_PREFIX) {
-    while (scope->count && workspace_root_release(scope->roots[scope->head])) {
+    while (scope->count &&
+           loom_serve_workspace_root_release(scope->roots[scope->head])) {
       scope->head = (scope->head + 1) % scope->capacity;
       --scope->count;
     }
@@ -106,15 +107,15 @@ static void workspace_scope_collect(loom_serve_workspace_scope_t* scope,
   for (iree_host_size_t i = 0; i < scope->count; ++i) {
     const workspace_root_t root =
         scope->roots[(scope->head + i) % scope->capacity];
-    if (!workspace_root_release(root)) {
+    if (!loom_serve_workspace_root_release(root)) {
       scope->roots[(scope->head + retained++) % scope->capacity] = root;
     }
   }
   scope->count = retained;
 }
 
-static void workspace_add_counters(iree_hal_pool_stats_t* total,
-                                   const iree_hal_pool_stats_t* source) {
+static void loom_serve_workspace_add_counters(
+    iree_hal_pool_stats_t* total, const iree_hal_pool_stats_t* source) {
   total->reserve_count += source->reserve_count;
   total->release_count += source->release_count;
   total->reuse_count += source->reuse_count;
@@ -126,8 +127,8 @@ static void workspace_add_counters(iree_hal_pool_stats_t* total,
   total->quarantine_eviction_count += source->quarantine_eviction_count;
 }
 
-static void workspace_generation_destroy(workspace_generation_t* generation,
-                                         iree_allocator_t allocator) {
+static void loom_serve_workspace_generation_destroy(
+    workspace_generation_t* generation, iree_allocator_t allocator) {
   if (!generation) {
     return;
   }
@@ -140,12 +141,12 @@ static void workspace_generation_destroy(workspace_generation_t* generation,
 // The owner's sole reference therefore proves an old generation can be freed,
 // independently of semaphore success or failure. Active scopes are collected
 // too: idle models must not require another submission to enable backing trim.
-static void workspace_collect(loom_serve_workspace_t* workspace,
-                              workspace_collection_mode_t mode) {
+static void loom_serve_workspace_collect(loom_serve_workspace_t* workspace,
+                                         workspace_collection_mode_t mode) {
   loom_serve_workspace_scope_t** scope_link = &workspace->scopes;
   while (*scope_link) {
     loom_serve_workspace_scope_t* scope = *scope_link;
-    workspace_scope_collect(scope, mode);
+    loom_serve_workspace_scope_collect(scope, mode);
     if (scope->count || !scope->released) {
       scope_link = &scope->next;
     } else {
@@ -167,9 +168,9 @@ static void workspace_collect(loom_serve_workspace_t* workspace,
     }
     iree_hal_pool_stats_t statistics;
     iree_hal_pool_query_stats(generation->pool, &statistics);
-    workspace_add_counters(&workspace->retired, &statistics);
+    loom_serve_workspace_add_counters(&workspace->retired, &statistics);
     *link = generation->next;
-    workspace_generation_destroy(generation, workspace->allocator);
+    loom_serve_workspace_generation_destroy(generation, workspace->allocator);
   }
 }
 
@@ -183,15 +184,15 @@ void loom_serve_workspace_release(loom_serve_workspace_t* workspace) {
   if (workspace && iree_atomic_ref_count_dec(&workspace->ref_count) == 1) {
     // Only final application teardown joins raw queue ownership. Live model
     // removal relinquishes its scope without waiting for queue bookkeeping.
-    workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
+    loom_serve_workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
     while (workspace->scopes) {
       iree_thread_yield();
-      workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
+      loom_serve_workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
     }
     workspace_generation_t* generation = workspace->current;
     while (generation) {
       workspace_generation_t* next = generation->next;
-      workspace_generation_destroy(generation, workspace->allocator);
+      loom_serve_workspace_generation_destroy(generation, workspace->allocator);
       generation = next;
     }
     iree_slim_mutex_deinitialize(&workspace->mutex);
@@ -256,7 +257,7 @@ iree_status_t loom_serve_workspace_acquire_pool(
     loom_serve_workspace_t* workspace, iree_hal_pool_t** out_pool) {
   *out_pool = NULL;
   iree_slim_mutex_lock(&workspace->mutex);
-  workspace_collect(workspace, WORKSPACE_COLLECTION_PREFIX);
+  loom_serve_workspace_collect(workspace, WORKSPACE_COLLECTION_PREFIX);
   workspace_generation_t* current = workspace->current;
   iree_status_t status = iree_ok_status();
   if (!current || current->length < workspace->length ||
@@ -293,9 +294,9 @@ iree_status_t loom_serve_workspace_acquire_pool(
     if (iree_status_is_ok(status)) {
       generation->next = current;
       workspace->current = generation;
-      workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
+      loom_serve_workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
     } else {
-      workspace_generation_destroy(generation, workspace->allocator);
+      loom_serve_workspace_generation_destroy(generation, workspace->allocator);
     }
   }
   if (iree_status_is_ok(status)) {
@@ -309,7 +310,7 @@ iree_status_t loom_serve_workspace_acquire_pool(
 iree_hal_pool_stats_t loom_serve_workspace_statistics(
     loom_serve_workspace_t* workspace) {
   iree_slim_mutex_lock(&workspace->mutex);
-  workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
+  loom_serve_workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
   iree_hal_pool_stats_t total = workspace->retired;
   for (workspace_generation_t* generation = workspace->current; generation;
        generation = generation->next) {
@@ -323,7 +324,7 @@ iree_hal_pool_stats_t loom_serve_workspace_statistics(
     total.bytes_quarantined += statistics.bytes_quarantined;
     total.reservation_count += statistics.reservation_count;
     total.slab_count += backing.slab_count;
-    workspace_add_counters(&total, &statistics);
+    loom_serve_workspace_add_counters(&total, &statistics);
   }
   iree_slim_mutex_unlock(&workspace->mutex);
   return total;
@@ -350,10 +351,10 @@ iree_status_t loom_serve_workspace_scope_acquire(
   *out_pool = NULL;
   loom_serve_workspace_t* workspace = scope->workspace;
   iree_slim_mutex_lock(&workspace->mutex);
-  workspace_scope_collect(scope, WORKSPACE_COLLECTION_PREFIX);
+  loom_serve_workspace_scope_collect(scope, WORKSPACE_COLLECTION_PREFIX);
   iree_status_t status = iree_ok_status();
   if (scope->count == scope->capacity) {
-    workspace_scope_collect(scope, WORKSPACE_COLLECTION_COMPLETE);
+    loom_serve_workspace_scope_collect(scope, WORKSPACE_COLLECTION_COMPLETE);
     // Reclaim at least half the ring before reusing a full allocation.
     // Otherwise geometric growth amortizes the scan over subsequent captures,
     // including when nearly every root remains live across many submissions.
@@ -398,13 +399,13 @@ void loom_serve_workspace_scope_retire(loom_serve_workspace_scope_t* scope) {
   loom_serve_workspace_t* workspace = scope->workspace;
   iree_slim_mutex_lock(&workspace->mutex);
   scope->released = true;
-  workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
+  loom_serve_workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
   iree_slim_mutex_unlock(&workspace->mutex);
 }
 
 void loom_serve_workspace_trim(loom_serve_workspace_t* workspace) {
   iree_slim_mutex_lock(&workspace->mutex);
-  workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
+  loom_serve_workspace_collect(workspace, WORKSPACE_COLLECTION_COMPLETE);
   for (workspace_generation_t* generation = workspace->current; generation;
        generation = generation->next) {
     iree_hal_pool_trim(generation->pool, IREE_HAL_POOL_TRIM_FLAG_ALL, 0);

@@ -9,7 +9,7 @@
 #include <inttypes.h>
 #include <string.h>
 
-static iree_status_t weight_activity_format(
+static iree_status_t loom_serve_weight_activity_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_weight_activity_t value;
@@ -25,7 +25,7 @@ static iree_status_t weight_activity_format(
 }
 
 static const loom_serve_telemetry_event_t weight_activity_event = {
-    "weight_activity", weight_activity_format};
+    "weight_activity", loom_serve_weight_activity_format};
 
 void loom_serve_telemetry_record_weights(
     loom_serve_telemetry_stream_t* stream, iree_time_t time_ns,

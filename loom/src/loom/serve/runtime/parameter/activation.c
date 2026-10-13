@@ -39,9 +39,10 @@ struct loom_serve_activation_t {
   } event;
 };
 
-static void activation_ready(void* user_data, iree_async_operation_t* operation,
-                             iree_status_t status,
-                             iree_async_completion_flags_t flags) {
+static void loom_serve_activation_ready(void* user_data,
+                                        iree_async_operation_t* operation,
+                                        iree_status_t status,
+                                        iree_async_completion_flags_t flags) {
   (void)operation;
   (void)flags;
   loom_serve_activation_t* activation = user_data;
@@ -104,9 +105,10 @@ iree_status_t loom_serve_activation_advance(
       activation->frontier =
           loom_serve_residency_frontier(activation->residency);
       iree_async_semaphore_wait_operation_t* wait = &activation->wait;
-      iree_async_operation_initialize(
-          &wait->base, IREE_ASYNC_OPERATION_TYPE_SEMAPHORE_WAIT,
-          IREE_ASYNC_OPERATION_FLAG_NONE, activation_ready, activation);
+      iree_async_operation_initialize(&wait->base,
+                                      IREE_ASYNC_OPERATION_TYPE_SEMAPHORE_WAIT,
+                                      IREE_ASYNC_OPERATION_FLAG_NONE,
+                                      loom_serve_activation_ready, activation);
       for (iree_host_size_t i = 0; i < 2; ++i) {
         activation->semaphores[i] =
             (iree_async_semaphore_t*)activation->frontier.semaphores[i];

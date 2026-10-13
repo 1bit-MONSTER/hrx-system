@@ -9,7 +9,7 @@
 #include <inttypes.h>
 #include <string.h>
 
-static iree_status_t image_prepared_format(
+static iree_status_t loom_serve_image_prepared_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_image_prepared_t prepared;
@@ -21,8 +21,8 @@ static iree_status_t image_prepared_format(
       prepared.stage, prepared.tag, prepared.input_bytes);
 }
 
-static iree_status_t image_work_format(const loom_serve_image_work_t* work,
-                                       iree_string_builder_t* output) {
+static iree_status_t loom_serve_image_work_format(
+    const loom_serve_image_work_t* work, iree_string_builder_t* output) {
   return iree_string_builder_append_format(
       output,
       ",\"queue_ns\":%" PRIu64 ",\"prepare_ns\":%" PRIu64
@@ -33,16 +33,16 @@ static iree_status_t image_work_format(const loom_serve_image_work_t* work,
       work->execution_ns, work->png_ns, work->json_ns, work->png_bytes);
 }
 
-static iree_status_t image_request_format(
+static iree_status_t loom_serve_image_request_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_image_work_t work;
   static_assert(sizeof(work) <= sizeof(record->data), "record capacity");
   memcpy(&work, record->data.words, sizeof(work));
-  return image_work_format(&work, output);
+  return loom_serve_image_work_format(&work, output);
 }
 
-static iree_status_t image_totals_format(
+static iree_status_t loom_serve_image_totals_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_image_totals_t totals;
@@ -51,7 +51,7 @@ static iree_status_t image_totals_format(
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output, ",\"generated_images\":%" PRIu64 ",\"generated_pixels\":%" PRIu64,
       totals.generated_images, totals.generated_pixels));
-  return image_work_format(&totals.work, output);
+  return loom_serve_image_work_format(&totals.work, output);
 }
 
 const loom_serve_telemetry_event_t LOOM_SERVE_IMAGE_STARTED = {"image_started",
@@ -63,11 +63,11 @@ const loom_serve_telemetry_event_t LOOM_SERVE_IMAGE_GENERATED = {
 const loom_serve_telemetry_event_t LOOM_SERVE_IMAGE_SHUTDOWN = {
     "image_shutdown", NULL};
 static const loom_serve_telemetry_event_t image_prepared_event = {
-    "image_prepared", image_prepared_format};
+    "image_prepared", loom_serve_image_prepared_format};
 static const loom_serve_telemetry_event_t image_request_event = {
-    "image_request_stats", image_request_format};
+    "image_request_stats", loom_serve_image_request_format};
 static const loom_serve_telemetry_event_t image_totals_event = {
-    "image_work", image_totals_format};
+    "image_work", loom_serve_image_totals_format};
 
 void loom_serve_image_record_prepared(
     loom_serve_telemetry_stream_t* stream, uint64_t request,

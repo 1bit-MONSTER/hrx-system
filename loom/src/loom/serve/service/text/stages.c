@@ -8,7 +8,7 @@
 
 #include "loom/serve/service/text/state.h"
 
-static iree_status_t text_check_layouts(
+static iree_status_t loom_serve_text_check_layouts(
     const loom_serve_preparation_t* preparation, iree_host_size_t shared_count,
     iree_host_size_t stage_count, const loom_serve_text_stage_t* stages) {
   const loom_cmd_program_t* prefill = &stages[0].program;
@@ -111,8 +111,8 @@ iree_status_t loom_serve_text_stages_bind(
     }
   }
   IREE_RETURN_IF_ERROR(status);
-  IREE_RETURN_IF_ERROR(
-      text_check_layouts(preparation, shared_count, stage_count, stages));
+  IREE_RETURN_IF_ERROR(loom_serve_text_check_layouts(preparation, shared_count,
+                                                     stage_count, stages));
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(allocator, root_count,
                                                    sizeof(*parameters->plans),
                                                    (void**)&parameters->plans));

@@ -27,9 +27,10 @@ typedef struct image_field_t {
 
 enum { IMAGE_FIELD_COUNT = 7 };
 
-static iree_status_t image_field_visit(void* user_data, iree_string_view_t key,
-                                       iree_json_value_type_t type,
-                                       iree_string_view_t value) {
+static iree_status_t loom_serve_image_field_visit(void* user_data,
+                                                  iree_string_view_t key,
+                                                  iree_json_value_type_t type,
+                                                  iree_string_view_t value) {
   image_field_t* fields = user_data;
   for (iree_host_size_t i = 0; i < IMAGE_FIELD_COUNT; ++i) {
     image_field_t* field = &fields[i];
@@ -48,10 +49,9 @@ static iree_status_t image_field_visit(void* user_data, iree_string_view_t key,
                           key.data);
 }
 
-static iree_status_t image_request_decode(iree_string_view_t body,
-                                          iree_string_view_t model,
-                                          uint32_t width, uint32_t height,
-                                          loom_serve_image_request_t* request) {
+static iree_status_t loom_serve_image_request_decode(
+    iree_string_view_t body, iree_string_view_t model, uint32_t width,
+    uint32_t height, loom_serve_image_request_t* request) {
   if (!iree_unicode_utf8_validate(body)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "image JSON must be UTF-8");
@@ -70,8 +70,8 @@ static iree_status_t image_request_decode(iree_string_view_t body,
       {"strength", IMAGE_NUMBER},       {"model", IMAGE_STRING},
       {"size", IMAGE_STRING},           {"n", IMAGE_NUMBER},
       {"response_format", IMAGE_STRING}};
-  IREE_RETURN_IF_ERROR(
-      iree_json_enumerate_object_typed(object, image_field_visit, fields));
+  IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
+      object, loom_serve_image_field_visit, fields));
   if (!fields[0].value.data) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "image prompt is required");
@@ -136,7 +136,7 @@ iree_status_t loom_serve_image_request_initialize(
   out_request->strength = 1.0f;
   iree_string_builder_initialize(host_allocator, &out_request->prompt);
   iree_status_t status =
-      image_request_decode(body, model, width, height, out_request);
+      loom_serve_image_request_decode(body, model, width, height, out_request);
   if (!iree_status_is_ok(status)) {
     loom_serve_image_request_deinitialize(out_request);
   }

@@ -121,7 +121,7 @@ loom_serve_residency_snapshot_t loom_serve_residency_snapshot(
       .activity = loom_serve_residency_activity(residency)};
 }
 
-static void residency_unlink(loom_serve_residency_t* residency) {
+static void loom_serve_residency_unlink(loom_serve_residency_t* residency) {
   loom_serve_residency_cache_t* cache = residency->cache;
   if (residency->previous) {
     residency->previous->next = residency->next;
@@ -135,7 +135,7 @@ static void residency_unlink(loom_serve_residency_t* residency) {
   }
 }
 
-static void residency_append(loom_serve_residency_t* residency) {
+static void loom_serve_residency_append(loom_serve_residency_t* residency) {
   loom_serve_residency_cache_t* cache = residency->cache;
   residency->previous = cache->newest;
   residency->next = NULL;
@@ -183,7 +183,8 @@ iree_status_t loom_serve_residency_cache_trim(
   return status;
 }
 
-static iree_status_t residency_reclaim(void* user_data, uint64_t target_bytes) {
+static iree_status_t loom_serve_residency_reclaim(void* user_data,
+                                                  uint64_t target_bytes) {
   loom_serve_residency_cache_t* cache = user_data;
   uint64_t remaining =
       loom_serve_memory_pool_statistics(cache->pool).committed_bytes;
@@ -233,7 +234,8 @@ iree_status_t loom_serve_residency_cache_allocate(
   cache->pool = pool;
   if (pool) {
     loom_serve_memory_pool_set_reclaimer(
-        pool, (loom_serve_memory_reclaimer_t){cache, residency_reclaim});
+        pool,
+        (loom_serve_memory_reclaimer_t){cache, loom_serve_residency_reclaim});
   }
   *out_cache = cache;
   return iree_ok_status();
@@ -282,7 +284,7 @@ iree_status_t loom_serve_residency_allocate(
   for (iree_host_size_t i = 0; i < weight_count; ++i) {
     residency->weights[i] = weights[i];
   }
-  residency_append(residency);
+  loom_serve_residency_append(residency);
   *out_residency = residency;
   return iree_ok_status();
 }
@@ -307,7 +309,8 @@ void loom_serve_residency_cancel_admission(loom_serve_residency_t* residency) {
   residency->admission.next = NULL;
 }
 
-static void residency_queue_admission(loom_serve_residency_t* residency) {
+static void loom_serve_residency_queue_admission(
+    loom_serve_residency_t* residency) {
   loom_serve_residency_cache_t* cache = residency->cache;
   if (residency->admission.previous || cache->admission.first == residency) {
     return;
@@ -326,7 +329,7 @@ void loom_serve_residency_free(loom_serve_residency_t* residency) {
     return;
   }
   loom_serve_residency_cancel_admission(residency);
-  residency_unlink(residency);
+  loom_serve_residency_unlink(residency);
   iree_allocator_free(residency->allocator, residency);
 }
 
@@ -367,7 +370,7 @@ iree_status_t loom_serve_residency_try_admit(
   loom_serve_residency_cache_t* cache = residency->cache;
   if (cache->admission.first && cache->admission.first != residency &&
       loom_serve_residency_statistics(residency).reserved_bytes) {
-    residency_queue_admission(residency);
+    loom_serve_residency_queue_admission(residency);
     *out_admission = LOOM_SERVE_RESIDENCY_ADMISSION_DEFERRED;
     return iree_ok_status();
   }
@@ -377,7 +380,7 @@ iree_status_t loom_serve_residency_try_admit(
     loom_serve_residency_cancel_admission(residency);
     *out_admission = LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED;
   } else {
-    residency_queue_admission(residency);
+    loom_serve_residency_queue_admission(residency);
     if (loom_serve_residency_cache_is_reclaiming(cache)) {
       *out_admission = LOOM_SERVE_RESIDENCY_ADMISSION_DEFERRED;
     }
@@ -410,8 +413,8 @@ loom_serve_execution_frontier_t loom_serve_residency_frontier(
 void loom_serve_residency_release(loom_serve_residency_t* residency) {
   IREE_ASSERT(residency->pin_count);
   if (!--residency->pin_count) {
-    residency_unlink(residency);
-    residency_append(residency);
+    loom_serve_residency_unlink(residency);
+    loom_serve_residency_append(residency);
   }
 }
 

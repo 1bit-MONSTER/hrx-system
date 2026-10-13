@@ -30,8 +30,8 @@ void loom_serve_telemetry_count_outcome(
   }
 }
 
-static iree_status_t record_quote(iree_string_builder_t* output,
-                                  iree_string_view_t value) {
+static iree_status_t loom_serve_telemetry_record_quote(
+    iree_string_builder_t* output, iree_string_view_t value) {
   loom_output_stream_t stream;
   loom_output_stream_for_builder(output, &stream);
   return loom_json_write_escaped_string(&stream, value);
@@ -71,17 +71,17 @@ iree_status_t loom_serve_telemetry_diagnostic_format(
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output, ",\"status\":%" PRIu64 ",\"message_truncated\":%s,\"message\":",
       diagnostic->code, diagnostic->truncated ? "true" : "false"));
-  return record_quote(
+  return loom_serve_telemetry_record_quote(
       output, iree_make_string_view(diagnostic->message, diagnostic->length));
 }
 
-static iree_status_t record_snapshot(
+static iree_status_t loom_serve_telemetry_record_snapshot(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output, ",\"queued\":%" PRIu64 ",\"active\":%" PRIu64 ",\"phase\":",
       record->data.snapshot.queued, record->data.snapshot.active));
-  IREE_RETURN_IF_ERROR(record_quote(
+  IREE_RETURN_IF_ERROR(loom_serve_telemetry_record_quote(
       output, iree_make_cstring_view(record->data.snapshot.phase)));
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_cstring(output, ",\"counters\":"));
@@ -89,7 +89,7 @@ static iree_status_t record_snapshot(
                                               output);
 }
 
-static iree_status_t record_request_end(
+static iree_status_t loom_serve_telemetry_record_request_end(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   static const char* const outcomes[] = {"completed", "rejected", "cancelled",
@@ -104,40 +104,42 @@ static iree_status_t record_request_end(
                                                 output);
 }
 
-static iree_status_t record_batch(const loom_serve_telemetry_record_t* record,
-                                  iree_string_builder_t* output) {
+static iree_status_t loom_serve_telemetry_record_batch(
+    const loom_serve_telemetry_record_t* record,
+    iree_string_builder_t* output) {
   return iree_string_builder_append_format(
       output, ",\"batch\":%" PRIu64 ",\"requests\":%" PRIu64,
       record->data.batch.id, record->data.batch.requests);
 }
 
-static iree_status_t record_error(const loom_serve_telemetry_record_t* record,
-                                  iree_string_builder_t* output) {
+static iree_status_t loom_serve_telemetry_record_error(
+    const loom_serve_telemetry_record_t* record,
+    iree_string_builder_t* output) {
   return loom_serve_telemetry_diagnostic_format(&record->data.error, output);
 }
 
 const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_STREAM_BEGIN = {
     "stream_begin", NULL};
 const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_SNAPSHOT = {
-    "snapshot", record_snapshot};
+    "snapshot", loom_serve_telemetry_record_snapshot};
 const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_REQUEST_BEGIN = {
     "request_begin", NULL};
 const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_REQUEST_END = {
-    "request_end", record_request_end};
+    "request_end", loom_serve_telemetry_record_request_end};
 const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_BATCH_SUBMIT = {
-    "batch_submit", record_batch};
+    "batch_submit", loom_serve_telemetry_record_batch};
 const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_BATCH_END = {
-    "batch_end", record_batch};
-const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_ERROR = {"error",
-                                                                 record_error};
+    "batch_end", loom_serve_telemetry_record_batch};
+const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_ERROR = {
+    "error", loom_serve_telemetry_record_error};
 
 iree_status_t loom_serve_telemetry_record_format(
     uint64_t position, const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_cstring(output, "{\"event\":"));
-  IREE_RETURN_IF_ERROR(
-      record_quote(output, iree_make_cstring_view(record->event->name)));
+  IREE_RETURN_IF_ERROR(loom_serve_telemetry_record_quote(
+      output, iree_make_cstring_view(record->event->name)));
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output,
       ",\"sequence\":%" PRIu64 ",\"time_ns\":%" PRId64 ",\"request\":%" PRIu64,

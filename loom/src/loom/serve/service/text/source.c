@@ -15,15 +15,15 @@
 #include "loom/serve/runtime/program/json.h"
 #include "loom/serve/runtime/program/program.h"
 
-static iree_string_view_t text_file_text(iree_io_file_contents_t* contents) {
+static iree_string_view_t loom_serve_text_file_text(
+    iree_io_file_contents_t* contents) {
   return iree_make_string_view((const char*)contents->const_buffer.data,
                                contents->const_buffer.data_length);
 }
 
-static iree_status_t text_load_tokenizer(loom_serve_text_source_t* source,
-                                         iree_string_view_t base_directory,
-                                         iree_string_view_t locator,
-                                         iree_string_view_t terminal_marker) {
+static iree_status_t loom_serve_text_load_tokenizer(
+    loom_serve_text_source_t* source, iree_string_view_t base_directory,
+    iree_string_view_t locator, iree_string_view_t terminal_marker) {
   char* path = NULL;
   IREE_RETURN_IF_ERROR(loom_serve_path_resolve(base_directory, locator,
                                                source->allocator, &path));
@@ -33,7 +33,8 @@ static iree_status_t text_load_tokenizer(loom_serve_text_source_t* source,
       &contents);
   if (iree_status_is_ok(status)) {
     status = iree_tokenizer_from_huggingface_json(
-        text_file_text(contents), source->allocator, &source->tokenizer);
+        loom_serve_text_file_text(contents), source->allocator,
+        &source->tokenizer);
   }
   iree_allocator_free(source->allocator, path);
   iree_io_file_contents_free(contents);
@@ -49,9 +50,9 @@ static iree_status_t text_load_tokenizer(loom_serve_text_source_t* source,
 
 // Bootstrap returns ordinary source-owned references. Its temporary program
 // is gone before device setup; the shared environment outlives warm control.
-static iree_status_t text_prepare(loom_serve_text_source_t* source,
-                                  const loom_serve_text_options_t* options,
-                                  loom_serve_text_storage_t* storage) {
+static iree_status_t loom_serve_text_prepare(
+    loom_serve_text_source_t* source, const loom_serve_text_options_t* options,
+    loom_serve_text_storage_t* storage) {
   const iree_allocator_t allocator = source->allocator;
   IREE_RETURN_IF_ERROR(
       iree_vm_environment_allocate(allocator, &source->environment));
@@ -193,7 +194,7 @@ static iree_status_t text_prepare(loom_serve_text_source_t* source,
     }
   }
   if (iree_status_is_ok(status)) {
-    status = text_load_tokenizer(
+    status = loom_serve_text_load_tokenizer(
         source, options->sources.base_directory, options->tokenizer_path,
         iree_make_string_view((const char*)terminal_bytes.data,
                               terminal_bytes.data_length));
@@ -212,7 +213,8 @@ iree_status_t loom_serve_text_source_initialize(
     loom_serve_text_storage_t* out_storage, iree_allocator_t allocator) {
   memset(out_source, 0, sizeof(*out_source));
   out_source->allocator = allocator;
-  IREE_RETURN_IF_ERROR(text_prepare(out_source, options, out_storage));
+  IREE_RETURN_IF_ERROR(
+      loom_serve_text_prepare(out_source, options, out_storage));
   const iree_vm_ref_type_table_t* table = NULL;
   IREE_RETURN_IF_ERROR(
       iree_hal_module_register_types(out_source->environment, &table));

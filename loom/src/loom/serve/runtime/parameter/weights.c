@@ -96,9 +96,9 @@ struct loom_serve_weights_t {
   bool active;
 };
 
-static const weight_span_t* weight_find(iree_host_size_t count,
-                                        const weight_span_t* spans,
-                                        iree_string_view_t key) {
+static const weight_span_t* loom_serve_weight_find(iree_host_size_t count,
+                                                   const weight_span_t* spans,
+                                                   iree_string_view_t key) {
   for (iree_host_size_t i = 0; i < count; ++i) {
     if (iree_string_view_equal(spans[i].parameter.key, key)) {
       return &spans[i];
@@ -110,13 +110,11 @@ static const weight_span_t* weight_find(iree_host_size_t count,
 // Resolves root sharing before submitting any I/O. Only newly allocated roots
 // append spans, so tensors shared by multiple stages are read and prepared
 // exactly once.
-static iree_status_t weight_resolve_root(loom_serve_weights_t* weights,
-                                         const loom_cmd_program_t* program,
-                                         loom_cmd_program_parameter_root_t root,
-                                         iree_host_size_t* span_count,
-                                         weight_span_t* spans,
-                                         iree_allocator_t allocator,
-                                         iree_hal_buffer_t** out_buffer) {
+static iree_status_t loom_serve_weight_resolve_root(
+    loom_serve_weights_t* weights, const loom_cmd_program_t* program,
+    loom_cmd_program_parameter_root_t root, iree_host_size_t* span_count,
+    weight_span_t* spans, iree_allocator_t allocator,
+    iree_hal_buffer_t** out_buffer) {
   const iree_host_size_t prior_count = *span_count;
   const weight_span_t* shared = NULL;
   iree_device_size_t origin = 0;
@@ -128,7 +126,7 @@ static iree_status_t weight_resolve_root(loom_serve_weights_t* weights,
       continue;
     }
     const weight_span_t* existing =
-        weight_find(prior_count, spans, parameter.key);
+        loom_serve_weight_find(prior_count, spans, parameter.key);
     if (!count++) {
       shared = existing;
       if (shared) {
@@ -233,7 +231,7 @@ typedef struct weight_preparation_t {
   void* user_data;
 } weight_preparation_t;
 
-static iree_status_t weight_query_preparer(
+static iree_status_t loom_serve_weight_query_preparer(
     loom_serve_program_t* program, const iree_vm_ref_types_t* types,
     iree_vm_function_t function, loom_cmd_program_parameter_t parameter,
     iree_allocator_t allocator, iree_vm_buffer_t** out_root) {
@@ -287,12 +285,14 @@ static iree_status_t weight_query_preparer(
   return status;
 }
 
-static iree_string_view_t weight_preparer_name(iree_vm_buffer_t* root) {
+static iree_string_view_t loom_serve_weight_preparer_name(
+    iree_vm_buffer_t* root) {
   return iree_make_string_view(iree_vm_buffer_const_data(root),
                                iree_vm_buffer_length(root));
 }
 
-static iree_status_t weight_prepare_policy(weight_preparation_t* job) {
+static iree_status_t loom_serve_weight_prepare_policy(
+    weight_preparation_t* job) {
   loom_serve_weights_t* weights = job->weights;
   const iree_allocator_t allocator = weights->allocator;
   iree_vm_environment_t* environment = NULL;
@@ -334,16 +334,16 @@ static iree_status_t weight_prepare_policy(weight_preparation_t* job) {
   for (iree_host_size_t i = 0;
        i < weights->span_count && iree_status_is_ok(status); ++i) {
     iree_vm_buffer_t* root = NULL;
-    status =
-        weight_query_preparer(program, &types, function,
-                              weights->spans[i].parameter, allocator, &root);
+    status = loom_serve_weight_query_preparer(program, &types, function,
+                                              weights->spans[i].parameter,
+                                              allocator, &root);
     job->span_preparers[i] = SIZE_MAX;
     if (iree_status_is_ok(status) && iree_vm_buffer_length(root)) {
-      const iree_string_view_t name = weight_preparer_name(root);
+      const iree_string_view_t name = loom_serve_weight_preparer_name(root);
       iree_host_size_t p = 0;
       while (p < job->preparer_count &&
-             !iree_string_view_equal(
-                 name, weight_preparer_name(job->preparers[p].root))) {
+             !iree_string_view_equal(name, loom_serve_weight_preparer_name(
+                                               job->preparers[p].root))) {
         ++p;
       }
       if (p == job->preparer_count) {
@@ -360,8 +360,8 @@ static iree_status_t weight_prepare_policy(weight_preparation_t* job) {
   return status;
 }
 
-static void weight_preparation_finish(weight_preparation_t* job,
-                                      iree_status_t status) {
+static void loom_serve_weight_preparation_finish(weight_preparation_t* job,
+                                                 iree_status_t status) {
   loom_serve_weights_t* weights = job->weights;
   const iree_allocator_t allocator = weights->allocator;
   if (iree_status_is_ok(status)) {
@@ -386,27 +386,28 @@ static void weight_preparation_finish(weight_preparation_t* job,
 }
 
 // Each native completion submits the next preparer without a worker join.
-static void weight_preparation_compiled(void* user_data, iree_status_t status,
-                                        loom_serve_jit_stage_t* compiled);
+static void loom_serve_weight_preparation_compiled(
+    void* user_data, iree_status_t status, loom_serve_jit_stage_t* compiled);
 
-static void weight_preparation_next(weight_preparation_t* job) {
+static void loom_serve_weight_preparation_next(weight_preparation_t* job) {
   if (job->preparer_index == job->preparer_count) {
-    weight_preparation_finish(job, iree_ok_status());
+    loom_serve_weight_preparation_finish(job, iree_ok_status());
     return;
   }
   const iree_string_view_t root =
-      weight_preparer_name(job->preparers[job->preparer_index].root);
-  iree_status_t status = loom_serve_jit_compile_async(
-      job->jit, root, &job->config, weight_preparation_compiled, job);
+      loom_serve_weight_preparer_name(job->preparers[job->preparer_index].root);
+  iree_status_t status =
+      loom_serve_jit_compile_async(job->jit, root, &job->config,
+                                   loom_serve_weight_preparation_compiled, job);
   // An accepted completion may already have destroyed job. Rejection owes no
   // callback and returns the still-exclusive job to this terminal path.
   if (!iree_status_is_ok(status)) {
-    weight_preparation_finish(job, status);
+    loom_serve_weight_preparation_finish(job, status);
   }
 }
 
-static void weight_preparation_compiled(void* user_data, iree_status_t status,
-                                        loom_serve_jit_stage_t* compiled) {
+static void loom_serve_weight_preparation_compiled(
+    void* user_data, iree_status_t status, loom_serve_jit_stage_t* compiled) {
   weight_preparation_t* job = user_data;
   weight_preparer_t* preparer = &job->preparers[job->preparer_index];
   if (iree_status_is_ok(status)) {
@@ -416,7 +417,8 @@ static void weight_preparation_compiled(void* user_data, iree_status_t status,
         requirements->rebindable_binding_count != 1 ||
         requirements->transient.required_byte_length ||
         requirements->launch_counts.required_byte_length) {
-      const iree_string_view_t name = weight_preparer_name(preparer->root);
+      const iree_string_view_t name =
+          loom_serve_weight_preparer_name(preparer->root);
       status = iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
           "weight preparer '%.*s' requires one mutable binding "
@@ -431,18 +433,18 @@ static void weight_preparation_compiled(void* user_data, iree_status_t status,
   loom_serve_jit_stage_free(compiled);
   if (iree_status_is_ok(status)) {
     ++job->preparer_index;
-    weight_preparation_next(job);
+    loom_serve_weight_preparation_next(job);
   } else {
-    weight_preparation_finish(job, status);
+    loom_serve_weight_preparation_finish(job, status);
   }
 }
 
-static void weight_preparation_execute(loomc_task_t* task,
-                                       loomc_host_size_t worker_ordinal) {
+static void loom_serve_weight_preparation_execute(
+    loomc_task_t* task, loomc_host_size_t worker_ordinal) {
   (void)worker_ordinal;
   weight_preparation_t* job = (weight_preparation_t*)task;
   const iree_allocator_t allocator = job->weights->allocator;
-  iree_status_t status = weight_prepare_policy(job);
+  iree_status_t status = loom_serve_weight_prepare_policy(job);
   iree_io_parameter_index_t* index = NULL;
   if (iree_status_is_ok(status)) {
     status = iree_io_parameter_index_create(allocator, &index);
@@ -466,18 +468,18 @@ static void weight_preparation_execute(loomc_task_t* task,
   job->status = status;
 }
 
-static void weight_preparation_destroy(loomc_task_t* task) {
+static void loom_serve_weight_preparation_destroy(loomc_task_t* task) {
   weight_preparation_t* job = (weight_preparation_t*)task;
   if (iree_status_is_ok(job->status)) {
-    weight_preparation_next(job);
+    loom_serve_weight_preparation_next(job);
   } else {
-    weight_preparation_finish(job, job->status);
+    loom_serve_weight_preparation_finish(job, job->status);
   }
 }
 
 static const loomc_task_vtable_t weight_preparation_vtable = {
-    .execute = weight_preparation_execute,
-    .destroy = weight_preparation_destroy,
+    .execute = loom_serve_weight_preparation_execute,
+    .destroy = loom_serve_weight_preparation_destroy,
 };
 
 iree_status_t loom_serve_weights_prepare_async(
@@ -518,7 +520,8 @@ typedef struct weight_preparation_join_t {
   bool ready;
 } weight_preparation_join_t;
 
-static void weight_preparation_ready(void* user_data, iree_status_t status) {
+static void loom_serve_weight_preparation_ready(void* user_data,
+                                                iree_status_t status) {
   weight_preparation_join_t* join = user_data;
   iree_slim_mutex_lock(&join->mutex);
   join->status = status;
@@ -527,7 +530,7 @@ static void weight_preparation_ready(void* user_data, iree_status_t status) {
   iree_slim_mutex_unlock(&join->mutex);
 }
 
-static bool weight_preparation_is_ready(void* user_data) {
+static bool loom_serve_weight_preparation_is_ready(void* user_data) {
   weight_preparation_join_t* join = user_data;
   iree_slim_mutex_lock(&join->mutex);
   const bool ready = join->ready;
@@ -545,10 +548,11 @@ iree_status_t loom_serve_weights_prepare(
   iree_notification_initialize(&join.notification);
   iree_status_t status = loom_serve_weights_prepare_async(
       weights, host, jit, command_mode, base_directory, weights_path,
-      policy_path, weight_preparation_ready, &join);
+      policy_path, loom_serve_weight_preparation_ready, &join);
   if (iree_status_is_ok(status)) {
-    iree_notification_await(&join.notification, weight_preparation_is_ready,
-                            &join, iree_infinite_timeout());
+    iree_notification_await(&join.notification,
+                            loom_serve_weight_preparation_is_ready, &join,
+                            iree_infinite_timeout());
     status = join.status;
   }
   iree_notification_deinitialize(&join.notification);
@@ -556,9 +560,9 @@ iree_status_t loom_serve_weights_prepare(
   return status;
 }
 
-static iree_status_t weight_enumerate(void* user_data, iree_host_size_t i,
-                                      iree_string_view_t* out_key,
-                                      iree_io_parameter_span_t* out_span) {
+static iree_status_t loom_serve_weight_enumerate(
+    void* user_data, iree_host_size_t i, iree_string_view_t* out_key,
+    iree_io_parameter_span_t* out_span) {
   const weight_group_t* group = user_data;
   const loom_cmd_program_parameter_t parameter = group->spans[i].parameter;
   *out_key = parameter.key;
@@ -569,7 +573,7 @@ static iree_status_t weight_enumerate(void* user_data, iree_host_size_t i,
   return iree_ok_status();
 }
 
-static iree_status_t weight_stream(loom_serve_weights_t* weights) {
+static iree_status_t loom_serve_weight_stream(loom_serve_weights_t* weights) {
   IREE_TRACE_ZONE_BEGIN(z0);
   const iree_allocator_t allocator = weights->allocator;
   const iree_host_size_t span_count = weights->span_count;
@@ -633,7 +637,7 @@ static iree_status_t weight_stream(loom_serve_weights_t* weights) {
       gathers[i] = (iree_io_parameter_gather_t){
           .target_buffer = group->buffer,
           .count = group->count,
-          .enumerator = {weight_enumerate, group},
+          .enumerator = {loom_serve_weight_enumerate, group},
           .wait_semaphore_list = {1, &ready[lane], &group->wait_value},
           .signal_semaphore_list = {1,
                                     group->spans[0].prepare ? &reads[lane]
@@ -739,9 +743,9 @@ iree_status_t loom_serve_weights_allocate(
       root.minimum_alignment =
           iree_max(root.minimum_alignment, other.minimum_alignment);
     }
-    status = weight_resolve_root(weights, roots[0].program, root,
-                                 &weights->span_count, weights->spans,
-                                 host_allocator, roots[0].buffer);
+    status = loom_serve_weight_resolve_root(
+        weights, roots[0].program, root, &weights->span_count, weights->spans,
+        host_allocator, roots[0].buffer);
   }
   if (iree_status_is_ok(status)) {
     for (iree_host_size_t i = 1; i < shared_root_count; ++i) {
@@ -751,9 +755,9 @@ iree_status_t loom_serve_weights_allocate(
   }
   for (iree_host_size_t i = shared_root_count;
        i < root_count && iree_status_is_ok(status); ++i) {
-    status = weight_resolve_root(weights, roots[i].program, roots[i].root,
-                                 &weights->span_count, weights->spans,
-                                 host_allocator, roots[i].buffer);
+    status = loom_serve_weight_resolve_root(
+        weights, roots[i].program, roots[i].root, &weights->span_count,
+        weights->spans, host_allocator, roots[i].buffer);
   }
   if (iree_status_is_ok(status)) {
     iree_host_size_t key_bytes = 0;
@@ -795,7 +799,7 @@ iree_status_t loom_serve_weights_activate(loom_serve_weights_t* weights,
     }
   }
   if (iree_status_is_ok(status)) {
-    status = weight_stream(weights);
+    status = loom_serve_weight_stream(weights);
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_execution_barrier(

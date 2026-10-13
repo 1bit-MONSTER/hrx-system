@@ -66,25 +66,26 @@ struct loom_serve_http_server_t {
 
 // Publication and the final callback access share the same mutex. A consumer
 // observing retirement may immediately reclaim storage after acquiring it.
-static void http_notify_locked(loom_serve_http_server_t* server) {
+static void loom_serve_http_notify_locked(loom_serve_http_server_t* server) {
   if (server->observer.wake) {
     server->observer.wake(server->observer.user_data);
   }
   iree_notification_post(&server->notification, IREE_ALL_WAITERS);
 }
 
-static void http_connection_deactivated(void* user_data) {
+static void loom_serve_http_connection_deactivated(void* user_data) {
   loom_serve_http_connection_t* connection = user_data;
   loom_serve_http_server_t* server = connection->server;
   iree_slim_mutex_lock(&server->mutex);
   connection->flags |= HTTP_CONNECTION_DRAINED;
-  http_notify_locked(server);
+  loom_serve_http_notify_locked(server);
   iree_slim_mutex_unlock(&server->mutex);
 }
 
 // All deactivation intent converges here. The occupied slot retains the carrier
 // across a synchronous deactivation callback; reclamation is application-owned.
-static void http_connection_close(loom_serve_http_connection_t* connection) {
+static void loom_serve_http_connection_close(
+    loom_serve_http_connection_t* connection) {
   loom_serve_http_server_t* server = connection->server;
   iree_slim_mutex_lock(&server->mutex);
   const bool begin =
@@ -94,23 +95,24 @@ static void http_connection_close(loom_serve_http_connection_t* connection) {
   iree_slim_mutex_unlock(&server->mutex);
   if (begin) {
     iree_net_carrier_deactivate(connection->carrier,
-                                http_connection_deactivated, connection);
+                                loom_serve_http_connection_deactivated,
+                                connection);
   }
 }
 
-static void http_connection_error(void* user_data, iree_status_t status) {
+static void loom_serve_http_connection_error(void* user_data,
+                                             iree_status_t status) {
   loom_serve_http_connection_t* connection = user_data;
   loom_serve_http_server_t* server = connection->server;
   iree_slim_mutex_lock(&server->mutex);
   connection->failure = iree_status_join(connection->failure, status);
-  http_notify_locked(server);
+  loom_serve_http_notify_locked(server);
   iree_slim_mutex_unlock(&server->mutex);
-  http_connection_close(connection);
+  loom_serve_http_connection_close(connection);
 }
 
-static iree_status_t http_connection_receive(void* user_data,
-                                             iree_async_span_t data,
-                                             iree_async_buffer_lease_t* lease) {
+static iree_status_t loom_serve_http_connection_receive(
+    void* user_data, iree_async_span_t data, iree_async_buffer_lease_t* lease) {
   (void)lease;
   loom_serve_http_connection_t* connection = user_data;
   const loom_serve_http_request_t* request = NULL;
@@ -124,16 +126,15 @@ static iree_status_t http_connection_receive(void* user_data,
     iree_slim_mutex_lock(&connection->server->mutex);
     connection->request = request;
     connection->flags |= HTTP_CONNECTION_REQUEST_READY;
-    http_notify_locked(connection->server);
+    loom_serve_http_notify_locked(connection->server);
     iree_slim_mutex_unlock(&connection->server->mutex);
   }
   // EOF is a half-close: a complete request may still receive its response.
   return status;
 }
 
-static void http_connection_send_completed(void* user_data,
-                                           iree_status_t status,
-                                           iree_host_size_t bytes_transferred) {
+static void loom_serve_http_connection_send_completed(
+    void* user_data, iree_status_t status, iree_host_size_t bytes_transferred) {
   (void)bytes_transferred;
   loom_serve_http_connection_t* connection = user_data;
   loom_serve_http_server_t* server = connection->server;
@@ -144,10 +145,10 @@ static void http_connection_send_completed(void* user_data,
       !iree_status_is_ok(connection->failure) ||
       (iree_any_bit_set(connection->flags, HTTP_CONNECTION_FINISHED) &&
        !connection->pending_sends);
-  http_notify_locked(server);
+  loom_serve_http_notify_locked(server);
   iree_slim_mutex_unlock(&server->mutex);
   if (close) {
-    http_connection_close(connection);
+    loom_serve_http_connection_close(connection);
   }
 }
 
@@ -184,9 +185,9 @@ bool loom_serve_http_server_try_accept(loom_serve_http_server_t* server,
       server->options.request_limits, &connection->parser, server->allocator);
   if (iree_status_is_ok(status)) {
     status = iree_net_carrier_set_handlers(
-        carrier,
-        (iree_net_carrier_handlers_t){http_connection_receive,
-                                      http_connection_error, connection});
+        carrier, (iree_net_carrier_handlers_t){
+                     loom_serve_http_connection_receive,
+                     loom_serve_http_connection_error, connection});
   }
   if (iree_status_is_ok(status)) {
     status = iree_net_carrier_activate(carrier);
@@ -198,12 +199,12 @@ bool loom_serve_http_server_try_accept(loom_serve_http_server_t* server,
     connection->flags |= HTTP_CONNECTION_DRAINED;
   }
   connection->flags &= ~HTTP_CONNECTION_INITIALIZING;
-  http_notify_locked(server);
+  loom_serve_http_notify_locked(server);
   iree_slim_mutex_unlock(&server->mutex);
   return true;
 }
 
-static bool http_server_drained(void* user_data) {
+static bool loom_serve_http_server_drained(void* user_data) {
   loom_serve_http_server_t* server = user_data;
   iree_slim_mutex_lock(&server->mutex);
   bool drained = true;
@@ -222,12 +223,13 @@ void loom_serve_http_server_record_error(loom_serve_http_server_t* server,
   loom_serve_telemetry_diagnostic_capture(status, &record.data.error);
   iree_slim_mutex_lock(&server->mutex);
   loom_serve_telemetry_stream_append(server->diagnostics, &record);
-  http_notify_locked(server);
+  loom_serve_http_notify_locked(server);
   iree_slim_mutex_unlock(&server->mutex);
 }
 
 // Called only after the slot has returned both application and I/O ownership.
-static void http_connection_reclaim(loom_serve_http_connection_t* connection) {
+static void loom_serve_http_connection_reclaim(
+    loom_serve_http_connection_t* connection) {
   loom_serve_http_server_t* server = connection->server;
   iree_net_carrier_release(connection->carrier);
   loom_serve_http_request_parser_free(connection->parser);
@@ -252,14 +254,14 @@ void loom_serve_http_server_free(loom_serve_http_server_t* server) {
   for (iree_host_size_t i = 0; i < server->options.connection_capacity; ++i) {
     loom_serve_http_connection_t* connection = &server->connections[i];
     if (connection->carrier) {
-      http_connection_close(connection);
+      loom_serve_http_connection_close(connection);
     }
   }
-  iree_notification_await(&server->notification, http_server_drained, server,
-                          iree_infinite_timeout());
+  iree_notification_await(&server->notification, loom_serve_http_server_drained,
+                          server, iree_infinite_timeout());
   for (iree_host_size_t i = 0; i < server->options.connection_capacity; ++i) {
     if (server->connections[i].flags) {
-      http_connection_reclaim(&server->connections[i]);
+      loom_serve_http_connection_reclaim(&server->connections[i]);
     }
   }
   iree_async_semaphore_release(server->capacity_semaphore);
@@ -371,7 +373,7 @@ void loom_serve_http_server_request_stop(loom_serve_http_server_t* server) {
         iree_async_semaphore_query(server->capacity_semaphore) + 1, NULL));
   }
   server->stopping = true;
-  http_notify_locked(server);
+  loom_serve_http_notify_locked(server);
   iree_slim_mutex_unlock(&server->mutex);
 }
 
@@ -412,7 +414,7 @@ loom_serve_http_connection_t* loom_serve_http_server_take_request(
     }
     iree_slim_mutex_unlock(&server->mutex);
     if (reclaim) {
-      http_connection_reclaim(connection);
+      loom_serve_http_connection_reclaim(connection);
     }
   }
   return selected;
@@ -439,7 +441,8 @@ iree_status_t loom_serve_http_connection_send(
   const iree_net_send_params_t params = {
       .generated_prefix = iree_net_send_prefix_from_bytes(
           iree_make_const_byte_span(bytes.data, bytes.size)),
-      .completion_callback = {http_connection_send_completed, connection},
+      .completion_callback = {loom_serve_http_connection_send_completed,
+                              connection},
   };
   iree_status_t status = iree_net_carrier_send(connection->carrier, &params);
   if (!iree_status_is_ok(status)) {
@@ -458,7 +461,7 @@ void loom_serve_http_connection_finish(
   const bool close = !connection->pending_sends;
   iree_slim_mutex_unlock(&connection->server->mutex);
   if (close) {
-    http_connection_close(connection);
+    loom_serve_http_connection_close(connection);
   }
 }
 
@@ -468,5 +471,5 @@ void loom_serve_http_connection_abort(
   connection->flags &= ~HTTP_CONNECTION_CLAIMED;
   connection->flags |= HTTP_CONNECTION_FINISHED;
   iree_slim_mutex_unlock(&connection->server->mutex);
-  http_connection_close(connection);
+  loom_serve_http_connection_close(connection);
 }

@@ -68,7 +68,7 @@ void loom_serve_text_prefix_cache_release(
   --cache->count;
 }
 
-static loom_serve_text_prefix_entry_t* prefix_cache_oldest(
+static loom_serve_text_prefix_entry_t* loom_serve_text_prefix_cache_oldest(
     loom_serve_text_prefix_cache_t* cache,
     const loom_serve_text_prefix_entry_t* protected_entry) {
   loom_serve_text_prefix_entry_t* oldest = NULL;
@@ -86,7 +86,7 @@ bool loom_serve_text_prefix_cache_evict(
     loom_serve_text_prefix_cache_t* cache,
     const loom_serve_text_prefix_entry_t* protected_entry) {
   loom_serve_text_prefix_entry_t* entry =
-      prefix_cache_oldest(cache, protected_entry);
+      loom_serve_text_prefix_cache_oldest(cache, protected_entry);
   if (!entry) {
     return false;
   }
@@ -112,7 +112,7 @@ iree_status_t loom_serve_text_prefix_cache_submit(
     }
   }
   if (!entry) {
-    entry = prefix_cache_oldest(cache, protected_entry);
+    entry = loom_serve_text_prefix_cache_oldest(cache, protected_entry);
   }
   if (!entry) {
     return iree_ok_status();

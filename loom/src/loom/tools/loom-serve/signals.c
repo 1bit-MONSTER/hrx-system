@@ -32,8 +32,8 @@ struct loom_serve_signals_t {
   iree_status_t status;
 };
 
-static void serving_signals_publish(loom_serve_signals_t* signals,
-                                    iree_status_t status) {
+static void loom_serve_signals_publish(loom_serve_signals_t* signals,
+                                       iree_status_t status) {
   iree_slim_mutex_lock(&signals->mutex);
   signals->status = status;
   signals->ready = true;
@@ -41,7 +41,7 @@ static void serving_signals_publish(loom_serve_signals_t* signals,
   iree_slim_mutex_unlock(&signals->mutex);
 }
 
-static void serving_signals_unsubscribe(loom_serve_signals_t* signals) {
+static void loom_serve_signals_unsubscribe(loom_serve_signals_t* signals) {
   iree_async_proactor_t* proactor =
       iree_async_proactor_pool_entry_proactor(signals->entry);
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(signals->subscriptions);
@@ -51,10 +51,10 @@ static void serving_signals_unsubscribe(loom_serve_signals_t* signals) {
   }
 }
 
-static void serving_signals_register(void* user_data,
-                                     iree_async_operation_t* operation,
-                                     iree_status_t status,
-                                     iree_async_completion_flags_t flags) {
+static void loom_serve_signals_register(void* user_data,
+                                        iree_async_operation_t* operation,
+                                        iree_status_t status,
+                                        iree_async_completion_flags_t flags) {
   (void)operation;
   (void)flags;
   loom_serve_signals_t* signals = user_data;
@@ -68,24 +68,24 @@ static void serving_signals_register(void* user_data,
         proactor, types[i], signals->callback, &signals->subscriptions[i]);
   }
   if (!iree_status_is_ok(status)) {
-    serving_signals_unsubscribe(signals);
+    loom_serve_signals_unsubscribe(signals);
   }
-  serving_signals_publish(signals, status);
+  loom_serve_signals_publish(signals, status);
 }
 
-static void serving_signals_unregister(void* user_data,
-                                       iree_async_operation_t* operation,
-                                       iree_status_t status,
-                                       iree_async_completion_flags_t flags) {
+static void loom_serve_signals_unregister(void* user_data,
+                                          iree_async_operation_t* operation,
+                                          iree_status_t status,
+                                          iree_async_completion_flags_t flags) {
   (void)operation;
   (void)flags;
   IREE_CHECK_OK(status);
   loom_serve_signals_t* signals = user_data;
-  serving_signals_unsubscribe(signals);
-  serving_signals_publish(signals, iree_ok_status());
+  loom_serve_signals_unsubscribe(signals);
+  loom_serve_signals_publish(signals, iree_ok_status());
 }
 
-static bool serving_signals_ready(void* user_data) {
+static bool loom_serve_signals_ready(void* user_data) {
   loom_serve_signals_t* signals = user_data;
   iree_slim_mutex_lock(&signals->mutex);
   const bool ready = signals->ready;
@@ -93,7 +93,7 @@ static bool serving_signals_ready(void* user_data) {
   return ready;
 }
 
-static void serving_signals_free(loom_serve_signals_t* signals) {
+static void loom_serve_signals_destroy(loom_serve_signals_t* signals) {
   iree_async_proactor_pool_entry_release(signals->entry);
   iree_notification_deinitialize(&signals->notification);
   iree_slim_mutex_deinitialize(&signals->mutex);
@@ -121,20 +121,20 @@ iree_status_t loom_serve_signals_allocate(iree_async_proactor_pool_t* pool,
   if (iree_status_is_ok(status)) {
     iree_async_operation_initialize(
         &signals->operation.base, IREE_ASYNC_OPERATION_TYPE_NOP,
-        IREE_ASYNC_OPERATION_FLAG_NONE, serving_signals_register, signals);
+        IREE_ASYNC_OPERATION_FLAG_NONE, loom_serve_signals_register, signals);
     status = iree_async_proactor_submit_one(
         iree_async_proactor_pool_entry_proactor(signals->entry),
         &signals->operation.base);
   }
   if (iree_status_is_ok(status)) {
-    iree_notification_await(&signals->notification, serving_signals_ready,
+    iree_notification_await(&signals->notification, loom_serve_signals_ready,
                             signals, iree_infinite_timeout());
     status = signals->status;
   }
   if (iree_status_is_ok(status)) {
     *out_signals = signals;
   } else {
-    serving_signals_free(signals);
+    loom_serve_signals_destroy(signals);
   }
   return status;
 }
@@ -146,11 +146,11 @@ void loom_serve_signals_free(loom_serve_signals_t* signals) {
   signals->ready = false;
   iree_async_operation_initialize(
       &signals->operation.base, IREE_ASYNC_OPERATION_TYPE_NOP,
-      IREE_ASYNC_OPERATION_FLAG_NONE, serving_signals_unregister, signals);
+      IREE_ASYNC_OPERATION_FLAG_NONE, loom_serve_signals_unregister, signals);
   IREE_CHECK_OK(iree_async_proactor_submit_one(
       iree_async_proactor_pool_entry_proactor(signals->entry),
       &signals->operation.base));
-  iree_notification_await(&signals->notification, serving_signals_ready,
+  iree_notification_await(&signals->notification, loom_serve_signals_ready,
                           signals, iree_infinite_timeout());
-  serving_signals_free(signals);
+  loom_serve_signals_destroy(signals);
 }

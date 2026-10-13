@@ -12,8 +12,9 @@
 #include "loom/util/json.h"
 #include "loomc/iree.h"
 
-static void compilation_copy(loomc_string_view_t value,
-                             iree_host_size_t capacity, char* target) {
+static void loom_serve_compilation_copy(loomc_string_view_t value,
+                                        iree_host_size_t capacity,
+                                        char* target) {
   const iree_host_size_t length = iree_min(value.size, capacity);
   if (length) {
     memcpy(target, value.data, length);
@@ -49,10 +50,12 @@ iree_status_t loom_serve_compilation_result(
         .source_length = source.size,
         .code_length = diagnostic->code.size,
         .message_length = diagnostic->message.size};
-    compilation_copy(source, sizeof(captured->source), captured->source);
-    compilation_copy(diagnostic->code, sizeof(captured->code), captured->code);
-    compilation_copy(diagnostic->message, sizeof(captured->message),
-                     captured->message);
+    loom_serve_compilation_copy(source, sizeof(captured->source),
+                                captured->source);
+    loom_serve_compilation_copy(diagnostic->code, sizeof(captured->code),
+                                captured->code);
+    loom_serve_compilation_copy(diagnostic->message, sizeof(captured->message),
+                                captured->message);
   }
   iree_status_t status = iree_status_from_loomc(operation);
   if (iree_status_is_ok(status) && !loomc_result_succeeded(result)) {
@@ -102,10 +105,9 @@ void loom_serve_compilation_merge(
   report->duration_ns += source->duration_ns;
 }
 
-static iree_status_t compilation_write_text(loom_output_stream_t* output,
-                                            const char* name, const char* value,
-                                            uint64_t length,
-                                            iree_host_size_t capacity) {
+static iree_status_t loom_serve_compilation_write_text(
+    loom_output_stream_t* output, const char* name, const char* value,
+    uint64_t length, iree_host_size_t capacity) {
   IREE_RETURN_IF_ERROR(loom_output_stream_write_format(
       output, ",\"%s_length\":%" PRIu64 ",\"%s\":", name, length, name));
   return loom_json_write_escaped_string(
@@ -145,19 +147,19 @@ iree_status_t loom_serve_compilation_write(
         diagnostic->column, diagnostic->omitted_locations,
         diagnostic->omitted_parameters);
     if (iree_status_is_ok(status)) {
-      status = compilation_write_text(output, "source", diagnostic->source,
-                                      diagnostic->source_length,
-                                      sizeof(diagnostic->source));
+      status = loom_serve_compilation_write_text(
+          output, "source", diagnostic->source, diagnostic->source_length,
+          sizeof(diagnostic->source));
     }
     if (iree_status_is_ok(status)) {
-      status = compilation_write_text(output, "code", diagnostic->code,
-                                      diagnostic->code_length,
-                                      sizeof(diagnostic->code));
+      status = loom_serve_compilation_write_text(
+          output, "code", diagnostic->code, diagnostic->code_length,
+          sizeof(diagnostic->code));
     }
     if (iree_status_is_ok(status)) {
-      status = compilation_write_text(output, "message", diagnostic->message,
-                                      diagnostic->message_length,
-                                      sizeof(diagnostic->message));
+      status = loom_serve_compilation_write_text(
+          output, "message", diagnostic->message, diagnostic->message_length,
+          sizeof(diagnostic->message));
     }
     if (iree_status_is_ok(status)) {
       status = loom_output_stream_write_cstring(output, "}");

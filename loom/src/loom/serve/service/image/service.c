@@ -142,16 +142,16 @@ struct loom_serve_image_service_t {
   iree_string_builder_t response;
 };
 
-static void image_event(loom_serve_image_service_t* service,
-                        const loom_serve_telemetry_event_t* event,
-                        uint64_t request) {
+static void loom_serve_image_event(loom_serve_image_service_t* service,
+                                   const loom_serve_telemetry_event_t* event,
+                                   uint64_t request) {
   const loom_serve_telemetry_record_t record = {
       .time_ns = iree_time_now(), .request = request, .event = event};
   loom_serve_telemetry_stream_append(service->telemetry.stream, &record);
 }
 
-static void image_record_weights(loom_serve_image_service_t* service,
-                                 iree_time_t time_ns) {
+static void loom_serve_image_record_weights(loom_serve_image_service_t* service,
+                                            iree_time_t time_ns) {
   if (service->generator.weight_activity) {
     const loom_serve_weight_activity_t activity =
         service->generator.weight_activity(service->generator.self);
@@ -161,8 +161,9 @@ static void image_record_weights(loom_serve_image_service_t* service,
 }
 
 // Copies a borrowed status before it propagates or is consumed at a boundary.
-static void image_diagnose(loom_serve_image_service_t* service,
-                           uint64_t request, const iree_status_t failure) {
+static void loom_serve_image_diagnose(loom_serve_image_service_t* service,
+                                      uint64_t request,
+                                      const iree_status_t failure) {
   loom_serve_telemetry_record_t record = {.time_ns = iree_time_now(),
                                           .request = request,
                                           .event = &LOOM_SERVE_TELEMETRY_ERROR};
@@ -170,10 +171,10 @@ static void image_diagnose(loom_serve_image_service_t* service,
   loom_serve_telemetry_stream_append(service->telemetry.stream, &record);
 }
 
-static void image_request_end(loom_serve_image_service_t* service,
-                              const image_job_t* job,
-                              loom_serve_telemetry_outcome_t outcome,
-                              const iree_status_t borrowed_status) {
+static void loom_serve_image_request_end(loom_serve_image_service_t* service,
+                                         const image_job_t* job,
+                                         loom_serve_telemetry_outcome_t outcome,
+                                         const iree_status_t borrowed_status) {
   loom_serve_telemetry_count_outcome(&service->telemetry.counters, outcome);
   loom_serve_image_record_work(service->telemetry.stream, job->id, &job->work);
   loom_serve_telemetry_record_t record = {
@@ -187,18 +188,18 @@ static void image_request_end(loom_serve_image_service_t* service,
   loom_serve_telemetry_stream_append(service->telemetry.stream, &record);
   loom_serve_image_record_totals(service->telemetry.stream,
                                  &service->telemetry.totals);
-  image_record_weights(service, record.time_ns);
+  loom_serve_image_record_weights(service, record.time_ns);
 }
 
-static iree_status_t image_quote(iree_string_builder_t* output,
-                                 iree_string_view_t value) {
+static iree_status_t loom_serve_image_quote(iree_string_builder_t* output,
+                                            iree_string_view_t value) {
   loom_output_stream_t stream;
   loom_output_stream_for_builder(output, &stream);
   return loom_json_write_escaped_string(&stream, value);
 }
 
-static iree_status_t image_response_begin(iree_string_builder_t* output,
-                                          const char* status) {
+static iree_status_t loom_serve_image_response_begin(
+    iree_string_builder_t* output, const char* status) {
   iree_string_builder_reset(output);
   return iree_string_builder_append_format(
       output,
@@ -209,7 +210,7 @@ static iree_status_t image_response_begin(iree_string_builder_t* output,
 
 // Each connection sends exactly one complete response. The transport copies
 // admitted bytes, so a slow or reset peer never holds a generator buffer.
-static loom_serve_telemetry_outcome_t image_response_send(
+static loom_serve_telemetry_outcome_t loom_serve_image_response_send(
     loom_serve_image_service_t* service,
     loom_serve_http_connection_t* connection, uint64_t request,
     iree_string_view_t response) {
@@ -229,32 +230,34 @@ static loom_serve_telemetry_outcome_t image_response_send(
         iree_status_is_cancelled(status) || iree_status_is_unavailable(status)
             ? LOOM_SERVE_TELEMETRY_CANCELLED
             : LOOM_SERVE_TELEMETRY_FAILED;
-    image_diagnose(service, request, status);
+    loom_serve_image_diagnose(service, request, status);
     iree_status_free(status);
     loom_serve_http_connection_abort(connection);
     return outcome;
   }
 }
 
-static iree_status_t image_rejection_response(
+static iree_status_t loom_serve_image_rejection_response(
     loom_serve_image_service_t* service,
     loom_serve_http_connection_t* connection, uint64_t request,
     const char* code, iree_string_view_t message) {
-  iree_status_t status = image_response_begin(&service->response, code);
+  iree_status_t status =
+      loom_serve_image_response_begin(&service->response, code);
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(
         &service->response,
         "{\"error\":{\"type\":\"image_request_error\",\"message\":");
   }
   if (iree_status_is_ok(status)) {
-    status = image_quote(&service->response, message);
+    status = loom_serve_image_quote(&service->response, message);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(&service->response, "}}");
   }
   if (iree_status_is_ok(status)) {
-    image_response_send(service, connection, request,
-                        iree_string_builder_view(&service->response));
+    loom_serve_image_response_send(
+        service, connection, request,
+        iree_string_builder_view(&service->response));
   } else {
     loom_serve_http_connection_abort(connection);
   }
@@ -262,19 +265,20 @@ static iree_status_t image_rejection_response(
 }
 
 // Rejections before admission own only a local receipt, not the active job.
-static iree_status_t image_reject(loom_serve_image_service_t* service,
-                                  loom_serve_http_connection_t* connection,
-                                  const image_job_t* job, const char* code,
-                                  iree_string_view_t message) {
-  const iree_status_t status =
-      image_rejection_response(service, connection, job->id, code, message);
-  image_request_end(service, job, LOOM_SERVE_TELEMETRY_REJECTED, status);
+static iree_status_t loom_serve_image_reject(
+    loom_serve_image_service_t* service,
+    loom_serve_http_connection_t* connection, const image_job_t* job,
+    const char* code, iree_string_view_t message) {
+  const iree_status_t status = loom_serve_image_rejection_response(
+      service, connection, job->id, code, message);
+  loom_serve_image_request_end(service, job, LOOM_SERVE_TELEMETRY_REJECTED,
+                               status);
   return status;
 }
 
-static iree_status_t image_result_json(iree_string_builder_t* output,
-                                       iree_const_byte_span_t png) {
-  IREE_RETURN_IF_ERROR(image_response_begin(output, "200 OK"));
+static iree_status_t loom_serve_image_result_json(iree_string_builder_t* output,
+                                                  iree_const_byte_span_t png) {
+  IREE_RETURN_IF_ERROR(loom_serve_image_response_begin(output, "200 OK"));
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output, "{\"created\":%" PRId64 ",\"data\":[{\"b64_json\":\"",
       iree_time_now() / INT64_C(1000000000)));
@@ -291,9 +295,9 @@ static iree_status_t image_result_json(iree_string_builder_t* output,
   return iree_string_builder_append_cstring(output, "\"}]}");
 }
 
-static iree_status_t image_cpu_run(iree_task_process_t* process,
-                                   const iree_task_worker_context_t* context,
-                                   iree_task_process_drain_result_t* result) {
+static iree_status_t loom_serve_image_cpu_run(
+    iree_task_process_t* process, const iree_task_worker_context_t* context,
+    iree_task_process_drain_result_t* result) {
   (void)context;
   loom_serve_image_service_t* service = process->user_data;
   result->completed = true;
@@ -313,9 +317,9 @@ static iree_status_t image_cpu_run(iree_task_process_t* process,
   const iree_time_t encoded = iree_time_now();
   if (iree_status_is_ok(status)) {
     service->job.work.png_bytes = png.data_length;
-    status =
-        image_result_json(&service->cpu.response,
-                          iree_make_const_byte_span(png.data, png.data_length));
+    status = loom_serve_image_result_json(
+        &service->cpu.response,
+        iree_make_const_byte_span(png.data, png.data_length));
   }
   iree_allocator_free(service->allocator, png.data);
   service->job.work.png_ns = encoded - begin;
@@ -323,15 +327,15 @@ static iree_status_t image_cpu_run(iree_task_process_t* process,
   return status;
 }
 
-static void image_cpu_completed(iree_task_process_t* process,
-                                iree_status_t status) {
+static void loom_serve_image_cpu_completed(iree_task_process_t* process,
+                                           iree_status_t status) {
   loom_serve_image_service_t* service = process->user_data;
   iree_slim_mutex_lock(&service->events.mutex);
   service->events.cpu_status = status;
   iree_slim_mutex_unlock(&service->events.mutex);
 }
 
-static void image_cpu_released(iree_task_process_t* process) {
+static void loom_serve_image_cpu_released(iree_task_process_t* process) {
   loom_serve_image_service_t* service = process->user_data;
   iree_slim_mutex_lock(&service->events.mutex);
   service->events.ready |= IMAGE_EVENT_CPU;
@@ -339,32 +343,32 @@ static void image_cpu_released(iree_task_process_t* process) {
   iree_slim_mutex_unlock(&service->events.mutex);
 }
 
-static void image_schedule_cpu(loom_serve_image_service_t* service,
-                               image_phase_t phase) {
+static void loom_serve_image_schedule_cpu(loom_serve_image_service_t* service,
+                                          image_phase_t phase) {
   service->phase = phase;
   service->cpu.phase = phase;
-  iree_task_process_initialize(image_cpu_run, 0, 1, &service->cpu.process);
+  iree_task_process_initialize(loom_serve_image_cpu_run, 0, 1,
+                               &service->cpu.process);
   service->cpu.process.user_data = service;
-  service->cpu.process.completion_fn = image_cpu_completed;
-  service->cpu.process.release_fn = image_cpu_released;
+  service->cpu.process.completion_fn = loom_serve_image_cpu_completed;
+  service->cpu.process.release_fn = loom_serve_image_cpu_released;
   iree_task_executor_schedule_process(service->executor, &service->cpu.process);
 }
 
-static void image_start(loom_serve_image_service_t* service,
-                        image_pending_t pending) {
+static void loom_serve_image_start(loom_serve_image_service_t* service,
+                                   image_pending_t pending) {
   service->active = pending.job.id;
   service->connection = pending.connection;
   service->job = pending.job;
   service->job.work.queue_ns = iree_time_now() - service->job.arrival_time;
   service->telemetry.totals.work.queue_ns += service->job.work.queue_ns;
-  image_event(service, &LOOM_SERVE_IMAGE_STARTED, service->active);
-  image_schedule_cpu(service, IMAGE_PHASE_PREPARING);
+  loom_serve_image_event(service, &LOOM_SERVE_IMAGE_STARTED, service->active);
+  loom_serve_image_schedule_cpu(service, IMAGE_PHASE_PREPARING);
 }
 
-static void image_device_completed(void* user_data,
-                                   iree_async_operation_t* operation,
-                                   iree_status_t status,
-                                   iree_async_completion_flags_t flags) {
+static void loom_serve_image_device_completed(
+    void* user_data, iree_async_operation_t* operation, iree_status_t status,
+    iree_async_completion_flags_t flags) {
   (void)operation;
   (void)flags;
   loom_serve_image_service_t* service = user_data;
@@ -375,7 +379,8 @@ static void image_device_completed(void* user_data,
   iree_slim_mutex_unlock(&service->events.mutex);
 }
 
-static iree_status_t image_submit(loom_serve_image_service_t* service) {
+static iree_status_t loom_serve_image_service_submit(
+    loom_serve_image_service_t* service) {
   const iree_time_t begin = iree_time_now();
   if (service->phase == IMAGE_PHASE_WAITING) {
     service->job.work.admission_ns = begin - service->phase_start;
@@ -392,12 +397,13 @@ static iree_status_t image_submit(loom_serve_image_service_t* service) {
   const iree_duration_t submit_ns = service->phase_start - begin;
   service->job.work.submit_ns += submit_ns;
   service->telemetry.totals.work.submit_ns += submit_ns;
-  image_event(service, &LOOM_SERVE_IMAGE_SUBMITTED, service->active);
+  loom_serve_image_event(service, &LOOM_SERVE_IMAGE_SUBMITTED, service->active);
   iree_async_semaphore_wait_operation_t* wait = &service->device.operation;
   memset(wait, 0, sizeof(*wait));
-  iree_async_operation_initialize(
-      &wait->base, IREE_ASYNC_OPERATION_TYPE_SEMAPHORE_WAIT,
-      IREE_ASYNC_OPERATION_FLAG_NONE, image_device_completed, service);
+  iree_async_operation_initialize(&wait->base,
+                                  IREE_ASYNC_OPERATION_TYPE_SEMAPHORE_WAIT,
+                                  IREE_ASYNC_OPERATION_FLAG_NONE,
+                                  loom_serve_image_device_completed, service);
   for (iree_host_size_t i = 0; i < 2; ++i) {
     service->device.semaphores[i] =
         (iree_async_semaphore_t*)service->device.frontier.semaphores[i];
@@ -412,13 +418,13 @@ static iree_status_t image_submit(loom_serve_image_service_t* service) {
   return iree_ok_status();
 }
 
-static void image_finish(loom_serve_image_service_t* service,
-                         loom_serve_telemetry_outcome_t outcome) {
+static void loom_serve_image_finish(loom_serve_image_service_t* service,
+                                    loom_serve_telemetry_outcome_t outcome) {
   if (service->connection) {
     if (outcome == LOOM_SERVE_TELEMETRY_COMPLETED) {
-      outcome =
-          image_response_send(service, service->connection, service->active,
-                              iree_string_builder_view(&service->cpu.response));
+      outcome = loom_serve_image_response_send(
+          service, service->connection, service->active,
+          iree_string_builder_view(&service->cpu.response));
     } else {
       loom_serve_http_connection_abort(service->connection);
     }
@@ -427,21 +433,22 @@ static void image_finish(loom_serve_image_service_t* service,
     outcome = service->telemetry.failure_code ? LOOM_SERVE_TELEMETRY_FAILED
                                               : LOOM_SERVE_TELEMETRY_CANCELLED;
   }
-  image_request_end(service, &service->job, outcome, service->status);
+  loom_serve_image_request_end(service, &service->job, outcome,
+                               service->status);
   loom_serve_image_request_deinitialize(&service->job.request);
   memset(&service->job, 0, sizeof(service->job));
   service->active = 0;
   service->phase = IMAGE_PHASE_IDLE;
 }
 
-static void image_prepared(loom_serve_image_service_t* service,
-                           loom_serve_http_service_flags_t flags,
-                           bool* progress) {
+static void loom_serve_image_prepared(loom_serve_image_service_t* service,
+                                      loom_serve_http_service_flags_t flags,
+                                      bool* progress) {
   if (service->stopping || !service->connection) {
     service->generator.discard_prepared_request(service->generator.self);
-    image_finish(service, service->telemetry.failure_code
-                              ? LOOM_SERVE_TELEMETRY_FAILED
-                              : LOOM_SERVE_TELEMETRY_CANCELLED);
+    loom_serve_image_finish(service, service->telemetry.failure_code
+                                         ? LOOM_SERVE_TELEMETRY_FAILED
+                                         : LOOM_SERVE_TELEMETRY_CANCELLED);
     *progress = true;
     return;
   }
@@ -460,24 +467,25 @@ static void image_prepared(loom_serve_image_service_t* service,
     // No accepted producer can release capacity; waiting on queued peers
     // would deadlock mutually inadmissible requests.
     service->generator.discard_prepared_request(service->generator.self);
-    service->status = image_rejection_response(
+    service->status = loom_serve_image_rejection_response(
         service, service->connection, service->active,
         "503 Service Unavailable",
         IREE_SV("model parameters exceed available capacity"));
     service->connection = NULL;
-    image_finish(service, LOOM_SERVE_TELEMETRY_REJECTED);
+    loom_serve_image_finish(service, LOOM_SERVE_TELEMETRY_REJECTED);
     *progress = true;
     return;
   } else if (iree_status_is_ok(service->status)) {
-    service->status = image_submit(service);
+    service->status = loom_serve_image_service_submit(service);
   }
   *progress = true;
   if (!iree_status_is_ok(service->status)) {
-    image_finish(service, LOOM_SERVE_TELEMETRY_FAILED);
+    loom_serve_image_finish(service, LOOM_SERVE_TELEMETRY_FAILED);
   }
 }
 
-static void image_collect(loom_serve_image_service_t* service, bool* progress) {
+static void loom_serve_image_collect(loom_serve_image_service_t* service,
+                                     bool* progress) {
   iree_slim_mutex_lock(&service->events.mutex);
   uint32_t ready = service->events.ready;
   service->events.ready = 0;
@@ -510,23 +518,23 @@ static void image_collect(loom_serve_image_service_t* service, bool* progress) {
       if (!message.size) {
         message = IREE_SV("source rejected image input");
       }
-      service->status =
-          image_rejection_response(service, service->connection,
-                                   service->active, "400 Bad Request", message);
+      service->status = loom_serve_image_rejection_response(
+          service, service->connection, service->active, "400 Bad Request",
+          message);
       service->connection = NULL;
-      image_diagnose(service, service->active, cpu_status);
+      loom_serve_image_diagnose(service, service->active, cpu_status);
       iree_status_free(cpu_status);
-      image_finish(service, LOOM_SERVE_TELEMETRY_REJECTED);
+      loom_serve_image_finish(service, LOOM_SERVE_TELEMETRY_REJECTED);
     } else {
-      image_diagnose(service, service->active, cpu_status);
+      loom_serve_image_diagnose(service, service->active, cpu_status);
       iree_status_free(cpu_status);
-      image_finish(service, LOOM_SERVE_TELEMETRY_CANCELLED);
+      loom_serve_image_finish(service, LOOM_SERVE_TELEMETRY_CANCELLED);
     }
     return;
   }
   service->status = iree_status_join(service->status, cpu_status);
   if (!iree_status_is_ok(service->status)) {
-    image_finish(service, LOOM_SERVE_TELEMETRY_FAILED);
+    loom_serve_image_finish(service, LOOM_SERVE_TELEMETRY_FAILED);
     return;
   }
   if (iree_any_bit_set(ready, IMAGE_EVENT_DEVICE)) {
@@ -543,19 +551,20 @@ static void image_collect(loom_serve_image_service_t* service, bool* progress) {
     }
     service->cpu.rgb = service->generator.complete(service->generator.self);
     if (service->device.cancelled) {
-      image_finish(service, LOOM_SERVE_TELEMETRY_CANCELLED);
+      loom_serve_image_finish(service, LOOM_SERVE_TELEMETRY_CANCELLED);
       return;
     }
     ++service->telemetry.totals.generated_images;
     service->telemetry.totals.generated_pixels +=
         (uint64_t)service->options.width * service->options.height;
-    image_event(service, &LOOM_SERVE_IMAGE_GENERATED, service->active);
+    loom_serve_image_event(service, &LOOM_SERVE_IMAGE_GENERATED,
+                           service->active);
     if (service->connection) {
-      image_schedule_cpu(service, IMAGE_PHASE_ENCODING);
+      loom_serve_image_schedule_cpu(service, IMAGE_PHASE_ENCODING);
     } else {
       // Successful native retirement is mandatory even for an absent peer;
       // response encoding is not. Finish resolves its cancellation outcome.
-      image_finish(service, LOOM_SERVE_TELEMETRY_COMPLETED);
+      loom_serve_image_finish(service, LOOM_SERVE_TELEMETRY_COMPLETED);
     }
   } else if (service->phase == IMAGE_PHASE_PREPARING) {
     loom_serve_image_record_prepared(service->telemetry.stream, service->active,
@@ -563,11 +572,12 @@ static void image_collect(loom_serve_image_service_t* service, bool* progress) {
     service->phase = IMAGE_PHASE_WAITING;
     service->phase_start = iree_time_now();
   } else {
-    image_finish(service, LOOM_SERVE_TELEMETRY_COMPLETED);
+    loom_serve_image_finish(service, LOOM_SERVE_TELEMETRY_COMPLETED);
   }
 }
 
-static void image_prune(loom_serve_image_service_t* service, bool* progress) {
+static void loom_serve_image_prune(loom_serve_image_service_t* service,
+                                   bool* progress) {
   if (service->connection &&
       loom_serve_http_connection_failed(service->connection)) {
     loom_serve_http_connection_abort(service->connection);
@@ -578,8 +588,9 @@ static void image_prune(loom_serve_image_service_t* service, bool* progress) {
   for (iree_host_size_t i = 0; i < service->pending_count; ++i) {
     image_pending_t pending = service->pending[i];
     if (loom_serve_http_connection_failed(pending.connection)) {
-      image_request_end(service, &pending.job, LOOM_SERVE_TELEMETRY_CANCELLED,
-                        iree_ok_status());
+      loom_serve_image_request_end(service, &pending.job,
+                                   LOOM_SERVE_TELEMETRY_CANCELLED,
+                                   iree_ok_status());
       loom_serve_http_connection_abort(pending.connection);
       loom_serve_image_request_deinitialize(&pending.job.request);
       *progress = true;
@@ -590,22 +601,24 @@ static void image_prune(loom_serve_image_service_t* service, bool* progress) {
   service->pending_count = retained;
 }
 
-static iree_status_t image_accept(void* self,
-                                  loom_serve_http_connection_t* connection,
-                                  const loom_serve_http_request_t* request,
-                                  loom_serve_http_service_flags_t flags) {
+static iree_status_t loom_serve_image_accept(
+    void* self, loom_serve_http_connection_t* connection,
+    const loom_serve_http_request_t* request,
+    loom_serve_http_service_flags_t flags) {
   (void)flags;
   loom_serve_image_service_t* service = self;
   image_pending_t pending = {
       .connection = connection,
       .job = {.id = ++service->telemetry.counters.requests,
               .arrival_time = iree_time_now()}};
-  image_event(service, &LOOM_SERVE_TELEMETRY_REQUEST_BEGIN, pending.job.id);
+  loom_serve_image_event(service, &LOOM_SERVE_TELEMETRY_REQUEST_BEGIN,
+                         pending.job.id);
   if (!iree_string_view_equal(request->method, IREE_SV("POST")) ||
       !iree_string_view_equal(request->target,
                               IREE_SV("/v1/images/generations"))) {
-    return image_reject(service, connection, &pending.job, "404 Not Found",
-                        IREE_SV("unknown image endpoint"));
+    return loom_serve_image_reject(service, connection, &pending.job,
+                                   "404 Not Found",
+                                   IREE_SV("unknown image endpoint"));
   }
   iree_string_view_t content_type;
   if (!loom_serve_http_request_lookup_header(request, IREE_SV("content-type"),
@@ -614,9 +627,9 @@ static iree_status_t image_accept(void* self,
                                     IREE_SV("application/json")) ||
         iree_string_view_equal_case(
             content_type, IREE_SV("application/json; charset=utf-8")))) {
-    return image_reject(service, connection, &pending.job,
-                        "415 Unsupported Media Type",
-                        IREE_SV("Content-Type must be application/json"));
+    return loom_serve_image_reject(
+        service, connection, &pending.job, "415 Unsupported Media Type",
+        IREE_SV("Content-Type must be application/json"));
   }
   iree_status_t status = loom_serve_image_request_initialize(
       request->body, service->options.name, service->options.width,
@@ -627,37 +640,39 @@ static iree_status_t image_accept(void* self,
       message = iree_make_cstring_view(
           iree_status_code_string(iree_status_code(status)));
     }
-    iree_status_t response_status = image_reject(
+    iree_status_t response_status = loom_serve_image_reject(
         service, connection, &pending.job,
         iree_status_is_resource_exhausted(status) ? "503 Service Unavailable"
                                                   : "400 Bad Request",
         message);
-    image_diagnose(service, pending.job.id, status);
+    loom_serve_image_diagnose(service, pending.job.id, status);
     iree_status_free(status);
     return response_status;
   }
   if (!service->options.adapter_enabled &&
       pending.job.request.strength != 1.0f) {
     loom_serve_image_request_deinitialize(&pending.job.request);
-    return image_reject(service, connection, &pending.job, "400 Bad Request",
-                        IREE_SV("strength requires a loaded adapter"));
+    return loom_serve_image_reject(
+        service, connection, &pending.job, "400 Bad Request",
+        IREE_SV("strength requires a loaded adapter"));
   }
   if (service->active &&
       service->pending_count == service->options.pending_capacity) {
     loom_serve_image_request_deinitialize(&pending.job.request);
-    return image_reject(service, connection, &pending.job,
-                        "503 Service Unavailable",
-                        IREE_SV("image admission queue is full"));
+    return loom_serve_image_reject(service, connection, &pending.job,
+                                   "503 Service Unavailable",
+                                   IREE_SV("image admission queue is full"));
   }
   if (!service->active) {
-    image_start(service, pending);
+    loom_serve_image_start(service, pending);
   } else {
     service->pending[service->pending_count++] = pending;
   }
   return iree_ok_status();
 }
 
-static loom_serve_http_service_snapshot_t image_snapshot(void* self) {
+static loom_serve_http_service_snapshot_t loom_serve_image_snapshot(
+    void* self) {
   const loom_serve_image_service_t* service = self;
   const iree_time_t now = iree_time_now();
   return (loom_serve_http_service_snapshot_t){
@@ -671,8 +686,9 @@ static loom_serve_http_service_snapshot_t image_snapshot(void* self) {
           service->active ? now - service->job.arrival_time : 0};
 }
 
-static bool image_request_at(void* self, iree_host_size_t index,
-                             loom_serve_http_request_snapshot_t* out_snapshot) {
+static bool loom_serve_image_request_at(
+    void* self, iree_host_size_t index,
+    loom_serve_http_request_snapshot_t* out_snapshot) {
   const loom_serve_image_service_t* service = self;
   const image_job_t* job = NULL;
   const char* phase = "queued";
@@ -694,8 +710,9 @@ static bool image_request_at(void* self, iree_host_size_t index,
 
 // Heartbeat work is a scheduler turn, woken by an asynchronous timer. These
 // phases describe ownership, not individual completed device dispatches.
-static void image_heartbeat(loom_serve_image_service_t* service) {
-  const loom_serve_http_service_snapshot_t state = image_snapshot(service);
+static void loom_serve_image_heartbeat(loom_serve_image_service_t* service) {
+  const loom_serve_http_service_snapshot_t state =
+      loom_serve_image_snapshot(service);
   loom_serve_telemetry_record_t record = {
       .time_ns = iree_time_now(),
       .request = service->active,
@@ -707,20 +724,22 @@ static void image_heartbeat(loom_serve_image_service_t* service) {
   loom_serve_telemetry_stream_append(service->telemetry.stream, &record);
   loom_serve_image_record_totals(service->telemetry.stream,
                                  &service->telemetry.totals);
-  image_record_weights(service, record.time_ns);
+  loom_serve_image_record_weights(service, record.time_ns);
 }
 
-static void image_stop(loom_serve_image_service_t* service) {
+static void loom_serve_image_stop(loom_serve_image_service_t* service) {
   service->stopping = true;
   if (service->telemetry.stream) {
-    image_event(service, &LOOM_SERVE_IMAGE_SHUTDOWN, service->active);
+    loom_serve_image_event(service, &LOOM_SERVE_IMAGE_SHUTDOWN,
+                           service->active);
   }
   const loom_serve_telemetry_outcome_t outcome =
       service->telemetry.failure_code ? LOOM_SERVE_TELEMETRY_FAILED
                                       : LOOM_SERVE_TELEMETRY_CANCELLED;
   for (iree_host_size_t i = 0; i < service->pending_count; ++i) {
     image_pending_t* pending = &service->pending[i];
-    image_request_end(service, &pending->job, outcome, service->status);
+    loom_serve_image_request_end(service, &pending->job, outcome,
+                                 service->status);
     loom_serve_http_connection_abort(pending->connection);
     loom_serve_image_request_deinitialize(&pending->job.request);
   }
@@ -731,8 +750,8 @@ static void image_stop(loom_serve_image_service_t* service) {
   }
 }
 
-static void image_set_observer(void* self,
-                               loom_serve_wake_callback_t observer) {
+static void loom_serve_image_set_observer(void* self,
+                                          loom_serve_wake_callback_t observer) {
   loom_serve_image_service_t* service = self;
   iree_slim_mutex_lock(&service->events.mutex);
   service->events.observer = observer;
@@ -740,7 +759,7 @@ static void image_set_observer(void* self,
   loom_serve_timer_set_observer(&service->timer, observer);
 }
 
-static bool image_is_active(void* self) {
+static bool loom_serve_image_is_active(void* self) {
   const loom_serve_image_service_t* service = self;
   return service->phase == IMAGE_PHASE_PREPARING ||
          service->phase == IMAGE_PHASE_READY ||
@@ -748,36 +767,35 @@ static bool image_is_active(void* self) {
          service->phase == IMAGE_PHASE_ENCODING;
 }
 
-static bool image_is_pending(void* self) {
+static bool loom_serve_image_is_pending(void* self) {
   loom_serve_image_service_t* service = self;
-  return image_is_active(service) ||
+  return loom_serve_image_is_active(service) ||
          loom_serve_timer_is_pending(&service->timer);
 }
 
-static iree_status_t image_advance(void* self,
-                                   loom_serve_http_service_flags_t flags,
-                                   bool* out_progress) {
+static iree_status_t loom_serve_image_advance(
+    void* self, loom_serve_http_service_flags_t flags, bool* out_progress) {
   loom_serve_image_service_t* service = self;
   *out_progress = false;
   if (!service->stopping &&
       iree_any_bit_set(flags, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING)) {
-    image_stop(service);
+    loom_serve_image_stop(service);
     *out_progress = true;
   }
-  image_prune(service, out_progress);
-  image_collect(service, out_progress);
+  loom_serve_image_prune(service, out_progress);
+  loom_serve_image_collect(service, out_progress);
   if (!service->stopping && !iree_status_is_ok(service->status)) {
     service->telemetry.failure_code = iree_status_code(service->status);
-    image_stop(service);
+    loom_serve_image_stop(service);
     *out_progress = true;
   }
   if (service->phase == IMAGE_PHASE_WAITING) {
-    image_prepared(service, flags, out_progress);
+    loom_serve_image_prepared(service, flags, out_progress);
   } else if (service->phase == IMAGE_PHASE_READY) {
-    service->status = image_submit(service);
+    service->status = loom_serve_image_service_submit(service);
     *out_progress = true;
     if (!iree_status_is_ok(service->status)) {
-      image_finish(service, LOOM_SERVE_TELEMETRY_FAILED);
+      loom_serve_image_finish(service, LOOM_SERVE_TELEMETRY_FAILED);
     }
   }
   if (!service->stopping && iree_status_is_ok(service->status) &&
@@ -786,7 +804,7 @@ static iree_status_t image_advance(void* self,
     --service->pending_count;
     memmove(service->pending, service->pending + 1,
             service->pending_count * sizeof(*service->pending));
-    image_start(service, pending);
+    loom_serve_image_start(service, pending);
     *out_progress = true;
   }
   bool timer_progress = false;
@@ -798,18 +816,18 @@ static iree_status_t image_advance(void* self,
                                &timer_progress, &tick));
   *out_progress |= timer_progress;
   if (tick) {
-    image_heartbeat(service);
+    loom_serve_image_heartbeat(service);
   }
   if (!service->stopping && !iree_status_is_ok(service->status)) {
     service->telemetry.failure_code = iree_status_code(service->status);
-    image_stop(service);
+    loom_serve_image_stop(service);
     *out_progress = true;
   }
   iree_status_t status = service->status;
   service->status = iree_ok_status();
   if (!iree_status_is_ok(status)) {
     service->telemetry.failure_code = iree_status_code(status);
-    image_diagnose(service, service->active, status);
+    loom_serve_image_diagnose(service, service->active, status);
   }
   return status;
 }
@@ -821,11 +839,11 @@ loom_serve_http_service_t loom_serve_image_service_interface(
   return (loom_serve_http_service_t){
       .name = service->options.name,
       .self = service,
-      .set_observer = image_set_observer,
-      .is_pending = image_is_pending,
-      .is_active = image_is_active,
-      .accept = image_accept,
-      .advance = image_advance,
+      .set_observer = loom_serve_image_set_observer,
+      .is_pending = loom_serve_image_is_pending,
+      .is_active = loom_serve_image_is_active,
+      .accept = loom_serve_image_accept,
+      .advance = loom_serve_image_advance,
       .tokenizer = service->generator.tokenizer,
       .kind = "image",
       .endpoint = "/v1/images/generations",
@@ -833,8 +851,8 @@ loom_serve_http_service_t loom_serve_image_service_interface(
                                             input_modalities},
                        .output_modalities = {IREE_ARRAYSIZE(output_modalities),
                                              output_modalities}},
-      .snapshot = image_snapshot,
-      .inspection = {.request_at = image_request_at},
+      .snapshot = loom_serve_image_snapshot,
+      .inspection = {.request_at = loom_serve_image_request_at},
       .telemetry = {service->telemetry.stream, &service->telemetry.counters},
       .capacity_domain = service->generator.capacity_domain};
 }
@@ -843,16 +861,16 @@ void loom_serve_image_service_free(loom_serve_image_service_t* service) {
   if (!service) {
     return;
   }
-  IREE_ASSERT(!image_is_pending(service));
+  IREE_ASSERT(!loom_serve_image_is_pending(service));
   const iree_allocator_t allocator = service->allocator;
   if (!service->stopping) {
-    image_stop(service);
+    loom_serve_image_stop(service);
   }
   if (service->phase == IMAGE_PHASE_WAITING) {
     service->generator.discard_prepared_request(service->generator.self);
-    image_finish(service, service->telemetry.failure_code
-                              ? LOOM_SERVE_TELEMETRY_FAILED
-                              : LOOM_SERVE_TELEMETRY_CANCELLED);
+    loom_serve_image_finish(service, service->telemetry.failure_code
+                                         ? LOOM_SERVE_TELEMETRY_FAILED
+                                         : LOOM_SERVE_TELEMETRY_CANCELLED);
   }
   loom_serve_timer_deinitialize(&service->timer);
   iree_string_builder_deinitialize(&service->cpu.response);
@@ -860,7 +878,7 @@ void loom_serve_image_service_free(loom_serve_image_service_t* service) {
   iree_allocator_free(allocator, service->pending);
   iree_slim_mutex_deinitialize(&service->events.mutex);
   if (service->telemetry.stream) {
-    image_heartbeat(service);
+    loom_serve_image_heartbeat(service);
   }
   if (service->telemetry.owns_stream) {
     loom_serve_telemetry_stream_free(service->telemetry.stream);
@@ -908,9 +926,9 @@ iree_status_t loom_serve_image_service_allocate(
   }
   if (iree_status_is_ok(status)) {
     if (stream) {
-      image_heartbeat(service);
+      loom_serve_image_heartbeat(service);
     } else {
-      image_event(service, &LOOM_SERVE_TELEMETRY_STREAM_BEGIN, 0);
+      loom_serve_image_event(service, &LOOM_SERVE_TELEMETRY_STREAM_BEGIN, 0);
     }
     status = iree_async_proactor_pool_get(loom_serve_host_proactor_pool(host),
                                           0, &service->proactor);

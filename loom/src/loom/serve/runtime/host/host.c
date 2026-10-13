@@ -28,14 +28,15 @@ struct loom_serve_host_t {
 };
 
 #if !IREE_PLATFORM_WASM
-static void serving_proactor_failed(void* user_data, iree_status_t status) {
+static void loom_serve_host_proactor_failed(void* user_data,
+                                            iree_status_t status) {
   (void)user_data;
   // Fatal polling failure cannot retire accepted I/O storage. Operation-level
   // errors still flow through their normal completion callbacks.
   iree_status_abort(status);
 }
 
-static iree_status_t serving_proactor_thread_create(
+static iree_status_t loom_serve_host_proactor_thread_create(
     void* user_data, iree_async_proactor_t* proactor, uint32_t node_id,
     iree_allocator_t allocator, void** out_runner) {
   (void)user_data;
@@ -43,7 +44,7 @@ static iree_status_t serving_proactor_thread_create(
       iree_async_proactor_thread_options_default();
   options.debug_name = IREE_SV("loom-io");
   options.error_callback = (iree_async_proactor_thread_error_callback_t){
-      serving_proactor_failed, NULL};
+      loom_serve_host_proactor_failed, NULL};
   if (node_id != UINT32_MAX) {
     iree_thread_affinity_set_group_any(node_id, &options.affinity);
   }
@@ -94,7 +95,7 @@ iree_status_t loom_serve_host_create(iree_host_size_t worker_count,
     iree_async_proactor_pool_options_t options =
         iree_async_proactor_pool_options_default();
 #if !IREE_PLATFORM_WASM
-    options.runner.create = serving_proactor_thread_create;
+    options.runner.create = loom_serve_host_proactor_thread_create;
 #endif  // !IREE_PLATFORM_WASM
     status = iree_async_proactor_pool_create(
         iree_numa_node_count(), NULL, options, allocator, &host->proactor_pool);

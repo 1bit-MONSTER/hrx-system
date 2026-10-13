@@ -30,7 +30,7 @@ typedef struct input_module_t {
 // destructive, so its independent pending bound, not the remaining destination
 // capacity, determines scratch size when the entire text fits in the input
 // feed.
-static iree_status_t input_encode_prefix(
+static iree_status_t loom_serve_input_encode_prefix(
     const iree_tokenizer_t* tokenizer, iree_string_view_t text,
     iree_tokenizer_encode_flags_t flags, iree_host_size_t capacity,
     int32_t* output, iree_host_size_t* out_count, iree_allocator_t allocator) {
@@ -97,7 +97,7 @@ static iree_status_t input_encode_prefix(
   return status;
 }
 
-static iree_status_t input_module_start(
+static iree_status_t loom_serve_input_module_start(
     iree_vm_module_t* base,
     const iree_vm_module_function_start_params_t* params,
     iree_vm_execution_outcome_t* out_outcome) {
@@ -156,7 +156,7 @@ static iree_status_t input_module_start(
       output, 0, iree_vm_buffer_length(output), &storage);
   iree_host_size_t count = 0;
   if (iree_status_is_ok(status) && capacity) {
-    status = input_encode_prefix(
+    status = loom_serve_input_encode_prefix(
         module->tokenizer, text, flags, (iree_host_size_t)capacity,
         (int32_t*)storage.data, &count, module->allocator);
   }
@@ -207,26 +207,26 @@ static const iree_vm_module_export_declaration_t input_exports[] = {
      .function_ordinal = 2},
 };
 
-static void input_module_destroy(iree_vm_module_t* base) {
+static void loom_serve_input_module_destroy(iree_vm_module_t* base) {
   input_module_t* module = (input_module_t*)base;
   iree_allocator_free(module->allocator, module);
 }
-static void input_module_query_export(
+static void loom_serve_input_module_query_export(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
     iree_vm_module_export_declaration_t* out_value) {
   *out_value = input_exports[ordinal];
 }
-static void input_module_query_callable(
+static void loom_serve_input_module_query_callable(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
     iree_vm_module_callable_type_declaration_t* out_value) {
   *out_value = input_callables[ordinal];
 }
-static void input_module_query_import_group(
+static void loom_serve_input_module_query_import_group(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
     iree_vm_module_import_group_t* out_value) {
   IREE_CHECK_UNREACHABLE("input module has no imports");
 }
-static void input_module_query_import(
+static void loom_serve_input_module_query_import(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
     iree_vm_module_import_declaration_t* out_value) {
   IREE_CHECK_UNREACHABLE("input module has no imports");
@@ -234,13 +234,13 @@ static void input_module_query_import(
 static const iree_vm_module_vtable_t input_module_vtable = {
     .structure_size = sizeof(iree_vm_module_vtable_t),
     .abi_version = IREE_VM_MODULE_ABI_VERSION_0,
-    .destroy = input_module_destroy,
-    .function_start = input_module_start,
+    .destroy = loom_serve_input_module_destroy,
+    .function_start = loom_serve_input_module_start,
     .function_resume = iree_vm_module_function_resume_unreachable,
-    .query_import_group = input_module_query_import_group,
-    .query_import = input_module_query_import,
-    .query_export = input_module_query_export,
-    .query_callable_type = input_module_query_callable,
+    .query_import_group = loom_serve_input_module_query_import_group,
+    .query_import = loom_serve_input_module_query_import,
+    .query_export = loom_serve_input_module_query_export,
+    .query_callable_type = loom_serve_input_module_query_callable,
     .query_presentation = iree_vm_module_query_presentation_none,
     .metadata_by_ordinal = iree_vm_module_metadata_by_ordinal_none,
 };

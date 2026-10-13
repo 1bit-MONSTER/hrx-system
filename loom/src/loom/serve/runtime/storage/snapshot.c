@@ -19,11 +19,12 @@ struct loom_serve_snapshot_t {
   uint8_t data[];
 };
 
-static void snapshot_release_view(void* user_data, iree_hal_buffer_t* buffer) {
+static void loom_serve_snapshot_release_view(void* user_data,
+                                             iree_hal_buffer_t* buffer) {
   loom_serve_snapshot_release(user_data);
 }
 
-static iree_status_t snapshot_transfer(
+static iree_status_t loom_serve_snapshot_transfer(
     loom_serve_snapshot_t* snapshot, loom_serve_execution_t* execution,
     iree_host_size_t buffer_count, iree_hal_buffer_t* const* buffers,
     iree_host_size_t range_count, const loom_serve_snapshot_range_t* ranges,
@@ -38,7 +39,8 @@ static iree_status_t snapshot_transfer(
       status = iree_hal_subspan_buffer_create_with_callback(
           buffers[i], iree_hal_buffer_byte_offset(buffers[i]),
           iree_hal_buffer_byte_length(buffers[i]),
-          (iree_hal_buffer_release_callback_t){snapshot_release_view, snapshot},
+          (iree_hal_buffer_release_callback_t){loom_serve_snapshot_release_view,
+                                               snapshot},
           snapshot->allocator, &views[i]);
       if (iree_status_is_ok(status)) {
         iree_atomic_ref_count_inc(&snapshot->ref_count);
@@ -106,9 +108,9 @@ iree_status_t loom_serve_snapshot_capture(
   iree_atomic_ref_count_init(&snapshot->ref_count);
   snapshot->allocator = host_allocator;
   snapshot->length = length;
-  iree_status_t status =
-      snapshot_transfer(snapshot, execution, buffer_count, buffers, range_count,
-                        ranges, IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD);
+  iree_status_t status = loom_serve_snapshot_transfer(
+      snapshot, execution, buffer_count, buffers, range_count, ranges,
+      IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD);
   if (iree_status_is_ok(status)) {
     *out_snapshot = snapshot;
   } else {
@@ -121,9 +123,9 @@ iree_status_t loom_serve_snapshot_restore(
     loom_serve_snapshot_t* snapshot, loom_serve_execution_t* execution,
     iree_host_size_t buffer_count, iree_hal_buffer_t* const* buffers,
     iree_host_size_t range_count, const loom_serve_snapshot_range_t* ranges) {
-  return snapshot_transfer(snapshot, execution, buffer_count, buffers,
-                           range_count, ranges,
-                           IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD);
+  return loom_serve_snapshot_transfer(snapshot, execution, buffer_count,
+                                      buffers, range_count, ranges,
+                                      IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD);
 }
 
 iree_host_size_t loom_serve_snapshot_size(

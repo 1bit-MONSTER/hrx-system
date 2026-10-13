@@ -24,8 +24,8 @@ bool loom_serve_text_session_name_valid(iree_string_view_t name) {
   return true;
 }
 
-static iree_status_t text_quote(iree_string_builder_t* output,
-                                iree_string_view_t value) {
+static iree_status_t loom_serve_text_session_quote(
+    iree_string_builder_t* output, iree_string_view_t value) {
   loom_output_stream_t stream;
   loom_output_stream_for_builder(output, &stream);
   return loom_json_write_escaped_string(&stream, value);
@@ -89,7 +89,7 @@ loom_serve_http_request_snapshot_t loom_serve_text_session_request_snapshot(
       .counters = session->request.counters};
 }
 
-static loom_serve_text_chat_response_t text_response_metadata(
+static loom_serve_text_chat_response_t loom_serve_text_response_metadata(
     const loom_serve_text_session_t* session, iree_string_view_t model_name) {
   return (loom_serve_text_chat_response_t){
       .model_name = model_name,
@@ -118,7 +118,7 @@ iree_status_t loom_serve_text_session_begin(loom_serve_text_session_t* session,
         "text/event-stream\r\nCache-Control: "
         "no-cache\r\nConnection: close\r\n\r\n"));
     const loom_serve_text_chat_response_t response =
-        text_response_metadata(session, model_name);
+        loom_serve_text_response_metadata(session, model_name);
     IREE_RETURN_IF_ERROR(loom_serve_text_chat_event(
         &response, IREE_SV("{\"role\":\"assistant\"}"),
         iree_string_view_empty(), &session->packet));
@@ -126,7 +126,7 @@ iree_status_t loom_serve_text_session_begin(loom_serve_text_session_t* session,
   return iree_ok_status();
 }
 
-static iree_status_t text_emit_text(
+static iree_status_t loom_serve_text_emit_text(
     loom_serve_text_session_t* session,
     const loom_serve_text_chat_response_t* response, iree_host_size_t end,
     iree_string_builder_t* scratch) {
@@ -137,7 +137,7 @@ static iree_status_t text_emit_text(
   iree_string_builder_reset(scratch);
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_cstring(scratch, "{\"content\":"));
-  IREE_RETURN_IF_ERROR(text_quote(
+  IREE_RETURN_IF_ERROR(loom_serve_text_session_quote(
       scratch,
       iree_string_view_substr(iree_string_builder_view(&session->response),
                               start, end - start)));
@@ -149,8 +149,8 @@ static iree_status_t text_emit_text(
   return iree_ok_status();
 }
 
-static iree_status_t text_append_response(loom_serve_text_session_t* session,
-                                          iree_string_view_t text) {
+static iree_status_t loom_serve_text_append_response(
+    loom_serve_text_session_t* session, iree_string_view_t text) {
   if (text.size > 1024 * 1024 - iree_string_builder_size(&session->response)) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "generated response exceeds 1 MiB text limit");
@@ -158,7 +158,7 @@ static iree_status_t text_append_response(loom_serve_text_session_t* session,
   return iree_string_builder_append_string(&session->response, text);
 }
 
-static iree_status_t text_complete(
+static iree_status_t loom_serve_text_complete(
     loom_serve_text_session_t* session,
     const loom_serve_text_chat_response_t* response,
     iree_string_builder_t* scratch, iree_string_builder_t* tool_calls) {
@@ -167,8 +167,8 @@ static iree_status_t text_complete(
   IREE_RETURN_IF_ERROR(iree_tokenizer_decode_state_finalize(
       session->decoder, iree_make_mutable_string_view(text, sizeof(text)),
       &length));
-  IREE_RETURN_IF_ERROR(
-      text_append_response(session, iree_make_string_view(text, length)));
+  IREE_RETURN_IF_ERROR(loom_serve_text_append_response(
+      session, iree_make_string_view(text, length)));
   iree_string_builder_reset(tool_calls);
   IREE_RETURN_IF_ERROR(loom_serve_text_chat_complete(
       &session->request.chat, iree_string_builder_view(&session->response),
@@ -182,8 +182,8 @@ static iree_status_t text_complete(
   const iree_string_view_t finish_reason =
       iree_make_cstring_view(session->request.finish_reason);
   if (iree_any_bit_set(response->flags, LOOM_SERVE_TEXT_CHAT_FLAG_STREAM)) {
-    IREE_RETURN_IF_ERROR(text_emit_text(session, response,
-                                        session->completion.text_end, scratch));
+    IREE_RETURN_IF_ERROR(loom_serve_text_emit_text(
+        session, response, session->completion.text_end, scratch));
     if (tool_count) {
       iree_string_builder_reset(scratch);
       IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
@@ -245,19 +245,20 @@ iree_status_t loom_serve_text_session_append_tokens(
                                   "token exceeds streaming text capacity");
       }
       if (iree_status_is_ok(status)) {
-        status =
-            text_append_response(session, iree_make_string_view(text, length));
+        status = loom_serve_text_append_response(
+            session, iree_make_string_view(text, length));
       }
     }
   }
   if (iree_status_is_ok(status)) {
     const loom_serve_text_chat_response_t response =
-        text_response_metadata(session, model_name);
+        loom_serve_text_response_metadata(session, model_name);
     const bool complete =
         loom_serve_text_row_is_eos(session->row) ||
         session->request.output_count == session->request.chat.max_tokens;
     if (complete) {
-      status = text_complete(session, &response, scratch, tool_calls);
+      status =
+          loom_serve_text_complete(session, &response, scratch, tool_calls);
     } else if (iree_any_bit_set(response.flags,
                                 LOOM_SERVE_TEXT_CHAT_FLAG_STREAM)) {
       iree_host_size_t text_end = 0;
@@ -267,7 +268,8 @@ iree_status_t loom_serve_text_session_append_tokens(
           session->request.emitted_length,
           LOOM_SERVE_TEXT_CHAT_OUTPUT_STREAMING, &text_end, session->allocator);
       if (iree_status_is_ok(status)) {
-        status = text_emit_text(session, &response, text_end, scratch);
+        status =
+            loom_serve_text_emit_text(session, &response, text_end, scratch);
       }
     }
   }

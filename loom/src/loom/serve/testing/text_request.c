@@ -24,15 +24,16 @@ IREE_FLAG(string, response, "",
           "Optional raw generated text file to complete.");
 IREE_FLAG(int32_t, capacity, 262144, "Maximum complete prompt token count.");
 
-static iree_string_view_t file_text(iree_io_file_contents_t* contents) {
+static iree_string_view_t loom_serve_text_request_check_file_text(
+    iree_io_file_contents_t* contents) {
   return iree_make_string_view((const char*)contents->const_buffer.data,
                                contents->const_buffer.data_length);
 }
 
-static iree_status_t report(const loom_serve_text_chat_t* chat,
-                            iree_host_size_t token_count, const int32_t* tokens,
-                            const loom_serve_text_chat_completion_t* completion,
-                            iree_string_view_t tool_calls) {
+static iree_status_t loom_serve_text_request_check_report(
+    const loom_serve_text_chat_t* chat, iree_host_size_t token_count,
+    const int32_t* tokens, const loom_serve_text_chat_completion_t* completion,
+    iree_string_view_t tool_calls) {
   loom_output_stream_t stream;
   loom_output_stream_for_file(stdout, &stream);
   loom_json_object_writer_t object;
@@ -80,7 +81,8 @@ static iree_status_t report(const loom_serve_text_chat_t* chat,
   return status;
 }
 
-static iree_status_t run(iree_allocator_t allocator) {
+static iree_status_t loom_serve_text_request_check_run(
+    iree_allocator_t allocator) {
   loom_serve_compilation_report_t compilation = {0};
   if (!FLAG_control[0] || !FLAG_tokenizer[0] || !FLAG_request[0] ||
       FLAG_capacity <= 0 || FLAG_capacity > 262144) {
@@ -96,8 +98,9 @@ static iree_status_t run(iree_allocator_t allocator) {
       iree_make_cstring_view(FLAG_tokenizer), allocator, &tokenizer_contents);
   iree_tokenizer_t* tokenizer = NULL;
   if (iree_status_is_ok(status)) {
-    status = iree_tokenizer_from_huggingface_json(file_text(tokenizer_contents),
-                                                  allocator, &tokenizer);
+    status = iree_tokenizer_from_huggingface_json(
+        loom_serve_text_request_check_file_text(tokenizer_contents), allocator,
+        &tokenizer);
   }
   iree_io_file_contents_free(tokenizer_contents);
   iree_vm_module_t* libraries[3] = {0};
@@ -140,7 +143,8 @@ static iree_status_t run(iree_allocator_t allocator) {
   bool chat_initialized = false;
   if (iree_status_is_ok(status)) {
     status = loom_serve_text_chat_initialize(
-        &policy, policy.name, file_text(request), 128, allocator, &chat);
+        &policy, policy.name, loom_serve_text_request_check_file_text(request),
+        128, allocator, &chat);
     chat_initialized = iree_status_is_ok(status);
   }
   int32_t* tokens = NULL;
@@ -165,12 +169,14 @@ static iree_status_t run(iree_allocator_t allocator) {
   iree_string_builder_initialize(allocator, &tool_calls);
   loom_serve_text_chat_completion_t completion = {0};
   if (iree_status_is_ok(status) && response) {
-    status = loom_serve_text_chat_complete(&chat, file_text(response), 0, 1,
-                                           &tool_calls, &completion);
+    status = loom_serve_text_chat_complete(
+        &chat, loom_serve_text_request_check_file_text(response), 0, 1,
+        &tool_calls, &completion);
   }
   if (iree_status_is_ok(status)) {
-    status = report(&chat, token_count, tokens, response ? &completion : NULL,
-                    iree_string_builder_view(&tool_calls));
+    status = loom_serve_text_request_check_report(
+        &chat, token_count, tokens, response ? &completion : NULL,
+        iree_string_builder_view(&tool_calls));
   }
   loom_serve_text_chat_completion_deinitialize(&completion);
   iree_string_builder_deinitialize(&tool_calls);
@@ -196,7 +202,8 @@ static iree_status_t run(iree_allocator_t allocator) {
 
 int main(int argc, char** argv) {
   iree_flags_parse_checked(IREE_FLAGS_PARSE_MODE_DEFAULT, &argc, &argv);
-  iree_status_t status = run(iree_allocator_system());
+  iree_status_t status =
+      loom_serve_text_request_check_run(iree_allocator_system());
   if (!iree_status_is_ok(status)) {
     iree_status_fprint(stderr, status);
     iree_status_free(status);

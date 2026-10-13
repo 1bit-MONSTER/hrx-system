@@ -11,7 +11,7 @@
 #include "iree/base/internal/json.h"
 #include "loom/util/json.h"
 
-static iree_status_t resources_write_physical_devices(
+static iree_status_t loom_serve_resources_write_physical_devices(
     const iree_hal_device_identity_spec_t* identity,
     loom_output_stream_t* output) {
   iree_status_t status = loom_output_stream_write_cstring(output, "[");
@@ -43,8 +43,8 @@ static iree_status_t resources_write_physical_devices(
   return status;
 }
 
-static iree_status_t resources_write_memory(const loom_serve_device_t* device,
-                                            loom_output_stream_t* output) {
+static iree_status_t loom_serve_resources_write_memory(
+    const loom_serve_device_t* device, loom_output_stream_t* output) {
   const loom_serve_memory_pool_t* retained =
       loom_serve_device_memory_pool(device);
   const loom_serve_device_memory_statistics_t memory =
@@ -92,9 +92,9 @@ static iree_status_t resources_write_memory(const loom_serve_device_t* device,
       memory.workspace.wait_count, memory.workspace.quarantine_eviction_count);
 }
 
-static iree_status_t resources_write_device(loom_serve_device_t* device,
-                                            iree_host_size_t index,
-                                            loom_output_stream_t* output) {
+static iree_status_t loom_serve_resources_write_device(
+    loom_serve_device_t* device, iree_host_size_t index,
+    loom_output_stream_t* output) {
   const iree_hal_device_identity_spec_t* identity =
       iree_hal_device_spec_identity(
           iree_hal_device_spec(loom_serve_device_handle(device)));
@@ -115,10 +115,11 @@ static iree_status_t resources_write_device(loom_serve_device_t* device,
       loom_json_write_escaped_string(output, identity->backend_id));
   IREE_RETURN_IF_ERROR(
       loom_output_stream_write_cstring(output, ",\"physical_devices\":"));
-  IREE_RETURN_IF_ERROR(resources_write_physical_devices(identity, output));
+  IREE_RETURN_IF_ERROR(
+      loom_serve_resources_write_physical_devices(identity, output));
   IREE_RETURN_IF_ERROR(
       loom_output_stream_write_cstring(output, ",\"memory\":"));
-  IREE_RETURN_IF_ERROR(resources_write_memory(device, output));
+  IREE_RETURN_IF_ERROR(loom_serve_resources_write_memory(device, output));
   return loom_output_stream_write_cstring(output, "}");
 }
 
@@ -162,7 +163,7 @@ iree_status_t loom_serve_resources_write_json(
       status = loom_output_stream_write_cstring(output, ",");
     }
     if (iree_status_is_ok(status)) {
-      status = resources_write_device(
+      status = loom_serve_resources_write_device(
           loom_serve_device_group_at(resources->device_group, i), i, output);
     }
   }
@@ -179,9 +180,9 @@ typedef struct resources_trim_fields_t {
   iree_string_view_t target_bytes;
 } resources_trim_fields_t;
 
-static iree_status_t resources_trim_field(void* self, iree_string_view_t key,
-                                          iree_json_value_type_t type,
-                                          iree_string_view_t value) {
+static iree_status_t loom_serve_resources_trim_field(
+    void* self, iree_string_view_t key, iree_json_value_type_t type,
+    iree_string_view_t value) {
   resources_trim_fields_t* fields = self;
   iree_string_view_t* field = NULL;
   if (iree_string_view_equal(key, IREE_SV("device"))) {
@@ -210,8 +211,8 @@ iree_status_t loom_serve_resources_parse_trim(
                             "trailing trim request JSON");
   }
   resources_trim_fields_t fields = {0};
-  IREE_RETURN_IF_ERROR(
-      iree_json_enumerate_object_typed(object, resources_trim_field, &fields));
+  IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
+      object, loom_serve_resources_trim_field, &fields));
   if (!fields.device.data || !fields.target_bytes.data) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "trim requires device and target_bytes");
@@ -245,6 +246,7 @@ iree_status_t loom_serve_resources_trim(const loom_serve_resources_t* resources,
   IREE_RETURN_IF_ERROR(loom_serve_device_trim(device, target_bytes));
   IREE_RETURN_IF_ERROR(loom_output_stream_write_format(
       output, "{\"target_bytes\":%" PRIu64 ",\"device\":", target_bytes));
-  IREE_RETURN_IF_ERROR(resources_write_device(device, device_index, output));
+  IREE_RETURN_IF_ERROR(
+      loom_serve_resources_write_device(device, device_index, output));
   return loom_output_stream_write_cstring(output, "}");
 }

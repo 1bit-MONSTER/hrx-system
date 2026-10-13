@@ -50,7 +50,7 @@ void loom_serve_text_record(loom_serve_telemetry_stream_t* stream,
   loom_serve_telemetry_stream_append(stream, &record);
 }
 
-static iree_status_t text_admission_format(
+static iree_status_t loom_serve_text_admission_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_text_admission_record_t value;
@@ -72,7 +72,7 @@ static iree_status_t text_admission_format(
       value.pool_resident_tokens);
 }
 
-static iree_status_t text_request_format(
+static iree_status_t loom_serve_text_request_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_text_request_record_t value;
@@ -89,7 +89,7 @@ static iree_status_t text_request_format(
   return loom_serve_telemetry_counters_format(&value.counters, output);
 }
 
-static iree_status_t text_session_begin_format(
+static iree_status_t loom_serve_text_session_begin_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_text_session_record_t value;
@@ -101,7 +101,7 @@ static iree_status_t text_session_begin_format(
       value.session, value.row, value.name);
 }
 
-static iree_status_t text_session_end_format(
+static iree_status_t loom_serve_text_session_end_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_text_session_end_record_t value;
@@ -115,7 +115,7 @@ static iree_status_t text_session_end_format(
   return loom_serve_telemetry_counters_format(&value.counters, output);
 }
 
-static iree_status_t text_epoch_format(
+static iree_status_t loom_serve_text_epoch_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_text_epoch_record_t value;
@@ -155,7 +155,7 @@ static iree_status_t text_epoch_format(
       value.verifications * value.draft_depth, value.accepted_draft_inputs);
 }
 
-static iree_status_t text_span_format(
+static iree_status_t loom_serve_text_span_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_text_span_record_t value;
@@ -177,7 +177,7 @@ static iree_status_t text_span_format(
       value.known_tokens, value.verification_epochs);
 }
 
-static iree_status_t text_checkpoint_format(
+static iree_status_t loom_serve_text_checkpoint_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_text_checkpoint_record_t value;
@@ -190,7 +190,7 @@ static iree_status_t text_checkpoint_format(
       value.name, value.position, value.host_bytes);
 }
 
-static iree_status_t text_prefix_format(
+static iree_status_t loom_serve_text_prefix_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_text_prefix_record_t value;
@@ -204,9 +204,9 @@ static iree_status_t text_prefix_format(
 }
 
 const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_PREFIX_CAPTURE = {
-    "prefix_capture", text_prefix_format};
+    "prefix_capture", loom_serve_text_prefix_format};
 
-static iree_status_t text_trim_format(
+static iree_status_t loom_serve_text_trim_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   loom_serve_text_trim_record_t value;
@@ -222,27 +222,27 @@ static iree_status_t text_trim_format(
 }
 
 const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_PREPARED = {
-    "prepared", text_admission_format};
+    "prepared", loom_serve_text_admission_format};
 const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_ADMIT = {
-    "admit", text_admission_format};
+    "admit", loom_serve_text_admission_format};
 const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_REQUEST_STATS = {
-    "request_stats", text_request_format};
+    "request_stats", loom_serve_text_request_format};
 const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_SESSION_BEGIN = {
-    "session_begin", text_session_begin_format};
+    "session_begin", loom_serve_text_session_begin_format};
 const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_SESSION_END = {
-    "session_end", text_session_end_format};
-const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_EPOCH = {"epoch",
-                                                            text_epoch_format};
-const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_SPAN = {"span",
-                                                           text_span_format};
+    "session_end", loom_serve_text_session_end_format};
+const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_EPOCH = {
+    "epoch", loom_serve_text_epoch_format};
+const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_SPAN = {
+    "span", loom_serve_text_span_format};
 const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_CHECKPOINT_PIN = {
-    "checkpoint_pin", text_checkpoint_format};
+    "checkpoint_pin", loom_serve_text_checkpoint_format};
 const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_CHECKPOINT_SUSPEND = {
-    "checkpoint_suspend", text_checkpoint_format};
+    "checkpoint_suspend", loom_serve_text_checkpoint_format};
 const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_CHECKPOINT_RELEASE = {
-    "checkpoint_release", text_checkpoint_format};
-const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_TRIM = {"state_trim",
-                                                           text_trim_format};
+    "checkpoint_release", loom_serve_text_checkpoint_format};
+const loom_serve_telemetry_event_t LOOM_SERVE_TEXT_TRIM = {
+    "state_trim", loom_serve_text_trim_format};
 
 void loom_serve_text_telemetry_diagnose(loom_serve_text_telemetry_t* telemetry,
                                         uint64_t request,

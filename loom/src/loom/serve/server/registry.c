@@ -25,7 +25,7 @@ struct loom_serve_registry_t {
   loom_serve_telemetry_counters_t retired;
 };
 
-static void registry_add_counters(
+static void loom_serve_registry_add_counters(
     loom_serve_telemetry_counters_t* target,
     const loom_serve_telemetry_counters_t* source) {
   target->requests += source->requests;
@@ -311,7 +311,8 @@ loom_serve_http_service_flags_t loom_serve_registry_service_flags(
   return 0;
 }
 
-static void registry_release_service(loom_serve_registered_model_t* model) {
+static void loom_serve_registry_release_service(
+    loom_serve_registered_model_t* model) {
   model->counters = *model->service.telemetry.counters;
   model->service = (loom_serve_http_service_t){
       .name = model->service.name,
@@ -321,8 +322,8 @@ static void registry_release_service(loom_serve_registered_model_t* model) {
       .telemetry = {.stream = model->stream, .counters = &model->counters}};
 }
 
-static void registry_record_error(loom_serve_registered_model_t* model,
-                                  const iree_status_t status) {
+static void loom_serve_registry_record_error(
+    loom_serve_registered_model_t* model, const iree_status_t status) {
   loom_serve_telemetry_record_t record = {.time_ns = iree_time_now(),
                                           .event = &LOOM_SERVE_TELEMETRY_ERROR};
   loom_serve_telemetry_diagnostic_capture(status, &record.data.error);
@@ -352,7 +353,7 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
                        : LOOM_SERVE_REGISTRATION_FAILED;
     if (!iree_status_is_ok(model->status)) {
       model->parameter_operation = LOOM_SERVE_PARAMETER_OPERATION_NONE;
-      registry_record_error(model, model->status);
+      loom_serve_registry_record_error(model, model->status);
     }
     progress = true;
   }
@@ -386,7 +387,7 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
         model->phase = LOOM_SERVE_REGISTRATION_READY;
       } else {
         model->parameter_operation = LOOM_SERVE_PARAMETER_OPERATION_NONE;
-        registry_record_error(model, model->status);
+        loom_serve_registry_record_error(model, model->status);
         if (registry->factory.query_status) {
           terminal_status =
               registry->factory.query_status(registry->factory.self);
@@ -418,7 +419,7 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
       progress |= operation != model->parameter_operation;
       model->parameter_operation = operation;
       if (!iree_status_is_ok(model->status)) {
-        registry_record_error(model, model->status);
+        loom_serve_registry_record_error(model, model->status);
         terminal_status = iree_status_clone(model->status);
       }
     }
@@ -432,7 +433,7 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
         !model->service.is_pending(model->service.self)) {
       model->service.set_observer(model->service.self,
                                   (loom_serve_wake_callback_t){0});
-      registry_release_service(model);
+      loom_serve_registry_release_service(model);
       model->phase = LOOM_SERVE_REGISTRATION_RETIRING;
       progress = true;
     }
@@ -447,7 +448,7 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
       model->status = model->registration.deactivate(model->registration.self);
       model->parameter_operation = LOOM_SERVE_PARAMETER_OPERATION_NONE;
       if (!iree_status_is_ok(model->status)) {
-        registry_record_error(model, model->status);
+        loom_serve_registry_record_error(model, model->status);
         terminal_status = iree_status_clone(model->status);
       }
       progress = true;
@@ -458,7 +459,7 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
     iree_status_t status =
         model->registration.retire(model->registration.self, &complete);
     if (!iree_status_is_ok(status)) {
-      registry_record_error(model, status);
+      loom_serve_registry_record_error(model, status);
       model->status = iree_status_join(model->status, status);
       model->phase = LOOM_SERVE_REGISTRATION_RELEASE_FAILED;
       progress = true;
@@ -480,7 +481,7 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
   }
   if (model->removal && !model->registration.self && !model->held_count &&
       !model->tokenizer_count) {
-    registry_add_counters(&registry->retired, &model->counters);
+    loom_serve_registry_add_counters(&registry->retired, &model->counters);
     iree_status_free(model->status);
     loom_serve_telemetry_stream_free(model->stream);
     loom_serve_model_configuration_deinitialize(&model->configuration);
@@ -520,7 +521,7 @@ bool loom_serve_registry_counters(
     if (!service->telemetry.counters) {
       return false;
     }
-    registry_add_counters(out_counters, service->telemetry.counters);
+    loom_serve_registry_add_counters(out_counters, service->telemetry.counters);
   }
   return true;
 }

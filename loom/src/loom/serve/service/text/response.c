@@ -8,8 +8,8 @@
 
 #include "loom/util/json.h"
 
-static iree_status_t text_quote(iree_string_builder_t* output,
-                                iree_string_view_t value) {
+static iree_status_t loom_serve_text_response_quote(
+    iree_string_builder_t* output, iree_string_view_t value) {
   loom_output_stream_t stream;
   loom_output_stream_for_builder(output, &stream);
   return loom_json_write_escaped_string(&stream, value);
@@ -28,7 +28,7 @@ iree_status_t loom_serve_text_response_error(iree_status_t failure,
       message = iree_make_cstring_view(
           iree_status_code_string(iree_status_code(failure)));
     }
-    status = text_quote(output, message);
+    status = loom_serve_text_response_quote(output, message);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(

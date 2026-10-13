@@ -28,9 +28,10 @@ typedef struct embedding_field_t {
 
 enum { EMBEDDING_FIELD_COUNT = 5 };
 
-static iree_status_t embedding_field(void* user_data, iree_string_view_t key,
-                                     iree_json_value_type_t type,
-                                     iree_string_view_t value) {
+static iree_status_t loom_serve_embedding_field(void* user_data,
+                                                iree_string_view_t key,
+                                                iree_json_value_type_t type,
+                                                iree_string_view_t value) {
   embedding_field_t* fields = user_data;
   for (iree_host_size_t i = 0; i < EMBEDDING_FIELD_COUNT; ++i) {
     embedding_field_t* field = &fields[i];
@@ -62,9 +63,10 @@ typedef struct embedding_inputs_t {
   iree_json_value_type_t type;
 } embedding_inputs_t;
 
-static iree_status_t embedding_token(void* user_data, iree_host_size_t index,
-                                     iree_json_value_type_t type,
-                                     iree_string_view_t value) {
+static iree_status_t loom_serve_embedding_token(void* user_data,
+                                                iree_host_size_t index,
+                                                iree_json_value_type_t type,
+                                                iree_string_view_t value) {
   (void)index;
   if (type != IREE_JSON_VALUE_TYPE_NUMBER) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -82,8 +84,9 @@ static iree_status_t embedding_token(void* user_data, iree_host_size_t index,
       user_data, iree_make_string_view((const char*)bytes, sizeof(bytes)));
 }
 
-static iree_status_t embedding_record(embedding_inputs_t* inputs, uint64_t kind,
-                                      iree_host_size_t offset) {
+static iree_status_t loom_serve_embedding_record(embedding_inputs_t* inputs,
+                                                 uint64_t kind,
+                                                 iree_host_size_t offset) {
   const iree_host_size_t end = iree_string_builder_size(&inputs->payload);
   uint8_t record[24];
   iree_unaligned_store_le_u64(record, kind);
@@ -98,9 +101,9 @@ static iree_status_t embedding_record(embedding_inputs_t* inputs, uint64_t kind,
       &inputs->payload, iree_make_string_view(zeros, (8 - end % 8) % 8));
 }
 
-static iree_status_t embedding_sequence(embedding_inputs_t* inputs,
-                                        iree_json_value_type_t type,
-                                        iree_string_view_t value) {
+static iree_status_t loom_serve_embedding_sequence(embedding_inputs_t* inputs,
+                                                   iree_json_value_type_t type,
+                                                   iree_string_view_t value) {
   const iree_host_size_t offset = iree_string_builder_size(&inputs->payload);
   if (type == IREE_JSON_VALUE_TYPE_STRING) {
     char* target = NULL;
@@ -115,16 +118,17 @@ static iree_status_t embedding_sequence(embedding_inputs_t* inputs,
     }
     iree_string_builder_commit_append(&inputs->payload, length);
   } else {
-    IREE_RETURN_IF_ERROR(iree_json_enumerate_array_typed(value, embedding_token,
-                                                         &inputs->payload));
+    IREE_RETURN_IF_ERROR(iree_json_enumerate_array_typed(
+        value, loom_serve_embedding_token, &inputs->payload));
   }
-  return embedding_record(inputs, type == IREE_JSON_VALUE_TYPE_STRING ? 0 : 1,
-                          offset);
+  return loom_serve_embedding_record(
+      inputs, type == IREE_JSON_VALUE_TYPE_STRING ? 0 : 1, offset);
 }
 
-static iree_status_t embedding_element(void* user_data, iree_host_size_t index,
-                                       iree_json_value_type_t type,
-                                       iree_string_view_t value) {
+static iree_status_t loom_serve_embedding_element(void* user_data,
+                                                  iree_host_size_t index,
+                                                  iree_json_value_type_t type,
+                                                  iree_string_view_t value) {
   embedding_inputs_t* inputs = user_data;
   if (!index) {
     inputs->type = type;
@@ -137,14 +141,13 @@ static iree_status_t embedding_element(void* user_data, iree_host_size_t index,
         "input requires homogeneous strings, IDs or ID arrays");
   }
   return type == IREE_JSON_VALUE_TYPE_NUMBER
-             ? embedding_token(&inputs->payload, index, type, value)
-             : embedding_sequence(inputs, type, value);
+             ? loom_serve_embedding_token(&inputs->payload, index, type, value)
+             : loom_serve_embedding_sequence(inputs, type, value);
 }
 
-static iree_status_t embedding_parse(iree_string_view_t body,
-                                     loom_serve_embedding_request_t* request,
-                                     embedding_inputs_t* inputs,
-                                     iree_allocator_t allocator) {
+static iree_status_t loom_serve_embedding_parse(
+    iree_string_view_t body, loom_serve_embedding_request_t* request,
+    embedding_inputs_t* inputs, iree_allocator_t allocator) {
   if (!iree_unicode_utf8_validate(body)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT, "JSON must be UTF-8");
   }
@@ -164,8 +167,8 @@ static iree_status_t embedding_parse(iree_string_view_t body,
       {.name = "dimensions", .types = 1u << IREE_JSON_VALUE_TYPE_NUMBER},
       {.name = "encoding_format", .types = string_type},
       {.name = "user", .types = string_type}};
-  IREE_RETURN_IF_ERROR(
-      iree_json_enumerate_object_typed(object, embedding_field, fields));
+  IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
+      object, loom_serve_embedding_field, fields));
   if (!fields[0].value.data || !fields[1].value.data) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "model and input are required");
@@ -199,12 +202,12 @@ static iree_status_t embedding_parse(iree_string_view_t body,
   }
   if (fields[1].type == IREE_JSON_VALUE_TYPE_STRING) {
     IREE_RETURN_IF_ERROR(
-        embedding_sequence(inputs, fields[1].type, fields[1].value));
+        loom_serve_embedding_sequence(inputs, fields[1].type, fields[1].value));
   } else {
     IREE_RETURN_IF_ERROR(iree_json_enumerate_array_typed(
-        fields[1].value, embedding_element, inputs));
+        fields[1].value, loom_serve_embedding_element, inputs));
     if (inputs->type == IREE_JSON_VALUE_TYPE_NUMBER) {
-      IREE_RETURN_IF_ERROR(embedding_record(inputs, 1, 0));
+      IREE_RETURN_IF_ERROR(loom_serve_embedding_record(inputs, 1, 0));
     }
     if (!inputs->count) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -252,7 +255,8 @@ iree_status_t loom_serve_embedding_request_initialize(
   embedding_inputs_t inputs = {.type = IREE_JSON_VALUE_TYPE_NULL};
   iree_string_builder_initialize(allocator, &inputs.records);
   iree_string_builder_initialize(allocator, &inputs.payload);
-  iree_status_t status = embedding_parse(body, out_request, &inputs, allocator);
+  iree_status_t status =
+      loom_serve_embedding_parse(body, out_request, &inputs, allocator);
   iree_string_builder_deinitialize(&inputs.records);
   iree_string_builder_deinitialize(&inputs.payload);
   if (!iree_status_is_ok(status)) {
@@ -261,9 +265,9 @@ iree_status_t loom_serve_embedding_request_initialize(
   return status;
 }
 
-static iree_status_t embedding_vector(iree_const_byte_span_t bytes,
-                                      loom_serve_embedding_encoding_t encoding,
-                                      iree_string_builder_t* output) {
+static iree_status_t loom_serve_embedding_vector(
+    iree_const_byte_span_t bytes, loom_serve_embedding_encoding_t encoding,
+    iree_string_builder_t* output) {
   // Both wire encodings obey the same finite-value contract.
   for (iree_host_size_t i = 0; i < bytes.data_length; i += 4) {
     const uint32_t bits = iree_unaligned_load_le_u32(bytes.data + i);
@@ -326,7 +330,7 @@ iree_status_t loom_serve_embedding_response(
           i ? "," : "", i);
     }
     if (iree_status_is_ok(status)) {
-      status = embedding_vector(rows[i], request->encoding, output);
+      status = loom_serve_embedding_vector(rows[i], request->encoding, output);
     }
     if (iree_status_is_ok(status)) {
       status = iree_string_builder_append_cstring(output, "}");
@@ -342,19 +346,20 @@ iree_status_t loom_serve_embedding_response(
   return status;
 }
 
-static iree_status_t embedding_initialize(iree_string_view_t body,
-                                          loom_serve_finite_request_t* request,
-                                          iree_allocator_t allocator) {
+static iree_status_t loom_serve_embedding_initialize(
+    iree_string_view_t body, loom_serve_finite_request_t* request,
+    iree_allocator_t allocator) {
   return loom_serve_embedding_request_initialize(
       body, (loom_serve_embedding_request_t*)request, allocator);
 }
 
-static void embedding_deinitialize(loom_serve_finite_request_t* request) {
+static void loom_serve_embedding_deinitialize(
+    loom_serve_finite_request_t* request) {
   loom_serve_embedding_request_deinitialize(
       (loom_serve_embedding_request_t*)request);
 }
 
-static iree_status_t embedding_response(
+static iree_status_t loom_serve_embedding_protocol_response(
     const loom_serve_finite_request_t* request, iree_string_view_t model,
     const iree_const_byte_span_t* rows, uint64_t input_tokens,
     iree_string_builder_t* output) {
@@ -370,8 +375,8 @@ const loom_serve_finite_protocol_t* loom_serve_embedding_protocol(void) {
       .output_modality = IREE_SVL("embedding"),
       .invalid_status = "400 Bad Request",
       .request_size = sizeof(loom_serve_embedding_request_t),
-      .initialize = embedding_initialize,
-      .deinitialize = embedding_deinitialize,
-      .response = embedding_response};
+      .initialize = loom_serve_embedding_initialize,
+      .deinitialize = loom_serve_embedding_deinitialize,
+      .response = loom_serve_embedding_protocol_response};
   return &protocol;
 }

@@ -40,8 +40,8 @@ IREE_FLAG(int32_t, request_body_bytes, 8 * 1024 * 1024,
 IREE_FLAG(int32_t, heartbeat_ms, 1000,
           "Per-model JSONL heartbeat interval; zero disables reporting.");
 
-static iree_status_t serving_ready(loom_serve_http_listener_t* listener,
-                                   iree_host_size_t model_count) {
+static iree_status_t loom_serve_main_ready(loom_serve_http_listener_t* listener,
+                                           iree_host_size_t model_count) {
   char storage[IREE_ASYNC_ADDRESS_MAX_FORMAT_LENGTH];
   iree_string_view_t address;
   IREE_RETURN_IF_ERROR(
@@ -56,13 +56,13 @@ static iree_status_t serving_ready(loom_serve_http_listener_t* listener,
                                          model_count);
 }
 
-static void serving_shutdown_requested(void* user_data,
-                                       iree_async_signal_t signal) {
+static void loom_serve_main_shutdown_requested(void* user_data,
+                                               iree_async_signal_t signal) {
   (void)signal;
   loom_serve_http_server_request_stop(user_data);
 }
 
-static int serving_agents_markdown(void) {
+static int loom_serve_main_agents_markdown(void) {
   return fputs(
              "# loom-serve\n\n"
              "Runs source-defined text, image, embedding and decision models "
@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
       "HTTP and model loading assume trusted clients and source packages.\n");
   for (int i = 1; i < argc; ++i) {
     if (loom_tooling_cli_is_agents_markdown_arg(argv[i])) {
-      return serving_agents_markdown();
+      return loom_serve_main_agents_markdown();
     }
   }
   loom_tooling_cli_set_default_help_filter();
@@ -241,7 +241,8 @@ int main(int argc, char** argv) {
   if (iree_status_is_ok(status)) {
     status = loom_serve_signals_allocate(
         loom_serve_host_proactor_pool(host),
-        (iree_async_signal_callback_t){serving_shutdown_requested, server},
+        (iree_async_signal_callback_t){loom_serve_main_shutdown_requested,
+                                       server},
         &signals, allocator);
   }
   for (iree_host_size_t i = 0; i < listener_count && iree_status_is_ok(status);
@@ -255,7 +256,7 @@ int main(int argc, char** argv) {
   }
   for (iree_host_size_t i = 0; i < listener_count && iree_status_is_ok(status);
        ++i) {
-    status = serving_ready(listeners[i], models.count);
+    status = loom_serve_main_ready(listeners[i], models.count);
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_router_run(

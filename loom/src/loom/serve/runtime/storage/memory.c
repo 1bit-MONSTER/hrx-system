@@ -57,7 +57,7 @@ struct loom_serve_virtual_buffer_t {
   memory_slab_t slabs[];
 };
 
-static iree_hal_physical_memory_params_t memory_params(void) {
+static iree_hal_physical_memory_params_t loom_serve_memory_params(void) {
   iree_hal_physical_memory_params_t params = {0};
   params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
   params.usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
@@ -73,7 +73,7 @@ iree_status_t loom_serve_memory_pool_allocate(
   iree_hal_allocator_t* device_allocator = iree_hal_device_allocator(device);
   iree_device_size_t minimum = 0, recommended = 0;
   IREE_RETURN_IF_ERROR(iree_hal_allocator_virtual_memory_query_granularity(
-      device_allocator, memory_params(), &minimum, &recommended));
+      device_allocator, loom_serve_memory_params(), &minimum, &recommended));
   if (!slab_size) {
     slab_size = recommended;
   }
@@ -196,8 +196,8 @@ iree_hal_buffer_t* loom_serve_virtual_buffer_handle(
   return buffer->handle;
 }
 
-static iree_status_t memory_slab_release(loom_serve_virtual_buffer_t* buffer,
-                                         iree_host_size_t index) {
+static iree_status_t loom_serve_memory_slab_release(
+    loom_serve_virtual_buffer_t* buffer, iree_host_size_t index) {
   loom_serve_memory_pool_t* pool = buffer->pool;
   memory_slab_t* slab = &buffer->slabs[index];
   if (slab->mapped) {
@@ -218,12 +218,12 @@ static iree_status_t memory_slab_release(loom_serve_virtual_buffer_t* buffer,
   return iree_ok_status();
 }
 
-static iree_status_t memory_slab_commit(loom_serve_virtual_buffer_t* buffer,
-                                        iree_host_size_t index) {
+static iree_status_t loom_serve_memory_slab_commit(
+    loom_serve_virtual_buffer_t* buffer, iree_host_size_t index) {
   loom_serve_memory_pool_t* pool = buffer->pool;
   memory_slab_t* slab = &buffer->slabs[index];
   iree_status_t status = iree_hal_allocator_physical_memory_allocate(
-      pool->device_allocator, memory_params(), pool->slab_size,
+      pool->device_allocator, loom_serve_memory_params(), pool->slab_size,
       pool->host_allocator, &slab->physical);
   if (iree_status_is_ok(status)) {
     pool->statistics.committed_bytes += pool->slab_size;
@@ -248,7 +248,8 @@ static iree_status_t memory_slab_commit(loom_serve_virtual_buffer_t* buffer,
     pool->legacy_amdgpu_mappings_pending = true;
   }
   if (!iree_status_is_ok(status)) {
-    status = iree_status_join(status, memory_slab_release(buffer, index));
+    status =
+        iree_status_join(status, loom_serve_memory_slab_release(buffer, index));
   }
   return status;
 }
@@ -263,7 +264,7 @@ static iree_status_t memory_slab_commit(loom_serve_virtual_buffer_t* buffer,
 // never per epoch or when all requested slabs are already committed. The
 // replacement native allocator must supply mapping readiness itself, at which
 // point this bridge and its two pool fields are removed together.
-static iree_status_t memory_publish_legacy_amdgpu_mappings(
+static iree_status_t loom_serve_memory_publish_legacy_amdgpu_mappings(
     loom_serve_memory_pool_t* pool) {
   if (!pool->legacy_amdgpu_mappings_pending) {
     return iree_ok_status();
@@ -314,15 +315,15 @@ iree_status_t loom_serve_memory_pool_try_commit(
       if (slab->pending_commit) {
         slab->pending_commit = false;
         if (iree_status_is_ok(status) && admitted) {
-          status = memory_slab_commit(range->buffer, i);
+          status = loom_serve_memory_slab_commit(range->buffer, i);
         }
       }
     }
   }
   // Publish partial progress too: a later request can reuse successfully added
   // slabs after an allocation failure. Failed publication remains pending.
-  status =
-      iree_status_join(status, memory_publish_legacy_amdgpu_mappings(pool));
+  status = iree_status_join(
+      status, loom_serve_memory_publish_legacy_amdgpu_mappings(pool));
   *out_admitted = iree_status_is_ok(status) && admitted;
   IREE_TRACE_ZONE_END(z0);
   return status;
@@ -365,7 +366,7 @@ iree_status_t loom_serve_virtual_buffer_trim(
   for (iree_host_size_t i = 0;
        i < buffer->slab_count && iree_status_is_ok(status); ++i) {
     if (!buffer->slabs[i].keep) {
-      status = memory_slab_release(buffer, i);
+      status = loom_serve_memory_slab_release(buffer, i);
     }
   }
   IREE_TRACE_ZONE_END(z0);

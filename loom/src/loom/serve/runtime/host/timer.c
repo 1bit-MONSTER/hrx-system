@@ -16,7 +16,7 @@ enum {
   TIMER_CANCEL = 1u << 2,
 };
 
-static void timer_cancel_retired(void* user_data) {
+static void loom_serve_timer_cancel_retired(void* user_data) {
   loom_serve_timer_t* timer = user_data;
   iree_slim_mutex_lock(&timer->mutex);
   timer->events.pending &= ~TIMER_CANCEL;
@@ -25,10 +25,9 @@ static void timer_cancel_retired(void* user_data) {
   iree_slim_mutex_unlock(&timer->mutex);
 }
 
-static void timer_deadline_completed(void* user_data,
-                                     iree_async_operation_t* operation,
-                                     iree_status_t status,
-                                     iree_async_completion_flags_t flags) {
+static void loom_serve_timer_deadline_completed(
+    void* user_data, iree_async_operation_t* operation, iree_status_t status,
+    iree_async_completion_flags_t flags) {
   (void)operation;
   (void)flags;
   loom_serve_timer_t* timer = user_data;
@@ -49,10 +48,9 @@ static void timer_deadline_completed(void* user_data,
   }
 }
 
-static void timer_stop_received(void* user_data,
-                                iree_async_operation_t* operation,
-                                iree_status_t status,
-                                iree_async_completion_flags_t flags) {
+static void loom_serve_timer_stop_received(
+    void* user_data, iree_async_operation_t* operation, iree_status_t status,
+    iree_async_completion_flags_t flags) {
   (void)operation;
   (void)flags;
   loom_serve_timer_t* timer = user_data;
@@ -80,7 +78,7 @@ void loom_serve_timer_initialize(loom_serve_timer_t* timer) {
   *timer = (loom_serve_timer_t){0};
   iree_slim_mutex_initialize(&timer->mutex);
   iree_async_cancel_request_initialize(
-      (iree_async_cancel_callback_t){timer_cancel_retired, timer},
+      (iree_async_cancel_callback_t){loom_serve_timer_cancel_retired, timer},
       &timer->cancellation);
 }
 
@@ -122,9 +120,10 @@ iree_status_t loom_serve_timer_advance(loom_serve_timer_t* timer, bool stopping,
     if (iree_any_bit_set(pending, TIMER_DEADLINE)) {
       iree_async_nop_operation_t* stop = &timer->stop;
       memset(stop, 0, sizeof(*stop));
-      iree_async_operation_initialize(
-          &stop->base, IREE_ASYNC_OPERATION_TYPE_NOP,
-          IREE_ASYNC_OPERATION_FLAG_NONE, timer_stop_received, timer);
+      iree_async_operation_initialize(&stop->base,
+                                      IREE_ASYNC_OPERATION_TYPE_NOP,
+                                      IREE_ASYNC_OPERATION_FLAG_NONE,
+                                      loom_serve_timer_stop_received, timer);
       iree_slim_mutex_lock(&timer->mutex);
       timer->events.pending |= TIMER_STOP;
       iree_slim_mutex_unlock(&timer->mutex);
@@ -146,7 +145,7 @@ iree_status_t loom_serve_timer_advance(loom_serve_timer_t* timer, bool stopping,
     iree_async_operation_initialize(
         &operation->base, IREE_ASYNC_OPERATION_TYPE_TIMER,
         IREE_ASYNC_OPERATION_FLAG_CANCELLATION_IS_SUCCESS,
-        timer_deadline_completed, timer);
+        loom_serve_timer_deadline_completed, timer);
     operation->deadline_ns = iree_time_now() + timer->interval;
     iree_slim_mutex_lock(&timer->mutex);
     timer->events.pending |= TIMER_DEADLINE;

@@ -26,15 +26,15 @@ bool loom_serve_http_inspection_offset(iree_string_view_t value,
   return true;
 }
 
-static iree_status_t inspection_quote(iree_string_builder_t* output,
-                                      iree_string_view_t value) {
+static iree_status_t loom_serve_inspection_quote(iree_string_builder_t* output,
+                                                 iree_string_view_t value) {
   loom_output_stream_t stream;
   loom_output_stream_for_builder(output, &stream);
   return loom_json_write_escaped_string(&stream, value);
 }
 
-static iree_status_t inspection_identity(iree_string_builder_t* output,
-                                         const char* name, uint64_t id) {
+static iree_status_t loom_serve_inspection_identity(
+    iree_string_builder_t* output, const char* name, uint64_t id) {
   if (!id) {
     return iree_string_builder_append_format(output, ",\"%s\":null", name);
   }
@@ -42,14 +42,15 @@ static iree_status_t inspection_identity(iree_string_builder_t* output,
                                            id);
 }
 
-static iree_status_t inspection_request(
+static iree_status_t loom_serve_inspection_request(
     const loom_serve_http_request_snapshot_t* state, iree_time_t now,
     iree_string_builder_t* output) {
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output, "{\"id\":%" PRIu64 ",\"phase\":", state->id));
+  IREE_RETURN_IF_ERROR(loom_serve_inspection_quote(
+      output, iree_make_cstring_view(state->phase)));
   IREE_RETURN_IF_ERROR(
-      inspection_quote(output, iree_make_cstring_view(state->phase)));
-  IREE_RETURN_IF_ERROR(inspection_identity(output, "session", state->session));
+      loom_serve_inspection_identity(output, "session", state->session));
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output, ",\"age_seconds\":%.9f,\"counters\":",
       (now - state->arrival_time) / 1e9));
@@ -58,17 +59,18 @@ static iree_status_t inspection_request(
   return iree_string_builder_append_cstring(output, "}");
 }
 
-static iree_status_t inspection_session(
+static iree_status_t loom_serve_inspection_session(
     const loom_serve_http_session_snapshot_t* state,
     iree_string_builder_t* output) {
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output, "{\"id\":%" PRIu64 ",\"name\":", state->id));
-  IREE_RETURN_IF_ERROR(inspection_quote(output, state->name));
-  IREE_RETURN_IF_ERROR(inspection_identity(output, "request", state->request));
+  IREE_RETURN_IF_ERROR(loom_serve_inspection_quote(output, state->name));
+  IREE_RETURN_IF_ERROR(
+      loom_serve_inspection_identity(output, "request", state->request));
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_cstring(output, ",\"storage\":"));
-  IREE_RETURN_IF_ERROR(
-      inspection_quote(output, iree_make_cstring_view(state->storage)));
+  IREE_RETURN_IF_ERROR(loom_serve_inspection_quote(
+      output, iree_make_cstring_view(state->storage)));
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output,
       ",\"position\":%" PRIu64 ",\"resident_tokens\":%" PRIu64
@@ -106,8 +108,8 @@ iree_status_t loom_serve_http_inspection_format(
     }
     if (iree_status_is_ok(status)) {
       status = kind == LOOM_SERVE_HTTP_INSPECT_REQUESTS
-                   ? inspection_request(&request, now, output)
-                   : inspection_session(&session, output);
+                   ? loom_serve_inspection_request(&request, now, output)
+                   : loom_serve_inspection_session(&session, output);
     }
     emitted = true;
   }

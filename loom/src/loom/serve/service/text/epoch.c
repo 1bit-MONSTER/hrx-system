@@ -10,7 +10,7 @@
 
 // Only the leased first cohort can contribute to its device-fed continuation.
 // Known progress is exact; the device resolves speculative acceptance and EOS.
-static void epoch_prepare_continuation(
+static void loom_serve_text_epoch_prepare_continuation(
     const loom_serve_text_epoch_options_t* options,
     const loom_serve_text_epoch_row_t* rows, iree_host_size_t count,
     const loom_serve_text_span_t* spans, const uint32_t* output_limits,
@@ -134,9 +134,9 @@ void loom_serve_text_epoch_prepare(
     };
     input_count += spans[i].token_count;
   }
-  epoch_prepare_continuation(options, rows, count, spans, output_limits,
-                             continuation->spans, continuation->output_limits,
-                             &continuation->continuation);
+  loom_serve_text_epoch_prepare_continuation(
+      options, rows, count, spans, output_limits, continuation->spans,
+      continuation->output_limits, &continuation->continuation);
   if (!continuation->continuation.span_count) {
     for (iree_host_size_t i = 0; i < count; ++i) {
       output_limits[i] = (uint32_t)iree_min(output_limits[i], width);

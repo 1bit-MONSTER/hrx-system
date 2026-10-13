@@ -45,7 +45,7 @@ iree_status_t loom_serve_text_checkpoint_request_parse(
   return iree_ok_status();
 }
 
-static iree_status_t checkpoint_reject(
+static iree_status_t loom_serve_text_checkpoint_reject(
     loom_serve_text_checkpoint_request_t* control,
     loom_serve_text_telemetry_t* telemetry, int code, const char* reason,
     iree_status_t failure, iree_allocator_t host_allocator) {
@@ -56,7 +56,7 @@ static iree_status_t checkpoint_reject(
                                          host_allocator);
 }
 
-static iree_status_t checkpoint_reply(
+static iree_status_t loom_serve_text_checkpoint_reply(
     loom_serve_text_checkpoint_request_t* control,
     loom_serve_text_telemetry_t* telemetry, iree_string_builder_t* scratch,
     iree_host_size_t position, iree_host_size_t host_bytes) {
@@ -118,21 +118,21 @@ iree_status_t loom_serve_text_checkpoint_request_submit(
   loom_serve_text_checkpoint_entry_t* checkpoint =
       loom_serve_text_checkpoint_registry_find(registry, control->name);
   if (create && checkpoint) {
-    return checkpoint_reject(
+    return loom_serve_text_checkpoint_reject(
         control, telemetry, 409, "Conflict",
         iree_make_status(IREE_STATUS_ALREADY_EXISTS,
                          "checkpoint name is already pinned"),
         host_allocator);
   }
   if (!create && !checkpoint) {
-    return checkpoint_reject(
+    return loom_serve_text_checkpoint_reject(
         control, telemetry, 404, "Not Found",
         iree_make_status(IREE_STATUS_NOT_FOUND, "checkpoint is not pinned"),
         host_allocator);
   }
   if (control->action == LOOM_SERVE_TEXT_CHECKPOINT_ACTION_RELEASE &&
       checkpoint->pending) {
-    return checkpoint_reject(
+    return loom_serve_text_checkpoint_reject(
         control, telemetry, 409, "Conflict",
         iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                          "checkpoint is borrowed by a queued request"),
@@ -140,14 +140,14 @@ iree_status_t loom_serve_text_checkpoint_request_submit(
   }
   if (create) {
     if (!source.session && !source.cached) {
-      return checkpoint_reject(
+      return loom_serve_text_checkpoint_reject(
           control, telemetry, 404, "Not Found",
           iree_make_status(IREE_STATUS_NOT_FOUND, "session is not retained"),
           host_allocator);
     }
     if (source.busy ||
         (source.session && !source.session->completion.storage)) {
-      return checkpoint_reject(
+      return loom_serve_text_checkpoint_reject(
           control, telemetry, 409, "Conflict",
           iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                            "pin requires an idle completed session"),
@@ -155,7 +155,7 @@ iree_status_t loom_serve_text_checkpoint_request_submit(
     }
     checkpoint = loom_serve_text_checkpoint_registry_available(registry);
     if (!checkpoint) {
-      return checkpoint_reject(
+      return loom_serve_text_checkpoint_reject(
           control, telemetry, 503, "Service Unavailable",
           iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                            "checkpoint capacity exhausted; release a pin or "
@@ -165,7 +165,7 @@ iree_status_t loom_serve_text_checkpoint_request_submit(
     if (source.cached) {
       loom_serve_text_checkpoint_entry_retain(source.cached, checkpoint);
       loom_serve_text_checkpoint_entry_publish(checkpoint, control->name);
-      return checkpoint_reply(
+      return loom_serve_text_checkpoint_reply(
           control, telemetry, scratch, checkpoint->position,
           loom_serve_text_checkpoint_suspended_bytes(checkpoint->state));
     }
@@ -180,7 +180,7 @@ iree_status_t loom_serve_text_checkpoint_request_submit(
       return status;
     }
     if (!checkpoint->state) {
-      return checkpoint_reject(
+      return loom_serve_text_checkpoint_reject(
           control, telemetry, 503, "Service Unavailable",
           iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                            "native pin capacity exhausted"),
@@ -194,15 +194,15 @@ iree_status_t loom_serve_text_checkpoint_request_submit(
       loom_serve_text_checkpoint_suspended_bytes(checkpoint->state);
   if (suspend) {
     if (!suspension_supported) {
-      return checkpoint_reject(
+      return loom_serve_text_checkpoint_reject(
           control, telemetry, 400, "Bad Request",
           iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                            "checkpoint suspension requires elastic backing"),
           host_allocator);
     }
     if (host_bytes) {
-      return checkpoint_reply(control, telemetry, scratch, position,
-                              host_bytes);
+      return loom_serve_text_checkpoint_reply(control, telemetry, scratch,
+                                              position, host_bytes);
     }
     iree_status_t status = loom_serve_text_checkpoint_submit_suspend(
         checkpoint->state, out_frontier);
@@ -218,7 +218,8 @@ iree_status_t loom_serve_text_checkpoint_request_submit(
   }
   loom_serve_text_checkpoint_entry_release(checkpoint);
   *trim_pending = true;
-  return checkpoint_reply(control, telemetry, scratch, position, 0);
+  return loom_serve_text_checkpoint_reply(control, telemetry, scratch, position,
+                                          0);
 }
 
 iree_status_t loom_serve_text_checkpoint_request_complete(
@@ -236,7 +237,7 @@ iree_status_t loom_serve_text_checkpoint_request_complete(
     loom_serve_text_checkpoint_request_abort(control, telemetry);
     return iree_ok_status();
   }
-  return checkpoint_reply(
+  return loom_serve_text_checkpoint_reply(
       control, telemetry, scratch, checkpoint->position,
       loom_serve_text_checkpoint_suspended_bytes(checkpoint->state));
 }

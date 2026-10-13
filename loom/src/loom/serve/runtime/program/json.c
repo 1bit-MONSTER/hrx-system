@@ -25,8 +25,8 @@ typedef struct json_module_t {
 // Copies an already validated value without insignificant bytes. Validation
 // establishes closing quotes/comments and escaped-byte bounds. The output is
 // at most input.size bytes and preserves every significant byte verbatim.
-static iree_host_size_t json_compact_copy(iree_string_view_t input,
-                                          char* output) {
+static iree_host_size_t loom_serve_json_compact_copy(iree_string_view_t input,
+                                                     char* output) {
   iree_host_size_t written = 0;
   for (iree_host_size_t i = 0; i < input.size;) {
     const char c = input.data[i++];
@@ -61,9 +61,9 @@ static iree_host_size_t json_compact_copy(iree_string_view_t input,
   return written;
 }
 
-static iree_status_t json_compact(json_module_t* module,
-                                  const iree_vm_call_packet_t* call,
-                                  iree_vm_buffer_t* input) {
+static iree_status_t loom_serve_json_compact(json_module_t* module,
+                                             const iree_vm_call_packet_t* call,
+                                             iree_vm_buffer_t* input) {
   iree_const_byte_span_t bytes = iree_const_byte_span_empty();
   IREE_RETURN_IF_ERROR(
       iree_vm_buffer_map_read(input, 0, iree_vm_buffer_length(input), &bytes));
@@ -91,7 +91,8 @@ static iree_status_t json_compact(json_module_t* module,
       &compact, document.size, &data, &capacity);
   iree_vm_buffer_t* output = NULL;
   if (iree_status_is_ok(status)) {
-    const iree_host_size_t length = json_compact_copy(document, data);
+    const iree_host_size_t length =
+        loom_serve_json_compact_copy(document, data);
     status = iree_vm_buffer_clone(IREE_VM_BUFFER_ACCESS_FLAG_READ,
                                   iree_make_const_byte_span(data, length), 1,
                                   module->allocator, &output);
@@ -113,9 +114,10 @@ typedef struct json_members_t {
   iree_string_builder_t records;
 } json_members_t;
 
-static iree_status_t json_member(void* user_data, iree_string_view_t key,
-                                 iree_json_value_type_t type,
-                                 iree_string_view_t value) {
+static iree_status_t loom_serve_json_member(void* user_data,
+                                            iree_string_view_t key,
+                                            iree_json_value_type_t type,
+                                            iree_string_view_t value) {
   json_members_t* members = user_data;
   const uint64_t fields[] = {
       key.data ? (uint64_t)(key.data - members->input.data) : 0,
@@ -133,15 +135,17 @@ static iree_status_t json_member(void* user_data, iree_string_view_t key,
       iree_make_string_view((const char*)record, sizeof(record)));
 }
 
-static iree_status_t json_element(void* user_data, iree_host_size_t index,
-                                  iree_json_value_type_t type,
-                                  iree_string_view_t value) {
-  return json_member(user_data, iree_string_view_empty(), type, value);
+static iree_status_t loom_serve_json_element(void* user_data,
+                                             iree_host_size_t index,
+                                             iree_json_value_type_t type,
+                                             iree_string_view_t value) {
+  return loom_serve_json_member(user_data, iree_string_view_empty(), type,
+                                value);
 }
 
-static iree_status_t json_read_members(json_module_t* module,
-                                       const iree_vm_call_packet_t* call,
-                                       iree_vm_buffer_t* input) {
+static iree_status_t loom_serve_json_read_members(
+    json_module_t* module, const iree_vm_call_packet_t* call,
+    iree_vm_buffer_t* input) {
   iree_const_byte_span_t bytes = iree_const_byte_span_empty();
   IREE_RETURN_IF_ERROR(
       iree_vm_buffer_map_read(input, 0, iree_vm_buffer_length(input), &bytes));
@@ -168,10 +172,11 @@ static iree_status_t json_read_members(json_module_t* module,
   }
   json_members_t members = {.input = text};
   iree_string_builder_initialize(module->allocator, &members.records);
-  iree_status_t status =
-      type == IREE_JSON_VALUE_TYPE_OBJECT
-          ? iree_json_enumerate_object_typed(value, json_member, &members)
-          : iree_json_enumerate_array_typed(value, json_element, &members);
+  iree_status_t status = type == IREE_JSON_VALUE_TYPE_OBJECT
+                             ? iree_json_enumerate_object_typed(
+                                   value, loom_serve_json_member, &members)
+                             : iree_json_enumerate_array_typed(
+                                   value, loom_serve_json_element, &members);
   iree_vm_buffer_t* output = NULL;
   const iree_string_view_t records = iree_string_builder_view(&members.records);
   if (iree_status_is_ok(status)) {
@@ -193,8 +198,8 @@ static iree_status_t json_read_members(json_module_t* module,
   return status;
 }
 
-static iree_status_t json_unescape(const iree_vm_call_packet_t* call,
-                                   iree_vm_buffer_t* input) {
+static iree_status_t loom_serve_json_unescape(const iree_vm_call_packet_t* call,
+                                              iree_vm_buffer_t* input) {
   const uint64_t offset = iree_vm_call_value_argument_load(call, 0);
   const uint64_t length = iree_vm_call_value_argument_load(call, 1);
   const uint64_t target_offset = iree_vm_call_value_argument_load(call, 2);
@@ -231,7 +236,7 @@ static iree_status_t json_unescape(const iree_vm_call_packet_t* call,
   return iree_ok_status();
 }
 
-static iree_status_t json_module_start(
+static iree_status_t loom_serve_json_module_start(
     iree_vm_module_t* base,
     const iree_vm_module_function_start_params_t* params,
     iree_vm_execution_outcome_t* out_outcome) {
@@ -246,15 +251,15 @@ static iree_status_t json_module_start(
   iree_vm_buffer_t* input = (iree_vm_buffer_t*)input_ref.object;
   switch (params->function_ordinal) {
     case 0: {
-      IREE_RETURN_IF_ERROR(json_compact(module, call, input));
+      IREE_RETURN_IF_ERROR(loom_serve_json_compact(module, call, input));
       break;
     }
     case 1: {
-      IREE_RETURN_IF_ERROR(json_read_members(module, call, input));
+      IREE_RETURN_IF_ERROR(loom_serve_json_read_members(module, call, input));
       break;
     }
     case 2: {
-      IREE_RETURN_IF_ERROR(json_unescape(call, input));
+      IREE_RETURN_IF_ERROR(loom_serve_json_unescape(call, input));
       break;
     }
     default:
@@ -298,26 +303,26 @@ static const iree_vm_module_export_declaration_t json_exports[] = {
      .function_ordinal = 2},
 };
 
-static void json_module_destroy(iree_vm_module_t* base) {
+static void loom_serve_json_module_destroy(iree_vm_module_t* base) {
   json_module_t* module = (json_module_t*)base;
   iree_allocator_free(module->allocator, module);
 }
-static void json_module_query_export(
+static void loom_serve_json_module_query_export(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
     iree_vm_module_export_declaration_t* out_value) {
   *out_value = json_exports[ordinal];
 }
-static void json_module_query_callable(
+static void loom_serve_json_module_query_callable(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
     iree_vm_module_callable_type_declaration_t* out_value) {
   *out_value = json_callables[ordinal];
 }
-static void json_module_query_import_group(
+static void loom_serve_json_module_query_import_group(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
     iree_vm_module_import_group_t* out_value) {
   IREE_CHECK_UNREACHABLE("json module has no imports");
 }
-static void json_module_query_import(
+static void loom_serve_json_module_query_import(
     const iree_vm_module_t* base, iree_host_size_t ordinal,
     iree_vm_module_import_declaration_t* out_value) {
   IREE_CHECK_UNREACHABLE("json module has no imports");
@@ -325,13 +330,13 @@ static void json_module_query_import(
 static const iree_vm_module_vtable_t json_module_vtable = {
     .structure_size = sizeof(iree_vm_module_vtable_t),
     .abi_version = IREE_VM_MODULE_ABI_VERSION_0,
-    .destroy = json_module_destroy,
-    .function_start = json_module_start,
+    .destroy = loom_serve_json_module_destroy,
+    .function_start = loom_serve_json_module_start,
     .function_resume = iree_vm_module_function_resume_unreachable,
-    .query_import_group = json_module_query_import_group,
-    .query_import = json_module_query_import,
-    .query_export = json_module_query_export,
-    .query_callable_type = json_module_query_callable,
+    .query_import_group = loom_serve_json_module_query_import_group,
+    .query_import = loom_serve_json_module_query_import,
+    .query_export = loom_serve_json_module_query_export,
+    .query_callable_type = loom_serve_json_module_query_callable,
     .query_presentation = iree_vm_module_query_presentation_none,
     .metadata_by_ordinal = iree_vm_module_metadata_by_ordinal_none,
 };

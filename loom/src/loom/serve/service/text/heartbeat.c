@@ -95,7 +95,7 @@ typedef struct text_shared_memory_record_t {
   uint64_t workspace_reuse_count;
 } text_shared_memory_record_t;
 
-static iree_status_t text_shared_memory_format(
+static iree_status_t loom_serve_text_shared_memory_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   text_shared_memory_record_t value;
@@ -113,9 +113,9 @@ static iree_status_t text_shared_memory_format(
 }
 
 static const loom_serve_telemetry_event_t text_shared_memory_event = {
-    "shared_device_memory", text_shared_memory_format};
+    "shared_device_memory", loom_serve_text_shared_memory_format};
 
-static iree_status_t text_activity_format(
+static iree_status_t loom_serve_text_activity_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   text_activity_record_t value;
@@ -133,7 +133,7 @@ static iree_status_t text_activity_format(
       value.backpressured_rows, value.epoch_spans, value.epoch_tokens);
 }
 
-static iree_status_t text_work_format(
+static iree_status_t loom_serve_text_work_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   text_work_record_t value;
@@ -151,7 +151,7 @@ static iree_status_t text_work_format(
       value.proposed_tokens, value.accepted_inputs);
 }
 
-static iree_status_t text_memory_format(
+static iree_status_t loom_serve_text_memory_format(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
   text_memory_record_t value;
@@ -183,11 +183,11 @@ static iree_status_t text_memory_format(
 }
 
 static const loom_serve_telemetry_event_t text_activity_event = {
-    "text_activity", text_activity_format};
-static const loom_serve_telemetry_event_t text_work_event = {"text_work",
-                                                             text_work_format};
+    "text_activity", loom_serve_text_activity_format};
+static const loom_serve_telemetry_event_t text_work_event = {
+    "text_work", loom_serve_text_work_format};
 static const loom_serve_telemetry_event_t text_memory_event = {
-    "text_memory", text_memory_format};
+    "text_memory", loom_serve_text_memory_format};
 
 loom_serve_text_heartbeat_snapshot_t loom_serve_text_heartbeat_read(
     loom_serve_text_heartbeat_t* heartbeat) {
@@ -197,7 +197,8 @@ loom_serve_text_heartbeat_snapshot_t loom_serve_text_heartbeat_read(
   return state;
 }
 
-static void text_heartbeat_report(loom_serve_text_heartbeat_t* heartbeat) {
+static void loom_serve_text_heartbeat_report(
+    loom_serve_text_heartbeat_t* heartbeat) {
   const loom_serve_text_heartbeat_snapshot_t state =
       loom_serve_text_heartbeat_read(heartbeat);
   loom_serve_telemetry_record_t record = {
@@ -298,7 +299,7 @@ iree_status_t loom_serve_text_heartbeat_advance(
   iree_status_t status = loom_serve_timer_advance(&heartbeat->timer, stopping,
                                                   out_progress, &tick);
   if (tick) {
-    text_heartbeat_report(heartbeat);
+    loom_serve_text_heartbeat_report(heartbeat);
   }
   return status;
 }
@@ -307,7 +308,7 @@ void loom_serve_text_heartbeat_deinitialize(
     loom_serve_text_heartbeat_t* heartbeat) {
   loom_serve_timer_deinitialize(&heartbeat->timer);
   if (heartbeat->stream) {
-    text_heartbeat_report(heartbeat);
+    loom_serve_text_heartbeat_report(heartbeat);
   }
   iree_slim_mutex_deinitialize(&heartbeat->mutex);
 }
