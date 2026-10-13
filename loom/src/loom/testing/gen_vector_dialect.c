@@ -181,9 +181,9 @@ static iree_status_t loom_test_gen_hook_vector_integer_binary(
     uint8_t flags = 0;
     if (loom_test_gen_next_probability(context->gen, 20)) {
       flags = (uint8_t)loom_test_gen_next_range(
-          context->gen, (LOOM_VECTOR_INTOVERFLOWFLAGS_NSW |
-                         LOOM_VECTOR_INTOVERFLOWFLAGS_NUW) +
-                            1);
+          context->gen,
+          (LOOM_INTEGER_OVERFLOW_FLAG_NSW | LOOM_INTEGER_OVERFLOW_FLAG_NUW) +
+              1);
     }
     IREE_RETURN_IF_ERROR(flagged_ops[pick](context->builder, flags, lhs, rhs,
                                            type, LOOM_LOCATION_UNKNOWN, &op));

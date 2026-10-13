@@ -165,6 +165,7 @@ __all__ = [
     "VALUE_ALIAS",
     # Semantic phase/contract metadata.
     "OpPhase",
+    "ExecutionCondition",
     "ContractFamily",
     "ConditionRefinement",
     "ConditionRefinementTruth",
@@ -1370,6 +1371,23 @@ class OpPhase(Enum):
     SOURCE_STRUCTURE = "LOOM_OP_PHASE_SOURCE_STRUCTURE"
     MODULE_METADATA = "LOOM_OP_PHASE_MODULE_METADATA"
     COMPILE_TIME_QUERY = "LOOM_OP_PHASE_COMPILE_TIME_QUERY"
+
+    @property
+    def c_name(self) -> str:
+        return str(self.value)
+
+
+@unique
+class ExecutionCondition(Enum):
+    """Fact-dependent condition for safe execution on additional paths.
+
+    Each value names a shared semantic family interpreted against retained
+    operand facts. Operation declarations using a condition are validated
+    against the exact field and flag shape expected by that family.
+    """
+
+    INTEGER_SHIFT_LEFT = "LOOM_EXECUTION_CONDITION_INTEGER_SHIFT_LEFT"
+    INTEGER_SHIFT_RIGHT = "LOOM_EXECUTION_CONDITION_INTEGER_SHIFT_RIGHT"
 
     @property
     def c_name(self) -> str:
@@ -6222,6 +6240,97 @@ def _validate_condition_refinement(
         )
 
 
+def _validate_execution_condition(
+    op_name: str,
+    condition: ExecutionCondition | None,
+    operands: tuple[Operand, ...],
+    results: tuple[Result | TiedResult, ...],
+    attrs: tuple[AttrDef, ...],
+    successors: tuple[Successor, ...],
+    regions: tuple[RegionDef, ...],
+    constraints: tuple[Constraint, ...],
+    traits: tuple[Trait, ...],
+) -> None:
+    if condition is None:
+        return
+
+    trait_names = {trait.name for trait in traits}
+    if "Pure" not in trait_names:
+        raise ValueError(f"Op '{op_name}': execution condition requires the PURE trait")
+    if "SafeToSpeculate" in trait_names:
+        raise ValueError(
+            f"Op '{op_name}': execution condition conflicts with "
+            "unconditional SAFE_TO_SPECULATE"
+        )
+    if successors or regions:
+        raise ValueError(
+            f"Op '{op_name}': execution condition requires a leaf operation"
+        )
+    if (
+        len(operands) != 2
+        or any(operand.optional or operand.variadic for operand in operands)
+        or len(results) != 1
+        or not isinstance(results[0], Result)
+        or results[0].variadic
+    ):
+        raise ValueError(
+            f"Op '{op_name}': integer shift execution condition requires "
+            "two required operands and one required result"
+        )
+
+    fields = (*operands, results[0])
+    field_names = {field.name for field in fields}
+    has_same_type = any(
+        constraint.name == "SameType" and field_names.issubset(constraint.args)
+        for constraint in constraints
+    )
+    constraints_by_field = {field.type_constraint for field in fields}
+    fixed_or_index = len(constraints_by_field) == 1 and next(
+        iter(constraints_by_field)
+    ) in (INTEGER, INDEX)
+    vector = constraints_by_field == {VECTOR} and any(
+        constraint.name == "HasIntegerElement" and results[0].name in constraint.args
+        for constraint in constraints
+    )
+    if not has_same_type or not (fixed_or_index or vector):
+        raise ValueError(
+            f"Op '{op_name}': integer shift execution condition requires "
+            "same-typed integer, index, or integer-vector fields"
+        )
+
+    if condition is ExecutionCondition.INTEGER_SHIFT_RIGHT:
+        if attrs:
+            raise ValueError(
+                f"Op '{op_name}': right-shift execution condition does not "
+                "accept instance attributes"
+            )
+        return
+
+    if not attrs:
+        return
+    if len(attrs) != 1:
+        raise ValueError(
+            f"Op '{op_name}': left-shift execution condition accepts only "
+            "canonical integer overflow flags"
+        )
+    overflow_attr = attrs[0]
+    overflow_enum = overflow_attr.enum_def
+    if (
+        overflow_attr.attr_type != ATTR_TYPE_FLAGS
+        or not overflow_attr.optional
+        or overflow_enum is None
+        or overflow_enum.c_type != "loom_integer_overflow_flags_t"
+        or overflow_enum.c_const_prefix != "LOOM_INTEGER_OVERFLOW_FLAG"
+        or overflow_enum.c_include != "loom/ops/op_defs.h"
+        or [(case.keyword, case.value) for case in overflow_enum.cases]
+        != [("nsw", 1), ("nuw", 2)]
+    ):
+        raise ValueError(
+            f"Op '{op_name}': left-shift execution condition accepts only "
+            "canonical integer overflow flags"
+        )
+
+
 def _validate_keyed_module_record(
     op_name: str,
     operands: tuple[Operand, ...],
@@ -6417,6 +6526,8 @@ class Op:
     symbol_def: Symbol definition descriptor for SYMBOL_DEFINE ops.
     format: Format element list describing textual assembly.
     assembly: Short target-assembly spelling using the same operation fields.
+    execution_condition: Shared fact-dependent condition under which the op is
+        safe to execute on additional control-flow paths.
     structural_materialization: Whether a descriptor-free operation may emit
         target register packets while materializing its results.
     legacy_formats: Legacy textual formats accepted by migration tooling.
@@ -6449,6 +6560,7 @@ class Op:
     facts: str = ""  # C function name for fact inference, or "".
     type_transfer: str = ""  # C function name for semantic type transfer, or "".
     condition_refinement: ConditionRefinement | None = None
+    execution_condition: ExecutionCondition | None = None
     verify: str = ""  # C function name for op-specific verification, or "".
     builder_name: str | None = None  # Python builder method override, or None.
     generate_c_builder: bool = True  # False when construction requires domain context.
@@ -6487,6 +6599,7 @@ class Op:
         facts: str = "",
         type_transfer: str = "",
         condition_refinement: ConditionRefinement | None = None,
+        execution_condition: ExecutionCondition | None = None,
         verify: str = "",
         builder_name: str | None = None,
         generate_c_builder: bool = True,
@@ -6529,6 +6642,7 @@ class Op:
         object.__setattr__(self, "facts", facts)
         object.__setattr__(self, "type_transfer", type_transfer)
         object.__setattr__(self, "condition_refinement", condition_refinement)
+        object.__setattr__(self, "execution_condition", execution_condition)
         object.__setattr__(self, "verify", verify)
         object.__setattr__(self, "builder_name", builder_name)
         object.__setattr__(self, "generate_c_builder", generate_c_builder)
@@ -6536,6 +6650,17 @@ class Op:
         object.__setattr__(self, "contracts", tuple(contracts))
         _validate_condition_refinement(
             name, condition_refinement, frozen_operands, frozen_results
+        )
+        _validate_execution_condition(
+            name,
+            execution_condition,
+            frozen_operands,
+            frozen_results,
+            frozen_attrs,
+            frozen_successors,
+            frozen_regions,
+            tuple(constraints),
+            tuple(traits),
         )
         if (
             category is not None

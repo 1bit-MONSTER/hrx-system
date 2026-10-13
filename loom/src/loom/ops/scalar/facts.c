@@ -30,7 +30,7 @@
 static void loom_scalar_wrap_result_facts(const loom_module_t* module,
                                           const loom_op_t* op,
                                           loom_value_facts_t* facts) {
-  if (iree_any_bit_set(op->instance_flags, LOOM_SCALAR_INTOVERFLOWFLAGS_NSW)) {
+  if (iree_any_bit_set(op->instance_flags, LOOM_INTEGER_OVERFLOW_FLAG_NSW)) {
     return;
   }
   const loom_type_t result_type =

@@ -657,7 +657,7 @@ static const loom_amdgpu_packed_ternary_selection_row_t
         {
             .op_kind = LOOM_OP_VECTOR_FMAI,
             .element_type = LOOM_SCALAR_TYPE_I16,
-            .required_overflow_flags = LOOM_VECTOR_INTOVERFLOWFLAGS_NUW,
+            .required_overflow_flags = LOOM_INTEGER_OVERFLOW_FLAG_NUW,
             .candidates =
                 kLoomAmdgpuPackedFmaiUnsignedPreferenceDescriptorCandidates,
             .candidate_count =
@@ -666,7 +666,7 @@ static const loom_amdgpu_packed_ternary_selection_row_t
         {
             .op_kind = LOOM_OP_VECTOR_FMAI,
             .element_type = LOOM_SCALAR_TYPE_I16,
-            .rejected_overflow_flags = LOOM_VECTOR_INTOVERFLOWFLAGS_NUW,
+            .rejected_overflow_flags = LOOM_INTEGER_OVERFLOW_FLAG_NUW,
             .candidates =
                 kLoomAmdgpuPackedFmaiSignedPreferenceDescriptorCandidates,
             .candidate_count =

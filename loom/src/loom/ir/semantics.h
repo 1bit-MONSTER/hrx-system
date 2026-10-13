@@ -35,6 +35,23 @@ typedef enum loom_op_phase_e {
   LOOM_OP_PHASE_COMPILE_TIME_QUERY = 4,
 } loom_op_phase_e;
 
+// Fact-dependent condition under which an operation may execute on additional
+// control paths. Zero means that no conditional execution-safety proof is
+// declared; unconditional safety remains represented by
+// LOOM_TRAIT_SAFE_TO_SPECULATE.
+typedef uint16_t loom_execution_condition_t;
+
+typedef enum loom_execution_condition_e {
+  LOOM_EXECUTION_CONDITION_NONE = 0,
+  // Integer left shift with a count in [0, element width). Fixed-width
+  // payloads wrap unless canonical no-wrap instance flags require a stronger
+  // operand proof. Index results must fit the selected signed target carrier.
+  LOOM_EXECUTION_CONDITION_INTEGER_SHIFT_LEFT = 1,
+  // Integer arithmetic or logical right shift with a count in
+  // [0, element width).
+  LOOM_EXECUTION_CONDITION_INTEGER_SHIFT_RIGHT = 2,
+} loom_execution_condition_e;
+
 // Bitset of target-contract families represented by an op or type.
 typedef uint32_t loom_contract_family_set_t;
 
@@ -78,6 +95,9 @@ typedef struct loom_op_semantics_t {
   // One-based index into the dialect's sparse condition-refinement table, or
   // zero when the op does not refine an operand on a control-flow edge.
   uint8_t condition_refinement_index;
+  // Fact-dependent execution-safety condition, or NONE when no shared proof
+  // can establish that the op is safe to execute on an additional path.
+  loom_execution_condition_t execution_condition;
   // Target-contract families required to preserve this op's semantics.
   loom_contract_family_set_t contract_families;
 } loom_op_semantics_t;

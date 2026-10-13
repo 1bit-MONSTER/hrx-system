@@ -107,6 +107,19 @@ static inline loom_named_value_slice_t loom_make_named_value_slice(
   return slice;
 }
 
+// Shared instance flags for fixed-width integer operations whose authored
+// result must not wrap. Scalar and vector declarations use the same semantic
+// values so generic analyses do not depend on either dialect's generated
+// header.
+typedef uint8_t loom_integer_overflow_flags_t;
+
+enum loom_integer_overflow_flag_bits_e {
+  // The mathematical result fits the signed result type.
+  LOOM_INTEGER_OVERFLOW_FLAG_NSW = 1u << 0,
+  // The mathematical result fits the unsigned result type.
+  LOOM_INTEGER_OVERFLOW_FLAG_NUW = 1u << 1,
+};
+
 //===----------------------------------------------------------------------===//
 // Semantic constraints
 //===----------------------------------------------------------------------===//

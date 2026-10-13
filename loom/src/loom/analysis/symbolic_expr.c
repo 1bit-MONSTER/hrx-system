@@ -1196,7 +1196,7 @@ static iree_status_t loom_symbolic_expr_expansion_prepare_frame(
          frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_MULTIPLY ||
          frame->kind == LOOM_SYMBOLIC_EXPR_EXPANSION_MULTIPLY_ADD) &&
         iree_any_bit_set(defining_op->instance_flags,
-                         LOOM_SCALAR_INTOVERFLOWFLAGS_NSW);
+                         LOOM_INTEGER_OVERFLOW_FLAG_NSW);
     if (loom_scalar_type_is_integer(scalar_type) &&
         frame->kind != LOOM_SYMBOLIC_EXPR_EXPANSION_ASSUME && !no_signed_wrap) {
       frame->integer_bit_count =

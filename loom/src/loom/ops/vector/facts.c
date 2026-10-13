@@ -3523,7 +3523,7 @@ iree_status_t loom_vector_shli_facts(loom_fact_context_t* context,
   const int32_t bit_count =
       loom_scalar_type_bitwidth(loom_vector_result_element_type(module, op));
   const loom_vector_integer_binary_transfer_fn_t transfer_fn =
-      iree_any_bit_set(op->instance_flags, LOOM_VECTOR_INTOVERFLOWFLAGS_NSW)
+      iree_any_bit_set(op->instance_flags, LOOM_INTEGER_OVERFLOW_FLAG_NSW)
           ? loom_vector_shli_nsw_element
           : loom_vector_shli_element;
   return loom_vector_integer_binary_summary_facts(

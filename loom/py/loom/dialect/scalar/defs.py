@@ -109,6 +109,9 @@ IntOverflowFlags = EnumDef(
         EnumCase("nuw", 2, doc="No unsigned wrap."),
     ],
     doc="Integer overflow behavior flags.",
+    c_type="loom_integer_overflow_flags_t",
+    c_const_prefix="LOOM_INTEGER_OVERFLOW_FLAG",
+    c_include="loom/ops/op_defs.h",
 )
 
 ClampFMode = EnumDef(
