@@ -1209,9 +1209,10 @@ static iree_status_t loom_vector_component_prepare_packetized_load_roots(
           operand_lane_count != component->lane_count) {
         continue;
       }
-      uint32_t producer_record_index = LOOM_VECTOR_COMPONENT_INDEX_INVALID;
+      const uint32_t producer_record_index =
+          loom_vector_component_direct_producer_record(plan, record, i);
       if (loom_vector_component_record_is_internal_operand(
-              plan, component, operand, &producer_record_index)) {
+              plan, component, producer_record_index)) {
         continue;
       }
       const loom_value_t* operand_value =
