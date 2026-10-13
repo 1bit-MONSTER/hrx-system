@@ -19,8 +19,8 @@ import zlib
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
-from loom_serve_testing.http import Events, wait_counters, wait_status
-from loom_serve_testing.http import running_server as child_server
+from loom_serve_testing.http_harness import Events, wait_counters, wait_status
+from loom_serve_testing.http_harness import running_server as child_server
 from loom_serve_testing.logs import LogClient
 
 

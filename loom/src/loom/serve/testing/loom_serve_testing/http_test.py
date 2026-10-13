@@ -12,7 +12,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from loom_serve_testing.http import Events, collect_events, running_server, wait_status
+from loom_serve_testing.http_harness import (
+    Events,
+    collect_events,
+    running_server,
+    wait_status,
+)
 
 
 class HttpTest(unittest.TestCase):
@@ -25,7 +30,9 @@ class HttpTest(unittest.TestCase):
             {"data": [{"id": "chat", "loom": {"status": state}}]} for state in states
         ]
         address = SimpleNamespace(hostname="localhost", port=8080)
-        with patch("loom_serve_testing.http.control", side_effect=responses) as get:
+        with patch(
+            "loom_serve_testing.http_harness.control", side_effect=responses
+        ) as get:
             result = wait_status(address, model="chat", phase="idle")
         self.assertEqual(result, states[1])
         self.assertEqual(get.call_count, 2)
@@ -44,7 +51,9 @@ class HttpTest(unittest.TestCase):
             ]
         }
         address = SimpleNamespace(hostname="localhost", port=8080)
-        with patch("loom_serve_testing.http.control", return_value=response) as get:
+        with patch(
+            "loom_serve_testing.http_harness.control", return_value=response
+        ) as get:
             with self.assertRaisesRegex(RuntimeError, "missing source provider"):
                 wait_status(address, model="chat", phase="idle")
         get.assert_called_once_with(address, "GET", "/v1/status", 200)

@@ -116,7 +116,7 @@ iree_py_library(
   NAME
     http
   SRCS
-    "loom_serve_testing/http.py"
+    "loom_serve_testing/http_harness.py"
   IMPORTS
     "."
   DEPS

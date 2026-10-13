@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from loom_serve_testing.http import control, running_server
+from loom_serve_testing.http_harness import control, running_server
 
 SERVER = Path(sys.argv.pop(1)).resolve()
 PACKAGE = Path(sys.argv.pop(1)).resolve().parent

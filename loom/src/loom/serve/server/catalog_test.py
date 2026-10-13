@@ -29,8 +29,8 @@ from catalog_test_util import (
     telemetry_observation,
     write_startup,
 )
-from loom_serve_testing.http import running_server as child_server
-from loom_serve_testing.http import wait_counters, wait_status
+from loom_serve_testing.http_harness import running_server as child_server
+from loom_serve_testing.http_harness import wait_counters, wait_status
 from loom_serve_testing.logs import LogClient
 
 

@@ -659,6 +659,9 @@ function(hrx_register_installed_python_test)
     set_property(GLOBAL
       PROPERTY HRX_INSTALLED_TEST_PYTHON_SOURCE_PACKAGE_DIRS_${_SOURCE_SET_COUNT}
       "${_RULE_PACKAGE_DIRS}")
+    set_property(GLOBAL
+      PROPERTY HRX_INSTALLED_TEST_PYTHON_SOURCE_TEST_${_SOURCE_SET_COUNT}
+      "${_RULE_NAME}")
   endif()
 
   # CTest applies ENVIRONMENT_MODIFICATION entries sequentially. Since each
@@ -666,11 +669,13 @@ function(hrx_register_installed_python_test)
   # installed test environment preserves the PACKAGE_DIRS order used by the
   # build-tree test. This matters when a generated tree contains partial Python
   # packages that must not shadow the source tree.
-  list(REVERSE _INSTALLED_PACKAGE_DIRS)
-  foreach(_INSTALLED_PACKAGE_DIR IN LISTS _INSTALLED_PACKAGE_DIRS)
-    list(APPEND _PYTHONPATH_MODS
-      "PYTHONPATH=path_list_prepend:${_INSTALLED_PACKAGE_DIR}")
-  endforeach()
+  if(NOT _RULE_DEPS)
+    list(REVERSE _INSTALLED_PACKAGE_DIRS)
+    foreach(_INSTALLED_PACKAGE_DIR IN LISTS _INSTALLED_PACKAGE_DIRS)
+      list(APPEND _PYTHONPATH_MODS
+        "PYTHONPATH=path_list_prepend:${_INSTALLED_PACKAGE_DIR}")
+    endforeach()
+  endif()
 
   hrx_register_installed_test(
     NAME "${_RULE_NAME}"
@@ -719,10 +724,14 @@ function(hrx_create_installed_tests)
       PROPERTY HRX_INSTALLED_TEST_PYTHON_SOURCE_DEPS_${_SOURCE_SET})
     get_property(_PYTHON_PACKAGE_DIRS GLOBAL
       PROPERTY HRX_INSTALLED_TEST_PYTHON_SOURCE_PACKAGE_DIRS_${_SOURCE_SET})
+    get_property(_PYTHON_TEST GLOBAL
+      PROPERTY HRX_INSTALLED_TEST_PYTHON_SOURCE_TEST_${_SOURCE_SET})
     set(_PYTHON_SOURCES)
     foreach(_PYTHON_DEP IN LISTS _PYTHON_DEPS)
       iree_py_library_collect_sources(_DEP_SOURCES "${_PYTHON_DEP}")
       list(APPEND _PYTHON_SOURCES ${_DEP_SOURCES})
+      iree_py_library_collect_package_dirs(_DEP_PACKAGE_DIRS "${_PYTHON_DEP}")
+      list(APPEND _PYTHON_PACKAGE_DIRS ${_DEP_PACKAGE_DIRS})
     endforeach()
     if(_PYTHON_SOURCES)
       list(REMOVE_DUPLICATES _PYTHON_SOURCES)
@@ -730,6 +739,25 @@ function(hrx_create_installed_tests)
     hrx_installed_tests_install_python_sources(
       SOURCES ${_PYTHON_SOURCES}
       PACKAGE_DIRS ${_PYTHON_PACKAGE_DIRS})
+
+    # Match the build-tree test's explicit roots followed by its dependency
+    # closure, once forward-declared libraries are available.
+    list(REMOVE_DUPLICATES _PYTHON_PACKAGE_DIRS)
+    list(REVERSE _PYTHON_PACKAGE_DIRS)
+    set(_PYTHONPATH_MODS)
+    foreach(_PACKAGE_DIR IN LISTS _PYTHON_PACKAGE_DIRS)
+      hrx_installed_tests_python_package_relative_path(
+        "${_PACKAGE_DIR}" _PACKAGE_REL_PATH)
+      list(APPEND _PYTHONPATH_MODS
+        "PYTHONPATH=path_list_prepend:\${CMAKE_CURRENT_LIST_DIR}/../testdata/${_PACKAGE_REL_PATH}")
+    endforeach()
+    set(_LINE "set_tests_properties(")
+    hrx_installed_tests_append_quoted(_LINE "${_PYTHON_TEST}")
+    string(APPEND _LINE " PROPERTIES")
+    hrx_installed_tests_append_property(_LINE
+      "ENVIRONMENT_MODIFICATION" "${_PYTHONPATH_MODS}")
+    string(APPEND _LINE ")\n")
+    file(APPEND "${_HRX_INSTALLED_TESTS_CTEST_FILE}" "${_LINE}")
   endforeach()
 
   get_property(_DEFERRED_TARGETS GLOBAL PROPERTY HRX_INSTALLED_TEST_DEFERRED_TARGETS)
