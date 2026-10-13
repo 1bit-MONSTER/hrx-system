@@ -137,6 +137,10 @@ def test_scalar_speculation_facts_cover_total_integer_forms() -> None:
         Form.SUBTRACT_IF_UGE,
         Form.COMPARE,
         Form.COMPARE_IMMEDIATE,
+        Form.COMPARE_PREDICATE,
+        Form.COMPARE_IMMEDIATE_PREDICATE,
+        Form.COMPARE_SELECT,
+        Form.COMPARE_IMMEDIATE_SELECT,
         Form.CONSTANT,
         Form.ADDRESS_ADD,
         Form.ADDRESS_DISPLACEMENT,
@@ -249,6 +253,44 @@ def test_bitwise_immediate_forms_are_shared_by_scalar_profiles() -> None:
                 assert immediate.bit_width == 32
                 assert immediate.signed_min == -(2**31)
                 assert immediate.unsigned_max == 2**31 - 1
+
+
+def test_integer_comparisons_use_width_parametric_predicates() -> None:
+    descriptors = {
+        descriptor.key: descriptor for descriptor in x86_descriptor_data.X86_SCALAR_DESCRIPTOR_SET.descriptors if descriptor.key.startswith("x86.scalar.cmp.") and ".select." not in descriptor.key
+    }
+    dynamic_keys = {f"x86.scalar.cmp.{form_name}gpr{bit_count}" for bit_count in (8, 16, 32, 64) for form_name in ("", "imm.")}
+    fixed_recipe_keys = {f"x86.scalar.cmp.{predicate}.gpr32" for predicate in ("slt", "sge", "sgt")} | {
+        f"x86.scalar.cmp.{predicate}.imm.gpr{bit_count}"
+        for bit_count, predicate in (
+            (32, "eq"),
+            (32, "slt"),
+            (32, "sge"),
+            (32, "sgt"),
+            (32, "uge"),
+            (64, "eq"),
+        )
+    }
+    assert set(descriptors) == dynamic_keys | fixed_recipe_keys
+
+    width_flags = {
+        8: Flag.BYTE,
+        16: Flag.OPERAND_16,
+        32: Flag(0),
+        64: Flag.REX_W,
+    }
+    for bit_count, flags in width_flags.items():
+        for immediate in (False, True):
+            form_name = "imm." if immediate else ""
+            descriptor = descriptors[f"x86.scalar.cmp.{form_name}gpr{bit_count}"]
+            assert descriptor.encoding_format_id == (Form.COMPARE_IMMEDIATE_PREDICATE if immediate else Form.COMPARE_PREDICATE)
+            opcode = (0x80 if bit_count == 8 else 0x81) if immediate else (0x38 if bit_count == 8 else 0x39)
+            assert descriptor.encoding_id == encoding(
+                opcode,
+                extension=7 if immediate else 0,
+                flags=flags,
+            )
+            assert tuple(immediate.field_name for immediate in descriptor.immediates) == ((f"imm{min(bit_count, 32)}", "predicate") if immediate else ("predicate",))
 
 
 def test_scalar_read_memory_binary_forms_are_shared_by_scalar_profiles() -> None:

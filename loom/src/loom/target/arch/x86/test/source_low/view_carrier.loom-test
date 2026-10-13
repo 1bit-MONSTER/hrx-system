@@ -57,7 +57,7 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) @distinct_root_
   %second_view = lea.add_scale %second, %second_offset {disp32 = 0, scale = 1}
   low.br ^header(%begin: reg<x86.gpr64>, %first_view: reg<x86.gpr64>)
 ^header(%iteration: reg<x86.gpr64>, %selected: reg<x86.gpr64>):
-  %continue = cmp.slt.gpr64 %iteration, %count
+  %continue = cmp.gpr64 %iteration, %count, "slt"
   low.cond_br %continue, ^body, ^exit : reg<x86.gpr32>
 ^body:
   %next = lea.disp %iteration {disp32 = 1}

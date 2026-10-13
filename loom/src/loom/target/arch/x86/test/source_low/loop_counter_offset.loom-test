@@ -11,6 +11,6 @@ func.def @offset_counter(%lower: offset, %upper: offset, %step: offset, %initial
 }
 
 // ----
-CHECK: * = cmp.ult.gpr64 %iv, %upper
+CHECK: * = cmp.gpr64 %iv, %upper, "ult"
 CHECK: low.cond_br *
 CHECK: * = lea %iv, %positive_step

@@ -10,6 +10,7 @@ from loom.dialect.scalar import bitwise as scalar_bitwise
 from loom.dialect.scalar import comparison as scalar_comparison
 from loom.dialect.scalar import conversion as scalar_conversion
 from loom.dialect.scalar import math as scalar_math
+from loom.dialect.scf import defs as scf
 from loom.dialect.vector import defs as vector
 from loom.dialect.view import defs as view
 from loom.target.arch.x86.contracts.avx2 import X86_AVX2_CONTRACT_FRAGMENT
@@ -21,6 +22,7 @@ from loom.target.arch.x86.contracts.scalar_read_memory import (
 from loom.target.arch.x86.descriptors import (
     X86_AVX2_DESCRIPTOR_SET,
     X86_AVX512_CORE_DESCRIPTOR_SET,
+    X86_INTEGER_CONDITION_CODES,
 )
 from loom.target.arch.x86.scalar_families import (
     X86_SCALAR_READ_MEMORY_FAMILIES,
@@ -52,6 +54,9 @@ from loom.target.arch.x86.vector_families import (
     X86_VECTOR_STORAGE_FAMILIES,
 )
 from loom.target.contracts import (
+    AttrProject,
+    AttrProjectKind,
+    Buffer,
     DescriptorRule,
     EmitDescriptorOp,
     GuardKind,
@@ -70,6 +75,14 @@ def _value_type_guard(rule: DescriptorRule, field: str):
     return next(
         guard.type_pattern
         for guard in rule.guards
+        if guard.kind == GuardKind.VALUE_TYPE and guard.field == field
+    )
+
+
+def _source_node_value_type_guard(node, field: str):
+    return next(
+        guard.type_pattern
+        for guard in node.guards
         if guard.kind == GuardKind.VALUE_TYPE and guard.field == field
     )
 
@@ -384,61 +397,158 @@ def test_scalar_integer_arithmetic_immediates_cover_native_carriers() -> None:
     )
 
 
-def test_scalar_integer_comparison_immediates_cover_native_carriers() -> None:
-    predicates = {
-        "eq",
-        "ne",
-        "slt",
-        "sle",
-        "sgt",
-        "sge",
-        "ult",
-        "ule",
-        "ugt",
-        "uge",
-    }
+def test_scalar_integer_comparisons_cover_native_carriers() -> None:
     rules = tuple(
         case
         for case in X86_SCALAR_CONTRACT_FRAGMENT.cases
         if isinstance(case, DescriptorRule)
         and case.source_op in (scalar_comparison.scalar_cmpi, index.index_cmp)
-        and ".imm.gpr" in case.descriptor.key
+        and case.descriptor.key.startswith("x86.scalar.cmp.")
+        and ".select." not in case.descriptor.key
+        and case.descriptor.key.rsplit(".", 1)[-1].startswith("gpr")
     )
-    assert {
-        (
-            rule.source_op,
-            _value_type_guard(rule, "lhs"),
-            next(
-                guard.enum_keyword
-                for guard in rule.guards
-                if guard.kind is GuardKind.ENUM_ATTR_EQUALS
-            ),
-            rule.descriptor.key,
+    actual_cells = set()
+    for rule in rules:
+        emit = rule.emit[0]
+        predicate = emit.immediates["predicate"]
+        assert isinstance(predicate, AttrProject)
+        assert predicate.kind is AttrProjectKind.ENUM_REMAP
+        assert dict(predicate.enum_values) == dict(X86_INTEGER_CONDITION_CODES)
+        immediate_fields = tuple(
+            field for field in emit.immediates if field.startswith("imm")
         )
-        for rule in rules
-    } == {
+        immediate = bool(immediate_fields)
+        assert immediate == (".imm." in rule.descriptor.key)
+        if immediate:
+            (immediate_field,) = immediate_fields
+            bit_count = int(rule.descriptor.key.rsplit("gpr", 1)[1])
+            immediate_bit_count = min(bit_count, 32)
+            assert immediate_field == f"imm{immediate_bit_count}"
+            range_guard = next(
+                guard
+                for guard in rule.guards
+                if guard.kind is GuardKind.VALUE_I64_RANGE and guard.field == "rhs"
+            )
+            assert (range_guard.minimum, range_guard.maximum) == (
+                -(2 ** (immediate_bit_count - 1)),
+                2 ** (immediate_bit_count - 1) - 1,
+            )
+        actual_cells.add(
+            (
+                rule.source_op,
+                _value_type_guard(rule, "lhs"),
+                int(rule.descriptor.key.rsplit("gpr", 1)[1]),
+                immediate,
+            )
+        )
+    assert actual_cells == {
         *(
             (
                 scalar_comparison.scalar_cmpi,
-                Scalar(f"i{width}"),
-                predicate,
-                f"x86.scalar.cmp.{predicate}.imm.gpr{width}",
+                Scalar(f"i{bit_count}"),
+                bit_count,
+                immediate,
             )
-            for width in (32, 64)
-            for predicate in predicates
+            for bit_count in (8, 16, 32, 64)
+            for immediate in (False, True)
         ),
         *(
             (
                 index.index_cmp,
-                Scalar(type_name),
-                predicate,
-                f"x86.scalar.cmp.{predicate}.imm.gpr64",
+                Scalar(("index", "offset")),
+                64,
+                immediate,
             )
-            for type_name in ("index", "offset")
-            for predicate in predicates
+            for immediate in (False, True)
         ),
     }
-    assert len(rules) == 4 * len(predicates)
+    assert len(rules) == len(actual_cells)
+
+
+def test_scalar_compare_select_rules_cover_native_carrier_matrix() -> None:
+    rules = tuple(
+        case
+        for case in X86_SCALAR_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule)
+        and case.descriptor is not None
+        and case.descriptor.key.startswith("x86.scalar.cmp.select.")
+    )
+    expected_cells = {
+        (source_op, compare_type, compare_width, result_type, result_width, immediate)
+        for source_op, compare_type, compare_width in (
+            (scalar_comparison.scalar_cmpi, Scalar("i8"), 8),
+            (scalar_comparison.scalar_cmpi, Scalar("i16"), 16),
+            (scalar_comparison.scalar_cmpi, Scalar("i32"), 32),
+            (scalar_comparison.scalar_cmpi, Scalar("i64"), 64),
+            (index.index_cmp, Scalar(("index", "offset")), 64),
+        )
+        for result_type, result_width in (
+            (Scalar(("i1", "i8", "i16", "i32")), 32),
+            (Scalar(("i64", "index", "offset")), 64),
+            (Buffer(), 64),
+        )
+        for immediate in (False, True)
+    }
+    actual_cells = set()
+    for rule in rules:
+        assert not rule.target_query
+        assert len(rule.source_nodes) == 1
+        select = rule.source_nodes[0]
+        assert select.source_op is scf.scf_select
+        assert select.relation is SourceNodeRelation.EXCLUSIVE_USER
+        assert select.parent_value == ValueRef.result("result")
+        assert select.node_value == ValueRef.operand("condition")
+        compare_type = _value_type_guard(rule, "lhs")
+        compare_width = {
+            Scalar("i8"): 8,
+            Scalar("i16"): 16,
+            Scalar("i32"): 32,
+        }.get(compare_type, 64)
+        assert _value_type_guard(rule, "rhs") == compare_type
+        assert _value_type_guard(rule, "result") == Scalar("i1")
+        result_type = _source_node_value_type_guard(select, "result")
+        emit = rule.emit[0]
+        assert isinstance(emit, EmitDescriptorOp)
+        assert emit.results["dst"] == ValueRef.result("result", source_node="select")
+        assert emit.operands["lhs"] == ValueRef.operand("lhs")
+        assert emit.operands["true_value"] == ValueRef.operand(
+            "true_value", source_node="select"
+        )
+        assert emit.operands["false_value"] == ValueRef.operand(
+            "false_value", source_node="select"
+        )
+        predicate = emit.immediates["predicate"]
+        assert predicate.kind is AttrProjectKind.ENUM_REMAP
+        assert predicate.source_attr == "predicate"
+        assert dict(predicate.enum_values) == dict(X86_INTEGER_CONDITION_CODES)
+        immediate_fields = tuple(
+            field for field in emit.immediates if field.startswith("imm")
+        )
+        immediate = bool(immediate_fields)
+        assert ("rhs" not in emit.operands) == immediate
+        assert immediate == (".imm." in rule.descriptor.key)
+        assert (rule.priority > 0) == immediate
+        if immediate:
+            (immediate_field,) = immediate_fields
+            assert immediate_field == f"imm{min(compare_width, 32)}"
+            immediate_project = emit.immediates[immediate_field]
+            assert isinstance(immediate_project, ValueProject)
+            assert not immediate_project.source_node
+        else:
+            assert emit.operands["rhs"] == ValueRef.operand("rhs")
+        result_width = 32 if result_type == Scalar(("i1", "i8", "i16", "i32")) else 64
+        actual_cells.add(
+            (
+                rule.source_op,
+                compare_type,
+                compare_width,
+                result_type,
+                result_width,
+                immediate,
+            )
+        )
+    assert actual_cells == expected_cells
+    assert len(rules) == len(expected_cells)
 
 
 def test_scalar_integer_read_memory_rules_cover_native_carriers() -> None:

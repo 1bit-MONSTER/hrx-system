@@ -812,10 +812,15 @@ class AttrProject:
                 f"{source_op.name}: {subject} source attr "
                 f"'{self.source_attr}' must be an enum attr"
             )
-        if immediate.kind not in (ImmediateKind.UNSIGNED, ImmediateKind.ORDINAL):
+        if immediate.kind not in (
+            ImmediateKind.UNSIGNED,
+            ImmediateKind.ORDINAL,
+            ImmediateKind.ENUM,
+        ):
             raise ValueError(
                 f"{source_op.name}: {subject} descriptor immediate "
-                f"'{bound_immediate_name}' must be an unsigned or ordinal immediate"
+                f"'{bound_immediate_name}' must be an unsigned, ordinal, or enum "
+                "immediate"
             )
         source_keywords = set(attr.enum_def.keywords)
         projected_keywords = {keyword for keyword, _ in self.enum_values}

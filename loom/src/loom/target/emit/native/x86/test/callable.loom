@@ -142,6 +142,61 @@ func.def public @choose_mix(%input: i64, %delta: i64, %limit: i64) -> (i64) {
   func.return %other : i64
 }
 
+// Exclusive comparison users retain flags inside one native instruction
+// packet. Compare and selected payload widths remain independent.
+func.def public @compare_select_mix(%lhs32: i32, %rhs32: i32, %lhs64: i64) -> (i64) {
+  %true64 = scalar.constant 4294967297 : i64
+  %false64 = scalar.constant 8589934594 : i64
+  %condition32 = scalar.cmpi ult, %lhs32, %rhs32 : i32
+  %selected64 = scf.select %condition32, %true64, %false64 : i64
+  %limit64 = scalar.constant -129 : i64
+  %condition64 = scalar.cmpi sge, %lhs64, %limit64 : i64
+  %true32 = scalar.constant 17 : i32
+  %false32 = scalar.constant 23 : i32
+  %selected32 = scf.select %condition64, %true32, %false32 : i32
+  %selected32_wide = scalar.extui %selected32 : i32 to i64
+  %result = scalar.xori %selected64, %selected32_wide : i64
+  func.return %result : i64
+}
+
+func.def public @narrow_compare_mask(%lhs8: i8, %rhs8: i8, %lhs16: i16, %rhs16: i16) -> (i32) {
+  %constant8 = scalar.constant -17 : i8
+  %constant16 = scalar.constant 1234 : i16
+  %signed8 = scalar.cmpi slt, %lhs8, %rhs8 : i8
+  %immediate8 = scalar.cmpi eq, %lhs8, %constant8 : i8
+  %unsigned16 = scalar.cmpi ugt, %lhs16, %rhs16 : i16
+  %immediate16 = scalar.cmpi ule, %lhs16, %constant16 : i16
+  %bit0 = scalar.extui %signed8 : i1 to i32
+  %bit1 = scalar.extui %immediate8 : i1 to i32
+  %bit2 = scalar.extui %unsigned16 : i1 to i32
+  %bit3 = scalar.extui %immediate16 : i1 to i32
+  %shift1 = scalar.constant 1 : i32
+  %shift2 = scalar.constant 2 : i32
+  %shift3 = scalar.constant 3 : i32
+  %placed1 = scalar.shli %bit1, %shift1 : i32
+  %placed2 = scalar.shli %bit2, %shift2 : i32
+  %placed3 = scalar.shli %bit3, %shift3 : i32
+  %low = scalar.ori %bit0, %placed1 : i32
+  %high = scalar.ori %placed2, %placed3 : i32
+  %mask = scalar.ori %low, %high : i32
+  func.return %mask : i32
+}
+
+func.def public @narrow_compare_select_mix(%lhs8: i8, %rhs8: i8, %lhs16: i16) -> (i64) {
+  %true16 = scalar.constant 17 : i16
+  %false16 = scalar.constant 300 : i16
+  %condition8 = scalar.cmpi slt, %lhs8, %rhs8 : i8
+  %selected16 = scf.select %condition8, %true16, %false16 : i16
+  %selected16_wide = scalar.extui %selected16 : i16 to i64
+  %limit16 = scalar.constant -129 : i16
+  %condition16 = scalar.cmpi sge, %lhs16, %limit16 : i16
+  %true64 = scalar.constant 4294967297 : i64
+  %false64 = scalar.constant 8589934594 : i64
+  %selected64 = scf.select %condition16, %true64, %false64 : i64
+  %result = scalar.xori %selected16_wide, %selected64 : i64
+  func.return %result : i64
+}
+
 // Live inputs cross destructive arithmetic; the shared allocator decides
 // transport and register use before native frame preservation is prepared.
 func.def public @preserve(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64) -> (i64) {

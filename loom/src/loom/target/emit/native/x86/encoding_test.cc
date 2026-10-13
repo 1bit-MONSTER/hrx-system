@@ -179,7 +179,7 @@ TEST(EncodingTest, EvexNdsMemoryBroadcastAndMaskModifiers) {
   operands.inputs[1] = 8;
   operands.inputs[2] = 9;
   operands.immediate = 64;
-  operands.scale = 2;
+  operands.secondary_immediate = 2;
   operands.has_index = true;
   ExpectVectorEncoding(kBinaryLoad, kBinaryEncoding, operands,
                        {0x62, 0x82, 0x6f, 0x00, 0x72, 0x4c, 0x88, 0x04});
@@ -193,7 +193,7 @@ TEST(EncodingTest, EvexNdsMemoryBroadcastAndMaskModifiers) {
   operands.inputs[2] = 9;
   operands.inputs[3] = 19;
   operands.immediate = 64;
-  operands.scale = 2;
+  operands.secondary_immediate = 2;
   operands.has_index = true;
   ExpectVectorEncoding(kMaskedUnaryLoad, kUnaryEncoding, operands,
                        {0x62, 0x82, 0x7e, 0x8a, 0x72, 0x4c, 0x88, 0x04});
@@ -249,7 +249,7 @@ TEST(EncodingTest, AvxNeConvertFamilyHasExactReferenceBytes) {
   operands.inputs[0] = 8;
   operands.inputs[1] = 9;
   operands.immediate = 0x1234;
-  operands.scale = 2;
+  operands.secondary_immediate = 2;
   operands.has_index = true;
 
   ExpectVectorEncoding(0xc1c0, 0x0ab1, operands,
@@ -326,7 +326,7 @@ TEST(EncodingTest, ScalarFloatMemoryWidthsAndAddressForms) {
       .immediate = -4,
       .result = 10,
       .inputs = {3, 1},
-      .scale = 3,
+      .secondary_immediate = 3,
       .has_index = true,
   };
   // LLVM MC reference: vmovss/vmovsd -4(%rbx,%rcx,8),%xmm10.
@@ -597,7 +597,7 @@ TEST(EncodingTest, DestructiveBinaryMemorySource) {
   operands.inputs[1] = 12;
   operands.inputs[2] = 10;
   operands.immediate = -128;
-  operands.scale = 2;
+  operands.secondary_immediate = 2;
   operands.has_index = true;
   // ADD r9,[r12+r10*4-128] exercises all three REX roles and a disp8.
   ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_R_MEMORY,
@@ -606,7 +606,7 @@ TEST(EncodingTest, DestructiveBinaryMemorySource) {
 
   operands.has_index = false;
   operands.immediate = 128;
-  operands.scale = 0;
+  operands.secondary_immediate = 0;
   // IMUL r9d,[r12+128] covers a two-byte opcode and disp32.
   ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_R_MEMORY,
                  LOOM_X86_ENCODING_OPCODE_0F | 0xaf, operands,
@@ -634,7 +634,7 @@ TEST(EncodingTest, IndexedByteStoreAndNoBaseAddress) {
   operands.inputs[0] = 7;
   operands.inputs[1] = 13;
   operands.inputs[2] = 12;
-  operands.scale = 2;
+  operands.secondary_immediate = 2;
   // MOV byte ptr [r13+r12*4],dil exercises all three REX roles.
   ExpectEncoding(LOOM_X86_ENCODING_FORM_STORE,
                  0x88 | LOOM_X86_ENCODING_BYTE | LOOM_X86_ENCODING_INDEXED,
@@ -663,6 +663,146 @@ TEST(EncodingTest, PredicateSequenceAndImplicitWrites) {
   ExpectEncoding(LOOM_X86_ENCODING_FORM_MULTIPLY_HIGH,
                  0xf7 | (4u << 9) | LOOM_X86_ENCODING_REX_W, operands,
                  {0x49, 0xf7, 0xe1}, (1u << 0) | (1u << 2));
+}
+
+TEST(EncodingTest, CompareSelectPredicateFamily) {
+  constexpr uint8_t kConditionCodes[] = {
+      0x4,  // eq
+      0x5,  // ne
+      0xc,  // slt
+      0xe,  // sle
+      0xf,  // sgt
+      0xd,  // sge
+      0x2,  // ult
+      0x6,  // ule
+      0x7,  // ugt
+      0x3,  // uge
+  };
+  loom_x86_encoding_operands_t operands = {
+      .result = 10,
+  };
+  operands.inputs[0] = 8;
+  operands.inputs[1] = 9;
+  operands.inputs[2] = 11;
+  operands.inputs[3] = 10;
+  for (uint8_t condition_code : kConditionCodes) {
+    operands.immediate = condition_code;
+    loom_x86_encoded_instruction_t instruction;
+    loom_x86_encode_instruction(LOOM_X86_ENCODING_FORM_COMPARE_SELECT, 0x39,
+                                &operands, &instruction);
+    ASSERT_EQ(instruction.length, 7);
+    EXPECT_EQ(instruction.instruction_count, 2);
+    EXPECT_EQ(instruction.bytes[0], 0x45);
+    EXPECT_EQ(instruction.bytes[1], 0x39);
+    EXPECT_EQ(instruction.bytes[2], 0xc8);
+    EXPECT_EQ(instruction.bytes[3], 0x45);
+    EXPECT_EQ(instruction.bytes[4], 0x0f);
+    EXPECT_EQ(instruction.bytes[5], 0x40 | condition_code);
+    EXPECT_EQ(instruction.bytes[6], 0xd3);
+    EXPECT_EQ(loom_x86_encoding_gpr_writes(
+                  LOOM_X86_ENCODING_FORM_COMPARE_SELECT, &operands),
+              1u << 10);
+  }
+}
+
+TEST(EncodingTest, CompareSelectWidthsAndImmediate) {
+  loom_x86_encoding_operands_t operands = {
+      .immediate = 0xc,  // slt
+      .result = 10,
+  };
+  operands.inputs[0] = 8;
+  operands.inputs[1] = 9;
+  operands.inputs[2] = 11;
+  operands.inputs[3] = 10;
+  // CMP r8,r9; CMOVL r10,r11 uses independent compare and result widths.
+  ExpectEncoding(
+      LOOM_X86_ENCODING_FORM_COMPARE_SELECT,
+      0x39 | LOOM_X86_ENCODING_REX_W | LOOM_X86_ENCODING_RESULT_REX_W, operands,
+      {0x4d, 0x39, 0xc8, 0x4d, 0x0f, 0x4c, 0xd3}, 1u << 10, 2);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_SELECT,
+                 0x39 | LOOM_X86_ENCODING_RESULT_REX_W, operands,
+                 {0x45, 0x39, 0xc8, 0x4d, 0x0f, 0x4c, 0xd3}, 1u << 10, 2);
+
+  operands.immediate = 17;
+  operands.inputs[1] = 11;
+  operands.inputs[2] = 10;
+  operands.secondary_immediate = 0x6;  // ule
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_SELECT,
+                 0x81 | (7u << 9) | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x49, 0x83, 0xf8, 0x11, 0x45, 0x0f, 0x46, 0xd3}, 1u << 10, 2);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_SELECT,
+                 0x81 | (7u << 9) | LOOM_X86_ENCODING_RESULT_REX_W, operands,
+                 {0x41, 0x83, 0xf8, 0x11, 0x4d, 0x0f, 0x46, 0xd3}, 1u << 10, 2);
+}
+
+TEST(EncodingTest, NarrowComparePredicates) {
+  loom_x86_encoding_operands_t operands = {
+      .immediate = 0x2,  // ult
+      .result = 7,
+  };
+  operands.inputs[0] = 4;
+  operands.inputs[1] = 5;
+  // CMP spl,bpl; SETB dil; MOVZX edi,dil. Both byte comparison operands need
+  // the REX namespace even though neither register is extended.
+  ExpectEncoding(
+      LOOM_X86_ENCODING_FORM_COMPARE_PREDICATE, 0x38 | LOOM_X86_ENCODING_BYTE,
+      operands,
+      {0x40, 0x38, 0xec, 0x40, 0x0f, 0x92, 0xc7, 0x40, 0x0f, 0xb6, 0xff},
+      1u << 7, 3);
+
+  operands.inputs[0] = 8;
+  operands.inputs[1] = 9;
+  operands.immediate = 0xc;  // slt
+  ExpectEncoding(
+      LOOM_X86_ENCODING_FORM_COMPARE_PREDICATE,
+      0x39 | LOOM_X86_ENCODING_OPERAND_16, operands,
+      {0x66, 0x45, 0x39, 0xc8, 0x40, 0x0f, 0x9c, 0xc7, 0x40, 0x0f, 0xb6, 0xff},
+      1u << 7, 3);
+
+  operands.inputs[0] = 4;
+  operands.immediate = -128;
+  operands.secondary_immediate = 0xc;  // slt
+  ExpectEncoding(
+      LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_PREDICATE,
+      0x80 | (7u << 9) | LOOM_X86_ENCODING_BYTE, operands,
+      {0x40, 0x80, 0xfc, 0x80, 0x40, 0x0f, 0x9c, 0xc7, 0x40, 0x0f, 0xb6, 0xff},
+      1u << 7, 3);
+
+  operands.inputs[0] = 8;
+  operands.immediate = -129;
+  operands.secondary_immediate = 0x6;  // ule
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_PREDICATE,
+                 0x81 | (7u << 9) | LOOM_X86_ENCODING_OPERAND_16, operands,
+                 {0x66, 0x41, 0x81, 0xf8, 0x7f, 0xff, 0x40, 0x0f, 0x96, 0xc7,
+                  0x40, 0x0f, 0xb6, 0xff},
+                 1u << 7, 3);
+}
+
+TEST(EncodingTest, NarrowCompareSelectWidths) {
+  loom_x86_encoding_operands_t operands = {
+      .immediate = 0x2,  // ult
+      .result = 10,
+  };
+  operands.inputs[0] = 4;
+  operands.inputs[1] = 5;
+  operands.inputs[2] = 11;
+  operands.inputs[3] = 10;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_SELECT,
+                 0x38 | LOOM_X86_ENCODING_BYTE | LOOM_X86_ENCODING_RESULT_REX_W,
+                 operands, {0x40, 0x38, 0xec, 0x4d, 0x0f, 0x42, 0xd3}, 1u << 10,
+                 2);
+
+  operands.inputs[0] = 8;
+  operands.inputs[1] = 11;
+  operands.inputs[2] = 10;
+  operands.immediate = -129;
+  operands.secondary_immediate = 0xc;  // slt
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_SELECT,
+                 0x81 | (7u << 9) | LOOM_X86_ENCODING_OPERAND_16 |
+                     LOOM_X86_ENCODING_RESULT_REX_W,
+                 operands,
+                 {0x66, 0x41, 0x81, 0xf8, 0x7f, 0xff, 0x4d, 0x0f, 0x4c, 0xd3},
+                 1u << 10, 2);
 }
 
 TEST(EncodingTest, ImmediateAndStackEncoding) {

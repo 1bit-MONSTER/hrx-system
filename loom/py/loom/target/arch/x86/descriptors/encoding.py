@@ -43,6 +43,10 @@ class Form(IntEnum):
     ZERO_REGISTER = 30
     SIGN_EXTEND_DIVIDEND = 31
     DIVIDE = 32
+    COMPARE_SELECT = 33
+    COMPARE_IMMEDIATE_SELECT = 34
+    COMPARE_PREDICATE = 35
+    COMPARE_IMMEDIATE_PREDICATE = 36
 
 
 class Flag(IntFlag):
@@ -50,6 +54,7 @@ class Flag(IntFlag):
     OPERAND_16 = 1 << 13
     BYTE = 1 << 14
     INDEXED = 1 << 15
+    RESULT_REX_W = 1 << 15
 
 
 def encoding(opcode: int, *, extension: int = 0, flags: int = 0) -> int:
@@ -107,16 +112,40 @@ def validate_descriptor_encoding(descriptor: Descriptor) -> None:
         o.role in (OperandRole.RESULT, OperandRole.OPERAND_RESULT)
         for o in descriptor.operands
     )
+    input_limit = (
+        5
+        if is_vector or form in (Form.COMPARE_SELECT, Form.COMPARE_IMMEDIATE_SELECT)
+        else 3
+    )
     if (
-        inputs > (5 if is_vector else 3)
+        inputs > input_limit
         or results > (2 if form == Form.DIVIDE else 1)
         or len(descriptor.immediates) > 2
     ):
         raise ValueError(f"{descriptor.key}: native operand carrier overflow")
-    if len(descriptor.immediates) == 2 and tuple(
-        immediate.field_name for immediate in descriptor.immediates
-    ) != ("disp32", "scale"):
-        raise ValueError(f"{descriptor.key}: native addressing requires disp32, scale")
+    if len(descriptor.immediates) == 2:
+        immediate_names = tuple(
+            immediate.field_name for immediate in descriptor.immediates
+        )
+        compare_immediate_form = form in (
+            Form.COMPARE_IMMEDIATE_SELECT,
+            Form.COMPARE_IMMEDIATE_PREDICATE,
+        )
+        valid_names = (
+            immediate_names[0] in ("imm8", "imm16", "imm32")
+            and immediate_names[1] == "predicate"
+            if compare_immediate_form
+            else immediate_names == ("disp32", "scale")
+        )
+        if not valid_names:
+            expected_names = (
+                "imm8|imm16|imm32, predicate"
+                if compare_immediate_form
+                else "disp32, scale"
+            )
+            raise ValueError(
+                f"{descriptor.key}: {form.name.lower()} requires {expected_names}"
+            )
     if is_vector:
         try:
             base_index = vector_encoding_address_base_input(

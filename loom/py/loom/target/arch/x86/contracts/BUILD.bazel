@@ -124,6 +124,7 @@ iree_py_test(
         ":contracts",
         "//loom/py/loom/dialect/index",
         "//loom/py/loom/dialect/scalar",
+        "//loom/py/loom/dialect/scf",
         "//loom/py/loom/dialect/vector",
         "//loom/py/loom/dialect/view",
         "//loom/py/loom/target/arch/x86:descriptors",

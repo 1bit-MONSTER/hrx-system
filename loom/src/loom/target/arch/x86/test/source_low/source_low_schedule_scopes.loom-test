@@ -113,7 +113,7 @@ low.func.def public target<x86.scalar.core>(@target) abi(object_function) @parti
   %initial = mov.imm32 0
   low.br ^_bb1(%begin: reg<x86.gpr64>, %initial: reg<x86.gpr32>)
 ^_bb1(%i: reg<x86.gpr64>, %sum: reg<x86.gpr32>):
-  %58 = cmp.slt.imm.gpr64 %i, 5
+  %58 = cmp.imm.gpr64 %i, 5, "slt"
   low.cond_br %58, ^_bb2, ^_bb6 : reg<x86.gpr32>
 ^_bb2:
   %59 = copy %lhs : reg<x86.gpr32> -> reg<x86.gpr32>
@@ -139,7 +139,7 @@ low.func.def public target<x86.scalar.core>(@target) abi(object_function) @parti
   %67 = copy %sum : reg<x86.gpr32> -> reg<x86.gpr32>
   %next = add.gpr32 %67, %pair
   %i_1 = lea.disp %i {disp32 = 1}
-  %70 = cmp.slt.imm.gpr64 %i_1, 5
+  %70 = cmp.imm.gpr64 %i_1, 5, "slt"
   low.cond_br %70, ^_bb3, ^_bb4 : reg<x86.gpr32>
 ^_bb3:
   %71 = copy %lhs : reg<x86.gpr32> -> reg<x86.gpr32>

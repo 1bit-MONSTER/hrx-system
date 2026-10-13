@@ -105,7 +105,7 @@ func.def @scalar_i64_compare_slt_return(%lhs: i64, %rhs: i64) -> (i1) {
 
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (i64, i64) -> (i1)}) @scalar_i64_compare_slt_return(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>) -> (reg<x86.gpr32>) asm {
-  %cmp = cmp.slt.gpr64 %lhs, %rhs
+  %cmp = cmp.gpr64 %lhs, %rhs, "slt"
   return %cmp
 }
 
@@ -123,9 +123,8 @@ func.def @scalar_i64_compare_slt_if(%lhs: i64, %rhs: i64, %then_value: i32, %els
 
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) @scalar_i64_compare_slt_if(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>, %then_value: reg<x86.gpr32>, %else_value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %cmp = cmp.slt.gpr64 %lhs, %rhs
-  %14 = copy %else_value : reg<x86.gpr32> -> reg<x86.gpr32>
-  %result = select.gpr32 %cmp, %then_value, %14
+  %13 = copy %else_value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = cmp.select.gpr64.gpr32 %lhs, %rhs, %then_value, %13, "slt"
   return %result
 }
 
@@ -141,7 +140,7 @@ func.def @scalar_i64_compare_constant_select(%lhs: i64, %true_value: f32, %false
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (i64, f32, f32) -> (f32)}) @scalar_i64_compare_constant_select(%lhs: reg<x86.gpr64>, %true_value: reg<x86.xmm>, %false_value: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
   %limit = mov.imm64 4294967296
-  %cmp = cmp.ult.gpr64 %lhs, %limit
+  %cmp = cmp.gpr64 %lhs, %limit, "ult"
   %13 = vmovd.xmm.gpr32 %cmp
   %14 = vpsllq.xmm %13, 63
   %result = vblendvpd.xmm %false_value, %true_value, %14
@@ -180,16 +179,16 @@ func.def @scalar_i64_compare_all_predicates_vgpr_select(%lhs_values: vector<2xi6
 low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (vector<2xi64>, vector<2xi64>, f32, f32) -> (f32, f32, f32, f32, f32, f32, f32, f32, f32, f32)}) @scalar_i64_compare_all_predicates_vgpr_select(%lhs_values: reg<x86.xmm>, %rhs_values: reg<x86.xmm>, %true_value: reg<x86.xmm>, %false_value: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
   %lhs = vpextrq.xmm %lhs_values, 0
   %rhs = vpextrq.xmm %rhs_values, 0
-  %eq = cmp.eq.gpr64 %lhs, %rhs
-  %ne = cmp.ne.gpr64 %lhs, %rhs
-  %slt = cmp.slt.gpr64 %lhs, %rhs
-  %sle = cmp.sle.gpr64 %lhs, %rhs
-  %sgt = cmp.sgt.gpr64 %lhs, %rhs
-  %sge = cmp.sge.gpr64 %lhs, %rhs
-  %ult = cmp.ult.gpr64 %lhs, %rhs
-  %ule = cmp.ule.gpr64 %lhs, %rhs
-  %ugt = cmp.ugt.gpr64 %lhs, %rhs
-  %uge = cmp.uge.gpr64 %lhs, %rhs
+  %eq = cmp.gpr64 %lhs, %rhs, "eq"
+  %ne = cmp.gpr64 %lhs, %rhs, "ne"
+  %slt = cmp.gpr64 %lhs, %rhs, "slt"
+  %sle = cmp.gpr64 %lhs, %rhs, "sle"
+  %sgt = cmp.gpr64 %lhs, %rhs, "sgt"
+  %sge = cmp.gpr64 %lhs, %rhs, "sge"
+  %ult = cmp.gpr64 %lhs, %rhs, "ult"
+  %ule = cmp.gpr64 %lhs, %rhs, "ule"
+  %ugt = cmp.gpr64 %lhs, %rhs, "ugt"
+  %uge = cmp.gpr64 %lhs, %rhs, "uge"
   %62 = vmovd.xmm.gpr32 %eq
   %63 = vpsllq.xmm %62, 63
   %eq_result = vblendvpd.xmm %false_value, %true_value, %63

@@ -49,6 +49,8 @@ from .common import (
     _ADDRESS_SCALE_IMMEDIATE,
     _DISP32_IMMEDIATE,
     _GPR_DESTRUCTIVE_LHS_CONSTRAINTS,
+    _IMM8_IMMEDIATE,
+    _IMM16_IMMEDIATE,
     _IMM32_IMMEDIATE,
     _IMM64_IMMEDIATE,
     _REG_GPR32,
@@ -94,6 +96,10 @@ _NON_TRAPPING_SCALAR_FORMS = frozenset(
         Form.SUBTRACT_IF_UGE,
         Form.COMPARE,
         Form.COMPARE_IMMEDIATE,
+        Form.COMPARE_PREDICATE,
+        Form.COMPARE_IMMEDIATE_PREDICATE,
+        Form.COMPARE_SELECT,
+        Form.COMPARE_IMMEDIATE_SELECT,
         Form.CONSTANT,
         Form.ADDRESS_ADD,
         Form.ADDRESS_DISPLACEMENT,
@@ -669,6 +675,158 @@ def _gpr_select_descriptor(bit_count: int) -> Descriptor:
     )
 
 
+_CMP_PREDICATE_SETCC = (
+    ("eq", "sete", 0x94),
+    ("ne", "setne", 0x95),
+    ("slt", "setl", 0x9C),
+    ("sle", "setle", 0x9E),
+    ("sgt", "setg", 0x9F),
+    ("sge", "setge", 0x9D),
+    ("ult", "setb", 0x92),
+    ("ule", "setbe", 0x96),
+    ("ugt", "seta", 0x97),
+    ("uge", "setae", 0x93),
+)
+
+X86_INTEGER_CONDITION_CODES = tuple(
+    (predicate, opcode & 0x0F) for predicate, _, opcode in _CMP_PREDICATE_SETCC
+)
+
+_INTEGER_PREDICATE_ENUM = "x86.integer.predicate"
+_INTEGER_PREDICATE_IMMEDIATE = Immediate(
+    "predicate",
+    ImmediateKind.ENUM,
+    enum_domain=_INTEGER_PREDICATE_ENUM,
+    bit_width=8,
+    unsigned_max=0x0F,
+)
+
+
+def _gpr_width_flags(bit_count: int) -> Flag:
+    if bit_count == 8:
+        return Flag.BYTE
+    if bit_count == 16:
+        return Flag.OPERAND_16
+    if bit_count == 64:
+        return Flag.REX_W
+    return Flag(0)
+
+
+def _gpr_width_operand(bit_count: int, field_name: str) -> Operand:
+    return _gpr64_operand(field_name) if bit_count == 64 else _gpr32_operand(field_name)
+
+
+def _gpr_compare_immediate(bit_count: int) -> Immediate:
+    if bit_count == 8:
+        return _IMM8_IMMEDIATE
+    if bit_count == 16:
+        return _IMM16_IMMEDIATE
+    return _IMM32_IMMEDIATE
+
+
+def _gpr_compare_opcode(bit_count: int, *, immediate: bool) -> int:
+    if immediate:
+        return 0x80 if bit_count == 8 else 0x81
+    return 0x38 if bit_count == 8 else 0x39
+
+
+def _gpr_predicate_compare_descriptor(bit_count: int, *, immediate: bool) -> Descriptor:
+    value_immediate = _gpr_compare_immediate(bit_count)
+    form_name = "imm." if immediate else ""
+    return Descriptor(
+        key=f"x86.scalar.cmp.{form_name}gpr{bit_count}",
+        encoding_format_id=(
+            Form.COMPARE_IMMEDIATE_PREDICATE if immediate else Form.COMPARE_PREDICATE
+        ),
+        encoding_id=encoding(
+            _gpr_compare_opcode(bit_count, immediate=immediate),
+            extension=7 if immediate else 0,
+            flags=_gpr_width_flags(bit_count),
+        ),
+        mnemonic="cmp",
+        semantic_tag=f"integer.compare.i{bit_count}",
+        operands=(
+            _gpr32_result(),
+            _gpr_width_operand(bit_count, "lhs"),
+            *((_gpr_width_operand(bit_count, "rhs"),) if not immediate else ()),
+        ),
+        immediates=(
+            (value_immediate, _INTEGER_PREDICATE_IMMEDIATE)
+            if immediate
+            else (_INTEGER_PREDICATE_IMMEDIATE,)
+        ),
+        asm_forms=_asm(
+            mnemonic=f"cmp.{form_name}gpr{bit_count}",
+            results=("dst",),
+            operands=("lhs",) if immediate else ("lhs", "rhs"),
+            immediates=(value_immediate.field_name, "predicate")
+            if immediate
+            else ("predicate",),
+        ),
+        schedule_class=_SCHEDULE_SCALAR,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
+def _gpr_compare_select_descriptor(
+    compare_bit_count: int, result_bit_count: int, *, immediate: bool
+) -> Descriptor:
+    result = _gpr64_result() if result_bit_count == 64 else _gpr32_result()
+    result_operand = _gpr64_operand if result_bit_count == 64 else _gpr32_operand
+    false_operand_index = 3 if immediate else 4
+    form = Form.COMPARE_IMMEDIATE_SELECT if immediate else Form.COMPARE_SELECT
+    form_name = "imm." if immediate else ""
+    value_immediate = _gpr_compare_immediate(compare_bit_count)
+    immediate_fields = (
+        (value_immediate, _INTEGER_PREDICATE_IMMEDIATE)
+        if immediate
+        else (_INTEGER_PREDICATE_IMMEDIATE,)
+    )
+    return Descriptor(
+        key=(
+            f"x86.scalar.cmp.select.{form_name}gpr{compare_bit_count}."
+            f"gpr{result_bit_count}"
+        ),
+        encoding_format_id=form,
+        encoding_id=encoding(
+            _gpr_compare_opcode(compare_bit_count, immediate=immediate),
+            extension=7 if immediate else 0,
+            flags=_gpr_width_flags(compare_bit_count)
+            | (Flag.RESULT_REX_W if result_bit_count == 64 else 0),
+        ),
+        mnemonic="cmp.select",
+        semantic_tag=(
+            f"integer.compare.select.i{compare_bit_count}.i{result_bit_count}"
+        ),
+        operands=(
+            result,
+            _gpr_width_operand(compare_bit_count, "lhs"),
+            *((_gpr_width_operand(compare_bit_count, "rhs"),) if not immediate else ()),
+            result_operand("true_value"),
+            result_operand("false_value"),
+        ),
+        immediates=immediate_fields,
+        constraints=(
+            Constraint(ConstraintKind.TIED, 0, false_operand_index),
+            Constraint(ConstraintKind.DESTRUCTIVE, 0, false_operand_index),
+        ),
+        asm_forms=_asm(
+            mnemonic=(
+                f"cmp.select.{form_name}gpr{compare_bit_count}.gpr{result_bit_count}"
+            ),
+            results=("dst",),
+            operands=("lhs", "true_value", "false_value")
+            if immediate
+            else ("lhs", "rhs", "true_value", "false_value"),
+            immediates=(value_immediate.field_name, "predicate")
+            if immediate
+            else ("predicate",),
+        ),
+        schedule_class=_SCHEDULE_SCALAR,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
 def _gpr32_compare_descriptor(
     *,
     predicate: str,
@@ -684,24 +842,6 @@ def _gpr32_compare_descriptor(
         lhs=_gpr32_operand("lhs"),
         rhs=_gpr32_operand("rhs"),
         asm_suffix="gpr32",
-    )
-
-
-def _gpr64_compare_descriptor(
-    *,
-    predicate: str,
-    setcc: str,
-    opcode: int,
-    semantic_tag: str,
-) -> Descriptor:
-    return _gpr_compare_descriptor(
-        predicate=predicate,
-        setcc=setcc,
-        encoding_id=encoding(opcode, flags=Flag.REX_W),
-        semantic_tag=semantic_tag,
-        lhs=_gpr64_operand("lhs"),
-        rhs=_gpr64_operand("rhs"),
-        asm_suffix="gpr64",
     )
 
 
@@ -737,20 +877,6 @@ def _gpr_compare_descriptor(
         schedule_class=_SCHEDULE_SCALAR,
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     )
-
-
-_CMP_PREDICATE_SETCC = (
-    ("eq", "sete", 0x94),
-    ("ne", "setne", 0x95),
-    ("slt", "setl", 0x9C),
-    ("sle", "setle", 0x9E),
-    ("sgt", "setg", 0x9F),
-    ("sge", "setge", 0x9D),
-    ("ult", "setb", 0x92),
-    ("ule", "setbe", 0x96),
-    ("ugt", "seta", 0x97),
-    ("uge", "setae", 0x93),
-)
 
 
 _X86_SCALAR_PREFIX_DESCRIPTORS = (
@@ -1027,6 +1153,19 @@ _X86_SCALAR_SUFFIX_DESCRIPTORS = (
     _gpr64_to_gpr32_truncate_descriptor(),
     _gpr_select_descriptor(32),
     _gpr_select_descriptor(64),
+    *(
+        _gpr_predicate_compare_descriptor(bit_count, immediate=immediate)
+        for bit_count in (8, 16, 32, 64)
+        for immediate in (False, True)
+    ),
+    *(
+        _gpr_compare_select_descriptor(
+            compare_bit_count, result_bit_count, immediate=immediate
+        )
+        for compare_bit_count in (8, 16, 32, 64)
+        for result_bit_count in (32, 64)
+        for immediate in (False, True)
+    ),
     # Restore the original lhs when the subtraction borrows. The original is
     # still read after dst is written, so allocation keeps the two disjoint.
     Descriptor(
@@ -1053,6 +1192,9 @@ _X86_SCALAR_SUFFIX_DESCRIPTORS = (
         schedule_class=_SCHEDULE_SCALAR,
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     ),
+    # Closed descriptor recipes have no source predicate attribute to project.
+    # Keep only the fixed identities those recipes bind; ordinary source
+    # comparisons use the width-parametric predicate descriptors above.
     *(
         _gpr_compare_descriptor(
             predicate=predicate,
@@ -1065,6 +1207,15 @@ _X86_SCALAR_SUFFIX_DESCRIPTORS = (
         )
         for width, operand in ((32, _gpr32_operand), (64, _gpr64_operand))
         for predicate, setcc, opcode in _CMP_PREDICATE_SETCC
+        if (width, predicate)
+        in {
+            (32, "eq"),
+            (32, "slt"),
+            (32, "sge"),
+            (32, "sgt"),
+            (32, "uge"),
+            (64, "eq"),
+        }
     ),
     *(
         _gpr32_compare_descriptor(
@@ -1074,15 +1225,7 @@ _X86_SCALAR_SUFFIX_DESCRIPTORS = (
             semantic_tag=f"integer.cmp.{predicate}.i32",
         )
         for predicate, setcc, opcode in _CMP_PREDICATE_SETCC
-    ),
-    *(
-        _gpr64_compare_descriptor(
-            predicate=predicate,
-            setcc=setcc,
-            opcode=opcode,
-            semantic_tag=f"integer.cmp.{predicate}.i64",
-        )
-        for predicate, setcc, opcode in _CMP_PREDICATE_SETCC
+        if predicate in {"slt", "sge", "sgt"}
     ),
     Descriptor(
         key="x86.scalar.movimm.gpr32",
@@ -1525,6 +1668,13 @@ X86_SCALAR_DESCRIPTOR_SET = DescriptorSet(
                 EnumValue("2", 2),
                 EnumValue("4", 4),
                 EnumValue("8", 8),
+            ),
+        ),
+        EnumDomain(
+            _INTEGER_PREDICATE_ENUM,
+            tuple(
+                EnumValue(predicate, condition_code)
+                for predicate, condition_code in X86_INTEGER_CONDITION_CODES
             ),
         ),
     ),

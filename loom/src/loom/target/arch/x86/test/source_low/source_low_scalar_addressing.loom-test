@@ -259,8 +259,8 @@ func.def target(@target) @guarded_loaded_i64_index_address(%control: buffer, %ou
 // ----
 low.func.def target<x86.scalar.core>(@target) abi(object_function) @guarded_loaded_i64_index_address(%control: reg<x86.gpr64>, %output: reg<x86.gpr64>) asm {
   %row = mov.load.gpr64 %control {disp32 = 0}
-  %nonnegative = cmp.sge.imm.gpr64 %row, 0
-  %below = cmp.slt.imm.gpr64 %row, 64
+  %nonnegative = cmp.imm.gpr64 %row, 0, "sge"
+  %below = cmp.imm.gpr64 %row, 64, "slt"
   %stored_value = mov.imm32 0
   %20 = copy %nonnegative : reg<x86.gpr32> -> reg<x86.gpr32>
   %guard = and.gpr32 %20, %below
@@ -298,8 +298,8 @@ low.func.def target<x86.scalar.core>(@target) abi(object_function) @guarded_load
   %row_i32 = mov.load.gpr32 %control {disp32 = 0}
   %row = movsxd.gpr64.gpr32 %row_i32
   %c0 = mov.imm32 0
-  %nonnegative = cmp.sge.imm.gpr32 %row_i32, 0
-  %below = cmp.slt.imm.gpr32 %row_i32, 64
+  %nonnegative = cmp.imm.gpr32 %row_i32, 0, "sge"
+  %below = cmp.imm.gpr32 %row_i32, 64, "slt"
   %20 = copy %nonnegative : reg<x86.gpr32> -> reg<x86.gpr32>
   %guard = and.gpr32 %20, %below
   low.cond_br %guard, ^_bb1, ^_bb2 : reg<x86.gpr32>
@@ -531,11 +531,11 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
 ^right:
   low.br ^header(%start: reg<x86.gpr64>, %bound: reg<x86.gpr64>)
 ^header(%iteration: reg<x86.gpr64>, %first: reg<x86.gpr64>):
-  %again = cmp.slt.imm.gpr64 %iteration, 2
+  %again = cmp.imm.gpr64 %iteration, 2, "slt"
   low.cond_br %again, ^guard, ^exit : reg<x86.gpr32>
 ^guard:
   %end = lea.disp %first {disp32 = 3}
-  %fits = cmp.slt.gpr64 %end, %bound
+  %fits = cmp.gpr64 %end, %bound, "slt"
   low.cond_br %fits, ^access, ^exit : reg<x86.gpr32>
 ^access:
   %loaded = vmovdqu32.load.indexed.xmm %input, %first {disp32 = 0, scale = 4}

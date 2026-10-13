@@ -84,16 +84,16 @@ func.def target(@target) @scalar_i64_compare_predicates(%lhs: i64, %rhs: i64) ->
 
 // ----
 low.func.def target<x86.scalar.core>(@target) abi(object_function) abi_layout({signature = (i64, i64) -> (i1, i1, i1, i1, i1, i1, i1, i1, i1, i1)}) @scalar_i64_compare_predicates(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>) -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
-  %eq = cmp.eq.gpr64 %lhs, %rhs
-  %ne = cmp.ne.gpr64 %lhs, %rhs
-  %slt = cmp.slt.gpr64 %lhs, %rhs
-  %sle = cmp.sle.gpr64 %lhs, %rhs
-  %sgt = cmp.sgt.gpr64 %lhs, %rhs
-  %sge = cmp.sge.gpr64 %lhs, %rhs
-  %ult = cmp.ult.gpr64 %lhs, %rhs
-  %ule = cmp.ule.gpr64 %lhs, %rhs
-  %ugt = cmp.ugt.gpr64 %lhs, %rhs
-  %uge = cmp.uge.gpr64 %lhs, %rhs
+  %eq = cmp.gpr64 %lhs, %rhs, "eq"
+  %ne = cmp.gpr64 %lhs, %rhs, "ne"
+  %slt = cmp.gpr64 %lhs, %rhs, "slt"
+  %sle = cmp.gpr64 %lhs, %rhs, "sle"
+  %sgt = cmp.gpr64 %lhs, %rhs, "sgt"
+  %sge = cmp.gpr64 %lhs, %rhs, "sge"
+  %ult = cmp.gpr64 %lhs, %rhs, "ult"
+  %ule = cmp.gpr64 %lhs, %rhs, "ule"
+  %ugt = cmp.gpr64 %lhs, %rhs, "ugt"
+  %uge = cmp.gpr64 %lhs, %rhs, "uge"
   return %eq, %ne, %slt, %sle, %sgt, %sge, %ult, %ule, %ugt, %uge
 }
 
@@ -114,8 +114,8 @@ func.def target(@target) @scalar_i64_compare_control(%lhs: i64, %rhs: i64, %true
 
 // ----
 low.func.def target<x86.scalar.core>(@target) abi(object_function) @scalar_i64_compare_control(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>, %true_value: reg<x86.gpr64>, %false_value: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
-  %signed = cmp.slt.gpr64 %lhs, %rhs
-  %unsigned = cmp.uge.gpr64 %lhs, %rhs
+  %signed = cmp.gpr64 %lhs, %rhs, "slt"
+  %unsigned = cmp.gpr64 %lhs, %rhs, "uge"
   %15 = copy %signed : reg<x86.gpr32> -> reg<x86.gpr32>
   %condition = xor.gpr32 %15, %unsigned
   low.cond_br %condition, ^then, ^else : reg<x86.gpr32>

@@ -131,9 +131,8 @@ func.def @offset_scale_join(%element_input: index, %choice: i32) -> (offset) {
 low.func.def target<x86.avx2.core> abi(object_function) @offset_scale_join(%element: reg<x86.gpr64>, %choice: reg<x86.gpr32>) -> (reg<x86.gpr64>) asm {
   %stride = mov.imm64 4
   %bytes = lea.scale %element {disp32 = 0, scale = 4}
-  %condition = cmp.ne.imm.gpr32 %choice, 0
-  %16 = copy %stride : reg<x86.gpr64> -> reg<x86.gpr64>
-  %result = select.gpr64 %condition, %bytes, %16
+  %15 = copy %stride : reg<x86.gpr64> -> reg<x86.gpr64>
+  %result = cmp.select.imm.gpr32.gpr64 %choice, %bytes, %15, 0, "ne"
   return %result
 }
 
@@ -159,7 +158,7 @@ low.func.def target<x86.avx2.core> abi(object_function) @offset_scale_loop(%elem
   %begin = mov.imm64 0
   low.br ^_bb1(%begin: reg<x86.gpr64>, %bytes: reg<x86.gpr64>)
 ^_bb1(%iteration: reg<x86.gpr64>, %current: reg<x86.gpr64>):
-  %28 = cmp.slt.gpr64 %iteration, %count
+  %28 = cmp.gpr64 %iteration, %count, "slt"
   low.cond_br %28, ^_bb2, ^_bb3 : reg<x86.gpr32>
 ^_bb2:
   %next = lea %current, %stride

@@ -18,17 +18,62 @@ func.def target(@target) @scalar_i32_compare_predicates(%lhs: i32, %rhs: i32) ->
 
 // ----
 low.func.def target<x86.scalar.core>(@target) abi(object_function) abi_layout({signature = (i32, i32) -> (i1, i1, i1, i1, i1, i1, i1, i1, i1, i1)}) @scalar_i32_compare_predicates(%lhs: reg<x86.gpr32>, %rhs: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
-  %eq = cmp.eq.gpr32 %lhs, %rhs
-  %ne = cmp.ne.gpr32 %lhs, %rhs
-  %slt = cmp.slt.gpr32 %lhs, %rhs
-  %sle = cmp.sle.gpr32 %lhs, %rhs
-  %sgt = cmp.sgt.gpr32 %lhs, %rhs
-  %sge = cmp.sge.gpr32 %lhs, %rhs
-  %ult = cmp.ult.gpr32 %lhs, %rhs
-  %ule = cmp.ule.gpr32 %lhs, %rhs
-  %ugt = cmp.ugt.gpr32 %lhs, %rhs
-  %uge = cmp.uge.gpr32 %lhs, %rhs
+  %eq = cmp.gpr32 %lhs, %rhs, "eq"
+  %ne = cmp.gpr32 %lhs, %rhs, "ne"
+  %slt = cmp.gpr32 %lhs, %rhs, "slt"
+  %sle = cmp.gpr32 %lhs, %rhs, "sle"
+  %sgt = cmp.gpr32 %lhs, %rhs, "sgt"
+  %sge = cmp.gpr32 %lhs, %rhs, "sge"
+  %ult = cmp.gpr32 %lhs, %rhs, "ult"
+  %ule = cmp.gpr32 %lhs, %rhs, "ule"
+  %ugt = cmp.gpr32 %lhs, %rhs, "ugt"
+  %uge = cmp.gpr32 %lhs, %rhs, "uge"
   return %eq, %ne, %slt, %sle, %sgt, %sge, %ult, %ule, %ugt, %uge
+}
+
+// ====
+
+x86.target<scalar> @target
+
+func.def target(@target) @scalar_narrow_compare_forms(%lhs8: i8, %rhs8: i8, %lhs16: i16, %rhs16: i16) -> (i1, i1, i1, i1) {
+  %immediate_value8 = scalar.constant -17 : i8
+  %minimum16 = scalar.constant -32768 : i16
+  %register8 = scalar.cmpi ult, %lhs8, %rhs8 : i8
+  %immediate8 = scalar.cmpi ne, %lhs8, %immediate_value8 : i8
+  %register16 = scalar.cmpi sle, %lhs16, %rhs16 : i16
+  %immediate16 = scalar.cmpi ne, %lhs16, %minimum16 : i16
+  func.return %register8, %immediate8, %register16, %immediate16 : i1, i1, i1, i1
+}
+
+// ----
+low.func.def target<x86.scalar.core>(@target) abi(object_function) abi_layout({signature = (i8, i8, i16, i16) -> (i1, i1, i1, i1)}) @scalar_narrow_compare_forms(%lhs8: reg<x86.gpr32>, %rhs8: reg<x86.gpr32>, %lhs16: reg<x86.gpr32>, %rhs16: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %register8 = cmp.gpr8 %lhs8, %rhs8, "ult"
+  %immediate8 = cmp.imm.gpr8 %lhs8, -17, "ne"
+  %register16 = cmp.gpr16 %lhs16, %rhs16, "sle"
+  %immediate16 = cmp.imm.gpr16 %lhs16, -32768, "ne"
+  return %register8, %immediate8, %register16, %immediate16
+}
+
+// ====
+
+x86.target<scalar> @target
+
+func.def target(@target) @narrow_compare_select_forms(%lhs8: i8, %rhs8: i8, %lhs16: i16, %true16: i16, %false16: i16, %true64: i64, %false64: i64) -> (i16, i64) {
+  %register_condition = scalar.cmpi slt, %lhs8, %rhs8 : i8
+  %selected16 = scf.select %register_condition, %true16, %false16 : i16
+  %constant16 = scalar.constant -129 : i16
+  %immediate_condition = scalar.cmpi ule, %lhs16, %constant16 : i16
+  %selected64 = scf.select %immediate_condition, %true64, %false64 : i64
+  func.return %selected16, %selected64 : i16, i64
+}
+
+// ----
+low.func.def target<x86.scalar.core>(@target) abi(object_function) abi_layout({signature = (i8, i8, i16, i16, i16, i64, i64) -> (i16, i64)}) @narrow_compare_select_forms(%lhs8: reg<x86.gpr32>, %rhs8: reg<x86.gpr32>, %lhs16: reg<x86.gpr32>, %true16: reg<x86.gpr32>, %false16: reg<x86.gpr32>, %true64: reg<x86.gpr64>, %false64: reg<x86.gpr64>) -> (reg<x86.gpr32>, reg<x86.gpr64>) asm {
+  %23 = copy %false16 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %selected16 = cmp.select.gpr8.gpr32 %lhs8, %rhs8, %true16, %23, "slt"
+  %25 = copy %false64 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %selected64 = cmp.select.imm.gpr16.gpr64 %lhs16, %true64, %25, -129, "ule"
+  return %selected16, %selected64
 }
 
 // ====
@@ -48,8 +93,8 @@ func.def target(@target) @scalar_i32_compare_control(%lhs: i32, %rhs: i32, %true
 
 // ----
 low.func.def target<x86.scalar.core>(@target) abi(object_function) @scalar_i32_compare_control(%lhs: reg<x86.gpr32>, %rhs: reg<x86.gpr32>, %true_value: reg<x86.gpr32>, %false_value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %signed = cmp.slt.gpr32 %lhs, %rhs
-  %unsigned = cmp.uge.gpr32 %lhs, %rhs
+  %signed = cmp.gpr32 %lhs, %rhs, "slt"
+  %unsigned = cmp.gpr32 %lhs, %rhs, "uge"
   %15 = copy %signed : reg<x86.gpr32> -> reg<x86.gpr32>
   %condition = xor.gpr32 %15, %unsigned
   low.cond_br %condition, ^then, ^else : reg<x86.gpr32>
@@ -57,4 +102,91 @@ low.func.def target<x86.scalar.core>(@target) abi(object_function) @scalar_i32_c
   return %true_value
 ^else:
   return %false_value
+}
+
+// ====
+
+x86.target<scalar> @target
+
+func.def target(@target) @compare_select_register_matrix(%lhs32: i32, %rhs32: i32, %lhs64: i64, %rhs64: i64, %true32: i32, %false32: i32, %true64: i64, %false64: i64) -> (i32, i64, i64, i32) {
+  %condition32a = scalar.cmpi slt, %lhs32, %rhs32 : i32
+  %selected32 = scf.select %condition32a, %true32, %false32 : i32
+  %condition64a = scalar.cmpi ugt, %lhs64, %rhs64 : i64
+  %selected64 = scf.select %condition64a, %true64, %false64 : i64
+  %condition32b = scalar.cmpi eq, %lhs32, %rhs32 : i32
+  %selected64_from32 = scf.select %condition32b, %true64, %false64 : i64
+  %condition64b = scalar.cmpi sge, %lhs64, %rhs64 : i64
+  %selected32_from64 = scf.select %condition64b, %true32, %false32 : i32
+  func.return %selected32, %selected64, %selected64_from32, %selected32_from64 : i32, i64, i64, i32
+}
+
+// ----
+low.func.def target<x86.scalar.core>(@target) abi(object_function) @compare_select_register_matrix(%lhs32: reg<x86.gpr32>, %rhs32: reg<x86.gpr32>, %lhs64: reg<x86.gpr64>, %rhs64: reg<x86.gpr64>, %true32: reg<x86.gpr32>, %false32: reg<x86.gpr32>, %true64: reg<x86.gpr64>, %false64: reg<x86.gpr64>) -> (reg<x86.gpr32>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr32>) asm {
+  %32 = copy %false32 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %selected32 = cmp.select.gpr32.gpr32 %lhs32, %rhs32, %true32, %32, "slt"
+  %34 = copy %false64 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %selected64 = cmp.select.gpr64.gpr64 %lhs64, %rhs64, %true64, %34, "ugt"
+  %36 = copy %false64 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %selected64_from32 = cmp.select.gpr32.gpr64 %lhs32, %rhs32, %true64, %36, "eq"
+  %38 = copy %false32 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %selected32_from64 = cmp.select.gpr64.gpr32 %lhs64, %rhs64, %true32, %38, "sge"
+  return %selected32, %selected64, %selected64_from32, %selected32_from64
+}
+
+// ====
+
+x86.target<scalar> @target
+
+func.def target(@target) @compare_select_immediate_matrix(%lhs32: i32, %lhs64: i64, %true32: i32, %false32: i32, %true64: i64, %false64: i64) -> (i64, i32) {
+  %rhs32 = scalar.constant -129 : i32
+  %condition32 = scalar.cmpi sle, %lhs32, %rhs32 : i32
+  %selected64 = scf.select %condition32, %true64, %false64 : i64
+  %rhs64 = scalar.constant 128 : i64
+  %condition64 = scalar.cmpi uge, %lhs64, %rhs64 : i64
+  %selected32 = scf.select %condition64, %true32, %false32 : i32
+  func.return %selected64, %selected32 : i64, i32
+}
+
+// ----
+low.func.def target<x86.scalar.core>(@target) abi(object_function) @compare_select_immediate_matrix(%lhs32: reg<x86.gpr32>, %lhs64: reg<x86.gpr64>, %true32: reg<x86.gpr32>, %false32: reg<x86.gpr32>, %true64: reg<x86.gpr64>, %false64: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr32>) asm {
+  %22 = copy %false64 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %selected64 = cmp.select.imm.gpr32.gpr64 %lhs32, %true64, %22, -129, "sle"
+  %24 = copy %false32 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %selected32 = cmp.select.imm.gpr64.gpr32 %lhs64, %true32, %24, 128, "uge"
+  return %selected64, %selected32
+}
+
+// ====
+
+x86.target<scalar> @target
+
+func.def target(@target) @compare_select_index_buffer(%lhs: index, %rhs: index, %true_value: buffer, %false_value: buffer) -> (buffer) {
+  %condition = index.cmp ule, %lhs, %rhs : index
+  %selected = scf.select %condition, %true_value, %false_value : buffer
+  func.return %selected : buffer
+}
+
+// ----
+low.func.def target<x86.scalar.core>(@target) abi(object_function) @compare_select_index_buffer(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>, %true_value: reg<x86.gpr64>, %false_value: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %12 = copy %false_value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %selected = cmp.select.gpr64.gpr64 %lhs, %rhs, %true_value, %12, "ule"
+  return %selected
+}
+
+// ====
+
+x86.target<scalar> @target
+
+func.def target(@target) @compare_select_multiple_uses(%lhs: i32, %rhs: i32, %true_value: i32, %false_value: i32) -> (i32, i1) {
+  %condition = scalar.cmpi ult, %lhs, %rhs : i32
+  %selected = scf.select %condition, %true_value, %false_value : i32
+  func.return %selected, %condition : i32, i1
+}
+
+// ----
+low.func.def target<x86.scalar.core>(@target) abi(object_function) abi_layout({signature = (i32, i32, i32, i32) -> (i32, i1)}) @compare_select_multiple_uses(%lhs: reg<x86.gpr32>, %rhs: reg<x86.gpr32>, %true_value: reg<x86.gpr32>, %false_value: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %condition = cmp.gpr32 %lhs, %rhs, "ult"
+  %15 = copy %false_value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %selected = select.gpr32 %condition, %true_value, %15
+  return %selected, %condition
 }

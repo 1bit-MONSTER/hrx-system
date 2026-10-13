@@ -392,6 +392,22 @@ _IMM32_IMMEDIATE = Immediate(
     unsigned_max=(2**31) - 1,
 )
 
+_IMM8_IMMEDIATE = Immediate(
+    "imm8",
+    ImmediateKind.SIGNED,
+    bit_width=8,
+    signed_min=-(2**7),
+    unsigned_max=(2**7) - 1,
+)
+
+_IMM16_IMMEDIATE = Immediate(
+    "imm16",
+    ImmediateKind.SIGNED,
+    bit_width=16,
+    signed_min=-(2**15),
+    unsigned_max=(2**15) - 1,
+)
+
 _IMM64_IMMEDIATE = Immediate(
     "imm64",
     ImmediateKind.SIGNED,
