@@ -795,7 +795,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @cross_block_generic_read_aliase
 // A flat access may resolve to global memory, so the generic-space read must
 // alias the concrete global write and drain VMEM reads before the store.
 // ----
-  flat_load_dwordx2 v[0:1], v[0:1], off offset:0
+  flat_load_dwordx2 v[0:1], v[0:1] offset:0
 .Lbb1:
   s_waitcnt vmcnt(0) lgkmcnt(0)
   global_store_b32 v2, v3, s[0:1] offset:0
@@ -821,7 +821,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @cross_block_global_write_aliase
   global_store_b32 v0, v1, s[0:1] offset:0
 .Lbb1:
   s_waitcnt_vscnt vscnt(0)
-  flat_load_dwordx2 v[0:1], v[2:3], off offset:0
+  flat_load_dwordx2 v[0:1], v[2:3] offset:0
   s_endpgm
 
 // ====
@@ -944,8 +944,8 @@ low.func.def target<amdgpu.cdna3.core>(@target) @cdna_scratch_memory_ordering(%v
 // without completing the store first. The loaded value must complete before
 // its global store consumes it, and program exit drains both stores.
 // ----
-  scratch_store_b32 off, v0, off offset:0 nt:0 sc0:0 sc1:0
-  scratch_load_b32 v0, off, off offset:0 nt:0 sc0:0 sc1:0
+  scratch_store_b32 off, v0, off offset:0
+  scratch_load_b32 v0, off, off offset:0
   s_waitcnt vmcnt(0) lgkmcnt(15)
   global_store_dword v1, v0, s[0:1] offset:0
   s_waitcnt vmcnt(0) lgkmcnt(15)

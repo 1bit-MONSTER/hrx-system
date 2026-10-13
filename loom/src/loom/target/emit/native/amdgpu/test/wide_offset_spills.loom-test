@@ -27,23 +27,23 @@ low.func.def target<amdgpu.gfx12_5.generic.core>(@target) @reload_wide_address(%
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   v_mov_b32_copy v2, s0
-  scratch_store_b32 off, v2, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 off, v2, off offset:0
   v_mov_b32_copy v3, s1
-  scratch_store_b32 off, v3, off offset:4 nv:0 scope:0 th:0
+  scratch_store_b32 off, v3, off offset:4
   s_wait_xcnt xcnt(0)
   s_mov_b64 exec, s[2:3]
-  scratch_store_b64 off, v[0:1], off offset:8 nv:0 scope:0 th:0
+  scratch_store_b64 off, v[0:1], off offset:8
   s_mov_b64_exec_read s[0:1]
   s_wait_xcnt xcnt(0)
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:0
   s_wait_loadcnt loadcnt(0)
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:4
   s_wait_loadcnt loadcnt(0)
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
-  scratch_load_b64 v[0:1], off, off offset:8 nv:0 scope:0 th:0
+  scratch_load_b64 v[0:1], off, off offset:8
   s_wait_loadcnt loadcnt(0)
   v_add_co_u32 v0, s[0:1], s2, v0
   v_mov_b32_copy v2, s3
@@ -80,22 +80,22 @@ low.func.def target<amdgpu.gfx12.generic.core>(@target) @reload_wide_address(%un
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   v_mov_b32_copy v2, s0
-  scratch_store_b32 off, v2, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 off, v2, off offset:0
   v_mov_b32_copy v2, s1
-  scratch_store_b32 off, v2, off offset:4 nv:0 scope:0 th:0
+  scratch_store_b32 off, v2, off offset:4
   s_mov_b64 exec, s[2:3]
-  scratch_store_b64 off, v[0:1], off offset:8 nv:0 scope:0 th:0
+  scratch_store_b64 off, v[0:1], off offset:8
   s_mov_b64_exec_read s[0:1]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:0
   s_wait_loadcnt loadcnt(0)
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:4
   s_wait_loadcnt loadcnt(0)
   v_readfirstlane_b32 s3, v0
   s_wait_alu depctr(0)
   s_mov_b64 exec, s[0:1]
-  scratch_load_b64 v[0:1], off, off offset:8 nv:0 scope:0 th:0
+  scratch_load_b64 v[0:1], off, off offset:8
   s_wait_loadcnt loadcnt(0)
   v_add_co_u32 v0, s[0:1], s2, v0
   v_mov_b32_copy v2, s3
@@ -133,23 +133,23 @@ low.func.def target<amdgpu.rdna4.gfx1250_a0.core>(@target) @reload_wide_address(
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   v_mov_b32_copy v2, s0
-  scratch_store_b32 off, v2, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 off, v2, off offset:0
   v_mov_b32_copy v3, s1
-  scratch_store_b32 off, v3, off offset:4 nv:0 scope:0 th:0
+  scratch_store_b32 off, v3, off offset:4
   s_wait_xcnt xcnt(0)
   s_mov_b64 exec, s[2:3]
-  scratch_store_b64 off, v[0:1], off offset:8 nv:0 scope:0 th:0
+  scratch_store_b64 off, v[0:1], off offset:8
   s_mov_b64_exec_read s[0:1]
   s_wait_xcnt xcnt(0)
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:0
   s_wait_loadcnt loadcnt(0)
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:4
   s_wait_loadcnt loadcnt(0)
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
-  scratch_load_b64 v[0:1], off, off offset:8 nv:0 scope:0 th:0
+  scratch_load_b64 v[0:1], off, off offset:8
   s_wait_loadcnt loadcnt(0)
   v_add_co_u32 v0, s[0:1], s2, v0
   v_mov_b32_copy v2, s3
@@ -186,23 +186,23 @@ low.func.def target<amdgpu.rdna4.gfx1251.core>(@target) @reload_wide_address(%un
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   v_mov_b32_copy v2, s0
-  scratch_store_b32 off, v2, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 off, v2, off offset:0
   v_mov_b32_copy v3, s1
-  scratch_store_b32 off, v3, off offset:4 nv:0 scope:0 th:0
+  scratch_store_b32 off, v3, off offset:4
   s_wait_xcnt xcnt(0)
   s_mov_b64 exec, s[2:3]
-  scratch_store_b64 off, v[0:1], off offset:8 nv:0 scope:0 th:0
+  scratch_store_b64 off, v[0:1], off offset:8
   s_mov_b64_exec_read s[0:1]
   s_wait_xcnt xcnt(0)
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:0
   s_wait_loadcnt loadcnt(0)
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:4
   s_wait_loadcnt loadcnt(0)
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
-  scratch_load_b64 v[0:1], off, off offset:8 nv:0 scope:0 th:0
+  scratch_load_b64 v[0:1], off, off offset:8
   s_wait_loadcnt loadcnt(0)
   v_add_co_u32 v0, s[0:1], s2, v0
   v_mov_b32_copy v2, s3
@@ -239,23 +239,23 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @reload_wide_address(%un
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   v_mov_b32_copy v2, s0
-  scratch_store_b32 off, v2, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 off, v2, off offset:0
   v_mov_b32_copy v3, s1
-  scratch_store_b32 off, v3, off offset:4 nv:0 scope:0 th:0
+  scratch_store_b32 off, v3, off offset:4
   s_wait_xcnt xcnt(0)
   s_mov_b64 exec, s[2:3]
-  scratch_store_b64 off, v[0:1], off offset:8 nv:0 scope:0 th:0
+  scratch_store_b64 off, v[0:1], off offset:8
   s_mov_b64_exec_read s[0:1]
   s_wait_xcnt xcnt(0)
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:0
   s_wait_loadcnt loadcnt(0)
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:4
   s_wait_loadcnt loadcnt(0)
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
-  scratch_load_b64 v[0:1], off, off offset:8 nv:0 scope:0 th:0
+  scratch_load_b64 v[0:1], off, off offset:8
   s_wait_loadcnt loadcnt(0)
   v_add_co_u32 v0, s[0:1], s2, v0
   v_mov_b32_copy v2, s3
@@ -292,22 +292,22 @@ low.func.def target<amdgpu.rdna4.core>(@target) @reload_wide_address(%uniform: r
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   v_mov_b32_copy v2, s0
-  scratch_store_b32 off, v2, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 off, v2, off offset:0
   v_mov_b32_copy v2, s1
-  scratch_store_b32 off, v2, off offset:4 nv:0 scope:0 th:0
+  scratch_store_b32 off, v2, off offset:4
   s_mov_b64 exec, s[2:3]
-  scratch_store_b64 off, v[0:1], off offset:8 nv:0 scope:0 th:0
+  scratch_store_b64 off, v[0:1], off offset:8
   s_mov_b64_exec_read s[0:1]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:0
   s_wait_loadcnt loadcnt(0)
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:4
   s_wait_loadcnt loadcnt(0)
   v_readfirstlane_b32 s3, v0
   s_wait_alu depctr(0)
   s_mov_b64 exec, s[0:1]
-  scratch_load_b64 v[0:1], off, off offset:8 nv:0 scope:0 th:0
+  scratch_load_b64 v[0:1], off, off offset:8
   s_wait_loadcnt loadcnt(0)
   v_add_co_u32 v0, s[0:1], s2, v0
   v_mov_b32_copy v2, s3
@@ -498,21 +498,21 @@ low.func.def target<amdgpu.gfx9_4.generic.core>(@target) @reload_wide_address(%u
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   v_mov_b32_copy v2, s0
-  scratch_store_b32 off, v2, off offset:0 nt:0 sc0:0 sc1:0
+  scratch_store_b32 off, v2, off offset:0
   v_mov_b32_copy v2, s1
-  scratch_store_b32 off, v2, off offset:4 nt:0 sc0:0 sc1:0
+  scratch_store_b32 off, v2, off offset:4
   s_mov_b64 exec, s[2:3]
-  scratch_store_b64 off, v[0:1], off offset:8 nt:0 sc0:0 sc1:0
+  scratch_store_b64 off, v[0:1], off offset:8
   s_mov_b64_exec_read s[0:1]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nt:0 sc0:0 sc1:0
+  scratch_load_b32 v0, off, off offset:0
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nt:0 sc0:0 sc1:0
+  scratch_load_b32 v0, off, off offset:4
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
-  scratch_load_b64 v[0:1], off, off offset:8 nt:0 sc0:0 sc1:0
+  scratch_load_b64 v[0:1], off, off offset:8
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_add_co_u32 v0, s[0:1], s2, v0
   v_mov_b32_copy v2, s3
@@ -548,21 +548,21 @@ low.func.def target<amdgpu.cdna4.core>(@target) @reload_wide_address(%uniform: r
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   v_mov_b32_copy v2, s0
-  scratch_store_b32 off, v2, off offset:0 nt:0 sc0:0 sc1:0
+  scratch_store_b32 off, v2, off offset:0
   v_mov_b32_copy v2, s1
-  scratch_store_b32 off, v2, off offset:4 nt:0 sc0:0 sc1:0
+  scratch_store_b32 off, v2, off offset:4
   s_mov_b64 exec, s[2:3]
-  scratch_store_b64 off, v[0:1], off offset:8 nt:0 sc0:0 sc1:0
+  scratch_store_b64 off, v[0:1], off offset:8
   s_mov_b64_exec_read s[0:1]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nt:0 sc0:0 sc1:0
+  scratch_load_b32 v0, off, off offset:0
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nt:0 sc0:0 sc1:0
+  scratch_load_b32 v0, off, off offset:4
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
-  scratch_load_b64 v[0:1], off, off offset:8 nt:0 sc0:0 sc1:0
+  scratch_load_b64 v[0:1], off, off offset:8
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_add_co_u32 v0, s[0:1], s2, v0
   v_mov_b32_copy v2, s3
@@ -598,21 +598,21 @@ low.func.def target<amdgpu.cdna3.core>(@target) @reload_wide_address(%uniform: r
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   v_mov_b32_copy v2, s0
-  scratch_store_b32 off, v2, off offset:0 nt:0 sc0:0 sc1:0
+  scratch_store_b32 off, v2, off offset:0
   v_mov_b32_copy v2, s1
-  scratch_store_b32 off, v2, off offset:4 nt:0 sc0:0 sc1:0
+  scratch_store_b32 off, v2, off offset:4
   s_mov_b64 exec, s[2:3]
-  scratch_store_b64 off, v[0:1], off offset:8 nt:0 sc0:0 sc1:0
+  scratch_store_b64 off, v[0:1], off offset:8
   s_mov_b64_exec_read s[0:1]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nt:0 sc0:0 sc1:0
+  scratch_load_b32 v0, off, off offset:0
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nt:0 sc0:0 sc1:0
+  scratch_load_b32 v0, off, off offset:4
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
-  scratch_load_b64 v[0:1], off, off offset:8 nt:0 sc0:0 sc1:0
+  scratch_load_b64 v[0:1], off, off offset:8
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_add_co_u32 v0, s[0:1], s2, v0
   v_mov_b32_copy v2, s3

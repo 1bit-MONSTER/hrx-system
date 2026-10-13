@@ -72,7 +72,9 @@ def test_memory_cache_policy_fragments_are_data_only() -> None:
     )
     temporal_th = amdgpu_target_info._emit_memory_cache_policy_temporal_th()
 
-    for source in (policy_rows, temporal_th):
+    native_names = amdgpu_target_info._emit_memory_cache_native_names()
+
+    for source in (policy_rows, temporal_th, native_names):
         assert "typedef " not in source
         assert "#ifndef " not in source
         assert "#include " not in source

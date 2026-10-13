@@ -27,6 +27,7 @@ _ensure_runtime_py_on_path()
 from loom.gen.support.c import c_string_arg as _c_string_arg  # noqa: E402
 from loom.gen.support.files import write_text_file  # noqa: E402
 from loom.gen.support.generated_file import line_comment_header  # noqa: E402
+from loom.gen.support.string_pool import CStringPool, emit_c_string_pool  # noqa: E402
 from loom.gen.target.arch.amdgpu.amdgpu_config_tables import (  # noqa: E402
     write_config_tables_to_paths,
 )
@@ -135,6 +136,8 @@ from loom.target.arch.amdgpu.target_info import (  # noqa: E402
     AMDGPU_MATRIX_FEATURE_PROFILE_WMMA_GFX12,
     AMDGPU_MATRIX_FEATURE_PROFILE_WMMA_GFX12_5_GENERIC,
     AMDGPU_MATRIX_FEATURE_PROFILE_WMMA_GFX1250,
+    AMDGPU_MEMORY_CACHE_NATIVE_SCOPE_NAMES,
+    AMDGPU_MEMORY_CACHE_NATIVE_TEMPORAL_SUFFIXES,
     AMDGPU_MEMORY_ORDERING_MODELS,
     AMDGPU_PROCESSOR_INFO_FLAG_ARCHITECTED_WORKGROUP_IDS,
     AMDGPU_PROCESSOR_INFO_FLAG_CLUSTER_LAUNCH_STATE,
@@ -737,6 +740,29 @@ def _emit_memory_cache_policy_encoding_rows(
             ]
         )
         + "\n"
+    )
+
+
+def _emit_memory_cache_native_names() -> str:
+    pool = CStringPool(c_enum_prefix="LOOM_AMDGPU_CACHE_NATIVE")
+    scopes = [pool.intern(name, name) for name in AMDGPU_MEMORY_CACHE_NATIVE_SCOPE_NAMES]
+    temporal_rows = []
+    for operation, suffixes in AMDGPU_MEMORY_CACHE_NATIVE_TEMPORAL_SUFFIXES:
+        names = [f"TH_{operation.upper()}_{suffix}" if suffix else "" for suffix in suffixes]
+        labels = [pool.intern(name or "empty", name) for name in names]
+        temporal_rows.append(f"  [LOOM_AMDGPU_CACHE_OPERATION_{operation.upper()}] = {{" + ", ".join(pool.ref(label) for label in labels) + "},")
+    return "\n".join(
+        [
+            *_memory_cache_policy_fragment_header(),
+            *emit_c_string_pool(pool, data_name="kAmdgpuCacheNativeStringData"),
+            "static const loom_string_ref_t kAmdgpuCacheScopeNames[] = {",
+            "  " + ", ".join(pool.ref(label) for label in scopes) + ",",
+            "};",
+            "static const loom_string_ref_t kAmdgpuCacheTemporalNames[][9] = {",
+            *temporal_rows,
+            "};",
+            "",
+        ]
     )
 
 
@@ -1620,6 +1646,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Generated memory cache-policy encoding row fragment path.",
     )
     parser.add_argument(
+        "--cache-policy-native-names",
+        type=Path,
+        required=True,
+        help="Generated memory cache-policy native spelling fragment path.",
+    )
+    parser.add_argument(
         "--cache-policy-temporal-th",
         type=Path,
         required=True,
@@ -1690,6 +1722,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.cache_policy_encoding_rows,
         _emit_memory_cache_policy_encoding_rows(descriptor_sets),
     )
+    write_text_file(args.cache_policy_native_names, _emit_memory_cache_native_names())
     write_text_file(
         args.cache_policy_temporal_th,
         _emit_memory_cache_policy_temporal_th(),

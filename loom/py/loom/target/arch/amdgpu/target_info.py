@@ -1049,6 +1049,26 @@ AMDGPU_VECTOR_MEMORY_CACHE_POLICY_TEMPORAL_TH: tuple[tuple[str, int], ...] = (
 )
 
 
+# LLVM native assembly names for the encoded RDNA4 temporal hints. Load and
+# store encoding three uses the final BYPASS entry at system scope. Encoding
+# zero omits the default hint; other empty entries are reserved. Returning
+# atomics only use odd encodings.
+AMDGPU_MEMORY_CACHE_NATIVE_TEMPORAL_SUFFIXES = (
+    ("load", ("", "NT", "HT", "LU", "NT_RT", "RT_NT", "NT_HT", "", "BYPASS")),
+    ("store", ("", "NT", "HT", "WB", "NT_RT", "RT_NT", "NT_HT", "NT_WB", "BYPASS")),
+    (
+        "atomic",
+        ("", "RETURN", "NT", "NT_RETURN", "CASCADE_RT", "", "CASCADE_NT", "", ""),
+    ),
+)
+AMDGPU_MEMORY_CACHE_NATIVE_SCOPE_NAMES = (
+    "SCOPE_CU",
+    "SCOPE_SE",
+    "SCOPE_DEV",
+    "SCOPE_SYS",
+)
+
+
 def amdgpu_target_id_feature_support_flags(
     target_id_features: Sequence[str],
 ) -> int:

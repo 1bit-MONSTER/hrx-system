@@ -78,6 +78,8 @@ loom_cc_library(
     assembly
   HDRS
     "assembly.h"
+  TEXTUAL_HDRS
+    "${IREE_BINARY_DIR}/loom/src/loom/target/arch/amdgpu/memory_cache_policy_native_names.inl"
   SRCS
     "assembly.c"
   DEPS
@@ -99,6 +101,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info
     loom::target::emit::native::assembly
+    loom::util::string_pool
   PUBLIC
 )
 endif()
@@ -170,6 +173,7 @@ loom_check_test_suite(
     "test/hal_kernel_library.loom-test"
     "test/immediates.loom-test"
     "test/kernel_move_resources.loom-test"
+    "test/memory_modifiers.loom-test"
     "test/message_completion.loom-test"
     "test/packet.loom-test"
     "test/packet_json.loom-test"

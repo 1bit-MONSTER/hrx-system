@@ -899,7 +899,7 @@ def _cdna_core_overlays(
         ),
         *_global_atomic_overlays(
             rows=_GLOBAL_ATOMIC_GFX940_ROWS,
-            cmpswap_mnemonic_suffix="x2",
+            cmpswap_mnemonic_suffixes=("", "_x2"),
             encoding_name="ENC_FLAT_GLBL",
             address_field_name="ADDR",
             data_field_name="DATA",

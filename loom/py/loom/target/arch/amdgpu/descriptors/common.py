@@ -12,6 +12,7 @@ import struct
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 from loom.target.arch.amdgpu.descriptor_overlay import (
     AMDGPU_D16_PARTIAL_REGISTER_ADDRESSABLE_UNIT_COUNT,
@@ -149,6 +150,8 @@ AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_SCOPE = 8
 AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_LOAD_TEMPORAL = 9
 AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_REQUIRED_NAMED_I64 = 10
 AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_DPP8 = 11
+AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_STORE_TEMPORAL = 12
+AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_ATOMIC_TEMPORAL = 13
 
 _REG_SGPR = "amdgpu.sgpr"
 _REG_VGPR = "amdgpu.vgpr"
@@ -1373,14 +1376,19 @@ def _native_amdgpu_gfx12_scope_immediate(field_name: str) -> NativeAsmValue:
     )
 
 
-def _native_amdgpu_gfx12_load_temporal_immediate(
-    field_name: str,
+def _native_amdgpu_gfx12_temporal_immediate(
+    field_name: str, operation: Literal["load", "store", "atomic"]
 ) -> NativeAsmValue:
+    format_id = {
+        "load": AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_LOAD_TEMPORAL,
+        "store": AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_STORE_TEMPORAL,
+        "atomic": AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_ATOMIC_TEMPORAL,
+    }[operation]
     return NativeAsmValue(
         NativeAsmValueKind.IMMEDIATE_TARGET_FORMAT,
         field_name=field_name,
         literal="th",
-        target_format_id=AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_LOAD_TEMPORAL,
+        target_format_id=format_id,
     )
 
 
@@ -1391,6 +1399,7 @@ def _global_vaddr_asm(
     results: tuple[str, ...] = (),
     operands: tuple[str, ...],
     immediates: tuple[str, ...],
+    native_assembly_values: tuple[NativeAsmValue, ...] = (),
 ) -> tuple[AsmForm, ...]:
     return _asm(
         mnemonic=f"{mnemonic}_vaddr",
@@ -1399,6 +1408,7 @@ def _global_vaddr_asm(
         operands=operands,
         immediates=immediates,
         named_immediates=True,
+        native_assembly_values=native_assembly_values,
     )
 
 
@@ -1410,6 +1420,7 @@ def _global_saddr_asm(
     operands: tuple[str, ...],
     implicit_m0: bool = False,
     immediates: tuple[str, ...],
+    native_assembly_values: tuple[NativeAsmValue, ...] = (),
 ) -> tuple[AsmForm, ...]:
     if implicit_m0:
         operands = (*operands, "m0")
@@ -1420,6 +1431,7 @@ def _global_saddr_asm(
         operands=operands,
         immediates=immediates,
         named_immediates=True,
+        native_assembly_values=native_assembly_values,
     )
 
 
@@ -3387,6 +3399,8 @@ __all__ = (
     "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_DPP_CTRL",
     "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_DPP8",
     "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_LOAD_TEMPORAL",
+    "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_STORE_TEMPORAL",
+    "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_ATOMIC_TEMPORAL",
     "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_SCOPE",
     "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_NAMED_BIT_LIST",
     "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_NAMED_FLAG",
@@ -3789,7 +3803,7 @@ __all__ = (
     "_native_amdgpu_dpp_ctrl_immediate",
     "_native_amdgpu_dpp8_immediate",
     "_native_amdgpu_dpp_bank_mask_immediate",
-    "_native_amdgpu_gfx12_load_temporal_immediate",
+    "_native_amdgpu_gfx12_temporal_immediate",
     "_native_amdgpu_gfx12_scope_immediate",
     "_native_amdgpu_named_bit_list_immediate",
     "_native_amdgpu_named_flag_immediate",

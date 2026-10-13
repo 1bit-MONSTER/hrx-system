@@ -269,7 +269,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @global_atomic_scalar_capture(%b
 }
 
 // ----
-  global_atomic_add_rtn_saddr v8, v0, v1, s[32:33] offset:0 sc1:0
+  global_atomic_add v8, v0, v1, s[32:33] offset:0 sc0
   s_mov_b32 s32, 0
   s_waitcnt vmcnt(0) lgkmcnt(15)
   s_endpgm
@@ -286,7 +286,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @global_reduce_scalar_capture(%b
 }
 
 // ----
-  global_atomic_add_saddr v0, v1, s[32:33] offset:0 sc1:0
+  global_atomic_add v0, v1, s[32:33] offset:0
   s_mov_b32 s32, 0
   s_waitcnt vmcnt(0) lgkmcnt(15)
   s_endpgm
@@ -303,7 +303,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @buffer_atomic_scalar_capture(
 }
 
 // ----
-  buffer_atomic_add_u32 v8, v0, s[32:35], s0 offen offset:0
+  buffer_atomic_add_u32 v8, v0, s[32:35], s0 offen offset:0 glc
   s_mov_b32 s32, 0
   s_waitcnt vmcnt(0) lgkmcnt(63)
   s_endpgm

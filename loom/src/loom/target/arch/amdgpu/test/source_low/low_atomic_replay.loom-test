@@ -17,9 +17,9 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @private_store_before_gl
 }
 
 // ----
-  scratch_store_b32 v0, v1, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 v0, v1, off offset:0
   s_wait_xcnt xcnt(0)
-  global_atomic_add_u32_rtn_saddr v2, v0, v1, s[0:1] offset:0 scope:2 th:1
+  global_atomic_add_u32 v2, v0, v1, s[0:1] offset:0 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
   s_wait_loadcnt loadcnt(0)
   v_add_u32 v2, v2, v1
   s_wait_storecnt storecnt(0)
@@ -39,9 +39,9 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @private_load_before_glo
 }
 
 // ----
-  scratch_load_b32 v2, v0, off offset:0 nv:0 scope:0 th:0
+  scratch_load_b32 v2, v0, off offset:0
   s_wait_xcnt xcnt(0)
-  global_atomic_add_u32_saddr v0, v1, s[0:1] offset:0 scope:2 th:0
+  global_atomic_add_u32 v0, v1, s[0:1] offset:0 scope:SCOPE_DEV
   s_wait_loadcnt loadcnt(0)
   v_add_u32 v2, v2, v1
   s_wait_storecnt storecnt(0)
@@ -61,9 +61,9 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @private_store_before_bu
 }
 
 // ----
-  scratch_store_b32 v1, v0, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 v1, v0, off offset:0
   s_wait_xcnt xcnt(0)
-  buffer_atomic_add_u32 v0, v1, s[0:3], s4 offen offset:0 scope:2 th:1
+  buffer_atomic_add_u32 v0, v1, s[0:3], s4 offen offset:0 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
   s_wait_loadcnt loadcnt(0)
   v_add_u32 v2, v0, v1
   s_wait_storecnt storecnt(0)
@@ -84,9 +84,9 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @completed_private_store
 }
 
 // ----
-  scratch_store_b32 v0, v1, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 v0, v1, off offset:0
   s_wait_storecnt storecnt(0)
-  global_atomic_add_u32_rtn_saddr v2, v0, v1, s[0:1] offset:0 scope:2 th:1
+  global_atomic_add_u32 v2, v0, v1, s[0:1] offset:0 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
   s_wait_loadcnt loadcnt(0)
   v_add_u32 v2, v2, v1
   s_endpgm
@@ -106,10 +106,10 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @partial_private_store_b
 }
 
 // ----
-  scratch_store_b32 v0, v1, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 v0, v1, off offset:0
   s_wait_storecnt storecnt(1)
   s_wait_xcnt xcnt(0)
-  global_atomic_add_u32_rtn_saddr v2, v0, v1, s[0:1] offset:0 scope:2 th:1
+  global_atomic_add_u32 v2, v0, v1, s[0:1] offset:0 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
   s_wait_loadcnt loadcnt(0)
   v_add_u32 v2, v2, v1
   s_wait_storecnt storecnt(0)
@@ -131,10 +131,10 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @fallthrough_private_sto
 }
 
 // ----
-  scratch_store_b32 v0, v1, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 v0, v1, off offset:0
 .Lbb1:
   s_wait_xcnt xcnt(0)
-  global_atomic_add_u32_rtn_saddr v2, v0, v1, s[0:1] offset:0 scope:2 th:1
+  global_atomic_add_u32 v2, v0, v1, s[0:1] offset:0 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
   s_wait_loadcnt loadcnt(0)
   v_add_u32 v2, v2, v1
   s_wait_storecnt storecnt(0)
@@ -158,13 +158,13 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @branched_private_store_
 }
 
 // ----
-  scratch_store_b32 v0, v1, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 v0, v1, off offset:0
   s_cbranch_scc0 .Lbb2
 .Lbb1:
   s_wait_storecnt storecnt(0)
   s_endpgm
 .Lbb2:
-  global_atomic_add_u32_rtn_saddr v2, v0, v1, s[0:1] offset:0 scope:2 th:1
+  global_atomic_add_u32 v2, v0, v1, s[0:1] offset:0 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
   s_wait_loadcnt loadcnt(0)
   v_add_u32 v2, v2, v1
   s_wait_storecnt storecnt(0)
@@ -187,7 +187,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @smem_before_global_atom
 // ----
   s_load_dword s2, s[0:1] offset:0
   s_wait_kmcnt kmcnt(0)
-  global_atomic_add_u32_rtn_saddr v2, v0, v1, s[0:1] offset:0 scope:2 th:1
+  global_atomic_add_u32 v2, v0, v1, s[0:1] offset:0 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
   s_wait_loadcnt loadcnt(0)
   v_add_u32 v2, v2, v1
   s_add_u32 s2, s2, s2
@@ -207,7 +207,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @private_store_before_or
 }
 
 // ----
-  scratch_store_b32 v0, v1, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 v0, v1, off offset:0
   global_load_b32 v2, v0, s[0:1] offset:0
   s_wait_loadcnt loadcnt(0)
   v_add_u32 v2, v2, v1
@@ -228,7 +228,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @private_store_before_vo
 }
 
 // ----
-  scratch_store_b32 v0, v1, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 v0, v1, off offset:0
   s_wait_storecnt storecnt(0)
   global_load_b32 v2, v0, s[0:1] offset:0
   s_wait_loadcnt loadcnt(0)
@@ -249,8 +249,8 @@ low.func.def target<amdgpu.rdna4.core>(@target) @gfx1200_private_store_before_gl
 }
 
 // ----
-  scratch_store_b32 v0, v1, off offset:0 nv:0 scope:0 th:0
-  global_atomic_add_u32_rtn_saddr v0, v0, v1, s[0:1] offset:0 scope:2 th:1
+  scratch_store_b32 v0, v1, off offset:0
+  global_atomic_add_u32 v0, v0, v1, s[0:1] offset:0 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
   s_wait_loadcnt loadcnt(0)
   v_add_u32 v0, v0, v1
   s_wait_storecnt storecnt(0)
@@ -274,7 +274,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @global_store_before_tie
 // ----
   global_store_b32 v1, v0, s[0:1] offset:0
   s_wait_xcnt xcnt(0)
-  buffer_atomic_add_u32 v0, v1, s[4:7], s2 offen offset:0 scope:2 th:1
+  buffer_atomic_add_u32 v0, v1, s[4:7], s2 offen offset:0 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
   s_wait_loadcnt loadcnt(0)
   v_add_u32 v2, v0, v1
   s_wait_storecnt storecnt(0)
@@ -293,9 +293,9 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @private_store_before_fl
 }
 
 // ----
-  scratch_store_b32 v0, v1, off offset:0 nv:0 scope:0 th:0
+  scratch_store_b32 v0, v1, off offset:0
   s_wait_storecnt storecnt(0)
-  flat_atomic_add_u32 v[2:3], v1 offset:0 scope:2 th:0
+  flat_atomic_add_u32 v[2:3], v1 offset:0 scope:SCOPE_DEV
   s_wait_storecnt storecnt(0)
   s_endpgm
 
@@ -314,9 +314,9 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @empty_store_wait_drains
 }
 
 // ----
-  scratch_load_b32 v2, v0, off offset:0 nv:0 scope:0 th:0
+  scratch_load_b32 v2, v0, off offset:0
   s_wait_storecnt storecnt(0)
-  global_atomic_add_u32_saddr v0, v1, s[0:1] offset:0 scope:2 th:0
+  global_atomic_add_u32 v0, v1, s[0:1] offset:0 scope:SCOPE_DEV
   s_wait_loadcnt loadcnt(0)
   v_add_u32 v2, v2, v1
   s_wait_storecnt storecnt(0)

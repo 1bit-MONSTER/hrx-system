@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from .common import *
+from .memory import _native_memory_modifiers
 
 
 def _flat_atomic_asm(
@@ -21,6 +22,7 @@ def _flat_atomic_asm(
     mnemonic: str,
     returns_old_value: bool,
     cache_fields: tuple[tuple[str, int], ...],
+    native_modifiers: tuple[NativeAsmValue, ...],
 ) -> tuple[AsmForm, ...]:
     operands: tuple[str, ...] = ("addr", "value")
     return _asm(
@@ -30,6 +32,12 @@ def _flat_atomic_asm(
         operands=operands,
         immediates=_memory_asm_immediate_names(cache_fields),
         named_immediates=True,
+        native_assembly_values=(
+            *((_native_result("dst"),) if returns_old_value else ()),
+            _native_operand("addr"),
+            _native_operand("value"),
+            *native_modifiers,
+        ),
     )
 
 
@@ -38,6 +46,7 @@ def _buffer_atomic_asm(
     mnemonic: str,
     returns_old_value: bool,
     cache_fields: tuple[tuple[str, int], ...],
+    native_modifiers: tuple[NativeAsmValue, ...],
 ) -> tuple[AsmForm, ...]:
     return _asm(
         mnemonic=f"{mnemonic}_rtn" if returns_old_value else mnemonic,
@@ -46,6 +55,14 @@ def _buffer_atomic_asm(
         operands=("value", "resource", "vaddr", "soffset"),
         immediates=_memory_asm_immediate_names(cache_fields),
         named_immediates=True,
+        native_assembly_values=(
+            _native_operand("value"),
+            _native_operand("vaddr"),
+            _native_operand("resource"),
+            _native_operand("soffset"),
+            _native_modifier_literal("offen"),
+            *native_modifiers,
+        ),
     )
 
 
@@ -304,18 +321,25 @@ def _global_atomic_overlay(
         fixed_encoding_fields=fixed_encoding_fields,
         effects=_global_atomic_effects(width_bits, counter_id=counter_id),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_global_saddr_asm(
+        asm_forms=(_global_saddr_asm if saddr_off is None else _global_vaddr_asm)(
             mnemonic=f"{mnemonic}_rtn" if returns_old_value else mnemonic,
+            native_assembly_mnemonic=mnemonic,
             results=("dst",) if returns_old_value else (),
-            operands=("addr", "value", "saddr"),
+            operands=("addr", "value", *(("saddr",) if saddr_off is None else ())),
             immediates=_memory_asm_immediate_names(cache_immediate_fields),
-        )
-        if saddr_off is None
-        else _global_vaddr_asm(
-            mnemonic=f"{mnemonic}_rtn" if returns_old_value else mnemonic,
-            results=("dst",) if returns_old_value else (),
-            operands=("addr", "value"),
-            immediates=_memory_asm_immediate_names(cache_immediate_fields),
+            native_assembly_values=(
+                *((_native_result("dst"),) if returns_old_value else ()),
+                _native_operand("addr"),
+                _native_operand("value"),
+                _native_operand("saddr")
+                if saddr_off is None
+                else _native_literal("off"),
+                *_native_memory_modifiers(
+                    cache_fields,
+                    fixed_encoding_fields=fixed_encoding_fields,
+                    temporal_operation="atomic",
+                ),
+            ),
         ),
     )
 
@@ -405,18 +429,25 @@ def _global_atomic_cmpswap_overlay(
         fixed_encoding_fields=fixed_encoding_fields,
         effects=_global_atomic_effects(width_bits, counter_id=_COUNTER_VMEM_LOAD),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_global_saddr_asm(
+        asm_forms=(_global_saddr_asm if saddr_off is None else _global_vaddr_asm)(
             mnemonic=f"{mnemonic}_rtn",
+            native_assembly_mnemonic=mnemonic,
             results=("dst",),
-            operands=("addr", "value", "saddr"),
+            operands=("addr", "value", *(("saddr",) if saddr_off is None else ())),
             immediates=_memory_asm_immediate_names(cache_immediate_fields),
-        )
-        if saddr_off is None
-        else _global_vaddr_asm(
-            mnemonic=f"{mnemonic}_rtn",
-            results=("dst",),
-            operands=("addr", "value"),
-            immediates=_memory_asm_immediate_names(cache_immediate_fields),
+            native_assembly_values=(
+                _native_result("dst"),
+                _native_operand("addr"),
+                _native_operand("value"),
+                _native_operand("saddr")
+                if saddr_off is None
+                else _native_literal("off"),
+                *_native_memory_modifiers(
+                    cache_fields,
+                    fixed_encoding_fields=fixed_encoding_fields,
+                    temporal_operation="atomic",
+                ),
+            ),
         ),
     )
 
@@ -563,7 +594,7 @@ def _global_atomic_overlays(
     address_units: int,
     descriptor_key_suffix: str = "",
     xml_has_m0: bool = False,
-    cmpswap_mnemonic_suffix: str = "b64",
+    cmpswap_mnemonic_suffixes: tuple[str, str] = ("_b32", "_b64"),
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     overlays: list[AmdgpuDescriptorOverlay] = []
     for row in rows:
@@ -629,7 +660,7 @@ def _global_atomic_overlays(
             address_field_name=address_field_name,
             data_field_name=data_field_name,
             instruction_name="GLOBAL_ATOMIC_CMPSWAP",
-            mnemonic="global_atomic_cmpswap_b32",
+            mnemonic=f"global_atomic_cmpswap{cmpswap_mnemonic_suffixes[0]}",
             semantic_tag="memory.global.atomic.compare_exchange.b32.return",
             data_format_name="FMT_NUM_U32",
             offset_field_name=offset_field_name,
@@ -653,7 +684,7 @@ def _global_atomic_overlays(
             address_field_name=address_field_name,
             data_field_name=data_field_name,
             instruction_name="GLOBAL_ATOMIC_CMPSWAP_X2",
-            mnemonic=f"global_atomic_cmpswap_{cmpswap_mnemonic_suffix}",
+            mnemonic=f"global_atomic_cmpswap{cmpswap_mnemonic_suffixes[1]}",
             semantic_tag="memory.global.atomic.compare_exchange.b64.return",
             data_format_name="FMT_NUM_U64",
             offset_field_name=offset_field_name,
@@ -949,6 +980,11 @@ def _flat_atomic_overlay(
             mnemonic=mnemonic,
             returns_old_value=returns_old_value,
             cache_fields=cache_immediate_fields,
+            native_modifiers=_native_memory_modifiers(
+                cache_fields,
+                fixed_encoding_fields=fixed_encoding_fields,
+                temporal_operation="atomic",
+            ),
         ),
     )
 
@@ -1052,6 +1088,11 @@ def _flat_atomic_cmpswap_overlay(
             mnemonic=mnemonic,
             returns_old_value=True,
             cache_fields=cache_immediate_fields,
+            native_modifiers=_native_memory_modifiers(
+                cache_fields,
+                fixed_encoding_fields=fixed_encoding_fields,
+                temporal_operation="atomic",
+            ),
         ),
     )
 
@@ -1135,7 +1176,7 @@ def _flat_atomic_overlays(
         _flat_atomic_cmpswap_overlay(
             descriptor_suffix="b32",
             instruction_name=cmpswap_instruction_name,
-            mnemonic="flat_atomic_cmpswap_b32",
+            mnemonic=cmpswap_instruction_name.lower(),
             semantic_tag="memory.generic.atomic.compare_exchange.b32.return",
             data_format_name="FMT_NUM_U32",
             encoding_name=encoding_name,
@@ -1287,6 +1328,11 @@ def _buffer_atomic_overlay(
             mnemonic=mnemonic,
             returns_old_value=returns_old_value,
             cache_fields=cache_immediate_fields,
+            native_modifiers=_native_memory_modifiers(
+                cache_fields,
+                fixed_encoding_fields=fixed_encoding_fields,
+                temporal_operation="atomic",
+            ),
         ),
     )
 
@@ -1371,6 +1417,11 @@ def _buffer_atomic_cmpswap_overlay(
             mnemonic=mnemonic,
             returns_old_value=True,
             cache_fields=cache_immediate_fields,
+            native_modifiers=_native_memory_modifiers(
+                cache_fields,
+                fixed_encoding_fields=fixed_encoding_fields,
+                temporal_operation="atomic",
+            ),
         ),
     )
 

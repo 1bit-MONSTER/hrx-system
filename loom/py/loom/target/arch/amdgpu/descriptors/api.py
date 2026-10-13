@@ -269,6 +269,8 @@ _NAMED_NATIVE_ASM_IMMEDIATE_FORMAT_IDS = frozenset(
         AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_REQUIRED_NAMED_I64,
         AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_SCOPE,
         AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_LOAD_TEMPORAL,
+        AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_STORE_TEMPORAL,
+        AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_ATOMIC_TEMPORAL,
     )
 )
 
@@ -318,6 +320,48 @@ def _validate_native_asm_values(descriptor_set: DescriptorSet) -> None:
                     raise ValueError(
                         f"AMDGPU descriptor '{descriptor.key}' native asm "
                         f"modifier '{value.field_name}' has no spelling"
+                    )
+                if value.target_format_id in (
+                    AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_LOAD_TEMPORAL,
+                    AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_STORE_TEMPORAL,
+                    AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_ATOMIC_TEMPORAL,
+                ):
+                    if (
+                        immediate.kind is not ImmediateKind.UNSIGNED
+                        or immediate.unsigned_max != 7
+                    ):
+                        raise ValueError(
+                            f"AMDGPU descriptor '{descriptor.key}' native temporal "
+                            "hint requires a three-bit immediate"
+                        )
+                    if (
+                        value.target_format_id
+                        != AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_ATOMIC_TEMPORAL
+                    ):
+                        index = descriptor.immediates.index(immediate)
+                        scope = immediate_by_name.get("scope")
+                        if (
+                            not index
+                            or scope is None
+                            or scope.kind is not ImmediateKind.UNSIGNED
+                            or scope.unsigned_max != 3
+                            or descriptor.immediates[index - 1] is not scope
+                        ):
+                            raise ValueError(
+                                f"AMDGPU descriptor '{descriptor.key}' native "
+                                "temporal hint requires the preceding two-bit scope"
+                            )
+                if (
+                    value.target_format_id
+                    == AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_SCOPE
+                    and (
+                        immediate.kind is not ImmediateKind.UNSIGNED
+                        or immediate.unsigned_max != 3
+                    )
+                ):
+                    raise ValueError(
+                        f"AMDGPU descriptor '{descriptor.key}' native scope "
+                        "requires a two-bit immediate"
                     )
                 if value.target_format_id == (
                     AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_NAMED_BIT_LIST

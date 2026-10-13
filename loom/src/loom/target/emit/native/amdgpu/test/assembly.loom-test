@@ -3158,12 +3158,12 @@ low.func.def target<amdgpu.rdna4.core>(@gfx12_target) @gfx12_packed_half_atomics
 }
 
 // ----
-  buffer_atomic_pk_add_f16 v0, v6, s[0:3], s4 offen offset:4 scope:2 th:0
-  buffer_atomic_pk_add_bf16 v1, v6, s[0:3], s4 offen offset:8 scope:2 th:1
-  global_atomic_pk_add_f16_saddr v6, v2, s[6:7] offset:12 scope:2 th:0
-  global_atomic_pk_add_bf16_rtn_saddr v0, v6, v3, s[6:7] offset:16 scope:2 th:1
-  flat_atomic_pk_add_f16 v[4:5], v1 offset:20 scope:2 th:0
-  flat_atomic_pk_add_bf16 v0, v[4:5], v0 offset:24 scope:2 th:1
+  buffer_atomic_pk_add_f16 v0, v6, s[0:3], s4 offen offset:4 scope:SCOPE_DEV
+  buffer_atomic_pk_add_bf16 v1, v6, s[0:3], s4 offen offset:8 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
+  global_atomic_pk_add_f16 v6, v2, s[6:7] offset:12 scope:SCOPE_DEV
+  global_atomic_pk_add_bf16 v0, v6, v3, s[6:7] offset:16 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
+  flat_atomic_pk_add_f16 v[4:5], v1 offset:20 scope:SCOPE_DEV
+  flat_atomic_pk_add_bf16 v0, v[4:5], v0 offset:24 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
   ds_pk_add_f16 v6, v0 offset:28
   ds_pk_add_rtn_bf16 v0, v6, v0 offset:32
   s_endpgm
@@ -3246,8 +3246,8 @@ low.func.def target<amdgpu.cdna4.core>(@gfx950_target) @gfx950_packed_half_atomi
 }
 
 // ----
-  flat_atomic_pk_add_f16 v[2:3], v0 offset:4 sc1:0
-  flat_atomic_pk_add_bf16 v0, v[2:3], v1 offset:8 sc1:0
+  flat_atomic_pk_add_f16 v[2:3], v0 offset:4
+  flat_atomic_pk_add_bf16 v0, v[2:3], v1 offset:8 sc0
   ds_pk_add_f16 v5, v4 offset:12
   ds_pk_add_rtn_bf16 v0, v5, v0 offset:16
   s_endpgm

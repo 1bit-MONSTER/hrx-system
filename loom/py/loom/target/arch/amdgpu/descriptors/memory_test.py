@@ -4,13 +4,24 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+from dataclasses import replace
+
 import pytest
 
-from loom.target.arch.amdgpu.descriptors.api import _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS
+from loom.target.arch.amdgpu.descriptors.api import (
+    _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS,
+    _validate_native_asm_values,
+)
 from loom.target.arch.amdgpu.descriptors.common import (
     _REG_AGPR,
     _REG_PART_VGPR_LOW16,
     _REG_VGPR,
+)
+from loom.target.arch.amdgpu.descriptors.contracts import (
+    _amdgpu_contract_descriptor_from_overlay,
+)
+from loom.target.arch.amdgpu.descriptors.rdna4 import (
+    _AMDGPU_RDNA4_CORE_DESCRIPTOR_SET_BASE,
 )
 from loom.target.arch.amdgpu.descriptors.sets import (
     _gfx11_core_overlays,
@@ -18,6 +29,36 @@ from loom.target.arch.amdgpu.descriptors.sets import (
     _gfx125x_core_overlays,
 )
 from loom.target.low_descriptors import EffectKind
+
+
+def test_native_temporal_hint_requires_indexed_scope() -> None:
+    overlay = next(
+        row
+        for row in _gfx12_core_overlays()
+        if row.descriptor_key == "amdgpu.flat_load_b32"
+    )
+    descriptor = replace(
+        _amdgpu_contract_descriptor_from_overlay(overlay), asm_forms=overlay.asm_forms
+    )
+    descriptor_set = replace(
+        _AMDGPU_RDNA4_CORE_DESCRIPTOR_SET_BASE, descriptors=(descriptor,)
+    )
+    _validate_native_asm_values(descriptor_set)
+
+    # Reordering named fields preserves parsing but invalidates the formatter's
+    # direct predecessor reference. Reject this at descriptor construction.
+    scope = next(
+        field for field in descriptor.immediates if field.field_name == "scope"
+    )
+    reordered = replace(
+        descriptor,
+        immediates=(
+            scope,
+            *(field for field in descriptor.immediates if field is not scope),
+        ),
+    )
+    with pytest.raises(ValueError, match="preceding two-bit scope"):
+        _validate_native_asm_values(replace(descriptor_set, descriptors=(reordered,)))
 
 
 def test_gfx12_vector_store_family_exposes_cache_scope() -> None:

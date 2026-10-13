@@ -80,6 +80,7 @@ loom_generated_cc_library(
   EXTRA_OUTPUT_FLAGS
     "--cache-policy-encoding-rows"
     "--cache-policy-temporal-th"
+    "--cache-policy-native-names"
     "--lds-bank-service-model-rows"
     "--matrix-coexecution-source-layouts"
     "--low-registry-tables"
@@ -91,6 +92,7 @@ loom_generated_cc_library(
   EXTRA_OUTPUTS
     "memory_cache_policy_encoding_rows.inl"
     "memory_cache_policy_temporal_th.inl"
+    "memory_cache_policy_native_names.inl"
     "lds_bank_service_model_rows.inl"
     "matrix_coexecution_source_layouts.inl"
     "low_registry_tables.inl"

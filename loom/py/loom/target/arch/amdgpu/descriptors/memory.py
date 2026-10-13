@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Literal
 
 from .common import *
 
@@ -3233,6 +3234,11 @@ def _flat_load_overlay(
             operands=asm_operands,
             immediates=_memory_asm_immediate_names(cache_fields),
             named_immediates=True,
+            native_assembly_values=(
+                _native_result("dst"),
+                _native_operand("addr"),
+                *_native_memory_modifiers(cache_fields, temporal_operation="load"),
+            ),
         ),
     )
 
@@ -3402,6 +3408,11 @@ def _flat_store_overlay(
             operands=asm_operands,
             immediates=_memory_asm_immediate_names(cache_fields),
             named_immediates=True,
+            native_assembly_values=(
+                _native_operand("addr"),
+                _native_operand("value"),
+                *_native_memory_modifiers(cache_fields, temporal_operation="store"),
+            ),
         ),
     )
 
@@ -3496,16 +3507,35 @@ def _flat_memory_overlays(
 
 def _native_memory_modifiers(
     cache_fields: tuple[tuple[str, int], ...],
+    *,
+    fixed_encoding_fields: tuple[tuple[str, AmdgpuFixedEncodingValue], ...] = (),
+    temporal_operation: Literal["load", "store", "atomic"],
 ) -> tuple[NativeAsmValue, ...]:
-    return (
-        _native_amdgpu_required_named_i64_immediate("offset"),
-        *(
-            _native_amdgpu_named_flag_immediate(name.lower())
-            if name in ("GLC", "SLC", "DLC")
-            else _native_amdgpu_required_named_i64_immediate(name.lower())
-            for name, _ in cache_fields
-        ),
-    )
+    fixed_fields = dict(fixed_encoding_fields)
+    modifiers = [_native_amdgpu_required_named_i64_immediate("offset")]
+    for name, bit_width in cache_fields:
+        spelling = name.lower()
+        if name in fixed_fields:
+            value = fixed_fields[name]
+            if value:
+                modifiers.append(
+                    _native_modifier_literal(
+                        spelling if bit_width == 1 else f"{spelling}:{value}"
+                    )
+                )
+        elif name == "TH":
+            modifiers.append(
+                _native_amdgpu_gfx12_temporal_immediate(spelling, temporal_operation)
+            )
+        elif name == "SCOPE":
+            modifiers.append(_native_amdgpu_gfx12_scope_immediate(spelling))
+        else:
+            modifiers.append(
+                _native_amdgpu_named_flag_immediate(spelling)
+                if bit_width == 1
+                else _native_amdgpu_required_named_i64_immediate(spelling)
+            )
+    return tuple(modifiers)
 
 
 def _scratch_load_overlay(
@@ -3599,7 +3629,7 @@ def _scratch_load_overlay(
                 _native_operand("saddr")
                 if fixed_saddr is None
                 else _native_literal("off"),
-                *_native_memory_modifiers(cache_fields),
+                *_native_memory_modifiers(cache_fields, temporal_operation="load"),
             ),
         ),
     )
@@ -3700,7 +3730,7 @@ def _scratch_store_overlay(
                 _native_operand("saddr")
                 if fixed_saddr is None
                 else _native_literal("off"),
-                *_native_memory_modifiers(cache_fields),
+                *_native_memory_modifiers(cache_fields, temporal_operation="store"),
             ),
         ),
     )
@@ -4139,7 +4169,7 @@ def _global_load_lds_overlay(
                     _native_operand("saddr")
                     if saddr_off is None
                     else _native_literal("off"),
-                    *_native_memory_modifiers(cache_fields),
+                    *_native_memory_modifiers(cache_fields, temporal_operation="load"),
                     _native_modifier_literal("lds"),
                 ),
             )

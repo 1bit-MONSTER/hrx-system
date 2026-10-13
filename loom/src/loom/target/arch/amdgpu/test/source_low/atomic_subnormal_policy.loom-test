@@ -55,7 +55,7 @@ low.func.def target<amdgpu.cdna4.core> abi(hal_kernel) @cas_atomic_add_f32_noftz
 ^_bb1(%20: reg<amdgpu.vgpr>):
   %24 = v_add_f32 %20, %value
   %26 = concat(%24, %20) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %27 = global_atomic_cmpswap_b32_rtn_saddr %23, %26, %view
+  %27 = global_atomic_cmpswap_rtn_saddr %23, %26, %view
   %28 = v_cmp_ne_i32 %27, %20
   %30, %31 = s_and_saveexec_b64 %28
   low.cond_br %31, ^_bb2, ^_bb3 : reg<amdgpu.scc>
@@ -86,7 +86,7 @@ low.func.def target<amdgpu.gfx9_4.generic.core> abi(hal_kernel) @cas_atomic_add_
 ^_bb1(%20: reg<amdgpu.vgpr>):
   %24 = v_add_f32 %20, %value
   %26 = concat(%24, %20) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %27 = global_atomic_cmpswap_b32_rtn_saddr %23, %26, %view
+  %27 = global_atomic_cmpswap_rtn_saddr %23, %26, %view
   %28 = v_cmp_ne_i32 %27, %20
   %30, %31 = s_and_saveexec_b64 %28
   low.cond_br %31, ^_bb2, ^_bb3 : reg<amdgpu.scc>

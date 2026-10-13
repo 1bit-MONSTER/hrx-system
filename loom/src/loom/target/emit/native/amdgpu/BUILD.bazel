@@ -94,6 +94,7 @@ loom_cc_library(
     name = "assembly",
     srcs = ["assembly.c"],
     hdrs = ["assembly.h"],
+    textual_hdrs = ["//loom/src/loom/target/arch/amdgpu:memory_cache_policy_native_names.inl"],
     deps = [
         ":branch_layout",
         ":delay_layout",
@@ -111,6 +112,7 @@ loom_cc_library(
         "//loom/src/loom/target/arch/amdgpu/planning:packet_plan",
         "//loom/src/loom/target/arch/amdgpu/refs:target_refs",
         "//loom/src/loom/target/emit/native:assembly",
+        "//loom/src/loom/util:string_pool",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],
@@ -177,6 +179,7 @@ loom_check_test_suite(
         "test/hal_kernel_library.loom-test",
         "test/immediates.loom-test",
         "test/kernel_move_resources.loom-test",
+        "test/memory_modifiers.loom-test",
         "test/message_completion.loom-test",
         "test/packet.loom-test",
         "test/packet_json.loom-test",
