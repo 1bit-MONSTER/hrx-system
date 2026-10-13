@@ -334,8 +334,12 @@ static iree_status_t loom_amdgpu_legalize_vector_load(
     return iree_ok_status();
   }
   bool rewritten = false;
-  IREE_RETURN_IF_ERROR(
-      loom_vector_static_shape_memory_rewrite_op(context, op, &rewritten));
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, loom_vector_load_result(op));
+  if (loom_type_rank(result_type) > 1) {
+    IREE_RETURN_IF_ERROR(
+        loom_vector_static_shape_memory_rewrite_op(context, op, &rewritten));
+  }
   if (!rewritten && context->boundary_representation ==
                         LOOM_TARGET_BOUNDARY_REPRESENTATION_PROJECTED) {
     IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_load(
@@ -363,8 +367,12 @@ static iree_status_t loom_amdgpu_legalize_vector_store(
     return iree_ok_status();
   }
   bool rewritten = false;
-  IREE_RETURN_IF_ERROR(
-      loom_vector_static_shape_memory_rewrite_op(context, op, &rewritten));
+  const loom_type_t value_type =
+      loom_module_value_type(context->module, loom_vector_store_value(op));
+  if (loom_type_rank(value_type) > 1) {
+    IREE_RETURN_IF_ERROR(
+        loom_vector_static_shape_memory_rewrite_op(context, op, &rewritten));
+  }
   if (!rewritten) {
     IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_store(
         context, op, context->vector_packet_policy, &rewritten));
