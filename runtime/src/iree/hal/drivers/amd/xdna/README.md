@@ -114,21 +114,89 @@ fails completion edges, and retains the unsafe-to-release ownership graph.
 Teardown failures similarly report and retain ownership without aborting the
 application or maintaining a live-object registry.
 
-Reusable command buffers, device memory pools, external memory import/export,
-file operations, host calls, and atomic queue operations return explicit
-unsupported statuses. The direct path has no dependency on those mechanisms.
+The shared AMD memory backend supplies pools, prepared external-memory access
+and stable reservations according to native capabilities. File operations and
+host calls participate in ordinary semaphore dependencies. Reusable command
+buffers, device profiling and atomic queue operations return explicit
+unsupported statuses.
 
 ## Verification
 
 Native correctness suites declare an XDNA hardware requirement:
 
 ```sh
-python dev.py bazel test --config=asan \
+iree-bazel-test --config=asan \
+  --//runtime/config/hal:drivers=task,xdna \
   //runtime/src/iree/hal/drivers/amd/xdna/cts:native_test \
+  //runtime/src/iree/hal/drivers/amd/fabric/cts/xdna:virtual_buffer_test \
   //loom/src/loom/tooling/target/amd/xdna:hal_execution_test
 ```
 
 The native suite exercises submission capture, rebinding, guarded buffer views,
-consumer-before-producer dependencies, direct transfers, failure propagation,
-and allocation properties. The Loom suite exercises the public tool, compiler,
-HAL, physical execution, readback, and numerical oracle together.
+consumer-before-producer dependencies, direct transfers, file I/O, failure
+propagation, first-device-writer visibility and allocation properties. Its
+reservation case builds a pool from queried source requirements, replaces
+retained backing at stable NPU addresses, dispatches immediately after the
+mapping dependency and checks final detach. The fabric suite exercises composed
+CPU/GPU/NPU replacement through independently queried mapping groups. Each uses
+the source routes and queue capabilities advertised by the selected devices.
+The Loom suite exercises the public tool, compiler, HAL, physical execution,
+readback, and numerical oracle together.
+
+## Queue benchmarks
+
+[`cts:queue_benchmark`](cts/queue_benchmark.cc) measures the production HAL queue
+with prepared native programs and buffers. Each case creates its device, pool,
+executables and semaphores outside timing and reuses them across iterations.
+Warmup precedes measurement. Every dispatch includes the program's independent
+array initialization; native context lifetime does not promise that tile state
+survives time slicing.
+
+The names below follow the `XdnaQueueBenchmark/` prefix:
+
+| Scenario | Timed interval |
+| --- | --- |
+| `ReadySubmitOnly` | One HAL dispatch with no unresolved waits. Checked completion is outside timing. |
+| `ReadyEndToEnd` | One ready HAL dispatch and its completion wait. |
+| `UnresolvedSubmitOnly` | Acceptance of a dispatch waiting on an unreached host gate. Gate signaling and completion are outside timing. |
+| `StreamingSubmitOnly` | Acceptance of eight multiply dispatches chained by semaphore dependencies. The terminal wait is outside timing. |
+| `StreamingEndToEnd` | The same eight-dispatch chain and its terminal wait. |
+| `SwitchingSubmitOnly` | Acceptance of eight dependent dispatches alternating multiply and add executables. The terminal wait is outside timing. |
+| `SwitchingEndToEnd` | The same alternating chain and its terminal wait. |
+
+These are HAL operation costs, including capture, causal admission and native
+publication or deferral. Completed rows also include checked retirement and
+HAL semaphore publication. They are not isolated libamdf entry-point timings.
+Inputs are prepared before measurement and no row includes host readback, so
+end-to-end here means dispatch through HAL completion, not an entire
+host-to-host application pipeline. Numerical output and memory lifetime are
+checked by the native CTS above.
+
+Streaming and switching times are per eight-dispatch batch; divide elapsed time
+by eight for per-dispatch comparisons. Their item rate already counts individual
+dispatches. Ready and unresolved rows measure one dispatch per iteration.
+
+```sh
+iree-bazel-build --config=opt \
+  --//runtime/config/hal:drivers=task,xdna \
+  //runtime/src/iree/hal/drivers/amd/xdna/cts:queue_benchmark
+bazel-bin/runtime/src/iree/hal/drivers/amd/xdna/cts/queue_benchmark \
+  --benchmark_min_time=200x --benchmark_repetitions=7 \
+  --benchmark_out=xdna-queue.json --benchmark_out_format=json
+```
+
+Fixed counts bound submissions even when timing excludes completion. Sustained
+measurements hold runtime power active and exclude competing hardware use;
+deployment measurements retain normal idle/wake policy. The
+[libamdf measurement contract](../../../../../../../libamdf/docs/xdna.md#power-policy-and-measurement)
+defines that distinction. Report the build identity, power policy, repetition
+spread and raw results with any comparison.
+
+The resource-tagged smoke target exercises the same cases without collecting
+performance evidence:
+
+```sh
+iree-bazel-test --config=asan \
+  --//runtime/config/hal:drivers=task,xdna \
+  //runtime/src/iree/hal/drivers/amd/xdna/cts:queue_benchmark_test
+```

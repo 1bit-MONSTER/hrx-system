@@ -1,8 +1,8 @@
-# Native memory and execution benchmarks
+# Native memory benchmarks
 
-Memory lifecycle and warm command publication measure different boundaries.
-The library benchmarks measure backing and access; the XDNA runtime consumer
-measures execution of an already prepared image through libamdf.
+The library benchmarks measure native backing and access through the public
+libamdf API. Application-facing execution measurements belong to the HAL
+consumer, which owns image preparation, dispatch and completion.
 
 Sustained XDNA results require the selected device's runtime power to be held
 active for the measurement, with the previous policy restored afterward.
@@ -64,43 +64,16 @@ CPU scaling, concurrent activity, and repetition spread remain part of the
 result. Instrumented or smoke-run durations are not performance measurements.
 The benchmark executable is not part of the installed libamdf distribution.
 
-## Independent XDNA execution
+## XDNA execution through the HAL
 
-[`//experimental/xdna/benchmarks:execution_benchmark`](../../experimental/xdna/benchmarks/execution_benchmark.cc)
-uses the runtime ELF loader and the public libamdf API. It retains one device,
-context, queue, prepared instruction range and data allocation set across cases
-and repetitions. Host image loading, relocation, instruction publication and
-allocation are outside timing. Every command includes device initialization
-and execution because time-sliced context lifetime does not guarantee tile
-state survives between independent submissions. Each iteration publishes fresh
-input and checks numerical output, guards and instruction immutability outside
-timing.
+The [XDNA HAL queue benchmark](../../runtime/src/iree/hal/drivers/amd/xdna/README.md#queue-benchmarks)
+measures ready dispatch, unresolved dependencies, streaming and executable
+switching through the production HAL. It separates submit-only intervals from
+checked completion. Its timings include HAL operation capture, dependency
+handling and retirement as applicable; they are not isolated libamdf call costs.
+The HAL guide owns the executable, invocation and exact timed boundaries.
 
-| Scenario | Timed operations |
-| --- | --- |
-| `XdnaExecution/Independent/Submit` | Publication of the complete setup-and-execution range. Completion occurs outside timing. |
-| `XdnaExecution/Independent/SubmitAndWait` | The same publication plus device setup, execution and completion wait. |
-
-Both rows wait for each submission before reusing its instruction and data
-ranges, keeping one command outstanding. The submit-only row measures host
-publication cost, not device throughput or completed-operation latency. Host
-input publication and output acquisition are outside both rows, so the completed
-row is not a measurement of the entire host-to-host application pipeline.
-
-Build the execution target with the same optimized options shown above, then
-run a fixed number of iterations:
-
-```sh
-build_tools/bin/iree-bazel-build --config=opt \
-  //experimental/xdna/benchmarks:execution_benchmark
-bazel-bin/experimental/xdna/benchmarks/execution_benchmark \
-  --benchmark_min_time=200x --benchmark_repetitions=7 \
-  --benchmark_out=execution.json --benchmark_out_format=json
-```
-
-Fixed counts bound the real submission count when completion is excluded from
-timing. Comparisons with XRT or another runtime match instruction bytes, work
-per submission, residency, host cache operations and completion boundaries.
-Allocation comparisons also match whether each owner's GPU VM has executed
-work. Ratios between unlike lifecycle or submission shapes do not isolate
-library overhead.
+Comparisons with XRT or another runtime match work per submission, residency,
+host cache operations, dependency shape and completion boundaries. Allocation
+comparisons also match whether each owner's GPU VM has executed work. Ratios
+between unlike lifecycle or submission shapes do not isolate library overhead.
