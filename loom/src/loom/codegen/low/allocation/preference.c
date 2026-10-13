@@ -134,14 +134,14 @@ static void loom_low_allocation_preference_prepare_use(
     const loom_value_ordinal_t origin =
         loom_low_allocation_preference_origin(placement, ordinal);
     locations[i] = (loom_low_allocation_preference_location_t){
-        .assignment = loom_low_allocation_preference_assignment(
-            assignments, constraints, ordinal),
         .representative = bindings[i].representative,
+        .candidate_index = origin == primary_origin     ? 1
+                           : origin == secondary_origin ? 2
+                                                        : 0,
     };
-    if (locations[i].assignment == NULL) {
-      locations[i].candidate_index = origin == primary_origin     ? 1
-                                     : origin == secondary_origin ? 2
-                                                                  : 0;
+    if (locations[i].candidate_index == 0) {
+      locations[i].assignment = loom_low_allocation_preference_assignment(
+          assignments, constraints, ordinal);
     }
     loom_low_allocation_preference_location_t* representative =
         &locations[bindings[i].representative];

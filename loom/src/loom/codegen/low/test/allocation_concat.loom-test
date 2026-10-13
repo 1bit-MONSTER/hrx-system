@@ -316,3 +316,109 @@ value %second: test.phys -> physical_register[1:1]
 value %third: test.phys -> physical_register[2:1]
 value %fourth: test.phys -> physical_register[3:1]
 value %tuple: test.phys -> physical_register[0:4]
+
+// ====
+
+// RUN: emit low-allocation-query @compact_concat_lane3_last strategy=resource-stall spill-count values=%temporary0,%temporary1,%temporary2,%temporary3,%lane0,%lane1,%lane2,%lane3,%values fixed=%seed:physical_register:2:1 fixed=%values:physical_register:0:4 fixed=%lane3:physical_register:3:1
+
+test.target<low_core> @target
+
+// The lane3-last producer order initially strands lane2 outside of its compact
+// result span. One independent temporary can move within the same five-register
+// extent, allowing every concat source to use its retained result slice.
+low.func.def target<test.low.core>(@target) @compact_concat_lane3_last(%seed: reg<test.phys>) -> (reg<test.phys x4>) asm {
+  %temporary0 = test.add.phys %seed, %seed
+  %lane0 = test.add.phys %temporary0, %temporary0
+  %temporary1 = test.add.phys %seed, %seed
+  %lane1 = test.add.phys %temporary1, %temporary1
+  %temporary2 = test.add.phys %seed, %seed
+  %lane2 = test.add.phys %temporary2, %temporary2
+  %temporary3 = test.add.phys %seed, %seed
+  %lane3 = test.add.phys %temporary3, %lane0
+  %values = concat(%lane0, %lane1, %lane2, %lane3) : (reg<test.phys>, reg<test.phys>, reg<test.phys>, reg<test.phys>) -> reg<test.phys x4>
+  return %values
+}
+
+// ----
+spills: 0
+value %temporary0: test.phys -> physical_register[0:1]
+value %temporary1: test.phys -> physical_register[1:1]
+value %temporary2: test.phys -> physical_register[3:1]
+value %temporary3: test.phys -> physical_register[4:1]
+value %lane0: test.phys -> physical_register[0:1]
+value %lane1: test.phys -> physical_register[1:1]
+value %lane2: test.phys -> physical_register[2:1]
+value %lane3: test.phys -> physical_register[3:1]
+value %values: test.phys -> physical_register[0:4]
+
+// ====
+
+// RUN: emit low-allocation-query @compact_concat_uses_other_fallback_slot strategy=source spill-count copy-count values=%historical,%blocker,%lane0,%lane1,%lane2,%lane3,%values fixed=%seed:physical_register:6:1 fixed=%occupy0:physical_register:0:1 fixed=%occupy1:physical_register:1:1 fixed=%occupy3:physical_register:3:1 fixed=%historical:physical_register:4:1 fixed=%values:physical_register:0:4 fixed=%lane3:physical_register:3:1
+
+test.target<low_core> @target
+
+// The fixed occupiers force %blocker into lane 2's result slice, then die
+// before the concat sources. Lane 2's ordinary fallback is v4, but %historical
+// occupied it earlier in the blocker's lifetime. V5 remains legal inside the
+// register extent already established by %seed.
+low.func.def target<test.low.core>(@target) @compact_concat_uses_other_fallback_slot(%seed: reg<test.phys>) -> (reg<test.phys x4>) asm {
+  %occupy0 = test.add.phys %seed, %seed
+  %occupy1 = test.add.phys %seed, %seed
+  %occupy3 = test.add.phys %seed, %seed
+  %historical = test.add.phys %seed, %seed
+  %blocker = test.add.phys %seed, %seed
+  %occupy0_end = test.add.phys %occupy0, %occupy0
+  %occupy1_end = test.add.phys %occupy1, %occupy1
+  %occupy3_end = test.add.phys %occupy3, %occupy3
+  %historical_end = test.add.phys %historical, %historical
+  %lane0 = test.add.phys %seed, %seed
+  %lane1 = test.add.phys %seed, %seed
+  %lane2 = test.add.phys %seed, %seed
+  %lane3 = test.add.phys %blocker, %seed
+  %values = concat(%lane0, %lane1, %lane2, %lane3) : (reg<test.phys>, reg<test.phys>, reg<test.phys>, reg<test.phys>) -> reg<test.phys x4>
+  return %values
+}
+
+// ----
+spills: 0
+copies: coalesced=0 materialized=0
+value %historical: test.phys -> physical_register[4:1]
+value %blocker: test.phys -> physical_register[5:1]
+value %lane0: test.phys -> physical_register[0:1]
+value %lane1: test.phys -> physical_register[1:1]
+value %lane2: test.phys -> physical_register[2:1]
+value %lane3: test.phys -> physical_register[3:1]
+value %values: test.phys -> physical_register[0:4]
+
+// ====
+
+// RUN: emit low-allocation-query @compact_concat_lane2_last strategy=resource-stall spill-count values=%temporary0,%temporary1,%temporary2,%temporary3,%lane0,%lane1,%lane2,%lane3,%values fixed=%seed:physical_register:2:1 fixed=%values:physical_register:0:4 fixed=%lane3:physical_register:3:1
+
+test.target<low_core> @target
+
+// Reordering the two independent producer pairs already gives every source its
+// result slice directly and must not perturb the compact assignment.
+low.func.def target<test.low.core>(@target) @compact_concat_lane2_last(%seed: reg<test.phys>) -> (reg<test.phys x4>) asm {
+  %temporary0 = test.add.phys %seed, %seed
+  %lane0 = test.add.phys %temporary0, %temporary0
+  %temporary1 = test.add.phys %seed, %seed
+  %lane1 = test.add.phys %temporary1, %temporary1
+  %temporary3 = test.add.phys %seed, %seed
+  %lane3 = test.add.phys %temporary3, %lane0
+  %temporary2 = test.add.phys %seed, %seed
+  %lane2 = test.add.phys %temporary2, %temporary2
+  %values = concat(%lane0, %lane1, %lane2, %lane3) : (reg<test.phys>, reg<test.phys>, reg<test.phys>, reg<test.phys>) -> reg<test.phys x4>
+  return %values
+}
+
+// ----
+spills: 0
+value %temporary0: test.phys -> physical_register[0:1]
+value %temporary1: test.phys -> physical_register[1:1]
+value %temporary2: test.phys -> physical_register[2:1]
+value %temporary3: test.phys -> physical_register[3:1]
+value %lane0: test.phys -> physical_register[0:1]
+value %lane1: test.phys -> physical_register[1:1]
+value %lane2: test.phys -> physical_register[2:1]
+value %lane3: test.phys -> physical_register[3:1]
+value %values: test.phys -> physical_register[0:4]
