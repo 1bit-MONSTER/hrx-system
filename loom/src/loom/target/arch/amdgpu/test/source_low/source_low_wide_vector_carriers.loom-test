@@ -423,3 +423,52 @@ func.def public target(@target) @report_packetized_load_root(%input: buffer, %rh
 
 // ----
 CHECK: COMPILE-REPORT: target_legalization[*] function=report_packetized_load_root source_op=vector.load mode=final policy=prefer-native action=rewritten outcome=target-rewrite contract=unhandled legalizer=vector-packet strategy=target bundle=target config=target scalarized=false source_rejections=0x00000000 source_rejection_detail=0 target_rejections=0x00000000 missing_features=0x00000000 missing_facts=0x00000000 created_ops=10 erased_ops=2
+
+// ====
+
+// Predicate bitstreams split at the native 32-mask carrier boundary while
+// preserving packed byte tails in both directions.
+// RUN: pass specialize-target-callgraph,project-boundary-representations,target-legalize{mode=complete,boundaries=projected},canonicalize,dce
+
+amdgpu.target<gfx11-generic> @target
+
+func.def public target(@target) @wide_predicate_bitunpack(%packed: vector<5xi8>) -> (vector<40xi1>) {
+  %unpacked = vector.bitunpacku<1> %packed : vector<5xi8> -> vector<40xi1>
+  func.return %unpacked : vector<40xi1>
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def public target(@target) @wide_predicate_bitunpack(%packed: vector<5xi8>) -> (vector<32xi1>, vector<8xi1>) {
+  cfg.br ^_bb1(%packed: vector<5xi8>)
+^_bb1(%0: vector<5xi8>):
+  %8 = vector.slice %0[0] : vector<5xi8> -> vector<4xi8>
+  %9 = vector.bitunpacku<1> %8 : vector<4xi8> -> vector<32xi1>
+  %10 = vector.slice %0[4] : vector<5xi8> -> vector<1xi8>
+  %11 = vector.bitunpacku<1> %10 : vector<1xi8> -> vector<8xi1>
+  func.return %9, %11 : vector<32xi1>, vector<8xi1>
+}
+
+// ====
+
+// RUN: pass specialize-target-callgraph,project-boundary-representations,target-legalize{mode=complete,boundaries=projected},canonicalize,dce
+
+amdgpu.target<gfx11-generic> @target
+
+func.def public target(@target) @wide_predicate_bitpack(%predicates: vector<40xi1>) -> (vector<5xi8>) {
+  %packed = vector.bitpack<1> %predicates : vector<40xi1> -> vector<5xi8>
+  func.return %packed : vector<5xi8>
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def public target(@target) @wide_predicate_bitpack(%5: vector<32xi1>, %6: vector<8xi1>) -> (vector<5xi8>) {
+  cfg.br ^_bb1(%5: vector<32xi1>, %6: vector<8xi1>)
+^_bb1(%3: vector<32xi1>, %0: vector<8xi1>):
+  %9 = vector.bitpack<1> %3 : vector<32xi1> -> vector<4xi8>
+  %11 = vector.bitpack<1> %0 : vector<8xi1> -> vector<1xi8>
+  %packed = vector.concat<0> %9, %11 : vector<4xi8>, vector<1xi8> -> vector<5xi8>
+  func.return %packed : vector<5xi8>
+}

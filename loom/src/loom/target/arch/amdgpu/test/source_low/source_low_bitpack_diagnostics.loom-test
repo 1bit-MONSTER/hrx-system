@@ -27,13 +27,3 @@ func.def target(@target) @bitpack_result_type_rejected(%codes: vector<4xi32>) ->
   %packed = vector.bitpack<8> %codes : vector<4xi32> -> vector<2xi16>
   func.return %packed : vector<2xi16>
 }
-
-// ====
-
-amdgpu.target<gfx11-generic> @target
-
-func.def target(@target) @bitpack_lane_group_rejected(%codes: vector<3xi32>) -> (vector<3xi8>) {
-  // ERROR@+1: TARGET/003 {subject_role="packed-integer-storage", subject_name="vector.bitpack", constraint_key="amdgpu.packed_integer.payload_from_lanes"}
-  %packed = vector.bitpack<8> %codes : vector<3xi32> -> vector<3xi8>
-  func.return %packed : vector<3xi8>
-}

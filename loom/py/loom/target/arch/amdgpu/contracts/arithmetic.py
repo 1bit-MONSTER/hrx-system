@@ -334,6 +334,16 @@ _VEC_I1_STATIC = Vector(
     minimum_static_elements=1,
     maximum_static_elements="LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES",
 )
+_VEC_I1_RANK1 = Vector(
+    "i1",
+    minimum_lanes=1,
+    maximum_lanes="LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES",
+)
+_VEC_I1_ANY_STATIC_LANES = Vector(
+    "i1",
+    minimum_lanes=1,
+    maximum_lanes="LOOM_DIM_MAX_STATIC_SIZE",
+)
 _VEC_INDEX_STATIC = Vector(
     "index",
     minimum_static_elements=1,
@@ -990,19 +1000,21 @@ def _packed_integer_width_guard(maximum_width: int) -> Guard:
     )
 
 
-def _vector_bitpack_recipe_rule() -> RecipeRule:
+def _vector_bitpack_recipe_rule(
+    source_type: TypePattern, *, maximum_width: int
+) -> RecipeRule:
     return RecipeRule(
         source_op=vector.vector_bitpack,
         guards=(
-            _value_type("source", _VEC_I32_RANK1),
+            _value_type("source", source_type),
             _value_type("result", _VEC_I8_PACKED),
-            _packed_integer_width_guard(8),
+            _packed_integer_width_guard(maximum_width),
             Guard.value_packed_integer_payload_from_lanes(
                 "source",
                 "result",
                 "width",
                 storage_unit_bit_count=32,
-                storage_payload_multiple=32,
+                storage_payload_multiple=8,
                 diagnostic=_PACKED_INTEGER_PAYLOAD_FROM_LANES_DIAGNOSTIC,
             ),
         ),
@@ -1020,6 +1032,8 @@ def _vector_bitunpack_recipe_rule(
         result_family_type = _VEC_I32_ANY_STATIC_LANES
     elif result_type == _VEC_I8_PACKED:
         result_family_type = _VEC_I8_ANY_STATIC_LANES
+    elif result_type == _VEC_I1_RANK1:
+        result_family_type = _VEC_I1_ANY_STATIC_LANES
     else:
         raise ValueError(f"unsupported bitunpack result type: {result_type!r}")
     return RecipeRule(
@@ -1043,7 +1057,8 @@ def _vector_bitunpack_recipe_rule(
 
 def _vector_packed_integer_recipe_rules() -> tuple[RecipeRule, ...]:
     return (
-        _vector_bitpack_recipe_rule(),
+        _vector_bitpack_recipe_rule(_VEC_I32_RANK1, maximum_width=8),
+        _vector_bitpack_recipe_rule(_VEC_I1_RANK1, maximum_width=1),
         _vector_bitunpack_recipe_rule(
             vector.vector_bitunpacku,
             _VEC_I32_RANK1,
@@ -1057,6 +1072,12 @@ def _vector_packed_integer_recipe_rules() -> tuple[RecipeRule, ...]:
             maximum_lane_count=64,
         ),
         _vector_bitunpack_recipe_rule(
+            vector.vector_bitunpacku,
+            _VEC_I1_RANK1,
+            maximum_width=1,
+            maximum_lane_count=32,
+        ),
+        _vector_bitunpack_recipe_rule(
             vector.vector_bitunpacks,
             _VEC_I32_RANK1,
             maximum_width=32,
@@ -1067,6 +1088,12 @@ def _vector_packed_integer_recipe_rules() -> tuple[RecipeRule, ...]:
             _VEC_I8_PACKED,
             maximum_width=8,
             maximum_lane_count=64,
+        ),
+        _vector_bitunpack_recipe_rule(
+            vector.vector_bitunpacks,
+            _VEC_I1_RANK1,
+            maximum_width=1,
+            maximum_lane_count=32,
         ),
     )
 
