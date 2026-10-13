@@ -77,3 +77,45 @@ low.kernel.def target<amdgpu.cdna3.core> abi_layout({constant_count = 0, direct_
   global_store_dwordx4_saddr %35, %38, %output_view {offset = 16}
   return
 }
+
+// ====
+
+// Independent uniform vectors retain one scalar source and materialize the
+// other before the packed VOP3P operation.
+func.def @uniform_vector_binary(%lhs_buffer: buffer, %rhs_buffer: buffer) -> (vector<4xf32>) {
+  %base = index.constant 0 : offset
+  %lhs_global = buffer.assume.memory_space<global> %lhs_buffer : buffer
+  %rhs_global = buffer.assume.memory_space<global> %rhs_buffer : buffer
+  %lhs_noalias, %rhs_noalias = buffer.assume.noalias %lhs_global, %rhs_global : buffer, buffer
+  %lhs_view = buffer.view %lhs_noalias[%base] : buffer -> view<4xf32>
+  %rhs_view = buffer.view %rhs_noalias[%base] : buffer -> view<4xf32>
+  %lhs = vector.load %lhs_view[0] : view<4xf32> -> vector<4xf32>
+  %rhs = vector.load %rhs_view[0] : view<4xf32> -> vector<4xf32>
+  %result = vector.addf %lhs, %rhs : vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+// ----
+low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @uniform_vector_binary() -> (reg<amdgpu.vgpr x4>) asm {
+  %lhs_view = resource<hal_binding> {extent = 16, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %rhs_view = resource<hal_binding> {extent = 16, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %16 = s_mov_b32 0
+  %lhs = s_load_dwordx4 %lhs_view, %16
+  %rhs = s_load_dwordx4 %rhs_view, %16
+  %20 = slice %lhs[0] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x2>
+  %40 = slice %rhs[0] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr>
+  %23 = v_mov_b32_copy %40
+  %39 = slice %rhs[1] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr>
+  %25 = v_mov_b32_copy %39
+  %26 = concat(%23, %25) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %27 = v_pk_add_f32 %20, %26
+  %28 = slice %lhs[2] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x2>
+  %38 = slice %rhs[2] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr>
+  %31 = v_mov_b32_copy %38
+  %37 = slice %rhs[3] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr>
+  %33 = v_mov_b32_copy %37
+  %34 = concat(%31, %33) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %35 = v_pk_add_f32 %28, %34
+  %result = concat(%27, %35) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  return %result
+}

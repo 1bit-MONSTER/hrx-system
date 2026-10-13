@@ -581,6 +581,62 @@ def test_packed_i16_arithmetic_rules_try_native_pk_ops_before_word_ops() -> None
         assert positions[(packed_descriptor,)] == 3
 
 
+def test_vector_vop2_rules_materialize_vsrc1_as_vgpr() -> None:
+    compiled = _compiled_arithmetic_rules()
+    register_cases = (
+        (vector.vector_addi, "amdgpu.v_add_u32", 1),
+        (vector.vector_subi, "amdgpu.v_sub_u32", 1),
+        (vector.vector_muli, "amdgpu.v_mul_lo_u32", 1),
+        (vector.vector_minsi, "amdgpu.v_min_i32", 1),
+        (vector.vector_maxsi, "amdgpu.v_max_i32", 1),
+        (vector.vector_minui, "amdgpu.v_min_u32", 1),
+        (vector.vector_maxui, "amdgpu.v_max_u32", 1),
+        (vector.vector_andi, "amdgpu.v_and_b32", 4),
+        (vector.vector_ori, "amdgpu.v_or_b32", 4),
+        (vector.vector_xori, "amdgpu.v_xor_b32", 4),
+        (vector.vector_shli, "amdgpu.v_lshlrev_b32", 1),
+        (vector.vector_shrsi, "amdgpu.v_ashrrev_i32", 1),
+        (vector.vector_shrui, "amdgpu.v_lshrrev_b32", 1),
+    )
+    for source_op, descriptor_key, expected_rule_count in register_cases:
+        rules = tuple(
+            rule
+            for rule in _rules_for_source_op(compiled, source_op)
+            if _rule_descriptor_keys(compiled, rule) == (descriptor_key,)
+        )
+        assert len(rules) == expected_rule_count
+        for rule in rules:
+            emit = compiled.emits[rule.emit_start]
+            assert emit.operand_ref_count == 2
+            lhs = compiled.value_refs[emit.operand_ref_start]
+            rhs = compiled.value_refs[emit.operand_ref_start + 1]
+            assert lhs.materializer_index == 0
+            assert rhs.materializer_index != 0
+
+    literal_cases = (
+        (vector.vector_addi, "amdgpu.v_add_u32.lit", 2),
+        (vector.vector_andi, "amdgpu.v_and_b32.lit", 2),
+        (vector.vector_ori, "amdgpu.v_or_b32.lit", 2),
+        (vector.vector_xori, "amdgpu.v_xor_b32.lit", 2),
+        (vector.vector_shli, "amdgpu.v_lshlrev_b32.src0_inline", 1),
+        (vector.vector_shrsi, "amdgpu.v_ashrrev_i32.src0_inline", 1),
+        (vector.vector_shrui, "amdgpu.v_lshrrev_b32.src0_inline", 1),
+    )
+    for source_op, descriptor_key, expected_rule_count in literal_cases:
+        rules = tuple(
+            rule
+            for rule in _rules_for_source_op(compiled, source_op)
+            if rule.emit_count == 1
+            and _rule_descriptor_keys(compiled, rule) == (descriptor_key,)
+        )
+        assert len(rules) == expected_rule_count
+        for rule in rules:
+            emit = compiled.emits[rule.emit_start]
+            assert emit.operand_ref_count == 1
+            source = compiled.value_refs[emit.operand_ref_start]
+            assert source.materializer_index != 0
+
+
 def test_packed_bf16_arithmetic_rules_publish_native_pk_ops() -> None:
     compiled = _compiled_arithmetic_rules()
 
@@ -883,6 +939,9 @@ def test_packed_f32_broadcast_rules_materialize_before_packet_repetition() -> No
         for rule in rules:
             emit = compiled.emits[rule.emit_start]
             assert emit.kind is LowerEmitKind.DESCRIPTOR_OP_PER_LANE
+            assert (
+                emit.operand_materialization is DescriptorOperandMaterialization.TARGET
+            )
             assert rule.emit_count == 1
             assert emit.operand_ref_count == 2
             for operand_index, name in enumerate(("lhs", "rhs")):
@@ -931,6 +990,9 @@ def test_packed_narrow_binary_broadcasts_cover_operations_and_source_roles() -> 
                 continue
             emit = compiled.emits[rule.emit_start]
             assert emit.kind is LowerEmitKind.DESCRIPTOR_OP_PER_LANE
+            assert (
+                emit.operand_materialization is DescriptorOperandMaterialization.TARGET
+            )
             attributes = {
                 attribute.target_name: attribute.literal_i64
                 for attribute in compiled.attr_copies[

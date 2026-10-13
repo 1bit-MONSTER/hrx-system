@@ -1159,6 +1159,12 @@ iree_status_t loom_amdgpu_lower_clampf(loom_low_lower_context_t* context,
   loom_value_id_t low_value = loom_low_lower_lookup_value(context, plan->value);
   loom_value_id_t low_lower = loom_low_lower_lookup_value(context, plan->lower);
   loom_value_id_t low_upper = loom_low_lower_lookup_value(context, plan->upper);
+  IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32_registers(
+      context, source_op, low_value, &low_value));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32_registers(
+      context, source_op, low_lower, &low_lower));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32_registers(
+      context, source_op, low_upper, &low_upper));
 
   loom_type_t lane_type = loom_type_none();
   IREE_RETURN_IF_ERROR(loom_amdgpu_make_vgpr_type(context, &lane_type));

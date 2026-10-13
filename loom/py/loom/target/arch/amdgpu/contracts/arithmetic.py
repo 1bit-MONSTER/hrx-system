@@ -3060,7 +3060,11 @@ def _constant_binary_rule(
         emit=(
             EmitDescriptorOp(
                 descriptor=descriptor,
-                operands={descriptor_operand: ValueRef.operand(nonliteral_source)},
+                operands={
+                    descriptor_operand: _materialized_operand(
+                        nonliteral_source, REGISTERS_VGPR_MATERIALIZER
+                    )
+                },
                 results={"dst": ValueRef.result("result")},
                 immediates={
                     "imm32": ValueProject.i32_as_u32_bits(literal_source),
@@ -3944,6 +3948,12 @@ def _packed_binary_broadcast_rules(
 ) -> tuple[DescriptorRule, ...]:
     emit = rule.emit[0]
     source_names = tuple(emit.operands)
+    rhs_name = source_names[1]
+    emit = replace(
+        emit,
+        operand_materialization=DescriptorOperandMaterialization.TARGET,
+    )
+    rule = replace(rule, emit=(emit,))
     rules = []
     for mask in (3, 1, 2):
         suffix = "_".join(
@@ -3958,7 +3968,6 @@ def _packed_binary_broadcast_rules(
             )
             for bit, (name, value) in enumerate(emit.operands.items())
         }
-        rhs_name = source_names[1]
         operands[rhs_name] = replace(
             operands[rhs_name], materializer=VOP3_BINARY_RHS_MATERIALIZER.name
         )
@@ -4742,7 +4751,8 @@ def _rules() -> tuple[ContractCase, ...]:
     ):
         rules.extend(
             _packed_binary_broadcast_rules(
-                _binary_rule(source_op, _VEC_I16_PACKED_STORAGE, descriptor_key), _I16
+                _binary_rule(source_op, _VEC_I16_PACKED_STORAGE, descriptor_key),
+                _I16,
             )
         )
     rules.extend(
@@ -4760,18 +4770,53 @@ def _rules() -> tuple[ContractCase, ...]:
                 literal_source="rhs",
                 nonliteral_source="lhs",
             ),
-            _binary_rule(vector.vector_addi, _VEC_I32_STATIC, "amdgpu.v_add_u32"),
+            _binary_rule(
+                vector.vector_addi,
+                _VEC_I32_STATIC,
+                "amdgpu.v_add_u32",
+                rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
+            ),
         )
     )
     rules.extend(
         (
             *packed_i8_sub_rules(_DESCRIPTOR_SET),
-            _binary_rule(vector.vector_subi, _VEC_I32_STATIC, "amdgpu.v_sub_u32"),
-            _binary_rule(vector.vector_muli, _VEC_I32_STATIC, "amdgpu.v_mul_lo_u32"),
-            _binary_rule(vector.vector_minsi, _VEC_I32_STATIC, "amdgpu.v_min_i32"),
-            _binary_rule(vector.vector_maxsi, _VEC_I32_STATIC, "amdgpu.v_max_i32"),
-            _binary_rule(vector.vector_minui, _VEC_I32_STATIC, "amdgpu.v_min_u32"),
-            _binary_rule(vector.vector_maxui, _VEC_I32_STATIC, "amdgpu.v_max_u32"),
+            _binary_rule(
+                vector.vector_subi,
+                _VEC_I32_STATIC,
+                "amdgpu.v_sub_u32",
+                rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
+            ),
+            _binary_rule(
+                vector.vector_muli,
+                _VEC_I32_STATIC,
+                "amdgpu.v_mul_lo_u32",
+                rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
+            ),
+            _binary_rule(
+                vector.vector_minsi,
+                _VEC_I32_STATIC,
+                "amdgpu.v_min_i32",
+                rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
+            ),
+            _binary_rule(
+                vector.vector_maxsi,
+                _VEC_I32_STATIC,
+                "amdgpu.v_max_i32",
+                rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
+            ),
+            _binary_rule(
+                vector.vector_minui,
+                _VEC_I32_STATIC,
+                "amdgpu.v_min_u32",
+                rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
+            ),
+            _binary_rule(
+                vector.vector_maxui,
+                _VEC_I32_STATIC,
+                "amdgpu.v_max_u32",
+                rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
+            ),
         )
     )
     for source_op, descriptor_key in (
@@ -4785,11 +4830,13 @@ def _rules() -> tuple[ContractCase, ...]:
                     source_op,
                     _VEC_I8_PACKED,
                     descriptor_key,
+                    rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
                 ),
                 _binary_rule(
                     source_op,
                     _VEC_I16_PACKED_STORAGE,
                     descriptor_key,
+                    rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
                 ),
             )
         )
@@ -4807,8 +4854,18 @@ def _rules() -> tuple[ContractCase, ...]:
                     literal_source="rhs",
                     nonliteral_source="lhs",
                 ),
-                _binary_rule(source_op, _VEC_I32_STATIC, descriptor_key),
-                _binary_rule(source_op, _VEC_I64_STATIC, descriptor_key),
+                _binary_rule(
+                    source_op,
+                    _VEC_I32_STATIC,
+                    descriptor_key,
+                    rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
+                ),
+                _binary_rule(
+                    source_op,
+                    _VEC_I64_STATIC,
+                    descriptor_key,
+                    rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
+                ),
             )
         )
     for source_op, descriptor_key in (
@@ -4853,6 +4910,7 @@ def _rules() -> tuple[ContractCase, ...]:
                     descriptor_rhs="value",
                     source_lhs="rhs",
                     source_rhs="lhs",
+                    rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
                 ),
             )
         )
