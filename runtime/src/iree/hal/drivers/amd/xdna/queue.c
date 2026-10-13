@@ -378,15 +378,22 @@ static void iree_hal_amd_xdna_publisher_execute(
          iree_status_is_ok(operation->native.publication.status) &&
          iree_atomic_load(&queue->native_admission_open,
                           iree_memory_order_acquire)) {
-    if (!operation->native.invocation) {
+    uint32_t command_count = 1;
+    const amdf_xdna_kernel_command_t* commands = &operation->native.command;
+    iree_hal_amd_xdna_invocation_t** invocations =
+        &operation->native.invocation;
+    if (operation->kind == IREE_HAL_AMD_XDNA_OPERATION_EXECUTE) {
       operation->native.publication.status =
-          operation->kind == IREE_HAL_AMD_XDNA_OPERATION_EXECUTE
-              ? iree_hal_amd_xdna_execution_prepare_dispatch(
-                    operation->execution, &operation->native.invocation,
-                    &operation->native.command)
-              : iree_hal_amd_xdna_function_prepare(
-                    operation->dispatch.function, operation->dispatch.bindings,
-                    &operation->native.invocation, &operation->native.command);
+          iree_hal_amd_xdna_execution_prepare_batch(
+              operation->execution, operation->native.publication.capacity -
+                                        operation->native.publication.count);
+      command_count = operation->execution->batch.count;
+      commands = operation->execution->batch.commands;
+      invocations = operation->execution->batch.invocations;
+    } else if (!operation->native.invocation) {
+      operation->native.publication.status = iree_hal_amd_xdna_function_prepare(
+          operation->dispatch.function, operation->dispatch.bindings,
+          &operation->native.invocation, &operation->native.command);
     }
     if (!iree_status_is_ok(operation->native.publication.status)) {
       break;
@@ -394,8 +401,8 @@ static void iree_hal_amd_xdna_publisher_execute(
     const amdf_xdna_kernel_queue_submission_info_t submission_info = {
         .type = AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_SUBMISSION_INFO,
         .structure_size = sizeof(submission_info),
-        .command_count = 1,
-        .commands = &operation->native.command,
+        .command_count = command_count,
+        .commands = commands,
     };
     operation->native.publication.had_pending =
         operation->native.publication.count ||
@@ -415,22 +422,27 @@ static void iree_hal_amd_xdna_publisher_execute(
     if (!iree_status_is_ok(operation->native.publication.status)) {
       break;
     }
-    const uint32_t index = (operation->native.publication.start +
-                            operation->native.publication.count) %
-                           queue->pending.capacity;
-    queue->pending.entries[index] = (iree_hal_amd_xdna_pending_t){
-        .operation = operation,
-        .invocation = operation->native.invocation,
-        .submission = submission,
-    };
-    operation->native.invocation = NULL;
-    ++operation->native.publication.count;
+    // Each invocation retains its own immutable instruction range, while one
+    // checked native point retires the complete accepted array.
+    for (uint32_t i = 0; i < command_count; ++i) {
+      const uint32_t index = (operation->native.publication.start +
+                              operation->native.publication.count + i) %
+                             queue->pending.capacity;
+      queue->pending.entries[index] = (iree_hal_amd_xdna_pending_t){
+          .operation = operation,
+          .invocation = invocations[i],
+          .submission = submission,
+      };
+    }
+    operation->native.publication.count += command_count;
     operation->native.publication.result =
         IREE_HAL_AMD_XDNA_PUBLICATION_RESULT_ACCEPTED;
     if (operation->kind == IREE_HAL_AMD_XDNA_OPERATION_DISPATCH) {
+      operation->native.invocation = NULL;
       break;
     }
-    operation->execution->cursor = operation->execution->cursor->next;
+    operation->execution->cursor = operation->execution->batch.next;
+    operation->execution->batch.count = 0;
     if (!iree_hal_amd_xdna_operation_has_dispatch(operation)) {
       break;
     }
@@ -1454,6 +1466,8 @@ iree_status_t iree_hal_amd_xdna_queue_create(
   }
   if (iree_status_is_ok(status)) {
     queue->pending.capacity = info.maximum_pending_submission_count;
+    queue->maximum_command_count =
+        iree_min(info.maximum_command_count, queue->pending.capacity);
     if (!queue->pending.capacity || queue->pending.capacity > INT32_MAX) {
       status = iree_make_status(
           IREE_STATUS_OUT_OF_RANGE,
@@ -1530,6 +1544,10 @@ iree_status_t iree_hal_amd_xdna_queue_create(
     iree_hal_queue_release(&queue->base);
   }
   return status;
+}
+
+uint32_t iree_hal_amd_xdna_queue_maximum_command_count(iree_hal_queue_t* base) {
+  return ((iree_hal_amd_xdna_queue_t*)base)->maximum_command_count;
 }
 
 void iree_hal_amd_xdna_queue_trim(iree_hal_queue_t* base) {

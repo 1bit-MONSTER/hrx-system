@@ -29,12 +29,28 @@ typedef struct iree_hal_amd_xdna_command_buffer_t {
   iree_host_size_t record_count;
   // Largest binding scratch required by any one dispatch.
   iree_host_size_t maximum_binding_count;
-  // Total placed allocation size for each replay frame, computed at end().
-  iree_host_size_t execution_size;
-  // Offset to the captured table in each frame.
-  iree_host_size_t table_offset;
-  // Offset to native binding scratch in each frame.
-  iree_host_size_t bindings_offset;
+  // Consecutive dispatch counts retained while recording.
+  struct {
+    // Number of dispatches since the last host transfer.
+    iree_host_size_t length;
+    // Largest consecutive dispatch run in the recording.
+    iree_host_size_t maximum_length;
+  } dispatch_run;
+  // Placed replay storage geometry, finalized at end().
+  struct {
+    // Total allocation size for one replay frame.
+    iree_host_size_t size;
+    // Offset to the captured indirect binding table.
+    iree_host_size_t table_offset;
+    // Offset to native binding scratch.
+    iree_host_size_t bindings_offset;
+    // Offset to prepared invocation pointers.
+    iree_host_size_t invocations_offset;
+    // Offset to contiguous native command descriptors.
+    iree_host_size_t commands_offset;
+    // Native queue limit, narrowed to the largest run at end().
+    uint32_t batch_capacity;
+  } layout;
   // Protects only replay-frame free-list links.
   iree_slim_mutex_t execution_mutex;
   // Completed frames available for reuse.
@@ -63,7 +79,8 @@ static void iree_hal_amd_xdna_command_buffer_destroy(
 iree_status_t iree_hal_amd_xdna_command_buffer_create(
     const iree_hal_queue_family_t* family, iree_hal_command_buffer_mode_t mode,
     iree_hal_command_category_t categories, iree_host_size_t binding_capacity,
-    iree_allocator_t host_allocator, iree_hal_command_buffer_t** out_buffer) {
+    uint32_t maximum_command_count, iree_allocator_t host_allocator,
+    iree_hal_command_buffer_t** out_buffer) {
   *out_buffer = NULL;
   iree_host_size_t size = 0;
   iree_host_size_t validation_offset = 0;
@@ -81,6 +98,7 @@ iree_status_t iree_hal_amd_xdna_command_buffer_create(
                                      &iree_hal_amd_xdna_command_buffer_vtable,
                                      &buffer->base);
   buffer->host_allocator = host_allocator;
+  buffer->layout.batch_capacity = maximum_command_count;
   iree_slim_mutex_initialize(&buffer->execution_mutex);
   iree_hal_amd_xdna_queue_storage_initialize(host_allocator, &buffer->storage);
   iree_hal_amd_xdna_queue_capture_initialize(&buffer->storage,
@@ -111,13 +129,21 @@ static iree_status_t iree_hal_amd_xdna_command_buffer_begin(
 static iree_status_t iree_hal_amd_xdna_command_buffer_end(
     iree_hal_command_buffer_t* base) {
   iree_hal_amd_xdna_command_buffer_t* buffer = (void*)base;
+  buffer->layout.batch_capacity = iree_min(buffer->layout.batch_capacity,
+                                           buffer->dispatch_run.maximum_length);
   return IREE_STRUCT_LAYOUT(
-      sizeof(iree_hal_amd_xdna_execution_t), &buffer->execution_size,
+      sizeof(iree_hal_amd_xdna_execution_t), &buffer->layout.size,
       IREE_STRUCT_FIELD(base->binding_count, iree_hal_buffer_binding_t,
-                        &buffer->table_offset),
+                        &buffer->layout.table_offset),
       IREE_STRUCT_FIELD(buffer->maximum_binding_count,
                         iree_hal_amd_xdna_executable_binding_t,
-                        &buffer->bindings_offset));
+                        &buffer->layout.bindings_offset),
+      IREE_STRUCT_FIELD(buffer->layout.batch_capacity,
+                        iree_hal_amd_xdna_invocation_t*,
+                        &buffer->layout.invocations_offset),
+      IREE_STRUCT_FIELD(buffer->layout.batch_capacity,
+                        amdf_xdna_kernel_command_t,
+                        &buffer->layout.commands_offset));
 }
 
 static iree_status_t iree_hal_amd_xdna_command_buffer_begin_debug_group(
@@ -196,6 +222,13 @@ static void iree_hal_amd_xdna_command_buffer_append(
   }
   buffer->tail = record;
   ++buffer->record_count;
+  if (record->kind == IREE_HAL_AMD_XDNA_RECORD_DISPATCH) {
+    ++buffer->dispatch_run.length;
+    buffer->dispatch_run.maximum_length = iree_max(
+        buffer->dispatch_run.maximum_length, buffer->dispatch_run.length);
+  } else {
+    buffer->dispatch_run.length = 0;
+  }
 }
 
 static iree_status_t iree_hal_amd_xdna_command_buffer_transfer(
@@ -352,15 +385,21 @@ iree_status_t iree_hal_amd_xdna_command_buffer_acquire_execution(
   iree_slim_mutex_unlock(&buffer->execution_mutex);
   if (!execution) {
     IREE_RETURN_IF_ERROR(iree_allocator_malloc(
-        buffer->host_allocator, buffer->execution_size, (void**)&execution));
+        buffer->host_allocator, buffer->layout.size, (void**)&execution));
   }
   memset(execution, 0, sizeof(*execution));
   execution->owner = base;
   execution->cursor = buffer->head;
-  execution->bindings = (void*)((uint8_t*)execution + buffer->bindings_offset);
+  execution->bindings =
+      (void*)((uint8_t*)execution + buffer->layout.bindings_offset);
+  execution->batch.capacity = buffer->layout.batch_capacity;
+  execution->batch.invocations =
+      (void*)((uint8_t*)execution + buffer->layout.invocations_offset);
+  execution->batch.commands =
+      (void*)((uint8_t*)execution + buffer->layout.commands_offset);
   execution->flags = flags;
   iree_hal_buffer_binding_t* captured =
-      (void*)((uint8_t*)execution + buffer->table_offset);
+      (void*)((uint8_t*)execution + buffer->layout.table_offset);
   execution->table =
       (iree_hal_buffer_binding_table_t){base->binding_count, captured};
   for (iree_host_size_t i = 0; i < base->binding_count; ++i) {
@@ -381,6 +420,9 @@ void iree_hal_amd_xdna_execution_release(
     return;
   }
   iree_hal_amd_xdna_command_buffer_t* buffer = (void*)execution->owner;
+  for (uint32_t i = 0; i < execution->batch.count; ++i) {
+    iree_hal_amd_xdna_invocation_release(execution->batch.invocations[i]);
+  }
   if (!iree_any_bit_set(
           execution->flags,
           IREE_HAL_QUEUE_EXECUTE_FLAG_BORROW_BINDING_TABLE_LIFETIME)) {
@@ -395,11 +437,11 @@ void iree_hal_amd_xdna_execution_release(
   iree_hal_command_buffer_release(&buffer->base);
 }
 
-iree_status_t iree_hal_amd_xdna_execution_prepare_dispatch(
+static iree_status_t iree_hal_amd_xdna_execution_prepare_dispatch(
     iree_hal_amd_xdna_execution_t* execution,
+    const iree_hal_amd_xdna_record_t* record,
     iree_hal_amd_xdna_invocation_t** out_invocation,
     amdf_xdna_kernel_command_t* out_command) {
-  const iree_hal_amd_xdna_record_t* record = execution->cursor;
   memcpy(execution->bindings, record->dispatch.bindings,
          record->dispatch.binding_count * sizeof(*execution->bindings));
   iree_status_t status = iree_ok_status();
@@ -424,6 +466,31 @@ iree_status_t iree_hal_amd_xdna_execution_prepare_dispatch(
                                                 execution->bindings,
                                                 out_invocation, out_command);
   }
+  return status;
+}
+
+iree_status_t iree_hal_amd_xdna_execution_prepare_batch(
+    iree_hal_amd_xdna_execution_t* execution, uint32_t maximum_command_count) {
+  if (execution->batch.count) {
+    return iree_ok_status();
+  }
+  const uint32_t capacity =
+      iree_min(execution->batch.capacity, maximum_command_count);
+  const iree_hal_amd_xdna_record_t* record = execution->cursor;
+  iree_status_t status = iree_ok_status();
+  while (execution->batch.count < capacity && record &&
+         record->kind == IREE_HAL_AMD_XDNA_RECORD_DISPATCH &&
+         iree_status_is_ok(status)) {
+    const uint32_t index = execution->batch.count;
+    status = iree_hal_amd_xdna_execution_prepare_dispatch(
+        execution, record, &execution->batch.invocations[index],
+        &execution->batch.commands[index]);
+    if (iree_status_is_ok(status)) {
+      ++execution->batch.count;
+      record = record->next;
+    }
+  }
+  execution->batch.next = record;
   return status;
 }
 

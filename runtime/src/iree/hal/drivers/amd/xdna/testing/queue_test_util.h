@@ -275,6 +275,10 @@ struct NativeProvider {
     auto* memory = reinterpret_cast<Memory*>(mapping);
     std::lock_guard<std::mutex> lock(memory->owner->mutex);
     memory->owner->flushes.push_back({memory, offset, length});
+    if (memory->owner->fail_cache_publication_countdown &&
+        --memory->owner->fail_cache_publication_countdown == 0) {
+      return amdf_make_api_status(AMDF_STATUS_CODE_RESOURCE_EXHAUSTED);
+    }
     return AMDF_STATUS_OK;
   }
   static amdf_status_t AMDF_CALL MemoryAddress(amdf_memory_t* handle,
@@ -363,7 +367,8 @@ struct NativeProvider {
     info->command_type = AMDF_QUEUE_COMMAND_TYPE_XDNA;
     info->maximum_pending_submission_count =
         reinterpret_cast<NativeProvider*>(queue)->pending_capacity;
-    info->maximum_command_count = 1;
+    info->maximum_command_count =
+        reinterpret_cast<NativeProvider*>(queue)->maximum_command_count;
     info->notification_types = AMDF_NATIVE_EVENT_TYPE_BIT_EVENTFD |
                                AMDF_NATIVE_EVENT_TYPE_BIT_WIN32_EVENT;
     return AMDF_STATUS_OK;
@@ -387,7 +392,8 @@ struct NativeProvider {
     const uint64_t submission_ordinal =
         self->submission_attempt_count.fetch_add(1, std::memory_order_acq_rel) +
         1;
-    EXPECT_EQ(info->command_count, 1u);
+    EXPECT_GT(info->command_count, 0u);
+    EXPECT_LE(info->command_count, self->maximum_command_count);
     if (self->block_submission.load(std::memory_order_acquire)) {
       self->submission_entered.store(true, std::memory_order_release);
       iree_notification_post(&self->submission_notification, IREE_ALL_WAITERS);
@@ -410,15 +416,19 @@ struct NativeProvider {
         submission_ordinal == self->reject_submission_attempt) {
       return amdf_make_api_status(AMDF_STATUS_CODE_RESOURCE_EXHAUSTED);
     }
-    const auto& command = info->commands[0];
-    auto* memory = reinterpret_cast<Memory*>(command.memory);
     {
       std::lock_guard<std::mutex> lock(self->mutex);
-      self->pending_commands.push_back(
-          {memory, submission_ordinal * self->point_stride, command.byte_offset,
-           std::vector<uint8_t>(memory->contents.begin() + command.byte_offset,
-                                memory->contents.begin() + command.byte_offset +
-                                    command.byte_length)});
+      for (uint32_t i = 0; i < info->command_count; ++i) {
+        const auto& command = info->commands[i];
+        auto* memory = reinterpret_cast<Memory*>(command.memory);
+        self->pending_commands.push_back(
+            {memory, submission_ordinal * self->point_stride,
+             command.byte_offset,
+             std::vector<uint8_t>(
+                 memory->contents.begin() + command.byte_offset,
+                 memory->contents.begin() + command.byte_offset +
+                     command.byte_length)});
+      }
     }
     *out_submission = submission_ordinal * self->point_stride;
     self->last_accepted_submission.store(*out_submission,
@@ -580,6 +590,10 @@ struct NativeProvider {
   uint64_t reject_submission_attempt = 0;
   // Prepared provider capacity, independent of the number of commands per call.
   uint32_t pending_capacity = 1;
+  // Maximum number of commands accepted as one ordered native array.
+  uint32_t maximum_command_count = 1;
+  // Fails cache publication when this nonzero countdown reaches zero.
+  uint32_t fail_cache_publication_countdown = 0;
   // Nonunit stride verifies that the HAL does not derive ring slots from
   // points.
   uint64_t point_stride = 1;

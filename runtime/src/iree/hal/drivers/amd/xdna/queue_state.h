@@ -73,6 +73,8 @@ struct iree_hal_amd_xdna_queue_t {
   iree_async_proactor_t* proactor;
   // Native queue, released after accepted resources retire.
   amdf_kernel_queue_t* handle;
+  // Maximum commands in one native array, bounded by pending ring capacity.
+  uint32_t maximum_command_count;
   // Owned native wake destination, live through every requested notification.
   iree_async_event_t* event;
   // Borrowed native descriptor naming event's signal primitive.

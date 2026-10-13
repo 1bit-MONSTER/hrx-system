@@ -394,6 +394,8 @@ static iree_status_t iree_hal_amd_xdna_device_create_command_buffer(
     iree_hal_command_buffer_t** out_command_buffer) {
   return iree_hal_amd_xdna_command_buffer_create(
       queue_family, mode, command_categories, binding_capacity,
+      iree_hal_amd_xdna_queue_maximum_command_count(
+          ((iree_hal_amd_xdna_device_t*)device)->queue),
       ((iree_hal_amd_xdna_device_t*)device)->host_allocator,
       out_command_buffer);
 }

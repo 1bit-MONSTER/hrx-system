@@ -26,6 +26,9 @@ iree_status_t iree_hal_amd_xdna_queue_create(
     iree_async_proactor_t* proactor, iree_allocator_t host_allocator,
     iree_hal_queue_t** out_queue);
 
+// Returns the immutable native array limit, bounded by HAL pending capacity.
+uint32_t iree_hal_amd_xdna_queue_maximum_command_count(iree_hal_queue_t* queue);
+
 // Assigns or clears an idle queue's causal domain. The tracker is retained.
 // Topology assignment is externally serialized against submission and teardown.
 iree_status_t iree_hal_amd_xdna_queue_assign_frontier(

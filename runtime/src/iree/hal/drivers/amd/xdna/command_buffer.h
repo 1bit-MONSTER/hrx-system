@@ -72,6 +72,20 @@ typedef struct iree_hal_amd_xdna_execution_t {
   iree_hal_buffer_binding_table_t table;
   // Scratch for the largest recorded dispatch's resolved bindings.
   iree_hal_amd_xdna_executable_binding_t* bindings;
+  // Prepared native array, owned here until acceptance transfers every
+  // invocation to the queue's pending ring. BUSY preserves the whole array.
+  struct {
+    // First record following this array, committed after native acceptance.
+    const iree_hal_amd_xdna_record_t* next;
+    // Maximum number of placed commands and invocation pointers.
+    uint32_t capacity;
+    // Number of prepared invocations still owned by this frame.
+    uint32_t count;
+    // Exclusive invocation leases for the prepared commands.
+    iree_hal_amd_xdna_invocation_t** invocations;
+    // Contiguous native descriptors pointing into the invocation leases.
+    amdf_xdna_kernel_command_t* commands;
+  } batch;
   // Determines whether captured table buffers are retained through execution.
   iree_hal_queue_execute_flags_t flags;
 } iree_hal_amd_xdna_execution_t;
@@ -80,7 +94,8 @@ typedef struct iree_hal_amd_xdna_execution_t {
 iree_status_t iree_hal_amd_xdna_command_buffer_create(
     const iree_hal_queue_family_t* family, iree_hal_command_buffer_mode_t mode,
     iree_hal_command_category_t categories, iree_host_size_t binding_capacity,
-    iree_allocator_t host_allocator, iree_hal_command_buffer_t** out_buffer);
+    uint32_t maximum_command_count, iree_allocator_t host_allocator,
+    iree_hal_command_buffer_t** out_buffer);
 
 // Captures the external binding table and acquires a frame sized at end().
 // Cold concurrency growth allocates once; completed frames are reused.
@@ -93,12 +108,12 @@ iree_status_t iree_hal_amd_xdna_command_buffer_acquire_execution(
 void iree_hal_amd_xdna_execution_release(
     iree_hal_amd_xdna_execution_t* execution);
 
-// Resolves current indirect references into private scratch and prepares the
-// dispatch at the cursor. The cursor advances only after native acceptance.
-iree_status_t iree_hal_amd_xdna_execution_prepare_dispatch(
-    iree_hal_amd_xdna_execution_t* execution,
-    iree_hal_amd_xdna_invocation_t** out_invocation,
-    amdf_xdna_kernel_command_t* out_command);
+// Prepares up to |maximum_command_count| consecutive dispatches at the cursor,
+// bounded by this frame's placed capacity. An already prepared array is reused
+// unchanged after BUSY. The caller reserves enough pending slots for the whole
+// array before acceptance. The cursor advances only after native acceptance.
+iree_status_t iree_hal_amd_xdna_execution_prepare_batch(
+    iree_hal_amd_xdna_execution_t* execution, uint32_t maximum_command_count);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -105,7 +105,6 @@ void iree_hal_amd_xdna_operation_release_resources(
       iree_hal_executable_release(operation->dispatch.executable);
       break;
     case IREE_HAL_AMD_XDNA_OPERATION_EXECUTE:
-      iree_hal_amd_xdna_invocation_release(operation->native.invocation);
       iree_hal_amd_xdna_execution_release(operation->execution);
       break;
     case IREE_HAL_AMD_XDNA_OPERATION_TRANSFER:
