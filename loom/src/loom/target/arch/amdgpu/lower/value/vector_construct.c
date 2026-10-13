@@ -1752,6 +1752,8 @@ static iree_status_t loom_amdgpu_lower_packed_vector_insert(
     const loom_amdgpu_vector_insert_plan_t* plan, loom_value_id_t low_value) {
   IREE_ASSERT(plan->lane_bit_count == 8 || plan->lane_bit_count == 16);
   loom_value_id_t low_dest = loom_low_lower_lookup_value(context, plan->dest);
+  IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32_registers(
+      context, source_op, low_dest, &low_dest));
   const loom_module_t* module = loom_low_lower_context_module(context);
   loom_type_t register_type =
       loom_amdgpu_low_register_lane_type(module, low_dest);
@@ -1845,6 +1847,8 @@ static iree_status_t loom_amdgpu_lower_vector_insert(
   }
 
   loom_value_id_t low_dest = loom_low_lower_lookup_value(context, plan->dest);
+  IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32_registers(
+      context, source_op, low_dest, &low_dest));
   const loom_module_t* module = loom_low_lower_context_module(context);
   loom_type_t lane_type = loom_amdgpu_low_register_lane_type(module, low_dest);
   if (loom_type_kind(lane_type) == LOOM_TYPE_NONE) {
