@@ -118,18 +118,17 @@ static bool loom_amdgpu_wait_effect_requires_system_scope_store_drain(
   return scope == LOOM_CACHE_SCOPE_SYSTEM;
 }
 
-static loom_amdgpu_structural_packet_flags_t
+static loom_amdgpu_structural_packet_info_t
 loom_amdgpu_wait_classification_classify_structural_node(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation, uint32_t node_index) {
   const loom_low_schedule_node_t* node = &schedule->nodes[node_index];
   if (node->kind != LOOM_LOW_SCHEDULE_NODE_STRUCTURAL) {
-    return 0;
+    return (loom_amdgpu_structural_packet_info_t){0};
   }
   return loom_amdgpu_structural_packet_analyze(
-             schedule, allocation, node,
-             LOOM_AMDGPU_STRUCTURAL_PACKET_ANALYSIS_FLAG_REQUIRE_ALLOCATION)
-      .flags;
+      schedule, allocation, node,
+      LOOM_AMDGPU_STRUCTURAL_PACKET_ANALYSIS_FLAG_REQUIRE_ALLOCATION);
 }
 
 // Keep the compact hazard walk out of the inlined classifier so its schedule
@@ -525,24 +524,32 @@ static void loom_amdgpu_wait_classification_finish_nodes(
       node_state->flags |=
           LOOM_AMDGPU_WAIT_NODE_STATE_UNORDERED_FLAT_COMPLETION;
     }
-    const loom_amdgpu_structural_packet_flags_t structural_flags =
+    const loom_amdgpu_structural_packet_info_t structural =
         loom_amdgpu_wait_classification_classify_structural_node(
             schedule, allocation, (uint32_t)i);
     if (node->kind == LOOM_LOW_SCHEDULE_NODE_STRUCTURAL &&
-        !iree_any_bit_set(structural_flags,
+        !iree_any_bit_set(structural.flags,
                           LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_MATERIALIZES)) {
       node_state->flags |= LOOM_AMDGPU_WAIT_NODE_STATE_ZERO_NATIVE_WORK;
     }
     if (iree_any_bit_set(
-            structural_flags,
+            structural.flags,
             LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_FORWARDS_DEPENDENCIES)) {
       node_state->flags |= LOOM_AMDGPU_WAIT_NODE_STATE_FORWARDS_DEPENDENCIES;
       ++classification->forwarding_node_count;
     }
     if (node->result_count != 0 &&
-        iree_any_bit_set(structural_flags,
+        iree_any_bit_set(structural.flags,
                          LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_MATERIALIZES)) {
       node_state->flags |= LOOM_AMDGPU_WAIT_NODE_STATE_MATERIALIZES_RESULTS;
+    }
+    if (iree_any_bit_set(structural.flags,
+                         LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_USES_VECTOR_ALU)) {
+      node_state->flags |= LOOM_AMDGPU_WAIT_NODE_STATE_USES_VECTOR_ALU;
+    }
+    if (iree_any_bit_set(structural.flags,
+                         LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_USES_SCALAR_ALU)) {
+      node_state->flags |= LOOM_AMDGPU_WAIT_NODE_STATE_USES_SCALAR_ALU;
     }
     if (has_valu_trans_use_depctr &&
         iree_any_bit_set(flags, LOOM_AMDGPU_WAIT_NODE_STATE_TRANSCENDENTAL)) {

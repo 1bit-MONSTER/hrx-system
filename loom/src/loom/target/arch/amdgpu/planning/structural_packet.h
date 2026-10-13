@@ -31,8 +31,12 @@ typedef enum loom_amdgpu_structural_packet_flag_bits_e {
   LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_MATERIALIZES = 1u << 1,
   // The packet forwards dependency-producing values without target work.
   LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_FORWARDS_DEPENDENCIES = 1u << 2,
+  // The materialized packet issues at least one vector-ALU instruction.
+  LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_USES_VECTOR_ALU = 1u << 3,
   // The materialized packet reads the target-visible SCC state.
   LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_READS_SCC = 1u << 4,
+  // The materialized packet issues at least one scalar-ALU instruction.
+  LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_USES_SCALAR_ALU = 1u << 5,
 } loom_amdgpu_structural_packet_flag_bits_t;
 typedef uint32_t loom_amdgpu_structural_packet_flags_t;
 
