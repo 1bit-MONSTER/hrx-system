@@ -38,11 +38,35 @@ loom_cc_test(
 )
 
 loom_cc_library(
+    name = "vector_dynamic_slice",
+    srcs = ["vector_dynamic_slice.c"],
+    hdrs = ["vector_dynamic_slice.h"],
+    deps = [
+        ":vector_carrier",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/util:fact_table",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_test(
+    name = "vector_dynamic_slice_test",
+    srcs = ["vector_dynamic_slice_test.cc"],
+    deps = [
+        ":vector_dynamic_slice",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "predicate_representation",
     srcs = ["predicate_representation.c"],
     hdrs = ["predicate_representation.h"],
     deps = [
         ":vector_carrier",
+        ":vector_dynamic_slice",
         "//loom/src/loom/codegen/low/lower:representation_observer",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/vector",
@@ -76,8 +100,11 @@ loom_cc_library(
     deps = [
         ":predicate_representation",
         ":vector_carrier",
+        ":vector_dynamic_slice",
+        "//loom/src/loom/codegen/low:diagnostics",
         "//loom/src/loom/codegen/low/lower",
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/ops/low",
         "//loom/src/loom/ops/vector",
         "//loom/src/loom/target/arch/wasm/descriptors:descriptors_ids",

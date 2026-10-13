@@ -143,3 +143,88 @@ low.func.def target<wasm.core.simd128> abi(wasm_function) @packetized_word_selec
   %result = v128.bitselect %true_values, %false_values, %condition
   return %result
 }
+
+// ====
+
+// Native-width predicate extensions preserve signed masks and select the low
+// bit for unsigned results across every Wasm integer lane width.
+func.def @native_predicate_extensions(%lhs8: vector<16xi8>, %rhs8: vector<16xi8>, %lhs16: vector<8xi16>, %rhs16: vector<8xi16>, %lhs32: vector<4xi32>, %rhs32: vector<4xi32>, %lhs64: vector<2xi64>, %rhs64: vector<2xi64>) -> (vector<16xi8>, vector<16xi8>, vector<8xi16>, vector<8xi16>, vector<4xi32>, vector<4xi32>, vector<2xi64>, vector<2xi64>) {
+  %p8 = vector.cmpi slt, %lhs8, %rhs8 : vector<16xi8> -> vector<16xi1>
+  %s8 = vector.extsi %p8 : vector<16xi1> to vector<16xi8>
+  %u8 = vector.extui %p8 : vector<16xi1> to vector<16xi8>
+  %p16 = vector.cmpi slt, %lhs16, %rhs16 : vector<8xi16> -> vector<8xi1>
+  %s16 = vector.extsi %p16 : vector<8xi1> to vector<8xi16>
+  %u16 = vector.extui %p16 : vector<8xi1> to vector<8xi16>
+  %p32 = vector.cmpi slt, %lhs32, %rhs32 : vector<4xi32> -> vector<4xi1>
+  %s32 = vector.extsi %p32 : vector<4xi1> to vector<4xi32>
+  %u32 = vector.extui %p32 : vector<4xi1> to vector<4xi32>
+  %p64 = vector.cmpi slt, %lhs64, %rhs64 : vector<2xi64> -> vector<2xi1>
+  %s64 = vector.extsi %p64 : vector<2xi1> to vector<2xi64>
+  %u64 = vector.extui %p64 : vector<2xi1> to vector<2xi64>
+  func.return %s8, %u8, %s16, %u16, %s32, %u32, %s64, %u64 : vector<16xi8>, vector<16xi8>, vector<8xi16>, vector<8xi16>, vector<4xi32>, vector<4xi32>, vector<2xi64>, vector<2xi64>
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @native_predicate_extensions(%lhs8: reg<wasm.v128>, %rhs8: reg<wasm.v128>, %lhs16: reg<wasm.v128>, %rhs16: reg<wasm.v128>, %lhs32: reg<wasm.v128>, %rhs32: reg<wasm.v128>, %lhs64: reg<wasm.v128>, %rhs64: reg<wasm.v128>) -> (reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>) asm {
+  %s8 = i8x16.lt_s %lhs8, %rhs8
+  %45 = v128.const 72340172838076673, 72340172838076673
+  %u8 = v128.and %s8, %45
+  %s16 = i16x8.lt_s %lhs16, %rhs16
+  %48 = v128.const 281479271743489, 281479271743489
+  %u16 = v128.and %s16, %48
+  %s32 = i32x4.lt_s %lhs32, %rhs32
+  %51 = v128.const 4294967297, 4294967297
+  %u32 = v128.and %s32, %51
+  %s64 = i64x2.lt_s %lhs64, %rhs64
+  %54 = v128.const 1, 1
+  %u64 = v128.and %s64, %54
+  return %s8, %u8, %s16, %u16, %s32, %u32, %s64, %u64
+}
+
+// ====
+
+// Widening duplicates one byte from each predicate mask lane into the complete
+// destination lane before applying signed or unsigned extension semantics.
+func.def @widen_predicate_extensions(%lhs: vector<16xi8>, %rhs: vector<16xi8>) -> (vector<2xi64>, vector<2xi64>) {
+  %predicates = vector.cmpi ne, %lhs, %rhs : vector<16xi8> -> vector<16xi1>
+  %first_two = vector.slice %predicates[0] : vector<16xi1> -> vector<2xi1>
+  %signed = vector.extsi %first_two : vector<2xi1> to vector<2xi64>
+  %unsigned = vector.extui %first_two : vector<2xi1> to vector<2xi64>
+  func.return %signed, %unsigned : vector<2xi64>, vector<2xi64>
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @widen_predicate_extensions(%lhs: reg<wasm.v128>, %rhs: reg<wasm.v128>) -> (reg<wasm.v128>, reg<wasm.v128>) asm {
+  %first_two = i8x16.ne %lhs, %rhs
+  %signed = i8x16.shuffle %first_two, %first_two, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1
+  %15 = v128.const 1, 1
+  %unsigned = v128.and %signed, %15
+  return %signed, %unsigned
+}
+
+// ====
+
+// Narrowing merges the representative byte from eight qword-mask packets into
+// one byte-mask packet without scalar lane extraction.
+func.def @narrow_predicate_extensions(%lhs: vector<2xi64>, %rhs: vector<2xi64>) -> (vector<2xi1>, vector<16xi8>, vector<16xi8>) {
+  %pair = vector.cmpi ne, %lhs, %rhs : vector<2xi64> -> vector<2xi1>
+  %predicates = vector.concat<0> %pair, %pair, %pair, %pair, %pair, %pair, %pair, %pair : vector<2xi1>, vector<2xi1>, vector<2xi1>, vector<2xi1>, vector<2xi1>, vector<2xi1>, vector<2xi1>, vector<2xi1> -> vector<16xi1>
+  %signed = vector.extsi %predicates : vector<16xi1> to vector<16xi8>
+  %unsigned = vector.extui %predicates : vector<16xi1> to vector<16xi8>
+  func.return %pair, %signed, %unsigned : vector<2xi1>, vector<16xi8>, vector<16xi8>
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @narrow_predicate_extensions(%lhs: reg<wasm.v128>, %rhs: reg<wasm.v128>) -> (reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>) asm {
+  %pair = i64x2.ne %lhs, %rhs
+  %39 = i8x16.shuffle %pair, %pair, 0, 8, 16, 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  %41 = i8x16.shuffle %39, %pair, 0, 1, 2, 3, 16, 24, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+  %43 = i8x16.shuffle %41, %pair, 0, 1, 2, 3, 4, 5, 16, 24, 8, 9, 10, 11, 12, 13, 14, 15
+  %45 = i8x16.shuffle %43, %pair, 0, 1, 2, 3, 4, 5, 6, 7, 16, 24, 10, 11, 12, 13, 14, 15
+  %47 = i8x16.shuffle %45, %pair, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 16, 24, 12, 13, 14, 15
+  %49 = i8x16.shuffle %47, %pair, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 24, 14, 15
+  %signed = i8x16.shuffle %49, %pair, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 24
+  %67 = v128.const 72340172838076673, 72340172838076673
+  %unsigned = v128.and %signed, %67
+  return %pair, %signed, %unsigned
+}

@@ -7,6 +7,7 @@
 #include "loom/target/emit/wasm/lower/predicate_representation.h"
 
 #include "loom/ops/vector/ops.h"
+#include "loom/target/emit/wasm/lower/vector_dynamic_slice.h"
 
 typedef enum loom_wasm_predicate_representation_action_e {
   LOOM_WASM_PREDICATE_REPRESENTATION_ACTION_FLEXIBLE_RESULT = 0,
@@ -15,6 +16,7 @@ typedef enum loom_wasm_predicate_representation_action_e {
   LOOM_WASM_PREDICATE_REPRESENTATION_ACTION_PRESERVE_STRUCTURE = 3,
   LOOM_WASM_PREDICATE_REPRESENTATION_ACTION_SELECT = 4,
   LOOM_WASM_PREDICATE_REPRESENTATION_ACTION_COMPARE = 5,
+  LOOM_WASM_PREDICATE_REPRESENTATION_ACTION_EXTEND = 6,
 } loom_wasm_predicate_representation_action_t;
 
 static const loom_low_representation_id_t kWasmPredicateRepresentations[] = {
@@ -39,7 +41,7 @@ bool loom_wasm_predicate_type(loom_type_t source_type,
   }
   uint64_t lane_count = 0;
   if (!loom_type_static_element_count(source_type, &lane_count) ||
-      lane_count < 1 || lane_count > 16) {
+      lane_count < 1 || lane_count > UINT16_MAX) {
     return false;
   }
   if (out_lane_count != NULL) {
@@ -50,7 +52,7 @@ bool loom_wasm_predicate_type(loom_type_t source_type,
 
 bool loom_wasm_predicate_representation_available(
     uint32_t lane_count, loom_low_representation_id_t representation) {
-  if (lane_count < 1 || lane_count > 16) {
+  if (lane_count < 1) {
     return false;
   }
   switch (representation) {
@@ -58,7 +60,7 @@ bool loom_wasm_predicate_representation_available(
     case LOOM_WASM_PREDICATE_REPRESENTATION_I16X8:
     case LOOM_WASM_PREDICATE_REPRESENTATION_I32X4:
     case LOOM_WASM_PREDICATE_REPRESENTATION_I64X2:
-      return lane_count * representation <= 128;
+      return lane_count <= UINT16_MAX * 8u / representation;
     default:
       return false;
   }
@@ -74,12 +76,11 @@ loom_low_representation_id_t loom_wasm_predicate_default_representation(
        i > 0; --i) {
     const loom_low_representation_id_t representation =
         kWasmPredicateRepresentations[i - 1];
-    if (loom_wasm_predicate_representation_available(lane_count,
-                                                     representation)) {
+    if (lane_count * representation <= 128u) {
       return representation;
     }
   }
-  IREE_BUILTIN_UNREACHABLE();
+  return LOOM_WASM_PREDICATE_REPRESENTATION_I8X16;
 }
 
 loom_wasm_vector_carrier_t loom_wasm_predicate_carrier(
@@ -99,6 +100,40 @@ loom_wasm_vector_carrier_t loom_wasm_predicate_carrier(
                                                        representation);
 }
 
+static uint32_t loom_wasm_predicate_conversion_shuffle_count(
+    uint32_t lane_count, loom_low_representation_id_t source_representation,
+    loom_low_representation_id_t result_representation) {
+  if (source_representation == result_representation) {
+    return 0;
+  }
+  const uint32_t source_lane_byte_count = source_representation / 8u;
+  const uint32_t result_lane_byte_count = result_representation / 8u;
+  const uint32_t result_payload_byte_count =
+      lane_count * result_lane_byte_count;
+  const uint32_t full_result_packet_count =
+      result_payload_byte_count / LOOM_WASM_VECTOR_CARRIER_PACKET_BYTE_COUNT;
+  const uint32_t partial_result_byte_count =
+      result_payload_byte_count % LOOM_WASM_VECTOR_CARRIER_PACKET_BYTE_COUNT;
+  if (source_lane_byte_count < result_lane_byte_count) {
+    return full_result_packet_count + (partial_result_byte_count != 0);
+  }
+
+  const uint32_t full_source_packet_count =
+      source_lane_byte_count / result_lane_byte_count;
+  uint32_t shuffle_count =
+      full_result_packet_count * (full_source_packet_count - 1u);
+  if (partial_result_byte_count != 0) {
+    const uint32_t partial_lane_count =
+        partial_result_byte_count / result_lane_byte_count;
+    const uint32_t partial_source_packet_count =
+        (partial_lane_count * source_lane_byte_count +
+         LOOM_WASM_VECTOR_CARRIER_PACKET_BYTE_COUNT - 1u) /
+        LOOM_WASM_VECTOR_CARRIER_PACKET_BYTE_COUNT;
+    shuffle_count += iree_max(1u, partial_source_packet_count - 1u);
+  }
+  return shuffle_count;
+}
+
 iree_host_size_t loom_wasm_predicate_representation_candidates(
     loom_type_t source_type, loom_low_representation_id_t native_representation,
     loom_low_representation_candidate_t
@@ -116,13 +151,18 @@ iree_host_size_t loom_wasm_predicate_representation_candidates(
                                                       representation)) {
       continue;
     }
+    const uint32_t conversion_shuffle_count =
+        native_representation == LOOM_LOW_REPRESENTATION_ID_NONE
+            ? 0
+            : loom_wasm_predicate_conversion_shuffle_count(
+                  lane_count, representation, native_representation);
     out_candidates[candidate_count++] = (loom_low_representation_candidate_t){
         .representation = representation,
-        .cost = native_representation == LOOM_LOW_REPRESENTATION_ID_NONE ||
-                        native_representation == representation
-                    ? (loom_low_representation_cost_t){0}
-                    : (loom_low_representation_cost_t){.runtime = 1,
-                                                       .code_size = 18},
+        .cost =
+            {
+                .runtime = conversion_shuffle_count,
+                .code_size = conversion_shuffle_count * 18u,
+            },
     };
   }
   return candidate_count;
@@ -158,6 +198,29 @@ static void loom_wasm_predicate_constrain_default_value(
   };
   loom_low_lower_representation_record_candidates(recorder, value_id,
                                                   &candidate, 1);
+}
+
+static void loom_wasm_predicate_constrain_packet_value(
+    const loom_module_t* module, loom_value_id_t value_id,
+    loom_low_representation_id_t native_representation, uint16_t packet_count,
+    loom_low_lower_representation_recorder_t* recorder) {
+  const loom_type_t source_type = loom_module_value_type(module, value_id);
+  loom_low_representation_candidate_t
+      candidates[LOOM_WASM_PREDICATE_REPRESENTATION_COUNT];
+  const iree_host_size_t candidate_count =
+      loom_wasm_predicate_representation_candidates(
+          source_type, native_representation, candidates);
+  iree_host_size_t filtered_count = 0;
+  for (iree_host_size_t i = 0; i < candidate_count; ++i) {
+    if (loom_wasm_predicate_carrier(source_type, candidates[i].representation)
+            .packet_count == packet_count) {
+      candidates[filtered_count++] = candidates[i];
+    }
+  }
+  if (filtered_count != 0) {
+    loom_low_lower_representation_record_candidates(recorder, value_id,
+                                                    candidates, filtered_count);
+  }
 }
 
 static void loom_wasm_predicate_contribute_costs(
@@ -217,6 +280,61 @@ static void loom_wasm_predicate_observe_insert(
   loom_wasm_predicate_observe_lane_access(context, destination, recorder);
 }
 
+static void loom_wasm_predicate_observe_dynamic_slice(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_low_lower_representation_recorder_t* recorder) {
+  loom_value_id_t source = LOOM_VALUE_ID_INVALID;
+  loom_value_id_t result = LOOM_VALUE_ID_INVALID;
+  const loom_module_t* module = loom_low_lower_context_module(context);
+  if (!loom_wasm_dynamic_slice_values(
+          module, loom_low_lower_context_fact_table(context), source_op,
+          &source, &result)) {
+    return;
+  }
+  const loom_type_t source_type = loom_module_value_type(module, source);
+  const loom_type_t result_type = loom_module_value_type(module, result);
+  if (!loom_wasm_predicate_type(source_type, NULL) ||
+      !loom_wasm_predicate_type(result_type, NULL)) {
+    return;
+  }
+
+  loom_low_representation_candidate_t
+      candidates[LOOM_WASM_PREDICATE_REPRESENTATION_COUNT];
+  const iree_host_size_t candidate_count =
+      loom_wasm_predicate_representation_candidates(
+          source_type, LOOM_LOW_REPRESENTATION_ID_NONE, candidates);
+  iree_host_size_t filtered_count = 0;
+  for (iree_host_size_t i = 0; i < candidate_count; ++i) {
+    const loom_low_representation_id_t representation =
+        candidates[i].representation;
+    const loom_wasm_vector_carrier_t source_carrier =
+        loom_wasm_predicate_carrier(source_type, representation);
+    const loom_wasm_vector_carrier_t result_carrier =
+        loom_wasm_predicate_carrier(result_type, representation);
+    if (source_carrier.packet_count == 0 || result_carrier.packet_count == 0 ||
+        source_carrier.payload_byte_count <=
+            result_carrier.payload_byte_count ||
+        !loom_wasm_dynamic_slice_operation_count_is_bounded(source_carrier,
+                                                            result_carrier)) {
+      continue;
+    }
+    const uint32_t operation_count =
+        loom_wasm_dynamic_slice_operation_count(source_carrier, result_carrier);
+    candidates[filtered_count++] = (loom_low_representation_candidate_t){
+        .representation = representation,
+        .cost =
+            {
+                .runtime = operation_count,
+                .code_size = operation_count,
+            },
+    };
+  }
+  if (filtered_count != 0) {
+    loom_low_lower_representation_record_candidates(recorder, source,
+                                                    candidates, filtered_count);
+  }
+}
+
 static void loom_wasm_predicate_observe_structure(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_low_lower_representation_recorder_t* recorder) {
@@ -253,6 +371,7 @@ static void loom_wasm_predicate_observe_structure(
                                                  results[i]);
     }
   }
+  loom_wasm_predicate_observe_dynamic_slice(context, source_op, recorder);
 }
 
 static void loom_wasm_predicate_observe_select(
@@ -268,12 +387,18 @@ static void loom_wasm_predicate_observe_select(
   const loom_type_t value_type = loom_module_value_type(module, true_value);
   if (loom_wasm_predicate_type(value_type, NULL)) {
     loom_low_lower_representation_record_union(recorder, condition, true_value);
+    loom_wasm_predicate_constrain_packet_value(module, condition,
+                                               LOOM_LOW_REPRESENTATION_ID_NONE,
+                                               /*packet_count=*/1, recorder);
   } else if (loom_type_is_vector(value_type)) {
     const uint16_t element_bit_count = loom_wasm_scalar_type_physical_bit_count(
         loom_type_element_type(value_type));
-    if (element_bit_count != 0) {
-      loom_wasm_predicate_contribute_costs(module, condition, element_bit_count,
-                                           recorder);
+    const loom_wasm_vector_carrier_t value_carrier =
+        loom_wasm_vector_carrier_for_type(value_type);
+    if (element_bit_count != 0 && value_carrier.packet_count != 0) {
+      loom_wasm_predicate_constrain_packet_value(
+          module, condition, element_bit_count, value_carrier.packet_count,
+          recorder);
     }
   }
   loom_low_lower_representation_claim_operand(recorder, 0);
@@ -298,6 +423,23 @@ static void loom_wasm_predicate_observe_compare(
   if (element_bit_count != 0) {
     loom_wasm_predicate_constrain_value(module, result, element_bit_count,
                                         recorder);
+  }
+}
+
+static void loom_wasm_predicate_observe_extension(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_low_lower_representation_recorder_t* recorder) {
+  const loom_module_t* module = loom_low_lower_context_module(context);
+  const loom_value_id_t source = loom_op_const_operands(source_op)[0];
+  const loom_type_t result_type =
+      loom_module_value_type(module, loom_op_const_results(source_op)[0]);
+  const uint16_t result_element_bit_count =
+      loom_wasm_scalar_type_physical_bit_count(
+          loom_type_element_type(result_type));
+  if (result_element_bit_count != 0) {
+    loom_wasm_predicate_contribute_costs(module, source,
+                                         result_element_bit_count, recorder);
+    loom_low_lower_representation_claim_operand(recorder, 0);
   }
 }
 
@@ -332,6 +474,9 @@ static void loom_wasm_predicate_observe_boundary(
       return;
     case LOOM_WASM_PREDICATE_REPRESENTATION_ACTION_COMPARE:
       loom_wasm_predicate_observe_compare(context, source_op, recorder);
+      return;
+    case LOOM_WASM_PREDICATE_REPRESENTATION_ACTION_EXTEND:
+      loom_wasm_predicate_observe_extension(context, source_op, recorder);
       return;
   }
   IREE_ASSERT_UNREACHABLE("unknown Wasm predicate representation action");
@@ -433,6 +578,10 @@ static const loom_low_lower_representation_boundary_t
          LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_RESULTS},
         {LOOM_OP_VECTOR_CMPF, LOOM_WASM_PREDICATE_REPRESENTATION_ACTION_COMPARE,
          LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_RESULTS},
+        {LOOM_OP_VECTOR_EXTSI, LOOM_WASM_PREDICATE_REPRESENTATION_ACTION_EXTEND,
+         LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_OPERANDS},
+        {LOOM_OP_VECTOR_EXTUI, LOOM_WASM_PREDICATE_REPRESENTATION_ACTION_EXTEND,
+         LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_OPERANDS},
         {LOOM_OP_VECTOR_BITCAST,
          LOOM_WASM_PREDICATE_REPRESENTATION_ACTION_PRESERVE_STRUCTURE,
          LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_ALL},
@@ -466,6 +615,10 @@ static_assert((loom_op_kind_t)LOOM_OP_VECTOR_CONSTANT <
                   (loom_op_kind_t)LOOM_OP_VECTOR_CMPI <
                       (loom_op_kind_t)LOOM_OP_VECTOR_CMPF &&
                   (loom_op_kind_t)LOOM_OP_VECTOR_CMPF <
+                      (loom_op_kind_t)LOOM_OP_VECTOR_EXTSI &&
+                  (loom_op_kind_t)LOOM_OP_VECTOR_EXTSI <
+                      (loom_op_kind_t)LOOM_OP_VECTOR_EXTUI &&
+                  (loom_op_kind_t)LOOM_OP_VECTOR_EXTUI <
                       (loom_op_kind_t)LOOM_OP_VECTOR_BITCAST,
               "Wasm predicate representation boundaries must remain ordered");
 

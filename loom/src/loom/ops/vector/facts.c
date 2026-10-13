@@ -30,6 +30,7 @@
 #include "loom/ops/vector/fragment.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/util/fact_table.h"
+#include "loom/util/fact_vector_partition.h"
 #include "loom/util/numeric_format.h"
 
 #define LOOM_VECTOR_FACT_STATIC_LOOP_LIMIT 1024
@@ -2457,11 +2458,63 @@ iree_status_t loom_vector_slice_facts(loom_fact_context_t* context,
       context, lanes, result_lane_count, &result_facts[0]);
 }
 
+static iree_status_t loom_vector_concat_define_partition_fact(
+    loom_fact_context_t* context, const loom_module_t* module,
+    const loom_op_t* op) {
+  if (context == NULL || context->table == NULL || module == NULL ||
+      loom_vector_concat_axis(op) != 0) {
+    return iree_ok_status();
+  }
+  const loom_value_id_t result = loom_vector_concat_result(op);
+  const loom_type_t result_type = loom_module_value_type(module, result);
+  iree_host_size_t result_lane_count = 0;
+  if (loom_type_rank(result_type) != 1 ||
+      !loom_vector_type_static_lane_count(result_type, &result_lane_count) ||
+      result_lane_count > UINT32_MAX) {
+    return iree_ok_status();
+  }
+
+  const loom_value_slice_t inputs = loom_vector_concat_inputs(op);
+  uint32_t regular_lane_count = 0;
+  uint64_t partition_lane_count = 0;
+  for (iree_host_size_t i = 0; i < inputs.count; ++i) {
+    const loom_type_t input_type =
+        loom_module_value_type(module, inputs.values[i]);
+    iree_host_size_t input_lane_count = 0;
+    if (loom_type_rank(input_type) != 1 ||
+        !loom_type_element_type_equals(input_type, result_type) ||
+        !loom_vector_type_static_lane_count(input_type, &input_lane_count) ||
+        input_lane_count == 0 || input_lane_count > UINT32_MAX) {
+      return iree_ok_status();
+    }
+    if (i == 0) {
+      regular_lane_count = (uint32_t)input_lane_count;
+    } else if (input_lane_count > regular_lane_count ||
+               (i + 1u < inputs.count &&
+                input_lane_count != regular_lane_count)) {
+      return iree_ok_status();
+    }
+    partition_lane_count += input_lane_count;
+  }
+  if (inputs.count == 0 || partition_lane_count != result_lane_count) {
+    return iree_ok_status();
+  }
+  return loom_value_fact_table_define_vector_partition(
+      context->table, result,
+      (loom_value_fact_vector_partition_t){
+          .values = inputs.values,
+          .count = (uint32_t)inputs.count,
+          .regular_lane_count = regular_lane_count,
+      });
+}
+
 iree_status_t loom_vector_concat_facts(loom_fact_context_t* context,
                                        const loom_module_t* module,
                                        const loom_op_t* op,
                                        const loom_value_facts_t* operand_facts,
                                        loom_value_facts_t* result_facts) {
+  IREE_RETURN_IF_ERROR(
+      loom_vector_concat_define_partition_fact(context, module, op));
   loom_type_t result_type =
       loom_module_value_type(module, loom_vector_concat_result(op));
   int64_t axis = loom_vector_concat_axis(op);

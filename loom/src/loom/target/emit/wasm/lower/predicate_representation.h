@@ -32,29 +32,30 @@ enum {
   LOOM_WASM_PREDICATE_REPRESENTATION_COUNT = 4,
 };
 
-// Returns true for a predicate vector that fits one v128 register in at least
-// one representation and optionally returns its logical element count.
+// Returns true for a predicate vector representable as a nonempty v128 tuple
+// and optionally returns its logical element count.
 bool loom_wasm_predicate_type(loom_type_t source_type,
                               uint32_t* out_lane_count);
 
 // Returns whether |representation| can carry |lane_count| predicate lanes in
-// one v128 register.
+// a v128 tuple whose byte and packet counts fit the Wasm carrier.
 bool loom_wasm_predicate_representation_available(
     uint32_t lane_count, loom_low_representation_id_t representation);
 
-// Returns the widest available physical lane representation for |source_type|,
-// or NONE when the type is not a supported predicate vector.
+// Returns the widest one-packet physical lane representation for
+// |source_type|. Wider vectors use byte lanes so packet count remains minimal.
+// Returns NONE when the type is not a supported predicate vector.
 loom_low_representation_id_t loom_wasm_predicate_default_representation(
     loom_type_t source_type);
 
-// Returns the one-packet carrier for |source_type| and |representation|. NONE
+// Returns the tuple carrier for |source_type| and |representation|. NONE
 // selects the stable default representation. Invalid pairs return zero.
 loom_wasm_vector_carrier_t loom_wasm_predicate_carrier(
     loom_type_t source_type, loom_low_representation_id_t representation);
 
 // Enumerates every physical representation available to |source_type|. When
-// |native_representation| is not NONE, alternatives include the cost of one
-// byte shuffle from that native lane width.
+// |native_representation| is not NONE, alternatives include the packet-routing
+// cost from that representation to the native lane width.
 iree_host_size_t loom_wasm_predicate_representation_candidates(
     loom_type_t source_type, loom_low_representation_id_t native_representation,
     loom_low_representation_candidate_t

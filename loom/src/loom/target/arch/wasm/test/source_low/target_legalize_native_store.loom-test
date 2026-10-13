@@ -58,3 +58,33 @@ CHECK: *view.store *%view[0] : i32, view<4xi32>
 CHECK: *view.store *%view[1] : i32, view<4xi32>
 CHECK: *view.store *%view[2] : i32, view<4xi32>
 CHECK: *view.store *%view[3] : i32, view<4xi32>
+
+// ====
+// RUN: pass target=wasm:simd128 target-legalize{mode=complete,policy=reference-only}
+
+wasm.target<simd128> @target
+
+// A consumer cannot use reference fallback to expand a producer whose target
+// contract owns a terminal structured rejection.
+func.def target(@target) @preserve_terminal_window_rejection(%packet: vector<16xi8>, %offset0: index, %output: buffer) {
+  %offset = index.assume %offset0 [range(%offset0, 0, 80)] : index
+  %source = vector.concat<0> %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet : vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8> -> vector<208xi8>
+  %window = vector.slice %source[%offset] : vector<208xi8> -> vector<128xi8>
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<128xi8>
+  vector.store %window, %results[0] : vector<128xi8>, view<128xi8>
+  func.return
+}
+
+// ----
+wasm.target<simd128> @target
+
+func.def target(@target) @preserve_terminal_window_rejection(%packet: vector<16xi8>, %offset0: index, %output: buffer) {
+  %offset = index.assume %offset0 [range(%offset0, 0, 80)] : index
+  %source = vector.concat<0> %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet : vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8> -> vector<208xi8>
+  %window = vector.slice %source[%offset] : vector<208xi8> -> vector<128xi8>
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<128xi8>
+  vector.store %window, %results[0] : vector<128xi8>, view<128xi8>
+  func.return
+}

@@ -284,6 +284,7 @@ loom_cc_library(
     "fact_loop.h"
     "fact_recurrence.h"
     "fact_table.h"
+    "fact_vector_partition.h"
     "reference_transfer.h"
   SRCS
     "fact_cfg.c"
@@ -294,6 +295,7 @@ loom_cc_library(
     "fact_recurrence.c"
     "fact_table.c"
     "fact_table_compute.c"
+    "fact_vector_partition.c"
     "reference_transfer.c"
   DEPS
     ::cfg_control
@@ -329,6 +331,18 @@ loom_cc_test(
     fact_layout_test
   SRCS
     "fact_layout_test.cc"
+  DEPS
+    ::fact_table
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_test(
+  NAME
+    fact_vector_partition_test
+  SRCS
+    "fact_vector_partition_test.cc"
   DEPS
     ::fact_table
     iree::base::internal::arena

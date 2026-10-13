@@ -267,3 +267,21 @@ func.def target(@target) @wide_offset_rejects_negative(%input: i64) -> (offset) 
   %offset = index.cast %bounded : i64 to offset
   func.return %offset : offset
 }
+
+// ====
+
+wasm.target<simd128> @target
+
+// Twelve source packets require 126 Low operations and remain admissible. The
+// next packet raises the complete native sequence to 147 operations, so the
+// authored window is rejected before its store can trigger scalar fallback.
+func.def target(@target) @materialized_window_exceeds_operation_limit(%packet: vector<16xi8>, %offset0: index, %output: buffer) {
+  %offset = index.assume %offset0 [range(%offset0, 0, 80)] : index
+  %source = vector.concat<0> %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet, %packet : vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8>, vector<16xi8> -> vector<208xi8>
+  // ERROR@+1: WASM/007 {op_name="vector.slice", required_operation_count="147", maximum_operation_count="128"}
+  %window = vector.slice %source[%offset] : vector<208xi8> -> vector<128xi8>
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<128xi8>
+  vector.store %window, %results[0] : vector<128xi8>, view<128xi8>
+  func.return
+}

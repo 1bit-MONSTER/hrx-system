@@ -7,6 +7,7 @@
 #include "loom/target/emit/wasm/lower/predicate_representation.h"
 
 #include <cstdint>
+#include <iterator>
 
 #include "iree/testing/gtest.h"
 
@@ -26,7 +27,7 @@ loom_type_t Vector2D(loom_scalar_type_t element_type, int64_t outer_count,
                              /*encoding_id=*/0);
 }
 
-TEST(PredicateRepresentationTest, CoversEveryOnePacketLaneWidth) {
+TEST(PredicateRepresentationTest, CoversEveryPhysicalLaneWidth) {
   static constexpr loom_low_representation_id_t kRepresentations[] = {
       LOOM_WASM_PREDICATE_REPRESENTATION_I8X16,
       LOOM_WASM_PREDICATE_REPRESENTATION_I16X8,
@@ -48,28 +49,23 @@ TEST(PredicateRepresentationTest, CoversEveryOnePacketLaneWidth) {
     loom_low_representation_id_t expected_default =
         LOOM_LOW_REPRESENTATION_ID_NONE;
     for (loom_low_representation_id_t representation : kRepresentations) {
-      const bool expected = lane_count * representation <= 128;
-      EXPECT_EQ(loom_wasm_predicate_representation_available(lane_count,
-                                                             representation),
-                expected);
-      if (!expected) {
-        EXPECT_EQ(
-            loom_wasm_predicate_carrier(type, representation).packet_count, 0);
-        continue;
-      }
+      EXPECT_TRUE(loom_wasm_predicate_representation_available(lane_count,
+                                                               representation));
       ASSERT_LT(expected_candidate_count, candidate_count);
       EXPECT_EQ(candidates[expected_candidate_count].representation,
                 representation);
       EXPECT_EQ(candidates[expected_candidate_count].cost.runtime, 0);
       EXPECT_EQ(candidates[expected_candidate_count].cost.code_size, 0);
       ++expected_candidate_count;
-      expected_default = representation;
 
       const loom_wasm_vector_carrier_t carrier =
           loom_wasm_predicate_carrier(type, representation);
       EXPECT_EQ(carrier.element_bit_count, representation);
       EXPECT_EQ(carrier.payload_byte_count, lane_count * representation / 8u);
-      EXPECT_EQ(carrier.packet_count, 1);
+      EXPECT_EQ(carrier.packet_count, (carrier.payload_byte_count + 15u) / 16u);
+      if (lane_count * representation <= 128u) {
+        expected_default = representation;
+      }
     }
     EXPECT_EQ(candidate_count, expected_candidate_count);
     EXPECT_EQ(loom_wasm_predicate_default_representation(type),
@@ -102,6 +98,40 @@ TEST(PredicateRepresentationTest, PricesOneShuffleFromNativeWidth) {
   }
 }
 
+TEST(PredicateRepresentationTest, PricesEveryWideRepresentationConversion) {
+  static constexpr loom_low_representation_id_t kRepresentations[] = {
+      LOOM_WASM_PREDICATE_REPRESENTATION_I8X16,
+      LOOM_WASM_PREDICATE_REPRESENTATION_I16X8,
+      LOOM_WASM_PREDICATE_REPRESENTATION_I32X4,
+      LOOM_WASM_PREDICATE_REPRESENTATION_I64X2,
+  };
+  static constexpr uint32_t kExpectedShuffleCounts[][4] = {
+      {0, 3, 7, 17},
+      {5, 0, 5, 15},
+      {10, 10, 0, 10},
+      {20, 20, 20, 0},
+  };
+  const loom_type_t type = Vector1D(LOOM_SCALAR_TYPE_I1, 40);
+  for (iree_host_size_t native_index = 0;
+       native_index < std::size(kRepresentations); ++native_index) {
+    loom_low_representation_candidate_t
+        candidates[LOOM_WASM_PREDICATE_REPRESENTATION_COUNT];
+    const iree_host_size_t candidate_count =
+        loom_wasm_predicate_representation_candidates(
+            type, kRepresentations[native_index], candidates);
+    ASSERT_EQ(candidate_count, std::size(kRepresentations));
+    for (iree_host_size_t source_index = 0; source_index < candidate_count;
+         ++source_index) {
+      EXPECT_EQ(candidates[source_index].representation,
+                kRepresentations[source_index]);
+      EXPECT_EQ(candidates[source_index].cost.runtime,
+                kExpectedShuffleCounts[native_index][source_index]);
+      EXPECT_EQ(candidates[source_index].cost.code_size,
+                kExpectedShuffleCounts[native_index][source_index] * 18u);
+    }
+  }
+}
+
 TEST(PredicateRepresentationTest, UsesElementCountAcrossLogicalShapes) {
   const loom_type_t type = Vector2D(LOOM_SCALAR_TYPE_I1, 2, 4);
   uint32_t element_count = 0;
@@ -116,14 +146,77 @@ TEST(PredicateRepresentationTest, UsesElementCountAcrossLogicalShapes) {
   EXPECT_EQ(carrier.packet_count, 1);
 }
 
-TEST(PredicateRepresentationTest, RejectsNonPredicateAndOverwideShapes) {
+TEST(PredicateRepresentationTest, CarriesWidePredicatesInEveryRepresentation) {
+  for (uint32_t lane_count : {17u, 32u, 64u, 255u, 256u}) {
+    const loom_type_t type = Vector1D(LOOM_SCALAR_TYPE_I1, (int64_t)lane_count);
+    uint32_t actual_lane_count = 0;
+    ASSERT_TRUE(loom_wasm_predicate_type(type, &actual_lane_count));
+    EXPECT_EQ(actual_lane_count, lane_count);
+    EXPECT_EQ(loom_wasm_predicate_default_representation(type),
+              LOOM_WASM_PREDICATE_REPRESENTATION_I8X16);
+
+    const loom_wasm_vector_carrier_t carrier =
+        loom_wasm_predicate_carrier(type, LOOM_LOW_REPRESENTATION_ID_NONE);
+    EXPECT_EQ(carrier.element_bit_count, 8);
+    EXPECT_EQ(carrier.payload_byte_count, lane_count);
+    EXPECT_EQ(carrier.packet_count, (lane_count + 15u) / 16u);
+    EXPECT_EQ(loom_wasm_vector_carrier_for_type(type).packet_count,
+              carrier.packet_count);
+
+    loom_low_representation_candidate_t
+        candidates[LOOM_WASM_PREDICATE_REPRESENTATION_COUNT];
+    ASSERT_EQ(loom_wasm_predicate_representation_candidates(
+                  type, LOOM_LOW_REPRESENTATION_ID_NONE, candidates),
+              LOOM_WASM_PREDICATE_REPRESENTATION_COUNT);
+    for (iree_host_size_t i = 0; i < LOOM_WASM_PREDICATE_REPRESENTATION_COUNT;
+         ++i) {
+      const loom_low_representation_id_t representation =
+          candidates[i].representation;
+      const loom_wasm_vector_carrier_t represented_carrier =
+          loom_wasm_predicate_carrier(type, representation);
+      EXPECT_EQ(represented_carrier.element_bit_count, representation);
+      EXPECT_EQ(represented_carrier.payload_byte_count,
+                lane_count * representation / 8u);
+      EXPECT_EQ(represented_carrier.packet_count,
+                (represented_carrier.payload_byte_count + 15u) / 16u);
+    }
+  }
+}
+
+TEST(PredicateRepresentationTest, BoundsEveryTupleRepresentation) {
+  const loom_type_t maximum_i8 = Vector1D(LOOM_SCALAR_TYPE_I1, UINT16_MAX);
+  EXPECT_TRUE(loom_wasm_predicate_type(maximum_i8, nullptr));
+  EXPECT_TRUE(loom_wasm_predicate_representation_available(
+      UINT16_MAX, LOOM_WASM_PREDICATE_REPRESENTATION_I8X16));
+  EXPECT_FALSE(loom_wasm_predicate_representation_available(
+      UINT16_MAX, LOOM_WASM_PREDICATE_REPRESENTATION_I16X8));
+  EXPECT_EQ(loom_wasm_predicate_carrier(
+                maximum_i8, LOOM_WASM_PREDICATE_REPRESENTATION_I8X16)
+                .payload_byte_count,
+            UINT16_MAX);
+
+  EXPECT_TRUE(loom_wasm_predicate_representation_available(
+      UINT16_MAX / 2, LOOM_WASM_PREDICATE_REPRESENTATION_I16X8));
+  EXPECT_FALSE(loom_wasm_predicate_representation_available(
+      UINT16_MAX / 2 + 1, LOOM_WASM_PREDICATE_REPRESENTATION_I16X8));
+  EXPECT_TRUE(loom_wasm_predicate_representation_available(
+      UINT16_MAX / 4, LOOM_WASM_PREDICATE_REPRESENTATION_I32X4));
+  EXPECT_FALSE(loom_wasm_predicate_representation_available(
+      UINT16_MAX / 4 + 1, LOOM_WASM_PREDICATE_REPRESENTATION_I32X4));
+  EXPECT_TRUE(loom_wasm_predicate_representation_available(
+      UINT16_MAX / 8, LOOM_WASM_PREDICATE_REPRESENTATION_I64X2));
+  EXPECT_FALSE(loom_wasm_predicate_representation_available(
+      UINT16_MAX / 8 + 1, LOOM_WASM_PREDICATE_REPRESENTATION_I64X2));
+
+  const loom_type_t too_wide =
+      Vector1D(LOOM_SCALAR_TYPE_I1, (int64_t)UINT16_MAX + 1);
+  EXPECT_FALSE(loom_wasm_predicate_type(too_wide, nullptr));
+  EXPECT_EQ(loom_wasm_vector_carrier_for_type(too_wide).packet_count, 0);
+}
+
+TEST(PredicateRepresentationTest, RejectsNonPredicateShapes) {
   EXPECT_FALSE(
       loom_wasm_predicate_type(Vector1D(LOOM_SCALAR_TYPE_I8, 16), nullptr));
-  EXPECT_FALSE(
-      loom_wasm_predicate_type(Vector1D(LOOM_SCALAR_TYPE_I1, 17), nullptr));
-  EXPECT_EQ(loom_wasm_predicate_default_representation(
-                Vector1D(LOOM_SCALAR_TYPE_I1, 17)),
-            LOOM_LOW_REPRESENTATION_ID_NONE);
 }
 
 }  // namespace

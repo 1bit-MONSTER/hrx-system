@@ -8,13 +8,18 @@
 
 #include <string.h>
 
+#include "loom/codegen/low/diagnostics.h"
+#include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
+#include "loom/ops/op_defs.h"
 #include "loom/ops/vector/interleave.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/target/arch/wasm/descriptors/descriptors.h"
+#include "loom/target/emit/wasm/error_catalog.h"
 #include "loom/target/emit/wasm/lower/predicate_representation.h"
 #include "loom/target/emit/wasm/lower/vector_carrier.h"
+#include "loom/target/emit/wasm/lower/vector_dynamic_slice.h"
 
 enum {
   LOOM_WASM_VECTOR_STRUCTURAL_PLAN_INTERLEAVE = 0x501,
@@ -23,6 +28,8 @@ enum {
   LOOM_WASM_VECTOR_STRUCTURAL_PLAN_BITCAST = 0x504,
   LOOM_WASM_VECTOR_STRUCTURAL_PLAN_FROM_ELEMENTS = 0x505,
   LOOM_WASM_VECTOR_STRUCTURAL_PLAN_SHUFFLE = 0x506,
+  LOOM_WASM_VECTOR_STRUCTURAL_PLAN_DYNAMIC_SLICE = 0x507,
+  LOOM_WASM_VECTOR_STRUCTURAL_PLAN_PREDICATE_EXTENSION = 0x508,
 };
 
 typedef struct loom_wasm_vector_slice_plan_t {
@@ -33,6 +40,35 @@ typedef struct loom_wasm_vector_slice_plan_t {
   // Selected result carrier retained before source IR mutation.
   loom_wasm_vector_carrier_t result_carrier;
 } loom_wasm_vector_slice_plan_t;
+
+typedef struct loom_wasm_vector_dynamic_slice_plan_t {
+  // Selected source carrier retained before source IR mutation.
+  loom_wasm_vector_carrier_t source_carrier;
+  // Selected result carrier retained before source IR mutation.
+  loom_wasm_vector_carrier_t result_carrier;
+} loom_wasm_vector_dynamic_slice_plan_t;
+
+typedef uint8_t loom_wasm_vector_dynamic_slice_match_t;
+enum loom_wasm_vector_dynamic_slice_match_e {
+  LOOM_WASM_VECTOR_DYNAMIC_SLICE_UNMATCHED = 0,
+  LOOM_WASM_VECTOR_DYNAMIC_SLICE_SUPPORTED = 1,
+  LOOM_WASM_VECTOR_DYNAMIC_SLICE_OPERATION_LIMIT_EXCEEDED = 2,
+};
+
+typedef uint8_t loom_wasm_predicate_extension_kind_t;
+enum loom_wasm_predicate_extension_kind_e {
+  LOOM_WASM_PREDICATE_EXTENSION_SIGNED = 0,
+  LOOM_WASM_PREDICATE_EXTENSION_UNSIGNED = 1,
+};
+
+typedef struct loom_wasm_predicate_extension_plan_t {
+  // Selected source predicate carrier retained before source IR mutation.
+  loom_wasm_vector_carrier_t source_carrier;
+  // Selected integer result carrier retained before source IR mutation.
+  loom_wasm_vector_carrier_t result_carrier;
+  // Signed or unsigned Boolean extension semantics.
+  loom_wasm_predicate_extension_kind_t kind;
+} loom_wasm_predicate_extension_plan_t;
 
 typedef struct loom_wasm_vector_constructor_descriptors_t {
   // Descriptor reference for broadcasting the first packet lane.
@@ -301,6 +337,122 @@ static bool loom_wasm_slice_plan_from_op(
   return true;
 }
 
+static loom_wasm_vector_dynamic_slice_match_t
+loom_wasm_dynamic_slice_plan_from_op(
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_wasm_vector_dynamic_slice_plan_t* out_plan) {
+  *out_plan = (loom_wasm_vector_dynamic_slice_plan_t){0};
+  loom_value_id_t source = LOOM_VALUE_ID_INVALID;
+  loom_value_id_t result = LOOM_VALUE_ID_INVALID;
+  if (!loom_wasm_dynamic_slice_values(module, fact_table, source_op, &source,
+                                      &result)) {
+    return LOOM_WASM_VECTOR_DYNAMIC_SLICE_UNMATCHED;
+  }
+
+  const loom_type_t source_type = loom_module_value_type(module, source);
+  const loom_wasm_vector_carrier_t source_carrier =
+      loom_wasm_vector_carrier_for_source_value(module, context, source);
+  const loom_low_representation_id_t query_representation =
+      context == NULL && loom_wasm_predicate_type(source_type, NULL)
+          ? source_carrier.element_bit_count
+          : LOOM_LOW_REPRESENTATION_ID_NONE;
+  const loom_wasm_vector_carrier_t result_carrier =
+      loom_wasm_vector_carrier_for_source_value_with_representation(
+          module, context, result, query_representation);
+  if (source_carrier.packet_count == 0 || result_carrier.packet_count == 0 ||
+      source_carrier.element_bit_count != result_carrier.element_bit_count ||
+      source_carrier.payload_byte_count <= result_carrier.payload_byte_count) {
+    return LOOM_WASM_VECTOR_DYNAMIC_SLICE_UNMATCHED;
+  }
+  out_plan->source_carrier = source_carrier;
+  out_plan->result_carrier = result_carrier;
+  return loom_wasm_dynamic_slice_operation_count_is_bounded(source_carrier,
+                                                            result_carrier)
+             ? LOOM_WASM_VECTOR_DYNAMIC_SLICE_SUPPORTED
+             : LOOM_WASM_VECTOR_DYNAMIC_SLICE_OPERATION_LIMIT_EXCEEDED;
+}
+
+static iree_status_t loom_wasm_dynamic_slice_reject_operation_limit(
+    const loom_target_contract_query_environment_t* environment,
+    const loom_op_t* source_op,
+    const loom_wasm_vector_dynamic_slice_plan_t* plan,
+    loom_target_contract_query_result_t* out_result) {
+  loom_target_contract_rejection_t* rejection = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate(
+      environment->arena, sizeof(*rejection), (void**)&rejection));
+  loom_diagnostic_param_t* params = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      environment->arena, 7, sizeof(*params), (void**)&params));
+  const loom_target_bundle_t* bundle =
+      loom_target_contract_query_environment_bundle(environment);
+  params[0] = loom_param_string(loom_low_diagnostic_string_or_placeholder(
+      bundle->name, IREE_SV("<empty>")));
+  params[1] = loom_param_string(loom_low_diagnostic_string_or_placeholder(
+      bundle->export_plan->name, IREE_SV("<empty>")));
+  params[2] = loom_param_string(loom_low_diagnostic_string_or_placeholder(
+      bundle->config->name, IREE_SV("<empty>")));
+  params[3] = loom_param_string(loom_low_diagnostic_symbol_name(
+      environment->module, loom_func_like_callee(environment->function)));
+  params[4] = loom_param_string(loom_op_name(environment->module, source_op));
+  params[5] = loom_param_u32(loom_wasm_dynamic_slice_operation_count(
+      plan->source_carrier, plan->result_carrier));
+  params[6] = loom_param_u32(LOOM_WASM_DYNAMIC_SLICE_MAX_OPERATION_COUNT);
+  *rejection = (loom_target_contract_rejection_t){
+      .error_ref = LOOM_ERR_WASM_007_REF,
+      .params = params,
+      .param_count = 7,
+  };
+  *out_result = loom_target_contract_query_result_empty();
+  out_result->outcome = LOOM_TARGET_CONTRACT_QUERY_TERMINAL_REJECTION;
+  out_result->rejection = rejection;
+  return iree_ok_status();
+}
+
+static bool loom_wasm_predicate_extension_plan_from_op(
+    const loom_module_t* module, loom_low_lower_context_t* context,
+    const loom_op_t* source_op,
+    loom_wasm_predicate_extension_plan_t* out_plan) {
+  *out_plan = (loom_wasm_predicate_extension_plan_t){0};
+  const bool is_signed = loom_vector_extsi_isa(source_op);
+  if (!is_signed && !loom_vector_extui_isa(source_op)) {
+    return false;
+  }
+
+  const loom_value_id_t source = is_signed ? loom_vector_extsi_input(source_op)
+                                           : loom_vector_extui_input(source_op);
+  const loom_value_id_t result = is_signed
+                                     ? loom_vector_extsi_result(source_op)
+                                     : loom_vector_extui_result(source_op);
+  const loom_type_t source_type = loom_module_value_type(module, source);
+  const loom_type_t result_type = loom_module_value_type(module, result);
+  const loom_scalar_type_t result_element_type =
+      loom_type_element_type(result_type);
+  if (!loom_wasm_predicate_type(source_type, NULL) ||
+      !loom_type_shape_equals(source_type, result_type) ||
+      !loom_scalar_type_set_contains(LOOM_SCALAR_TYPE_SET_INTEGER_PAYLOAD,
+                                     result_element_type)) {
+    return false;
+  }
+
+  const loom_wasm_vector_carrier_t result_carrier =
+      loom_wasm_vector_carrier_for_source_value(module, context, result);
+  const loom_low_representation_id_t query_representation =
+      context == NULL ? result_carrier.element_bit_count
+                      : LOOM_LOW_REPRESENTATION_ID_NONE;
+  const loom_wasm_vector_carrier_t source_carrier =
+      loom_wasm_vector_carrier_for_source_value_with_representation(
+          module, context, source, query_representation);
+  if (source_carrier.packet_count == 0 || result_carrier.packet_count == 0) {
+    return false;
+  }
+  out_plan->source_carrier = source_carrier;
+  out_plan->result_carrier = result_carrier;
+  out_plan->kind = is_signed ? LOOM_WASM_PREDICATE_EXTENSION_SIGNED
+                             : LOOM_WASM_PREDICATE_EXTENSION_UNSIGNED;
+  return true;
+}
+
 static bool loom_wasm_element_type_is_numeric_payload(
     loom_scalar_type_t element_type) {
   return element_type >= LOOM_SCALAR_TYPE_I8 &&
@@ -488,6 +640,8 @@ iree_status_t loom_wasm_query_vector_structural_contract(
   loom_wasm_vector_interleave_plan_t interleave_plan;
   loom_wasm_vector_carrier_t concat_result_carrier;
   loom_wasm_vector_slice_plan_t slice_plan;
+  loom_wasm_vector_dynamic_slice_plan_t dynamic_slice_plan;
+  loom_wasm_predicate_extension_plan_t predicate_extension_plan;
   loom_wasm_vector_shuffle_plan_t shuffle_plan;
   if (loom_wasm_from_elements_plan_from_op(environment->module,
                                            /*context=*/NULL, source_op,
@@ -497,7 +651,26 @@ iree_status_t loom_wasm_query_vector_structural_contract(
       loom_wasm_concat_plan_from_op(environment->module, /*context=*/NULL,
                                     source_op, &concat_result_carrier) ||
       loom_wasm_slice_plan_from_op(environment->module, /*context=*/NULL,
-                                   source_op, &slice_plan) ||
+                                   source_op, &slice_plan)) {
+    out_result->outcome = LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+    return iree_ok_status();
+  }
+  const loom_wasm_vector_dynamic_slice_match_t dynamic_slice_match =
+      loom_wasm_dynamic_slice_plan_from_op(
+          environment->module, environment->fact_table, /*context=*/NULL,
+          source_op, &dynamic_slice_plan);
+  if (dynamic_slice_match == LOOM_WASM_VECTOR_DYNAMIC_SLICE_SUPPORTED) {
+    out_result->outcome = LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+    return iree_ok_status();
+  }
+  if (dynamic_slice_match ==
+      LOOM_WASM_VECTOR_DYNAMIC_SLICE_OPERATION_LIMIT_EXCEEDED) {
+    return loom_wasm_dynamic_slice_reject_operation_limit(
+        environment, source_op, &dynamic_slice_plan, out_result);
+  }
+  if (loom_wasm_predicate_extension_plan_from_op(environment->module,
+                                                 /*context=*/NULL, source_op,
+                                                 &predicate_extension_plan) ||
       loom_wasm_shuffle_plan_from_op(environment->module, /*context=*/NULL,
                                      source_op, &shuffle_plan) ||
       loom_wasm_bitcast_plan_from_op(environment->module, source_op)) {
@@ -508,7 +681,7 @@ iree_status_t loom_wasm_query_vector_structural_contract(
 
 bool loom_wasm_vector_structural_plan_isa(loom_low_lower_plan_t plan) {
   return plan.id >= LOOM_WASM_VECTOR_STRUCTURAL_PLAN_INTERLEAVE &&
-         plan.id <= LOOM_WASM_VECTOR_STRUCTURAL_PLAN_SHUFFLE;
+         plan.id <= LOOM_WASM_VECTOR_STRUCTURAL_PLAN_PREDICATE_EXTENSION;
 }
 
 iree_status_t loom_wasm_select_vector_structural_plan(
@@ -569,6 +742,30 @@ iree_status_t loom_wasm_select_vector_structural_plan(
                                          retained_plan);
     return iree_ok_status();
   }
+  loom_wasm_vector_dynamic_slice_plan_t dynamic_slice_plan;
+  if (loom_wasm_dynamic_slice_plan_from_op(
+          module, loom_low_lower_context_fact_table(context), context,
+          source_op,
+          &dynamic_slice_plan) == LOOM_WASM_VECTOR_DYNAMIC_SLICE_SUPPORTED) {
+    loom_wasm_vector_dynamic_slice_plan_t* retained_plan = NULL;
+    IREE_RETURN_IF_ERROR(loom_low_lower_allocate_plan_data(
+        context, sizeof(*retained_plan), (void**)&retained_plan));
+    *retained_plan = dynamic_slice_plan;
+    *out_plan = loom_low_lower_plan_make(
+        LOOM_WASM_VECTOR_STRUCTURAL_PLAN_DYNAMIC_SLICE, retained_plan);
+    return iree_ok_status();
+  }
+  loom_wasm_predicate_extension_plan_t predicate_extension_plan;
+  if (loom_wasm_predicate_extension_plan_from_op(module, context, source_op,
+                                                 &predicate_extension_plan)) {
+    loom_wasm_predicate_extension_plan_t* retained_plan = NULL;
+    IREE_RETURN_IF_ERROR(loom_low_lower_allocate_plan_data(
+        context, sizeof(*retained_plan), (void**)&retained_plan));
+    *retained_plan = predicate_extension_plan;
+    *out_plan = loom_low_lower_plan_make(
+        LOOM_WASM_VECTOR_STRUCTURAL_PLAN_PREDICATE_EXTENSION, retained_plan);
+    return iree_ok_status();
+  }
   loom_wasm_vector_shuffle_plan_t shuffle_plan;
   if (loom_wasm_shuffle_plan_from_op(module, context, source_op,
                                      &shuffle_plan)) {
@@ -627,6 +824,18 @@ void loom_wasm_describe_vector_structural_plan(
     case LOOM_WASM_VECTOR_STRUCTURAL_PLAN_SHUFFLE:
       out_report->plan_key = IREE_SV("shuffle.i8x16");
       return;
+    case LOOM_WASM_VECTOR_STRUCTURAL_PLAN_DYNAMIC_SLICE:
+      out_report->plan_key = IREE_SV("slice.dynamic-v128-packets");
+      return;
+    case LOOM_WASM_VECTOR_STRUCTURAL_PLAN_PREDICATE_EXTENSION: {
+      const loom_wasm_predicate_extension_plan_t* extension_plan =
+          (const loom_wasm_predicate_extension_plan_t*)plan.target_data;
+      out_report->plan_key =
+          extension_plan->kind == LOOM_WASM_PREDICATE_EXTENSION_SIGNED
+              ? IREE_SV("predicate.extend-signed.v128-packets")
+              : IREE_SV("predicate.extend-unsigned.v128-packets");
+      return;
+    }
     default:
       IREE_ASSERT_UNREACHABLE("unknown Wasm vector structural plan");
   }
@@ -678,6 +887,83 @@ typedef struct loom_wasm_packet_emitter_t {
   // Whether |lane_names| has been initialized.
   bool has_lane_names;
 } loom_wasm_packet_emitter_t;
+
+static iree_status_t loom_wasm_emit_structural_op(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    uint16_t descriptor_ref, const loom_value_id_t* operands,
+    iree_host_size_t operand_count, loom_type_t result_type,
+    loom_value_id_t* out_result) {
+  const loom_low_lower_resolved_descriptor_t descriptor = {
+      .descriptor = &loom_low_lower_context_descriptor_set(context)
+                         ->descriptors[descriptor_ref],
+  };
+  loom_op_t* low_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_emit_resolved_descriptor_op(
+      context, &descriptor, operands, operand_count,
+      (loom_named_attr_slice_t){0}, &result_type, 1,
+      /*tied_results=*/NULL, /*tied_result_count=*/0, source_op->location,
+      &low_op));
+  *out_result = loom_value_slice_get(loom_low_op_results(low_op), 0);
+  return iree_ok_status();
+}
+
+static iree_status_t loom_wasm_emit_structural_i32_const(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    int32_t value, loom_type_t result_type, loom_value_id_t* out_result) {
+  loom_string_id_t value_name = LOOM_STRING_ID_INVALID;
+  IREE_RETURN_IF_ERROR(
+      loom_builder_intern_string(loom_low_lower_context_builder(context),
+                                 IREE_SV("i32_value"), &value_name));
+  const loom_named_attr_t value_attr = {
+      .name_id = value_name,
+      .value = loom_attr_i64(value),
+  };
+  const loom_low_lower_resolved_descriptor_t descriptor = {
+      .descriptor =
+          &loom_low_lower_context_descriptor_set(context)
+               ->descriptors[WASM_CORE_SIMD128_DESCRIPTOR_REF_I32_CONST],
+  };
+  loom_op_t* low_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_emit_resolved_descriptor_const(
+      context, &descriptor, loom_make_named_attr_slice(&value_attr, 1),
+      result_type, source_op->location, &low_op));
+  *out_result = loom_low_const_result(low_op);
+  return iree_ok_status();
+}
+
+static iree_status_t loom_wasm_emit_structural_v128_const(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    uint64_t lo64, uint64_t hi64, loom_type_t result_type,
+    loom_value_id_t* out_result) {
+  loom_string_id_t lo64_name = LOOM_STRING_ID_INVALID;
+  loom_string_id_t hi64_name = LOOM_STRING_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_builder_intern_string(
+      loom_low_lower_context_builder(context), IREE_SV("lo64"), &lo64_name));
+  IREE_RETURN_IF_ERROR(loom_builder_intern_string(
+      loom_low_lower_context_builder(context), IREE_SV("hi64"), &hi64_name));
+  const loom_named_attr_t value_attrs[] = {
+      {
+          .name_id = lo64_name,
+          .value = loom_attr_i64((int64_t)lo64),
+      },
+      {
+          .name_id = hi64_name,
+          .value = loom_attr_i64((int64_t)hi64),
+      },
+  };
+  const loom_low_lower_resolved_descriptor_t descriptor = {
+      .descriptor =
+          &loom_low_lower_context_descriptor_set(context)
+               ->descriptors[WASM_CORE_SIMD128_DESCRIPTOR_REF_V128_CONST],
+  };
+  loom_op_t* low_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_emit_resolved_descriptor_const(
+      context, &descriptor,
+      loom_make_named_attr_slice(value_attrs, IREE_ARRAYSIZE(value_attrs)),
+      result_type, source_op->location, &low_op));
+  *out_result = loom_low_const_result(low_op);
+  return iree_ok_status();
+}
 
 static iree_status_t loom_wasm_packet_emitter_initialize(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
@@ -939,30 +1225,6 @@ static iree_status_t loom_wasm_emit_shuffle(
       context, loom_vector_shuffle_result(source_op), low_result);
 }
 
-static iree_status_t loom_wasm_emit_predicate_zero(
-    loom_low_lower_context_t* context, const loom_op_t* source_op,
-    loom_type_t i32_type, loom_value_id_t* out_zero) {
-  const loom_low_lower_resolved_descriptor_t descriptor = {
-      .descriptor =
-          &loom_low_lower_context_descriptor_set(context)
-               ->descriptors[WASM_CORE_SIMD128_DESCRIPTOR_REF_I32_CONST],
-  };
-  loom_string_id_t value_name = LOOM_STRING_ID_INVALID;
-  IREE_RETURN_IF_ERROR(
-      loom_builder_intern_string(loom_low_lower_context_builder(context),
-                                 IREE_SV("i32_value"), &value_name));
-  const loom_named_attr_t value_attr = {
-      .name_id = value_name,
-      .value = loom_attr_i64(0),
-  };
-  loom_op_t* low_op = NULL;
-  IREE_RETURN_IF_ERROR(loom_low_lower_emit_resolved_descriptor_const(
-      context, &descriptor, loom_make_named_attr_slice(&value_attr, 1),
-      i32_type, source_op->location, &low_op));
-  *out_zero = loom_low_const_result(low_op);
-  return iree_ok_status();
-}
-
 static iree_status_t loom_wasm_emit_predicate_lane_mask(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t zero, loom_value_id_t predicate,
@@ -1035,8 +1297,8 @@ static iree_status_t loom_wasm_emit_from_elements(
       IREE_RETURN_IF_ERROR(loom_low_lower_make_register_type(
           context, WASM_CORE_SIMD128_REG_CLASS_ID_I64, 1, &i64_type));
     }
-    IREE_RETURN_IF_ERROR(loom_wasm_emit_predicate_zero(
-        context, source_op, i32_type, &predicate_zero));
+    IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_i32_const(
+        context, source_op, 0, i32_type, &predicate_zero));
   }
   loom_string_id_t lane_name = LOOM_STRING_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_builder_intern_string(
@@ -1220,6 +1482,285 @@ static iree_status_t loom_wasm_emit_concat(
                                 result);
 }
 
+static iree_status_t loom_wasm_emit_dynamic_slice(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_wasm_vector_dynamic_slice_plan_t* plan) {
+  const loom_value_id_t source = loom_vector_slice_source(source_op);
+  const loom_value_id_t result = loom_vector_slice_result(source_op);
+  const loom_value_slice_t source_offsets =
+      loom_vector_slice_offsets(source_op);
+  const loom_wasm_vector_carrier_t source_carrier = plan->source_carrier;
+  const loom_wasm_vector_carrier_t result_carrier = plan->result_carrier;
+
+  loom_wasm_packet_emitter_t emitter;
+  IREE_RETURN_IF_ERROR(loom_wasm_packet_emitter_initialize(
+      context, source_op, &source, &source_carrier, 1, &emitter));
+  loom_type_t i32_type = loom_type_none();
+  IREE_RETURN_IF_ERROR(loom_low_lower_make_register_type(
+      context, WASM_CORE_SIMD128_REG_CLASS_ID_I32, 1, &i32_type));
+
+  loom_value_id_t byte_offset =
+      loom_low_lower_lookup_value(context, source_offsets.values[0]);
+  const uint8_t bytes_per_lane = source_carrier.element_bit_count / 8u;
+  if (bytes_per_lane != 1) {
+    loom_value_id_t byte_scale = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_i32_const(
+        context, source_op, bytes_per_lane, i32_type, &byte_scale));
+    const loom_value_id_t scale_operands[] = {byte_offset, byte_scale};
+    IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+        context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_I32_MUL,
+        scale_operands, IREE_ARRAYSIZE(scale_operands), i32_type,
+        &byte_offset));
+  }
+
+  loom_value_id_t low_nibble_mask = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_i32_const(
+      context, source_op, 15, i32_type, &low_nibble_mask));
+  const loom_value_id_t local_offset_operands[] = {byte_offset,
+                                                   low_nibble_mask};
+  loom_value_id_t local_offset = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+      context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_I32_AND,
+      local_offset_operands, IREE_ARRAYSIZE(local_offset_operands), i32_type,
+      &local_offset));
+
+  loom_value_id_t local_offsets = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+      context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_I8X16_SPLAT,
+      &local_offset, 1, emitter.packet_type, &local_offsets));
+  loom_value_id_t byte_iota = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_v128_const(
+      context, source_op, UINT64_C(0x0706050403020100),
+      UINT64_C(0x0F0E0D0C0B0A0908), emitter.packet_type, &byte_iota));
+  const loom_value_id_t index_operands[] = {local_offsets, byte_iota};
+  loom_value_id_t low_indices = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+      context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_I8X16_ADD,
+      index_operands, IREE_ARRAYSIZE(index_operands), emitter.packet_type,
+      &low_indices));
+  loom_value_id_t sixteen_bytes = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_v128_const(
+      context, source_op, UINT64_C(0x1010101010101010),
+      UINT64_C(0x1010101010101010), emitter.packet_type, &sixteen_bytes));
+  const loom_value_id_t high_index_operands[] = {low_indices, sixteen_bytes};
+  loom_value_id_t high_indices = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+      context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_I8X16_SUB,
+      high_index_operands, IREE_ARRAYSIZE(high_index_operands),
+      emitter.packet_type, &high_indices));
+
+  loom_value_id_t zero_packet = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_v128_const(
+      context, source_op, 0, 0, emitter.packet_type, &zero_packet));
+  const uint32_t comparison_count =
+      loom_wasm_dynamic_slice_comparison_count(source_carrier, result_carrier);
+  loom_value_id_t* selection_masks = NULL;
+  if (comparison_count != 0) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_allocate_emission_array(
+        context, comparison_count, sizeof(*selection_masks),
+        (void**)&selection_masks));
+    loom_value_id_t scalar_zero = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_i32_const(
+        context, source_op, 0, i32_type, &scalar_zero));
+    for (uint32_t i = 0; i < comparison_count; ++i) {
+      const int32_t threshold =
+          (int32_t)((i + 1u) * LOOM_WASM_VECTOR_CARRIER_PACKET_BYTE_COUNT);
+      loom_value_id_t threshold_value = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_i32_const(
+          context, source_op, threshold, i32_type, &threshold_value));
+      const loom_value_id_t compare_operands[] = {byte_offset, threshold_value};
+      loom_value_id_t condition = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+          context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_I32_GE_U,
+          compare_operands, IREE_ARRAYSIZE(compare_operands), i32_type,
+          &condition));
+      const loom_value_id_t negate_operands[] = {scalar_zero, condition};
+      loom_value_id_t scalar_mask = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+          context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_I32_SUB,
+          negate_operands, IREE_ARRAYSIZE(negate_operands), i32_type,
+          &scalar_mask));
+      IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+          context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_I8X16_SPLAT,
+          &scalar_mask, 1, emitter.packet_type, &selection_masks[i]));
+    }
+  }
+
+  loom_value_id_t* packets = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_allocate_emission_array(
+      context, result_carrier.packet_count, sizeof(*packets),
+      (void**)&packets));
+  for (uint16_t result_packet = 0; result_packet < result_carrier.packet_count;
+       ++result_packet) {
+    loom_value_id_t low_packet = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_wasm_packet_emitter_source_packet(
+        &emitter, /*source_index=*/0, result_packet, &low_packet));
+    loom_value_id_t high_packet = zero_packet;
+    if (result_packet + 1u < source_carrier.packet_count) {
+      IREE_RETURN_IF_ERROR(loom_wasm_packet_emitter_source_packet(
+          &emitter, /*source_index=*/0, result_packet + 1u, &high_packet));
+    }
+
+    for (uint32_t i = 0; i < comparison_count; ++i) {
+      const uint32_t candidate_index = result_packet + i + 1u;
+      loom_value_id_t candidate_low = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_wasm_packet_emitter_source_packet(
+          &emitter, /*source_index=*/0, (uint16_t)candidate_index,
+          &candidate_low));
+      loom_value_id_t candidate_high = zero_packet;
+      if (candidate_index + 1u < source_carrier.packet_count) {
+        IREE_RETURN_IF_ERROR(loom_wasm_packet_emitter_source_packet(
+            &emitter, /*source_index=*/0, (uint16_t)(candidate_index + 1u),
+            &candidate_high));
+      }
+      const loom_value_id_t low_select_operands[] = {
+          candidate_low,
+          low_packet,
+          selection_masks[i],
+      };
+      IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+          context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_V128_BITSELECT,
+          low_select_operands, IREE_ARRAYSIZE(low_select_operands),
+          emitter.packet_type, &low_packet));
+      const loom_value_id_t high_select_operands[] = {
+          candidate_high,
+          high_packet,
+          selection_masks[i],
+      };
+      IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+          context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_V128_BITSELECT,
+          high_select_operands, IREE_ARRAYSIZE(high_select_operands),
+          emitter.packet_type, &high_packet));
+    }
+
+    const loom_value_id_t low_swizzle_operands[] = {low_packet, low_indices};
+    loom_value_id_t low_bytes = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+        context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_I8X16_SWIZZLE,
+        low_swizzle_operands, IREE_ARRAYSIZE(low_swizzle_operands),
+        emitter.packet_type, &low_bytes));
+    const loom_value_id_t high_swizzle_operands[] = {high_packet, high_indices};
+    loom_value_id_t high_bytes = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+        context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_I8X16_SWIZZLE,
+        high_swizzle_operands, IREE_ARRAYSIZE(high_swizzle_operands),
+        emitter.packet_type, &high_bytes));
+    const loom_value_id_t merge_operands[] = {low_bytes, high_bytes};
+    IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+        context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_V128_OR,
+        merge_operands, IREE_ARRAYSIZE(merge_operands), emitter.packet_type,
+        &packets[result_packet]));
+  }
+  return loom_wasm_bind_packets(context, source_op, packets, result_carrier,
+                                result);
+}
+
+static uint64_t loom_wasm_predicate_unsigned_one_pattern(
+    uint8_t element_bit_count) {
+  switch (element_bit_count) {
+    case 8:
+      return UINT64_C(0x0101010101010101);
+    case 16:
+      return UINT64_C(0x0001000100010001);
+    case 32:
+      return UINT64_C(0x0000000100000001);
+    case 64:
+      return UINT64_C(0x0000000000000001);
+    default:
+      IREE_ASSERT_UNREACHABLE("invalid predicate representation width");
+      IREE_BUILTIN_UNREACHABLE();
+  }
+}
+
+static iree_status_t loom_wasm_emit_predicate_mask_packets(
+    loom_wasm_packet_emitter_t* emitter,
+    loom_wasm_vector_carrier_t source_carrier,
+    loom_wasm_vector_carrier_t result_carrier, loom_value_id_t* out_packets) {
+  const uint8_t source_lane_byte_count = source_carrier.element_bit_count / 8u;
+  const uint8_t result_lane_byte_count = result_carrier.element_bit_count / 8u;
+  IREE_ASSERT_EQ(source_carrier.payload_byte_count / source_lane_byte_count,
+                 result_carrier.payload_byte_count / result_lane_byte_count);
+  for (uint16_t packet = 0; packet < result_carrier.packet_count; ++packet) {
+    const uint32_t result_packet_byte_offset =
+        (uint32_t)packet * LOOM_WASM_VECTOR_CARRIER_PACKET_BYTE_COUNT;
+    const uint8_t live_byte_count =
+        (uint8_t)iree_min((uint32_t)LOOM_WASM_VECTOR_CARRIER_PACKET_BYTE_COUNT,
+                          (uint32_t)result_carrier.payload_byte_count -
+                              result_packet_byte_offset);
+    loom_wasm_packet_byte_source_t
+        byte_sources[LOOM_WASM_VECTOR_CARRIER_PACKET_BYTE_COUNT];
+    for (uint8_t byte = 0; byte < live_byte_count; ++byte) {
+      const uint32_t result_byte = result_packet_byte_offset + byte;
+      const uint32_t logical_lane = result_byte / result_lane_byte_count;
+      const uint32_t source_byte = logical_lane * source_lane_byte_count;
+      byte_sources[byte] = (loom_wasm_packet_byte_source_t){
+          .source_index = 0,
+          .source_packet =
+              (uint16_t)(source_byte /
+                         LOOM_WASM_VECTOR_CARRIER_PACKET_BYTE_COUNT),
+          .source_byte = (uint8_t)(source_byte %
+                                   LOOM_WASM_VECTOR_CARRIER_PACKET_BYTE_COUNT),
+      };
+    }
+    IREE_RETURN_IF_ERROR(loom_wasm_packet_emitter_route_packet(
+        emitter, byte_sources, live_byte_count, &out_packets[packet]));
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_wasm_emit_predicate_extension(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_wasm_predicate_extension_plan_t* plan) {
+  const bool is_signed = plan->kind == LOOM_WASM_PREDICATE_EXTENSION_SIGNED;
+  const loom_value_id_t source = is_signed ? loom_vector_extsi_input(source_op)
+                                           : loom_vector_extui_input(source_op);
+  const loom_value_id_t result = is_signed
+                                     ? loom_vector_extsi_result(source_op)
+                                     : loom_vector_extui_result(source_op);
+  if (is_signed && plan->source_carrier.element_bit_count ==
+                       plan->result_carrier.element_bit_count) {
+    return loom_low_lower_bind_value_alias(context, source, result);
+  }
+
+  loom_wasm_packet_emitter_t emitter;
+  IREE_RETURN_IF_ERROR(loom_wasm_packet_emitter_initialize(
+      context, source_op, &source, &plan->source_carrier, 1, &emitter));
+
+  loom_value_id_t* packets = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_allocate_emission_array(
+      context, plan->result_carrier.packet_count, sizeof(*packets),
+      (void**)&packets));
+  if (plan->source_carrier.element_bit_count ==
+      plan->result_carrier.element_bit_count) {
+    for (uint16_t packet = 0; packet < plan->result_carrier.packet_count;
+         ++packet) {
+      IREE_RETURN_IF_ERROR(loom_wasm_packet_emitter_source_packet(
+          &emitter, /*source_index=*/0, packet, &packets[packet]));
+    }
+  } else {
+    IREE_RETURN_IF_ERROR(loom_wasm_emit_predicate_mask_packets(
+        &emitter, plan->source_carrier, plan->result_carrier, packets));
+  }
+  if (!is_signed) {
+    const uint64_t one_pattern = loom_wasm_predicate_unsigned_one_pattern(
+        plan->result_carrier.element_bit_count);
+    loom_value_id_t one_packet = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_v128_const(
+        context, source_op, one_pattern, one_pattern, emitter.packet_type,
+        &one_packet));
+    for (uint16_t packet = 0; packet < plan->result_carrier.packet_count;
+         ++packet) {
+      const loom_value_id_t operands[] = {packets[packet], one_packet};
+      IREE_RETURN_IF_ERROR(loom_wasm_emit_structural_op(
+          context, source_op, WASM_CORE_SIMD128_DESCRIPTOR_REF_V128_AND,
+          operands, IREE_ARRAYSIZE(operands), emitter.packet_type,
+          &packets[packet]));
+    }
+  }
+  return loom_wasm_bind_packets(context, source_op, packets,
+                                plan->result_carrier, result);
+}
+
 static iree_status_t loom_wasm_emit_slice(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_wasm_vector_slice_plan_t* plan) {
@@ -1299,6 +1840,14 @@ iree_status_t loom_wasm_emit_vector_structural_plan(
       return loom_wasm_emit_shuffle(
           context, source_op,
           (const loom_wasm_vector_shuffle_plan_t*)plan.target_data);
+    case LOOM_WASM_VECTOR_STRUCTURAL_PLAN_DYNAMIC_SLICE:
+      return loom_wasm_emit_dynamic_slice(
+          context, source_op,
+          (const loom_wasm_vector_dynamic_slice_plan_t*)plan.target_data);
+    case LOOM_WASM_VECTOR_STRUCTURAL_PLAN_PREDICATE_EXTENSION:
+      return loom_wasm_emit_predicate_extension(
+          context, source_op,
+          (const loom_wasm_predicate_extension_plan_t*)plan.target_data);
     default:
       IREE_ASSERT_UNREACHABLE("unknown Wasm vector structural plan");
       IREE_BUILTIN_UNREACHABLE();
