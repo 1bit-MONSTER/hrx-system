@@ -43,6 +43,7 @@ iree_py_library(
         "//loom/py/loom/dialect/kernel",
         "//loom/py/loom/dialect/sanitizer",
         "//loom/py/loom/dialect/scalar",
+        "//loom/py/loom/dialect/scf",
         "//loom/py/loom/dialect/vector",
         "//loom/py/loom/dialect/view",
         "//loom/py/loom/target:contract_fragments",

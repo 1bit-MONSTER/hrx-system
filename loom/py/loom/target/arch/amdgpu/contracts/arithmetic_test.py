@@ -14,6 +14,7 @@ from loom.dialect.scalar import bitwise as scalar_bitwise
 from loom.dialect.scalar import conversion as scalar_conversion
 from loom.dialect.scalar import defs as scalar_defs
 from loom.dialect.scalar import math as scalar_math
+from loom.dialect.scf import defs as scf
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
 from loom.scalar_type import ScalarTypeKind, scalar_type_name
@@ -27,6 +28,7 @@ from loom.target.arch.amdgpu.contracts.integer import (
 )
 from loom.target.contracts import (
     LOWER_RULE_FLAG_CONTRACT_ONLY,
+    Buffer,
     CompiledLowerRuleSet,
     DescriptorOperandMaterialization,
     GuardKind,
@@ -37,6 +39,7 @@ from loom.target.contracts import (
     SourceValueKind,
     TypePattern,
     UnsignedDivisorMagicKind,
+    View,
     compile_lower_rule_set,
 )
 
@@ -107,6 +110,85 @@ def _descriptor_sequence_positions(
         if descriptor_keys:
             positions.setdefault(descriptor_keys, ordinal)
     return positions
+
+
+def test_whole_value_select_publishes_complete_recipe_family() -> None:
+    compiled = _compiled_integer_rules()
+    rules = _rules_for_source_op(compiled, scf.scf_select)
+
+    payload_types = (
+        Scalar(
+            (
+                "i1",
+                "index",
+                "offset",
+                "i8",
+                "i16",
+                "i32",
+                "i64",
+                "f8E4M3",
+                "f8E5M2",
+                "f16",
+                "bf16",
+                "f32",
+                "f64",
+            )
+        ),
+        Buffer(),
+        View(
+            (
+                "index",
+                "offset",
+                "i8",
+                "i16",
+                "i32",
+                "i64",
+                "f8E4M3",
+                "f8E5M2",
+                "f16",
+                "bf16",
+                "f32",
+                "f64",
+            )
+        ),
+        TypePattern.vector(
+            "i1",
+            minimum_static_elements=1,
+            maximum_static_elements="LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES",
+        ),
+        TypePattern.vector(
+            ("i8", "f8E4M3", "f8E5M2"),
+            minimum_static_elements=1,
+            maximum_static_elements="LOOM_AMDGPU_MAX_PACKED_I8_LANES",
+        ),
+        TypePattern.vector(
+            "i16",
+            minimum_static_elements=1,
+            maximum_static_elements="LOOM_AMDGPU_MAX_PACKED_I16_LANES",
+        ),
+        TypePattern.vector(
+            ("f16", "bf16"),
+            minimum_static_elements=1,
+            maximum_static_elements="LOOM_AMDGPU_MAX_PACKED_16BIT_FLOAT_LANES",
+        ),
+        TypePattern.vector(
+            ("i32", "f32"),
+            minimum_static_elements=1,
+            maximum_static_elements="LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES",
+        ),
+        TypePattern.vector(
+            ("i64", "f64"),
+            minimum_static_elements=1,
+            maximum_static_elements=("(LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES / 2u)"),
+        ),
+    )
+    assert len(rules) == len(payload_types)
+    assert all(rule.flags & LOWER_RULE_FLAG_CONTRACT_ONLY for rule in rules)
+    assert all(rule.emit_count == 0 for rule in rules)
+    assert tuple(_rule_type_patterns(compiled, rule) for rule in rules) == tuple(
+        (Scalar("i1"), payload_type, payload_type, payload_type)
+        for payload_type in payload_types
+    )
 
 
 def test_index_madd_rules_accept_wrapping_carrier_results() -> None:

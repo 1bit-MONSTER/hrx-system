@@ -41,6 +41,7 @@ iree_py_library(
     loom::py::loom::dialect::kernel::kernel
     loom::py::loom::dialect::sanitizer::sanitizer
     loom::py::loom::dialect::scalar::scalar
+    loom::py::loom::dialect::scf::scf
     loom::py::loom::dialect::vector::vector
     loom::py::loom::dialect::view::view
     loom::py::loom::target::contract_fragments
