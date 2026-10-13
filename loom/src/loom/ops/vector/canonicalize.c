@@ -1788,6 +1788,70 @@ static iree_status_t loom_vector_canonicalize_select(loom_op_t* op,
   return iree_ok_status();
 }
 
+// Both integer extensions preserve whether a predicate is zero. Only the
+// immediate producer participates; other integer vectors retain their test.
+static loom_value_id_t loom_vector_extended_boolean_input(
+    const loom_rewriter_t* rewriter, loom_value_id_t value_id) {
+  loom_op_t* producer = loom_rewriter_value_defining_op(rewriter, value_id);
+  if (!producer ||
+      (!loom_vector_extui_isa(producer) && !loom_vector_extsi_isa(producer))) {
+    return LOOM_VALUE_ID_INVALID;
+  }
+  const loom_value_id_t input = loom_op_const_operands(producer)[0];
+  return loom_type_element_type(loom_module_value_type(
+             rewriter->module, input)) == LOOM_SCALAR_TYPE_I1
+             ? input
+             : LOOM_VALUE_ID_INVALID;
+}
+
+static iree_status_t loom_vector_canonicalize_extended_boolean_comparison(
+    loom_op_t* op, loom_rewriter_t* rewriter, bool* out_changed) {
+  *out_changed = false;
+  const uint8_t predicate = loom_vector_cmpi_predicate(op);
+  if (predicate != LOOM_VECTOR_CMPI_PREDICATE_EQ &&
+      predicate != LOOM_VECTOR_CMPI_PREDICATE_NE) {
+    return iree_ok_status();
+  }
+
+  const loom_value_id_t lhs = loom_vector_cmpi_lhs(op);
+  const loom_value_id_t rhs = loom_vector_cmpi_rhs(op);
+  loom_value_id_t input = LOOM_VALUE_ID_INVALID;
+  if (loom_vector_value_is_all_exact_i64(rewriter, rhs, 0)) {
+    input = loom_vector_extended_boolean_input(rewriter, lhs);
+  }
+  if (input == LOOM_VALUE_ID_INVALID &&
+      loom_vector_value_is_all_exact_i64(rewriter, lhs, 0)) {
+    input = loom_vector_extended_boolean_input(rewriter, rhs);
+  }
+  if (input == LOOM_VALUE_ID_INVALID) {
+    return iree_ok_status();
+  }
+
+  if (predicate == LOOM_VECTOR_CMPI_PREDICATE_NE) {
+    IREE_RETURN_IF_ERROR(
+        loom_vector_replace_single_result_with_value(op, rewriter, input));
+    *out_changed = true;
+    return iree_ok_status();
+  }
+
+  const loom_type_t result_type =
+      loom_module_value_type(rewriter->module, loom_op_const_results(op)[0]);
+  loom_builder_set_before(&rewriter->builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  loom_op_t* one = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_vector_constant_build(&rewriter->builder, loom_attr_bool(true),
+                                 result_type, op->location, &one));
+  loom_op_t* inverted = NULL;
+  IREE_RETURN_IF_ERROR(loom_vector_xori_build(
+      &rewriter->builder, input, loom_vector_constant_result(one), result_type,
+      op->location, &inverted));
+  IREE_RETURN_IF_ERROR(loom_vector_replace_single_result_with_new_op(
+      op, rewriter, inverted, checkpoint));
+  *out_changed = true;
+  return iree_ok_status();
+}
+
 static iree_status_t loom_vector_canonicalize_comparison(
     loom_op_t* op, loom_rewriter_t* rewriter, bool* out_changed) {
   *out_changed = false;
@@ -1806,17 +1870,20 @@ static iree_status_t loom_vector_canonicalize_comparison(
                               loom_rewriter_value_identity(rewriter, lhs),
                               loom_rewriter_value_identity(rewriter, rhs),
                               loom_vector_cmpf_fastmath(op), &value);
-  if (!has_result) {
+  if (has_result) {
+    loom_type_t result_type = {0};
+    if (!loom_vector_get_single_result_type(rewriter, op, &result_type)) {
+      return iree_ok_status();
+    }
+    IREE_RETURN_IF_ERROR(loom_vector_replace_single_result_with_constant_attr(
+        op, rewriter, result_type, loom_attr_bool(value)));
+    *out_changed = true;
     return iree_ok_status();
   }
-
-  loom_type_t result_type = {0};
-  if (!loom_vector_get_single_result_type(rewriter, op, &result_type)) {
-    return iree_ok_status();
+  if (loom_vector_cmpi_isa(op)) {
+    return loom_vector_canonicalize_extended_boolean_comparison(op, rewriter,
+                                                                out_changed);
   }
-  IREE_RETURN_IF_ERROR(loom_vector_replace_single_result_with_constant_attr(
-      op, rewriter, result_type, loom_attr_bool(value)));
-  *out_changed = true;
   return iree_ok_status();
 }
 
