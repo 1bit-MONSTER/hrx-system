@@ -172,32 +172,33 @@ TEST(JsonEscape, NullByte) {
 }
 
 TEST(JsonEscape, AllControlChars) {
-  // Every byte 0x00-0x1F must be escaped. The named ones (\b, \t, \n,
-  // \f, \r) get their short form; the rest get \uNNNN.
-  for (int c = 0; c < 0x20; ++c) {
-    char input_byte = (char)c;
-    iree_string_builder_t builder;
-    iree_string_builder_initialize(iree_allocator_system(), &builder);
-    loom_output_stream_t stream;
-    loom_output_stream_for_builder(&builder, &stream);
-    loom_json_escape_stream_t escape_data;
-    loom_output_stream_t escape_stream;
-    loom_json_escape_stream_init(&stream, &escape_data, &escape_stream);
-    IREE_ASSERT_OK(loom_output_stream_write(
-        &escape_stream, iree_make_string_view(&input_byte, 1)));
-    iree_string_view_t view = iree_string_builder_view(&builder);
-    std::string escaped(view.data, view.size);
-    iree_string_builder_deinitialize(&builder);
-    // Must not pass through unchanged.
-    EXPECT_NE(escaped, std::string(&input_byte, 1))
-        << "control char 0x" << std::hex << c << " was not escaped";
-    // Must start with backslash.
-    ASSERT_FALSE(escaped.empty())
-        << "control char 0x" << std::hex << c << " produced empty output";
-    EXPECT_EQ(escaped[0], '\\')
-        << "control char 0x" << std::hex << c
-        << " escape doesn't start with backslash: " << escaped;
+  const char* expected[] = {
+      "\\u0000", "\\u0001", "\\u0002", "\\u0003", "\\u0004", "\\u0005",
+      "\\u0006", "\\u0007", "\\b",     "\\t",     "\\n",     "\\u000b",
+      "\\f",     "\\r",     "\\u000e", "\\u000f", "\\u0010", "\\u0011",
+      "\\u0012", "\\u0013", "\\u0014", "\\u0015", "\\u0016", "\\u0017",
+      "\\u0018", "\\u0019", "\\u001a", "\\u001b", "\\u001c", "\\u001d",
+      "\\u001e", "\\u001f",
+  };
+  for (size_t i = 0; i < IREE_ARRAYSIZE(expected); ++i) {
+    SCOPED_TRACE(i);
+    const char input = (char)i;
+    EXPECT_EQ(EscapeRaw(iree_make_string_view(&input, 1)), expected[i]);
   }
+}
+
+TEST(JsonEscape, LiteralAsciiIncludesDelButEscapesQuotesAndBackslashes) {
+  std::string input;
+  std::string expected;
+  for (int value = 0x20; value <= 0x7f; ++value) {
+    const char byte = (char)value;
+    input += byte;
+    if (byte == '"' || byte == '\\') {
+      expected += '\\';
+    }
+    expected += byte;
+  }
+  EXPECT_EQ(EscapeRaw(input.c_str()), expected);
 }
 
 //===----------------------------------------------------------------------===//
@@ -260,6 +261,47 @@ TEST(JsonEscape, InvalidUtf8BytesBecomeReplacementEscapes) {
       "b";
   EXPECT_EQ(EscapeRaw(iree_make_string_view(input.data(), input.size())),
             "a\\ufffd\\ufffd\\ufffdb");
+}
+
+TEST(JsonEscape, Utf8SequenceBoundaries) {
+  for (const char* valid :
+       {"\xc2\x80", "\xdf\xbf", "\xe0\xa0\x80", "\xed\x9f\xbf", "\xee\x80\x80",
+        "\xef\xbf\xbf", "\xf0\x90\x80\x80", "\xf4\x8f\xbf\xbf"}) {
+    EXPECT_EQ(EscapeRaw(valid), valid);
+  }
+  struct Case {
+    // Invalid or incomplete UTF-8 fragment.
+    const char* input;
+    // One replacement escape for each malformed byte.
+    const char* expected;
+  };
+  const Case cases[] = {
+      {"\xc2", "\\ufffd"},
+      {"\xe0\xa0", "\\ufffd\\ufffd"},
+      {"\xf0\x90\x80", "\\ufffd\\ufffd\\ufffd"},
+      {"\xc0\xaf", "\\ufffd\\ufffd"},
+      {"\xe0\x80\x80", "\\ufffd\\ufffd\\ufffd"},
+      {"\xed\xa0\x80", "\\ufffd\\ufffd\\ufffd"},
+      {"\xf0\x80\x80\x80", "\\ufffd\\ufffd\\ufffd\\ufffd"},
+      {"\xf4\x90\x80\x80", "\\ufffd\\ufffd\\ufffd\\ufffd"},
+      {"\xf5\x80\x80\x80", "\\ufffd\\ufffd\\ufffd\\ufffd"},
+      {"\xc2 ", "\\ufffd "},
+  };
+  for (const auto& test : cases) {
+    EXPECT_EQ(EscapeRaw(test.input), test.expected);
+  }
+}
+
+TEST(JsonEscape, LiteralRunsMeetEveryEscapeClass) {
+  const std::string special = "\x1f \x7f\"\\\x80\xe2\x80\xa8\xc3\xa9";
+  const std::string escaped = "\\u001f \x7f\\\"\\\\\\ufffd\\u2028\xc3\xa9";
+  for (size_t length : {0, 1, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 129}) {
+    SCOPED_TRACE(length);
+    const std::string prefix(length, 'a');
+    const std::string suffix(length, 'z');
+    EXPECT_EQ(EscapeRaw((prefix + special + suffix).c_str()),
+              prefix + escaped + suffix);
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -405,7 +447,8 @@ struct JsonBoundedSink {
 
   static iree_status_t Write(void* user_data, iree_string_view_t value) {
     auto& sink = *static_cast<JsonBoundedSink*>(user_data);
-    if (sink.text.size() + value.size > sink.byte_limit) {
+    if (sink.failure_count != 0 ||
+        sink.text.size() + value.size > sink.byte_limit) {
       ++sink.failure_count;
       return iree_status_from_code(IREE_STATUS_DATA_LOSS);
     }
@@ -460,6 +503,38 @@ TEST(JsonWriter, IntegerFieldsAndElementsPropagateSinkFailures) {
   ExpectIntegerSinkFailure(std::numeric_limits<iree_host_size_t>::max(),
                            loom_json_object_write_host_size_field,
                            loom_json_array_write_host_size_element);
+}
+
+TEST(JsonEscape, PropagatesSinkFailuresAtLiteralAndEscapeBoundaries) {
+  const char* inputs[] = {"literal", "left\"right",
+                          "left\x01"
+                          "right",
+                          "left\xe2\x80\xa8"
+                          "right",
+                          "left\x80"
+                          "right"};
+  for (const char* input : inputs) {
+    const auto source = iree_make_cstring_view(input);
+    const std::string expected = EscapeRaw(source);
+    for (size_t limit = 0; limit < expected.size(); ++limit) {
+      SCOPED_TRACE(limit);
+      JsonBoundedSink sink = {.byte_limit = limit};
+      loom_output_stream_t stream = {
+          .write = JsonBoundedSink::Write,
+          .user_data = &sink,
+      };
+      loom_json_escape_stream_t escape_data;
+      loom_output_stream_t escaped;
+      loom_json_escape_stream_init(&stream, &escape_data, &escaped);
+      IREE_EXPECT_STATUS_IS(IREE_STATUS_DATA_LOSS,
+                            loom_output_stream_write(&escaped, source));
+      EXPECT_EQ(sink.text, expected.substr(0, sink.text.size()));
+      EXPECT_LE(sink.text.size(), limit);
+      EXPECT_EQ(sink.failure_count, 1u);
+      EXPECT_EQ(stream.offset, sink.text.size());
+      EXPECT_EQ(escaped.offset, 0u);
+    }
+  }
 }
 
 TEST(JsonWriter, DefersValueListsForArrayEmbedding) {

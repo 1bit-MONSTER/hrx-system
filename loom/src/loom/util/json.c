@@ -37,6 +37,10 @@ static iree_status_t loom_json_escape_write(void* user_data,
   const char* end = text.data + text.size;
   for (const char* cursor = text.data; cursor < end; ++cursor) {
     unsigned char byte = (unsigned char)*cursor;
+    // Keep ordinary literal runs out of Unicode and escape dispatch.
+    if (byte >= 0x20 && byte < 0x80 && byte != '"' && byte != '\\') {
+      continue;
+    }
     if (byte >= 0x80) {
       iree_host_size_t sequence_length =
           iree_unicode_utf8_sequence_length(byte);
@@ -88,16 +92,14 @@ static iree_status_t loom_json_escape_write(void* user_data,
       case '\t':
         escape = "\\t";
         break;
-      default:
-        if ((unsigned char)*cursor < 0x20) {
-          // ASCII control character — emit as \uNNNN.
-          IREE_RETURN_IF_ERROR(loom_json_flush_run(inner, run_start, cursor));
-          IREE_RETURN_IF_ERROR(loom_output_stream_write_format(
-              inner, "\\u%04x", (unsigned)(unsigned char)*cursor));
-          run_start = cursor + 1;
-        }
-        // Printable ASCII bytes pass through unchanged.
+      default: {
+        // Remaining bytes are unnamed ASCII control characters.
+        IREE_RETURN_IF_ERROR(loom_json_flush_run(inner, run_start, cursor));
+        IREE_RETURN_IF_ERROR(
+            loom_output_stream_write_format(inner, "\\u%04x", (unsigned)byte));
+        run_start = cursor + 1;
         continue;
+      }
     }
     // Flush the literal run before this escaped character.
     IREE_RETURN_IF_ERROR(loom_json_flush_run(inner, run_start, cursor));
