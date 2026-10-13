@@ -2839,7 +2839,8 @@ static bool iree_hal_vulkan_queue_try_acquire_descriptor_cache_sets_under_lock(
   return true;
 }
 
-static iree_status_t iree_hal_vulkan_queue_acquire_descriptor_cache_sets(
+static iree_status_t
+iree_hal_vulkan_queue_acquire_descriptor_cache_sets_under_lock(
     iree_hal_vulkan_queue_t* queue,
     iree_hal_vulkan_queue_pending_submission_t* submission,
     uint32_t descriptor_set_count, VkDescriptorSet* out_descriptor_sets) {
@@ -2860,29 +2861,22 @@ static iree_status_t iree_hal_vulkan_queue_acquire_descriptor_cache_sets(
         "Vulkan queue submission already owns built-in descriptor sets");
   }
 
-  for (;;) {
-    iree_slim_mutex_lock(&queue->submission_mutex);
-    bool acquired =
-        iree_hal_vulkan_queue_try_acquire_descriptor_cache_sets_under_lock(
-            queue, submission, descriptor_set_count, out_descriptor_sets);
-    iree_slim_mutex_unlock(&queue->submission_mutex);
-    if (acquired) {
-      return iree_ok_status();
-    }
-
-    const iree_host_size_t drained_count =
-        iree_hal_vulkan_queue_drain_completions(queue);
-    if (drained_count != 0) {
-      continue;
-    }
-
-    iree_hal_vulkan_queue_descriptor_block_t* block = NULL;
-    IREE_RETURN_IF_ERROR(
-        iree_hal_vulkan_queue_descriptor_block_allocate(queue, &block));
-    iree_slim_mutex_lock(&queue->submission_mutex);
-    iree_hal_vulkan_queue_descriptor_cache_append_block(queue, block);
-    iree_slim_mutex_unlock(&queue->submission_mutex);
+  if (iree_hal_vulkan_queue_try_acquire_descriptor_cache_sets_under_lock(
+          queue, submission, descriptor_set_count, out_descriptor_sets)) {
+    return iree_ok_status();
   }
+
+  // Recording holds the command-pool lock. Completion draining may recursively
+  // record staged transfers and must remain outside this critical section.
+  iree_hal_vulkan_queue_descriptor_block_t* block = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_hal_vulkan_queue_descriptor_block_allocate(queue, &block));
+  iree_hal_vulkan_queue_descriptor_cache_append_block(queue, block);
+  const bool acquired =
+      iree_hal_vulkan_queue_try_acquire_descriptor_cache_sets_under_lock(
+          queue, submission, descriptor_set_count, out_descriptor_sets);
+  IREE_ASSERT(acquired, "new descriptor block cannot satisfy built-in command");
+  return iree_ok_status();
 }
 
 static void iree_hal_vulkan_queue_publish_descriptor_cache_sets_under_lock(
@@ -4515,8 +4509,9 @@ static iree_status_t iree_hal_vulkan_queue_record_fill_native(
     descriptor_set_count =
         iree_hal_vulkan_builtins_fill_unaligned_descriptor_set_count(
             target.offset, (VkDeviceSize)submission->fill.length);
-    IREE_RETURN_IF_ERROR(iree_hal_vulkan_queue_acquire_descriptor_cache_sets(
-        queue, submission, descriptor_set_count, descriptor_sets));
+    IREE_RETURN_IF_ERROR(
+        iree_hal_vulkan_queue_acquire_descriptor_cache_sets_under_lock(
+            queue, submission, descriptor_set_count, descriptor_sets));
   }
 
   VkCommandBufferBeginInfo begin_info = {
@@ -4667,8 +4662,9 @@ static iree_status_t iree_hal_vulkan_queue_record_update_native(
         iree_hal_vulkan_builtins_update_unaligned_descriptor_set_count(
             (VkDeviceSize)target_offset,
             (VkDeviceSize)submission->update.length);
-    IREE_RETURN_IF_ERROR(iree_hal_vulkan_queue_acquire_descriptor_cache_sets(
-        queue, submission, descriptor_set_count, descriptor_sets));
+    IREE_RETURN_IF_ERROR(
+        iree_hal_vulkan_queue_acquire_descriptor_cache_sets_under_lock(
+            queue, submission, descriptor_set_count, descriptor_sets));
   }
 
   VkCommandBufferBeginInfo begin_info = {
@@ -7596,7 +7592,9 @@ static iree_status_t iree_hal_vulkan_queue_submit_fill_with_action(
           queue, submission);
     }
     if (iree_status_is_ok(status)) {
+      iree_slim_mutex_lock(&queue->submission_mutex);
       status = iree_hal_vulkan_queue_record_fill_native(queue, submission);
+      iree_slim_mutex_unlock(&queue->submission_mutex);
     }
   }
   if (iree_status_is_ok(status)) {
@@ -7715,7 +7713,9 @@ static iree_status_t iree_hal_vulkan_queue_submit_copy_with_action(
           queue, submission);
     }
     if (iree_status_is_ok(status)) {
+      iree_slim_mutex_lock(&queue->submission_mutex);
       status = iree_hal_vulkan_queue_record_copy_native(queue, submission);
+      iree_slim_mutex_unlock(&queue->submission_mutex);
     }
   }
   if (iree_status_is_ok(status) && length == 0 && barriers) {
@@ -9346,7 +9346,9 @@ iree_status_t iree_hal_vulkan_queue_submit_update(
           queue, submission);
     }
     if (iree_status_is_ok(status)) {
+      iree_slim_mutex_lock(&queue->submission_mutex);
       status = iree_hal_vulkan_queue_record_update_native(queue, submission);
+      iree_slim_mutex_unlock(&queue->submission_mutex);
     }
   }
   if (iree_status_is_ok(status)) {

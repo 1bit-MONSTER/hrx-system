@@ -181,8 +181,9 @@ typedef struct iree_hal_vulkan_queue_t {
   // Host allocator used for queue-owned allocations.
   iree_allocator_t host_allocator;
 
-  // Mutex serializing activation, queue epoch assignment, and queue-local
-  // submission state.
+  // Mutex serializing activation, queue epoch assignment, queue-local
+  // submission state, and host access to the shared native command pools.
+  // Recording different command buffers from one pool also requires this lock.
   iree_slim_mutex_t submission_mutex;
 
   // Cold-path activation state published after all submission resources exist.

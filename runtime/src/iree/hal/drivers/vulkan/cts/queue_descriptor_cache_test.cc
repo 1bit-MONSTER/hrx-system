@@ -14,6 +14,64 @@ namespace iree::hal::cts {
 
 class VulkanQueueDescriptorCacheTest : public CtsTestBase<> {};
 
+TEST_P(VulkanQueueDescriptorCacheTest, DeferredUploadsOverlapCallerRecording) {
+  constexpr iree_host_size_t kUploadCount = 128;
+  std::vector<uint32_t> source(kUploadCount);
+  for (iree_host_size_t i = 0; i < source.size(); ++i) {
+    source[i] = 0xABCD0000u + static_cast<uint32_t>(i);
+  }
+  Ref<iree_hal_buffer_t> target;
+  IREE_ASSERT_OK(CreateUninitializedDeviceBuffer(
+      2 * kUploadCount * sizeof(uint32_t), target.out()));
+  SemaphoreList gate(device_, {0}, {1});
+  SemaphoreList signals(device_, std::vector<uint64_t>(2 * kUploadCount, 0),
+                        std::vector<uint64_t>(2 * kUploadCount, 1));
+
+  // Releasing the first batch permits completion callbacks to record staged
+  // copies while the second batch records on this thread, reusing native pools.
+  iree_status_t status = iree_ok_status();
+  iree_host_size_t submitted_count = 0;
+  for (iree_host_size_t batch = 0; batch < 2 && iree_status_is_ok(status);
+       ++batch) {
+    for (iree_host_size_t i = 0; i < kUploadCount && iree_status_is_ok(status);
+         ++i) {
+      const iree_host_size_t ordinal = batch * kUploadCount + i;
+      const iree_hal_semaphore_list_t signal = {
+          .count = 1,
+          .semaphores = &signals.semaphores[ordinal],
+          .payload_values = &signals.payload_values[ordinal],
+      };
+      status = iree_hal_queue_upload(
+          transfer_queue_,
+          batch == 0 ? static_cast<iree_hal_semaphore_list_t>(gate)
+                     : iree_hal_semaphore_list_empty(),
+          signal, &source[i], target, ordinal * sizeof(uint32_t),
+          sizeof(uint32_t), /*barriers=*/nullptr);
+      if (iree_status_is_ok(status)) {
+        ++submitted_count;
+      }
+    }
+    if (batch == 0) {
+      // Admitted uploads must complete before their source storage is released,
+      // including when a later submission in this batch fails.
+      status = iree_status_join(status,
+                                iree_hal_semaphore_list_signal(gate, nullptr));
+    }
+  }
+  const iree_hal_semaphore_list_t submitted = {
+      .count = submitted_count,
+      .semaphores = signals.semaphores.data(),
+      .payload_values = signals.payload_values.data(),
+  };
+  status = iree_status_join(
+      status, iree_hal_semaphore_list_wait(submitted, iree_infinite_timeout(),
+                                           IREE_ASYNC_WAIT_FLAG_NONE));
+  IREE_ASSERT_OK(status);
+  std::vector<uint32_t> expected = source;
+  expected.insert(expected.end(), source.begin(), source.end());
+  EXPECT_EQ(ReadBufferData<uint32_t>(target), expected);
+}
+
 TEST_P(VulkanQueueDescriptorCacheTest, DeferredUnalignedFillsExceedOneBlock) {
   constexpr iree_host_size_t kSubmissionCount = 5000;
   constexpr uint8_t kPattern = 0x5A;
