@@ -159,6 +159,10 @@ typedef enum loom_target_contract_query_outcome_e {
   LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED = 2,
   // The op violates the source contract required before target selection.
   LOOM_TARGET_CONTRACT_QUERY_INVALID_IR = 3,
+  // The target owns a structured rejection for the authored operation.
+  // Legalization must preserve it and must not expand its direct consumers
+  // through reference fallback before the rejection is emitted.
+  LOOM_TARGET_CONTRACT_QUERY_TERMINAL_REJECTION = 4,
 } loom_target_contract_query_outcome_t;
 
 typedef struct loom_target_contract_rejection_t {
@@ -435,6 +439,13 @@ loom_target_contract_query_result_empty(void) {
       /*.selected_descriptor_matrix_transform_flags=*/0,
       /*.rejection=*/NULL,
   };
+}
+
+// Returns true when |result| owns a final structured rejection that must be
+// diagnosed without reference legalization changing its source program.
+static inline bool loom_target_contract_query_result_is_terminal_rejection(
+    const loom_target_contract_query_result_t* result) {
+  return result->outcome == LOOM_TARGET_CONTRACT_QUERY_TERMINAL_REJECTION;
 }
 
 typedef struct loom_target_contract_query_environment_t {

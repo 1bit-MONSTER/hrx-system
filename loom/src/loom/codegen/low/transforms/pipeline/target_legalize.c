@@ -430,6 +430,7 @@ loom_low_target_legalize_report_contract_outcome(
     case LOOM_TARGET_CONTRACT_QUERY_LEGAL:
       return LOOM_TARGET_COMPILE_REPORT_CONTRACT_OUTCOME_LEGAL;
     case LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED:
+    case LOOM_TARGET_CONTRACT_QUERY_TERMINAL_REJECTION:
       return LOOM_TARGET_COMPILE_REPORT_CONTRACT_OUTCOME_UNSUPPORTED;
     case LOOM_TARGET_CONTRACT_QUERY_INVALID_IR:
       return LOOM_TARGET_COMPILE_REPORT_CONTRACT_OUTCOME_INVALID_IR;
@@ -1672,6 +1673,47 @@ static iree_status_t loom_low_target_legalize_report_packet_rewrite(
       /*scalarized=*/false, created_op_count, erased_op_count);
 }
 
+// Returns whether reference legalization of |op| would consume a value whose
+// producer owns a terminal target rejection. The producer must remain intact
+// for its structured diagnostic; expanding a direct consumer would only hide
+// that rejection behind lane-wise fallback IR.
+static iree_status_t
+loom_low_target_legalize_reference_entry_has_terminal_input(
+    loom_low_target_legalize_function_state_t* state,
+    const loom_target_legalizer_entry_t* entry, const loom_op_t* op,
+    bool* out_has_terminal_input) {
+  *out_has_terminal_input = false;
+  const loom_low_lower_op_contract_query_t* target_query =
+      &state->selection->policy->query_op_contract;
+  if (entry->provider_strategy != LOOM_TARGET_LEGALIZER_STRATEGY_REFERENCE ||
+      target_query->fn == NULL) {
+    return iree_ok_status();
+  }
+
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  for (uint16_t i = 0; i < op->operand_count; ++i) {
+    const loom_value_t* value = loom_module_value(state->module, operands[i]);
+    if (loom_value_is_block_arg(value)) {
+      continue;
+    }
+    const loom_op_t* producer = loom_value_def_op(value);
+    if (!loom_low_lower_op_contract_query_accepts(target_query,
+                                                  producer->kind)) {
+      continue;
+    }
+    loom_target_contract_query_result_t producer_result =
+        loom_target_contract_query_result_empty();
+    IREE_RETURN_IF_ERROR(loom_target_legalization_query_contract(
+        &state->legalization_context, producer, &producer_result));
+    if (loom_target_contract_query_result_is_terminal_rejection(
+            &producer_result)) {
+      *out_has_terminal_input = true;
+      return iree_ok_status();
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_low_target_legalize_rewrite_op(
     void* user_data, loom_greedy_rewrite_driver_t* driver, loom_op_t* op,
     loom_greedy_rewrite_result_t* result, bool* out_changed) {
@@ -1752,6 +1794,22 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
     ++state->statistics->ops_deferred;
     return iree_ok_status();
   }
+  if (loom_target_contract_query_result_is_terminal_rejection(query_result)) {
+    if (is_report_source) {
+      const loom_target_compile_report_legalization_action_t report_action =
+          state->legalization_context.mode ==
+                  LOOM_TARGET_LEGALIZATION_MODE_FINAL
+              ? LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_REJECT_UNSUPPORTED_FINAL
+              : LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_DEFERRED;
+      IREE_RETURN_IF_ERROR(loom_low_target_legalize_retain_report_decision(
+          state, report_decision, source_op_name, source_op_kind, report_action,
+          query_result, /*legalizer_entry=*/NULL,
+          /*scalarized=*/false, /*created_op_count=*/0,
+          /*erased_op_count=*/0));
+    }
+    ++state->statistics->ops_deferred;
+    return iree_ok_status();
+  }
   if (query_result->outcome == LOOM_TARGET_CONTRACT_QUERY_LEGAL &&
       loom_low_target_legalize_should_accept_legal_contract(state, op,
                                                             op_entry)) {
@@ -1779,7 +1837,14 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
     loom_target_legalizer_result_t legalizer_result = {
         .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
     };
-    if (loom_low_target_legalize_should_reject_reference_entry(state, entry)) {
+    bool has_terminal_input = false;
+    IREE_RETURN_IF_ERROR(
+        loom_low_target_legalize_reference_entry_has_terminal_input(
+            state, entry, op, &has_terminal_input));
+    if (has_terminal_input) {
+      legalizer_result.action = LOOM_TARGET_LEGALIZER_ACTION_DEFER;
+    } else if (loom_low_target_legalize_should_reject_reference_entry(state,
+                                                                      entry)) {
       legalizer_result =
           loom_low_target_legalize_reference_policy_rejection(state);
     } else {

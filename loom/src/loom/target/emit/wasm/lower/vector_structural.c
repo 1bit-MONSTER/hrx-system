@@ -8,11 +8,15 @@
 
 #include <string.h>
 
+#include "loom/codegen/low/diagnostics.h"
+#include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
+#include "loom/ops/op_defs.h"
 #include "loom/ops/vector/interleave.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/target/arch/wasm/descriptors/descriptors.h"
+#include "loom/target/emit/wasm/error_catalog.h"
 #include "loom/target/emit/wasm/lower/predicate_representation.h"
 #include "loom/target/emit/wasm/lower/vector_carrier.h"
 #include "loom/target/emit/wasm/lower/vector_dynamic_slice.h"
@@ -43,6 +47,13 @@ typedef struct loom_wasm_vector_dynamic_slice_plan_t {
   // Selected result carrier retained before source IR mutation.
   loom_wasm_vector_carrier_t result_carrier;
 } loom_wasm_vector_dynamic_slice_plan_t;
+
+typedef uint8_t loom_wasm_vector_dynamic_slice_match_t;
+enum loom_wasm_vector_dynamic_slice_match_e {
+  LOOM_WASM_VECTOR_DYNAMIC_SLICE_UNMATCHED = 0,
+  LOOM_WASM_VECTOR_DYNAMIC_SLICE_SUPPORTED = 1,
+  LOOM_WASM_VECTOR_DYNAMIC_SLICE_OPERATION_LIMIT_EXCEEDED = 2,
+};
 
 typedef uint8_t loom_wasm_predicate_extension_kind_t;
 enum loom_wasm_predicate_extension_kind_e {
@@ -326,7 +337,8 @@ static bool loom_wasm_slice_plan_from_op(
   return true;
 }
 
-static bool loom_wasm_dynamic_slice_plan_from_op(
+static loom_wasm_vector_dynamic_slice_match_t
+loom_wasm_dynamic_slice_plan_from_op(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_wasm_vector_dynamic_slice_plan_t* out_plan) {
@@ -335,7 +347,7 @@ static bool loom_wasm_dynamic_slice_plan_from_op(
   loom_value_id_t result = LOOM_VALUE_ID_INVALID;
   if (!loom_wasm_dynamic_slice_values(module, fact_table, source_op, &source,
                                       &result)) {
-    return false;
+    return LOOM_WASM_VECTOR_DYNAMIC_SLICE_UNMATCHED;
   }
 
   const loom_type_t source_type = loom_module_value_type(module, source);
@@ -350,14 +362,51 @@ static bool loom_wasm_dynamic_slice_plan_from_op(
           module, context, result, query_representation);
   if (source_carrier.packet_count == 0 || result_carrier.packet_count == 0 ||
       source_carrier.element_bit_count != result_carrier.element_bit_count ||
-      source_carrier.payload_byte_count <= result_carrier.payload_byte_count ||
-      !loom_wasm_dynamic_slice_operation_count_is_bounded(source_carrier,
-                                                          result_carrier)) {
-    return false;
+      source_carrier.payload_byte_count <= result_carrier.payload_byte_count) {
+    return LOOM_WASM_VECTOR_DYNAMIC_SLICE_UNMATCHED;
   }
   out_plan->source_carrier = source_carrier;
   out_plan->result_carrier = result_carrier;
-  return true;
+  return loom_wasm_dynamic_slice_operation_count_is_bounded(source_carrier,
+                                                            result_carrier)
+             ? LOOM_WASM_VECTOR_DYNAMIC_SLICE_SUPPORTED
+             : LOOM_WASM_VECTOR_DYNAMIC_SLICE_OPERATION_LIMIT_EXCEEDED;
+}
+
+static iree_status_t loom_wasm_dynamic_slice_reject_operation_limit(
+    const loom_target_contract_query_environment_t* environment,
+    const loom_op_t* source_op,
+    const loom_wasm_vector_dynamic_slice_plan_t* plan,
+    loom_target_contract_query_result_t* out_result) {
+  loom_target_contract_rejection_t* rejection = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate(
+      environment->arena, sizeof(*rejection), (void**)&rejection));
+  loom_diagnostic_param_t* params = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      environment->arena, 7, sizeof(*params), (void**)&params));
+  const loom_target_bundle_t* bundle =
+      loom_target_contract_query_environment_bundle(environment);
+  params[0] = loom_param_string(loom_low_diagnostic_string_or_placeholder(
+      bundle->name, IREE_SV("<empty>")));
+  params[1] = loom_param_string(loom_low_diagnostic_string_or_placeholder(
+      bundle->export_plan->name, IREE_SV("<empty>")));
+  params[2] = loom_param_string(loom_low_diagnostic_string_or_placeholder(
+      bundle->config->name, IREE_SV("<empty>")));
+  params[3] = loom_param_string(loom_low_diagnostic_symbol_name(
+      environment->module, loom_func_like_callee(environment->function)));
+  params[4] = loom_param_string(loom_op_name(environment->module, source_op));
+  params[5] = loom_param_u32(loom_wasm_dynamic_slice_operation_count(
+      plan->source_carrier, plan->result_carrier));
+  params[6] = loom_param_u32(LOOM_WASM_DYNAMIC_SLICE_MAX_OPERATION_COUNT);
+  *rejection = (loom_target_contract_rejection_t){
+      .error_ref = LOOM_ERR_WASM_007_REF,
+      .params = params,
+      .param_count = 7,
+  };
+  *out_result = loom_target_contract_query_result_empty();
+  out_result->outcome = LOOM_TARGET_CONTRACT_QUERY_TERMINAL_REJECTION;
+  out_result->rejection = rejection;
+  return iree_ok_status();
 }
 
 static bool loom_wasm_predicate_extension_plan_from_op(
@@ -602,11 +651,24 @@ iree_status_t loom_wasm_query_vector_structural_contract(
       loom_wasm_concat_plan_from_op(environment->module, /*context=*/NULL,
                                     source_op, &concat_result_carrier) ||
       loom_wasm_slice_plan_from_op(environment->module, /*context=*/NULL,
-                                   source_op, &slice_plan) ||
+                                   source_op, &slice_plan)) {
+    out_result->outcome = LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+    return iree_ok_status();
+  }
+  const loom_wasm_vector_dynamic_slice_match_t dynamic_slice_match =
       loom_wasm_dynamic_slice_plan_from_op(
           environment->module, environment->fact_table, /*context=*/NULL,
-          source_op, &dynamic_slice_plan) ||
-      loom_wasm_predicate_extension_plan_from_op(environment->module,
+          source_op, &dynamic_slice_plan);
+  if (dynamic_slice_match == LOOM_WASM_VECTOR_DYNAMIC_SLICE_SUPPORTED) {
+    out_result->outcome = LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+    return iree_ok_status();
+  }
+  if (dynamic_slice_match ==
+      LOOM_WASM_VECTOR_DYNAMIC_SLICE_OPERATION_LIMIT_EXCEEDED) {
+    return loom_wasm_dynamic_slice_reject_operation_limit(
+        environment, source_op, &dynamic_slice_plan, out_result);
+  }
+  if (loom_wasm_predicate_extension_plan_from_op(environment->module,
                                                  /*context=*/NULL, source_op,
                                                  &predicate_extension_plan) ||
       loom_wasm_shuffle_plan_from_op(environment->module, /*context=*/NULL,
@@ -683,7 +745,8 @@ iree_status_t loom_wasm_select_vector_structural_plan(
   loom_wasm_vector_dynamic_slice_plan_t dynamic_slice_plan;
   if (loom_wasm_dynamic_slice_plan_from_op(
           module, loom_low_lower_context_fact_table(context), context,
-          source_op, &dynamic_slice_plan)) {
+          source_op,
+          &dynamic_slice_plan) == LOOM_WASM_VECTOR_DYNAMIC_SLICE_SUPPORTED) {
     loom_wasm_vector_dynamic_slice_plan_t* retained_plan = NULL;
     IREE_RETURN_IF_ERROR(loom_low_lower_allocate_plan_data(
         context, sizeof(*retained_plan), (void**)&retained_plan));

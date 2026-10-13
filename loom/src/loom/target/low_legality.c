@@ -48,6 +48,8 @@ struct loom_target_low_legality_context_t {
   loom_op_kind_t callable_exit_kind;
   // Result object receiving counters and selected descriptor set.
   loom_target_low_legality_result_t* result;
+  // True when the current operation produced a terminal contract rejection.
+  bool terminal_rejection;
 };
 
 static const loom_target_bundle_t* loom_target_low_legality_options_bundle(
@@ -678,6 +680,11 @@ static iree_status_t loom_target_low_legality_try_contract_query_op(
       return loom_target_low_legality_reject_contract_query(context, op,
                                                             &result);
     }
+    case LOOM_TARGET_CONTRACT_QUERY_TERMINAL_REJECTION:
+      context->terminal_rejection = true;
+      *out_handled = true;
+      return loom_target_low_legality_reject_contract_query(context, op,
+                                                            &result);
     case LOOM_TARGET_CONTRACT_QUERY_INVALID_IR:
       *out_handled = true;
       return loom_target_low_legality_reject_contract_query(context, op,
@@ -910,9 +917,11 @@ static iree_status_t loom_target_low_legality_walk_op(
   loom_target_low_legality_context_t* context =
       (loom_target_low_legality_context_t*)user_data;
   *out_result = LOOM_WALK_CONTINUE;
+  context->terminal_rejection = false;
   uint32_t previous_error_count = context->result->error_count;
   IREE_RETURN_IF_ERROR(loom_target_low_legality_verify_op(context, op));
-  if (loom_target_low_legality_should_stop(context)) {
+  if (context->terminal_rejection ||
+      loom_target_low_legality_should_stop(context)) {
     *out_result = LOOM_WALK_ABORT;
   } else if (context->result->error_count != previous_error_count &&
              loom_target_low_legality_skip_children_after_rejection(op->kind)) {

@@ -128,9 +128,11 @@ loom_cc_library(
     ::vector_carrier
     ::vector_dynamic_slice
     iree::base
+    loom::codegen::low::diagnostics
     loom::codegen::low::lower
     loom::ir
     loom::ops::low
+    loom::ops::op_defs
     loom::ops::vector
     loom::target::arch::wasm::descriptors::descriptors_ids
     loom::target::emit::wasm::contracts

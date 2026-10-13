@@ -36,4 +36,33 @@ TEST(VectorDynamicSliceTest, AccountsForEveryPredicateRepresentation) {
   }
 }
 
+TEST(VectorDynamicSliceTest, EnforcesOperationLimitAtPacketBoundary) {
+  const loom_wasm_vector_carrier_t result_carrier = {
+      .payload_byte_count = 128,
+      .packet_count = 8,
+      .element_bit_count = 8,
+  };
+  const loom_wasm_vector_carrier_t largest_bounded_source = {
+      .payload_byte_count = 192,
+      .packet_count = 12,
+      .element_bit_count = 8,
+  };
+  EXPECT_EQ(loom_wasm_dynamic_slice_operation_count(largest_bounded_source,
+                                                    result_carrier),
+            126u);
+  EXPECT_TRUE(loom_wasm_dynamic_slice_operation_count_is_bounded(
+      largest_bounded_source, result_carrier));
+
+  const loom_wasm_vector_carrier_t smallest_unbounded_source = {
+      .payload_byte_count = 208,
+      .packet_count = 13,
+      .element_bit_count = 8,
+  };
+  EXPECT_EQ(loom_wasm_dynamic_slice_operation_count(smallest_unbounded_source,
+                                                    result_carrier),
+            147u);
+  EXPECT_FALSE(loom_wasm_dynamic_slice_operation_count_is_bounded(
+      smallest_unbounded_source, result_carrier));
+}
+
 }  // namespace
