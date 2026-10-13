@@ -534,10 +534,24 @@ IREE_API_EXPORT iree_status_t iree_hal_memory_transition_recipe_validate(
   for (uint32_t i = 0; i < recipe->operation_count; ++i) {
     const iree_hal_memory_transition_recipe_info_t* info =
         &recipe->operations[i];
-    if (IREE_UNLIKELY(info->kind != IREE_HAL_MEMORY_TRANSITION_KIND_RANGE ||
-                      !info->range_granularity)) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "memory transition recipe is not ranged");
+    const bool is_global = info->kind == IREE_HAL_MEMORY_TRANSITION_KIND_GLOBAL;
+    if (IREE_UNLIKELY(!is_global &&
+                      (info->kind != IREE_HAL_MEMORY_TRANSITION_KIND_RANGE ||
+                       !info->range_granularity))) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "memory transition recipe has no range or global action");
+    }
+    if (IREE_UNLIKELY(
+            is_global &&
+            (info->range_granularity ||
+             (info->executor != IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_API &&
+              info->executor !=
+                  IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT) ||
+             info->host.instruction != IREE_HAL_HOST_CACHE_INSTRUCTION_NONE))) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "global resource recipe requires a host API or fence-only action");
     }
     switch (info->executor) {
       case IREE_HAL_MEMORY_TRANSITION_EXECUTOR_QUEUE:
@@ -557,8 +571,8 @@ IREE_API_EXPORT iree_status_t iree_hal_memory_transition_recipe_validate(
         }
         break;
       case IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT:
-        if (IREE_UNLIKELY(
-                !iree_device_size_is_power_of_two(info->range_granularity))) {
+        if (IREE_UNLIKELY(!is_global && !iree_device_size_is_power_of_two(
+                                            info->range_granularity))) {
           return iree_make_status(
               IREE_STATUS_INVALID_ARGUMENT,
               "direct host recipe requires a power-of-two range granularity");

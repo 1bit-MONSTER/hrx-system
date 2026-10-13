@@ -136,6 +136,62 @@ TEST(MemoryTransitionRecipeTest, QueueFamilyAdmitsItsHostExecutors) {
                         iree_hal_barrier_validate(&barrier, &family));
 }
 
+TEST(MemoryTransitionRecipeTest, GlobalHostActionsRetainResourceOperands) {
+  iree_hal_queue_family_spec_t family_spec = {
+      .flags = IREE_HAL_QUEUE_FAMILY_SPEC_FLAG_HOST_MEMORY_BARRIERS,
+  };
+  const iree_hal_queue_family_t family = {.spec = &family_spec};
+  for (auto executor : {IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_API,
+                        IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT}) {
+    for (auto operation :
+         {IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH,
+          IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_INVALIDATE}) {
+      iree_hal_memory_transition_recipe_info_t info = {
+          .kind = IREE_HAL_MEMORY_TRANSITION_KIND_GLOBAL,
+          .executor = executor,
+          .operation = operation,
+      };
+      const iree_hal_memory_transition_recipe_t recipe = {
+          .effects = {static_cast<uint32_t>(
+              operation == IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH
+                  ? IREE_HAL_MEMORY_EFFECT_HOST_FLUSH
+                  : IREE_HAL_MEMORY_EFFECT_HOST_INVALIDATE)},
+          .operation_count = 1,
+          .operations = &info,
+      };
+      const iree_hal_buffer_barrier_t buffer_barrier = {.recipe = &recipe};
+      iree_hal_barrier_t barrier = {
+          .effects = recipe.effects,
+          .buffer_barrier_count = 1,
+          .buffer_barriers = &buffer_barrier,
+      };
+      IREE_EXPECT_OK(iree_hal_memory_transition_recipe_validate(&recipe));
+#if defined(IREE_ARCH_X86_64) || defined(IREE_ARCH_X86_32)
+      IREE_EXPECT_OK(iree_hal_barrier_validate(&barrier, &family));
+#else
+      if (executor == IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT) {
+        IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
+                              iree_hal_barrier_validate(&barrier, &family));
+      } else {
+        IREE_EXPECT_OK(iree_hal_barrier_validate(&barrier, &family));
+      }
+#endif
+      barrier.buffer_barrier_count = 0;
+      IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                            iree_hal_barrier_validate(&barrier, &family));
+      info.range_granularity = 64;
+      IREE_EXPECT_STATUS_IS(
+          IREE_STATUS_INVALID_ARGUMENT,
+          iree_hal_memory_transition_recipe_validate(&recipe));
+      info.range_granularity = 0;
+      info.host.instruction = IREE_HAL_HOST_CACHE_INSTRUCTION_X86_CLFLUSH;
+      IREE_EXPECT_STATUS_IS(
+          IREE_STATUS_INVALID_ARGUMENT,
+          iree_hal_memory_transition_recipe_validate(&recipe));
+    }
+  }
+}
+
 TEST(MemoryScopeFamilyUsageTest, UnscopedBufferHonorsAllocationPlacement) {
   uint8_t device_a_token = 0;
   uint8_t device_b_token = 0;
