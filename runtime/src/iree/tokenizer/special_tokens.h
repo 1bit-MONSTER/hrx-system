@@ -109,7 +109,7 @@ typedef struct iree_tokenizer_special_tokens_t {
   uint8_t bucket_count;
 
   // Single slab allocation containing
-  // [ids][flags][bstring_offsets][bstring_data]. NULL if empty (no allocation
+  // [ids][bstring_offsets][flags][bstring_data]. NULL if empty (no allocation
   // made).
   void* slab;
 
