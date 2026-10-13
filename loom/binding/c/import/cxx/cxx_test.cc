@@ -456,11 +456,30 @@ TEST_F(CxxTest, InvalidOptionsClearOutputs) {
   LOOMC_ASSERT_STATUS_IS(LOOMC_STATUS_UNIMPLEMENTED,
                          Import(source.get(), &options));
   options = {};
+  options.fp_model = (loomc_cxx_fp_model_t)99;
+  LOOMC_ASSERT_STATUS_IS(LOOMC_STATUS_INVALID_ARGUMENT,
+                         Import(source.get(), &options));
+  options = {};
   options.flags = 1u << 31;
   LOOMC_ASSERT_STATUS_IS(LOOMC_STATUS_INVALID_ARGUMENT,
                          Import(source.get(), &options));
   EXPECT_EQ(result_, nullptr);
   EXPECT_EQ(module_, nullptr);
+}
+
+TEST_F(CxxTest, FloatingPointModelBecomesExplicitOperationPermissions) {
+  auto source = Source("unit.cpp", R"(
+    float entry(float left, float right) { return left * right + left; }
+  )");
+  loomc_cxx_import_options_t options = {
+      .fp_model = LOOMC_CXX_FP_MODEL_FAST,
+  };
+  LOOMC_ASSERT_OK(Import(source.get(), &options));
+  auto text = Print(module_.get());
+  EXPECT_NE(text.find("scalar.mulf<reassoc|nnan|ninf|nsz|arcp|contract|afn>"),
+            std::string::npos);
+  EXPECT_NE(text.find("scalar.addf<reassoc|nnan|ninf|nsz|arcp|contract|afn>"),
+            std::string::npos);
 }
 
 TEST_F(CxxTest, LaunchRangesUseNormalCompilationConfigValidation) {

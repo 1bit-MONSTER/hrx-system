@@ -148,7 +148,8 @@ void ControlFlow::postVisit(cxx::AST* ast) {
     }
   }
   if (auto* statement = cxx::ast_cast<cxx::StatementAST>(ast)) {
-    reject_misplaced_binding_statement(unit_, diagnostics_, statement);
+    reject_misplaced_binding_statement(unit_, diagnostics_, statement,
+                                       BindingAttributeScope::Statement);
     auto outcomes = classify_paths(statement);
     if (outcomes != Fallthrough) {
       paths_.emplace(statement, outcomes);

@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "loom/import/cxx/binding/config.h"
+#include "loom/import/cxx/binding/fastmath.h"
 #include "loom/import/cxx/binding/function_contracts.h"
 #include "loom/import/cxx/binding/intrinsics.h"
 #include "loom/import/cxx/binding/launch.h"
@@ -75,7 +76,7 @@ class Functions {
   Functions(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
             loom_module_t* module, Intrinsics& intrinsics,
             LaunchContracts& launches, Configs& configs,
-            FunctionContracts& function_contracts,
+            FastMathContracts& fastmath, FunctionContracts& function_contracts,
             TargetDefinitions& target_definitions,
             TemplateDefinitions& template_definitions, SymbolNames& names)
       : unit_(unit),
@@ -84,6 +85,7 @@ class Functions {
         intrinsics_(intrinsics),
         launches_(launches),
         configs_(configs),
+        fastmath_(fastmath),
         function_contracts_(function_contracts),
         target_definitions_(target_definitions),
         template_definitions_(template_definitions),
@@ -145,6 +147,8 @@ class Functions {
   LaunchContracts& launches_;
   // Reconciles named scalar settings before root selection and body lowering.
   Configs& configs_;
+  // Reconciles lexical floating-point permissions across redeclarations.
+  FastMathContracts& fastmath_;
   // Callable predicates reconciled by semantic source identity.
   FunctionContracts& function_contracts_;
   // Owns source target definitions and function-like bindings to them.

@@ -158,7 +158,7 @@ def generate_source(ops: Sequence[Op]) -> str:
             "  return NULL;",
             "}",
             "",
-            "bool loom_cxx_scalar_flag_parse(iree_string_view_t name, uint8_t* out_flag) {",
+            "bool loom_cxx_fastmath_flag_parse(iree_string_view_t name, uint8_t* out_flag) {",
         ]
     )
     lines.extend(f'  if (iree_string_view_equal(name, IREE_SV("{case.keyword}"))) {{ *out_flag = {case.value}; return true; }}' for case in FastMathFlags.cases)

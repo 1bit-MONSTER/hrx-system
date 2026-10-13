@@ -30,8 +30,9 @@ iree_status_t loom_cxx_import(iree_string_view_t source,
   }
   if (options->data_model < LOOM_CXX_DATA_MODEL_LP64 ||
       options->data_model > LOOM_CXX_DATA_MODEL_ILP32 ||
-      (options->flags & ~(LOOM_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS |
-                          LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES))) {
+      options->fp_model < LOOM_CXX_FP_MODEL_PRECISE ||
+      options->fp_model > LOOM_CXX_FP_MODEL_FAST ||
+      (options->flags & ~LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "invalid C/C++ source configuration");
   }

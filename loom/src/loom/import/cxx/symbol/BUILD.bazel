@@ -31,6 +31,7 @@ loom_cc_library(
     deps = [
         ":names",
         "//loom/src/loom/import/cxx/binding:config",
+        "//loom/src/loom/import/cxx/binding:fastmath",
         "//loom/src/loom/import/cxx/binding:function_contracts",
         "//loom/src/loom/import/cxx/binding:intrinsics",
         "//loom/src/loom/import/cxx/binding:launch",

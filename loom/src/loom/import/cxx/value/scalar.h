@@ -10,6 +10,8 @@
 #include <cxx/const_value.h>
 #include <cxx/token_fwd.h>
 
+#include <cstdint>
+
 #include "loom/import/cxx/source/locations.h"
 #include "loom/import/cxx/value/types.h"
 #include "loom/ops/op_defs.h"
@@ -33,12 +35,14 @@ class Scalars {
 
   // Preserves C++ signedness, width and boolean truth conversion semantics.
   loom_value_id_t convert(loom_value_id_t value, const cxx::Type* input_type,
-                          const cxx::Type* output_type, cxx::AST* owner);
+                          const cxx::Type* output_type, cxx::AST* owner,
+                          uint8_t fastmath = 0);
   // Inputs already have the promoted source input_type. Relational operations
   // select signed, unsigned or floating predicates from that source fact.
   loom_value_id_t binary(cxx::TokenKind token, loom_value_id_t left,
                          loom_value_id_t right, const cxx::Type* input_type,
-                         const cxx::Type* output_type, cxx::AST* owner);
+                         const cxx::Type* output_type, cxx::AST* owner,
+                         uint8_t fastmath = 0);
   // Materializes a frontend-evaluated constant in its source storage width.
   loom_value_id_t constant(const cxx::ConstValue& value,
                            const cxx::Type* source_type, cxx::AST* owner);

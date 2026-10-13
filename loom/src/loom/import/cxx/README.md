@@ -155,6 +155,84 @@ vector casts and `__builtin_bit_cast` continue to reinterpret equal-sized
 objects. The importer leaves vector legalization and instruction selection to
 the target compiler.
 
+## Floating-point permissions
+
+Ordinary C++ arithmetic inherits the invocation's floating-point model.
+`fp-model=precise` is the default and grants no Loom fast-math permissions;
+`fp-model=fast` grants the complete `fast` contract across the translation
+unit. Every permission is recorded on the imported High IR operations, so no
+hidden module-wide policy survives import.
+
+The standalone importer and public C API select the same policy:
+
+```shell
+loom-import-cxx --fp-model=fast kernel.cxx
+```
+
+```c
+loomc_cxx_import_options_t options = {
+    .fp_model = LOOMC_CXX_FP_MODEL_FAST,
+};
+```
+
+Source attributes replace that inherited policy for one function or statement.
+The no-argument shorthand grants the complete `fast` contract without
+replacing natural operators:
+
+```cpp
+[[loom::fastmath]]
+float accumulate(float sum, float value, float scale) {
+  return sum + value * scale;
+}
+```
+
+The permissions become ordinary High IR attributes:
+
+```loom
+%scaled = scalar.mulf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %value, %scale : f32
+%result = scalar.addf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %sum, %scaled : f32
+```
+
+An argument list establishes exactly its named permissions. Function
+attributes may precede the declaration or follow its parameter list. A leading
+statement attribute replaces the enclosing policy within that statement and
+its nested control flow, allowing a numerically relaxed accumulation to remain
+local inside an otherwise precise helper:
+
+```cpp
+float update(float sum, float value, float scale) {
+  [[loom::fastmath("reassoc", "nsz")]] {
+    sum += value * scale;
+  }
+  return sum;
+}
+```
+
+`[[loom::fastmath(false)]]` establishes a precise island inside a globally fast
+invocation:
+
+```cpp
+[[loom::fastmath(false)]]
+float sensitive(float numerator, float denominator) {
+  return numerator / denominator;
+}
+```
+
+Nested scopes replace the active permissions and restore them on exit. A called
+helper keeps the contract on its own definition; a caller's contract does not
+silently change separately emitted function bodies. Concrete template
+specializations retain the contract on their source definition. Repeated
+declarations may carry the same contract, while conflicting contracts are
+rejected.
+
+The selective argument strings exactly match Loom's `reassoc`, `nnan`, `ninf`,
+`nsz`, `arcp`, `contract`, `afn`, and `fast` IR flags. Natural scalar and
+vector arithmetic, negation, comparisons, and floating truth conversion receive
+the active permissions. Explicit scalar, floating dot, and floating reduction
+intrinsics combine their declared flags with the lexical contract. Float
+precision conversions continue to use their independent `daz` and `ftz`
+subnormal contract.
+
 ## Vector dots and reductions
 
 `<loomcxx/vector.h>` exposes seeded dots and reductions without including other
@@ -218,8 +296,10 @@ width. Signed and unsigned extrema match their source element interpretation;
 IEEE minimum/maximum propagate NaNs, while the C99-style minnum/maxnum select
 the numeric operand when only one operand is NaN.
 
-Floating reductions preserve logical lane order by default. A custom operation
-declaration can select explicit permissions without changing the facade:
+Floating reductions preserve logical lane order by default. A lexical contract
+can relax both the reduction and surrounding arithmetic. A custom operation
+declaration remains useful when one call requires permissions that differ from
+its enclosing source scope:
 
 ```cpp
 template <class Vector, class Scalar>
@@ -450,11 +530,11 @@ quotes. The C++ provider accepts:
 | `std=c++23` | Source language standard, including supported C spellings. |
 | `triple=...` | Source ABI triple. |
 | `data-model=lp64` | `lp64`, `llp64`, or `ilp32` integer and pointer widths. |
+| `fp-model=precise` | `precise` or `fast` translation-unit floating-point policy. |
 | `root=entry` | Exported source function; repeat for multiple roots. |
 | `I=include` | User include directory, relative to the test file; repeatable. |
 | `isystem=include` | System include directory, relative to the test file; repeatable. |
 | `D=COUNT=8` | Macro definition; repeatable. `D=ENABLED` defines it to `1`. |
-| `approximate-functions=true` | Permit approximate mathematical functions. |
 | `builtin-includes=false` | Use explicit include paths without embedded headers. |
 
 Source locations use physical, case-relative lines. `#line` controls the presumed

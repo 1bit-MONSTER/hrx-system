@@ -69,6 +69,8 @@ loom_check_test_suite(
     "enum_semantics.cxx-test"
     "enums.cxx-test"
     "enums_invalid.cxx-test"
+    "fastmath.cxx-test"
+    "fastmath_invalid.cxx-test"
     "float16.cxx-test"
     "float8.cxx-test"
     "float8_invalid.cxx-test"
@@ -1234,7 +1236,7 @@ loom_test_module(
   SRCS
     "aiter_swiglu_f16.cxx"
   INPUTOPTS
-    "cxx:approximate-functions=true"
+    "cxx:fp-model=fast"
 )
 endif()
 
@@ -1245,7 +1247,7 @@ loom_test_module(
   SRCS
     "flash_attention.cxx"
   INPUTOPTS
-    "cxx:approximate-functions=true"
+    "cxx:fp-model=fast"
 )
 endif()
 
@@ -1256,7 +1258,7 @@ loom_test_module(
   SRCS
     "llama_rms_norm.cxx"
   INPUTOPTS
-    "cxx:approximate-functions=true"
+    "cxx:fp-model=fast"
 )
 endif()
 

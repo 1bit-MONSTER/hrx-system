@@ -42,6 +42,17 @@
       }
     },
     {
+      "name": "applies the invocation floating-point model",
+      "run": {
+        "tool": "loom-import-cxx",
+        "args": ["--fp-model=fast", "-"]
+      },
+      "stdin": {"text": "float multiply(float left, float right) { return left * right; }\n"},
+      "stdout": {
+        "contains": ["scalar.mulf<reassoc|nnan|ninf|nsz|arcp|contract|afn>"]
+      }
+    },
+    {
       "name": "exports an explicit root and retains its private callee",
       "run": {
         "tool": "loom-import-cxx",

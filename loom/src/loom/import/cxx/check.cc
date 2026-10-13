@@ -76,12 +76,14 @@ class CheckBody {
         builder_(builder) {}
 
   void translate_case(const FunctionBody& body) {
-    reject_misplaced_binding_statement(unit_, diagnostics_, body.body);
+    reject_misplaced_binding_statement(unit_, diagnostics_, body.body,
+                                       BindingAttributeScope::CheckStatement);
     cxx::AST* end = body.body;
     for (auto* remaining = body.body->statementList; remaining;
          remaining = remaining->next) {
       auto* statement = remaining->value;
-      reject_misplaced_binding_statement(unit_, diagnostics_, statement);
+      reject_misplaced_binding_statement(unit_, diagnostics_, statement,
+                                         BindingAttributeScope::CheckStatement);
       if (auto* returned = cxx::ast_cast<cxx::ReturnStatementAST>(statement)) {
         if (returned->expression || remaining->next) {
           fail(statement, "check case return must be bare and final");
@@ -124,7 +126,8 @@ class CheckBody {
   }
 
   void translate_scenario(const FunctionBody& body) {
-    reject_misplaced_binding_statement(unit_, diagnostics_, body.body);
+    reject_misplaced_binding_statement(unit_, diagnostics_, body.body,
+                                       BindingAttributeScope::CheckStatement);
     values_.clear();
     value_arena_.reset();
     observing_ = false;
@@ -135,7 +138,8 @@ class CheckBody {
     for (auto* remaining = body.body->statementList; remaining;
          remaining = remaining->next) {
       auto* statement = remaining->value;
-      reject_misplaced_binding_statement(unit_, diagnostics_, statement);
+      reject_misplaced_binding_statement(unit_, diagnostics_, statement,
+                                         BindingAttributeScope::CheckStatement);
       if (auto* returned = cxx::ast_cast<cxx::ReturnStatementAST>(statement)) {
         if (returned->expression || remaining->next) {
           fail(statement, "check scenario return must be bare and final");
@@ -338,7 +342,8 @@ class CheckBody {
     for (auto* remaining = lambda->statement->statementList; remaining;
          remaining = remaining->next) {
       auto* statement = remaining->value;
-      reject_misplaced_binding_statement(unit_, diagnostics_, statement);
+      reject_misplaced_binding_statement(unit_, diagnostics_, statement,
+                                         BindingAttributeScope::CheckStatement);
       if (auto* declaration =
               cxx::ast_cast<cxx::DeclarationStatementAST>(statement)) {
         if (has_action) {
@@ -850,7 +855,8 @@ class CheckBody {
     for (auto* remaining = lambda->statement->statementList; remaining;
          remaining = remaining->next) {
       auto* statement = remaining->value;
-      reject_misplaced_binding_statement(unit_, diagnostics_, statement);
+      reject_misplaced_binding_statement(unit_, diagnostics_, statement,
+                                         BindingAttributeScope::CheckStatement);
       if (auto* returned = cxx::ast_cast<cxx::ReturnStatementAST>(statement)) {
         if (returned->expression || remaining->next) {
           fail(statement, "check comparison return must be bare and final");

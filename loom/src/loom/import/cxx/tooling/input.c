@@ -116,6 +116,12 @@ iree_status_t loom_cxx_input_parse_options(
                                 "unknown source data model '%.*s'",
                                 (int)value.size, value.data);
       }
+    } else if (iree_string_view_equal(name, IREE_SV("fp-model"))) {
+      if (!loom_cxx_fp_model_parse(value, &out_options->fp_model)) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "unknown floating-point model '%.*s'",
+                                (int)value.size, value.data);
+      }
     } else if (iree_string_view_equal(name, IREE_SV("root"))) {
       roots[out_options->root_count++] = value;
     } else if (iree_string_view_equal(name, IREE_SV("I")) ||
@@ -137,8 +143,7 @@ iree_status_t loom_cxx_input_parse_options(
           0) {
         define->value = IREE_SV("1");
       }
-    } else if (iree_string_view_equal(name, IREE_SV("approximate-functions")) ||
-               iree_string_view_equal(name, IREE_SV("builtin-includes"))) {
+    } else if (iree_string_view_equal(name, IREE_SV("builtin-includes"))) {
       bool enabled = iree_string_view_equal(value, IREE_SV("true"));
       if (!enabled && !iree_string_view_equal(value, IREE_SV("false"))) {
         return iree_make_status(
@@ -146,17 +151,10 @@ iree_status_t loom_cxx_input_parse_options(
             "C/C++ input option '%.*s' expects true or false", (int)name.size,
             name.data);
       }
-      loom_cxx_import_flags_t flag =
-          iree_string_view_equal(name, IREE_SV("approximate-functions"))
-              ? LOOM_CXX_IMPORT_FLAG_APPROXIMATE_FUNCTIONS
-              : LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES;
-      if (flag == LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES) {
-        enabled = !enabled;
-      }
       if (enabled) {
-        out_options->flags |= flag;
+        out_options->flags &= ~LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES;
       } else {
-        out_options->flags &= ~flag;
+        out_options->flags |= LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES;
       }
     } else {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,

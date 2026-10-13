@@ -64,6 +64,19 @@ void reject_misplaced_binding_attributes(
               "where requires a trailing function attribute or a leading "
               "config declaration attribute");
         }
+        if (name == "fastmath" && scope != BindingAttributeScope::Declaration &&
+            scope != BindingAttributeScope::Function &&
+            scope != BindingAttributeScope::Statement) {
+          if (scope == BindingAttributeScope::CheckStatement) {
+            diagnostics.reject(
+                unit, attribute,
+                "check statements cannot carry fastmath contracts");
+          }
+          diagnostics.reject(
+              unit, attribute,
+              "fastmath requires a function declaration attribute or a "
+              "leading statement attribute");
+        }
       });
 }
 
@@ -124,15 +137,10 @@ void reject_misplaced_binding_declarator(
 
 void reject_misplaced_binding_statement(cxx::TranslationUnit& unit,
                                         Diagnostics& diagnostics,
-                                        cxx::StatementAST* statement) {
-  cxx::visit(
-      [&](auto* node) {
-        if constexpr (requires { node->attributeList; }) {
-          reject_misplaced_binding_attributes(unit, diagnostics,
-                                              node->attributeList);
-        }
-      },
-      statement);
+                                        cxx::StatementAST* statement,
+                                        BindingAttributeScope scope) {
+  reject_misplaced_binding_attributes(unit, diagnostics,
+                                      statement_attributes(statement), scope);
 }
 
 }  // namespace loom::cxx_import

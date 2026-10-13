@@ -8,6 +8,7 @@
 
 #include <cxx/ast.h>
 #include <cxx/attributes.h>
+#include <cxx/decl.h>
 #include <cxx/names.h>
 #include <cxx/symbols.h>
 #include <cxx/types.h>
@@ -103,6 +104,22 @@ void Intrinsics::declaration(cxx::FunctionSymbol* function,
     }
     return;
   }
+  auto* source = cxx::ast_cast<cxx::InitDeclaratorAST>(owner);
+  auto* prototype =
+      source ? cxx::getFunctionPrototype(source->declarator) : nullptr;
+  auto reject_fastmath = [&](auto* list) {
+    visit_loom_attributes(
+        unit_, list, [&](std::string_view name, cxx::AttributeAST* attribute) {
+          if (name == "fastmath") {
+            diagnostics_.reject(
+                unit_, attribute,
+                "fastmath requires a translated function body; intrinsic "
+                "permissions belong in loom::op");
+          }
+        });
+  };
+  reject_fastmath(attributes);
+  reject_fastmath(prototype ? prototype->attributeList : nullptr);
 
   // Specifiers retain their own resolved arguments. A symbol's merged map
   // cannot distinguish conflicting source redeclarations.
@@ -261,8 +278,8 @@ Intrinsics::ScalarOperation Intrinsics::resolve_scalar_operation(
   for (size_t index = 1; index < attribute.arguments.size(); ++index) {
     uint8_t flag;
     if (!scalar->has_fastmath ||
-        !loom_cxx_scalar_flag_parse(view(attribute.arguments[index]->name()),
-                                    &flag)) {
+        !loom_cxx_fastmath_flag_parse(view(attribute.arguments[index]->name()),
+                                      &flag)) {
       diagnostics_.reject(unit_, owner,
                           "intrinsic has an unsupported fast-math flag");
     }
@@ -447,10 +464,12 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
   std::vector<loom_value_id_t> overflow;
   auto flattened = flatten(arguments, inline_values, overflow);
   const auto& scalar = std::get<ScalarBinding>(admitted);
+  const uint8_t flags =
+      scalar.operation.flags |
+      (scalar.operation.scalar->has_fastmath ? math_flags : 0);
   loom_op_t* op;
-  check(scalar.operation.scalar->build(
-      builder, scalar.operation.flags | math_flags, flattened.data(),
-      scalar.type, location, &op));
+  check(scalar.operation.scalar->build(builder, flags, flattened.data(),
+                                       scalar.type, location, &op));
   return {Value(loom_op_results(op)[0])};
 }
 

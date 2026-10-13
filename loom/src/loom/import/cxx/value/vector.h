@@ -32,7 +32,8 @@ class Vectors {
   // Numeric lane conversion is a different source operation and is not inferred
   // here.
   loom_value_id_t convert(loom_value_id_t value, const cxx::Type* input_type,
-                          const cxx::Type* output_type, cxx::AST* owner);
+                          const cxx::Type* output_type, cxx::AST* owner,
+                          uint8_t fastmath = 0);
   // Applies an explicit numeric conversion to each lane. Frontend semantics
   // have established vector operands with the same number of elements.
   loom_value_id_t convert_elements(loom_value_id_t value,
@@ -42,11 +43,13 @@ class Vectors {
   // Operands already have the source operation's common vector type.
   loom_value_id_t binary(cxx::TokenKind token, loom_value_id_t left,
                          loom_value_id_t right, const cxx::Type* input_type,
-                         const cxx::Type* output_type, cxx::AST* owner);
+                         const cxx::Type* output_type, cxx::AST* owner,
+                         uint8_t fastmath = 0);
   // Preserves vector lane width for sign, complement and logical negation.
   loom_value_id_t unary(cxx::TokenKind token, loom_value_id_t value,
                         const cxx::Type* input_type,
-                        const cxx::Type* output_type, cxx::AST* owner);
+                        const cxx::Type* output_type, cxx::AST* owner,
+                        uint8_t fastmath = 0);
   // Constructs an initialized vector from source-order scalar lanes. Omitted
   // trailing lanes are zero, as in a C/C++ aggregate initializer.
   loom_value_id_t construct(std::span<const loom_value_id_t> elements,

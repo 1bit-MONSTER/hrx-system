@@ -28,8 +28,8 @@ uint8_t math_permissions(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
   uint8_t flags = 0;
   for (size_t index = first; index < attribute.arguments.size(); ++index) {
     uint8_t flag;
-    if (!loom_cxx_scalar_flag_parse(view(attribute.arguments[index]->name()),
-                                    &flag)) {
+    if (!loom_cxx_fastmath_flag_parse(view(attribute.arguments[index]->name()),
+                                      &flag)) {
       diagnostics.reject(unit, owner,
                          "intrinsic has an unsupported fast-math flag");
     }

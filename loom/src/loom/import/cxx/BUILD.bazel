@@ -82,6 +82,7 @@ loom_cc_library(
         "//loom/src/loom/import/cxx/binding:check",
         "//loom/src/loom/import/cxx/binding:config",
         "//loom/src/loom/import/cxx/binding:constexpr",
+        "//loom/src/loom/import/cxx/binding:fastmath",
         "//loom/src/loom/import/cxx/binding:function_contracts",
         "//loom/src/loom/import/cxx/binding:index_values",
         "//loom/src/loom/import/cxx/binding:intrinsics",

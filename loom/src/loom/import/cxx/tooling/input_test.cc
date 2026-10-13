@@ -266,13 +266,15 @@ TEST_F(InputTest, OptionsAndFailuresUseNativeAdmission) {
   request.source = IREE_SV(
       "static_assert(sizeof(long) == 4); int entry() { return VALUE; }\n"
       "int unused() { return 9; }\n");
-  request.options =
-      IREE_SV("std=c++23 data-model=llp64 root=entry D='VALUE=7'");
+  request.options = IREE_SV(
+      "std=c++23 data-model=llp64 fp-model=fast root=entry "
+      "D='VALUE=7'");
   IREE_ASSERT_OK(Load(request));
   ASSERT_NE(input_.module, nullptr);
-  for (auto options : {IREE_SV("std=unsupported"), IREE_SV("root='entry"),
-                       IREE_SV("unknown=true"), IREE_SV("data-model=unknown"),
-                       IREE_SV("builtin-includes=maybe")}) {
+  for (auto options :
+       {IREE_SV("std=unsupported"), IREE_SV("root='entry"),
+        IREE_SV("unknown=true"), IREE_SV("data-model=unknown"),
+        IREE_SV("fp-model=unknown"), IREE_SV("builtin-includes=maybe")}) {
     request.options = options;
     IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT, Load(request));
     EXPECT_EQ(input_.module, nullptr);
