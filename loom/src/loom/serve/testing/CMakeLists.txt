@@ -9,6 +9,41 @@
 
 iree_add_all_subdirs()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    http_harness
+  HDRS
+    "http_harness.h"
+  SRCS
+    "http_harness_linux.cc"
+  DEPS
+    iree::base
+    loom::serve::telemetry::stream
+    loom::serve::transport::http::listener
+    loom::serve::transport::http::server
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    http_harness_test
+  SRCS
+    "http_harness_test.cc"
+  DEPS
+    ::http_harness
+    iree::async::util::proactor_pool
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::serve::transport::http::listener
+    loom::serve::transport::http::server
+)
+endif()
+
 loom_cc_library(
   NAME
     model

@@ -164,6 +164,27 @@ class HttpTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "observer closed"):
             events.wait("request_stats")
 
+    def test_http_failure_retains_diagnostics_when_child_exits_successfully(self):
+        command = [
+            sys.executable,
+            "-c",
+            "import sys; "
+            'print(\'{"event":"ready","address":"127.0.0.1:1"}\', '
+            "file=sys.stderr, flush=True); "
+            "print('connection failure evidence', file=sys.stderr, flush=True)",
+        ]
+        with self.assertRaises(ConnectionResetError) as failure:
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "server.log"
+                with running_server(command, path) as (process, address):
+                    self.assertEqual(process.wait(), 0)
+                    raise ConnectionResetError("HTTP peer reset")
+        self.assertFalse(path.exists())
+        self.assertEqual(str(failure.exception), "HTTP peer reset")
+        notes = "\n".join(failure.exception.__notes__)
+        self.assertIn("server diagnostics (exit 0)", notes)
+        self.assertIn("connection failure evidence", notes)
+
 
 if __name__ == "__main__":
     unittest.main()

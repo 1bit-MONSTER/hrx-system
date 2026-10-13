@@ -53,7 +53,7 @@ TEST_P(SourceTextServiceTest, NonstreamingDisconnectRetiresAnAcceptedEpoch) {
       R"({"model":"fixture-text","messages":[{"role":"user","content":"abxa"}],"max_tokens":2})";
   const int client = Send(request);
   loom_serve_http_connection_t* connection = nullptr;
-  ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+  ASSERT_NO_FATAL_FAILURE(Accept(client, interface, &connection));
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, [&] {
     return std::string(interface.snapshot(interface.self).phase) == "execute";
   }));
@@ -83,7 +83,7 @@ TEST_P(SourceTextServiceTest, NonstreamingDisconnectRetiresAnAcceptedEpoch) {
   EXPECT_EQ(loom_serve_text_model_pool_usage(model_).pending, 0u);
 
   const int next = Send(request);
-  ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+  ASSERT_NO_FATAL_FAILURE(Accept(next, interface, &connection));
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, [&] {
     return !interface.is_pending(interface.self) &&
            !interface.is_active(interface.self) &&
@@ -123,14 +123,14 @@ TEST_P(SourceTextServiceTest, CheckpointClaimSurvivesDisconnectAndStopping) {
     loom_serve_http_connection_t* connection = nullptr;
     const int generation =
         Send(Request(Message("user", "abxa"), 2), "X-Loom-Session: root\r\n");
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+    ASSERT_NO_FATAL_FAILURE(Accept(generation, interface, &connection));
     ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, idle));
     const auto first = Content(Read(generation));
     ASSERT_EQ(first, Oracle::Complete("abxa", 2));
 
     const int pin =
         Send("", "X-Loom-Session: root\r\n", "/v1/checkpoints/base");
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+    ASSERT_NO_FATAL_FAILURE(Accept(pin, interface, &connection));
     // Pin ownership has been accepted. The owner has not consumed readiness,
     // even if the device/proactor has already completed its work.
     // Request-backed names must survive peer failure until the endpoint can be
@@ -159,20 +159,20 @@ TEST_P(SourceTextServiceTest, CheckpointClaimSurvivesDisconnectAndStopping) {
     EXPECT_EQ(interface.telemetry.counters->cancelled, 1u);
     EXPECT_EQ(interface.telemetry.counters->failed, 0u);
     if (stopping) {
-      EXPECT_TRUE(Read(pin).empty());
+      EXPECT_TRUE(Read(pin, /*allow_empty=*/true).empty());
     } else {
       const int resumed = Send(
           Request(Message("user", "abxa") + "," + Message("assistant", first) +
                       "," + Message("user", "b"),
                   2),
           "X-Loom-Session: fork\r\nX-Loom-Checkpoint: base\r\n");
-      ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+      ASSERT_NO_FATAL_FAILURE(Accept(resumed, interface, &connection));
       ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, idle));
       const auto response = Read(resumed);
       EXPECT_EQ(Content(response), Oracle::Complete("abxa" + first + "#b", 2));
       EXPECT_NE(response.find(R"("cached_tokens":5)"), std::string::npos);
       const int released = Send("", "", "/v1/checkpoints/base", "DELETE");
-      ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+      ASSERT_NO_FATAL_FAILURE(Accept(released, interface, &connection));
       ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, idle));
       EXPECT_EQ(Read(released).find("HTTP/1.1 200"), 0u);
       EXPECT_EQ(interface.telemetry.counters->completed, 3u);
@@ -640,7 +640,7 @@ TEST_P(SourceTextServiceTest, RejectedInputBacklogYieldsToReadyDecode) {
   ASSERT_NO_FATAL_FAILURE(
       stalled.Send(server_, Request(Message("user", "abxa"), 4)));
   loom_serve_http_connection_t* active = nullptr;
-  ASSERT_NO_FATAL_FAILURE(Accept(interface, &active));
+  ASSERT_NO_FATAL_FAILURE(AcceptLoopback(interface, &active));
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, [&] {
     const auto state = interface.snapshot(interface.self);
     return state.active_requests == 1 &&
@@ -657,7 +657,7 @@ TEST_P(SourceTextServiceTest, RejectedInputBacklogYieldsToReadyDecode) {
     rejected.push_back(
         Send(i % 2 ? Request(Message("user", std::string(97, 'a'))) : "{"));
     loom_serve_http_connection_t* connection = nullptr;
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+    ASSERT_NO_FATAL_FAILURE(Accept(rejected.back(), interface, &connection));
   }
   EXPECT_EQ(interface.telemetry.counters->rejected, 0u);
   EXPECT_EQ(interface.snapshot(interface.self).queued_requests,
@@ -705,7 +705,7 @@ TEST_P(SourceTextServiceTest, RejectedInputBacklogYieldsToReadyDecode) {
   for (size_t i = 0; i < options.pending_capacity; ++i) {
     rejected.push_back(Send("{"));
     loom_serve_http_connection_t* connection = nullptr;
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+    ASSERT_NO_FATAL_FAILURE(Accept(rejected.back(), interface, &connection));
   }
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, [&] {
     return !interface.is_pending(interface.self) &&
@@ -739,32 +739,21 @@ TEST_P(SourceTextServiceTest, StoppingAccountsForQueuedControlAndCpuBorrowers) {
                                 IREE_ALL_WAITERS);
                           },
                           notification});
-  const auto accept = [&] {
-    for (;;) {
-      const auto ticket = iree_notification_prepare_wait(notification);
-      const loom_serve_http_request_t* request = nullptr;
-      auto* connection = loom_serve_http_server_take_request(server_, &request);
-      if (connection) {
-        iree_notification_cancel_wait(notification);
-        IREE_ASSERT_OK(
-            interface.accept(interface.self, connection, request, 0));
-        return;
-      }
-      iree_notification_commit_wait(notification, ticket, IREE_DURATION_ZERO,
-                                    IREE_TIME_INFINITE_FUTURE);
-    }
+  const auto accept = [&](int client) {
+    loom_serve_http_connection_t* connection = nullptr;
+    ASSERT_NO_FATAL_FAILURE(Accept(client, interface, &connection));
   };
   const int generation =
       Send(Request(Message("user", "ab")), "X-Loom-Session: first\r\n");
-  ASSERT_NO_FATAL_FAILURE(accept());
+  ASSERT_NO_FATAL_FAILURE(accept(generation));
   // CPU completion may already be posted, but only the owner can consume it.
   // Checkpoint and generation claims queue behind that real accepted borrower.
   const int control =
       Send("", "X-Loom-Session: first\r\n", "/v1/checkpoints/base");
-  ASSERT_NO_FATAL_FAILURE(accept());
+  ASSERT_NO_FATAL_FAILURE(accept(control));
   const int queued =
       Send(Request(Message("user", "ab")), "X-Loom-Session: second\r\n");
-  ASSERT_NO_FATAL_FAILURE(accept());
+  ASSERT_NO_FATAL_FAILURE(accept(queued));
   EXPECT_EQ(interface.snapshot(interface.self).queued_requests, 3u);
   bool complete = false;
   while (!complete) {
@@ -785,9 +774,9 @@ TEST_P(SourceTextServiceTest, StoppingAccountsForQueuedControlAndCpuBorrowers) {
   EXPECT_EQ(interface.telemetry.counters->requests, 3u);
   EXPECT_EQ(interface.telemetry.counters->cancelled, 3u);
   EXPECT_EQ(interface.telemetry.counters->completed, 0u);
-  EXPECT_TRUE(Read(generation).empty());
-  EXPECT_TRUE(Read(control).empty());
-  EXPECT_TRUE(Read(queued).empty());
+  EXPECT_TRUE(Read(generation, /*allow_empty=*/true).empty());
+  EXPECT_TRUE(Read(control, /*allow_empty=*/true).empty());
+  EXPECT_TRUE(Read(queued, /*allow_empty=*/true).empty());
   EXPECT_FALSE(interface.is_active(interface.self));
 }
 
@@ -820,6 +809,9 @@ TEST_P(SourceTextServiceTest, TelemetryWrapDoesNotBlockTextOrChangeCounters) {
   auto drain = [&] {
     for (;;) {
       const std::string response = poll(fast);
+      if (HasFatalFailure()) {
+        return response;
+      }
       EXPECT_EQ(response.find(R"("event":"gap")"), std::string::npos);
       events += response;
       const std::string next = cursor_of(response);
@@ -909,8 +901,7 @@ TEST_P(SourceTextServiceTest, TelemetryWrapDoesNotBlockTextOrChangeCounters) {
   EXPECT_NE(poll("").find(R"("partial":true)"), std::string::npos);
   EXPECT_EQ(cursor_of(poll(fast)), fast);
   loom_serve_http_server_request_stop(server_);
-  service_.join();
-  IREE_EXPECT_OK(status_);
+  IREE_EXPECT_OK(http_.Join());
 }
 
 TEST_P(SourceTextServiceTest, ChunkingRowsAndForksMatchDenseOracle) {
@@ -1488,17 +1479,8 @@ TEST_P(SourceTextServiceTest,
     const int client = Send(Request(Message("user", "abx")),
                             "X-Loom-Session: " + name + "\r\n");
     auto& claim = claims[i];
-    while (!claim.connection) {
-      const auto ticket = iree_notification_prepare_wait(notification);
-      claim.connection =
-          loom_serve_http_server_take_request(server_, &claim.request);
-      if (claim.connection) {
-        iree_notification_cancel_wait(notification);
-      } else {
-        iree_notification_commit_wait(notification, ticket, IREE_DURATION_ZERO,
-                                      IREE_TIME_INFINITE_FUTURE);
-      }
-    }
+    IREE_ASSERT_OK(
+        http_.TakeRequest(client, &claim.connection, &claim.request));
     const linger reset = {1, 0};
     ASSERT_EQ(setsockopt(client, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset)),
               0);

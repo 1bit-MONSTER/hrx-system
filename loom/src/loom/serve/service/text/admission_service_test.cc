@@ -65,7 +65,7 @@ class AdmissionServiceTest : public SourceTextServiceTest {
       // the full-pool head remains feasible after the active peer retires.
       const int warmup =
           Send(Request(Message("user", "abxa"), 1), "X-Loom-Session: kept\r\n");
-      ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+      ASSERT_NO_FATAL_FAILURE(Accept(warmup, interface, &connection));
       ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, idle));
       const auto response = Content(Read(warmup));
       ASSERT_EQ(response, Oracle::Complete("abxa", 1));
@@ -77,7 +77,7 @@ class AdmissionServiceTest : public SourceTextServiceTest {
       head_limit = 65 - head_prompt.size();
       if (history == History::kPinned) {
         const int pin = Send("", head_headers, "/v1/checkpoints/base");
-        ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+        ASSERT_NO_FATAL_FAILURE(Accept(pin, interface, &connection));
         ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, idle));
         const auto response = Read(pin);
         ASSERT_EQ(response.find("HTTP/1.1 201"), 0u) << response;
@@ -94,7 +94,7 @@ class AdmissionServiceTest : public SourceTextServiceTest {
     ASSERT_NO_FATAL_FAILURE(
         stalled.Send(server_, Request(Message("user", "abxa"), 25)));
     loom_serve_http_connection_t* active = nullptr;
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &active));
+    ASSERT_NO_FATAL_FAILURE(AcceptLoopback(interface, &active));
     ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, quiescent));
     ASSERT_EQ(interface.telemetry.counters->output_tokens,
               initial.output_tokens + 1);
@@ -104,12 +104,12 @@ class AdmissionServiceTest : public SourceTextServiceTest {
 
     const int head = Send(Request(head_messages, head_limit), head_headers);
     loom_serve_http_connection_t* head_connection = nullptr;
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &head_connection));
+    ASSERT_NO_FATAL_FAILURE(Accept(head, interface, &head_connection));
     ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, quiescent));
     ASSERT_EQ(interface.snapshot(interface.self).queued_requests, 1u);
     for (size_t i = 0; i < budget; ++i) {
       const int tail = Send(Request(Message("user", "a"), 4));
-      ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+      ASSERT_NO_FATAL_FAILURE(Accept(tail, interface, &connection));
       ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, [&] {
         return interface.telemetry.counters->completed ==
                    initial.completed + i + 1 &&
@@ -123,7 +123,7 @@ class AdmissionServiceTest : public SourceTextServiceTest {
 
     // A new arrival cannot replenish the oldest request's overtake budget.
     const int extra = Send(Request(Message("user", "b"), 4));
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+    ASSERT_NO_FATAL_FAILURE(Accept(extra, interface, &connection));
     ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, quiescent));
     bool progress = false;
     IREE_ASSERT_OK(interface.advance(interface.self, 0, &progress));
@@ -165,8 +165,8 @@ class AdmissionServiceTest : public SourceTextServiceTest {
       ASSERT_NO_FATAL_FAILURE(
           AdvanceUntil(interface, idle, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING));
       EXPECT_EQ(interface.telemetry.counters->cancelled, 3u);
-      EXPECT_TRUE(Read(head).empty());
-      EXPECT_TRUE(Read(extra).empty());
+      EXPECT_TRUE(Read(head, /*allow_empty=*/true).empty());
+      EXPECT_TRUE(Read(extra, /*allow_empty=*/true).empty());
       ASSERT_NO_FATAL_FAILURE(stalled.Close());
     } else {
       if (action == OverlapAction::kDisconnect) {
@@ -239,14 +239,14 @@ class AdmissionServiceTest : public SourceTextServiceTest {
     ASSERT_NO_FATAL_FAILURE(
         stalled.Send(server_, Request(Message("user", "abxa"), 25)));
     loom_serve_http_connection_t* connection = nullptr;
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+    ASSERT_NO_FATAL_FAILURE(AcceptLoopback(interface, &connection));
     ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, quiescent));
     const int head = Send(Request(Message("user", std::string(32, 'a')), 33));
     loom_serve_http_connection_t* head_connection = nullptr;
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &head_connection));
+    ASSERT_NO_FATAL_FAILURE(Accept(head, interface, &head_connection));
     ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, quiescent));
     const int tail = Send(Request(Message("user", "a"), 4));
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+    ASSERT_NO_FATAL_FAILURE(Accept(tail, interface, &connection));
     // Acceptance owns the tail's CPU preparation until the next owner turn,
     // even if its task has already published completion. Removing the head
     // cannot move the borrowed entry before that release is consumed.
@@ -278,8 +278,8 @@ class AdmissionServiceTest : public SourceTextServiceTest {
         },
         LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING));
     if (action == OverlapAction::kStop) {
-      EXPECT_TRUE(Read(head).empty());
-      EXPECT_TRUE(Read(tail).empty());
+      EXPECT_TRUE(Read(head, /*allow_empty=*/true).empty());
+      EXPECT_TRUE(Read(tail, /*allow_empty=*/true).empty());
     }
     EXPECT_EQ(interface.telemetry.counters->completed,
               action == OverlapAction::kDisconnect ? 1u : 0u);

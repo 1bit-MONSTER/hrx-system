@@ -146,7 +146,7 @@ TEST_P(PrefixServiceTest, StopRetiresAcceptedCaptureBeforeReleasingOwners) {
   Observe(interface);
   const int client = Send(Request(Message("user", "abxabbxaxa"), 12));
   loom_serve_http_connection_t* connection = nullptr;
-  ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+  ASSERT_NO_FATAL_FAILURE(Accept(client, interface, &connection));
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, [&] {
     return std::string(interface.snapshot(interface.self).phase) ==
            "prefix_capture";
@@ -165,7 +165,7 @@ TEST_P(PrefixServiceTest, StopRetiresAcceptedCaptureBeforeReleasingOwners) {
   EXPECT_EQ(loom_serve_text_model_pool_usage(model_).pending, 0u);
   interface.set_observer(interface.self, {});
   loom_serve_text_service_free(service, IREE_STATUS_OK);
-  Read(client);
+  Read(client, /*allow_empty=*/true);
   for (iree_host_size_t i = 0; i < options.row_count; ++i) {
     loom_serve_text_row_reset_retired(loom_serve_text_model_row(model_, i));
   }

@@ -184,6 +184,7 @@ loom_cc_library(
     loom::serve::service::image::output
     loom::serve::service::image::request
     loom::serve::service::image::service
+    loom::serve::testing::http_harness
     loom::serve::testing::model
     loom::serve::testing::stalled_stderr
     loom::serve::transport::http::listener

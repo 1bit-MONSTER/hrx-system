@@ -9,7 +9,6 @@
 
 #include <atomic>
 #include <string>
-#include <thread>
 
 #include "iree/async/proactor.h"
 #include "iree/base/internal/json.h"
@@ -20,6 +19,7 @@
 #include "loom/serve/service/finite/decision/protocol.h"
 #include "loom/serve/service/finite/embedding/protocol.h"
 #include "loom/serve/service/finite/service.h"
+#include "loom/serve/testing/http_harness.h"
 #include "loom/serve/testing/model.h"
 #include "loom/serve/transport/http/listener.h"
 
@@ -78,12 +78,12 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
     listener_options.address = IREE_SV("127.0.0.1:0");
     IREE_ASSERT_OK(loom_serve_http_listener_allocate(
         server_, &listener_options, host_allocator_, &listener_));
+    IREE_ASSERT_OK(http_.Initialize(server_, listener_));
   }
   void TearDown() override {
-    if (router_.joinable()) {
+    if (http_.joinable()) {
       loom_serve_http_server_request_stop(server_);
-      router_.join();
-      IREE_EXPECT_OK(status_);
+      IREE_EXPECT_OK(http_.Join());
     }
     for (size_t i = 0; i < 2; ++i) {
       if (services_[i]) {
@@ -102,54 +102,40 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
   }
   int Send(const std::string& body, const char* target = "/v1/systemone",
            const char* method = "POST") {
-    const int client = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    EXPECT_GE(client, 0);
-    const auto* address = loom_serve_http_listener_address(listener_);
-    EXPECT_EQ(
-        connect(client, reinterpret_cast<const sockaddr*>(address->storage),
-                address->length),
-        0);
+    if (http_.failed() || HasFatalFailure()) {
+      return -1;
+    }
     const std::string request = std::string(method) + " " + target +
                                 " HTTP/1.1\r\nHost: local\r\nContent-Type: "
                                 "application/json\r\nContent-Length: " +
                                 std::to_string(body.size()) + "\r\n\r\n" + body;
-    size_t offset = 0;
-    while (offset < request.size()) {
-      const ssize_t sent = send(client, request.data() + offset,
-                                request.size() - offset, MSG_NOSIGNAL);
-      EXPECT_GT(sent, 0);
-      if (sent <= 0) {
-        break;
-      }
-      offset += sent;
-    }
+    int client = -1;
+    [&] { IREE_ASSERT_OK(http_.Send(request, &client)); }();
     return client;
   }
   std::string Read(int client) {
     std::string response;
-    char bytes[4096];
-    ssize_t length;
-    while ((length = recv(client, bytes, sizeof(bytes), 0)) > 0) {
-      response.append(bytes, length);
+    if (http_.failed() || HasFatalFailure()) {
+      if (client >= 0) {
+        EXPECT_EQ(close(client), 0);
+      }
+      return response;
     }
-    EXPECT_EQ(length, 0);
-    EXPECT_EQ(close(client), 0);
+    [&] {
+      IREE_ASSERT_OK(http_.Read(client, /*allow_empty=*/false, &response));
+    }();
     return response;
   }
-  loom_serve_http_connection_t* Accept() {
-    auto* notification = loom_serve_http_server_notification(server_);
-    while (true) {
-      const auto ticket = iree_notification_prepare_wait(notification);
-      const loom_serve_http_request_t* request = nullptr;
-      auto* connection = loom_serve_http_server_take_request(server_, &request);
-      if (connection) {
-        iree_notification_cancel_wait(notification);
-        IREE_EXPECT_OK(
-            interfaces_[0].accept(interfaces_[0].self, connection, request, 0));
-        return connection;
-      }
-      iree_notification_commit_wait(notification, ticket, IREE_DURATION_ZERO,
-                                    IREE_TIME_INFINITE_FUTURE);
+  void Accept(int client,
+              loom_serve_http_connection_t** out_connection = nullptr) {
+    ASSERT_FALSE(HasFatalFailure());
+    const loom_serve_http_request_t* request = nullptr;
+    loom_serve_http_connection_t* connection = nullptr;
+    IREE_ASSERT_OK(http_.TakeRequest(client, &connection, &request));
+    IREE_ASSERT_OK(
+        interfaces_[0].accept(interfaces_[0].self, connection, request, 0));
+    if (out_connection) {
+      *out_connection = connection;
     }
   }
   bool Step() {
@@ -184,14 +170,14 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
         16, 0, nullptr, host_allocator_, &services_[1]));
     interfaces_[1] = loom_serve_finite_service_interface(services_[1]);
     interfaces_[0].set_observer(interfaces_[0].self, {});
-    router_ = std::thread([this] {
+    http_.Start([this]() -> iree_status_t {
       loom_serve_registry_t* registry = nullptr;
-      IREE_ASSERT_OK(loom_serve_registry_allocate(2, interfaces_, 0, {},
-                                                  host_allocator_, &registry));
-      status_ = loom_serve_router_run(
+      IREE_RETURN_IF_ERROR(loom_serve_registry_allocate(
+          2, interfaces_, 0, {}, host_allocator_, &registry));
+      iree_status_t status = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
           {.request_quota = 16, .holding_capacity = 8}, host_allocator_);
-      IREE_ASSERT_OK(loom_serve_registry_free(registry));
+      return iree_status_join(status, loom_serve_registry_free(registry));
     });
   }
   // Allocator shared by all test-owned production components.
@@ -216,10 +202,8 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
   iree_notification_t notification_;
   // Completion/release generation for direct scheduling turns.
   std::atomic<uint64_t> wakes_{0};
-  // Optional outer caller of the task-owned shared router.
-  std::thread router_;
-  // Terminal router result consumed after join.
-  iree_status_t status_ = iree_ok_status();
+  // HTTP readiness and optional outer owner, joined before model destruction.
+  loom_serve::testing::HttpHarness http_;
 };
 
 const char* const kNoul =
@@ -248,14 +232,15 @@ TEST_P(SourceDecisionServiceTest, PacksQuestionsAndRetainsResultsAcrossReset) {
     "route":{"type":"choice","instructions":"???","criteria":{"z":null,"x":null}},
     "level":{"type":"score","instructions":"???","criteria":["","x"]}
   }})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(a));
   const int b = Send(kNoul);
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(b));
   const int c = Send(kNoul);
-  auto* cancelled = Accept();
+  loom_serve_http_connection_t* cancelled = nullptr;
+  ASSERT_NO_FATAL_FAILURE(Accept(c, &cancelled));
   const int bad = Send(
       R"({"model":"decisions","state":"a","questions":{"bad":{"type":"score","instructions":"?","criteria":["one"]}}})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(bad));
   EXPECT_TRUE(Step());
   EXPECT_TRUE(Step());
   EXPECT_TRUE(Step());
@@ -284,7 +269,7 @@ TEST_P(SourceDecisionServiceTest, PacksQuestionsAndRetainsResultsAcrossReset) {
             std::string::npos);
   EXPECT_EQ(Read(bad).find("HTTP/1.1 422"), 0u);
   const int next = Send(kNoul);
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(next));
   Drain();
   // A single-question cohort produces a different exact oracle distribution.
   // The earlier .75 requires all four questions in one device cohort.
@@ -298,7 +283,7 @@ TEST_P(SourceDecisionServiceTest,
         std::string(
             R"({"model":"decisions","state":"a","questions":{"tie":{"type":"choice","instructions":"?","criteria":{)") +
         options + "}}}}");
-    Accept();
+    ASSERT_NO_FATAL_FAILURE(Accept(client));
     Drain();
     const std::string response = Read(client);
     EXPECT_NE(response.find(std::string("\"choice\":\"") + options[1] +
@@ -316,11 +301,11 @@ TEST_P(SourceDecisionServiceTest,
       std::string(
           R"({"model":"decisions","state":"a","questions":{"q":{"type":"choice","instructions":"?","criteria":{)") +
       options + "}}}}");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(huge));
   Drain();
   EXPECT_EQ(Read(huge).find("HTTP/1.1 422"), 0u);
   const int next = Send(kNoul);
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(next));
   Drain();
   EXPECT_EQ(Read(next).find("HTTP/1.1 200"), 0u);
 }

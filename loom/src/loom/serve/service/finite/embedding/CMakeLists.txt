@@ -54,6 +54,7 @@ loom_cc_library(
     loom::serve::service::finite::embedding::protocol
     loom::serve::service::finite::model
     loom::serve::service::finite::service
+    loom::serve::testing::http_harness
     loom::serve::testing::model
     loom::serve::testing::stalled_stderr
     loom::serve::transport::http::listener
