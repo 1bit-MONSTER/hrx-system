@@ -467,6 +467,7 @@ def query_affected_bazel_test_targets(source_labels: set[str]) -> list[str]:
                 "bazel",
                 "cquery",
                 *BAZEL_TEST_CONFIGURATION_ARGS,
+                *project_presubmit.bazel_config_args(),
                 "--output=graph",
                 "--nograph:factored",
                 f"--query_file={query_path}",

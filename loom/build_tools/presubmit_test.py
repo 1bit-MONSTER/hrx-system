@@ -227,9 +227,19 @@ class LoomPresubmitTest(unittest.TestCase):
                 self.fail(f"unexpected command: {description}")
             return True
 
-        with mock.patch.object(
-            self.presubmit, "run_command", side_effect=run_query
-        ) as run_command:
+        with (
+            mock.patch.dict(
+                os.environ,
+                {
+                    self.presubmit.project_presubmit.BAZEL_CONFIGS_ENV: json.dumps(
+                        ["asan", "remote-execution"]
+                    )
+                },
+            ),
+            mock.patch.object(
+                self.presubmit, "run_command", side_effect=run_query
+            ) as run_command,
+        ):
             self.assertEqual(
                 self.presubmit.query_affected_bazel_test_targets(
                     {"//loom/src/loom/ops/vector:canonicalize.c"}
@@ -252,6 +262,10 @@ class LoomPresubmitTest(unittest.TestCase):
             dependency_command,
         )
         self.assertIn("--//loom/config/import:enable=cxx", dependency_command)
+        self.assertEqual(
+            [arg for arg in dependency_command if arg.startswith("--config=")],
+            ["--config=presubmit", "--config=asan", "--config=remote-execution"],
+        )
         self.assertIn("--nograph:factored", dependency_command)
         self.assertIn(
             "//loom/src/loom/target/arch/amdgpu:source_low_memory_global",
