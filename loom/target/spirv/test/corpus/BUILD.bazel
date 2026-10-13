@@ -334,6 +334,7 @@ _SUBGROUP_XFAILS = dict(list(_NO_EXTENDED_TYPES_XFAILS.items()) + list({
     "numeric/integer/narrow_consumers.loom:@narrow_integer_consumers": "TARGET/003",
     "numeric/vector/integer_widening.loom:@vector_widen_i16": "TARGET/003",
     "numeric/vector/integer_widening.loom:@vector_widen_i8": "TARGET/003",
+    "numeric/vector/integer_widening.loom:@vector_widen_i8_to_i16": "TARGET/003",
 }.items()))
 
 _BDA_XFAILS = dict(list(_NO_EXTENDED_TYPES_XFAILS.items()) + list({
@@ -345,6 +346,7 @@ _BDA_XFAILS = dict(list(_NO_EXTENDED_TYPES_XFAILS.items()) + list({
     "numeric/integer/narrow_consumers.loom:@narrow_integer_consumers": "TARGET/003",
     "numeric/vector/integer_widening.loom:@vector_widen_i16": "TARGET/003",
     "numeric/vector/integer_widening.loom:@vector_widen_i8": "TARGET/003",
+    "numeric/vector/integer_widening.loom:@vector_widen_i8_to_i16": "TARGET/003",
 }.items()))
 
 _ALL_ROOTS_XFAIL = [

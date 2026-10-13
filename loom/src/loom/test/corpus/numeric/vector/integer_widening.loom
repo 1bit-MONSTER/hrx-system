@@ -1,128 +1,278 @@
 // Narrow lanes widen with independent signed and unsigned interpretations.
-// Directed inputs span both endpoints; entropy supplies arbitrary lane payloads.
+// Scalar observations straddle each physical result-packet boundary.
 kernel.def @vector_widen_i8() {
   %unit = index.constant 1 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
-} launch(%input: buffer, %output: buffer) {
+} launch(%storage: buffer) {
   %base = index.constant 0 : offset
-  %signed_base = index.constant 128 : offset
-  %input_view = buffer.view %input[%base] : buffer -> view<16xi8>
-  %unsigned_view = buffer.view %output[%base] : buffer -> view<16xi64>
-  %signed_view = buffer.view %output[%signed_base] : buffer -> view<16xi64>
-  %packed = vector.load %input_view[0] : view<16xi8> -> vector<16xi8>
-  %unsigned = vector.extui %packed : vector<16xi8> to vector<16xi64>
-  %signed = vector.extsi %packed : vector<16xi8> to vector<16xi64>
-  vector.store %unsigned, %unsigned_view[0] : vector<16xi64>, view<16xi64>
-  vector.store %signed, %signed_view[0] : vector<16xi64>, view<16xi64>
+  %output_base = index.constant 64 : offset
+  %input_view = buffer.view %storage[%base] : buffer -> view<1xi8>
+  %output_view = buffer.view %storage[%output_base] : buffer -> view<8xi32>
+  %value = view.load %input_view[0] : view<1xi8> -> i8
+  %c0 = scalar.constant 0 : i8
+  %c1 = scalar.constant 1 : i8
+  %base_values = vector.splat %value : vector<16xi8>
+  %low_offsets = vector.splat %c0 : vector<8xi8>
+  %high_offsets = vector.splat %c1 : vector<8xi8>
+  %offsets = vector.concat<0> %low_offsets, %high_offsets : vector<8xi8>, vector<8xi8> -> vector<16xi8>
+  %source = vector.addi %base_values, %offsets : vector<16xi8>
+  %unsigned = vector.extui %source : vector<16xi8> to vector<16xi64>
+  %unsigned_bits = vector.bitcast %unsigned : vector<16xi64> to vector<32xi32>
+  %unsigned_0_low = vector.extract %unsigned_bits[0] : vector<32xi32> -> i32
+  %unsigned_0_high = vector.extract %unsigned_bits[1] : vector<32xi32> -> i32
+  %unsigned_8_low = vector.extract %unsigned_bits[16] : vector<32xi32> -> i32
+  %unsigned_8_high = vector.extract %unsigned_bits[17] : vector<32xi32> -> i32
+  view.store %unsigned_0_low, %output_view[0] : i32, view<8xi32>
+  view.store %unsigned_0_high, %output_view[1] : i32, view<8xi32>
+  view.store %unsigned_8_low, %output_view[2] : i32, view<8xi32>
+  view.store %unsigned_8_high, %output_view[3] : i32, view<8xi32>
+  %signed = vector.extsi %source : vector<16xi8> to vector<16xi64>
+  %signed_bits = vector.bitcast %signed : vector<16xi64> to vector<32xi32>
+  %signed_0_low = vector.extract %signed_bits[0] : vector<32xi32> -> i32
+  %signed_0_high = vector.extract %signed_bits[1] : vector<32xi32> -> i32
+  %signed_8_low = vector.extract %signed_bits[16] : vector<32xi32> -> i32
+  %signed_8_high = vector.extract %signed_bits[17] : vector<32xi32> -> i32
+  view.store %signed_0_low, %output_view[4] : i32, view<8xi32>
+  view.store %signed_0_high, %output_view[5] : i32, view<8xi32>
+  view.store %signed_8_low, %output_view[6] : i32, view<8xi32>
+  view.store %signed_8_high, %output_view[7] : i32, view<8xi32>
+  kernel.return
+}
+
+kernel.def @vector_widen_i8_to_i16() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%storage: buffer) {
+  %base = index.constant 0 : offset
+  %output_base = index.constant 64 : offset
+  %input_view = buffer.view %storage[%base] : buffer -> view<1xi8>
+  %output_view = buffer.view %storage[%output_base] : buffer -> view<4xi16>
+  %value = view.load %input_view[0] : view<1xi8> -> i8
+  %c0 = scalar.constant 0 : i8
+  %c1 = scalar.constant 1 : i8
+  %base_values = vector.splat %value : vector<64xi8>
+  %low_offsets = vector.splat %c0 : vector<32xi8>
+  %high_offsets = vector.splat %c1 : vector<32xi8>
+  %offsets = vector.concat<0> %low_offsets, %high_offsets : vector<32xi8>, vector<32xi8> -> vector<64xi8>
+  %source = vector.addi %base_values, %offsets : vector<64xi8>
+  %unsigned = vector.extui %source : vector<64xi8> to vector<64xi16>
+  %unsigned_0 = vector.extract %unsigned[0] : vector<64xi16> -> i16
+  %unsigned_32 = vector.extract %unsigned[32] : vector<64xi16> -> i16
+  view.store %unsigned_0, %output_view[0] : i16, view<4xi16>
+  view.store %unsigned_32, %output_view[1] : i16, view<4xi16>
+  %signed = vector.extsi %source : vector<64xi8> to vector<64xi16>
+  %signed_0 = vector.extract %signed[0] : vector<64xi16> -> i16
+  %signed_32 = vector.extract %signed[32] : vector<64xi16> -> i16
+  view.store %signed_0, %output_view[2] : i16, view<4xi16>
+  view.store %signed_32, %output_view[3] : i16, view<4xi16>
   kernel.return
 }
 
 kernel.def @vector_widen_i16() {
   %unit = index.constant 1 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
-} launch(%input: buffer, %output: buffer) {
+} launch(%storage: buffer) {
   %base = index.constant 0 : offset
-  %signed_base = index.constant 128 : offset
-  %input_view = buffer.view %input[%base] : buffer -> view<16xi16>
-  %unsigned_view = buffer.view %output[%base] : buffer -> view<16xi64>
-  %signed_view = buffer.view %output[%signed_base] : buffer -> view<16xi64>
-  %packed = vector.load %input_view[0] : view<16xi16> -> vector<16xi16>
-  %unsigned = vector.extui %packed : vector<16xi16> to vector<16xi64>
-  %signed = vector.extsi %packed : vector<16xi16> to vector<16xi64>
-  vector.store %unsigned, %unsigned_view[0] : vector<16xi64>, view<16xi64>
-  vector.store %signed, %signed_view[0] : vector<16xi64>, view<16xi64>
+  %output_base = index.constant 64 : offset
+  %input_view = buffer.view %storage[%base] : buffer -> view<1xi16>
+  %output_view = buffer.view %storage[%output_base] : buffer -> view<8xi32>
+  %value = view.load %input_view[0] : view<1xi16> -> i16
+  %c0 = scalar.constant 0 : i16
+  %c1 = scalar.constant 1 : i16
+  %base_values = vector.splat %value : vector<16xi16>
+  %low_offsets = vector.splat %c0 : vector<8xi16>
+  %high_offsets = vector.splat %c1 : vector<8xi16>
+  %offsets = vector.concat<0> %low_offsets, %high_offsets : vector<8xi16>, vector<8xi16> -> vector<16xi16>
+  %source = vector.addi %base_values, %offsets : vector<16xi16>
+  %unsigned = vector.extui %source : vector<16xi16> to vector<16xi64>
+  %unsigned_bits = vector.bitcast %unsigned : vector<16xi64> to vector<32xi32>
+  %unsigned_0_low = vector.extract %unsigned_bits[0] : vector<32xi32> -> i32
+  %unsigned_0_high = vector.extract %unsigned_bits[1] : vector<32xi32> -> i32
+  %unsigned_8_low = vector.extract %unsigned_bits[16] : vector<32xi32> -> i32
+  %unsigned_8_high = vector.extract %unsigned_bits[17] : vector<32xi32> -> i32
+  view.store %unsigned_0_low, %output_view[0] : i32, view<8xi32>
+  view.store %unsigned_0_high, %output_view[1] : i32, view<8xi32>
+  view.store %unsigned_8_low, %output_view[2] : i32, view<8xi32>
+  view.store %unsigned_8_high, %output_view[3] : i32, view<8xi32>
+  %signed = vector.extsi %source : vector<16xi16> to vector<16xi64>
+  %signed_bits = vector.bitcast %signed : vector<16xi64> to vector<32xi32>
+  %signed_0_low = vector.extract %signed_bits[0] : vector<32xi32> -> i32
+  %signed_0_high = vector.extract %signed_bits[1] : vector<32xi32> -> i32
+  %signed_8_low = vector.extract %signed_bits[16] : vector<32xi32> -> i32
+  %signed_8_high = vector.extract %signed_bits[17] : vector<32xi32> -> i32
+  view.store %signed_0_low, %output_view[4] : i32, view<8xi32>
+  view.store %signed_0_high, %output_view[5] : i32, view<8xi32>
+  view.store %signed_8_low, %output_view[6] : i32, view<8xi32>
+  view.store %signed_8_high, %output_view[7] : i32, view<8xi32>
   kernel.return
 }
 
 kernel.def @vector_widen_i32() {
   %unit = index.constant 1 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
-} launch(%input: buffer, %output: buffer) {
+} launch(%storage: buffer) {
   %base = index.constant 0 : offset
-  %signed_base = index.constant 128 : offset
-  %input_view = buffer.view %input[%base] : buffer -> view<16xi32>
-  %unsigned_view = buffer.view %output[%base] : buffer -> view<16xi64>
-  %signed_view = buffer.view %output[%signed_base] : buffer -> view<16xi64>
-  %packed = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
-  %unsigned = vector.extui %packed : vector<16xi32> to vector<16xi64>
-  %signed = vector.extsi %packed : vector<16xi32> to vector<16xi64>
-  vector.store %unsigned, %unsigned_view[0] : vector<16xi64>, view<16xi64>
-  vector.store %signed, %signed_view[0] : vector<16xi64>, view<16xi64>
+  %output_base = index.constant 64 : offset
+  %input_view = buffer.view %storage[%base] : buffer -> view<1xi32>
+  %output_view = buffer.view %storage[%output_base] : buffer -> view<8xi32>
+  %value = view.load %input_view[0] : view<1xi32> -> i32
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %base_values = vector.splat %value : vector<16xi32>
+  %low_offsets = vector.splat %c0 : vector<8xi32>
+  %high_offsets = vector.splat %c1 : vector<8xi32>
+  %offsets = vector.concat<0> %low_offsets, %high_offsets : vector<8xi32>, vector<8xi32> -> vector<16xi32>
+  %source = vector.addi %base_values, %offsets : vector<16xi32>
+  %unsigned = vector.extui %source : vector<16xi32> to vector<16xi64>
+  %unsigned_bits = vector.bitcast %unsigned : vector<16xi64> to vector<32xi32>
+  %unsigned_0_low = vector.extract %unsigned_bits[0] : vector<32xi32> -> i32
+  %unsigned_0_high = vector.extract %unsigned_bits[1] : vector<32xi32> -> i32
+  %unsigned_8_low = vector.extract %unsigned_bits[16] : vector<32xi32> -> i32
+  %unsigned_8_high = vector.extract %unsigned_bits[17] : vector<32xi32> -> i32
+  view.store %unsigned_0_low, %output_view[0] : i32, view<8xi32>
+  view.store %unsigned_0_high, %output_view[1] : i32, view<8xi32>
+  view.store %unsigned_8_low, %output_view[2] : i32, view<8xi32>
+  view.store %unsigned_8_high, %output_view[3] : i32, view<8xi32>
+  %signed = vector.extsi %source : vector<16xi32> to vector<16xi64>
+  %signed_bits = vector.bitcast %signed : vector<16xi64> to vector<32xi32>
+  %signed_0_low = vector.extract %signed_bits[0] : vector<32xi32> -> i32
+  %signed_0_high = vector.extract %signed_bits[1] : vector<32xi32> -> i32
+  %signed_8_low = vector.extract %signed_bits[16] : vector<32xi32> -> i32
+  %signed_8_high = vector.extract %signed_bits[17] : vector<32xi32> -> i32
+  view.store %signed_0_low, %output_view[4] : i32, view<8xi32>
+  view.store %signed_0_high, %output_view[5] : i32, view<8xi32>
+  view.store %signed_8_low, %output_view[6] : i32, view<8xi32>
+  view.store %signed_8_high, %output_view[7] : i32, view<8xi32>
   kernel.return
 }
 
-func.def @vector_widen_i8_oracle(%input: buffer, %output: buffer) {
+func.def @vector_widen_i8_oracle(%storage: buffer) {
   %base = index.constant 0 : offset
-  %input_view = buffer.view %input[%base] : buffer -> view<16xi8>
-  %output_view = buffer.view %output[%base] : buffer -> view<32xi64>
-  %begin = index.constant 0 : index
-  %end = index.constant 16 : index
-  %step = index.constant 1 : index
-  scf.for %lane = [%begin to %end step %step] {
-    %value = view.load %input_view[%lane] : view<16xi8> -> i8
-    %unsigned = scalar.extui %value : i8 to i64
-    %signed = scalar.extsi %value : i8 to i64
-    %signed_lane = index.add %lane, %end : index
-    view.store %unsigned, %output_view[%lane] : i64, view<32xi64>
-    view.store %signed, %output_view[%signed_lane] : i64, view<32xi64>
-  }
+  %output_base = index.constant 64 : offset
+  %input_view = buffer.view %storage[%base] : buffer -> view<1xi8>
+  %output_view = buffer.view %storage[%output_base] : buffer -> view<4xi64>
+  %value = view.load %input_view[0] : view<1xi8> -> i8
+  %c1 = scalar.constant 1 : i8
+  %next = scalar.addi %value, %c1 : i8
+  %unsigned_0 = scalar.extui %value : i8 to i64
+  %unsigned_8 = scalar.extui %next : i8 to i64
+  %signed_0 = scalar.extsi %value : i8 to i64
+  %signed_8 = scalar.extsi %next : i8 to i64
+  view.store %unsigned_0, %output_view[0] : i64, view<4xi64>
+  view.store %unsigned_8, %output_view[1] : i64, view<4xi64>
+  view.store %signed_0, %output_view[2] : i64, view<4xi64>
+  view.store %signed_8, %output_view[3] : i64, view<4xi64>
   func.return
 }
 
-func.def @vector_widen_i16_oracle(%input: buffer, %output: buffer) {
+func.def @vector_widen_i8_to_i16_oracle(%storage: buffer) {
   %base = index.constant 0 : offset
-  %input_view = buffer.view %input[%base] : buffer -> view<16xi16>
-  %output_view = buffer.view %output[%base] : buffer -> view<32xi64>
-  %begin = index.constant 0 : index
-  %end = index.constant 16 : index
-  %step = index.constant 1 : index
-  scf.for %lane = [%begin to %end step %step] {
-    %value = view.load %input_view[%lane] : view<16xi16> -> i16
-    %unsigned = scalar.extui %value : i16 to i64
-    %signed = scalar.extsi %value : i16 to i64
-    %signed_lane = index.add %lane, %end : index
-    view.store %unsigned, %output_view[%lane] : i64, view<32xi64>
-    view.store %signed, %output_view[%signed_lane] : i64, view<32xi64>
-  }
+  %output_base = index.constant 64 : offset
+  %input_view = buffer.view %storage[%base] : buffer -> view<1xi8>
+  %output_view = buffer.view %storage[%output_base] : buffer -> view<4xi16>
+  %value = view.load %input_view[0] : view<1xi8> -> i8
+  %c1 = scalar.constant 1 : i8
+  %next = scalar.addi %value, %c1 : i8
+  %unsigned_0 = scalar.extui %value : i8 to i16
+  %unsigned_32 = scalar.extui %next : i8 to i16
+  %signed_0 = scalar.extsi %value : i8 to i16
+  %signed_32 = scalar.extsi %next : i8 to i16
+  view.store %unsigned_0, %output_view[0] : i16, view<4xi16>
+  view.store %unsigned_32, %output_view[1] : i16, view<4xi16>
+  view.store %signed_0, %output_view[2] : i16, view<4xi16>
+  view.store %signed_32, %output_view[3] : i16, view<4xi16>
   func.return
 }
 
-func.def @vector_widen_i32_oracle(%input: buffer, %output: buffer) {
+func.def @vector_widen_i16_oracle(%storage: buffer) {
   %base = index.constant 0 : offset
-  %input_view = buffer.view %input[%base] : buffer -> view<16xi32>
-  %output_view = buffer.view %output[%base] : buffer -> view<32xi64>
-  %begin = index.constant 0 : index
-  %end = index.constant 16 : index
-  %step = index.constant 1 : index
-  scf.for %lane = [%begin to %end step %step] {
-    %value = view.load %input_view[%lane] : view<16xi32> -> i32
-    %unsigned = scalar.extui %value : i32 to i64
-    %signed = scalar.extsi %value : i32 to i64
-    %signed_lane = index.add %lane, %end : index
-    view.store %unsigned, %output_view[%lane] : i64, view<32xi64>
-    view.store %signed, %output_view[%signed_lane] : i64, view<32xi64>
-  }
+  %output_base = index.constant 64 : offset
+  %input_view = buffer.view %storage[%base] : buffer -> view<1xi16>
+  %output_view = buffer.view %storage[%output_base] : buffer -> view<4xi64>
+  %value = view.load %input_view[0] : view<1xi16> -> i16
+  %c1 = scalar.constant 1 : i16
+  %next = scalar.addi %value, %c1 : i16
+  %unsigned_0 = scalar.extui %value : i16 to i64
+  %unsigned_8 = scalar.extui %next : i16 to i64
+  %signed_0 = scalar.extsi %value : i16 to i64
+  %signed_8 = scalar.extsi %next : i16 to i64
+  view.store %unsigned_0, %output_view[0] : i64, view<4xi64>
+  view.store %unsigned_8, %output_view[1] : i64, view<4xi64>
+  view.store %signed_0, %output_view[2] : i64, view<4xi64>
+  view.store %signed_8, %output_view[3] : i64, view<4xi64>
+  func.return
+}
+
+func.def @vector_widen_i32_oracle(%storage: buffer) {
+  %base = index.constant 0 : offset
+  %output_base = index.constant 64 : offset
+  %input_view = buffer.view %storage[%base] : buffer -> view<1xi32>
+  %output_view = buffer.view %storage[%output_base] : buffer -> view<4xi64>
+  %value = view.load %input_view[0] : view<1xi32> -> i32
+  %c1 = scalar.constant 1 : i32
+  %next = scalar.addi %value, %c1 : i32
+  %unsigned_0 = scalar.extui %value : i32 to i64
+  %unsigned_8 = scalar.extui %next : i32 to i64
+  %signed_0 = scalar.extsi %value : i32 to i64
+  %signed_8 = scalar.extsi %next : i32 to i64
+  view.store %unsigned_0, %output_view[0] : i64, view<4xi64>
+  view.store %unsigned_8, %output_view[1] : i64, view<4xi64>
+  view.store %signed_0, %output_view[2] : i64, view<4xi64>
+  view.store %signed_8, %output_view[3] : i64, view<4xi64>
   func.return
 }
 
 check.scenario @vector_widen_i8_values {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %input = check.generate.iota offset(-128) step(17) : tensor<16xi8>
-    %storage = check.generate.fill value(-123) : tensor<40xi64>
-    %output = check.tensor.view %storage offset(32) : tensor<40xi64> -> tensor<32xi64>
-    check.compare<@vector_widen_i8, @vector_widen_i8_oracle>(%input, %output) : (tensor<16xi8>, tensor<32xi64>) -> () {
-      check.expect.bitwise actual(%input) expected(%input) : tensor<16xi8>
-      check.expect.bitwise actual(%storage) expected(%storage) : tensor<40xi64>
+    %storage = check.generate.fill value(-128) : tensor<96xi8>
+    check.compare<@vector_widen_i8, @vector_widen_i8_oracle>(%storage) : (tensor<96xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<96xi8>
     }
   }
-  check.trial[64](%trial: index, %entropy: check.entropy) {
-    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
-    %input = check.generate.random.uniform seed(%seed) range(-128 to 127) : tensor<16xi8>
-    %storage = check.generate.fill value(-123) : tensor<40xi64>
-    %output = check.tensor.view %storage offset(32) : tensor<40xi64> -> tensor<32xi64>
-    check.compare<@vector_widen_i8, @vector_widen_i8_oracle>(%input, %output) : (tensor<16xi8>, tensor<32xi64>) -> () {
-      check.expect.bitwise actual(%input) expected(%input) : tensor<16xi8>
-      check.expect.bitwise actual(%storage) expected(%storage) : tensor<40xi64>
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(-1) : tensor<96xi8>
+    check.compare<@vector_widen_i8, @vector_widen_i8_oracle>(%storage) : (tensor<96xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<96xi8>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(0) : tensor<96xi8>
+    check.compare<@vector_widen_i8, @vector_widen_i8_oracle>(%storage) : (tensor<96xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<96xi8>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(127) : tensor<96xi8>
+    check.compare<@vector_widen_i8, @vector_widen_i8_oracle>(%storage) : (tensor<96xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<96xi8>
+    }
+  }
+  check.return
+}
+
+check.scenario @vector_widen_i8_to_i16_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(-128) : tensor<72xi8>
+    check.compare<@vector_widen_i8_to_i16, @vector_widen_i8_to_i16_oracle>(%storage) : (tensor<72xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<72xi8>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(-1) : tensor<72xi8>
+    check.compare<@vector_widen_i8_to_i16, @vector_widen_i8_to_i16_oracle>(%storage) : (tensor<72xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<72xi8>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(0) : tensor<72xi8>
+    check.compare<@vector_widen_i8_to_i16, @vector_widen_i8_to_i16_oracle>(%storage) : (tensor<72xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<72xi8>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(127) : tensor<72xi8>
+    check.compare<@vector_widen_i8_to_i16, @vector_widen_i8_to_i16_oracle>(%storage) : (tensor<72xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<72xi8>
     }
   }
   check.return
@@ -130,22 +280,15 @@ check.scenario @vector_widen_i8_values {
 
 check.scenario @vector_widen_i16_values {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %input = check.generate.iota offset(-32768) step(4369) : tensor<16xi16>
-    %storage = check.generate.fill value(-123) : tensor<40xi64>
-    %output = check.tensor.view %storage offset(32) : tensor<40xi64> -> tensor<32xi64>
-    check.compare<@vector_widen_i16, @vector_widen_i16_oracle>(%input, %output) : (tensor<16xi16>, tensor<32xi64>) -> () {
-      check.expect.bitwise actual(%input) expected(%input) : tensor<16xi16>
-      check.expect.bitwise actual(%storage) expected(%storage) : tensor<40xi64>
+    %storage = check.generate.fill value(-32768) : tensor<48xi16>
+    check.compare<@vector_widen_i16, @vector_widen_i16_oracle>(%storage) : (tensor<48xi16>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<48xi16>
     }
   }
-  check.trial[64](%trial: index, %entropy: check.entropy) {
-    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
-    %input = check.generate.random.uniform seed(%seed) range(-32768 to 32767) : tensor<16xi16>
-    %storage = check.generate.fill value(-123) : tensor<40xi64>
-    %output = check.tensor.view %storage offset(32) : tensor<40xi64> -> tensor<32xi64>
-    check.compare<@vector_widen_i16, @vector_widen_i16_oracle>(%input, %output) : (tensor<16xi16>, tensor<32xi64>) -> () {
-      check.expect.bitwise actual(%input) expected(%input) : tensor<16xi16>
-      check.expect.bitwise actual(%storage) expected(%storage) : tensor<40xi64>
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(32767) : tensor<48xi16>
+    check.compare<@vector_widen_i16, @vector_widen_i16_oracle>(%storage) : (tensor<48xi16>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<48xi16>
     }
   }
   check.return
@@ -153,22 +296,15 @@ check.scenario @vector_widen_i16_values {
 
 check.scenario @vector_widen_i32_values {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %input = check.generate.iota offset(-2147483648) step(286331153) : tensor<16xi32>
-    %storage = check.generate.fill value(-123) : tensor<40xi64>
-    %output = check.tensor.view %storage offset(32) : tensor<40xi64> -> tensor<32xi64>
-    check.compare<@vector_widen_i32, @vector_widen_i32_oracle>(%input, %output) : (tensor<16xi32>, tensor<32xi64>) -> () {
-      check.expect.bitwise actual(%input) expected(%input) : tensor<16xi32>
-      check.expect.bitwise actual(%storage) expected(%storage) : tensor<40xi64>
+    %storage = check.generate.fill value(-2147483648) : tensor<24xi32>
+    check.compare<@vector_widen_i32, @vector_widen_i32_oracle>(%storage) : (tensor<24xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
     }
   }
-  check.trial[64](%trial: index, %entropy: check.entropy) {
-    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
-    %input = check.generate.random.uniform seed(%seed) range(-2147483648 to 2147483647) : tensor<16xi32>
-    %storage = check.generate.fill value(-123) : tensor<40xi64>
-    %output = check.tensor.view %storage offset(32) : tensor<40xi64> -> tensor<32xi64>
-    check.compare<@vector_widen_i32, @vector_widen_i32_oracle>(%input, %output) : (tensor<16xi32>, tensor<32xi64>) -> () {
-      check.expect.bitwise actual(%input) expected(%input) : tensor<16xi32>
-      check.expect.bitwise actual(%storage) expected(%storage) : tensor<40xi64>
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(2147483647) : tensor<24xi32>
+    check.compare<@vector_widen_i32, @vector_widen_i32_oracle>(%storage) : (tensor<24xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<24xi32>
     }
   }
   check.return

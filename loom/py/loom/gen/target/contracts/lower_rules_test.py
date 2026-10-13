@@ -13,7 +13,7 @@ from loom.dialect.scalar import ALL_SCALAR_OPS
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.vector import ALL_VECTOR_OPS
 from loom.dialect.vector import defs as vector
-from loom.dsl import EncodingOperandSummaryDef
+from loom.dsl import EncodingOperandSummaryDef, Op
 from loom.error.target import ERR_TARGET_003
 from loom.gen.target.contracts.lower_rule_rows import (
     attr_copy_row,
@@ -35,8 +35,10 @@ from loom.gen.target.contracts.lower_rule_rows import (
     source_node_row,
     type_pattern_row,
     value_ref_row,
+    wide_report_key_row,
 )
 from loom.gen.target.contracts.lower_rules import (
+    _collect_report_keys,
     _intern_diagnostic_params,
     _intern_optional_rows,
     _intern_rows,
@@ -172,6 +174,21 @@ def _compiled_lower_rule_set(
     )
 
 
+def _report_key_rule(
+    report_key: str,
+    source_op: Op = scalar_arithmetic.scalar_addi,
+) -> LowerRule:
+    return LowerRule(
+        source_op=source_op,
+        report_key=report_key,
+        temporary_count=0,
+        guard_start=0,
+        guard_count=0,
+        emit_start=0,
+        emit_count=0,
+    )
+
+
 def _c_shape_contract() -> ContractFragment:
     return ContractFragment(
         name="test.low.generated_c_shape",
@@ -210,26 +227,12 @@ def test_validate_c_table_shape_rejects_oversized_table_count() -> None:
     )
 
 
-def test_validate_c_table_shape_rejects_oversized_report_key_count() -> None:
+def test_validate_c_table_shape_accepts_wide_report_key_count() -> None:
     table = _compiled_lower_rule_set(
-        rules=tuple(
-            LowerRule(
-                source_op=scalar_arithmetic.scalar_addi,
-                report_key=f"key_{index}",
-                temporary_count=0,
-                guard_start=0,
-                guard_count=0,
-                emit_start=0,
-                emit_count=0,
-            )
-            for index in range(0x100)
-        ),
+        rules=tuple(_report_key_rule(f"key_{index}") for index in range(0x100)),
     )
 
-    _expect_value_error(
-        lambda: _validate_c_table_shape(table, _c_shape_contract(), ()),
-        "lower-rule set 'test.low.generated_c_shape' report-key count exceeds uint8_t",
-    )
+    _validate_c_table_shape(table, _c_shape_contract(), ())
 
 
 def test_validate_c_table_shape_rejects_oversized_rule_field() -> None:
@@ -379,6 +382,17 @@ def test_rule_row_retains_wide_primary_emit_ordinal() -> None:
 
     assert ".flags = LOOM_LOW_LOWER_RULE_FLAG_WIDE_PRIMARY_EMIT" in fields
     assert ".metadata.emit.primary_emit = 255" in fields
+
+
+def test_rule_row_uses_sparse_storage_for_wide_report_key_ordinal() -> None:
+    row = _report_key_rule("wide")
+
+    assert ".report_key_ordinal = 254" in rule_row(row, {"wide": 254})
+    assert ".report_key_ordinal = LOOM_LOW_LOWER_RULE_REPORT_KEY_WIDE" in rule_row(row, {"wide": 255})
+    assert wide_report_key_row(19, 257) == [
+        ".rule_index = 19",
+        ".report_key_ordinal = 257",
+    ]
 
 
 def test_primary_descriptor_feature_classes_intern_masks() -> None:
@@ -1315,6 +1329,35 @@ def test_generate_lower_rule_set_emits_report_key_ordinals() -> None:
     assert TEST_LOW_ADD_F32_DESCRIPTOR.key not in generated.source
     assert "RuleRootProducerClosureBits" not in generated.source
     assert ".rule_root_producer_closure_bits = " not in generated.source
+
+
+def test_collect_report_keys_keeps_common_keys_in_compact_ordinals() -> None:
+    rules = (
+        *(_report_key_rule(f"rare_{index}") for index in range(255)),
+        _report_key_rule("common"),
+        _report_key_rule("common", scalar_arithmetic.scalar_subi),
+    )
+
+    report_keys = _collect_report_keys(_compiled_lower_rule_set(rules=rules))
+
+    assert len(report_keys) == 256
+    assert report_keys[0] == "common"
+    assert report_keys[1:] == tuple(f"rare_{index}" for index in range(255))
+
+
+def test_generate_lower_rule_set_emits_sparse_wide_report_key_ordinals() -> None:
+    compiled = _compiled_lower_rule_set(rules=tuple(_report_key_rule(f"key_{index}") for index in range(256)))
+
+    generated = generate_lower_rule_set_from_compiled(_c_shape_contract(), compiled=compiled)
+
+    assert generated.source.count(".report_key_ordinal = LOOM_LOW_LOWER_RULE_REPORT_KEY_WIDE,") == 2
+    assert "static const loom_low_lower_wide_report_key_t" in generated.source
+    assert ".rule_index = 254," in generated.source
+    assert ".report_key_ordinal = 255," in generated.source
+    assert ".rule_index = 255," in generated.source
+    assert ".report_key_ordinal = 256," in generated.source
+    assert ".wide_report_keys = " in generated.source
+    assert ".wide_report_key_count = IREE_ARRAYSIZE(" in generated.source
 
 
 def test_generate_lower_rule_set_indexes_lane_projection_requirements() -> None:

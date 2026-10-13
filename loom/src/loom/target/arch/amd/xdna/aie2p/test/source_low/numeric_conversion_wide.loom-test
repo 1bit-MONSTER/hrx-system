@@ -367,6 +367,98 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_extsi_i16x
 
 // ====
 
+func.def @vector_extui_i8x64_i16x64(%input: vector<64xi8>) -> (vector<64xi16>) {
+  %converted = vector.extui %input : vector<64xi8> to vector<64xi16>
+  func.return %converted : vector<64xi16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_extui_i8x64_i16x64(%input: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x4>) asm {
+  %5 = vsub.8 %input, %input
+  %6 = mova.i32 20
+  %7 = vshuffle %input, %5, %6
+  %8 = mova.i32 21
+  %9 = vshuffle %input, %5, %8
+  %converted = concat(%7, %9) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %converted
+}
+
+// ====
+
+func.def @vector_extsi_i8x64_i16x64(%input: vector<64xi8>) -> (vector<64xi16>) {
+  %converted = vector.extsi %input : vector<64xi8> to vector<64xi16>
+  func.return %converted : vector<64xi16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_extsi_i8x64_i16x64(%input: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x4>) asm {
+  %5 = vsub.8 %input, %input
+  %6 = vlt.s8x64 %input, %5
+  %7 = mov.short -1
+  %8 = vbcst.8 %7
+  %9 = vsel.8 %5, %8, %6
+  %10 = mova.i32 20
+  %11 = vshuffle %input, %9, %10
+  %12 = mova.i32 21
+  %13 = vshuffle %input, %9, %12
+  %converted = concat(%11, %13) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %converted
+}
+
+// ====
+
+func.def @vector_extui_i8x16_i64x16(%input: vector<16xi8>) -> (vector<16xi64>) {
+  %converted = vector.extui %input : vector<16xi8> to vector<16xi64>
+  func.return %converted : vector<16xi64>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_extui_i8x16_i64x16(%input: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x4>) asm {
+  %5 = slice %input[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %6 = mov.shift 0
+  set.saturation 0
+  set.ups-mode 0
+  %7 = vups.4x.w-to-c.unsigned %5, %6
+  %8 = slice %7[0] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
+  %9 = vmov.accumulator512.to.vector512 %8
+  set.ups-mode 1
+  %10 = vups.2x.x-to-c.unsigned %9, %6
+  %11 = slice %10[0] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
+  %12 = vmov.accumulator512.to.vector512 %11
+  %13 = slice %10[1] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
+  %14 = vmov.accumulator512.to.vector512 %13
+  %converted = concat(%12, %14) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %converted
+}
+
+// ====
+
+func.def @vector_extsi_i8x16_i64x16(%input: vector<16xi8>) -> (vector<16xi64>) {
+  %converted = vector.extsi %input : vector<16xi8> to vector<16xi64>
+  func.return %converted : vector<16xi64>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_extsi_i8x16_i64x16(%input: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x4>) asm {
+  %5 = slice %input[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %6 = mov.shift 0
+  set.saturation 0
+  set.ups-mode 0
+  %7 = vups.4x.w-to-c.signed %5, %6
+  %8 = slice %7[0] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
+  %9 = vmov.accumulator512.to.vector512 %8
+  set.ups-mode 1
+  %10 = vups.2x.x-to-c.signed %9, %6
+  %11 = slice %10[0] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
+  %12 = vmov.accumulator512.to.vector512 %11
+  %13 = slice %10[1] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
+  %14 = vmov.accumulator512.to.vector512 %13
+  %converted = concat(%12, %14) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %converted
+}
+
+// ====
+
 func.def @vector_trunci_i16x32_i8x32(%input: vector<32xi16>) -> (vector<32xi8>) {
   %converted = vector.trunci %input : vector<32xi16> to vector<32xi8>
   func.return %converted : vector<32xi8>

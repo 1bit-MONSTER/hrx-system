@@ -24,6 +24,8 @@ from loom.target.arch.amd.xdna.aie2p.contracts.conversion import (
     AIE2P_CONVERSION_RULES,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.packet_conversion import (
+    BYTE_TO_HALFWORD_WIDEN_RULE_SHAPES,
+    BYTE_TO_I64_WIDEN_RULE_SHAPES,
     FLOAT8_PACKET_FORMATS,
     FLOAT_PACKET_FORMATS,
     INTEGER_PACK_INSTRUCTIONS,
@@ -409,18 +411,28 @@ def _evaluate_packet_lane(
                 value = operands["src"] & 0xF
             elif descriptor_key == "sub.i8x64":
                 value = (operands["s1"] - operands["s2"]) & 0xFF
+            elif descriptor_key == "cmp.lt.signed.i8x64":
+                lhs = operands["s1"] & 0xFF
+                rhs = operands["s2"] & 0xFF
+                lhs = lhs - 0x100 if lhs & 0x80 else lhs
+                rhs = rhs - 0x100 if rhs & 0x80 else rhs
+                value = int(lhs < rhs)
             elif descriptor_key == "shuffle.x.configured":
                 control = operands["mod"]
-                if control == 20:
+                if control in (20, 21):
                     value = (operands["s1"] & 0xFF) | ((operands["s2"] & 0xFF) << 8)
                 else:
                     assert control in (0, 2, 4)
                     sublane_bits = 8 << (control // 2)
                     value = operands["s1"] & ((1 << sublane_bits) - 1)
+            elif descriptor_key == "splat.i8x64":
+                value = operands["src"] & 0xFF
             elif descriptor_key == "splat.i16x32":
                 value = operands["src"] & 0xFFFF
             elif descriptor_key == "splat.i32x16":
                 value = operands["src"] & 0xFFFFFFFF
+            elif descriptor_key == "select.i8x64":
+                value = operands["s2"] if operands["sel"] else operands["s1"]
             elif descriptor_key in _PACKET_LANE_DESCRIPTOR_KEYS:
                 value = _evaluate_packet_lane_descriptor(
                     descriptor_key, operands, state
@@ -2018,6 +2030,139 @@ def test_native_integer_widening_covers_each_logical_carrier_interval() -> None:
                 and emit.descriptor.key == "amd.xdna.aie2p.state.ups-mode.immediate"
             )
             assert set_ups_mode.immediates == {"i": instruction.ups_mode}
+
+
+def test_composed_byte_widening_covers_each_logical_carrier_interval() -> None:
+    shape_families = (
+        (BYTE_TO_HALFWORD_WIDEN_RULE_SHAPES, "i16", set(range(1, 65))),
+        (BYTE_TO_I64_WIDEN_RULE_SHAPES, "i64", set(range(1, 17))),
+    )
+    for rule_shapes, result_element, expected_lane_counts in shape_families:
+        covered_lane_counts: set[int] = set()
+        for rule_shape in rule_shapes:
+            assert rule_shape.input_element == "i8"
+            assert rule_shape.result_element == result_element
+            logical_lane_counts = set(
+                range(
+                    rule_shape.minimum_lane_count,
+                    rule_shape.maximum_lane_count + 1,
+                )
+            )
+            assert covered_lane_counts.isdisjoint(logical_lane_counts)
+            covered_lane_counts.update(logical_lane_counts)
+        assert covered_lane_counts == expected_lane_counts
+
+        for source_op, signedness in (
+            (vector.vector_extui, "unsigned"),
+            (vector.vector_extsi, "signed"),
+        ):
+            for rule_shape in rule_shapes:
+                rule = _rule(rule_shape.report_key(signedness))
+                assert rule.source_op is source_op
+                assert rule.guards == (
+                    Guard.value_type("input", rule_shape.input_type),
+                    Guard.value_type("result", rule_shape.result_type),
+                )
+
+
+def test_byte_to_halfword_widening_uses_exact_interleave_programs() -> None:
+    for source_op, signedness in (
+        (vector.vector_extui, "unsigned"),
+        (vector.vector_extsi, "signed"),
+    ):
+        for rule_shape in BYTE_TO_HALFWORD_WIDEN_RULE_SHAPES:
+            rule = _rule(rule_shape.report_key(signedness))
+            assert rule.source_op is source_op
+            descriptor_emits = tuple(
+                emit for emit in rule.emit if isinstance(emit, EmitDescriptorOp)
+            )
+            descriptor_keys = [emit.descriptor.key for emit in descriptor_emits]
+            signed_prefix = (
+                [
+                    "amd.xdna.aie2p.cmp.lt.signed.i8x64",
+                    "amd.xdna.aie2p.constant.i32.short",
+                    "amd.xdna.aie2p.splat.i8x64",
+                    "amd.xdna.aie2p.select.i8x64",
+                ]
+                if signedness == "signed"
+                else []
+            )
+            assert descriptor_keys == [
+                "amd.xdna.aie2p.sub.i8x64",
+                *signed_prefix,
+                *[
+                    descriptor_key
+                    for _ in range(rule_shape.result_packet_count)
+                    for descriptor_key in (
+                        "amd.xdna.aie2p.constant.i32.mova",
+                        "amd.xdna.aie2p.shuffle.x.configured",
+                    )
+                ],
+            ]
+            assert [
+                emit.immediates["i"]
+                for emit in descriptor_emits
+                if emit.descriptor.key == "amd.xdna.aie2p.constant.i32.mova"
+            ] == list(range(20, 20 + rule_shape.result_packet_count))
+            assert sum(
+                isinstance(emit, EmitRegisterConcat) for emit in rule.emit
+            ) == int(rule_shape.result_packet_count > 1)
+
+
+def test_byte_to_i64_widening_uses_exact_vups_chain() -> None:
+    for source_op, signedness in (
+        (vector.vector_extui, "unsigned"),
+        (vector.vector_extsi, "signed"),
+    ):
+        for rule_shape in BYTE_TO_I64_WIDEN_RULE_SHAPES:
+            rule = _rule(rule_shape.report_key(signedness))
+            assert rule.source_op is source_op
+            descriptor_keys = [
+                emit.descriptor.key
+                for emit in rule.emit
+                if isinstance(emit, EmitDescriptorOp)
+            ]
+            assert descriptor_keys == [
+                "amd.xdna.aie2p.constant.i32.shift",
+                "amd.xdna.aie2p.state.saturation.immediate",
+                "amd.xdna.aie2p.state.ups-mode.immediate",
+                f"amd.xdna.aie2p.widen.4x.w-to-c.{signedness}.configured",
+                "amd.xdna.aie2p.move.accumulator512.to.vector512",
+                "amd.xdna.aie2p.state.ups-mode.immediate",
+                f"amd.xdna.aie2p.widen.2x.x-to-c.{signedness}.configured",
+                *["amd.xdna.aie2p.move.accumulator512.to.vector512"]
+                * rule_shape.result_packet_count,
+            ]
+            state_emits = [
+                emit
+                for emit in rule.emit
+                if isinstance(emit, EmitDescriptorOp)
+                and emit.descriptor.key.startswith("amd.xdna.aie2p.state.")
+            ]
+            assert [emit.immediates["i"] for emit in state_emits] == [0, 0, 1]
+
+
+def test_composed_byte_widening_is_exact_for_every_input_value() -> None:
+    shape_families = (
+        (BYTE_TO_HALFWORD_WIDEN_RULE_SHAPES, 16),
+        (BYTE_TO_I64_WIDEN_RULE_SHAPES, 64),
+    )
+    for rule_shapes, result_bits in shape_families:
+        result_mask = (1 << result_bits) - 1
+        for signedness in ("unsigned", "signed"):
+            for rule_shape in rule_shapes:
+                rule = _rule(rule_shape.report_key(signedness))
+                for result_group_ordinal in range(rule_shape.result_packet_count):
+                    for input_value in range(1 << 8):
+                        expected = input_value
+                        if signedness == "signed" and input_value & 0x80:
+                            expected -= 1 << 8
+                        actual = _evaluate_packet_lane(
+                            rule,
+                            input_value,
+                            result_group_ordinal=result_group_ordinal,
+                        )
+                        assert actual & result_mask == expected & result_mask
 
 
 def test_native_integer_packing_covers_each_logical_carrier_interval() -> None:
