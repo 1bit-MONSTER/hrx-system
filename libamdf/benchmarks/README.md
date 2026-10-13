@@ -44,12 +44,8 @@ exercised-context comparison must exercise both owners separately.
 Build the optimized executable before collecting fixed-count measurements:
 
 ```sh
-build_tools/bin/iree-bazel-build \
-  //libamdf/benchmarks/xdna:memory_benchmark \
-  -c opt --features=thin_lto --copt=-O3 --cxxopt=-O3 \
-  --host_copt=-O3 --host_cxxopt=-O3 \
-  --copt=-march=native --cxxopt=-march=native \
-  --host_copt=-march=native --host_cxxopt=-march=native
+build_tools/bin/iree-bazel-build --config=opt \
+  //libamdf/benchmarks/xdna:memory_benchmark
 bazel-bin/libamdf/benchmarks/xdna/memory_benchmark \
   --benchmark_min_time=64x --benchmark_repetitions=5 \
   --benchmark_out=memory.json --benchmark_out_format=json
@@ -85,16 +81,18 @@ timing.
 | `XdnaExecution/Independent/Submit` | Publication of the complete setup-and-execution range. Completion occurs outside timing. |
 | `XdnaExecution/Independent/SubmitAndWait` | The same publication plus device setup, execution and completion wait. |
 
-Both rows wait for each submission before reusing the queue, which admits one
-unretired command. The submit-only row measures host publication cost, not
-device throughput or completed-operation latency. Host input publication and
-output acquisition are outside both rows, so the completed row is not a
-measurement of the entire host-to-host application pipeline.
+Both rows wait for each submission before reusing its instruction and data
+ranges, keeping one command outstanding. The submit-only row measures host
+publication cost, not device throughput or completed-operation latency. Host
+input publication and output acquisition are outside both rows, so the completed
+row is not a measurement of the entire host-to-host application pipeline.
 
 Build the execution target with the same optimized options shown above, then
 run a fixed number of iterations:
 
 ```sh
+build_tools/bin/iree-bazel-build --config=opt \
+  //experimental/xdna/benchmarks:execution_benchmark
 bazel-bin/experimental/xdna/benchmarks/execution_benchmark \
   --benchmark_min_time=200x --benchmark_repetitions=7 \
   --benchmark_out=execution.json --benchmark_out_format=json
