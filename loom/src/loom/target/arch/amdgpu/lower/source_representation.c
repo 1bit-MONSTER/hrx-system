@@ -361,6 +361,28 @@ static bool loom_amdgpu_matrix_representation_is_coordinate_invariant(
                                                &bits));
 }
 
+// Keep conversion shape queries out of the equal-type relation path's frame.
+IREE_ATTRIBUTE_NOINLINE static bool
+loom_amdgpu_matrix_representation_has_numeric_carrier_relation(
+    loom_low_lower_context_t* context, const loom_value_relation_t* relation) {
+  if (relation->kind != LOOM_VALUE_RELATION_ELEMENTWISE) {
+    return false;
+  }
+  const loom_module_t* module = loom_low_lower_context_module(context);
+  const loom_type_t source_type =
+      loom_module_value_type(module, relation->source_value_id);
+  const loom_type_t destination_type =
+      loom_module_value_type(module, relation->destination_value_id);
+  uint64_t source_elements = 0;
+  uint64_t destination_elements = 0;
+  return loom_type_is_vector(source_type) &&
+         loom_type_is_vector(destination_type) &&
+         loom_type_static_element_count(source_type, &source_elements) &&
+         loom_type_static_element_count(destination_type,
+                                        &destination_elements) &&
+         source_elements == destination_elements;
+}
+
 static bool loom_amdgpu_source_representation_relation(
     void* user_data, loom_low_lower_context_t* context,
     const loom_op_t* source_op, const loom_value_relation_t* relation,
@@ -379,19 +401,12 @@ static bool loom_amdgpu_source_representation_relation(
   const loom_module_t* module = loom_low_lower_context_module(context);
   const loom_type_t source_type =
       loom_module_value_type(module, relation->source_value_id);
-  const loom_type_t destination_type =
-      loom_module_value_type(module, relation->destination_value_id);
-  const bool equal_types = loom_type_equal(source_type, destination_type);
-  uint64_t source_elements = 0;
-  uint64_t destination_elements = 0;
+  const bool equal_types = loom_type_equal(
+      source_type,
+      loom_module_value_type(module, relation->destination_value_id));
   if (!equal_types &&
-      (relation->kind != LOOM_VALUE_RELATION_ELEMENTWISE ||
-       !loom_type_is_vector(source_type) ||
-       !loom_type_is_vector(destination_type) ||
-       !loom_type_static_element_count(source_type, &source_elements) ||
-       !loom_type_static_element_count(destination_type,
-                                       &destination_elements) ||
-       source_elements != destination_elements)) {
+      !loom_amdgpu_matrix_representation_has_numeric_carrier_relation(
+          context, relation)) {
     return false;
   }
   if (loom_amdgpu_type_is_address_scalar(source_type) &&
@@ -423,21 +438,19 @@ static bool loom_amdgpu_source_representation_relation(
     default:
       break;
   }
-  loom_vector_fragment_fact_t source_fragment;
   loom_vector_fragment_fact_t destination_fragment;
-  const bool source_is_fragment =
-      loom_amdgpu_matrix_representation_accumulator_fact(
-          context, relation->source_value_id, &source_fragment);
-  const bool destination_is_fragment =
-      loom_amdgpu_matrix_representation_accumulator_fact(
-          context, relation->destination_value_id, &destination_fragment);
-  if (source_is_fragment && destination_is_fragment) {
+  if (!loom_amdgpu_matrix_representation_accumulator_fact(
+          context, relation->destination_value_id, &destination_fragment)) {
+    return false;
+  }
+  loom_vector_fragment_fact_t source_fragment;
+  if (loom_amdgpu_matrix_representation_accumulator_fact(
+          context, relation->source_value_id, &source_fragment)) {
     return loom_vector_fragment_facts_match_accumulator_contract(
         source_fragment, destination_fragment);
   }
-  if (destination_is_fragment &&
-      (relation->kind == LOOM_VALUE_RELATION_ELEMENTWISE ||
-       relation->kind == LOOM_VALUE_RELATION_SELECT_PAYLOAD)) {
+  if (relation->kind == LOOM_VALUE_RELATION_ELEMENTWISE ||
+      relation->kind == LOOM_VALUE_RELATION_SELECT_PAYLOAD) {
     if (equal_types && loom_low_lower_representation_component_is_constrained(
                            recorder, relation->source_value_id)) {
       return true;
