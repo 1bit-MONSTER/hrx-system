@@ -86,7 +86,6 @@ loom_cc_test(
     iree::base::threading
     iree::testing::gtest
     iree::testing::gtest_main
-    iree::testing::temp_file
     loom::serve::telemetry::stream
 )
 endif()
