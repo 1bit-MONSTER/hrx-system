@@ -51,6 +51,17 @@ inline iree_async_proactor_t* test_proactor() {
 }
 
 struct FakeNative {
+  struct Scope {
+    // Native dependency receiving queries for this storage domain.
+    FakeNative* owner;
+    // Physical storage class exposed by the scope.
+    amdf_memory_class_t memory_class;
+    // Local storage endpoint, or UINT32_MAX for system memory.
+    uint32_t device_ordinal;
+    // Native profile result used to exercise absent routes and query failures.
+    amdf_status_t profile_status = AMDF_STATUS_OK;
+  };
+
   FakeNative() {
     api.memory_scope_query_info = MemoryScopeQueryInfo;
     api.memory_scope_query_device_profile = MemoryScopeQueryDeviceProfile;
@@ -71,20 +82,22 @@ struct FakeNative {
     api.memory_reservation_detach = ReservationDetach;
     api.memory_reservation_destroy = ReservationDestroy;
     for (uint32_t i = 0; i < 2; ++i) {
+      local_scopes[i] = {this, AMDF_MEMORY_CLASS_LOCAL, i};
       native_devices[i] = {this, i};
       devices[i] = reinterpret_cast<amdf_device_t*>(&native_devices[i]);
     }
   }
 
   amdf_memory_scope_t* scope() {
-    return reinterpret_cast<amdf_memory_scope_t*>(this);
+    return reinterpret_cast<amdf_memory_scope_t*>(&system_scope);
   }
 
   static amdf_status_t AMDF_CALL MemoryScopeQueryInfo(
       amdf_memory_scope_t* base_scope, amdf_memory_scope_info_t* out_info) {
-    auto* self = reinterpret_cast<FakeNative*>(base_scope);
+    auto* storage = reinterpret_cast<Scope*>(base_scope);
+    auto* self = storage->owner;
     ++self->scope_query_count;
-    out_info->kind = self->memory_class == AMDF_MEMORY_CLASS_LOCAL
+    out_info->kind = storage->memory_class == AMDF_MEMORY_CLASS_LOCAL
                          ? AMDF_MEMORY_SCOPE_KIND_LOCAL
                          : AMDF_MEMORY_SCOPE_KIND_SYSTEM;
     out_info->memory_profile_count =
@@ -97,7 +110,11 @@ struct FakeNative {
       uint32_t access_count, const amdf_memory_device_access_t* accesses,
       amdf_memory_profile_t* out_profile,
       amdf_memory_access_capabilities_t* out_capabilities) {
-    auto* self = reinterpret_cast<FakeNative*>(base_scope);
+    auto* storage = reinterpret_cast<Scope*>(base_scope);
+    auto* self = storage->owner;
+    if (storage->profile_status != AMDF_STATUS_OK) {
+      return storage->profile_status;
+    }
     EXPECT_LT(
         profile_ordinal,
         self->registration_enabled || self->native_transport_enabled ? 2u : 1u);
@@ -124,12 +141,15 @@ struct FakeNative {
     }
     ++self->profile_query_count;
     out_profile->ordinal = profile_ordinal;
-    out_profile->memory_class = self->memory_class;
+    out_profile->memory_class = storage->memory_class;
     out_profile->roles =
         AMDF_MEMORY_PROFILE_ROLE_CREATE |
         (self->host_mappable ? AMDF_MEMORY_PROFILE_ROLE_HOST_MAP : 0);
     out_profile->guaranteed_flags =
-        self->host_mappable ? AMDF_MEMORY_FLAG_HOST_VISIBLE : 0;
+        (self->host_mappable ? AMDF_MEMORY_FLAG_HOST_VISIBLE : 0) |
+        (storage->memory_class == AMDF_MEMORY_CLASS_LOCAL
+             ? AMDF_MEMORY_FLAG_DEVICE_LOCAL
+             : 0);
     out_profile->supported_flags =
         out_profile->guaranteed_flags | AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
         (self->host_source_enabled ? AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE : 0);
@@ -191,7 +211,8 @@ struct FakeNative {
   MemoryScopeQueryPairInfo(amdf_memory_scope_t* base_scope,
                            const amdf_memory_profile_pair_query_t* query,
                            amdf_memory_pair_info_t* out_info) {
-    auto* self = reinterpret_cast<FakeNative*>(base_scope);
+    auto* storage = reinterpret_cast<Scope*>(base_scope);
+    auto* self = storage->owner;
     const bool registered =
         query->memory_profile_ordinal == 1 && self->registration_enabled;
     const bool imported =
@@ -284,7 +305,9 @@ struct FakeNative {
   static amdf_status_t AMDF_CALL MemoryCreate(
       amdf_memory_scope_t* scope, const amdf_memory_create_info_t* info,
       amdf_memory_t** out_memory) {
-    auto* self = reinterpret_cast<FakeNative*>(scope);
+    auto* storage = reinterpret_cast<Scope*>(scope);
+    auto* self = storage->owner;
+    self->created_scope = scope;
     EXPECT_EQ(info->access_count, 2u);
     EXPECT_EQ(info->required_flags, self->required_flags);
     if (self->native_transport_enabled) {
@@ -532,8 +555,12 @@ struct FakeNative {
   // Consuming terminal native destruction result.
   amdf_status_t destroy_failure = AMDF_STATUS_OK;
 
-  // Native storage class offered by the selected scope.
-  amdf_memory_class_t memory_class = AMDF_MEMORY_CLASS_SYSTEM;
+  // Shared system scope offered by both engine descriptors.
+  Scope system_scope = {this, AMDF_MEMORY_CLASS_SYSTEM, UINT32_MAX};
+  // Distinct physical storage scopes for the two participating devices.
+  std::array<Scope, 2> local_scopes = {};
+  // Scope actually used to acquire the last backing allocation.
+  amdf_memory_scope_t* created_scope = nullptr;
   // Whether this profile has any host mapping route.
   bool host_mappable = true;
   // Native payload preceding usable byte zero for owned allocations.
@@ -619,13 +646,23 @@ class MemoryBackendTest : public ::testing::Test {
       native_families_[i].host_usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
       native_families_[i].binding_count = 1;
       native_families_[i].bindings = &binding_descriptions_[i];
+      storage_[i][0] = {
+          .scope = native_.scope(),
+          .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
+                         IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      };
+      storage_[i][1] = {
+          .scope =
+              reinterpret_cast<amdf_memory_scope_t*>(&native_.local_scopes[i]),
+          .physical_device_affinity = 1,
+          .memory_type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      };
       iree_hal_amd_fabric_memory_backend_options_t memory_options = {
           .api = &native_.api,
           .instance = reinterpret_cast<amdf_instance_t*>(&native_),
-          .scope = native_.scope(),
           .device = native_.devices[i],
-          .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-                         IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+          .storage_count = 1,
+          .storage = storage_[i].data(),
           .event_sink =
               {
                   .fn =
@@ -728,6 +765,22 @@ class MemoryBackendTest : public ::testing::Test {
                                      out_pool);
   }
 
+  uint32_t PhysicalNode(uint32_t device_ordinal) {
+    const auto* topology = iree_hal_device_group_topology(group_);
+    const uint32_t group_ordinal =
+        iree_hal_device_topology_info(devices_[device_ordinal])->topology_index;
+    for (iree_host_size_t i = 0; i < iree_hal_topology_node_count(topology);
+         ++i) {
+      const auto* node = iree_hal_topology_node_at(topology, i);
+      if (node->kind == IREE_HAL_TOPOLOGY_NODE_KIND_PHYSICAL_DEVICE &&
+          node->device_ordinal == group_ordinal) {
+        return node->ordinal;
+      }
+    }
+    ADD_FAILURE() << "mock device has no physical topology node";
+    return IREE_HAL_TOPOLOGY_NODE_ORDINAL_INVALID;
+  }
+
   iree_hal_memory_scope_t ResolveScope(
       iree_hal_memory_site_kind_t kind,
       const iree_hal_queue_family_t* family = nullptr) {
@@ -771,6 +824,9 @@ class MemoryBackendTest : public ::testing::Test {
       {};
   // Family facts borrowed by their corresponding backends.
   std::array<iree_hal_amd_fabric_memory_family_t, 2> native_families_ = {};
+  // Stable system/local storage facts borrowed by each engine backend.
+  std::array<std::array<iree_hal_amd_fabric_memory_storage_t, 2>, 2> storage_ =
+      {};
   // Backends borrowed by their corresponding mock devices.
   std::array<iree_hal_amd_fabric_memory_backend_t, 2> backends_ = {};
   // Mock HAL devices in canonical group order.

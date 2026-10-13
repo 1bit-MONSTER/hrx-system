@@ -46,12 +46,23 @@ instance and its discovery snapshot; engine contexts own their native children.
 
 ## Memory construction
 
-An engine captures its native API, storage scope, device, family ordinals,
-address interfaces, minimum native permissions, and private host-access needs
-in `iree_hal_amd_fabric_memory_backend_options_t`. The backend borrows these
-facts and existing progress services from the device. Pool construction
-qualifies every participating family together against one native scope and
-copies the resulting access set, binding layout, and visibility table.
+An engine captures its native API, instance, device, storage scopes, family
+ordinals, address interfaces, minimum native permissions, and private host-access
+needs in `iree_hal_amd_fabric_memory_backend_options_t`. The backend borrows these
+facts and existing progress services from the device. Each storage choice names
+its native scope, locality properties, and any enforced physical affinity. Pool
+construction qualifies every participating family together against each eligible
+scope and captures the selected placement, access set, binding layout, and
+visibility table. Allocation and retirement use the selected storage owner's
+existing progress services.
+
+Placement is independent of access-family order. A pool can require backing on
+one physical GPU while allowing qualified peers to access that same allocation.
+Required placement selects the corresponding physical node in the sealed group;
+an unavailable route yields no candidate. Preferred placement can select another
+qualified route and reports the achieved placement. Automatic selection prefers
+qualified device-local backing when the requested access and host preferences
+permit it. SYSTEM scopes make no enforced host NUMA placement promise.
 
 One allocation can publish several address interfaces for several native
 devices. A host mapping is acquired only when public or engine-private access
@@ -65,11 +76,13 @@ binding tables through the existing release-callback contract. The slab cache,
 suballocation layers, and explicit trim policy retain their existing ownership.
 No buffer adds a fabric reference or discovers native addresses at submission.
 
-The current factory constructs owned backing within one shared scope. External
-imports/exports, enforced placement, and uncached device-access requests emit
-no candidate. Extending those routes requires native qualification and matching
-construction support. Queue visibility uses libamdf's exact queue-family
-recipes; program-side visibility remains unqualified by that native query.
+Owned allocation, host registration and native import/export classes are
+qualified together against the selected scope. Imports preserve caller-owned
+storage and its physical placement; owned-backing placement does not relocate
+an imported allocation. Unqualified native transports and uncached device-access
+requirements yield no candidate. Queue visibility uses libamdf's exact
+queue-family recipes; program-side visibility remains unqualified by that native
+query.
 
 ## File transfers
 

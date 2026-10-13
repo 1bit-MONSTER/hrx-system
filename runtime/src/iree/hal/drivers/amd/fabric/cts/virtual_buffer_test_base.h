@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstring>
 #include <thread>
+#include <vector>
 
 #include "amdf/gpu.h"
 #include "iree/hal/cts/util/test_base.h"
@@ -170,12 +171,41 @@ class FabricVirtualBufferTest
     family_.bindings = &binding_;
     const auto* host = reinterpret_cast<const iree_hal_host_memory_backend_t*>(
         iree_hal_device_memory_backend(cpu_));
+    storage_.push_back({
+        .scope = fabric_->system_scope,
+        .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL,
+    });
+    uint32_t local_count = 0;
+    const auto count_status = api_->device_enumerate_memory_scopes(
+        native_device_, 0, nullptr, &local_count);
+    ASSERT_TRUE(count_status == AMDF_STATUS_OK ||
+                count_status ==
+                    amdf_make_api_status(AMDF_STATUS_CODE_BUFFER_TOO_SMALL));
+    std::vector<amdf_memory_scope_t*> local_scopes(local_count);
+    ASSERT_EQ(
+        api_->device_enumerate_memory_scopes(native_device_, local_count,
+                                             local_scopes.data(), &local_count),
+        AMDF_STATUS_OK);
+    for (auto* local_scope : local_scopes) {
+      amdf_memory_scope_info_t info = {
+          .type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO,
+          .structure_size = sizeof(info),
+      };
+      ASSERT_EQ(api_->memory_scope_query_info(local_scope, &info),
+                AMDF_STATUS_OK);
+      ASSERT_EQ(info.kind, AMDF_MEMORY_SCOPE_KIND_LOCAL);
+      storage_.push_back({
+          .scope = local_scope,
+          .physical_device_affinity = 1,
+          .memory_type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      });
+    }
     iree_hal_amd_fabric_memory_backend_options_t memory_options = {
         .api = api_,
         .instance = fabric_->instance,
-        .scope = fabric_->system_scope,
         .device = native_device_,
-        .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL,
+        .storage_count = storage_.size(),
+        .storage = storage_.data(),
         .families = &family_,
     };
     iree_hal_amd_fabric_memory_backend_initialize(
@@ -438,6 +468,8 @@ class FabricVirtualBufferTest
       IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS, AMDF_MEMORY_ADDRESS_GPU};
   // Immutable family facts borrowed by the adapter.
   iree_hal_amd_fabric_memory_family_t family_ = {};
+  // Borrowed system and native local scopes consumed by pool construction.
+  std::vector<iree_hal_amd_fabric_memory_storage_t> storage_;
   // Real fabric memory implementation under test.
   iree_hal_amd_fabric_memory_backend_t backend_ = {};
   // Explicit requested family access reused for pool/reservation creation.

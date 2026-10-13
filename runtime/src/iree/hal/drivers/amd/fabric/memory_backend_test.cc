@@ -573,7 +573,7 @@ TEST_F(MemoryBackendTest, MixedEnginesAllocateOneBackingWithExactBindings) {
   binding_descriptions_[0] = {IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS,
                               AMDF_MEMORY_ADDRESS_GPU};
   native_.address_kinds[0] = UINT64_C(1) << AMDF_MEMORY_ADDRESS_GPU;
-  backends_[0].native.memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
+  storage_[0][0].memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
   iree_hal_pool_t* pool = nullptr;
   IREE_ASSERT_OK(
       CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool, /*interfaces=*/0));
@@ -611,10 +611,9 @@ TEST_F(MemoryBackendTest, DeviceOnlyContractOmitsHostBindingAndHostQueries) {
     binding_descriptions_[i] = {IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS,
                                 AMDF_MEMORY_ADDRESS_GPU};
     native_.address_kinds[i] = UINT64_C(1) << AMDF_MEMORY_ADDRESS_GPU;
-    backends_[i].native.memory_type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
+    storage_[i][0] = storage_[i][1];
   }
   native_.required_flags = 0;
-  native_.memory_class = AMDF_MEMORY_CLASS_LOCAL;
   native_.host_mappable = false;
   native_.minimum_access = AMDF_MEMORY_ACCESS_READ;
   native_.supports_private_mapping = false;
@@ -647,15 +646,151 @@ TEST_F(MemoryBackendTest, DeviceOnlyContractOmitsHostBindingAndHostQueries) {
   EXPECT_EQ(native_.destroy_count, 1);
 }
 
-TEST_F(MemoryBackendTest, IndependentNativeScopesCannotShareBacking) {
+TEST_F(MemoryBackendTest, IndependentNativeInstancesCannotShareBacking) {
   FakeNative independent;
-  backends_[1].native.scope = independent.scope();
+  backends_[1].native.instance =
+      reinterpret_cast<amdf_instance_t*>(&independent);
   iree_hal_pool_t* pool = nullptr;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
                         CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
   EXPECT_EQ(pool, nullptr);
   EXPECT_EQ(native_.profile_query_count, 0);
   EXPECT_EQ(independent.profile_query_count, 0);
+}
+
+TEST_F(MemoryBackendTest, RequiredPlacementSelectsBackingOwner) {
+  for (auto& backend : backends_) {
+    backend.native.storage_count = 2;
+  }
+  // CreatePool supplies families in reverse order. Both placements must retain
+  // the same canonical consumer bindings and choose the requested native owner.
+  for (uint32_t i = 0; i < devices_.size(); ++i) {
+    SCOPED_TRACE(i);
+    pool_options_.placement = {IREE_HAL_POOL_PLACEMENT_REQUIRED,
+                               PhysicalNode(i)};
+    iree_hal_pool_t* pool = nullptr;
+    IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+    iree_hal_pool_capabilities_t capabilities;
+    iree_hal_pool_query_capabilities(pool, &capabilities);
+    EXPECT_EQ(capabilities.placement.mode, IREE_HAL_POOL_PLACEMENT_REQUIRED);
+    EXPECT_EQ(capabilities.placement.node, PhysicalNode(i));
+    EXPECT_TRUE(iree_all_bits_set(capabilities.memory_type,
+                                  IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL));
+    EXPECT_FALSE(iree_all_bits_set(capabilities.memory_type,
+                                   IREE_HAL_MEMORY_TYPE_HOST_LOCAL));
+    iree_hal_buffer_t* buffer = nullptr;
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        pool, iree_hal_make_pool_reservation_request(64, 64),
+        iree_infinite_timeout(), &buffer));
+    EXPECT_EQ(native_.created_scope, storage_[i][1].scope);
+    EXPECT_EQ(iree_hal_buffer_allocation_placement(buffer).device, devices_[i]);
+    for (uint32_t d = 0; d < devices_.size(); ++d) {
+      iree_hal_buffer_native_binding_slot_t slot;
+      IREE_ASSERT_OK(iree_hal_pool_resolve_binding(
+          pool, ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[d]),
+          IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA, &slot));
+      EXPECT_EQ(iree_hal_buffer_native_binding(buffer, slot).device_address,
+                UINT64_C(0x100000) + d * UINT64_C(0x10000));
+    }
+    iree_hal_buffer_release(buffer);
+    iree_hal_pool_release(pool);
+  }
+  iree_hal_memory_maintenance_call(maintenance_, +[](void*) {}, nullptr);
+  EXPECT_EQ(native_.create_count, 2);
+  EXPECT_EQ(native_.destroy_count, 2);
+}
+
+TEST_F(MemoryBackendTest, RequiredPlacementRejectsUnavailablePeerRoute) {
+  for (auto& backend : backends_) {
+    backend.native.storage_count = 2;
+  }
+  native_.local_scopes[1].profile_status =
+      amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  pool_options_.placement = {IREE_HAL_POOL_PLACEMENT_REQUIRED, PhysicalNode(1)};
+  iree_hal_pool_t* pool = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
+                        CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+  EXPECT_EQ(pool, nullptr);
+  EXPECT_EQ(native_.create_count, 0);
+}
+
+TEST_F(MemoryBackendTest,
+       AutomaticPlacementPrefersQualifiedDeviceLocalStorage) {
+  for (uint32_t i = 0; i < devices_.size(); ++i) {
+    storage_[i][0].memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL;
+    backends_[i].native.storage_count = 2;
+  }
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+  iree_hal_pool_capabilities_t capabilities;
+  iree_hal_pool_query_capabilities(pool, &capabilities);
+  EXPECT_EQ(capabilities.placement.mode, IREE_HAL_POOL_PLACEMENT_REQUIRED);
+  EXPECT_EQ(capabilities.placement.node, PhysicalNode(0));
+  iree_hal_pool_release(pool);
+}
+
+TEST_F(MemoryBackendTest, SystemScopeCannotPromisePhysicalPlacement) {
+  pool_options_.placement = {IREE_HAL_POOL_PLACEMENT_REQUIRED, PhysicalNode(0)};
+  iree_hal_pool_t* pool = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
+                        CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+  EXPECT_EQ(pool, nullptr);
+  EXPECT_EQ(native_.profile_query_count, 0);
+  EXPECT_EQ(native_.create_count, 0);
+}
+
+TEST_F(MemoryBackendTest, SharedSystemLocalityRequiresEveryNativeConsumer) {
+  // The second consumer can access shared system storage but only publishes
+  // locality facts for its own local scope. Native access qualification must
+  // not imply that system memory is local to that device.
+  storage_[1][0] = storage_[1][1];
+  native_.local_scopes[1].profile_status =
+      amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+  iree_hal_pool_capabilities_t capabilities;
+  iree_hal_pool_query_capabilities(pool, &capabilities);
+  EXPECT_TRUE(iree_all_bits_set(capabilities.memory_type,
+                                IREE_HAL_MEMORY_TYPE_HOST_LOCAL));
+  EXPECT_TRUE(iree_all_bits_set(capabilities.memory_type,
+                                IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE));
+  EXPECT_FALSE(iree_all_bits_set(capabilities.memory_type,
+                                 IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL));
+  iree_hal_pool_release(pool);
+}
+
+TEST_F(MemoryBackendTest, PreferredPlacementReportsAchievedBacking) {
+  for (auto& backend : backends_) {
+    backend.native.storage_count = 2;
+  }
+  pool_options_.placement = {IREE_HAL_POOL_PLACEMENT_PREFERRED,
+                             PhysicalNode(1)};
+  for (const auto native_status :
+       {AMDF_STATUS_OK, amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)}) {
+    SCOPED_TRACE(native_status);
+    native_.local_scopes[1].profile_status = native_status;
+    iree_hal_pool_t* pool = nullptr;
+    IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+    iree_hal_pool_capabilities_t capabilities;
+    iree_hal_pool_query_capabilities(pool, &capabilities);
+    EXPECT_EQ(capabilities.placement.mode,
+              native_status == AMDF_STATUS_OK
+                  ? IREE_HAL_POOL_PLACEMENT_REQUIRED
+                  : IREE_HAL_POOL_PLACEMENT_AUTOMATIC);
+    if (native_status == AMDF_STATUS_OK) {
+      EXPECT_EQ(capabilities.placement.node, PhysicalNode(1));
+    }
+    iree_hal_buffer_t* buffer = nullptr;
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        pool, iree_hal_make_pool_reservation_request(64, 64),
+        iree_infinite_timeout(), &buffer));
+    EXPECT_EQ(native_.created_scope, native_status == AMDF_STATUS_OK
+                                         ? storage_[1][1].scope
+                                         : native_.scope());
+    iree_hal_buffer_release(buffer);
+    iree_hal_pool_release(pool);
+  }
+  iree_hal_memory_maintenance_call(maintenance_, +[](void*) {}, nullptr);
 }
 
 TEST_F(MemoryBackendTest, OneDeviceCanPublishSeveralAddressInterfaces) {

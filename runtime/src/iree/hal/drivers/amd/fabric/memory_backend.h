@@ -43,22 +43,36 @@ typedef struct iree_hal_amd_fabric_memory_family_t {
   const iree_hal_amd_fabric_memory_binding_t* bindings;
 } iree_hal_amd_fabric_memory_family_t;
 
+// One native storage choice published by its existing allocation owner.
+// The device group dominates the scope and its owner. These immutable facts
+// describe placement independently of the families that can access the storage;
+// the native profile query qualifies the complete requested consumer set.
+typedef struct iree_hal_amd_fabric_memory_storage_t {
+  // Borrowed scope owned by the native instance or this device's endpoint.
+  amdf_memory_scope_t* scope;
+  // Exact physical-device affinity where allocation is enforced, or zero when
+  // the native allocator makes no physical placement guarantee.
+  iree_hal_physical_device_affinity_t physical_device_affinity;
+  // Conservative locality properties shared by every profile in this scope.
+  iree_hal_memory_type_t memory_type;
+} iree_hal_amd_fabric_memory_storage_t;
+
 // Borrowed native facts captured by an engine during device construction.
-// The device group dominates all owners. Sharing an API and scope identifies
-// one construction domain; an independent native instance cannot join it.
+// The device group dominates all owners. Sharing an API and instance identifies
+// one construction domain independently of its available storage scopes.
 typedef struct iree_hal_amd_fabric_memory_backend_options_t {
   // Negotiated core API table, independent of any execution extension.
   const amdf_api_t* api;
   // Native instance owning the already-created device and address domains.
   amdf_instance_t* instance;
-  // Native scope used to qualify ordinary backing for the complete access set.
-  amdf_memory_scope_t* scope;
   // Already-created native device admitted by this backend.
   amdf_device_t* device;
   // Ordinary device address domain consumed by the captured families.
   uint32_t address_domain_ordinal;
-  // Conservative locality properties shared by every profile in this scope.
-  iree_hal_memory_type_t memory_type;
+  // Number of immutable storage choices owned by this backend.
+  iree_host_size_t storage_count;
+  // Borrowed storage choices; order breaks equal native preference scores.
+  const iree_hal_amd_fabric_memory_storage_t* storage;
   // Borrowed diagnostic destination for native cleanup failures.
   iree_hal_device_event_sink_t event_sink;
   // Borrowed immutable facts, one per family in HAL family-ordinal order.
