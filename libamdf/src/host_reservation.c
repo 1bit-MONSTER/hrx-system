@@ -184,7 +184,7 @@ static amdf_status_t amdf_host_reservation_prepare(
       access->info = (amdf_memory_reservation_access_info_t){
           .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_ACCESS_INFO,
           .structure_size = sizeof(access->info),
-          .device_id = profile->host.device_id,
+          .device_id = profile->device_id,
           .ordinal = ordinal,
           .mapping_access_ordinal = owner_ordinal,
           .address_domain_ordinal = capabilities->address_domain_ordinal,
@@ -193,7 +193,7 @@ static amdf_status_t amdf_host_reservation_prepare(
           .address = base + bias,
           .byte_length = create_info->byte_length,
           .mapping_granularity = mapping_granularity,
-          .reset_epoch = profile->host.reset_epoch,
+          .reset_epoch = profile->reset_epoch,
       };
     }
   }

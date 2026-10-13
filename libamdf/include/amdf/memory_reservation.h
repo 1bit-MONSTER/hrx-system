@@ -60,8 +60,8 @@ typedef struct amdf_memory_reservation_access_t {
   /// Minimum mapping offset/length unit, or zero for provider policy.
   /// Must be a power-of-two multiple of the native mapping granularity and
   /// divide the reservation length. The returned geometry also satisfies any
-  /// consumers sharing this native mapping group. Host mappings are replaced
-  /// in these units, including on platforms requiring whole-view removal.
+  /// consumers sharing this native mapping group. Independently owned native
+  /// views use these units on platforms requiring whole-view removal.
   uint64_t mapping_granularity;
 } amdf_memory_reservation_access_t;
 

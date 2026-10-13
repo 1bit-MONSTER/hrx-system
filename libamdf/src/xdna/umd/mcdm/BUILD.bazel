@@ -125,6 +125,7 @@ amdf_cc_library(
 amdf_cc_library(
     name = "memory",
     srcs = ["memory.c"],
+    hdrs = ["memory.h"],
     target_compatible_with = MCDM_COMPATIBILITY,
     deps = [
         ":context_state",
@@ -135,6 +136,35 @@ amdf_cc_library(
         "//libamdf/src:allocator",
         "//libamdf/src/platform/windows:host_cache",
         "//libamdf/src/xdna/umd:memory",
+    ],
+)
+
+amdf_cc_library(
+    name = "memory_reservation",
+    srcs = ["memory_reservation.c"],
+    target_compatible_with = MCDM_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        ":memory",
+        ":memory_profile",
+        "//libamdf/src:allocator",
+        "//libamdf/src:memory_reservation",
+        "//libamdf/src:memory_resource",
+    ],
+)
+
+amdf_cc_test(
+    name = "memory_reservation_test",
+    srcs = ["memory_reservation_test.cc"],
+    target_compatible_with = MCDM_COMPATIBILITY,
+    deps = [
+        ":memory",
+        ":memory_reservation",
+        "//libamdf/src:allocator",
+        "//libamdf/src:memory_reservation",
+        "//libamdf/src:memory_resource",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
     ],
 )
 
@@ -178,6 +208,7 @@ amdf_cc_library(
     target_compatible_with = MCDM_COMPATIBILITY,
     deps = [
         ":device_state",
+        ":memory_reservation",
         ":tile_metadata",
         "//libamdf/src:allocator",
         "//libamdf/src/platform/windows:endpoint",

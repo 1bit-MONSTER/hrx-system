@@ -16,11 +16,11 @@ extern "C" {
 typedef struct amdf_memory_reservation_profile_t
     amdf_memory_reservation_profile_t;
 
-// Explicit caller indices selected for one native reservation owner.
+// Explicit caller indices prepared by one native reservation provider.
 typedef struct amdf_memory_reservation_group_t {
   // Number of participating consumers, always nonzero.
   uint32_t access_count;
-  // Borrowed caller ordinals, with the native owner first.
+  // Borrowed caller ordinals in their original order.
   const uint32_t* access_ordinals;
   // Borrowed construction facts indexed by original caller ordinal.
   const amdf_memory_reservation_profile_t* profiles;
@@ -53,10 +53,6 @@ typedef struct amdf_memory_reservation_vtable_t {
 // Native admission establishes that the callback can prepare every page of a
 // qualified source without modifying payload. NULL leaves ordinary CPU faults.
 typedef struct amdf_host_reservation_projection_t {
-  // Identity of the live consumer; zero for the CPU.
-  amdf_device_id_t device_id;
-  // Consumer reset epoch; zero for the CPU.
-  uint64_t reset_epoch;
   // Constant displacement from the process address to the consumer's address.
   uint64_t address_byte_offset;
   // Interpretation of the displaced address.
@@ -73,8 +69,14 @@ typedef struct amdf_host_reservation_projection_t {
 struct amdf_memory_reservation_profile_t {
   // Complete live-domain geometry and permission envelope.
   amdf_memory_reservation_capabilities_t capabilities;
-  // Matching operations prepare consumers together in one native owner.
+  // Matching operations prepare compatible consumers together.
   const amdf_memory_reservation_vtable_t* vtable;
+  // Native device borrowed by prepare; no reference or initialization is taken.
+  void* native_device;
+  // Identity of the live consumer; zero for the CPU.
+  amdf_device_id_t device_id;
+  // Consumer reset epoch; zero for the CPU.
+  uint64_t reset_epoch;
   // Process-page-table projection, used only by the host reservation
   // operations.
   amdf_host_reservation_projection_t host;

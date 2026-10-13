@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "libamdf/src/xdna/umd/memory.h"
+#include "libamdf/src/xdna/umd/mcdm/memory.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -25,8 +25,6 @@ struct amdf_xdna_umd_memory_t {
   amdf_xdna_umd_context_t* context;
   // Context-qualified native backing owned directly by this memory resource.
   amdf_windows_xdna_private_allocation_t private_allocation;
-  // KMT resource owning the allocation, or zero for an ungrouped allocation.
-  D3DKMT_HANDLE resource;
   // KMT physical allocation attached to the XDNA device.
   D3DKMT_HANDLE allocation;
   // VirtualAlloc reservation owned by CREATE, NULL for caller registration.
@@ -50,14 +48,11 @@ static amdf_status_t amdf_windows_xdna_memory_release_native(
     }
     return status;
   }
-  if (memory->resource != 0 || memory->allocation != 0) {
+  if (memory->allocation != 0) {
     D3DKMT_DESTROYALLOCATION2 destroy = {0};
     destroy.hDevice = memory->device->device;
-    destroy.hResource = memory->resource;
-    if (memory->resource == 0) {
-      destroy.phAllocationList = &memory->allocation;
-      destroy.AllocationCount = 1;
-    }
+    destroy.phAllocationList = &memory->allocation;
+    destroy.AllocationCount = 1;
     destroy.Flags.AssumeNotInUse = 1;
     // Synchronous destruction reclaims accepted preparation work even when its
     // CPU wait failed. Host backing outlives OS reclamation; execution
@@ -68,7 +63,6 @@ static amdf_status_t amdf_windows_xdna_memory_release_native(
     if (!amdf_status_is_ok(status)) {
       return status;
     }
-    memory->resource = 0;
     memory->allocation = 0;
     memory->device_address = 0;
   }
@@ -83,34 +77,38 @@ static amdf_status_t amdf_windows_xdna_memory_release_native(
   return AMDF_STATUS_OK;
 }
 
-static amdf_status_t amdf_windows_xdna_memory_create_allocation(
-    amdf_xdna_umd_memory_t* memory) {
+amdf_status_t amdf_windows_xdna_memory_register_pages(
+    amdf_xdna_umd_device_t* device, void* pointer, uint64_t byte_length,
+    D3DKMT_HANDLE* allocation) {
   D3DDDI_ALLOCATIONINFO2 allocation_info = {0};
-  allocation_info.pSystemMem = memory->host_pointer;
+  allocation_info.pSystemMem = pointer;
   allocation_info.VidPnSourceId = D3DDDI_ID_UNINITIALIZED;
 
   D3DKMT_CREATESTANDARDALLOCATION standard_allocation = {0};
   standard_allocation.Type = D3DKMT_STANDARDALLOCATIONTYPE_EXISTINGHEAP;
-  standard_allocation.ExistingHeapData.Size =
-      (D3DKMT_SIZE_T)memory->byte_length;
+  standard_allocation.ExistingHeapData.Size = (D3DKMT_SIZE_T)byte_length;
 
   D3DKMT_CREATEALLOCATION create = {0};
-  create.hDevice = memory->device->device;
+  create.hDevice = device->device;
   create.pStandardAllocation = &standard_allocation;
   create.NumAllocations = 1;
   create.pAllocationInfo2 = &allocation_info;
   create.Flags.StandardAllocation = 1;
   create.Flags.ExistingSysMem = 1;
   amdf_status_t status =
-      amdf_kmt_make_status(memory->device->kmt->create_allocation(&create));
+      amdf_kmt_make_status(device->kmt->create_allocation(&create));
   if (amdf_status_is_ok(status)) {
-    memory->resource = create.hResource;
-    memory->allocation = allocation_info.hAllocation;
-    if (memory->allocation == 0) {
+    *allocation = allocation_info.hAllocation;
+    if (*allocation == 0) {
       status = amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL);
     }
   }
   return status;
+}
+
+void* amdf_windows_xdna_memory_mapping_source(amdf_xdna_umd_memory_t* memory,
+                                              uint64_t byte_offset) {
+  return (uint8_t*)memory->host_pointer + byte_offset;
 }
 
 static amdf_status_t amdf_windows_xdna_memory_map_device_address(
@@ -213,6 +211,14 @@ amdf_status_t amdf_xdna_umd_device_query_memory_profile(
   const amdf_status_t status = amdf_windows_xdna_query_memory_profile(
       device->profile, memory_profile_ordinal, out_profile);
   if (amdf_status_is_ok(status)) {
+    // Ordinary allocations and registrations already own stable host pages;
+    // independent reservation views can register those pages without taking
+    // ownership of this allocation or changing its canonical device address.
+    if (device->kmt->reserve_gpu_virtual_address != NULL &&
+        device->kmt->free_gpu_virtual_address != NULL) {
+      out_profile->guaranteed_flags |= AMDF_MEMORY_FLAG_MAPPING_SOURCE;
+      out_profile->supported_flags |= AMDF_MEMORY_FLAG_MAPPING_SOURCE;
+    }
     out_profile->visibility.describe_site = amdf_xdna_umd_memory_describe_site;
     out_profile->visibility.describe_host = amdf_xdna_umd_memory_describe_host;
     out_profile->visibility.data = device;
@@ -407,7 +413,8 @@ amdf_status_t amdf_xdna_umd_memory_prepare(
     }
   }
   if (amdf_status_is_ok(status)) {
-    status = amdf_windows_xdna_memory_create_allocation(memory);
+    status = amdf_windows_xdna_memory_register_pages(
+        device, memory->host_pointer, byte_length, &memory->allocation);
   }
   if (amdf_status_is_ok(status)) {
     status = amdf_windows_xdna_memory_map_device_address(

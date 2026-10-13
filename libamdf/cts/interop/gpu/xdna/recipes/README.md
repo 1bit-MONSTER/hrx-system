@@ -77,6 +77,29 @@ Queue destruction precedes release of reachable backing. XDNA instruction
 storage and context outlive its queue; registered CPU storage outlives its
 attachments. A failed native release stops destruction of dependent owners.
 
+## Stable-address replacement
+
+`FabricReservationTest` reserves CPU, GPU and NPU address ranges, then replaces
+their backing while retaining the same finite GPU streams and NPU command.
+CPU writes through its stable view, GPU ingress fills the other input, the NPU
+computes the products, and GPU egress captures the result before CPU validation.
+Every epoch checks both complete retained backings, including old locations and
+untouched neighbors. Checked whole-group detach and refill preserve the reserved
+addresses. A separate first-writer case leaves output untouched before NPU use.
+
+Source selection queries joint mapping-source eligibility. A joint allocation
+with host-alias support supplies every projection directly. Otherwise, a joint
+registration over caller-owned host-alias backing supplies the device views;
+the CPU view names that explicit host owner. This selection occurs before any
+allocation, not as recovery from a failed native operation.
+
+The returned mapping-group ordinals determine which projections update together.
+Linux SVA shares CPU/NPU translations; Windows updates independent CPU, GPU and
+NPU translations of the same physical pages. Permission tests exercise that
+distinction. The shared-translation rejection case applies only when a CPU
+update would also modify the NPU's page tables. Native and two-MiB caller units
+run through both process and instance lifetimes.
+
 ## Resident exchange
 
 `ResidentGpuXdnaTest.RegisteredCausalRoundTrip` runs one GPU invocation and one
