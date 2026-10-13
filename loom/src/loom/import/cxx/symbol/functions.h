@@ -18,6 +18,7 @@
 #include "loom/import/cxx/binding/config.h"
 #include "loom/import/cxx/binding/fastmath.h"
 #include "loom/import/cxx/binding/function_contracts.h"
+#include "loom/import/cxx/binding/function_imports.h"
 #include "loom/import/cxx/binding/intrinsics.h"
 #include "loom/import/cxx/binding/launch.h"
 #include "loom/import/cxx/binding/parameter_contracts.h"
@@ -25,6 +26,7 @@
 #include "loom/import/cxx/binding/template_definitions.h"
 #include "loom/import/cxx/source/locations.h"
 #include "loom/import/cxx/symbol/names.h"
+#include "loom/import/cxx/value/signature.h"
 #include "loom/import/cxx/value/types.h"
 
 namespace loom::cxx_import {
@@ -87,6 +89,7 @@ class Functions {
         configs_(configs),
         fastmath_(fastmath),
         function_contracts_(function_contracts),
+        function_imports_(unit, diagnostics),
         target_definitions_(target_definitions),
         template_definitions_(template_definitions),
         names_(names),
@@ -95,9 +98,8 @@ class Functions {
   // Selects explicit qualified roots or externally visible concrete
   // definitions. Called once before translating the pending worklist.
   void select(std::span<const iree_string_view_t> roots);
-  // Retains one identity and queues a newly reached source function exactly
-  // once. The caller has admitted a concrete definition through selection or
-  // definition().
+  // Retains one identity and queues a newly reached source definition or
+  // bodyless namespace declaration exactly once.
   loom_symbol_ref_t declare(cxx::FunctionSymbol* function,
                             cxx::AST* owner = nullptr);
   // Returns the concrete definition retained for a semantic declaration, or
@@ -107,6 +109,9 @@ class Functions {
   bool is_check_case(cxx::FunctionSymbol* function) const;
   // Whether the declaration owns a check case or scenario record.
   bool is_check_record(cxx::FunctionSymbol* function) const;
+  // Emits reachable bodyless declarations after recursive body discovery.
+  void build_declarations(Types& types, Locations& locations,
+                          loom_builder_t* builder);
   // Emits benchmark records referencing selected records after body projection.
   void build_benchmarks(Locations& locations, loom_builder_t* builder);
   // Discovery order grows as declare reaches helpers. Spans are invalidated by
@@ -128,6 +133,11 @@ class Functions {
   loom_symbol_ref_t create_symbol(cxx::FunctionSymbol* function,
                                   cxx::AST* source);
   loom_symbol_ref_t retain(cxx::FunctionSymbol* function, cxx::AST* owner);
+  BoundSignature bind_callable_signature(
+      cxx::FunctionSymbol* symbol, cxx::AST* source, Types& types,
+      loom_builder_t* builder, std::vector<loom_type_t>& arguments,
+      std::vector<loom_type_t>& results,
+      std::vector<loom_predicate_t>& predicates);
   void collect(cxx::List<cxx::DeclarationAST*>* declarations,
                DeclarationScope scope,
                std::vector<cxx::FunctionSymbol*>& definitions);
@@ -151,6 +161,8 @@ class Functions {
   FastMathContracts& fastmath_;
   // Callable predicates reconciled by semantic source identity.
   FunctionContracts& function_contracts_;
+  // Runtime service bindings reconciled across bodyless redeclarations.
+  FunctionImports function_imports_;
   // Owns source target definitions and function-like bindings to them.
   TargetDefinitions& target_definitions_;
   // Owns target-selected template family provider contracts.
@@ -169,6 +181,14 @@ class Functions {
   };
   // Concrete definitions indexed by canonical semantic declaration identity.
   std::unordered_map<cxx::FunctionSymbol*, cxx::FunctionSymbol*> definitions_;
+  struct FunctionDeclaration {
+    // Semantic declaration supplying the callable signature and parameters.
+    cxx::FunctionSymbol* function;
+    // Declarator owning source location and late type diagnostics.
+    cxx::InitDeclaratorAST* source;
+  };
+  // Namespace prototypes available to satisfy reachable bodyless calls.
+  std::unordered_map<cxx::FunctionSymbol*, FunctionDeclaration> declarations_;
   // Case annotations retained with their original declaration for diagnostics.
   std::unordered_map<cxx::FunctionSymbol*, cxx::AST*> check_cases_;
   struct CheckScenario {
@@ -184,10 +204,14 @@ class Functions {
   // Selected externally visible definitions; other reached helpers stay
   // private.
   std::unordered_set<cxx::FunctionSymbol*> exported_;
+  // Reached bodyless declarations whose names must remain stable for linking.
+  std::unordered_set<cxx::FunctionSymbol*> external_;
   // Each reached source function receives one native identity.
   std::unordered_map<cxx::FunctionSymbol*, loom_symbol_ref_t> callees_;
   // Reachable worklist in deterministic discovery order.
   std::vector<cxx::FunctionSymbol*> pending_;
+  // Reachable bodyless declarations in deterministic discovery order.
+  std::vector<FunctionDeclaration> pending_declarations_;
   // Canonical declarations inherit one exact name borrowed from source text.
   std::unordered_map<cxx::FunctionSymbol*, std::string_view> explicit_names_;
   // Source qualification retained once per reached function.

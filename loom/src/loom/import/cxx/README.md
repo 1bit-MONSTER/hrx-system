@@ -601,8 +601,7 @@ and benchmarks. One annotation on any canonical redeclaration supplies the
 name; repeated identical redeclarations agree, and conflicting names diagnose.
 Source calls and `--root` selection still use C++ names. The attribute changes
 neither visibility nor reachability: a selected root remains public, a reached
-helper remains private, and an unused helper is omitted. Ordinary called
-functions still require C++ definitions during import.
+helper remains private, and an unused helper or bodyless declaration is omitted.
 
 Public overloads, operator functions and concrete template specializations
 require explicit names. An attribute on a primary template, member, local or
@@ -611,6 +610,79 @@ no function symbol to rename. Names contain ASCII letters, digits, `_`, `$`, `.`
 or `-`, with no leading `@`. Functions and configuration values share one Loom
 namespace; conflicting exact names diagnose instead of receiving an automatic
 suffix.
+
+## Translation-unit and runtime imports
+
+A called namespace-scope prototype becomes an ordinary High `func.decl` when
+the translation unit does not provide its definition. This is the C++ surface
+for Loom's existing module boundary: compile each `.cxx` file to `.loombc`, then
+let `loom-link` resolve declarations against definitions from the other input
+modules.
+
+For example, a provider can export an exact Loom identity:
+
+```cpp
+[[loom::symbol("library.adjust")]]
+unsigned adjust(unsigned value) { return value * 3u + 1u; }
+```
+
+A separately imported consumer uses an ordinary C++ declaration and call:
+
+```cpp
+[[loom::symbol("library.adjust")]] unsigned adjust(unsigned value);
+
+unsigned apply_adjustment(unsigned value) {
+  return adjust(value);
+}
+```
+
+The consumer contains `func.call @library.adjust` and
+`func.decl @library.adjust`; linking replaces the declaration with the provider
+definition. Non-overloaded external names derive from their qualified C++ names.
+Overloads, operators and template specializations need `loom::symbol` because a
+stable cross-module identity cannot depend on reachability or declaration order.
+
+`loom::import` binds a bodyless function to a runtime module or service instead
+of another Loom definition. The first string names the service. An optional
+second string names its external function; omitting it reuses the local Loom
+symbol name.
+
+```cpp
+#include <loomcxx/index.h>
+
+class [[loom::type("hal.buffer")]] Buffer {};
+
+[[loom::import("hal", "buffer.length")]]
+loom::type::index length(Buffer buffer);
+
+[[loom::import("trace")]] void consume_length(loom::type::index value);
+
+loom::type::index inspect(Buffer buffer) {
+  auto value = length(buffer);
+  consume_length(value);
+  return value;
+}
+```
+
+This imports through the same typed call path:
+
+```loom
+func.def public @inspect(%buffer: hal.buffer) -> (index) {
+  %value = func.call @length(%buffer) : (hal.buffer) -> (index)
+  func.call @consume_length(%value) : (index)
+  func.return %value : index
+}
+
+func.decl import("hal", "buffer.length") @length(%buffer: hal.buffer) -> (index)
+func.decl import("trace") @consume_length(%value: index)
+```
+
+The C++ importer does not know what `hal`, `trace` or any other service means.
+It preserves generic function import metadata, scalar and opaque dialect types,
+flattened records, and dependent view shapes. Linking and target lowering own
+resolution and the physical ABI. Import annotations require nonempty string
+literals on bodyless functions with external linkage; conflicting
+redeclarations diagnose during source admission.
 
 ## Kernel pointer contracts
 
@@ -705,11 +777,14 @@ or command-line inputs. `iree-test-loom` and `iree-benchmark-loom` both apply
 `--config=tuning.factor=5` when compiling called functions as well as kernels.
 
 Config values work in ordinary arithmetic, branches, loop bounds and scheduling
-attributes:
+attributes. Native index configs keep shape and schedule values in Loom's index
+domain without integer widening or `index.cast` noise:
 
 ```cpp
-[[loom::config("tuning.unroll")]] extern const unsigned unroll;
-[[loom::config("tuning.depth")]] extern const unsigned depth;
+#include <loomcxx/index.h>
+
+[[loom::config("tuning.unroll")]] extern const loom::type::index unroll;
+[[loom::config("tuning.depth")]] extern const loom::type::index depth;
 
 unsigned sum(const unsigned* input, unsigned count) {
   unsigned total = 0;
@@ -720,6 +795,10 @@ unsigned sum(const unsigned* input, unsigned count) {
   return total;
 }
 ```
+
+These declarations become `config.decl ... : index`, and the resulting
+`config.get` values feed `scf.for` scheduling operands directly. Predicate
+arguments on an index config accept ordinary integral or enum constants.
 
 An attributed constant definition supplies an exact value:
 
@@ -745,10 +824,13 @@ unresolved module again.
 Bindings require a leading `[[loom::config("key")]]` attribute on every
 declaration and definition, including redeclarations. Keys are explicit,
 nonempty Loom symbol spellings without `@`. Different source names with the same
-key share one binding; their source types and any exact definitions must agree. Boolean, integer,
-floating-point and enum scalars retain their source representations. Mutable,
-volatile, thread-local, local, member, pointer and aggregate bindings produce
-source diagnostics. Configs are values without addressable storage.
+key share one binding; their source types and any exact definitions must agree.
+Boolean, integer, floating-point and enum scalars retain their source
+representations; `loom::type::index` retains the native index representation.
+An exact index definition uses explicit constant construction, such as
+`const loom::type::index tile{64}`. Mutable, volatile, thread-local, local,
+member, pointer and aggregate bindings produce source diagnostics. Configs are
+values without addressable storage.
 
 An unresolved setting is not a C++ constant expression. Template arguments,
 `constexpr` initializers, `static_assert` and fixed type extents still require
@@ -2327,8 +2409,8 @@ header APIs, and direct API tests that do not link the aggregate importer.
 | `source/` | One configured frontend invocation, provider and diagnostic handling, immutable facade lookup, and source locations copied into the output module. |
 | `value/` | Source type/layout projection, scalar/vector SSA and buffer/origin representations, arithmetic, and memory access construction from already evaluated operands. |
 | `control/` | An immutable analysis of ordered source writes, function/iteration exits and fallthrough, and nonwrapping counted-loop eligibility. This package has no IR dependency. |
-| `binding/` | Admission and construction for generated operation bindings, named scalar configs, kernel launch contracts, and explicit loop schedules. |
-| `symbol/` | Root selection, reachable function identities, deterministic naming, and native function definitions with explicit body contracts. |
+| `binding/` | Admission and construction for generated operation bindings, runtime imports, named scalar configs, kernel launch contracts, and explicit loop schedules. |
+| `symbol/` | Root selection, reachable function identities, deterministic linkage names, and native function declarations or definitions with explicit contracts. |
 
 `import.cc` owns the native API's validation, exception boundary, module
 ownership, and final verification. `translation.cc` composes the packages: it

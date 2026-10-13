@@ -252,6 +252,10 @@ void Functions::collect(cxx::DeclarationAST* declaration,
       if (function) {
         intrinsics_.declaration(function, simple->attributeList, declarator);
         launches_.declaration(function, simple->attributeList);
+        if (!function->isTemplatePattern()) {
+          declarations_.try_emplace(function->canonical(),
+                                    FunctionDeclaration{function, declarator});
+        }
       }
       auto* variable =
           cxx::symbol_cast<cxx::VariableSymbol>(declarator->symbol);
@@ -279,6 +283,7 @@ bool Functions::admit_declaration(
                  cxx::ast_cast<cxx::FunctionDefinitionAST>(owner)) {
     source_declarator = definition->declarator;
   }
+  function_imports_.declaration(function, attributes, owner);
   if (source_declarator) {
     auto* prototype =
         function ? cxx::getFunctionPrototype(source_declarator) : nullptr;
@@ -288,6 +293,25 @@ bool Functions::admit_declaration(
       parameter_contracts_.declaration(function, prototype);
       fastmath_.declaration(function, attributes, prototype);
       function_contracts_.declaration(function, prototype);
+      if (const auto* import = function_imports_.lookup(function);
+          import && (cxx::ast_cast<cxx::FunctionDefinitionAST>(owner) ||
+                     definitions_.contains(function->canonical()))) {
+        diagnostics_.reject(unit_, import->source,
+                            "import bindings require bodyless functions");
+      }
+      if (const auto* import = function_imports_.lookup(function);
+          import &&
+          (annotated(function, "kernel") || annotated(function, "op") ||
+           annotated(function, "assume") || annotated(function, "check_case") ||
+           annotated(function, "check_scenario") ||
+           annotated(function, "check_benchmark") ||
+           annotated(function, "template_def") ||
+           annotated(function, "priority") ||
+           annotated(function, "force_inline"))) {
+        diagnostics_.reject(
+            unit_, import->source,
+            "import bindings require ordinary non-inline functions");
+      }
     }
   }
   reject_misplaced_binding_attributes(unit_, diagnostics_, attributes,
@@ -567,6 +591,24 @@ loom_symbol_ref_t Functions::retain(cxx::FunctionSymbol* function,
         "cannot be selected or called");
   }
   auto* body = definition(function);
+  if (!body) {
+    auto found = declarations_.find(function->canonical());
+    if (found == declarations_.end()) {
+      diagnostics_.reject(
+          unit_, owner,
+          "call requires a concrete namespace-scope function declaration");
+    }
+    const auto& declaration = found->second;
+    if (cxx::has_internal_linkage(declaration.function)) {
+      diagnostics_.reject(
+          unit_, owner,
+          "called function with internal linkage requires a definition");
+    }
+    external_.insert(function->canonical());
+    auto callee = create_symbol(declaration.function, declaration.source);
+    pending_declarations_.push_back(declaration);
+    return callee;
+  }
   // Reaching a specialization through a kernel launch need not odr-use its
   // body in C++. Importing it still requires the completed semantic definition.
   if (body->hasPendingBody()) {
@@ -595,7 +637,8 @@ loom_symbol_ref_t Functions::create_symbol(cxx::FunctionSymbol* function,
   if (auto found = explicit_names_.find(function->canonical());
       found != explicit_names_.end()) {
     spelling = found->second;
-  } else if (exported_.contains(function)) {
+  } else if (exported_.contains(function) ||
+             external_.contains(function->canonical())) {
     bool overloaded = false;
     for (auto* candidate : function->parent()->find(function->name())) {
       if (auto* overloads =
@@ -605,9 +648,10 @@ loom_symbol_ref_t Functions::create_symbol(cxx::FunctionSymbol* function,
     }
     if (overloaded || !function->templateArguments().empty() ||
         !cxx::name_cast<cxx::Identifier>(function->name())) {
-      diagnostics_.reject(unit_, source,
-                          "exported overloads, templates and operators require "
-                          "an explicit loom::symbol name");
+      diagnostics_.reject(
+          unit_, source,
+          "linkable overloads, templates and operators require an explicit "
+          "loom::symbol name");
     }
     spelling = function->hasCLinkage() ? cxx::to_string(function->name())
                                        : qualified_name(function);
@@ -617,9 +661,9 @@ loom_symbol_ref_t Functions::create_symbol(cxx::FunctionSymbol* function,
       }
     }
     if (!is_symbol_name(spelling)) {
-      diagnostics_.reject(unit_, source,
-                          "exported source name requires an explicit "
-                          "loom::symbol spelling");
+      diagnostics_.reject(
+          unit_, source,
+          "linkable source name requires an explicit loom::symbol spelling");
     }
     names_.reserve(spelling, source);
   } else {
@@ -643,6 +687,117 @@ loom_symbol_ref_t Functions::create_symbol(cxx::FunctionSymbol* function,
   return callee;
 }
 
+BoundSignature Functions::bind_callable_signature(
+    cxx::FunctionSymbol* symbol, cxx::AST* source, Types& types,
+    loom_builder_t* builder, std::vector<loom_type_t>& arguments,
+    std::vector<loom_type_t>& results,
+    std::vector<loom_predicate_t>& predicates) {
+  auto* signature = cxx::type_cast<cxx::FunctionType>(symbol->type());
+  if (!signature || signature->isVariadic()) {
+    diagnostics_.reject(unit_, source, "variadic functions are not admitted");
+  }
+  for (const auto& contract : parameter_contracts_.get(symbol)) {
+    if (contract.alignment.source) {
+      diagnostics_.reject(
+          unit_, contract.alignment.source,
+          "assume_aligned on ordinary helper parameters requires "
+          "pointer-origin alignment support; kernel parameters are supported");
+    }
+    if (contract.noalias_source) {
+      diagnostics_.reject(
+          unit_, contract.noalias_source,
+          "noalias on ordinary helper parameters requires scoped alias "
+          "contracts; kernel parameters are supported");
+    }
+  }
+  std::vector<const cxx::Type*> sources;
+  auto parameters = symbol->parameters();
+  const bool returns_void =
+      signature->returnType()->kind() == cxx::TypeKind::kVoid;
+  sources.reserve(parameters.size() + !returns_void);
+  size_t argument_count = 0;
+  for (auto* parameter : parameters) {
+    auto* value_type = types.unqualified(parameter->type());
+    sources.push_back(value_type);
+    argument_count += types.partition(value_type, source).component_count;
+  }
+  if (!returns_void) {
+    sources.push_back(signature->returnType());
+  }
+  const bool has_predicates = function_contracts_.has_predicates(symbol);
+  auto callable = bind_signature(
+      types, sources, source, builder,
+      has_predicates ? SignatureIdentityRequirement::Required
+                     : SignatureIdentityRequirement::DependentTypes);
+  arguments.assign(callable.types.begin(),
+                   callable.types.begin() + argument_count);
+  results.assign(callable.types.begin() + argument_count, callable.types.end());
+  predicates =
+      function_contracts_.bind(symbol, types, callable.identities,
+                               FunctionContractSignature::Flattened, source);
+  return callable;
+}
+
+void Functions::build_declarations(Types& types, Locations& locations,
+                                   loom_builder_t* builder) {
+  for (const auto& declaration : pending_declarations_) {
+    auto* symbol = declaration.function;
+    auto* source = declaration.source;
+    launches_.reject_ordinary_function(symbol);
+    if (function_contracts_.has_requirements(symbol)) {
+      diagnostics_.reject(
+          unit_, source,
+          "target requirements require a template family or definition");
+    }
+    if (auto* contract = fastmath_.function_source(symbol)) {
+      diagnostics_.reject(
+          unit_, contract,
+          "bodyless function declarations cannot carry fastmath contracts");
+    }
+    std::vector<loom_type_t> arguments;
+    std::vector<loom_type_t> results;
+    std::vector<loom_predicate_t> predicates;
+    // Dependent type payloads in this signature must outlive the declaration
+    // builder call below.
+    auto bound_signature = bind_callable_signature(
+        symbol, source, types, builder, arguments, results, predicates);
+
+    loom_func_decl_build_flags_t flags = 0;
+    loom_string_id_t import_module = LOOM_STRING_ID_INVALID;
+    loom_string_id_t import_symbol = LOOM_STRING_ID_INVALID;
+    if (const auto* import = function_imports_.lookup(symbol)) {
+      flags |= LOOM_FUNC_DECL_BUILD_FLAG_HAS_IMPORT_MODULE;
+      check(loom_builder_intern_string(builder, view(import->module),
+                                       &import_module));
+      if (import->symbol) {
+        flags |= LOOM_FUNC_DECL_BUILD_FLAG_HAS_IMPORT_SYMBOL;
+        check(loom_builder_intern_string(builder, view(*import->symbol),
+                                         &import_symbol));
+      }
+    }
+    if (annotated(symbol, "device")) {
+      flags |= LOOM_FUNC_DECL_BUILD_FLAG_HAS_CC;
+    }
+    if (annotated(symbol, "force_inline")) {
+      flags |= LOOM_FUNC_DECL_BUILD_FLAG_HAS_INLINE_POLICY;
+    }
+    if (!predicates.empty()) {
+      flags |= LOOM_FUNC_DECL_BUILD_FLAG_HAS_PREDICATES;
+    }
+    loom_op_t* op;
+    check(loom_func_decl_build(
+        builder, flags, /*visibility=*/0, /*retain=*/0, import_module,
+        import_symbol, annotated(symbol, "device") ? LOOM_FUNC_CC_DEVICE : 0,
+        /*purity=*/0, /*temperature=*/0,
+        annotated(symbol, "force_inline") ? LOOM_INLINE_POLICY_INLINE : 0, {},
+        /*abi=*/0, {}, LOOM_STRING_ID_INVALID, {},
+        callees_.at(symbol->canonical()), arguments.data(), arguments.size(),
+        results.data(), results.size(), /*tied_results=*/nullptr,
+        /*tied_result_count=*/0, predicates.data(), predicates.size(),
+        locations.get(source), &op));
+  }
+}
+
 DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
                                   Locations& locations,
                                   loom_builder_t* builder) {
@@ -659,24 +814,6 @@ DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
   bool check_scenario = scenario != check_scenarios_.end();
   auto* template_definition = template_definitions_.lookup(symbol);
   auto parameter_contracts = parameter_contracts_.get(symbol);
-  if (!kernel && !check_case && !check_scenario &&
-      !parameter_contracts.empty()) {
-    for (const auto& contract : parameter_contracts) {
-      if (contract.alignment.source) {
-        diagnostics_.reject(
-            unit_, contract.alignment.source,
-            "assume_aligned on ordinary helper parameters requires "
-            "pointer-origin alignment support; kernel parameters are "
-            "supported");
-      }
-      if (contract.noalias_source) {
-        diagnostics_.reject(
-            unit_, contract.noalias_source,
-            "noalias on ordinary helper parameters requires scoped alias "
-            "contracts; kernel parameters are supported");
-      }
-    }
-  }
   auto* signature = cxx::type_cast<cxx::FunctionType>(symbol->type());
   if (!signature || signature->isVariadic()) {
     diagnostics_.reject(unit_, definition,
@@ -696,6 +833,7 @@ DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
   }
   std::vector<loom_type_t> arguments;
   std::vector<loom_type_t> results;
+  std::vector<loom_predicate_t> predicates;
   std::optional<LaunchConfiguration> launch_configuration;
   BoundSignature callable_signature;
   if (kernel) {
@@ -714,33 +852,10 @@ DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
           launches_.bind_configuration(configuration_symbol, types);
     }
   } else if (!check_case && !check_scenario) {
-    std::vector<const cxx::Type*> sources;
-    sources.reserve(parameters.size() + !returns_void);
-    size_t argument_count = 0;
-    for (auto* parameter : parameters) {
-      auto* value_type = types.unqualified(parameter->type());
-      sources.push_back(value_type);
-      argument_count += types.partition(value_type, definition).component_count;
-    }
-    if (!returns_void) {
-      sources.push_back(signature->returnType());
-    }
-    callable_signature = bind_signature(
-        types, sources, definition, builder,
-        has_predicates ? SignatureIdentityRequirement::Required
-                       : SignatureIdentityRequirement::DependentTypes);
-    arguments.assign(callable_signature.types.begin(),
-                     callable_signature.types.begin() + argument_count);
-    results.assign(callable_signature.types.begin() + argument_count,
-                   callable_signature.types.end());
+    callable_signature = bind_callable_signature(
+        symbol, definition, types, builder, arguments, results, predicates);
   }
   loom_op_t* op;
-  std::vector<loom_predicate_t> predicates;
-  if (!kernel && !check_case && !check_scenario) {
-    predicates = function_contracts_.bind(
-        symbol, types, callable_signature.identities,
-        FunctionContractSignature::Flattened, definition);
-  }
   if (check_case) {
     launches_.reject_ordinary_function(symbol);
     check(loom_check_case_build(

@@ -25,6 +25,12 @@ void reject_misplaced_binding_attributes(
               "symbol bindings require namespace-scope functions "
               "with a leading attribute");
         }
+        if (name == "import" && scope != BindingAttributeScope::Declaration) {
+          diagnostics.reject(
+              unit, attribute,
+              "import bindings require namespace-scope functions "
+              "with a leading attribute");
+        }
         if (name == "config" && scope != BindingAttributeScope::Declaration) {
           diagnostics.reject(unit, attribute,
                              "config bindings require namespace-scope scalar "

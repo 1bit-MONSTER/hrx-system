@@ -16,6 +16,7 @@ loom_check_test_suite(
   SRCS
     "import.cxx-test"
     "source_capture.cxx-test"
+    "vm_import.cxx-test"
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/tooling/test/helper.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/tooling/test/source_capture.h"
@@ -31,6 +32,25 @@ loom_check_compile_tests(
   REGISTERED_SRCS
     "import.cxx-test"
     "source_capture.cxx-test"
+    "vm_import.cxx-test"
+  TARGETS
+    loom::target::vm::core
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/tooling/test/helper.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/tooling/test/source_capture.h"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_check_compile_tests(
+  NAME
+    "vm_import"
+  SRC
+    "vm_import.cxx-test"
+  REGISTERED_SRCS
+    "import.cxx-test"
+    "source_capture.cxx-test"
+    "vm_import.cxx-test"
   TARGETS
     loom::target::vm::core
   DATA

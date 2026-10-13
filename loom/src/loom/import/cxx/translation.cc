@@ -105,6 +105,7 @@ class Translator final : private Initialization::Evaluation {
     for (size_t index = 0; index < functions_.pending().size(); ++index) {
       function(functions_.pending()[index]);
     }
+    functions_.build_declarations(types_, locations_, &builder_);
     functions_.build_benchmarks(locations_, &builder_);
     assembly_fragments_.verify(module_, options_.diagnostic_sink);
   }
@@ -1499,10 +1500,8 @@ class Translator final : private Initialization::Evaluation {
         }
         return *called.value;
       }
-      if (!functions_.definition(function) || annotated(function, "kernel")) {
-        fail(
-            ast,
-            "call must resolve to an owned intrinsic or defined device helper");
+      if (annotated(function, "kernel")) {
+        fail(ast, "kernels require an explicit launch operation");
       }
       auto symbol = functions_.declare(function, ast);
       auto arguments = flatten_arguments();
@@ -2171,11 +2170,11 @@ class Translator final : private Initialization::Evaluation {
           }
           return;
         }
-        if (!function || !functions_.definition(function) ||
-            annotated(function, "kernel")) {
-          fail(
-              ast,
-              "void call requires a defined ordinary function or an intrinsic");
+        if (!function) {
+          fail(ast, "void call must resolve to a function symbol");
+        }
+        if (annotated(function, "kernel")) {
+          fail(ast, "kernels require an explicit launch operation");
         }
         std::vector<loom_value_id_t> arguments;
         for (auto* argument : cxx::ListView{call->expressionList}) {
