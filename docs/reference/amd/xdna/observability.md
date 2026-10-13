@@ -17,6 +17,15 @@ module, clock epoch, transport and result-completion edge determine what it
 measures. Register definitions alone do not establish that an operating-system
 interface permits a host to access those registers directly.
 
+Firmware timing does not require instrumentation inside the tile program.
+`RECORD_TIMER` adds an operation to the controller's instruction stream and
+uses the context's firmware result destination. Firmware diagnostic trace
+observes firmware activity through a separate host-memory channel. Neither
+path requires an application-configured array trace route or S2MM channel.
+Array event trace has those resource requirements because its records travel
+through the array stream network. [Firmware result operations](#firmware-instrumentation),
+[firmware diagnostic transport](#firmware-diagnostic-trace)
+
 ## Timing a tile program
 
 An AIE2P program reads the tile's 64-bit cycle counter with `mov` from `cntr`
@@ -450,8 +459,10 @@ Converting records to durations requires the sampled timer's clock domain,
 frequency history and epoch, including its behavior across idle, power gating,
 reset and independent native lifetimes. Neither the opcode nor the three-word
 result supplies those properties. A frequency written into a trace-file header
-is format metadata, not a device contract. Host correlation still requires
-explicit host bracketing and, for tile work, program-owned `cntr` samples.
+is format metadata, not a device contract. Host correlation needs paired samples
+or an established mapping for the counter actually reported. Correlating
+firmware records does not inherently require tile-program `cntr` samples;
+those belong to a separate observation source and clock relation.
 
 ### Record framing and capture bounds
 
@@ -730,12 +741,28 @@ itself.
 
 ## Firmware diagnostic trace
 
+Firmware event tracing records controller activity without changing the
+application's transaction or tile program. The AIE2 start request selects
+categories, a DRAM destination and the `FW_CHRONO` timestamp mode. The driver
+supplies its own host-memory buffer; application array DMA descriptors and
+trace routes are not part of this request. [Start request][linux-fw-trace-start],
+[message fields][linux-fw-trace-messages]
+
 The Linux firmware diagnostic channel is device-wide, separate from the trace
 streams routed by an application. `SET_FW_TRACE_STATE` enables or configures
 it through the root-only `SET_STATE` ioctl. Configuration queries are
 unprivileged; payload reads require `CAP_SYS_ADMIN`. Multiple readers share
 the channel's state. [IOCTL access][linux-ioctls], [channel
 implementation][linux-dpt]
+
+Enabling the channel does not grant unprivileged payload access. A privileged
+reader can collect the device-wide stream while application processes submit
+work under their ordinary credentials. Native driver and firmware support are
+independent prerequisites: the driver's version history introduces these trace
+ioctls in ABI 0.15, and the cited NPU4 feature table enables firmware trace for
+mailbox protocol 6.19 and later in major 6, or major 7. The protocol revision
+is distinct from the firmware image's build version. [Driver ABI history][linux-driver-version],
+[firmware feature table][linux-fw-trace-features]
 
 Payload reads carry a cursor and can block waiting for new data. `ESTALE`
 reports that a disable/enable cycle invalidated the cursor and returns the new
@@ -745,6 +772,55 @@ reference while waiting. These notifications describe the diagnostic stream,
 not application queue completion. [Payload protocol][linux-uapi], [AIE2 query
 lifetime][linux-aie2-trace-query], [AIE4 query lifetime][linux-aie4-trace-query],
 [runtime PM condition][linux-query-runtime-pm]
+
+### Automatic firmware events
+
+The public Strix event schema describes the following pairs and instantaneous
+events. These identify firmware operations, not arbitrary regions inside a
+resident tile program. [Event schema][firmware-trace-events]
+
+| Events | Attribution in the event payload |
+| --- | --- |
+| `PROCESS_APP_MSG_START`, `PROCESS_APP_MSG_DONE` | A 4-bit firmware context ID and 16-bit application-message opcode. |
+| `PREEMPT_CTRL_START`, `PREEMPT_CTRL_DONE`, `PREEMPT_POINT` | Context ID and control-operation ID. |
+| `PREEMPT_LAYER_START`, `PREEMPT_LAYER_DONE` | Context ID. |
+| `PDI_LOAD_START`, `PDI_LOAD_DONE`, `FAST_PM_START`, `FAST_PM_DONE` | Context ID and the corresponding image address or program-memory ID. |
+| `L2SAVE_START`, `L2SAVE_DONE`, `L2RESTORE_START`, `L2RESTORE_DONE` | Context ID. |
+| `GATE_AIE2_CLKS`, `UNGATE_AIE2_CLKS`, `POWER_OFF_ONO`, `POWER_ON_ONO` | First column and column count. |
+
+The Strix decoder reads a 64-bit timestamp followed by a 64-bit word whose
+upper 16 bits identify the event and lower 48 bits carry its arguments. It
+prints the timestamp unchanged. This representation does not establish a
+nanosecond scale or a relation to the shim timer used by `RECORD_TIMER`.
+[Record decoder][xrt-fw-trace-records], [timestamp formatting][xrt-fw-trace-format]
+
+Application-message records contain no submission sequence or caller marker.
+A command chain can contain several logical dispatches inside one firmware
+message. Their individual boundaries therefore cannot be recovered from that
+message's start/done pair alone. The schema also does not define whether a
+particular message's done event follows array completion or only message
+processing. Attribution and elapsed-time interpretation require the executing
+message's completion contract, the matching context lifetime and intact event
+ordering. [Application-message fields and opcode lookup][firmware-trace-events]
+
+### Ring progress and loss
+
+The cited Linux driver allocates 4 MiB for the trace channel, reserving a
+4 KiB footer. Firmware publishes a 32-bit byte tail; the driver extends observed
+wraps into its 64-bit cursor. A reader can fetch a prefix while production
+continues. If it has fallen behind the retained ring window, the driver moves
+its cursor forward before copying. Comparing the requested cursor with the
+returned cursor minus returned bytes exposes that skipped byte extent.
+[Buffer and footer][linux-dpt-layout], [cursor and copy implementation][linux-dpt-ring]
+
+That cursor gap is not a count of logical dispatches or events lost inside
+firmware. The Strix schema supplies no event sequence field, and the cited
+decoder's local sequence increments while parsing; it supplies no independent
+loss evidence. The driver's copy reads a cached tail once and does not pin the
+producer or recheck its tail after copying. The implementation therefore does
+not establish a stable snapshot when a producer can overwrite the copied
+region during the read. [Decoder sequence][xrt-fw-trace-records],
+[ring copy][linux-dpt-ring]
 
 [cycle-counter]: https://download.amd.com/docnav/aiengine/xilinx2026_1/aiengine_ml_v2_intrinsics/intrinsics/group__intr__counter.html
 [aie-timer-read]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/timer/xaie_timer.c#L327-L407
@@ -813,3 +889,12 @@ lifetime][linux-aie2-trace-query], [AIE4 query lifetime][linux-aie4-trace-query]
 [windows-clock-flags]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_dxgk_gpuclockdata_flags
 [linux-debug-errors]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_ctx.c#L375-L504
 [linux-debug-wait]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_ctx.c#L1118-L1194
+[linux-fw-trace-start]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_message.c#L144-L179
+[linux-fw-trace-messages]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_msg_priv.h#L645-L689
+[linux-driver-version]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_drm.c#L30-L55
+[linux-fw-trace-features]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/npu4_regs.c#L94-L109
+[firmware-trace-events]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/tools/bins/configs/trace_events.json
+[xrt-fw-trace-records]: https://github.com/Xilinx/XRT/blob/5a97d152f6dd93709406e8d7c0eac8bc8407f9f2/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceStrix.cpp#L231-L338
+[xrt-fw-trace-format]: https://github.com/Xilinx/XRT/blob/5a97d152f6dd93709406e8d7c0eac8bc8407f9f2/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceBase.cpp#L154-L167
+[linux-dpt-layout]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_dpt.h#L42-L96
+[linux-dpt-ring]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_dpt.c#L208-L321

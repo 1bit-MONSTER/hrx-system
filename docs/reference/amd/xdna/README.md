@@ -16,6 +16,7 @@ command results.
 | [Heterogeneous pipelines](../interop/pipelines.md) | CPU/GPU/array composition, returned credits, split/join, nested ownership, progress and drain. |
 | [Timing, counters and trace](observability.md) | Tile-clock samples, event counters, stream replies, trace packets and DMA, clock interpretation and diagnostic access. |
 | [Firmware result capture](observability.md#firmware-instrumentation) | `RECORD_TIMER` and `READ_REGS`, context attachment, record framing, collection, visibility and destination reuse. |
+| [Automatic firmware trace](observability.md#firmware-diagnostic-trace) | Command-processing and preemption events without tile instrumentation, privileged native access, timestamp records and live ring cursors. |
 
 Architecture, product and native transport are separate coordinates. AIE2IPU,
 AIE2P, AIE2PS and AIE4 have different register and firmware contracts. Product
