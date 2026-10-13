@@ -411,19 +411,73 @@ iree_hal_amd_gpu_target_identity_parse_artifact_key(
       value, IREE_HAL_AMD_GPU_TARGET_NAME_KIND_TARGET, out_identity);
 }
 
+// Compares the architecture suffix against an already parsed processor. Exact
+// processors use MAJOR.MINORSTEPPING (gfx90a -> 9.0a); generic processors use
+// MAJOR[.MINOR] (gfx9-4-generic -> 9.4). The pieces borrow existing storage.
+static bool iree_hal_amd_gpu_target_processor_matches_architecture(
+    iree_string_view_t processor, iree_string_view_t architecture) {
+  processor = iree_string_view_remove_prefix(processor, 3);
+  iree_string_view_t major = iree_string_view_empty();
+  iree_string_view_t suffix = iree_string_view_empty();
+  if (iree_string_view_consume_suffix(&processor, IREE_SV("-generic"))) {
+    iree_string_view_split(processor, '-', &major, &suffix);
+  } else {
+    major = iree_string_view_remove_suffix(processor, 2);
+    suffix = iree_string_view_substr(processor, major.size, 2);
+  }
+  if (!iree_string_view_consume_prefix(&architecture, major)) {
+    return false;
+  }
+  if (!iree_string_view_is_empty(suffix) &&
+      !iree_string_view_consume_prefix(&architecture, IREE_SV("."))) {
+    return false;
+  }
+  return iree_string_view_equal(architecture, suffix);
+}
+
 IREE_API_EXPORT iree_status_t
 iree_hal_amd_gpu_target_identity_parse_hsa_isa_name(
     iree_string_view_t value,
     iree_hal_amd_gpu_target_identity_t* out_identity) {
   IREE_ASSERT_ARGUMENT(out_identity);
-  if (!iree_string_view_consume_prefix(&value, IREE_SV("amdgcn-amd-amdhsa-")) ||
-      (!iree_string_view_consume_prefix(&value, IREE_SV("-")) &&
-       !iree_string_view_consume_prefix(&value, IREE_SV("unknown-")))) {
+  iree_string_view_t architecture = iree_string_view_empty();
+  iree_string_view_t remaining = iree_string_view_empty();
+  iree_string_view_split(value, '-', &architecture, &remaining);
+  if (!iree_string_view_consume_prefix(&remaining, IREE_SV("amd-amdhsa-")) ||
+      (!iree_string_view_consume_prefix(&remaining, IREE_SV("-")) &&
+       !iree_string_view_consume_prefix(&remaining, IREE_SV("unknown-")))) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "AMDGPU HSA ISA name requires the AMDHSA prefix");
+                            "AMDGPU HSA ISA name '%.*s' requires an AMDHSA "
+                            "triple with an empty or unknown environment",
+                            (int)value.size, value.data);
   }
-  return iree_hal_amd_gpu_target_identity_parse_bare(
-      value, IREE_HAL_AMD_GPU_TARGET_NAME_KIND_PROCESSOR, out_identity);
+  bool has_architecture =
+      !iree_string_view_equal(architecture, IREE_SV("amdgcn"));
+  if (has_architecture &&
+      (!iree_string_view_consume_prefix(&architecture, IREE_SV("amdgpu")) ||
+       iree_string_view_is_empty(architecture))) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "unsupported AMDHSA architecture in '%.*s'",
+                            (int)value.size, value.data);
+  }
+  IREE_RETURN_IF_ERROR(iree_hal_amd_gpu_target_identity_parse_bare(
+      remaining, IREE_HAL_AMD_GPU_TARGET_NAME_KIND_PROCESSOR, out_identity));
+  if (has_architecture &&
+      !iree_hal_amd_gpu_target_processor_matches_architecture(
+          out_identity->processor, architecture)) {
+    // A family triple may accompany an exact processor, but numeric prefixes
+    // alone do not establish membership (gfx950 belongs to the gfx9-4 family).
+    const iree_hal_amd_gpu_target_mapping_t* mapping =
+        iree_hal_amd_gpu_target_lookup_mapping(out_identity->processor);
+    if (!mapping || !iree_hal_amd_gpu_target_processor_matches_architecture(
+                        mapping->code_object_processor, architecture)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "AMDHSA architecture contradicts processor in "
+                              "'%.*s'",
+                              (int)value.size, value.data);
+    }
+  }
+  return iree_ok_status();
 }
 
 IREE_API_EXPORT bool

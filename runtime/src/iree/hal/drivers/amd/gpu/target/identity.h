@@ -125,7 +125,10 @@ iree_status_t iree_hal_amd_gpu_target_identity_parse_artifact_key(
     iree_string_view_t value, iree_hal_amd_gpu_target_identity_t* out_identity);
 
 // Parses an AMDHSA ISA/target name, including HSA_ISA_INFO_NAME and LLVM code
-// object metadata. The LLVM triple environment may be empty or "unknown".
+// object metadata. Accepts both amdgcn and architecture-qualified amdgpu
+// triples with an empty or "unknown" environment. The architecture must
+// identify the processor or its generic code-object family. Returned views
+// borrow |value|.
 iree_status_t iree_hal_amd_gpu_target_identity_parse_hsa_isa_name(
     iree_string_view_t value, iree_hal_amd_gpu_target_identity_t* out_identity);
 

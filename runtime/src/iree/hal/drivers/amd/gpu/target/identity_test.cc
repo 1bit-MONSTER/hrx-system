@@ -77,6 +77,88 @@ TEST(TargetIdentityTest, AcceptsLlvmUnknownTripleEnvironment) {
   }
 }
 
+TEST(TargetIdentityTest, AcceptsArchitectureQualifiedAmdhsaNames) {
+  struct Case {
+    // Architecture component of the LLVM triple.
+    const char* architecture;
+    // Processor and optional target-ID feature coordinates.
+    const char* processor;
+  };
+  const Case cases[] = {
+      {"amdgpu6.00", "gfx600"},
+      {"amdgpu7.05", "gfx705"},
+      {"amdgpu8.10", "gfx810"},
+      {"amdgpu9.00", "gfx900"},
+      {"amdgpu9.08", "gfx908"},
+      {"amdgpu9.0a", "gfx90a:sramecc+:xnack-"},
+      {"amdgpu9.0c", "gfx90c"},
+      {"amdgpu9.42", "gfx942:xnack-:sramecc+"},
+      {"amdgpu9.50", "gfx950"},
+      {"amdgpu10.10", "gfx1010"},
+      {"amdgpu10.36", "gfx1036"},
+      {"amdgpu11.00", "gfx1100"},
+      {"amdgpu11.51", "gfx1151"},
+      {"amdgpu11.72", "gfx1172"},
+      {"amdgpu12.01", "gfx1201"},
+      {"amdgpu12.50", "gfx1250"},
+      {"amdgpu13.10", "gfx1310"},
+      {"amdgpu9", "gfx9-generic"},
+      {"amdgpu9.4", "gfx9-4-generic"},
+      {"amdgpu10.1", "gfx10-1-generic"},
+      {"amdgpu10.3", "gfx10-3-generic"},
+      {"amdgpu11", "gfx11-generic"},
+      {"amdgpu11.7", "gfx11-7-generic"},
+      {"amdgpu12", "gfx12-generic"},
+      {"amdgpu12.5", "gfx12-5-generic"},
+      {"amdgpu9", "gfx900"},
+      {"amdgpu9.4", "gfx942"},
+      {"amdgpu9.4", "gfx950"},
+      {"amdgpu10.1", "gfx1013"},
+      {"amdgpu10.3", "gfx1036"},
+      {"amdgpu11", "gfx1151"},
+      {"amdgpu12", "gfx1201"},
+      {"amdgpu12.5", "gfx1251"},
+  };
+  for (const auto& test_case : cases) {
+    auto expected = ParseArtifactIdentity(test_case.processor);
+    for (const char* environment : {"", "unknown"}) {
+      std::string name = std::string(test_case.architecture) + "-amd-amdhsa-" +
+                         environment + "-" + test_case.processor;
+      SCOPED_TRACE(name);
+      iree_hal_amd_gpu_target_identity_t identity;
+      IREE_ASSERT_OK(iree_hal_amd_gpu_target_identity_parse_hsa_isa_name(
+          iree_make_string_view(name.data(), name.size()), &identity));
+      EXPECT_TRUE(iree_hal_amd_gpu_target_identity_equal(&identity, &expected));
+    }
+  }
+}
+
+TEST(TargetIdentityTest, RejectsMalformedOrContradictoryAmdhsaTriples) {
+  for (const char* name : {
+           "gfx1100",
+           "amdgcn-amd-amdhsa-gfx1100",
+           "amdgcn-amd-amdpal--gfx1100",
+           "amdgcn-amd-amdhsa-gnu-gfx1100",
+           "amdgpu-amd-amdhsa--gfx1100",
+           "amdgpu11.-amd-amdhsa--gfx1100",
+           "amdgpu011-amd-amdhsa--gfx1100",
+           "amdgpu11.000-amd-amdhsa--gfx1100",
+           "amdgpu11.00-amd-amdhsa--gfx1101",
+           "amdgpu12-amd-amdhsa--gfx1100",
+           "amdgpu9-amd-amdhsa--gfx90a",
+           "amdgpu9.0a-amd-amdhsa--gfx9-generic",
+           "amdgpu9.5-amd-amdhsa--gfx950",
+           "amdgpu11-amd-amdhsa--gfx1170",
+           "amdgpu12-amd-amdhsa--gfx1250",
+       }) {
+    SCOPED_TRACE(name);
+    iree_hal_amd_gpu_target_identity_t identity;
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          iree_hal_amd_gpu_target_identity_parse_hsa_isa_name(
+                              iree_make_cstring_view(name), &identity));
+  }
+}
+
 TEST(TargetIdentityTest, ProcessorParserDoesNotAcceptOtherCoordinates) {
   iree_hal_amd_gpu_target_identity_t identity = {};
   IREE_ASSERT_OK(iree_hal_amd_gpu_target_identity_parse_processor(
