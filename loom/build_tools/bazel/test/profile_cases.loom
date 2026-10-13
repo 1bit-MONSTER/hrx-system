@@ -6,3 +6,5 @@ check.case public @scalar_case {
   check.expect.equal actual(%actual) expected(%expected) : i32
   check.return
 }
+
+check.benchmark<@scalar_case> @scalar_case_time

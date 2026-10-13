@@ -272,7 +272,7 @@ def _write_test_launcher(ctx, tool, input_file, tool_args):
         "set -euo pipefail\n" +
         "RUNFILES=\"${{RUNFILES_DIR:-$0.runfiles}}\"\n" +
         "cd \"${{RUNFILES}}/{workspace}\"\n" +
-        "exec {environment}\"${{PWD}}/{tool}\" \"${{PWD}}/{input}\"{args}\n"
+        "exec {environment}\"${{PWD}}/{tool}\" \"${{PWD}}/{input}\"{args} \"$@\"\n"
     ).format(
         workspace = ctx.workspace_name,
         tool = tool.executable.short_path,
@@ -305,7 +305,7 @@ def _write_execution_test_launcher(
     ])
     test_command = (
         "{exec_prefix}{test_environment}\"${{PWD}}/{test_tool}\" " +
-        "\"${{PWD}}/{module}\"{test_args}\n"
+        "\"${{PWD}}/{module}\"{test_args} \"$@\"\n"
     ).format(
         exec_prefix = "" if benchmark_tool != None else "exec ",
         module = module.short_path,
@@ -315,9 +315,19 @@ def _write_execution_test_launcher(
     )
     benchmark_command = ""
     if benchmark_tool != None:
+        # Both tools own the execution options, except these correctness-only
+        # inputs. Keep shared overrides in order and let each real parser reject
+        # unsupported arguments; the launcher does not parse option values.
         benchmark_command = (
-            "exec {benchmark_environment}\"${{PWD}}/{benchmark_tool}\" " +
-            "\"${{PWD}}/{module}\"{benchmark_args}\n"
+            "benchmark_command=({benchmark_environment}\"${{PWD}}/{benchmark_tool}\" " +
+            "\"${{PWD}}/{module}\"{benchmark_args})\n" +
+            "for argument in \"$@\"; do\n" +
+            "  case \"${{argument%%=*}}\" in\n" +
+            "    --library|--xfail|--allow-failure) ;;\n" +
+            "    *) benchmark_command+=(\"$argument\") ;;\n" +
+            "  esac\n" +
+            "done\n" +
+            "exec \"${{benchmark_command[@]}}\"\n"
         ).format(
             benchmark_args = benchmark_args,
             benchmark_environment = _tool_environment(benchmark_tool),
@@ -520,6 +530,10 @@ def _loom_binary_test_launcher_impl(ctx):
     content = (
         "#!/usr/bin/env bash\n" +
         "set -euo pipefail\n" +
+        "if [[ \"$#\" -ne 0 ]]; then\n" +
+        "  echo >&2 \"artifact checks do not accept arguments\"\n" +
+        "  exit 2\n" +
+        "fi\n" +
         "RUNFILES=\"${RUNFILES_DIR:-$0.runfiles}\"\n" +
         "cd \"${RUNFILES}/%s\"\n" % ctx.workspace_name +
         "".join([
@@ -959,6 +973,13 @@ def loom_test(
     benchmark smoke is enabled, ``iree-benchmark-loom`` then executes each
     benchmark with one measured iteration and no warmup. A profile with an
     explicit runner delegates the linked module to that runner once.
+
+    Runtime test arguments follow declared arguments, so scalar options can
+    override their defaults. Combined launchers pass runtime arguments to both
+    tools except ``--library``, ``--xfail`` and ``--allow-failure``, which belong
+    only to correctness. A ``--flagfile`` is read by both tools and therefore
+    contains shared options. Other single-tool launchers forward arguments
+    directly, while artifact-presence checks accept none.
 
     Args:
       name: Name of the suite containing all compilation and execution children.
