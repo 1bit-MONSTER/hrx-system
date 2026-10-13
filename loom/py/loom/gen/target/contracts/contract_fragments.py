@@ -72,7 +72,11 @@ def generate_contract_fragment_from_lower_rules(
     descriptor_rule_rows = {
         authored_case_index: CompiledDescriptorRule(rule_index=rule_index)
         for authored_case_index, rule_index in lower_rule_indices.items()
-        if table.cases[authored_case_index].system == ContractSystem.DESCRIPTOR_RULE
+        if table.cases[authored_case_index].system
+        in (
+            ContractSystem.DESCRIPTOR_RULE,
+            ContractSystem.DESCRIPTOR_RULE_LOWERING_ONLY,
+        )
     }
     compiled = compile_contract_fragment(
         table,
@@ -197,7 +201,12 @@ def _generate_source(
         descriptor_matrices_value = descriptor_matrices_name
     else:
         descriptor_matrices_value = "NULL"
-    flags_value = "LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY" if table.target_contract_query else "0"
+    flag_names = []
+    if table.target_contract_query:
+        flag_names.append("LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY")
+    if table.target_query_source_graph:
+        flag_names.append("LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY_SOURCE_GRAPH")
+    flags_value = " | ".join(flag_names) if flag_names else "0"
 
     lines.extend(
         [

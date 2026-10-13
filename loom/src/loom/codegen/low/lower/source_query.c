@@ -98,11 +98,12 @@ static iree_status_t loom_low_lower_source_query_coverage_add_graph(
 static bool loom_low_lower_source_query_case_has_related_nodes(
     const loom_low_lower_contract_query_options_t* options,
     const loom_target_contract_case_t* contract_case) {
-  const loom_target_contract_binding_t* binding =
-      &options->contract_index->bindings[contract_case->binding_index];
-  if (!loom_target_contract_fragment_queries_target(binding->fragment)) {
+  if (!loom_low_lower_contract_case_queries_target(options->contract_index,
+                                                   contract_case)) {
     return false;
   }
+  const loom_target_contract_binding_t* binding =
+      &options->contract_index->bindings[contract_case->binding_index];
   uint16_t rule_index = UINT16_MAX;
   if (!loom_low_lower_contract_case_lower_rule_index(
           options->contract_index, contract_case, &rule_index)) {
@@ -123,9 +124,8 @@ static bool loom_low_lower_source_query_has_related_rules(
     const loom_target_contract_binding_t* binding =
         &options->contract_index->bindings[i];
     if (binding->rule_set_index < options->rule_sets.count &&
-        loom_target_contract_fragment_queries_target(binding->fragment) &&
-        options->rule_sets.values[binding->rule_set_index]->source_node_count !=
-            0) {
+        loom_target_contract_fragment_queries_source_graphs(
+            binding->fragment)) {
       return true;
     }
   }

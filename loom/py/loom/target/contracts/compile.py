@@ -73,6 +73,7 @@ class CompiledContractFragment:
     cases: tuple[CompiledCase, ...]
     descriptor_rules: tuple[CompiledDescriptorRule, ...]
     descriptor_matrices: tuple[CompiledDescriptorMatrix, ...]
+    target_query_source_graph: bool = False
 
 
 class CompiledIndexCase(NamedTuple):
@@ -220,6 +221,14 @@ def compile_contract_fragment(
         cases=tuple(compiled_cases),
         descriptor_rules=tuple(descriptor_rules),
         descriptor_matrices=tuple(descriptor_matrices),
+        target_query_source_graph=table.target_contract_query
+        and any(
+            isinstance(contract_case, DescriptorRule)
+            and contract_case.target_query
+            and contract_case.source_nodes
+            and authored_case_index in lower_rule_indices
+            for authored_case_index, contract_case in enumerate(table.cases)
+        ),
     )
 
 
@@ -233,7 +242,7 @@ def _compile_case(
     priority = contract_case_priority(contract_case)
     if isinstance(contract_case, DescriptorRule):
         return CompiledCase(
-            system=ContractSystem.DESCRIPTOR_RULE,
+            system=contract_case.system,
             row_index=descriptor_rule_index,
             priority=priority,
         )

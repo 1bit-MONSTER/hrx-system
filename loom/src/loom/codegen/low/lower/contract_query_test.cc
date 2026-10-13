@@ -486,26 +486,44 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleSelectsLegalCase) {
   EXPECT_EQ(result.selected_descriptor, &kDescriptor);
 }
 
-TEST(LowContractQueryTest, LoweringVisitorIncludesNonQueryFragment) {
+TEST(LowContractQueryTest, LoweringVisitorIncludesNonQueryCases) {
   loom_low_lower_rule_t rule = {};
   loom_low_lower_rule_set_t rule_set = {
       .rules = &rule,
       .rule_count = 1,
   };
-  const loom_low_lower_rule_set_t* rule_sets[] = {&rule_set};
+  const loom_low_lower_rule_set_t* rule_sets[] = {&rule_set, &rule_set};
 
-  const loom_target_contract_fragment_t fragment = {};
-  const loom_target_contract_binding_t binding = {
-      .fragment = &fragment,
-      .rule_set_index = 0,
+  const loom_target_contract_descriptor_rule_t descriptor_rule = {
+      .rule_index = 0,
   };
-  const loom_target_contract_case_t contract_case = {
-      .system = LOOM_TARGET_CONTRACT_SYSTEM_VALUE_ELIDE,
-      .binding_index = 0,
-      .row_index = 0,
+  const loom_target_contract_fragment_t fragments[] = {
+      {},
+      {
+          .flags = LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY,
+          .descriptor_rule_count = 1,
+          .descriptor_rules = &descriptor_rule,
+      },
   };
-  const SingleOpContract<kSourceOpKind> contract(&contract_case, 1, &binding,
-                                                 1);
+  const loom_target_contract_binding_t bindings[] = {
+      {.fragment = &fragments[0], .rule_set_index = 0},
+      {.fragment = &fragments[1], .rule_set_index = 1},
+  };
+  const loom_target_contract_case_t contract_cases[] = {
+      {
+          .system = LOOM_TARGET_CONTRACT_SYSTEM_VALUE_ELIDE,
+          .binding_index = 0,
+          .row_index = 0,
+      },
+      {
+          .system = LOOM_TARGET_CONTRACT_SYSTEM_DESCRIPTOR_RULE_LOWERING_ONLY,
+          .binding_index = 1,
+          .row_index = 0,
+      },
+  };
+  const SingleOpContract<kSourceOpKind> contract(
+      contract_cases, IREE_ARRAYSIZE(contract_cases), bindings,
+      IREE_ARRAYSIZE(bindings));
   const loom_low_lower_contract_query_options_t options = {
       .contract_index = contract.index(),
       .rule_sets =
@@ -537,7 +555,7 @@ TEST(LowContractQueryTest, LoweringVisitorIncludesNonQueryFragment) {
                const loom_low_lower_contract_case_match_t* match,
                bool* out_stop) -> iree_status_t {
         auto* state = static_cast<VisitState*>(user_data);
-        EXPECT_EQ(case_index, 0);
+        EXPECT_LT(case_index, 2);
         EXPECT_EQ(match->kind, LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_LOWER_RULE);
         EXPECT_EQ(match->selection.rule, state->expected_rule);
         ++state->count;
@@ -551,7 +569,7 @@ TEST(LowContractQueryTest, LoweringVisitorIncludesNonQueryFragment) {
       LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES,
       LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_ALL, &match_context, callback,
       /*out_used_candidate_index=*/nullptr));
-  EXPECT_EQ(lowering_state.count, 1);
+  EXPECT_EQ(lowering_state.count, 2);
 
   loom_low_lower_contract_case_callback_t target_query_callback = callback;
   target_query_callback.user_data = &target_query_state;

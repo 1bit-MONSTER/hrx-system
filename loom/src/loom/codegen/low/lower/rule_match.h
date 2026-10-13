@@ -130,6 +130,9 @@ struct loom_low_lower_rule_match_context_t {
   // supplies one for the source operation's region; standalone queries omit it
   // and conservatively reject consumption-dependent optimization guards.
   loom_consumption_region_query_t* consumption_query;
+  // Optional first related source operation retained while matching the exact
+  // single-rule graph candidate that established it.
+  const loom_op_t* resolved_first_source_node;
   // Match behavior flags.
   loom_low_lower_rule_match_flags_t flags;
   // One-based policy rule-set ordinal supplied by composed contract selection;
@@ -195,13 +198,14 @@ bool loom_low_lower_rule_selections_have_same_source_graph(
     const loom_low_lower_rule_selection_t* lhs,
     const loom_low_lower_rule_selection_t* rhs);
 
-// Returns true when the first related node of |rule| resolves from |source_op|.
-// This is an exact necessary condition used to prune source-graph candidates;
-// full matching still resolves every node and evaluates every guard.
-bool loom_low_lower_rule_first_source_node_matches(
+// Resolves the first related node of |rule| from |source_op|. This is an exact
+// necessary condition used to prune source-graph candidates. Callers may retain
+// the result in the match context for the authoritative match; every related
+// node guard is still evaluated there.
+bool loom_low_lower_rule_resolve_first_source_node(
     const loom_low_lower_rule_match_context_t* match_context,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
-    const loom_low_lower_rule_t* rule);
+    const loom_low_lower_rule_t* rule, const loom_op_t** out_source_node);
 
 // Initializes a rule match context backed by a mutable lowering context.
 // |source_memory_state| retains the canonical source-memory plan across every

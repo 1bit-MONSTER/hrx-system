@@ -288,6 +288,8 @@ enum loom_target_contract_system_e {
   // Explicit target rejection for an operation family with no matching native
   // case. Reference legalization may rewrite the operation before lowering.
   LOOM_TARGET_CONTRACT_SYSTEM_UNSUPPORTED = 8,
+  // Descriptor-rule row used only by source-to-Low planning and emission.
+  LOOM_TARGET_CONTRACT_SYSTEM_DESCRIPTOR_RULE_LOWERING_ONLY = 9,
 };
 
 #define LOOM_TARGET_CONTRACT_ROW_NONE ((uint16_t)UINT16_MAX)
@@ -359,6 +361,9 @@ enum loom_target_contract_fragment_flag_bits_e {
   // Fragment cases participate in read-only target contract queries.
   LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY =
       (loom_target_contract_fragment_flags_t)(1u << 0),
+  // Fragment has target-query-visible multi-operation source graphs.
+  LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY_SOURCE_GRAPH =
+      (loom_target_contract_fragment_flags_t)(1u << 1),
 };
 
 typedef struct loom_target_contract_fragment_t {
@@ -380,6 +385,13 @@ static inline bool loom_target_contract_fragment_queries_target(
     const loom_target_contract_fragment_t* fragment) {
   return (fragment->flags & LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY) !=
          0;
+}
+
+// Returns true when the fragment has target-query-visible source graphs.
+static inline bool loom_target_contract_fragment_queries_source_graphs(
+    const loom_target_contract_fragment_t* fragment) {
+  return (fragment->flags &
+          LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY_SOURCE_GRAPH) != 0;
 }
 
 typedef struct loom_target_contract_binding_t {

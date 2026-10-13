@@ -24,6 +24,7 @@ from loom.target.contracts import (
     EmitDescriptorOp,
     Guard,
     RecipeRule,
+    SourceNode,
     UnsupportedRule,
     ValueAliasRule,
     ValueElideRule,
@@ -193,6 +194,7 @@ def test_compile_contract_fragment_uses_supplied_descriptor_rule_rows() -> None:
             DescriptorRule(
                 source_op=vector.vector_addi,
                 descriptor=TEST_LOW_ADD_V4I32_DESCRIPTOR,
+                target_query=False,
             ),
         ],
     )
@@ -211,11 +213,52 @@ def test_compile_contract_fragment_uses_supplied_descriptor_rule_rows() -> None:
     addi_span = spans_by_name["vector.addi"]
     reduce_span = spans_by_name["vector.reduce"]
     assert addi_span.case_start == 0
+    assert (
+        compiled.cases[addi_span.case_start].system
+        is ContractSystem.DESCRIPTOR_RULE_LOWERING_ONLY
+    )
     assert compiled.cases[addi_span.case_start].row_index == 1
     assert compiled.descriptor_rules[1].rule_index == 2
     assert reduce_span.case_start == 1
     assert compiled.cases[reduce_span.case_start].row_index == 0
     assert compiled.descriptor_rules[0].rule_index == 9
+
+
+def test_compile_contract_fragment_tracks_query_visible_source_graphs() -> None:
+    lowering_only_rule = DescriptorRule(
+        source_op=scalar_arithmetic.scalar_muli,
+        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+        source_nodes=(
+            SourceNode.adjacent_definition(
+                "producer",
+                source_op=scalar_arithmetic.scalar_addi,
+                parent_operand=ValueRef.operand("lhs"),
+                node_result=ValueRef.result("result"),
+            ),
+        ),
+        target_query=False,
+    )
+
+    def compile_rule(rule: DescriptorRule) -> CompiledContractFragment:
+        fragment = ContractFragment(
+            name="test-low.query-source-graph",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(rule,),
+        )
+        return compile_contract_fragment(
+            fragment,
+            dialect_ops={"scalar": ALL_SCALAR_OPS},
+            descriptor_rule_rows={0: CompiledDescriptorRule(0)},
+            lower_rule_indices={0: 0},
+        )
+
+    lowering_only = compile_rule(lowering_only_rule)
+    assert not lowering_only.target_query_source_graph
+    assert lowering_only.cases[0].system is ContractSystem.DESCRIPTOR_RULE_LOWERING_ONLY
+
+    query_visible = compile_rule(replace(lowering_only_rule, target_query=True))
+    assert query_visible.target_query_source_graph
+    assert query_visible.cases[0].system is ContractSystem.DESCRIPTOR_RULE
 
 
 def test_compile_contract_fragment_orders_cases_by_priority() -> None:

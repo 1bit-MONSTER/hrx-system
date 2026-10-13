@@ -14,6 +14,7 @@ class ContractSystem(Enum):
     """Shared interpreter system used by a contract fragment case."""
 
     DESCRIPTOR_RULE = "descriptor_rule"
+    DESCRIPTOR_RULE_LOWERING_ONLY = "descriptor_rule_lowering_only"
     VALUE_ALIAS = "value_alias"
     VALUE_ELIDE = "value_elide"
     SOURCE_MEMORY = "source_memory"
