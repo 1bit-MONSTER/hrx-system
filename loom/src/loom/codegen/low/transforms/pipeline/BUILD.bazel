@@ -44,7 +44,13 @@ loom_cc_library(
 
 loom_cc_library(
     name = "target_legalize",
-    srcs = ["target_legalize.c"],
+    srcs = [
+        "target_legalize.c",
+        "target_legalize_options.c",
+        "target_legalize_options.h",
+        "target_legalize_preflight.c",
+        "target_legalize_preflight.h",
+    ],
     hdrs = ["target_legalize.h"],
     visibility = _PIPELINE_VISIBILITY,
     deps = [
@@ -52,6 +58,7 @@ loom_cc_library(
         "//loom/src/loom/codegen/low/lower",
         "//loom/src/loom/codegen/low/lower:source_selection",
         "//loom/src/loom/codegen/low/pipeline:pass_environment",
+        "//loom/src/loom/error:emitter",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
@@ -69,9 +76,11 @@ loom_cc_library(
         "//loom/src/loom/target:low_legality",
         "//loom/src/loom/target:math_policy",
         "//loom/src/loom/target:pass_environment",
+        "//loom/src/loom/target:types",
         "//loom/src/loom/target/reporting:report",
         "//loom/src/loom/transforms/vector:component_packet_legalization",
         "//loom/src/loom/util:adaptive_sort",
+        "//loom/src/loom/util:fact_table",
         "//loom/src/loom/util:walk",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",

@@ -12,6 +12,8 @@
 #include "loom/codegen/low/lower/source_query.h"
 #include "loom/codegen/low/lower/source_selection.h"
 #include "loom/codegen/low/pipeline/pass_environment.h"
+#include "loom/codegen/low/transforms/pipeline/target_legalize_options.h"
+#include "loom/codegen/low/transforms/pipeline/target_legalize_preflight.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
 #include "loom/ir/intern_table.h"
@@ -33,292 +35,6 @@
 #include "loom/transforms/vector/component_packet_legalization.h"
 #include "loom/util/adaptive_sort.h"
 #include "loom/util/walk.h"
-
-typedef struct loom_low_target_legalize_pass_state_t {
-  // Maximum number of fixed-point rewrite iterations.
-  uint32_t max_iterations;
-  // Maximum number of final legality diagnostics emitted before stopping.
-  uint32_t max_errors;
-  // Current target legalization phase.
-  loom_target_legalization_mode_t mode;
-  // Representation state of semantic boundaries seen by this invocation.
-  loom_target_boundary_representation_t boundary_representation;
-  // Strategy policy controlling native/reference legalizer participation.
-  loom_target_legalization_policy_t policy;
-  // Verify source legality here when this pass is the final consumer. Composed
-  // pipelines leave verification to source-to-low after structural lowering.
-  bool verify_source_legality;
-  // True when max_iterations was explicitly provided.
-  bool has_max_iterations_option;
-  // True when max_errors was explicitly provided.
-  bool has_max_errors_option;
-  // True when mode was explicitly provided.
-  bool has_mode_option;
-  // True when boundaries was explicitly provided.
-  bool has_boundaries_option;
-  // True when policy was explicitly provided.
-  bool has_policy_option;
-} loom_low_target_legalize_pass_state_t;
-
-typedef struct loom_low_target_legalize_parse_context_t {
-  // Mutable pass state being populated.
-  loom_low_target_legalize_pass_state_t* state;
-} loom_low_target_legalize_parse_context_t;
-
-static const loom_pass_option_def_t kLowTargetLegalizeOptions[] = {
-    {IREE_SVL("boundaries"),
-     IREE_SVL("Boundary representation: logical or projected.")},
-    {IREE_SVL("max-errors"),
-     IREE_SVL("Maximum number of final legality diagnostics to emit; zero "
-              "means no limit.")},
-    {IREE_SVL("max-iterations"),
-     IREE_SVL("Maximum number of target legalization worklist iterations.")},
-    {IREE_SVL("mode"),
-     IREE_SVL(
-         "Legalization phase: eager (partial rewrites), complete (finish "
-         "rewrites), or final (finish rewrites and verify source legality).")},
-    {IREE_SVL("policy"),
-     IREE_SVL("Legalization strategy policy: prefer-native, reference-only, "
-              "or require-native.")},
-};
-
-#define LOOM_LOW_TARGET_LEGALIZE_STATISTICS(V, statistics_type)      \
-  V(statistics_type, ops_rewritten, "ops-rewritten",                 \
-    "Number of source ops rewritten by target legalizers.")          \
-  V(statistics_type, ops_legal, "ops-legal",                         \
-    "Number of legalizer-rooted ops already accepted by the target " \
-    "contract.")                                                     \
-  V(statistics_type, ops_deferred, "ops-deferred",                   \
-    "Number of legalizer-rooted ops left for a later phase.")        \
-  V(statistics_type, functions, "functions",                         \
-    "Number of target-bound source functions visited.")              \
-  V(statistics_type, errors, "errors",                               \
-    "Number of final legality errors emitted.")
-
-LOOM_PASS_STATISTICS_DEFINE(loom_low_target_legalize_statistics,
-                            loom_low_target_legalize_statistics_t,
-                            LOOM_LOW_TARGET_LEGALIZE_STATISTICS)
-
-static const loom_pass_info_t loom_low_target_legalize_pass_info_storage = {
-    .name = IREE_SVL("target-legalize"),
-    .description =
-        IREE_SVL("Rewrite unsupported target-bound source ops toward a legal "
-                 "target-low contract."),
-    .kind = LOOM_PASS_MODULE,
-    .option_defs = kLowTargetLegalizeOptions,
-    .option_count = IREE_ARRAYSIZE(kLowTargetLegalizeOptions),
-    .statistic_layout = &loom_low_target_legalize_statistics_layout,
-};
-
-const loom_pass_info_t* loom_low_target_legalize_pass_info(void) {
-  return &loom_low_target_legalize_pass_info_storage;
-}
-
-static iree_status_t loom_low_target_legalize_parse_max_errors(
-    uint32_t max_errors, loom_low_target_legalize_parse_context_t* context) {
-  if (context->state->has_max_errors_option) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "duplicate option 'max-errors' for pass 'target-legalize'");
-  }
-  context->state->max_errors = max_errors;
-  context->state->has_max_errors_option = true;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_low_target_legalize_parse_max_iterations(
-    uint32_t max_iterations,
-    loom_low_target_legalize_parse_context_t* context) {
-  if (context->state->has_max_iterations_option) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "duplicate option 'max-iterations' for pass 'target-legalize'");
-  }
-  if (max_iterations == 0) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "pass 'target-legalize' option "
-                            "'max-iterations' must be greater than 0");
-  }
-  context->state->max_iterations = max_iterations;
-  context->state->has_max_iterations_option = true;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_low_target_legalize_parse_mode(
-    iree_string_view_t value,
-    loom_low_target_legalize_parse_context_t* context) {
-  if (context->state->has_mode_option) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "duplicate option 'mode' for pass "
-                            "'target-legalize'");
-  }
-  if (iree_string_view_equal(value, IREE_SV("eager"))) {
-    context->state->mode = LOOM_TARGET_LEGALIZATION_MODE_EAGER;
-  } else if (iree_string_view_equal(value, IREE_SV("complete"))) {
-    context->state->mode = LOOM_TARGET_LEGALIZATION_MODE_FINAL;
-  } else if (iree_string_view_equal(value, IREE_SV("final"))) {
-    context->state->mode = LOOM_TARGET_LEGALIZATION_MODE_FINAL;
-    context->state->verify_source_legality = true;
-  } else {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "target-legalize option 'mode' expected 'eager' "
-                            "or 'complete' or 'final', got '%.*s'",
-                            (int)value.size, value.data);
-  }
-  context->state->has_mode_option = true;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_low_target_legalize_parse_policy(
-    iree_string_view_t value,
-    loom_low_target_legalize_parse_context_t* context) {
-  if (context->state->has_policy_option) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "duplicate option 'policy' for pass "
-                            "'target-legalize'");
-  }
-  if (iree_string_view_equal(value, IREE_SV("prefer-native"))) {
-    context->state->policy = LOOM_TARGET_LEGALIZATION_POLICY_PREFER_NATIVE;
-  } else if (iree_string_view_equal(value, IREE_SV("reference-only"))) {
-    context->state->policy = LOOM_TARGET_LEGALIZATION_POLICY_REFERENCE_ONLY;
-  } else if (iree_string_view_equal(value, IREE_SV("require-native"))) {
-    context->state->policy = LOOM_TARGET_LEGALIZATION_POLICY_REQUIRE_NATIVE;
-  } else {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "target-legalize option 'policy' expected 'prefer-native', "
-        "'reference-only', or 'require-native', got '%.*s'",
-        (int)value.size, value.data);
-  }
-  context->state->has_policy_option = true;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_low_target_legalize_parse_boundaries(
-    iree_string_view_t value,
-    loom_low_target_legalize_parse_context_t* context) {
-  if (context->state->has_boundaries_option) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "duplicate option 'boundaries' for pass "
-                            "'target-legalize'");
-  }
-  if (iree_string_view_equal(value, IREE_SV("logical"))) {
-    context->state->boundary_representation =
-        LOOM_TARGET_BOUNDARY_REPRESENTATION_LOGICAL;
-  } else if (iree_string_view_equal(value, IREE_SV("projected"))) {
-    context->state->boundary_representation =
-        LOOM_TARGET_BOUNDARY_REPRESENTATION_PROJECTED;
-  } else {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "target-legalize option 'boundaries' expected 'logical' or "
-        "'projected', got '%.*s'",
-        (int)value.size, value.data);
-  }
-  context->state->has_boundaries_option = true;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_low_target_legalize_parse_option(
-    void* user_data, iree_string_view_t name, iree_string_view_t value) {
-  loom_low_target_legalize_parse_context_t* context =
-      (loom_low_target_legalize_parse_context_t*)user_data;
-  if (iree_string_view_equal(name, IREE_SV("max-errors"))) {
-    uint32_t max_errors = 0;
-    IREE_RETURN_IF_ERROR(loom_pass_option_parse_uint32(
-        IREE_SV("target-legalize"), name, value, &max_errors));
-    return loom_low_target_legalize_parse_max_errors(max_errors, context);
-  }
-  if (iree_string_view_equal(name, IREE_SV("max-iterations"))) {
-    uint32_t max_iterations = 0;
-    IREE_RETURN_IF_ERROR(loom_pass_option_parse_uint32(
-        IREE_SV("target-legalize"), name, value, &max_iterations));
-    return loom_low_target_legalize_parse_max_iterations(max_iterations,
-                                                         context);
-  }
-  if (iree_string_view_equal(name, IREE_SV("mode"))) {
-    return loom_low_target_legalize_parse_mode(value, context);
-  }
-  if (iree_string_view_equal(name, IREE_SV("boundaries"))) {
-    return loom_low_target_legalize_parse_boundaries(value, context);
-  }
-  if (iree_string_view_equal(name, IREE_SV("policy"))) {
-    return loom_low_target_legalize_parse_policy(value, context);
-  }
-  return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                          "unknown option '%.*s' for pass 'target-legalize'",
-                          (int)name.size, name.data);
-}
-
-iree_status_t loom_low_target_legalize_create(loom_pass_t* pass,
-                                              iree_string_view_t options) {
-  loom_low_target_legalize_pass_state_t* state = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate(pass->instance_arena, sizeof(*state),
-                                           (void**)&state));
-  memset(state, 0, sizeof(*state));
-  state->max_errors = 20;
-  state->max_iterations = LOOM_GREEDY_REWRITE_DEFAULT_MAX_ITERATIONS;
-  state->mode = LOOM_TARGET_LEGALIZATION_MODE_EAGER;
-  state->boundary_representation = LOOM_TARGET_BOUNDARY_REPRESENTATION_LOGICAL;
-  state->policy = LOOM_TARGET_LEGALIZATION_POLICY_PREFER_NATIVE;
-
-  loom_low_target_legalize_parse_context_t context = {
-      .state = state,
-  };
-  if (pass->decoded_options) {
-    for (uint16_t i = 0; i < pass->decoded_options->option_count; ++i) {
-      const loom_pass_decoded_option_t* option =
-          &pass->decoded_options->options[i];
-      if (!option->present) {
-        continue;
-      }
-      if (iree_string_view_equal(option->schema->name, IREE_SV("max-errors"))) {
-        IREE_RETURN_IF_ERROR(loom_low_target_legalize_parse_max_errors(
-            option->uint32_value, &context));
-        continue;
-      }
-      if (iree_string_view_equal(option->schema->name,
-                                 IREE_SV("max-iterations"))) {
-        IREE_RETURN_IF_ERROR(loom_low_target_legalize_parse_max_iterations(
-            option->uint32_value, &context));
-        continue;
-      }
-      if (iree_string_view_equal(option->schema->name, IREE_SV("mode"))) {
-        IREE_RETURN_IF_ERROR(loom_low_target_legalize_parse_mode(
-            option->schema->enum_values[option->enum_value_index].value,
-            &context));
-        continue;
-      }
-      if (iree_string_view_equal(option->schema->name, IREE_SV("boundaries"))) {
-        IREE_RETURN_IF_ERROR(loom_low_target_legalize_parse_boundaries(
-            option->schema->enum_values[option->enum_value_index].value,
-            &context));
-        continue;
-      }
-      if (iree_string_view_equal(option->schema->name, IREE_SV("policy"))) {
-        IREE_RETURN_IF_ERROR(loom_low_target_legalize_parse_policy(
-            option->schema->enum_values[option->enum_value_index].value,
-            &context));
-        continue;
-      }
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "unknown decoded option '%.*s' for pass "
-                              "'target-legalize'",
-                              (int)option->schema->name.size,
-                              option->schema->name.data);
-    }
-  } else {
-    IREE_RETURN_IF_ERROR(
-        loom_pass_options_parse(pass->info->name, options,
-                                (loom_pass_option_parse_callback_t){
-                                    .fn = loom_low_target_legalize_parse_option,
-                                    .user_data = &context,
-                                }));
-  }
-
-  pass->state = state;
-  return iree_ok_status();
-}
 
 typedef struct loom_low_target_legalize_final_rejection_t {
   // Op rejected by a final legalizer.
@@ -429,8 +145,8 @@ typedef struct loom_low_target_legalize_function_state_t {
   } report_lineage;
   // First final legalizer rejection retained for final legality diagnostics.
   loom_low_target_legalize_final_rejection_t* final_rejections;
-  // User IR topology range diagnostics emitted before legalizer dispatch.
-  uint32_t preflight_error_count;
+  // Assumption diagnostics checked before legalizer dispatch.
+  loom_low_target_legalize_preflight_t preflight;
   // True when contract queries should surface retained legalizer rejections.
   bool use_final_rejections;
 } loom_low_target_legalize_function_state_t;
@@ -544,377 +260,6 @@ static iree_string_view_t loom_low_target_legalize_function_name(
 static iree_string_view_t loom_low_target_legalize_nonempty(
     iree_string_view_t value, iree_string_view_t placeholder) {
   return iree_string_view_is_empty(value) ? placeholder : value;
-}
-
-static iree_string_view_t loom_low_target_legalize_value_name(
-    const loom_module_t* module, loom_value_id_t value_id) {
-  if (value_id >= module->values.count) {
-    return IREE_SV("<unknown>");
-  }
-  const loom_value_t* value = loom_module_value(module, value_id);
-  if (value->name_id == LOOM_STRING_ID_INVALID ||
-      value->name_id >= module->strings.count) {
-    return IREE_SV("<unnamed>");
-  }
-  return loom_string_table_get(&module->strings, value->name_id);
-}
-
-static bool loom_low_target_legalize_should_stop_preflight(
-    const loom_low_target_legalize_function_state_t* state) {
-  return state->pass_state->max_errors != 0 &&
-         state->preflight_error_count >= state->pass_state->max_errors;
-}
-
-static bool loom_low_target_legalize_op_is_in_function_entry_block(
-    const loom_low_target_legalize_function_state_t* state,
-    const loom_op_t* op) {
-  if (!op->parent_block) {
-    return false;
-  }
-  const loom_region_t* body = loom_func_like_body(state->selection->func);
-  return op->parent_block->parent_region == body &&
-         op->parent_block->region_index == 0;
-}
-
-static bool loom_low_target_legalize_predicate_const_range(
-    const loom_predicate_t* predicate, int64_t* out_minimum,
-    int64_t* out_maximum) {
-  *out_minimum = INT64_MIN;
-  *out_maximum = INT64_MAX;
-  if (predicate->arg_count < 1 ||
-      predicate->arg_tags[0] != LOOM_PRED_ARG_VALUE) {
-    return false;
-  }
-  switch ((loom_predicate_kind_t)predicate->kind) {
-    case LOOM_PREDICATE_EQ:
-      if (predicate->arg_count < 2 ||
-          predicate->arg_tags[1] != LOOM_PRED_ARG_CONST) {
-        return false;
-      }
-      *out_minimum = predicate->args[1];
-      *out_maximum = predicate->args[1];
-      return true;
-    case LOOM_PREDICATE_LT:
-      if (predicate->arg_count < 2 ||
-          predicate->arg_tags[1] != LOOM_PRED_ARG_CONST ||
-          predicate->args[1] == INT64_MIN) {
-        return false;
-      }
-      *out_maximum = predicate->args[1] - 1;
-      return true;
-    case LOOM_PREDICATE_LE:
-      if (predicate->arg_count < 2 ||
-          predicate->arg_tags[1] != LOOM_PRED_ARG_CONST) {
-        return false;
-      }
-      *out_maximum = predicate->args[1];
-      return true;
-    case LOOM_PREDICATE_GT:
-      if (predicate->arg_count < 2 ||
-          predicate->arg_tags[1] != LOOM_PRED_ARG_CONST ||
-          predicate->args[1] == INT64_MAX) {
-        return false;
-      }
-      *out_minimum = predicate->args[1] + 1;
-      return true;
-    case LOOM_PREDICATE_GE:
-      if (predicate->arg_count < 2 ||
-          predicate->arg_tags[1] != LOOM_PRED_ARG_CONST) {
-        return false;
-      }
-      *out_minimum = predicate->args[1];
-      return true;
-    case LOOM_PREDICATE_RANGE:
-      if (predicate->arg_count < 3 ||
-          predicate->arg_tags[1] != LOOM_PRED_ARG_CONST ||
-          predicate->arg_tags[2] != LOOM_PRED_ARG_CONST) {
-        return false;
-      }
-      *out_minimum = predicate->args[1];
-      *out_maximum = predicate->args[2];
-      return true;
-    default:
-      return false;
-  }
-}
-
-static bool loom_low_target_legalize_lookup_assume_operand_facts(
-    const loom_value_fact_table_t* fact_table, loom_value_slice_t values,
-    const loom_predicate_t* predicate, loom_value_facts_t* out_facts) {
-  *out_facts = loom_value_facts_unknown();
-  if (fact_table == NULL || predicate->arg_count < 1 ||
-      predicate->arg_tags[0] != LOOM_PRED_ARG_VALUE || predicate->args[0] < 0 ||
-      predicate->args[0] > UINT32_MAX) {
-    return false;
-  }
-  const loom_value_id_t target_value = (loom_value_id_t)predicate->args[0];
-  for (uint16_t i = 0; i < values.count; ++i) {
-    if (values.values[i] != target_value) {
-      continue;
-    }
-    *out_facts = loom_value_fact_table_lookup(fact_table, target_value);
-    loom_value_facts_t element_facts = loom_value_facts_unknown();
-    if (loom_value_facts_query_all_equal_element(&fact_table->context,
-                                                 *out_facts, &element_facts)) {
-      *out_facts = element_facts;
-    }
-    return true;
-  }
-  return false;
-}
-
-static void loom_low_target_legalize_context_params(
-    loom_low_target_legalize_function_state_t* state, const loom_op_t* op,
-    loom_diagnostic_param_t* params) {
-  const loom_target_bundle_t* bundle =
-      loom_low_source_selection_target_bundle(state->selection);
-  const loom_target_config_t* config = bundle ? bundle->config : NULL;
-  const loom_target_export_plan_t* export_plan =
-      bundle ? bundle->export_plan : NULL;
-  params[0] = loom_param_string(loom_low_target_legalize_nonempty(
-      bundle ? bundle->name : iree_string_view_empty(), IREE_SV("<empty>")));
-  params[1] = loom_param_string(loom_low_target_legalize_nonempty(
-      export_plan ? export_plan->name : iree_string_view_empty(),
-      IREE_SV("<empty>")));
-  params[2] = loom_param_string(loom_low_target_legalize_nonempty(
-      config ? config->name : iree_string_view_empty(), IREE_SV("<empty>")));
-  params[3] = loom_param_string(loom_low_target_legalize_nonempty(
-      loom_low_target_legalize_function_name(state), IREE_SV("<module>")));
-  params[4] = loom_param_string(loom_op_name(state->module, op));
-}
-
-static iree_status_t loom_low_target_legalize_emit_topology_assume_error(
-    loom_low_target_legalize_function_state_t* state, const loom_op_t* op,
-    iree_string_view_t value_kind, iree_string_view_t axis,
-    int64_t required_minimum, int64_t required_maximum, int64_t assumed_minimum,
-    int64_t assumed_maximum) {
-  loom_diagnostic_param_t params[11];
-  loom_low_target_legalize_context_params(state, op, params);
-  params[5] = loom_param_string(value_kind);
-  params[6] = loom_param_string(axis);
-  params[7] = loom_param_i64(required_minimum);
-  params[8] = loom_param_i64(required_maximum);
-  params[9] = loom_param_i64(assumed_minimum);
-  params[10] = loom_param_i64(assumed_maximum);
-  const loom_diagnostic_emission_t emission = {
-      .op = op,
-      .error = LOOM_ERR_TARGET_058,
-      .params = params,
-      .param_count = IREE_ARRAYSIZE(params),
-  };
-  IREE_RETURN_IF_ERROR(
-      iree_diagnostic_emit(state->pass->diagnostic_emitter, &emission));
-  ++state->preflight_error_count;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_low_target_legalize_emit_assume_range_conflict_error(
-    loom_low_target_legalize_function_state_t* state, const loom_op_t* op,
-    const loom_predicate_t* predicate, loom_value_id_t value_id,
-    loom_value_fact_predicate_conflict_t conflict) {
-  const char* predicate_name = loom_predicate_kind_name(predicate->kind);
-  loom_diagnostic_param_t params[11];
-  loom_low_target_legalize_context_params(state, op, params);
-  params[5] =
-      loom_param_string(predicate_name ? iree_make_cstring_view(predicate_name)
-                                       : IREE_SV("<unknown>"));
-  params[6] = loom_param_string(
-      loom_low_target_legalize_value_name(state->module, value_id));
-  params[7] = loom_param_i64(conflict.required_minimum);
-  params[8] = loom_param_i64(conflict.required_maximum);
-  params[9] = loom_param_i64(conflict.known_minimum);
-  params[10] = loom_param_i64(conflict.known_maximum);
-  const loom_diagnostic_emission_t emission = {
-      .op = op,
-      .error = LOOM_ERR_TARGET_059,
-      .params = params,
-      .param_count = IREE_ARRAYSIZE(params),
-  };
-  IREE_RETURN_IF_ERROR(
-      iree_diagnostic_emit(state->pass->diagnostic_emitter, &emission));
-  ++state->preflight_error_count;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_low_target_legalize_emit_assume_exact_i64_error(
-    loom_low_target_legalize_function_state_t* state, const loom_op_t* op,
-    const loom_predicate_t* predicate, loom_value_id_t value_id,
-    loom_value_fact_predicate_conflict_t conflict) {
-  const char* predicate_name = loom_predicate_kind_name(predicate->kind);
-  loom_diagnostic_param_t params[8];
-  loom_low_target_legalize_context_params(state, op, params);
-  params[5] =
-      loom_param_string(predicate_name ? iree_make_cstring_view(predicate_name)
-                                       : IREE_SV("<unknown>"));
-  params[6] = loom_param_string(
-      loom_low_target_legalize_value_name(state->module, value_id));
-  params[7] = loom_param_i64(conflict.known_value);
-  const loom_diagnostic_emission_t emission = {
-      .op = op,
-      .error = LOOM_ERR_TARGET_060,
-      .params = params,
-      .param_count = IREE_ARRAYSIZE(params),
-  };
-  IREE_RETURN_IF_ERROR(
-      iree_diagnostic_emit(state->pass->diagnostic_emitter, &emission));
-  ++state->preflight_error_count;
-  return iree_ok_status();
-}
-
-static iree_string_view_t loom_low_target_legalize_float_class_name(
-    loom_value_fact_predicate_conflict_float_class_t float_class) {
-  switch (float_class) {
-    case LOOM_VALUE_FACT_PREDICATE_CONFLICT_FLOAT_CLASS_NAN:
-      return IREE_SV("nan");
-    case LOOM_VALUE_FACT_PREDICATE_CONFLICT_FLOAT_CLASS_INFINITY:
-      return IREE_SV("infinity");
-    case LOOM_VALUE_FACT_PREDICATE_CONFLICT_FLOAT_CLASS_NONE:
-      return IREE_SV("<unknown>");
-  }
-  return IREE_SV("<unknown>");
-}
-
-static iree_status_t loom_low_target_legalize_emit_assume_float_class_error(
-    loom_low_target_legalize_function_state_t* state, const loom_op_t* op,
-    const loom_predicate_t* predicate, loom_value_id_t value_id,
-    loom_value_fact_predicate_conflict_t conflict) {
-  const char* predicate_name = loom_predicate_kind_name(predicate->kind);
-  loom_diagnostic_param_t params[8];
-  loom_low_target_legalize_context_params(state, op, params);
-  params[5] =
-      loom_param_string(predicate_name ? iree_make_cstring_view(predicate_name)
-                                       : IREE_SV("<unknown>"));
-  params[6] = loom_param_string(
-      loom_low_target_legalize_value_name(state->module, value_id));
-  params[7] = loom_param_string(
-      loom_low_target_legalize_float_class_name(conflict.known_float_class));
-  const loom_diagnostic_emission_t emission = {
-      .op = op,
-      .error = LOOM_ERR_TARGET_061,
-      .params = params,
-      .param_count = IREE_ARRAYSIZE(params),
-  };
-  IREE_RETURN_IF_ERROR(
-      iree_diagnostic_emit(state->pass->diagnostic_emitter, &emission));
-  ++state->preflight_error_count;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_low_target_legalize_emit_assume_conflict_error(
-    loom_low_target_legalize_function_state_t* state, const loom_op_t* op,
-    const loom_predicate_t* predicate, loom_value_id_t value_id,
-    loom_value_fact_predicate_conflict_t conflict) {
-  switch (conflict.kind) {
-    case LOOM_VALUE_FACT_PREDICATE_CONFLICT_RANGE:
-      return loom_low_target_legalize_emit_assume_range_conflict_error(
-          state, op, predicate, value_id, conflict);
-    case LOOM_VALUE_FACT_PREDICATE_CONFLICT_EXACT_I64:
-      return loom_low_target_legalize_emit_assume_exact_i64_error(
-          state, op, predicate, value_id, conflict);
-    case LOOM_VALUE_FACT_PREDICATE_CONFLICT_FLOAT_CLASS:
-      return loom_low_target_legalize_emit_assume_float_class_error(
-          state, op, predicate, value_id, conflict);
-    case LOOM_VALUE_FACT_PREDICATE_CONFLICT_NONE:
-      return iree_ok_status();
-  }
-  return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                          "unknown assume predicate conflict kind %d",
-                          (int)conflict.kind);
-}
-
-static iree_status_t loom_low_target_legalize_check_assume_predicate_conflicts(
-    loom_low_target_legalize_function_state_t* state, const loom_op_t* op,
-    const loom_value_fact_table_t* fact_table, loom_value_slice_t values,
-    const loom_predicate_t* predicates, uint16_t predicate_count) {
-  if (loom_low_target_legalize_should_stop_preflight(state)) {
-    return iree_ok_status();
-  }
-  for (uint16_t i = 0; i < predicate_count &&
-                       !loom_low_target_legalize_should_stop_preflight(state);
-       ++i) {
-    loom_value_facts_t facts = loom_value_facts_unknown();
-    if (!loom_low_target_legalize_lookup_assume_operand_facts(
-            fact_table, values, &predicates[i], &facts)) {
-      continue;
-    }
-    loom_value_fact_predicate_conflict_t conflict = {0};
-    if (!loom_value_facts_predicate_conflict(facts, &predicates[i],
-                                             &conflict)) {
-      continue;
-    }
-    IREE_RETURN_IF_ERROR(loom_low_target_legalize_emit_assume_conflict_error(
-        state, op, &predicates[i], (loom_value_id_t)predicates[i].args[0],
-        conflict));
-  }
-  return iree_ok_status();
-}
-
-static iree_status_t loom_low_target_legalize_check_assume_topology_domain(
-    loom_low_target_legalize_function_state_t* state, const loom_op_t* op,
-    const loom_value_fact_table_t* fact_table, loom_value_slice_t values,
-    const loom_predicate_t* predicates, uint16_t predicate_count) {
-  if (loom_low_target_legalize_should_stop_preflight(state)) {
-    return iree_ok_status();
-  }
-  for (uint16_t i = 0; i < predicate_count &&
-                       !loom_low_target_legalize_should_stop_preflight(state);
-       ++i) {
-    int64_t assumed_minimum = INT64_MIN;
-    int64_t assumed_maximum = INT64_MAX;
-    if (!loom_low_target_legalize_predicate_const_range(
-            &predicates[i], &assumed_minimum, &assumed_maximum)) {
-      continue;
-    }
-
-    loom_value_facts_t facts = loom_value_facts_unknown();
-    if (!loom_low_target_legalize_lookup_assume_operand_facts(
-            fact_table, values, &predicates[i], &facts)) {
-      continue;
-    }
-    const loom_value_fact_topology_domain_t* domain =
-        loom_value_facts_topology_domain(facts);
-    if (!domain) {
-      continue;
-    }
-    if (assumed_minimum <= facts.range_lo &&
-        assumed_maximum >= facts.range_hi) {
-      continue;
-    }
-    IREE_RETURN_IF_ERROR(loom_low_target_legalize_emit_topology_assume_error(
-        state, op, domain->value_kind_name, domain->axis_name, facts.range_lo,
-        facts.range_hi, assumed_minimum, assumed_maximum));
-  }
-  return iree_ok_status();
-}
-
-static iree_status_t loom_low_target_legalize_check_assume_predicates(
-    loom_low_target_legalize_function_state_t* state, const loom_op_t* op,
-    const loom_value_fact_table_t* fact_table) {
-  loom_value_slice_t values = {0};
-  loom_attribute_t predicate_attr = loom_attr_absent();
-  if (loom_index_assume_isa(op)) {
-    values = loom_index_assume_values(op);
-    predicate_attr = loom_index_assume_predicates(op);
-  } else if (loom_scalar_assume_isa(op)) {
-    values = loom_scalar_assume_values(op);
-    predicate_attr = loom_scalar_assume_predicates(op);
-  } else if (loom_low_assume_isa(op)) {
-    values = loom_low_assume_values(op);
-    predicate_attr = loom_low_assume_predicates(op);
-  } else {
-    return iree_ok_status();
-  }
-
-  IREE_RETURN_IF_ERROR(
-      loom_low_target_legalize_check_assume_predicate_conflicts(
-          state, op, fact_table, values, predicate_attr.predicate_list,
-          predicate_attr.count));
-  if (!loom_low_target_legalize_op_is_in_function_entry_block(state, op)) {
-    return iree_ok_status();
-  }
-  return loom_low_target_legalize_check_assume_topology_domain(
-      state, op, fact_table, values, predicate_attr.predicate_list,
-      predicate_attr.count);
 }
 
 static iree_string_view_t loom_low_target_legalize_report_descriptor_key(
@@ -1783,12 +1128,12 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
     *out_changed = true;
     return iree_ok_status();
   }
-  if (state->preflight_error_count != 0) {
+  if (state->preflight.error_count != 0) {
     return iree_ok_status();
   }
-  IREE_RETURN_IF_ERROR(loom_low_target_legalize_check_assume_predicates(
-      state, op, driver->fact_table));
-  if (state->preflight_error_count != 0) {
+  IREE_RETURN_IF_ERROR(loom_low_target_legalize_preflight_check_assume(
+      &state->preflight, op, driver->fact_table));
+  if (state->preflight.error_count != 0) {
     return iree_ok_status();
   }
 
@@ -2024,7 +1369,7 @@ static iree_status_t loom_low_target_legalize_packet_components(
   *out_changed = false;
   loom_low_target_legalize_function_state_t* state =
       (loom_low_target_legalize_function_state_t*)user_data;
-  if (state->preflight_error_count != 0 ||
+  if (state->preflight.error_count != 0 ||
       state->legalization_context.vector_packet_policy == NULL ||
       state->legalization_context.policy ==
           LOOM_TARGET_LEGALIZATION_POLICY_REFERENCE_ONLY) {
@@ -2170,6 +1515,10 @@ static iree_status_t loom_low_target_legalize_function(
           descriptor_registry,
           loom_low_source_selection_target_bundle(selection),
           &state.descriptor_set));
+  loom_low_target_legalize_preflight_initialize(
+      module, selection->func,
+      loom_low_source_selection_target_bundle(selection),
+      pass->diagnostic_emitter, pass_state->max_errors, &state.preflight);
 
   const loom_pass_value_fact_scope_t fact_scope =
       loom_pass_value_fact_scope_function_for_target(selection->func,
@@ -2263,7 +1612,7 @@ static iree_status_t loom_low_target_legalize_function(
       selection->func.op->kind == LOOM_OP_FUNC_DEF ||
       selection->func.op->kind == LOOM_OP_KERNEL_DEF;
   uint32_t final_error_count = 0;
-  if (iree_status_is_ok(status) && state.preflight_error_count == 0 &&
+  if (iree_status_is_ok(status) && state.preflight.error_count == 0 &&
       pass_state->verify_source_legality && is_source_function) {
     status = loom_pass_value_facts_acquire(
         pass, module,
@@ -2279,9 +1628,9 @@ static iree_status_t loom_low_target_legalize_function(
   IREE_RETURN_IF_ERROR(status);
 
   loom_low_target_legalize_statistics(pass)->errors +=
-      (int64_t)(state.preflight_error_count + final_error_count);
+      (int64_t)(state.preflight.error_count + final_error_count);
   *out_emitted_error_diagnostics =
-      state.preflight_error_count != 0 || final_error_count != 0;
+      state.preflight.error_count != 0 || final_error_count != 0;
   return iree_ok_status();
 }
 

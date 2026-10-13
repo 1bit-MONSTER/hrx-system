@@ -44,6 +44,10 @@ loom_cc_library(
     "target_legalize.h"
   SRCS
     "target_legalize.c"
+    "target_legalize_options.c"
+    "target_legalize_options.h"
+    "target_legalize_preflight.c"
+    "target_legalize_preflight.h"
   DEPS
     iree::base
     iree::base::internal::arena
@@ -51,6 +55,7 @@ loom_cc_library(
     loom::codegen::low::lower
     loom::codegen::low::lower::source_selection
     loom::codegen::low::pipeline::pass_environment
+    loom::error::emitter
     loom::error::error_defs
     loom::ir
     loom::ops::index
@@ -69,8 +74,10 @@ loom_cc_library(
     loom::target::math_policy
     loom::target::pass_environment
     loom::target::reporting::report
+    loom::target::types
     loom::transforms::vector::component_packet_legalization
     loom::util::adaptive_sort
+    loom::util::fact_table
     loom::util::walk
   PUBLIC
 )
