@@ -361,9 +361,11 @@ loop is:
 
 ```bash
 python dev.py bazel test //loom/py/loom:core_test
-python dev.py bazel test //loom/py/loom/dialect/<dialect>:<dialect>_ops_test
 python dev.py bazel test //loom/src/loom/ops/<dialect>/...
 ```
+
+Some dialect packages also declare a focused `<dialect>_ops_test` Python target;
+run it when present in that package's `BUILD.bazel`.
 
 When generated C tables or builders change, run the relevant generated C tests
 or the owning dialect tests under `loom/src/loom/ops/<dialect>/...`.

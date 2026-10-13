@@ -782,3 +782,25 @@ func.def target(@test_target) @narrow_range_mask_reference(%lower: i8, %upper: i
   test.use %mask : vector<2xi1>
   func.return
 }
+
+// ====
+// RUN: pass target-legalize{mode=eager,policy=reference-only},dce
+
+test.target<low_core> @test_target
+
+func.def target(@test_target) @index_extrema_reference(%lhs: index, %rhs: index) -> (index, index) {
+  %minimum = index.min %lhs, %rhs : index
+  %maximum = index.max %lhs, %rhs : index
+  func.return %minimum, %maximum : index, index
+}
+
+// ----
+test.target<low_core> @test_target
+
+func.def target(@test_target) @index_extrema_reference(%lhs: index, %rhs: index) -> (index, index) {
+  %8 = index.cmp slt, %lhs, %rhs : index
+  %minimum = scf.select %8, %lhs, %rhs : index
+  %6 = index.cmp sgt, %lhs, %rhs : index
+  %maximum = scf.select %6, %lhs, %rhs : index
+  func.return %minimum, %maximum : index, index
+}

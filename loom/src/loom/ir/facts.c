@@ -520,6 +520,56 @@ loom_value_facts_t loom_value_facts_wrap_integer(
   return result_facts;
 }
 
+loom_value_facts_t loom_value_facts_wrap_unsigned_integer(
+    loom_value_facts_t source_facts, int32_t bit_count) {
+  const int64_t domain_hi =
+      bit_count >= 63 ? INT64_MAX : (INT64_C(1) << bit_count) - 1;
+  const bool saturated_endpoint = bit_count >= 63 &&
+                                  !loom_value_facts_is_exact(source_facts) &&
+                                  (source_facts.range_lo == INT64_MIN ||
+                                   source_facts.range_hi == INT64_MAX);
+  if (loom_value_facts_unsigned_wrap_is_identity(source_facts,
+                                                 (uint8_t)bit_count)) {
+    return source_facts;
+  }
+
+  // Adding a multiple of 2^bit_count preserves only the source divisor's
+  // bounded power-of-two factor.
+  int64_t divisor = source_facts.known_divisor & -source_facts.known_divisor;
+  if (bit_count < 63) {
+    divisor = iree_min(divisor, INT64_C(1) << bit_count);
+  }
+
+  loom_value_facts_t result_facts;
+  if (saturated_endpoint) {
+    // A saturated bound may extend past the signed fact lattice endpoint. At
+    // any unsigned width that can represent that endpoint, the hidden extent
+    // may cross the modular boundary.
+    result_facts = loom_value_facts_make(0, domain_hi, divisor);
+  } else if (bit_count == 64) {
+    // The upper half of U64 is outside the signed fact lattice. Any negative
+    // value or interval crossing zero may reach it.
+    result_facts = loom_value_facts_make(0, INT64_MAX, divisor);
+  } else {
+    const uint64_t extent = UINT64_C(1) << bit_count;
+    const uint64_t mask = extent - 1;
+    const uint64_t wrapped_lo = (uint64_t)source_facts.range_lo & mask;
+    const uint64_t wrapped_hi = (uint64_t)source_facts.range_hi & mask;
+    const uint64_t span =
+        (uint64_t)source_facts.range_hi - (uint64_t)source_facts.range_lo;
+    if (loom_value_facts_is_exact(source_facts)) {
+      result_facts = loom_value_facts_exact_i64((int64_t)wrapped_lo);
+    } else if (span < extent && wrapped_lo <= wrapped_hi) {
+      result_facts = loom_value_facts_make((int64_t)wrapped_lo,
+                                           (int64_t)wrapped_hi, divisor);
+    } else {
+      result_facts = loom_value_facts_make(0, domain_hi, divisor);
+    }
+  }
+  loom_value_facts_propagate_unary_distribution(source_facts, &result_facts);
+  return result_facts;
+}
+
 loom_value_facts_t loom_value_facts_make_unsigned_bit_count_range(
     int64_t bit_count) {
   if (bit_count <= 0 || bit_count > 63) {

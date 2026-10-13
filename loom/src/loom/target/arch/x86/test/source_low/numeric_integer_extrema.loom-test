@@ -43,3 +43,20 @@ low.func.def target<x86.scalar.core> abi(object_function) @integer_extrema_i64(%
   %unsigned_max = cmp.select.gpr64.gpr64 %lhs, %rhs, %lhs, %30, "ugt"
   return %signed_min, %signed_max, %unsigned_min, %unsigned_max
 }
+
+// ====
+
+func.def @index_extrema(%lhs: index, %rhs: index) -> (index, index) {
+  %minimum = index.min %lhs, %rhs : index
+  %maximum = index.max %lhs, %rhs : index
+  func.return %minimum, %maximum : index, index
+}
+
+// ----
+low.func.def target<x86.scalar.core> abi(object_function) @index_extrema(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %14 = copy %rhs : reg<x86.gpr64> -> reg<x86.gpr64>
+  %minimum = cmp.select.gpr64.gpr64 %lhs, %rhs, %lhs, %14, "slt"
+  %16 = copy %rhs : reg<x86.gpr64> -> reg<x86.gpr64>
+  %maximum = cmp.select.gpr64.gpr64 %lhs, %rhs, %lhs, %16, "sgt"
+  return %minimum, %maximum
+}

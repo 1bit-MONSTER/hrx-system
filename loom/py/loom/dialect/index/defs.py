@@ -195,7 +195,7 @@ index_add = binary_op(
     group=index_ops,
     phase=OpPhase.EXECUTABLE,
     type_constraint=ADDRESS,
-    doc="Address-domain addition. Operands and result must all be index or all offset.",
+    doc=("Address-domain addition. Operands and result must all be index or all offset. Offset addition wraps modulo the selected target's unsigned offset carrier."),
     commutative=True,
     canonicalize="loom_index_add_canonicalize",
     facts="loom_index_add_facts",
@@ -211,7 +211,7 @@ index_sub = binary_op(
     group=index_ops,
     phase=OpPhase.EXECUTABLE,
     type_constraint=ADDRESS,
-    doc="Address-domain subtraction. Operands and result must all be index or all offset.",
+    doc=("Address-domain subtraction. Operands and result must all be index or all offset. Offset subtraction wraps modulo the selected target's unsigned offset carrier."),
     canonicalize="loom_index_sub_canonicalize",
     facts="loom_index_sub_facts",
     traits=[DISTRIBUTION_TRANSFER],
@@ -242,7 +242,8 @@ index_scale = Op(
         "Scale a logical coordinate by a physical byte stride to produce a "
         "physical byte offset. This is the address-domain boundary for packed "
         "payload layouts: logical indices stay index values, byte strides stay "
-        "offset values, and the result feeds byte-addressed buffer/view bases."
+        "offset values, and the result feeds byte-addressed buffer/view bases. "
+        "The result wraps modulo the selected target's unsigned offset carrier."
     ),
     operands=[
         Operand("index", INDEX, doc="Logical coordinate to scale."),

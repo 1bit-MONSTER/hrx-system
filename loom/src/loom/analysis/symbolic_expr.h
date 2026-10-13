@@ -20,7 +20,8 @@
 // reinterpretation otherwise retain the cast result as a symbolic variable.
 // Fixed-width arithmetic expands only when its mathematical range fits the
 // result domain or an explicit no-signed-wrap contract permits the relation.
-// Left shifts additionally require a valid exact shift amount.
+// Unsigned offset arithmetic likewise must fit its selected carrier. Left
+// shifts additionally require a valid exact shift amount.
 // Potentially wrapping results remain independent symbols, so integer-order
 // proofs cannot cancel arithmetic across a modular boundary. A separate
 // optional congruence retains periodic relationships for disjointness queries

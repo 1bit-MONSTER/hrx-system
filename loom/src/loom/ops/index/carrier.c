@@ -29,6 +29,25 @@ int32_t loom_index_target_carrier_bitwidth(const loom_fact_context_t* context,
   return (int32_t)target_bitwidth;
 }
 
+loom_value_facts_t loom_index_wrap_offset_facts(
+    const loom_fact_context_t* context, loom_value_facts_t mathematical_facts) {
+  int32_t bit_count =
+      loom_index_target_carrier_bitwidth(context, LOOM_SCALAR_TYPE_OFFSET);
+  if (bit_count == 0) {
+    // Targetless facts use the widest representable source carrier. This
+    // preserves ordinary mathematical ranges while refusing to turn a
+    // possible unsigned wrap into a clamped exact value.
+    bit_count = 64;
+  }
+  if (bit_count < 0) {
+    loom_value_facts_t result =
+        loom_value_facts_make(0, INT64_MAX, /*known_divisor=*/1);
+    loom_value_facts_propagate_unary_distribution(mathematical_facts, &result);
+    return result;
+  }
+  return loom_value_facts_wrap_unsigned_integer(mathematical_facts, bit_count);
+}
+
 bool loom_index_value_facts_fit_signed_target_carrier(
     const loom_fact_context_t* context, loom_scalar_type_t scalar_type,
     loom_value_facts_t facts) {

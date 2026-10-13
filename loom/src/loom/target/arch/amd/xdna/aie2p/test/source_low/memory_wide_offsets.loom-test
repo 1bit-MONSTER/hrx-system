@@ -20,15 +20,24 @@ func.def @scalar_wide_scaled_index(%input_storage: buffer, %output_storage: buff
   %output = buffer.assume.alignment %output_storage {minimum_alignment = 4} : buffer
   %element = index.assume %element_input [range(%element_input, 0, 2147483647)] : index
   %element_bytes = index.constant 4 : offset
-  // ERROR@+1: TARGET/004
   %byte_offset = index.scale %element, %element_bytes : index, offset -> offset
   %input_view = buffer.view %input[%byte_offset] : buffer -> view<1xi32>
   %output_view = buffer.view %output[%byte_offset] : buffer -> view<1xi32>
-  // ERROR@+1: TARGET/003 {constraint_key="source_memory.byte_offset_width"}
   %loaded = view.load %input_view[0] : view<1xi32> -> i32
-  // ERROR@+1: TARGET/003 {constraint_key="source_memory.byte_offset_width"}
   view.store %loaded, %output_view[0] : i32, view<1xi32>
   func.return %loaded : i32
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_wide_scaled_index(%element: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %input_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %element_bytes = mov.short 4
+  %byte_offset = mul %element, %element_bytes
+  %18 = mov.address-index %byte_offset
+  %loaded = lda.i32.index %input_view, %18
+  st.i32.index %loaded, %output_view, %18
+  return %loaded
 }
 
 // ====
@@ -75,9 +84,7 @@ func.def @scalar_wide_mixed_base(%input_storage: buffer, %output_storage: buffer
   %combined_offset = index.add %byte_offset, %static_base : offset
   %input_view = buffer.view %input[%combined_offset] : buffer -> view<1xi32>
   %output_view = buffer.view %output[%combined_offset] : buffer -> view<1xi32>
-  // ERROR@+1: TARGET/003 {constraint_key="source_memory.static_offset"}
   %loaded = view.load %input_view[0] : view<1xi32> -> i32
-  // ERROR@+1: TARGET/003 {constraint_key="source_memory.static_offset"}
   view.store %loaded, %output_view[0] : i32, view<1xi32>
   func.return %loaded : i32
 }

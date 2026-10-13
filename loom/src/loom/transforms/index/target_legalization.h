@@ -16,8 +16,8 @@ extern "C" {
 #endif
 
 // Returns the generic index legalizer provider. Pipelines should compose this
-// after target-specific providers so native combined division wins before the
-// portable quotient/remainder split.
+// after target-specific providers so native extrema and combined division win
+// before their portable decompositions.
 const loom_target_legalizer_provider_t* loom_index_target_legalizer_provider(
     void);
 

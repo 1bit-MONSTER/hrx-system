@@ -393,6 +393,14 @@ loom_value_facts_t loom_value_facts_zero_extend(loom_value_facts_t source_facts,
 loom_value_facts_t loom_value_facts_wrap_integer(
     loom_value_facts_t source_facts, int32_t bit_count);
 
+// Interprets a mathematical integer result modulo 2^bit_count and returns its
+// unsigned numeric facts. Widths through 63 retain exact unsigned values and
+// bounded ranges. The fact lattice cannot represent the upper half of an
+// unsigned 64-bit domain, so any result reaching that half conservatively
+// becomes the complete nonnegative i64 envelope. |bit_count| is in [1, 64].
+loom_value_facts_t loom_value_facts_wrap_unsigned_integer(
+    loom_value_facts_t source_facts, int32_t bit_count);
+
 // Returns conservative unsigned range facts for a value with |bit_count|
 // meaningful bits.
 loom_value_facts_t loom_value_facts_make_unsigned_bit_count_range(
@@ -692,6 +700,17 @@ static inline bool loom_value_facts_fit_unsigned_bit_count(
   }
   const uint64_t maximum_value = (UINT64_C(1) << bit_count) - 1;
   return (uint64_t)facts.range_hi <= maximum_value;
+}
+
+// Returns true when reducing |facts| modulo the unsigned |bit_count| domain
+// cannot change them. A nonexact range ending at the signed fact lattice's
+// maximum may be a saturated mathematical result, so it cannot prove identity
+// at the 63- or 64-bit boundary.
+static inline bool loom_value_facts_unsigned_wrap_is_identity(
+    loom_value_facts_t facts, uint8_t bit_count) {
+  return loom_value_facts_fit_unsigned_bit_count(facts, bit_count) &&
+         (bit_count < 63 || loom_value_facts_is_exact(facts) ||
+          facts.range_hi != INT64_MAX);
 }
 
 // Returns true if the facts carry no information (full range, unit

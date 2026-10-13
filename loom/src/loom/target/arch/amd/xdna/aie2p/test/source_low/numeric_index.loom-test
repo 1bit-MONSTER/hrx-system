@@ -10,9 +10,60 @@ func.def @index_arithmetic(%lhs0: index, %rhs0: index, %stride: offset) -> (inde
   %min = index.min %lhs, %rhs : index
   %max = index.max %lhs, %rhs : index
   %madd = index.madd %lhs, %rhs, %sub : index
-  // ERROR@+1: TARGET/004
   %scaled = index.scale %lhs, %stride : index, offset -> offset
   func.return %add, %sub, %mul, %div, %rem, %min, %max, %madd, %scaled : index, index, index, index, index, index, index, index, offset
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @index_arithmetic(%lhs: reg<aie2p.er>, %rhs: reg<aie2p.er>, %stride: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>) asm {
+  %add = add.rr %lhs, %rhs
+  %sub = sub %lhs, %rhs
+  %mul = mul %lhs, %rhs
+  %44 = mov.dividend %lhs
+  %45 = mov.short 0
+  %46, %47 = divs %44, %45, %rhs
+  %48, %49 = divs %47, %46, %rhs
+  %50, %51 = divs %49, %48, %rhs
+  %52, %53 = divs %51, %50, %rhs
+  %54, %55 = divs %53, %52, %rhs
+  %56, %57 = divs %55, %54, %rhs
+  %58, %59 = divs %57, %56, %rhs
+  %60, %61 = divs %59, %58, %rhs
+  %62, %63 = divs %61, %60, %rhs
+  %64, %65 = divs %63, %62, %rhs
+  %66, %67 = divs %65, %64, %rhs
+  %68, %69 = divs %67, %66, %rhs
+  %70, %71 = divs %69, %68, %rhs
+  %72, %73 = divs %71, %70, %rhs
+  %74, %75 = divs %73, %72, %rhs
+  %76, %77 = divs %75, %74, %rhs
+  %78, %79 = divs %77, %76, %rhs
+  %80, %81 = divs %79, %78, %rhs
+  %82, %83 = divs %81, %80, %rhs
+  %84, %85 = divs %83, %82, %rhs
+  %86, %87 = divs %85, %84, %rhs
+  %88, %89 = divs %87, %86, %rhs
+  %90, %91 = divs %89, %88, %rhs
+  %92, %93 = divs %91, %90, %rhs
+  %94, %95 = divs %93, %92, %rhs
+  %96, %97 = divs %95, %94, %rhs
+  %98, %99 = divs %97, %96, %rhs
+  %100, %101 = divs %99, %98, %rhs
+  %102, %103 = divs %101, %100, %rhs
+  %104, %105 = divs %103, %102, %rhs
+  %106, %107 = divs %105, %104, %rhs
+  %108, %109 = divs %107, %106, %rhs
+  %div = mov.quotient %109
+  %111 = mul %div, %rhs
+  %rem = sub %lhs, %111
+  %113 = lt.select %lhs, %rhs
+  %min = sel.nez %lhs, %rhs, %113
+  %115 = lt.select %rhs, %lhs
+  %max = sel.nez %lhs, %rhs, %115
+  %117 = copy %sub : reg<aie2p.er> -> reg<aie2p.er>
+  %madd = mac %117, %lhs, %rhs
+  %scaled = mul %lhs, %stride
+  return %add, %sub, %mul, %div, %rem, %min, %max, %madd, %scaled
 }
 
 // ====
