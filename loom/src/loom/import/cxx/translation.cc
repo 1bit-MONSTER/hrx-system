@@ -105,6 +105,7 @@ class Translator final : private Initialization::Evaluation {
     for (size_t index = 0; index < functions_.pending().size(); ++index) {
       function(functions_.pending()[index]);
     }
+    functions_.build_declarations(types_, locations_, &builder_);
     functions_.build_benchmarks(locations_, &builder_);
     assembly_fragments_.verify(module_, options_.diagnostic_sink);
   }
@@ -1176,7 +1177,10 @@ class Translator final : private Initialization::Evaluation {
       }
       if (auto* variable = cxx::symbol_cast<cxx::VariableSymbol>(id->symbol)) {
         if (auto value = configs_.read(variable, &builder_, source)) {
-          return name(*value, cxx::to_string(variable->name()));
+          std::array<loom_value_id_t, 1> components = {*value};
+          return name(value_arena_.capture(
+                          types_.partition(variable->type(), ast), components),
+                      cxx::to_string(variable->name()));
         }
         if (variable->constValue() &&
             !unit_.typeTraits().is_volatile(variable->type()) &&
@@ -1496,10 +1500,8 @@ class Translator final : private Initialization::Evaluation {
         }
         return *called.value;
       }
-      if (!functions_.definition(function) || annotated(function, "kernel")) {
-        fail(
-            ast,
-            "call must resolve to an owned intrinsic or defined device helper");
+      if (annotated(function, "kernel")) {
+        fail(ast, "kernels require an explicit launch operation");
       }
       auto symbol = functions_.declare(function, ast);
       auto arguments = flatten_arguments();
@@ -1804,7 +1806,7 @@ class Translator final : private Initialization::Evaluation {
       return;
     }
     if (auto* loop = cxx::ast_cast<cxx::ForStatementAST>(ast)) {
-      LoopSchedule schedule(unit_, diagnostics_, loop->attributeList);
+      LoopSchedule schedule(unit_, diagnostics_, types_, loop->attributeList);
       if (!loop->condition) {
         fail(ast, "for loops require a condition");
       }
@@ -1825,7 +1827,8 @@ class Translator final : private Initialization::Evaluation {
       return;
     }
     if (auto* loop = cxx::ast_cast<cxx::WhileStatementAST>(ast)) {
-      if (!LoopSchedule(unit_, diagnostics_, loop->attributeList).empty()) {
+      if (!LoopSchedule(unit_, diagnostics_, types_, loop->attributeList)
+               .empty()) {
         fail(ast, "loop scheduling requires a counted for loop");
       }
       conditional_loop(ast, loop->condition, loop->statement, nullptr,
@@ -1833,7 +1836,8 @@ class Translator final : private Initialization::Evaluation {
       return;
     }
     if (auto* loop = cxx::ast_cast<cxx::DoStatementAST>(ast)) {
-      if (!LoopSchedule(unit_, diagnostics_, loop->attributeList).empty()) {
+      if (!LoopSchedule(unit_, diagnostics_, types_, loop->attributeList)
+               .empty()) {
         fail(ast, "loop scheduling requires a counted for loop");
       }
       conditional_loop(ast, loop->expression, loop->statement, nullptr,
@@ -2166,11 +2170,11 @@ class Translator final : private Initialization::Evaluation {
           }
           return;
         }
-        if (!function || !functions_.definition(function) ||
-            annotated(function, "kernel")) {
-          fail(
-              ast,
-              "void call requires a defined ordinary function or an intrinsic");
+        if (!function) {
+          fail(ast, "void call must resolve to a function symbol");
+        }
+        if (annotated(function, "kernel")) {
+          fail(ast, "kernels require an explicit launch operation");
         }
         std::vector<loom_value_id_t> arguments;
         for (auto* argument : cxx::ListView{call->expressionList}) {

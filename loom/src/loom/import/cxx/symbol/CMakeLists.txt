@@ -47,6 +47,7 @@ loom_cc_library(
     loom::import::cxx::binding::config
     loom::import::cxx::binding::fastmath
     loom::import::cxx::binding::function_contracts
+    loom::import::cxx::binding::function_imports
     loom::import::cxx::binding::intrinsics
     loom::import::cxx::binding::launch
     loom::import::cxx::binding::parameter_contracts

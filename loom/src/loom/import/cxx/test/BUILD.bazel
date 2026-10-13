@@ -89,6 +89,8 @@ loom_check_test_suite(
         "float8.cxx-test",
         "float8_invalid.cxx-test",
         "frontend.cxx-test",
+        "function_declarations.cxx-test",
+        "function_declarations_invalid.cxx-test",
         "functions.cxx-test",
         "index_views.cxx-test",
         "initializer_dependencies.cxx-test",
@@ -307,6 +309,24 @@ loom_test_module(
         "call_lifetimes_kernel.loom",
     ],
     target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
+)
+
+loom_test_module(
+    name = "function_link_module",
+    srcs = [
+        "function_link_consumer.cxx",
+        "function_link_provider.cxx",
+    ],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
+)
+
+loom_test(
+    name = "function_link_test",
+    benchmark_smoke = False,
+    case = "function_link",
+    execution_profiles = [VM_REFERENCE_PROFILE],
+    module = ":function_link_module",
+    target_compatible_with = _HOST_COMPATIBILITY,
 )
 
 loom_test(

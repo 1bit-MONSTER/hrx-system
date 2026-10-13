@@ -134,14 +134,6 @@ template<class T> T identity(T value) { return value; }
 template<> unsigned identity<unsigned>(unsigned value) { return value; }
 
 // ====
-// Renaming a declaration does not provide the missing body or its contract.
-[[loom::symbol("library.external")]] unsigned external(unsigned);
-unsigned entry(unsigned value) {
-  // ERROR@+1: LOWERING/059 "call must resolve to an owned intrinsic or defined device helper"
-  return external(value);
-}
-
-// ====
 // INPUT: cxx root=library.entry
 // ERROR: LOWERING/059 "root has no concrete definition: library.entry"
 [[loom::symbol("library.entry")]] unsigned entry(unsigned value) { return value; }

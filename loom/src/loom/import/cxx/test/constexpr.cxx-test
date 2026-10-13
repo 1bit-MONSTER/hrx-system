@@ -91,3 +91,13 @@ unsigned entry(unsigned value, bool selected) {
 // CHECK: func.def public @entry(*, %selected: i1) -> (i32) {
 // CHECK: *scf.if %selected*
 // CHECK: *scalar.addi*
+
+// ====
+// The native index facade retains constexpr values in the index domain.
+#include <loomcxx/index.h>
+constexpr loom::type::index width{64};
+loom::type::index read_width() { return width; }
+// ----
+// CHECK: func.def public @read_width() -> (index) {
+// CHECK: %width = index.constant 64 : index
+// CHECK: func.return %width : index
