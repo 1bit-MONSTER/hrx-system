@@ -56,6 +56,7 @@ typedef enum iree_hal_amd_xdna_operation_kind_e {
   IREE_HAL_AMD_XDNA_OPERATION_DEALLOCA,
   IREE_HAL_AMD_XDNA_OPERATION_TRANSFER,
   IREE_HAL_AMD_XDNA_OPERATION_FILE,
+  IREE_HAL_AMD_XDNA_OPERATION_HOST_CALL,
   IREE_HAL_AMD_XDNA_OPERATION_DISPATCH,
 } iree_hal_amd_xdna_operation_kind_t;
 
@@ -202,6 +203,15 @@ struct iree_hal_amd_xdna_operation_t {
       // True after platform I/O retires and before final host publication.
       bool io_completed;
     } file;
+    // Captured host callback invoked after semaphore dependencies complete.
+    struct {
+      // Function and optional retained callback-state resource.
+      iree_hal_host_call_t call;
+      // Arguments copied before submission returns.
+      uint64_t args[4];
+      // Signal-publication policy and execution hints.
+      iree_hal_host_call_flags_t flags;
+    } host_call;
   };
 };
 
@@ -236,10 +246,17 @@ void iree_hal_amd_xdna_operation_merge_memory_frontiers(
 iree_status_t iree_hal_amd_xdna_operation_prepare_frontier_wait(
     iree_hal_amd_xdna_operation_t* operation);
 
-// Executes allocation, deallocation, transfer, or file preparation/publication
-// on the blocking host service. Disk I/O itself runs on its file's proactor.
+// Executes allocation, deallocation, transfers, callbacks, or file preparation
+// and publication on the host service. Disk I/O runs on its file's proactor.
 void iree_hal_amd_xdna_operation_execute_host(
     iree_hal_amd_xdna_operation_t* operation);
+
+// Captures a callback for the existing host service, including optional state
+// retention. Semaphore dependencies govern invocation and completion.
+iree_status_t iree_hal_amd_xdna_queue_host_call(
+    iree_hal_queue_t* base, iree_hal_semaphore_list_t waits,
+    iree_hal_semaphore_list_t signals, iree_hal_host_call_t call,
+    const uint64_t args[4], iree_hal_host_call_flags_t flags);
 
 // Captures a queue-ordered allocation transaction.
 iree_status_t iree_hal_amd_xdna_queue_alloca(

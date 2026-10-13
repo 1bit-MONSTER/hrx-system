@@ -237,7 +237,14 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
       mappings[i] = mappings[i + 3] = mapping;
       mappings[i + 3].scope = scope_;
     }
-    IREE_ASSERT_OK(Map(mappings));
+    // Both participants submit through their existing host progress service.
+    auto* mapping_queue = iree_hal_device_queue(epoch == 1 ? npu_ : cpu_, 0, 0);
+    ++sequence_;
+    IREE_ASSERT_OK(iree_hal_queue_map(mapping_queue, {},
+                                      {1, &done_, &sequence_}, mappings.size(),
+                                      mappings.data(), 0));
+    IREE_ASSERT_OK(
+        iree_hal_semaphore_wait(done_, sequence_, iree_infinite_timeout(), 0));
     auto* rhs = reinterpret_cast<uint32_t*>(host_views[1].data);
     std::array<uint32_t, 16> product;
     for (uint32_t i = 0; i < 16; ++i) {
