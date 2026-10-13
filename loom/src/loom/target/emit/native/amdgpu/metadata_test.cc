@@ -12,6 +12,7 @@
 #include <string>
 
 #include "iree/base/internal/arena.h"
+#include "iree/hal/drivers/amd/gpu/image/hsaco_metadata.h"
 #include "iree/io/vec_stream.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -548,6 +549,34 @@ TEST(AmdgpuMetadataTest, AppendsArgumentMetadata) {
   EXPECT_TRUE(Contains(bytes, "read_only"));
   EXPECT_TRUE(Contains(bytes, "scale"));
   EXPECT_TRUE(Contains(bytes, "by_value"));
+
+  const auto payload = iree_make_const_byte_span(bytes.data(), bytes.size());
+  iree_hal_amd_gpu_metadata_t decoded = {};
+  IREE_ASSERT_OK(iree_hal_amd_gpu_hsaco_metadata_initialize(
+      1, &payload, iree_allocator_system(), &decoded));
+  EXPECT_EQ(decoded.kernel_count, 1u);
+  EXPECT_EQ(decoded.argument_count, 2u);
+  const auto& decoded_kernel = decoded.kernels[0];
+  EXPECT_TRUE(iree_string_view_equal(decoded_kernel.name, kernel.name));
+  EXPECT_TRUE(iree_string_view_equal(decoded_kernel.symbol_name,
+                                     kernel.descriptor_symbol));
+  EXPECT_EQ(decoded_kernel.kernarg_segment_size, kernel.kernarg_segment_size);
+  EXPECT_EQ(decoded_kernel.wavefront_size, kernel.wavefront_size);
+  EXPECT_EQ(decoded_kernel.sgpr_count, kernel.sgpr_count);
+  EXPECT_EQ(decoded_kernel.vgpr_count, kernel.vgpr_count);
+  EXPECT_EQ(decoded.arguments[0].kind,
+            IREE_HAL_AMD_GPU_METADATA_ARGUMENT_KIND_GLOBAL_BUFFER);
+  EXPECT_EQ(decoded.arguments[0].access,
+            IREE_HAL_AMD_GPU_METADATA_ACCESS_READ_WRITE);
+  EXPECT_EQ(decoded.arguments[0].actual_access,
+            IREE_HAL_AMD_GPU_METADATA_ACCESS_READ_ONLY);
+  EXPECT_EQ(decoded.arguments[0].effective_access,
+            IREE_HAL_AMD_GPU_METADATA_ACCESS_READ_ONLY);
+  EXPECT_EQ(decoded.arguments[1].offset, 8u);
+  EXPECT_EQ(decoded.arguments[1].size, 4u);
+  EXPECT_EQ(decoded.arguments[1].kind,
+            IREE_HAL_AMD_GPU_METADATA_ARGUMENT_KIND_BY_VALUE);
+  iree_hal_amd_gpu_metadata_deinitialize(&decoded);
 }
 
 TEST(AmdgpuMetadataTest, RejectsInvalidArgumentRange) {
