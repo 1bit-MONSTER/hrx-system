@@ -280,3 +280,9 @@ class CxxWriter:
     def close(self, suffix: str = "") -> None:
         self.indent -= 1
         self.line("}" + suffix)
+
+    def continue_block(self, text: str) -> None:
+        """Closes one block and opens an adjacent clause at the same depth."""
+        self.indent -= 1
+        self.line(f"}} {text} {{")
+        self.indent += 1

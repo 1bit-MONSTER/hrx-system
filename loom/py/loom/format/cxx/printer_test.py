@@ -44,3 +44,22 @@ loom::kernel::barrier<
     loom::memory_space::workgroup,
     loom::atomic::scope::workgroup>();"""
     )
+
+
+def test_keeps_adjacent_control_flow_clauses_together() -> None:
+    writer = CxxWriter()
+    writer.open("if (condition)")
+    writer.line("result = first;")
+    writer.continue_block("else")
+    writer.line("result = second;")
+    writer.close()
+
+    assert (
+        "\n".join(writer.lines)
+        == """\
+if (condition) {
+  result = first;
+} else {
+  result = second;
+}"""
+    )

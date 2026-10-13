@@ -648,7 +648,17 @@ class CxxRenderer:
         if definition.name in {"scalar.constant", "index.constant"}:
             value = definition.attributes.get("value")
             return value if type(value) is int else None
-        if definition.name in {"scalar.assume", "index.assume"} and definition.operands:
+        if (
+            definition.name
+            in {
+                "scalar.assume",
+                "index.assume",
+                "scalar.extui",
+                "scalar.extsi",
+                "index.cast",
+            }
+            and definition.operands
+        ):
             return self._constant_integer(definition.operands[0])
         return None
 
@@ -842,6 +852,30 @@ class CxxRenderer:
             return self._literal(definition.attributes.get("value"), value_id)
         return self.expression(value_id)
 
+    def _unsigned_counted_bound(self, value_id: int) -> str | None:
+        """Recovers one C++ unsigned loop-bound expression from address IR."""
+
+        constant = self._constant_integer(value_id)
+        if constant is not None:
+            if 0 <= constant <= (1 << 32) - 1:
+                return f"{constant}u"
+            return None
+        definition = self.definitions.get(value_id)
+        if (
+            definition is None
+            or definition.name != "index.cast"
+            or len(definition.operands) != 1
+        ):
+            return None
+        source = definition.operands[0]
+        expression = self.expression(source)
+        if (
+            self.expression_type(source) == "unsigned"
+            and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expression) is not None
+        ):
+            return expression
+        return None
+
     def _predicate_arg(
         self, argument: PredicateArg, *, reference_id: int | None = None
     ) -> str:
@@ -960,6 +994,142 @@ class CxxRenderer:
             return result
         raise CxxRenderError(None, "dynamic index metadata has trailing values")
 
+    def _render_index_expression(self, operation: Operation) -> tuple[str, ...] | None:
+        name = operation.name
+        if not name.startswith("index."):
+            return None
+        if name == "index.cast":
+            result = operation.results[0]
+            operand = operation.operands[0]
+            operand_expression = self.expression(operand)
+            constant = self._constant_integer(operand)
+            if (
+                constant is not None
+                and constant >= 0
+                and repr(self.module.values[result].type) in {"index", "offset"}
+            ):
+                self.expressions[result] = self._literal(constant, result)
+                self.expression_types[result] = self.cpp_type(result)
+                return ()
+            if repr(self.module.values[result].type) == "index":
+                definition = self.definitions.get(operand)
+                while (
+                    definition is not None
+                    and definition.name in {"scalar.assume", "index.assume"}
+                    and definition.operands
+                ):
+                    operand = definition.operands[0]
+                    definition = self.definitions.get(operand)
+                if definition is not None and definition.name == "scalar.extui":
+                    # Dynamic C++ index arguments accept ordinary unsigned
+                    # integer expressions. Retaining the intermediate i64
+                    # carrier would recreate an importer implementation detail
+                    # instead of the source-level address expression.
+                    source = definition.operands[0]
+                    self.expressions[result] = self.expression(source)
+                    self.expression_types[result] = self.expression_type(source)
+                    return ()
+                expression = (
+                    operand_expression
+                    if self.cpp_type(result) == self.expression_type(operand)
+                    else self._cast(result, operand_expression)
+                )
+            elif self.cpp_type(result) == self.expression_type(operand):
+                expression = operand_expression
+            else:
+                expression = self._cast(result, operand_expression)
+            if expression == operand_expression:
+                self.expressions[result] = operand_expression
+                self.expression_types[result] = self.expression_type(operand)
+                return ()
+            self._declare(result, expression, inlineable=True)
+            return ()
+        if (
+            name == "index.add"
+            and repr(self.module.values[operation.results[0]].type) == "offset"
+        ):
+            self._declare(
+                operation.results[0],
+                self._binary_expression(operation, "+"),
+                inlineable=True,
+            )
+            return ()
+        if name == "index.scale":
+            result = operation.results[0]
+            users = self.users[result]
+            is_byte_allocation_extent = bool(users) and all(
+                user.name == "buffer.alloca"
+                and self._resolved(user).value_id("byte_length") == result
+                for user in users
+            )
+            if (
+                is_byte_allocation_extent
+                and len(operation.operands) == 2
+                and self._constant_integer(operation.operands[1]) == 1
+            ):
+                # buffer::alloca<unsigned char> accepts a byte count and its
+                # importer reconstructs this unit scale. Preserve that exact
+                # source contract without giving general index arithmetic C++
+                # value semantics.
+                source = operation.operands[0]
+                self.expressions[result] = self.expression(source)
+                self.expression_types[result] = self.expression_type(source)
+                return ()
+        raise CxxRenderError(
+            operation,
+            "address-domain arithmetic has no current C++ value semantics; "
+            "ordinary expressions convert loom::type::index to unsigned long long "
+            "and discard the High index operation",
+        )
+
+    def _render_comparison(self, operation: Operation) -> tuple[str, ...] | None:
+        name = operation.name
+        if name == "scalar.cmpi":
+            predicate = operation.attributes.get("predicate")
+            token = {
+                "eq": "==",
+                "ne": "!=",
+                "slt": "<",
+                "sle": "<=",
+                "sgt": ">",
+                "sge": ">=",
+                "ult": "<",
+                "ule": "<=",
+                "ugt": ">",
+                "uge": ">=",
+            }.get(predicate)
+            if token is None:
+                raise CxxRenderError(
+                    operation, f"comparison predicate {predicate!r} is unsupported"
+                )
+        elif name == "scalar.cmpf":
+            predicate = operation.attributes.get("predicate")
+            # These are exactly the predicates produced by native C++ binary
+            # comparisons. In particular, C++ != is unordered while == and
+            # the relational operators are ordered in the presence of NaNs.
+            token = {
+                "oeq": "==",
+                "ogt": ">",
+                "oge": ">=",
+                "olt": "<",
+                "ole": "<=",
+                "une": "!=",
+            }.get(predicate)
+            if token is None:
+                raise CxxRenderError(
+                    operation,
+                    f"floating comparison predicate {predicate!r} has no "
+                    "native C++ binary operator",
+                )
+        else:
+            return None
+        self._declare(
+            operation.results[0],
+            self._binary_expression(operation, token),
+            inlineable=True,
+        )
+        return ("predicate",)
+
     def _render_simple(self, operation: Operation) -> tuple[str, ...] | None:
         name = operation.name
         if name in {"scalar.constant", "index.constant"}:
@@ -1070,86 +1240,12 @@ class CxxRenderer:
                 inlineable=True,
             )
             return ()
-        if name == "index.cast":
-            result = operation.results[0]
-            operand = operation.operands[0]
-            operand_expression = self.expression(operand)
-            if repr(self.module.values[result].type) == "index":
-                definition = self.definitions.get(operand)
-                while (
-                    definition is not None
-                    and definition.name in {"scalar.assume", "index.assume"}
-                    and definition.operands
-                ):
-                    operand = definition.operands[0]
-                    definition = self.definitions.get(operand)
-                if definition is not None and definition.name == "scalar.extui":
-                    # Dynamic C++ index arguments accept ordinary unsigned
-                    # integer expressions. Retaining the intermediate i64
-                    # carrier would recreate an importer implementation detail
-                    # instead of the source-level address expression.
-                    expression = self.expression(definition.operands[0])
-                    self.expressions[result] = expression
-                    self.expression_types[result] = self.expression_type(
-                        definition.operands[0]
-                    )
-                    return ()
-                if self.cpp_type(result) == self.expression_type(operand):
-                    expression = operand_expression
-                else:
-                    expression = self._cast(result, operand_expression)
-            elif self.cpp_type(result) == self.expression_type(operand):
-                expression = operand_expression
-            else:
-                expression = self._cast(result, operand_expression)
-            if expression == operand_expression:
-                self.expressions[result] = operand_expression
-                self.expression_types[result] = self.expression_type(operand)
-                return ()
-            self._declare(result, expression, inlineable=True)
-            return ()
-        if (
-            name == "index.add"
-            and repr(self.module.values[operation.results[0]].type) == "offset"
-        ):
-            self._declare(
-                operation.results[0],
-                self._binary_expression(operation, "+"),
-                inlineable=True,
-            )
-            return ()
-        if name.startswith("index."):
-            raise CxxRenderError(
-                operation,
-                "address-domain arithmetic has no current C++ value semantics; "
-                "ordinary expressions convert loom::type::index to unsigned long long "
-                "and discard the High index operation",
-            )
-
-        if name == "scalar.cmpi":
-            predicate = operation.attributes.get("predicate")
-            token = {
-                "eq": "==",
-                "ne": "!=",
-                "slt": "<",
-                "sle": "<=",
-                "sgt": ">",
-                "sge": ">=",
-                "ult": "<",
-                "ule": "<=",
-                "ugt": ">",
-                "uge": ">=",
-            }.get(predicate)
-            if token is None:
-                raise CxxRenderError(
-                    operation, f"comparison predicate {predicate!r} is unsupported"
-                )
-            self._declare(
-                operation.results[0],
-                self._binary_expression(operation, token),
-                inlineable=True,
-            )
-            return ("predicate",)
+        projected = self._render_index_expression(operation)
+        if projected is not None:
+            return projected
+        projected = self._render_comparison(operation)
+        if projected is not None:
+            return projected
 
         if name == "scalar.siluf":
             self._declare(
@@ -1291,10 +1387,17 @@ class CxxRenderer:
             return base
         byte_type = "const unsigned char*" if is_const else "unsigned char*"
         target_type = f"const {element_type}*" if is_const else f"{element_type}*"
+        if (
+            offset in {"0", "0u", "0ull"}
+            and self.expression_type(buffer_id) == target_type
+        ):
+            return base
         byte_base = f"reinterpret_cast<{byte_type}>({base})"
         address = (
             byte_base if offset in {"0", "0u", "0ull"} else f"{byte_base} + {offset}"
         )
+        if byte_type == target_type:
+            return address
         return f"reinterpret_cast<{target_type}>({address})"
 
     def _render_memory(self, operation: Operation) -> tuple[str, ...] | None:
@@ -1335,7 +1438,9 @@ class CxxRenderer:
             self._declare(
                 result,
                 expression,
+                force_type="auto*",
             )
+            self.expression_types[result] = "unsigned char*"
             return ("memory_space", "base_alignment")
         if name == "buffer.view":
             resolved = self._resolved(operation)
@@ -1581,6 +1686,12 @@ class CxxRenderer:
         for result, source in zip(results, initial, strict=True):
             source_expression = self.expression(source)
             source_users = self.users[source]
+            preferred_name = loop_carrier_stem(self.names[result])
+            if (
+                preferred_name != self.names[result]
+                and preferred_name not in self.expressions.values()
+            ):
+                self.names[result] = preferred_name
             can_reuse_source = (
                 re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", source_expression) is not None
                 and loop_carrier_stem(self.names[result]) == source_expression
@@ -1619,18 +1730,41 @@ class CxxRenderer:
                 operation, "scf.for block argument arity is inconsistent"
             )
         induction = block.arg_ids[0]
+        preferred_induction = loop_carrier_stem(self.names[induction])
+        if (
+            preferred_induction != self.names[induction]
+            and preferred_induction not in self.expressions.values()
+        ):
+            self.names[induction] = preferred_induction
         induction_name = self.names[induction]
         lower = self.expression(resolved.value_id("lower_bound"))
         upper = self.expression(resolved.value_id("upper_bound"))
         step = self.expression(resolved.value_id("step"))
         loop_type = "auto"
-        if all(
-            re.fullmatch(r"[0-9]+(?:u|ull)?", value) for value in (lower, upper, step)
+        lower_id = resolved.value_id("lower_bound")
+        upper_id = resolved.value_id("upper_bound")
+        step_id = resolved.value_id("step")
+        step_constant = self._constant_integer(step_id)
+        upper_constant = self._constant_integer(upper_id)
+        counted_bounds: list[str | None] = [None, None, None]
+        if (
+            step_constant is not None
+            and 0 < step_constant <= (1 << 32) - 1
+            and (upper_constant is None or upper_constant <= (1 << 32) - step_constant)
         ):
+            counted_bounds = [
+                self._unsigned_counted_bound(value_id)
+                for value_id in (lower_id, upper_id, step_id)
+            ]
+        if all(bound is not None for bound in counted_bounds):
             loop_type = "unsigned"
-            lower = re.sub(r"(?:u|ull)$", "u", lower)
-            upper = re.sub(r"(?:u|ull)$", "u", upper)
-            step = re.sub(r"(?:u|ull)$", "u", step)
+            lower, upper, step = (str(bound) for bound in counted_bounds)
+        if attributes and loop_type != "unsigned":
+            raise CxxRenderError(
+                operation,
+                "scheduled loop has no recoverable nonwrapping unsigned C++ "
+                "induction contract",
+            )
         increment = (
             f"++{induction_name}"
             if step in {"1", "1u", "1ull"}
@@ -1652,7 +1786,15 @@ class CxxRenderer:
         resolved = self._resolved(operation)
         results = resolved.value_ids("results")
         for result in results:
-            self._declare(result, f"{self.cpp_type(result)}{{}}")
+            assignment_target = self.assignment_targets.get(result)
+            if assignment_target is not None:
+                # A surrounding structured operation already owns the mutable
+                # carrier. Each branch assigns or preserves that value; a
+                # default assignment here would destroy its incoming state.
+                self.expressions[result] = assignment_target
+                self.expression_types[result] = self.cpp_type(result)
+            else:
+                self._declare(result, f"{self.cpp_type(result)}{{}}")
         then_region = resolved.region("then_region")
         else_region = resolved.region("else_region")
         if then_region is None or len(then_region.blocks) != 1:
@@ -1662,15 +1804,26 @@ class CxxRenderer:
         )
         self.writer.open(f"if ({condition})")
         self._render_block(then_region.blocks[0], yield_targets=results)
-        self.writer.close(" else" if else_region is not None else "")
-        if else_region is not None:
-            if len(else_region.blocks) != 1:
-                raise CxxRenderError(
-                    operation, "scf.if else region must have one block"
-                )
-            self.writer.open("")
-            self._render_block(else_region.blocks[0], yield_targets=results)
+        if else_region is None:
             self.writer.close()
+            return
+        if len(else_region.blocks) != 1:
+            raise CxxRenderError(operation, "scf.if else region must have one block")
+        else_block = else_region.blocks[0]
+        if len(else_block.ops) == 1 and else_block.ops[0].name == "scf.yield":
+            yield_operation = else_block.ops[0]
+            self._validate_projected_attributes(yield_operation, ())
+            if len(yield_operation.operands) == len(results) and all(
+                self.expression(source) == self.expression(result)
+                for source, result in zip(
+                    yield_operation.operands, results, strict=True
+                )
+            ):
+                self.writer.close()
+                return
+        self.writer.continue_block("else")
+        self._render_block(else_block, yield_targets=results)
+        self.writer.close()
 
     def _direct_yield_assignments(
         self, block: Block, yield_targets: list[int] | None

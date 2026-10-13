@@ -11,6 +11,17 @@ import pytest
 from loom.format.cxx.registry import load_module
 from loom.format.cxx.renderer import CxxRenderError, render_module
 from loom.format.cxx.test_support import LOOP_MODULE, SOURCE_MODULE
+from loom.ir import Module
+
+
+def _module_with_float_comparison(predicate: str) -> Module:
+    source = SOURCE_MODULE.replace(
+        "  %value = view.load %slice[0] : view<1xf32> -> f32\n",
+        "  %value = view.load %slice[0] : view<1xf32> -> f32\n"
+        "  %limit = scalar.constant 0.0 : f32\n"
+        f"  %comparison = scalar.cmpf {predicate}, %value, %limit : f32\n",
+    )
+    return load_module(source.encode())
 
 
 def test_projects_dynamic_subview_without_numeric_cast_locals() -> None:
@@ -212,6 +223,42 @@ def test_projects_clustered_subgroup_reduction_contract() -> None:
     result = render_module(load_module(source.encode()))
 
     assert "loom::kernel::subgroup::reduce::addf<4, 2>(loaded)" in result
+
+
+@pytest.mark.parametrize(
+    ("predicate", "operator"),
+    [
+        ("oeq", "=="),
+        ("ogt", ">"),
+        ("oge", ">="),
+        ("olt", "<"),
+        ("ole", "<="),
+        ("une", "!="),
+    ],
+)
+def test_projects_exact_native_float_comparison_semantics(
+    predicate: str, operator: str
+) -> None:
+    result = render_module(_module_with_float_comparison(predicate))
+
+    assert f"bool comparison = value {operator} 0.0f;" in result
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    ["one", "ord", "ueq", "ugt", "uge", "ult", "ule", "uno"],
+)
+def test_rejects_float_comparisons_without_native_binary_operators(
+    predicate: str,
+) -> None:
+    with pytest.raises(
+        CxxRenderError,
+        match=(
+            rf"cannot project scalar.cmpf: floating comparison predicate "
+            rf"'{predicate}' has no native C\+\+ binary operator"
+        ),
+    ):
+        render_module(_module_with_float_comparison(predicate))
 
 
 def test_rejects_top_level_definitions_that_would_be_omitted() -> None:
