@@ -6,6 +6,8 @@
 
 #include "libamdf/src/xdna/kernel_queue.h"
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <condition_variable>
@@ -51,6 +53,8 @@ struct amdf_xdna_umd_kernel_queue_t {
     uint64_t native_submission = 0;
     // Number of checked results consumed from this storage location.
     uint32_t retirement_count = 0;
+    // Aggregate packet credits held through checked retirement.
+    uint32_t packet_count = 0;
   };
   // Stable storage for every native packet, allocated only at creation.
   std::vector<Slot> slots;
@@ -74,10 +78,16 @@ struct amdf_xdna_umd_kernel_queue_t {
   uint32_t destroy_count = 0;
   // Monotonic native submission count.
   uint64_t submitted = 0;
-  // Exact instruction range passed directly to the native transport.
-  uint64_t pending_address = 0;
-  // Byte length passed without instruction interpretation.
-  uint32_t pending_byte_length = 0;
+  // Publisher-owned aggregate packet usage, independent of submission slots.
+  uint64_t published_packets = 0;
+  // Credits released by the exclusive checked-result consumer.
+  std::atomic<uint64_t> retired_packets{0};
+  // Native descriptor array copied at acceptance without interpreting bytes.
+  std::array<amdf_xdna_umd_kernel_command_t,
+             AMDF_XDNA_UMD_KERNEL_QUEUE_MAXIMUM_COMMAND_COUNT>
+      pending_commands;
+  // Number of accepted descriptors in the most recent submission.
+  uint32_t pending_command_count = 0;
   // Coordinates a preempted observer inside its protected retirement section.
   mutable std::mutex mutex;
   // Explicit readiness/release condition for the retirement observer.
@@ -194,10 +204,11 @@ class XdnaKernelQueueTest : public ::testing::Test {
   void Submit() {
     ASSERT_EQ(SubmitCommand(&submission), AMDF_STATUS_OK);
     ASSERT_EQ(submission, context.native.queue.submitted);
-    EXPECT_EQ(context.native.queue.pending_address,
+    EXPECT_EQ(context.native.queue.pending_commands[0].instruction_address,
               memory->accesses[0].addresses[AMDF_MEMORY_ADDRESS_XDNA_FIRMWARE] +
                   command.byte_offset);
-    EXPECT_EQ(context.native.queue.pending_byte_length, command.byte_length);
+    EXPECT_EQ(context.native.queue.pending_commands[0].instruction_byte_length,
+              command.byte_length);
   }
 
   amdf_kernel_queue_status_t Query() {
@@ -890,6 +901,69 @@ TEST_F(XdnaKernelQueueTest, NativeRejectionPreservesSlotAndOutput) {
   ASSERT_NO_FATAL_FAILURE(Submit());
 }
 
+TEST_F(XdnaKernelQueueTest, ValidatesEntireArrayBeforeAcceptingAnyCommand) {
+  std::array<amdf_xdna_kernel_command_t, 3> commands = {command, command,
+                                                        command};
+  commands[1].byte_offset += 64;
+  commands[2].byte_offset = memory->info.byte_length;
+  amdf_xdna_kernel_queue_submission_info_t submit = {
+      .type = AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_SUBMISSION_INFO,
+      .structure_size = sizeof(submit),
+      .command_count = commands.size(),
+      .commands = commands.data(),
+  };
+  uint64_t point = UINT64_MAX;
+  EXPECT_EQ(amdf_xdna_kernel_queue_submit(queue, &submit, &point),
+            amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE));
+  EXPECT_EQ(point, UINT64_MAX);
+  EXPECT_EQ(context.native.queue.submitted, 0u);
+  commands[2].byte_offset = command.byte_offset + 128;
+  ASSERT_EQ(amdf_xdna_kernel_queue_submit(queue, &submit, &point),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(context.native.queue.submitted, 1u);
+  EXPECT_EQ(context.native.queue.pending_command_count, commands.size());
+  for (size_t i = 0; i < commands.size(); ++i) {
+    EXPECT_EQ(context.native.queue.pending_commands[i].instruction_address,
+              memory->accesses[0].addresses[AMDF_MEMORY_ADDRESS_XDNA_FIRMWARE] +
+                  commands[i].byte_offset);
+  }
+  EXPECT_EQ(amdf_kernel_queue_wait(queue, point, AMDF_TIMEOUT_INFINITE, 0),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(context.native.queue.slots[0].retirement_count, 1u);
+  EXPECT_EQ(Query().retired_submission, point);
+}
+
+TEST_F(XdnaKernelQueueTest, ArrayCreditsRequireCheckedRetirementBeforeReuse) {
+  ASSERT_EQ(CreateQueue(4), AMDF_STATUS_OK);
+  std::array<amdf_xdna_kernel_command_t, 2> commands = {command, command};
+  amdf_xdna_kernel_queue_submission_info_t submit = {
+      .type = AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_SUBMISSION_INFO,
+      .structure_size = sizeof(submit),
+      .command_count = commands.size(),
+      .commands = commands.data(),
+  };
+  uint64_t first = 0;
+  ASSERT_EQ(amdf_xdna_kernel_queue_submit(queue, &submit, &first),
+            AMDF_STATUS_OK);
+  uint64_t second = UINT64_MAX;
+  EXPECT_EQ(amdf_xdna_kernel_queue_submit(queue, &submit, &second),
+            amdf_make_api_status(AMDF_STATUS_CODE_BUSY));
+  EXPECT_EQ(second, UINT64_MAX);
+  EXPECT_EQ(context.native.queue.submitted, 1u);
+  EXPECT_EQ(context.native.queue.slots[0].retirement_count, 0u);
+  EXPECT_EQ(context.native.queue.wait_count.load(), 0u);
+
+  // Capacity pressure performs a nonwaiting refresh and consumes the whole
+  // completed array before granting its packet credits to this submission.
+  context.native.queue.available_progress = first;
+  ASSERT_EQ(amdf_xdna_kernel_queue_submit(queue, &submit, &second),
+            AMDF_STATUS_OK);
+  EXPECT_GT(second, first);
+  EXPECT_EQ(context.native.queue.slots[0].retirement_count, 1u);
+  EXPECT_EQ(Query().retired_submission, first);
+  EXPECT_EQ(context.native.queue.wait_count.load(), 0u);
+}
+
 }  // namespace
 
 extern "C" {
@@ -954,6 +1028,18 @@ amdf_status_t amdf_xdna_umd_kernel_queue_create(
   *out_queue = &context->queue;
   return AMDF_STATUS_OK;
 }
+uint32_t amdf_xdna_umd_kernel_queue_maximum_command_count(
+    const amdf_xdna_umd_kernel_queue_t* queue) {
+  const uint32_t count = queue->slots.size() > 2 ? queue->slots.size() - 1 : 1;
+  return std::min(count, AMDF_XDNA_UMD_KERNEL_QUEUE_MAXIMUM_COMMAND_COUNT);
+}
+bool amdf_xdna_umd_kernel_queue_has_capacity(
+    const amdf_xdna_umd_kernel_queue_t* queue, uint32_t command_count) {
+  const uint32_t required = command_count + (command_count > 1 ? 1 : 0);
+  return queue->slots.size() -
+             (queue->published_packets - queue->retired_packets.load()) >=
+         required;
+}
 amdf_native_event_types_t amdf_xdna_umd_kernel_queue_query_notification_types(
     const amdf_xdna_umd_kernel_queue_t* queue) {
   return queue->notification_types;
@@ -966,9 +1052,8 @@ amdf_status_t amdf_xdna_umd_kernel_queue_request_notification(
   return queue->notification_status;
 }
 amdf_status_t amdf_xdna_umd_kernel_queue_submit(
-    amdf_xdna_umd_kernel_queue_t* queue, uint32_t slot,
-    uint64_t instruction_address, uint32_t instruction_byte_length,
-    uint64_t* out_submission) {
+    amdf_xdna_umd_kernel_queue_t* queue, uint32_t slot, uint32_t command_count,
+    const amdf_xdna_umd_kernel_command_t* commands, uint64_t* out_submission) {
   if (!amdf_status_is_ok(queue->submission_status)) {
     return queue->submission_status;
   }
@@ -976,8 +1061,11 @@ amdf_status_t amdf_xdna_umd_kernel_queue_submit(
     return queue->terminal_status.load();
   }
   EXPECT_EQ(queue->slots[slot].native_submission, 0u);
-  queue->pending_address = instruction_address;
-  queue->pending_byte_length = instruction_byte_length;
+  EXPECT_TRUE(amdf_xdna_umd_kernel_queue_has_capacity(queue, command_count));
+  std::copy_n(commands, command_count, queue->pending_commands.begin());
+  queue->pending_command_count = command_count;
+  queue->slots[slot].packet_count = command_count + (command_count > 1 ? 1 : 0);
+  queue->published_packets += queue->slots[slot].packet_count;
   *out_submission = ++queue->submitted;
   queue->slots[slot].native_submission = queue->submitted;
   std::unique_lock<std::mutex> lock(queue->mutex);
@@ -1026,6 +1114,7 @@ void amdf_xdna_umd_kernel_queue_retire_command(
   }
   queue->slots[slot].native_submission = 0;
   ++queue->slots[slot].retirement_count;
+  queue->retired_packets += queue->slots[slot].packet_count;
 }
 amdf_status_t amdf_xdna_umd_kernel_queue_query_terminal_status(
     const amdf_xdna_umd_kernel_queue_t* queue) {

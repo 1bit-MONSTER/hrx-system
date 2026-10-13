@@ -7,6 +7,7 @@
 #include "libamdf/src/xdna/umd/kernel_queue.h"
 
 #include <drm/amdxdna_accel.h>
+#include <string.h>
 #include <sys/ioctl.h>
 
 #include "libamdf/src/allocator.h"
@@ -23,11 +24,29 @@ enum {
   AMDF_LINUX_XDNA_FIRST_POINT_CAPTURED = 2,
 };
 
+// Packet storage and submission ledgers have the same capacity but independent
+// ring positions. An accepted array owns one contiguous packet extent, wrapping
+// at capacity, until its root result has been consumed.
+typedef struct amdf_linux_xdna_kernel_queue_slot_t {
+  // One native BO, indexed by the publisher's packet cursor.
+  amdf_linux_xdna_buffer_t packet;
+  // Result BO index for the public submission occupying this ledger slot.
+  uint32_t root_packet;
+  // Packet credits owned by that submission, including any chain envelope.
+  uint32_t packet_count;
+} amdf_linux_xdna_kernel_queue_slot_t;
+
 struct amdf_xdna_umd_kernel_queue_t {
   // Scheduling context exclusively leased by this public queue.
   amdf_xdna_umd_context_t* context;
   // Number of command buffers acquired during transactional construction.
   uint32_t packet_count;
+  // Publisher-owned cursor into the shared packet ring.
+  uint32_t next_packet;
+  // Publisher-owned aggregate count of accepted packet credits.
+  uint64_t published_packets;
+  // Aggregate credits returned only after exclusive result consumption.
+  amdf_atomic_uint64_t retired_packets;
   // Precreated binary object retaining the first native fence, or zero when
   // this context has already retired its first command before this lease.
   uint32_t first_syncobj;
@@ -41,7 +60,7 @@ struct amdf_xdna_umd_kernel_queue_t {
   // submits a BO handle with no byte offset, and the kernel later reads and
   // completes that same BO. Independently pending commands require distinct
   // BOs even though their packets occupy less than a page.
-  amdf_linux_xdna_buffer_t packets[];
+  amdf_linux_xdna_kernel_queue_slot_t slots[];
 };
 
 // DRM has no separate EVENTFD capability bit. Handle zero cannot name a
@@ -212,8 +231,8 @@ static amdf_status_t amdf_linux_xdna_kernel_queue_release_storage(
   const int descriptor = queue->context->device->descriptor;
   amdf_status_t status = AMDF_STATUS_OK;
   for (uint32_t i = 0; i < queue->packet_count; ++i) {
-    const amdf_status_t release_status =
-        amdf_linux_xdna_buffer_deinitialize(descriptor, &queue->packets[i]);
+    const amdf_status_t release_status = amdf_linux_xdna_buffer_deinitialize(
+        descriptor, &queue->slots[i].packet);
     if (amdf_status_is_ok(status)) {
       status = release_status;
     }
@@ -234,12 +253,12 @@ amdf_status_t amdf_xdna_umd_kernel_queue_create(
   amdf_xdna_umd_device_t* device = context->device;
   amdf_xdna_umd_kernel_queue_t* queue = NULL;
   const size_t slot_count = capacity;
-  if (slot_count > (SIZE_MAX - sizeof(*queue)) / sizeof(queue->packets[0])) {
+  if (slot_count > (SIZE_MAX - sizeof(*queue)) / sizeof(queue->slots[0])) {
     return amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE);
   }
   amdf_status_t status =
       amdf_calloc(device->host_allocator,
-                  sizeof(*queue) + slot_count * sizeof(queue->packets[0]),
+                  sizeof(*queue) + slot_count * sizeof(queue->slots[0]),
                   amdf_alignof(amdf_xdna_umd_kernel_queue_t), (void**)&queue);
   if (!amdf_status_is_ok(status)) {
     return status;
@@ -251,6 +270,7 @@ amdf_status_t amdf_xdna_umd_kernel_queue_create(
     return amdf_make_api_status(AMDF_STATUS_CODE_BUSY);
   }
   queue->context = context;
+  amdf_atomic_uint64_initialize(&queue->retired_packets, 0);
   amdf_atomic_uint64_initialize(&queue->progress,
                                 context->last_native_sequence);
   amdf_atomic_uint32_initialize(&queue->first_point,
@@ -269,14 +289,14 @@ amdf_status_t amdf_xdna_umd_kernel_queue_create(
     }
   }
   for (uint32_t i = 0; i < capacity && amdf_status_is_ok(status); ++i) {
-    status =
-        amdf_linux_xdna_buffer_create(device->descriptor, AMDXDNA_BO_CMD,
-                                      device->page_size, &queue->packets[i]);
+    status = amdf_linux_xdna_buffer_create(device->descriptor, AMDXDNA_BO_CMD,
+                                           device->page_size,
+                                           &queue->slots[i].packet);
     if (amdf_status_is_ok(status)) {
       ++queue->packet_count;
       status = amdf_linux_xdna_buffer_attach(
           device->descriptor, device->page_size, device->page_size, NULL,
-          &queue->packets[i]);
+          &queue->slots[i].packet);
     }
   }
   if (amdf_status_is_ok(status)) {
@@ -293,9 +313,32 @@ amdf_status_t amdf_xdna_umd_kernel_queue_create(
   return status;
 }
 
+uint32_t amdf_xdna_umd_kernel_queue_maximum_command_count(
+    const amdf_xdna_umd_kernel_queue_t* queue) {
+  const uint32_t available =
+      queue->packet_count > 2 ? queue->packet_count - 1 : 1;
+  return available < AMDF_XDNA_UMD_KERNEL_QUEUE_MAXIMUM_COMMAND_COUNT
+             ? available
+             : AMDF_XDNA_UMD_KERNEL_QUEUE_MAXIMUM_COMMAND_COUNT;
+}
+
+bool amdf_xdna_umd_kernel_queue_has_capacity(
+    const amdf_xdna_umd_kernel_queue_t* queue, uint32_t command_count) {
+  const uint64_t occupied =
+      queue->published_packets -
+      amdf_atomic_uint64_load_acquire(&queue->retired_packets);
+  const uint32_t required = command_count + (command_count > 1 ? 1 : 0);
+  return queue->packet_count - occupied >= required;
+}
+
+static uint32_t amdf_linux_xdna_kernel_queue_next_packet(
+    const amdf_xdna_umd_kernel_queue_t* queue, uint32_t index) {
+  return index + 1 == queue->packet_count ? 0 : index + 1;
+}
+
 amdf_status_t amdf_xdna_umd_kernel_queue_submit(
-    amdf_xdna_umd_kernel_queue_t* queue, uint32_t slot,
-    uint64_t instruction_address, uint32_t instruction_byte_length,
+    amdf_xdna_umd_kernel_queue_t* queue, uint32_t slot, uint32_t command_count,
+    const amdf_xdna_umd_kernel_command_t* commands,
     uint64_t* out_native_submission) {
   amdf_status_t status =
       amdf_atomic_uint64_load_acquire(&queue->context->terminal_status);
@@ -308,14 +351,44 @@ amdf_status_t amdf_xdna_umd_kernel_queue_submit(
       return status;
     }
   }
-  amdf_linux_xdna_buffer_t* packet = &queue->packets[slot];
-  amdf_linux_xdna_elf_packet_build(instruction_address, instruction_byte_length,
-                                   packet->host_pointer);
+  const uint32_t root_index = queue->next_packet;
+  amdf_linux_xdna_buffer_t* root = &queue->slots[root_index].packet;
+  uint32_t next_packet = root_index;
+  if (command_count > 1) {
+    // ERT_CMD_CHAIN: NEW state, six fixed payload words, then unaligned
+    // uint64_t child BO handles starting at byte 28. The kernel reads the
+    // children asynchronously and writes the aggregate result to this root.
+    uint32_t* words = root->host_pointer;
+    memset(words, 0, 7 * sizeof(*words));
+    words[0] = (19u << 23) | ((6u + 2u * command_count) << 12) | 1u;
+    words[1] = command_count;
+    next_packet = amdf_linux_xdna_kernel_queue_next_packet(queue, next_packet);
+  }
+  for (uint32_t i = 0; i < command_count; ++i) {
+    amdf_linux_xdna_buffer_t* packet = &queue->slots[next_packet].packet;
+    amdf_linux_xdna_elf_packet_build(commands[i].instruction_address,
+                                     commands[i].instruction_byte_length,
+                                     packet->host_pointer);
+    if (command_count > 1) {
+      const uint64_t handle = packet->handle;
+      memcpy((uint8_t*)root->host_pointer + 28 + i * sizeof(handle), &handle,
+             sizeof(handle));
+    }
+    next_packet = amdf_linux_xdna_kernel_queue_next_packet(queue, next_packet);
+  }
   // This packet is shared with the kernel CPU, which builds the firmware
   // message and writes the result. CPU cache coherence covers both directions;
   // NPU instruction/data cache maintenance is a separate caller operation.
-  return amdf_linux_xdna_command_submit(queue->context, packet,
-                                        out_native_submission);
+  status = amdf_linux_xdna_command_submit(queue->context, root,
+                                          out_native_submission);
+  if (amdf_status_is_ok(status)) {
+    const uint32_t packet_count = command_count + (command_count > 1 ? 1 : 0);
+    queue->slots[slot].root_packet = root_index;
+    queue->slots[slot].packet_count = packet_count;
+    queue->next_packet = next_packet;
+    queue->published_packets += packet_count;
+  }
+  return status;
 }
 
 amdf_native_event_types_t amdf_xdna_umd_kernel_queue_query_notification_types(
@@ -408,11 +481,17 @@ amdf_status_t amdf_xdna_umd_kernel_queue_refresh_progress(
 
 void amdf_xdna_umd_kernel_queue_retire_command(
     amdf_xdna_umd_kernel_queue_t* queue, uint32_t slot) {
-  const amdf_status_t status =
-      amdf_linux_xdna_command_query_result(&queue->packets[slot]);
+  const amdf_status_t status = amdf_linux_xdna_command_query_result(
+      &queue->slots[queue->slots[slot].root_packet].packet);
   if (!amdf_status_is_ok(status)) {
     amdf_linux_xdna_context_record_failure(queue->context, status);
   }
+  // Common code serializes result consumption. Capture the ledger before
+  // publishing credits that permit another submitter to reuse packet storage.
+  const uint64_t retired =
+      amdf_atomic_uint64_load_acquire(&queue->retired_packets) +
+      queue->slots[slot].packet_count;
+  amdf_atomic_uint64_store_release(&queue->retired_packets, retired);
 }
 
 amdf_status_t amdf_xdna_umd_kernel_queue_query_terminal_status(

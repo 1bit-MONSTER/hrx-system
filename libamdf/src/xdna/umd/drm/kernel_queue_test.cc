@@ -105,6 +105,14 @@ struct NativeState {
 // Each case owns this dependency state through all joined native operations.
 NativeState* native_state = nullptr;
 
+amdf_status_t SubmitCommand(amdf_xdna_umd_kernel_queue_t* queue, uint32_t slot,
+                            uint64_t address, uint32_t byte_length,
+                            uint64_t* out_submission) {
+  const amdf_xdna_umd_kernel_command_t command = {address, byte_length};
+  return amdf_xdna_umd_kernel_queue_submit(queue, slot, 1, &command,
+                                           out_submission);
+}
+
 class LinuxXdnaKernelQueueTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -170,16 +178,14 @@ TEST_F(LinuxXdnaKernelQueueTest,
                 AMDF_NATIVE_EVENT_TYPE_BIT_EVENTFD,
             0u);
   uint64_t first = 0, second = 0;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &first),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   ASSERT_EQ(
       amdf_xdna_umd_kernel_queue_request_notification(queue_, first, &event_),
       AMDF_STATUS_OK);
   EXPECT_EQ(native_.notification.handle, 100u);
   EXPECT_EQ(native_.notification.point, 0u);
   EXPECT_EQ(native_.captured_count, 1u);
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 1, 65536, 64, &second),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 1, 65536, 64, &second), AMDF_STATUS_OK);
   ASSERT_EQ(
       amdf_xdna_umd_kernel_queue_request_notification(queue_, second, &event_),
       AMDF_STATUS_OK);
@@ -205,8 +211,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
        FirstCaptureContentionProvidesImmediateRecheck) {
   ASSERT_NO_FATAL_FAILURE(CreateEvent());
   uint64_t first = 0;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &first),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   native_.complete_capture = false;
   amdf_status_t waiter_status = AMDF_STATUS_OK;
   std::thread waiter([&] {
@@ -240,8 +245,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
        NotificationCaptureProtectsFirstFenceFromPublication) {
   ASSERT_NO_FATAL_FAILURE(CreateEvent());
   uint64_t first = 0;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &first),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   native_.complete_capture = false;
   amdf_status_t notification_status = AMDF_STATUS_OK;
   std::thread notifier([&] {
@@ -253,7 +257,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
     native_.changed.wait(lock, [&] { return native_.capture_entered; });
   }
   uint64_t second = UINT64_MAX;
-  EXPECT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 1, 65536, 64, &second),
+  EXPECT_EQ(SubmitCommand(queue_, 1, 65536, 64, &second),
             amdf_make_api_status(AMDF_STATUS_CODE_BUSY));
   EXPECT_EQ(second, UINT64_MAX);
   EXPECT_EQ(native_.submission_count, 1u);
@@ -266,8 +270,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
   ASSERT_EQ(notification_status, AMDF_STATUS_OK);
   EXPECT_EQ(native_.notification.handle, 100u);
   EXPECT_EQ(native_.notification.point, 0u);
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 1, 65536, 64, &second),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 1, 65536, 64, &second), AMDF_STATUS_OK);
   EXPECT_EQ(native_.captured_count, 1u);
   ASSERT_EQ(amdf_xdna_umd_kernel_queue_wait(queue_, second, &deadline_),
             AMDF_STATUS_OK);
@@ -278,8 +281,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
 TEST_F(LinuxXdnaKernelQueueTest, NotificationFailuresPreserveAcceptedIdentity) {
   ASSERT_NO_FATAL_FAILURE(CreateEvent());
   uint64_t first = 0;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &first),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   native_.capture_error = ENOMEM;
   EXPECT_EQ(
       amdf_xdna_umd_kernel_queue_request_notification(queue_, first, &event_),
@@ -309,9 +311,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
               AMDF_STATUS_OK);
     EXPECT_EQ(amdf_xdna_umd_kernel_queue_query_notification_types(queue_), 0u);
     uint64_t submission = 0;
-    ASSERT_EQ(
-        amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &submission),
-        AMDF_STATUS_OK);
+    ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &submission), AMDF_STATUS_OK);
     ASSERT_EQ(amdf_xdna_umd_kernel_queue_wait(queue_, submission, &deadline_),
               AMDF_STATUS_OK);
     amdf_xdna_umd_kernel_queue_retire_command(queue_, 0);
@@ -358,9 +358,9 @@ TEST_F(LinuxXdnaKernelQueueTest, FailedPacketReleaseConsumesContextLease) {
 
 TEST_F(LinuxXdnaKernelQueueTest, FramesByteLengthAndNoIndirectBufferList) {
   uint64_t sequence = UINT64_MAX;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(
-                queue_, 0, UINT64_C(0x1234567887650000), 260, &sequence),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(
+      SubmitCommand(queue_, 0, UINT64_C(0x1234567887650000), 260, &sequence),
+      AMDF_STATUS_OK);
   EXPECT_EQ(sequence, 1u);
   const std::array<uint32_t, 12> expected = {
       0x3B00B001, 1, 0x87650000, 0x12345678, 0, 0, 0, 0, 260, 0, 0, 0};
@@ -377,8 +377,7 @@ TEST_F(LinuxXdnaKernelQueueTest, FramesByteLengthAndNoIndirectBufferList) {
 TEST_F(LinuxXdnaKernelQueueTest,
        FirstPointObserverDoesNotBlockLaterPublication) {
   uint64_t first = 0;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &first),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   native_.complete_wait = false;
   amdf_status_t wait_status = AMDF_STATUS_OK;
   std::thread observer([&] {
@@ -390,8 +389,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
   }
   const auto packet = native_.packets[0].words;
   uint64_t second = UINT64_MAX;
-  EXPECT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 1, 65536, 64, &second),
-            AMDF_STATUS_OK);
+  EXPECT_EQ(SubmitCommand(queue_, 1, 65536, 64, &second), AMDF_STATUS_OK);
   EXPECT_EQ(second, 2u);
   EXPECT_EQ(native_.submission_count, 2u);
   EXPECT_EQ(native_.packets[0].words, packet);
@@ -421,8 +419,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
 TEST_F(LinuxXdnaKernelQueueTest,
        FirstFenceCaptureRejectsConcurrentReplacement) {
   uint64_t first = 0;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &first),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   native_.complete_capture = false;
   amdf_status_t wait_status = AMDF_STATUS_OK;
   std::thread observer([&] {
@@ -433,7 +430,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
     native_.changed.wait(lock, [&] { return native_.capture_entered; });
   }
   uint64_t second = UINT64_MAX;
-  EXPECT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 1, 65536, 64, &second),
+  EXPECT_EQ(SubmitCommand(queue_, 1, 65536, 64, &second),
             amdf_make_api_status(AMDF_STATUS_CODE_BUSY));
   EXPECT_EQ(second, UINT64_MAX);
   EXPECT_EQ(native_.submission_count, 1u);
@@ -447,8 +444,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
   EXPECT_EQ(native_.captured_count, 1u);
   EXPECT_EQ(native_.capture_count, 1u);
   amdf_xdna_umd_kernel_queue_retire_command(queue_, 0);
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 1, 65536, 64, &second),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 1, 65536, 64, &second), AMDF_STATUS_OK);
   ASSERT_EQ(amdf_xdna_umd_kernel_queue_wait(queue_, second, &deadline_),
             AMDF_STATUS_OK);
   amdf_xdna_umd_kernel_queue_retire_command(queue_, 1);
@@ -457,7 +453,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
 TEST_F(LinuxXdnaKernelQueueTest, RejectionDoesNotPublishOrConsumeSequence) {
   native_.submission_results = {EBUSY};
   uint64_t sequence = UINT64_MAX;
-  EXPECT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &sequence),
+  EXPECT_EQ(SubmitCommand(queue_, 0, 32768, 64, &sequence),
             amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, EBUSY));
   EXPECT_EQ(sequence, UINT64_MAX);
   EXPECT_EQ(native_.submission_attempt_count, 1u);
@@ -465,11 +461,104 @@ TEST_F(LinuxXdnaKernelQueueTest, RejectionDoesNotPublishOrConsumeSequence) {
   EXPECT_EQ(amdf_xdna_umd_kernel_queue_query_progress(queue_), 0u);
 }
 
+TEST_F(LinuxXdnaKernelQueueTest,
+       ChainKeepsWrappedChildrenThroughRootRetirement) {
+  ASSERT_EQ(amdf_xdna_umd_kernel_queue_destroy(queue_), AMDF_STATUS_OK);
+  queue_ = nullptr;
+  const uint32_t packet_base = native_.packet_count;
+  ASSERT_EQ(amdf_xdna_umd_kernel_queue_create(&context_, 7, &queue_),
+            AMDF_STATUS_OK);
+  const std::array<amdf_xdna_umd_kernel_command_t, 4> commands = {
+      {{0x100004000, 64},
+       {0x100008000, 128},
+       {0x10000c000, 192},
+       {0x100010000, 256}}};
+  uint64_t first = 0;
+  ASSERT_TRUE(amdf_xdna_umd_kernel_queue_has_capacity(queue_, commands.size()));
+  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, commands.size(),
+                                              commands.data(), &first),
+            AMDF_STATUS_OK);
+  const auto& root = native_.packets[packet_base].words;
+  EXPECT_EQ(root[0], (19u << 23) | (14u << 12) | 1u);
+  EXPECT_EQ(root[1], commands.size());
+  for (uint32_t i = 0; i < commands.size(); ++i) {
+    uint64_t handle = 0;
+    std::memcpy(&handle, &root[7 + i * 2], sizeof(handle));
+    EXPECT_EQ(handle, packet_base + 10 + i);
+    const auto& child = native_.packets[handle - 9].words;
+    EXPECT_EQ(child[0], 0x3b00b001u);
+    uint64_t address = 0;
+    std::memcpy(&address, &child[2], sizeof(address));
+    EXPECT_EQ(address, commands[i].instruction_address);
+    EXPECT_EQ(child[8], commands[i].instruction_byte_length);
+  }
+  uint64_t second = 0;
+  ASSERT_EQ(SubmitCommand(queue_, 1, 0x200004000, 64, &second), AMDF_STATUS_OK);
+  const auto retained_single = native_.packets[packet_base + 5].words;
+  EXPECT_FALSE(amdf_xdna_umd_kernel_queue_has_capacity(queue_, 2));
+  ASSERT_EQ(amdf_xdna_umd_kernel_queue_wait(queue_, first, &deadline_),
+            AMDF_STATUS_OK);
+  // Fence observation alone cannot authorize packet reuse.
+  EXPECT_FALSE(amdf_xdna_umd_kernel_queue_has_capacity(queue_, 2));
+  amdf_xdna_umd_kernel_queue_retire_command(queue_, 0);
+  ASSERT_TRUE(amdf_xdna_umd_kernel_queue_has_capacity(queue_, 3));
+  uint64_t third = 0;
+  ASSERT_EQ(
+      amdf_xdna_umd_kernel_queue_submit(queue_, 2, 3, commands.data(), &third),
+      AMDF_STATUS_OK);
+  const auto& wrapped = native_.packets[packet_base + 6].words;
+  for (uint32_t i = 0; i < 3; ++i) {
+    uint64_t handle = 0;
+    std::memcpy(&handle, &wrapped[7 + i * 2], sizeof(handle));
+    EXPECT_EQ(handle, packet_base + 9 + i);
+  }
+  EXPECT_EQ(native_.packets[packet_base + 5].words, retained_single);
+  ASSERT_EQ(amdf_xdna_umd_kernel_queue_wait(queue_, third, &deadline_),
+            AMDF_STATUS_OK);
+  amdf_xdna_umd_kernel_queue_retire_command(queue_, 1);
+  amdf_xdna_umd_kernel_queue_retire_command(queue_, 2);
+  EXPECT_EQ(amdf_xdna_umd_kernel_queue_query_terminal_status(queue_),
+            AMDF_STATUS_OK);
+  // The native result belongs to the root; children remain in NEW state.
+  EXPECT_EQ(native_.packets[packet_base].words[0] & 15u, 1u);
+  EXPECT_TRUE(amdf_xdna_umd_kernel_queue_has_capacity(queue_, 6));
+}
+
+TEST_F(LinuxXdnaKernelQueueTest,
+       RejectedChainRetainsCreditsAndRootFailureRetires) {
+  const std::array<amdf_xdna_umd_kernel_command_t, 2> commands = {
+      {{32768, 64}, {65536, 128}}};
+  native_.submission_results = {EBUSY, 0};
+  uint64_t point = UINT64_MAX;
+  EXPECT_EQ(
+      amdf_xdna_umd_kernel_queue_submit(queue_, 0, 2, commands.data(), &point),
+      amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, EBUSY));
+  EXPECT_EQ(point, UINT64_MAX);
+  ASSERT_TRUE(amdf_xdna_umd_kernel_queue_has_capacity(queue_, 2));
+  ASSERT_EQ(
+      amdf_xdna_umd_kernel_queue_submit(queue_, 0, 2, commands.data(), &point),
+      AMDF_STATUS_OK);
+  EXPECT_EQ(native_.accepted_handles[0], 9u);
+  EXPECT_FALSE(amdf_xdna_umd_kernel_queue_has_capacity(queue_, 1));
+  ASSERT_EQ(amdf_xdna_umd_kernel_queue_wait(queue_, point, &deadline_),
+            AMDF_STATUS_OK);
+  // A native list-builder error may signal the fence with root state NEW.
+  // Result inspection must report failure and still release the entire array.
+  native_.packets[0].words[0] = (native_.packets[0].words[0] & ~15u) | 1u;
+  amdf_xdna_umd_kernel_queue_retire_command(queue_, 0);
+  EXPECT_NE(amdf_xdna_umd_kernel_queue_query_terminal_status(queue_),
+            AMDF_STATUS_OK);
+  EXPECT_TRUE(amdf_xdna_umd_kernel_queue_has_capacity(queue_, 2));
+  EXPECT_NE(
+      amdf_xdna_umd_kernel_queue_submit(queue_, 1, 2, commands.data(), &point),
+      AMDF_STATUS_OK);
+  EXPECT_EQ(native_.submission_count, 1u);
+}
+
 TEST_F(LinuxXdnaKernelQueueTest, InterruptedPublicationAcceptsExactlyOnce) {
   native_.submission_results = {EINTR, EINTR, EINTR, 0};
   uint64_t sequence = UINT64_MAX;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &sequence),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &sequence), AMDF_STATUS_OK);
   EXPECT_EQ(sequence, 1u);
   EXPECT_EQ(context_.last_native_sequence, sequence);
   EXPECT_EQ(native_.submission_attempt_count, 4u);
@@ -485,10 +574,9 @@ TEST_F(LinuxXdnaKernelQueueTest,
        InterruptedPublicationPreservesFollowingRejection) {
   native_.submission_results = {0, EINTR, EINTR, EIO};
   uint64_t first = 0;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &first),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   uint64_t second = UINT64_MAX;
-  EXPECT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 1, 65536, 64, &second),
+  EXPECT_EQ(SubmitCommand(queue_, 1, 65536, 64, &second),
             amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, EIO));
   EXPECT_EQ(second, UINT64_MAX);
   EXPECT_EQ(context_.last_native_sequence, first);
@@ -498,8 +586,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
   EXPECT_EQ(amdf_xdna_umd_kernel_queue_query_progress(queue_), 0u);
   EXPECT_EQ(amdf_xdna_umd_kernel_queue_query_terminal_status(queue_),
             AMDF_STATUS_OK);
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 1, 65536, 64, &second),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 1, 65536, 64, &second), AMDF_STATUS_OK);
   EXPECT_EQ(second, first + 1);
   EXPECT_EQ(native_.submission_attempt_count, 5u);
   EXPECT_EQ(native_.submission_count, 2u);
@@ -512,8 +599,7 @@ TEST_F(LinuxXdnaKernelQueueTest,
 
 TEST_F(LinuxXdnaKernelQueueTest, WaitFailurePreservesPendingProgress) {
   uint64_t sequence = 0;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &sequence),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &sequence), AMDF_STATUS_OK);
   native_.wait_error = EIO;
   EXPECT_NE(amdf_xdna_umd_kernel_queue_wait(queue_, sequence, &deadline_),
             AMDF_STATUS_OK);
@@ -526,25 +612,23 @@ TEST_F(LinuxXdnaKernelQueueTest, WaitFailurePreservesPendingProgress) {
   EXPECT_EQ(amdf_xdna_umd_kernel_queue_query_terminal_status(queue_),
             amdf_make_status(AMDF_STATUS_DOMAIN_FIRMWARE, 6));
   uint64_t rejected = UINT64_MAX;
-  EXPECT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 1, 65536, 64, &rejected),
+  EXPECT_EQ(SubmitCommand(queue_, 1, 65536, 64, &rejected),
             amdf_make_status(AMDF_STATUS_DOMAIN_FIRMWARE, 6));
   EXPECT_EQ(rejected, UINT64_MAX);
 }
 
 TEST_F(LinuxXdnaKernelQueueTest, SnapshotFailureRejectsOnlyTheNextSubmission) {
   uint64_t first = 0;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &first),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   native_.capture_error = ENOMEM;
   uint64_t rejected = UINT64_MAX;
-  EXPECT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 1, 65536, 64, &rejected),
+  EXPECT_EQ(SubmitCommand(queue_, 1, 65536, 64, &rejected),
             amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, ENOMEM));
   EXPECT_EQ(rejected, UINT64_MAX);
   EXPECT_EQ(native_.submission_count, 1u);
   EXPECT_EQ(context_.last_native_sequence, first);
   native_.capture_error = 0;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 1, 65536, 64, &rejected),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 1, 65536, 64, &rejected), AMDF_STATUS_OK);
   ASSERT_EQ(amdf_xdna_umd_kernel_queue_wait(queue_, first, &deadline_),
             AMDF_STATUS_OK);
   EXPECT_EQ(native_.waited_handle, 100u);
@@ -557,8 +641,7 @@ TEST_F(LinuxXdnaKernelQueueTest, SnapshotFailureRejectsOnlyTheNextSubmission) {
 
 TEST_F(LinuxXdnaKernelQueueTest, ZeroQueryRequiresExactFirstFenceProof) {
   uint64_t first = 0;
-  ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, 0, 32768, 64, &first),
-            AMDF_STATUS_OK);
+  ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   EXPECT_EQ(amdf_xdna_umd_kernel_queue_refresh_progress(queue_),
             AMDF_STATUS_OK);
   EXPECT_EQ(amdf_xdna_umd_kernel_queue_query_progress(queue_), 0u);
@@ -574,8 +657,7 @@ TEST_F(LinuxXdnaKernelQueueTest, ZeroQueryRequiresExactFirstFenceProof) {
 TEST_F(LinuxXdnaKernelQueueTest, QueryRecoversACompletedPrefixWithoutWait) {
   uint64_t submission = 0;
   for (uint32_t i = 0; i < 3; ++i) {
-    ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue_, i, 32768 + i * 64, 64,
-                                                &submission),
+    ASSERT_EQ(SubmitCommand(queue_, i, 32768 + i * 64, 64, &submission),
               AMDF_STATUS_OK);
   }
   native_.completed_count = 2;

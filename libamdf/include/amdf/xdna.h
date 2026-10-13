@@ -309,7 +309,9 @@ typedef struct amdf_xdna_kernel_queue_create_info_t {
   /// Maximum accepted submissions that may remain unretired, or zero for
   /// AMDF_XDNA_KERNEL_QUEUE_DEFAULT_PENDING_SUBMISSION_COUNT. Native
   /// packet/result storage for this capacity is allocated before creation
-  /// returns.
+  /// returns. Arrays share that bounded storage: a submission with multiple
+  /// commands can consume multiple packet credits and return BUSY below this
+  /// submission bound. Query the created queue's maximum_command_count.
   uint32_t maximum_pending_submission_count;
 } amdf_xdna_kernel_queue_create_info_t;
 
@@ -329,7 +331,8 @@ typedef struct amdf_xdna_kernel_command_t {
   uint64_t byte_length;
 } amdf_xdna_kernel_command_t;
 
-/// One bounded kernel-mediated XDNA submission.
+/// One bounded, ordered kernel-mediated XDNA submission. Commands execute in
+/// descriptor order; the returned submission point covers the entire array.
 typedef struct amdf_xdna_kernel_queue_submission_info_t {
   /// Must be `AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_SUBMISSION_INFO`.
   amdf_structure_type_t type;
@@ -341,8 +344,9 @@ typedef struct amdf_xdna_kernel_queue_submission_info_t {
   uint32_t command_count;
   /// Reserved for compatible growth and must be zero.
   uint32_t reserved;
-  /// Borrowed descriptors consumed before return. Accepted instruction ranges
-  /// remain borrowed through checked native retirement.
+  /// Borrowed descriptors consumed before return. All accepted instruction
+  /// ranges remain borrowed through checked native retirement of the array,
+  /// including when execution fails after completing only a prefix.
   const amdf_xdna_kernel_command_t* commands;
 } amdf_xdna_kernel_queue_submission_info_t;
 
@@ -423,7 +427,10 @@ typedef struct amdf_xdna_api_t {
   /// contract guarantees that no command was accepted. Native retirement
   /// consumes the command result. The caller keeps instruction memory live
   /// until retirement; libamdf neither retains nor tracks it. Native rejection
-  /// leaves `out_submission` unchanged. The caller also keeps memory reachable
+  /// accepts no prefix and leaves `out_submission` unchanged. The whole array
+  /// is validated before native publication. After acceptance, execution may
+  /// fail partway through the array; its one retirement point still covers all
+  /// borrowed ranges. The caller also keeps memory reachable
   /// through opaque device addresses live; native command retirement does not
   /// prove that user-mode work scheduled elsewhere, such as a GPU consumer, has
   /// stopped accessing it.
@@ -445,7 +452,8 @@ typedef struct amdf_xdna_api_t {
   /// mapping, pinning or indirect-buffer scan. It is thread-safe with other
   /// submissions and progress operations. Concurrent publication returns BUSY
   /// rather than waiting; its claim ends at native acceptance, not execution
-  /// completion. At the configured pending bound, a nonblocking native refresh
+  /// completion. At either the configured pending bound or the shared native
+  /// packet capacity, a nonblocking native refresh
   /// and checked result consumption reclaim completed packet slots before
   /// returning BUSY if capacity remains unavailable. No intermediate host wait
   /// is required. Native resource exhaustion can reject work earlier.

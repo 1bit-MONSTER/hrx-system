@@ -486,10 +486,11 @@ TEST_P(WindowsXdnaKernelExecutionTest, QueueLeasesReuseContextWithoutMetadata) {
     EXPECT_EQ(amdf_xdna_umd_kernel_queue_create(&context_, 2, &rejected_queue),
               amdf_make_api_status(AMDF_STATUS_CODE_RESOURCE_EXHAUSTED));
     EXPECT_EQ(rejected_queue, sentinel);
+    const amdf_xdna_umd_kernel_command_t command = {
+        result.device_address + round * 64, 64};
     uint64_t submission = 0;
     EXPECT_EQ(
-        amdf_xdna_umd_kernel_queue_submit(
-            queue, 1, result.device_address + round * 64, 64, &submission),
+        amdf_xdna_umd_kernel_queue_submit(queue, 1, 1, &command, &submission),
         AMDF_STATUS_OK);
     EXPECT_GT(submission, previous_submission);
     EXPECT_EQ(amdf_xdna_umd_kernel_queue_query_progress(queue), submission);

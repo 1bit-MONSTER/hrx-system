@@ -19,12 +19,34 @@ extern "C" {
 
 typedef struct amdf_xdna_umd_kernel_queue_t amdf_xdna_umd_kernel_queue_t;
 
+// Bounds shared descriptor scratch independently of native pending capacity.
+#define AMDF_XDNA_UMD_KERNEL_QUEUE_MAXIMUM_COMMAND_COUNT 64u
+
+// One validated context-qualified instruction range. Native framing consumes
+// this address and length without reading or modifying instruction bytes.
+typedef struct amdf_xdna_umd_kernel_command_t {
+  // Firmware address in the queue's scheduling context.
+  uint64_t instruction_address;
+  // Validated instruction extent, in bytes.
+  uint32_t instruction_byte_length;
+} amdf_xdna_umd_kernel_command_t;
+
 // Acquires one native kernel-mediated queue from a scheduling context.
 // Cold path: all packet storage, completion resources and mandatory bootstrap
 // are ready before return. Submit, status and wait cannot lazily prepare them.
 amdf_status_t amdf_xdna_umd_kernel_queue_create(
     amdf_xdna_umd_context_t* context, uint32_t capacity,
     amdf_xdna_umd_kernel_queue_t** out_queue);
+
+// Returns the immutable native array limit, at most the shared bound above.
+uint32_t amdf_xdna_umd_kernel_queue_maximum_command_count(
+    const amdf_xdna_umd_kernel_queue_t* queue);
+
+// Tests aggregate packet credits for one validated array. Only the exclusive
+// publisher calls this function; checked retirement may return credits
+// concurrently. This query neither consumes results nor reserves credits.
+bool amdf_xdna_umd_kernel_queue_has_capacity(
+    const amdf_xdna_umd_kernel_queue_t* queue, uint32_t command_count);
 
 // Returns native event types qualified during cold queue construction. This
 // immutable query performs no native call, allocation or initialization.
@@ -40,16 +62,17 @@ amdf_status_t amdf_xdna_umd_kernel_queue_request_notification(
     amdf_xdna_umd_kernel_queue_t* queue, uint64_t native_submission,
     const amdf_native_event_t* event);
 
-// Frames one validated context-qualified instruction range in the queue's
-// preallocated native packet at slot. No instruction bytes are read or
-// modified. Common code owns this idle slot through publication and checked
-// retirement. Hot path: common code exclusively owns publication. No provider
+// Frames one validated ordered array in preallocated native packets. Common
+// code owns the idle submission slot and has verified aggregate capacity.
+// Acceptance borrows all packets through checked retirement of one native
+// point; rejection consumes no slot or packet credits. Hot path: common code
+// exclusively owns publication. No provider
 // lock, allocation, resource initialization, indirect BO list or native-submit
 // retry is permitted. Native packet cache publication and driver entry are
 // part of this boundary; instruction and data publication remain caller-owned.
 amdf_status_t amdf_xdna_umd_kernel_queue_submit(
-    amdf_xdna_umd_kernel_queue_t* queue, uint32_t slot,
-    uint64_t instruction_address, uint32_t instruction_byte_length,
+    amdf_xdna_umd_kernel_queue_t* queue, uint32_t slot, uint32_t command_count,
+    const amdf_xdna_umd_kernel_command_t* commands,
     uint64_t* out_native_submission);
 
 // Samples the native progress fence with device-to-host acquire semantics.
