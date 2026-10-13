@@ -184,6 +184,69 @@ class IntegerWidenRuleShape:
 
 
 @dataclass(frozen=True, slots=True)
+class ComposedIntegerWidenRuleShape:
+    """Logical lane interval realized by a composed packet program."""
+
+    # Source integer element type.
+    input_element: str
+    # Result integer element type.
+    result_element: str
+    # First logical lane count realized by this rule.
+    minimum_lane_count: int
+    # Last logical lane count realized by this rule.
+    maximum_lane_count: int
+    # Number of 512-bit result packets containing logical lanes.
+    result_packet_count: int
+
+    def __post_init__(self) -> None:
+        result_lanes_per_packet = 512 // int(self.result_element[1:])
+        if not (
+            1 <= self.result_packet_count
+            and 1 <= self.minimum_lane_count <= self.maximum_lane_count
+            and self.minimum_lane_count
+            > (self.result_packet_count - 1) * result_lanes_per_packet
+            and self.maximum_lane_count
+            <= self.result_packet_count * result_lanes_per_packet
+        ):
+            raise ValueError(
+                "composed integer widening interval crosses a result packet boundary"
+            )
+
+    @property
+    def input_type(self) -> Vector:
+        """Source-visible input type interval."""
+
+        return Vector(
+            self.input_element,
+            minimum_lanes=self.minimum_lane_count,
+            maximum_lanes=self.maximum_lane_count,
+        )
+
+    @property
+    def result_type(self) -> Vector:
+        """Source-visible result type interval."""
+
+        return Vector(
+            self.result_element,
+            minimum_lanes=self.minimum_lane_count,
+            maximum_lanes=self.maximum_lane_count,
+        )
+
+    def report_key(self, signedness: str) -> str:
+        """Stable compile-report key for this logical interval."""
+
+        lane_range = (
+            str(self.minimum_lane_count)
+            if self.minimum_lane_count == self.maximum_lane_count
+            else f"{self.minimum_lane_count}-{self.maximum_lane_count}"
+        )
+        return (
+            f"native_{signedness}_{self.input_element}x{lane_range}_to_"
+            f"{self.result_element}x{lane_range}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class FloatPacketRuleShape:
     """Logical lane interval realized by one physical float packet."""
 
@@ -722,6 +785,21 @@ INTEGER_WIDEN_RULE_SHAPES = (
     IntegerWidenRuleShape(_I32_TO_I64_X, 9, 15, 2),
 )
 
+# VUPS cannot produce sixteen-bit accumulator lanes. Byte-to-halfword
+# extension instead interleaves every source byte with a zero or sign-fill byte
+# in one or two ordinary X result packets.
+BYTE_TO_HALFWORD_WIDEN_RULE_SHAPES = (
+    ComposedIntegerWidenRuleShape("i8", "i16", 1, 32, 1),
+    ComposedIntegerWidenRuleShape("i8", "i16", 33, 64, 2),
+)
+
+# Byte-to-i64 extension composes the native i8-to-i32 and i32-to-i64 VUPS
+# forms. Wider authored vectors are split by the shared cast packetizer.
+BYTE_TO_I64_WIDEN_RULE_SHAPES = (
+    ComposedIntegerWidenRuleShape("i8", "i64", 1, 8, 1),
+    ComposedIntegerWidenRuleShape("i8", "i64", 9, 16, 2),
+)
+
 # BF16 packet conversion is nontrapping, so a partial logical vector can use
 # every lane of its physical X carrier. The unused native results remain beyond
 # the logical value domain. Keep exact shapes for fused memory rules and stable
@@ -914,10 +992,12 @@ def _exact_vector(element: str, element_count: int) -> Vector:
 
 def integer_widen_state_emits(
     ups_mode: int,
+    *,
+    temporary_prefix: str = "",
 ) -> tuple[ValueRef, tuple[ContractEmit, ...]]:
     """Builds the explicit configured state consumed by one VUPS form."""
 
-    shift = ValueRef.temporary("shift")
+    shift = ValueRef.temporary(f"{temporary_prefix}shift")
     return shift, (
         EmitDescriptorOp(
             descriptor=_descriptor("amd.xdna.aie2p.constant.i32.shift"),
@@ -945,6 +1025,7 @@ def integer_widen_result_emits(
     result_accumulator_unit_count: int | None = None,
     *,
     bind_result_type: bool = False,
+    temporary_prefix: str = "",
 ) -> tuple[ValueRef, tuple[ContractEmit, ...]]:
     """Bridges a native accumulator result to its source-visible carrier."""
 
@@ -956,7 +1037,7 @@ def integer_widen_result_emits(
     ):
         return result, ()
 
-    native_result = ValueRef.temporary("wide_result")
+    native_result = ValueRef.temporary(f"{temporary_prefix}wide_result")
     output_emits: list[ContractEmit] = []
     vector_units: list[ValueRef] = []
     move_from_accumulator = _descriptor(
@@ -965,7 +1046,9 @@ def integer_widen_result_emits(
     for unit in range(result_accumulator_unit_count):
         accumulator_unit = native_result
         if instruction.accumulator_unit_count > 1:
-            accumulator_unit = ValueRef.temporary(f"accumulator_unit_{unit}")
+            accumulator_unit = ValueRef.temporary(
+                f"{temporary_prefix}accumulator_unit_{unit}"
+            )
             output_emits.append(
                 EmitRegisterSlice(
                     source=native_result,
@@ -977,7 +1060,7 @@ def integer_widen_result_emits(
         vector_unit = (
             result
             if result_accumulator_unit_count == 1
-            else ValueRef.temporary(f"vector_unit_{unit}")
+            else ValueRef.temporary(f"{temporary_prefix}vector_unit_{unit}")
         )
         output_emits.append(
             EmitDescriptorOp(
@@ -1152,6 +1235,137 @@ def integer_widen_rule(
         report_key=(
             rule_shape.report_key(signedness) if report_key is None else report_key
         ),
+    )
+
+
+def _byte_to_halfword_widen_rule(
+    source_op: Op,
+    signedness: IntegerSignedness,
+    rule_shape: ComposedIntegerWidenRuleShape,
+) -> DescriptorRule:
+    """Extends byte lanes by interleaving their low and fill bytes."""
+
+    program = PacketProgram(8, "byte_to_halfword_")
+    source = ValueRef.operand("input")
+    zero = program.binary("zero", "sub.i8x64", source, source)
+    fill = zero
+    if signedness == "signed":
+        negative = program.compare_signed_less_than("negative", source, zero)
+        all_ones = program.splat("all_ones", -1)
+        fill = program.select("sign_fill", all_ones, zero, negative)
+
+    result_packets: list[ValueRef] = []
+    for packet in range(rule_shape.result_packet_count):
+        control = program.constant(
+            f"packet_{packet}_control",
+            I8_INTERLEAVE_CONTROL + packet,
+            descriptor_key="amd.xdna.aie2p.constant.i32.mova",
+        )
+        result_packets.append(
+            program.operation(
+                (None if rule_shape.result_packet_count == 1 else f"packet_{packet}"),
+                "shuffle.x.configured",
+                "dst",
+                s1=source,
+                s2=fill,
+                mod=control,
+            )
+        )
+    if rule_shape.result_packet_count > 1:
+        program.emits.append(
+            EmitRegisterConcat(
+                sources=result_packets,
+                result=ValueRef.result("result"),
+            )
+        )
+
+    descriptor = next(
+        emit.descriptor
+        for emit in reversed(program.emits)
+        if isinstance(emit, EmitDescriptorOp)
+    )
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=descriptor,
+        guards=(
+            Guard.value_type("input", rule_shape.input_type),
+            Guard.value_type("result", rule_shape.result_type),
+        ),
+        emit=tuple(program.emits),
+        report_key=rule_shape.report_key(signedness),
+    )
+
+
+def _byte_to_i64_widen_rule(
+    source_op: Op,
+    signedness: IntegerSignedness,
+    rule_shape: ComposedIntegerWidenRuleShape,
+) -> DescriptorRule:
+    """Extends byte lanes through exact i32 and i64 VUPS stages."""
+
+    source_w = ValueRef.temporary("byte_to_i64_source_w")
+    intermediate = ValueRef.temporary("byte_to_i64_i32")
+    shift, initial_state_emits = integer_widen_state_emits(
+        _I8_TO_I32_W.ups_mode,
+        temporary_prefix="byte_to_i64_",
+    )
+    intermediate_native, intermediate_output_emits = integer_widen_result_emits(
+        _I8_TO_I32_W,
+        intermediate,
+        result_accumulator_unit_count=1,
+        bind_result_type=True,
+        temporary_prefix="byte_to_i64_i32_",
+    )
+    first_widen = _descriptor(
+        f"amd.xdna.aie2p.widen.{_I8_TO_I32_W.physical_shape}.{signedness}.configured"
+    )
+
+    result_native, result_output_emits = integer_widen_result_emits(
+        _I32_TO_I64_X,
+        ValueRef.result("result"),
+        result_accumulator_unit_count=rule_shape.result_packet_count,
+        temporary_prefix="byte_to_i64_i64_",
+    )
+    final_widen = _descriptor(
+        f"amd.xdna.aie2p.widen.{_I32_TO_I64_X.physical_shape}.{signedness}.configured"
+    )
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=final_widen,
+        guards=(
+            Guard.value_type("input", rule_shape.input_type),
+            Guard.value_type("result", rule_shape.result_type),
+        ),
+        emit=(
+            EmitRegisterSlice(
+                source=ValueRef.operand("input"),
+                result=source_w,
+                unit_count=1,
+            ),
+            *initial_state_emits,
+            EmitDescriptorOp(
+                descriptor=first_widen,
+                operands={"src": source_w, "su": shift},
+                results={"dst": intermediate_native},
+                result_types={"dst": DescriptorResultType()},
+                form=DescriptorEmitForm.OP,
+            ),
+            *intermediate_output_emits,
+            EmitDescriptorOp(
+                descriptor=_descriptor("amd.xdna.aie2p.state.ups-mode.immediate"),
+                immediates={"i": _I32_TO_I64_X.ups_mode},
+                form=DescriptorEmitForm.OP,
+            ),
+            EmitDescriptorOp(
+                descriptor=final_widen,
+                operands={"src": intermediate, "su": shift},
+                results={"dst": result_native},
+                result_types={"dst": DescriptorResultType()},
+                form=DescriptorEmitForm.OP,
+            ),
+            *result_output_emits,
+        ),
+        report_key=rule_shape.report_key(signedness),
     )
 
 
@@ -3779,6 +3993,22 @@ AIE2P_PACKET_CONVERSION_RULES = (
             (vector.vector_bitunpacks, "s"),
         )
         for source_lane_count in I4_UNPACK_SOURCE_LANE_COUNTS
+    ),
+    *(
+        _byte_to_halfword_widen_rule(source_op, signedness, rule_shape)
+        for source_op, signedness in (
+            (vector.vector_extui, "unsigned"),
+            (vector.vector_extsi, "signed"),
+        )
+        for rule_shape in BYTE_TO_HALFWORD_WIDEN_RULE_SHAPES
+    ),
+    *(
+        _byte_to_i64_widen_rule(source_op, signedness, rule_shape)
+        for source_op, signedness in (
+            (vector.vector_extui, "unsigned"),
+            (vector.vector_extsi, "signed"),
+        )
+        for rule_shape in BYTE_TO_I64_WIDEN_RULE_SHAPES
     ),
     *(
         integer_widen_rule(source_op, signedness, rule_shape)
