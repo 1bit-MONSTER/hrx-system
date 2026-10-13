@@ -61,6 +61,8 @@ struct FakeNative {
     api.host_mapping_query_info = MappingQueryInfo;
     api.host_mapping_destroy = MappingDestroy;
     api.device_query_memory_reservation_capabilities = ReservationCapabilities;
+    api.instance_query_host_memory_reservation_capabilities =
+        HostReservationCapabilities;
     api.memory_reservation_create = ReservationCreate;
     api.memory_reservation_query_access_info = ReservationInfo;
     api.memory_reservation_update = ReservationUpdate;
@@ -127,7 +129,8 @@ struct FakeNative {
     out_profile->guaranteed_flags =
         self->host_mappable ? AMDF_MEMORY_FLAG_HOST_VISIBLE : 0;
     out_profile->supported_flags =
-        out_profile->guaranteed_flags | AMDF_MEMORY_FLAG_DEVICE_ADDRESS;
+        out_profile->guaranteed_flags | AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
+        (self->host_source_enabled ? AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE : 0);
     out_profile->allocation.maximum_byte_length = UINT64_C(1) << 30;
     out_profile->allocation.byte_length_granularity = 4096;
     out_profile->allocation.minimum_alignment = 4096;
@@ -407,6 +410,23 @@ struct FakeNative {
   }
 
   static amdf_status_t AMDF_CALL
+  HostReservationCapabilities(amdf_instance_t* instance,
+                              amdf_memory_reservation_capabilities_t* output) {
+    auto* self = reinterpret_cast<FakeNative*>(instance);
+    if (!self->host_reservation_enabled) {
+      return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+    }
+    output->address_domain_ordinal = AMDF_ADDRESS_DOMAIN_ORDINAL_NONE;
+    output->supported_access =
+        AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
+    output->maximum_byte_length = UINT64_C(1) << 40;
+    output->reservation_granularity = 4096;
+    output->maximum_alignment = UINT64_C(1) << 30;
+    output->mapping_granularity = 4096;
+    return AMDF_STATUS_OK;
+  }
+
+  static amdf_status_t AMDF_CALL
   ReservationCreate(amdf_instance_t* instance,
                     const amdf_memory_reservation_create_info_t* info,
                     amdf_memory_reservation_t** output) {
@@ -480,6 +500,10 @@ struct FakeNative {
   std::array<Device, 2> native_devices = {};
   // Native capability admission for these dependency devices.
   bool mapping_enabled = false;
+  // Native host address-space support, independent of source eligibility.
+  bool host_reservation_enabled = false;
+  // Whether owned backing supports independently replaceable CPU aliases.
+  bool host_source_enabled = false;
   // Native address geometry per live consumer, before addresses are reserved.
   std::array<uint64_t, 2> reservation_granularities = {4096, 4096};
   // Distinct logical consumers may share a single native mapping projection.
@@ -672,7 +696,8 @@ class MemoryBackendTest : public ::testing::Test {
                             << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
       iree_hal_memory_access_t host_access = IREE_HAL_MEMORY_ACCESS_ALL,
       iree_hal_buffer_usage_t cpu_usage = IREE_HAL_BUFFER_USAGE_NONE,
-      iree_hal_atomic_operation_capabilities_t atomics = {}) {
+      iree_hal_atomic_operation_capabilities_t atomics = {},
+      uint64_t cpu_interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_HOST) {
     iree_hal_pool_family_access_t accesses[3] = {};
     accesses[0].family = families_[1];
     accesses[0].usage = usage;
@@ -683,7 +708,7 @@ class MemoryBackendTest : public ::testing::Test {
     accesses[1].atomic_operations = atomics;
     accesses[2].family = iree_hal_device_queue_family(cpu_device_, 0);
     accesses[2].usage = cpu_usage;
-    accesses[2].interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_HOST;
+    accesses[2].interfaces = cpu_interfaces;
     iree_hal_pool_scope_t scope = {};
     scope.family_count = cpu_usage ? 3 : 2;
     scope.families = accesses;
@@ -1575,6 +1600,79 @@ TEST_F(MemoryBackendTest, RejectsAtomicPromisesAbsentFromNativeBuffers) {
     }
   }
   EXPECT_EQ(native_.profile_query_count, 0);
+}
+
+TEST_F(MemoryBackendTest, PreparesOneHostSourceForCpuAndPublicHostScopes) {
+  native_.mapping_enabled = true;
+  native_.host_reservation_enabled = true;
+  native_.host_source_enabled = true;
+  native_.required_flags |= AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE;
+  native_.native_prefix = 4096;
+  const uint64_t source_interface = UINT64_C(1)
+                                    << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool,
+                            source_interface, IREE_HAL_MEMORY_ACCESS_ALL,
+                            IREE_HAL_BUFFER_USAGE_STORAGE, {},
+                            source_interface));
+  const auto requirements = iree_hal_pool_query_mapping_requirements(pool);
+  EXPECT_EQ(requirements.minimum_granularity, 4096u);
+  iree_hal_buffer_t* backing = nullptr;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(16384, 4096),
+      iree_infinite_timeout(), &backing));
+  iree_hal_buffer_t* view = nullptr;
+  IREE_ASSERT_OK(
+      iree_hal_buffer_subspan(backing, 4096, 8192, allocator_, &view));
+  const auto* cpu_family = iree_hal_device_queue_family(cpu_device_, 0);
+  const iree_hal_memory_scope_t scopes[] = {
+      ResolveScope(IREE_HAL_MEMORY_SITE_HOST),
+      ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, cpu_family),
+      ResolveScope(IREE_HAL_MEMORY_SITE_PROGRAM, cpu_family),
+  };
+  const void* descriptor = nullptr;
+  for (auto scope : scopes) {
+    iree_hal_buffer_native_binding_slot_t slot;
+    IREE_ASSERT_OK(iree_hal_pool_resolve_binding(
+        pool, scope, IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE, &slot));
+    const auto source =
+        iree_hal_buffer_native_binding(view, slot).mapping_source;
+    ASSERT_NE(source.descriptor, nullptr);
+    EXPECT_EQ(source.offset, 8192u);
+    EXPECT_EQ(source.granularity, 4096u);
+    if (descriptor) {
+      EXPECT_EQ(source.descriptor, descriptor);
+    }
+    descriptor = source.descriptor;
+  }
+  for (const auto* family : families_) {
+    iree_hal_buffer_native_binding_slot_t slot;
+    IREE_ASSERT_OK(iree_hal_pool_resolve_binding(
+        pool, ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, family),
+        IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE, &slot));
+    EXPECT_NE(
+        iree_hal_buffer_native_binding(view, slot).mapping_source.descriptor,
+        descriptor);
+  }
+  iree_hal_buffer_release(view);
+  iree_hal_buffer_release(backing);
+  iree_hal_pool_release(pool);
+  iree_hal_memory_maintenance_call(maintenance_, +[](void*) {}, nullptr);
+  EXPECT_EQ(native_.create_count, 1);
+  EXPECT_EQ(native_.destroy_count, 1);
+}
+
+TEST_F(MemoryBackendTest, HostVisibilityDoesNotImplyHostMappingSource) {
+  native_.host_reservation_enabled = true;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNAVAILABLE,
+      CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool, 0,
+                 IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_BUFFER_USAGE_STORAGE, {},
+                 UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE));
+  EXPECT_EQ(pool, nullptr);
+  EXPECT_EQ(native_.create_count, 0);
+  EXPECT_GT(native_.profile_query_count, 0);
 }
 
 TEST_F(MemoryBackendTest, QueriesReservationGeometryBeforeAcquiringAddresses) {

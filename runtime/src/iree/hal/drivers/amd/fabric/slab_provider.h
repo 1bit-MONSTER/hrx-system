@@ -19,9 +19,9 @@ extern "C" {
 typedef struct iree_hal_amd_fabric_binding_request_t {
   // Prepared interface: an execution address or a mapping source.
   iree_hal_buffer_interface_t type;
-  // Index into the complete native access set.
+  // Index into the complete native access set, or zero for a host source.
   uint32_t access_ordinal;
-  // Exact native address interface produced for this slot.
+  // Exact native address interface, or HOST for a remappable host source.
   amdf_memory_address_kind_t address_kind;
   // Required native source offset alignment for MAPPING_SOURCE, otherwise zero.
   uint32_t mapping_granularity;
