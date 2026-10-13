@@ -272,6 +272,49 @@ TEST(TopologyBuilder, DeviceSpecNodesAndLinks) {
   iree_hal_device_spec_release(spec_a);
 }
 
+TEST(TopologyBuilder, FullNumaIdentitiesSurviveCompactSchedulingProjection) {
+  const uint32_t node_ids[] = {0, 255, 256, 65536, 256};
+  const uint32_t node_ordinals[] = {0, 1, 2, 3, 2};
+  constexpr uint32_t kDeviceCount = IREE_ARRAYSIZE(node_ids);
+  constexpr uint32_t kNodeCount = 4;
+  iree_hal_device_spec_t* specs[kDeviceCount] = {};
+  iree_hal_topology_builder_t builder;
+  iree_hal_topology_builder_initialize(&builder, kDeviceCount);
+  for (uint32_t i = 0; i < kDeviceCount; ++i) {
+    specs[i] = CreateTestDeviceSpec("mock", i, i, node_ids[i], 1);
+    for (uint32_t j = 0; j < kDeviceCount; ++j) {
+      if (i != j) {
+        IREE_ASSERT_OK(iree_hal_topology_builder_set_edge(
+            &builder, i, j, iree_hal_topology_edge_make_host_staged()));
+      }
+    }
+  }
+  iree_hal_topology_t* topology = nullptr;
+  IREE_ASSERT_OK(iree_hal_topology_builder_finalize_with_device_specs(
+      &builder, specs, iree_allocator_system(), &topology));
+  ASSERT_EQ(iree_hal_topology_node_count(topology),
+            kNodeCount + 2 * kDeviceCount);
+  ASSERT_EQ(iree_hal_topology_link_count(topology), 2 * kDeviceCount);
+  for (uint32_t i = 0; i < kDeviceCount; ++i) {
+    SCOPED_TRACE(i);
+    const auto* node = iree_hal_topology_node_at(topology, node_ordinals[i]);
+    EXPECT_EQ(node->kind, IREE_HAL_TOPOLOGY_NODE_KIND_HOST_NUMA);
+    EXPECT_EQ(node->local_ordinal, node_ids[i]);
+    const auto* link = iree_hal_topology_link_at(topology, 2 * i + 1);
+    EXPECT_EQ(link->kind, IREE_HAL_TOPOLOGY_LINK_KIND_INTERCONNECT);
+    EXPECT_EQ(link->source_node_ordinal, node->ordinal);
+    EXPECT_EQ(link->target_node_ordinal, kNodeCount + kDeviceCount + i);
+    // The compact scheduling table keeps its documented conservative value
+    // when the full physical identity cannot fit in its eight-bit entry.
+    EXPECT_EQ(iree_hal_topology_device_numa_node(topology, i),
+              node_ids[i] <= UINT8_MAX ? node_ids[i] : 0u);
+  }
+  iree_hal_topology_destroy(topology, iree_allocator_system());
+  for (auto* spec : specs) {
+    iree_hal_device_spec_release(spec);
+  }
+}
+
 // Tests that both words of an edge are preserved through set_edge and finalize.
 TEST(TopologyBuilder, FullEdgePreservation) {
   iree_hal_topology_builder_t builder;

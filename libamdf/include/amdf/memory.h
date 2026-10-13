@@ -26,6 +26,33 @@ enum amdf_memory_class_e {
   AMDF_MEMORY_CLASS_PRIVATE = 3,
 };
 
+/// Additional physical placement required from an allocating profile.
+/// Scope selection already establishes SYSTEM or device-local storage. These
+/// constraints refine that choice without selecting device consumers.
+typedef uint32_t amdf_memory_placement_kind_t;
+enum amdf_memory_placement_kind_e {
+  /// No additional placement beyond the selected scope and profile.
+  AMDF_MEMORY_PLACEMENT_KIND_NONE = 0,
+  /// Fresh host pages reside on one operating-system NUMA node. Construction
+  /// fails instead of allocating on another node. This does not move borrowed
+  /// or imported pages and does not change the allocating thread's policy.
+  AMDF_MEMORY_PLACEMENT_KIND_HOST_NUMA = 1,
+};
+
+/// Set of supported explicit placement kinds, with bit 1 << kind set. NONE
+/// needs no capability bit and is always valid for an allocating profile.
+typedef uint32_t amdf_memory_placement_kinds_t;
+
+/// Required or achieved refinement of an allocation's physical placement.
+typedef struct amdf_memory_placement_t {
+  /// Placement constraint; NONE is the zero-initialized default.
+  amdf_memory_placement_kind_t kind;
+  /// Operating-system NUMA node number for HOST_NUMA; zero for NONE. This is
+  /// an OS topology coordinate, not a GPU endpoint or a scope ordinal. Native
+  /// allocation can fail if the node is unavailable or disallowed by policy.
+  uint32_t node;
+} amdf_memory_placement_t;
+
 /// Required or achieved properties of a memory attachment.
 typedef uint64_t amdf_memory_flags_t;
 enum amdf_memory_flag_bits_e {
@@ -353,8 +380,9 @@ typedef struct amdf_memory_construction_capabilities_t {
   /// when this operation consumes no caller pages. This is a caller-established
   /// property of the source mapping, not inferred from its pointer value.
   amdf_host_cacheability_t registered_host_cacheability;
-  /// Reserved for compatible growth and always zero.
-  uint32_t reserved;
+  /// Explicit placement constraints supported by CREATE; zero for REGISTER
+  /// and IMPORT. No bit promises that a node remains online or has capacity.
+  amdf_memory_placement_kinds_t placement_kinds;
   /// Power-of-two base alignment guaranteed when callers request no stronger
   /// alignment.
   uint64_t minimum_alignment;
@@ -559,6 +587,10 @@ typedef struct amdf_memory_create_info_t {
   amdf_host_cacheability_t registered_host_cacheability;
   /// Reserved for compatible growth; must be zero.
   uint32_t reserved;
+  /// Additional required placement for CREATE. NONE preserves the selected
+  /// profile's ordinary policy. REGISTER requires NONE because the caller
+  /// already owns the pages; this operation never relocates them.
+  amdf_memory_placement_t placement;
 } amdf_memory_create_info_t;
 
 /// Immutable backing properties of one live memory resource.
@@ -596,6 +628,9 @@ typedef struct amdf_memory_info_t {
   uint64_t native_allocation_granularity;
   /// Identity shared by attachments to the same physical backing, when known.
   amdf_physical_memory_id_t physical_backing_id;
+  /// Enforced placement of owned backing. NONE makes no additional guarantee
+  /// about registered/imported pages, even when their source has placement.
+  amdf_memory_placement_t placement;
 } amdf_memory_info_t;
 
 /// Immutable facts of one established device access to a memory resource.

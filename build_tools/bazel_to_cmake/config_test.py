@@ -459,17 +459,58 @@ cc_library(
             'IREE_HAL_DRIVER_WEBGPU AND IREE_ARCH STREQUAL "wasm_32"',
         )
 
-    def test_target_compatible_with_x86_64(self):
+    def test_target_compatible_with_x86(self):
         functions = bazel_to_cmake_converter.BuildFileFunctions(
             converter=SimpleNamespace(body=""),
             targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
             build_dir="",
         )
 
-        self.assertEqual(
-            functions._target_compatible_condition(["@platforms//cpu:x86_64"]),
-            'IREE_ARCH STREQUAL "x86_64"',
-        )
+        for architecture in ("x86_32", "x86_64"):
+            with self.subTest(architecture=architecture):
+                self.assertEqual(
+                    functions._target_compatible_condition(
+                        [f"@platforms//cpu:{architecture}"]
+                    ),
+                    f'IREE_ARCH STREQUAL "{architecture}"',
+                )
+
+    def test_cc_source_selection_preserves_architecture_and_fallback(self):
+        for rule in ("cc_library", "cc_binary", "cc_test", "iree_cc_fuzz"):
+            for mixed in (False, True):
+                with self.subTest(rule=rule, mixed=mixed):
+                    converter = SimpleNamespace(body="")
+                    functions = bazel_to_cmake_converter.BuildFileFunctions(
+                        converter=converter,
+                        targets=bazel_to_cmake_targets.TargetConverter(
+                            repo_map={"@hrx": ""}
+                        ),
+                        build_dir="",
+                    )
+                    srcs = functions.select(
+                        {
+                            "@platforms//cpu:x86_32": [":host_x86.c"],
+                            "@platforms//cpu:x86_64": [":host_x86.c"],
+                            "//conditions:default": [":host_generic.c"],
+                        }
+                    )
+                    if mixed:
+                        srcs = [":shared.c"] + srcs
+                    getattr(functions, rule)(name="host", srcs=srcs)
+                    prefix, target = converter.body.split("iree_cc_", 1)
+                    self.assertEqual(
+                        prefix,
+                        'set(_host_platform_srcs "")\n'
+                        'if(IREE_ARCH STREQUAL "x86_32")\n'
+                        '  list(APPEND _host_platform_srcs "host_x86.c")\n'
+                        'elseif(IREE_ARCH STREQUAL "x86_64")\n'
+                        '  list(APPEND _host_platform_srcs "host_x86.c")\n'
+                        "else()\n"
+                        '  list(APPEND _host_platform_srcs "host_generic.c")\n'
+                        "endif()\n",
+                    )
+                    self.assertIn("    ${_host_platform_srcs}\n", target)
+                    self.assertEqual('    "shared.c"\n' in target, mixed)
 
     def test_converts_wasi_platform_condition(self):
         functions = bazel_to_cmake_converter.BuildFileFunctions(

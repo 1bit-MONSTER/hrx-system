@@ -230,6 +230,7 @@ iree_status_t iree_hal_amd_fabric_memory_allocate(
       .minimum_alignment =
           iree_max(alignment, options->profile.allocation.minimum_alignment),
       .accesses = options->accesses,
+      .placement = options->placement,
   };
   iree_hal_amd_fabric_memory_t memory = {0};
   IREE_RETURN_IF_ERROR(IREE_HAL_AMD_STATUS_FROM_AMDF(

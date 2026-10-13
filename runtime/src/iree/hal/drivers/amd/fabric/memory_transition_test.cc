@@ -69,6 +69,50 @@ TEST(MemoryTransitionTest, PreservesQueueAcquireRecipe) {
             IREE_HAL_MEMORY_TRANSITION_OPERATION_ACQUIRE_FROM_SYSTEM);
 }
 
+TEST(MemoryTransitionTest, PreservesGlobalHostApiAndFenceRecipes) {
+  for (auto executor : {AMDF_CACHE_TRANSITION_EXECUTOR_HOST_API,
+                        AMDF_CACHE_TRANSITION_EXECUTOR_HOST_DIRECT}) {
+    amdf_memory_pair_info_t source = {};
+    source.release.kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL;
+    source.release.executor = executor;
+    source.release.host_operation = AMDF_HOST_CACHE_OPERATION_FLUSH;
+    if (executor == AMDF_CACHE_TRANSITION_EXECUTOR_HOST_DIRECT) {
+      source.release.host_fence_after = AMDF_HOST_CACHE_FENCE_X86_MFENCE;
+    }
+    source.acquire = source.release;
+    source.acquire.host_operation = AMDF_HOST_CACHE_OPERATION_INVALIDATE;
+    iree_hal_memory_pair_info_t pair;
+    IREE_ASSERT_OK(iree_hal_amd_fabric_memory_translate_pair(&source, &pair));
+    for (const auto* operation : {&pair.release, &pair.acquire}) {
+      EXPECT_EQ(operation->kind, IREE_HAL_MEMORY_TRANSITION_KIND_GLOBAL);
+      EXPECT_EQ(operation->range_granularity, 0u);
+      EXPECT_EQ(operation->executor,
+                executor == AMDF_CACHE_TRANSITION_EXECUTOR_HOST_API
+                    ? IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_API
+                    : IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT);
+      EXPECT_EQ(operation->host.instruction,
+                IREE_HAL_HOST_CACHE_INSTRUCTION_NONE);
+      const iree_hal_memory_transition_recipe_t recipe = {
+          .effects = {static_cast<uint32_t>(
+              operation == &pair.release
+                  ? IREE_HAL_MEMORY_EFFECT_HOST_FLUSH
+                  : IREE_HAL_MEMORY_EFFECT_HOST_INVALIDATE)},
+          .operation_count = 1,
+          .operations = operation,
+      };
+      IREE_EXPECT_OK(iree_hal_memory_transition_recipe_validate(&recipe));
+    }
+    EXPECT_EQ(pair.release.operation,
+              IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH);
+    EXPECT_EQ(pair.acquire.operation,
+              IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_INVALIDATE);
+    source.release.host_instruction = AMDF_HOST_CACHE_INSTRUCTION_X86_CLFLUSH;
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_FAILED_PRECONDITION,
+        iree_hal_amd_fabric_memory_translate_pair(&source, &pair));
+  }
+}
+
 TEST(MemoryTransitionTest, RejectsMalformedSuccessfulResult) {
   amdf_memory_pair_info_t source = {};
   source.release.kind = AMDF_CACHE_TRANSITION_KIND_RANGE;

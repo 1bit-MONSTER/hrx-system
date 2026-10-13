@@ -353,6 +353,18 @@ TEST_F(HostMemoryTest, RejectsInvalidConstructionWithoutPublishingOutputs) {
       AMDF_STATUS_CODE_UNSUPPORTED);
   EXPECT_EQ(memory, sentinel);
 
+  create_info.minimum_alignment = 0;
+  create_info.placement = {AMDF_MEMORY_PLACEMENT_KIND_NONE, 1};
+  EXPECT_EQ(
+      amdf_status_code(api_->memory_create(scope_, &create_info, &memory)),
+      AMDF_STATUS_CODE_INVALID_ARGUMENT);
+  EXPECT_EQ(memory, sentinel);
+  create_info.placement = {UINT32_MAX, 0};
+  EXPECT_EQ(
+      amdf_status_code(api_->memory_create(scope_, &create_info, &memory)),
+      AMDF_STATUS_CODE_INVALID_ARGUMENT);
+  EXPECT_EQ(memory, sentinel);
+
   amdf_memory_profile_t output = profile;
   EXPECT_EQ(amdf_status_code(api_->memory_scope_query_device_profile(
                 scope_, scope_info_.memory_profile_count, 0, nullptr, &output,

@@ -57,6 +57,8 @@ typedef struct iree_hal_amd_fabric_memory_options_t {
   amdf_memory_scope_t* scope;
   // Qualified native construction and mapping capabilities.
   amdf_memory_profile_t profile;
+  // Required owned-storage placement; imports preserve their source placement.
+  amdf_memory_placement_t placement;
   // Number of entries in |accesses|.
   uint32_t access_count;
   // Complete caller-ordered native device access set.

@@ -45,6 +45,7 @@ _PLATFORM_CMAKE_SYSTEM_NAME = {
     "@platforms//os:windows": "Windows",
     # CPU architecture constraints.
     "@platforms//cpu:wasm32": "wasm_32",
+    "@platforms//cpu:x86_32": "x86_32",
     "@platforms//cpu:x86_64": "x86_64",
 }
 
@@ -943,20 +944,32 @@ class BuildFileFunctions(object):
             raise NotImplementedError(f"{list_name} with select()")
         return block
 
+    def _normalize_source_paths(self, srcs):
+        return [
+            (
+                self._normalize_label(source)
+                if source.startswith("$") or os.path.splitext(source)[1]
+                else self._filegroup_dep_filename(self._normalize_label(source))
+            )
+            for source in srcs or []
+        ]
+
     def _convert_srcs_block(self, srcs, is_generated=False, block_name="SRCS"):
         if not srcs:
             return ""
+        return self._convert_string_list_block(
+            block_name, self._normalize_source_paths(srcs), sort=True
+        )
 
-        srcs = [
-            (
-                self._normalize_label(s)
-                if s.startswith("$") or os.path.splitext(s)[1]
-                else self._filegroup_dep_filename(self._normalize_label(s))
-            )
-            for s in srcs
-        ]
-
-        return self._convert_string_list_block(block_name, srcs, sort=True)
+    def _convert_platform_select_srcs(self, name, srcs):
+        if not srcs:
+            return "", ""
+        return self._convert_platform_select_strings(
+            name,
+            "SRCS",
+            self._map_configurable_list(srcs, self._normalize_source_paths),
+            sort=True,
+        )
 
     def _convert_data_srcs_block(self, srcs, block_name="SRCS", sort=True):
         if not srcs:
@@ -1737,7 +1750,7 @@ class BuildFileFunctions(object):
         textual_hdrs_block = self._convert_srcs_block(
             textual_hdrs, block_name="TEXTUAL_HDRS"
         )
-        srcs_block = self._convert_srcs_block(srcs)
+        srcs_block, platform_srcs_block = self._convert_platform_select_srcs(name, srcs)
         copts_block, platform_copts_block = self._convert_platform_select_strings(
             name, "COPTS", copts, sort=False
         )
@@ -1762,6 +1775,8 @@ class BuildFileFunctions(object):
         )
 
         self._emit_platform_guard_begin(target_compatible_with)
+        if platform_srcs_block:
+            self._converter.body += platform_srcs_block
         if platform_copts_block:
             self._converter.body += platform_copts_block
         if platform_defines_block:
@@ -1847,7 +1862,7 @@ class BuildFileFunctions(object):
             "CXX_FEATURES", cxx_features
         )
         hdrs_block = self._convert_srcs_block(hdrs, block_name="HDRS")
-        srcs_block = self._convert_srcs_block(srcs)
+        srcs_block, platform_srcs_block = self._convert_platform_select_srcs(name, srcs)
         copts_block, platform_copts_block = self._convert_platform_select_strings(
             name, "COPTS", copts, sort=False
         )
@@ -1880,6 +1895,8 @@ class BuildFileFunctions(object):
         did_emit_testdata_guard = self._emit_optional_local_cts_testdata_guard_begin(
             deps
         )
+        if platform_srcs_block:
+            self._converter.body += platform_srcs_block
         if platform_copts_block:
             self._converter.body += platform_copts_block
         if platform_defines_block:
@@ -1944,13 +1961,15 @@ class BuildFileFunctions(object):
         linkopts_block, platform_linkopts_block = self._convert_platform_select_strings(
             name, "LINKOPTS", linkopts, expand_locations=True
         )
-        srcs_block = self._convert_srcs_block(srcs)
+        srcs_block, platform_srcs_block = self._convert_platform_select_srcs(name, srcs)
         data_block = self._convert_target_list_block("DATA", data)
         deps_block, platform_deps_block = self._convert_platform_select_deps(name, deps)
         testonly_block = self._convert_option_block("TESTONLY", testonly)
         includes_block = self._convert_includes_block(includes)
 
         self._emit_platform_guard_begin(target_compatible_with)
+        if platform_srcs_block:
+            self._converter.body += platform_srcs_block
         if platform_copts_block:
             self._converter.body += platform_copts_block
         if platform_defines_block:
@@ -2010,7 +2029,7 @@ class BuildFileFunctions(object):
         if self._should_skip_target(tags=tags, **kwargs):
             return
         name_block = self._convert_string_arg_block("NAME", name, quote=False)
-        srcs_block = self._convert_srcs_block(srcs)
+        srcs_block, platform_srcs_block = self._convert_platform_select_srcs(name, srcs)
         data_block = self._convert_target_list_block("DATA", data)
         deps_block, platform_deps_block = self._convert_platform_select_deps(name, deps)
         copts_block, platform_copts_block = self._convert_platform_select_strings(
@@ -2025,6 +2044,8 @@ class BuildFileFunctions(object):
         labels_block = self._convert_string_list_block("LABELS", tags)
 
         self._emit_platform_guard_begin(target_compatible_with)
+        if platform_srcs_block:
+            self._converter.body += platform_srcs_block
         if platform_copts_block:
             self._converter.body += platform_copts_block
         if platform_defines_block:

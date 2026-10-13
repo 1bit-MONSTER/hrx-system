@@ -79,10 +79,11 @@ struct amdf_memory_t {
   amdf_memory_scope_t* scope;
   // Immutable properties established before publication.
   amdf_memory_info_t info;
-  // Caller-ordered records in this allocation's tail. CPU-only memory reserves
-  // one private native slot here, with no device or publicly queryable access.
+  // Caller-ordered records in this allocation's tail. Platform-owned host
+  // backing adds a private slot after the public device accesses.
   amdf_memory_access_state_t* accesses;
-  // Slot owning the backing and its host view; zero for CPU-only memory.
+  // Slot owning backing and its host view. Equals access_count for private
+  // host backing; otherwise names the device access that owns native backing.
   uint32_t backing_access_ordinal;
   // Host-view limits selected during construction, independent of consumers.
   amdf_host_mapping_capabilities_t host_mapping;
@@ -92,9 +93,11 @@ struct amdf_memory_t {
 amdf_allocator_t amdf_memory_host_allocator(const amdf_memory_t* memory);
 
 // Allocates one owner and its caller-ordered native/access slots. It contains
-// no native resources yet and retains no instance or device.
+// no native resources yet and retains no instance or device. The backing slot
+// is at most access_count; equality reserves a private host backing slot.
 amdf_status_t amdf_memory_resource_allocate(amdf_allocator_t host_allocator,
                                             uint32_t access_count,
+                                            uint32_t backing_access_ordinal,
                                             amdf_memory_t** out_memory);
 
 // Releases consumers before backing and consumes all library metadata once.

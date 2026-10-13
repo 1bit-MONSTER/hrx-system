@@ -9,6 +9,14 @@
 
 iree_add_all_subdirs()
 
+set(_hal_platform_srcs "")
+if(IREE_ARCH STREQUAL "x86_32")
+  list(APPEND _hal_platform_srcs "memory_scope_host_x86.c")
+elseif(IREE_ARCH STREQUAL "x86_64")
+  list(APPEND _hal_platform_srcs "memory_scope_host_x86.c")
+else()
+  list(APPEND _hal_platform_srcs "memory_scope_host_generic.c")
+endif()
 iree_cc_library(
   NAME
     hal
@@ -90,6 +98,7 @@ iree_cc_library(
     "topology.c"
     "topology_builder.c"
     "virtual_buffer.c"
+    ${_hal_platform_srcs}
   DEPS
     iree::async
     iree::base

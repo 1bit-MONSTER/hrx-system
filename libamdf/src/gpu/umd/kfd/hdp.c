@@ -7,12 +7,19 @@
 #define _GNU_SOURCE
 #include "libamdf/src/gpu/umd/kfd/hdp.h"
 
+#include <drm/amdgpu_drm.h>
 #include <linux/kfd_ioctl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/platform/linux/file.h"
+
+// Register access which completes a posted HDP flush write.
+typedef enum amdf_gpu_kfd_hdp_posting_e {
+  AMDF_GPU_KFD_HDP_POSTING_REMAP = 0,
+  AMDF_GPU_KFD_HDP_POSTING_TIMESTAMP,
+} amdf_gpu_kfd_hdp_posting_t;
 
 // One device-owned mapping of KFD's remapped HDP register page.
 struct amdf_gpu_kfd_hdp_t {
@@ -26,6 +33,8 @@ struct amdf_gpu_kfd_hdp_t {
   uint32_t mapped_count;
   // HDP memory-flush control register at remapped-page byte offset zero.
   volatile uint32_t* memory_flush_control;
+  // Qualified posting read, selected once from the native target family.
+  amdf_gpu_kfd_hdp_posting_t posting;
 };
 
 bool amdf_gpu_kfd_hdp_supports_host_publication(
@@ -37,7 +46,10 @@ bool amdf_gpu_kfd_hdp_supports_host_publication(
                        topology->properties.gfx_ip.minor == 0;
   const bool gfx125x = topology->properties.gfx_ip.major == 12 &&
                        topology->properties.gfx_ip.minor == 5;
-  return gfx94x || gfx120x || gfx125x;
+  const bool gfx11 = topology->properties.gfx_ip.major == 11 &&
+                     (topology->properties.gfx_ip.minor == 0 ||
+                      topology->properties.gfx_ip.minor == 5);
+  return gfx94x || gfx11 || gfx120x || gfx125x;
 }
 
 static int amdf_gpu_kfd_hdp_map_ioctl(amdf_gpu_umd_device_t* device,
@@ -102,11 +114,11 @@ amdf_status_t amdf_gpu_kfd_hdp_destroy(amdf_gpu_kfd_hdp_t* hdp) {
 
 amdf_status_t amdf_gpu_kfd_hdp_create(amdf_gpu_umd_device_t* device,
                                       amdf_gpu_kfd_hdp_t** out_hdp) {
-  *out_hdp = NULL;
   if (!amdf_gpu_kfd_hdp_supports_host_publication(&device->topology) ||
       (device->topology.memory_features &
        AMDF_GPU_DEVICE_FEATURE_HOST_VISIBLE_LOCAL_MEMORY) == 0 ||
       device->page_size > 4096) {
+    *out_hdp = NULL;
     return AMDF_STATUS_OK;
   }
 
@@ -118,6 +130,9 @@ amdf_status_t amdf_gpu_kfd_hdp_create(amdf_gpu_umd_device_t* device,
     return status;
   }
   hdp->device = device;
+  hdp->posting = device->topology.properties.gfx_ip.major == 11
+                     ? AMDF_GPU_KFD_HDP_POSTING_TIMESTAMP
+                     : AMDF_GPU_KFD_HDP_POSTING_REMAP;
   void* mapping = mmap(NULL, device->page_size, PROT_NONE,
                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (mapping == MAP_FAILED) {
@@ -192,12 +207,35 @@ amdf_status_t amdf_gpu_kfd_hdp_create(amdf_gpu_umd_device_t* device,
     if (!amdf_status_is_ok(release_status)) {
       status = release_status;
     }
+    if (amdf_status_is_ok(status)) {
+      *out_hdp = NULL;
+    }
   }
   return status;
 }
 
-void amdf_gpu_kfd_hdp_publish_host_writes(amdf_gpu_kfd_hdp_t* hdp) {
+amdf_status_t amdf_gpu_kfd_hdp_publish_host_writes(amdf_gpu_kfd_hdp_t* hdp) {
   *hdp->memory_flush_control = 1;
-  const uint32_t completion = *hdp->memory_flush_control;
-  (void)completion;
+  if (hdp->posting == AMDF_GPU_KFD_HDP_POSTING_REMAP) {
+    const uint32_t completion = *hdp->memory_flush_control;
+    (void)completion;
+    return AMDF_STATUS_OK;
+  }
+
+  // GFX11 cannot safely read the remapped flush register on every platform.
+  // A read of another register on the same device completes the posted write.
+  // AMDGPU_INFO_TIMESTAMP reads the GPU clock via MMIO on both PFs and VFs,
+  // without exposing register offsets or requiring another native resource.
+  uint64_t timestamp = 0;
+  struct drm_amdgpu_info query = {
+      .return_pointer = (uintptr_t)&timestamp,
+      .return_size = sizeof(timestamp),
+      .query = AMDGPU_INFO_TIMESTAMP,
+  };
+  int result;
+  do {
+    result =
+        ioctl(hdp->device->render_descriptor, DRM_IOCTL_AMDGPU_INFO, &query);
+  } while (result == -1 && errno == EINTR);
+  return result == 0 ? AMDF_STATUS_OK : amdf_linux_error(errno);
 }

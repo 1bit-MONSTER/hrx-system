@@ -123,6 +123,9 @@ TEST(TaskDeviceSpecBuilderTest, CapturesCommonTaskFacts) {
       iree_string_view_equal(identity->driver_id, IREE_SV("task-test")));
   EXPECT_TRUE(iree_string_view_equal(identity->backend_id, IREE_SV("task")));
   ASSERT_EQ(identity->physical_device_count, 1);
+  EXPECT_FALSE(
+      iree_any_bit_set(identity->physical_devices[0].identity.flags,
+                       IREE_HAL_PHYSICAL_DEVICE_IDENTITY_FLAG_NUMA_NODE));
 
   const iree_hal_device_memory_spec_t* memory =
       iree_hal_device_spec_memory(spec);
@@ -217,6 +220,29 @@ TEST(TaskDeviceSpecBuilderTest, CapturesCommonTaskFacts) {
 
   iree_hal_device_spec_release(spec);
   iree_hal_executable_loader_release(&loader.base);
+}
+
+TEST(TaskDeviceSpecBuilderTest, CopiesFullNumaNodeIdentity) {
+  iree_hal_numa_node_t numa = {.node_id = 65536};
+  iree_hal_task_device_spec_params_t params = {
+      .logical_device_id = IREE_SV("task0"),
+      .display_name = IREE_SV("Task Device"),
+      .driver_id = IREE_SV("task-test"),
+      .backend_id = IREE_SV("task"),
+      .numa = &numa,
+      .queue_count = 1,
+  };
+  iree_hal_device_spec_t* spec = nullptr;
+  IREE_ASSERT_OK(iree_hal_task_device_spec_create(
+      &params, iree_allocator_system(), &spec));
+  numa.node_id = 0;
+  const auto* identity = iree_hal_device_spec_identity(spec);
+  ASSERT_EQ(identity->physical_device_count, 1);
+  EXPECT_TRUE(
+      iree_any_bit_set(identity->physical_devices[0].identity.flags,
+                       IREE_HAL_PHYSICAL_DEVICE_IDENTITY_FLAG_NUMA_NODE));
+  EXPECT_EQ(identity->physical_devices[0].identity.numa.node_id, 65536u);
+  iree_hal_device_spec_release(spec);
 }
 
 }  // namespace

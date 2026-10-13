@@ -29,7 +29,7 @@ inline void Publish(const GpuUserQueue& queue, uint64_t index,
                (index & (capacity - 1)) * 16;
   std::memcpy(slot + 1, packet.data() + 1, sizeof(Packet) - sizeof(uint32_t));
   GpuStoreRelease(reinterpret_cast<uintptr_t>(slot), packet[0]);
-  GpuStoreRelease(queue.host.doorbell_address, index);
+  GpuRingDoorbell(queue.host.doorbell_address, index);
 }
 
 // Prepare a complete finite batch while its first header remains INVALID.
@@ -59,7 +59,7 @@ inline void PublishBatch(const GpuUserQueue& queue, uint64_t begin,
   GpuStoreRelease(
       reinterpret_cast<uintptr_t>(ring[begin & (capacity - 1)].data()),
       packets.front()[0]);
-  GpuStoreRelease(queue.host.doorbell_address, begin + packets.size() - 1);
+  GpuRingDoorbell(queue.host.doorbell_address, begin + packets.size() - 1);
 }
 
 }  // namespace aql

@@ -123,7 +123,7 @@ bool GpuUserQueue::Release(const amdf_api_t* api) {
 void GpuUserQueue::PublishStream(uint64_t producer_index) {
   ASSERT_NE(info.command_type, AMDF_QUEUE_COMMAND_TYPE_GPU_AQL);
   GpuStoreRelease(host.write_index_address, producer_index);
-  GpuStoreRelease(host.doorbell_address, producer_index);
+  GpuRingDoorbell(host.doorbell_address, producer_index);
 }
 
 void GpuUserQueue::WaitConsumed(const amdf_api_t* api,

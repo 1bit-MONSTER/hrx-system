@@ -213,8 +213,10 @@ typedef struct amdf_gpu_device_info_t {
 /// operations expand the native counter to this monotonic frontier; the raw
 /// mapping continues to expose the native ring-relative read index.
 /// After storing complete commands, the producer release-stores the new write
-/// index followed by the same value to the 64-bit doorbell. Consumption proves
-/// ring storage can be reused; command completion requires a separate fence.
+/// index, executes a host-to-device store fence (SFENCE on x86-64), then stores
+/// the same value to the write-only 64-bit MMIO doorbell. A C/C++ release store
+/// alone does not supply that fence. Consumption proves ring storage can be
+/// reused; command completion requires a separate fence.
 /// Each publication ends on an eight-dword boundary, padded with type-3 NOP
 /// packets when necessary; packets never straddle ring wrap.
 /// Kernel publication accepts an immutable dword-aligned first-level IB.
@@ -241,10 +243,12 @@ enum amdf_gpu_pm4_format_feature_bits_e {
 /// index selects storage modulo `ring_byte_length`. A producer never advances
 /// more than that capacity beyond the acquired read index. After storing
 /// complete packets into the ring, the producer performs a release store of
-/// the new write index followed by a release store of the same value to the
-/// 64-bit doorbell. An acquire load of a read index at least that value proves
-/// the corresponding ring bytes are no longer in use by the queue. Packets
-/// are dword-aligned and never straddle ring wrap. NOP dwords have value zero.
+/// the new write index. A host producer then executes a host-to-device store
+/// fence (SFENCE on x86-64) before storing the same value to the write-only
+/// 64-bit MMIO doorbell; a C/C++ release store alone does not supply that
+/// fence. An acquire load of a read index at least that value proves the
+/// corresponding ring bytes are no longer in use by the queue. Packets are
+/// dword-aligned and never straddle ring wrap. NOP dwords have value zero.
 /// Optional commands and field layouts use the reported format features.
 /// Kernel publication accepts an immutable dword-aligned command stream.
 /// Device publication requires command stores to be visible at system scope
@@ -330,11 +334,13 @@ enum amdf_gpu_sdma_format_feature_bits_e {
 /// 1). Both 64-bit indices count packets monotonically. Producers reserve
 /// through the write index (atomic fetch-add for MULTI), wait until the
 /// reserved slot is below acquired read_index + ring_byte_length / 64, and
-/// write the packet body before release-storing its header/setup dword. A
-/// release store of the packet's reservation index to the 64-bit doorbell
-/// notifies firmware. MULTI producers may notify out of order; an unpublished
-/// earlier slot blocks later consumption. SINGLE producers notify
-/// monotonically. Firmware invalidates retired packet slots. Consumption
+/// write the packet body before release-storing its header/setup dword. A host
+/// producer then executes a host-to-device store fence (SFENCE on x86-64)
+/// before storing the packet's reservation index to the write-only 64-bit
+/// MMIO doorbell. A C/C++ release store alone does not supply that fence.
+/// MULTI producers may notify out of order; an unpublished earlier slot blocks
+/// later consumption. SINGLE producers notify monotonically. Firmware
+/// invalidates retired packet slots. Consumption
 /// releases ring storage, not code, kernargs, scratch, or kernel data: those
 /// require native execution completion.
 ///

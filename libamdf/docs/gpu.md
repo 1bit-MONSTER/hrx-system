@@ -66,6 +66,12 @@ addresses. These addresses remain stable for the mapping lifetime. Queue
 creation belongs to device or execution-stream preparation; dispatch publication
 reuses its established storage.
 
+Host producers order command and index stores before the write-only MMIO
+doorbell with a host-to-device store fence: `SFENCE` on x86-64, followed by one
+naturally aligned 64-bit doorbell store. A C/C++ release store alone is
+insufficient. This publication fence applies to PM4, SDMA and AQL; it does not
+replace the memory site's payload cache transitions or execution dependencies.
+
 `ring_byte_length` is zero for the provider default or an explicit power of
 two within the family's range and alignment. KFD PM4, SDMA and AQL queues
 default to 4 KiB and admit requests through 2 GiB. That upper bound describes
@@ -111,7 +117,8 @@ For each packet, a producer:
 2. Waits until the acquired read index permits reuse of the reserved ring slot.
 3. Writes the packet body, including addresses and any native signal handles.
 4. Release-stores the header/setup dword, making the complete packet valid.
-5. Release-stores the packet index to the mapped 64-bit doorbell.
+5. Executes a host-to-device store fence (`SFENCE` on x86-64).
+6. Stores the packet index to the mapped write-only 64-bit MMIO doorbell.
 
 Single producers notify in increasing order. Multiple producers may finish
 publication and notification out of order; an earlier unpublished slot blocks

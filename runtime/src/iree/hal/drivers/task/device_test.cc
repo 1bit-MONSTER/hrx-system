@@ -6,6 +6,7 @@
 
 #include "iree/hal/drivers/task/device.h"
 
+#include "iree/async/frontier_tracker.h"
 #include "iree/async/util/proactor_pool.h"
 #include "iree/base/threading/numa.h"
 #include "iree/hal/drivers/task/queue/queue.h"
@@ -14,8 +15,6 @@
 
 namespace {
 
-#if defined(IREE_PLATFORM_LINUX) || defined(IREE_PLATFORM_WINDOWS) || \
-    defined(IREE_PLATFORM_APPLE)
 class TaskDeviceLocalityTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -26,6 +25,10 @@ class TaskDeviceLocalityTest : public ::testing::Test {
     iree_task_topology_t topology;
     IREE_ASSERT_OK(iree_task_topology_initialize_from_thread_affinities(
         1, &affinity, &topology));
+    if (iree_task_topology_query_numa_node(&topology) == IREE_NUMA_NODE_ANY) {
+      iree_task_topology_deinitialize(&topology);
+      GTEST_SKIP() << "The task topology cannot resolve a physical NUMA node";
+    }
     iree_task_executor_options_t options;
     iree_task_executor_options_initialize(&options);
     iree_status_t status = iree_task_executor_create(
@@ -42,9 +45,13 @@ class TaskDeviceLocalityTest : public ::testing::Test {
     iree_async_proactor_pool_release(pool_);
     iree_hal_allocator_release(device_allocator_);
     iree_task_executor_release(executor_);
+    iree_task_executor_release(unplaced_executor_);
   }
 
-  iree_status_t CreateDevice(iree_host_size_t count, const uint32_t* nodes) {
+  iree_status_t CreateDevice(
+      iree_host_size_t count, const uint32_t* nodes,
+      iree_host_size_t queue_count = 1,
+      iree_task_executor_t* const* queue_executors = nullptr) {
     IREE_RETURN_IF_ERROR(iree_async_proactor_pool_create(
         count, nodes, iree_async_proactor_pool_options_default(),
         iree_allocator_system(), &pool_));
@@ -53,15 +60,71 @@ class TaskDeviceLocalityTest : public ::testing::Test {
     auto create_params = iree_hal_device_create_params_default();
     create_params.proactor_pool = pool_;
     return iree_hal_task_device_create(
-        IREE_SV("device_test"), &params, /*queue_count=*/1, &executor_,
+        IREE_SV("device_test"), &params, queue_count,
+        queue_executors ? queue_executors : &executor_,
         /*loader_count=*/0, /*loaders=*/nullptr, device_allocator_,
         &create_params, iree_allocator_system(), &device_);
+  }
+
+  iree_status_t CreateUnplacedExecutor() {
+    iree_task_topology_t topology;
+    iree_task_topology_initialize_from_group_count(1, &topology);
+    iree_task_executor_options_t options;
+    iree_task_executor_options_initialize(&options);
+    iree_status_t status = iree_task_executor_create(
+        options, &topology, iree_allocator_system(), &unplaced_executor_);
+    iree_task_topology_deinitialize(&topology);
+    return status;
+  }
+
+  void CheckNumaIdentity(bool expected) {
+    const auto* identity =
+        iree_hal_device_spec_identity(iree_hal_device_spec(device_));
+    ASSERT_EQ(identity->physical_device_count, 1);
+    const auto& physical_identity = identity->physical_devices[0].identity;
+    EXPECT_EQ(
+        iree_any_bit_set(physical_identity.flags,
+                         IREE_HAL_PHYSICAL_DEVICE_IDENTITY_FLAG_NUMA_NODE),
+        expected);
+    if (expected) {
+      EXPECT_EQ(physical_identity.numa.node_id, node_id_);
+    }
+
+    iree_async_frontier_tracker_t* tracker = nullptr;
+    IREE_ASSERT_OK(iree_async_frontier_tracker_create(
+        iree_async_frontier_tracker_options_default(), iree_allocator_system(),
+        &tracker));
+    iree_hal_device_group_builder_t builder;
+    iree_hal_device_group_builder_initialize(&builder, tracker);
+    iree_async_frontier_tracker_release(tracker);
+    iree_status_t status =
+        iree_hal_device_group_builder_add_device(&builder, device_);
+    iree_hal_device_group_t* group = nullptr;
+    if (iree_status_is_ok(status)) {
+      status = iree_hal_device_group_builder_finalize(
+          &builder, iree_allocator_system(), &group);
+    }
+    iree_hal_device_group_builder_deinitialize(&builder);
+    IREE_ASSERT_OK(status);
+    const auto* topology = iree_hal_device_group_topology(group);
+    uint32_t host_node_count = 0;
+    for (uint32_t i = 0; i < topology->node_count; ++i) {
+      const auto* node = iree_hal_topology_node_at(topology, i);
+      if (node->kind == IREE_HAL_TOPOLOGY_NODE_KIND_HOST_NUMA) {
+        ++host_node_count;
+        EXPECT_EQ(node->local_ordinal, node_id_);
+      }
+    }
+    EXPECT_EQ(host_node_count, expected ? 1u : 0u);
+    iree_hal_device_group_release(group);
   }
 
   // Physical node used to constrain the real executor's worker.
   uint32_t node_id_ = IREE_NUMA_NODE_ANY;
   // Single-node executor retained by the test and created device.
   iree_task_executor_t* executor_ = nullptr;
+  // Unconstrained executor used to exercise devices without exact affinity.
+  iree_task_executor_t* unplaced_executor_ = nullptr;
   // Heap allocator retained by the test and created device.
   iree_hal_allocator_t* device_allocator_ = nullptr;
   // Progress services available to device construction.
@@ -80,6 +143,7 @@ TEST_F(TaskDeviceLocalityTest, AcceptsExplicitUnplacedService) {
   iree_async_proactor_t* service = nullptr;
   IREE_ASSERT_OK(iree_async_proactor_pool_get(pool_, 0, &service));
   EXPECT_EQ(queue->proactor, service);
+  CheckNumaIdentity(true);
 }
 
 TEST_F(TaskDeviceLocalityTest, SelectsExactNodeBeforeUnplacedService) {
@@ -92,6 +156,43 @@ TEST_F(TaskDeviceLocalityTest, SelectsExactNodeBeforeUnplacedService) {
   iree_async_proactor_t* service = nullptr;
   IREE_ASSERT_OK(iree_async_proactor_pool_get(pool_, 1, &service));
   EXPECT_EQ(queue->proactor, service);
+  CheckNumaIdentity(true);
+}
+
+TEST_F(TaskDeviceLocalityTest, CapturesCommonQueueNode) {
+  const uint32_t nodes[] = {UINT32_MAX};
+  iree_task_executor_t* executors[] = {executor_, executor_};
+  IREE_ASSERT_OK(CreateDevice(IREE_ARRAYSIZE(nodes), nodes,
+                              IREE_ARRAYSIZE(executors), executors));
+  CheckNumaIdentity(true);
+}
+
+TEST_F(TaskDeviceLocalityTest, UnplacedExecutorHasNoExactNode) {
+  IREE_ASSERT_OK(CreateUnplacedExecutor());
+  ASSERT_EQ(iree_task_executor_numa_node(unplaced_executor_),
+            IREE_NUMA_NODE_ANY);
+  const uint32_t nodes[] = {UINT32_MAX};
+  IREE_ASSERT_OK(
+      CreateDevice(IREE_ARRAYSIZE(nodes), nodes, 1, &unplaced_executor_));
+  CheckNumaIdentity(false);
+}
+
+TEST_F(TaskDeviceLocalityTest, MixedQueueAffinityHasNoExactNode) {
+  IREE_ASSERT_OK(CreateUnplacedExecutor());
+  const uint32_t nodes[] = {UINT32_MAX};
+  iree_task_executor_t* executors[] = {executor_, unplaced_executor_};
+  IREE_ASSERT_OK(CreateDevice(IREE_ARRAYSIZE(nodes), nodes,
+                              IREE_ARRAYSIZE(executors), executors));
+  CheckNumaIdentity(false);
+}
+
+TEST_F(TaskDeviceLocalityTest, UnplacedDefaultQueueHasNoExactNode) {
+  IREE_ASSERT_OK(CreateUnplacedExecutor());
+  const uint32_t nodes[] = {UINT32_MAX};
+  iree_task_executor_t* executors[] = {unplaced_executor_, executor_};
+  IREE_ASSERT_OK(CreateDevice(IREE_ARRAYSIZE(nodes), nodes,
+                              IREE_ARRAYSIZE(executors), executors));
+  CheckNumaIdentity(false);
 }
 
 TEST_F(TaskDeviceLocalityTest, MissingBoundServiceFailsConstruction) {
@@ -102,6 +203,4 @@ TEST_F(TaskDeviceLocalityTest, MissingBoundServiceFailsConstruction) {
                         CreateDevice(IREE_ARRAYSIZE(nodes), nodes));
   EXPECT_EQ(device_, nullptr);
 }
-#endif  // Native thread affinity platforms.
-
 }  // namespace

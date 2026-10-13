@@ -142,7 +142,8 @@ static iree_status_t iree_hal_amd_fabric_memory_translate_transition(
       source->executor == AMDF_CACHE_TRANSITION_EXECUTOR_HOST_DIRECT ||
       source->executor == AMDF_CACHE_TRANSITION_EXECUTOR_HOST_API;
   if (is_host_executor) {
-    if (source->kind != AMDF_CACHE_TRANSITION_KIND_RANGE ||
+    if ((source->kind == AMDF_CACHE_TRANSITION_KIND_GLOBAL &&
+         source->host_instruction != AMDF_HOST_CACHE_INSTRUCTION_NONE) ||
         source->operation != AMDF_CACHE_OPERATION_NONE ||
         source->host_operation !=
             (is_release ? AMDF_HOST_CACHE_OPERATION_FLUSH

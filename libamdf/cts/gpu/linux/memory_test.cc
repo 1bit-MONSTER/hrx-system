@@ -4,10 +4,14 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <linux/mempolicy.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include <array>
+#include <cerrno>
+#include <climits>
 #include <cstdint>
 #include <cstring>
 #include <utility>
@@ -16,6 +20,8 @@
 #include "amdf/gpu.h"
 #include "gtest/gtest.h"
 #include "libamdf/cts/gpu/gpu_device_fixture.h"
+#include "libamdf/cts/gpu/sdma/encoding/commands.h"
+#include "libamdf/cts/gpu/util/command_fixture.h"
 
 namespace {
 
@@ -667,6 +673,203 @@ TEST_F(GpuLinuxMemoryTest, RegistersOverlappingCallerPagesWithExactAccess) {
   EXPECT_EQ(caller_pages_[caller_byte_length_ - 1], 0x3C);
   ASSERT_EQ(munmap(caller_pages_, caller_byte_length_), 0);
   caller_pages_ = nullptr;
+}
+
+class GpuHostNumaMemoryTest : public GpuCommandTest {
+ protected:
+  GpuHostNumaMemoryTest()
+      : GpuCommandTest({
+            .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
+            .roles = AMDF_QUEUE_ROLE_TRANSFER,
+            .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER |
+                                 AMDF_QUEUE_PUBLICATION_MODE_KERNEL,
+        }) {}
+};
+
+TEST_F(GpuHostNumaMemoryTest, CopiesUsingPagesOnEveryAllowedHostNode) {
+  const amdf_memory_device_access_t access = {
+      device_,
+      {
+          .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+          .flags =
+              AMDF_MEMORY_FLAG_HOST_COHERENT | AMDF_MEMORY_FLAG_DEVICE_ADDRESS,
+      },
+  };
+  amdf_memory_scope_info_t scope_info = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO,
+      .structure_size = sizeof(scope_info),
+  };
+  ASSERT_EQ(api_->memory_scope_query_info(system_scope_, &scope_info),
+            AMDF_STATUS_OK);
+  uint32_t profile_ordinal = AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN;
+  for (uint32_t ordinal = 0; ordinal < scope_info.memory_profile_count;
+       ++ordinal) {
+    amdf_memory_profile_t profile = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE,
+        .structure_size = sizeof(profile),
+    };
+    amdf_memory_access_capabilities_t capabilities = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_ACCESS_CAPABILITIES,
+        .structure_size = sizeof(capabilities),
+    };
+    const auto status = api_->memory_scope_query_device_profile(
+        system_scope_, ordinal, 1, &access, &profile, &capabilities);
+    if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+      continue;
+    }
+    ASSERT_EQ(status, AMDF_STATUS_OK);
+    if ((profile.roles & AMDF_MEMORY_PROFILE_ROLE_CREATE) != 0 &&
+        (profile.allocation.placement_kinds &
+         (UINT32_C(1) << AMDF_MEMORY_PLACEMENT_KIND_HOST_NUMA)) != 0) {
+      profile_ordinal = ordinal;
+      break;
+    }
+  }
+  if (profile_ordinal == AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN) {
+    GTEST_SKIP()
+        << "Selected native lifetime/device has no placed host registration";
+  }
+  const long page_size = sysconf(_SC_PAGESIZE);
+  ASSERT_GT(page_size, 0);
+  constexpr size_t kWordBits = sizeof(unsigned long) * CHAR_BIT;
+  std::vector<unsigned long> allowed(page_size / sizeof(unsigned long));
+  const size_t node_count = allowed.size() * kWordBits;
+  ASSERT_EQ(syscall(SYS_get_mempolicy, nullptr, allowed.data(), node_count + 1,
+                    nullptr, MPOL_F_MEMS_ALLOWED),
+            0)
+      << std::strerror(errno);
+  GpuCommandQueue* queue = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
+  SdmaCommandWriter commands(queue->words().data(), family_.format_features);
+  uint32_t tested_nodes = 0;
+  for (uint32_t node = 0; node < node_count; ++node) {
+    if ((allowed[node / kWordBits] & (1UL << (node % kWordBits))) == 0) {
+      continue;
+    }
+    ++tested_nodes;
+    for (amdf_memory_flags_t flags : std::array<amdf_memory_flags_t, 2>{
+             0, AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE}) {
+      SCOPED_TRACE(::testing::Message()
+                   << "node=" << node << " flags=" << flags);
+      const amdf_memory_create_info_t create_info = {
+          .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
+          .structure_size = sizeof(create_info),
+          .memory_profile_ordinal = profile_ordinal,
+          .access_count = 1,
+          .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE | flags,
+          .byte_length = static_cast<uint64_t>(page_size) * 4,
+          .accesses = &access,
+          .placement = {AMDF_MEMORY_PLACEMENT_KIND_HOST_NUMA, node},
+      };
+      GpuMemory* memory = nullptr;
+      ASSERT_NO_FATAL_FAILURE(
+          CreateMemory(system_scope_, create_info, &memory));
+      EXPECT_EQ(memory->info.placement.kind, create_info.placement.kind);
+      EXPECT_EQ(memory->info.placement.node, node);
+      amdf_memory_profile_pair_query_t pair_query = {
+          .type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE_PAIR_QUERY,
+          .structure_size = sizeof(pair_query),
+          .memory_profile_ordinal = profile_ordinal,
+          .access_count = 1,
+          .required_flags = create_info.required_flags,
+          .accesses = &access,
+      };
+      pair_query.producer.kind = AMDF_MEMORY_SITE_KIND_HOST;
+      pair_query.producer.value.host_access =
+          AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE;
+      pair_query.consumer.kind = AMDF_MEMORY_SITE_KIND_DEVICE;
+      pair_query.consumer.value.device = {0, family_.ordinal};
+      auto source = memory->HostSite();
+      auto target = memory->DeviceSite(family_.ordinal);
+      amdf_cache_operations_t cache_operations = 0;
+      for (uint32_t direction = 0; direction < 2; ++direction) {
+        amdf_memory_pair_info_t prospective = {
+            .type = AMDF_STRUCTURE_TYPE_MEMORY_PAIR_INFO,
+            .structure_size = sizeof(prospective),
+        };
+        auto concrete = prospective;
+        ASSERT_EQ(api_->memory_scope_query_pair_info(system_scope_, &pair_query,
+                                                     &prospective),
+                  AMDF_STATUS_OK);
+        ASSERT_EQ(api_->memory_query_pair_info(&source, &target, &concrete),
+                  AMDF_STATUS_OK);
+        EXPECT_EQ(prospective.flags, concrete.flags);
+        EXPECT_EQ(prospective.release.kind, concrete.release.kind);
+        EXPECT_EQ(prospective.release.executor, concrete.release.executor);
+        EXPECT_EQ(prospective.acquire.kind, concrete.acquire.kind);
+        EXPECT_EQ(prospective.acquire.executor, concrete.acquire.executor);
+        const auto& host_transition =
+            direction == 0 ? concrete.release : concrete.acquire;
+        ASSERT_EQ(host_transition.kind, AMDF_CACHE_TRANSITION_KIND_NONE);
+        const auto& device_transition =
+            direction == 0 ? concrete.acquire : concrete.release;
+        if (device_transition.kind == AMDF_CACHE_TRANSITION_KIND_NONE) {
+          ASSERT_EQ(device_transition.executor,
+                    AMDF_CACHE_TRANSITION_EXECUTOR_NONE);
+          ASSERT_EQ(device_transition.operation, AMDF_CACHE_OPERATION_NONE);
+        } else {
+          const auto operation = direction == 0
+                                     ? AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM
+                                     : AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM;
+          ASSERT_EQ(device_transition.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
+          ASSERT_EQ(device_transition.executor,
+                    AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE);
+          ASSERT_EQ(device_transition.operation, operation);
+          ASSERT_NE(
+              family_.format_features & AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR,
+              0u);
+          cache_operations |= UINT64_C(1) << operation;
+        }
+        std::swap(pair_query.producer, pair_query.consumer);
+        std::swap(source, target);
+      }
+      auto* bytes = static_cast<uint8_t*>(memory->host.pointer);
+      const uint64_t completion =
+          reinterpret_cast<uintptr_t>(bytes + page_size * 3);
+      GpuStoreRelease<uint32_t>(completion, 0);
+      for (uint32_t epoch = 1; epoch <= 2; ++epoch) {
+        for (long i = 0; i < page_size; ++i) {
+          bytes[i] = (i * 17 + epoch + node) & 0xFF;
+        }
+        std::memset(bytes + page_size, 0xA5, page_size * 2);
+        ASSERT_GE(queue->words().size(), commands.word_count() + 32);
+        if ((cache_operations & AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM) !=
+            0) {
+          commands.AcquireFromSystem();
+        }
+        for (uint32_t destination = 1; destination <= 2; ++destination) {
+          commands.CopyLinear(memory->device_address,
+                              memory->device_address + page_size * destination,
+                              static_cast<uint32_t>(page_size) - 1);
+        }
+        if ((cache_operations & AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM) != 0) {
+          commands.ReleaseToSystem();
+        }
+        commands.Fence32(memory->device_address + page_size * 3, epoch);
+        ASSERT_NO_FATAL_FAILURE(
+            queue->Publish(api_, gpu_api_, commands.word_count()));
+        GpuWaitEqual<uint32_t>(completion, epoch);
+        for (uint32_t destination = 1; destination <= 2; ++destination) {
+          EXPECT_EQ(std::memcmp(bytes, bytes + page_size * destination,
+                                page_size - 1),
+                    0);
+          EXPECT_EQ(bytes[page_size * (destination + 1) - 1], 0xA5);
+        }
+        ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
+        for (uint32_t page = 0; page < 4; ++page) {
+          int resident_node = -1;
+          ASSERT_EQ(
+              syscall(SYS_get_mempolicy, &resident_node, nullptr, 0,
+                      bytes + page_size * page, MPOL_F_NODE | MPOL_F_ADDR),
+              0)
+              << std::strerror(errno);
+          EXPECT_EQ(resident_node, static_cast<int>(node)) << "page " << page;
+        }
+      }
+    }
+  }
+  EXPECT_GT(tested_nodes, 0u);
+  RecordProperty("numa_nodes", tested_nodes);
 }
 
 }  // namespace

@@ -435,7 +435,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD)
+if(AMDF_BUILD AND (CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_cc_library(
   NAME
     queue_test_util
@@ -464,7 +464,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD)
+if(AMDF_BUILD AND (CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_cc_test(
   NAME
     queue_test
@@ -494,7 +494,7 @@ iree_cc_test(
 )
 endif()
 
-if(AMDF_BUILD)
+if(AMDF_BUILD AND (CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_cc_test(
   NAME
     command_buffer_test
@@ -514,7 +514,7 @@ iree_cc_test(
 )
 endif()
 
-if(AMDF_BUILD)
+if(AMDF_BUILD AND (CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_cc_test(
   NAME
     profile_test

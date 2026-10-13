@@ -495,8 +495,13 @@ typedef struct iree_hal_memory_transition_recipe_t {
 } iree_hal_memory_transition_recipe_t;
 
 // Validates a resource recipe at a public consumption boundary. Recipes may
-// contain ranged queue/program actions or host cache actions; global queue
-// actions have no resource operand and therefore no recipe.
+// contain ranged queue/program actions or ranged/global host cache actions.
+// Global host actions retain a resource operand to identify the native mapping
+// and its owner; direct global host actions contain only fences. Global queue
+// and program actions have no resource operand and therefore no recipe.
+// This validates structure, not native support. The constructing backend
+// qualifies instructions, fences, and granularity for the executing host before
+// publishing a recipe; consumers do not repeat that qualification.
 IREE_API_EXPORT iree_status_t iree_hal_memory_transition_recipe_validate(
     const iree_hal_memory_transition_recipe_t* recipe);
 

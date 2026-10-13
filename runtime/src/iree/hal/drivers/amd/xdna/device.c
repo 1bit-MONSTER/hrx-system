@@ -45,6 +45,8 @@ typedef struct iree_hal_amd_xdna_device_t {
     iree_hal_memory_maintenance_t* maintenance;
     // Native requirements for the single XDNA execution family.
     iree_hal_amd_fabric_memory_family_t family;
+    // Borrowed system backing shared with other native fabric consumers.
+    iree_hal_amd_fabric_memory_storage_t storage;
     // Borrowed factory view over the device's native and progress owners.
     iree_hal_amd_fabric_memory_backend_t backend;
   } memory;
@@ -226,15 +228,20 @@ iree_status_t iree_hal_amd_xdna_device_create(
         .binding_count = IREE_ARRAYSIZE(bindings),
         .bindings = bindings,
     };
+    device->memory.storage = (iree_hal_amd_fabric_memory_storage_t){
+        .scope = context->data_source.scope,
+        .memory_type =
+            IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+        .minimum_access = context->data_source.capabilities.guaranteed_access,
+    };
     const iree_hal_amd_fabric_memory_backend_options_t memory_options = {
         .api = context->api,
         .instance = context->fabric->instance,
-        .scope = context->data_source.scope,
         .device = context->device,
         .address_domain_ordinal = context->data_source.capabilities
                                       .device_address.address_domain_ordinal,
-        .memory_type =
-            IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+        .storage_count = 1,
+        .storage = &device->memory.storage,
         .event_sink = context->event_sink,
         .families = &device->memory.family,
     };

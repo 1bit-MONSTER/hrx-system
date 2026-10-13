@@ -212,6 +212,11 @@ IREE_API_EXPORT iree_status_t iree_hal_task_device_spec_create(
           },
       .physical_device_affinity = 1ull,
   };
+  if (params->numa) {
+    physical_device.identity.flags |=
+        IREE_HAL_PHYSICAL_DEVICE_IDENTITY_FLAG_NUMA_NODE;
+    physical_device.identity.numa = *params->numa;
+  }
   iree_hal_device_identity_spec_t identity = {
       .logical_device_id = params->logical_device_id,
       .display_name = params->display_name,

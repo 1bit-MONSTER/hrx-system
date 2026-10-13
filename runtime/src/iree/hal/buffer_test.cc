@@ -950,6 +950,50 @@ class BufferMappingTransitionTest : public ::testing::Test {
   const iree_hal_memory_transition_recipe_t* acquire_recipe_ = nullptr;
 };
 
+TEST_F(BufferMappingTransitionTest, EmptyDirectProgramExecutesOnAnyHost) {
+  auto buffer = MakeMappedTransferBuffer(IREE_HAL_MEMORY_TYPE_HOST_COHERENT);
+  iree_hal_buffer_mapping_t mapping = {};
+  IREE_ASSERT_OK(iree_hal_buffer_map_range(
+      buffer.get(), IREE_HAL_MAPPING_MODE_SCOPED, IREE_HAL_MEMORY_ACCESS_ALL,
+      IREE_HAL_BUFFER_MAP_FLAG_NONE, 3, 24, &mapping));
+  memset(mapping.contents.data, 0x57, mapping.contents.data_length);
+  for (auto kind : {IREE_HAL_MEMORY_TRANSITION_KIND_RANGE,
+                    IREE_HAL_MEMORY_TRANSITION_KIND_GLOBAL}) {
+    for (auto operation :
+         {IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH,
+          IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_INVALIDATE}) {
+      const iree_hal_memory_transition_recipe_info_t info = {
+          .kind = kind,
+          .executor = IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT,
+          .operation = operation,
+          .range_granularity =
+              kind == IREE_HAL_MEMORY_TRANSITION_KIND_RANGE ? 1u : 0u,
+      };
+      const iree_hal_memory_transition_recipe_t recipe = {
+          .effects = {static_cast<uint32_t>(
+              operation == IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH
+                  ? IREE_HAL_MEMORY_EFFECT_HOST_FLUSH
+                  : IREE_HAL_MEMORY_EFFECT_HOST_INVALIDATE)},
+          .operation_count = 1,
+          .operations = &info,
+      };
+      const iree_hal_buffer_mapping_transition_t transitions[] = {
+          {&mapping, 5, 8, &recipe},
+          {&mapping, 0, IREE_HAL_WHOLE_BUFFER, &recipe},
+          {&mapping, mapping.contents.data_length, 0, &recipe},
+      };
+      IREE_EXPECT_OK(iree_hal_buffer_mapping_memory_barrier(
+          recipe.effects, IREE_ARRAYSIZE(transitions), transitions));
+    }
+  }
+  EXPECT_EQ(buffer->flush_count, 0u);
+  EXPECT_EQ(buffer->invalidate_count, 0u);
+  for (iree_host_size_t i = 0; i < mapping.contents.data_length; ++i) {
+    EXPECT_EQ(mapping.contents.data[i], 0x57);
+  }
+  IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
+}
+
 TEST_F(BufferMappingTransitionTest,
        NativeApiSurvivesCoherenceAndSubviewOffsets) {
   for (iree_hal_memory_type_t coherence :

@@ -33,6 +33,7 @@ iree_cc_library(
     ::file
     ::host_cache
     amdf::headers
+    libamdf::src::allocator
     libamdf::src::platform::host_memory
   PUBLIC
 )

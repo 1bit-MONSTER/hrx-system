@@ -160,7 +160,7 @@ IREE_API_EXPORT void iree_hal_topology_destroy(
 // Device spec projection helpers
 //===----------------------------------------------------------------------===//
 
-static bool iree_hal_physical_device_spec_try_get_numa_node(
+static bool iree_hal_physical_device_spec_try_get_compact_numa_node(
     const iree_hal_physical_device_spec_t* physical_device,
     uint8_t* out_numa_node) {
   IREE_ASSERT_ARGUMENT(physical_device);
@@ -188,13 +188,13 @@ static bool iree_hal_topology_device_spec_try_get_representative_numa_node(
   }
 
   uint8_t representative_numa_node = 0;
-  if (!iree_hal_physical_device_spec_try_get_numa_node(
+  if (!iree_hal_physical_device_spec_try_get_compact_numa_node(
           &identity->physical_devices[0], &representative_numa_node)) {
     return false;
   }
   for (iree_host_size_t i = 1; i < identity->physical_device_count; ++i) {
     uint8_t numa_node = 0;
-    if (!iree_hal_physical_device_spec_try_get_numa_node(
+    if (!iree_hal_physical_device_spec_try_get_compact_numa_node(
             &identity->physical_devices[i], &numa_node) ||
         numa_node != representative_numa_node) {
       return false;
@@ -610,9 +610,9 @@ static iree_status_t iree_hal_topology_builder_create_spec_nodes_and_links(
     for (iree_host_size_t j = 0; j < identity->physical_device_count; ++j) {
       const iree_hal_physical_device_spec_t* physical_device =
           &identity->physical_devices[j];
-      uint8_t compact_numa_node = 0;
-      if (!iree_hal_physical_device_spec_try_get_numa_node(
-              physical_device, &compact_numa_node)) {
+      if (!iree_all_bits_set(
+              physical_device->identity.flags,
+              IREE_HAL_PHYSICAL_DEVICE_IDENTITY_FLAG_NUMA_NODE)) {
         continue;
       }
       iree_hal_topology_builder_append_numa_node_id(
@@ -702,9 +702,9 @@ static iree_status_t iree_hal_topology_builder_create_spec_nodes_and_links(
             .latency_nanoseconds = 0,
         };
 
-        uint8_t compact_numa_node = 0;
-        if (iree_hal_physical_device_spec_try_get_numa_node(
-                physical_device, &compact_numa_node)) {
+        if (iree_all_bits_set(
+                physical_device->identity.flags,
+                IREE_HAL_PHYSICAL_DEVICE_IDENTITY_FLAG_NUMA_NODE)) {
           iree_host_size_t numa_node_index = 0;
           bool found_numa_node = iree_hal_topology_builder_find_numa_node_id(
               numa_node_ids, numa_node_count,

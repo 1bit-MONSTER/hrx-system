@@ -7,6 +7,8 @@
 #ifndef AMDF_CTS_GPU_UTIL_USER_QUEUE_H_
 #define AMDF_CTS_GPU_UTIL_USER_QUEUE_H_
 
+#include <emmintrin.h>
+
 #include <atomic>
 #include <cstdint>
 #include <thread>
@@ -29,6 +31,13 @@ void GpuStoreRelease(uint64_t address, T value) {
   static_assert(std::atomic_ref<T>::is_always_lock_free);
   std::atomic_ref<T>(*reinterpret_cast<T*>(address))
       .store(value, std::memory_order_release);
+}
+
+// Orders command and index stores before the write-only MMIO doorbell. A C++
+// release store alone does not supply this x86 host-to-device store fence.
+inline void GpuRingDoorbell(uint64_t address, uint64_t value) {
+  _mm_sfence();
+  GpuStoreRelease(address, value);
 }
 
 // Waits on a coherent completion line without maintaining any payload cache.

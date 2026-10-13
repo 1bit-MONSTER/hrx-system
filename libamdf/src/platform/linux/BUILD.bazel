@@ -33,6 +33,7 @@ amdf_cc_library(
     deps = [
         ":file",
         ":host_cache",
+        "//libamdf/src:allocator",
         "//libamdf/src/platform:host_memory",
     ],
 )

@@ -35,8 +35,6 @@
 
 namespace iree::hal::amd::xdna::testing {
 
-#if defined(IREE_ASYNC_HAVE_EVENTFD) || defined(IREE_ASYNC_HAVE_WIN32_HANDLE)
-
 struct HostAllocationCounters {
   std::atomic<uint64_t> allocations{0};
   std::atomic<uint64_t> reallocations{0};
@@ -1149,8 +1147,6 @@ class QueueHarness {
   // True after the public device reference has entered terminal shutdown.
   bool device_release_requested = false;
 };
-
-#endif
 
 }  // namespace iree::hal::amd::xdna::testing
 

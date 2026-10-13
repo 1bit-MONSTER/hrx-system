@@ -80,7 +80,7 @@ class GpuKernelQueueTest
     device.info.reset_epoch = 1;
     device.command_type = GetParam();
     ASSERT_EQ(
-        amdf_memory_resource_allocate(amdf_allocator_system(), 1, &memory),
+        amdf_memory_resource_allocate(amdf_allocator_system(), 1, 0, &memory),
         AMDF_STATUS_OK);
     memory->info.byte_length = 4096;
     memory->accesses[0].device = &device.base;

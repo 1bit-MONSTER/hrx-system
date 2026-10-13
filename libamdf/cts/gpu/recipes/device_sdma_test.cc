@@ -802,7 +802,7 @@ TEST_P(DeviceGeneratedSdmaStagedTest, IndependentConsumerReusesSelectedSlots) {
   GpuStoreRelease(compute->host.write_index_address, end_index);
   GpuStoreRelease(reinterpret_cast<uintptr_t>(first_packet.data()),
                   packets.front()[0]);
-  GpuStoreRelease(compute->host.doorbell_address, end_index - 1);
+  GpuRingDoorbell(compute->host.doorbell_address, end_index - 1);
 
   // No per-job CPU service or joins. Capture the actual result before native
   // consumption/teardown can obscure the GPU-to-SDMA-to-consumer dataflow.

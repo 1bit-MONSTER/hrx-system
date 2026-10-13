@@ -155,7 +155,10 @@ static amdf_status_t amdf_memory_validate_create_info(
   }
   if (create_info->reserved != 0 ||
       (create_info->required_flags & ~AMDF_MEMORY_BACKING_FLAGS) != 0 ||
-      create_info->byte_length == 0) {
+      create_info->byte_length == 0 ||
+      create_info->placement.kind > AMDF_MEMORY_PLACEMENT_KIND_HOST_NUMA ||
+      (create_info->placement.kind == AMDF_MEMORY_PLACEMENT_KIND_NONE &&
+       create_info->placement.node != 0)) {
     return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
   }
   if (create_info->minimum_alignment != 0 &&
@@ -255,12 +258,12 @@ static amdf_status_t amdf_memory_allocate(
     const amdf_memory_scope_plan_t* plan,
     const amdf_memory_device_access_t* accesses, amdf_memory_t** out_memory) {
   amdf_memory_t* memory = NULL;
-  const amdf_status_t status = amdf_memory_resource_allocate(
-      plan->host_allocator, plan->access_count, &memory);
+  const amdf_status_t status =
+      amdf_memory_resource_allocate(plan->host_allocator, plan->access_count,
+                                    plan->backing_access_ordinal, &memory);
   if (!amdf_status_is_ok(status)) {
     return status;
   }
-  memory->backing_access_ordinal = plan->backing_access_ordinal;
   memory->scope = plan->scope;
   memory->host_mapping = plan->profile.host_mapping;
   for (uint32_t i = 0; i < plan->access_count; ++i) {
@@ -307,11 +310,11 @@ static amdf_status_t amdf_memory_prepare_access(
   const amdf_memory_access_requirements_t* requirements =
       &create_info->accesses[ordinal].requirements;
   const amdf_memory_native_group_t group = {
-      .access_count = ordinal == plan->backing_access_ordinal
-                          ? plan->backing_access_count
+      .access_count = ordinal == plan->coordinated.ordinals[0]
+                          ? plan->coordinated.count
                           : 1,
-      .access_ordinals = ordinal == plan->backing_access_ordinal
-                             ? plan->backing_access_ordinals
+      .access_ordinals = ordinal == plan->coordinated.ordinals[0]
+                             ? plan->coordinated.ordinals
                              : &ordinal,
       .profiles = plan->native_profiles,
   };
@@ -336,11 +339,32 @@ static amdf_status_t amdf_memory_prepare_access(
 static amdf_status_t amdf_memory_prepare(
     amdf_memory_t* memory, const amdf_memory_scope_plan_t* plan,
     const amdf_memory_create_info_t* create_info) {
-  if (plan->access_count == 0) {
-    return amdf_host_memory_prepare(memory, &plan->native_profiles[0],
-                                    create_info, &memory->info);
-  }
   const uint32_t backing = plan->backing_access_ordinal;
+  if (backing == plan->access_count) {
+    amdf_status_t status = amdf_host_memory_prepare(
+        memory, &plan->native_profiles[backing], create_info, &memory->info);
+    amdf_memory_create_info_t registration = *create_info;
+    if (amdf_status_is_ok(status)) {
+      registration.required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
+      registration.registered_host_pointer = amdf_host_memory_pointer(memory);
+      registration.registered_host_cacheability =
+          AMDF_HOST_CACHEABILITY_WRITE_BACK;
+    }
+    for (uint32_t i = 0; amdf_status_is_ok(status) && i < plan->access_count;
+         ++i) {
+      if (plan->native_owner_ordinals[i] != i) {
+        continue;
+      }
+      amdf_memory_info_t native_info = {0};
+      status = amdf_memory_prepare_access(memory, i, plan, &registration,
+                                          &native_info);
+      if (amdf_status_is_ok(status) &&
+          native_info.alignment < memory->info.alignment) {
+        memory->info.alignment = native_info.alignment;
+      }
+    }
+    return status;
+  }
   amdf_status_t status = amdf_memory_prepare_access(memory, backing, plan,
                                                     create_info, &memory->info);
   if (amdf_status_is_ok(status)) {
@@ -412,6 +436,12 @@ amdf_status_t AMDF_CALL amdf_memory_create(
                    : AMDF_MEMORY_PROFILE_ROLE_CREATE,
       capabilities, create_info->required_flags, create_info->byte_length,
       create_info->minimum_alignment);
+  if (amdf_status_is_ok(status) &&
+      create_info->placement.kind != AMDF_MEMORY_PLACEMENT_KIND_NONE &&
+      (capabilities->placement_kinds &
+       (UINT32_C(1) << create_info->placement.kind)) == 0) {
+    status = amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  }
   if (amdf_status_is_ok(status) &&
       registration != (create_info->registered_host_pointer != NULL)) {
     status = amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);

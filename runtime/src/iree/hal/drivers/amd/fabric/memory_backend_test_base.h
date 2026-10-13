@@ -20,6 +20,7 @@
 #include "iree/async/notification.h"
 #include "iree/async/proactor_platform.h"
 #include "iree/async/util/proactor_pool.h"
+#include "iree/base/threading/numa.h"
 #include "iree/hal/device_group.h"
 #include "iree/hal/drivers/amd/fabric/memory_backend.h"
 #include "iree/hal/drivers/task/device.h"
@@ -51,6 +52,24 @@ inline iree_async_proactor_t* test_proactor() {
 }
 
 struct FakeNative {
+  struct Device {
+    // Instance owning this native dependency.
+    FakeNative* owner;
+    // Stable device identity independent of its position in an access list.
+    uint32_t ordinal;
+  };
+
+  struct Scope {
+    // Native dependency receiving queries for this storage domain.
+    FakeNative* owner;
+    // Physical storage class exposed by the scope.
+    amdf_memory_class_t memory_class;
+    // Local storage endpoint, or UINT32_MAX for system memory.
+    uint32_t device_ordinal;
+    // Native profile result used to exercise absent routes and query failures.
+    amdf_status_t profile_status = AMDF_STATUS_OK;
+  };
+
   FakeNative() {
     api.memory_scope_query_info = MemoryScopeQueryInfo;
     api.memory_scope_query_device_profile = MemoryScopeQueryDeviceProfile;
@@ -71,25 +90,62 @@ struct FakeNative {
     api.memory_reservation_detach = ReservationDetach;
     api.memory_reservation_destroy = ReservationDestroy;
     for (uint32_t i = 0; i < 2; ++i) {
+      local_scopes[i] = {this, AMDF_MEMORY_CLASS_LOCAL, i};
       native_devices[i] = {this, i};
       devices[i] = reinterpret_cast<amdf_device_t*>(&native_devices[i]);
     }
   }
 
   amdf_memory_scope_t* scope() {
-    return reinterpret_cast<amdf_memory_scope_t*>(this);
+    return reinterpret_cast<amdf_memory_scope_t*>(&system_scope);
+  }
+
+  static void CheckAccesses(const Scope* storage, uint32_t access_count,
+                            const amdf_memory_device_access_t* accesses) {
+    const auto* self = storage->owner;
+    ASSERT_LE(access_count, self->devices.size());
+    bool owner_present = storage->memory_class == AMDF_MEMORY_CLASS_SYSTEM;
+    for (uint32_t i = 0; i < access_count; ++i) {
+      const auto* device = reinterpret_cast<const Device*>(accesses[i].device);
+      ASSERT_EQ(device->owner, self);
+      ASSERT_LT(device->ordinal, self->devices.size());
+      owner_present |= device->ordinal == storage->device_ordinal;
+      EXPECT_EQ(accesses[i].requirements.access, self->device_access);
+      EXPECT_EQ(accesses[i].requirements.access & self->minimum_access,
+                self->minimum_access);
+      if (accesses[i].requirements.address_kinds) {
+        EXPECT_EQ(accesses[i].requirements.address_kinds,
+                  self->address_kinds[device->ordinal]);
+        EXPECT_EQ(
+            accesses[i].requirements.flags,
+            AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
+                (self->mapping_enabled ? AMDF_MEMORY_FLAG_MAPPING_SOURCE : 0));
+      } else {
+        // A private allocation owner does not request an execution binding.
+        EXPECT_EQ(accesses[i].requirements.flags, 0u);
+      }
+    }
+    EXPECT_TRUE(owner_present);
   }
 
   static amdf_status_t AMDF_CALL MemoryScopeQueryInfo(
       amdf_memory_scope_t* base_scope, amdf_memory_scope_info_t* out_info) {
-    auto* self = reinterpret_cast<FakeNative*>(base_scope);
+    auto* storage = reinterpret_cast<Scope*>(base_scope);
+    auto* self = storage->owner;
     ++self->scope_query_count;
-    out_info->kind = self->memory_class == AMDF_MEMORY_CLASS_LOCAL
+    out_info->kind = storage->memory_class == AMDF_MEMORY_CLASS_LOCAL
                          ? AMDF_MEMORY_SCOPE_KIND_LOCAL
                          : AMDF_MEMORY_SCOPE_KIND_SYSTEM;
-    out_info->memory_profile_count =
-        self->registration_enabled || self->native_transport_enabled ? 2 : 1;
+    out_info->memory_profile_count = self->ProfileCount(storage);
     return AMDF_STATUS_OK;
+  }
+
+  uint32_t ProfileCount(const Scope* storage) const {
+    return (registration_enabled || native_transport_enabled ? 2u : 1u) +
+           (host_placement_enabled &&
+                    storage->memory_class == AMDF_MEMORY_CLASS_SYSTEM
+                ? 1u
+                : 0u);
   }
 
   static amdf_status_t AMDF_CALL MemoryScopeQueryDeviceProfile(
@@ -97,39 +153,41 @@ struct FakeNative {
       uint32_t access_count, const amdf_memory_device_access_t* accesses,
       amdf_memory_profile_t* out_profile,
       amdf_memory_access_capabilities_t* out_capabilities) {
-    auto* self = reinterpret_cast<FakeNative*>(base_scope);
-    EXPECT_LT(
-        profile_ordinal,
-        self->registration_enabled || self->native_transport_enabled ? 2u : 1u);
-    EXPECT_EQ(access_count, 2u);
-    EXPECT_EQ(accesses[0].device, self->devices[0]);
-    EXPECT_EQ(accesses[1].device, self->devices[1]);
+    auto* storage = reinterpret_cast<Scope*>(base_scope);
+    auto* self = storage->owner;
+    if (storage->profile_status != AMDF_STATUS_OK) {
+      return storage->profile_status;
+    }
+    EXPECT_LT(profile_ordinal, self->ProfileCount(storage));
+    const bool placed = self->host_placement_enabled &&
+                        storage->memory_class == AMDF_MEMORY_CLASS_SYSTEM &&
+                        profile_ordinal == self->ProfileCount(storage) - 1;
+    if (!access_count && !placed) {
+      return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+    }
+    CheckAccesses(storage, access_count, accesses);
     for (uint32_t i = 0; i < access_count; ++i) {
-      EXPECT_EQ(accesses[i].requirements.access, self->device_access);
-      EXPECT_EQ(
-          accesses[i].requirements.flags,
-          AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
-              (self->mapping_enabled ? AMDF_MEMORY_FLAG_MAPPING_SOURCE : 0));
-      EXPECT_EQ(accesses[i].requirements.address_kinds, self->address_kinds[i]);
+      const auto* device = reinterpret_cast<const Device*>(accesses[i].device);
       out_capabilities[i].guaranteed_access = self->minimum_access;
-      EXPECT_EQ(accesses[i].requirements.access & self->minimum_access,
-                self->minimum_access);
       out_capabilities[i].supported_access =
           AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
       out_capabilities[i].guaranteed_flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS;
       out_capabilities[i].supported_flags =
           AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
           (self->mapping_enabled ? AMDF_MEMORY_FLAG_MAPPING_SOURCE : 0);
-      out_capabilities[i].address_kinds = self->address_kinds[i];
+      out_capabilities[i].address_kinds = self->address_kinds[device->ordinal];
     }
     ++self->profile_query_count;
     out_profile->ordinal = profile_ordinal;
-    out_profile->memory_class = self->memory_class;
+    out_profile->memory_class = storage->memory_class;
     out_profile->roles =
         AMDF_MEMORY_PROFILE_ROLE_CREATE |
         (self->host_mappable ? AMDF_MEMORY_PROFILE_ROLE_HOST_MAP : 0);
     out_profile->guaranteed_flags =
-        self->host_mappable ? AMDF_MEMORY_FLAG_HOST_VISIBLE : 0;
+        (self->host_mappable ? AMDF_MEMORY_FLAG_HOST_VISIBLE : 0) |
+        (storage->memory_class == AMDF_MEMORY_CLASS_LOCAL
+             ? AMDF_MEMORY_FLAG_DEVICE_LOCAL
+             : 0);
     out_profile->supported_flags =
         out_profile->guaranteed_flags | AMDF_MEMORY_FLAG_DEVICE_ADDRESS |
         (self->host_source_enabled ? AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE : 0);
@@ -139,6 +197,10 @@ struct FakeNative {
     out_profile->allocation.maximum_alignment = UINT64_C(1) << 20;
     out_profile->allocation.native_byte_length_granularity = 4096;
     out_profile->allocation.native_byte_length_prefix = self->native_prefix;
+    if (placed) {
+      out_profile->allocation.placement_kinds =
+          UINT32_C(1) << AMDF_MEMORY_PLACEMENT_KIND_HOST_NUMA;
+    }
     out_profile->host_mapping.maximum_byte_length = UINT64_C(1) << 30;
     out_profile->host_mapping.byte_offset_granularity = 1;
     out_profile->host_mapping.byte_length_granularity = 1;
@@ -147,7 +209,7 @@ struct FakeNative {
         : self->supports_private_mapping
             ? AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE
             : AMDF_MEMORY_MAP_FLAG_READ;
-    if (profile_ordinal == 1 && self->registration_enabled) {
+    if (!placed && profile_ordinal == 1 && self->registration_enabled) {
       out_profile->roles =
           AMDF_MEMORY_PROFILE_ROLE_REGISTER | AMDF_MEMORY_PROFILE_ROLE_HOST_MAP;
       out_profile->allocation = {};
@@ -160,7 +222,7 @@ struct FakeNative {
       out_profile->registration.maximum_alignment = 4096;
       out_profile->registration.native_byte_length_granularity = 4096;
     }
-    if (self->native_transport_enabled) {
+    if (!placed && self->native_transport_enabled) {
       out_profile->roles |= AMDF_MEMORY_PROFILE_ROLE_EXPORT;
       out_profile->supported_flags |= AMDF_MEMORY_FLAG_SHAREABLE;
       out_profile->external_memory_support_count = 1;
@@ -179,38 +241,37 @@ struct FakeNative {
     return AMDF_STATUS_OK;
   }
 
-  static void CheckDeviceSite(const FakeNative* self,
+  static void CheckDeviceSite(const amdf_memory_profile_pair_query_t* query,
                               const amdf_memory_profile_site_t& site) {
     ASSERT_EQ(site.kind, AMDF_MEMORY_SITE_KIND_DEVICE);
-    ASSERT_LT(site.value.device.access_ordinal, self->devices.size());
+    ASSERT_LT(site.value.device.access_ordinal, query->access_count);
+    const auto* device = reinterpret_cast<const Device*>(
+        query->accesses[site.value.device.access_ordinal].device);
     EXPECT_EQ(site.value.device.queue_family_ordinal,
-              self->queue_family_ordinals[site.value.device.access_ordinal]);
+              device->owner->queue_family_ordinals[device->ordinal]);
   }
 
   static amdf_status_t AMDF_CALL
   MemoryScopeQueryPairInfo(amdf_memory_scope_t* base_scope,
                            const amdf_memory_profile_pair_query_t* query,
                            amdf_memory_pair_info_t* out_info) {
-    auto* self = reinterpret_cast<FakeNative*>(base_scope);
+    auto* storage = reinterpret_cast<Scope*>(base_scope);
+    auto* self = storage->owner;
     const bool registered =
         query->memory_profile_ordinal == 1 && self->registration_enabled;
     const bool imported =
         query->memory_profile_ordinal == 1 && self->native_transport_enabled;
-    EXPECT_LT(
-        query->memory_profile_ordinal,
-        self->registration_enabled || self->native_transport_enabled ? 2u : 1u);
+    EXPECT_LT(query->memory_profile_ordinal, self->ProfileCount(storage));
     EXPECT_EQ(query->registered_host_cacheability,
               registered ? AMDF_HOST_CACHEABILITY_WRITE_BACK
                          : AMDF_HOST_CACHEABILITY_UNKNOWN);
-    EXPECT_EQ(query->access_count, 2u);
+    CheckAccesses(storage, query->access_count, query->accesses);
     EXPECT_EQ(query->required_flags, self->required_flags);
     EXPECT_EQ(query->external_memory_type,
               imported ? AMDF_EXTERNAL_MEMORY_TYPE_DMA_BUF_FD
                        : AMDF_EXTERNAL_MEMORY_TYPE_NONE);
     EXPECT_EQ(query->external_memory_provenance.words[0], 0u);
     EXPECT_EQ(query->external_memory_provenance.words[1], 0u);
-    EXPECT_EQ(query->accesses[0].device, self->devices[0]);
-    EXPECT_EQ(query->accesses[1].device, self->devices[1]);
     ++self->pair_query_count;
     if (imported && (query->producer.kind == AMDF_MEMORY_SITE_KIND_HOST ||
                      query->consumer.kind == AMDF_MEMORY_SITE_KIND_HOST)) {
@@ -228,11 +289,25 @@ struct FakeNative {
          query->consumer.kind == AMDF_MEMORY_SITE_KIND_HOST)) {
       return AMDF_STATUS_OK;
     }
+    if (self->global_host_transitions && !registered) {
+      if (query->producer.kind == AMDF_MEMORY_SITE_KIND_HOST) {
+        out_info->release.kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL;
+        out_info->release.executor = AMDF_CACHE_TRANSITION_EXECUTOR_HOST_API;
+        out_info->release.host_operation = AMDF_HOST_CACHE_OPERATION_FLUSH;
+      }
+      if (query->consumer.kind == AMDF_MEMORY_SITE_KIND_HOST) {
+        out_info->acquire.kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL;
+        out_info->acquire.executor = AMDF_CACHE_TRANSITION_EXECUTOR_HOST_DIRECT;
+        out_info->acquire.host_operation = AMDF_HOST_CACHE_OPERATION_INVALIDATE;
+        out_info->acquire.host_fence_after = AMDF_HOST_CACHE_FENCE_X86_MFENCE;
+      }
+      return AMDF_STATUS_OK;
+    }
     if (query->producer.kind == AMDF_MEMORY_SITE_KIND_HOST &&
         query->consumer.kind == AMDF_MEMORY_SITE_KIND_HOST) {
       out_info->flags |= AMDF_MEMORY_PAIR_FLAG_FIXED_COST_KNOWN;
     } else if (query->producer.kind == AMDF_MEMORY_SITE_KIND_HOST) {
-      CheckDeviceSite(self, query->consumer);
+      CheckDeviceSite(query, query->consumer);
       EXPECT_TRUE(iree_any_bit_set(query->producer.value.host_access,
                                    AMDF_MEMORY_MAP_FLAG_WRITE));
       out_info->release.kind = AMDF_CACHE_TRANSITION_KIND_RANGE;
@@ -243,9 +318,13 @@ struct FakeNative {
                      : AMDF_HOST_CACHE_INSTRUCTION_X86_CLFLUSH;
       out_info->release.host_fence_after = AMDF_HOST_CACHE_FENCE_X86_MFENCE;
       out_info->release.range_granularity =
-          UINT64_C(64) << query->consumer.value.device.access_ordinal;
+          UINT64_C(64)
+          << reinterpret_cast<const Device*>(
+                 query->accesses[query->consumer.value.device.access_ordinal]
+                     .device)
+                 ->ordinal;
     } else if (query->consumer.kind == AMDF_MEMORY_SITE_KIND_HOST) {
-      CheckDeviceSite(self, query->producer);
+      CheckDeviceSite(query, query->producer);
       EXPECT_TRUE(iree_any_bit_set(query->consumer.value.host_access,
                                    AMDF_MEMORY_MAP_FLAG_READ));
       out_info->acquire.kind = AMDF_CACHE_TRANSITION_KIND_RANGE;
@@ -255,10 +334,14 @@ struct FakeNative {
           AMDF_HOST_CACHE_INSTRUCTION_X86_CLFLUSH;
       out_info->acquire.host_fence_after = AMDF_HOST_CACHE_FENCE_X86_MFENCE;
       out_info->acquire.range_granularity =
-          UINT64_C(64) << query->producer.value.device.access_ordinal;
+          UINT64_C(64)
+          << reinterpret_cast<const Device*>(
+                 query->accesses[query->producer.value.device.access_ordinal]
+                     .device)
+                 ->ordinal;
     } else {
-      CheckDeviceSite(self, query->producer);
-      CheckDeviceSite(self, query->consumer);
+      CheckDeviceSite(query, query->producer);
+      CheckDeviceSite(query, query->consumer);
       if (self->require_device_transition) {
         out_info->release.kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL;
         out_info->release.executor = AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE;
@@ -277,29 +360,43 @@ struct FakeNative {
     uint64_t byte_length;
     // Identity assigned to the native allocation.
     uint64_t identity;
+    // Native placement captured for owned construction only.
+    amdf_memory_placement_t placement;
     // Whether the native object borrows application storage.
     bool registered;
+    // Native attachments captured in the construction request's order.
+    std::vector<amdf_memory_device_access_t> accesses;
   };
 
   static amdf_status_t AMDF_CALL MemoryCreate(
       amdf_memory_scope_t* scope, const amdf_memory_create_info_t* info,
       amdf_memory_t** out_memory) {
-    auto* self = reinterpret_cast<FakeNative*>(scope);
-    EXPECT_EQ(info->access_count, 2u);
+    auto* storage = reinterpret_cast<Scope*>(scope);
+    auto* self = storage->owner;
+    self->created_scope = scope;
+    self->created_profile_ordinal = info->memory_profile_ordinal;
+    self->created_placement = info->placement;
+    CheckAccesses(storage, info->access_count, info->accesses);
+    self->created_accesses.clear();
+    if (info->access_count) {
+      self->created_accesses.assign(info->accesses,
+                                    info->accesses + info->access_count);
+    }
     EXPECT_EQ(info->required_flags, self->required_flags);
     if (self->native_transport_enabled) {
       EXPECT_EQ(info->byte_length % 12288, 0u);
     }
-    for (uint32_t i = 0; i < info->access_count; ++i) {
-      EXPECT_EQ(info->accesses[i].device, self->devices[i]);
-      EXPECT_EQ(info->accesses[i].requirements.address_kinds,
-                self->address_kinds[i]);
-      EXPECT_EQ(info->accesses[i].requirements.access, self->device_access);
+    const uint64_t identity = ++self->create_count;
+    if (self->create_failure != AMDF_STATUS_OK) {
+      return self->create_failure;
     }
-    auto* memory =
-        new Memory{self, info->registered_host_pointer, info->byte_length,
-                   static_cast<uint64_t>(++self->create_count),
-                   info->registered_host_pointer != nullptr};
+    auto* memory = new Memory{self,
+                              info->registered_host_pointer,
+                              info->byte_length,
+                              identity,
+                              info->placement,
+                              info->registered_host_pointer != nullptr,
+                              self->created_accesses};
     if (!memory->registered) {
       IREE_CHECK_OK(iree_allocator_malloc_aligned(
           iree_allocator_system(), info->byte_length, info->minimum_alignment,
@@ -323,6 +420,7 @@ struct FakeNative {
                                                  amdf_memory_info_t* out_info) {
     auto* memory = reinterpret_cast<Memory*>(handle);
     out_info->byte_length = memory->byte_length;
+    out_info->placement = memory->placement;
     const uintptr_t pointer = reinterpret_cast<uintptr_t>(memory->data);
     out_info->alignment = memory->registered ? pointer & (~pointer + 1) : 4096;
     out_info->source_byte_offset =
@@ -340,10 +438,13 @@ struct FakeNative {
   MemoryQueryAddress(amdf_memory_t* handle, uint32_t access_ordinal,
                      amdf_memory_address_kind_t kind, uint64_t* out_address) {
     auto* memory = reinterpret_cast<Memory*>(handle);
-    EXPECT_TRUE(iree_any_bit_set(memory->owner->address_kinds[access_ordinal],
-                                 UINT64_C(1) << kind));
+    EXPECT_TRUE(iree_any_bit_set(
+        memory->accesses[access_ordinal].requirements.address_kinds,
+        UINT64_C(1) << kind));
+    const auto* device = reinterpret_cast<const Device*>(
+        memory->accesses[access_ordinal].device);
     *out_address =
-        UINT64_C(0x100000) + access_ordinal * UINT64_C(0x10000) +
+        UINT64_C(0x100000) + device->ordinal * UINT64_C(0x10000) +
         (kind == AMDF_MEMORY_ADDRESS_XDNA_FIRMWARE ? UINT64_C(0x8000) : 0);
     if (access_ordinal == 1 && memory->owner->fail_after_bindings) {
       memory->owner->fail_metadata_allocation.store(true);
@@ -374,13 +475,6 @@ struct FakeNative {
     ++reinterpret_cast<Memory*>(mapping)->owner->unmap_count;
     return AMDF_STATUS_OK;
   }
-
-  struct Device {
-    // Instance owning this native dependency.
-    FakeNative* owner;
-    // Canonical source access ordinal used by the pool.
-    uint32_t ordinal;
-  };
 
   struct Reservation {
     // Native instance borrowing its access consumers.
@@ -532,8 +626,18 @@ struct FakeNative {
   // Consuming terminal native destruction result.
   amdf_status_t destroy_failure = AMDF_STATUS_OK;
 
-  // Native storage class offered by the selected scope.
-  amdf_memory_class_t memory_class = AMDF_MEMORY_CLASS_SYSTEM;
+  // Shared system scope offered by both engine descriptors.
+  Scope system_scope = {this, AMDF_MEMORY_CLASS_SYSTEM, UINT32_MAX};
+  // Distinct physical storage scopes for the two participating devices.
+  std::array<Scope, 2> local_scopes = {};
+  // Scope actually used to acquire the last backing allocation.
+  amdf_memory_scope_t* created_scope = nullptr;
+  // Exact allocation profile selected before allocating owned storage.
+  uint32_t created_profile_ordinal = UINT32_MAX;
+  // Exact native placement passed to the latest backing construction.
+  amdf_memory_placement_t created_placement = {};
+  // Exact native attachment list passed to the latest backing construction.
+  std::vector<amdf_memory_device_access_t> created_accesses;
   // Whether this profile has any host mapping route.
   bool host_mappable = true;
   // Native payload preceding usable byte zero for owned allocations.
@@ -546,8 +650,10 @@ struct FakeNative {
   // Exact permissions the device profile and allocation must receive.
   amdf_memory_access_t device_access =
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
-  // Native allocation count observed across the maintenance handoff.
+  // Native allocation attempts observed across the maintenance handoff.
   std::atomic<int> create_count{0};
+  // Native allocation failure after the pool has selected its fixed contract.
+  amdf_status_t create_failure = AMDF_STATUS_OK;
   // Native destruction count observed across the maintenance handoff.
   std::atomic<int> destroy_count{0};
   // Explicit host-view creation count.
@@ -574,10 +680,14 @@ struct FakeNative {
   bool supports_private_mapping = true;
   // Whether host/device visibility is coherent in both directions.
   bool host_coherent = false;
+  // Owned backing uses global API publication and fence-only observation.
+  bool global_host_transitions = false;
   // Whether device visibility requires an explicit queue transition.
   bool require_device_transition = false;
   // Whether a separate host registration profile is offered.
   bool registration_enabled = false;
+  // Separate host-owned allocation profile with enforceable NUMA placement.
+  bool host_placement_enabled = false;
   // Native handle profile with device reach and unqualified CPU cache access.
   bool native_transport_enabled = false;
   // Missing native visibility qualification for the registration route.
@@ -619,13 +729,25 @@ class MemoryBackendTest : public ::testing::Test {
       native_families_[i].host_usage = IREE_HAL_BUFFER_USAGE_TRANSFER;
       native_families_[i].binding_count = 1;
       native_families_[i].bindings = &binding_descriptions_[i];
+      storage_[i][0] = {
+          .scope = native_.scope(),
+          .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
+                         IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+          .minimum_access = native_.minimum_access,
+      };
+      storage_[i][1] = {
+          .scope =
+              reinterpret_cast<amdf_memory_scope_t*>(&native_.local_scopes[i]),
+          .physical_device_affinity = 1,
+          .memory_type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+          .minimum_access = native_.minimum_access,
+      };
       iree_hal_amd_fabric_memory_backend_options_t memory_options = {
           .api = &native_.api,
           .instance = reinterpret_cast<amdf_instance_t*>(&native_),
-          .scope = native_.scope(),
           .device = native_.devices[i],
-          .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
-                         IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+          .storage_count = 1,
+          .storage = storage_[i].data(),
           .event_sink =
               {
                   .fn =
@@ -647,8 +769,13 @@ class MemoryBackendTest : public ::testing::Test {
           iree_hal_pool_epoch_query_null(), &backends_[i]);
     }
 
+    host_node_id_ = iree_numa_node_for_current_thread();
+    ASSERT_NE(host_node_id_, IREE_NUMA_NODE_ANY);
+    iree_thread_affinity_t affinity;
+    iree_thread_affinity_set_group_any(host_node_id_, &affinity);
     iree_task_topology_t topology;
-    iree_task_topology_initialize_from_group_count(1, &topology);
+    IREE_ASSERT_OK(iree_task_topology_initialize_from_thread_affinities(
+        1, &affinity, &topology));
     iree_task_executor_options_t executor_options;
     iree_task_executor_options_initialize(&executor_options);
     iree_status_t status = iree_task_executor_create(
@@ -728,6 +855,36 @@ class MemoryBackendTest : public ::testing::Test {
                                      out_pool);
   }
 
+  uint32_t PhysicalNode(uint32_t device_ordinal) {
+    const auto* topology = iree_hal_device_group_topology(group_);
+    const uint32_t group_ordinal =
+        iree_hal_device_topology_info(devices_[device_ordinal])->topology_index;
+    for (iree_host_size_t i = 0; i < iree_hal_topology_node_count(topology);
+         ++i) {
+      const auto* node = iree_hal_topology_node_at(topology, i);
+      if (node->kind == IREE_HAL_TOPOLOGY_NODE_KIND_PHYSICAL_DEVICE &&
+          node->device_ordinal == group_ordinal) {
+        return node->ordinal;
+      }
+    }
+    ADD_FAILURE() << "mock device has no physical topology node";
+    return IREE_HAL_TOPOLOGY_NODE_ORDINAL_INVALID;
+  }
+
+  uint32_t HostNode() {
+    const auto* topology = iree_hal_device_group_topology(group_);
+    for (iree_host_size_t i = 0; i < iree_hal_topology_node_count(topology);
+         ++i) {
+      const auto* node = iree_hal_topology_node_at(topology, i);
+      if (node->kind == IREE_HAL_TOPOLOGY_NODE_KIND_HOST_NUMA &&
+          node->local_ordinal == host_node_id_) {
+        return node->ordinal;
+      }
+    }
+    ADD_FAILURE() << "Task device has no host NUMA topology node";
+    return IREE_HAL_TOPOLOGY_NODE_ORDINAL_INVALID;
+  }
+
   iree_hal_memory_scope_t ResolveScope(
       iree_hal_memory_site_kind_t kind,
       const iree_hal_queue_family_t* family = nullptr) {
@@ -771,6 +928,9 @@ class MemoryBackendTest : public ::testing::Test {
       {};
   // Family facts borrowed by their corresponding backends.
   std::array<iree_hal_amd_fabric_memory_family_t, 2> native_families_ = {};
+  // Stable system/local storage facts borrowed by each engine backend.
+  std::array<std::array<iree_hal_amd_fabric_memory_storage_t, 2>, 2> storage_ =
+      {};
   // Backends borrowed by their corresponding mock devices.
   std::array<iree_hal_amd_fabric_memory_backend_t, 2> backends_ = {};
   // Mock HAL devices in canonical group order.
@@ -779,6 +939,8 @@ class MemoryBackendTest : public ::testing::Test {
   std::array<const iree_hal_queue_family_t*, 2> families_ = {};
   // Real CPU participant, ordered before native devices in the group.
   iree_hal_device_t* cpu_device_ = nullptr;
+  // Real physical node shared by the CPU participant's queue workers.
+  uint32_t host_node_id_ = IREE_NUMA_NODE_ANY;
   // Existing CPU worker, allocator and proactor services.
   iree_task_executor_t* executor_ = nullptr;
   // CPU device's ordinary allocation source.

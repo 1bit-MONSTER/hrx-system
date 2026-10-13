@@ -148,7 +148,7 @@ class XdnaKernelQueueTest : public ::testing::Test {
     context.info.reset_epoch = 1;
     amdf_child_tracker_initialize(&context.children);
     ASSERT_EQ(
-        amdf_memory_resource_allocate(amdf_allocator_system(), 1, &memory),
+        amdf_memory_resource_allocate(amdf_allocator_system(), 1, 0, &memory),
         AMDF_STATUS_OK);
     memory->scope = &context.memory_scope;
     memory->info.byte_length = 4096;

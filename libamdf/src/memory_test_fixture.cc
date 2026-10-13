@@ -76,6 +76,9 @@ static amdf_status_t FakeMemoryDestroyNative(amdf_memory_t* base_memory,
   auto* memory =
       static_cast<FakeMemory*>(base_memory->accesses[access_ordinal].native);
   ++memory->device->destroy_call_count;
+  if (memory->device->observe_release != nullptr) {
+    memory->device->observe_release(memory->device);
+  }
   if (memory->device->release_order != nullptr) {
     memory->device->release_order->push_back(
         memory->device->backing_id.words[0]);

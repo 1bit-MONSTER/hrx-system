@@ -231,6 +231,7 @@ iree_cc_test(
     iree::async::platform
     iree::async::util::proactor_pool
     iree::base
+    iree::base::threading
     iree::hal
     iree::hal::drivers::task::device
     iree::hal::memory::fixed_block_pool

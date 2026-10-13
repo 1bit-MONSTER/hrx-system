@@ -36,7 +36,7 @@ static amdf_status_t amdf_gpu_kfd_sdma_describe_site(
   return AMDF_STATUS_OK;
 }
 
-// Owned coherent GTT follows the selected engine's no-GCR transfer path.
+// Coherent GTT and registered pages follow the engine's no-GCR transfer path.
 // This does not imply that compute accesses bypass their own data caches.
 static amdf_status_t amdf_gpu_kfd_sdma_system_describe_site(
     const amdf_memory_site_query_t* query,
@@ -263,10 +263,6 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
     }
     profile.visibility.describe_site =
         amdf_gpu_umd_memory_describe_system_store_site;
-    if (amdf_gpu_kfd_supports_legacy_sdma_visibility(topology) ||
-        amdf_gpu_kfd_supports_gfx1151_system_visibility(topology)) {
-      profile.visibility.describe_site = amdf_gpu_kfd_sdma_system_describe_site;
-    }
   } else if ((topology->memory_features &
               AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) != 0 &&
              memory_profile_ordinal == ordinal++) {
@@ -314,6 +310,13 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
     profile.host_mapping = host_mapping;
   } else {
     return amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE);
+  }
+  if (profile.memory_class == AMDF_MEMORY_CLASS_SYSTEM &&
+      (amdf_gpu_kfd_supports_legacy_sdma_visibility(topology) ||
+       amdf_gpu_kfd_supports_gfx1151_system_visibility(topology))) {
+    // Both GTT and USERPTR use KFD's COHERENT mapping flags. Physical page
+    // ownership does not change the selected SDMA engine's cache protocol.
+    profile.visibility.describe_site = amdf_gpu_kfd_sdma_system_describe_site;
   }
   *out_profile = profile;
   return AMDF_STATUS_OK;

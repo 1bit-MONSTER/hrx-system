@@ -68,9 +68,34 @@ amdf_status_t amdf_platform_host_memory_free(void* pointer,
              : amdf_make_status(AMDF_STATUS_DOMAIN_WIN32, GetLastError());
 }
 
-amdf_status_t amdf_platform_host_memory_query_cache_line_size(
-    uint32_t* out_line_size) {
-  *out_line_size = amdf_windows_host_cache_line_size();
+amdf_memory_placement_kinds_t amdf_platform_host_memory_placement_kinds(void) {
+  // VirtualAllocExNuma and MapViewOfFileExNuma express preferences and permit
+  // fallback. They cannot establish a required physical placement contract.
+  return 0;
+}
+
+amdf_status_t amdf_platform_host_memory_place(void* pointer,
+                                              uint64_t byte_length,
+                                              amdf_memory_placement_t placement,
+                                              amdf_allocator_t host_allocator) {
+  (void)pointer;
+  (void)byte_length;
+  (void)placement;
+  (void)host_allocator;
+  return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+}
+
+amdf_status_t amdf_platform_host_memory_query_cache_transition(
+    amdf_cache_transition_t* out_transition) {
+  *out_transition = (amdf_cache_transition_t){
+      .kind = AMDF_CACHE_TRANSITION_KIND_RANGE,
+      .executor = AMDF_CACHE_TRANSITION_EXECUTOR_HOST_DIRECT,
+      .host_operation = AMDF_HOST_CACHE_OPERATION_FLUSH,
+      .host_instruction = AMDF_HOST_CACHE_INSTRUCTION_X86_CLFLUSH,
+      .host_fence_before = AMDF_HOST_CACHE_FENCE_X86_MFENCE,
+      .host_fence_after = AMDF_HOST_CACHE_FENCE_X86_MFENCE,
+      .range_granularity = amdf_windows_host_cache_line_size(),
+  };
   return AMDF_STATUS_OK;
 }
 

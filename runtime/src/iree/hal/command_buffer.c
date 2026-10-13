@@ -354,13 +354,6 @@ iree_hal_barrier_validate(const iree_hal_barrier_t* barrier,
                                 "buffer barrier recipe executor is unavailable "
                                 "on this queue family");
       }
-#if !defined(IREE_ARCH_X86_64) && !defined(IREE_ARCH_X86_32)
-      if (executor == IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT) {
-        return iree_make_status(
-            IREE_STATUS_UNAVAILABLE,
-            "direct host cache recipe requires an x86 host");
-      }
-#endif  // !IREE_ARCH_X86_*
     }
     recipe_effects |= buffer_barrier->recipe->effects.bits;
   }

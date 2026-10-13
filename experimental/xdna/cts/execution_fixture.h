@@ -210,6 +210,16 @@ class XdnaExecutionFixture : public XdnaDeviceFixture {
     memory->pointer = static_cast<uint8_t*>(info.pointer);
   }
 
+  static void AlignAllocation(const amdf_memory_profile_t& profile,
+                              amdf_memory_create_info_t* create) {
+    const auto& allocation = profile.allocation;
+    const uint64_t granularity = allocation.byte_length_granularity;
+    create->byte_length =
+        ((create->byte_length + granularity - 1) / granularity) * granularity;
+    create->minimum_alignment =
+        std::max(create->minimum_alignment, allocation.minimum_alignment);
+  }
+
   void PrepareRegistration(const amdf_memory_profile_t& profile,
                            MappedMemory* caller_storage,
                            amdf_memory_create_info_t* create) {
@@ -300,6 +310,8 @@ class XdnaExecutionFixture : public XdnaDeviceFixture {
         if (role == AMDF_MEMORY_PROFILE_ROLE_REGISTER) {
           ASSERT_NO_FATAL_FAILURE(
               PrepareRegistration(profile, &binding.caller_storage, &create));
+        } else {
+          AlignAllocation(profile, &create);
         }
         ASSERT_EQ(api_->memory_create(system_scope_, &create,
                                       &binding.storage.memory),
@@ -437,6 +449,7 @@ class XdnaExecutionFixture : public XdnaDeviceFixture {
     create.accesses = &memory_access_;
     create.required_flags = source_flags;
     create.byte_length = source_offset + kBindingStorageByteLength;
+    AlignAllocation(profile, &create);
     ASSERT_EQ(
         api_->memory_create(system_scope_, &create, &export_source_.memory),
         AMDF_STATUS_OK);
@@ -539,8 +552,6 @@ class XdnaExecutionFixture : public XdnaDeviceFixture {
     ASSERT_EQ(api_->memory_scope_query_device_profile(scope, 0, 1, &access,
                                                       &profile, &capabilities),
               AMDF_STATUS_OK);
-    const uint64_t granularity = profile.allocation.byte_length_granularity;
-    ASSERT_GT(granularity, 0u);
     amdf_memory_create_info_t create = {};
     create.type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO;
     create.structure_size = sizeof(create);
@@ -548,10 +559,8 @@ class XdnaExecutionFixture : public XdnaDeviceFixture {
     create.access_count = 1;
     create.accesses = &access;
     create.required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
-    create.byte_length =
-        ((execution->byte_length + granularity - 1) / granularity) *
-        granularity;
-    create.minimum_alignment = profile.allocation.minimum_alignment;
+    create.byte_length = execution->byte_length;
+    AlignAllocation(profile, &create);
     auto& instructions = execution->instructions;
     ASSERT_EQ(api_->memory_create(scope, &create, &instructions.memory),
               AMDF_STATUS_OK);

@@ -601,6 +601,8 @@ class XdnaPoolVisibilityTest : public XdnaExecutionTest {
       if (GetParam() == AMDF_MEMORY_PROFILE_ROLE_REGISTER) {
         ASSERT_NO_FATAL_FAILURE(PrepareRegistration(
             profile, &bindings_[ordinal].caller_storage, &create));
+      } else {
+        AlignAllocation(profile, &create);
       }
       ASSERT_EQ(api_->memory_create(system_scope_, &create, &storage.memory),
                 AMDF_STATUS_OK);
@@ -631,6 +633,7 @@ class XdnaPoolVisibilityTest : public XdnaExecutionTest {
     create.accesses = &pool_accesses_[1];
     create.required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
     create.byte_length = kStagingByteLength;
+    AlignAllocation(profile, &create);
     ASSERT_EQ(api_->memory_create(system_scope_, &create, &staging_.memory),
               AMDF_STATUS_OK);
     ASSERT_NO_FATAL_FAILURE(MapMemory(create.byte_length, &staging_));
@@ -654,6 +657,7 @@ class XdnaPoolVisibilityTest : public XdnaExecutionTest {
       create.memory_profile_ordinal = profile.ordinal;
       create.accesses = &command_access;
       create.byte_length = kRingByteLength;
+      AlignAllocation(profile, &create);
       ASSERT_EQ(
           api_->memory_create(system_scope_, &create, &gpu_commands_.memory),
           AMDF_STATUS_OK);

@@ -34,8 +34,6 @@
 
 namespace {
 
-#if defined(IREE_ASYNC_HAVE_EVENTFD) || defined(IREE_ASYNC_HAVE_WIN32_HANDLE)
-
 using iree::hal::amd::xdna::testing::DirectBufferBindingLayout;
 using iree::hal::amd::xdna::testing::ExpectHostAllocationsUnchanged;
 using iree::hal::amd::xdna::testing::HostAllocationCounters;
@@ -140,7 +138,10 @@ TEST(XdnaDeviceTest, PublishesMemoryProgressBackend) {
   EXPECT_EQ(backend->device, harness.device);
   EXPECT_EQ(backend->native.instance, harness.context->fabric->instance);
   EXPECT_EQ(backend->native.device, harness.context->device);
-  EXPECT_EQ(backend->native.scope, harness.context->data_source.scope);
+  ASSERT_EQ(backend->native.storage_count, 1u);
+  EXPECT_EQ(backend->native.storage[0].scope,
+            harness.context->data_source.scope);
+  EXPECT_EQ(backend->native.storage[0].physical_device_affinity, 0u);
   EXPECT_NE(backend->notification, nullptr);
   EXPECT_NE(backend->maintenance, nullptr);
   ASSERT_NE(backend->epoch_query.fn, nullptr);
@@ -2130,7 +2131,5 @@ TEST(XdnaQueueDeathTest, BusyNativeDestroyPreservesParent) {
   EXPECT_EXIT(RunBusyNativeDestroyPreservesParentChild(),
               ::testing::ExitedWithCode(0), "");
 }
-
-#endif  // IREE_ASYNC_HAVE_EVENTFD || IREE_ASYNC_HAVE_WIN32_HANDLE
 
 }  // namespace
