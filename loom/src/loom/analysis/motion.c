@@ -6,6 +6,7 @@
 
 #include "loom/analysis/motion.h"
 
+#include "loom/analysis/execution_condition.h"
 #include "loom/analysis/loop_domain.h"
 #include "loom/analysis/motion_memory.h"
 #include "loom/ir/context.h"
@@ -104,8 +105,8 @@ static bool loom_motion_traits_are_effect_free_relocatable(
   return !loom_traits_may_read(traits) && !loom_traits_may_write(traits);
 }
 
-static bool loom_motion_traits_are_speculatable(loom_trait_flags_t traits,
-                                                bool is_root_op) {
+static bool loom_motion_traits_are_speculation_compatible(
+    loom_trait_flags_t traits, bool is_root_op) {
   if (is_root_op && iree_any_bit_set(traits, LOOM_TRAIT_TERMINATOR)) {
     return false;
   }
@@ -114,9 +115,6 @@ static bool loom_motion_traits_are_speculatable(loom_trait_flags_t traits,
                                                           /*is_root_op=*/false);
   }
   if (!iree_any_bit_set(traits, LOOM_TRAIT_PURE)) {
-    return false;
-  }
-  if (!loom_traits_are_safe_to_speculate(traits)) {
     return false;
   }
   if (iree_any_bit_set(traits, LOOM_TRAIT_HINT | LOOM_TRAIT_CONVERGENT |
@@ -193,7 +191,9 @@ bool loom_motion_op_can_speculate(const loom_module_t* module,
     return false;
   }
   loom_trait_flags_t traits = loom_op_effective_traits(module, op);
-  if (!loom_motion_traits_are_speculatable(traits, /*is_root_op=*/true)) {
+  if (!loom_motion_traits_are_speculation_compatible(traits,
+                                                     /*is_root_op=*/true) ||
+      !loom_traits_are_safe_to_speculate(traits)) {
     return false;
   }
   if (loom_op_requires_source_context(module, op)) {
@@ -468,10 +468,10 @@ typedef enum loom_motion_policy_e {
   LOOM_MOTION_POLICY_SPECULATION = 1,
 } loom_motion_policy_t;
 
-static bool loom_motion_op_satisfies_policy(const loom_module_t* module,
-                                            const loom_op_t* op,
-                                            loom_motion_policy_t policy,
-                                            bool is_root_op) {
+static bool loom_motion_op_satisfies_policy(
+    const loom_motion_analysis_t* analysis, const loom_op_t* op,
+    loom_motion_policy_t policy, bool is_root_op) {
+  const loom_module_t* module = analysis->module;
   if (!module || !op || iree_any_bit_set(op->flags, LOOM_OP_FLAG_DEAD)) {
     return false;
   }
@@ -487,38 +487,23 @@ static bool loom_motion_op_satisfies_policy(const loom_module_t* module,
       break;
     case LOOM_MOTION_POLICY_SPECULATION:
       satisfies_policy =
-          loom_motion_traits_are_speculatable(traits, is_root_op);
+          loom_motion_traits_are_speculation_compatible(traits, is_root_op);
+      if (satisfies_policy &&
+          !iree_any_bit_set(traits, LOOM_TRAIT_TERMINATOR)) {
+        satisfies_policy = loom_traits_are_safe_to_speculate(traits) ||
+                           loom_execution_condition_is_satisfied(
+                               module, op, analysis->fact_table);
+      }
       break;
   }
   return satisfies_policy && !loom_op_requires_source_context(module, op);
 }
 
-static iree_status_t loom_motion_subtree_can_move_before(
+static iree_status_t loom_motion_subtree_regions_can_move_before(
     loom_motion_analysis_t* analysis, const loom_op_t* candidate_op,
     const loom_op_t* before_op, loom_motion_policy_t policy,
     bool* out_can_move) {
   *out_can_move = false;
-  if (!analysis || !analysis->module || !candidate_op || !before_op) {
-    return iree_ok_status();
-  }
-  if (iree_any_bit_set(before_op->flags, LOOM_OP_FLAG_DEAD)) {
-    return iree_ok_status();
-  }
-  if (candidate_op == before_op ||
-      loom_motion_op_is_nested_under(candidate_op, before_op)) {
-    return iree_ok_status();
-  }
-  if (!loom_motion_op_satisfies_policy(analysis->module, candidate_op, policy,
-                                       /*is_root_op=*/true)) {
-    return iree_ok_status();
-  }
-  IREE_RETURN_IF_ERROR(loom_availability_op_captures_are_available_before_op(
-      &analysis->availability, candidate_op, before_op, candidate_op,
-      out_can_move));
-  if (!*out_can_move) {
-    return iree_ok_status();
-  }
-
   analysis->region_stack.count = 0;
   loom_region_t** regions = loom_op_regions(candidate_op);
   for (uint8_t i = 0; i < candidate_op->region_count; ++i) {
@@ -545,7 +530,7 @@ static iree_status_t loom_motion_subtree_can_move_before(
 
       loom_op_t* child_op = NULL;
       loom_block_for_each_op(block, child_op) {
-        if (!loom_motion_op_satisfies_policy(analysis->module, child_op, policy,
+        if (!loom_motion_op_satisfies_policy(analysis, child_op, policy,
                                              /*is_root_op=*/false)) {
           *out_can_move = false;
           return iree_ok_status();
@@ -569,6 +554,35 @@ static iree_status_t loom_motion_subtree_can_move_before(
 
   *out_can_move = true;
   return iree_ok_status();
+}
+
+static iree_status_t loom_motion_subtree_can_move_before(
+    loom_motion_analysis_t* analysis, const loom_op_t* candidate_op,
+    const loom_op_t* before_op, loom_motion_policy_t policy,
+    bool* out_can_move) {
+  *out_can_move = false;
+  if (!analysis || !analysis->module || !candidate_op || !before_op) {
+    return iree_ok_status();
+  }
+  if (iree_any_bit_set(before_op->flags, LOOM_OP_FLAG_DEAD)) {
+    return iree_ok_status();
+  }
+  if (candidate_op == before_op ||
+      loom_motion_op_is_nested_under(candidate_op, before_op)) {
+    return iree_ok_status();
+  }
+  if (!loom_motion_op_satisfies_policy(analysis, candidate_op, policy,
+                                       /*is_root_op=*/true)) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(loom_availability_op_captures_are_available_before_op(
+      &analysis->availability, candidate_op, before_op, candidate_op,
+      out_can_move));
+  if (!*out_can_move) {
+    return iree_ok_status();
+  }
+  return loom_motion_subtree_regions_can_move_before(
+      analysis, candidate_op, before_op, policy, out_can_move);
 }
 
 iree_status_t loom_motion_subtree_can_relocate_before(
@@ -615,7 +629,10 @@ static iree_status_t loom_motion_analysis_ensure_movement(
 static iree_status_t loom_motion_evaluate_speculative_subtree(
     loom_motion_analysis_t* analysis, const loom_op_t* candidate_op,
     const loom_op_t* loop_op, loom_motion_loop_hoist_result_t* result) {
-  if (!loom_motion_op_can_speculate(analysis->module, candidate_op)) {
+  if (!loom_motion_op_satisfies_policy(analysis, candidate_op,
+                                       LOOM_MOTION_POLICY_SPECULATION,
+                                       /*is_root_op=*/true) ||
+      loom_motion_op_has_retained_regions(candidate_op)) {
     loom_motion_loop_hoist_reject(
         result, LOOM_MOTION_LOOP_HOIST_REJECTION_CANDIDATE_SEMANTICS,
         candidate_op);
@@ -632,8 +649,9 @@ static iree_status_t loom_motion_evaluate_speculative_subtree(
     return iree_ok_status();
   }
   bool can_speculate = false;
-  IREE_RETURN_IF_ERROR(loom_motion_subtree_can_speculate_before(
-      analysis, candidate_op, loop_op, &can_speculate));
+  IREE_RETURN_IF_ERROR(loom_motion_subtree_regions_can_move_before(
+      analysis, candidate_op, loop_op, LOOM_MOTION_POLICY_SPECULATION,
+      &can_speculate));
   if (!can_speculate) {
     loom_motion_loop_hoist_reject(
         result, LOOM_MOTION_LOOP_HOIST_REJECTION_CANDIDATE_SEMANTICS,

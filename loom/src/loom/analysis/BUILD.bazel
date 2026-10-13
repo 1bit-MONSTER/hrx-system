@@ -1222,6 +1222,19 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "execution_condition",
+    srcs = ["execution_condition.c"],
+    hdrs = ["execution_condition.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/target:facts",
+        "//loom/src/loom/util:fact_table",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "motion",
     srcs = [
         "motion.c",
@@ -1233,6 +1246,7 @@ loom_cc_library(
     ],
     deps = [
         ":availability",
+        ":execution_condition",
         ":loop_domain",
         ":movement",
         ":read_motion",

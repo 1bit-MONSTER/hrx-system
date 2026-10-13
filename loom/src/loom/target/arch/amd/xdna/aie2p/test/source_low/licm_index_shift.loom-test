@@ -1,0 +1,40 @@
+// RUN: pass target=amd.xdna.aie2p:core entry=@proves_index_shift_conditions licm
+
+// AIE2P selects a 32-bit index carrier. Counts through 31 are valid, while a
+// count of 32 and a left result outside the signed carrier remain guarded.
+func.def @proves_index_shift_conditions(%n: index, %value: index, %fit_input: index, %overflow_input: index, %count_input: index, %wide_count_input: index) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %count = index.assume %count_input [range(%count_input, 0, 3)] : index
+  %wide_count = index.assume %wide_count_input [range(%wide_count_input, 32, 32)] : index
+  %fit = index.assume %fit_input [range(%fit_input, -268435456, 268435455)] : index
+  %overflow = index.assume %overflow_input [range(%overflow_input, -268435457, 268435455)] : index
+  scf.for %iv = [%begin to %n step %step] {
+    %left = index.shli %fit, %count : index
+    %left_overflow = index.shli %overflow, %count : index
+    %arithmetic = index.shrsi %value, %count : index
+    %logical = index.shrui %value, %count : index
+    %wide = index.shrui %value, %wide_count : index
+    test.use %left, %left_overflow, %arithmetic, %logical, %wide : index, index, index, index, index
+  }
+  func.return
+}
+
+// ----
+func.def @proves_index_shift_conditions(%n: index, %value: index, %fit_input: index, %overflow_input: index, %count_input: index, %wide_count_input: index) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %count = index.assume %count_input [range(%count_input, 0, 3)] : index
+  %wide_count = index.assume %wide_count_input [range(%wide_count_input, 32, 32)] : index
+  %fit = index.assume %fit_input [range(%fit_input, -268435456, 268435455)] : index
+  %overflow = index.assume %overflow_input [range(%overflow_input, -268435457, 268435455)] : index
+  %left = index.shli %fit, %count : index
+  %arithmetic = index.shrsi %value, %count : index
+  %logical = index.shrui %value, %count : index
+  scf.for %iv = [%begin to %n step %step] {
+    %left_overflow = index.shli %overflow, %count : index
+    %wide = index.shrui %value, %wide_count : index
+    test.use %left, %left_overflow, %arithmetic, %logical, %wide : index, index, index, index, index
+  }
+  func.return
+}

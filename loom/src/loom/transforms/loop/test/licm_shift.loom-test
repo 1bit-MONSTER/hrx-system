@@ -1,0 +1,265 @@
+// RUN: pass licm
+
+// A valid retained shift-count range makes wrapping scalar shifts safe to
+// execute before a potentially zero-trip loop. The shared proof covers every
+// fixed integer width and both right-shift interpretations.
+func.def @hoists_scalar_shift_widths(%n: index, %value_i1: i1, %count_i1: i1, %value_i8: i8, %count_i8: i8, %value_i16: i16, %count_i16: i16, %value_i32: i32, %count_i32: i32, %value_i64: i64, %count_i64: i64) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %bounded_i1 = scalar.assume %count_i1 [range(%count_i1, 0, 0)] : i1
+  %bounded_i8 = scalar.assume %count_i8 [range(%count_i8, 0, 7)] : i8
+  %bounded_i16 = scalar.assume %count_i16 [range(%count_i16, 0, 15)] : i16
+  %bounded_i32 = scalar.assume %count_i32 [range(%count_i32, 0, 31)] : i32
+  %bounded_i64 = scalar.assume %count_i64 [range(%count_i64, 0, 63)] : i64
+  scf.for %iv = [%begin to %n step %step] {
+    %left_i1 = scalar.shli %value_i1, %bounded_i1 : i1
+    %arithmetic_i8 = scalar.shrsi %value_i8, %bounded_i8 : i8
+    %logical_i16 = scalar.shrui %value_i16, %bounded_i16 : i16
+    %left_i32 = scalar.shli %value_i32, %bounded_i32 : i32
+    %arithmetic_i64 = scalar.shrsi %value_i64, %bounded_i64 : i64
+    %unknown_i32 = scalar.shrui %value_i32, %count_i32 : i32
+    test.use %left_i1, %arithmetic_i8, %logical_i16, %left_i32, %arithmetic_i64, %unknown_i32 : i1, i8, i16, i32, i64, i32
+  }
+  func.return
+}
+
+// ----
+func.def @hoists_scalar_shift_widths(%n: index, %value_i1: i1, %count_i1: i1, %value_i8: i8, %count_i8: i8, %value_i16: i16, %count_i16: i16, %value_i32: i32, %count_i32: i32, %value_i64: i64, %count_i64: i64) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %bounded_i1 = scalar.assume %count_i1 [range(%count_i1, 0, 0)] : i1
+  %bounded_i8 = scalar.assume %count_i8 [range(%count_i8, 0, 7)] : i8
+  %bounded_i16 = scalar.assume %count_i16 [range(%count_i16, 0, 15)] : i16
+  %bounded_i32 = scalar.assume %count_i32 [range(%count_i32, 0, 31)] : i32
+  %bounded_i64 = scalar.assume %count_i64 [range(%count_i64, 0, 63)] : i64
+  %left_i1 = scalar.shli %value_i1, %bounded_i1 : i1
+  %arithmetic_i8 = scalar.shrsi %value_i8, %bounded_i8 : i8
+  %logical_i16 = scalar.shrui %value_i16, %bounded_i16 : i16
+  %left_i32 = scalar.shli %value_i32, %bounded_i32 : i32
+  %arithmetic_i64 = scalar.shrsi %value_i64, %bounded_i64 : i64
+  scf.for %iv = [%begin to %n step %step] {
+    %unknown_i32 = scalar.shrui %value_i32, %count_i32 : i32
+    test.use %left_i1, %arithmetic_i8, %logical_i16, %left_i32, %arithmetic_i64, %unknown_i32 : i1, i8, i16, i32, i64, i32
+  }
+  func.return
+}
+
+// ====
+
+// Left shifts without flags wrap after a valid count. NSW and NUW promises
+// additionally require every input value to fit after the maximum possible
+// shift. Invalid count ranges and violated promises stay under the loop.
+func.def @proves_scalar_shift_flags(%n: index, %wrapping_input: i8, %signed_input: i8, %signed_overflow_input: i8, %unsigned_input: i8, %unsigned_overflow_input: i8, %both_input: i8, %count: i8, %negative_count: i8, %wide_count: i8, %zero_count: i8) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %valid_count = scalar.assume %count [range(%count, 1, 2)] : i8
+  %possibly_negative_count = scalar.assume %negative_count [range(%negative_count, -1, 2)] : i8
+  %possibly_wide_count = scalar.assume %wide_count [range(%wide_count, 0, 8)] : i8
+  %exact_zero_count = scalar.assume %zero_count [range(%zero_count, 0, 0)] : i8
+  %signed_fit = scalar.assume %signed_input [range(%signed_input, -32, 31)] : i8
+  %signed_overflow = scalar.assume %signed_overflow_input [range(%signed_overflow_input, -33, 31)] : i8
+  %unsigned_fit = scalar.assume %unsigned_input [range(%unsigned_input, 0, 63)] : i8
+  %unsigned_overflow = scalar.assume %unsigned_overflow_input [range(%unsigned_overflow_input, 0, 64)] : i8
+  %both_fit = scalar.assume %both_input [range(%both_input, 0, 31)] : i8
+  scf.for %iv = [%begin to %n step %step] {
+    %wrapping = scalar.shli %wrapping_input, %valid_count : i8
+    %negative = scalar.shrsi %wrapping_input, %possibly_negative_count : i8
+    %wide = scalar.shrui %wrapping_input, %possibly_wide_count : i8
+    %signed = scalar.shli<nsw> %signed_fit, %valid_count : i8
+    %signed_overflowing = scalar.shli<nsw> %signed_overflow, %valid_count : i8
+    %unsigned = scalar.shli<nuw> %unsigned_fit, %valid_count : i8
+    %unsigned_overflowing = scalar.shli<nuw> %unsigned_overflow, %valid_count : i8
+    %both = scalar.shli<nsw|nuw> %both_fit, %valid_count : i8
+    %zero = scalar.shli<nuw> %wrapping_input, %exact_zero_count : i8
+    test.use %wrapping, %negative, %wide, %signed, %signed_overflowing, %unsigned, %unsigned_overflowing, %both, %zero : i8, i8, i8, i8, i8, i8, i8, i8, i8
+  }
+  func.return
+}
+
+// ----
+func.def @proves_scalar_shift_flags(%n: index, %wrapping_input: i8, %signed_input: i8, %signed_overflow_input: i8, %unsigned_input: i8, %unsigned_overflow_input: i8, %both_input: i8, %count: i8, %negative_count: i8, %wide_count: i8, %zero_count: i8) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %valid_count = scalar.assume %count [range(%count, 1, 2)] : i8
+  %possibly_negative_count = scalar.assume %negative_count [range(%negative_count, -1, 2)] : i8
+  %possibly_wide_count = scalar.assume %wide_count [range(%wide_count, 0, 8)] : i8
+  %exact_zero_count = scalar.assume %zero_count [range(%zero_count, 0, 0)] : i8
+  %signed_fit = scalar.assume %signed_input [range(%signed_input, -32, 31)] : i8
+  %signed_overflow = scalar.assume %signed_overflow_input [range(%signed_overflow_input, -33, 31)] : i8
+  %unsigned_fit = scalar.assume %unsigned_input [range(%unsigned_input, 0, 63)] : i8
+  %unsigned_overflow = scalar.assume %unsigned_overflow_input [range(%unsigned_overflow_input, 0, 64)] : i8
+  %both_fit = scalar.assume %both_input [range(%both_input, 0, 31)] : i8
+  %wrapping = scalar.shli %wrapping_input, %valid_count : i8
+  %signed = scalar.shli<nsw> %signed_fit, %valid_count : i8
+  %unsigned = scalar.shli<nuw> %unsigned_fit, %valid_count : i8
+  %both = scalar.shli<nsw|nuw> %both_fit, %valid_count : i8
+  %zero = scalar.shli<nuw> %wrapping_input, %exact_zero_count : i8
+  scf.for %iv = [%begin to %n step %step] {
+    %negative = scalar.shrsi %wrapping_input, %possibly_negative_count : i8
+    %wide = scalar.shrui %wrapping_input, %possibly_wide_count : i8
+    %signed_overflowing = scalar.shli<nsw> %signed_overflow, %valid_count : i8
+    %unsigned_overflowing = scalar.shli<nuw> %unsigned_overflow, %valid_count : i8
+    test.use %wrapping, %negative, %wide, %signed, %signed_overflowing, %unsigned, %unsigned_overflowing, %both, %zero : i8, i8, i8, i8, i8, i8, i8, i8, i8
+  }
+  func.return
+}
+
+// ====
+
+// Vector shifts consume the retained uniform-element, explicit small-lane,
+// and iota summaries. Dynamic uniform vectors remain bounded without per-lane
+// storage, while one invalid lane rejects speculation. Empty vectors execute
+// no lane operation and are vacuously safe.
+func.def @proves_vector_shift_facts(%n: index, %length: index, %uniform_value: vector<4xi8>, %dynamic_value: vector<[%length]xi16>, %empty_value: vector<0xi32>, %empty_count: vector<0xi32>, %unknown_count: vector<4xi8>, %uniform_count_input: i8, %dynamic_count_input: i16, %first_count_input: i8, %second_count_input: i8, %first_value_input: i8, %second_value_input: i8, %signed_value_input: i8, %overflow_value_input: i8) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %uniform_count_scalar = scalar.assume %uniform_count_input [range(%uniform_count_input, 0, 7)] : i8
+  %uniform_count = vector.splat %uniform_count_scalar : vector<4xi8>
+  %dynamic_count_scalar = scalar.assume %dynamic_count_input [range(%dynamic_count_input, 0, 15)] : i16
+  %dynamic_count = vector.splat %dynamic_count_scalar : vector<[%length]xi16>
+  %first_count = scalar.assume %first_count_input [range(%first_count_input, 1, 2)] : i8
+  %second_count = scalar.assume %second_count_input [range(%second_count_input, 2, 3)] : i8
+  %explicit_count = vector.from_elements %first_count, %second_count : vector<2xi8>
+  %first_value = scalar.assume %first_value_input [range(%first_value_input, 0, 31)] : i8
+  %second_value = scalar.assume %second_value_input [range(%second_value_input, 0, 31)] : i8
+  %explicit_value = vector.from_elements %first_value, %second_value : vector<2xi8>
+  %signed_value_scalar = scalar.assume %signed_value_input [range(%signed_value_input, -16, 15)] : i8
+  %signed_value = vector.splat %signed_value_scalar : vector<2xi8>
+  %overflow_value = scalar.assume %overflow_value_input [range(%overflow_value_input, 0, 32)] : i8
+  %overflow_vector = vector.from_elements %first_value, %overflow_value : vector<2xi8>
+  %iota_base = scalar.constant 0 : i8
+  %iota_step = scalar.constant 2 : i8
+  %iota_count = vector.iota %iota_base step %iota_step : vector<4xi8>
+  %invalid_iota_base = scalar.constant 5 : i8
+  %invalid_iota_step = scalar.constant 1 : i8
+  %invalid_iota_count = vector.iota %invalid_iota_base step %invalid_iota_step : vector<4xi8>
+  scf.for %iv = [%begin to %n step %step] {
+    %uniform_left = vector.shli %uniform_value, %uniform_count : vector<4xi8>
+    %explicit_arithmetic = vector.shrsi %explicit_value, %explicit_count : vector<2xi8>
+    %iota_logical = vector.shrui %uniform_value, %iota_count : vector<4xi8>
+    %dynamic_logical = vector.shrui %dynamic_value, %dynamic_count : vector<[%length]xi16>
+    %signed_flagged = vector.shli<nsw> %signed_value, %explicit_count : vector<2xi8>
+    %flagged = vector.shli<nuw> %explicit_value, %explicit_count : vector<2xi8>
+    %flagged_overflow = vector.shli<nuw> %overflow_vector, %explicit_count : vector<2xi8>
+    %invalid_iota = vector.shrui %uniform_value, %invalid_iota_count : vector<4xi8>
+    %unknown = vector.shrui %uniform_value, %unknown_count : vector<4xi8>
+    %empty = vector.shli<nsw|nuw> %empty_value, %empty_count : vector<0xi32>
+    test.use %uniform_left, %explicit_arithmetic, %iota_logical, %dynamic_logical, %signed_flagged, %flagged, %flagged_overflow, %invalid_iota, %unknown, %empty : vector<4xi8>, vector<2xi8>, vector<4xi8>, vector<[%length]xi16>, vector<2xi8>, vector<2xi8>, vector<2xi8>, vector<4xi8>, vector<4xi8>, vector<0xi32>
+  }
+  func.return
+}
+
+// ----
+func.def @proves_vector_shift_facts(%n: index, %length: index, %uniform_value: vector<4xi8>, %dynamic_value: vector<[%length]xi16>, %empty_value: vector<0xi32>, %empty_count: vector<0xi32>, %unknown_count: vector<4xi8>, %uniform_count_input: i8, %dynamic_count_input: i16, %first_count_input: i8, %second_count_input: i8, %first_value_input: i8, %second_value_input: i8, %signed_value_input: i8, %overflow_value_input: i8) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %uniform_count_scalar = scalar.assume %uniform_count_input [range(%uniform_count_input, 0, 7)] : i8
+  %uniform_count = vector.splat %uniform_count_scalar : vector<4xi8>
+  %dynamic_count_scalar = scalar.assume %dynamic_count_input [range(%dynamic_count_input, 0, 15)] : i16
+  %dynamic_count = vector.splat %dynamic_count_scalar : vector<[%length]xi16>
+  %first_count = scalar.assume %first_count_input [range(%first_count_input, 1, 2)] : i8
+  %second_count = scalar.assume %second_count_input [range(%second_count_input, 2, 3)] : i8
+  %explicit_count = vector.from_elements %first_count, %second_count : vector<2xi8>
+  %first_value = scalar.assume %first_value_input [range(%first_value_input, 0, 31)] : i8
+  %second_value = scalar.assume %second_value_input [range(%second_value_input, 0, 31)] : i8
+  %explicit_value = vector.from_elements %first_value, %second_value : vector<2xi8>
+  %signed_value_scalar = scalar.assume %signed_value_input [range(%signed_value_input, -16, 15)] : i8
+  %signed_value = vector.splat %signed_value_scalar : vector<2xi8>
+  %overflow_value = scalar.assume %overflow_value_input [range(%overflow_value_input, 0, 32)] : i8
+  %overflow_vector = vector.from_elements %first_value, %overflow_value : vector<2xi8>
+  %iota_base = scalar.constant 0 : i8
+  %iota_step = scalar.constant 2 : i8
+  %iota_count = vector.iota %iota_base step %iota_step : vector<4xi8>
+  %invalid_iota_base = scalar.constant 5 : i8
+  %invalid_iota_step = scalar.constant 1 : i8
+  %invalid_iota_count = vector.iota %invalid_iota_base step %invalid_iota_step : vector<4xi8>
+  %uniform_left = vector.shli %uniform_value, %uniform_count : vector<4xi8>
+  %explicit_arithmetic = vector.shrsi %explicit_value, %explicit_count : vector<2xi8>
+  %iota_logical = vector.shrui %uniform_value, %iota_count : vector<4xi8>
+  %dynamic_logical = vector.shrui %dynamic_value, %dynamic_count : vector<[%length]xi16>
+  %signed_flagged = vector.shli<nsw> %signed_value, %explicit_count : vector<2xi8>
+  %flagged = vector.shli<nuw> %explicit_value, %explicit_count : vector<2xi8>
+  %empty = vector.shli<nsw|nuw> %empty_value, %empty_count : vector<0xi32>
+  scf.for %iv = [%begin to %n step %step] {
+    %flagged_overflow = vector.shli<nuw> %overflow_vector, %explicit_count : vector<2xi8>
+    %invalid_iota = vector.shrui %uniform_value, %invalid_iota_count : vector<4xi8>
+    %unknown = vector.shrui %uniform_value, %unknown_count : vector<4xi8>
+    test.use %uniform_left, %explicit_arithmetic, %iota_logical, %dynamic_logical, %signed_flagged, %flagged, %flagged_overflow, %invalid_iota, %unknown, %empty : vector<4xi8>, vector<2xi8>, vector<4xi8>, vector<[%length]xi16>, vector<2xi8>, vector<2xi8>, vector<2xi8>, vector<4xi8>, vector<4xi8>, vector<0xi32>
+  }
+  func.return
+}
+
+// ====
+
+// Index safety depends on the selected target carrier. Without a selected
+// target snapshot, even an otherwise valid count range remains guarded.
+func.def @keeps_targetless_index_shift(%n: index, %value: index, %count_input: index) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %count = index.assume %count_input [range(%count_input, 0, 3)] : index
+  scf.for %iv = [%begin to %n step %step] {
+    %shifted = index.shrui %value, %count : index
+    test.use %shifted : index
+  }
+  func.return
+}
+
+// ----
+func.def @keeps_targetless_index_shift(%n: index, %value: index, %count_input: index) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %count = index.assume %count_input [range(%count_input, 0, 3)] : index
+  scf.for %iv = [%begin to %n step %step] {
+    %shifted = index.shrui %value, %count : index
+    test.use %shifted : index
+  }
+  func.return
+}
+
+// ====
+
+// Control-dependent refinements cannot justify executing a shift before the
+// control path that established them. LICM uses ordinary function facts, so
+// the globally invalid count range remains guarded by both comparisons.
+func.def @keeps_conditioned_shift_guarded(%n: index, %value: i32, %count_input: i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %c0 = scalar.constant 0 : i32
+  %width = scalar.constant 32 : i32
+  %count = scalar.assume %count_input [range(%count_input, -1, 32)] : i32
+  %nonnegative = scalar.cmpi sge, %count, %c0 : i32
+  %below_width = scalar.cmpi slt, %count, %width : i32
+  scf.for %iv = [%begin to %n step %step] {
+    scf.if %nonnegative {
+      scf.if %below_width {
+        %shifted = scalar.shrui %value, %count : i32
+        test.use %shifted : i32
+      } else {
+      }
+    } else {
+    }
+  }
+  func.return
+}
+
+// ----
+func.def @keeps_conditioned_shift_guarded(%n: index, %value: i32, %count_input: i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %c0 = scalar.constant 0 : i32
+  %width = scalar.constant 32 : i32
+  %count = scalar.assume %count_input [range(%count_input, -1, 32)] : i32
+  %nonnegative = scalar.cmpi sge, %count, %c0 : i32
+  %below_width = scalar.cmpi slt, %count, %width : i32
+  scf.for %iv = [%begin to %n step %step] {
+    scf.if %nonnegative {
+      scf.if %below_width {
+        %shifted = scalar.shrui %value, %count : i32
+        test.use %shifted : i32
+      } else {
+      }
+    } else {
+    }
+  }
+  func.return
+}
