@@ -9,6 +9,7 @@
 #include <cxx/ast.h>
 #include <cxx/literals.h>
 #include <cxx/symbols.h>
+#include <cxx/types.h>
 
 #include <algorithm>
 #include <span>
@@ -107,9 +108,13 @@ bool Configs::declaration(cxx::Symbol* symbol,
   }
   const auto& traits = unit_.typeTraits();
   auto* source_type = variable->type();
+  auto* source_class =
+      cxx::type_cast<cxx::ClassType>(types_.unqualified(source_type));
+  const bool is_index = source_class && types_.is_index(source_type, owner);
   if (!traits.is_const(source_type) || traits.is_volatile(source_type) ||
       variable->isThreadLocal() ||
-      !(traits.is_arithmetic(source_type) || traits.is_enum(source_type))) {
+      !(traits.is_arithmetic(source_type) || traits.is_enum(source_type) ||
+        is_index)) {
     diagnostics_.reject(unit_, owner,
                         "config bindings require nonvolatile const numeric "
                         "scalars without thread-local storage");
@@ -149,12 +154,21 @@ bool Configs::declaration(cxx::Symbol* symbol,
             "and pure constants");
       }
       for (const auto* argument_type : predicate.argument_types) {
-        if (argument_type && types_.unqualified(argument_type) !=
-                                 types_.unqualified(source_type)) {
+        const auto* unqualified_argument =
+            argument_type ? types_.unqualified(argument_type) : nullptr;
+        const bool index_constant =
+            is_index && unqualified_argument &&
+            ((traits.is_integral(unqualified_argument) &&
+              unqualified_argument->kind() != cxx::TypeKind::kBool) ||
+             traits.is_enum(unqualified_argument));
+        if (unqualified_argument && !index_constant &&
+            unqualified_argument != types_.unqualified(source_type)) {
           diagnostics_.reject(
               unit_, where,
-              "config predicate arguments must match the declared source "
-              "type");
+              is_index ? "index config predicate arguments must be integral "
+                         "or enum constants"
+                       : "config predicate arguments must match the declared "
+                         "source type");
         }
       }
       predicates.push_back(predicate.predicate);
@@ -277,8 +291,7 @@ std::optional<loom_value_id_t> Configs::read(cxx::VariableSymbol* variable,
   const auto& binding = bindings_[found->second];
   loom_op_t* op;
   if (binding.value) {
-    check(loom_scalar_constant_build(builder, *binding.value, binding.type,
-                                     location, &op));
+    return scalars_.materialize(*binding.value, binding.type, location);
   } else {
     check(loom_config_get_build(builder, binding.reference, binding.type,
                                 location, &op));

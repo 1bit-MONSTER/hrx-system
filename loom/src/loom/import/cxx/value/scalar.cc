@@ -9,7 +9,9 @@
 #include <cxx/ast_interpreter.h>
 #include <cxx/control.h>
 #include <cxx/memory_layout.h>
+#include <cxx/symbols.h>
 #include <cxx/token.h>
+#include <cxx/types.h>
 
 #include <bit>
 
@@ -28,6 +30,31 @@ loom_attribute_t integer_attribute(uint64_t bits, unsigned bytes) {
       : bytes == 4 ? std::bit_cast<int32_t>(static_cast<uint32_t>(bits))
                    : std::bit_cast<int64_t>(bits);
   return loom_attr_i64(stored);
+}
+
+const cxx::ConstValue& index_constant_payload(cxx::TranslationUnit& unit,
+                                              Diagnostics& diagnostics,
+                                              const cxx::ConstValue& value,
+                                              cxx::AST* owner) {
+  auto* object = std::get_if<std::shared_ptr<cxx::ConstObject>>(&value);
+  if (!object || !*object || (*object)->members().size() != 1) {
+    diagnostics.reject(
+        unit, owner,
+        "index constants require one unsigned long long storage member");
+  }
+  const auto& member = (*object)->members().front();
+  auto* field =
+      member.symbol && member.symbol->kind() == cxx::SymbolKind::kField
+          ? static_cast<const cxx::FieldSymbol*>(member.symbol)
+          : nullptr;
+  if (!field || field->isStatic() ||
+      unit.typeTraits().remove_cv(field->type()) !=
+          unit.control()->getUnsignedLongLongIntType()) {
+    diagnostics.reject(
+        unit, owner,
+        "index constants require one unsigned long long storage member");
+  }
+  return member.value;
 }
 
 }  // namespace
@@ -189,13 +216,18 @@ loom_value_id_t Scalars::binary(cxx::TokenKind token, loom_value_id_t left,
 
 loom_value_id_t Scalars::integer(int64_t value, loom_scalar_type_t scalar,
                                  loom_location_id_t source) {
+  return materialize(loom_attr_i64(value), loom_type_scalar(scalar), source);
+}
+
+loom_value_id_t Scalars::materialize(loom_attribute_t value, loom_type_t type,
+                                     loom_location_id_t source) {
   loom_op_t* op;
+  const auto scalar = loom_type_element_type(type);
   auto* build =
       scalar == LOOM_SCALAR_TYPE_INDEX || scalar == LOOM_SCALAR_TYPE_OFFSET
           ? loom_index_constant_build
           : loom_scalar_constant_build;
-  check(build(&builder_, loom_attr_i64(value), loom_type_scalar(scalar), source,
-              &op));
+  check(build(&builder_, value, type, source, &op));
   return loom_op_results(op)[0];
 }
 
@@ -207,28 +239,37 @@ loom_attribute_t Scalars::constant_attribute(const cxx::ConstValue& value,
   if (loom_type_kind(target) != LOOM_TYPE_SCALAR) {
     diagnostics_.reject(unit_, ast, "constants require a numeric scalar type");
   }
+  const bool is_index =
+      loom_type_element_type(target) == LOOM_SCALAR_TYPE_INDEX;
+  const cxx::ConstValue& payload =
+      is_index ? index_constant_payload(unit_, diagnostics_, value, ast)
+               : value;
   loom_attribute_t attribute;
   if (types_.is_float(source_type)) {
-    if (auto* floating = std::get_if<cxx::ConstFloat>(&value);
+    if (auto* floating = std::get_if<cxx::ConstFloat>(&payload);
         floating && floating->isNaN()) {
       diagnostics_.reject(
           unit_, ast,
           "numeric metadata cannot preserve NaN representation bits; "
           "use an integer encoding and bit-cast it in the function body");
     }
-    auto number = interpreter.toDouble(value);
+    auto number = interpreter.toDouble(payload);
     if (!number) {
       diagnostics_.reject(unit_, ast, "invalid floating literal");
     }
     attribute = loom_attr_f64(*number);
   } else {
-    auto number = interpreter.toInt(value);
+    auto number = interpreter.toInt(payload);
     if (!number) {
       diagnostics_.reject(unit_, ast, "invalid integer literal");
     }
     // Literals are represented in the signed storage width of their IR
     // scalar type; signedness remains a source fact at each operation.
-    auto bytes = *unit_.control()->memoryLayout()->sizeOf(source_type);
+    const cxx::Type* storage_type = source_type;
+    if (is_index) {
+      storage_type = unit_.control()->getUnsignedLongLongIntType();
+    }
+    auto bytes = *unit_.control()->memoryLayout()->sizeOf(storage_type);
     attribute = integer_attribute(std::bit_cast<uint64_t>(*number), bytes);
   }
   return attribute;
@@ -252,10 +293,8 @@ loom_value_id_t Scalars::constant(const cxx::ConstValue& value,
                                     locations_.get(ast), &op));
     return loom_op_results(op)[0];
   }
-  check(loom_scalar_constant_build(
-      &builder_, constant_attribute(value, source_type, ast),
-      types_.get(source_type, ast), locations_.get(ast), &op));
-  return loom_op_results(op)[0];
+  return materialize(constant_attribute(value, source_type, ast),
+                     types_.get(source_type, ast), locations_.get(ast));
 }
 
 }  // namespace loom::cxx_import

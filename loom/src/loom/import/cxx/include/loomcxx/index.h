@@ -9,12 +9,18 @@
 
 namespace loom::type {
 
-// Native target-independent index value supplied by structured Loom regions.
-// Implicit conversion restores ordinary unsigned C++ arithmetic inside called
-// functions without changing an index-typed boundary.
+// Native target-independent index value supplied by structured Loom regions or
+// constructed from a compile-time integer. Implicit conversion restores
+// ordinary unsigned C++ arithmetic inside called functions without changing an
+// index-typed boundary.
 class [[loom::type("index")]] index {
  public:
-  operator unsigned long long() const;
+  explicit constexpr index(unsigned long long value) : value_(value) {}
+
+  constexpr operator unsigned long long() const { return value_; }
+
+ private:
+  unsigned long long value_;
 };
 
 // A fixed count of native index values. Class template argument deduction lets

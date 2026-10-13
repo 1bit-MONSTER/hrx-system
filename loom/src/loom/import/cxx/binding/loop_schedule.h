@@ -14,12 +14,15 @@
 
 namespace loom::cxx_import {
 
+class Types;
+
 // Admits source scheduling attributes once at their loop and projects them
 // directly to scf.for policies. The source owns the choice; no heuristic picks
 // a factor, depth, or ordering on the importer's behalf.
 class LoopSchedule {
  public:
   LoopSchedule(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
+               Types& types,
                cxx::List<cxx::AttributeSpecifierAST*>* attributes);
 
   bool empty() const { return flags_ == 0; }
@@ -29,9 +32,10 @@ class LoopSchedule {
   cxx::ExpressionAST* pipeline_depth() const { return pipeline_depth_; }
   cxx::ExpressionAST* unroll_factor() const { return unroll_factor_; }
 
-  // Projects the evaluated source integers to index operands and builds the
-  // counted loop. Missing expressions have zero-valued operand IDs. Numeric
-  // policy ranges and exactness are enforced by Loom's scheduling passes.
+  // Projects evaluated source integer or index values to index operands and
+  // builds the counted loop. Missing expressions have zero-valued operand IDs.
+  // Numeric policy ranges and exactness are enforced by Loom's scheduling
+  // passes.
   // Throws StatusError for fallible builder operations.
   loom_op_t* build(loom_builder_t* builder, loom_value_id_t lower,
                    loom_value_id_t upper, loom_value_id_t step,

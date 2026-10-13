@@ -797,6 +797,7 @@ loom_cc_library(
     loom::import::cxx::source
     loom::import::cxx::source::attributes
     loom::import::cxx::source::error
+    loom::import::cxx::value::types
     loom::ir
     loom::ops::index
     loom::ops::scalar

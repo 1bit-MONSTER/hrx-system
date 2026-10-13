@@ -51,6 +51,10 @@ class Scalars {
   loom_attribute_t constant_attribute(const cxx::ConstValue& value,
                                       const cxx::Type* source_type,
                                       cxx::AST* owner);
+  // Materializes an already encoded scalar attribute with the constant
+  // operation owned by its Loom scalar domain.
+  loom_value_id_t materialize(loom_attribute_t value, loom_type_t type,
+                              loom_location_id_t source);
   // Builds a known integer constant, including offset/index carriers.
   loom_value_id_t integer(int64_t value, loom_scalar_type_t scalar,
                           loom_location_id_t source = LOOM_LOCATION_UNKNOWN);

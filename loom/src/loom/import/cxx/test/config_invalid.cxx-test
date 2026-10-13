@@ -204,6 +204,14 @@ extern const float scale;
 extern const unsigned value;
 
 // ====
+#include <loomcxx/index.h>
+#include <loomcxx/predicate.h>
+// ERROR@+2: LOWERING/059 "index config predicate arguments must be integral or enum constants"
+[[loom::config("tuning.value"),
+  loom::where(loom::predicate::range(1.0, 16.0))]]
+extern const loom::type::index value;
+
+// ====
 #include <loomcxx/predicate.h>
 extern const unsigned other;
 // ERROR@+2: LOWERING/059 "config predicates may reference only the implicit config value and pure constants"

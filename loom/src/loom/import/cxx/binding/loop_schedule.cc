@@ -12,6 +12,7 @@
 
 #include "loom/import/cxx/source/attributes.h"
 #include "loom/import/cxx/source/error.h"
+#include "loom/import/cxx/value/types.h"
 #include "loom/ir/module.h"
 #include "loom/ops/index/ops.h"
 #include "loom/ops/scalar/ops.h"
@@ -35,12 +36,14 @@ cxx::ExpressionAST* single_argument(cxx::TranslationUnit& unit,
 // by that program expression instead of becoming part of scheduling policy.
 class ScheduleExpression final : private cxx::ASTVisitor {
  public:
-  ScheduleExpression(cxx::TranslationUnit& unit, Diagnostics& diagnostics)
-      : unit_(unit), diagnostics_(diagnostics) {}
+  ScheduleExpression(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
+                     Types& types)
+      : unit_(unit), diagnostics_(diagnostics), types_(types) {}
 
   cxx::ExpressionAST* admit(cxx::AttributeAST* attribute) {
     auto* expression = single_argument(unit_, diagnostics_, attribute);
-    if (!unit_.typeTraits().is_integral_or_enum(expression->type)) {
+    if (!unit_.typeTraits().is_integral_or_enum(expression->type) &&
+        !types_.is_index(expression->type, expression)) {
       diagnostics_.reject(
           unit_, expression,
           "loop scheduling value requires an integer expression");
@@ -137,6 +140,8 @@ class ScheduleExpression final : private cxx::ASTVisitor {
   cxx::TranslationUnit& unit_;
   // Source diagnostic boundary for effectful expressions.
   Diagnostics& diagnostics_;
+  // Source-to-High type projection used to recognize native index values.
+  Types& types_;
 };
 
 loom_value_id_t schedule_index(cxx::TranslationUnit& unit,
@@ -148,6 +153,10 @@ loom_value_id_t schedule_index(cxx::TranslationUnit& unit,
     return 0;
   }
   auto type = loom_module_value_type(builder->module, value);
+  auto index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+  if (loom_type_equal(type, index_type)) {
+    return value;
+  }
   loom_op_t* op;
   auto wide_type = loom_type_scalar(LOOM_SCALAR_TYPE_I64);
   if (!unit.typeTraits().integral_representation(expression->type)->isSigned &&
@@ -157,15 +166,14 @@ loom_value_id_t schedule_index(cxx::TranslationUnit& unit,
     value = loom_op_results(op)[0];
     type = wide_type;
   }
-  check(loom_index_cast_build(builder, value, type,
-                              loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
-                              location, &op));
+  check(loom_index_cast_build(builder, value, type, index_type, location, &op));
   return loom_op_results(op)[0];
 }
 
 }  // namespace
 
 LoopSchedule::LoopSchedule(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
+                           Types& types,
                            cxx::List<cxx::AttributeSpecifierAST*>* attributes)
     : unit_(unit) {
   cxx::AttributeAST* ordering = nullptr;
@@ -180,7 +188,7 @@ LoopSchedule::LoopSchedule(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
           }
           if (attribute->attributeArgumentClause) {
             unroll_factor_ =
-                ScheduleExpression(unit, diagnostics).admit(attribute);
+                ScheduleExpression(unit, diagnostics, types).admit(attribute);
             flags_ |= LOOM_SCF_FOR_BUILD_FLAG_HAS_UNROLL_FACTOR;
           } else {
             unroll_policy_ = LOOM_SCF_FOR_UNROLL_POLICY_UNROLL;
@@ -193,7 +201,7 @@ LoopSchedule::LoopSchedule(cxx::TranslationUnit& unit, Diagnostics& diagnostics,
                                "duplicate loop pipeline depth");
           }
           pipeline_depth_ =
-              ScheduleExpression(unit, diagnostics).admit(attribute);
+              ScheduleExpression(unit, diagnostics, types).admit(attribute);
           flags_ |= LOOM_SCF_FOR_BUILD_FLAG_HAS_PIPELINE_DEPTH;
         } else if (name == "schedule") {
           if (ordering) {
