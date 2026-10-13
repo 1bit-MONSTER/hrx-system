@@ -23,16 +23,9 @@ const loom_pass_info_t* loom_canonicalize_pass_info(void);
 // Returns immutable metadata for the pre-legalization combine pass.
 const loom_pass_info_t* loom_combine_pass_info(void);
 
-// Returns immutable metadata for the integer divrem formation pass.
-const loom_pass_info_t* loom_form_divrem_pass_info(void);
-
 // Creates canonicalizer state from a textual option dictionary.
 iree_status_t loom_canonicalizer_pass_create(loom_pass_t* pass,
                                              iree_string_view_t options);
-
-// Creates divrem formation state from a textual option dictionary.
-iree_status_t loom_form_divrem_pass_create(loom_pass_t* pass,
-                                           iree_string_view_t options);
 
 // Applies universal simplifications without recomposing representations chosen
 // by legalization. Safe for source, intermediate, and final cleanup. Resolves
@@ -46,11 +39,6 @@ iree_status_t loom_canonicalize_run(loom_pass_t* pass, loom_module_t* module,
 // canonicalizer's worklist, facts, scratch storage, and change accounting.
 iree_status_t loom_combine_run(loom_pass_t* pass, loom_module_t* module,
                                loom_func_like_t function);
-
-// Forms shared quotient/remainder operations without running unrelated source
-// combines. The divisor option selects dynamic or exact divisor facts.
-iree_status_t loom_form_divrem_run(loom_pass_t* pass, loom_module_t* module,
-                                   loom_func_like_t function);
 
 #ifdef __cplusplus
 }

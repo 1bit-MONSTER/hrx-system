@@ -344,25 +344,6 @@ loom_target_pipeline_build_source_preparation_before_legalize(
                                         IREE_SV("decompose-view-transports"));
 }
 
-static iree_status_t loom_target_pipeline_build_final_integer_division_pairing(
-    loom_builder_t* builder, void* user_data) {
-  (void)user_data;
-  // Exact quotient and remainder operations remain separate through ordinary
-  // cleanup so each can reach its cheapest universal form. Pair the survivors
-  // only after the final canonicalization boundary, where native rules can
-  // share their remaining computation without a later canonicalizer splitting
-  // the pair again.
-  return loom_target_pipeline_build_run_with_string_option(
-      builder, IREE_SV("form-divrem"), IREE_SV("divisors"), IREE_SV("exact"));
-}
-
-static iree_status_t loom_target_pipeline_build_complete_target_legalize(
-    loom_builder_t* builder, void* user_data) {
-  (void)user_data;
-  return loom_target_pipeline_build_target_legalize(builder,
-                                                    IREE_SV("complete"));
-}
-
 static iree_status_t
 loom_target_pipeline_build_source_safe_normalization_after_legalize(
     loom_builder_t* builder, void* user_data) {
@@ -778,17 +759,6 @@ static iree_status_t loom_target_pipeline_build_source_low_body(
         loom_target_pipeline_build_structured_source_finalization, user_data,
         &for_op));
   }
-  IREE_RETURN_IF_ERROR(loom_target_pipeline_build_for_target_functions(
-      builder, IREE_SV("source"),
-      loom_target_pipeline_build_final_integer_division_pairing, NULL,
-      &for_op));
-  // A target may decline the late combined representation. Run portable
-  // legalization only when pairing changed the source boundary; source-to-low
-  // performs the final legality verification in either case.
-  loom_op_t* division_pairing_changed = NULL;
-  IREE_RETURN_IF_ERROR(loom_pass_ir_build_if_changed(
-      builder, loom_target_pipeline_build_complete_target_legalize, NULL,
-      &division_pairing_changed));
   IREE_RETURN_IF_ERROR(
       loom_target_pipeline_build_source_to_low(builder, context->options));
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run_with_string_option(

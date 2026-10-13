@@ -68,8 +68,6 @@ typedef struct loom_integer_division_planner_t {
   loom_module_t* module;
   // Retained canonical value facts.
   const loom_value_fact_table_t* facts;
-  // Whether this invocation selects exact rather than dynamic divisors.
-  bool exact_divisors;
   // Pass arena retaining plans and candidates through application.
   iree_arena_allocator_t* arena;
   // Candidate records for the complete function fact scope.
@@ -215,14 +213,10 @@ static bool loom_integer_division_has_boolean_unsigned_quotient(
 
 static bool loom_integer_division_should_pair(
     const loom_module_t* module, const loom_value_fact_table_t* facts,
-    const loom_op_t* op, loom_integer_division_family_t family,
-    bool exact_divisors) {
+    const loom_op_t* op, loom_integer_division_family_t family) {
   const loom_value_id_t divisor = loom_op_const_operands(op)[1];
   const bool divisor_is_exact =
       loom_value_facts_is_exact(loom_value_fact_table_lookup(facts, divisor));
-  if (divisor_is_exact != exact_divisors) {
-    return false;
-  }
   // Exact index quotient/remainder pairs commonly encode coordinate digit
   // decomposition. Keeping those semantic operations independent preserves
   // the relationship consumed by topology, address, and bank-service analysis.
@@ -239,8 +233,7 @@ static bool loom_integer_division_should_pair(
 // Counts standalone division results directly from the retained function-fact
 // index. Ordinary functions never construct a structural or dominance walk.
 static uint32_t loom_integer_division_candidate_count(
-    const loom_module_t* module, const loom_value_fact_table_t* facts,
-    bool exact_divisors) {
+    const loom_module_t* module, const loom_value_fact_table_t* facts) {
   const loom_value_id_t* scope_values = NULL;
   iree_host_size_t scope_value_count = 0;
   loom_value_fact_table_scope_values(facts, &scope_values, &scope_value_count);
@@ -259,8 +252,7 @@ static uint32_t loom_integer_division_candidate_count(
     if (!loom_integer_division_match(op, &family, &role)) {
       continue;
     }
-    if (!loom_integer_division_should_pair(module, facts, op, family,
-                                           exact_divisors)) {
+    if (!loom_integer_division_should_pair(module, facts, op, family)) {
       continue;
     }
     ++candidate_count;
@@ -420,8 +412,7 @@ static iree_status_t loom_integer_division_observe_candidate(
   loom_op_t* op = cursor->op;
   loom_integer_division_planner_t* function_planner = planner->planner;
   if (!loom_integer_division_should_pair(function_planner->module,
-                                         function_planner->facts, op, family,
-                                         function_planner->exact_divisors)) {
+                                         function_planner->facts, op, family)) {
     return iree_ok_status();
   }
   const uint32_t candidate_index = function_planner->candidate_count++;
@@ -591,15 +582,14 @@ static iree_status_t loom_integer_division_apply_plan(
 
 iree_status_t loom_integer_division_combine(
     loom_module_t* module, loom_func_like_t function,
-    const loom_value_fact_table_t* facts, bool exact_divisors,
-    iree_arena_allocator_t* parent_arena,
+    const loom_value_fact_table_t* facts, iree_arena_allocator_t* parent_arena,
     loom_integer_division_combine_result_t* out_result) {
   *out_result = (loom_integer_division_combine_result_t){0};
   if (!loom_func_like_body(function)) {
     return iree_ok_status();
   }
   const uint32_t candidate_capacity =
-      loom_integer_division_candidate_count(module, facts, exact_divisors);
+      loom_integer_division_candidate_count(module, facts);
   if (candidate_capacity < 2) {
     return iree_ok_status();
   }
@@ -609,7 +599,6 @@ iree_status_t loom_integer_division_combine(
   loom_integer_division_planner_t planner = {
       .module = module,
       .facts = facts,
-      .exact_divisors = exact_divisors,
       .arena = parent_arena,
       .candidate_capacity = candidate_capacity,
   };

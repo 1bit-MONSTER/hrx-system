@@ -68,20 +68,6 @@ static const loom_pass_option_schema_t kCanonicalizeOptionSchema[] = {
     },
 };
 
-static const loom_pass_option_enum_value_t kFormDivremDivisorValues[] = {
-    {.value = IREE_SVL("dynamic")},
-    {.value = IREE_SVL("exact")},
-};
-
-static const loom_pass_option_schema_t kFormDivremOptionSchema[] = {
-    {
-        .name = IREE_SVL("divisors"),
-        .kind = LOOM_PASS_OPTION_SCHEMA_ENUM,
-        .enum_values = kFormDivremDivisorValues,
-        .enum_value_count = IREE_ARRAYSIZE(kFormDivremDivisorValues),
-    },
-};
-
 static const loom_pass_option_schema_t kMathLegalizeOptionSchema[] = {
     {
         .name = IREE_SVL("max-iterations"),
@@ -437,14 +423,6 @@ static const loom_pass_descriptor_t kBuiltinPassDescriptors[] = {
         .key = IREE_SVL("decompose-view-transports"),
         .info = loom_decompose_view_transports_pass_info,
         .function_run = loom_decompose_view_transports_run,
-    },
-    {
-        .key = IREE_SVL("form-divrem"),
-        .info = loom_form_divrem_pass_info,
-        .function_run = loom_form_divrem_run,
-        .create = loom_form_divrem_pass_create,
-        .option_schema = kFormDivremOptionSchema,
-        .option_schema_count = IREE_ARRAYSIZE(kFormDivremOptionSchema),
     },
     {
         .key = IREE_SVL("inline-callables"),

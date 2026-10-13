@@ -35,8 +35,7 @@ typedef struct loom_integer_division_combine_result_t {
 // owner.
 iree_status_t loom_integer_division_combine(
     loom_module_t* module, loom_func_like_t function,
-    const loom_value_fact_table_t* facts, bool exact_divisors,
-    iree_arena_allocator_t* parent_arena,
+    const loom_value_fact_table_t* facts, iree_arena_allocator_t* parent_arena,
     loom_integer_division_combine_result_t* out_result);
 
 #ifdef __cplusplus

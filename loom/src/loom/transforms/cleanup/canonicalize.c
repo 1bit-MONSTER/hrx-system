@@ -18,11 +18,6 @@ static const loom_pass_option_def_t kCanonicalizeOptions[] = {
      IREE_SVL("Maximum number of worklist iterations.")},
 };
 
-static const loom_pass_option_def_t kFormDivremOptions[] = {
-    {IREE_SVL("divisors"),
-     IREE_SVL("Divisor facts selected for pairing: dynamic or exact.")},
-};
-
 #define LOOM_CANONICALIZE_STATISTICS(V, statistics_type)                       \
   V(statistics_type, ops_modified, "ops-modified",                             \
     "Number of ops simplified or combined.")                                   \
@@ -37,16 +32,6 @@ static const loom_pass_option_def_t kFormDivremOptions[] = {
 LOOM_PASS_STATISTICS_DEFINE(loom_canonicalize_statistics,
                             loom_canonicalize_statistics_t,
                             LOOM_CANONICALIZE_STATISTICS)
-
-#define LOOM_FORM_DIVREM_STATISTICS(V, statistics_type)          \
-  V(statistics_type, combined_operations, "combined-operations", \
-    "Number of quotient/remainder pairs formed.")                \
-  V(statistics_type, retired_operations, "retired-operations",   \
-    "Number of standalone quotient or remainder operations retired.")
-
-LOOM_PASS_STATISTICS_DEFINE(loom_form_divrem_statistics,
-                            loom_form_divrem_statistics_t,
-                            LOOM_FORM_DIVREM_STATISTICS)
 
 static const loom_pass_info_t loom_canonicalize_pass_info_storage = {
     .name = IREE_SVL("canonicalize"),
@@ -68,16 +53,6 @@ static const loom_pass_info_t loom_combine_pass_info_storage = {
     .statistic_layout = &loom_canonicalize_statistics_layout,
 };
 
-static const loom_pass_info_t loom_form_divrem_pass_info_storage = {
-    .name = IREE_SVL("form-divrem"),
-    .description =
-        IREE_SVL("Form shared integer quotient/remainder operations."),
-    .kind = LOOM_PASS_FUNCTION,
-    .option_defs = kFormDivremOptions,
-    .option_count = IREE_ARRAYSIZE(kFormDivremOptions),
-    .statistic_layout = &loom_form_divrem_statistics_layout,
-};
-
 const loom_pass_info_t* loom_canonicalize_pass_info(void) {
   return &loom_canonicalize_pass_info_storage;
 }
@@ -86,21 +61,10 @@ const loom_pass_info_t* loom_combine_pass_info(void) {
   return &loom_combine_pass_info_storage;
 }
 
-const loom_pass_info_t* loom_form_divrem_pass_info(void) {
-  return &loom_form_divrem_pass_info_storage;
-}
-
 typedef struct loom_canonicalize_pass_options_t {
   // Maximum worklist iterations. Zero selects the shared driver's default.
   uint32_t max_iterations;
 } loom_canonicalize_pass_options_t;
-
-typedef struct loom_form_divrem_pass_options_t {
-  // True when pairing exact rather than dynamic divisors.
-  bool exact_divisors;
-  // True after the textual option parser observes the divisor selection.
-  bool has_divisors;
-} loom_form_divrem_pass_options_t;
 
 typedef iree_status_t (*loom_canonicalizer_post_run_fn_t)(
     loom_module_t* module, loom_func_like_t function,
@@ -136,39 +100,6 @@ static iree_status_t loom_canonicalize_parse_option(void* user_data,
                           pass->info->name.data);
 }
 
-static iree_status_t loom_form_divrem_parse_option(void* user_data,
-                                                   iree_string_view_t name,
-                                                   iree_string_view_t value) {
-  loom_pass_t* pass = (loom_pass_t*)user_data;
-  loom_form_divrem_pass_options_t* options =
-      (loom_form_divrem_pass_options_t*)pass->state;
-  if (iree_string_view_equal(name, IREE_SV("divisors"))) {
-    if (options->has_divisors) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "duplicate option 'divisors' for pass '%.*s'",
-                              (int)pass->info->name.size,
-                              pass->info->name.data);
-    }
-    options->has_divisors = true;
-    if (iree_string_view_equal(value, IREE_SV("dynamic"))) {
-      options->exact_divisors = false;
-      return iree_ok_status();
-    }
-    if (iree_string_view_equal(value, IREE_SV("exact"))) {
-      options->exact_divisors = true;
-      return iree_ok_status();
-    }
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "pass '%.*s' option 'divisors' must be 'dynamic' or 'exact'",
-        (int)pass->info->name.size, pass->info->name.data);
-  }
-  return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                          "unknown option '%.*s' for pass '%.*s'",
-                          (int)name.size, name.data, (int)pass->info->name.size,
-                          pass->info->name.data);
-}
-
 iree_status_t loom_canonicalizer_pass_create(
     loom_pass_t* pass, iree_string_view_t options_string) {
   loom_canonicalize_pass_options_t* options = NULL;
@@ -185,26 +116,6 @@ iree_status_t loom_canonicalizer_pass_create(
   return loom_pass_options_parse(pass->info->name, options_string,
                                  (loom_pass_option_parse_callback_t){
                                      .fn = loom_canonicalize_parse_option,
-                                     .user_data = pass,
-                                 });
-}
-
-iree_status_t loom_form_divrem_pass_create(loom_pass_t* pass,
-                                           iree_string_view_t options_string) {
-  loom_form_divrem_pass_options_t* options = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate(pass->instance_arena,
-                                           sizeof(*options), (void**)&options));
-  *options = (loom_form_divrem_pass_options_t){0};
-  pass->state = options;
-  if (pass->decoded_options) {
-    options->exact_divisors =
-        pass->decoded_options->options[0].enum_value_index == 1;
-    options->has_divisors = true;
-    return iree_ok_status();
-  }
-  return loom_pass_options_parse(pass->info->name, options_string,
-                                 (loom_pass_option_parse_callback_t){
-                                     .fn = loom_form_divrem_parse_option,
                                      .user_data = pass,
                                  });
 }
@@ -266,13 +177,12 @@ static iree_status_t loom_canonicalizer_run_pass(
 
 static iree_status_t loom_combine_integer_division(
     loom_module_t* module, loom_func_like_t function,
-    const loom_value_fact_table_t* facts, bool exact_divisors,
-    iree_arena_allocator_t* arena, loom_canonicalizer_result_t* result,
-    bool* out_changed) {
+    const loom_value_fact_table_t* facts, iree_arena_allocator_t* arena,
+    loom_canonicalizer_result_t* result, bool* out_changed) {
   *out_changed = false;
   loom_integer_division_combine_result_t combine_result;
-  IREE_RETURN_IF_ERROR(loom_integer_division_combine(
-      module, function, facts, exact_divisors, arena, &combine_result));
+  IREE_RETURN_IF_ERROR(loom_integer_division_combine(module, function, facts,
+                                                     arena, &combine_result));
   if (combine_result.combined_operation_count != 0) {
     *out_changed = true;
     result->changed = true;
@@ -280,15 +190,6 @@ static iree_status_t loom_combine_integer_division(
     result->ops_modified += combine_result.retired_operation_count;
   }
   return iree_ok_status();
-}
-
-static iree_status_t loom_combine_dynamic_integer_division(
-    loom_module_t* module, loom_func_like_t function,
-    const loom_value_fact_table_t* facts, iree_arena_allocator_t* arena,
-    loom_canonicalizer_result_t* result, bool* out_changed) {
-  return loom_combine_integer_division(module, function, facts,
-                                       /*exact_divisors=*/false, arena, result,
-                                       out_changed);
 }
 
 iree_status_t loom_canonicalize_run(loom_pass_t* pass, loom_module_t* module,
@@ -315,32 +216,5 @@ iree_status_t loom_combine_run(loom_pass_t* pass, loom_module_t* module,
       loom_canonicalizer_pattern_registries_from_cleanup_registry(registry);
   patterns.post_canonicalization = registry->source_combine;
   return loom_canonicalizer_run_pass(pass, module, function, cleanup_capability,
-                                     patterns,
-                                     loom_combine_dynamic_integer_division);
-}
-
-iree_status_t loom_form_divrem_run(loom_pass_t* pass, loom_module_t* module,
-                                   loom_func_like_t function) {
-  const loom_form_divrem_pass_options_t* options =
-      (const loom_form_divrem_pass_options_t*)pass->state;
-  loom_value_fact_table_t* facts = NULL;
-  IREE_RETURN_IF_ERROR(loom_pass_value_facts_acquire(
-      pass, module, loom_pass_value_fact_scope_function(function), &facts));
-  loom_integer_division_combine_result_t result;
-  iree_status_t status = loom_integer_division_combine(
-      module, function, facts, options && options->exact_divisors, pass->arena,
-      &result);
-  if (!iree_status_is_ok(status)) {
-    loom_pass_value_fact_owner_invalidate(pass->value_facts);
-    return status;
-  }
-  if (result.combined_operation_count == 0) {
-    return iree_ok_status();
-  }
-  loom_pass_mark_changed(pass);
-  loom_pass_value_fact_owner_invalidate(pass->value_facts);
-  loom_form_divrem_statistics_t* statistics = loom_form_divrem_statistics(pass);
-  statistics->combined_operations += result.combined_operation_count;
-  statistics->retired_operations += result.retired_operation_count;
-  return iree_ok_status();
+                                     patterns, loom_combine_integer_division);
 }

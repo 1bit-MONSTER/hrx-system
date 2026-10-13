@@ -190,10 +190,10 @@ func.def @exact_divisor(%value: i32) -> (i32, i32) {
 
 // ====
 
-// RUN: pass form-divrem{divisors=exact}
+// RUN: pass combine
 
-// Non-power-of-two constants survive universal canonicalization and pair at
-// the final target boundary so native reciprocal recipes can share a quotient.
+// Non-power-of-two constants survive universal canonicalization and pair in
+// the same source combine that handles dynamic divisors.
 func.def @exact_non_power_of_two_divisor(%value: i32) -> (i32, i32) {
   %divisor = scalar.constant 3 : i32
   %quotient = scalar.divui %value, %divisor : i32
@@ -210,7 +210,7 @@ func.def @exact_non_power_of_two_divisor(%value: i32) -> (i32, i32) {
 
 // ====
 
-// RUN: pass form-divrem{divisors=exact}
+// RUN: pass combine
 
 // When facts bound the unsigned quotient to zero or one, separate operations
 // preserve the cheaper compare and conditional-subtract lowering. Scalar
@@ -240,7 +240,7 @@ func.def @exact_boolean_unsigned_quotients(%word: i32, %position: index) -> (i32
 
 // ====
 
-// RUN: pass form-divrem{divisors=exact}
+// RUN: pass combine
 
 // Exact index divisions retain their coordinate decomposition semantics for
 // topology and address analyses.
