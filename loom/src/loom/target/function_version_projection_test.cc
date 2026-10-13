@@ -10,17 +10,21 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/codegen/low/loop_execution.h"
+#include "loom/codegen/low/text_asm.h"
 #include "loom/format/text/parser.h"
 #include "loom/format/text/printer.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/func/ops.h"
+#include "loom/ops/low/ops.h"
 #include "loom/ops/op_defs.h"
 #include "loom/ops/target/ops.h"
 #include "loom/ops/test/ops.h"
 #include "loom/target/facts_builder.h"
 #include "loom/target/provider.h"
 #include "loom/target/specialization.h"
+#include "loom/target/test/low_registry.h"
 #include "loom/target/test/target_records.h"
 #include "loom/testing/module_ptr.h"
 
@@ -167,9 +171,11 @@ class TargetFunctionVersionProjectionTest : public ::testing::Test {
                                      &block_pool_);
     loom_context_initialize(iree_allocator_system(), &context_);
     RegisterDialect(LOOM_DIALECT_FUNC, loom_func_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_LOW, loom_low_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_TARGET, loom_target_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_TEST, loom_test_dialect_vtables);
     IREE_ASSERT_OK(loom_context_finalize(&context_));
+    loom_test_low_descriptor_registry_initialize(&low_registry_);
     IREE_ASSERT_OK(
         loom_target_environment_initialize(&kTestProviderSet, &environment_));
     iree_arena_initialize(&block_pool_, &version_arena_);
@@ -194,7 +200,11 @@ class TargetFunctionVersionProjectionTest : public ::testing::Test {
 
   ModulePtr Parse(const char* source) {
     loom_module_t* module = nullptr;
-    loom_text_parse_options_t options = {};
+    loom_text_parse_options_t options = {
+        .diagnostic_sink = {loom_diagnostic_stderr_sink, nullptr},
+    };
+    loom_low_descriptor_text_asm_environment_initialize(
+        &low_registry_.registry, &options.low_asm_environment);
     IREE_CHECK_OK(
         loom_text_parse(iree_make_cstring_view(source),
                         IREE_SV("function_version_projection_test.loom"),
@@ -337,6 +347,7 @@ class TargetFunctionVersionProjectionTest : public ::testing::Test {
   iree_arena_block_pool_t block_pool_;
   loom_context_t context_;
   loom_target_environment_t environment_;
+  loom_target_low_descriptor_registry_t low_registry_;
   iree_arena_allocator_t version_arena_;
 };
 
@@ -360,6 +371,68 @@ func.def public target(@authored) @entry() {
             source_function);
   EXPECT_EQ(Print(projected.get()), source_text);
   EXPECT_EQ(Print(source.get()), source_text);
+}
+
+TEST_F(TargetFunctionVersionProjectionTest,
+       LoopExecutionFactsOutliveProjectedSourceModule) {
+  ModulePtr source = Parse(R"(
+low.func.def public target<test.low.core> @entry(
+    %condition: reg<test.i32>) asm {
+  low.br ^header
+^header:
+  low.cond_br %condition, ^body, ^exit : reg<test.i32>
+^body:
+  low.br ^header
+^exit:
+  low.return
+}
+)");
+  loom_target_facts_t facts = {};
+  InitializeFacts(LOOM_TEST_TARGET_KIND_LOW_CORE, 0, &facts);
+  loom_target_function_version_t version =
+      MakeVersion(source.get(), IREE_SV("entry"), &kTestProvider, &facts);
+  IREE_ASSERT_OK(loom_low_loop_execution_map_allocate(&source->arena,
+                                                      &version.loop_execution));
+  loom_block_t* source_header =
+      loom_region_block(loom_func_like_body(version.base.function), 1);
+  IREE_ASSERT_OK(loom_low_loop_execution_map_insert(
+      version.loop_execution, source_header->last_op,
+      {.trip_count = 6, .count_kind = LOOM_LOW_LOOP_EXECUTION_COUNT_EXACT}));
+  loom_function_version_t* version_values[] = {&version.base};
+  const loom_function_version_list_t versions = {
+      .values = version_values,
+      .count = IREE_ARRAYSIZE(version_values),
+  };
+
+  iree_arena_allocator_t clone_arena;
+  iree_arena_initialize(&block_pool_, &clone_arena);
+  loom_function_version_owner_t cloned_versions;
+  loom_function_version_owner_initialize(&clone_arena, &cloned_versions);
+  ModulePtr projected = Project(source.get(), &versions, &cloned_versions);
+  source.reset();
+
+  ASSERT_EQ(cloned_versions.list.count, 1u);
+  const auto* cloned_version =
+      loom_target_function_version_const_cast(cloned_versions.list.values[0]);
+  ASSERT_NE(cloned_version, nullptr);
+  ASSERT_NE(cloned_version->loop_execution, nullptr);
+  const loom_region_t* projected_body =
+      loom_func_like_body(cloned_version->base.function);
+  const loom_block_t* projected_header =
+      loom_region_const_block(projected_body, 1);
+  ASSERT_TRUE(loom_low_cond_br_isa(projected_header->last_op));
+  iree_arena_allocator_t scratch_arena;
+  iree_arena_initialize(&block_pool_, &scratch_arena);
+  loom_low_loop_execution_index_t index = {};
+  IREE_ASSERT_OK(loom_low_loop_execution_index_build(
+      cloned_version->loop_execution, projected_body, &scratch_arena, &index));
+  const loom_low_loop_execution_facts_t* cloned_facts =
+      loom_low_loop_execution_index_lookup(&index, projected_header);
+  ASSERT_NE(cloned_facts, nullptr);
+  EXPECT_EQ(cloned_facts->trip_count, 6u);
+  EXPECT_EQ(cloned_facts->count_kind, LOOM_LOW_LOOP_EXECUTION_COUNT_EXACT);
+  iree_arena_deinitialize(&scratch_arena);
+  iree_arena_deinitialize(&clone_arena);
 }
 
 TEST_F(TargetFunctionVersionProjectionTest,

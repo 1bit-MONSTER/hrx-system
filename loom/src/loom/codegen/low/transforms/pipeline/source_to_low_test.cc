@@ -12,6 +12,7 @@
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/analysis/symbol_facts.h"
+#include "loom/codegen/low/loop_execution.h"
 #include "loom/codegen/low/lower/representation_projection.h"
 #include "loom/codegen/low/lower/rules.h"
 #include "loom/codegen/low/lower/source_selection.h"
@@ -23,7 +24,9 @@
 #include "loom/format/text/parser.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
+#include "loom/ops/cfg/ops.h"
 #include "loom/ops/func/ops.h"
+#include "loom/ops/index/ops.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/pass/ops.h"
 #include "loom/ops/sanitizer/ops.h"
@@ -109,7 +112,9 @@ class LowLowerPassTest : public ::testing::Test {
     RegisterDialect(LOOM_DIALECT_PASS, loom_pass_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_SANITIZER, loom_sanitizer_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_TARGET, loom_target_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_CFG, loom_cfg_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_FUNC, loom_func_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_INDEX, loom_index_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_LOW, loom_low_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_SCALAR, loom_scalar_dialect_vtables);
     RegisterDialect(LOOM_DIALECT_TEMPLATE, loom_template_dialect_vtables);
@@ -603,6 +608,105 @@ TEST_F(LowLowerPassTest, ModuleInternalVersionLowersWithoutArtifactAbi) {
             LOOM_TARGET_ABI_UNKNOWN);
   EXPECT_FALSE(loom_symbol_ref_is_valid(
       loom_low_func_def_target(function_version.base.function.op)));
+  iree_arena_deinitialize(&arena);
+}
+
+TEST_F(LowLowerPassTest, SourceLoweringRetainsExactAndBoundedLoopExecution) {
+  ModulePtr module =
+      Parse(IREE_SV("test.target<low_core> @target\n"
+                    "func.def target(@target) @exact_loop() {\n"
+                    "  %begin = index.constant 0 : index\n"
+                    "  %end = index.constant 4 : index\n"
+                    "  %step = index.constant 1 : index\n"
+                    "  cfg.br ^header(%begin: index)\n"
+                    "^header(%position: index):\n"
+                    "  %more = index.cmp slt, %position, %end : index\n"
+                    "  cfg.cond_br %more, ^body, ^exit\n"
+                    "^body:\n"
+                    "  %next = index.add %position, %step : index\n"
+                    "  cfg.br ^header(%next: index)\n"
+                    "^exit:\n"
+                    "  func.return\n"
+                    "}\n"
+                    "func.def target(@target) @bounded_loop(%end: index) {\n"
+                    "  %begin = index.constant 0 : index\n"
+                    "  %step = index.constant 1 : index\n"
+                    "  cfg.br ^header(%begin: index)\n"
+                    "^header(%position: index):\n"
+                    "  %more = index.cmp slt, %position, %end : index\n"
+                    "  cfg.cond_br %more, ^body, ^exit\n"
+                    "^body:\n"
+                    "  %next = index.add %position, %step : index\n"
+                    "  cfg.br ^header(%next: index)\n"
+                    "^exit:\n"
+                    "  func.return\n"
+                    "}\n"));
+
+  iree_arena_allocator_t arena;
+  iree_arena_initialize(&block_pool_, &arena);
+  loom_symbol_fact_table_t symbol_facts = {};
+  loom_symbol_fact_table_initialize(&symbol_facts, &arena);
+  const loom_symbol_ref_t target_ref =
+      FindSymbolRef(module.get(), IREE_SV("target"));
+  const loom_symbol_facts_base_t* base_target_facts = nullptr;
+  IREE_ASSERT_OK(loom_symbol_fact_table_lookup_ref(
+      &symbol_facts, module.get(), target_ref, &base_target_facts));
+  const loom_target_symbol_facts_t* target_facts =
+      loom_target_symbol_facts_cast(base_target_facts);
+  ASSERT_NE(target_facts, nullptr);
+
+  const loom_symbol_ref_t exact_ref =
+      FindSymbolRef(module.get(), IREE_SV("exact_loop"));
+  const loom_symbol_ref_t bounded_ref =
+      FindSymbolRef(module.get(), IREE_SV("bounded_loop"));
+  loom_target_function_version_t exact_version = {};
+  exact_version.base.type = &loom_target_function_version_type;
+  exact_version.base.function = loom_func_like_cast(
+      module.get(), module->symbols.entries[exact_ref.symbol_id].defining_op);
+  exact_version.function_target_facts = target_facts->projection;
+  loom_target_function_version_t bounded_version = {};
+  bounded_version.base.type = &loom_target_function_version_type;
+  bounded_version.base.function = loom_func_like_cast(
+      module.get(), module->symbols.entries[bounded_ref.symbol_id].defining_op);
+  bounded_version.function_target_facts = target_facts->projection;
+  loom_function_version_t* function_version_values[] = {
+      &exact_version.base,
+      &bounded_version.base,
+  };
+  const loom_function_version_list_t function_versions = {
+      .values = function_version_values,
+      .count = IREE_ARRAYSIZE(function_version_values),
+  };
+
+  IREE_ASSERT_OK(RunSourceToLow(&policy_registry_, module.get(), nullptr,
+                                &function_versions));
+  const auto expect_loop_fact =
+      [&](const loom_target_function_version_t& version,
+          uint64_t expected_count,
+          loom_low_loop_execution_count_kind_t expected_kind) {
+        ASSERT_NE(version.loop_execution, nullptr);
+        const loom_region_t* body = loom_func_like_body(version.base.function);
+        loom_low_loop_execution_index_t index = {};
+        IREE_ASSERT_OK(loom_low_loop_execution_index_build(
+            version.loop_execution, body, &arena, &index));
+        iree_host_size_t fact_count = 0;
+        for (uint16_t i = 0; i < body->block_count; ++i) {
+          const loom_block_t* block = loom_region_const_block(body, i);
+          const loom_low_loop_execution_facts_t* facts =
+              loom_low_loop_execution_index_lookup(&index, block);
+          if (facts == nullptr) {
+            continue;
+          }
+          ++fact_count;
+          ASSERT_TRUE(loom_low_cond_br_isa(block->last_op));
+          EXPECT_EQ(facts->trip_count, expected_count);
+          EXPECT_EQ(facts->count_kind, expected_kind);
+        }
+        EXPECT_EQ(fact_count, 1u);
+      };
+  expect_loop_fact(exact_version, 4, LOOM_LOW_LOOP_EXECUTION_COUNT_EXACT);
+  expect_loop_fact(bounded_version, INT64_MAX,
+                   LOOM_LOW_LOOP_EXECUTION_COUNT_BOUNDED);
   iree_arena_deinitialize(&arena);
 }
 
@@ -1181,6 +1285,88 @@ TEST_F(LowLowerPassTest, LowCallPolicyIsSelectedPerCallerProvider) {
       loom_region_entry_block(loom_func_like_body(direct_caller));
   ASSERT_NE(direct_entry, nullptr);
   EXPECT_TRUE(loom_low_func_call_isa(direct_entry->first_op));
+}
+
+TEST_F(LowLowerPassTest, LowInliningTranslatesEveryLoopExecutionBinding) {
+  ModulePtr module = Parse(
+      IREE_SV("test.target<low_core> @target\n"
+              "low.func.def target<test.low.core>(@target) @helper(\n"
+              "    %condition: reg<test.i32>, %value: reg<test.i32>) -> "
+              "(reg<test.i32>) {\n"
+              "  low.br ^header\n"
+              "^header:\n"
+              "  low.cond_br %condition, ^body, ^exit : reg<test.i32>\n"
+              "^body:\n"
+              "  low.br ^header\n"
+              "^exit:\n"
+              "  low.return %value : reg<test.i32>\n"
+              "}\n"
+              "low.func.def public target<test.low.core>(@target) @caller(\n"
+              "    %condition: reg<test.i32>, %value: reg<test.i32>) -> "
+              "(reg<test.i32>) {\n"
+              "  %first = low.func.call @helper(%condition, %value) : "
+              "(reg<test.i32>, reg<test.i32>) -> (reg<test.i32>)\n"
+              "  %second = low.func.call @helper(%condition, %first) : "
+              "(reg<test.i32>, reg<test.i32>) -> (reg<test.i32>)\n"
+              "  low.return %second : reg<test.i32>\n"
+              "}\n"));
+
+  loom_target_provider_t provider = {
+      .select_call_policy = loom_target_select_call_policy_require_inline,
+  };
+  const loom_symbol_ref_t helper_ref =
+      FindSymbolRef(module.get(), IREE_SV("helper"));
+  const loom_symbol_ref_t caller_ref =
+      FindSymbolRef(module.get(), IREE_SV("caller"));
+  loom_target_function_version_t helper_version = {};
+  helper_version.base.type = &loom_target_function_version_type;
+  helper_version.base.function = loom_func_like_cast(
+      module.get(), module->symbols.entries[helper_ref.symbol_id].defining_op);
+  IREE_ASSERT_OK(loom_low_loop_execution_map_allocate(
+      &module->arena, &helper_version.loop_execution));
+  loom_block_t* helper_header =
+      loom_region_block(loom_func_like_body(helper_version.base.function), 1);
+  IREE_ASSERT_OK(loom_low_loop_execution_map_insert(
+      helper_version.loop_execution, helper_header->last_op,
+      {.trip_count = 4, .count_kind = LOOM_LOW_LOOP_EXECUTION_COUNT_EXACT}));
+  loom_target_function_version_t caller_version = {};
+  caller_version.base.type = &loom_target_function_version_type;
+  caller_version.base.function = loom_func_like_cast(
+      module.get(), module->symbols.entries[caller_ref.symbol_id].defining_op);
+  caller_version.resolved_target.provider = &provider;
+  loom_function_version_t* function_version_values[] = {
+      &helper_version.base,
+      &caller_version.base,
+  };
+  const loom_function_version_list_t function_versions = {
+      .values = function_version_values,
+      .count = IREE_ARRAYSIZE(function_version_values),
+  };
+
+  IREE_ASSERT_OK(RunInlineCallables(module.get(), &function_versions,
+                                    IREE_SV("policy=target")));
+  ASSERT_NE(caller_version.loop_execution, nullptr);
+  const loom_region_t* caller_body =
+      loom_func_like_body(caller_version.base.function);
+  iree_arena_allocator_t scratch_arena;
+  iree_arena_initialize(&block_pool_, &scratch_arena);
+  loom_low_loop_execution_index_t index = {};
+  IREE_ASSERT_OK(loom_low_loop_execution_index_build(
+      caller_version.loop_execution, caller_body, &scratch_arena, &index));
+  iree_host_size_t fact_count = 0;
+  for (uint16_t i = 0; i < caller_body->block_count; ++i) {
+    const loom_low_loop_execution_facts_t* facts =
+        loom_low_loop_execution_index_lookup(
+            &index, loom_region_const_block(caller_body, i));
+    if (facts == nullptr) {
+      continue;
+    }
+    ++fact_count;
+    EXPECT_EQ(facts->trip_count, 4u);
+    EXPECT_EQ(facts->count_kind, LOOM_LOW_LOOP_EXECUTION_COUNT_EXACT);
+  }
+  EXPECT_EQ(fact_count, 2u);
+  iree_arena_deinitialize(&scratch_arena);
 }
 
 TEST_F(LowLowerPassTest, CallPolicyDistinguishesSemanticAndLowStages) {

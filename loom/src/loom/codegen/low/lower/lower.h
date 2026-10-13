@@ -23,6 +23,7 @@
 #include "loom/analysis/storage_access.h"
 #include "loom/analysis/symbolic_expr.h"
 #include "loom/codegen/low/descriptors.h"
+#include "loom/codegen/low/loop_execution.h"
 #include "loom/codegen/low/lower/bindings.h"
 #include "loom/codegen/low/lower/function_storage.h"
 #include "loom/codegen/low/lower/memory_effects.h"
@@ -1128,6 +1129,8 @@ typedef struct loom_low_lower_result_t {
   loom_low_lower_report_t* report;
   // Module-arena packet effects retained independently of optional reports.
   loom_low_memory_access_map_t* memory_accesses;
+  // Module-arena source loop execution proofs bound to emitted Low controls.
+  loom_low_loop_execution_map_t* loop_execution;
 } loom_low_lower_result_t;
 
 typedef struct loom_low_lower_resolved_descriptor_t {

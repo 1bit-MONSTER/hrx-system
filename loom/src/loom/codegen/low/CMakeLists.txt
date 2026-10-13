@@ -482,6 +482,20 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
+    loop_execution
+  HDRS
+    "loop_execution.h"
+  SRCS
+    "loop_execution.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     storage_identity
   HDRS
     "storage_identity.h"

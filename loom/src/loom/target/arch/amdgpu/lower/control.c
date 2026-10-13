@@ -134,10 +134,8 @@ static iree_status_t loom_amdgpu_emit_plain_cond_branch(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t low_condition, loom_block_t* low_true_dest,
     loom_block_t* low_false_dest) {
-  loom_op_t* low_cond_br_op = NULL;
-  return loom_low_cond_br_build(loom_low_lower_context_builder(context),
-                                low_condition, low_true_dest, low_false_dest,
-                                source_op->location, &low_cond_br_op);
+  return loom_low_lower_control_emit_cond_branch(
+      context, source_op, low_condition, low_true_dest, low_false_dest);
 }
 
 static bool loom_amdgpu_condition_is_reg_class(
@@ -1534,9 +1532,11 @@ static iree_status_t loom_amdgpu_emit_else_dispatch_block(
     loom_block_t* const restore_dest = true_only_restore_block != NULL
                                            ? true_only_restore_block
                                            : restore_block;
-    status = loom_amdgpu_emit_plain_cond_branch(
-        context, source_op, loom_op_const_results(else_active_op)[0],
-        else_body_block, restore_dest);
+    loom_op_t* low_cond_br_op = NULL;
+    status = loom_low_cond_br_build(loom_low_lower_context_builder(context),
+                                    loom_op_const_results(else_active_op)[0],
+                                    else_body_block, restore_dest,
+                                    source_op->location, &low_cond_br_op);
   }
 
   loom_builder_restore(builder, saved_ip);

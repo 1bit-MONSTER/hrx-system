@@ -8,10 +8,20 @@
 
 #include <string.h>
 
+#include "loom/codegen/low/loop_execution.h"
 #include "loom/codegen/low/lower/context.h"
 #include "loom/codegen/low/lower/realization.h"
 #include "loom/ir/module.h"
 #include "loom/ops/cfg/ops.h"
+#include "loom/ops/low/ops.h"
+#include "loom/util/fact_cfg.h"
+
+typedef struct loom_low_lower_loop_trip_count_t {
+  // Maximum body execution count for bounded facts, exact count otherwise.
+  uint64_t count;
+  // Precision retained from the source recurrence proof.
+  loom_loop_trip_count_kind_t kind;
+} loom_low_lower_loop_trip_count_t;
 
 typedef struct loom_low_lower_control_source_t {
   // Target branch expansion selected at this source block's terminator.
@@ -33,6 +43,10 @@ typedef struct loom_low_lower_control_block_t {
 struct loom_low_lower_control_plan_t {
   // Source-block-indexed branch recipes and edge rewrites.
   loom_low_lower_control_source_t* sources;
+  // One-based trip-count record index per authored source block.
+  uint16_t* loop_trip_count_record_indices;
+  // Known loop trip counts packed independently of non-loop source blocks.
+  loom_low_lower_loop_trip_count_t* loop_trip_count_records;
   // Synthetic block recipes in creation order.
   loom_low_lower_control_block_t* blocks;
   // Number of populated synthetic block recipes.
@@ -120,7 +134,7 @@ loom_low_lower_block_ref_t loom_low_lower_control_successor(
     const loom_low_lower_context_t* context, const loom_op_t* source_terminator,
     uint8_t successor_index) {
   const loom_low_lower_control_plan_t* plan = context->lowering->control_plan;
-  if (plan) {
+  if (plan && plan->sources) {
     const loom_low_lower_control_source_t* source =
         &plan->sources[source_terminator->parent_block->region_index];
     if (source->successors) {
@@ -170,17 +184,32 @@ bool loom_low_lower_lookup_branch_plan(loom_low_lower_context_t* context,
                                        loom_low_lower_plan_t* out_plan) {
   const loom_low_lower_control_plan_t* plan = context->lowering->control_plan;
   *out_plan =
-      plan ? plan->sources[source_terminator->parent_block->region_index].branch
-           : loom_low_lower_plan_empty();
+      plan && plan->sources
+          ? plan->sources[source_terminator->parent_block->region_index].branch
+          : loom_low_lower_plan_empty();
   return !loom_low_lower_plan_is_empty(*out_plan);
 }
 
 static iree_status_t loom_low_lower_control_plan_initialize(
-    loom_low_lower_context_t* context, uint16_t source_count) {
+    loom_low_lower_context_t* context) {
+  if (context->lowering->control_plan != NULL) {
+    return iree_ok_status();
+  }
   loom_low_lower_control_plan_t* plan = NULL;
   IREE_RETURN_IF_ERROR(
       loom_low_lower_allocate_plan_data(context, sizeof(*plan), (void**)&plan));
   *plan = (loom_low_lower_control_plan_t){0};
+  context->lowering->control_plan = plan;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_low_lower_control_plan_initialize_sources(
+    loom_low_lower_context_t* context, uint16_t source_count) {
+  IREE_RETURN_IF_ERROR(loom_low_lower_control_plan_initialize(context));
+  loom_low_lower_control_plan_t* plan = context->lowering->control_plan;
+  if (plan->sources != NULL) {
+    return iree_ok_status();
+  }
   IREE_RETURN_IF_ERROR(loom_low_lower_allocate_function_array(
       context, source_count, sizeof(*plan->sources), (void**)&plan->sources));
   for (uint16_t i = 0; i < source_count; ++i) {
@@ -188,8 +217,108 @@ static iree_status_t loom_low_lower_control_plan_initialize(
         .branch = loom_low_lower_plan_empty(),
     };
   }
-  context->lowering->control_plan = plan;
   return iree_ok_status();
+}
+
+static iree_status_t loom_low_lower_control_plan_loop_trip_counts(
+    loom_low_lower_context_t* context, const loom_region_t* body,
+    iree_arena_allocator_t* scratch_arena) {
+  if (!iree_any_bit_set(body->flags, LOOM_REGION_INSTANCE_FLAG_CFG)) {
+    return iree_ok_status();
+  }
+  const loom_value_fact_cfg_region_t* cfg = loom_low_lower_context_cfg(context);
+  if (cfg == NULL || cfg->loops.loop_count == 0) {
+    return iree_ok_status();
+  }
+
+  loom_low_lower_loop_trip_count_t* retained = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate_array(scratch_arena, cfg->loops.loop_count,
+                                sizeof(*retained), (void**)&retained));
+  memset(retained, 0, cfg->loops.loop_count * sizeof(*retained));
+  iree_host_size_t retained_count = 0;
+  for (iree_host_size_t i = 0; i < cfg->loops.loop_count; ++i) {
+    const loom_loop_recurrence_facts_t recurrence =
+        loom_value_fact_induction_facts(
+            loom_low_lower_context_fact_table(context), context->module,
+            &cfg->inductions[i]);
+    if (recurrence.trip_count_kind == LOOM_LOOP_TRIP_COUNT_UNKNOWN) {
+      continue;
+    }
+    retained[i] = (loom_low_lower_loop_trip_count_t){
+        .count = recurrence.trip_count,
+        .kind = recurrence.trip_count_kind,
+    };
+    ++retained_count;
+  }
+  if (retained_count == 0) {
+    return iree_ok_status();
+  }
+
+  IREE_RETURN_IF_ERROR(loom_low_lower_control_plan_initialize(context));
+  loom_low_lower_control_plan_t* plan = context->lowering->control_plan;
+  IREE_RETURN_IF_ERROR(loom_low_lower_allocate_function_array(
+      context, body->block_count, sizeof(*plan->loop_trip_count_record_indices),
+      (void**)&plan->loop_trip_count_record_indices));
+  memset(plan->loop_trip_count_record_indices, 0,
+         body->block_count * sizeof(*plan->loop_trip_count_record_indices));
+  IREE_RETURN_IF_ERROR(loom_low_lower_allocate_function_array(
+      context, retained_count, sizeof(*plan->loop_trip_count_records),
+      (void**)&plan->loop_trip_count_records));
+
+  uint16_t record_index = 0;
+  for (iree_host_size_t i = 0; i < cfg->loops.loop_count; ++i) {
+    if (retained[i].kind == LOOM_LOOP_TRIP_COUNT_UNKNOWN) {
+      continue;
+    }
+    const uint16_t header_index = cfg->loops.loops[i].header_index;
+    plan->loop_trip_count_record_indices[header_index] = record_index + 1;
+    plan->loop_trip_count_records[record_index++] = retained[i];
+  }
+  return iree_ok_status();
+}
+
+static const loom_low_lower_loop_trip_count_t*
+loom_low_lower_control_loop_trip_count(const loom_low_lower_context_t* context,
+                                       const loom_op_t* source_terminator) {
+  const loom_low_lower_control_plan_t* plan = context->lowering->control_plan;
+  if (plan == NULL || plan->loop_trip_count_record_indices == NULL) {
+    return NULL;
+  }
+  const uint16_t encoded_index =
+      plan->loop_trip_count_record_indices[source_terminator->parent_block
+                                               ->region_index];
+  return encoded_index ? &plan->loop_trip_count_records[encoded_index - 1]
+                       : NULL;
+}
+
+iree_status_t loom_low_lower_control_emit_cond_branch(
+    loom_low_lower_context_t* context, const loom_op_t* source_terminator,
+    loom_value_id_t low_condition, loom_block_t* low_true_dest,
+    loom_block_t* low_false_dest) {
+  const loom_low_lower_loop_trip_count_t* retained =
+      loom_low_lower_control_loop_trip_count(context, source_terminator);
+  loom_op_t* low_cond_br_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_cond_br_build(
+      loom_low_lower_context_builder(context), low_condition, low_true_dest,
+      low_false_dest, source_terminator->location, &low_cond_br_op));
+  if (retained == NULL) {
+    return iree_ok_status();
+  }
+  loom_low_loop_execution_map_t** map = &context->result->loop_execution;
+  if (*map == NULL) {
+    IREE_RETURN_IF_ERROR(
+        loom_low_loop_execution_map_allocate(&context->module->arena, map));
+  }
+  const loom_low_loop_execution_count_kind_t count_kind =
+      retained->kind == LOOM_LOOP_TRIP_COUNT_EXACT
+          ? LOOM_LOW_LOOP_EXECUTION_COUNT_EXACT
+          : LOOM_LOW_LOOP_EXECUTION_COUNT_BOUNDED;
+  return loom_low_loop_execution_map_insert(*map, low_cond_br_op,
+                                            (loom_low_loop_execution_facts_t){
+                                                .trip_count = retained->count,
+                                                .count_kind = count_kind,
+                                            });
 }
 
 static iree_status_t loom_low_lower_control_plan_operands(
@@ -224,10 +353,8 @@ static iree_status_t loom_low_lower_control_plan_operands(
         recipe == NULL) {
       continue;
     }
-    if (context->lowering->control_plan == NULL) {
-      status = loom_low_lower_control_plan_initialize(
-          context, loom_func_like_body(context->source_function)->block_count);
-    }
+    status = loom_low_lower_control_plan_initialize_sources(
+        context, loom_func_like_body(context->source_function)->block_count);
     if (iree_status_is_ok(status)) {
       loom_low_lower_control_source_t* source =
           &context->lowering->control_plan
@@ -251,14 +378,17 @@ static iree_status_t loom_low_lower_control_plan_operands(
 
 iree_status_t loom_low_lower_control_plan_build(
     loom_low_lower_context_t* context) {
-  if (context->policy->prepare_branch.fn == NULL &&
-      context->policy->control_operand.prepare == NULL) {
-    return iree_ok_status();
-  }
   loom_region_t* body = loom_func_like_body(context->source_function);
   iree_arena_allocator_t scratch_arena;
   iree_arena_initialize(context->module->arena.block_pool, &scratch_arena);
-  iree_status_t status = iree_ok_status();
+  iree_status_t status = loom_low_lower_control_plan_loop_trip_counts(
+      context, body, &scratch_arena);
+  if (iree_status_is_ok(status) && context->policy->prepare_branch.fn == NULL &&
+      context->policy->control_operand.prepare == NULL) {
+    iree_arena_deinitialize(&scratch_arena);
+    return iree_ok_status();
+  }
+  iree_arena_reset(&scratch_arena);
   for (uint16_t i = 0;
        i < body->block_count && iree_status_is_ok(status) &&
        !loom_low_lower_context_diagnostic_limit_reached(context);
@@ -270,10 +400,8 @@ iree_status_t loom_low_lower_control_plan_build(
     }
     if (terminator->successor_count != 0 &&
         context->policy->prepare_branch.fn != NULL) {
-      if (context->lowering->control_plan == NULL) {
-        status =
-            loom_low_lower_control_plan_initialize(context, body->block_count);
-      }
+      status = loom_low_lower_control_plan_initialize_sources(
+          context, body->block_count);
       if (iree_status_is_ok(status)) {
         status = context->policy->prepare_branch.fn(
             context->policy->prepare_branch.user_data, context, terminator,
@@ -306,9 +434,10 @@ iree_status_t loom_low_lower_control_materialize_operand(
   }
   const loom_low_lower_control_plan_t* plan = context->lowering->control_plan;
   const void* const* operands =
-      plan ? plan->sources[source_terminator->parent_block->region_index]
-                 .operands
-           : NULL;
+      plan && plan->sources
+          ? plan->sources[source_terminator->parent_block->region_index]
+                .operands
+          : NULL;
   IREE_RETURN_IF_ERROR(context->policy->control_operand.emit(
       context->policy->control_operand.user_data, context, source_terminator,
       loom_op_const_operands(source_terminator)[operand_index],

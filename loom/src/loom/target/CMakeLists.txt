@@ -105,6 +105,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::analysis::symbol_facts
     loom::analysis::symbol_references
+    loom::codegen::low::loop_execution
     loom::codegen::low::memory_access
     loom::error::error_defs
     loom::ir
@@ -173,6 +174,7 @@ loom_cc_library(
     ::provider
     iree::base
     iree::base::internal::arena
+    loom::codegen::low::loop_execution
     loom::codegen::low::memory_access
     loom::ir
     loom::ops::op_defs
@@ -212,13 +214,17 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::codegen::low::loop_execution
+    loom::codegen::low::text_asm
     loom::format::text::parser
     loom::format::text::printer
     loom::ir
     loom::ops::func
+    loom::ops::low
     loom::ops::op_defs
     loom::ops::target
     loom::ops::test
+    loom::target::test::low_registry
     loom::target::test::target_record_table
     loom::testing::module_ptr
 )

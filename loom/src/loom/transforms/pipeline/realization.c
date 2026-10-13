@@ -85,6 +85,7 @@ static iree_status_t loom_pipeline_realization_clone_workers(
       *version = *source_version;
       version->base.function = instance;
       version->memory_accesses = NULL;
+      version->loop_execution = NULL;
       version->loop_pipelines = (loom_source_loop_pipeline_list_t){0};
       for (const loom_source_loop_pipeline_t* source_policy =
                source_version->loop_pipelines.head;

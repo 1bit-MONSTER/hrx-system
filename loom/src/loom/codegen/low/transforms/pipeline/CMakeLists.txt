@@ -86,6 +86,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::analysis::symbol_facts
+    loom::codegen::low::loop_execution
     loom::codegen::low::lower
     loom::codegen::low::lower::source_selection
     loom::codegen::low::text_asm
@@ -95,7 +96,9 @@ loom_cc_test(
     loom::error::error_defs
     loom::format::text::parser
     loom::ir
+    loom::ops::cfg
     loom::ops::func
+    loom::ops::index
     loom::ops::low
     loom::ops::pass
     loom::ops::sanitizer

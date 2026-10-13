@@ -564,10 +564,8 @@ IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_low_lower_structural_op(
             context->policy->emit_cond_branch.user_data, context, source_op,
             low_condition, low_true_dest, low_false_dest);
       }
-      loom_op_t* low_cond_br_op = NULL;
-      return loom_low_cond_br_build(&context->builder, low_condition,
-                                    low_true_dest, low_false_dest,
-                                    source_op->location, &low_cond_br_op);
+      return loom_low_lower_control_emit_cond_branch(
+          context, source_op, low_condition, low_true_dest, low_false_dest);
     }
     case LOOM_OP_SCF_YIELD:
       return loom_low_lower_emit_scf_yield(context, source_op);

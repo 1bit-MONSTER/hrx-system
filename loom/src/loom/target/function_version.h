@@ -29,6 +29,7 @@ typedef uint16_t loom_target_context_ordinal_t;
   ((loom_target_context_ordinal_t)UINT16_MAX)
 
 typedef struct loom_low_memory_access_map_t loom_low_memory_access_map_t;
+typedef struct loom_low_loop_execution_map_t loom_low_loop_execution_map_t;
 
 typedef struct loom_target_function_version_t {
   // Generic compiler function-version base. Must remain the first field.
@@ -67,6 +68,9 @@ typedef struct loom_target_function_version_t {
 
   // Captured source memory proofs bound to current Low packet effects.
   loom_low_memory_access_map_t* memory_accesses;
+
+  // Captured source loop execution proofs bound to current Low controls.
+  loom_low_loop_execution_map_t* loop_execution;
 } loom_target_function_version_t;
 
 // Static identity for target-refined function versions.

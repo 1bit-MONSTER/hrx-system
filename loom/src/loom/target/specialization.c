@@ -623,6 +623,7 @@ iree_status_t loom_target_specialize_functions(
     replacement->base.flags |= existing->base.flags;
     replacement->loop_pipelines = existing->loop_pipelines;
     replacement->memory_accesses = existing->memory_accesses;
+    replacement->loop_execution = existing->loop_execution;
     *existing = *replacement;
   }
   return iree_ok_status();

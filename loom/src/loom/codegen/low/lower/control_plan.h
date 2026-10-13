@@ -74,6 +74,16 @@ bool loom_low_lower_lookup_branch_plan(loom_low_lower_context_t* context,
                                        const loom_op_t* source_terminator,
                                        loom_low_lower_plan_t* out_plan);
 
+// Emits the conditional branch corresponding to an authored source
+// terminator and binds any producer-proven loop trip count to the emitted Low
+// control. Target branch expansion calls this only for the final branch
+// representing the source terminator; target-internal control branches use
+// low.cond_br directly.
+iree_status_t loom_low_lower_control_emit_cond_branch(
+    loom_low_lower_context_t* context, const loom_op_t* source_terminator,
+    loom_value_id_t low_condition, loom_block_t* low_true_dest,
+    loom_block_t* low_false_dest);
+
 // Applies a prepared branch or callable-exit operand conversion. The operand
 // ordinal addresses the terminator's source tuple; |required_type| is the
 // retained receiving signature. Matching carriers need no target callback.

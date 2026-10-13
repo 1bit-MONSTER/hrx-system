@@ -475,6 +475,17 @@ loom_cc_test(
 )
 
 loom_cc_library(
+    name = "loop_execution",
+    srcs = ["loop_execution.c"],
+    hdrs = ["loop_execution.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "storage_identity",
     srcs = ["storage_identity.c"],
     hdrs = ["storage_identity.h"],
