@@ -493,11 +493,23 @@ ordinary host cache invalidate alone does not perform that synchronization.
 [shim buffer implementation][linux-buffer]
 
 The attachment check belongs to the BO: attach rejects an already assigned BO,
-and detach requires its recorded context to match. Only a successful command
-response changes that assignment. These checks do not establish that a context
-can simultaneously collect into several destinations, or that a failed native
+and detach requires its recorded context to match. After waiting, the driver
+changes that assignment only when its result field is zero. These checks do
+not establish that a context can simultaneously collect into several
+destinations, or that a failed native
 operation rolled back every firmware effect. [Assignment
 implementation][linux-debug-assignment]
+
+Error reporting has two layers in that implementation. The driver command is
+zero-initialized, and the mailbox callback writes its firmware result. A
+missing or malformed callback payload becomes `U32_MAX`. However,
+`aie2_cmd_wait` waits for the scheduler's finished fence without inspecting its
+error, while `aie2_sched_job_run` can return an error before the mailbox
+callback executes. The subsequent result check alone therefore does not cover
+all scheduler failures. Successful-path attachment and collection do not
+establish transactional rollback or safe buffer release after an ambiguous
+native failure. [Response callback and job submission][linux-debug-errors],
+[fence wait and result check][linux-debug-wait]
 
 Device-to-host BO synchronization finds the assigned context and submits
 `SYNC_DEBUG_BO`. Its `MSG_OP_SYNC_BO` requests a device-memory-to-host-memory
@@ -545,6 +557,93 @@ allocation record does not establish the platform's debug-buffer contract.
 A normal trace DMA allocation does not acquire this firmware result-buffer
 role. Attachment, firmware synchronization and detachment have their own
 native context lifetime.
+
+#### Observed MCDM request layout
+
+On Strix NPU4 with driver `32.00.20101.3760`, the XRT 2.21.0 debug-buffer
+caller uses a slice of the context's existing 64 MiB firmware aperture. It does
+not create a separate native allocation for that slice. The observed
+`xrt_core.dll` has SHA-256
+`423c67edacb17c2d09d17b3043459a1eef4be989685cc8e2c3d1b3dc9d2500eb`.
+This identifies the observed native interface; XRT's common buffer flags do
+not establish this layout for other native revisions.
+
+The operations are `D3DKMTSubmitCommandToHwQueue` requests with a 120-byte
+private-data record. The table decodes its first five eight-byte slots as
+little-endian values; the remaining bytes are zero in the observed requests.
+This observation does not establish the native range of every field.
+
+| Byte offset | Field | Observed meaning |
+| --- | --- | --- |
+| `0x00` | Operation | `7` attaches, `1` synchronizes, `8` detaches. |
+| `0x08` | Allocation | Native allocation handle for the context firmware aperture. |
+| `0x10` | Length | Result slice length in bytes. |
+| `0x18` | Offset | Result slice offset from the native aperture's beginning. |
+| `0x20` | Direction | `1` for result collection; zero for attachment and detachment. |
+
+The caller's slice starts at native offset `0x8000` and has length `0x30000`.
+These are one caller's allocation choices, not minimum or maximum capacities.
+The offset includes any native bootstrap reservation; it is not relative to an
+application's instruction subrange. Collection and detachment are followed by
+hardware-queue progress-fence waits. These control submissions consume native
+progress values even though they are not application dispatches.
+
+No separate firmware-response cell is named in these three request records.
+Native submission acceptance and progress-fence retirement are observable;
+a firmware-status or rollback guarantee cannot be inferred from an absent
+response field. The result storage remains owned through the association's
+last possible writer.
+
+### Observed append and reuse behavior
+
+Finite captures on Linux NPU5 with firmware `1.1.2.65` and on the Windows
+NPU4 stack identified above return eight distinct markers from four commands
+accepted before one final collection. A second collection without new work
+preserves the bytes. After the host clears and publishes those bytes, another
+collection does not restore the old records. Four more commands append their
+eight markers at record eight, even though record zero remains all zero.
+Detaching, clearing and reattaching the destination restarts at record zero.
+
+The Linux observation uses kernel `7.1.12-200.fc44.x86_64`, whose decompressed
+`amdxdna.ko` SHA-256 is
+`324ea1c87a152a5258cc6294643cb83fc3262e37a964b0d551ff52e7db127b89`.
+The source revision cited for the driver protocol and this installed binary
+are distinct evidence identities.
+
+These observations separate storage contents from the firmware append cursor.
+Host clearing changes bytes, not that cursor. Collection is a native
+synchronization operation, not a promise to reconstruct an immutable copy of
+past results. A first-zero scan can therefore miss newly appended records when
+the application clears storage without rearming the producer. The bounded
+capture protocol retains its expected record extent and identities; the
+observations do not establish overflow handling or concurrent collection.
+
+### Observed firmware timer source
+
+On the two native stacks above, `READ_REGS` and `RECORD_TIMER` append in
+instruction order to the same destination. The sequence
+`READ_REGS(high, low, high)`, `RECORD_TIMER(id)`, `READ_REGS(high, low, high)`
+returns nine 32-bit words. The register addresses are partition-relative shim
+`Timer_High` (`0x340fc`) and `Timer_Low` (`0x340f8`). Each register triplet has
+matching high words, and all 24 marker samples per platform lie strictly between
+the preceding and following register observations. This identifies the
+partition shim timer as the marker's numerical domain on these implementations.
+It does not establish the firmware helper's read order or rollover handling.
+
+An explicit high/low/high register sequence also supplies a coherence check:
+within an uninterrupted timer epoch, equal high words allow composition with
+the intervening low word. Different high words make that sample unusable
+without another read. This protocol places the check in the consuming program;
+it does not make an opaque two-word firmware sample atomic.
+
+The Linux capture also demonstrates a discontinuity between commands accepted
+in the same batch. One command's end marker is `101419`; the next command's
+begin marker is `79148`. Their output IDs remain ordered and their arithmetic
+is correct. Tile `cntr` samples also go backwards between those commands,
+while each in-program interval remains 229 cycles. Thus one live context and
+one attached result buffer do not define a shared clock epoch. The observation
+does not identify which native scheduling or power transition caused the
+change. Cross-command duration and ordering require a stronger epoch contract.
 
 ### Complete capture sequence
 
@@ -609,6 +708,15 @@ clock flag explicitly distinguishes that processor's clock from an engine
 clock. [Calibration query][windows-clock-query],
 [query arguments][windows-clock-arguments],
 [context-management clock distinction][windows-clock-flags]
+
+On the Windows NPU4 stack above, node-zero calibration succeeds with a 10 MHz
+frequency and equal GPU/CPU counter values. That frequency cannot be applied
+to the firmware markers: one dispatch's begin/end markers differ by 15,670
+ticks, while the entire enclosing four-command batch fits inside a 285
+microsecond host submission-to-completion bracket. At 10 MHz the single
+dispatch would represent 1.567 milliseconds, exceeding that enclosing interval.
+This falsifies that particular counter/rate pairing; it does not derive the
+marker's actual frequency from host timing.
 
 Clock interpretation has independent requirements. A raw event observation
 needs a known sampling point and coherent record. Ordering observations by
@@ -703,3 +811,5 @@ lifetime][linux-aie2-trace-query], [AIE4 query lifetime][linux-aie4-trace-query]
 [windows-clock-query]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/nf-d3dkmthk-d3dkmtqueryclockcalibration
 [windows-clock-arguments]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_d3dkmt_queryclockcalibration
 [windows-clock-flags]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_dxgk_gpuclockdata_flags
+[linux-debug-errors]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_ctx.c#L375-L504
+[linux-debug-wait]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_ctx.c#L1118-L1194
