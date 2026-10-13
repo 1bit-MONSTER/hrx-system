@@ -7,6 +7,10 @@
 load("@rules_python//python:defs.bzl", "py_test")
 load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/src/loom/serve/fixture/decision:sources.bzl", DECISION_SOURCES = "SOURCES")
+load("//loom/src/loom/serve/fixture/embedding:sources.bzl", EMBEDDING_SOURCES = "SOURCES", EMBEDDING_VARIANT_SOURCES = "VARIANT_SOURCES")
+load("//loom/src/loom/serve/fixture/image:sources.bzl", IMAGE_SOURCES = "SOURCES")
+load("//loom/src/loom/serve/fixture/text:sources.bzl", TEXT_SOURCES = "SOURCES")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -16,10 +20,7 @@ loom_cc_test(
         "--model_source=$(rootpath //loom/src/loom/serve/fixture/image:prepare.loom)",
         "--test_device=vulkan",
     ],
-    data = [
-        "//loom/src/loom/serve/fixture/image:prepare.loom",
-        "//loom/src/loom/serve/fixture/image:sources",
-    ],
+    data = IMAGE_SOURCES,
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = [
         "iree-run-requirement=vulkan.resource.device",
@@ -50,15 +51,7 @@ py_test(
         "--device=vulkan",
         "--pool_backing=fixed",
     ],
-    data = [
-        "//loom/src/loom/serve/fixture/decision:model.json",
-        "//loom/src/loom/serve/fixture/decision:sources",
-        "//loom/src/loom/serve/fixture/embedding:model.json",
-        "//loom/src/loom/serve/fixture/embedding:sources",
-        "//loom/src/loom/serve/fixture/image:model.json",
-        "//loom/src/loom/serve/fixture/image:sources",
-        "//loom/src/loom/serve/fixture/text:model.json",
-        "//loom/src/loom/serve/fixture/text:sources",
+    data = DECISION_SOURCES + EMBEDDING_SOURCES + IMAGE_SOURCES + TEXT_SOURCES + [
         "//loom/src/loom/tools/loom-serve",
     ],
     main = "catalog_test.py",
@@ -87,12 +80,7 @@ loom_cc_test(
         "--embedding_source=$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
         "--test_device=vulkan",
     ],
-    data = [
-        "//loom/src/loom/serve/fixture/decision:prepare.loom",
-        "//loom/src/loom/serve/fixture/decision:sources",
-        "//loom/src/loom/serve/fixture/embedding:prepare.loom",
-        "//loom/src/loom/serve/fixture/embedding:sources",
-    ],
+    data = DECISION_SOURCES + EMBEDDING_SOURCES,
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = [
         "iree-run-requirement=vulkan.resource.device",
@@ -117,11 +105,7 @@ loom_cc_test(
         "--test_device=vulkan",
         "--gtest_filter=Workers/SourceEmbeddingServiceTest.*",
     ],
-    data = [
-        "//loom/src/loom/serve/fixture/embedding:prepare.loom",
-        "//loom/src/loom/serve/fixture/embedding:sources",
-        "//loom/src/loom/serve/fixture/embedding:variant_sources",
-    ],
+    data = EMBEDDING_SOURCES + EMBEDDING_VARIANT_SOURCES,
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = [
         "iree-run-requirement=vulkan.resource.device",
@@ -146,10 +130,7 @@ loom_cc_test(
         "--test_device=vulkan",
         "--gtest_filter=Workers/SourceTextServiceTest.*:Workers/AdmissionServiceTest.*:SharedWorkers/PrefixServiceTest.*",
     ],
-    data = [
-        "//loom/src/loom/serve/fixture/text:prepare.loom",
-        "//loom/src/loom/serve/fixture/text:sources",
-    ],
+    data = TEXT_SOURCES,
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = [
         "iree-run-requirement=vulkan.resource.device",

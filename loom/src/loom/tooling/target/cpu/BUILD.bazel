@@ -21,6 +21,7 @@ load(
     "TARGET_ARCH_VM",
     "TARGET_ARCH_X86",
 )
+load("//loom/src/loom/serve/fixture/embedding:sources.bzl", EMBEDDING_SOURCES = "SOURCES")
 load(
     "//runtime/requirements:defs.bzl",
     "HAL_EXECUTABLE_LOADER_EMBEDDED_ELF",
@@ -58,9 +59,7 @@ py_test(
         "$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
         "$(rootpath //loom/src/loom/tools/loom-format)",
     ],
-    data = [
-        "//loom/src/loom/serve/fixture/embedding:prepare.loom",
-        "//loom/src/loom/serve/fixture/embedding:sources",
+    data = EMBEDDING_SOURCES + [
         "//loom/src/loom/tools/loom-format",
         "//loom/src/loom/tools/loom-serve",
     ],

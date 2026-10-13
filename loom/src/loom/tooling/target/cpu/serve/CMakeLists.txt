@@ -21,8 +21,12 @@ iree_py_test(
     "{{$<TARGET_FILE:loom::tools::loom-serve::loom-serve>}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
   DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
-    "loom::serve::fixture::text::sources"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
     "loom::tools::loom-serve::loom-serve"
   DEPS
     loom::serve::testing::http
@@ -40,8 +44,12 @@ loom_cc_test(
   NAME
     source_image_service_test
   DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/config.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/generate.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/model.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/prepare.loom"
-    "loom::serve::fixture::image::sources"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/tokenizer.json"
   DEPS
     iree::testing::gtest_main
     loom::serve::service::image::source_service_tests
@@ -56,10 +64,17 @@ loom_cc_test(
   NAME
     source_decision_service_test
   DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/config.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/decide.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/model.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/config.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/embed.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom"
-    "loom::serve::fixture::decision::sources"
-    "loom::serve::fixture::embedding::sources"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/tokenizer.json"
   DEPS
     iree::testing::gtest_main
     loom::serve::service::finite::decision::source_service_tests
@@ -75,9 +90,15 @@ loom_cc_test(
   NAME
     source_embedding_service_test
   DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/config.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/embed.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom"
-    "loom::serve::fixture::embedding::sources"
-    "loom::serve::fixture::embedding::variant_sources"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/direct.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/policy.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/weights.loom"
   DEPS
     iree::testing::gtest_main
     loom::serve::service::finite::embedding::source_service_tests
@@ -93,8 +114,12 @@ loom_cc_test(
   NAME
     source_text_service_test
   DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
-    "loom::serve::fixture::text::sources"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
   DEPS
     iree::testing::gtest_main
     loom::serve::service::text::source_service_tests

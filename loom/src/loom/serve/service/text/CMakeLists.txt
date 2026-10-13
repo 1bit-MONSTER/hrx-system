@@ -21,8 +21,12 @@ iree_py_test(
     "{{$<TARGET_FILE:loom::serve::testing::text_request_check>}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom}}"
   DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom"
-    "loom::serve::fixture::text::sources"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
     "loom::serve::testing::text_request_check"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"

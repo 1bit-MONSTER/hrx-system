@@ -4,27 +4,11 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load(":sources.bzl", "SOURCE_FILES")
+
 package(default_visibility = ["//visibility:private"])
 
 exports_files(
-    [
-        "control.loom",
-        "model.json",
-        "prepare.loom",
-    ],
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "sources",
-    testonly = True,
-    srcs = [
-        "config.loom",
-        "control.loom",
-        "generate.loom",
-        "model.json",
-        "prepare.loom",
-        "tokenizer.json",
-    ],
+    SOURCE_FILES,
     visibility = ["//visibility:public"],
 )

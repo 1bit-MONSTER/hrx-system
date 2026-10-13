@@ -6,6 +6,7 @@
 
 load("@rules_python//python:defs.bzl", "py_test")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/src/loom/serve/fixture/text:sources.bzl", TEXT_SOURCES = "SOURCES")
 
 package(
     default_visibility = ["//loom/src/loom/serve:implementation"],
@@ -26,9 +27,7 @@ py_test(
         "$(rootpath //loom/src/loom/serve/testing:text_request_check)",
         "$(rootpath //loom/src/loom/serve/fixture/text:control.loom)",
     ],
-    data = [
-        "//loom/src/loom/serve/fixture/text:control.loom",
-        "//loom/src/loom/serve/fixture/text:sources",
+    data = TEXT_SOURCES + [
         "//loom/src/loom/serve/testing:text_request_check",
     ],
     target_compatible_with = loom_config_compatible_with([

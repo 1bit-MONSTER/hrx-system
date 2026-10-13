@@ -6,6 +6,7 @@
 
 load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/src/loom/serve/fixture/embedding:sources.bzl", EMBEDDING_SOURCES = "SOURCES", EMBEDDING_VARIANT_SOURCES = "VARIANT_SOURCES")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -22,10 +23,7 @@ loom_cc_test(
         "--direct_stage_source=$(rootpath //loom/src/loom/tooling/target/amd/xdna/serve:testdata/resident_embedding.loom)",
         "--gtest_filter=*DirectDispatch*",
     ],
-    data = [
-        "//loom/src/loom/serve/fixture/embedding:prepare.loom",
-        "//loom/src/loom/serve/fixture/embedding:sources",
-        "//loom/src/loom/serve/fixture/embedding:variant_sources",
+    data = EMBEDDING_SOURCES + EMBEDDING_VARIANT_SOURCES + [
         "//loom/src/loom/tooling/target/amd/xdna/serve:testdata/resident_embedding.loom",
     ],
     resource_group = GPU_DEVICE_RESOURCE_GROUP,

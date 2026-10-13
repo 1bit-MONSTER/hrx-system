@@ -9,24 +9,4 @@
 
 iree_add_all_subdirs()
 
-iree_package_target_name(_FILEGROUP_TARGET "::sources")
-add_custom_command(OUTPUT sources.stamp
-    COMMAND ${CMAKE_COMMAND} -E touch sources.stamp
-  DEPENDS
-    "config.loom"
-    "control.loom"
-    "generate.loom"
-    "model.json"
-    "prepare.loom"
-    "tokenizer.json"
-)
-
-add_custom_target(${_FILEGROUP_TARGET}
-    DEPENDS sources.stamp
-)
-iree_register_generated_compile_input(${_FILEGROUP_TARGET}
-  OUTPUTS
-    "${CMAKE_CURRENT_BINARY_DIR}/sources.stamp"
-)
-
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
