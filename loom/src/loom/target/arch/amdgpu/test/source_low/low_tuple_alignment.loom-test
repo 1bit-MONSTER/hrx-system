@@ -76,3 +76,69 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @structural_scalar_tuple(%pack
 // ----
 // Only the scalar slice is used by an instruction; the aggregate is storage.
 CHECK: *"name":"tail"*"location":{"kind":"physical_register","base":4,"count":1}*
+
+// ====
+
+// Gfx125x requires even tuple bases, including non-power-of-two widths.
+// RUN: emit amdgpu-assembly @aligned_triple strategy=source
+
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @aligned_triple(%offset: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr x3>, %base: reg<amdgpu.sgpr x2>) asm {
+  global_store_b96_saddr %offset, %value, %base
+  return
+}
+
+// ----
+  global_store_b96 v0, v[2:4], s[0:1] offset:0
+  s_wait_storecnt storecnt(0)
+  s_endpgm
+
+// ====
+
+// Earlier RDNA can pack the same tuple immediately after its address.
+// RUN: emit amdgpu-assembly @unaligned_triple strategy=source
+
+amdgpu.target<gfx1201> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @unaligned_triple(%offset: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr x3>, %base: reg<amdgpu.sgpr x2>) asm {
+  global_store_b96_saddr %offset, %value, %base
+  return
+}
+
+// ----
+  global_store_b96 v0, v[1:3], s[0:1] offset:0
+  s_wait_storecnt storecnt(0)
+  s_endpgm
+
+// ====
+
+// A single VGPR can occupy an odd register between aligned tuples.
+// RUN: emit amdgpu-assembly @tuple_and_scalar_alignment strategy=source
+
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @tuple_and_scalar_alignment(%offset: reg<amdgpu.vgpr>, %scalar: reg<amdgpu.vgpr>, %pair: reg<amdgpu.vgpr x2>, %wide: reg<amdgpu.vgpr x4>, %base: reg<amdgpu.sgpr x2>) asm {
+  global_store_b32_saddr %offset, %scalar, %base
+  global_store_b64_saddr %offset, %pair, %base {offset = 8}
+  global_store_b128_saddr %offset, %wide, %base {offset = 16}
+  return
+}
+
+// ----
+  global_store_b32 v1, v0, s[0:1] offset:0
+  global_store_b64 v1, v[2:3], s[0:1] offset:8
+  global_store_b128 v1, v[4:7], s[0:1] offset:16
+  s_wait_storecnt storecnt(0)
+  s_endpgm
+
+// ====
+
+// RUN: emit low-allocation-json @gfx125x_triple_requires_even fixed=%packet:physical_register:1:3 output=none
+
+amdgpu.target<gfx1250> @target
+
+// ERROR@+1: BACKEND/035 {value_name="packet", location_base="1", required_alignment="2"}
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @gfx125x_triple_requires_even(%packet: reg<amdgpu.vgpr x3>) -> (reg<amdgpu.vgpr x3>) asm {
+  return %packet
+}
