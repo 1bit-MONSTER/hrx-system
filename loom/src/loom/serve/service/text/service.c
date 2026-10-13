@@ -1528,7 +1528,7 @@ void loom_serve_text_service_free(loom_serve_text_service_t* service,
   if (service->telemetry.owns_stream) {
     loom_serve_telemetry_stream_free(service->telemetry.stream);
   }
-  iree_allocator_free(host_allocator, service);
+  iree_allocator_free_aligned(host_allocator, service);
 }
 
 iree_status_t loom_serve_text_service_allocate(
@@ -1561,8 +1561,9 @@ iree_status_t loom_serve_text_service_allocate(
                             "prefix cache exceeds remaining native endpoints");
   }
   loom_serve_text_service_t* service = NULL;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(host_allocator, sizeof(*service),
-                                             (void**)&service));
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_aligned(
+      host_allocator, sizeof(*service), iree_alignof(loom_serve_text_service_t),
+      0, (void**)&service));
   *service = (loom_serve_text_service_t){
       .allocator = host_allocator,
       .model = model,

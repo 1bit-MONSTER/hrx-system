@@ -240,8 +240,9 @@ static iree_status_t router_tokenization_accept(
                          &router->output);
   }
   router_tokenization_t* job = NULL;
-  iree_status_t status =
-      iree_allocator_malloc(router->allocator, sizeof(*job), (void**)&job);
+  iree_status_t status = iree_allocator_malloc_aligned(
+      router->allocator, sizeof(*job), iree_alignof(router_tokenization_t), 0,
+      (void**)&job);
   if (!iree_status_is_ok(status)) {
     loom_serve_http_connection_abort(connection);
     return status;
@@ -319,7 +320,7 @@ static void router_tokenizations_collect(router_t* router, bool* out_progress) {
     router->stopping |= !iree_status_is_ok(router->status);
     iree_string_builder_deinitialize(&job->output);
     iree_slim_mutex_deinitialize(&job->mutex);
-    iree_allocator_free(router->allocator, job);
+    iree_allocator_free_aligned(router->allocator, job);
   }
 }
 

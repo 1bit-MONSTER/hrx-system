@@ -824,7 +824,7 @@ void loom_serve_finite_service_free(loom_serve_finite_service_t* service) {
   if (service->telemetry.owns_stream) {
     loom_serve_telemetry_stream_free(service->telemetry.stream);
   }
-  iree_allocator_free(service->allocator, service);
+  iree_allocator_free_aligned(service->allocator, service);
 }
 
 iree_status_t loom_serve_finite_service_allocate(
@@ -841,8 +841,9 @@ iree_status_t loom_serve_finite_service_allocate(
         "finite service requires a name and queue capacity");
   }
   loom_serve_finite_service_t* service = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(allocator, sizeof(*service), (void**)&service));
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_aligned(
+      allocator, sizeof(*service), iree_alignof(loom_serve_finite_service_t), 0,
+      (void**)&service));
   service->allocator = allocator;
   service->model = model;
   service->protocol = protocol;
