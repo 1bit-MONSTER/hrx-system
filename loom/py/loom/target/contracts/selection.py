@@ -26,7 +26,11 @@ from loom.target.contracts.lower_rule_tables import (
 )
 from loom.target.contracts.patterns import TypePattern
 
-CONTRACT_SELECTION_MINIMUM_AVOIDED_CASES = 32
+# Candidate indices pay for fixed rodata and one root-field lookup. A basic
+# rule match costs one work unit; each related node adds three units for its
+# use-def resolution, eligibility checks, and connection verification.
+CONTRACT_SELECTION_MINIMUM_AVOIDED_WORK = 32
+CONTRACT_SELECTION_SOURCE_NODE_WORK = 3
 CONTRACT_SELECTION_MAX_FIELD_INDEX = 0xFF
 CONTRACT_SELECTION_MAX_ELEMENT_INDEX = 0x3F
 
@@ -219,7 +223,10 @@ def _case_rule(
     lower_rule_sets: Sequence[CompiledLowerRuleSet | None],
 ) -> tuple[CompiledLowerRuleSet, LowerRule] | None:
     fragment = fragments[contract_case.binding_index]
-    if contract_case.system is ContractSystem.DESCRIPTOR_RULE:
+    if contract_case.system in (
+        ContractSystem.DESCRIPTOR_RULE,
+        ContractSystem.DESCRIPTOR_RULE_LOWERING_ONLY,
+    ):
         rule_index = fragment.descriptor_rules[contract_case.row_index].rule_index
     elif contract_case.system in {
         ContractSystem.VALUE_ALIAS,
@@ -247,10 +254,20 @@ def _compile_selection_row(
 ) -> ContractSelectionRow | None:
     case_selectors = []
     selectors = set()
+    case_match_work = []
     for contract_case in index.cases[case_start : case_start + case_count]:
         case_rule = _case_rule(contract_case, fragments, lower_rule_sets)
-        selector_values = {} if case_rule is None else _rule_selector_values(*case_rule)
+        if case_rule is None:
+            selector_values = {}
+            match_work = 1
+        else:
+            rule_set, rule = case_rule
+            selector_values = _rule_selector_values(rule_set, rule)
+            match_work = 1 + (
+                CONTRACT_SELECTION_SOURCE_NODE_WORK * rule.source_node_count
+            )
         case_selectors.append(selector_values)
+        case_match_work.append(match_work)
         selectors.update(selector_values)
 
     choices = []
@@ -285,8 +302,18 @@ def _compile_selection_row(
             len(fallback_ordinals),
             *(len(bucket.candidate_ordinals) for bucket in buckets),
         )
+        candidate_work = (
+            sum(case_match_work[ordinal] for ordinal in fallback_ordinals),
+            *(
+                sum(case_match_work[ordinal] for ordinal in bucket.candidate_ordinals)
+                for bucket in buckets
+            ),
+        )
         choices.append(
             (
+                max(candidate_work),
+                candidate_work[0],
+                sum(candidate_work),
                 max(candidate_counts),
                 len(fallback_ordinals),
                 sum(candidate_counts),
@@ -297,9 +324,9 @@ def _compile_selection_row(
         )
     if not choices:
         return None
-    choices.sort(key=lambda choice: choice[:4])
-    worst_count, _, _, selector, fallback_ordinals, buckets = choices[0]
-    if case_count - worst_count < CONTRACT_SELECTION_MINIMUM_AVOIDED_CASES:
+    choices.sort(key=lambda choice: choice[:7])
+    worst_work, _, _, _, _, _, selector, fallback_ordinals, buckets = choices[0]
+    if sum(case_match_work) - worst_work < CONTRACT_SELECTION_MINIMUM_AVOIDED_WORK:
         return None
     return ContractSelectionRow(
         op_kind,

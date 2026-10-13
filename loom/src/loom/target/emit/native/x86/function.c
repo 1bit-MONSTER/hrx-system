@@ -881,9 +881,19 @@ static iree_status_t loom_x86_function_packet(
     }
   }
   if (descriptor->immediate_count == 2) {
-    operands.scale = (uint8_t)iree_math_count_trailing_zeros_u32(
-        (uint32_t)loom_x86_function_immediate(frame, packet, 1).i64);
-    operands.has_index = true;
+    const int64_t second_immediate =
+        loom_x86_function_immediate(frame, packet, 1).i64;
+    if (descriptor->encoding_format_id ==
+            LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_SELECT ||
+        descriptor->encoding_format_id ==
+            LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_PREDICATE) {
+      operands.secondary_immediate = (uint8_t)second_immediate;
+    } else {
+      operands.secondary_immediate =
+          (uint8_t)iree_math_count_trailing_zeros_u32(
+              (uint32_t)second_immediate);
+      operands.has_index = true;
+    }
   }
   loom_x86_function_append(function, descriptor->encoding_format_id,
                            descriptor->encoding_id, operands, reference);

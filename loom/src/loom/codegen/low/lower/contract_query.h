@@ -121,7 +121,8 @@ static inline bool loom_low_lower_contract_case_lower_rule_index(
   const loom_target_contract_binding_t* binding =
       &index->bindings[contract_case->binding_index];
   switch (contract_case->system) {
-    case LOOM_TARGET_CONTRACT_SYSTEM_DESCRIPTOR_RULE: {
+    case LOOM_TARGET_CONTRACT_SYSTEM_DESCRIPTOR_RULE:
+    case LOOM_TARGET_CONTRACT_SYSTEM_DESCRIPTOR_RULE_LOWERING_ONLY: {
       const loom_target_contract_descriptor_rule_t* descriptor_rule =
           &binding->fragment->descriptor_rules[contract_case->row_index];
       *out_rule_index = descriptor_rule->rule_index;
@@ -137,6 +138,17 @@ static inline bool loom_low_lower_contract_case_lower_rule_index(
     default:
       return false;
   }
+}
+
+// Returns true when a composed case participates in read-only target queries.
+static inline bool loom_low_lower_contract_case_queries_target(
+    const loom_target_contract_index_t* index,
+    const loom_target_contract_case_t* contract_case) {
+  const loom_target_contract_binding_t* binding =
+      &index->bindings[contract_case->binding_index];
+  return loom_target_contract_fragment_queries_target(binding->fragment) &&
+         contract_case->system !=
+             LOOM_TARGET_CONTRACT_SYSTEM_DESCRIPTOR_RULE_LOWERING_ONLY;
 }
 
 // Queries one generated descriptor-matrix case through the shared matrix

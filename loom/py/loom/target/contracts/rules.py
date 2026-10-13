@@ -254,6 +254,9 @@ class DescriptorRule:
     Cases for the same source operation are selected by descending priority,
     preserving authored order among cases with equal priority. Related source
     graphs also use the priority to resolve ownership across root operations.
+    Rules that only combine operations already covered by singleton rules set
+    target_query to false so they participate in lowering without independently
+    establishing target legality.
     """
 
     source_op: Op
@@ -263,6 +266,7 @@ class DescriptorRule:
     emit: tuple[ContractEmit, ...] = ()
     priority: int = 0
     report_key: str = ""
+    target_query: bool = True
 
     def __init__(
         self,
@@ -274,6 +278,7 @@ class DescriptorRule:
         emit: Sequence[ContractEmit] = (),
         priority: int = 0,
         report_key: str = "",
+        target_query: bool = True,
     ) -> None:
         object.__setattr__(self, "source_op", source_op)
         object.__setattr__(self, "descriptor", descriptor)
@@ -282,6 +287,7 @@ class DescriptorRule:
         object.__setattr__(self, "emit", tuple(emit))
         object.__setattr__(self, "priority", priority)
         object.__setattr__(self, "report_key", report_key)
+        object.__setattr__(self, "target_query", target_query)
         if priority < 0:
             raise ValueError("descriptor rule priority must be non-negative")
         if priority > MAX_RULE_PRIORITY:
@@ -292,7 +298,11 @@ class DescriptorRule:
 
     @property
     def system(self) -> ContractSystem:
-        return ContractSystem.DESCRIPTOR_RULE
+        return (
+            ContractSystem.DESCRIPTOR_RULE
+            if self.target_query
+            else ContractSystem.DESCRIPTOR_RULE_LOWERING_ONLY
+        )
 
     def validate(self, descriptor_set: DescriptorSet) -> None:
         if self.descriptor is not None:

@@ -25,6 +25,12 @@ extern "C" uint32_t read_memory_mix32(const uint32_t* input, uint64_t position,
 extern "C" uint64_t read_memory_mix64(const uint64_t* input, uint64_t position,
                                       uint64_t seed);
 extern "C" uint64_t choose_mix(uint64_t input, uint64_t delta, uint64_t limit);
+extern "C" uint64_t compare_select_mix(uint32_t lhs32, uint32_t rhs32,
+                                       int64_t lhs64);
+extern "C" uint32_t narrow_compare_mask(int8_t lhs8, int8_t rhs8, int16_t lhs16,
+                                        int16_t rhs16);
+extern "C" uint64_t narrow_compare_select_mix(int8_t lhs8, int8_t rhs8,
+                                              int16_t lhs16);
 extern "C" uint64_t preserve(uint64_t a, uint64_t b, uint64_t c, uint64_t d,
                              uint64_t e, uint64_t f);
 extern "C" uint64_t shift_mix(uint64_t unused_first, uint64_t count,
@@ -328,6 +334,30 @@ TEST(NativeCallableTest, OrdinaryCLinkage) {
     const uint64_t d = words[3], e = words[4], f = words[5];
     ASSERT_EQ(mix(a, b), (a + b) ^ a);
     ASSERT_EQ(choose_mix(a, b, c), a < c ? ((a + b) ^ a) : ((a * b) ^ c));
+    const uint64_t selected64 =
+        static_cast<uint32_t>(a) < static_cast<uint32_t>(b)
+            ? UINT64_C(4294967297)
+            : UINT64_C(8589934594);
+    const int64_t signed_value = static_cast<int64_t>(i) - 500;
+    const uint64_t selected32 = signed_value >= -129 ? 17 : 23;
+    ASSERT_EQ(compare_select_mix(static_cast<uint32_t>(a),
+                                 static_cast<uint32_t>(b), signed_value),
+              selected64 ^ selected32);
+    const int8_t lhs8 = static_cast<int8_t>(a);
+    const int8_t rhs8 = static_cast<int8_t>(b);
+    const int16_t lhs16 = static_cast<int16_t>(c);
+    const int16_t rhs16 = static_cast<int16_t>(d);
+    const uint32_t narrow_mask =
+        (lhs8 < rhs8 ? 1u : 0u) | (lhs8 == -17 ? 2u : 0u) |
+        (static_cast<uint16_t>(lhs16) > static_cast<uint16_t>(rhs16) ? 4u
+                                                                     : 0u) |
+        (static_cast<uint16_t>(lhs16) <= UINT16_C(1234) ? 8u : 0u);
+    ASSERT_EQ(narrow_compare_mask(lhs8, rhs8, lhs16, rhs16), narrow_mask);
+    const uint64_t narrow_selected16 = lhs8 < rhs8 ? 17 : 300;
+    const uint64_t narrow_selected64 =
+        lhs16 >= -129 ? UINT64_C(4294967297) : UINT64_C(8589934594);
+    ASSERT_EQ(narrow_compare_select_mix(lhs8, rhs8, lhs16),
+              narrow_selected16 ^ narrow_selected64);
     ASSERT_EQ(preserve(a, b, c, d, e, f),
               ((a + b) * (c + d) + (e + f) * a) ^ (b ^ c));
     ASSERT_EQ(shift_mix(a, b, c, d), (d >> (b & 63)) ^ d);

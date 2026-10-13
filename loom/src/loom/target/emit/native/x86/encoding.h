@@ -66,6 +66,14 @@ typedef enum loom_x86_encoding_form_e {
   LOOM_X86_ENCODING_FORM_SIGN_EXTEND_DIVIDEND = 31,
   // Divides the fixed EDX:EAX or RDX:RAX dividend by input 2.
   LOOM_X86_ENCODING_FORM_DIVIDE = 32,
+  // Compares two registers and conditionally selects a register payload.
+  LOOM_X86_ENCODING_FORM_COMPARE_SELECT = 33,
+  // Compares a register and immediate and conditionally selects a payload.
+  LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_SELECT = 34,
+  // Compares two registers and materializes a dynamic predicate.
+  LOOM_X86_ENCODING_FORM_COMPARE_PREDICATE = 35,
+  // Compares a register and immediate and materializes a dynamic predicate.
+  LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_PREDICATE = 36,
 } loom_x86_encoding_form_t;
 
 // Native fixup identities. Object adapters supply their format's mapping.
@@ -123,6 +131,8 @@ enum loom_x86_encoding_flag_bits_e {
   // The r/m register for register forms, or the value register for memory.
   LOOM_X86_ENCODING_BYTE = 1u << 14,
   LOOM_X86_ENCODING_INDEXED = 1u << 15,
+  // Form-specific result width for macros with a distinct input width.
+  LOOM_X86_ENCODING_RESULT_REX_W = 1u << 15,
 };
 
 // Native register numbers use architectural encoding order: RAX=0, RCX=1,
@@ -136,8 +146,8 @@ typedef struct loom_x86_encoding_operands_t {
   uint8_t result;
   // Architectural input registers in descriptor operand order.
   uint8_t inputs[5];
-  // SIB scale exponent (0, 1, 2, or 3), not a byte multiplier.
-  uint8_t scale;
+  // Form-specific second immediate: a SIB scale exponent or condition code.
+  uint8_t secondary_immediate;
   // True when the input immediately after a selected memory base is an index.
   bool has_index;
 } loom_x86_encoding_operands_t;

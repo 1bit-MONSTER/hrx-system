@@ -3710,6 +3710,35 @@ def test_compile_lower_rule_set_compiles_packed_enum_remap() -> None:
     assert attr_copy.other_source_attr_index == (packed_values >> 63) & 0xFFFF
     assert attr_copy.source_element_index == packed_values >> 79
 
+    enum_domain = EnumDomain(
+        "test.predicate",
+        tuple(EnumValue(keyword, value) for keyword, value in predicate_values.items()),
+    )
+    enum_descriptor = replace(
+        descriptor,
+        immediates=(
+            replace(
+                immediate,
+                kind=ImmediateKind.ENUM,
+                enum_domain=enum_domain.name,
+            ),
+        ),
+    )
+    enum_descriptor_set = replace(
+        descriptor_set,
+        enum_domains=(*descriptor_set.enum_domains, enum_domain),
+        descriptors=tuple(
+            enum_descriptor if row == descriptor else row
+            for row in descriptor_set.descriptors
+        ),
+    )
+    AttrProject.enum_remap("predicate", predicate_values).validate(
+        scalar_comparison.scalar_cmpf,
+        enum_descriptor_set,
+        enum_descriptor,
+        "predicate",
+    )
+
     _expect_value_error(
         lambda: AttrProject.enum_remap(
             "predicate",

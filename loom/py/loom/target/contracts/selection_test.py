@@ -23,10 +23,12 @@ from loom.target.contracts.lower_rule_tables import (
     CompiledLowerRuleSet,
     LowerGuard,
     LowerRule,
+    LowerSourceNode,
     LowerTypePattern,
     LowerValueRef,
 )
 from loom.target.contracts.patterns import Scalar, Vector
+from loom.target.contracts.rules import SourceNodeRelation
 from loom.target.contracts.selection import (
     ContractCandidateEncoding,
     ContractSelectionBucket,
@@ -47,6 +49,7 @@ def _lower_rule_set(
     *,
     type_patterns: tuple[LowerTypePattern, ...] = (),
     value_refs: tuple[LowerValueRef, ...] = (),
+    source_graph: bool = False,
 ) -> CompiledLowerRuleSet:
     guards = []
     rules = []
@@ -61,7 +64,26 @@ def _lower_rule_set(
                 guard_count=len(program),
                 emit_start=0,
                 emit_count=0,
+                source_node_count=1 if source_graph else 0,
             )
+        )
+    source_nodes = ()
+    if source_graph:
+        parent_value_ref_index = len(value_refs)
+        value_refs += (
+            LowerValueRef(SourceValueKind.RESULT, 0, source_node_index=0),
+            LowerValueRef(SourceValueKind.OPERAND, 0, source_node_index=1),
+        )
+        source_nodes = (
+            LowerSourceNode(
+                relation=SourceNodeRelation.EXCLUSIVE_USER,
+                source_op=scalar.scalar_cmpi,
+                parent_node_index=0,
+                parent_value_ref_index=parent_value_ref_index,
+                node_value_ref_index=parent_value_ref_index + 1,
+                guard_start=0,
+                guard_count=0,
+            ),
         )
     return CompiledLowerRuleSet(
         name="test.selection",
@@ -70,8 +92,8 @@ def _lower_rule_set(
         spans=(),
         type_patterns=type_patterns,
         value_refs=value_refs,
-        source_nodes=(),
-        source_graph_root_op_kinds=(),
+        source_nodes=source_nodes,
+        source_graph_root_op_kinds=(_OP_KIND,) if source_graph else (),
         source_memories=(),
         guards=tuple(guards),
         attr_copies=(),
@@ -202,7 +224,7 @@ def test_compile_selection_keeps_scalar_and_vector_type_keys_distinct() -> None:
 
 
 @pytest.mark.parametrize(("rule_count", "indexed"), [(40, False), (44, True)])
-def test_compile_selection_requires_32_avoided_cases(
+def test_compile_selection_requires_32_units_of_avoided_work(
     rule_count: int, indexed: bool
 ) -> None:
     rule_set = _lower_rule_set(
@@ -222,6 +244,34 @@ def test_compile_selection_requires_32_avoided_cases(
     selection = compile_contract_selection_index(index, (fragment,), (rule_set,))
 
     assert bool(selection.rows) is indexed
+
+
+@pytest.mark.parametrize(("source_graph", "indexed"), [(False, False), (True, True)])
+def test_compile_selection_accounts_for_source_graph_match_work(
+    source_graph: bool, indexed: bool
+) -> None:
+    rule_set = _lower_rule_set(
+        tuple(
+            (
+                LowerGuard(
+                    kind=GuardKind.ENUM_ATTR_EQUALS,
+                    attr_index=0,
+                    u64=index % 2,
+                ),
+            )
+            for index in range(16)
+        ),
+        source_graph=source_graph,
+    )
+    fragment, index = _descriptor_fragment(16)
+
+    selection = compile_contract_selection_index(index, (fragment,), (rule_set,))
+
+    assert bool(selection.rows) is indexed
+    if indexed:
+        assert all(
+            len(bucket.candidate_ordinals) == 8 for bucket in selection.rows[0].buckets
+        )
 
 
 def test_pack_selection_chooses_and_interns_candidate_encodings() -> None:

@@ -56,8 +56,8 @@ func.def public @boolean_comparisons(%left: i32, %right: i32) -> (i32) {
 
 // ----
 low.func.def public target<x86.avx2.core> abi(object_function) @boolean_comparisons(%left: reg<x86.gpr32>, %right: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %lhs = cmp.ne.imm.gpr32 %left, 0
-  %rhs = cmp.ne.imm.gpr32 %right, 0
+  %lhs = cmp.imm.gpr32 %left, 0, "ne"
+  %rhs = cmp.imm.gpr32 %right, 0, "ne"
   %86 = copy %lhs : reg<x86.gpr32> -> reg<x86.gpr32>
   %ne_bit = xor.gpr32 %86, %rhs
   %88 = copy %ne_bit : reg<x86.gpr32> -> reg<x86.gpr32>
@@ -112,6 +112,7 @@ low.func.def public target<x86.avx2.core> abi(object_function) @boolean_comparis
   %mask_9 = or.gpr32 %136, %uge_shifted
   return %mask_9
 }
+
 // ====
 
 func.def public @conditional_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
@@ -127,8 +128,8 @@ func.def public @conditional_inversion(%input_bits: i32, %enabled_bits: i32) -> 
 
 // ----
 low.func.def public target<x86.avx2.core> abi(object_function) @conditional_inversion(%input_bits: reg<x86.gpr32>, %enabled_bits: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %input = cmp.ne.imm.gpr32 %input_bits, 0
-  %enabled = cmp.ne.imm.gpr32 %enabled_bits, 0
+  %input = cmp.imm.gpr32 %input_bits, 0, "ne"
+  %enabled = cmp.imm.gpr32 %enabled_bits, 0, "ne"
   %16 = copy %enabled : reg<x86.gpr32> -> reg<x86.gpr32>
   %result = xor.gpr32 %16, %input
   return %result
@@ -149,8 +150,8 @@ func.def public @conditional_inversion_false(%input_bits: i32, %enabled_bits: i3
 
 // ----
 low.func.def public target<x86.avx2.core> abi(object_function) @conditional_inversion_false(%input_bits: reg<x86.gpr32>, %enabled_bits: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %input = cmp.ne.imm.gpr32 %input_bits, 0
-  %enabled = cmp.ne.imm.gpr32 %enabled_bits, 0
+  %input = cmp.imm.gpr32 %input_bits, 0, "ne"
+  %enabled = cmp.imm.gpr32 %enabled_bits, 0, "ne"
   %16 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
   %inverse = xor.imm.gpr32 %16 {imm32 = 1}
   %18 = copy %enabled : reg<x86.gpr32> -> reg<x86.gpr32>
@@ -178,8 +179,8 @@ func.def public @conditional_byte_inversion(%input_bits: i32, %enabled_bits: i32
 
 // ----
 low.func.def public target<x86.avx2.core> abi(object_function) @conditional_byte_inversion(%input_bits: reg<x86.gpr32>, %enabled_bits: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %input = cmp.ne.imm.gpr32 %input_bits, 0
-  %enabled = cmp.ne.imm.gpr32 %enabled_bits, 0
+  %input = cmp.imm.gpr32 %input_bits, 0, "ne"
+  %enabled = cmp.imm.gpr32 %enabled_bits, 0, "ne"
   %21 = copy %enabled : reg<x86.gpr32> -> reg<x86.gpr32>
   %result = xor.gpr32 %21, %input
   return %result
@@ -201,8 +202,8 @@ func.def public @conditional_signed_inversion(%input_bits: i32, %enabled_bits: i
 
 // ----
 low.func.def public target<x86.avx2.core> abi(object_function) @conditional_signed_inversion(%input_bits: reg<x86.gpr32>, %enabled_bits: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %input = cmp.ne.imm.gpr32 %input_bits, 0
-  %enabled = cmp.ne.imm.gpr32 %enabled_bits, 0
+  %input = cmp.imm.gpr32 %input_bits, 0, "ne"
+  %enabled = cmp.imm.gpr32 %enabled_bits, 0, "ne"
   %18 = copy %enabled : reg<x86.gpr32> -> reg<x86.gpr32>
   %19 = xor.gpr32 %18, %input
   %20 = copy %19 : reg<x86.gpr32> -> reg<x86.gpr32>

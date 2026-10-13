@@ -257,13 +257,13 @@ static iree_status_t loom_low_lower_match_contract_case(
     loom_low_lower_contract_case_match_t* out_match) {
   const loom_target_contract_index_t* index = options->contract_index;
   const loom_target_contract_case_t* contract_case = &index->cases[case_index];
-  const loom_target_contract_binding_t* binding =
-      &index->bindings[contract_case->binding_index];
   if (domain == LOOM_LOW_LOWER_CONTRACT_CASE_DOMAIN_TARGET_QUERY &&
-      !loom_target_contract_fragment_queries_target(binding->fragment)) {
+      !loom_low_lower_contract_case_queries_target(index, contract_case)) {
     out_match->kind = LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_SKIP;
     return iree_ok_status();
   }
+  const loom_target_contract_binding_t* binding =
+      &index->bindings[contract_case->binding_index];
   *out_match = (loom_low_lower_contract_case_match_t){
       .kind = LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_SKIP,
       .selection = {.rule_index = UINT16_MAX},
@@ -306,6 +306,19 @@ static iree_status_t loom_low_lower_match_contract_case(
   return iree_ok_status();
 }
 
+// Returns true when two source-node rows resolve the same SSA connection.
+// Node-local guards are deliberately excluded: resolution establishes the
+// connected op once, while each candidate still evaluates its own guards.
+static bool loom_low_lower_source_nodes_share_connection(
+    const loom_low_lower_source_node_t* lhs,
+    const loom_low_lower_source_node_t* rhs) {
+  return lhs->relation == rhs->relation &&
+         lhs->parent_node_index == rhs->parent_node_index &&
+         lhs->source_op_kind == rhs->source_op_kind &&
+         lhs->parent_value_ref_index == rhs->parent_value_ref_index &&
+         lhs->node_value_ref_index == rhs->node_value_ref_index;
+}
+
 static iree_status_t loom_low_lower_visit_contract_cases(
     const loom_target_contract_query_environment_t* environment,
     const loom_low_lower_contract_query_options_t* options,
@@ -337,10 +350,17 @@ static iree_status_t loom_low_lower_visit_contract_cases(
   if (out_used_candidate_index != NULL) {
     *out_used_candidate_index = used_candidate_index;
   }
+  const loom_low_lower_rule_set_t* cached_first_source_node_rule_set = NULL;
+  const loom_low_lower_source_node_t* cached_first_source_node = NULL;
+  const loom_op_t* resolved_first_source_node = NULL;
   uint16_t case_index = UINT16_MAX;
   while (loom_low_lower_contract_case_iterator_next(&iterator, &case_index)) {
     const loom_target_contract_case_t* contract_case =
         &index->cases[case_index];
+    if (domain == LOOM_LOW_LOWER_CONTRACT_CASE_DOMAIN_TARGET_QUERY &&
+        !loom_low_lower_contract_case_queries_target(index, contract_case)) {
+      continue;
+    }
     if (case_scope != LOOM_LOW_LOWER_CONTRACT_CASE_SCOPE_ALL) {
       uint16_t rule_index = UINT16_MAX;
       const bool has_lower_rule = loom_low_lower_contract_case_lower_rule_index(
@@ -360,18 +380,35 @@ static iree_status_t loom_low_lower_visit_contract_cases(
                          : select_source_graph) {
         continue;
       }
-      if (select_source_graph && !loom_low_lower_rule_first_source_node_matches(
-                                     match_context, rule_set, source_op,
-                                     &rule_set->rules[rule_index])) {
-        continue;
+      if (select_source_graph) {
+        const loom_low_lower_rule_t* rule = &rule_set->rules[rule_index];
+        const loom_low_lower_source_node_t* first_source_node =
+            &rule_set
+                 ->source_nodes[loom_low_lower_rule_source_node_start(rule)];
+        if (cached_first_source_node_rule_set != rule_set ||
+            !loom_low_lower_source_nodes_share_connection(
+                cached_first_source_node, first_source_node)) {
+          cached_first_source_node_rule_set = rule_set;
+          cached_first_source_node = first_source_node;
+          if (!loom_low_lower_rule_resolve_first_source_node(
+                  match_context, rule_set, source_op, rule,
+                  &resolved_first_source_node)) {
+            continue;
+          }
+        } else if (resolved_first_source_node == NULL) {
+          continue;
+        }
+        match_context->resolved_first_source_node = resolved_first_source_node;
       }
     }
     loom_low_lower_contract_case_match_t match;
-    IREE_RETURN_IF_ERROR(loom_low_lower_match_contract_case(
+    iree_status_t status = loom_low_lower_match_contract_case(
         environment, options, source_op, case_index, domain,
         /*include_descriptor_matrix=*/
         iteration_mode == LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES,
-        match_context, &match));
+        match_context, &match);
+    match_context->resolved_first_source_node = NULL;
+    IREE_RETURN_IF_ERROR(status);
     if (match.kind != LOOM_LOW_LOWER_CONTRACT_CASE_MATCH_SKIP) {
       bool stop = false;
       IREE_RETURN_IF_ERROR(

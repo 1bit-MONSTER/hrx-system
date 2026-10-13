@@ -1,4 +1,4 @@
-// RUN: with-checks emit source-low target=x86:scalar output=low
+// RUN: emit source-low target=x86:scalar output=low
 
 func.def @integer_extrema_i32(%lhs: i32, %rhs: i32) -> (i32, i32, i32, i32) {
   %signed_min = scalar.minsi %lhs, %rhs : i32
@@ -9,15 +9,17 @@ func.def @integer_extrema_i32(%lhs: i32, %rhs: i32) -> (i32, i32, i32, i32) {
 }
 
 // ----
-CHECK: * = cmp.slt.gpr32 %lhs, %rhs
-CHECK: %signed_min = select.gpr32 *
-CHECK: * = cmp.sgt.gpr32 %lhs, %rhs
-CHECK: %signed_max = select.gpr32 *
-CHECK: * = cmp.ult.gpr32 %lhs, %rhs
-CHECK: %unsigned_min = select.gpr32 *
-CHECK: * = cmp.ugt.gpr32 %lhs, %rhs
-CHECK: %unsigned_max = select.gpr32 *
-CHECK: return %signed_min, %signed_max, %unsigned_min, %unsigned_max
+low.func.def target<x86.scalar.core> abi(object_function) @integer_extrema_i32(%lhs: reg<x86.gpr32>, %rhs: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %24 = copy %rhs : reg<x86.gpr32> -> reg<x86.gpr32>
+  %signed_min = cmp.select.gpr32.gpr32 %lhs, %rhs, %lhs, %24, "slt"
+  %26 = copy %rhs : reg<x86.gpr32> -> reg<x86.gpr32>
+  %signed_max = cmp.select.gpr32.gpr32 %lhs, %rhs, %lhs, %26, "sgt"
+  %28 = copy %rhs : reg<x86.gpr32> -> reg<x86.gpr32>
+  %unsigned_min = cmp.select.gpr32.gpr32 %lhs, %rhs, %lhs, %28, "ult"
+  %30 = copy %rhs : reg<x86.gpr32> -> reg<x86.gpr32>
+  %unsigned_max = cmp.select.gpr32.gpr32 %lhs, %rhs, %lhs, %30, "ugt"
+  return %signed_min, %signed_max, %unsigned_min, %unsigned_max
+}
 
 // ====
 
@@ -30,12 +32,14 @@ func.def @integer_extrema_i64(%lhs: i64, %rhs: i64) -> (i64, i64, i64, i64) {
 }
 
 // ----
-CHECK: * = cmp.slt.gpr64 %lhs, %rhs
-CHECK: %signed_min = select.gpr64 *
-CHECK: * = cmp.sgt.gpr64 %lhs, %rhs
-CHECK: %signed_max = select.gpr64 *
-CHECK: * = cmp.ult.gpr64 %lhs, %rhs
-CHECK: %unsigned_min = select.gpr64 *
-CHECK: * = cmp.ugt.gpr64 %lhs, %rhs
-CHECK: %unsigned_max = select.gpr64 *
-CHECK: return %signed_min, %signed_max, %unsigned_min, %unsigned_max
+low.func.def target<x86.scalar.core> abi(object_function) @integer_extrema_i64(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %24 = copy %rhs : reg<x86.gpr64> -> reg<x86.gpr64>
+  %signed_min = cmp.select.gpr64.gpr64 %lhs, %rhs, %lhs, %24, "slt"
+  %26 = copy %rhs : reg<x86.gpr64> -> reg<x86.gpr64>
+  %signed_max = cmp.select.gpr64.gpr64 %lhs, %rhs, %lhs, %26, "sgt"
+  %28 = copy %rhs : reg<x86.gpr64> -> reg<x86.gpr64>
+  %unsigned_min = cmp.select.gpr64.gpr64 %lhs, %rhs, %lhs, %28, "ult"
+  %30 = copy %rhs : reg<x86.gpr64> -> reg<x86.gpr64>
+  %unsigned_max = cmp.select.gpr64.gpr64 %lhs, %rhs, %lhs, %30, "ugt"
+  return %signed_min, %signed_max, %unsigned_min, %unsigned_max
+}

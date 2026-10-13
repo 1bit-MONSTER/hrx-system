@@ -37,7 +37,10 @@ from loom.target.arch.x86.contracts.memory import (
     x86_scalar_memory_rules,
     x86_view_carrier_rules,
 )
-from loom.target.arch.x86.descriptors import X86_SCALAR_DESCRIPTOR_SET
+from loom.target.arch.x86.descriptors import (
+    X86_INTEGER_CONDITION_CODES,
+    X86_SCALAR_DESCRIPTOR_SET,
+)
 from loom.target.contracts import (
     AttrProject,
     Buffer,
@@ -50,6 +53,7 @@ from loom.target.contracts import (
     Guard,
     GuardDiagnostic,
     Scalar,
+    SourceNode,
     TypePattern,
     ValueAliasRule,
     ValueProject,
@@ -72,7 +76,14 @@ _BF16 = Scalar("bf16")
 _STORAGE_FLOATS = Scalar(("f8E4M3", "f8E5M2", "f16", "bf16"))
 _INDEX = Scalar("index")
 _OFFSET = Scalar("offset")
+_GPR32_SELECT_TYPES = Scalar(("i1", "i8", "i16", "i32"))
+_GPR64_SELECT_TYPES = Scalar(("i64", "index", "offset"))
+_INTEGER_CONDITION_CODE_MAP = dict(X86_INTEGER_CONDITION_CODES)
 
+_I8_MIN = -(2**7)
+_I8_MAX = (2**7) - 1
+_I16_MIN = -(2**15)
+_I16_MAX = (2**15) - 1
 _I32_MIN = -(2**31)
 _I32_MAX = (2**31) - 1
 _I64_MIN = -(2**63) + 1
@@ -102,6 +113,14 @@ _INDEX_CAST_DIAGNOSTIC = GuardDiagnostic(
 )
 
 _DescriptorLookup = Callable[[str], Descriptor]
+
+
+def _integer_compare_immediate(bit_count: int) -> tuple[str, int, int]:
+    if bit_count == 8:
+        return "imm8", _I8_MIN, _I8_MAX
+    if bit_count == 16:
+        return "imm16", _I16_MIN, _I16_MAX
+    return "imm32", _I32_MIN, _I32_MAX
 
 
 def _descriptor(key: str) -> Descriptor:
@@ -239,6 +258,79 @@ def _select_rule(
             ),
         ),
     )
+
+
+def _integer_compare_select_rules(
+    compare_op: Op,
+    compare_type: TypePattern,
+    compare_width: int,
+    descriptor_lookup: _DescriptorLookup,
+) -> Iterable[DescriptorRule]:
+    immediate_name, immediate_min, immediate_max = _integer_compare_immediate(
+        compare_width
+    )
+    for result_type, result_width in (
+        (_GPR32_SELECT_TYPES, 32),
+        (_GPR64_SELECT_TYPES, 64),
+        (Buffer(), 64),
+    ):
+        select = SourceNode.exclusive_user(
+            "select",
+            source_op=scf.scf_select,
+            parent_result=ValueRef.result("result"),
+            node_operand=ValueRef.operand("condition"),
+            guards=(
+                Guard.value_type("condition", _I1),
+                *_typed_guards(("true_value", "false_value", "result"), result_type),
+            ),
+        )
+        for immediate in (True, False):
+            form_name = "imm." if immediate else ""
+            descriptor = descriptor_lookup(
+                f"x86.scalar.cmp.select.{form_name}gpr{compare_width}.gpr{result_width}"
+            )
+            guards = [
+                *_typed_guards(("lhs", "rhs"), compare_type),
+                Guard.value_type("result", _I1),
+            ]
+            operands = {
+                "lhs": ValueRef.operand("lhs"),
+                "true_value": ValueRef.operand("true_value", source_node="select"),
+                "false_value": ValueRef.operand("false_value", source_node="select"),
+            }
+            immediates: dict[str, AttrProject | ValueProject | int] = {
+                "predicate": AttrProject.enum_remap(
+                    "predicate", _INTEGER_CONDITION_CODE_MAP
+                )
+            }
+            if immediate:
+                guards.extend(
+                    (
+                        Guard.value_exact_i64("rhs"),
+                        Guard.value_i64_range("rhs", immediate_min, immediate_max),
+                    )
+                )
+                immediates[immediate_name] = ValueProject.exact_i64("rhs")
+            else:
+                operands["rhs"] = ValueRef.operand("rhs")
+            yield DescriptorRule(
+                source_op=compare_op,
+                descriptor=descriptor,
+                source_nodes=(select,),
+                guards=guards,
+                emit=(
+                    _op_emit(
+                        descriptor=descriptor,
+                        operands=operands,
+                        results={
+                            "dst": ValueRef.result("result", source_node="select")
+                        },
+                        immediates=immediates,
+                    ),
+                ),
+                priority=_SCALAR_INTEGER_IMMEDIATE_PRIORITY if immediate else 0,
+                target_query=False,
+            )
 
 
 def _conversion_rule(
@@ -486,24 +578,24 @@ def _shift_rules(
 
 def _integer_compare_rule(
     source_op: Op,
-    predicate: str,
     type_pattern: TypePattern,
-    descriptor_suffix: str,
+    bit_count: int,
+    immediate: bool,
     descriptor_lookup: _DescriptorLookup,
 ) -> DescriptorRule:
-    descriptor = descriptor_lookup(f"x86.scalar.cmp.{predicate}.{descriptor_suffix}")
-    immediate = bool(descriptor.immediates)
+    form_name = "imm." if immediate else ""
+    descriptor = descriptor_lookup(f"x86.scalar.cmp.{form_name}gpr{bit_count}")
+    immediate_name, immediate_min, immediate_max = _integer_compare_immediate(bit_count)
     return DescriptorRule(
         source_op=source_op,
         descriptor=descriptor,
         guards=(
-            Guard.enum_attr_equals("predicate", predicate),
             *_typed_guards(("lhs", "rhs"), type_pattern),
             Guard.value_type("result", _I1),
             *(
                 (
                     Guard.value_exact_i64("rhs"),
-                    Guard.value_i64_range("rhs", _I32_MIN, _I32_MAX),
+                    Guard.value_i64_range("rhs", immediate_min, immediate_max),
                 )
                 if immediate
                 else ()
@@ -517,9 +609,16 @@ def _integer_compare_rule(
                     **({} if immediate else {"rhs": ValueRef.operand("rhs")}),
                 },
                 results={"dst": ValueRef.result("result")},
-                immediates={"imm32": ValueProject.exact_i64("rhs")}
-                if immediate
-                else {},
+                immediates={
+                    **(
+                        {immediate_name: ValueProject.exact_i64("rhs")}
+                        if immediate
+                        else {}
+                    ),
+                    "predicate": AttrProject.enum_remap(
+                        "predicate", _INTEGER_CONDITION_CODE_MAP
+                    ),
+                },
             ),
         ),
     )
@@ -1070,14 +1169,9 @@ def _cases() -> Sequence[ContractCase]:
                 immediate_priority=_SCALAR_INTEGER_IMMEDIATE_PRIORITY,
             )
         ),
-        *(
-            _select_rule(type_pattern, "x86.scalar.select.gpr32", descriptor_lookup)
-            for type_pattern in (_I1, _I32)
-        ),
-        *(
-            _select_rule(type_pattern, "x86.scalar.select.gpr64", descriptor_lookup)
-            for type_pattern in (_I64, _INDEX, _OFFSET, Buffer())
-        ),
+        _select_rule(_GPR32_SELECT_TYPES, "x86.scalar.select.gpr32", descriptor_lookup),
+        _select_rule(_GPR64_SELECT_TYPES, "x86.scalar.select.gpr64", descriptor_lookup),
+        _select_rule(Buffer(), "x86.scalar.select.gpr64", descriptor_lookup),
         *(
             rule
             for type_pattern, bit_count in ((_I32, 32), (_I64, 64))
@@ -1102,48 +1196,33 @@ def _cases() -> Sequence[ContractCase]:
             )
         ),
         *(
-            _integer_compare_rule(
-                scalar_comparison.scalar_cmpi,
-                predicate,
-                _I32,
-                descriptor_suffix,
-                descriptor_lookup,
+            rule
+            for source_op, compare_type, compare_width in (
+                (scalar_comparison.scalar_cmpi, _I8, 8),
+                (scalar_comparison.scalar_cmpi, _I16, 16),
+                (scalar_comparison.scalar_cmpi, _I32, 32),
+                (scalar_comparison.scalar_cmpi, _I64, 64),
+                (index.index_cmp, Scalar(("index", "offset")), 64),
             )
-            for predicate in (
-                "eq",
-                "ne",
-                "slt",
-                "sle",
-                "sgt",
-                "sge",
-                "ult",
-                "ule",
-                "ugt",
-                "uge",
+            for rule in _integer_compare_select_rules(
+                source_op, compare_type, compare_width, descriptor_lookup
             )
-            for descriptor_suffix in ("imm.gpr32", "gpr32")
         ),
         *(
             _integer_compare_rule(
                 scalar_comparison.scalar_cmpi,
-                predicate,
-                _I64,
-                descriptor_suffix,
+                type_pattern,
+                bit_count,
+                immediate,
                 descriptor_lookup,
             )
-            for predicate in (
-                "eq",
-                "ne",
-                "slt",
-                "sle",
-                "sgt",
-                "sge",
-                "ult",
-                "ule",
-                "ugt",
-                "uge",
+            for type_pattern, bit_count in (
+                (_I8, 8),
+                (_I16, 16),
+                (_I32, 32),
+                (_I64, 64),
             )
-            for descriptor_suffix in ("imm.gpr64", "gpr64")
+            for immediate in (True, False)
         ),
         *(
             _const_i32_rule(result_type, descriptor_lookup)
@@ -1176,25 +1255,12 @@ def _cases() -> Sequence[ContractCase]:
         *(
             _integer_compare_rule(
                 index.index_cmp,
-                predicate,
-                type_pattern,
-                descriptor_suffix,
+                Scalar(("index", "offset")),
+                64,
+                immediate,
                 descriptor_lookup,
             )
-            for type_pattern in (_INDEX, _OFFSET)
-            for predicate in (
-                "eq",
-                "ne",
-                "slt",
-                "sle",
-                "sgt",
-                "sge",
-                "ult",
-                "ule",
-                "ugt",
-                "uge",
-            )
-            for descriptor_suffix in ("imm.gpr64", "gpr64")
+            for immediate in (True, False)
         ),
         _index_cast_i32_extend_rule(
             "x86.scalar.movzx.gpr64.gpr32",

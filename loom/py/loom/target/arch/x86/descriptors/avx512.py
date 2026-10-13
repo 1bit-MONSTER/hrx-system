@@ -36,8 +36,6 @@ from loom.target.low_descriptors import (
     Descriptor,
     DescriptorFlag,
     DescriptorSet,
-    EnumDomain,
-    EnumValue,
     Immediate,
     ImmediateKind,
     IssueUse,
@@ -54,7 +52,6 @@ from loom.target.low_descriptors import (
 
 from .avx2 import X86_AVX2_DESCRIPTORS
 from .common import (
-    _ADDRESS_SCALE_ENUM,
     _LANE_I32X4_IMMEDIATE,
     _READ_ONLY_DATA_IMMEDIATE,
     _REG_K,
@@ -538,17 +535,7 @@ X86_AVX512_CORE_DESCRIPTOR_SET = DescriptorSet(
             model_quality=ModelQuality.FALLBACK,
         ),
     ),
-    enum_domains=(
-        EnumDomain(
-            _ADDRESS_SCALE_ENUM,
-            (
-                EnumValue("1", 1),
-                EnumValue("2", 2),
-                EnumValue("4", 4),
-                EnumValue("8", 8),
-            ),
-        ),
-    ),
+    enum_domains=X86_SCALAR_DESCRIPTOR_SET.enum_domains,
     descriptors=(
         *X86_AVX2_DESCRIPTORS,
         *integer_float_descriptors(unsigned=True),

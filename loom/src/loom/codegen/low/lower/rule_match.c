@@ -1520,19 +1520,24 @@ static bool loom_low_lower_rule_resolve_source_node(
   return true;
 }
 
-bool loom_low_lower_rule_first_source_node_matches(
+bool loom_low_lower_rule_resolve_first_source_node(
     const loom_low_lower_rule_match_context_t* match_context,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
-    const loom_low_lower_rule_t* rule) {
+    const loom_low_lower_rule_t* rule, const loom_op_t** out_source_node) {
+  *out_source_node = NULL;
   if (loom_low_lower_rule_source_node_count(rule) == 0) {
     return false;
   }
   const loom_low_lower_source_node_t* source_node =
       &rule_set->source_nodes[loom_low_lower_rule_source_node_start(rule)];
   const loom_op_t* source_nodes[LOOM_LOW_LOWER_MAX_SOURCE_NODES] = {source_op};
-  return loom_low_lower_rule_resolve_source_node(
-      match_context, rule_set, source_node, /*source_node_index=*/1,
-      source_nodes);
+  if (!loom_low_lower_rule_resolve_source_node(
+          match_context, rule_set, source_node, /*source_node_index=*/1,
+          source_nodes)) {
+    return false;
+  }
+  *out_source_node = source_nodes[1];
+  return true;
 }
 
 static bool loom_low_lower_rule_emission_source_node(
@@ -1695,9 +1700,13 @@ static iree_status_t loom_low_lower_rule_matches(
     const loom_low_lower_source_node_t* source_node =
         &rule_set->source_nodes[source_node_start + i];
     const uint8_t source_node_index = (uint8_t)(i + 1);
-    if (!loom_low_lower_rule_resolve_source_node(match_context, rule_set,
-                                                 source_node, source_node_index,
-                                                 out_source_nodes)) {
+    if (source_node_index == 1 &&
+        match_context->resolved_first_source_node != NULL) {
+      out_source_nodes[source_node_index] =
+          match_context->resolved_first_source_node;
+    } else if (!loom_low_lower_rule_resolve_source_node(
+                   match_context, rule_set, source_node, source_node_index,
+                   out_source_nodes)) {
       *out_matched_guard_count = matched_guard_count;
       return iree_ok_status();
     }

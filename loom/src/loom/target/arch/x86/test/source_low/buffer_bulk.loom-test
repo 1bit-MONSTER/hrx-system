@@ -12,7 +12,7 @@ low.func.def target<x86.scalar.core>(@target) abi(object_function) @copy(%source
   %21 = mov.imm64 0
   low.br ^_bb1(%21: reg<x86.gpr64>)
 ^_bb1(%20: reg<x86.gpr64>):
-  %22 = cmp.ult.gpr64 %20, %byte_length
+  %22 = cmp.gpr64 %20, %byte_length, "ult"
   low.cond_br %22, ^_bb2, ^_bb3 : reg<x86.gpr32>
 ^_bb2:
   %23 = lea %source_offset, %20
@@ -40,7 +40,7 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
   %29 = mov.imm64 0
   low.br ^_bb1(%29: reg<x86.gpr64>, %28: reg<x86.gpr32>)
 ^_bb1(%26: reg<x86.gpr64>, %27: reg<x86.gpr32>):
-  %30 = cmp.ult.gpr64 %26, %byte_length
+  %30 = cmp.gpr64 %26, %byte_length, "ult"
   low.cond_br %30, ^_bb2, ^_bb3 : reg<x86.gpr32>
 ^_bb2:
   %31 = lea %target_offset, %26
@@ -72,7 +72,7 @@ low.func.def target<x86.scalar.core>(@target) abi(object_function) abi_layout({s
   %20 = mov.imm64 0
   low.br ^_bb1(%20: reg<x86.gpr64>)
 ^_bb1(%18: reg<x86.gpr64>):
-  %21 = cmp.ult.gpr64 %18, %byte_length
+  %21 = cmp.gpr64 %18, %byte_length, "ult"
   low.cond_br %21, ^_bb2, ^_bb3 : reg<x86.gpr32>
 ^_bb2:
   %22 = lea %target_offset, %18
@@ -102,7 +102,7 @@ low.func.def target<x86.scalar.core>(@target) abi(object_function) abi_layout({s
   %37 = mov.imm64 0
   low.br ^_bb1(%37: reg<x86.gpr64>, %36: reg<x86.gpr32>)
 ^_bb1(%30: reg<x86.gpr64>, %31: reg<x86.gpr32>):
-  %38 = cmp.ult.gpr64 %30, %byte_length
+  %38 = cmp.gpr64 %30, %byte_length, "ult"
   low.cond_br %38, ^_bb2, ^_bb3 : reg<x86.gpr32>
 ^_bb2:
   %39 = lea %target_offset, %30
@@ -133,7 +133,7 @@ low.func.def target<x86.scalar.core>(@target) abi(object_function) @fill_i64(%pa
   %28 = mov.imm64 0
   low.br ^_bb1(%28: reg<x86.gpr64>, %pattern: reg<x86.gpr64>)
 ^_bb1(%26: reg<x86.gpr64>, %27: reg<x86.gpr64>):
-  %29 = cmp.ult.gpr64 %26, %byte_length
+  %29 = cmp.gpr64 %26, %byte_length, "ult"
   low.cond_br %29, ^_bb2, ^_bb3 : reg<x86.gpr32>
 ^_bb2:
   %30 = mov.trunc.gpr32.gpr64 %27
@@ -166,7 +166,7 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
   %30 = mov.imm64 0
   low.br ^_bb1(%30: reg<x86.gpr64>, %29: reg<x86.gpr64>)
 ^_bb1(%27: reg<x86.gpr64>, %28: reg<x86.gpr64>):
-  %31 = cmp.ult.gpr64 %27, %byte_length
+  %31 = cmp.gpr64 %27, %byte_length, "ult"
   low.cond_br %31, ^_bb2, ^_bb3 : reg<x86.gpr32>
 ^_bb2:
   %32 = mov.trunc.gpr32.gpr64 %28
@@ -201,8 +201,8 @@ low.func.def target<x86.scalar.core>(@target) abi(object_function) @compare(%lhs
   %45 = mov.imm32 1
   low.br ^_bb1(%42: reg<x86.gpr64>, %43: reg<x86.gpr32>)
 ^_bb1(%40: reg<x86.gpr64>, %41: reg<x86.gpr32>):
-  %46 = cmp.ult.gpr64 %40, %byte_length
-  %47 = cmp.eq.imm.gpr32 %41, 0
+  %46 = cmp.gpr64 %40, %byte_length, "ult"
+  %47 = cmp.imm.gpr32 %41, 0, "eq"
   %48 = copy %46 : reg<x86.gpr32> -> reg<x86.gpr32>
   %49 = and.gpr32 %48, %47
   low.cond_br %49, ^_bb2, ^_bb3 : reg<x86.gpr32>
@@ -211,14 +211,12 @@ low.func.def target<x86.scalar.core>(@target) abi(object_function) @compare(%lhs
   %51 = movzx.load.indexed.u8.gpr32 %lhs, %50 {disp32 = 0, scale = 1}
   %52 = lea %rhs_offset, %40
   %53 = movzx.load.indexed.u8.gpr32 %rhs, %52 {disp32 = 0, scale = 1}
-  %54 = cmp.eq.gpr32 %51, %53
-  %55 = cmp.ult.gpr32 %51, %53
-  %56 = copy %45 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %57 = select.gpr32 %55, %44, %56
-  %58 = copy %57 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %59 = select.gpr32 %54, %43, %58
-  %60 = lea.disp %40 {disp32 = 1}
-  low.br ^_bb1(%60: reg<x86.gpr64>, %59: reg<x86.gpr32>)
+  %54 = copy %45 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %55 = cmp.select.gpr32.gpr32 %51, %53, %44, %54, "ult"
+  %56 = copy %55 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %57 = cmp.select.gpr32.gpr32 %51, %53, %43, %56, "eq"
+  %58 = lea.disp %40 {disp32 = 1}
+  low.br ^_bb1(%58: reg<x86.gpr64>, %57: reg<x86.gpr32>)
 ^_bb3:
   return %41
 }
