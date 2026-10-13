@@ -1,119 +1,159 @@
 // Copyright 2026 The HRX Authors
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 
 #include "hrx_test_fixture.hpp"
 
 namespace {
 
-static void IgnoreCleanupStatus(hrx_status_t status) {
-  if (!hrx_status_is_ok(status)) {
-    hrx().status_ignore(status);
-  }
-}
-
 class VirtualMemoryResources {
  public:
-  explicit VirtualMemoryResources(hrx_allocator_t allocator)
-      : allocator(allocator) {}
+  explicit VirtualMemoryResources(hrx_device_t device) : device(device) {}
 
   ~VirtualMemoryResources() {
-    if (is_mapped) {
-      IgnoreCleanupStatus(hrx().allocator_virtual_memory_unmap(
-          allocator, virtual_buffer, /*virtual_offset=*/0, size));
+    bool detached = true;
+    if (reservation) {
+      hrx_status_t status = hrx().virtual_buffer_detach(reservation, {});
+      detached = hrx_status_is_ok(status);
+      CHECK(detached);
+      hrx().status_ignore(status);
+      hrx().buffer_release(reservation);
     }
-    if (physical_memory) {
-      IgnoreCleanupStatus(
-          hrx().allocator_physical_memory_free(allocator, physical_memory));
+    // Failed removal cannot authorize recycling possibly mapped backing.
+    if (detached) {
+      hrx().buffer_release(source);
     }
-    if (virtual_buffer) {
-      IgnoreCleanupStatus(
-          hrx().allocator_virtual_memory_release(allocator, virtual_buffer));
-    }
+    hrx().semaphore_release(completion);
   }
 
-  // Unowned allocator that outlives all resources in this helper.
-  hrx_allocator_t allocator = nullptr;
-  // Owned virtual address reservation released by the destructor.
-  hrx_buffer_t virtual_buffer = nullptr;
-  // Owned physical allocation freed by the destructor.
-  hrx_physical_memory_t physical_memory = nullptr;
-  // Size in bytes of the reservation, allocation, and mapping.
-  size_t size = 0;
-  // Whether the physical allocation is currently mapped.
-  bool is_mapped = false;
+  void Map(size_t count, const hrx_memory_mapping_t* mappings) {
+    ++completion_value;
+    const hrx_semaphore_list_t signals = {
+        .semaphores = &completion,
+        .values = &completion_value,
+        .count = 1,
+    };
+    REQUIRE_OK(hrx().queue_map(device, 0, nullptr, &signals, count, mappings,
+                               HRX_QUEUE_MAP_FLAG_NONE));
+    REQUIRE_OK(hrx().semaphore_wait(completion, completion_value, UINT64_MAX));
+  }
+
+  // Borrowed execution device that outlives these resources.
+  hrx_device_t device;
+  // Ordinary virtual buffer retaining the address interval.
+  hrx_buffer_t reservation = nullptr;
+  // Ordinary prepared backing retained until checked removal succeeds.
+  hrx_buffer_t source = nullptr;
+  // Completion for synchronous test observation of each mapping batch.
+  hrx_semaphore_t completion = nullptr;
+  // Last submitted completion value.
+  uint64_t completion_value = 0;
 };
 
 }  // namespace
 
-TEST_CASE_METHOD(HrxTestFixture, "query virtual memory support",
+TEST_CASE_METHOD(HrxTestFixture, "query reservation capabilities",
                  "[virtual_memory][query]") {
-  hrx_allocator_t alloc = hrx().device_allocator(device_);
-
-  bool supported = false;
-  size_t min_page = 0, rec_page = 0;
-  REQUIRE_OK(hrx().allocator_query_virtual_memory(
-      alloc, HRX_MEMORY_TYPE_DEVICE_LOCAL, &supported, &min_page, &rec_page));
-
-  // Supported and unsupported allocators report consistent granularity values.
-  if (supported) {
-    REQUIRE(min_page > 0);
-    REQUIRE(rec_page >= min_page);
+  const hrx_virtual_buffer_scope_t scope = {
+      .device_count = 1,
+      .devices = &device_,
+  };
+  hrx_virtual_buffer_capabilities_t capabilities;
+  REQUIRE_OK(hrx().virtual_buffer_query_capabilities(scope, &capabilities));
+  if (capabilities.max_byte_length) {
+    CHECK(capabilities.reservation_granularity > 0);
+    CHECK(capabilities.mapping_granularity > 0);
+    CHECK(capabilities.operations & (1u << HRX_MEMORY_MAPPING_OPERATION_BIND));
+    CHECK(capabilities.operations &
+          (1u << HRX_MEMORY_MAPPING_OPERATION_UNBIND));
   } else {
-    REQUIRE(min_page == 0);
-    REQUIRE(rec_page == 0);
+    const hrx_virtual_buffer_options_t options = {.byte_length = 65536};
+    hrx_buffer_t reservation = nullptr;
+    hrx_status_t status =
+        hrx().virtual_buffer_create(scope, &options, &reservation);
+    CHECK(!hrx_status_is_ok(status));
+    CHECK(reservation == nullptr);
+    hrx().status_ignore(status);
   }
 }
 
-TEST_CASE_METHOD(HrxTestFixture, "virtual memory lifecycle",
+TEST_CASE_METHOD(HrxTestFixture,
+                 "batched virtual aliases share ordinary backing",
                  "[virtual_memory][lifecycle]") {
-  hrx_allocator_t alloc = hrx().device_allocator(device_);
-
-  bool supported = false;
-  size_t min_page = 0, rec_page = 0;
-  REQUIRE_OK(hrx().allocator_query_virtual_memory(
-      alloc, HRX_MEMORY_TYPE_DEVICE_LOCAL, &supported, &min_page, &rec_page));
-
-  if (!supported) {
-    hrx_buffer_t vbuf = nullptr;
-    hrx_status_t s =
-        hrx().allocator_virtual_memory_reserve(alloc, 0, 1024 * 1024, &vbuf);
-    REQUIRE(!hrx_status_is_ok(s));
-    hrx().status_ignore(s);
-    return;
+  const hrx_virtual_buffer_scope_t scope = {
+      .device_count = 1,
+      .devices = &device_,
+  };
+  hrx_virtual_buffer_capabilities_t capabilities;
+  REQUIRE_OK(hrx().virtual_buffer_query_capabilities(scope, &capabilities));
+  if (!capabilities.max_byte_length) {
+    SKIP("The selected device has no virtual buffer backend.");
   }
-
-  REQUIRE(min_page > 0);
-  REQUIRE(rec_page >= min_page);
-  VirtualMemoryResources resources(alloc);
-  resources.size = rec_page;
-
-  REQUIRE_OK(hrx().allocator_virtual_memory_reserve(
-      alloc, /*affinity=*/0, resources.size, &resources.virtual_buffer));
-  REQUIRE(resources.virtual_buffer != nullptr);
-  REQUIRE_OK(hrx().allocator_physical_memory_allocate(
-      alloc, HRX_MEMORY_TYPE_DEVICE_LOCAL, resources.size,
-      &resources.physical_memory));
-  REQUIRE(resources.physical_memory != nullptr);
-  REQUIRE_OK(hrx().allocator_virtual_memory_map(
-      alloc, resources.virtual_buffer, /*virtual_offset=*/0,
-      resources.physical_memory, /*physical_offset=*/0, resources.size));
-  resources.is_mapped = true;
-  REQUIRE_OK(hrx().allocator_virtual_memory_protect(
-      alloc, resources.virtual_buffer, /*virtual_offset=*/0, resources.size,
-      HRX_MEMORY_PROTECTION_READ_WRITE));
-  REQUIRE_OK(hrx().allocator_virtual_memory_protect_scoped(
-      alloc, resources.virtual_buffer, /*virtual_offset=*/0, resources.size,
-      HRX_VIRTUAL_MEMORY_ACCESS_SCOPE_ALL, HRX_MEMORY_PROTECTION_READ_WRITE));
-
-  REQUIRE_OK(hrx().allocator_virtual_memory_unmap(
-      alloc, resources.virtual_buffer, /*virtual_offset=*/0, resources.size));
-  resources.is_mapped = false;
+  const hrx_memory_type_t memory_type =
+      is_cpu() ? HRX_MEMORY_TYPE_HOST_LOCAL : HRX_MEMORY_TYPE_DEVICE_LOCAL;
+  hrx_memory_mapping_requirements_t requirements;
+  REQUIRE_OK(hrx().allocator_query_mapping_requirements(
+      hrx().device_allocator(device_), memory_type, &requirements));
+  const size_t unit = std::max({capabilities.reservation_granularity,
+                                capabilities.mapping_granularity,
+                                requirements.recommended_granularity});
+  REQUIRE(unit > 0);
+  VirtualMemoryResources resources(device_);
+  const hrx_virtual_buffer_options_t options = {
+      .byte_length = 2 * unit,
+      .min_alignment = unit,
+      .mapping_granularity = unit,
+  };
   REQUIRE_OK(
-      hrx().allocator_physical_memory_free(alloc, resources.physical_memory));
-  resources.physical_memory = nullptr;
-  REQUIRE_OK(
-      hrx().allocator_virtual_memory_release(alloc, resources.virtual_buffer));
-  resources.virtual_buffer = nullptr;
+      hrx().virtual_buffer_create(scope, &options, &resources.reservation));
+  const hrx_buffer_params_t params = {
+      .type = memory_type,
+      .access = HRX_MEMORY_ACCESS_ALL,
+      .usage = HRX_BUFFER_USAGE_DEFAULT | HRX_BUFFER_USAGE_MAPPING_SOURCE,
+  };
+  REQUIRE_OK(hrx().allocator_allocate_buffer(hrx().device_allocator(device_),
+                                             params, unit, &resources.source));
+  REQUIRE_OK(hrx().semaphore_create(device_, 0, &resources.completion));
+  std::array<hrx_memory_mapping_t, 2> mappings;
+  for (size_t i = 0; i < mappings.size(); ++i) {
+    mappings[i] = {
+        .target = resources.reservation,
+        .target_offset = i * unit,
+        .byte_length = unit,
+        .source = resources.source,
+        .access = HRX_MEMORY_ACCESS_ALL,
+        .operation = HRX_MEMORY_MAPPING_OPERATION_BIND,
+    };
+  }
+  resources.Map(mappings.size(), mappings.data());
+  hrx_buffer_t view = resources.reservation;
+  const std::array<uint32_t, 4> expected = {7, 13, 19, 23};
+  REQUIRE_OK(hrx().synchronous_h2d(device_, expected.data(), view, 0,
+                                   sizeof(expected)));
+  std::array<uint32_t, 4> observed = {};
+  REQUIRE_OK(hrx().synchronous_d2h(device_, view, unit, observed.data(),
+                                   sizeof(observed)));
+  CHECK(observed == expected);
+  REQUIRE_OK(hrx().synchronous_d2h(device_, resources.source, 0,
+                                   observed.data(), sizeof(observed)));
+  CHECK(observed == expected);
+  if (capabilities.operations & (1u << HRX_MEMORY_MAPPING_OPERATION_PROTECT)) {
+    for (auto& mapping : mappings) {
+      mapping.operation = HRX_MEMORY_MAPPING_OPERATION_PROTECT;
+      mapping.access = HRX_MEMORY_ACCESS_READ;
+    }
+    resources.Map(mappings.size(), mappings.data());
+    REQUIRE_OK(hrx().synchronous_d2h(device_, view, unit, observed.data(),
+                                     sizeof(observed)));
+    CHECK(observed == expected);
+  }
+  for (auto& mapping : mappings) {
+    mapping.source = nullptr;
+    mapping.access = HRX_MEMORY_ACCESS_NONE;
+    mapping.operation = HRX_MEMORY_MAPPING_OPERATION_UNBIND;
+  }
+  resources.Map(mappings.size(), mappings.data());
 }

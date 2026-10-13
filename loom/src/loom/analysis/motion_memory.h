@@ -26,8 +26,8 @@ extern "C" {
 // unknown effects, and their enclosing loop scopes must remain fixed.
 // Rewriting any of those invalidates the snapshot; availability decisions are
 // never cached.
-iree_status_t loom_motion_memory_create(loom_movement_analysis_t* movement,
-                                        loom_motion_memory_t** out_memory);
+iree_status_t loom_motion_memory_allocate(loom_movement_analysis_t* movement,
+                                          loom_motion_memory_t** out_memory);
 
 // Checks the retained effects of loop's body against a candidate read already
 // proven available before the loop. This query neither traverses source IR nor

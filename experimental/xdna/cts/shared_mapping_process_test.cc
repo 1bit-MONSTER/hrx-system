@@ -94,7 +94,7 @@ class Connection {
     } else {
       CheckStatus(iree_async_local_stream_pipe_open(name_view, &channel_));
     }
-    CheckStatus(iree_async_local_stream_create(
+    CheckStatus(iree_async_local_stream_allocate(
         proactor_, channel_, 1, iree_allocator_system(), &stream_));
     if (role == Role::kProducer) {
       Transfer accepted;
@@ -134,7 +134,7 @@ class Connection {
       CheckStatus(iree_async_proactor_submit_one(proactor_, &connect.base));
       connected.Wait(proactor_);
     }
-    CheckStatus(iree_async_local_stream_create(
+    CheckStatus(iree_async_local_stream_allocate(
         proactor_, socket_->primitive, 1, iree_allocator_system(), &stream_));
 #endif  // IREE_PLATFORM_WINDOWS
   }
@@ -164,7 +164,7 @@ class Connection {
                   },
                   &deactivated}));
     deactivated.Wait(proactor_);
-    iree_async_local_stream_destroy(stream_);
+    iree_async_local_stream_free(stream_);
 #if defined(IREE_PLATFORM_WINDOWS)
     iree_async_primitive_close(&channel_);
 #else

@@ -26,7 +26,7 @@ class DirectBindingTest : public ::testing::Test {
   void SetUp() override {
     auto source = MakeOwnedByteSequence(ImageFixture().Build());
     const auto target = MakeImageTarget();
-    IREE_ASSERT_OK(iree_hal_amd_xdna_image_create(
+    IREE_ASSERT_OK(iree_hal_amd_xdna_image_allocate(
         source.get(), &target, iree_allocator_system(), &image_));
     for (size_t i = 0; i < storage_.size(); ++i) {
       const auto allocation = iree_hal_amd_xdna_image_tables_allocation(
@@ -49,7 +49,7 @@ class DirectBindingTest : public ::testing::Test {
 
   void TearDown() override {
     iree_hal_buffer_release(binding_.buffer_ref.buffer);
-    iree_hal_amd_xdna_image_destroy(image_);
+    iree_hal_amd_xdna_image_free(image_);
   }
 
   void WrapBinding(iree_hal_memory_type_t type, iree_hal_memory_access_t access,

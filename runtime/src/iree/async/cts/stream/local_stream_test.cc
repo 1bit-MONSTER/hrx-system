@@ -76,7 +76,7 @@ class LocalStreamTest : public CtsTestBase<> {
     }
 #endif
     for (int i = 0; i < 2; ++i) {
-      IREE_ASSERT_OK(iree_async_local_stream_create(
+      IREE_ASSERT_OK(iree_async_local_stream_allocate(
           proactor_, channels_[i], 3, iree_allocator_system(), &streams_[i]));
     }
 #if defined(IREE_PLATFORM_WINDOWS)
@@ -111,7 +111,7 @@ class LocalStreamTest : public CtsTestBase<> {
     IREE_ASSERT_OK(iree_async_local_stream_deactivate(
         stream, {+[](void* user_data) {
                    auto* join = static_cast<Join*>(user_data);
-                   iree_async_local_stream_destroy(*join->stream);
+                   iree_async_local_stream_free(*join->stream);
                    *join->stream = nullptr;
                    join->done = true;
                  },
@@ -416,7 +416,7 @@ TEST_P(LocalStreamRightsTest, OverflowAndTruncationRetireEveryInstalledRight) {
       EXPECT_TRUE(iree_async_primitive_is_none(handle));
     }
     Close(streams_[0]);
-    IREE_ASSERT_OK(iree_async_local_stream_create(
+    IREE_ASSERT_OK(iree_async_local_stream_allocate(
         proactor_, channels_[0], 3, iree_allocator_system(), &streams_[0]));
   }
   ExpectAllWritersRetired();
@@ -595,7 +595,7 @@ TEST_P(LocalStreamTest, CancelAfterImportWhileBodyIsPendingClosesResources) {
   DWORD after = 0;
   ASSERT_TRUE(GetProcessHandleCount(GetCurrentProcess(), &after));
   EXPECT_EQ(after + 1, before);
-  iree_async_local_stream_destroy(streams_[1]);
+  iree_async_local_stream_free(streams_[1]);
   streams_[1] = nullptr;
   EXPECT_TRUE(CloseHandle(event));
 }
@@ -616,7 +616,7 @@ TEST_P(LocalStreamTest, PipeAcceptCancellationWithoutAClient) {
       iree_make_string_view(name.data(), name.size()), 1,
       IREE_ASYNC_LOCAL_STREAM_PIPE_FLAG_FIRST_INSTANCE, &channel));
   iree_async_local_stream_t* stream = nullptr;
-  IREE_ASSERT_OK(iree_async_local_stream_create(
+  IREE_ASSERT_OK(iree_async_local_stream_allocate(
       proactor_, channel, 0, iree_allocator_system(), &stream));
   TransferResult accepted;
   IREE_ASSERT_OK(
@@ -680,8 +680,8 @@ TEST_P(LocalStreamUnavailableTest, RejectsSetupWithoutPersistentObservation) {
   iree_async_local_stream_t* stream = nullptr;
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_UNAVAILABLE,
-      iree_async_local_stream_create(proactor_, channel, 3,
-                                     iree_allocator_system(), &stream));
+      iree_async_local_stream_allocate(proactor_, channel, 3,
+                                       iree_allocator_system(), &stream));
   EXPECT_EQ(stream, nullptr);
   EXPECT_EQ(proactor_->progress_list, nullptr);
   DWORD after = 0;

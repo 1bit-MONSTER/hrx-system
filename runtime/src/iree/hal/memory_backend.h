@@ -8,20 +8,11 @@
 #define IREE_HAL_MEMORY_BACKEND_H_
 
 #include "iree/hal/slab_pool.h"
+#include "iree/hal/virtual_buffer.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif  // __cplusplus
-
-typedef enum iree_hal_memory_backend_type_e {
-  IREE_HAL_MEMORY_BACKEND_HOST = 0,
-  IREE_HAL_MEMORY_BACKEND_AMDF = 1,
-  IREE_HAL_MEMORY_BACKEND_VULKAN = 2,
-  IREE_HAL_MEMORY_BACKEND_ROCR = 3,
-  IREE_HAL_MEMORY_BACKEND_IO = 4,
-  IREE_HAL_MEMORY_BACKEND_REMOTE = 5,
-  IREE_HAL_MEMORY_BACKEND_WEBGPU = 6,
-} iree_hal_memory_backend_type_t;
 
 typedef struct iree_hal_slab_pool_plan_t iree_hal_slab_pool_plan_t;
 typedef struct iree_hal_slab_pool_factory_t iree_hal_slab_pool_factory_t;
@@ -35,6 +26,21 @@ typedef struct iree_hal_memory_backend_t {
   iree_host_size_t factory_count;
   // Borrowed factory descriptors, deduplicated by exact pointer identity.
   const iree_hal_slab_pool_factory_t* const* factories;
+  // Qualifies complete-scope address geometry without acquiring addresses or
+  // payload. Unsupported combinations return OK with zeroed capabilities.
+  iree_status_t(IREE_API_PTR* query_virtual_buffer)(
+      const struct iree_hal_memory_backend_t* backend,
+      iree_hal_device_group_t* group, iree_hal_pool_scope_t scope,
+      iree_allocator_t host_allocator,
+      iree_hal_virtual_buffer_capabilities_t* out_capabilities);
+  // Qualifies the entire address scope and creates a reservation. Unsupported
+  // combinations return OK with a NULL output; allocation/platform errors
+  // propagate. No native state is acquired until the complete scope qualifies.
+  iree_status_t(IREE_API_PTR* create_virtual_buffer)(
+      const struct iree_hal_memory_backend_t* backend,
+      iree_hal_device_group_t* group, iree_hal_pool_scope_t scope,
+      const iree_hal_virtual_buffer_options_t* options,
+      iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
 } iree_hal_memory_backend_t;
 
 typedef struct iree_hal_slab_pool_plan_info_t {

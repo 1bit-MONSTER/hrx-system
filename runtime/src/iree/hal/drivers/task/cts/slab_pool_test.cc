@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <array>
+#include <atomic>
 
 #include "iree/hal/cts/util/test_base.h"
 #include "iree/hal/memory/fixed_block_pool.h"
@@ -114,9 +115,9 @@ class TaskSlabPoolTest : public CtsTestBase<> {
                                      iree_allocator_system(), out_pool);
   }
 
-  void Wait(iree_hal_semaphore_list_t semaphores) {
-    IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
-        semaphores, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+  iree_status_t Wait(iree_hal_semaphore_list_t semaphores) {
+    return iree_hal_semaphore_list_wait(semaphores, iree_infinite_timeout(),
+                                        IREE_ASYNC_WAIT_FLAG_NONE);
   }
 
   // Joins queued child/cache returns, including work they enqueue. A pending
@@ -336,7 +337,7 @@ TEST_P(TaskSlabPoolTest, ImportsFiniteExternalRangeWithExactOwnership) {
   EXPECT_TRUE(iree_hal_pool_query_import_requirements(
       source, host_pointer_class, &import_requirements));
   EXPECT_EQ(import_requirements.base_alignment, 1u);
-  EXPECT_EQ(import_requirements.byte_length_alignment, 1u);
+  EXPECT_EQ(import_requirements.byte_length_granularity, 1u);
   EXPECT_FALSE(iree_hal_pool_query_import_requirements(
       source,
       iree_hal_make_external_storage_class(
@@ -495,7 +496,7 @@ TEST_P(TaskSlabPoolTest, PublicHostGrantsRemainIndependentOfExecution) {
       iree_hal_queue_fill(queues_[0], iree_hal_semaphore_list_empty(), filled,
                           buffer, 0, sizeof(value), &value, sizeof(value),
                           /*barriers=*/NULL, IREE_HAL_FILL_FLAG_NONE));
-  Wait(filled);
+  IREE_ASSERT_OK(Wait(filled));
   iree_hal_buffer_mapping_t mapping = {};
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_PERMISSION_DENIED,
@@ -616,7 +617,7 @@ TEST_P(TaskSlabPoolTest, InteriorArenasInheritTheCompleteScope) {
   IREE_ASSERT_OK(iree_hal_queue_download(queues_[1], filled, downloaded, buffer,
                                          0, &result, sizeof(result),
                                          /*barriers=*/NULL));
-  Wait(downloaded);
+  IREE_ASSERT_OK(Wait(downloaded));
   EXPECT_EQ(result, value);
   EXPECT_EQ(iree_atomic_ref_count_load(&buffer.get()->resource.ref_count), 1);
   buffer.reset();
@@ -834,7 +835,7 @@ TEST_P(TaskSlabPoolTest, SharedBackingAcrossDevicesAndAllocationPolicies) {
       IREE_ASSERT_OK(iree_hal_queue_download(
           queues_[0], executed, downloaded, roots[2], 0, result.data(),
           sizeof(result), /*barriers=*/NULL));
-      Wait(downloaded);
+      IREE_ASSERT_OK(Wait(downloaded));
       EXPECT_THAT(result,
                   ::testing::ElementsAre(11, 22, 100, 400, 900, 1600, 77, 88));
       for (auto& root : roots) {
@@ -853,7 +854,7 @@ TEST_P(TaskSlabPoolTest, SharedBackingAcrossDevicesAndAllocationPolicies) {
       IREE_ASSERT_OK(iree_hal_queue_dealloca(queues_[1], downloaded,
                                              deallocated, roots.size(),
                                              allocated_buffers));
-      Wait(deallocated);
+      IREE_ASSERT_OK(Wait(deallocated));
       for (auto& view : views) {
         view.reset();
       }
@@ -873,6 +874,786 @@ TEST_P(TaskSlabPoolTest, SharedBackingAcrossDevicesAndAllocationPolicies) {
   IREE_ASSERT_OK(iree_hal_slab_cache_query_stats(cache, &cache_stats));
   EXPECT_EQ(cache_stats.hit_count, 9u);
   EXPECT_EQ(cache_stats.ready_count, 1u);
+}
+
+struct VirtualBufferLifetime {
+  // Allocation returned as the native virtual buffer's ordinary resource.
+  void* buffer_allocation = nullptr;
+  // Final frees observed through the real buffer's supplied host allocator.
+  std::atomic<uint32_t> release_count = 0;
+};
+
+static iree_status_t ObserveVirtualBufferLifetime(
+    void* self, iree_allocator_command_t command, const void* params,
+    void** inout_pointer) {
+  auto* lifetime = static_cast<VirtualBufferLifetime*>(self);
+  if (command == IREE_ALLOCATOR_COMMAND_FREE &&
+      *inout_pointer == lifetime->buffer_allocation) {
+    ++lifetime->release_count;
+  }
+  auto allocator = iree_allocator_system();
+  return allocator.ctl(allocator.self, command, params, inout_pointer);
+}
+
+TEST_P(TaskSlabPoolTest, CapturedViewsKeepAddressesAliveThroughRemoval) {
+  constexpr iree_device_size_t kUnit = 64 * 1024;
+  for (auto& family : families_) {
+    family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  }
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(source.out()));
+  Ref<iree_hal_buffer_t> backing;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source, iree_hal_make_pool_reservation_request(kUnit, kUnit),
+      iree_infinite_timeout(), backing.out()));
+  for (auto& family : families_) {
+    family.interfaces = 0;
+  }
+  VirtualBufferLifetime lifetime;
+  const iree_allocator_t allocator = {&lifetime, ObserveVirtualBufferLifetime};
+  Ref<iree_hal_buffer_t> arena;
+  const iree_hal_virtual_buffer_options_t options = {2 * kUnit, kUnit, kUnit};
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_create(group_, Scope(), &options,
+                                                allocator, arena.out()));
+  lifetime.buffer_allocation = arena.get();
+  Ref<iree_hal_buffer_t> view;
+  IREE_ASSERT_OK(iree_hal_buffer_subspan(arena, kUnit, kUnit,
+                                         iree_allocator_system(), view.out()));
+  const iree_hal_memory_scope_t all = {
+      iree_hal_device_group_memory_domain(group_), IREE_HAL_MEMORY_SCOPE_ANY};
+  iree_hal_memory_mapping_t mapping = {
+      view, all, {0, kUnit}, backing, 0, IREE_HAL_MEMORY_ACCESS_ALL};
+  SemaphoreList gate(devices_[0], {0}, {1});
+  SemaphoreList mapped(devices_[0], {0}, {1});
+  SemaphoreList filled(devices_[1], {0}, {1});
+  SemaphoreList downloaded(devices_[0], {0}, {1});
+  SemaphoreList detached(devices_[1], {0}, {1});
+  const uint32_t value = 0x11223344;
+  uint32_t observed = 0;
+  IREE_EXPECT_OK(iree_hal_queue_map(queues_[0], gate, mapped, 1, &mapping,
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  IREE_EXPECT_OK(iree_hal_queue_fill(queues_[1], mapped, filled, view, 0, kUnit,
+                                     &value, sizeof(value), nullptr,
+                                     IREE_HAL_FILL_FLAG_NONE));
+  IREE_EXPECT_OK(iree_hal_queue_download(queues_[0], filled, downloaded,
+                                         backing, 0, &observed,
+                                         sizeof(observed), nullptr));
+  mapping.source = nullptr;
+  mapping.access = IREE_HAL_MEMORY_ACCESS_NONE;
+  IREE_EXPECT_OK(iree_hal_queue_map(queues_[1], downloaded, detached, 1,
+                                    &mapping, IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  view.reset();
+  arena.reset();
+  EXPECT_EQ(lifetime.release_count.load(), 0u);
+  IREE_ASSERT_OK(iree_hal_semaphore_signal(gate.semaphores[0], 1, nullptr));
+  IREE_ASSERT_OK(Wait(detached));
+  EXPECT_EQ(observed, value);
+  EXPECT_EQ(lifetime.release_count.load(), 1u);
+  backing.reset();
+  JoinMaintenance(source);
+}
+
+TEST_P(TaskSlabPoolTest, CapturedPoolViewsKeepTheirRangeUntilMappingCompletes) {
+  constexpr iree_device_size_t kUnit = 64 * 1024;
+  for (auto& family : families_) {
+    family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  }
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(source.out()));
+  Ref<iree_hal_buffer_t> backing;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source, iree_hal_make_pool_reservation_request(2 * kUnit, kUnit),
+      iree_infinite_timeout(), backing.out()));
+  for (auto& family : families_) {
+    family.interfaces = 0;
+  }
+  Ref<iree_hal_buffer_t> arena;
+  const iree_hal_virtual_buffer_options_t options = {3 * kUnit, kUnit, kUnit};
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_create(
+      group_, Scope(), &options, iree_allocator_system(), arena.out()));
+  Ref<iree_hal_pool_t> child_pool;
+  iree_hal_fixed_block_pool_options_t block_options;
+  iree_hal_fixed_block_pool_options_initialize(&block_options);
+  block_options.block_size = 2 * kUnit;
+  block_options.alignment = kUnit;
+  IREE_ASSERT_OK(iree_hal_fixed_block_pool_create_from_buffer(
+      arena, kUnit, 2 * kUnit, &block_options, iree_allocator_system(),
+      child_pool.out()));
+  arena.reset();
+  const iree_hal_memory_scope_t all = {
+      iree_hal_device_group_memory_domain(group_), IREE_HAL_MEMORY_SCOPE_ANY};
+  void* stable_address = nullptr;
+  for (uint32_t generation = 0; generation < 2; ++generation) {
+    Ref<iree_hal_buffer_t> child, view;
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        child_pool, iree_hal_make_pool_reservation_request(2 * kUnit, kUnit),
+        iree_infinite_timeout(), child.out()));
+    IREE_ASSERT_OK(iree_hal_buffer_subspan(
+        child, kUnit, kUnit, iree_allocator_system(), view.out()));
+    iree_hal_virtual_buffer_info_t info;
+    IREE_ASSERT_OK(iree_hal_virtual_buffer_query_info(view, &info));
+    EXPECT_EQ(info.mapping_byte_offset, 2 * kUnit);
+    iree_byte_span_t address;
+    IREE_ASSERT_OK(iree_hal_buffer_native_host_span(view, 0, kUnit, &address));
+    if (generation == 0) {
+      stable_address = address.data;
+    }
+    EXPECT_EQ(address.data, stable_address);
+    iree_hal_memory_mapping_t mapping = {view,
+                                         all,
+                                         {0, kUnit},
+                                         backing,
+                                         generation * kUnit,
+                                         IREE_HAL_MEMORY_ACCESS_ALL};
+    SemaphoreList gate(devices_[0], {0}, {1});
+    SemaphoreList mapped(devices_[0], {0}, {1});
+    SemaphoreList filled(devices_[1], {0}, {1});
+    SemaphoreList downloaded(devices_[0], {0}, {1});
+    SemaphoreList detached(devices_[1], {0}, {1});
+    const uint32_t value = 0x10203040 + generation;
+    uint32_t observed = 0;
+    const iree_hal_queue_map_flags_t mapping_flags =
+        generation == 0 ? IREE_HAL_QUEUE_MAP_FLAG_NONE
+                        : IREE_HAL_QUEUE_MAP_FLAG_BORROW_BUFFERS;
+    IREE_EXPECT_OK(iree_hal_queue_map(queues_[0], gate, mapped, 1, &mapping,
+                                      mapping_flags));
+    IREE_EXPECT_OK(iree_hal_queue_fill(queues_[1], mapped, filled, view, 0,
+                                       kUnit, &value, sizeof(value), nullptr,
+                                       IREE_HAL_FILL_FLAG_NONE));
+    IREE_EXPECT_OK(iree_hal_queue_download(
+        queues_[0], filled, downloaded, backing, generation * kUnit, &observed,
+        sizeof(observed), nullptr));
+    mapping.source = nullptr;
+    mapping.source_offset = 0;
+    mapping.access = IREE_HAL_MEMORY_ACCESS_NONE;
+    IREE_EXPECT_OK(iree_hal_queue_map(queues_[1], downloaded, detached, 1,
+                                      &mapping, mapping_flags));
+    child.reset();
+    if (generation == 0) {
+      view.reset();
+    }
+    iree_hal_pool_stats_t stats;
+    iree_hal_pool_query_stats(child_pool, &stats);
+    EXPECT_EQ(stats.reservation_count, 1u);
+    IREE_ASSERT_OK(iree_hal_semaphore_signal(gate.semaphores[0], 1, nullptr));
+    IREE_ASSERT_OK(Wait(detached));
+    EXPECT_EQ(observed, value);
+    if (generation != 0) {
+      iree_hal_pool_query_stats(child_pool, &stats);
+      EXPECT_EQ(stats.reservation_count, 1u);
+      view.reset();
+    }
+    iree_hal_pool_query_stats(child_pool, &stats);
+    EXPECT_EQ(stats.reservation_count, 0u);
+  }
+  child_pool.reset();
+  backing.reset();
+  JoinMaintenance(source);
+}
+
+TEST_P(TaskSlabPoolTest, MappingTargetsResolveAfterQueuedAllocation) {
+  constexpr iree_device_size_t kUnit = 64 * 1024;
+  for (auto& family : families_) {
+    family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  }
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(source.out()));
+  Ref<iree_hal_buffer_t> backing;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source, iree_hal_make_pool_reservation_request(kUnit, kUnit),
+      iree_infinite_timeout(), backing.out()));
+  for (auto& family : families_) {
+    family.interfaces = 0;
+  }
+  Ref<iree_hal_buffer_t> arena;
+  const iree_hal_virtual_buffer_options_t options = {2 * kUnit, kUnit, kUnit};
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_create(
+      group_, Scope(), &options, iree_allocator_system(), arena.out()));
+  Ref<iree_hal_pool_t> child_pool;
+  iree_hal_fixed_block_pool_options_t block_options;
+  iree_hal_fixed_block_pool_options_initialize(&block_options);
+  block_options.block_size = kUnit;
+  block_options.alignment = kUnit;
+  IREE_ASSERT_OK(iree_hal_fixed_block_pool_create_from_buffer(
+      arena, kUnit, kUnit, &block_options, iree_allocator_system(),
+      child_pool.out()));
+  arena.reset();
+  SemaphoreList gate(devices_[0], {0}, {1});
+  SemaphoreList allocated(devices_[0], {0}, {1});
+  SemaphoreList mapped(devices_[1], {0}, {1});
+  SemaphoreList filled(devices_[1], {0}, {1});
+  SemaphoreList downloaded(devices_[0], {0}, {1});
+  SemaphoreList detached(devices_[1], {0}, {1});
+  SemaphoreList deallocated(devices_[0], {0}, {1});
+  const auto request = iree_hal_make_pool_reservation_request(kUnit, kUnit);
+  Ref<iree_hal_buffer_t> target;
+  IREE_EXPECT_OK(iree_hal_queue_alloca(queues_[0], gate, allocated, child_pool,
+                                       1, &request, target.out()));
+  iree_hal_virtual_buffer_info_t info;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
+                        iree_hal_virtual_buffer_query_info(target, &info));
+  const iree_hal_memory_scope_t all = {
+      iree_hal_device_group_memory_domain(group_), IREE_HAL_MEMORY_SCOPE_ANY};
+  iree_hal_memory_mapping_t mapping = {
+      target, all, {0, kUnit}, backing, 0, IREE_HAL_MEMORY_ACCESS_ALL};
+  const uint32_t value = 0x87654321;
+  uint32_t observed = 0;
+  IREE_EXPECT_OK(iree_hal_queue_map(queues_[1], allocated, mapped, 1, &mapping,
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  IREE_EXPECT_OK(iree_hal_queue_fill(queues_[1], mapped, filled, target, 0,
+                                     kUnit, &value, sizeof(value), nullptr,
+                                     IREE_HAL_FILL_FLAG_NONE));
+  IREE_EXPECT_OK(iree_hal_queue_download(queues_[0], filled, downloaded,
+                                         backing, 0, &observed,
+                                         sizeof(observed), nullptr));
+  mapping.source = nullptr;
+  mapping.access = IREE_HAL_MEMORY_ACCESS_NONE;
+  IREE_EXPECT_OK(iree_hal_queue_map(queues_[1], downloaded, detached, 1,
+                                    &mapping, IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  iree_hal_buffer_t* target_buffer = target.get();
+  IREE_EXPECT_OK(iree_hal_queue_dealloca(queues_[0], detached, deallocated, 1,
+                                         &target_buffer));
+  target.reset();
+  IREE_ASSERT_OK(iree_hal_semaphore_signal(gate.semaphores[0], 1, nullptr));
+  IREE_ASSERT_OK(Wait(deallocated));
+  EXPECT_EQ(observed, value);
+  iree_hal_pool_stats_t stats;
+  iree_hal_pool_query_stats(child_pool, &stats);
+  EXPECT_EQ(stats.reservation_count, 0u);
+  child_pool.reset();
+  backing.reset();
+  JoinMaintenance(source);
+}
+
+TEST_P(TaskSlabPoolTest, CancelledMappingReleasesCapturedAddressReferences) {
+  constexpr iree_device_size_t kUnit = 64 * 1024;
+  VirtualBufferLifetime lifetime;
+  const iree_allocator_t allocator = {&lifetime, ObserveVirtualBufferLifetime};
+  Ref<iree_hal_buffer_t> arena;
+  const iree_hal_virtual_buffer_options_t options = {kUnit, kUnit, kUnit};
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_create(group_, Scope(), &options,
+                                                allocator, arena.out()));
+  lifetime.buffer_allocation = arena.get();
+  const iree_hal_memory_scope_t all = {
+      iree_hal_device_group_memory_domain(group_), IREE_HAL_MEMORY_SCOPE_ANY};
+  const iree_hal_memory_mapping_t mapping = {arena, all, {0, kUnit}};
+  SemaphoreList gate(devices_[0], {0}, {1});
+  SemaphoreList detached(devices_[0], {0}, {1});
+  IREE_EXPECT_OK(iree_hal_queue_map(queues_[0], gate, detached, 1, &mapping,
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  arena.reset();
+  EXPECT_EQ(lifetime.release_count.load(), 0u);
+  iree_hal_semaphore_fail(gate.semaphores[0],
+                          iree_status_from_code(IREE_STATUS_ABORTED));
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_ABORTED, Wait(detached));
+  EXPECT_EQ(lifetime.release_count.load(), 1u);
+}
+
+TEST_P(TaskSlabPoolTest, FailedVirtualBufferCreationPublishesNoOwner) {
+  const iree_hal_virtual_buffer_options_t options = {64 * 1024, 0, 0};
+  Ref<iree_hal_buffer_t> arena;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      iree_hal_virtual_buffer_create(group_, Scope(), &options,
+                                     iree_allocator_null(), arena.out()));
+  EXPECT_EQ(arena.get(), nullptr);
+}
+
+TEST_P(TaskSlabPoolTest, BatchedMappingOrdersOldAndNewUsersAcrossReservations) {
+  iree_hal_virtual_buffer_capabilities_t capabilities;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_capabilities(
+      group_, Scope(), iree_allocator_system(), &capabilities));
+  ASSERT_GT(capabilities.mapping_granularity, 0u);
+  const iree_device_size_t kUnit =
+      iree_max(64 * 1024, capabilities.reservation_granularity);
+  ASSERT_GE(capabilities.max_byte_length, 2 * kUnit);
+  ASSERT_GE(capabilities.max_alignment, kUnit);
+  EXPECT_EQ(capabilities.operations, IREE_HAL_MEMORY_MAPPING_OPERATIONS_ALL);
+  for (auto& family : families_) {
+    family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  }
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(source.out()));
+  Ref<iree_hal_buffer_t> backing;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source, iree_hal_make_pool_reservation_request(4 * kUnit, kUnit),
+      iree_infinite_timeout(), backing.out()));
+  const auto original = iree_hal_buffer_memory_view(backing);
+  ASSERT_NE(original.backing, nullptr);
+  const auto physical_charge = original.backing->native_allocation.byte_length;
+
+  // Nested views preserve native source coordinates, including any native
+  // prefix needed to align the slab's original CPU mapping.
+  Ref<iree_hal_buffer_t> tail;
+  Ref<iree_hal_buffer_t> nested;
+  IREE_ASSERT_OK(iree_hal_buffer_subspan(backing, kUnit, 3 * kUnit,
+                                         iree_allocator_system(), tail.out()));
+  IREE_ASSERT_OK(iree_hal_buffer_subspan(
+      tail, kUnit, 2 * kUnit, iree_allocator_system(), nested.out()));
+  for (auto& family : families_) {
+    family.interfaces = 0;
+  }
+  const iree_hal_virtual_buffer_options_t options = {2 * kUnit, kUnit, kUnit};
+  Ref<iree_hal_buffer_t> first, second;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_create(
+      group_, Scope(), &options, iree_allocator_system(), first.out()));
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_create(
+      group_, Scope(), &options, iree_allocator_system(), second.out()));
+  iree_hal_virtual_buffer_info_t info;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_info(first, &info));
+  EXPECT_EQ(info.mapping_granularity, kUnit);
+
+  // Both pool strategies manage virtual subranges before pages are mapped.
+  // They retain metadata and address capacity without allocating physical
+  // storage or assuming the mapping replacement unit is a suballocation unit.
+  constexpr iree_device_size_t kChildOffset = 256;
+  Ref<iree_hal_pool_t> first_pool, second_pool;
+  iree_hal_tlsf_pool_options_t tlsf_options = {};
+  tlsf_options.tlsf_options.alignment = kChildOffset;
+  IREE_ASSERT_OK(iree_hal_tlsf_pool_create_from_buffer(
+      first.get(), kChildOffset, 1024, &tlsf_options, iree_allocator_system(),
+      first_pool.out()));
+  iree_hal_fixed_block_pool_options_t block_options;
+  iree_hal_fixed_block_pool_options_initialize(&block_options);
+  block_options.block_size = kChildOffset;
+  block_options.alignment = kChildOffset;
+  IREE_ASSERT_OK(iree_hal_fixed_block_pool_create_from_buffer(
+      second.get(), kChildOffset, 1024, &block_options, iree_allocator_system(),
+      second_pool.out()));
+  Ref<iree_hal_buffer_t> first_child, second_child;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      first_pool, iree_hal_make_pool_reservation_request(16, kChildOffset),
+      iree_infinite_timeout(), first_child.out()));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      second_pool, iree_hal_make_pool_reservation_request(16, kChildOffset),
+      iree_infinite_timeout(), second_child.out()));
+  for (iree_hal_buffer_t* child : {first_child.get(), second_child.get()}) {
+    const auto memory = iree_hal_buffer_memory_view(child);
+    EXPECT_EQ(memory.offset, kChildOffset);
+    ASSERT_NE(memory.backing, nullptr);
+    EXPECT_EQ(memory.backing->native_allocation.byte_length, 0u);
+    EXPECT_EQ(memory.backing->allocation_alignment, kUnit);
+    EXPECT_EQ(memory.backing->advice, nullptr);
+  }
+  iree_hal_pool_stats_t source_stats;
+  iree_hal_pool_query_stats(source, &source_stats);
+  EXPECT_EQ(source_stats.bytes_committed, physical_charge);
+  const iree_hal_memory_scope_t all = {
+      iree_hal_device_group_memory_domain(group_), IREE_HAL_MEMORY_SCOPE_ANY};
+
+  std::array<float, 4> initial = {2, 3, 5, 7};
+  SemaphoreList uploaded(devices_[0], {0, 0, 0, 0}, {1, 1, 1, 1});
+  for (size_t i = 0; i < initial.size(); ++i) {
+    const iree_hal_semaphore_list_t done = {1, &uploaded.semaphores[i],
+                                            &uploaded.payload_values[i]};
+    IREE_ASSERT_OK(iree_hal_queue_fill(
+        queues_[0], iree_hal_semaphore_list_empty(), done, backing, i * kUnit,
+        kUnit, &initial[i], sizeof(float), nullptr, IREE_HAL_FILL_FLAG_NONE));
+  }
+  std::array<iree_hal_memory_mapping_t, 2> mappings = {{
+      {first,
+       all,
+       {0, 2 * kUnit},
+       backing,
+       0,
+       IREE_HAL_MEMORY_ACCESS_NONE,
+       IREE_HAL_MEMORY_MAPPING_OPERATION_BIND},
+      {second,
+       all,
+       {0, 2 * kUnit},
+       nested,
+       0,
+       IREE_HAL_MEMORY_ACCESS_NONE,
+       IREE_HAL_MEMORY_MAPPING_OPERATION_BIND},
+  }};
+  // HIP-style installation and access grants are separate calls. The recorder
+  // carries the source into each protection change; HAL owns no mapping ledger.
+  SemaphoreList bound(devices_[0], {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(queues_[0], uploaded, bound,
+                                    mappings.size(), mappings.data(),
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  for (auto& mapping : mappings) {
+    mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT;
+    mapping.access = IREE_HAL_MEMORY_ACCESS_ALL;
+  }
+  SemaphoreList mapped(devices_[0], {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(queues_[0], bound, mapped, mappings.size(),
+                                    mappings.data(),
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  IREE_ASSERT_OK(Wait(mapped));
+
+  Ref<iree_hal_buffer_t> output;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source, iree_hal_make_pool_reservation_request(4 * sizeof(float), 0),
+      iree_infinite_timeout(), output.out()));
+  SemaphoreList gate(devices_[0], {0}, {1});
+  SemaphoreList old_done(devices_[0], {0}, {1});
+  SemaphoreList replaced(devices_[1], {0}, {1});
+  SemaphoreList dispatched(devices_[1], {0}, {1});
+  SemaphoreList downloaded(devices_[0], {0}, {1});
+  std::array<float, 4> old_values = {};
+  std::array<float, 4> result = {};
+  // Hold old use while both replacement and its consumer are submitted. Queue
+  // submission must return without waiting for this caller-controlled gate.
+  IREE_EXPECT_OK(iree_hal_queue_download(queues_[0], gate, old_done,
+                                         first_child, 0, old_values.data(),
+                                         sizeof(old_values), nullptr));
+  mappings[0].source = nested;
+  mappings[1].source = backing;
+  for (auto& mapping : mappings) {
+    mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_REPLACE;
+  }
+  IREE_EXPECT_OK(iree_hal_queue_map(queues_[1], old_done, replaced,
+                                    mappings.size(), mappings.data(),
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  const iree_hal_buffer_ref_t refs[] = {
+      iree_hal_make_buffer_ref(first_child, 0, 4 * sizeof(float)),
+      iree_hal_make_buffer_ref(second_child, 0, 4 * sizeof(float)),
+      iree_hal_make_buffer_ref(output, 0, 4 * sizeof(float)),
+  };
+  IREE_EXPECT_OK(iree_hal_queue_dispatch(
+      queues_[1], replaced, dispatched, executables_[1],
+      iree_hal_executable_function_from_index(0),
+      iree_hal_make_static_dispatch_config(1, 1, 1),
+      iree_const_byte_span_empty(), {IREE_ARRAYSIZE(refs), refs}, nullptr,
+      IREE_HAL_DISPATCH_FLAG_NONE));
+  IREE_EXPECT_OK(iree_hal_queue_download(queues_[0], dispatched, downloaded,
+                                         output, 0, result.data(),
+                                         sizeof(result), nullptr));
+  uint64_t observed = UINT64_MAX;
+  IREE_EXPECT_OK(iree_hal_semaphore_query(replaced.semaphores[0], &observed));
+  EXPECT_EQ(observed, 0u);
+  IREE_ASSERT_OK(iree_hal_semaphore_signal(gate.semaphores[0], 1, nullptr));
+  IREE_ASSERT_OK(Wait(downloaded));
+  EXPECT_THAT(old_values, ::testing::ElementsAre(2, 2, 2, 2));
+  EXPECT_THAT(result, ::testing::ElementsAre(10, 10, 10, 10));
+
+  // Writes through the virtual buffer update the original physical storage.
+  SemaphoreList written(devices_[1], {0}, {1});
+  const float value = 11;
+  IREE_ASSERT_OK(iree_hal_queue_fill(
+      queues_[1], downloaded, written, first_child, 0, 4 * sizeof(float),
+      &value, sizeof(value), nullptr, IREE_HAL_FILL_FLAG_NONE));
+  SemaphoreList alias_read(devices_[0], {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_download(
+      queues_[0], written, alias_read, backing, 2 * kUnit + kChildOffset,
+      result.data(), sizeof(result), nullptr));
+  IREE_ASSERT_OK(Wait(alias_read));
+  EXPECT_THAT(result, ::testing::ElementsAre(11, 11, 11, 11));
+
+  for (auto& mapping : mappings) {
+    mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND;
+    mapping.source = nullptr;
+    mapping.source_offset = 0;
+    mapping.access = IREE_HAL_MEMORY_ACCESS_NONE;
+  }
+  SemaphoreList detached(devices_[0], {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(queues_[0], alias_read, detached,
+                                    mappings.size(), mappings.data(),
+                                    IREE_HAL_QUEUE_MAP_FLAG_BORROW_BUFFERS));
+  IREE_ASSERT_OK(Wait(detached));
+  // Detached storage can immediately be mapped at another virtual range.
+  mappings[1].operation = IREE_HAL_MEMORY_MAPPING_OPERATION_BIND;
+  mappings[1].source = nested;
+  mappings[1].access = IREE_HAL_MEMORY_ACCESS_READ;
+  SemaphoreList reused(devices_[0], {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(queues_[0], detached, reused, 1,
+                                    &mappings[1],
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  SemaphoreList reuse_read(devices_[0], {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_download(queues_[0], reused, reuse_read,
+                                         second_child, 0, result.data(),
+                                         sizeof(result), nullptr));
+  IREE_ASSERT_OK(Wait(reuse_read));
+  EXPECT_THAT(result, ::testing::ElementsAre(11, 11, 11, 11));
+  mappings[1].operation = IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT;
+  mappings[1].access = IREE_HAL_MEMORY_ACCESS_NONE;
+  SemaphoreList revoked(devices_[0], {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(queues_[0], reuse_read, revoked, 1,
+                                    &mappings[1],
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  mappings[1].access = IREE_HAL_MEMORY_ACCESS_READ;
+  SemaphoreList restored(devices_[1], {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_map(queues_[1], revoked, restored, 1,
+                                    &mappings[1],
+                                    IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  SemaphoreList restored_read(devices_[0], {0}, {1});
+  result.fill(0);
+  IREE_ASSERT_OK(iree_hal_queue_download(queues_[0], restored, restored_read,
+                                         second_child, 0, result.data(),
+                                         sizeof(result), nullptr));
+  IREE_ASSERT_OK(Wait(restored_read));
+  EXPECT_THAT(result, ::testing::ElementsAre(11, 11, 11, 11));
+  EXPECT_EQ(iree_hal_buffer_memory_view(backing)
+                .backing->native_allocation.byte_length,
+            physical_charge);
+  first_child.reset();
+  second_child.reset();
+  first_pool.reset();
+  second_pool.reset();
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_detach(first, all));
+  first.reset();
+  // The retained ordinary buffer keeps its address interval live.
+  Ref<iree_hal_buffer_t> retained(second.get());
+  iree_hal_buffer_retain(retained);
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_detach(second, all));
+  second.reset();
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_info(retained, &info));
+  EXPECT_EQ(info.mapping_granularity, kUnit);
+  retained.reset();
+  nested.reset();
+  tail.reset();
+  backing.reset();
+  output.reset();
+  JoinMaintenance(source);
+  iree_hal_pool_stats_t stats;
+  iree_hal_pool_query_stats(source, &stats);
+  EXPECT_EQ(stats.bytes_committed, 0u);
+}
+
+TEST_P(TaskSlabPoolTest, RejectsMappingConflictsAndUnpreparedSources) {
+  constexpr iree_device_size_t kUnit = 64 * 1024;
+  Ref<iree_hal_pool_t> ordinary;
+  IREE_ASSERT_OK(CreateSource(ordinary.out()));
+  EXPECT_EQ(
+      iree_hal_pool_query_mapping_requirements(ordinary).minimum_granularity,
+      0u);
+  Ref<iree_hal_buffer_t> unprepared;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      ordinary, iree_hal_make_pool_reservation_request(2 * kUnit, kUnit),
+      iree_infinite_timeout(), unprepared.out()));
+  const iree_hal_virtual_buffer_options_t options = {2 * kUnit, kUnit, kUnit};
+  Ref<iree_hal_buffer_t> target;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_create(
+      group_, Scope(), &options, iree_allocator_system(), target.out()));
+  const iree_hal_memory_scope_t all = {
+      iree_hal_device_group_memory_domain(group_), IREE_HAL_MEMORY_SCOPE_ANY};
+  iree_hal_memory_mapping_t mapping = {
+      target, all, {0, kUnit}, unprepared, 0, IREE_HAL_MEMORY_ACCESS_ALL};
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_PERMISSION_DENIED,
+      iree_hal_queue_map(queues_[0], iree_hal_semaphore_list_empty(),
+                         iree_hal_semaphore_list_empty(), 1, &mapping,
+                         IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  for (auto& family : families_) {
+    family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  }
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(source.out()));
+  Ref<iree_hal_buffer_t> backing;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      source, iree_hal_make_pool_reservation_request(2 * kUnit, kUnit),
+      iree_infinite_timeout(), backing.out()));
+  mapping.source = backing;
+  mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      iree_hal_queue_map(queues_[0], iree_hal_semaphore_list_empty(),
+                         iree_hal_semaphore_list_empty(), 1, &mapping,
+                         IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  mapping.source = nullptr;
+  for (auto operation : {IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
+                         IREE_HAL_MEMORY_MAPPING_OPERATION_PROTECT}) {
+    mapping.operation = operation;
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_INVALID_ARGUMENT,
+        iree_hal_queue_map(queues_[0], iree_hal_semaphore_list_empty(),
+                           iree_hal_semaphore_list_empty(), 1, &mapping,
+                           IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  }
+  mapping.source = backing;
+  mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_REPLACE;
+  std::array<iree_hal_memory_mapping_t, 2> overlapping = {mapping, mapping};
+  overlapping[1].source_offset = kUnit;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      iree_hal_queue_map(queues_[0], iree_hal_semaphore_list_empty(),
+                         iree_hal_semaphore_list_empty(), overlapping.size(),
+                         overlapping.data(), IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  Ref<iree_hal_buffer_t> alias;
+  IREE_ASSERT_OK(iree_hal_buffer_subspan(target, kUnit, kUnit,
+                                         iree_allocator_system(), alias.out()));
+  overlapping[0].target_range.byte_offset = kUnit;
+  overlapping[1].target = alias;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      iree_hal_queue_map(queues_[0], iree_hal_semaphore_list_empty(),
+                         iree_hal_semaphore_list_empty(), overlapping.size(),
+                         overlapping.data(), IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        iree_hal_virtual_buffer_detach(alias, all));
+  alias.reset();
+  mapping.target_range.byte_length = 3 * kUnit;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_OUT_OF_RANGE,
+      iree_hal_queue_map(queues_[0], iree_hal_semaphore_list_empty(),
+                         iree_hal_semaphore_list_empty(), 1, &mapping,
+                         IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  mapping.target_range.byte_length = kUnit;
+  mapping.scope.id = families_[1].family->memory.queue_scope_id;
+  uint32_t first_projection = UINT32_MAX, second_projection = UINT32_MAX;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_resolve_projection(
+      target, mapping.scope, &first_projection));
+  mapping.scope.id = families_[0].family->memory.queue_scope_id;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_resolve_projection(
+      target, mapping.scope, &second_projection));
+  EXPECT_EQ(first_projection, second_projection);
+  mapping.scope.id = iree_hal_queue_family(queues_[2])->memory.queue_scope_id;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_PERMISSION_DENIED,
+      iree_hal_queue_map(queues_[0], iree_hal_semaphore_list_empty(),
+                         iree_hal_semaphore_list_empty(), 1, &mapping,
+                         IREE_HAL_QUEUE_MAP_FLAG_NONE));
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_detach(target, all));
+  target.reset();
+  backing.reset();
+  unprepared.reset();
+  JoinMaintenance(source);
+  JoinMaintenance(ordinary);
+}
+
+TEST_P(TaskSlabPoolTest, QueueMappingSourcesRecycleThroughSharedSlabCache) {
+  constexpr iree_device_size_t kUnit = 64 * 1024;
+  for (auto& family : families_) {
+    family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  }
+  Ref<iree_hal_pool_t> source;
+  IREE_ASSERT_OK(CreateSource(source.out()));
+  const auto requirements = iree_hal_pool_query_mapping_requirements(source);
+  ASSERT_GT(requirements.minimum_granularity, 0u);
+  EXPECT_EQ(requirements.recommended_granularity,
+            requirements.minimum_granularity);
+  EXPECT_EQ(kUnit % requirements.minimum_granularity, 0u);
+  EXPECT_EQ(requirements.flags, 0u);
+  iree_hal_slab_cache_options_t cache_options;
+  iree_hal_slab_cache_options_initialize(&cache_options);
+  cache_options.slab = iree_hal_make_pool_reservation_request(4 * kUnit, kUnit);
+  Ref<iree_hal_pool_t> cache;
+  IREE_ASSERT_OK(iree_hal_slab_cache_create(
+      source, &cache_options, iree_allocator_system(), cache.out()));
+  std::array<Ref<iree_hal_pool_t>, 2> children;
+  iree_hal_tlsf_pool_options_t tlsf_options = {};
+  tlsf_options.tlsf_options.range_length = 4 * kUnit;
+  tlsf_options.tlsf_options.alignment = kUnit;
+  tlsf_options.tlsf_options.frontier_capacity = 4;
+  IREE_ASSERT_OK(iree_hal_tlsf_pool_create(
+      cache, &tlsf_options, iree_allocator_system(), children[0].out()));
+  iree_hal_fixed_block_pool_options_t block_options = {
+      .block_size = kUnit,
+      .blocks_per_slab = 4,
+      .frontier_capacity = 4,
+      .alignment = kUnit,
+  };
+  IREE_ASSERT_OK(iree_hal_fixed_block_pool_create(
+      cache, &block_options, iree_allocator_system(), children[1].out()));
+  for (auto& family : families_) {
+    family.interfaces = 0;
+  }
+  Ref<iree_hal_buffer_t> target;
+  const iree_hal_virtual_buffer_options_t options = {2 * kUnit, kUnit, kUnit};
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_create(
+      group_, Scope(), &options, iree_allocator_system(), target.out()));
+  const iree_hal_memory_scope_t all = {
+      iree_hal_device_group_memory_domain(group_), IREE_HAL_MEMORY_SCOPE_ANY};
+  const iree_hal_buffer_backing_facts_t* first_backing = nullptr;
+  for (auto& child : children) {
+    const auto inherited = iree_hal_pool_query_mapping_requirements(child);
+    EXPECT_EQ(inherited.minimum_granularity, requirements.minimum_granularity);
+    EXPECT_EQ(inherited.recommended_granularity,
+              requirements.recommended_granularity);
+    EXPECT_EQ(inherited.flags, requirements.flags);
+    // The source has no committed native binding until this gate is signaled.
+    SemaphoreList gate(devices_[0], {0}, {1});
+    SemaphoreList allocated(devices_[0], {0}, {1});
+    SemaphoreList mapped(devices_[1], {0}, {1});
+    SemaphoreList filled(devices_[1], {0}, {1});
+    SemaphoreList downloaded(devices_[0], {0}, {1});
+    std::array<iree_hal_pool_reservation_request_t, 2> requests = {
+        iree_hal_make_pool_reservation_request(kUnit, kUnit),
+        iree_hal_make_pool_reservation_request(kUnit, kUnit)};
+    std::array<iree_hal_buffer_t*, 2> buffers = {};
+    IREE_EXPECT_OK(iree_hal_queue_alloca(queues_[0], gate, allocated, child,
+                                         requests.size(), requests.data(),
+                                         buffers.data()));
+    std::array<Ref<iree_hal_buffer_t>, 2> roots;
+    for (size_t i = 0; i < roots.size(); ++i) {
+      roots[i].reset(buffers[i]);
+    }
+    std::array<iree_hal_memory_mapping_t, 2> mappings = {{
+        {target, all, {0, kUnit}, roots[0], 0, IREE_HAL_MEMORY_ACCESS_ALL},
+        {target, all, {kUnit, kUnit}, roots[1], 0, IREE_HAL_MEMORY_ACCESS_ALL},
+    }};
+    IREE_EXPECT_OK(iree_hal_queue_map(queues_[1], allocated, mapped,
+                                      mappings.size(), mappings.data(),
+                                      IREE_HAL_QUEUE_MAP_FLAG_NONE));
+    const uint32_t value = 0x12345678;
+    IREE_EXPECT_OK(iree_hal_queue_fill(queues_[1], mapped, filled, target.get(),
+                                       0, 2 * kUnit, &value, sizeof(value),
+                                       nullptr, IREE_HAL_FILL_FLAG_NONE));
+    uint32_t observed = 0;
+    IREE_EXPECT_OK(iree_hal_queue_download(queues_[0], filled, downloaded,
+                                           roots[1], 0, &observed,
+                                           sizeof(observed), nullptr));
+    IREE_ASSERT_OK(iree_hal_semaphore_signal(gate.semaphores[0], 1, nullptr));
+    IREE_ASSERT_OK(Wait(downloaded));
+    EXPECT_EQ(observed, value);
+    for (auto& root : roots) {
+      const auto memory = iree_hal_buffer_memory_view(root);
+      ASSERT_NE(memory.backing, nullptr);
+      if (!first_backing) {
+        first_backing = memory.backing;
+      }
+      EXPECT_EQ(memory.backing, first_backing);
+    }
+    for (auto& mapping : mappings) {
+      mapping.source = nullptr;
+      mapping.access = IREE_HAL_MEMORY_ACCESS_NONE;
+    }
+    SemaphoreList detached(devices_[1], {0}, {1});
+    IREE_ASSERT_OK(iree_hal_queue_map(queues_[1], downloaded, detached,
+                                      mappings.size(), mappings.data(),
+                                      IREE_HAL_QUEUE_MAP_FLAG_NONE));
+    SemaphoreList deallocated(devices_[0], {0}, {1});
+    IREE_ASSERT_OK(iree_hal_queue_dealloca(queues_[0], detached, deallocated,
+                                           buffers.size(), buffers.data()));
+    IREE_ASSERT_OK(Wait(deallocated));
+    for (auto& root : roots) {
+      root.reset();
+    }
+    JoinMaintenance(source);
+    iree_hal_pool_stats_t stats;
+    iree_hal_pool_query_stats(child, &stats);
+    EXPECT_EQ(stats.bytes_committed, 0u);
+  }
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_detach(target, all));
+  target.reset();
+  iree_hal_pool_stats_t stats;
+  iree_hal_pool_query_stats(source, &stats);
+  EXPECT_EQ(stats.reserve_count, 1u);
+  iree_hal_slab_cache_stats_t cache_stats;
+  IREE_ASSERT_OK(iree_hal_slab_cache_query_stats(cache, &cache_stats));
+  EXPECT_EQ(cache_stats.hit_count, 1u);
+  EXPECT_EQ(cache_stats.ready_count, 1u);
+  const auto physical_charge = stats.bytes_committed;
+  EXPECT_GE(physical_charge, 4 * kUnit);
+
+  // Child pools return idle ranges to the shared cache. Only the cache's
+  // explicit trim releases that retained physical backing to the source.
+  for (auto& child : children) {
+    iree_hal_pool_trim(child, IREE_HAL_POOL_TRIM_FLAG_EXCESS, 0);
+  }
+  iree_hal_pool_trim(cache, IREE_HAL_POOL_TRIM_FLAG_EXCESS, 4 * kUnit);
+  JoinMaintenance(source);
+  iree_hal_pool_query_stats(source, &stats);
+  EXPECT_EQ(stats.bytes_committed, physical_charge);
+  IREE_ASSERT_OK(iree_hal_slab_cache_query_stats(cache, &cache_stats));
+  EXPECT_EQ(cache_stats.ready_count, 1u);
+
+  iree_hal_pool_trim(cache, IREE_HAL_POOL_TRIM_FLAG_EXCESS, 0);
+  JoinMaintenance(source);
+  iree_hal_pool_query_stats(source, &stats);
+  EXPECT_EQ(stats.bytes_committed, 0u);
+  EXPECT_EQ(stats.release_count, 1u);
 }
 
 CTS_REGISTER_EXECUTABLE_TEST_SUITE(TaskSlabPoolTest);

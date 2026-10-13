@@ -315,8 +315,8 @@ static loomc_status_t prepare_source_catalog(jit_scheduler_t* scheduler,
   loomc_link_index_builder_t* builder = NULL;
   loomc_result_t* index_result = NULL;
   if (loomc_status_is_ok(status)) {
-    status = loomc_link_index_builder_create(scheduler->context, NULL,
-                                             scheduler->allocator, &builder);
+    status = loomc_link_index_builder_allocate(scheduler->context, NULL,
+                                               scheduler->allocator, &builder);
   }
   const loomc_link_index_source_options_t provider_options = {
       .provider_name = loomc_make_cstring_view("scheduled-jit"),
@@ -347,7 +347,7 @@ static loomc_status_t prepare_source_catalog(jit_scheduler_t* scheduler,
   }
 
   loomc_result_release(index_result);
-  loomc_link_index_builder_release(builder);
+  loomc_link_index_builder_free(builder);
   return status;
 }
 

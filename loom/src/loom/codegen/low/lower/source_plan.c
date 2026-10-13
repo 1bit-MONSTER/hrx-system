@@ -249,7 +249,7 @@ static iree_status_t loom_low_lower_source_candidate_plan_initialize(
   *out_plan = (loom_low_lower_source_candidate_plan_t){0};
   out_plan->context = context;
   iree_arena_initialize(context->module->arena.block_pool, &out_plan->arena);
-  IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_plan_create(
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_plan_allocate(
       &out_plan->arena, &out_plan->graph_plan));
   loom_low_lower_source_graph_node_index_initialize(
       &context->lowering->value_domain, &out_plan->arena,
@@ -479,7 +479,7 @@ static iree_status_t loom_low_lower_prepare_plan(
   }
   loom_low_lower_source_memory_builder_t* memory_builder = NULL;
   IREE_RETURN_IF_ERROR(
-      loom_low_lower_source_memory_builder_create(context, &memory_builder));
+      loom_low_lower_source_memory_builder_allocate(context, &memory_builder));
   IREE_RETURN_IF_ERROR(loom_low_lower_visit_region_plan_ops(
       context, source_body, observer, observer_state, &visibility,
       memory_builder, candidate_plan, &plan_capacity));

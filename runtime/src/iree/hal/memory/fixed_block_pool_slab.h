@@ -84,7 +84,7 @@ iree_status_t iree_hal_fixed_block_pool_slab_acquire(
 
 // Retains a finite range and prepares its block metadata without a parent
 // token.
-iree_status_t iree_hal_fixed_block_pool_slab_create(
+iree_status_t iree_hal_fixed_block_pool_slab_allocate(
     const iree_hal_pool_buffer_range_t* range,
     const iree_hal_fixed_block_pool_geometry_t* geometry,
     const iree_hal_asan_pool_options_t* asan, iree_allocator_t host_allocator,
@@ -99,9 +99,9 @@ bool iree_hal_fixed_block_pool_slab_merge_return(
 
 // Returns an optional parent token with its prepared return history, releases
 // the view, and destroys metadata. Runs outside pool mutation locks.
-void iree_hal_fixed_block_pool_slab_destroy(
-    iree_hal_fixed_block_pool_slab_t* slab, iree_hal_pool_t* backing_pool,
-    iree_allocator_t host_allocator);
+void iree_hal_fixed_block_pool_slab_free(iree_hal_fixed_block_pool_slab_t* slab,
+                                         iree_hal_pool_t* backing_pool,
+                                         iree_allocator_t host_allocator);
 
 #ifdef __cplusplus
 }

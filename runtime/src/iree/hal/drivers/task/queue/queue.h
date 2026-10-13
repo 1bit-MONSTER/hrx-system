@@ -12,6 +12,7 @@
 // wake_budget == 1 control process pops operations and handles them by type:
 // barriers, host calls, and allocations are handled inline; command buffers are
 // filled into recording items and pushed to the compute process's pending list.
+// Mapping batches transfer to the device's existing cold memory executor.
 //
 // The wake_budget > 1 compute process drains recording items cooperatively
 // across all workers via the block processor. It occupies a single compute slot
@@ -38,6 +39,7 @@
 #include "iree/hal/drivers/task/command/block_processor.h"
 #include "iree/hal/drivers/task/profile.h"
 #include "iree/hal/drivers/task/queue/memory_barrier.h"
+#include "iree/hal/memory/maintenance.h"
 #include "iree/task/executor.h"
 #include "iree/task/process.h"
 #include "iree/task/scope.h"
@@ -88,6 +90,7 @@ typedef enum iree_hal_task_queue_op_type_e {
   IREE_HAL_TASK_QUEUE_OP_ATOMIC_STORE,
   IREE_HAL_TASK_QUEUE_OP_ATOMIC_RMW,
   IREE_HAL_TASK_QUEUE_OP_DISPATCH,
+  IREE_HAL_TASK_QUEUE_OP_MAP,
 } iree_hal_task_queue_op_type_t;
 
 typedef uint32_t iree_hal_task_queue_op_flags_t;
@@ -206,6 +209,13 @@ struct iree_hal_task_queue_op_t {
       // Flags controlling callback ordering and completion.
       iree_hal_host_call_flags_t flags;
     } host_call;
+    // Captured native mapping batch executed by the existing memory worker.
+    struct {
+      // Entry owned by the maintenance queue until its callback begins.
+      iree_hal_memory_maintenance_entry_t entry;
+      // Prepared callback whose resource is retained by the operation.
+      iree_hal_host_call_t call;
+    } mapping;
     struct {
       // Borrowed pool used for the complete allocation transaction.
       iree_hal_pool_t* pool;
@@ -484,6 +494,9 @@ typedef struct iree_hal_task_queue_create_params_t {
   // Local or explicitly unplaced proactor borrowed from the device's pool.
   iree_async_proactor_t* proactor;
 
+  // Device-owned cold memory executor, borrowed for the queue lifetime.
+  iree_hal_memory_maintenance_t* memory_maintenance;
+
   // Aggregate transfer payload length selecting direct or recorded execution.
   iree_device_size_t inline_transfer_threshold;
 
@@ -542,6 +555,10 @@ struct iree_hal_task_queue_t {
   // unplaced service; dynamic queues reuse their executor's selected service.
   // Valid as long as the device (which retains the proactor pool) is alive.
   iree_async_proactor_t* proactor;
+
+  // Device-owned cold memory executor shared by provisioned and dynamic queues.
+  // Queue operation quiescence precedes the device's final owner release.
+  iree_hal_memory_maintenance_t* memory_maintenance;
 
   // Shared frontier tracker for cross-device causal ordering.
   // Borrowed from the device after topology assignment.
@@ -616,7 +633,7 @@ struct iree_hal_task_queue_t {
   // For COMMANDS operations, this process fills a recording item and pushes
   // it to compute_pending (delegating actual execution to the compute
   // process below). For all other operation types, this process handles
-  // them inline.
+  // them inline, except mappings delegated to the cold memory executor.
   //
   // The process participates in the process scope: scope_begin at
   // initialization, scope_end in the release callback. This ensures
@@ -687,6 +704,16 @@ struct iree_hal_task_queue_t {
   uint32_t compute_worker_count;
 };
 
+// Retains the queue through its HAL resource lifetime. NULL is allowed.
+static inline void iree_hal_task_queue_retain(iree_hal_task_queue_t* queue) {
+  iree_hal_queue_retain((iree_hal_queue_t*)queue);
+}
+
+// Releases a queue reference. NULL is allowed.
+static inline void iree_hal_task_queue_release(iree_hal_task_queue_t* queue) {
+  iree_hal_queue_release((iree_hal_queue_t*)queue);
+}
+
 iree_status_t iree_hal_task_queue_initialize(
     const iree_hal_task_queue_create_params_t* params,
     iree_hal_task_queue_t* out_queue);
@@ -735,6 +762,38 @@ iree_status_t iree_hal_task_queue_submit_host_call(
     iree_hal_task_queue_t* queue, iree_hal_semaphore_list_t wait_semaphores,
     iree_hal_semaphore_list_t signal_semaphores, iree_hal_host_call_t call,
     const uint64_t args[4], iree_hal_host_call_flags_t flags);
+
+// Captures and submits one mapping vector with one dependency boundary.
+iree_status_t iree_hal_task_queue_submit_map(
+    iree_hal_queue_t* queue, iree_hal_semaphore_list_t waits,
+    iree_hal_semaphore_list_t signals, iree_host_size_t mapping_count,
+    const iree_hal_memory_mapping_t* mappings,
+    iree_hal_queue_map_flags_t flags);
+
+// Transfers a ready mapping operation to the existing cold memory owner.
+// The operation may complete and free itself before this call returns.
+void iree_hal_task_queue_issue_map(iree_hal_task_queue_op_t* operation);
+
+// Allocates one operation and begins its accepted-work scope. On success the
+// caller fills its payload and passes it to submit_op_finish exactly once.
+iree_status_t iree_hal_task_queue_submit_op_begin(
+    iree_hal_task_queue_t* queue, iree_hal_task_queue_op_type_t type,
+    const iree_hal_semaphore_list_t* signals,
+    iree_hal_task_queue_op_t** out_operation);
+
+// Retains resources and registers waits. Consumes the operation on all paths.
+iree_status_t iree_hal_task_queue_submit_op_finish(
+    iree_hal_task_queue_op_t* operation, iree_hal_semaphore_list_t waits,
+    iree_host_size_t resource_count, iree_hal_resource_t* const* resources);
+
+// Publishes terminal success and retires the operation's frontier and scope.
+// Consumes the operation.
+void iree_hal_task_queue_op_complete(iree_hal_task_queue_op_t* operation);
+
+// Publishes terminal failure to the signals and frontier, then retires the
+// operation's scope. Consumes both the operation and its non-OK status.
+void iree_hal_task_queue_op_fail(iree_hal_task_queue_op_t* operation,
+                                 iree_status_t status);
 
 iree_status_t iree_hal_task_queue_submit_alloca(
     iree_hal_task_queue_t* queue, iree_hal_pool_t* pool,

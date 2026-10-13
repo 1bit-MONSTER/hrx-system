@@ -19,7 +19,7 @@ extern "C" {
 // Copies validated geometry/options and the address. Each bounded slot owns
 // either a native accept or an in-progress import handshake, never a published
 // connection. Stop joins all slots before the listener can be freed.
-iree_status_t iree_net_shm_listener_create(
+iree_status_t iree_net_shm_listener_allocate(
     iree_string_view_t address, iree_async_proactor_t* proactor,
     const iree_net_shm_region_layout_t* layout,
     const iree_net_shm_carrier_options_t* carrier_options,

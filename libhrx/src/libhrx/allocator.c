@@ -46,8 +46,8 @@ hrx_status_t hrx_allocator_allocate_buffer(hrx_allocator_t allocator,
 
   iree_hal_pool_t* pool = NULL;
   iree_hal_buffer_t* hal_buffer = NULL;
-  status = hrx_mem_pool_backing_retain_allocation_source(allocator->device,
-                                                         params.type, &pool);
+  status = hrx_mem_pool_backing_retain_allocation_source(
+      allocator->device, params.type, params.usage, &pool);
   if (iree_status_is_ok(status)) {
     const iree_hal_pool_reservation_request_t request =
         iree_hal_make_pool_reservation_request((iree_device_size_t)size,
@@ -77,6 +77,12 @@ hrx_status_t hrx_allocator_import_buffer(hrx_allocator_t allocator,
     HRX_RETURN_AND_END_ZONE(
         z0, hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
                             "allocator, host_ptr, or buffer is NULL"));
+  }
+  if (iree_any_bit_set(params.usage, HRX_BUFFER_USAGE_MAPPING_SOURCE)) {
+    HRX_RETURN_AND_END_ZONE(
+        z0,
+        hrx_make_status(HRX_STATUS_UNAVAILABLE,
+                        "host registration cannot provide remappable backing"));
   }
 
   iree_hal_queue_family_affinity_t queue_family_affinity = 0;

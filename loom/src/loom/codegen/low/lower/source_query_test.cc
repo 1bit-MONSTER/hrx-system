@@ -172,7 +172,7 @@ class LowLowerSourceQueryTest : public ::testing::Test {
   }
 
   void CreateQueryScope() {
-    IREE_ASSERT_OK(loom_low_lower_source_query_scope_create(
+    IREE_ASSERT_OK(loom_low_lower_source_query_scope_allocate(
         module_, function_, &options_, &query_scope_arena_, &query_scope_));
   }
 

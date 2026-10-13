@@ -48,7 +48,8 @@ struct iree_hal_vulkan_transient_buffer_t {
   iree_hal_pool_t* source_pool;
 
   // Stable table borrowed by views created before allocation commitment.
-  // Caller-ordered commit/decommit publishes and clears only these entries.
+  // Staging publishes native identities for queue emission; decommit clears
+  // them after the caller-ordered allocation epoch ends.
   iree_hal_vulkan_buffer_native_t native;
 
   // Optional queue-allocation reservation owned by this wrapper while armed.
@@ -176,6 +177,9 @@ void iree_hal_vulkan_transient_buffer_stage_backing(
   IREE_ASSERT_TRUE(buffer->committed_backing == NULL);
   iree_hal_buffer_retain(backing);
   buffer->staged_backing = backing;
+  iree_hal_buffer_memory_copy_bindings(&backing->memory,
+                                       iree_hal_vulkan_buffer_binding_layout(),
+                                       buffer->native.bindings);
   iree_slim_mutex_unlock(&buffer->mutex);
 }
 
@@ -188,9 +192,6 @@ void iree_hal_vulkan_transient_buffer_commit(iree_hal_buffer_t* base_buffer) {
     IREE_ASSERT_TRUE(buffer->staged_backing != NULL);
     IREE_ASSERT_TRUE(buffer->committed_backing == NULL);
     buffer->committed_backing = buffer->staged_backing;
-    iree_hal_buffer_memory_copy_bindings(
-        &buffer->committed_backing->memory,
-        iree_hal_vulkan_buffer_binding_layout(), buffer->native.bindings);
   }
   iree_slim_mutex_unlock(&buffer->mutex);
 }
@@ -477,6 +478,34 @@ iree_hal_vulkan_transient_buffer_query_memory(
   return view;
 }
 
+static iree_hal_virtual_buffer_view_t
+iree_hal_vulkan_transient_buffer_query_virtual(
+    const iree_hal_buffer_t* base_buffer) {
+  iree_hal_vulkan_transient_buffer_t* buffer =
+      (iree_hal_vulkan_transient_buffer_t*)base_buffer;
+  iree_hal_virtual_buffer_view_t view = {0};
+  iree_slim_mutex_lock(&buffer->mutex);
+  if (buffer->committed_backing) {
+    view = iree_hal_buffer_virtual_view(buffer->committed_backing);
+  }
+  iree_slim_mutex_unlock(&buffer->mutex);
+  return view;
+}
+
+static iree_status_t iree_hal_vulkan_transient_buffer_detach_mappings(
+    iree_hal_buffer_t* base_buffer, uint32_t scope_id) {
+  iree_hal_vulkan_transient_buffer_t* buffer =
+      (iree_hal_vulkan_transient_buffer_t*)base_buffer;
+  iree_hal_buffer_t* committed = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_hal_vulkan_transient_buffer_retain_host_backing(buffer, &committed));
+  const iree_hal_memory_scope_t scope = {
+      .domain = base_buffer->memory.contract->domain, .id = scope_id};
+  iree_status_t status = iree_hal_virtual_buffer_detach(committed, scope);
+  iree_hal_buffer_release(committed);
+  return status;
+}
+
 static const iree_hal_buffer_allocation_vtable_t
     iree_hal_vulkan_transient_buffer_allocation_vtable = {
         .profile = iree_hal_vulkan_transient_buffer_allocation_profile,
@@ -496,5 +525,7 @@ static const iree_hal_buffer_vtable_t iree_hal_vulkan_transient_buffer_vtable =
         .invalidate_range = iree_hal_vulkan_transient_buffer_invalidate_range,
         .flush_range = iree_hal_vulkan_transient_buffer_flush_range,
         .query_memory = iree_hal_vulkan_transient_buffer_query_memory,
+        .query_virtual = iree_hal_vulkan_transient_buffer_query_virtual,
+        .detach_mappings = iree_hal_vulkan_transient_buffer_detach_mappings,
         .allocation = &iree_hal_vulkan_transient_buffer_allocation_vtable,
 };

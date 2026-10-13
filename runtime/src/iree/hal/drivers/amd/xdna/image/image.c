@@ -17,7 +17,7 @@ struct iree_hal_amd_xdna_image_t {
   iree_hal_amd_xdna_image_tables_t tables;
 };
 
-iree_status_t iree_hal_amd_xdna_image_create(
+iree_status_t iree_hal_amd_xdna_image_allocate(
     iree_byte_sequence_t* source_sequence,
     const iree_hal_amd_xdna_aie2p_target_t* target,
     iree_allocator_t host_allocator, iree_hal_amd_xdna_image_t** out_image) {
@@ -30,7 +30,7 @@ iree_status_t iree_hal_amd_xdna_image_create(
                             "invalid XDNA target contract");
   }
   iree_hal_amd_xdna_image_directory_t* directory = NULL;
-  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_image_directory_create(
+  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_image_directory_allocate(
       source_sequence, host_allocator, &directory));
   const iree_hal_amd_xdna_image_program_header_t* metadata =
       iree_hal_amd_xdna_image_directory_program_header(directory, 0);
@@ -71,16 +71,16 @@ iree_status_t iree_hal_amd_xdna_image_create(
     *out_image = image;
   } else {
     iree_allocator_free(host_allocator, image);
-    iree_hal_amd_xdna_image_directory_destroy(directory);
+    iree_hal_amd_xdna_image_directory_free(directory);
   }
   return status;
 }
 
-void iree_hal_amd_xdna_image_destroy(iree_hal_amd_xdna_image_t* image) {
+void iree_hal_amd_xdna_image_free(iree_hal_amd_xdna_image_t* image) {
   if (image == NULL) {
     return;
   }
-  iree_hal_amd_xdna_image_directory_destroy(image->directory);
+  iree_hal_amd_xdna_image_directory_free(image->directory);
   iree_allocator_free(image->host_allocator, image);
 }
 

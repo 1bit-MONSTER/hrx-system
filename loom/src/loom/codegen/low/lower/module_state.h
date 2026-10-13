@@ -33,7 +33,7 @@ typedef uint32_t loom_low_lower_read_only_data_id_t;
 // lowering in one module pass and invoke target module finalizers before
 // releasing |arena|. Target-owned state stored here is pass-local scratch until
 // a module finalizer materializes durable IR.
-iree_status_t loom_low_lower_module_state_create(
+iree_status_t loom_low_lower_module_state_allocate(
     iree_arena_allocator_t* arena,
     loom_low_lower_module_state_t** out_module_state);
 
@@ -51,8 +51,8 @@ iree_status_t loom_low_lower_module_state_rule_descriptor_cache(
 //
 // Keys must be target-owned static addresses. Reusing a key with a different
 // |data_length| violates the target state contract. The returned storage
-// remains valid until the arena passed to loom_low_lower_module_state_create is
-// released.
+// remains valid until the arena passed to loom_low_lower_module_state_allocate
+// is released.
 iree_status_t loom_low_lower_module_state_get_or_allocate(
     loom_low_lower_module_state_t* module_state, const void* key,
     iree_host_size_t data_length, void** out_data);
@@ -78,7 +78,7 @@ iree_status_t loom_low_lower_module_state_finalize(
     loom_low_lower_module_state_t* module_state, struct loom_module_t* module);
 
 // Allocates uninitialized pass-local module-state storage.
-iree_status_t loom_low_lower_module_state_allocate(
+iree_status_t loom_low_lower_module_state_allocate_bytes(
     loom_low_lower_module_state_t* module_state, iree_host_size_t byte_length,
     void** out_ptr);
 

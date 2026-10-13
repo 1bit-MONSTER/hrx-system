@@ -47,6 +47,7 @@ iree_cc_library(
     "string_util.h"
     "topology.h"
     "topology_builder.h"
+    "virtual_buffer.h"
   TEXTUAL_HDRS
     "profile_metrics.inc"
   SRCS
@@ -88,6 +89,7 @@ iree_cc_library(
     "string_util.c"
     "topology.c"
     "topology_builder.c"
+    "virtual_buffer.c"
   DEPS
     iree::async
     iree::base

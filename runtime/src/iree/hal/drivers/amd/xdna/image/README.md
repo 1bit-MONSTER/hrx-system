@@ -38,7 +38,7 @@ Strix Halo NPU5 share an array family but have distinct execution profiles.
 The loader does not guess compatibility from a family name or patch an image
 to fit another endpoint.
 
-`iree_hal_amd_xdna_image_create` retains the source byte sequence, decodes the
+`iree_hal_amd_xdna_image_allocate` retains the source byte sequence, decodes the
 load directory, and retains compact metadata. It does not flatten or copy the
 native payload into another host image. Table queries borrow image-owned
 storage. The image has no device allocations, mappings, context, or submission

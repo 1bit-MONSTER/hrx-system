@@ -484,7 +484,7 @@ static iree_status_t iree_net_rdma_connection_create_endpoint(
   iree_net_rdma_direct_endpoint_callbacks_t callbacks = {
       iree_net_rdma_connection_credit, slot};
   if (slot->kind == IREE_NET_RDMA_ENDPOINT_DIRECT) {
-    return iree_net_rdma_direct_endpoint_create(
+    return iree_net_rdma_direct_endpoint_allocate(
         connection->context, connection->proactor, connection->control, ordinal,
         sequence_number, options, callbacks, &connection->endpoint_barrier,
         connection->base.host_allocator, &slot->native);
@@ -747,10 +747,10 @@ static void iree_net_rdma_connection_destroy(iree_net_connection_t* base) {
     if (slot->framed) {
       iree_net_framed_endpoint_free(slot->framed);
     } else {
-      iree_net_rdma_direct_endpoint_destroy(slot->native);
+      iree_net_rdma_direct_endpoint_free(slot->native);
     }
   }
-  iree_net_rdma_connection_control_destroy(connection->control);
+  iree_net_rdma_connection_control_free(connection->control);
   iree_status_free(connection->failure);
   iree_slim_mutex_deinitialize(&connection->mutex);
   iree_async_proactor_release(connection->proactor);
@@ -885,7 +885,7 @@ iree_status_t iree_net_rdma_connection_create(
   iree_unaligned_store_le_u32(hello + 8, options->max_endpoint_count);
   iree_unaligned_store_le_u32(
       hello + 12, iree_net_rdma_context_port_attributes(context)->max_msg_sz);
-  iree_status_t status = iree_net_rdma_connection_control_create(
+  iree_status_t status = iree_net_rdma_connection_control_allocate(
       context, proactor, control_options,
       iree_make_const_byte_span(hello, sizeof(hello)),
       (iree_net_rdma_connection_control_callbacks_t){

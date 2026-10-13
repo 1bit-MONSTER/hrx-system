@@ -202,7 +202,7 @@ static void iree_hal_amdgpu_pending_op_release_alloca_memory_wait(
       iree_hal_pool_wait_abort(wait->capacity.wait);
       wait->capacity.prepared = false;
     }
-    iree_hal_pool_wait_destroy(wait->capacity.wait);
+    iree_hal_pool_wait_free(wait->capacity.wait);
     wait->capacity.wait = NULL;
   }
   iree_hal_amdgpu_host_queue_release_alloca_transaction(
@@ -787,7 +787,7 @@ static void iree_hal_amdgpu_pending_op_enqueue_alloca_pool_growth(
       (result == IREE_HAL_POOL_ACQUIRE_EXHAUSTED ||
        result == IREE_HAL_POOL_ACQUIRE_OVER_BUDGET)) {
     if (!wait->capacity.wait) {
-      status = iree_hal_pool_wait_create(
+      status = iree_hal_pool_wait_allocate(
           op->alloca_op.pool, op->queue->host_allocator, &wait->capacity.wait);
     }
     if (iree_status_is_ok(status)) {
@@ -1280,7 +1280,7 @@ static iree_status_t iree_hal_amdgpu_host_queue_defer_alloca_capacity_wait(
           : NULL;
   const bool owns_capacity_wait = capacity_wait == NULL;
   if (owns_capacity_wait) {
-    IREE_RETURN_IF_ERROR(iree_hal_pool_wait_create(
+    IREE_RETURN_IF_ERROR(iree_hal_pool_wait_allocate(
         allocation_pool, queue->host_allocator, &capacity_wait));
   }
   iree_hal_pool_wait_prepare(capacity_wait);
@@ -1346,7 +1346,7 @@ static iree_status_t iree_hal_amdgpu_host_queue_defer_alloca_capacity_wait(
       iree_hal_pool_wait_abort(capacity_wait);
     }
     if (owns_capacity_wait) {
-      iree_hal_pool_wait_destroy(capacity_wait);
+      iree_hal_pool_wait_free(capacity_wait);
     }
   }
   return status;

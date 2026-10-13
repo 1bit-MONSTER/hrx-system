@@ -57,7 +57,7 @@ typedef struct loom_inline_callables_plan_t loom_inline_callables_plan_t;
 // Planning borrows |options|' snapshots and allocates in |pass->arena|. It does
 // not mutate the module. The caller may then replace selected applications
 // with exact calls and append them without rebuilding the reference snapshot.
-iree_status_t loom_inline_callables_plan_create(
+iree_status_t loom_inline_callables_plan_allocate(
     loom_pass_t* pass, loom_module_t* module,
     const loom_inline_callables_plan_options_t* options,
     loom_inline_callables_plan_t** out_plan);

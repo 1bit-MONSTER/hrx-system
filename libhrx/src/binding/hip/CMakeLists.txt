@@ -935,6 +935,33 @@ iree_cc_test(
 )
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_HAL_DRIVER_AMDGPU)
+iree_cc_test(
+  NAME
+    hip_virtual_memory_api_test
+  SRCS
+    "hip_virtual_memory_api_test.cc"
+  DATA
+    "libhrx::src::binding::hip::amdhip64"
+  DEPS
+    ::hip_dso_test_util
+    ::launch_params
+    iree::testing::gtest
+    iree::testing::gtest_main
+    libhrx_defs
+  ENV
+    "HRX_TEST_LIBAMDHIP64={{$<TARGET_FILE:libhrx::src::binding::hip::amdhip64>}}"
+  LABELS
+    "iree-run-requirement=runtime.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+  RESOURCE_GROUP
+    gpu-device
+  SANITIZER_SUPPRESSIONS
+    lsan
+    hsa
+)
+endif()
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_cc_test(
   NAME

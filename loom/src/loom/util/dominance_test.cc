@@ -694,8 +694,8 @@ TEST_F(DominanceTest, WalkMaintainsDominatorScopesAcrossCfgAndNesting) {
           },
   };
   loom_dominance_walk_t* walk = nullptr;
-  IREE_ASSERT_OK(loom_dominance_walk_create(module_, body_, callbacks,
-                                            &dom_arena_, &walk));
+  IREE_ASSERT_OK(loom_dominance_walk_allocate(module_, body_, callbacks,
+                                              &dom_arena_, &walk));
 
   struct Visit {
     int depth;

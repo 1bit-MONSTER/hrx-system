@@ -265,7 +265,7 @@ static void iree_net_shm_listener_accept_done(
   bool listening = iree_net_shm_listener_is_listening(listener);
   if (iree_status_is_ok(slot->status) && listening) {
 #if !defined(IREE_PLATFORM_WINDOWS)
-    slot->status = iree_async_local_stream_create(
+    slot->status = iree_async_local_stream_allocate(
         listener->proactor, slot->channel.socket->primitive,
         IREE_NET_SHM_STORAGE_HANDLE_COUNT, listener->host_allocator,
         &slot->channel.stream);
@@ -365,7 +365,7 @@ static void iree_net_shm_listener_start_slot(
     if (iree_status_is_ok(status)) {
       iree_async_primitive_close(&listener->name_guard);
       listener->name_guard = name_guard;
-      status = iree_async_local_stream_create(
+      status = iree_async_local_stream_allocate(
           listener->proactor, slot->channel.pipe,
           IREE_NET_SHM_STORAGE_HANDLE_COUNT, listener->host_allocator,
           &slot->channel.stream);
@@ -525,7 +525,7 @@ static const iree_net_listener_vtable_t iree_net_shm_listener_vtable = {
     .query_bound_address = iree_net_shm_listener_query_bound_address,
 };
 
-iree_status_t iree_net_shm_listener_create(
+iree_status_t iree_net_shm_listener_allocate(
     iree_string_view_t address, iree_async_proactor_t* proactor,
     const iree_net_shm_region_layout_t* layout,
     const iree_net_shm_carrier_options_t* carrier_options,

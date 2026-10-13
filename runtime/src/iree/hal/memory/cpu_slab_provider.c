@@ -76,6 +76,12 @@ static iree_status_t iree_hal_cpu_slab_provider_acquire_slab(
   out_slab->base_ptr = (uint8_t*)ptr;
   out_slab->length = min_length;
   out_slab->provider_handle = 0;
+  out_slab->native_allocation.byte_length = min_length;
+  out_slab->native_allocation.granularity = 1;
+  out_slab->maintenance_range = iree_hal_make_buffer_range(0, min_length);
+  out_slab->host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK;
+  out_slab->allocation_alignment =
+      iree_max(min_alignment, provider->allocation_alignment);
   return iree_ok_status();
 }
 
@@ -109,6 +115,10 @@ static iree_status_t iree_hal_cpu_slab_provider_import_slab(
       .base_ptr = storage->payload.host_pointer,
       .length = storage->byte_length,
       .provider_handle = IREE_HAL_CPU_SLAB_PROVIDER_IMPORTED_HANDLE,
+      .maintenance_range = storage->maintenance_range,
+      .host_cacheability = storage->host_cacheability,
+      .physical_backing_id = storage->physical_backing_id,
+      .allocation_alignment = exact_alignment,
   };
   out_import->properties = (iree_hal_slab_provider_properties_t){
       .memory_type = IREE_HAL_CPU_SLAB_PROVIDER_MEMORY_TYPE,
@@ -137,7 +147,7 @@ static bool iree_hal_cpu_slab_provider_query_import_requirements(
       .min_byte_length = 1,
       .max_byte_length = IREE_HOST_SIZE_MAX,
       .base_alignment = 1,
-      .byte_length_alignment = 1,
+      .byte_length_granularity = 1,
   };
   return true;
 }

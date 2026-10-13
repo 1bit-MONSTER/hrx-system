@@ -54,7 +54,7 @@ typedef struct iree_hal_allocator_memory_heap_t {
 } iree_hal_allocator_memory_heap_t;
 
 //===----------------------------------------------------------------------===//
-// Virtual Memory Management
+// Legacy scalar virtual memory management
 //===----------------------------------------------------------------------===//
 
 // Opaque handle to a physical memory allocation.
@@ -238,9 +238,14 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_query_memory_heaps(
     iree_host_size_t* IREE_RESTRICT out_count);
 
 //===----------------------------------------------------------------------===//
-// Virtual Memory Management
+// Legacy scalar virtual memory management
 //===----------------------------------------------------------------------===//
 
+// Deprecated scalar API retained for ROCr-backed HIP consumers. New callers
+// use iree_hal_virtual_buffer_* and iree_hal_queue_map with ordinary
+// prepared backing buffers. Legacy support is independent of reservation
+// support; backends implementing the new API may omit this entire surface.
+//
 // Returns true if the allocator supports virtual memory management operations.
 // When false all virtual/physical memory functions will return
 // IREE_STATUS_UNAVAILABLE.
@@ -292,8 +297,8 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_virtual_memory_reserve(
 
 // Releases a virtual address reservation created by virtual_memory_reserve.
 //
-// All physical memory must be unmapped before releasing. The |virtual_buffer|
-// must not be used after this call.
+// All physical memory must be unmapped before releasing. Success consumes
+// |virtual_buffer|; failure leaves it owned by the caller for cleanup or retry.
 //
 // Returns IREE_STATUS_UNAVAILABLE if virtual memory is not supported.
 IREE_API_EXPORT iree_status_t iree_hal_allocator_virtual_memory_release(
@@ -320,8 +325,8 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_physical_memory_allocate(
 // Frees a physical memory handle allocated by
 // iree_hal_allocator_physical_memory_allocate.
 //
-// All mappings of this physical memory must be unmapped before freeing. The
-// |physical_memory| handle must not be used after this call.
+// All mappings of this physical memory must be unmapped before freeing.
+// Success consumes |physical_memory|; failure leaves it owned by the caller.
 //
 // Returns IREE_STATUS_UNAVAILABLE if virtual memory is not supported.
 IREE_API_EXPORT iree_status_t iree_hal_allocator_physical_memory_free(
@@ -434,40 +439,48 @@ typedef struct iree_hal_allocator_vtable_t {
       iree_hal_allocator_memory_heap_t* IREE_RESTRICT heaps,
       iree_host_size_t* IREE_RESTRICT out_count);
 
-  // Virtual memory management operations.
+  // Optional legacy capability query; NULL means no scalar VMM support.
   bool(IREE_API_PTR* supports_virtual_memory)(
       iree_hal_allocator_t* IREE_RESTRICT allocator);
+  // Queries native scalar allocation and mapping geometry; NULL is unavailable.
   iree_status_t(IREE_API_PTR* virtual_memory_query_granularity)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
       iree_hal_physical_memory_params_t params,
       iree_device_size_t* IREE_RESTRICT out_minimum_page_size,
       iree_device_size_t* IREE_RESTRICT out_recommended_page_size);
+  // Acquires unmapped addresses for scalar callers; NULL is unavailable.
   iree_status_t(IREE_API_PTR* virtual_memory_reserve)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
       iree_hal_queue_family_affinity_t queue_family_affinity,
       iree_device_size_t size,
       iree_hal_buffer_t** IREE_RESTRICT out_virtual_buffer);
+  // Releases an unmapped reservation on success; NULL is unavailable.
   iree_status_t(IREE_API_PTR* virtual_memory_release)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
       iree_hal_buffer_t* IREE_RESTRICT virtual_buffer);
+  // Creates an opaque physical allocation handle; NULL is unavailable.
   iree_status_t(IREE_API_PTR* physical_memory_allocate)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
       iree_hal_physical_memory_params_t params, iree_device_size_t size,
       iree_allocator_t host_allocator,
       iree_hal_physical_memory_t** IREE_RESTRICT out_physical_memory);
+  // Releases an unmapped physical allocation handle; NULL is unavailable.
   iree_status_t(IREE_API_PTR* physical_memory_free)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
       iree_hal_physical_memory_t* IREE_RESTRICT physical_memory);
+  // Installs backing into an unmapped range; NULL is unavailable.
   iree_status_t(IREE_API_PTR* virtual_memory_map)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
       iree_hal_buffer_t* IREE_RESTRICT virtual_buffer,
       iree_device_size_t virtual_offset,
       iree_hal_physical_memory_t* IREE_RESTRICT physical_memory,
       iree_device_size_t physical_offset, iree_device_size_t size);
+  // Removes complete native mappings from a range; NULL is unavailable.
   iree_status_t(IREE_API_PTR* virtual_memory_unmap)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
       iree_hal_buffer_t* IREE_RESTRICT virtual_buffer,
       iree_device_size_t virtual_offset, iree_device_size_t size);
+  // Changes access for the selected host/device agents; NULL is unavailable.
   iree_status_t(IREE_API_PTR* virtual_memory_protect)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
       iree_hal_buffer_t* IREE_RESTRICT virtual_buffer,
@@ -475,6 +488,7 @@ typedef struct iree_hal_allocator_vtable_t {
       iree_hal_queue_family_affinity_t queue_family_affinity,
       iree_hal_virtual_memory_access_scope_t access_scope,
       iree_hal_memory_protection_t protection);
+  // Applies scalar native memory advice; NULL is unavailable.
   iree_status_t(IREE_API_PTR* virtual_memory_advise)(
       iree_hal_allocator_t* IREE_RESTRICT allocator,
       iree_hal_buffer_t* IREE_RESTRICT virtual_buffer,

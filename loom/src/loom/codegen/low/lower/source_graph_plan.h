@@ -65,8 +65,8 @@ typedef struct loom_low_lower_source_graph_alternative_query_callback_t {
   void* user_data;
 } loom_low_lower_source_graph_alternative_query_callback_t;
 
-// Creates an empty source graph plan owned by |arena|.
-iree_status_t loom_low_lower_source_graph_plan_create(
+// Allocates an empty source graph plan owned by |arena|.
+iree_status_t loom_low_lower_source_graph_plan_allocate(
     iree_arena_allocator_t* arena,
     loom_low_lower_source_graph_plan_t** out_plan);
 

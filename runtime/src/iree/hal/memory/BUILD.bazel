@@ -21,12 +21,18 @@ package(
 
 iree_runtime_cc_library(
     name = "host_memory_backend",
-    srcs = ["host_memory_backend.c"],
+    srcs = [
+        "host_memory_backend.c",
+        "host_virtual_buffer.c",
+    ],
     hdrs = ["host_memory_backend.h"],
     deps = [
+        ":cpu_slab_provider",
         ":passthrough_pool",
         ":slab_provider",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:memory",
+        "//runtime/src/iree/base/internal:shm",
         "//runtime/src/iree/hal",
     ],
 )
@@ -199,11 +205,16 @@ iree_runtime_cc_test(
 
 iree_runtime_cc_library(
     name = "cpu_slab_provider",
-    srcs = ["cpu_slab_provider.c"],
+    srcs = [
+        "cpu_slab_provider.c",
+        "shared_slab_provider.c",
+    ],
     hdrs = ["cpu_slab_provider.h"],
     deps = [
         ":slab_provider",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:memory",
+        "//runtime/src/iree/base/internal:shm",
         "//runtime/src/iree/hal",
     ],
 )

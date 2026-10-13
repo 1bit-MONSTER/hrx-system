@@ -1184,10 +1184,10 @@ static iree_status_t loom_target_callgraph_materialize_clones(
       row->pending_version->loop_pipelines =
           info->source_version->loop_pipelines;
       if (info->source_version->memory_accesses != NULL) {
-        IREE_RETURN_IF_ERROR(loom_low_memory_access_map_create(
+        IREE_RETURN_IF_ERROR(loom_low_memory_access_map_allocate(
             &state->module->arena, &row->pending_version->memory_accesses));
         loom_low_memory_access_clone_t* memory_clone = NULL;
-        IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_create(
+        IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_allocate(
             info->source_version->memory_accesses,
             row->pending_version->memory_accesses, state->pass->arena,
             &memory_clone));

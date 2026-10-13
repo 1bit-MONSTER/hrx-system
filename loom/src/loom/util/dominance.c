@@ -555,7 +555,7 @@ static iree_status_t loom_dominance_walk_push_region(
   return iree_ok_status();
 }
 
-iree_status_t loom_dominance_walk_create(
+iree_status_t loom_dominance_walk_allocate(
     loom_module_t* module, loom_region_t* region,
     loom_dominance_walk_callbacks_t callbacks, iree_arena_allocator_t* arena,
     loom_dominance_walk_t** out_walk) {

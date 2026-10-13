@@ -19,6 +19,7 @@
 #include "iree/hal/replay/recorder_pool.h"
 #include "iree/hal/replay/recorder_queue.h"
 #include "iree/hal/replay/recorder_record.h"
+#include "iree/hal/replay/recorder_virtual_buffer.h"
 
 //===----------------------------------------------------------------------===//
 // iree_hal_replay_device_t
@@ -268,7 +269,7 @@ static iree_status_t iree_hal_replay_device_acquire_queue(
   if (iree_status_is_ok(status)) {
     *out_queue = &queue->base;
   } else {
-    iree_hal_queue_release(queue ? &queue->base : NULL);
+    iree_hal_replay_recorder_queue_release(queue);
   }
   return status;
 }
@@ -790,11 +791,24 @@ static iree_status_t iree_hal_replay_wrap_device_group_create_slab_pool(
       out_pool);
 }
 
+static iree_status_t iree_hal_replay_wrap_device_group_create_virtual_buffer(
+    void* self, iree_hal_virtual_buffer_create_callback_t next,
+    iree_hal_device_group_t* request_group, const iree_hal_pool_scope_t* scope,
+    const iree_hal_virtual_buffer_options_t* options,
+    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer) {
+  iree_hal_replay_wrap_device_group_context_t* context = self;
+  return iree_hal_replay_recorder_create_virtual_buffer(
+      context->recorder, next, request_group, scope, options, host_allocator,
+      out_buffer);
+}
+
 static const iree_hal_device_group_wrapper_vtable_t
     iree_hal_replay_device_group_wrapper_vtable = {
         .destroy = iree_hal_replay_wrap_device_group_destroy,
         .replace_device = iree_hal_replay_wrap_device_group_device,
         .create_slab_pool = iree_hal_replay_wrap_device_group_create_slab_pool,
+        .create_virtual_buffer =
+            iree_hal_replay_wrap_device_group_create_virtual_buffer,
 };
 
 IREE_API_EXPORT iree_status_t iree_hal_replay_wrap_device_group(

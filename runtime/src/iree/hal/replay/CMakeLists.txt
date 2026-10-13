@@ -179,6 +179,8 @@ iree_cc_library(
     "recorder_queue.c"
     "recorder_queue.h"
     "recorder_record.h"
+    "recorder_virtual_buffer.c"
+    "recorder_virtual_buffer.h"
   DEPS
     ::digest
     ::file_writer
@@ -189,6 +191,22 @@ iree_cc_library(
     iree::hal
     iree::io::file_handle
   PUBLIC
+)
+
+iree_cc_test(
+  NAME
+    dump_vmm_test
+  SRCS
+    "dump_vmm_test.cc"
+  DEPS
+    ::dump
+    ::file_reader
+    ::file_writer
+    iree::base
+    iree::hal
+    iree::io::file_handle
+    iree::testing::gtest
+    iree::testing::gtest_main
 )
 
 iree_cc_test(
@@ -245,6 +263,25 @@ iree_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     iree::testing::temp_file
+)
+
+iree_cc_test(
+  NAME
+    execute_plan_test
+  SRCS
+    "execute_plan_test.cc"
+  DEPS
+    ::execute
+    ::file_reader
+    ::file_writer
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    iree::hal
+    iree::hal::drivers::task::registration
+    iree::io::file_handle
+    iree::testing::gtest
+    iree::testing::gtest_main
 )
 
 iree_cc_test(
@@ -308,11 +345,29 @@ iree_cc_test(
 
 iree_cc_test(
   NAME
+    recorder_vmm_test
+  SRCS
+    "recorder_allocator.h"
+    "recorder_vmm_test.cc"
+  DEPS
+    ::file_reader
+    ::format
+    ::recorder
+    iree::base
+    iree::hal
+    iree::io::file_handle
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+iree_cc_test(
+  NAME
     recorder_buffer_test
   SRCS
     "recorder_buffer.h"
     "recorder_buffer_test.cc"
   DEPS
+    ::file_reader
     ::format
     ::recorder
     iree::base
@@ -339,6 +394,31 @@ iree_cc_test(
     iree::io::file_handle
     iree::testing::gtest
     iree::testing::gtest_main
+)
+
+iree_cc_test(
+  NAME
+    recorder_virtual_buffer_test
+  SRCS
+    "execute_operation.h"
+    "execute_state.h"
+    "recorder_virtual_buffer_test.cc"
+  DEPS
+    ::dump
+    ::execute
+    ::file_reader
+    ::format
+    ::recorder
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    iree::hal
+    iree::hal::drivers::task::registration
+    iree::hal::memory::fixed_block_pool
+    iree::io::file_handle
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::testing::temp_file
 )
 
 iree_cc_test(

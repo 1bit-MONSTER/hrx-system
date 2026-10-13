@@ -261,6 +261,19 @@ iree_hal_replay_object_id_t iree_hal_replay_recorder_semaphore_id_or_none(
   return semaphore_id;
 }
 
+bool iree_hal_replay_recorder_has_captured_semaphores(
+    iree_hal_replay_recorder_t* recorder,
+    const iree_hal_semaphore_list_t semaphore_list) {
+  for (iree_host_size_t i = 0; i < semaphore_list.count; ++i) {
+    if (iree_hal_replay_recorder_semaphore_id_or_none(
+            recorder, semaphore_list.semaphores[i]) ==
+        IREE_HAL_REPLAY_OBJECT_ID_NONE) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static iree_status_t iree_hal_replay_recorder_encode_semaphore_list(
     iree_hal_replay_recorder_t* recorder,
     const iree_hal_semaphore_list_t semaphore_list,

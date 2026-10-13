@@ -289,8 +289,8 @@ class FileTest : public CtsTestBase<> {
             storage.data_length <= requirements.max_byte_length) &&
            requirements.base_alignment != 0 &&
            address % requirements.base_alignment == 0 &&
-           requirements.byte_length_alignment != 0 &&
-           storage.data_length % requirements.byte_length_alignment == 0;
+           requirements.byte_length_granularity != 0 &&
+           storage.data_length % requirements.byte_length_granularity == 0;
   }
 
   iree_status_t SelectHostFileStoragePool(iree_const_byte_span_t storage,
@@ -472,8 +472,8 @@ class FileTest : public CtsTestBase<> {
           initial_contents.size() < requirements.min_byte_length ||
           (requirements.max_byte_length &&
            initial_contents.size() > requirements.max_byte_length) ||
-          requirements.byte_length_alignment == 0 ||
-          initial_contents.size() % requirements.byte_length_alignment != 0) {
+          requirements.byte_length_granularity == 0 ||
+          initial_contents.size() % requirements.byte_length_granularity != 0) {
         storage_pool = nullptr;
       } else if (requirements.base_alignment > IREE_HOST_SIZE_MAX) {
         return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
@@ -611,9 +611,11 @@ TEST_P(FileTest, MemoryFileUsesExplicitStoragePool) {
       iree_hal_make_external_storage_class(
           IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER),
       &requirements));
-  const iree_device_size_t file_length = iree_device_align(
-      std::max<iree_device_size_t>(128, requirements.min_byte_length),
-      requirements.byte_length_alignment);
+  const iree_device_size_t file_length =
+      ((std::max<iree_device_size_t>(128, requirements.min_byte_length) - 1) /
+           requirements.byte_length_granularity +
+       1) *
+      requirements.byte_length_granularity;
   ASSERT_TRUE(requirements.max_byte_length == 0 ||
               file_length <= requirements.max_byte_length);
   ASSERT_LE(file_length, static_cast<iree_device_size_t>(IREE_HOST_SIZE_MAX));

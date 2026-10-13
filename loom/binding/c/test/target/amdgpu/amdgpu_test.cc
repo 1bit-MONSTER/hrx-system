@@ -41,7 +41,7 @@ using ProductPtr = HandlePtr<loomc_product_t, loomc_product_release>;
 using LaunchConfigProgramPtr = HandlePtr<loomc_launch_config_program_t,
                                          loomc_launch_config_program_release>;
 using LinkIndexBuilderPtr =
-    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_release>;
+    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_free>;
 using LinkIndexPtr = HandlePtr<loomc_link_index_t, loomc_link_index_release>;
 using LinkerPtr = HandlePtr<loomc_linker_t, loomc_linker_release>;
 using ModulePtr = HandlePtr<loomc_module_t, loomc_module_release>;
@@ -216,7 +216,7 @@ std::string SerializeModuleToText(const loomc_module_t* module) {
 
 LinkIndexPtr CreateLinkIndex(loomc_context_t* context, loomc_source_t* source) {
   loomc_link_index_builder_t* raw_builder = nullptr;
-  LOOMC_EXPECT_OK(loomc_link_index_builder_create(
+  LOOMC_EXPECT_OK(loomc_link_index_builder_allocate(
       context, nullptr, loomc_allocator_system(), &raw_builder));
   LinkIndexBuilderPtr builder(raw_builder);
   const loomc_link_index_source_options_t source_options = {

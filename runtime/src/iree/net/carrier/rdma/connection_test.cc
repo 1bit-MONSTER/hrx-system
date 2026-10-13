@@ -511,7 +511,7 @@ class ConnectionTest
       IREE_ASSERT_OK(iree_async_proactor_create_posix(
           options, iree_allocator_system(), &proactor_));
     }
-    IREE_ASSERT_OK(iree_net_rdma_connection_events_create(
+    IREE_ASSERT_OK(iree_net_rdma_connection_events_allocate(
         context_, proactor_, std::get<1>(GetParam()),
         {+[](void* user_data, const rdma_cm_event* event) {
            auto* self = static_cast<ConnectionTest*>(user_data);
@@ -560,7 +560,7 @@ class ConnectionTest
           {+[](void* user_data) { *static_cast<bool*>(user_data) = true; },
            &joined});
       PollUntil(proactor_, [&] { return joined; });
-      iree_net_rdma_connection_events_destroy(listener_events_);
+      iree_net_rdma_connection_events_free(listener_events_);
       listener_events_ = nullptr;
     }
   }

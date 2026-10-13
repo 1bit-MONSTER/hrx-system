@@ -34,8 +34,9 @@ typedef struct iree_hal_amd_fabric_memory_family_t {
   iree_hal_buffer_usage_t supported_usage;
   // Native permissions required even when logical HAL usage is narrower.
   amdf_memory_access_t minimum_access;
-  // Private host access required by the engine, independent of public mappings.
-  amdf_memory_map_flags_t host_access;
+  // Usages implemented through a private CPU view, independent of public
+  // mappings. These require qualified host/device cache transitions.
+  iree_hal_buffer_usage_t host_usage;
   // Number of entries in |bindings|.
   uint32_t binding_count;
   // Borrowed unique non-HOST interfaces prepared for this family's buffers.
@@ -48,10 +49,14 @@ typedef struct iree_hal_amd_fabric_memory_family_t {
 typedef struct iree_hal_amd_fabric_memory_backend_options_t {
   // Negotiated core API table, independent of any execution extension.
   const amdf_api_t* api;
+  // Native instance owning the already-created device and address domains.
+  amdf_instance_t* instance;
   // Native scope used to qualify ordinary backing for the complete access set.
   amdf_memory_scope_t* scope;
   // Already-created native device admitted by this backend.
   amdf_device_t* device;
+  // Ordinary device address domain consumed by the captured families.
+  uint32_t address_domain_ordinal;
   // Conservative locality properties shared by every profile in this scope.
   iree_hal_memory_type_t memory_type;
   // Borrowed diagnostic destination for native cleanup failures.
@@ -80,6 +85,22 @@ typedef struct iree_hal_amd_fabric_memory_backend_t {
   // Existing completion probe with a group-lifetime borrowed context.
   iree_hal_pool_epoch_query_t epoch_query;
 } iree_hal_amd_fabric_memory_backend_t;
+
+// Queries complete-scope native address geometry without reserving addresses.
+// Uses the same native consumer qualification as reservation creation.
+iree_status_t iree_hal_amd_fabric_virtual_buffer_query_capabilities(
+    const iree_hal_memory_backend_t* backend, iree_hal_device_group_t* group,
+    iree_hal_pool_scope_t scope, iree_allocator_t host_allocator,
+    iree_hal_virtual_buffer_capabilities_t* out_capabilities);
+
+// Qualifies explicit native device address domains and creates the complete
+// reservation. Unsupported scopes return OK with no output. Address views
+// inherit no physical placement or visibility facts from future backing.
+iree_status_t iree_hal_amd_fabric_virtual_buffer_create(
+    const iree_hal_memory_backend_t* backend, iree_hal_device_group_t* group,
+    iree_hal_pool_scope_t scope,
+    const iree_hal_virtual_buffer_options_t* options,
+    iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
 
 // Publishes the core libamdf factory after the caller supplies existing native
 // and progress services. This creates no native object, payload, or policy

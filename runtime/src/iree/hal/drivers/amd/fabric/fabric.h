@@ -40,7 +40,13 @@ typedef struct iree_hal_amd_fabric_t {
 // Engine extension negotiation and activation happen in engine constructors.
 // The providing library and |api| must outlive the returned fabric. Failure
 // publishes no output. The caller releases the returned reference.
+// |native_lifetime| selects libamdf's native state lifetime bound,
+// independently from HAL group identity and handle ownership. PROCESS may share
+// Linux KFD state with foreign clients; the application must order their VM
+// mutations against reservation updates and removal. INSTANCE supports only
+// services that the native provider can reclaim at instance destruction.
 iree_status_t iree_hal_amd_fabric_create(const amdf_api_t* api,
+                                         amdf_native_lifetime_t native_lifetime,
                                          iree_allocator_t host_allocator,
                                          iree_hal_amd_fabric_t** out_fabric);
 

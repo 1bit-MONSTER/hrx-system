@@ -413,7 +413,7 @@ static iree_status_t loom_motion_read_barrier_table_index_run(
   return iree_ok_status();
 }
 
-iree_status_t loom_motion_read_barrier_table_create(
+iree_status_t loom_motion_read_barrier_table_allocate(
     const loom_module_t* module, iree_arena_allocator_t* arena,
     loom_motion_read_barrier_table_t** out_table) {
   *out_table = NULL;
@@ -608,7 +608,7 @@ static iree_status_t loom_motion_analysis_ensure_movement(
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(
-      loom_motion_memory_create(&analysis->movement, &analysis->memory));
+      loom_motion_memory_allocate(&analysis->movement, &analysis->memory));
   return iree_ok_status();
 }
 

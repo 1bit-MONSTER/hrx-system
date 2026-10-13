@@ -258,7 +258,7 @@ static iree_status_t loom_aie2p_configuration_link(
     loom_aie2p_configuration_memory_t* memory, loom_aie2p_xdna_tile_t* tile) {
   iree_arena_allocator_t* arena = emitter->request->scratch_arena;
   if (!memory->packing) {
-    IREE_RETURN_IF_ERROR(loom_source_storage_packing_create(
+    IREE_RETURN_IF_ERROR(loom_source_storage_packing_allocate(
         (loom_source_storage_packing_interference_callback_t){0},
         memory->ranges, memory->count, arena, &memory->packing));
   }
@@ -792,7 +792,7 @@ iree_status_t loom_aie2p_configuration_plan_build(
     return iree_ok_status();
   }
   if (request->compile_report) {
-    IREE_RETURN_IF_ERROR(loom_aie2p_configuration_report_create(
+    IREE_RETURN_IF_ERROR(loom_aie2p_configuration_report_allocate(
         request->compile_report, plan->family, out_entry->column_count,
         out_entry->name, request->scratch_arena, &plan->report));
   }

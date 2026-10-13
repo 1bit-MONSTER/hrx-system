@@ -400,6 +400,7 @@ iree_status_t iree_hal_task_device_create(
           .small_block_pool = &device->small_block_pool,
           .large_block_pool = &device->large_block_pool,
           .device_allocator = device->device_allocator,
+          .memory_maintenance = device->memory_backend.maintenance,
       };
       status = iree_hal_task_queue_initialize(&queue_create_params,
                                               &device->queues[i]);
@@ -418,7 +419,7 @@ iree_status_t iree_hal_task_device_create(
             .fn = iree_hal_task_device_query_pool_epoch,
             .user_data = device,
         },
-        &device->memory_backend);
+        device->event_sink, &device->memory_backend);
     *out_device = (iree_hal_device_t*)device;
   } else {
     iree_hal_device_release((iree_hal_device_t*)device);
@@ -583,6 +584,7 @@ static iree_status_t iree_hal_task_device_acquire_queue(
       .small_block_pool = &device->small_block_pool,
       .large_block_pool = &device->large_block_pool,
       .device_allocator = device->device_allocator,
+      .memory_maintenance = device->memory_backend.maintenance,
   };
   const iree_hal_task_queue_release_slot_callback_t release_slot = {
       .fn = iree_hal_task_device_release_dynamic_queue_slot,
@@ -606,7 +608,7 @@ static iree_status_t iree_hal_task_device_acquire_queue(
   if (iree_status_is_ok(status)) {
     *out_queue = &queue->base;
   } else if (queue_owns_slot) {
-    iree_hal_queue_release(&queue->base);
+    iree_hal_task_queue_release(queue);
   } else {
     iree_hal_task_device_release_dynamic_queue_slot(device, queue_index);
   }
@@ -814,7 +816,7 @@ static iree_status_t iree_hal_task_device_profiling_begin(
       .queue_records = queue_records,
   };
   iree_hal_task_profile_recorder_t* recorder = NULL;
-  iree_status_t status = iree_hal_task_profile_recorder_create(
+  iree_status_t status = iree_hal_task_profile_recorder_allocate(
       &recorder_options, options, device->host_allocator, &recorder);
   iree_allocator_free(device->host_allocator, queue_records);
   if (!iree_status_is_ok(status) || !recorder) {
@@ -860,7 +862,7 @@ static iree_status_t iree_hal_task_device_profiling_end(
                     iree_memory_order_relaxed);
 
   iree_status_t status = iree_hal_task_profile_recorder_end(recorder);
-  iree_hal_task_profile_recorder_destroy(recorder);
+  iree_hal_task_profile_recorder_free(recorder);
   return status;
 }
 

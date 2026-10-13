@@ -27,49 +27,87 @@ static constexpr iree_device_size_t kPhysicalOffset = 8192;
 static constexpr iree_device_size_t kMappingSize = 4096;
 
 typedef struct VmmAllocatorState {
+  // Injects failure into reserve before ownership changes.
   bool fail_reserve = false;
+  // Injects failure into release before ownership changes.
   bool fail_release = false;
+  // Injects failure into physical allocate before ownership changes.
   bool fail_physical_allocate = false;
+  // Injects failure into physical free before ownership changes.
   bool fail_physical_free = false;
+  // Injects failure into map before ownership changes.
   bool fail_map = false;
+  // Injects failure into unmap before ownership changes.
   bool fail_unmap = false;
+  // Injects failure into protect before ownership changes.
   bool fail_protect = false;
+  // Injects failure into advise before ownership changes.
   bool fail_advise = false;
+  // Number of attempted reserve calls.
   iree_host_size_t reserve_attempt_count = 0;
+  // Number of attempted release calls.
   iree_host_size_t release_attempt_count = 0;
+  // Number of attempted physical allocate calls.
   iree_host_size_t physical_allocate_attempt_count = 0;
+  // Number of attempted physical free calls.
   iree_host_size_t physical_free_attempt_count = 0;
+  // Number of attempted map calls.
   iree_host_size_t map_attempt_count = 0;
+  // Number of attempted unmap calls.
   iree_host_size_t unmap_attempt_count = 0;
+  // Number of attempted protect calls.
   iree_host_size_t protect_attempt_count = 0;
+  // Number of attempted advise calls.
   iree_host_size_t advise_attempt_count = 0;
+  // Live reservation owned by the allocator until release succeeds.
   iree_hal_buffer_t* virtual_buffer = nullptr;
+  // Live physical handle owned by the allocator until free succeeds.
   iree_hal_physical_memory_t* physical_memory = nullptr;
+  // Whether the test mapping is currently installed.
   bool is_mapped = false;
+  // Queue families received by the last reservation call.
   iree_hal_queue_family_affinity_t reserve_queue_family_affinity = 0;
+  // Requested size of the last reservation, in bytes.
   iree_device_size_t reserve_size = 0;
+  // Allocation parameters received by the last physical allocation call.
   iree_hal_physical_memory_params_t physical_params = {};
+  // Requested size of the last physical allocation, in bytes.
   iree_device_size_t physical_size = 0;
+  // Target offset received by the last map call, in bytes.
   iree_device_size_t map_virtual_offset = 0;
+  // Source offset received by the last map call, in bytes.
   iree_device_size_t map_physical_offset = 0;
+  // Length received by the last map call, in bytes.
   iree_device_size_t map_size = 0;
+  // Target offset received by the last unmap call, in bytes.
   iree_device_size_t unmap_virtual_offset = 0;
+  // Length received by the last unmap call, in bytes.
   iree_device_size_t unmap_size = 0;
+  // Queue families received by the last protection call.
   iree_hal_queue_family_affinity_t protect_queue_family_affinity = 0;
+  // Execution scope received by the last protection call.
   iree_hal_virtual_memory_access_scope_t protect_access_scope = 0;
+  // Permissions received by the last protection call.
   iree_hal_memory_protection_t protection = 0;
+  // Queue families received by the last advice call.
   iree_hal_queue_family_affinity_t advise_queue_family_affinity = 0;
+  // Advice bits received by the last advice call.
   iree_hal_memory_advice_t advice = 0;
+  // Stable host storage used by the dependency fixture reservation.
   alignas(4096) std::array<uint8_t, kReservationSize> virtual_storage = {};
 } VmmAllocatorState;
 
 typedef struct VmmTestPhysicalMemory {
+  // Allocator used to release this fixture object.
   iree_allocator_t host_allocator;
 } VmmTestPhysicalMemory;
 
 typedef struct VmmTestAllocator {
+  // HAL resource header for the dependency allocator.
   iree_hal_resource_t resource;
+  // Allocator used to release this fixture object.
   iree_allocator_t host_allocator;
+  // Borrowed test state that outlives the allocator.
   VmmAllocatorState* state;
 } VmmTestAllocator;
 

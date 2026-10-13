@@ -202,7 +202,7 @@ static void iree_hal_pool_wait_timer_control(
   iree_hal_pool_wait_unlock(wait);
 }
 
-IREE_API_EXPORT iree_status_t iree_hal_pool_wait_create(
+IREE_API_EXPORT iree_status_t iree_hal_pool_wait_allocate(
     iree_hal_pool_t* pool, iree_allocator_t host_allocator,
     iree_hal_pool_wait_t** out_wait) {
   *out_wait = NULL;
@@ -314,7 +314,7 @@ IREE_API_EXPORT void iree_hal_pool_wait_cancel(iree_hal_pool_wait_t* wait) {
   iree_hal_pool_wait_unlock(wait);
 }
 
-IREE_API_EXPORT void iree_hal_pool_wait_destroy(iree_hal_pool_wait_t* wait) {
+IREE_API_EXPORT void iree_hal_pool_wait_free(iree_hal_pool_wait_t* wait) {
   if (!wait) {
     return;
   }

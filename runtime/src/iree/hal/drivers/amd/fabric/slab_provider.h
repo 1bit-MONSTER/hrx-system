@@ -17,16 +17,34 @@ extern "C" {
 // One native address to resolve into a prepared binding slot. The request at
 // host_binding_index is unused: that slot receives the optional host pointer.
 typedef struct iree_hal_amd_fabric_binding_request_t {
+  // Prepared interface: an execution address or a mapping source.
+  iree_hal_buffer_interface_t type;
   // Index into the complete native access set.
   uint32_t access_ordinal;
   // Exact native address interface produced for this slot.
   amdf_memory_address_kind_t address_kind;
+  // Required native source offset alignment for MAPPING_SOURCE, otherwise zero.
+  uint32_t mapping_granularity;
 } iree_hal_amd_fabric_binding_request_t;
+
+// One exact input class with its qualified native construction profile.
+typedef struct iree_hal_amd_fabric_import_route_t {
+  // Admitted input and correlated output classes.
+  iree_hal_pool_import_class_t policy;
+  // Profile qualified against the provider's complete device access set.
+  amdf_memory_profile_t profile;
+  // Correlated backing flags required for this route and its exports.
+  amdf_memory_flags_t required_flags;
+} iree_hal_amd_fabric_import_route_t;
 
 // Cold native construction contract copied into one slab provider.
 typedef struct iree_hal_amd_fabric_slab_provider_options_t {
   // Qualified construction policy; the provider copies the access array.
   iree_hal_amd_fabric_memory_options_t memory;
+  // Number of exact external storage routes.
+  iree_host_size_t import_count;
+  // Qualified input routes, including their export class arrays.
+  const iree_hal_amd_fabric_import_route_t* imports;
   // Number of prepared slots, including the optional host slot.
   uint16_t binding_count;
   // Optional host slot, or IREE_HAL_BUFFER_NATIVE_BINDING_INDEX_NONE.

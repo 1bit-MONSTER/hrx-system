@@ -76,7 +76,7 @@ static iree_status_t iree_net_rdma_factory_create_listener(
   iree_async_address_t native_address;
   IREE_RETURN_IF_ERROR(
       iree_net_rdma_factory_parse_address(address, &native_address));
-  return iree_net_rdma_listener_create(
+  return iree_net_rdma_listener_allocate(
       factory->context, proactor, &native_address, &factory->options.connection,
       factory->options.max_pending_connections, factory->options.listen_backlog,
       callback, host_allocator, out_listener);

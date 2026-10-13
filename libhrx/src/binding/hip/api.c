@@ -652,12 +652,6 @@ static bool iree_hip_mem_pool_allocation_type_is_supported(
 // architecture.
 static bool iree_hip_memory_pools_supported(void) { return true; }
 
-static bool iree_hip_device_supports_virtual_memory(
-    const iree_hal_streaming_device_t* device) {
-  return iree_hal_allocator_supports_virtual_memory(
-      iree_hal_device_allocator(device->hal_device));
-}
-
 static bool iree_hip_device_supports_dma_buf(
     const iree_hal_streaming_device_t* device) {
   const iree_hal_external_buffer_handle_selection_t selection = {

@@ -193,6 +193,18 @@ bool IsAllocateFunctionName(StringRef FunctionName) {
   return FunctionName.ends_with("_allocate");
 }
 
+bool UsesRefCountedApiVocabulary(StringRef Name) {
+  // These C APIs share IREE's object lifetime vocabulary. Independent native
+  // ABIs, such as libamdf, define their own creation and destruction contracts.
+  return Name.starts_with("iree_") || Name.starts_with("hrx_") ||
+         Name.starts_with("loom_") || Name.starts_with("loomc_");
+}
+
+bool IsRefCountedCreateFunctionName(StringRef FunctionName) {
+  return FunctionName.ends_with("_create") &&
+         UsesRefCountedApiVocabulary(FunctionName);
+}
+
 bool IsRetainFunctionName(StringRef FunctionName) {
   return FunctionName.ends_with("_retain");
 }
@@ -337,6 +349,89 @@ const ParmVarDecl* RefCountedAllocateOutParameter(
     }
   }
   return nullptr;
+}
+
+StringRef OutParameterLifecycleStem(const ParmVarDecl* Parameter,
+                                    const RecordDecl* Record) {
+  // Preserve the published spelling: a handle typedef may name a pointer to a
+  // differently named private record (for example hrx_buffer_t/hrx_buffer_s).
+  QualType Type = Parameter->getType()->getPointeeType();
+  if (!Type->getAs<TypedefType>()) {
+    Type = Type->getPointeeType();
+  }
+  StringRef Name;
+  if (const auto* Typedef = Type->getAs<TypedefType>()) {
+    Name = Typedef->getDecl()->getName();
+  } else {
+    Name = Record->getName();
+  }
+  if (Name.empty()) {
+    if (const auto* Typedef = Record->getTypedefNameForAnonDecl()) {
+      Name = Typedef->getName();
+    }
+  }
+  return Name.ends_with("_t") ? Name.drop_back(2) : Name;
+}
+
+bool HasTypedRefCountOperation(const FunctionDecl* Factory,
+                               const RecordDecl* Record, StringRef Stem,
+                               StringRef Suffix, ASTContext& Context) {
+  std::string Name = (Stem + Suffix).str();
+  DeclarationName LookupName(&Context.Idents.get(Name));
+  const DeclContext* Scope = Factory->getDeclContext()->getRedeclContext();
+  for (const NamedDecl* Declaration : Scope->lookup(LookupName)) {
+    const auto* Function = dyn_cast<FunctionDecl>(Declaration);
+    if (!Function || Function->getNumParams() != 1 ||
+        !Function->getReturnType()->isVoidType()) {
+      continue;
+    }
+    QualType ParameterType = Function->getParamDecl(0)->getType();
+    if (!ParameterType->isPointerType()) {
+      continue;
+    }
+    const RecordDecl* ParameterRecord =
+        RecordFromType(ParameterType->getPointeeType());
+    if (ParameterRecord &&
+        ParameterRecord->getCanonicalDecl() == Record->getCanonicalDecl()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+enum class CreatedObjectDiagnostic {
+  kNone,
+  kNotRefCounted,
+  kMissingTypedLifecycle,
+};
+
+CreatedObjectDiagnostic DiagnoseCreatedObject(const FunctionDecl* Function,
+                                              const ParmVarDecl* Parameter,
+                                              const RecordDecl* Record,
+                                              ASTContext& Context) {
+  if (Record->isCompleteDefinition() &&
+      !IsRefCountAnchoredRecordOrBase(Record)) {
+    return CreatedObjectDiagnostic::kNotRefCounted;
+  }
+  // A private helper can keep its concrete type private and consume references
+  // through the generic resource interface. Published types expose their own
+  // ownership contract, including when only an opaque declaration is visible.
+  if (Function->getFormalLinkage() == Linkage::Internal &&
+      Record->isCompleteDefinition()) {
+    return CreatedObjectDiagnostic::kNone;
+  }
+  StringRef Stem = OutParameterLifecycleStem(Parameter, Record);
+  // An adapter can publish a foreign ABI handle whose ownership operations are
+  // defined by that ABI, including checked registry lookup and consumption.
+  // A visible implementation still needs the refcount anchor checked above.
+  if (!UsesRefCountedApiVocabulary(Stem)) {
+    return CreatedObjectDiagnostic::kNone;
+  }
+  if (!HasTypedRefCountOperation(Function, Record, Stem, "_retain", Context) ||
+      !HasTypedRefCountOperation(Function, Record, Stem, "_release", Context)) {
+    return CreatedObjectDiagnostic::kMissingTypedLifecycle;
+  }
+  return CreatedObjectDiagnostic::kNone;
 }
 
 enum class RefCountFieldDiagnostic {
@@ -972,6 +1067,11 @@ void RefCountLifecycleCheck::registerMatchers(
           .bind("function"),
       this);
   Finder->addMatcher(
+      functionDecl(unless(isDefinition()), matchesName("_create$"),
+                   unless(isExpansionInSystemHeader()))
+          .bind("factory-declaration"),
+      this);
+  Finder->addMatcher(
       fieldDecl(unless(isExpansionInSystemHeader())).bind("refcount-field"),
       this);
   Finder->addMatcher(
@@ -1021,12 +1121,46 @@ void RefCountLifecycleCheck::check(
   }
 
   const auto* Function = Result.Nodes.getNodeAs<FunctionDecl>("function");
+  if (const auto* Declaration =
+          Result.Nodes.getNodeAs<FunctionDecl>("factory-declaration")) {
+    // The definition has stronger representation evidence and is diagnosed
+    // once by the normal function matcher when it is present in this TU.
+    if (Declaration->hasBody() || !Declaration->isFirstDecl()) {
+      return;
+    }
+    Function = Declaration;
+  }
   if (!Function) {
     return;
   }
   const SourceManager& SourceManager = *Result.SourceManager;
   if (IsExternalMacroBody(Function->getLocation(), SourceManager)) {
     return;
+  }
+  if (IsRefCountedCreateFunctionName(SimpleFunctionName(Function))) {
+    for (const ParmVarDecl* Parameter : Function->parameters()) {
+      const RecordDecl* Record = OutParameterPointeeRecord(Parameter);
+      if (!Record) {
+        continue;
+      }
+      switch (
+          DiagnoseCreatedObject(Function, Parameter, Record, *Result.Context)) {
+        case CreatedObjectDiagnostic::kNone:
+          break;
+        case CreatedObjectDiagnostic::kNotRefCounted:
+          diag(SourceManager.getExpansionLoc(Parameter->getLocation()),
+               "object factory %0 publishes non-refcounted %1 through create "
+               "naming; use allocate/free for owned storage")
+              << SimpleFunctionName(Function) << Parameter->getName();
+          break;
+        case CreatedObjectDiagnostic::kMissingTypedLifecycle:
+          diag(SourceManager.getExpansionLoc(Parameter->getLocation()),
+               "object factory %0 publishes %1 without typed void "
+               "retain/release operations")
+              << SimpleFunctionName(Function) << Parameter->getName();
+          break;
+      }
+    }
   }
   if (const ParmVarDecl* Parameter = RefCountedAllocateOutParameter(Function)) {
     diag(SourceManager.getExpansionLoc(Parameter->getLocation()),

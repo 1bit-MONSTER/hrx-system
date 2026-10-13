@@ -49,7 +49,7 @@ using loomc::testing::HandlePtr;
 using ContextPtr = HandlePtr<loomc_context_t, loomc_context_release>;
 using SourcePtr = HandlePtr<loomc_source_t, loomc_source_release>;
 using BuilderPtr =
-    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_release>;
+    HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_free>;
 using LinkIndexPtr = HandlePtr<loomc_link_index_t, loomc_link_index_release>;
 using LinkerPtr = HandlePtr<loomc_linker_t, loomc_linker_release>;
 using WorkspacePtr = HandlePtr<loomc_workspace_t, loomc_workspace_release>;
@@ -339,7 +339,7 @@ SourcePtr CreateEmbeddedTargetLinkSource(const char* filename) {
 
 BuilderPtr CreateBuilder(loomc_context_t* context) {
   loomc_link_index_builder_t* builder = nullptr;
-  loomc_status_t status = loomc_link_index_builder_create(
+  loomc_status_t status = loomc_link_index_builder_allocate(
       context, nullptr, loomc_allocator_system(), &builder);
   LOOMC_EXPECT_OK(status);
   return BuilderPtr(builder);

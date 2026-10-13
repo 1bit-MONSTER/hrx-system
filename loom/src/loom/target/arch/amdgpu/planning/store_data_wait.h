@@ -36,7 +36,7 @@ typedef iree_status_t (*loom_amdgpu_store_data_wait_emit_fn_t)(
     void* user_data, const loom_amdgpu_wait_state_t* wait_state);
 
 // Allocates transient state, returning NULL on targets without this hazard.
-iree_status_t loom_amdgpu_store_data_wait_create(
+iree_status_t loom_amdgpu_store_data_wait_allocate(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
     iree_arena_allocator_t* arena,

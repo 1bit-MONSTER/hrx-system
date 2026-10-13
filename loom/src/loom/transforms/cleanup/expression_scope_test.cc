@@ -60,10 +60,10 @@ class ExpressionScopeTest : public ::testing::Test {
   }
 
   void Initialize() {
-    IREE_ASSERT_OK(loom_expression_walk_create(module_, module_->body,
-                                               /*identity_policy=*/nullptr,
-                                               /*maximum_entry_count=*/0,
-                                               &arena_, &walk_));
+    IREE_ASSERT_OK(loom_expression_walk_allocate(module_, module_->body,
+                                                 /*identity_policy=*/nullptr,
+                                                 /*maximum_entry_count=*/0,
+                                                 &arena_, &walk_));
   }
 
   // Shared allocator for IR and analysis; their arena lifetimes stay separate.

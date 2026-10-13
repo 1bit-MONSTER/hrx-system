@@ -454,8 +454,8 @@ static void iree_hal_fixed_block_pool_maintain(
             slab->block_count * pool->geometry.backing_block_size,
             iree_memory_order_relaxed);
         iree_atomic_fetch_sub(&pool->slab_count, 1, iree_memory_order_relaxed);
-        iree_hal_fixed_block_pool_slab_destroy(slab, pool->backing_pool,
-                                               pool->host_allocator);
+        iree_hal_fixed_block_pool_slab_free(slab, pool->backing_pool,
+                                            pool->host_allocator);
       } else {
         // Individual block histories remain useful even when their union does
         // not fit the configured whole-range return frontier.
@@ -684,7 +684,7 @@ static iree_status_t iree_hal_fixed_block_pool_create_impl(
       &pool->trace);
   if (iree_status_is_ok(status) && range) {
     iree_hal_fixed_block_pool_slab_t* slab = NULL;
-    status = iree_hal_fixed_block_pool_slab_create(
+    status = iree_hal_fixed_block_pool_slab_allocate(
         range, &geometry, &options->asan, host_allocator, &slab);
     if (iree_status_is_ok(status)) {
       iree_hal_fixed_block_pool_publish_slab(pool, slab);
@@ -758,8 +758,8 @@ static void iree_hal_fixed_block_pool_destroy(iree_hal_pool_t* base_pool) {
       // Destruction of unrepresentable history requires caller quiescence.
       iree_async_frontier_initialize(slab->return_frontier, 0);
     }
-    iree_hal_fixed_block_pool_slab_destroy(slab, pool->backing_pool,
-                                           pool->host_allocator);
+    iree_hal_fixed_block_pool_slab_free(slab, pool->backing_pool,
+                                        pool->host_allocator);
     slab = next;
   }
   iree_hal_memory_trace_deinitialize(&pool->trace);

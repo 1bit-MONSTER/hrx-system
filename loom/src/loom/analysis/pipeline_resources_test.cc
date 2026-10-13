@@ -67,8 +67,8 @@ TEST(PipelineResourcesTest, CapacityIncludesFixedAndCompiledReservations) {
       {LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP, 512, nullptr},
   };
   for (auto& pool : pools) {
-    IREE_ASSERT_OK(loom_source_storage_packing_create({}, service, 1, &arena,
-                                                      &pool.packing));
+    IREE_ASSERT_OK(loom_source_storage_packing_allocate({}, service, 1, &arena,
+                                                        &pool.packing));
   }
   loom_pipeline_resources_t resources = {
       .pools = pools,
@@ -317,7 +317,7 @@ TEST_F(PipelineConstructionTest, CapturesKeepProtocolAndStorageSeparate) {
   IREE_ASSERT_OK(loom_value_fact_table_compute(&facts, module_, function));
   loom_source_storage_packing_t* packing;
   IREE_ASSERT_OK(
-      loom_source_storage_packing_create({}, nullptr, 0, &arena_, &packing));
+      loom_source_storage_packing_allocate({}, nullptr, 0, &arena_, &packing));
   const loom_pipeline_resource_pool_t pools[] = {
       {LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP, 256, packing}};
   const loom_pipeline_resource_pool_binding_t bindings[] = {{pool, 0}};
@@ -553,8 +553,8 @@ TEST_F(PipelineConstructionTest, MemorySelectionsShareBackingNotAllocations) {
       {LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP, 256, nullptr},
   };
   for (auto& pool : pools) {
-    IREE_ASSERT_OK(loom_source_storage_packing_create({}, nullptr, 0, &arena_,
-                                                      &pool.packing));
+    IREE_ASSERT_OK(loom_source_storage_packing_allocate({}, nullptr, 0, &arena_,
+                                                        &pool.packing));
   }
   const uint64_t coordinates[][2] = {{1, 2}, {1, 3}, {1, 4}};
   const loom_pipeline_resource_memory_t memories[] = {

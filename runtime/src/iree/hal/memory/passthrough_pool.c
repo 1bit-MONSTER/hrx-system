@@ -644,13 +644,12 @@ static void iree_hal_passthrough_pool_import_rollback_on_owner(
 
 static void iree_hal_passthrough_pool_imported_buffer_release(
     void* user_data, iree_hal_buffer_t* buffer) {
-  (void)buffer;
   iree_hal_passthrough_pool_allocation_state_t* allocation = user_data;
   iree_hal_passthrough_pool_t* pool =
       (iree_hal_passthrough_pool_t*)allocation->pool;
   iree_hal_memory_trace_free(&pool->trace,
                              iree_hal_passthrough_pool_trace_address(
-                                 &allocation->slab, buffer->byte_offset));
+                                 &allocation->slab, buffer->memory.offset));
   iree_slim_mutex_lock(&pool->retirement_mutex);
   IREE_ASSERT_EQ(allocation->retirement_state,
                  IREE_HAL_PASSTHROUGH_POOL_RETIREMENT_LIVE);
@@ -662,14 +661,19 @@ static void iree_hal_passthrough_pool_imported_buffer_release(
 
 static iree_status_t iree_hal_passthrough_pool_validate_imported_slab(
     const iree_hal_passthrough_pool_t* pool,
-    const iree_hal_external_storage_t* storage,
+    iree_hal_buffer_range_t logical_range,
     const iree_hal_imported_slab_t* imported_slab) {
   const iree_hal_slab_provider_properties_t* properties =
       &imported_slab->properties;
-  if (imported_slab->slab.length != storage->byte_length) {
+  if (logical_range.byte_offset < imported_slab->storage_offset ||
+      logical_range.byte_offset - imported_slab->storage_offset >
+          imported_slab->slab.length ||
+      logical_range.byte_length >
+          imported_slab->slab.length -
+              (logical_range.byte_offset - imported_slab->storage_offset)) {
     return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "native import changed the external storage extent");
+        IREE_STATUS_OUT_OF_RANGE,
+        "logical import range is outside the native attachment envelope");
   }
   if (!iree_device_size_is_power_of_two(properties->allocation_alignment) ||
       !iree_device_size_is_power_of_two(properties->maintenance_alignment)) {
@@ -729,50 +733,41 @@ static iree_status_t iree_hal_passthrough_pool_import_buffer(
   const bool native_attached = iree_status_is_ok(status);
   if (iree_status_is_ok(status)) {
     status = iree_hal_passthrough_pool_validate_imported_slab(
-        pool, inout_storage, &call.imported_slab);
+        pool, logical_range, &call.imported_slab);
   }
 
   iree_hal_buffer_t* buffer = NULL;
+  iree_device_size_t slab_offset = 0;
   if (iree_status_is_ok(status)) {
+    slab_offset = logical_range.byte_offset - call.imported_slab.storage_offset;
     allocation->slab = call.imported_slab.slab;
-    iree_hal_buffer_range_t maintenance_range = {0};
-    status = iree_hal_buffer_calculate_range(
-        0, inout_storage->byte_length,
-        inout_storage->maintenance_range.byte_offset,
-        inout_storage->maintenance_range.byte_length,
-        &maintenance_range.byte_offset, &maintenance_range.byte_length);
-    if (iree_status_is_ok(status)) {
-      iree_hal_slab_buffer_backing_initialize(
-          pool->slab_provider, &allocation->slab,
-          &call.imported_slab.properties, maintenance_range,
-          inout_storage->host_cacheability, inout_storage->physical_backing_id,
-          pool->base.notification, pool->base.frontier_tracker,
-          pool->maintenance, &allocation->buffer_backing);
-      allocation->maintenance_entry.fn =
-          iree_hal_passthrough_pool_retire_allocation;
-      const iree_hal_buffer_release_callback_t release_callback = {
-          .fn = iree_hal_passthrough_pool_imported_buffer_release,
-          .user_data = allocation,
-      };
-      const iree_hal_memory_access_t allowed_access =
-          base_pool->memory_contract
-              ? base_pool->memory_contract->allowed_access
-              : IREE_HAL_MEMORY_ACCESS_ALL;
-      const iree_hal_buffer_usage_t allowed_usage =
-          base_pool->memory_contract
-              ? base_pool->memory_contract->allowed_usage
-              : call.imported_slab.properties.supported_usage;
-      status = iree_hal_slab_provider_wrap_buffer(
-          pool->slab_provider, &allocation->slab, logical_range.byte_offset,
-          logical_range.byte_length, allowed_access, allowed_usage,
-          release_callback, &buffer);
-    }
+    iree_hal_slab_buffer_backing_initialize(
+        pool->slab_provider, &allocation->slab, &call.imported_slab.properties,
+        pool->base.notification, pool->base.frontier_tracker, pool->maintenance,
+        &allocation->buffer_backing);
+    allocation->maintenance_entry.fn =
+        iree_hal_passthrough_pool_retire_allocation;
+    const iree_hal_buffer_release_callback_t release_callback = {
+        .fn = iree_hal_passthrough_pool_imported_buffer_release,
+        .user_data = allocation,
+    };
+    const iree_hal_memory_access_t allowed_access =
+        base_pool->memory_contract ? base_pool->memory_contract->allowed_access
+                                   : IREE_HAL_MEMORY_ACCESS_ALL;
+    const iree_hal_buffer_usage_t allowed_usage =
+        base_pool->memory_contract
+            ? base_pool->memory_contract->allowed_usage
+            : call.imported_slab.properties.supported_usage;
+    status = iree_hal_slab_provider_wrap_buffer(
+        pool->slab_provider, &allocation->slab, slab_offset,
+        logical_range.byte_length, allowed_access, allowed_usage,
+        release_callback, &buffer);
   }
 
   if (iree_status_is_ok(status)) {
     buffer->memory.contract = base_pool->memory_contract;
     buffer->memory.backing = &allocation->buffer_backing.facts;
-    buffer->memory.offset = logical_range.byte_offset;
+    buffer->memory.offset = slab_offset;
     allocation->external_storage = *inout_storage;
     memset(inout_storage, 0, sizeof(*inout_storage));
     iree_atomic_fetch_add(&pool->allocation_count, 1,
@@ -786,8 +781,7 @@ static iree_status_t iree_hal_passthrough_pool_import_buffer(
     iree_slim_mutex_unlock(&pool->retirement_mutex);
     iree_hal_memory_trace_alloc(
         &pool->trace,
-        iree_hal_passthrough_pool_trace_address(&allocation->slab,
-                                                logical_range.byte_offset),
+        iree_hal_passthrough_pool_trace_address(&allocation->slab, slab_offset),
         logical_range.byte_length);
     *out_buffer = buffer;
   } else {
@@ -886,20 +880,11 @@ static iree_status_t iree_hal_passthrough_pool_acquire_one_reservation(
       &reservation_state->allocation;
   allocation->pool = base_pool;
   allocation->slab = slab;
-  iree_hal_slab_provider_properties_t slab_properties = pool->slab_properties;
-  slab_properties.allocation_alignment =
-      iree_max(slab_properties.allocation_alignment, backing_alignment);
   iree_hal_slab_buffer_backing_initialize(
-      pool->slab_provider, &allocation->slab, &slab_properties,
-      iree_hal_make_buffer_range(0, slab.length),
-      iree_any_bit_set(slab_properties.memory_type,
-                       IREE_HAL_MEMORY_TYPE_HOST_CACHED)
-          ? IREE_HAL_HOST_CACHEABILITY_WRITE_BACK
-          : IREE_HAL_HOST_CACHEABILITY_UNKNOWN,
-      (iree_hal_physical_memory_id_t){0}, pool->base.notification,
-      pool->base.frontier_tracker, pool->maintenance,
+      pool->slab_provider, &allocation->slab, &pool->slab_properties,
+      pool->base.notification, pool->base.frontier_tracker, pool->maintenance,
       &allocation->buffer_backing);
-  allocation->charged_length = slab.length;
+  allocation->charged_length = slab.native_allocation.byte_length;
   reservation_state->asan_layout = asan_layout;
   allocation->maintenance_entry.fn =
       iree_hal_passthrough_pool_retire_allocation;
@@ -916,9 +901,11 @@ static iree_status_t iree_hal_passthrough_pool_acquire_one_reservation(
   out_reservation->byte_length = size;
   out_reservation->block_handle = (uint64_t)(uintptr_t)reservation_state;
 
-  iree_atomic_fetch_add(&pool->bytes_reserved, (int64_t)slab.length,
+  iree_atomic_fetch_add(&pool->bytes_reserved,
+                        (int64_t)allocation->charged_length,
                         iree_memory_order_relaxed);
-  iree_atomic_fetch_add(&pool->bytes_committed, (int64_t)slab.length,
+  iree_atomic_fetch_add(&pool->bytes_committed,
+                        (int64_t)allocation->charged_length,
                         iree_memory_order_relaxed);
   iree_atomic_fetch_add(&pool->reservation_count, 1, iree_memory_order_relaxed);
   iree_atomic_fetch_add(&pool->slab_count, 1, iree_memory_order_relaxed);

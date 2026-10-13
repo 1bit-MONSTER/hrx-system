@@ -138,7 +138,7 @@ static void iree_net_shm_connect_begin_handshake(
 #else
   iree_async_primitive_t primitive = state->channel.socket->primitive;
 #endif
-  iree_status_t status = iree_async_local_stream_create(
+  iree_status_t status = iree_async_local_stream_allocate(
       state->proactor, primitive, IREE_NET_SHM_STORAGE_HANDLE_COUNT,
       state->host_allocator, &state->channel.stream);
   iree_slim_mutex_lock(&state->operation->mutex);

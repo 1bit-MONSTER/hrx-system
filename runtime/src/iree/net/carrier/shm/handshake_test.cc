@@ -56,7 +56,7 @@ class ShmHandshakeTest : public ::testing::TestWithParam<bool> {
     IREE_ASSERT_OK(
         iree_async_local_stream_pipe_open(address, &channels_[1].pipe));
     for (auto& channel : channels_) {
-      IREE_ASSERT_OK(iree_async_local_stream_create(
+      IREE_ASSERT_OK(iree_async_local_stream_allocate(
           proactor_, channel.pipe, IREE_NET_SHM_STORAGE_HANDLE_COUNT,
           iree_allocator_system(), &channel.stream));
     }
@@ -71,7 +71,7 @@ class ShmHandshakeTest : public ::testing::TestWithParam<bool> {
           proactor_, iree_async_primitive_from_fd(descriptors[i]),
           IREE_ASYNC_SOCKET_TYPE_UNIX_STREAM, IREE_ASYNC_SOCKET_FLAG_NONE,
           &channels_[i].socket));
-      IREE_ASSERT_OK(iree_async_local_stream_create(
+      IREE_ASSERT_OK(iree_async_local_stream_allocate(
           proactor_, channels_[i].socket->primitive,
           IREE_NET_SHM_STORAGE_HANDLE_COUNT, iree_allocator_system(),
           &channels_[i].stream));

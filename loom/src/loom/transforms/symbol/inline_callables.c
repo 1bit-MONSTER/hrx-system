@@ -1107,7 +1107,7 @@ static iree_status_t loom_inline_memory_products(
     return iree_ok_status();
   }
   if (caller->memory_accesses == NULL) {
-    IREE_RETURN_IF_ERROR(loom_low_memory_access_map_create(
+    IREE_RETURN_IF_ERROR(loom_low_memory_access_map_allocate(
         &state->module->arena, &caller->memory_accesses));
   }
   if (entry->action == LOOM_INLINE_PLAN_ACTION_TRANSFER) {
@@ -1115,7 +1115,7 @@ static iree_status_t loom_inline_memory_products(
                                                caller->memory_accesses);
   }
   loom_low_memory_access_clone_t* clone = NULL;
-  IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_create(
+  IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_allocate(
       callee->memory_accesses, caller->memory_accesses, state->pass->arena,
       &clone));
   *out_observer = (loom_ir_clone_observer_t){
@@ -1635,7 +1635,7 @@ static iree_status_t loom_inline_callables_plan_initialize(
   return loom_inline_build_plan(state);
 }
 
-iree_status_t loom_inline_callables_plan_create(
+iree_status_t loom_inline_callables_plan_allocate(
     loom_pass_t* pass, loom_module_t* module,
     const loom_inline_callables_plan_options_t* options,
     loom_inline_callables_plan_t** out_plan) {

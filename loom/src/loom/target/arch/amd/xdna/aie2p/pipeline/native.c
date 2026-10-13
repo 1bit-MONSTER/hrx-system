@@ -64,7 +64,7 @@ static iree_status_t loom_aie2p_native_inventory(
       pools[pool] = (loom_pipeline_resource_pool_t){
           .memory_space = LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP,
           .byte_capacity = tile->facts->memory.local_capacity};
-      IREE_RETURN_IF_ERROR(loom_source_storage_packing_create(
+      IREE_RETURN_IF_ERROR(loom_source_storage_packing_allocate(
           (loom_source_storage_packing_interference_callback_t){0}, NULL, 0,
           arena, &pools[pool].packing));
       coordinates[pool * 2] = column;

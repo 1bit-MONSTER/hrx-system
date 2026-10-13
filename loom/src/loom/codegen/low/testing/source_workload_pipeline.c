@@ -203,7 +203,7 @@ iree_status_t loom_low_source_workload_run_pipeline(
     loom_low_lower_module_state_t* module_state = NULL;
     if (iree_status_is_ok(status)) {
       status =
-          loom_low_lower_module_state_create(&lowering_arena, &module_state);
+          loom_low_lower_module_state_allocate(&lowering_arena, &module_state);
     }
     iree_arena_allocator_t access_arena;
     iree_arena_initialize(block_pool, &access_arena);

@@ -295,6 +295,92 @@ static iree_status_t iree_hal_replay_dump_append_json_payload(
           payload.queue_family_affinity, payload.placement_flags,
           payload.memory_type, payload.allowed_usage, payload.allowed_access);
     }
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_VIRTUAL_BUFFER_DETACH: {
+      if (record->payload.data_length !=
+          sizeof(iree_hal_replay_virtual_buffer_detach_payload_t)) {
+        return iree_make_status(
+            IREE_STATUS_DATA_LOSS,
+            "replay virtual buffer detach payload is invalid");
+      }
+      iree_hal_replay_virtual_buffer_detach_payload_t payload;
+      memcpy(&payload, record->payload.data, sizeof(payload));
+      if (payload.reserved0) {
+        return iree_make_status(
+            IREE_STATUS_DATA_LOSS,
+            "replay virtual buffer detach metadata is invalid");
+      }
+      return iree_string_builder_append_format(
+          builder, ",\"payload\":{\"scope_id\":%" PRIu32 "}", payload.scope_id);
+    }
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_VIRTUAL_BUFFER_CREATE: {
+      if (record->payload.data_length <
+          sizeof(iree_hal_replay_virtual_buffer_create_payload_t)) {
+        return iree_make_status(IREE_STATUS_DATA_LOSS,
+                                "replay reservation payload is short");
+      }
+      iree_hal_replay_virtual_buffer_create_payload_t payload;
+      memcpy(&payload, record->payload.data, sizeof(payload));
+      iree_host_size_t families_size = 0;
+      IREE_RETURN_IF_ERROR(iree_hal_replay_dump_virtual_buffer_layout(
+          record, &payload, &families_size));
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+          builder,
+          ",\"payload\":{\"buffer_id\":%" PRIu64 ",\"byte_length\":%" PRIu64
+          ",\"min_alignment\":%" PRIu64 ",\"mapping_granularity\":%" PRIu64
+          ",\"family_count\":%" PRIu64 ",\"host_access\":%" PRIu32
+          ",\"host_mapping_modes\":%" PRIu32 ",\"host_cacheability\":%" PRIu32,
+          record->header.related_object_id, payload.byte_length,
+          payload.min_alignment, payload.mapping_granularity,
+          payload.family_count, payload.host_access, payload.host_mapping_modes,
+          payload.host_cacheability));
+      iree_hal_replay_file_range_t range =
+          iree_hal_replay_dump_payload_subrange(payload_range, sizeof(payload),
+                                                families_size);
+      IREE_RETURN_IF_ERROR(iree_hal_replay_dump_append_json_file_range(
+          builder, "family_range", &range));
+      return iree_string_builder_append_cstring(builder, "}");
+    }
+    case IREE_HAL_REPLAY_PAYLOAD_TYPE_QUEUE_MAP: {
+      if (record->payload.data_length <
+          sizeof(iree_hal_replay_queue_map_payload_t)) {
+        return iree_make_status(IREE_STATUS_DATA_LOSS,
+                                "replay mapping batch payload is short");
+      }
+      iree_hal_replay_queue_map_payload_t payload;
+      memcpy(&payload, record->payload.data, sizeof(payload));
+      iree_hal_replay_dump_queue_payload_layout_t layout;
+      IREE_RETURN_IF_ERROR(
+          iree_hal_replay_dump_queue_map_layout(record, &payload, &layout));
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+          builder,
+          ",\"payload\":{\"flags\":%" PRIu64 ",\"mapping_count\":%" PRIu64,
+          payload.flags, payload.mapping_count));
+      IREE_RETURN_IF_ERROR(iree_hal_replay_dump_append_json_queue_semaphores(
+          builder, record, payload_range, &layout,
+          (iree_host_size_t)payload.wait_semaphore_count,
+          (iree_host_size_t)payload.signal_semaphore_count));
+      IREE_RETURN_IF_ERROR(
+          iree_string_builder_append_cstring(builder, ",\"mappings\":["));
+      for (iree_host_size_t i = 0; i < payload.mapping_count; ++i) {
+        iree_hal_replay_memory_mapping_payload_t mapping;
+        memcpy(&mapping,
+               record->payload.data + layout.trailing_payload_offset +
+                   i * sizeof(mapping),
+               sizeof(mapping));
+        IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+            builder,
+            "%s{\"target_buffer_id\":%" PRIu64 ",\"scope_id\":%" PRIu32
+            ",\"operation\":%" PRIu32 ",\"target_offset\":%" PRIu64
+            ",\"byte_length\":%" PRIu64 ",\"access\":%" PRIu32,
+            i ? "," : "", mapping.target_buffer_id, mapping.scope_id,
+            mapping.operation, mapping.target_offset, mapping.byte_length,
+            mapping.access));
+        IREE_RETURN_IF_ERROR(iree_hal_replay_dump_append_json_buffer_ref(
+            builder, "source", &mapping.source_ref));
+        IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, "}"));
+      }
+      return iree_string_builder_append_cstring(builder, "]}");
+    }
     case IREE_HAL_REPLAY_PAYLOAD_TYPE_POOL_CREATE_SLAB: {
       if (record->payload.data_length <
           sizeof(iree_hal_replay_pool_create_slab_payload_t)) {

@@ -108,11 +108,11 @@ class PoolWaitTest : public ::testing::Test {
         tracker_, iree_allocator_system(), &pool_));
     EXPECT_EQ(pool_.wait_sources.count, 2u);
     IREE_ASSERT_OK(
-        iree_hal_pool_wait_create(&pool_, iree_allocator_system(), &wait_));
+        iree_hal_pool_wait_allocate(&pool_, iree_allocator_system(), &wait_));
   }
 
   void TearDown() override {
-    iree_hal_pool_wait_destroy(wait_);
+    iree_hal_pool_wait_free(wait_);
     iree_hal_pool_deinitialize(&pool_);
     for (int i = 0; i < 2; ++i) {
       iree_async_notification_release(notifications_[i]);
@@ -204,7 +204,7 @@ TEST_F(PoolWaitTest, EitherOwnerWakesAndJoinsTheOther) {
 TEST_F(PoolWaitTest, CancellationDoesNotSignalAnUnrelatedWaiter) {
   iree_hal_pool_wait_t* other = nullptr;
   IREE_ASSERT_OK(
-      iree_hal_pool_wait_create(&pool_, iree_allocator_system(), &other));
+      iree_hal_pool_wait_allocate(&pool_, iree_allocator_system(), &other));
   Completion cancelled;
   Completion survivor;
   iree_hal_pool_wait_prepare(other);
@@ -226,7 +226,7 @@ TEST_F(PoolWaitTest, CancellationDoesNotSignalAnUnrelatedWaiter) {
   EXPECT_EQ(survivor.count.load(std::memory_order_acquire), 0);
   iree_async_notification_signal(notifications_[1], INT32_MAX);
   survivor.Await(IREE_STATUS_OK);
-  iree_hal_pool_wait_destroy(other);
+  iree_hal_pool_wait_free(other);
   ExpectNoObservers();
 }
 
@@ -305,7 +305,7 @@ TEST_F(PoolWaitTest, TerminalCallbackCanDestroyHelper) {
   iree_hal_pool_wait_commit(wait_, iree_infinite_timeout(),
                             {[](void* user_data, iree_status_t status) {
                                auto* state = static_cast<State*>(user_data);
-                               iree_hal_pool_wait_destroy(*state->wait);
+                               iree_hal_pool_wait_free(*state->wait);
                                *state->wait = nullptr;
                                Completion::Complete(&state->completion, status);
                              },

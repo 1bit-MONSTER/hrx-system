@@ -25,13 +25,13 @@ typedef struct iree_hal_amd_xdna_image_t iree_hal_amd_xdna_image_t;
 
 // Admits an image's structure and target requirements, retaining its source.
 // Native instruction bytes are opaque executable code, not sandboxed input.
-iree_status_t iree_hal_amd_xdna_image_create(
+iree_status_t iree_hal_amd_xdna_image_allocate(
     iree_byte_sequence_t* source_sequence,
     const iree_hal_amd_xdna_aie2p_target_t* target,
     iree_allocator_t host_allocator, iree_hal_amd_xdna_image_t** out_image);
 
 // Releases the description and retained source; performs no device operation.
-void iree_hal_amd_xdna_image_destroy(iree_hal_amd_xdna_image_t* image);
+void iree_hal_amd_xdna_image_free(iree_hal_amd_xdna_image_t* image);
 
 // Borrows validated tables for the lifetime of the image.
 const iree_hal_amd_xdna_image_tables_t* iree_hal_amd_xdna_image_tables(

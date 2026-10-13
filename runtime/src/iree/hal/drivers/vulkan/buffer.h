@@ -36,7 +36,8 @@ typedef struct iree_hal_vulkan_buffer_mapping_state_t
 enum iree_hal_vulkan_buffer_binding_index_e {
   IREE_HAL_VULKAN_BUFFER_BINDING_RESOURCE = 0,
   IREE_HAL_VULKAN_BUFFER_BINDING_DEVICE_ADDRESS = 1,
-  IREE_HAL_VULKAN_BUFFER_BINDING_COUNT = 2,
+  IREE_HAL_VULKAN_BUFFER_BINDING_MAPPING_SOURCE = 2,
+  IREE_HAL_VULKAN_BUFFER_BINDING_COUNT = 3,
 };
 
 // Inline native facts shared by dense, sparse and queue-ordered storage.
@@ -82,9 +83,10 @@ iree_status_t iree_hal_vulkan_buffer_create(
     iree_hal_memory_access_t allowed_access,
     iree_hal_buffer_usage_t allowed_usage, iree_device_size_t allocation_size,
     iree_device_size_t byte_length, VkMemoryPropertyFlags memory_property_flags,
-    VkDeviceSize non_coherent_atom_size, VkDeviceMemory device_memory,
-    VkDeviceSize device_memory_offset, VkDeviceSize device_memory_size,
-    VkBuffer handle, VkDeviceSize handle_length, VkDeviceSize handle_offset,
+    uint32_t memory_type_index, VkDeviceSize non_coherent_atom_size,
+    VkDeviceMemory device_memory, VkDeviceSize device_memory_offset,
+    VkDeviceSize device_memory_size, VkBuffer handle,
+    VkDeviceSize handle_length, VkDeviceSize handle_offset,
     VkDeviceAddress device_address,
     iree_hal_buffer_release_callback_t release_callback,
     iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
@@ -113,6 +115,11 @@ iree_status_t iree_hal_vulkan_buffer_create_borrowed(
 
 // Returns true if |buffer| is a Vulkan HAL buffer.
 bool iree_hal_vulkan_buffer_isa(iree_hal_buffer_t* buffer);
+
+// Returns whether the allocated owner uses Vulkan's native binding format.
+// Includes dense, sparse, transient, and virtual buffer resources; native
+// identity alone does not establish allocation completion or mapped residency.
+bool iree_hal_vulkan_buffer_is_native(iree_hal_buffer_t* allocated_buffer);
 
 // Returns the shared mapping state for a dense Vulkan HAL buffer.
 iree_hal_vulkan_buffer_mapping_state_t* iree_hal_vulkan_buffer_mapping_state(
@@ -163,6 +170,38 @@ iree_hal_vulkan_buffer_range_dword_alignment(
 iree_status_t iree_hal_vulkan_buffer_handle(iree_hal_buffer_t* buffer,
                                             VkDeviceMemory* out_memory,
                                             VkBuffer* out_handle);
+
+// Returns captured native payload geometry for a directly allocated dense
+// buffer. This trusted provider query performs no native call and excludes
+// subspan and sparse wrappers.
+iree_hal_buffer_allocation_info_t iree_hal_vulkan_buffer_allocation_info(
+    iree_hal_buffer_t* buffer);
+
+// Captured native facts for one prepared dense mapping source. The allocation
+// owner, not each view, stores these facts. This format never describes an
+// imported allocation or a sparse resource spanning several physical blocks.
+typedef struct iree_hal_vulkan_mapping_source_info_t {
+  // Native device owning the allocation.
+  VkDevice logical_device;
+  // Dense physical backing borrowed from the slab owner.
+  VkDeviceMemory memory;
+  // Exact memory type selected when acquiring the backing.
+  uint32_t memory_type_index;
+  // Complete native allocation extent, in bytes.
+  VkDeviceSize byte_length;
+} iree_hal_vulkan_mapping_source_info_t;
+
+// Publishes a prepared mapping binding on |buffer|, borrowing |source|'s dense
+// native allocation. Both are trusted provider-created buffers; |source| is the
+// slab root and outlives the view. |granularity| is prequalified by the pool.
+void iree_hal_vulkan_buffer_prepare_mapping_source(
+    iree_hal_buffer_t* buffer, iree_hal_buffer_t* source,
+    iree_device_size_t granularity);
+
+// Reads captured allocation facts from a prepared Vulkan source descriptor.
+// The mapping contract establishes the native format before this trusted query.
+iree_hal_vulkan_mapping_source_info_t
+iree_hal_vulkan_buffer_mapping_source_info(const void* descriptor);
 
 // Returns the byte length of the Vulkan buffer handle backing |buffer|.
 iree_status_t iree_hal_vulkan_buffer_handle_length(

@@ -315,18 +315,21 @@ typedef struct iree_hal_pool_capabilities_t {
 // Requirements are immutable results of native route selection. Callers that
 // allocate storage for later import use these values directly instead of
 // inferring native constraints from owned-allocation capabilities.
+// Host registration applies them to the source's maintenance envelope; other
+// native imports apply them to the external storage extent.
 typedef struct iree_hal_pool_import_requirements_t {
-  // Smallest external storage extent accepted, in bytes.
+  // Smallest native attachment extent accepted, in bytes.
   iree_device_size_t min_byte_length;
 
-  // Largest external storage extent accepted, or zero when unbounded.
+  // Largest native attachment extent accepted, or zero when unbounded.
   iree_device_size_t max_byte_length;
 
-  // Required power-of-two alignment of the external storage base address.
+  // Required power-of-two alignment of the native attachment base address.
   iree_device_size_t base_alignment;
 
-  // Required power-of-two alignment of the external storage byte length.
-  iree_device_size_t byte_length_alignment;
+  // Nonzero granularity in bytes. The native attachment byte length must be a
+  // multiple of this value, which need not be a power of two.
+  iree_device_size_t byte_length_granularity;
 } iree_hal_pool_import_requirements_t;
 
 // Running statistics for a pool. All values are atomic snapshots; they may
@@ -345,7 +348,9 @@ typedef struct iree_hal_pool_stats_t {
   // Does not include quarantine owned by a backing pool or native allocator.
   iree_device_size_t bytes_quarantined;
 
-  // Total physical memory committed (slabs or VMM pages).
+  // Backing bytes committed to this pool. Owning leaves count native payload
+  // extents; nested pools count their retained ranges. These per-pool totals
+  // are not additive across a backing-pool chain or imported aliases.
   iree_device_size_t bytes_committed;
 
   // Budget limit in bytes (0 = unlimited).
@@ -677,13 +682,22 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_materialize_reservations(
 // The storage class must have been admitted when the pool was constructed.
 // Import bypasses caches and suballocators: pools without a native import route
 // return UNAVAILABLE. The logical range is relative to the external storage
-// extent and is preserved in the returned buffer's native coordinates.
+// extent. The returned buffer addresses the same bytes even when native
+// attachment selects a smaller source-authorized registration envelope.
+//
+// Host registration may perform cold cache preparation within the source's
+// maintenance envelope, which must contain the logical range and satisfy the
+// native registration geometry. The caller excludes every cache line
+// intersecting that envelope, including aliases, until this call returns.
+// Preparation preserves contents and does not replace producer completion or
+// cache transitions required after subsequent accesses. Native-handle import
+// does not release ownership from a foreign producer.
 //
 // On success the pool consumes and zeros |inout_storage| and owns its optional
 // release callback until the imported buffer is destroyed. Native attachments
 // are released before the callback runs. On failure |inout_storage| is
-// unchanged and |out_buffer| remains NULL. Import performs no copy, execution
-// wait, or cache transition.
+// unchanged and |out_buffer| remains NULL. Import performs no copy or execution
+// wait; the caller completes prior users before registration or attachment.
 IREE_API_EXPORT iree_status_t iree_hal_pool_import_buffer(
     iree_hal_pool_t* pool, iree_hal_external_storage_t* inout_storage,
     iree_hal_buffer_range_t logical_range, iree_hal_buffer_t** out_buffer);

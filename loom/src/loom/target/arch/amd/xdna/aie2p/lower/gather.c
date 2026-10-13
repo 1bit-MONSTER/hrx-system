@@ -103,7 +103,7 @@ static iree_status_t loom_aie2p_gather_reserve_derived_symbol(
                             "AIE2P gather symbol name overflow");
   }
   char* name_storage = NULL;
-  IREE_RETURN_IF_ERROR(loom_low_lower_module_state_allocate(
+  IREE_RETURN_IF_ERROR(loom_low_lower_module_state_allocate_bytes(
       module_state, name_capacity, (void**)&name_storage));
   memcpy(name_storage, source_name.data, source_name.size);
   memcpy(name_storage + source_name.size, suffix.data, suffix.size);
@@ -148,7 +148,7 @@ static iree_status_t loom_aie2p_gather_derive_contents(
   IREE_ASSERT_EQ(source_contents.data_length % 32, 0u);
   const iree_host_size_t derived_length = source_contents.data_length * 2;
   uint8_t* derived_data = NULL;
-  IREE_RETURN_IF_ERROR(loom_low_lower_module_state_allocate(
+  IREE_RETURN_IF_ERROR(loom_low_lower_module_state_allocate_bytes(
       module_state, derived_length, (void**)&derived_data));
   for (iree_host_size_t source_offset = 0;
        source_offset < source_contents.data_length; source_offset += 32) {

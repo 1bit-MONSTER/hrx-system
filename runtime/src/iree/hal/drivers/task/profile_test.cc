@@ -447,7 +447,7 @@ class TaskProfileRecorderTest : public ::testing::Test {
   void TearDown() override {
     if (recorder_) {
       IREE_EXPECT_OK(iree_hal_task_profile_recorder_end(recorder_));
-      iree_hal_task_profile_recorder_destroy(recorder_);
+      iree_hal_task_profile_recorder_free(recorder_);
     }
     iree_hal_device_release(device_);
   }
@@ -464,7 +464,7 @@ class TaskProfileRecorderTest : public ::testing::Test {
       iree_hal_device_profiling_data_families_t data_families) {
     iree_hal_device_profiling_options_t options =
         MakeProfilingOptions(data_families);
-    return iree_hal_task_profile_recorder_create(
+    return iree_hal_task_profile_recorder_allocate(
         &recorder_options_, &options, iree_allocator_system(), &recorder_);
   }
 
@@ -526,7 +526,7 @@ TEST_F(TaskProfileRecorderTest, RejectsCaptureFilter) {
   options.capture_filter.queue_ordinal = 0;
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_UNIMPLEMENTED,
-      iree_hal_task_profile_recorder_create(
+      iree_hal_task_profile_recorder_allocate(
           &recorder_options_, &options, iree_allocator_system(), &recorder_));
 }
 

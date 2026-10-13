@@ -116,13 +116,14 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_query_memory_heaps(
 }
 
 //===----------------------------------------------------------------------===//
-// Virtual Memory Management
+// Legacy scalar virtual memory management
 //===----------------------------------------------------------------------===//
 
 IREE_API_EXPORT bool iree_hal_allocator_supports_virtual_memory(
     iree_hal_allocator_t* IREE_RESTRICT allocator) {
   IREE_ASSERT_ARGUMENT(allocator);
-  return _VTABLE_DISPATCH(allocator, supports_virtual_memory)(allocator);
+  return _VTABLE_DISPATCH(allocator, supports_virtual_memory) &&
+         _VTABLE_DISPATCH(allocator, supports_virtual_memory)(allocator);
 }
 
 IREE_API_EXPORT iree_status_t
@@ -136,6 +137,10 @@ iree_hal_allocator_virtual_memory_query_granularity(
   IREE_ASSERT_ARGUMENT(out_recommended_page_size);
   *out_minimum_page_size = 0;
   *out_recommended_page_size = 0;
+  if (!_VTABLE_DISPATCH(allocator, virtual_memory_query_granularity)) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "legacy allocator virtual memory is unavailable");
+  }
   IREE_TRACE_ZONE_BEGIN(z0);
   iree_status_t status =
       _VTABLE_DISPATCH(allocator, virtual_memory_query_granularity)(
@@ -152,6 +157,10 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_virtual_memory_reserve(
   IREE_ASSERT_ARGUMENT(allocator);
   IREE_ASSERT_ARGUMENT(out_virtual_buffer);
   *out_virtual_buffer = NULL;
+  if (!_VTABLE_DISPATCH(allocator, virtual_memory_reserve)) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "legacy allocator virtual memory is unavailable");
+  }
   IREE_TRACE_ZONE_BEGIN(z0);
   IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)size);
   iree_status_t status = _VTABLE_DISPATCH(allocator, virtual_memory_reserve)(
@@ -165,6 +174,10 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_virtual_memory_release(
     iree_hal_buffer_t* IREE_RESTRICT virtual_buffer) {
   IREE_ASSERT_ARGUMENT(allocator);
   IREE_ASSERT_ARGUMENT(virtual_buffer);
+  if (!_VTABLE_DISPATCH(allocator, virtual_memory_release)) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "legacy allocator virtual memory is unavailable");
+  }
   IREE_TRACE_ZONE_BEGIN(z0);
   iree_status_t status = _VTABLE_DISPATCH(allocator, virtual_memory_release)(
       allocator, virtual_buffer);
@@ -180,6 +193,10 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_physical_memory_allocate(
   IREE_ASSERT_ARGUMENT(allocator);
   IREE_ASSERT_ARGUMENT(out_physical_memory);
   *out_physical_memory = NULL;
+  if (!_VTABLE_DISPATCH(allocator, physical_memory_allocate)) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "legacy allocator virtual memory is unavailable");
+  }
   IREE_TRACE_ZONE_BEGIN(z0);
   IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)size);
   iree_status_t status = _VTABLE_DISPATCH(allocator, physical_memory_allocate)(
@@ -193,6 +210,10 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_physical_memory_free(
     iree_hal_physical_memory_t* IREE_RESTRICT physical_memory) {
   IREE_ASSERT_ARGUMENT(allocator);
   IREE_ASSERT_ARGUMENT(physical_memory);
+  if (!_VTABLE_DISPATCH(allocator, physical_memory_free)) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "legacy allocator virtual memory is unavailable");
+  }
   IREE_TRACE_ZONE_BEGIN(z0);
   iree_status_t status = _VTABLE_DISPATCH(allocator, physical_memory_free)(
       allocator, physical_memory);
@@ -209,6 +230,10 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_virtual_memory_map(
   IREE_ASSERT_ARGUMENT(allocator);
   IREE_ASSERT_ARGUMENT(virtual_buffer);
   IREE_ASSERT_ARGUMENT(physical_memory);
+  if (!_VTABLE_DISPATCH(allocator, virtual_memory_map)) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "legacy allocator virtual memory is unavailable");
+  }
   IREE_TRACE_ZONE_BEGIN(z0);
   IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, (int64_t)size);
   iree_status_t status = _VTABLE_DISPATCH(allocator, virtual_memory_map)(
@@ -224,6 +249,10 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_virtual_memory_unmap(
     iree_device_size_t virtual_offset, iree_device_size_t size) {
   IREE_ASSERT_ARGUMENT(allocator);
   IREE_ASSERT_ARGUMENT(virtual_buffer);
+  if (!_VTABLE_DISPATCH(allocator, virtual_memory_unmap)) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "legacy allocator virtual memory is unavailable");
+  }
   IREE_TRACE_ZONE_BEGIN(z0);
   iree_status_t status = _VTABLE_DISPATCH(allocator, virtual_memory_unmap)(
       allocator, virtual_buffer, virtual_offset, size);
@@ -249,6 +278,10 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_virtual_memory_protect(
                             "invalid virtual-memory access scope 0x%08" PRIx32,
                             access_scope);
   }
+  if (!_VTABLE_DISPATCH(allocator, virtual_memory_protect)) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "legacy allocator virtual memory is unavailable");
+  }
   IREE_TRACE_ZONE_BEGIN(z0);
   iree_status_t status = _VTABLE_DISPATCH(allocator, virtual_memory_protect)(
       allocator, virtual_buffer, virtual_offset, size, queue_family_affinity,
@@ -265,6 +298,10 @@ IREE_API_EXPORT iree_status_t iree_hal_allocator_virtual_memory_advise(
     iree_hal_memory_advice_t advice) {
   IREE_ASSERT_ARGUMENT(allocator);
   IREE_ASSERT_ARGUMENT(virtual_buffer);
+  if (!_VTABLE_DISPATCH(allocator, virtual_memory_advise)) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "legacy allocator virtual memory is unavailable");
+  }
   // No tracing for advise - it's a hint that may be called frequently.
   return _VTABLE_DISPATCH(allocator, virtual_memory_advise)(
       allocator, virtual_buffer, virtual_offset, size, queue_family_affinity,

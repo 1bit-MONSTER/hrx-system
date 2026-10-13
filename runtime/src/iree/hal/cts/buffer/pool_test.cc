@@ -90,11 +90,12 @@ class PoolTest : public CtsTestBase<> {
         &requirements);
     EXPECT_TRUE(supported);
     EXPECT_TRUE(iree_device_size_is_power_of_two(requirements.base_alignment));
-    EXPECT_TRUE(
-        iree_device_size_is_power_of_two(requirements.byte_length_alignment));
-    const iree_device_size_t byte_length = iree_device_align(
-        std::max(kAllocationSize, requirements.min_byte_length),
-        requirements.byte_length_alignment);
+    EXPECT_NE(requirements.byte_length_granularity, 0u);
+    const iree_device_size_t byte_length =
+        ((std::max(kAllocationSize, requirements.min_byte_length) - 1) /
+             requirements.byte_length_granularity +
+         1) *
+        requirements.byte_length_granularity;
     EXPECT_TRUE(requirements.max_byte_length == 0 ||
                 byte_length <= requirements.max_byte_length);
     const iree_device_size_t alignment =
@@ -124,6 +125,18 @@ TEST_P(PoolTest, BaselineConstruction) {
     EXPECT_TRUE(
         iree_all_bits_set(iree_hal_buffer_allowed_usage(buffer), usage));
     EXPECT_GE(iree_hal_buffer_allocation_size(buffer), kAllocationSize);
+    const auto memory = iree_hal_buffer_memory_view(buffer);
+    ASSERT_NE(memory.backing, nullptr);
+    EXPECT_GE(memory.backing->native_allocation.byte_length,
+              memory.backing->native_allocation.byte_offset + kAllocationSize);
+    EXPECT_TRUE(
+        iree_device_size_is_power_of_two(memory.backing->allocation_alignment));
+    iree_hal_pool_stats_t stats;
+    iree_hal_pool_query_stats(pool, &stats);
+    EXPECT_EQ(stats.bytes_reserved,
+              memory.backing->native_allocation.byte_length);
+    EXPECT_EQ(stats.bytes_committed,
+              memory.backing->native_allocation.byte_length);
   }
 }
 

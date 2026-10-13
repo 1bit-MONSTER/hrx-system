@@ -426,7 +426,7 @@ static iree_status_t iree_net_rdma_connection_control_start(
       .service_batch_size = control->options.service_batch_size,
       .mode = control->options.completion_mode,
   };
-  IREE_RETURN_IF_ERROR(iree_net_rdma_completion_queue_create(
+  IREE_RETURN_IF_ERROR(iree_net_rdma_completion_queue_allocate(
       control->context, control->proactor, options,
       (iree_net_rdma_completion_queue_callbacks_t){
           .on_completions = iree_net_rdma_connection_control_completions,
@@ -440,7 +440,7 @@ static iree_status_t iree_net_rdma_connection_control_start(
       control->options.service_batch_size,
       iree_net_rdma_connection_control_service_failed, control,
       control->host_allocator, &control->device_failure));
-  return iree_net_rdma_connection_events_create(
+  return iree_net_rdma_connection_events_allocate(
       control->context, control->proactor, control->options.service_batch_size,
       (iree_net_rdma_connection_events_callbacks_t){
           .on_event = iree_net_rdma_connection_control_event,
@@ -645,7 +645,7 @@ void iree_net_rdma_connection_control_deactivate(
       control->proactor, &control->deactivate_operation.base));
 }
 
-void iree_net_rdma_connection_control_destroy(
+void iree_net_rdma_connection_control_free(
     iree_net_rdma_connection_control_t* control) {
   if (!control) {
     return;
@@ -654,9 +654,9 @@ void iree_net_rdma_connection_control_destroy(
       control->state == IREE_NET_RDMA_CONNECTION_CONTROL_STATE_CREATED ||
           control->state == IREE_NET_RDMA_CONNECTION_CONTROL_STATE_DEACTIVATED,
       "started RDMA control must join deactivation before destruction");
-  iree_net_rdma_connection_events_destroy(control->events);
+  iree_net_rdma_connection_events_free(control->events);
   iree_net_rdma_device_failure_destroy(control->device_failure);
-  iree_net_rdma_completion_queue_destroy(control->completions);
+  iree_net_rdma_completion_queue_free(control->completions);
   iree_async_region_release(control->region);
   iree_status_free(control->failure);
   iree_net_rdma_context_release(control->context);
@@ -664,7 +664,7 @@ void iree_net_rdma_connection_control_destroy(
   iree_allocator_free(control->host_allocator, control);
 }
 
-iree_status_t iree_net_rdma_connection_control_create(
+iree_status_t iree_net_rdma_connection_control_allocate(
     iree_net_rdma_context_t* context, iree_async_proactor_t* proactor,
     iree_net_rdma_connection_control_options_t options,
     iree_const_byte_span_t private_data,
@@ -733,7 +733,7 @@ iree_status_t iree_net_rdma_connection_control_create(
   if (iree_status_is_ok(status)) {
     *out_control = control;
   } else {
-    iree_net_rdma_connection_control_destroy(control);
+    iree_net_rdma_connection_control_free(control);
   }
   return status;
 }

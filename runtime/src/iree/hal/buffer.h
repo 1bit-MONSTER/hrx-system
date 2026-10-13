@@ -808,7 +808,10 @@ typedef enum iree_hal_buffer_interface_e {
   IREE_HAL_BUFFER_INTERFACE_REGISTERED_IO = 6,
   IREE_HAL_BUFFER_INTERFACE_REMOTE = 7,
   IREE_HAL_BUFFER_INTERFACE_WEBGPU_BUFFER = 8,
-  IREE_HAL_BUFFER_INTERFACE_COUNT = 9,
+  // Native storage that can supply pages to a virtual reservation. Request
+  // this interface explicitly when constructing the source pool.
+  IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE = 9,
+  IREE_HAL_BUFFER_INTERFACE_COUNT = 10,
 } iree_hal_buffer_interface_t;
 
 // Prepared native identity. The access contract fixes the payload for each
@@ -819,6 +822,16 @@ typedef union iree_hal_buffer_native_binding_t {
   uint8_t* host_pointer;
   // Address for DEVICE_ADDRESS or the selected XDNA address interface.
   uint64_t device_address;
+  // Remappable storage prepared for one exact memory scope. The target
+  // reservation backend interprets the descriptor; it is not a device address.
+  struct {
+    // Borrowed native descriptor owned by the source allocation.
+    const void* descriptor;
+    // Native source offset/length alignment, in bytes; a nonzero power of two.
+    uint32_t granularity;
+    // Byte offset within the descriptor's native storage.
+    uint64_t offset;
+  } mapping_source;
   // Vulkan resource identity and view position; buffer contains VkBuffer bits.
   struct {
     // Native VkBuffer handle.
@@ -910,9 +923,28 @@ typedef struct iree_hal_buffer_range_advice_t {
                       const iree_hal_asan_allocation_layout_t* layout);
 } iree_hal_buffer_range_advice_t;
 
+// Native allocation or registered page-cover geometry established by the
+// storage provider. A registration's cover may differ from the original source
+// allocation. This is informational and grants neither access to padding nor
+// an ownership claim.
+// Unknown geometry is zero; a host pointer alone does not establish its source
+// allocation extent. This excludes driver/allocator metadata, reserved virtual
+// address slack and residency accounting.
+typedef struct iree_hal_buffer_allocation_info_t {
+  // Complete native allocation payload extent, including known padding.
+  iree_device_size_t byte_length;
+  // Backing coordinate zero within the native allocation payload.
+  iree_device_size_t byte_offset;
+  // Native allocation-size granularity, or zero when not established.
+  iree_device_size_t granularity;
+} iree_hal_buffer_allocation_info_t;
+
 // Immutable cold facts embedded in the owner of prepared native storage.
 // This is borrowed value data, not another resource or an origin-pool link.
 // The sealed device group and the allocation epoch must outlive all consumers.
+// Virtual reservations publish alignment and progress services only; physical
+// facts remain unknown and range advice is unavailable until established by
+// an actual storage source. Mapped sources are queried independently.
 typedef struct iree_hal_buffer_backing_facts_t {
   // Shared capacity notification on the allocation's progress owner.
   iree_async_notification_t* notification;
@@ -928,7 +960,10 @@ typedef struct iree_hal_buffer_backing_facts_t {
   // Source-established host cacheability of the backing storage.
   iree_hal_host_cacheability_t host_cacheability;
   // Physical identity established by the storage source, when available.
+  // Identity alone does not establish byte correspondence between attachments.
   iree_hal_physical_memory_id_t physical_backing_id;
+  // Native payload geometry, independent of visible and maintenance ranges.
+  iree_hal_buffer_allocation_info_t native_allocation;
   // Guaranteed power-of-two alignment of byte zero in native coordinates.
   iree_device_size_t allocation_alignment;
   // Minimum independently maintained byte granule; one for coherent storage.
@@ -1475,6 +1510,10 @@ iree_status_t iree_hal_heap_buffer_wrap(
 // iree_hal_buffer_t implementation details
 //===----------------------------------------------------------------------===//
 
+typedef struct iree_hal_virtual_buffer_view_t iree_hal_virtual_buffer_view_t;
+typedef struct iree_hal_memory_mapping_update_t
+    iree_hal_memory_mapping_update_t;
+
 typedef struct iree_hal_buffer_vtable_t {
   void(IREE_API_PTR* destroy)(iree_hal_buffer_t* buffer);
 
@@ -1515,6 +1554,21 @@ typedef struct iree_hal_buffer_vtable_t {
   // submission.
   iree_hal_buffer_memory_view_t(IREE_API_PTR* query_memory)(
       const iree_hal_buffer_t* buffer);
+  // Borrowed committed mapping target and its view offset. NULL for dense
+  // storage; transient and instrumentation buffers forward the current view.
+  iree_hal_virtual_buffer_view_t(IREE_API_PTR* query_virtual)(
+      const iree_hal_buffer_t* buffer);
+  // Completes a trusted resolved native mapping vector on the cold execution
+  // owner. NULL when publication requires a native queue implementation.
+  iree_status_t(IREE_API_PTR* update_mappings)(
+      iree_hal_buffer_t* buffer, uint32_t projection,
+      iree_host_size_t update_count,
+      const iree_hal_memory_mapping_update_t* updates);
+  // Checked full native-group removal preserving the buffer's addresses and
+  // prior failure. Called after all affected work retires, including on error.
+  // Instrumentation observes the operation before forwarding to native storage.
+  iree_status_t(IREE_API_PTR* detach_mappings)(iree_hal_buffer_t* buffer,
+                                               uint32_t scope_id);
   // Static queue allocation lifecycle, or NULL for ordinary buffer storage.
   const iree_hal_buffer_allocation_vtable_t* allocation;
 } iree_hal_buffer_vtable_t;

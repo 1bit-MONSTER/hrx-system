@@ -111,7 +111,7 @@ typedef struct iree_hal_amdgpu_pm4_command_buffer_publish_stats_t {
 // |device_agent|. Command buffers borrow one allocation while finalized and
 // return it to this pool on destruction. The pool must remain live until all
 // command buffers created from it have been destroyed.
-iree_status_t iree_hal_amdgpu_pm4_command_buffer_resident_pool_create(
+iree_status_t iree_hal_amdgpu_pm4_command_buffer_resident_pool_allocate(
     const iree_hal_amdgpu_libhsa_t* libhsa, hsa_agent_t host_agent,
     hsa_agent_t device_agent, hsa_amd_memory_pool_t resident_memory_pool,
     hsa_amd_memory_pool_t host_staging_memory_pool,
@@ -119,7 +119,7 @@ iree_status_t iree_hal_amdgpu_pm4_command_buffer_resident_pool_create(
     iree_hal_amdgpu_pm4_command_buffer_resident_pool_t** out_pool);
 
 // Destroys |resident_pool| and releases all cached HSA allocations.
-void iree_hal_amdgpu_pm4_command_buffer_resident_pool_destroy(
+void iree_hal_amdgpu_pm4_command_buffer_resident_pool_free(
     iree_hal_amdgpu_pm4_command_buffer_resident_pool_t* resident_pool);
 
 // Releases unused resident allocations cached in |resident_pool|.

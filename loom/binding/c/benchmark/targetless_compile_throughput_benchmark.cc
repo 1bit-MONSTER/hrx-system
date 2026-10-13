@@ -310,7 +310,7 @@ class ModelFlowScenario final : public CompileScenario {
 
   iree_status_t BuildLinkIndex() {
     loomc_link_index_builder_t* builder = nullptr;
-    IREE_RETURN_IF_ERROR(to_iree_status(loomc_link_index_builder_create(
+    IREE_RETURN_IF_ERROR(to_iree_status(loomc_link_index_builder_allocate(
         context_.get(), /*options=*/nullptr, loom_allocator(), &builder)));
     LinkIndexBuilderPtr builder_ptr(builder);
 

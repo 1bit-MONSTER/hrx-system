@@ -18,6 +18,10 @@
 #include "iree/base/threading/call_once.h"
 #include "iree/base/threading/mutex.h"
 
+// HIP retains the legacy scalar allocator contract while GPU execution uses
+// ROCr. Physical handles are initially unmapped, and explicit address release
+// remains retryable; the reservation-owner API has a different lifetime
+// contract.
 typedef struct iree_hip_vmm_allocation_t iree_hip_vmm_allocation_t;
 
 typedef struct iree_hip_vmm_mapping_t {

@@ -248,6 +248,35 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_library(
+    name = "sparse_binding_test",
+    testonly = True,
+    srcs = [
+        "allocator.h",
+        "barrier.h",
+        "builtins.h",
+        "queue.h",
+        "semaphore.h",
+        "sparse_binding_test.cc",
+    ],
+    deps = [
+        ":headers",
+        ":profile",
+        ":vulkan",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/base/threading:thread",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/drivers/vulkan/util:libvulkan",
+        "//runtime/src/iree/hal/utils:submitted_signal",
+        "//runtime/src/iree/testing:gtest",
+    ],
+    alwayslink = True,
+)
+
+iree_runtime_cc_library(
     name = "vulkan",
     srcs = [
         "allocator.c",
@@ -293,6 +322,7 @@ iree_runtime_cc_library(
         "spirv.c",
         "spirv.h",
         "syms.h",
+        "virtual_buffer.c",
     ],
     deps = [
         ":api",

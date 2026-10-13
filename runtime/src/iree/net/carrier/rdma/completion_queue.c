@@ -157,7 +157,7 @@ static void iree_net_rdma_completion_queue_notified(
   }
 }
 
-static void iree_net_rdma_completion_queue_free(
+static void iree_net_rdma_completion_queue_free_storage(
     iree_net_rdma_completion_queue_t* queue) {
   const iree_net_rdma_library_t* library =
       iree_net_rdma_context_library(queue->context);
@@ -182,7 +182,7 @@ static void iree_net_rdma_completion_queue_free(
   iree_allocator_free(queue->host_allocator, queue);
 }
 
-iree_status_t iree_net_rdma_completion_queue_create(
+iree_status_t iree_net_rdma_completion_queue_allocate(
     iree_net_rdma_context_t* context, iree_async_proactor_t* proactor,
     iree_net_rdma_completion_queue_options_t options,
     iree_net_rdma_completion_queue_callbacks_t callbacks,
@@ -273,7 +273,7 @@ iree_status_t iree_net_rdma_completion_queue_create(
     }
     *out_queue = queue;
   } else {
-    iree_net_rdma_completion_queue_free(queue);
+    iree_net_rdma_completion_queue_free_storage(queue);
   }
   return status;
 }
@@ -328,7 +328,7 @@ void iree_net_rdma_completion_queue_deactivate(
   }
 }
 
-void iree_net_rdma_completion_queue_destroy(
+void iree_net_rdma_completion_queue_free(
     iree_net_rdma_completion_queue_t* queue) {
   if (!queue) {
     return;
@@ -338,5 +338,5 @@ void iree_net_rdma_completion_queue_destroy(
   // Consumed notifications were acknowledged before their callbacks. Native
   // destruction discards unread notifications; it does not require reading a
   // channel that may itself have failed along with the device.
-  iree_net_rdma_completion_queue_free(queue);
+  iree_net_rdma_completion_queue_free_storage(queue);
 }

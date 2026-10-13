@@ -29,11 +29,14 @@ AMD_GPU_CTS_TAGS = [
     "runtime-resource=amd-gpu",
 ]
 
-# HIP GPU tests require a compiled AMDGPU backend before runtime device discovery.
-_HIP_GPU_COMPATIBILITY = ["@platforms//os:linux"] + select({
+# Native kernel fixtures require the AMDGPU backend and its device toolchain.
+_AMDGPU_CTS_COMPATIBILITY = select({
     "//runtime/config/hal:driver_amdgpu": [],
     "//conditions:default": ["@platforms//:incompatible"],
 })
+
+# HIP GPU tests also require the Linux runtime binding.
+_HIP_GPU_COMPATIBILITY = ["@platforms//os:linux"] + _AMDGPU_CTS_COMPATIBILITY
 
 iree_amdgpu_binary_variants_embed_data(
     name = "amdgpu_executable_test_kernels",
@@ -45,6 +48,7 @@ iree_amdgpu_binary_variants_embed_data(
     identifier = "hrx_cts_amdgpu_executable_test_kernels",
     tags = ["manual"],
     target = "amdgcn-amd-amdhsa",
+    target_compatible_with = _AMDGPU_CTS_COMPATIBILITY,
     target_selectors_flag = "//runtime/src/iree/hal/drivers/amdgpu:targets",
 )
 
@@ -59,6 +63,7 @@ iree_amdgpu_binary_variants_embed_data(
     source_format = "hip",
     tags = ["manual"],
     target = "amdgcn-amd-amdhsa",
+    target_compatible_with = _HIP_GPU_COMPATIBILITY,
     target_selectors_flag = "//runtime/src/iree/hal/drivers/amdgpu:targets",
 )
 
@@ -73,6 +78,7 @@ iree_amdgpu_binary_variants_embed_data(
     source_format = "hip",
     tags = ["manual"],
     target = "amdgcn-amd-amdhsa",
+    target_compatible_with = _HIP_GPU_COMPATIBILITY,
     target_selectors_flag = "//runtime/src/iree/hal/drivers/amdgpu:targets",
 )
 
@@ -87,6 +93,7 @@ iree_amdgpu_binary_variants_embed_data(
     source_format = "hip",
     tags = ["manual"],
     target = "amdgcn-amd-amdhsa",
+    target_compatible_with = _HIP_GPU_COMPATIBILITY,
     target_selectors_flag = "//runtime/src/iree/hal/drivers/amdgpu:targets",
 )
 
@@ -185,6 +192,7 @@ hrx_cts_test(
     ],
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = AMD_GPU_CTS_TAGS,
+    target_compatible_with = _AMDGPU_CTS_COMPATIBILITY,
     deps = [
         ":amdgpu_executable_test_kernels",
         "//build_tools/amdgpu:target_map_h",
@@ -426,10 +434,23 @@ hrx_cts_test(
 )
 
 hrx_cts_test(
-    name = "virtual_memory",
-    srcs = ["tests/virtual_memory/virtual_memory_test.cpp"],
+    name = "legacy_virtual_memory",
+    srcs = ["tests/virtual_memory/legacy_virtual_memory_test.cpp"],
+    args = ["--hrx-device=cpu:0"],
+)
+
+hrx_cts_test(
+    name = "legacy_virtual_memory_gpu",
+    srcs = ["tests/virtual_memory/legacy_virtual_memory_test.cpp"],
+    args = ["--hrx-device=gpu:0"],
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = AMD_GPU_CTS_TAGS,
+    target_compatible_with = _AMDGPU_CTS_COMPATIBILITY,
+)
+
+hrx_cts_test(
+    name = "virtual_memory",
+    srcs = ["tests/virtual_memory/virtual_memory_test.cpp"],
 )
 
 hrx_cts_test(

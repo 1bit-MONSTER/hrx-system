@@ -24,6 +24,14 @@ extern "C" {
 typedef struct iree_hal_vulkan_allocator_t iree_hal_vulkan_allocator_t;
 typedef struct iree_hal_vulkan_queue_t iree_hal_vulkan_queue_t;
 
+typedef uint32_t iree_hal_vulkan_buffer_allocation_flags_t;
+enum iree_hal_vulkan_buffer_allocation_flag_bits_e {
+  IREE_HAL_VULKAN_BUFFER_ALLOCATION_FLAG_NONE = 0,
+  // Requires one dense allocation that can back additional sparse resources.
+  // Allocation fails when native size limits require several physical blocks.
+  IREE_HAL_VULKAN_BUFFER_ALLOCATION_FLAG_MAPPING_SOURCE = 1u << 0,
+};
+
 // Exact native properties used to create one Vulkan buffer.
 //
 // This is private allocation policy consumed by the Vulkan allocator and slab
@@ -40,6 +48,8 @@ typedef struct iree_hal_vulkan_buffer_spec_t {
   iree_hal_queue_family_affinity_t queue_family_affinity;
   // Minimum required native address alignment, or zero for the native default.
   iree_device_size_t min_alignment;
+  // Native backing constraints established by the constructing pool.
+  iree_hal_vulkan_buffer_allocation_flags_t flags;
 } iree_hal_vulkan_buffer_spec_t;
 
 // Maps one canonical HAL queue family ordinal to its Vulkan queue family.

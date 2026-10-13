@@ -369,7 +369,8 @@ typedef enum iree_hal_device_virtual_memory_spec_flag_bits_e {
   IREE_HAL_DEVICE_VIRTUAL_MEMORY_SPEC_FLAG_NONE = 0u,
 } iree_hal_device_virtual_memory_spec_flag_bits_t;
 
-// Stable virtual memory facts for the device allocator.
+// Stable native virtual memory facts. Reservation and pool queries qualify
+// these capabilities for a concrete device group, scope, and backing class.
 typedef struct iree_hal_device_virtual_memory_spec_t {
   // Number of virtual memory class records.
   iree_host_size_t class_count;

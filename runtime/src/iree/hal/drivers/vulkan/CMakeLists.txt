@@ -319,6 +319,37 @@ endif()
 if(IREE_HAL_DRIVER_VULKAN)
 iree_cc_library(
   NAME
+    sparse_binding_test
+  SRCS
+    "allocator.h"
+    "barrier.h"
+    "builtins.h"
+    "queue.h"
+    "semaphore.h"
+    "sparse_binding_test.cc"
+  DEPS
+    ::headers
+    ::profile
+    ::vulkan
+    iree::async
+    iree::base
+    iree::base::internal
+    iree::base::threading
+    iree::base::threading::thread
+    iree::hal
+    iree::hal::cts::util::test_base
+    iree::hal::drivers::vulkan::util::libvulkan
+    iree::hal::utils::submitted_signal
+    iree::testing::gtest
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(IREE_HAL_DRIVER_VULKAN)
+iree_cc_library(
+  NAME
     vulkan
   SRCS
     "allocator.c"
@@ -364,6 +395,7 @@ iree_cc_library(
     "spirv.c"
     "spirv.h"
     "syms.h"
+    "virtual_buffer.c"
   DEPS
     ::api
     ::device_spec_builder

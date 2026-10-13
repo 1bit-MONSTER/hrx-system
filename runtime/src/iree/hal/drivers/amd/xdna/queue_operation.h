@@ -207,7 +207,7 @@ struct iree_hal_amd_xdna_operation_t {
 
 // Creates an operation in queue-owned storage. The caller must submit or
 // discard the returned operation.
-iree_status_t iree_hal_amd_xdna_operation_create(
+iree_status_t iree_hal_amd_xdna_operation_allocate(
     iree_hal_amd_xdna_queue_t* queue, iree_hal_semaphore_list_t waits,
     iree_hal_semaphore_list_t signals, iree_hal_amd_xdna_operation_kind_t kind,
     iree_hal_amd_xdna_operation_t** out_operation);

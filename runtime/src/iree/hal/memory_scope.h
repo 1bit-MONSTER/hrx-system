@@ -113,6 +113,14 @@ typedef struct iree_hal_pool_scope_t {
   iree_hal_pool_host_access_t host;
 } iree_hal_pool_scope_t;
 
+// Validates public host permissions and their mapping/cacheability contract.
+IREE_API_EXPORT iree_status_t
+iree_hal_pool_host_access_validate(iree_hal_pool_host_access_t host);
+
+// Validates canonical group membership and simultaneous family/host requests.
+IREE_API_EXPORT iree_status_t iree_hal_pool_scope_validate(
+    iree_hal_device_group_t* group, iree_hal_pool_scope_t scope);
+
 // Prepares an indexed native binding slot for this pool's captured contract.
 // A slot is reusable for inherited child pools/views with the same contract.
 IREE_API_EXPORT iree_status_t iree_hal_pool_resolve_binding(
@@ -124,9 +132,47 @@ IREE_API_EXPORT iree_status_t iree_hal_pool_resolve_binding(
 IREE_API_EXPORT iree_hal_pool_host_access_t
 iree_hal_pool_query_host_access(const iree_hal_pool_t* pool);
 
+typedef uint32_t iree_hal_pool_mapping_flags_t;
+enum iree_hal_pool_mapping_flag_bits_e {
+  // Every binding must cover an entire native allocation at source offset zero.
+  // Suballocating this storage does not make its pieces independently mappable.
+  IREE_HAL_POOL_MAPPING_FLAG_WHOLE_ALLOCATION = 1u << 0,
+};
+
+// Source geometry common to all mapping interfaces prepared by a pool. These
+// are native backing requirements, independent of a target reservation's unit
+// and the pool's allocation strategy. A logical buffer view must additionally
+// contain and align the requested native range.
+typedef struct iree_hal_pool_mapping_requirements_t {
+  // Minimum native source offset and length granule, or zero when no mapping
+  // source interface is prepared. The granule is a power of two.
+  iree_device_size_t minimum_granularity;
+  // Preferred physical allocation multiple; at least the minimum granularity.
+  iree_device_size_t recommended_granularity;
+  // Additional native source restrictions.
+  iree_hal_pool_mapping_flags_t flags;
+} iree_hal_pool_mapping_requirements_t;
+
+// Returns captured backing requirements without allocating storage or calling
+// the driver. Child pools inherit the same native contract; their allocation
+// strategy may impose additional alignment or size limits.
+IREE_API_EXPORT iree_hal_pool_mapping_requirements_t
+iree_hal_pool_query_mapping_requirements(const iree_hal_pool_t* pool);
+
 //===----------------------------------------------------------------------===//
 // Prepared access contracts used by pool and buffer implementations
 //===----------------------------------------------------------------------===//
+
+// Native owner and descriptor schema understood by cooperating factories.
+typedef enum iree_hal_memory_backend_type_e {
+  IREE_HAL_MEMORY_BACKEND_HOST = 0,
+  IREE_HAL_MEMORY_BACKEND_AMDF = 1,
+  IREE_HAL_MEMORY_BACKEND_VULKAN = 2,
+  IREE_HAL_MEMORY_BACKEND_ROCR = 3,
+  IREE_HAL_MEMORY_BACKEND_IO = 4,
+  IREE_HAL_MEMORY_BACKEND_REMOTE = 5,
+  IREE_HAL_MEMORY_BACKEND_WEBGPU = 6,
+} iree_hal_memory_backend_type_t;
 
 // Immutable site facts. An excluded site has zero usage and no binding slots.
 typedef struct iree_hal_memory_scope_access_t {
@@ -162,6 +208,13 @@ typedef struct iree_hal_memory_contract_t {
   iree_hal_pool_placement_t placement;
   // Achieved public host mapping contract.
   iree_hal_pool_host_access_t host;
+  // Native mapping-source facts shared by every allocation and inherited view.
+  struct {
+    // Schema of prepared descriptors; meaningful only with nonzero granularity.
+    iree_hal_memory_backend_type_t type;
+    // Captured geometry independent of payload allocation or installed aliases.
+    iree_hal_pool_mapping_requirements_t requirements;
+  } mapping_source;
   // Immutable site facts in this allocation, indexed by memory scope ID.
   iree_hal_memory_scope_access_t* scopes;
   // Owned cold pair descriptions, never followed by a hot transition query.

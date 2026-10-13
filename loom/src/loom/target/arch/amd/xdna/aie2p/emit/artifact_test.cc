@@ -190,7 +190,7 @@ class XdnaArtifactTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    iree_hal_amd_xdna_image_destroy(image_);
+    iree_hal_amd_xdna_image_free(image_);
     loom_target_emit_artifact_release(&artifact_);
     iree_byte_sequence_release(contents_);
     loom_target_compile_report_deinitialize(&compile_report_);
@@ -254,7 +254,7 @@ TEST_F(XdnaArtifactTest, EmitsPrivateRetainedControlFreeResidentProduct) {
   iree_hal_amd_xdna_aie2p_target_t image_target;
   IREE_ASSERT_OK(iree_hal_amd_xdna_aie2p_npu2_target_initialize(
       IREE_SV("amd.xdna.strix_halo.17f0_11"), 1, &image_target));
-  IREE_ASSERT_OK(iree_hal_amd_xdna_image_create(
+  IREE_ASSERT_OK(iree_hal_amd_xdna_image_allocate(
       contents_, &image_target, iree_allocator_system(), &image_));
   iree_byte_sequence_release(contents_);
   contents_ = nullptr;

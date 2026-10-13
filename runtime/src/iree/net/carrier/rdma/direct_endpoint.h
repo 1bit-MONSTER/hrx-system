@@ -49,7 +49,7 @@ typedef struct iree_net_rdma_direct_endpoint_callbacks_t {
 // CQ capacity must include this endpoint's full send+receive work bound.
 // Retains context/proactor; borrows control and optional connection barrier.
 // Calls are on the poll owner until the borrowed view is published.
-iree_status_t iree_net_rdma_direct_endpoint_create(
+iree_status_t iree_net_rdma_direct_endpoint_allocate(
     iree_net_rdma_context_t* context, iree_async_proactor_t* proactor,
     iree_net_rdma_connection_control_t* control, uint32_t ordinal,
     uint32_t local_sequence_number,
@@ -100,7 +100,7 @@ iree_net_direct_endpoint_t iree_net_rdma_direct_endpoint_as_direct_endpoint(
 
 // Frees a created or fully deactivated endpoint. The containing owner must
 // first join its shared CQ so no captured completion still refers to it.
-void iree_net_rdma_direct_endpoint_destroy(
+void iree_net_rdma_direct_endpoint_free(
     iree_net_rdma_direct_endpoint_t* endpoint);
 
 #ifdef __cplusplus

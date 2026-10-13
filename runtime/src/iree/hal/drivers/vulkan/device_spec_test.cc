@@ -217,6 +217,50 @@ TEST(DeviceSpecTest, AtomicCapabilitiesRequireExactFeatures) {
             IREE_HAL_ATOMIC_OPERATION_FLAG_NONE);
 }
 
+TEST(DeviceSpecTest, SparseGeometryUsesAddressLimitsBeyondDescriptorRanges) {
+  iree_hal_allocator_t* allocator = nullptr;
+  IREE_ASSERT_OK(
+      iree_hal_allocator_create_heap(iree_allocator_system(), &allocator));
+  iree_hal_vulkan_physical_device_snapshot_t physical_device = {};
+  physical_device.properties2.properties.limits.maxStorageBufferRange = 1u
+                                                                        << 27;
+  physical_device.properties2.properties.limits.sparseAddressSpaceSize =
+      UINT64_C(1) << 40;
+  physical_device.maintenance4_properties.maxBufferSize = UINT64_C(1) << 38;
+  physical_device.properties11.maxMemoryAllocationSize = UINT64_C(1) << 34;
+  const iree_hal_vulkan_device_plan_t device_plan = {};
+  iree_hal_vulkan_device_spec_params_t params = {
+      .logical_device_id = IREE_SV("vulkan://0"),
+      .physical_device = &physical_device,
+      .device_plan = &device_plan,
+      .device_allocator = allocator,
+  };
+  for (const VkDeviceSize alignment : {VkDeviceSize{0}, VkDeviceSize{65536}}) {
+    params.sparse_buffer_requirements.alignment = alignment;
+    iree_hal_device_spec_t* spec = nullptr;
+    IREE_ASSERT_OK(iree_hal_vulkan_device_spec_create(
+        &params, iree_allocator_system(), &spec));
+    const auto* memory = iree_hal_device_spec_virtual_memory(spec);
+    ASSERT_NE(memory, nullptr);
+    if (!alignment) {
+      EXPECT_EQ(0u, memory->class_count);
+    } else {
+      ASSERT_EQ(1u, memory->class_count);
+      const auto& memory_class = memory->classes[0];
+      EXPECT_EQ(alignment, memory_class.minimum_page_size);
+      EXPECT_EQ(alignment, memory_class.recommended_page_size);
+      EXPECT_EQ(UINT64_C(1) << 38, memory_class.maximum_reservation_size);
+      EXPECT_EQ(UINT64_C(1) << 34,
+                memory_class.maximum_physical_allocation_size);
+      EXPECT_FALSE(
+          iree_any_bit_set(memory_class.operation_flags,
+                           IREE_HAL_VIRTUAL_MEMORY_OPERATION_FLAG_ADVISE));
+    }
+    iree_hal_device_spec_release(spec);
+  }
+  iree_hal_allocator_release(allocator);
+}
+
 struct FloatWidthSupport {
   // Whether the control is supported for F16.
   VkBool32 f16;

@@ -1787,10 +1787,10 @@ static iree_status_t loom_aie2p_array_resident_materialize_worker(
           loom_aie2p_array_resident_remap_symbol, builder),
   };
   if (leaf->memory_accesses != NULL) {
-    IREE_RETURN_IF_ERROR(loom_low_memory_access_map_create(
+    IREE_RETURN_IF_ERROR(loom_low_memory_access_map_allocate(
         &builder->module->arena, &memory_accesses));
     loom_low_memory_access_clone_t* clone = NULL;
-    IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_create(
+    IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_allocate(
         leaf->memory_accesses, memory_accesses, builder->arena, &clone));
     remap_options.clone_observer = (loom_ir_clone_observer_t){
         .fn = loom_low_memory_access_clone_op,

@@ -22,7 +22,7 @@ class MemoryCompletionTest : public ::testing::Test {
     iree_arena_initialize(&pool_, &arena_);
     iree_arena_initialize(&pool_, &scratch_arena_);
     IREE_ASSERT_OK(
-        loom_low_memory_access_map_create(&arena_, &memory_accesses_));
+        loom_low_memory_access_map_allocate(&arena_, &memory_accesses_));
   }
 
   void TearDown() override {

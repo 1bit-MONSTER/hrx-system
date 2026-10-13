@@ -14,26 +14,6 @@ IREE_API_EXPORT void iree_hal_slab_pool_options_initialize(
   memset(out_options, 0, sizeof(*out_options));
 }
 
-static iree_status_t iree_hal_slab_pool_validate_host_access(
-    iree_hal_pool_host_access_t host) {
-  if (iree_any_bit_set(host.access, ~IREE_HAL_MEMORY_ACCESS_ALL) ||
-      iree_any_bit_set(host.modes, ~(IREE_HAL_MAPPING_MODE_SCOPED |
-                                     IREE_HAL_MAPPING_MODE_PERSISTENT)) ||
-      (uint32_t)host.cacheability > IREE_HAL_HOST_CACHEABILITY_UNCACHED) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "invalid host access, mapping mode, or cacheability");
-  }
-  if ((!host.access != !host.modes) ||
-      (!host.access &&
-       host.cacheability != IREE_HAL_HOST_CACHEABILITY_UNKNOWN)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "host permissions and mapping modes must be specified together");
-  }
-  return iree_ok_status();
-}
-
 static bool iree_hal_slab_pool_storage_class_is_valid(
     iree_hal_external_storage_class_t storage_class) {
   return storage_class.type >= IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER &&
@@ -101,54 +81,6 @@ static iree_status_t iree_hal_slab_pool_validate_external_storage_options(
               import_class->storage_class)) {
         return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                                 "pool import class is repeated");
-      }
-    }
-  }
-  return iree_ok_status();
-}
-
-static iree_status_t iree_hal_slab_pool_validate_scope(
-    iree_hal_device_group_t* group, iree_hal_pool_scope_t scope) {
-  if (!group || (!scope.family_count && !scope.host.access)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "slab construction requires a group and an access scope");
-  }
-  if (scope.family_count && !scope.families) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "pool family array is null");
-  }
-  IREE_RETURN_IF_ERROR(iree_hal_slab_pool_validate_host_access(scope.host));
-  for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
-    const iree_hal_pool_family_access_t* access = &scope.families[i];
-    const iree_hal_memory_site_t site = {
-        .kind = IREE_HAL_MEMORY_SITE_QUEUE,
-        .family = access->family,
-    };
-    iree_hal_memory_scope_t resolved;
-    IREE_RETURN_IF_ERROR(
-        iree_hal_device_group_resolve_memory_scope(group, site, &resolved));
-    if (iree_any_bit_set(access->usage, ~(IREE_HAL_BUFFER_USAGE_TRANSFER |
-                                          IREE_HAL_BUFFER_USAGE_DISPATCH)) ||
-        (access->interfaces >> IREE_HAL_BUFFER_INTERFACE_COUNT) ||
-        iree_any_bit_set(access->requirements,
-                         ~(IREE_HAL_POOL_ACCESS_REQUIRE_COHERENT_WITH_HOST |
-                           IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED)) ||
-        !iree_hal_atomic_operation_capabilities_are_valid(
-            access->atomic_operations)) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "invalid family access flags");
-    }
-    if (iree_any_bit_set(access->requirements,
-                         IREE_HAL_POOL_ACCESS_REQUIRE_COHERENT_WITH_HOST) &&
-        !scope.host.access) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "host coherence requires a public host mapping");
-    }
-    for (iree_host_size_t j = 0; j < i; ++j) {
-      if (scope.families[j].family == access->family) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "pool scope repeats a queue family");
       }
     }
   }
@@ -273,9 +205,9 @@ IREE_API_EXPORT iree_status_t iree_hal_slab_pool_create(
   IREE_ASSERT_ARGUMENT(options);
   IREE_ASSERT_ARGUMENT(out_pool);
   *out_pool = NULL;
-  IREE_RETURN_IF_ERROR(iree_hal_slab_pool_validate_scope(group, scope));
+  IREE_RETURN_IF_ERROR(iree_hal_pool_scope_validate(group, scope));
   IREE_RETURN_IF_ERROR(
-      iree_hal_slab_pool_validate_host_access(options->preferences.host));
+      iree_hal_pool_host_access_validate(options->preferences.host));
   IREE_RETURN_IF_ERROR(
       iree_hal_slab_pool_validate_external_storage_options(options));
   if ((uint32_t)options->placement.mode > IREE_HAL_POOL_PLACEMENT_REQUIRED ||

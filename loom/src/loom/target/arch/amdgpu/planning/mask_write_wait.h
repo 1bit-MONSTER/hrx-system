@@ -25,7 +25,7 @@ typedef iree_status_t (*loom_amdgpu_mask_write_wait_emit_fn_t)(
 
 // Creates transient collection state for an affected wave64 function. The
 // caller selects applicability from processor facts before calling.
-iree_status_t loom_amdgpu_mask_write_wait_create(
+iree_status_t loom_amdgpu_mask_write_wait_allocate(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
     iree_arena_allocator_t* arena, loom_amdgpu_mask_write_wait_t** out_state);

@@ -7,6 +7,7 @@
 #include "iree/hal/drivers/task/transient_buffer.h"
 
 #include "iree/base/threading/mutex.h"
+#include "iree/hal/virtual_buffer.h"
 
 typedef enum iree_hal_task_transient_buffer_deallocation_state_e {
   IREE_HAL_TASK_TRANSIENT_BUFFER_DEALLOCATION_STATE_IDLE = 0,
@@ -452,6 +453,34 @@ iree_hal_task_transient_buffer_query_memory(
   return view;
 }
 
+static iree_hal_virtual_buffer_view_t
+iree_hal_task_transient_buffer_query_virtual(
+    const iree_hal_buffer_t* base_buffer) {
+  iree_hal_task_transient_buffer_t* buffer =
+      (iree_hal_task_transient_buffer_t*)base_buffer;
+  iree_hal_virtual_buffer_view_t view = {0};
+  iree_slim_mutex_lock(&buffer->mutex);
+  if (buffer->committed_backing) {
+    view = iree_hal_buffer_virtual_view(buffer->committed_backing);
+  }
+  iree_slim_mutex_unlock(&buffer->mutex);
+  return view;
+}
+
+static iree_status_t iree_hal_task_transient_buffer_detach_mappings(
+    iree_hal_buffer_t* base_buffer, uint32_t scope_id) {
+  iree_hal_task_transient_buffer_t* buffer =
+      (iree_hal_task_transient_buffer_t*)base_buffer;
+  iree_hal_buffer_t* committed = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_hal_task_transient_buffer_retain_host_backing(buffer, &committed));
+  const iree_hal_memory_scope_t scope = {
+      .domain = base_buffer->memory.contract->domain, .id = scope_id};
+  iree_status_t status = iree_hal_virtual_buffer_detach(committed, scope);
+  iree_hal_buffer_release(committed);
+  return status;
+}
+
 static const iree_hal_buffer_allocation_vtable_t
     iree_hal_task_transient_buffer_allocation_vtable = {
         .profile = iree_hal_task_transient_buffer_allocation_profile,
@@ -470,5 +499,7 @@ static const iree_hal_buffer_vtable_t iree_hal_task_transient_buffer_vtable = {
     .invalidate_range = iree_hal_task_transient_buffer_invalidate_range,
     .flush_range = iree_hal_task_transient_buffer_flush_range,
     .query_memory = iree_hal_task_transient_buffer_query_memory,
+    .query_virtual = iree_hal_task_transient_buffer_query_virtual,
+    .detach_mappings = iree_hal_task_transient_buffer_detach_mappings,
     .allocation = &iree_hal_task_transient_buffer_allocation_vtable,
 };

@@ -278,7 +278,7 @@ class LinkRequestFixture {
 
   iree_status_t BuildLibraryIndex(loomc_source_t* source) {
     loomc_link_index_builder_t* builder = nullptr;
-    IREE_RETURN_IF_ERROR(to_iree_status(loomc_link_index_builder_create(
+    IREE_RETURN_IF_ERROR(to_iree_status(loomc_link_index_builder_allocate(
         context_.get(), /*options=*/nullptr, loom_allocator(), &builder)));
     LinkIndexBuilderPtr builder_ptr(builder);
     const loomc_link_index_source_options_t source_options = {
@@ -305,7 +305,7 @@ class LinkRequestFixture {
                              const std::vector<std::string>& root_names,
                              RequestPtr* out_request) const {
     loomc_link_index_builder_t* builder = nullptr;
-    IREE_RETURN_IF_ERROR(to_iree_status(loomc_link_index_builder_create(
+    IREE_RETURN_IF_ERROR(to_iree_status(loomc_link_index_builder_allocate(
         context_.get(), /*options=*/nullptr, loom_allocator(), &builder)));
     LinkIndexBuilderPtr builder_ptr(builder);
     const loomc_link_index_source_options_t source_options = {

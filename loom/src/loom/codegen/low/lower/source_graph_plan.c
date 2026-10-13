@@ -220,7 +220,7 @@ static iree_status_t loom_low_lower_source_graph_plan_reserve_buckets(
   return iree_ok_status();
 }
 
-iree_status_t loom_low_lower_source_graph_plan_create(
+iree_status_t loom_low_lower_source_graph_plan_allocate(
     iree_arena_allocator_t* arena,
     loom_low_lower_source_graph_plan_t** out_plan) {
   *out_plan = NULL;

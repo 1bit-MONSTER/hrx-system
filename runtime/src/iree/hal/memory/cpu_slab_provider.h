@@ -48,6 +48,18 @@ iree_status_t iree_hal_cpu_slab_provider_create(
     iree_host_size_t min_alignment, iree_allocator_t host_allocator,
     iree_hal_slab_provider_t** out_provider);
 
+// Creates a CPU provider backed by native anonymous shared-memory sections.
+// Each slab prepares HOST and MAPPING_SOURCE bindings. Physical storage is
+// charged once, including native page and alignment padding. Arbitrary host
+// pointers cannot be imported into this provider because they have no native
+// section handle. Host-pointer export remains available.
+iree_status_t iree_hal_shared_slab_provider_create(
+    iree_allocator_t host_allocator, iree_hal_slab_provider_t** out_provider);
+
+// Immutable binding format of buffers produced by the shared provider.
+const iree_hal_buffer_binding_layout_t*
+iree_hal_shared_slab_provider_binding_layout(void);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

@@ -1710,7 +1710,6 @@ static iree_status_t iree_hal_replay_executor_replay_operation_with_barriers(
     case IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_PROFILING_END:
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_QUERY_MEMORY_HEAPS:
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_QUERY_GRANULARITY:
-    case IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_INVALIDATE_RANGE:
     case IREE_HAL_REPLAY_OPERATION_CODE_COMMAND_BUFFER_BEGIN_DEBUG_GROUP:
     case IREE_HAL_REPLAY_OPERATION_CODE_COMMAND_BUFFER_END_DEBUG_GROUP:
     case IREE_HAL_REPLAY_OPERATION_CODE_COMMAND_BUFFER_ADVISE_BUFFER:
@@ -1718,7 +1717,6 @@ static iree_status_t iree_hal_replay_executor_replay_operation_with_barriers(
     case IREE_HAL_REPLAY_OPERATION_CODE_EXECUTABLE_FUNCTION_INFO:
     case IREE_HAL_REPLAY_OPERATION_CODE_EXECUTABLE_FUNCTION_PARAMETERS:
     case IREE_HAL_REPLAY_OPERATION_CODE_EXECUTABLE_LOOKUP_FUNCTION_BY_NAME:
-    case IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_MAP_RANGE:
       return iree_ok_status();
     case IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_LOAD_EXECUTABLE:
     case IREE_HAL_REPLAY_OPERATION_CODE_DEVICE_CREATE_COMMAND_BUFFER:
@@ -1729,7 +1727,12 @@ static iree_status_t iree_hal_replay_executor_replay_operation_with_barriers(
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_ALLOCATE:
     case IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_FLUSH_RANGE:
     case IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_UNMAP_RANGE:
+    case IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_MAP_RANGE:
+    case IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_INVALIDATE_RANGE:
       return iree_hal_replay_executor_replay_object_operation(executor, record);
+    case IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_CREATE:
+    case IREE_HAL_REPLAY_OPERATION_CODE_VIRTUAL_BUFFER_DETACH:
+    case IREE_HAL_REPLAY_OPERATION_CODE_QUEUE_MAP:
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_RELEASE:
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_PHYSICAL_MEMORY_FREE:
     case IREE_HAL_REPLAY_OPERATION_CODE_ALLOCATOR_VIRTUAL_MEMORY_MAP:
@@ -1838,8 +1841,10 @@ iree_status_t iree_hal_replay_executor_replay_unsupported(
 iree_status_t iree_hal_replay_executor_replay_operation(
     iree_hal_replay_executor_t* executor,
     const iree_hal_replay_file_record_t* record) {
-  if (IREE_UNLIKELY(record->header.status_code != IREE_STATUS_OK)) {
-    // Failed calls produced no replay object and are preserved only to explain
+  if (IREE_UNLIKELY(record->header.status_code != IREE_STATUS_OK &&
+                    record->header.operation_code !=
+                        IREE_HAL_REPLAY_OPERATION_CODE_BUFFER_UNMAP_RANGE)) {
+    // Failed non-consuming calls produced no replay object and only explain
     // host fallback branches. Replay follows the later successful calls the
     // original host issued after observing the failure.
     return iree_ok_status();

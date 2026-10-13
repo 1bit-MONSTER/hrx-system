@@ -111,7 +111,6 @@ static void iree_hal_webgpu_slab_provider_destroy(
 static iree_status_t iree_hal_webgpu_slab_provider_acquire_slab(
     iree_hal_slab_provider_t* base_provider, iree_device_size_t min_length,
     iree_device_size_t min_alignment, iree_hal_slab_t* out_slab) {
-  (void)min_alignment;
   iree_hal_webgpu_slab_provider_t* provider =
       (iree_hal_webgpu_slab_provider_t*)base_provider;
   memset(out_slab, 0, sizeof(*out_slab));
@@ -154,6 +153,12 @@ static iree_status_t iree_hal_webgpu_slab_provider_acquire_slab(
     out_slab->base_ptr = NULL;
     out_slab->length = allocation_size;
     out_slab->provider_handle = (uint64_t)(uintptr_t)buffer;
+    out_slab->native_allocation.byte_length = allocation_size;
+    out_slab->native_allocation.granularity = 4;
+    out_slab->maintenance_range =
+        iree_hal_make_buffer_range(0, allocation_size);
+    out_slab->allocation_alignment =
+        iree_max(min_alignment, IREE_HAL_WEBGPU_SLAB_ALIGNMENT);
     iree_hal_memory_trace_alloc(
         &provider->trace, (void*)(uintptr_t)buffer_handle, allocation_size);
     iree_atomic_fetch_add(&provider->total_acquired, 1,

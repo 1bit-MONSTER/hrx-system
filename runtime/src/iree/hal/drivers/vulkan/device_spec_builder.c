@@ -249,7 +249,7 @@ static iree_status_t iree_hal_vulkan_device_spec_populate_memory(
 static iree_status_t iree_hal_vulkan_device_spec_populate_virtual_memory(
     const iree_hal_vulkan_device_spec_params_t* params,
     iree_hal_device_spec_builder_t* builder) {
-  if (!iree_hal_allocator_supports_virtual_memory(params->device_allocator)) {
+  if (!params->sparse_buffer_requirements.alignment) {
     return iree_ok_status();
   }
 
@@ -278,29 +278,21 @@ static iree_status_t iree_hal_vulkan_device_spec_populate_virtual_memory(
           ? iree_hal_vulkan_device_spec_memory_type_mask(
                 heap_count, memory_types, IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL)
           : 0;
-  iree_hal_physical_memory_params_t physical_memory_params = {
-      .type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE |
-              IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
-      .usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
-      .queue_family_affinity = IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-  };
-  iree_device_size_t minimum_page_size = 0;
-  iree_device_size_t recommended_page_size = 0;
-  if (iree_status_is_ok(status) && compatible_memory_type_mask != 0) {
-    status = iree_hal_allocator_virtual_memory_query_granularity(
-        params->device_allocator, physical_memory_params, &minimum_page_size,
-        &recommended_page_size);
-  }
+  const iree_device_size_t page_size =
+      params->sparse_buffer_requirements.alignment;
   if (iree_status_is_ok(status) && compatible_memory_type_mask != 0) {
     const VkPhysicalDeviceLimits* limits =
         &params->physical_device->properties2.properties.limits;
     iree_hal_virtual_memory_class_spec_t memory_class = {
         .compatible_memory_type_mask = compatible_memory_type_mask,
-        .allowed_buffer_usage = physical_memory_params.usage,
+        .allowed_buffer_usage =
+            IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
         .allowed_memory_access = IREE_HAL_MEMORY_ACCESS_ALL,
-        .minimum_page_size = minimum_page_size,
-        .recommended_page_size = recommended_page_size,
-        .maximum_reservation_size = limits->maxStorageBufferRange,
+        .minimum_page_size = page_size,
+        .recommended_page_size = page_size,
+        .maximum_reservation_size = iree_min(
+            limits->sparseAddressSpaceSize,
+            params->physical_device->maintenance4_properties.maxBufferSize),
         .maximum_physical_allocation_size =
             params->physical_device->properties11.maxMemoryAllocationSize,
         .operation_flags =
@@ -310,8 +302,7 @@ static iree_status_t iree_hal_vulkan_device_spec_populate_virtual_memory(
             IREE_HAL_VIRTUAL_MEMORY_OPERATION_FLAG_PHYSICAL_FREE |
             IREE_HAL_VIRTUAL_MEMORY_OPERATION_FLAG_MAP |
             IREE_HAL_VIRTUAL_MEMORY_OPERATION_FLAG_UNMAP |
-            IREE_HAL_VIRTUAL_MEMORY_OPERATION_FLAG_PROTECT |
-            IREE_HAL_VIRTUAL_MEMORY_OPERATION_FLAG_ADVISE,
+            IREE_HAL_VIRTUAL_MEMORY_OPERATION_FLAG_PROTECT,
         .protection_flags = IREE_HAL_MEMORY_PROTECTION_READ_WRITE,
         .advice_flags = IREE_HAL_MEMORY_ADVICE_NORMAL,
         .flags = IREE_HAL_VIRTUAL_MEMORY_CLASS_SPEC_FLAG_NONE,

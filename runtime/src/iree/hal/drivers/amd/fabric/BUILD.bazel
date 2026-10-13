@@ -44,6 +44,7 @@ iree_runtime_cc_library(
     deps = [
         "//libamdf:headers",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/drivers/amd:status",
     ],
@@ -147,9 +148,13 @@ iree_runtime_cc_test(
 
 iree_runtime_cc_library(
     name = "memory_backend",
-    srcs = ["memory_backend.c"],
+    srcs = [
+        "memory_backend.c",
+        "virtual_buffer.c",
+    ],
     hdrs = ["memory_backend.h"],
     deps = [
+        ":memory",
         ":memory_transition",
         ":slab_provider",
         "//libamdf:headers",
@@ -178,7 +183,9 @@ iree_runtime_cc_test(
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/drivers/task:device",
+        "//runtime/src/iree/hal/memory:fixed_block_pool",
         "//runtime/src/iree/hal/memory:maintenance_thread",
+        "//runtime/src/iree/hal/memory:slab_cache",
         "//runtime/src/iree/hal/testing:mock_device",
         "//runtime/src/iree/task",
         "//runtime/src/iree/testing:gtest",

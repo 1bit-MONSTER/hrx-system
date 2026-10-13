@@ -131,6 +131,9 @@ typedef struct iree_hal_vulkan_physical_device_snapshot_t {
   // Vulkan 1.1 property set including maxMemoryAllocationSize.
   VkPhysicalDeviceVulkan11Properties properties11;
 
+  // Native maximum VkBuffer extent, including sparse address reservations.
+  VkPhysicalDeviceMaintenance4Properties maintenance4_properties;
+
   // Per-width floating-point controls and their independence guarantees.
   VkPhysicalDeviceFloatControlsProperties float_controls_properties;
 

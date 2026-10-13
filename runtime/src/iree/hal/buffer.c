@@ -316,6 +316,9 @@ static iree_hal_buffer_native_binding_t iree_hal_buffer_offset_native_binding(
     case IREE_HAL_BUFFER_INTERFACE_REMOTE:
       binding.remote.offset += offset;
       break;
+    case IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE:
+      binding.mapping_source.offset += offset;
+      break;
     case IREE_HAL_BUFFER_INTERFACE_COUNT:
       IREE_ASSERT_UNREACHABLE("interface count is not a native interface");
       break;

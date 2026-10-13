@@ -144,7 +144,7 @@ iree_status_t iree_benchmark_loom_hal_actual_sequence_initialize(
     execution_providers[i] = &out_sequence->providers[i].execution;
   }
   if (iree_status_is_ok(status)) {
-    status = loom_run_hal_testbench_actual_sequence_execution_create(
+    status = loom_run_hal_testbench_actual_sequence_execution_allocate(
         case_plan, out_sequence->provider_count, execution_providers,
         host_allocator, &out_sequence->execution);
   }
@@ -160,7 +160,7 @@ void iree_benchmark_loom_hal_actual_sequence_deinitialize(
   if (sequence == NULL) {
     return;
   }
-  loom_run_hal_testbench_actual_sequence_execution_destroy(sequence->execution);
+  loom_run_hal_testbench_actual_sequence_execution_free(sequence->execution);
   for (iree_host_size_t i = 0; i < sequence->provider_count; ++i) {
     iree_benchmark_loom_hal_actual_provider_deinitialize(
         &sequence->providers[i]);

@@ -261,7 +261,7 @@ TEST_F(MotionTest, ReadBarrierTableIndexesStrictIntervals) {
 
   loom_motion_read_barrier_table_t* table = nullptr;
   IREE_ASSERT_OK(
-      loom_motion_read_barrier_table_create(module_, &motion_arena_, &table));
+      loom_motion_read_barrier_table_allocate(module_, &motion_arena_, &table));
   EXPECT_TRUE(loom_motion_read_can_cross_op(module_, pure_gap_op));
 
   bool can_cross = false;

@@ -40,7 +40,7 @@ struct iree_hal_amd_xdna_command_arena_t {
   iree_slim_mutex_t mutex;
 };
 
-static void iree_hal_amd_xdna_command_slab_destroy(
+static void iree_hal_amd_xdna_command_slab_free(
     iree_hal_amd_xdna_command_arena_t* arena,
     iree_hal_amd_xdna_command_slab_t* slab) {
   if (!slab) {
@@ -55,7 +55,7 @@ static void iree_hal_amd_xdna_command_slab_destroy(
 
 // Acquires one native slab with at least |minimum_managed_byte_length| usable
 // aligned bytes. Called under the arena mutex during cold growth.
-static iree_status_t iree_hal_amd_xdna_command_slab_create(
+static iree_status_t iree_hal_amd_xdna_command_slab_allocate(
     iree_hal_amd_xdna_command_arena_t* arena,
     uint64_t minimum_managed_byte_length,
     iree_hal_amd_xdna_command_slab_t** out_slab) {
@@ -122,12 +122,12 @@ static iree_status_t iree_hal_amd_xdna_command_slab_create(
   if (iree_status_is_ok(status)) {
     *out_slab = slab;
   } else {
-    iree_hal_amd_xdna_command_slab_destroy(arena, slab);
+    iree_hal_amd_xdna_command_slab_free(arena, slab);
   }
   return status;
 }
 
-iree_status_t iree_hal_amd_xdna_command_arena_create(
+iree_status_t iree_hal_amd_xdna_command_arena_allocate(
     iree_hal_amd_xdna_context_t* context, iree_allocator_t host_allocator,
     iree_hal_amd_xdna_command_arena_t** out_arena) {
   *out_arena = NULL;
@@ -151,18 +151,18 @@ iree_status_t iree_hal_amd_xdna_command_arena_create(
       source->profile.allocation.byte_length_granularity == maximum_byte_length;
   iree_status_t status = iree_ok_status();
   if (arena->indivisible) {
-    status = iree_hal_amd_xdna_command_slab_create(
+    status = iree_hal_amd_xdna_command_slab_allocate(
         arena, context->target.instruction_alignment, &arena->slabs);
   }
   if (iree_status_is_ok(status)) {
     *out_arena = arena;
   } else {
-    iree_hal_amd_xdna_command_arena_destroy(arena);
+    iree_hal_amd_xdna_command_arena_free(arena);
   }
   return status;
 }
 
-void iree_hal_amd_xdna_command_arena_destroy(
+void iree_hal_amd_xdna_command_arena_free(
     iree_hal_amd_xdna_command_arena_t* arena) {
   if (!arena) {
     return;
@@ -170,14 +170,14 @@ void iree_hal_amd_xdna_command_arena_destroy(
   iree_hal_amd_xdna_command_slab_t* slab = arena->slabs;
   while (slab) {
     iree_hal_amd_xdna_command_slab_t* next = slab->next;
-    iree_hal_amd_xdna_command_slab_destroy(arena, slab);
+    iree_hal_amd_xdna_command_slab_free(arena, slab);
     slab = next;
   }
   iree_slim_mutex_deinitialize(&arena->mutex);
   iree_allocator_free(arena->host_allocator, arena);
 }
 
-iree_status_t iree_hal_amd_xdna_command_arena_allocate(
+iree_status_t iree_hal_amd_xdna_command_arena_allocate_range(
     iree_hal_amd_xdna_command_arena_t* arena, uint64_t byte_length,
     uint64_t alignment,
     iree_hal_amd_xdna_command_allocation_t* out_allocation) {
@@ -211,8 +211,8 @@ iree_status_t iree_hal_amd_xdna_command_arena_allocate(
     }
   }
   if (iree_status_is_ok(status) && !selected_slab && !arena->indivisible) {
-    status = iree_hal_amd_xdna_command_slab_create(arena, reserved_length,
-                                                   &selected_slab);
+    status = iree_hal_amd_xdna_command_slab_allocate(arena, reserved_length,
+                                                     &selected_slab);
     if (iree_status_is_ok(status)) {
       selected_slab->next = arena->slabs;
       arena->slabs = selected_slab;

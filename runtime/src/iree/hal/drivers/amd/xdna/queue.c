@@ -1672,7 +1672,7 @@ static iree_status_t iree_hal_amd_xdna_operation_capture_semaphores(
   return iree_ok_status();
 }
 
-iree_status_t iree_hal_amd_xdna_operation_create(
+iree_status_t iree_hal_amd_xdna_operation_allocate(
     iree_hal_amd_xdna_queue_t* queue, iree_hal_semaphore_list_t waits,
     iree_hal_semaphore_list_t signals, iree_hal_amd_xdna_operation_kind_t kind,
     iree_hal_amd_xdna_operation_t** out_operation) {
@@ -1823,7 +1823,7 @@ static iree_status_t iree_hal_amd_xdna_queue_barrier(
     iree_hal_queue_barrier_flags_t flags) {
   IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_queue_barriers_validate(barriers));
   iree_hal_amd_xdna_operation_t* operation = NULL;
-  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_operation_create(
+  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_operation_allocate(
       (iree_hal_amd_xdna_queue_t*)base, waits, signals,
       IREE_HAL_AMD_XDNA_OPERATION_BARRIER, &operation));
   return iree_hal_amd_xdna_operation_submit(operation);
@@ -1862,7 +1862,7 @@ static iree_status_t iree_hal_amd_xdna_queue_dispatch(
       IREE_STRUCT_FIELD_FAM(bindings.count,
                             iree_hal_amd_xdna_executable_binding_t)));
   iree_hal_amd_xdna_operation_t* operation = NULL;
-  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_operation_create(
+  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_operation_allocate(
       (iree_hal_amd_xdna_queue_t*)base, waits, signals,
       IREE_HAL_AMD_XDNA_OPERATION_DISPATCH, &operation));
   void* binding_storage = NULL;

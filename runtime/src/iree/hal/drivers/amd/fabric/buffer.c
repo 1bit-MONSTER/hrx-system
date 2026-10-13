@@ -81,20 +81,121 @@ static iree_status_t iree_hal_amd_fabric_buffer_flush_range(
       "host_mapping_cache_control(FLUSH)");
 }
 
+typedef struct iree_hal_amd_fabric_external_storage_t {
+  // Allocator owning this transport adapter, independent of the source buffer.
+  iree_allocator_t host_allocator;
+  // Native move-owned payload and its infallible release callback.
+  amdf_external_memory_t value;
+} iree_hal_amd_fabric_external_storage_t;
+
+static void iree_hal_amd_fabric_external_storage_release(
+    void* user_data, iree_hal_external_storage_class_t storage_class,
+    iree_hal_external_storage_payload_t payload) {
+  (void)storage_class;
+  (void)payload;
+  iree_hal_amd_fabric_external_storage_t* storage = user_data;
+  const amdf_external_memory_t value = storage->value;
+  value.release(value.release_user_data, value.type, value.payload);
+  iree_allocator_free(storage->host_allocator, storage);
+}
+
+static iree_status_t iree_hal_amd_fabric_buffer_export_native(
+    iree_hal_amd_fabric_buffer_t* buffer,
+    iree_hal_external_storage_class_t requested_class,
+    iree_hal_external_storage_t* out_storage) {
+  iree_hal_amd_fabric_external_storage_t* storage = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+      buffer->host_allocator, sizeof(*storage), (void**)&storage));
+  storage->host_allocator = buffer->host_allocator;
+  const amdf_memory_export_info_t export_info = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_EXPORT_INFO,
+      .structure_size = sizeof(export_info),
+      .external_memory_type =
+          iree_hal_amd_fabric_memory_external_type(requested_class.type),
+      .byte_length = buffer->memory->info.byte_length,
+  };
+  iree_status_t status = IREE_HAL_AMD_STATUS_FROM_AMDF(
+      buffer->api->memory_export(buffer->memory->handle, &export_info,
+                                 &storage->value),
+      "memory_export");
+  if (iree_status_is_ok(status)) {
+    const amdf_external_memory_t* value = &storage->value;
+    *out_storage = (iree_hal_external_storage_t){
+        .storage_class = requested_class,
+        .byte_length = value->source_byte_offset + value->byte_length,
+        .maintenance_range = iree_hal_make_buffer_range(
+            value->source_byte_offset +
+                buffer->memory->maintenance_range.byte_offset,
+            buffer->memory->maintenance_range.byte_length),
+        .physical_backing_id = {{value->physical_backing_id.words[0],
+                                 value->physical_backing_id.words[1]}},
+        .release = iree_hal_amd_fabric_external_storage_release,
+        .release_user_data = storage,
+    };
+    switch (value->type) {
+      case AMDF_EXTERNAL_MEMORY_TYPE_DMA_BUF_FD:
+      case AMDF_EXTERNAL_MEMORY_TYPE_OPAQUE_FD:
+        out_storage->payload.file_descriptor = value->payload.file_descriptor;
+        break;
+      case AMDF_EXTERNAL_MEMORY_TYPE_D3D12_RESOURCE:
+        out_storage->payload.win32_handle = value->payload.native_handle;
+        break;
+      case AMDF_EXTERNAL_MEMORY_TYPE_DEVICE_ADDRESS:
+        out_storage->payload.device_address = value->payload.device_address;
+        break;
+      default:
+        IREE_ASSERT_UNREACHABLE("qualified native export has no HAL payload");
+        break;
+    }
+  } else {
+    iree_allocator_free(buffer->host_allocator, storage);
+  }
+  return status;
+}
+
 static iree_status_t iree_hal_amd_fabric_buffer_export_range(
-    iree_hal_buffer_t* buffer, iree_device_size_t local_byte_offset,
+    iree_hal_buffer_t* base_buffer, iree_device_size_t local_byte_offset,
     iree_device_size_t local_byte_length,
     iree_hal_external_storage_class_t requested_class,
     iree_hal_external_storage_t* out_storage,
     iree_hal_buffer_range_t* out_logical_range) {
-  (void)buffer;
-  (void)local_byte_offset;
-  (void)local_byte_length;
-  (void)requested_class;
-  (void)out_storage;
-  (void)out_logical_range;
-  return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                          "AMD buffer export is not supported");
+  iree_hal_amd_fabric_buffer_t* buffer =
+      (iree_hal_amd_fabric_buffer_t*)base_buffer;
+  const iree_hal_amd_fabric_memory_t* memory = buffer->memory;
+  bool admitted = false;
+  for (iree_host_size_t i = 0; i < memory->exports.class_count; ++i) {
+    admitted |= iree_hal_external_storage_class_equal(
+        memory->exports.classes[i], requested_class);
+  }
+  if (!admitted) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "export class was not admitted for this backing");
+  }
+  if (requested_class.type != IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER) {
+    IREE_RETURN_IF_ERROR(iree_hal_amd_fabric_buffer_export_native(
+        buffer, requested_class, out_storage));
+    *out_logical_range = iree_hal_make_buffer_range(
+        memory->info.source_byte_offset + buffer->storage_offset +
+            local_byte_offset,
+        local_byte_length);
+    return iree_ok_status();
+  }
+  *out_storage = (iree_hal_external_storage_t){
+      .storage_class = requested_class,
+      .payload = {.host_pointer = memory->contents.data},
+      .byte_length = memory->contents.data_length,
+      .host_cacheability = memory->host_cacheability,
+      .maintenance_range = memory->maintenance_range,
+  };
+  if (base_buffer->memory.backing) {
+    out_storage->physical_backing_id =
+        base_buffer->memory.backing->physical_backing_id;
+  }
+  // The pointer borrows the mapping. The caller retains its source buffer or
+  // allocation for every external use, including a second native registration.
+  *out_logical_range = iree_hal_make_buffer_range(
+      buffer->storage_offset + local_byte_offset, local_byte_length);
+  return iree_ok_status();
 }
 
 static const iree_hal_buffer_vtable_t iree_hal_amd_fabric_buffer_vtable = {

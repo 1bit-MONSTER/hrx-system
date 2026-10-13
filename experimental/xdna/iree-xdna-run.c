@@ -724,7 +724,7 @@ static iree_status_t iree_xdna_run_execute(iree_xdna_run_t* run,
   IREE_RETURN_IF_ERROR(iree_xdna_run_open_endpoint(run));
   iree_hal_amd_xdna_aie2p_target_t target;
   IREE_RETURN_IF_ERROR(iree_xdna_run_create_device(run, &target));
-  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_image_create(
+  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_image_allocate(
       image, &target, run->host_allocator, &run->image));
   if (FLAG_entry[0] != 0) {
     IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_image_find_entry(
@@ -857,7 +857,7 @@ static iree_status_t iree_xdna_run_deinitialize(iree_xdna_run_t* run) {
   run->storage.values = NULL;
   run->storage.mappings = NULL;
   run->storage.count = 0;
-  iree_hal_amd_xdna_image_destroy(run->image);
+  iree_hal_amd_xdna_image_free(run->image);
   run->image = NULL;
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0;

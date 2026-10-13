@@ -18,6 +18,7 @@ extern "C" {
 #endif  // __cplusplus
 
 typedef struct iree_hal_buffer_t iree_hal_buffer_t;
+typedef struct iree_hal_memory_mapping_t iree_hal_memory_mapping_t;
 typedef struct iree_hal_barrier_t iree_hal_barrier_t;
 typedef struct iree_hal_buffer_ref_list_t iree_hal_buffer_ref_list_t;
 typedef struct iree_hal_command_buffer_t iree_hal_command_buffer_t;
@@ -438,6 +439,14 @@ static inline bool iree_hal_dispatch_uses_indirect_arguments(
                  IREE_HAL_DISPATCH_FLAG_DYNAMIC_INDIRECT_ARGUMENTS);
 }
 
+typedef uint64_t iree_hal_queue_map_flags_t;
+enum iree_hal_queue_map_flag_bits_e {
+  IREE_HAL_QUEUE_MAP_FLAG_NONE = 0,
+  // Borrow source and target buffer wrappers until terminal completion instead
+  // of retaining them. Descriptor arrays are always captured before returning.
+  IREE_HAL_QUEUE_MAP_FLAG_BORROW_BUFFERS = 1ull << 0,
+};
+
 // Bitfield specifying flags controlling a timestamp operation.
 typedef uint64_t iree_hal_timestamp_flags_t;
 enum iree_hal_timestamp_flag_bits_t {
@@ -756,6 +765,32 @@ iree_hal_queue_barrier(iree_hal_queue_t* queue,
                        const iree_hal_semaphore_list_t signal_semaphore_list,
                        const iree_hal_queue_barriers_t* barriers,
                        iree_hal_queue_barrier_flags_t flags);
+
+// Changes mappings in one batch after every wait prerequisite. Signals publish
+// native translation readiness for every change. Queue order is not FIFO:
+// old users -> queue_map -> new users require explicit semaphore edges.
+// Updates to the same reservation must also be ordered, including disjoint
+// ranges and distinct native projections. Separate reservations are
+// independent.
+//
+// Descriptor arrays are captured before returning. Source/target wrappers are
+// retained until completion unless BORROW_BUFFERS is set. Mapped backing is
+// always caller-owned and must remain allocated until successful detach or
+// replacement and completion of its other uses. Mapping never copies data.
+//
+// Entries may span several reservations and projections. Overlapping target
+// ranges in the same native projection are rejected. Native failures may apply
+// a prefix of the batch; affected native projections then require destruction.
+// Preparation or validation failures leave unchanged reservations usable. An
+// accepted failure propagates through the signal semaphores. Mapping
+// establishes translation readiness, not data visibility; existing memory
+// barriers describe producer/consumer cache transitions using the actual
+// backing buffers.
+IREE_API_EXPORT iree_status_t iree_hal_queue_map(
+    iree_hal_queue_t* queue, iree_hal_semaphore_list_t waits,
+    iree_hal_semaphore_list_t signals, iree_host_size_t mapping_count,
+    const iree_hal_memory_mapping_t* mappings,
+    iree_hal_queue_map_flags_t flags);
 
 // Executes |command_buffer| on the exact hardware |queue|.
 //
@@ -1267,6 +1302,14 @@ typedef struct iree_hal_queue_vtable_t {
       iree_hal_file_t* target_file, uint64_t target_offset,
       iree_device_size_t length, const iree_hal_queue_barriers_t* barriers,
       iree_hal_write_flags_t flags);
+  // Optional native queue-ordered mapping submission. NULL selects one captured
+  // host call using the reservation backend's synchronous update operation.
+  iree_status_t(IREE_API_PTR* map)(iree_hal_queue_t* queue,
+                                   iree_hal_semaphore_list_t waits,
+                                   iree_hal_semaphore_list_t signals,
+                                   iree_host_size_t mapping_count,
+                                   const iree_hal_memory_mapping_t* mappings,
+                                   iree_hal_queue_map_flags_t flags);
 } iree_hal_queue_vtable_t;
 IREE_HAL_ASSERT_VTABLE_LAYOUT(iree_hal_queue_vtable_t);
 

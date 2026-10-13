@@ -208,7 +208,7 @@ typedef uint16_t hrx_memory_access_t;
 #define HRX_MEMORY_ACCESS_WRITE 0x02
 #define HRX_MEMORY_ACCESS_ALL 0x03
 
-// Buffer usage bitfield. Values match iree_hal_buffer_usage_t.
+// Buffer usage bitfield. Transfer, storage, and host-mapping values match HAL.
 typedef uint32_t hrx_buffer_usage_t;
 #define HRX_BUFFER_USAGE_NONE 0x00000000u
 #define HRX_BUFFER_USAGE_TRANSFER_SOURCE 0x00000001u
@@ -219,6 +219,12 @@ typedef uint32_t hrx_buffer_usage_t;
 #define HRX_BUFFER_USAGE_STORAGE 0x00000C00u
 #define HRX_BUFFER_USAGE_MAPPING_SCOPED 0x01000000u
 #define HRX_BUFFER_USAGE_MAPPING_PERSISTENT 0x02000000u
+// Owned backing prepared for explicit virtual-address mappings throughout the
+// device's sealed group. The ordinary buffer address remains usable. Source
+// construction fails if that complete access set is unsupported.
+// Callers retain the backing until every alias is detached and all accesses
+// have completed. Host-pointer import cannot provide this capability.
+#define HRX_BUFFER_USAGE_MAPPING_SOURCE 0x04000000u
 #define HRX_BUFFER_USAGE_DEFAULT 0x00000C03u
 
 // Operation flags for hrx_buffer_map. READ/WRITE are permissions; DISCARD
@@ -832,32 +838,232 @@ HRX_API hrx_status_t hrx_buffer_view_dim(hrx_buffer_view_t buffer_view,
                                          size_t dim, int64_t* value);
 
 //===----------------------------------------------------------------------===//
-// Virtual memory (allocator methods)
+// Virtual buffers and mapping
 //===----------------------------------------------------------------------===//
 
+// Access site selected within a device's sealed group.
+typedef enum hrx_memory_site_t {
+  HRX_MEMORY_SITE_HOST = 0,
+  HRX_MEMORY_SITE_QUEUE = 1,
+  HRX_MEMORY_SITE_PROGRAM = 2,
+} hrx_memory_site_t;
+
+// Borrowed process-local scope token. Its device group must remain live.
+// A zero-initialized token selects every admitted reservation projection.
+typedef struct hrx_memory_scope_t {
+  // Opaque group identity; never dereferenced by callers.
+  const void* domain;
+  // Opaque coordinate within the group.
+  uint32_t id;
+} hrx_memory_scope_t;
+
+// Resolves a scope once for reuse in mapping descriptors. QUEUE and PROGRAM
+// select a provisioned transfer or dispatch queue using |affinity|. HOST
+// ignores affinity and selects the group's public host site.
+HRX_API hrx_status_t hrx_device_query_memory_scope(
+    hrx_device_t device, hrx_queue_affinity_t affinity, hrx_memory_site_t site,
+    hrx_memory_scope_t* out_scope);
+
+// Complete simultaneous access to one address reservation. All families of
+// every listed device participate. Devices must belong to the same sealed
+// group; the arrays are borrowed only for query/construction.
+typedef struct hrx_virtual_buffer_scope_t {
+  // Nonzero number of distinct participating devices.
+  size_t device_count;
+  // Devices whose first entry supplies the stable buffer's device identity.
+  const hrx_device_t* devices;
+  // Required public host mapping access, or NONE for execution-only addresses.
+  hrx_memory_access_t host_access;
+} hrx_virtual_buffer_scope_t;
+
+// Caller-declared prior state. No installed-source table is maintained by HRX.
+typedef enum hrx_memory_mapping_operation_t {
+  // Replaces the interval, including holes; a NULL source clears it.
+  HRX_MEMORY_MAPPING_OPERATION_REPLACE = 0,
+  // Binds a non-NULL source into an interval the caller knows is unbound.
+  HRX_MEMORY_MAPPING_OPERATION_BIND = 1,
+  // Removes a complete binding; requires NULL source and NONE access.
+  HRX_MEMORY_MAPPING_OPERATION_UNBIND = 2,
+  // Changes permissions, supplying the currently installed source and offset.
+  HRX_MEMORY_MAPPING_OPERATION_PROTECT = 3,
+} hrx_memory_mapping_operation_t;
+
+typedef struct hrx_virtual_buffer_capabilities_t {
+  // Largest address interval in bytes; zero means the scope is unsupported.
+  size_t max_byte_length;
+  // Required reservation length multiple and minimum base alignment.
+  size_t reservation_granularity;
+  // Smallest independently replaceable destination offset/length unit.
+  size_t mapping_granularity;
+  // Largest supported power-of-two minimum base alignment.
+  size_t max_alignment;
+  // Supported operations, with bit N corresponding to mapping operation N.
+  uint32_t operations;
+} hrx_virtual_buffer_capabilities_t;
+
+// Cold query: acquires no addresses or physical payload. Unsupported scopes
+// return OK with zero capabilities; invalid scope and native failures
+// propagate.
+HRX_API hrx_status_t hrx_virtual_buffer_query_capabilities(
+    hrx_virtual_buffer_scope_t scope,
+    hrx_virtual_buffer_capabilities_t* out_capabilities);
+
+typedef struct hrx_virtual_buffer_options_t {
+  // Nonzero virtual buffer length in bytes.
+  size_t byte_length;
+  // Minimum power-of-two base alignment; zero selects the native minimum.
+  size_t min_alignment;
+  // Minimum power-of-two mapping unit; zero selects the native minimum.
+  size_t mapping_granularity;
+} hrx_virtual_buffer_options_t;
+
+// Reserves addresses without physical payload and returns one owned ordinary
+// buffer reference. On failure the output is NULL. Buffer references and views
+// keep addresses live; installed backing remains independently caller-owned.
+HRX_API hrx_status_t hrx_virtual_buffer_create(
+    hrx_virtual_buffer_scope_t scope,
+    const hrx_virtual_buffer_options_t* options, hrx_buffer_t* out_buffer);
+
+typedef struct hrx_virtual_buffer_info_t {
+  // Visible byte zero in the native target's mapping coordinates, in bytes.
+  size_t mapping_byte_offset;
+  // Achieved independently replaceable mapping unit, in bytes.
+  size_t mapping_granularity;
+  // Supported operations, with bit N corresponding to mapping operation N.
+  uint32_t operations;
+  // Number of native page-table projections owned by the root buffer.
+  uint32_t projection_count;
+} hrx_virtual_buffer_info_t;
+
+// Queries achieved geometry after any asynchronous allocation has committed.
+HRX_API hrx_status_t hrx_virtual_buffer_query_info(
+    hrx_buffer_t buffer, hrx_virtual_buffer_info_t* out_info);
+
+// Resolves one concrete scope to a native page-table projection. Equal IDs on
+// the same native root share mapping state. An all-sites scope is not concrete.
+HRX_API hrx_status_t hrx_virtual_buffer_resolve_projection(
+    hrx_buffer_t buffer, hrx_memory_scope_t scope, uint32_t* out_projection);
+
+// Removes all mappings at the selected scope without releasing addresses. The
+// buffer must cover the complete native target. The caller has completed all
+// affected execution and accepted mapping work and serializes mutation. This
+// cold call may wait for native removal, including after partial mapping
+// failure. It preserves any earlier failure; only success certifies backing
+// reuse, subject to other aliases and users. A zero scope selects all admitted
+// sites.
+HRX_API hrx_status_t hrx_virtual_buffer_detach(hrx_buffer_t buffer,
+                                               hrx_memory_scope_t scope);
+
+typedef uint32_t hrx_memory_mapping_source_flags_t;
+// Each binding must cover the entire native allocation at source offset zero.
+// Suballocating such storage does not make its pieces independently mappable.
+#define HRX_MEMORY_MAPPING_SOURCE_FLAG_WHOLE_ALLOCATION (1u << 0)
+
+typedef struct hrx_memory_mapping_requirements_t {
+  // Required native source offset/length granule; zero means no prepared
+  // source.
+  size_t minimum_granularity;
+  // Preferred physical allocation multiple, at least the minimum granularity.
+  size_t recommended_granularity;
+  // Additional native restrictions, including whole-allocation-only mappings.
+  hrx_memory_mapping_source_flags_t flags;
+} hrx_memory_mapping_requirements_t;
+
+// Queries the ordinary MAPPING_SOURCE allocation class without allocating
+// payload. Use its granularity with allocator or stream buffer allocation.
+// Native source construction/query failures propagate, including unsupported
+// memory classes.
+HRX_API hrx_status_t hrx_allocator_query_mapping_requirements(
+    hrx_allocator_t allocator, hrx_memory_type_t memory_type,
+    hrx_memory_mapping_requirements_t* out_requirements);
+
+typedef struct hrx_memory_mapping_t {
+  // Borrowed virtual target buffer or view.
+  hrx_buffer_t target;
+  // Prepared scope token; zero selects all admitted projections.
+  hrx_memory_scope_t scope;
+  // Byte offset within the stable reservation view.
+  size_t target_offset;
+  // Nonzero mapping length satisfying both source and destination granularity.
+  size_t byte_length;
+  // Ordinary prepared backing, or NULL for removal.
+  hrx_buffer_t source;
+  // Byte offset within source; zero when source is NULL.
+  size_t source_offset;
+  // Required permissions, including NONE for revocation or an inaccessible
+  // bind.
+  hrx_memory_access_t access;
+  // Caller-declared operation and prior binding state.
+  hrx_memory_mapping_operation_t operation;
+} hrx_memory_mapping_t;
+
+typedef uint64_t hrx_queue_map_flags_t;
+#define HRX_QUEUE_MAP_FLAG_NONE 0ull
+#define HRX_QUEUE_MAP_FLAG_BORROW_BUFFERS (1ull << 0)
+
+// Submits the entire descriptor vector with the supplied dependencies. Arrays
+// are captured before returning. Native changes complete before signals become
+// satisfied; queue submission order alone does not establish ordering. An empty
+// batch is a dependency edge. Backing must remain live while installed.
+// BORROW_BUFFERS also omits the optional HAL wrapper retention through
+// completion. Captured target references keep their address range live; neither
+// mode retains backing after completion or extends an ended allocation epoch.
+HRX_API hrx_status_t hrx_queue_map(
+    hrx_device_t device, hrx_queue_affinity_t affinity,
+    const hrx_semaphore_list_t* wait_semaphores,
+    const hrx_semaphore_list_t* signal_semaphores, size_t mapping_count,
+    const hrx_memory_mapping_t* mappings, hrx_queue_map_flags_t flags);
+
+//===----------------------------------------------------------------------===//
+// Legacy scalar virtual memory (allocator methods)
+//===----------------------------------------------------------------------===//
+
+// Deprecated compatibility surface for the ROCr-backed HIP implementation.
+// New callers use virtual buffers, ordinary MAPPING_SOURCE
+// buffers, and hrx_queue_map. Scalar physical handles are initially unmapped
+// and belong to the allocator that created them. They cannot be used as
+// queue_map sources.
+
+// Queries scalar support and optional granularity outputs in bytes. Unsupported
+// allocators return OK, false, and zero granularity; native query errors
+// propagate.
 HRX_API hrx_status_t hrx_allocator_query_virtual_memory(
     hrx_allocator_t allocator, hrx_memory_type_t mem_type, bool* supported,
     size_t* min_page_size, size_t* recommended_page_size);
 
+// Reserves addresses without physical backing. The caller owns the returned
+// buffer and must release it through virtual_memory_release, not
+// buffer_release.
 HRX_API hrx_status_t hrx_allocator_virtual_memory_reserve(
     hrx_allocator_t allocator, hrx_queue_affinity_t affinity, size_t size,
     hrx_buffer_t* virtual_buffer);
 
+// Consumes the reservation only on success. Failure leaves it owned by the
+// caller so mappings can be removed and release retried. All uses must complete
+// and every mapping and additional buffer reference must be released first.
 HRX_API hrx_status_t hrx_allocator_virtual_memory_release(
     hrx_allocator_t allocator, hrx_buffer_t virtual_buffer);
 
+// Creates an initially unmapped physical handle owned by the caller. Native
+// granularity and whole-allocation mapping restrictions still apply.
 HRX_API hrx_status_t hrx_allocator_physical_memory_allocate(
     hrx_allocator_t allocator, hrx_memory_type_t mem_type, size_t size,
     hrx_physical_memory_t* physical);
 
+// Consumes the handle only on success. The caller must first remove all
+// mappings and complete all uses; failure retains ownership for retry.
 HRX_API hrx_status_t hrx_allocator_physical_memory_free(
     hrx_allocator_t allocator, hrx_physical_memory_t physical);
 
+// Installs a physical mapping without granting access. Both handles remain
+// caller-owned, and physical storage must remain live until the mapping is
+// gone.
 HRX_API hrx_status_t hrx_allocator_virtual_memory_map(
     hrx_allocator_t allocator, hrx_buffer_t virtual_buffer,
     size_t virtual_offset, hrx_physical_memory_t physical,
     size_t physical_offset, size_t size);
 
+// Removes a mapped interval after all of its users have completed.
 HRX_API hrx_status_t hrx_allocator_virtual_memory_unmap(
     hrx_allocator_t allocator, hrx_buffer_t virtual_buffer,
     size_t virtual_offset, size_t size);
@@ -876,10 +1082,14 @@ typedef enum hrx_virtual_memory_access_scope_t {
   HRX_VIRTUAL_MEMORY_ACCESS_SCOPE_DEVICE = 2,
 } hrx_virtual_memory_access_scope_t;
 
+// Changes access for the allocator's device scope after conflicting uses
+// finish.
 HRX_API hrx_status_t hrx_allocator_virtual_memory_protect(
     hrx_allocator_t allocator, hrx_buffer_t virtual_buffer,
     size_t virtual_offset, size_t size, hrx_memory_protection_t protection);
 
+// Changes access for the specified host/device scope. The allocator selects the
+// device receiving access, which may differ from the reservation's allocator.
 HRX_API hrx_status_t hrx_allocator_virtual_memory_protect_scoped(
     hrx_allocator_t allocator, hrx_buffer_t virtual_buffer,
     size_t virtual_offset, size_t size,
@@ -930,6 +1140,9 @@ HRX_API hrx_status_t hrx_host_memory_register(hrx_device_t device,
                                               uint32_t flags);
 HRX_API hrx_status_t hrx_host_memory_unregister(hrx_device_t device,
                                                 void* host_ptr);
+// Returns a borrowed buffer and byte offset for a registered address. The
+// caller must keep the registration live during lookup and retain the returned
+// buffer explicitly if its metadata must survive unregistering the address.
 HRX_API hrx_status_t hrx_buffer_lookup(hrx_device_t device,
                                        const void* device_ptr,
                                        hrx_buffer_t* buffer, size_t* offset);

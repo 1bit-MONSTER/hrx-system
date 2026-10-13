@@ -18,6 +18,7 @@
 #include "iree/hal/file.h"
 #include "iree/hal/pool.h"
 #include "iree/hal/semaphore.h"
+#include "iree/hal/virtual_buffer.h"
 
 #define _VTABLE_DISPATCH(queue, method_name) \
   IREE_HAL_VTABLE_DISPATCH(queue, iree_hal_queue, method_name)
@@ -464,6 +465,31 @@ iree_hal_queue_host_call(iree_hal_queue_t* queue,
   return status;
 }
 
+IREE_API_EXPORT iree_status_t iree_hal_queue_map(
+    iree_hal_queue_t* queue, iree_hal_semaphore_list_t waits,
+    iree_hal_semaphore_list_t signals, iree_host_size_t mapping_count,
+    const iree_hal_memory_mapping_t* mappings,
+    iree_hal_queue_map_flags_t flags) {
+  if (!queue || (mapping_count && !mappings) ||
+      iree_any_bit_set(flags, ~IREE_HAL_QUEUE_MAP_FLAG_BORROW_BUFFERS)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "invalid mapping queue, array or flags");
+  }
+  IREE_RETURN_IF_ERROR(iree_hal_queue_validate_semaphore_list("wait", waits));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_queue_validate_semaphore_list("signal", signals));
+  IREE_TRACE_ZONE_BEGIN(z0);
+  const iree_hal_queue_vtable_t* vtable =
+      (const iree_hal_queue_vtable_t*)queue->resource.vtable;
+  iree_status_t status =
+      vtable->map
+          ? vtable->map(queue, waits, signals, mapping_count, mappings, flags)
+          : iree_hal_memory_mapping_queue_map(queue, waits, signals,
+                                              mapping_count, mappings, flags);
+  IREE_TRACE_ZONE_END(z0);
+  return status;
+}
+
 IREE_API_EXPORT iree_status_t iree_hal_queue_query_dispatch_concurrency(
     iree_hal_queue_t* queue, iree_hal_executable_t* executable,
     iree_hal_executable_function_t function,
@@ -618,14 +644,6 @@ static iree_status_t iree_hal_queue_validate_atomic_target(
   IREE_RETURN_IF_ERROR(iree_hal_buffer_validate_memory_type(
       iree_hal_buffer_memory_type(target_buffer),
       IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE));
-
-  const iree_hal_buffer_placement_t placement =
-      iree_hal_buffer_allocation_placement(target_buffer);
-  if (!iree_hal_buffer_placement_is_undefined(placement) &&
-      !iree_hal_queue_family_affinity_is_any(placement.queue_family_affinity)) {
-    IREE_RETURN_IF_ERROR(iree_hal_queue_validate_family_access(
-        queue, placement.queue_family_affinity));
-  }
 
   const iree_device_size_t absolute_offset =
       iree_hal_buffer_byte_offset(target_buffer) + target_offset;
@@ -948,15 +966,6 @@ static iree_status_t iree_hal_queue_validate_transfer_buffer(
       iree_hal_buffer_memory_type(buffer),
       IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE));
 
-  const iree_hal_buffer_placement_t placement =
-      iree_hal_buffer_allocation_placement(buffer);
-  const iree_hal_queue_family_affinity_t queue_family_affinity =
-      placement.queue_family_affinity;
-  if (!iree_hal_buffer_placement_is_undefined(placement) &&
-      !iree_hal_queue_family_affinity_is_any(queue_family_affinity)) {
-    IREE_RETURN_IF_ERROR(
-        iree_hal_queue_validate_family_access(queue, queue_family_affinity));
-  }
   return iree_ok_status();
 }
 

@@ -17,6 +17,7 @@ iree_cc_library(
     "queue.h"
   SRCS
     "memory_barrier.c"
+    "memory_mapping.c"
     "queue.c"
   DEPS
     iree::async
@@ -36,6 +37,7 @@ iree_cc_library(
     iree::hal::drivers::task::executable
     iree::hal::drivers::task::profile
     iree::hal::drivers::task::transient_buffer
+    iree::hal::memory::maintenance
     iree::hal::utils::files
     iree::hal::utils::resource_set
     iree::task

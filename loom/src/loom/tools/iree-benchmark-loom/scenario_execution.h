@@ -20,12 +20,12 @@ typedef struct iree_benchmark_loom_scenario_execution_t
     iree_benchmark_loom_scenario_execution_t;
 
 // Creates lazily prepared scenario benchmark execution state.
-iree_status_t iree_benchmark_loom_scenario_execution_create(
+iree_status_t iree_benchmark_loom_scenario_execution_allocate(
     const iree_benchmark_loom_work_plan_execution_options_t* options,
     iree_benchmark_loom_scenario_execution_t** out_execution);
 
 // Releases all prepared products and materialized values owned by |execution|.
-void iree_benchmark_loom_scenario_execution_destroy(
+void iree_benchmark_loom_scenario_execution_free(
     iree_benchmark_loom_scenario_execution_t* execution);
 
 // Measures one concrete scenario trial and emits every logical result alias.

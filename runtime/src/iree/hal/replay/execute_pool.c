@@ -60,6 +60,56 @@ static iree_status_t iree_hal_replay_decode_external_storage_class(
   return iree_ok_status();
 }
 
+iree_status_t iree_hal_replay_executor_pool_decode_families(
+    iree_hal_replay_executor_t* executor, iree_host_size_t family_count,
+    const uint8_t* family_payload_data,
+    iree_hal_pool_family_access_t* families) {
+  iree_status_t status = iree_ok_status();
+  for (iree_host_size_t i = 0; i < family_count && iree_status_is_ok(status);
+       ++i) {
+    iree_hal_replay_pool_family_access_payload_t family_payload;
+    memcpy(&family_payload, family_payload_data + i * sizeof(family_payload),
+           sizeof(family_payload));
+    if (IREE_UNLIKELY(
+            family_payload.reserved0 != 0 ||
+            family_payload.device_ordinal >=
+                iree_hal_device_group_device_count(executor->device_group))) {
+      status = iree_make_status(IREE_STATUS_DATA_LOSS,
+                                "replay pool family row is invalid");
+    }
+    const iree_hal_queue_family_t* family = NULL;
+    if (iree_status_is_ok(status)) {
+      iree_hal_device_t* device = iree_hal_device_group_device_at(
+          executor->device_group, family_payload.device_ordinal);
+      family =
+          iree_hal_device_queue_family(device, family_payload.family_ordinal);
+      if (IREE_UNLIKELY(!family)) {
+        status = iree_make_status(
+            IREE_STATUS_FAILED_PRECONDITION,
+            "replay device %u does not expose queue family %u",
+            family_payload.device_ordinal, family_payload.family_ordinal);
+      }
+    }
+    if (iree_status_is_ok(status)) {
+      families[i] = (iree_hal_pool_family_access_t){
+          .family = family,
+          .usage = (iree_hal_buffer_usage_t)family_payload.usage,
+          .interfaces = (iree_hal_buffer_interfaces_t)family_payload.interfaces,
+          .requirements =
+              (iree_hal_pool_access_requirements_t)family_payload.requirements,
+          .atomic_operations =
+              {
+                  .device_scope_32 = family_payload.atomic_device_scope_32,
+                  .device_scope_64 = family_payload.atomic_device_scope_64,
+                  .system_scope_32 = family_payload.atomic_system_scope_32,
+                  .system_scope_64 = family_payload.atomic_system_scope_64,
+              },
+      };
+    }
+  }
+  return status;
+}
+
 static iree_status_t iree_hal_replay_executor_pool_create_slab(
     iree_hal_replay_executor_t* executor,
     const iree_hal_replay_file_record_t* record) {
@@ -69,6 +119,8 @@ static iree_status_t iree_hal_replay_executor_pool_create_slab(
   iree_hal_replay_pool_create_slab_payload_t payload;
   memcpy(&payload, record->payload.data, sizeof(payload));
   if (IREE_UNLIKELY(payload.reserved0 != 0 ||
+                    payload.host_access > UINT16_MAX ||
+                    payload.preferred_host_access > UINT16_MAX ||
                     payload.family_count > IREE_HOST_SIZE_MAX ||
                     payload.owned_export_count > IREE_HOST_SIZE_MAX ||
                     payload.import_count > IREE_HOST_SIZE_MAX ||
@@ -154,44 +206,9 @@ static iree_status_t iree_hal_replay_executor_pool_create_slab(
         (void**)&import_exports);
   }
 
-  for (iree_host_size_t i = 0; i < family_count && iree_status_is_ok(status);
-       ++i) {
-    iree_hal_replay_pool_family_access_payload_t family_payload;
-    memcpy(&family_payload, family_payload_data + i * sizeof(family_payload),
-           sizeof(family_payload));
-    if (IREE_UNLIKELY(
-            family_payload.reserved0 != 0 ||
-            family_payload.device_ordinal >=
-                iree_hal_device_group_device_count(executor->device_group))) {
-      status = iree_make_status(IREE_STATUS_DATA_LOSS,
-                                "replay pool family row is invalid");
-      break;
-    }
-    iree_hal_device_t* device = iree_hal_device_group_device_at(
-        executor->device_group, family_payload.device_ordinal);
-    const iree_hal_queue_family_t* family = iree_hal_device_queue_family(
-        device, (iree_hal_queue_family_ordinal_t)family_payload.family_ordinal);
-    if (IREE_UNLIKELY(!family)) {
-      status = iree_make_status(
-          IREE_STATUS_FAILED_PRECONDITION,
-          "replay device %u does not expose queue family %u",
-          family_payload.device_ordinal, family_payload.family_ordinal);
-      break;
-    }
-    families[i] = (iree_hal_pool_family_access_t){
-        .family = family,
-        .usage = (iree_hal_buffer_usage_t)family_payload.usage,
-        .interfaces = (iree_hal_buffer_interfaces_t)family_payload.interfaces,
-        .requirements =
-            (iree_hal_pool_access_requirements_t)family_payload.requirements,
-        .atomic_operations =
-            {
-                .device_scope_32 = family_payload.atomic_device_scope_32,
-                .device_scope_64 = family_payload.atomic_device_scope_64,
-                .system_scope_32 = family_payload.atomic_system_scope_32,
-                .system_scope_64 = family_payload.atomic_system_scope_64,
-            },
-    };
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_replay_executor_pool_decode_families(
+        executor, family_count, family_payload_data, families);
   }
   for (iree_host_size_t i = 0;
        i < owned_export_count && iree_status_is_ok(status); ++i) {

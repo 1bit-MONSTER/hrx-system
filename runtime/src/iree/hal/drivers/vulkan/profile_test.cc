@@ -134,7 +134,7 @@ class VulkanProfileRecorderTest : public ::testing::Test {
       return;
     }
     IREE_EXPECT_OK(iree_hal_vulkan_profile_recorder_end(recorder_));
-    iree_hal_vulkan_profile_recorder_destroy(recorder_);
+    iree_hal_vulkan_profile_recorder_free(recorder_);
   }
 
   iree_hal_device_profiling_options_t MakeProfilingOptions(
@@ -149,7 +149,7 @@ class VulkanProfileRecorderTest : public ::testing::Test {
       iree_hal_device_profiling_data_families_t data_families) {
     iree_hal_device_profiling_options_t options =
         MakeProfilingOptions(data_families);
-    return iree_hal_vulkan_profile_recorder_create(
+    return iree_hal_vulkan_profile_recorder_allocate(
         &recorder_options_, &options, iree_allocator_system(), &recorder_);
   }
 
@@ -296,7 +296,7 @@ TEST_F(VulkanProfileRecorderTest, AcceptsDispatchCaptureFilter) {
   options.capture_filter.flags =
       IREE_HAL_PROFILE_CAPTURE_FILTER_FLAG_EXECUTABLE_FUNCTION_PATTERN;
   options.capture_filter.executable_function_pattern = IREE_SV("dispatch_*");
-  IREE_EXPECT_OK(iree_hal_vulkan_profile_recorder_create(
+  IREE_EXPECT_OK(iree_hal_vulkan_profile_recorder_allocate(
       &recorder_options_, &options, iree_allocator_system(), &recorder_));
 }
 

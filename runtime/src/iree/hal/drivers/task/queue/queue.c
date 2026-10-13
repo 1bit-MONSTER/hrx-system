@@ -221,6 +221,8 @@ static iree_hal_profile_queue_event_type_t iree_hal_task_queue_profile_type(
       return IREE_HAL_PROFILE_QUEUE_EVENT_TYPE_BARRIER;
     case IREE_HAL_TASK_QUEUE_OP_HOST_CALL:
       return IREE_HAL_PROFILE_QUEUE_EVENT_TYPE_HOST_CALL;
+    case IREE_HAL_TASK_QUEUE_OP_MAP:
+      return IREE_HAL_PROFILE_QUEUE_EVENT_TYPE_MAP;
     case IREE_HAL_TASK_QUEUE_OP_ALLOCA:
       return IREE_HAL_PROFILE_QUEUE_EVENT_TYPE_ALLOCA;
     case IREE_HAL_TASK_QUEUE_OP_DEALLOCA:
@@ -767,8 +769,8 @@ static void iree_hal_task_queue_op_destroy(iree_hal_task_queue_op_t* operation,
 
 // Fails an operation: propagates the error to the frontier tracker (if present)
 // and destroys the operation with the given failure status.
-static void iree_hal_task_queue_op_fail(iree_hal_task_queue_op_t* operation,
-                                        iree_status_t status) {
+void iree_hal_task_queue_op_fail(iree_hal_task_queue_op_t* operation,
+                                 iree_status_t status) {
   iree_hal_task_queue_debug_record_fail(operation->queue, operation);
 
   iree_async_frontier_tracker_fail_axis(
@@ -792,8 +794,7 @@ static void iree_hal_task_queue_op_advance_frontier(
 
 // Completes an operation successfully: releases captured resources, signals
 // semaphores, advances the frontier, and destroys the operation.
-static void iree_hal_task_queue_op_complete(
-    iree_hal_task_queue_op_t* operation) {
+void iree_hal_task_queue_op_complete(iree_hal_task_queue_op_t* operation) {
   iree_status_t status = iree_hal_task_queue_memory_barriers_after(operation);
   if (!iree_status_is_ok(status)) {
     iree_hal_task_queue_op_fail(operation, status);
@@ -1181,7 +1182,7 @@ static void iree_hal_task_queue_op_release_alloca_memory_wait(
       iree_hal_task_queue_alloca_release_reservations(operation);
       break;
   }
-  iree_hal_pool_wait_destroy(wait->capacity_wait);
+  iree_hal_pool_wait_free(wait->capacity_wait);
   wait->capacity_wait = NULL;
 }
 
@@ -1912,7 +1913,7 @@ static iree_status_t iree_hal_task_queue_drain_alloca_wait_for_capacity(
   IREE_RETURN_IF_ERROR(
       iree_hal_task_queue_alloca_memory_wait_ensure(operation, &wait));
   if (!wait->capacity_wait) {
-    IREE_RETURN_IF_ERROR(iree_hal_pool_wait_create(
+    IREE_RETURN_IF_ERROR(iree_hal_pool_wait_allocate(
         operation->alloca.pool, iree_arena_allocator(&operation->arena),
         &wait->capacity_wait));
   }
@@ -3282,6 +3283,10 @@ static iree_status_t iree_hal_task_queue_process_drain(
       iree_hal_task_queue_profile_start_host_execution(operation);
       status = iree_hal_task_queue_drain_host_call(queue, operation);
       break;
+    case IREE_HAL_TASK_QUEUE_OP_MAP:
+      iree_hal_task_queue_profile_start_host_execution(operation);
+      iree_hal_task_queue_issue_map(operation);
+      break;
     case IREE_HAL_TASK_QUEUE_OP_ALLOCA:
       status = iree_hal_task_queue_drain_alloca(operation);
       if (!iree_status_is_ok(status)) {
@@ -3362,7 +3367,7 @@ static iree_status_t iree_hal_task_queue_process_drain(
 // returned operation, then calls submit_op_finish to register waits and
 // enqueue. On failure between begin and finish, the caller must call
 // op_destroy on the operation.
-static iree_status_t iree_hal_task_queue_submit_op_begin(
+iree_status_t iree_hal_task_queue_submit_op_begin(
     iree_hal_task_queue_t* queue, iree_hal_task_queue_op_type_t type,
     const iree_hal_semaphore_list_t* signal_semaphores,
     iree_hal_task_queue_op_t** out_operation) {
@@ -3374,7 +3379,7 @@ static iree_status_t iree_hal_task_queue_submit_op_begin(
 
 // Phase 2 of submit: retains resources, registers semaphore waits, and
 // enqueues the operation. On failure, destroys the operation.
-static iree_status_t iree_hal_task_queue_submit_op_finish(
+iree_status_t iree_hal_task_queue_submit_op_finish(
     iree_hal_task_queue_op_t* operation,
     iree_hal_semaphore_list_t wait_semaphores, iree_host_size_t resource_count,
     iree_hal_resource_t* const* resources) {
@@ -3435,6 +3440,7 @@ iree_status_t iree_hal_task_queue_initialize(
   out_queue->executor = params->executor;
   iree_task_executor_retain(out_queue->executor);
   out_queue->proactor = params->proactor;
+  out_queue->memory_maintenance = params->memory_maintenance;
   iree_atomic_store(&out_queue->epoch, 0, iree_memory_order_relaxed);
   iree_atomic_store(&out_queue->shutdown_phase,
                     IREE_HAL_TASK_QUEUE_SHUTDOWN_PHASE_RUNNING,
@@ -3534,7 +3540,7 @@ iree_status_t iree_hal_task_queue_initialize(
   }
 
   if (!iree_status_is_ok(status)) {
-    iree_hal_queue_release(&out_queue->base);
+    iree_hal_task_queue_release(out_queue);
   }
 
   IREE_TRACE_ZONE_END(z0);
@@ -4973,6 +4979,7 @@ static const iree_hal_queue_vtable_t iree_hal_task_queue_vtable = {
     .barrier = iree_hal_task_queue_barrier,
     .execute = iree_hal_task_queue_execute,
     .host_call = iree_hal_task_queue_host_call,
+    .map = iree_hal_task_queue_submit_map,
     .query_dispatch_concurrency =
         iree_hal_task_queue_query_dispatch_concurrency,
     .dispatch = iree_hal_task_queue_dispatch,

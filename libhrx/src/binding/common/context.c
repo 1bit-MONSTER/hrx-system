@@ -139,7 +139,7 @@ iree_status_t iree_hal_streaming_context_create(
   iree_hal_pool_t* timestamp_memory_pool = NULL;
   iree_status_t status = hrx_mem_pool_backing_retain_allocation_source(
       device_entry->hrx_device, HRX_MEMORY_TYPE_HOST_LOCAL,
-      &timestamp_memory_pool);
+      HRX_BUFFER_USAGE_DEFAULT, &timestamp_memory_pool);
   iree_hal_streaming_event_timestamp_pool_initialize(
       timestamp_memory_pool, host_allocator, &context->timestamp_pool);
   iree_hal_pool_release(timestamp_memory_pool);

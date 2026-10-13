@@ -57,6 +57,11 @@ iree_status_t iree_hal_replay_recorder_record_object(
     const iree_const_byte_span_t* iovecs,
     iree_hal_replay_object_id_t* out_object_id);
 
+// Returns whether every semaphore in a validated list belongs to the capture.
+bool iree_hal_replay_recorder_has_captured_semaphores(
+    iree_hal_replay_recorder_t* recorder,
+    iree_hal_semaphore_list_t semaphore_list);
+
 // Allocates and encodes the timepoints in |semaphore_list|.
 //
 // The caller owns the returned storage and must free it with |host_allocator|.

@@ -59,12 +59,12 @@ typedef struct iree_hal_amd_xdna_image_directory_t
 // Decoding performs bounded allocation proportional only to the program-header
 // count. Payload bytes remain in the source sequence and are never copied into
 // the directory. Target-specific payload semantics are not validated here.
-iree_status_t iree_hal_amd_xdna_image_directory_create(
+iree_status_t iree_hal_amd_xdna_image_directory_allocate(
     iree_byte_sequence_t* source_sequence, iree_allocator_t host_allocator,
     iree_hal_amd_xdna_image_directory_t** out_directory);
 
 // Destroys |directory| and releases its retained source sequence.
-void iree_hal_amd_xdna_image_directory_destroy(
+void iree_hal_amd_xdna_image_directory_free(
     iree_hal_amd_xdna_image_directory_t* directory);
 
 // Returns the complete immutable source byte length.

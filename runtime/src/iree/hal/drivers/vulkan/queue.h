@@ -464,15 +464,25 @@ iree_status_t iree_hal_vulkan_queue_submit_dealloca(
 
 // Submits sparse buffer memory binds ordered by queue semaphores.
 //
-// |binds| is copied into queue-owned storage and may be released by the caller
-// after this returns. The sparse VkBuffer and VkDeviceMemory handles referenced
-// by |binds| must stay live until |signal_semaphore_list| has retired or
-// failed.
+// |buffer_binds| and their nested bind arrays are copied into the submission
+// allocation and may be released by the caller after this returns. All buffers
+// are published by one native sparse submission. The referenced VkBuffer and
+// VkDeviceMemory handles must stay live until |signal_semaphore_list| retires
+// or fails. Native ranges and memory compatibility are qualified by the caller.
+// Each buffer vector contains at least one valid native bind.
 iree_status_t iree_hal_vulkan_queue_submit_sparse_bind(
     iree_hal_vulkan_queue_t* queue,
     const iree_hal_semaphore_list_t wait_semaphore_list,
-    const iree_hal_semaphore_list_t signal_semaphore_list, VkBuffer buffer,
-    iree_host_size_t bind_count, const VkSparseMemoryBind* binds);
+    const iree_hal_semaphore_list_t signal_semaphore_list,
+    iree_host_size_t buffer_count,
+    const VkSparseBufferMemoryBindInfo* buffer_binds);
+
+// Publishes sparse binds and waits for their completion. This cold path is used
+// for initial sparse backing and explicit checked removal. The caller has
+// retired all conflicting uses and keeps native resources live through return.
+iree_status_t iree_hal_vulkan_queue_submit_sparse_bind_sync(
+    iree_hal_vulkan_queue_t* queue, iree_host_size_t buffer_count,
+    const VkSparseBufferMemoryBindInfo* buffer_binds);
 
 // Submits a buffer fill ordered by queue semaphores.
 iree_status_t iree_hal_vulkan_queue_submit_fill(

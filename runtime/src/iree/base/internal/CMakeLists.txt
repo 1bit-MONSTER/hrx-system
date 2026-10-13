@@ -432,6 +432,7 @@ iree_cc_library(
     "shm.h"
   SRCS
     "shm_posix.c"
+    "shm_reservation.c"
     "shm_win32.c"
   DEPS
     ::internal

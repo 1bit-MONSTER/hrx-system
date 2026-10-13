@@ -21,7 +21,7 @@ namespace iree::experimental::xdna::testing {
 class XdnaConcurrentQueuesTest : public XdnaExecutionFixture {
  protected:
   void TearDown() override {
-    iree_hal_amd_xdna_image_destroy(consumer_.image);
+    iree_hal_amd_xdna_image_free(consumer_.image);
     XdnaExecutionFixture::TearDown();
   }
 

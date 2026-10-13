@@ -55,7 +55,7 @@ class XdnaExecutableTest : public ::testing::Test {
   void SetUp() override {
     auto source = MakeOwnedByteSequence(ImageFixture().Build());
     const auto target = MakeImageTarget();
-    IREE_ASSERT_OK(iree_hal_amd_xdna_image_create(
+    IREE_ASSERT_OK(iree_hal_amd_xdna_image_allocate(
         source.get(), &target, iree_allocator_system(), &image_));
     for (size_t i = 0; i < storage_.size(); ++i) {
       const auto allocation = iree_hal_amd_xdna_image_tables_allocation(
@@ -72,15 +72,15 @@ class XdnaExecutableTest : public ::testing::Test {
     binding_.device_address = UINT64_C(0xABCD12340000);
   }
 
-  void TearDown() override { iree_hal_amd_xdna_image_destroy(image_); }
+  void TearDown() override { iree_hal_amd_xdna_image_free(image_); }
 
   void ReplaceImage(const ImageFixture& fixture) {
     auto source = MakeOwnedByteSequence(fixture.Build());
     const auto target = MakeImageTarget();
     iree_hal_amd_xdna_image_t* image = nullptr;
-    IREE_ASSERT_OK(iree_hal_amd_xdna_image_create(
+    IREE_ASSERT_OK(iree_hal_amd_xdna_image_allocate(
         source.get(), &target, iree_allocator_system(), &image));
-    iree_hal_amd_xdna_image_destroy(image_);
+    iree_hal_amd_xdna_image_free(image_);
     image_ = image;
   }
 
@@ -216,12 +216,12 @@ TEST_F(XdnaExecutableTest, PropagatesSourceFailureAfterPartialLoad) {
                                 &source.base);
   const auto target = MakeImageTarget();
   iree_hal_amd_xdna_image_t* image = nullptr;
-  iree_status_t status = iree_hal_amd_xdna_image_create(
+  iree_status_t status = iree_hal_amd_xdna_image_allocate(
       &source.base, &target, iree_allocator_system(), &image);
   iree_byte_sequence_release(&source.base);
   std::unique_ptr<iree_hal_amd_xdna_image_t,
-                  decltype(&iree_hal_amd_xdna_image_destroy)>
-      image_owner(image, iree_hal_amd_xdna_image_destroy);
+                  decltype(&iree_hal_amd_xdna_image_free)>
+      image_owner(image, iree_hal_amd_xdna_image_free);
   IREE_ASSERT_OK(status);
   source.remaining_reads = 1;
   IREE_EXPECT_STATUS_IS(StatusCode::kUnavailable,
@@ -245,12 +245,12 @@ TEST_F(XdnaExecutableTest, LoadingPrivateStorageDoesNotReadSharedPayload) {
                                 &source.base);
   const auto target = MakeImageTarget();
   iree_hal_amd_xdna_image_t* image = nullptr;
-  iree_status_t status = iree_hal_amd_xdna_image_create(
+  iree_status_t status = iree_hal_amd_xdna_image_allocate(
       &source.base, &target, iree_allocator_system(), &image);
   iree_byte_sequence_release(&source.base);
   std::unique_ptr<iree_hal_amd_xdna_image_t,
-                  decltype(&iree_hal_amd_xdna_image_destroy)>
-      image_owner(image, iree_hal_amd_xdna_image_destroy);
+                  decltype(&iree_hal_amd_xdna_image_free)>
+      image_owner(image, iree_hal_amd_xdna_image_free);
   IREE_ASSERT_OK(status);
   // Only the two private command loads may access the source. The immutable
   // catalog has already been published and can have active device readers.

@@ -402,8 +402,8 @@ TEST_F(MemoryAccessMapTest,
        EffectBindingsSurviveReplacementAndIndependentClones) {
   loom_low_memory_access_map_t* source = nullptr;
   loom_low_memory_access_map_t* target = nullptr;
-  IREE_ASSERT_OK(loom_low_memory_access_map_create(&source_arena_, &source));
-  IREE_ASSERT_OK(loom_low_memory_access_map_create(&target_arena_, &target));
+  IREE_ASSERT_OK(loom_low_memory_access_map_allocate(&source_arena_, &source));
+  IREE_ASSERT_OK(loom_low_memory_access_map_allocate(&target_arena_, &target));
   loom_op_t packets[4] = {};
   const loom_symbolic_term_t term = {4, 7, 7};
   loom_symbolic_congruence_t periodic = {.modulus = 64};
@@ -443,7 +443,7 @@ TEST_F(MemoryAccessMapTest,
             loom_low_memory_access_map_lookup(source, &packets[1], 2));
   for (size_t i = 2; i < 4; ++i) {
     loom_low_memory_access_clone_t* clone = nullptr;
-    IREE_ASSERT_OK(loom_low_memory_access_clone_create(
+    IREE_ASSERT_OK(loom_low_memory_access_clone_allocate(
         source, target, &scratch_arena_, &clone));
     IREE_ASSERT_OK(
         loom_low_memory_access_clone_op(clone, &packets[1], &packets[i]));
@@ -479,7 +479,7 @@ TEST_F(MemoryAccessMapTest,
   EXPECT_TRUE(loom_low_memory_access_summaries_may_alias(
       left, separate_call_storage, LOOM_LOW_MEMORY_COMPARISON_SAME_EVALUATION));
   loom_low_memory_access_map_t* moved = nullptr;
-  IREE_ASSERT_OK(loom_low_memory_access_map_create(&target_arena_, &moved));
+  IREE_ASSERT_OK(loom_low_memory_access_map_allocate(&target_arena_, &moved));
   IREE_ASSERT_OK(loom_low_memory_access_map_transfer(target, moved));
   EXPECT_EQ(loom_low_memory_access_map_lookup(moved, &packets[2], 0), left);
 }

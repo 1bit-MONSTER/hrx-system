@@ -123,6 +123,23 @@ typedef struct iree_hal_slab_t {
   // interprets this however it needs: a pointer to internal state, an
   // allocation handle, a VMM mapping descriptor, etc.
   uint64_t provider_handle;
+
+  // Native payload geometry. Owned acquisitions report their complete payload
+  // charge; imported attachments may have unknown source allocation geometry.
+  iree_hal_buffer_allocation_info_t native_allocation;
+
+  // Source-qualified maintenance envelope in slab coordinates. WHOLE_BUFFER
+  // extends to slab length; owned slabs may control additional native padding.
+  iree_hal_buffer_range_t maintenance_range;
+
+  // Cache class established by the source mapping, or UNKNOWN without a view.
+  iree_hal_host_cacheability_t host_cacheability;
+
+  // Native or external-source physical identity, when established.
+  iree_hal_physical_memory_id_t physical_backing_id;
+
+  // Guaranteed alignment of logical slab byte zero for this acquisition.
+  iree_device_size_t allocation_alignment;
 } iree_hal_slab_t;
 
 // One native attachment to caller-selected external storage. Properties
@@ -131,6 +148,8 @@ typedef struct iree_hal_slab_t {
 typedef struct iree_hal_imported_slab_t {
   // Provider-owned attachment released with release_slab.
   iree_hal_slab_t slab;
+  // Offset of slab byte zero within the caller's external storage extent.
+  iree_device_size_t storage_offset;
   // Exact immutable properties of this attachment.
   iree_hal_slab_provider_properties_t properties;
 } iree_hal_imported_slab_t;
@@ -180,10 +199,20 @@ iree_status_t iree_hal_slab_provider_acquire_slab(
     iree_hal_slab_provider_t* provider, iree_device_size_t min_length,
     iree_device_size_t min_alignment, iree_hal_slab_t* out_slab);
 
+// Returns a borrowed HOST_POINTER view of the source's maintenance envelope.
+// Pool import has validated its bounds. Native registration providers use this
+// view to limit cold cache preparation to lines intersecting the authorized
+// extent. Native page coverage may extend beyond it. The original external
+// transport retains its ownership and release payload.
+iree_hal_external_storage_t iree_hal_slab_provider_registration_view(
+    const iree_hal_external_storage_t* storage);
+
 // Attaches the provider to a caller-selected external storage extent. The
 // provider borrows |storage| for this call and acquires any native references
 // required by the returned slab. It never consumes or releases the external
-// transport owner. On failure |out_import| remains zeroed.
+// transport owner. A provider may attach only the source-authorized
+// registration envelope; out_import->storage_offset locates that slab within
+// |storage|. On failure |out_import| remains zeroed.
 iree_status_t iree_hal_slab_provider_import_slab(
     iree_hal_slab_provider_t* provider,
     const iree_hal_external_storage_t* storage,
@@ -290,9 +319,6 @@ typedef struct iree_hal_slab_buffer_backing_t {
 void iree_hal_slab_buffer_backing_initialize(
     iree_hal_slab_provider_t* provider, const iree_hal_slab_t* slab,
     const iree_hal_slab_provider_properties_t* properties,
-    iree_hal_buffer_range_t maintenance_range,
-    iree_hal_host_cacheability_t host_cacheability,
-    iree_hal_physical_memory_id_t physical_backing_id,
     iree_async_notification_t* notification,
     iree_async_frontier_tracker_t* tracker,
     iree_hal_memory_maintenance_t* maintenance,
@@ -377,7 +403,7 @@ struct iree_hal_slab_provider_vtable_t {
   void (*query_properties)(const iree_hal_slab_provider_t* provider,
                            iree_hal_slab_provider_properties_t* out_properties);
 
-  // Attaches to one exact external storage extent without consuming its
+  // Attaches to external storage without consuming its
   // transport owner. NULL when this provider cannot import external storage.
   iree_status_t (*import_slab)(iree_hal_slab_provider_t* provider,
                                const iree_hal_external_storage_t* storage,

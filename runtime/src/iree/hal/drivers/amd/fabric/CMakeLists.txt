@@ -54,6 +54,7 @@ iree_cc_library(
   DEPS
     amdf::headers
     iree::base
+    iree::base::internal
     iree::hal
     iree::hal::drivers::amd::status
   PUBLIC
@@ -199,7 +200,9 @@ iree_cc_library(
     "memory_backend.h"
   SRCS
     "memory_backend.c"
+    "virtual_buffer.c"
   DEPS
+    ::memory
     ::memory_transition
     ::slab_provider
     amdf::headers
@@ -228,7 +231,9 @@ iree_cc_test(
     iree::base
     iree::hal
     iree::hal::drivers::task::device
+    iree::hal::memory::fixed_block_pool
     iree::hal::memory::maintenance_thread
+    iree::hal::memory::slab_cache
     iree::hal::testing::mock_device
     iree::task
     iree::testing::gtest

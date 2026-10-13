@@ -31,7 +31,7 @@ static int iree_hal_amdgpu_hostcall_provider_service_thread_main(
   return 0;
 }
 
-iree_status_t iree_hal_amdgpu_hostcall_provider_state_create(
+iree_status_t iree_hal_amdgpu_hostcall_provider_state_allocate(
     const iree_hal_hostcall_provider_t* provider,
     iree_hal_device_t* logical_device, const iree_hal_amdgpu_libhsa_t* libhsa,
     hsa_agent_t device_agent, hsa_amd_memory_pool_t shared_memory_pool,
@@ -139,12 +139,12 @@ iree_status_t iree_hal_amdgpu_hostcall_provider_state_create(
   if (iree_status_is_ok(status)) {
     *out_state = state;
   } else {
-    iree_hal_amdgpu_hostcall_provider_state_destroy(state);
+    iree_hal_amdgpu_hostcall_provider_state_free(state);
   }
   return status;
 }
 
-void iree_hal_amdgpu_hostcall_provider_state_destroy(
+void iree_hal_amdgpu_hostcall_provider_state_free(
     iree_hal_amdgpu_hostcall_provider_state_t* state) {
   if (!state) {
     return;

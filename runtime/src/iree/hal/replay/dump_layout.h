@@ -165,6 +165,18 @@ iree_status_t iree_hal_replay_dump_queue_payload_layout(
     uint64_t trailing_payload_length,
     iree_hal_replay_dump_queue_payload_layout_t* out_layout);
 
+// Validates the complete reservation payload and returns its family row bytes.
+iree_status_t iree_hal_replay_dump_virtual_buffer_layout(
+    const iree_hal_replay_file_record_t* record,
+    const iree_hal_replay_virtual_buffer_create_payload_t* payload,
+    iree_host_size_t* out_families_size);
+
+// Validates a complete mapping batch and locates its timepoints and rows.
+iree_status_t iree_hal_replay_dump_queue_map_layout(
+    const iree_hal_replay_file_record_t* record,
+    const iree_hal_replay_queue_map_payload_t* payload,
+    iree_hal_replay_dump_queue_payload_layout_t* out_layout);
+
 iree_status_t iree_hal_replay_dump_queue_transfer_layout(
     const iree_hal_replay_file_record_t* record,
     const iree_hal_replay_queue_transfer_payload_t* payload,

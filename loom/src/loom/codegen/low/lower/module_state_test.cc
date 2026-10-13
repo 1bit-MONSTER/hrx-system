@@ -27,7 +27,8 @@ class LowLowerModuleStateTest : public ::testing::Test {
     iree_arena_block_pool_initialize(4096, iree_allocator_system(),
                                      &block_pool_);
     iree_arena_initialize(&block_pool_, &arena_);
-    IREE_ASSERT_OK(loom_low_lower_module_state_create(&arena_, &module_state_));
+    IREE_ASSERT_OK(
+        loom_low_lower_module_state_allocate(&arena_, &module_state_));
   }
 
   void TearDown() override {
@@ -247,7 +248,7 @@ TEST_F(LowLowerModuleStateTest, PreservesStateAcrossRecordGrowth) {
 TEST_F(LowLowerModuleStateTest, AllocatesPassLocalStorage) {
   void* bytes = nullptr;
   IREE_ASSERT_OK(
-      loom_low_lower_module_state_allocate(module_state_, 17, &bytes));
+      loom_low_lower_module_state_allocate_bytes(module_state_, 17, &bytes));
   EXPECT_NE(bytes, nullptr);
 
   uint32_t* values = nullptr;
@@ -264,7 +265,7 @@ TEST(LowLowerModuleStateStandaloneTest, RequiresModuleStateForNonemptyStorage) {
       loom_low_lower_module_state_get_or_allocate(nullptr, &kKey, 1, &data));
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_FAILED_PRECONDITION,
-      loom_low_lower_module_state_allocate(nullptr, 1, &data));
+      loom_low_lower_module_state_allocate_bytes(nullptr, 1, &data));
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_FAILED_PRECONDITION,
       loom_low_lower_module_state_allocate_array(nullptr, 1, 1, &data));

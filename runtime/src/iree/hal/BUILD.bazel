@@ -78,6 +78,7 @@ iree_runtime_cc_library(
         "string_util.c",
         "topology.c",
         "topology_builder.c",
+        "virtual_buffer.c",
     ],
     hdrs = [
         "allocator.h",
@@ -114,6 +115,7 @@ iree_runtime_cc_library(
         "string_util.h",
         "topology.h",
         "topology_builder.h",
+        "virtual_buffer.h",
     ],
     textual_hdrs = [
         "profile_metrics.inc",

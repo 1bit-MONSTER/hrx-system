@@ -650,7 +650,7 @@ static iree_status_t iree_async_local_stream_progress(
   return iree_ok_status();
 }
 
-iree_status_t iree_async_local_stream_create(
+iree_status_t iree_async_local_stream_allocate(
     iree_async_proactor_t* proactor, iree_async_primitive_t channel,
     iree_host_size_t handle_capacity, iree_allocator_t host_allocator,
     iree_async_local_stream_t** out_stream) {
@@ -881,7 +881,7 @@ iree_status_t iree_async_local_stream_deactivate(
   return iree_ok_status();
 }
 
-void iree_async_local_stream_destroy(iree_async_local_stream_t* stream) {
+void iree_async_local_stream_free(iree_async_local_stream_t* stream) {
   if (!stream) {
     return;
   }

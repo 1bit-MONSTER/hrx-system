@@ -481,7 +481,7 @@ static bool loomc_link_index_symbol_from_loom(
   return true;
 }
 
-loomc_status_t loomc_link_index_builder_create(
+loomc_status_t loomc_link_index_builder_allocate(
     loomc_context_t* context, const loomc_link_index_builder_options_t* options,
     loomc_allocator_t allocator, loomc_link_index_builder_t** out_builder) {
   if (context == NULL || out_builder == NULL) {
@@ -524,12 +524,12 @@ loomc_status_t loomc_link_index_builder_create(
   if (loomc_status_is_ok(status)) {
     *out_builder = builder;
   } else {
-    loomc_link_index_builder_release(builder);
+    loomc_link_index_builder_free(builder);
   }
   return status;
 }
 
-void loomc_link_index_builder_release(loomc_link_index_builder_t* builder) {
+void loomc_link_index_builder_free(loomc_link_index_builder_t* builder) {
   if (builder == NULL) {
     return;
   }

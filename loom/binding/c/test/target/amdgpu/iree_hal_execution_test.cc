@@ -199,100 +199,145 @@ loomc::testing::target::IreeHalKernelExecutionTarget MakeExecutionTarget(
   return target;
 }
 
-// Backs the first page and the page at 4 GiB with distinct physical memory.
+// Backs the first page and the page at 4 GiB with distinct physical pages.
 // A truncated address remains mapped and produces an observable wrong result.
 class SparseTestBuffer {
  public:
   static constexpr iree_device_size_t kHighPageOffset = uint64_t{1} << 32;
 
-  SparseTestBuffer(iree_hal_allocator_t* allocator,
-                   iree_device_size_t page_size)
-      : allocator_(allocator), page_size_(page_size) {}
+  SparseTestBuffer() = default;
   SparseTestBuffer(const SparseTestBuffer&) = delete;
   SparseTestBuffer& operator=(const SparseTestBuffer&) = delete;
 
   ~SparseTestBuffer() {
-    for (iree_host_size_t i = 0; i < mapped_page_count_; ++i) {
-      IREE_EXPECT_OK(iree_hal_allocator_virtual_memory_unmap(
-          allocator_, buffer_, i * kHighPageOffset, page_size_));
-    }
-    for (auto* physical_memory : physical_memory_) {
-      if (physical_memory) {
-        IREE_EXPECT_OK(iree_hal_allocator_physical_memory_free(
-            allocator_, physical_memory));
-      }
-    }
-    if (buffer_) {
-      IREE_EXPECT_OK(
-          iree_hal_allocator_virtual_memory_release(allocator_, buffer_));
-    }
-  }
-
-  iree_status_t Initialize(iree_hal_physical_memory_params_t params) {
-    IREE_RETURN_IF_ERROR(iree_hal_allocator_virtual_memory_reserve(
-        allocator_, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-        kHighPageOffset + page_size_, &buffer_));
     iree_status_t status = iree_ok_status();
-    for (iree_host_size_t i = 0; i < 2 && iree_status_is_ok(status); ++i) {
-      status = iree_hal_allocator_physical_memory_allocate(
-          allocator_, params, page_size_, iree_allocator_system(),
-          &physical_memory_[i]);
-      if (iree_status_is_ok(status)) {
-        status = iree_hal_allocator_virtual_memory_map(
-            allocator_, buffer_, i * kHighPageOffset, physical_memory_[i],
-            /*physical_offset=*/0, page_size_);
-      }
-      if (iree_status_is_ok(status)) {
-        ++mapped_page_count_;
-        status = iree_hal_allocator_virtual_memory_protect(
-            allocator_, buffer_, i * kHighPageOffset, page_size_,
-            IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
-            IREE_HAL_VIRTUAL_MEMORY_ACCESS_SCOPE_DEVICE,
-            IREE_HAL_MEMORY_PROTECTION_READ_WRITE);
-      }
+    if (reservation_) {
+      const iree_hal_memory_scope_t scope = {
+          reservation_->memory.contract->domain, IREE_HAL_MEMORY_SCOPE_ANY};
+      status = iree_hal_virtual_buffer_detach(reservation_, scope);
     }
-    return status;
+    iree_hal_buffer_release(reservation_);
+    if (iree_status_is_ok(status)) {
+      iree_hal_buffer_release(backing_);
+    }
+    IREE_EXPECT_OK(status);
   }
 
-  iree_hal_buffer_t* get() const { return buffer_; }
+  iree_status_t Initialize(iree_hal_device_group_t* group,
+                           iree_hal_pool_scope_t scope,
+                           iree_hal_pool_t* source_pool,
+                           iree_hal_queue_t* queue,
+                           iree_device_size_t page_size) {
+    const iree_hal_virtual_buffer_options_t options = {
+        .byte_length = kHighPageOffset + page_size,
+        .mapping_granularity = page_size,
+    };
+    IREE_RETURN_IF_ERROR(iree_hal_virtual_buffer_create(
+        group, scope, &options, iree_allocator_system(), &reservation_));
+    IREE_RETURN_IF_ERROR(iree_hal_pool_allocate_buffer(
+        source_pool,
+        iree_hal_make_pool_reservation_request(2 * page_size, page_size),
+        iree_infinite_timeout(), &backing_));
+    iree_hal_semaphore_t* semaphore = nullptr;
+    IREE_RETURN_IF_ERROR(iree_hal_semaphore_create(
+        iree_hal_queue_family_device(iree_hal_queue_family(queue)),
+        IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0, IREE_HAL_SEMAPHORE_FLAG_DEFAULT,
+        &semaphore));
+    loomc::testing::HandlePtr<iree_hal_semaphore_t, iree_hal_semaphore_release>
+        semaphore_ptr(semaphore);
+    uint64_t value = 1;
+    const iree_hal_semaphore_list_t signal = {1, &semaphore, &value};
+    std::array<iree_hal_memory_mapping_t, 2> mappings;
+    for (size_t i = 0; i < mappings.size(); ++i) {
+      mappings[i] = {
+          .target = reservation_,
+          .scope =
+              {
+                  .domain = iree_hal_device_group_memory_domain(group),
+                  .id = IREE_HAL_MEMORY_SCOPE_ANY,
+              },
+          .target_range =
+              iree_hal_make_buffer_range(i * kHighPageOffset, page_size),
+          .source = backing_,
+          .source_offset = i * page_size,
+          .access = IREE_HAL_MEMORY_ACCESS_ALL,
+          .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
+      };
+    }
+    IREE_RETURN_IF_ERROR(iree_hal_queue_map(
+        queue, iree_hal_semaphore_list_empty(), signal, mappings.size(),
+        mappings.data(), IREE_HAL_QUEUE_MAP_FLAG_NONE));
+    return iree_hal_semaphore_list_wait(signal, iree_infinite_timeout(),
+                                        IREE_ASYNC_WAIT_FLAG_NONE);
+  }
+
+  iree_hal_buffer_t* get() const { return reservation_; }
 
  private:
-  // Borrowed allocator, which outlives the reservation and physical storage.
-  iree_hal_allocator_t* allocator_;
-  // Minimum mapping granularity in bytes, queried from the live allocator.
-  iree_device_size_t page_size_;
-  // Owned virtual reservation, released after all pages have been unmapped.
-  iree_hal_buffer_t* buffer_ = nullptr;
-  // Owned whole-page allocations, one per mapping as required by ROCr VMM.
-  std::array<iree_hal_physical_memory_t*, 2> physical_memory_ = {};
-  // Successfully mapped pages requiring teardown, including failed protection.
-  iree_host_size_t mapped_page_count_ = 0;
+  // Virtual buffer retaining the address interval until final release.
+  iree_hal_buffer_t* reservation_ = nullptr;
+  // Ordinary prepared backing for two distinct pages of the sparse buffer.
+  iree_hal_buffer_t* backing_ = nullptr;
 };
 
 void RunSparseByteOffsetExecution(
     const loomc::testing::target::IreeHalKernelExecution& execution,
     iree_const_byte_span_t constants,
     const std::array<int32_t, 4>& expected_high_output) {
-  iree_hal_allocator_t* allocator = iree_hal_device_allocator(execution.device);
-  if (!iree_hal_allocator_supports_virtual_memory(allocator)) {
-    GTEST_SKIP() << "live allocator does not support sparse virtual memory";
-  }
-  iree_hal_physical_memory_params_t params = {
-      .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
-      .usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER,
+  std::array<iree_hal_pool_family_access_t, 2> families = {{
+      {
+          .family = iree_hal_queue_family(execution.transfer_queue),
+          .usage =
+              IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      },
+      {
+          .family = iree_hal_queue_family(execution.dispatch_queue),
+          .usage =
+              IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,
+      },
+  }};
+  const iree_hal_pool_scope_t scope = {
+      .family_count = families[0].family == families[1].family ? 1u : 2u,
+      .families = families.data(),
   };
-  iree_device_size_t page_size = 0;
-  iree_device_size_t recommended_page_size = 0;
-  IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_query_granularity(
-      allocator, params, &page_size, &recommended_page_size));
+  iree_hal_virtual_buffer_capabilities_t capabilities;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_capabilities(
+      execution.device_group, scope, iree_allocator_system(), &capabilities));
+  if (!capabilities.max_byte_length) {
+    GTEST_SKIP() << "live device group does not support sparse virtual memory";
+  }
+  for (auto& family : families) {
+    family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
+  }
+  iree_hal_slab_pool_options_t source_options;
+  iree_hal_slab_pool_options_initialize(&source_options);
+  iree_hal_pool_t* source_pool = nullptr;
+  IREE_ASSERT_OK(
+      iree_hal_slab_pool_create(execution.device_group, scope, &source_options,
+                                iree_allocator_system(), &source_pool));
+  loomc::testing::HandlePtr<iree_hal_pool_t, iree_hal_pool_release>
+      source_pool_ptr(source_pool);
+  const auto requirements =
+      iree_hal_pool_query_mapping_requirements(source_pool);
+  const iree_device_size_t page_size =
+      iree_max(capabilities.reservation_granularity,
+               iree_max(capabilities.mapping_granularity,
+                        requirements.minimum_granularity));
   ASSERT_GT(page_size, 0u);
   ASSERT_LE(page_size, 2 * 1024 * 1024u);
   ASSERT_EQ(SparseTestBuffer::kHighPageOffset % page_size, 0u);
+  for (auto& family : families) {
+    family.interfaces = 0;
+  }
 
-  SparseTestBuffer input_buffer(allocator, page_size);
-  SparseTestBuffer output_buffer(allocator, page_size);
-  IREE_ASSERT_OK(input_buffer.Initialize(params));
-  IREE_ASSERT_OK(output_buffer.Initialize(params));
+  SparseTestBuffer input_buffer;
+  SparseTestBuffer output_buffer;
+  IREE_ASSERT_OK(input_buffer.Initialize(execution.device_group, scope,
+                                         source_pool, execution.transfer_queue,
+                                         page_size));
+  IREE_ASSERT_OK(output_buffer.Initialize(execution.device_group, scope,
+                                          source_pool, execution.transfer_queue,
+                                          page_size));
 
   std::array<std::array<int32_t, 4>, 2> input = {
       {{5, 7, 11, 13}, {13, 17, 19, 23}}};

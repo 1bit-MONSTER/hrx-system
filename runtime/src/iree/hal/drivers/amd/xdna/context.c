@@ -16,7 +16,7 @@ void iree_hal_amd_xdna_context_report(
                               operation);
 }
 
-void iree_hal_amd_xdna_context_destroy(iree_hal_amd_xdna_context_t* context) {
+void iree_hal_amd_xdna_context_free(iree_hal_amd_xdna_context_t* context) {
   if (!context) {
     return;
   }
@@ -191,7 +191,7 @@ static iree_status_t iree_hal_amd_xdna_context_open(
       &context->command_source);
 }
 
-iree_status_t iree_hal_amd_xdna_context_create(
+iree_status_t iree_hal_amd_xdna_context_allocate(
     iree_hal_amd_fabric_t* fabric, const amdf_endpoint_id_t* endpoint_id,
     iree_host_size_t param_count, const iree_string_pair_t* params,
     iree_hal_device_event_sink_t event_sink, iree_allocator_t host_allocator,
@@ -231,7 +231,7 @@ iree_status_t iree_hal_amd_xdna_context_create(
   if (iree_status_is_ok(status)) {
     *out_context = context;
   } else {
-    iree_hal_amd_xdna_context_destroy(context);
+    iree_hal_amd_xdna_context_free(context);
   }
   return status;
 }

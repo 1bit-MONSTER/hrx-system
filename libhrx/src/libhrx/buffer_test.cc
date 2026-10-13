@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cstring>
+#include <vector>
 
 #include "hrx_internal.h"
 #include "iree/testing/gtest.h"
@@ -223,6 +224,131 @@ TEST_F(CpuBufferTest, HostRegistrationAddressOutlivesRegistryEntry) {
       hrx_status_to_iree(hrx_buffer_get_device_ptr(buffer, &device_pointer)));
   EXPECT_EQ(storage, device_pointer);
   hrx_buffer_release(buffer);
+}
+
+TEST_F(CpuBufferTest, PreparedBackingAliasesRemainOrdinaryStreamBuffers) {
+  for (hrx_memory_type_t memory_type :
+       {HRX_MEMORY_TYPE_HOST_LOCAL, HRX_MEMORY_TYPE_DEVICE_LOCAL}) {
+    for (bool stream_allocation : {false, true}) {
+      SCOPED_TRACE(memory_type);
+      SCOPED_TRACE(stream_allocation);
+      const hrx_buffer_usage_t usage =
+          HRX_BUFFER_USAGE_DEFAULT | HRX_BUFFER_USAGE_MAPPING_SOURCE;
+      iree_hal_pool_t* pool = nullptr;
+      IREE_ASSERT_OK(hrx_mem_pool_backing_retain_allocation_source(
+          device_, memory_type, usage, &pool));
+      const auto requirements = iree_hal_pool_query_mapping_requirements(pool);
+      ASSERT_GT(requirements.minimum_granularity, 0u);
+      EXPECT_GE(requirements.recommended_granularity,
+                requirements.minimum_granularity);
+      const size_t size = requirements.recommended_granularity;
+      hrx_buffer_t backing = nullptr;
+      if (stream_allocation) {
+        IREE_ASSERT_OK(hrx_status_to_iree(
+            hrx_buffer_allocate(stream_, size, memory_type, usage, &backing)));
+      } else {
+        const hrx_buffer_params_t params = {
+            .type = memory_type,
+            .access = HRX_MEMORY_ACCESS_ALL,
+            .usage = usage,
+        };
+        IREE_ASSERT_OK(hrx_status_to_iree(hrx_allocator_allocate_buffer(
+            hrx_device_allocator(device_), params, size, &backing)));
+      }
+      const uint8_t pattern = 0x5A;
+      IREE_ASSERT_OK(hrx_status_to_iree(hrx_stream_fill_buffer(
+          stream_, backing, 0, size, &pattern, sizeof(pattern))));
+      IREE_ASSERT_OK(hrx_status_to_iree(hrx_stream_synchronize(stream_)));
+
+      const iree_hal_pool_family_access_t family = {
+          .family = iree_hal_queue_family(device_->transfer_queue),
+          .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
+      };
+      const iree_hal_pool_scope_t scope = {
+          .family_count = 1,
+          .families = &family,
+          .host =
+              {
+                  .access = IREE_HAL_MEMORY_ACCESS_ALL,
+                  .modes = IREE_HAL_MAPPING_MODE_PERSISTENT,
+              },
+      };
+      const iree_hal_virtual_buffer_options_t options = {
+          .byte_length = size,
+          .mapping_granularity = size,
+      };
+      iree_hal_buffer_t* reservation = nullptr;
+      IREE_ASSERT_OK(iree_hal_virtual_buffer_create(
+          device_->hal_device_group, scope, &options, iree_allocator_system(),
+          &reservation));
+      iree_hal_memory_mapping_t mapping = {
+          .target = reservation,
+          .scope = {iree_hal_device_group_memory_domain(
+                        device_->hal_device_group),
+                    IREE_HAL_MEMORY_SCOPE_ANY},
+          .target_range = {0, size},
+          .source = backing->hal_buffer,
+          .access = IREE_HAL_MEMORY_ACCESS_ALL,
+          .operation = IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
+      };
+      iree_hal_semaphore_t* semaphore = nullptr;
+      IREE_ASSERT_OK(iree_hal_semaphore_create(
+          device_->hal_device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
+          IREE_HAL_SEMAPHORE_FLAG_NONE, &semaphore));
+      uint64_t value = 1;
+      const iree_hal_semaphore_list_t signals = {1, &semaphore, &value};
+      IREE_ASSERT_OK(iree_hal_queue_map(
+          device_->transfer_queue, iree_hal_semaphore_list_empty(), signals, 1,
+          &mapping, IREE_HAL_QUEUE_MAP_FLAG_NONE));
+      IREE_ASSERT_OK(iree_hal_semaphore_wait(
+          semaphore, value, iree_infinite_timeout(), /*flags=*/0));
+
+      hrx_buffer_t alias = nullptr;
+      IREE_ASSERT_OK(hrx_buffer_create_from_hal((reservation), device_,
+                                                HRX_MEMORY_TYPE_HOST_LOCAL,
+                                                size, nullptr, &alias));
+      const uint8_t update = 0xA7;
+      IREE_ASSERT_OK(hrx_status_to_iree(hrx_stream_fill_buffer(
+          stream_, alias, 16, 64, &update, sizeof(update))));
+      IREE_ASSERT_OK(hrx_status_to_iree(hrx_stream_synchronize(stream_)));
+      std::vector<uint8_t> output(size);
+      IREE_ASSERT_OK(hrx_status_to_iree(hrx_synchronous_d2h(
+          device_, backing, 0, output.data(), output.size())));
+      for (size_t i = 0; i < output.size(); ++i) {
+        EXPECT_EQ(output[i], i >= 16 && i < 80 ? update : pattern);
+      }
+
+      mapping.source = nullptr;
+      mapping.access = IREE_HAL_MEMORY_ACCESS_NONE;
+      mapping.operation = IREE_HAL_MEMORY_MAPPING_OPERATION_UNBIND;
+      ++value;
+      IREE_ASSERT_OK(iree_hal_queue_map(
+          device_->transfer_queue, iree_hal_semaphore_list_empty(), signals, 1,
+          &mapping, IREE_HAL_QUEUE_MAP_FLAG_NONE));
+      IREE_ASSERT_OK(iree_hal_semaphore_wait(
+          semaphore, value, iree_infinite_timeout(), /*flags=*/0));
+      iree_hal_buffer_release(reservation);
+      hrx_buffer_release(alias);
+      hrx_buffer_release(backing);
+      iree_hal_semaphore_release(semaphore);
+      iree_hal_pool_release(pool);
+    }
+  }
+}
+
+TEST_F(CpuBufferTest, HostRegistrationCannotProvideRemappableBacking) {
+  uint8_t storage[64] = {};
+  const hrx_buffer_params_t params = {
+      .type = HRX_MEMORY_TYPE_HOST_LOCAL,
+      .access = HRX_MEMORY_ACCESS_ALL,
+      .usage = HRX_BUFFER_USAGE_DEFAULT | HRX_BUFFER_USAGE_MAPPING_SOURCE,
+  };
+  hrx_buffer_t buffer = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
+                        hrx_status_to_iree(hrx_allocator_import_buffer(
+                            hrx_device_allocator(device_), params, storage,
+                            sizeof(storage), &buffer)));
+  EXPECT_EQ(buffer, nullptr);
 }
 
 TEST_F(CpuBufferTest, MappingPermissionsAndDiscardProduceExpectedStreamOutput) {

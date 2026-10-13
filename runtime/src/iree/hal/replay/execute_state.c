@@ -23,6 +23,13 @@ static iree_status_t iree_hal_replay_executor_release_entry(
     case IREE_HAL_REPLAY_OBJECT_TYPE_POOL:
       iree_hal_pool_release(entry->value.pool);
       break;
+    case IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER_MAPPING:
+      status =
+          iree_hal_buffer_unmap_range(&entry->value.buffer_mapping->mapping);
+      iree_hal_buffer_release(entry->value.buffer_mapping->storage);
+      iree_allocator_free(executor->host_allocator,
+                          entry->value.buffer_mapping);
+      break;
     case IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER:
       if (entry->owning_allocator) {
         if (iree_hal_replay_executor_has_virtual_memory_mapping(executor,
@@ -115,6 +122,45 @@ iree_status_t iree_hal_replay_executor_deinitialize(
   if (!iree_status_is_ok(status)) {
     return status;
   }
+
+  // End host maps before detaching virtual buffers. Keep their actual storage
+  // retained until all mappings are removed: a decommitted source may
+  // have surviving aliases backed only by these host-map storage references.
+  iree_status_t host_mapping_status = iree_ok_status();
+  for (iree_host_size_t i = executor->object_capacity; i > 0; --i) {
+    if (executor->objects[i - 1].type ==
+        IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER_MAPPING) {
+      host_mapping_status = iree_status_join(
+          host_mapping_status,
+          iree_hal_buffer_unmap_range(
+              &executor->objects[i - 1].value.buffer_mapping->mapping));
+    }
+  }
+  IREE_RETURN_IF_ERROR(host_mapping_status);
+
+  // Clear surviving virtual roots before releasing caller-owned backing.
+  // Successful removal certifies reuse independently of final buffer release.
+  iree_status_t detach_status = iree_ok_status();
+  for (iree_host_size_t i = executor->object_capacity; i > 0; --i) {
+    const iree_hal_replay_object_entry_t* entry = &executor->objects[i - 1];
+    if (entry->type != IREE_HAL_REPLAY_OBJECT_TYPE_BUFFER ||
+        entry->owning_allocator) {
+      continue;
+    }
+    iree_hal_buffer_t* buffer = entry->value.buffer;
+    const iree_hal_virtual_buffer_view_t view =
+        iree_hal_buffer_virtual_view(buffer);
+    if (view.root && !view.byte_offset &&
+        buffer->byte_length == view.root->buffer.byte_length) {
+      const iree_hal_memory_scope_t scope = {
+          .domain = buffer->memory.contract->domain,
+          .id = IREE_HAL_MEMORY_SCOPE_ANY,
+      };
+      detach_status = iree_status_join(
+          detach_status, iree_hal_virtual_buffer_detach(buffer, scope));
+    }
+  }
+  IREE_RETURN_IF_ERROR(detach_status);
 
   // Release leaf objects before queue, pool, allocator, and device roots
   // regardless of replay object id assignment.
@@ -915,7 +961,6 @@ iree_status_t iree_hal_replay_executor_finalize_queue_completion(
   IREE_ASSERT(completion ==
               &executor->queue_completions[executor->queue_completion_count]);
   ++executor->queue_completion_count;
-  iree_status_ignore(operation_status);
   iree_status_t status =
       flush_queue ? iree_hal_queue_flush(completion->queue) : iree_ok_status();
   if (!iree_status_is_ok(status) || !completion->wait_immediately) {

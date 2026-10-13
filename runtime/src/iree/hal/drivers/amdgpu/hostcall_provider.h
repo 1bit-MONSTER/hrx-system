@@ -51,7 +51,7 @@ typedef struct iree_hal_amdgpu_hostcall_provider_state_t {
 } iree_hal_amdgpu_hostcall_provider_state_t;
 
 // Creates an eager physical-device hostcall provider state.
-iree_status_t iree_hal_amdgpu_hostcall_provider_state_create(
+iree_status_t iree_hal_amdgpu_hostcall_provider_state_allocate(
     const iree_hal_hostcall_provider_t* provider,
     iree_hal_device_t* logical_device, const iree_hal_amdgpu_libhsa_t* libhsa,
     hsa_agent_t device_agent, hsa_amd_memory_pool_t shared_memory_pool,
@@ -61,7 +61,7 @@ iree_status_t iree_hal_amdgpu_hostcall_provider_state_create(
     iree_hal_amdgpu_hostcall_provider_state_t** out_state);
 
 // Stops the listener and releases one provider state.
-void iree_hal_amdgpu_hostcall_provider_state_destroy(
+void iree_hal_amdgpu_hostcall_provider_state_free(
     iree_hal_amdgpu_hostcall_provider_state_t* state);
 
 #ifdef __cplusplus

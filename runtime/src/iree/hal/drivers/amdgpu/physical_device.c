@@ -975,7 +975,7 @@ iree_status_t iree_hal_amdgpu_physical_device_initialize(
             out_physical_device);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_hal_amdgpu_pm4_command_buffer_resident_pool_create(
+    status = iree_hal_amdgpu_pm4_command_buffer_resident_pool_allocate(
         libhsa, host_agent, device_agent, coarse_block_memory_pool,
         host_memory_pools->coarse_pool, host_allocator,
         &out_physical_device->pm4_command_buffer_resident_pool);
@@ -1046,7 +1046,7 @@ iree_status_t iree_hal_amdgpu_physical_device_initialize(
             out_physical_device->dispatch_concurrency_capabilities
                 .maximum_waves_per_compute_unit,
     };
-    status = iree_hal_amdgpu_hostcall_provider_state_create(
+    status = iree_hal_amdgpu_hostcall_provider_state_allocate(
         hostcall_provider, logical_device, libhsa, device_agent,
         host_memory_pools->fine_pool, out_physical_device->host_numa_node,
         &device_info, host_allocator,
@@ -1374,7 +1374,7 @@ void iree_hal_amdgpu_physical_device_deinitialize(
 
   iree_hal_amdgpu_physical_device_deassign_frontier(physical_device);
 
-  iree_hal_amdgpu_hostcall_provider_state_destroy(
+  iree_hal_amdgpu_hostcall_provider_state_free(
       physical_device->hostcall_provider_state);
   physical_device->hostcall_provider_state = NULL;
 
@@ -1391,7 +1391,7 @@ void iree_hal_amdgpu_physical_device_deinitialize(
       &physical_device->transient_buffer_pool);
   iree_hal_amdgpu_buffer_pool_deinitialize(
       &physical_device->materialized_buffer_pool);
-  iree_hal_amdgpu_pm4_command_buffer_resident_pool_destroy(
+  iree_hal_amdgpu_pm4_command_buffer_resident_pool_free(
       physical_device->pm4_command_buffer_resident_pool);
   physical_device->pm4_command_buffer_resident_pool = NULL;
 

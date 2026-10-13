@@ -137,7 +137,7 @@ static void iree_net_rdma_connection_events_ready(
   }
 }
 
-static void iree_net_rdma_connection_events_free(
+static void iree_net_rdma_connection_events_free_storage(
     iree_net_rdma_connection_events_t* events) {
   if (events->channel) {
     iree_net_rdma_context_library(events->context)
@@ -148,7 +148,7 @@ static void iree_net_rdma_connection_events_free(
   iree_allocator_free(events->host_allocator, events);
 }
 
-iree_status_t iree_net_rdma_connection_events_create(
+iree_status_t iree_net_rdma_connection_events_allocate(
     iree_net_rdma_context_t* context, iree_async_proactor_t* proactor,
     uint32_t service_batch_size,
     iree_net_rdma_connection_events_callbacks_t callbacks,
@@ -193,7 +193,7 @@ iree_status_t iree_net_rdma_connection_events_create(
   if (iree_status_is_ok(status)) {
     *out_events = events;
   } else {
-    iree_net_rdma_connection_events_free(events);
+    iree_net_rdma_connection_events_free_storage(events);
   }
   return status;
 }
@@ -264,7 +264,7 @@ void iree_net_rdma_connection_events_deactivate(
   }
 }
 
-void iree_net_rdma_connection_events_destroy(
+void iree_net_rdma_connection_events_free(
     iree_net_rdma_connection_events_t* events) {
   if (!events) {
     return;
@@ -275,5 +275,5 @@ void iree_net_rdma_connection_events_destroy(
                             IREE_NET_RDMA_CONNECTION_EVENTS_FLAG_STOPPING |
                                 IREE_NET_RDMA_CONNECTION_EVENTS_FLAG_PROGRESS),
       "active CM monitoring must join before destruction");
-  iree_net_rdma_connection_events_free(events);
+  iree_net_rdma_connection_events_free_storage(events);
 }

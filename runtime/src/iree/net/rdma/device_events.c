@@ -27,7 +27,7 @@ struct iree_net_rdma_device_events_t {
   iree_status_t failure;
 };
 
-iree_status_t iree_net_rdma_device_events_create(
+iree_status_t iree_net_rdma_device_events_allocate(
     const iree_net_rdma_library_t* library, struct ibv_context* device,
     uint8_t port_number, iree_allocator_t host_allocator,
     iree_net_rdma_device_events_t** out_events) {
@@ -50,8 +50,7 @@ iree_status_t iree_net_rdma_device_events_create(
   return iree_ok_status();
 }
 
-void iree_net_rdma_device_events_destroy(
-    iree_net_rdma_device_events_t* events) {
+void iree_net_rdma_device_events_free(iree_net_rdma_device_events_t* events) {
   if (!events) {
     return;
   }

@@ -154,8 +154,8 @@ static_assert(sizeof(loom_low_memory_access_summary_t) ==
 // map; it contains no IR attributes and never infers an address from Low IR.
 typedef struct loom_low_memory_access_map_t loom_low_memory_access_map_t;
 
-// Creates an initially empty map in |arena|.
-iree_status_t loom_low_memory_access_map_create(
+// Allocates an initially empty map in |arena|.
+iree_status_t loom_low_memory_access_map_allocate(
     iree_arena_allocator_t* arena, loom_low_memory_access_map_t** out_map);
 
 // Retains one concrete descriptor effect and deep-copies its proof payload.
@@ -186,7 +186,7 @@ iree_status_t loom_low_memory_access_map_transfer(
 // The source map is immutable; target bindings own all copied payloads.
 typedef struct loom_low_memory_access_clone_t loom_low_memory_access_clone_t;
 
-iree_status_t loom_low_memory_access_clone_create(
+iree_status_t loom_low_memory_access_clone_allocate(
     const loom_low_memory_access_map_t* source,
     loom_low_memory_access_map_t* target, iree_arena_allocator_t* scratch_arena,
     loom_low_memory_access_clone_t** out_clone);

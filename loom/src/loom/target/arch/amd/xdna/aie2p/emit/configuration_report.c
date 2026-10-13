@@ -35,7 +35,7 @@ struct loom_aie2p_configuration_report_t {
   iree_host_size_t worker_capacity;
 };
 
-iree_status_t loom_aie2p_configuration_report_create(
+iree_status_t loom_aie2p_configuration_report_allocate(
     loom_target_compile_report_t* destination,
     const loom_xdna_array_family_t* family, uint32_t column_count,
     iree_string_view_t root_name, iree_arena_allocator_t* arena,

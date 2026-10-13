@@ -27,7 +27,8 @@ static void iree_hal_amd_driver_destroy(iree_hal_driver_t* base) {
   iree_allocator_free(driver->host_allocator, driver);
 }
 
-iree_status_t iree_hal_amd_driver_create(iree_allocator_t host_allocator,
+iree_status_t iree_hal_amd_driver_create(amdf_native_lifetime_t native_lifetime,
+                                         iree_allocator_t host_allocator,
                                          iree_hal_driver_t** out_driver) {
   *out_driver = NULL;
   const amdf_api_t* api = NULL;
@@ -39,8 +40,8 @@ iree_status_t iree_hal_amd_driver_create(iree_allocator_t host_allocator,
       iree_allocator_malloc(host_allocator, sizeof(*driver), (void**)&driver));
   iree_hal_resource_initialize(&iree_hal_amd_driver_vtable, &driver->resource);
   driver->host_allocator = host_allocator;
-  iree_status_t status =
-      iree_hal_amd_fabric_create(api, host_allocator, &driver->fabric);
+  iree_status_t status = iree_hal_amd_fabric_create(
+      api, native_lifetime, host_allocator, &driver->fabric);
   if (iree_status_is_ok(status)) {
     *out_driver = (iree_hal_driver_t*)driver;
   } else {
@@ -152,14 +153,14 @@ static iree_status_t iree_hal_amd_driver_create_device_by_id(
   IREE_RETURN_IF_ERROR(
       iree_hal_amd_driver_resolve_id(driver->fabric, id, &endpoint));
   iree_hal_amd_xdna_context_t* context = NULL;
-  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_context_create(
+  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_context_allocate(
       driver->fabric, &endpoint->id, param_count, params,
       create_params->event_sink, host_allocator, &context));
   iree_status_t status = iree_hal_amd_xdna_device_create(
       context, iree_make_cstring_view(endpoint->name), create_params,
       host_allocator, out_device);
   if (!iree_status_is_ok(status)) {
-    iree_hal_amd_xdna_context_destroy(context);
+    iree_hal_amd_xdna_context_free(context);
   }
   return status;
 }

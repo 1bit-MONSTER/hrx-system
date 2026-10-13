@@ -124,7 +124,9 @@ struct NativeProvider {
 
   NativeProvider() {
     iree_notification_initialize(&submission_notification);
+    api.instance_destroy = InstanceDestroy;
     api.memory_create = MemoryCreate;
+    api.memory_query_info = MemoryQueryInfo;
     api.memory_destroy = MemoryDestroy;
     api.memory_map = MemoryMap;
     api.host_mapping_destroy = MappingDestroy;
@@ -229,6 +231,15 @@ struct NativeProvider {
     ++self->live_memories;
     ++self->memory_create_count;
     *out_memory = reinterpret_cast<amdf_memory_t*>(memory);
+    return AMDF_STATUS_OK;
+  }
+  static amdf_status_t AMDF_CALL MemoryQueryInfo(amdf_memory_t* handle,
+                                                 amdf_memory_info_t* out_info) {
+    auto* memory = reinterpret_cast<Memory*>(handle);
+    out_info->byte_length = memory->contents.size();
+    out_info->alignment = 32768;
+    out_info->native_allocation_byte_length = memory->contents.size();
+    out_info->native_allocation_granularity = 4096;
     return AMDF_STATUS_OK;
   }
   static amdf_status_t AMDF_CALL MemoryDestroy(amdf_memory_t* handle) {
@@ -530,6 +541,12 @@ struct NativeProvider {
     (void)device;
     return AMDF_STATUS_OK;
   }
+  static amdf_status_t AMDF_CALL InstanceDestroy(amdf_instance_t* instance) {
+    auto* self = reinterpret_cast<NativeProvider*>(instance);
+    EXPECT_EQ(self->context_destroy_count, 1u);
+    ++self->instance_destroy_count;
+    return AMDF_STATUS_OK;
+  }
   static amdf_status_t AMDF_CALL ContextDestroy(amdf_xdna_context_t* context) {
     auto* self = reinterpret_cast<NativeProvider*>(context);
     self->context_destroy_saw_queue = self->queue_destroy_count == 1;
@@ -630,6 +647,8 @@ struct NativeProvider {
   size_t queue_destroy_count = 0;
   // Number of parent context destruction attempts.
   size_t context_destroy_count = 0;
+  // Number of fabric instance destruction attempts after its native children.
+  size_t instance_destroy_count = 0;
   // True when parent destruction observed terminal native queue destruction.
   bool context_destroy_saw_queue = false;
 };
@@ -680,6 +699,13 @@ class QueueHarness {
     IREE_ASSERT_OK(iree_allocator_malloc(host_allocator, sizeof(*context),
                                          reinterpret_cast<void**>(&context)));
     context->host_allocator = host_allocator;
+    IREE_ASSERT_OK(
+        iree_allocator_malloc(host_allocator, sizeof(*context->fabric),
+                              reinterpret_cast<void**>(&context->fabric)));
+    iree_atomic_ref_count_init(&context->fabric->ref_count);
+    context->fabric->host_allocator = host_allocator;
+    context->fabric->api = &native.api;
+    context->fabric->instance = reinterpret_cast<amdf_instance_t*>(&native);
     context->api = &native.api;
     context->xdna = &native.xdna;
     context->handle = reinterpret_cast<amdf_xdna_context_t*>(&native);
@@ -888,7 +914,7 @@ class QueueHarness {
         memory_type |= IREE_HAL_MEMORY_TYPE_HOST_COHERENT;
       }
       if (storage->memory.storage.host_cacheability ==
-          AMDF_HOST_CACHEABILITY_WRITE_BACK) {
+          IREE_HAL_HOST_CACHEABILITY_WRITE_BACK) {
         memory_type |= IREE_HAL_MEMORY_TYPE_HOST_CACHED;
       }
       status = iree_hal_amd_fabric_buffer_wrap(
@@ -1193,6 +1219,7 @@ TEST(XdnaDeviceTest, PublishesMemoryProgressBackend) {
   const auto* backend =
       reinterpret_cast<const iree_hal_amd_fabric_memory_backend_t*>(base);
   EXPECT_EQ(backend->device, harness.device);
+  EXPECT_EQ(backend->native.instance, harness.context->fabric->instance);
   EXPECT_EQ(backend->native.device, harness.context->device);
   EXPECT_EQ(backend->native.scope, harness.context->data_source.scope);
   EXPECT_NE(backend->notification, nullptr);
@@ -3082,6 +3109,7 @@ TEST(XdnaQueueTest, FinalPublicationAllowsImmediateDeviceRelease) {
   EXPECT_EQ(harness.native.live_memories, 0u);
   EXPECT_EQ(harness.native.queue_destroy_count, 1u);
   EXPECT_EQ(harness.native.context_destroy_count, 1u);
+  EXPECT_EQ(harness.native.instance_destroy_count, 1u);
   EXPECT_TRUE(harness.native.context_destroy_saw_queue);
   EXPECT_EQ(harness.diagnostic_count, 0u);
   iree_hal_semaphore_release(first);

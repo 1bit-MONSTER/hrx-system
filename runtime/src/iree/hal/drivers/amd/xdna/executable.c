@@ -144,7 +144,7 @@ static iree_hal_memory_type_t iree_hal_amd_xdna_required_binding_memory_type(
   return required_memory_type;
 }
 
-static void iree_hal_amd_xdna_invocation_destroy(
+static void iree_hal_amd_xdna_invocation_free(
     iree_hal_amd_xdna_invocation_t* invocation) {
   iree_hal_amd_xdna_function_t* function = invocation->function;
   for (uint32_t i = 0; i < function->record.allocation_use_count; ++i) {
@@ -167,7 +167,7 @@ static void iree_hal_amd_xdna_executable_destroy(iree_hal_executable_t* base) {
       iree_hal_amd_xdna_invocation_t* invocation = function->invocations;
       while (invocation) {
         iree_hal_amd_xdna_invocation_t* next = invocation->next;
-        iree_hal_amd_xdna_invocation_destroy(invocation);
+        iree_hal_amd_xdna_invocation_free(invocation);
         invocation = next;
       }
       iree_slim_mutex_deinitialize(&function->pool_mutex);
@@ -175,14 +175,14 @@ static void iree_hal_amd_xdna_executable_destroy(iree_hal_executable_t* base) {
     }
   }
   iree_allocator_free(executable->host_allocator, executable->functions);
-  iree_hal_amd_xdna_image_destroy(executable->image);
+  iree_hal_amd_xdna_image_free(executable->image);
   iree_allocator_free(executable->host_allocator, executable);
 }
 
 // Creates storage only when the observed in-flight working set grows. Shared
 // views are already published and loading never writes them, even while another
 // invocation is reading them on the device.
-static iree_status_t iree_hal_amd_xdna_invocation_create(
+static iree_status_t iree_hal_amd_xdna_invocation_allocate(
     iree_hal_amd_xdna_function_t* function,
     iree_hal_amd_xdna_invocation_t** out_invocation) {
   *out_invocation = NULL;
@@ -227,7 +227,7 @@ static iree_status_t iree_hal_amd_xdna_invocation_create(
     iree_hal_amd_xdna_owned_allocation_t* allocation =
         &invocation->allocations[i];
     if (plan->record.domain == IREE_XDNA_ELF_ALLOCATION_DOMAIN_COMMAND) {
-      status = iree_hal_amd_xdna_command_arena_allocate(
+      status = iree_hal_amd_xdna_command_arena_allocate_range(
           function->command_arena, plan->record.byte_length,
           plan->record.alignment, &allocation->command);
       if (iree_status_is_ok(status)) {
@@ -283,7 +283,7 @@ static iree_status_t iree_hal_amd_xdna_invocation_create(
   if (iree_status_is_ok(status)) {
     *out_invocation = invocation;
   } else {
-    iree_hal_amd_xdna_invocation_destroy(invocation);
+    iree_hal_amd_xdna_invocation_free(invocation);
   }
   return status;
 }
@@ -351,7 +351,7 @@ static iree_status_t iree_hal_amd_xdna_function_initialize(
     plan->patches.end = iree_max(plan->patches.end, relocation.byte_offset + 8);
   }
   IREE_RETURN_IF_ERROR(
-      iree_hal_amd_xdna_invocation_create(function, &function->prototype));
+      iree_hal_amd_xdna_invocation_allocate(function, &function->prototype));
   function->invocations = function->prototype;
   function->available = function->prototype;
   return iree_ok_status();
@@ -382,8 +382,8 @@ iree_status_t iree_hal_amd_xdna_executable_create(
                                                       &sequence);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_hal_amd_xdna_image_create(sequence, &context->target,
-                                            host_allocator, &executable->image);
+    status = iree_hal_amd_xdna_image_allocate(
+        sequence, &context->target, host_allocator, &executable->image);
   }
   iree_byte_sequence_release(sequence);
   iree_allocator_free(host_allocator, source.data);
@@ -644,7 +644,7 @@ iree_status_t iree_hal_amd_xdna_function_prepare(
       iree_hal_amd_xdna_function_acquire_invocation(function, bindings);
   if (!invocation) {
     IREE_RETURN_IF_ERROR(
-        iree_hal_amd_xdna_invocation_create(function, &invocation));
+        iree_hal_amd_xdna_invocation_allocate(function, &invocation));
     iree_slim_mutex_lock(&function->pool_mutex);
     invocation->next = function->invocations;
     function->invocations = invocation;

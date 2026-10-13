@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(IREE_HAL_DRIVER_AMDGPU)
 iree_amdgpu_binary_variants_embed_data(
   NAME
     amdgpu_executable_test_kernels
@@ -30,7 +31,9 @@ iree_amdgpu_binary_variants_embed_data(
   FLATTEN
   PUBLIC
 )
+endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_HAL_DRIVER_AMDGPU)
 iree_amdgpu_binary_variants_embed_data(
   NAME
     amdgpu_hip_printf_test_kernels
@@ -54,7 +57,9 @@ iree_amdgpu_binary_variants_embed_data(
   FLATTEN
   PUBLIC
 )
+endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_HAL_DRIVER_AMDGPU)
 iree_amdgpu_binary_variants_embed_data(
   NAME
     amdgpu_hip_cooperative_test_kernels
@@ -78,7 +83,9 @@ iree_amdgpu_binary_variants_embed_data(
   FLATTEN
   PUBLIC
 )
+endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_HAL_DRIVER_AMDGPU)
 iree_amdgpu_binary_variants_embed_data(
   NAME
     amdgpu_hip_module_library_test_kernels
@@ -102,6 +109,7 @@ iree_amdgpu_binary_variants_embed_data(
   FLATTEN
   PUBLIC
 )
+endif()
 
 iree_cc_library(
   NAME
@@ -308,6 +316,7 @@ hrx_cc_test(
     gpu-device
 )
 
+if(IREE_HAL_DRIVER_AMDGPU)
 hrx_cc_test(
   NAME
     hrx_cts_executable
@@ -331,6 +340,7 @@ hrx_cc_test(
   RESOURCE_GROUP
     gpu-device
 )
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_HAL_DRIVER_AMDGPU)
 iree_cc_test(
@@ -651,6 +661,47 @@ hrx_cc_test(
 
 hrx_cc_test(
   NAME
+    hrx_cts_legacy_virtual_memory
+  SRCS
+    "tests/virtual_memory/legacy_virtual_memory_test.cpp"
+  DATA
+    "libhrx::src::libhrx::hrx"
+  DEPS
+    ::core
+    iree::third_party::catch2
+    libhrx_defs
+  ARGS
+    "--hrx-library"
+    "$<TARGET_FILE:libhrx::src::libhrx::hrx>"
+    "--hrx-device=cpu:0"
+)
+
+if(IREE_HAL_DRIVER_AMDGPU)
+hrx_cc_test(
+  NAME
+    hrx_cts_legacy_virtual_memory_gpu
+  SRCS
+    "tests/virtual_memory/legacy_virtual_memory_test.cpp"
+  DATA
+    "libhrx::src::libhrx::hrx"
+  DEPS
+    ::core
+    iree::third_party::catch2
+    libhrx_defs
+  ARGS
+    "--hrx-library"
+    "$<TARGET_FILE:libhrx::src::libhrx::hrx>"
+    "--hrx-device=gpu:0"
+  LABELS
+    "iree-run-requirement=runtime.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+hrx_cc_test(
+  NAME
     hrx_cts_virtual_memory
   SRCS
     "tests/virtual_memory/virtual_memory_test.cpp"
@@ -663,11 +714,6 @@ hrx_cc_test(
   ARGS
     "--hrx-library"
     "$<TARGET_FILE:libhrx::src::libhrx::hrx>"
-  LABELS
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-  RESOURCE_GROUP
-    gpu-device
 )
 
 hrx_cc_test(

@@ -60,7 +60,7 @@ typedef struct iree_net_rdma_completion_queue_callbacks_t {
 // context and proactor. Allocation/native failures leave output NULL without
 // live monitoring. Both callbacks are required. The proactor may be polling
 // only if this is called from its poll owner.
-IREE_API_EXPORT iree_status_t iree_net_rdma_completion_queue_create(
+IREE_API_EXPORT iree_status_t iree_net_rdma_completion_queue_allocate(
     iree_net_rdma_context_t* context, iree_async_proactor_t* proactor,
     iree_net_rdma_completion_queue_options_t options,
     iree_net_rdma_completion_queue_callbacks_t callbacks,
@@ -84,7 +84,7 @@ IREE_API_EXPORT void iree_net_rdma_completion_queue_deactivate(
 // Destroys a deactivated service after all attached QPs have been destroyed.
 // Consumed notifications are acknowledged by service visits; native destruction
 // discards unread notifications without requiring a working event channel.
-IREE_API_EXPORT void iree_net_rdma_completion_queue_destroy(
+IREE_API_EXPORT void iree_net_rdma_completion_queue_free(
     iree_net_rdma_completion_queue_t* queue);
 
 #ifdef __cplusplus

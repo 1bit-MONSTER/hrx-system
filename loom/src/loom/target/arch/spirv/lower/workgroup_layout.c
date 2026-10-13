@@ -510,7 +510,7 @@ iree_status_t loom_spirv_workgroup_layout_record_alloca(
   loom_spirv_workgroup_layout_segment_t* segment =
       &layout->segments[scalar_type];
   if (segment->packing == NULL) {
-    IREE_RETURN_IF_ERROR(loom_source_storage_packing_create(
+    IREE_RETURN_IF_ERROR(loom_source_storage_packing_allocate(
         loom_source_storage_packing_interference_callback_make(
             loom_spirv_workgroup_layout_query_interference, layout),
         NULL, 0, loom_low_lower_context_function_arena(context),

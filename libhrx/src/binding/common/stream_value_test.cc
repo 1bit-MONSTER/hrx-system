@@ -676,7 +676,7 @@ TEST(StreamValueWaitLaneTest,
 
   IREE_ASSERT_OK(hrx_mem_pool_backing_retain_allocation_source(
       hrx_device, HRX_MEMORY_TYPE_HOST_LOCAL | HRX_MEMORY_TYPE_DEVICE_VISIBLE,
-      &memory_pool));
+      HRX_BUFFER_USAGE_DEFAULT, &memory_pool));
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
       memory_pool,
       iree_hal_make_pool_reservation_request(sizeof(uint32_t),

@@ -80,7 +80,7 @@ typedef struct loom_expression_barriers_t {
   uint32_t memory;
 } loom_expression_barriers_t;
 
-// Creates a root-region walk and its dominance scopes in |arena|. A zero
+// Allocates a root-region walk and its dominance scopes in |arena|. A zero
 // |maximum_entry_count| bounds the shared index by value-producing operations;
 // a nonzero bound lets a sparse semantic consumer avoid that storage.
 // |identity_policy| may be NULL to select exact structural identity. A
@@ -88,7 +88,7 @@ typedef struct loom_expression_barriers_t {
 // Index storage is allocated once; traversal links are allocated once per
 // block. Erasing regionless operations preserves the walk. Changing block
 // structure, successor edges or nested regions invalidates it.
-iree_status_t loom_expression_walk_create(
+iree_status_t loom_expression_walk_allocate(
     loom_module_t* module, loom_region_t* region,
     const loom_expression_identity_policy_t* identity_policy,
     uint32_t maximum_entry_count, iree_arena_allocator_t* arena,

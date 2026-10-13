@@ -1336,7 +1336,7 @@ static iree_status_t loom_run_hal_testbench_actual_sequence_span_initialize(
   return iree_ok_status();
 }
 
-void loom_run_hal_testbench_actual_sequence_execution_destroy(
+void loom_run_hal_testbench_actual_sequence_execution_free(
     loom_run_hal_testbench_actual_sequence_execution_t* execution) {
   if (execution == NULL) {
     return;
@@ -1352,7 +1352,7 @@ void loom_run_hal_testbench_actual_sequence_execution_destroy(
   iree_allocator_free(host_allocator, execution);
 }
 
-iree_status_t loom_run_hal_testbench_actual_sequence_execution_create(
+iree_status_t loom_run_hal_testbench_actual_sequence_execution_allocate(
     const loom_testbench_case_plan_t* case_plan,
     iree_host_size_t provider_count,
     loom_run_hal_testbench_actual_provider_t* const* providers,
@@ -1423,7 +1423,7 @@ iree_status_t loom_run_hal_testbench_actual_sequence_execution_create(
   if (iree_status_is_ok(status)) {
     *out_execution = execution;
   } else {
-    loom_run_hal_testbench_actual_sequence_execution_destroy(execution);
+    loom_run_hal_testbench_actual_sequence_execution_free(execution);
   }
   return status;
 }
@@ -1730,7 +1730,7 @@ iree_status_t loom_run_hal_testbench_actual_sequence_initialize(
     providers[i] = &out_sequence->providers[i];
   }
   if (iree_status_is_ok(status)) {
-    status = loom_run_hal_testbench_actual_sequence_execution_create(
+    status = loom_run_hal_testbench_actual_sequence_execution_allocate(
         options->case_plan, out_sequence->provider_count, providers,
         out_sequence->host_allocator, &out_sequence->execution);
   }
@@ -1746,7 +1746,7 @@ void loom_run_hal_testbench_actual_sequence_deinitialize(
   if (sequence == NULL) {
     return;
   }
-  loom_run_hal_testbench_actual_sequence_execution_destroy(sequence->execution);
+  loom_run_hal_testbench_actual_sequence_execution_free(sequence->execution);
   for (iree_host_size_t i = 0; i < sequence->provider_count; ++i) {
     loom_run_hal_testbench_actual_provider_deinitialize(
         &sequence->providers[i]);

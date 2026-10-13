@@ -500,6 +500,42 @@ iree_status_t iree_hal_replay_dump_queue_payload_layout(
   return iree_ok_status();
 }
 
+iree_status_t iree_hal_replay_dump_virtual_buffer_layout(
+    const iree_hal_replay_file_record_t* record,
+    const iree_hal_replay_virtual_buffer_create_payload_t* payload,
+    iree_host_size_t* out_families_size) {
+  iree_host_size_t total_size = 0;
+  if (IREE_UNLIKELY(payload->reserved0 ||
+                    payload->family_count > IREE_HOST_SIZE_MAX ||
+                    !iree_host_size_checked_mul(
+                        (iree_host_size_t)payload->family_count,
+                        sizeof(iree_hal_replay_pool_family_access_payload_t),
+                        out_families_size) ||
+                    !iree_host_size_checked_add(
+                        sizeof(*payload), *out_families_size, &total_size) ||
+                    total_size != record->payload.data_length)) {
+    return iree_make_status(IREE_STATUS_DATA_LOSS,
+                            "replay reservation payload is invalid");
+  }
+  return iree_ok_status();
+}
+
+iree_status_t iree_hal_replay_dump_queue_map_layout(
+    const iree_hal_replay_file_record_t* record,
+    const iree_hal_replay_queue_map_payload_t* payload,
+    iree_hal_replay_dump_queue_payload_layout_t* out_layout) {
+  uint64_t mapping_bytes = 0;
+  if (IREE_UNLIKELY(!iree_checked_mul_u64(
+          payload->mapping_count,
+          sizeof(iree_hal_replay_memory_mapping_payload_t), &mapping_bytes))) {
+    return iree_make_status(IREE_STATUS_DATA_LOSS,
+                            "replay mapping batch header is invalid");
+  }
+  return iree_hal_replay_dump_queue_payload_layout(
+      record, sizeof(*payload), payload->wait_semaphore_count,
+      payload->signal_semaphore_count, mapping_bytes, out_layout);
+}
+
 iree_status_t iree_hal_replay_dump_queue_transfer_layout(
     const iree_hal_replay_file_record_t* record,
     const iree_hal_replay_queue_transfer_payload_t* payload,

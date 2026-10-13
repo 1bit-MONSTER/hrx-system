@@ -343,17 +343,17 @@ iree_hal_task_profile_command_region_event_info_default(void) {
 // |profiling_options->data_families| is NONE. Otherwise the requested families
 // must be a subset of iree_hal_task_profile_recorder_supported_data_families()
 // and |profiling_options->sink| must be non-NULL.
-iree_status_t iree_hal_task_profile_recorder_create(
+iree_status_t iree_hal_task_profile_recorder_allocate(
     const iree_hal_task_profile_recorder_options_t* recorder_options,
     const iree_hal_device_profiling_options_t* profiling_options,
     iree_allocator_t host_allocator,
     iree_hal_task_profile_recorder_t** out_recorder);
 
-// Destroys |recorder| and releases retained session resources.
+// Frees |recorder| and releases retained session resources.
 //
 // Callers should end active sessions with iree_hal_task_profile_recorder_end
-// before destroying the recorder so sink end-session failures can be observed.
-void iree_hal_task_profile_recorder_destroy(
+// before freeing the recorder so sink end-session failures can be observed.
+void iree_hal_task_profile_recorder_free(
     iree_hal_task_profile_recorder_t* recorder);
 
 // Returns true when |recorder| is active and any of |data_families| is enabled.

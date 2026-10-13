@@ -325,7 +325,7 @@ static iree_status_t loom_amdgpu_sanitizer_ensure_site_collection(
   loom_low_lower_module_state_t* lower_module_state =
       loom_low_lower_context_module_state(context);
   loom_amdgpu_sanitizer_site_chunk_t* chunk = NULL;
-  IREE_RETURN_IF_ERROR(loom_low_lower_module_state_allocate(
+  IREE_RETURN_IF_ERROR(loom_low_lower_module_state_allocate_bytes(
       lower_module_state, sizeof(*chunk), (void**)&chunk));
   memset(chunk, 0, sizeof(*chunk));
   IREE_RETURN_IF_ERROR(loom_low_lower_module_state_allocate_array(

@@ -14,6 +14,74 @@
 #include <immintrin.h>
 #endif  // IREE_ARCH_X86_*
 
+IREE_API_EXPORT iree_status_t
+iree_hal_pool_host_access_validate(iree_hal_pool_host_access_t host) {
+  if (iree_any_bit_set(host.access, ~IREE_HAL_MEMORY_ACCESS_ALL) ||
+      iree_any_bit_set(host.modes, ~(IREE_HAL_MAPPING_MODE_SCOPED |
+                                     IREE_HAL_MAPPING_MODE_PERSISTENT)) ||
+      (uint32_t)host.cacheability > IREE_HAL_HOST_CACHEABILITY_UNCACHED) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "invalid host access, mapping mode, or cacheability");
+  }
+  if ((!host.access != !host.modes) ||
+      (!host.access &&
+       host.cacheability != IREE_HAL_HOST_CACHEABILITY_UNKNOWN)) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "host permissions and mapping modes must be specified together");
+  }
+  return iree_ok_status();
+}
+
+IREE_API_EXPORT iree_status_t iree_hal_pool_scope_validate(
+    iree_hal_device_group_t* group, iree_hal_pool_scope_t scope) {
+  if (!group || (!scope.family_count && !scope.host.access)) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "memory construction requires a group and an access scope");
+  }
+  if (scope.family_count && !scope.families) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "pool family array is null");
+  }
+  IREE_RETURN_IF_ERROR(iree_hal_pool_host_access_validate(scope.host));
+  for (iree_host_size_t i = 0; i < scope.family_count; ++i) {
+    const iree_hal_pool_family_access_t* access = &scope.families[i];
+    const iree_hal_memory_site_t site = {
+        .kind = IREE_HAL_MEMORY_SITE_QUEUE,
+        .family = access->family,
+    };
+    iree_hal_memory_scope_t resolved;
+    IREE_RETURN_IF_ERROR(
+        iree_hal_device_group_resolve_memory_scope(group, site, &resolved));
+    if (iree_any_bit_set(access->usage, ~(IREE_HAL_BUFFER_USAGE_TRANSFER |
+                                          IREE_HAL_BUFFER_USAGE_DISPATCH)) ||
+        (access->interfaces >> IREE_HAL_BUFFER_INTERFACE_COUNT) ||
+        iree_any_bit_set(access->requirements,
+                         ~(IREE_HAL_POOL_ACCESS_REQUIRE_COHERENT_WITH_HOST |
+                           IREE_HAL_POOL_ACCESS_REQUIRE_UNCACHED)) ||
+        !iree_hal_atomic_operation_capabilities_are_valid(
+            access->atomic_operations)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "invalid family access flags");
+    }
+    if (iree_any_bit_set(access->requirements,
+                         IREE_HAL_POOL_ACCESS_REQUIRE_COHERENT_WITH_HOST) &&
+        !scope.host.access) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "host coherence requires a public host mapping");
+    }
+    for (iree_host_size_t j = 0; j < i; ++j) {
+      if (scope.families[j].family == access->family) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "pool scope repeats a queue family");
+      }
+    }
+  }
+  return iree_ok_status();
+}
+
 IREE_API_EXPORT iree_status_t iree_hal_device_group_resolve_memory_scope(
     const iree_hal_device_group_t* group, iree_hal_memory_site_t site,
     iree_hal_memory_scope_t* out_scope) {
@@ -177,6 +245,13 @@ IREE_API_EXPORT iree_hal_pool_host_access_t
 iree_hal_pool_query_host_access(const iree_hal_pool_t* pool) {
   return pool->memory_contract ? pool->memory_contract->host
                                : (iree_hal_pool_host_access_t){0};
+}
+
+IREE_API_EXPORT iree_hal_pool_mapping_requirements_t
+iree_hal_pool_query_mapping_requirements(const iree_hal_pool_t* pool) {
+  return pool->memory_contract
+             ? pool->memory_contract->mapping_source.requirements
+             : (iree_hal_pool_mapping_requirements_t){0};
 }
 
 static const iree_hal_memory_scope_access_t*

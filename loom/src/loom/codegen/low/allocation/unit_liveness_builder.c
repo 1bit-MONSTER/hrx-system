@@ -1434,7 +1434,7 @@ iree_status_t loom_low_allocation_unit_liveness_initialize(
   // Actual unit uses refine both local lifetime ends and CFG boundary demand.
   // Scalar values keep the canonical value-granular boundaries. Terminator
   // edge facts additionally decompose aggregate handoffs into their sources.
-  IREE_RETURN_IF_ERROR(loom_low_allocation_write_interference_create(
+  IREE_RETURN_IF_ERROR(loom_low_allocation_write_interference_allocate(
       target, placement, liveness, decision_arena,
       &out_unit_liveness->write_interference));
   // Published point arrays are allocated. Use indexes can borrow the result

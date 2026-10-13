@@ -50,7 +50,7 @@ iree_status_t loom_low_lower_source_graph_placement_evaluate(
   loom_low_lower_source_graph_placement_t* placement =
       context->source_graph_placement;
   if (placement->read_barriers == NULL) {
-    IREE_RETURN_IF_ERROR(loom_motion_read_barrier_table_create(
+    IREE_RETURN_IF_ERROR(loom_motion_read_barrier_table_allocate(
         context->module, &context->analysis_arena, &placement->read_barriers));
   }
   bool can_cross = false;

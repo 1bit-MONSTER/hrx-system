@@ -16,10 +16,14 @@ iree_cc_library(
     "host_memory_backend.h"
   SRCS
     "host_memory_backend.c"
+    "host_virtual_buffer.c"
   DEPS
+    ::cpu_slab_provider
     ::passthrough_pool
     ::slab_provider
     iree::base
+    iree::base::internal::memory
+    iree::base::internal::shm
     iree::hal
   PUBLIC
 )
@@ -226,9 +230,12 @@ iree_cc_library(
     "cpu_slab_provider.h"
   SRCS
     "cpu_slab_provider.c"
+    "shared_slab_provider.c"
   DEPS
     ::slab_provider
     iree::base
+    iree::base::internal::memory
+    iree::base::internal::shm
     iree::hal
   PUBLIC
 )
