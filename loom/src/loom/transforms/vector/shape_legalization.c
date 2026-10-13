@@ -972,6 +972,72 @@ static iree_status_t loom_vector_static_shape_select_rewrite(
   return iree_ok_status();
 }
 
+// Concatenation along the leading axis appends complete row-major payloads.
+// Flattening each input therefore preserves the authored element order without
+// introducing lane movement. Other axes interleave input rows and require a
+// distinct shuffle legalization.
+static iree_status_t loom_vector_static_shape_concat_rewrite(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    bool* out_rewritten) {
+  const loom_value_slice_t inputs = loom_vector_concat_inputs(op);
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, loom_vector_concat_result(op));
+  uint64_t result_count = 0;
+  if (loom_vector_concat_axis(op) != 0 || loom_type_rank(result_type) <= 1 ||
+      inputs.count == 0 ||
+      inputs.count + 2u > LOOM_VECTOR_STATIC_SHAPE_OP_LIMIT ||
+      !loom_type_static_element_count(result_type, &result_count) ||
+      result_count == 0 || result_count > LOOM_DIM_MAX_STATIC_SIZE) {
+    return iree_ok_status();
+  }
+
+  uint64_t input_total_count = 0;
+  for (iree_host_size_t i = 0; i < inputs.count; ++i) {
+    const loom_type_t input_type =
+        loom_module_value_type(context->module, inputs.values[i]);
+    uint64_t input_count = 0;
+    if (!loom_type_static_element_count(input_type, &input_count) ||
+        input_count == 0 || input_count > result_count ||
+        input_total_count > result_count - input_count) {
+      return iree_ok_status();
+    }
+    input_total_count += input_count;
+  }
+  if (input_total_count != result_count) {
+    return iree_ok_status();
+  }
+
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_set_before(&rewriter->builder, op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  loom_value_id_t* flat_inputs = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(context->arena, inputs.count,
+                                                 sizeof(*flat_inputs),
+                                                 (void**)&flat_inputs));
+  for (iree_host_size_t i = 0; i < inputs.count; ++i) {
+    const loom_type_t input_type =
+        loom_module_value_type(context->module, inputs.values[i]);
+    uint64_t input_count = 0;
+    (void)loom_type_static_element_count(input_type, &input_count);
+    IREE_RETURN_IF_ERROR(loom_vector_static_shape_flatten_value(
+        &rewriter->builder, inputs.values[i], input_type, input_count,
+        op->location, &flat_inputs[i]));
+  }
+
+  const loom_type_t flat_result_type =
+      loom_vector_static_shape_flat_type(result_type, result_count);
+  loom_op_t* flat_concat_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_vector_concat_build(
+      &rewriter->builder, /*axis=*/0, flat_inputs, inputs.count,
+      flat_result_type, op->location, &flat_concat_op));
+  IREE_RETURN_IF_ERROR(loom_vector_static_shape_restore_result(
+      context, op, loom_vector_concat_result(flat_concat_op), flat_result_type,
+      result_type, value_checkpoint));
+  *out_rewritten = true;
+  return iree_ok_status();
+}
+
 iree_status_t loom_vector_static_shape_rewrite_op(
     loom_target_legalization_context_t* context, loom_op_t* op,
     bool* out_rewritten) {
@@ -980,6 +1046,9 @@ iree_status_t loom_vector_static_shape_rewrite_op(
     case LOOM_OP_VECTOR_BROADCAST:
       return loom_vector_static_shape_broadcast_rewrite(context, op,
                                                         out_rewritten);
+    case LOOM_OP_VECTOR_CONCAT:
+      return loom_vector_static_shape_concat_rewrite(context, op,
+                                                     out_rewritten);
     case LOOM_OP_VECTOR_EXTRACT:
       return loom_vector_static_shape_extract_rewrite(context, op,
                                                       out_rewritten);
@@ -999,7 +1068,7 @@ iree_status_t loom_vector_static_shape_rewrite_op(
   }
 }
 
-iree_status_t loom_vector_static_shape_memory_rewrite_op(
+static iree_status_t loom_vector_static_shape_contiguous_memory_rewrite(
     loom_target_legalization_context_t* context, loom_op_t* op,
     bool* out_rewritten) {
   *out_rewritten = false;
@@ -1098,4 +1167,277 @@ iree_status_t loom_vector_static_shape_memory_rewrite_op(
   }
   *out_rewritten = true;
   return iree_ok_status();
+}
+
+static iree_host_size_t loom_vector_static_shape_memory_dynamic_index_position(
+    loom_attribute_t static_indices, uint8_t axis) {
+  iree_host_size_t position = 0;
+  for (uint8_t i = 0; i < axis; ++i) {
+    if (static_indices.i64_array[i] == INT64_MIN) {
+      ++position;
+    }
+  }
+  return position;
+}
+
+static bool loom_vector_static_shape_row_memory_shape(
+    loom_type_t view_type, loom_type_t vector_type,
+    loom_attribute_t static_indices, bool is_store, uint32_t* out_row_count,
+    uint32_t* out_row_lane_count, uint64_t* out_element_count) {
+  *out_row_count = 0;
+  *out_row_lane_count = 0;
+  *out_element_count = 0;
+  if (!loom_type_is_view(view_type) || !loom_type_is_vector(vector_type) ||
+      loom_type_rank(vector_type) <= 1 ||
+      loom_type_rank(vector_type) > loom_type_rank(view_type) ||
+      !loom_type_is_all_static(vector_type) || view_type.encoding_id != 0 ||
+      vector_type.encoding_id != 0 ||
+      !loom_type_element_type_equals(view_type, vector_type) ||
+      static_indices.kind != LOOM_ATTR_I64_ARRAY ||
+      static_indices.count != loom_type_rank(view_type)) {
+    return false;
+  }
+
+  uint64_t element_count = 0;
+  if (!loom_type_static_element_count(vector_type, &element_count) ||
+      element_count == 0 || element_count > LOOM_DIM_MAX_STATIC_SIZE) {
+    return false;
+  }
+  const uint8_t vector_rank = loom_type_rank(vector_type);
+  const int64_t row_lane_count =
+      loom_type_dim_static_size_at(vector_type, vector_rank - 1u);
+  if (row_lane_count < 1 || row_lane_count > UINT32_MAX ||
+      element_count % (uint64_t)row_lane_count != 0) {
+    return false;
+  }
+  const uint64_t row_count = element_count / (uint64_t)row_lane_count;
+  if (row_count == 0 || row_count > UINT32_MAX) {
+    return false;
+  }
+
+  const uint8_t first_vector_axis = loom_type_rank(view_type) - vector_rank;
+  uint64_t index_operation_count = 0;
+  for (uint8_t vector_axis = 0; vector_axis + 1u < vector_rank; ++vector_axis) {
+    const uint8_t view_axis = first_vector_axis + vector_axis;
+    const int64_t origin = static_indices.i64_array[view_axis];
+    if (origin == INT64_MIN) {
+      const uint64_t dimension_size =
+          (uint64_t)loom_type_dim_static_size_at(vector_type, vector_axis);
+      const uint64_t nonzero_coordinate_count =
+          row_count - row_count / dimension_size;
+      index_operation_count += nonzero_coordinate_count * 2u;
+      continue;
+    }
+    const int64_t maximum_row_offset =
+        loom_type_dim_static_size_at(vector_type, vector_axis) - 1;
+    int64_t unused_adjusted_origin = 0;
+    if (!iree_checked_add_i64(origin, maximum_row_offset,
+                              &unused_adjusted_origin)) {
+      return false;
+    }
+  }
+  const uint64_t structural_operation_count =
+      is_store ? row_count * 2u + 1u : row_count + 2u;
+  if (structural_operation_count + index_operation_count >
+      LOOM_VECTOR_STATIC_SHAPE_OP_LIMIT) {
+    return false;
+  }
+
+  *out_row_count = (uint32_t)row_count;
+  *out_row_lane_count = (uint32_t)row_lane_count;
+  *out_element_count = element_count;
+  return true;
+}
+
+static iree_status_t loom_vector_static_shape_build_row_memory_origin(
+    loom_target_legalization_context_t* context, loom_builder_t* builder,
+    loom_type_t view_type, loom_type_t vector_type,
+    loom_attribute_t static_indices, loom_value_slice_t dynamic_indices,
+    uint32_t row_ordinal, loom_location_id_t location,
+    const int64_t** out_static_indices,
+    const loom_value_id_t** out_dynamic_indices) {
+  int64_t* row_static_indices = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      builder->arena, static_indices.count, sizeof(*row_static_indices),
+      (void**)&row_static_indices));
+  for (uint8_t i = 0; i < static_indices.count; ++i) {
+    row_static_indices[i] = static_indices.i64_array[i];
+  }
+
+  loom_value_id_t* row_dynamic_indices = NULL;
+  if (dynamic_indices.count != 0) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        builder->arena, dynamic_indices.count, sizeof(*row_dynamic_indices),
+        (void**)&row_dynamic_indices));
+    for (iree_host_size_t i = 0; i < dynamic_indices.count; ++i) {
+      row_dynamic_indices[i] = dynamic_indices.values[i];
+    }
+  }
+
+  const uint8_t vector_rank = loom_type_rank(vector_type);
+  const uint8_t first_vector_axis = loom_type_rank(view_type) - vector_rank;
+  uint32_t remaining_ordinal = row_ordinal;
+  for (uint8_t reverse_axis = vector_rank - 1u; reverse_axis > 0;
+       --reverse_axis) {
+    const uint8_t vector_axis = reverse_axis - 1u;
+    const uint32_t dimension_size =
+        (uint32_t)loom_type_dim_static_size_at(vector_type, vector_axis);
+    const uint32_t coordinate = remaining_ordinal % dimension_size;
+    remaining_ordinal /= dimension_size;
+    if (coordinate == 0) {
+      continue;
+    }
+
+    const uint8_t view_axis = first_vector_axis + vector_axis;
+    if (row_static_indices[view_axis] != INT64_MIN) {
+      row_static_indices[view_axis] += (int64_t)coordinate;
+      continue;
+    }
+
+    const iree_host_size_t dynamic_position =
+        loom_vector_static_shape_memory_dynamic_index_position(static_indices,
+                                                               view_axis);
+    const loom_value_id_t origin = row_dynamic_indices[dynamic_position];
+    const loom_type_t origin_type =
+        loom_module_value_type(context->module, origin);
+    loom_op_t* coordinate_op = NULL;
+    IREE_RETURN_IF_ERROR(
+        loom_index_constant_build(builder, loom_attr_i64(coordinate),
+                                  origin_type, location, &coordinate_op));
+    loom_op_t* adjusted_origin_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_index_add_build(
+        builder, origin, loom_index_constant_result(coordinate_op), origin_type,
+        location, &adjusted_origin_op));
+    row_dynamic_indices[dynamic_position] =
+        loom_index_add_result(adjusted_origin_op);
+  }
+
+  *out_static_indices = row_static_indices;
+  *out_dynamic_indices = row_dynamic_indices;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_vector_static_shape_row_memory_rewrite(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    bool* out_rewritten) {
+  *out_rewritten = false;
+  const bool is_load = loom_vector_load_isa(op);
+  const bool is_store = loom_vector_store_isa(op);
+  if (!is_load && !is_store) {
+    return iree_ok_status();
+  }
+
+  const loom_value_id_t view =
+      is_load ? loom_vector_load_view(op) : loom_vector_store_view(op);
+  const loom_value_id_t vector_value =
+      is_load ? loom_vector_load_result(op) : loom_vector_store_value(op);
+  const loom_type_t view_type = loom_module_value_type(context->module, view);
+  const loom_type_t vector_type =
+      loom_module_value_type(context->module, vector_value);
+  const loom_attribute_t static_indices =
+      is_load ? loom_vector_load_static_indices(op)
+              : loom_vector_store_static_indices(op);
+  const loom_value_slice_t dynamic_indices =
+      is_load ? loom_vector_load_indices(op) : loom_vector_store_indices(op);
+  uint32_t row_count = 0;
+  uint32_t row_lane_count = 0;
+  uint64_t element_count = 0;
+  if (!loom_vector_static_shape_row_memory_shape(
+          view_type, vector_type, static_indices, is_store, &row_count,
+          &row_lane_count, &element_count)) {
+    return iree_ok_status();
+  }
+  loom_vector_memory_cache_policy_t cache_policy = {0};
+  if (!loom_vector_memory_cache_policy_from_op(context->module, op,
+                                               &cache_policy)) {
+    return iree_ok_status();
+  }
+
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  const loom_type_t row_type =
+      loom_vector_static_shape_flat_type(vector_type, (uint64_t)row_lane_count);
+  const loom_type_t flat_vector_type =
+      loom_vector_static_shape_flat_type(vector_type, element_count);
+  loom_value_id_t flat_store_value = LOOM_VALUE_ID_INVALID;
+  if (is_store) {
+    IREE_RETURN_IF_ERROR(loom_vector_static_shape_flatten_value(
+        builder, vector_value, vector_type, element_count, op->location,
+        &flat_store_value));
+  }
+  loom_value_id_t* rows = NULL;
+  if (is_load) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        context->arena, row_count, sizeof(*rows), (void**)&rows));
+  }
+
+  for (uint32_t row = 0; row < row_count; ++row) {
+    const int64_t* row_static_indices = NULL;
+    const loom_value_id_t* row_dynamic_indices = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_static_shape_build_row_memory_origin(
+        context, builder, view_type, vector_type, static_indices,
+        dynamic_indices, row, op->location, &row_static_indices,
+        &row_dynamic_indices));
+    if (is_load) {
+      loom_op_t* row_load_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_vector_load_build(
+          builder, cache_policy.build_flags, loom_vector_load_memory_flags(op),
+          view, row_dynamic_indices, dynamic_indices.count, row_static_indices,
+          static_indices.count, cache_policy.cache_scope,
+          cache_policy.cache_temporal, row_type, op->location, &row_load_op));
+      rows[row] = loom_vector_load_result(row_load_op);
+      continue;
+    }
+
+    loom_value_id_t row_value = flat_store_value;
+    if (row_count != 1) {
+      const int64_t row_lane_offset = (int64_t)row * row_lane_count;
+      loom_op_t* row_slice_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_vector_slice_build(
+          builder, flat_store_value, /*offsets=*/NULL, /*offsets_count=*/0,
+          &row_lane_offset, /*static_offsets_count=*/1, row_type, op->location,
+          &row_slice_op));
+      row_value = loom_vector_slice_result(row_slice_op);
+    }
+    loom_op_t* row_store_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_store_build(
+        builder, cache_policy.build_flags, loom_vector_store_memory_flags(op),
+        row_value, view, row_dynamic_indices, dynamic_indices.count,
+        row_static_indices, static_indices.count, cache_policy.cache_scope,
+        cache_policy.cache_temporal, op->location, &row_store_op));
+  }
+
+  if (is_load) {
+    loom_value_id_t flat_result = rows[0];
+    if (row_count != 1) {
+      loom_op_t* concat_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_vector_concat_build(builder, /*axis=*/0, rows,
+                                                    row_count, flat_vector_type,
+                                                    op->location, &concat_op));
+      flat_result = loom_vector_concat_result(concat_op);
+    }
+    IREE_RETURN_IF_ERROR(loom_vector_static_shape_restore_result(
+        context, op, flat_result, flat_vector_type, vector_type,
+        value_checkpoint));
+  } else {
+    IREE_RETURN_IF_ERROR(loom_rewriter_erase(rewriter, op));
+  }
+  *out_rewritten = true;
+  return iree_ok_status();
+}
+
+iree_status_t loom_vector_static_shape_memory_rewrite_op(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    bool* out_rewritten) {
+  *out_rewritten = false;
+  IREE_RETURN_IF_ERROR(loom_vector_static_shape_contiguous_memory_rewrite(
+      context, op, out_rewritten));
+  if (*out_rewritten) {
+    return iree_ok_status();
+  }
+  return loom_vector_static_shape_row_memory_rewrite(context, op,
+                                                     out_rewritten);
 }

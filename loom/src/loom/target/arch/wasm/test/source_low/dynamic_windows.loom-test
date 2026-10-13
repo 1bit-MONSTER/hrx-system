@@ -15,11 +15,11 @@ func.def @dynamic_byte_window(%trial0: index, %input: buffer, %output: buffer) {
 
 // ----
 low.func.def target<wasm.core.simd128> abi(wasm_function) @dynamic_byte_window(%trial: reg<wasm.i32>, %input: reg<wasm.i32>, %output: reg<wasm.i32>) asm {
-  %28 = i32.add %input, %trial
-  %29 = v128.load %28
-  %31 = i32.load %28 {offset = 16}
-  v128.store %output, %29
-  i32.store %output, %31 {offset = 16}
+  %26 = i32.add %input, %trial
+  %27 = v128.load %26
+  %29 = i32.load %26 {offset = 16}
+  v128.store %output, %27
+  i32.store %output, %29 {offset = 16}
   return
 }
 

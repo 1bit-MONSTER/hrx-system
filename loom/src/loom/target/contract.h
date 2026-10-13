@@ -77,6 +77,12 @@ typedef enum loom_target_vector_packet_policy_flag_bits_e {
   // Leaves rejected dynamic windows attached to their decomposable producer
   // graphs so target legalization can replay packets at runtime origins.
   LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_DYNAMIC_WINDOW_REPLAY = 1u << 0,
+  // Coordinates components touching oversized memory roots with the memory
+  // packet planner so they never slice an unsupported memory snapshot.
+  LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_MEMORY_ROOT_COMPONENTS = 1u << 1,
+  // Projects unsupported static vector carriers across callable, CFG, and
+  // LoopLike boundaries using native lane candidates.
+  LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_BOUNDARY_PROJECTION = 1u << 2,
 } loom_target_vector_packet_policy_flag_bits_t;
 typedef uint8_t loom_target_vector_packet_policy_flags_t;
 
@@ -106,10 +112,19 @@ typedef struct loom_target_vector_packet_policy_t {
   uint8_t structural_lane_limit_count;
 } loom_target_vector_packet_policy_t;
 
+// Returns true when a static vector exceeds either the policy's aggregate bit
+// budget or its element-specific logical lane ceiling. Dynamic vectors and
+// element types without a physical bit width return false for their owning
+// legalization path to handle.
+bool loom_target_vector_packet_policy_requires_packets(
+    const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type);
+
 // Scoped vector lane-count projection for one contract query. An all-zero
 // value reads authored types directly. A populated projection presents static
-// vectors with |source_lane_count| total lanes as rank-one vectors with
-// |projected_lane_count| lanes without mutating source IR. Source-memory
+// vectors with either authored lane count as rank-one vectors with its paired
+// projected lane count without mutating source IR. Most operations use only
+// the primary pair. The secondary pair represents rate-changing operations
+// whose logical and storage vectors have different lane counts. Source-memory
 // matching sees the same projected lane count while retaining every authored
 // address, layout, alignment, and execution fact.
 typedef struct loom_target_contract_vector_lane_projection_t {
@@ -117,6 +132,10 @@ typedef struct loom_target_contract_vector_lane_projection_t {
   uint32_t source_lane_count;
   // Rank-one vector lane count presented to the contract query.
   uint32_t projected_lane_count;
+  // Optional second authored static vector lane count selected for projection.
+  uint32_t secondary_source_lane_count;
+  // Rank-one vector lane count paired with |secondary_source_lane_count|.
+  uint32_t secondary_projected_lane_count;
 } loom_target_contract_vector_lane_projection_t;
 
 // Returns the vector lane count visible to a projected contract query. Facts
@@ -127,6 +146,10 @@ static inline uint32_t loom_target_contract_query_vector_lane_count(
   if (projection.source_lane_count != 0 &&
       authored_lane_count == projection.source_lane_count) {
     return projection.projected_lane_count;
+  }
+  if (projection.secondary_source_lane_count != 0 &&
+      authored_lane_count == projection.secondary_source_lane_count) {
+    return projection.secondary_projected_lane_count;
   }
   return authored_lane_count;
 }

@@ -10,6 +10,7 @@
 #include "loom/transforms/boundary/loop_predicate_projection.h"
 #include "loom/transforms/boundary/projection_driver.h"
 #include "loom/transforms/encoding/layout_projection.h"
+#include "loom/transforms/vector/packet_boundary_projection.h"
 #include "loom/transforms/view/boundary_projection.h"
 
 #define LOOM_BOUNDARY_PROJECTION_STATISTICS(V, statistics_type)                \
@@ -34,7 +35,11 @@
   V(statistics_type, view_projections, "view-projections",                     \
     "Number of retained views projected to physical carriers.")                \
   V(statistics_type, view_components, "view-components",                       \
-    "Number of physical view carrier components materialized.")
+    "Number of physical view carrier components materialized.")                \
+  V(statistics_type, vector_packet_projections, "vector-packet-projections",   \
+    "Number of wide vector carriers projected to packets.")                    \
+  V(statistics_type, vector_packet_components, "vector-packet-components",     \
+    "Number of physical vector packet components materialized.")
 
 LOOM_PASS_STATISTICS_DEFINE(loom_boundary_projection_statistics,
                             loom_boundary_projection_pass_statistics_t,
@@ -106,6 +111,9 @@ static iree_status_t loom_project_boundary_representations_run_rules(
       } else if (rule == loom_view_boundary_projection_rule()) {
         statistics->view_projections += rule_statistics.projections;
         statistics->view_components += rule_statistics.components;
+      } else if (rule == loom_vector_packet_boundary_projection_rule()) {
+        statistics->vector_packet_projections += rule_statistics.projections;
+        statistics->vector_packet_components += rule_statistics.components;
       }
     }
   }
@@ -119,6 +127,7 @@ iree_status_t loom_project_boundary_representations_run(loom_pass_t* pass,
       loom_cfg_layout_boundary_projection_rule(),
       loom_loop_layout_boundary_projection_rule(),
       loom_view_boundary_projection_rule(),
+      loom_vector_packet_boundary_projection_rule(),
   };
   return loom_project_boundary_representations_run_rules(
       pass, module,

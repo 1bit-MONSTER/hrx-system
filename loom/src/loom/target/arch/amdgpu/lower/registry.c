@@ -1942,12 +1942,37 @@ static iree_status_t loom_amdgpu_low_legality_try_verify_op(
 static const uint16_t kAmdgpuVectorPacketBitCounts[] = {
     LOOM_AMDGPU_MAX_MEMORY_32BIT_LANES * 32u,
 };
+static const uint16_t kAmdgpuVectorPacketLaneCounts[] = {64u, 32u, 16u,
+                                                         8u,  4u,  2u};
+static const loom_target_vector_packet_lane_limit_t
+    kAmdgpuVectorPacketStructuralLaneLimits[] = {
+        {LOOM_SCALAR_TYPE_I1, LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES},
+};
+static_assert(IREE_ARRAYSIZE(kAmdgpuVectorPacketLaneCounts) <=
+                  LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT,
+              "packet lane candidates exceed the shared planner capacity");
+
+static bool loom_amdgpu_source_vector_carrier_supported(
+    void* user_data, const loom_module_t* module, loom_type_t source_type) {
+  (void)user_data;
+  (void)module;
+  loom_amdgpu_vector_storage_t storage;
+  return loom_amdgpu_type_vector_storage(source_type, &storage);
+}
 
 static const loom_target_vector_packet_policy_t kAmdgpuVectorPacketPolicy = {
     .native_bit_counts = kAmdgpuVectorPacketBitCounts,
+    .native_lane_counts = kAmdgpuVectorPacketLaneCounts,
+    .flags = LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_DYNAMIC_WINDOW_REPLAY |
+             LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_MEMORY_ROOT_COMPONENTS |
+             LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_BOUNDARY_PROJECTION,
+    .structural_lane_limits = kAmdgpuVectorPacketStructuralLaneLimits,
     .maximum_unpacketized_bit_count =
         LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES * 32u,
     .native_bit_count_count = IREE_ARRAYSIZE(kAmdgpuVectorPacketBitCounts),
+    .native_lane_count_count = IREE_ARRAYSIZE(kAmdgpuVectorPacketLaneCounts),
+    .structural_lane_limit_count =
+        IREE_ARRAYSIZE(kAmdgpuVectorPacketStructuralLaneLimits),
 };
 
 static iree_status_t loom_amdgpu_materialize_vop3_operands(
@@ -1962,6 +1987,11 @@ static const loom_low_lower_policy_t kAmdgpuLowLowerPolicy = {
     .name = IREE_SVL("amdgpu-register-lower"),
     .error_catalog = &loom_amdgpu_error_catalog,
     .vector_packet_policy = &kAmdgpuVectorPacketPolicy,
+    .source_vector_carrier_supported =
+        {
+            .fn = loom_amdgpu_source_vector_carrier_supported,
+            .user_data = NULL,
+        },
     .map_type = {.fn = loom_amdgpu_map_type, .user_data = NULL},
     .source_type_supported = {.fn = loom_amdgpu_source_type_supported,
                               .user_data = NULL},

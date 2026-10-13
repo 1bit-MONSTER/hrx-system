@@ -179,14 +179,31 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "cast_packet_legalization",
+    srcs = ["cast_packet_legalization.c"],
+    hdrs = ["cast_packet_legalization.h"],
+    deps = [
+        ":packet_legalization",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/target:legalization",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "component_packet_legalization",
     srcs = ["component_packet_legalization.c"],
     hdrs = ["component_packet_legalization.h"],
     deps = [
+        ":packet_legalization",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/ops/vector",
         "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/target:contract",
         "//loom/src/loom/target:legalization",
         "//loom/src/loom/util:walk",
         "//runtime/src/iree/base",
@@ -195,8 +212,30 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "packet_boundary_projection",
+    srcs = ["packet_boundary_projection.c"],
+    hdrs = ["packet_boundary_projection.h"],
+    deps = [
+        "//loom/src/loom/codegen/low/pipeline:pass_environment",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/target:contract",
+        "//loom/src/loom/target:facts",
+        "//loom/src/loom/target:function_version",
+        "//loom/src/loom/transforms/boundary:projection_core",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "packet_legalization",
-    srcs = ["packet_legalization.c"],
+    srcs = [
+        "packet_legalization.c",
+        "packet_materialization.c",
+        "packet_materialization.h",
+        "packet_plan.c",
+        "packet_plan.h",
+    ],
     hdrs = ["packet_legalization.h"],
     deps = [
         "//loom/src/loom/analysis:motion",
@@ -207,6 +246,7 @@ loom_cc_library(
         "//loom/src/loom/ops/scf",
         "//loom/src/loom/ops/vector",
         "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/target:contract",
         "//loom/src/loom/target:legalization",
         "//loom/src/loom/util:fact_table",
         "//runtime/src/iree/base",
@@ -259,6 +299,7 @@ loom_cc_library(
     srcs = ["target_legalization.c"],
     hdrs = ["target_legalization.h"],
     deps = [
+        ":cast_packet_legalization",
         ":reduction_legalization",
         ":to_scalar",
         "//loom/src/loom/ir",

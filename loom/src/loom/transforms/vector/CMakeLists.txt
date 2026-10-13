@@ -186,20 +186,59 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    cast_packet_legalization
+  HDRS
+    "cast_packet_legalization.h"
+  SRCS
+    "cast_packet_legalization.c"
+  DEPS
+    ::packet_legalization
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ops::vector
+    loom::rewrite::rewriter
+    loom::target::legalization
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     component_packet_legalization
   HDRS
     "component_packet_legalization.h"
   SRCS
     "component_packet_legalization.c"
   DEPS
+    ::packet_legalization
     iree::base
     iree::base::internal::arena
     loom::ir
     loom::ops::op_defs
     loom::ops::vector
     loom::rewrite::rewriter
+    loom::target::contract
     loom::target::legalization
     loom::util::walk
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    packet_boundary_projection
+  HDRS
+    "packet_boundary_projection.h"
+  SRCS
+    "packet_boundary_projection.c"
+  DEPS
+    iree::base
+    loom::codegen::low::pipeline::pass_environment
+    loom::ir
+    loom::ops::vector
+    loom::target::contract
+    loom::target::facts
+    loom::target::function_version
+    loom::transforms::boundary::projection_core
   PUBLIC
 )
 
@@ -210,6 +249,10 @@ loom_cc_library(
     "packet_legalization.h"
   SRCS
     "packet_legalization.c"
+    "packet_materialization.c"
+    "packet_materialization.h"
+    "packet_plan.c"
+    "packet_plan.h"
   DEPS
     iree::base
     loom::analysis::motion
@@ -220,6 +263,7 @@ loom_cc_library(
     loom::ops::scf
     loom::ops::vector
     loom::rewrite::rewriter
+    loom::target::contract
     loom::target::legalization
     loom::util::fact_table
   PUBLIC
@@ -283,6 +327,7 @@ loom_cc_library(
   SRCS
     "target_legalization.c"
   DEPS
+    ::cast_packet_legalization
     ::reduction_legalization
     ::to_scalar
     iree::base

@@ -209,3 +209,46 @@ kernel.def target(@target) @selected_lookup_consumer_packets() {
   vector.store %30, %target[32] : vector<2xf32>, view<34xf32>
   kernel.return
 }
+
+// ====
+
+// Packed i16 carriers stop at 32 lanes on AMDGPU even though vector<64xi16>
+// fits the target-neutral aggregate-bit budget. Packet planning must consult
+// the target carrier contract before replaying the truncation component.
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @packed_i16_truncation(%source: buffer, %destination: buffer) {
+  %base = index.constant 0 : offset
+  %source_noalias, %destination_noalias = buffer.assume.noalias %source, %destination : buffer, buffer
+  %source_view = buffer.view %source_noalias[%base] : buffer -> view<64xi16>
+  %destination_view = buffer.view %destination_noalias[%base] : buffer -> view<64xi8>
+  %source_values = vector.load %source_view[0] : view<64xi16> -> vector<64xi16>
+  %destination_values = vector.trunci %source_values : vector<64xi16> to vector<64xi8>
+  vector.store %destination_values, %destination_view[0] : vector<64xi8>, view<64xi8>
+  func.return
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @packed_i16_truncation(%source: buffer, %destination: buffer) {
+  %base = index.constant 0 : offset
+  %source_noalias, %destination_noalias = buffer.assume.noalias %source, %destination : buffer, buffer
+  %source_view = buffer.view %source_noalias[%base] : buffer -> view<64xi16>
+  %destination_view = buffer.view %destination_noalias[%base] : buffer -> view<64xi8>
+  %9 = vector.load %source_view[0] : view<64xi16> -> vector<8xi16>
+  %10 = vector.load %source_view[8] : view<64xi16> -> vector<8xi16>
+  %11 = vector.load %source_view[16] : view<64xi16> -> vector<8xi16>
+  %12 = vector.load %source_view[24] : view<64xi16> -> vector<8xi16>
+  %13 = vector.load %source_view[32] : view<64xi16> -> vector<8xi16>
+  %14 = vector.load %source_view[40] : view<64xi16> -> vector<8xi16>
+  %15 = vector.load %source_view[48] : view<64xi16> -> vector<8xi16>
+  %16 = vector.load %source_view[56] : view<64xi16> -> vector<8xi16>
+  %18 = vector.concat<0> %9, %10, %11, %12 : vector<8xi16>, vector<8xi16>, vector<8xi16>, vector<8xi16> -> vector<32xi16>
+  %19 = vector.trunci %18 : vector<32xi16> to vector<32xi8>
+  %20 = vector.concat<0> %13, %14, %15, %16 : vector<8xi16>, vector<8xi16>, vector<8xi16>, vector<8xi16> -> vector<32xi16>
+  %21 = vector.trunci %20 : vector<32xi16> to vector<32xi8>
+  %destination_values = vector.concat<0> %19, %21 : vector<32xi8>, vector<32xi8> -> vector<64xi8>
+  vector.store %destination_values, %destination_view[0] : vector<64xi8>, view<64xi8>
+  func.return
+}

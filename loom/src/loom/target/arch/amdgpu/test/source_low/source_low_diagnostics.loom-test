@@ -318,32 +318,6 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
 
 amdgpu.target<gfx11-generic> @target
 
-func.def target(@target) @oversized_f32x64_store_rejected(%output: buffer, %value: vector<64xf32>) {
-  %output_base = index.constant 0 : offset
-  %output_global = buffer.assume.memory_space<global> %output : buffer
-  %output_view = buffer.view %output_global[%output_base] : buffer -> view<64xf32>
-  // ERROR@+1: AMDGPU/040 {vector_type="vector<64xf32>", vector_lane_count="64", element_byte_count="4", required_32bit_lane_count="64", native_max_32bit_lane_count="4", native_max_vector_lane_count="4", scalarized_max_32bit_lane_count="32", scalarized_max_vector_lane_count="32"}
-  vector.store %value, %output_view[0] : vector<64xf32>, view<64xf32>
-  func.return
-}
-
-// ====
-
-amdgpu.target<gfx11-generic> @target
-
-func.def target(@target) @oversized_bf16x128_store_rejected(%output: buffer, %value: vector<128xbf16>) {
-  %output_base = index.constant 0 : offset
-  %output_global = buffer.assume.memory_space<global> %output : buffer
-  %output_view = buffer.view %output_global[%output_base] : buffer -> view<128xbf16>
-  // ERROR@+1: AMDGPU/040 {vector_type="vector<128xbf16>", vector_lane_count="128", element_byte_count="2", required_32bit_lane_count="64", native_max_32bit_lane_count="4", native_max_vector_lane_count="8", scalarized_max_32bit_lane_count="32", scalarized_max_vector_lane_count="64"}
-  vector.store %value, %output_view[0] : vector<128xbf16>, view<128xbf16>
-  func.return
-}
-
-// ====
-
-amdgpu.target<gfx11-generic> @target
-
 kernel.def target(@target) @workgroup_dependent_lds_index_rejected() {
   %unit = index.constant 1 : index
   %workgroup_count = index.constant 2 : index

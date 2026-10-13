@@ -154,4 +154,79 @@ TEST(TargetContractIndexTest, LookupKindIgnoresUncoveredOps) {
           &kIndex, LOOM_OP_KIND(kTestDialectId, kLegalOpIndex + 1))));
 }
 
+TEST(TargetContractVectorLaneProjectionTest, ProjectsIndependentLaneCounts) {
+  const loom_target_contract_vector_lane_projection_t projection = {
+      .source_lane_count = 65,
+      .projected_lane_count = 32,
+      .secondary_source_lane_count = 17,
+      .secondary_projected_lane_count = 8,
+  };
+
+  EXPECT_EQ(loom_target_contract_query_vector_lane_count(projection, 65), 32u);
+  EXPECT_EQ(loom_target_contract_query_vector_lane_count(projection, 17), 8u);
+  EXPECT_EQ(loom_target_contract_query_vector_lane_count(projection, 4), 4u);
+}
+
+TEST(TargetContractVectorLaneProjectionTest, PrimaryProjectionHasPriority) {
+  const loom_target_contract_vector_lane_projection_t projection = {
+      .source_lane_count = 17,
+      .projected_lane_count = 16,
+      .secondary_source_lane_count = 17,
+      .secondary_projected_lane_count = 8,
+  };
+
+  EXPECT_EQ(loom_target_contract_query_vector_lane_count(projection, 17), 16u);
+}
+
+TEST(TargetVectorPacketPolicyTest, RequiresPacketsAtBitOrLaneLimit) {
+  const loom_target_vector_packet_lane_limit_t lane_limits[] = {
+      {LOOM_SCALAR_TYPE_I16, 32u},
+  };
+  const loom_target_vector_packet_policy_t policy = {
+      .structural_lane_limits = lane_limits,
+      .maximum_unpacketized_bit_count = 1024u,
+      .structural_lane_limit_count = IREE_ARRAYSIZE(lane_limits),
+  };
+
+  EXPECT_FALSE(loom_target_vector_packet_policy_requires_packets(
+      &policy,
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I16, 32, 0)));
+  EXPECT_TRUE(loom_target_vector_packet_policy_requires_packets(
+      &policy,
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I16, 64, 0)));
+  EXPECT_FALSE(loom_target_vector_packet_policy_requires_packets(
+      &policy,
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I32, 32, 0)));
+  EXPECT_TRUE(loom_target_vector_packet_policy_requires_packets(
+      &policy,
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I32, 33, 0)));
+}
+
+TEST(TargetVectorPacketPolicyTest, ZeroBudgetPacketsEveryStaticPayload) {
+  const loom_target_vector_packet_policy_t policy = {
+      .maximum_unpacketized_bit_count = 0u,
+  };
+
+  EXPECT_TRUE(loom_target_vector_packet_policy_requires_packets(
+      &policy,
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I8, 1, 0)));
+  EXPECT_FALSE(loom_target_vector_packet_policy_requires_packets(
+      &policy, loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I8,
+                                   loom_dim_pack_dynamic(1), 0)));
+}
+
+TEST(TargetVectorPacketPolicyTest, UsesTargetAddressLaneWidth) {
+  const loom_target_vector_packet_policy_t policy = {
+      .index_bit_count = 32u,
+      .maximum_unpacketized_bit_count = 64u,
+  };
+
+  EXPECT_FALSE(loom_target_vector_packet_policy_requires_packets(
+      &policy,
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_INDEX, 2, 0)));
+  EXPECT_TRUE(loom_target_vector_packet_policy_requires_packets(
+      &policy,
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_INDEX, 3, 0)));
+}
+
 }  // namespace

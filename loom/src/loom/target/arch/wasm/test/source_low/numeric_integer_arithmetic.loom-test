@@ -117,7 +117,7 @@ func.def @wide_i32(%lhs0: vector<4xi32>, %lhs1: vector<4xi32>, %rhs0: vector<4xi
 
 // ----
 low.func.def target<wasm.core.simd128> abi(wasm_function) @wide_i32(%lhs0: reg<wasm.v128>, %lhs1: reg<wasm.v128>, %rhs0: reg<wasm.v128>, %rhs1: reg<wasm.v128>) -> (reg<wasm.v128>, reg<wasm.v128>) asm {
-  %24 = i32x4.add %lhs0, %rhs0
-  %25 = i32x4.add %lhs1, %rhs1
-  return %24, %25
+  %20 = i32x4.add %lhs0, %rhs0
+  %21 = i32x4.add %lhs1, %rhs1
+  return %20, %21
 }

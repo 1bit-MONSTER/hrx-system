@@ -114,6 +114,19 @@ static iree_status_t loom_target_pipeline_build_target_legalize(
       builder, IREE_SV("target-legalize"), IREE_SV("mode"), mode);
 }
 
+static iree_status_t loom_target_pipeline_build_projected_target_legalize(
+    loom_builder_t* builder) {
+  loom_named_attr_t option_attrs[2] = {0};
+  IREE_RETURN_IF_ERROR(loom_target_pipeline_build_string_attr(
+      builder, IREE_SV("mode"), IREE_SV("complete"), &option_attrs[0]));
+  IREE_RETURN_IF_ERROR(loom_target_pipeline_build_string_attr(
+      builder, IREE_SV("boundaries"), IREE_SV("projected"), &option_attrs[1]));
+  loom_op_t* run_op = NULL;
+  return loom_pass_ir_build_run(
+      builder, LOOM_PASS_RUN_BUILD_FLAG_HAS_OPTIONS, IREE_SV("target-legalize"),
+      loom_make_named_attr_slice(option_attrs, 2), &run_op);
+}
+
 static iree_status_t loom_target_pipeline_build_sanitizer_assertion_selection(
     loom_builder_t* builder, void* user_data) {
   const loom_target_pipeline_build_context_t* context =
@@ -551,20 +564,26 @@ loom_target_pipeline_build_boundary_projection_cleanup_body(
 static iree_status_t loom_target_pipeline_build_boundary_projection_cleanup(
     loom_builder_t* builder, void* user_data) {
   loom_op_t* for_op = NULL;
-  return loom_target_pipeline_build_for_target_functions(
+  IREE_RETURN_IF_ERROR(loom_target_pipeline_build_for_target_functions(
       builder, IREE_SV("source"),
       loom_target_pipeline_build_boundary_projection_cleanup_body, user_data,
-      &for_op);
+      &for_op));
+  IREE_RETURN_IF_ERROR(
+      loom_target_pipeline_build_projected_target_legalize(builder));
+  loom_op_t* legalization_changed_op = NULL;
+  return loom_pass_ir_build_if_changed(
+      builder, loom_target_pipeline_build_cleanup_target_functions, NULL,
+      &legalization_changed_op);
 }
 
 static iree_status_t loom_target_pipeline_build_boundary_projection(
     loom_builder_t* builder, void* user_data) {
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run(
       builder, IREE_SV("project-boundary-representations")));
-  loom_op_t* if_changed_op = NULL;
+  loom_op_t* projection_changed_op = NULL;
   return loom_pass_ir_build_if_changed(
       builder, loom_target_pipeline_build_boundary_projection_cleanup,
-      user_data, &if_changed_op);
+      user_data, &projection_changed_op);
 }
 
 static iree_status_t loom_target_pipeline_build_source_low_artifact_preparation(

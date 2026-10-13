@@ -59,8 +59,22 @@ low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @predicate_select_four(
 
 // ====
 
-func.def @predicate_select_crossing(%mask: vector<33xi1>, %true_value: vector<33xi1>, %false_value: vector<33xi1>) -> (vector<33xi1>) {
-  // ERROR@+1: TARGET/002 {op_name="vector.select", field_name="condition", actual_type="vector<33xi1>"}
+// RUN: pass specialize-target-callgraph,project-boundary-representations,target-legalize{mode=complete,boundaries=projected},canonicalize,dce
+
+amdgpu.target<gfx11-generic> @target
+
+func.def public target(@target) @predicate_select_crossing(%mask: vector<33xi1>, %true_value: vector<33xi1>, %false_value: vector<33xi1>) -> (vector<33xi1>) {
   %selected = vector.select %mask, %true_value, %false_value : vector<33xi1>
   func.return %selected : vector<33xi1>
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def public target(@target) @predicate_select_crossing(%13: vector<32xi1>, %14: vector<1xi1>, %15: vector<32xi1>, %16: vector<1xi1>, %17: vector<32xi1>, %18: vector<1xi1>) -> (vector<32xi1>, vector<1xi1>) {
+  cfg.br ^_bb1(%13: vector<32xi1>, %14: vector<1xi1>, %15: vector<32xi1>, %16: vector<1xi1>, %17: vector<32xi1>, %18: vector<1xi1>)
+^_bb1(%5: vector<32xi1>, %0: vector<1xi1>, %7: vector<32xi1>, %1: vector<1xi1>, %9: vector<32xi1>, %2: vector<1xi1>):
+  %21 = vector.select %5, %7, %9 : vector<32xi1>
+  %22 = vector.select %0, %1, %2 : vector<1xi1>
+  func.return %21, %22 : vector<32xi1>, vector<1xi1>
 }

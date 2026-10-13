@@ -19,9 +19,12 @@ extern "C" {
 typedef struct loom_vector_component_packet_rewrite_callback_t {
   // Callback state borrowed for each completed source rewrite.
   void* user_data;
-  // Optional observer for cold reporting and accounting.
-  iree_status_t (*fn)(void* user_data, const loom_op_t* source_op,
-                      uint64_t created_op_count, uint64_t erased_op_count);
+  // Optional observer for cold reporting and accounting. The authored contract
+  // result is borrowed for the duration of the call.
+  iree_status_t (*fn)(
+      void* user_data, const loom_op_t* source_op,
+      const loom_target_contract_query_result_t* authored_query_result,
+      uint64_t created_op_count, uint64_t erased_op_count);
 } loom_vector_component_packet_rewrite_callback_t;
 
 typedef struct loom_vector_component_plan_t loom_vector_component_plan_t;
@@ -57,8 +60,9 @@ loom_vector_component_packet_query_cache_lookup(
 // Components requiring legalization are emitted packet-major so direct SSA
 // edges remain packet-local across mixed operations and fanout.
 //
-// |rewrite_callback| observes each authored operation only after its component
-// rewrite has completed. Missing callback functions disable observation.
+// |rewrite_callback| observes each authored operation only after its packet
+// rewrite has completed and receives the contract result established for the
+// authored operation. Missing callback functions disable observation.
 //
 // |out_query_cache| retains every authored target contract result established
 // by the plan so later legalization consumes the same classification. The

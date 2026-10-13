@@ -56,6 +56,13 @@ typedef enum loom_target_legalization_policy_e {
   LOOM_TARGET_LEGALIZATION_POLICY_REQUIRE_NATIVE = 2,
 } loom_target_legalization_policy_t;
 
+typedef enum loom_target_boundary_representation_e {
+  // Semantic boundaries still carry authored logical values.
+  LOOM_TARGET_BOUNDARY_REPRESENTATION_LOGICAL = 0,
+  // Boundary projection has materialized target physical carriers.
+  LOOM_TARGET_BOUNDARY_REPRESENTATION_PROJECTED = 1,
+} loom_target_boundary_representation_t;
+
 typedef enum loom_target_legalizer_action_e {
   // The legalizer has no opinion about this op under the current target.
   LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT = 0,
@@ -145,6 +152,8 @@ typedef struct loom_target_legalization_context_t {
   loom_rewriter_t* rewriter;
   // Current legalization phase.
   loom_target_legalization_mode_t mode;
+  // Representation state of callable, CFG, and LoopLike boundaries.
+  loom_target_boundary_representation_t boundary_representation;
   // Strategy policy controlling native and reference legalizer participation.
   loom_target_legalization_policy_t policy;
   // Scoped arena available for rare legalization-side records.
@@ -360,6 +369,11 @@ loom_target_legalization_query_contract_with_vector_lane_projection(
     loom_target_legalization_context_t* context, const loom_op_t* op,
     loom_target_contract_vector_lane_projection_t vector_lane_projection,
     loom_target_contract_query_result_t* out_result);
+
+// Returns true when |type| has a source vector carrier under the selected
+// target lowering policy. Non-vector types always return true.
+bool loom_target_legalization_has_source_vector_carrier(
+    const loom_target_legalization_context_t* context, loom_type_t type);
 
 // Returns true when every vector operand and result of |op| has a source
 // carrier under the selected target lowering policy.

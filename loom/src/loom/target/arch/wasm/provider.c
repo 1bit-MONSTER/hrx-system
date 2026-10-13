@@ -323,7 +323,8 @@ static iree_status_t loom_wasm_legalize_vector_slice(
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_dynamic_slice(
-      context, op, context->vector_packet_policy, &rewritten));
+      context, op, context->vector_packet_policy,
+      /*consumer_materializer=*/NULL, &rewritten));
   if (!rewritten && context->mode == LOOM_TARGET_LEGALIZATION_MODE_FINAL) {
     IREE_RETURN_IF_ERROR(loom_vector_to_scalar_rewrite_op(
         context->pass, context->rewriter, op, &rewritten));

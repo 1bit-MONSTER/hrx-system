@@ -1,0 +1,280 @@
+// RUN: pass target-legalize{mode=final,policy=require-native}
+
+amdgpu.target<gfx11-generic> @target
+
+// The predicate extension is replayed with each source packet so the complete
+// transient mask does not remain live before its compact result is formed.
+func.def target(@target) @streamed_predicate_window(%source: buffer, %offset: index) -> (vector<8xi8>) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<16xi32>
+  %values = vector.load %source_view[0] : view<16xi32> -> vector<16xi32>
+  %c0 = vector.constant 0 : vector<16xi32>
+  %predicates = vector.cmpi slt, %values, %c0 : vector<16xi32> -> vector<16xi1>
+  %window = vector.slice %predicates[%offset] : vector<16xi1> -> vector<8xi1>
+  %result = vector.extui %window : vector<8xi1> to vector<8xi8>
+  func.return %result : vector<8xi8>
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @streamed_predicate_window(%source: buffer, %offset: index) -> (vector<8xi8>) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<16xi32>
+  %10 = vector.load %source_view[%offset] : view<16xi32> -> vector<4xi32>
+  %11 = vector.constant 0 : vector<4xi32>
+  %12 = vector.cmpi slt, %10, %11 : vector<4xi32> -> vector<4xi1>
+  %13 = vector.constant 1 : vector<4xi8>
+  %14 = vector.constant 0 : vector<4xi8>
+  %15 = vector.select %12, %13, %14 : vector<4xi8>
+  %16 = index.constant 4 : index
+  %17 = index.add %offset, %16 : index
+  %18 = vector.load %source_view[%17] : view<16xi32> -> vector<4xi32>
+  %19 = vector.constant 0 : vector<4xi32>
+  %20 = vector.cmpi slt, %18, %19 : vector<4xi32> -> vector<4xi1>
+  %21 = vector.constant 1 : vector<4xi8>
+  %22 = vector.constant 0 : vector<4xi8>
+  %23 = vector.select %20, %21, %22 : vector<4xi8>
+  %result = vector.concat<0> %15, %23 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  func.return %result : vector<8xi8>
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+// Independently authored packets remain a snapshot. Dynamic selection stages
+// that tuple once and loads only the selected runtime window.
+func.def target(@target) @snapshot_word_window(%source: buffer, %output: buffer, %offset: index) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<32xi16>
+  %output_view = buffer.view %output[%base] : buffer -> view<8xi16>
+  %packet0 = vector.load %source_view[0] : view<32xi16> -> vector<8xi16>
+  %packet1 = vector.load %source_view[8] : view<32xi16> -> vector<8xi16>
+  %packet2 = vector.load %source_view[16] : view<32xi16> -> vector<8xi16>
+  %packet3 = vector.load %source_view[24] : view<32xi16> -> vector<8xi16>
+  %snapshot = vector.concat<0> %packet0, %packet1, %packet2, %packet3 : vector<8xi16>, vector<8xi16>, vector<8xi16>, vector<8xi16> -> vector<32xi16>
+  %window = vector.slice %snapshot[%offset] : vector<32xi16> -> vector<8xi16>
+  vector.store %window, %output_view[0] : vector<8xi16>, view<8xi16>
+  func.return
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @snapshot_word_window(%source: buffer, %output: buffer, %offset: index) {
+  %12 = index.constant 64 : offset
+  %13 = buffer.alloca<private> align(16) %12 : buffer
+  %14 = index.constant 0 : offset
+  %15 = buffer.view %13[%14] : buffer -> view<32xi16>
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<32xi16>
+  %output_view = buffer.view %output[%base] : buffer -> view<8xi16>
+  %packet0 = vector.load %source_view[0] : view<32xi16> -> vector<8xi16>
+  vector.store %packet0, %15[0] : vector<8xi16>, view<32xi16>
+  %packet1 = vector.load %source_view[8] : view<32xi16> -> vector<8xi16>
+  vector.store %packet1, %15[8] : vector<8xi16>, view<32xi16>
+  %packet2 = vector.load %source_view[16] : view<32xi16> -> vector<8xi16>
+  vector.store %packet2, %15[16] : vector<8xi16>, view<32xi16>
+  %packet3 = vector.load %source_view[24] : view<32xi16> -> vector<8xi16>
+  vector.store %packet3, %15[24] : vector<8xi16>, view<32xi16>
+  %window = vector.load %15[%offset] : view<32xi16> -> vector<8xi16>
+  vector.store %window, %output_view[0] : vector<8xi16>, view<8xi16>
+  func.return
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+// Each widening branch consumes predicate packets at the common source/result
+// carrier width. The snapshot stages byte-addressable results instead of a raw
+// i1 carrier that target memory cannot represent.
+func.def target(@target) @snapshot_predicate_branches(%packet0: vector<4xi1>, %packet1: vector<4xi1>, %unsigned_output: buffer, %signed_output: buffer, %offset: index) {
+  %base = index.constant 0 : offset
+  %unsigned_view = buffer.view %unsigned_output[%base] : buffer -> view<4xi64>
+  %signed_view = buffer.view %signed_output[%base] : buffer -> view<4xi64>
+  %snapshot = vector.concat<0> %packet0, %packet1 : vector<4xi1>, vector<4xi1> -> vector<8xi1>
+  %window = vector.slice %snapshot[%offset] : vector<8xi1> -> vector<4xi1>
+  %unsigned = vector.extui %window : vector<4xi1> to vector<4xi64>
+  %signed = vector.extsi %window : vector<4xi1> to vector<4xi64>
+  vector.store %unsigned, %unsigned_view[0] : vector<4xi64>, view<4xi64>
+  vector.store %signed, %signed_view[0] : vector<4xi64>, view<4xi64>
+  func.return
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @snapshot_predicate_branches(%packet0: vector<4xi1>, %packet1: vector<4xi1>, %unsigned_output: buffer, %signed_output: buffer, %offset: index) {
+  %12 = index.constant 64 : offset
+  %13 = buffer.alloca<private> align(32) %12 : buffer
+  %14 = index.constant 0 : offset
+  %15 = buffer.view %13[%14] : buffer -> view<8xi64>
+  %16 = index.constant 64 : offset
+  %17 = buffer.alloca<private> align(32) %16 : buffer
+  %18 = index.constant 0 : offset
+  %19 = buffer.view %17[%18] : buffer -> view<8xi64>
+  %base = index.constant 0 : offset
+  %unsigned_view = buffer.view %unsigned_output[%base] : buffer -> view<4xi64>
+  %signed_view = buffer.view %signed_output[%base] : buffer -> view<4xi64>
+  %20 = vector.constant 1 : vector<4xi64>
+  %21 = vector.constant 0 : vector<4xi64>
+  %22 = vector.select %packet0, %20, %21 : vector<4xi64>
+  vector.store %22, %15[0] : vector<4xi64>, view<8xi64>
+  %23 = vector.constant -1 : vector<4xi64>
+  %24 = vector.constant 0 : vector<4xi64>
+  %25 = vector.select %packet0, %23, %24 : vector<4xi64>
+  vector.store %25, %19[0] : vector<4xi64>, view<8xi64>
+  %26 = vector.constant 1 : vector<4xi64>
+  %27 = vector.constant 0 : vector<4xi64>
+  %28 = vector.select %packet1, %26, %27 : vector<4xi64>
+  vector.store %28, %15[4] : vector<4xi64>, view<8xi64>
+  %29 = vector.constant -1 : vector<4xi64>
+  %30 = vector.constant 0 : vector<4xi64>
+  %31 = vector.select %packet1, %29, %30 : vector<4xi64>
+  vector.store %31, %19[4] : vector<4xi64>, view<8xi64>
+  %unsigned = vector.load %15[%offset] : view<8xi64> -> vector<4xi64>
+  %signed = vector.load %19[%offset] : view<8xi64> -> vector<4xi64>
+  vector.store %unsigned, %unsigned_view[0] : vector<4xi64>, view<4xi64>
+  vector.store %signed, %signed_view[0] : vector<4xi64>, view<4xi64>
+  func.return
+}
+
+// ====
+
+// RUN: pass target-legalize{mode=eager,policy=require-native},linearize-view-accesses,canonicalize,cse,target-legalize{mode=complete,policy=require-native},canonicalize,cse
+
+amdgpu.target<gfx11-generic> @target
+
+// Wide stores replay conversion from a dynamic predicate window packet by
+// packet. The store planner must leave the rejected slice for the dynamic
+// window legalizer instead of capturing it as an external producer.
+func.def target(@target) @store_streamed_wide_predicate_window(%source: buffer, %output: buffer, %offset: index) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<80xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<65xi8>
+  %values = vector.load %source_view[0] : view<80xi32> -> vector<80xi32>
+  %c0 = vector.constant 0 : vector<80xi32>
+  %predicates = vector.cmpi slt, %values, %c0 : vector<80xi32> -> vector<80xi1>
+  %window = vector.slice %predicates[%offset] : vector<80xi1> -> vector<65xi1>
+  %result = vector.extui %window : vector<65xi1> to vector<65xi8>
+  vector.store %result, %output_view[0] : vector<65xi8>, view<65xi8>
+  func.return
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @store_streamed_wide_predicate_window(%source: buffer, %output: buffer, %offset: index) {
+  %base = index.constant 0 : offset
+  %source_view = buffer.view %source[%base] : buffer -> view<80xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<65xi8>
+  %11 = vector.load %source_view[%offset] : view<80xi32> -> vector<4xi32>
+  %12 = vector.constant 0 : vector<4xi32>
+  %13 = vector.cmpi slt, %11, %12 : vector<4xi32> -> vector<4xi1>
+  %14 = vector.constant 1 : vector<4xi8>
+  %15 = vector.constant 0 : vector<4xi8>
+  %16 = vector.select %13, %14, %15 : vector<4xi8>
+  %17 = index.constant 4 : index
+  %18 = index.add %offset, %17 : index
+  %19 = vector.load %source_view[%18] : view<80xi32> -> vector<4xi32>
+  %21 = vector.cmpi slt, %19, %12 : vector<4xi32> -> vector<4xi1>
+  %24 = vector.select %21, %14, %15 : vector<4xi8>
+  %25 = index.constant 8 : index
+  %26 = index.add %offset, %25 : index
+  %27 = vector.load %source_view[%26] : view<80xi32> -> vector<4xi32>
+  %29 = vector.cmpi slt, %27, %12 : vector<4xi32> -> vector<4xi1>
+  %32 = vector.select %29, %14, %15 : vector<4xi8>
+  %33 = index.constant 12 : index
+  %34 = index.add %offset, %33 : index
+  %35 = vector.load %source_view[%34] : view<80xi32> -> vector<4xi32>
+  %37 = vector.cmpi slt, %35, %12 : vector<4xi32> -> vector<4xi1>
+  %40 = vector.select %37, %14, %15 : vector<4xi8>
+  %41 = index.constant 16 : index
+  %42 = index.add %offset, %41 : index
+  %43 = vector.load %source_view[%42] : view<80xi32> -> vector<4xi32>
+  %45 = vector.cmpi slt, %43, %12 : vector<4xi32> -> vector<4xi1>
+  %48 = vector.select %45, %14, %15 : vector<4xi8>
+  %49 = index.constant 20 : index
+  %50 = index.add %offset, %49 : index
+  %51 = vector.load %source_view[%50] : view<80xi32> -> vector<4xi32>
+  %53 = vector.cmpi slt, %51, %12 : vector<4xi32> -> vector<4xi1>
+  %56 = vector.select %53, %14, %15 : vector<4xi8>
+  %57 = index.constant 24 : index
+  %58 = index.add %offset, %57 : index
+  %59 = vector.load %source_view[%58] : view<80xi32> -> vector<4xi32>
+  %61 = vector.cmpi slt, %59, %12 : vector<4xi32> -> vector<4xi1>
+  %64 = vector.select %61, %14, %15 : vector<4xi8>
+  %65 = index.constant 28 : index
+  %66 = index.add %offset, %65 : index
+  %67 = vector.load %source_view[%66] : view<80xi32> -> vector<4xi32>
+  %69 = vector.cmpi slt, %67, %12 : vector<4xi32> -> vector<4xi1>
+  %72 = vector.select %69, %14, %15 : vector<4xi8>
+  %73 = index.constant 32 : index
+  %74 = index.add %offset, %73 : index
+  %75 = vector.load %source_view[%74] : view<80xi32> -> vector<4xi32>
+  %77 = vector.cmpi slt, %75, %12 : vector<4xi32> -> vector<4xi1>
+  %80 = vector.select %77, %14, %15 : vector<4xi8>
+  %81 = index.constant 36 : index
+  %82 = index.add %offset, %81 : index
+  %83 = vector.load %source_view[%82] : view<80xi32> -> vector<4xi32>
+  %85 = vector.cmpi slt, %83, %12 : vector<4xi32> -> vector<4xi1>
+  %88 = vector.select %85, %14, %15 : vector<4xi8>
+  %89 = index.constant 40 : index
+  %90 = index.add %offset, %89 : index
+  %91 = vector.load %source_view[%90] : view<80xi32> -> vector<4xi32>
+  %93 = vector.cmpi slt, %91, %12 : vector<4xi32> -> vector<4xi1>
+  %96 = vector.select %93, %14, %15 : vector<4xi8>
+  %97 = index.constant 44 : index
+  %98 = index.add %offset, %97 : index
+  %99 = vector.load %source_view[%98] : view<80xi32> -> vector<4xi32>
+  %101 = vector.cmpi slt, %99, %12 : vector<4xi32> -> vector<4xi1>
+  %104 = vector.select %101, %14, %15 : vector<4xi8>
+  %105 = index.constant 48 : index
+  %106 = index.add %offset, %105 : index
+  %107 = vector.load %source_view[%106] : view<80xi32> -> vector<4xi32>
+  %109 = vector.cmpi slt, %107, %12 : vector<4xi32> -> vector<4xi1>
+  %112 = vector.select %109, %14, %15 : vector<4xi8>
+  %113 = index.constant 52 : index
+  %114 = index.add %offset, %113 : index
+  %115 = vector.load %source_view[%114] : view<80xi32> -> vector<4xi32>
+  %117 = vector.cmpi slt, %115, %12 : vector<4xi32> -> vector<4xi1>
+  %120 = vector.select %117, %14, %15 : vector<4xi8>
+  %121 = index.constant 56 : index
+  %122 = index.add %offset, %121 : index
+  %123 = vector.load %source_view[%122] : view<80xi32> -> vector<4xi32>
+  %125 = vector.cmpi slt, %123, %12 : vector<4xi32> -> vector<4xi1>
+  %128 = vector.select %125, %14, %15 : vector<4xi8>
+  %129 = index.constant 60 : index
+  %130 = index.add %offset, %129 : index
+  %131 = vector.load %source_view[%130] : view<80xi32> -> vector<4xi32>
+  %133 = vector.cmpi slt, %131, %12 : vector<4xi32> -> vector<4xi1>
+  %136 = vector.select %133, %14, %15 : vector<4xi8>
+  %137 = index.constant 64 : index
+  %138 = index.add %offset, %137 : index
+  %139 = vector.load %source_view[%138] : view<80xi32> -> vector<1xi32>
+  %140 = vector.constant 0 : vector<1xi32>
+  %141 = vector.cmpi slt, %139, %140 : vector<1xi32> -> vector<1xi1>
+  %142 = vector.constant 1 : vector<1xi8>
+  %143 = vector.constant 0 : vector<1xi8>
+  %144 = vector.select %141, %142, %143 : vector<1xi8>
+  %146 = vector.concat<0> %16, %24 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %147 = vector.concat<0> %32, %40 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %148 = vector.concat<0> %48, %56 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %149 = vector.concat<0> %64, %72 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %150 = vector.concat<0> %80, %88 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %151 = vector.concat<0> %96, %104 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %152 = vector.concat<0> %112, %120 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %153 = vector.concat<0> %128, %136 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %154 = vector.concat<0> %146, %147 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
+  %155 = vector.concat<0> %148, %149 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
+  %156 = vector.concat<0> %150, %151 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
+  %157 = vector.concat<0> %152, %153 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
+  vector.store %154, %output_view[0] : vector<16xi8>, view<65xi8>
+  vector.store %155, %output_view[16] : vector<16xi8>, view<65xi8>
+  vector.store %156, %output_view[32] : vector<16xi8>, view<65xi8>
+  vector.store %157, %output_view[48] : vector<16xi8>, view<65xi8>
+  vector.store %144, %output_view[64] : vector<1xi8>, view<65xi8>
+  func.return
+}

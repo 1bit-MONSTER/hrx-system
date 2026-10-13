@@ -1369,7 +1369,7 @@ typedef struct loom_amdgpu_subgroup_vote_all_plan_t {
 
 typedef enum loom_amdgpu_vector_slice_kind_e {
   LOOM_AMDGPU_VECTOR_SLICE_KIND_NONE = 0,
-  LOOM_AMDGPU_VECTOR_SLICE_KIND_32BIT_LANES = 1,
+  LOOM_AMDGPU_VECTOR_SLICE_KIND_REGISTER_RANGE = 1,
   LOOM_AMDGPU_VECTOR_SLICE_KIND_PACKED_REGISTER_BITS = 2,
 } loom_amdgpu_vector_slice_kind_t;
 
@@ -1382,6 +1382,8 @@ typedef struct loom_amdgpu_vector_slice_plan_t {
   loom_amdgpu_vector_slice_kind_t kind;
   // Static source lane offset.
   uint32_t lane_offset;
+  // Static source register-unit offset for register-range slices.
+  uint32_t register_offset;
   // Static result lane count.
   uint32_t lane_count;
   // Source 32-bit backing register count.

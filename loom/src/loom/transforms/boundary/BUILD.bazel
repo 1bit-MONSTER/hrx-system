@@ -104,6 +104,7 @@ loom_cc_library(
         "//loom/src/loom/target:pass_environment",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/transforms/encoding:layout_projection",
+        "//loom/src/loom/transforms/vector:packet_boundary_projection",
         "//loom/src/loom/transforms/view:boundary_projection",
         "//runtime/src/iree/base",
     ],
