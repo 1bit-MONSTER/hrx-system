@@ -57,6 +57,10 @@ struct NativeState {
     uint64_t* response = nullptr;
     // Instruction address captured at acceptance.
     uint64_t instruction_address = 0;
+    // Firmware-addressed command list borrowed until this root retires.
+    const uint8_t* list = nullptr;
+    // Number of interpreter entries in list, or one for ordinary execution.
+    uint32_t command_count = 1;
   };
   // Every native execution request, without a library-side command copy.
   std::vector<Command> commands;
@@ -72,6 +76,8 @@ struct NativeState {
   uint64_t initialize_result = 1;
   // Firmware result written into the execution response cell before its fence.
   uint64_t execution_result = 4;
+  // Native execution rejection before acceptance, leaving outputs untouched.
+  NTSTATUS submission_result = 0;
   // Captured instruction address from the last execution packet.
   uint64_t instruction_address = 0;
   // Captured instruction length in words from the execution packet.
@@ -232,7 +238,10 @@ NTSTATUS APIENTRY Submit(const D3DKMT_SUBMITCOMMANDTOHWQUEUE* submit) {
                     : 88);
   const size_t response_address_offset = direct ? 0x40 : 0x38;
   native_state->opcodes.push_back(opcode);
-  if (opcode == 5 || opcode == 3) {
+  if ((opcode == 3 || opcode == 6) && native_state->submission_result != 0) {
+    return native_state->submission_result;
+  }
+  if (opcode == 5 || opcode == 3 || opcode == 6) {
     const auto& response_allocation =
         native_state->allocations[ReadU64(bytes, 0x28)];
     EXPECT_EQ(response_allocation.type, direct ? 0x332Cu : 0x332Bu);
@@ -269,10 +278,49 @@ NTSTATUS APIENTRY Submit(const D3DKMT_SUBMITCOMMANDTOHWQUEUE* submit) {
     // The interpreter's CU function is zero, independent of its PDI size.
     EXPECT_EQ(ReadU32(configuration, 16), 0u);
     response[0] = native_state->initialize_result;
-  } else if (opcode == 3) {
+  } else if (opcode == 3 || opcode == 6) {
     EXPECT_EQ(submit->CommandLength, 4096u + header_length);
-    native_state->instruction_address = ReadU64(bytes, header_length + 0x10);
-    native_state->instruction_word_count = ReadU32(bytes, header_length + 0x18);
+    const uint8_t* list = nullptr;
+    uint32_t command_count = 1;
+    if (opcode == 6) {
+      EXPECT_TRUE(direct);
+      command_count = ReadU32(bytes, 0x64);
+      EXPECT_GE(command_count, 2u);
+      EXPECT_LE(command_count, 36u);
+      EXPECT_EQ(ReadU32(bytes, 0x60), command_count * 112);
+      EXPECT_EQ(ReadU32(bytes, 0x68), 0u);
+      EXPECT_EQ(ReadU64(bytes, 0x10), 28u + 8u * command_count);
+      EXPECT_EQ((ReadU32(bytes, header_length) >> 23) & 0x1f, 19u);
+      EXPECT_EQ(ReadU32(bytes, header_length + 4), command_count);
+      const uint64_t offset =
+          ReadU64(bytes, 0x58) - native_state->firmware_address;
+      EXPECT_GE(offset, 4096u);
+      EXPECT_LE(offset + ReadU32(bytes, 0x60), 32768u);
+      EXPECT_EQ(offset % 4096, 0u);
+      const auto& instructions = native_state->allocations[2];
+      list = static_cast<const uint8_t*>(instructions.pointer) + offset;
+      EXPECT_EQ(instructions.publication.byte_offset, offset);
+      EXPECT_EQ(instructions.publication.byte_length, command_count * 112);
+      for (uint32_t i = 0; i < command_count; ++i) {
+        const auto* entry = list + i * 112;
+        EXPECT_EQ(ReadU32(entry, 0), 1u);
+        for (uint32_t word = 1; word < 12; ++word) {
+          EXPECT_EQ(ReadU32(entry, word * 4), 0u);
+        }
+        EXPECT_EQ(ReadU32(entry, 0x30), 15u);
+        EXPECT_EQ(ReadU32(entry, 0x34), 3u);
+        EXPECT_EQ(ReadU32(entry, 0x38), 0u);
+        for (uint32_t word = 18; word < 28; ++word) {
+          EXPECT_EQ(ReadU32(entry, word * 4), 0u);
+        }
+      }
+      native_state->instruction_address = ReadU64(list, 0x3c);
+      native_state->instruction_word_count = ReadU32(list, 0x44);
+    } else {
+      native_state->instruction_address = ReadU64(bytes, header_length + 0x10);
+      native_state->instruction_word_count =
+          ReadU32(bytes, header_length + 0x18);
+    }
     EXPECT_EQ(submit->PrivateDriverDataSize, header_length + 512);
     auto* response =
         reinterpret_cast<uint64_t*>(ReadU64(bytes, response_address_offset));
@@ -298,8 +346,9 @@ NTSTATUS APIENTRY Submit(const D3DKMT_SUBMITCOMMANDTOHWQUEUE* submit) {
         std::memcmp(packet, static_cast<const uint8_t*>(bytes) + header_length,
                     ReadU64(bytes, 0x10)),
         0);
-    native_state->commands.push_back(
-        {packet, response, native_state->instruction_address});
+    native_state->commands.push_back({packet, response,
+                                      native_state->instruction_address, list,
+                                      command_count});
   } else {
     ADD_FAILURE() << "Unexpected native opcode " << opcode;
   }
@@ -504,6 +553,150 @@ TEST_P(WindowsXdnaKernelExecutionTest, QueueLeasesReuseContextWithoutMetadata) {
 }
 
 TEST_P(WindowsXdnaKernelExecutionTest,
+       CommandListsSharePrefixCreditsUntilCheckedRetirement) {
+  auto* execution = context_.kernel_execution;
+  if (amdf_windows_xdna_kernel_execution_maximum_command_count(execution) < 2) {
+    GTEST_SKIP() << "native protocol has no command-list interface";
+  }
+  amdf_xdna_umd_memory_result_t result = {};
+  ASSERT_EQ(amdf_xdna_umd_memory_prepare_private(&context_, &profile_, &create_,
+                                                 &memory_, &result),
+            AMDF_STATUS_OK);
+  // Rejecting and releasing a second aperture must preserve the bound one.
+  amdf_xdna_umd_memory_t* rejected = nullptr;
+  amdf_xdna_umd_memory_result_t rejected_result = {};
+  EXPECT_EQ(amdf_xdna_umd_memory_prepare_private(&context_, &profile_, &create_,
+                                                 &rejected, &rejected_result),
+            amdf_make_api_status(AMDF_STATUS_CODE_RESOURCE_EXHAUSTED));
+  ASSERT_NE(rejected, nullptr);
+  EXPECT_EQ(amdf_xdna_umd_memory_destroy(rejected), AMDF_STATUS_OK);
+  device_.host_allocator.allocate = [](void*, uint64_t, uint64_t) -> void* {
+    ADD_FAILURE()
+        << "list publication and queue leasing allocate no host state";
+    return nullptr;
+  };
+  for (uint32_t command_count : {2u, 36u}) {
+    SCOPED_TRACE(command_count);
+    amdf_xdna_umd_kernel_queue_t* queue = nullptr;
+    ASSERT_EQ(amdf_xdna_umd_kernel_queue_create(&context_, 9, &queue),
+              AMDF_STATUS_OK);
+    EXPECT_EQ(amdf_xdna_umd_kernel_queue_maximum_command_count(queue), 36u);
+    const size_t allocation_count = native_.allocations.size();
+    std::array<amdf_xdna_umd_kernel_command_t, 36> commands;
+    for (uint32_t i = 0; i < commands.size(); ++i) {
+      commands[i] = {result.device_address + i * 256, 64 + 4 * i};
+    }
+    native_.commands.clear();
+    native_.deferred_opcode = 6;
+    uint64_t last = 0;
+    for (uint32_t slot = 0; slot < 7; ++slot) {
+      ASSERT_TRUE(
+          amdf_xdna_umd_kernel_queue_has_capacity(queue, command_count));
+      ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue, slot, command_count,
+                                                  commands.data(), &last),
+                AMDF_STATUS_OK);
+    }
+    EXPECT_FALSE(amdf_xdna_umd_kernel_queue_has_capacity(queue, command_count));
+    ASSERT_EQ(native_.commands.size(), 7u);
+    for (uint32_t slot = 0; slot < 7; ++slot) {
+      const auto* expected_list =
+          static_cast<const uint8_t*>(native_.allocations[2].pointer) +
+          (slot + 1) * 4096;
+      EXPECT_EQ(native_.commands[slot].list, expected_list);
+      EXPECT_EQ(native_.commands[slot].command_count, command_count);
+    }
+    // An ordinary packet consumes no list credit even while all cells are live.
+    native_.deferred_opcode = 3;
+    EXPECT_TRUE(amdf_xdna_umd_kernel_queue_has_capacity(queue, 1));
+    ASSERT_EQ(
+        amdf_xdna_umd_kernel_queue_submit(queue, 7, 1, commands.data(), &last),
+        AMDF_STATUS_OK);
+    native_.progress = last;
+    EXPECT_EQ(amdf_xdna_umd_kernel_queue_query_progress(queue), last);
+    EXPECT_FALSE(amdf_xdna_umd_kernel_queue_has_capacity(queue, command_count));
+    amdf_xdna_umd_kernel_queue_retire_command(queue, 0);
+    ASSERT_TRUE(amdf_xdna_umd_kernel_queue_has_capacity(queue, command_count));
+    commands[0].instruction_address += 4096;
+    native_.deferred_opcode = 6;
+    ASSERT_EQ(amdf_xdna_umd_kernel_queue_submit(queue, 8, command_count,
+                                                commands.data(), &last),
+              AMDF_STATUS_OK);
+    EXPECT_EQ(native_.commands[8].list, native_.commands[0].list);
+    EXPECT_FALSE(amdf_xdna_umd_kernel_queue_has_capacity(queue, command_count));
+    // Wrapping the reclaimed first cell preserves all six other live lists.
+    for (uint32_t slot = 1; slot < 7; ++slot) {
+      for (uint32_t i = 0; i < command_count; ++i) {
+        const auto* entry = native_.commands[slot].list + i * 112;
+        EXPECT_EQ(ReadU64(entry, 0x3c), result.device_address + i * 256);
+        EXPECT_EQ(ReadU32(entry, 0x44), 16u + i);
+      }
+    }
+    native_.progress = last;
+    for (uint32_t slot = 1; slot < 9; ++slot) {
+      amdf_xdna_umd_kernel_queue_retire_command(queue, slot);
+    }
+    EXPECT_TRUE(amdf_xdna_umd_kernel_queue_has_capacity(queue, command_count));
+    EXPECT_EQ(amdf_xdna_umd_kernel_queue_query_terminal_status(queue),
+              AMDF_STATUS_OK);
+    EXPECT_EQ(native_.allocations.size(), allocation_count);
+    EXPECT_EQ(amdf_xdna_umd_kernel_queue_destroy(queue), AMDF_STATUS_OK);
+  }
+}
+
+TEST_P(WindowsXdnaKernelExecutionTest,
+       RejectedListsPreserveCreditsAndRetiredErrorsConsumeResults) {
+  auto* execution = context_.kernel_execution;
+  if (amdf_windows_xdna_kernel_execution_maximum_command_count(execution) < 2) {
+    GTEST_SKIP() << "native protocol has no command-list interface";
+  }
+  amdf_xdna_umd_memory_result_t result = {};
+  ASSERT_EQ(amdf_xdna_umd_memory_prepare_private(&context_, &profile_, &create_,
+                                                 &memory_, &result),
+            AMDF_STATUS_OK);
+  amdf_xdna_umd_kernel_queue_t* queue = nullptr;
+  ASSERT_EQ(amdf_xdna_umd_kernel_queue_create(&context_, 7, &queue),
+            AMDF_STATUS_OK);
+  const amdf_xdna_umd_kernel_command_t commands[] = {
+      {result.device_address, 64}, {result.device_address + 256, 128}};
+  const NTSTATUS rejection = static_cast<NTSTATUS>(0xC0000017u);
+  native_.bootstrap_publication.result = rejection;
+  uint64_t last = UINT64_MAX;
+  EXPECT_EQ(amdf_xdna_umd_kernel_queue_submit(queue, 0, 2, commands, &last),
+            amdf_kmt_make_status(rejection));
+  EXPECT_EQ(last, UINT64_MAX);
+  EXPECT_TRUE(native_.commands.empty());
+  native_.bootstrap_publication.result = 0;
+  native_.submission_result = rejection;
+  EXPECT_EQ(amdf_xdna_umd_kernel_queue_submit(queue, 0, 2, commands, &last),
+            amdf_kmt_make_status(rejection));
+  EXPECT_EQ(last, UINT64_MAX);
+  EXPECT_TRUE(native_.commands.empty());
+  native_.submission_result = 0;
+  native_.deferred_opcode = 6;
+  // Both rejections leave all seven credits and the first list cell available.
+  for (uint32_t slot = 0; slot < 7; ++slot) {
+    ASSERT_TRUE(amdf_xdna_umd_kernel_queue_has_capacity(queue, 2));
+    ASSERT_EQ(
+        amdf_xdna_umd_kernel_queue_submit(queue, slot, 2, commands, &last),
+        AMDF_STATUS_OK);
+  }
+  EXPECT_EQ(native_.commands[0].list,
+            static_cast<const uint8_t*>(native_.allocations[2].pointer) + 4096);
+  *native_.commands[6].response = 5;
+  native_.progress = last;
+  EXPECT_EQ(amdf_xdna_umd_kernel_queue_query_terminal_status(queue),
+            AMDF_STATUS_OK);
+  for (uint32_t slot = 0; slot < 7; ++slot) {
+    amdf_xdna_umd_kernel_queue_retire_command(queue, slot);
+  }
+  EXPECT_EQ(amdf_xdna_umd_kernel_queue_query_terminal_status(queue),
+            amdf_make_status(AMDF_STATUS_DOMAIN_FIRMWARE, 5));
+  EXPECT_TRUE(amdf_xdna_umd_kernel_queue_has_capacity(queue, 2));
+  EXPECT_EQ(amdf_kmt_device_status_query(&device_.status), AMDF_STATUS_OK);
+  EXPECT_EQ(amdf_xdna_umd_kernel_queue_destroy(queue), AMDF_STATUS_OK);
+}
+
+TEST_P(WindowsXdnaKernelExecutionTest,
        NotificationsBorrowCallerEventWithoutConsumingResults) {
   ASSERT_NO_FATAL_FAILURE(CreateNotificationEvent());
   amdf_xdna_umd_memory_result_t result = {};
@@ -514,9 +707,10 @@ TEST_P(WindowsXdnaKernelExecutionTest,
   ASSERT_EQ(amdf_windows_xdna_kernel_execution_acquire_queue(execution, 1),
             AMDF_STATUS_OK);
   native_.deferred_opcode = 3;
+  const amdf_xdna_umd_kernel_command_t command = {result.device_address, 64};
   uint64_t submission = 0;
-  ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(
-                execution, 0, result.device_address, 64, &submission),
+  ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(execution, 0, 1, &command,
+                                                      &submission),
             AMDF_STATUS_OK);
   const size_t allocation_count = native_.allocations.size();
   {
@@ -570,9 +764,10 @@ TEST_P(WindowsXdnaKernelExecutionTest,
   ASSERT_EQ(amdf_windows_xdna_kernel_execution_acquire_queue(execution, 1),
             AMDF_STATUS_OK);
   native_.deferred_opcode = 3;
+  const amdf_xdna_umd_kernel_command_t command = {result.device_address, 64};
   uint64_t submission = 0;
-  ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(
-                execution, 0, result.device_address, 64, &submission),
+  ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(execution, 0, 1, &command,
+                                                      &submission),
             AMDF_STATUS_OK);
   native_.notification.result = static_cast<NTSTATUS>(0xC0000017u);
   amdf_native_event_t event = {};
@@ -642,9 +837,10 @@ TEST_P(WindowsXdnaKernelExecutionTest,
   ASSERT_EQ(amdf_windows_xdna_kernel_execution_acquire_queue(execution, 3),
             AMDF_STATUS_OK);
   const size_t allocation_count = native_.allocations.size();
+  const amdf_xdna_umd_kernel_command_t command = {result.device_address, 64};
   uint64_t submission = 0;
-  EXPECT_EQ(amdf_windows_xdna_kernel_execution_submit(
-                execution, 0, result.device_address, 64, &submission),
+  EXPECT_EQ(amdf_windows_xdna_kernel_execution_submit(execution, 0, 1, &command,
+                                                      &submission),
             AMDF_STATUS_OK);
   EXPECT_EQ(submission, 4u);
   EXPECT_EQ(native_.instruction_address, result.device_address);
@@ -681,8 +877,10 @@ TEST_P(WindowsXdnaKernelExecutionTest,
   native_.deferred_opcode = 3;
   uint64_t last = 0;
   for (uint32_t i = 0; i < 3; ++i) {
-    ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(
-                  execution, i, result.device_address + i * 256, 64, &last),
+    const amdf_xdna_umd_kernel_command_t command = {
+        result.device_address + i * 256, 64};
+    ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(execution, i, 1,
+                                                        &command, &last),
               AMDF_STATUS_OK);
   }
   EXPECT_EQ(native_.progress, initial_progress);
@@ -736,10 +934,11 @@ TEST_P(WindowsXdnaKernelExecutionTest,
   const std::array<uint32_t, 3> slots = {0, capacity - 2, capacity - 1};
   uint64_t last = 0;
   for (uint32_t slot : slots) {
-    ASSERT_EQ(
-        amdf_windows_xdna_kernel_execution_submit(
-            execution, slot, result.device_address + slot * 256, 64, &last),
-        AMDF_STATUS_OK);
+    const amdf_xdna_umd_kernel_command_t command = {
+        result.device_address + slot * 256, 64};
+    ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(execution, slot, 1,
+                                                        &command, &last),
+              AMDF_STATUS_OK);
   }
   ASSERT_EQ(native_.commands.size(), slots.size());
   for (size_t i = 0; i < slots.size(); ++i) {
@@ -755,8 +954,10 @@ TEST_P(WindowsXdnaKernelExecutionTest,
             AMDF_STATUS_OK);
   // Reusing the first slot must not overwrite another pending packet or result.
   *native_.commands[2].response = 5;
-  ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(
-                execution, slots[0], result.device_address + 512, 64, &last),
+  const amdf_xdna_umd_kernel_command_t replacement = {
+      result.device_address + 512, 64};
+  ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(execution, slots[0], 1,
+                                                      &replacement, &last),
             AMDF_STATUS_OK);
   EXPECT_EQ(*native_.commands[2].response, 5u);
   EXPECT_EQ(ReadU64(native_.commands[2].packet, 0x10),
@@ -826,10 +1027,11 @@ TEST_P(WindowsXdnaKernelExecutionTest,
   native_.deferred_opcode = 3;
   std::array<uint64_t, 3> submissions;
   for (uint32_t i = 0; i < submissions.size(); ++i) {
-    ASSERT_EQ(
-        amdf_windows_xdna_kernel_execution_submit(
-            execution, i, result.device_address + i * 256, 64, &submissions[i]),
-        AMDF_STATUS_OK);
+    const amdf_xdna_umd_kernel_command_t command = {
+        result.device_address + i * 256, 64};
+    ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(
+                  execution, i, 1, &command, &submissions[i]),
+              AMDF_STATUS_OK);
   }
   kmt_.wait_from_cpu =
       [](const D3DKMT_WAITFORSYNCHRONIZATIONOBJECTFROMCPU* wait) -> NTSTATUS {
@@ -955,9 +1157,10 @@ TEST_P(WindowsXdnaKernelExecutionTest,
   // The miniport signals progress successfully while the separate response
   // cell reports ERT timeout. No failing command reaches real hardware.
   native_.execution_result = 8;
+  const amdf_xdna_umd_kernel_command_t command = {result.device_address, 64};
   uint64_t submission = 0;
-  EXPECT_EQ(amdf_windows_xdna_kernel_execution_submit(
-                execution, 0, result.device_address, 64, &submission),
+  EXPECT_EQ(amdf_windows_xdna_kernel_execution_submit(execution, 0, 1, &command,
+                                                      &submission),
             AMDF_STATUS_OK);
   EXPECT_EQ(submission, 4u);
   EXPECT_EQ(amdf_windows_xdna_kernel_execution_query_progress(execution),
@@ -975,8 +1178,8 @@ TEST_P(WindowsXdnaKernelExecutionTest,
   const size_t allocation_count = native_.allocations.size();
   const size_t submission_count = native_.opcodes.size();
   uint64_t rejected_submission = UINT64_MAX;
-  EXPECT_EQ(amdf_windows_xdna_kernel_execution_submit(
-                execution, 0, result.device_address, 64, &rejected_submission),
+  EXPECT_EQ(amdf_windows_xdna_kernel_execution_submit(execution, 0, 1, &command,
+                                                      &rejected_submission),
             failure);
   EXPECT_EQ(rejected_submission, UINT64_MAX);
   EXPECT_EQ(native_.opcodes.size(), submission_count);
@@ -1015,9 +1218,10 @@ TEST_P(WindowsXdnaKernelExecutionTest, ResetFenceDoesNotCompleteAcceptedWork) {
   auto* execution = context_.kernel_execution;
   ASSERT_EQ(amdf_windows_xdna_kernel_execution_acquire_queue(execution, 3),
             AMDF_STATUS_OK);
+  const amdf_xdna_umd_kernel_command_t command = {result.device_address, 64};
   uint64_t submission = 0;
-  ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(
-                execution, 0, result.device_address, 64, &submission),
+  ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(execution, 0, 1, &command,
+                                                      &submission),
             AMDF_STATUS_OK);
   native_.progress = UINT64_MAX;
   EXPECT_EQ(amdf_windows_xdna_kernel_execution_query_progress(execution), 0u);
@@ -1032,8 +1236,8 @@ TEST_P(WindowsXdnaKernelExecutionTest, ResetFenceDoesNotCompleteAcceptedWork) {
       lost);
   const size_t accepted_count = native_.opcodes.size();
   uint64_t rejected_submission = 77;
-  EXPECT_EQ(amdf_windows_xdna_kernel_execution_submit(
-                execution, 0, result.device_address, 64, &rejected_submission),
+  EXPECT_EQ(amdf_windows_xdna_kernel_execution_submit(execution, 0, 1, &command,
+                                                      &rejected_submission),
             lost);
   EXPECT_EQ(rejected_submission, 77u);
   EXPECT_EQ(native_.opcodes.size(), accepted_count);
@@ -1054,9 +1258,10 @@ TEST_P(WindowsXdnaKernelExecutionTest,
   ASSERT_EQ(amdf_windows_xdna_kernel_execution_acquire_queue(execution, 3),
             AMDF_STATUS_OK);
   native_.deferred_opcode = 3;
+  const amdf_xdna_umd_kernel_command_t command = {result.device_address, 64};
   uint64_t submission = 0;
-  ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(
-                execution, 0, result.device_address, 64, &submission),
+  ASSERT_EQ(amdf_windows_xdna_kernel_execution_submit(execution, 0, 1, &command,
+                                                      &submission),
             AMDF_STATUS_OK);
   kmt_.wait_from_cpu =
       [](const D3DKMT_WAITFORSYNCHRONIZATIONOBJECTFROMCPU* wait) -> NTSTATUS {

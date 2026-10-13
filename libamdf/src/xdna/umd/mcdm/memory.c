@@ -41,7 +41,7 @@ static amdf_status_t amdf_windows_xdna_memory_release_native(
     amdf_xdna_umd_memory_t* memory) {
   if (memory->context != NULL) {
     amdf_status_t status = amdf_windows_xdna_kernel_execution_release_memory(
-        memory->context->kernel_execution);
+        memory->context->kernel_execution, &memory->private_allocation);
     if (amdf_status_is_ok(status)) {
       status = amdf_windows_xdna_private_allocation_destroy(
           &memory->private_allocation);

@@ -287,9 +287,11 @@ class XdnaKernelQueueTest : public XdnaContextFixture {
     };
     ASSERT_EQ(api_->kernel_queue_query_info(queue_, &info), AMDF_STATUS_OK);
     ASSERT_NE(info.maximum_pending_submission_count, 0u);
-    if (commands_per_submission > info.maximum_command_count) {
-      GTEST_SKIP() << "queue command-array limit is "
-                   << info.maximum_command_count;
+    if (commands_per_submission == 0) {
+      if (info.maximum_command_count < 2) {
+        GTEST_SKIP() << "queue does not support command arrays";
+      }
+      commands_per_submission = info.maximum_command_count;
     }
     // Single commands fill the pending window. Arrays share native packet
     // capacity, so their reuse test waits after each accepted array.
@@ -599,7 +601,7 @@ TEST_F(XdnaKernelQueueTest, PipelinesCommandsAtDefaultCapacity) {
 
 TEST_F(XdnaKernelQueueTest,
        ReusesImmutableCommandArraysAfterCheckedRetirement) {
-  RunPipelinedTransactions(0, 64);
+  RunPipelinedTransactions(0, 0);
 }
 
 TEST_F(XdnaKernelQueueTest, RefreshRetiresBatchesAndReusesPacketStorage) {

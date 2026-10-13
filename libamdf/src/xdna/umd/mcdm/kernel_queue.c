@@ -24,27 +24,23 @@ amdf_status_t amdf_xdna_umd_kernel_queue_create(
 
 uint32_t amdf_xdna_umd_kernel_queue_maximum_command_count(
     const amdf_xdna_umd_kernel_queue_t* queue) {
-  (void)queue;
-  return 1;
+  return amdf_windows_xdna_kernel_execution_maximum_command_count(
+      (const amdf_windows_xdna_kernel_execution_t*)queue);
 }
 
 bool amdf_xdna_umd_kernel_queue_has_capacity(
     const amdf_xdna_umd_kernel_queue_t* queue, uint32_t command_count) {
-  // One native packet per submission; the shared pending bound owns capacity.
-  (void)queue;
-  (void)command_count;
-  return true;
+  return amdf_windows_xdna_kernel_execution_has_capacity(
+      (const amdf_windows_xdna_kernel_execution_t*)queue, command_count);
 }
 
 amdf_status_t amdf_xdna_umd_kernel_queue_submit(
     amdf_xdna_umd_kernel_queue_t* queue, uint32_t slot, uint32_t command_count,
     const amdf_xdna_umd_kernel_command_t* commands,
     uint64_t* out_native_submission) {
-  (void)command_count;
   return amdf_windows_xdna_kernel_execution_submit(
-      (amdf_windows_xdna_kernel_execution_t*)queue, slot,
-      commands[0].instruction_address, commands[0].instruction_byte_length,
-      out_native_submission);
+      (amdf_windows_xdna_kernel_execution_t*)queue, slot, command_count,
+      commands, out_native_submission);
 }
 
 amdf_native_event_types_t amdf_xdna_umd_kernel_queue_query_notification_types(

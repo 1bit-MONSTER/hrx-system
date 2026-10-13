@@ -134,6 +134,60 @@ void amdf_windows_xdna_submission_build_execute(
          packet, sizeof(*packet));
 }
 
+void amdf_windows_xdna_submission_build_execute_list(
+    const amdf_windows_xdna_private_allocation_t* execution_allocation,
+    const amdf_windows_xdna_private_allocation_t* response_allocation,
+    uint32_t response_byte_offset, uint64_t list_address,
+    uint32_t command_count, const amdf_xdna_umd_kernel_command_t* commands,
+    void* list_pointer, void* packet_pointer,
+    amdf_windows_xdna_submission_t* out_submission) {
+  // Each START_CU entry has a 52-byte header followed by the interpreter's
+  // 60-byte argument payload. CU zero is the context's bootstrap interpreter.
+  const uint32_t entry_byte_length =
+      AMDF_WINDOWS_XDNA_COMMAND_LIST_ENTRY_BYTE_LENGTH;
+  uint8_t* list = list_pointer;
+  memset(list, 0, command_count * entry_byte_length);
+  for (uint32_t i = 0; i < command_count; ++i) {
+    uint8_t* entry = list + i * entry_byte_length;
+    amdf_windows_xdna_submission_write_u32(entry, 0, 1);
+    amdf_windows_xdna_submission_write_u32(entry, 0x30, 15);
+    amdf_xdna_transaction_interpreter_packet_t packet;
+    amdf_xdna_transaction_interpreter_packet_build(
+        commands[i].instruction_address, commands[i].instruction_byte_length,
+        &packet);
+    memcpy(entry + 0x34, packet.bytes + 8, 60);
+  }
+
+  const uint32_t packet_byte_length = 28 + 8 * command_count;
+  uint8_t* packet = packet_pointer;
+  memset(packet, 0, AMDF_WINDOWS_XDNA_SUBMISSION_COMMAND_COPY_SIZE);
+  amdf_windows_xdna_submission_write_u32(
+      packet, 0,
+      1u | (AMDF_WINDOWS_XDNA_COMMAND_LIST_OPCODE << 23) |
+          ((packet_byte_length / 4 - 1) << 12));
+  amdf_windows_xdna_submission_write_u32(packet, 4, command_count);
+
+  amdf_windows_xdna_submission_initialize(
+      120 + AMDF_WINDOWS_XDNA_SUBMISSION_COMMAND_COPY_SIZE, out_submission);
+  amdf_windows_xdna_submission_write_u64(out_submission->bytes, 0x00, 6);
+  amdf_windows_xdna_submission_write_u64(out_submission->bytes, 0x08,
+                                         execution_allocation->allocation);
+  amdf_windows_xdna_submission_write_u64(out_submission->bytes, 0x10,
+                                         packet_byte_length);
+  amdf_windows_xdna_submission_write_response(
+      AMDF_WINDOWS_XDNA_PROTOCOL_DIRECT, response_allocation,
+      response_byte_offset, out_submission);
+  amdf_windows_xdna_submission_write_u64(out_submission->bytes, 0x58,
+                                         list_address);
+  amdf_windows_xdna_submission_write_u32(out_submission->bytes, 0x60,
+                                         command_count * entry_byte_length);
+  amdf_windows_xdna_submission_write_u32(out_submission->bytes, 0x64,
+                                         command_count);
+  // Child opcode zero denotes START_CU; reserved header fields remain zero.
+  memcpy(out_submission->bytes + 120, packet,
+         AMDF_WINDOWS_XDNA_SUBMISSION_COMMAND_COPY_SIZE);
+}
+
 amdf_status_t amdf_windows_xdna_submission_query_initialize_result(
     const amdf_windows_xdna_private_allocation_t* command_allocation) {
   const uint32_t result =

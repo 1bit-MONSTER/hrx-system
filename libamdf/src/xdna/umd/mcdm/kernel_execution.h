@@ -11,6 +11,7 @@
 
 #include "libamdf/src/wait.h"
 #include "libamdf/src/xdna/umd/context.h"
+#include "libamdf/src/xdna/umd/kernel_queue.h"
 #include "libamdf/src/xdna/umd/mcdm/private_allocation.h"
 
 #ifdef __cplusplus
@@ -20,8 +21,9 @@ extern "C" {
 typedef struct amdf_windows_xdna_kernel_execution_t
     amdf_windows_xdna_kernel_execution_t;
 
-// The native context binds one allocation. Its bootstrap prefix is reserved
-// for provider initialization; the remaining logical range belongs to callers.
+// The native context binds one allocation. Its prefix contains the bootstrap
+// page and bounded firmware command-list cells. The remainder belongs to
+// callers.
 #define AMDF_WINDOWS_XDNA_PRIVATE_APERTURE_SIZE UINT64_C(0x4000000)
 #define AMDF_WINDOWS_XDNA_PRIVATE_BOOTSTRAP_SIZE UINT64_C(0x8000)
 
@@ -35,7 +37,8 @@ amdf_status_t amdf_windows_xdna_kernel_execution_prepare_memory(
 // Observes any accepted bootstrap before private memory can be released. This
 // does not wait for application work: the caller has already retired that work.
 amdf_status_t amdf_windows_xdna_kernel_execution_release_memory(
-    amdf_windows_xdna_kernel_execution_t* execution);
+    amdf_windows_xdna_kernel_execution_t* execution,
+    amdf_windows_xdna_private_allocation_t* allocation);
 
 // Allocates inert host state for one context-owned execution path.
 amdf_status_t amdf_windows_xdna_kernel_execution_create(
@@ -66,11 +69,23 @@ amdf_status_t amdf_windows_xdna_kernel_execution_acquire_queue(
 amdf_status_t amdf_windows_xdna_kernel_execution_release_queue(
     amdf_windows_xdna_kernel_execution_t* execution);
 
-// Frames and publishes one validated instruction range without touching its
-// bytes or allocating submission storage.
+// Returns the command-array limit supported by this native protocol.
+uint32_t amdf_windows_xdna_kernel_execution_maximum_command_count(
+    const amdf_windows_xdna_kernel_execution_t* execution);
+
+// Tests list-cell credits without reservation. The exclusive publisher calls
+// this function; checked retirement may return credits concurrently.
+bool amdf_windows_xdna_kernel_execution_has_capacity(
+    const amdf_windows_xdna_kernel_execution_t* execution,
+    uint32_t command_count);
+
+// Frames a validated ordered array without touching instruction bytes or
+// allocating storage. The caller owns the slot and has checked list capacity.
+// Acceptance borrows the instruction allocation and its provider prefix until
+// checked retirement. Rejection consumes no slot or list-cell credit.
 amdf_status_t amdf_windows_xdna_kernel_execution_submit(
     amdf_windows_xdna_kernel_execution_t* execution, uint32_t slot,
-    uint64_t instruction_address, uint32_t instruction_byte_length,
+    uint32_t command_count, const amdf_xdna_umd_kernel_command_t* commands,
     uint64_t* out_native_submission);
 
 // Samples the mapped native retirement watermark.
