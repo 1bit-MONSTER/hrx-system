@@ -2,13 +2,19 @@ config.decl @increment.delta : %value: index where [range(%value, 1, 8)]
 
 config.decl @increment.temporary_bytes : offset
 
-amdgpu.target<gfx11-generic> @wave32 {subgroup_size = 32}
-
 func.def @increment_element(%element: index, %delta: index, %storage: buffer) {
+  // Native specialization resolves target facts in retained helper callees.
+  // Both supported wave sizes select one increment per element.
+  %width = target.subgroup.size : index
+  %c63 = index.constant 63 : index
+  %c64 = index.constant 64 : index
+  %rounded_width = index.add %width, %c63 : index
+  %waves = index.div %rounded_width, %c64 : index
+  %increment_delta = index.mul %delta, %waves : index
   %c0_offset = index.constant 0 : offset
   %data = buffer.view %storage[%c0_offset] : buffer -> view<8xi32>
   %value = view.load %data[%element] : view<8xi32> -> i32
-  %delta_i32 = index.cast %delta : index to i32
+  %delta_i32 = index.cast %increment_delta : index to i32
   %element_i32 = index.cast %element : index to i32
   %increment = scalar.addi %delta_i32, %element_i32 : i32
   %next = scalar.addi %value, %increment : i32
@@ -16,12 +22,9 @@ func.def @increment_element(%element: index, %delta: index, %storage: buffer) {
   func.return
 }
 
-kernel.def target(@wave32) @increment_0() {
-  %width = target.subgroup.size : index
-  %c32 = index.constant 32 : index
-  %groups = index.div %width, %c32 : index
+kernel.def @increment_0() {
   %c1 = index.constant 1 : index
-  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%storage: buffer) {
   %element = index.constant 0 : index
   %delta = config.get @increment.delta : index
@@ -29,12 +32,9 @@ kernel.def target(@wave32) @increment_0() {
   kernel.return
 }
 
-kernel.def target(@wave32) @increment_1() {
-  %width = target.subgroup.size : index
-  %c32 = index.constant 32 : index
-  %groups = index.div %width, %c32 : index
+kernel.def @increment_1() {
   %c1 = index.constant 1 : index
-  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%storage: buffer) {
   %element = index.constant 1 : index
   %delta = config.get @increment.delta : index
@@ -42,12 +42,9 @@ kernel.def target(@wave32) @increment_1() {
   kernel.return
 }
 
-kernel.def target(@wave32) @increment_2() {
-  %width = target.subgroup.size : index
-  %c32 = index.constant 32 : index
-  %groups = index.div %width, %c32 : index
+kernel.def @increment_2() {
   %c1 = index.constant 1 : index
-  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%storage: buffer) {
   %element = index.constant 2 : index
   %delta = config.get @increment.delta : index
@@ -55,12 +52,9 @@ kernel.def target(@wave32) @increment_2() {
   kernel.return
 }
 
-kernel.def target(@wave32) @increment_3() {
-  %width = target.subgroup.size : index
-  %c32 = index.constant 32 : index
-  %groups = index.div %width, %c32 : index
+kernel.def @increment_3() {
   %c1 = index.constant 1 : index
-  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%storage: buffer) {
   %element = index.constant 3 : index
   %delta = config.get @increment.delta : index
@@ -68,12 +62,9 @@ kernel.def target(@wave32) @increment_3() {
   kernel.return
 }
 
-kernel.def target(@wave32) @increment_4() {
-  %width = target.subgroup.size : index
-  %c32 = index.constant 32 : index
-  %groups = index.div %width, %c32 : index
+kernel.def @increment_4() {
   %c1 = index.constant 1 : index
-  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%storage: buffer) {
   %element = index.constant 4 : index
   %delta = config.get @increment.delta : index
@@ -81,12 +72,9 @@ kernel.def target(@wave32) @increment_4() {
   kernel.return
 }
 
-kernel.def target(@wave32) @increment_5() {
-  %width = target.subgroup.size : index
-  %c32 = index.constant 32 : index
-  %groups = index.div %width, %c32 : index
+kernel.def @increment_5() {
   %c1 = index.constant 1 : index
-  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%storage: buffer) {
   %element = index.constant 5 : index
   %delta = config.get @increment.delta : index
@@ -94,12 +82,9 @@ kernel.def target(@wave32) @increment_5() {
   kernel.return
 }
 
-kernel.def target(@wave32) @increment_6() {
-  %width = target.subgroup.size : index
-  %c32 = index.constant 32 : index
-  %groups = index.div %width, %c32 : index
+kernel.def @increment_6() {
   %c1 = index.constant 1 : index
-  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%storage: buffer) {
   %element = index.constant 6 : index
   %delta = config.get @increment.delta : index
@@ -107,12 +92,9 @@ kernel.def target(@wave32) @increment_6() {
   kernel.return
 }
 
-kernel.def target(@wave32) @increment_7() {
-  %width = target.subgroup.size : index
-  %c32 = index.constant 32 : index
-  %groups = index.div %width, %c32 : index
+kernel.def @increment_7() {
   %c1 = index.constant 1 : index
-  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%storage: buffer) {
   %element = index.constant 7 : index
   %delta = config.get @increment.delta : index
@@ -140,7 +122,7 @@ command.program.def public @selected_pair() launch(%storage: buffer) {
   command.return
 }
 
-kernel.def target(@wave32) @temporary_write() {
+kernel.def @temporary_write() {
   %c1 = index.constant 1 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%storage: buffer, %temporary: buffer) {
@@ -163,7 +145,7 @@ kernel.def target(@wave32) @temporary_write() {
   kernel.return
 }
 
-kernel.def target(@wave32) @temporary_read() {
+kernel.def @temporary_read() {
   %c1 = index.constant 1 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%temporary: buffer, %storage: buffer) {
@@ -201,7 +183,7 @@ command.program.def public @temporary_advance() launch(%storage: buffer) {
 // separate root exercises failure after the command product publishes its work.
 func.decl import("host") @host_only(%value: i32) -> (i32)
 
-kernel.def target(@wave32) @requires_host() {
+kernel.def @requires_host() {
   %c1 = index.constant 1 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%storage: buffer) {

@@ -1,6 +1,4 @@
-amdgpu.target<gfx11-generic> @wave32 {subgroup_size = 32}
-
-kernel.def target(@wave32) @add() {
+kernel.def @add() {
   %c1 = index.constant 1 : index
   %c8 = index.constant 8 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c8, %c1, %c1) : index
@@ -26,7 +24,7 @@ command.program.def public @add7() launch(%storage: buffer) {
   command.return
 }
 
-kernel.def target(@wave32) @consume() {
+kernel.def @consume() {
   %c1 = index.constant 1 : index
   %c8 = index.constant 8 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c8, %c1, %c1) : index
