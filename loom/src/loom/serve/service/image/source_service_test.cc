@@ -12,7 +12,6 @@
 #include <fstream>
 #include <memory>
 #include <string>
-#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -27,6 +26,7 @@
 #include "loom/serve/service/image/model.h"
 #include "loom/serve/service/image/output.h"
 #include "loom/serve/service/image/service.h"
+#include "loom/serve/testing/http_harness.h"
 #include "loom/serve/testing/model.h"
 #include "loom/serve/testing/stalled_stderr.h"
 #include "loom/serve/transport/http/listener.h"
@@ -63,13 +63,13 @@ class SourceImageServiceTest
     listener_options.address = IREE_SV("127.0.0.1:0");
     IREE_ASSERT_OK(loom_serve_http_listener_allocate(
         server_, &listener_options, host_allocator_, &listener_));
+    IREE_ASSERT_OK(http_.Initialize(server_, listener_));
   }
 
   void TearDown() override {
-    if (service_.joinable()) {
+    if (http_.joinable()) {
       loom_serve_http_server_request_stop(server_);
-      service_.join();
-      IREE_EXPECT_OK(status_);
+      IREE_EXPECT_OK(http_.Join());
     }
     IREE_EXPECT_OK(loom_serve_http_listener_free(listener_));
     loom_serve_http_server_free(server_);
@@ -79,7 +79,7 @@ class SourceImageServiceTest
   }
 
   void Start() {
-    service_ = std::thread([this] {
+    http_.Start([this] {
       const loom_serve_image_generator_t generator =
           loom_serve_image_model_generator(model_);
       EXPECT_EQ(generator.capacity_domain,
@@ -92,24 +92,27 @@ class SourceImageServiceTest
           .heartbeat_interval = 0,
       };
       loom_serve_image_service_t* service = nullptr;
-      status_ = loom_serve_image_service_allocate(
+      iree_status_t status = loom_serve_image_service_allocate(
           host_, generator, &options, nullptr, host_allocator_, &service);
-      if (iree_status_is_ok(status_)) {
+      if (iree_status_is_ok(status)) {
         const auto interface = loom_serve_image_service_interface(service);
         loom_serve_registry_t* registry = nullptr;
-        IREE_ASSERT_OK(loom_serve_registry_allocate(
-            1, &interface, 0, {}, host_allocator_, &registry));
-        status_ = loom_serve_router_run(
-            loom_serve_host_executor(host_), server_, registry,
-            {
-                .request_quota = options.pending_capacity,
-                .holding_capacity =
-                    loom_serve_http_server_connection_capacity(server_) / 2,
-            },
-            host_allocator_);
-        IREE_ASSERT_OK(loom_serve_registry_free(registry));
+        status = loom_serve_registry_allocate(1, &interface, 0, {},
+                                              host_allocator_, &registry);
+        if (iree_status_is_ok(status)) {
+          status = loom_serve_router_run(
+              loom_serve_host_executor(host_), server_, registry,
+              {
+                  .request_quota = options.pending_capacity,
+                  .holding_capacity =
+                      loom_serve_http_server_connection_capacity(server_) / 2,
+              },
+              host_allocator_);
+        }
+        status = iree_status_join(status, loom_serve_registry_free(registry));
       }
       loom_serve_image_service_free(service);
+      return status;
     });
   }
 
@@ -129,19 +132,19 @@ class SourceImageServiceTest
   }
 
   void StartManaged() {
-    service_ = std::thread([this] {
+    http_.Start([this]() -> iree_status_t {
       const loom_serve_model_registration_options_t options = {
           .device_group = group_,
           .heartbeat_interval = 0,
       };
       loom_serve_registry_t* registry = nullptr;
-      IREE_ASSERT_OK(loom_serve_registry_allocate(
+      IREE_RETURN_IF_ERROR(loom_serve_registry_allocate(
           0, nullptr, 2, loom_serve_model_registration_factory(&options),
           host_allocator_, &registry));
-      status_ = loom_serve_router_run(
+      iree_status_t status = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
           {.request_quota = 16, .holding_capacity = 8}, host_allocator_);
-      status_ = iree_status_join(status_, loom_serve_registry_free(registry));
+      return iree_status_join(status, loom_serve_registry_free(registry));
     });
   }
 
@@ -171,51 +174,40 @@ class SourceImageServiceTest
   }
 
   std::string WaitModel(const std::string& name, const std::string& marker) {
-    for (;;) {
+    while (!http_.failed() && !HasFatalFailure()) {
       const auto state = ModelStatus(name);
       if (marker.empty() ? state.empty()
                          : state.find(marker) != std::string::npos) {
         return state;
       }
     }
+    return {};
   }
 
   int Send(const std::string& method, const std::string& target,
            const std::string& body = "", const std::string& headers = "") {
-    const int client = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    EXPECT_GE(client, 0);
-    const auto* address = loom_serve_http_listener_address(listener_);
-    EXPECT_EQ(
-        connect(client, reinterpret_cast<const sockaddr*>(address->storage),
-                address->length),
-        0);
+    if (http_.failed() || HasFatalFailure()) {
+      return -1;
+    }
     const std::string request =
         method + " " + target +
         " HTTP/1.1\r\nHost: local\r\n"
         "Content-Type: application/json\r\nContent-Length: " +
         std::to_string(body.size()) + "\r\n" + headers + "\r\n" + body;
-    size_t offset = 0;
-    while (offset < request.size()) {
-      const ssize_t sent = send(client, request.data() + offset,
-                                request.size() - offset, MSG_NOSIGNAL);
-      EXPECT_GT(sent, 0);
-      if (sent <= 0) {
-        break;
-      }
-      offset += sent;
-    }
+    int client = -1;
+    [&] { IREE_ASSERT_OK(http_.Send(request, &client)); }();
     return client;
   }
 
-  std::string Read(int client) {
+  std::string Read(int client, bool allow_empty = false) {
     std::string response;
-    char buffer[4096];
-    ssize_t count = 0;
-    while ((count = recv(client, buffer, sizeof(buffer), 0)) > 0) {
-      response.append(buffer, count);
+    if (http_.failed() || HasFatalFailure()) {
+      if (client >= 0) {
+        EXPECT_EQ(close(client), 0);
+      }
+      return response;
     }
-    EXPECT_EQ(count, 0);
-    EXPECT_EQ(close(client), 0);
+    [&] { IREE_ASSERT_OK(http_.Read(client, allow_empty, &response)); }();
     return response;
   }
 
@@ -277,21 +269,10 @@ class SourceImageServiceTest
                               notification});
     };
     ASSERT_NO_FATAL_FAILURE(create_service());
-    auto accept = [&]() -> loom_serve_http_connection_t* {
-      for (;;) {
-        const auto ticket = iree_notification_prepare_wait(notification);
-        const loom_serve_http_request_t* request = nullptr;
-        auto* connection =
-            loom_serve_http_server_take_request(server_, &request);
-        if (connection) {
-          iree_notification_cancel_wait(notification);
-          IREE_EXPECT_OK(
-              interface.accept(interface.self, connection, request, 0));
-          return connection;
-        }
-        iree_notification_commit_wait(notification, ticket, IREE_DURATION_ZERO,
-                                      IREE_TIME_INFINITE_FUTURE);
-      }
+    auto accept = [&](int client, loom_serve_http_connection_t** connection) {
+      const loom_serve_http_request_t* request = nullptr;
+      IREE_ASSERT_OK(http_.TakeRequest(client, connection, &request));
+      IREE_ASSERT_OK(interface.accept(interface.self, *connection, request, 0));
     };
     auto advance_until = [&](auto ready,
                              loom_serve_http_service_flags_t flags = 0) {
@@ -311,7 +292,8 @@ class SourceImageServiceTest
 
     const int client = Send("POST", "/v1/images/generations",
                             R"({"model":"fixture-image","prompt":"ab"})");
-    auto* connection = accept();
+    loom_serve_http_connection_t* connection = nullptr;
+    ASSERT_NO_FATAL_FAILURE(accept(client, &connection));
     ASSERT_NO_FATAL_FAILURE(advance_until([&] {
       return std::string(interface.snapshot(interface.self).phase) ==
              "generating";
@@ -341,7 +323,7 @@ class SourceImageServiceTest
     ASSERT_NO_FATAL_FAILURE(
         advance_until([&] { return !interface.is_pending(interface.self); }));
     if (iree_any_bit_set(flags, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING)) {
-      EXPECT_TRUE(Read(client).empty());
+      EXPECT_TRUE(Read(client, /*allow_empty=*/true).empty());
       interface.set_observer(interface.self, {});
       service.reset();
       ASSERT_NO_FATAL_FAILURE(create_service());
@@ -352,7 +334,7 @@ class SourceImageServiceTest
     const int next =
         Send("POST", "/v1/images/generations",
              R"({"model":"fixture-image","prompt":"aba","seed":1})");
-    accept();
+    ASSERT_NO_FATAL_FAILURE(accept(next, &connection));
     ASSERT_NO_FATAL_FAILURE(advance_until(
         [&] { return interface.telemetry.counters->completed == 1; }));
     EXPECT_NE(Read(next).find("\"b64_json\":\"" + EncodedPixels(3, 1) + "\""),
@@ -377,10 +359,8 @@ class SourceImageServiceTest
   loom_serve_http_server_t* server_ = nullptr;
   // Independent binding borrowing the HTTP owner and shared host pool.
   loom_serve_http_listener_t* listener_ = nullptr;
-  // Outer application join; model work uses the shared task executor.
-  std::thread service_;
-  // Terminal service result read only after joining the outer thread.
-  iree_status_t status_ = iree_ok_status();
+  // HTTP readiness and optional outer owner, joined before model destruction.
+  loom_serve::testing::HttpHarness http_;
 };
 
 TEST_P(SourceImageServiceTest, SourcePixelsAndHttpPngPreserveRequestIdentity) {
@@ -461,6 +441,23 @@ TEST_P(SourceImageServiceTest, SourcePixelsAndHttpPngPreserveRequestIdentity) {
             std::string::npos);
 }
 
+TEST_P(SourceImageServiceTest, ClosedTransportTerminatesModelPolling) {
+  StartManaged();
+  loom_serve_http_server_request_stop(server_);
+  IREE_ASSERT_OK(http_.Join());
+  ::testing::TestPartResultArray failures;
+  {
+    ::testing::ScopedFakeTestPartResultReporter reporter(
+        ::testing::ScopedFakeTestPartResultReporter::
+            INTERCEPT_ONLY_CURRENT_THREAD,
+        &failures);
+    EXPECT_TRUE(WaitModel("absent", "ready").empty());
+  }
+  ASSERT_EQ(failures.size(), 1);
+  EXPECT_TRUE(failures.GetTestPartResult(0).fatally_failed());
+  EXPECT_TRUE(http_.failed());
+}
+
 TEST_P(SourceImageServiceTest, IndependentLogReadersCannotBlockColdImageWork) {
   ASSERT_NO_FATAL_FAILURE(CreateStandaloneModel());
   loom_serve::testing::StalledStderr stalled;
@@ -493,6 +490,7 @@ TEST_P(SourceImageServiceTest, IndependentLogReadersCannotBlockColdImageWork) {
   auto drain = [&] {
     for (;;) {
       latest = poll(fast);
+      ASSERT_FALSE(HasFatalFailure());
       EXPECT_EQ(latest.find(R"("event":"gap")"), std::string::npos);
       events += latest;
       const std::string next = cursor_of(latest);
@@ -563,8 +561,7 @@ TEST_P(SourceImageServiceTest, IndependentLogReadersCannotBlockColdImageWork) {
   EXPECT_NE(poll("").find(R"("partial":true)"), std::string::npos);
   EXPECT_EQ(cursor_of(poll(fast)), fast);
   loom_serve_http_server_request_stop(server_);
-  service_.join();
-  IREE_EXPECT_OK(status_);
+  IREE_EXPECT_OK(http_.Join());
 }
 
 TEST_P(SourceImageServiceTest, DynamicImageAdmissionRetirementAndReuse) {

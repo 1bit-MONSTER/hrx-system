@@ -208,6 +208,7 @@ def running_server(command, log_path, on_event=None, *, cwd=None):
         drain = observer = None
         stopped = threading.Event()
         attached = threading.Event()
+        failure = None
 
         def consume():
             for line in process.stderr:
@@ -245,6 +246,9 @@ def running_server(command, log_path, on_event=None, *, cwd=None):
                             observer.result()
                     break
             yield process, address
+        except BaseException as error:
+            failure = error
+            raise
         finally:
             # Close the HTTP consumer while the server can still answer it. Its
             # error cannot bypass termination and joining of the child we own.
@@ -261,6 +265,11 @@ def running_server(command, log_path, on_event=None, *, cwd=None):
                         drain.result()
                 finally:
                     process.stderr.close()
+                if failure is not None:
+                    failure.add_note(
+                        f"server diagnostics (exit {returncode}): {log_path}\n"
+                        f"{log_path.read_text()}"
+                    )
                 if address is not None and returncode:
                     raise RuntimeError(
                         f"server retirement failed: {returncode}; {log_path}\n"

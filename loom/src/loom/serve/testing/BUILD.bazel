@@ -5,12 +5,48 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_binary", "loom_cc_library", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_binary", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
 
 package(
     default_visibility = ["//visibility:private"],
     features = ["layering_check"],
     licenses = ["notice"],
+)
+
+loom_cc_library(
+    name = "http_harness",
+    testonly = True,
+    srcs = ["http_harness_linux.cc"],
+    hdrs = ["http_harness.h"],
+    target_compatible_with = select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = [
+        "//loom/src/loom/serve/telemetry:stream",
+        "//loom/src/loom/serve/transport/http:listener",
+        "//loom/src/loom/serve/transport/http:server",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_test(
+    name = "http_harness_test",
+    srcs = ["http_harness_test.cc"],
+    target_compatible_with = select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        ":http_harness",
+        "//loom/src/loom/serve/transport/http:listener",
+        "//loom/src/loom/serve/transport/http:server",
+        "//runtime/src/iree/async/util:proactor_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
 )
 
 loom_cc_library(

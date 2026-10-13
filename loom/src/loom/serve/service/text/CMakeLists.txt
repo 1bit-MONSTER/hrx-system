@@ -97,6 +97,7 @@ loom_cc_library(
     loom::serve::service::text::service
     loom::serve::service::text::telemetry
     loom::serve::telemetry::stream
+    loom::serve::testing::http_harness
     loom::serve::testing::model
     loom::serve::testing::stalled_stderr
     loom::serve::transport::http::listener

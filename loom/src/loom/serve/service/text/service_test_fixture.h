@@ -32,6 +32,7 @@
 #include "loom/serve/service/text/source_test_oracle.h"
 #include "loom/serve/service/text/stalled_client_test_util.h"
 #include "loom/serve/telemetry/stream.h"
+#include "loom/serve/testing/http_harness.h"
 #include "loom/serve/testing/model.h"
 #include "loom/serve/testing/stalled_stderr.h"
 #include "loom/serve/transport/http/listener.h"
@@ -71,6 +72,7 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
     listener_options.address = IREE_SV("127.0.0.1:0");
     IREE_ASSERT_OK(loom_serve_http_listener_allocate(
         server_, &listener_options, host_allocator_, &listener_));
+    IREE_ASSERT_OK(http_.Initialize(server_, listener_));
   }
 
   void WriteWeights(uint32_t bias) {
@@ -107,10 +109,9 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
   }
 
   void TearDown() override {
-    if (service_.joinable()) {
+    if (http_.joinable()) {
       loom_serve_http_server_request_stop(server_);
-      service_.join();
-      IREE_EXPECT_OK(status_);
+      IREE_EXPECT_OK(http_.Join());
     }
     IREE_EXPECT_OK(loom_serve_http_listener_free(listener_));
     loom_serve_http_server_free(server_);
@@ -133,44 +134,47 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
   void Start(
       iree_host_size_t chunk_size = 3,
       loom_serve_text_schedule_mode_t mode = LOOM_SERVE_TEXT_SCHEDULE_PACKED) {
-    service_ = std::thread([this, chunk_size, mode] {
+    http_.Start([this, chunk_size, mode] {
       auto options = ServiceOptions();
       options.chunk_size = chunk_size;
       options.schedule_mode = mode;
       loom_serve_text_service_t* service = nullptr;
-      status_ = loom_serve_text_service_allocate(model_, &options, nullptr,
-                                                 host_allocator_, &service);
-      if (iree_status_is_ok(status_)) {
+      iree_status_t status = loom_serve_text_service_allocate(
+          model_, &options, nullptr, host_allocator_, &service);
+      if (iree_status_is_ok(status)) {
         const auto interface = loom_serve_text_service_interface(service);
         loom_serve_registry_t* registry = nullptr;
-        IREE_ASSERT_OK(loom_serve_registry_allocate(
-            1, &interface, 0, {}, host_allocator_, &registry));
-        status_ = loom_serve_router_run(
-            loom_serve_host_executor(host_), server_, registry,
-            {.request_quota = options.row_count,
-             .holding_capacity =
-                 loom_serve_http_server_connection_capacity(server_) / 2},
-            host_allocator_);
-        IREE_ASSERT_OK(loom_serve_registry_free(registry));
+        status = loom_serve_registry_allocate(1, &interface, 0, {},
+                                              host_allocator_, &registry);
+        if (iree_status_is_ok(status)) {
+          status = loom_serve_router_run(
+              loom_serve_host_executor(host_), server_, registry,
+              {.request_quota = options.row_count,
+               .holding_capacity =
+                   loom_serve_http_server_connection_capacity(server_) / 2},
+              host_allocator_);
+        }
+        status = iree_status_join(status, loom_serve_registry_free(registry));
       }
-      loom_serve_text_service_free(service, iree_status_code(status_));
+      loom_serve_text_service_free(service, iree_status_code(status));
+      return status;
     });
   }
 
   void StartManaged() {
     IREE_ASSERT_OK(loom_serve_text_model_free(model_));
     model_ = nullptr;
-    service_ = std::thread([this] {
+    http_.Start([this]() -> iree_status_t {
       const loom_serve_model_registration_options_t options = {
           .device_group = group_, .heartbeat_interval = 0};
       loom_serve_registry_t* registry = nullptr;
-      IREE_ASSERT_OK(loom_serve_registry_allocate(
+      IREE_RETURN_IF_ERROR(loom_serve_registry_allocate(
           0, nullptr, 3, loom_serve_model_registration_factory(&options),
           host_allocator_, &registry));
-      status_ = loom_serve_router_run(
+      iree_status_t status = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
           {.request_quota = 16, .holding_capacity = 8}, host_allocator_);
-      status_ = iree_status_join(status_, loom_serve_registry_free(registry));
+      return iree_status_join(status, loom_serve_registry_free(registry));
     });
   }
 
@@ -192,7 +196,7 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
   }
 
   std::string WaitModel(const std::string& name, const std::string& marker) {
-    for (;;) {
+    while (!http_.failed() && !HasFatalFailure()) {
       const auto listing = Read(Send("", "", "/v1/status", "GET"));
       const size_t begin = listing.find("\"id\":\"" + name + "\"");
       const size_t end = listing.find("{\"object\":\"model\"", begin);
@@ -206,45 +210,34 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
         return state;
       }
     }
+    return {};
   }
 
   int Send(const std::string& body, const std::string& headers = "",
            const std::string& target = "/v1/chat/completions",
            const std::string& method = "POST") {
-    const int client = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    EXPECT_GE(client, 0);
-    const auto* address = loom_serve_http_listener_address(listener_);
-    EXPECT_EQ(
-        connect(client, reinterpret_cast<const sockaddr*>(address->storage),
-                address->length),
-        0);
+    if (http_.failed() || HasFatalFailure()) {
+      return -1;
+    }
     const std::string request =
         method + " " + target +
         " HTTP/1.1\r\nHost: local\r\nContent-Type: application/json\r\n" +
         headers + "Content-Length: " + std::to_string(body.size()) +
         "\r\n\r\n" + body;
-    size_t offset = 0;
-    while (offset < request.size()) {
-      const ssize_t count = send(client, request.data() + offset,
-                                 request.size() - offset, MSG_NOSIGNAL);
-      EXPECT_GT(count, 0);
-      if (count <= 0) {
-        break;
-      }
-      offset += count;
-    }
+    int client = -1;
+    [&] { IREE_ASSERT_OK(http_.Send(request, &client)); }();
     return client;
   }
 
-  std::string Read(int client) {
+  std::string Read(int client, bool allow_empty = false) {
     std::string response;
-    char bytes[4096];
-    ssize_t count;
-    while ((count = recv(client, bytes, sizeof(bytes), 0)) > 0) {
-      response.append(bytes, count);
+    if (http_.failed() || HasFatalFailure()) {
+      if (client >= 0) {
+        EXPECT_EQ(close(client), 0);
+      }
+      return response;
     }
-    EXPECT_EQ(count, 0);
-    EXPECT_EQ(close(client), 0);
+    [&] { IREE_ASSERT_OK(http_.Read(client, allow_empty, &response)); }();
     return response;
   }
 
@@ -314,8 +307,17 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
                             loom_serve_http_server_notification(server_)});
   }
 
-  void Accept(const loom_serve_http_service_t& interface,
+  void Accept(int client, const loom_serve_http_service_t& interface,
               loom_serve_http_connection_t** out_connection) {
+    ASSERT_FALSE(HasFatalFailure());
+    const loom_serve_http_request_t* request = nullptr;
+    IREE_ASSERT_OK(http_.TakeRequest(client, out_connection, &request));
+    IREE_ASSERT_OK(
+        interface.accept(interface.self, *out_connection, request, 0));
+  }
+
+  void AcceptLoopback(const loom_serve_http_service_t& interface,
+                      loom_serve_http_connection_t** out_connection) {
     auto* notification = loom_serve_http_server_notification(server_);
     for (;;) {
       const auto ticket = iree_notification_prepare_wait(notification);
@@ -410,9 +412,7 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
 
     if (action == OverlapAction::kStop) {
       loom_serve_http_server_request_stop(server_);
-      service_.join();
-      IREE_EXPECT_OK(status_);
-      status_ = iree_ok_status();
+      IREE_EXPECT_OK(http_.Join());
       ASSERT_NO_FATAL_FAILURE(stalled.Close());
       // The service releases unused reservations; the outer model owner still
       // owns consumed row storage until its own retirement.
@@ -466,7 +466,7 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
     const int first = Send(Request(Message("user", first_prompt), 4),
                            "X-Loom-Session: first\r\n");
     loom_serve_http_connection_t* connection = nullptr;
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+    ASSERT_NO_FATAL_FAILURE(Accept(first, interface, &connection));
     ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
         interface,
         [&] {
@@ -480,7 +480,7 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
     const std::string second_prompt = "baxab";
     const int second = Send(Request(Message("user", second_prompt), 4),
                             "X-Loom-Session: second\r\n");
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+    ASSERT_NO_FATAL_FAILURE(Accept(second, interface, &connection));
     EXPECT_EQ(interface.telemetry.counters->batches, 0u);
     EXPECT_EQ(interface.snapshot(interface.self).queued_requests, 1u);
     // Metadata stays owner-readable while preparation borrows the second
@@ -530,8 +530,9 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
     EXPECT_EQ(interface.telemetry.counters->requests, 2u);
     if (action == OverlapAction::kStop) {
       EXPECT_EQ(interface.telemetry.counters->cancelled, 2u);
-      EXPECT_EQ(Read(first).find("data: [DONE]"), std::string::npos);
-      EXPECT_TRUE(Read(second).empty());
+      EXPECT_EQ(Read(first, /*allow_empty=*/true).find("data: [DONE]"),
+                std::string::npos);
+      EXPECT_TRUE(Read(second, /*allow_empty=*/true).empty());
     } else {
       EXPECT_EQ(Content(Read(first)), Oracle::Complete(first_prompt, 4));
       EXPECT_EQ(interface.telemetry.counters->completed,
@@ -589,13 +590,13 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
       const int client =
           Send(Request(Message("user", "abxa"), 2),
                "X-Loom-Session: conversation" + std::to_string(i) + "\r\n");
-      ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+      ASSERT_NO_FATAL_FAILURE(Accept(client, interface, &connection));
       ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, idle));
       EXPECT_EQ(Content(Read(client)), first);
     }
     const int replacement = Send(Request(Message("user", "bax"), 2),
                                  "X-Loom-Session: replacement\r\n");
-    ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+    ASSERT_NO_FATAL_FAILURE(Accept(replacement, interface, &connection));
     ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
         interface,
         [&] {
@@ -625,14 +626,14 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
                                        : 0));
     EXPECT_EQ(interface.telemetry.counters->cancelled, 1u);
     if (action == OverlapAction::kStop) {
-      EXPECT_TRUE(Read(replacement).empty());
+      EXPECT_TRUE(Read(replacement, /*allow_empty=*/true).empty());
     } else {
       const int resumed = Send(
           Request(Message("user", "abxa") + "," + Message("assistant", first) +
                       "," + Message("user", "b"),
                   2),
           "X-Loom-Session: conversation0\r\n");
-      ASSERT_NO_FATAL_FAILURE(Accept(interface, &connection));
+      ASSERT_NO_FATAL_FAILURE(Accept(resumed, interface, &connection));
       ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, idle));
       const auto response = Read(resumed);
       EXPECT_EQ(Content(response), Oracle::Complete("abxa" + first + "#b", 2));
@@ -664,10 +665,8 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
   loom_serve_http_server_t* server_ = nullptr;
   // Independent binding borrowing the HTTP owner and shared host pool.
   loom_serve_http_listener_t* listener_ = nullptr;
-  // Outer application thread, not a model worker dependency wait.
-  std::thread service_;
-  // Consumed after joining the application thread.
-  iree_status_t status_ = iree_ok_status();
+  // HTTP readiness and optional outer owner, joined before model destruction.
+  loom_serve::testing::HttpHarness http_;
 };
 
 }  // namespace loom_serve::testing::text

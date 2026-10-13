@@ -15,7 +15,6 @@
 #include <iterator>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -28,6 +27,7 @@
 #include "loom/serve/server/router.h"
 #include "loom/serve/service/finite/embedding/protocol.h"
 #include "loom/serve/service/finite/service.h"
+#include "loom/serve/testing/http_harness.h"
 #include "loom/serve/testing/model.h"
 #include "loom/serve/testing/stalled_stderr.h"
 #include "loom/serve/transport/http/listener.h"
@@ -196,6 +196,7 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
     listener_options.address = IREE_SV("127.0.0.1:0");
     IREE_ASSERT_OK(loom_serve_http_listener_allocate(
         server_, &listener_options, host_allocator_, &listener_));
+    IREE_ASSERT_OK(http_.Initialize(server_, listener_));
   }
 
   void CreateModel(const std::string& directory) {
@@ -230,10 +231,9 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
   }
 
   void TearDown() override {
-    if (router_.joinable()) {
+    if (http_.joinable()) {
       loom_serve_http_server_request_stop(server_);
-      router_.join();
-      IREE_EXPECT_OK(status_);
+      IREE_EXPECT_OK(http_.Join());
     }
     if (service_) {
       interface_.set_observer(interface_.self, {});
@@ -250,60 +250,43 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
 
   int Send(const std::string& body, const char* target = "/v1/embeddings",
            const char* method = "POST", const std::string& headers = {}) {
-    const int client = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    EXPECT_GE(client, 0);
-    const auto* address = loom_serve_http_listener_address(listener_);
-    EXPECT_EQ(
-        connect(client, reinterpret_cast<const sockaddr*>(address->storage),
-                address->length),
-        0);
+    if (http_.failed() || HasFatalFailure()) {
+      return -1;
+    }
     const std::string request = std::string(method) + " " + target +
                                 " HTTP/1.1\r\nHost: local\r\nContent-Type: "
                                 "application/json\r\nContent-Length: " +
                                 std::to_string(body.size()) + "\r\n" + headers +
                                 "\r\n" + body;
-    size_t offset = 0;
-    while (offset < request.size()) {
-      const ssize_t sent = send(client, request.data() + offset,
-                                request.size() - offset, MSG_NOSIGNAL);
-      EXPECT_GT(sent, 0);
-      if (sent <= 0) {
-        break;
-      }
-      offset += sent;
-    }
+    int client = -1;
+    [&] { IREE_ASSERT_OK(http_.Send(request, &client)); }();
     return client;
   }
 
-  std::string Read(int client) {
+  std::string Read(int client, bool allow_empty = false) {
     std::string response;
-    char bytes[4096];
-    ssize_t length;
-    while ((length = recv(client, bytes, sizeof(bytes), 0)) > 0) {
-      response.append(bytes, length);
+    if (http_.failed() || HasFatalFailure()) {
+      if (client >= 0) {
+        EXPECT_EQ(close(client), 0);
+      }
+      return response;
     }
-    EXPECT_EQ(length, 0);
-    EXPECT_EQ(close(client), 0);
+    [&] { IREE_ASSERT_OK(http_.Read(client, allow_empty, &response)); }();
     return response;
   }
 
   // Admit already-arrived HTTP requests before the next scheduler turn. This
   // uses the production carrier/claim/service interfaces, with no fake model
   // or sleeps to manufacture coalescing.
-  loom_serve_http_connection_t* Accept() {
-    auto* notification = loom_serve_http_server_notification(server_);
-    while (true) {
-      const auto ticket = iree_notification_prepare_wait(notification);
-      const loom_serve_http_request_t* request = nullptr;
-      auto* connection = loom_serve_http_server_take_request(server_, &request);
-      if (connection) {
-        iree_notification_cancel_wait(notification);
-        IREE_EXPECT_OK(
-            interface_.accept(interface_.self, connection, request, 0));
-        return connection;
-      }
-      iree_notification_commit_wait(notification, ticket, IREE_DURATION_ZERO,
-                                    IREE_TIME_INFINITE_FUTURE);
+  void Accept(int client,
+              loom_serve_http_connection_t** out_connection = nullptr) {
+    ASSERT_FALSE(HasFatalFailure());
+    const loom_serve_http_request_t* request = nullptr;
+    loom_serve_http_connection_t* connection = nullptr;
+    IREE_ASSERT_OK(http_.TakeRequest(client, &connection, &request));
+    IREE_ASSERT_OK(interface_.accept(interface_.self, connection, request, 0));
+    if (out_connection) {
+      *out_connection = connection;
     }
   }
 
@@ -343,7 +326,7 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
     loom_serve_http_connection_t* connections[IREE_ARRAYSIZE(bodies)] = {};
     for (size_t i = 0; i < IREE_ARRAYSIZE(bodies); ++i) {
       clients[i] = Send(bodies[i]);
-      connections[i] = Accept();
+      ASSERT_NO_FATAL_FAILURE(Accept(clients[i], &connections[i]));
     }
     ASSERT_TRUE(Step());  // CPU request preparation.
     ASSERT_TRUE(Step());  // Source batch preparation.
@@ -379,7 +362,7 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
     Drain();
     if (iree_any_bit_set(flags, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING)) {
       for (int client : clients) {
-        EXPECT_TRUE(Read(client).empty());
+        EXPECT_TRUE(Read(client, /*allow_empty=*/true).empty());
       }
       interface_.set_observer(interface_.self, {});
       loom_serve_finite_service_free(std::exchange(service_, nullptr));
@@ -387,7 +370,7 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
     }
 
     const int next = Send(R"({"model":"fixture","input":[0]})");
-    Accept();
+    ASSERT_NO_FATAL_FAILURE(Accept(next));
     Drain();
     EXPECT_NE(Read(next).find(R"("embedding":[1,1,1,1])"), std::string::npos);
     EXPECT_EQ(interface_.telemetry.counters->completed, 1u);
@@ -396,14 +379,14 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
 
   void StartRouter() {
     interface_.set_observer(interface_.self, {});
-    router_ = std::thread([this] {
+    http_.Start([this]() -> iree_status_t {
       loom_serve_registry_t* registry = nullptr;
-      IREE_ASSERT_OK(loom_serve_registry_allocate(1, &interface_, 0, {},
-                                                  host_allocator_, &registry));
-      status_ = loom_serve_router_run(
+      IREE_RETURN_IF_ERROR(loom_serve_registry_allocate(
+          1, &interface_, 0, {}, host_allocator_, &registry));
+      iree_status_t status = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
           {.request_quota = 16, .holding_capacity = 8}, host_allocator_);
-      IREE_ASSERT_OK(loom_serve_registry_free(registry));
+      return iree_status_join(status, loom_serve_registry_free(registry));
     });
   }
 
@@ -411,21 +394,21 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
     if (service_) {
       interface_.set_observer(interface_.self, {});
     }
-    router_ = std::thread([this, capacity] {
+    http_.Start([this, capacity]() -> iree_status_t {
       const loom_serve_model_registration_options_t options = {
           .device_group = group_,
           .heartbeat_interval = 1000000,
       };
       loom_serve_registry_t* registry = nullptr;
-      IREE_ASSERT_OK(loom_serve_registry_allocate(
+      IREE_RETURN_IF_ERROR(loom_serve_registry_allocate(
           service_ ? 1 : 0, &interface_, capacity,
           loom_serve_model_registration_factory(&options), host_allocator_,
           &registry));
-      status_ = loom_serve_router_run(
+      iree_status_t status = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
           {.request_quota = 16, .holding_capacity = 8}, host_allocator_);
       EXPECT_TRUE(loom_serve_registry_counters(registry, &retired_counters_));
-      status_ = iree_status_join(status_, loom_serve_registry_free(registry));
+      return iree_status_join(status, loom_serve_registry_free(registry));
     });
   }
 
@@ -451,13 +434,14 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
   }
 
   std::string WaitModel(const std::string& name, const std::string& marker) {
-    for (;;) {
+    while (!http_.failed() && !HasFatalFailure()) {
       std::string state = ModelStatus(name);
       if (marker.empty() ? state.empty()
                          : state.find(marker) != std::string::npos) {
         return state;
       }
     }
+    return {};
   }
 
   uint64_t CompletedRequests() {
@@ -603,10 +587,8 @@ global.rodata.def @policy = bytes("706f6c6963792e6c6f6f6d")
   iree_notification_t notification_;
   // Published callback generations.
   std::atomic<uint64_t> wakes_{0};
-  // Optional outer shared-router thread.
-  std::thread router_;
-  // Router status read after join.
-  iree_status_t status_ = iree_ok_status();
+  // HTTP readiness and optional outer owner, joined before model destruction.
+  loom_serve::testing::HttpHarness http_;
   // Copied after the router joins, including counters from removed
   // incarnations.
   loom_serve_telemetry_counters_t retired_counters_ = {};
@@ -763,11 +745,9 @@ TEST_P(SourceEmbeddingServiceTest,
   // terminal error drains even an unrelated held registration.
   // Join the owner directly: polling HTTP after terminal shutdown would wait
   // on a consumer that has already retired.
-  router_.join();
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
-                        std::exchange(status_, iree_ok_status()));
-  EXPECT_TRUE(Read(broken).empty());
-  EXPECT_TRUE(Read(cold).empty());
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE, http_.Join());
+  EXPECT_TRUE(Read(broken, /*allow_empty=*/true).empty());
+  EXPECT_TRUE(Read(cold, /*allow_empty=*/true).empty());
   // Registry counters cover work admitted to a model. The cold request never
   // left the router's holding set and is observed through its aborted claim.
   EXPECT_EQ(retired_counters_.requests, 1u);
@@ -867,8 +847,7 @@ TEST_P(ElasticEmbeddingServiceTest,
   EXPECT_NE(Read(Send({}, "/v1/models", "GET")).find(R"("data":[])"),
             std::string::npos);
   loom_serve_http_server_request_stop(server_);
-  router_.join();
-  IREE_ASSERT_OK(status_);
+  IREE_ASSERT_OK(http_.Join());
   const auto memory = loom_serve_device_memory_statistics(device_).retained;
   EXPECT_EQ(memory.reserved_bytes, 0u);
   EXPECT_EQ(memory.committed_bytes, 0u);
@@ -878,13 +857,14 @@ TEST_P(ElasticEmbeddingServiceTest,
 TEST_P(SourceEmbeddingServiceTest,
        CoalescesRaggedRequestsAndDropsOnlyResetPeer) {
   const int a = Send(R"({"model":"fixture","input":["a","bbb"]})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(a));
   const int b = Send(R"({"model":"fixture","input":[2]})");
-  auto* cancelled = Accept();
+  loom_serve_http_connection_t* cancelled = nullptr;
+  ASSERT_NO_FATAL_FAILURE(Accept(b, &cancelled));
   const int c = Send(R"({"model":"fixture","input":[[2,0]],"dimensions":2})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(c));
   const int bad = Send(R"({"model":"fixture","input":"a","dimensions":3})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(bad));
   for (iree_host_size_t i = 0; i < 4; ++i) {
     loom_serve_http_request_snapshot_t snapshot = {};
     ASSERT_TRUE(
@@ -943,7 +923,7 @@ TEST_P(SourceEmbeddingServiceTest,
   EXPECT_EQ(Read(bad).find("HTTP/1.1 400"), 0u);
   // The same source/queue/pool is reusable after feedback and CPU release.
   const int next = Send(R"({"model":"fixture","input":[0]})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(next));
   Drain();
   EXPECT_NE(Read(next).find(R"("embedding":[1,1,1,1])"), std::string::npos);
   const auto& counters = *interface_.telemetry.counters;
@@ -963,9 +943,9 @@ TEST_P(SourceEmbeddingServiceTest, CancelledDeviceCohortSkipsEncoding) {
 TEST_P(SourceEmbeddingServiceTest, DirectDispatchReturnsCompactRaggedVectors) {
   ASSERT_NO_FATAL_FAILURE(UseDirectPackage());
   const int a = Send(R"({"model":"fixture","input":["a","bbb"]})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(a));
   const int b = Send(R"({"model":"fixture","input":[[2,0]],"dimensions":2})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(b));
   Drain();
   const std::string first = Read(a);
   SCOPED_TRACE(first);
@@ -977,7 +957,7 @@ TEST_P(SourceEmbeddingServiceTest, DirectDispatchReturnsCompactRaggedVectors) {
   const std::string second = Read(b);
   EXPECT_NE(second.find(R"("embedding":[4,2])"), std::string::npos) << second;
   const int next = Send(R"({"model":"fixture","input":[1]})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(next));
   Drain();
   const std::string last = Read(next);
   EXPECT_NE(last.find(R"("embedding":[2,1,2,1])"), std::string::npos) << last;
@@ -1097,9 +1077,7 @@ TEST_P(SourceEmbeddingServiceTest,
             0u);
   // Shutdown itself must also retire while no stderr consumer is running.
   loom_serve_http_server_request_stop(server_);
-  router_.join();
-  IREE_EXPECT_OK(status_);
-  status_ = iree_ok_status();
+  IREE_EXPECT_OK(http_.Join());
 }
 
 TEST_P(SourceEmbeddingServiceTest,
@@ -1108,7 +1086,7 @@ TEST_P(SourceEmbeddingServiceTest,
   for (size_t i = 0; i < 4; ++i) {
     clients.push_back(Send("{\"model\":\"fixture\",\"input\":\"" +
                            std::string(31, 'b') + "\"}"));
-    Accept();
+    ASSERT_NO_FATAL_FAILURE(Accept(clients.back()));
   }
   Drain();
   for (int client : clients) {
@@ -1141,14 +1119,14 @@ TEST_P(SourceEmbeddingServiceTest,
   std::vector<int> rejected;
   for (const auto& input : invalid_inputs) {
     rejected.push_back(Send("{\"model\":\"fixture\",\"input\":" + input + "}"));
-    Accept();
+    ASSERT_NO_FATAL_FAILURE(Accept(rejected.back()));
   }
   // Every row fits individually, and these two consume the entire 64-unit
   // cohort. Rejected preparation must retain neither units nor device rows.
   const int valid =
       Send("{\"model\":\"fixture\",\"input\":[\"" + std::string(31, 'b') +
            "\",\"" + std::string(31, 'a') + "\"]}");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(valid));
   Drain();
   for (size_t i = 0; i < rejected.size(); ++i) {
     SCOPED_TRACE(i);
@@ -1167,7 +1145,7 @@ TEST_P(SourceEmbeddingServiceTest,
   EXPECT_FALSE(interface_.is_pending(interface_.self));
 
   const int next = Send(R"({"model":"fixture","input":[0]})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(next));
   Drain();
   const auto next_response = Read(next);
   EXPECT_EQ(next_response.find("HTTP/1.1 200"), 0u);
@@ -1282,8 +1260,7 @@ TEST_P(SourceEmbeddingServiceTest,
                 .find("loom_serve_server_completed_total 8\n"),
             std::string::npos);
   loom_serve_http_server_request_stop(server_);
-  router_.join();
-  IREE_EXPECT_OK(status_);
+  IREE_EXPECT_OK(http_.Join());
   // Reversible admission never evicted/reloaded the in-place prepared
   // parameter. Applying preparation twice would also change the exact output.
   EXPECT_EQ(
@@ -1305,7 +1282,7 @@ TEST_P(SourceEmbeddingServiceTest,
       .options = IREE_SV("{}"),
   };
   const int resident = Send(R"({"model":"fixture","input":"a"})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(resident));
   ModelLifecycle load;
   load.service = &interface_;
   iree_status_t status;
@@ -1332,7 +1309,7 @@ TEST_P(SourceEmbeddingServiceTest,
   std::swap(model_, retained_);
   ASSERT_NO_FATAL_FAILURE(CreateService(0));
   const int prepared = Send(R"({"model":"fixture","input":"a"})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(prepared));
   Drain();
   EXPECT_NE(Read(prepared).find(R"("embedding":[2,2,2,2])"), std::string::npos);
 }
@@ -1360,7 +1337,7 @@ TEST_P(SourceEmbeddingServiceTest,
         .options = IREE_SV("{}"),
     };
     const int resident = Send(R"({"model":"fixture","input":"a"})");
-    Accept();
+    ASSERT_NO_FATAL_FAILURE(Accept(resident));
     ModelLifecycle load;
     load.service = &interface_;
     load.cancel_after_start = cancel;
@@ -1414,7 +1391,8 @@ TEST_P(ElasticEmbeddingServiceTest,
   EXPECT_EQ(loom_serve_residency_statistics(retained_residency).committed_bytes,
             kSlabBytes);
   const int cancelled = Send(R"({"model":"fixture","input":["a","bbb"]})");
-  auto* connection = Accept();
+  loom_serve_http_connection_t* connection = nullptr;
+  ASSERT_NO_FATAL_FAILURE(Accept(cancelled, &connection));
   const auto queued = interface_.snapshot(interface_.self);
   EXPECT_EQ(queued.queued_requests, 1u);
   EXPECT_EQ(queued.active_requests, 0u);
@@ -1470,7 +1448,7 @@ TEST_P(ElasticEmbeddingServiceTest,
   EXPECT_EQ(cancelled_state.oldest_queued_age, 0);
   EXPECT_EQ(cancelled_state.oldest_active_age, 0);
   const int request = Send(R"({"model":"fixture","input":["a","bbb"]})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(request));
   EXPECT_TRUE(Step(kShared));
   EXPECT_TRUE(Step(kShared));
   EXPECT_TRUE(Step(kShared));
@@ -1503,7 +1481,7 @@ TEST_P(ElasticEmbeddingServiceTest,
   std::swap(model_, retained_);
   ASSERT_NO_FATAL_FAILURE(CreateService(0));
   const int peer = Send(R"({"model":"fixture","input":"a"})");
-  Accept();
+  ASSERT_NO_FATAL_FAILURE(Accept(peer));
   ModelLifecycle removal;
   removal.model = std::exchange(retained_, nullptr);
   removal.service = &interface_;
