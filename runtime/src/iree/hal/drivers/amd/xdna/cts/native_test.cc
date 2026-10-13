@@ -518,6 +518,96 @@ TEST_F(XdnaNativeTest, ReplacesDeviceMappingsOverRetainedBacking) {
   IREE_ASSERT_OK(iree_hal_virtual_buffer_detach(reservation, program_scope));
 }
 
+TEST_F(XdnaNativeTest, RecordedHostAndNativePhasesReplayWithIndirectBindings) {
+  ASSERT_NO_FATAL_FAILURE(LoadMultiply());
+  ASSERT_NO_FATAL_FAILURE(LoadAdd());
+  std::array<std::array<iree_hal_buffer_t*, 5>, 2> buffers = {};
+  std::array<iree_hal_semaphore_t*, 2> completions = {};
+  for (size_t i = 0; i < buffers.size(); ++i) {
+    for (auto& buffer : buffers[i]) {
+      ASSERT_NO_FATAL_FAILURE(MakeBuffer(&buffer));
+    }
+    ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&completions[i]));
+  }
+  iree_hal_command_buffer_t* command_buffer = nullptr;
+  IREE_ASSERT_OK(iree_hal_command_buffer_create(
+      iree_hal_queue_family(queue_), IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT,
+      IREE_HAL_COMMAND_CATEGORY_DISPATCH | IREE_HAL_COMMAND_CATEGORY_TRANSFER,
+      5, &command_buffer));
+  IREE_ASSERT_OK(iree_hal_command_buffer_begin(command_buffer));
+  std::array<iree_hal_buffer_ref_t, 5> refs;
+  for (uint32_t i = 0; i < refs.size(); ++i) {
+    refs[i] = iree_hal_make_indirect_buffer_ref(i, 0, kBytes);
+  }
+  uint32_t pattern = 3;
+  std::array<uint32_t, 16> rhs;
+  for (size_t i = 0; i < rhs.size(); ++i) {
+    rhs[i] = i + 1;
+  }
+  IREE_ASSERT_OK(iree_hal_command_buffer_fill_buffer(
+      command_buffer, refs[0], &pattern, sizeof(pattern), 0));
+  IREE_ASSERT_OK(iree_hal_command_buffer_update_buffer(
+      command_buffer, rhs.data(), 0, refs[1], 0));
+  // Recording owns source bytes independently of this caller's stack.
+  pattern = 0;
+  rhs.fill(0);
+  const iree_hal_memory_barrier_t memory_barrier = {
+      IREE_HAL_ACCESS_SCOPE_MEMORY_WRITE,
+      IREE_HAL_ACCESS_SCOPE_MEMORY_READ | IREE_HAL_ACCESS_SCOPE_MEMORY_WRITE,
+  };
+  const iree_hal_barrier_t barrier = {
+      .source_stage_mask =
+          IREE_HAL_EXECUTION_STAGE_DISPATCH | IREE_HAL_EXECUTION_STAGE_TRANSFER,
+      .target_stage_mask =
+          IREE_HAL_EXECUTION_STAGE_DISPATCH | IREE_HAL_EXECUTION_STAGE_TRANSFER,
+      .memory_barrier_count = 1,
+      .memory_barriers = &memory_barrier,
+  };
+  IREE_ASSERT_OK(iree_hal_command_buffer_barrier(command_buffer, &barrier));
+  IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
+      command_buffer, executable_, function_,
+      iree_hal_make_static_dispatch_config(1, 1, 1), {}, {3, refs.data()}, 0));
+  IREE_ASSERT_OK(iree_hal_command_buffer_barrier(command_buffer, &barrier));
+  IREE_ASSERT_OK(
+      iree_hal_command_buffer_copy_buffer(command_buffer, refs[2], refs[3], 0));
+  IREE_ASSERT_OK(iree_hal_command_buffer_barrier(command_buffer, &barrier));
+  const iree_hal_buffer_ref_t add_refs[] = {refs[3], refs[0], refs[4]};
+  IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
+      command_buffer, alternate_executable_, alternate_function_,
+      iree_hal_make_static_dispatch_config(1, 1, 1), {}, {3, add_refs}, 0));
+  IREE_ASSERT_OK(iree_hal_command_buffer_end(command_buffer));
+  iree_hal_executable_release(executable_);
+  executable_ = nullptr;
+  iree_hal_executable_release(alternate_executable_);
+  alternate_executable_ = nullptr;
+  for (uint64_t iteration = 1; iteration <= 3; ++iteration) {
+    for (size_t i = 0; i < buffers.size(); ++i) {
+      std::array<iree_hal_buffer_binding_t, 5> table;
+      for (size_t j = 0; j < table.size(); ++j) {
+        table[j] = {buffers[i][j], 0, kBytes};
+      }
+      IREE_ASSERT_OK(iree_hal_queue_execute(
+          queue_, {}, {1, &completions[i], &iteration}, command_buffer,
+          {table.size(), table.data()}, 0));
+      table.fill({});
+    }
+    if (iteration == 3) {
+      iree_hal_command_buffer_release(command_buffer);
+    }
+    for (size_t i = 0; i < buffers.size(); ++i) {
+      IREE_ASSERT_OK(iree_hal_semaphore_wait(completions[i], iteration,
+                                             iree_infinite_timeout(),
+                                             IREE_ASYNC_WAIT_FLAG_NONE));
+      std::array<uint32_t, 16> product, threes;
+      for (size_t j = 0; j < product.size(); ++j) {
+        product[j] = 3 * (j + 1);
+      }
+      threes.fill(3);
+      CheckOutput(buffers[i][4], product, threes, BinaryOperation::kAdd);
+    }
+  }
+}
+
 enum class FirstWriterStorage {
   kOwned,
   kRegisteredUntouched,

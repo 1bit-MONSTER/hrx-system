@@ -22,12 +22,16 @@
 #ifndef IREE_BENCHMARK_LOOM_HAVE_SPIRV
 #define IREE_BENCHMARK_LOOM_HAVE_SPIRV 0
 #endif  // IREE_BENCHMARK_LOOM_HAVE_SPIRV
+#ifndef IREE_BENCHMARK_LOOM_HAVE_XDNA
+#define IREE_BENCHMARK_LOOM_HAVE_XDNA 0
+#endif  // IREE_BENCHMARK_LOOM_HAVE_XDNA
 #ifndef IREE_BENCHMARK_LOOM_HAVE_VM
 #define IREE_BENCHMARK_LOOM_HAVE_VM 0
 #endif  // IREE_BENCHMARK_LOOM_HAVE_VM
 
-#define IREE_BENCHMARK_LOOM_HAVE_ANY_DEVICE_PROVIDER \
-  (IREE_BENCHMARK_LOOM_HAVE_AMDGPU || IREE_BENCHMARK_LOOM_HAVE_SPIRV)
+#define IREE_BENCHMARK_LOOM_HAVE_ANY_DEVICE_PROVIDER                    \
+  (IREE_BENCHMARK_LOOM_HAVE_AMDGPU || IREE_BENCHMARK_LOOM_HAVE_SPIRV || \
+   IREE_BENCHMARK_LOOM_HAVE_XDNA)
 
 #if IREE_BENCHMARK_LOOM_HAVE_AMDGPU
 #include "loom/tooling/target/amdgpu/testbench_requirements.h"
@@ -37,6 +41,9 @@
 #include "loom/tooling/target/spirv/testbench_requirements.h"
 #include "loomc/target/spirv/iree_hal.h"
 #endif  // IREE_BENCHMARK_LOOM_HAVE_SPIRV
+#if IREE_BENCHMARK_LOOM_HAVE_XDNA
+#include "loomc/target/amd/xdna/iree_hal.h"
+#endif  // IREE_BENCHMARK_LOOM_HAVE_XDNA
 #if IREE_BENCHMARK_LOOM_HAVE_VM
 #include "loom/tooling/target/vm/testbench.h"
 #endif  // IREE_BENCHMARK_LOOM_HAVE_VM
@@ -117,6 +124,12 @@ int main(int argc, char** argv) {
           .provider = loomc_spirv_iree_hal_target_provider(),
       },
 #endif  // IREE_BENCHMARK_LOOM_HAVE_SPIRV
+#if IREE_BENCHMARK_LOOM_HAVE_XDNA
+      {
+          .driver_name = IREE_SV("xdna"),
+          .provider = loomc_xdna_iree_hal_target_provider(),
+      },
+#endif  // IREE_BENCHMARK_LOOM_HAVE_XDNA
   };
 #endif  // IREE_BENCHMARK_LOOM_HAVE_ANY_DEVICE_PROVIDER
 

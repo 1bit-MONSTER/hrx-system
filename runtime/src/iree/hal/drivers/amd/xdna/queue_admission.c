@@ -33,38 +33,40 @@ static void iree_hal_amd_xdna_operation_deallocate(
 
 void iree_hal_amd_xdna_operation_register_producers(
     iree_hal_amd_xdna_operation_t* operation) {
-  if (operation->kind != IREE_HAL_AMD_XDNA_OPERATION_DISPATCH ||
-      operation->dispatch.producers_indexed) {
+  if ((operation->kind != IREE_HAL_AMD_XDNA_OPERATION_DISPATCH &&
+       operation->kind != IREE_HAL_AMD_XDNA_OPERATION_EXECUTE) ||
+      operation->native.producers_indexed) {
     return;
   }
   for (iree_hal_amd_xdna_producer_entry_t* entry =
-           operation->dispatch.producer_entries;
+           operation->native.producer_entries;
        entry; entry = entry->next) {
     iree_hal_amd_xdna_queue_producer_index_insert(
         &operation->queue->producer_index, &entry->index_node);
   }
-  operation->dispatch.producers_indexed = true;
+  operation->native.producers_indexed = true;
 }
 
 // Removes every signal owned by |operation| and returns its targeted consumer
 // list. The returned operations remain owned by their captured submissions.
 iree_hal_amd_xdna_operation_t* iree_hal_amd_xdna_operation_unregister_producers(
     iree_hal_amd_xdna_operation_t* operation) {
-  if (operation->kind != IREE_HAL_AMD_XDNA_OPERATION_DISPATCH ||
-      !operation->dispatch.producers_indexed) {
+  if ((operation->kind != IREE_HAL_AMD_XDNA_OPERATION_DISPATCH &&
+       operation->kind != IREE_HAL_AMD_XDNA_OPERATION_EXECUTE) ||
+      !operation->native.producers_indexed) {
     return NULL;
   }
   for (iree_hal_amd_xdna_producer_entry_t* entry =
-           operation->dispatch.producer_entries;
+           operation->native.producer_entries;
        entry; entry = entry->next) {
     iree_hal_amd_xdna_queue_producer_index_erase(
         &operation->queue->producer_index, &entry->index_node);
   }
-  operation->dispatch.producers_indexed = false;
+  operation->native.producers_indexed = false;
   iree_hal_amd_xdna_operation_t* waiters_head =
-      operation->dispatch.acceptance_waiters_head;
-  operation->dispatch.acceptance_waiters_head = NULL;
-  operation->dispatch.acceptance_waiters_tail = NULL;
+      operation->native.acceptance_waiters_head;
+  operation->native.acceptance_waiters_head = NULL;
+  operation->native.acceptance_waiters_tail = NULL;
   return waiters_head;
 }
 
@@ -129,8 +131,7 @@ iree_status_t iree_hal_amd_xdna_operation_resolve_waits(
     iree_hal_amd_xdna_wait_resolution_t* out_resolution,
     iree_host_size_t* out_deferred_wait_index) {
   iree_hal_amd_xdna_queue_t* queue = operation->queue;
-  const bool is_dispatch =
-      operation->kind == IREE_HAL_AMD_XDNA_OPERATION_DISPATCH;
+  const bool is_dispatch = iree_hal_amd_xdna_operation_has_dispatch(operation);
   const iree_hal_amd_xdna_frontier_state_t* accepted_state =
       is_dispatch ? &queue->accepted_frontier : NULL;
   const iree_hal_amd_xdna_wait_resolution_flags_t flags =
@@ -323,12 +324,12 @@ static bool iree_hal_amd_xdna_operation_defer_for_acceptance(
       return false;
     }
     operation->next = NULL;
-    if (producer->dispatch.acceptance_waiters_tail) {
-      producer->dispatch.acceptance_waiters_tail->next = operation;
+    if (producer->native.acceptance_waiters_tail) {
+      producer->native.acceptance_waiters_tail->next = operation;
     } else {
-      producer->dispatch.acceptance_waiters_head = operation;
+      producer->native.acceptance_waiters_head = operation;
     }
-    producer->dispatch.acceptance_waiters_tail = operation;
+    producer->native.acceptance_waiters_tail = operation;
     return true;
   } else {
     iree_hal_amd_xdna_operation_t* publisher =
@@ -370,7 +371,7 @@ void iree_hal_amd_xdna_operation_admit(iree_hal_amd_xdna_operation_t* operation,
   }
   if (iree_status_is_ok(status) &&
       resolution == IREE_HAL_AMD_XDNA_WAIT_RESOLUTION_DEFER) {
-    if (operation->kind == IREE_HAL_AMD_XDNA_OPERATION_DISPATCH &&
+    if (iree_hal_amd_xdna_operation_has_dispatch(operation) &&
         iree_hal_amd_xdna_operation_defer_for_acceptance(operation,
                                                          deferred_wait_index)) {
     } else {
@@ -449,7 +450,8 @@ static iree_status_t iree_hal_amd_xdna_operation_capture_semaphores(
   }
   const bool captures_producers =
       capture_kind == IREE_HAL_AMD_XDNA_SEMAPHORE_CAPTURE_SIGNALS &&
-      operation->kind == IREE_HAL_AMD_XDNA_OPERATION_DISPATCH;
+      (operation->kind == IREE_HAL_AMD_XDNA_OPERATION_DISPATCH ||
+       operation->kind == IREE_HAL_AMD_XDNA_OPERATION_EXECUTE);
   iree_host_size_t producer_count = 0;
   if (captures_producers) {
     for (iree_host_size_t i = 0; i < source.count; ++i) {
@@ -540,7 +542,7 @@ static iree_status_t iree_hal_amd_xdna_operation_capture_semaphores(
     }
   }
   if (captures_producers) {
-    operation->dispatch.producer_entries = producer_entries;
+    operation->native.producer_entries = producer_entries;
   }
   iree_hal_semaphore_list_retain(captured_list);
   *out_list = captured_list;

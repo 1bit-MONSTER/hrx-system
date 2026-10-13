@@ -21,6 +21,8 @@ extern "C" {
 typedef struct iree_hal_amd_xdna_pending_t {
   // Accepted invocation retaining its command, buffers and executable.
   iree_hal_amd_xdna_operation_t* operation;
+  // Exclusive invocation storage returned after checked retirement.
+  iree_hal_amd_xdna_invocation_t* invocation;
   // Actual opaque point returned by native acceptance.
   uint64_t submission;
   // Native-only causal epoch assigned after acceptance.

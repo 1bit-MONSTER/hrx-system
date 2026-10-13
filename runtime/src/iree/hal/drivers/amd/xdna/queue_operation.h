@@ -9,7 +9,7 @@
 
 #include "iree/async/frontier_tracker.h"
 #include "iree/hal/drivers/amd/fabric/file_transfer.h"
-#include "iree/hal/drivers/amd/xdna/executable.h"
+#include "iree/hal/drivers/amd/xdna/command_buffer.h"
 #include "iree/hal/drivers/amd/xdna/queue_frontier.h"
 #include "iree/hal/drivers/amd/xdna/queue_producer_index.h"
 #include "iree/hal/drivers/amd/xdna/queue_service.h"
@@ -58,6 +58,7 @@ typedef enum iree_hal_amd_xdna_operation_kind_e {
   IREE_HAL_AMD_XDNA_OPERATION_FILE,
   IREE_HAL_AMD_XDNA_OPERATION_HOST_CALL,
   IREE_HAL_AMD_XDNA_OPERATION_DISPATCH,
+  IREE_HAL_AMD_XDNA_OPERATION_EXECUTE,
 } iree_hal_amd_xdna_operation_kind_t;
 
 // Result of one native publication attempt, distinct from terminal status.
@@ -69,6 +70,18 @@ typedef enum iree_hal_amd_xdna_publication_result_e {
   // Native publication accepted the command and returned its opaque point.
   IREE_HAL_AMD_XDNA_PUBLICATION_RESULT_ACCEPTED,
 } iree_hal_amd_xdna_publication_result_t;
+
+// Queue-state ownership of a native operation's accepted prefix and suffix.
+typedef enum iree_hal_amd_xdna_native_phase_e {
+  // A publisher or ready-list entry owns the unissued suffix.
+  IREE_HAL_AMD_XDNA_NATIVE_PHASE_ISSUING = 0,
+  // The accepted prefix must retire before the next host phase can run.
+  IREE_HAL_AMD_XDNA_NATIVE_PHASE_DRAINING,
+  // No more commands will issue; pending native references still own lifetime.
+  IREE_HAL_AMD_XDNA_NATIVE_PHASE_COMPLETE,
+  // Retirement cannot be observed; native-reachable ownership is retained.
+  IREE_HAL_AMD_XDNA_NATIVE_PHASE_ABANDONED,
+} iree_hal_amd_xdna_native_phase_t;
 
 // One captured host transfer descriptor.
 typedef struct iree_hal_amd_xdna_transfer_t {
@@ -118,6 +131,41 @@ struct iree_hal_amd_xdna_operation_t {
   iree_status_t status;
   // Causal lower bound retained through final publication.
   iree_hal_amd_xdna_frontier_state_t frontier;
+  // Native execution ownership shared by direct and recorded dispatches.
+  struct {
+    // Accepted invocations still reachable by the device.
+    uint32_t pending_count;
+    // Suffix owner; protected by the queue state mutex.
+    iree_hal_amd_xdna_native_phase_t phase;
+    // Exclusive invocation prepared for the next publication or retry.
+    iree_hal_amd_xdna_invocation_t* invocation;
+    // Opaque command borrowing |invocation| until accepted or rejected.
+    amdf_xdna_kernel_command_t command;
+    // Producer registrations retained until the terminal native tail is
+    // accepted.
+    iree_hal_amd_xdna_producer_entry_t* producer_entries;
+    // True while producer entries are linked into the queue index.
+    bool producers_indexed;
+    // First consumer awaiting this operation's terminal native acceptance.
+    iree_hal_amd_xdna_operation_t* acceptance_waiters_head;
+    // Last consumer awaiting this operation's terminal native acceptance.
+    iree_hal_amd_xdna_operation_t* acceptance_waiters_tail;
+    // One publication batch owned exclusively by the publisher claim.
+    struct {
+      // First reserved ring slot, outside the visible pending prefix.
+      uint32_t start;
+      // Maximum accepted commands fitting in the reserved free suffix.
+      uint32_t capacity;
+      // Number of commands accepted into reserved slots.
+      uint32_t count;
+      // Native capacity or terminal outcome of the most recent batch.
+      iree_hal_amd_xdna_publication_result_t result;
+      // Publisher-owned status, transferred to the queue owner at commit.
+      iree_status_t status;
+      // True when a BUSY attempt observed older native progress to wait for.
+      bool had_pending;
+    } publication;
+  } native;
   // Active operation payload.
   iree_hal_amd_xdna_operation_kind_t kind;
   union {
@@ -166,29 +214,13 @@ struct iree_hal_amd_xdna_operation_t {
       iree_hal_executable_t* executable;
       // Borrowed function owned by executable.
       iree_hal_amd_xdna_function_t* function;
-      // Exclusive prepared storage returned only after rejection or retirement.
-      iree_hal_amd_xdna_invocation_t* invocation;
-      // Native command borrowing |invocation| across publication retries.
-      amdf_xdna_kernel_command_t command;
-      // Opaque point returned by successful native acceptance.
-      uint64_t submission;
-      // Outcome of the most recent native publication attempt.
-      iree_hal_amd_xdna_publication_result_t publication_result;
-      // True when the most recent attempt observed older accepted work.
-      bool publication_had_pending;
       // Number of captured binding rows.
       iree_host_size_t binding_count;
       // Stable native slots with retained logical buffers in trailing storage.
       iree_hal_amd_xdna_executable_binding_t* bindings;
-      // Intrusive index entries for locally visible signal semaphores.
-      iree_hal_amd_xdna_producer_entry_t* producer_entries;
-      // True while |producer_entries| are present in the queue index.
-      bool producers_indexed;
-      // First consumer waiting for this operation's native acceptance.
-      iree_hal_amd_xdna_operation_t* acceptance_waiters_head;
-      // Final consumer waiting for this operation's native acceptance.
-      iree_hal_amd_xdna_operation_t* acceptance_waiters_tail;
     } dispatch;
+    // Reusable recording with an exclusive execution frame.
+    iree_hal_amd_xdna_execution_t* execution;
     // Host-mapped transfer transaction.
     struct {
       // First captured descriptor in transaction order, or NULL.
@@ -214,6 +246,17 @@ struct iree_hal_amd_xdna_operation_t {
     } host_call;
   };
 };
+
+// Returns whether the operation's next phase can enter native FIFO order.
+// The cursor is accessed only by its execution owner or after a handoff.
+static inline bool iree_hal_amd_xdna_operation_has_dispatch(
+    const iree_hal_amd_xdna_operation_t* operation) {
+  return operation->kind == IREE_HAL_AMD_XDNA_OPERATION_DISPATCH ||
+         (operation->kind == IREE_HAL_AMD_XDNA_OPERATION_EXECUTE &&
+          operation->execution->cursor &&
+          operation->execution->cursor->kind ==
+              IREE_HAL_AMD_XDNA_RECORD_DISPATCH);
+}
 
 // Creates an operation in queue-owned storage. The caller must submit or
 // discard the returned operation.

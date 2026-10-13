@@ -418,7 +418,7 @@ iree_status_t iree_hal_amd_xdna_executable_create(
   return status;
 }
 
-static iree_status_t iree_hal_amd_xdna_executable_lookup(
+iree_status_t iree_hal_amd_xdna_executable_lookup(
     iree_hal_executable_t* base, iree_hal_executable_function_t token,
     iree_hal_amd_xdna_function_t** out_function) {
   iree_hal_amd_xdna_executable_t* executable =
@@ -434,7 +434,6 @@ static iree_status_t iree_hal_amd_xdna_executable_lookup(
 }
 
 static iree_status_t iree_hal_amd_xdna_executable_capture_binding(
-    iree_hal_amd_xdna_function_t* function,
     const iree_hal_queue_family_t* family, uint32_t binding_ordinal,
     const iree_xdna_elf_binding_record_t* contract,
     iree_hal_buffer_ref_t buffer_ref,
@@ -495,6 +494,32 @@ static iree_status_t iree_hal_amd_xdna_executable_capture_binding(
   return iree_ok_status();
 }
 
+iree_host_size_t iree_hal_amd_xdna_function_binding_count(
+    const iree_hal_amd_xdna_function_t* function) {
+  return function->record.binding_count;
+}
+
+bool iree_hal_amd_xdna_function_uses_binding(
+    const iree_hal_amd_xdna_function_t* function, uint32_t ordinal) {
+  return iree_hal_amd_xdna_image_tables_binding(
+             iree_hal_amd_xdna_image_tables(function->image),
+             function->record.first_binding + ordinal)
+             .kind != IREE_XDNA_ELF_BINDING_KIND_NONE;
+}
+
+iree_status_t iree_hal_amd_xdna_function_capture_binding(
+    iree_hal_amd_xdna_function_t* function,
+    const iree_hal_queue_family_t* family, uint32_t ordinal,
+    iree_hal_buffer_ref_t reference,
+    iree_hal_amd_xdna_executable_binding_t* out_binding) {
+  const iree_xdna_elf_binding_record_t contract =
+      iree_hal_amd_xdna_image_tables_binding(
+          iree_hal_amd_xdna_image_tables(function->image),
+          function->record.first_binding + ordinal);
+  return iree_hal_amd_xdna_executable_capture_binding(
+      family, ordinal, &contract, reference, out_binding);
+}
+
 iree_status_t iree_hal_amd_xdna_executable_resolve(
     iree_hal_executable_t* executable, iree_hal_executable_function_t token,
     iree_hal_buffer_ref_list_t bindings,
@@ -519,7 +544,7 @@ iree_status_t iree_hal_amd_xdna_executable_resolve(
       continue;
     }
     IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_executable_capture_binding(
-        function, iree_hal_executable_queue_family(executable), i, &contract,
+        iree_hal_executable_queue_family(executable), i, &contract,
         bindings.values[i], &out_bindings[i]));
   }
   *out_function = function;

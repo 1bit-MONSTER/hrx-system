@@ -273,6 +273,27 @@ endif()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
+    command_buffer
+  HDRS
+    "command_buffer.h"
+  SRCS
+    "command_buffer.c"
+  DEPS
+    ::barrier
+    ::executable
+    ::queue_storage
+    iree::base
+    iree::base::internal::arena
+    iree::base::threading
+    iree::hal
+    iree::hal::utils::resource_set
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
     queue
   HDRS
     "queue.h"
@@ -285,6 +306,7 @@ iree_cc_library(
     "queue_operation.c"
   DEPS
     ::barrier
+    ::command_buffer
     ::context
     ::executable
     ::queue_frontier
@@ -374,6 +396,7 @@ iree_cc_library(
     "device.c"
   DEPS
     ::command_arena
+    ::command_buffer
     ::context
     ::executable
     ::memory
@@ -394,11 +417,11 @@ iree_cc_library(
 endif()
 
 if(AMDF_BUILD)
-iree_cc_test(
+iree_cc_library(
   NAME
-    queue_test
-  SRCS
-    "queue_test.cc"
+    queue_test_util
+  HDRS
+    "testing/queue_test_util.h"
   DEPS
     ::device
     ::memory
@@ -415,6 +438,56 @@ iree_cc_test(
     iree::hal::drivers::amd::xdna::image::testing::image_fixture
     iree::hal::memory::slab_cache
     iree::hal::memory::tlsf_pool
+    iree::testing::gtest
+    iree::testing::gtest_main
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_test(
+  NAME
+    queue_test
+  SRCS
+    "queue_test.cc"
+  DEPS
+    ::device
+    ::memory
+    ::queue
+    ::queue_frontier
+    ::queue_test_util
+    ::semaphore
+    amdf::headers
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    iree::hal
+    iree::hal::drivers::amd::fabric::buffer
+    iree::hal::drivers::amd::fabric::memory_backend
+    iree::hal::drivers::amd::xdna::image::testing::image_fixture
+    iree::hal::memory::slab_cache
+    iree::hal::memory::tlsf_pool
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=libamdf"
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_test(
+  NAME
+    command_buffer_test
+  SRCS
+    "command_buffer_test.cc"
+  DEPS
+    ::queue_test_util
+    ::semaphore
+    iree::async
+    iree::base
+    iree::hal
+    iree::hal::drivers::amd::xdna::image::testing::image_fixture
     iree::testing::gtest
     iree::testing::gtest_main
   LABELS

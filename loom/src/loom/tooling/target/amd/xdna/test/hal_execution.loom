@@ -218,3 +218,7 @@ check.scenario public @aliased_inputs {
   }
   check.return
 }
+
+check.benchmark<@serial_array_programs> @serial_array_latency
+
+check.benchmark<@concurrent_array_programs> @concurrent_array_latency

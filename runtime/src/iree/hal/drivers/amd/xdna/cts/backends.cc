@@ -60,26 +60,6 @@ static bool xdna_registered_ =
           /*unsupported_tests=*/{},
           /*expected_failures=*/
           {
-              {"CommandBufferBasicTest.*",
-               "reusable command buffers are outside the XDNA v1 surface"},
-              {"CommandBufferCopyBufferTest.*",
-               "reusable command buffers are outside the XDNA v1 surface"},
-              {"CommandBufferFillBufferTest.*",
-               "reusable command buffers are outside the XDNA v1 surface"},
-              {"CommandBufferStressTest.*",
-               "reusable command buffers are outside the XDNA v1 surface"},
-              {"TransientBufferTest.*",
-               "reusable command buffers are outside the XDNA v1 surface"},
-              {"AsyncTransientBufferTest.*",
-               "reusable command buffers are outside the XDNA v1 surface"},
-              {"CommandBufferUpdateBufferTest.*",
-               "reusable command buffers are outside the XDNA v1 surface"},
-              {"SemaphoreSubmissionTest."
-               "TransferCommandBufferExecutesOnEveryTransferQueue",
-               "reusable command buffers are outside the XDNA v1 surface"},
-              {"SemaphoreSubmissionTest."
-               "IndirectCommandBufferBindingTableRetainedUntilSignal",
-               "reusable command buffers are outside the XDNA v1 surface"},
           }},
          {"async_queue", "file_io"},
      }),
