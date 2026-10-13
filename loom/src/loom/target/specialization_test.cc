@@ -359,6 +359,9 @@ func.def public target(@required) @constrained() {
   auto* const captured_memory_accesses =
       reinterpret_cast<loom_low_memory_access_map_t*>(&captured_pipeline);
   first_version->memory_accesses = captured_memory_accesses;
+  auto* const captured_loop_execution =
+      reinterpret_cast<loom_low_loop_execution_map_t*>(&captured_pipeline);
+  first_version->loop_execution = captured_loop_execution;
 
   const TestTargetProfile refined_profile =
       MakeTestProfile(LOOM_TEST_TARGET_KIND_QUIRKY);
@@ -397,6 +400,7 @@ func.def public target(@required) @constrained() {
   EXPECT_EQ(first_version->loop_pipelines.head, &captured_pipeline);
   EXPECT_EQ(first_version->loop_pipelines.tail, &captured_pipeline);
   EXPECT_EQ(first_version->memory_accesses, captured_memory_accesses);
+  EXPECT_EQ(first_version->loop_execution, captured_loop_execution);
   EXPECT_EQ(first_version->resolved_target.facts->selector,
             LOOM_TEST_TARGET_KIND_QUIRKY);
   EXPECT_GT(first_version->target_context_ordinal, initial_context_ordinal);
@@ -438,6 +442,7 @@ func.def public target(@required) @constrained() {
   EXPECT_EQ(first_version->target_context_ordinal, refined_context_ordinal);
   EXPECT_EQ(first_version->loop_pipelines.head, &captured_pipeline);
   EXPECT_EQ(first_version->memory_accesses, captured_memory_accesses);
+  EXPECT_EQ(first_version->loop_execution, captured_loop_execution);
   EXPECT_EQ(loom_target_function_version_list_find(
                 &result.function_versions.list,
                 Function(module.get(), IREE_SV("constrained"))),

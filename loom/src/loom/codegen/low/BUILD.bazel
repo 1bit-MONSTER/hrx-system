@@ -475,6 +475,17 @@ loom_cc_test(
 )
 
 loom_cc_library(
+    name = "loop_execution",
+    srcs = ["loop_execution.c"],
+    hdrs = ["loop_execution.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "storage_identity",
     srcs = ["storage_identity.c"],
     hdrs = ["storage_identity.h"],
@@ -910,6 +921,36 @@ loom_cc_test(
 )
 
 loom_cc_library(
+    name = "loop_placement",
+    srcs = ["loop_placement.c"],
+    hdrs = ["loop_placement.h"],
+    deps = [
+        ":allocation",
+        ":descriptors",
+        ":function",
+        ":loop_execution",
+        "//loom/src/loom/codegen/low/schedule",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/util:cfg_loop",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "loop_placement_test",
+    srcs = ["loop_placement_test.cc"],
+    deps = [
+        ":loop_placement",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "frame",
     srcs = ["frame.c"],
     hdrs = ["frame.h"],
@@ -922,6 +963,8 @@ loom_cc_library(
         ":function",
         ":function_model",
         ":guarded_motion",
+        ":loop_execution",
+        ":loop_placement",
         ":memory_access",
         ":packet",
         ":planning_statistics",
@@ -950,6 +993,7 @@ loom_cc_test(
     deps = [
         ":frame",
         ":guarded_motion",
+        ":loop_execution",
         ":packet",
         ":text_asm",
         "//loom/src/loom/codegen/low/schedule",
@@ -958,6 +1002,7 @@ loom_cc_test(
         "//loom/src/loom/format/text:parser",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/low",
+        "//loom/src/loom/rewrite:rewriter",
         "//loom/src/loom/target:facts_builder",
         "//loom/src/loom/target/test:descriptors",
         "//loom/src/loom/target/test:low_registry",

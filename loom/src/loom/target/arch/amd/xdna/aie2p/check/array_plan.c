@@ -690,6 +690,7 @@ static iree_status_t loom_aie2p_array_plan_check_resident_program_in_module(
     const loom_aie2p_leaf_compile_options_t compile_options = {
         .function_target_facts = resident->function_target_facts,
         .memory_accesses = resident->memory_accesses,
+        .loop_execution = resident->loop_execution,
         .descriptor_registry = &request->low_registry->registry,
         .diagnostic_emitter = diagnostic_emitter,
     };

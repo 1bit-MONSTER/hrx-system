@@ -585,6 +585,7 @@ iree_status_t loom_low_source_to_low_run(loom_pass_t* pass,
           loom_target_function_version_cast(selection->version_handle);
       if (target_version != NULL) {
         target_version->memory_accesses = plan->result.memory_accesses;
+        target_version->loop_execution = plan->result.loop_execution;
       }
       ++function_count;
     }

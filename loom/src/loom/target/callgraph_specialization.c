@@ -12,6 +12,7 @@
 
 #include "loom/analysis/symbol_facts.h"
 #include "loom/analysis/symbol_references.h"
+#include "loom/codegen/low/loop_execution.h"
 #include "loom/codegen/low/memory_access.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
@@ -1137,6 +1138,27 @@ static void loom_target_callgraph_bind_concrete_row(
   }
 }
 
+typedef struct loom_target_callgraph_product_clone_t {
+  // Memory-summary identity translator, or NULL without captured summaries.
+  loom_low_memory_access_clone_t* memory;
+  // Loop-control identity translator, or NULL without loop execution facts.
+  loom_low_loop_execution_clone_t* loop_execution;
+} loom_target_callgraph_product_clone_t;
+
+static iree_status_t loom_target_callgraph_clone_products(
+    void* user_data, const loom_op_t* source_op, loom_op_t* target_op) {
+  loom_target_callgraph_product_clone_t* clone = user_data;
+  if (clone->memory != NULL) {
+    IREE_RETURN_IF_ERROR(
+        loom_low_memory_access_clone_op(clone->memory, source_op, target_op));
+  }
+  if (clone->loop_execution != NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_loop_execution_clone_op(
+        clone->loop_execution, source_op, target_op));
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_target_callgraph_materialize_clones(
     loom_target_callgraph_state_t* state) {
   loom_ir_remap_op_projection_t* projection = NULL;
@@ -1183,17 +1205,34 @@ static iree_status_t loom_target_callgraph_materialize_clones(
     if (info->source_version != NULL && row->pending_version != NULL) {
       row->pending_version->loop_pipelines =
           info->source_version->loop_pipelines;
+      loom_target_callgraph_product_clone_t* product_clone = NULL;
+      if (info->source_version->memory_accesses != NULL ||
+          info->source_version->loop_execution != NULL) {
+        IREE_RETURN_IF_ERROR(iree_arena_allocate(state->pass->arena,
+                                                 sizeof(*product_clone),
+                                                 (void**)&product_clone));
+        *product_clone = (loom_target_callgraph_product_clone_t){0};
+      }
       if (info->source_version->memory_accesses != NULL) {
         IREE_RETURN_IF_ERROR(loom_low_memory_access_map_allocate(
             &state->module->arena, &row->pending_version->memory_accesses));
-        loom_low_memory_access_clone_t* memory_clone = NULL;
         IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_allocate(
             info->source_version->memory_accesses,
             row->pending_version->memory_accesses, state->pass->arena,
-            &memory_clone));
+            &product_clone->memory));
+      }
+      if (info->source_version->loop_execution != NULL) {
+        IREE_RETURN_IF_ERROR(loom_low_loop_execution_map_allocate(
+            &state->module->arena, &row->pending_version->loop_execution));
+        IREE_RETURN_IF_ERROR(loom_low_loop_execution_clone_allocate(
+            info->source_version->loop_execution,
+            row->pending_version->loop_execution, state->pass->arena,
+            &product_clone->loop_execution));
+      }
+      if (product_clone != NULL) {
         observer = (loom_ir_clone_observer_t){
-            .fn = loom_low_memory_access_clone_op,
-            .user_data = memory_clone,
+            .fn = loom_target_callgraph_clone_products,
+            .user_data = product_clone,
         };
       }
     }

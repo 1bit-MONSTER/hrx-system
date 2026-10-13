@@ -329,6 +329,7 @@ static iree_status_t loom_aie2p_xdna_collect_source_leaves(
         .function_op = function_op,
         .function_target_facts = target.target_facts,
         .memory_accesses = version != NULL ? version->memory_accesses : NULL,
+        .loop_execution = version != NULL ? version->loop_execution : NULL,
         .requirements = requirements,
     };
     ++leaf_index;
@@ -458,6 +459,7 @@ static iree_status_t loom_aie2p_xdna_compile_resident_tiles(
     const loom_aie2p_leaf_compile_options_t worker_compile_options = {
         .function_target_facts = resident->function_target_facts,
         .memory_accesses = resident->memory_accesses,
+        .loop_execution = resident->loop_execution,
         .descriptor_registry = request->low_descriptor_registry,
         .diagnostic_emitter = request->diagnostic_emitter,
         .compile_report = worker_report_ptr,

@@ -329,16 +329,20 @@ def translate_format_elements(op: Op, format_elements: tuple[FormatElement, ...]
                         anchor_category = 1
                         anchor_index = 0xFF
                     else:
-                        anchor_index = anchor_desc.index
                         if anchor_desc.kind == FieldKind.OPERAND:
+                            anchor_index = anchor_desc.index
                             anchor_category = 0
                         elif anchor_desc.kind == FieldKind.ATTR:
+                            anchor_index = c_queries.resolve_attr_index(op, anchor, "optional format group")
                             anchor_category = 1
                         elif anchor_desc.kind == FieldKind.REGION:
+                            anchor_index = anchor_desc.index
                             anchor_category = 2
                         elif anchor_desc.kind == FieldKind.RESULT:
+                            anchor_index = anchor_desc.index
                             anchor_category = 3
                         else:
+                            anchor_index = anchor_desc.index
                             anchor_category = 1
 
                     inner_start = len(elements)

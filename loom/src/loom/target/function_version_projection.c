@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "iree/base/bitmap.h"
+#include "loom/codegen/low/loop_execution.h"
 #include "loom/codegen/low/memory_access.h"
 #include "loom/ir/module.h"
 #include "loom/ops/op_defs.h"
@@ -241,6 +242,8 @@ typedef struct loom_target_function_version_clone_scope_t {
   const loom_op_t* source_op;
   // Packet translator for this invocation, or NULL without captured proofs.
   loom_low_memory_access_clone_t* memory;
+  // Loop-control translator for this invocation, or NULL without loop facts.
+  loom_low_loop_execution_clone_t* loop_execution;
 } loom_target_function_version_clone_scope_t;
 
 typedef struct loom_target_function_version_clone_t {
@@ -332,10 +335,18 @@ static iree_status_t loom_target_function_version_clone_op(
   const loom_func_like_t source_function = loom_func_like_cast(
       clone->projection->source_module, (loom_op_t*)source_op);
   if (!loom_func_like_isa(source_function)) {
-    return clone->scope != NULL && clone->scope->memory != NULL
-               ? loom_low_memory_access_clone_op(clone->scope->memory,
-                                                 source_op, target_op)
-               : iree_ok_status();
+    if (clone->scope == NULL) {
+      return iree_ok_status();
+    }
+    if (clone->scope->memory != NULL) {
+      IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_op(
+          clone->scope->memory, source_op, target_op));
+    }
+    if (clone->scope->loop_execution != NULL) {
+      IREE_RETURN_IF_ERROR(loom_low_loop_execution_clone_op(
+          clone->scope->loop_execution, source_op, target_op));
+    }
+    return iree_ok_status();
   }
   loom_target_function_version_clone_scope_t* scope = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate(clone->scratch_arena, sizeof(*scope),
@@ -359,6 +370,7 @@ static iree_status_t loom_target_function_version_clone_op(
   *target = *source;
   target->base.function = loom_func_like_cast(module, target_op);
   target->memory_accesses = NULL;
+  target->loop_execution = NULL;
   IREE_RETURN_IF_ERROR(loom_target_function_version_clone_string(
       module, source->authored_target_name, &target->authored_target_name));
   IREE_RETURN_IF_ERROR(loom_target_function_version_clone_facts(
@@ -378,6 +390,13 @@ static iree_status_t loom_target_function_version_clone_op(
     IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_allocate(
         source->memory_accesses, target->memory_accesses, clone->scratch_arena,
         &scope->memory));
+  }
+  if (source->loop_execution != NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_loop_execution_map_allocate(
+        &module->arena, &target->loop_execution));
+    IREE_RETURN_IF_ERROR(loom_low_loop_execution_clone_allocate(
+        source->loop_execution, target->loop_execution, clone->scratch_arena,
+        &scope->loop_execution));
   }
   // The projection materializes an exact authored target for every version.
   target->authored_target_is_exact = true;

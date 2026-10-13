@@ -89,6 +89,14 @@ iree_host_size_t loom_x86_function_reserved_ranges(
     const loom_x86_function_abi_t* function_abi,
     loom_low_allocation_reserved_range_t out_ranges[2]);
 
+// Queries the bounded cost envelope for a non-vector-encoded x86
+// loop-placement candidate. The query consumes the same encoder as final byte
+// emission and rejects vector or expanded descriptor recipes outside the
+// calibrated policy.
+bool loom_x86_loop_placement_cost_query(
+    void* user_data, const loom_low_descriptor_t* descriptor,
+    loom_low_loop_placement_cost_t* out_cost);
+
 // Materializes native instructions from an accepted allocated Low frame. The
 // retained SysV plan supplies entry, call, and result transport. Stack,
 // scratch, and private storage share the native stack; workgroup storage has no

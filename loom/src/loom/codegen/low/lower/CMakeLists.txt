@@ -104,6 +104,7 @@ loom_cc_library(
     loom::codegen::low::descriptor_traits
     loom::codegen::low::descriptors
     loom::codegen::low::diagnostics
+    loom::codegen::low::loop_execution
     loom::codegen::low::memory_access
     loom::codegen::low::representation_plan
     loom::codegen::low::source_memory_plan

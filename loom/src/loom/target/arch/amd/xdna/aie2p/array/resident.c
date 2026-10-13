@@ -12,6 +12,7 @@
 
 #include "loom/codegen/low/builder.h"
 #include "loom/codegen/low/function.h"
+#include "loom/codegen/low/loop_execution.h"
 #include "loom/codegen/low/memory_access.h"
 #include "loom/ir/module.h"
 #include "loom/ops/global/ops.h"
@@ -1767,6 +1768,27 @@ static iree_status_t loom_aie2p_array_resident_fuse_blocks(
   return status;
 }
 
+typedef struct loom_aie2p_array_resident_product_clone_t {
+  // Memory-summary identity translator, or NULL without captured summaries.
+  loom_low_memory_access_clone_t* memory;
+  // Loop-control identity translator, or NULL without loop execution facts.
+  loom_low_loop_execution_clone_t* loop_execution;
+} loom_aie2p_array_resident_product_clone_t;
+
+static iree_status_t loom_aie2p_array_resident_clone_products(
+    void* user_data, const loom_op_t* source_op, loom_op_t* target_op) {
+  loom_aie2p_array_resident_product_clone_t* clone = user_data;
+  if (clone->memory != NULL) {
+    IREE_RETURN_IF_ERROR(
+        loom_low_memory_access_clone_op(clone->memory, source_op, target_op));
+  }
+  if (clone->loop_execution != NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_loop_execution_clone_op(
+        clone->loop_execution, source_op, target_op));
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_aie2p_array_resident_materialize_worker(
     loom_aie2p_array_resident_builder_t* builder, uint32_t worker_index,
     loom_aie2p_array_resident_worker_t* out_worker) {
@@ -1782,19 +1804,30 @@ static iree_status_t loom_aie2p_array_resident_materialize_worker(
   IREE_RETURN_IF_ERROR(loom_aie2p_array_resident_add_symbol(
       builder, worker_index, &resident_ref));
   loom_low_memory_access_map_t* memory_accesses = NULL;
+  loom_low_loop_execution_map_t* loop_execution = NULL;
   loom_ir_remap_options_t remap_options = {
       .remap_symbol = loom_ir_remap_symbol_callback_make(
           loom_aie2p_array_resident_remap_symbol, builder),
   };
+  loom_aie2p_array_resident_product_clone_t product_clone = {0};
   if (leaf->memory_accesses != NULL) {
     IREE_RETURN_IF_ERROR(loom_low_memory_access_map_allocate(
         &builder->module->arena, &memory_accesses));
-    loom_low_memory_access_clone_t* clone = NULL;
     IREE_RETURN_IF_ERROR(loom_low_memory_access_clone_allocate(
-        leaf->memory_accesses, memory_accesses, builder->arena, &clone));
+        leaf->memory_accesses, memory_accesses, builder->arena,
+        &product_clone.memory));
+  }
+  if (leaf->loop_execution != NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_loop_execution_map_allocate(
+        &builder->module->arena, &loop_execution));
+    IREE_RETURN_IF_ERROR(loom_low_loop_execution_clone_allocate(
+        leaf->loop_execution, loop_execution, builder->arena,
+        &product_clone.loop_execution));
+  }
+  if (product_clone.memory != NULL || product_clone.loop_execution != NULL) {
     remap_options.clone_observer = (loom_ir_clone_observer_t){
-        .fn = loom_low_memory_access_clone_op,
-        .user_data = clone,
+        .fn = loom_aie2p_array_resident_clone_products,
+        .user_data = &product_clone,
     };
   }
   loom_ir_remap_t remap = {0};
@@ -1887,6 +1920,7 @@ static iree_status_t loom_aie2p_array_resident_materialize_worker(
       .function_op = resident_function,
       .function_target_facts = leaf->function_target_facts,
       .memory_accesses = memory_accesses,
+      .loop_execution = loop_execution,
   };
   return iree_ok_status();
 }

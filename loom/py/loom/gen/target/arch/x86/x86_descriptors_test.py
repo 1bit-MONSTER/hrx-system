@@ -124,6 +124,52 @@ def test_scalar_physical_ownership_is_shared_by_core_profiles() -> None:
         assert OperandFlag.STATE_WRITE in operands["low"].flags
 
 
+def test_scalar_speculation_facts_cover_total_integer_forms() -> None:
+    total_forms = {
+        Form.BINARY_RM_R,
+        Form.BINARY_R_RM,
+        Form.MULTIPLY_IMMEDIATE,
+        Form.BINARY_IMMEDIATE,
+        Form.SHIFT_IMMEDIATE,
+        Form.SHIFT_COUNT,
+        Form.MOVE,
+        Form.SELECT,
+        Form.SUBTRACT_IF_UGE,
+        Form.COMPARE,
+        Form.COMPARE_IMMEDIATE,
+        Form.CONSTANT,
+        Form.ADDRESS_ADD,
+        Form.ADDRESS_DISPLACEMENT,
+        Form.ADDRESS_SCALE,
+        Form.ADDRESS_ADD_SCALE,
+        Form.ADDRESS_PC_RELATIVE,
+        Form.UNARY_RM,
+    }
+    trapping_or_effecting_forms = {
+        Form.MULTIPLY_HIGH,
+        Form.LOAD,
+        Form.STORE,
+        Form.BINARY_R_MEMORY,
+        Form.ZERO_REGISTER,
+        Form.SIGN_EXTEND_DIVIDEND,
+        Form.DIVIDE,
+    }
+    descriptors = x86_descriptor_data.X86_SCALAR_DESCRIPTOR_SET.descriptors
+    observed_forms = {Form(descriptor.encoding_format_id) for descriptor in descriptors}
+    assert total_forms.isdisjoint(trapping_or_effecting_forms)
+    assert observed_forms == total_forms | trapping_or_effecting_forms
+
+    for descriptor in descriptors:
+        form = Form(descriptor.encoding_format_id)
+        writes_state = any(OperandFlag.STATE_WRITE in operand.flags for operand in descriptor.operands)
+        expected_safe = form in total_forms and not writes_state
+        assert (DescriptorFlag.SAFE_TO_SPECULATE in descriptor.flags) is expected_safe, descriptor.key
+        if expected_safe:
+            assert DescriptorFlag.DEAD_REMOVABLE in descriptor.flags
+            assert not descriptor.effects
+            assert not descriptor.storage_leases
+
+
 def test_native_facts_cover_core_profiles() -> None:
     for descriptor_set in (
         x86_descriptor_data.X86_AVX2_DESCRIPTOR_SET,

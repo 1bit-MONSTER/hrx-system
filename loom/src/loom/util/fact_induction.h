@@ -28,11 +28,16 @@ enum loom_value_fact_induction_flag_bits_e {
   LOOM_VALUE_FACT_INDUCTION_SUBTRACT_STEP = 1u << 1,
   // Other exits may retire the loop before its controlling header exit.
   LOOM_VALUE_FACT_INDUCTION_MAY_EXIT_EARLY = 1u << 2,
+  // The header guard compares the next state produced by the backedge update
+  // instead of the current header argument.
+  LOOM_VALUE_FACT_INDUCTION_GUARD_USES_NEXT = 1u << 3,
 };
 typedef uint8_t loom_value_fact_induction_flags_t;
 
 // A recognized header-tested recurrence. Its inputs are invariant within the
-// loop. Additional exits preserve its iteration bound, not an exact count.
+// loop. The guard may observe either the current header value or the next
+// state produced by this same update. Additional exits preserve its iteration
+// bound, not an exact count.
 // The owning fact solver refreshes this equation after semantic edits; numeric
 // queries consume current table entries, never cached counts.
 typedef struct loom_value_fact_induction_t {

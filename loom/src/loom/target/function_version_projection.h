@@ -39,9 +39,10 @@ extern "C" {
 // loom_module_free().
 //
 // When |out_versions| is non-NULL, it must be initialized and empty. The clone
-// retains independent target facts, applied schedules, and packet memory
-// proofs in that owner. It can outlive the source module and its compilation
-// storage. NULL requests only the standalone IR projection used by serializers.
+// retains independent target facts, applied schedules, packet memory proofs,
+// and loop execution proofs in that owner. It can outlive the source module and
+// its compilation storage. NULL requests only the standalone IR projection
+// used by serializers.
 iree_status_t loom_target_function_versions_project_module(
     const loom_module_t* source_module,
     const loom_function_version_list_t* function_versions,
