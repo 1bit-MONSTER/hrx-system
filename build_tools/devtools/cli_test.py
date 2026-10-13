@@ -240,24 +240,36 @@ class CliTest(unittest.TestCase):
         self.assertIn("--//runtime/config/hal:drivers=amdgpu", description)
         self.assertIn("--repo_env=IREE_ROCM_PATH=/opt/rocm", description)
 
-    def test_bazel_build_defaults_to_project_targets(self):
-        args = cli.parse_arguments(["bazel", "build"])
+    def test_bazel_build_and_test_default_to_project_targets(self):
+        for command in ("build", "test"):
+            prefix = [command] + (["--config=presubmit"] if command == "test" else [])
+            for options in (
+                [],
+                ["--config=asan"],
+                ["--test_arg=--target_pattern_file=nested.txt"],
+            ):
+                with self.subTest(command=command, options=options):
+                    self.assertEqual(
+                        self.planned_argv(["bazel", command, *options])[1:],
+                        [*prefix, *options, *cli.DEFAULT_BAZEL_TARGETS],
+                    )
 
-        plan = args.handler(args)
-        description = plan.describe()
-
-        self.assertIn("//runtime/...", description)
-        self.assertIn("//libhrx/...", description)
-
-    def test_bazel_build_with_only_options_still_uses_default_targets(self):
-        args = cli.parse_arguments(["bazel", "build", "--config=asan"])
-
-        plan = args.handler(args)
-        description = plan.describe()
-
-        self.assertIn("--config=asan", description)
-        self.assertIn("//runtime/...", description)
-        self.assertIn("//libhrx/...", description)
+    def test_bazel_target_pattern_files_suppress_default_targets(self):
+        for command in ("build", "test"):
+            prefix = [command] + (["--config=presubmit"] if command == "test" else [])
+            for options in (
+                ["--target_pattern_file=targets.txt"],
+                ["--target_pattern_file", "targets with spaces.txt"],
+                ["--target_pattern_file=-", "--skip_incompatible_explicit_targets"],
+                ["--target_pattern_file=targets.txt", "//loom/..."],
+            ):
+                with self.subTest(command=command, options=options):
+                    self.assertEqual(
+                        self.planned_argv(
+                            ["bazel", command, "--config=asan", *options]
+                        )[1:],
+                        [*prefix, "--config=asan", *options],
+                    )
 
     def test_bazel_test_importer_environment_adds_config_and_pythonpath(self):
         with self.importer_manifest_patch():

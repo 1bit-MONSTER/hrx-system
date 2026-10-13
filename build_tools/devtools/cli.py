@@ -140,7 +140,10 @@ def forwarded_args(args: list[str]) -> list[str]:
 
 
 def bazel_targets_or_defaults(backend_args: list[str]) -> list[str]:
-    if any(is_bazel_target_pattern(arg) for arg in backend_args):
+    if any(
+        is_bazel_target_pattern(arg) or option_name(arg) == "--target_pattern_file"
+        for arg in backend_args
+    ):
         return backend_args
     return [*backend_args, *DEFAULT_BAZEL_TARGETS]
 
