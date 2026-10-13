@@ -73,123 +73,6 @@ static iree_status_t iree_hal_amd_xdna_image_validate_source_range(
   return iree_ok_status();
 }
 
-typedef struct iree_hal_amd_xdna_image_range_enumerator_t {
-  // Complete source length declared by the byte sequence.
-  uint64_t source_length;
-  // Logical offset of the next enumerated source segment.
-  uint64_t source_offset;
-  // First logical source byte requested by the caller.
-  uint64_t range_offset;
-  // One-past-the-end logical source byte requested by the caller.
-  uint64_t range_end;
-  // Number of requested bytes delivered to |callback|.
-  uint64_t delivered_length;
-  // Caller callback receiving intersecting portions of source segments.
-  iree_byte_sequence_segment_callback_t callback;
-} iree_hal_amd_xdna_image_range_enumerator_t;
-
-static iree_status_t iree_hal_amd_xdna_image_enumerate_source_segment(
-    void* user_data, iree_const_byte_span_t segment) {
-  iree_hal_amd_xdna_image_range_enumerator_t* enumerator =
-      (iree_hal_amd_xdna_image_range_enumerator_t*)user_data;
-  if (segment.data_length != 0 && segment.data == NULL) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "XDNA image source yielded a NULL segment");
-  }
-  uint64_t segment_end = 0;
-  if (!iree_checked_add_u64(enumerator->source_offset, segment.data_length,
-                            &segment_end) ||
-      segment_end > enumerator->source_length) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "XDNA image source segments exceed their declared length");
-  }
-
-  const uint64_t overlap_offset =
-      iree_max(enumerator->source_offset, enumerator->range_offset);
-  const uint64_t overlap_end = iree_min(segment_end, enumerator->range_end);
-  if (overlap_offset < overlap_end) {
-    const iree_host_size_t segment_offset =
-        (iree_host_size_t)(overlap_offset - enumerator->source_offset);
-    const iree_host_size_t overlap_length =
-        (iree_host_size_t)(overlap_end - overlap_offset);
-    IREE_RETURN_IF_ERROR(enumerator->callback.fn(
-        enumerator->callback.user_data,
-        iree_make_const_byte_span(segment.data + segment_offset,
-                                  overlap_length)));
-    enumerator->delivered_length += overlap_length;
-  }
-  enumerator->source_offset = segment_end;
-  return iree_ok_status();
-}
-
-static iree_status_t iree_hal_amd_xdna_image_enumerate_sequence_range(
-    const iree_byte_sequence_t* source_sequence,
-    iree_hal_amd_xdna_image_source_range_t source_range,
-    iree_byte_sequence_segment_callback_t callback) {
-  IREE_RETURN_IF_ERROR(iree_hal_amd_xdna_image_validate_source_range(
-      source_sequence, source_range));
-  if (source_range.length == 0) {
-    return iree_ok_status();
-  }
-
-  const uint64_t source_length = iree_byte_sequence_length(source_sequence);
-  iree_const_byte_span_t contiguous_span = iree_const_byte_span_empty();
-  if (iree_byte_sequence_try_get_contiguous_span(source_sequence,
-                                                 &contiguous_span)) {
-    if ((uint64_t)contiguous_span.data_length != source_length ||
-        (contiguous_span.data_length != 0 && contiguous_span.data == NULL)) {
-      return iree_make_status(
-          IREE_STATUS_FAILED_PRECONDITION,
-          "XDNA image source contiguous span violates its declared length");
-    }
-    return callback.fn(
-        callback.user_data,
-        iree_make_const_byte_span(
-            contiguous_span.data + (iree_host_size_t)source_range.offset,
-            (iree_host_size_t)source_range.length));
-  }
-
-  iree_hal_amd_xdna_image_range_enumerator_t enumerator = {
-      .source_length = source_length,
-      .source_offset = 0,
-      .range_offset = source_range.offset,
-      .range_end = source_range.offset + source_range.length,
-      .delivered_length = 0,
-      .callback = callback,
-  };
-  IREE_RETURN_IF_ERROR(iree_byte_sequence_enumerate(
-      source_sequence,
-      (iree_byte_sequence_segment_callback_t){
-          .fn = iree_hal_amd_xdna_image_enumerate_source_segment,
-          .user_data = &enumerator,
-      }));
-  if (enumerator.source_offset != source_length ||
-      enumerator.delivered_length != source_range.length) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "XDNA image source segments do not match their declared length");
-  }
-  return iree_ok_status();
-}
-
-typedef struct iree_hal_amd_xdna_image_range_reader_t {
-  // Destination storage receiving source bytes in logical order.
-  iree_byte_span_t storage;
-  // Number of bytes already written to |storage|.
-  iree_host_size_t offset;
-} iree_hal_amd_xdna_image_range_reader_t;
-
-static iree_status_t iree_hal_amd_xdna_image_read_source_segment(
-    void* user_data, iree_const_byte_span_t segment) {
-  iree_hal_amd_xdna_image_range_reader_t* reader =
-      (iree_hal_amd_xdna_image_range_reader_t*)user_data;
-  memcpy(reader->storage.data + reader->offset, segment.data,
-         segment.data_length);
-  reader->offset += segment.data_length;
-  return iree_ok_status();
-}
-
 static iree_status_t iree_hal_amd_xdna_image_read_sequence_range(
     const iree_byte_sequence_t* source_sequence,
     iree_hal_amd_xdna_image_source_range_t source_range,
@@ -201,16 +84,7 @@ static iree_status_t iree_hal_amd_xdna_image_read_sequence_range(
                             " bytes of destination storage",
                             source_range.length);
   }
-  iree_hal_amd_xdna_image_range_reader_t reader = {
-      .storage = storage,
-      .offset = 0,
-  };
-  return iree_hal_amd_xdna_image_enumerate_sequence_range(
-      source_sequence, source_range,
-      (iree_byte_sequence_segment_callback_t){
-          .fn = iree_hal_amd_xdna_image_read_source_segment,
-          .user_data = &reader,
-      });
+  return iree_byte_sequence_read(source_sequence, source_range.offset, storage);
 }
 
 iree_status_t iree_hal_amd_xdna_image_directory_enumerate_source_range(
@@ -219,8 +93,9 @@ iree_status_t iree_hal_amd_xdna_image_directory_enumerate_source_range(
     iree_byte_sequence_segment_callback_t callback) {
   IREE_ASSERT_ARGUMENT(directory);
   IREE_ASSERT_ARGUMENT(callback.fn);
-  return iree_hal_amd_xdna_image_enumerate_sequence_range(
-      directory->source_sequence, source_range, callback);
+  return iree_byte_sequence_enumerate_range(directory->source_sequence,
+                                            source_range.offset,
+                                            source_range.length, callback);
 }
 
 iree_status_t iree_hal_amd_xdna_image_directory_read_source_range(

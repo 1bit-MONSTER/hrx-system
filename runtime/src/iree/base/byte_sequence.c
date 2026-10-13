@@ -45,6 +45,95 @@ iree_byte_sequence_enumerate(const iree_byte_sequence_t* sequence,
   return sequence->vtable->enumerate(sequence, callback);
 }
 
+typedef struct iree_byte_sequence_range_t {
+  // Logical offset of the next source segment.
+  uint64_t source_offset;
+  // Inclusive start of the requested source range.
+  uint64_t begin;
+  // Exclusive end of the requested source range.
+  uint64_t end;
+  // Callback borrowing intersecting source bytes.
+  iree_byte_sequence_segment_callback_t callback;
+} iree_byte_sequence_range_t;
+
+static iree_status_t iree_byte_sequence_enumerate_range_segment(
+    void* user_data, iree_const_byte_span_t segment) {
+  iree_byte_sequence_range_t* range = (iree_byte_sequence_range_t*)user_data;
+  const uint64_t source_offset = range->source_offset;
+  const uint64_t source_end = source_offset + segment.data_length;
+  range->source_offset = source_end;
+  const uint64_t begin = iree_max(source_offset, range->begin);
+  const uint64_t end = iree_min(source_end, range->end);
+  if (begin >= end) {
+    return iree_ok_status();
+  }
+  return range->callback.fn(
+      range->callback.user_data,
+      iree_make_const_byte_span(
+          segment.data + (iree_host_size_t)(begin - source_offset),
+          (iree_host_size_t)(end - begin)));
+}
+
+IREE_API_EXPORT iree_status_t iree_byte_sequence_enumerate_range(
+    const iree_byte_sequence_t* sequence, uint64_t offset, uint64_t length,
+    iree_byte_sequence_segment_callback_t callback) {
+  IREE_ASSERT_ARGUMENT(sequence);
+  IREE_ASSERT_ARGUMENT(callback.fn);
+  const uint64_t source_length = iree_byte_sequence_length(sequence);
+  if (offset > source_length || length > source_length - offset) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "byte sequence range offset %" PRIu64
+                            " length %" PRIu64
+                            " exceeds the source length %" PRIu64,
+                            offset, length, source_length);
+  }
+  if (length == 0) {
+    return iree_ok_status();
+  }
+  iree_const_byte_span_t span = iree_const_byte_span_empty();
+  if (iree_byte_sequence_try_get_contiguous_span(sequence, &span)) {
+    return callback.fn(
+        callback.user_data,
+        iree_make_const_byte_span(span.data + (iree_host_size_t)offset,
+                                  (iree_host_size_t)length));
+  }
+  iree_byte_sequence_range_t range = {
+      .source_offset = 0,
+      .begin = offset,
+      .end = offset + length,
+      .callback = callback,
+  };
+  return iree_byte_sequence_enumerate(
+      sequence, (iree_byte_sequence_segment_callback_t){
+                    .fn = iree_byte_sequence_enumerate_range_segment,
+                    .user_data = &range,
+                });
+}
+
+static iree_status_t iree_byte_sequence_read_segment(
+    void* user_data, iree_const_byte_span_t segment) {
+  uint8_t** cursor = (uint8_t**)user_data;
+  memcpy(*cursor, segment.data, segment.data_length);
+  *cursor += segment.data_length;
+  return iree_ok_status();
+}
+
+IREE_API_EXPORT iree_status_t
+iree_byte_sequence_read(const iree_byte_sequence_t* sequence, uint64_t offset,
+                        iree_byte_span_t target) {
+  if (target.data_length && !target.data) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "non-empty byte sequence read requires storage");
+  }
+  uint8_t* cursor = target.data;
+  return iree_byte_sequence_enumerate_range(
+      sequence, offset, target.data_length,
+      (iree_byte_sequence_segment_callback_t){
+          .fn = iree_byte_sequence_read_segment,
+          .user_data = &cursor,
+      });
+}
+
 //===----------------------------------------------------------------------===//
 // Allocator-owned span sequence
 //===----------------------------------------------------------------------===//

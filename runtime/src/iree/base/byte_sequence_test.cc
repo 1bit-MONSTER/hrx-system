@@ -225,6 +225,117 @@ TEST(ByteSequenceTest, CallbackFailureStopsEnumeration) {
   iree_byte_sequence_release(&sequence.base);
 }
 
+TEST(ByteSequenceTest, ReadsEveryRangeAcrossEverySegmentation) {
+  const uint8_t bytes[] = {13, 7, 31, 2, 19, 5};
+  for (iree_host_size_t split = 1; split < sizeof(bytes); ++split) {
+    const iree_const_byte_span_t segments[] = {
+        iree_make_const_byte_span(bytes, split),
+        iree_make_const_byte_span(bytes + split, sizeof(bytes) - split),
+    };
+    test_byte_sequence_t sequence;
+    test_byte_sequence_initialize(segments, IREE_ARRAYSIZE(segments),
+                                  sizeof(bytes), nullptr, &sequence);
+    for (iree_host_size_t offset = 0; offset <= sizeof(bytes); ++offset) {
+      for (iree_host_size_t length = 0; length <= sizeof(bytes) - offset;
+           ++length) {
+        SCOPED_TRACE(testing::Message()
+                     << split << ":" << offset << ":" << length);
+        std::array<uint8_t, sizeof(bytes) + 2> target;
+        target.fill(0xCC);
+        IREE_ASSERT_OK(iree_byte_sequence_read(
+            &sequence.base, offset,
+            iree_make_byte_span(target.data() + 1, length)));
+        EXPECT_EQ(std::memcmp(target.data() + 1, bytes + offset, length), 0);
+        EXPECT_EQ(target.front(), 0xCC);
+        EXPECT_EQ(target[length + 1], 0xCC);
+        std::vector<uint8_t> enumerated;
+        IREE_ASSERT_OK(iree_byte_sequence_enumerate_range(
+            &sequence.base, offset, length, make_append_callback(&enumerated)));
+        EXPECT_EQ(enumerated, std::vector<uint8_t>(bytes + offset,
+                                                   bytes + offset + length));
+      }
+    }
+    iree_byte_sequence_release(&sequence.base);
+  }
+}
+
+TEST(ByteSequenceTest, ContiguousRangeBorrowsSourceStorage) {
+  iree_byte_span_t bytes = iree_byte_span_empty();
+  bytes.data_length = 8;
+  IREE_ASSERT_OK(iree_allocator_malloc(iree_allocator_system(),
+                                       bytes.data_length,
+                                       reinterpret_cast<void**>(&bytes.data)));
+  const uint8_t* expected = bytes.data + 2;
+  iree_byte_sequence_t* sequence = nullptr;
+  IREE_ASSERT_OK(iree_byte_sequence_create_from_span_move(
+      &bytes, iree_allocator_system(), &sequence));
+  ByteSequencePtr owner(sequence, iree_byte_sequence_release);
+  int callback_count = 0;
+  struct State {
+    // Expected borrowed source location.
+    const uint8_t* expected;
+    // Callback count established during enumeration.
+    int* callback_count;
+  } state = {expected, &callback_count};
+  IREE_ASSERT_OK(iree_byte_sequence_enumerate_range(
+      sequence, 2, 3,
+      {[](void* user_data, iree_const_byte_span_t segment) -> iree_status_t {
+         auto* state = static_cast<State*>(user_data);
+         EXPECT_EQ(segment.data, state->expected);
+         EXPECT_EQ(segment.data_length, 3u);
+         ++*state->callback_count;
+         return iree_ok_status();
+       },
+       &state}));
+  EXPECT_EQ(callback_count, 1);
+}
+
+TEST(ByteSequenceTest, RangeValidationPrecedesCallbacksAndWrites) {
+  const uint8_t bytes[] = {1, 2, 3};
+  const iree_const_byte_span_t segments[] = {
+      iree_make_const_byte_span(bytes, sizeof(bytes))};
+  test_byte_sequence_t sequence;
+  test_byte_sequence_initialize(segments, 1, sizeof(bytes), nullptr, &sequence);
+  std::array<uint8_t, 4> target = {0xCC, 0xCC, 0xCC, 0xCC};
+  EXPECT_THAT(Status(iree_byte_sequence_read(
+                  &sequence.base, 0,
+                  iree_make_byte_span(target.data(), target.size()))),
+              StatusIs(StatusCode::kOutOfRange));
+  EXPECT_THAT(target, ElementsAre(0xCC, 0xCC, 0xCC, 0xCC));
+  std::vector<uint8_t> actual;
+  for (const auto range : {std::array<uint64_t, 2>{UINT64_MAX, 1},
+                           std::array<uint64_t, 2>{1, UINT64_MAX},
+                           std::array<uint64_t, 2>{4, 0}}) {
+    EXPECT_THAT(
+        Status(iree_byte_sequence_enumerate_range(
+            &sequence.base, range[0], range[1], make_append_callback(&actual))),
+        StatusIs(StatusCode::kOutOfRange));
+  }
+  EXPECT_TRUE(actual.empty());
+  EXPECT_THAT(Status(iree_byte_sequence_read(&sequence.base, 0,
+                                             iree_make_byte_span(nullptr, 1))),
+              StatusIs(StatusCode::kInvalidArgument));
+  IREE_EXPECT_OK(iree_byte_sequence_read(&sequence.base, sizeof(bytes),
+                                         iree_byte_span_empty()));
+  iree_byte_sequence_release(&sequence.base);
+}
+
+TEST(ByteSequenceTest, RangeCallbackFailureStopsEnumeration) {
+  const uint8_t bytes[] = {0, 1, 2, 3};
+  const iree_const_byte_span_t segments[] = {
+      iree_make_const_byte_span(bytes, 2),
+      iree_make_const_byte_span(bytes + 2, 2)};
+  test_byte_sequence_t sequence;
+  test_byte_sequence_initialize(segments, 2, sizeof(bytes), nullptr, &sequence);
+  failing_callback_state_t state = {0};
+  Status status(iree_byte_sequence_enumerate_range(
+      &sequence.base, 1, 2, {fail_on_first_segment, &state}));
+  EXPECT_THAT(status, StatusIs(StatusCode::kAborted));
+  EXPECT_THAT(status.ToString(), HasSubstr("intentional callback failure"));
+  EXPECT_EQ(state.callback_count, 1);
+  iree_byte_sequence_release(&sequence.base);
+}
+
 TEST(ByteSequenceTest, SupportsConcurrentEnumeration) {
   const uint8_t segment0[] = {0, 1};
   const uint8_t segment1[] = {2, 3};
@@ -525,7 +636,9 @@ TEST(ByteSequenceTest, CloneAllocationFailureLeavesOutputEmpty) {
 }
 
 TEST(ByteSequenceTest, CloneRejectsOversizedLength) {
-#if defined(IREE_PTR_SIZE_32)
+  if (sizeof(iree_host_size_t) >= sizeof(uint64_t)) {
+    GTEST_SKIP() << "uint64_t sequences cannot exceed a 64-bit host size";
+  }
   test_byte_sequence_t sequence;
   test_byte_sequence_initialize(NULL, 0, (uint64_t)IREE_HOST_SIZE_MAX + 1, NULL,
                                 &sequence);
@@ -539,9 +652,6 @@ TEST(ByteSequenceTest, CloneRejectsOversizedLength) {
   EXPECT_EQ(clone.data_length, 0u);
 
   iree_byte_sequence_release(&sequence.base);
-#else
-  GTEST_SKIP() << "uint64_t sequences cannot exceed a 64-bit host size";
-#endif  // IREE_PTR_SIZE_32
 }
 
 }  // namespace
