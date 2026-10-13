@@ -57,6 +57,7 @@ enum class PlanComponent {
 
 enum class FixtureInputStage {
   kGeneratedLow,
+  kGeneratedMfma,
   kAuthoredSource,
 };
 
@@ -505,6 +506,41 @@ static std::string BuildGeneratedLowSource(const FixtureSpec& spec) {
                                                 : BuildMatrixSource(spec);
 }
 
+// Alternate long and short producers over one physical accumulator, carrying
+// it through block arguments. The shorter producer can forward its input while
+// the older producer's ordinary-use window remains outstanding.
+static std::string BuildMfmaSource(const FixtureSpec& spec) {
+  std::ostringstream source;
+  source << R"(
+amdgpu.target<gfx90a> @target
+low.kernel.def target<amdgpu.cdna2.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) export("matrix_windows") workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @matrix_windows() asm {
+  %lane = low.live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %output = low.resource<hal_binding> {extent = 1024, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %zero0 = low.const<amdgpu.v_mov_b32> {imm32 = 0} : reg<amdgpu.vgpr>
+  %zero1 = low.const<amdgpu.v_mov_b32> {imm32 = 0} : reg<amdgpu.vgpr>
+  %zero2 = low.const<amdgpu.v_mov_b32> {imm32 = 0} : reg<amdgpu.vgpr>
+  %zero3 = low.const<amdgpu.v_mov_b32> {imm32 = 0} : reg<amdgpu.vgpr>
+  %initial = low.concat(%zero0, %zero1, %zero2, %zero3) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
+  %address = low.op<amdgpu.v_lshlrev_b32.src0_inline>(%lane) {imm32 = 4} : (reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr>
+)";
+  std::string accumulator = "%initial";
+  for (uint32_t phase = 0; phase < spec.generated_matrix.phase_count; ++phase) {
+    if (phase != 0) {
+      source << "  low.br ^phase" << phase << "(" << accumulator
+             << ": reg<amdgpu.vgpr x4>)\n^phase" << phase << "(%incoming"
+             << phase << ": reg<amdgpu.vgpr x4>):\n";
+      accumulator = "%incoming" + std::to_string(phase);
+    }
+    source << "  %long" << phase << " = v_mfma_f32_16x16x4f32 %lane, %lane, "
+           << accumulator << "\n  %short" << phase
+           << " = v_mfma_f32_4x4x1f32 %lane, %lane, %long" << phase << "\n";
+    accumulator = "%short" + std::to_string(phase);
+  }
+  source << "  global_store_dwordx4_saddr %address, " << accumulator
+         << ", %output\n  return\n}\n";
+  return source.str();
+}
+
 static iree_string_view_t AttentionBf16Source() {
   const iree_file_toc_t* files = packet_plan_attention_bf16_create();
   return iree_make_string_view(reinterpret_cast<const char*>(files[0].data),
@@ -574,7 +610,9 @@ class PacketPlanFixture {
     if (spec.input_stage == FixtureInputStage::kAuthoredSource) {
       source = AttentionBf16Source();
     } else {
-      generated_source = BuildGeneratedLowSource(spec);
+      generated_source = spec.input_stage == FixtureInputStage::kGeneratedMfma
+                             ? BuildMfmaSource(spec)
+                             : BuildGeneratedLowSource(spec);
       source = iree_make_string_view(generated_source.data(),
                                      generated_source.size());
     }
@@ -881,6 +919,24 @@ BENCHMARK(BM_PacketPlan_MatrixJoin)
     ->Arg(8)
     ->Arg(24)
     ->Iterations(200)
+    ->Unit(benchmark::kNanosecond);
+
+static void BM_PacketPlan_MfmaWindows(benchmark::State& state) {
+  const FixtureSpec spec = {
+      .name = "mfma_windows",
+      .input_stage = FixtureInputStage::kGeneratedMfma,
+      .generated_matrix =
+          {
+              .phase_count = static_cast<uint32_t>(state.range(0)),
+          },
+  };
+  BenchmarkPlan(state, spec, PlanComponent::kComplete);
+}
+BENCHMARK(BM_PacketPlan_MfmaWindows)
+    ->Arg(1)
+    ->Arg(8)
+    ->Arg(32)
+    ->Iterations(500)
     ->Unit(benchmark::kNanosecond);
 
 static void BM_WaitPlan_MemoryControl(benchmark::State& state) {

@@ -9,7 +9,6 @@ load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
 load("//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
 load(
     "//loom/build_tools/amdgpu:descriptor_sets.bzl",
-    "loom_amdgpu_descriptor_set_compatible_with",
     "loom_amdgpu_iree_hal_representation_compatible_with",
 )
 load(
@@ -21,6 +20,7 @@ load(
     "loom_cc_benchmark",
     "loom_cc_library",
     "loom_cc_test",
+    "loom_config_compatible_with",
 )
 load("//loom/build_tools/bazel:defs.bzl", "loom_test")
 load(
@@ -36,8 +36,6 @@ package(
 )
 
 _AMDGPU_CHECK_VISIBILITY = ["//loom/src/loom/target/arch/amdgpu/check:__pkg__"]
-
-_DESCRIPTOR_SET_GFX125X = LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY["amdgpu.rdna4.gfx125x.core"]
 
 _AMDGPU_HAL_KERNEL_LIBRARY_VISIBILITY = [
     "//loom/binding/c/target/amdgpu:__pkg__",
@@ -340,7 +338,13 @@ iree_c_embed_data(
 loom_cc_benchmark(
     name = "packet_plan_benchmark",
     srcs = ["packet_plan_benchmark.cc"],
-    target_compatible_with = loom_amdgpu_descriptor_set_compatible_with(_DESCRIPTOR_SET_GFX125X),
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/amdgpu:" + LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY[key]
+        for key in [
+            "amdgpu.cdna2.core",
+            "amdgpu.rdna4.gfx125x.core",
+        ]
+    ]),
     deps = [
         ":packet_plan_attention_bf16",
         "//loom/binding/c:interop",
