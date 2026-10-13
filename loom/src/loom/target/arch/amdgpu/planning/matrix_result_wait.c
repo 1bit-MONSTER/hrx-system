@@ -14,6 +14,11 @@
 #include "loom/util/cfg_dataflow.h"
 #include "loom/util/cfg_graph.h"
 
+static_assert(sizeof(loom_amdgpu_matrix_result_identity_t) == 8,
+              "forwarding identity equality requires a padding-free value");
+static_assert(sizeof(loom_amdgpu_matrix_result_source_t) == 28,
+              "forwarding identity must fit the retained source row");
+
 // A consumer can exclude one full-range forwarding identity. The strongest
 // two distinct identities therefore answer every partial-overlap query. The
 // exact-range floors are independent: forwarding can require *more* progress
@@ -138,11 +143,8 @@ static loom_amdgpu_matrix_result_active_t* loom_amdgpu_matrix_result_active(
 
 static bool loom_amdgpu_matrix_result_same_identity(
     const loom_amdgpu_matrix_result_wait_t* state, uint32_t lhs, uint32_t rhs) {
-  const loom_amdgpu_matrix_result_source_t* a = &state->sources[lhs];
-  const loom_amdgpu_matrix_result_source_t* b = &state->sources[rhs];
-  return a->base == b->base && a->count == b->count &&
-         (state->profile == LOOM_AMDGPU_MATRIX_WAIT_PROFILE_MFMA_GFX90A ||
-          a->instruction.descriptor_ref == b->instruction.descriptor_ref);
+  return memcmp(&state->sources[lhs].identity, &state->sources[rhs].identity,
+                sizeof(loom_amdgpu_matrix_result_identity_t)) == 0;
 }
 
 static void loom_amdgpu_matrix_result_merge_release(
@@ -177,9 +179,10 @@ static void loom_amdgpu_matrix_result_publish(
     loom_amdgpu_matrix_result_wait_t* state,
     const loom_amdgpu_matrix_result_source_t* source) {
   const uint32_t source_index = (uint32_t)(source - state->sources);
-  for (uint32_t i = 0; i < source->count; ++i) {
+  for (uint32_t i = 0; i < source->identity.count; ++i) {
     loom_amdgpu_matrix_result_release_t* releases =
-        loom_amdgpu_matrix_result_active(state, source->base + i)->releases;
+        loom_amdgpu_matrix_result_active(state, source->identity.base + i)
+            ->releases;
     for (unsigned use = 0; use < 3; ++use) {
       loom_amdgpu_matrix_result_merge_release(
           &releases[use],
@@ -200,7 +203,8 @@ static void loom_amdgpu_matrix_result_publish(
   }
   if (source->floor_ordinal != 0) {
     loom_amdgpu_matrix_result_release_t* releases =
-        loom_amdgpu_matrix_result_active(state, source->base)->releases;
+        loom_amdgpu_matrix_result_active(state, source->identity.base)
+            ->releases;
     loom_amdgpu_matrix_result_merge_release(
         &releases[LOOM_AMDGPU_MATRIX_RESULT_FLOOR_START +
                   source->floor_ordinal - 1],
@@ -465,11 +469,19 @@ void loom_amdgpu_matrix_result_wait_collect(
                               ? LOOM_AMDGPU_MATRIX_PIPELINE_XDL
                               : LOOM_AMDGPU_MATRIX_PIPELINE_SGEMM,
           },
-      .base = result->location_base +
-              (result->descriptor_reg_class_id == state->agpr_reg_class_id
-                   ? state->agpr_base
-                   : 0),
-      .count = (uint16_t)result->location_count,
+      .identity =
+          {
+              .base =
+                  result->location_base +
+                  (result->descriptor_reg_class_id == state->agpr_reg_class_id
+                       ? state->agpr_base
+                       : 0),
+              .count = (uint16_t)result->location_count,
+              .descriptor_ref =
+                  state->profile == LOOM_AMDGPU_MATRIX_WAIT_PROFILE_MFMA_GFX90A
+                      ? 0
+                      : reference,
+          },
       .accumulator_operand =
           contract->family == LOOM_AMDGPU_MATRIX_FAMILY_SMFMAC ? 0 : 2,
   };
@@ -594,7 +606,7 @@ static void loom_amdgpu_matrix_result_match_release(
   const loom_amdgpu_matrix_result_source_t* source =
       &state->sources[release.source];
   if (use == LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_MATRIX_SRCC_EXACT &&
-      (source->base != base || source->count != count)) {
+      (source->identity.base != base || source->identity.count != count)) {
     use = LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_MATRIX_SRCC_OVERLAP;
   }
   *match = (loom_amdgpu_matrix_result_match_t){
@@ -622,6 +634,14 @@ static void loom_amdgpu_matrix_result_wait_match(
   const uint64_t position = state->position + instruction_offset;
   const bool accumulator =
       use == LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_MATRIX_SRCC_EXACT;
+  const loom_amdgpu_matrix_result_identity_t identity = {
+      .base = base,
+      .count = (uint16_t)count,
+      .descriptor_ref =
+          state->profile == LOOM_AMDGPU_MATRIX_WAIT_PROFILE_MFMA_GFX90A
+              ? 0
+              : consumer.descriptor_ref,
+  };
   for (uint32_t i = 0; i < count; ++i) {
     const loom_amdgpu_matrix_result_active_t* active = &state->active[base + i];
     if (active->epoch != state->epoch) {
@@ -640,9 +660,7 @@ static void loom_amdgpu_matrix_result_wait_match(
       if (release->position > position) {
         const loom_amdgpu_matrix_result_source_t* source =
             &state->sources[release->source];
-        if (source->base == base && source->count == count &&
-            (state->profile == LOOM_AMDGPU_MATRIX_WAIT_PROFILE_MFMA_GFX90A ||
-             source->instruction.descriptor_ref == consumer.descriptor_ref)) {
+        if (memcmp(&source->identity, &identity, sizeof(identity)) == 0) {
           ++release;
         }
       }

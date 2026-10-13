@@ -22,6 +22,17 @@ extern "C" {
 typedef struct loom_amdgpu_matrix_result_wait_t
     loom_amdgpu_matrix_result_wait_t;
 
+// Complete forwarding identity. All eight bytes participate in equality;
+// instruction forms are normalized away on CDNA2, which forwards by range.
+typedef struct loom_amdgpu_matrix_result_identity_t {
+  // Result start in the component's disjoint physical-bank index space.
+  uint32_t base;
+  // Number of physical result registers.
+  uint16_t count;
+  // Canonical instruction form, or zero when forwarding ignores the form.
+  uint16_t descriptor_ref;
+} loom_amdgpu_matrix_result_identity_t;
+
 // Source facts retained once in final packet order by counter-wait planning.
 typedef struct loom_amdgpu_matrix_result_source_t {
   // Scheduled packet opening the result window.
@@ -30,10 +41,8 @@ typedef struct loom_amdgpu_matrix_result_source_t {
   uint32_t node_index;
   // Canonical instruction identity and execution pipeline.
   loom_amdgpu_matrix_instruction_t instruction;
-  // Result start in the component's disjoint physical-bank index space.
-  uint32_t base;
-  // Number of physical result registers.
-  uint16_t count;
+  // Physical result range and normalized accumulator-forwarding identity.
+  loom_amdgpu_matrix_result_identity_t identity;
   // Packet operand carrying the accumulator input.
   uint8_t accumulator_operand;
   // Exact-range floor: zero, two slots (1), or four slots (2).
