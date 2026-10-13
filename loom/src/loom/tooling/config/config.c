@@ -56,24 +56,20 @@ iree_status_t loom_tooling_config_text_binding_set_append_json_file(
 static iree_status_t loom_tooling_config_write_printed_type_string(
     const loom_module_t* module, loom_type_t type,
     loom_output_stream_t* stream) {
-  IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
-  loom_json_escape_stream_t escape_data;
-  loom_output_stream_t escape_stream;
-  loom_json_escape_stream_init(stream, &escape_data, &escape_stream);
-  IREE_RETURN_IF_ERROR(loom_text_print_type(type, module, &escape_stream));
-  return loom_output_stream_write_char(stream, '"');
+  loom_json_string_writer_t string;
+  IREE_RETURN_IF_ERROR(loom_json_string_begin(stream, &string));
+  IREE_RETURN_IF_ERROR(loom_text_print_type(type, module, &string.stream));
+  return loom_json_string_end(&string);
 }
 
 static iree_status_t loom_tooling_config_write_printed_attribute_string(
     const loom_module_t* module, loom_attribute_t attribute,
     loom_output_stream_t* stream) {
-  IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
-  loom_json_escape_stream_t escape_data;
-  loom_output_stream_t escape_stream;
-  loom_json_escape_stream_init(stream, &escape_data, &escape_stream);
+  loom_json_string_writer_t string;
+  IREE_RETURN_IF_ERROR(loom_json_string_begin(stream, &string));
   IREE_RETURN_IF_ERROR(
-      loom_text_print_attribute(&attribute, module, &escape_stream));
-  return loom_output_stream_write_char(stream, '"');
+      loom_text_print_attribute(&attribute, module, &string.stream));
+  return loom_json_string_end(&string);
 }
 
 static iree_string_view_t loom_tooling_config_predicate_arg_kind_name(

@@ -105,13 +105,11 @@ static iree_status_t loom_low_packet_json_write_type(
     const loom_module_t* module,
     const loom_text_print_options_t* type_print_options, loom_type_t type,
     loom_output_stream_t* stream) {
-  loom_json_escape_stream_t escape_data;
-  loom_output_stream_t escape_stream;
-  loom_json_escape_stream_init(stream, &escape_data, &escape_stream);
-  IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
+  loom_json_string_writer_t string;
+  IREE_RETURN_IF_ERROR(loom_json_string_begin(stream, &string));
   IREE_RETURN_IF_ERROR(loom_text_print_type_with_options(
-      type, module, &escape_stream, type_print_options));
-  return loom_output_stream_write_char(stream, '"');
+      type, module, &string.stream, type_print_options));
+  return loom_json_string_end(&string);
 }
 
 static iree_status_t loom_low_packet_json_write_location(
