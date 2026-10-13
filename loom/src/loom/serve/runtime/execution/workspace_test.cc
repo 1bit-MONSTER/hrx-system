@@ -10,6 +10,7 @@
 #include <memory>
 #include <vector>
 
+#include "iree/hal/memory/maintenance.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/serve/runtime/device/device.h"
@@ -84,6 +85,7 @@ class WorkspaceTest : public ::testing::TestWithParam<uint32_t> {
     IREE_ASSERT_OK(loom_serve_workspace_create(hal_group, backing_pool_,
                                                &asan_options, &workspace_,
                                                iree_allocator_system()));
+    maintenance_ = backing_pool_->maintenance;
     // Only the workspace keeps the supplied source alive from this point on.
     iree_hal_pool_release(backing_pool_);
     backing_pool_ = nullptr;
@@ -176,12 +178,29 @@ class WorkspaceTest : public ::testing::TestWithParam<uint32_t> {
     return loom_serve_execution_drain(independent_.execution);
   }
 
+  void TrimAndDrainMaintenance() {
+    loom_serve_workspace_trim(workspace_);
+    // Trim publishes cold native returns without waiting. Join those returns
+    // before checking physical accounting; held device work remains
+    // independent.
+    iree_hal_memory_maintenance_call(
+        maintenance_,
+        [](void* user_data) {
+          auto* owner = static_cast<iree_hal_memory_maintenance_t*>(user_data);
+          while (iree_hal_memory_maintenance_run_one(owner)) {
+          }
+        },
+        maintenance_);
+  }
+
   // Application workers shared by both native CPU devices.
   loom_serve_host_t* host_ = nullptr;
   // One topology/frontier namespace enclosing all pools and execution domains.
   loom_serve_device_group_t* group_ = nullptr;
   // Owned only until its reference transfers to the shared workspace.
   iree_hal_pool_t* backing_pool_ = nullptr;
+  // Borrowed cold-work owner kept alive by the workspace's backing pool.
+  iree_hal_memory_maintenance_t* maintenance_ = nullptr;
   // Shared geometry/accounting owner, independent of device records.
   loom_serve_workspace_t* workspace_ = nullptr;
   // First-device producer of an escaping allocation.
@@ -250,7 +269,7 @@ TEST_P(WorkspaceTest,
   IREE_ASSERT_OK(iree_hal_semaphore_query(consumed.semaphores[0], &observed));
   EXPECT_LT(observed, consumed.values[0]);
   EXPECT_FALSE(loom_serve_execution_is_retired(producer_.execution));
-  loom_serve_workspace_trim(workspace_);
+  TrimAndDrainMaintenance();
   const auto live = loom_serve_workspace_statistics(workspace_);
   EXPECT_EQ(live.reservation_count, 2u);
   EXPECT_EQ(live.slab_count, 1u);
@@ -261,7 +280,7 @@ TEST_P(WorkspaceTest,
   IREE_ASSERT_OK(loom_serve_execution_drain(producer_.execution));
   EXPECT_EQ(consumer_.output, input_);
   EXPECT_TRUE(loom_serve_execution_is_retired(producer_.execution));
-  loom_serve_workspace_trim(workspace_);
+  TrimAndDrainMaintenance();
   const auto retired = loom_serve_workspace_statistics(workspace_);
   EXPECT_EQ(retired.reservation_count, 0u);
   EXPECT_EQ(retired.bytes_committed, 0u);
@@ -296,7 +315,7 @@ TEST_P(WorkspaceTest, ReleasedExecutionPreservesPendingRawAllocationOwnership) {
   uint64_t observed = 0;
   IREE_ASSERT_OK(iree_hal_semaphore_query(joined.semaphores[0], &observed));
   EXPECT_LT(observed, joined.values[0]);
-  loom_serve_workspace_trim(workspace_);
+  TrimAndDrainMaintenance();
   // The CPU alloca waits before reserving physical storage. Its pending buffer
   // still borrows the pool even though only independent work has allocated.
   const auto held = loom_serve_workspace_statistics(workspace_);
@@ -304,7 +323,7 @@ TEST_P(WorkspaceTest, ReleasedExecutionPreservesPendingRawAllocationOwnership) {
   EXPECT_EQ(held.reserve_count, 1u);
   IREE_ASSERT_OK(iree_hal_semaphore_signal(gate_, 1, nullptr));
   IREE_ASSERT_OK(loom_serve_execution_drain(consumer_.execution));
-  loom_serve_workspace_trim(workspace_);
+  TrimAndDrainMaintenance();
   const auto retired = loom_serve_workspace_statistics(workspace_);
   EXPECT_EQ(retired.reservation_count, 0u);
   EXPECT_EQ(retired.bytes_committed, 0u);
@@ -357,7 +376,7 @@ TEST_P(WorkspaceTest, LiveEscapeDoesNotRetainRetiredGeneration) {
   for (uint32_t actual : producer_.output) {
     EXPECT_EQ(actual, pattern);
   }
-  loom_serve_workspace_trim(workspace_);
+  TrimAndDrainMaintenance();
   const auto retired = loom_serve_workspace_statistics(workspace_);
   EXPECT_EQ(retired.reservation_count, 0u);
   EXPECT_EQ(retired.bytes_committed, 0u);
@@ -432,7 +451,7 @@ TEST_P(WorkspaceTest, CaptureCompactionPreservesLiveRootsAcrossRingWrap) {
   for (size_t i = 0; i < consumer_.output.size(); ++i) {
     EXPECT_EQ(consumer_.output[i], 2 * (i + 1));
   }
-  loom_serve_workspace_trim(workspace_);
+  TrimAndDrainMaintenance();
   const auto retired = loom_serve_workspace_statistics(workspace_);
   EXPECT_EQ(retired.reservation_count, 0u);
   EXPECT_EQ(retired.bytes_committed, 0u);

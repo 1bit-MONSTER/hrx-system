@@ -79,6 +79,7 @@ loom_cc_test(
     ::workspace
     iree::base
     iree::hal
+    iree::hal::memory::maintenance
     iree::testing::gtest
     iree::testing::gtest_main
     loom::serve::runtime::device
