@@ -27,6 +27,7 @@ amdf_status_t amdf_platform_host_reservation_query_capabilities(
       .mapping_granularity = (uint64_t)page_size,
       .minimum_address = (uint64_t)page_size,
       .maximum_address = UINTPTR_MAX,
+      .required_source_flags = AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE,
   };
   return AMDF_STATUS_OK;
 }

@@ -895,10 +895,13 @@ TEST_F(MemoryBackendTest, HostVisibilityDoesNotImplyHostMappingSource) {
   EXPECT_GT(native_.profile_query_count, 0);
 }
 
-TEST_F(MemoryBackendTest, NpuMappingSourcesRequireReplaceableHostBacking) {
+TEST_F(MemoryBackendTest, MappingSourcesHonorRequiredBackingPreparation) {
   native_.mapping_enabled = true;
   native_.host_source_enabled = true;
   native_.required_flags = AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE;
+  // Only one domain needs host-remappable backing; both consume the same
+  // allocation. The whole-backing requirement must survive the joint query.
+  native_.reservation_source_flags[1] = AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE;
   iree_hal_pool_t* pool = nullptr;
   // No CPU family or public mapping requests the host backing property.
   IREE_ASSERT_OK(
@@ -922,6 +925,26 @@ TEST_F(MemoryBackendTest, NpuMappingSourcesRequireReplaceableHostBacking) {
                  UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE, 0));
   EXPECT_EQ(pool, nullptr);
   EXPECT_EQ(native_.create_count, 1);
+}
+
+TEST_F(MemoryBackendTest, IndependentNpuMappingsNeedNoRemappableHostBacking) {
+  native_.mapping_enabled = true;
+  native_.required_flags = 0;
+  iree_hal_pool_t* pool = nullptr;
+  // The same XDNA address kind may use independent device translations. Its
+  // source profile has no remappable host route and needs no host preparation.
+  IREE_ASSERT_OK(
+      CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool,
+                 UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE, 0));
+  EXPECT_EQ(iree_hal_pool_query_host_access(pool).access, 0u);
+  iree_hal_buffer_t* buffer = nullptr;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(4096, 4096),
+      iree_infinite_timeout(), &buffer));
+  EXPECT_EQ(native_.create_count, 1);
+  EXPECT_EQ(native_.map_count, 0);
+  iree_hal_buffer_release(buffer);
+  iree_hal_pool_release(pool);
 }
 
 }  // namespace iree::hal::amd::fabric

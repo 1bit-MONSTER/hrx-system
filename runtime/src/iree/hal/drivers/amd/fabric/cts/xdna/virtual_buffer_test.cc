@@ -4,6 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <vector>
+
 #include "iree/hal/drivers/amd/fabric/cts/virtual_buffer_test_base.h"
 #include "iree/hal/drivers/amd/xdna/context.h"
 #include "iree/hal/drivers/amd/xdna/device.h"
@@ -11,6 +13,8 @@
 #include "iree/hal/drivers/amd/xdna/image/testdata/mul_i32_npu4.h"
 
 namespace iree::hal::amd::fabric::cts {
+
+enum class HostProjection { kBackingOnly, kStableReservation };
 
 class FabricXdnaVirtualBufferTest : public FabricVirtualBufferTest {
  protected:
@@ -62,12 +66,16 @@ class FabricXdnaVirtualBufferTest : public FabricVirtualBufferTest {
     FabricVirtualBufferTest::TearDown();
   }
 
+  void RunReplacement(HostProjection host_projection);
+
   // Real HAL execution device sharing the GPU's native instance.
   iree_hal_device_t* npu_ = nullptr;
 };
 
-TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
+void FabricXdnaVirtualBufferTest::RunReplacement(
+    HostProjection host_projection) {
   using iree::hal::cts::Ref;
+  const bool host_alias = host_projection == HostProjection::kStableReservation;
   const auto* npu_family = iree_hal_device_queue_family(npu_, 0);
   const auto* cpu_family = iree_hal_device_queue_family(cpu_, 0);
   const uint64_t source_interface = UINT64_C(1)
@@ -94,7 +102,7 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
       },
   }};
   iree_hal_pool_scope_t scope = {
-      families.size(),
+      host_alias ? families.size() : families.size() - 1,
       families.data(),
       {IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_MAPPING_MODE_PERSISTENT,
        IREE_HAL_HOST_CACHEABILITY_UNKNOWN}};
@@ -104,17 +112,25 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
   auto pool_status = iree_hal_slab_pool_create(group_, scope, &pool_options,
                                                allocator_, pool.out());
   if (iree_status_is_unavailable(pool_status)) {
-    GTEST_SKIP() << "no jointly remappable host/device backing: "
-                 << iree::Status(std::move(pool_status)).ToString();
+    GTEST_SKIP()
+        << "no backing profile satisfies the requested mapping sources: "
+        << iree::Status(std::move(pool_status)).ToString();
   }
   IREE_ASSERT_OK(pool_status);
+  const auto source_requirements =
+      iree_hal_pool_query_mapping_requirements(pool);
   families[0].interfaces = UINT64_C(1)
                            << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA;
   families[1].interfaces = UINT64_C(1)
                            << IREE_HAL_BUFFER_INTERFACE_DEVICE_ADDRESS;
   families[2].interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_HOST;
   // Native shared permissions may be wider than this public host contract.
-  scope.host.access = IREE_HAL_MEMORY_ACCESS_READ;
+  scope.host =
+      host_alias
+          ? iree_hal_pool_host_access_t{IREE_HAL_MEMORY_ACCESS_READ,
+                                        IREE_HAL_MAPPING_MODE_PERSISTENT,
+                                        IREE_HAL_HOST_CACHEABILITY_UNKNOWN}
+          : iree_hal_pool_host_access_t{};
   iree_hal_virtual_buffer_capabilities_t capabilities;
   IREE_ASSERT_OK(iree_hal_virtual_buffer_query_capabilities(
       group_, scope, allocator_, &capabilities));
@@ -127,7 +143,9 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
   std::array<std::vector<uint32_t>, 2> expected;
   for (uint32_t i = 0; i < 2; ++i) {
     IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
-        pool, iree_hal_make_pool_reservation_request(6 * unit, unit),
+        pool,
+        iree_hal_make_pool_reservation_request(
+            6 * unit, source_requirements.minimum_granularity),
         iree_infinite_timeout(), backings[i].out()));
     IREE_ASSERT_OK(iree_hal_buffer_native_host_span(backings[i], 0, 6 * unit,
                                                     &original_spans[i]));
@@ -143,7 +161,7 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
   IREE_ASSERT_OK(iree_hal_virtual_buffer_create(group_, scope, &options,
                                                 allocator_, root.out()));
   EXPECT_EQ(root.get()->memory.contract->host.access,
-            IREE_HAL_MEMORY_ACCESS_READ);
+            host_alias ? IREE_HAL_MEMORY_ACCESS_READ : 0u);
   iree_hal_memory_scope_t cpu_scope, npu_scope, host_scope;
   IREE_ASSERT_OK(iree_hal_device_group_resolve_memory_scope(
       group_, {IREE_HAL_MEMORY_SITE_QUEUE, cpu_family}, &cpu_scope));
@@ -151,15 +169,16 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
       group_, {IREE_HAL_MEMORY_SITE_PROGRAM, npu_family}, &npu_scope));
   IREE_ASSERT_OK(iree_hal_device_group_resolve_memory_scope(
       group_, {IREE_HAL_MEMORY_SITE_HOST, nullptr}, &host_scope));
-  uint32_t cpu_projection, npu_projection, gpu_projection;
-  IREE_ASSERT_OK(iree_hal_virtual_buffer_resolve_projection(root, cpu_scope,
-                                                            &cpu_projection));
+  uint32_t cpu_projection = UINT32_MAX, npu_projection, gpu_projection;
+  if (host_alias) {
+    IREE_ASSERT_OK(iree_hal_virtual_buffer_resolve_projection(root, cpu_scope,
+                                                              &cpu_projection));
+  }
   IREE_ASSERT_OK(iree_hal_virtual_buffer_resolve_projection(root, npu_scope,
                                                             &npu_projection));
   IREE_ASSERT_OK(iree_hal_virtual_buffer_resolve_projection(root, scope_,
                                                             &gpu_projection));
-  EXPECT_EQ(cpu_projection, npu_projection);
-  EXPECT_NE(cpu_projection, gpu_projection);
+  EXPECT_NE(npu_projection, gpu_projection);
   const iree_hal_buffer_native_binding_slot_t gpu_slot = {
       .index = root.get()
                    ->memory.contract->scopes[scope_.id]
@@ -180,8 +199,10 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
   for (uint32_t i = 0; i < 3; ++i) {
     IREE_ASSERT_OK(iree_hal_buffer_subspan(root, i * unit, unit, allocator_,
                                            views[i].out()));
-    IREE_ASSERT_OK(
-        iree_hal_buffer_native_host_span(views[i], 256, 64, &host_views[i]));
+    if (host_alias) {
+      IREE_ASSERT_OK(
+          iree_hal_buffer_native_host_span(views[i], 256, 64, &host_views[i]));
+    }
     gpu_addresses[i] =
         iree_hal_buffer_native_binding(views[i], gpu_slot).device_address;
     npu_addresses[i] =
@@ -222,11 +243,12 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
   for (uint32_t epoch = 0; epoch < 3; ++epoch) {
     const std::array<iree_hal_memory_scope_t, 3> shared_scopes = {
         cpu_scope, npu_scope, host_scope};
-    std::array<iree_hal_memory_mapping_t, 6> mappings = {};
+    std::vector<iree_hal_memory_mapping_t> mappings;
     for (uint32_t i = 0; i < 3; ++i) {
       const iree_hal_memory_mapping_t mapping = {
           .target = views[i],
-          .scope = shared_scopes[i],
+          .scope =
+              cpu_projection == npu_projection ? shared_scopes[i] : npu_scope,
           .target_range = {0, unit},
           .source = backings[(epoch + i) % 2],
           .source_offset = (1 + epoch + i) * unit,
@@ -234,8 +256,13 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
           .operation = epoch ? IREE_HAL_MEMORY_MAPPING_OPERATION_REPLACE
                              : IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
       };
-      mappings[i] = mappings[i + 3] = mapping;
-      mappings[i + 3].scope = scope_;
+      mappings.push_back(mapping);
+      mappings.push_back(mapping);
+      mappings.back().scope = scope_;
+      if (host_alias && cpu_projection != npu_projection) {
+        mappings.push_back(mapping);
+        mappings.back().scope = cpu_scope;
+      }
     }
     // Both participants submit through their existing host progress service.
     auto* mapping_queue = iree_hal_device_queue(epoch == 1 ? npu_ : cpu_, 0, 0);
@@ -245,14 +272,19 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
                                       mappings.data(), 0));
     IREE_ASSERT_OK(
         iree_hal_semaphore_wait(done_, sequence_, iree_infinite_timeout(), 0));
-    auto* rhs = reinterpret_cast<uint32_t*>(host_views[1].data);
+    auto* rhs = reinterpret_cast<uint32_t*>(
+        host_alias
+            ? host_views[1].data
+            : original_spans[(epoch + 1) % 2].data + (epoch + 2) * unit + 256);
     std::array<uint32_t, 16> product;
     for (uint32_t i = 0; i < 16; ++i) {
       staging[i] = 3 + epoch * 17 + i;
       rhs[i] = 19 + epoch * 29 + i;
       product[i] = staging[i] * rhs[i];
     }
-    IREE_ASSERT_OK(iree_hal_buffer_flush_host_range(views[1], 256, 64));
+    IREE_ASSERT_OK(iree_hal_buffer_flush_host_range(
+        host_alias ? views[1].get() : backings[(epoch + 1) % 2].get(),
+        host_alias ? 256 : (epoch + 2) * unit + 256, 64));
     SdmaCommandWriter upload(
         reinterpret_cast<uint32_t*>(queue_host_.ring_address) + ring_words_,
         native_family_.format_features);
@@ -273,9 +305,16 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
         nullptr, IREE_HAL_DISPATCH_FLAG_NONE));
     IREE_ASSERT_OK(iree_hal_semaphore_wait(completed, completed_value,
                                            iree_infinite_timeout(), 0));
-    // Observe the stable CPU alias before touching the backing's original view.
-    IREE_ASSERT_OK(iree_hal_buffer_invalidate_host_range(views[2], 256, 64));
-    EXPECT_EQ(std::memcmp(host_views[2].data, product.data(), 64), 0);
+    // Observe the stable CPU alias when requested; device-only reservations
+    // leave CPU accesses on the original backing's ordinary host mapping.
+    IREE_ASSERT_OK(iree_hal_buffer_invalidate_host_range(
+        host_alias ? views[2].get() : backings[epoch % 2].get(),
+        host_alias ? 256 : (epoch + 3) * unit + 256, 64));
+    EXPECT_EQ(std::memcmp(host_alias ? host_views[2].data
+                                     : original_spans[epoch % 2].data +
+                                           (epoch + 3) * unit + 256,
+                          product.data(), 64),
+              0);
     SdmaCommandWriter readback(
         reinterpret_cast<uint32_t*>(queue_host_.ring_address) + ring_words_,
         native_family_.format_features);
@@ -297,10 +336,12 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
       std::copy_n(
           outputs[i], 16,
           expected[(epoch + i) % 2].data() + (1 + epoch + i) * stride + 64);
-      iree_byte_span_t current;
-      IREE_ASSERT_OK(
-          iree_hal_buffer_native_host_span(views[i], 256, 64, &current));
-      EXPECT_EQ(current.data, host_views[i].data);
+      if (host_alias) {
+        iree_byte_span_t current;
+        IREE_ASSERT_OK(
+            iree_hal_buffer_native_host_span(views[i], 256, 64, &current));
+        EXPECT_EQ(current.data, host_views[i].data);
+      }
       EXPECT_EQ(
           iree_hal_buffer_native_binding(views[i], gpu_slot).device_address,
           gpu_addresses[i]);
@@ -319,6 +360,15 @@ TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
   IREE_ASSERT_OK(iree_hal_virtual_buffer_detach(
       owner, {iree_hal_device_group_memory_domain(group_),
               IREE_HAL_MEMORY_SCOPE_ANY}));
+}
+
+TEST_P(FabricXdnaVirtualBufferTest, CpuGpuNpuExecuteAcrossBackingReplacement) {
+  RunReplacement(HostProjection::kStableReservation);
+}
+
+TEST_P(FabricXdnaVirtualBufferTest,
+       DeviceMappingsUseOrdinaryHostBackingAccess) {
+  RunReplacement(HostProjection::kBackingOnly);
 }
 
 INSTANTIATE_TEST_SUITE_P(

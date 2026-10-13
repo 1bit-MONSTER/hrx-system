@@ -389,8 +389,16 @@ The caller queries `device_query_memory_reservation_capabilities` for an
 already-live consumer's address domain. The result supplies address bounds,
 reservation and mapping granularity, alignment limits, and exact permission
 constraints. `required_access` identifies permission bits that the native
-domain cannot deny. The request names its complete consumer set, which may
-combine the host and live GPUs. GPU consumers receive one common GPU base;
+domain cannot deny. `required_source_flags` identifies whole-backing preparation
+needed before that domain can map a source. Pool construction combines these
+flags for every domain using the same backing and requests them through
+`memory_create.required_flags`, separately from each device access's
+`MAPPING_SOURCE` and permissions. Host and shared host/SVA domains require
+`HOST_MAPPING_SOURCE`; independent GPU and Windows NPU domains do not. The
+address kind alone does not identify this requirement.
+
+The request names its complete consumer set, which may combine the host and
+live accelerators. GPU consumers receive one common GPU base;
 the host projection has its own base. Construction prepares every native
 owner before publishing the reservation. Unsupported combinations fail as a
 whole without creating a caller cleanup obligation.

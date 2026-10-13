@@ -70,7 +70,10 @@ class XdnaReservationTest
         continue;
       }
       ASSERT_EQ(query_status, AMDF_STATUS_OK);
-      found = (profile_.roles & role_) != 0;
+      found =
+          (profile_.roles & role_) != 0 &&
+          (profile_.supported_flags & capabilities_.required_source_flags) ==
+              capabilities_.required_source_flags;
     }
     if (!found) {
       GTEST_SKIP() << "ordinary source role " << role_
@@ -124,7 +127,8 @@ class XdnaReservationTest
         .structure_size = sizeof(create),
         .memory_profile_ordinal = profile_.ordinal,
         .access_count = 1,
-        .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE,
+        .required_flags =
+            AMDF_MEMORY_FLAG_HOST_VISIBLE | capabilities_.required_source_flags,
         .byte_length = 6 * unit_,
         .minimum_alignment = geometry.minimum_alignment,
         .accesses = &memory_access_,
@@ -149,7 +153,7 @@ class XdnaReservationTest
         .device = device_,
         .address_domain_ordinal = capabilities_.address_domain_ordinal,
         .access = kReadWrite,
-        .mapping_granularity = unit_,
+        .mapping_granularity = std::get<1>(GetParam()),
     };
     const amdf_memory_reservation_create_info_t reserve = {
         .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CREATE_INFO,
@@ -168,7 +172,9 @@ class XdnaReservationTest
                                                          &projection_),
               AMDF_STATUS_OK);
     ASSERT_EQ(projection_.address_kind, AMDF_MEMORY_ADDRESS_XDNA_DMA);
-    ASSERT_EQ(projection_.mapping_granularity, unit_);
+    ASSERT_EQ(
+        projection_.mapping_granularity,
+        std::max(std::get<1>(GetParam()), capabilities_.mapping_granularity));
     ASSERT_EQ(projection_.address % unit_, 0u);
 
     amdf_xdna_endpoint_info_t endpoint = {

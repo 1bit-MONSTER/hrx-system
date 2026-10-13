@@ -45,6 +45,11 @@ typedef struct amdf_memory_reservation_capabilities_t {
   uint64_t minimum_address;
   /// Inclusive upper bound of a complete reservation's address interval.
   uint64_t maximum_address;
+  /// Whole-backing flags required of every nonempty mapping source. Request
+  /// these in memory_create.required_flags, in addition to preparing each
+  /// device's MAPPING_SOURCE access and required_access permissions. Zero means
+  /// no additional whole-backing requirement, not that preparation is optional.
+  amdf_memory_flags_t required_source_flags;
 } amdf_memory_reservation_capabilities_t;
 
 /// One explicitly initialized consumer of a reservation.
