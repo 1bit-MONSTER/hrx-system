@@ -18,24 +18,41 @@
 #include <sys/sysctl.h>
 
 #include "iree/base/internal/atomics.h"
+#include "iree/base/threading/notification.h"
 #include "iree/base/threading/thread.h"
 
 // Useful to see how pthreads is implemented on (old) darwin:
 // https://opensource.apple.com/source/Libc/Libc-825.40.1/pthreads/pthread.c.auto.html
 
 struct iree_thread_t {
+  // Shared ownership of the native thread and its startup state.
   iree_atomic_ref_count_t ref_count;
+  // Allocator used to release this thread object.
   iree_allocator_t allocator;
 
+  // Debugger and tracing name applied by the new thread.
   char name[32];
+  // Joinable native thread, or detached during self-release.
   pthread_t handle;
+  // Borrowed Mach thread port used for native affinity policy.
   mach_port_t mach_port;
 
+  // Caller entry consumed only after startup configuration completes.
   iree_thread_entry_t entry;
+  // Caller-owned argument passed to the entry.
   void* entry_arg;
 
+  // Startup gate: one until configuration and explicit resume are complete.
   iree_atomic_int32_t is_suspended;
+  // Blocks the new thread without bypassing pthread creation interposition.
+  iree_notification_t suspend_barrier;
 };
+
+static bool iree_thread_resumed_predicate(void* arg) {
+  iree_thread_t* thread = (iree_thread_t*)arg;
+  return iree_atomic_load(&thread->is_suspended, iree_memory_order_acquire) ==
+         0;
+}
 
 // Maps an IREE iree_thread_priority_class_t value to a QoS type.
 // https://developer.apple.com/library/archive/documentation/Performance/Conceptual/EnergyGuide-iOS/PrioritizeWorkWithQoS.html
@@ -64,6 +81,12 @@ static void iree_thread_set_name(const char* name) {
 
 static void* iree_thread_start_routine(void* param) {
   iree_thread_t* thread = (iree_thread_t*)param;
+
+  // pthread_create keeps the native thread visible to platform interposers.
+  // Hold user entry until its handle, affinity, and caller resume are ready.
+  iree_notification_await(&thread->suspend_barrier,
+                          iree_thread_resumed_predicate, thread,
+                          iree_infinite_timeout());
 
   // Set the thread name used by debuggers and tracy (which must be called on
   // the thread).
@@ -106,6 +129,7 @@ iree_status_t iree_thread_create(iree_thread_entry_t entry, void* entry_arg,
   iree_strncpy_s(thread->name, IREE_ARRAYSIZE(thread->name), params.name.data,
                  iree_min(params.name.size, IREE_ARRAYSIZE(thread->name) - 1));
   iree_atomic_store(&thread->is_suspended, 1, iree_memory_order_relaxed);
+  iree_notification_initialize(&thread->suspend_barrier);
 
   pthread_attr_t thread_attr;
   int rc = pthread_attr_init(&thread_attr);
@@ -122,8 +146,8 @@ iree_status_t iree_thread_create(iree_thread_entry_t entry, void* entry_arg,
       rc = pthread_attr_set_qos_class_np(&thread_attr, qos_class, 0);
     }
     if (rc == 0) {
-      rc = pthread_create_suspended_np(&thread->handle, &thread_attr,
-                                       &iree_thread_start_routine, thread);
+      rc = pthread_create(&thread->handle, &thread_attr,
+                          &iree_thread_start_routine, thread);
       thread_started = rc == 0;
     }
     pthread_attr_destroy(&thread_attr);
@@ -146,6 +170,7 @@ iree_status_t iree_thread_create(iree_thread_entry_t entry, void* entry_arg,
     thread->entry_arg = NULL;
     iree_thread_release(thread);
   } else {
+    iree_notification_deinitialize(&thread->suspend_barrier);
     iree_allocator_free(allocator, thread);
   }
   IREE_TRACE_ZONE_END(z0);
@@ -164,6 +189,7 @@ static void iree_thread_delete(iree_thread_t* thread) {
     pthread_join(thread->handle, NULL);
   }
 
+  iree_notification_deinitialize(&thread->suspend_barrier);
   iree_allocator_free(thread->allocator, thread);
 
   IREE_TRACE_ZONE_END(z0);
@@ -254,15 +280,9 @@ iree_status_t iree_thread_request_affinity(iree_thread_t* thread,
 void iree_thread_resume(iree_thread_t* thread) {
   IREE_TRACE_ZONE_BEGIN(z0);
 
-  // NOTE: we don't track the suspend/resume depth here because we don't
-  // expose suspend as an operation (yet). If we did we'd want to make sure we
-  // always balance suspend/resume or else we'll mess with any
-  // debuggers/profilers that may be suspending threads for their own uses.
-  int32_t expected = 1;
-  if (iree_atomic_compare_exchange_strong(
-          &thread->is_suspended, &expected, 0, iree_memory_order_acq_rel,
-          iree_memory_order_relaxed /* expected is unused */)) {
-    thread_resume(thread->mach_port);
+  if (iree_atomic_exchange(&thread->is_suspended, 0,
+                           iree_memory_order_acq_rel) == 1) {
+    iree_notification_post(&thread->suspend_barrier, IREE_ALL_WAITERS);
   }
 
   IREE_TRACE_ZONE_END(z0);
