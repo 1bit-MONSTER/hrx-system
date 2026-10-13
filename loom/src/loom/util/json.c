@@ -6,8 +6,6 @@
 
 #include "loom/util/json.h"
 
-#include <inttypes.h>
-
 #include "iree/base/internal/unicode.h"
 
 //===----------------------------------------------------------------------===//
@@ -39,6 +37,10 @@ static iree_status_t loom_json_escape_write(void* user_data,
   const char* end = text.data + text.size;
   for (const char* cursor = text.data; cursor < end; ++cursor) {
     unsigned char byte = (unsigned char)*cursor;
+    // Keep ordinary literal runs out of Unicode and escape dispatch.
+    if (byte >= 0x20 && byte < 0x80 && byte != '"' && byte != '\\') {
+      continue;
+    }
     if (byte >= 0x80) {
       iree_host_size_t sequence_length =
           iree_unicode_utf8_sequence_length(byte);
@@ -90,16 +92,14 @@ static iree_status_t loom_json_escape_write(void* user_data,
       case '\t':
         escape = "\\t";
         break;
-      default:
-        if ((unsigned char)*cursor < 0x20) {
-          // ASCII control character — emit as \uNNNN.
-          IREE_RETURN_IF_ERROR(loom_json_flush_run(inner, run_start, cursor));
-          IREE_RETURN_IF_ERROR(loom_output_stream_write_format(
-              inner, "\\u%04x", (unsigned)(unsigned char)*cursor));
-          run_start = cursor + 1;
-        }
-        // Printable ASCII bytes pass through unchanged.
+      default: {
+        // Remaining bytes are unnamed ASCII control characters.
+        IREE_RETURN_IF_ERROR(loom_json_flush_run(inner, run_start, cursor));
+        IREE_RETURN_IF_ERROR(
+            loom_output_stream_write_format(inner, "\\u%04x", (unsigned)byte));
+        run_start = cursor + 1;
         continue;
+      }
     }
     // Flush the literal run before this escaped character.
     IREE_RETURN_IF_ERROR(loom_json_flush_run(inner, run_start, cursor));
@@ -138,6 +138,47 @@ iree_status_t loom_json_write_escaped_string(loom_output_stream_t* stream,
 //===----------------------------------------------------------------------===//
 // Streaming JSON containers
 //===----------------------------------------------------------------------===//
+
+// uint64 decimal output and an int64 sign plus magnitude both fit in 20 bytes.
+enum { LOOM_JSON_INTEGER_BUFFER_CAPACITY = 20 };
+
+// Formats the magnitude backward into caller-owned storage ending at |end|.
+static char* loom_json_format_integer_magnitude(uint64_t value, char* end) {
+  do {
+    *--end = (char)('0' + value % 10);
+    value /= 10;
+  } while (value != 0);
+  return end;
+}
+
+// Keep one encoder across typed callers instead of inlining the decimal loop
+// at every report field.
+IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_json_write_unsigned_integer(
+    loom_output_stream_t* stream, uint64_t value) {
+  char buffer[LOOM_JSON_INTEGER_BUFFER_CAPACITY];
+  char* end = buffer + sizeof(buffer);
+  char* begin = loom_json_format_integer_magnitude(value, end);
+  return loom_output_stream_write(
+      stream, iree_make_string_view(begin, (iree_host_size_t)(end - begin)));
+}
+
+// Signed fields share this encoder without duplicating its loop at each field.
+IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_json_write_signed_integer(
+    loom_output_stream_t* stream, int64_t value) {
+  char buffer[LOOM_JSON_INTEGER_BUFFER_CAPACITY];
+  char* end = buffer + sizeof(buffer);
+  // Unsigned negation also represents the magnitude of INT64_MIN.
+  uint64_t magnitude = (uint64_t)value;
+  if (value < 0) {
+    magnitude = 0 - magnitude;
+  }
+  char* begin = loom_json_format_integer_magnitude(magnitude, end);
+  if (value < 0) {
+    *--begin = '-';
+  }
+  return loom_output_stream_write(
+      stream, iree_make_string_view(begin, (iree_host_size_t)(end - begin)));
+}
 
 static iree_status_t loom_json_write_separator(loom_output_stream_t* stream,
                                                iree_host_size_t value_count) {
@@ -186,26 +227,26 @@ iree_status_t loom_json_object_write_uint32_field(
     loom_json_object_writer_t* writer, iree_string_view_t name,
     uint32_t value) {
   IREE_RETURN_IF_ERROR(loom_json_object_begin_field(writer, name));
-  return loom_output_stream_write_format(writer->stream, "%" PRIu32, value);
+  return loom_json_write_unsigned_integer(writer->stream, value);
 }
 
 iree_status_t loom_json_object_write_uint64_field(
     loom_json_object_writer_t* writer, iree_string_view_t name,
     uint64_t value) {
   IREE_RETURN_IF_ERROR(loom_json_object_begin_field(writer, name));
-  return loom_output_stream_write_format(writer->stream, "%" PRIu64, value);
+  return loom_json_write_unsigned_integer(writer->stream, value);
 }
 
 iree_status_t loom_json_object_write_int32_field(
     loom_json_object_writer_t* writer, iree_string_view_t name, int32_t value) {
   IREE_RETURN_IF_ERROR(loom_json_object_begin_field(writer, name));
-  return loom_output_stream_write_format(writer->stream, "%" PRId32, value);
+  return loom_json_write_signed_integer(writer->stream, value);
 }
 
 iree_status_t loom_json_object_write_int64_field(
     loom_json_object_writer_t* writer, iree_string_view_t name, int64_t value) {
   IREE_RETURN_IF_ERROR(loom_json_object_begin_field(writer, name));
-  return loom_output_stream_write_format(writer->stream, "%" PRId64, value);
+  return loom_json_write_signed_integer(writer->stream, value);
 }
 
 iree_status_t loom_json_object_write_bool_field(
@@ -219,7 +260,7 @@ iree_status_t loom_json_object_write_host_size_field(
     loom_json_object_writer_t* writer, iree_string_view_t name,
     iree_host_size_t value) {
   IREE_RETURN_IF_ERROR(loom_json_object_begin_field(writer, name));
-  return loom_output_stream_write_format(writer->stream, "%" PRIhsz, value);
+  return loom_json_write_unsigned_integer(writer->stream, value);
 }
 
 iree_status_t loom_json_object_write_null_field(
@@ -255,25 +296,25 @@ iree_status_t loom_json_array_write_string_element(
 iree_status_t loom_json_array_write_uint32_element(
     loom_json_array_writer_t* writer, uint32_t value) {
   IREE_RETURN_IF_ERROR(loom_json_array_begin_element(writer));
-  return loom_output_stream_write_format(writer->stream, "%" PRIu32, value);
+  return loom_json_write_unsigned_integer(writer->stream, value);
 }
 
 iree_status_t loom_json_array_write_uint64_element(
     loom_json_array_writer_t* writer, uint64_t value) {
   IREE_RETURN_IF_ERROR(loom_json_array_begin_element(writer));
-  return loom_output_stream_write_format(writer->stream, "%" PRIu64, value);
+  return loom_json_write_unsigned_integer(writer->stream, value);
 }
 
 iree_status_t loom_json_array_write_int32_element(
     loom_json_array_writer_t* writer, int32_t value) {
   IREE_RETURN_IF_ERROR(loom_json_array_begin_element(writer));
-  return loom_output_stream_write_format(writer->stream, "%" PRId32, value);
+  return loom_json_write_signed_integer(writer->stream, value);
 }
 
 iree_status_t loom_json_array_write_int64_element(
     loom_json_array_writer_t* writer, int64_t value) {
   IREE_RETURN_IF_ERROR(loom_json_array_begin_element(writer));
-  return loom_output_stream_write_format(writer->stream, "%" PRId64, value);
+  return loom_json_write_signed_integer(writer->stream, value);
 }
 
 iree_status_t loom_json_array_write_bool_element(
@@ -286,7 +327,7 @@ iree_status_t loom_json_array_write_bool_element(
 iree_status_t loom_json_array_write_host_size_element(
     loom_json_array_writer_t* writer, iree_host_size_t value) {
   IREE_RETURN_IF_ERROR(loom_json_array_begin_element(writer));
-  return loom_output_stream_write_format(writer->stream, "%" PRIhsz, value);
+  return loom_json_write_unsigned_integer(writer->stream, value);
 }
 
 iree_status_t loom_json_array_write_null_element(
