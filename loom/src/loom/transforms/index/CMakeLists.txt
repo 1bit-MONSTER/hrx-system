@@ -57,6 +57,7 @@ loom_cc_library(
   DEPS
     iree::base
     loom::ops::index
+    loom::ops::scf
     loom::rewrite::rewriter
     loom::target::legalization
     loom::util::predicate_facts

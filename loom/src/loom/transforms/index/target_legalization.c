@@ -7,8 +7,43 @@
 #include "loom/transforms/index/target_legalization.h"
 
 #include "loom/ops/index/ops.h"
+#include "loom/ops/scf/ops.h"
 #include "loom/rewrite/rewriter.h"
 #include "loom/util/predicate_facts.h"
+
+// Native extrema contracts take precedence over this comparison/selection
+// decomposition. Targets without a native form still receive the exact signed
+// index semantics through their ordinary comparison and selection contracts.
+static iree_status_t loom_index_legalize_extrema(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  const bool is_minimum = loom_index_min_isa(op);
+  const loom_value_id_t lhs = loom_op_operands(op)[0];
+  const loom_value_id_t rhs = loom_op_operands(op)[1];
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+
+  loom_op_t* comparison = NULL;
+  IREE_RETURN_IF_ERROR(loom_index_cmp_build(
+      builder,
+      is_minimum ? LOOM_INDEX_CMP_PREDICATE_SLT : LOOM_INDEX_CMP_PREDICATE_SGT,
+      lhs, rhs, op->location, &comparison));
+  loom_op_t* selection = NULL;
+  IREE_RETURN_IF_ERROR(loom_scf_select_build(
+      builder, loom_index_cmp_result(comparison), lhs, rhs,
+      loom_module_value_type(context->module, lhs), op->location, &selection));
+  loom_value_id_t replacement = loom_scf_select_result(selection);
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  return iree_ok_status();
+}
 
 static iree_status_t loom_index_legalize_divrem(
     const loom_target_legalizer_entry_t* entry,
@@ -64,6 +99,14 @@ static iree_status_t loom_index_legalize_divrem(
 }
 
 static const loom_target_legalizer_rule_t kIndexLegalizerRules[] = {
+    {
+        .root_kind = LOOM_OP_INDEX_MIN,
+        .legalize = loom_index_legalize_extrema,
+    },
+    {
+        .root_kind = LOOM_OP_INDEX_MAX,
+        .legalize = loom_index_legalize_extrema,
+    },
     {
         .root_kind = LOOM_OP_INDEX_DIVREM,
         .legalize = loom_index_legalize_divrem,

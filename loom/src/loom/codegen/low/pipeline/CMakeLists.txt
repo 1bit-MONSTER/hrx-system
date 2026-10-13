@@ -40,6 +40,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::ops::buffer
+    loom::ops::index
     loom::ops::scalar
     loom::ops::vector
     loom::ops::view
