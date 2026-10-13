@@ -48,6 +48,20 @@
       "stderr": {"contains": ["positive model/connection/body capacities"]}
     },
     {
+      "name": "device selection has no implicit default",
+      "run": {"tool": "loom-serve", "args": []},
+      "exit": {"nonzero": true},
+      "stdout": {"empty": true},
+      "stderr": {"contains": ["--device is required"]}
+    },
+    {
+      "name": "empty explicit device is rejected",
+      "run": {"tool": "loom-serve", "args": ["--device="]},
+      "exit": {"nonzero": true},
+      "stdout": {"empty": true},
+      "stderr": {"contains": ["--device is required"]}
+    },
+    {
       "name": "unknown options fail instead of being ignored",
       "run": {"tool": "loom-serve", "args": ["--not_a_serve_flag=1"]},
       "exit": {"nonzero": true},

@@ -19,6 +19,7 @@ loom_cc_library(
   DEPS
     iree::base
     iree::base::tooling::flags
+    iree::tooling::device_util
     loom::serve::runtime::device
     loom::serve::runtime::host
   PUBLIC

@@ -27,6 +27,7 @@ loom_cc_library(
         "//loom/src/loom/serve/runtime/host",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/tooling:flags",
+        "//runtime/src/iree/tooling:device_util",
     ],
 )
 

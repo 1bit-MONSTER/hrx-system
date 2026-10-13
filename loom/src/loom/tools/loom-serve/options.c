@@ -9,12 +9,10 @@
 #include <string.h>
 
 #include "iree/base/tooling/flags.h"
+#include "iree/tooling/device_util.h"
 
 IREE_FLAG(int32_t, workers, 8,
           "Shared CPU workers for compilation, scheduling and media jobs.");
-IREE_FLAG_LIST(
-    string, device,
-    "HAL device URI; repeat in group order. At least one is required.");
 IREE_FLAG(string, pool_backing, "elastic",
           "elastic demand-commits parameter/state slabs; fixed backs storage "
           "eagerly and supports device address sanitization.");
@@ -35,7 +33,7 @@ iree_status_t loom_serve_device_group_allocate_from_flags(
     loom_serve_host_t* host, loom_serve_device_group_t** out_group,
     iree_allocator_t host_allocator) {
   *out_group = NULL;
-  const iree_flag_string_list_t devices = FLAG_device_list();
+  const iree_string_view_list_t devices = iree_hal_device_flag_list();
   if (!devices.count) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "--device is required; specify a HAL device URI");
