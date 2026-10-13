@@ -21,6 +21,39 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @partial_lds_concat(%address: 
 
 // ====
 
+// Cross-class structural moves retain independent source and destination
+// register banks through wait-state planning. A high VGPR destination must not
+// be interpreted as an SGPR index merely because the source is scalar.
+// RUN: emit amdgpu-assembly @sgpr_to_high_vgpr_copy strategy=source fixed=%source:physical_register:2:1 fixed=%result:physical_register:96:1
+
+amdgpu.target<gfx1201> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @sgpr_to_high_vgpr_copy(%source: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %result = copy %source : reg<amdgpu.sgpr> -> reg<amdgpu.vgpr>
+  return %result
+}
+
+// ----
+  v_mov_b32 v96, s2
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @sgpr_to_high_vgpr_copy strategy=source fixed=%source:physical_register:2:1 fixed=%result:physical_register:200:1
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @sgpr_to_high_vgpr_copy(%source: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %result = copy %source : reg<amdgpu.sgpr> -> reg<amdgpu.vgpr>
+  return %result
+}
+
+// ----
+  v_mov_b32 v200, s2
+  s_endpgm
+
+// ====
+
 // Materialized inner aggregates consume the first two loads before later
 // loads can reuse their physical registers.
 // RUN: emit amdgpu-assembly @nested_lds_copied strategy=source
