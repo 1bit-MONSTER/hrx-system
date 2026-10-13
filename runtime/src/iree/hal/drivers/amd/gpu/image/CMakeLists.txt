@@ -114,4 +114,73 @@ iree_cc_test(
     iree::testing::gtest_main
 )
 
+iree_cc_library(
+  NAME
+    hsaco_test_util
+  HDRS
+    "hsaco_test_util.h"
+  DEPS
+    ::hip_images
+    iree::base
+    iree::base::core_headers
+  TESTONLY
+  PUBLIC
+)
+
+iree_cc_fuzz(
+  NAME
+    hsaco_fuzz
+  SRCS
+    "hsaco_fuzz.cc"
+  DEPS
+    ::hsaco
+    ::hsaco_test_util
+    ::image
+    iree::base
+)
+
+iree_cc_fuzz(
+  NAME
+    hsaco_metadata_fuzz
+  SRCS
+    "hsaco_metadata_fuzz.cc"
+  DATA
+    hsaco_metadata_fuzz.dict
+  DEPS
+    ::hsaco_metadata
+    ::hsaco_test_util
+    ::metadata
+    iree::base
+)
+
+iree_cc_binary_benchmark(
+  NAME
+    hsaco_benchmark
+  SRCS
+    "hsaco_benchmark.cc"
+  DEPS
+    ::hsaco
+    ::hsaco_test_util
+    ::image
+    iree::base
+    iree::testing::benchmark_main
+    iree::third_party::google_benchmark
+  TESTONLY
+)
+
+iree_cc_binary_benchmark(
+  NAME
+    hsaco_metadata_benchmark
+  SRCS
+    "hsaco_metadata_benchmark.cc"
+  DEPS
+    ::hsaco_metadata
+    ::hsaco_test_util
+    ::metadata
+    iree::base
+    iree::testing::benchmark_main
+    iree::third_party::google_benchmark
+  TESTONLY
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
