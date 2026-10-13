@@ -8,6 +8,9 @@ setup have separate owners.
 [Serve source-defined models](serve-models.md) starts an empty HTTP server,
 registers a complete model package and produces a checked response on CPU.
 Models can then be added or removed independently of the server process.
+[Connect model clients](connect-model-clients.md) configures Pi, Oh My Pi and
+Open WebUI against one mixed text, image and embedding catalog without client
+plugins or server-side compatibility shims.
 [Operate a model server](operate-model-server.md) covers admission, residency and
 memory pressure; [observe a model server](observe-model-server.md) explains
 status, metrics and independent-reader log streams.

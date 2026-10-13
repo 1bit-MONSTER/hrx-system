@@ -136,5 +136,7 @@ supply any access-control boundary.
 
 [HTTP profiles](../reference/serving-http.md) enumerate the supported request
 fields, raw tokenizer utilities and retained-text checkpoint controls.
+[Connect model clients](connect-model-clients.md) configures Pi, Oh My Pi and
+Open WebUI against the mixed catalog without changing those clients.
 [Author serving model packages](../integration/serving-models.md) traces the
 source, parameter and result ownership needed to replace the example's math.
