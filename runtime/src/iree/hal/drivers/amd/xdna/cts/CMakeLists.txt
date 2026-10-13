@@ -50,6 +50,7 @@ iree_cc_test(
     iree::async::util::proactor_pool
     iree::base
     iree::hal
+    iree::hal::cts::util::test_base
     iree::hal::drivers::amd::registration
     iree::hal::drivers::amd::xdna::image::testdata::add_i32
     iree::hal::drivers::amd::xdna::image::testdata::add_i32_npu4

@@ -336,6 +336,28 @@ TEST_F(XdnaMemoryTest, OwnsStableAddressAndExplicitHostMapping) {
       amdf_status_is_ok(api_->memory_destroy(std::exchange(memory_, nullptr))));
 }
 
+TEST_F(XdnaMemoryTest, RejectsOversizedBackingWithoutPublishing) {
+  amdf_memory_create_info_t create_info = MakeMemoryCreateInfo();
+  amdf_memory_profile_t profile = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE,
+      .structure_size = sizeof(profile),
+  };
+  amdf_memory_access_capabilities_t capabilities = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_ACCESS_CAPABILITIES,
+      .structure_size = sizeof(capabilities),
+  };
+  ASSERT_EQ(QueryMemoryProfile(create_info.memory_profile_ordinal, &profile,
+                               &capabilities),
+            AMDF_STATUS_OK);
+  ASSERT_LT(profile.allocation.maximum_byte_length, UINT64_MAX);
+  create_info.byte_length = profile.allocation.maximum_byte_length + 1;
+  amdf_memory_t* output = reinterpret_cast<amdf_memory_t*>(uintptr_t{1});
+  EXPECT_EQ(amdf_status_code(
+                api_->memory_create(system_scope_, &create_info, &output)),
+            AMDF_STATUS_CODE_UNSUPPORTED);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(output), uintptr_t{1});
+}
+
 TEST_F(XdnaMemoryTest, RejectsInvalidMappingRequestsBeforeNativeMapping) {
   const amdf_memory_create_info_t create_info = MakeMemoryCreateInfo();
   const amdf_status_t create_status =

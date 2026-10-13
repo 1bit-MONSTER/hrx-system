@@ -11,6 +11,7 @@
 
 #include "iree/async/frontier_tracker.h"
 #include "iree/async/util/proactor_pool.h"
+#include "iree/hal/cts/util/test_base.h"
 #include "iree/hal/drivers/amd/registration/driver_module.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/add_i32.h"
 #include "iree/hal/drivers/amd/xdna/image/testdata/add_i32_npu4.h"
@@ -234,7 +235,9 @@ class XdnaNativeTest : public ::testing::Test {
   iree_status_t CreateMemoryPool(
       iree_hal_buffer_usage_t usage,
       iree_hal_memory_access_t host_access = IREE_HAL_MEMORY_ACCESS_ALL,
-      const iree_hal_slab_pool_options_t* requested_options = nullptr) {
+      const iree_hal_slab_pool_options_t* requested_options = nullptr,
+      uint64_t interfaces = UINT64_C(1)
+                            << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA) {
     if (memory_pool_) {
       return iree_ok_status();
     }
@@ -250,7 +253,7 @@ class XdnaNativeTest : public ::testing::Test {
     const iree_hal_pool_family_access_t family_access = {
         .family = iree_hal_queue_family(queue_),
         .usage = usage,
-        .interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
+        .interfaces = interfaces,
     };
     const iree_hal_pool_scope_t scope = {
         .family_count = 1,
@@ -404,6 +407,115 @@ TEST_F(XdnaNativeTest, ConsumerBeforeProducerCapturesArguments) {
   IREE_ASSERT_OK(iree_hal_semaphore_wait(done, 1, iree_infinite_timeout(),
                                          IREE_ASYNC_WAIT_FLAG_NONE));
   CheckOutput(output, expected_lhs, expected_rhs);
+}
+
+TEST_F(XdnaNativeTest, ReplacesDeviceMappingsOverRetainedBacking) {
+  using iree::hal::cts::Ref;
+  auto pool_status = CreateMemoryPool(
+      IREE_HAL_BUFFER_USAGE_STORAGE, IREE_HAL_MEMORY_ACCESS_ALL, nullptr,
+      UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE);
+  if (iree_status_is_unavailable(pool_status)) {
+    GTEST_SKIP() << "no ordinary NPU mapping source: "
+                 << iree::Status(std::move(pool_status)).ToString();
+  }
+  IREE_ASSERT_OK(pool_status);
+  const auto source_requirements =
+      iree_hal_pool_query_mapping_requirements(memory_pool_);
+  const iree_hal_pool_family_access_t family = {
+      .family = iree_hal_queue_family(queue_),
+      .usage = IREE_HAL_BUFFER_USAGE_STORAGE,
+      .interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
+  };
+  const iree_hal_pool_scope_t scope = {1, &family, {}};
+  iree_hal_virtual_buffer_capabilities_t capabilities;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_query_capabilities(
+      device_group_, scope, iree_allocator_system(), &capabilities));
+  ASSERT_NE(capabilities.max_byte_length, 0u);
+  const auto unit = std::max(capabilities.reservation_granularity,
+                             capabilities.mapping_granularity);
+  const size_t words = 6 * unit / sizeof(uint32_t);
+  std::array<Ref<iree_hal_buffer_t>, 2> backings;
+  std::array<std::vector<uint32_t>, 2> expected;
+  for (size_t i = 0; i < backings.size(); ++i) {
+    IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+        memory_pool_,
+        iree_hal_make_pool_reservation_request(
+            6 * unit, source_requirements.minimum_granularity),
+        iree_infinite_timeout(), backings[i].out()));
+    expected[i].assign(words, 0xabab0000u + i);
+    IREE_ASSERT_OK(iree_hal_buffer_map_write(backings[i], 0, expected[i].data(),
+                                             6 * unit));
+  }
+  const iree_hal_virtual_buffer_options_t options = {
+      .byte_length = 3 * unit,
+      .mapping_granularity = unit,
+  };
+  Ref<iree_hal_buffer_t> reservation;
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_create(device_group_, scope, &options,
+                                                iree_allocator_system(),
+                                                reservation.out()));
+  iree_hal_memory_scope_t program_scope;
+  IREE_ASSERT_OK(iree_hal_device_group_resolve_memory_scope(
+      device_group_, {IREE_HAL_MEMORY_SITE_PROGRAM, family.family},
+      &program_scope));
+  std::array<Ref<iree_hal_buffer_t>, 3> views;
+  std::array<iree_hal_buffer_ref_t, 3> bindings;
+  for (size_t i = 0; i < views.size(); ++i) {
+    IREE_ASSERT_OK(iree_hal_buffer_subspan(reservation, i * unit, kBytes,
+                                           iree_allocator_system(),
+                                           views[i].out()));
+    bindings[i] = iree_hal_make_buffer_ref(views[i], 0, kBytes);
+  }
+  ASSERT_NO_FATAL_FAILURE(LoadMultiply());
+  iree_hal_semaphore_t* progress = nullptr;
+  ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&progress));
+  std::vector<uint32_t> observed(words);
+  for (uint32_t epoch = 0; epoch < 3; ++epoch) {
+    SCOPED_TRACE(epoch);
+    std::array<std::array<uint32_t, 16>, 3> payloads;
+    for (uint32_t word = 0; word < 16; ++word) {
+      payloads[0][word] = word + epoch * 17 + 3;
+      payloads[1][word] = word + epoch * 29 + 19;
+      payloads[2][word] = payloads[0][word] * payloads[1][word];
+    }
+    std::array<iree_hal_memory_mapping_t, 3> mappings;
+    for (uint32_t i = 0; i < mappings.size(); ++i) {
+      const uint32_t backing = (epoch + i) % 2;
+      const uint64_t offset = (1 + epoch + i) * unit;
+      mappings[i] = {
+          .target = reservation,
+          .scope = program_scope,
+          .target_range = {i * unit, unit},
+          .source = backings[backing],
+          .source_offset = offset,
+          .access = IREE_HAL_MEMORY_ACCESS_ALL,
+          .operation = epoch ? IREE_HAL_MEMORY_MAPPING_OPERATION_REPLACE
+                             : IREE_HAL_MEMORY_MAPPING_OPERATION_BIND,
+      };
+      if (i < 2) {
+        IREE_ASSERT_OK(iree_hal_buffer_map_write(backings[backing], offset,
+                                                 payloads[i].data(), kBytes));
+      }
+      std::copy(payloads[i].begin(), payloads[i].end(),
+                expected[backing].begin() + offset / sizeof(uint32_t));
+    }
+    uint64_t mapped = epoch * 2 + 1, completed = mapped + 1;
+    IREE_ASSERT_OK(iree_hal_queue_map(queue_, {}, {1, &progress, &mapped},
+                                      mappings.size(), mappings.data(), 0));
+    IREE_ASSERT_OK(iree_hal_queue_dispatch(
+        queue_, {1, &progress, &mapped}, {1, &progress, &completed},
+        executable_, function_, iree_hal_make_static_dispatch_config(1, 1, 1),
+        {}, {bindings.size(), bindings.data()}, nullptr,
+        IREE_HAL_DISPATCH_FLAG_NONE));
+    IREE_ASSERT_OK(iree_hal_semaphore_wait(progress, completed,
+                                           iree_infinite_timeout(), 0));
+    for (size_t i = 0; i < backings.size(); ++i) {
+      IREE_ASSERT_OK(
+          iree_hal_buffer_map_read(backings[i], 0, observed.data(), 6 * unit));
+      EXPECT_EQ(observed, expected[i]);
+    }
+  }
+  IREE_ASSERT_OK(iree_hal_virtual_buffer_detach(reservation, program_scope));
 }
 
 enum class FirstWriterStorage {

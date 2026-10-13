@@ -45,6 +45,11 @@ typedef struct amdf_memory_reservation_capabilities_t {
   uint64_t minimum_address;
   /// Inclusive upper bound of a complete reservation's address interval.
   uint64_t maximum_address;
+  /// Whole-backing flags required of every nonempty mapping source. Request
+  /// these in memory_create.required_flags, in addition to preparing each
+  /// device's MAPPING_SOURCE access and required_access permissions. Zero means
+  /// no additional whole-backing requirement, not that preparation is optional.
+  amdf_memory_flags_t required_source_flags;
 } amdf_memory_reservation_capabilities_t;
 
 /// One explicitly initialized consumer of a reservation.
@@ -60,8 +65,8 @@ typedef struct amdf_memory_reservation_access_t {
   /// Minimum mapping offset/length unit, or zero for provider policy.
   /// Must be a power-of-two multiple of the native mapping granularity and
   /// divide the reservation length. The returned geometry also satisfies any
-  /// consumers sharing this native mapping group. Host mappings are replaced
-  /// in these units, including on platforms requiring whole-view removal.
+  /// consumers sharing this native mapping group. Independently owned native
+  /// views use these units on platforms requiring whole-view removal.
   uint64_t mapping_granularity;
 } amdf_memory_reservation_access_t;
 

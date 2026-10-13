@@ -94,8 +94,11 @@ typedef uint32_t amdf_abi_version_t;
 /// Stable host reservations and explicitly remappable CPU backing.
 #define AMDF_ABI_VERSION_8 ((amdf_abi_version_t)8)
 
+/// Live reservation capabilities include whole-backing source requirements.
+#define AMDF_ABI_VERSION_9 ((amdf_abi_version_t)9)
+
 /// The most recent ABI version described by this header.
-#define AMDF_ABI_VERSION_LATEST AMDF_ABI_VERSION_8
+#define AMDF_ABI_VERSION_LATEST AMDF_ABI_VERSION_9
 
 /// The unmangled symbol used to acquire the immutable API table.
 #define AMDF_QUERY_API_SYMBOL "amdf_query_api"

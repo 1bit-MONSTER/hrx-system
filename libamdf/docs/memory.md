@@ -389,8 +389,16 @@ The caller queries `device_query_memory_reservation_capabilities` for an
 already-live consumer's address domain. The result supplies address bounds,
 reservation and mapping granularity, alignment limits, and exact permission
 constraints. `required_access` identifies permission bits that the native
-domain cannot deny. The request names its complete consumer set, which may
-combine the host and live GPUs. GPU consumers receive one common GPU base;
+domain cannot deny. `required_source_flags` identifies whole-backing preparation
+needed before that domain can map a source. Pool construction combines these
+flags for every domain using the same backing and requests them through
+`memory_create.required_flags`, separately from each device access's
+`MAPPING_SOURCE` and permissions. Host and shared host/SVA domains require
+`HOST_MAPPING_SOURCE`; independent GPU and Windows NPU domains do not. The
+address kind alone does not identify this requirement.
+
+The request names its complete consumer set, which may combine the host and
+live accelerators. GPU consumers receive one common GPU base;
 the host projection has its own base. Construction prepares every native
 owner before publishing the reservation. Unsupported combinations fail as a
 whole without creating a caller cleanup obligation.
@@ -410,8 +418,9 @@ that will supply replacement mappings requests
 `AMDF_MEMORY_FLAG_MAPPING_SOURCE` in its access requirements. Profile queries
 admit that request, and construction prepares its reusable native handles
 before returning. An ordinary allocation without that requirement pays no
-additional mapping-source preparation cost. A mapping never exports, imports,
-or lazily registers its source on first use.
+additional mapping-source preparation cost. A mapping never exports or imports
+its source. Providers may create independently removable native registrations
+while installing views; dispatch never lazily prepares a mapping source.
 
 CPU backing instead requests `AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE` in
 `memory_create.required_flags`. The CPU-only SYSTEM CREATE profile supports
@@ -572,10 +581,43 @@ slab table is involved. An NPU-only reservation uses the same source and
 readiness contract without requiring a public CPU view.
 
 Live device capabilities admit this route only in native SVA mode. Linux IOVA
-and Windows MCDM devices return `UNSUPPORTED` for NPU reservations. Arbitrary
+devices return `UNSUPPORTED` for NPU reservations. Arbitrary
 registered storage and foreign DMA-BUF exporters do not acquire host-source
 eligibility from import alone. CPU and GPU reservation support remains
 independent of NPU admission.
+
+### Independent Windows NPU translations
+
+Windows NPU reservations own a device address range separate from CPU and GPU
+translations. Their projection reports `AMDF_MEMORY_ADDRESS_XDNA_DMA`. Ordinary
+NPU CREATE and REGISTER access can supply `MAPPING_SOURCE` backing. Replacement
+registers slices of those existing host pages at the reserved addresses; it
+neither copies payloads nor changes the source's ordinary address or other aliases.
+
+Each independently removable native view owns a resource-less EXISTINGHEAP
+registration. After affected users finish, replacement synchronously destroys
+the old view registrations, creates the new registrations, maps them and makes
+them resident. All old views in a batch are removed together and all new views
+share a residency request and checked paging completion. Native standard
+allocation creation and address mapping still require one call per view.
+This is host-completed mapping work, not a native queue-ordered NPU operation.
+
+The reservation pre-sizes its native handles and batch scratch in one allocation:
+eight bytes per native view slot, plus constant metadata. Empty slots have no
+native registration. There is no table of source memory objects, hidden source
+retention, dynamically growing metadata or per-dispatch work. The caller-selected
+mapping unit determines independent replacement granularity. Native registration
+size is bounded, so a unit larger than two GiB uses several native views without
+changing the public unit. For example, a 16-GiB arena with 256-MiB units has 64
+slots and 512 bytes of handle storage. Coarse units reduce native object counts;
+the library does not choose or suballocate application slabs.
+
+Removal consumes actual native view owners while retaining the virtual address
+reservation and original backing. A failed destroy batch has no per-handle
+progress result. Libamdf latches that removal failure, never repeats the
+uncertain native destruction, and never certifies those mappings as detached.
+Terminal destruction consumes library metadata but leaves unsafe native resources
+and the caller's backing-preservation obligation intact.
 
 ### Queue-ordered replacement
 
@@ -652,9 +694,10 @@ The caller completes affected execution and accepted queue-ordered mappings
 before detach, just as for a host-completed update. Libamdf orders removal
 behind any native prefix left by its own failed host update. Windows uses the
 last writer's paging queue even when detach is requested through another
-logical-device alias. This operation allocates no library metadata and needs
-no installed-mapping ledger; it may lock native VM mutation and wait for
-translation publication. It does not wait for application execution.
+logical-device alias. This operation allocates no library metadata and performs
+no backing lookup. A provider with independent native view registrations scans
+its pre-sized handle storage for removal. It may lock native VM mutation and
+wait for translation publication, but not for application execution.
 
 After successful detach, a healthy reservation can accept new backing at the
 same addresses. `memory_reservation_destroy` independently clears any remaining

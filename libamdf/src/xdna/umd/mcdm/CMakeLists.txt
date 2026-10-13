@@ -166,6 +166,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
 iree_cc_library(
   NAME
     memory
+  HDRS
+    "memory.h"
   SRCS
     "memory.c"
   DEPS
@@ -179,6 +181,45 @@ iree_cc_library(
     libamdf::src::platform::windows::host_cache
     libamdf::src::xdna::umd::memory
   PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    memory_reservation
+  SRCS
+    "memory_reservation.c"
+  DEPS
+    ::device_state
+    ::memory
+    ::memory_profile
+    amdf::headers
+    libamdf::src::allocator
+    libamdf::src::memory_reservation
+    libamdf::src::memory_resource
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_test(
+  NAME
+    memory_reservation_test
+  SRCS
+    "memory_reservation_test.cc"
+  DEPS
+    ::memory
+    ::memory_reservation
+    amdf::headers
+    iree::third_party::google_test
+    iree::third_party::google_test_main
+    libamdf::src::allocator
+    libamdf::src::memory_reservation
+    libamdf::src::memory_resource
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
 )
 endif()
 
@@ -234,6 +275,7 @@ iree_cc_library(
     "device.c"
   DEPS
     ::device_state
+    ::memory_reservation
     ::tile_metadata
     amdf::headers
     libamdf::src::allocator

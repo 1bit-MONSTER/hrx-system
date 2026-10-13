@@ -17,8 +17,10 @@ amdf_status_t amdf_windows_xdna_query_memory_profile(
   const uint64_t address_capacity = maximum_address - target->dma.byte_offset -
                                     AMDF_WINDOWS_XDNA_ALLOCATION_GRANULARITY +
                                     1;
+  // Standard EXISTINGHEAP creation accepts at most UINT32_MAX bytes, even on
+  // devices with wider addresses. Native rounding must also stay in that bound.
   const uint64_t maximum_byte_length =
-      (address_capacity < SIZE_MAX ? address_capacity : SIZE_MAX) &
+      (address_capacity < UINT32_MAX ? address_capacity : UINT32_MAX) &
       ~(AMDF_WINDOWS_XDNA_ALLOCATION_GRANULARITY - 1);
   amdf_memory_native_profile_t profile = {
       .ordinal = memory_profile_ordinal,

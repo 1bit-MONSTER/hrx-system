@@ -174,6 +174,7 @@ amdf_status_t amdf_xdna_umd_device_query_memory_reservation_profile(
               .mapping_granularity = page_size,
               .minimum_address = page_size + bias,
               .maximum_address = maximum,
+              .required_source_flags = AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE,
           },
       .vtable = &amdf_host_reservation_vtable,
       .host =

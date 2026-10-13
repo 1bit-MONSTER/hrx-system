@@ -56,8 +56,8 @@ static amdf_status_t amdf_xdna_device_query_memory_reservation_profile(
       amdf_xdna_umd_device_query_memory_reservation_profile(
           device->umd, address_domain_ordinal, out_profile);
   if (amdf_status_is_ok(status)) {
-    out_profile->host.device_id = device->info.id;
-    out_profile->host.reset_epoch = device->info.reset_epoch;
+    out_profile->device_id = device->info.id;
+    out_profile->reset_epoch = device->info.reset_epoch;
   }
   return status;
 }

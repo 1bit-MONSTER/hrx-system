@@ -31,7 +31,18 @@ that neighboring caller contents survived registration and execution. These
 cases exercise initial cache readiness independently of the guarded round-trip
 tests, whose output initialization already requires a CPU release.
 
-The case queries both directional memory edges before execution. CPU
+`XdnaReservationTest` queries native reservation support and mapping-source
+eligibility before allocating backing. It keeps one command and queue alive
+while replacing inputs and outputs at fixed NPU addresses, including repeated
+physical aliases, untouched neighboring mappings, partial removal and refill,
+and checked whole-reservation detach. Every epoch verifies both complete retained
+backings, including bytes at the old addresses. A separate case leaves the new
+output backing untouched until the first completed device write. Allocation and
+registration roles each run with native geometry and a larger caller-selected
+mapping unit. CPU/GPU/NPU composition is covered by the
+[fabric recipes](../../interop/gpu/xdna/recipes/README.md).
+
+The ordinary round-trip cases query both directional memory edges before execution. CPU
 publication uses the mapping's exact flush recipe; CPU acquisition uses its
 exact invalidate recipe. The device-side actions are NONE. Command publication
 is separate and explicit. The finite output DMA join ends this program's

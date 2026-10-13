@@ -983,15 +983,7 @@ static iree_status_t iree_hal_amd_fabric_slab_pool_query(
         }
         requirements->flags |= AMDF_MEMORY_FLAG_MAPPING_SOURCE;
         requirements->access |= capabilities.required_access;
-        for (uint32_t b = 0; b < family->binding_count; ++b) {
-          // The qualified XDNA reservation route uses shared host/SVA
-          // translations. Its sources need replaceable host backing even
-          // when the application requests no public CPU mapping.
-          if (family->bindings[b].address_kind ==
-              AMDF_MEMORY_ADDRESS_XDNA_DMA) {
-            required_flags |= AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE;
-          }
-        }
+        required_flags |= capabilities.required_source_flags;
         uint32_t index = 1;
         for (; index < binding_count; ++index) {
           if (requests[index].access_ordinal == access_ordinal &&

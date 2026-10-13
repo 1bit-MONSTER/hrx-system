@@ -677,8 +677,12 @@ typedef struct amdf_api_t {
   /// unsupported native combination fails as a whole. Distinct mapping groups
   /// update independently, not as one cross-domain transaction. Devices and
   /// instance are borrowed, with no retention or lifetime tracking. This cold
-  /// operation may allocate, lock and enter the native driver. Failure leaves
-  /// out_reservation unchanged and creates no cleanup obligation.
+  /// operation may allocate, lock and enter the native driver. Providers that
+  /// need independently removable native view registrations pre-size their
+  /// handle storage here from the reservation length and chosen mapping unit.
+  /// No backing or native view registration is allocated for empty slots.
+  /// Failure leaves out_reservation unchanged and creates no cleanup
+  /// obligation.
   amdf_status_t(AMDF_CALL* memory_reservation_create)(
       amdf_instance_t* instance,
       const amdf_memory_reservation_create_info_t* create_info,
@@ -720,9 +724,12 @@ typedef struct amdf_api_t {
   /// mappings and makes the affected native mapping group unusable except for
   /// full-group detach or terminal destruction. Old and proposed backing stay
   /// alive until checked removal succeeds. The library retains no source
-  /// objects or installed-mapping ledger. This cold operation may allocate
-  /// temporary descriptors, lock native VM mutation and wait for mapping
-  /// readiness. Zero updates is an empty operation on a healthy projection.
+  /// objects or backing identities. A provider may retain native view handles
+  /// in pre-sized reservation-local storage to support independent removal.
+  /// This cold operation may allocate temporary descriptors, register native
+  /// views, lock native VM mutation and wait for mapping readiness. None of
+  /// this work occurs on dispatch. Zero updates is empty on a healthy
+  /// projection.
   ///
   /// Linux PROCESS lifetime can share its native context with foreign KFD
   /// clients. The caller serializes those clients' VM mutations against these
@@ -750,9 +757,10 @@ typedef struct amdf_api_t {
   /// This call reports the detach result, not the prior mapping error.
   ///
   /// This cold operation allocates no library metadata, retains no backing,
-  /// and uses no installed-mapping ledger. It may lock native VM mutation,
-  /// enter the driver and wait for translation removal readiness. It does not
-  /// bypass native device failure or create a retry owner or worker.
+  /// and uses no backing lookup. It may scan pre-sized native view handles,
+  /// lock native VM mutation, enter the driver and wait for translation removal
+  /// readiness. It does not bypass native device failure or create a retry
+  /// owner or worker.
   amdf_status_t(AMDF_CALL* memory_reservation_detach)(
       amdf_memory_reservation_t* reservation, uint32_t access_ordinal);
 

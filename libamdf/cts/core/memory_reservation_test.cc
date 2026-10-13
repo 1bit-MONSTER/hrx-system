@@ -24,6 +24,11 @@ class HostReservationTest : public ::testing::TestWithParam<uint64_t> {
                                             AMDF_ABI_VERSION_LATEST, &api_),
               AMDF_STATUS_OK);
     ASSERT_EQ(GetCtsDeviceCache().GetInstance(&instance_), AMDF_STATUS_OK);
+    capabilities_.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES;
+    capabilities_.structure_size = sizeof(capabilities_);
+    ASSERT_EQ(api_->instance_query_host_memory_reservation_capabilities(
+                  instance_, &capabilities_),
+              AMDF_STATUS_OK);
     uint32_t count = 0;
     ASSERT_EQ(amdf_status_code(api_->instance_enumerate_memory_scopes(
                   instance_, 0, nullptr, &count)),
@@ -55,19 +60,14 @@ class HostReservationTest : public ::testing::TestWithParam<uint64_t> {
         }
         ASSERT_EQ(status, AMDF_STATUS_OK);
         if ((profile.roles & AMDF_MEMORY_PROFILE_ROLE_CREATE) != 0 &&
-            (profile.supported_flags & AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE) !=
-                0) {
+            (profile.supported_flags & capabilities_.required_source_flags) ==
+                capabilities_.required_source_flags) {
           profile_ = profile;
         }
       }
     }
     ASSERT_NE(scope_, nullptr);
     ASSERT_NE(profile_.roles & AMDF_MEMORY_PROFILE_ROLE_CREATE, 0u);
-    capabilities_.type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES;
-    capabilities_.structure_size = sizeof(capabilities_);
-    ASSERT_EQ(api_->instance_query_host_memory_reservation_capabilities(
-                  instance_, &capabilities_),
-              AMDF_STATUS_OK);
     unit_ = std::max(GetParam(), capabilities_.mapping_granularity);
     ASSERT_EQ(unit_ % capabilities_.mapping_granularity, 0u);
     access_ = capabilities_.required_access | AMDF_MEMORY_ACCESS_READ |
@@ -226,7 +226,7 @@ TEST_P(HostReservationTest, ReplacesBackingThroughAnUnchangedHostView) {
   const size_t words = unit_ / sizeof(uint32_t);
   for (size_t i = 0; i < memories.size(); ++i) {
     ASSERT_NO_FATAL_FAILURE(Allocate(6 * unit_,
-                                     AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE,
+                                     capabilities_.required_source_flags,
                                      &memories[i], &original[i]));
     expected[i].resize(6 * words);
     for (size_t j = 0; j < expected[i].size(); ++j) {
@@ -296,7 +296,7 @@ TEST_P(HostReservationTest, UpdatesDistantRangesWithoutPopulatingTheHoles) {
   amdf_memory_t* memory = nullptr;
   uint32_t* source = nullptr;
   ASSERT_NO_FATAL_FAILURE(
-      Allocate(unit_, AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE, &memory, &source));
+      Allocate(unit_, capabilities_.required_source_flags, &memory, &source));
   std::fill_n(source, unit_ / sizeof(uint32_t), 0x17839abcu);
   const std::array updates = {Bind(0, unit_, memory, 0),
                               Bind(length - unit_, unit_, memory, 0)};
@@ -326,7 +326,7 @@ TEST_P(HostReservationTest, QualifiesExplicitSourceWithoutDiscoveringBindings) {
   amdf_memory_t* memory = nullptr;
   uint32_t* source = nullptr;
   ASSERT_NO_FATAL_FAILURE(
-      Allocate(unit_, AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE, &memory, &source));
+      Allocate(unit_, capabilities_.required_source_flags, &memory, &source));
   amdf_memory_site_t producer = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_SITE,
       .structure_size = sizeof(producer),
@@ -372,8 +372,8 @@ TEST_P(HostReservationTest, RejectsTheEntireInvalidBatchBeforeReplacement) {
   amdf_memory_t* source = nullptr;
   uint32_t* source_pointer = nullptr;
   ASSERT_NO_FATAL_FAILURE(Allocate(2 * unit_,
-                                   AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE,
-                                   &source, &source_pointer));
+                                   capabilities_.required_source_flags, &source,
+                                   &source_pointer));
   std::fill_n(source_pointer, 2 * unit_ / sizeof(uint32_t), 0x631789abu);
   auto initial = Bind(0, 2 * unit_, source, 0);
   ASSERT_EQ(api_->memory_reservation_update(reservation_, 0, 1, &initial),
@@ -409,8 +409,8 @@ TEST_P(HostReservationTest, KeepsTheViewAliveAcrossBackingDestruction) {
   for (uint32_t generation = 1; generation <= 3; ++generation) {
     amdf_memory_t* memory = nullptr;
     uint32_t* source = nullptr;
-    ASSERT_NO_FATAL_FAILURE(Allocate(
-        unit_, AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE, &memory, &source));
+    ASSERT_NO_FATAL_FAILURE(
+        Allocate(unit_, capabilities_.required_source_flags, &memory, &source));
     const auto update = Bind(0, unit_, memory, 0);
     ASSERT_EQ(api_->memory_reservation_update(reservation_, 0, 1, &update),
               AMDF_STATUS_OK);
@@ -437,7 +437,7 @@ TEST_P(HostReservationTest, ReadOnlyMappingAndViewDoNotGrantWriteOperations) {
   amdf_memory_t* memory = nullptr;
   uint32_t* source = nullptr;
   ASSERT_NO_FATAL_FAILURE(
-      Allocate(unit_, AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE, &memory, &source));
+      Allocate(unit_, capabilities_.required_source_flags, &memory, &source));
   std::fill_n(source, unit_ / sizeof(uint32_t), 0x957139abu);
   auto update = Bind(0, unit_, memory, 0);
   update.access = capabilities_.required_access | AMDF_MEMORY_ACCESS_READ;

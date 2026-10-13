@@ -408,6 +408,8 @@ struct FakeNative {
     output->maximum_alignment = UINT64_C(1) << 30;
     output->mapping_granularity =
         native->owner->reservation_granularities[native->ordinal];
+    output->required_source_flags =
+        native->owner->reservation_source_flags[native->ordinal];
     return AMDF_STATUS_OK;
   }
 
@@ -425,6 +427,7 @@ struct FakeNative {
     output->reservation_granularity = 4096;
     output->maximum_alignment = UINT64_C(1) << 30;
     output->mapping_granularity = 4096;
+    output->required_source_flags = AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE;
     return AMDF_STATUS_OK;
   }
 
@@ -508,6 +511,8 @@ struct FakeNative {
   bool host_source_enabled = false;
   // Native address geometry per live consumer, before addresses are reserved.
   std::array<uint64_t, 2> reservation_granularities = {4096, 4096};
+  // Whole-backing preparation required by each native address domain.
+  std::array<amdf_memory_flags_t, 2> reservation_source_flags = {};
   // Distinct logical consumers may share a single native mapping projection.
   bool alias_projections = true;
   // Number of live address owners, independent from physical allocations.

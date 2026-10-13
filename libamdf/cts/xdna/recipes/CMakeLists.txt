@@ -15,6 +15,7 @@ iree_cc_library(
     execution_cases
   SRCS
     "cpu_xdna_test.cc"
+    "reservation_test.cc"
   DEPS
     amdf::headers
     iree::third_party::google_test

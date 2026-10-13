@@ -29,7 +29,9 @@ struct Binding {
   uint32_t unit;
 };
 struct Backing {
-  // One ordinary resource owning GPU backing and its prepared NPU attachment.
+  // Optional CPU owner supplying pages to joint device registration.
+  CtsMappedMemory storage;
+  // Joint GPU/NPU allocation or registration over storage's retained pages.
   CtsMappedMemory memory;
   // Expected complete backing, including old locations and untouched neighbors.
   std::vector<uint8_t> expected;
@@ -62,8 +64,7 @@ class FabricReservationTest : public GpuXdnaDeviceFixture,
       ASSERT_EQ(status, AMDF_STATUS_OK);
     }
     // Consumer and source ordinals are caller-defined, not native owner order.
-    // The NPU owns the shared host group; its biased DMA address is not a
-    // pointer.
+    // The NPU's biased DMA address is never interpreted as a CPU pointer.
     for (uint32_t i = 0; i < source_accesses_.size(); ++i) {
       source_accesses_[i] = accesses_[i];
       source_accesses_[i].requirements.access |=
@@ -75,16 +76,30 @@ class FabricReservationTest : public GpuXdnaDeviceFixture,
     if (source_profile_.ordinal == AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN ||
         (source_profile_.supported_flags &
          AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE) == 0) {
-      GTEST_SKIP() << "joint backing does not supply replaceable host aliases";
+      source_role_ = AMDF_MEMORY_PROFILE_ROLE_REGISTER;
+      ASSERT_NO_FATAL_FAILURE(
+          FindProfile(source_accesses_, source_role_, &source_profile_));
+      if (source_profile_.ordinal == AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN) {
+        GTEST_SKIP() << "no joint mapping source allocation or registration";
+      }
+      ASSERT_NO_FATAL_FAILURE(
+          FindProfile({}, AMDF_MEMORY_PROFILE_ROLE_CREATE, &host_profile_));
+      ASSERT_NE(host_profile_.ordinal, AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN);
+      ASSERT_NE(
+          host_profile_.supported_flags & AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE,
+          0u);
     }
-    unit_ =
-        std::max({GetParam(), capabilities_[0].reservation_granularity,
-                  capabilities_[0].mapping_granularity,
-                  capabilities_[1].reservation_granularity,
-                  capabilities_[1].mapping_granularity,
-                  capabilities_[2].reservation_granularity,
-                  capabilities_[2].mapping_granularity,
-                  source_profile_.allocation.native_byte_length_granularity});
+    const auto& geometry = source_role_ == AMDF_MEMORY_PROFILE_ROLE_REGISTER
+                               ? source_profile_.registration
+                               : source_profile_.allocation;
+    unit_ = std::max({GetParam(), capabilities_[0].reservation_granularity,
+                      capabilities_[0].mapping_granularity,
+                      capabilities_[1].reservation_granularity,
+                      capabilities_[1].mapping_granularity,
+                      capabilities_[2].reservation_granularity,
+                      capabilities_[2].mapping_granularity,
+                      geometry.native_byte_length_granularity,
+                      host_profile_.allocation.native_byte_length_granularity});
     ASSERT_EQ(unit_ & (unit_ - 1), 0u);
     // Exercise the last native page even with a larger caller mapping unit.
     payload_offset_ = unit_ - capabilities_[2].mapping_granularity;
@@ -118,7 +133,7 @@ class FabricReservationTest : public GpuXdnaDeviceFixture,
       }
     }
     for (auto& backing : backings_) {
-      if (!backing.memory.Release(api_)) {
+      if (!backing.memory.Release(api_) || !backing.storage.Release(api_)) {
         return;
       }
     }
@@ -128,18 +143,39 @@ class FabricReservationTest : public GpuXdnaDeviceFixture,
   }
 
   void PrepareSources() {
-    const amdf_memory_create_info_t create = {
+    const auto& geometry = source_role_ == AMDF_MEMORY_PROFILE_ROLE_REGISTER
+                               ? source_profile_.registration
+                               : source_profile_.allocation;
+    amdf_memory_create_info_t create = {
         .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
         .structure_size = sizeof(create),
         .memory_profile_ordinal = source_profile_.ordinal,
         .access_count = static_cast<uint32_t>(source_accesses_.size()),
-        .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE |
-                          AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE,
+        .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE,
         .byte_length = 6 * unit_,
-        .minimum_alignment = source_profile_.allocation.minimum_alignment,
+        .minimum_alignment = geometry.minimum_alignment,
         .accesses = source_accesses_.data(),
     };
     for (auto& backing : backings_) {
+      if (source_role_ == AMDF_MEMORY_PROFILE_ROLE_REGISTER) {
+        const amdf_memory_create_info_t host = {
+            .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
+            .structure_size = sizeof(host),
+            .memory_profile_ordinal = host_profile_.ordinal,
+            .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE |
+                              AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE,
+            .byte_length = create.byte_length,
+            .minimum_alignment =
+                std::max(geometry.registered_host_pointer_alignment,
+                         host_profile_.allocation.minimum_alignment),
+        };
+        ASSERT_NO_FATAL_FAILURE(
+            backing.storage.Create(api_, system_scope_, host));
+        create.registered_host_pointer = backing.storage.host.pointer;
+        create.registered_host_cacheability = backing.storage.host.cacheability;
+      } else {
+        create.required_flags |= AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE;
+      }
       ASSERT_NO_FATAL_FAILURE(
           backing.memory.Create(api_, system_scope_, create));
       ASSERT_EQ(backing.memory.host.cacheability,
@@ -184,7 +220,8 @@ class FabricReservationTest : public GpuXdnaDeviceFixture,
     ASSERT_EQ(projections_[2].address_kind, AMDF_MEMORY_ADDRESS_HOST);
     ASSERT_EQ(projections_[0].mapping_access_ordinal, 0u);
     ASSERT_EQ(projections_[1].mapping_access_ordinal, 1u);
-    ASSERT_EQ(projections_[2].mapping_access_ordinal, 0u);
+    ASSERT_TRUE(projections_[2].mapping_access_ordinal == 0u ||
+                projections_[2].mapping_access_ordinal == 2u);
     gpu_address_ = projections_[1].address;
     const amdf_memory_map_info_t map = {
         .type = AMDF_STRUCTURE_TYPE_MEMORY_MAP_INFO,
@@ -214,14 +251,33 @@ class FabricReservationTest : public GpuXdnaDeviceFixture,
         .access = host_access_,
         .source_byte_offset = binding.unit * unit_,
     };
-    // Exercise updates through both aliases of the shared native mapping group.
+    // Shared translations update through either alias. Independent consumers
+    // each receive an explicit mapping of the same retained physical pages.
+    const bool shared = projections_[2].mapping_access_ordinal == 0;
     ASSERT_EQ(api_->memory_reservation_update(
-                  reservation_, ordinal % 2 == 0 ? 0 : 2, 1, &update),
+                  reservation_, shared && ordinal % 2 != 0 ? 2 : 0, 1, &update),
               AMDF_STATUS_OK);
     update.memory_access_ordinal = 1;
     update.access = access_;
     ASSERT_EQ(api_->memory_reservation_update(reservation_, 1, 1, &update),
               AMDF_STATUS_OK);
+    if (!shared) {
+      update.memory = backing.storage.memory != nullptr ? backing.storage.memory
+                                                        : backing.memory.memory;
+      update.memory_access_ordinal = 0;
+      update.access = host_access_;
+      ASSERT_EQ(api_->memory_reservation_update(reservation_, 2, 1, &update),
+                AMDF_STATUS_OK);
+    }
+  }
+
+  void Detach() {
+    for (uint32_t ordinal = 0; ordinal < reservation_access_count_; ++ordinal) {
+      if (projections_[ordinal].mapping_access_ordinal == ordinal) {
+        ASSERT_EQ(api_->memory_reservation_detach(reservation_, ordinal),
+                  AMDF_STATUS_OK);
+      }
+    }
   }
 
   void PrepareExecution() {
@@ -304,6 +360,10 @@ class FabricReservationTest : public GpuXdnaDeviceFixture,
   std::array<amdf_memory_reservation_capabilities_t, 3> capabilities_ = {};
   // Queried source profile satisfying both device requests.
   amdf_memory_profile_t source_profile_ = {};
+  // Native role selected before construction, without a failure fallback.
+  amdf_memory_profile_roles_t source_role_ = AMDF_MEMORY_PROFILE_ROLE_CREATE;
+  // CPU-owned replaceable backing profile when devices register shared pages.
+  amdf_memory_profile_t host_profile_ = {};
   // NPU then GPU requests retained for ordinary backing construction.
   std::array<amdf_memory_device_access_t, 2> source_accesses_ = {};
   // Immutable public addresses and native mapping-group identities.
@@ -368,12 +428,14 @@ TEST_P(FabricReservationTest, NpuFirstWriterUsesFreshGpuBacking) {
                 sizeof(actual));
     ASSERT_EQ(actual, expected[i]) << "word=" << i;
   }
-  ASSERT_EQ(api_->memory_reservation_detach(reservation_, 0), AMDF_STATUS_OK);
-  ASSERT_EQ(api_->memory_reservation_detach(reservation_, 1), AMDF_STATUS_OK);
+  ASSERT_NO_FATAL_FAILURE(Detach());
 }
 
 TEST_P(FabricReservationTest, RejectsUnpreparedBackingBeforeAnyReplacement) {
   ASSERT_NO_FATAL_FAILURE(PrepareBacking());
+  if (projections_[2].mapping_access_ordinal != 0) {
+    GTEST_SKIP() << "CPU and NPU do not share translations";
+  }
   ASSERT_NO_FATAL_FAILURE(Map(0, {0, 1}));
   ASSERT_NO_FATAL_FAILURE(Map(1, {0, 2}));
   amdf_memory_profile_t profile = {};
@@ -430,8 +492,8 @@ TEST_P(FabricReservationTest, RejectsUnpreparedBackingBeforeAnyReplacement) {
   EXPECT_EQ(observed, replacement);
 }
 
-TEST_P(FabricReservationTest,
-       RejectsDifferentPermissionsForSharedTranslations) {
+TEST_P(FabricReservationTest, EnforcesPermissionsAtMappingGroupBoundary) {
+  ASSERT_NO_FATAL_FAILURE(PrepareBacking());
   const amdf_memory_reservation_access_t consumers[] = {
       {xdna_device_, capabilities_[0].address_domain_ordinal, host_access_,
        unit_},
@@ -446,13 +508,21 @@ TEST_P(FabricReservationTest,
       .access_count = 2,
       .accesses = consumers,
   };
-  // Both requests are independently supported but cannot describe one shared
-  // page table with different protection envelopes.
-  EXPECT_EQ(amdf_status_code(api_->memory_reservation_create(
-                instance_, &reserve, &reservation_)),
-            AMDF_STATUS_CODE_UNSUPPORTED);
-  reservation_access_count_ = reserve.access_count;
-  EXPECT_EQ(reservation_, nullptr);
+  // Independent page tables permit different protection envelopes; a shared
+  // page table cannot represent them even when both requests are supported.
+  amdf_memory_reservation_t* other = nullptr;
+  const auto status =
+      api_->memory_reservation_create(instance_, &reserve, &other);
+  if (projections_[2].mapping_access_ordinal == 0) {
+    EXPECT_EQ(amdf_status_code(status), AMDF_STATUS_CODE_UNSUPPORTED);
+    EXPECT_EQ(other, nullptr);
+  } else {
+    EXPECT_EQ(status, AMDF_STATUS_OK);
+    EXPECT_NE(other, nullptr);
+  }
+  if (other != nullptr) {
+    EXPECT_EQ(api_->memory_reservation_destroy(other), AMDF_STATUS_OK);
+  }
 }
 
 TEST_P(FabricReservationTest, SupportsNpuOnlyAndHostFirstProjections) {
@@ -484,7 +554,8 @@ TEST_P(FabricReservationTest, SupportsNpuOnlyAndHostFirstProjections) {
       ASSERT_EQ(
           api_->memory_reservation_query_access_info(reservation_, i, &info),
           AMDF_STATUS_OK);
-      EXPECT_EQ(info.mapping_access_ordinal, 0u);
+      EXPECT_LE(info.mapping_access_ordinal, i);
+      projections_[i] = info;
       EXPECT_EQ(info.address_kind, count == 2 && i == 0
                                        ? AMDF_MEMORY_ADDRESS_HOST
                                        : AMDF_MEMORY_ADDRESS_XDNA_DMA);
@@ -501,6 +572,15 @@ TEST_P(FabricReservationTest, SupportsNpuOnlyAndHostFirstProjections) {
         api_->memory_reservation_update(reservation_, count - 1, 1, &update),
         AMDF_STATUS_OK);
     if (count == 2) {
+      if (projections_[1].mapping_access_ordinal != 0) {
+        auto host_update = update;
+        host_update.memory = backings_[0].storage.memory != nullptr
+                                 ? backings_[0].storage.memory
+                                 : backings_[0].memory.memory;
+        ASSERT_EQ(
+            api_->memory_reservation_update(reservation_, 0, 1, &host_update),
+            AMDF_STATUS_OK);
+      }
       const amdf_memory_map_info_t map = {
           .type = AMDF_STRUCTURE_TYPE_MEMORY_MAP_INFO,
           .structure_size = sizeof(map),
@@ -526,7 +606,7 @@ TEST_P(FabricReservationTest, SupportsNpuOnlyAndHostFirstProjections) {
       ASSERT_EQ(api_->host_mapping_destroy(std::exchange(view_, nullptr)),
                 AMDF_STATUS_OK);
     }
-    ASSERT_EQ(api_->memory_reservation_detach(reservation_, 0), AMDF_STATUS_OK);
+    ASSERT_NO_FATAL_FAILURE(Detach());
     ASSERT_EQ(
         api_->memory_reservation_destroy(std::exchange(reservation_, nullptr)),
         AMDF_STATUS_OK);
@@ -581,10 +661,7 @@ TEST_P(FabricReservationTest, ReplacesBackingAcrossCpuGpuNpuExecution) {
     }
     if (epoch == 2) {
       // Checked removal preserves all addresses and allows explicit refill.
-      ASSERT_EQ(api_->memory_reservation_detach(reservation_, 2),
-                AMDF_STATUS_OK);
-      ASSERT_EQ(api_->memory_reservation_detach(reservation_, 1),
-                AMDF_STATUS_OK);
+      ASSERT_NO_FATAL_FAILURE(Detach());
     }
     for (uint32_t i = 0; i < 3; ++i) {
       if (epoch == 0 || epoch == 2 || i == epoch - 1) {
@@ -675,8 +752,7 @@ TEST_P(FabricReservationTest, ReplacesBackingAcrossCpuGpuNpuExecution) {
         0);
   }
   ASSERT_FALSE(HasFailure());
-  ASSERT_EQ(api_->memory_reservation_detach(reservation_, 0), AMDF_STATUS_OK);
-  ASSERT_EQ(api_->memory_reservation_detach(reservation_, 1), AMDF_STATUS_OK);
+  ASSERT_NO_FATAL_FAILURE(Detach());
 }
 
 INSTANTIATE_TEST_SUITE_P(MappingUnit, FabricReservationTest,
