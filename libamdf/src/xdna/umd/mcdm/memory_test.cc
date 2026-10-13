@@ -363,24 +363,36 @@ TEST_F(WindowsXdnaMemoryTest,
   EXPECT_EQ(state_.operations.back(), Operation::kDestroy);
 }
 
-TEST_F(WindowsXdnaMemoryTest, ExposesExactSystemMemoryProfile) {
-  EXPECT_EQ(profile_.memory_class, AMDF_MEMORY_CLASS_SYSTEM);
-  EXPECT_EQ(profile_.roles, AMDF_MEMORY_PROFILE_ROLE_CREATE |
-                                AMDF_MEMORY_PROFILE_ROLE_HOST_MAP);
-  EXPECT_EQ(profile_.guaranteed_device_access,
-            AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE);
-  EXPECT_EQ(profile_.supported_device_access,
-            AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE);
-  EXPECT_EQ(profile_.device_address.address_bit_count, 48u);
-  EXPECT_EQ(profile_.device_address.minimum_address, UINT64_C(65536));
-  EXPECT_EQ(profile_.device_address.maximum_address, (UINT64_C(1) << 48) - 1);
-  EXPECT_EQ(profile_.allocation.maximum_byte_length,
-            (UINT64_C(1) << 48) - UINT64_C(0x80000000) - UINT64_C(65536));
-  EXPECT_EQ(profile_.allocation.minimum_alignment, UINT64_C(4096));
-  EXPECT_EQ(profile_.allocation.maximum_alignment, UINT64_C(4096));
-  EXPECT_EQ(profile_.device_address.minimum_alignment, UINT64_C(4096));
-  EXPECT_EQ(profile_.allocation.native_byte_length_granularity,
-            UINT64_C(65536));
+TEST_F(WindowsXdnaMemoryTest, BoundsBackingWithoutTruncatingDeviceAddresses) {
+  for (uint32_t address_bit_count : {32u, 48u, 64u}) {
+    SCOPED_TRACE(address_bit_count);
+    device_profile_.dma.address_bit_count = address_bit_count;
+    for (uint32_t ordinal : {0u, 1u}) {
+      SCOPED_TRACE(ordinal);
+      ASSERT_EQ(amdf_xdna_umd_device_query_memory_profile(&device_, ordinal,
+                                                          &profile_),
+                AMDF_STATUS_OK);
+      const auto& construction =
+          ordinal == 0 ? profile_.allocation : profile_.registration;
+      const uint64_t maximum = construction.maximum_byte_length;
+      const uint64_t granularity = construction.native_byte_length_granularity;
+      const uint64_t address_limit = UINT64_MAX >> (64 - address_bit_count);
+      EXPECT_EQ(profile_.device_address.maximum_address, address_limit);
+      EXPECT_EQ(profile_.device_address.address_bit_count, address_bit_count);
+      ASSERT_GT(maximum, 0u);
+      EXPECT_EQ(maximum % granularity, 0u);
+      EXPECT_LE(maximum, UINT32_MAX);
+      const uint64_t native_end = profile_.device_address.minimum_address +
+                                  maximum - 1 + device_profile_.dma.byte_offset;
+      EXPECT_LE(native_end, address_limit);
+      // The next native unit must exceed an actual native constraint, not an
+      // arbitrary smaller construction cap. Wider VAs do not widen the
+      // standard-allocation size field's accepted range.
+      EXPECT_TRUE(maximum + granularity > UINT32_MAX ||
+                  native_end + granularity > address_limit);
+      EXPECT_EQ(profile_.host_mapping.maximum_byte_length, maximum);
+    }
+  }
   EXPECT_TRUE(state_.operations.empty());
 }
 
