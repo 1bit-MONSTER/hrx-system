@@ -46,11 +46,23 @@ class VectorMemoryIntrinsic {
   bool equivalent(const VectorMemoryIntrinsic& other) const;
 
  private:
-  enum class Operation { Load, Store };
+  enum class Operation {
+    Load,
+    Store,
+    LoadMask,
+    StoreMask,
+    LoadExpand,
+    StoreCompress,
+  };
 
   static std::optional<Operation> parse_operation(std::string_view name);
 
   explicit VectorMemoryIntrinsic(Operation operation) : operation_(operation) {}
+
+  bool is_load() const;
+  bool has_mask() const;
+  loom_value_id_t build_mask(loom_value_id_t source, loom_builder_t* builder,
+                             loom_location_id_t location) const;
 
   // Selected contiguous vector memory operation.
   Operation operation_;
@@ -58,6 +70,10 @@ class VectorMemoryIntrinsic {
   const ViewPartition* view_ = nullptr;
   // Exact register-vector footprint loaded or stored.
   loom_type_t vector_type_ = {};
+  // Source integer mask carrier; unset for ordinary load/store.
+  loom_type_t mask_type_ = {};
+  // Internal i1 mask shape; unset for ordinary load/store.
+  loom_type_t predicate_type_ = {};
   // Unsigned source interpretations in the full-rank origin record.
   uint16_t origin_unsigned_mask_ = 0;
 };

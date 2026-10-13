@@ -1,0 +1,21 @@
+// RUN: pass canonicalize,cse,dce
+#include <loomcxx/vector.h>
+
+using Floats4 = float __attribute__((ext_vector_type(4)));
+
+Floats4 load_less(const float* input, loom::type::size_type index,
+                  Floats4 values, Floats4 limits, Floats4 passthrough) {
+  auto source = loom::buffer::view<64>(
+      input, {}, loom::encoding::layout::dense<1>());
+  return loom::vector::load_mask<Floats4>(source, {index}, values < limits,
+                                          passthrough);
+}
+
+// ----
+func.def public @load_less(%input: buffer, %input_byte_offset: offset, %index: i64, %values: vector<4xf32>, %limits: vector<4xf32>, %passthrough: vector<4xf32>) -> (vector<4xf32>) {
+  %source = buffer.view %input[%input_byte_offset] : buffer -> view<64xf32>
+  %9 = vector.cmpf olt, %values, %limits : vector<4xf32> -> vector<4xi1>
+  %11 = index.cast %index : i64 to index
+  %14 = vector.load.mask %source[%11], %9, %passthrough : view<64xf32>, vector<4xi1>, vector<4xf32>
+  func.return %14 : vector<4xf32>
+}

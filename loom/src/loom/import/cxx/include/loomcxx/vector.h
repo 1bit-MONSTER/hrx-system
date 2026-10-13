@@ -29,6 +29,40 @@ template <class Vector, class T, loom::type::size_type... Extents,
     loom::type::view<loom::type::shape<Extents...>, T, Role> destination,
     loom::type::coordinates<sizeof...(Extents)> origin);
 
+// Loads active lanes from their corresponding footprint positions and takes
+// inactive lanes from passthrough. Nonzero integer mask lanes are active.
+template <class Result, class T, loom::type::size_type... Extents,
+          loom::encoding::role Role, class Mask>
+[[loom::op("vector.load.mask")]] Result load_mask(
+    loom::type::view<loom::type::shape<Extents...>, T, Role> source,
+    loom::type::coordinates<sizeof...(Extents)> origin, Mask mask,
+    Result passthrough);
+
+// Stores value lanes whose corresponding integer mask lane is nonzero.
+template <class Vector, class T, loom::type::size_type... Extents,
+          loom::encoding::role Role, class Mask>
+[[loom::op("vector.store.mask")]] void store_mask(
+    Vector value,
+    loom::type::view<loom::type::shape<Extents...>, T, Role> destination,
+    loom::type::coordinates<sizeof...(Extents)> origin, Mask mask);
+
+// Densely consumes consecutive source elements for active lanes and takes
+// inactive lanes from passthrough. Nonzero integer mask lanes are active.
+template <class Result, class T, loom::type::size_type... Extents,
+          loom::encoding::role Role, class Mask>
+[[loom::op("vector.load.expand")]] Result load_expand(
+    loom::type::view<loom::type::shape<Extents...>, T, Role> source,
+    loom::type::coordinates<sizeof...(Extents)> origin, Mask mask,
+    Result passthrough);
+
+// Densely writes active value lanes to consecutive destination elements.
+template <class Vector, class T, loom::type::size_type... Extents,
+          loom::encoding::role Role, class Mask>
+[[loom::op("vector.store.compress")]] void store_compress(
+    Vector value,
+    loom::type::view<loom::type::shape<Extents...>, T, Role> destination,
+    loom::type::coordinates<sizeof...(Extents)> origin, Mask mask);
+
 // Extracts a contiguous register subvector at a dynamic lane offset. Result
 // selects the retained lane count while preserving the source element type.
 template <class Result, class Source>

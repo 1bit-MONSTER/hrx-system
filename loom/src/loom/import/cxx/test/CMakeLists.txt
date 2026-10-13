@@ -157,6 +157,7 @@ loom_check_test_suite(
     "vector_math.cxx-test"
     "vector_math_invalid.cxx-test"
     "vector_memory.cxx-test"
+    "vector_memory_cleanup.cxx-test"
     "vector_memory_invalid.cxx-test"
     "vector_tensors.cxx-test"
     "vector_tensors_invalid.cxx-test"
