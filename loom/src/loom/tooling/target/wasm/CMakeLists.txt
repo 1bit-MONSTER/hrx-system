@@ -9,6 +9,19 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+iree_execution_test_suite(
+  NAME
+    loom_compile_execution_test
+  MANIFESTS
+    "loom-compile.test.json"
+  TOOLS
+    "loom-compile=loom::tools::loom-compile"
+  LABELS
+    "hostonly"
+)
+endif()
+
 iree_wasm_cc_library(
   NAME
     host_js

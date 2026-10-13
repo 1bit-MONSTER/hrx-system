@@ -9,7 +9,6 @@ load("//build_tools/testing:build_defs.bzl", "iree_execution_test_suite")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "loom_cc_binary",
-    "loom_config_compatible_with",
 )
 
 package(
@@ -51,24 +50,8 @@ iree_assert_dependency_boundary(
 
 iree_execution_test_suite(
     name = "execution_test",
-    data = [
-        "//loom/src/loom/tools/loom-compile/testdata:resident_xdna.loom",
-    ],
     manifests = ["loom-compile.test.json"],
     tags = ["hostonly"],
-    tools = {
-        "loom-compile": ":loom-compile",
-    },
-)
-
-iree_execution_test_suite(
-    name = "wasm_module_execution_test",
-    manifests = ["wasm-module.test.json"],
-    tags = ["hostonly"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/emit:wasm",
-        "//loom/config/target/arch:wasm",
-    ]),
     tools = {
         "loom-compile": ":loom-compile",
     },

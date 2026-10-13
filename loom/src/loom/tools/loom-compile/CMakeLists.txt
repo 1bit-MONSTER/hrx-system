@@ -38,23 +38,8 @@ iree_execution_test_suite(
     "loom-compile.test.json"
   TOOLS
     "loom-compile=::loom-compile"
-  DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/loom-compile/testdata/resident_xdna.loom"
   LABELS
     "hostonly"
 )
-
-if(LOOM_EMIT_WASM AND LOOM_TARGET_ARCH_WASM)
-iree_execution_test_suite(
-  NAME
-    wasm_module_execution_test
-  MANIFESTS
-    "wasm-module.test.json"
-  TOOLS
-    "loom-compile=::loom-compile"
-  LABELS
-    "hostonly"
-)
-endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
