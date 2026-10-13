@@ -30,6 +30,7 @@ loom_cc_library(
     hdrs = ["condition_relation_matrix.h"],
     deps = [
         ":condition_relation_set",
+        ":integer_relation",
         "//loom/src/loom/util:adaptive_sort",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
@@ -1148,6 +1149,16 @@ loom_cc_library(
     name = "integer_relation",
     srcs = ["integer_relation.c"],
     hdrs = ["integer_relation.h"],
+)
+
+loom_cc_test(
+    name = "integer_relation_test",
+    srcs = ["integer_relation_test.cc"],
+    deps = [
+        ":integer_relation",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
 )
 
 loom_cc_library(

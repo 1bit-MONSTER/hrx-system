@@ -33,6 +33,7 @@ loom_cc_library(
     "condition_relation_matrix.c"
   DEPS
     ::condition_relation_set
+    ::integer_relation
     iree::base
     iree::base::internal::arena
     loom::util::adaptive_sort
@@ -1300,6 +1301,17 @@ loom_cc_library(
   DEPS
 
   PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    integer_relation_test
+  SRCS
+    "integer_relation_test.cc"
+  DEPS
+    ::integer_relation
+    iree::testing::gtest
+    iree::testing::gtest_main
 )
 
 loom_cc_library(

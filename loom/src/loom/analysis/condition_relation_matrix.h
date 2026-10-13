@@ -12,34 +12,11 @@
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/condition_relation_set.h"
+#include "loom/analysis/integer_relation.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// Ordered comparison outcomes indexing a row's excluded right-value sets.
-typedef uint8_t loom_condition_relation_outcome_t;
-enum loom_condition_relation_outcome_e {
-  LOOM_CONDITION_RELATION_OUTCOME_LESS = 0,
-  LOOM_CONDITION_RELATION_OUTCOME_EQUAL = 1,
-  LOOM_CONDITION_RELATION_OUTCOME_GREATER = 2,
-  LOOM_CONDITION_RELATION_OUTCOME_COUNT = 3,
-};
-
-// Bit set of ordered comparison outcomes.
-typedef uint8_t loom_condition_relation_outcome_bits_t;
-enum loom_condition_relation_outcome_bit_e {
-  LOOM_CONDITION_RELATION_OUTCOME_BIT_LESS =
-      1u << LOOM_CONDITION_RELATION_OUTCOME_LESS,
-  LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL =
-      1u << LOOM_CONDITION_RELATION_OUTCOME_EQUAL,
-  LOOM_CONDITION_RELATION_OUTCOME_BIT_GREATER =
-      1u << LOOM_CONDITION_RELATION_OUTCOME_GREATER,
-  LOOM_CONDITION_RELATION_OUTCOME_BIT_ALL =
-      LOOM_CONDITION_RELATION_OUTCOME_BIT_LESS |
-      LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL |
-      LOOM_CONDITION_RELATION_OUTCOME_BIT_GREATER,
-};
 
 // One mutable sparse relation row.
 typedef struct loom_condition_relation_matrix_row_t {
@@ -47,8 +24,7 @@ typedef struct loom_condition_relation_matrix_row_t {
   uint32_t left;
 
   // Right-value sets excluded for less, equal, and greater outcomes.
-  loom_condition_relation_set_id_t
-      excluded[LOOM_CONDITION_RELATION_OUTCOME_COUNT];
+  loom_condition_relation_set_id_t excluded[LOOM_INTEGER_ORDER_OUTCOME_COUNT];
 } loom_condition_relation_matrix_row_t;
 
 // Sorted mutable rows used by the finite propagation solver.
@@ -96,7 +72,7 @@ void loom_condition_relation_matrix_builder_reset(
 // ignored.
 iree_status_t loom_condition_relation_matrix_builder_add(
     loom_condition_relation_matrix_builder_t* builder,
-    loom_condition_relation_outcome_t outcome, uint32_t left,
+    loom_integer_order_outcome_t outcome, uint32_t left,
     loom_condition_relation_set_id_t excluded);
 
 // Appends all nonempty rows from |matrix|.
@@ -131,7 +107,7 @@ loom_condition_relation_matrix_find_const(
 // Replaces one excluded set in an existing row and returns whether it changed.
 bool loom_condition_relation_matrix_set(
     loom_condition_relation_matrix_t* matrix,
-    loom_condition_relation_outcome_t outcome, uint32_t left,
+    loom_integer_order_outcome_t outcome, uint32_t left,
     loom_condition_relation_set_id_t excluded);
 
 // Intersects every destination set with its matching set in |other|. Missing
@@ -162,8 +138,7 @@ typedef struct loom_condition_relation_matrix_range_t {
   uint32_t left_count;
 
   // Right-value sets excluded for every left value in the range.
-  loom_condition_relation_set_id_t
-      excluded[LOOM_CONDITION_RELATION_OUTCOME_COUNT];
+  loom_condition_relation_set_id_t excluded[LOOM_INTEGER_ORDER_OUTCOME_COUNT];
 } loom_condition_relation_matrix_range_t;
 
 // Encoding-specific immutable entry storage.

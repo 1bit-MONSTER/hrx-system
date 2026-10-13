@@ -90,7 +90,7 @@ class ConditionRelationMatrixTest : public ::testing::Test {
       for (uint32_t i = 0; i < matrix->row_count; ++i) {
         roots.insert(
             roots.end(), matrix->rows[i].excluded,
-            matrix->rows[i].excluded + LOOM_CONDITION_RELATION_OUTCOME_COUNT);
+            matrix->rows[i].excluded + LOOM_INTEGER_ORDER_OUTCOME_COUNT);
       }
     }
     IREE_CHECK_OK(loom_condition_relation_set_builder_publish(
@@ -121,7 +121,7 @@ class ConditionRelationMatrixTest : public ::testing::Test {
       return {};
     }
     std::vector<uint8_t> present(index.value_count);
-    for (uint32_t outcome = 0; outcome < LOOM_CONDITION_RELATION_OUTCOME_COUNT;
+    for (uint32_t outcome = 0; outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT;
          ++outcome) {
       auto mark = [](void* user_data, uint32_t value) {
         (*static_cast<std::vector<uint8_t>*>(user_data))[value] = 1;
@@ -156,13 +156,13 @@ TEST_F(ConditionRelationMatrixTest, BuilderFoldsAndIntersectsRows) {
   MatrixBuilder builder;
   loom_condition_relation_matrix_builder_initialize(&builder_arena_, &builder);
   IREE_ASSERT_OK(loom_condition_relation_matrix_builder_add(
-      &builder, LOOM_CONDITION_RELATION_OUTCOME_LESS, 9, set_a));
+      &builder, LOOM_INTEGER_ORDER_OUTCOME_LESS, 9, set_a));
   IREE_ASSERT_OK(loom_condition_relation_matrix_builder_add(
-      &builder, LOOM_CONDITION_RELATION_OUTCOME_LESS, 9, set_b));
+      &builder, LOOM_INTEGER_ORDER_OUTCOME_LESS, 9, set_b));
   IREE_ASSERT_OK(loom_condition_relation_matrix_builder_add(
-      &builder, LOOM_CONDITION_RELATION_OUTCOME_GREATER, 2, set_a));
+      &builder, LOOM_INTEGER_ORDER_OUTCOME_GREATER, 2, set_a));
   IREE_ASSERT_OK(loom_condition_relation_matrix_builder_add(
-      &builder, LOOM_CONDITION_RELATION_OUTCOME_EQUAL, 9, set_b));
+      &builder, LOOM_INTEGER_ORDER_OUTCOME_EQUAL, 9, set_b));
   Matrix matrix;
   IREE_ASSERT_OK(loom_condition_relation_matrix_builder_build(
       &builder, set_builder_, &scratch_arena_, &matrix));
@@ -178,10 +178,10 @@ TEST_F(ConditionRelationMatrixTest, BuilderFoldsAndIntersectsRows) {
   IREE_ASSERT_OK(
       loom_condition_relation_matrix_clone(&matrix, &scratch_arena_, &clone));
   EXPECT_TRUE(loom_condition_relation_matrix_set(
-      &clone, LOOM_CONDITION_RELATION_OUTCOME_GREATER, 2,
+      &clone, LOOM_INTEGER_ORDER_OUTCOME_GREATER, 2,
       LOOM_CONDITION_RELATION_SET_EMPTY));
   EXPECT_FALSE(loom_condition_relation_matrix_set(
-      &clone, LOOM_CONDITION_RELATION_OUTCOME_GREATER, 2,
+      &clone, LOOM_INTEGER_ORDER_OUTCOME_GREATER, 2,
       LOOM_CONDITION_RELATION_SET_EMPTY));
   IREE_ASSERT_OK(loom_condition_relation_matrix_intersect_into(
       set_builder_, &matrix, &clone));
@@ -207,7 +207,7 @@ TEST_F(ConditionRelationMatrixTest, LargeReverseInputIsSorted) {
   loom_condition_relation_matrix_builder_initialize(&builder_arena_, &builder);
   for (uint32_t left = 256; left > 0; --left) {
     IREE_ASSERT_OK(loom_condition_relation_matrix_builder_add(
-        &builder, LOOM_CONDITION_RELATION_OUTCOME_EQUAL, left - 1, excluded));
+        &builder, LOOM_INTEGER_ORDER_OUTCOME_EQUAL, left - 1, excluded));
   }
   Matrix matrix;
   IREE_ASSERT_OK(loom_condition_relation_matrix_builder_build(
@@ -257,7 +257,7 @@ TEST_F(ConditionRelationMatrixTest, PublicationSelectsSparseAndRangeEncodings) {
       loom_condition_relation_matrix_view_find(&sparse_view, 9);
   ASSERT_NE(sparse_excluded, nullptr);
   EXPECT_TRUE(loom_condition_relation_set_index_contains(
-      &index, sparse_excluded[LOOM_CONDITION_RELATION_OUTCOME_EQUAL], 7));
+      &index, sparse_excluded[LOOM_INTEGER_ORDER_OUTCOME_EQUAL], 7));
 
   EXPECT_EQ(loom_condition_relation_matrix_view_find(&range_view, 15), nullptr);
   EXPECT_NE(loom_condition_relation_matrix_view_find(&range_view, 16), nullptr);
@@ -301,7 +301,7 @@ TEST_F(ConditionRelationMatrixTest,
     if (!sparse) {
       continue;
     }
-    for (uint32_t outcome = 0; outcome < LOOM_CONDITION_RELATION_OUTCOME_COUNT;
+    for (uint32_t outcome = 0; outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT;
          ++outcome) {
       for (uint32_t right = 0; right < index.value_count; ++right) {
         EXPECT_EQ(loom_condition_relation_set_index_contains(
@@ -394,7 +394,7 @@ TEST_F(ConditionRelationMatrixTest, Width4096EdgeShapeRemainsCompact) {
     ASSERT_NE(excluded, nullptr);
     const uint32_t run = std::min(left / 2048, 3u);
     EXPECT_TRUE(loom_condition_relation_set_index_contains(
-        &index, excluded[LOOM_CONDITION_RELATION_OUTCOME_LESS], run * 16));
+        &index, excluded[LOOM_INTEGER_ORDER_OUTCOME_LESS], run * 16));
   }
   EXPECT_EQ(loom_condition_relation_matrix_view_find(&view, kRowCount),
             nullptr);

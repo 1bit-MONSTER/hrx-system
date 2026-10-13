@@ -176,33 +176,33 @@ class CfgConditionFactsTest : public ::testing::Test {
                    const loom_cfg_condition_relation_view_t* view,
                    loom_symbolic_integer_relation_t relation,
                    loom_value_id_t left, loom_value_id_t right) {
-    loom_condition_relation_outcome_bits_t required_exclusions = 0;
+    loom_integer_order_outcome_bits_t required_exclusions = 0;
     switch (relation) {
       case LOOM_SYMBOLIC_INTEGER_RELATION_EQ:
-        required_exclusions = LOOM_CONDITION_RELATION_OUTCOME_BIT_LESS |
-                              LOOM_CONDITION_RELATION_OUTCOME_BIT_GREATER;
+        required_exclusions = LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+                              LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER;
         break;
       case LOOM_SYMBOLIC_INTEGER_RELATION_NE:
-        required_exclusions = LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL;
+        required_exclusions = LOOM_INTEGER_ORDER_OUTCOME_BIT_EQUAL;
         break;
       case LOOM_SYMBOLIC_INTEGER_RELATION_LT:
-        required_exclusions = LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL |
-                              LOOM_CONDITION_RELATION_OUTCOME_BIT_GREATER;
+        required_exclusions = LOOM_INTEGER_ORDER_OUTCOME_BIT_EQUAL |
+                              LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER;
         break;
       case LOOM_SYMBOLIC_INTEGER_RELATION_LE:
-        required_exclusions = LOOM_CONDITION_RELATION_OUTCOME_BIT_GREATER;
+        required_exclusions = LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER;
         break;
       case LOOM_SYMBOLIC_INTEGER_RELATION_GT:
-        required_exclusions = LOOM_CONDITION_RELATION_OUTCOME_BIT_LESS |
-                              LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL;
+        required_exclusions = LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+                              LOOM_INTEGER_ORDER_OUTCOME_BIT_EQUAL;
         break;
       case LOOM_SYMBOLIC_INTEGER_RELATION_GE:
-        required_exclusions = LOOM_CONDITION_RELATION_OUTCOME_BIT_LESS;
+        required_exclusions = LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS;
         break;
       default:
         return false;
     }
-    const loom_condition_relation_outcome_bits_t actual_exclusions =
+    const loom_integer_order_outcome_bits_t actual_exclusions =
         loom_cfg_condition_relation_view_query_excluded_outcomes(
             table, view, &fact_table_,
             loom_condition_integer_operand_t{
@@ -360,9 +360,9 @@ TEST_F(CfgConditionFactsTest,
       .value_id = {},
       .constant = 64,
   };
-  const loom_condition_relation_outcome_bits_t expected_forward =
-      LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL |
-      LOOM_CONDITION_RELATION_OUTCOME_BIT_GREATER;
+  const loom_integer_order_outcome_bits_t expected_forward =
+      LOOM_INTEGER_ORDER_OUTCOME_BIT_EQUAL |
+      LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER;
   EXPECT_EQ(loom_cfg_condition_relation_view_query_excluded_outcomes(
                 &table, guarded_facts, &fact_table_, value_operand,
                 bound_value_operand),
@@ -374,8 +374,8 @@ TEST_F(CfgConditionFactsTest,
   EXPECT_EQ(loom_cfg_condition_relation_view_query_excluded_outcomes(
                 &table, guarded_facts, &fact_table_, bound_constant_operand,
                 value_operand),
-            LOOM_CONDITION_RELATION_OUTCOME_BIT_LESS |
-                LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL);
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+                LOOM_INTEGER_ORDER_OUTCOME_BIT_EQUAL);
 
   loom_condition_fact_scope_t scope = {};
   loom_condition_fact_scope_initialize_indexed(nullptr, &table, guarded_facts,
