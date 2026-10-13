@@ -1,0 +1,75 @@
+// RUN: verify
+// Vector loads require a full-rank origin record.
+#include <loomcxx/vector.h>
+using Vector = float __attribute__((ext_vector_type(4)));
+using View = loom::type::view<loom::type::shape<4, 4>, const float>;
+// ERROR@+1: LOWERING/059 "vector memory origin has the wrong arity"
+[[loom::op("vector.load")]] Vector invalid(View, loom::type::coordinates<1>);
+
+// ====
+// Vector footprints preserve the view's scalar element type.
+#include <loomcxx/vector.h>
+using Vector = unsigned __attribute__((ext_vector_type(4)));
+using View = loom::type::view<loom::type::shape<16>, const float>;
+// ERROR@+1: LOWERING/059 "vector memory element type must match the view element type"
+[[loom::op("vector.load")]] Vector invalid(View, loom::type::coordinates<1>);
+
+// ====
+// Stores require mutable view elements.
+#include <loomcxx/vector.h>
+using Vector = float __attribute__((ext_vector_type(4)));
+using View = loom::type::view<loom::type::shape<16>, const float>;
+// ERROR@+1: LOWERING/059 "vector.store requires a mutable destination view"
+[[loom::op("vector.store")]] void invalid(Vector, View,
+                                            loom::type::coordinates<1>);
+
+// ====
+// Masks use C++ integer truth semantics.
+#include <loomcxx/vector.h>
+using Vector = float __attribute__((ext_vector_type(4)));
+using Mask = float __attribute__((ext_vector_type(4)));
+using View = loom::type::view<loom::type::shape<16>, const float>;
+// ERROR@+1: LOWERING/059 "vector memory mask requires integer lanes"
+[[loom::op("vector.load.mask")]] Vector invalid(
+    View, loom::type::coordinates<1>, Mask, Vector);
+
+// ====
+// Mask and value lanes correspond one-to-one.
+#include <loomcxx/vector.h>
+using Vector = float __attribute__((ext_vector_type(4)));
+using Mask = int __attribute__((ext_vector_type(2)));
+using View = loom::type::view<loom::type::shape<16>, const float>;
+// ERROR@+1: LOWERING/059 "vector memory mask shape must match the value"
+[[loom::op("vector.load.mask")]] Vector invalid(
+    View, loom::type::coordinates<1>, Mask, Vector);
+
+// ====
+// Masked-off load lanes come from the exact result type.
+#include <loomcxx/vector.h>
+using Vector = float __attribute__((ext_vector_type(4)));
+using Other = float __attribute__((ext_vector_type(2)));
+using Mask = int __attribute__((ext_vector_type(4)));
+using View = loom::type::view<loom::type::shape<16>, const float>;
+// ERROR@+1: LOWERING/059 "masked vector load passthrough must match its result type"
+[[loom::op("vector.load.mask")]] Vector invalid(
+    View, loom::type::coordinates<1>, Mask, Other);
+
+// ====
+// Masked High operations have no volatile access contract.
+#include <loomcxx/vector.h>
+using Vector = float __attribute__((ext_vector_type(4)));
+using Mask = int __attribute__((ext_vector_type(4)));
+using View = loom::type::view<loom::type::shape<16>, const volatile float>;
+// ERROR@+1: LOWERING/059 "masked vector memory does not support volatile views"
+[[loom::op("vector.load.expand")]] Vector invalid(
+    View, loom::type::coordinates<1>, Mask, Vector);
+
+// ====
+// Masked stores require mutable view elements.
+#include <loomcxx/vector.h>
+using Vector = float __attribute__((ext_vector_type(4)));
+using Mask = int __attribute__((ext_vector_type(4)));
+using View = loom::type::view<loom::type::shape<16>, const float>;
+// ERROR@+1: LOWERING/059 "masked vector store requires a mutable destination view"
+[[loom::op("vector.store.compress")]] void invalid(
+    Vector, View, loom::type::coordinates<1>, Mask);

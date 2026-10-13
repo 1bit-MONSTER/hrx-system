@@ -1,0 +1,83 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+#ifndef LOOM_IMPORT_CXX_BINDING_VECTOR_MEMORY_H_
+#define LOOM_IMPORT_CXX_BINDING_VECTOR_MEMORY_H_
+
+#include <cxx/attributes.h>
+#include <cxx/types_fwd.h>
+
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <string_view>
+
+#include "loom/import/cxx/source/source.h"
+#include "loom/import/cxx/value/representation.h"
+#include "loom/import/cxx/value/types.h"
+
+namespace loom::cxx_import {
+
+// One concrete contiguous native-vector memory specialization. Source
+// declarations retain the static vector footprint and typed view contract so
+// calls only bind the already admitted view and full-rank origin to the
+// corresponding High op.
+class VectorMemoryIntrinsic {
+ public:
+  // Returns whether |name| belongs to this binding family.
+  static bool supports(std::string_view name);
+
+  // Resolves a concrete source specialization. Unknown operation names return
+  // no value; malformed recognized declarations diagnose at |owner|.
+  static std::optional<VectorMemoryIntrinsic> resolve(
+      cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
+      const cxx::FunctionType* signature, const cxx::Attribute& attribute,
+      cxx::AST* owner);
+
+  // Emits the admitted operation. A store has no result.
+  std::optional<Value> call(std::span<const Value> arguments,
+                            loom_builder_t* builder,
+                            loom_location_id_t location) const;
+
+  // Compares the complete concrete contract for one canonical declaration.
+  bool equivalent(const VectorMemoryIntrinsic& other) const;
+
+ private:
+  enum class Operation {
+    Load,
+    Store,
+    LoadMask,
+    StoreMask,
+    LoadExpand,
+    StoreCompress,
+  };
+
+  static std::optional<Operation> parse_operation(std::string_view name);
+
+  explicit VectorMemoryIntrinsic(Operation operation) : operation_(operation) {}
+
+  bool is_load() const;
+  bool has_mask() const;
+  loom_value_id_t build_mask(loom_value_id_t source, loom_builder_t* builder,
+                             loom_location_id_t location) const;
+
+  // Selected contiguous vector memory operation.
+  Operation operation_;
+  // Admitted source or destination view.
+  const ViewPartition* view_ = nullptr;
+  // Exact register-vector footprint loaded or stored.
+  loom_type_t vector_type_ = {};
+  // Source integer mask carrier; unset for ordinary load/store.
+  loom_type_t mask_type_ = {};
+  // Internal i1 mask shape; unset for ordinary load/store.
+  loom_type_t predicate_type_ = {};
+  // Unsigned source interpretations in the full-rank origin record.
+  uint16_t origin_unsigned_mask_ = 0;
+};
+
+}  // namespace loom::cxx_import
+
+#endif  // LOOM_IMPORT_CXX_BINDING_VECTOR_MEMORY_H_

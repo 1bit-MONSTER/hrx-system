@@ -15,6 +15,7 @@ loom_check_test_suite(
   SRCS
     "block_quant_canonicalize.loom-test"
     "block_quant_samples.loom-test"
+    "boolean_extension.loom-test"
     "bytecode.loom-test"
     "canonicalize.loom-test"
     "comparisonf.loom-test"
