@@ -66,4 +66,20 @@ iree_execution_test_suite(
 )
 endif()
 
+if(LOOM_IMPORT_CXX)
+iree_execution_test_suite(
+  NAME
+    export_roundtrip_test
+  MANIFESTS
+    "export_roundtrip.test.json"
+  TOOLS
+    "loom-export-cxx=loom::py::loom::tools::loom-export-cxx"
+    "loom-import-cxx=::loom-import-cxx"
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/loom-import-cxx/testdata/readable_projection.loom"
+  LABELS
+    "hostonly"
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

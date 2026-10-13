@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "exports High IR as C++ and imports it through the public frontend",
+      "steps": [
+        {
+          "name": "export",
+          "run": {
+            "tool": "loom-export-cxx",
+            "args": [
+              "{srcdir}/testdata/readable_projection.loom",
+              "--output={tmp}/readable_projection.cxx"
+            ]
+          }
+        },
+        {
+          "name": "import",
+          "run": {
+            "tool": "loom-import-cxx",
+            "args": ["{tmp}/readable_projection.cxx"]
+          },
+          "stdout": {
+            "contains": {
+              "unordered": [
+                "kernel.def @copy_one",
+                "kernel.workitem.id<x>",
+                "view.subview",
+                "view.load",
+                "view.store"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

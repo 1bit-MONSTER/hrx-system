@@ -21,6 +21,50 @@ subexpression elimination and dead-code elimination, and prints Loom text.
 `--cleanup=false` exposes the direct import. `--to=bc --output=module.loombc`
 produces normal Loom bytecode for the existing compilation and linking tools.
 
+## Exporting High IR as C++
+
+`loom-export-cxx` presents a cleaned or specialized High module through the
+same C++ authoring API. The exporter is always available because it consumes
+the Python IR model and does not link the optional C++ frontend. Reimporting
+its output requires the importer.
+
+```sh
+loom-export-cxx specialized.loombc --output=specialized.cxx
+loom-import-cxx specialized.cxx --to=bc --output=edited.loombc
+```
+
+The first projection accepts one structured kernel and reconstructs ordinary
+C++ expressions, mutable loop-carried state, views, launch contracts, target
+records, and Loom scheduling attributes. For example, an SSA chain containing
+hardware IDs, integer casts, and a dynamic subview renders as:
+
+```cpp
+constexpr loom::amdgpu::target rendered_target{.kind = "gfx942"};
+
+[[loom::kernel,
+  loom::target(rendered_target),
+  loom::workgroup_count(1, 1, 1),
+  loom::workgroup_size(64, 1, 1)]]
+void copy_one(const float* input, float* output) {
+  auto input_view =
+      loom::buffer::view<64>(input, {}, loom::encoding::layout::dense<1>());
+  unsigned workitem =
+      static_cast<unsigned>(loom::kernel::workitem::id.x);
+  auto slice = loom::view::subview<1>(input_view, {workitem}, {});
+  float value = loom::view::load(slice, 0);
+  auto output_view =
+      loom::buffer::view<64>(output, {}, loom::encoding::layout::dense<1>());
+  loom::view::store(value, output_view, workitem);
+}
+```
+
+This is a readable semantic projection rather than an archival source form.
+It preserves represented program and scheduling contracts while omitting
+incidental SSA temporaries and redundant range facts. Loom text and bytecode
+remain the lossless forms. An operation without a validated C++ spelling stops
+rendering with the operation name and the unsupported semantic boundary; the
+tool never emits a partial approximation.
+
 ## Explicit 16-bit floating-point types
 
 `<stdfloat>` provides `std::float16_t` (IEEE FP16) and `std::bfloat16_t` (BF16).
