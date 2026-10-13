@@ -37,7 +37,9 @@ class HttpHarnessTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    loom_serve_http_server_request_stop(server_);
+    if (server_) {
+      loom_serve_http_server_request_stop(server_);
+    }
     IREE_EXPECT_OK(client_.Join());
     IREE_EXPECT_OK(loom_serve_http_listener_free(listener_));
     loom_serve_http_server_free(server_);
