@@ -19,10 +19,11 @@
 //
 // Memory ordering:
 //   The CP starts processing a packet when it observes a valid header. The
-//   header commit (atomic store-release) is therefore the publication barrier:
-//   all prior writes to the packet's fields and to kernarg memory are ordered
-//   before the CP can read them. The doorbell is a wakeup hint with release
-//   semantics to ensure header writes are visible before the CP re-scans.
+//   header commit (atomic store-release) publishes the packet to other host
+//   threads without exposing a partially populated slot. Before waking the CP,
+//   the direct doorbell path also issues a host write fence so all packet-body
+//   and header writes are device-visible before the MMIO store. The fallback
+//   HSA signal-store path owns the equivalent platform-specific publication.
 
 #ifndef IREE_HAL_DRIVERS_AMDGPU_UTIL_AQL_RING_H_
 #define IREE_HAL_DRIVERS_AMDGPU_UTIL_AQL_RING_H_
@@ -32,6 +33,7 @@
 #include "iree/base/threading/processor.h"
 #include "iree/hal/drivers/amdgpu/abi/queue.h"
 #include "iree/hal/drivers/amdgpu/abi/signal.h"
+#include "iree/hal/drivers/amdgpu/util/host_write.h"
 #include "iree/hal/drivers/amdgpu/util/libhsa.h"
 
 #ifdef __cplusplus
@@ -133,19 +135,22 @@ static inline void iree_hal_amdgpu_aql_ring_initialize(
   //
   // Only DOORBELL-kind signals expose a directly-writable hardware_doorbell_ptr
   // (a memory-mapped doorbell register); writing a packet ID there wakes the CP
-  // with zero libhsa indirection. Other signal kinds store a signal value in
-  // that same union slot rather than an MMIO pointer, so the raw write would
-  // fault. A PM4-emulated queue may also expose a DOORBELL-kind signal whose
-  // pointer names a software value; the HSA signal store must additionally
-  // notify ROCr's host translation worker. Those cases ring through the public
-  // HSA signal API.
+  // with zero libhsa indirection. The direct path also requires an explicit
+  // host write fence for publishing packet memory before the MMIO store. Other
+  // signal kinds store a signal value in that same union slot rather than an
+  // MMIO pointer, so the raw write would fault. A PM4-emulated queue may also
+  // expose a DOORBELL-kind signal whose pointer names a software value; the HSA
+  // signal store must additionally notify ROCr's host translation worker. Hosts
+  // without a suitable write fence and all other cases ring through the public
+  // HSA signal API, which owns the required platform ordering.
   out_ring->libhsa = libhsa;
   out_ring->doorbell.signal = hardware_queue->hsa_queue.doorbell_signal;
   iree_amd_signal_t* doorbell_signal =
       (iree_amd_signal_t*)hardware_queue->hsa_queue.doorbell_signal.handle;
   if (execution_mode == IREE_HAL_AMDGPU_AQL_QUEUE_EXECUTION_MODE_NATIVE &&
       doorbell_signal &&
-      doorbell_signal->kind == IREE_AMD_SIGNAL_KIND_DOORBELL) {
+      doorbell_signal->kind == IREE_AMD_SIGNAL_KIND_DOORBELL &&
+      iree_hal_amdgpu_host_write_fence_is_supported()) {
     out_ring->doorbell.ptr =
         (volatile int64_t*)doorbell_signal->hardware_doorbell_ptr;
   } else {
@@ -266,17 +271,20 @@ static inline void iree_hal_amdgpu_aql_ring_commit(
 // whose header is valid, regardless of whether the doorbell has been rung.
 // Multiple concurrent doorbell writes are harmless (the CP re-scans).
 //
-// Release semantics ensure all committed packet headers are visible before
-// the CP wakes and starts scanning.
+// The direct path must establish device visibility explicitly before the MMIO
+// store. The HSA signal-store fallback establishes the same ordering inside
+// the platform runtime.
 static inline void iree_hal_amdgpu_aql_ring_doorbell(
     iree_hal_amdgpu_aql_ring_t* ring, uint64_t packet_id) {
   if (ring->doorbell.ptr != NULL) {
-    // Fast path: DOORBELL-kind signal — direct MMIO write to the doorbell.
+    // Fast path: publish packet memory, then write the DOORBELL-kind signal's
+    // MMIO register. This matches ROCr's native AQL queue publication boundary.
+    iree_hal_amdgpu_host_write_fence();
     iree_atomic_store((iree_atomic_int64_t*)ring->doorbell.ptr,
                       (int64_t)packet_id, iree_memory_order_release);
   } else {
     // Fallback: USER/interrupt-kind doorbell signal — ring via the HSA
-    // signal-store API (store-release matches the fast path's ordering).
+    // signal-store API, which owns the platform-specific publication fence.
     iree_hsa_signal_store_screlease(IREE_LIBHSA(ring->libhsa),
                                     ring->doorbell.signal,
                                     (iree_hsa_signal_value_t)packet_id);
