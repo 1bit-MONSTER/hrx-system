@@ -1405,6 +1405,9 @@ TEST(XdnaQueueTest, QueueWaitPublishesContractBindingBeforePreparation) {
   prepared_buffer.Publish(kPublishedAddress);
   IREE_ASSERT_OK(iree_hal_semaphore_signal(allocation_ready, value, nullptr));
   ASSERT_NO_FATAL_FAILURE(harness.PollUntilSubmitted(1));
+  // Native submission precedes its proactor acknowledgement, which registers
+  // the notification destination used by the explicit completion wake below.
+  ASSERT_NO_FATAL_FAILURE(harness.PollUntilNotificationCount(1));
   std::vector<uint8_t> command_bytes;
   {
     std::lock_guard<std::mutex> lock(harness.native.mutex);
