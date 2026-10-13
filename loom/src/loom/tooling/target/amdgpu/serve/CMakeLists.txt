@@ -41,6 +41,7 @@ loom_cc_test(
     "--control_sources={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/control/kernels.loom}}"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -65,6 +66,7 @@ loom_cc_test(
     loom::serve::runtime::storage::memory
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -119,6 +121,7 @@ iree_py_test(
     loom::serve::testing::logs
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "resource_group:gpu-device"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
@@ -176,6 +179,7 @@ iree_py_test(
     loom::serve::testing::logs
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "resource_group:gpu-device"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
@@ -209,6 +213,7 @@ iree_py_test(
     loom::serve::testing::http
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "resource_group:gpu-device"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
@@ -244,6 +249,7 @@ loom_cc_test(
     "--test_device=amdgpu"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -273,6 +279,7 @@ loom_cc_test(
     "--test_device=amdgpu"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -299,6 +306,7 @@ loom_cc_test(
     "--test_device=amdgpu"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -325,6 +333,7 @@ loom_cc_test(
     "--test_device=amdgpu"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -357,6 +366,7 @@ loom_cc_test(
     loom::serve::transport::http::server
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -395,6 +405,7 @@ loom_cc_test(
     "--invalid_sources={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/compilation/invalid.loom}}"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -419,6 +430,7 @@ loom_cc_test(
     loom::serve::runtime::storage::memory
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -457,6 +469,7 @@ loom_cc_test(
     "--weight_sources={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/parameter/testdata/weights/stages.loom}}"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -480,6 +493,7 @@ loom_cc_test(
     loom::serve::runtime::storage::memory
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -505,6 +519,7 @@ loom_cc_test(
     loom::serve::runtime::storage::relocation
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -533,6 +548,7 @@ loom_cc_test(
     loom::serve::runtime::storage::snapshot
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
