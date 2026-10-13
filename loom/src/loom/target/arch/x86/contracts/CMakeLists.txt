@@ -91,6 +91,7 @@ loom_target_contract_cc_libraries(
     loom::target::contract
   LOWER_RULE_DEPS
     loom::codegen::low::lower
+    loom::ops::scalar
     loom::ops::vector
 )
 endif()

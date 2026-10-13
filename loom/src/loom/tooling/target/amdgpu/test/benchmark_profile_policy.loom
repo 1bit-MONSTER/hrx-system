@@ -1,0 +1,45 @@
+kernel.def @increment() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %input_aligned = buffer.assume.alignment %input {minimum_alignment = 4} : buffer
+  %output_aligned = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %input_view = buffer.view %input_aligned[%origin] : buffer -> view<1xi32>
+  %output_view = buffer.view %output_aligned[%origin] : buffer -> view<1xi32>
+  %value = view.load %input_view[0] : view<1xi32> -> i32
+  %step = scalar.constant 1 : i32
+  %next = scalar.addi %value, %step : i32
+  view.store %next, %output_view[0] : i32, view<1xi32>
+  kernel.return
+}
+
+check.case @single_dispatch {
+  %input = check.generate.fill value(7) : tensor<1xi32>
+  %output = check.generate.fill value(-1) : tensor<1xi32>
+  kernel.launch @increment(%input, %output) : (tensor<1xi32>, tensor<1xi32>)
+  %expected = check.generate.fill value(8) : tensor<1xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
+  check.return
+}
+
+check.benchmark<@single_dispatch> @single_baseline
+
+check.benchmark<@single_dispatch> @single_candidate
+
+check.case @dispatch_sequence {
+  %input = check.generate.fill value(7) : tensor<1xi32>
+  %intermediate = check.generate.fill value(-1) : tensor<1xi32>
+  %output = check.generate.fill value(-1) : tensor<1xi32>
+  kernel.launch.serial {
+    kernel.launch @increment(%input, %intermediate) : (tensor<1xi32>, tensor<1xi32>)
+    kernel.launch @increment(%intermediate, %output) : (tensor<1xi32>, tensor<1xi32>)
+  }
+  %expected = check.generate.fill value(9) : tensor<1xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
+  check.return
+}
+
+check.benchmark<@dispatch_sequence> @sequence_baseline
+
+check.benchmark<@dispatch_sequence> @sequence_candidate

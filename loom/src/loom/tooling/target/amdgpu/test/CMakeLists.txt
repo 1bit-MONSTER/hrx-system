@@ -9,6 +9,24 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
+iree_execution_test_suite(
+  NAME
+    benchmark_profile_policy_test
+  MANIFESTS
+    "benchmark_profile_policy.test.json"
+  TOOLS
+    "iree-benchmark-loom=loom::tools::iree-benchmark-loom"
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amdgpu/test/benchmark_profile_policy.loom"
+  LABELS
+    "iree-run-requirement=runtime.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
 iree_py_test(
   NAME
