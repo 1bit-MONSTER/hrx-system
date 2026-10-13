@@ -275,6 +275,20 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    fact_ordinal_map
+  HDRS
+    "fact_ordinal_map.h"
+  SRCS
+    "fact_ordinal_map.c"
+  DEPS
+    ::fact_table_api
+    iree::base
+    iree::base::internal::arena
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     fact_table
   HDRS
     "fact_cfg.h"
@@ -391,6 +405,7 @@ loom_cc_library(
   SRCS
     "predicate_facts.c"
   DEPS
+    ::fact_ordinal_map
     ::fact_table
     iree::base::internal
     iree::base::internal::arena

@@ -7,9 +7,9 @@
 #include "loom/util/predicate_facts.h"
 
 #include <stdint.h>
-#include <string.h>
 
 #include "iree/base/internal/math.h"
+#include "loom/util/fact_ordinal_map.h"
 
 // At most this many aliases bound each predicate's scan to constant work.
 #define LOOM_VALUE_FACT_ALIAS_LINEAR_SCAN_LIMIT 16
@@ -65,92 +65,9 @@ uint16_t loom_value_facts_export_integer_refinements(
   return count;
 }
 
-typedef struct loom_value_fact_alias_map_t {
-  // Borrowed alias IDs in result-fact order.
-  const loom_value_id_t* values;
-
-  // Number of alias IDs and corresponding result facts.
-  uint16_t value_count;
-
-  // Optional one-based alias ordinals keyed by SSA value ID.
-  const uint16_t* ordinals;
-
-  // Number of addressable entries in ordinals.
-  iree_host_size_t ordinal_capacity;
-} loom_value_fact_alias_map_t;
-
-static bool loom_value_fact_alias_map_find(
-    const loom_value_fact_alias_map_t* map, loom_value_id_t value_id,
-    uint16_t* out_ordinal) {
-  if (map->ordinals) {
-    if (value_id >= map->ordinal_capacity) {
-      return false;
-    }
-    const uint16_t ordinal_plus_one = map->ordinals[value_id];
-    if (ordinal_plus_one == 0) {
-      return false;
-    }
-    *out_ordinal = ordinal_plus_one - 1;
-    return true;
-  }
-
-  for (uint16_t i = 0; i < map->value_count; ++i) {
-    if (map->values[i] != value_id) {
-      continue;
-    }
-    *out_ordinal = i;
-    return true;
-  }
-  return false;
-}
-
-static iree_status_t loom_value_fact_alias_map_prepare(
-    loom_value_fact_table_t* table, const loom_value_id_t* values,
-    uint16_t value_count, loom_value_fact_alias_map_t* out_map) {
-  iree_host_size_t required_capacity = 0;
-  for (uint16_t i = 0; i < value_count; ++i) {
-    required_capacity =
-        iree_max(required_capacity, (iree_host_size_t)values[i] + 1);
-  }
-
-  if (required_capacity > table->scratch.alias_ordinals.capacity) {
-    uint16_t* new_ordinals = NULL;
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        table->transient_arena, required_capacity, sizeof(*new_ordinals),
-        (void**)&new_ordinals));
-    memset(new_ordinals, 0, required_capacity * sizeof(*new_ordinals));
-    table->scratch.alias_ordinals.values = new_ordinals;
-    table->scratch.alias_ordinals.capacity = required_capacity;
-  }
-
-  uint16_t* ordinals = table->scratch.alias_ordinals.values;
-  for (uint16_t i = 0; i < value_count; ++i) {
-    const loom_value_id_t value_id = values[i];
-    if (ordinals[value_id] == 0) {
-      ordinals[value_id] = (uint16_t)(i + 1);
-    }
-  }
-  *out_map = (loom_value_fact_alias_map_t){
-      /*.values=*/values,
-      /*.value_count=*/value_count,
-      /*.ordinals=*/ordinals,
-      /*.ordinal_capacity=*/table->scratch.alias_ordinals.capacity,
-  };
-  return iree_ok_status();
-}
-
-static void loom_value_fact_alias_map_release(loom_value_fact_table_t* table,
-                                              const loom_value_id_t* values,
-                                              uint16_t value_count) {
-  uint16_t* ordinals = table->scratch.alias_ordinals.values;
-  for (uint16_t i = 0; i < value_count; ++i) {
-    ordinals[values[i]] = 0;
-  }
-}
-
 static bool loom_value_fact_alias_map_resolve(
     const loom_value_fact_table_t* table,
-    const loom_value_fact_alias_map_t* alias_map,
+    const loom_value_fact_ordinal_map_t* alias_map,
     const loom_value_facts_t* alias_facts, loom_value_id_t value_id,
     bool* out_is_alias, uint16_t* out_alias_ordinal,
     loom_value_facts_t* out_facts) {
@@ -161,7 +78,7 @@ static bool loom_value_fact_alias_map_resolve(
     *out_alias_ordinal = 0;
   }
   uint16_t alias_ordinal = 0;
-  if (loom_value_fact_alias_map_find(alias_map, value_id, &alias_ordinal)) {
+  if (loom_value_fact_ordinal_map_find(alias_map, value_id, &alias_ordinal)) {
     if (out_is_alias) {
       *out_is_alias = true;
     }
@@ -176,7 +93,7 @@ static bool loom_value_fact_alias_map_resolve(
 
 static void loom_value_fact_alias_map_refine_relation(
     const loom_value_fact_table_t* table,
-    const loom_value_fact_alias_map_t* alias_map, uint8_t predicate_kind,
+    const loom_value_fact_ordinal_map_t* alias_map, uint8_t predicate_kind,
     loom_value_id_t lhs, loom_value_id_t rhs, loom_value_facts_t* inout_facts) {
   bool lhs_is_alias = false;
   bool rhs_is_alias = false;
@@ -206,7 +123,7 @@ static void loom_value_fact_alias_map_refine_relation(
 
 static void loom_value_fact_table_apply_alias_predicates_with_map(
     const loom_value_fact_table_t* table,
-    const loom_value_fact_alias_map_t* alias_map,
+    const loom_value_fact_ordinal_map_t* alias_map,
     const loom_predicate_t* predicates, uint16_t predicate_count,
     loom_value_facts_t* inout_facts) {
   // Apply predicates whose bounds are already literals or exact aliases.
@@ -220,7 +137,7 @@ static void loom_value_fact_table_apply_alias_predicates_with_map(
       continue;
     }
     uint16_t target_ordinal = 0;
-    if (!loom_value_fact_alias_map_find(
+    if (!loom_value_fact_ordinal_map_find(
             alias_map, (loom_value_id_t)predicate->args[0], &target_ordinal)) {
       continue;
     }
@@ -296,24 +213,15 @@ iree_status_t loom_value_fact_table_apply_alias_predicates(
     loom_value_fact_table_t* table, const loom_value_id_t* values,
     uint16_t value_count, const loom_predicate_t* predicates,
     uint16_t predicate_count, loom_value_facts_t* inout_facts) {
-  loom_value_fact_alias_map_t alias_map = {
-      /*.values=*/values,
-      /*.value_count=*/value_count,
-      /*.ordinals=*/NULL,
-      /*.ordinal_capacity=*/0,
-  };
   const bool use_direct_map =
       value_count > LOOM_VALUE_FACT_ALIAS_LINEAR_SCAN_LIMIT &&
       predicate_count > LOOM_VALUE_FACT_PREDICATE_LINEAR_SCAN_LIMIT;
-  if (use_direct_map) {
-    IREE_RETURN_IF_ERROR(loom_value_fact_alias_map_prepare(
-        table, values, value_count, &alias_map));
-  }
+  loom_value_fact_ordinal_map_t alias_map = {0};
+  IREE_RETURN_IF_ERROR(loom_value_fact_ordinal_map_initialize(
+      table, values, value_count, use_direct_map, &alias_map));
 
   loom_value_fact_table_apply_alias_predicates_with_map(
       table, &alias_map, predicates, predicate_count, inout_facts);
-  if (use_direct_map) {
-    loom_value_fact_alias_map_release(table, values, value_count);
-  }
+  loom_value_fact_ordinal_map_reset(&alias_map);
   return iree_ok_status();
 }

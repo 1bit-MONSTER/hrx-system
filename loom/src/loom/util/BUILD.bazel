@@ -237,6 +237,17 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "fact_ordinal_map",
+    srcs = ["fact_ordinal_map.c"],
+    hdrs = ["fact_ordinal_map.h"],
+    deps = [
+        ":fact_table_api",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "fact_table",
     srcs = [
         "fact_cfg.c",
@@ -348,6 +359,7 @@ loom_cc_library(
     srcs = ["predicate_facts.c"],
     hdrs = ["predicate_facts.h"],
     deps = [
+        ":fact_ordinal_map",
         ":fact_table",
         "//loom/src/loom/ir:facts",
         "//runtime/src/iree/base/internal",
