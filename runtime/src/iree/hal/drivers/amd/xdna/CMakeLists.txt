@@ -276,9 +276,12 @@ iree_cc_library(
     queue
   HDRS
     "queue.h"
+    "queue_admission.h"
     "queue_operation.h"
+    "queue_state.h"
   SRCS
     "queue.c"
+    "queue_admission.c"
     "queue_operation.c"
   DEPS
     ::barrier

@@ -203,11 +203,14 @@ iree_runtime_cc_library(
     name = "queue",
     srcs = [
         "queue.c",
+        "queue_admission.c",
         "queue_operation.c",
     ],
     hdrs = [
         "queue.h",
+        "queue_admission.h",
         "queue_operation.h",
+        "queue_state.h",
     ],
     deps = [
         ":barrier",
