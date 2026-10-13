@@ -323,3 +323,62 @@ loom_loop_recurrence_facts_t loom_loop_domain_recurrence_facts(
   result.exit_value = result.values;
   return result;
 }
+
+static int64_t loom_loop_domain_source_from_carrier(uint8_t bitwidth,
+                                                    uint64_t bits) {
+  const uint64_t sign_bit = UINT64_C(1) << (bitwidth - 1);
+  const uint64_t mask = UINT64_MAX >> (64 - bitwidth);
+  bits &= mask;
+  return bits < sign_bit ? (int64_t)bits : -1 - (int64_t)(mask - bits);
+}
+
+loom_loop_recurrence_facts_t loom_loop_domain_next_guard_recurrence_facts(
+    loom_loop_bound_flags_t bound_flags, uint8_t bitwidth,
+    loom_value_facts_t initial_values, loom_value_facts_t bounds,
+    loom_value_facts_t step) {
+  loom_loop_recurrence_facts_t result = {
+      .values = loom_value_facts_unknown(),
+      .body_values = loom_value_facts_unknown(),
+      .exit_value = loom_value_facts_unknown(),
+  };
+  if (loom_value_facts_is_float(initial_values) ||
+      loom_value_facts_is_float(bounds) || loom_value_facts_is_float(step)) {
+    return result;
+  }
+
+  loom_value_facts_t advanced_initial = loom_value_facts_unknown();
+  int64_t exact_initial = 0;
+  int64_t increment = 0;
+  const bool exact_step = loom_value_facts_as_exact_i64(step, &increment);
+  if (loom_value_facts_as_exact_i64(initial_values, &exact_initial) &&
+      exact_step) {
+    const uint64_t mask = UINT64_MAX >> (64 - bitwidth);
+    const uint64_t advanced_bits =
+        ((uint64_t)exact_initial + (uint64_t)increment) & mask;
+    advanced_initial = loom_value_facts_exact_i64(
+        loom_loop_domain_source_from_carrier(bitwidth, advanced_bits));
+  } else {
+    loom_value_facts_addi(&initial_values, &step, &advanced_initial);
+  }
+
+  const loom_loop_recurrence_facts_t guard = loom_loop_domain_recurrence_facts(
+      bound_flags, bitwidth, advanced_initial, bounds, step);
+  result.trip_count = guard.trip_count;
+  result.trip_count_kind = guard.trip_count_kind;
+  if (guard.trip_count_kind == LOOM_LOOP_TRIP_COUNT_UNKNOWN) {
+    return result;
+  }
+
+  loom_loop_recurrence_facts_t carried;
+  if (!loom_loop_domain_additive_recurrence_facts(initial_values,
+                                                  exact_step ? increment : 0,
+                                                  guard.trip_count, &carried) ||
+      !loom_value_facts_fit_signed_bit_count(carried.values, bitwidth)) {
+    return result;
+  }
+  carried.trip_count_kind = guard.trip_count_kind;
+  if (guard.trip_count_kind == LOOM_LOOP_TRIP_COUNT_BOUNDED) {
+    carried.exit_value = carried.values;
+  }
+  return carried;
+}

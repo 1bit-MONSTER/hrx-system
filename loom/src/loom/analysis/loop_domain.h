@@ -140,6 +140,16 @@ loom_loop_recurrence_facts_t loom_loop_domain_recurrence_facts(
     loom_value_facts_t initial_values, loom_value_facts_t bounds,
     loom_value_facts_t step);
 
+// Proves a recurrence whose header guard compares the next state after one
+// application of |step|. Body and exit ranges remain observations of the
+// carried header value; only execution-count evaluation is advanced. Exact
+// operands use carrier-modular addition, while ranged operands must establish
+// a contiguous advanced interval without carrier truncation.
+loom_loop_recurrence_facts_t loom_loop_domain_next_guard_recurrence_facts(
+    loom_loop_bound_flags_t bound_flags, uint8_t bitwidth,
+    loom_value_facts_t initial_values, loom_value_facts_t bounds,
+    loom_value_facts_t step);
+
 #ifdef __cplusplus
 }
 #endif

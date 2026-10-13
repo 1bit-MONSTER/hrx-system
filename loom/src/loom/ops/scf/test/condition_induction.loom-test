@@ -478,3 +478,67 @@ CHECK: %scalar_hi = scalar.constant 9 : i64
 CHECK: %result_lo = scalar.constant 1 : i64
 CHECK: %result_hi = scalar.constant 1 : i64
 CHECK-NOT: *test.fact_range_*
+
+// ====
+
+// RUN: with-checks pass canonicalize,dce
+
+// A condition-local next value and a body-local update with an independently
+// authored but equal literal describe the same additive recurrence. The guard
+// advances before testing while body and result facts remain carried values.
+func.def @scalar_condition_next_guard() -> (i64, i64) {
+  %begin = scalar.constant 0 : i32
+  %end = scalar.constant 9 : i32
+  %result = scf.while(%before = %begin : i32) -> (i32) {
+    %guard_step = scalar.constant 3 : i32
+    %next_guard = scalar.addi %before, %guard_step : i32
+    %header_lo = test.fact_range_lo %before : i32 -> i64
+    %header_hi = test.fact_range_hi %before : i32 -> i64
+    test.use %header_lo, %header_hi : i64, i64
+    %more = scalar.cmpi slt, %next_guard, %end : i32
+    scf.condition %more, %before : i1, i32
+  } do(%current: i32) {
+    %body_step = scalar.constant 3 : i32
+    %next = scalar.addi %current, %body_step : i32
+    scf.yield %next : i32
+  }
+  %result_lo = test.fact_range_lo %result : i32 -> i64
+  %result_hi = test.fact_range_hi %result : i32 -> i64
+  func.return %result_lo, %result_hi : i64, i64
+}
+
+// ----
+CHECK: %header_lo = scalar.constant 0 : i64
+CHECK: %header_hi = scalar.constant 6 : i64
+CHECK: %result_lo = scalar.constant 6 : i64
+CHECK: %result_hi = scalar.constant 6 : i64
+CHECK-NOT: *test.fact_range_*
+
+// ====
+
+// RUN: with-checks pass canonicalize,dce
+
+// Equal facts on distinct mutable inputs do not establish a retained equation.
+// A later cyclic solve may change either fact, unlike equal literal constants.
+func.def @transient_equal_steps_are_not_one_equation(%guard_input: index, %body_input: index) -> (i64, i64) {
+  %guard_step = index.assume %guard_input [range(%guard_input, 3, 3)] : index
+  %body_step = index.assume %body_input [range(%body_input, 3, 3)] : index
+  %begin = index.constant 0 : index
+  %end = index.constant 9 : index
+  %result = scf.while(%before = %begin : index) -> (index) {
+    %next_guard = index.add %before, %guard_step : index
+    %more = index.cmp slt, %next_guard, %end : index
+    scf.condition %more, %before : i1, index
+  } do(%current: index) {
+    %next = index.add %current, %body_step : index
+    scf.yield %next : index
+  }
+  %result_lo = test.fact_range_lo %result : index -> i64
+  %result_hi = test.fact_range_hi %result : index -> i64
+  func.return %result_lo, %result_hi : i64, i64
+}
+
+// ----
+CHECK: %result_lo = scalar.constant -9223372036854775808 : i64
+CHECK: %result_hi = scalar.constant 9223372036854775807 : i64
+CHECK-NOT: *test.fact_range_*
