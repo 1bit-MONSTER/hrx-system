@@ -17,7 +17,7 @@ struct loom_serve_program_t {
   // Owned process borrowing no session state.
   iree_vm_process_t* process;
   // Fixed invocation backing, independent of request and token counts.
-  iree_alignas(iree_alignof(iree_max_align_t)) uint8_t storage[16384];
+  iree_alignas(iree_max_align_t) uint8_t storage[16384];
   // Invocation borrowing storage; calls are serialized by the model owner.
   iree_vm_invocation_t* invocation;
 };

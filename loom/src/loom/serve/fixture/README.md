@@ -164,7 +164,7 @@ build_tools/bin/iree-bazel-test --config=asan \
   //loom/src/loom/tooling/target/amdgpu/serve:source_decision_service_test
 ```
 
-The [held-device service check](../service/image/service_test.cc) separately verifies
+The [held-device service check](../service/image/service_linux_test.cc) separately verifies
 that readiness/status and heartbeat progress while a real HAL predecessor is
 held, then releases it and checks final output. It is not a timeout-based speed
 assertion. Real model quality and controlled performance runs follow the

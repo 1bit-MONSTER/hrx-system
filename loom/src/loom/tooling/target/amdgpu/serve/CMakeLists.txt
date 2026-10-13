@@ -332,12 +332,12 @@ loom_cc_test(
 )
 endif()
 
-if(IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+if(IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_test(
   NAME
     image_service_test
   SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/image/service_test.cc"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/image/service_linux_test.cc"
   DEPS
     iree::async
     iree::base

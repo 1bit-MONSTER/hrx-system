@@ -269,12 +269,15 @@ loom_cc_test(
 
 loom_cc_test(
     name = "image_service_test",
-    srcs = ["//loom/src/loom/serve/service/image:service_test.cc"],
+    srcs = ["//loom/src/loom/serve/service/image:service_linux_test.cc"],
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = ["iree-run-requirement=runtime.resource.amd_gpu"],
     target_compatible_with = loom_config_compatible_with([
         "//runtime/config/hal:driver_amdgpu",
-    ]),
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
     deps = [
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/execution",
