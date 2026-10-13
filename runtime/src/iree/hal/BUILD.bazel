@@ -79,7 +79,11 @@ iree_runtime_cc_library(
         "topology.c",
         "topology_builder.c",
         "virtual_buffer.c",
-    ],
+    ] + select({
+        "@platforms//cpu:x86_32": ["memory_scope_host_x86.c"],
+        "@platforms//cpu:x86_64": ["memory_scope_host_x86.c"],
+        "//conditions:default": ["memory_scope_host_generic.c"],
+    }),
     hdrs = [
         "allocator.h",
         "api.h",

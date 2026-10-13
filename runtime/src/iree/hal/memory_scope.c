@@ -10,10 +10,6 @@
 #include "iree/hal/device_group.h"
 #include "iree/hal/pool.h"
 
-#if defined(IREE_ARCH_X86_64) || defined(IREE_ARCH_X86_32)
-#include <immintrin.h>
-#endif  // IREE_ARCH_X86_*
-
 IREE_API_EXPORT iree_status_t
 iree_hal_pool_host_access_validate(iree_hal_pool_host_access_t host) {
   if (iree_any_bit_set(host.access, ~IREE_HAL_MEMORY_ACCESS_ALL) ||
@@ -960,12 +956,6 @@ static iree_status_t iree_hal_buffer_mapping_transition_validate(
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "transition recipe does not execute on the host");
     }
-#if !defined(IREE_ARCH_X86_64) && !defined(IREE_ARCH_X86_32)
-    if (info->executor == IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT) {
-      return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                              "direct host cache recipe requires an x86 host");
-    }
-#endif  // !IREE_ARCH_X86_*
     iree_hal_memory_access_t access = IREE_HAL_MEMORY_ACCESS_NONE;
     if (info->operation == IREE_HAL_MEMORY_TRANSITION_OPERATION_HOST_FLUSH) {
       access = IREE_HAL_MEMORY_ACCESS_WRITE;
@@ -983,85 +973,6 @@ static iree_status_t iree_hal_buffer_mapping_transition_validate(
   }
   return iree_ok_status();
 }
-
-#if defined(IREE_ARCH_X86_64) || defined(IREE_ARCH_X86_32)
-
-static void iree_hal_memory_transition_host_fence(
-    iree_hal_host_cache_fence_t fence) {
-  switch (fence) {
-    case IREE_HAL_HOST_CACHE_FENCE_NONE:
-      break;
-    case IREE_HAL_HOST_CACHE_FENCE_X86_SFENCE:
-      _mm_sfence();
-      break;
-    case IREE_HAL_HOST_CACHE_FENCE_X86_MFENCE:
-      _mm_mfence();
-      break;
-    default:
-      IREE_ASSERT_UNREACHABLE("unqualified host cache fence");
-      break;
-  }
-}
-
-IREE_API_EXPORT void iree_hal_memory_transition_execute_host_direct(
-    const iree_hal_memory_transition_recipe_info_t* info, const void* pointer,
-    iree_device_size_t length) {
-  if (!length) {
-    return;
-  }
-  iree_hal_memory_transition_host_fence(info->host.fence_before);
-  if (info->host.instruction == IREE_HAL_HOST_CACHE_INSTRUCTION_NONE) {
-    iree_hal_memory_transition_host_fence(info->host.fence_after);
-    return;
-  }
-  // The native producer qualifies the instruction for the host and supplies
-  // its power-of-two cache-line granularity. The caller validated the inclusive
-  // last address; rounding down avoids an end-address overflow.
-  const uintptr_t mask = (uintptr_t)info->range_granularity - 1;
-  const uintptr_t first = (uintptr_t)pointer & ~mask;
-  const uintptr_t last = ((uintptr_t)pointer + length - 1) & ~mask;
-  for (uintptr_t line = first;; line += info->range_granularity) {
-    switch (info->host.instruction) {
-      case IREE_HAL_HOST_CACHE_INSTRUCTION_X86_CLFLUSH:
-        _mm_clflush((const void*)line);
-        break;
-      case IREE_HAL_HOST_CACHE_INSTRUCTION_X86_CLFLUSHOPT:
-#if defined(IREE_COMPILER_MSVC)
-        _mm_clflushopt((void*)line);
-#else
-        __asm__ volatile("clflushopt (%0)" : : "r"(line) : "memory");
-#endif  // IREE_COMPILER_MSVC
-        break;
-      case IREE_HAL_HOST_CACHE_INSTRUCTION_X86_CLWB:
-#if defined(IREE_COMPILER_MSVC)
-        _mm_clwb((void*)line);
-#else
-        __asm__ volatile("clwb (%0)" : : "r"(line) : "memory");
-#endif  // IREE_COMPILER_MSVC
-        break;
-      default:
-        IREE_ASSERT_UNREACHABLE("unqualified host cache instruction");
-        break;
-    }
-    if (line == last) {
-      break;
-    }
-  }
-  iree_hal_memory_transition_host_fence(info->host.fence_after);
-}
-
-#else
-
-IREE_API_EXPORT void iree_hal_memory_transition_execute_host_direct(
-    const iree_hal_memory_transition_recipe_info_t* info, const void* pointer,
-    iree_device_size_t length) {
-  (void)info;
-  (void)pointer;
-  (void)length;
-  IREE_ASSERT_UNREACHABLE("direct host cache recipe requires an x86 host");
-}
-
-#endif  // IREE_ARCH_X86_*
 
 IREE_API_EXPORT iree_status_t iree_hal_buffer_mapping_memory_barrier(
     iree_hal_memory_effects_t effects, iree_host_size_t mapping_count,
@@ -1119,13 +1030,11 @@ IREE_API_EXPORT iree_status_t iree_hal_buffer_mapping_memory_barrier(
               transition->mapping, transition->offset, length);
         }
       } else {
-#if defined(IREE_ARCH_X86_64) || defined(IREE_ARCH_X86_32)
         if (length) {
           iree_hal_memory_transition_execute_host_direct(
               info, transition->mapping->contents.data + transition->offset,
               length);
         }
-#endif  // IREE_ARCH_X86_*
       }
     }
   }

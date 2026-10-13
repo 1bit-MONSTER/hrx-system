@@ -124,12 +124,9 @@ TEST(MemoryTransitionRecipeTest, QueueFamilyAdmitsItsHostExecutors) {
   IREE_EXPECT_OK(iree_hal_barrier_validate(&barrier, &family));
   operation.executor = IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT;
   operation.host.instruction = IREE_HAL_HOST_CACHE_INSTRUCTION_X86_CLFLUSH;
-#if defined(IREE_ARCH_X86_64) || defined(IREE_ARCH_X86_32)
+  // Structural admission is independent of the host running this test.
+  // Native qualification belongs to the backend that publishes the recipe.
   IREE_EXPECT_OK(iree_hal_barrier_validate(&barrier, &family));
-#else
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
-                        iree_hal_barrier_validate(&barrier, &family));
-#endif
   // Host effects still require an actual range operand and matching recipe.
   barrier.buffer_barrier_count = 0;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
@@ -166,16 +163,7 @@ TEST(MemoryTransitionRecipeTest, GlobalHostActionsRetainResourceOperands) {
           .buffer_barriers = &buffer_barrier,
       };
       IREE_EXPECT_OK(iree_hal_memory_transition_recipe_validate(&recipe));
-#if defined(IREE_ARCH_X86_64) || defined(IREE_ARCH_X86_32)
       IREE_EXPECT_OK(iree_hal_barrier_validate(&barrier, &family));
-#else
-      if (executor == IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT) {
-        IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
-                              iree_hal_barrier_validate(&barrier, &family));
-      } else {
-        IREE_EXPECT_OK(iree_hal_barrier_validate(&barrier, &family));
-      }
-#endif
       barrier.buffer_barrier_count = 0;
       IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                             iree_hal_barrier_validate(&barrier, &family));
