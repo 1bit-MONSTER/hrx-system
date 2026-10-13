@@ -6,10 +6,12 @@
 
 #include "loom/util/json.h"
 
+#include <string.h>
+
 #include "iree/base/internal/unicode.h"
 
 //===----------------------------------------------------------------------===//
-// JSON-escaping stream adapter
+// JSON string escaping
 //===----------------------------------------------------------------------===//
 
 // Flushes a literal run [run_start, cursor) to the inner stream.
@@ -24,15 +26,17 @@ static inline iree_status_t loom_json_flush_run(loom_output_stream_t* inner,
   return iree_ok_status();
 }
 
-// Write callback that JSON-escapes all incoming text per RFC 8259.
+// Escapes a complete string or a fragment ending on a character boundary.
 //
 // Walks the input byte by byte, accumulating literal runs and flushing escape
 // sequences. Valid multi-byte UTF-8 passes through unchanged except for U+2028
 // and U+2029, which are escaped for JavaScript/HTML safety. Malformed UTF-8
 // bytes are escaped as U+FFFD replacement characters.
-static iree_status_t loom_json_escape_write(void* user_data,
-                                            iree_string_view_t text) {
-  loom_output_stream_t* inner = ((loom_json_escape_stream_t*)user_data)->inner;
+static iree_status_t loom_json_write_escaped(loom_output_stream_t* inner,
+                                             iree_string_view_t text) {
+  if (iree_string_view_is_empty(text)) {
+    return iree_ok_status();
+  }
   const char* run_start = text.data;
   const char* end = text.data + text.size;
   for (const char* cursor = text.data; cursor < end; ++cursor) {
@@ -111,13 +115,61 @@ static iree_status_t loom_json_escape_write(void* user_data,
   return iree_ok_status();
 }
 
-void loom_json_escape_stream_init(loom_output_stream_t* inner,
-                                  loom_json_escape_stream_t* escape_data,
-                                  loom_output_stream_t* out_stream) {
-  escape_data->inner = inner;
-  out_stream->write = loom_json_escape_write;
-  out_stream->user_data = escape_data;
-  out_stream->offset = 0;
+// Completes the previous character before forwarding the next complete span.
+// Only continuation bytes join a pending prefix: a new lead or ASCII byte
+// terminates the malformed prefix without consuming the next character.
+static iree_status_t loom_json_string_write(void* user_data,
+                                            iree_string_view_t text) {
+  loom_json_string_writer_t* writer = user_data;
+  if (writer->pending.length > 0) {
+    iree_host_size_t sequence_length =
+        iree_unicode_utf8_sequence_length((uint8_t)writer->pending.bytes[0]);
+    while (writer->pending.length < sequence_length && text.size > 0 &&
+           ((uint8_t)text.data[0] & 0xC0) == 0x80) {
+      writer->pending.bytes[writer->pending.length++] = text.data[0];
+      ++text.data;
+      --text.size;
+    }
+    if (writer->pending.length < sequence_length && text.size == 0) {
+      return iree_ok_status();
+    }
+    IREE_RETURN_IF_ERROR(loom_json_write_escaped(
+        writer->output,
+        iree_make_string_view(writer->pending.bytes, writer->pending.length)));
+    writer->pending.length = 0;
+  }
+
+  // This helper examines at most four trailing bytes, independent of span size.
+  iree_host_size_t tail_length =
+      iree_unicode_utf8_incomplete_tail_length(text.data, text.size);
+  iree_host_size_t complete_length = text.size - tail_length;
+  IREE_RETURN_IF_ERROR(loom_json_write_escaped(
+      writer->output, iree_make_string_view(text.data, complete_length)));
+  if (tail_length > 0) {
+    memcpy(writer->pending.bytes, text.data + complete_length, tail_length);
+    writer->pending.length = (uint8_t)tail_length;
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_json_string_begin(loom_output_stream_t* stream,
+                                     loom_json_string_writer_t* out_writer) {
+  *out_writer = (loom_json_string_writer_t){
+      .stream =
+          {
+              .write = loom_json_string_write,
+              .user_data = out_writer,
+          },
+      .output = stream,
+  };
+  return loom_output_stream_write_char(stream, '"');
+}
+
+iree_status_t loom_json_string_end(loom_json_string_writer_t* writer) {
+  IREE_RETURN_IF_ERROR(loom_json_write_escaped(
+      writer->output,
+      iree_make_string_view(writer->pending.bytes, writer->pending.length)));
+  return loom_output_stream_write_char(writer->output, '"');
 }
 
 //===----------------------------------------------------------------------===//
@@ -126,11 +178,8 @@ void loom_json_escape_stream_init(loom_output_stream_t* inner,
 
 iree_status_t loom_json_write_escaped_string(loom_output_stream_t* stream,
                                              iree_string_view_t value) {
-  loom_json_escape_stream_t escape_data;
-  loom_output_stream_t escape_stream;
-  loom_json_escape_stream_init(stream, &escape_data, &escape_stream);
   IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
-  IREE_RETURN_IF_ERROR(loom_output_stream_write(&escape_stream, value));
+  IREE_RETURN_IF_ERROR(loom_json_write_escaped(stream, value));
   IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
   return iree_ok_status();
 }

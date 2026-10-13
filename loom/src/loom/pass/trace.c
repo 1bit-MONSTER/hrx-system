@@ -317,13 +317,11 @@ static iree_status_t loom_pass_trace_write_jsonl(
         &object, IREE_SV("ir_path"), artifact->path));
   } else {
     IREE_RETURN_IF_ERROR(loom_json_object_begin_field(&object, IREE_SV("ir")));
-    IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
-    loom_json_escape_stream_t escape_data;
-    loom_output_stream_t escape_stream;
-    loom_json_escape_stream_init(stream, &escape_data, &escape_stream);
+    loom_json_string_writer_t string;
+    IREE_RETURN_IF_ERROR(loom_json_string_begin(stream, &string));
     IREE_RETURN_IF_ERROR(loom_text_print_module_with_options(
-        event->module, &escape_stream, &options->print_options));
-    IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
+        event->module, &string.stream, &options->print_options));
+    IREE_RETURN_IF_ERROR(loom_json_string_end(&string));
   }
   IREE_RETURN_IF_ERROR(loom_json_object_end(&object));
   return loom_output_stream_write_char(stream, '\n');

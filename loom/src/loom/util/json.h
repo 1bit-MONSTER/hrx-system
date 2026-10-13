@@ -6,10 +6,9 @@
 
 // JSON serialization utilities for loom output streams.
 //
-// Provides a streaming JSON escape adapter per RFC 8259: wraps an inner
-// loom_output_stream_t and escapes all incoming text before forwarding.
-// No intermediate buffer — each fragment is escaped character by character,
-// flushing literal runs as contiguous writes.
+// Provides JSON string and container writers per RFC 8259. String writers
+// escape incoming text and flush literal runs as contiguous writes. Streaming
+// strings retain only an incomplete UTF-8 character between writes.
 //
 // Escapes:
 //   " → \"     \ → \\     \n → \n     \r → \r     \t → \t
@@ -29,13 +28,11 @@
 //   loom_json_write_escaped_string(&stream, iree_make_cstring_view("hello\n"));
 //   // → "hello\n"
 //
-//   // Or use the raw escape adapter for streaming content:
-//   loom_json_escape_stream_t escape_data;
-//   loom_output_stream_t escape_stream;
-//   loom_json_escape_stream_init(&stream, &escape_data, &escape_stream);
-//   loom_output_stream_write_cstring(&stream, "\"");
-//   loom_output_stream_write(&escape_stream, some_text);  // escaped
-//   loom_output_stream_write_cstring(&stream, "\"");
+//   // Or stream a string whose characters may span multiple writes:
+//   loom_json_string_writer_t string;
+//   IREE_RETURN_IF_ERROR(loom_json_string_begin(&stream, &string));
+//   IREE_RETURN_IF_ERROR(loom_output_stream_write(&string.stream, some_text));
+//   IREE_RETURN_IF_ERROR(loom_json_string_end(&string));
 
 #ifndef LOOM_UTIL_JSON_H_
 #define LOOM_UTIL_JSON_H_
@@ -47,19 +44,34 @@
 extern "C" {
 #endif
 
-// JSON-escaping stream adapter. Wraps an inner stream and escapes all
-// incoming text per RFC 8259. Stack-allocated — no heap, no lifetime
-// management.
-typedef struct loom_json_escape_stream_t {
-  loom_output_stream_t* inner;
-} loom_json_escape_stream_t;
+// Streaming state for one quoted JSON string. No allocations; the writer must
+// remain at the same address until the string ends or writing fails.
+typedef struct loom_json_string_writer_t {
+  // Input stream accepting arbitrary UTF-8 fragments. Its offset counts
+  // accepted input bytes, including any incomplete character retained below.
+  loom_output_stream_t stream;
+  // Borrowed destination for quotes and escaped bytes; outlives this writer.
+  loom_output_stream_t* output;
+  // Incomplete UTF-8 character carried between input writes.
+  struct {
+    // Space to assemble one UTF-8 character, which requires at most four bytes.
+    char bytes[4];
+    // Retained bytes: at most three between writes, four during completion.
+    uint8_t length;
+  } pending;
+} loom_json_string_writer_t;
 
-// Initializes a JSON-escaping stream that wraps |inner|. The resulting
-// |out_stream| can be passed to any function expecting
-// loom_output_stream_t* — all writes are escaped before reaching |inner|.
-void loom_json_escape_stream_init(loom_output_stream_t* inner,
-                                  loom_json_escape_stream_t* escape_data,
-                                  loom_output_stream_t* out_stream);
+// Begins a JSON string, writing its opening quote. On success, pass
+// &out_writer->stream to text producers; character boundaries need not coincide
+// with write boundaries. The output stream's offset counts emitted JSON bytes.
+iree_status_t loom_json_string_begin(loom_output_stream_t* stream,
+                                     loom_json_string_writer_t* out_writer);
+
+// Resolves incomplete terminal bytes as one replacement escape per byte and
+// writes the closing quote. Call exactly once after successful input writes.
+// After any write failure, discard the writer without calling end: no resources
+// require cleanup, and further writes could obscure the original sink failure.
+iree_status_t loom_json_string_end(loom_json_string_writer_t* writer);
 
 // Writes a JSON-escaped string value (with surrounding quotes).
 iree_status_t loom_json_write_escaped_string(loom_output_stream_t* stream,

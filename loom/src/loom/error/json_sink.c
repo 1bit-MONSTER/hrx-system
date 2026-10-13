@@ -45,21 +45,17 @@ static iree_status_t loom_json_render_param_value(
       return loom_output_stream_write_cstring(
           stream, param->boolean ? "true" : "false");
     case LOOM_PARAM_TYPE: {
-      // Render the type through the JSON-escaping adapter directly
-      // into the output stream. Zero allocations.
-      loom_json_escape_stream_t escape_data;
-      loom_output_stream_t escape_stream;
-      loom_json_escape_stream_init(stream, &escape_data, &escape_stream);
-      IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
+      // Render the type directly into a quoted JSON string without allocation.
+      loom_json_string_writer_t string;
+      IREE_RETURN_IF_ERROR(loom_json_string_begin(stream, &string));
       if (type_formatter.fn) {
         IREE_RETURN_IF_ERROR(type_formatter.fn(
-            param->type, type_formatter.user_data, &escape_stream));
+            param->type, type_formatter.user_data, &string.stream));
       } else {
         IREE_RETURN_IF_ERROR(
-            loom_output_stream_write_cstring(&escape_stream, "<type>"));
+            loom_output_stream_write_cstring(&string.stream, "<type>"));
       }
-      IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
-      return iree_ok_status();
+      return loom_json_string_end(&string);
     }
     default:
       return loom_json_write_escaped_cstring(stream, "<?>");
@@ -414,32 +410,28 @@ iree_status_t loom_diagnostic_json_write_object(
   IREE_RETURN_IF_ERROR(loom_json_render_related_locations(&object, diagnostic));
 
   // Message: rendered from the error def's template and params, streamed
-  // through the JSON-escaping adapter directly to the output. Zero allocs.
+  // through a quoted JSON string directly to the output without allocation.
   {
     IREE_RETURN_IF_ERROR(
         loom_json_object_begin_field(&object, IREE_SV("message")));
-    IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
-    loom_json_escape_stream_t escape_data;
-    loom_output_stream_t escape_stream;
-    loom_json_escape_stream_init(stream, &escape_data, &escape_stream);
+    loom_json_string_writer_t string;
+    IREE_RETURN_IF_ERROR(loom_json_string_begin(stream, &string));
     IREE_RETURN_IF_ERROR(loom_diagnostic_render_message(
         error, diagnostic->params, diagnostic->param_count, type_formatter,
-        &escape_stream));
-    IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
+        &string.stream));
+    IREE_RETURN_IF_ERROR(loom_json_string_end(&string));
   }
 
   // Fix hint (when present).
   if (loom_error_def_fix_hint_template(error)) {
     IREE_RETURN_IF_ERROR(
         loom_json_object_begin_field(&object, IREE_SV("fix_hint")));
-    IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
-    loom_json_escape_stream_t escape_data;
-    loom_output_stream_t escape_stream;
-    loom_json_escape_stream_init(stream, &escape_data, &escape_stream);
+    loom_json_string_writer_t string;
+    IREE_RETURN_IF_ERROR(loom_json_string_begin(stream, &string));
     IREE_RETURN_IF_ERROR(loom_diagnostic_render_fix_hint(
         error, diagnostic->params, diagnostic->param_count, type_formatter,
-        &escape_stream));
-    IREE_RETURN_IF_ERROR(loom_output_stream_write_char(stream, '"'));
+        &string.stream));
+    IREE_RETURN_IF_ERROR(loom_json_string_end(&string));
   }
 
   // Params object (when present). Clamp to the schema length to avoid

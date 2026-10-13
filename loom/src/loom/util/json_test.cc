@@ -17,19 +17,14 @@
 namespace loom {
 namespace {
 
-// Helper: escape a string through the JSON escape adapter and return
-// the raw escaped content (no surrounding quotes).
-std::string EscapeRaw(iree_string_view_t input) {
+// Helper: escape through the quoted convenience function.
+std::string EscapeQuoted(iree_string_view_t input) {
   iree_string_builder_t builder;
   iree_string_builder_initialize(iree_allocator_system(), &builder);
   loom_output_stream_t stream;
   loom_output_stream_for_builder(&builder, &stream);
 
-  loom_json_escape_stream_t escape_data;
-  loom_output_stream_t escape_stream;
-  loom_json_escape_stream_init(&stream, &escape_data, &escape_stream);
-
-  iree_status_t status = loom_output_stream_write(&escape_stream, input);
+  iree_status_t status = loom_json_write_escaped_string(&stream, input);
   std::string result;
   if (iree_status_is_ok(status)) {
     iree_string_view_t view = iree_string_builder_view(&builder);
@@ -38,28 +33,94 @@ std::string EscapeRaw(iree_string_view_t input) {
   IREE_EXPECT_OK(status);
   iree_string_builder_deinitialize(&builder);
   return result;
+}
+
+std::string EscapeQuoted(const char* input) {
+  return EscapeQuoted(iree_make_cstring_view(input));
+}
+
+// Omits quotes so individual encoding assertions focus on their payload.
+std::string EscapeRaw(iree_string_view_t input) {
+  std::string quoted = EscapeQuoted(input);
+  EXPECT_GE(quoted.size(), 2u);
+  if (quoted.size() < 2) {
+    return {};
+  }
+  EXPECT_EQ(quoted.front(), '"');
+  EXPECT_EQ(quoted.back(), '"');
+  return quoted.substr(1, quoted.size() - 2);
 }
 
 std::string EscapeRaw(const char* input) {
   return EscapeRaw(iree_make_cstring_view(input));
 }
 
-// Helper: escape through the quoted convenience function.
-std::string EscapeQuoted(const char* input) {
-  iree_string_builder_t builder;
-  iree_string_builder_initialize(iree_allocator_system(), &builder);
-  loom_output_stream_t stream;
-  loom_output_stream_for_builder(&builder, &stream);
+struct JsonBoundedSink {
+  // Complete fragments accepted before the first failed write.
+  std::string text;
+  // Maximum accepted output length in bytes.
+  size_t byte_limit = 0;
+  // Number of rejected writes; the writer must stop at the first failure.
+  size_t failure_count = 0;
 
-  iree_status_t status = loom_json_write_escaped_cstring(&stream, input);
-  std::string result;
-  if (iree_status_is_ok(status)) {
-    iree_string_view_t view = iree_string_builder_view(&builder);
-    result.assign(view.data, view.size);
+  static iree_status_t Write(void* user_data, iree_string_view_t value) {
+    auto& sink = *static_cast<JsonBoundedSink*>(user_data);
+    if (sink.failure_count != 0 ||
+        sink.text.size() + value.size > sink.byte_limit) {
+      ++sink.failure_count;
+      return iree_status_from_code(IREE_STATUS_DATA_LOSS);
+    }
+    sink.text.append(value.data, value.size);
+    return iree_ok_status();
   }
-  IREE_EXPECT_OK(status);
-  iree_string_builder_deinitialize(&builder);
-  return result;
+};
+
+// Exercises every split into three fragments (including empty writes), then
+// byte-at-a-time delivery, against the same exact complete-string expectation.
+void ExpectFragmentedString(iree_string_view_t input,
+                            const std::string& escaped) {
+  const std::string expected = "\"" + escaped + "\"";
+  EXPECT_EQ(EscapeQuoted(input), expected);
+  for (size_t first = 0; first <= input.size; ++first) {
+    for (size_t second = first; second <= input.size; ++second) {
+      SCOPED_TRACE(first);
+      SCOPED_TRACE(second);
+      JsonBoundedSink sink = {.byte_limit = expected.size()};
+      loom_output_stream_t output = {
+          .write = JsonBoundedSink::Write,
+          .user_data = &sink,
+      };
+      loom_json_string_writer_t writer;
+      IREE_ASSERT_OK(loom_json_string_begin(&output, &writer));
+      IREE_ASSERT_OK(loom_output_stream_write(
+          &writer.stream, iree_string_view_substr(input, 0, first)));
+      IREE_ASSERT_OK(loom_output_stream_write(
+          &writer.stream,
+          iree_string_view_substr(input, first, second - first)));
+      IREE_ASSERT_OK(loom_output_stream_write(
+          &writer.stream,
+          iree_string_view_substr(input, second, input.size - second)));
+      IREE_ASSERT_OK(loom_json_string_end(&writer));
+      EXPECT_EQ(sink.text, expected);
+      EXPECT_EQ(output.offset, expected.size());
+      EXPECT_EQ(writer.stream.offset, input.size);
+    }
+  }
+  JsonBoundedSink sink = {.byte_limit = expected.size()};
+  loom_output_stream_t output = {
+      .write = JsonBoundedSink::Write,
+      .user_data = &sink,
+  };
+  loom_json_string_writer_t writer;
+  IREE_ASSERT_OK(loom_json_string_begin(&output, &writer));
+  for (size_t i = 0; i < input.size; ++i) {
+    IREE_ASSERT_OK(
+        loom_output_stream_write_char(&writer.stream, input.data[i]));
+  }
+  IREE_ASSERT_OK(loom_json_string_end(&writer));
+  EXPECT_EQ(sink.text, expected);
+  EXPECT_EQ(output.offset, expected.size());
+  EXPECT_EQ(writer.stream.offset, input.size);
 }
 
 std::string WriteStatusObject(iree_status_code_t code,
@@ -127,6 +188,7 @@ std::string WriteStructuredJson() {
 TEST(JsonEscape, EmptyString) {
   EXPECT_EQ(EscapeRaw(""), "");
   EXPECT_EQ(EscapeQuoted(""), "\"\"");
+  ExpectFragmentedString(iree_string_view_empty(), "");
 }
 
 TEST(JsonEscape, PlainAscii) {
@@ -157,18 +219,8 @@ TEST(JsonEscape, FormFeed) { EXPECT_EQ(EscapeRaw("a\fb"), "a\\fb"); }
 TEST(JsonEscape, NullByte) {
   // NUL is a control character — must be escaped as \u0000.
   std::string input("a\0b", 3);
-  iree_string_builder_t builder;
-  iree_string_builder_initialize(iree_allocator_system(), &builder);
-  loom_output_stream_t stream;
-  loom_output_stream_for_builder(&builder, &stream);
-  loom_json_escape_stream_t escape_data;
-  loom_output_stream_t escape_stream;
-  loom_json_escape_stream_init(&stream, &escape_data, &escape_stream);
-  IREE_ASSERT_OK(loom_output_stream_write(
-      &escape_stream, iree_make_string_view(input.data(), input.size())));
-  iree_string_view_t view = iree_string_builder_view(&builder);
-  EXPECT_EQ(std::string(view.data, view.size), "a\\u0000b");
-  iree_string_builder_deinitialize(&builder);
+  ExpectFragmentedString(iree_make_string_view(input.data(), input.size()),
+                         "a\\u0000b");
 }
 
 TEST(JsonEscape, AllControlChars) {
@@ -267,12 +319,12 @@ TEST(JsonEscape, Utf8SequenceBoundaries) {
   for (const char* valid :
        {"\xc2\x80", "\xdf\xbf", "\xe0\xa0\x80", "\xed\x9f\xbf", "\xee\x80\x80",
         "\xef\xbf\xbf", "\xf0\x90\x80\x80", "\xf4\x8f\xbf\xbf"}) {
-    EXPECT_EQ(EscapeRaw(valid), valid);
+    ExpectFragmentedString(iree_make_cstring_view(valid), valid);
   }
   struct Case {
-    // Invalid or incomplete UTF-8 fragment.
+    // UTF-8 input spanning valid, invalid and incomplete character boundaries.
     const char* input;
-    // One replacement escape for each malformed byte.
+    // Exact escaped text, including one replacement per malformed byte.
     const char* expected;
   };
   const Case cases[] = {
@@ -286,9 +338,18 @@ TEST(JsonEscape, Utf8SequenceBoundaries) {
       {"\xf4\x90\x80\x80", "\\ufffd\\ufffd\\ufffd\\ufffd"},
       {"\xf5\x80\x80\x80", "\\ufffd\\ufffd\\ufffd\\ufffd"},
       {"\xc2 ", "\\ufffd "},
+      {"\xe2\x80\xa8", "\\u2028"},
+      {"\xe2\x80\xa9", "\\u2029"},
+      {"\xe2\xc3\xa9", "\\ufffd\xc3\xa9"},
+      {"\xf0\x90\xe2\x80\xa8", "\\ufffd\\ufffd\\u2028"},
+      {"\xc3\"", "\\ufffd\\\""},
+      {"\xe2\x80\n", "\\ufffd\\ufffd\\n"},
+      {"\xc3\xc3\xa9", "\\ufffd\xc3\xa9"},
+      {"\x80\x80\x80\x80", "\\ufffd\\ufffd\\ufffd\\ufffd"},
+      {"\xff", "\\ufffd"},
   };
   for (const auto& test : cases) {
-    EXPECT_EQ(EscapeRaw(test.input), test.expected);
+    ExpectFragmentedString(iree_make_cstring_view(test.input), test.expected);
   }
 }
 
@@ -312,11 +373,70 @@ TEST(JsonEscape, MixedContent) {
   // ASCII + control chars + Chinese + U+2028 + emoji.
   std::string input = "hello\t\xe4\xbd\xa0\xe2\x80\xa8\xf0\x9f\x98\x80";
   std::string expected = "hello\\t\xe4\xbd\xa0\\u2028\xf0\x9f\x98\x80";
-  EXPECT_EQ(EscapeRaw(input.c_str()), expected);
+  ExpectFragmentedString(iree_make_string_view(input.data(), input.size()),
+                         expected);
 }
 
 TEST(JsonEscape, QuotedStringWithEscapes) {
   EXPECT_EQ(EscapeQuoted("line1\nline2"), "\"line1\\nline2\"");
+}
+
+TEST(JsonString, FormattedCharactersCrossBatchBoundaries) {
+  for (const char* character : {"\xc3\xa9", "\xe4\xbd\xa0", "\xf0\x9f\x98\x80",
+                                "\xe2\x80\xa8", "\xe2\x80\xa9"}) {
+    for (size_t prefix_length : {124, 125, 126, 127, 128, 129}) {
+      SCOPED_TRACE(prefix_length);
+      const std::string input = std::string(prefix_length, 'a') + character;
+      const std::string expected = EscapeQuoted(input.c_str());
+      JsonBoundedSink sink = {.byte_limit = expected.size()};
+      loom_output_stream_t output = {
+          .write = JsonBoundedSink::Write,
+          .user_data = &sink,
+      };
+      loom_json_string_writer_t writer;
+      IREE_ASSERT_OK(loom_json_string_begin(&output, &writer));
+      IREE_ASSERT_OK(
+          loom_output_stream_write_format(&writer.stream, "%s", input.c_str()));
+      IREE_ASSERT_OK(loom_json_string_end(&writer));
+      EXPECT_EQ(sink.text, expected);
+      EXPECT_EQ(writer.stream.offset, input.size());
+      EXPECT_EQ(output.offset, expected.size());
+    }
+  }
+}
+
+TEST(JsonString, OwnsIncompleteBytesUntilTheStringEnds) {
+  JsonBoundedSink sink = {.byte_limit = 64};
+  loom_output_stream_t output = {
+      .write = JsonBoundedSink::Write,
+      .user_data = &sink,
+  };
+  loom_json_array_writer_t array;
+  IREE_ASSERT_OK(loom_json_array_begin(&output, &array));
+  IREE_ASSERT_OK(loom_json_array_begin_element(&array));
+  loom_json_string_writer_t writer;
+  IREE_ASSERT_OK(loom_json_string_begin(&output, &writer));
+  char fragment[] = {'\xf0', '\x9f', '\x98'};
+  IREE_ASSERT_OK(loom_output_stream_write(
+      &writer.stream, iree_make_string_view(fragment, sizeof(fragment))));
+  EXPECT_EQ(sink.text, "[\"");
+  EXPECT_EQ(writer.stream.offset, sizeof(fragment));
+  // The input buffer may be reused immediately after write returns.
+  fragment[0] = fragment[1] = fragment[2] = 'x';
+  IREE_ASSERT_OK(loom_output_stream_write(&writer.stream, IREE_SV("\x80")));
+  IREE_ASSERT_OK(loom_output_stream_write(&writer.stream, IREE_SV("\xc3")));
+  IREE_ASSERT_OK(loom_json_string_end(&writer));
+  EXPECT_EQ(sink.text, "[\"\xf0\x9f\x98\x80\\ufffd\"");
+
+  // A new string cannot finish the previous string's incomplete character.
+  IREE_ASSERT_OK(loom_json_array_begin_element(&array));
+  IREE_ASSERT_OK(loom_json_string_begin(&output, &writer));
+  EXPECT_EQ(writer.stream.offset, 0u);
+  IREE_ASSERT_OK(loom_output_stream_write(&writer.stream, IREE_SV("\xa9")));
+  IREE_ASSERT_OK(loom_json_string_end(&writer));
+  IREE_ASSERT_OK(loom_json_array_end(&array));
+  EXPECT_EQ(sink.text, "[\"\xf0\x9f\x98\x80\\ufffd\",\"\\ufffd\"]");
+  EXPECT_EQ(output.offset, sink.text.size());
 }
 
 //===----------------------------------------------------------------------===//
@@ -437,26 +557,6 @@ TEST(JsonWriter, IntegerFieldsAndElementsCoverDecimalBoundaries) {
                         loom_json_array_write_host_size_element);
 }
 
-struct JsonBoundedSink {
-  // Complete fragments accepted before the first failed write.
-  std::string text;
-  // Maximum accepted output length in bytes.
-  size_t byte_limit = 0;
-  // Number of rejected writes; the writer must stop at the first failure.
-  size_t failure_count = 0;
-
-  static iree_status_t Write(void* user_data, iree_string_view_t value) {
-    auto& sink = *static_cast<JsonBoundedSink*>(user_data);
-    if (sink.failure_count != 0 ||
-        sink.text.size() + value.size > sink.byte_limit) {
-      ++sink.failure_count;
-      return iree_status_from_code(IREE_STATUS_DATA_LOSS);
-    }
-    sink.text.append(value.data, value.size);
-    return iree_ok_status();
-  }
-};
-
 template <typename T>
 void ExpectIntegerSinkFailure(
     T value,
@@ -515,7 +615,7 @@ TEST(JsonEscape, PropagatesSinkFailuresAtLiteralAndEscapeBoundaries) {
                           "right"};
   for (const char* input : inputs) {
     const auto source = iree_make_cstring_view(input);
-    const std::string expected = EscapeRaw(source);
+    const std::string expected = EscapeQuoted(source);
     for (size_t limit = 0; limit < expected.size(); ++limit) {
       SCOPED_TRACE(limit);
       JsonBoundedSink sink = {.byte_limit = limit};
@@ -523,16 +623,46 @@ TEST(JsonEscape, PropagatesSinkFailuresAtLiteralAndEscapeBoundaries) {
           .write = JsonBoundedSink::Write,
           .user_data = &sink,
       };
-      loom_json_escape_stream_t escape_data;
-      loom_output_stream_t escaped;
-      loom_json_escape_stream_init(&stream, &escape_data, &escaped);
       IREE_EXPECT_STATUS_IS(IREE_STATUS_DATA_LOSS,
-                            loom_output_stream_write(&escaped, source));
+                            loom_json_write_escaped_string(&stream, source));
       EXPECT_EQ(sink.text, expected.substr(0, sink.text.size()));
       EXPECT_LE(sink.text.size(), limit);
       EXPECT_EQ(sink.failure_count, 1u);
       EXPECT_EQ(stream.offset, sink.text.size());
-      EXPECT_EQ(escaped.offset, 0u);
+    }
+  }
+}
+
+TEST(JsonString, StopsOnSinkFailuresIncludingTerminalBytesAndClosingQuote) {
+  for (const char* input : {"", "literal", "a\xf0\x9f\x98\x80\xe2\x80",
+                            "a\xe2\x80\"z", "a\xe2\x80\xa8\nb"}) {
+    const auto source = iree_make_cstring_view(input);
+    const std::string expected = EscapeQuoted(source);
+    for (size_t limit = 0; limit < expected.size(); ++limit) {
+      SCOPED_TRACE(limit);
+      JsonBoundedSink sink = {.byte_limit = limit};
+      loom_output_stream_t output = {
+          .write = JsonBoundedSink::Write,
+          .user_data = &sink,
+      };
+      loom_json_string_writer_t writer;
+      size_t accepted = 0;
+      iree_status_t status = loom_json_string_begin(&output, &writer);
+      for (size_t i = 0; i < source.size && iree_status_is_ok(status); ++i) {
+        status = loom_output_stream_write_char(&writer.stream, source.data[i]);
+        if (iree_status_is_ok(status)) {
+          ++accepted;
+        }
+      }
+      if (iree_status_is_ok(status)) {
+        status = loom_json_string_end(&writer);
+      }
+      IREE_EXPECT_STATUS_IS(IREE_STATUS_DATA_LOSS, status);
+      EXPECT_EQ(sink.text, expected.substr(0, sink.text.size()));
+      EXPECT_LE(sink.text.size(), limit);
+      EXPECT_EQ(sink.failure_count, 1u);
+      EXPECT_EQ(output.offset, sink.text.size());
+      EXPECT_EQ(writer.stream.offset, accepted);
     }
   }
 }

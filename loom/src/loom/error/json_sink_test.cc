@@ -230,6 +230,41 @@ TEST(JsonSink, StructuredSameType) {
   EXPECT_NE(json.find("\"type_b\":\"f32\""), std::string::npos);
 }
 
+TEST(JsonSink, FormattedTypePreservesUtf8AcrossStreamFragments) {
+  // The formatter's 128-byte batch ends inside this two-byte character.
+  std::string type_name = std::string(127, 't') + "\xc3\xa9";
+  loom_type_formatter_t formatter = {
+      [](loom_type_t, void* user_data, loom_output_stream_t* stream) {
+        const auto& name = *static_cast<std::string*>(user_data);
+        return loom_output_stream_write_format(stream, "%s", name.c_str());
+      },
+      &type_name,
+  };
+  loom_diagnostic_param_t params[] = {
+      loom_param_string(IREE_SV("lhs")),
+      loom_param_type(loom_type_scalar(LOOM_SCALAR_TYPE_I32)),
+      loom_param_string(IREE_SV("rhs")),
+      loom_param_type(loom_type_scalar(LOOM_SCALAR_TYPE_F32)),
+  };
+  loom_diagnostic_t diagnostic = {
+      .severity = LOOM_DIAGNOSTIC_ERROR,
+      .error = loom_error_def_lookup(LOOM_ERROR_DOMAIN_TYPE, 1),
+      .params = params,
+      .param_count = IREE_ARRAYSIZE(params),
+      .emitter = LOOM_EMITTER_VERIFIER,
+  };
+  const std::string expected =
+      "{\"severity\":\"error\",\"error_id\":\"ERR_TYPE_001\",\"domain\":"
+      "\"TYPE\","
+      "\"code\":1,\"summary\":\"SameType constraint violated.\","
+      "\"emitter\":\"verifier\",\"message\":\"'lhs' type " +
+      type_name + " does not match 'rhs' type " + type_name +
+      "\",\"fix_hint\":\"Ensure 'lhs' and 'rhs' have the same type\","
+      "\"params\":{\"field_a\":\"lhs\",\"type_a\":\"" +
+      type_name + "\",\"field_b\":\"rhs\",\"type_b\":\"" + type_name + "\"}}\n";
+  EXPECT_EQ(EmitJson(&diagnostic, formatter), expected);
+}
+
 TEST(JsonSink, StructuredStructureError) {
   loom_diagnostic_param_t params[3] = {
       loom_param_string(IREE_SV("test.addi")),
