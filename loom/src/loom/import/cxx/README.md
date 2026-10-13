@@ -528,6 +528,30 @@ Each case is an independent translation unit. Roundtrip imports C++ and checks
 canonical Loom output; pass, verify, format, emit, and report modes consume that
 same module.
 
+`emit cxx` instead compares the readable C++ projection of the admitted module.
+It uses the public `loom-export-cxx` tool, so the golden covers the same bytecode
+boundary and renderer as the command-line workflow. Declare the tool requirement
+in files using the mode:
+
+```cpp
+// RUN: emit cxx
+// REQUIRES: loom-export-cxx
+#include <loomcxx/kernel.h>
+
+[[loom::kernel, loom::workgroup_count(1, 1, 1),
+  loom::workgroup_size(1, 1, 1)]]
+void copy_one(const float* input, float* output) {
+  // ...
+}
+// ----
+// Canonical exported C++ maintained by loom-check --update.
+```
+
+Additional `// ====` cases exercise independent source programs in the same
+file. This keeps feature-scale C++ import/export coverage in ordinary
+source-shaped fixtures; the CLI JSON smoke remains responsible for process and
+option behavior.
+
 Files group cases with one shared `RUN` mode declared at the top.
 
 ```cpp

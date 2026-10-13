@@ -9,6 +9,7 @@
 
 #include "loom/target/arch/cmd/check/provider.h"
 #include "loom/target/configured/compiler_provider_set.h"
+#include "loom/tooling/export/cxx/loom_check.h"
 #include "loom/tooling/input/configured.h"
 #include "loom/tooling/input/loomc_configured.h"
 #include "loom/tools/loom-check/compile.h"
@@ -72,6 +73,7 @@
 #endif  // LOOM_CHECK_HAVE_TARGET_XDNA
 
 static const loom_check_provider_t* const kLoomCheckProviders[] = {
+    &loom_cxx_export_check_provider,
 #if LOOM_CHECK_HAVE_TEST_PROVIDER
     &loom_check_test_provider,
 #endif  // LOOM_CHECK_HAVE_TEST_PROVIDER

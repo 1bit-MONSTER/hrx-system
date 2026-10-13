@@ -146,6 +146,13 @@ accept `@function` for an explicit entry. The selected entry remains a compiler
 root even when private; specialization does not change source visibility or
 add an export. Its reachable helpers may be inlined and removed normally.
 
+`emit cxx` projects an admitted High module through the public
+`loom-export-cxx` tool. A `.cxx-test` therefore places authored C++ before
+`// ----` and its canonical readable C++ projection after it; a `.loom-test`
+can use the same mode to check how authored or transformed High IR reads in the
+C++ API. Files using the mode declare `// REQUIRES: loom-export-cxx` so the
+external tool boundary remains explicit.
+
 ### Running Fixtures
 
 Use checked-in Bazel test targets for normal verification:
