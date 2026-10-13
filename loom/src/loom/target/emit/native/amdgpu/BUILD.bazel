@@ -657,6 +657,8 @@ loom_cc_test(
         "//loom/src/loom/testing:diagnostic_matchers",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/hal/drivers/amd/gpu/image",
+        "//runtime/src/iree/hal/drivers/amd/gpu/image:hsaco",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

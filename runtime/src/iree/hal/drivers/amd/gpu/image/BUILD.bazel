@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/amdgpu:binary.bzl", "iree_amdgpu_binary_variants_embed_data")
 load("//runtime/build_tools/bazel:cc.bzl", "iree_runtime_cc_library")
 load("//runtime/build_tools/bazel:cc_test.bzl", "iree_runtime_cc_test")
 
@@ -11,6 +12,33 @@ package(
     default_visibility = ["//visibility:public"],
     features = ["layering_check"],
     licenses = ["notice"],
+)
+
+iree_runtime_cc_library(
+    name = "image",
+    srcs = ["image.c"],
+    hdrs = ["image.h"],
+    deps = [
+        ":metadata",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
+        "//runtime/src/iree/hal/drivers/amd/gpu/target:identity",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "hsaco",
+    srcs = ["hsaco.c"],
+    hdrs = ["hsaco.h"],
+    deps = [
+        ":hsaco_metadata",
+        ":image",
+        ":metadata",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
+        "//runtime/src/iree/hal/drivers/amd/gpu/target:code_object",
+        "//runtime/src/iree/hal/drivers/amd/gpu/target:identity",
+    ],
 )
 
 iree_runtime_cc_library(
@@ -28,6 +56,32 @@ iree_runtime_cc_library(
         ":metadata",
         "//runtime/src/iree/base",
     ],
+)
+
+iree_runtime_cc_test(
+    name = "hsaco_test",
+    srcs = ["hsaco_test.cc"],
+    deps = [
+        ":hip_images",
+        ":hsaco",
+        ":image",
+        ":metadata",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_amdgpu_binary_variants_embed_data(
+    name = "hip_images",
+    testonly = True,
+    srcs = ["testdata/image.hip"],
+    identifier = "iree_hal_amd_gpu_hip_images",
+    source_format = "hip",
+    tags = ["manual"],
+    target = "amdgcn-amd-amdhsa",
+    target_selectors_flag = "//runtime/src/iree/hal/drivers/amd/gpu:targets",
 )
 
 iree_runtime_cc_test(

@@ -11,6 +11,39 @@ iree_add_all_subdirs()
 
 iree_cc_library(
   NAME
+    image
+  HDRS
+    "image.h"
+  SRCS
+    "image.c"
+  DEPS
+    ::metadata
+    iree::base
+    iree::base::core_headers
+    iree::hal::drivers::amd::gpu::target::identity
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    hsaco
+  HDRS
+    "hsaco.h"
+  SRCS
+    "hsaco.c"
+  DEPS
+    ::hsaco_metadata
+    ::image
+    ::metadata
+    iree::base
+    iree::base::core_headers
+    iree::hal::drivers::amd::gpu::target::code_object
+    iree::hal::drivers::amd::gpu::target::identity
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     metadata
   HDRS
     "metadata.h"
@@ -31,6 +64,40 @@ iree_cc_library(
   DEPS
     ::metadata
     iree::base
+  PUBLIC
+)
+
+iree_cc_test(
+  NAME
+    hsaco_test
+  SRCS
+    "hsaco_test.cc"
+  DEPS
+    ::hip_images
+    ::hsaco
+    ::image
+    ::metadata
+    iree::base
+    iree::base::core_headers
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+iree_amdgpu_binary_variants_embed_data(
+  NAME
+    hip_images
+  TARGET
+    amdgcn-amd-amdhsa
+  TARGETS
+    ${IREE_HAL_AMD_GPU_TARGETS}
+  IDENTIFIER
+    "iree_hal_amd_gpu_hip_images"
+  SRCS
+    "testdata/image.hip"
+  SOURCE_FORMAT
+    hip
+  TESTONLY
+  FLATTEN
   PUBLIC
 )
 

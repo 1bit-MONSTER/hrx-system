@@ -65,6 +65,18 @@ TEST(TargetIdentityTest, ParsesExactAndGenericProcessors) {
             IREE_HAL_AMD_GPU_TARGET_FEATURE_STATE_UNSUPPORTED);
 }
 
+TEST(TargetIdentityTest, AcceptsLlvmUnknownTripleEnvironment) {
+  for (const char* processor :
+       {"gfx9-generic", "gfx11-generic", "gfx1250", "gfx942:xnack-:sramecc+"}) {
+    std::string canonical_name = std::string("amdgcn-amd-amdhsa--") + processor;
+    std::string llvm_name =
+        std::string("amdgcn-amd-amdhsa-unknown-") + processor;
+    auto canonical = ParseHsaIdentity(canonical_name.c_str());
+    auto llvm = ParseHsaIdentity(llvm_name.c_str());
+    EXPECT_TRUE(iree_hal_amd_gpu_target_identity_equal(&canonical, &llvm));
+  }
+}
+
 TEST(TargetIdentityTest, ProcessorParserDoesNotAcceptOtherCoordinates) {
   iree_hal_amd_gpu_target_identity_t identity = {};
   IREE_ASSERT_OK(iree_hal_amd_gpu_target_identity_parse_processor(

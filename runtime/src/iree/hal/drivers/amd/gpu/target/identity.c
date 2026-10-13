@@ -416,8 +416,9 @@ iree_hal_amd_gpu_target_identity_parse_hsa_isa_name(
     iree_string_view_t value,
     iree_hal_amd_gpu_target_identity_t* out_identity) {
   IREE_ASSERT_ARGUMENT(out_identity);
-  if (!iree_string_view_consume_prefix(&value,
-                                       IREE_SV("amdgcn-amd-amdhsa--"))) {
+  if (!iree_string_view_consume_prefix(&value, IREE_SV("amdgcn-amd-amdhsa-")) ||
+      (!iree_string_view_consume_prefix(&value, IREE_SV("-")) &&
+       !iree_string_view_consume_prefix(&value, IREE_SV("unknown-")))) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "AMDGPU HSA ISA name requires the AMDHSA prefix");
   }
