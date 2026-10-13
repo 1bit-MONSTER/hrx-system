@@ -64,11 +64,16 @@ through 16384; supplying both rejects. Omission uses the deployment default.
 The limit counts selected tokens, including terminal EOS when generated, so
 completion-token usage can exceed the number of visibly decoded tokens.
 
-The current execution profile is greedy: `temperature` may be omitted or zero.
-Nonzero temperature and other sampling controls are rejected. This is separate
-from thinking: `enable_thinking` and the `model_options` object are passed to
-source chat policy, which validates their meaning and renders the model's
-framing. Their presence does not add a native sampling mode.
+`temperature`, `top_p`, `top_k` and `seed` are numeric request fields interpreted
+by the model's source policy. Omission uses source-defined deployment defaults;
+unsupported values reject before admission. The server carries the validated
+policy to the model program without reading logits back to the host. Supported
+sampling algorithms and value ranges belong to the model package.
+
+Sampling is separate from thinking: `enable_thinking` and the `model_options`
+object are passed to source chat policy, which validates their meaning and
+renders the model's framing. Reasoning-aware models return `reasoning_content`
+separately from answer `content`, in both SSE deltas and complete messages.
 
 `tools` accepts up to 4096 function declarations. Omitted `tool_choice` or
 `"auto"` is supported; other choices reject. `store` may be omitted or false.

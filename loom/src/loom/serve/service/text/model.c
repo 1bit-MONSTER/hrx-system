@@ -118,6 +118,8 @@ struct loom_serve_text_model_t {
   iree_vm_function_t publish_epoch;
   // Source-owned row-table encoding after recurrent slot ownership changes.
   iree_vm_function_t encode_state;
+  // Source-owned request policy binding into a retained row.
+  iree_vm_function_t bind_request;
   // Chat formatting functions borrowing the same model-wide VM process.
   loom_serve_text_chat_policy_t chat_policy;
   // Cold retained packet and feedback storage, reused by the single owner.
@@ -309,7 +311,8 @@ static iree_status_t loom_serve_text_create_program(
   iree_vm_module_release(libraries[1]);
   IREE_RETURN_IF_ERROR(status);
   IREE_RETURN_IF_ERROR(loom_serve_text_chat_policy_initialize(
-      runner->source.environment, runner->program, &runner->chat_policy));
+      runner->source.environment, runner->program, runner->source.options,
+      &runner->chat_policy));
   iree_vm_process_t* process = loom_serve_program_process(runner->program);
   IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
       process, IREE_SV("model"), IREE_SV("step"), &runner->step));
@@ -322,6 +325,9 @@ static iree_status_t loom_serve_text_create_program(
   IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
       process, IREE_SV("model"), IREE_SV("encode_state"),
       &runner->encode_state));
+  IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
+      process, IREE_SV("model"), IREE_SV("bind_request"),
+      &runner->bind_request));
   return iree_vm_process_lookup_function(process, IREE_SV("model"),
                                          IREE_SV("epoch"), &runner->epoch_step);
 }
@@ -1346,6 +1352,20 @@ static iree_status_t loom_serve_text_publish_state_bindings(
   return iree_ok_status();
 }
 
+iree_status_t loom_serve_text_row_bind_request(loom_serve_text_row_t* row,
+                                               iree_vm_buffer_t* options) {
+  loom_serve_text_model_t* model = row->model;
+  iree_vm_variant_t arguments[] = {
+      iree_vm_buffer_variant_from_ptr_borrowed(&model->source.vm_types,
+                                               model->source.control_state),
+      iree_vm_variant_from_i32((int32_t)(row - model->rows)),
+      iree_vm_buffer_variant_from_ptr_borrowed(&model->source.vm_types,
+                                               options)};
+  return loom_serve_text_invoke(model, model->bind_request,
+                                iree_vm_variant_span_from_array(arguments),
+                                iree_vm_variant_span_empty());
+}
+
 // The semantic host record is {length, position, row, input_begin, input_count,
 // flags, output_credit, first_span}. Known IDs are copied once into a
 // contiguous host stream. Source owns all device packet offsets and selection
@@ -1584,6 +1604,8 @@ iree_status_t loom_serve_text_model_submit_epoch(
                                  TEXT_ROW_CAPACITY, input_count);
   }
   iree_vm_variant_t encode_arguments[] = {
+      iree_vm_buffer_variant_from_ptr_borrowed(&model->source.vm_types,
+                                               model->source.control_state),
       iree_vm_buffer_variant_from_ptr_borrowed(
           &model->source.vm_types, model->host.buffers[TEXT_HOST_PLAN]),
       iree_vm_buffer_variant_from_ptr_borrowed(

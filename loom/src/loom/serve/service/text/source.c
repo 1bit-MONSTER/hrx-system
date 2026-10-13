@@ -89,7 +89,6 @@ static iree_status_t loom_serve_text_prepare(
                                   options->weights_path.size),
         1, host_allocator, &weights);
   }
-  iree_vm_buffer_t* source_options = NULL;
   if (iree_status_is_ok(status)) {
     const iree_string_view_t json = iree_string_view_is_empty(options->options)
                                         ? IREE_SV("{}")
@@ -97,7 +96,7 @@ static iree_status_t loom_serve_text_prepare(
     status =
         iree_vm_buffer_clone(IREE_VM_BUFFER_ACCESS_FLAG_READ,
                              iree_make_const_byte_span(json.data, json.size), 1,
-                             host_allocator, &source_options);
+                             host_allocator, &source->options);
   }
   iree_vm_variant_t arguments[] = {
       iree_vm_variant_from_i64((int64_t)options->prefill_capacity),
@@ -109,7 +108,8 @@ static iree_status_t loom_serve_text_prepare(
       iree_vm_buffer_variant_from_ptr_move(&source->vm_types, &shapes),
       iree_vm_variant_from_i64((int64_t)options->epoch_count),
       iree_vm_buffer_variant_from_ptr_move(&source->vm_types, &weights),
-      iree_vm_buffer_variant_from_ptr_move(&source->vm_types, &source_options),
+      iree_vm_buffer_variant_from_ptr_borrowed(&source->vm_types,
+                                               source->options),
   };
   iree_vm_variant_t results[4 + LOOM_SERVE_TEXT_STORAGE_RESULT_COUNT] = {0};
   iree_vm_module_t* modules[2] = {0};
@@ -224,14 +224,23 @@ iree_status_t loom_serve_text_source_initialize(
   IREE_RETURN_IF_ERROR(loom_serve_path_resolve(options->sources.base_directory,
                                                options->sources.control,
                                                host_allocator, &path));
-  const iree_string_view_t roots[] = {
-      IREE_SVL("step"),          IREE_SVL("epoch"),
-      IREE_SVL("encode_epoch"),  IREE_SVL("publish_epoch"),
-      IREE_SVL("encode_state"),  IREE_SVL("render_tool"),
-      IREE_SVL("prepare_input"), IREE_SVL("output_next"),
-      IREE_SVL("complete_text"), IREE_SVL("model_name"),
-      IREE_SVL("chat_begin"),    IREE_SVL("chat_message"),
-      IREE_SVL("chat_end"),      IREE_SVL("parse_tools")};
+  const iree_string_view_t roots[] = {IREE_SVL("step"),
+                                      IREE_SVL("epoch"),
+                                      IREE_SVL("encode_epoch"),
+                                      IREE_SVL("publish_epoch"),
+                                      IREE_SVL("encode_state"),
+                                      IREE_SVL("render_tool"),
+                                      IREE_SVL("prepare_input"),
+                                      IREE_SVL("output_next"),
+                                      IREE_SVL("complete_text"),
+                                      IREE_SVL("model_name"),
+                                      IREE_SVL("chat_begin"),
+                                      IREE_SVL("chat_message"),
+                                      IREE_SVL("chat_end"),
+                                      IREE_SVL("parse_tools"),
+                                      IREE_SVL("request_defaults"),
+                                      IREE_SVL("request_options"),
+                                      IREE_SVL("bind_request")};
   iree_status_t status = loom_serve_program_compile(
       out_source->environment, iree_make_cstring_view(path),
       IREE_ARRAYSIZE(roots), roots, &out_source->compilation, host_allocator,
@@ -244,6 +253,7 @@ void loom_serve_text_source_deinitialize(loom_serve_text_source_t* source) {
   loom_serve_preparation_free(source->preparation);
   iree_vm_module_release(source->module);
   iree_vm_buffer_release(source->control_state);
+  iree_vm_buffer_release(source->options);
   iree_tokenizer_free(source->tokenizer);
   iree_vm_environment_free(source->environment);
 }

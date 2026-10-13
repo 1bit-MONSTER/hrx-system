@@ -663,8 +663,8 @@ static iree_status_t loom_serve_text_prepare_admission(
   if (!pending->chat.policy) {
     IREE_RETURN_IF_ERROR(loom_serve_text_chat_initialize(
         loom_serve_text_model_chat_policy(service->model), service->name,
-        pending->body, service->default_max_tokens, service->host_allocator,
-        &pending->chat));
+        pending->body, pending->receipt.serial, service->default_max_tokens,
+        service->host_allocator, &pending->chat));
   }
   IREE_RETURN_IF_ERROR(loom_serve_text_input_prepare(
       &pending->chat,
@@ -843,8 +843,13 @@ static iree_status_t loom_serve_text_admit_request(
   session->request.queue_duration =
       session->request.start_time - request.receipt.arrival_time;
   session->request.reserved_tokens = reservation;
-  iree_status_t status = loom_serve_text_session_begin(
-      session, loom_serve_text_model_tokenizer(service->model), service->name);
+  iree_status_t status =
+      loom_serve_text_row_bind_request(session->row, request.chat.options);
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_text_session_begin(
+        session, loom_serve_text_model_tokenizer(service->model),
+        service->name);
+  }
   if (iree_status_is_ok(status)) {
     const loom_serve_text_pool_usage_t pool =
         loom_serve_text_model_pool_usage(service->model);

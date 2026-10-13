@@ -33,6 +33,10 @@ typedef struct loom_serve_text_chat_policy_t {
   iree_vm_buffer_t* name_storage;
   // UTF-8 identity borrowing name_storage.
   iree_string_view_t name;
+  // Owned source-validated deployment defaults, opaque to native code.
+  iree_vm_buffer_t* defaults;
+  // Resolves request JSON and nonce against defaults into owned opaque bytes.
+  iree_vm_function_t request_options;
   // Initial prompt fragment and opaque rendering state.
   iree_vm_function_t chat_begin;
   // Message fragment and next opaque rendering state.
@@ -54,11 +58,14 @@ typedef struct loom_serve_text_chat_policy_t {
   iree_vm_function_t complete_text;
 } loom_serve_text_chat_policy_t;
 
+// Calls request_defaults(options) once and retains its opaque result. Options
+// has owned backing that source may retain. The program/environment outlive
+// the policy and every chat initialized from it.
 iree_status_t loom_serve_text_chat_policy_initialize(
     iree_vm_environment_t* environment, loom_serve_program_t* program,
-    loom_serve_text_chat_policy_t* out_policy);
+    iree_vm_buffer_t* options, loom_serve_text_chat_policy_t* out_policy);
 
-// Releases the owned identity; other fields borrow the model program.
+// Releases the owned identity/defaults; functions borrow the model program.
 void loom_serve_text_chat_policy_deinitialize(
     loom_serve_text_chat_policy_t* policy);
 
@@ -126,6 +133,8 @@ typedef uint32_t loom_serve_text_chat_flags_t;
 typedef struct loom_serve_text_chat_t {
   // Source policy borrowed from the model for the request lifetime.
   const loom_serve_text_chat_policy_t* policy;
+  // Owned source-validated request parameters, copied to model state at bind.
+  iree_vm_buffer_t* options;
   // Source-rendered canonical prompt ending at its generation boundary.
   iree_string_builder_t prompt;
   // Incremental output owned by this request, independent of transport mode.
@@ -159,14 +168,17 @@ typedef struct loom_serve_text_chat_t {
 
 // Validates and renders the supported chat request. Unknown execution options
 // fail instead of pretending to implement unsupported execution modes. Source
-// policy interprets model_options and enable_thinking from the original body.
+// policy interprets sampling, model_options and enable_thinking from the
+// original body. request_id is a unique nonce for source-owned default seeds;
+// an explicit seed can override it independently of row or session identity.
 // model_name is the expected deployment route, independent of policy->name.
 // Body storage outlives the initialized chat. Deinitialize after success only;
 // failure releases partial storage. The HTTP layer bounds the input body.
 iree_status_t loom_serve_text_chat_initialize(
     const loom_serve_text_chat_policy_t* policy, iree_string_view_t model_name,
-    iree_string_view_t body, iree_host_size_t default_max_tokens,
-    iree_allocator_t host_allocator, loom_serve_text_chat_t* out_chat);
+    iree_string_view_t body, uint64_t request_id,
+    iree_host_size_t default_max_tokens, iree_allocator_t host_allocator,
+    loom_serve_text_chat_t* out_chat);
 void loom_serve_text_chat_deinitialize(loom_serve_text_chat_t* chat);
 
 // Source output phase. Final text releases incomplete marker prefixes; complete

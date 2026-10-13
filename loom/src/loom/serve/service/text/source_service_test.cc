@@ -192,10 +192,10 @@ TEST_P(SourceTextServiceTest,
               4);
   loom_serve_text_chat_t first = {}, next = {};
   IREE_ASSERT_OK(loom_serve_text_chat_initialize(
-      policy, policy->name, iree_make_cstring_view(first_body.c_str()), 4,
+      policy, policy->name, iree_make_cstring_view(first_body.c_str()), 1, 4,
       host_allocator_, &first));
   IREE_ASSERT_OK(loom_serve_text_chat_initialize(
-      policy, policy->name, iree_make_cstring_view(next_body.c_str()), 4,
+      policy, policy->name, iree_make_cstring_view(next_body.c_str()), 2, 4,
       host_allocator_, &next));
   iree_string_builder_t tools;
   iree_string_builder_initialize(host_allocator_, &tools);

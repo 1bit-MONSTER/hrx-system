@@ -71,6 +71,8 @@ the underlying source and dependency contract.
 
 Native configuration does not interpret `options` keys or rewrite strings
 inside that object. Their meaning belongs to the source program.
+Text control programs also receive this object to establish request defaults;
+model packages can define sampling defaults without native per-model flags.
 
 ## Text definitions
 

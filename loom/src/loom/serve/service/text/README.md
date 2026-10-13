@@ -75,6 +75,20 @@ incremental decoding, bounded JSON/SSE packets and output credit. Shared error
 [responses](response.h) consume diagnostic status at the wire boundary without
 borrowing scratch used by a CPU output task.
 
+Source `request_defaults(options)` validates deployment policy once. Each
+`request_options(defaults, request, nonce)` call validates overrides and returns
+an owned opaque buffer retained by the chat through completion. Both inputs
+have owned backing, so source may return or retain them without borrowing HTTP
+storage. The receipt serial supplies a distinct nonce when source needs an
+implicit seed. Native code does not decode the packet or implement sampling.
+
+After row admission, `bind_request(control_state, row, options)` binds that
+policy to the source-owned row table. `encode_epoch(control_state, plan, inputs,
+first_count, next_count, eos, metadata, tokens)` then includes the policy in its
+ordinary retained upload. The serialized model owner excludes outstanding
+execution while changing those packets. Device selection returns only selected
+IDs through the existing completion path; logits and RNG state stay on device.
+
 [Telemetry](telemetry.h) observes committed work, while
 [heartbeats](heartbeat.h) report copied state independently of device readiness.
 These observers do not decide admission, advancement or retirement. Unit tests

@@ -202,6 +202,12 @@ iree_status_t loom_serve_text_row_submit_reserve(
 // completes normally, then releases any admitted reservation.
 bool loom_serve_text_row_complete_reserve(loom_serve_text_row_t* row);
 
+// Copies source-validated request options into source-owned row state before
+// its next epoch. The caller excludes outstanding model work and other model
+// mutation. Options are borrowed only for the synchronous source invocation.
+iree_status_t loom_serve_text_row_bind_request(loom_serve_text_row_t* row,
+                                               iree_vm_buffer_t* options);
+
 // Synchronous outer-thread wrapper over reservation submission/completion.
 iree_status_t loom_serve_text_row_try_reserve(
     loom_serve_text_row_t* row, loom_serve_text_reserve_mode_t mode,
