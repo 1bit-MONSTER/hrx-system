@@ -812,6 +812,16 @@ device-lifetime HDP mapping, that direction returns `UNSUPPORTED` instead of
 advertising an incomplete fence-only recipe. GPU-to-host invalidation remains
 the mapping's separate directional contract.
 
+On Linux GFX11, the HDP flush write is followed by one `AMDGPU_INFO_TIMESTAMP`
+ioctl on the device's existing render connection. Its GPU-clock MMIO reads
+complete the posted write without reading the remapped flush register, whose
+readback is unsafe on some GFX11 platforms. GFX94x and qualified GFX12 targets
+use direct register readback. Both paths expose the same GLOBAL `HOST_API`
+recipe; native posting-read errors propagate to the caller before it releases
+dependent work. No queue, thread, or allocation-specific publication resource
+is created. Callers can amortize the device-wide operation over multiple writes
+before releasing their dependency.
+
 `memory_query_pair_info` describes the visibility transitions from one site's
 writes to another site's reads. The producer must permit writes and the
 consumer must permit reads; incompatible permissions return `UNSUPPORTED`.

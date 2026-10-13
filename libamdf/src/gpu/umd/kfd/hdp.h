@@ -29,8 +29,9 @@ amdf_status_t amdf_gpu_kfd_hdp_create(amdf_gpu_umd_device_t* device,
 
 // Publishes host writes which have already been ordered into the device's HDP
 // aperture. The live mapping and qualified target family are construction
-// invariants.
-void amdf_gpu_kfd_hdp_publish_host_writes(amdf_gpu_kfd_hdp_t* hdp);
+// invariants. GFX11 uses a native timestamp query for a safe posting read and
+// propagates its failures; other qualified families use direct MMIO only.
+amdf_status_t amdf_gpu_kfd_hdp_publish_host_writes(amdf_gpu_kfd_hdp_t* hdp);
 
 // Releases the GPU mapping, CPU mapping, and special KFD allocation. The owner
 // is consumed on every result. A failed native release leaves the remaining

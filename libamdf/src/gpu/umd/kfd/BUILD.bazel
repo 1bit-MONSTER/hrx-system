@@ -149,6 +149,7 @@ amdf_cc_library(
         ":device_state",
         "//libamdf/src:allocator",
         "//libamdf/src/platform/linux:file",
+        "//third_party:linux_amdgpu_uapi",
         "//third_party:linux_kfd_uapi",
     ],
 )
@@ -167,6 +168,7 @@ amdf_cc_test(
         "//libamdf/src:allocator",
         "//third_party:google_test",
         "//third_party:google_test_main",
+        "//third_party:linux_amdgpu_uapi",
         "//third_party:linux_kfd_uapi",
     ],
 )

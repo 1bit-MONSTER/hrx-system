@@ -446,7 +446,6 @@ amdf_status_t amdf_gpu_umd_host_mapping_cache_control(
     amdf_gpu_umd_host_mapping_t* mapping, amdf_host_cache_operation_t operation,
     uint64_t memory_byte_offset, uint64_t byte_length) {
   const amdf_gpu_umd_memory_t* memory = (amdf_gpu_umd_memory_t*)mapping;
-  (void)operation;
   if ((memory->flags & AMDF_MEMORY_FLAG_HOST_COHERENT) != 0) {
     // GPU snooping does not make this backing coherent with other consumers.
     // Explicit CPU operations cover the requested bytes even on coherent GTT.
@@ -458,7 +457,7 @@ amdf_status_t amdf_gpu_umd_host_mapping_cache_control(
     _mm_mfence();
     if (operation == AMDF_HOST_CACHE_OPERATION_FLUSH &&
         (memory->flags & AMDF_MEMORY_FLAG_DEVICE_LOCAL) != 0) {
-      amdf_gpu_kfd_hdp_publish_host_writes(memory->device->hdp);
+      return amdf_gpu_kfd_hdp_publish_host_writes(memory->device->hdp);
     }
   }
   return AMDF_STATUS_OK;

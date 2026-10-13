@@ -179,6 +179,7 @@ iree_cc_library(
   SRCS
     "hdp.c"
   DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_amdgpu_uapi>
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>
     ::device_state
     amdf::headers
@@ -198,6 +199,7 @@ iree_cc_test(
     "-Wl,--wrap=ioctl"
     "-Wl,--wrap=mmap"
   DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_amdgpu_uapi>
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>
     ::device_state
     ::hdp
