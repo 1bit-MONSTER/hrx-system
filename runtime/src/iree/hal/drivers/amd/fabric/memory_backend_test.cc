@@ -714,6 +714,225 @@ TEST_F(MemoryBackendTest, RequiredPlacementRejectsUnavailablePeerRoute) {
   EXPECT_EQ(native_.create_count, 0);
 }
 
+TEST_F(MemoryBackendTest, PlacementOwnerNeedNotExposeAnAccessFamily) {
+  native_.minimum_access = AMDF_MEMORY_ACCESS_READ;
+  native_.device_access = AMDF_MEMORY_ACCESS_READ;
+  for (uint32_t i = 0; i < devices_.size(); ++i) {
+    backends_[i].native.storage_count = 2;
+    native_families_[i].minimum_access = AMDF_MEMORY_ACCESS_READ;
+    storage_[i][1].minimum_access = AMDF_MEMORY_ACCESS_READ;
+  }
+  for (auto mode :
+       {IREE_HAL_POOL_PLACEMENT_REQUIRED, IREE_HAL_POOL_PLACEMENT_PREFERRED}) {
+    for (uint32_t owner = 0; owner < devices_.size(); ++owner) {
+      SCOPED_TRACE(::testing::Message() << mode << ":" << owner);
+      const uint32_t consumer = 1 - owner;
+      pool_options_.placement = {mode, PhysicalNode(owner)};
+      const iree_hal_pool_family_access_t family = {
+          .family = families_[consumer],
+          .usage = IREE_HAL_BUFFER_USAGE_STORAGE_READ,
+      };
+      // Host writes do not require broader permissions on a private GPU owner.
+      const iree_hal_pool_scope_t scope = {
+          1,
+          &family,
+          {IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_MAPPING_MODE_SCOPED}};
+      iree_hal_pool_t* pool = nullptr;
+      IREE_ASSERT_OK(iree_hal_slab_pool_create(group_, scope, &pool_options_,
+                                               allocator_, &pool));
+      iree_hal_pool_capabilities_t capabilities;
+      iree_hal_pool_query_capabilities(pool, &capabilities);
+      EXPECT_EQ(capabilities.placement.mode, IREE_HAL_POOL_PLACEMENT_REQUIRED);
+      EXPECT_EQ(capabilities.placement.node, PhysicalNode(owner));
+      iree_hal_buffer_t* buffer = nullptr;
+      IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+          pool, iree_hal_make_pool_reservation_request(64, 64),
+          iree_infinite_timeout(), &buffer));
+      EXPECT_EQ(native_.created_scope, storage_[owner][1].scope);
+      ASSERT_EQ(native_.created_accesses.size(), 2u);
+      EXPECT_EQ(native_.created_accesses[0].device, native_.devices[consumer]);
+      EXPECT_EQ(native_.created_accesses[1].device, native_.devices[owner]);
+      EXPECT_EQ(native_.created_accesses[1].requirements.address_kinds, 0u);
+      EXPECT_EQ(native_.created_accesses[1].requirements.flags, 0u);
+      EXPECT_EQ(native_.created_accesses[1].requirements.access,
+                AMDF_MEMORY_ACCESS_READ);
+      EXPECT_EQ(iree_hal_buffer_allocation_placement(buffer).device,
+                devices_[owner]);
+      const auto consumer_scope =
+          ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[consumer]);
+      const auto owner_scope =
+          ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[owner]);
+      iree_hal_buffer_native_binding_slot_t slot;
+      IREE_ASSERT_OK(iree_hal_pool_resolve_binding(
+          pool, consumer_scope, IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
+          &slot));
+      EXPECT_EQ(iree_hal_buffer_native_binding(buffer, slot).device_address,
+                UINT64_C(0x100000) + consumer * UINT64_C(0x10000));
+      IREE_EXPECT_STATUS_IS(
+          IREE_STATUS_PERMISSION_DENIED,
+          iree_hal_pool_resolve_binding(pool, owner_scope,
+                                        IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA,
+                                        &slot));
+      const auto transition =
+          iree_hal_pool_query_transition(pool, owner_scope, consumer_scope);
+      EXPECT_FALSE(iree_hal_memory_effects_is_supported(transition.release));
+      EXPECT_FALSE(iree_hal_memory_effects_is_supported(transition.acquire));
+      iree_hal_buffer_release(buffer);
+      iree_hal_pool_release(pool);
+      iree_hal_memory_maintenance_call(maintenance_, +[](void*) {}, nullptr);
+    }
+  }
+  EXPECT_EQ(native_.create_count, 4);
+  EXPECT_EQ(native_.destroy_count, 4);
+}
+
+TEST_F(MemoryBackendTest, CombinesGlobalAndRangedHostConstructionRoutes) {
+  native_.global_host_transitions = true;
+  const iree_hal_pool_import_class_t import_class = {
+      .storage_class = {IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER, {0, 0}},
+  };
+  for (bool registration : {false, true}) {
+    SCOPED_TRACE(registration);
+    native_.registration_enabled = registration;
+    pool_options_.imports = {registration ? 1u : 0u, &import_class};
+    iree_hal_pool_t* pool = nullptr;
+    IREE_ASSERT_OK(CreatePool(IREE_HAL_BUFFER_USAGE_STORAGE, &pool));
+    const auto table = iree_hal_pool_transition_table(pool);
+    const auto host = ResolveScope(IREE_HAL_MEMORY_SITE_HOST);
+    const auto queue = ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, families_[0]);
+    for (auto action : {IREE_HAL_MEMORY_TRANSITION_RELEASE,
+                        IREE_HAL_MEMORY_TRANSITION_ACQUIRE}) {
+      iree_hal_memory_transition_pair_t pair;
+      IREE_ASSERT_OK(iree_hal_memory_transition_prepare_pair(
+          table, action == IREE_HAL_MEMORY_TRANSITION_RELEASE ? host : queue,
+          action == IREE_HAL_MEMORY_TRANSITION_RELEASE ? queue : host, action,
+          &pair));
+      const auto* recipe =
+          iree_hal_memory_transition_recipe(table, pair, action);
+      ASSERT_NE(recipe, nullptr);
+      ASSERT_EQ(recipe->operation_count, 1u);
+      const auto& operation = recipe->operations[0];
+      EXPECT_EQ(operation.kind, registration
+                                    ? IREE_HAL_MEMORY_TRANSITION_KIND_RANGE
+                                    : IREE_HAL_MEMORY_TRANSITION_KIND_GLOBAL);
+      EXPECT_EQ(operation.range_granularity, registration ? 64u : 0u);
+      EXPECT_EQ(operation.executor,
+                registration || action == IREE_HAL_MEMORY_TRANSITION_RELEASE
+                    ? IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_API
+                    : IREE_HAL_MEMORY_TRANSITION_EXECUTOR_HOST_DIRECT);
+      IREE_EXPECT_OK(iree_hal_memory_transition_recipe_validate(recipe));
+    }
+    iree_hal_pool_release(pool);
+  }
+}
+
+TEST_F(MemoryBackendTest, CpuAccessKeepsNativeOwnerPrivate) {
+  for (auto& backend : backends_) {
+    backend.native.storage_count = 2;
+  }
+  const auto* cpu_family = iree_hal_device_queue_family(cpu_device_, 0);
+  const iree_hal_pool_family_access_t family = {
+      .family = cpu_family,
+      .usage = IREE_HAL_BUFFER_USAGE_TRANSFER,
+  };
+  for (bool public_host : {false, true}) {
+    SCOPED_TRACE(public_host);
+    iree_hal_pool_scope_t scope = {1, &family, {}};
+    if (public_host) {
+      scope = {0,
+               nullptr,
+               {IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_MAPPING_MODE_SCOPED}};
+    }
+    for (uint32_t owner = 0; owner < devices_.size(); ++owner) {
+      SCOPED_TRACE(owner);
+      pool_options_.placement = {IREE_HAL_POOL_PLACEMENT_REQUIRED,
+                                 PhysicalNode(owner)};
+      iree_hal_pool_t* pool = nullptr;
+      IREE_ASSERT_OK(iree_hal_slab_pool_create(group_, scope, &pool_options_,
+                                               allocator_, &pool));
+      EXPECT_EQ(iree_hal_pool_query_host_access(pool).access,
+                public_host ? IREE_HAL_MEMORY_ACCESS_ALL
+                            : IREE_HAL_MEMORY_ACCESS_NONE);
+      iree_hal_buffer_t* buffer = nullptr;
+      IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+          pool, iree_hal_make_pool_reservation_request(64, 64),
+          iree_infinite_timeout(), &buffer));
+      EXPECT_EQ(native_.created_scope, storage_[owner][1].scope);
+      ASSERT_EQ(native_.created_accesses.size(), 1u);
+      EXPECT_EQ(native_.created_accesses[0].device, native_.devices[owner]);
+      EXPECT_EQ(native_.created_accesses[0].requirements.address_kinds, 0u);
+      EXPECT_EQ(native_.created_accesses[0].requirements.flags, 0u);
+      iree_hal_buffer_native_binding_slot_t slot;
+      IREE_ASSERT_OK(iree_hal_pool_resolve_binding(
+          pool,
+          public_host ? ResolveScope(IREE_HAL_MEMORY_SITE_HOST)
+                      : ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, cpu_family),
+          IREE_HAL_BUFFER_INTERFACE_HOST, &slot));
+      EXPECT_NE(iree_hal_buffer_native_binding(buffer, slot).host_pointer,
+                nullptr);
+      for (auto* native_family : families_) {
+        IREE_EXPECT_STATUS_IS(
+            IREE_STATUS_PERMISSION_DENIED,
+            iree_hal_pool_resolve_binding(
+                pool, ResolveScope(IREE_HAL_MEMORY_SITE_QUEUE, native_family),
+                IREE_HAL_BUFFER_INTERFACE_XDNA_SHIM_DMA, &slot));
+      }
+      iree_hal_buffer_release(buffer);
+      iree_hal_pool_release(pool);
+      iree_hal_memory_maintenance_call(maintenance_, +[](void*) {}, nullptr);
+    }
+    native_.host_mappable = false;
+    iree_hal_pool_t* pool = nullptr;
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_UNAVAILABLE,
+        iree_hal_slab_pool_create(group_, scope, &pool_options_, allocator_,
+                                  &pool));
+    EXPECT_EQ(pool, nullptr);
+    native_.host_mappable = true;
+  }
+}
+
+TEST_F(MemoryBackendTest, NonparticipatingPlacementPreservesDomainAndFallback) {
+  for (auto& backend : backends_) {
+    backend.native.storage_count = 2;
+  }
+  const iree_hal_pool_family_access_t family = {
+      .family = families_[1],
+      .usage = IREE_HAL_BUFFER_USAGE_STORAGE,
+  };
+  const iree_hal_pool_scope_t scope = {
+      1, &family, {IREE_HAL_MEMORY_ACCESS_ALL, IREE_HAL_MAPPING_MODE_SCOPED}};
+  for (bool foreign_instance : {false, true}) {
+    SCOPED_TRACE(foreign_instance);
+    FakeNative foreign;
+    if (foreign_instance) {
+      backends_[0].native.instance =
+          reinterpret_cast<amdf_instance_t*>(&foreign);
+    } else {
+      native_.local_scopes[0].profile_status =
+          amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+    }
+    pool_options_.placement = {IREE_HAL_POOL_PLACEMENT_REQUIRED,
+                               PhysicalNode(0)};
+    iree_hal_pool_t* pool = nullptr;
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_UNAVAILABLE,
+        iree_hal_slab_pool_create(group_, scope, &pool_options_, allocator_,
+                                  &pool));
+    EXPECT_EQ(pool, nullptr);
+    pool_options_.placement.mode = IREE_HAL_POOL_PLACEMENT_PREFERRED;
+    IREE_ASSERT_OK(iree_hal_slab_pool_create(group_, scope, &pool_options_,
+                                             allocator_, &pool));
+    iree_hal_pool_capabilities_t capabilities;
+    iree_hal_pool_query_capabilities(pool, &capabilities);
+    // Equal-scoring candidates retain the consumer's shared SYSTEM route.
+    EXPECT_EQ(capabilities.placement.mode, IREE_HAL_POOL_PLACEMENT_AUTOMATIC);
+    iree_hal_pool_release(pool);
+    native_.local_scopes[0].profile_status = AMDF_STATUS_OK;
+    backends_[0].native.instance = reinterpret_cast<amdf_instance_t*>(&native_);
+  }
+}
+
 TEST_F(MemoryBackendTest,
        AutomaticPlacementPrefersQualifiedDeviceLocalStorage) {
   for (uint32_t i = 0; i < devices_.size(); ++i) {

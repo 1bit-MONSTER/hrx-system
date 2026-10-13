@@ -56,8 +56,10 @@ scope and captures the selected placement, access set, binding layout, and
 visibility table. Allocation and retirement use the selected storage owner's
 existing progress services.
 
-Placement is independent of access-family order. A pool can require backing on
-one physical GPU while allowing qualified peers to access that same allocation.
+Placement is independent of the access-family set and its order. A pool can
+require backing on one physical GPU while exposing that allocation only to a
+peer's families or CPU families. Construction qualifies any private native owner
+attachment without publishing extra HAL scopes or bindings.
 Required placement selects the corresponding physical node in the sealed group;
 an unavailable route yields no candidate. Preferred placement can select another
 qualified route and reports the achieved placement. Automatic selection prefers

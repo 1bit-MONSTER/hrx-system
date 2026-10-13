@@ -124,7 +124,7 @@ class FabricVirtualBufferTest
     if (GetParam() == AMDF_NATIVE_LIFETIME_INSTANCE &&
         device_status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
       GTEST_SKIP()
-          << "native driver does not support instance-isolated devices";
+          << "native driver does not support instance-lifetime devices";
     }
     ASSERT_EQ(device_status, AMDF_STATUS_OK);
     amdf_memory_reservation_capabilities_t capabilities = {
@@ -174,6 +174,7 @@ class FabricVirtualBufferTest
     storage_.push_back({
         .scope = fabric_->system_scope,
         .memory_type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL,
+        .minimum_access = capabilities.required_access,
     });
     uint32_t local_count = 0;
     const auto count_status = api_->device_enumerate_memory_scopes(
@@ -198,6 +199,7 @@ class FabricVirtualBufferTest
           .scope = local_scope,
           .physical_device_affinity = 1,
           .memory_type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+          .minimum_access = capabilities.required_access,
       });
     }
     iree_hal_amd_fabric_memory_backend_options_t memory_options = {
@@ -373,6 +375,65 @@ class FabricVirtualBufferTest
                                             {}, signals, mappings.size(),
                                             mappings.data(), 0));
     return iree_hal_semaphore_wait(done_, value, iree_infinite_timeout(), 0);
+  }
+
+  void CpuFillAndReadback(iree_hal_buffer_t* buffer) {
+    auto* queue = iree_hal_device_queue(cpu_, 0, 0);
+    iree_hal_memory_scope_t cpu_scope;
+    IREE_ASSERT_OK(iree_hal_device_group_resolve_memory_scope(
+        group_,
+        {IREE_HAL_MEMORY_SITE_QUEUE, iree_hal_device_queue_family(cpu_, 0)},
+        &cpu_scope));
+    const auto table = iree_hal_buffer_transition_table(buffer);
+    iree_hal_memory_transition_pair_t pair;
+    IREE_ASSERT_OK(iree_hal_memory_transition_prepare_pair(
+        table, cpu_scope, cpu_scope, IREE_HAL_MEMORY_TRANSITION_RELEASE,
+        &pair));
+    const auto transition = iree_hal_memory_transition_query(table, pair);
+    const iree_hal_buffer_barrier_t release_buffer = {
+        .buffer_ref = iree_hal_make_buffer_ref(buffer, 0, granularity_),
+        .recipe = iree_hal_memory_transition_recipe(
+            table, pair, IREE_HAL_MEMORY_TRANSITION_RELEASE),
+    };
+    const iree_hal_buffer_barrier_t acquire_buffer = {
+        .buffer_ref = release_buffer.buffer_ref,
+        .recipe = iree_hal_memory_transition_recipe(
+            table, pair, IREE_HAL_MEMORY_TRANSITION_ACQUIRE),
+    };
+    const iree_hal_barrier_t release = {
+        .effects = transition.release,
+        .buffer_barrier_count = release_buffer.recipe ? 1u : 0u,
+        .buffer_barriers = &release_buffer,
+    };
+    const iree_hal_barrier_t acquire = {
+        .effects = transition.acquire,
+        .buffer_barrier_count = acquire_buffer.recipe ? 1u : 0u,
+        .buffer_barriers = &acquire_buffer,
+    };
+    const iree_hal_barrier_list_t no_barriers = {};
+    const iree_hal_barrier_list_t release_barriers = {1, &release};
+    const iree_hal_barrier_list_t acquire_barriers = {1, &acquire};
+    const iree_hal_queue_barriers_t fill_barriers = {&no_barriers,
+                                                     &release_barriers};
+    const iree_hal_queue_barriers_t download_barriers = {&acquire_barriers,
+                                                         &no_barriers};
+    const uint32_t pattern = UINT32_C(0xA5913CE7);
+    uint64_t filled = ++sequence_;
+    const iree_hal_semaphore_list_t fill_done = {1, &done_, &filled};
+    IREE_ASSERT_OK(iree_hal_queue_fill(queue, {}, fill_done, buffer, 0,
+                                       granularity_, &pattern, sizeof(pattern),
+                                       &fill_barriers, 0));
+    std::array<uint32_t, 64> result = {};
+    uint64_t downloaded = ++sequence_;
+    const iree_hal_semaphore_list_t download_done = {1, &done_, &downloaded};
+    IREE_ASSERT_OK(iree_hal_queue_download(queue, fill_done, download_done,
+                                           buffer, 0, result.data(),
+                                           sizeof(result), &download_barriers));
+    IREE_ASSERT_OK(
+        iree_hal_semaphore_wait(done_, downloaded, iree_infinite_timeout(), 0));
+    for (uint32_t word : result) {
+      EXPECT_EQ(word, pattern);
+    }
   }
 
   void CopyAndVerify(uint32_t first_pattern, uint32_t second_pattern) {

@@ -232,6 +232,7 @@ iree_status_t iree_hal_amd_xdna_device_create(
         .scope = context->data_source.scope,
         .memory_type =
             IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+        .minimum_access = context->data_source.capabilities.guaranteed_access,
     };
     const iree_hal_amd_fabric_memory_backend_options_t memory_options = {
         .api = context->api,

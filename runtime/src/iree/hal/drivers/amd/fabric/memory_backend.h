@@ -55,6 +55,9 @@ typedef struct iree_hal_amd_fabric_memory_storage_t {
   iree_hal_physical_device_affinity_t physical_device_affinity;
   // Conservative locality properties shared by every profile in this scope.
   iree_hal_memory_type_t memory_type;
+  // Native owner permissions required even when no owner family participates.
+  // Private owner attachment does not publish a HAL binding or access scope.
+  amdf_memory_access_t minimum_access;
 } iree_hal_amd_fabric_memory_storage_t;
 
 // Borrowed native facts captured by an engine during device construction.
