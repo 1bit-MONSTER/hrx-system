@@ -16,6 +16,7 @@ KERNEL_CORPUS = loom_corpus_manifest(
         "subgroup/ballot.loom",
         "subgroup/match.loom",
         "subgroup/reduce.loom",
+        "subgroup/scan.loom",
         "subgroup/shuffle_dynamic.loom",
         "subgroup/shuffle_participation.loom",
         "subgroup/transport.loom",
@@ -24,5 +25,6 @@ KERNEL_CORPUS = loom_corpus_manifest(
         "workgroup/predicate_insertion.loom",
         "workgroup/reduce_partial.loom",
         "workgroup/reduce_tree.loom",
+        "workgroup/scan.loom",
     ],
 )
