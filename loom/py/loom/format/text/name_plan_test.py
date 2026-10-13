@@ -279,3 +279,24 @@ def test_unnamed_argument_and_named_numeric_value_stay_distinct() -> None:
     body = loaded.body.ops[0].regions[0].blocks[0]
     assert body.ops[1].operands[0] == body.arg_ids[0]
     assert body.ops[2].operands[0] == body.ops[0].results[0]
+
+
+def test_native_numeric_collision_suffix_roundtrips() -> None:
+    parser, printer = _formats()
+    text = (
+        "func.def @f(%789$141: index) {\n"
+        "  %0_1 = test.constant 4 : index\n"
+        "  %value$2 = test.convert %0_1 : index -> index\n"
+        "  test.use %789$141 : index\n"
+        "  test.use %value$2 : index\n"
+        "  func.return\n"
+        "}\n"
+    )
+    module = parser.parse(text)
+    assert printer.print_module(module) == text
+    body = module.body.ops[0].regions[0].blocks[0]
+    assert module.values[body.arg_ids[0]].name == "789$141"
+    assert module.values[body.ops[0].results[0]].name == "0_1"
+    assert module.values[body.ops[1].results[0]].name == "value$2"
+    assert body.ops[2].operands[0] == body.arg_ids[0]
+    assert body.ops[3].operands[0] == body.ops[1].results[0]

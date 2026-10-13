@@ -65,7 +65,7 @@ class TokenKind(IntEnum):
     STRING = 2
 
     # References.
-    SSA_VALUE = 3  # %name, %0, %arg0
+    SSA_VALUE = 3  # %name, %0, %arg0, %0$1
     SYMBOL = 4  # @name
     HASH_ATTR = 5  # #test.schema, #test.options, #enc
     BLOCK_LABEL = 6  # ^bb0, ^entry
@@ -482,7 +482,7 @@ class Tokenizer:
         location = SourceLocation(self._line, self._column, self._position)
         character = self._char()
 
-        # SSA value: %name or %digits.
+        # SSA value: '%' followed by an identifier continuation sequence.
         if character == "%":
             return self._scan_ssa_value(location)
 
@@ -573,19 +573,15 @@ class Tokenizer:
     # --- Individual token scanners ---
 
     def _scan_ssa_value(self, location: SourceLocation) -> Token:
-        """Scan %name or %digits.
+        """Scan an SSA value name.
 
         Token text is the bare name without the '%' sigil: %foo -> "foo".
         """
         self._advance()  # skip %
         name_start = self._position
-        if self._char().isdigit():
-            while self._char().isdigit():
-                self._advance()
-        elif _is_ident_start(self._char()):
-            while _is_ident_continue_no_dot(self._char()):
-                self._advance()
-        else:
+        while _is_ident_continue_no_dot(self._char()):
+            self._advance()
+        if self._position == name_start:
             raise ParseError(
                 "expected identifier or digit after '%'", location, self._filename
             )
