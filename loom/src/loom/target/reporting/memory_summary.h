@@ -14,13 +14,23 @@
 extern "C" {
 #endif  // __cplusplus
 
+// A bounded small-group scan, promoted to an arena-owned tree on the ninth key.
+typedef struct loom_report_memory_group_index_t {
+  // Root of the promoted index, or NULL while using inline summary references.
+  struct loom_report_memory_group_t* root;
+  // First-seen summary references, used only before promotion.
+  void* summaries[8];
+  // Number of occupied inline references; never exceeds the inline capacity.
+  uint8_t count;
+} loom_report_memory_group_index_t;
+
 // Scoped aggregation of one lowered function's memory packets. Function names
 // belong to one batch in a report; separately compiled entries are combined by
 // record_entry_report, which keeps their private expression identities
-// separate. Rows and counters belong to the report. All indexing state belongs
-// to |arena| and can be released immediately after finish, including on
-// allocation failure. Producer-owned packet intervals are nonempty; expression
-// IDs with corresponding precision flags never use UINT32_MAX.
+// separate. Rows and counters belong to the report. Indexing state belongs to
+// the batch and |arena| and can be released immediately after finish, including
+// on allocation failure. Producer-owned packet intervals are nonempty;
+// expression IDs with corresponding precision flags never use UINT32_MAX.
 typedef struct loom_target_compile_report_memory_batch_t {
   // Destination retaining detail rows and completed summaries.
   loom_target_compile_report_t* report;
@@ -28,6 +38,21 @@ typedef struct loom_target_compile_report_memory_batch_t {
   iree_arena_allocator_t* arena;
   // Stable scratch references to the rows and their owning summary groups.
   loom_target_compile_report_row_list_t entries;
+  // Function-local lookup state; promoted nodes belong to the scratch arena.
+  struct {
+    // Root identity groups.
+    loom_report_memory_group_index_t roots;
+    // Argument identity groups.
+    loom_report_memory_group_index_t arguments;
+    // Per-argument packet and storage-policy groups.
+    loom_report_memory_group_index_t argument_packets;
+    // Target strategy and storage-policy groups.
+    loom_report_memory_group_index_t strategies;
+    // Bank model and request-policy groups.
+    loom_report_memory_group_index_t bank_services;
+    // Subgroup lane geometry and proof groups.
+    loom_report_memory_group_index_t subgroup_accesses;
+  } groups;
 } loom_target_compile_report_memory_batch_t;
 
 // Begins a function's batch without allocating storage.
@@ -35,7 +60,10 @@ void loom_target_compile_report_memory_batch_initialize(
     loom_target_compile_report_t* report, iree_arena_allocator_t* arena,
     loom_target_compile_report_memory_batch_t* out_batch);
 
-// Retains one packet and accumulates its structural and dynamic counters.
+// Retains one packet and accumulates its structural and dynamic counters. All
+// packets in the batch have the same function name. Each summary category uses
+// O(log g) key comparisons for g distinct groups, with a bounded scan for small
+// categories; comparison includes the bytes of string-valued key fields.
 iree_status_t loom_target_compile_report_memory_batch_append(
     loom_target_compile_report_memory_batch_t* batch,
     const loom_target_compile_report_source_low_memory_row_t* row);

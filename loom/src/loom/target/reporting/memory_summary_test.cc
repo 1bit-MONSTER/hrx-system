@@ -7,8 +7,10 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <array>
 #include <bitset>
 #include <random>
+#include <string>
 #include <vector>
 
 #include "iree/testing/gtest.h"
@@ -1467,6 +1469,340 @@ TEST(CompileReportMemoryTest, ReleasesPartialIndexOnAllocationFailure) {
     }
     loom_target_compile_report_deinitialize(&report);
     iree_arena_deinitialize(&scratch);
+    iree_arena_block_pool_deinitialize(&pool);
+    EXPECT_EQ(storage.live, 0u);
+  }
+  EXPECT_TRUE(observed_failure);
+  EXPECT_TRUE(observed_success);
+}
+
+static loom_target_compile_report_source_low_memory_row_t
+MakeGroupedMemoryRow() {
+  auto row = MakeMemoryRow(IREE_SV("vector.load"), 43, IREE_SV("load"),
+                           IREE_SV("test.load"), 0, 1, 4, 0, 0, 4,
+                           MakeExactSourceInterval(0, 4));
+  row.strategy_key = IREE_SV("direct");
+  SetBankService(IREE_SV("exact"), IREE_SV("conflict-free"), {}, 1, 1, 1, &row);
+  SetSubgroupAccess(IREE_SV("exact"), IREE_SV("dense"), {}, 128, 128, 128,
+                    &row);
+  row.subgroup_access.maximum_adjacent_lane_delta_bytes = 4;
+  return row;
+}
+
+// Exercise both function-local capture and native report merging, before,
+// during and after small-group promotion. Matching rows arrive again after all
+// distinct keys so lookups must still find their original summaries.
+static void CheckMemoryGroupIdentity(
+    const std::vector<loom_target_compile_report_source_low_memory_row_t>& rows,
+    std::array<size_t, 6> expected_counts) {
+  std::array<std::string, 9> names;
+  for (size_t i = 0; i < names.size(); ++i) {
+    names[i] = "prefix_" + std::to_string(i);
+  }
+  for (size_t prefix_count : {0u, 8u, 9u}) {
+    SCOPED_TRACE(prefix_count);
+    loom_target_compile_report_t source;
+    loom_target_compile_report_initialize(&source, iree_allocator_system());
+    for (auto function : {IREE_SV("producer"), IREE_SV("consumer")}) {
+      testing::MemoryReportBatch batch(&source);
+      for (size_t i = 0; i < prefix_count; ++i) {
+        auto row = MakeGroupedMemoryRow();
+        row.function_name = function;
+        row.source_root_name =
+            iree_make_string_view(names[i].data(), names[i].size());
+        row.source_root_argument_index = 100 + i;
+        row.strategy_key = row.source_root_name;
+        IREE_ASSERT_OK(batch.Append(&row));
+      }
+      for (const auto& input : rows) {
+        auto row = input;
+        row.function_name = function;
+        IREE_ASSERT_OK(batch.Append(&row));
+      }
+      for (auto it = rows.rbegin(); it != rows.rend(); ++it) {
+        auto row = *it;
+        row.function_name = function;
+        IREE_ASSERT_OK(batch.Append(&row));
+      }
+      IREE_ASSERT_OK(batch.Finish());
+    }
+    loom_target_compile_report_t merged;
+    loom_target_compile_report_initialize(&merged, iree_allocator_system());
+    IREE_ASSERT_OK(
+        loom_target_compile_report_record_entry_report(&merged, &source));
+    IREE_ASSERT_OK(
+        loom_target_compile_report_record_entry_report(&merged, &source));
+    for (auto* report : {&source, &merged}) {
+      const std::array<size_t, 6> counts = {
+          report->source_low_memory_root_summaries.count,
+          report->source_low_memory_argument_summaries.count,
+          report->source_low_memory_argument_packet_summaries.count,
+          report->source_low_memory_strategy_summaries.count,
+          report->source_low_bank_service_summaries.count,
+          report->source_low_subgroup_access_summaries.count,
+      };
+      for (size_t i = 0; i < counts.size(); ++i) {
+        SCOPED_TRACE(i);
+        EXPECT_EQ(counts[i], 2 * (prefix_count + expected_counts[i]));
+      }
+    }
+    EXPECT_EQ(source.source_low_memory_summary.packet_count,
+              2 * (prefix_count + 2 * rows.size()));
+    EXPECT_EQ(merged.source_low_memory_summary.packet_count,
+              2 * source.source_low_memory_summary.packet_count);
+    loom_target_compile_report_deinitialize(&merged);
+    loom_target_compile_report_deinitialize(&source);
+  }
+}
+
+TEST(CompileReportMemoryTest, PreservesPacketAndStoragePolicyIdentity) {
+  using Row = loom_target_compile_report_source_low_memory_row_t;
+  const auto original = MakeGroupedMemoryRow();
+  iree_string_view_t Row::* const policy_fields[] = {
+      &Row::fallback_reason,         &Row::storage_element_format,
+      &Row::storage_scale_format,    &Row::storage_secondary_scale_format,
+      &Row::storage_payload_packing, &Row::storage_scale_topology,
+      &Row::storage_affine_policy,   &Row::storage_rounding_policy,
+      &Row::storage_codebook_policy, &Row::storage_sparsity_policy,
+  };
+  for (size_t i = 0; i < IREE_ARRAYSIZE(policy_fields); ++i) {
+    SCOPED_TRACE(i);
+    auto changed = original;
+    changed.*policy_fields[i] = IREE_SV("test-policy");
+    CheckMemoryGroupIdentity({original, changed}, {1, 1, 2, 2, 1, 1});
+  }
+  for (auto field : {&Row::packet_key, &Row::strategy_key}) {
+    auto changed = original;
+    changed.*field = IREE_SV("test-packet");
+    CheckMemoryGroupIdentity({original, changed}, {1, 1, 2, 2, 2, 2});
+  }
+  auto changed = original;
+  changed.operation_kind = IREE_SV("store");
+  changed.issued_read_byte_count = 0;
+  changed.issued_write_byte_count = 4;
+  CheckMemoryGroupIdentity({original, changed}, {1, 1, 2, 2, 2, 2});
+  changed = original;
+  changed.source_root_argument_index = 2;
+  CheckMemoryGroupIdentity({original, changed}, {2, 2, 2, 1, 2, 2});
+  changed = original;
+  changed.memory_space = IREE_SV("global");
+  CheckMemoryGroupIdentity({original, changed}, {2, 2, 2, 2, 2, 2});
+}
+
+TEST(CompileReportMemoryTest, PreservesBankAndSubgroupEvidenceIdentity) {
+  using Bank = loom_target_compile_report_bank_service_t;
+  using Access = loom_target_compile_report_subgroup_access_t;
+  const auto original = MakeGroupedMemoryRow();
+  for (auto field : {&Bank::model_key, &Bank::model_revision,
+                     &Bank::model_evidence, &Bank::request_policy}) {
+    auto changed = original;
+    changed.bank_service.*field = IREE_SV("test-model-policy");
+    CheckMemoryGroupIdentity({original, changed}, {1, 1, 1, 1, 2, 1});
+  }
+  for (auto field : {&Bank::wave_size, &Bank::bank_count,
+                     &Bank::bank_word_byte_count, &Bank::packet_byte_count}) {
+    auto changed = original;
+    changed.bank_service.*field *= 2;
+    CheckMemoryGroupIdentity({original, changed}, {1, 1, 1, 1, 2, 1});
+  }
+  auto unknown = original;
+  unknown.subgroup_access = {};
+  unknown.subgroup_access.proof = IREE_SV("unknown");
+  unknown.subgroup_access.unknown_reason = IREE_SV("runtime-stride");
+  CheckMemoryGroupIdentity({original, unknown}, {1, 1, 1, 1, 1, 2});
+  for (auto field : {&Access::lane_address_proof, &Access::active_lane_proof,
+                     &Access::unknown_reason}) {
+    auto changed = unknown;
+    changed.subgroup_access.*field = IREE_SV("runtime-axis");
+    CheckMemoryGroupIdentity({unknown, changed}, {1, 1, 1, 1, 1, 2});
+  }
+  auto changed = original;
+  changed.subgroup_access.lane_mapping = IREE_SV("digit-terms");
+  changed.subgroup_access.lane_terms[0].modulus = 16;
+  changed.subgroup_access.lane_term_count = 2;
+  changed.subgroup_access.lane_terms[1] = {16, 0, 64};
+  CheckMemoryGroupIdentity({original, changed}, {1, 1, 1, 1, 1, 2});
+  auto gapped = changed;
+  gapped.subgroup_access.lane_terms[1].byte_stride = 128;
+  gapped.subgroup_access.interval_coverage = IREE_SV("gapped");
+  gapped.subgroup_access.subgroup_span_byte_count = 192;
+  gapped.subgroup_access.maximum_adjacent_lane_delta_bytes = 68;
+  gapped.subgroup_access.maximum_uncovered_byte_gap_bytes = 64;
+  gapped.subgroup_access.contiguous_region_count = 2;
+  CheckMemoryGroupIdentity({changed, gapped}, {1, 1, 1, 1, 1, 2});
+}
+
+TEST(CompileReportMemoryTest, GroupsEqualBytesAndNonKeyLabels) {
+  const auto original = MakeGroupedMemoryRow();
+  std::string root(original.source_root_name.data,
+                   original.source_root_name.size);
+  std::string strategy(original.strategy_key.data, original.strategy_key.size);
+  auto equal = original;
+  equal.source_root_name = iree_make_string_view(root.data(), root.size());
+  equal.strategy_key = iree_make_string_view(strategy.data(), strategy.size());
+  CheckMemoryGroupIdentity({original, equal}, {1, 1, 1, 1, 1, 1});
+
+  auto renamed = original;
+  renamed.source_root_name = IREE_SV("renamed_scratch");
+  CheckMemoryGroupIdentity({original, renamed}, {2, 1, 1, 1, 2, 2});
+  auto unknown = original;
+  unknown.bank_service.proof = IREE_SV("unknown");
+  unknown.bank_service.classification = {};
+  unknown.bank_service.unknown_reason = IREE_SV("runtime-stride");
+  auto changed_reason = unknown;
+  changed_reason.bank_service.unknown_reason = IREE_SV("runtime-participation");
+  CheckMemoryGroupIdentity({unknown, changed_reason}, {1, 1, 1, 1, 1, 1});
+}
+
+TEST(CompileReportMemoryTest, OmitsInapplicableSummaryGroups) {
+  auto row = MakeGroupedMemoryRow();
+  row.source_root_argument_index = UINT16_MAX;
+  CheckMemoryGroupIdentity({row}, {1, 0, 0, 1, 1, 1});
+  row.source_root_name = {};
+  CheckMemoryGroupIdentity({row}, {0, 0, 0, 1, 1, 1});
+  row.strategy_key = {};
+  CheckMemoryGroupIdentity({row}, {0, 0, 0, 0, 1, 1});
+  row.bank_service = {};
+  CheckMemoryGroupIdentity({row}, {0, 0, 0, 0, 0, 1});
+  row.subgroup_access = {};
+  CheckMemoryGroupIdentity({row}, {0, 0, 0, 0, 0, 0});
+}
+
+TEST(CompileReportMemoryTest, PreservesGroupOrderAcrossFunctionsAndPoolReuse) {
+  constexpr size_t kGroupCount = 193;
+  std::vector<std::string> names;
+  for (size_t i = 0; i < kGroupCount; ++i) {
+    names.push_back("buffer_" + std::to_string(i));
+  }
+  MemoryReportAllocator storage;
+  iree_arena_block_pool_t pool;
+  iree_arena_block_pool_initialize(
+      64 * 1024, {&storage, MemoryReportAllocator::Control}, &pool);
+  size_t warm_requests = 0;
+  for (size_t iteration = 0; iteration < 2; ++iteration) {
+    iree_arena_allocator_t result_arena;
+    iree_arena_initialize(&pool, &result_arena);
+    iree_arena_allocator_t scratch;
+    iree_arena_initialize(&pool, &scratch);
+    loom_target_compile_report_t report;
+    loom_target_compile_report_initialize(&report,
+                                          iree_arena_allocator(&result_arena));
+    for (auto function : {IREE_SV("producer"), IREE_SV("consumer")}) {
+      loom_target_compile_report_memory_batch_t batch;
+      loom_target_compile_report_memory_batch_initialize(&report, &scratch,
+                                                         &batch);
+      for (size_t packet = 0; packet < 3 * kGroupCount; ++packet) {
+        const size_t group = (packet * 73) % kGroupCount;
+        const int64_t offset = 4 * (packet / kGroupCount);
+        auto row = MakeMemoryRow(IREE_SV("vector.load"), 43, IREE_SV("load"),
+                                 IREE_SV("test.load"), offset, 1, 4, 0, 0, 4,
+                                 MakeExactSourceInterval(offset, offset + 4));
+        row.function_name = function;
+        row.source_root_name =
+            iree_make_string_view(names[group].data(), names[group].size());
+        row.source_root_argument_index = group;
+        row.strategy_key = row.source_root_name;
+        SetBankService(IREE_SV("exact"), IREE_SV("conflict-free"), {}, 1, 1, 1,
+                       &row);
+        SetSubgroupAccess(IREE_SV("exact"), IREE_SV("dense"), {}, 128, 128, 128,
+                          &row);
+        IREE_ASSERT_OK(
+            loom_target_compile_report_memory_batch_append(&batch, &row));
+      }
+      IREE_ASSERT_OK(loom_target_compile_report_memory_batch_finish(&batch));
+      iree_arena_reset(&scratch);
+    }
+    EXPECT_EQ(report.source_low_memory_root_summaries.count, 2 * kGroupCount);
+    EXPECT_EQ(report.source_low_memory_argument_summaries.count,
+              2 * kGroupCount);
+    EXPECT_EQ(report.source_low_memory_argument_packet_summaries.count,
+              2 * kGroupCount);
+    EXPECT_EQ(report.source_low_memory_strategy_summaries.count,
+              2 * kGroupCount);
+    EXPECT_EQ(report.source_low_bank_service_summaries.count, 2 * kGroupCount);
+    EXPECT_EQ(report.source_low_subgroup_access_summaries.count,
+              2 * kGroupCount);
+    size_t ordinal = 0;
+    for (auto* block = report.source_low_memory_root_summaries.head; block;
+         block = block->next) {
+      const auto* rows = static_cast<
+          const loom_target_compile_report_source_low_memory_root_summary_t*>(
+          loom_target_compile_report_vec_const_rows(block));
+      for (size_t i = 0; i < block->count; ++i, ++ordinal) {
+        EXPECT_EQ(rows[i].source_root_argument_index,
+                  ((ordinal % kGroupCount) * 73) % kGroupCount);
+        EXPECT_TRUE(iree_string_view_equal(
+            rows[i].function_name,
+            ordinal < kGroupCount ? IREE_SV("producer") : IREE_SV("consumer")));
+        EXPECT_EQ(rows[i].summary.packet_count, 3u);
+        EXPECT_EQ(rows[i].summary.interval_envelope.unique_byte_count, 12u);
+      }
+    }
+    EXPECT_LE(storage.maximum_request, 64 * 1024u);
+    if (iteration == 0) {
+      warm_requests = storage.requests;
+    } else {
+      EXPECT_EQ(storage.requests, warm_requests);
+    }
+    loom_target_compile_report_deinitialize(&report);
+    iree_arena_deinitialize(&scratch);
+    iree_arena_deinitialize(&result_arena);
+  }
+  iree_arena_block_pool_deinitialize(&pool);
+  EXPECT_EQ(storage.live, 0u);
+}
+
+TEST(CompileReportMemoryTest, ReleasesPartiallyCapturedSummaryGroups) {
+  std::vector<std::string> names;
+  for (size_t i = 0; i < 128; ++i) {
+    names.push_back("buffer_" + std::to_string(i));
+  }
+  bool observed_failure = false;
+  bool observed_success = false;
+  for (size_t allowance = 0; allowance < 16; ++allowance) {
+    SCOPED_TRACE(allowance);
+    MemoryReportAllocator storage;
+    storage.remaining = allowance;
+    iree_arena_block_pool_t pool;
+    iree_arena_block_pool_initialize(
+        64 * 1024, {&storage, MemoryReportAllocator::Control}, &pool);
+    iree_arena_allocator_t result_arena;
+    iree_arena_initialize(&pool, &result_arena);
+    iree_arena_allocator_t scratch;
+    iree_arena_initialize(&pool, &scratch);
+    loom_target_compile_report_t report;
+    loom_target_compile_report_initialize(&report,
+                                          iree_arena_allocator(&result_arena));
+    loom_target_compile_report_memory_batch_t batch;
+    loom_target_compile_report_memory_batch_initialize(&report, &scratch,
+                                                       &batch);
+    iree_status_t status = iree_ok_status();
+    for (size_t i = 0; i < names.size() && iree_status_is_ok(status); ++i) {
+      auto row = MakeMemoryRow(IREE_SV("vector.load"), 43, IREE_SV("load"),
+                               IREE_SV("test.load"), 0, 1, 4, 0, 0, 4,
+                               MakeExactSourceInterval(0, 4));
+      row.source_root_name =
+          iree_make_string_view(names[i].data(), names[i].size());
+      row.source_root_argument_index = i;
+      row.strategy_key = row.source_root_name;
+      SetBankService(IREE_SV("exact"), IREE_SV("conflict-free"), {}, 1, 1, 1,
+                     &row);
+      SetSubgroupAccess(IREE_SV("exact"), IREE_SV("dense"), {}, 128, 128, 128,
+                        &row);
+      status = loom_target_compile_report_memory_batch_append(&batch, &row);
+    }
+    if (iree_status_is_ok(status)) {
+      status = loom_target_compile_report_memory_batch_finish(&batch);
+    }
+    if (iree_status_is_ok(status)) {
+      observed_success = true;
+    } else {
+      observed_failure = true;
+      IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED, status);
+    }
+    loom_target_compile_report_deinitialize(&report);
+    iree_arena_deinitialize(&scratch);
+    iree_arena_deinitialize(&result_arena);
     iree_arena_block_pool_deinitialize(&pool);
     EXPECT_EQ(storage.live, 0u);
   }
