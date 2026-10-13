@@ -22,6 +22,7 @@ extern "C" {
 #endif
 
 typedef struct loom_low_memory_access_map_t loom_low_memory_access_map_t;
+typedef struct loom_low_loop_execution_map_t loom_low_loop_execution_map_t;
 typedef struct loom_target_facts_t loom_target_facts_t;
 typedef struct loom_aie2p_array_leaf_t loom_aie2p_array_leaf_t;
 
@@ -213,6 +214,8 @@ struct loom_aie2p_array_leaf_t {
   const loom_target_facts_t* function_target_facts;
   // Optional source memory proofs translated with the resident clone.
   const loom_low_memory_access_map_t* memory_accesses;
+  // Optional source loop execution facts translated with the resident clone.
+  const loom_low_loop_execution_map_t* loop_execution;
   // Source imports and storage retained before resident worker construction.
   loom_low_function_requirements_t requirements;
 };

@@ -30,6 +30,8 @@ typedef struct loom_aie2p_array_resident_worker_t {
   const loom_target_facts_t* function_target_facts;
   // Module-owned proof bindings translated into the resident invocation.
   loom_low_memory_access_map_t* memory_accesses;
+  // Module-owned loop facts translated into the resident invocation.
+  loom_low_loop_execution_map_t* loop_execution;
 } loom_aie2p_array_resident_worker_t;
 
 // Materialized resident core programs for one physical array plan.

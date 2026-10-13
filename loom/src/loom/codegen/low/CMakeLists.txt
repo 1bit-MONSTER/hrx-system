@@ -990,6 +990,40 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
+    loop_placement
+  HDRS
+    "loop_placement.h"
+  SRCS
+    "loop_placement.c"
+  DEPS
+    ::allocation
+    ::descriptors
+    ::function
+    ::loop_execution
+    iree::base
+    iree::base::internal
+    iree::base::internal::arena
+    loom::codegen::low::schedule
+    loom::ir
+    loom::ops::low
+    loom::rewrite::rewriter
+    loom::util::cfg_loop
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    loop_placement_test
+  SRCS
+    "loop_placement_test.cc"
+  DEPS
+    ::loop_placement
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
     frame
   HDRS
     "frame.h"
@@ -1004,6 +1038,8 @@ loom_cc_library(
     ::function
     ::function_model
     ::guarded_motion
+    ::loop_execution
+    ::loop_placement
     ::memory_access
     ::packet
     ::planning_statistics
@@ -1034,6 +1070,7 @@ loom_cc_test(
   DEPS
     ::frame
     ::guarded_motion
+    ::loop_execution
     ::packet
     ::text_asm
     iree::base::internal::arena
@@ -1045,6 +1082,7 @@ loom_cc_test(
     loom::format::text::parser
     loom::ir
     loom::ops::low
+    loom::rewrite::rewriter
     loom::target::facts_builder
     loom::target::test::descriptors
     loom::target::test::low_registry

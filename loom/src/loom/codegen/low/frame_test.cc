@@ -19,6 +19,7 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
+#include "loom/rewrite/rewriter.h"
 #include "loom/target/facts_builder.h"
 #include "loom/target/test/descriptors.h"
 #include "loom/target/test/low_registry.h"
@@ -114,6 +115,250 @@ low.func.def target<test.low.core> @structural_model() -> (reg<test.i32 x4>) asm
   loom_target_low_descriptor_registry_t registry_ = {};
   iree_arena_allocator_t arena_ = {};
 };
+
+constexpr const char kLoopPlacementSource[] = R"(
+low.func.def target<test.low.core> @loop_placement(%source: reg<test.i32>) asm {
+  %temporary = test.total.add.i32 %source, %source
+  %private = copy %source : reg<test.i32> -> reg<test.i32>
+  %candidate = test.total.tied.i32 %private
+  %dead = test.total.tied.i32 %temporary
+  %keep_source_live = test.total.add.i32 %source, %source
+  low.br ^loop
+^loop:
+  low.cond_br %candidate, ^loop, ^exit : reg<test.i32>
+^exit:
+  return
+}
+)";
+
+constexpr const char kNestedLoopPlacementSource[] = R"(
+low.func.def target<test.low.core> @nested_loop_placement(%source: reg<test.i32>, %condition: reg<test.i32>) asm {
+  %temporary = test.total.add.i32 %source, %source
+  %private = copy %source : reg<test.i32> -> reg<test.i32>
+  %candidate = test.total.tied.i32 %private
+  %dead = test.total.tied.i32 %temporary
+  %keep_source_live = test.total.add.i32 %source, %source
+  low.br ^outer
+^outer:
+  low.cond_br %condition, ^inner_entry, ^exit : reg<test.i32>
+^inner_entry:
+  low.br ^inner
+^inner:
+  low.cond_br %condition, ^body, ^outer_latch : reg<test.i32>
+^body:
+  %used = test.total.add.i32 %candidate, %source
+  low.br ^inner
+^outer_latch:
+  low.br ^outer
+^exit:
+  return
+}
+)";
+
+struct LoopPlacementCost {
+  uint64_t maximum_execution_multiplier;
+  uint32_t query_count;
+};
+
+bool QueryLoopPlacementCost(void* user_data,
+                            const loom_low_descriptor_t* descriptor,
+                            loom_low_loop_placement_cost_t* out_cost) {
+  auto* cost = static_cast<LoopPlacementCost*>(user_data);
+  EXPECT_EQ(descriptor, loom_low_descriptor_set_descriptor_at(
+                            loom_test_low_core_descriptor_set(),
+                            TEST_LOW_CORE_DESCRIPTOR_REF_TEST_TOTAL_TIED_I32));
+  ++cost->query_count;
+  *out_cost = {
+      .maximum_execution_multiplier = cost->maximum_execution_multiplier,
+      .maximum_schedule_cycle_count = 2,
+  };
+  return true;
+}
+
+TEST_F(LowEmissionFrameTest, LoopPlacementConsumesRetainedHeaderCount) {
+  ModulePtr module = ParseModule(kLoopPlacementSource);
+  loom_op_t* function = loom_block_op(loom_module_block(module.get()), 0);
+  loom_region_t* body = loom_low_func_def_body(function);
+  loom_block_t* entry = loom_region_block(body, 0);
+  loom_block_t* loop = loom_region_block(body, 1);
+  loom_op_t* copy = loom_block_op(entry, 1);
+  loom_op_t* candidate = loom_block_op(entry, 2);
+  loom_op_t* original_anchor = loom_block_op(entry, 3);
+
+  loom_low_loop_execution_map_t* loop_execution = nullptr;
+  IREE_ASSERT_OK(
+      loom_low_loop_execution_map_allocate(&arena_, &loop_execution));
+  IREE_ASSERT_OK(loom_low_loop_execution_map_insert(
+      loop_execution, loop->last_op,
+      {.trip_count = 7, .count_kind = LOOM_LOW_LOOP_EXECUTION_COUNT_BOUNDED}));
+  const loom_low_allocation_budget_t budget = {
+      .register_class = IREE_SV("test.i32"),
+      .max_units = 2,
+  };
+  loom_low_emission_frame_options_t options = {
+      .descriptor_registry = &registry_.registry,
+      .loop_execution = loop_execution,
+      .schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_SOURCE_PRIORITY,
+      .allocation_budgets = &budget,
+      .allocation_budget_count = 1,
+  };
+  loom_low_emission_frame_t frame = {};
+  bool accepted = false;
+  IREE_ASSERT_OK(loom_low_emission_frame_build(module.get(), function, &options,
+                                               &arena_, &frame, &accepted));
+  ASSERT_TRUE(accepted);
+  ASSERT_EQ(frame.allocation.spill_count, 2u);
+
+  LoopPlacementCost cost = {.maximum_execution_multiplier = 7};
+  loom_low_loop_placement_plan_t rejected_plan = {};
+  IREE_ASSERT_OK(loom_low_loop_placement_plan(
+      &frame.schedule, &frame.allocation, loop_execution,
+      QueryLoopPlacementCost, &cost, &arena_, &rejected_plan));
+  EXPECT_EQ(rejected_plan.candidate_count, 0u);
+
+  cost.maximum_execution_multiplier = 8;
+  loom_low_loop_placement_plan_t accepted_plan = {};
+  IREE_ASSERT_OK(loom_low_loop_placement_plan(
+      &frame.schedule, &frame.allocation, loop_execution,
+      QueryLoopPlacementCost, &cost, &arena_, &accepted_plan));
+  ASSERT_EQ(accepted_plan.candidate_count, 1u);
+  EXPECT_EQ(cost.query_count, 2u);
+
+  loom_rewriter_t rewriter = {};
+  loom_rewriter_initialize(&rewriter, module.get(), &arena_);
+  IREE_ASSERT_OK(loom_low_loop_placement_apply(&rewriter, &accepted_plan));
+  EXPECT_EQ(copy->parent_block, loop);
+  EXPECT_EQ(candidate->parent_block, loop);
+  EXPECT_EQ(copy->next_op, candidate);
+  EXPECT_EQ(candidate->next_op, loop->last_op);
+  IREE_ASSERT_OK(loom_low_loop_placement_rollback(&rewriter, &accepted_plan));
+  loom_rewriter_deinitialize(&rewriter);
+  EXPECT_EQ(copy->parent_block, entry);
+  EXPECT_EQ(candidate->parent_block, entry);
+  EXPECT_EQ(copy->next_op, candidate);
+  EXPECT_EQ(candidate->next_op, original_anchor);
+  EXPECT_EQ(original_anchor->parent_block, entry);
+}
+
+TEST_F(LowEmissionFrameTest, LoopPlacementMultipliesCrossedLoopCounts) {
+  ModulePtr module = ParseModule(kNestedLoopPlacementSource);
+  loom_op_t* function = loom_block_op(loom_module_block(module.get()), 0);
+  loom_region_t* body = loom_low_func_def_body(function);
+  loom_block_t* entry = loom_region_block(body, 0);
+  loom_op_t* outer_branch = loom_region_block(body, 1)->last_op;
+  loom_op_t* inner_branch = loom_region_block(body, 3)->last_op;
+  const loom_low_allocation_budget_t budget = {
+      .register_class = IREE_SV("test.i32"),
+      .max_units = 2,
+  };
+  const loom_low_allocation_fixed_value_t fixed_values[] = {
+      {entry->arg_ids[0], LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID, 0, 1},
+      {entry->arg_ids[1], LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID, 1, 1},
+  };
+  loom_low_emission_frame_options_t options = {
+      .descriptor_registry = &registry_.registry,
+      .schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_SOURCE_PRIORITY,
+      .allocation_budgets = &budget,
+      .allocation_budget_count = 1,
+      .allocation_fixed_values = fixed_values,
+      .allocation_fixed_value_count = IREE_ARRAYSIZE(fixed_values),
+  };
+  loom_low_emission_frame_t frame = {};
+  bool accepted = false;
+  IREE_ASSERT_OK(loom_low_emission_frame_build(module.get(), function, &options,
+                                               &arena_, &frame, &accepted));
+  ASSERT_TRUE(accepted);
+  ASSERT_GT(frame.allocation.spill_count, 0u);
+
+  const auto expect_plan =
+      [&](bool has_outer_count, uint64_t outer_count, uint64_t inner_count,
+          iree_host_size_t expected_candidates, uint32_t expected_queries) {
+        loom_low_loop_execution_map_t* loop_execution = nullptr;
+        IREE_ASSERT_OK(
+            loom_low_loop_execution_map_allocate(&arena_, &loop_execution));
+        IREE_ASSERT_OK(loom_low_loop_execution_map_insert(
+            loop_execution, inner_branch,
+            {
+                .trip_count = inner_count,
+                .count_kind = LOOM_LOW_LOOP_EXECUTION_COUNT_EXACT,
+            }));
+        if (has_outer_count) {
+          IREE_ASSERT_OK(loom_low_loop_execution_map_insert(
+              loop_execution, outer_branch,
+              {
+                  .trip_count = outer_count,
+                  .count_kind = LOOM_LOW_LOOP_EXECUTION_COUNT_BOUNDED,
+              }));
+        }
+        LoopPlacementCost cost = {.maximum_execution_multiplier = 8};
+        loom_low_loop_placement_plan_t plan = {};
+        IREE_ASSERT_OK(loom_low_loop_placement_plan(
+            &frame.schedule, &frame.allocation, loop_execution,
+            QueryLoopPlacementCost, &cost, &arena_, &plan));
+        EXPECT_EQ(plan.candidate_count, expected_candidates);
+        EXPECT_EQ(cost.query_count, expected_queries);
+      };
+
+  expect_plan(false, 0, 4, 0, 1);
+  expect_plan(false, 0, 0, 1, 1);
+  expect_plan(true, 2, 4, 1, 1);
+  expect_plan(true, 3, 4, 0, 1);
+  expect_plan(true, UINT64_MAX, 0, 1, 1);
+}
+
+TEST_F(LowEmissionFrameTest, LoopPlacementRestoresRejectedTrial) {
+  ModulePtr module = ParseModule(kLoopPlacementSource);
+  loom_op_t* function = loom_block_op(loom_module_block(module.get()), 0);
+  loom_region_t* body = loom_low_func_def_body(function);
+  loom_block_t* entry = loom_region_block(body, 0);
+  loom_op_t* copy = loom_block_op(entry, 1);
+  loom_op_t* candidate = loom_block_op(entry, 2);
+  loom_op_t* original_anchor = loom_block_op(entry, 3);
+
+  loom_low_loop_execution_map_t* loop_execution = nullptr;
+  IREE_ASSERT_OK(
+      loom_low_loop_execution_map_allocate(&arena_, &loop_execution));
+  IREE_ASSERT_OK(loom_low_loop_execution_map_insert(
+      loop_execution, loom_region_block(body, 1)->last_op,
+      {.trip_count = 7, .count_kind = LOOM_LOW_LOOP_EXECUTION_COUNT_BOUNDED}));
+  const loom_low_allocation_budget_t budget = {
+      .register_class = IREE_SV("test.i32"),
+      .max_units = 2,
+  };
+  loom_low_emission_frame_options_t options = {
+      .descriptor_registry = &registry_.registry,
+      .loop_execution = loop_execution,
+      .schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_SOURCE_PRIORITY,
+      .allocation_budgets = &budget,
+      .allocation_budget_count = 1,
+  };
+  loom_low_planning_statistics_t statistics = {};
+  options.statistics = &statistics;
+  LoopPlacementCost cost = {.maximum_execution_multiplier = 8};
+  loom_low_emission_frame_spill_free_options_t spill_free_options = {
+      .materialization_options =
+          {
+              .has_supported_storage_spaces = true,
+              .supported_storage_spaces = LOOM_LOW_STORAGE_SPACE_SET_NONE,
+          },
+      .loop_placement_cost_query = QueryLoopPlacementCost,
+      .loop_placement_cost_query_user_data = &cost,
+  };
+  loom_low_emission_frame_t frame = {};
+  bool accepted = true;
+  IREE_ASSERT_OK(loom_low_emission_frame_build_spill_free(
+      module.get(), function, &options, &spill_free_options, &arena_, &frame,
+      &accepted));
+
+  EXPECT_FALSE(accepted);
+  EXPECT_EQ(cost.query_count, 1u);
+  EXPECT_EQ(statistics.frame_build_count, 2u);
+  EXPECT_EQ(statistics.allocation_run_count, 2u);
+  EXPECT_EQ(copy->parent_block, entry);
+  EXPECT_EQ(candidate->parent_block, entry);
+  EXPECT_EQ(copy->next_op, candidate);
+  EXPECT_EQ(candidate->next_op, original_anchor);
+}
 
 TEST_F(LowEmissionFrameTest, ResidencyQueryConsumesRetainedFunctionFacts) {
   ModulePtr module = ParseModule();

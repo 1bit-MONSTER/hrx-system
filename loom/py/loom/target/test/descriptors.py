@@ -932,6 +932,17 @@ TEST_LOW_TIED_ANY_DESCRIPTOR = Descriptor(
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
 )
 
+TEST_LOW_TOTAL_TIED_I32_DESCRIPTOR = Descriptor(
+    key="test.total.tied.i32",
+    mnemonic="test.total.tied.i32",
+    semantic_tag="test.total.tied.i32",
+    operands=(_i32_result(), _i32_operand("src")),
+    constraints=_TIED_RESULT_CONSTRAINTS,
+    asm_forms=_asm(results=("dst",), operands=("src",)),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
+)
+
 TEST_LOW_DESTRUCTIVE_ANY_DESCRIPTOR = replace(
     TEST_LOW_TIED_ANY_DESCRIPTOR,
     key="test.destructive.any",
@@ -2607,6 +2618,7 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_AMBIGUOUS_DESCRIPTOR,
         TEST_LOW_PASS_ANY_DESCRIPTOR,
         TEST_LOW_TIED_ANY_DESCRIPTOR,
+        TEST_LOW_TOTAL_TIED_I32_DESCRIPTOR,
         TEST_LOW_DESTRUCTIVE_ANY_DESCRIPTOR,
         TEST_LOW_TIED_PAIR_DESCRIPTOR,
         TEST_LOW_SAME_REGISTER_VALUE_TYPES_DESCRIPTOR,

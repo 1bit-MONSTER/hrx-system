@@ -68,6 +68,32 @@ class FunctionTest : public ::testing::Test {
   iree_io_stream_t* stream_ = nullptr;
 };
 
+TEST(X86LoopPlacementCostTest, AdmitsOnlySingleScalarInstruction) {
+  loom_low_loop_placement_cost_t cost = {};
+  const loom_low_descriptor_t scalar = {
+      .encoding_format_id = LOOM_X86_ENCODING_FORM_MOVE,
+      .encoding_id = 0x89,
+  };
+  EXPECT_TRUE(loom_x86_loop_placement_cost_query(nullptr, &scalar, &cost));
+  EXPECT_EQ(cost.maximum_execution_multiplier, 8u);
+  EXPECT_EQ(cost.maximum_schedule_cycle_count, 2u);
+
+  const loom_low_descriptor_t expanded = {
+      .encoding_format_id = LOOM_X86_ENCODING_FORM_SELECT,
+      .encoding_id = 0x44,
+  };
+  EXPECT_FALSE(loom_x86_loop_placement_cost_query(nullptr, &expanded, &cost));
+
+  const loom_low_descriptor_t vector = {
+      .encoding_format_id = LOOM_X86_ENCODING_FORMAT_VECTOR,
+  };
+  EXPECT_FALSE(loom_x86_loop_placement_cost_query(nullptr, &vector, &cost));
+
+  const loom_low_descriptor_t unavailable = {};
+  EXPECT_FALSE(
+      loom_x86_loop_placement_cost_query(nullptr, &unavailable, &cost));
+}
+
 TEST_F(FunctionTest, EmptyLeafNeedsOnlyReturn) {
   iree_host_size_t block_starts[] = {0, 0};
   loom_x86_function_t function = {

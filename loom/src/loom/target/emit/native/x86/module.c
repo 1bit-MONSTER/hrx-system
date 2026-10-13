@@ -117,6 +117,9 @@ static iree_status_t loom_x86_module_encode_function(
       .memory_accesses = entry->function_version
                              ? entry->function_version->memory_accesses
                              : NULL,
+      .loop_execution = entry->function_version
+                            ? entry->function_version->loop_execution
+                            : NULL,
       .schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_SOURCE_PRIORITY,
       .allocation_entry_locations = abi->call_contract.arguments,
       .allocation_entry_location_count = abi->call_contract.argument_count,
@@ -141,6 +144,7 @@ static iree_status_t loom_x86_module_encode_function(
       .materialization_options.record_materialized_spills =
           loom_target_compile_report_wants_details(
               report, LOOM_TARGET_COMPILE_REPORT_DETAIL_SPILL_ROWS),
+      .loop_placement_cost_query = loom_x86_loop_placement_cost_query,
   };
   loom_low_emission_frame_t frame = {0};
   IREE_RETURN_IF_ERROR(loom_low_emission_frame_build_spill_free(

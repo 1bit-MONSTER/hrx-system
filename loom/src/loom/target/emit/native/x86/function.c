@@ -147,6 +147,33 @@ iree_host_size_t loom_x86_function_reserved_ranges(
   return count;
 }
 
+bool loom_x86_loop_placement_cost_query(
+    void* user_data, const loom_low_descriptor_t* descriptor,
+    loom_low_loop_placement_cost_t* out_cost) {
+  (void)user_data;
+  if (descriptor->encoding_format_id == LOOM_X86_ENCODING_FORM_NONE ||
+      iree_any_bit_set(descriptor->encoding_format_id,
+                       LOOM_X86_ENCODING_FORMAT_VECTOR)) {
+    return false;
+  }
+  const loom_x86_encoding_operands_t operands = {0};
+  loom_x86_encoded_instruction_t instruction = {0};
+  loom_x86_encode_instruction(descriptor->encoding_format_id,
+                              descriptor->encoding_id, &operands, &instruction);
+  if (instruction.instruction_count != 1) {
+    return false;
+  }
+  *out_cost = (loom_low_loop_placement_cost_t){
+      // Eight repetitions is the measured boundary where replacing scalar
+      // stack traffic with a private register chain remains neutral.
+      .maximum_execution_multiplier = 8,
+      // The moved copy and single descriptor each realize at most one native
+      // instruction; the complete scheduled trial verifies the actual extent.
+      .maximum_schedule_cycle_count = 2,
+  };
+  return true;
+}
+
 static iree_status_t loom_x86_function_storage_layout(
     const loom_low_emission_frame_t* frame, iree_arena_allocator_t* arena,
     loom_x86_function_builder_t* builder) {

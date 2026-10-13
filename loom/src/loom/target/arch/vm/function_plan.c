@@ -886,6 +886,8 @@ iree_status_t loom_vm_function_plan_write(
                                    : NULL,
       .memory_accesses =
           function_version != NULL ? function_version->memory_accesses : NULL,
+      .loop_execution =
+          function_version != NULL ? function_version->loop_execution : NULL,
       .schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_SOURCE_PRIORITY,
       .allocation_entry_locations = signature->registers,
       .allocation_entry_location_count = argument_count,

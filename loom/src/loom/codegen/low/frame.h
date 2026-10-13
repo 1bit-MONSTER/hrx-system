@@ -23,6 +23,8 @@
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/allocation.h"
 #include "loom/codegen/low/allocation_materialization.h"
+#include "loom/codegen/low/loop_execution.h"
+#include "loom/codegen/low/loop_placement.h"
 #include "loom/codegen/low/memory_access.h"
 #include "loom/codegen/low/planning_statistics.h"
 #include "loom/codegen/low/schedule/types.h"
@@ -59,6 +61,8 @@ typedef struct loom_low_emission_frame_options_t {
   const loom_target_facts_t* function_target_facts;
   // Optional analysis-derived memory summaries for the scheduled low function.
   const loom_low_memory_access_map_t* memory_accesses;
+  // Optional producer-proven execution counts for natural Low loops.
+  const loom_low_loop_execution_map_t* loop_execution;
   // Optional target query for the function-local residency view. Its presence
   // requires concrete target facts for the function.
   loom_low_emission_frame_residency_query_fn_t residency_query;
@@ -198,6 +202,10 @@ typedef struct loom_low_emission_frame_spill_free_options_t {
   loom_low_emission_frame_lower_spill_traffic_fn_t lower_spill_traffic;
   // Caller-owned data passed to |lower_spill_traffic|.
   void* lower_spill_traffic_user_data;
+  // Optional target cost query used by reversible loop placement.
+  loom_low_loop_placement_cost_query_fn_t loop_placement_cost_query;
+  // Caller-owned data passed to |loop_placement_cost_query|.
+  void* loop_placement_cost_query_user_data;
   // Optional final target validation callback.
   loom_low_emission_frame_validate_fn_t validate_frame;
   // Caller-owned data passed to |validate_frame|.

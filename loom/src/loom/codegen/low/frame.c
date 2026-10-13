@@ -14,6 +14,7 @@
 #include "loom/codegen/low/function.h"
 #include "loom/codegen/low/function_model.h"
 #include "loom/codegen/low/guarded_motion.h"
+#include "loom/codegen/low/loop_placement.h"
 #include "loom/codegen/low/packet.h"
 #include "loom/codegen/low/read_retention.h"
 #include "loom/codegen/low/rematerialization.h"
@@ -848,6 +849,83 @@ static iree_status_t loom_low_emission_frame_try_guarded_motion(
   return status;
 }
 
+// Evaluates one batch of private loop-local definitions against the complete
+// retained schedule and allocation. Rejection restores exact source order.
+static iree_status_t loom_low_emission_frame_try_loop_placement(
+    loom_module_t* module, loom_op_t* low_func_op,
+    const loom_low_emission_frame_options_t* frame_options,
+    const loom_low_emission_frame_spill_free_options_t* spill_free_options,
+    iree_bitmap_t required_register_values,
+    iree_bitmap_t expanded_execution_values,
+    iree_bitmap_t per_user_placement_values,
+    const iree_arena_checkpoint_t* frame_checkpoint,
+    iree_arena_allocator_t* repair_arena, iree_arena_allocator_t* scratch_arena,
+    loom_low_planning_statistics_t* statistics,
+    loom_low_emission_frame_t* frame) {
+  loom_low_loop_placement_plan_t plan = {0};
+  IREE_RETURN_IF_ERROR(loom_low_loop_placement_plan(
+      &frame->schedule, &frame->allocation, frame_options->loop_execution,
+      spill_free_options->loop_placement_cost_query,
+      spill_free_options->loop_placement_cost_query_user_data, repair_arena,
+      &plan));
+  if (plan.candidate_count == 0) {
+    return iree_ok_status();
+  }
+
+  loom_rewriter_t rewriter = {0};
+  loom_rewriter_initialize(&rewriter, module, repair_arena);
+  iree_status_t status = loom_low_loop_placement_apply(&rewriter, &plan);
+  loom_low_emission_frame_t trial = {0};
+  if (iree_status_is_ok(status)) {
+    loom_low_emission_frame_advance_repair_iteration(statistics);
+    const loom_low_schedule_retained_blocks_t retained_blocks = {
+        .schedule = &frame->schedule,
+        .changed_blocks = plan.changed_blocks,
+    };
+    status = loom_low_emission_frame_build_impl(
+        module, low_func_op, frame_options, &retained_blocks,
+        loom_low_placement_pair_use_list_empty(), required_register_values,
+        expanded_execution_values, per_user_placement_values, scratch_arena,
+        statistics, &trial);
+  }
+  bool rejected = !iree_status_is_ok(status);
+  if (!rejected) {
+    const bool improves_allocation =
+        loom_low_loop_placement_improves_allocation(
+            &plan, &frame->allocation, &trial.schedule, &trial.allocation);
+    const bool bounds_schedule = loom_low_loop_placement_bounds_schedule(
+        &plan, &frame->schedule, &trial.schedule);
+    const bool crosses_pressure_cliff =
+        loom_low_emission_frame_crosses_new_pressure_cliff(
+            trial.residency,
+            frame->allocation.physical_extents.ends_by_reg_class,
+            &trial.allocation);
+    rejected = trial.schedule.error_count != 0 ||
+               trial.allocation.error_count != 0 || !improves_allocation ||
+               !bounds_schedule || crosses_pressure_cliff;
+    if (!rejected &&
+        loom_target_residency_model_is_empty(trial.residency.model)) {
+      for (uint16_t i = 0; i < trial.allocation.physical_extents.count; ++i) {
+        rejected |= trial.allocation.physical_extents.ends_by_reg_class[i] >
+                    frame->allocation.physical_extents.ends_by_reg_class[i];
+      }
+    }
+  }
+  loom_low_emission_frame_record_memory_high_water(
+      frame_checkpoint, repair_arena, scratch_arena, statistics);
+  if (rejected) {
+    status = iree_status_join(
+        status, loom_low_loop_placement_rollback(&rewriter, &plan));
+    iree_arena_reset(scratch_arena);
+  } else {
+    iree_arena_checkpoint_restore(frame_checkpoint);
+    iree_arena_transfer(scratch_arena, frame_checkpoint->arena);
+    *frame = trial;
+  }
+  loom_rewriter_deinitialize(&rewriter);
+  return status;
+}
+
 iree_status_t loom_low_emission_frame_build(
     loom_module_t* module, loom_op_t* low_func_op,
     const loom_low_emission_frame_options_t* options,
@@ -981,6 +1059,7 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
   iree_host_size_t value_repair_iteration_count = 0;
   iree_host_size_t value_repair_iteration_limit = 0;
   iree_host_size_t last_rematerialized_spill_plan_count = IREE_HOST_SIZE_MAX;
+  bool loop_placement_attempted = false;
   bool restore_frame_before_build = false;
   loom_low_emission_frame_materialization_summary_t materialization_summary = {
       0};
@@ -1054,32 +1133,8 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
       return iree_ok_status();
     }
 
-    if (frame.allocation.spill_plan_count == 0) {
-      IREE_ASSERT_EQ(frame.allocation.spill_count, 0u);
-      IREE_RETURN_IF_ERROR(loom_low_emission_frame_try_guarded_motion(
-          module, low_func_op, frame_options, required_register_values,
-          expanded_execution_values, rematerialization.per_user_values,
-          frame_checkpoint, repair_arena, scratch_arena, statistics, &frame));
-      IREE_RETURN_IF_ERROR(loom_low_emission_frame_try_pair_replication(
-          module, low_func_op, frame_options, required_register_values,
-          expanded_execution_values, rematerialization.per_user_values,
-          frame_checkpoint, repair_arena, scratch_arena, statistics, &frame));
-      bool accepted = false;
-      IREE_RETURN_IF_ERROR(loom_low_emission_frame_validate_final(
-          frame_options, spill_free_options, &frame, scratch_arena, &accepted));
-      if (!accepted) {
-        return iree_ok_status();
-      }
-      IREE_RETURN_IF_ERROR(
-          loom_low_emission_frame_emit_diagnostics(frame_options, &frame));
-      IREE_RETURN_IF_ERROR(
-          loom_low_emission_frame_apply_materialization_summary(
-              &materialization_summary, arena, &frame));
-      *out_frame = frame;
-      *out_accepted = true;
-      return iree_ok_status();
-    }
-    if (value_repair_iteration_count < value_repair_iteration_limit) {
+    if (frame.allocation.spill_plan_count != 0 &&
+        value_repair_iteration_count < value_repair_iteration_limit) {
       if (frame.allocation.spill_plan_count <
           last_rematerialized_spill_plan_count) {
         loom_low_rematerialization_batch_result_t rematerialization_result = {
@@ -1114,6 +1169,39 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
         restore_frame_before_build = true;
         continue;
       }
+    }
+    if (!loop_placement_attempted && frame.allocation.spill_plan_count != 0) {
+      loop_placement_attempted = true;
+      IREE_RETURN_IF_ERROR(loom_low_emission_frame_try_loop_placement(
+          module, low_func_op, frame_options, spill_free_options,
+          required_register_values, expanded_execution_values,
+          rematerialization.per_user_values, frame_checkpoint, repair_arena,
+          scratch_arena, statistics, &frame));
+    }
+    if (frame.allocation.spill_plan_count == 0) {
+      IREE_ASSERT_EQ(frame.allocation.spill_count, 0u);
+      IREE_RETURN_IF_ERROR(loom_low_emission_frame_try_guarded_motion(
+          module, low_func_op, frame_options, required_register_values,
+          expanded_execution_values, rematerialization.per_user_values,
+          frame_checkpoint, repair_arena, scratch_arena, statistics, &frame));
+      IREE_RETURN_IF_ERROR(loom_low_emission_frame_try_pair_replication(
+          module, low_func_op, frame_options, required_register_values,
+          expanded_execution_values, rematerialization.per_user_values,
+          frame_checkpoint, repair_arena, scratch_arena, statistics, &frame));
+      bool accepted = false;
+      IREE_RETURN_IF_ERROR(loom_low_emission_frame_validate_final(
+          frame_options, spill_free_options, &frame, scratch_arena, &accepted));
+      if (!accepted) {
+        return iree_ok_status();
+      }
+      IREE_RETURN_IF_ERROR(
+          loom_low_emission_frame_emit_diagnostics(frame_options, &frame));
+      IREE_RETURN_IF_ERROR(
+          loom_low_emission_frame_apply_materialization_summary(
+              &materialization_summary, arena, &frame));
+      *out_frame = frame;
+      *out_accepted = true;
+      return iree_ok_status();
     }
     IREE_RETURN_IF_ERROR(loom_low_emission_frame_record_spill_plan_values(
         &frame.allocation, repair_arena, &required_register_values));
