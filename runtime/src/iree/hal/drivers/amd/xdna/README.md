@@ -2,8 +2,8 @@
 
 The `xdna` driver runs native Loom array programs through libamdf. It owns
 device discovery, native contexts, executable storage, buffers, direct and
-recorded queue operations, and completion. The [image loader](image/README.md) admits `.xdna`
-ELFs and applies their declared storage and binding contracts.
+recorded queue operations, and completion. The [image loader](image/README.md)
+admits `.xdna` ELFs and applies their declared storage and binding contracts.
 
 ## Running a Loom scenario
 
@@ -125,23 +125,38 @@ Command buffers record array dispatches, fill/update/copy operations, and
 barriers. Records retain direct resources and capture update bytes. Indirect
 binding tables are captured separately for each execution, so the same recording
 can run concurrently with different buffers. Replay frames pack the captured
-table and maximum dispatch binding scratch into one allocation and return to a
-recording-owned cache after completion. Stable shape and concurrency reuse both
-these frames and the existing prepared invocation cache.
+table, dispatch binding scratch, and bounded native descriptor/invocation arrays
+into one allocation with `IREE_STRUCT_LAYOUT`. Completed frames return to a
+recording-owned cache. Stable shape and concurrency reuse these frames and the
+existing prepared invocation cache without allocating or repatching unchanged
+bindings.
 
 One queue execution owns the external wait/signal lists and a cursor into the
 immutable recording. Its publisher fills the free native ring window, resuming
 the remaining commands after checked retirement returns capacity. There is no
 recorded-command count limit or host wait between adjacent array dispatches.
-The native API still accepts one command per submission; recording amortizes
-HAL capture, admission, and completion rather than merging controller programs.
+Consecutive dispatches use one libamdf command-array submission and one checked
+native completion point. Recording retains dispatch-run lengths so publication
+can select a batch without rescanning the commands. Batches shorter than six
+dispatches use ordinary packets to avoid native command-list setup latency.
 Host transfer phases run after the preceding native prefix retires and resume
 native publication after their cache work completes. This preserves explicit
 barriers while using the same queue services as direct operations.
 
+The native queue advertises its array capacity. Linux accepts up to 64 commands
+per array and shares the existing packet pool between singleton packets and
+chain roots with children. Windows Direct-protocol queues accept up to 36
+commands per list and reuse seven 4 KiB cells in the instruction allocation's
+reserved prefix. Windows metadata protocols retain their single-command
+capability. Neither provider allocates native backing on submission. Aggregate
+packet/list credits can fill before the public pending-submission bound; `BUSY`
+retains the prepared array until checked retirement returns capacity.
+
 The submitted semaphore frontier becomes visible only after the recording's
-terminal native tail is accepted. Rejection of a later command retains the
-accepted prefix until retirement, then reports failure. Loss of retirement
+terminal native tail is accepted. Rejection of a later array retains the
+accepted prefix until retirement, then reports failure. Every invocation in an
+accepted array remains owned through its root's fence and result check. Native
+acceptance does not promise that all commands succeed. Loss of retirement
 observation retains the native-reachable graph as for direct dispatch.
 
 ## Benchmarking and profiling

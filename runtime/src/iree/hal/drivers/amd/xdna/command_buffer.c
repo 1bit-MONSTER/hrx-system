@@ -10,6 +10,9 @@
 #include "iree/hal/drivers/amd/xdna/barrier.h"
 #include "iree/hal/utils/resource_set.h"
 
+// Short runs use ordinary packets to avoid native command-list setup latency.
+enum { IREE_HAL_AMD_XDNA_MINIMUM_BATCH_COUNT = 6 };
+
 typedef struct iree_hal_amd_xdna_command_buffer_t {
   // HAL recording identity and validation state.
   iree_hal_command_buffer_t base;
@@ -31,6 +34,8 @@ typedef struct iree_hal_amd_xdna_command_buffer_t {
   iree_host_size_t maximum_binding_count;
   // Consecutive dispatch counts retained while recording.
   struct {
+    // First dispatch whose remaining count is finalized when the run ends.
+    iree_hal_amd_xdna_record_t* first;
     // Number of dispatches since the last host transfer.
     iree_host_size_t length;
     // Largest consecutive dispatch run in the recording.
@@ -126,11 +131,28 @@ static iree_status_t iree_hal_amd_xdna_command_buffer_begin(
   return iree_ok_status();
 }
 
+static void iree_hal_amd_xdna_command_buffer_finish_dispatch_run(
+    iree_hal_amd_xdna_command_buffer_t* buffer) {
+  iree_hal_amd_xdna_record_t* record = buffer->dispatch_run.first;
+  for (iree_host_size_t remaining = buffer->dispatch_run.length; remaining;
+       --remaining) {
+    record->dispatch.remaining = remaining;
+    record = record->next;
+  }
+  buffer->dispatch_run.first = NULL;
+  buffer->dispatch_run.length = 0;
+}
+
 static iree_status_t iree_hal_amd_xdna_command_buffer_end(
     iree_hal_command_buffer_t* base) {
   iree_hal_amd_xdna_command_buffer_t* buffer = (void*)base;
+  iree_hal_amd_xdna_command_buffer_finish_dispatch_run(buffer);
   buffer->layout.batch_capacity = iree_min(buffer->layout.batch_capacity,
                                            buffer->dispatch_run.maximum_length);
+  if (buffer->layout.batch_capacity &&
+      buffer->layout.batch_capacity < IREE_HAL_AMD_XDNA_MINIMUM_BATCH_COUNT) {
+    buffer->layout.batch_capacity = 1;
+  }
   return IREE_STRUCT_LAYOUT(
       sizeof(iree_hal_amd_xdna_execution_t), &buffer->layout.size,
       IREE_STRUCT_FIELD(base->binding_count, iree_hal_buffer_binding_t,
@@ -223,11 +245,14 @@ static void iree_hal_amd_xdna_command_buffer_append(
   buffer->tail = record;
   ++buffer->record_count;
   if (record->kind == IREE_HAL_AMD_XDNA_RECORD_DISPATCH) {
+    if (!buffer->dispatch_run.first) {
+      buffer->dispatch_run.first = record;
+    }
     ++buffer->dispatch_run.length;
     buffer->dispatch_run.maximum_length = iree_max(
         buffer->dispatch_run.maximum_length, buffer->dispatch_run.length);
   } else {
-    buffer->dispatch_run.length = 0;
+    iree_hal_amd_xdna_command_buffer_finish_dispatch_run(buffer);
   }
 }
 
@@ -474,13 +499,15 @@ iree_status_t iree_hal_amd_xdna_execution_prepare_batch(
   if (execution->batch.count) {
     return iree_ok_status();
   }
-  const uint32_t capacity =
-      iree_min(execution->batch.capacity, maximum_command_count);
   const iree_hal_amd_xdna_record_t* record = execution->cursor;
+  uint32_t capacity =
+      iree_min(iree_min(execution->batch.capacity, maximum_command_count),
+               record->dispatch.remaining);
+  if (capacity < IREE_HAL_AMD_XDNA_MINIMUM_BATCH_COUNT) {
+    capacity = 1;
+  }
   iree_status_t status = iree_ok_status();
-  while (execution->batch.count < capacity && record &&
-         record->kind == IREE_HAL_AMD_XDNA_RECORD_DISPATCH &&
-         iree_status_is_ok(status)) {
+  while (execution->batch.count < capacity && iree_status_is_ok(status)) {
     const uint32_t index = execution->batch.count;
     status = iree_hal_amd_xdna_execution_prepare_dispatch(
         execution, record, &execution->batch.invocations[index],

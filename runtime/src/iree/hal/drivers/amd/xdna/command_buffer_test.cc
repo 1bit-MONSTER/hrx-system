@@ -37,8 +37,8 @@ void RecordDispatches(QueueHarness& harness, iree_host_size_t count,
 
 TEST(XdnaCommandBufferTest, WindowedPublicationDoesNotSignalAnAcceptedPrefix) {
   QueueHarness harness;
-  harness.native.pending_capacity = 4;
-  harness.native.maximum_command_count = 2;
+  harness.native.pending_capacity = 16;
+  harness.native.maximum_command_count = 8;
   harness.native.point_stride = 7;
   harness.native.hold_retirement = true;
   ASSERT_NO_FATAL_FAILURE(harness.Initialize());
@@ -47,7 +47,7 @@ TEST(XdnaCommandBufferTest, WindowedPublicationDoesNotSignalAnAcceptedPrefix) {
   iree_hal_buffer_t* buffer = nullptr;
   ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(&buffer));
   iree_hal_command_buffer_t* command_buffer = nullptr;
-  ASSERT_NO_FATAL_FAILURE(RecordDispatches(harness, 7, &command_buffer));
+  ASSERT_NO_FATAL_FAILURE(RecordDispatches(harness, 19, &command_buffer));
   iree_hal_buffer_binding_t binding = {buffer, 0, 64};
   uint64_t value = 1;
   IREE_ASSERT_OK(iree_hal_queue_execute(harness.queue, {},
@@ -64,31 +64,35 @@ TEST(XdnaCommandBufferTest, WindowedPublicationDoesNotSignalAnAcceptedPrefix) {
   binding = {};
   iree_hal_buffer_release(buffer);
   iree_hal_command_buffer_release(command_buffer);
-  // Each checked retirement admits another cursor window, including wraparound.
-  for (uint64_t accepted = 2; accepted < 4; ++accepted) {
-    harness.native.retirement_limit = (accepted - 1) * 7;
-    harness.native.Wake();
-    ASSERT_NO_FATAL_FAILURE(harness.PollUntilSubmitted(accepted + 1));
-    uint64_t completed_value = 0;
-    IREE_ASSERT_OK(iree_hal_semaphore_query(harness.done, &completed_value));
-    EXPECT_EQ(completed_value, 0u);
-  }
+  // Retiring the first array admits the short singleton tail through
+  // wraparound.
+  harness.native.retirement_limit = 7;
+  harness.native.Wake();
+  ASSERT_NO_FATAL_FAILURE(harness.PollUntilSubmitted(5));
+  uint64_t completed_value = 0;
+  IREE_ASSERT_OK(iree_hal_semaphore_query(harness.done, &completed_value));
+  EXPECT_EQ(completed_value, 0u);
   harness.native.retirement_limit = UINT64_MAX;
   harness.native.hold_retirement = false;
   harness.native.Wake();
   ASSERT_NO_FATAL_FAILURE(harness.PollUntilValue(harness.done, 1));
 }
 
-TEST(XdnaCommandBufferTest,
-     ConcurrentReplaysRetainIndependentBindingsWithoutWarmAllocations) {
+class XdnaCommandBufferReplayTest : public ::testing::TestWithParam<uint32_t> {
+};
+
+TEST_P(XdnaCommandBufferReplayTest,
+       ConcurrentReplaysRetainIndependentBindingsWithoutWarmAllocations) {
+  const uint32_t dispatch_count = GetParam();
   HostAllocationCounters counters;
   QueueHarness harness;
-  harness.native.pending_capacity = 4;
-  harness.native.maximum_command_count = 4;
+  harness.native.pending_capacity = 16;
+  harness.native.maximum_command_count = 8;
   ASSERT_NO_FATAL_FAILURE(harness.Initialize(TrackingAllocator(&counters)));
   ASSERT_NO_FATAL_FAILURE(harness.RegisterNativeObserver());
   iree_hal_command_buffer_t* command_buffer = nullptr;
-  ASSERT_NO_FATAL_FAILURE(RecordDispatches(harness, 2, &command_buffer));
+  ASSERT_NO_FATAL_FAILURE(
+      RecordDispatches(harness, dispatch_count, &command_buffer));
   std::array<iree_hal_buffer_t*, 2> buffers = {};
   std::array<iree_hal_semaphore_t*, 2> completions = {};
   for (size_t i = 0; i < buffers.size(); ++i) {
@@ -106,17 +110,24 @@ TEST(XdnaCommandBufferTest,
                                             {1, &completions[i], &iteration},
                                             command_buffer, {1, &binding}, 0));
     }
-    EXPECT_EQ(harness.native.submission_count, iteration * 2);
+    EXPECT_EQ(harness.native.submission_count,
+              iteration * 2 * (dispatch_count == 2 ? 2 : 1));
     {
       std::lock_guard<std::mutex> lock(harness.native.mutex);
-      ASSERT_EQ(harness.native.pending_commands.size(), 4u);
+      ASSERT_EQ(harness.native.pending_commands.size(), dispatch_count * 2);
       EXPECT_NE(harness.native.pending_commands[0].bytes,
-                harness.native.pending_commands[2].bytes);
-      EXPECT_EQ(harness.native.pending_commands[0].submission,
-                harness.native.pending_commands[1].submission);
-      EXPECT_NE(harness.native.pending_commands[1].submission,
-                harness.native.pending_commands[2].submission);
-      for (size_t i = 1; i < 4; ++i) {
+                harness.native.pending_commands[dispatch_count].bytes);
+      if (dispatch_count == 2) {
+        EXPECT_NE(harness.native.pending_commands[0].submission,
+                  harness.native.pending_commands[1].submission);
+      } else {
+        EXPECT_EQ(
+            harness.native.pending_commands[0].submission,
+            harness.native.pending_commands[dispatch_count - 1].submission);
+      }
+      EXPECT_NE(harness.native.pending_commands[dispatch_count - 1].submission,
+                harness.native.pending_commands[dispatch_count].submission);
+      for (size_t i = 1; i < dispatch_count * 2; ++i) {
         EXPECT_NE(harness.native.pending_commands[i - 1].offset,
                   harness.native.pending_commands[i].offset);
       }
@@ -142,17 +153,20 @@ TEST(XdnaCommandBufferTest,
   }
 }
 
+INSTANTIATE_TEST_SUITE_P(ShortAndBatched, XdnaCommandBufferReplayTest,
+                         ::testing::Values(2u, 8u));
+
 TEST(XdnaCommandBufferTest,
      NativeBusyKeepsPreparedSuffixAndResumesAfterProgress) {
   QueueHarness harness;
-  harness.native.pending_capacity = 6;
-  harness.native.maximum_command_count = 2;
+  harness.native.pending_capacity = 24;
+  harness.native.maximum_command_count = 8;
   harness.native.hold_retirement = true;
   harness.native.busy_submission_attempt = 2;
   ASSERT_NO_FATAL_FAILURE(harness.Initialize());
   ASSERT_NO_FATAL_FAILURE(harness.RegisterNativeObserver());
   iree_hal_command_buffer_t* command_buffer = nullptr;
-  ASSERT_NO_FATAL_FAILURE(RecordDispatches(harness, 6, &command_buffer));
+  ASSERT_NO_FATAL_FAILURE(RecordDispatches(harness, 24, &command_buffer));
   iree_hal_buffer_t* buffer = nullptr;
   ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(&buffer));
   iree_hal_buffer_binding_t binding = {buffer, 0, 64};
@@ -168,8 +182,8 @@ TEST(XdnaCommandBufferTest,
   ASSERT_NO_FATAL_FAILURE(harness.PollUntilValue(harness.done, 1));
   EXPECT_EQ(harness.native.submission_count, 3u);
   EXPECT_EQ(harness.native.submission_attempt_count, 4u);
-  // The retry uses the already-patched command; the final command reuses the
-  // retired first invocation with the same address tuple.
+  // The retry keeps the entire prepared array; the final array reuses the
+  // retired first array's invocations with the same address tuples.
   EXPECT_EQ(harness.native.FlushCount(), flush_count);
   iree_hal_command_buffer_release(command_buffer);
   iree_hal_buffer_release(buffer);
@@ -178,14 +192,14 @@ TEST(XdnaCommandBufferTest,
 TEST(XdnaCommandBufferTest,
      RejectedSuffixRetainsAcceptedPrefixUntilRetirement) {
   QueueHarness harness;
-  harness.native.pending_capacity = 8;
-  harness.native.maximum_command_count = 2;
+  harness.native.pending_capacity = 32;
+  harness.native.maximum_command_count = 8;
   harness.native.hold_retirement = true;
   harness.native.reject_submission_attempt = 3;
   ASSERT_NO_FATAL_FAILURE(harness.Initialize());
   ASSERT_NO_FATAL_FAILURE(harness.RegisterNativeObserver());
   iree_hal_command_buffer_t* command_buffer = nullptr;
-  ASSERT_NO_FATAL_FAILURE(RecordDispatches(harness, 7, &command_buffer));
+  ASSERT_NO_FATAL_FAILURE(RecordDispatches(harness, 25, &command_buffer));
   iree_hal_buffer_t* buffer = nullptr;
   ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(&buffer));
   iree_hal_buffer_binding_t binding = {buffer, 0, 64};
@@ -214,12 +228,12 @@ TEST(XdnaCommandBufferTest,
 
 TEST(XdnaCommandBufferTest, PreparationFailureReleasesUnacceptedArray) {
   QueueHarness harness;
-  harness.native.pending_capacity = 4;
-  harness.native.maximum_command_count = 4;
+  harness.native.pending_capacity = 8;
+  harness.native.maximum_command_count = 8;
   ASSERT_NO_FATAL_FAILURE(harness.Initialize());
   ASSERT_NO_FATAL_FAILURE(harness.RegisterNativeObserver());
   iree_hal_command_buffer_t* command_buffer = nullptr;
-  ASSERT_NO_FATAL_FAILURE(RecordDispatches(harness, 2, &command_buffer));
+  ASSERT_NO_FATAL_FAILURE(RecordDispatches(harness, 8, &command_buffer));
   std::array<iree_hal_buffer_t*, 2> buffers = {};
   for (auto& buffer : buffers) {
     ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(&buffer));

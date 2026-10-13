@@ -571,10 +571,25 @@ TEST_F(XdnaNativeTest, RecordedHostAndNativePhasesReplayWithIndirectBindings) {
   IREE_ASSERT_OK(
       iree_hal_command_buffer_copy_buffer(command_buffer, refs[2], refs[3], 0));
   IREE_ASSERT_OK(iree_hal_command_buffer_barrier(command_buffer, &barrier));
-  const iree_hal_buffer_ref_t add_refs[] = {refs[3], refs[0], refs[4]};
-  IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
-      command_buffer, alternate_executable_, alternate_function_,
-      iree_hal_make_static_dispatch_config(1, 1, 1), {}, {3, add_refs}, 0));
+  // A long dependent run and a short run separated by a host phase exercise
+  // native arrays and ordinary packets within the same immutable recording.
+  const iree_hal_buffer_ref_t add_refs[] = {refs[3], refs[0], refs[3]};
+  for (uint32_t i = 0; i < 8; ++i) {
+    IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
+        command_buffer, alternate_executable_, alternate_function_,
+        iree_hal_make_static_dispatch_config(1, 1, 1), {}, {3, add_refs}, 0));
+    IREE_ASSERT_OK(iree_hal_command_buffer_barrier(command_buffer, &barrier));
+  }
+  IREE_ASSERT_OK(
+      iree_hal_command_buffer_copy_buffer(command_buffer, refs[3], refs[4], 0));
+  IREE_ASSERT_OK(iree_hal_command_buffer_barrier(command_buffer, &barrier));
+  const iree_hal_buffer_ref_t tail_refs[] = {refs[4], refs[0], refs[4]};
+  for (uint32_t i = 0; i < 2; ++i) {
+    IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
+        command_buffer, alternate_executable_, alternate_function_,
+        iree_hal_make_static_dispatch_config(1, 1, 1), {}, {3, tail_refs}, 0));
+    IREE_ASSERT_OK(iree_hal_command_buffer_barrier(command_buffer, &barrier));
+  }
   IREE_ASSERT_OK(iree_hal_command_buffer_end(command_buffer));
   iree_hal_executable_release(executable_);
   executable_ = nullptr;
@@ -598,12 +613,12 @@ TEST_F(XdnaNativeTest, RecordedHostAndNativePhasesReplayWithIndirectBindings) {
       IREE_ASSERT_OK(iree_hal_semaphore_wait(completions[i], iteration,
                                              iree_infinite_timeout(),
                                              IREE_ASYNC_WAIT_FLAG_NONE));
-      std::array<uint32_t, 16> product, threes;
+      std::array<uint32_t, 16> product, increment_sum;
       for (size_t j = 0; j < product.size(); ++j) {
         product[j] = 3 * (j + 1);
       }
-      threes.fill(3);
-      CheckOutput(buffers[i][4], product, threes, BinaryOperation::kAdd);
+      increment_sum.fill(30);
+      CheckOutput(buffers[i][4], product, increment_sum, BinaryOperation::kAdd);
     }
   }
 }

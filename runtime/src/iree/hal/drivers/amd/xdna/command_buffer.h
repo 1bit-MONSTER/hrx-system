@@ -37,6 +37,9 @@ typedef struct iree_hal_amd_xdna_record_t {
       iree_host_size_t binding_count;
       // Stable direct slots or indirect references, owned by the recording.
       iree_hal_amd_xdna_executable_binding_t* bindings;
+      // Dispatches from this record through the end of its consecutive run.
+      // Finalized once during recording; replay never scans to recover it.
+      iree_host_size_t remaining;
     } dispatch;
     // Host transfer whose logical references are resolved for each replay.
     struct {
@@ -108,8 +111,10 @@ iree_status_t iree_hal_amd_xdna_command_buffer_acquire_execution(
 void iree_hal_amd_xdna_execution_release(
     iree_hal_amd_xdna_execution_t* execution);
 
-// Prepares up to |maximum_command_count| consecutive dispatches at the cursor,
-// bounded by this frame's placed capacity. An already prepared array is reused
+// Prepares up to |maximum_command_count| consecutive dispatches at a live
+// dispatch cursor, bounded by the placed capacity and recorded run length.
+// Short batches use singleton packets to avoid native list setup latency.
+// The caller supplies a nonzero available count. A prepared array is reused
 // unchanged after BUSY. The caller reserves enough pending slots for the whole
 // array before acceptance. The cursor advances only after native acceptance.
 iree_status_t iree_hal_amd_xdna_execution_prepare_batch(
