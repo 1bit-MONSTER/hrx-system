@@ -939,6 +939,9 @@ def test_packed_f32_broadcast_rules_materialize_before_packet_repetition() -> No
         for rule in rules:
             emit = compiled.emits[rule.emit_start]
             assert emit.kind is LowerEmitKind.DESCRIPTOR_OP_PER_LANE
+            assert (
+                emit.operand_materialization is DescriptorOperandMaterialization.TARGET
+            )
             assert rule.emit_count == 1
             assert emit.operand_ref_count == 2
             for operand_index, name in enumerate(("lhs", "rhs")):
@@ -987,6 +990,9 @@ def test_packed_narrow_binary_broadcasts_cover_operations_and_source_roles() -> 
                 continue
             emit = compiled.emits[rule.emit_start]
             assert emit.kind is LowerEmitKind.DESCRIPTOR_OP_PER_LANE
+            assert (
+                emit.operand_materialization is DescriptorOperandMaterialization.TARGET
+            )
             attributes = {
                 attribute.target_name: attribute.literal_i64
                 for attribute in compiled.attr_copies[

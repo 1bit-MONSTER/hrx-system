@@ -3921,6 +3921,12 @@ def _packed_binary_broadcast_rules(
 ) -> tuple[DescriptorRule, ...]:
     emit = rule.emit[0]
     source_names = tuple(emit.operands)
+    rhs_name = source_names[1]
+    emit = replace(
+        emit,
+        operand_materialization=DescriptorOperandMaterialization.TARGET,
+    )
+    rule = replace(rule, emit=(emit,))
     rules = []
     for mask in (3, 1, 2):
         suffix = "_".join(
@@ -3935,7 +3941,6 @@ def _packed_binary_broadcast_rules(
             )
             for bit, (name, value) in enumerate(emit.operands.items())
         }
-        rhs_name = source_names[1]
         operands[rhs_name] = replace(
             operands[rhs_name], materializer=VOP3_BINARY_RHS_MATERIALIZER.name
         )

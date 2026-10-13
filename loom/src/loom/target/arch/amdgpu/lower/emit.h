@@ -215,7 +215,7 @@ iree_status_t loom_amdgpu_emit_resolved_vgpr_ternary(
 // bus limit. Repeated source IDs share the same legalized value.
 iree_status_t loom_amdgpu_legalize_vop3_scalar_sources(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    loom_value_id_t sources[3]);
+    loom_value_id_t* sources, iree_host_size_t source_count);
 
 // Emits one resolved VGPR descriptor op with one VGPR operand and one imm32
 // immediate attribute.

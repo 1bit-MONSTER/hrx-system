@@ -1978,9 +1978,8 @@ static const loom_target_vector_packet_policy_t kAmdgpuVectorPacketPolicy = {
 static iree_status_t loom_amdgpu_materialize_vop3_operands(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t* low_operands, iree_host_size_t operand_count) {
-  IREE_ASSERT_EQ(operand_count, 3);
   return loom_amdgpu_legalize_vop3_scalar_sources(context, source_op,
-                                                  low_operands);
+                                                  low_operands, operand_count);
 }
 
 static const loom_low_lower_policy_t kAmdgpuLowLowerPolicy = {
