@@ -1,4 +1,4 @@
-// RUN: with-checks emit amdgpu-wait-state-plan @identity_edge strategy=source fixed=%accumulator:physical_register:16:8 fixed=%result:physical_register:16:8 fixed=%carried_accumulator:physical_register:16:8 fixed=%step:physical_register:0:1 fixed=%carried_step:physical_register:0:1
+// RUN: emit amdgpu-wait-state-plan @identity_edge strategy=source fixed=%accumulator:physical_register:16:8 fixed=%result:physical_register:16:8 fixed=%carried_accumulator:physical_register:16:8 fixed=%step:physical_register:0:1 fixed=%carried_step:physical_register:0:1
 amdgpu.target<gfx1151> @target
 
 low.func.def target<amdgpu.rdna3_5.core>(@target) @identity_edge(%lhs: reg<amdgpu.vgpr x8>, %rhs: reg<amdgpu.vgpr x8>, %accumulator: reg<amdgpu.vgpr x8>, %step: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr x8>, reg<amdgpu.sgpr>) asm {
@@ -9,11 +9,11 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @identity_edge(%lhs: reg<amdgp
 }
 
 // ----
-CHECK: amdgpu.wait_state_plan states=0 *
+amdgpu.wait_state_plan states=0 progress=2 hazards=0
 
 // ====
 
-// RUN: with-checks emit amdgpu-wait-state-plan @scalar_move_edge strategy=source fixed=%accumulator:physical_register:16:8 fixed=%result:physical_register:16:8 fixed=%carried_accumulator:physical_register:16:8 fixed=%step:physical_register:0:1 fixed=%carried_step:physical_register:1:1
+// RUN: emit amdgpu-wait-state-plan @scalar_move_edge strategy=source fixed=%accumulator:physical_register:16:8 fixed=%result:physical_register:16:8 fixed=%carried_accumulator:physical_register:16:8 fixed=%step:physical_register:0:1 fixed=%carried_step:physical_register:1:1
 amdgpu.target<gfx1151> @target
 
 low.func.def target<amdgpu.rdna3_5.core>(@target) @scalar_move_edge(%lhs: reg<amdgpu.vgpr x8>, %rhs: reg<amdgpu.vgpr x8>, %accumulator: reg<amdgpu.vgpr x8>, %step: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr x8>, reg<amdgpu.sgpr>) asm {
@@ -24,11 +24,11 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @scalar_move_edge(%lhs: reg<am
 }
 
 // ----
-CHECK: amdgpu.wait_state_plan states=0 *
+amdgpu.wait_state_plan states=0 progress=3 hazards=0
 
 // ====
 
-// RUN: with-checks emit amdgpu-wait-state-plan @vector_move_edge strategy=source fixed=%accumulator:physical_register:16:8 fixed=%result:physical_register:16:8 fixed=%carried_accumulator:physical_register:24:8 fixed=%step:physical_register:0:1 fixed=%carried_step:physical_register:0:1
+// RUN: emit amdgpu-wait-state-plan @vector_move_edge strategy=source fixed=%accumulator:physical_register:16:8 fixed=%result:physical_register:16:8 fixed=%carried_accumulator:physical_register:24:8 fixed=%step:physical_register:0:1 fixed=%carried_step:physical_register:0:1
 amdgpu.target<gfx1151> @target
 
 low.func.def target<amdgpu.rdna3_5.core>(@target) @vector_move_edge(%lhs: reg<amdgpu.vgpr x8>, %rhs: reg<amdgpu.vgpr x8>, %accumulator: reg<amdgpu.vgpr x8>, %step: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr x8>, reg<amdgpu.sgpr>) asm {
@@ -39,12 +39,12 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @vector_move_edge(%lhs: reg<am
 }
 
 // ----
-CHECK: amdgpu.wait_state_plan states=1 *
-CHECK: state[0] reason=delay_alu_dependency action=amdgpu.s_delay_alu * producer=n0 consumer=n1 *
+amdgpu.wait_state_plan states=1 progress=3 hazards=1
+state[0] reason=delay_alu_dependency action=amdgpu.s_delay_alu at=b0:n1/o1 producer=n0 consumer=n1 required=5 observed=1 residual=4 delay_alu=0x0001
 
 // ====
 
-// RUN: with-checks emit amdgpu-wait-state-plan @coalesced_input_keeps_producer strategy=source fixed=%produced:physical_register:0:1 fixed=%filler:physical_register:2:1 fixed=%scale:physical_register:3:1 fixed=%tuple:physical_register:0:2
+// RUN: emit amdgpu-wait-state-plan @coalesced_input_keeps_producer strategy=source fixed=%produced:physical_register:0:1 fixed=%filler:physical_register:2:1 fixed=%scale:physical_register:3:1 fixed=%tuple:physical_register:0:2
 amdgpu.target<gfx1100> @target
 
 low.func.def target<amdgpu.rdna3.core>(@target) @coalesced_input_keeps_producer(%input: reg<amdgpu.vgpr>, %filler: reg<amdgpu.vgpr>, %scale: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
@@ -56,12 +56,12 @@ low.func.def target<amdgpu.rdna3.core>(@target) @coalesced_input_keeps_producer(
 }
 
 // ----
-CHECK: amdgpu.wait_state_plan states=1 *
-CHECK: state[0] reason=delay_alu_dependency action=amdgpu.s_delay_alu * producer=n0 consumer=n3 *
+amdgpu.wait_state_plan states=1 progress=3 hazards=1
+state[0] reason=delay_alu_dependency action=amdgpu.s_delay_alu at=b0:n3/o3 producer=n0 consumer=n3 required=5 observed=1 residual=4 delay_alu=0x0001
 
 // ====
 
-// RUN: with-checks emit amdgpu-wait-state-plan @cycle_scratch_overwrites_old_producer strategy=source fixed=%stale:physical_register:0:1 fixed=%first:physical_register:1:1 fixed=%second:physical_register:2:1 fixed=%swapped:physical_register:1:2
+// RUN: emit amdgpu-wait-state-plan @cycle_scratch_overwrites_old_producer strategy=source fixed=%stale:physical_register:0:1 fixed=%first:physical_register:1:1 fixed=%second:physical_register:2:1 fixed=%swapped:physical_register:1:2
 amdgpu.target<gfx1151> @target
 
 // The cycle saves v1 into v0 before reading v0. Its previous producer is not
@@ -74,11 +74,11 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @cycle_scratch_overwrites_old_
 }
 
 // ----
-CHECK: amdgpu.wait_state_plan states=0 *
+amdgpu.wait_state_plan states=0 progress=4 hazards=0
 
 // ====
 
-// RUN: with-checks emit amdgpu-wait-state-plan @cycle_input_and_result_dependencies strategy=source fixed=%produced:physical_register:1:1 fixed=%second:physical_register:2:1 fixed=%scale:physical_register:3:1 fixed=%swapped:physical_register:1:2 fixed=%last:physical_register:2:1
+// RUN: emit amdgpu-wait-state-plan @cycle_input_and_result_dependencies strategy=source fixed=%produced:physical_register:1:1 fixed=%second:physical_register:2:1 fixed=%scale:physical_register:3:1 fixed=%swapped:physical_register:1:2 fixed=%last:physical_register:2:1
 amdgpu.target<gfx1151> @target
 
 low.func.def target<amdgpu.rdna3_5.core>(@target) @cycle_input_and_result_dependencies(%input: reg<amdgpu.vgpr>, %second: reg<amdgpu.vgpr>, %scale: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
@@ -90,13 +90,13 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @cycle_input_and_result_depend
 }
 
 // ----
-CHECK: amdgpu.wait_state_plan states=2 *
-CHECK: state[0] reason=delay_alu_dependency action=amdgpu.s_delay_alu * producer=n0 consumer=n1 *
-CHECK: state[1] reason=delay_alu_dependency action=amdgpu.s_delay_alu * producer=n1 consumer=n3 *
+amdgpu.wait_state_plan states=2 progress=4 hazards=2
+state[0] reason=delay_alu_dependency action=amdgpu.s_delay_alu at=b0:n1/o1 producer=n0 consumer=n1 required=5 observed=1 residual=4 delay_alu=0x0001
+state[1] reason=delay_alu_dependency action=amdgpu.s_delay_alu at=b0:n3/o3 producer=n1 consumer=n3 required=4 observed=1 residual=3 delay_alu=0x0001
 
 // ====
 
-// RUN: with-checks emit amdgpu-wait-state-plan @scalar_move_reads_valu_result strategy=source fixed=%lane:physical_register:0:1 fixed=%carried:physical_register:1:1
+// RUN: emit amdgpu-wait-state-plan @scalar_move_reads_valu_result strategy=source fixed=%lane:physical_register:0:1 fixed=%carried:physical_register:1:1
 amdgpu.target<gfx1151> @target
 
 low.func.def target<amdgpu.rdna3_5.core>(@target) @scalar_move_reads_valu_result(%input: reg<amdgpu.vgpr>) -> (reg<amdgpu.sgpr>) asm {
@@ -107,12 +107,12 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @scalar_move_reads_valu_result
 }
 
 // ----
-CHECK: amdgpu.wait_state_plan states=1 *
-CHECK: state[0] reason=delay_alu_dependency action=amdgpu.s_delay_alu * producer=n0 consumer=n1 *
+amdgpu.wait_state_plan states=1 progress=3 hazards=1
+state[0] reason=delay_alu_dependency action=amdgpu.s_delay_alu at=b0:n1/o1 producer=n0 consumer=n1 required=5 observed=1 residual=4 delay_alu=0x0001
 
 // ====
 
-// RUN: with-checks emit amdgpu-wait-state-plan @coalesced_input_keeps_producer_rdna4 strategy=source fixed=%produced:physical_register:0:1 fixed=%filler:physical_register:2:1 fixed=%scale:physical_register:3:1 fixed=%tuple:physical_register:0:2
+// RUN: emit amdgpu-wait-state-plan @coalesced_input_keeps_producer_rdna4 strategy=source fixed=%produced:physical_register:0:1 fixed=%filler:physical_register:2:1 fixed=%scale:physical_register:3:1 fixed=%tuple:physical_register:0:2
 amdgpu.target<gfx1200> @target
 
 low.func.def target<amdgpu.rdna4.core>(@target) @coalesced_input_keeps_producer_rdna4(%input: reg<amdgpu.vgpr>, %filler: reg<amdgpu.vgpr>, %scale: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
@@ -124,14 +124,15 @@ low.func.def target<amdgpu.rdna4.core>(@target) @coalesced_input_keeps_producer_
 }
 
 // ----
-CHECK: amdgpu.wait_state_plan states=1 *
-CHECK: state[0] reason=delay_alu_dependency action=amdgpu.s_delay_alu * producer=n0 consumer=n3 *
+amdgpu.wait_state_plan states=1 progress=3 hazards=1
+state[0] reason=delay_alu_dependency action=amdgpu.s_delay_alu at=b0:n3/o3 producer=n0 consumer=n3 required=5 observed=1 residual=4 delay_alu=0x0001
 
 // ====
 
-// RUN: with-checks emit amdgpu-wait-state-plan @identity_edge_retains_fixed_matrix_wait strategy=source fixed=%accumulator:physical_register:4:4 fixed=%result:physical_register:4:4 fixed=%carried:physical_register:4:4
+// RUN: emit amdgpu-wait-state-plan @identity_edge_retains_fixed_matrix_wait strategy=source fixed=%accumulator:physical_register:4:4 fixed=%result:physical_register:4:4 fixed=%carried:physical_register:4:4
 amdgpu.target<gfx942> @target
 
+// Coalesced block arguments carry the pending result window to the return.
 low.func.def target<amdgpu.cdna3.core>(@target) @identity_edge_retains_fixed_matrix_wait(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %accumulator: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr x4>) asm {
   %result = v_mfma_f32_16x16x16_bf16 %lhs, %rhs, %accumulator
   low.br ^next(%result: reg<amdgpu.vgpr x4>)
@@ -140,12 +141,12 @@ low.func.def target<amdgpu.cdna3.core>(@target) @identity_edge_retains_fixed_mat
 }
 
 // ----
-CHECK: amdgpu.wait_state_plan states=1 *
-CHECK: state[0] reason=matrix_result_use action=amdgpu.s_nop * producer=n0 consumer=n1 *
+amdgpu.wait_state_plan states=1 progress=2 hazards=1
+state[0] reason=matrix_result_use action=amdgpu.s_nop at=b1:n2/o0 producer=n0 consumer=n2 required=7 observed=0 residual=7 matrix=mfma_gfx940/valu_read/pass4
 
 // ====
 
-// RUN: with-checks emit amdgpu-wait-state-plan @conditional_branch_reads_scc strategy=source
+// RUN: emit amdgpu-wait-state-plan @conditional_branch_reads_scc strategy=source
 amdgpu.target<gfx1151> @target
 
 low.func.def target<amdgpu.rdna3_5.core>(@target) @conditional_branch_reads_scc(%index: reg<amdgpu.sgpr>, %limit: reg<amdgpu.sgpr>) asm {
@@ -158,8 +159,8 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @conditional_branch_reads_scc(
 }
 
 // ----
-CHECK: amdgpu.wait_state_plan states=1 *
-CHECK: state[0] reason=delay_alu_dependency action=amdgpu.s_delay_alu * producer=n0 consumer=n1 * delay_alu=0x0009
+amdgpu.wait_state_plan states=1 progress=4 hazards=1
+state[0] reason=delay_alu_dependency action=amdgpu.s_delay_alu at=b0:n1/o1 producer=n0 consumer=n1 required=2 observed=1 residual=1 delay_alu=0x0009
 
 // ====
 

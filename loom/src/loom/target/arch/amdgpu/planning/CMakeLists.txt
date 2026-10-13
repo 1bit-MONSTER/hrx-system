@@ -144,6 +144,31 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU)
 loom_cc_library(
   NAME
+    matrix_result_wait
+  HDRS
+    "matrix_result_wait.h"
+  SRCS
+    "matrix_result_wait.c"
+  DEPS
+    ::matrix_wait_states
+    ::structural_packet
+    iree::base
+    iree::base::internal::arena
+    loom::codegen::low::allocation
+    loom::codegen::low::packet
+    loom::codegen::low::schedule
+    loom::ops::low
+    loom::target::arch::amdgpu::matrix::contract
+    loom::target::arch::amdgpu::refs::target_refs
+    loom::util::cfg_dataflow
+    loom::util::cfg_graph
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_library(
+  NAME
     matrix_coexecution
   HDRS
     "matrix_coexecution.h"
@@ -236,6 +261,7 @@ loom_cc_library(
     ::delay_alu
     ::descriptor_semantics
     ::matrix_coexecution
+    ::matrix_result_wait
     ::matrix_wait_states
     ::structural_packet
     ::vopd_plan
@@ -251,7 +277,6 @@ loom_cc_library(
     loom::ir
     loom::ops::low
     loom::target::arch::amdgpu::encoding
-    loom::target::arch::amdgpu::matrix::contract
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info
     loom::util::cfg_dataflow
@@ -498,6 +523,8 @@ loom_cc_library(
     "wait_plan.c"
   DEPS
     ::address_state
+    ::matrix_result_wait
+    ::matrix_wait_states
     ::sgpr_read_hazard
     ::trans_result_window
     ::wait_classification
@@ -684,6 +711,7 @@ loom_cc_library(
   DEPS
     ::address_state
     ::matrix_coexecution
+    ::matrix_result_wait
     ::vopd_plan
     ::wait_packets
     ::wait_plan

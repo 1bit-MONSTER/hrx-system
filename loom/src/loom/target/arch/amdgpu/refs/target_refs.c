@@ -17,6 +17,7 @@ extern const loom_amdgpu_descriptor_immediate_slots_t* const
     kLoomAmdgpuDescriptorImmediateSlotTables[];
 extern const loom_amdgpu_reg_class_traits_t* const
     kLoomAmdgpuRegClassTraitTables[];
+extern const uint8_t kLoomAmdgpuAgprRegClassIds[];
 
 static uint16_t loom_amdgpu_target_ref_descriptor_set_ordinal(
     const loom_low_descriptor_set_t* descriptor_set) {
@@ -226,4 +227,9 @@ loom_amdgpu_reg_class_traits_t loom_amdgpu_reg_class_traits(
     return 0;
   }
   return trait_table[reg_class_id];
+}
+
+uint8_t loom_amdgpu_agpr_reg_class_id(
+    const loom_low_descriptor_set_t* descriptor_set) {
+  return kLoomAmdgpuAgprRegClassIds[descriptor_set->descriptor_set_ordinal];
 }

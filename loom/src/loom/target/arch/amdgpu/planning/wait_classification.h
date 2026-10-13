@@ -65,6 +65,8 @@ typedef enum loom_amdgpu_wait_node_state_flag_bits_e {
   LOOM_AMDGPU_WAIT_NODE_STATE_UNREFINED_MEMORY_READ = 1u << 19,
   // At least one dependency write lacks a source-refined memory summary.
   LOOM_AMDGPU_WAIT_NODE_STATE_UNREFINED_MEMORY_WRITE = 1u << 20,
+  // MFMA/SMFMAC opens a fixed result window retained across physical writes.
+  LOOM_AMDGPU_WAIT_NODE_STATE_MATRIX_RESULT = 1u << 21,
 } loom_amdgpu_wait_node_state_flag_bits_t;
 typedef uint32_t loom_amdgpu_wait_node_state_flags_t;
 
@@ -85,6 +87,8 @@ typedef struct loom_amdgpu_wait_node_state_t {
   loom_amdgpu_wait_counter_mask_t implicit_wait_counter_mask;
   // Counters that must be drained before this barrier node executes.
   loom_amdgpu_wait_counter_mask_t barrier_counter_mask;
+  // Guaranteed native packet length saturated at UINT8_MAX; elision is later.
+  uint8_t minimum_instruction_count;
 } loom_amdgpu_wait_node_state_t;
 
 static_assert(sizeof(loom_amdgpu_wait_node_state_t) == 12,
@@ -115,6 +119,8 @@ typedef struct loom_amdgpu_wait_classification_t {
   iree_host_size_t trans_result_node_count;
   // Number of nodes producing asynchronous VMEM register results.
   iree_host_size_t vmem_result_node_count;
+  // Number of MFMA/SMFMAC source records needed by fixed-window planning.
+  iree_host_size_t matrix_result_node_count;
 } loom_amdgpu_wait_classification_t;
 
 // Initializes target wait state once from |schedule| and |allocation|. All

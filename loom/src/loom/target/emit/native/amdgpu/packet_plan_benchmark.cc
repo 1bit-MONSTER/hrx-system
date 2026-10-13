@@ -552,6 +552,8 @@ struct PlanMetrics {
   iree_host_size_t plan_used_bytes = 0;
   // Arena bytes retained from the block pool.
   iree_host_size_t plan_owned_bytes = 0;
+  // System allocations required by the first plan, including temporary arenas.
+  iree_arena_block_pool_statistics_t pool_statistics = {};
   // Transient wait-planner bytes discarded after one direct plan build.
   iree_host_size_t wait_transient_used_bytes = 0;
   // Wait actions produced by the selected plan component.
@@ -775,6 +777,11 @@ class PacketPlanFixture {
     return frame_arena_.used_allocation_size;
   }
   const FrameAnalysis& analysis() const { return analysis_; }
+  iree_arena_block_pool_statistics_t plan_pool_statistics() const {
+    iree_arena_block_pool_statistics_t statistics = {};
+    iree_arena_block_pool_query_statistics(&plan_block_pool_, &statistics);
+    return statistics;
+  }
 
  private:
   iree_arena_block_pool_t frame_block_pool_ = {};
@@ -805,7 +812,8 @@ static PlanMetrics BuildReferencePlan(PacketPlanFixture& fixture,
     loom_amdgpu_wait_plan_t plan = {};
     AbortOnError(loom_amdgpu_wait_plan_build(
         &fixture.frame().schedule, &fixture.frame().allocation,
-        &fixture.address_state(), fixture.plan_arena(),
+        &fixture.address_state(), /*matrix_arena=*/nullptr,
+        /*out_matrix_results=*/nullptr, fixture.plan_arena(),
         fixture.transient_arena(), &plan));
     metrics.wait_action_count = plan.action_count;
     metrics.hazard_record_count = plan.hazard_plan.record_count;
@@ -828,6 +836,7 @@ static PlanMetrics BuildReferencePlan(PacketPlanFixture& fixture,
   }
   metrics.plan_used_bytes = fixture.plan_arena()->used_allocation_size;
   metrics.plan_owned_bytes = fixture.plan_arena()->total_allocation_size;
+  metrics.pool_statistics = fixture.plan_pool_statistics();
   return metrics;
 }
 
@@ -853,6 +862,13 @@ static void RecordMetrics(benchmark::State& state,
       static_cast<double>(metrics.plan_owned_bytes);
   state.counters["plan_arena_used_bytes"] =
       static_cast<double>(metrics.plan_used_bytes);
+  const auto& pool_statistics = metrics.pool_statistics;
+  state.counters["plan_pool_system_bytes"] =
+      static_cast<double>(pool_statistics.block_system_allocation_bytes +
+                          pool_statistics.oversized_allocation_bytes);
+  state.counters["plan_pool_system_allocations"] =
+      static_cast<double>(pool_statistics.block_system_allocation_count +
+                          pool_statistics.oversized_allocation_count);
   state.counters["progress_events"] =
       static_cast<double>(metrics.progress_record_count);
   state.counters["storage_leases"] =
@@ -892,7 +908,8 @@ static void BenchmarkPlan(benchmark::State& state, const FixtureSpec& spec,
       loom_amdgpu_wait_plan_t plan = {};
       AbortOnError(loom_amdgpu_wait_plan_build(
           &fixture.frame().schedule, &fixture.frame().allocation,
-          &fixture.address_state(), fixture.plan_arena(),
+          &fixture.address_state(), /*matrix_arena=*/nullptr,
+          /*out_matrix_results=*/nullptr, fixture.plan_arena(),
           fixture.transient_arena(), &plan));
       benchmark::DoNotOptimize(plan);
     } else {
@@ -933,6 +950,7 @@ static void BM_PacketPlan_MfmaWindows(benchmark::State& state) {
   BenchmarkPlan(state, spec, PlanComponent::kComplete);
 }
 BENCHMARK(BM_PacketPlan_MfmaWindows)
+    ->Arg(0)
     ->Arg(1)
     ->Arg(8)
     ->Arg(32)

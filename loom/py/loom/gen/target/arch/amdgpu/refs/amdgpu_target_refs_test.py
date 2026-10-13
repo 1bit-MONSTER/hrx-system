@@ -290,6 +290,7 @@ def test_target_ref_tables_use_prebuilt_descriptor_sets() -> None:
     descriptor_set = replace(
         _descriptor_set(*_valid_contract_descriptors()),
         key=descriptor_set_info.key,
+        reg_classes=_AMDGPU_CDNA2_CORE_DESCRIPTOR_SET_BASE.reg_classes,
     )
 
     tables = amdgpu_target_refs._materialize_descriptor_ref_tables(
@@ -318,6 +319,7 @@ def test_target_ref_source_shares_exact_tables() -> None:
         descriptor_set_info.key: replace(
             descriptor_set,
             key=descriptor_set_info.key,
+            reg_classes=_AMDGPU_CDNA2_CORE_DESCRIPTOR_SET_BASE.reg_classes,
         )
         for descriptor_set_info in descriptor_set_infos
     }
@@ -355,6 +357,21 @@ def test_target_ref_source_shares_exact_tables() -> None:
         assert (f"[{amdgpu_target_refs._u16_literal(amdgpu_descriptor_set_ordinal(second_info.key))}] = {first_table_name},") in source
 
 
+def test_accumulator_class_ids_follow_each_descriptor_set() -> None:
+    for base in (
+        _AMDGPU_CDNA2_CORE_DESCRIPTOR_SET_BASE,
+        _AMDGPU_CDNA3_CORE_DESCRIPTOR_SET_BASE,
+        _AMDGPU_CDNA4_CORE_DESCRIPTOR_SET_BASE,
+        _AMDGPU_GFX9_4_GENERIC_CORE_DESCRIPTOR_SET_BASE,
+    ):
+        descriptor_set = replace(_descriptor_set(*_valid_contract_descriptors()), key=base.key, reg_classes=base.reg_classes)
+        info = next(info for info in sorted_descriptor_set_infos() if info.key == base.key)
+        tables = amdgpu_target_refs._materialize_descriptor_ref_tables((info,), {base.key: descriptor_set})
+        assert descriptor_set.reg_classes[tables[0].agpr_reg_class_id].name == "amdgpu.agpr"
+        with _raises_value_error("requires an accumulator register class"):
+            amdgpu_target_refs._materialize_descriptor_ref_tables((info,), {base.key: replace(descriptor_set, reg_classes=())})
+
+
 def test_descriptor_trait_names_include_resource_and_encoding_facts() -> None:
     descriptor_set = _descriptor_set(
         _descriptor(
@@ -386,7 +403,13 @@ def test_matrix_pass_traits_are_independent_of_latency_estimates() -> None:
         )
         context = amdgpu_target_refs._descriptor_trait_context(descriptor_set)
         for key, timing in AMDGPU_MFMA_TIMINGS_BY_DESCRIPTOR_SET[descriptor_set.key].items():
-            descriptor = _descriptor(key, schedule_class=_amdgpu_mfma_schedule_class_name(key), semantic_tag=overlays_by_key[key].semantic_tag)
+            overlay = overlays_by_key[key]
+            descriptor = _descriptor(
+                key,
+                schedule_class=_amdgpu_mfma_schedule_class_name(key),
+                semantic_tag=overlay.semantic_tag,
+                operands=tuple(operand.descriptor_operand for operand in overlay.operands),
+            )
             traits = amdgpu_target_refs._descriptor_trait_names(context, descriptor)
             assert f"({timing.execution_passes}u << LOOM_AMDGPU_DESCRIPTOR_MATRIX_PASSES_SHIFT)" in traits
 
@@ -406,9 +429,31 @@ def test_matrix_pipeline_traits_preserve_arithmetic_semantics() -> None:
         ("matrix.smfmac.f32.16x16x32.bf16", ("LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_XDL",)),
     ):
         overlay = overlays_by_semantic[semantic]
-        descriptor = _descriptor(overlay.descriptor_key, semantic_tag=semantic, schedule_class=overlay.schedule_class)
+        descriptor = _descriptor(
+            overlay.descriptor_key,
+            semantic_tag=semantic,
+            schedule_class=overlay.schedule_class,
+            operands=tuple(operand.descriptor_operand for operand in overlay.operands),
+        )
         traits = amdgpu_target_refs._descriptor_trait_names(context, descriptor)
         assert tuple(trait for trait in traits if trait.endswith(("MATRIX_DGEMM", "MATRIX_XDL"))) == expected
+
+
+def test_matrix_exact_forwarding_floors_require_indexable_result_shapes() -> None:
+    context = amdgpu_target_refs._descriptor_trait_context(_AMDGPU_CDNA3_CORE_DESCRIPTOR_SET_BASE)
+    timings = AMDGPU_MFMA_TIMINGS_BY_DESCRIPTOR_SET[context.descriptor_set.key]
+    for overlay in _gfx940_core_overlays():
+        timing = timings.get(overlay.descriptor_key)
+        if timing is None or not (timing.execution_passes == 2 or (timing.execution_passes == 4 and (overlay.semantic_tag or "").startswith("matrix.mfma.f64."))):
+            continue
+        operands = tuple(operand.descriptor_operand for operand in overlay.operands)
+        descriptor = _descriptor(overlay.descriptor_key, semantic_tag=overlay.semantic_tag, schedule_class=overlay.schedule_class, operands=operands)
+        for invalid_operands in (
+            (),
+            tuple(replace(operand, unit_count=operand.unit_count + 1) if operand.role in (OperandRole.RESULT, OperandRole.OPERAND_RESULT) else operand for operand in operands),
+        ):
+            with _raises_value_error("exact forwarding floor requires one"):
+                amdgpu_target_refs._descriptor_trait_names(context, replace(descriptor, operands=invalid_operands))
 
 
 def test_matrix_memory_read_traits_cover_all_native_memory_formats() -> None:

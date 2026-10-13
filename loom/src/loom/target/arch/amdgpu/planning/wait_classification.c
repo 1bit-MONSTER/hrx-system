@@ -127,7 +127,7 @@ loom_amdgpu_wait_classification_classify_structural_node(
     const loom_low_allocation_table_t* allocation, uint32_t node_index) {
   const loom_low_schedule_node_t* node = &schedule->nodes[node_index];
   if (node->kind != LOOM_LOW_SCHEDULE_NODE_STRUCTURAL) {
-    return (loom_amdgpu_structural_packet_info_t){0};
+    return (loom_amdgpu_structural_packet_info_t){.instruction_count = 1};
   }
   return loom_amdgpu_structural_packet_analyze(
       schedule, allocation, node,
@@ -444,6 +444,10 @@ static void loom_amdgpu_wait_classification_finish_nodes(
                          LOOM_AMDGPU_DESCRIPTOR_TRAIT_TRANSCENDENTAL)) {
       node_state->flags |= LOOM_AMDGPU_WAIT_NODE_STATE_TRANSCENDENTAL;
     }
+    if (loom_amdgpu_descriptor_matrix_pass_count(descriptor_traits) != 0) {
+      node_state->flags |= LOOM_AMDGPU_WAIT_NODE_STATE_MATRIX_RESULT;
+      ++classification->matrix_result_node_count;
+    }
     const loom_amdgpu_wait_node_state_flags_t flags = node_state->flags;
     if (node->descriptor != NULL &&
         !iree_any_bit_set(node->op->instance_flags,
@@ -530,6 +534,9 @@ static void loom_amdgpu_wait_classification_finish_nodes(
     const loom_amdgpu_structural_packet_info_t structural =
         loom_amdgpu_wait_classification_classify_structural_node(
             schedule, allocation, (uint32_t)i);
+    node_state->minimum_instruction_count = (uint8_t)iree_min(
+        loom_amdgpu_structural_packet_minimum_instruction_count(&structural),
+        UINT8_MAX);
     if (node->kind == LOOM_LOW_SCHEDULE_NODE_STRUCTURAL &&
         !iree_any_bit_set(structural.flags,
                           LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_MATERIALIZES)) {

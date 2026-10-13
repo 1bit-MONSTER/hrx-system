@@ -309,7 +309,9 @@ class AmdgpuWaitPlanTest : public ::testing::Test {
     }
     const loom_amdgpu_address_state_plan_t address_state = {};
     return loom_amdgpu_wait_plan_build(&schedule_, &allocation_, &address_state,
-                                       &arena_, &transient_arena_, &plan_);
+                                       /*matrix_arena=*/nullptr,
+                                       /*out_matrix_results=*/nullptr, &arena_,
+                                       &transient_arena_, &plan_);
   }
 
   void Build() {

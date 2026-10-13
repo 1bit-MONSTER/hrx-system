@@ -180,6 +180,11 @@ loom_amdgpu_descriptor_immediate_slots_t loom_amdgpu_descriptor_immediate_slots(
 loom_amdgpu_reg_class_traits_t loom_amdgpu_reg_class_traits(
     const loom_low_descriptor_set_t* descriptor_set, uint16_t reg_class_id);
 
+// Returns the accumulator class in a resolved AMDGPU descriptor set, or
+// UINT8_MAX when absent. MFMA descriptor sets always have an accumulator class.
+uint8_t loom_amdgpu_agpr_reg_class_id(
+    const loom_low_descriptor_set_t* descriptor_set);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

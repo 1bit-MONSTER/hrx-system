@@ -162,13 +162,9 @@ loom_amdgpu_store_data_wait_match_t loom_amdgpu_store_data_wait_inspect(
     loom_amdgpu_descriptor_traits_t traits) {
   state->pending_source = (loom_amdgpu_store_data_source_t){0};
   state->pending_cycles =
-      packet->descriptor != NULL ? 1 : structural->instruction_count;
-  // With two emitted branches, the taken conditional edge executes only the
-  // first. Both successors must receive that conservative progress bound.
-  if (packet->descriptor == NULL && loom_low_cond_br_isa(packet->node->op) &&
-      state->pending_cycles == 2) {
-    state->pending_cycles = 1;
-  }
+      packet->descriptor != NULL
+          ? 1
+          : loom_amdgpu_structural_packet_minimum_instruction_count(structural);
   if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY)) {
     const loom_low_descriptor_set_t* descriptor_set =
         state->schedule->target.descriptor_set;

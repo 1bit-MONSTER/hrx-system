@@ -8,9 +8,9 @@
 //
 // AMDGPU has hazards that are not modeled by wait counters. CDNA MFMA/SMFMAC
 // packets need fixed scalar no-op cycles both after matrix results before
-// ordinary VGPR consumers and after legacy VALU writes before matrix source,
-// DPP, or fixed-lane VGPR-to-SGPR reads. GFX940-family transcendental VALU
-// results and destination-selected sub-DWORD writes also need fixed waits
+// ordinary VGPR/AGPR consumers and after legacy VALU writes before matrix
+// source, DPP, or fixed-lane VGPR-to-SGPR reads. GFX940-family transcendental
+// VALU results and destination-selected sub-DWORD writes also need fixed waits
 // before dependent VALU consumers, and nearby VALU or VMEM reads of
 // VALU-written SGPRs need fixed waits because the hardware does not interlock
 // those dependencies.
@@ -36,6 +36,7 @@ extern "C" {
 struct loom_amdgpu_vopd_plan_t;
 struct loom_amdgpu_wait_packet_plan_t;
 struct loom_amdgpu_matrix_coexecution_t;
+struct loom_amdgpu_matrix_result_wait_t;
 struct loom_amdgpu_processor_info_t;
 
 // Maximum number of cycles a single `s_nop` packet can wait. The SOPP SIMM16
@@ -46,7 +47,7 @@ struct loom_amdgpu_processor_info_t;
 typedef enum loom_amdgpu_wait_state_reason_e {
   // Unknown or uninitialized wait-state reason.
   LOOM_AMDGPU_WAIT_STATE_REASON_UNKNOWN = 0,
-  // A packet consumes VGPR storage produced by an outstanding MFMA/SMFMAC.
+  // A packet consumes VGPR/AGPR storage produced by an outstanding MFMA/SMFMAC.
   LOOM_AMDGPU_WAIT_STATE_REASON_MATRIX_RESULT_USE = 1,
   // An MFMA/SMFMAC consumes VGPR storage written by a legacy VALU packet.
   LOOM_AMDGPU_WAIT_STATE_REASON_VALU_TO_MATRIX_USE = 2,
@@ -172,6 +173,7 @@ iree_status_t loom_amdgpu_wait_state_plan_build(
     const struct loom_amdgpu_wait_packet_plan_t* wait_packets,
     const struct loom_amdgpu_vopd_plan_t* vopd_plan,
     struct loom_amdgpu_matrix_coexecution_t* matrix_coexecution,
+    struct loom_amdgpu_matrix_result_wait_t* matrix_results,
     iree_arena_allocator_t* arena, iree_arena_allocator_t* transient_arena,
     loom_amdgpu_wait_state_plan_t* out_plan);
 

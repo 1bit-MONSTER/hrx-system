@@ -230,6 +230,7 @@ class _DescriptorSetRefTable:
     address_offset_immediate_slots: list[int | None]
     cache_scope_immediate_slots: list[int | None]
     reg_class_traits: list[tuple[str, ...]]
+    agpr_reg_class_id: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -562,6 +563,13 @@ def _descriptor_trait_names(
             semantic = descriptor.semantic_tag or ""
             if not semantic.startswith(("matrix.mfma.", "matrix.smfmac.")):
                 raise ValueError(f"MFMA pipeline classification requires matrix semantics: {descriptor.key}")
+            # Exact forwarding floors are indexed by their fixed physical
+            # result shapes in the native wait planner, without a range search.
+            floor_width = 4 if timing.execution_passes == 2 else 2 if semantic.startswith("matrix.mfma.f64.") and timing.execution_passes == 4 else 0
+            if floor_width:
+                results = tuple(operand for operand in descriptor.operands if operand.role in (OperandRole.RESULT, OperandRole.OPERAND_RESULT))
+                if len(results) != 1 or results[0].unit_count != floor_width:
+                    raise ValueError(f"MFMA exact forwarding floor requires one {floor_width}-register result: {descriptor.key}")
             if semantic.startswith("matrix.mfma.f64."):
                 trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_DGEMM")
             elif not semantic.endswith(".f32"):
@@ -772,6 +780,11 @@ def _materialize_descriptor_ref_tables(
         literal_immediate_slots = [_descriptor_literal_immediate_slot(descriptor_set, descriptor) for descriptor in descriptor_set.descriptors]
         address_offset_immediate_slots = [_descriptor_address_offset_immediate_slot(descriptor_set, descriptor) for descriptor in descriptor_set.descriptors]
         cache_scope_immediate_slots = [_descriptor_cache_scope_immediate_slot(descriptor_set, descriptor) for descriptor in descriptor_set.descriptors]
+        agpr_reg_class_ids = [index for index, reg_class in enumerate(descriptor_set.reg_classes) if reg_class.name == "amdgpu.agpr"]
+        if len(agpr_reg_class_ids) > 1 or (agpr_reg_class_ids and agpr_reg_class_ids[0] >= 255):
+            raise ValueError(f"AMDGPU accumulator class must have a unique byte-sized ID: {descriptor_set.key}")
+        if descriptor_set.key in AMDGPU_MFMA_TIMINGS_BY_DESCRIPTOR_SET and not agpr_reg_class_ids:
+            raise ValueError(f"MFMA descriptor set requires an accumulator register class: {descriptor_set.key}")
         descriptor_set_tables.append(
             _DescriptorSetRefTable(
                 descriptor_set_ordinal=amdgpu_descriptor_set_ordinal(descriptor_set_info.key),
@@ -785,6 +798,7 @@ def _materialize_descriptor_ref_tables(
                 address_offset_immediate_slots=address_offset_immediate_slots,
                 cache_scope_immediate_slots=cache_scope_immediate_slots,
                 reg_class_traits=[_reg_class_trait_names(reg_class.name) for reg_class in descriptor_set.reg_classes],
+                agpr_reg_class_id=agpr_reg_class_ids[0] if agpr_reg_class_ids else 255,
             )
         )
     descriptor_set_tables.sort(key=lambda table: table.descriptor_set_ordinal)
@@ -967,6 +981,10 @@ def _emit_source(
     for descriptor_set_table in descriptor_set_tables:
         symbols = symbols_by_descriptor_set_key[descriptor_set_table.descriptor_set_key]
         lines.append(f"    [{_u16_literal(descriptor_set_table.descriptor_set_ordinal)}] = {symbols.reg_class_traits},")
+    lines.append("};")
+    lines.append("")
+    lines.append("const uint8_t kLoomAmdgpuAgprRegClassIds[LOOM_AMDGPU_TARGET_REF_DESCRIPTOR_SET_ORDINAL_COUNT] = {")
+    lines.extend(f"    [{_u16_literal(table.descriptor_set_ordinal)}] = {table.agpr_reg_class_id}," for table in descriptor_set_tables)
     lines.append("};")
     return "\n".join(lines) + "\n"
 
