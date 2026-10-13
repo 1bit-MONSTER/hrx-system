@@ -2319,12 +2319,16 @@ class BuildFileFunctions(object):
         self._emit_platform_guard_end(target_compatible_with)
 
     def _convert_amdgpu_target_selectors_block(self, target_selectors_flag):
-        if target_selectors_flag != "//runtime/src/iree/hal/drivers/amdgpu:targets":
+        variables = {
+            "//runtime/src/iree/hal/drivers/amdgpu:targets": "IREE_HAL_AMDGPU_TARGETS",
+            "//runtime/src/iree/hal/drivers/amd/gpu:targets": "IREE_HAL_AMD_GPU_TARGETS",
+        }
+        if target_selectors_flag not in variables:
             raise NotImplementedError(
                 f"AMDGPU target selector flag: {target_selectors_flag}"
             )
         return self._convert_string_list_block(
-            "TARGETS", ["${IREE_HAL_AMDGPU_TARGETS}"], quote=False
+            "TARGETS", ["${" + variables[target_selectors_flag] + "}"], quote=False
         )
 
     def _iree_amdgpu_binary_variants(

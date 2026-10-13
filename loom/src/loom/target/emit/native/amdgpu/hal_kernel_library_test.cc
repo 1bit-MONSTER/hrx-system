@@ -11,6 +11,8 @@
 
 #include "iree/base/byte_sequence.h"
 #include "iree/base/internal/arena.h"
+#include "iree/hal/drivers/amd/gpu/image/hsaco.h"
+#include "iree/hal/drivers/amd/gpu/image/image.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/analysis/symbol_facts.h"
@@ -1148,6 +1150,33 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsEveryLinkedCanonicalTarget) {
     EXPECT_TRUE(capture.diagnostics.empty())
         << StringViewToString(target->name);
     EXPECT_NE(library.hsaco_data, nullptr) << StringViewToString(target->name);
+    // Exercise the runtime image boundary directly with the emitted sequence.
+    // No contiguous clone or compiler-private representation reaches the
+    // loader.
+    iree_hal_amd_gpu_image_t image = {};
+    iree_status_t image_status = iree_hal_amd_gpu_hsaco_image_initialize(
+        library.hsaco_data, iree_allocator_system(), &image);
+    if (!iree_status_is_ok(image_status)) {
+      loom_amdgpu_hal_kernel_library_deinitialize(&library,
+                                                  iree_allocator_system());
+      loom_module_free(module);
+      IREE_ASSERT_OK(image_status) << StringViewToString(target->name);
+    }
+    ASSERT_EQ(image.metadata.kernel_count, 1u);
+    EXPECT_EQ(StringViewToString(image.metadata.kernels[0].name),
+              "loom_kernel");
+    std::vector<uint8_t> loaded(image.byte_length, 0xa5);
+    std::vector<iree_byte_span_t> mappings;
+    for (iree_host_size_t j = 0; j < image.segment_count; ++j) {
+      mappings.push_back(iree_make_byte_span(
+          loaded.data() + image.segments[j].offset, image.segments[j].length));
+    }
+    IREE_ASSERT_OK(iree_hal_amd_gpu_image_load(
+        &image, 0x100000000ull, 0, nullptr, mappings.size(), mappings.data()));
+    EXPECT_EQ(image.kernels[0].entry_offset % 256, 0u);
+    EXPECT_EQ(image.kernels[0].descriptor_offset % 64, 0u);
+    iree_hal_amd_gpu_image_deinitialize(&image);
+
     std::string hsaco;
     IREE_ASSERT_OK(CloneByteSequenceToString(library.hsaco_data, &hsaco));
     EXPECT_GT(hsaco.size(), 64u) << StringViewToString(target->name);

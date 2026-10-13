@@ -79,6 +79,10 @@ if(IREE_HAL_DRIVER_XDNA)
 endif()
 if(AMDF_BUILD)
   add_subdirectory(amd)
+else()
+  # Portable GPU image and target libraries are used by compiler-side tooling
+  # independently of the libamdf driver.
+  add_subdirectory(amd/gpu)
 endif()
 if(IREE_HAL_DRIVER_AMDGPU)
   add_subdirectory(amdgpu)

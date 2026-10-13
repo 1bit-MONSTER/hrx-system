@@ -1545,6 +1545,7 @@ def run_amdgpu_target_map(paths: list[str], fix: bool, verbose: bool) -> bool:
         "build_tools/amdgpu/target_map.",
         "runtime/src/iree/hal/drivers/amdgpu/util/device_library_target_map.inl",
         "runtime/src/iree/hal/drivers/amdgpu/target/identity_catalog.inl",
+        "runtime/src/iree/hal/drivers/amd/gpu/target/identity_catalog.inl",
     )
     if not any(path.startswith(relevant_prefixes) for path in paths):
         return skip_step("AMDGPU target map", "no AMDGPU target-map inputs")
@@ -1561,6 +1562,7 @@ def run_amdgpu_target_map(paths: list[str], fix: bool, verbose: bool) -> bool:
                 "build_tools/amdgpu/target_map.h",
                 "runtime/src/iree/hal/drivers/amdgpu/util/device_library_target_map.inl",
                 "runtime/src/iree/hal/drivers/amdgpu/target/identity_catalog.inl",
+                "runtime/src/iree/hal/drivers/amd/gpu/target/identity_catalog.inl",
             ],
             verbose,
         )

@@ -34,6 +34,31 @@ class _LoomBinaryBuildFileFunctions(
 
 
 class ConfigTest(unittest.TestCase):
+    def test_gpu_image_targets_use_their_own_driver_selection(self):
+        cases = (
+            ("amdgpu", "IREE_HAL_AMDGPU_TARGETS", "IREE_HAL_AMD_GPU_TARGETS"),
+            ("amd/gpu", "IREE_HAL_AMD_GPU_TARGETS", "IREE_HAL_AMDGPU_TARGETS"),
+        )
+        for driver, variable, other_variable in cases:
+            with self.subTest(driver=driver):
+                converter = SimpleNamespace(body="")
+                functions = bazel_to_cmake_converter.BuildFileFunctions(
+                    converter=converter,
+                    targets=bazel_to_cmake_targets.TargetConverter(repo_map={}),
+                    build_dir=f"/repo/runtime/src/iree/hal/drivers/{driver}/image",
+                    repo_root="/repo",
+                )
+                functions._iree_amdgpu_binary_variants_embed_data(
+                    name="hip_images",
+                    target="amdgcn-amd-amdhsa",
+                    srcs=["image.hip"],
+                    target_selectors_flag=f"//runtime/src/iree/hal/drivers/{driver}:targets",
+                    source_format="hip",
+                    testonly=True,
+                )
+                self.assertIn("TARGETS\n    ${" + variable + "}", converter.body)
+                self.assertNotIn("${" + other_variable + "}", converter.body)
+
     def test_loom_kernel_projects_profile_roots_configs_and_library_edges(self):
         converter = SimpleNamespace(body="")
         functions = _LoomBinaryBuildFileFunctions(
