@@ -172,17 +172,17 @@ TEST_F(SymbolicProductTest, ExplicitNoWrapContractPermitsProductProof) {
     ASSERT_TRUE(loom_value_facts_scalar_type_domain(type, &lower, &upper));
     const auto left = DefineBounded(type, lower, upper);
     const auto right = DefineBounded(type, lower, upper);
-    for (uint8_t flags : {uint8_t{0}, uint8_t{LOOM_SCALAR_INTOVERFLOWFLAGS_NUW},
-                          uint8_t{LOOM_SCALAR_INTOVERFLOWFLAGS_NSW},
-                          uint8_t{LOOM_SCALAR_INTOVERFLOWFLAGS_NUW |
-                                  LOOM_SCALAR_INTOVERFLOWFLAGS_NSW}}) {
+    for (uint8_t flags : {uint8_t{0}, uint8_t{LOOM_INTEGER_OVERFLOW_FLAG_NUW},
+                          uint8_t{LOOM_INTEGER_OVERFLOW_FLAG_NSW},
+                          uint8_t{LOOM_INTEGER_OVERFLOW_FLAG_NUW |
+                                  LOOM_INTEGER_OVERFLOW_FLAG_NSW}}) {
       SCOPED_TRACE(flags);
       const auto result = ScalarMultiply(left, right, flags);
       Expand(result);
       EXPECT_EQ(loom_symbolic_expr_lookup_product(&expression_context_,
                                                   result) != nullptr,
                 type == LOOM_SCALAR_TYPE_I1 ||
-                    (flags & LOOM_SCALAR_INTOVERFLOWFLAGS_NSW) != 0);
+                    (flags & LOOM_INTEGER_OVERFLOW_FLAG_NSW) != 0);
     }
   }
 }
@@ -372,7 +372,7 @@ TEST_F(SymbolicProductTest, UnrepresentableCoefficientRemainsOpaque) {
       DefineBounded(LOOM_SCALAR_TYPE_I64, coefficient, coefficient);
   const auto result =
       ScalarMultiply(ScalarMultiply(left, scale), ScalarMultiply(right, scale),
-                     LOOM_SCALAR_INTOVERFLOWFLAGS_NSW);
+                     LOOM_INTEGER_OVERFLOW_FLAG_NSW);
   const auto expression = Expand(result);
   ASSERT_EQ(expression.term_count, 1u);
   EXPECT_EQ(expression.terms[0].value_id, result);

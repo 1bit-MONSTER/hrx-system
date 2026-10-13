@@ -179,9 +179,10 @@ bool loom_motion_op_can_relocate_effect_free(const loom_module_t* module,
 bool loom_motion_op_can_rematerialize_effect_free(const loom_module_t* module,
                                                   const loom_op_t* op);
 
-// Returns true if |op| may be executed on additional control paths. This
-// requires SAFE_TO_SPECULATE and rejects any region side effects, convergence,
-// hints, or pending source expansion.
+// Returns true if |op| may unconditionally execute on additional control
+// paths. This requires SAFE_TO_SPECULATE and rejects any region side effects,
+// convergence, hints, or pending source expansion. Fact-dependent speculation
+// requires a motion analysis and is available through the subtree query below.
 bool loom_motion_op_can_speculate(const loom_module_t* module,
                                   const loom_op_t* op);
 
@@ -224,8 +225,9 @@ iree_status_t loom_motion_subtree_can_relocate_before(
     const loom_op_t* before_op, bool* out_can_relocate);
 
 // Same as loom_motion_subtree_can_relocate_before, but every non-terminator op
-// in the moved subtree must be SAFE_TO_SPECULATE because the caller may execute
-// the subtree more often than the source IR did.
+// in the moved subtree must be unconditionally SAFE_TO_SPECULATE or satisfy its
+// declared execution condition using retained function facts because the caller
+// may execute the subtree more often than the source IR did.
 iree_status_t loom_motion_subtree_can_speculate_before(
     loom_motion_analysis_t* analysis, const loom_op_t* candidate_op,
     const loom_op_t* before_op, bool* out_can_speculate);

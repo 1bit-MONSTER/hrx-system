@@ -108,6 +108,8 @@ def _op_semantics_row(op: Op, condition_refinement_index: int = 0) -> list[str]:
     row = [f".phase = {_op_phase_c_name(op)},"]
     if condition_refinement_index:
         row.append(f".condition_refinement_index = {condition_refinement_index},")
+    if op.execution_condition is not None:
+        row.append(f".execution_condition = {op.execution_condition.c_name},")
     if contract_families != "0":
         row.append(f".contract_families = {contract_families},")
     return row

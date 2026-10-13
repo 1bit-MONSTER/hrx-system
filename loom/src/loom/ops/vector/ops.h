@@ -189,10 +189,6 @@ enum {
 #define LOOM_VECTOR_FASTMATHFLAGS_AFN ((uint8_t)64)
 #define LOOM_VECTOR_FASTMATHFLAGS_FAST ((uint8_t)127)
 
-// Integer overflow behavior flags.
-#define LOOM_VECTOR_INTOVERFLOWFLAGS_NSW ((uint8_t)1)
-#define LOOM_VECTOR_INTOVERFLOWFLAGS_NUW ((uint8_t)2)
-
 // Independent DAZ and FTZ permissions for floating-point conversions.
 #define LOOM_VECTOR_FLOATCONVERSIONFLAGS_DAZ ((uint8_t)1)
 #define LOOM_VECTOR_FLOATCONVERSIONFLAGS_FTZ ((uint8_t)2)

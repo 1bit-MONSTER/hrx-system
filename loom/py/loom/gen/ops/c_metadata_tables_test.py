@@ -16,12 +16,14 @@ from loom.dsl import (
     ATTR_TYPE_SYMBOL,
     INTEGER,
     ISOLATED_FROM_ABOVE,
+    PURE,
     SYMBOL_DEFINE,
     TERMINATOR,
     AttrDef,
     Dialect,
     EnumCase,
     EnumDef,
+    ExecutionCondition,
     HasAncestor,
     HasAnyAncestor,
     HasParent,
@@ -41,6 +43,22 @@ from loom.dsl import (
 from loom.gen.ops.c_dialect import generate_dialect_contents
 from loom.gen.ops.c_metadata_tables import generate_tables_c
 from loom.gen.ops.model import DialectGeneration
+
+
+def test_generate_tables_emits_execution_condition() -> None:
+    op = Op(
+        "test.shift",
+        group=Dialect("test"),
+        operands=[Operand("lhs", INTEGER), Operand("rhs", INTEGER)],
+        results=[Result("result", INTEGER)],
+        constraints=[SameType("lhs", "rhs", "result")],
+        traits=[PURE],
+        execution_condition=ExecutionCondition.INTEGER_SHIFT_RIGHT,
+    )
+
+    source = generate_tables_c("test", 0, [op])
+
+    assert ".execution_condition = LOOM_EXECUTION_CONDITION_INTEGER_SHIFT_RIGHT," in source
 
 
 @pytest.mark.parametrize("execution", [None, *RegionExecution])

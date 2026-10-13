@@ -13,8 +13,8 @@ loom_trait_flags_t loom_scalar_integer_arithmetic_effective_traits(
     const loom_module_t* module, const loom_op_t* op) {
   (void)module;
   loom_trait_flags_t traits = op->traits & ~LOOM_TRAIT_SAFE_TO_SPECULATE;
-  if (!(op->instance_flags & (LOOM_SCALAR_INTOVERFLOWFLAGS_NSW |
-                              LOOM_SCALAR_INTOVERFLOWFLAGS_NUW))) {
+  if (!(op->instance_flags &
+        (LOOM_INTEGER_OVERFLOW_FLAG_NSW | LOOM_INTEGER_OVERFLOW_FLAG_NUW))) {
     traits |= LOOM_TRAIT_SAFE_TO_SPECULATE;
   }
   return traits;

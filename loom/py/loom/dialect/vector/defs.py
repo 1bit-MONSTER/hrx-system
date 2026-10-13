@@ -93,6 +93,7 @@ from loom.dsl import (
     ElementWidthLessThan,
     EnumCase,
     EnumDef,
+    ExecutionCondition,
     HasAllStaticRankOneVector,
     HasAllStaticVector,
     HasBytePatternElement,
@@ -3047,6 +3048,7 @@ vector_shli = _lanewise_binary(
     result_constraint=INTEGER_ELEMENT,
     doc="Lanewise left shift of same-typed integer vector operands.",
     flags=("overflow", IntOverflowFlags),
+    execution_condition=ExecutionCondition.INTEGER_SHIFT_LEFT,
     facts="loom_vector_shli_facts",
     canonicalize="loom_vector_binary_identity_canonicalize",
 )
@@ -3056,6 +3058,7 @@ vector_shrsi = _lanewise_binary(
     phase=OpPhase.EXECUTABLE,
     result_constraint=INTEGER_ELEMENT,
     doc="Lanewise arithmetic right shift of same-typed integer vector operands.",
+    execution_condition=ExecutionCondition.INTEGER_SHIFT_RIGHT,
     facts="loom_vector_shrsi_facts",
     canonicalize="loom_vector_binary_identity_canonicalize",
 )
@@ -3065,6 +3068,7 @@ vector_shrui = _lanewise_binary(
     phase=OpPhase.EXECUTABLE,
     result_constraint=INTEGER_ELEMENT,
     doc="Lanewise logical right shift of same-typed integer vector operands.",
+    execution_condition=ExecutionCondition.INTEGER_SHIFT_RIGHT,
     facts="loom_vector_shrui_facts",
     canonicalize="loom_vector_binary_identity_canonicalize",
 )

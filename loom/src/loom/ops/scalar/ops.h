@@ -126,10 +126,6 @@ enum {
   LOOM_OP_SCALAR_COUNT_ = 104,
 };
 
-// Integer overflow behavior flags.
-#define LOOM_SCALAR_INTOVERFLOWFLAGS_NSW ((uint8_t)1)
-#define LOOM_SCALAR_INTOVERFLOWFLAGS_NUW ((uint8_t)2)
-
 // IEEE 754 fast-math relaxation flags for float operations.
 #define LOOM_SCALAR_FASTMATHFLAGS_REASSOC ((uint8_t)1)
 #define LOOM_SCALAR_FASTMATHFLAGS_NNAN ((uint8_t)2)

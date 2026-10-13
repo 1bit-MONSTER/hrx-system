@@ -9,6 +9,7 @@
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 
 import loom.dsl as dsl
 import loom.ir as ir
@@ -4018,6 +4019,71 @@ def test_condition_refinement_requires_a_required_operand_and_i1_result() -> Non
             operands=[Operand("value", INTEGER)],
             results=[Result("result", INTEGER)],
             condition_refinement=refinement,
+        )
+
+
+def test_execution_condition_requires_canonical_integer_shift_shape() -> None:
+    condition = dsl.ExecutionCondition.INTEGER_SHIFT_LEFT
+    canonical_flags = EnumDef(
+        "IntOverflowFlags",
+        [EnumCase("nsw", 1), EnumCase("nuw", 2)],
+        c_type="loom_integer_overflow_flags_t",
+        c_const_prefix="LOOM_INTEGER_OVERFLOW_FLAG",
+        c_include="loom/ops/op_defs.h",
+    )
+
+    def make_op(**overrides: Any) -> Op:
+        fields: dict[str, Any] = {
+            "operands": [Operand("lhs", INTEGER), Operand("rhs", INTEGER)],
+            "results": [Result("result", INTEGER)],
+            "constraints": [SameType("lhs", "rhs", "result")],
+            "traits": [PURE],
+            "execution_condition": condition,
+        }
+        fields.update(overrides)
+        return Op("test.shift", **fields)
+
+    assert make_op().execution_condition is condition
+    assert (
+        make_op(
+            attrs=[
+                AttrDef(
+                    "overflow",
+                    dsl.ATTR_TYPE_FLAGS,
+                    optional=True,
+                    enum_def=canonical_flags,
+                )
+            ]
+        ).execution_condition
+        is condition
+    )
+
+    with _raises(ValueError, match="requires the PURE trait"):
+        make_op(traits=[])
+    with _raises(ValueError, match="conflicts with unconditional"):
+        make_op(traits=[PURE, SAFE_TO_SPECULATE])
+    with _raises(ValueError, match="requires a leaf operation"):
+        make_op(regions=[RegionDef("body")])
+    with _raises(ValueError, match="requires same-typed integer"):
+        make_op(constraints=[])
+    with _raises(ValueError, match="canonical integer overflow flags"):
+        make_op(
+            attrs=[
+                AttrDef(
+                    "overflow",
+                    dsl.ATTR_TYPE_FLAGS,
+                    optional=True,
+                    enum_def=EnumDef(
+                        "LookalikeFlags",
+                        [EnumCase("nsw", 1), EnumCase("nuw", 2)],
+                    ),
+                )
+            ]
+        )
+    with _raises(ValueError, match="does not accept instance attributes"):
+        make_op(
+            execution_condition=dsl.ExecutionCondition.INTEGER_SHIFT_RIGHT,
+            attrs=[AttrDef("mode", dsl.ATTR_TYPE_I64)],
         )
 
 

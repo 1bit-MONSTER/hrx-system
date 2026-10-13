@@ -1386,6 +1386,22 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    execution_condition
+  HDRS
+    "execution_condition.h"
+  SRCS
+    "execution_condition.c"
+  DEPS
+    iree::base
+    loom::ir
+    loom::ops::op_defs
+    loom::target::facts
+    loom::util::fact_table
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     motion
   HDRS
     "motion.h"
@@ -1395,6 +1411,7 @@ loom_cc_library(
     "motion_memory.c"
   DEPS
     ::availability
+    ::execution_condition
     ::loop_domain
     ::movement
     ::read_motion
