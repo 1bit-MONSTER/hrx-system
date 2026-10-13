@@ -52,8 +52,11 @@ typedef struct loom_serve_device_options_t {
 // topology limit; options are borrowed only during creation. This establishes
 // runtime ownership, not compiler support or cross-device tensor access.
 // CPU task devices share the host executor instead of creating private workers.
-// Retains host through all device and asynchronous service lifetimes. Failure
-// returns no group and releases partial state, including earlier devices.
+// Devices provision feedback for authored kernel assertions; sanitizer runtime
+// state remains a separate driver policy. Runtime-service allocations are
+// driver overhead outside the retained-memory budget. Retains host through all
+// device and asynchronous service lifetimes. Failure returns no group and
+// releases partial state, including earlier devices.
 iree_status_t loom_serve_device_group_allocate(
     loom_serve_host_t* host, iree_host_size_t device_count,
     const loom_serve_device_options_t* options, iree_allocator_t host_allocator,

@@ -137,6 +137,9 @@ static iree_status_t loom_serve_device_group_initialize(
         iree_hal_device_create_params_default();
     params.proactor_pool = loom_serve_host_proactor_pool(group->host);
     params.event_sink = iree_hal_device_event_sink_stderr();
+    // Authored device assertions need feedback even without sanitizer
+    // instrumentation. Models register after this immutable device is created.
+    params.runtime_features = IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_FEEDBACK;
     if (iree_status_is_ok(status)) {
       status = iree_hal_driver_create_device_by_uri(
           drivers[driver_index].handle, options[i].uri, &params,

@@ -33,6 +33,10 @@ kernel.def @consume() {
   %element = kernel.workitem.id<x> : index
   %output_view = buffer.view %output[%c0] : buffer -> view<8xi32>
   %av = view.load %a[%element] : view<8xi32> -> i32
+  // An authored check requires device feedback without sanitizer insertion.
+  %c0_i32 = scalar.constant 0 : i32
+  %nonnegative = scalar.cmpi sge, %av, %c0_i32 : i32
+  kernel.assert %nonnegative "prepared parameter must be nonnegative" : i1
   %bv = view.load %b[%element] : view<8xi32> -> i32
   %rv = view.load %raw[%element] : view<8xi32> -> i32
   %ab = scalar.addi %av, %bv : i32
