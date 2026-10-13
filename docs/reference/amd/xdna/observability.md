@@ -453,6 +453,33 @@ result supplies those properties. A frequency written into a trace-file header
 is format metadata, not a device contract. Host correlation still requires
 explicit host bracketing and, for tile work, program-owned `cntr` samples.
 
+### Record framing and capture bounds
+
+The XDP client initializes the result storage to zero and reads at most
+`buffer_size / 12` records. Within each configured segment, an all-zero marker
+and timestamp terminate its scan. This is the reader's framing convention. It
+does not report a firmware write cursor, capture generation, or overflow count.
+A nonzero record left by an earlier capture cannot be distinguished from a new
+record by this convention alone. [Buffer initialization][xdp-timeline-setup],
+[record scan][xdp-timeline-records]
+
+A bounded producer can supply additional information: the expected marker
+identities, their ordering, and a maximum result extent. Those facts belong to
+the instruction program and its capture protocol. Safe reuse also needs the
+firmware append position to be reset or advanced according to the native
+protocol; clearing a host mapping does not itself establish that transition.
+The debug-buffer configuration and synchronization responses contain status,
+not a produced-byte count or append-position reset acknowledgement.
+[AIE2 result messages][linux-debug-messages]
+
+`READ_REGS` and `RECORD_TIMER` share a result transport but have different
+payload layouts. The counter reader knows the register count from its submitted
+operation and reads that many words; the timeline reader expects marker/high/low
+triples. A consumer needs the producing program's layout to combine these
+operations in one capture. Neither reader establishes a self-describing event
+stream. [Counter collection][xdp-profile-collection],
+[timeline records][xdp-timeline-records]
+
 ### Linux context attachment
 
 The AIE2 native path uses `DRM_AMDXDNA_HWCTX_ASSIGN_DBG_BUF` to associate an
@@ -465,10 +492,37 @@ ordinary host cache invalidate alone does not perform that synchronization.
 [Context operations][linux-context], [firmware messages][linux-messages],
 [shim buffer implementation][linux-buffer]
 
+The attachment check belongs to the BO: attach rejects an already assigned BO,
+and detach requires its recorded context to match. Only a successful command
+response changes that assignment. These checks do not establish that a context
+can simultaneously collect into several destinations, or that a failed native
+operation rolled back every firmware effect. [Assignment
+implementation][linux-debug-assignment]
+
+Device-to-host BO synchronization finds the assigned context and submits
+`SYNC_DEBUG_BO`. Its `MSG_OP_SYNC_BO` requests a device-memory-to-host-memory
+copy with source address zero, the destination BO's heap-relative offset, and
+the **whole BO length**. The synchronization response is awaited and checked.
+Thus instruction completion, firmware-result collection, and host cache
+visibility are distinct operations; a CPU cache instruction cannot stand in
+for the firmware copy. [BO synchronization][linux-debug-gem],
+[context lookup][linux-debug-context], [copy request][linux-debug-copy],
+[response wait][linux-debug-sync]
+
+Attachment, collection, and detachment are driver commands submitted through
+the same hardware context as application work. They allocate driver-command
+state and wait for a native response. A client that interleaves them with
+application submission must account for that scheduling and completion
+interaction. [Command submission and waits][linux-debug-assignment],
+[collection submission][linux-debug-sync]
+
 The AIE4 native interface uses the same configuration names with a different
 payload: a metadata BO describes the result BO, buffer type, per-controller
 slices, and a correlation tag. It is not the AIE2 BO-handle argument layout.
-[Native configuration structures][linux-uapi]
+The driver requires SHARE BOs for both metadata and payload and programs the
+selected controller slices. The slice description associates each output range
+with its controller. [Native configuration
+structures][linux-uapi], [AIE4 configuration][linux-aie4-debug]
 
 ### Windows client behavior
 
@@ -481,9 +535,42 @@ client sources describe this lifecycle; they do not define the private MCDM
 allocation/attachment ABI. [Counter readback][xdp-profile], [timeline buffer
 lifetime][xdp-timeline]
 
+XRT's `create_bo(hwctx, size, use_type::debug)` carries both a context and a
+buffer purpose into allocation. Its common implementation selects CACHEABLE
+storage, LOCAL access and READ_WRITE direction, then calls the platform
+allocator. These are XRT-level inputs; copying them into a different native
+allocation record does not establish the platform's debug-buffer contract.
+[Purpose selection and context-qualified allocation][xrt-debug-allocation]
+
 A normal trace DMA allocation does not acquire this firmware result-buffer
 role. Attachment, firmware synchronization and detachment have their own
 native context lifetime.
+
+### Complete capture sequence
+
+For a finite capture, the actors and observations are:
+
+1. The host establishes the native context and its firmware result destination.
+   The instruction program defines the marker layout and bounds its output to
+   the admitted capacity.
+2. The controller encounters a begin marker, initiates the work, and performs
+   the program's normal completion waits before the end marker. Without those
+   waits, the end marker measures instruction issue, not completed tile or DMA
+   work.
+3. The host observes checked completion of every command contributing records.
+   A stable snapshot additionally requires exclusion of later record writers
+   unless the firmware supplies a concurrent collection protocol.
+4. The host collects firmware results through the native synchronization path
+   and establishes CPU visibility before interpreting the program's records.
+5. Reuse follows the result protocol's append-position and generation rules.
+   Detachment completes before releasing storage that firmware can still name.
+
+The XDP counter caller submits its transaction before synchronizing results;
+the timeline caller keeps the destination for the capture and releases it
+before other plugins install theirs. These are concrete client lifecycles,
+not evidence of concurrent snapshots, an overflow recovery protocol, or a
+universal one-buffer hardware limit. [Counter caller][xdp-profile-collection],
+[timeline lifetime][xdp-timeline-setup]
 
 ## Native clock information
 
@@ -511,6 +598,27 @@ sends `ktime_get_real_ns()` as a firmware time base and receives status. It
 returns no paired tile/host sample. Firmware trace uses its own timestamp
 mode: `FW_CHRONO` in the AIE2 path and `NS_OFFSET` in AIE4. [AIE2
 messages][linux-messages], [AIE4 messages][linux-aie4-messages]
+
+Windows provides a separate `D3DKMTQueryClockCalibration` interface naming an
+adapter, engine node and physical adapter index. Its result supplies engine and
+CPU clock information. That interface's existence does not identify an XDNA
+transaction or tile timer as its engine clock, or establish that an NPU driver
+implements the query. A correlation applies to event records only after their
+sampled counter is identified as the same clock. Microsoft's context-management
+clock flag explicitly distinguishes that processor's clock from an engine
+clock. [Calibration query][windows-clock-query],
+[query arguments][windows-clock-arguments],
+[context-management clock distinction][windows-clock-flags]
+
+Clock interpretation has independent requirements. A raw event observation
+needs a known sampling point and coherent record. Ordering observations by
+their ticks additionally requires a common counter epoch. A duration needs a
+rate valid throughout the measured interval and accounting for any gating.
+A host timeline additionally needs correlation to that same counter with
+bounded sampling uncertainty. Equal frequency readings at the endpoints do not
+establish an unchanged rate between them. A live context, successful buffer
+collection, or a 64-bit record establishes none of these clock properties by
+itself.
 
 ## Firmware diagnostic trace
 
@@ -581,3 +689,17 @@ lifetime][linux-aie2-trace-query], [AIE4 query lifetime][linux-aie4-trace-query]
 [linux-aie4-trace-query]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie4_pci.c#L1298-L1377
 [linux-query-runtime-pm]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_pm.c#L108-L134
 [linux-query-runtime-pm-lock]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_pm.h#L20-L29
+[xdp-timeline-setup]: https://github.com/Xilinx/XDP/blob/03ba80bf6c4942f51eebc71f7d154d9254426396/profile/plugin/ml_timeline/clientDev/ml_timeline.cpp#L144-L211
+[xdp-timeline-records]: https://github.com/Xilinx/XDP/blob/03ba80bf6c4942f51eebc71f7d154d9254426396/profile/plugin/ml_timeline/clientDev/ml_timeline.cpp#L238-L303
+[xdp-profile-collection]: https://github.com/Xilinx/XDP/blob/03ba80bf6c4942f51eebc71f7d154d9254426396/profile/plugin/aie_profile/client/aie_profile.cpp#L312-L360
+[xrt-debug-allocation]: https://github.com/Xilinx/XRT/blob/7f412bf6aea3d90dfcaf3fc8489a6e93552e2b02/src/runtime_src/core/common/api/xrt_bo.cpp#L1791-L1847
+[linux-debug-assignment]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_ctx.c#L1134-L1215
+[linux-debug-sync]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_ctx.c#L1217-L1250
+[linux-debug-copy]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_message.c#L1205-L1272
+[linux-debug-messages]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_msg_priv.h#L435-L465
+[linux-debug-gem]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_gem.c#L1450-L1509
+[linux-debug-context]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_ctx.c#L472-L512
+[linux-aie4-debug]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie4_ctx.c#L1540-L1687
+[windows-clock-query]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/nf-d3dkmthk-d3dkmtqueryclockcalibration
+[windows-clock-arguments]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_d3dkmt_queryclockcalibration
+[windows-clock-flags]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_dxgk_gpuclockdata_flags
