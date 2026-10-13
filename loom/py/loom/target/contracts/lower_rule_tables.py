@@ -287,6 +287,7 @@ class LowerAttrCopy:
 
     kind: LowerAttrCopyKind
     target_name: str
+    source_node_index: int = 0
     source_attr_index: int = 0
     source_operand_field_index: int = 0
     other_source_attr_index: int = 0

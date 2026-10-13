@@ -584,6 +584,85 @@ def test_compile_backward_related_source_node() -> None:
     assert node_ref.source_node_index == 1
 
 
+def test_compile_attr_projection_from_related_source_node() -> None:
+    immediate = Immediate(
+        "predicate",
+        ImmediateKind.UNSIGNED,
+        bit_width=8,
+    )
+    descriptor = replace(TEST_LOW_ADD_I32_DESCRIPTOR, immediates=(immediate,))
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        descriptors=tuple(
+            descriptor
+            if existing_descriptor == TEST_LOW_ADD_I32_DESCRIPTOR
+            else existing_descriptor
+            for existing_descriptor in TEST_LOW_CORE_DESCRIPTOR_SET.descriptors
+        ),
+    )
+    fragment = ContractFragment(
+        name="test.related-source-node-attr",
+        descriptor_set=descriptor_set,
+        cases=(
+            DescriptorRule(
+                source_op=scalar_bitwise.scalar_andi,
+                descriptor=descriptor,
+                source_nodes=(
+                    SourceNode.exclusive_definition(
+                        "producer",
+                        source_op=scalar_comparison.scalar_cmpi,
+                        parent_operand=ValueRef.operand("lhs"),
+                        node_result=ValueRef.result("result"),
+                    ),
+                ),
+                guards=(Guard.value_type("result", Scalar("i32")),),
+                emit=(
+                    EmitDescriptorOp(
+                        descriptor=descriptor,
+                        operands={
+                            "lhs": ValueRef.operand("lhs"),
+                            "rhs": ValueRef.operand("rhs"),
+                        },
+                        results={"dst": ValueRef.result("result")},
+                        immediates={
+                            "predicate": AttrProject.direct("predicate").in_source_node(
+                                "producer"
+                            )
+                        },
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    compiled = compile_lower_rule_set(fragment, dialect_ops={"scalar": ALL_SCALAR_OPS})
+
+    assert len(compiled.attr_copies) == 1
+    attr_copy = compiled.attr_copies[0]
+    assert attr_copy.kind is LowerAttrCopyKind.DIRECT
+    assert attr_copy.source_node_index == 1
+    predicate_attr = scalar_comparison.scalar_cmpi.attr("predicate")
+    assert predicate_attr is not None
+    assert attr_copy.source_attr_index == scalar_comparison.scalar_cmpi.attrs.index(
+        predicate_attr
+    )
+
+
+def test_attr_projection_rejects_unknown_related_source_node() -> None:
+    project = AttrProject.direct("predicate").in_source_node("missing")
+
+    _expect_value_error(
+        lambda: project.validate(
+            scalar_arithmetic.scalar_addi,
+            TEST_LOW_CORE_DESCRIPTOR_SET,
+            TEST_LOW_ADD_I32_DESCRIPTOR,
+            "predicate",
+            source_ops={"": scalar_arithmetic.scalar_addi},
+        ),
+        "references unknown source node 'missing'",
+    )
+
+
 def test_compile_source_graph_records_only_root_op_kind() -> None:
     fragment = ContractFragment(
         name="test.nonlocal-source-graph",

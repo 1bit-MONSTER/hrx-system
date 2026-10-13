@@ -2295,6 +2295,30 @@ class _LowerRuleSetCompiler:
         target_name: str,
         project: AttrProject,
     ) -> LowerAttrCopy:
+        source_node_index = self._source_node_ordinals.get(project.source_node, -1)
+        referenced_op = self._source_ops.get(project.source_node)
+        if referenced_op is None or source_node_index < 0:
+            raise ValueError(
+                f"{source_op.name}: immediate projection references unknown "
+                f"source node '{project.source_node}'"
+            )
+        return replace(
+            self._lower_attr_project_for_op(
+                referenced_op,
+                descriptor,
+                target_name,
+                project,
+            ),
+            source_node_index=source_node_index,
+        )
+
+    def _lower_attr_project_for_op(
+        self,
+        source_op: Op,
+        descriptor: Descriptor,
+        target_name: str,
+        project: AttrProject,
+    ) -> LowerAttrCopy:
         source_attr_index = _source_attr_index(source_op, project.source_attr)
         if project.kind == AttrProjectKind.DIRECT:
             return LowerAttrCopy(
@@ -2562,6 +2586,13 @@ class _LowerRuleSetCompiler:
         source_op: Op,
         project: AttrProject,
     ) -> tuple[LowerAttrCopy, ...]:
+        source_node_index = self._source_node_ordinals.get(project.source_node, -1)
+        referenced_op = self._source_ops.get(project.source_node)
+        if referenced_op is None or source_node_index < 0:
+            raise ValueError(
+                f"{source_op.name}: immediate projection references unknown "
+                f"source node '{project.source_node}'"
+            )
         if project.kind != AttrProjectKind.EXPAND_LANE_I64_ARRAY_TO_BYTE_LANES:
             raise ValueError(
                 f"{source_op.name}: immediate projection '{project.kind.value}' is "
@@ -2572,11 +2603,12 @@ class _LowerRuleSetCompiler:
                 f"{source_op.name}: lane-byte projection needs source lane count "
                 "and bytes per lane"
             )
-        source_attr_index = _source_attr_index(source_op, project.source_attr)
+        source_attr_index = _source_attr_index(referenced_op, project.source_attr)
         return tuple(
             LowerAttrCopy(
                 kind=LowerAttrCopyKind.I64_ARRAY_LANE_BYTE,
                 target_name=target_name,
+                source_node_index=source_node_index,
                 source_attr_index=source_attr_index,
                 source_element_index=index // project.bytes_per_lane,
                 source_element_count=project.bytes_per_lane,

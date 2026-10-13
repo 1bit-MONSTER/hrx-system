@@ -436,8 +436,13 @@ typedef struct loom_low_lower_attr_copy_t {
   uint8_t source_element_bit_width;
   // Low bit position of the projected or packed value in the emitted i64.
   uint8_t target_bit_offset;
-  // Dynamic source-memory term ordinal consumed by SOURCE_MEMORY rows.
-  uint8_t dynamic_term_index;
+  // Kind-selected source identity.
+  union {
+    // Dynamic source-memory term ordinal consumed by SOURCE_MEMORY rows.
+    uint8_t dynamic_term_index;
+    // Source-graph node whose attributes are projected; zero selects the root.
+    uint8_t source_node_index;
+  };
 } loom_low_lower_attr_copy_t;
 static_assert(sizeof(loom_low_lower_attr_copy_t) == 24,
               "loom_low_lower_attr_copy_t must be 24 bytes");

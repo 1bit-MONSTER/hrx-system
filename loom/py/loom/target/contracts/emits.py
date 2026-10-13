@@ -706,6 +706,7 @@ class EmitDescriptorOp:
                         descriptor_set,
                         self.descriptor,
                         immediate_name,
+                        source_ops=source_ops,
                     )
                 elif isinstance(binding, (OperandSegmentProject, SourceOpProject)):
                     binding.validate(source_op, self.descriptor, immediate_name)
@@ -768,6 +769,7 @@ class EmitDescriptorOp:
                     descriptor_set,
                     self.descriptor,
                     None,
+                    source_ops=source_ops,
                 )
                 bound_names.update(projection.target_names)
         for immediate in self.descriptor.immediates:

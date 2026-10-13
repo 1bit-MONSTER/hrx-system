@@ -1118,6 +1118,9 @@ def _validate_c_table_shape(
 
     for index, row in enumerate(table.attr_copies):
         row_subject = f"{subject} attr-copy {index}"
+        _require_u8(row.source_node_index, f"{row_subject} source-node index")
+        if row.source_node_index and not lower_rule_rows.attr_copy_uses_source_attr(row.kind):
+            raise ValueError(f"{row_subject} kind cannot select a related source node")
         _require_u8(row.source_attr_index, f"{row_subject} source attr index")
         _require_u8(
             row.source_operand_field_index,
@@ -1437,6 +1440,8 @@ def _validate_c_table_shape(
                 emit.attr_copy_start + emit.attr_copy_count,
             ):
                 attr_copy = table.attr_copies[attr_copy_index]
+                if attr_copy.source_node_index > row.source_node_count:
+                    raise ValueError(f"{row_subject} attr-copy {attr_copy_index} selects source node {attr_copy.source_node_index} outside its source graph")
                 if lower_rule_rows.attr_copy_uses_value_ref(attr_copy.kind):
                     visible_value_ref_indices.append(attr_copy.value_ref_index)
                 if lower_rule_rows.attr_copy_uses_other_value_ref(attr_copy.kind):
