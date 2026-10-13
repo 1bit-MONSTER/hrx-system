@@ -143,16 +143,23 @@
 // IREE_ATTRIBUTE_ALWAYS_INLINE / IREE_ATTRIBUTE_NOINLINE
 //===----------------------------------------------------------------------===//
 
-// Forces functions to either inline or not inline. Introduced in gcc 3.1.
+// Requests inlining even when the normal heuristics would decline it, or
+// prevents inlining. A compiler may still decline an impossible inline request.
+// Place these annotations before the return type, not after the parameter list.
+// Keep inline and linkage specifiers explicit for portable declarations.
 #if IREE_HAVE_ATTRIBUTE(always_inline) || \
     (defined(__GNUC__) && !defined(__clang__))
 #define IREE_ATTRIBUTE_ALWAYS_INLINE __attribute__((always_inline))
+#elif defined(_MSC_VER)
+#define IREE_ATTRIBUTE_ALWAYS_INLINE __forceinline
 #else
 #define IREE_ATTRIBUTE_ALWAYS_INLINE
 #endif  // IREE_HAVE_ATTRIBUTE(always_inline)
 
 #if IREE_HAVE_ATTRIBUTE(noinline) || (defined(__GNUC__) && !defined(__clang__))
 #define IREE_ATTRIBUTE_NOINLINE __attribute__((noinline))
+#elif defined(_MSC_VER)
+#define IREE_ATTRIBUTE_NOINLINE __declspec(noinline)
 #else
 #define IREE_ATTRIBUTE_NOINLINE
 #endif  // IREE_HAVE_ATTRIBUTE(noinline)
