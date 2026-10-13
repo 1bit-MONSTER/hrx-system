@@ -234,9 +234,20 @@ static void loom_amdgpu_matrix_result_merge_incoming(
     loom_amdgpu_matrix_result_wait_t* state,
     const loom_amdgpu_matrix_result_frontier_t* frontier) {
   for (; frontier != NULL; frontier = frontier->next) {
-    loom_amdgpu_matrix_result_release_t* releases =
-        loom_amdgpu_matrix_result_active(state, frontier->physical_index)
-            ->releases;
+    loom_amdgpu_matrix_result_active_t* active =
+        &state->active[frontier->physical_index];
+    if (active->epoch != state->epoch) {
+      active->epoch = state->epoch;
+      state->active_indices[state->active_count++] = frontier->physical_index;
+      for (unsigned i = 0; i < LOOM_AMDGPU_MATRIX_RESULT_RELEASE_COUNT; ++i) {
+        active->releases[i] = (loom_amdgpu_matrix_result_release_t){
+            .position = frontier->releases.remaining[i],
+            .source = frontier->releases.sources[i],
+        };
+      }
+      continue;
+    }
+    loom_amdgpu_matrix_result_release_t* releases = active->releases;
     for (unsigned i = 0; i < LOOM_AMDGPU_MATRIX_RESULT_RELEASE_COUNT; ++i) {
       const loom_amdgpu_matrix_result_release_t release = {
           .position = frontier->releases.remaining[i],
@@ -752,23 +763,16 @@ void loom_amdgpu_matrix_result_wait_end_block(
   if (state->blocks == NULL) {
     return;
   }
-  loom_amdgpu_matrix_result_frontier_t** frontier =
-      &state->blocks[state->block_index].outgoing;
-  loom_amdgpu_matrix_result_index_frontier(state, frontier);
-  for (loom_amdgpu_matrix_result_frontier_t* row = *frontier; row != NULL;
-       row = row->next) {
-    memset(&row->releases, 0, sizeof(row->releases));
-  }
-  for (uint32_t i = 0; i < state->active_count; ++i) {
-    const uint32_t physical_index = state->active_indices[i];
-    loom_amdgpu_matrix_result_residuals_t residuals;
-    if (loom_amdgpu_matrix_result_project(state, physical_index, &residuals)) {
-      // Actual waits only shorten conservative lifetimes. The static solve
-      // already allocated every physical row final planning can retain.
-      loom_amdgpu_matrix_result_frontier_t* row =
-          state->frontier_index[physical_index];
-      IREE_ASSERT(row != NULL);
-      row->releases = residuals;
+  // Actual waits only shorten conservative lifetimes. The static solve already
+  // allocated every physical row final planning can retain.
+  for (loom_amdgpu_matrix_result_frontier_t* row =
+           state->blocks[state->block_index].outgoing;
+       row != NULL; row = row->next) {
+    if (state->active[row->physical_index].epoch == state->epoch) {
+      loom_amdgpu_matrix_result_project(state, row->physical_index,
+                                        &row->releases);
+    } else {
+      memset(&row->releases, 0, sizeof(row->releases));
     }
   }
 }
