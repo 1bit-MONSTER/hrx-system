@@ -80,11 +80,12 @@ func.def public @chat_begin(%request: buffer, %tools: buffer) -> (buffer, i64) {
   %c1 = index.constant 1 : index
   %c0_i64 = scalar.constant 0 : i64
   %empty = global.load @empty : buffer
-  %no_tools = global.load @no_tools : buffer
-  %absent = func.call @equal(%tools, %empty) : (buffer, buffer) -> (i1)
-  %empty_list = func.call @equal(%tools, %no_tools) : (buffer, buffer) -> (i1)
-  %valid_tools = scalar.ori %absent, %empty_list : i1
-  func.call @check(%valid_tools) : (i1)
+  %tool_fields, %tool_type, %tool_count = func.call @members(%tools) : (buffer) -> (buffer, i32, i64)
+  %bounded_tool_count = scalar.assume %tool_count [range(%tool_count, 0, 4096)] : i64
+  %tool_bytes = index.cast %bounded_tool_count : i64 to offset
+  %rendered_tools = buffer.alloca<private> align(1) %tool_bytes : buffer
+  %tool_marker = scalar.constant 35 : i8
+  buffer.fill %tool_marker, %rendered_tools[%c0], %tool_bytes : i8
   %fields, %type, %count64 = func.call @members(%request) : (buffer) -> (buffer, i32, i64)
   %count_limit = scalar.constant 2147483647 : i64
   %count_fits = scalar.cmpi ule, %count64, %count_limit : i64
@@ -135,7 +136,7 @@ func.def public @chat_begin(%request: buffer, %tools: buffer) -> (buffer, i64) {
       func.call @check(%empty_options) : (i1)
     }
   }
-  func.return %empty, %c0_i64 : buffer, i64
+  func.return %rendered_tools, %c0_i64 : buffer, i64
 }
 
 func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %reasoning: buffer, %calls: buffer, %state: i64, %ordinal: i64, %fields: i64) -> (buffer, i64) {

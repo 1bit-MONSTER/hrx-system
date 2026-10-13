@@ -15,10 +15,12 @@
 extern "C" {
 #endif
 
-#define LOOM_SERVE_TEXT_CHAT_TOOL_CAPACITY 16
-
 // Protocol output budget bound, independent of a deployment's context limit.
 #define LOOM_SERVE_TEXT_CHAT_MAX_OUTPUT_TOKENS 16384
+
+// Protocol resource bound for declared or generated function tools. Storage is
+// allocated only for the declarations present in a request.
+#define LOOM_SERVE_TEXT_CHAT_MAX_TOOL_COUNT 4096
 
 // Cold-resolved chat functions in the model's shared source VM. The model
 // serializes calls and outlives every request borrowing this policy.
@@ -129,10 +131,14 @@ typedef struct loom_serve_text_chat_t {
   loom_serve_text_chat_flags_t flags;
   // Original tool declarations borrowing the HTTP body, or the literal [].
   iree_string_view_t tool_schemas;
+  // Host allocator owning the tool descriptor array.
+  iree_allocator_t host_allocator;
   // Number of populated tool descriptors.
   iree_host_size_t tool_count;
-  // Validated tool descriptors in request order.
-  loom_serve_text_chat_tool_t tools[LOOM_SERVE_TEXT_CHAT_TOOL_CAPACITY];
+  // Allocated descriptor capacity.
+  iree_host_size_t tool_capacity;
+  // Dynamically sized validated tool descriptors sorted by literal name.
+  loom_serve_text_chat_tool_t* tools;
 } loom_serve_text_chat_t;
 
 // Validates and renders the supported chat request. Unknown execution options

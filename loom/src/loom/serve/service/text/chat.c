@@ -6,6 +6,7 @@
 
 #include "loom/serve/service/text/chat.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "iree/base/internal/json.h"
@@ -160,10 +161,20 @@ static iree_status_t loom_serve_text_chat_tool_schema(
     iree_string_view_t value) {
   loom_serve_text_chat_t* chat = user_data;
   if (type != IREE_JSON_VALUE_TYPE_OBJECT ||
-      index >= LOOM_SERVE_TEXT_CHAT_TOOL_CAPACITY) {
+      index >= LOOM_SERVE_TEXT_CHAT_MAX_TOOL_COUNT) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "tools must contain at most %d function objects",
-                            LOOM_SERVE_TEXT_CHAT_TOOL_CAPACITY);
+                            LOOM_SERVE_TEXT_CHAT_MAX_TOOL_COUNT);
+  }
+  iree_host_size_t required_capacity = 0;
+  if (!iree_host_size_checked_add(index, 1, &required_capacity)) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "tool descriptor capacity overflow");
+  }
+  if (required_capacity > chat->tool_capacity) {
+    IREE_RETURN_IF_ERROR(iree_allocator_grow_array(
+        chat->host_allocator, required_capacity, sizeof(*chat->tools),
+        &chat->tool_capacity, (void**)&chat->tools));
   }
   chat_field_t fields[] = {{"type", CHAT_STRING}, {"function", CHAT_OBJECT}};
   IREE_RETURN_IF_ERROR(loom_serve_text_chat_fields_read(
@@ -189,12 +200,6 @@ static iree_status_t loom_serve_text_chat_tool_schema(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "tool name must be a literal ASCII identifier");
   }
-  for (iree_host_size_t i = 0; i < chat->tool_count; ++i) {
-    if (iree_string_view_equal(chat->tools[i].name, function[0].value)) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "duplicate tool name");
-    }
-  }
   chat_field_t schema[] = {{"type", CHAT_STRING},
                            {"properties", CHAT_OBJECT},
                            {"required", CHAT_ARRAY}};
@@ -209,6 +214,49 @@ static iree_status_t loom_serve_text_chat_tool_schema(
   chat->tools[chat->tool_count++] = (loom_serve_text_chat_tool_t){
       function[0].value, schema[1].value, schema[2].value};
   return iree_ok_status();
+}
+
+static int loom_serve_text_chat_tool_compare(const void* left,
+                                             const void* right) {
+  const loom_serve_text_chat_tool_t* left_tool = left;
+  const loom_serve_text_chat_tool_t* right_tool = right;
+  return iree_string_view_compare(left_tool->name, right_tool->name);
+}
+
+static iree_status_t loom_serve_text_chat_tools_parse(
+    iree_string_view_t schemas, loom_serve_text_chat_t* chat) {
+  IREE_RETURN_IF_ERROR(iree_json_enumerate_array_typed(
+      schemas, loom_serve_text_chat_tool_schema, chat));
+  if (chat->tool_count > 1) {
+    qsort(chat->tools, chat->tool_count, sizeof(*chat->tools),
+          loom_serve_text_chat_tool_compare);
+  }
+  for (iree_host_size_t i = 1; i < chat->tool_count; ++i) {
+    if (iree_string_view_equal(chat->tools[i - 1].name, chat->tools[i].name)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "duplicate tool name");
+    }
+  }
+  return iree_ok_status();
+}
+
+static const loom_serve_text_chat_tool_t* loom_serve_text_chat_tool_find(
+    const loom_serve_text_chat_t* chat, iree_string_view_t name) {
+  iree_host_size_t begin = 0;
+  iree_host_size_t end = chat->tool_count;
+  while (begin < end) {
+    const iree_host_size_t middle = begin + (end - begin) / 2;
+    const int comparison =
+        iree_string_view_compare(name, chat->tools[middle].name);
+    if (comparison < 0) {
+      end = middle;
+    } else if (comparison > 0) {
+      begin = middle + 1;
+    } else {
+      return &chat->tools[middle];
+    }
+  }
+  return NULL;
 }
 
 void loom_serve_text_chat_policy_deinitialize(
@@ -472,10 +520,12 @@ static iree_status_t loom_serve_text_chat_history_tool(
     void* user_data, iree_host_size_t index, iree_json_value_type_t type,
     iree_string_view_t value) {
   chat_history_t* history = user_data;
-  if (type != IREE_JSON_VALUE_TYPE_OBJECT || index >= 16) {
+  if (type != IREE_JSON_VALUE_TYPE_OBJECT ||
+      index >= LOOM_SERVE_TEXT_CHAT_MAX_TOOL_COUNT) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
-        "assistant tool_calls must contain at most 16 objects");
+        "assistant tool_calls must contain at most %d objects",
+        LOOM_SERVE_TEXT_CHAT_MAX_TOOL_COUNT);
   }
   chat_field_t fields[] = {
       {"id", CHAT_STRING}, {"type", CHAT_STRING}, {"function", CHAT_OBJECT}};
@@ -502,9 +552,9 @@ static iree_status_t loom_serve_text_chat_history_message(
     void* user_data, iree_host_size_t index, iree_json_value_type_t type,
     iree_string_view_t value) {
   chat_history_t* history = user_data;
-  if (type != IREE_JSON_VALUE_TYPE_OBJECT || index >= 256) {
+  if (type != IREE_JSON_VALUE_TYPE_OBJECT) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "messages must contain at most 256 objects");
+                            "messages must contain objects");
   }
   chat_field_t fields[] = {{"role", CHAT_STRING},
                            {"content", CHAT_STRING | CHAT_ARRAY | CHAT_NULL},
@@ -625,9 +675,8 @@ static iree_status_t loom_serve_text_chat_request_render(
   }
   history->chat->tool_schemas =
       fields[3].value.data ? fields[3].value : IREE_SV("[]");
-  IREE_RETURN_IF_ERROR(iree_json_enumerate_array_typed(
-      history->chat->tool_schemas, loom_serve_text_chat_tool_schema,
-      history->chat));
+  IREE_RETURN_IF_ERROR(loom_serve_text_chat_tools_parse(
+      history->chat->tool_schemas, history->chat));
   const iree_string_view_t inputs[] = {body, history->chat->tool_schemas};
   IREE_RETURN_IF_ERROR(loom_serve_text_chat_render(
       history->chat->policy, history->chat->policy->chat_begin,
@@ -647,6 +696,7 @@ iree_status_t loom_serve_text_chat_initialize(
   memset(out_chat, 0, sizeof(*out_chat));
   out_chat->policy = policy;
   out_chat->max_tokens = default_max_tokens;
+  out_chat->host_allocator = host_allocator;
   iree_string_builder_initialize(host_allocator, &out_chat->prompt);
   chat_history_t history = {.model_name = model_name, .chat = out_chat};
   iree_string_builder_initialize(host_allocator, &history.scratch);
@@ -665,6 +715,7 @@ iree_status_t loom_serve_text_chat_initialize(
 }
 
 void loom_serve_text_chat_deinitialize(loom_serve_text_chat_t* chat) {
+  iree_allocator_free(chat->host_allocator, chat->tools);
   iree_string_builder_deinitialize(&chat->prompt);
   memset(chat, 0, sizeof(*chat));
 }
@@ -860,10 +911,16 @@ static iree_status_t loom_serve_text_chat_parameter_value(
 }
 
 typedef struct chat_parameter_names_t {
+  // Host allocator owning the name array.
+  iree_allocator_t host_allocator;
   // Number of generated parameters already parsed.
   iree_host_size_t count;
+  // Allocated name capacity.
+  iree_host_size_t capacity;
+  // Inline storage covering ordinary function schemas without allocation.
+  iree_string_view_t inline_values[32];
   // Borrowed names in generation order, used for duplicate/required checks.
-  iree_string_view_t values[32];
+  iree_string_view_t* values;
 } chat_parameter_names_t;
 
 static iree_status_t loom_serve_text_chat_required_parameter(
@@ -889,7 +946,9 @@ static iree_status_t loom_serve_text_chat_required_parameter(
 static iree_status_t loom_serve_text_chat_parameters_parse(
     iree_string_view_t* cursor, const loom_serve_text_chat_tool_t* tool,
     iree_string_builder_t* arguments) {
-  chat_parameter_names_t names = {0};
+  chat_parameter_names_t names = {.host_allocator = arguments->allocator};
+  names.capacity = IREE_ARRAYSIZE(names.inline_values);
+  names.values = names.inline_values;
   IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(arguments, "{"));
   iree_status_t status = iree_ok_status();
   *cursor = iree_string_view_trim(*cursor);
@@ -898,16 +957,31 @@ static iree_status_t loom_serve_text_chat_parameters_parse(
     iree_string_view_t name;
     status =
         loom_serve_text_chat_xml_name(cursor, IREE_SV("<parameter="), &name);
-    if (iree_status_is_ok(status) &&
-        names.count == IREE_ARRAYSIZE(names.values)) {
-      status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "too many generated parameters");
-    }
     for (iree_host_size_t i = 0; i < names.count && iree_status_is_ok(status);
          ++i) {
       if (iree_string_view_equal(names.values[i], name)) {
         status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                                   "duplicate generated parameter");
+      }
+    }
+    iree_host_size_t required_capacity = 0;
+    if (iree_status_is_ok(status) &&
+        !iree_host_size_checked_add(names.count, 1, &required_capacity)) {
+      status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                                "parameter name capacity overflow");
+    }
+    if (iree_status_is_ok(status) && required_capacity > names.capacity) {
+      iree_string_view_t* values =
+          names.values == names.inline_values ? NULL : names.values;
+      status = iree_allocator_grow_array(
+          names.host_allocator, required_capacity, sizeof(*names.values),
+          &names.capacity, (void**)&values);
+      if (iree_status_is_ok(status) && names.values == names.inline_values) {
+        memcpy(values, names.inline_values,
+               names.count * sizeof(*names.values));
+      }
+      if (iree_status_is_ok(status)) {
+        names.values = values;
       }
     }
     const iree_string_view_t end_tag = IREE_SV("</parameter>");
@@ -938,9 +1012,11 @@ static iree_status_t loom_serve_text_chat_parameters_parse(
         status =
             loom_serve_text_chat_parameter_value(tool, name, value, arguments);
       }
-      names.values[names.count++] = name;
-      *cursor = iree_string_view_trim(iree_string_view_substr(
-          *cursor, end + end_tag.size, IREE_HOST_SIZE_MAX));
+      if (iree_status_is_ok(status)) {
+        names.values[names.count++] = name;
+        *cursor = iree_string_view_trim(iree_string_view_substr(
+            *cursor, end + end_tag.size, IREE_HOST_SIZE_MAX));
+      }
     }
   }
   if (iree_status_is_ok(status) && tool->required.data) {
@@ -949,6 +1025,9 @@ static iree_status_t loom_serve_text_chat_parameters_parse(
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(arguments, "}");
+  }
+  if (names.values != names.inline_values) {
+    iree_allocator_free(names.host_allocator, names.values);
   }
   return status;
 }
@@ -969,15 +1048,16 @@ static iree_status_t loom_serve_text_chat_parse_xml(
       status =
           loom_serve_text_chat_xml_name(&cursor, IREE_SV("<function="), &name);
     }
-    const loom_serve_text_chat_tool_t* tool = NULL;
-    for (iree_host_size_t i = 0; i < chat->tool_count; ++i) {
-      if (iree_string_view_equal(chat->tools[i].name, name)) {
-        tool = &chat->tools[i];
-      }
-    }
-    if (iree_status_is_ok(status) && (!tool || tool_count == 16)) {
+    const loom_serve_text_chat_tool_t* tool =
+        loom_serve_text_chat_tool_find(chat, name);
+    if (iree_status_is_ok(status) &&
+        tool_count >= LOOM_SERVE_TEXT_CHAT_MAX_TOOL_COUNT) {
       status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "unknown or excessive generated tool call");
+                                "too many generated tool calls");
+    }
+    if (iree_status_is_ok(status) && !tool) {
+      status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "unknown generated tool call");
     }
     iree_string_builder_reset(&arguments);
     if (iree_status_is_ok(status)) {
@@ -1043,10 +1123,10 @@ static iree_status_t loom_serve_text_chat_completion_tool(
     iree_string_view_t value) {
   chat_completion_tools_t* tools = user_data;
   if (type != IREE_JSON_VALUE_TYPE_OBJECT ||
-      index >= LOOM_SERVE_TEXT_CHAT_TOOL_CAPACITY) {
+      index >= LOOM_SERVE_TEXT_CHAT_MAX_TOOL_COUNT) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "source tool calls must contain at most %d objects",
-                            LOOM_SERVE_TEXT_CHAT_TOOL_CAPACITY);
+                            LOOM_SERVE_TEXT_CHAT_MAX_TOOL_COUNT);
   }
   chat_field_t call[] = {{"type", CHAT_STRING}, {"function", CHAT_OBJECT}};
   IREE_RETURN_IF_ERROR(
@@ -1271,13 +1351,13 @@ static iree_status_t loom_serve_text_chat_tools_start(
                               "tool input must be UTF-8");
     }
   }
-  loom_serve_text_chat_t schema = {0};
-  IREE_RETURN_IF_ERROR(iree_json_enumerate_array_typed(
-      inputs[0], loom_serve_text_chat_tool_schema, &schema));
+  loom_serve_text_chat_t schema = {.host_allocator = module->host_allocator};
   iree_string_builder_t output;
   iree_string_builder_initialize(module->host_allocator, &output);
-  iree_status_t status =
-      loom_serve_text_chat_parse_xml(&schema, inputs[1], &output);
+  iree_status_t status = loom_serve_text_chat_tools_parse(inputs[0], &schema);
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_text_chat_parse_xml(&schema, inputs[1], &output);
+  }
   iree_vm_buffer_t* buffer = NULL;
   if (iree_status_is_ok(status)) {
     iree_string_view_t value = iree_string_builder_view(&output);
@@ -1294,6 +1374,7 @@ static iree_status_t loom_serve_text_chat_tools_start(
   }
   iree_vm_buffer_release(buffer);
   iree_string_builder_deinitialize(&output);
+  iree_allocator_free(schema.host_allocator, schema.tools);
   return status;
 }
 

@@ -73,6 +73,38 @@ class RequestTest(unittest.TestCase):
         self.assertEqual(value["prompt"], "abxabx#ba")
         self.assertEqual(value["tokens"], [0, 1, 2, 0, 1, 2, 3, 1, 0])
 
+    def test_large_tool_catalog_renders(self):
+        def tool(index):
+            return {
+                "type": "function",
+                "function": {
+                    "name": f"tool_{index}",
+                    "description": f"Fixture tool {index}",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+
+        tools = [tool(index) for index in range(24)]
+        result = self.execute(self.request(tools=tools))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(result.stdout)
+        self.assertEqual(value["declared_tool_count"], 24)
+        self.assertEqual(value["prompt"], "#" * 24 + "abxa")
+        self.assertEqual(value["tokens"], [3] * 24 + [0, 1, 2, 0])
+
+        tools[-1]["function"]["name"] = tools[7]["function"]["name"]
+        result = self.execute(self.request(tools=tools))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("duplicate tool name", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+        result = self.execute(
+            self.request(tools=[tool(index) for index in range(4097)])
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("at most 4096 function objects", result.stderr)
+        self.assertEqual(result.stdout, "")
+
     def test_policy_errors_publish_no_partial_success(self):
         requests = [
             self.request(enable_thinking=True),
