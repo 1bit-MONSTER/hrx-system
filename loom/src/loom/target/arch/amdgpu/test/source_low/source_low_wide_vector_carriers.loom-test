@@ -403,3 +403,23 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @wide_ne
   global_store_b128_saddr %93, %86, %output_view {offset = 128}
   return
 }
+
+// ====
+
+// Packet preparation rewrites an oversized load immediately before its
+// consumer component. Reporting retains the load's authored contract result
+// even though the load is not itself a component member.
+// RUN: with-checks compile-report specialize-target-callgraph,project-boundary-representations,target-legalize{mode=complete,boundaries=projected},canonicalize,dce
+
+amdgpu.target<gfx11-generic> @target
+
+func.def public target(@target) @report_packetized_load_root(%input: buffer, %rhs: vector<36xf32>) -> (vector<36xf32>) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<36xf32>
+  %values = vector.load %input_view[0] : view<36xf32> -> vector<36xf32>
+  %result = vector.addf %values, %rhs : vector<36xf32>
+  func.return %result : vector<36xf32>
+}
+
+// ----
+CHECK: COMPILE-REPORT: target_legalization[*] function=report_packetized_load_root source_op=vector.load mode=final policy=prefer-native action=rewritten outcome=target-rewrite contract=unhandled legalizer=vector-packet strategy=target bundle=target config=target scalarized=false source_rejections=0x00000000 source_rejection_detail=0 target_rejections=0x00000000 missing_features=0x00000000 missing_facts=0x00000000 created_ops=10 erased_ops=2

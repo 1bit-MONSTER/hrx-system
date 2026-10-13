@@ -1190,6 +1190,45 @@ static bool loom_vector_component_has_packetized_store_root(
   return false;
 }
 
+static iree_status_t loom_vector_component_rewrite_packetized_load_root(
+    loom_vector_component_plan_t* plan, loom_op_t* source_op,
+    bool* out_rewritten) {
+  loom_rewriter_t* rewriter = plan->context->rewriter;
+  const bool observe_operation_creation =
+      rewriter->operation_creation.callback.fn != NULL;
+  if (observe_operation_creation) {
+    loom_rewriter_set_operation_creation_source(rewriter, source_op);
+  }
+  iree_status_t status = loom_vector_packet_legalize_load(
+      plan->context, source_op, plan->context->vector_packet_policy,
+      out_rewritten);
+  if (observe_operation_creation) {
+    loom_rewriter_set_operation_creation_source(rewriter, NULL);
+  }
+  return status;
+}
+
+IREE_ATTRIBUTE_NOINLINE IREE_ATTRIBUTE_COLD static iree_status_t
+loom_vector_component_rewrite_observed_packetized_load_root(
+    loom_vector_component_plan_t* plan, loom_op_t* source_op,
+    bool* out_rewritten) {
+  loom_target_contract_query_result_t authored_query_result =
+      loom_target_contract_query_result_empty();
+  IREE_RETURN_IF_ERROR(loom_target_legalization_query_contract(
+      plan->context, source_op, &authored_query_result));
+  loom_rewriter_t* rewriter = plan->context->rewriter;
+  const uint64_t created_op_count_before = rewriter->created_op_count;
+  IREE_RETURN_IF_ERROR(loom_vector_component_rewrite_packetized_load_root(
+      plan, source_op, out_rewritten));
+  if (!*out_rewritten) {
+    return iree_ok_status();
+  }
+  return plan->rewrite_callback.fn(
+      plan->rewrite_callback.user_data, source_op, &authored_query_result,
+      rewriter->created_op_count - created_op_count_before,
+      /*erased_op_count=*/1);
+}
+
 static iree_status_t loom_vector_component_prepare_packetized_load_roots(
     loom_vector_component_plan_t* plan,
     const loom_vector_component_t* component, bool* out_ready,
@@ -1226,30 +1265,18 @@ static iree_status_t loom_vector_component_prepare_packetized_load_roots(
         continue;
       }
 
-      loom_rewriter_t* rewriter = plan->context->rewriter;
-      const bool observe_operation_creation =
-          rewriter->operation_creation.callback.fn != NULL;
-      if (observe_operation_creation) {
-        loom_rewriter_set_operation_creation_source(rewriter, operand_op);
-      }
-      const uint64_t created_op_count_before = rewriter->created_op_count;
       bool rewritten = false;
-      iree_status_t status = loom_vector_packet_legalize_load(
-          plan->context, operand_op, plan->context->vector_packet_policy,
-          &rewritten);
-      if (observe_operation_creation) {
-        loom_rewriter_set_operation_creation_source(rewriter, NULL);
+      if (plan->rewrite_callback.fn == NULL) {
+        IREE_RETURN_IF_ERROR(loom_vector_component_rewrite_packetized_load_root(
+            plan, operand_op, &rewritten));
+      } else {
+        IREE_RETURN_IF_ERROR(
+            loom_vector_component_rewrite_observed_packetized_load_root(
+                plan, operand_op, &rewritten));
       }
-      IREE_RETURN_IF_ERROR(status);
       if (!rewritten) {
         *out_ready = false;
         return iree_ok_status();
-      }
-      if (plan->rewrite_callback.fn != NULL) {
-        IREE_RETURN_IF_ERROR(plan->rewrite_callback.fn(
-            plan->rewrite_callback.user_data, operand_op,
-            rewriter->created_op_count - created_op_count_before,
-            /*erased_op_count=*/1));
       }
       ++*out_rewritten_op_count;
     }
@@ -1492,7 +1519,8 @@ static iree_status_t loom_vector_component_materialize(
           &plan->records[member_index];
       IREE_RETURN_IF_ERROR(plan->rewrite_callback.fn(
           plan->rewrite_callback.user_data, record->op,
-          record->created_op_count, /*erased_op_count=*/1));
+          &record->authored_query_result, record->created_op_count,
+          /*erased_op_count=*/1));
       member_index = record->next_member_index;
     }
   }

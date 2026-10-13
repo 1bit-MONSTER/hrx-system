@@ -66,10 +66,6 @@ typedef struct loom_low_target_legalize_report_decision_t {
   uint64_t descendant_created_op_count;
   // Operations erased while rewriting generated descendants.
   uint64_t descendant_erased_op_count;
-  // Authored target-contract result captured before projected packet queries.
-  loom_target_contract_query_result_t authored_query_result;
-  // True after an authored target-contract query has populated the result.
-  bool has_authored_query_result;
   // Optional detailed row in the function arena, absent for summary collection.
   loom_target_compile_report_legalization_row_t* row;
   // Next decision in first-observation order, independent of pointer ordering.
@@ -1014,20 +1010,13 @@ static iree_status_t loom_low_target_legalize_query_contract(
   IREE_RETURN_IF_ERROR(
       loom_low_target_legalize_apply_final_rejection_to_contract_query(
           state, environment, source_op, out_result));
-  if (environment->vector_lane_projection.source_lane_count == 0) {
-    loom_low_target_legalize_report_decision_t* report_decision =
-        loom_low_target_legalize_report_decision(state, source_op);
-    if (report_decision != NULL) {
-      report_decision->authored_query_result = *out_result;
-      report_decision->has_authored_query_result = true;
-    }
-  }
   return iree_ok_status();
 }
 
 static iree_status_t loom_low_target_legalize_report_packet_rewrite(
-    void* user_data, const loom_op_t* source_op, uint64_t created_op_count,
-    uint64_t erased_op_count) {
+    void* user_data, const loom_op_t* source_op,
+    const loom_target_contract_query_result_t* authored_query_result,
+    uint64_t created_op_count, uint64_t erased_op_count) {
   loom_low_target_legalize_function_state_t* state =
       (loom_low_target_legalize_function_state_t*)user_data;
   loom_low_target_legalize_report_decision_t* report_decision =
@@ -1043,7 +1032,6 @@ static iree_status_t loom_low_target_legalize_report_packet_rewrite(
         erased_op_count);
     return iree_ok_status();
   }
-  IREE_ASSERT(report_decision->has_authored_query_result);
   static const loom_target_legalizer_entry_t packet_legalizer_entry = {
       .provider_name = IREE_SVL("vector-packet"),
       .provider_strategy = LOOM_TARGET_LEGALIZER_STRATEGY_TARGET,
@@ -1055,7 +1043,7 @@ static iree_status_t loom_low_target_legalize_report_packet_rewrite(
       report_wants_rows ? loom_op_name(state->module, source_op)
                         : iree_string_view_empty(),
       source_op->kind, LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_REWRITTEN,
-      &report_decision->authored_query_result, &packet_legalizer_entry,
+      authored_query_result, &packet_legalizer_entry,
       /*scalarized=*/false, created_op_count, erased_op_count);
 }
 
@@ -1486,7 +1474,8 @@ static bool loom_low_target_legalize_function_has_source_vector_carriers(
   return true;
 }
 
-static iree_status_t loom_low_target_legalize_function(
+// Keeps per-function state and cold report machinery out of the module loop.
+IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_low_target_legalize_function(
     loom_pass_t* pass, loom_module_t* module,
     const loom_low_target_legalize_pass_state_t* pass_state,
     const loom_low_source_selection_t* selection,
