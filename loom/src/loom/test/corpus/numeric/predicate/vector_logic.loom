@@ -197,3 +197,64 @@ check.scenario @predicate_insert_values {
   }
   check.return
 }
+
+// Exhaustively decodes one packed byte into native predicate lanes, observes
+// both signed and unsigned one-bit semantics through selection, and packs the
+// predicates back into their original byte.
+func.def @predicate_bitstream_roundtrip(%trial: index, %output: buffer) {
+  %bits = index.cast %trial : index to i32
+  %byte = scalar.trunci %bits : i32 to i8
+  %packed = vector.from_elements %byte : vector<1xi8>
+  %unsigned = vector.bitunpacku<1> %packed : vector<1xi8> -> vector<8xi1>
+  %signed = vector.bitunpacks<1> %packed : vector<1xi8> -> vector<8xi1>
+  %true_values = vector.constant -1 : vector<8xi32>
+  %false_values = vector.constant 0 : vector<8xi32>
+  %unsigned_values = vector.select %unsigned, %true_values, %false_values : vector<8xi32>
+  %signed_values = vector.select %signed, %true_values, %false_values : vector<8xi32>
+  %repacked = vector.bitpack<1> %signed : vector<8xi1> -> vector<1xi8>
+  %repacked_byte = vector.extract %repacked[0] : vector<1xi8> -> i8
+  %repacked_word = scalar.extui %repacked_byte : i8 to i32
+  %base = index.constant 0 : offset
+  %result = buffer.view %output[%base] : buffer -> view<17xi32>
+  vector.store %unsigned_values, %result[0] : vector<8xi32>, view<17xi32>
+  vector.store %signed_values, %result[8] : vector<8xi32>, view<17xi32>
+  view.store %repacked_word, %result[16] : i32, view<17xi32>
+  func.return
+}
+
+func.def @predicate_bitstream_roundtrip_oracle(%trial: index, %output: buffer) {
+  %bits = index.cast %trial : index to i32
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %low_byte_mask = scalar.constant 255 : i32
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %second_stream = index.constant 8 : index
+  %roundtrip_index = index.constant 16 : index
+  %base = index.constant 0 : offset
+  %result = buffer.view %output[%base] : buffer -> view<17xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %shift = index.cast %i : index to i32
+    %shifted = scalar.shrui %bits, %shift : i32
+    %bit = scalar.andi %shifted, %c1 : i32
+    %selected = scalar.subi %c0, %bit : i32
+    %signed_index = index.add %i, %second_stream : index
+    view.store %selected, %result[%i] : i32, view<17xi32>
+    view.store %selected, %result[%signed_index] : i32, view<17xi32>
+  }
+  %roundtrip = scalar.andi %bits, %low_byte_mask : i32
+  view.store %roundtrip, %result[%roundtrip_index] : i32, view<17xi32>
+  func.return
+}
+
+check.scenario @predicate_bitstream_roundtrip_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(123) : tensor<25xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<25xi32> -> tensor<17xi32>
+    check.compare<@predicate_bitstream_roundtrip, @predicate_bitstream_roundtrip_oracle>(%trial, %output) : (index, tensor<17xi32>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<25xi32>
+    }
+  }
+  check.return
+}
