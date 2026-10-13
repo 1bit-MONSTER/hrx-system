@@ -8,6 +8,7 @@
 
 #include "loom/ops/index/ops.h"
 #include "loom/rewrite/rewriter.h"
+#include "loom/util/predicate_facts.h"
 
 static iree_status_t loom_index_legalize_divrem(
     const loom_target_legalizer_entry_t* entry,
@@ -23,13 +24,35 @@ static iree_status_t loom_index_legalize_divrem(
   loom_op_t* quotient = NULL;
   IREE_RETURN_IF_ERROR(
       loom_index_div_build(builder, lhs, rhs, op->location, &quotient));
+  loom_op_t* product = NULL;
+  IREE_RETURN_IF_ERROR(loom_index_mul_build(
+      builder, loom_index_div_result(quotient), rhs, op->location, &product));
   loom_op_t* remainder = NULL;
-  IREE_RETURN_IF_ERROR(
-      loom_index_rem_build(builder, lhs, rhs, op->location, &remainder));
-  const loom_value_id_t replacements[2] = {
-      loom_index_div_result(quotient),
-      loom_index_rem_result(remainder),
-  };
+  IREE_RETURN_IF_ERROR(loom_index_sub_build(
+      builder, lhs, loom_index_mul_result(product),
+      loom_module_value_type(context->module, loom_op_const_results(op)[1]),
+      op->location, &remainder));
+  loom_value_id_t replacements[2] = {loom_index_div_result(quotient),
+                                     loom_index_sub_result(remainder)};
+  if (context->fact_table) {
+    loom_predicate_t predicates[2];
+    const uint16_t predicate_count =
+        loom_value_facts_export_integer_refinements(
+            replacements[1],
+            loom_value_fact_table_lookup(context->fact_table, replacements[1]),
+            loom_value_fact_table_lookup(context->fact_table,
+                                         loom_op_const_results(op)[1]),
+            predicates, IREE_ARRAYSIZE(predicates));
+    if (predicate_count != 0) {
+      const loom_type_t result_type =
+          loom_module_value_type(context->module, replacements[1]);
+      loom_op_t* assumption = NULL;
+      IREE_RETURN_IF_ERROR(loom_index_assume_build(
+          builder, &replacements[1], 1, predicates, predicate_count,
+          &result_type, 1, op->location, &assumption));
+      replacements[1] = loom_index_assume_results(assumption).values[0];
+    }
+  }
   IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
       rewriter, op, replacements, IREE_ARRAYSIZE(replacements), checkpoint));
   IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(

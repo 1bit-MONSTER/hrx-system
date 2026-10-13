@@ -112,6 +112,7 @@ class GuardKind(Enum):
     VALUE_SIGNED_BIT_COUNT = "value_signed_bit_count"
     VALUE_UNSIGNED_BIT_COUNT = "value_unsigned_bit_count"
     VALUE_EXACT_I64 = "value_exact_i64"
+    VALUE_NOT_EXACT_I64 = "value_not_exact_i64"
     VALUE_EXACT_POWER_OF_TWO_I64 = "value_exact_power_of_two_i64"
     VALUE_U32_DIVISOR_MAGIC_KIND = "value_u32_divisor_magic_kind"
     VALUE_I32_DIVISOR_MAGIC_KIND = "value_i32_divisor_magic_kind"
@@ -601,6 +602,10 @@ class Guard:
             field=field,
             diagnostic=diagnostic,
         )
+
+    @classmethod
+    def value_not_exact_i64(cls, field: str) -> Self:
+        return cls(kind=GuardKind.VALUE_NOT_EXACT_I64, field=field)
 
     @classmethod
     def value_exact_power_of_two_i64(
@@ -1100,6 +1105,7 @@ class Guard:
             GuardKind.VALUE_SIGNED_BIT_COUNT,
             GuardKind.VALUE_UNSIGNED_BIT_COUNT,
             GuardKind.VALUE_EXACT_I64,
+            GuardKind.VALUE_NOT_EXACT_I64,
             GuardKind.VALUE_EXACT_POWER_OF_TWO_I64,
             GuardKind.VALUE_U32_DIVISOR_MAGIC_KIND,
             GuardKind.VALUE_I32_DIVISOR_MAGIC_KIND,

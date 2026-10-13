@@ -419,9 +419,12 @@ def _runtime_divrem_rule(
     return DescriptorRule(
         source_op=source_op,
         descriptor=divide,
-        guards=tuple(
-            Guard.value_type(field, type_pattern)
-            for field in ("lhs", "rhs", "quotient", "remainder")
+        guards=(
+            *(
+                Guard.value_type(field, type_pattern)
+                for field in ("lhs", "rhs", "quotient", "remainder")
+            ),
+            Guard.value_not_exact_i64("rhs"),
         ),
         emit=(
             EmitDescriptorOp(

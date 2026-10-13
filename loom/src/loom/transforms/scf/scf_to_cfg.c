@@ -24,6 +24,7 @@
 #include "loom/rewrite/remap.h"
 #include "loom/rewrite/rewriter.h"
 #include "loom/target/function_version.h"
+#include "loom/util/predicate_facts.h"
 
 //===----------------------------------------------------------------------===//
 // Statistics
@@ -515,54 +516,12 @@ static iree_status_t loom_scf_to_cfg_lower_if(
 
 #define LOOM_SCF_TO_CFG_FOR_IV_PREDICATE_CAPACITY 4
 
-static uint16_t loom_scf_to_cfg_for_iv_predicates_from_facts(
-    loom_value_id_t value, loom_value_facts_t facts,
-    loom_predicate_t* predicates) {
-  if (value == LOOM_VALUE_ID_INVALID || loom_value_facts_is_float(facts) ||
-      loom_value_facts_is_unknown(facts)) {
-    return 0;
-  }
-
-  uint16_t count = 0;
-  if (loom_value_facts_is_exact(facts)) {
-    predicates[count++] = (loom_predicate_t){
-        .kind = LOOM_PREDICATE_EQ,
-        .arg_count = 2,
-        .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
-                     LOOM_PRED_ARG_NONE},
-        .args = {value, facts.range_lo, 0},
-    };
-  } else {
-    // The structured domain disappears here. Its full body range must survive
-    // on the lowered value, including when one of the bounds is dynamic.
-    predicates[count++] = (loom_predicate_t){
-        .kind = LOOM_PREDICATE_RANGE,
-        .arg_count = 3,
-        .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
-                     LOOM_PRED_ARG_CONST},
-        .args = {value, facts.range_lo, facts.range_hi},
-    };
-  }
-
-  if (count < LOOM_SCF_TO_CFG_FOR_IV_PREDICATE_CAPACITY &&
-      facts.known_divisor > 1 && !loom_value_facts_is_exact(facts)) {
-    predicates[count++] = (loom_predicate_t){
-        .kind = LOOM_PREDICATE_MULTIPLE_OF,
-        .arg_count = 2,
-        .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
-                     LOOM_PRED_ARG_NONE},
-        .args = {value, facts.known_divisor, 0},
-    };
-  }
-
-  return count;
-}
-
 static bool loom_scf_to_cfg_for_iv_facts_are_materializable(
     loom_value_facts_t facts) {
   loom_predicate_t predicates[LOOM_SCF_TO_CFG_FOR_IV_PREDICATE_CAPACITY];
-  return loom_scf_to_cfg_for_iv_predicates_from_facts((loom_value_id_t)0, facts,
-                                                      predicates) > 0;
+  return loom_value_facts_export_integer_refinements(
+             (loom_value_id_t)0, loom_value_facts_unknown(), facts, predicates,
+             IREE_ARRAYSIZE(predicates)) > 0;
 }
 
 static bool loom_scf_to_cfg_value_has_exact_integer_facts(
@@ -671,8 +630,11 @@ static iree_status_t loom_scf_to_cfg_build_for_iv_assume(
   *out_iv = header_iv;
 
   loom_predicate_t predicate_storage[LOOM_SCF_TO_CFG_FOR_IV_PREDICATE_CAPACITY];
-  uint16_t predicate_count = loom_scf_to_cfg_for_iv_predicates_from_facts(
-      header_iv, original_iv_facts, predicate_storage);
+  // The structured domain disappears here. Its facts must survive on the
+  // lowered induction value, including when a bound was dynamic.
+  uint16_t predicate_count = loom_value_facts_export_integer_refinements(
+      header_iv, loom_value_facts_unknown(), original_iv_facts,
+      predicate_storage, LOOM_SCF_TO_CFG_FOR_IV_PREDICATE_CAPACITY);
   predicate_count += loom_scf_to_cfg_for_iv_bound_predicates(
       state->fact_table, header_iv, loom_scf_for_lower_bound(op),
       loom_scf_for_upper_bound(op), predicate_storage + predicate_count);

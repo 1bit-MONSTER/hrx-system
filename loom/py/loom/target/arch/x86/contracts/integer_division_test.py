@@ -160,6 +160,9 @@ def test_runtime_divrem_rules_preserve_paired_results() -> None:
         assert {
             guard.field for guard in rule.guards if guard.kind is GuardKind.VALUE_TYPE
         } == {"lhs", "rhs", "quotient", "remainder"}
+        assert GuardKind.VALUE_NOT_EXACT_I64 in {
+            guard.kind for guard in rule.guards if guard.field == "rhs"
+        }
         actual.add(
             (
                 rule.source_op,

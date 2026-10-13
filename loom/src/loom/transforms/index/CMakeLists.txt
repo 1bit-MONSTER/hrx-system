@@ -59,6 +59,7 @@ loom_cc_library(
     loom::ops::index
     loom::rewrite::rewriter
     loom::target::legalization
+    loom::util::predicate_facts
   PUBLIC
 )
 

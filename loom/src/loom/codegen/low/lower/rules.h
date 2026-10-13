@@ -868,6 +868,8 @@ typedef enum loom_low_lower_guard_kind_e {
   // selector.attribute.attr_index must be a scalar with an exact bit pattern
   // and the payload.u64 declared width.
   LOOM_LOW_LOWER_GUARD_OPERAND_SEGMENT_EXACT_BITS = 44,
+  // Source value facts must not be an exact non-floating integer.
+  LOOM_LOW_LOWER_GUARD_VALUE_NOT_EXACT_I64 = 45,
   // Maximum guard kind value plus one.
   LOOM_LOW_LOWER_GUARD_COUNT_,
 } loom_low_lower_guard_kind_t;

@@ -68,6 +68,8 @@ typedef struct loom_integer_division_planner_t {
   loom_module_t* module;
   // Retained canonical value facts.
   const loom_value_fact_table_t* facts;
+  // Whether this invocation selects exact rather than dynamic divisors.
+  bool exact_divisors;
   // Pass arena retaining plans and candidates through application.
   iree_arena_allocator_t* arena;
   // Candidate records for the complete function fact scope.
@@ -148,10 +150,97 @@ static bool loom_integer_division_family_is_signed(
          family == LOOM_INTEGER_DIVISION_FAMILY_VECTOR_SIGNED;
 }
 
+// Returns true when facts prove that an exact unsigned division produces only
+// zero or one. Keeping the quotient and remainder independent preserves their
+// cheaper compare and conditional-subtract forms; combining them would instead
+// introduce a multiply solely to reconstruct the remainder.
+static bool loom_integer_division_has_boolean_unsigned_quotient(
+    const loom_module_t* module, const loom_value_fact_table_t* facts,
+    const loom_op_t* op, loom_integer_division_family_t family) {
+  if (loom_integer_division_family_is_signed(family)) {
+    return false;
+  }
+
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  int64_t raw_divisor = 0;
+  if (!loom_value_facts_as_exact_i64(
+          loom_value_fact_table_lookup(facts, operands[1]), &raw_divisor)) {
+    return false;
+  }
+
+  uint64_t divisor = 0;
+  uint64_t dividend_maximum = 0;
+  const loom_value_facts_t dividend_facts =
+      loom_value_fact_table_lookup(facts, operands[0]);
+  if (family == LOOM_INTEGER_DIVISION_FAMILY_INDEX) {
+    if (raw_divisor <= 0) {
+      return false;
+    }
+    divisor = (uint64_t)raw_divisor;
+    int64_t exact_dividend = 0;
+    int64_t signed_dividend_maximum = 0;
+    if (loom_value_facts_as_exact_i64(dividend_facts, &exact_dividend) &&
+        exact_dividend >= 0) {
+      dividend_maximum = (uint64_t)exact_dividend;
+    } else if (loom_value_facts_as_non_negative_i64_maximum(
+                   dividend_facts, &signed_dividend_maximum)) {
+      dividend_maximum = (uint64_t)signed_dividend_maximum;
+    } else {
+      return false;
+    }
+  } else {
+    const loom_type_t result_type =
+        loom_module_value_type(module, loom_op_const_results(op)[0]);
+    const int32_t bit_count =
+        loom_scalar_type_bitwidth(loom_type_element_type(result_type));
+    if (bit_count <= 0 || bit_count > 64) {
+      return false;
+    }
+    const uint64_t value_mask =
+        bit_count == 64 ? UINT64_MAX : (UINT64_C(1) << bit_count) - 1;
+    divisor = (uint64_t)raw_divisor & value_mask;
+    dividend_maximum = value_mask;
+
+    int64_t exact_dividend = 0;
+    int64_t signed_dividend_maximum = 0;
+    if (loom_value_facts_as_exact_i64(dividend_facts, &exact_dividend)) {
+      dividend_maximum = (uint64_t)exact_dividend & value_mask;
+    } else if (loom_value_facts_as_non_negative_i64_maximum(
+                   dividend_facts, &signed_dividend_maximum)) {
+      dividend_maximum = (uint64_t)signed_dividend_maximum;
+    }
+  }
+  return divisor != 0 && divisor > dividend_maximum / 2;
+}
+
+static bool loom_integer_division_should_pair(
+    const loom_module_t* module, const loom_value_fact_table_t* facts,
+    const loom_op_t* op, loom_integer_division_family_t family,
+    bool exact_divisors) {
+  const loom_value_id_t divisor = loom_op_const_operands(op)[1];
+  const bool divisor_is_exact =
+      loom_value_facts_is_exact(loom_value_fact_table_lookup(facts, divisor));
+  if (divisor_is_exact != exact_divisors) {
+    return false;
+  }
+  // Exact index quotient/remainder pairs commonly encode coordinate digit
+  // decomposition. Keeping those semantic operations independent preserves
+  // the relationship consumed by topology, address, and bank-service analysis.
+  // Dynamic index divisors cannot describe that static coordinate structure
+  // and remain eligible for shared execution.
+  if (divisor_is_exact && family == LOOM_INTEGER_DIVISION_FAMILY_INDEX) {
+    return false;
+  }
+  return !divisor_is_exact ||
+         !loom_integer_division_has_boolean_unsigned_quotient(module, facts, op,
+                                                              family);
+}
+
 // Counts standalone division results directly from the retained function-fact
 // index. Ordinary functions never construct a structural or dominance walk.
 static uint32_t loom_integer_division_candidate_count(
-    const loom_module_t* module, const loom_value_fact_table_t* facts) {
+    const loom_module_t* module, const loom_value_fact_table_t* facts,
+    bool exact_divisors) {
   const loom_value_id_t* scope_values = NULL;
   iree_host_size_t scope_value_count = 0;
   loom_value_fact_table_scope_values(facts, &scope_values, &scope_value_count);
@@ -170,9 +259,8 @@ static uint32_t loom_integer_division_candidate_count(
     if (!loom_integer_division_match(op, &family, &role)) {
       continue;
     }
-    const loom_value_id_t divisor = loom_op_const_operands(op)[1];
-    if (loom_value_facts_is_exact(
-            loom_value_fact_table_lookup(facts, divisor))) {
+    if (!loom_integer_division_should_pair(module, facts, op, family,
+                                           exact_divisors)) {
       continue;
     }
     ++candidate_count;
@@ -331,9 +419,9 @@ static iree_status_t loom_integer_division_observe_candidate(
     loom_integer_division_family_t family, loom_integer_division_role_t role) {
   loom_op_t* op = cursor->op;
   loom_integer_division_planner_t* function_planner = planner->planner;
-  const loom_value_id_t divisor = loom_op_const_operands(op)[1];
-  if (loom_value_facts_is_exact(
-          loom_value_fact_table_lookup(function_planner->facts, divisor))) {
+  if (!loom_integer_division_should_pair(function_planner->module,
+                                         function_planner->facts, op, family,
+                                         function_planner->exact_divisors)) {
     return iree_ok_status();
   }
   const uint32_t candidate_index = function_planner->candidate_count++;
@@ -503,14 +591,15 @@ static iree_status_t loom_integer_division_apply_plan(
 
 iree_status_t loom_integer_division_combine(
     loom_module_t* module, loom_func_like_t function,
-    const loom_value_fact_table_t* facts, iree_arena_allocator_t* parent_arena,
+    const loom_value_fact_table_t* facts, bool exact_divisors,
+    iree_arena_allocator_t* parent_arena,
     loom_integer_division_combine_result_t* out_result) {
   *out_result = (loom_integer_division_combine_result_t){0};
   if (!loom_func_like_body(function)) {
     return iree_ok_status();
   }
   const uint32_t candidate_capacity =
-      loom_integer_division_candidate_count(module, facts);
+      loom_integer_division_candidate_count(module, facts, exact_divisors);
   if (candidate_capacity < 2) {
     return iree_ok_status();
   }
@@ -520,6 +609,7 @@ iree_status_t loom_integer_division_combine(
   loom_integer_division_planner_t planner = {
       .module = module,
       .facts = facts,
+      .exact_divisors = exact_divisors,
       .arena = parent_arena,
       .candidate_capacity = candidate_capacity,
   };

@@ -150,6 +150,7 @@ loom_cc_library(
     loom::rewrite::remap
     loom::rewrite::rewriter
     loom::target::function_version
+    loom::util::predicate_facts
   PUBLIC
 )
 

@@ -1065,6 +1065,7 @@ class _LowerRuleSetCompiler:
             GuardKind.VALUE_SIGNED_BIT_COUNT,
             GuardKind.VALUE_UNSIGNED_BIT_COUNT,
             GuardKind.VALUE_EXACT_I64,
+            GuardKind.VALUE_NOT_EXACT_I64,
             GuardKind.VALUE_EXACT_POWER_OF_TWO_I64,
             GuardKind.VALUE_U32_DIVISOR_MAGIC_KIND,
             GuardKind.VALUE_I32_DIVISOR_MAGIC_KIND,
@@ -1333,6 +1334,11 @@ class _LowerRuleSetCompiler:
             source_op,
             _value_ref_for_source_field(source_op, guard.field),
         )
+        if guard.kind == GuardKind.VALUE_NOT_EXACT_I64:
+            self._guards.append(
+                LowerGuard(kind=guard.kind, value_ref_index=value_ref_index)
+            )
+            return
         if guard.kind in (
             GuardKind.VALUE_SIGNED_BIT_COUNT,
             GuardKind.VALUE_UNSIGNED_BIT_COUNT,

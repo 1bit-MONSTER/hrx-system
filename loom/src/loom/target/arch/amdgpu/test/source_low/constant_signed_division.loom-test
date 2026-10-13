@@ -25,40 +25,37 @@ func.def target(@target) @uniform_signed_division(%value: i32) -> (i32, i32, i32
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @uniform_signed_division(%value: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
   %c5 = s_mov_b32 5
-  %30 = s_mov_b32 2147483649
-  %31 = s_mul_hi_i32 %value, %30
-  %32 = s_add_u32 %31, %value
-  %33 = s_lshr_b32_rhs_inline %32, 31
-  %quotient_positive_two = s_add_u32 %32, %33
-  %35 = s_mov_b32 1431655766
-  %36 = s_mul_hi_i32 %value, %35
-  %37 = s_lshr_b32_rhs_inline %36, 31
-  %quotient_positive_three = s_add_u32 %36, %37
-  %41 = s_add_u32 %31, %value
-  %42 = s_ashr_i32_rhs_inline %41, 1
+  %36 = s_mov_b32 2147483649
+  %37 = s_mul_hi_i32 %value, %36
+  %38 = s_add_u32 %37, %value
+  %39 = s_lshr_b32_rhs_inline %38, 31
+  %quotient_positive_two = s_add_u32 %38, %39
+  %41 = s_mov_b32 1431655766
+  %42 = s_mul_hi_i32 %value, %41
   %43 = s_lshr_b32_rhs_inline %42, 31
-  %quotient_positive_four = s_add_u32 %42, %43
-  %45 = s_mov_b32 1717986919
-  %46 = s_mul_hi_i32 %value, %45
-  %47 = s_ashr_i32_rhs_inline %46, 1
-  %48 = s_lshr_b32_rhs_inline %47, 31
-  %quotient_positive_five = s_add_u32 %47, %48
-  %50 = s_mov_b32 2147483647
-  %51 = s_mul_hi_i32 %value, %50
-  %52 = s_sub_u32 %51, %value
-  %53 = s_lshr_b32_rhs_inline %52, 31
-  %quotient_negative_two = s_add_u32 %52, %53
-  %55 = s_mov_b32 1431655765
-  %56 = s_mul_hi_i32 %value, %55
-  %57 = s_sub_u32 %56, %value
-  %58 = s_ashr_i32_rhs_inline %57, 1
-  %59 = s_lshr_b32_rhs_inline %58, 31
-  %quotient_negative_three = s_add_u32 %58, %59
-  %63 = s_ashr_i32_rhs_inline %46, 1
-  %64 = s_lshr_b32_rhs_inline %63, 31
-  %65 = s_add_u32 %63, %64
-  %66 = s_mul_i32 %65, %c5
-  %remainder_positive_five = s_sub_u32 %value, %66
+  %quotient_positive_three = s_add_u32 %42, %43
+  %47 = s_add_u32 %37, %value
+  %48 = s_ashr_i32_rhs_inline %47, 1
+  %49 = s_lshr_b32_rhs_inline %48, 31
+  %quotient_positive_four = s_add_u32 %48, %49
+  %51 = s_mov_b32 1717986919
+  %52 = s_mul_hi_i32 %value, %51
+  %53 = s_ashr_i32_rhs_inline %52, 1
+  %54 = s_lshr_b32_rhs_inline %53, 31
+  %quotient_positive_five = s_add_u32 %53, %54
+  %56 = s_mul_i32 %quotient_positive_five, %c5
+  %remainder_positive_five = s_sub_u32 %value, %56
+  %58 = s_mov_b32 2147483647
+  %59 = s_mul_hi_i32 %value, %58
+  %60 = s_sub_u32 %59, %value
+  %61 = s_lshr_b32_rhs_inline %60, 31
+  %quotient_negative_two = s_add_u32 %60, %61
+  %63 = s_mov_b32 1431655765
+  %64 = s_mul_hi_i32 %value, %63
+  %65 = s_sub_u32 %64, %value
+  %66 = s_ashr_i32_rhs_inline %65, 1
+  %67 = s_lshr_b32_rhs_inline %66, 31
+  %quotient_negative_three = s_add_u32 %66, %67
   return %quotient_positive_two, %quotient_positive_three, %quotient_positive_four, %quotient_positive_five, %quotient_negative_two, %quotient_negative_three, %remainder_positive_five
 }
 
@@ -89,52 +86,52 @@ func.def target(@target) @varying_signed_remainder(%values: vector<2xi32>) -> (i
 // ----
 low.func.def target<amdgpu.cdna3.core>(@target) abi(hal_kernel) @varying_signed_remainder(%values: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
   %value = slice %values[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %37 = v_mov_b32 1717986919
-  %38 = v_mul_hi_i32 %value, %37
-  %39 = v_ashrrev_i32_src0_inline %38, 1
-  %40 = v_lshrrev_b32_src0_inline %39, 31
-  %quotient_positive_five = v_add_u32 %39, %40
-  %42 = v_mov_b32 2147483649
-  %43 = v_mul_hi_i32 %value, %42
-  %44 = v_add_u32 %43, %value
-  %45 = v_lshrrev_b32_src0_inline %44, 31
-  %46 = v_add_u32 %44, %45
-  %47 = v_mov_b32 2
-  %48 = v_mul_lo_u32 %46, %47
-  %remainder_positive_two = v_sub_u32 %value, %48
-  %50 = v_mov_b32 1431655766
-  %51 = v_mul_hi_i32 %value, %50
-  %52 = v_lshrrev_b32_src0_inline %51, 31
-  %53 = v_add_u32 %51, %52
-  %54 = v_mov_b32 3
-  %55 = v_mul_lo_u32 %53, %54
-  %remainder_positive_three = v_sub_u32 %value, %55
-  %60 = v_ashrrev_i32_src0_inline %44, 1
+  %43 = v_mov_b32 1717986919
+  %44 = v_mul_hi_i32 %value, %43
+  %45 = v_ashrrev_i32_src0_inline %44, 1
+  %46 = v_lshrrev_b32_src0_inline %45, 31
+  %quotient_positive_five = v_add_u32 %45, %46
+  %48 = v_mov_b32 5
+  %49 = v_mul_lo_u32 %quotient_positive_five, %48
+  %remainder_positive_five = v_sub_u32 %value, %49
+  %51 = v_mov_b32 2147483649
+  %52 = v_mul_hi_i32 %value, %51
+  %53 = v_add_u32 %52, %value
+  %54 = v_lshrrev_b32_src0_inline %53, 31
+  %55 = v_add_u32 %53, %54
+  %56 = v_mov_b32 2
+  %57 = v_mul_lo_u32 %55, %56
+  %remainder_positive_two = v_sub_u32 %value, %57
+  %59 = v_mov_b32 1431655766
+  %60 = v_mul_hi_i32 %value, %59
   %61 = v_lshrrev_b32_src0_inline %60, 31
   %62 = v_add_u32 %60, %61
-  %63 = v_mov_b32 4
+  %63 = v_mov_b32 3
   %64 = v_mul_lo_u32 %62, %63
-  %remainder_positive_four = v_sub_u32 %value, %64
-  %71 = v_mov_b32 5
-  %72 = v_mul_lo_u32 %quotient_positive_five, %71
-  %remainder_positive_five = v_sub_u32 %value, %72
-  %74 = v_mov_b32 2147483647
-  %75 = v_mul_hi_i32 %value, %74
-  %76 = v_sub_u32 %75, %value
-  %77 = v_lshrrev_b32_src0_inline %76, 31
-  %78 = v_add_u32 %76, %77
-  %79 = v_mov_b32 4294967294
-  %80 = v_mul_lo_u32 %78, %79
-  %remainder_negative_two = v_sub_u32 %value, %80
-  %82 = v_mov_b32 1431655765
-  %83 = v_mul_hi_i32 %value, %82
-  %84 = v_sub_u32 %83, %value
-  %85 = v_ashrrev_i32_src0_inline %84, 1
-  %86 = v_lshrrev_b32_src0_inline %85, 31
-  %87 = v_add_u32 %85, %86
-  %88 = v_mov_b32 4294967293
-  %89 = v_mul_lo_u32 %87, %88
-  %remainder_negative_three = v_sub_u32 %value, %89
+  %remainder_positive_three = v_sub_u32 %value, %64
+  %69 = v_ashrrev_i32_src0_inline %53, 1
+  %70 = v_lshrrev_b32_src0_inline %69, 31
+  %71 = v_add_u32 %69, %70
+  %72 = v_mov_b32 4
+  %73 = v_mul_lo_u32 %71, %72
+  %remainder_positive_four = v_sub_u32 %value, %73
+  %75 = v_mov_b32 2147483647
+  %76 = v_mul_hi_i32 %value, %75
+  %77 = v_sub_u32 %76, %value
+  %78 = v_lshrrev_b32_src0_inline %77, 31
+  %79 = v_add_u32 %77, %78
+  %80 = v_mov_b32 4294967294
+  %81 = v_mul_lo_u32 %79, %80
+  %remainder_negative_two = v_sub_u32 %value, %81
+  %83 = v_mov_b32 1431655765
+  %84 = v_mul_hi_i32 %value, %83
+  %85 = v_sub_u32 %84, %value
+  %86 = v_ashrrev_i32_src0_inline %85, 1
+  %87 = v_lshrrev_b32_src0_inline %86, 31
+  %88 = v_add_u32 %86, %87
+  %89 = v_mov_b32 4294967293
+  %90 = v_mul_lo_u32 %88, %89
+  %remainder_negative_three = v_sub_u32 %value, %90
   return %quotient_positive_five, %remainder_positive_two, %remainder_positive_three, %remainder_positive_four, %remainder_positive_five, %remainder_negative_two, %remainder_negative_three
 }
 
@@ -156,24 +153,24 @@ func.def target(@target) @narrow_signed_division(%byte: i8, %halfword: i16) -> (
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @narrow_signed_division(%byte: reg<amdgpu.vgpr>, %halfword: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
-  %38 = v_bfe_i32_offset_width_inline %byte {offset = 0, width = 8}
-  %40 = v_mov_b32 1431655765
-  %41 = v_mul_hi_i32 %38, %40
-  %42 = v_sub_nc_u32 %41, %38
-  %43 = v_ashrrev_i32_src0_inline %42, 1
-  %44 = v_lshrrev_b32_src0_inline %43, 31
-  %byte_quotient = v_add_u32 %43, %44
-  %52 = v_mov_b32 4294967293
-  %53 = v_mul_lo_u32 %byte_quotient, %52
-  %byte_remainder = v_sub_nc_u32 %38, %53
-  %55 = v_bfe_i32_offset_width_inline %halfword {offset = 0, width = 16}
-  %57 = v_mov_b32 1717986919
-  %58 = v_mul_hi_i32 %55, %57
-  %59 = v_ashrrev_i32_src0_inline %58, 1
-  %60 = v_lshrrev_b32_src0_inline %59, 31
-  %halfword_quotient = v_add_u32 %59, %60
-  %67 = v_mov_b32 5
-  %68 = v_mul_lo_u32 %halfword_quotient, %67
-  %halfword_remainder = v_sub_nc_u32 %55, %68
+  %50 = v_bfe_i32_offset_width_inline %byte {offset = 0, width = 8}
+  %52 = v_mov_b32 1431655765
+  %53 = v_mul_hi_i32 %50, %52
+  %54 = v_sub_nc_u32 %53, %50
+  %55 = v_ashrrev_i32_src0_inline %54, 1
+  %56 = v_lshrrev_b32_src0_inline %55, 31
+  %byte_quotient = v_add_u32 %55, %56
+  %58 = v_mov_b32 4294967293
+  %59 = v_mul_lo_u32 %byte_quotient, %58
+  %byte_remainder = v_sub_nc_u32 %50, %59
+  %61 = v_bfe_i32_offset_width_inline %halfword {offset = 0, width = 16}
+  %63 = v_mov_b32 1717986919
+  %64 = v_mul_hi_i32 %61, %63
+  %65 = v_ashrrev_i32_src0_inline %64, 1
+  %66 = v_lshrrev_b32_src0_inline %65, 31
+  %halfword_quotient = v_add_u32 %65, %66
+  %68 = v_mov_b32 5
+  %69 = v_mul_lo_u32 %halfword_quotient, %68
+  %halfword_remainder = v_sub_nc_u32 %61, %69
   return %byte_quotient, %byte_remainder, %halfword_quotient, %halfword_remainder
 }

@@ -1224,6 +1224,11 @@ static iree_status_t loom_low_lower_rule_guard_matches(
           match_context, rule_set, source_op,
           guard->selector.value.value_ref_index);
       return iree_ok_status();
+    case LOOM_LOW_LOWER_GUARD_VALUE_NOT_EXACT_I64:
+      *out_matches = !loom_low_lower_rule_value_facts_exact_i64(
+          match_context, rule_set, source_op,
+          guard->selector.value.value_ref_index);
+      return iree_ok_status();
     case LOOM_LOW_LOWER_GUARD_VALUE_EXACT_POWER_OF_TWO_I64:
       *out_matches = loom_low_lower_rule_value_facts_exact_power_of_two_i64(
           match_context, rule_set, source_op,

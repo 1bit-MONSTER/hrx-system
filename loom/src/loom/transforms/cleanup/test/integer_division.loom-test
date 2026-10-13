@@ -187,3 +187,74 @@ func.def @exact_divisor(%value: i32) -> (i32, i32) {
   %remainder = scalar.andi %value, %6 : i32
   func.return %quotient, %remainder : i32, i32
 }
+
+// ====
+
+// RUN: pass form-divrem{divisors=exact}
+
+// Non-power-of-two constants survive universal canonicalization and pair at
+// the final target boundary so native reciprocal recipes can share a quotient.
+func.def @exact_non_power_of_two_divisor(%value: i32) -> (i32, i32) {
+  %divisor = scalar.constant 3 : i32
+  %quotient = scalar.divui %value, %divisor : i32
+  %remainder = scalar.remui %value, %divisor : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ----
+func.def @exact_non_power_of_two_divisor(%value: i32) -> (i32, i32) {
+  %divisor = scalar.constant 3 : i32
+  %quotient, %remainder = scalar.divremui %value, %divisor : i32
+  func.return %quotient, %remainder : i32, i32
+}
+
+// ====
+
+// RUN: pass form-divrem{divisors=exact}
+
+// When facts bound the unsigned quotient to zero or one, separate operations
+// preserve the cheaper compare and conditional-subtract lowering. Scalar
+// constants use their unsigned bit pattern while index bounds come from facts.
+func.def @exact_boolean_unsigned_quotients(%word: i32, %position: index) -> (i32, i32, index, index) {
+  %word_divisor = scalar.constant -2147483647 : i32
+  %word_quotient = scalar.divui %word, %word_divisor : i32
+  %word_remainder = scalar.remui %word, %word_divisor : i32
+  %bounded = index.assume %position [range(%position, 0, 4294967295)] : index
+  %index_divisor = index.constant 4294967295 : index
+  %index_quotient = index.div %bounded, %index_divisor : index
+  %index_remainder = index.rem %bounded, %index_divisor : index
+  func.return %word_quotient, %word_remainder, %index_quotient, %index_remainder : i32, i32, index, index
+}
+
+// ----
+func.def @exact_boolean_unsigned_quotients(%word: i32, %position: index) -> (i32, i32, index, index) {
+  %word_divisor = scalar.constant -2147483647 : i32
+  %word_quotient = scalar.divui %word, %word_divisor : i32
+  %word_remainder = scalar.remui %word, %word_divisor : i32
+  %bounded = index.assume %position [range(%position, 0, 4294967295)] : index
+  %index_divisor = index.constant 4294967295 : index
+  %index_quotient = index.div %bounded, %index_divisor : index
+  %index_remainder = index.rem %bounded, %index_divisor : index
+  func.return %word_quotient, %word_remainder, %index_quotient, %index_remainder : i32, i32, index, index
+}
+
+// ====
+
+// RUN: pass form-divrem{divisors=exact}
+
+// Exact index divisions retain their coordinate decomposition semantics for
+// topology and address analyses.
+func.def @exact_index_coordinate_digits(%position: index) -> (index, index) {
+  %radix = index.constant 5 : index
+  %major = index.div %position, %radix : index
+  %minor = index.rem %position, %radix : index
+  func.return %major, %minor : index, index
+}
+
+// ----
+func.def @exact_index_coordinate_digits(%position: index) -> (index, index) {
+  %radix = index.constant 5 : index
+  %major = index.div %position, %radix : index
+  %minor = index.rem %position, %radix : index
+  func.return %major, %minor : index, index
+}

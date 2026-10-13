@@ -13,6 +13,7 @@
 #include "loom/ops/scf/ops.h"
 #include "loom/rewrite/rewriter.h"
 #include "loom/util/numeric_format.h"
+#include "loom/util/predicate_facts.h"
 
 bool loom_scalar_match_multiply_add(
     const loom_module_t* module, const loom_op_t* multiply_op,
@@ -925,9 +926,35 @@ static iree_status_t loom_scalar_legalize_narrow_binary(
 }
 
 // Preserves the shared quotient/remainder computation while widening narrow
-// integer carriers. Targets that accept the i32 combined operation can then
-// select one native divide; the portable fallback below splits only after a
-// target has declined that representation.
+// integer carriers. Targets that accept the i32 combined operation can select
+// one native divide. The portable fallback computes the quotient once and
+// reconstructs the remainder so every target can reuse its quotient recipe.
+static iree_status_t loom_scalar_preserve_reconstructed_facts(
+    loom_target_legalization_context_t* context,
+    loom_value_id_t original_result, loom_value_id_t reconstructed_result,
+    loom_type_t result_type, loom_location_id_t location,
+    loom_value_id_t* out_result) {
+  *out_result = reconstructed_result;
+  if (!context->fact_table) {
+    return iree_ok_status();
+  }
+  loom_predicate_t predicates[2];
+  const uint16_t predicate_count = loom_value_facts_export_integer_refinements(
+      reconstructed_result,
+      loom_value_fact_table_lookup(context->fact_table, reconstructed_result),
+      loom_value_fact_table_lookup(context->fact_table, original_result),
+      predicates, IREE_ARRAYSIZE(predicates));
+  if (predicate_count == 0) {
+    return iree_ok_status();
+  }
+  loom_op_t* assumption = NULL;
+  IREE_RETURN_IF_ERROR(loom_scalar_assume_build(
+      &context->rewriter->builder, &reconstructed_result, 1, predicates,
+      predicate_count, &result_type, 1, location, &assumption));
+  *out_result = loom_scalar_assume_results(assumption).values[0];
+  return iree_ok_status();
+}
+
 static iree_status_t loom_scalar_legalize_divrem(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
@@ -977,20 +1004,25 @@ static iree_status_t loom_scalar_legalize_divrem(
     const loom_value_id_t lhs = loom_op_const_operands(op)[0];
     const loom_value_id_t rhs = loom_op_const_operands(op)[1];
     loom_op_t* quotient = NULL;
-    loom_op_t* remainder = NULL;
     if (is_signed) {
       IREE_RETURN_IF_ERROR(loom_scalar_divsi_build(
           builder, lhs, rhs, result_type, op->location, &quotient));
-      IREE_RETURN_IF_ERROR(loom_scalar_remsi_build(
-          builder, lhs, rhs, result_type, op->location, &remainder));
     } else {
       IREE_RETURN_IF_ERROR(loom_scalar_divui_build(
           builder, lhs, rhs, result_type, op->location, &quotient));
-      IREE_RETURN_IF_ERROR(loom_scalar_remui_build(
-          builder, lhs, rhs, result_type, op->location, &remainder));
     }
+    loom_op_t* product = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_muli_build(
+        builder, /*instance_flags=*/0, loom_op_results(quotient)[0], rhs,
+        result_type, op->location, &product));
+    loom_op_t* remainder = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_subi_build(
+        builder, /*instance_flags=*/0, lhs, loom_scalar_muli_result(product),
+        result_type, op->location, &remainder));
     replacements[0] = loom_op_results(quotient)[0];
-    replacements[1] = loom_op_results(remainder)[0];
+    IREE_RETURN_IF_ERROR(loom_scalar_preserve_reconstructed_facts(
+        context, old_results[1], loom_scalar_subi_result(remainder),
+        result_type, op->location, &replacements[1]));
   }
 
   IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
