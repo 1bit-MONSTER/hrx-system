@@ -228,7 +228,7 @@ iree_status_t loom_serve_text_source_initialize(
       IREE_SVL("step"),          IREE_SVL("epoch"),
       IREE_SVL("encode_epoch"),  IREE_SVL("publish_epoch"),
       IREE_SVL("encode_state"),  IREE_SVL("render_tool"),
-      IREE_SVL("prepare_input"), IREE_SVL("text_end"),
+      IREE_SVL("prepare_input"), IREE_SVL("output_next"),
       IREE_SVL("complete_text"), IREE_SVL("model_name"),
       IREE_SVL("chat_begin"),    IREE_SVL("chat_message"),
       IREE_SVL("chat_end"),      IREE_SVL("parse_tools")};

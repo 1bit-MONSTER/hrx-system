@@ -103,9 +103,25 @@ class ChatTest(unittest.TestCase):
                 "stream": True,
                 "stream_options": {"include_usage": True},
                 "temperature": 0,
+                "enable_thinking": False,
                 "max_tokens": 32,
             },
         )
+
+    def test_reasoning_does_not_become_answer_text(self):
+        payload = stream(
+            event({"reasoning_content": "Check "}),
+            event({"reasoning_content": "λ."}),
+            event({"content": "4"}, "stop", usage={"completion_tokens": 7}),
+        )
+        with endpoint(payload) as (address, requests):
+            result = request(
+                address, "agent", [], 64, model="reviewer", enable_thinking=True
+            )
+        self.assertEqual(result["text"], "4")
+        self.assertEqual(result["reasoning_content"], "Check λ.")
+        self.assertEqual(len(result["output_chunk_ms"]), 3)
+        self.assertTrue(requests[0]["body"]["enable_thinking"])
 
     def test_tool_fragments_are_joined_without_inventing_text_latency(self):
         tools = [{"type": "function", "function": {"name": "read"}}]

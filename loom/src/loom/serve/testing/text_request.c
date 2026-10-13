@@ -23,6 +23,9 @@ IREE_FLAG(string, request, "", "Chat Completions request JSON file.");
 IREE_FLAG(string, response, "",
           "Optional raw generated text file to complete.");
 IREE_FLAG(int32_t, capacity, 262144, "Maximum complete prompt token count.");
+IREE_FLAG(
+    int32_t, response_chunk_size, 0,
+    "Incremental decoded output bytes per policy call; zero completes once.");
 
 static iree_string_view_t loom_serve_text_request_check_file_text(
     iree_io_file_contents_t* contents) {
@@ -58,7 +61,21 @@ static iree_status_t loom_serve_text_request_check_report(
   }
   if (iree_status_is_ok(status) && completion) {
     status = loom_json_object_write_host_size_field(
-        &object, IREE_SV("text_end"), completion->text_end);
+        &object, IREE_SV("output_cursor"), chat->output.cursor);
+    if (iree_status_is_ok(status)) {
+      status = loom_json_object_write_string_field(
+          &object, IREE_SV("content"),
+          iree_string_builder_view(&chat->output.content));
+    }
+    if (iree_status_is_ok(status)) {
+      status = loom_json_object_write_string_field(
+          &object, IREE_SV("reasoning_content"),
+          iree_string_builder_view(&chat->output.reasoning));
+    }
+    if (iree_status_is_ok(status)) {
+      status = loom_json_object_write_bool_field(&object, IREE_SV("reusable"),
+                                                 completion->reusable);
+    }
     if (iree_status_is_ok(status)) {
       status = loom_json_object_write_string_field(
           &object, IREE_SV("checkpoint"), completion->transcript);
@@ -87,7 +104,8 @@ static iree_status_t loom_serve_text_request_check_run(
     iree_allocator_t host_allocator) {
   loom_serve_compilation_report_t compilation = {0};
   if (!FLAG_control[0] || !FLAG_tokenizer[0] || !FLAG_request[0] ||
-      FLAG_capacity <= 0 || FLAG_capacity > 262144) {
+      FLAG_capacity <= 0 || FLAG_capacity > 262144 ||
+      FLAG_response_chunk_size < 0) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "--control, --tokenizer and --request are required; "
@@ -124,7 +142,7 @@ static iree_status_t loom_serve_text_request_check_run(
       IREE_SVL("model_name"),    IREE_SVL("chat_begin"),
       IREE_SVL("chat_message"),  IREE_SVL("chat_end"),
       IREE_SVL("render_tool"),   IREE_SVL("parse_tools"),
-      IREE_SVL("prepare_input"), IREE_SVL("text_end"),
+      IREE_SVL("prepare_input"), IREE_SVL("output_next"),
       IREE_SVL("complete_text")};
   loom_serve_program_t* program = NULL;
   if (iree_status_is_ok(status)) {
@@ -172,9 +190,24 @@ static iree_status_t loom_serve_text_request_check_run(
   iree_string_builder_t tool_calls;
   iree_string_builder_initialize(host_allocator, &tool_calls);
   loom_serve_text_chat_completion_t completion = {0};
+  if (iree_status_is_ok(status) && response && FLAG_response_chunk_size) {
+    const iree_string_view_t text =
+        loom_serve_text_request_check_file_text(response);
+    for (iree_host_size_t length = 0;
+         length < text.size && iree_status_is_ok(status);) {
+      length += iree_min((iree_host_size_t)FLAG_response_chunk_size,
+                         text.size - length);
+      loom_serve_text_chat_output_t output;
+      do {
+        status = loom_serve_text_chat_output_next(
+            &chat, iree_string_view_substr(text, 0, length),
+            LOOM_SERVE_TEXT_CHAT_OUTPUT_STREAMING, &output);
+      } while (iree_status_is_ok(status) && output.advanced);
+    }
+  }
   if (iree_status_is_ok(status) && response) {
     status = loom_serve_text_chat_complete(
-        &chat, loom_serve_text_request_check_file_text(response), 0, 1,
+        &chat, loom_serve_text_request_check_file_text(response), 1,
         &tool_calls, &completion);
   }
   if (iree_status_is_ok(status)) {

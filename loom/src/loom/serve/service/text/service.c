@@ -888,7 +888,7 @@ static iree_status_t loom_serve_text_retain_selected(
     loom_serve_text_service_t* service) {
   loom_serve_text_session_t* session = service->pending.prepared.session;
   if (!service->cache.capacity || !session->lifetime.name[0] ||
-      !session->completion.storage ||
+      !session->completion.reusable ||
       iree_string_view_equal(
           service->pending.values[service->pending.admission.cursor].name,
           iree_make_cstring_view(session->lifetime.name))) {

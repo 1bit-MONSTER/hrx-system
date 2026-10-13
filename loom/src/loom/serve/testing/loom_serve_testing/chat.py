@@ -20,6 +20,7 @@ def request(
     model,
     tools=None,
     checkpoint=None,
+    enable_thinking=False,
 ):
     """Consume one greedy chat stream and measure its complete HTTP lifetime.
 
@@ -34,6 +35,7 @@ def request(
     first = None
     chunks = []
     text = []
+    reasoning = []
     tool_calls = {}
     usage = None
     reason = None
@@ -45,6 +47,7 @@ def request(
             "stream": True,
             "stream_options": {"include_usage": True},
             "temperature": 0,
+            "enable_thinking": enable_thinking,
             "max_tokens": maximum,
         }
         if tools is not None:
@@ -80,12 +83,15 @@ def request(
                     reason = choice["finish_reason"]
                 delta = choice.get("delta", {})
                 content = delta.get("content", "")
-                if content or delta.get("tool_calls"):
+                thought = delta.get("reasoning_content", "")
+                if content or thought or delta.get("tool_calls"):
                     chunks.append((time.monotonic_ns() - start) / 1e6)
                 if content:
                     if first is None:
                         first = time.monotonic_ns()
                     text.append(content)
+                if thought:
+                    reasoning.append(thought)
                 for fragment in delta.get("tool_calls", []):
                     call = tool_calls.setdefault(
                         fragment["index"],
@@ -113,6 +119,7 @@ def request(
         end = time.monotonic_ns()
         return {
             "text": "".join(text),
+            "reasoning_content": "".join(reasoning),
             "tool_calls": [tool_calls[index] for index in sorted(tool_calls)],
             "usage": usage,
             "finish_reason": reason,

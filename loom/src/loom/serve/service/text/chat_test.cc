@@ -36,9 +36,9 @@ class ChatResponseTest : public ::testing::Test {
 };
 
 TEST_F(ChatResponseTest, CompleteTextIncludesUsageAndEscapesContent) {
-  IREE_ASSERT_OK(loom_serve_text_chat_response(&response_, IREE_SV("a\n\"λ\""),
-                                               iree_string_view_empty(),
-                                               IREE_SV("stop"), &output_));
+  IREE_ASSERT_OK(loom_serve_text_chat_response(
+      &response_, IREE_SV("a\n\"λ\""), iree_string_view_empty(),
+      iree_string_view_empty(), IREE_SV("stop"), &output_));
   EXPECT_EQ(
       Output(),
       R"({"id":"loom-7","object":"chat.completion","created":12,"model":"local-λ","choices":[{"index":0,"message":{"role":"assistant","content":"a\n\"λ\""},"finish_reason":"stop","logprobs":null}],"usage":{"prompt_tokens":120,"completion_tokens":4,"total_tokens":124,"prompt_tokens_details":{"cached_tokens":100}}})");
@@ -46,13 +46,22 @@ TEST_F(ChatResponseTest, CompleteTextIncludesUsageAndEscapesContent) {
 
 TEST_F(ChatResponseTest, ToolOnlyMessageHasNullContent) {
   IREE_ASSERT_OK(loom_serve_text_chat_response(
-      &response_, iree_string_view_empty(),
+      &response_, iree_string_view_empty(), iree_string_view_empty(),
       IREE_SV(
           R"([{"id":"call_7_0","type":"function","function":{"name":"read","arguments":"{\"path\":\"a\"}"}}])"),
       IREE_SV("tool_calls"), &output_));
   EXPECT_EQ(
       Output(),
       R"({"id":"loom-7","object":"chat.completion","created":12,"model":"local-λ","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_7_0","type":"function","function":{"name":"read","arguments":"{\"path\":\"a\"}"}}]},"finish_reason":"tool_calls","logprobs":null}],"usage":{"prompt_tokens":120,"completion_tokens":4,"total_tokens":124,"prompt_tokens_details":{"cached_tokens":100}}})");
+}
+
+TEST_F(ChatResponseTest, ReasoningIsSeparateFromAnswerAndToolFields) {
+  IREE_ASSERT_OK(loom_serve_text_chat_response(
+      &response_, IREE_SV("4"), IREE_SV("check \"λ\"\n"),
+      iree_string_view_empty(), IREE_SV("stop"), &output_));
+  EXPECT_NE(
+      Output().find(R"("content":"4","reasoning_content":"check \"λ\"\n")"),
+      std::string::npos);
 }
 
 TEST_F(ChatResponseTest, StreamingUsageIsNullUntilTheUsageOnlyChunk) {

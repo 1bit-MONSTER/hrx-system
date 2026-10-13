@@ -146,11 +146,12 @@ iree_status_t loom_serve_text_checkpoint_request_submit(
           host_allocator);
     }
     if (source.busy ||
-        (source.session && !source.session->completion.storage)) {
+        (source.session && !source.session->completion.reusable)) {
       return loom_serve_text_checkpoint_reject(
           control, telemetry, 409, "Conflict",
-          iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                           "pin requires an idle completed session"),
+          iree_make_status(
+              IREE_STATUS_FAILED_PRECONDITION,
+              "pin requires an idle session with reusable history"),
           host_allocator);
     }
     checkpoint = loom_serve_text_checkpoint_registry_available(registry);

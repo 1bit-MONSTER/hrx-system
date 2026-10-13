@@ -37,7 +37,7 @@ typedef struct loom_serve_text_chat_policy_t {
   iree_vm_function_t chat_begin;
   // Message fragment and next opaque rendering state.
   iree_vm_function_t chat_message;
-  // Final prompt fragment and conversation validation.
+  // Final prompt fragment, conversation validation and initial output state.
   iree_vm_function_t chat_end;
   // Generated suffix to standard function-call records.
   iree_vm_function_t parse_tools;
@@ -45,9 +45,12 @@ typedef struct loom_serve_text_chat_policy_t {
   iree_vm_function_t render_tool;
   // Turn framing and complete raw-token encoding shared by all text callers.
   iree_vm_function_t prepare_input;
-  // Safe ordinary-text extent in an accumulated generated response.
-  iree_vm_function_t text_end;
-  // Canonical completed transcript, returned as retained VM storage.
+  // Next typed output span and opaque parser state.
+  iree_vm_function_t output_next;
+  // complete_text(prompt, content, reasoning, tools, initial_state,
+  // final_state) returns (owned transcript buffer, reusable i32 boolean). False
+  // requires replay instead of matching the canonical transcript to retained
+  // device state.
   iree_vm_function_t complete_text;
 } loom_serve_text_chat_policy_t;
 
@@ -118,13 +121,26 @@ enum loom_serve_text_chat_flag_bits_e {
 };
 typedef uint32_t loom_serve_text_chat_flags_t;
 
-// One validated text-only, greedy chat request. The
+// One validated text chat request. The
 // prompt owns its canonical rendered text; tool views borrow the HTTP body.
 typedef struct loom_serve_text_chat_t {
   // Source policy borrowed from the model for the request lifetime.
   const loom_serve_text_chat_policy_t* policy;
   // Source-rendered canonical prompt ending at its generation boundary.
   iree_string_builder_t prompt;
+  // Incremental output owned by this request, independent of transport mode.
+  struct {
+    // Source state at the generation boundary, used for canonical history.
+    int64_t initial_state;
+    // Source-private current parser state.
+    int64_t state;
+    // Consumed byte frontier in the accumulated decoded response.
+    iree_host_size_t cursor;
+    // Answer bytes without source framing.
+    iree_string_builder_t content;
+    // Reasoning bytes without source framing.
+    iree_string_builder_t reasoning;
+  } output;
   // Maximum selected output tokens, including a terminal EOS prediction.
   iree_host_size_t max_tokens;
   // Validated transport and usage options; inference is independent of these.
@@ -160,13 +176,35 @@ typedef enum loom_serve_text_chat_output_phase_e {
   LOOM_SERVE_TEXT_CHAT_OUTPUT_COMPLETE = 1,
 } loom_serve_text_chat_output_phase_t;
 
-// Queries the next safe text extent in the shared source VM. Response is
-// borrowed synchronously. Scan starts at the previous safe extent and never
-// retracts published bytes; source failure publishes no new extent.
-iree_status_t loom_serve_text_chat_text_end(
-    const loom_serve_text_chat_policy_t* policy, iree_string_view_t response,
-    iree_host_size_t previous_end, loom_serve_text_chat_output_phase_t phase,
-    iree_allocator_t host_allocator, iree_host_size_t* out_end);
+// Model-neutral output channels. Hidden spans consume framing without exposing
+// it on the wire. Source controls all model-specific delimiters and
+// transitions.
+typedef enum loom_serve_text_chat_output_kind_e {
+  LOOM_SERVE_TEXT_CHAT_OUTPUT_HIDDEN = 0,
+  LOOM_SERVE_TEXT_CHAT_OUTPUT_CONTENT = 1,
+  LOOM_SERVE_TEXT_CHAT_OUTPUT_REASONING = 2,
+} loom_serve_text_chat_output_kind_t;
+
+typedef struct loom_serve_text_chat_output_t {
+  // True if this call consumed bytes; false means wait or parse the tool
+  // suffix.
+  bool advanced;
+  // Destination of text; hidden spans have no visible bytes.
+  loom_serve_text_chat_output_kind_t kind;
+  // Borrowed response bytes, valid until the caller changes response storage.
+  iree_string_view_t text;
+} loom_serve_text_chat_output_t;
+
+// Consumes one source-defined span and appends it to the request's channel.
+// output_next(response, cursor, state, phase) returns (kind, begin, end,
+// state). Bounds are cursor <= begin <= end <= response.size; end advances the
+// cursor, while [cursor, begin) is framing. No progress leaves parser state
+// unchanged. Response is borrowed synchronously; published bytes are never
+// retracted.
+iree_status_t loom_serve_text_chat_output_next(
+    loom_serve_text_chat_t* chat, iree_string_view_t response,
+    loom_serve_text_chat_output_phase_t phase,
+    loom_serve_text_chat_output_t* out_output);
 
 // Completed response metadata and its canonical retained-history checkpoint.
 // The source environment outlives this value; request/body/response storage
@@ -176,8 +214,9 @@ typedef struct loom_serve_text_chat_completion_t {
   iree_vm_buffer_t* storage;
   // Canonical transcript borrowing storage, not request or invocation memory.
   iree_string_view_t transcript;
-  // Safe ordinary-text extent in the original generated response.
-  iree_host_size_t text_end;
+  // Source authorization to reuse device state for this canonical transcript.
+  // A truncated source construct can require replay despite valid wire output.
+  bool reusable;
   // Number of validated structured tool calls.
   iree_host_size_t tool_count;
 } loom_serve_text_chat_completion_t;
@@ -190,7 +229,7 @@ void loom_serve_text_chat_completion_deinitialize(
 // Returns the source-owned canonical completed transcript and appends an OpenAI
 // tool_calls array to tool_calls. IDs are stable across both output forms;
 // streaming calls also carry their delta indexes.
-// previous_end is the already published ordinary-text extent in response.
+// Finishes output parsing before translating the remaining structured suffix.
 // Plain text responses produce an empty array. Source parser failures never
 // submit a partial executable call to the agent.
 // Replaces completion only on success, releasing its prior storage. Failure
@@ -198,9 +237,8 @@ void loom_serve_text_chat_completion_deinitialize(
 // the caller must not publish. The checkpoint validates subsequent client
 // history; it does not replace original generated tokens in device state.
 iree_status_t loom_serve_text_chat_complete(
-    const loom_serve_text_chat_t* chat, iree_string_view_t response,
-    iree_host_size_t previous_end, uint64_t request_id,
-    iree_string_builder_t* tool_calls,
+    loom_serve_text_chat_t* chat, iree_string_view_t response,
+    uint64_t request_id, iree_string_builder_t* tool_calls,
     loom_serve_text_chat_completion_t* completion);
 
 // Borrowed wire metadata copied from a session at each publication. Identity
@@ -237,12 +275,13 @@ iree_status_t loom_serve_text_chat_usage(
     iree_string_builder_t* output);
 
 // Appends a complete JSON chat response, without HTTP headers. Content is
-// decoded text; tool_calls is a serialized array from chat_complete or empty
+// decoded answer text; reasoning is independently decoded thought text and is
+// omitted from the wire when empty. tool_calls is a serialized array or empty
 // when no tools were produced. Nonstreamed completions always include usage.
 iree_status_t loom_serve_text_chat_response(
     const loom_serve_text_chat_response_t* response, iree_string_view_t content,
-    iree_string_view_t tool_calls, iree_string_view_t finish_reason,
-    iree_string_builder_t* output);
+    iree_string_view_t reasoning, iree_string_view_t tool_calls,
+    iree_string_view_t finish_reason, iree_string_builder_t* output);
 
 #ifdef __cplusplus
 }  // extern "C"

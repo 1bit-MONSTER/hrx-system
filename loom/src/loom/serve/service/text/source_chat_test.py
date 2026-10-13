@@ -55,7 +55,7 @@ class RequestTest(unittest.TestCase):
         self.assertEqual(value["prompt"], "abxa")
         self.assertEqual(value["tokens"], [0, 1, 2, 0])
         self.assertEqual(value["checkpoint"], "abxabx")
-        self.assertEqual(value["text_end"], 2)
+        self.assertEqual(value["output_cursor"], 2)
         self.assertEqual(value["tool_calls"], [])
         result = self.execute(
             self.request(

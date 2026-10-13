@@ -159,9 +159,9 @@ func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %re
   func.return %fragment, %state : buffer, i64
 }
 
-func.def public @chat_end(%state: i64) -> (buffer) {
+func.def public @chat_end(%state: i64) -> (buffer, i64) {
   %empty = global.load @empty : buffer
-  func.return %empty : buffer
+  func.return %empty, %state : buffer, i64
 }
 
 func.def public @render_tool(%name: buffer, %arguments: buffer, %ordinal: i64) -> (buffer, i64) {
@@ -228,15 +228,17 @@ func.def public @prepare_input(%text: buffer, %format: i32, %boundary: i32, %cap
   func.return %tokens, %count : buffer, i64
 }
 
-func.def public @text_end(%response: buffer, %previous: i64, %phase: i32) -> (i64) {
+func.def public @output_next(%response: buffer, %previous: i64, %state: i64, %phase: i32) -> (i64, i64, i64, i64) {
   %length = buffer.length %response
   %count = index.cast %length : offset to i64
-  func.return %count : i64
+  %content = scalar.constant 1 : i64
+  func.return %content, %previous, %count, %state : i64, i64, i64, i64
 }
 
-func.def public @complete_text(%prompt: buffer, %content: buffer, %tools: buffer) -> (buffer) {
+func.def public @complete_text(%prompt: buffer, %content: buffer, %reasoning: buffer, %tools: buffer, %initial_state: i64, %final_state: i64) -> (buffer, i32) {
   %result = func.call @join(%prompt, %content) : (buffer, buffer) -> (buffer)
-  func.return %result : buffer
+  %reusable = scalar.constant 1 : i32
+  func.return %result, %reusable : buffer, i32
 }
 
 func.def public @encode_state(%bindings: buffer, %count: i32, %origins: buffer) {
