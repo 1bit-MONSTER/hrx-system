@@ -18,6 +18,14 @@ package(
     licenses = ["notice"],
 )
 
+# ROCr's uninstrumented loader and event threads perform synchronization that
+# host TSan cannot attribute. Keep these concurrent loader tests enabled in
+# every other configuration.
+_CONCURRENT_ROCR_LOADER_TEST_TAGS = [
+    "iree-run-requirement=runtime.resource.amd_gpu",
+    "notsan",
+]
+
 loom_cc_test(
     name = "control_test",
     srcs = ["//loom/src/loom/serve/runtime/program:control_test.cc"],
@@ -27,7 +35,7 @@ loom_cc_test(
         "//loom/src/loom/serve/runtime/program:testdata/control/kernels.loom",
     ],
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
-    tags = ["iree-run-requirement=runtime.resource.amd_gpu"],
+    tags = _CONCURRENT_ROCR_LOADER_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
         "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
@@ -312,7 +320,7 @@ loom_cc_test(
         "//loom/src/loom/serve/runtime/program:testdata/jit/stage.loom",
     ],
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
-    tags = ["iree-run-requirement=runtime.resource.amd_gpu"],
+    tags = _CONCURRENT_ROCR_LOADER_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
         "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",

@@ -41,6 +41,7 @@ loom_cc_test(
     "--control_sources={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/control/kernels.loom}}"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
@@ -395,6 +396,7 @@ loom_cc_test(
     "--invalid_sources={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/compilation/invalid.loom}}"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
