@@ -1816,17 +1816,17 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @diverge
   %26 = v_mov_b32_copy %upper
   %inside_upper = v_cmp_lt_i32 %lane, %26
   %has_fallback = s_cmp_lg_i32 %fallback, %limit
-  %29 = s_and_b64 %lane_condition, %inside_upper
-  %30 = s_mov_b64_exec_read
-  %31 = slice %30[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %32 = slice %30[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %33 = s_mov_b32 0
-  %34 = s_cselect_b32 %31, %33, %has_fallback
-  %35 = s_cselect_b32 %32, %33, %has_fallback
-  %36 = concat(%34, %35) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %38 = s_xor_b64 %lane_condition, %30
-  %39 = s_and_b64 %38, %36
-  %selected_condition = s_or_b64 %29, %39
+  %29 = s_mov_b64_exec_read
+  %30 = s_xor_b64 %lane_condition, %29
+  %31 = s_and_b64 %lane_condition, %inside_upper
+  %33 = slice %29[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %34 = slice %29[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %35 = s_mov_b32 0
+  %36 = s_cselect_b32 %33, %35, %has_fallback
+  %37 = s_cselect_b32 %34, %35, %has_fallback
+  %38 = concat(%36, %37) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %39 = s_and_b64 %30, %38
+  %selected_condition = s_or_b64 %31, %39
   %result = v_cndmask_b32 %false_value, %true_value, %selected_condition
   return %result
 }

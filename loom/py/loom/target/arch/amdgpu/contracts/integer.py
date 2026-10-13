@@ -13,6 +13,8 @@ from loom.dialect.index import defs as index
 from loom.dialect.scalar import ALL_SCALAR_OPS
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.scalar import bitwise as scalar_bitwise
+from loom.dialect.scf import ALL_SCF_OPS
+from loom.dialect.scf import defs as scf
 from loom.dialect.vector import ALL_VECTOR_OPS
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
@@ -25,21 +27,25 @@ from loom.target.arch.amdgpu.contracts.materializers import (
     I32_VGPR_MATERIALIZER,
     I64_VGPR_MATERIALIZER,
 )
+from loom.target.arch.amdgpu.contracts.memory import BYTE_ADDRESSABLE_SCALAR_ELEMENTS
 from loom.target.arch.amdgpu.descriptors import build_amdgpu_contract_descriptor_set
 from loom.target.contracts import (
     AttrProject,
+    Buffer,
     ContractFragment,
     DescriptorEmitForm,
     DescriptorRule,
     EmitDescriptorOp,
     Guard,
     GuardDiagnostic,
+    RecipeRule,
     Scalar,
     TypePattern,
     ValueMaterializer,
     ValueProject,
     ValueRef,
     Vector,
+    View,
     descriptor_by_key,
 )
 from loom.target.low_descriptors import Descriptor
@@ -965,6 +971,55 @@ def _vector_predicate_select_rule() -> DescriptorRule:
                 form=DescriptorEmitForm.PER_LANE_SEQUENCE,
             ),
         ),
+    )
+
+
+def _whole_value_select_recipe_rules() -> tuple[RecipeRule, ...]:
+    """Selects one supported scalar, reference, or vector value."""
+
+    payload_types = (
+        Scalar(("i1", *BYTE_ADDRESSABLE_SCALAR_ELEMENTS)),
+        Buffer(),
+        View(BYTE_ADDRESSABLE_SCALAR_ELEMENTS),
+        _VECTOR_I1,
+        Vector(
+            ("i8", "f8E4M3", "f8E5M2"),
+            minimum_static_elements=1,
+            maximum_static_elements="LOOM_AMDGPU_MAX_PACKED_I8_LANES",
+        ),
+        Vector(
+            "i16",
+            minimum_static_elements=1,
+            maximum_static_elements="LOOM_AMDGPU_MAX_PACKED_I16_LANES",
+        ),
+        Vector(
+            ("f16", "bf16"),
+            minimum_static_elements=1,
+            maximum_static_elements="LOOM_AMDGPU_MAX_PACKED_16BIT_FLOAT_LANES",
+        ),
+        Vector(
+            ("i32", "f32"),
+            minimum_static_elements=1,
+            maximum_static_elements="LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES",
+        ),
+        Vector(
+            ("i64", "f64"),
+            minimum_static_elements=1,
+            maximum_static_elements=("(LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES / 2u)"),
+        ),
+    )
+    return tuple(
+        RecipeRule(
+            source_op=scf.scf_select,
+            guards=(
+                Guard.value_type("condition", _I1),
+                *(
+                    Guard.value_type(field, payload_type)
+                    for field in ("true_value", "false_value", "result")
+                ),
+            ),
+        )
+        for payload_type in payload_types
     )
 
 
@@ -2017,11 +2072,13 @@ def _rules() -> tuple[DescriptorRule, ...]:
         )
     )
     rules.append(_vector_predicate_select_rule())
+    rules.extend(_whole_value_select_recipe_rules())
     return tuple(rules)
 
 
 AMDGPU_INTEGER_CONTRACT_DIALECT_OPS = {
     "index": ALL_INDEX_OPS,
+    "scf": ALL_SCF_OPS,
     "scalar": ALL_SCALAR_OPS,
     "vector": ALL_VECTOR_OPS,
 }
