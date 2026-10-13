@@ -1,72 +1,73 @@
-// A complete wave32 exercises every subgroup scan direction and mode. The
-// fixed 32-lane launch makes the serial oracle independent of target wave size;
-// targets whose native subgroup scan requires a complete wave64 reject it.
+// The pair-balanced input has the same four prefix and suffix sums in every
+// even-width subgroup. A 128-workitem launch therefore exercises every lane
+// across the target's physical subgroup partition while a serial oracle can
+// evaluate the same raw results without knowing that partition.
 kernel.def @subgroup_scan_i32() {
   %unit = index.constant 1 : index
-  %items = index.constant 32 : index
+  %items = index.constant 128 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
 } launch(%input: buffer, %output: buffer) {
   %base = index.constant 0 : offset
-  %lane = kernel.subgroup.lane.id : index
-  %input_view = buffer.view %input[%base] : buffer -> view<32xi32>
-  %output_view = buffer.view %output[%base] : buffer -> view<32x4xi32>
-  %value = view.load %input_view[%lane] : view<32xi32> -> i32
+  %item = kernel.workitem.id<x> : index
+  %input_view = buffer.view %input[%base] : buffer -> view<128xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<128x4xi32>
+  %value = view.load %input_view[%item] : view<128xi32> -> i32
   %forward_inclusive = kernel.subgroup.scan<addi> %value {direction = forward, mode = inclusive} : i32
   %forward_exclusive = kernel.subgroup.scan<addi> %value {direction = forward, mode = exclusive} : i32
   %reverse_inclusive = kernel.subgroup.scan<addi> %value {direction = reverse, mode = inclusive} : i32
   %reverse_exclusive = kernel.subgroup.scan<addi> %value {direction = reverse, mode = exclusive} : i32
-  view.store %forward_inclusive, %output_view[%lane, 0] : i32, view<32x4xi32>
-  view.store %forward_exclusive, %output_view[%lane, 1] : i32, view<32x4xi32>
-  view.store %reverse_inclusive, %output_view[%lane, 2] : i32, view<32x4xi32>
-  view.store %reverse_exclusive, %output_view[%lane, 3] : i32, view<32x4xi32>
+  view.store %forward_inclusive, %output_view[%item, 0] : i32, view<128x4xi32>
+  view.store %forward_exclusive, %output_view[%item, 1] : i32, view<128x4xi32>
+  view.store %reverse_inclusive, %output_view[%item, 2] : i32, view<128x4xi32>
+  view.store %reverse_exclusive, %output_view[%item, 3] : i32, view<128x4xi32>
   kernel.return
 }
 
 func.def @subgroup_scan_i32_oracle(%input: buffer, %output: buffer) {
   %base = index.constant 0 : offset
   %begin = index.constant 0 : index
-  %end = index.constant 32 : index
+  %end = index.constant 128 : index
   %step = index.constant 1 : index
   %c0 = scalar.constant 0 : i32
-  %input_view = buffer.view %input[%base] : buffer -> view<32xi32>
-  %output_view = buffer.view %output[%base] : buffer -> view<32x4xi32>
-  scf.for %lane = [%begin to %end step %step] {
-    %next_lane = index.add %lane, %step : index
-    %forward_inclusive = scf.for %position = [%begin to %next_lane step %step](%sum = %c0 : i32) -> (i32) {
-      %value = view.load %input_view[%position] : view<32xi32> -> i32
+  %input_view = buffer.view %input[%base] : buffer -> view<128xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<128x4xi32>
+  scf.for %item = [%begin to %end step %step] {
+    %next_item = index.add %item, %step : index
+    %forward_inclusive = scf.for %position = [%begin to %next_item step %step](%sum = %c0 : i32) -> (i32) {
+      %value = view.load %input_view[%position] : view<128xi32> -> i32
       %next = scalar.addi %sum, %value : i32
       scf.yield %next : i32
     }
-    %forward_exclusive = scf.for %position = [%begin to %lane step %step](%sum = %c0 : i32) -> (i32) {
-      %value = view.load %input_view[%position] : view<32xi32> -> i32
+    %forward_exclusive = scf.for %position = [%begin to %item step %step](%sum = %c0 : i32) -> (i32) {
+      %value = view.load %input_view[%position] : view<128xi32> -> i32
       %next = scalar.addi %sum, %value : i32
       scf.yield %next : i32
     }
-    %reverse_inclusive = scf.for %position = [%lane to %end step %step](%sum = %c0 : i32) -> (i32) {
-      %value = view.load %input_view[%position] : view<32xi32> -> i32
+    %reverse_inclusive = scf.for %position = [%item to %end step %step](%sum = %c0 : i32) -> (i32) {
+      %value = view.load %input_view[%position] : view<128xi32> -> i32
       %next = scalar.addi %sum, %value : i32
       scf.yield %next : i32
     }
-    %reverse_exclusive = scf.for %position = [%next_lane to %end step %step](%sum = %c0 : i32) -> (i32) {
-      %value = view.load %input_view[%position] : view<32xi32> -> i32
+    %reverse_exclusive = scf.for %position = [%next_item to %end step %step](%sum = %c0 : i32) -> (i32) {
+      %value = view.load %input_view[%position] : view<128xi32> -> i32
       %next = scalar.addi %sum, %value : i32
       scf.yield %next : i32
     }
-    view.store %forward_inclusive, %output_view[%lane, 0] : i32, view<32x4xi32>
-    view.store %forward_exclusive, %output_view[%lane, 1] : i32, view<32x4xi32>
-    view.store %reverse_inclusive, %output_view[%lane, 2] : i32, view<32x4xi32>
-    view.store %reverse_exclusive, %output_view[%lane, 3] : i32, view<32x4xi32>
+    view.store %forward_inclusive, %output_view[%item, 0] : i32, view<128x4xi32>
+    view.store %forward_exclusive, %output_view[%item, 1] : i32, view<128x4xi32>
+    view.store %reverse_inclusive, %output_view[%item, 2] : i32, view<128x4xi32>
+    view.store %reverse_exclusive, %output_view[%item, 3] : i32, view<128x4xi32>
   }
   func.return
 }
 
 check.scenario @subgroup_scan_i32_values {
   check.trial[1](%trial: index, %entropy: check.entropy) {
-    %input = check.generate.iota offset(-16) step(3) : tensor<32xi32>
-    %output = check.generate.fill value(-1) : tensor<32x4xi32>
-    check.compare<@subgroup_scan_i32, @subgroup_scan_i32_oracle>(%input, %output) : (tensor<32xi32>, tensor<32x4xi32>) -> () {
-      check.expect.bitwise actual(%input) expected(%input) : tensor<32xi32>
-      check.expect.bitwise actual(%output) expected(%output) : tensor<32x4xi32>
+    %input = check.generate.iota offset(1) step(-2) period(2) : tensor<128xi32>
+    %output = check.generate.fill value(-559038737) : tensor<128x4xi32>
+    check.compare<@subgroup_scan_i32, @subgroup_scan_i32_oracle>(%input, %output) : (tensor<128xi32>, tensor<128x4xi32>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<128xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<128x4xi32>
     }
   }
   check.return
