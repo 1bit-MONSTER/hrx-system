@@ -333,6 +333,11 @@ def _generate_source(
     ) = _primary_descriptor_feature_classes(table)
     descriptor_refs = {key: index for index, key in enumerate(descriptor_ref_keys)}
     report_key_ordinals = {key: index + 1 for index, key in enumerate(report_keys)}
+    wide_report_keys = tuple(
+        (rule_index, report_key_ordinals[rule.report_key])
+        for rule_index, rule in enumerate(table.rules)
+        if rule.report_key and report_key_ordinals[rule.report_key] > lower_rule_rows.LOWER_RULE_REPORT_KEY_ORDINAL_MAX
+    )
     string_pool = _build_string_pool(
         table,
         report_keys=report_keys,
@@ -659,6 +664,15 @@ def _generate_source(
         )
     )
 
+    wide_report_keys_name = f"k{c_table_prefix}WideReportKeys"
+    lines.extend(
+        lower_rule_rows.emit_optional_array(
+            wide_report_keys_name,
+            "loom_low_lower_wide_report_key_t",
+            [lower_rule_rows.wide_report_key_row(rule_index, report_key_ordinal) for rule_index, report_key_ordinal in wide_report_keys],
+        )
+    )
+
     rules_name = f"k{c_table_prefix}Rules"
     rule_root_producer_closure_bits = _rule_root_producer_closure_bits(table)
     rule_root_producer_closure_bits_name = f"k{c_table_prefix}RuleRootProducerClosureBits"
@@ -722,6 +736,8 @@ def _generate_source(
             has_dynamic_primary_descriptor_features=(has_dynamic_primary_descriptor_features),
             report_keys=report_keys,
             report_keys_name=report_keys_name,
+            wide_report_keys=wide_report_keys,
+            wide_report_keys_name=wide_report_keys_name,
             type_patterns_name=type_patterns_name,
             type_pattern_ranges=type_pattern_ranges,
             type_pattern_ranges_name=type_pattern_ranges_name,
@@ -846,7 +862,7 @@ def _validate_c_table_shape(
     subject = f"lower-rule set '{table.name}'"
     _require_u16(len(table.spans), f"{subject} span count")
     _require_u16(len(table.rules), f"{subject} rule count")
-    _require_u8(len(_collect_report_keys(table)), f"{subject} report-key count")
+    _require_u16(len(_collect_report_keys(table)), f"{subject} report-key count")
     _require_u16(len(table.type_patterns), f"{subject} type-pattern count")
     _require_u16(len(table.value_refs), f"{subject} value-ref count")
     if len(table.source_nodes) > 1 << (16 - SOURCE_NODE_COUNT_BITS):
@@ -1581,11 +1597,18 @@ def _materializer_includes(table: ContractFragment) -> tuple[str, ...]:
 
 
 def _collect_report_keys(table: CompiledLowerRuleSet) -> tuple[str, ...]:
-    report_keys: list[str] = []
-    seen: set[str] = set()
+    report_key_counts: dict[str, int] = {}
     for rule in table.rules:
-        if not rule.report_key or rule.report_key in seen:
+        if not rule.report_key:
             continue
-        report_keys.append(rule.report_key)
-        seen.add(rule.report_key)
-    return tuple(report_keys)
+        report_key_counts[rule.report_key] = report_key_counts.get(rule.report_key, 0) + 1
+    report_keys = tuple(report_key_counts)
+    if len(report_keys) <= lower_rule_rows.LOWER_RULE_REPORT_KEY_ORDINAL_MAX:
+        return report_keys
+    first_ordinals = {key: index for index, key in enumerate(report_keys)}
+    return tuple(
+        sorted(
+            report_keys,
+            key=lambda key: (-report_key_counts[key], first_ordinals[key]),
+        )
+    )

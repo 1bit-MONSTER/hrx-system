@@ -153,6 +153,32 @@ static iree_status_t loom_low_lower_report_row_list_append(
   return iree_ok_status();
 }
 
+static uint16_t loom_low_lower_report_key_ordinal(
+    const loom_low_lower_rule_set_t* rule_set, uint16_t rule_index,
+    const loom_low_lower_rule_t* rule) {
+  if (rule->report_key_ordinal != LOOM_LOW_LOWER_RULE_REPORT_KEY_WIDE) {
+    return rule->report_key_ordinal;
+  }
+
+  uint16_t lower = 0;
+  uint16_t upper = rule_set->wide_report_key_count;
+  while (lower < upper) {
+    const uint16_t middle = lower + (upper - lower) / 2;
+    const uint16_t middle_rule_index =
+        rule_set->wide_report_keys[middle].rule_index;
+    if (middle_rule_index < rule_index) {
+      lower = middle + 1;
+    } else {
+      upper = middle;
+    }
+  }
+  IREE_ASSERT_LT(lower, rule_set->wide_report_key_count);
+  const loom_low_lower_wide_report_key_t* wide_report_key =
+      &rule_set->wide_report_keys[lower];
+  IREE_ASSERT_EQ(wide_report_key->rule_index, rule_index);
+  return wide_report_key->report_key_ordinal;
+}
+
 static iree_status_t loom_low_lower_report_prepare_selected_plan(
     loom_low_lower_context_t* context,
     const loom_low_lower_selected_plan_t* selected_plan) {
@@ -197,10 +223,11 @@ static iree_status_t loom_low_lower_report_prepare_selected_plan(
     row.rule_set_index = selected_plan->rule_set_index;
     row.rule_index = selected_plan->rule_index;
     row.plan_id = LOOM_LOW_LOWER_PLAN_ID_NONE;
-    if (selected_plan->rule->report_key_ordinal !=
-        LOOM_LOW_LOWER_RULE_REPORT_KEY_NONE) {
-      const uint16_t report_key_index =
-          selected_plan->rule->report_key_ordinal - 1u;
+    const uint16_t report_key_ordinal = loom_low_lower_report_key_ordinal(
+        selected_plan->rule_set, selected_plan->rule_index,
+        selected_plan->rule);
+    if (report_key_ordinal != LOOM_LOW_LOWER_RULE_REPORT_KEY_NONE) {
+      const uint16_t report_key_index = report_key_ordinal - 1u;
       IREE_ASSERT_LT(report_key_index,
                      selected_plan->rule_set->report_key_count);
       row.plan_key = loom_low_lower_rule_set_string(

@@ -1152,7 +1152,10 @@ typedef uint8_t loom_low_lower_rule_flags_t;
                                  << LOOM_LOW_LOWER_RULE_PRIORITY_SHIFT))
 
 // Rule row has no structured report key.
-#define LOOM_LOW_LOWER_RULE_REPORT_KEY_NONE ((uint16_t)0)
+#define LOOM_LOW_LOWER_RULE_REPORT_KEY_NONE ((uint8_t)0)
+
+// Rule report key uses the owning rule set's sparse wide-ordinal table.
+#define LOOM_LOW_LOWER_RULE_REPORT_KEY_WIDE ((uint8_t)UINT8_MAX)
 
 // Emission rule has no descriptor-bearing primary emit.
 #define LOOM_LOW_LOWER_RULE_PRIMARY_EMIT_NONE ((uint16_t)UINT16_MAX)
@@ -1199,8 +1202,7 @@ typedef struct loom_low_lower_rule_t {
       uint8_t elide_ref_count;
     } value;
   } metadata;
-  // One-based report-key table ordinal. Zero means the selected rule has no
-  // stable strategy key for compile reports.
+  // One-based report-key table ordinal, NONE, or WIDE for a sparse wide row.
   uint8_t report_key_ordinal;
   // Number of liveness-packed rule-local temporary slots.
   uint8_t temporary_count;
@@ -1211,6 +1213,17 @@ typedef struct loom_low_lower_rule_t {
 } loom_low_lower_rule_t;
 static_assert(sizeof(loom_low_lower_rule_t) == 14,
               "loom_low_lower_rule_t must be 14 bytes");
+
+// Sparse report-key ordinal for a rule whose ordinal does not fit its compact
+// rule row. Rows are sorted by rule_index for report-only binary search.
+typedef struct loom_low_lower_wide_report_key_t {
+  // Rule row using LOOM_LOW_LOWER_RULE_REPORT_KEY_WIDE.
+  uint16_t rule_index;
+  // One-based ordinal into the owning rule set's report-key string table.
+  uint16_t report_key_ordinal;
+} loom_low_lower_wide_report_key_t;
+static_assert(sizeof(loom_low_lower_wide_report_key_t) == 4,
+              "wide report-key rows must be 4 bytes");
 
 // Returns the authored contract priority retained in the rule row.
 static inline uint8_t loom_low_lower_rule_priority(
@@ -1305,6 +1318,10 @@ typedef struct loom_low_lower_rule_set_t {
   const loom_string_ref_t* report_key_string_refs;
   // Number of rows in report_key_string_refs.
   uint16_t report_key_count;
+  // Sparse wide report-key ordinals sorted by rule index.
+  const loom_low_lower_wide_report_key_t* wide_report_keys;
+  // Number of rows in wide_report_keys.
+  uint16_t wide_report_key_count;
   // Type-pattern rows referenced by guards.
   const loom_low_lower_type_pattern_t* type_patterns;
   // Number of rows in type_patterns.

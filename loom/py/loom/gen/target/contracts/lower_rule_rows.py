@@ -100,6 +100,7 @@ _GUARD_OTHER_VALUE_REF_KINDS = frozenset(
 
 _LOWER_RULE_FLAG_WIDE_PRIMARY_EMIT = 1 << 3
 _LOWER_RULE_PRIMARY_EMIT_ORDINAL_MAX = 0xFE
+LOWER_RULE_REPORT_KEY_ORDINAL_MAX = 0xFE
 
 _GUARD_NO_PAYLOAD_KINDS = frozenset(
     (
@@ -1060,10 +1061,11 @@ def rule_row(
     if flags:
         _append_field(fields, "flags", _rule_flags_c_expression(flags), always=True)
     if row.report_key:
+        report_key_ordinal = report_key_ordinals[row.report_key]
         _append_field(
             fields,
             "report_key_ordinal",
-            report_key_ordinals[row.report_key],
+            (report_key_ordinal if report_key_ordinal <= LOWER_RULE_REPORT_KEY_ORDINAL_MAX else "LOOM_LOW_LOWER_RULE_REPORT_KEY_WIDE"),
             always=True,
         )
     _append_field(fields, "temporary_count", row.temporary_count)
@@ -1115,6 +1117,15 @@ def rule_row(
     return fields
 
 
+def wide_report_key_row(rule_index: int, report_key_ordinal: int) -> list[str]:
+    """Emits one sparse wide report-key ordinal selected by rule index."""
+
+    return [
+        f".rule_index = {rule_index}",
+        f".report_key_ordinal = {report_key_ordinal}",
+    ]
+
+
 def span_row(row: LowerRuleSpan) -> list[str]:
     fields: list[str] = []
     _append_field(fields, "source_op_kind", lower_rule_spelling.op_c_name(row.source_op), always=True)
@@ -1138,6 +1149,8 @@ def rule_set_row(
     has_dynamic_primary_descriptor_features: bool,
     report_keys: tuple[str, ...],
     report_keys_name: str,
+    wide_report_keys: tuple[tuple[int, int], ...],
+    wide_report_keys_name: str,
     type_patterns_name: str,
     type_pattern_ranges: tuple[object, ...],
     type_pattern_ranges_name: str,
@@ -1210,6 +1223,12 @@ def rule_set_row(
         "report_key_string_refs",
         report_keys,
         report_keys_name,
+    )
+    _append_table_fields(
+        fields,
+        "wide_report_keys",
+        wide_report_keys,
+        wide_report_keys_name,
     )
     _append_table_fields(
         fields,
