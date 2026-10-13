@@ -853,26 +853,15 @@ static iree_status_t loom_vector_component_select(
       loom_value_for_each_use(result_value, use) {
         const loom_op_t* user_op = loom_use_user_op(*use);
         if (!loom_vector_slice_isa(user_op) ||
-            loom_vector_slice_source(user_op) != result ||
-            loom_vector_slice_offsets(user_op).count == 0) {
+            loom_vector_slice_source(user_op) != result) {
           continue;
         }
-        const loom_type_t source_type =
-            loom_module_value_type(plan->context->module, result);
-        const loom_type_t window_type = loom_module_value_type(
-            plan->context->module, loom_vector_slice_result(user_op));
-        if (loom_type_rank(source_type) != 1 ||
-            loom_type_rank(window_type) != 1 ||
-            !loom_type_is_all_static(source_type) ||
-            !loom_type_is_all_static(window_type)) {
-          continue;
-        }
-        loom_target_contract_query_result_t window_result =
-            loom_target_contract_query_result_empty();
-        IREE_RETURN_IF_ERROR(loom_target_legalization_query_contract(
-            plan->context, user_op, &window_result));
-        if (window_result.outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL &&
-            window_result.outcome != LOOM_TARGET_CONTRACT_QUERY_INVALID_IR) {
+        bool dynamic_window_owns_consumer_chain = false;
+        IREE_RETURN_IF_ERROR(
+            loom_vector_packet_dynamic_window_owns_consumer_chain(
+                plan->context, policy, user_op,
+                &dynamic_window_owns_consumer_chain));
+        if (dynamic_window_owns_consumer_chain) {
           return iree_ok_status();
         }
       }

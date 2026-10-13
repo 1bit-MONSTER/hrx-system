@@ -46,6 +46,14 @@ typedef struct loom_vector_packet_consumer_materializer_t {
                                loom_value_id_t* out_result);
 } loom_vector_packet_consumer_materializer_t;
 
+// Returns whether a rejected dynamic window must retain its direct consumer
+// chain so packet replay can fuse eligible consumers at runtime-selected
+// origins. Invalid or target-legal windows do not claim the chain.
+iree_status_t loom_vector_packet_dynamic_window_owns_consumer_chain(
+    loom_target_legalization_context_t* context,
+    const loom_target_vector_packet_policy_t* policy, const loom_op_t* op,
+    bool* out_owns_consumer_chain);
+
 // Packetizes a static rank-one scalar insertion whose result spans more than
 // one target-native packet. Static insertion updates only the owning packet.
 // Dynamic insertion builds one native candidate per packet and selects the

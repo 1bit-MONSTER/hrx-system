@@ -635,17 +635,37 @@ static iree_status_t loom_vector_packet_legalize_dynamic_snapshot(
   return iree_ok_status();
 }
 
-iree_status_t loom_vector_packet_legalize_dynamic_slice(
-    loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_target_vector_packet_policy_t* policy,
-    const loom_vector_packet_consumer_materializer_t* consumer_materializer,
-    bool* out_rewritten) {
-  *out_rewritten = false;
-  if (!iree_any_bit_set(
+typedef struct loom_vector_packet_dynamic_window_t {
+  // Authored aggregate selected at a runtime origin.
+  loom_value_id_t source;
+  // Runtime leading-axis origin.
+  loom_value_id_t dynamic_offset;
+  // Static source vector type.
+  loom_type_t source_type;
+  // Static result vector type.
+  loom_type_t result_type;
+  // Number of lanes in |source_type|.
+  uint32_t source_lane_count;
+  // Number of lanes in |result_type|.
+  uint32_t result_lane_count;
+  // Widest policy packet admitted for |source_type|.
+  uint32_t maximum_chunk_lane_count;
+} loom_vector_packet_dynamic_window_t;
+
+// Describes the dynamic-window family implemented by packet replay. Keeping
+// this shared between planning and materialization prevents either phase from
+// claiming a producer chain that the other cannot lower.
+static bool loom_vector_packet_dynamic_window_describe(
+    const loom_target_legalization_context_t* context,
+    const loom_target_vector_packet_policy_t* policy, const loom_op_t* op,
+    loom_vector_packet_dynamic_window_t* out_window) {
+  *out_window = (loom_vector_packet_dynamic_window_t){0};
+  if (policy == NULL ||
+      !iree_any_bit_set(
           policy->flags,
           LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_DYNAMIC_WINDOW_REPLAY) ||
       !loom_vector_slice_isa(op)) {
-    return iree_ok_status();
+    return false;
   }
 
   const loom_value_slice_t offsets = loom_vector_slice_offsets(op);
@@ -657,7 +677,7 @@ iree_status_t loom_vector_packet_legalize_dynamic_slice(
       loom_module_value_type(context->module, loom_vector_slice_result(op));
   uint32_t source_lane_count = 0;
   uint32_t result_lane_count = 0;
-  uint32_t chunk_lane_count = 0;
+  uint32_t maximum_chunk_lane_count = 0;
   if (offsets.count != 1 || static_offsets.kind != LOOM_ATTR_I64_ARRAY ||
       static_offsets.count != 1 || static_offsets.i64_array[0] != INT64_MIN ||
       !loom_type_element_type_equals(source_type, result_type) ||
@@ -665,9 +685,61 @@ iree_status_t loom_vector_packet_legalize_dynamic_slice(
       !loom_vector_packet_static_lane_count(result_type, &result_lane_count) ||
       result_lane_count >= source_lane_count ||
       !loom_vector_packet_maximum_chunk_lane_count(policy, source_type,
-                                                   &chunk_lane_count)) {
+                                                   &maximum_chunk_lane_count)) {
+    return false;
+  }
+
+  *out_window = (loom_vector_packet_dynamic_window_t){
+      .source = source,
+      .dynamic_offset = offsets.values[0],
+      .source_type = source_type,
+      .result_type = result_type,
+      .source_lane_count = source_lane_count,
+      .result_lane_count = result_lane_count,
+      .maximum_chunk_lane_count = maximum_chunk_lane_count,
+  };
+  return true;
+}
+
+iree_status_t loom_vector_packet_dynamic_window_owns_consumer_chain(
+    loom_target_legalization_context_t* context,
+    const loom_target_vector_packet_policy_t* policy, const loom_op_t* op,
+    bool* out_owns_consumer_chain) {
+  *out_owns_consumer_chain = false;
+  loom_vector_packet_dynamic_window_t window = {0};
+  if (!loom_vector_packet_dynamic_window_describe(context, policy, op,
+                                                  &window)) {
     return iree_ok_status();
   }
+
+  loom_target_contract_query_result_t query_result =
+      loom_target_contract_query_result_empty();
+  IREE_RETURN_IF_ERROR(
+      loom_target_legalization_query_contract(context, op, &query_result));
+  *out_owns_consumer_chain =
+      query_result.outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL &&
+      query_result.outcome != LOOM_TARGET_CONTRACT_QUERY_INVALID_IR;
+  return iree_ok_status();
+}
+
+iree_status_t loom_vector_packet_legalize_dynamic_slice(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    const loom_target_vector_packet_policy_t* policy,
+    const loom_vector_packet_consumer_materializer_t* consumer_materializer,
+    bool* out_rewritten) {
+  *out_rewritten = false;
+  loom_vector_packet_dynamic_window_t window = {0};
+  if (!loom_vector_packet_dynamic_window_describe(context, policy, op,
+                                                  &window)) {
+    return iree_ok_status();
+  }
+
+  const loom_value_id_t source = window.source;
+  const loom_type_t source_type = window.source_type;
+  const loom_type_t result_type = window.result_type;
+  const uint32_t source_lane_count = window.source_lane_count;
+  const uint32_t result_lane_count = window.result_lane_count;
+  uint32_t chunk_lane_count = window.maximum_chunk_lane_count;
 
   loom_op_t* consumers[LOOM_VECTOR_PACKET_DYNAMIC_WINDOW_OP_LIMIT] = {0};
   loom_vector_packet_consumer_branch_t
@@ -735,7 +807,7 @@ iree_status_t loom_vector_packet_legalize_dynamic_slice(
   }
   if (loom_vector_packet_has_snapshots(&packetization)) {
     return loom_vector_packet_legalize_dynamic_snapshot(
-        &packetization, op, offsets.values[0], &source_shape, &result_shape,
+        &packetization, op, window.dynamic_offset, &source_shape, &result_shape,
         consumers, consumer_branches, consumer_count, consumer_branch_count,
         consumer_materializer, out_rewritten);
   }
@@ -761,7 +833,7 @@ iree_status_t loom_vector_packet_legalize_dynamic_slice(
   for (uint32_t chunk_index = 0; chunk_index < result_shape.chunk_count;
        ++chunk_index) {
     const uint32_t packet_offset = chunk_index * result_shape.chunk_lane_count;
-    loom_value_id_t dynamic_offset = offsets.values[0];
+    loom_value_id_t dynamic_offset = window.dynamic_offset;
     if (packet_offset != 0) {
       loom_op_t* packet_offset_op = NULL;
       IREE_RETURN_IF_ERROR(loom_index_constant_build(

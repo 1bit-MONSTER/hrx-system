@@ -18,6 +18,7 @@
 #include "loom/ops/vector/combining.h"
 #include "loom/ops/vector/memory.h"
 #include "loom/ops/vector/ops.h"
+#include "loom/transforms/vector/packet_legalization.h"
 #include "loom/util/fact_vector_partition.h"
 
 static uint32_t loom_vector_packet_structural_lane_limit(
@@ -820,6 +821,14 @@ iree_status_t loom_vector_packet_select_value_shape(
       if (!iree_any_bit_set(
               packetization->selection_flags,
               LOOM_VECTOR_PACKET_SELECTION_FLAG_CAPTURE_NON_DECOMPOSABLE)) {
+        return iree_ok_status();
+      }
+      bool dynamic_window_owns_consumer_chain = false;
+      IREE_RETURN_IF_ERROR(
+          loom_vector_packet_dynamic_window_owns_consumer_chain(
+              packetization->context, packetization->policy, op,
+              &dynamic_window_owns_consumer_chain));
+      if (dynamic_window_owns_consumer_chain) {
         return iree_ok_status();
       }
       return loom_vector_packet_record_captured(packetization, source,
