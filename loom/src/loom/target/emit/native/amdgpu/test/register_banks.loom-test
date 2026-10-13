@@ -1,0 +1,161 @@
+// SrcA and SrcB have independent bank bits; SrcC and the result share one.
+// RUN: emit amdgpu-native-words @matrix_bank_combinations strategy=source waits=none
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @matrix_bank_combinations(%vlhs: reg<amdgpu.vgpr>, %vrhs: reg<amdgpu.vgpr>, %alhs: reg<amdgpu.agpr>, %arhs: reg<amdgpu.agpr>, %vacc: reg<amdgpu.vgpr x4>, %aacc: reg<amdgpu.agpr x4>) -> (reg<amdgpu.vgpr x4>, reg<amdgpu.agpr x4>) asm {
+  %v0 = v_mfma_f32_16x16x4f32 %vlhs, %vrhs, %vacc
+  %v1 = v_mfma_f32_16x16x4f32 %alhs, %vrhs, %v0
+  %v2 = v_mfma_f32_16x16x4f32 %vlhs, %arhs, %v1
+  %v3 = v_mfma_f32_16x16x4f32 %alhs, %arhs, %v2
+  %a0 = v_mfma_f32_16x16x4f32 %vlhs, %vrhs, %aacc
+  %a1 = v_mfma_f32_16x16x4f32 %alhs, %vrhs, %a0
+  %a2 = v_mfma_f32_16x16x4f32 %vlhs, %arhs, %a1
+  %a3 = v_mfma_f32_16x16x4f32 %alhs, %arhs, %a2
+  return %v3, %a3
+}
+
+// ----
+0xD3C50000
+0x04020905
+0xD3C50000
+0x0C020904
+0xD3C50000
+0x14020B05
+0xD3C50000
+0x1C020B04
+0xD3C58000
+0x04020905
+0xD3C58000
+0x0C020904
+0xD3C58000
+0x14020B05
+0xD3C58000
+0x1C020B04
+0xBF810000
+
+// ====
+
+// RUN: emit amdgpu-native-words @double_accumulators strategy=source waits=none
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @double_accumulators(%lhs: reg<amdgpu.agpr x2>, %rhs: reg<amdgpu.agpr x2>, %acc: reg<amdgpu.agpr x2>) -> (reg<amdgpu.agpr x2>) asm {
+  %result = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  return %result
+}
+
+// ----
+0xD3EF8004
+0x1C120500
+0xBF810000
+
+// ====
+
+// Bank bits are independent of the high register-index bits.
+// RUN: emit amdgpu-native-words @high_accumulators strategy=source waits=none fixed=%lhs:physical_register:254:2 fixed=%rhs:physical_register:254:2 fixed=%acc:physical_register:252:2 fixed=%result:physical_register:252:2
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @high_accumulators(%lhs: reg<amdgpu.agpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.agpr x2>) -> (reg<amdgpu.agpr x2>) asm {
+  %result = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  return %result
+}
+
+// ----
+0xD3EF80FC
+0x0FF3FDFE
+0xBF810000
+
+// ====
+
+// RUN: emit amdgpu-native-words @sparse_accumulators strategy=source waits=none
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @sparse_accumulators(%lhs: reg<amdgpu.agpr x2>, %rhs: reg<amdgpu.agpr x4>, %acc: reg<amdgpu.agpr x4>, %index: reg<amdgpu.vgpr>) -> (reg<amdgpu.agpr x4>) asm {
+  %result = v_smfmac_f32_16x16x32_bf16 %acc, %lhs, %rhs, %index
+  return %result
+}
+
+// ----
+0xD3E68008
+0x1C020900
+0xBF810000
+
+// ====
+
+// RUN: emit amdgpu-native-words @scaled_accumulators strategy=source waits=none
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @scaled_accumulators(%lhs: reg<amdgpu.agpr x4>, %rhs: reg<amdgpu.agpr x4>, %acc: reg<amdgpu.agpr x4>, %scale_a: reg<amdgpu.vgpr>, %scale_b: reg<amdgpu.vgpr>) -> (reg<amdgpu.agpr x4>) asm {
+  %result = v_mfma_scale_f32_16x16x128_f8f6f4_f4_f4 %lhs, %rhs, %acc, %scale_a, %scale_b {matrix_a_fmt = "fp4", matrix_b_fmt = "fp4"}
+  return %result
+}
+
+// ----
+0xD3AC0000
+0x00020300
+0xD3AD8C08
+0x9C220900
+0xBF810000
+
+// ====
+
+// The compare pair and result have different tuple sizes but the same bank.
+// RUN: emit amdgpu-native-words @flat_accumulators strategy=source waits=none
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @flat_accumulators(%address: reg<amdgpu.vgpr x2>, %pair: reg<amdgpu.agpr x4>) -> (reg<amdgpu.agpr x2>) asm {
+  %byte = flat_load_ubyte %address {offset = 1} : reg<amdgpu.agpr>
+  %short = flat_load_ushort %address {offset = 2} : reg<amdgpu.agpr>
+  %wide = flat_load_dwordx4 %address {offset = 16} : reg<amdgpu.agpr x4>
+  flat_store_byte %address, %byte {offset = 32}
+  flat_store_short %address, %short {offset = 34}
+  flat_store_dwordx4 %address, %wide {offset = 48}
+  %result = flat_atomic_cmpswap_x2_rtn %address, %pair : reg<amdgpu.agpr x2>
+  return %result
+}
+
+// ----
+0xDC400001
+0x04800000
+0xDC480002
+0x05800000
+0xDC5C0010
+0x08800000
+0xDC600020
+0x00800400
+0xDC680022
+0x00800500
+0xDC7C0030
+0x00800800
+0xDD850000
+0x00800000
+0xBF810000
+
+// ====
+
+// RUN: verify
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @reject_vector_result(%address: reg<amdgpu.vgpr x2>, %pair: reg<amdgpu.agpr x4>) -> (reg<amdgpu.vgpr x2>) asm {
+  // ERROR@+1: TYPE/018 {field_a="dst", type_a="reg<amdgpu.vgpr x2>", field_b="value", type_b="reg<amdgpu.agpr x4>"}
+  %result = flat_atomic_cmpswap_x2_rtn %address, %pair : reg<amdgpu.vgpr x2>
+  return %result
+}
+
+// ====
+
+// RUN: verify
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @reject_accumulator_result(%address: reg<amdgpu.vgpr x2>, %pair: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.agpr x2>) asm {
+  // ERROR@+1: TYPE/018 {field_a="dst", type_a="reg<amdgpu.agpr x2>", field_b="value", type_b="reg<amdgpu.vgpr x4>"}
+  %result = flat_atomic_cmpswap_x2_rtn %address, %pair : reg<amdgpu.agpr x2>
+  return %result
+}

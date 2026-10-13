@@ -45,6 +45,7 @@ from loom.target.arch.amdgpu.encoding import (  # noqa: E402
     AMDGPU_GFX125X_VOP3_SCALE_SEL_BIT_OFFSET,
     AMDGPU_VOP3_ENCODING_FORMAT_NAMES,
     amdgpu_encoding_field_name,
+    amdgpu_register_encoding_adapter_field,
     amdgpu_supplemental_encoding_format_names,
 )
 from loom.target.arch.amdgpu.isa_xml import (  # noqa: E402
@@ -582,6 +583,7 @@ def _compile_formats(
 def _descriptor_encoding_field_names(descriptor: Descriptor) -> set[str]:
     field_names = {"OP"}
     field_names.update(amdgpu_encoding_field_name(operand.encoding_field_id) for operand in descriptor.operands if operand.encoding_field_id != 0)
+    field_names.update(amdgpu_register_encoding_adapter_field(operand.encoding_adapter_id) for operand in descriptor.operands if operand.encoding_adapter_id != 0)
     for immediate in descriptor.immediates:
         if immediate.encoding_field_id != 0:
             field_names.add(amdgpu_encoding_field_name(immediate.encoding_field_id))

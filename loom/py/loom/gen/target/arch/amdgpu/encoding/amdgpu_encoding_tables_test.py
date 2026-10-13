@@ -19,8 +19,12 @@ from loom.gen.target.arch.amdgpu.encoding.amdgpu_encoding_tables import (
     _replace_encoding_fields,
     _with_vop3_unused_source_defaults,
 )
+from loom.target.arch.amdgpu.encoding import (
+    AmdgpuRegisterEncodingAdapter,
+    amdgpu_encoding_field_id,
+)
 from loom.target.arch.amdgpu.isa_xml import AmdgpuIsaEncoding
-from loom.target.low_descriptors import Descriptor
+from loom.target.low_descriptors import Descriptor, Operand, OperandRole, RegClassAlt
 
 
 def _encoding_contract(*descriptor_keys: str) -> _EncodingContract:
@@ -91,6 +95,33 @@ def test_identifier_seed_ignores_fields_written_during_packing() -> None:
 
     assert first_seed == 0xD3800000
     assert second_seed == first_seed
+
+
+def test_descriptor_encoding_contract_includes_register_bank_fields() -> None:
+    descriptor = Descriptor(
+        key="amdgpu.test.banked_matrix",
+        mnemonic="test",
+        semantic_tag=None,
+        operands=tuple(
+            Operand(
+                name.lower(),
+                OperandRole.RESULT if name == "VDST" else OperandRole.OPERAND,
+                (RegClassAlt("amdgpu.vgpr"), RegClassAlt("amdgpu.agpr")),
+                encoding_field_id=amdgpu_encoding_field_id(name),
+                encoding_adapter_id=adapter,
+            )
+            for name, adapter in (
+                ("VDST", AmdgpuRegisterEncodingAdapter.ACC_CD),
+                ("SRC0", AmdgpuRegisterEncodingAdapter.ACC0),
+                ("SRC1", AmdgpuRegisterEncodingAdapter.ACC1),
+            )
+        ),
+        schedule_class="test",
+        encoding_format_id=1,
+        encoding_id=1,
+    )
+
+    assert _descriptor_encoding_field_names(descriptor) == {"OP", "VDST", "SRC0", "SRC1", "ACC", "ACC_CD"}
 
 
 def test_identifier_seed_retains_unwritten_format_bits() -> None:

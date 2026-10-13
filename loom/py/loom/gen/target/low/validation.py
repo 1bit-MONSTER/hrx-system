@@ -1698,6 +1698,7 @@ def validate_descriptor_constraints(
         elif constraint.kind in (
             ConstraintKind.SAME_REGISTER_ORDINAL,
             ConstraintKind.SAME_REGISTER_VALUE_TYPE,
+            ConstraintKind.SAME_REGISTER_CLASS,
         ):
             constraint_name = constraint.kind.name.lower().replace("_", "-")
             rhs_operand_index = _validate_binary_constraint(

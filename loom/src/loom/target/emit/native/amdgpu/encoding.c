@@ -411,7 +411,8 @@ static iree_status_t loom_amdgpu_assignment_field_value(
     *out_value = assignment->location_base;
     return iree_ok_status();
   }
-  if (assignment->descriptor_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR) {
+  if (assignment->descriptor_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR ||
+      operand->encoding_adapter_id != LOOM_AMDGPU_REGISTER_ENCODING_DIRECT) {
     *out_value = loom_amdgpu_assignment_vgpr_low_register(assignment, operand);
     if (loom_amdgpu_encoding_field_uses_unified_source(
             operand->encoding_field_id)) {
@@ -1406,6 +1407,17 @@ static iree_status_t loom_amdgpu_encode_generic_descriptor_packet(
         loom_amdgpu_assignment_field_value(state, assignment, operand, &value));
     loom_amdgpu_push_encoding_field_value(field_values, &field_value_count,
                                           operand->encoding_field_id, value);
+    if (operand->encoding_adapter_id != LOOM_AMDGPU_REGISTER_ENCODING_DIRECT &&
+        assignment->descriptor_reg_class_id != LOOM_AMDGPU_REG_CLASS_ID_VGPR) {
+      const uint16_t adapter = operand->encoding_adapter_id;
+      const bool accumulator_pair =
+          adapter == LOOM_AMDGPU_REGISTER_ENCODING_ACC_CD;
+      loom_amdgpu_merge_encoding_field_bits(
+          field_values, &field_value_count,
+          accumulator_pair ? LOOM_AMDGPU_ENCODING_FIELD_ACC_CD
+                           : LOOM_AMDGPU_ENCODING_FIELD_ACC,
+          accumulator_pair ? 1 : adapter);
+    }
   }
 
   for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {

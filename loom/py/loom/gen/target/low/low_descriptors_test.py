@@ -2570,28 +2570,30 @@ def test_generator_accepts_exact_type_for_same_register_value_type_result() -> N
     assert "LOOM_LOW_ASM_RESULT_TYPE_KIND_SCALAR" in generated.source
 
 
-def test_generator_accepts_same_register_value_type_between_operands() -> None:
+@pytest.mark.parametrize("kind", [ConstraintKind.SAME_REGISTER_VALUE_TYPE, ConstraintKind.SAME_REGISTER_CLASS])
+def test_generator_accepts_register_type_relation_between_operands(kind: ConstraintKind) -> None:
     descriptor = replace(
         TEST_LOW_ADD_I32_DESCRIPTOR,
-        constraints=(Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 1, 2),),
+        constraints=(Constraint(kind, 1, 2),),
     )
     descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,))
 
     generated = generate_descriptor_set(descriptor_set)
 
-    assert "LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE" in generated.source
+    assert kind.value in generated.source
 
 
-def test_generator_rejects_same_register_value_type_without_rhs() -> None:
+@pytest.mark.parametrize("kind", [ConstraintKind.SAME_REGISTER_VALUE_TYPE, ConstraintKind.SAME_REGISTER_CLASS])
+def test_generator_rejects_register_type_relation_without_rhs(kind: ConstraintKind) -> None:
     descriptor = replace(
         TEST_LOW_ADD_I32_DESCRIPTOR,
-        constraints=(Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 0),),
+        constraints=(Constraint(kind, 0),),
     )
     descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,))
 
     with pytest.raises(
         ValueError,
-        match=re.escape("descriptor 'test.add.i32' same-register-value-type constraint 0 requires an rhs operand"),
+        match=re.escape(f"descriptor 'test.add.i32' {kind.name.lower().replace('_', '-')} constraint 0 requires an rhs operand"),
     ):
         generate_descriptor_set(descriptor_set)
 

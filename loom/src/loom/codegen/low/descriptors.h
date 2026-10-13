@@ -349,6 +349,9 @@ typedef enum loom_low_constraint_kind_e {
   // Two register values carry the same semantic value type. Their carrier
   // classes and storage remain independent.
   LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE = 8,
+  // Two register values use the same carrier class. Their tuple sizes,
+  // semantic value types, and assigned storage remain independent.
+  LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_CLASS = 9,
 } loom_low_constraint_kind_t;
 
 // Bitset of descriptor constraint flags.

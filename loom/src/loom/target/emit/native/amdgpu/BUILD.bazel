@@ -181,6 +181,7 @@ loom_check_test_suite(
         "test/packet.loom-test",
         "test/packet_json.loom-test",
         "test/permlane_swap.loom-test",
+        "test/register_banks.loom-test",
         "test/register_numbering.loom-test",
         "test/shift_allocation.loom-test",
         "test/spill_lowering.loom-test",

@@ -149,6 +149,8 @@ iree_string_view_t loom_low_constraint_kind_name(
       return IREE_SV("same_register_ordinal");
     case LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE:
       return IREE_SV("same_register_value_type");
+    case LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_CLASS:
+      return IREE_SV("same_register_class");
     default:
       return IREE_SV("unknown");
   }
