@@ -333,10 +333,20 @@ iree_runtime_cc_library(
     ],
 )
 
+# These tests implement libamdf's native queue wake protocol, which uses an
+# eventfd or Win32 Event rather than the pipe events used by other platforms.
+_NATIVE_QUEUE_TEST_PLATFORMS = select({
+    "@platforms//os:android": [],
+    "@platforms//os:linux": [],
+    "@platforms//os:windows": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
 iree_runtime_cc_library(
     name = "queue_test_util",
     testonly = True,
     hdrs = ["testing/queue_test_util.h"],
+    target_compatible_with = _NATIVE_QUEUE_TEST_PLATFORMS,
     deps = [
         ":device",
         ":memory",
@@ -361,6 +371,7 @@ iree_runtime_cc_library(
 iree_runtime_cc_test(
     name = "queue_test",
     srcs = ["queue_test.cc"],
+    target_compatible_with = _NATIVE_QUEUE_TEST_PLATFORMS,
     deps = [
         ":device",
         ":memory",
@@ -386,6 +397,7 @@ iree_runtime_cc_test(
 iree_runtime_cc_test(
     name = "command_buffer_test",
     srcs = ["command_buffer_test.cc"],
+    target_compatible_with = _NATIVE_QUEUE_TEST_PLATFORMS,
     deps = [
         ":queue_test_util",
         ":semaphore",
@@ -401,6 +413,7 @@ iree_runtime_cc_test(
 iree_runtime_cc_test(
     name = "profile_test",
     srcs = ["profile_test.cc"],
+    target_compatible_with = _NATIVE_QUEUE_TEST_PLATFORMS,
     deps = [
         ":queue_test_util",
         "//runtime/src/iree/base",

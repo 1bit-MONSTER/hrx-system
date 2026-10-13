@@ -11,8 +11,6 @@
 namespace iree::hal::amd::xdna::testing {
 namespace {
 
-#if defined(IREE_ASYNC_HAVE_EVENTFD) || defined(IREE_ASYNC_HAVE_WIN32_HANDLE)
-
 struct ProfileSink {
   // HAL sink resource, kept on the test stack through session end.
   iree_hal_resource_t resource;
@@ -277,8 +275,6 @@ TEST(XdnaProfileTest, BoundedRingRetriesWritesAndAllowsProgressInsideSink) {
   IREE_ASSERT_OK(iree_hal_device_profiling_end(harness.device));
   EXPECT_EQ(sink.ends, 2);
 }
-
-#endif
 
 }  // namespace
 }  // namespace iree::hal::amd::xdna::testing

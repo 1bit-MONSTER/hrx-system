@@ -9,8 +9,6 @@
 namespace iree::hal::amd::xdna::testing {
 namespace {
 
-#if defined(IREE_ASYNC_HAVE_EVENTFD) || defined(IREE_ASYNC_HAVE_WIN32_HANDLE)
-
 void RecordDispatches(QueueHarness& harness, iree_host_size_t count,
                       iree_hal_command_buffer_t** out_command_buffer) {
   iree_hal_executable_t* executable = nullptr;
@@ -302,8 +300,6 @@ TEST(XdnaCommandBufferDeathTest,
      UnobservablePrefixRetainsRecordingAndDoesNotIssueSuffix) {
   EXPECT_EXIT(AbandonWindowedRecording(), ::testing::ExitedWithCode(0), "");
 }
-
-#endif
 
 }  // namespace
 }  // namespace iree::hal::amd::xdna::testing

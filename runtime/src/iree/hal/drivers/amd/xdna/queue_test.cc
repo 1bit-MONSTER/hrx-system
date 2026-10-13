@@ -34,8 +34,6 @@
 
 namespace {
 
-#if defined(IREE_ASYNC_HAVE_EVENTFD) || defined(IREE_ASYNC_HAVE_WIN32_HANDLE)
-
 using iree::hal::amd::xdna::testing::DirectBufferBindingLayout;
 using iree::hal::amd::xdna::testing::ExpectHostAllocationsUnchanged;
 using iree::hal::amd::xdna::testing::HostAllocationCounters;
@@ -2133,7 +2131,5 @@ TEST(XdnaQueueDeathTest, BusyNativeDestroyPreservesParent) {
   EXPECT_EXIT(RunBusyNativeDestroyPreservesParentChild(),
               ::testing::ExitedWithCode(0), "");
 }
-
-#endif  // IREE_ASYNC_HAVE_EVENTFD || IREE_ASYNC_HAVE_WIN32_HANDLE
 
 }  // namespace

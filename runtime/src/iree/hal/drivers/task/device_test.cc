@@ -15,8 +15,6 @@
 
 namespace {
 
-#if defined(IREE_PLATFORM_LINUX) || defined(IREE_PLATFORM_WINDOWS) || \
-    defined(IREE_PLATFORM_APPLE)
 class TaskDeviceLocalityTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -27,6 +25,10 @@ class TaskDeviceLocalityTest : public ::testing::Test {
     iree_task_topology_t topology;
     IREE_ASSERT_OK(iree_task_topology_initialize_from_thread_affinities(
         1, &affinity, &topology));
+    if (iree_task_topology_query_numa_node(&topology) == IREE_NUMA_NODE_ANY) {
+      iree_task_topology_deinitialize(&topology);
+      GTEST_SKIP() << "The task topology cannot resolve a physical NUMA node";
+    }
     iree_task_executor_options_t options;
     iree_task_executor_options_initialize(&options);
     iree_status_t status = iree_task_executor_create(
@@ -201,6 +203,4 @@ TEST_F(TaskDeviceLocalityTest, MissingBoundServiceFailsConstruction) {
                         CreateDevice(IREE_ARRAYSIZE(nodes), nodes));
   EXPECT_EQ(device_, nullptr);
 }
-#endif  // Native thread affinity platforms.
-
 }  // namespace
