@@ -60,6 +60,15 @@ iree_status_t loom_low_build_resolved_descriptor_const(
     const loom_low_descriptor_t* descriptor, loom_named_attr_slice_t attrs,
     loom_type_t result_type, loom_location_id_t location, loom_op_t** out_op);
 
+// Emits a descriptor-backed low.op.cond_br with semantic CFG successors,
+// resolving named enum immediates as for other descriptor packets.
+iree_status_t loom_low_build_resolved_descriptor_cond_br(
+    loom_builder_t* builder, const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_descriptor_t* descriptor, const loom_value_id_t* operands,
+    iree_host_size_t operand_count, loom_named_attr_slice_t attrs,
+    loom_block_t* true_dest, loom_block_t* false_dest,
+    loom_location_id_t location, loom_op_t** out_op);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

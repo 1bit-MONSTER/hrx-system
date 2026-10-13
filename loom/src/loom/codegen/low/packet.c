@@ -36,6 +36,15 @@ bool loom_low_packet_try_op_attrs(const loom_op_t* op,
     }
     return true;
   }
+  if (loom_low_op_cond_br_isa(op)) {
+    if (out_attrs != NULL) {
+      *out_attrs = loom_low_op_cond_br_attrs(op);
+    }
+    if (out_attrs_attr_index != NULL) {
+      *out_attrs_attr_index = loom_low_op_cond_br_attrs_diagnostic_ref().index;
+    }
+    return true;
+  }
   return false;
 }
 

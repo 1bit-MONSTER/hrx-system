@@ -12,6 +12,7 @@
 #include "loom/analysis/symbol_facts.h"
 #include "loom/codegen/low/builder.h"
 #include "loom/codegen/low/descriptor_traits.h"
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/codegen/low/target_binding.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
@@ -139,7 +140,7 @@ static bool loom_low_representation_count_op(
       !loom_low_representation_count_add(op->operand_count, value_count)) {
     return false;
   }
-  if (loom_low_op_isa(op) || loom_low_const_isa(op)) {
+  if (loom_low_descriptor_packet_kind(op) != LOOM_LOW_DESCRIPTOR_PACKET_NONE) {
     if (!loom_low_representation_count_add(1, descriptor_count)) {
       return false;
     }
@@ -327,12 +328,12 @@ static iree_status_t loom_low_representation_plan_op(
           module, projection, arguments.values[i], plan));
     }
   }
-  if (loom_low_op_isa(op)) {
+  const loom_low_descriptor_packet_kind_t packet_kind =
+      loom_low_descriptor_packet_kind(op);
+  if (packet_kind != LOOM_LOW_DESCRIPTOR_PACKET_NONE) {
     IREE_RETURN_IF_ERROR(loom_low_representation_plan_descriptor(
-        op, loom_low_op_descriptor(op), projection, plan));
-  } else if (loom_low_const_isa(op)) {
-    IREE_RETURN_IF_ERROR(loom_low_representation_plan_descriptor(
-        op, loom_low_const_descriptor(op), projection, plan));
+        op, loom_low_descriptor_packet_ordinal(op, packet_kind), projection,
+        plan));
   }
 
   const loom_value_id_t* results = loom_op_const_results(op);
@@ -410,12 +411,26 @@ iree_status_t loom_low_apply_function_representation(
     if (update->source_ordinal != update->ordinal) {
       const loom_attribute_t descriptor =
           loom_attr_scoped_enum(update->ordinal);
-      if (loom_low_const_isa(update->op)) {
-        IREE_RETURN_IF_ERROR(
-            loom_low_const_set_descriptor(module, update->op, descriptor));
-      } else {
-        IREE_RETURN_IF_ERROR(
-            loom_low_op_set_descriptor(module, update->op, descriptor));
+      switch (loom_low_descriptor_packet_kind(update->op)) {
+        case LOOM_LOW_DESCRIPTOR_PACKET_OP: {
+          IREE_RETURN_IF_ERROR(
+              loom_low_op_set_descriptor(module, update->op, descriptor));
+          break;
+        }
+        case LOOM_LOW_DESCRIPTOR_PACKET_CONST: {
+          IREE_RETURN_IF_ERROR(
+              loom_low_const_set_descriptor(module, update->op, descriptor));
+          break;
+        }
+        case LOOM_LOW_DESCRIPTOR_PACKET_COND_BR: {
+          IREE_RETURN_IF_ERROR(loom_low_op_cond_br_set_descriptor(
+              module, update->op, descriptor));
+          break;
+        }
+        case LOOM_LOW_DESCRIPTOR_PACKET_NONE:
+        default:
+          IREE_ASSERT_UNREACHABLE("descriptor update is not a Low packet");
+          IREE_BUILTIN_UNREACHABLE();
       }
       *out_changed = true;
     }

@@ -84,6 +84,7 @@ from loom.target.test.descriptors import (
     TEST_LOW_CONST_I32_DESCRIPTOR,
     TEST_LOW_CORE_DESCRIPTOR_SET,
     TEST_LOW_MUL_I32_DESCRIPTOR,
+    TEST_LOW_NATIVE_COND_BR_I32_DESCRIPTOR,
     TEST_LOW_STATE_ADD_I32_DESCRIPTOR,
     TEST_LOW_STATE_ADD_I32_RHS_ZERO_DESCRIPTOR,
     TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR,
@@ -2675,6 +2676,56 @@ def test_generator_rejects_low_const_asm_operand() -> None:
         ValueError,
         match=re.escape("descriptor 'test.const.i32' low.const asm form 'test.const.i32' must expose exactly one result and no operands"),
     ):
+        generate_descriptor_set(descriptor_set)
+
+
+def test_generator_accepts_native_cond_branch() -> None:
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        descriptors=(TEST_LOW_NATIVE_COND_BR_I32_DESCRIPTOR,),
+    )
+
+    generated = generate_descriptor_set(descriptor_set)
+
+    assert ".op_kind = LOOM_LOW_DESCRIPTOR_OP_KIND_COND_BR," in generated.source
+
+
+@pytest.mark.parametrize(
+    ("descriptor", "message"),
+    [
+        (
+            replace(
+                TEST_LOW_NATIVE_COND_BR_I32_DESCRIPTOR,
+                operands=(
+                    TEST_LOW_ADD_I32_DESCRIPTOR.operands[0],
+                    *TEST_LOW_NATIVE_COND_BR_I32_DESCRIPTOR.operands,
+                ),
+            ),
+            "uses low.op.cond_br but declares 1 results",
+        ),
+        (
+            replace(
+                TEST_LOW_NATIVE_COND_BR_I32_DESCRIPTOR,
+                flags=(DescriptorFlag.SIDE_EFFECTING,),
+            ),
+            "without side-effecting and terminator flags",
+        ),
+        (
+            replace(
+                TEST_LOW_NATIVE_COND_BR_I32_DESCRIPTOR,
+                effects=TEST_LOW_BARRIER_DESCRIPTOR.effects,
+            ),
+            "without exactly one control effect",
+        ),
+    ],
+)
+def test_generator_rejects_invalid_native_cond_branch(descriptor: Descriptor, message: str) -> None:
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        descriptors=(descriptor,),
+    )
+
+    with pytest.raises(ValueError, match=re.escape(message)):
         generate_descriptor_set(descriptor_set)
 
 

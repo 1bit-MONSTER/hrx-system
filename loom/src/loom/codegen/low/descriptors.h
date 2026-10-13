@@ -1147,6 +1147,8 @@ enum loom_low_descriptor_op_kind_e {
   LOOM_LOW_DESCRIPTOR_OP_KIND_OP = 0,
   // Descriptor packets use the operandless, single-result low.const form.
   LOOM_LOW_DESCRIPTOR_OP_KIND_CONST = 1,
+  // Descriptor packets use low.op.cond_br with two semantic CFG successors.
+  LOOM_LOW_DESCRIPTOR_OP_KIND_COND_BR = 2,
 };
 typedef uint8_t loom_low_descriptor_op_kind_t;
 

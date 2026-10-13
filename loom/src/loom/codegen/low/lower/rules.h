@@ -1000,6 +1000,8 @@ enum loom_low_lower_emit_kind_e {
   LOOM_LOW_LOWER_EMIT_REGISTER_COPY = 9,
   // Transfers a temporary register value to a fresh identity with low.move.
   LOOM_LOW_LOWER_EMIT_REGISTER_MOVE = 10,
+  // Emits a descriptor-backed low.op.cond_br terminator.
+  LOOM_LOW_LOWER_EMIT_DESCRIPTOR_COND_BR = 11,
   // Maximum emit kind plus one.
   LOOM_LOW_LOWER_EMIT_COUNT_,
 };

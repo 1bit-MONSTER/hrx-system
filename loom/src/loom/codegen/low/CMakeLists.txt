@@ -111,6 +111,7 @@ loom_cc_library(
     ::descriptor_traits
     ::descriptors
     ::immediates
+    ::representation_binding
     iree::base
     loom::format::low_repr
     loom::ops::low
@@ -299,6 +300,7 @@ loom_cc_library(
   SRCS
     "function_requirements.c"
   DEPS
+    ::representation_binding
     ::storage_layout
     iree::base
     iree::base::internal::arena

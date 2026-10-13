@@ -12,6 +12,7 @@
 #include "iree/base/internal/math.h"
 #include "loom/codegen/low/builder.h"
 #include "loom/codegen/low/lower/context.h"
+#include "loom/codegen/low/lower/control_plan.h"
 #include "loom/codegen/low/lower/rule_descriptor.h"
 #include "loom/codegen/low/lower/rule_source_memory.h"
 #include "loom/codegen/low/lower/rule_value.h"
@@ -529,6 +530,37 @@ static iree_status_t loom_low_lower_rule_emit_descriptor_op(
   loom_value_slice_t low_results = loom_low_op_results(low_op);
   return loom_low_lower_rule_bind_results(context, rule_set, source_op, state,
                                           emit, low_results.values);
+}
+
+static iree_status_t loom_low_lower_rule_emit_descriptor_cond_br(
+    loom_low_lower_context_t* context,
+    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
+    loom_low_lower_rule_emit_state_t* state,
+    const loom_low_lower_resolved_emit_t* resolved_emit) {
+  const loom_low_lower_emit_t* emit = resolved_emit->emit;
+  IREE_ASSERT_EQ(source_op->successor_count, 2);
+  IREE_ASSERT_EQ(emit->result_ref_count, 0);
+  IREE_ASSERT_EQ(emit->source_memory_ordinal, 0);
+
+  loom_value_id_t* low_operands = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_rule_build_low_operands(
+      context, rule_set, source_op, state, resolved_emit,
+      /*source_memory=*/NULL, /*source_memory_access=*/NULL, &low_operands));
+
+  loom_named_attr_slice_t attrs;
+  IREE_RETURN_IF_ERROR(loom_low_lower_rule_materialize_attributes(
+      context, resolved_emit, &attrs));
+
+  loom_op_t* low_cond_br_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_build_resolved_descriptor_cond_br(
+      &context->builder, context->descriptor_set,
+      resolved_emit->descriptor.descriptor, low_operands,
+      emit->operand_ref_count, attrs,
+      loom_low_lower_lookup_successor_dest(context, source_op, 0),
+      loom_low_lower_lookup_successor_dest(context, source_op, 1),
+      source_op->location, &low_cond_br_op));
+  return loom_low_lower_control_attach_cond_branch_facts(context, source_op,
+                                                         low_cond_br_op);
 }
 
 static iree_status_t loom_low_lower_rule_emit_register_slice(
@@ -1153,6 +1185,11 @@ iree_status_t loom_low_lower_rule_set_emit_rule(
         IREE_RETURN_IF_ERROR(loom_low_lower_rule_emit_descriptor_const(
             context, rule_set, source_op, &state, resolved_emit,
             source_memory != NULL ? &source_memory->access : NULL));
+        break;
+      }
+      case LOOM_LOW_LOWER_EMIT_DESCRIPTOR_COND_BR: {
+        IREE_RETURN_IF_ERROR(loom_low_lower_rule_emit_descriptor_cond_br(
+            context, rule_set, source_op, &state, resolved_emit));
         break;
       }
       case LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP_FIRST_LANE: {

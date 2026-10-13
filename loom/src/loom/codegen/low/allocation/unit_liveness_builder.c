@@ -824,7 +824,7 @@ static iree_status_t loom_low_allocation_unit_liveness_note_instruction_effects(
   loom_low_allocation_unit_liveness_t* unit_liveness =
       unit_use_index->unit_liveness;
   const loom_op_t* op = operation_point->op;
-  if (!loom_low_op_isa(op) && !loom_low_const_isa(op)) {
+  if (loom_low_descriptor_packet_kind(op) == LOOM_LOW_DESCRIPTOR_PACKET_NONE) {
     if (loom_low_func_call_isa(op)) {
       loom_low_call_contract_provider_t* call_contracts =
           &unit_use_index->call_contracts;

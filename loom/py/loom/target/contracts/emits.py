@@ -59,6 +59,7 @@ class DescriptorEmitForm(Enum):
     AUTO = "auto"
     OP = "op"
     CONST = "const"
+    COND_BR = "cond_br"
     FIRST_LANE = "first_lane"
     PER_LANE = "per_lane"
     PER_LANE_SEQUENCE = "per_lane_sequence"
@@ -374,6 +375,22 @@ class EmitDescriptorOp:
                 "low.const but the contract requests a low.op emission form"
             )
         if (
+            self.form == DescriptorEmitForm.COND_BR
+            and self.descriptor.op_kind is not DescriptorOpKind.COND_BR
+        ):
+            raise ValueError(
+                f"{source_op.name}: descriptor '{self.descriptor.key}' does not "
+                "use low.op.cond_br"
+            )
+        if self.descriptor.op_kind is DescriptorOpKind.COND_BR and self.form not in (
+            DescriptorEmitForm.AUTO,
+            DescriptorEmitForm.COND_BR,
+        ):
+            raise ValueError(
+                f"{source_op.name}: descriptor '{self.descriptor.key}' uses "
+                "low.op.cond_br but the contract requests another emission form"
+            )
+        if (
             self.operand_materialization is not DescriptorOperandMaterialization.DIRECT
             and self.descriptor.op_kind is not DescriptorOpKind.OP
         ):
@@ -386,6 +403,29 @@ class EmitDescriptorOp:
         result_type_bindings = (
             dict(self.result_types) if self.result_types is not None else {}
         )
+        if self.descriptor.op_kind is DescriptorOpKind.COND_BR:
+            if len(source_op.successors) != 2:
+                raise ValueError(
+                    f"{source_op.name}: low.op.cond_br emission requires exactly "
+                    "two source successors"
+                )
+            if result_bindings or result_type_bindings:
+                raise ValueError(
+                    f"{source_op.name}: low.op.cond_br emission cannot bind results"
+                )
+            if self.swap_first_two_operands or self.copy_operands:
+                raise ValueError(
+                    f"{source_op.name}: low.op.cond_br emission cannot rewrite operands"
+                )
+            if (
+                self.source_memory is not None
+                or self.source_memory_byte_offset_materializer is not None
+                or self.source_memory_address_materializer is not None
+            ):
+                raise ValueError(
+                    f"{source_op.name}: low.op.cond_br emission cannot consume "
+                    "source memory"
+                )
         for descriptor_field, value_ref in operand_bindings.items():
             operand = _require_descriptor_operand(
                 self.descriptor, descriptor_field, "descriptor operand binding"

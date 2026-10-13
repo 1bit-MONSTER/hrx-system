@@ -22,6 +22,7 @@ from loom.target.low_descriptors import (
     DescriptorFlag,
     DescriptorOpKind,
     DescriptorSet,
+    EffectKind,
     EnumDomain,
     EnumValue,
     Hazard,
@@ -1493,18 +1494,32 @@ def validate_descriptor_op_kind(descriptor: Descriptor, result_count: int) -> No
     """Validates the canonical low operation selected by a descriptor."""
     if descriptor.op_kind is DescriptorOpKind.OP:
         return
-    if descriptor.op_kind is not DescriptorOpKind.CONST:
-        raise ValueError(f"descriptor '{descriptor.key}' has unknown low operation kind '{descriptor.op_kind}'")
-    if result_count != 1:
-        raise ValueError(f"descriptor '{descriptor.key}' uses low.const but declares {result_count} results instead of exactly one")
-    if any(operand_role_is_packet_input(operand.role) for operand in descriptor.operands):
-        raise ValueError(f"descriptor '{descriptor.key}' uses low.const but declares packet operands")
-    if descriptor.effects:
-        raise ValueError(f"descriptor '{descriptor.key}' uses low.const but declares effects")
-    for asm_form in descriptor.asm_forms:
-        mnemonic = asm_form_mnemonic(descriptor, asm_form)
-        if len(asm_form.results) != 1 or asm_form.operands or asm_form.operand_segments:
-            raise ValueError(f"descriptor '{descriptor.key}' low.const asm form '{mnemonic}' must expose exactly one result and no operands")
+    if descriptor.op_kind is DescriptorOpKind.CONST:
+        if result_count != 1:
+            raise ValueError(f"descriptor '{descriptor.key}' uses low.const but declares {result_count} results instead of exactly one")
+        if any(operand_role_is_packet_input(operand.role) for operand in descriptor.operands):
+            raise ValueError(f"descriptor '{descriptor.key}' uses low.const but declares packet operands")
+        if descriptor.effects:
+            raise ValueError(f"descriptor '{descriptor.key}' uses low.const but declares effects")
+        for asm_form in descriptor.asm_forms:
+            mnemonic = asm_form_mnemonic(descriptor, asm_form)
+            if len(asm_form.results) != 1 or asm_form.operands or asm_form.operand_segments:
+                raise ValueError(f"descriptor '{descriptor.key}' low.const asm form '{mnemonic}' must expose exactly one result and no operands")
+        return
+    if descriptor.op_kind is DescriptorOpKind.COND_BR:
+        if result_count != 0:
+            raise ValueError(f"descriptor '{descriptor.key}' uses low.op.cond_br but declares {result_count} results")
+        if descriptor.asm_surface is not DescriptorAsmSurface.STRUCTURAL:
+            raise ValueError(f"descriptor '{descriptor.key}' uses low.op.cond_br but is not classified as structural asm")
+        if descriptor.asm_forms:
+            raise ValueError(f"descriptor '{descriptor.key}' uses low.op.cond_br but declares mnemonic asm forms")
+        required_flags = {DescriptorFlag.SIDE_EFFECTING, DescriptorFlag.TERMINATOR}
+        if not required_flags.issubset(descriptor.flags):
+            raise ValueError(f"descriptor '{descriptor.key}' uses low.op.cond_br without side-effecting and terminator flags")
+        if len(descriptor.effects) != 1 or descriptor.effects[0].kind is not EffectKind.CONTROL:
+            raise ValueError(f"descriptor '{descriptor.key}' uses low.op.cond_br without exactly one control effect")
+        return
+    raise ValueError(f"descriptor '{descriptor.key}' has unknown low operation kind '{descriptor.op_kind}'")
 
 
 def validate_allocation_move_descriptor(

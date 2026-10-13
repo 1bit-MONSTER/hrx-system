@@ -2082,6 +2082,33 @@ static iree_status_t loom_low_verify_descriptor_op_kind(
                                 descriptor_index, descriptor->effect_count);
       }
       return iree_ok_status();
+    case LOOM_LOW_DESCRIPTOR_OP_KIND_COND_BR:
+      if (descriptor->result_count != 0) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "low descriptor %" PRIu32
+                                " uses low.op.cond_br but has %" PRIu16
+                                " results",
+                                descriptor_index, descriptor->result_count);
+      }
+      if (descriptor->effect_count != 1 ||
+          descriptor_set->effects[descriptor->effect_start].kind !=
+              LOOM_LOW_EFFECT_KIND_CONTROL) {
+        return iree_make_status(
+            IREE_STATUS_INVALID_ARGUMENT,
+            "low descriptor %" PRIu32
+            " uses low.op.cond_br without exactly one control effect",
+            descriptor_index);
+      }
+      if (!iree_all_bits_set(descriptor->flags,
+                             LOOM_LOW_DESCRIPTOR_FLAG_SIDE_EFFECTING |
+                                 LOOM_LOW_DESCRIPTOR_FLAG_TERMINATOR)) {
+        return iree_make_status(
+            IREE_STATUS_INVALID_ARGUMENT,
+            "low descriptor %" PRIu32
+            " uses low.op.cond_br without side-effecting and terminator flags",
+            descriptor_index);
+      }
+      return iree_ok_status();
     default:
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "low descriptor %" PRIu32

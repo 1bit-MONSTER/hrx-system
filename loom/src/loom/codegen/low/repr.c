@@ -8,6 +8,7 @@
 
 #include "loom/codegen/low/descriptor_traits.h"
 #include "loom/codegen/low/immediates.h"
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/ops/low/ops.h"
 
 static const loom_low_descriptor_registry_t* loom_low_repr_registry(
@@ -72,18 +73,42 @@ static iree_status_t loom_low_repr_resolve_packet_attributes_impl(
   (void)state;
   const loom_low_descriptor_set_t* descriptor_set =
       loom_low_repr_descriptor_set(descriptor_set_handle);
-  const bool is_const = loom_low_const_isa(op);
-  const uint32_t ordinal =
-      is_const ? loom_low_const_descriptor(op) : loom_low_op_descriptor(op);
-  loom_attribute_t attributes =
-      is_const ? loom_low_const_attrs_attr(op) : loom_low_op_attrs_attr(op);
+  const loom_low_descriptor_packet_kind_t packet_kind =
+      loom_low_descriptor_packet_kind(op);
+  const uint32_t ordinal = loom_low_descriptor_packet_ordinal(op, packet_kind);
+  loom_attribute_t attributes = loom_attr_absent();
+  switch (packet_kind) {
+    case LOOM_LOW_DESCRIPTOR_PACKET_OP:
+      attributes = loom_low_op_attrs_attr(op);
+      break;
+    case LOOM_LOW_DESCRIPTOR_PACKET_CONST:
+      attributes = loom_low_const_attrs_attr(op);
+      break;
+    case LOOM_LOW_DESCRIPTOR_PACKET_COND_BR:
+      attributes = loom_low_op_cond_br_attrs_attr(op);
+      break;
+    case LOOM_LOW_DESCRIPTOR_PACKET_NONE:
+    default:
+      IREE_ASSERT_UNREACHABLE("scoped descriptor is not a Low packet");
+      IREE_BUILTIN_UNREACHABLE();
+  }
   IREE_RETURN_IF_ERROR(loom_low_resolve_immediate_enums(
       module, descriptor_set, &descriptor_set->descriptors[ordinal],
       &attributes));
-  if (is_const) {
-    loom_low_const_initialize_attrs(op, attributes);
-  } else {
-    loom_low_op_initialize_attrs(op, attributes);
+  switch (packet_kind) {
+    case LOOM_LOW_DESCRIPTOR_PACKET_OP:
+      loom_low_op_initialize_attrs(op, attributes);
+      break;
+    case LOOM_LOW_DESCRIPTOR_PACKET_CONST:
+      loom_low_const_initialize_attrs(op, attributes);
+      break;
+    case LOOM_LOW_DESCRIPTOR_PACKET_COND_BR:
+      loom_low_op_cond_br_initialize_attrs(op, attributes);
+      break;
+    case LOOM_LOW_DESCRIPTOR_PACKET_NONE:
+    default:
+      IREE_ASSERT_UNREACHABLE("scoped descriptor is not a Low packet");
+      IREE_BUILTIN_UNREACHABLE();
   }
   return iree_ok_status();
 }

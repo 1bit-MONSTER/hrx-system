@@ -74,6 +74,13 @@ bool loom_low_lower_lookup_branch_plan(loom_low_lower_context_t* context,
                                        const loom_op_t* source_terminator,
                                        loom_low_lower_plan_t* out_plan);
 
+// Binds producer-proven loop trip counts from an authored source terminator to
+// the Low control operation that implements it. Target-specific terminators
+// call this after constructing their final branch operation.
+iree_status_t loom_low_lower_control_attach_cond_branch_facts(
+    loom_low_lower_context_t* context, const loom_op_t* source_terminator,
+    loom_op_t* low_cond_br_op);
+
 // Emits the conditional branch corresponding to an authored source
 // terminator and binds any producer-proven loop trip count to the emitted Low
 // control. Target branch expansion calls this only for the final branch

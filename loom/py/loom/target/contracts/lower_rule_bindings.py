@@ -108,6 +108,8 @@ def _lower_emit_kind(
         return LowerEmitKind.DESCRIPTOR_OP
     if emit.form == DescriptorEmitForm.CONST:
         return LowerEmitKind.DESCRIPTOR_CONST
+    if emit.form == DescriptorEmitForm.COND_BR:
+        return LowerEmitKind.DESCRIPTOR_COND_BR
     if emit.form == DescriptorEmitForm.FIRST_LANE:
         return LowerEmitKind.DESCRIPTOR_OP_FIRST_LANE
     if emit.form == DescriptorEmitForm.PER_LANE:
@@ -119,6 +121,8 @@ def _lower_emit_kind(
 
     if emit.descriptor.op_kind is DescriptorOpKind.CONST:
         return LowerEmitKind.DESCRIPTOR_CONST
+    if emit.descriptor.op_kind is DescriptorOpKind.COND_BR:
+        return LowerEmitKind.DESCRIPTOR_COND_BR
 
     result_bindings = (
         emit.result_types

@@ -228,12 +228,22 @@ static bool loom_low_lower_op_is_discardable_hint(const loom_module_t* module,
   return iree_any_bit_set(traits, LOOM_TRAIT_HINT);
 }
 
+static bool loom_low_lower_source_op_is_graph_structural_root(
+    const loom_low_lower_context_t* context, const loom_op_t* source_op) {
+  const loom_target_contract_index_t* index = context->policy->contract.index;
+  return loom_cfg_cond_br_isa(source_op) && index != NULL &&
+         loom_target_contract_index_has_source_graph_root_op_kind(
+             index, source_op->kind);
+}
+
 static bool loom_low_lower_source_op_has_plan_node(
     const loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_trait_flags_t traits, bool is_callable_exit) {
   return source_op->region_count == 0 &&
-         !loom_low_lower_op_is_structural(context, source_op, traits,
-                                          is_callable_exit) &&
+         (!loom_low_lower_op_is_structural(context, source_op, traits,
+                                           is_callable_exit) ||
+          loom_low_lower_source_op_is_graph_structural_root(context,
+                                                            source_op)) &&
          !loom_low_lower_source_plan_op_is_metadata(source_op->kind);
 }
 
@@ -417,7 +427,9 @@ static iree_status_t loom_low_lower_visit_region_plan_ops(
         IREE_RETURN_IF_ERROR(
             loom_low_lower_structural_plan_branch(context, op));
       }
-      if (is_structural) {
+      const bool has_plan_node = loom_low_lower_source_op_has_plan_node(
+          context, op, traits, is_callable_exit);
+      if (is_structural && !has_plan_node) {
         loom_low_lower_source_value_storage_mark_structural_demands(context, op,
                                                                     traits);
       }
@@ -428,8 +440,6 @@ static iree_status_t loom_low_lower_visit_region_plan_ops(
       if (observer != NULL) {
         observer->observe(observer_state, context, op);
       }
-      const bool has_plan_node = loom_low_lower_source_op_has_plan_node(
-          context, op, traits, is_callable_exit);
       if (candidate_plan != NULL && has_plan_node &&
           loom_target_contract_index_has_source_graph_root_op_kind(
               context->policy->contract.index, op->kind)) {
@@ -1109,11 +1119,21 @@ static iree_status_t loom_low_lower_source_candidate_visit_contract_case(
   IREE_ASSERT_EQ(state->iteration_mode,
                  LOOM_LOW_LOWER_CONTRACT_CASE_ITERATION_CANDIDATES,
                  "generated contract candidate index omitted a matching rule");
-  state->matched = true;
   bool primary_descriptor_available = false;
   IREE_RETURN_IF_ERROR(loom_low_lower_plan_primary_descriptor_available(
       state->context, state->match_context, binding->rule_set_index,
       match->rule_set, &match->selection, &primary_descriptor_available));
+  // A graph-structural root has a semantic fallback owned by the source plan.
+  // An unavailable lowering-only fusion must not displace that legal cover
+  // merely to report its missing feature.
+  if (!primary_descriptor_available &&
+      contract_case->system ==
+          LOOM_TARGET_CONTRACT_SYSTEM_DESCRIPTOR_RULE_LOWERING_ONLY &&
+      loom_low_lower_source_op_is_graph_structural_root(state->context,
+                                                        state->source_op)) {
+    return iree_ok_status();
+  }
+  state->matched = true;
   return loom_low_lower_source_candidate_add_rule(
       state->context, state->candidate_plan, state->candidate_node,
       binding->rule_set_index, match->rule_set, &match->selection,
@@ -1500,8 +1520,16 @@ static iree_status_t loom_low_lower_plan_op(
   }
   const loom_trait_flags_t traits =
       loom_op_effective_traits(context->module, source_op);
-  if (loom_low_lower_op_is_structural(context, source_op, traits,
-                                      is_callable_exit)) {
+  const bool is_structural = loom_low_lower_op_is_structural(
+      context, source_op, traits, is_callable_exit);
+  const bool is_graph_structural_root =
+      loom_low_lower_source_op_is_graph_structural_root(context, source_op);
+  if (is_structural && !is_graph_structural_root) {
+    return loom_low_lower_structural_plan_op(context, source_op);
+  }
+  if (is_graph_structural_root && candidate_plan == NULL) {
+    loom_low_lower_source_value_storage_mark_structural_demands(
+        context, source_op, traits);
     return loom_low_lower_structural_plan_op(context, source_op);
   }
   if (loom_low_lower_source_plan_op_is_metadata(source_op->kind)) {
@@ -1518,6 +1546,28 @@ static iree_status_t loom_low_lower_plan_op(
     IREE_ASSERT_EQ(candidate_node->source_op, source_op);
     IREE_ASSERT_EQ(candidate_node->memory_record,
                    context->lowering->source_plan.memory.current);
+  }
+
+  if (is_graph_structural_root) {
+    IREE_ASSERT(candidate_plan != NULL);
+    IREE_RETURN_IF_ERROR(loom_low_lower_structural_plan_op(context, source_op));
+    const bool exact_branch = loom_low_lower_structural_branch_exact_bool(
+        context, source_op, /*out_condition=*/NULL);
+    const loom_low_lower_selected_plan_t selected_plan = {
+        .source_op = source_op,
+        .kind = LOOM_LOW_LOWER_SELECTED_PLAN_STRUCTURAL,
+        .rule_set_index = UINT16_MAX,
+        .rule_index = UINT16_MAX,
+    };
+    IREE_RETURN_IF_ERROR(loom_low_lower_select_fixed_plan(
+        context, candidate_plan, &selected_plan,
+        exact_branch ? LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FIXED
+                     : LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FALLBACK));
+    if (exact_branch) {
+      return iree_ok_status();
+    }
+    return loom_low_lower_source_candidate_collect_contract(
+        context, candidate_plan, candidate_node, consumption_query);
   }
 
   if (loom_low_invoke_isa(source_op)) {

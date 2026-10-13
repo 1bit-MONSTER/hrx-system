@@ -8,7 +8,7 @@
 //
 // Source planning runs after target legality and before target-Low IR
 // construction. It selects a rule, shared structural plan, descriptor-matrix
-// row, or target callback for each non-structural source op in traversal order.
+// row, or target callback for each planned source op in traversal order.
 // A backward demand walk marks every source value needed by emission and elides
 // pure plans whose results have no materialized use. The retained plan is
 // immutable during emission except for its monotonic consumption cursor.
@@ -70,6 +70,8 @@ typedef enum loom_low_lower_selected_plan_kind_e {
   LOOM_LOW_LOWER_SELECTED_PLAN_FUNCTION_STORAGE = 3,
   // Shared normalization of a semantic invocation into a native helper call.
   LOOM_LOW_LOWER_SELECTED_PLAN_INVOKE = 4,
+  // Shared structural lowering retained as an exact-cover alternative.
+  LOOM_LOW_LOWER_SELECTED_PLAN_STRUCTURAL = 5,
 } loom_low_lower_selected_plan_kind_t;
 
 // Canonical source-memory data retained with a selected table rule.

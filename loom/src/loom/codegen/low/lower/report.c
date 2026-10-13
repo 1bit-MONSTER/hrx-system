@@ -260,6 +260,8 @@ static iree_status_t loom_low_lower_report_prepare_selected_plan(
     row.plan_key = IREE_SV("function-storage.alloca");
   } else if (selected_plan->kind == LOOM_LOW_LOWER_SELECTED_PLAN_INVOKE) {
     row.plan_key = IREE_SV("call.invoke");
+  } else if (selected_plan->kind == LOOM_LOW_LOWER_SELECTED_PLAN_STRUCTURAL) {
+    row.plan_key = IREE_SV("structural.cond_br");
   }
   if ((selected_plan->kind == LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK ||
        selected_plan->kind == LOOM_LOW_LOWER_SELECTED_PLAN_DESCRIPTOR_MATRIX) &&

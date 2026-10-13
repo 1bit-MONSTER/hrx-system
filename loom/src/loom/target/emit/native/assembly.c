@@ -139,6 +139,10 @@ static bool loom_native_assembly_op_branches_to(const loom_op_t* op,
     return loom_low_cond_br_true_dest(op) == block ||
            loom_low_cond_br_false_dest(op) == block;
   }
+  if (loom_low_op_cond_br_isa(op)) {
+    return loom_low_op_cond_br_true_dest(op) == block ||
+           loom_low_op_cond_br_false_dest(op) == block;
+  }
   return false;
 }
 

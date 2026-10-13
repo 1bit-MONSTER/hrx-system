@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/ops/global/ops.h"
 #include "loom/ops/low/ops.h"
 
@@ -112,8 +113,11 @@ iree_status_t loom_low_function_requirements_build(
       } else if (loom_low_return_isa(op)) {
         ++out_requirements->return_count;
       }
-      if (loom_low_op_isa(op)) {
-        const loom_named_attr_slice_t attrs = loom_low_op_attrs(op);
+      const loom_low_descriptor_packet_kind_t packet_kind =
+          loom_low_descriptor_packet_kind(op);
+      if (packet_kind != LOOM_LOW_DESCRIPTOR_PACKET_NONE) {
+        const loom_named_attr_slice_t attrs =
+            loom_low_descriptor_packet_attrs(op, packet_kind);
         for (iree_host_size_t i = 0; i < attrs.count; ++i) {
           if (attrs.entries[i].value.kind != LOOM_ATTR_SYMBOL) {
             continue;

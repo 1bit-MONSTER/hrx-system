@@ -119,6 +119,7 @@ loom_cc_library(
     loom::codegen::low::lower
     loom::codegen::low::lower::source_selection
     loom::codegen::low::pipeline
+    loom::codegen::low::representation_binding
     loom::codegen::low::verify
     loom::codegen::pass_environment
     loom::ir

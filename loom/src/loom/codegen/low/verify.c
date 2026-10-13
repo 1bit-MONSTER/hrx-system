@@ -232,6 +232,8 @@ static iree_string_view_t loom_low_verify_descriptor_op_name(
       return IREE_SV("low.op");
     case LOOM_LOW_DESCRIPTOR_OP_KIND_CONST:
       return IREE_SV("low.const");
+    case LOOM_LOW_DESCRIPTOR_OP_KIND_COND_BR:
+      return IREE_SV("low.op.cond_br");
   }
   IREE_ASSERT_UNREACHABLE("invalid descriptor operation kind");
   IREE_BUILTIN_UNREACHABLE();

@@ -11,6 +11,7 @@ from dataclasses import replace
 
 import pytest
 
+from loom.dialect.cfg import ALL_CFG_OPS, cfg_cond_br
 from loom.dialect.scalar import ALL_SCALAR_OPS
 from loom.dialect.scalar import analysis as scalar_analysis
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
@@ -102,6 +103,7 @@ from loom.target.test.descriptors import (
     TEST_LOW_LOAD_INDEX_V4I32_DESCRIPTOR,
     TEST_LOW_LOAD_V4I32_DESCRIPTOR,
     TEST_LOW_MUL_I32_DESCRIPTOR,
+    TEST_LOW_NATIVE_COND_BR_I32_DESCRIPTOR,
     TEST_LOW_REMATERIALIZE_I32_DESCRIPTOR,
     TEST_LOW_TIED_ANY_DESCRIPTOR,
 )
@@ -718,6 +720,80 @@ def test_compile_source_graph_records_only_root_op_kind() -> None:
         (scalar_arithmetic.scalar_addi.group.dialect_id << 8)
         | ALL_SCALAR_OPS.index(scalar_arithmetic.scalar_addi),
     )
+
+
+def _native_compare_branch_rule(
+    *, emit: tuple[EmitDescriptorOp, ...]
+) -> ContractFragment:
+    return ContractFragment(
+        name="test.native-compare-branch",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=(
+            DescriptorRule(
+                source_op=cfg_cond_br,
+                descriptor=TEST_LOW_NATIVE_COND_BR_I32_DESCRIPTOR,
+                source_nodes=(
+                    SourceNode.exclusive_definition(
+                        "compare",
+                        source_op=scalar_comparison.scalar_cmpi,
+                        parent_operand=ValueRef.operand("condition"),
+                        node_result=ValueRef.result("result"),
+                        guards=(
+                            Guard.value_type("lhs", Scalar("i32")),
+                            Guard.value_type("rhs", Scalar("i32")),
+                        ),
+                    ),
+                ),
+                emit=emit,
+                target_query=False,
+            ),
+        ),
+    )
+
+
+def _native_compare_branch_emit() -> EmitDescriptorOp:
+    return EmitDescriptorOp(
+        descriptor=TEST_LOW_NATIVE_COND_BR_I32_DESCRIPTOR,
+        form=DescriptorEmitForm.COND_BR,
+        operands={
+            "lhs": ValueRef.operand("lhs", source_node="compare"),
+            "rhs": ValueRef.operand("rhs", source_node="compare"),
+        },
+        immediates={
+            "predicate": AttrProject.enum_ordinal("predicate").in_source_node("compare")
+        },
+    )
+
+
+def test_compile_native_compare_branch_emit() -> None:
+    compiled = compile_lower_rule_set(
+        _native_compare_branch_rule(emit=(_native_compare_branch_emit(),)),
+        dialect_ops={"cfg": ALL_CFG_OPS, "scalar": ALL_SCALAR_OPS},
+    )
+
+    assert compiled.emits[0].kind is LowerEmitKind.DESCRIPTOR_COND_BR
+    assert compiled.emits[0].result_ref_count == 0
+    assert compiled.attr_copies[0].kind is LowerAttrCopyKind.ENUM_ORDINAL
+    assert compiled.attr_copies[0].source_node_index == 1
+    assert compiled.source_nodes[0].relation is SourceNodeRelation.EXCLUSIVE_DEFINITION
+    assert compiled.source_graph_root_op_kinds == (
+        (cfg_cond_br.group.dialect_id << 8) | ALL_CFG_OPS.index(cfg_cond_br),
+    )
+
+
+def test_native_compare_branch_must_be_final_emit() -> None:
+    trailing_emit = EmitDescriptorOp(
+        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+        operands={
+            "lhs": ValueRef.operand("lhs", source_node="compare"),
+            "rhs": ValueRef.operand("rhs", source_node="compare"),
+        },
+        results={"dst": ValueRef.temporary("dead")},
+        result_types={"dst": Scalar("i32")},
+    )
+
+    with pytest.raises(ValueError, match="must be the final emit"):
+        _native_compare_branch_rule(emit=(_native_compare_branch_emit(), trailing_emit))
 
 
 def test_related_source_node_requires_observable_result() -> None:
