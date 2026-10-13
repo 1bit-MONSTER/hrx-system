@@ -47,6 +47,8 @@ class DriverFailureCapture {
     return iree_hal_device_event_sink_t{CaptureEvent, this};
   }
 
+  void ObserveQueue(iree_hal_amdgpu_host_queue_t* queue) { queue_ = queue; }
+
   void Await() {
     iree_notification_await(
         &notification_,
@@ -63,6 +65,12 @@ class DriverFailureCapture {
     return device_status_code_at_publication_;
   }
   std::string message() const { return std::string(message_, message_length_); }
+  bool queue_closed_at_publication() const {
+    return queue_closed_at_publication_;
+  }
+  bool stop_requested_at_publication() const {
+    return stop_requested_at_publication_;
+  }
 
  private:
   static void CaptureEvent(void* user_data,
@@ -78,6 +86,16 @@ class DriverFailureCapture {
                                              iree_memory_order_acq_rel,
                                              iree_memory_order_acquire)) {
       return;
+    }
+
+    iree_hal_amdgpu_host_queue_t* queue = capture->queue_;
+    if (queue) {
+      iree_slim_mutex_lock(&queue->locks.submission_mutex);
+      capture->queue_closed_at_publication_ = queue->is_shutting_down;
+      iree_slim_mutex_unlock(&queue->locks.submission_mutex);
+      capture->stop_requested_at_publication_ =
+          iree_hsa_signal_load_scacquire(IREE_LIBHSA(queue->libhsa),
+                                         queue->completion.stop_signal) != 0;
     }
 
     const auto* payload =
@@ -108,6 +126,9 @@ class DriverFailureCapture {
 
   iree_notification_t notification_;
   iree_atomic_int32_t state_ = IREE_ATOMIC_VAR_INIT(0);
+  iree_hal_amdgpu_host_queue_t* queue_ = nullptr;
+  bool queue_closed_at_publication_ = false;
+  bool stop_requested_at_publication_ = false;
   iree_status_code_t status_code_ = IREE_STATUS_OK;
   iree_status_code_t device_status_code_at_publication_ = IREE_STATUS_OK;
   iree_host_size_t message_length_ = 0;
@@ -452,6 +473,7 @@ TEST_F(HostQueueFailureTest, UnpublishedHardwareCompletionFailsQueue) {
       &options, &libhsa_, &topology_, host_allocator_, failure_capture.sink()));
   iree_hal_amdgpu_host_queue_t* queue = test_device.first_host_queue();
   ASSERT_NE(queue, nullptr);
+  failure_capture.ObserveQueue(queue);
 
   // Establish a normally submitted, published, completed, and drained epoch
   // before corrupting only the hardware completion count.
@@ -507,6 +529,8 @@ TEST_F(HostQueueFailureTest, UnpublishedHardwareCompletionFailsQueue) {
   EXPECT_EQ(failure_capture.device_status_code_at_publication(),
             IREE_STATUS_INTERNAL);
   EXPECT_EQ(failure_capture.message(), queue_error_text);
+  EXPECT_TRUE(failure_capture.queue_closed_at_publication());
+  EXPECT_TRUE(failure_capture.stop_requested_at_publication());
   iree_status_free(queue_error);
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INTERNAL,
