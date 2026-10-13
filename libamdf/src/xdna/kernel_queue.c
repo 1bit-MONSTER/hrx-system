@@ -273,7 +273,6 @@ amdf_status_t AMDF_CALL amdf_xdna_kernel_queue_create(
       .queue_family_ordinal = family_info.ordinal,
       .command_type = family_info.command_type,
       .maximum_pending_submission_count = capacity,
-      .maximum_command_count = 1,
   };
   amdf_atomic_uint32_initialize(&queue->publishing, 0);
   amdf_atomic_uint32_initialize(&queue->retiring, 0);
@@ -294,6 +293,8 @@ amdf_status_t AMDF_CALL amdf_xdna_kernel_queue_create(
         amdf_xdna_context_get_umd(context), capacity, &queue->umd);
   }
   if (amdf_status_is_ok(status)) {
+    queue->base.info.maximum_command_count =
+        amdf_xdna_umd_kernel_queue_maximum_command_count(queue->umd);
     queue->base.info.notification_types =
         amdf_xdna_umd_kernel_queue_query_notification_types(queue->umd);
     *out_queue = &queue->base;
@@ -309,34 +310,15 @@ amdf_status_t AMDF_CALL amdf_xdna_kernel_queue_create(
   return status;
 }
 
-amdf_status_t AMDF_CALL amdf_xdna_kernel_queue_submit(
-    amdf_kernel_queue_t* base_queue,
-    const amdf_xdna_kernel_queue_submission_info_t* submission_info,
-    uint64_t* out_submission) {
-  if (base_queue == NULL || out_submission == NULL) {
-    return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
-  }
-  if (base_queue->info.command_type != AMDF_QUEUE_COMMAND_TYPE_XDNA) {
-    return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
-  }
-  amdf_status_t status = amdf_structure_validate_input(
-      submission_info, AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_SUBMISSION_INFO,
-      (uint32_t)sizeof(amdf_xdna_kernel_queue_submission_info_t));
-  if (!amdf_status_is_ok(status)) {
-    return status;
-  }
-  if (submission_info->reserved != 0 || submission_info->command_count != 1 ||
-      submission_info->commands == NULL ||
-      submission_info->commands[0].memory == NULL) {
-    return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
-  }
-
-  amdf_xdna_kernel_queue_t* queue = (amdf_xdna_kernel_queue_t*)base_queue;
-  const amdf_xdna_kernel_command_t* command = &submission_info->commands[0];
-  const amdf_xdna_device_info_t* device_info =
-      amdf_xdna_device_get_profile(base_queue->device)->info;
+// Public-boundary validation completes for every descriptor before native
+// acceptance. Instruction bytes and indirect addresses remain opaque.
+static amdf_status_t amdf_xdna_kernel_queue_validate_command(
+    const amdf_xdna_kernel_queue_t* queue,
+    const amdf_xdna_device_info_t* device_info,
+    const amdf_xdna_kernel_command_t* command,
+    amdf_xdna_umd_kernel_command_t* out_command) {
   amdf_memory_t* memory = command->memory;
-  if (command->reserved != 0 ||
+  if (memory == NULL || command->reserved != 0 ||
       memory->scope != amdf_xdna_context_get_memory_scope(queue->context)) {
     return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
   }
@@ -356,9 +338,7 @@ amdf_status_t AMDF_CALL amdf_xdna_kernel_queue_submit(
        (UINT64_C(1) << AMDF_MEMORY_ADDRESS_XDNA_FIRMWARE)) == 0) {
     return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
   }
-  if (base_queue->info.reset_epoch !=
-          amdf_xdna_device_query_reset_epoch(base_queue->device) ||
-      access->info.reset_epoch != base_queue->info.reset_epoch) {
+  if (access->info.reset_epoch != queue->base.info.reset_epoch) {
     return amdf_make_api_status(AMDF_STATUS_CODE_FAILED_PRECONDITION);
   }
   const uint64_t instruction_address =
@@ -366,6 +346,53 @@ amdf_status_t AMDF_CALL amdf_xdna_kernel_queue_submit(
       command->byte_offset;
   if (instruction_address % device_info->instruction.address_alignment != 0) {
     return amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE);
+  }
+
+  out_command->instruction_address = instruction_address;
+  out_command->instruction_byte_length = (uint32_t)command->byte_length;
+  return AMDF_STATUS_OK;
+}
+
+amdf_status_t AMDF_CALL amdf_xdna_kernel_queue_submit(
+    amdf_kernel_queue_t* base_queue,
+    const amdf_xdna_kernel_queue_submission_info_t* submission_info,
+    uint64_t* out_submission) {
+  if (base_queue == NULL || out_submission == NULL) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
+  }
+  if (base_queue->info.command_type != AMDF_QUEUE_COMMAND_TYPE_XDNA) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  }
+  amdf_status_t status = amdf_structure_validate_input(
+      submission_info, AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_SUBMISSION_INFO,
+      (uint32_t)sizeof(amdf_xdna_kernel_queue_submission_info_t));
+  if (!amdf_status_is_ok(status)) {
+    return status;
+  }
+  if (submission_info->reserved != 0 || submission_info->command_count == 0 ||
+      submission_info->commands == NULL) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
+  }
+
+  amdf_xdna_kernel_queue_t* queue = (amdf_xdna_kernel_queue_t*)base_queue;
+  const amdf_xdna_device_info_t* device_info =
+      amdf_xdna_device_get_profile(base_queue->device)->info;
+  const uint32_t command_count = submission_info->command_count;
+  if (command_count > base_queue->info.maximum_command_count) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE);
+  }
+  if (base_queue->info.reset_epoch !=
+      amdf_xdna_device_query_reset_epoch(base_queue->device)) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_FAILED_PRECONDITION);
+  }
+  amdf_xdna_umd_kernel_command_t
+      commands[AMDF_XDNA_UMD_KERNEL_QUEUE_MAXIMUM_COMMAND_COUNT];
+  for (uint32_t i = 0; i < command_count && amdf_status_is_ok(status); ++i) {
+    status = amdf_xdna_kernel_queue_validate_command(
+        queue, device_info, &submission_info->commands[i], &commands[i]);
+  }
+  if (!amdf_status_is_ok(status)) {
+    return status;
   }
 
   uint32_t expected = 0;
@@ -377,15 +404,17 @@ amdf_status_t AMDF_CALL amdf_xdna_kernel_queue_submit(
       amdf_atomic_uint64_load_acquire(&queue->submitted);
   uint64_t retired = amdf_atomic_uint64_load_acquire(&queue->retired);
   if (last_submitted - retired >=
-      base_queue->info.maximum_pending_submission_count) {
+          base_queue->info.maximum_pending_submission_count ||
+      !amdf_xdna_umd_kernel_queue_has_capacity(queue->umd, command_count)) {
     status = amdf_xdna_umd_kernel_queue_refresh_progress(queue->umd);
     retired = amdf_xdna_kernel_queue_refresh_retirement(queue);
     if (amdf_status_is_ok(status)) {
       status = amdf_xdna_umd_kernel_queue_query_terminal_status(queue->umd);
     }
     if (amdf_status_is_ok(status) &&
-        last_submitted - retired >=
-            base_queue->info.maximum_pending_submission_count) {
+        (last_submitted - retired >=
+             base_queue->info.maximum_pending_submission_count ||
+         !amdf_xdna_umd_kernel_queue_has_capacity(queue->umd, command_count))) {
       status = amdf_make_api_status(AMDF_STATUS_CODE_BUSY);
     }
   }
@@ -396,9 +425,8 @@ amdf_status_t AMDF_CALL amdf_xdna_kernel_queue_submit(
     const uint32_t slot =
         last_submitted % base_queue->info.maximum_pending_submission_count;
     uint64_t native_submission = 0;
-    status = amdf_xdna_umd_kernel_queue_submit(
-        queue->umd, slot, instruction_address, (uint32_t)command->byte_length,
-        &native_submission);
+    status = amdf_xdna_umd_kernel_queue_submit(queue->umd, slot, command_count,
+                                               commands, &native_submission);
     if (amdf_status_is_ok(status)) {
       const uint64_t submission = last_submitted + 1;
       amdf_atomic_uint64_store_release(&queue->native_submissions[slot],

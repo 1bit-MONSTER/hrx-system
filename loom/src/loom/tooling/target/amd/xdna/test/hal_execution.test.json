@@ -23,6 +23,36 @@
           "\"failure_count\":0"
         ]
       }
+    },
+    {
+      "name": "benchmarks recorded XDNA sequences across native queue windows",
+      "run": {
+        "tool": "iree-benchmark-loom",
+        "args": [
+          "{srcdir}/hal_execution.loom",
+          "--device=xdna",
+          "--benchmark=@serial_array_latency",
+          "--measure=dispatch_complete",
+          "--batch-size=65",
+          "--iterations=3",
+          "--warmup-iterations=1",
+          "--min-time-ms=0",
+          "--warmup-time-ms=0",
+          "--max-batches=3",
+          "--profile-final-batch=true",
+          "--profile-data=queue-events,host-execution"
+        ]
+      },
+      "stdout": {
+        "contains": [
+          "\"failed_sample_count\":0",
+          "\"state\":\"ok\"",
+          "\"physical_dispatches_per_batch\":195",
+          "\"command_buffer_ring_count\":1",
+          "\"requested\":true,\"executed\":true",
+          "\"dropped_record_count\":0"
+        ]
+      }
     }
   ]
 }

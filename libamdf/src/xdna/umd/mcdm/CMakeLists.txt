@@ -236,6 +236,7 @@ iree_cc_library(
     ::private_allocation
     amdf::headers
     libamdf::src::xdna::transaction_interpreter
+    libamdf::src::xdna::umd::kernel_queue
   PUBLIC
 )
 endif()
@@ -263,6 +264,7 @@ iree_cc_library(
     libamdf::src::xdna::bootstrap
     libamdf::src::xdna::transaction_interpreter
     libamdf::src::xdna::umd::context
+    libamdf::src::xdna::umd::kernel_queue
   PUBLIC
 )
 endif()

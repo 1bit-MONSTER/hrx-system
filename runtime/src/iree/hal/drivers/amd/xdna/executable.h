@@ -32,6 +32,27 @@ iree_status_t iree_hal_amd_xdna_executable_create(
     const iree_hal_executable_load_params_t* params,
     iree_allocator_t host_allocator, iree_hal_executable_t** out_executable);
 
+// Resolves an external function token into immutable executable-owned state.
+iree_status_t iree_hal_amd_xdna_executable_lookup(
+    iree_hal_executable_t* executable, iree_hal_executable_function_t token,
+    iree_hal_amd_xdna_function_t** out_function);
+
+// Returns the admitted function's binding-table extent.
+iree_host_size_t iree_hal_amd_xdna_function_binding_count(
+    const iree_hal_amd_xdna_function_t* function);
+
+// Queries whether an in-range binding ordinal names a resource.
+bool iree_hal_amd_xdna_function_uses_binding(
+    const iree_hal_amd_xdna_function_t* function, uint32_t ordinal);
+
+// Validates an external direct reference for an in-range, used binding ordinal
+// and captures its stable native slot without reading its address payload.
+iree_status_t iree_hal_amd_xdna_function_capture_binding(
+    iree_hal_amd_xdna_function_t* function,
+    const iree_hal_queue_family_t* family, uint32_t ordinal,
+    iree_hal_buffer_ref_t reference,
+    iree_hal_amd_xdna_executable_binding_t* out_binding);
+
 // Resolves a public token and captures stable native binding slots. The caller
 // owns |out_bindings| with space for bindings.count rows and retains the
 // executable and logical buffers until checked completion. This neither reads

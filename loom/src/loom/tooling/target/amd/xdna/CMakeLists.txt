@@ -31,6 +31,7 @@ iree_execution_test_suite(
   MANIFESTS
     "test/hal_execution.test.json"
   TOOLS
+    "iree-benchmark-loom=loom::tools::iree-benchmark-loom"
     "iree-test-loom=loom::tools::iree-test-loom"
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/hal_execution.loom"

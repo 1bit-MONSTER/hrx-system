@@ -1,9 +1,9 @@
 # XDNA HAL
 
 The `xdna` driver runs native Loom array programs through libamdf. It owns
-device discovery, native contexts, executable storage, buffers, direct queue
-operations, and completion. The [image loader](image/README.md) admits `.xdna`
-ELFs and applies their declared storage and binding contracts.
+device discovery, native contexts, executable storage, buffers, direct and
+recorded queue operations, and completion. The [image loader](image/README.md)
+admits `.xdna` ELFs and applies their declared storage and binding contracts.
 
 ## Running a Loom scenario
 
@@ -116,9 +116,80 @@ application or maintaining a live-object registry.
 
 The shared AMD memory backend supplies pools, prepared external-memory access
 and stable reservations according to native capabilities. File operations and
-host calls participate in ordinary semaphore dependencies. Reusable command
-buffers, device profiling and atomic queue operations return explicit
-unsupported statuses.
+host calls participate in ordinary semaphore dependencies. Atomic queue
+operations return explicit unsupported statuses.
+
+## Reusable command buffers
+
+Command buffers record array dispatches, fill/update/copy operations, and
+barriers. Records retain direct resources and capture update bytes. Indirect
+binding tables are captured separately for each execution, so the same recording
+can run concurrently with different buffers. Replay frames pack the captured
+table, dispatch binding scratch, and bounded native descriptor/invocation arrays
+into one allocation with `IREE_STRUCT_LAYOUT`. Completed frames return to a
+recording-owned cache. Stable shape and concurrency reuse these frames and the
+existing prepared invocation cache without allocating or repatching unchanged
+bindings.
+
+One queue execution owns the external wait/signal lists and a cursor into the
+immutable recording. Its publisher fills the free native ring window, resuming
+the remaining commands after checked retirement returns capacity. There is no
+recorded-command count limit or host wait between adjacent array dispatches.
+Consecutive dispatches use one libamdf command-array submission and one checked
+native completion point. Recording retains dispatch-run lengths so publication
+can select a batch without rescanning the commands. Batches shorter than six
+dispatches use ordinary packets to avoid native command-list setup latency.
+Host transfer phases run after the preceding native prefix retires and resume
+native publication after their cache work completes. This preserves explicit
+barriers while using the same queue services as direct operations.
+
+The native queue advertises its array capacity. Linux accepts up to 64 commands
+per array and shares the existing packet pool between singleton packets and
+chain roots with children. Windows Direct-protocol queues accept up to 36
+commands per list and reuse seven 4 KiB cells in the instruction allocation's
+reserved prefix. Windows metadata protocols retain their single-command
+capability. Neither provider allocates native backing on submission. Aggregate
+packet/list credits can fill before the public pending-submission bound; `BUSY`
+retains the prepared array until checked retirement returns capacity.
+
+The submitted semaphore frontier becomes visible only after the recording's
+terminal native tail is accepted. Rejection of a later array retains the
+accepted prefix until retirement, then reports failure. Every invocation in an
+accepted array remains owned through its root's fence and result check. Native
+acceptance does not promise that all commands succeed. Loss of retirement
+observation retains the native-reachable graph as for direct dispatch.
+
+## Benchmarking and profiling
+
+The ordinary benchmark tool uses the same XDNA provider as correctness tests:
+
+```sh
+python dev.py bazel run --config=opt \
+  //loom/src/loom/tools/iree-benchmark-loom -- \
+  loom/src/loom/tooling/target/amd/xdna/test/hal_execution.loom \
+  --device=xdna --benchmark=@serial_array_latency --batch-size=64 \
+  --profile-data=queue-events,host-execution
+```
+
+`QUEUE_EVENTS` describes public submissions, dependency deferral, payload
+counts, and first execution readiness. `HOST_EXECUTION_EVENTS` measures native
+command preparation/publication and mapped host work. Native spans finish when
+publication returns; they exclude NPU execution and completion waits. Callback
+spans cover the callback body until it returns. File spans cover preparation and
+final cache publication, excluding asynchronous file I/O.
+`LIGHTWEIGHT_STATISTICS` selects these two host families. Device
+dispatch events, device timestamps, counters, and executable metadata are not
+provided by this recorder; requests for unsupported families fail explicitly.
+The benchmark's default device-dispatch profile therefore requires the explicit
+host-family selection above for XDNA.
+
+Profiling begin/end follows the HAL idle-device contract. Begin allocates one
+packed session with 4096 records per enabled stream; completed records are
+appended without allocation or sink calls. Flush can run with work in flight
+and sends stable snapshots outside queue and recording locks. Full rings report
+dropped records through `TRUNCATED` chunks. Failed sink writes retain the
+snapshot for retry; end releases session storage even when a sink fails.
+Disabled profiling performs no clock reads or profile allocation.
 
 ## Verification
 

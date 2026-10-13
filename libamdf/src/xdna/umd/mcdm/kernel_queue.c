@@ -22,13 +22,25 @@ amdf_status_t amdf_xdna_umd_kernel_queue_create(
   return status;
 }
 
+uint32_t amdf_xdna_umd_kernel_queue_maximum_command_count(
+    const amdf_xdna_umd_kernel_queue_t* queue) {
+  return amdf_windows_xdna_kernel_execution_maximum_command_count(
+      (const amdf_windows_xdna_kernel_execution_t*)queue);
+}
+
+bool amdf_xdna_umd_kernel_queue_has_capacity(
+    const amdf_xdna_umd_kernel_queue_t* queue, uint32_t command_count) {
+  return amdf_windows_xdna_kernel_execution_has_capacity(
+      (const amdf_windows_xdna_kernel_execution_t*)queue, command_count);
+}
+
 amdf_status_t amdf_xdna_umd_kernel_queue_submit(
-    amdf_xdna_umd_kernel_queue_t* queue, uint32_t slot,
-    uint64_t instruction_address, uint32_t instruction_byte_length,
+    amdf_xdna_umd_kernel_queue_t* queue, uint32_t slot, uint32_t command_count,
+    const amdf_xdna_umd_kernel_command_t* commands,
     uint64_t* out_native_submission) {
   return amdf_windows_xdna_kernel_execution_submit(
-      (amdf_windows_xdna_kernel_execution_t*)queue, slot, instruction_address,
-      instruction_byte_length, out_native_submission);
+      (amdf_windows_xdna_kernel_execution_t*)queue, slot, command_count,
+      commands, out_native_submission);
 }
 
 amdf_native_event_types_t amdf_xdna_umd_kernel_queue_query_notification_types(

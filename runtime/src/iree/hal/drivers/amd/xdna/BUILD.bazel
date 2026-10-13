@@ -200,19 +200,53 @@ iree_runtime_cc_library(
 )
 
 iree_runtime_cc_library(
+    name = "command_buffer",
+    srcs = ["command_buffer.c"],
+    hdrs = ["command_buffer.h"],
+    deps = [
+        ":barrier",
+        ":executable",
+        ":queue_storage",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/utils:resource_set",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "profile",
+    srcs = ["profile.c"],
+    hdrs = ["profile.h"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/utils:profile_event_ring",
+    ],
+)
+
+iree_runtime_cc_library(
     name = "queue",
     srcs = [
         "queue.c",
+        "queue_admission.c",
         "queue_operation.c",
+        "queue_profile.c",
     ],
     hdrs = [
         "queue.h",
+        "queue_admission.h",
         "queue_operation.h",
+        "queue_state.h",
     ],
     deps = [
         ":barrier",
+        ":command_buffer",
         ":context",
         ":executable",
+        ":profile",
         ":queue_frontier",
         ":queue_producer_index",
         ":queue_service",
@@ -280,6 +314,7 @@ iree_runtime_cc_library(
     hdrs = ["device.h"],
     deps = [
         ":command_arena",
+        ":command_buffer",
         ":context",
         ":executable",
         ":memory",
@@ -298,9 +333,10 @@ iree_runtime_cc_library(
     ],
 )
 
-iree_runtime_cc_test(
-    name = "queue_test",
-    srcs = ["queue_test.cc"],
+iree_runtime_cc_library(
+    name = "queue_test_util",
+    testonly = True,
+    hdrs = ["testing/queue_test_util.h"],
     deps = [
         ":device",
         ":memory",
@@ -317,6 +353,58 @@ iree_runtime_cc_test(
         "//runtime/src/iree/hal/drivers/amd/xdna/image/testing:image_fixture",
         "//runtime/src/iree/hal/memory:slab_cache",
         "//runtime/src/iree/hal/memory:tlsf_pool",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "queue_test",
+    srcs = ["queue_test.cc"],
+    deps = [
+        ":device",
+        ":memory",
+        ":queue",
+        ":queue_frontier",
+        ":queue_test_util",
+        ":semaphore",
+        "//libamdf:headers",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/util:proactor_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/amd/fabric:buffer",
+        "//runtime/src/iree/hal/drivers/amd/fabric:memory_backend",
+        "//runtime/src/iree/hal/drivers/amd/xdna/image/testing:image_fixture",
+        "//runtime/src/iree/hal/memory:slab_cache",
+        "//runtime/src/iree/hal/memory:tlsf_pool",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "command_buffer_test",
+    srcs = ["command_buffer_test.cc"],
+    deps = [
+        ":queue_test_util",
+        ":semaphore",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/amd/xdna/image/testing:image_fixture",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "profile_test",
+    srcs = ["profile_test.cc"],
+    deps = [
+        ":queue_test_util",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

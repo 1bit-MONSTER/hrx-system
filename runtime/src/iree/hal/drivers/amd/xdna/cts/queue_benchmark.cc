@@ -26,11 +26,20 @@ namespace {
 
 constexpr iree_device_size_t kBufferLength = 16 * sizeof(uint32_t);
 constexpr uint64_t kWarmupIterationCount = 8;
-constexpr uint64_t kStreamingDepth = 8;
 
 enum class ProgramSequence {
   kMultiplyOnly,
   kAlternating,
+};
+
+enum class SubmissionMode {
+  kDirect,
+  kRecorded,
+};
+
+enum class Measurement {
+  kSubmitOnly,
+  kEndToEnd,
 };
 
 bool HandleStatus(benchmark::State& state, iree_status_t status,
@@ -49,7 +58,6 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
   void SetUp(benchmark::State& state) override {
     available_ = false;
     completion_value_ = 0;
-    stream_ordinal_ = 0;
     iree_status_t status = Initialize();
     if (!HandleStatus(state, status, "XDNA HAL device setup failed")) {
       return;
@@ -59,6 +67,8 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
 
   void TearDown(benchmark::State& state) override {
     (void)state;
+    iree_hal_command_buffer_release(command_buffer_);
+    command_buffer_ = nullptr;
     iree_hal_semaphore_release(gate_);
     iree_hal_semaphore_release(completion_);
     for (auto*& buffer : buffers_) {
@@ -66,7 +76,9 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
       buffer = nullptr;
     }
     iree_hal_pool_release(memory_pool_);
+    memory_pool_ = nullptr;
     iree_hal_device_group_release(device_group_);
+    device_group_ = nullptr;
     for (auto*& executable : executables_) {
       iree_hal_executable_release(executable);
       executable = nullptr;
@@ -264,40 +276,158 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
     return sequence == ProgramSequence::kAlternating ? dispatch_ordinal % 2 : 0;
   }
 
-  bool SubmitStreamingBatch(benchmark::State& state, ProgramSequence sequence,
-                            uint64_t* out_terminal_value) {
+  iree_status_t SubmitStreamingBatch(ProgramSequence sequence,
+                                     iree_host_size_t dispatch_count,
+                                     uint64_t* out_terminal_value) {
     uint64_t previous_value = completion_value_;
-    for (uint64_t i = 0; i < kStreamingDepth; ++i) {
+    iree_status_t status = iree_ok_status();
+    for (iree_host_size_t i = 0;
+         i < dispatch_count && iree_status_is_ok(status); ++i) {
       const uint64_t value = ++completion_value_;
       const iree_hal_semaphore_list_t waits = {1, &completion_,
                                                &previous_value};
-      if (!HandleStatus(
-              state,
-              Dispatch(waits, value, SelectProgram(sequence, stream_ordinal_)),
-              "streaming dispatch failed")) {
-        return false;
-      }
+      status = Dispatch(waits, value, SelectProgram(sequence, i));
       previous_value = value;
-      ++stream_ordinal_;
     }
     *out_terminal_value = previous_value;
-    return true;
+    return status;
   }
 
-  bool WarmStreaming(benchmark::State& state, ProgramSequence sequence) {
-    if (sequence == ProgramSequence::kAlternating && !executables_[1] &&
+  iree_status_t RecordBatch(ProgramSequence sequence,
+                            iree_host_size_t dispatch_count) {
+    IREE_RETURN_IF_ERROR(iree_hal_command_buffer_create(
+        iree_hal_queue_family(queue_), IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT,
+        IREE_HAL_COMMAND_CATEGORY_DISPATCH, 0, &command_buffer_));
+    IREE_RETURN_IF_ERROR(iree_hal_command_buffer_begin(command_buffer_));
+    const iree_hal_buffer_ref_t bindings[] = {
+        iree_hal_make_buffer_ref(buffers_[0], 0, kBufferLength),
+        iree_hal_make_buffer_ref(buffers_[1], 0, kBufferLength),
+        iree_hal_make_buffer_ref(buffers_[2], 0, kBufferLength),
+    };
+    const iree_hal_memory_barrier_t memory_barrier = {
+        .source_scope = IREE_HAL_ACCESS_SCOPE_DISPATCH_WRITE,
+        .target_scope = IREE_HAL_ACCESS_SCOPE_DISPATCH_WRITE,
+    };
+    const iree_hal_barrier_t barrier = {
+        .source_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+        .target_stage_mask = IREE_HAL_EXECUTION_STAGE_DISPATCH,
+        .memory_barrier_count = 1,
+        .memory_barriers = &memory_barrier,
+    };
+    iree_status_t status = iree_ok_status();
+    for (iree_host_size_t i = 0;
+         i < dispatch_count && iree_status_is_ok(status); ++i) {
+      if (i) {
+        status = iree_hal_command_buffer_barrier(command_buffer_, &barrier);
+      }
+      if (iree_status_is_ok(status)) {
+        const iree_host_size_t program = SelectProgram(sequence, i);
+        status = iree_hal_command_buffer_dispatch(
+            command_buffer_, executables_[program], functions_[program],
+            iree_hal_make_static_dispatch_config(1, 1, 1),
+            iree_const_byte_span_empty(), {IREE_ARRAYSIZE(bindings), bindings},
+            IREE_HAL_DISPATCH_FLAG_NONE);
+      }
+    }
+    if (iree_status_is_ok(status)) {
+      status = iree_hal_command_buffer_end(command_buffer_);
+    }
+    return status;
+  }
+
+  iree_status_t SubmitBatch(SubmissionMode mode, ProgramSequence sequence,
+                            iree_host_size_t dispatch_count,
+                            uint64_t* out_terminal_value) {
+    if (mode == SubmissionMode::kDirect) {
+      return SubmitStreamingBatch(sequence, dispatch_count, out_terminal_value);
+    }
+    uint64_t previous_value = completion_value_;
+    uint64_t value = ++completion_value_;
+    *out_terminal_value = value;
+    return iree_hal_queue_execute(queue_, {1, &completion_, &previous_value},
+                                  {1, &completion_, &value}, command_buffer_,
+                                  iree_hal_buffer_binding_table_empty(),
+                                  IREE_HAL_QUEUE_EXECUTE_FLAG_NONE);
+  }
+
+  iree_status_t VerifyOutput(ProgramSequence sequence,
+                             iree_host_size_t dispatch_count) {
+    std::array<uint32_t, 16> output;
+    IREE_RETURN_IF_ERROR(iree_hal_buffer_map_read(buffers_[2], 0, output.data(),
+                                                  sizeof(output)));
+    const iree_host_size_t terminal_program =
+        SelectProgram(sequence, dispatch_count - 1);
+    iree_status_t status = iree_ok_status();
+    for (size_t i = 0; i < output.size() && iree_status_is_ok(status); ++i) {
+      const uint32_t lhs = static_cast<uint32_t>(i + 17);
+      const uint32_t rhs = static_cast<uint32_t>(i * 3 + 5);
+      const uint32_t expected = terminal_program ? lhs + rhs : lhs * rhs;
+      if (output[i] != expected) {
+        status = iree_make_status(IREE_STATUS_DATA_LOSS,
+                                  "output[%zu] = %u, expected %u", i, output[i],
+                                  expected);
+      }
+    }
+    return status;
+  }
+
+  void RunBatchBenchmark(benchmark::State& state, SubmissionMode mode,
+                         ProgramSequence sequence, Measurement measurement) {
+    if (!available_) {
+      return;
+    }
+    const auto dispatch_count = static_cast<iree_host_size_t>(state.range(0));
+    if (sequence == ProgramSequence::kAlternating &&
         !HandleStatus(state,
                       LoadExecutable(
                           iree_hal_amd_xdna_test_add_i32_create(),
                           iree_hal_amd_xdna_test_add_i32_npu4_create(),
                           IREE_SV("add_i32"), &executables_[1], &functions_[1]),
                       "alternate XDNA executable setup failed")) {
-      return false;
+      return;
     }
-    uint64_t terminal_value = 0;
-    return SubmitStreamingBatch(state, sequence, &terminal_value) &&
-           HandleStatus(state, Wait(terminal_value),
-                        "streaming dispatch warmup wait failed");
+    if (mode == SubmissionMode::kRecorded &&
+        !HandleStatus(state, RecordBatch(sequence, dispatch_count),
+                      "XDNA command buffer recording failed")) {
+      return;
+    }
+    iree_status_t status = iree_ok_status();
+    for (uint64_t i = 0; i < kWarmupIterationCount && iree_status_is_ok(status);
+         ++i) {
+      uint64_t value = 0;
+      status = SubmitBatch(mode, sequence, dispatch_count, &value);
+      if (iree_status_is_ok(status)) {
+        status = Wait(value);
+      }
+    }
+    if (!HandleStatus(state, status, "XDNA batch warmup failed") ||
+        !HandleStatus(state, VerifyOutput(sequence, dispatch_count),
+                      "XDNA batch warmup output mismatch")) {
+      return;
+    }
+    for (auto _ : state) {
+      uint64_t value = 0;
+      if (!HandleStatus(state,
+                        SubmitBatch(mode, sequence, dispatch_count, &value),
+                        "XDNA batch submission failed")) {
+        break;
+      }
+      if (measurement == Measurement::kSubmitOnly) {
+        state.PauseTiming();
+      }
+      status = Wait(value);
+      if (measurement == Measurement::kSubmitOnly) {
+        state.ResumeTiming();
+      }
+      if (!HandleStatus(state, status, "XDNA batch completion failed")) {
+        break;
+      }
+    }
+    if (!state.skipped()) {
+      HandleStatus(state, VerifyOutput(sequence, dispatch_count),
+                   "XDNA batch output mismatch");
+    }
+    state.SetItemsProcessed(state.iterations() * dispatch_count);
   }
 
   // True when setup produced a complete runnable fixture.
@@ -329,8 +459,8 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
   iree_hal_semaphore_t* gate_ = nullptr;
   // Next shared gate and completion timeline value.
   uint64_t completion_value_ = 0;
-  // Next program position in streaming benchmark sequences.
-  uint64_t stream_ordinal_ = 0;
+  // Immutable recording reused by recorded batch measurements.
+  iree_hal_command_buffer_t* command_buffer_ = nullptr;
 };
 
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
@@ -392,78 +522,50 @@ BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
 
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
                    StreamingSubmitOnly)(benchmark::State& state) {
-  if (!available_ || !WarmStreaming(state, ProgramSequence::kMultiplyOnly)) {
-    return;
-  }
-  for (auto _ : state) {
-    uint64_t terminal_value = 0;
-    if (!SubmitStreamingBatch(state, ProgramSequence::kMultiplyOnly,
-                              &terminal_value)) {
-      break;
-    }
-    state.PauseTiming();
-    iree_status_t status = Wait(terminal_value);
-    state.ResumeTiming();
-    if (!HandleStatus(state, status, "streaming dispatch wait failed")) {
-      break;
-    }
-  }
-  state.SetItemsProcessed(state.iterations() * kStreamingDepth);
+  RunBatchBenchmark(state, SubmissionMode::kDirect,
+                    ProgramSequence::kMultiplyOnly, Measurement::kSubmitOnly);
 }
 
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
                    StreamingEndToEnd)(benchmark::State& state) {
-  if (!available_ || !WarmStreaming(state, ProgramSequence::kMultiplyOnly)) {
-    return;
-  }
-  for (auto _ : state) {
-    uint64_t terminal_value = 0;
-    if (!SubmitStreamingBatch(state, ProgramSequence::kMultiplyOnly,
-                              &terminal_value) ||
-        !HandleStatus(state, Wait(terminal_value),
-                      "streaming dispatch wait failed")) {
-      break;
-    }
-  }
-  state.SetItemsProcessed(state.iterations() * kStreamingDepth);
+  RunBatchBenchmark(state, SubmissionMode::kDirect,
+                    ProgramSequence::kMultiplyOnly, Measurement::kEndToEnd);
 }
 
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
                    SwitchingSubmitOnly)(benchmark::State& state) {
-  if (!available_ || !WarmStreaming(state, ProgramSequence::kAlternating)) {
-    return;
-  }
-  for (auto _ : state) {
-    uint64_t terminal_value = 0;
-    if (!SubmitStreamingBatch(state, ProgramSequence::kAlternating,
-                              &terminal_value)) {
-      break;
-    }
-    state.PauseTiming();
-    iree_status_t status = Wait(terminal_value);
-    state.ResumeTiming();
-    if (!HandleStatus(state, status, "switching dispatch wait failed")) {
-      break;
-    }
-  }
-  state.SetItemsProcessed(state.iterations() * kStreamingDepth);
+  RunBatchBenchmark(state, SubmissionMode::kDirect,
+                    ProgramSequence::kAlternating, Measurement::kSubmitOnly);
 }
 
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
                    SwitchingEndToEnd)(benchmark::State& state) {
-  if (!available_ || !WarmStreaming(state, ProgramSequence::kAlternating)) {
-    return;
-  }
-  for (auto _ : state) {
-    uint64_t terminal_value = 0;
-    if (!SubmitStreamingBatch(state, ProgramSequence::kAlternating,
-                              &terminal_value) ||
-        !HandleStatus(state, Wait(terminal_value),
-                      "switching dispatch wait failed")) {
-      break;
-    }
-  }
-  state.SetItemsProcessed(state.iterations() * kStreamingDepth);
+  RunBatchBenchmark(state, SubmissionMode::kDirect,
+                    ProgramSequence::kAlternating, Measurement::kEndToEnd);
+}
+
+BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
+                   RecordedStreamingSubmitOnly)(benchmark::State& state) {
+  RunBatchBenchmark(state, SubmissionMode::kRecorded,
+                    ProgramSequence::kMultiplyOnly, Measurement::kSubmitOnly);
+}
+
+BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
+                   RecordedStreamingEndToEnd)(benchmark::State& state) {
+  RunBatchBenchmark(state, SubmissionMode::kRecorded,
+                    ProgramSequence::kMultiplyOnly, Measurement::kEndToEnd);
+}
+
+BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
+                   RecordedSwitchingSubmitOnly)(benchmark::State& state) {
+  RunBatchBenchmark(state, SubmissionMode::kRecorded,
+                    ProgramSequence::kAlternating, Measurement::kSubmitOnly);
+}
+
+BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
+                   RecordedSwitchingEndToEnd)(benchmark::State& state) {
+  RunBatchBenchmark(state, SubmissionMode::kRecorded,
+                    ProgramSequence::kAlternating, Measurement::kEndToEnd);
 }
 
 BENCHMARK_REGISTER_F(XdnaQueueBenchmark, ReadySubmitOnly)
@@ -476,15 +578,86 @@ BENCHMARK_REGISTER_F(XdnaQueueBenchmark, UnresolvedSubmitOnly)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
 BENCHMARK_REGISTER_F(XdnaQueueBenchmark, StreamingSubmitOnly)
+    ->Arg(1)
+    ->Arg(2)
+    ->Arg(4)
+    ->Arg(5)
+    ->Arg(6)
+    ->Arg(8)
+    ->Arg(64)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
+
 BENCHMARK_REGISTER_F(XdnaQueueBenchmark, StreamingEndToEnd)
+    ->Arg(1)
+    ->Arg(2)
+    ->Arg(4)
+    ->Arg(5)
+    ->Arg(6)
+    ->Arg(8)
+    ->Arg(64)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
+
 BENCHMARK_REGISTER_F(XdnaQueueBenchmark, SwitchingSubmitOnly)
+    ->Arg(2)
+    ->Arg(4)
+    ->Arg(5)
+    ->Arg(6)
+    ->Arg(8)
+    ->Arg(64)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
+
 BENCHMARK_REGISTER_F(XdnaQueueBenchmark, SwitchingEndToEnd)
+    ->Arg(2)
+    ->Arg(4)
+    ->Arg(5)
+    ->Arg(6)
+    ->Arg(8)
+    ->Arg(64)
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_REGISTER_F(XdnaQueueBenchmark, RecordedStreamingSubmitOnly)
+    ->Arg(1)
+    ->Arg(2)
+    ->Arg(4)
+    ->Arg(5)
+    ->Arg(6)
+    ->Arg(8)
+    ->Arg(64)
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_REGISTER_F(XdnaQueueBenchmark, RecordedStreamingEndToEnd)
+    ->Arg(1)
+    ->Arg(2)
+    ->Arg(4)
+    ->Arg(5)
+    ->Arg(6)
+    ->Arg(8)
+    ->Arg(64)
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_REGISTER_F(XdnaQueueBenchmark, RecordedSwitchingSubmitOnly)
+    ->Arg(2)
+    ->Arg(4)
+    ->Arg(5)
+    ->Arg(6)
+    ->Arg(8)
+    ->Arg(64)
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_REGISTER_F(XdnaQueueBenchmark, RecordedSwitchingEndToEnd)
+    ->Arg(2)
+    ->Arg(4)
+    ->Arg(5)
+    ->Arg(6)
+    ->Arg(8)
+    ->Arg(64)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
 

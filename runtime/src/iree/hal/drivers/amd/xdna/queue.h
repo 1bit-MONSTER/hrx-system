@@ -26,6 +26,9 @@ iree_status_t iree_hal_amd_xdna_queue_create(
     iree_async_proactor_t* proactor, iree_allocator_t host_allocator,
     iree_hal_queue_t** out_queue);
 
+// Returns the immutable native array limit, bounded by HAL pending capacity.
+uint32_t iree_hal_amd_xdna_queue_maximum_command_count(iree_hal_queue_t* queue);
+
 // Assigns or clears an idle queue's causal domain. The tracker is retained.
 // Topology assignment is externally serialized against submission and teardown.
 iree_status_t iree_hal_amd_xdna_queue_assign_frontier(
@@ -42,6 +45,15 @@ bool iree_hal_amd_xdna_queue_try_wait_epoch(iree_hal_queue_t* queue,
                                             iree_timeout_t timeout,
                                             iree_async_wait_flags_t flags,
                                             iree_status_t* out_status);
+
+// Captures host queue and execution records under the device profiling
+// contract. Native submission spans measure host preparation/publication, not
+// NPU work.
+iree_status_t iree_hal_amd_xdna_queue_profiling_begin(
+    iree_hal_queue_t* queue, uint32_t physical_device_ordinal,
+    const iree_hal_device_profiling_options_t* options);
+iree_status_t iree_hal_amd_xdna_queue_profiling_flush(iree_hal_queue_t* queue);
+iree_status_t iree_hal_amd_xdna_queue_profiling_end(iree_hal_queue_t* queue);
 
 // Releases currently unused operation and payload capture blocks.
 void iree_hal_amd_xdna_queue_trim(iree_hal_queue_t* queue);

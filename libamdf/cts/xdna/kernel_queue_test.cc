@@ -252,7 +252,8 @@ class XdnaKernelQueueTest : public XdnaContextFixture {
         xdna_api_->kernel_queue_create(context_, &create_info, &queue_)));
   }
 
-  void RunPipelinedTransactions(uint32_t capacity) {
+  void RunPipelinedTransactions(uint32_t capacity,
+                                uint32_t commands_per_submission = 1) {
     amdf_xdna_endpoint_info_t identity = {
         .type = AMDF_STRUCTURE_TYPE_XDNA_ENDPOINT_INFO,
         .structure_size = sizeof(identity),
@@ -286,25 +287,38 @@ class XdnaKernelQueueTest : public XdnaContextFixture {
     };
     ASSERT_EQ(api_->kernel_queue_query_info(queue_, &info), AMDF_STATUS_OK);
     ASSERT_NE(info.maximum_pending_submission_count, 0u);
-    const uint32_t command_count =
-        std::min(info.maximum_pending_submission_count, uint32_t{4096});
-    amdf_xdna_kernel_command_t command = {
-        .memory = memory_,
-        .byte_length = first.size(),
-    };
+    if (commands_per_submission == 0) {
+      if (info.maximum_command_count < 2) {
+        GTEST_SKIP() << "queue does not support command arrays";
+      }
+      commands_per_submission = info.maximum_command_count;
+    }
+    // Single commands fill the pending window. Arrays share native packet
+    // capacity, so their reuse test waits after each accepted array.
+    const uint32_t submission_count =
+        commands_per_submission > 1
+            ? 1
+            : std::min(info.maximum_pending_submission_count, uint32_t{4096});
+    std::vector<amdf_xdna_kernel_command_t> commands(
+        commands_per_submission, amdf_xdna_kernel_command_t{
+                                     .memory = memory_,
+                                     .byte_length = first.size(),
+                                 });
     amdf_xdna_kernel_queue_submission_info_t submit = {
         .type = AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_SUBMISSION_INFO,
         .structure_size = sizeof(submit),
-        .command_count = 1,
-        .commands = &command,
+        .command_count = commands_per_submission,
+        .commands = commands.data(),
     };
     uint64_t previous = 0;
     for (uint32_t round = 0; round < 3; ++round) {
       amdf_status_t status = AMDF_STATUS_OK;
       uint64_t last = 0;
-      for (uint32_t i = 0; i < command_count && amdf_status_is_ok(status);
+      for (uint32_t i = 0; i < submission_count && amdf_status_is_ok(status);
            ++i) {
-        command.byte_offset = ((i + round) % 2) * instruction_stride_;
+        for (uint32_t j = 0; j < commands_per_submission; ++j) {
+          commands[j].byte_offset = ((i + j + round) % 2) * instruction_stride_;
+        }
         uint64_t point = 0;
         status = xdna_api_->kernel_queue_submit(queue_, &submit, &point);
         if (amdf_status_is_ok(status)) {
@@ -583,6 +597,11 @@ TEST_F(XdnaKernelQueueTest, PipelinesCommandsAtConfiguredCapacity) {
 
 TEST_F(XdnaKernelQueueTest, PipelinesCommandsAtDefaultCapacity) {
   RunPipelinedTransactions(0);
+}
+
+TEST_F(XdnaKernelQueueTest,
+       ReusesImmutableCommandArraysAfterCheckedRetirement) {
+  RunPipelinedTransactions(0, 0);
 }
 
 TEST_F(XdnaKernelQueueTest, RefreshRetiresBatchesAndReusesPacketStorage) {

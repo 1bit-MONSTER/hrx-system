@@ -49,6 +49,16 @@ _SPIRV_VULKAN_TARGET_DEPS = iree_select({
     "//conditions:default": [],
 })
 
+_XDNA_TARGET_COPTS = iree_select({
+    "//loom/config/execute:xdna_hal": ["-DIREE_BENCHMARK_LOOM_HAVE_XDNA=1"],
+    "//conditions:default": [],
+})
+
+_XDNA_TARGET_DEPS = iree_select({
+    "//loom/config/execute:xdna_hal": ["//loom/binding/c/target/amd/xdna:iree_hal"],
+    "//conditions:default": [],
+})
+
 _VM_TARGET_COPTS = iree_select({
     "//loom/config/target/arch:vm": ["-DIREE_BENCHMARK_LOOM_HAVE_VM=1"],
     "//conditions:default": [],
@@ -64,13 +74,15 @@ _VM_TARGET_DEPS = iree_select({
 _IREE_BENCHMARK_LOOM_TARGET_COPTS = (
     _AMDGPU_TARGET_COPTS +
     _SPIRV_VULKAN_TARGET_COPTS +
-    _VM_TARGET_COPTS
+    _VM_TARGET_COPTS +
+    _XDNA_TARGET_COPTS
 )
 
 _IREE_BENCHMARK_LOOM_TARGET_DEPS = (
     _AMDGPU_TARGET_DEPS +
     _SPIRV_VULKAN_TARGET_DEPS +
-    _VM_TARGET_DEPS
+    _VM_TARGET_DEPS +
+    _XDNA_TARGET_DEPS
 )
 
 loom_cc_library(

@@ -10,6 +10,7 @@
 #include "iree/async/util/proactor_pool.h"
 #include "iree/hal/drivers/amd/fabric/memory_backend.h"
 #include "iree/hal/drivers/amd/xdna/command_arena.h"
+#include "iree/hal/drivers/amd/xdna/command_buffer.h"
 #include "iree/hal/drivers/amd/xdna/executable.h"
 #include "iree/hal/drivers/amd/xdna/queue.h"
 #include "iree/hal/drivers/amd/xdna/semaphore.h"
@@ -391,8 +392,12 @@ static iree_status_t iree_hal_amd_xdna_device_create_command_buffer(
     iree_hal_command_category_t command_categories,
     iree_host_size_t binding_capacity,
     iree_hal_command_buffer_t** out_command_buffer) {
-  return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                          "XDNA device does not support create_command_buffer");
+  return iree_hal_amd_xdna_command_buffer_create(
+      queue_family, mode, command_categories, binding_capacity,
+      iree_hal_amd_xdna_queue_maximum_command_count(
+          ((iree_hal_amd_xdna_device_t*)device)->queue),
+      ((iree_hal_amd_xdna_device_t*)device)->host_allocator,
+      out_command_buffer);
 }
 
 static iree_status_t iree_hal_amd_xdna_device_import_file(
@@ -410,20 +415,22 @@ static iree_status_t iree_hal_amd_xdna_device_import_file(
 static iree_status_t iree_hal_amd_xdna_device_profiling_begin(
     iree_hal_device_t* device,
     const iree_hal_device_profiling_options_t* options) {
-  return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                          "XDNA device does not support profiling_begin");
+  iree_hal_amd_xdna_device_t* self = (void*)device;
+  return iree_hal_amd_xdna_queue_profiling_begin(
+      self->queue, self->topology.topology ? self->topology.topology_index : 0,
+      options);
 }
 
 static iree_status_t iree_hal_amd_xdna_device_profiling_flush(
     iree_hal_device_t* device) {
-  return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                          "XDNA device does not support profiling_flush");
+  return iree_hal_amd_xdna_queue_profiling_flush(
+      ((iree_hal_amd_xdna_device_t*)device)->queue);
 }
 
 static iree_status_t iree_hal_amd_xdna_device_profiling_end(
     iree_hal_device_t* device) {
-  return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                          "XDNA device does not support profiling_end");
+  return iree_hal_amd_xdna_queue_profiling_end(
+      ((iree_hal_amd_xdna_device_t*)device)->queue);
 }
 
 static const iree_hal_device_vtable_t iree_hal_amd_xdna_device_vtable = {
