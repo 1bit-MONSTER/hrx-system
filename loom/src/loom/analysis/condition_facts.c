@@ -624,16 +624,14 @@ bool loom_condition_integer_comparison_evaluate(
                    rhs_facts, out_result);
 }
 
-static bool loom_condition_integer_comparison_relation(
+bool loom_condition_integer_comparison_relation(
     const loom_condition_integer_comparison_t* comparison,
     loom_symbolic_integer_relation_t* out_relation, bool* out_unsigned_order) {
   return comparison->kind == LOOM_OP_INDEX_CMP
              ? loom_condition_index_predicate_relation(
                    comparison->predicate, out_relation, out_unsigned_order)
              : loom_condition_scalar_cmpi_predicate_relation(
-                   loom_scalar_cmpi_range_predicate(comparison->operand_type,
-                                                    comparison->predicate),
-                   out_relation, out_unsigned_order);
+                   comparison->predicate, out_relation, out_unsigned_order);
 }
 
 static bool loom_condition_relation_to_predicate_kind(
@@ -673,6 +671,12 @@ static bool loom_condition_integer_comparison_normalize_relation(
   if (!loom_condition_integer_comparison_relation(comparison, out_relation,
                                                   &unsigned_order)) {
     return false;
+  }
+  if (comparison->kind == LOOM_OP_SCALAR_CMPI &&
+      loom_scalar_cmpi_range_predicate(comparison->operand_type,
+                                       comparison->predicate) !=
+          comparison->predicate) {
+    *out_relation = loom_symbolic_integer_relation_swap(*out_relation);
   }
   if (comparison->kind == LOOM_OP_INDEX_CMP &&
       !loom_index_cmp_facts_fit_target_carrier(

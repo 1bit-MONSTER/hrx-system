@@ -446,3 +446,35 @@ func.def @branch_local_bound_stays_local(%requested_start: index, %enabled: i1) 
   %result_high = scalar.constant 9223372036854775807 : i64
   func.return %result_low, %result_high : i64, i64
 }
+
+// ====
+
+// RUN: with-checks pass canonicalize,dce
+
+// Structured condition loops consume the same scalar comparison and update
+// descriptors as natural CFG loops. A body-local literal remains invariant.
+func.def @scalar_condition_counter() -> (i64, i64) {
+  %begin = scalar.constant 9 : i32
+  %end = scalar.constant 3 : i32
+  %result = scf.while(%before = %begin : i32) -> (i32) {
+    %scalar_lo = test.fact_range_lo %before : i32 -> i64
+    %scalar_hi = test.fact_range_hi %before : i32 -> i64
+    test.use %scalar_lo, %scalar_hi : i64, i64
+    %more = scalar.cmpi sge, %before, %end : i32
+    scf.condition %more, %before : i1, i32
+  } do(%current: i32) {
+    %step = scalar.constant 2 : i32
+    %next = scalar.subi %current, %step : i32
+    scf.yield %next : i32
+  }
+  %result_lo = test.fact_range_lo %result : i32 -> i64
+  %result_hi = test.fact_range_hi %result : i32 -> i64
+  func.return %result_lo, %result_hi : i64, i64
+}
+
+// ----
+CHECK: %scalar_lo = scalar.constant 1 : i64
+CHECK: %scalar_hi = scalar.constant 9 : i64
+CHECK: %result_lo = scalar.constant 1 : i64
+CHECK: %result_hi = scalar.constant 1 : i64
+CHECK-NOT: *test.fact_range_*

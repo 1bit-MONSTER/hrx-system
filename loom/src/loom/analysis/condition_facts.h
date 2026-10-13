@@ -57,6 +57,14 @@ bool loom_condition_integer_comparison_describe(
     const loom_module_t* module, const loom_op_t* op,
     loom_condition_integer_comparison_t* out_comparison);
 
+// Decodes the comparison's relation in its raw integer carrier order. The
+// relation applies to lhs and rhs as stored; |out_unsigned_order| distinguishes
+// unsigned from signed relational predicates. Equality predicates have no
+// signedness. Returns false only for an invalid predicate.
+bool loom_condition_integer_comparison_relation(
+    const loom_condition_integer_comparison_t* comparison,
+    loom_symbolic_integer_relation_t* out_relation, bool* out_unsigned_order);
+
 // Proves comparison truth from operand facts in the comparison's original
 // scalar or target carrier domain. Returns false when the facts cannot decide
 // the result. Evaluation reads no IR and allocates no storage.

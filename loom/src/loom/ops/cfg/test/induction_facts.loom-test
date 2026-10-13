@@ -1206,3 +1206,137 @@ func.def @unsigned_descending_data_exit(%input: view<4xi32>, %requested_count: i
   %result_high = scalar.constant 3 : i64
   func.return %stopped_remaining, %result_low, %result_high : index, i64, i64
 }
+
+// ====
+
+// RUN: with-checks pass canonicalize,dce
+
+// Fixed-width integer controls share the index/offset recurrence machinery.
+// The cases span every scalar integer carrier and exercise unsigned Boolean
+// order, signed ascent, reversed inclusive descent, unsigned inclusive ascent,
+// and commuted addition.
+func.def @scalar_i1_counter() -> (i64, i64) {
+  %begin = scalar.constant false : i1
+  %end = scalar.constant true : i1
+  %step = scalar.constant true : i1
+  cfg.br ^header(%begin: i1)
+^header(%counter: i1):
+  %i1_lo = test.fact_range_lo %counter : i1 -> i64
+  %i1_hi = test.fact_range_hi %counter : i1 -> i64
+  %more = scalar.cmpi ult, %counter, %end : i1
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %next = scalar.addi %counter, %step : i1
+  cfg.br ^header(%next: i1)
+^exit:
+  func.return %i1_lo, %i1_hi : i64, i64
+}
+
+func.def @scalar_i8_counter() -> (i64, i64) {
+  %begin = scalar.constant -3 : i8
+  %end = scalar.constant 3 : i8
+  %step = scalar.constant 2 : i8
+  cfg.br ^header(%begin: i8)
+^header(%counter: i8):
+  %i8_lo = test.fact_range_lo %counter : i8 -> i64
+  %i8_hi = test.fact_range_hi %counter : i8 -> i64
+  %more = scalar.cmpi slt, %counter, %end : i8
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %next = scalar.addi %counter, %step : i8
+  cfg.br ^header(%next: i8)
+^exit:
+  func.return %i8_lo, %i8_hi : i64, i64
+}
+
+func.def @scalar_i16_counter() -> (i64, i64) {
+  %begin = scalar.constant 7 : i16
+  %end = scalar.constant 3 : i16
+  %step = scalar.constant 2 : i16
+  cfg.br ^header(%begin: i16)
+^header(%counter: i16):
+  %i16_lo = test.fact_range_lo %counter : i16 -> i64
+  %i16_hi = test.fact_range_hi %counter : i16 -> i64
+  %more = scalar.cmpi sle, %end, %counter : i16
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %next = scalar.subi %counter, %step : i16
+  cfg.br ^header(%next: i16)
+^exit:
+  func.return %i16_lo, %i16_hi : i64, i64
+}
+
+func.def @scalar_i32_counter() -> (i64, i64) {
+  %begin = scalar.constant 0 : i32
+  %end = scalar.constant 4 : i32
+  %step = scalar.constant 1 : i32
+  cfg.br ^header(%begin: i32)
+^header(%counter: i32):
+  %i32_lo = test.fact_range_lo %counter : i32 -> i64
+  %i32_hi = test.fact_range_hi %counter : i32 -> i64
+  %more = scalar.cmpi ule, %counter, %end : i32
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %next = scalar.addi %counter, %step : i32
+  cfg.br ^header(%next: i32)
+^exit:
+  func.return %i32_lo, %i32_hi : i64, i64
+}
+
+func.def @scalar_i64_counter() -> (i64, i64) {
+  %begin = scalar.constant 2 : i64
+  %end = scalar.constant 9 : i64
+  %step = scalar.constant 3 : i64
+  cfg.br ^header(%begin: i64)
+^header(%counter: i64):
+  %i64_lo = test.fact_range_lo %counter : i64 -> i64
+  %i64_hi = test.fact_range_hi %counter : i64 -> i64
+  %more = scalar.cmpi slt, %counter, %end : i64
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %next = scalar.addi %step, %counter : i64
+  cfg.br ^header(%next: i64)
+^exit:
+  func.return %i64_lo, %i64_hi : i64, i64
+}
+
+// ----
+CHECK: %i1_lo = scalar.constant 0 : i64
+CHECK: %i1_hi = scalar.constant 1 : i64
+CHECK: %i8_lo = scalar.constant -3 : i64
+CHECK: %i8_hi = scalar.constant 3 : i64
+CHECK: %i16_lo = scalar.constant 1 : i64
+CHECK: %i16_hi = scalar.constant 7 : i64
+CHECK: %i32_lo = scalar.constant 0 : i64
+CHECK: %i32_hi = scalar.constant 5 : i64
+CHECK: %i64_lo = scalar.constant 2 : i64
+CHECK: %i64_hi = scalar.constant 11 : i64
+CHECK-NOT: *test.fact_range_*
+
+// ====
+
+// RUN: with-checks pass canonicalize,dce
+
+// The terminal increment must fit the fixed-width carrier. Treating i8 as the
+// target offset width would incorrectly infer a mathematical [126, 128] range.
+func.def @scalar_i8_terminal_wrap() -> (i64, i64) {
+  %begin = scalar.constant 126 : i8
+  %end = scalar.constant 127 : i8
+  %step = scalar.constant 2 : i8
+  cfg.br ^header(%begin: i8)
+^header(%counter: i8):
+  %wrap_lo = test.fact_range_lo %counter : i8 -> i64
+  %wrap_hi = test.fact_range_hi %counter : i8 -> i64
+  %more = scalar.cmpi slt, %counter, %end : i8
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %next = scalar.addi %counter, %step : i8
+  cfg.br ^header(%next: i8)
+^exit:
+  func.return %wrap_lo, %wrap_hi : i64, i64
+}
+
+// ----
+CHECK: %wrap_lo = scalar.constant -128 : i64
+CHECK: %wrap_hi = scalar.constant 127 : i64
+CHECK-NOT: *test.fact_range_*

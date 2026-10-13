@@ -6,9 +6,11 @@
 
 #include "loom/util/fact_induction.h"
 
+#include "loom/analysis/condition_facts.h"
 #include "loom/ir/module.h"
 #include "loom/ops/cfg/ops.h"
 #include "loom/ops/index/ops.h"
+#include "loom/ops/scalar/ops.h"
 #include "loom/target/facts.h"
 #include "loom/util/fact_cfg.h"
 #include "loom/util/fact_table.h"
@@ -28,7 +30,7 @@ static bool loom_value_fact_induction_is_invariant(
     block = loom_value_def_block(value);
   } else {
     const loom_op_t* op = loom_value_def_op(value);
-    if (loom_index_constant_isa(op)) {
+    if (iree_any_bit_set(op->traits, LOOM_TRAIT_CONSTANT_LIKE)) {
       return true;
     }
     block = op->parent_block;
@@ -42,44 +44,42 @@ static bool loom_value_fact_induction_comparison(
     const loom_op_t* compare, const loom_block_t* header,
     loom_value_id_t* out_counter, loom_value_id_t* out_bound,
     loom_loop_bound_flags_t* out_flags) {
-  loom_loop_bound_flags_t bound_flags = LOOM_LOOP_BOUND_NONE;
-  switch (loom_index_cmp_predicate(compare)) {
-    case LOOM_INDEX_CMP_PREDICATE_SLT:
-      bound_flags = LOOM_LOOP_BOUND_SIGNED;
+  loom_condition_integer_comparison_t comparison;
+  if (!loom_condition_integer_comparison_describe(module, compare,
+                                                  &comparison)) {
+    return false;
+  }
+  loom_symbolic_integer_relation_t relation;
+  bool unsigned_order = false;
+  if (!loom_condition_integer_comparison_relation(&comparison, &relation,
+                                                  &unsigned_order)) {
+    return false;
+  }
+  loom_loop_bound_flags_t bound_flags =
+      unsigned_order ? LOOM_LOOP_BOUND_NONE : LOOM_LOOP_BOUND_SIGNED;
+  switch (relation) {
+    case LOOM_SYMBOLIC_INTEGER_RELATION_LT:
       break;
-    case LOOM_INDEX_CMP_PREDICATE_SLE:
-      bound_flags = LOOM_LOOP_BOUND_SIGNED | LOOM_LOOP_BOUND_INCLUSIVE;
+    case LOOM_SYMBOLIC_INTEGER_RELATION_LE:
+      bound_flags |= LOOM_LOOP_BOUND_INCLUSIVE;
       break;
-    case LOOM_INDEX_CMP_PREDICATE_ULT:
+    case LOOM_SYMBOLIC_INTEGER_RELATION_GT:
+      bound_flags |= LOOM_LOOP_BOUND_DESCENDING;
       break;
-    case LOOM_INDEX_CMP_PREDICATE_ULE:
-      bound_flags = LOOM_LOOP_BOUND_INCLUSIVE;
-      break;
-    case LOOM_INDEX_CMP_PREDICATE_SGT:
-      bound_flags = LOOM_LOOP_BOUND_SIGNED | LOOM_LOOP_BOUND_DESCENDING;
-      break;
-    case LOOM_INDEX_CMP_PREDICATE_SGE:
-      bound_flags = LOOM_LOOP_BOUND_SIGNED | LOOM_LOOP_BOUND_DESCENDING |
-                    LOOM_LOOP_BOUND_INCLUSIVE;
-      break;
-    case LOOM_INDEX_CMP_PREDICATE_UGT:
-      bound_flags = LOOM_LOOP_BOUND_DESCENDING;
-      break;
-    case LOOM_INDEX_CMP_PREDICATE_UGE:
-      bound_flags = LOOM_LOOP_BOUND_DESCENDING | LOOM_LOOP_BOUND_INCLUSIVE;
+    case LOOM_SYMBOLIC_INTEGER_RELATION_GE:
+      bound_flags |= LOOM_LOOP_BOUND_DESCENDING | LOOM_LOOP_BOUND_INCLUSIVE;
       break;
     default:
       return false;
   }
   loom_value_id_t counter =
-      loom_value_fact_table_query_identity(table, loom_index_cmp_lhs(compare));
-  loom_value_id_t bound = loom_index_cmp_rhs(compare);
+      loom_value_fact_table_query_identity(table, comparison.lhs);
+  loom_value_id_t bound = comparison.rhs;
   const loom_value_t* value = loom_module_value(module, counter);
   if (!loom_value_is_block_arg(value) ||
       loom_value_def_block(value) != header) {
-    counter = loom_value_fact_table_query_identity(table,
-                                                   loom_index_cmp_rhs(compare));
-    bound = loom_index_cmp_lhs(compare);
+    counter = loom_value_fact_table_query_identity(table, comparison.rhs);
+    bound = comparison.lhs;
     value = loom_module_value(module, counter);
     bound_flags ^= LOOM_LOOP_BOUND_DESCENDING;
   }
@@ -92,6 +92,19 @@ static bool loom_value_fact_induction_comparison(
   *out_bound = bound;
   *out_flags = bound_flags;
   return true;
+}
+
+static bool loom_value_fact_induction_update(const loom_op_t* op,
+                                             bool* out_subtract) {
+  if (loom_index_add_isa(op) || loom_scalar_addi_isa(op)) {
+    *out_subtract = false;
+    return true;
+  }
+  if (loom_index_sub_isa(op) || loom_scalar_subi_isa(op)) {
+    *out_subtract = true;
+    return true;
+  }
+  return false;
 }
 
 static loom_value_fact_induction_t loom_value_fact_induction_recognize(
@@ -131,7 +144,7 @@ static loom_value_fact_induction_t loom_value_fact_induction_recognize(
         .flags = LOOM_VALUE_FACT_INDUCTION_EXITS_AT_HEADER,
     };
   }
-  if (!compare || !loom_index_cmp_isa(compare)) {
+  if (!compare) {
     return unknown;
   }
   loom_loop_bound_flags_t bound_flags = LOOM_LOOP_BOUND_NONE;
@@ -181,7 +194,8 @@ static loom_value_fact_induction_t loom_value_fact_induction_recognize(
   const loom_value_id_t next = loom_value_fact_table_query_identity(
       table, loom_cfg_br_args(backedge_branch).values[argument_index]);
   const loom_op_t* update = loom_value_fact_induction_defining_op(module, next);
-  if (!update || (!loom_index_add_isa(update) && !loom_index_sub_isa(update))) {
+  bool subtract_step = false;
+  if (!update || !loom_value_fact_induction_update(update, &subtract_step)) {
     return induction;
   }
   const loom_value_id_t* operands = loom_op_const_operands(update);
@@ -190,13 +204,13 @@ static loom_value_fact_induction_t loom_value_fact_induction_recognize(
   const loom_value_id_t rhs =
       loom_value_fact_table_query_identity(table, operands[1]);
   const loom_value_id_t step = lhs == counter ? operands[1] : operands[0];
-  if ((lhs == counter || (loom_index_add_isa(update) && rhs == counter)) &&
+  if ((lhs == counter || (!subtract_step && rhs == counter)) &&
       loom_value_fact_induction_is_invariant(
           module, loops, loop_index,
           loom_value_fact_table_query_identity(table, step))) {
     induction.step =
         loom_value_fact_recurrence_operand_make(table, module, step);
-    if (loom_index_sub_isa(update)) {
+    if (subtract_step) {
       induction.flags |= LOOM_VALUE_FACT_INDUCTION_SUBTRACT_STEP;
     }
   }
@@ -214,7 +228,7 @@ static bool loom_value_fact_loop_is_invariant(const loom_module_t* module,
     block = loom_value_def_block(value);
   } else {
     const loom_op_t* op = loom_value_def_op(value);
-    if (loom_index_constant_isa(op)) {
+    if (iree_any_bit_set(op->traits, LOOM_TRAIT_CONSTANT_LIKE)) {
       return true;
     }
     block = op->parent_block;
@@ -271,8 +285,7 @@ loom_value_fact_induction_t loom_value_fact_condition_loop_induction(
   loom_loop_bound_flags_t bound_flags = LOOM_LOOP_BOUND_NONE;
   loom_value_id_t counter = LOOM_VALUE_ID_INVALID;
   loom_value_id_t bound = LOOM_VALUE_ID_INVALID;
-  if (!compare || !loom_index_cmp_isa(compare) ||
-      compare->parent_block != before ||
+  if (!compare || compare->parent_block != before ||
       !loom_value_fact_induction_comparison(table, module, compare, before,
                                             &counter, &bound, &bound_flags)) {
     return unknown;
@@ -300,7 +313,8 @@ loom_value_fact_induction_t loom_value_fact_condition_loop_induction(
   const loom_value_id_t next = loom_value_fact_table_query_identity(
       table, loom_op_const_operands(yield)[index]);
   const loom_op_t* update = loom_value_fact_induction_defining_op(module, next);
-  if (!update || (!loom_index_add_isa(update) && !loom_index_sub_isa(update))) {
+  bool subtract_step = false;
+  if (!update || !loom_value_fact_induction_update(update, &subtract_step)) {
     return induction;
   }
   const loom_value_id_t* operands = loom_op_const_operands(update);
@@ -312,7 +326,7 @@ loom_value_fact_induction_t loom_value_fact_condition_loop_induction(
   if (loom_value_fact_condition_forwards_counter(module, table, condition, body,
                                                  lhs, counter)) {
     step = operands[1];
-  } else if (loom_index_add_isa(update) &&
+  } else if (!subtract_step &&
              loom_value_fact_condition_forwards_counter(
                  module, table, condition, body, rhs, counter)) {
     step = operands[0];
@@ -322,7 +336,7 @@ loom_value_fact_induction_t loom_value_fact_condition_loop_induction(
           module, loop, loom_value_fact_table_query_identity(table, step))) {
     induction.step =
         loom_value_fact_recurrence_operand_make(table, module, step);
-    if (loom_index_sub_isa(update)) {
+    if (subtract_step) {
       induction.flags |= LOOM_VALUE_FACT_INDUCTION_SUBTRACT_STEP;
     }
   }
@@ -498,7 +512,7 @@ loom_loop_recurrence_facts_t loom_value_fact_induction_facts(
       loom_value_fact_induction_step_facts(table, induction);
   const loom_scalar_type_t scalar_type =
       loom_type_element_type(loom_module_value_type(module, induction->value));
-  uint8_t bitwidth = 64;
+  uint8_t bitwidth = (uint8_t)loom_scalar_type_bitwidth(scalar_type);
   const loom_value_t* induction_value =
       loom_module_value(module, induction->value);
   const loom_target_facts_t* target_facts =
@@ -506,8 +520,11 @@ loom_loop_recurrence_facts_t loom_value_fact_induction_facts(
           table, loom_value_def_block(induction_value));
   if (target_facts) {
     const loom_target_snapshot_t* target = &target_facts->storage.snapshot;
-    bitwidth = scalar_type == LOOM_SCALAR_TYPE_INDEX ? target->index_bitwidth
-                                                     : target->offset_bitwidth;
+    if (scalar_type == LOOM_SCALAR_TYPE_INDEX) {
+      bitwidth = target->index_bitwidth;
+    } else if (scalar_type == LOOM_SCALAR_TYPE_OFFSET) {
+      bitwidth = target->offset_bitwidth;
+    }
   }
   loom_loop_recurrence_facts_t result = loom_loop_domain_recurrence_facts(
       induction->bound_flags, bitwidth, initial, bound, step);
