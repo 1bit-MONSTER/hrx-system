@@ -21,8 +21,11 @@ amdf_allocator_t amdf_memory_host_allocator(const amdf_memory_t* memory) {
 
 amdf_status_t amdf_memory_resource_allocate(amdf_allocator_t host_allocator,
                                             uint32_t access_count,
+                                            uint32_t backing_access_ordinal,
                                             amdf_memory_t** out_memory) {
-  const size_t count = access_count == 0 ? 1 : access_count;
+  const size_t count = backing_access_ordinal == access_count
+                           ? (size_t)access_count + 1
+                           : access_count;
   if (count >
       (SIZE_MAX - sizeof(amdf_memory_t)) / sizeof(amdf_memory_access_state_t)) {
     return amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE);
@@ -37,8 +40,9 @@ amdf_status_t amdf_memory_resource_allocate(amdf_allocator_t host_allocator,
   memory->host_allocator = host_allocator;
   memory->accesses = (amdf_memory_access_state_t*)(memory + 1);
   memory->info.access_count = access_count;
-  for (uint32_t i = 0; i < count; ++i) {
-    memory->accesses[i].native_owner_ordinal = i;
+  memory->backing_access_ordinal = backing_access_ordinal;
+  for (size_t i = 0; i < count; ++i) {
+    memory->accesses[i].native_owner_ordinal = (uint32_t)i;
   }
   *out_memory = memory;
   return AMDF_STATUS_OK;
@@ -75,9 +79,11 @@ static amdf_status_t amdf_memory_release_native(amdf_memory_t* memory) {
 // no later object retries those native operations.
 amdf_status_t amdf_memory_resource_destroy(amdf_memory_t* memory) {
   const amdf_status_t status = amdf_memory_release_native(memory);
-  const uint32_t count =
-      memory->info.access_count == 0 ? 1 : memory->info.access_count;
-  for (uint32_t i = 0; i < count; ++i) {
+  const size_t count =
+      memory->backing_access_ordinal == memory->info.access_count
+          ? (size_t)memory->info.access_count + 1
+          : memory->info.access_count;
+  for (size_t i = 0; i < count; ++i) {
     if (memory->accesses[i].native != NULL) {
       memory->accesses[i].vtable->abandon_native(memory, i);
     }

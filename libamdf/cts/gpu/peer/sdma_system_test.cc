@@ -97,7 +97,7 @@ class PeerSdmaSystemTest : public GpuPeerDeviceFixture {
     }
   }
 
-  void SelectBacking() {
+  void SelectBacking(amdf_memory_placement_kinds_t placement_kinds) {
     amdf_memory_scope_info_t info = {
         .type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO,
         .structure_size = sizeof(info),
@@ -127,7 +127,9 @@ class PeerSdmaSystemTest : public GpuPeerDeviceFixture {
       constexpr auto roles =
           AMDF_MEMORY_PROFILE_ROLE_CREATE | AMDF_MEMORY_PROFILE_ROLE_HOST_MAP;
       if ((profile.roles & roles) == roles &&
-          (profile.supported_flags & AMDF_MEMORY_FLAG_HOST_VISIBLE)) {
+          (profile.supported_flags & AMDF_MEMORY_FLAG_HOST_VISIBLE) != 0 &&
+          (profile.allocation.placement_kinds & placement_kinds) ==
+              placement_kinds) {
         selected = profile;
         break;
       }
@@ -221,8 +223,8 @@ class PeerSdmaSystemTest : public GpuPeerDeviceFixture {
               prospective.atomic_reach.scope_64);
   }
 
-  void InitializeWork() {
-    ASSERT_NO_FATAL_FAILURE(SelectBacking());
+  void InitializeWork(amdf_memory_placement_kinds_t placement_kinds) {
+    ASSERT_NO_FATAL_FAILURE(SelectBacking(placement_kinds));
     if (IsSkipped()) {
       return;
     }
@@ -370,6 +372,35 @@ class PeerSdmaSystemTest : public GpuPeerDeviceFixture {
     }
   }
 
+  void RunRoundTrips(amdf_memory_placement_kinds_t placement_kinds) {
+    ASSERT_NO_FATAL_FAILURE(InitializeWork(placement_kinds));
+    if (IsSkipped()) {
+      return;
+    }
+    ASSERT_NO_FATAL_FAILURE(RunBatch(0));
+    if (HasFailure()) {
+      return;
+    }
+    ASSERT_NO_FATAL_FAILURE(RunBatch(1));
+    if (HasFailure()) {
+      return;
+    }
+    RecordProperty("completed_round_trips", 8);
+    RecordProperty("peer_payload_edges", 16);
+    RecordProperty("copied_bytes", 24 * kCopyWordCount * sizeof(uint32_t));
+    RecordProperty("checked_backing_bytes",
+                   std::to_string(2 * creation_.byte_length));
+    RecordProperty(
+        "checked_command_bytes",
+        static_cast<int>(
+            2 * (queues_[0].words().size() + queues_[1].words().size()) *
+            sizeof(uint32_t)));
+    RecordProperty("retired_frontier_bytes_0",
+                   static_cast<int>(word_frontiers_[0] * 4));
+    RecordProperty("retired_frontier_bytes_1",
+                   static_cast<int>(word_frontiers_[1] * 4));
+  }
+
   void TearDown() override {
     for (auto& queue : queues_) {
       ASSERT_TRUE(queue.Release(api_));
@@ -397,32 +428,15 @@ class PeerSdmaSystemTest : public GpuPeerDeviceFixture {
 };
 
 TEST_F(PeerSdmaSystemTest, DeviceDrivenRoundTrips) {
-  ASSERT_NO_FATAL_FAILURE(InitializeWork());
-  if (IsSkipped()) {
-    return;
-  }
-  ASSERT_NO_FATAL_FAILURE(RunBatch(0));
-  if (HasFailure()) {
-    return;
-  }
-  ASSERT_NO_FATAL_FAILURE(RunBatch(1));
-  if (HasFailure()) {
-    return;
-  }
-  RecordProperty("completed_round_trips", 8);
-  RecordProperty("peer_payload_edges", 16);
-  RecordProperty("copied_bytes", 24 * kCopyWordCount * sizeof(uint32_t));
-  RecordProperty("checked_backing_bytes",
-                 std::to_string(2 * creation_.byte_length));
-  RecordProperty(
-      "checked_command_bytes",
-      static_cast<int>(2 *
-                       (queues_[0].words().size() + queues_[1].words().size()) *
-                       sizeof(uint32_t)));
-  RecordProperty("retired_frontier_bytes_0",
-                 static_cast<int>(word_frontiers_[0] * 4));
-  RecordProperty("retired_frontier_bytes_1",
-                 static_cast<int>(word_frontiers_[1] * 4));
+  ASSERT_NO_FATAL_FAILURE(RunRoundTrips(0));
+}
+
+TEST_F(PeerSdmaSystemTest, PlaceableHostBackingAcrossPhysicalDevices) {
+  // Requiring this capability selects platform-owned pages and coordinated
+  // native registrations. This witness checks the multi-device ownership and
+  // visibility contract; Linux placement CTS checks exact resident nodes.
+  ASSERT_NO_FATAL_FAILURE(
+      RunRoundTrips(UINT32_C(1) << AMDF_MEMORY_PLACEMENT_KIND_HOST_NUMA));
 }
 
 }  // namespace

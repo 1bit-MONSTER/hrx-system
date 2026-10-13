@@ -624,7 +624,14 @@ TEST_F(MemoryExternalTest, ImportProfileRejectionPrecedesLeafMutation) {
   };
 
   amdf_memory_import_info_t import_info = supported_import_info;
-  import_info.memory_profile_ordinal = 3;
+  amdf_memory_scope_info_t scope_info = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO,
+      .structure_size = sizeof(scope_info),
+  };
+  ASSERT_EQ(
+      amdf_memory_scope_query_info(&instance_.system_memory_scope, &scope_info),
+      AMDF_STATUS_OK);
+  import_info.memory_profile_ordinal = scope_info.memory_profile_count;
   expect_rejected(import_info, AMDF_STATUS_CODE_OUT_OF_RANGE);
 
   import_info = supported_import_info;
@@ -786,7 +793,14 @@ TEST_F(MemoryExternalTest, CreateProfileRejectionPrecedesLeafMutation) {
   };
 
   amdf_memory_create_info_t create_info = supported_create_info;
-  create_info.memory_profile_ordinal = 3;
+  amdf_memory_scope_info_t scope_info = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO,
+      .structure_size = sizeof(scope_info),
+  };
+  ASSERT_EQ(
+      amdf_memory_scope_query_info(&instance_.system_memory_scope, &scope_info),
+      AMDF_STATUS_OK);
+  create_info.memory_profile_ordinal = scope_info.memory_profile_count;
   expect_rejected(create_info, AMDF_STATUS_CODE_OUT_OF_RANGE);
 
   create_info = supported_create_info;

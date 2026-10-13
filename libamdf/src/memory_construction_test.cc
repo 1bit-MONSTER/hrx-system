@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <vector>
 
 #include "libamdf/src/allocator.h"
@@ -14,6 +15,8 @@
 #include "libamdf/src/memory.h"
 #include "libamdf/src/memory_scope.h"
 #include "libamdf/src/memory_test_fixture.h"
+#include "libamdf/src/platform/host_memory.h"
+#include "libamdf/src/platform/instance.h"
 
 namespace amdf::testing {
 namespace {
@@ -996,6 +999,205 @@ TEST_F(MemoryConstructionTest, FailedImportPreservesInputOnReleaseError) {
   EXPECT_EQ(allocations.live_count, 0u);
   amdf_external_memory_release(&external);
   EXPECT_EQ(release.count, 1u);
+}
+
+// Real platform storage and the common memory owner are exercised together;
+// only device registration is substituted at its native boundary.
+class MemoryHostBackingTest : public MemoryTest {
+ protected:
+  void SetUp() override {
+    MemoryTest::SetUp();
+    ASSERT_EQ(amdf_platform_instance_create(instance_.host_allocator,
+                                            &instance_.platform),
+              AMDF_STATUS_OK);
+  }
+
+  void TearDown() override {
+    EXPECT_EQ(amdf_platform_instance_destroy(instance_.platform),
+              AMDF_STATUS_OK);
+  }
+
+  void InitializeRegistration(uint64_t identity, FakeDevice* device) {
+    InitializeFakeDevice(identity, &instance_, device);
+    device->profile.roles =
+        AMDF_MEMORY_PROFILE_ROLE_REGISTER | AMDF_MEMORY_PROFILE_ROLE_HOST_MAP;
+    device->profile.registration = device->profile.allocation;
+    device->profile.registration.registered_host_pointer_alignment = 1;
+    device->profile.registration.registered_host_cacheability =
+        AMDF_HOST_CACHEABILITY_WRITE_BACK;
+    device->profile.external_memory_support_count = 0;
+  }
+
+  amdf_memory_create_info_t MakeHostCreateInfo(
+      std::span<const amdf_memory_device_access_t> accesses) {
+    return {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
+        .structure_size = sizeof(amdf_memory_create_info_t),
+        .memory_profile_ordinal = 3,
+        .access_count = static_cast<uint32_t>(accesses.size()),
+        .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE,
+        .byte_length = 65537,
+        .minimum_alignment = 1,
+        .accesses = accesses.data(),
+    };
+  }
+};
+
+TEST_F(MemoryHostBackingTest, RegistrationsBorrowOnePrivateHostOwner) {
+  for (bool coordinated : {false, true}) {
+    for (amdf_memory_flags_t flags : std::array<amdf_memory_flags_t, 2>{
+             0, AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE}) {
+      FakeDevice devices[2];
+      amdf_memory_device_access_t accesses[2];
+      for (uint32_t i = 0; i < 2; ++i) {
+        InitializeRegistration(i + 1, &devices[i]);
+        if (coordinated) {
+          devices[i].profile.construction = {QueryGroupAccess, devices};
+        } else if (i == 1) {
+          // XDNA has independent address/registration ownership alongside GPU.
+          devices[i].base.engine_kind = AMDF_ENGINE_KIND_XDNA;
+          devices[i].profile.address_kinds =
+              UINT64_C(1) << AMDF_MEMORY_ADDRESS_XDNA_FIRMWARE;
+        }
+        devices[i].observe_release = [](FakeDevice* device) {
+          const auto* pointer =
+              static_cast<const uint8_t*>(device->registered_host_pointer);
+          EXPECT_EQ(pointer[0], 0x5Au);
+          EXPECT_EQ(pointer[65536], 0xA5u);
+        };
+        accesses[i] = devices[i].request;
+      }
+      auto info = MakeHostCreateInfo(accesses);
+      info.required_flags |= flags;
+      amdf_memory_t* memory = nullptr;
+      ASSERT_EQ(
+          amdf_memory_create(&instance_.system_memory_scope, &info, &memory),
+          AMDF_STATUS_OK);
+      EXPECT_EQ(memory->info.access_count, 2u);
+      EXPECT_EQ(memory->backing_access_ordinal, 2u);
+      EXPECT_EQ(devices[0].prepared_access_count, coordinated ? 2u : 1u);
+      EXPECT_EQ(devices[1].create_call_count, coordinated ? 0u : 1u);
+      EXPECT_EQ(memory->accesses[1].native_owner_ordinal,
+                coordinated ? 0u : 1u);
+      EXPECT_EQ(memory->info.flags & AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE,
+                flags);
+      amdf_host_mapping_t* mapping = nullptr;
+      const amdf_memory_map_info_t map_info = {
+          .type = AMDF_STRUCTURE_TYPE_MEMORY_MAP_INFO,
+          .structure_size = sizeof(map_info),
+          .byte_length = info.byte_length,
+          .flags = AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE,
+      };
+      ASSERT_EQ(amdf_memory_map(memory, &map_info, &mapping), AMDF_STATUS_OK);
+      auto* pointer = static_cast<uint8_t*>(mapping->info.pointer);
+      EXPECT_EQ(devices[0].registered_host_pointer, pointer);
+      if (!coordinated) {
+        EXPECT_EQ(devices[1].registered_host_pointer, pointer);
+      }
+      pointer[0] = 0x5A;
+      pointer[65536] = 0xA5;
+      EXPECT_EQ(amdf_host_mapping_destroy(mapping), AMDF_STATUS_OK);
+      EXPECT_EQ(amdf_memory_destroy(memory), AMDF_STATUS_OK);
+      EXPECT_EQ(devices[0].destroy_call_count, 1u);
+      EXPECT_EQ(devices[1].destroy_call_count, coordinated ? 0u : 1u);
+    }
+  }
+}
+
+TEST_F(MemoryHostBackingTest, FailedRegistrationRollsBackWithoutPublication) {
+  for (amdf_memory_flags_t flags : std::array<amdf_memory_flags_t, 2>{
+           0, AMDF_MEMORY_FLAG_HOST_MAPPING_SOURCE}) {
+    AllocationState allocations;
+    instance_.host_allocator = allocations.allocator();
+    FakeDevice devices[2];
+    amdf_memory_device_access_t accesses[2];
+    for (uint32_t i = 0; i < 2; ++i) {
+      InitializeRegistration(i + 1, &devices[i]);
+      devices[i].base.engine_kind = AMDF_ENGINE_KIND_XDNA;
+      devices[i].profile.address_kinds = UINT64_C(1)
+                                         << AMDF_MEMORY_ADDRESS_XDNA_FIRMWARE;
+      devices[i].observe_release = [](FakeDevice* device) {
+        // Pages remain writable through every consumer's rollback.
+        static_cast<uint8_t*>(device->registered_host_pointer)[65536] = 0x5A;
+      };
+      accesses[i] = devices[i].request;
+    }
+    devices[1].create_status =
+        amdf_make_api_status(AMDF_STATUS_CODE_RESOURCE_EXHAUSTED);
+    auto info = MakeHostCreateInfo(accesses);
+    info.required_flags |= flags;
+    auto* const sentinel = reinterpret_cast<amdf_memory_t*>(uintptr_t{1});
+    amdf_memory_t* memory = sentinel;
+    EXPECT_EQ(
+        amdf_memory_create(&instance_.system_memory_scope, &info, &memory),
+        devices[1].create_status);
+    EXPECT_EQ(memory, sentinel);
+    EXPECT_EQ(devices[0].destroy_call_count, 1u);
+    EXPECT_EQ(devices[1].destroy_call_count, 1u);
+    EXPECT_EQ(allocations.live_count, 0u);
+  }
+}
+
+TEST_F(MemoryHostBackingTest, FailedDetachRetainsStorageAndConsumesMetadata) {
+  AllocationState allocations;
+  instance_.host_allocator = allocations.allocator();
+  FakeDevice device;
+  InitializeRegistration(1, &device);
+  device.destroy_status = amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
+  const auto info = MakeHostCreateInfo({&device.request, 1});
+  amdf_memory_t* memory = nullptr;
+  ASSERT_EQ(amdf_memory_create(&instance_.system_memory_scope, &info, &memory),
+            AMDF_STATUS_OK);
+  const uint64_t native_byte_length =
+      memory->info.native_allocation_byte_length;
+  auto* pointer = static_cast<uint8_t*>(device.registered_host_pointer);
+  pointer[65536] = 0xA5;
+  EXPECT_EQ(amdf_memory_destroy(memory), device.destroy_status);
+  EXPECT_EQ(device.destroy_call_count, 1u);
+  EXPECT_EQ(device.abandon_call_count, 1u);
+  EXPECT_EQ(allocations.live_count, 0u);
+  EXPECT_EQ(pointer[65536], 0xA5);
+  // This substituted device has no surviving native reference. Reclaim the
+  // deliberately retained OS allocation after verifying terminal semantics.
+  EXPECT_EQ(amdf_platform_host_memory_free(pointer, native_byte_length),
+            AMDF_STATUS_OK);
+}
+
+TEST_F(MemoryHostBackingTest,
+       RejectsUnenforceableRegistrationBeforePreparation) {
+  FakeDevice device;
+  InitializeRegistration(1, &device);
+  const auto original = device.profile;
+  const auto info = MakeHostCreateInfo({&device.request, 1});
+  const uint64_t host_granularity =
+      amdf_platform_instance_host_allocation_granularity(instance_.platform);
+  for (uint32_t case_ordinal = 0; case_ordinal < 4; ++case_ordinal) {
+    device.profile = original;
+    switch (case_ordinal) {
+      case 0:
+        device.profile.roles &= ~AMDF_MEMORY_PROFILE_ROLE_REGISTER;
+        break;
+      case 1:
+        device.profile.registration.registered_host_cacheability =
+            AMDF_HOST_CACHEABILITY_WRITE_COMBINED;
+        break;
+      case 2:
+        device.profile.registration.registered_host_pointer_alignment =
+            host_granularity * 2;
+        break;
+      case 3:
+        device.profile.registration.native_byte_length_granularity =
+            host_granularity * 2;
+        break;
+    }
+    auto* const sentinel = reinterpret_cast<amdf_memory_t*>(uintptr_t{1});
+    amdf_memory_t* memory = sentinel;
+    EXPECT_EQ(amdf_status_code(amdf_memory_create(
+                  &instance_.system_memory_scope, &info, &memory)),
+              AMDF_STATUS_CODE_UNSUPPORTED);
+    EXPECT_EQ(memory, sentinel);
+    EXPECT_EQ(device.create_call_count, 0u);
+  }
 }
 
 }  // namespace

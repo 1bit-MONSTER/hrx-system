@@ -228,6 +228,8 @@ iree_cc_library(
     ::structure
     amdf::headers
     libamdf::src::platform
+    libamdf::src::platform::host_memory
+    libamdf::src::platform::native_host_memory
     libamdf::src::platform::native_instance
   PUBLIC
 )
@@ -363,6 +365,9 @@ iree_cc_test(
     amdf::headers
     iree::third_party::google_test
     iree::third_party::google_test_main
+    libamdf::src::platform
+    libamdf::src::platform::host_memory
+    libamdf::src::platform::native_host_memory
     ${_memory_test_platform_deps}
   LABELS
     "iree-build-requirement=libamdf"

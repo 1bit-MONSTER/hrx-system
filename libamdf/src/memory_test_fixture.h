@@ -70,6 +70,8 @@ struct FakeDevice {
   ReleaseState export_release;
   // Optional caller-owned log of native release attempts in device order.
   std::vector<uint64_t>* release_order;
+  // Optional observation while native registration still owns its access.
+  void (*observe_release)(FakeDevice* device);
   // Native backing identity reported by allocation.
   amdf_physical_memory_id_t backing_id;
 };

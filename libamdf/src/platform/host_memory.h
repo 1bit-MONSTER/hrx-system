@@ -41,6 +41,18 @@ amdf_status_t amdf_platform_host_memory_allocate(uint64_t byte_length,
 amdf_status_t amdf_platform_host_memory_free(void* pointer,
                                              uint64_t byte_length);
 
+// Explicit placement constraints supported by fresh host allocations. This
+// metadata query discovers no topology and performs no native operation.
+amdf_memory_placement_kinds_t amdf_platform_host_memory_placement_kinds(void);
+
+// Applies a validated placement to a fresh, exclusively owned range and
+// populates its pages. A failure leaves the range owned by its constructor,
+// which must roll it back before publishing it. Never changes thread policy.
+amdf_status_t amdf_platform_host_memory_place(void* pointer,
+                                              uint64_t byte_length,
+                                              amdf_memory_placement_t placement,
+                                              amdf_allocator_t host_allocator);
+
 // Qualifies explicit CPU cache maintenance and returns its cache-line size.
 amdf_status_t amdf_platform_host_memory_query_cache_line_size(
     uint32_t* out_line_size);

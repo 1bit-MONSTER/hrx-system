@@ -109,6 +109,56 @@ one jointly supported request, in caller order. The query returns complete
 records without reserving resources or guaranteeing allocation success. An
 empty consumer array describes CPU-only storage and requires no accelerator.
 
+### Required host placement
+
+An allocating profile can advertise explicit physical placement in
+`allocation.placement_kinds`. `AMDF_MEMORY_PLACEMENT_KIND_HOST_NUMA` names an OS
+NUMA node supplied by the caller's topology. It constrains newly allocated
+pages; it neither selects device consumers nor moves registered or imported
+storage. A zero-initialized placement keeps the selected profile's ordinary
+allocation policy.
+
+For example, after querying a SYSTEM profile with the complete access list and
+checking its HOST_NUMA capability:
+
+```c
+amdf_memory_create_info_t create_info = {
+    .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
+    .structure_size = sizeof(create_info),
+    .memory_profile_ordinal = profile.ordinal,
+    .access_count = access_count,
+    .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE,
+    .byte_length = byte_length,
+    .accesses = accesses,
+    .placement = {AMDF_MEMORY_PLACEMENT_KIND_HOST_NUMA, os_numa_node},
+};
+amdf_memory_t* memory = NULL;
+amdf_status_t status = api->memory_create(system_scope, &create_info, &memory);
+```
+
+Linux supplies this through platform-owned host pages with qualified native
+registrations for the requested devices. The pages receive a binding policy and
+are populated before registration. Construction fails if placement or any access
+cannot be established; it never silently allocates on another node or changes
+the allocating thread's policy. The achieved placement is reported by
+`memory_query_info`. CPU-only construction uses the same contract with an empty
+access list.
+
+One memory handle owns the host backing and every registration. Destruction
+releases native consumers before host storage. A failed native detach preserves
+the storage needed by that reference while consuming library metadata according
+to the terminal destruction contract. No instance registry or deferred retry
+owner is created.
+
+This profile can also supply `HOST_MAPPING_SOURCE` for CPU virtual-memory
+aliases. Device mapping-source, export and native lifetime requirements remain
+independent capabilities: host NUMA placement does not imply GPU VMM, DMA-BUF
+export or Linux INSTANCE-policy caller-page registration. Windows NUMA allocation
+APIs permit placement fallback, so Windows profiles do not advertise this
+required-placement guarantee.
+
+### Construction and access
+
 For example, a HAL creates its selected GPU and NPU, then queries their joint
 profile before allocating caller-owned storage. That profile supplies the
 page-cover granularity and supported alignment used for registration. If the

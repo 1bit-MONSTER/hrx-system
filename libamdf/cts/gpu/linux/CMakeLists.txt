@@ -19,6 +19,8 @@ iree_cc_library(
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::gpu_device_fixture
+    libamdf::cts::gpu::sdma::encoding::commands
+    libamdf::cts::gpu::util::command_fixture
   TESTONLY
   ALWAYSLINK
   PUBLIC
