@@ -607,9 +607,9 @@ TEST_P(SourceImageServiceTest, DynamicImageAdmissionRetirementAndReuse) {
   // The accepted registration belongs to the registry, not its admin peer.
   const int detached =
       Send("POST", "/v1/models/register", Declaration("peer", directory_));
-  char first_byte;
-  ASSERT_EQ(recv(detached, &first_byte, 1, MSG_PEEK), 1);
+  iree_status_t detached_status = http_.AwaitResponse(detached);
   EXPECT_EQ(close(detached), 0);
+  IREE_ASSERT_OK(detached_status);
   const int peer = Send("POST", "/v1/images/generations",
                         R"({"model":"peer","prompt":"ab","seed":0})");
   EXPECT_EQ(Read(Send("POST", "/v1/models/drain", R"({"model":"pixels"})"))

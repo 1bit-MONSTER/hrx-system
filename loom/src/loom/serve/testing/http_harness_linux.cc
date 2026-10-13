@@ -4,7 +4,6 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include <fcntl.h>
 #include <poll.h>
 #include <sys/eventfd.h>
 #include <sys/socket.h>
@@ -189,9 +188,6 @@ iree_status_t HttpHarness::Send(const std::string& request, int* out_client) {
                                       "send HTTP request made no progress");
     }
   }
-  if (iree_status_is_ok(status) && fcntl(client, F_SETFL, 0) < 0) {
-    status = SocketError("restore blocking client descriptor", errno);
-  }
   if (iree_status_is_ok(status)) {
     *out_client = client;
   } else {
@@ -202,6 +198,27 @@ iree_status_t HttpHarness::Send(const std::string& request, int* out_client) {
     status = Diagnose(status);
   }
   return status;
+}
+
+iree_status_t HttpHarness::AwaitResponse(int client) {
+  iree_status_t status = iree_ok_status();
+  while (iree_status_is_ok(status)) {
+    char byte;
+    const ssize_t count = recv(client, &byte, 1, MSG_PEEK | MSG_DONTWAIT);
+    if (count > 0) {
+      break;
+    } else if (count == 0) {
+      status = iree_make_status(IREE_STATUS_UNAVAILABLE,
+                                "HTTP peer closed before sending a response");
+    } else if (errno == EINTR) {
+      continue;
+    } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      status = WaitSocket(client, POLLIN);
+    } else {
+      status = SocketError("await HTTP response", errno);
+    }
+  }
+  return iree_status_is_ok(status) ? status : Diagnose(status);
 }
 
 iree_status_t HttpHarness::Read(int client, bool allow_empty,

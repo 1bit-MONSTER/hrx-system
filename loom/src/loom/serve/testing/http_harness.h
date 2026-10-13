@@ -38,9 +38,13 @@ class HttpHarness {
   // callers stop even when an expected-failure test intercepts its diagnostic.
   bool failed() const { return failed_; }
 
-  // Sends one complete request, transferring the connected descriptor to the
-  // caller. Read consumes it; tests doing intentional disconnects close it.
+  // Sends one complete request, transferring the connected nonblocking
+  // descriptor to the caller. Read consumes it; intentional disconnects close
+  // it.
   iree_status_t Send(const std::string& request, int* out_client);
+  // Waits for the first response byte without consuming it. The caller still
+  // owns the descriptor on every path, including terminal failure.
+  iree_status_t AwaitResponse(int client);
   // Reads a close-delimited response and closes the descriptor on every path.
   // Cancellation tests may explicitly permit an empty orderly response.
   iree_status_t Read(int client, bool allow_empty, std::string* out_response);

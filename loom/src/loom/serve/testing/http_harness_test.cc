@@ -69,6 +69,34 @@ class HttpHarnessTest : public ::testing::Test {
                               inout_pointer);
   }
 
+  void CheckServiceFailure(bool await_first_byte) {
+    int peer = -1;
+    IREE_ASSERT_OK(
+        client_.Send("GET /healthz HTTP/1.1\r\nHost: local\r\n\r\n", &peer));
+    loom_serve_http_connection_t* connection = nullptr;
+    const loom_serve_http_request_t* request = nullptr;
+    IREE_ASSERT_OK(client_.TakeRequest(peer, &connection, &request));
+    client_.Start([] {
+      return iree_make_status(IREE_STATUS_DATA_LOSS,
+                              "service initialization witness");
+    });
+    std::string response;
+    const auto message =
+        Message(await_first_byte
+                    ? client_.AwaitResponse(peer)
+                    : client_.Read(peer, /*allow_empty=*/false, &response));
+    if (await_first_byte) {
+      EXPECT_EQ(close(peer), 0);
+    }
+    EXPECT_NE(message.find("service initialization witness"), std::string::npos)
+        << message;
+    EXPECT_NE(message.find("service owner exited"), std::string::npos)
+        << message;
+    loom_serve_http_connection_abort(connection);
+    EXPECT_NE(Message(client_.Join()).find("service initialization witness"),
+              std::string::npos);
+  }
+
   // Rejects new listener allocations after startup; teardown may still free.
   std::atomic<bool> fail_listener_allocations_{false};
   // Production progress owner shared by the listener and all accepted peers.
@@ -93,6 +121,7 @@ TEST_F(HttpHarnessTest, DirectAdmissionAndResponseUseActualReadiness) {
       connection,
       IREE_SV("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nready")));
   loom_serve_http_connection_finish(connection);
+  IREE_ASSERT_OK(client_.AwaitResponse(peer));
   std::string response;
   IREE_ASSERT_OK(client_.Read(peer, /*allow_empty=*/false, &response));
   EXPECT_EQ(response, "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nready");
@@ -164,25 +193,12 @@ TEST_F(HttpHarnessTest, ExpectedCancellationCanReturnEmpty) {
 }
 
 TEST_F(HttpHarnessTest, ServiceFailureWakesReadWithoutClosingTheSocket) {
-  int peer = -1;
-  IREE_ASSERT_OK(
-      client_.Send("GET /healthz HTTP/1.1\r\nHost: local\r\n\r\n", &peer));
-  loom_serve_http_connection_t* connection = nullptr;
-  const loom_serve_http_request_t* request = nullptr;
-  IREE_ASSERT_OK(client_.TakeRequest(peer, &connection, &request));
-  client_.Start([] {
-    return iree_make_status(IREE_STATUS_DATA_LOSS,
-                            "service initialization witness");
-  });
-  std::string response;
-  const auto message =
-      Message(client_.Read(peer, /*allow_empty=*/false, &response));
-  EXPECT_NE(message.find("service initialization witness"), std::string::npos)
-      << message;
-  EXPECT_NE(message.find("service owner exited"), std::string::npos) << message;
-  loom_serve_http_connection_abort(connection);
-  EXPECT_NE(Message(client_.Join()).find("service initialization witness"),
-            std::string::npos);
+  CheckServiceFailure(/*await_first_byte=*/false);
+}
+
+TEST_F(HttpHarnessTest,
+       ServiceFailureWakesFirstByteWaitWithoutClosingTheSocket) {
+  CheckServiceFailure(/*await_first_byte=*/true);
 }
 
 }  // namespace
