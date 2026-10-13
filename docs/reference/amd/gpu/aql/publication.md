@@ -167,6 +167,16 @@ ordering instruction. The DTIF and DXG branches instead call the thunk's
 queue-doorbell operation; they are different transports. [Agent predicate][agent-doorbell]
 [Native doorbell store][doorbell-store]
 
+Body-to-header ordering and packet-to-doorbell ordering are distinct
+publication boundaries. A producer that bypasses the runtime signal operation
+and writes a native MMIO doorbell directly must complete the separately
+required packet, argument, and metadata publication, then issue the mapping- and
+architecture-appropriate host-to-device store fence before the doorbell store.
+A C or C++ release store on the MMIO address orders observers covered by the
+language memory model; it does not supply this device-visibility operation. A
+host or transport with no defined direct fence must use the runtime's ordered
+doorbell operation instead of retaining a raw-store fast path.
+
 Linux maps the KFD doorbell allocation noncached. The thunk obtains the
 process/device mapping and queue offset from queue creation. For SOC15, the
 returned offset includes the doorbell's position within that mapping; deriving

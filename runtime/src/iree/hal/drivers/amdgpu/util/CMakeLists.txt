@@ -432,6 +432,7 @@ iree_cc_library(
   HDRS
     "aql_ring.h"
     "epoch_signal_table.h"
+    "host_write.h"
     "kernarg_ring.h"
     "notification_ring.h"
     "queue_upload_ring.h"

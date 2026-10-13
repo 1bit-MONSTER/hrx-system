@@ -487,8 +487,16 @@ static void iree_hal_amdgpu_host_queue_validate_completion_epoch(
           &queue->notification_ring);
   const uint64_t submitted_epoch =
       queue->notification_ring.epoch.next_submission;
+  const bool is_unpublished_completion =
+      stable_snapshot.completed_epoch > stable_snapshot.published_epoch;
+  if (is_unpublished_completion) {
+    // This is a terminal queue state. Close admission while the publisher is
+    // quiesced so no new submission can enter between the invariant decision
+    // and failure publication.
+    queue->is_shutting_down = true;
+  }
   iree_slim_mutex_unlock(&queue->locks.submission_mutex);
-  if (stable_snapshot.completed_epoch <= stable_snapshot.published_epoch) {
+  if (!is_unpublished_completion) {
     return;
   }
 
@@ -581,8 +589,8 @@ iree_host_size_t iree_hal_amdgpu_host_queue_drain_completions_for_waiter(
   return count;
 }
 
-// Permanently closes the queue to further submission. Idempotent, and the only
-// writer of |is_shutting_down|.
+// Permanently closes the queue to further submission. Idempotent. Every writer
+// of |is_shutting_down| holds |submission_mutex|.
 //
 // Every notification epoch is published under submission_mutex, so taking the
 // mutex here waits out any publisher already inside the critical section and

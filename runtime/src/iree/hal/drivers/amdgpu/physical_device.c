@@ -17,6 +17,7 @@
 #include "iree/hal/drivers/amdgpu/system.h"
 #include "iree/hal/drivers/amdgpu/system_event.h"
 #include "iree/hal/drivers/amdgpu/util/epoch_signal_table.h"
+#include "iree/hal/drivers/amdgpu/util/host_write.h"
 #include "iree/hal/drivers/amdgpu/util/topology.h"
 #include "iree/hal/drivers/amdgpu/util/vmem.h"
 #include "iree/hal/memory/maintenance_thread.h"
@@ -486,7 +487,7 @@ iree_hal_amdgpu_physical_device_initialize_cpu_visible_device_coarse_memory(
         " CPU agents but CPU-visible coarse memory tracks at most %d",
         topology->cpu_agent_count, IREE_HAL_AMDGPU_MAX_CPU_AGENT);
   }
-  if (!iree_hal_amdgpu_kernarg_ring_supports_host_write_publication()) {
+  if (!iree_hal_amdgpu_host_write_fence_is_supported()) {
     return iree_ok_status();
   }
   if (!iree_hal_amdgpu_gfxip_allows_hdp_kernarg_publication(gfxip_version)) {

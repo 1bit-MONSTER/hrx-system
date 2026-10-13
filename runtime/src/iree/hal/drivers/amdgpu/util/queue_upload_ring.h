@@ -9,6 +9,7 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/atomics.h"
+#include "iree/hal/drivers/amdgpu/util/host_write.h"
 #include "iree/hal/drivers/amdgpu/util/kernarg_ring.h"
 #include "iree/hal/drivers/amdgpu/util/libhsa.h"
 
@@ -116,7 +117,7 @@ static inline void iree_hal_amdgpu_queue_upload_ring_publish_host_writes(
   IREE_ASSERT(ring->publication.mode ==
               IREE_HAL_AMDGPU_KERNARG_RING_PUBLICATION_MODE_HDP_FLUSH);
   IREE_ASSERT(ring->publication.hdp_mem_flush_control);
-  iree_hal_amdgpu_kernarg_ring_host_write_fence();
+  iree_hal_amdgpu_host_write_fence();
   *ring->publication.hdp_mem_flush_control = 1u;
   (void)*ring->publication.hdp_mem_flush_control;
 }

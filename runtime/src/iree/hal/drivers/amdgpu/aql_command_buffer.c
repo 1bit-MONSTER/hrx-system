@@ -21,6 +21,7 @@
 #include "iree/hal/drivers/amdgpu/executable.h"
 #include "iree/hal/drivers/amdgpu/transient_buffer.h"
 #include "iree/hal/drivers/amdgpu/util/aql_emitter.h"
+#include "iree/hal/drivers/amdgpu/util/host_write.h"
 #include "iree/hal/drivers/amdgpu/util/kernarg_ring.h"
 #include "iree/hal/utils/resource_set.h"
 
@@ -693,7 +694,7 @@ static void iree_hal_amdgpu_aql_command_buffer_publish_prepublished_kernargs(
       // finalization time. Replayed packet headers later point directly at this
       // storage, so the one-time host writes must drain before the materialized
       // device pointer becomes observable by replay.
-      iree_hal_amdgpu_kernarg_ring_host_write_fence();
+      iree_hal_amdgpu_host_write_fence();
       return;
   }
   IREE_ASSERT_UNREACHABLE("invalid prepublished kernarg storage mode");
