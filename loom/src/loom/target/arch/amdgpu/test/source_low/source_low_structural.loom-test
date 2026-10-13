@@ -23,9 +23,8 @@ func.def target(@target) @i64x17_concat_pair(%body: vector<16xi64>, %tail: vecto
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @i64x17_concat_pair(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x34>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x34>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @i64x17_concat_pair(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr x2>) asm {
+  return %body, %tail
 }
 
 // ====
@@ -39,10 +38,8 @@ func.def target(@target) @f64x33_concat_chain(%lhs: vector<16xf64>, %rhs: vector
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @f64x33_concat_chain(%lhs: reg<amdgpu.vgpr x32>, %rhs: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x66>) asm {
-  %body = concat(%lhs, %rhs) : (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr x32>) -> reg<amdgpu.vgpr x64>
-  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x64>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x66>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @f64x33_concat_chain(%lhs: reg<amdgpu.vgpr x32>, %rhs: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr x2>) asm {
+  return %lhs, %rhs, %tail
 }
 
 // ====
@@ -55,9 +52,8 @@ func.def target(@target) @i1x33_concat_pair(%body: vector<32xi1>, %tail: vector<
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @i1x33_concat_pair(%body: reg<amdgpu.sgpr x64>, %tail: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x66>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.sgpr x64>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x66>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @i1x33_concat_pair(%body: reg<amdgpu.sgpr x64>, %tail: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x64>, reg<amdgpu.sgpr x2>) asm {
+  return %body, %tail
 }
 
 // ====
@@ -632,4 +628,18 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @i8x16_s
   %20 = v_perm_b32_src2_lit %19, %10, 50726148
   %shuffled = concat(%11, %14, %17, %20) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
   return %shuffled
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @i1_shape_bitcast(%values: vector<6xi1>) -> (vector<2x3xi1>) {
+  %reshaped = vector.bitcast %values : vector<6xi1> to vector<2x3xi1>
+  func.return %reshaped : vector<2x3xi1>
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @i1_shape_bitcast(%reshaped: reg<amdgpu.sgpr x12>) -> (reg<amdgpu.sgpr x12>) asm {
+  return %reshaped
 }

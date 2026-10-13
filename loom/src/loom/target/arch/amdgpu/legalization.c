@@ -34,6 +34,7 @@
 #include "loom/target/arch/amdgpu/target_info_defs.h"
 #include "loom/transforms/conversion/target_legalization.h"
 #include "loom/transforms/scalar/target_legalization.h"
+#include "loom/transforms/vector/cast_packet_legalization.h"
 #include "loom/transforms/vector/packet_legalization.h"
 #include "loom/transforms/vector/shape_legalization.h"
 #include "loom/transforms/vector/table_legalization.h"
@@ -275,10 +276,16 @@ static iree_status_t loom_amdgpu_legalize_static_vector_shape(
     IREE_RETURN_IF_ERROR(
         loom_vector_static_shape_rewrite_op(context, op, &rewritten));
   }
+  if (!rewritten && loom_vector_insert_isa(op)) {
+    IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_insert(
+        context, op, context->vector_packet_policy, &rewritten));
+  }
   if (!rewritten && loom_vector_slice_isa(op) &&
       loom_vector_slice_offsets(op).count != 0) {
+    const loom_vector_packet_consumer_materializer_t materializer =
+        loom_vector_predicate_extension_packet_materializer();
     IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_dynamic_slice(
-        context, op, context->vector_packet_policy, &rewritten));
+        context, op, context->vector_packet_policy, &materializer, &rewritten));
   }
   if (rewritten) {
     out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
@@ -329,10 +336,15 @@ static iree_status_t loom_amdgpu_legalize_vector_load(
   bool rewritten = false;
   IREE_RETURN_IF_ERROR(
       loom_vector_static_shape_memory_rewrite_op(context, op, &rewritten));
+  if (!rewritten && context->boundary_representation ==
+                        LOOM_TARGET_BOUNDARY_REPRESENTATION_PROJECTED) {
+    IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_load(
+        context, op, context->vector_packet_policy, &rewritten));
+  }
   // Store-root packet legalization owns connected load/arithmetic components
-  // so that one plan can retain shared producers or stage fanout. Defer the
-  // rank-one load instead of packetizing it independently before that root is
-  // visited.
+  // while boundaries retain logical carriers, so that one plan can retain
+  // shared producers or stage fanout. Once boundary carriers are physical,
+  // preserve the load as a packet snapshot for the component planner to reuse.
   out_result->action = rewritten ? LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN
                                  : LOOM_TARGET_LEGALIZER_ACTION_DEFER;
   return iree_ok_status();
@@ -407,6 +419,52 @@ static iree_status_t loom_amdgpu_retain_native_vector_op(
   *out_result = (loom_target_legalizer_result_t){
       .action = LOOM_TARGET_LEGALIZER_ACTION_DEFER,
   };
+  return iree_ok_status();
+}
+
+static iree_status_t loom_amdgpu_legalize_vector_bitcast(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!loom_amdgpu_legalizer_descriptor_set_is_amdgpu(
+          context->descriptor_set)) {
+    return iree_ok_status();
+  }
+  bool rewritten = false;
+  if (!loom_target_legalization_op_has_source_vector_carriers(context, op)) {
+    IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_bitcast(
+        context, op, context->vector_packet_policy, &rewritten));
+  }
+  out_result->action = rewritten ? LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN
+                                 : LOOM_TARGET_LEGALIZER_ACTION_DEFER;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_amdgpu_legalize_vector_bitstream(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!loom_amdgpu_legalizer_descriptor_set_is_amdgpu(
+          context->descriptor_set)) {
+    return iree_ok_status();
+  }
+  bool rewritten = false;
+  if (context->contract_query_result != NULL &&
+      context->contract_query_result->outcome ==
+          LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED) {
+    IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_bitstream(
+        context, op, context->vector_packet_policy, &rewritten));
+  }
+  out_result->action = rewritten ? LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN
+                                 : LOOM_TARGET_LEGALIZER_ACTION_DEFER;
   return iree_ok_status();
 }
 
@@ -956,6 +1014,10 @@ static const loom_target_legalizer_rule_t kAmdgpuLegalizerRules[] = {
         .legalize = loom_amdgpu_legalize_static_vector_shape,
     },
     {
+        .root_kind = LOOM_OP_VECTOR_INDEX_CAST,
+        .legalize = loom_vector_legalize_index_cast,
+    },
+    {
         .root_kind = LOOM_OP_VECTOR_SLICE,
         .legalize = loom_amdgpu_legalize_static_vector_shape,
     },
@@ -1014,16 +1076,20 @@ static const loom_target_legalizer_rule_t kAmdgpuLegalizerRules[] = {
         .legalize = loom_amdgpu_retain_native_vector_op,
     },
     {
+        .root_kind = LOOM_OP_VECTOR_BITCAST,
+        .legalize = loom_amdgpu_legalize_vector_bitcast,
+    },
+    {
         .root_kind = LOOM_OP_VECTOR_BITPACK,
-        .legalize = loom_amdgpu_retain_native_vector_op,
+        .legalize = loom_amdgpu_legalize_vector_bitstream,
     },
     {
         .root_kind = LOOM_OP_VECTOR_BITUNPACKU,
-        .legalize = loom_amdgpu_retain_native_vector_op,
+        .legalize = loom_amdgpu_legalize_vector_bitstream,
     },
     {
         .root_kind = LOOM_OP_VECTOR_BITUNPACKS,
-        .legalize = loom_amdgpu_retain_native_vector_op,
+        .legalize = loom_amdgpu_legalize_vector_bitstream,
     },
     {
         .root_kind = LOOM_OP_VECTOR_TABLE_LOOKUP,

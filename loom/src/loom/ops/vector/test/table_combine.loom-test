@@ -57,6 +57,28 @@ func.def @dynamic_table(%table: vector<16xf32>, %left: index, %right: index) -> 
 
 // ====
 
+// Exact address selectors use the canonical fixed-width table carrier when
+// each value is representable. This is the form imported for fixed C++ vector
+// subscripts.
+func.def @exact_address_indices(%table: vector<4xf32>) -> (vector<2xf32>) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %indices = vector.from_elements %c0, %c1 : vector<2xindex>
+  %result = vector.table.lookup %table[%indices] : vector<4xf32>, vector<2xindex> -> vector<2xf32>
+  func.return %result : vector<2xf32>
+}
+
+// ----
+func.def @exact_address_indices(%table: vector<4xf32>) -> (vector<2xf32>) {
+  %6 = scalar.constant 0 : i32
+  %7 = scalar.constant 1 : i32
+  %8 = vector.from_elements %6, %7 : vector<2xi32>
+  %result = vector.table.lookup %table[%8] : vector<4xf32>, vector<2xi32> -> vector<2xf32>
+  func.return %result : vector<2xf32>
+}
+
+// ====
+
 // Masked byte indices survive the promotions introduced by C++ subscripts.
 func.def @promoted_bytes(%table: vector<16xi8>, %raw: vector<4xi8>) -> (vector<4xi8>) {
   %mask = vector.constant 15 : vector<4xi8>

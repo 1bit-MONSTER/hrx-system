@@ -177,7 +177,7 @@ func.def public target(@carrier_target) @reports_composed_rules(%first: buffer, 
 
 // ----
 CHECK: *"changed":true,*
-CHECK: *"cfg-edges-rewritten":2,"loops-rewritten":0,"loop-predicate-projections":0,"loop-predicate-components":0,"layout-projections":1,"layout-components":1,"view-projections":1,"view-components":2}*
+CHECK: *"cfg-edges-rewritten":2,"loops-rewritten":0,"loop-predicate-projections":0,"loop-predicate-components":0,"layout-projections":1,"layout-components":1,"view-projections":1,"view-components":2,"vector-packet-projections":0,"vector-packet-components":0}*
 
 // ====
 
@@ -246,7 +246,7 @@ func.def public target(@carrier_target) @reports_condition_loop_layout(%input: b
 
 // ----
 CHECK: *"changed":true,*
-CHECK: *"cfg-edges-rewritten":0,"loops-rewritten":1,"loop-predicate-projections":0,"loop-predicate-components":0,"layout-projections":3,"layout-components":3,"view-projections":0,"view-components":0}*
+CHECK: *"cfg-edges-rewritten":0,"loops-rewritten":1,"loop-predicate-projections":0,"loop-predicate-components":0,"layout-projections":3,"layout-components":3,"view-projections":0,"view-components":0,"vector-packet-projections":0,"vector-packet-components":0}*
 
 // ====
 // Callable-signature projection does not own multi-region kernel signatures,

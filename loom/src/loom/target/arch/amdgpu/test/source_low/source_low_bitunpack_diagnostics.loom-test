@@ -12,26 +12,6 @@ func.def target(@target) @q3_width_rejected(%packed: vector<3xi8>) -> (vector<8x
 
 amdgpu.target<gfx11-generic> @target
 
-func.def target(@target) @bitunpack_source_storage_rejected(%packed: vector<65xi8>) -> (vector<65xi32>) {
-  // ERROR@+1: TARGET/003 {subject_role="packed-integer-storage", subject_name="vector.bitunpack", constraint_key="amdgpu.packed_integer.lanes_from_payload"}
-  %unpacked = vector.bitunpacku<8> %packed : vector<65xi8> -> vector<65xi32>
-  func.return %unpacked : vector<65xi32>
-}
-
-// ====
-
-amdgpu.target<gfx11-generic> @target
-
-func.def target(@target) @bitunpack_lane_count_rejected(%packed: vector<17xi8>) -> (vector<34xi32>) {
-  // ERROR@+1: TARGET/003 {subject_role="packed-integer-storage", subject_name="vector.bitunpack", constraint_key="amdgpu.packed_integer.lanes_from_payload"}
-  %unpacked = vector.bitunpacku<4> %packed : vector<17xi8> -> vector<34xi32>
-  func.return %unpacked : vector<34xi32>
-}
-
-// ====
-
-amdgpu.target<gfx11-generic> @target
-
 func.def target(@target) @bitunpack_result_type_rejected(%packed: vector<1xi32>) -> (vector<4xi16>) {
   // ERROR@+1: TARGET/002 {field_name="result", actual_type="vector<4xi16>"}
   %unpacked = vector.bitunpacku<8> %packed : vector<1xi32> -> vector<4xi16>

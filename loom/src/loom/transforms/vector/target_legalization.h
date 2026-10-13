@@ -44,6 +44,15 @@ iree_status_t loom_vector_legalize_f32_extrema(
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result);
 
+// Scalarizes one vector.index_cast through scalar address conversions even
+// when its vector address type has no direct target carrier. The enclosing
+// target legalization fixed point removes the transient aggregate when all
+// uses remain decomposable; final legality rejects an escaping aggregate.
+iree_status_t loom_vector_legalize_index_cast(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result);
+
 // Returns the generic vector legalizer provider. Pipelines should compose this
 // after target-specific providers so native target rewrites win before scalar
 // reference decomposition.

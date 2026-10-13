@@ -355,6 +355,7 @@ loom_cc_library(
     loom::target::legalization
     loom::transforms::conversion::target_legalization
     loom::transforms::scalar::target_legalization
+    loom::transforms::vector::cast_packet_legalization
     loom::transforms::vector::packet_legalization
     loom::transforms::vector::shape_legalization
     loom::transforms::vector::table_legalization

@@ -16,6 +16,7 @@
 #include "loom/ops/vector/memory.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/ops/vector/transpose.h"
+#include "loom/transforms/vector/cast_packet_legalization.h"
 #include "loom/transforms/vector/reduction_legalization.h"
 #include "loom/transforms/vector/to_scalar.h"
 #include "loom/util/numeric_format.h"
@@ -123,6 +124,38 @@ static iree_status_t loom_vector_legalize_descriptor(
     };
   }
   return iree_ok_status();
+}
+
+iree_status_t loom_vector_legalize_index_cast(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!loom_vector_index_cast_isa(op)) {
+    return iree_ok_status();
+  }
+  if (context->source_function_has_unsupported_vector_carrier) {
+    return iree_ok_status();
+  }
+  bool rewritten = false;
+  IREE_RETURN_IF_ERROR(loom_vector_descriptor_to_scalar_rewrite_op(
+      context->pass, context->rewriter, op, &rewritten));
+  if (rewritten) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_vector_legalize_cast(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  return loom_vector_index_cast_isa(op)
+             ? loom_vector_legalize_index_cast(entry, context, op, out_result)
+             : loom_vector_legalize_descriptor(entry, context, op, out_result);
 }
 
 static iree_status_t loom_vector_legalize_non_dense_memory(
@@ -541,6 +574,15 @@ static iree_status_t loom_vector_legalize_predicate_extension(
   *out_result = (loom_target_legalizer_result_t){
       .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
   };
+  if (!loom_target_legalization_op_has_source_vector_carriers(context, op)) {
+    bool rewritten = false;
+    IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_predicate_extension(
+        context, op, context->vector_packet_policy, &rewritten));
+    if (rewritten) {
+      out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+      return iree_ok_status();
+    }
+  }
   loom_value_id_t input = loom_op_operands(op)[0];
   loom_rewriter_t* rewriter = context->rewriter;
   loom_builder_set_before(&rewriter->builder, op);
@@ -1108,7 +1150,7 @@ static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
   {                                                                         \
       .root_kind = (op_kind),                                               \
       .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION, \
-      .legalize = loom_vector_legalize_descriptor,                          \
+      .legalize = loom_vector_legalize_cast,                                \
   },
 #include "loom/ops/vector/cast_legalizer_rows.inl"
 #undef LOOM_VECTOR_CAST_LEGALIZER_ROW

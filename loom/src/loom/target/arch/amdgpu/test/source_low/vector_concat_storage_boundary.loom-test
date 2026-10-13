@@ -9,9 +9,8 @@ func.def @i1_boundary(%body: vector<32xi1>, %tail: vector<1xi1>) -> (vector<33xi
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i1_boundary(%body: reg<amdgpu.sgpr x64>, %tail: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x66>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.sgpr x64>, reg<amdgpu.sgpr x2>) -> reg<amdgpu.sgpr x66>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i1_boundary(%body: reg<amdgpu.sgpr x64>, %tail: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x64>, reg<amdgpu.sgpr x2>) asm {
+  return %body, %tail
 }
 
 // ====
@@ -22,9 +21,8 @@ func.def @i8_boundary(%body: vector<64xi8>, %tail: vector<1xi8>) -> (vector<65xi
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i8_boundary(%body: reg<amdgpu.vgpr x16>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x17>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x16>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x17>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i8_boundary(%body: reg<amdgpu.vgpr x16>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x16>, reg<amdgpu.vgpr>) asm {
+  return %body, %tail
 }
 
 // ====
@@ -35,9 +33,8 @@ func.def @i16_boundary(%body: vector<32xi16>, %tail: vector<1xi16>) -> (vector<3
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i16_boundary(%body: reg<amdgpu.vgpr x16>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x17>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x16>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x17>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i16_boundary(%body: reg<amdgpu.vgpr x16>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x16>, reg<amdgpu.vgpr>) asm {
+  return %body, %tail
 }
 
 // ====
@@ -48,9 +45,8 @@ func.def @i32_boundary(%body: vector<32xi32>, %tail: vector<1xi32>) -> (vector<3
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i32_boundary(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x33>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x33>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i32_boundary(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr>) asm {
+  return %body, %tail
 }
 
 // ====
@@ -61,9 +57,8 @@ func.def @i64_boundary(%body: vector<16xi64>, %tail: vector<1xi64>) -> (vector<1
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i64_boundary(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x34>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x34>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i64_boundary(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr x2>) asm {
+  return %body, %tail
 }
 
 // ====
@@ -74,9 +69,8 @@ func.def @f8e4m3_boundary(%body: vector<64xf8E4M3>, %tail: vector<1xf8E4M3>) -> 
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f8e4m3_boundary(%body: reg<amdgpu.vgpr x16>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x17>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x16>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x17>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f8e4m3_boundary(%body: reg<amdgpu.vgpr x16>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x16>, reg<amdgpu.vgpr>) asm {
+  return %body, %tail
 }
 
 // ====
@@ -87,9 +81,8 @@ func.def @f8e5m2_boundary(%body: vector<64xf8E5M2>, %tail: vector<1xf8E5M2>) -> 
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f8e5m2_boundary(%body: reg<amdgpu.vgpr x16>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x17>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x16>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x17>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f8e5m2_boundary(%body: reg<amdgpu.vgpr x16>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x16>, reg<amdgpu.vgpr>) asm {
+  return %body, %tail
 }
 
 // ====
@@ -100,9 +93,8 @@ func.def @f16_boundary(%body: vector<64xf16>, %tail: vector<1xf16>) -> (vector<6
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f16_boundary(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x33>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x33>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f16_boundary(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr>) asm {
+  return %body, %tail
 }
 
 // ====
@@ -113,9 +105,8 @@ func.def @bf16_boundary(%body: vector<64xbf16>, %tail: vector<1xbf16>) -> (vecto
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @bf16_boundary(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x33>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x33>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @bf16_boundary(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr>) asm {
+  return %body, %tail
 }
 
 // ====
@@ -126,9 +117,8 @@ func.def @f32_boundary(%body: vector<32xf32>, %tail: vector<1xf32>) -> (vector<3
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f32_boundary(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x33>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x33>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f32_boundary(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr>) asm {
+  return %body, %tail
 }
 
 // ====
@@ -139,7 +129,6 @@ func.def @f64_boundary(%body: vector<16xf64>, %tail: vector<1xf64>) -> (vector<1
 }
 
 // ----
-low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f64_boundary(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x34>) asm {
-  %result = concat(%body, %tail) : (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x34>
-  return %result
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f64_boundary(%body: reg<amdgpu.vgpr x32>, %tail: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr x2>) asm {
+  return %body, %tail
 }

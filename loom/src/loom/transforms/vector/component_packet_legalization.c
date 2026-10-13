@@ -14,6 +14,8 @@
 #include "loom/ops/op_defs.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/rewrite/rewriter.h"
+#include "loom/target/contract.h"
+#include "loom/transforms/vector/packet_legalization.h"
 #include "loom/util/walk.h"
 
 #define LOOM_VECTOR_COMPONENT_INDEX_INVALID UINT32_MAX
@@ -268,6 +270,34 @@ static iree_status_t loom_vector_component_query(
       plan->context, op, projection, out_result);
 }
 
+static bool loom_vector_component_packet_has_source_carriers(
+    const loom_vector_component_plan_t* plan, const loom_op_t* op,
+    uint32_t packet_lane_count) {
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  for (uint16_t i = 0; i < op->operand_count; ++i) {
+    const loom_type_t type =
+        loom_module_value_type(plan->context->module, operands[i]);
+    if (loom_type_is_vector(type) &&
+        !loom_target_legalization_has_source_vector_carrier(
+            plan->context,
+            loom_vector_component_packet_type(type, packet_lane_count))) {
+      return false;
+    }
+  }
+  const loom_value_id_t* results = loom_op_const_results(op);
+  for (uint16_t i = 0; i < op->result_count; ++i) {
+    const loom_type_t type =
+        loom_module_value_type(plan->context->module, results[i]);
+    if (loom_type_is_vector(type) &&
+        !loom_target_legalization_has_source_vector_carrier(
+            plan->context,
+            loom_vector_component_packet_type(type, packet_lane_count))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static iree_status_t loom_vector_component_candidate_bits(
     loom_vector_component_plan_t* plan, const loom_op_t* op,
     uint32_t source_lane_count, uint64_t* out_candidate_bits,
@@ -285,7 +315,9 @@ static iree_status_t loom_vector_component_candidate_bits(
         loom_target_contract_query_result_empty();
     IREE_RETURN_IF_ERROR(loom_vector_component_query(
         plan, op, source_lane_count, packet_lane_count, &packet_result));
-    if (packet_result.outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL) {
+    if (packet_result.outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL ||
+        !loom_vector_component_packet_has_source_carriers(plan, op,
+                                                          packet_lane_count)) {
       continue;
     }
     loom_target_contract_projection_flags_t projection_flags =
@@ -296,7 +328,9 @@ static iree_status_t loom_vector_component_candidate_bits(
           loom_target_contract_query_result_empty();
       IREE_RETURN_IF_ERROR(loom_vector_component_query(
           plan, op, source_lane_count, tail_lane_count, &tail_result));
-      if (tail_result.outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL) {
+      if (tail_result.outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL ||
+          !loom_vector_component_packet_has_source_carriers(plan, op,
+                                                            tail_lane_count)) {
         continue;
       }
       projection_flags |= tail_result.projection_flags;
@@ -347,9 +381,11 @@ static iree_status_t loom_vector_component_classify_op(
       record->authored_query_result.outcome ==
           LOOM_TARGET_CONTRACT_QUERY_INVALID_IR;
   record->demanded = record->authored_query_result.outcome !=
-                         LOOM_TARGET_CONTRACT_QUERY_LEGAL &&
-                     record->authored_query_result.outcome !=
-                         LOOM_TARGET_CONTRACT_QUERY_INVALID_IR;
+                         LOOM_TARGET_CONTRACT_QUERY_INVALID_IR &&
+                     (record->authored_query_result.outcome !=
+                          LOOM_TARGET_CONTRACT_QUERY_LEGAL ||
+                      !loom_target_legalization_op_has_source_vector_carriers(
+                          plan->context, op));
   if (record->demanded) {
     ++plan->demanded_record_count;
   }
@@ -1053,6 +1089,54 @@ static iree_status_t loom_vector_component_external_packet(
   const int64_t static_offset = lane_offset;
   const loom_type_t packet_type = loom_vector_component_packet_type(
       values[value_index].source_type, lane_count);
+  const loom_value_t* linear_value = loom_module_value(
+      plan->context->module, values[value_index].linear_source);
+  const loom_op_t* linear_op = loom_value_is_block_arg(linear_value)
+                                   ? NULL
+                                   : loom_value_def_op(linear_value);
+  if (linear_op != NULL && loom_vector_concat_isa(linear_op) &&
+      loom_vector_concat_axis(linear_op) == 0) {
+    const loom_value_slice_t inputs = loom_vector_concat_inputs(linear_op);
+    uint32_t input_lane_offset = 0;
+    iree_host_size_t first_input = IREE_HOST_SIZE_MAX;
+    iree_host_size_t input_count = 0;
+    const uint32_t lane_end = lane_offset + lane_count;
+    for (iree_host_size_t i = 0; i < inputs.count; ++i) {
+      uint32_t input_lane_count = 0;
+      if (!loom_vector_component_static_lane_count(
+              loom_module_value_type(plan->context->module, inputs.values[i]),
+              &input_lane_count)) {
+        first_input = IREE_HOST_SIZE_MAX;
+        break;
+      }
+      if (input_lane_offset == lane_offset) {
+        first_input = i;
+      }
+      input_lane_offset += input_lane_count;
+      if (first_input != IREE_HOST_SIZE_MAX) {
+        ++input_count;
+        if (input_lane_offset == lane_end) {
+          if (input_count == 1) {
+            values[value_index].packet = inputs.values[first_input];
+          } else {
+            loom_op_t* concat_op = NULL;
+            IREE_RETURN_IF_ERROR(loom_vector_concat_build(
+                &plan->context->rewriter->builder, /*axis=*/0,
+                &inputs.values[first_input], input_count, packet_type, location,
+                &concat_op));
+            values[value_index].packet = loom_vector_concat_result(concat_op);
+          }
+          *out_packet = values[value_index].packet;
+          return iree_ok_status();
+        }
+        if (input_lane_offset > lane_end) {
+          break;
+        }
+      } else if (input_lane_offset > lane_offset) {
+        break;
+      }
+    }
+  }
   loom_op_t* slice_op = NULL;
   IREE_RETURN_IF_ERROR(loom_vector_slice_build(
       &plan->context->rewriter->builder, values[value_index].linear_source,
@@ -1087,12 +1171,127 @@ static bool loom_vector_component_result_escapes(
   return false;
 }
 
+static bool loom_vector_component_requires_memory_packets(
+    const loom_vector_component_plan_t* plan, loom_type_t type) {
+  return !loom_target_legalization_has_source_vector_carrier(plan->context,
+                                                             type);
+}
+
+static bool loom_vector_component_has_packetized_store_root(
+    const loom_vector_component_plan_t* plan,
+    const loom_vector_component_t* component) {
+  uint32_t member_index = component->first_member_index;
+  while (member_index != LOOM_VECTOR_COMPONENT_INDEX_INVALID) {
+    const loom_vector_component_record_t* record = &plan->records[member_index];
+    const loom_value_id_t result = loom_op_const_results(record->op)[0];
+    const loom_value_t* value =
+        loom_module_value(plan->context->module, result);
+    const loom_use_t* use = NULL;
+    loom_value_for_each_use(value, use) {
+      const loom_op_t* user_op = loom_use_user_op(*use);
+      if (loom_vector_store_isa(user_op) &&
+          loom_vector_store_value(user_op) == result &&
+          loom_vector_component_requires_memory_packets(
+              plan, loom_module_value_type(plan->context->module, result))) {
+        return true;
+      }
+    }
+    member_index = record->next_member_index;
+  }
+  return false;
+}
+
+static iree_status_t loom_vector_component_prepare_packetized_load_roots(
+    loom_vector_component_plan_t* plan,
+    const loom_vector_component_t* component, bool* out_ready,
+    uint32_t* out_rewritten_op_count) {
+  *out_ready = true;
+  *out_rewritten_op_count = 0;
+  uint32_t member_index = component->first_member_index;
+  while (member_index != LOOM_VECTOR_COMPONENT_INDEX_INVALID) {
+    const loom_vector_component_record_t* record = &plan->records[member_index];
+    const loom_value_id_t* operands = loom_op_const_operands(record->op);
+    for (uint16_t i = 0; i < record->op->operand_count; ++i) {
+      const loom_value_id_t operand = operands[i];
+      uint32_t operand_lane_count = 0;
+      if (!loom_vector_component_static_lane_count(
+              loom_module_value_type(plan->context->module, operand),
+              &operand_lane_count) ||
+          operand_lane_count != component->lane_count) {
+        continue;
+      }
+      uint32_t producer_record_index = LOOM_VECTOR_COMPONENT_INDEX_INVALID;
+      if (loom_vector_component_record_is_internal_operand(
+              plan, component, operand, &producer_record_index)) {
+        continue;
+      }
+      const loom_value_t* operand_value =
+          loom_module_value(plan->context->module, operand);
+      loom_op_t* operand_op = loom_value_is_block_arg(operand_value)
+                                  ? NULL
+                                  : loom_value_def_op(operand_value);
+      if (operand_op == NULL || !loom_vector_load_isa(operand_op) ||
+          !loom_vector_component_requires_memory_packets(
+              plan, loom_module_value_type(plan->context->module, operand))) {
+        continue;
+      }
+
+      loom_rewriter_t* rewriter = plan->context->rewriter;
+      const bool observe_operation_creation =
+          rewriter->operation_creation.callback.fn != NULL;
+      if (observe_operation_creation) {
+        loom_rewriter_set_operation_creation_source(rewriter, operand_op);
+      }
+      const uint64_t created_op_count_before = rewriter->created_op_count;
+      bool rewritten = false;
+      iree_status_t status = loom_vector_packet_legalize_load(
+          plan->context, operand_op, plan->context->vector_packet_policy,
+          &rewritten);
+      if (observe_operation_creation) {
+        loom_rewriter_set_operation_creation_source(rewriter, NULL);
+      }
+      IREE_RETURN_IF_ERROR(status);
+      if (!rewritten) {
+        *out_ready = false;
+        return iree_ok_status();
+      }
+      if (plan->rewrite_callback.fn != NULL) {
+        IREE_RETURN_IF_ERROR(plan->rewrite_callback.fn(
+            plan->rewrite_callback.user_data, operand_op,
+            rewriter->created_op_count - created_op_count_before,
+            /*erased_op_count=*/1));
+      }
+      ++*out_rewritten_op_count;
+    }
+    member_index = record->next_member_index;
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_vector_component_materialize(
     loom_vector_component_plan_t* plan, loom_vector_component_t* component,
     uint32_t* out_rewritten_op_count) {
   *out_rewritten_op_count = 0;
   if (component->packet_lane_count == 0) {
     return iree_ok_status();
+  }
+  if (iree_any_bit_set(
+          plan->context->vector_packet_policy->flags,
+          LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_MEMORY_ROOT_COMPONENTS) &&
+      loom_vector_component_has_packetized_store_root(plan, component)) {
+    return iree_ok_status();
+  }
+  if (iree_any_bit_set(
+          plan->context->vector_packet_policy->flags,
+          LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_MEMORY_ROOT_COMPONENTS)) {
+    bool load_roots_ready = false;
+    uint32_t rewritten_load_count = 0;
+    IREE_RETURN_IF_ERROR(loom_vector_component_prepare_packetized_load_roots(
+        plan, component, &load_roots_ready, &rewritten_load_count));
+    *out_rewritten_op_count = rewritten_load_count;
+    if (!load_roots_ready) {
+      return iree_ok_status();
+    }
   }
 
   iree_host_size_t external_capacity = 0;
@@ -1307,7 +1506,7 @@ static iree_status_t loom_vector_component_materialize(
       member_index = record->next_member_index;
     }
   }
-  *out_rewritten_op_count = component->member_count;
+  *out_rewritten_op_count += component->member_count;
   return iree_ok_status();
 }
 

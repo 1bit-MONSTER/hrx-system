@@ -175,6 +175,14 @@ iree_status_t loom_vector_table_lookup_simplify_indices(
   }
   const loom_type_t old_type =
       loom_module_value_type(rewriter->module, indices);
+  if (element_type == LOOM_SCALAR_TYPE_NONE &&
+      loom_type_element_type(old_type) == LOOM_SCALAR_TYPE_INDEX) {
+    // All-exact selectors have no dynamic lane from which to infer a fixed
+    // integer carrier. Use the canonical 32-bit index carrier when every
+    // selector is representable; the range check below retains index for
+    // wider constants instead of truncating them.
+    element_type = LOOM_SCALAR_TYPE_I32;
+  }
   if (element_type == LOOM_SCALAR_TYPE_NONE ||
       element_type == loom_type_element_type(old_type)) {
     return iree_ok_status();

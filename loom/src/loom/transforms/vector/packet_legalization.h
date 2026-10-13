@@ -25,6 +25,27 @@ typedef enum loom_vector_packet_reduce_result_e {
   LOOM_VECTOR_PACKET_REDUCE_RESULT_CAPTURE_INPUT = 2,
 } loom_vector_packet_reduce_result_t;
 
+typedef struct loom_vector_packet_consumer_materializer_t {
+  // Opaque state passed to the materializer callbacks.
+  void* user_data;
+  // Number of IR operations emitted by one materialization callback.
+  uint8_t operation_count;
+  // Returns true when this materializer implements |op|'s semantics.
+  bool (*matches)(void* user_data, const loom_module_t* module,
+                  const loom_op_t* op);
+  // Returns true when |op| has complete source and result carriers for the
+  // proposed packet lane count.
+  bool (*supports_packet)(void* user_data,
+                          const loom_target_legalization_context_t* context,
+                          const loom_op_t* op, uint32_t lane_count);
+  // Materializes one packet result from |source| using |op|'s semantics.
+  iree_status_t (*materialize)(void* user_data,
+                               loom_target_legalization_context_t* context,
+                               const loom_op_t* op, uint32_t lane_count,
+                               loom_value_id_t source,
+                               loom_value_id_t* out_result);
+} loom_vector_packet_consumer_materializer_t;
+
 // Packetizes a static rank-one scalar insertion whose result spans more than
 // one target-native packet. Static insertion updates only the owning packet.
 // Dynamic insertion builds one native candidate per packet and selects the
@@ -37,14 +58,18 @@ iree_status_t loom_vector_packet_legalize_insert(
     const loom_target_vector_packet_policy_t* policy, bool* out_rewritten);
 
 // Packetizes a rank-one dynamic slice by materializing its decomposable
-// producer graph directly at each runtime-selected result packet. Ordinary
-// reads may move to the selected packet origins when indexed motion analysis
-// proves that no write is crossed. Returns false through |out_rewritten| when
-// the slice is static, its producer graph cannot stream, or the expansion
-// exceeds the static bound.
+// producer graph directly at each runtime-selected result packet. The optional
+// |consumer_materializer| may fuse explicitly supported unary consumers into
+// each packet before transient carriers accumulate. Ordinary reads may move to
+// the selected packet origins when indexed motion analysis proves that no
+// write is crossed. Returns false through |out_rewritten| when the slice is
+// static, its producer graph cannot stream, or the expansion exceeds the
+// static bound.
 iree_status_t loom_vector_packet_legalize_dynamic_slice(
     loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_target_vector_packet_policy_t* policy, bool* out_rewritten);
+    const loom_target_vector_packet_policy_t* policy,
+    const loom_vector_packet_consumer_materializer_t* consumer_materializer,
+    bool* out_rewritten);
 
 // Packetizes a rank-one table lookup over the common lane interval supported
 // by both its index and result element types. The table remains one captured

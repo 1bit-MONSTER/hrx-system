@@ -74,8 +74,11 @@ loom_cc_library(
     visibility = _LOW_PASS_ENVIRONMENT_VISIBILITY,
     deps = [
         "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/codegen/low/lower",
+        "//loom/src/loom/ir",
         "//loom/src/loom/pass:environment",
         "//loom/src/loom/pass:types",
+        "//loom/src/loom/target:facts",
         "//runtime/src/iree/base",
     ],
 )

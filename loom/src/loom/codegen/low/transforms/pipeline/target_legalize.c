@@ -41,6 +41,8 @@ typedef struct loom_low_target_legalize_pass_state_t {
   uint32_t max_errors;
   // Current target legalization phase.
   loom_target_legalization_mode_t mode;
+  // Representation state of semantic boundaries seen by this invocation.
+  loom_target_boundary_representation_t boundary_representation;
   // Strategy policy controlling native/reference legalizer participation.
   loom_target_legalization_policy_t policy;
   // Verify source legality here when this pass is the final consumer. Composed
@@ -52,6 +54,8 @@ typedef struct loom_low_target_legalize_pass_state_t {
   bool has_max_errors_option;
   // True when mode was explicitly provided.
   bool has_mode_option;
+  // True when boundaries was explicitly provided.
+  bool has_boundaries_option;
   // True when policy was explicitly provided.
   bool has_policy_option;
 } loom_low_target_legalize_pass_state_t;
@@ -62,6 +66,8 @@ typedef struct loom_low_target_legalize_parse_context_t {
 } loom_low_target_legalize_parse_context_t;
 
 static const loom_pass_option_def_t kLowTargetLegalizeOptions[] = {
+    {IREE_SVL("boundaries"),
+     IREE_SVL("Boundary representation: logical or projected.")},
     {IREE_SVL("max-errors"),
      IREE_SVL("Maximum number of final legality diagnostics to emit; zero "
               "means no limit.")},
@@ -188,6 +194,31 @@ static iree_status_t loom_low_target_legalize_parse_policy(
   return iree_ok_status();
 }
 
+static iree_status_t loom_low_target_legalize_parse_boundaries(
+    iree_string_view_t value,
+    loom_low_target_legalize_parse_context_t* context) {
+  if (context->state->has_boundaries_option) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "duplicate option 'boundaries' for pass "
+                            "'target-legalize'");
+  }
+  if (iree_string_view_equal(value, IREE_SV("logical"))) {
+    context->state->boundary_representation =
+        LOOM_TARGET_BOUNDARY_REPRESENTATION_LOGICAL;
+  } else if (iree_string_view_equal(value, IREE_SV("projected"))) {
+    context->state->boundary_representation =
+        LOOM_TARGET_BOUNDARY_REPRESENTATION_PROJECTED;
+  } else {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "target-legalize option 'boundaries' expected 'logical' or "
+        "'projected', got '%.*s'",
+        (int)value.size, value.data);
+  }
+  context->state->has_boundaries_option = true;
+  return iree_ok_status();
+}
+
 static iree_status_t loom_low_target_legalize_parse_option(
     void* user_data, iree_string_view_t name, iree_string_view_t value) {
   loom_low_target_legalize_parse_context_t* context =
@@ -208,6 +239,9 @@ static iree_status_t loom_low_target_legalize_parse_option(
   if (iree_string_view_equal(name, IREE_SV("mode"))) {
     return loom_low_target_legalize_parse_mode(value, context);
   }
+  if (iree_string_view_equal(name, IREE_SV("boundaries"))) {
+    return loom_low_target_legalize_parse_boundaries(value, context);
+  }
   if (iree_string_view_equal(name, IREE_SV("policy"))) {
     return loom_low_target_legalize_parse_policy(value, context);
   }
@@ -225,6 +259,7 @@ iree_status_t loom_low_target_legalize_create(loom_pass_t* pass,
   state->max_errors = 20;
   state->max_iterations = LOOM_GREEDY_REWRITE_DEFAULT_MAX_ITERATIONS;
   state->mode = LOOM_TARGET_LEGALIZATION_MODE_EAGER;
+  state->boundary_representation = LOOM_TARGET_BOUNDARY_REPRESENTATION_LOGICAL;
   state->policy = LOOM_TARGET_LEGALIZATION_POLICY_PREFER_NATIVE;
 
   loom_low_target_legalize_parse_context_t context = {
@@ -250,6 +285,12 @@ iree_status_t loom_low_target_legalize_create(loom_pass_t* pass,
       }
       if (iree_string_view_equal(option->schema->name, IREE_SV("mode"))) {
         IREE_RETURN_IF_ERROR(loom_low_target_legalize_parse_mode(
+            option->schema->enum_values[option->enum_value_index].value,
+            &context));
+        continue;
+      }
+      if (iree_string_view_equal(option->schema->name, IREE_SV("boundaries"))) {
+        IREE_RETURN_IF_ERROR(loom_low_target_legalize_parse_boundaries(
             option->schema->enum_values[option->enum_value_index].value,
             &context));
         continue;
@@ -2160,6 +2201,7 @@ static iree_status_t loom_low_target_legalize_function(
           !loom_low_target_legalize_function_has_source_vector_carriers(
               module, selection->func, selection->policy),
       .mode = pass_state->mode,
+      .boundary_representation = pass_state->boundary_representation,
       .policy = pass_state->policy,
       .fact_table = fact_table,
       .contract_query =
@@ -2280,6 +2322,23 @@ iree_status_t loom_low_target_legalize_run(loom_pass_t* pass,
        i < selection_list.count && iree_status_is_ok(status) &&
        !emitted_error_diagnostics;
        ++i) {
+    const loom_target_vector_packet_policy_t* vector_packet_policy =
+        selection_list.values[i].policy->vector_packet_policy;
+    const loom_target_function_version_t* target_version =
+        loom_target_function_version_const_cast(
+            selection_list.values[i].version_handle);
+    if (state->boundary_representation ==
+            LOOM_TARGET_BOUNDARY_REPRESENTATION_PROJECTED &&
+        (target_version == NULL ||
+         !iree_any_bit_set(
+             target_version->representation_flags,
+             LOOM_TARGET_FUNCTION_REPRESENTATION_FLAG_VECTOR_PACKET_BOUNDARIES) ||
+         vector_packet_policy == NULL ||
+         !iree_any_bit_set(
+             vector_packet_policy->flags,
+             LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_BOUNDARY_PROJECTION))) {
+      continue;
+    }
     status = loom_low_target_legalize_function(
         pass, module, state, &selection_list.values[i], legalizer_registry,
         legality_list, &run_arena, &emitted_error_diagnostics);

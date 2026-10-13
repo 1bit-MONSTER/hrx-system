@@ -102,6 +102,7 @@ loom_cc_library(
     loom::target::pass_environment
     loom::target::provider
     loom::transforms::encoding::layout_projection
+    loom::transforms::vector::packet_boundary_projection
     loom::transforms::view::boundary_projection
   PUBLIC
 )

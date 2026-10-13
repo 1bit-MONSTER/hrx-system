@@ -55,8 +55,11 @@ loom_cc_library(
   DEPS
     iree::base
     loom::codegen::low::descriptors
+    loom::codegen::low::lower
+    loom::ir
     loom::pass::environment
     loom::pass::types
+    loom::target::facts
   PUBLIC
 )
 
