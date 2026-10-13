@@ -111,6 +111,11 @@ set(IREE_HAL_AMDGPU_TARGETS
   CACHE STRING
   "AMDGPU target selectors supported by this runtime build.")
 
+set(IREE_HAL_AMD_GPU_TARGETS
+  "gfx9-generic;gfx90a;gfx9-4-generic;gfx10-1-generic;gfx10-3-generic;gfx11-generic;gfx12-generic"
+  CACHE STRING
+  "AMD GPU target selectors supported by the libamdf-backed runtime build.")
+
 include(binary)
 include(selectors)
 include(cts)

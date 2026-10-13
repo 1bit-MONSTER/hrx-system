@@ -485,14 +485,14 @@ def amdgpu_processor_infos(repo_root):
     return {info.processor: info for info in processor_infos}
 
 
-def wavefront_size_flags_expr(supports_wavefront_size, processor_info):
+def wavefront_size_flags_expr(supports_wavefront_size, processor_info, symbol_prefix):
     flags = []
     if supports_wavefront_size(processor_info.kernel_descriptor.profile, 32):
-        flags.append("IREE_HAL_AMDGPU_WAVEFRONT_SIZE_FLAG_32")
+        flags.append(f"{symbol_prefix}_WAVEFRONT_SIZE_FLAG_32")
     if supports_wavefront_size(processor_info.kernel_descriptor.profile, 64):
-        flags.append("IREE_HAL_AMDGPU_WAVEFRONT_SIZE_FLAG_64")
+        flags.append(f"{symbol_prefix}_WAVEFRONT_SIZE_FLAG_64")
     if not flags:
-        return "IREE_HAL_AMDGPU_WAVEFRONT_SIZE_FLAG_NONE"
+        return f"{symbol_prefix}_WAVEFRONT_SIZE_FLAG_NONE"
     return " | ".join(flags)
 
 
@@ -681,8 +681,7 @@ def render_cmake():
     return "\n".join(lines)
 
 
-def render_runtime_identity_catalog_inl(repo_root):
-    output_path = "runtime/src/iree/hal/drivers/amdgpu/target/identity_catalog.inl"
+def render_runtime_identity_catalog_inl(repo_root, output_path, symbol_prefix):
     lines = [
         generated_header("//", output_path),
         "//",
@@ -693,8 +692,8 @@ def render_runtime_identity_catalog_inl(repo_root):
         "#if defined(IREE_AMDGPU_TARGET_MAPPING)",
     ]
     feature_flag_names = {
-        TARGET_ID_FEATURE_SRAMECC: "IREE_HAL_AMDGPU_TARGET_FEATURE_SUPPORT_SRAMECC",
-        TARGET_ID_FEATURE_XNACK: "IREE_HAL_AMDGPU_TARGET_FEATURE_SUPPORT_XNACK",
+        TARGET_ID_FEATURE_SRAMECC: f"{symbol_prefix}_TARGET_FEATURE_SUPPORT_SRAMECC",
+        TARGET_ID_FEATURE_XNACK: f"{symbol_prefix}_TARGET_FEATURE_SUPPORT_XNACK",
     }
     processor_info_rows, supports_wavefront_size = import_loom_target_info(repo_root)
     processor_infos = {info.processor: info for info in processor_info_rows}
@@ -748,7 +747,7 @@ def render_runtime_identity_catalog_inl(repo_root):
         processor_info = processor_infos[processor]
         feature_flags = " | ".join(feature_flag_names[feature] for feature in features)
         if not feature_flags:
-            feature_flags = "IREE_HAL_AMDGPU_TARGET_FEATURE_SUPPORT_NONE"
+            feature_flags = f"{symbol_prefix}_TARGET_FEATURE_SUPPORT_NONE"
         lines.append(
             'IREE_AMDGPU_TARGET_MAPPING("{}", "{}", "{}", {}, {}, {}, {})'.format(
                 target,
@@ -757,7 +756,9 @@ def render_runtime_identity_catalog_inl(repo_root):
                 generic_introduction_version,
                 feature_flags,
                 processor_info.wavefront.default_size,
-                wavefront_size_flags_expr(supports_wavefront_size, processor_info),
+                wavefront_size_flags_expr(
+                    supports_wavefront_size, processor_info, symbol_prefix
+                ),
             )
         )
     lines.extend(
@@ -895,15 +896,24 @@ def render_header():
 
 def generated_outputs(repo_root):
     build_tools_output_dir = repo_root / "build_tools/amdgpu"
-    runtime_target_output_dir = repo_root / "runtime/src/iree/hal/drivers/amdgpu/target"
+    legacy_catalog_path = (
+        "runtime/src/iree/hal/drivers/amdgpu/target/identity_catalog.inl"
+    )
+    gpu_catalog_path = (
+        "runtime/src/iree/hal/drivers/amd/gpu/target/identity_catalog.inl"
+    )
     driver_util_output_dir = repo_root / "runtime/src/iree/hal/drivers/amdgpu/util"
     return {
         build_tools_output_dir / "target_map.bzl": render_bzl(),
         build_tools_output_dir / "target_map.cmake": render_cmake(),
         build_tools_output_dir / "elf_machine_map.inl": render_elf_machine_map_inl(),
         build_tools_output_dir / "target_map.h": render_header(),
-        runtime_target_output_dir
-        / "identity_catalog.inl": render_runtime_identity_catalog_inl(repo_root),
+        repo_root / legacy_catalog_path: render_runtime_identity_catalog_inl(
+            repo_root, legacy_catalog_path, "IREE_HAL_AMDGPU"
+        ),
+        repo_root / gpu_catalog_path: render_runtime_identity_catalog_inl(
+            repo_root, gpu_catalog_path, "IREE_HAL_AMD_GPU"
+        ),
         driver_util_output_dir
         / "device_library_target_map.inl": render_device_library_target_map_inl(),
     }
