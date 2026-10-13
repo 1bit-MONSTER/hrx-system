@@ -6,6 +6,7 @@
 
 #include "loom/util/json.h"
 
+#include <limits>
 #include <string>
 
 #include "iree/base/internal/json.h"
@@ -329,6 +330,136 @@ TEST(JsonWriter, WritesEmptyContainers) {
   iree_string_view_t view = iree_string_builder_view(&builder);
   EXPECT_EQ(std::string(view.data, view.size), "{\"object\":{},\"array\":[]}");
   iree_string_builder_deinitialize(&builder);
+}
+
+template <typename T>
+void ExpectIntegerEncoding(
+    iree_status_t (*write_field)(loom_json_object_writer_t*, iree_string_view_t,
+                                 T),
+    iree_status_t (*write_element)(loom_json_array_writer_t*, T)) {
+  iree_string_builder_t builder;
+  iree_string_builder_initialize(iree_allocator_system(), &builder);
+  auto check_value = [&](T value) {
+    SCOPED_TRACE(std::to_string(value));
+    iree_string_builder_reset(&builder);
+    loom_output_stream_t stream;
+    loom_output_stream_for_builder(&builder, &stream);
+    loom_json_object_writer_t object;
+    IREE_ASSERT_OK(loom_json_object_begin(&stream, &object));
+    IREE_ASSERT_OK(write_field(&object, IREE_SV("first"), value));
+    IREE_ASSERT_OK(write_field(&object, IREE_SV("next"), value));
+    IREE_ASSERT_OK(loom_json_object_begin_field(&object, IREE_SV("array")));
+    loom_json_array_writer_t array;
+    IREE_ASSERT_OK(loom_json_array_begin(&stream, &array));
+    IREE_ASSERT_OK(write_element(&array, value));
+    IREE_ASSERT_OK(write_element(&array, value));
+    IREE_ASSERT_OK(loom_json_array_end(&array));
+    IREE_ASSERT_OK(loom_json_object_end(&object));
+    const std::string number = std::to_string(value);
+    const std::string expected = "{\"first\":" + number +
+                                 ",\"next\":" + number + ",\"array\":[" +
+                                 number + "," + number + "]}";
+    const auto actual = iree_string_builder_view(&builder);
+    EXPECT_EQ(std::string(actual.data, actual.size), expected);
+    EXPECT_EQ(stream.offset, expected.size());
+  };
+  check_value(0);
+  check_value(std::numeric_limits<T>::min());
+  check_value(std::numeric_limits<T>::max());
+  // Exercise every decimal digit-count transition in the type's domain.
+  const uint64_t maximum = std::numeric_limits<T>::max();
+  for (uint64_t power = 1;; power *= 10) {
+    for (uint64_t magnitude = power - 1; magnitude <= power + 1; ++magnitude) {
+      check_value((T)magnitude);
+      if constexpr (std::numeric_limits<T>::is_signed) {
+        check_value((T) - (int64_t)magnitude);
+      }
+    }
+    if (power > maximum / 10) {
+      break;
+    }
+  }
+  iree_string_builder_deinitialize(&builder);
+}
+
+TEST(JsonWriter, IntegerFieldsAndElementsCoverDecimalBoundaries) {
+  ExpectIntegerEncoding(loom_json_object_write_uint32_field,
+                        loom_json_array_write_uint32_element);
+  ExpectIntegerEncoding(loom_json_object_write_uint64_field,
+                        loom_json_array_write_uint64_element);
+  ExpectIntegerEncoding(loom_json_object_write_int32_field,
+                        loom_json_array_write_int32_element);
+  ExpectIntegerEncoding(loom_json_object_write_int64_field,
+                        loom_json_array_write_int64_element);
+  ExpectIntegerEncoding(loom_json_object_write_host_size_field,
+                        loom_json_array_write_host_size_element);
+}
+
+struct JsonBoundedSink {
+  // Complete fragments accepted before the first failed write.
+  std::string text;
+  // Maximum accepted output length in bytes.
+  size_t byte_limit = 0;
+  // Number of rejected writes; the writer must stop at the first failure.
+  size_t failure_count = 0;
+
+  static iree_status_t Write(void* user_data, iree_string_view_t value) {
+    auto& sink = *static_cast<JsonBoundedSink*>(user_data);
+    if (sink.text.size() + value.size > sink.byte_limit) {
+      ++sink.failure_count;
+      return iree_status_from_code(IREE_STATUS_DATA_LOSS);
+    }
+    sink.text.append(value.data, value.size);
+    return iree_ok_status();
+  }
+};
+
+template <typename T>
+void ExpectIntegerSinkFailure(
+    T value,
+    iree_status_t (*write_field)(loom_json_object_writer_t*, iree_string_view_t,
+                                 T),
+    iree_status_t (*write_element)(loom_json_array_writer_t*, T)) {
+  // Fail before the field name and at the integer payload, respectively.
+  for (const std::string prefix : {"{", "{\"value\":"}) {
+    JsonBoundedSink sink = {.byte_limit = prefix.size()};
+    loom_output_stream_t stream = {
+        .write = JsonBoundedSink::Write,
+        .user_data = &sink,
+    };
+    loom_json_object_writer_t object;
+    IREE_ASSERT_OK(loom_json_object_begin(&stream, &object));
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_DATA_LOSS,
+                          write_field(&object, IREE_SV("value"), value));
+    EXPECT_EQ(sink.text, prefix);
+    EXPECT_EQ(stream.offset, prefix.size());
+    EXPECT_EQ(sink.failure_count, 1u);
+  }
+  JsonBoundedSink sink = {.byte_limit = 1};
+  loom_output_stream_t stream = {
+      .write = JsonBoundedSink::Write,
+      .user_data = &sink,
+  };
+  loom_json_array_writer_t array;
+  IREE_ASSERT_OK(loom_json_array_begin(&stream, &array));
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_DATA_LOSS, write_element(&array, value));
+  EXPECT_EQ(sink.text, "[");
+  EXPECT_EQ(stream.offset, 1u);
+  EXPECT_EQ(sink.failure_count, 1u);
+}
+
+TEST(JsonWriter, IntegerFieldsAndElementsPropagateSinkFailures) {
+  ExpectIntegerSinkFailure(UINT32_MAX, loom_json_object_write_uint32_field,
+                           loom_json_array_write_uint32_element);
+  ExpectIntegerSinkFailure(UINT64_MAX, loom_json_object_write_uint64_field,
+                           loom_json_array_write_uint64_element);
+  ExpectIntegerSinkFailure(INT32_MIN, loom_json_object_write_int32_field,
+                           loom_json_array_write_int32_element);
+  ExpectIntegerSinkFailure(INT64_MIN, loom_json_object_write_int64_field,
+                           loom_json_array_write_int64_element);
+  ExpectIntegerSinkFailure(std::numeric_limits<iree_host_size_t>::max(),
+                           loom_json_object_write_host_size_field,
+                           loom_json_array_write_host_size_element);
 }
 
 TEST(JsonWriter, DefersValueListsForArrayEmbedding) {
