@@ -40,6 +40,8 @@ typedef struct iree_async_proactor_t iree_async_proactor_t;
 // The kind of socket to create.
 // IPv4 and IPv6 variants are separate types (no dual-stack) to avoid
 // platform-specific IPV6_V6ONLY default behavior differences.
+// Unix domain sockets are supported by POSIX backends. Windows IOCP rejects
+// both Unix types at creation and import with IREE_STATUS_UNAVAILABLE.
 enum iree_async_socket_type_e {
   IREE_ASYNC_SOCKET_TYPE_TCP = 0u,
   IREE_ASYNC_SOCKET_TYPE_UDP,
@@ -224,6 +226,7 @@ typedef struct iree_async_socket_t {
 //
 // Returns:
 //   IREE_STATUS_OK: Socket created successfully.
+//   IREE_STATUS_UNAVAILABLE: Socket type or required option is unsupported.
 //   IREE_STATUS_RESOURCE_EXHAUSTED: System socket limit reached.
 IREE_API_EXPORT iree_status_t iree_async_socket_create(
     iree_async_proactor_t* proactor, iree_async_socket_type_t type,
@@ -242,6 +245,8 @@ IREE_API_EXPORT iree_status_t iree_async_socket_create(
 //   The proactor takes logical ownership of the handle and will close it when
 //   the socket is released or a close operation completes. The caller must not
 //   close the handle after a successful import.
+//   On failure, the handle remains owned by the caller. Unsupported socket
+//   types are rejected before platform bookkeeping is changed.
 //
 // Platform preparation:
 //   Import may mutate platform bookkeeping required for asynchronous I/O.
@@ -261,6 +266,7 @@ IREE_API_EXPORT iree_status_t iree_async_socket_create(
 //
 // Returns:
 //   IREE_STATUS_OK: Socket imported successfully.
+//   IREE_STATUS_UNAVAILABLE: Socket type is unsupported by the proactor.
 //   IREE_STATUS_INVALID_ARGUMENT: Invalid handle or type mismatch.
 IREE_API_EXPORT iree_status_t iree_async_socket_import(
     iree_async_proactor_t* proactor, iree_async_primitive_t primitive,

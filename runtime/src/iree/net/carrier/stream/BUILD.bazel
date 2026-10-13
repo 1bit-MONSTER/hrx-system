@@ -1,0 +1,108 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//runtime/build_tools/bazel:cc.bzl", "iree_runtime_cc_library")
+load("//runtime/build_tools/bazel:cc_test.bzl", "iree_runtime_cc_test")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+iree_runtime_cc_library(
+    name = "stream",
+    srcs = ["carrier.c"],
+    hdrs = ["carrier.h"],
+    deps = [
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
+        "//runtime/src/iree/base/internal",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/net:carrier",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "carrier_test_suite",
+    testonly = True,
+    srcs = ["carrier_test_suite.cc"],
+    hdrs = ["carrier_test_suite.h"],
+    visibility = ["//visibility:private"],
+    deps = [
+        ":stream",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async:platform",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/net:carrier",
+        "//runtime/src/iree/testing:gtest",
+    ],
+    alwayslink = True,
+)
+
+iree_runtime_cc_library(
+    name = "carrier_posix_test_support",
+    testonly = True,
+    srcs = ["carrier_posix_test.cc"],
+    target_compatible_with = select({
+        "@platforms//os:android": [],
+        "@platforms//os:linux": [],
+        "@platforms//os:macos": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//visibility:private"],
+    deps = [
+        ":carrier_test_suite",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/platform/posix",
+    ],
+    alwayslink = True,
+)
+
+iree_runtime_cc_library(
+    name = "carrier_win32_test_support",
+    testonly = True,
+    srcs = ["carrier_win32_test.cc"],
+    target_compatible_with = ["@platforms//os:windows"],
+    visibility = ["//visibility:private"],
+    deps = [":carrier_test_suite"],
+)
+
+iree_runtime_cc_test(
+    name = "carrier_test",
+    srcs = ["carrier_test.cc"],
+    target_compatible_with = select({
+        "@platforms//os:android": [],
+        "@platforms//os:linux": [],
+        "@platforms//os:macos": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        ":carrier_test_suite",
+        "//runtime/src/iree/testing:gtest_main",
+    ] + select({
+        "@platforms//os:windows": [":carrier_win32_test_support"],
+        "//conditions:default": [":carrier_posix_test_support"],
+    }),
+)
+
+iree_runtime_cc_test(
+    name = "carrier_unix_test",
+    srcs = ["carrier_unix_test.cc"],
+    target_compatible_with = select({
+        "@platforms//os:android": [],
+        "@platforms//os:linux": [],
+        "@platforms//os:macos": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        ":carrier_posix_test_support",
+        ":carrier_test_suite",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)

@@ -51,20 +51,6 @@ TEST_P(SocketTest, CreateSocket_UDP) {
   iree_async_socket_release(socket);
 }
 
-// Create a Unix stream socket and verify initial state.
-TEST_P(SocketTest, CreateSocket_Unix) {
-  iree_async_socket_t* socket = nullptr;
-  IREE_ASSERT_OK(
-      iree_async_socket_create(proactor_, IREE_ASYNC_SOCKET_TYPE_UNIX_STREAM,
-                               IREE_ASYNC_SOCKET_OPTION_NONE, &socket));
-
-  ASSERT_NE(socket, nullptr);
-  EXPECT_EQ(iree_async_socket_query_state(socket),
-            IREE_ASYNC_SOCKET_STATE_CREATED);
-
-  iree_async_socket_release(socket);
-}
-
 // The ACK hint is portable even on platforms without a persistent native cap.
 TEST_P(SocketTest, LowLatencyAck_ConnectAndTransfer) {
   iree_async_socket_t* client = nullptr;

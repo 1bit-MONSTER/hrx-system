@@ -21,56 +21,25 @@
 #include <string.h>
 
 //===----------------------------------------------------------------------===//
-// Socket type mapping
+// Socket type support
 //===----------------------------------------------------------------------===//
 
-static int iree_async_iocp_socket_type_to_domain(
+static iree_status_t iree_async_iocp_socket_validate_type(
     iree_async_socket_type_t type) {
   switch (type) {
     case IREE_ASYNC_SOCKET_TYPE_TCP:
     case IREE_ASYNC_SOCKET_TYPE_UDP:
-      return AF_INET;
     case IREE_ASYNC_SOCKET_TYPE_TCP6:
     case IREE_ASYNC_SOCKET_TYPE_UDP6:
-      return AF_INET6;
+      return iree_ok_status();
     case IREE_ASYNC_SOCKET_TYPE_UNIX_STREAM:
     case IREE_ASYNC_SOCKET_TYPE_UNIX_DGRAM:
-      return AF_UNIX;
+      return iree_make_status(
+          IREE_STATUS_UNAVAILABLE,
+          "Unix domain sockets are not supported by the IOCP proactor");
     default:
-      return -1;
-  }
-}
-
-static int iree_async_iocp_socket_type_to_socktype(
-    iree_async_socket_type_t type) {
-  switch (type) {
-    case IREE_ASYNC_SOCKET_TYPE_TCP:
-    case IREE_ASYNC_SOCKET_TYPE_TCP6:
-    case IREE_ASYNC_SOCKET_TYPE_UNIX_STREAM:
-      return SOCK_STREAM;
-    case IREE_ASYNC_SOCKET_TYPE_UDP:
-    case IREE_ASYNC_SOCKET_TYPE_UDP6:
-    case IREE_ASYNC_SOCKET_TYPE_UNIX_DGRAM:
-      return SOCK_DGRAM;
-    default:
-      return -1;
-  }
-}
-
-static int iree_async_iocp_socket_type_to_protocol(
-    iree_async_socket_type_t type) {
-  switch (type) {
-    case IREE_ASYNC_SOCKET_TYPE_TCP:
-    case IREE_ASYNC_SOCKET_TYPE_TCP6:
-      return IPPROTO_TCP;
-    case IREE_ASYNC_SOCKET_TYPE_UDP:
-    case IREE_ASYNC_SOCKET_TYPE_UDP6:
-      return IPPROTO_UDP;
-    case IREE_ASYNC_SOCKET_TYPE_UNIX_STREAM:
-    case IREE_ASYNC_SOCKET_TYPE_UNIX_DGRAM:
-      return 0;
-    default:
-      return -1;
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "invalid socket type %d", type);
   }
 }
 
@@ -220,8 +189,8 @@ static iree_status_t iree_async_iocp_socket_associate(
 
 // Loads AcceptEx, ConnectEx, and GetAcceptExSockaddrs function pointers via
 // WSAIoctl. These are not directly linked — they must be loaded per-process
-// using well-known GUIDs from mswsock.h. The function pointers are the same
-// for all socket families, so we load them once using any socket.
+// using well-known GUIDs from mswsock.h. Loaded once per proactor from the
+// first supported socket.
 static iree_status_t iree_async_iocp_load_wsa_extensions(
     iree_async_proactor_iocp_t* proactor, SOCKET sock) {
   if (proactor->wsa_extensions.loaded) {
@@ -287,16 +256,18 @@ iree_status_t iree_async_iocp_socket_create(
   IREE_ASSERT_ARGUMENT(proactor);
   IREE_ASSERT_ARGUMENT(out_socket);
   *out_socket = NULL;
+  IREE_RETURN_IF_ERROR(iree_async_iocp_socket_validate_type(type));
   IREE_TRACE_ZONE_BEGIN(z0);
 
-  int domain = iree_async_iocp_socket_type_to_domain(type);
-  int socktype = iree_async_iocp_socket_type_to_socktype(type);
-  int protocol = iree_async_iocp_socket_type_to_protocol(type);
-  if (domain < 0 || socktype < 0 || protocol < 0) {
-    IREE_TRACE_ZONE_END(z0);
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "invalid socket type %d", type);
-  }
+  int domain = (type == IREE_ASYNC_SOCKET_TYPE_TCP6 ||
+                type == IREE_ASYNC_SOCKET_TYPE_UDP6)
+                   ? AF_INET6
+                   : AF_INET;
+  int socktype = (type == IREE_ASYNC_SOCKET_TYPE_TCP ||
+                  type == IREE_ASYNC_SOCKET_TYPE_TCP6)
+                     ? SOCK_STREAM
+                     : SOCK_DGRAM;
+  int protocol = socktype == SOCK_STREAM ? IPPROTO_TCP : IPPROTO_UDP;
 
   // WSA_FLAG_OVERLAPPED is required for all IOCP overlapped I/O.
   SOCKET sock =
@@ -370,6 +341,7 @@ iree_status_t iree_async_iocp_socket_import(
   IREE_ASSERT_ARGUMENT(proactor);
   IREE_ASSERT_ARGUMENT(out_socket);
   *out_socket = NULL;
+  IREE_RETURN_IF_ERROR(iree_async_iocp_socket_validate_type(type));
   IREE_TRACE_ZONE_BEGIN(z0);
 
   if (primitive.type != IREE_ASYNC_PRIMITIVE_TYPE_WIN32_HANDLE) {
