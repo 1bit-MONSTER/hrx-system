@@ -9,8 +9,8 @@
 from loom.format.cxx.printer import CxxWriter
 
 
-def test_wraps_generated_structure_without_parsing_cxx() -> None:
-    writer = CxxWriter(width=50)
+def test_keeps_source_constructs_dense_without_a_width_limit() -> None:
+    writer = CxxWriter()
     writer.attributes(
         [
             "loom::kernel",
@@ -31,18 +31,10 @@ def test_wraps_generated_structure_without_parsing_cxx() -> None:
     assert (
         "\n".join(writer.lines)
         == """\
-[[loom::kernel,
-  loom::workgroup_count(4, 1, 1),
-  loom::workgroup_size(64, 1, 1)]]
-auto result = namespace::function(
-    first_argument,
-    second_argument);
-unsigned long long offset =
-    (first_index * 100ull) +
-    (second_index * 100ull);
-loom::kernel::barrier<
-    loom::memory_space::workgroup,
-    loom::atomic::scope::workgroup>();"""
+[[loom::kernel, loom::workgroup_count(4, 1, 1), loom::workgroup_size(64, 1, 1)]]
+auto result = namespace::function(first_argument, second_argument);
+unsigned long long offset = (first_index * 100ull) + (second_index * 100ull);
+loom::kernel::barrier<loom::memory_space::workgroup, loom::atomic::scope::workgroup>();"""
     )
 
 

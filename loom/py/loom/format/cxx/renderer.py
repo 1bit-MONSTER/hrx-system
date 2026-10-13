@@ -2021,10 +2021,7 @@ class CxxRenderer:
                     qualifiers.append("loom::noalias")
                 if info.alignment is not None:
                     qualifiers.append(f"loom::assume_aligned({info.alignment})")
-                if len(qualifiers) > 1:
-                    attribute = f"[[{qualifiers[0]},\n  {qualifiers[1]}]] "
-                else:
-                    attribute = f"[[{qualifiers[0]}]] " if qualifiers else ""
+                attribute = f"[[{', '.join(qualifiers)}]] " if qualifiers else ""
                 const = "" if info.mutable else "const "
                 element = self._parameter_element(root)
                 parameters.append(f"{attribute}{const}{element}* {info.name}")
@@ -2042,12 +2039,7 @@ class CxxRenderer:
             self.expressions[argument] = name
             self.expression_types[argument] = type_name
         if parameters:
-            self.writer.line(f"void {resolved.attr('callee')}(")
-            self.writer.indent = 2
-            for index, parameter in enumerate(parameters):
-                suffix = "," if index + 1 != len(parameters) else ") {"
-                self.writer.line(parameter + suffix)
-            self.writer.indent = 1
+            self.writer.open(f"void {resolved.attr('callee')}({', '.join(parameters)})")
         else:
             self.writer.open(f"void {resolved.attr('callee')}()")
         self._render_block(entry)

@@ -33,9 +33,7 @@ def test_projects_dynamic_subview_without_numeric_cast_locals() -> None:
 #include <loomcxx/kernel.h>
 
 [[loom::kernel, loom::workgroup_count(1, 1, 1), loom::workgroup_size(1, 1, 1)]]
-void copy_one(
-    const float* input,
-    float* output) {
+void copy_one(const float* input, float* output) {
   auto input_view = loom::buffer::view<4>(input, {}, loom::encoding::layout::dense<1>());
   unsigned workitem = static_cast<unsigned>(loom::kernel::workitem::id.x);
   auto slice = loom::view::subview<1>(input_view, {workitem}, {});

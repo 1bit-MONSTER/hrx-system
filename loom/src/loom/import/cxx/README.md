@@ -41,19 +41,13 @@ hardware IDs, integer casts, and a dynamic subview renders as:
 ```cpp
 constexpr loom::amdgpu::target rendered_target{.kind = "gfx942"};
 
-[[loom::kernel,
-  loom::target(rendered_target),
-  loom::workgroup_count(1, 1, 1),
-  loom::workgroup_size(64, 1, 1)]]
+[[loom::kernel, loom::target(rendered_target), loom::workgroup_count(1, 1, 1), loom::workgroup_size(64, 1, 1)]]
 void copy_one(const float* input, float* output) {
-  auto input_view =
-      loom::buffer::view<64>(input, {}, loom::encoding::layout::dense<1>());
-  unsigned workitem =
-      static_cast<unsigned>(loom::kernel::workitem::id.x);
+  auto input_view = loom::buffer::view<64>(input, {}, loom::encoding::layout::dense<1>());
+  unsigned workitem = static_cast<unsigned>(loom::kernel::workitem::id.x);
   auto slice = loom::view::subview<1>(input_view, {workitem}, {});
   float value = loom::view::load(slice, 0);
-  auto output_view =
-      loom::buffer::view<64>(output, {}, loom::encoding::layout::dense<1>());
+  auto output_view = loom::buffer::view<64>(output, {}, loom::encoding::layout::dense<1>());
   loom::view::store(value, output_view, workitem);
 }
 ```
@@ -538,8 +532,7 @@ in files using the mode:
 // REQUIRES: loom-export-cxx
 #include <loomcxx/kernel.h>
 
-[[loom::kernel, loom::workgroup_count(1, 1, 1),
-  loom::workgroup_size(1, 1, 1)]]
+[[loom::kernel, loom::workgroup_count(1, 1, 1), loom::workgroup_size(1, 1, 1)]]
 void copy_one(const float* input, float* output) {
   // ...
 }
