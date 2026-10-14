@@ -612,12 +612,16 @@ low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (
 
 // ====
 
-spirv.target<vulkan1_3> @hal_target {abi = hal_kernel, contract_feature_bits = 33278}
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low
+
+// Integer and bitcast conversions retain their ABI operand wiring. Floating
+// width conversion mechanisms have focused lowering and execution coverage.
+spirv.target<vulkan1_3> @hal_target {abi = hal_kernel}
 
 kernel.def target(@hal_target) @spirv_hal_scalar_conversions() {
   %unit = index.constant 1 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
-} launch(%input_i8: buffer, %output_ext_i32: buffer, %output_extui_i32: buffer, %output_sitofp_f32: buffer, %output_uitofp_f32: buffer, %input_i64: buffer, %output_trunc_i32: buffer, %input_f16: buffer, %output_extf_f32: buffer, %input_f32: buffer, %output_fptrunc_f16: buffer, %output_fptosi_i16: buffer, %input_i32_bits: buffer, %output_bitcast_f32: buffer, %byte_offset: offset) {
+} launch(%input_i8: buffer, %output_ext_i32: buffer, %output_extui_i32: buffer, %output_sitofp_f32: buffer, %output_uitofp_f32: buffer, %input_i64: buffer, %output_trunc_i32: buffer, %input_f32: buffer, %output_fptosi_i16: buffer, %input_i32_bits: buffer, %output_bitcast_f32: buffer, %byte_offset: offset) {
   %byte_offset_aligned = index.assume %byte_offset [multiple_of(%byte_offset, 8)] : offset
   %input_i8_aligned = buffer.assume.alignment %input_i8 {minimum_alignment = 8} : buffer
   %output_ext_i32_aligned = buffer.assume.alignment %output_ext_i32 {minimum_alignment = 8} : buffer
@@ -626,10 +630,7 @@ kernel.def target(@hal_target) @spirv_hal_scalar_conversions() {
   %output_uitofp_f32_aligned = buffer.assume.alignment %output_uitofp_f32 {minimum_alignment = 8} : buffer
   %input_i64_aligned = buffer.assume.alignment %input_i64 {minimum_alignment = 8} : buffer
   %output_trunc_i32_aligned = buffer.assume.alignment %output_trunc_i32 {minimum_alignment = 8} : buffer
-  %input_f16_aligned = buffer.assume.alignment %input_f16 {minimum_alignment = 8} : buffer
-  %output_extf_f32_aligned = buffer.assume.alignment %output_extf_f32 {minimum_alignment = 8} : buffer
   %input_f32_aligned = buffer.assume.alignment %input_f32 {minimum_alignment = 8} : buffer
-  %output_fptrunc_f16_aligned = buffer.assume.alignment %output_fptrunc_f16 {minimum_alignment = 8} : buffer
   %output_fptosi_i16_aligned = buffer.assume.alignment %output_fptosi_i16 {minimum_alignment = 8} : buffer
   %input_i32_bits_aligned = buffer.assume.alignment %input_i32_bits {minimum_alignment = 8} : buffer
   %output_bitcast_f32_aligned = buffer.assume.alignment %output_bitcast_f32 {minimum_alignment = 8} : buffer
@@ -652,16 +653,8 @@ kernel.def target(@hal_target) @spirv_hal_scalar_conversions() {
   %truncated_i32 = scalar.trunci %loaded_i64 : i64 to i32
   %output_trunc_i32_view = buffer.view %output_trunc_i32_aligned[%byte_offset_aligned] : buffer -> view<1xi32>
   view.store %truncated_i32, %output_trunc_i32_view[0] : i32, view<1xi32>
-  %input_f16_view = buffer.view %input_f16_aligned[%byte_offset_aligned] : buffer -> view<1xf16>
-  %loaded_f16 = view.load %input_f16_view[0] : view<1xf16> -> f16
-  %extended_f32 = scalar.extf %loaded_f16 : f16 to f32
-  %output_extf_f32_view = buffer.view %output_extf_f32_aligned[%byte_offset_aligned] : buffer -> view<1xf32>
-  view.store %extended_f32, %output_extf_f32_view[0] : f32, view<1xf32>
   %input_f32_view = buffer.view %input_f32_aligned[%byte_offset_aligned] : buffer -> view<1xf32>
   %loaded_f32 = view.load %input_f32_view[0] : view<1xf32> -> f32
-  %truncated_f16 = scalar.fptrunc %loaded_f32 : f32 to f16
-  %output_fptrunc_f16_view = buffer.view %output_fptrunc_f16_aligned[%byte_offset_aligned] : buffer -> view<1xf16>
-  view.store %truncated_f16, %output_fptrunc_f16_view[0] : f16, view<1xf16>
   %converted_i16 = scalar.fptosi %loaded_f32 : f32 to i16
   %output_fptosi_i16_view = buffer.view %output_fptosi_i16_aligned[%byte_offset_aligned] : buffer -> view<1xi16>
   view.store %converted_i16, %output_fptosi_i16_view[0] : i16, view<1xi16>
@@ -674,7 +667,7 @@ kernel.def target(@hal_target) @spirv_hal_scalar_conversions() {
 }
 
 // ----
-low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, offset) -> ()}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_scalar_conversions(%byte_offset_aligned: reg<spirv.offset64>) asm {
+low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, buffer, offset) -> ()}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @spirv_hal_scalar_conversions(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %input_i8_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_ext_i32_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_extui_i32_aligned = resource<hal_binding> {index = 2, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
@@ -682,109 +675,48 @@ low.kernel.def target<spirv.logical.core>(@hal_target) abi_layout({signature = (
   %output_uitofp_f32_aligned = resource<hal_binding> {index = 4, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %input_i64_aligned = resource<hal_binding> {index = 5, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_trunc_i32_aligned = resource<hal_binding> {index = 6, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
-  %input_f16_aligned = resource<hal_binding> {index = 7, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
-  %output_extf_f32_aligned = resource<hal_binding> {index = 8, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
-  %input_f32_aligned = resource<hal_binding> {index = 9, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
-  %output_fptrunc_f16_aligned = resource<hal_binding> {index = 10, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
-  %output_fptosi_i16_aligned = resource<hal_binding> {index = 11, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
-  %input_i32_bits_aligned = resource<hal_binding> {index = 12, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
-  %output_bitcast_f32_aligned = resource<hal_binding> {index = 13, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
-  %74 = OpPtrAccessChain.storage_buffer.i8.byte_offset %input_i8_aligned, %byte_offset_aligned
-  %loaded_i8 = OpLoad.storage_buffer.i8 %74
+  %input_f32_aligned = resource<hal_binding> {index = 7, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %output_fptosi_i16_aligned = resource<hal_binding> {index = 8, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %input_i32_bits_aligned = resource<hal_binding> {index = 9, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %output_bitcast_f32_aligned = resource<hal_binding> {index = 10, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %59 = OpPtrAccessChain.storage_buffer.i8.byte_offset %input_i8_aligned, %byte_offset_aligned
+  %loaded_i8 = OpLoad.storage_buffer.i8 %59
   %extended_i32 = OpSConvert.i8.i32 %loaded_i8
-  %77 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output_ext_i32_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.i32 %77, %extended_i32
-  %78 = OpBitcast.i8.u8 %loaded_i8
-  %79 = OpUConvert.u8.u32 %78
-  %extended_unsigned_i32 = OpBitcast.u32.i32 %79
-  %81 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output_extui_i32_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.i32 %81, %extended_unsigned_i32
+  %62 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output_ext_i32_aligned, %byte_offset_aligned
+  OpStore.storage_buffer.i32 %62, %extended_i32
+  %63 = OpBitcast.i8.u8 %loaded_i8
+  %64 = OpUConvert.u8.u32 %63
+  %extended_unsigned_i32 = OpBitcast.u32.i32 %64
+  %66 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output_extui_i32_aligned, %byte_offset_aligned
+  OpStore.storage_buffer.i32 %66, %extended_unsigned_i32
   %converted_f32 = OpConvertSToF.i8.f32 %loaded_i8
-  %83 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_sitofp_f32_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.f32 %83, %converted_f32
-  %84 = OpBitcast.i32.u32 %extended_unsigned_i32
-  %converted_unsigned_f32 = OpConvertUToF.u32.f32 %84
-  %86 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_uitofp_f32_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.f32 %86, %converted_unsigned_f32
-  %87 = OpPtrAccessChain.storage_buffer.i64.byte_offset %input_i64_aligned, %byte_offset_aligned
-  %loaded_i64 = OpLoad.storage_buffer.i64 %87
+  %68 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_sitofp_f32_aligned, %byte_offset_aligned
+  OpStore.storage_buffer.f32 %68, %converted_f32
+  %69 = OpBitcast.i32.u32 %extended_unsigned_i32
+  %converted_unsigned_f32 = OpConvertUToF.u32.f32 %69
+  %71 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_uitofp_f32_aligned, %byte_offset_aligned
+  OpStore.storage_buffer.f32 %71, %converted_unsigned_f32
+  %72 = OpPtrAccessChain.storage_buffer.i64.byte_offset %input_i64_aligned, %byte_offset_aligned
+  %loaded_i64 = OpLoad.storage_buffer.i64 %72
   %truncated_i32 = OpSConvert.i64.i32 %loaded_i64
-  %90 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output_trunc_i32_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.i32 %90, %truncated_i32
-  %91 = OpPtrAccessChain.storage_buffer.f16.byte_offset %input_f16_aligned, %byte_offset_aligned
-  %loaded_f16 = OpLoad.storage_buffer.f16 %91
-  %extended_f32 = OpFConvert.f16.f32 %loaded_f16
-  %94 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_extf_f32_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.f32 %94, %extended_f32
-  %95 = OpPtrAccessChain.storage_buffer.f32.byte_offset %input_f32_aligned, %byte_offset_aligned
-  %loaded_f32 = OpLoad.storage_buffer.f32 %95
-  %97 = OpBitcast.f32.i32 %loaded_f32 : reg<spirv.id>
-  %98 = OpConstant.i32 -2147483648 : reg<spirv.id>
-  %99 = OpBitwiseAnd %97, %98 : reg<spirv.id>
-  %100 = OpConstant.i32 16 : reg<spirv.id>
-  %101 = OpShiftRightLogical %99, %100 : reg<spirv.id>
-  %102 = OpConstant.i32 2147483647 : reg<spirv.id>
-  %103 = OpBitwiseAnd %97, %102 : reg<spirv.id>
-  %104 = OpConstant.i32 8388607 : reg<spirv.id>
-  %105 = OpBitwiseAnd %103, %104 : reg<spirv.id>
-  %106 = OpConstant.i32 8388608 : reg<spirv.id>
-  %107 = OpBitwiseOr %105, %106 : reg<spirv.id>
-  %108 = OpConstant.i32 23 : reg<spirv.id>
-  %109 = OpShiftRightLogical %103, %108 : reg<spirv.id>
-  %110 = OpConstant.i32 112 : reg<spirv.id>
-  %111 = OpSGreaterThan %109, %110 : reg<spirv.id>
-  %112 = OpSelect %111, %110, %109 : reg<spirv.id>
-  %113 = OpConstant.i32 126 : reg<spirv.id>
-  %114 = OpISub %113, %112 : reg<spirv.id>
-  %115 = OpConstant.i32 31 : reg<spirv.id>
-  %116 = OpSGreaterThan %114, %115 : reg<spirv.id>
-  %117 = OpSelect %116, %115, %114 : reg<spirv.id>
-  %118 = OpShiftRightLogical %107, %117 : reg<spirv.id>
-  %119 = OpConstant.i32 1 : reg<spirv.id>
-  %120 = OpISub %117, %119 : reg<spirv.id>
-  %121 = OpShiftLeftLogical %119, %120 : reg<spirv.id>
-  %122 = OpISub %121, %119 : reg<spirv.id>
-  %123 = OpBitwiseAnd %118, %119 : reg<spirv.id>
-  %124 = OpIAdd %107, %122 : reg<spirv.id>
-  %125 = OpIAdd %124, %123 : reg<spirv.id>
-  %126 = OpShiftRightLogical %125, %117 : reg<spirv.id>
-  %127 = OpConstant.i32 13 : reg<spirv.id>
-  %128 = OpShiftRightLogical %103, %127 : reg<spirv.id>
-  %130 = OpBitwiseAnd %128, %119 : reg<spirv.id>
-  %131 = OpConstant.i32 -939520001 : reg<spirv.id>
-  %132 = OpIAdd %103, %131 : reg<spirv.id>
-  %133 = OpIAdd %132, %130 : reg<spirv.id>
-  %134 = OpShiftRightLogical %133, %127 : reg<spirv.id>
-  %135 = OpConstant.i32 947912704 : reg<spirv.id>
-  %136 = OpSLessThan %103, %135 : reg<spirv.id>
-  %137 = OpSelect %136, %126, %134 : reg<spirv.id>
-  %138 = OpConstant.i32 31744 : reg<spirv.id>
-  %139 = OpSGreaterThanEqual %137, %138 : reg<spirv.id>
-  %140 = OpSelect %139, %138, %137 : reg<spirv.id>
-  %143 = OpShiftRightLogical %105, %127 : reg<spirv.id>
-  %144 = OpBitwiseOr %138, %143 : reg<spirv.id>
-  %145 = OpConstant.i32 512 : reg<spirv.id>
-  %146 = OpBitwiseOr %144, %145 : reg<spirv.id>
-  %147 = OpConstant.i32 2139095040 : reg<spirv.id>
-  %148 = OpSGreaterThan %103, %147 : reg<spirv.id>
-  %149 = OpSelect %148, %146, %140 : reg<spirv.id>
-  %150 = OpBitwiseOr %101, %149 : reg<spirv.id>
-  %151 = OpBitcast.i32.v2f16 %150 : reg<spirv.id>
-  %truncated_f16 = OpCompositeExtract.v2f16.f16 %151, 0
-  %153 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output_fptrunc_f16_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.f16 %153, %truncated_f16
+  %75 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output_trunc_i32_aligned, %byte_offset_aligned
+  OpStore.storage_buffer.i32 %75, %truncated_i32
+  %76 = OpPtrAccessChain.storage_buffer.f32.byte_offset %input_f32_aligned, %byte_offset_aligned
+  %loaded_f32 = OpLoad.storage_buffer.f32 %76
   %converted_i16 = OpConvertFToS.f32.i16 %loaded_f32
-  %155 = OpPtrAccessChain.storage_buffer.i16.byte_offset %output_fptosi_i16_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.i16 %155, %converted_i16
-  %156 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input_i32_bits_aligned, %byte_offset_aligned
-  %loaded_i32_bits = OpLoad.storage_buffer.i32 %156
+  %79 = OpPtrAccessChain.storage_buffer.i16.byte_offset %output_fptosi_i16_aligned, %byte_offset_aligned
+  OpStore.storage_buffer.i16 %79, %converted_i16
+  %80 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input_i32_bits_aligned, %byte_offset_aligned
+  %loaded_i32_bits = OpLoad.storage_buffer.i32 %80
   %bitcast_f32 = OpBitcast.i32.f32 %loaded_i32_bits
-  %159 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_bitcast_f32_aligned, %byte_offset_aligned
-  OpStore.storage_buffer.f32 %159, %bitcast_f32
+  %83 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_bitcast_f32_aligned, %byte_offset_aligned
+  OpStore.storage_buffer.f32 %83, %bitcast_f32
   return
 }
 
 // ====
+
+// RUN: emit source-low output=low control-flow=structured-low
 
 spirv.target<vulkan1_3> @hal_target_coop_f16 {abi = hal_kernel, contract_feature_bits = 2318}
 

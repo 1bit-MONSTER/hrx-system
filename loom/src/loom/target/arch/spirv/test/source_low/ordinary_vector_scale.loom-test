@@ -117,11 +117,11 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @nonuniform_fact
 
 // The uniform scalar retains its widened arithmetic type, even when its exact
 // numerical origin is also available in a narrower format.
-func.def @widened_factor(%first: f32, %second: f32, %factor: f16, %count: index) -> (f32) {
+func.def @widened_factor(%first: f32, %second: f32, %factor: bf16, %count: index) -> (f32) {
   %begin = index.constant 0 : index
   %step = index.constant 1 : index
   %initial = vector.from_elements %first, %second, %first, %second : vector<4xf32>
-  %wide_factor = scalar.extf %factor : f16 to f32
+  %wide_factor = scalar.extf %factor : bf16 to f32
   %factors = vector.splat %wide_factor : vector<4xf32>
   %result = scf.for %iteration = [%begin to %count step %step](%state = %initial : vector<4xf32>) -> (vector<4xf32>) {
     %scaled = vector.mulf %state, %factors : vector<4xf32>
@@ -132,11 +132,11 @@ func.def @widened_factor(%first: f32, %second: f32, %factor: f16, %count: index)
 }
 
 // ----
-low.func.def target<spirv.logical.core> abi(shader_entry_point) @widened_factor(%first: reg<spirv.id : f32>, %second: reg<spirv.id : f32>, %factor: reg<spirv.id : f16>, %count: reg<spirv.id : index>) -> (reg<spirv.id : f32>) asm {
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @widened_factor(%first: reg<spirv.id : f32>, %second: reg<spirv.id : f32>, %factor: reg<spirv.id : bf16>, %count: reg<spirv.id : index>) -> (reg<spirv.id : f32>) asm {
   %begin = OpConstant.i32 0 : reg<spirv.id : index>
   %step = OpConstant.i32 1 : reg<spirv.id : index>
   %initial = OpCompositeConstruct.v4f32 %first, %second, %first, %second
-  %wide_factor = OpFConvert.f16.f32 %factor
+  %wide_factor = OpFConvert.bf16.f32 %factor
   %result = low.scf.for signed [%begin to %count step %step] iter_args(%initial: reg<spirv.id : vector<4xf32>>) -> (reg<spirv.id : vector<4xf32>>) do(%iteration: reg<spirv.id : index>, %state: reg<spirv.id : vector<4xf32>>) {
     %scaled = OpVectorTimesScalar.v4f32 %state, %wide_factor
     low.scf.yield %scaled : reg<spirv.id : vector<4xf32>>

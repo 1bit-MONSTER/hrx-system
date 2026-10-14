@@ -10,11 +10,13 @@ from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET
 from loom.target.contracts import (
     AttrProject,
     DescriptorEmitForm,
+    DescriptorResultType,
     EmitDescriptorOp,
     Guard,
     ResultTypeBinding,
     SourceMemoryAddressMaterializer,
     SourceMemoryConstraint,
+    SourceValueKind,
     ValueRef,
     descriptor_by_key,
 )
@@ -23,6 +25,87 @@ from loom.target.emit.float_narrowing import (
     IntegerNarrowingDescriptors,
 )
 from loom.target.low_descriptors import Descriptor
+
+
+class IntegerRecipe:
+    """Builds scalar or native-vector packets with shared literal operands."""
+
+    def __init__(self, integer_width: int, lanes: int) -> None:
+        self.integer_width = integer_width
+        self.lanes = lanes
+        self.integer_suffix = (
+            f"i{integer_width}" if lanes == 1 else f"v{lanes}i{integer_width}"
+        )
+        self.emits: list[EmitDescriptorOp] = []
+        self.constants: dict[int, ValueRef] = {}
+
+    def emit(
+        self,
+        key: str,
+        operands: dict[str, ValueRef],
+        *,
+        immediates: dict[str, int] | None = None,
+        result: ValueRef | None = None,
+        form: DescriptorEmitForm = DescriptorEmitForm.OP,
+    ) -> ValueRef:
+        result = result or ValueRef.temporary(f"bit_pattern_{len(self.emits)}")
+        self.emits.append(
+            EmitDescriptorOp(
+                descriptor=logical_core_descriptor(f"spirv.op_{key}"),
+                operands=operands,
+                results={"dst": result},
+                result_types=(
+                    {"dst": DescriptorResultType()}
+                    if result.kind is SourceValueKind.TEMPORARY
+                    else None
+                ),
+                immediates=immediates or {},
+                form=form,
+            )
+        )
+        return result
+
+    def constant(self, value: int) -> ValueRef:
+        if value not in self.constants:
+            modulus = 1 << self.integer_width
+            encoded = value & (modulus - 1)
+            if encoded >= modulus // 2:
+                encoded -= modulus
+            scalar_suffix = f"i{self.integer_width}"
+            literal = self.emit(
+                f"constant.{scalar_suffix}",
+                {},
+                immediates={f"{scalar_suffix}_value": encoded},
+                form=DescriptorEmitForm.CONST,
+            )
+            if self.lanes != 1:
+                literal = self.emit(
+                    f"composite_construct.{self.integer_suffix}",
+                    {f"component{lane}": literal for lane in range(self.lanes)},
+                )
+            self.constants[value] = literal
+        return self.constants[value]
+
+    def binary(self, operation: str, lhs: ValueRef, rhs: ValueRef) -> ValueRef:
+        return self.emit(f"{operation}.{self.integer_suffix}", {"lhs": lhs, "rhs": rhs})
+
+    def select(
+        self,
+        condition: ValueRef,
+        true_value: ValueRef,
+        false_value: ValueRef,
+        *,
+        result: ValueRef | None = None,
+    ) -> ValueRef:
+        return self.emit(
+            f"select.{self.integer_suffix}",
+            {
+                "condition": condition,
+                "true_value": true_value,
+                "false_value": false_value,
+            },
+            result=result,
+        )
 
 
 def logical_core_descriptor(key: str) -> Descriptor:

@@ -19,17 +19,15 @@ from dataclasses import dataclass
 from loom.dialect.scalar import math as scalar_math
 from loom.dialect.vector import defs as vector
 from loom.target.arch.spirv.contracts.descriptor_rule import (
+    IntegerRecipe,
     descriptor_feature_guards,
     logical_core_descriptor,
 )
 from loom.target.contracts import (
-    DescriptorEmitForm,
-    DescriptorResultType,
     DescriptorRule,
     EmitDescriptorOp,
     Guard,
     Scalar,
-    SourceValueKind,
     ValueRef,
     Vector,
 )
@@ -71,87 +69,8 @@ def _suffix(element: str, lanes: int) -> str:
     return element if lanes == 1 else f"v{lanes}{element}"
 
 
-class _RoundingRecipe:
-    """Builds scalar or native-vector packets with shared literal operands."""
-
-    def __init__(self, integer_width: int, lanes: int) -> None:
-        self.integer_width = integer_width
-        self.lanes = lanes
-        self.integer_suffix = _suffix(f"i{integer_width}", lanes)
-        self.emits: list[EmitDescriptorOp] = []
-        self.constants: dict[int, ValueRef] = {}
-
-    def emit(
-        self,
-        key: str,
-        operands: dict[str, ValueRef],
-        *,
-        immediates: dict[str, int] | None = None,
-        result: ValueRef | None = None,
-        form: DescriptorEmitForm = DescriptorEmitForm.OP,
-    ) -> ValueRef:
-        result = result or ValueRef.temporary(f"rounding_{len(self.emits)}")
-        self.emits.append(
-            EmitDescriptorOp(
-                descriptor=logical_core_descriptor(f"spirv.op_{key}"),
-                operands=operands,
-                results={"dst": result},
-                result_types=(
-                    {"dst": DescriptorResultType()}
-                    if result.kind is SourceValueKind.TEMPORARY
-                    else None
-                ),
-                immediates=immediates or {},
-                form=form,
-            )
-        )
-        return result
-
-    def constant(self, value: int) -> ValueRef:
-        if value not in self.constants:
-            modulus = 1 << self.integer_width
-            encoded = value & (modulus - 1)
-            if encoded >= modulus // 2:
-                encoded -= modulus
-            scalar_suffix = f"i{self.integer_width}"
-            literal = self.emit(
-                f"constant.{scalar_suffix}",
-                {},
-                immediates={f"{scalar_suffix}_value": encoded},
-                form=DescriptorEmitForm.CONST,
-            )
-            if self.lanes != 1:
-                literal = self.emit(
-                    f"composite_construct.{self.integer_suffix}",
-                    {f"component{lane}": literal for lane in range(self.lanes)},
-                )
-            self.constants[value] = literal
-        return self.constants[value]
-
-    def binary(self, operation: str, lhs: ValueRef, rhs: ValueRef) -> ValueRef:
-        return self.emit(f"{operation}.{self.integer_suffix}", {"lhs": lhs, "rhs": rhs})
-
-    def select(
-        self,
-        condition: ValueRef,
-        true_value: ValueRef,
-        false_value: ValueRef,
-        *,
-        result: ValueRef | None = None,
-    ) -> ValueRef:
-        return self.emit(
-            f"select.{self.integer_suffix}",
-            {
-                "condition": condition,
-                "true_value": true_value,
-                "false_value": false_value,
-            },
-            result=result,
-        )
-
-
 def _import_bits(
-    recipe: _RoundingRecipe, format: _RoundingFormat, native_value: bool
+    recipe: IntegerRecipe, format: _RoundingFormat, native_value: bool
 ) -> ValueRef:
     value = ValueRef.operand("input")
     if not native_value:
@@ -171,7 +90,7 @@ def _import_bits(
 
 
 def _export_bits(
-    recipe: _RoundingRecipe,
+    recipe: IntegerRecipe,
     format: _RoundingFormat,
     bits: ValueRef,
 ) -> None:
@@ -201,7 +120,7 @@ def _rounding_emits(
     lanes: int,
     native_value: bool,
 ) -> tuple[EmitDescriptorOp, ...]:
-    recipe = _RoundingRecipe(integer_width, lanes)
+    recipe = IntegerRecipe(integer_width, lanes)
     bits = _import_bits(recipe, format, native_value)
     binary = recipe.binary
     constant = recipe.constant

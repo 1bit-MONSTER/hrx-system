@@ -58,7 +58,10 @@ from loom.target.arch.spirv.contracts.extended_math import (
     SPIRV_EXTENDED_MATH_CONTRACT_CASES,
 )
 from loom.target.arch.spirv.contracts.float8 import float8_narrow_rules
-from loom.target.arch.spirv.contracts.float_width import float_width_narrow_rules
+from loom.target.arch.spirv.contracts.float_width import (
+    float_width_narrow_rules,
+    float_width_widen_rules,
+)
 from loom.target.arch.spirv.contracts.index import (
     SPIRV_INDEX_CONVERSION_RULES,
     SPIRV_INDEX_NUMERIC_RULES,
@@ -1520,6 +1523,7 @@ def _conversion_rules() -> tuple[DescriptorRule, ...]:
         for row in NATIVE_VECTOR_SCALAR_CONVERSIONS
         for lane_count in (1, *NATIVE_ORDINARY_VECTOR_LANE_COUNTS)
     )
+    rules.extend(float_width_widen_rules())
     rules.extend(
         integer_to_boolean_rule(scalar_conversion.scalar_trunci, scalar.source_type)
         for scalar in SIGNED_INTEGER_SCALAR_ALU_TYPES

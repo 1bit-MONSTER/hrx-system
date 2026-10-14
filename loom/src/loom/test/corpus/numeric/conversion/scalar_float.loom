@@ -6,35 +6,39 @@ func.def inline @widen_f32_block(%input: buffer, %output: buffer, %output_offset
   %end = index.constant 64 : index
   %step = index.constant 1 : index
   %input_view = buffer.view %input[%base] : buffer -> view<64xf32>
-  %output_view = buffer.view %output[%base] : buffer -> view<320xf64>
+  %output_view = buffer.view %output[%base] : buffer -> view<448xf64>
   scf.for %i = [%begin to %end step %step] {
     %value = view.load %input_view[%i] : view<64xf32> -> f32
     %converted = scalar.extf %value : f32 to f64
     %position = index.add %output_offset, %i : index
-    view.store %converted, %output_view[%position] : f64, view<320xf64>
+    view.store %converted, %output_view[%position] : f64, view<448xf64>
   }
   func.return
 }
 
-func.def @widen_f32_samples(%random_bits: buffer, %positive_special_bits: buffer, %negative_special_bits: buffer, %boundary_bits: buffer, %uniform: f32, %output: buffer) {
+func.def @widen_f32_samples(%random_bits: buffer, %positive_special_bits: buffer, %negative_special_bits: buffer, %boundary_bits: buffer, %positive_tiny_bits: buffer, %negative_tiny_bits: buffer, %uniform: f32, %output: buffer) {
   %offset0 = index.constant 0 : index
   %offset64 = index.constant 64 : index
   %offset128 = index.constant 128 : index
   %offset192 = index.constant 192 : index
   %offset256 = index.constant 256 : index
+  %offset320 = index.constant 320 : index
+  %offset384 = index.constant 384 : index
   func.call @widen_f32_block(%random_bits, %output, %offset0) : (buffer, buffer, index)
   func.call @widen_f32_block(%positive_special_bits, %output, %offset64) : (buffer, buffer, index)
   func.call @widen_f32_block(%negative_special_bits, %output, %offset128) : (buffer, buffer, index)
   func.call @widen_f32_block(%boundary_bits, %output, %offset192) : (buffer, buffer, index)
+  func.call @widen_f32_block(%positive_tiny_bits, %output, %offset320) : (buffer, buffer, index)
+  func.call @widen_f32_block(%negative_tiny_bits, %output, %offset384) : (buffer, buffer, index)
   %base = index.constant 0 : offset
   %begin = index.constant 0 : index
   %end = index.constant 64 : index
   %step = index.constant 1 : index
-  %output_view = buffer.view %output[%base] : buffer -> view<320xf64>
+  %output_view = buffer.view %output[%base] : buffer -> view<448xf64>
   %converted_uniform = scalar.extf %uniform : f32 to f64
   scf.for %i = [%begin to %end step %step] {
     %position = index.add %offset256, %i : index
-    view.store %converted_uniform, %output_view[%position] : f64, view<320xf64>
+    view.store %converted_uniform, %output_view[%position] : f64, view<448xf64>
   }
   func.return
 }
@@ -261,19 +265,25 @@ check.scenario @scalar_f32_to_f64_values {
     %positive_special_bits = check.generate.iota offset(2139095040) step(1) : tensor<64xi32>
     %negative_special_bits = check.generate.iota offset(-8388608) step(1) : tensor<64xi32>
     %boundary_bits = check.generate.iota offset(8388576) step(1) : tensor<64xi32>
+    %positive_tiny_bits = check.generate.iota offset(1) step(131071) : tensor<64xi32>
+    %negative_tiny_bits = check.generate.iota offset(-2147483647) step(131071) : tensor<64xi32>
     %uniform = check.literal value(-0.0) : f32
-    %output = check.generate.fill value(0.0) : tensor<320xf64>
-    %random_output = check.tensor.view %output offset(0) : tensor<320xf64> -> tensor<64xf64>
-    %positive_special_output = check.tensor.view %output offset(512) : tensor<320xf64> -> tensor<64xf64>
-    %negative_special_output = check.tensor.view %output offset(1024) : tensor<320xf64> -> tensor<64xf64>
-    %boundary_output = check.tensor.view %output offset(1536) : tensor<320xf64> -> tensor<64xf64>
-    %uniform_output = check.tensor.view %output offset(2048) : tensor<320xf64> -> tensor<64xf64>
-    check.compare<@widen_f32_samples>(%random_bits, %positive_special_bits, %negative_special_bits, %boundary_bits, %uniform, %output) : (tensor<64xi32>, tensor<64xi32>, tensor<64xi32>, tensor<64xi32>, f32, tensor<320xf64>) -> () {
+    %output = check.generate.fill value(0.0) : tensor<448xf64>
+    %random_output = check.tensor.view %output offset(0) : tensor<448xf64> -> tensor<64xf64>
+    %positive_special_output = check.tensor.view %output offset(512) : tensor<448xf64> -> tensor<64xf64>
+    %negative_special_output = check.tensor.view %output offset(1024) : tensor<448xf64> -> tensor<64xf64>
+    %boundary_output = check.tensor.view %output offset(1536) : tensor<448xf64> -> tensor<64xf64>
+    %uniform_output = check.tensor.view %output offset(2048) : tensor<448xf64> -> tensor<64xf64>
+    %positive_tiny_output = check.tensor.view %output offset(2560) : tensor<448xf64> -> tensor<64xf64>
+    %negative_tiny_output = check.tensor.view %output offset(3072) : tensor<448xf64> -> tensor<64xf64>
+    check.compare<@widen_f32_samples>(%random_bits, %positive_special_bits, %negative_special_bits, %boundary_bits, %positive_tiny_bits, %negative_tiny_bits, %uniform, %output) : (tensor<64xi32>, tensor<64xi32>, tensor<64xi32>, tensor<64xi32>, tensor<64xi32>, tensor<64xi32>, f32, tensor<448xf64>) -> () {
       check.expect.close actual(%random_output) expected(%random_output) atol(0.0) rtol(0.0) nan(same) : tensor<64xf64>
       check.expect.close actual(%positive_special_output) expected(%positive_special_output) atol(0.0) rtol(0.0) nan(same) : tensor<64xf64>
       check.expect.close actual(%negative_special_output) expected(%negative_special_output) atol(0.0) rtol(0.0) nan(same) : tensor<64xf64>
       check.expect.bitwise actual(%boundary_output) expected(%boundary_output) : tensor<64xf64>
       check.expect.bitwise actual(%uniform_output) expected(%uniform_output) : tensor<64xf64>
+      check.expect.bitwise actual(%positive_tiny_output) expected(%positive_tiny_output) : tensor<64xf64>
+      check.expect.bitwise actual(%negative_tiny_output) expected(%negative_tiny_output) : tensor<64xf64>
     }
   }
   check.return

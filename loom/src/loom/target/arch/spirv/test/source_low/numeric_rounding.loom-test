@@ -60,42 +60,34 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @relaxed_roundin
 }
 
 // ====
-// RUN: emit source-low output=low
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low
 
-// Float16 and Int16 are independent: this profile has only Shader and Float16.
-spirv.target<vulkan1_3> @target {contract_feature_bits = 10}
-
-func.def target(@target) @truncate_half_without_int16(%value: f16) -> (f16) {
+// Half-precision exceptional values are protected through integer bitcasts.
+func.def @truncate_half(%value: f16) -> (f16) {
   %rounded = scalar.truncf %value : f16
   func.return %rounded : f16
 }
 
 // ----
-low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @truncate_half_without_int16(%value: reg<spirv.id : f16>) -> (reg<spirv.id : f16>) asm {
-  %5 = OpCompositeConstruct.v2f16 %value, %value : reg<spirv.id>
-  %6 = OpBitcast.v2f16.i32 %5 : reg<spirv.id>
-  %7 = OpConstant.i32 0 : reg<spirv.id>
-  %8 = OpConstant.i32 15360 : reg<spirv.id>
-  %9 = OpConstant.i32 32767 : reg<spirv.id>
-  %10 = OpBitwiseAnd %6, %9 : reg<spirv.id>
-  %11 = OpConstant.i32 32768 : reg<spirv.id>
-  %12 = OpBitwiseAnd %6, %11 : reg<spirv.id>
-  %13 = OpSLessThan %10, %8 : reg<spirv.id>
-  %14 = OpConstant.i32 25600 : reg<spirv.id>
-  %15 = OpSGreaterThanEqual %10, %14 : reg<spirv.id>
-  %16 = OpSelect %13, %8, %6 : reg<spirv.id>
-  %17 = OpSelect %15, %8, %16 : reg<spirv.id>
-  %18 = OpBitcast.i32.v2f16 %17 : reg<spirv.id>
-  %19 = OpCompositeExtract.v2f16.f16 %18, 0 : reg<spirv.id>
-  %20 = OpExtInst.GLSL.std.450.Trunc.f16 %19 : reg<spirv.id>
-  %21 = OpCompositeConstruct.v2f16 %20, %20 : reg<spirv.id>
-  %22 = OpBitcast.v2f16.i32 %21 : reg<spirv.id>
-  %23 = OpConstant.i32 65535 : reg<spirv.id>
-  %24 = OpBitwiseAnd %22, %23 : reg<spirv.id>
-  %25 = OpSelect %13, %7, %24 : reg<spirv.id>
-  %26 = OpBitwiseOr %25, %12 : reg<spirv.id>
-  %27 = OpSelect %15, %6, %26 : reg<spirv.id>
-  %28 = OpBitcast.i32.v2f16 %27 : reg<spirv.id>
-  %rounded = OpCompositeExtract.v2f16.f16 %28, 0
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @truncate_half(%value: reg<spirv.id : f16>) -> (reg<spirv.id : f16>) asm {
+  %5 = OpBitcast.f16.i16 %value : reg<spirv.id>
+  %6 = OpConstant.i16 0 : reg<spirv.id>
+  %7 = OpConstant.i16 15360 : reg<spirv.id>
+  %8 = OpConstant.i16 32767 : reg<spirv.id>
+  %9 = OpBitwiseAnd.i16 %5, %8 : reg<spirv.id>
+  %10 = OpConstant.i16 -32768 : reg<spirv.id>
+  %11 = OpBitwiseAnd.i16 %5, %10 : reg<spirv.id>
+  %12 = OpSLessThan.i16 %9, %7 : reg<spirv.id>
+  %13 = OpConstant.i16 25600 : reg<spirv.id>
+  %14 = OpSGreaterThanEqual.i16 %9, %13 : reg<spirv.id>
+  %15 = OpSelect.i16 %12, %7, %5 : reg<spirv.id>
+  %16 = OpSelect.i16 %14, %7, %15 : reg<spirv.id>
+  %17 = OpBitcast.i16.f16 %16 : reg<spirv.id>
+  %18 = OpExtInst.GLSL.std.450.Trunc.f16 %17 : reg<spirv.id>
+  %19 = OpBitcast.f16.i16 %18 : reg<spirv.id>
+  %20 = OpSelect.i16 %12, %6, %19 : reg<spirv.id>
+  %21 = OpBitwiseOr.i16 %20, %11 : reg<spirv.id>
+  %22 = OpSelect.i16 %14, %5, %21 : reg<spirv.id>
+  %rounded = OpBitcast.i16.f16 %22
   return %rounded
 }
