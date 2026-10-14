@@ -110,6 +110,25 @@ func.def @vector_bf16_origin_scale(%input_buffer: buffer, %output_buffer: buffer
   func.return
 }
 
+func.def @f32_power_of_two_scale(%input_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %input = buffer.view %input_buffer[%base] : buffer -> view<20xf32>
+  %output = buffer.view %output_buffer[%base] : buffer -> view<20xf32>
+  %down_value = view.load %input[0] : view<20xf32> -> f32
+  %down_factor = scalar.constant 0.00390625 : f32
+  %down_result = scalar.mulf %down_value, %down_factor : f32
+  view.store %down_result, %output[0] : f32, view<20xf32>
+  %up_value = view.load %input[1] : view<20xf32> -> f32
+  %up_factor = scalar.constant -8.0 : f32
+  %up_result = scalar.mulf %up_factor, %up_value : f32
+  view.store %up_result, %output[1] : f32, view<20xf32>
+  %vector_value = vector.load %input[4] : view<20xf32> -> vector<16xf32>
+  %vector_factor = vector.constant 0.001953125 : vector<16xf32>
+  %vector_result = vector.mulf %vector_value, %vector_factor : vector<16xf32>
+  vector.store %vector_result, %output[4] : vector<16xf32>, view<20xf32>
+  func.return
+}
+
 // Each trial covers four independent lanes. The random finite domain exercises
 // ordinary ML values; target-specific suites own representation details such
 // as NaN payloads, subnormals, and signed zeros.
@@ -197,6 +216,20 @@ check.scenario @vector_f32_arithmetic_values {
       check.expect.bitwise actual(%rhs) expected(%expected_rhs) : tensor<4xf32>
       check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xf32>
+    }
+  }
+  check.return
+}
+
+check.scenario @f32_power_of_two_scale_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %input_seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%input_seed) range(-65536.0 to 65536.0) : tensor<20xf32>
+    %expected_input = check.generate.random.uniform seed(%input_seed) range(-65536.0 to 65536.0) : tensor<20xf32>
+    %output = check.generate.fill value(-123.5) : tensor<20xf32>
+    check.compare<@f32_power_of_two_scale>(%input, %output) : (tensor<20xf32>, tensor<20xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<20xf32>
+      check.expect.bitwise actual(%input) expected(%expected_input) : tensor<20xf32>
     }
   }
   check.return
