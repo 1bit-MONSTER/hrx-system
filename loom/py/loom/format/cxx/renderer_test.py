@@ -35,7 +35,7 @@ def test_projects_dynamic_subview_with_index_identity() -> None:
 [[loom::kernel, loom::workgroup_count(1, 1, 1), loom::workgroup_size(1, 1, 1)]]
 void copy_one(const float* input, float* output) {
   auto input_view = loom::buffer::view<4>(input, {}, loom::encoding::layout::dense<1>());
-  unsigned workitem = loom::kernel::workitem::id.x;
+  unsigned workitem = static_cast<unsigned>(loom::kernel::workitem::id.x);
   loom::type::index v43 = loom::index::cast(workitem);
   auto slice = loom::view::subview<1>(input_view, loom::type::indices{v43}, {});
   float value = loom::view::load(slice, 0);
@@ -123,8 +123,14 @@ def test_projects_exposed_kernel_topology_family() -> None:
 
     result = render_module(load_module(source.encode()))
 
-    assert ("unsigned workgroup_count = loom::kernel::workgroup::count.x;") in result
-    assert ("unsigned workgroup_size = loom::kernel::workgroup::size.y;") in result
+    assert (
+        "unsigned workgroup_count = "
+        "static_cast<unsigned>(loom::kernel::workgroup::count.x);"
+    ) in result
+    assert (
+        "unsigned workgroup_size = "
+        "static_cast<unsigned>(loom::kernel::workgroup::size.y);"
+    ) in result
     assert ("unsigned subgroup_count = loom::kernel::subgroup::count();") in result
     assert ("unsigned subgroup_size = loom::kernel::subgroup::size();") in result
     assert "unsigned lane = loom::kernel::subgroup::lane_id();" in result
@@ -410,10 +416,53 @@ def test_projects_index_arithmetic_without_scalarizing_its_domain() -> None:
     result = render_module(load_module(source.encode()))
 
     assert (
-        "loom::type::index v43 = loom::index::cast(workitem_index) * "
+        "loom::type::index v43 = static_cast<loom::type::index>(workitem_index) * "
         "loom::type::index{1};"
     ) in result
     assert "loom::type::indices{v43}" in result
+
+
+def test_projects_topology_coordinates_without_losing_index_identity() -> None:
+    source = """\
+kernel.def @topology_identity() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%output: buffer) {
+  %zero = index.constant 0 : offset
+  %output_view = buffer.view %output[%zero] : buffer -> view<64xi32>
+  %coordinate = kernel.workitem.id<x> : index
+  %coordinate$1 = index.assume %coordinate [range(%coordinate, 0, 62)] : index
+  %one = index.constant 1 : index
+  %shifted = index.add %coordinate$1, %one : index
+  %lane = index.cast %coordinate$1 : index to i32
+  %wide = index.cast %coordinate$1 : index to i64
+  view.store %lane, %output_view[%coordinate$1] : i32, view<64xi32>
+  view.store %lane, %output_view[%shifted] : i32, view<64xi32>
+  kernel.return
+}
+"""
+
+    result = render_module(load_module(source.encode()))
+
+    assert (
+        result
+        == """\
+#include <loomcxx/kernel.h>
+#include <loomcxx/predicate.h>
+
+[[loom::kernel, loom::workgroup_count(1, 1, 1), loom::workgroup_size(1, 1, 1)]]
+void topology_identity(unsigned* output) {
+  auto output_view = loom::buffer::view<64>(output, {}, loom::encoding::layout::dense<1>());
+  auto coordinate = loom::kernel::workitem::id.x;
+  loom::assume(loom::predicate::range(coordinate, 0, 62));
+  loom::type::index shifted = static_cast<loom::type::index>(coordinate) + loom::type::index{1};
+  unsigned lane = static_cast<unsigned>(coordinate);
+  unsigned long long wide = loom::index::cast<unsigned long long>(static_cast<loom::type::index>(coordinate));
+  loom::view::store(lane, output_view, coordinate);
+  loom::view::store(lane, output_view, shifted);
+}
+"""
+    )
 
 
 def test_preserves_unsigned_extension_when_folding_address_constants() -> None:

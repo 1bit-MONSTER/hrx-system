@@ -18,11 +18,45 @@ void copy_one(const float* input, float* output) {
 [[loom::kernel, loom::workgroup_count(1, 1, 1), loom::workgroup_size(1, 1, 1)]]
 void copy_one(const float* input, float* output) {
   auto input_view = loom::buffer::view<4>(input, {}, loom::encoding::layout::dense<1>());
-  unsigned workitem = loom::kernel::workitem::id.x;
+  unsigned workitem = static_cast<unsigned>(loom::kernel::workitem::id.x);
   auto slice = loom::view::subview<1>(input_view, loom::type::indices{loom::index::cast(workitem)}, {});
   float value = loom::view::load(slice, loom::type::index{0});
   auto output_view = loom::buffer::view<4>(output, {}, loom::encoding::layout::dense<1>());
   loom::view::store(value, output_view, loom::index::cast(workitem));
+}
+
+// ====
+// Auto-deduced topology values preserve index predicates and arithmetic while
+// fixed-width consumers retain their explicit conversion boundary.
+#include <loomcxx/kernel.h>
+#include <loomcxx/predicate.h>
+
+[[loom::kernel, loom::workgroup_count(1, 1, 1), loom::workgroup_size(1, 1, 1)]]
+void topology_identity(unsigned* output) {
+  auto output_view = loom::buffer::view<64>(output, {}, loom::encoding::layout::dense<1>());
+  auto coordinate = loom::kernel::workitem::id.x;
+  loom::assume(loom::predicate::range(coordinate, 0, 62));
+  auto shifted = static_cast<loom::type::index>(coordinate) + loom::type::index{1};
+  unsigned lane = coordinate;
+  auto wide = loom::index::cast<unsigned long long>(static_cast<loom::type::index>(coordinate));
+  loom::view::store(lane, output_view, coordinate);
+  loom::view::store(lane, output_view, shifted);
+}
+
+// ----
+#include <loomcxx/kernel.h>
+#include <loomcxx/predicate.h>
+
+[[loom::kernel, loom::workgroup_count(1, 1, 1), loom::workgroup_size(1, 1, 1)]]
+void topology_identity(unsigned* output) {
+  auto output_view = loom::buffer::view<64>(output, {}, loom::encoding::layout::dense<1>());
+  auto coordinate = loom::kernel::workitem::id.x;
+  loom::assume(loom::predicate::range(coordinate, 0, 62));
+  loom::type::index shifted = static_cast<loom::type::index>(coordinate) + loom::type::index{1};
+  unsigned lane = static_cast<unsigned>(coordinate);
+  unsigned long long wide = loom::index::cast<unsigned long long>(static_cast<loom::type::index>(coordinate));
+  loom::view::store(lane, output_view, coordinate);
+  loom::view::store(lane, output_view, shifted);
 }
 
 // ====
@@ -101,7 +135,7 @@ void strided_pair_dot(const std::float16_t* lhs, const std::float16_t* rhs, floa
   auto lhs_view = loom::buffer::view<4, 8>(lhs, {}, lhs_layout);
   auto rhs_view = loom::buffer::view<4, 8>(rhs, {}, rhs_layout);
   auto output_view = loom::buffer::view<4, 4>(output, {}, loom::encoding::layout::dense<2>());
-  unsigned row = loom::kernel::workitem::id.x;
+  unsigned row = static_cast<unsigned>(loom::kernel::workitem::id.x);
   Float16x8 lhs_values = loom::vector::load<Float16x8>(lhs_view, loom::type::indices{loom::index::cast(row), loom::type::index{0}});
   Float16x8 rhs_values = loom::vector::load<Float16x8>(rhs_view, loom::type::indices{loom::index::cast(row), loom::type::index{0}});
   Float32x4 accumulator = Float32x4{0.0f, 0.0f, 0.0f, 0.0f};

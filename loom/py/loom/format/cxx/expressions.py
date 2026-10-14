@@ -13,6 +13,7 @@ from typing import Any
 
 from loom.format.cxx.context import CxxRenderContext, _strip_outer_parentheses
 from loom.format.cxx.errors import CxxRenderError
+from loom.format.cxx.types import KERNEL_COORDINATE_CPP_TYPE
 from loom.ir import (
     EncodingInstance,
     Operation,
@@ -120,7 +121,7 @@ class CxxExpressionRenderer(CxxRenderContext):
                 f"{self.expression(values['layout'])}, "
                 f"{self.expression(values['schema'])})"
             )
-            self._declare(result, expression, force_type="auto")
+            self._declare(result, expression, declaration_type="auto")
             return ("spec", "param_names")
 
         parameters = dict(spec.params)
@@ -162,7 +163,7 @@ class CxxExpressionRenderer(CxxRenderContext):
         family = schema_name.removeprefix("encoding.")
         aggregate = "{" + ", ".join(initializers) + "}"
         expression = f"loom::encoding::define<loom::encoding::{family}{aggregate}>()"
-        self._declare(result, expression, force_type="auto")
+        self._declare(result, expression, declaration_type="auto")
         return ("spec", "param_names")
 
     def _record_type(self, stem: str, fields: tuple[tuple[str, str], ...]) -> str:
@@ -298,9 +299,20 @@ class CxxExpressionRenderer(CxxRenderContext):
         if domain not in {"index", "offset"}:
             raise CxxRenderError(None, f"value type {domain} is not an address domain")
         expression = self.expression(value_id)
-        if self.expression_type(value_id) == self.cpp_type(value_id):
+        expression_type = self.expression_type(value_id)
+        if expression_type == self.cpp_type(value_id):
             return expression
+        if domain == "index" and expression_type == KERNEL_COORDINATE_CPP_TYPE:
+            return f"static_cast<loom::type::index>({expression})"
         return f"loom::{domain}::cast({expression})"
+
+    def _retains_address_identity(self, value_id: int) -> bool:
+        expected_type = self.cpp_type(value_id)
+        expression_type = self.expression_type(value_id)
+        return expression_type == expected_type or (
+            expected_type == "loom::type::index"
+            and expression_type == KERNEL_COORDINATE_CPP_TYPE
+        )
 
     def _address_cast_target(self, value_id: int) -> str | None:
         """Returns the sole address domain reached through transparent uses."""
@@ -383,7 +395,7 @@ class CxxExpressionRenderer(CxxRenderContext):
             "index",
             "offset",
         }:
-            if self.expression_type(argument.value) != self.cpp_type(argument.value):
+            if not self._retains_address_identity(argument.value):
                 raise CxxRenderError(
                     None,
                     "address predicate requires a retained index or offset binding",
@@ -542,8 +554,7 @@ class CxxExpressionRenderer(CxxRenderContext):
             raise CxxRenderError(None, "dynamic index metadata has trailing values")
 
         strong = any(
-            value_id is not None
-            and self.expression_type(value_id) == "loom::type::index"
+            value_id is not None and self._retains_address_identity(value_id)
             for _, value_id in entries
         )
         if not strong:
@@ -574,6 +585,16 @@ class CxxExpressionRenderer(CxxRenderContext):
                 return ()
             if self.cpp_type(result) == self.expression_type(operand):
                 expression = operand_expression
+            elif self.expression_type(operand) == KERNEL_COORDINATE_CPP_TYPE:
+                if repr(self.module.values[result].type) in {"index", "offset"}:
+                    expression = self._cast(result, self._address_operand(operand))
+                elif self.cpp_type(result) == "unsigned":
+                    expression = f"static_cast<unsigned>({operand_expression})"
+                else:
+                    expression = (
+                        f"loom::index::cast<{self.cpp_type(result)}>"
+                        f"({self._address_operand(operand)})"
+                    )
             elif repr(self.module.values[result].type) not in {
                 "index",
                 "offset",

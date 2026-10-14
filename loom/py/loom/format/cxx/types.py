@@ -42,6 +42,10 @@ _UNSIGNED_INTEGER_TYPES = {
     "i64": "unsigned long long",
 }
 
+# Auto-deduced kernel topology values retain the index domain while exposing a
+# conventional unsigned conversion for ordinary C++ expressions.
+KERNEL_COORDINATE_CPP_TYPE = "loom::kernel::coordinate"
+
 
 class CxxTypes:
     """Plans deterministic C++ carrier names for one verified module."""

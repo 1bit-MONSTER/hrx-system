@@ -199,6 +199,35 @@ class CxxRenderContext:
                 category if dimension in {None, "x"} else f"{category}_{dimension}"
             )
 
+        # Assumptions refine an existing C++ binding instead of declaring a
+        # second runtime value. Retain an authored name on the refined result
+        # when the source topology operation carries an importer-generated
+        # hardware name, and assign every assumption result its source name.
+        assumption_sources: dict[int, int] = {}
+        topology_operations = {
+            "kernel.workgroup.id",
+            "kernel.workgroup.size",
+            "kernel.workgroup.count",
+            "kernel.workitem.id",
+        }
+        for operation in walk_operations(self.module.body):
+            if operation.name not in {"scalar.assume", "index.assume"}:
+                continue
+            resolved = self._resolved(operation)
+            for source, result in zip(
+                resolved.value_ids("values"),
+                resolved.value_ids("results"),
+                strict=True,
+            ):
+                assumption_sources[result] = source
+                source_definition = self.definitions.get(source)
+                if (
+                    source_definition is not None
+                    and source_definition.name in topology_operations
+                    and not is_generated(result)
+                ):
+                    preferred[source] = preferred[result]
+
         # Views are source-level objects in C++. Name a generated view from its
         # sole load result when that result retained an authored name.
         for result, definition in self.definitions.items():
@@ -271,6 +300,10 @@ class CxxRenderContext:
         names: dict[int, str] = {}
         counts: dict[str, int] = {}
         for value_id in range(len(self.module.values)):
+            assumption_source = assumption_sources.get(value_id)
+            if assumption_source is not None:
+                names[value_id] = names[assumption_source]
+                continue
             base = preferred[value_id]
             ordinal = counts.get(base, 0)
             counts[base] = ordinal + 1
@@ -877,14 +910,15 @@ class CxxRenderContext:
         result_id: int,
         expression: str,
         *,
-        force_type: str | None = None,
+        declaration_type: str | None = None,
+        expression_type: str | None = None,
         inlineable: bool = False,
         statement_attribute: str | None = None,
     ) -> None:
         name = self.names[result_id]
         result_type = self.module.values[result_id].type
-        if force_type is not None:
-            type_name = force_type
+        if declaration_type is not None:
+            type_name = declaration_type
         elif (
             isinstance(result_type, ShapedType)
             and result_type.type_kind == TypeKind.VIEW
@@ -892,7 +926,9 @@ class CxxRenderContext:
             type_name = "auto"
         else:
             type_name = self.cpp_type(result_id)
-        self.expression_types[result_id] = type_name
+        self.expression_types[result_id] = (
+            expression_type if expression_type is not None else type_name
+        )
         if (
             inlineable
             and statement_attribute is None
