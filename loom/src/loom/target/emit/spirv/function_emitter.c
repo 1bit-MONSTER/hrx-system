@@ -155,63 +155,28 @@ static loom_spirv_module_abi_context_t loom_spirv_emit_abi_context(
   };
 }
 
-typedef struct loom_spirv_builtin_variable_info_t {
-  // Stable module-cache and entry-interface slot.
-  uint8_t slot;
-  // Debug name assigned to the SPIR-V Input variable.
-  iree_string_view_t name;
-  // Number of u32 components in the builtin value.
-  uint8_t component_count;
-} loom_spirv_builtin_variable_info_t;
-
-static loom_spirv_builtin_variable_info_t loom_spirv_emit_builtin_variable_info(
-    uint32_t builtin) {
-  switch (builtin) {
-    case LOOM_SPIRV_BUILT_IN_WORKGROUP_ID:
-      return (loom_spirv_builtin_variable_info_t){
-          .slot = 0, .name = IREE_SV("workgroup_id"), .component_count = 3};
-    case LOOM_SPIRV_BUILT_IN_LOCAL_INVOCATION_ID:
-      return (loom_spirv_builtin_variable_info_t){
-          .slot = 1,
-          .name = IREE_SV("local_invocation_id"),
-          .component_count = 3};
-    case LOOM_SPIRV_BUILT_IN_GLOBAL_INVOCATION_ID:
-      return (loom_spirv_builtin_variable_info_t){
-          .slot = 2,
-          .name = IREE_SV("global_invocation_id"),
-          .component_count = 3};
-    case LOOM_SPIRV_BUILT_IN_SUBGROUP_LOCAL_INVOCATION_ID:
-      return (loom_spirv_builtin_variable_info_t){
-          .slot = 3,
-          .name = IREE_SV("subgroup_local_invocation_id"),
-          .component_count = 1};
-  }
-  IREE_ASSERT_UNREACHABLE(
-      "descriptor packet references unknown SPIR-V builtin");
-  return (loom_spirv_builtin_variable_info_t){0};
-}
-
 static iree_status_t loom_spirv_emit_builtin_variable(
-    loom_spirv_emit_state_t* state, uint32_t builtin, uint32_t* out_variable_id,
-    uint32_t* out_value_type_id, uint8_t* out_component_count) {
-  const loom_spirv_builtin_variable_info_t info =
-      loom_spirv_emit_builtin_variable_info(builtin);
+    loom_spirv_emit_state_t* state, loom_spirv_builtin_variable_t variable,
+    uint32_t* out_variable_id, uint32_t* out_value_type_id,
+    uint8_t* out_component_count) {
+  const loom_spirv_builtin_variable_info_t* info =
+      &loom_spirv_builtin_variables[variable];
 
   uint32_t u32_type_id = 0;
   IREE_RETURN_IF_ERROR(
       loom_spirv_emit_type_u32(state->type_context, &u32_type_id));
   uint32_t value_type_id = u32_type_id;
-  if (info.component_count > 1) {
+  if (info->component_count > 1) {
     IREE_RETURN_IF_ERROR(
         loom_spirv_emit_type_vector(state->type_context, u32_type_id,
-                                    info.component_count, &value_type_id));
+                                    info->component_count, &value_type_id));
   }
-  uint32_t variable_id = state->context->builtin_variable_ids[info.slot];
+  uint32_t variable_id = state->context->builtin_variable_ids[variable];
   if (variable_id != 0) {
-    state->builtin_interface_variable_ids[info.slot] = variable_id;
+    state->builtin_interface_variable_ids[variable] = variable_id;
     *out_variable_id = variable_id;
     *out_value_type_id = value_type_id;
-    *out_component_count = info.component_count;
+    *out_component_count = info->component_count;
     return iree_ok_status();
   }
 
@@ -224,7 +189,7 @@ static iree_status_t loom_spirv_emit_builtin_variable(
   const uint32_t decoration_operands[] = {
       variable_id,
       LOOM_SPIRV_DECORATION_BUILT_IN,
-      builtin,
+      info->builtin,
   };
   IREE_RETURN_IF_ERROR(loom_spirv_binary_write_instruction(
       loom_spirv_emit_section(state, LOOM_SPIRV_MODULE_SECTION_ANNOTATION),
@@ -239,12 +204,12 @@ static iree_status_t loom_spirv_emit_builtin_variable(
       loom_spirv_emit_section(state, LOOM_SPIRV_MODULE_SECTION_DECLARATION),
       LOOM_SPIRV_OP_VARIABLE, variable_operands,
       IREE_ARRAYSIZE(variable_operands)));
-  IREE_RETURN_IF_ERROR(loom_spirv_emit_op_name(state, variable_id, info.name));
-  state->context->builtin_variable_ids[info.slot] = variable_id;
-  state->builtin_interface_variable_ids[info.slot] = variable_id;
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_op_name(state, variable_id, info->name));
+  state->context->builtin_variable_ids[variable] = variable_id;
+  state->builtin_interface_variable_ids[variable] = variable_id;
   *out_variable_id = variable_id;
   *out_value_type_id = value_type_id;
-  *out_component_count = info.component_count;
+  *out_component_count = info->component_count;
   return iree_ok_status();
 }
 
@@ -496,7 +461,7 @@ static iree_status_t loom_spirv_emit_load_builtin_packet(
   uint32_t builtin_value_type_id = 0;
   uint8_t component_count = 0;
   IREE_RETURN_IF_ERROR(loom_spirv_emit_builtin_variable(
-      state, payload->builtin_load.builtin, &variable_id,
+      state, payload->builtin_load.variable, &variable_id,
       &builtin_value_type_id, &component_count));
   uint32_t u32_type_id = 0;
   IREE_RETURN_IF_ERROR(

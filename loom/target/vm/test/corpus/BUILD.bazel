@@ -30,6 +30,7 @@ _KERNEL_SOURCES = [
     "control/schedule/guarded_recurrence.loom",
     "control/schedule/ordered_read_ahead.loom",
     "control/schedule/unroll_scope.loom",
+    "kernel/geometry.loom",
     "kernel/subgroup/active_predicate.loom",
     "kernel/subgroup/ballot.loom",
     "kernel/subgroup/match.loom",

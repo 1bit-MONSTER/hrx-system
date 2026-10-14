@@ -1,0 +1,96 @@
+// Query-derived coordinates must cover every invocation once. The subject uses
+// workgroup and subgroup coordinates; the oracle doubles the input serially.
+// Providers share one mathematical contract and select on normalized facts.
+template.decl @geometry.double(%value: i32) -> (i32)
+
+template.def<@geometry.double> requires [#target.subgroup.size<32>] priority(1) @geometry.double32(%value: i32) -> (i32) {
+  %result = scalar.addi %value, %value : i32
+  template.return %result : i32
+}
+
+template.def<@geometry.double> requires [#target.subgroup.size<64>] priority(1) @geometry.double64(%value: i32) -> (i32) {
+  %factor = scalar.constant 2 : i32
+  %result = scalar.muli %value, %factor : i32
+  template.return %result : i32
+}
+
+template.def<@geometry.double> @geometry.double_generic(%value: i32) -> (i32) {
+  %shift = scalar.constant 1 : i32
+  %result = scalar.shli %value, %shift : i32
+  template.return %result : i32
+}
+
+kernel.def @execution_geometry(%count_x: index, %count_y: index, %count_z: index) {
+  %groups_x = index.assume %count_x [range(%count_x, 1, 2)] : index
+  %groups_y = index.assume %count_y [range(%count_y, 1, 3)] : index
+  %groups_z = index.assume %count_z [range(%count_z, 1, 4)] : index
+  %threads = index.constant 128 : index
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%groups_x, %groups_y, %groups_z) workgroup_size(%threads, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %groups_x = kernel.workgroup.count<x> : index
+  %groups_y = kernel.workgroup.count<y> : index
+  %groups_z = kernel.workgroup.count<z> : index
+  %group_x = kernel.workgroup.id<x> : index
+  %group_y = kernel.workgroup.id<y> : index
+  %group_z = kernel.workgroup.id<z> : index
+  %subgroup = kernel.subgroup.id : index
+  %subgroup_count = kernel.subgroup.count : index
+  %width = kernel.subgroup.size : index
+  %lane = kernel.subgroup.lane.id : index
+  %size_x = kernel.workgroup.size<x> : index
+  %size_y = kernel.workgroup.size<y> : index
+  %size_z = kernel.workgroup.size<z> : index
+  %group_plane = index.madd %group_z, %groups_y, %group_y : index
+  %group = index.madd %group_plane, %groups_x, %group_x : index
+  %thread = index.madd %subgroup, %width, %lane : index
+  %threads = index.mul %subgroup_count, %width : index
+  %position = index.madd %group, %threads, %thread : index
+  %workgroup_plane = index.mul %size_x, %size_y : index
+  %workgroup_size = index.mul %workgroup_plane, %size_z : index
+  %grid_plane = index.mul %groups_x, %groups_y : index
+  %grid_groups = index.mul %grid_plane, %groups_z : index
+  %length = index.mul %grid_groups, %workgroup_size : index
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<[%length]xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<[%length]xi32>
+  %in_bounds = index.cmp ult, %position, %length : index
+  scf.if %in_bounds {
+    %value = view.load %source[%position] : view<[%length]xi32> -> i32
+    %result = template.apply<@geometry.double>(%value) : (i32) -> (i32)
+    view.store %result, %destination[%position] : i32, view<[%length]xi32>
+  }
+  kernel.return
+}
+
+func.def @execution_geometry_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 3072 : index
+  %step = index.constant 1 : index
+  %factor = scalar.constant 2 : i32
+  %source = buffer.view %input[%base] : buffer -> view<3072xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<3072xi32>
+  scf.for %position = [%begin to %end step %step] {
+    %value = view.load %source[%position] : view<3072xi32> -> i32
+    %result = scalar.muli %value, %factor : i32
+    view.store %result, %destination[%position] : i32, view<3072xi32>
+  }
+  func.return
+}
+
+check.scenario @execution_geometry_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %groups_x = check.literal value(2) : index
+    %groups_y = check.literal value(3) : index
+    %groups_z = check.literal value(4) : index
+    %input = check.generate.random.uniform seed(%seed) range(-1000 to 1000) : tensor<3072xi32>
+    %output = check.generate.fill value(-9999) : tensor<3072xi32>
+    check.compare<@execution_geometry, @execution_geometry_oracle>[%groups_x, %groups_y, %groups_z](%input, %output) : [index, index, index](tensor<3072xi32>, tensor<3072xi32>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<3072xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<3072xi32>
+    }
+  }
+  check.return
+}

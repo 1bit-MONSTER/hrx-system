@@ -164,15 +164,36 @@ def test_control_barrier_descriptors_cover_the_complete_source_family() -> None:
         assert InstructionClass.EXECUTION_BARRIER in descriptor.instruction_classes
 
 
-def test_subgroup_lane_builtin_requires_group_non_uniform() -> None:
+def test_builtin_queries_cover_dispatch_and_subgroup_inputs() -> None:
+    assert {query.source_op_key for query in BUILTIN_INDEX_QUERIES} == {
+        "workgroup_id",
+        "workitem_id",
+        "workitem_dispatch_id",
+        "workgroup_count",
+    }
+    assert {query.source_op_key for query in BUILTIN_SCALAR_INDEX_QUERIES} == {
+        "subgroup_lane_id",
+        "subgroup_size",
+        "subgroup_id",
+        "subgroup_count",
+    }
+    assert all(query.component_count == 3 for query in BUILTIN_INDEX_QUERIES)
+    assert all(query.component_count == 1 for query in BUILTIN_SCALAR_INDEX_QUERIES)
+    queries = (*BUILTIN_INDEX_QUERIES, *BUILTIN_SCALAR_INDEX_QUERIES)
+    assert len({query.variable_enum for query in queries}) == len(queries)
+    assert len({query.builtin_enum for query in queries}) == len(queries)
+
+
+def test_subgroup_builtins_require_group_non_uniform() -> None:
     descriptors = {
         descriptor.key: descriptor
         for descriptor in SPIRV_LOGICAL_CORE_DESCRIPTOR_SET.descriptors
     }
-    subgroup_lane = descriptors["spirv.op_load_builtin.subgroup_lane_id"]
-    assert subgroup_lane.feature_mask_words == (
-        feature_bits_value(("group_non_uniform",)),
-    )
+    for query in BUILTIN_SCALAR_INDEX_QUERIES:
+        descriptor = descriptors[f"spirv.op_load_builtin.{query.descriptor_suffix}"]
+        assert descriptor.feature_mask_words == (
+            feature_bits_value(("group_non_uniform",)),
+        )
 
 
 def test_subgroup_ballot_is_convergent_and_capability_guarded() -> None:

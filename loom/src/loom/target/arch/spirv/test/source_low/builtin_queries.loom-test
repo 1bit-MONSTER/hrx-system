@@ -1,0 +1,84 @@
+// RUN: emit source-low target=spirv:vulkan1.3+bda+hal output=low control-flow=structured-low
+
+kernel.def @execution_queries(%groups_x: index, %groups_y: index, %groups_z: index) {
+  %threads = index.constant 128 : index
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%groups_x, %groups_y, %groups_z) workgroup_size(%threads, %unit, %unit) : index
+} launch(%output: buffer) {
+  %groups_x = kernel.workgroup.count<x> : index
+  %groups_y = kernel.workgroup.count<y> : index
+  %groups_z = kernel.workgroup.count<z> : index
+  %subgroup = kernel.subgroup.id : index
+  %subgroup_count = kernel.subgroup.count : index
+  %width = kernel.subgroup.size : index
+  %lane = kernel.subgroup.lane.id : index
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<128x7xi32>
+  %thread = kernel.workitem.id<x> : index
+  %groups_x_word = index.cast %groups_x : index to i32
+  %groups_y_word = index.cast %groups_y : index to i32
+  %groups_z_word = index.cast %groups_z : index to i32
+  %subgroup_word = index.cast %subgroup : index to i32
+  %subgroup_count_word = index.cast %subgroup_count : index to i32
+  %width_word = index.cast %width : index to i32
+  %lane_word = index.cast %lane : index to i32
+  view.store %groups_x_word, %view[%thread, 0] : i32, view<128x7xi32>
+  view.store %groups_y_word, %view[%thread, 1] : i32, view<128x7xi32>
+  view.store %groups_z_word, %view[%thread, 2] : i32, view<128x7xi32>
+  view.store %subgroup_word, %view[%thread, 3] : i32, view<128x7xi32>
+  view.store %subgroup_count_word, %view[%thread, 4] : i32, view<128x7xi32>
+  view.store %width_word, %view[%thread, 5] : i32, view<128x7xi32>
+  view.store %lane_word, %view[%thread, 6] : i32, view<128x7xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer) -> ()}) workgroup_size(128, 1, 1) @execution_queries() asm {
+  %aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %groups_x = OpLoadBuiltin.num_workgroups.x
+  %groups_y = OpLoadBuiltin.num_workgroups.y
+  %groups_z = OpLoadBuiltin.num_workgroups.z
+  %subgroup = OpLoadBuiltin.subgroup_id
+  %subgroup_count = OpLoadBuiltin.num_subgroups
+  %width = OpLoadBuiltin.subgroup_size
+  %lane = OpLoadBuiltin.subgroup_local_invocation_id
+  %thread = OpLoadBuiltin.local_invocation_id.x
+  %groups_x_word = OpCopyObject.i32 %groups_x
+  %groups_y_word = OpCopyObject.i32 %groups_y
+  %groups_z_word = OpCopyObject.i32 %groups_z
+  %subgroup_word = OpCopyObject.i32 %subgroup
+  %subgroup_count_word = OpCopyObject.i32 %subgroup_count
+  %width_word = OpCopyObject.i32 %width
+  %lane_word = OpCopyObject.i32 %lane
+  %73 = OpSConvert.i32.offset64 %thread
+  %74 = OpConstant.offset64 28
+  %75 = OpIMul.offset64 %73, %74
+  %76 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %75
+  OpStore.storage_buffer.i32 %76, %groups_x_word
+  %80 = OpConstant.offset64 4
+  %81 = OpIAdd.offset64 %75, %80
+  %82 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %81
+  OpStore.storage_buffer.i32 %82, %groups_y_word
+  %86 = OpConstant.offset64 8
+  %87 = OpIAdd.offset64 %75, %86
+  %88 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %87
+  OpStore.storage_buffer.i32 %88, %groups_z_word
+  %92 = OpConstant.offset64 12
+  %93 = OpIAdd.offset64 %75, %92
+  %94 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %93
+  OpStore.storage_buffer.i32 %94, %subgroup_word
+  %98 = OpConstant.offset64 16
+  %99 = OpIAdd.offset64 %75, %98
+  %100 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %99
+  OpStore.storage_buffer.i32 %100, %subgroup_count_word
+  %104 = OpConstant.offset64 20
+  %105 = OpIAdd.offset64 %75, %104
+  %106 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %105
+  OpStore.storage_buffer.i32 %106, %width_word
+  %110 = OpConstant.offset64 24
+  %111 = OpIAdd.offset64 %75, %110
+  %112 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %111
+  OpStore.storage_buffer.i32 %112, %lane_word
+  return
+}

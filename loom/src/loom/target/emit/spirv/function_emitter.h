@@ -20,6 +20,7 @@
 #include "loom/codegen/low/representation_binding.h"
 #include "loom/ir/ir.h"
 #include "loom/ir/local_value_domain.h"
+#include "loom/target/arch/spirv/packet_rows.h"
 #include "loom/target/emit/spirv/module_abi.h"
 #include "loom/target/emit/spirv/module_builder.h"
 #include "loom/target/emit/spirv/module_storage.h"
@@ -30,10 +31,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-enum {
-  LOOM_SPIRV_BUILTIN_VARIABLE_COUNT = 4,
-};
 
 // Module-owned resources shared by each function emitted into one module.
 typedef struct loom_spirv_function_emission_context_t {

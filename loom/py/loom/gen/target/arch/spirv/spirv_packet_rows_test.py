@@ -967,7 +967,7 @@ def test_generation_emits_complete_address_conversion_rows() -> None:
             suffix = f"{query.descriptor_suffix}_{dimension.source_keyword}".upper()
             assert f"SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_LOAD_BUILTIN_{suffix}" in tables
             assert query.builtin_enum in tables
-            assert f".builtin_load = {{ .builtin = {query.builtin_enum}, .component_index = {dimension.component_index}, }}" in tables
+            assert f".builtin_load = {{ .variable = {query.variable_enum}, .component_index = {dimension.component_index}, }}" in tables
 
     for query in BUILTIN_SCALAR_INDEX_QUERIES:
         suffix = query.descriptor_suffix.upper()

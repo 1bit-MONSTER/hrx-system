@@ -34,8 +34,7 @@ from loom.target.arch.spirv.builtins import (
     BUILTIN_INDEX_QUERIES,
     BUILTIN_SCALAR_INDEX_QUERIES,
     BuiltinDimension,
-    BuiltinIndexQuery,
-    BuiltinScalarIndexQuery,
+    BuiltinQuery,
 )
 from loom.target.arch.spirv.contracts.atomic import SPIRV_ATOMIC_CONTRACT_CASES
 from loom.target.arch.spirv.contracts.bfloat import (
@@ -459,23 +458,15 @@ def _conversion_alias_rule(
     )
 
 
-_KERNEL_BUILTIN_SOURCE_OPS = {
-    "subgroup_lane_id": kernel.kernel_subgroup_lane_id,
-    "workgroup_id": kernel.kernel_workgroup_id,
-    "workitem_id": kernel.kernel_workitem_id,
-    "workitem_dispatch_id": kernel.kernel_workitem_dispatch_id,
-}
-
-
 def _builtin_index_rule(
-    query: BuiltinIndexQuery,
+    query: BuiltinQuery,
     dimension: BuiltinDimension,
 ) -> DescriptorRule:
     descriptor = _descriptor(
         f"spirv.op_load_builtin.{query.descriptor_suffix}.{dimension.source_keyword}"
     )
     return DescriptorRule(
-        source_op=_KERNEL_BUILTIN_SOURCE_OPS[query.source_op_key],
+        source_op=getattr(kernel, f"kernel_{query.source_op_key}"),
         descriptor=descriptor,
         guards=(
             Guard.enum_attr_equals("dimension", dimension.source_keyword),
@@ -499,10 +490,10 @@ def _builtin_index_rules() -> tuple[DescriptorRule, ...]:
     )
 
 
-def _builtin_scalar_index_rule(query: BuiltinScalarIndexQuery) -> DescriptorRule:
+def _builtin_scalar_index_rule(query: BuiltinQuery) -> DescriptorRule:
     descriptor = _descriptor(f"spirv.op_load_builtin.{query.descriptor_suffix}")
     return DescriptorRule(
-        source_op=_KERNEL_BUILTIN_SOURCE_OPS[query.source_op_key],
+        source_op=getattr(kernel, f"kernel_{query.source_op_key}"),
         descriptor=descriptor,
         guards=(
             Guard.value_type("result", _INDEX),

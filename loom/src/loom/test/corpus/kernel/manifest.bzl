@@ -12,6 +12,7 @@ KERNEL_CORPUS = loom_corpus_manifest(
     name = "kernel",
     package = "//loom/src/loom/test/corpus/kernel",
     srcs = [
+        "geometry.loom",
         "subgroup/active_predicate.loom",
         "subgroup/ballot.loom",
         "subgroup/match.loom",
