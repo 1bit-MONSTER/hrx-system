@@ -173,13 +173,14 @@ static iree_status_t loom_vector_packet_materialize_snapshot(
   IREE_ASSERT(snapshot_op != NULL);
   const loom_value_fact_vector_partition_t partition =
       packetized_value->source_partition;
-  const uint32_t snapshot_packet_lane_count = partition.regular_lane_count;
+  const uint32_t snapshot_packet_lane_count = partition.snapshot_lane_count;
   const uint32_t packet_index =
       slice->static_lane_offset / snapshot_packet_lane_count;
   const uint32_t packet_lane_offset =
       slice->static_lane_offset % snapshot_packet_lane_count;
-  IREE_ASSERT_LT(packet_index, partition.count);
-  const loom_value_id_t source_packet = partition.values[packet_index];
+  IREE_ASSERT_LT(packet_index, partition.snapshot_count);
+  const loom_value_id_t source_packet =
+      partition.snapshot_components[packet_index].value;
   uint32_t source_packet_lane_count = 0;
   const bool source_packet_shape_valid = loom_vector_packet_static_lane_count(
       loom_module_value_type(packetization->context->module, source_packet),
@@ -1009,11 +1010,14 @@ iree_status_t loom_vector_packet_erase_dead_sources(
     // direct packet producers with the snapshot root so a legalization
     // worklist cannot revisit dead intermediate carriers before ordinary DCE.
     // Shared packet producers remain protected by erase-if-dead.
-    for (uint32_t packet_index = packetized_value->source_partition.count;
+    for (uint32_t packet_index =
+             packetized_value->source_partition.snapshot_count;
          packet_index > 0; --packet_index) {
-      const loom_value_t* packet_value = loom_module_value(
-          packetization->context->module,
-          packetized_value->source_partition.values[packet_index - 1u]);
+      const loom_value_t* packet_value =
+          loom_module_value(packetization->context->module,
+                            packetized_value->source_partition
+                                .snapshot_components[packet_index - 1u]
+                                .value);
       if (packet_value == NULL || loom_value_is_block_arg(packet_value)) {
         continue;
       }

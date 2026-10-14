@@ -4,12 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Scope-local SSA materialization of regular static vector partitions.
+// Scope-local SSA materialization of exact static vector partitions.
 //
-// A partition records the authored packet values that form one logical vector.
-// Every packet except the last has the same logical lane count, and the last
-// packet may be shorter. Numeric value facts remain independent of this
-// structural materialization.
+// A partition records the authored scalar and vector values that form one
+// logical vector. Numeric value facts remain independent of this structural
+// materialization.
 
 #ifndef LOOM_UTIL_FACT_VECTOR_PARTITION_H_
 #define LOOM_UTIL_FACT_VECTOR_PARTITION_H_
@@ -23,37 +22,75 @@ extern "C" {
 
 typedef struct loom_value_fact_table_t loom_value_fact_table_t;
 
-// Immutable authored packet tuple retained by the fact table.
+// Maximum number of nested components expanded into one exact partition by
+// structural fact producers. Direct regular vector partitions retain arbitrary
+// component counts, preserving packet snapshots without making scalar insert
+// chains quadratic in vector width.
+#define LOOM_VALUE_FACT_VECTOR_PARTITION_EXPANSION_LIMIT 64u
+
+// One authored scalar or vector component in logical lane order.
+typedef struct loom_value_fact_vector_partition_component_t {
+  // Scalar or rank-one vector SSA value.
+  loom_value_id_t value;
+  // Number of logical lanes contributed by the value. Scalars contribute one.
+  uint32_t lane_count;
+} loom_value_fact_vector_partition_component_t;
+
+// Immutable exact component tuple and regular packet snapshot retained by the
+// fact table. The two views may use different component widths: reductions
+// consume exact leaves while packet materialization consumes the coarsest
+// regular authored tuple available at the producer.
 typedef struct loom_value_fact_vector_partition_t {
-  // SSA vector values in logical lane order.
-  const loom_value_id_t* values;
-  // Number of values in the partition.
+  // Scalar and vector components in logical lane order.
+  const loom_value_fact_vector_partition_component_t* components;
+  // Regular vector snapshot components in logical lane order, or NULL.
+  const loom_value_fact_vector_partition_component_t* snapshot_components;
+  // Number of components in the partition.
   uint32_t count;
-  // Logical lane count of every value except an optionally shorter last value.
+  // Total logical lane count contributed by all components.
+  uint32_t lane_count;
+  // Logical lane count of every vector component except an optionally shorter
+  // last component. Zero means the exact components contain scalars or
+  // irregular vector widths.
   uint32_t regular_lane_count;
+  // Number of components in the regular vector snapshot.
+  uint32_t snapshot_count;
+  // Logical lane count of every snapshot component except an optionally
+  // shorter last component. Zero means no regular snapshot is available.
+  uint32_t snapshot_lane_count;
 } loom_value_fact_vector_partition_t;
 
-// Retains a copy of the regular vector partition for |value_id|. An empty
-// partition clears the fact without allocating. Recomputing a producer replaces
-// its partition; unchanged partitions reuse their storage.
+// Returns reusable component scratch with room for |count| entries. The
+// contents remain valid only until the next scratch request.
+iree_status_t loom_value_fact_table_vector_partition_component_scratch(
+    loom_value_fact_table_t* table, iree_host_size_t count,
+    loom_value_fact_vector_partition_component_t** out_components);
+
+// Retains a copy of the exact vector partition and regular snapshot for
+// |value_id|. An empty partition clears the fact without allocating.
+// Recomputing a producer replaces its partition; unchanged partitions reuse
+// their storage. When non-NULL, |inout_changed| is set when the retained
+// partition changes.
 iree_status_t loom_value_fact_table_define_vector_partition(
     loom_value_fact_table_t* table, loom_value_id_t value_id,
-    loom_value_fact_vector_partition_t partition);
+    loom_value_fact_vector_partition_t partition, bool* inout_changed);
 
 // Returns the retained partition, or an empty record when none is available.
-// The values borrow immutable fact-table storage until the populated scope is
-// cleared. This is an indexed query and does not inspect source IR.
+// Both component views borrow immutable fact-table storage until the populated
+// scope is cleared. This is an indexed query and does not inspect source IR.
 loom_value_fact_vector_partition_t loom_value_fact_table_query_vector_partition(
     const loom_value_fact_table_t* table, loom_value_id_t value_id);
 
 // Shares the source partition with a value alias in the same SSA scope. An
-// unavailable source clears the result partition.
+// unavailable source clears the result partition. When non-NULL,
+// |inout_changed| is set when the retained partition changes.
 iree_status_t loom_value_fact_table_forward_vector_partition(
     loom_value_fact_table_t* table, loom_value_id_t source_value_id,
-    loom_value_id_t result_value_id);
+    loom_value_id_t result_value_id, bool* inout_changed);
 
-// Withdraws a partition when its producer is invalidated, without allocating.
-void loom_value_fact_table_clear_vector_partition(
+// Withdraws a partition when its producer is invalidated, without allocating,
+// and returns whether a partition was present.
+bool loom_value_fact_table_clear_vector_partition(
     loom_value_fact_table_t* table, loom_value_id_t value_id);
 
 #ifdef __cplusplus

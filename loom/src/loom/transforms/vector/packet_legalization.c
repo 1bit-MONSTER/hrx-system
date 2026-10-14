@@ -406,7 +406,7 @@ static iree_status_t loom_vector_packet_legalize_dynamic_snapshot(
       loom_vector_packet_find(packetization, source);
   if (snapshot == NULL ||
       snapshot->source_mode != LOOM_VECTOR_PACKET_SOURCE_MODE_SNAPSHOT ||
-      snapshot->source_partition.count == 0 ||
+      snapshot->source_partition.snapshot_count == 0 ||
       !loom_vector_packet_dynamic_snapshot_expansion_is_bounded(
           source_shape, result_shape, consumer_count, consumer_branch_count,
           consumer_materializer)) {
@@ -446,10 +446,10 @@ static iree_status_t loom_vector_packet_legalize_dynamic_snapshot(
   }
   const loom_value_fact_vector_partition_t partition =
       snapshot->source_partition;
-  for (uint32_t packet_index = 0; packet_index < partition.count;
+  for (uint32_t packet_index = 0; packet_index < partition.snapshot_count;
        ++packet_index) {
-    const loom_value_t* packet_value =
-        loom_module_value(context->module, partition.values[packet_index]);
+    const loom_value_t* packet_value = loom_module_value(
+        context->module, partition.snapshot_components[packet_index].value);
     if (packet_value == NULL) {
       return iree_ok_status();
     }
@@ -476,9 +476,10 @@ static iree_status_t loom_vector_packet_legalize_dynamic_snapshot(
         &staging_views[group_index]));
   }
 
-  for (uint32_t packet_index = 0; packet_index < partition.count;
+  for (uint32_t packet_index = 0; packet_index < partition.snapshot_count;
        ++packet_index) {
-    const loom_value_id_t source_packet = partition.values[packet_index];
+    const loom_value_id_t source_packet =
+        partition.snapshot_components[packet_index].value;
     const loom_value_t* packet_value =
         loom_module_value(context->module, source_packet);
     const loom_op_t* packet_op = loom_value_is_block_arg(packet_value)
@@ -501,7 +502,7 @@ static iree_status_t loom_vector_packet_legalize_dynamic_snapshot(
           iree_min(packet_lane_count - packet_lane_offset,
                    source_shape->chunk_lane_count);
       const uint32_t source_lane_offset =
-          packet_index * partition.regular_lane_count + packet_lane_offset;
+          packet_index * partition.snapshot_lane_count + packet_lane_offset;
       loom_value_id_t source_chunk = source_packet;
       if (packet_lane_offset != 0 || lane_count != packet_lane_count) {
         const int64_t static_lane_offset = packet_lane_offset;

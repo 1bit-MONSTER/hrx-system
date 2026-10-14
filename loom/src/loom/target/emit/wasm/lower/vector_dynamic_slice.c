@@ -30,8 +30,9 @@ bool loom_wasm_dynamic_slice_values(const loom_module_t* module,
     return false;
   }
   const loom_value_id_t source = loom_vector_slice_source(source_op);
-  if (loom_value_fact_table_query_vector_partition(fact_table, source).count ==
-      0) {
+  const loom_value_fact_vector_partition_t partition =
+      loom_value_fact_table_query_vector_partition(fact_table, source);
+  if (partition.snapshot_count == 0) {
     return false;
   }
   const loom_value_id_t result = loom_vector_slice_result(source_op);

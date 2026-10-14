@@ -176,6 +176,11 @@ struct loom_fact_context_t {
     void (*fn)(void* user_data, const loom_value_fact_table_t* table,
                const loom_op_t* op, loom_value_facts_t* operand_facts);
   } refine_operands;
+
+  // Active change accumulator for auxiliary result facts published by the
+  // current inference callback. NULL during whole-scope population and
+  // outside an inference callback.
+  bool* result_facts_changed;
 };
 
 struct loom_value_fact_table_t {
@@ -361,7 +366,7 @@ struct loom_value_fact_table_t {
   // explicit layouts; separate from numeric extensions that cross call scopes.
   loom_value_fact_layout_origins_t* layout_origins;
 
-  // Scope-local regular vector partitions indexed by logical vector value ID.
+  // Scope-local exact vector partitions indexed by logical vector value ID.
   loom_value_fact_vector_partitions_t* vector_partitions;
 
   // Canonical transitive select conditions keyed by SSA value ID. Both the
@@ -405,6 +410,13 @@ struct loom_value_fact_table_t {
       // Allocated value ID scratch entry count.
       iree_host_size_t capacity;
     } value_ids;
+    // Exact vector-partition component scratch buffer state.
+    struct {
+      // Scratch components populated by structural fact producers.
+      struct loom_value_fact_vector_partition_component_t* values;
+      // Allocated component scratch entry count.
+      iree_host_size_t capacity;
+    } vector_partition_components;
     // Direct alias-ordinal map used while applying predicate facts.
     struct {
       // One-based alias ordinals keyed by SSA value ID; zero means absent.

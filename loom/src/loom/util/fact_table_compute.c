@@ -1285,9 +1285,14 @@ static iree_status_t loom_value_fact_table_compute_scoped_op(
                                       table, op, operand_facts);
   }
 
-  // Call the fact inference function.
-  IREE_RETURN_IF_ERROR(vtable->infer_facts(&table->context, module, op,
-                                           operand_facts, result_facts));
+  // Call the fact inference function. Auxiliary result facts publish through
+  // the same change accumulator as the dense numeric facts below.
+  bool* previous_result_facts_changed = table->context.result_facts_changed;
+  table->context.result_facts_changed = out_changed;
+  iree_status_t infer_status = vtable->infer_facts(&table->context, module, op,
+                                                   operand_facts, result_facts);
+  table->context.result_facts_changed = previous_result_facts_changed;
+  IREE_RETURN_IF_ERROR(infer_status);
 
   const bool observes_execution = loom_traits_may_read(op->traits) ||
                                   loom_traits_are_convergent(op->traits) ||

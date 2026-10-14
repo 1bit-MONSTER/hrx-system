@@ -689,10 +689,11 @@ static bool loom_vector_packet_select_snapshot_shape(
     loom_value_fact_vector_partition_t* out_partition) {
   *out_partition = loom_value_fact_table_query_vector_partition(
       packetization->context->fact_table, source_value);
-  if (out_partition->count == 0) {
+  if (out_partition->snapshot_count == 0) {
+    *out_partition = (loom_value_fact_vector_partition_t){0};
     return false;
   }
-  const uint32_t packet_lane_count = out_partition->regular_lane_count;
+  const uint32_t packet_lane_count = out_partition->snapshot_lane_count;
   uint32_t chunk_lane_count = inout_shape->chunk_lane_count;
   if (chunk_lane_count > packet_lane_count ||
       packet_lane_count % chunk_lane_count != 0) {
@@ -842,7 +843,7 @@ iree_status_t loom_vector_packet_select_value_shape(
   if (*out_selected) {
     IREE_RETURN_IF_ERROR(
         loom_vector_packet_record(packetization, source, source_type));
-    if (source_partition.count != 0) {
+    if (source_partition.snapshot_count != 0) {
       loom_vector_packetized_value_t* packetized_value =
           loom_vector_packet_find(packetization, source);
       IREE_ASSERT(packetized_value != NULL);
@@ -1055,7 +1056,7 @@ bool loom_vector_packet_can_materialize(
     }
     if (value->source_mode == LOOM_VECTOR_PACKET_SOURCE_MODE_SNAPSHOT) {
       const uint32_t packet_lane_count =
-          value->source_partition.regular_lane_count;
+          value->source_partition.snapshot_lane_count;
       if (packet_lane_count < shape->chunk_lane_count ||
           packet_lane_count % shape->chunk_lane_count != 0) {
         return false;

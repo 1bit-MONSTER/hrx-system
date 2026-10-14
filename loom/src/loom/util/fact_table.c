@@ -455,6 +455,8 @@ void loom_value_fact_table_clear_scope(loom_value_fact_table_t* table) {
   table->scratch.facts.capacity = 0;
   table->scratch.value_ids.values = NULL;
   table->scratch.value_ids.capacity = 0;
+  table->scratch.vector_partition_components.values = NULL;
+  table->scratch.vector_partition_components.capacity = 0;
   table->scratch.alias_ordinals.values = NULL;
   table->scratch.alias_ordinals.capacity = 0;
   table->scratch.condition = NULL;
@@ -1805,7 +1807,8 @@ iree_status_t loom_value_fact_table_clone_values(
     if (source->vector_partitions || target->vector_partitions) {
       IREE_RETURN_IF_ERROR(loom_value_fact_table_define_vector_partition(
           target, value_id,
-          loom_value_fact_table_query_vector_partition(source, value_id)));
+          loom_value_fact_table_query_vector_partition(source, value_id),
+          /*inout_changed=*/NULL));
     }
     loom_value_fact_uniform_element_origin_t uniform_origin = {0};
     if (loom_value_fact_table_lookup_uniform_element_origin(source, value_id,
@@ -2021,7 +2024,7 @@ iree_status_t loom_value_fact_table_propagate_origins(
     }
     if (table->vector_partitions) {
       IREE_RETURN_IF_ERROR(loom_value_fact_table_forward_vector_partition(
-          table, operands[0], results[0]));
+          table, operands[0], results[0], inout_changed));
     }
   }
   if (loom_traits_are_fact_identity(traits)) {
@@ -2048,7 +2051,7 @@ iree_status_t loom_value_fact_table_propagate_origins(
       }
       if (table->vector_partitions) {
         IREE_RETURN_IF_ERROR(loom_value_fact_table_forward_vector_partition(
-            table, operands[i], results[i]));
+            table, operands[i], results[i], inout_changed));
       }
     }
   }
