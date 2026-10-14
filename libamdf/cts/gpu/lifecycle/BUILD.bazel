@@ -20,6 +20,7 @@ amdf_cc_library(
     hdrs = ["user_queue_memory.h"],
     deps = [
         "//libamdf/cts/gpu:gpu_device_fixture",
+        "//libamdf/cts/util:wait",
         "//third_party:google_test",
     ],
 )

@@ -34,6 +34,7 @@ amdf_cts_test_suite(
     deps = [
         "//libamdf/cts/gpu/sdma/encoding:commands",
         "//libamdf/cts/gpu/util:command_fixture",
+        "//libamdf/cts/util:wait",
         "//third_party:google_test",
     ],
 )

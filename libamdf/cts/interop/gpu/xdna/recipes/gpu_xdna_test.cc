@@ -23,6 +23,7 @@
 #include "libamdf/cts/xdna/util/executable.h"
 #include "libamdf/cts/xdna/util/execution.h"
 #include "util/mapped_memory.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -514,7 +515,8 @@ class GpuXdnaRecipeTest : public GpuXdnaDeviceFixture {
           xdna_api_->kernel_queue_submit(execution_.queue, &submit, &point),
           AMDF_STATUS_OK);
       ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
-                                        AMDF_TIMEOUT_INFINITE, 0),
+                                        amdf::cts::kWaitTimeoutNs,
+                                        amdf::cts::kWaitPollIntervalNs),
                 AMDF_STATUS_OK);
       ASSERT_TRUE(gpu_queue_.Publish(
           api_, gpu_api_,
@@ -675,7 +677,8 @@ class GpuXdnaRecipeTest : public GpuXdnaDeviceFixture {
     ASSERT_EQ(xdna_api_->kernel_queue_submit(execution_.queue, &submit, &point),
               AMDF_STATUS_OK);
     ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
-                                      AMDF_TIMEOUT_INFINITE, 0),
+                                      amdf::cts::kWaitTimeoutNs,
+                                      amdf::cts::kWaitPollIntervalNs),
               AMDF_STATUS_OK);
     ASSERT_EQ(HostTransition(bindings_[2], pairs[kGpuXdnaXdnaToHost].acquire),
               AMDF_STATUS_OK);

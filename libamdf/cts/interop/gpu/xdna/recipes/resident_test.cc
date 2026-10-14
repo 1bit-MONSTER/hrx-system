@@ -37,6 +37,7 @@
 #include "libamdf/cts/xdna/util/executable.h"
 #include "libamdf/cts/xdna/util/execution.h"
 #include "libamdf/cts/xdna/util/resident_transaction.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -1085,8 +1086,9 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
       gpu_pending_ = false;
     }
     if (npu_pending_) {
-      const auto status = api_->kernel_queue_wait(execution_.queue, npu_point,
-                                                  AMDF_TIMEOUT_INFINITE, 0);
+      const auto status = api_->kernel_queue_wait(
+          execution_.queue, npu_point, amdf::cts::kWaitTimeoutNs,
+          amdf::cts::kWaitPollIntervalNs);
       EXPECT_EQ(status, AMDF_STATUS_OK);
       if (!amdf_status_is_ok(status)) {
         return;

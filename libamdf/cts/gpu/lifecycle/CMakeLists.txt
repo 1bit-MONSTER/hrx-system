@@ -21,6 +21,7 @@ iree_cc_library(
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::gpu_device_fixture
+    libamdf::cts::util::wait
   TESTONLY
   PUBLIC
 )

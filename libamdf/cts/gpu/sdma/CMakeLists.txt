@@ -28,6 +28,7 @@ iree_cc_library(
     iree::third_party::google_test
     libamdf::cts::gpu::sdma::encoding::commands
     libamdf::cts::gpu::util::command_fixture
+    libamdf::cts::util::wait
   TESTONLY
   ALWAYSLINK
   PUBLIC

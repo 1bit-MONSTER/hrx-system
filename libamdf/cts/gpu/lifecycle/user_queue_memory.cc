@@ -15,6 +15,8 @@
 #include <functional>
 #include <thread>
 
+#include "util/wait.h"
+
 namespace {
 
 constexpr uint64_t kMemoryByteLength = 4096;
@@ -429,10 +431,13 @@ void UserQueueMemoryScenario::RunCopiesBetweenExactAccessAttachments(
   _mm_sfence();
   StoreRelease(doorbell, stream.published_index);
 
-  while (*reinterpret_cast<volatile uint32_t*>(completion) !=
-         kUserQueueMemoryCompletionValue) {
-    std::this_thread::yield();
-  }
+  ASSERT_TRUE(amdf::cts::WaitUntil(
+      "lifecycle copy completion",
+      [&] {
+        return *reinterpret_cast<volatile uint32_t*>(completion) ==
+               kUserQueueMemoryCompletionValue;
+      }))
+      << "observed " << *reinterpret_cast<volatile uint32_t*>(completion);
   std::atomic_thread_fence(std::memory_order_acquire);
   // Observe all payload and guard bytes before diagnostics, host cache work,
   // or queue consumption can supply an additional visibility operation.
@@ -443,10 +448,10 @@ void UserQueueMemoryScenario::RunCopiesBetweenExactAccessAttachments(
     EXPECT_EQ(observed_source[i], expected_source[i]) << "source word " << i;
   }
   // Nonfatal payload mismatches still reach ordinary command retirement.
-  ASSERT_EQ(
-      api_->user_queue_wait_consumed(queue_, stream.published_index,
-                                     AMDF_TIMEOUT_INFINITE, UINT64_C(10000000)),
-      AMDF_STATUS_OK);
+  ASSERT_EQ(api_->user_queue_wait_consumed(queue_, stream.published_index,
+                                           amdf::cts::kWaitTimeoutNs,
+                                           UINT64_C(10000000)),
+            AMDF_STATUS_OK);
   ASSERT_EQ(api_->user_queue_query_status(queue_, &queue_status),
             AMDF_STATUS_OK);
   EXPECT_EQ(queue_status.state, AMDF_QUEUE_STATE_ACTIVE);

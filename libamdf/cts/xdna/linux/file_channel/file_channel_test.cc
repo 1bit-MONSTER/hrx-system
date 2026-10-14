@@ -24,6 +24,7 @@
 #include "libamdf/cts/xdna/util/execution.h"
 #include "libamdf/cts/xdna/util/resident_transaction.h"
 #include "libamdf/cts/xdna/xdna_device_fixture.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -451,6 +452,7 @@ class NpuFileChannelTest : public XdnaDeviceFixture,
   }
 
   amdf_status_t AcquireRequest(uint32_t generation) {
+    const amdf::cts::WaitDeadline deadline;
     const auto* ready = reinterpret_cast<volatile const uint32_t*>(
         buffers_[kRequest].bytes().data() + kControlOffset);
     // This line has no live CPU writes. Invalidation cannot overwrite a
@@ -462,8 +464,13 @@ class NpuFileChannelTest : public XdnaDeviceFixture,
       if (status != AMDF_STATUS_OK) {
         return status;
       }
-    } while (*ready != generation);
-    return AMDF_STATUS_OK;
+      if (*ready == generation) {
+        return AMDF_STATUS_OK;
+      }
+      if (!deadline.Pause()) {
+        return amdf_make_api_status(AMDF_STATUS_CODE_DEADLINE_EXCEEDED);
+      }
+    } while (true);
   }
 
   std::span<uint32_t> Payload(size_t ordinal) {
@@ -536,7 +543,8 @@ class NpuFileChannelTest : public XdnaDeviceFixture,
     // Even failed I/O takes the device's terminal path and drains DMA before
     // any error assertion or addressed-owner release.
     ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
-                                      AMDF_TIMEOUT_INFINITE, 0),
+                                      amdf::cts::kWaitTimeoutNs,
+                                      amdf::cts::kWaitPollIntervalNs),
               AMDF_STATUS_OK);
     sample->wall_nanoseconds = WallNanoseconds() - wall_begin;
     uint64_t thread_end = 0;

@@ -11,6 +11,7 @@
 #include "libamdf/cts/gpu/kernels/byte_copy_unaligned.h"
 #include "libamdf/cts/gpu/kernels/byte_copy_unaligned_kernels.h"
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -43,7 +44,8 @@ class Pm4QueuedMappingTest : public Pm4DispatchTest,
     if (queue_ != nullptr) {
       if (last_submission_ != 0) {
         ASSERT_EQ(api_->kernel_queue_wait(queue_, last_submission_,
-                                          AMDF_TIMEOUT_INFINITE, 0),
+                                          amdf::cts::kWaitTimeoutNs,
+                                          amdf::cts::kWaitPollIntervalNs),
                   AMDF_STATUS_OK);
       }
       const auto status = api_->kernel_queue_destroy(queue_);
@@ -471,7 +473,8 @@ TEST_P(Pm4QueuedMappingTest, PendingUseThenReplacementThenComputeAndDetach) {
                                        1, &detach, &last_submission_),
       AMDF_STATUS_OK);
   ASSERT_EQ(api_->kernel_queue_wait(queue_, last_submission_,
-                                    AMDF_TIMEOUT_INFINITE, 0),
+                                    amdf::cts::kWaitTimeoutNs,
+                                    amdf::cts::kWaitPollIntervalNs),
             AMDF_STATUS_OK);
   ASSERT_EQ(api_->memory_reservation_detach(reservation_, kGpuAccessOrdinal),
             AMDF_STATUS_OK);

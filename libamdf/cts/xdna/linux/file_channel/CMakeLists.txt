@@ -19,6 +19,7 @@ iree_cc_library(
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::util::mapped_memory
+    libamdf::cts::util::wait
     libamdf::cts::xdna::programs::resident_file_channel
     libamdf::cts::xdna::util::executable
     libamdf::cts::xdna::util::execution

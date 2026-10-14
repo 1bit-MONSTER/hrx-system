@@ -26,6 +26,8 @@
 
 using Microsoft::WRL::ComPtr;
 
+#include "util/wait.h"
+
 namespace {
 constexpr uint64_t kByteLength = 65536;
 constexpr uint64_t kSourceOffset = 4096;
@@ -405,7 +407,8 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
         gpu_api_->kernel_queue_submit(queue_, &submit, &pending_submission_),
         AMDF_STATUS_OK);
     ASSERT_EQ(api_->kernel_queue_wait(queue_, pending_submission_,
-                                      AMDF_TIMEOUT_INFINITE, 0),
+                                      amdf::cts::kWaitTimeoutNs,
+                                      amdf::cts::kWaitPollIntervalNs),
               AMDF_STATUS_OK);
     pending_submission_ = 0;
   }

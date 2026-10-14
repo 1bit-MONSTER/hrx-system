@@ -20,6 +20,7 @@ iree_cc_library(
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::util::mapped_memory
+    libamdf::cts::util::wait
     libamdf::cts::xdna::programs::mul_i32
     libamdf::cts::xdna::programs::recurrence_i32
     libamdf::cts::xdna::util::executable

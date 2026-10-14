@@ -12,6 +12,7 @@
 
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
 #include "libamdf/cts/gpu/util/command_fixture.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -156,11 +157,17 @@ TEST_P(SdmaTimestampStreamTest,
   uint64_t previous_ticks = 0;
   uint64_t digest = 0;
   uint64_t expected_digest = 0;
+  const amdf::cts::WaitDeadline deadline;
   for (uint32_t ordinal = 0; ordinal < kRecordCount; ++ordinal) {
-    while (GpuLoadAcquire<uint32_t>(control_host + kPublishedOffset) <
-           ordinal + 1) {
-      std::this_thread::yield();
-    }
+    ASSERT_TRUE(amdf::cts::WaitUntil(
+        "SDMA timestamp record",
+        [&] {
+          return GpuLoadAcquire<uint32_t>(control_host + kPublishedOffset) >=
+                 ordinal + 1;
+        },
+        deadline))
+        << "record " << ordinal + 1 << ", published "
+        << GpuLoadAcquire<uint32_t>(control_host + kPublishedOffset);
     EXPECT_EQ(GpuLoadAcquire<uint32_t>(control_host + kDoneOffset), 0u);
     std::array<uint32_t, kSlotBytes / 4> record;
     const uint32_t slot = (ordinal % kSlotCount) * kSlotBytes;

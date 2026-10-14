@@ -106,6 +106,7 @@ iree_cc_library(
     libamdf::cts::gpu::pm4::encoding::commands
     libamdf::cts::gpu::util::command_fixture
     libamdf::cts::gpu::util::sparse_mapping_layout
+    libamdf::cts::util::wait
     ${_pm4_cases_platform_deps}
   TESTONLY
   ALWAYSLINK

@@ -9,6 +9,7 @@
 
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
 #include "libamdf/cts/gpu/util/command_fixture.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -33,7 +34,8 @@ class SdmaQueuedMappingTest : public GpuCommandTest {
     if (queue_ != nullptr) {
       if (point_ != 0) {
         ASSERT_EQ(
-            api_->kernel_queue_wait(queue_, point_, AMDF_TIMEOUT_INFINITE, 0),
+            api_->kernel_queue_wait(queue_, point_, amdf::cts::kWaitTimeoutNs,
+                                    amdf::cts::kWaitPollIntervalNs),
             AMDF_STATUS_OK);
       }
       const auto status = api_->kernel_queue_destroy(queue_);
@@ -227,7 +229,8 @@ TEST_F(SdmaQueuedMappingTest, PendingTransferThenReplacementAndDetach) {
   ASSERT_EQ(api_->kernel_queue_update_memory(queue_, reservation_, 0, 1,
                                              &detach, &point_),
             AMDF_STATUS_OK);
-  ASSERT_EQ(api_->kernel_queue_wait(queue_, point_, AMDF_TIMEOUT_INFINITE, 0),
+  ASSERT_EQ(api_->kernel_queue_wait(queue_, point_, amdf::cts::kWaitTimeoutNs,
+                                    amdf::cts::kWaitPollIntervalNs),
             AMDF_STATUS_OK);
   const auto* words = static_cast<const uint32_t*>(capture->host.pointer);
   for (uint32_t generation = 0; generation <= kGenerationCount; ++generation) {

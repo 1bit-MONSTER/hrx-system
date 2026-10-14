@@ -22,6 +22,7 @@
 #include "libamdf/cts/xdna/util/execution.h"
 #include "libamdf/cts/xdna/xdna_device_fixture.h"
 #include "util/mapped_memory.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -168,9 +169,13 @@ class FirmwareTraceCapture {
   void Drain(uint32_t expected_count) {
     // The numeric producer has retired. Native publication may still progress;
     // known message count, not an empty snapshot or a sleep, closes this read.
-    while (end_count_ < expected_count && !::testing::Test::HasFailure()) {
-      Read();
-      std::this_thread::yield();
+    const amdf::cts::WaitDeadline deadline;
+    while (end_count_ < expected_count) {
+      ASSERT_NO_FATAL_FAILURE(Read());
+      if (end_count_ < expected_count) {
+        ASSERT_TRUE(deadline.Pause()) << "firmware command ends " << end_count_
+                                      << ", expected " << expected_count;
+      }
     }
     EXPECT_EQ(begin_count_, expected_count);
     EXPECT_EQ(end_count_, expected_count);
@@ -440,7 +445,8 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
     ASSERT_EQ(xdna_api_->kernel_queue_submit(execution_.queue, &submit, &point),
               AMDF_STATUS_OK);
     ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
-                                      AMDF_TIMEOUT_INFINITE, 0),
+                                      amdf::cts::kWaitTimeoutNs,
+                                      amdf::cts::kWaitPollIntervalNs),
               AMDF_STATUS_OK);
     const bool has_initial_contents =
         registered_contents == RegisteredContents::kHostWritten;
@@ -531,7 +537,8 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
           xdna_api_->kernel_queue_submit(execution_.queue, &submit, &point),
           AMDF_STATUS_OK);
       ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
-                                        AMDF_TIMEOUT_INFINITE, 0),
+                                        amdf::cts::kWaitTimeoutNs,
+                                        amdf::cts::kWaitPollIntervalNs),
                 AMDF_STATUS_OK);
       if (capture != nullptr) {
         ASSERT_NO_FATAL_FAILURE(capture->EndCommand(generation));
@@ -667,8 +674,9 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
       return;
     }
     if (last_point_ != 0) {
-      const auto status = api_->kernel_queue_wait(execution_.queue, last_point_,
-                                                  AMDF_TIMEOUT_INFINITE, 0);
+      const auto status = api_->kernel_queue_wait(
+          execution_.queue, last_point_, amdf::cts::kWaitTimeoutNs,
+          amdf::cts::kWaitPollIntervalNs);
       ASSERT_EQ(status, AMDF_STATUS_OK);
     }
     if (attached_) {
@@ -945,7 +953,8 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
       last_point_ = point;
     }
     ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, last_point_,
-                                      AMDF_TIMEOUT_INFINITE, 0),
+                                      amdf::cts::kWaitTimeoutNs,
+                                      amdf::cts::kWaitPollIntervalNs),
               AMDF_STATUS_OK);
     ASSERT_EQ(
         api_->host_mapping_cache_control(execution_.instructions.mapping,

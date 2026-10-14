@@ -20,6 +20,7 @@ iree_cc_library(
     iree::third_party::google_test
     libamdf::cts::gpu::gpu_device_fixture
     libamdf::cts::gpu::pm4::encoding::commands
+    libamdf::cts::util::wait
   TESTONLY
   ALWAYSLINK
   LINKOPTS

@@ -116,6 +116,7 @@ iree_cc_library(
     iree::third_party::google_test
     libamdf::cts::util::device_cache
     libamdf::cts::util::provider_headers
+    libamdf::cts::util::wait
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -191,6 +192,7 @@ iree_cc_library(
     iree::third_party::google_test
     libamdf::cts::util::device_cache
     libamdf::cts::util::provider_headers
+    libamdf::cts::util::wait
   TESTONLY
   ALWAYSLINK
   PUBLIC

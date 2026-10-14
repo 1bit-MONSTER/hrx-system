@@ -15,6 +15,7 @@
 #include "libamdf/cts/xdna/util/execution.h"
 #include "libamdf/cts/xdna/xdna_device_fixture.h"
 #include "util/mapped_memory.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -245,7 +246,8 @@ class XdnaReservationTest
     ASSERT_EQ(xdna_api_->kernel_queue_submit(execution_.queue, &submit, &point),
               AMDF_STATUS_OK);
     ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
-                                      AMDF_TIMEOUT_INFINITE, 0),
+                                      amdf::cts::kWaitTimeoutNs,
+                                      amdf::cts::kWaitPollIntervalNs),
               AMDF_STATUS_OK);
   }
 

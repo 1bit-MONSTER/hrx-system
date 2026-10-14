@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "libamdf/cts/gpu/pm4/command_fixture.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -428,11 +429,17 @@ TEST_P(Pm4ObservationStreamTest, DrainsMirroredRecordsBeforeQueueCompletion) {
   uint64_t expected_digest = 0;
   uint64_t first_ticks = 0;
   position = start_position;
+  const amdf::cts::WaitDeadline deadline;
   for (uint32_t ordinal = 0; ordinal < kRecordCount; ++ordinal) {
-    while (GpuLoadAcquire<uint32_t>(host_control_address + kPublishedOffset) <
-           ordinal + 1) {
-      std::this_thread::yield();
-    }
+    ASSERT_TRUE(amdf::cts::WaitUntil(
+        "PM4 observation record",
+        [&] {
+          return GpuLoadAcquire<uint32_t>(host_control_address +
+                                          kPublishedOffset) >= ordinal + 1;
+        },
+        deadline))
+        << "record " << ordinal + 1 << ", published "
+        << GpuLoadAcquire<uint32_t>(host_control_address + kPublishedOffset);
     if (ordinal == 0) {
       EXPECT_EQ(GpuLoadAcquire<uint32_t>(host_control_address + kDoneOffset),
                 0u);
