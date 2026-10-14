@@ -60,6 +60,12 @@ use them. The trap also handles ordinary exceptions; PC sampling is not an
 independent shader entry point. [Trap installation][trap-install]
 [Descriptor layout][buffer-layout] [Trap exit][trap-publish]
 
+For a single-XCC agent, the later ROCr caller supplies a zero per-XCC stride,
+which directs the handler to use the buffer base without adding an XCC-derived
+offset. Multi-XCC agents receive the allocation stride. A nonzero hardware
+field on a single-XCC device does not imply a second allocated buffer.
+[Stride construction][runtime-stride]
+
 ROCr's two version-1 record layouts are both 64 bytes:
 
 | Byte offset | Representation |
@@ -74,6 +80,12 @@ ROCr's two version-1 record layouts are both 64 bytes:
 | `0x38` | 64-bit native correlation value. |
 
 [Record declarations][records] [GFX9 writer][trap-record]
+
+The later GFX12 writer treats `TTMP8[30]` as the validity bit for workgroup Y/Z
+in `TTMP7`. With that bit set, Y is `TTMP7[15:0]` and Z is `TTMP7[31:16]`;
+otherwise it writes zero for both. X comes from `TTMP9`. It stores X/Y as one
+aligned 64-bit pair at `0x10`, then Z as a 32-bit value at `0x18`.
+[Workgroup-coordinate writer][trap12-coordinates]
 
 GFX9 reads `S_MEMREALTIME`; GFX12 uses `MSG_RTN_GET_REALTIME`. The timestamp
 is taken in the handler and is not the host's trigger time or an instruction
@@ -117,12 +129,15 @@ the increment; the GFX12 writer waits for stores before its completion path.
 The watermark notification follows the completion increment. The pinned GFX9
 handler compares the atomic's previous count against the watermark, whereas
 the GFX12 handler compares the incremented count. The same raw watermark
-therefore signals one completion later on that GFX9 path. GFX12 also selects
-DEVICE scope for its completion atomic when generation minor is at least 5,
-and SYSTEM scope otherwise; transferring this protocol to another allocation
-or observer needs the corresponding memory-visibility contract.
+therefore signals one completion later on that GFX9 path. The earlier GFX12
+handler selected DEVICE scope for its reservation and completion atomics when
+generation minor was at least 5. The later handler uses SYSTEM scope for both
+atomics, including GFX12.5, to reach through GL2. The control-word scope is part
+of the cross-agent publication protocol, independently of the record layout.
 [Reservation][trap-reserve] [GFX9 publication and notification][trap-publish]
-[GFX12 publication][trap12-publish]
+[Earlier GFX12 publication][trap12-publish]
+[System-scoped reservation][trap12-system-reserve]
+[System-scoped completion][trap12-system-publish]
 
 ROCr's live rotation uses this sequence:
 
@@ -137,10 +152,12 @@ ROCr's live rotation uses this sequence:
    eventually returns the buffer to the producer through another rotation.
 
 The CPU-accessible path uses an atomic exchange and an acquire load. The
-non-large-BAR path uses PM4 `ATOMIC_MEM`, confirmed return-value readback,
+PM4 path uses `ATOMIC_MEM`, confirmed return-value readback,
 `WAIT_REG_MEM`, copy and reset commands. Multi-XCC carriers select one executor
 for these memory operations; this is separate from the XCC that wrote the
-records. [CPU rotation][cpu-rotation] [PM4 rotation][pm4-rotation]
+records. The later caller selects this path for non-large-BAR devices and for
+gfx1250 independently of BAR size. [CPU rotation][cpu-rotation]
+[PM4 rotation][pm4-rotation] [Path selection][runtime-drain-selection]
 
 A partial completed count is not a contiguous readable prefix. For example,
 writer 0 can reserve slot 0 and pause while writer 1 completes slot 1. A count
@@ -155,6 +172,35 @@ conditions. The cited collector counts excess device reservations, and drops
 new copied data when its host ring lacks space. Its notification threshold is
 not a credit that prevents the device from exhausting its current buffer.
 [Loss accounting][cpu-rotation]
+
+## Rotation phase and command ownership
+
+The host selector, the device reservation word's bit 63, and a waiting
+consumer's notification signal describe the same buffer phase. ROCr preserves
+the selector across stop/start while rearming its host notification signals.
+Resetting only the host selector could instead make a PM4 drain wait for
+completions in buffer 0 while new traps write buffer 1.
+[Restart state][runtime-restart]
+
+A consumer binds a wait to one signal object until that wait completes. A
+separate explicit flush that rotates once can strand that consumer on the old
+signal even when the host selector is atomic. ROCr's explicit flush therefore
+drains both halves under its per-XCC lock, restoring the initial phase. The
+worker reads that selector when choosing each wait and rearms the same signal
+it waited on. This protocol depends on completing both device transitions;
+an error after a submitted swap is not proof that the original phase remains.
+[Explicit flush][runtime-flush] [Worker signal binding][runtime-worker]
+
+Per-XCC command construction and completion signals do not make shared command
+backing private. The cited PM4 executor copies commands into one queue-owned
+indirect buffer and returns after publication. The sampling caller holds its
+shared PM4 mutex across both submit-and-completion pairs, preventing another
+XCC's collector from replacing instructions still in flight. Its GFX12.0 and
+GFX12.5 readback also writes back GL2 before the CP DMA copy; the GFX9 path relies
+on the trap's scalar-data writeback before publishing the completed count.
+[Shared command owner][runtime-pm4-owner] [Indirect buffer][runtime-command-copy]
+[Asynchronous publication][runtime-command-submit]
+[Payload visibility][runtime-pm4-cache]
 
 ## Stop, final collection and storage lifetime
 
@@ -216,6 +262,18 @@ that copy; it does not by itself join every trap on participating queues.
 [trap12-correlation]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/trap_handler/trap_handler_gfx12.s#L839-L898
 [trap12-snapshot]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/trap_handler/trap_handler_gfx12.s#L924-L973
 [trap12-publish]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/trap_handler/trap_handler_gfx12.s#L909-L1045
-[cpu-rotation]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L4545-L4674
-[pm4-rotation]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L4676-L4945
-[runtime-stop]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L4480-L4543
+[cpu-rotation]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L4588-L4714
+[pm4-rotation]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L4716-L5016
+[runtime-stop]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L4523-L4586
+[runtime-stride]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L4242-L4262
+[trap12-coordinates]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/trap_handler/trap_handler_gfx12.s#L745-L768
+[trap12-system-reserve]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/trap_handler/trap_handler_gfx12.s#L566-L578
+[trap12-system-publish]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/trap_handler/trap_handler_gfx12.s#L980-L1012
+[runtime-drain-selection]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L3830-L3839
+[runtime-restart]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L4384-L4399
+[runtime-flush]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L5202-L5264
+[runtime-worker]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L5018-L5070
+[runtime-pm4-owner]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L4716-L4755
+[runtime-command-copy]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_aql_queue.cpp#L1614-L1640
+[runtime-command-submit]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_aql_queue.cpp#L1744-L1764
+[runtime-pm4-cache]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L4904-L4935
