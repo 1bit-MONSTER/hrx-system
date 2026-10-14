@@ -143,7 +143,7 @@ The loader does not rewrite JSON to machine-absolute paths, resolve symlinks or
 infer remote mounts. Source-returned parameter/policy references use the same
 base. Tokenizer paths returned relative to an asset directory use that directory.
 
-An [uploaded source package](serving-http.md#uploaded-source-packages) supplies
+An [uploaded source package](http-profiles.md#uploaded-source-packages) supplies
 a separate namespace for relative programs and metadata, based on the `request`
 part's logical filename. It supports preparation/control VM programs, native
 providers, tokenizers and weight-preparation policies without placing them on the

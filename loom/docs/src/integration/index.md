@@ -38,7 +38,7 @@ created them only after the application loads or copies them.
 
 ## Integration guides
 
-- [Author serving model packages](serving-models.md) supplies model programs to
+- [Author serving model packages](../serving/model-programs.md) supplies model programs to
   a running multi-model server without a native per-model adapter or rebuild.
 - [Compose modules in memory](module-composition.md) shows both declaration-only
   and logical-provider composition over caller-owned source bytes and one

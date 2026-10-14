@@ -147,7 +147,7 @@ when `admission:"drained"` defers preparation. These are code packages, not
 checkpoint transfers or a persistent package catalog.
 
 For `POST /v1/models/register`, the `request` part is the complete
-[model document](serving-models.md). Relative `prepare`, `control`, native
+[model document](model-documents.md). Relative `prepare`, `control`, native
 providers, tokenizer metadata and source-declared weight-preparation policies
 resolve inside the package. An image or finite model's relative asset directory
 also applies within that namespace when loading metadata. Absolute locators

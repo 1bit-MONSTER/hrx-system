@@ -17,7 +17,7 @@ by another person or agent.
 
 ## Establish the resource contract
 
-Start with a working [model package](../../integration/serving-models.md), its
+Start with a working [model package](../model-programs.md), its
 matching parameter checkpoint, installed Loom tools, `curl` and `jq`.
 A checkpoint alone does not supply a model implementation. The examples use
 a text deployment named `scout`; its package has `prepare.loom`, `control.loom`,

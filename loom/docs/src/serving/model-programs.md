@@ -6,7 +6,7 @@ device queues, memory ownership, request scheduling and HTTP encoding. Adding
 a model that fits an existing modality changes the package, not the server's C
 code or executable.
 
-The [first-output walkthrough](../serving/workflows/serve-models.md) runs a complete
+The [first-output walkthrough](workflows/serve-models.md) runs a complete
 arithmetic package before weights or neural accuracy enter the picture. That
 is a useful starting point for a port: changing its math preserves a working
 path through registration, execution, output and retirement.
@@ -30,7 +30,7 @@ its own numerical oracle and representative workload.
 An audio stream, image-conditioned request or arbitrary workflow graph needs an
 input/output ownership contract beyond these HTTP profiles. Such a port is a
 modality extension, not an embedding vector with overloaded fields. The
-[HTTP reference](../serving/http-profiles.md) defines the existing boundary.
+[HTTP reference](http-profiles.md) defines the existing boundary.
 
 ## Keep the package complete and relocatable
 
@@ -47,7 +47,7 @@ weights.safetensors  checkpoint selected by preparation policy
 ```
 
 These filenames are conventions, not hardcoded server paths.
-The [model document](../serving/model-documents.md) names the
+The [model document](model-documents.md) names the
 actual files. GGUF and safetensors inputs follow the selected preparation
 policy; a file extension or model name does not convert an arbitrary checkpoint.
 Its keys, encodings and layouts must agree with the authored source.
@@ -58,7 +58,7 @@ file document resolve from its directory, including references to shared motif
 libraries elsewhere. JSON-only HTTP registration supplies its absolute
 server-local base. A multipart source package instead carries programs and
 metadata in a separate logical namespace while parameter files stay server-local.
-The [live development workflow](../serving/workflows/live-model-development.md)
+The [live development workflow](workflows/live-model-development.md)
 shows upload, native selection and retained-state comparisons.
 
 `definition.sources` is a numerical provider catalog, not an ordered dispatch
@@ -85,6 +85,7 @@ configuration and checkpoint domains. Shared preparation capabilities include:
 | `dispatch(root, tag)` | Declare a buffer-only native kernel root with its compiled launch configuration. |
 | `config(stage, key, value)` | Bind a public Loom configuration value in textual syntax. |
 | `config_i64(stage, key, value)` | Bind a signed integer configuration value. |
+| `workspace_limit(stage, bytes)` | Bound command workspace, including compatible live replacements. |
 | `parameter(stage, binding, directory, path, policy)` | Associate a reflected fixed binding with a checkpoint and preparation policy. |
 
 The exact signatures and ownership are in the
@@ -218,5 +219,5 @@ does not establish these ownership or numerical contracts.
 and [compile reports](../workflows/compile-reports.md) provide the optimization
 loop once correctness is measurable. Real model shapes, memory traffic and
 independent error bounds guide layout, traversal, fusion and specialization.
-Microkernel speed is one input; [server observations](../serving/workflows/observe-model-server.md)
+Microkernel speed is one input; [server observations](workflows/observe-model-server.md)
 and end-to-end useful throughput determine whether the change helps the workload.

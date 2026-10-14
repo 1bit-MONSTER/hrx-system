@@ -14,7 +14,8 @@ loom-serve --agents_md
 
 The [serving walkthrough](workflows/serve-models.md) reaches a first response
 without weights. [Model documents](model-documents.md) specify programs, assets,
-placement and per-model capacities.
+placement and per-model capacities. [Author model programs](model-programs.md)
+describes preparation, execution and the contracts for adding a model package.
 The [operation](workflows/operate-model-server.md) and
 [observation](workflows/observe-model-server.md) workflows describe lifecycle
 controls, pressure, counters and telemetry cursors.
@@ -33,7 +34,7 @@ controls, pressure, counters and telemetry cursors.
 | `--request_body_bytes=N` | `8388608` | Maximum HTTP body bytes per connection. |
 | `--heartbeat_ms=N` | `1000` | Per-model stderr JSONL heartbeat interval; `0` disables periodic reporting, not cumulative counters. |
 | `--pool_backing=elastic\|fixed` | `elastic` | Demand-committed retained slabs or eagerly backed retained storage. |
-| `--slab_bytes=N` | `2097152` | Physical slab size in bytes; `0` uses the allocator recommendation. |
+| `--slab_bytes=N` | `67108864` | Elastic physical slab size in bytes (64 MiB); `0` uses the allocator recommendation. Ignored for fixed backing. |
 | `--memory_bytes=N` | `0` | Serving-managed physical parameter/state limit; `0` imposes no serving limit. |
 
 Model, connection and body capacities must be positive. Holding credit must
