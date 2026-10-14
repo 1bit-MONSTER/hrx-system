@@ -88,6 +88,13 @@ These are runtime choices, not a requirement for the application to create one
 thread per hardware buffer. [Service selection][service]
 [GPU backing count][backing-count] [Actual caller][caller]
 
+The SDK's embedded AQLProfile path can use direct KFD queues, memory and
+signals, or the ROCr/HSA transport selected by its resource factory. The
+selection includes a native device check and a supported-target predicate;
+the existence of an AQL-shaped packet structure does not identify the queue
+that ultimately executes its commands. Both paths retain a separate control
+queue for live collection. [Transport selection][queue-source]
+
 For the GFX12 path, two hardware buffer slots rotate through those three
 backings. With A initially in slot 0 and B in slot 1, the replacement schedule
 is:
@@ -102,23 +109,24 @@ is:
 | C | 1 | B | C |
 
 After three replacements the backing order repeats but the hardware-slot
-parity has changed. Six command variants restore both. AQLProfile duplicates
-an odd-length backing sequence when its factory ID differs from the generic
-`GFX9_GPU_ID`, and builds the replacement commands once. That predicate also
-includes separately named MI factories; it is not an ISA-major comparison.
-The GFX9 base-replacement operation itself has no slot-0/slot-1 operand.
+parity has changed. Six command variants restore both. The embedded AQLProfile
+duplicates an odd-length backing sequence for factory IDs at or above
+`GFX10_GPU_ID`, and builds the replacement commands once. Its preceding GFX9
+and MI factory IDs use one round. The GFX9 base-replacement operation itself
+has no slot-0/slot-1 operand.
 [Backing sequence][backing-sequence]
 [Prepared commands][prepared-commands]
 
-The source-backed handoff contains more than a status read:
+The successful handoff contains more than a status read:
 
 1. A separate control queue reads the selected SE/XCC's trace status into a
-   control record, executes its barrier/cache sequence, and restores broadcast.
+   control record, executes cache maintenance, and restores broadcast.
    The host observes completion before interpreting that snapshot.
 2. A full-buffer indication chooses the next prepared replacement command.
-   GFX12 writes the replacement base low word, executes the builder's barrier,
-   then writes the high word. GFX9 updates BASE/BASE2. The command emits
-   cache maintenance and restores broadcast.
+   The embedded GFX12 builder writes the replacement base low word followed
+   by the high word through unconfirmed `COPY_DATA` register writes; it emits
+   no intervening partial flush. GFX9 waits for `BUSY` to clear before updating
+   BASE/BASE2. The command emits cache maintenance and restores broadcast.
 3. The SDK waits for replacement-command completion before submitting the
    completed buffer's copy. It waits for that copy before publishing a CPU
    staging slot to the consumer.
@@ -127,16 +135,16 @@ The source-backed handoff contains more than a status read:
    that GPU backing and the CPU staging slot have different final users.
 
 [Status and replacement commands][live-builder]
+[Register-write encoding][register-write12]
 [Producer sequence][live-consumer] [Copy dependency][copy-dependency]
 
-The cache operand deserves separate attention. In the pinned constructor's
-first replacement above, the helper receives B as its `prev` address while
-the status consumer returns A for copying. The GFX12 cache builder emits
+The replacement constructor supplies the completed backing as the cache
+operand: in the first replacement above, both that operand and the status
+consumer's copy source are A. The GFX12 cache builder emits
 `GCR_CNTL = 0x18000`: forward sequencing and GL2 writeback with `GL2_RANGE =
-ALL`. Its encoded address therefore does not restrict GL2 writeback to B.
-A conversion to ranged maintenance cannot simply inherit that operand and
-claim it describes the completed backing. The buffer-selection and visibility
-contracts stay separate. [Prepared operands][prepared-commands]
+ALL`. The encoded address therefore does not restrict GL2 writeback to A.
+The buffer-selection and visibility contracts stay separate.
+[Prepared operands][prepared-commands]
 [Returned backing][status-consumer] [Cache encoding][cache12]
 [Range fields](../pm4/cache.md#acquire-gcr-fields)
 
@@ -155,14 +163,74 @@ snapshot twice can advance that counter twice. The caller's swap generation,
 status-query completion and buffer-address phase remain part of the protocol.
 [Status consumer][status-consumer] [Caller phase check][phase-check]
 
+## Clock anchors and chunk timing
+
+The embedded AQLProfile adds two 64-bit fields to its `TraceControl` record:
+`gpu_clock_start` and `gpu_clock_latest`. Clock fields are written once per
+selected XCC; the reader maps an SE to its XCC using `SE / SEs_per_XCC`.
+The same record array also carries per-SE trace status, so the two uses have
+different index meanings. Allocation initializes the clock fields to zero.
+Reading these fields does not itself wait for a producer or sample a new
+clock. [Control representation][clock-layout]
+[Initialization][clock-initialize] [Reader][clock-reader]
+
+| Command point | Captured anchor |
+| --- | --- |
+| Start | After enabling the selected trace units and writing decoder metadata, capture `gpu_clock_start` for each participating XCC. |
+| Buffer replacement | After writing the new base, capture `gpu_clock_latest` for that XCC, then perform payload and control-record cache maintenance. |
+| Stop | Capture `gpu_clock_latest` before disabling or finishing the trace and waiting for its final writes. |
+
+These anchors identify command-processing points. A replacement timestamp is
+not the time the previous buffer filled, and the stop timestamp precedes final
+trace retirement. The interval attached to a chunk therefore does not establish
+the first and last token's exact execution times or a bound containing every
+token. The token decoder retains its own timing context.
+[Start and stop placement][clock-placement] [Replacement placement][live-builder]
+
+The GFX9 path uses a confirmed 64-bit `COPY_DATA` from `GPU_CLOCK_COUNT` to
+memory. When realtime markers are enabled, it also copies that captured value
+into trace userdata and emits a fresh low-word clock marker. The GFX11 and
+GFX12 builders use a confirmed 64-bit copy to `TC_L2`; the same clock-field
+interface does not imply identical memory policies or a trace-token marker on
+every family. [Clock selection][clock-selection]
+[GFX9 capture and marker][clock9] [GFX11 capture][clock11]
+[GFX12 capture][clock12]
+
+The live caller waits for a completed status query before reading the initial
+anchor, waits for replacement completion before reading the next anchor, and
+waits for stop before collecting the final pair. A restart clears the caller's
+cached starting anchor; it reads the new one after the next completed query
+or stop. This avoids reusing an earlier capture's clock while the restart
+packet is still pending. [Live timing and restart][live-consumer]
+[Final pair][clock-final]
+
+Each delivered chunk can carry both raw GPU ticks and a translated system
+clock. The SDK retains the raw value and calls ROCr's
+`hsa_amd_profiling_convert_tick_to_system_domain` separately for each anchor.
+Missing HSA-agent association, unavailable conversion, or conversion failure
+leaves the system field zero. In particular, a direct KFD capture can have
+useful raw anchors without an available HSA conversion. Separate scalar
+conversions do not supply a shared calibration snapshot or an uncertainty
+bound. [Conversion][clock-convert]
+[Host relation](../observability.md#host-brackets-and-uncertainty)
+
 ## Overflow, discontinuities and decoding
 
-The native full bits do not encode CPU-consumer credits. When CPU staging is
-exhausted or the GFX12 loss indication is set, the SDK stops tracing, delivers
-remaining data, emits a new stream header where applicable, and restarts.
-Delivered chunks identify CPU-buffer-full or GPU-buffer-full discontinuities.
-This continues collection with gaps; it is not a lossless backpressure promise.
-[Overflow response][live-consumer]
+The native full bits do not encode CPU-consumer credits. The embedded SDK
+distinguishes two exhaustion paths:
+
+| Observation | Consumer response |
+| --- | --- |
+| CPU staging has no free slot after a successful GPU replacement. | Submit and wait for stop, wait for a CPU slot, deliver the retired backing and final tail, emit a new header where applicable, then restart. Chunks identify the CPU-buffer-full discontinuity. |
+| The GPU lockdown-failure indication is set. | Disable submission on the control queue and return without swap, stop, restart or later code-object markers. Discard GPU-resident data and deliver only already-copied CPU slots. |
+
+The first path continues collection with gaps. The second deliberately avoids
+further trace-control packets; the software queue's disabled state is not a
+hardware stop acknowledgement. The normal `FINISH`/`BUSY` drain contract cannot
+be inferred from that error path. Storage retirement after a failed trace
+writer needs its native recovery contract independently of the collector's
+thread join. [Overflow response][live-consumer]
+[Collector exit][collector-exit] [Agent teardown][agent-teardown]
 
 GFX9's cited primitive reports the wrapped-status mask but supplies no
 lockdown-failure mask. GFX12 supplies the full-buffer and packet-loss masks.
@@ -194,23 +262,37 @@ need that context; a byte buffer alone is not a resolved instruction timeline.
 [builder-limits]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/pm4/sqtt_builder.h#L215-L233
 [control9]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/gfxip/gfx9/gfx9_primitives.h#L667-L730
 [control12]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/gfxip/gfx12/gfx12_primitives.h#L616-L640
-[live-setup]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/pm4/sqtt_builder.h#L300-L430
-[aql-stop]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/pm4/sqtt_builder.h#L526-L577
-[live-builder]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/pm4/sqtt_builder.h#L654-L698
-[service]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/service.cpp#L93-L204
-[backing-count]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/aql/packet_construct.cpp#L200-L206
-[caller]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/core.cpp#L267-L339
-[backing-sequence]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/core/threadtrace.cpp#L234-L262
-[prepared-commands]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/core/threadtrace.cpp#L394-L448
-[live-consumer]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/threading.cpp#L289-L343
-[copy-dependency]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/threading.cpp#L82-L106
+[live-setup]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/sqtt_builder.h#L320-L499
+[aql-stop]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/sqtt_builder.h#L541-L637
+[live-builder]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/sqtt_builder.h#L754-L829
+[service]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/service.cpp#L113-L228
+[backing-count]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/aql/packet_construct.cpp#L206-L211
+[caller]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/core.cpp#L345-L425
+[backing-sequence]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/core/threadtrace.cpp#L275-L302
+[prepared-commands]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/core/threadtrace.cpp#L492-L559
+[live-consumer]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/threading.cpp#L307-L389
+[copy-dependency]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/hsa_util.cpp#L271-L293
 [idle9]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/pm4/gfx9_cmd_builder.h#L118
 [barrier9]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/pm4/gfx9_cmd_builder.h#L61-L72
-[barrier12]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/pm4/gfx12_cmd_builder.h#L279-L299
-[cache12]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/pm4/gfx12_cmd_builder.h#L299-L334
-[status-consumer]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/core/threadtrace.cpp#L358-L392
-[phase-check]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/hsa/aql_packet.cpp#L250-L278
-[final-reader]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/core/threadtrace.cpp#L65-L127
+[barrier12]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/gfx12_cmd_builder.h#L345-L364
+[cache12]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/gfx12_cmd_builder.h#L366-L400
+[status-consumer]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/core/threadtrace.cpp#L421-L463
+[phase-check]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/hsa/aql_packet.cpp#L273-L301
+[final-reader]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/core/threadtrace.cpp#L69-L166
 [framing]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/core/threadtrace.cpp#L44-L58
 [code-markers]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/core/threadtrace.cpp#L320-L349
 [realtime-marker]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/aqlprofile/src/pm4/sqtt_builder.h#L636-L646
+[queue-source]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/core.cpp#L165-L204
+[register-write12]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/gfx12_cmd_builder.h#L170-L229
+[collector-exit]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/threading.cpp#L294-L305
+[agent-teardown]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/core.cpp#L206-L225
+[clock-layout]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/sqtt_builder.h#L92-L102
+[clock-initialize]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/core/threadtrace.cpp#L305-L310
+[clock-reader]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/core/threadtrace.cpp#L466-L488
+[clock-placement]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/sqtt_builder.h#L527-L555
+[clock-selection]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/sqtt_builder.h#L717-L743
+[clock9]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/gfx9_cmd_builder.h#L550-L633
+[clock11]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/gfx11_cmd_builder.h#L508-L523
+[clock12]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/gfx12_cmd_builder.h#L804-L819
+[clock-final]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/threading.cpp#L239-L274
+[clock-convert]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/threading.cpp#L44-L68

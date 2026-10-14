@@ -27,7 +27,7 @@ resource-lifetime protocol.
 | [Timing and counters](observability.md) | Shader cycles (`SHADER_CYCLES`, `S_MEMTIME`), fixed-frequency `REALTIME`, timestamp conversion, counter ownership, and profiling interference. |
 | [Streaming performance monitoring](profiling/spm.md) | SPM sample layouts, SCLK/REFCLK intervals, RLC rings, vendor KFD host-buffer rotation, device-scoped start/stop, per-XCC extents, loss and completed storage use. |
 | [Program-counter sampling](profiling/pc-sampling.md) | Native trigger methods, trap records, per-XCC buffer rotation, reservation versus publication, loss and final trap users. |
-| [Shader thread traces](profiling/thread-trace.md) | SQTT selection, finite drain, live GFX9/GFX12 buffer replacement, hardware-slot phase, overflow and decoder context. |
+| [Shader thread traces](profiling/thread-trace.md) | SQTT selection, finite drain, live GFX9/GFX12 buffer replacement, hardware-slot phase, per-XCC clock anchors, overflow and decoder context. |
 | [Firmware dispatch logs](profiling/dispatch-log.md) | Vendor KFD `DLOG` stream ABI versions, native MQD fields, start/end records, overwrite detection and its limits, queue identity and mapped-storage lifetime. |
 
 Compiler target, physical graphics/compute IP, SDMA IP, firmware, and native
