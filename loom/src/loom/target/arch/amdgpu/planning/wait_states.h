@@ -80,8 +80,10 @@ typedef enum loom_amdgpu_wait_state_reason_e {
   LOOM_AMDGPU_WAIT_STATE_REASON_DIV_FMAS_CONDITION = 13,
   // An address or message consumer reads M0 after a scalar ALU write.
   LOOM_AMDGPU_WAIT_STATE_REASON_M0_READ = 14,
+  // A DOT result is read or overwritten without same-opcode forwarding.
+  LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE = 15,
   // Number of wait-state reasons, including UNKNOWN.
-  LOOM_AMDGPU_WAIT_STATE_REASON_COUNT_ = 15,
+  LOOM_AMDGPU_WAIT_STATE_REASON_COUNT_ = 16,
 } loom_amdgpu_wait_state_reason_t;
 
 typedef enum loom_amdgpu_wait_state_action_e {

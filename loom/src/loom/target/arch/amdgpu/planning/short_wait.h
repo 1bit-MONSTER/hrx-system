@@ -18,8 +18,9 @@ extern "C" {
 typedef struct loom_amdgpu_short_wait_t loom_amdgpu_short_wait_t;
 
 // Fixed ALU reasons occupy their wait-state reason bit. Store retention uses
-// two private channels to distinguish VALU and other physical overwrites.
-typedef uint16_t loom_amdgpu_short_wait_reasons_t;
+// two private channels to distinguish VALU and other physical overwrites. DOT
+// identities have independent channels for opcode-specific forwarding.
+typedef uint32_t loom_amdgpu_short_wait_reasons_t;
 
 enum {
   // VMEM scalar reads have a longer lifetime than ordinary VALU scalar reads.
@@ -31,6 +32,9 @@ enum {
   // PERMLANE reads need separation from VALU writers, unlike DPP's any-writer
   // dependency.
   LOOM_AMDGPU_SHORT_WAIT_PERMLANE_READ = 1u << 11,
+  // Six native DOT identities retain separate three-slot release channels.
+  LOOM_AMDGPU_SHORT_WAIT_DOT_SHIFT = 12,
+  LOOM_AMDGPU_SHORT_WAIT_DOT_MASK = 63u << LOOM_AMDGPU_SHORT_WAIT_DOT_SHIFT,
 };
 
 typedef struct loom_amdgpu_short_wait_match_t {
@@ -63,7 +67,7 @@ iree_status_t loom_amdgpu_short_wait_allocate(
 void loom_amdgpu_short_wait_begin_block(loom_amdgpu_short_wait_t* state,
                                         uint16_t block_index);
 
-// Begins a native packet and matches its store-payload overwrite obligations.
+// Begins a native packet and matches store-payload and DOT result obligations.
 // Further physical reads are queried before publishing any packet results.
 loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
     loom_amdgpu_short_wait_t* state, const loom_low_packet_view_t* packet,
@@ -97,7 +101,7 @@ void loom_amdgpu_short_wait_advance(loom_amdgpu_short_wait_t* state,
 void loom_amdgpu_short_wait_drain_stores(loom_amdgpu_short_wait_t* state);
 
 // Publishes retained prefix queries and native packet progress after local
-// inserted delays. Store payload publication is owned by this commit.
+// inserted delays. Store payload and DOT publication are owned by this commit.
 void loom_amdgpu_short_wait_commit(loom_amdgpu_short_wait_t* state,
                                    const loom_low_packet_view_t* packet);
 

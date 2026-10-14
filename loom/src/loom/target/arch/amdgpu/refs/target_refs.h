@@ -76,6 +76,10 @@ enum {
   // word. Zero identifies descriptors without software MFMA result waits.
   LOOM_AMDGPU_DESCRIPTOR_MATRIX_PASSES_SHIFT = 17,
   LOOM_AMDGPU_DESCRIPTOR_MATRIX_PASSES_MASK = 31u << 17,
+  // One-based native CDNA DOT opcode identity; zero means no fixed DOT wait.
+  // Matching opcode accumulator reads and overwrites forward immediately.
+  LOOM_AMDGPU_DESCRIPTOR_DOT_IDENTITY_SHIFT = 26,
+  LOOM_AMDGPU_DESCRIPTOR_DOT_IDENTITY_MASK = 7u << 26,
 };
 
 // Returns the hardware MFMA execution passes, independently of result width
@@ -84,6 +88,15 @@ static inline uint16_t loom_amdgpu_descriptor_matrix_pass_count(
     loom_amdgpu_descriptor_traits_t traits) {
   return (uint16_t)((traits & LOOM_AMDGPU_DESCRIPTOR_MATRIX_PASSES_MASK) >>
                     LOOM_AMDGPU_DESCRIPTOR_MATRIX_PASSES_SHIFT);
+}
+
+// Returns the native DOT identity's one-hot bit, or zero for other packets.
+static inline uint8_t loom_amdgpu_descriptor_dot_identity_mask(
+    loom_amdgpu_descriptor_traits_t traits) {
+  const unsigned identity =
+      (traits & LOOM_AMDGPU_DESCRIPTOR_DOT_IDENTITY_MASK) >>
+      LOOM_AMDGPU_DESCRIPTOR_DOT_IDENTITY_SHIFT;
+  return (uint8_t)((1u << identity) >> 1);
 }
 
 // Relative completion order of VMEM loads and cache invalidations. Distinct

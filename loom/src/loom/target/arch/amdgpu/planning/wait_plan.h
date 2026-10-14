@@ -151,6 +151,8 @@ typedef struct loom_amdgpu_wait_plan_t {
   const uint64_t* elided_wait_nodes;
   // Union of native descriptor traits retained by node classification.
   loom_amdgpu_descriptor_traits_t descriptor_traits;
+  // Native DOT identities requiring independent fixed-delay channels.
+  uint8_t dot_identity_mask;
 } loom_amdgpu_wait_plan_t;
 
 // Returns whether the canonical counter walk proved an authored wait redundant.

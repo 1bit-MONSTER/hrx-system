@@ -16,7 +16,7 @@ enum {
   LOOM_AMDGPU_SHORT_WAIT_STORE_VALU = 1u << 0,
   LOOM_AMDGPU_SHORT_WAIT_STORE_OTHER = 1u << 1,
   LOOM_AMDGPU_SHORT_WAIT_STORES = 3u,
-  LOOM_AMDGPU_SHORT_WAIT_CHANNEL_COUNT = 12,
+  LOOM_AMDGPU_SHORT_WAIT_CHANNEL_COUNT = 18,
   LOOM_AMDGPU_SHORT_WAIT_MAX_CYCLES = 5,
   // Generated instructions have at most two physical results per native issue,
   // including the two coincident VOPD results. A packet may also retain
@@ -26,7 +26,7 @@ enum {
 
 // Required native instruction separation for each independent release channel.
 static const uint8_t loom_amdgpu_short_wait_cycles[] = {
-    2, 1, 2, 1, 2, 2, 1, 1, 5, 4, 1, 2,
+    2, 1, 2, 1, 2, 2, 1, 1, 5, 4, 1, 2, 3, 3, 3, 3, 3, 3,
 };
 
 static_assert(IREE_ARRAYSIZE(loom_amdgpu_short_wait_cycles) ==
@@ -73,7 +73,7 @@ typedef struct loom_amdgpu_short_wait_block_t {
 struct loom_amdgpu_short_wait_t {
   // Schedule providing the verified CFG and final packet identities.
   const loom_low_schedule_table_t* schedule;
-  // Final physical allocation consumed by store payload queries.
+  // Final physical allocation consumed by payload and result queries.
   const loom_low_allocation_table_t* allocation;
   // Arena owning transient summaries and the dataflow worklist.
   iree_arena_allocator_t* arena;
@@ -100,8 +100,8 @@ struct loom_amdgpu_short_wait_t {
   loom_amdgpu_short_wait_source_t sources[LOOM_AMDGPU_SHORT_WAIT_SOURCE_COUNT];
   // Populated local source prefix, including reusable expired entries.
   uint8_t source_count;
-  // Store source retained until its packet is committed.
-  loom_amdgpu_short_wait_source_t pending_store;
+  // Store payload or DOT result retained until its packet is committed.
+  loom_amdgpu_short_wait_source_t pending_source;
   // Native issue progress guaranteed by the pending packet.
   uint64_t pending_cycles;
   // Guaranteed native instruction position in the current block.
@@ -190,6 +190,12 @@ static loom_amdgpu_wait_state_reason_t loom_amdgpu_short_wait_reason(
       LOOM_AMDGPU_WAIT_STATE_REASON_DIV_FMAS_CONDITION,
       LOOM_AMDGPU_WAIT_STATE_REASON_M0_READ,
       LOOM_AMDGPU_WAIT_STATE_REASON_LANE_PERMUTE_VGPR_READ,
+      LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE,
+      LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE,
+      LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE,
+      LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE,
+      LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE,
+      LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE,
   };
   return (loom_amdgpu_wait_state_reason_t)reasons[channel];
 }
@@ -399,7 +405,7 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
     loom_amdgpu_short_wait_t* state, const loom_low_packet_view_t* packet,
     const loom_amdgpu_structural_packet_info_t* structural,
     loom_amdgpu_descriptor_traits_t traits) {
-  state->pending_store = (loom_amdgpu_short_wait_source_t){0};
+  state->pending_source = (loom_amdgpu_short_wait_source_t){0};
   state->pending_cycles =
       packet->descriptor != NULL
           ? 1
@@ -407,6 +413,21 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
   if (state->blocks != NULL &&
       state->position < LOOM_AMDGPU_SHORT_WAIT_MAX_CYCLES) {
     memset(state->query_reasons, 0, sizeof(state->query_reasons));
+  }
+  const loom_amdgpu_short_wait_reasons_t dot_identity =
+      (uint32_t)loom_amdgpu_descriptor_dot_identity_mask(traits)
+      << LOOM_AMDGPU_SHORT_WAIT_DOT_SHIFT;
+  const loom_amdgpu_short_wait_reasons_t dot_reasons =
+      state->enabled_reasons & LOOM_AMDGPU_SHORT_WAIT_DOT_MASK;
+  if (dot_identity) {
+    const loom_low_allocation_assignment_t* result =
+        loom_low_packet_result_assignment(state->allocation, packet, 0);
+    state->pending_source = (loom_amdgpu_short_wait_source_t){
+        .node_index = packet->node_index,
+        .base = result->location_base,
+        .count = result->location_count,
+        .reasons = {dot_identity, dot_identity, dot_identity},
+    };
   }
   if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY) &&
       (state->enabled_reasons & LOOM_AMDGPU_SHORT_WAIT_STORES)) {
@@ -420,7 +441,7 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
       uint32_t base = payload->location_base;
       loom_amdgpu_short_wait_map_range(state, payload->descriptor_reg_class_id,
                                        &base);
-      state->pending_store = (loom_amdgpu_short_wait_source_t){
+      state->pending_source = (loom_amdgpu_short_wait_source_t){
           .node_index = packet->node_index,
           .base = base,
           .count = payload->location_count,
@@ -435,28 +456,66 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
     }
   }
   loom_amdgpu_short_wait_match_t match = {0};
-  if (!(state->enabled_reasons & LOOM_AMDGPU_SHORT_WAIT_STORES)) {
+  if (!(state->enabled_reasons & LOOM_AMDGPU_SHORT_WAIT_STORES) &&
+      !dot_reasons) {
     return match;
   }
+  const bool dot_consumer =
+      !iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX) &&
+      (iree_any_bit_set(
+           traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_ALU |
+                       LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_MEMORY_CONSUMER) ||
+       structural->vector_alu_instruction_count != 0);
   if (structural->moves.count != 0) {
-    for (iree_host_size_t i = 0; i < structural->moves.count && i < 2; ++i) {
+    for (iree_host_size_t i = 0; i < structural->moves.count && i < 3; ++i) {
       const loom_low_move_t* move =
           &state->allocation->moves[structural->moves.start + i];
+      if (dot_reasons && move->source.location_kind ==
+                             LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
+        loom_amdgpu_short_wait_match_t candidate = loom_amdgpu_short_wait_query(
+            state, move->source.descriptor_reg_class_id, move->source.location,
+            1, (uint32_t)i, dot_reasons);
+        if (candidate.cycles > match.cycles) {
+          match = candidate;
+        }
+      }
       loom_amdgpu_short_wait_match_t candidate = loom_amdgpu_short_wait_query(
           state, move->destination.descriptor_reg_class_id,
           move->destination.location, 1, (uint32_t)i,
-          LOOM_AMDGPU_SHORT_WAIT_STORE_VALU);
+          LOOM_AMDGPU_SHORT_WAIT_STORE_VALU | dot_reasons);
       if (candidate.cycles > match.cycles) {
         match = candidate;
       }
     }
   } else if (state->pending_cycles != 0) {
-    const uint8_t reason =
-        iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_ALU |
-                                     LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX) ||
-                structural->vector_alu_instruction_count != 0
-            ? LOOM_AMDGPU_SHORT_WAIT_STORE_VALU
-            : LOOM_AMDGPU_SHORT_WAIT_STORE_OTHER;
+    if (dot_reasons && dot_consumer) {
+      for (uint16_t i = 0; i < packet->node->operand_count; ++i) {
+        const loom_low_allocation_assignment_t* operand =
+            loom_low_packet_operand_assignment(state->allocation, packet, i);
+        if (operand != NULL &&
+            operand->location_kind ==
+                LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
+          // Generation fixes DOT's accumulator at input two. Other inputs and
+          // every ordinary consumer retain all pending native identities.
+          const loom_amdgpu_short_wait_reasons_t reasons =
+              i == 2 ? dot_reasons & ~dot_identity : dot_reasons;
+          const loom_amdgpu_short_wait_match_t candidate =
+              loom_amdgpu_short_wait_query(
+                  state, operand->descriptor_reg_class_id,
+                  operand->location_base, operand->location_count, 0, reasons);
+          if (candidate.cycles > match.cycles) {
+            match = candidate;
+          }
+        }
+      }
+    }
+    const loom_amdgpu_short_wait_reasons_t reasons =
+        (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_ALU |
+                                      LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX) ||
+                 structural->vector_alu_instruction_count != 0
+             ? LOOM_AMDGPU_SHORT_WAIT_STORE_VALU
+             : LOOM_AMDGPU_SHORT_WAIT_STORE_OTHER) |
+        (dot_consumer ? dot_reasons & ~dot_identity : 0);
     for (uint16_t i = 0; i < packet->node->result_count; ++i) {
       const loom_low_allocation_assignment_t* result =
           loom_low_packet_result_assignment(state->allocation, packet, i);
@@ -465,7 +524,7 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
               LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
         loom_amdgpu_short_wait_match_t candidate = loom_amdgpu_short_wait_query(
             state, result->descriptor_reg_class_id, result->location_base,
-            result->location_count, 0, reason);
+            result->location_count, 0, reasons);
         if (candidate.cycles > match.cycles) {
           match = candidate;
         }
@@ -526,12 +585,14 @@ void loom_amdgpu_short_wait_commit(loom_amdgpu_short_wait_t* state,
     }
   }
   state->position += state->pending_cycles;
-  if (state->pending_store.reasons[0]) {
+  if (state->pending_source.reasons[0]) {
     loom_amdgpu_short_wait_source_t* source = loom_amdgpu_short_wait_source(
-        state, state->pending_store.node_index, state->pending_store.base,
-        state->pending_store.count, state->position);
-    *source = state->pending_store;
-    source->end_position = state->position;
+        state, state->pending_source.node_index, state->pending_source.base,
+        state->pending_source.count, state->position);
+    for (unsigned plane = 0; plane < LOOM_AMDGPU_SHORT_WAIT_MAX_CYCLES;
+         ++plane) {
+      source->reasons[plane] |= state->pending_source.reasons[plane];
+    }
   }
 }
 

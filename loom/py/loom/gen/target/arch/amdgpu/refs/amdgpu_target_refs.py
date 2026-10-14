@@ -71,6 +71,7 @@ from loom.target.arch.amdgpu.target_info import (  # noqa: E402
     sorted_descriptor_set_infos,
 )
 from loom.target.low_descriptors import (  # noqa: E402
+    ConstraintKind,
     Descriptor,
     DescriptorSet,
     Immediate,
@@ -248,6 +249,7 @@ class _DescriptorTraitContext:
     descriptor_set: DescriptorSet
     resources: Mapping[str, Resource]
     schedule_classes: Mapping[str, ScheduleClass]
+    dot_identities: Mapping[tuple[int, int], int]
 
 
 def _parse_isa_xml_argument(value: str) -> tuple[str, Path]:
@@ -493,10 +495,20 @@ def _descriptor_issue_resources(
 
 
 def _descriptor_trait_context(descriptor_set: DescriptorSet) -> _DescriptorTraitContext:
+    dot_encodings = sorted(
+        {
+            (descriptor.encoding_format_id, descriptor.encoding_id)
+            for descriptor in descriptor_set.descriptors
+            if descriptor_set.key in AMDGPU_MFMA_TIMINGS_BY_DESCRIPTOR_SET and (descriptor.semantic_tag or "").startswith("dot.")
+        }
+    )
+    if len(dot_encodings) > 6:
+        raise ValueError(f"CDNA descriptor set '{descriptor_set.key}' exceeds the six native DOT forwarding channels")
     return _DescriptorTraitContext(
         descriptor_set=descriptor_set,
         resources={resource.name: resource for resource in descriptor_set.resources},
         schedule_classes={schedule_class.name: schedule_class for schedule_class in descriptor_set.schedule_classes},
+        dot_identities={encoding: ordinal for ordinal, encoding in enumerate(dot_encodings, 1)},
     )
 
 
@@ -560,6 +572,19 @@ def _descriptor_trait_names(
         raise ValueError(f"AMDGPU descriptor '{descriptor.key}' exceeds the two-result native instruction contract")
     if uses_vector_alu:
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_ALU")
+    if context.dot_identities and (descriptor.semantic_tag or "").startswith("dot."):
+        results = tuple(operand for operand in descriptor.operands if operand.role is OperandRole.RESULT)
+        inputs = tuple(operand for operand in descriptor.operands if operand.role is OperandRole.OPERAND and OperandFlag.IMPLICIT not in operand.flags)
+        if (
+            not uses_vector_alu
+            or len(results) != 1
+            or tuple(operand.field_name for operand in inputs) != ("lhs", "rhs", "acc")
+            or any(operand.unit_count != 1 for operand in (*results, *inputs))
+            or any(alternative.reg_class != "amdgpu.vgpr" for alternative in results[0].reg_alts)
+        ):
+            raise ValueError(f"CDNA DOT forwarding requires one DWORD result and lhs/rhs/acc inputs: {descriptor.key}")
+        identity = context.dot_identities[(descriptor.encoding_format_id, descriptor.encoding_id)]
+        trait_names.append(f"({identity}u << LOOM_AMDGPU_DESCRIPTOR_DOT_IDENTITY_SHIFT)")
     if any(resource.kind == ResourceKind.SCALAR_ALU for resource in issue_resources):
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_SCALAR_ALU")
     if uses_matrix:
@@ -580,6 +605,18 @@ def _descriptor_trait_names(
                 results = tuple(operand for operand in descriptor.operands if operand.role in (OperandRole.RESULT, OperandRole.OPERAND_RESULT))
                 if len(results) != 1 or results[0].unit_count != floor_width:
                     raise ValueError(f"MFMA exact forwarding floor requires one {floor_width}-register result: {descriptor.key}")
+            results = tuple((index, operand) for index, operand in enumerate(descriptor.operands) if operand.role is OperandRole.RESULT)
+            accumulators = tuple((index, operand) for index, operand in enumerate(descriptor.operands) if operand.field_name == "acc")
+            if (
+                len(results) != 1
+                or len(accumulators) != 1
+                or results[0][1].unit_count != accumulators[0][1].unit_count
+                or not any(
+                    constraint.kind is ConstraintKind.TIED and {constraint.lhs_operand_index, constraint.rhs_operand_index} == {results[0][0], accumulators[0][0]}
+                    for constraint in descriptor.constraints
+                )
+            ):
+                raise ValueError(f"MFMA input retention requires a same-width tied accumulator and result: {descriptor.key}")
             if semantic.startswith("matrix.mfma.f64."):
                 trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_DGEMM")
             elif not semantic.endswith(".f32"):

@@ -230,6 +230,7 @@ static const iree_string_view_t kAmdgpuWaitStateReasonNames[] = {
     [LOOM_AMDGPU_WAIT_STATE_REASON_DIV_FMAS_CONDITION] =
         IREE_SVL("div_fmas_condition"),
     [LOOM_AMDGPU_WAIT_STATE_REASON_M0_READ] = IREE_SVL("m0_read"),
+    [LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE] = IREE_SVL("dot_result_use"),
     [LOOM_AMDGPU_WAIT_STATE_REASON_STORE_DATA_REUSE] =
         IREE_SVL("store_data_reuse"),
     [LOOM_AMDGPU_WAIT_STATE_REASON_MATRIX_RESULT_USE] =
@@ -969,8 +970,11 @@ static void loom_amdgpu_wait_state_record_results(
                        LOOM_AMDGPU_WAIT_STATE_PACKET_FLAG_USES_VECTOR_ALU) ||
       info->structural.vector_alu_instruction_count != 0;
   const loom_amdgpu_short_wait_reasons_t vector_two_slot_reasons =
-      is_valu ? LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_VALU_TO_MATRIX_USE |
-                    LOOM_AMDGPU_SHORT_WAIT_PERMLANE_READ
+      is_valu ? LOOM_AMDGPU_SHORT_WAIT_PERMLANE_READ |
+                    (loom_amdgpu_descriptor_dot_identity_mask(
+                         info->descriptor_traits) == 0
+                         ? LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_VALU_TO_MATRIX_USE
+                         : 0)
               : 0;
   loom_amdgpu_short_wait_reasons_t vector_one_slot_reasons =
       is_valu ? LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_READFIRSTLANE_VGPR_READ : 0;
@@ -1338,9 +1342,9 @@ static iree_status_t loom_amdgpu_wait_state_apply_packet(
         builder, packet, packet, &coexecution_match));
   }
 
-  loom_amdgpu_short_wait_match_t store_match = {0};
+  loom_amdgpu_short_wait_match_t short_match = {0};
   if (builder->short_wait != NULL) {
-    store_match = loom_amdgpu_short_wait_begin_packet(
+    short_match = loom_amdgpu_short_wait_begin_packet(
         builder->short_wait, packet, &info.structural, info.descriptor_traits);
   }
   loom_amdgpu_wait_state_match_t match = {0};
@@ -1367,7 +1371,7 @@ static iree_status_t loom_amdgpu_wait_state_apply_packet(
       };
     }
   }
-  loom_amdgpu_wait_state_merge_short_match(&store_match, &match);
+  loom_amdgpu_wait_state_merge_short_match(&short_match, &match);
   IREE_RETURN_IF_ERROR(loom_amdgpu_wait_state_append(
       builder, packet, packet, &match, LOOM_AMDGPU_WAIT_STATE_ACTION_S_NOP));
 
@@ -1731,9 +1735,11 @@ static iree_status_t loom_amdgpu_wait_state_plan_build_with_scratch(
         &builder->mask_writes));
   }
   loom_amdgpu_short_wait_reasons_t short_reasons =
-      builder->matrix_results != NULL
-          ? LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_VALU_TO_MATRIX_USE
-          : 0;
+      (builder->matrix_results != NULL
+           ? LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_VALU_TO_MATRIX_USE
+           : 0) |
+      ((uint32_t)builder->wait_plan->dot_identity_mask
+       << LOOM_AMDGPU_SHORT_WAIT_DOT_SHIFT);
   const loom_amdgpu_descriptor_traits_t traits =
       builder->wait_plan->descriptor_traits;
   if (loom_amdgpu_wait_state_has_scheduling(

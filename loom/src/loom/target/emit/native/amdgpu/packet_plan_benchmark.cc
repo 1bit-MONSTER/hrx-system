@@ -110,6 +110,13 @@ struct FixtureSpec {
   GeneratedMatrixShape generated_matrix;
   // Alternative matrix branches feeding one join; zero for linear fixtures.
   uint32_t matrix_branch_count = 0;
+  // DOT dependency chain; empty for other fixtures.
+  struct {
+    // Number of accumulator phases separated by CFG edges.
+    uint32_t phase_count = 0;
+    // Number of distinct native DOT opcodes cycled through each phase.
+    uint32_t opcode_count = 0;
+  } generated_dot;
 };
 
 constexpr FixtureSpec kMemoryControl = {
@@ -523,7 +530,48 @@ static std::string BuildMatrixJoinSource(const FixtureSpec& spec) {
   return source.str();
 }
 
+// Same-opcode chains forward SrcC immediately. Alternating native identities
+// exercises distinct releases through the same physical accumulator and CFG.
+static std::string BuildDotSource(const FixtureSpec& spec) {
+  static constexpr const char* kMnemonics[] = {
+      "v_dot2_f32_f16", "v_dot4_i32_i8", "v_dot4_u32_u8",
+      "v_dot8_i32_i4",  "v_dot8_u32_u4",
+  };
+  std::ostringstream source;
+  source << R"(
+amdgpu.target<gfx90a> @target
+low.kernel.def target<amdgpu.cdna2.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) export("dot_windows") workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @dot_windows() asm {
+  %lane = low.live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %output = low.resource<hal_binding> {extent = 1024, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %initial = low.const<amdgpu.v_mov_b32> {imm32 = 0} : reg<amdgpu.vgpr>
+  %address = low.op<amdgpu.v_lshlrev_b32.src0_inline>(%lane) {imm32 = 2} : (reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr>
+)";
+  std::string accumulator = "%initial";
+  for (uint32_t phase = 0; phase < spec.generated_dot.phase_count; ++phase) {
+    if (phase != 0) {
+      source << "  low.br ^phase" << phase << "(" << accumulator
+             << ": reg<amdgpu.vgpr>)\n^phase" << phase << "(%incoming" << phase
+             << ": reg<amdgpu.vgpr>):\n";
+      accumulator = "%incoming" + std::to_string(phase);
+    }
+    for (uint32_t step = 0; step < 5; ++step) {
+      const std::string result =
+          "%result" + std::to_string(phase) + "_" + std::to_string(step);
+      source << "  " << result << " = "
+             << kMnemonics[step % spec.generated_dot.opcode_count]
+             << " %lane, %lane, " << accumulator << "\n";
+      accumulator = result;
+    }
+  }
+  source << "  global_store_dword_saddr %address, " << accumulator
+         << ", %output\n  return\n}\n";
+  return source.str();
+}
+
 static std::string BuildGeneratedLowSource(const FixtureSpec& spec) {
+  if (spec.generated_dot.opcode_count != 0) {
+    return BuildDotSource(spec);
+  }
   if (spec.matrix_branch_count != 0) {
     return BuildMatrixJoinSource(spec);
   }
@@ -982,6 +1030,29 @@ BENCHMARK(BM_PacketPlan_MfmaWindows)
     ->Arg(1)
     ->Arg(8)
     ->Arg(32)
+    ->Iterations(500)
+    ->Unit(benchmark::kNanosecond);
+
+static void BM_PacketPlan_DotWindows(benchmark::State& state) {
+  const FixtureSpec spec = {
+      .name = "dot_windows",
+      .input_stage = FixtureInputStage::kGeneratedLow,
+      .generated_matrix = {},
+      .generated_dot =
+          {
+              .phase_count = static_cast<uint32_t>(state.range(0)),
+              .opcode_count = static_cast<uint32_t>(state.range(1)),
+          },
+  };
+  BenchmarkPlan(state, spec, PlanComponent::kComplete);
+}
+BENCHMARK(BM_PacketPlan_DotWindows)
+    ->Args({1, 1})
+    ->Args({1, 5})
+    ->Args({8, 1})
+    ->Args({8, 5})
+    ->Args({32, 1})
+    ->Args({32, 5})
     ->Iterations(500)
     ->Unit(benchmark::kNanosecond);
 

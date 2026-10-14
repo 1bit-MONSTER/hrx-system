@@ -169,6 +169,7 @@ loom_check_test_suite(
     "test/compile_time_insertions.loom-test"
     "test/delay_alu.loom-test"
     "test/delay_layout.loom-test"
+    "test/dot_wait_windows.loom-test"
     "test/dpp_wait_states.loom-test"
     "test/entry_preamble.loom-test"
     "test/gfx1201_native.loom-test"
@@ -969,6 +970,50 @@ loom_cc_test(
     "iree-build-requirement=loom.emit.amdgpu"
   RESOURCE_GROUP
     gpu-device
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_TARGET_AMDGPU_IREE_HAL_DESCRIPTOR_SET_CDNA2_CORE)
+loom_test_module(
+  NAME
+    dot_wait_windows_execution_test_module
+  SRCS
+    "test/dot_wait_windows.loom"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_TARGET_AMDGPU_IREE_HAL_DESCRIPTOR_SET_CDNA2_CORE)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+loom_execution_test(
+  NAME
+    dot_wait_windows_execution_test_execute_amdgpu_hardware_test
+  MODULE
+    "::dot_wait_windows_execution_test_module"
+  RUNNER_ARGS
+    "--device=amdgpu"
+  LABELS
+    "iree-build-requirement=loom.target.arch.amdgpu"
+    "iree-build-requirement=loom.emit.amdgpu"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.amdgpu"
+    "iree-run-requirement=runtime.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+    "loom-execution-profile=amdgpu_hardware"
+    "loom-target-family=amdgpu"
+    "loom-target-class=gpu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+
+loom_check_compile_tests(
+  NAME
+    "dot_wait_windows_execution_test"
+  SRC
+    "::dot_wait_windows_execution_test_module"
+  TARGETS
+    loom::target::amdgpu::gfx90a
 )
 endif()
 
