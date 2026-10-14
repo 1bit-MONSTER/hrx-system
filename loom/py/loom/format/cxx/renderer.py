@@ -19,6 +19,7 @@ from loom.format.cxx.errors import CxxRenderError
 from loom.format.cxx.expressions import CxxExpressionRenderer
 from loom.format.cxx.naming import clean_identifier, loop_carrier_stem
 from loom.format.cxx.translation_unit import render_preamble
+from loom.format.cxx.types import KERNEL_COORDINATE_CPP_TYPE
 from loom.ir import (
     Block,
     DynamicEncoding,
@@ -160,7 +161,7 @@ class CxxRenderer(CxxExpressionRenderer):
             self._declare(
                 resolved.value_id("result"),
                 f"loom::encoding::layout::strided({strides})",
-                force_type="auto",
+                declaration_type="auto",
             )
             return ("static_strides",)
         if name == "buffer.alloca":
@@ -191,7 +192,7 @@ class CxxRenderer(CxxExpressionRenderer):
             self._declare(
                 result,
                 expression,
-                force_type="auto*",
+                declaration_type="auto*",
             )
             self.expression_types[result] = "unsigned char*"
             return ("memory_space", "base_alignment")
@@ -351,7 +352,8 @@ class CxxRenderer(CxxExpressionRenderer):
             self._declare(
                 operation.results[0],
                 expression,
-                force_type="unsigned",
+                declaration_type="auto",
+                expression_type=KERNEL_COORDINATE_CPP_TYPE,
                 inlineable=True,
             )
             return ("dimension",)
@@ -371,7 +373,7 @@ class CxxRenderer(CxxExpressionRenderer):
             self._declare(
                 operation.results[0],
                 expression,
-                force_type="unsigned",
+                declaration_type="unsigned",
                 inlineable=True,
             )
             return ()

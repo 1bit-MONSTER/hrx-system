@@ -158,7 +158,27 @@ template <unsigned long long NewerGroups>
 
 }  // namespace async
 
-// Three-dimensional unsigned coordinate used by launch and topology APIs.
+// One target-independent kernel topology coordinate. Auto-deduced values keep
+// Loom's index identity through templated APIs. Ordinary C++ and HIP-style
+// expressions convert implicitly to their conventional unsigned carrier;
+// address-domain arithmetic requires an explicit conversion to type::index.
+class [[loom::type("index")]] coordinate {
+ public:
+  operator unsigned() const;
+  explicit operator type::index() const;
+};
+
+// Three-dimensional target-independent kernel topology coordinates.
+struct coordinates {
+  // Coordinate along the x axis.
+  coordinate x;
+  // Coordinate along the y axis.
+  coordinate y;
+  // Coordinate along the z axis.
+  coordinate z;
+};
+
+// Three-dimensional unsigned launch geometry.
 struct uint3 {
   // Coordinate along the x axis.
   unsigned x;
@@ -250,18 +270,18 @@ template <unsigned long long ClusterSize = 0,
 namespace workitem {
 
 // Zero-based invocation coordinate within the current workgroup.
-[[loom::workitem_id]] extern const uint3 id;
+[[loom::workitem_id]] extern const coordinates id;
 
 }  // namespace workitem
 
 namespace workgroup {
 
 // Zero-based workgroup coordinate within the current launch.
-[[loom::workgroup_id]] extern const uint3 id;
+[[loom::workgroup_id]] extern const coordinates id;
 // Number of invocations in the current workgroup.
-[[loom::workgroup_size]] extern const uint3 size;
+[[loom::workgroup_size]] extern const coordinates size;
 // Number of workgroups in the current launch.
-[[loom::workgroup_count]] extern const uint3 count;
+[[loom::workgroup_count]] extern const coordinates count;
 
 // Synchronizes workgroup invocations and their global/workgroup-memory
 // accesses.
