@@ -76,6 +76,7 @@ from .common import (
     _SCHEDULE_MEMORY_STORE_GPR32,
     _SCHEDULE_MEMORY_STORE_GPR64,
     _SCHEDULE_SCALAR,
+    _SCHEDULE_SCALAR_CONTROL,
     _SHIFT32_IMMEDIATE,
     _SHIFT64_IMMEDIATE,
     _asm,
@@ -805,7 +806,7 @@ def _gpr_compare_branch_descriptor(bit_count: int, *, immediate: bool) -> Descri
                 flags=(EffectFlag.ORDERED,),
             ),
         ),
-        schedule_class=_SCHEDULE_CONTROL,
+        schedule_class=_SCHEDULE_SCALAR_CONTROL,
         flags=(DescriptorFlag.SIDE_EFFECTING, DescriptorFlag.TERMINATOR),
         instruction_classes=(InstructionClass.BRANCH,),
     )
@@ -1679,6 +1680,17 @@ X86_SCALAR_DESCRIPTOR_SET = DescriptorSet(
             latency_cycles=1,
             issue_uses=(IssueUse(_RESOURCE_STORE, cycles=1, units=1),),
             flags=(ScheduleClassFlag.MAY_STORE,),
+            model_quality=ModelQuality.ESTIMATED,
+        ),
+        ScheduleClass(
+            _SCHEDULE_SCALAR_CONTROL,
+            latency_kind=LatencyKind.ESTIMATE,
+            latency_cycles=1,
+            issue_uses=(
+                IssueUse(_RESOURCE_SCALAR, cycles=1, units=1),
+                IssueUse(_RESOURCE_CONTROL, cycles=1, units=1),
+            ),
+            flags=(ScheduleClassFlag.CONTROL,),
             model_quality=ModelQuality.ESTIMATED,
         ),
         ScheduleClass(

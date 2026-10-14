@@ -261,6 +261,13 @@ def test_bitwise_immediate_forms_are_shared_by_scalar_profiles() -> None:
 
 
 def test_integer_comparisons_use_width_parametric_predicates() -> None:
+    compare_branch_schedule = next(schedule for schedule in x86_descriptor_data.X86_SCALAR_DESCRIPTOR_SET.schedule_classes if schedule.name == "x86.scalar.control")
+    assert tuple(use.resource for use in compare_branch_schedule.issue_uses) == (
+        "x86.scalar",
+        "x86.control",
+    )
+    assert compare_branch_schedule.flags == (ScheduleClassFlag.CONTROL,)
+
     predicate_descriptors = {
         descriptor.key: descriptor
         for descriptor in x86_descriptor_data.X86_SCALAR_DESCRIPTOR_SET.descriptors
@@ -313,6 +320,7 @@ def test_integer_comparisons_use_width_parametric_predicates() -> None:
             assert branch.effects[0].flags == (EffectFlag.ORDERED,)
             assert DescriptorFlag.SIDE_EFFECTING in branch.flags
             assert DescriptorFlag.TERMINATOR in branch.flags
+            assert branch.schedule_class == compare_branch_schedule.name
             assert branch.instruction_classes == (InstructionClass.BRANCH,)
 
 
