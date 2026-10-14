@@ -467,7 +467,7 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
         application->call(arguments, types_, arena, owner, builder, location)};
   }
   if (auto* shaped = std::get_if<ShapedIntrinsic>(binding)) {
-    return {Value(shaped->call(arguments, math_flags, builder, location))};
+    return {shaped->call(arguments, arena, math_flags, builder, location)};
   }
   std::array<loom_value_id_t, 8> inline_values;
   std::vector<loom_value_id_t> overflow;

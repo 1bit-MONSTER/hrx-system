@@ -20,7 +20,36 @@ class [[loom::type("vector")]] vector {};
 
 }  // namespace loom::type
 
+namespace loom::detail {
+
+template <class Vector>
+struct vector_traits;
+
+template <loom::type::size_type... Extents, class T>
+struct vector_traits<loom::type::vector<loom::type::shape<Extents...>, T>> {
+  using element_type = T;
+  using dimensions_type = loom::type::indices<(
+      loom::type::size_type{0} + ... +
+      (Extents == loom::type::dynamic ? loom::type::size_type{1}
+                                      : loom::type::size_type{0}))>;
+};
+
+template <class Vector>
+using vector_element = typename vector_traits<Vector>::element_type;
+
+template <class Vector>
+using vector_dimensions = typename vector_traits<Vector>::dimensions_type;
+
+}  // namespace loom::detail
+
 namespace loom::vector {
+
+// Replicates one scalar across a semantic vector. Dimensions supplies one
+// index for each dynamic result axis in source-axis order.
+template <class Result>
+[[loom::op("vector.splat")]] Result splat(
+    loom::detail::vector_dimensions<Result> dimensions,
+    loom::detail::vector_element<Result> value);
 
 // Loads one contiguous native C++ vector at a full-rank logical origin. Result
 // selects its static register shape while the view supplies element type,

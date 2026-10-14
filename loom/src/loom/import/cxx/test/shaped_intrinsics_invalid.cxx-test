@@ -121,3 +121,38 @@ typedef signed char SignedBytes __attribute__((vector_size(16)));
 typedef int Integers __attribute__((vector_size(16)));
 // ERROR@+1: LOWERING/059 "intrinsic declaration has the wrong operand count"
 [[loom::op("vector.dot4i", "s8s8")]] Integers custom(SignedBytes, SignedBytes);
+
+// ====
+// Splat constructs only the shape-preserving semantic vector representation.
+#include <loomcxx/vector.h>
+// ERROR@+1: LOWERING/059 "vector.splat result must be a semantic vector"
+[[loom::op("vector.splat")]] float custom(loom::type::indices<0>, float);
+
+// ====
+// One source index is required for every dynamic result axis.
+#include <loomcxx/vector.h>
+using Fragment = loom::type::vector<loom::type::shape<loom::type::dynamic>, float>;
+// ERROR@+1: LOWERING/059 "vector.splat dimensions have the wrong arity"
+[[loom::op("vector.splat")]] Fragment custom(loom::type::indices<0>, float);
+
+// ====
+// Dependent type references require native index identities.
+#include <loomcxx/vector.h>
+using Fragment = loom::type::vector<loom::type::shape<loom::type::dynamic>, float>;
+struct Dimensions { unsigned width; };
+// ERROR@+1: LOWERING/059 "vector.splat dimensions require logical indices"
+[[loom::op("vector.splat")]] Fragment custom(Dimensions, float);
+
+// ====
+// Splat preserves its scalar element type exactly.
+#include <loomcxx/vector.h>
+using Fragment = loom::type::vector<loom::type::shape<loom::type::dynamic>, float>;
+// ERROR@+1: LOWERING/059 "vector.splat value must match its result element"
+[[loom::op("vector.splat")]] Fragment custom(loom::type::indices<1>, int);
+
+// ====
+// Semantic-vector reductions preserve the vector element in seed and result.
+#include <loomcxx/vector.h>
+using Fragment = loom::type::vector<loom::type::shape<loom::type::dynamic>, float>;
+// ERROR@+1: LOWERING/059 "vector element, scalar seed, and result types must match"
+[[loom::op("vector.reduce", "addf")]] float custom(Fragment, int);

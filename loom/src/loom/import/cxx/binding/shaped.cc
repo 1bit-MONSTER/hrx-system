@@ -8,10 +8,12 @@
 
 #include <cxx/names.h>
 
+#include <algorithm>
 #include <array>
 #include <limits>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "loom/import/cxx/binding/combining.h"
 #include "loom/import/cxx/binding/index_values.h"
@@ -53,6 +55,12 @@ std::optional<ShapedIntrinsic::Operation> ShapedIntrinsic::admit(
     cxx::TranslationUnit& unit, Diagnostics& diagnostics,
     const cxx::Attribute& attribute, cxx::AST* owner) {
   auto name = attribute.arguments[0]->name();
+  if (name == "vector.splat") {
+    if (attribute.arguments.size() != 1) {
+      diagnostics.reject(unit, owner, "vector splat has no semantic arguments");
+    }
+    return Splat{};
+  }
   if (name == "vector.slice") {
     if (attribute.arguments.size() != 1) {
       diagnostics.reject(unit, owner, "vector slice has no semantic arguments");
@@ -148,6 +156,41 @@ ShapedIntrinsic ShapedIntrinsic::resolve(Operation operation,
                                          Diagnostics& diagnostics, Types& types,
                                          const cxx::FunctionType* signature,
                                          cxx::AST* owner) {
+  if (std::holds_alternative<Splat>(operation)) {
+    if (signature->isVariadic() || signature->parameterTypes().size() != 2) {
+      diagnostics.reject(unit, owner,
+                         "vector.splat requires dimensions and one scalar");
+    }
+    const auto& admitted = types.partition(signature->returnType(), owner);
+    if (admitted.kind != ValueKind::Vector) {
+      diagnostics.reject(unit, owner,
+                         "vector.splat result must be a semantic vector");
+    }
+    const auto& result = static_cast<const VectorPartition&>(admitted);
+    const auto* dimension_record =
+        types.record(signature->parameterTypes()[0], owner);
+    if (!dimension_record ||
+        dimension_record->component_count != result.component_count - 1) {
+      diagnostics.reject(unit, owner,
+                         "vector.splat dimensions have the wrong arity");
+    }
+    std::vector<loom_type_t> dimension_types;
+    types.append(signature->parameterTypes()[0], owner, dimension_types);
+    const auto index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+    if (!std::all_of(dimension_types.begin(), dimension_types.end(),
+                     [&](loom_type_t type) {
+                       return loom_type_equal(type, index_type);
+                     })) {
+      diagnostics.reject(unit, owner,
+                         "vector.splat dimensions require logical indices");
+    }
+    if (types.unqualified(signature->parameterTypes()[1]) !=
+        types.unqualified(result.element_type)) {
+      diagnostics.reject(unit, owner,
+                         "vector.splat value must match its result element");
+    }
+    return ShapedIntrinsic(operation, loom_type_none(), &result);
+  }
   if (auto* slice = std::get_if<Slice>(&operation)) {
     if (signature->isVariadic() || signature->parameterTypes().size() != 2) {
       diagnostics.reject(unit, owner,
@@ -223,9 +266,59 @@ ShapedIntrinsic ShapedIntrinsic::resolve(Operation operation,
     }
     return ShapedIntrinsic(operation, types.get(result, owner));
   }
-  bool reduction = std::holds_alternative<Reduction>(operation);
-  bool scalar_result = reduction || std::holds_alternative<Dotf>(operation);
-  size_t operand_count = lookup || reduction ? 2 : 3;
+  if (auto* reduction = std::get_if<Reduction>(&operation)) {
+    if (signature->isVariadic() || signature->parameterTypes().size() != 2) {
+      diagnostics.reject(unit, owner,
+                         "vector reduction requires a vector and scalar seed");
+    }
+    const auto* result = types.unqualified(signature->returnType());
+    if (!types.is_float(result) && (!unit.typeTraits().is_integral(result) ||
+                                    result->kind() == cxx::TypeKind::kBool)) {
+      diagnostics.reject(unit, owner,
+                         "vector reduction result must be a numeric scalar");
+    }
+    const auto* native = types.native_vector(signature->parameterTypes()[0]);
+    const VectorPartition* semantic = nullptr;
+    const cxx::Type* element = nullptr;
+    if (native) {
+      element = native->elementType();
+    } else {
+      const auto& admitted =
+          types.partition(signature->parameterTypes()[0], owner);
+      if (admitted.kind == ValueKind::Vector) {
+        semantic = &static_cast<const VectorPartition&>(admitted);
+        element = semantic->element_type;
+      }
+    }
+    if (!element || types.unqualified(element) != result ||
+        types.unqualified(signature->parameterTypes()[1]) != result) {
+      diagnostics.reject(
+          unit, owner,
+          "vector element, scalar seed, and result types must match");
+    }
+    if (types.is_float(result) !=
+        loom_combining_kind_accepts_float(reduction->kind)) {
+      diagnostics.reject(unit, owner,
+                         "vector reduction combining kind does not match the "
+                         "element type");
+    }
+    if (((reduction->kind == LOOM_COMBINING_KIND_MINSI ||
+          reduction->kind == LOOM_COMBINING_KIND_MAXSI) &&
+         types.is_unsigned(result)) ||
+        ((reduction->kind == LOOM_COMBINING_KIND_MINUI ||
+          reduction->kind == LOOM_COMBINING_KIND_MAXUI) &&
+         !types.is_unsigned(result))) {
+      diagnostics.reject(unit, owner,
+                         "vector reduction signedness must match the source "
+                         "element type");
+    }
+    std::array<const VectorPartition*, 3> semantic_operands = {};
+    semantic_operands[0] = semantic;
+    return ShapedIntrinsic(operation, types.get(result, owner), nullptr,
+                           semantic_operands);
+  }
+  bool scalar_result = std::holds_alternative<Dotf>(operation);
+  size_t operand_count = lookup ? 2 : 3;
   if (signature->isVariadic() ||
       signature->parameterTypes().size() != operand_count) {
     diagnostics.reject(unit, owner,
@@ -310,36 +403,40 @@ ShapedIntrinsic ShapedIntrinsic::resolve(Operation operation,
       diagnostics.reject(unit, owner,
                          "dotf requires equal floating-point vector types");
     }
-  } else {
-    auto kind = std::get<Reduction>(operation).kind;
-    if (types.is_float(result) != loom_combining_kind_accepts_float(kind)) {
-      diagnostics.reject(unit, owner,
-                         "vector reduction combining kind does not match the "
-                         "element type");
-    }
-    if (((kind == LOOM_COMBINING_KIND_MINSI ||
-          kind == LOOM_COMBINING_KIND_MAXSI) &&
-         types.is_unsigned(result)) ||
-        ((kind == LOOM_COMBINING_KIND_MINUI ||
-          kind == LOOM_COMBINING_KIND_MAXUI) &&
-         !types.is_unsigned(result))) {
-      diagnostics.reject(unit, owner,
-                         "vector reduction signedness must match the source "
-                         "element type");
-    }
   }
   return ShapedIntrinsic(operation, result_type);
 }
 
-loom_value_id_t ShapedIntrinsic::call(std::span<const Value> arguments,
-                                      uint8_t math_flags,
-                                      loom_builder_t* builder,
-                                      loom_location_id_t location) const {
+Value ShapedIntrinsic::call(std::span<const Value> arguments, ValueArena& arena,
+                            uint8_t math_flags, loom_builder_t* builder,
+                            loom_location_id_t location) const {
+  if (std::holds_alternative<Splat>(operation_)) {
+    auto dimensions = arguments[0].components();
+    BoundTypeStorage type_storage;
+    auto result_type = result_vector_->bind_type(dimensions, type_storage);
+    loom_op_t* op;
+    check(loom_vector_splat_build(builder, arguments[1].ssa(), result_type,
+                                  location, &op));
+    std::array<loom_value_id_t, LOOM_TYPE_MAX_RANK + 1> components;
+    std::copy(dimensions.begin(), dimensions.end(), components.begin());
+    components[dimensions.size()] = loom_op_results(op)[0];
+    return arena.capture(*result_vector_,
+                         std::span<const loom_value_id_t>(components)
+                             .first(dimensions.size() + 1));
+  }
+  auto vector_value = [&](size_t index) {
+    const auto* semantic = semantic_operands_[index];
+    return semantic ? semantic->vector_value(arguments[index].components())
+                    : arguments[index].ssa();
+  };
   loom_op_t* op;
   check(std::visit(
-      [&](auto operation) {
+      [&](auto operation) -> iree_status_t {
         using T = decltype(operation);
-        if constexpr (std::is_same_v<T, Slice>) {
+        if constexpr (std::is_same_v<T, Splat>) {
+          IREE_ASSERT_UNREACHABLE("splat handled before static dispatch");
+          IREE_BUILTIN_UNREACHABLE();
+        } else if constexpr (std::is_same_v<T, Slice>) {
           const loom_value_id_t offset =
               operation.offset_kind == Slice::OffsetKind::Index
                   ? arguments[1].ssa()
@@ -387,22 +484,24 @@ loom_value_id_t ShapedIntrinsic::call(std::span<const Value> arguments,
                                         arguments[0].ssa(), arguments[1].ssa(),
                                         arguments[2].ssa(), result_type_,
                                         location, &op);
-        } else {
+        } else if constexpr (std::is_same_v<T, Reduction>) {
           uint8_t flags = loom_combining_kind_accepts_float(operation.kind)
                               ? operation.flags | math_flags
                               : 0;
-          return loom_vector_reduce_build(
-              builder, operation.kind, flags, arguments[0].ssa(),
-              arguments[1].ssa(), result_type_, location, &op);
+          return loom_vector_reduce_build(builder, operation.kind, flags,
+                                          vector_value(0), arguments[1].ssa(),
+                                          result_type_, location, &op);
         }
       },
       operation_));
-  return loom_op_results(op)[0];
+  return Value(loom_op_results(op)[0]);
 }
 
 bool ShapedIntrinsic::equivalent(const ShapedIntrinsic& other) const {
   return operation_ == other.operation_ &&
-         loom_type_equal(result_type_, other.result_type_);
+         loom_type_equal(result_type_, other.result_type_) &&
+         result_vector_ == other.result_vector_ &&
+         semantic_operands_ == other.semantic_operands_;
 }
 
 }  // namespace loom::cxx_import
