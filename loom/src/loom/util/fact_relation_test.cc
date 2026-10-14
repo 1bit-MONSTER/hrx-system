@@ -187,6 +187,28 @@ TEST_F(FactRelationTest, InteriorLiteralDisequalityRetainsScopedExclusion) {
             LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL);
 }
 
+TEST_F(FactRelationTest, ValueAndLiteralAtomsUseIndependentNamespaces) {
+  // inputs_[1] has value ID 1, deliberately matching the literal bits below.
+  // Both relation atoms must remain independently queryable.
+  loom_op_t* assume = nullptr;
+  IREE_ASSERT_OK(
+      BuildAssume({inputs_[0]},
+                  {RelationPredicate(LOOM_PREDICATE_GT, inputs_[0], inputs_[1]),
+                   LiteralPredicate(LOOM_PREDICATE_NE, inputs_[0], 1)},
+                  &assume));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, assume));
+  const loom_value_id_t result = loom_index_assume_results(assume).values[0];
+  const loom_value_id_t literal = BuildConstant(1);
+
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(&table_, result,
+                                                             inputs_[1]),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER);
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(&table_, result,
+                                                             literal),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+                LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER);
+}
+
 TEST_F(FactRelationTest, NonzeroLiteralUsesScalarFactsWithoutRelationState) {
   const loom_value_id_t zero = BuildConstant(0);
   loom_op_t* assume = nullptr;

@@ -15,19 +15,19 @@
 #define LOOM_VALUE_FACT_RELATION_INITIAL_CAPACITY 8
 #define LOOM_VALUE_FACT_RELATION_STACK_CAPACITY 16
 #define LOOM_VALUE_FACT_RELATION_DIRECT_PREDICATE_COUNT 4
-#define LOOM_VALUE_FACT_LITERAL_INITIAL_CAPACITY 8
-#define LOOM_VALUE_FACT_LITERAL_LINEAR_SCAN_LIMIT 8
-#define LOOM_VALUE_FACT_LITERAL_SINGLETON_BIT UINT32_C(0x80000000)
+#define LOOM_VALUE_FACT_RELATION_ATOM_INITIAL_CAPACITY 8
+#define LOOM_VALUE_FACT_RELATION_ATOM_LINEAR_SCAN_LIMIT 8
+#define LOOM_VALUE_FACT_RELATION_ROOT_SINGLETON_BIT UINT32_C(0x80000000)
 
-// Persistent set root containing interned literal IDs. Empty is zero, the high
-// bit tags an inline singleton, and other values name canonical set-index
-// roots. Inline singletons keep the common one-exclusion case from allocating
-// a value-set page.
-typedef uint32_t loom_value_fact_literal_root_t;
+// Persistent set root containing interned relation-atom IDs. Empty is zero,
+// the high bit tags an inline singleton, and other values name canonical
+// set-index roots. Interning preserves the full 32-bit SSA value-ID and 64-bit
+// literal domains while keeping one-counterpart relations out of the index.
+typedef uint32_t loom_value_fact_relation_root_t;
 
 typedef struct loom_value_fact_relation_roots_t {
-  loom_value_set_id_t excluded[LOOM_INTEGER_ORDER_OUTCOME_COUNT];
-  loom_value_fact_literal_root_t excluded_literal_equal;
+  loom_value_fact_relation_root_t excluded[LOOM_INTEGER_ORDER_OUTCOME_COUNT];
+  loom_value_fact_relation_root_t excluded_literal_equal;
 } loom_value_fact_relation_roots_t;
 
 typedef struct loom_value_fact_relation_entry_t {
@@ -35,21 +35,31 @@ typedef struct loom_value_fact_relation_entry_t {
   loom_value_fact_relation_roots_t roots;
 } loom_value_fact_relation_entry_t;
 
-// One interned signed integer literal. IDs are one-based and remain stable as
-// this storage grows. Hash chains are populated only after the bounded linear
-// scan path fills.
-typedef struct loom_value_fact_literal_t {
-  int64_t value;
+typedef enum loom_value_fact_relation_atom_kind_e {
+  LOOM_VALUE_FACT_RELATION_ATOM_VALUE = 0,
+  LOOM_VALUE_FACT_RELATION_ATOM_LITERAL = 1,
+} loom_value_fact_relation_atom_kind_t;
+
+// One interned counterpart identity or signed literal. IDs are one-based and
+// remain stable as storage grows. Hash chains are populated only after the
+// bounded linear-scan path fills.
+typedef struct loom_value_fact_relation_atom_t {
+  uint64_t bits;
   uint32_t next;
-} loom_value_fact_literal_t;
+  uint8_t kind;
+  uint8_t reserved[3];
+} loom_value_fact_relation_atom_t;
 
 static_assert(sizeof(loom_value_fact_relation_roots_t) == 16,
               "relation roots must remain 16 bytes");
 static_assert(sizeof(loom_value_fact_relation_entry_t) == 20,
               "sparse relation entries must remain 20 bytes");
+static_assert(sizeof(loom_value_fact_relation_atom_t) == 16,
+              "relation atoms must remain 16 bytes");
 
 struct loom_value_fact_integer_relations_t {
-  // Canonical counterpart-identity sets shared by every sparse entry.
+  // Canonical atom sets shared by every sparse entry. Allocated only when one
+  // root grows beyond its inline singleton.
   loom_value_set_index_t* index;
 
   // Sparse entries sorted by scoped alias value ID.
@@ -61,29 +71,24 @@ struct loom_value_fact_integer_relations_t {
   // Allocated sparse entry capacity.
   iree_host_size_t capacity;
 
-  // Interned literal disequalities. This remains empty for value-to-value
-  // relations and predicates already represented by scalar facts.
+  // Interned counterpart identities and literal disequalities.
   struct {
-    // Canonical sets over one-based interned literal IDs. Allocated only when
-    // a root grows beyond an inline singleton.
-    loom_value_set_index_t* index;
+    // Interned atom records in ID order.
+    loom_value_fact_relation_atom_t* values;
 
-    // Interned literal records in ID order.
-    loom_value_fact_literal_t* values;
-
-    // Number of interned literal records.
+    // Number of interned atom records.
     iree_host_size_t value_count;
 
-    // Allocated literal record capacity.
+    // Allocated atom record capacity.
     iree_host_size_t value_capacity;
 
-    // One-based literal-ID heads for hash collision chains.
+    // One-based atom-ID heads for hash collision chains.
     uint32_t* buckets;
 
     // Power-of-two bucket count, or zero on the bounded linear scan path.
     iree_host_size_t bucket_count;
 
-  } literals;
+  } atoms;
 
   // Reusable storage for identity-operation plans larger than the stack path.
   struct {
@@ -119,12 +124,6 @@ static bool loom_value_fact_relation_roots_empty(
     loom_value_fact_relation_roots_t roots) {
   return roots.excluded[0] == 0 && roots.excluded[1] == 0 &&
          roots.excluded[2] == 0 && roots.excluded_literal_equal == 0;
-}
-
-static bool loom_value_fact_relation_value_roots_empty(
-    loom_value_fact_relation_roots_t roots) {
-  return roots.excluded[0] == 0 && roots.excluded[1] == 0 &&
-         roots.excluded[2] == 0;
 }
 
 static iree_host_size_t loom_value_fact_relation_entry_lower_bound(
@@ -171,62 +170,63 @@ static iree_status_t loom_value_fact_integer_relations_ensure_owner(
   return iree_ok_status();
 }
 
-static iree_status_t loom_value_fact_integer_relations_ensure_index(
-    loom_value_fact_table_t* table,
-    loom_value_fact_integer_relations_t** out_relations) {
-  IREE_RETURN_IF_ERROR(
-      loom_value_fact_integer_relations_ensure_owner(table, out_relations));
-  if (!(*out_relations)->index) {
-    IREE_RETURN_IF_ERROR(loom_value_set_index_allocate(
-        table->transient_arena, &(*out_relations)->index));
-  }
-  return iree_ok_status();
+static uint32_t loom_value_fact_relation_atom_hash(
+    loom_value_fact_relation_atom_kind_t kind, uint64_t bits) {
+  uint32_t hash = loom_structural_hash_mix_u64(
+      loom_structural_hash_initialize(), (uint64_t)kind);
+  return loom_structural_hash_finalize(
+      loom_structural_hash_mix_u64(hash, bits));
 }
 
-static uint32_t loom_value_fact_literal_hash(int64_t value) {
-  return loom_structural_hash_finalize(loom_structural_hash_mix_u64(
-      loom_structural_hash_initialize(), (uint64_t)value));
+static bool loom_value_fact_relation_atom_equal(
+    const loom_value_fact_relation_atom_t* atom,
+    loom_value_fact_relation_atom_kind_t kind, uint64_t bits) {
+  return atom->kind == (uint8_t)kind && atom->bits == bits;
 }
 
-static uint32_t loom_value_fact_literal_find(
-    const loom_value_fact_integer_relations_t* relations, int64_t value) {
+static uint32_t loom_value_fact_relation_atom_find(
+    const loom_value_fact_integer_relations_t* relations,
+    loom_value_fact_relation_atom_kind_t kind, uint64_t bits) {
   if (!relations) {
     return 0;
   }
-  if (relations->literals.bucket_count == 0) {
-    for (iree_host_size_t i = 0; i < relations->literals.value_count; ++i) {
-      if (relations->literals.values[i].value == value) {
+  if (relations->atoms.bucket_count == 0) {
+    for (iree_host_size_t i = 0; i < relations->atoms.value_count; ++i) {
+      if (loom_value_fact_relation_atom_equal(&relations->atoms.values[i], kind,
+                                              bits)) {
         return (uint32_t)i + 1;
       }
     }
     return 0;
   }
-  const iree_host_size_t bucket = loom_value_fact_literal_hash(value) &
-                                  (relations->literals.bucket_count - 1);
-  for (uint32_t id = relations->literals.buckets[bucket]; id != 0;
-       id = relations->literals.values[id - 1].next) {
-    if (relations->literals.values[id - 1].value == value) {
+  const iree_host_size_t bucket =
+      loom_value_fact_relation_atom_hash(kind, bits) &
+      (relations->atoms.bucket_count - 1);
+  for (uint32_t id = relations->atoms.buckets[bucket]; id != 0;
+       id = relations->atoms.values[id - 1].next) {
+    if (loom_value_fact_relation_atom_equal(&relations->atoms.values[id - 1],
+                                            kind, bits)) {
       return id;
     }
   }
   return 0;
 }
 
-static iree_status_t loom_value_fact_literals_rehash(
+static iree_status_t loom_value_fact_relation_atoms_rehash(
     loom_value_fact_table_t* table,
     loom_value_fact_integer_relations_t* relations,
     iree_host_size_t required_count) {
-  iree_host_size_t bucket_count = relations->literals.bucket_count;
+  iree_host_size_t bucket_count = relations->atoms.bucket_count;
   if (bucket_count == 0) {
     bucket_count = 16;
   }
   while (required_count > bucket_count - bucket_count / 4) {
     if (!iree_host_size_checked_mul(bucket_count, 2, &bucket_count)) {
       return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                              "literal relation hash capacity overflow");
+                              "relation atom hash capacity overflow");
     }
   }
-  if (bucket_count == relations->literals.bucket_count) {
+  if (bucket_count == relations->atoms.bucket_count) {
     return iree_ok_status();
   }
   uint32_t* buckets = NULL;
@@ -234,121 +234,131 @@ static iree_status_t loom_value_fact_literals_rehash(
                                                  bucket_count, sizeof(*buckets),
                                                  (void**)&buckets));
   memset(buckets, 0, bucket_count * sizeof(*buckets));
-  for (iree_host_size_t i = 0; i < relations->literals.value_count; ++i) {
+  for (iree_host_size_t i = 0; i < relations->atoms.value_count; ++i) {
+    loom_value_fact_relation_atom_t* atom = &relations->atoms.values[i];
     const iree_host_size_t bucket =
-        loom_value_fact_literal_hash(relations->literals.values[i].value) &
+        loom_value_fact_relation_atom_hash(
+            (loom_value_fact_relation_atom_kind_t)atom->kind, atom->bits) &
         (bucket_count - 1);
-    relations->literals.values[i].next = buckets[bucket];
+    atom->next = buckets[bucket];
     buckets[bucket] = (uint32_t)i + 1;
   }
-  relations->literals.buckets = buckets;
-  relations->literals.bucket_count = bucket_count;
+  relations->atoms.buckets = buckets;
+  relations->atoms.bucket_count = bucket_count;
   return iree_ok_status();
 }
 
-static iree_status_t loom_value_fact_literal_intern(
-    loom_value_fact_table_t* table, int64_t value, uint32_t* out_id) {
+static iree_status_t loom_value_fact_relation_atom_intern(
+    loom_value_fact_table_t* table, loom_value_fact_relation_atom_kind_t kind,
+    uint64_t bits, uint32_t* out_id) {
   loom_value_fact_integer_relations_t* relations = NULL;
   IREE_RETURN_IF_ERROR(
       loom_value_fact_integer_relations_ensure_owner(table, &relations));
-  const uint32_t existing = loom_value_fact_literal_find(relations, value);
+  const uint32_t existing =
+      loom_value_fact_relation_atom_find(relations, kind, bits);
   if (existing != 0) {
     *out_id = existing;
     return iree_ok_status();
   }
-  if (relations->literals.value_count >= INT32_MAX) {
+  if (relations->atoms.value_count >= INT32_MAX) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "literal relation ID capacity exceeded");
+                            "relation atom ID capacity exceeded");
   }
-  if (relations->literals.value_count == relations->literals.value_capacity) {
-    iree_host_size_t new_capacity = LOOM_VALUE_FACT_LITERAL_INITIAL_CAPACITY;
-    if (relations->literals.value_capacity &&
-        !iree_host_size_checked_mul(relations->literals.value_capacity, 2,
+  if (relations->atoms.value_count == relations->atoms.value_capacity) {
+    iree_host_size_t new_capacity =
+        LOOM_VALUE_FACT_RELATION_ATOM_INITIAL_CAPACITY;
+    if (relations->atoms.value_capacity &&
+        !iree_host_size_checked_mul(relations->atoms.value_capacity, 2,
                                     &new_capacity)) {
       return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                              "literal relation capacity overflow");
+                              "relation atom capacity overflow");
     }
     IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        table->transient_arena, relations->literals.value_count, new_capacity,
-        sizeof(*relations->literals.values),
-        &relations->literals.value_capacity,
-        (void**)&relations->literals.values));
+        table->transient_arena, relations->atoms.value_count, new_capacity,
+        sizeof(*relations->atoms.values), &relations->atoms.value_capacity,
+        (void**)&relations->atoms.values));
   }
-  const iree_host_size_t required_count = relations->literals.value_count + 1;
-  if (required_count > LOOM_VALUE_FACT_LITERAL_LINEAR_SCAN_LIMIT) {
-    IREE_RETURN_IF_ERROR(
-        loom_value_fact_literals_rehash(table, relations, required_count));
+  const iree_host_size_t required_count = relations->atoms.value_count + 1;
+  if (required_count > LOOM_VALUE_FACT_RELATION_ATOM_LINEAR_SCAN_LIMIT) {
+    IREE_RETURN_IF_ERROR(loom_value_fact_relation_atoms_rehash(table, relations,
+                                                               required_count));
   }
   const uint32_t id = (uint32_t)required_count;
   uint32_t next = 0;
-  if (relations->literals.bucket_count != 0) {
-    const iree_host_size_t bucket = loom_value_fact_literal_hash(value) &
-                                    (relations->literals.bucket_count - 1);
-    next = relations->literals.buckets[bucket];
-    relations->literals.buckets[bucket] = id;
+  if (relations->atoms.bucket_count != 0) {
+    const iree_host_size_t bucket =
+        loom_value_fact_relation_atom_hash(kind, bits) &
+        (relations->atoms.bucket_count - 1);
+    next = relations->atoms.buckets[bucket];
+    relations->atoms.buckets[bucket] = id;
   }
-  relations->literals.values[id - 1] =
-      (loom_value_fact_literal_t){.value = value, .next = next};
-  relations->literals.value_count = required_count;
+  relations->atoms.values[id - 1] = (loom_value_fact_relation_atom_t){
+      .bits = bits,
+      .next = next,
+      .kind = (uint8_t)kind,
+      .reserved = {},
+  };
+  relations->atoms.value_count = required_count;
   *out_id = id;
   return iree_ok_status();
 }
 
-static bool loom_value_fact_literal_root_is_singleton(
-    loom_value_fact_literal_root_t root) {
-  return (root & LOOM_VALUE_FACT_LITERAL_SINGLETON_BIT) != 0;
+static bool loom_value_fact_relation_root_is_singleton(
+    loom_value_fact_relation_root_t root) {
+  return (root & LOOM_VALUE_FACT_RELATION_ROOT_SINGLETON_BIT) != 0;
 }
 
-static loom_value_fact_literal_root_t loom_value_fact_literal_singleton(
-    uint32_t literal_id) {
-  IREE_ASSERT_GT(literal_id, 0u);
-  IREE_ASSERT_LT(literal_id, LOOM_VALUE_FACT_LITERAL_SINGLETON_BIT);
-  return LOOM_VALUE_FACT_LITERAL_SINGLETON_BIT | literal_id;
+static loom_value_fact_relation_root_t loom_value_fact_relation_singleton(
+    uint32_t atom_id) {
+  IREE_ASSERT_GT(atom_id, 0u);
+  IREE_ASSERT_LT(atom_id, LOOM_VALUE_FACT_RELATION_ROOT_SINGLETON_BIT);
+  return LOOM_VALUE_FACT_RELATION_ROOT_SINGLETON_BIT | atom_id;
 }
 
-static uint32_t loom_value_fact_literal_singleton_id(
-    loom_value_fact_literal_root_t root) {
-  IREE_ASSERT(loom_value_fact_literal_root_is_singleton(root));
-  return root & ~LOOM_VALUE_FACT_LITERAL_SINGLETON_BIT;
+static uint32_t loom_value_fact_relation_singleton_id(
+    loom_value_fact_relation_root_t root) {
+  IREE_ASSERT(loom_value_fact_relation_root_is_singleton(root));
+  return root & ~LOOM_VALUE_FACT_RELATION_ROOT_SINGLETON_BIT;
 }
 
-static iree_status_t loom_value_fact_literals_ensure_index(
+static iree_status_t loom_value_fact_integer_relations_ensure_index(
     loom_value_fact_table_t* table,
     loom_value_fact_integer_relations_t* relations) {
-  if (!relations->literals.index) {
-    IREE_RETURN_IF_ERROR(loom_value_set_index_allocate(
-        table->transient_arena, &relations->literals.index));
+  if (!relations->index) {
+    IREE_RETURN_IF_ERROR(loom_value_set_index_allocate(table->transient_arena,
+                                                       &relations->index));
   }
   return iree_ok_status();
 }
 
-static iree_status_t loom_value_fact_literal_root_materialize(
+static iree_status_t loom_value_fact_relation_root_materialize(
     loom_value_fact_table_t* table,
     loom_value_fact_integer_relations_t* relations,
-    loom_value_fact_literal_root_t root, loom_value_set_id_t* out_set) {
+    loom_value_fact_relation_root_t root, loom_value_set_id_t* out_set) {
   if (!root) {
     *out_set = 0;
     return iree_ok_status();
   }
-  if (!loom_value_fact_literal_root_is_singleton(root)) {
+  if (!loom_value_fact_relation_root_is_singleton(root)) {
     *out_set = root;
     return iree_ok_status();
   }
-  IREE_RETURN_IF_ERROR(loom_value_fact_literals_ensure_index(table, relations));
+  IREE_RETURN_IF_ERROR(
+      loom_value_fact_integer_relations_ensure_index(table, relations));
   return loom_value_set_index_add(
-      relations->literals.index, 0,
-      (loom_value_id_t)loom_value_fact_literal_singleton_id(root), out_set);
+      relations->index, 0,
+      (loom_value_id_t)loom_value_fact_relation_singleton_id(root), out_set);
 }
 
-static iree_status_t loom_value_fact_literal_root_add(
-    loom_value_fact_table_t* table, loom_value_fact_literal_root_t source_root,
-    uint32_t literal_id, loom_value_fact_literal_root_t* out_root) {
+static iree_status_t loom_value_fact_relation_root_add(
+    loom_value_fact_table_t* table, loom_value_fact_relation_root_t source_root,
+    uint32_t atom_id, loom_value_fact_relation_root_t* out_root) {
   if (!source_root) {
-    *out_root = loom_value_fact_literal_singleton(literal_id);
+    *out_root = loom_value_fact_relation_singleton(atom_id);
     return iree_ok_status();
   }
-  if (loom_value_fact_literal_root_is_singleton(source_root) &&
-      loom_value_fact_literal_singleton_id(source_root) == literal_id) {
+  if (loom_value_fact_relation_root_is_singleton(source_root) &&
+      loom_value_fact_relation_singleton_id(source_root) == atom_id) {
     *out_root = source_root;
     return iree_ok_status();
   }
@@ -356,21 +366,20 @@ static iree_status_t loom_value_fact_literal_root_add(
   IREE_RETURN_IF_ERROR(
       loom_value_fact_integer_relations_ensure_owner(table, &relations));
   loom_value_set_id_t source_set = 0;
-  IREE_RETURN_IF_ERROR(loom_value_fact_literal_root_materialize(
+  IREE_RETURN_IF_ERROR(loom_value_fact_relation_root_materialize(
       table, relations, source_root, &source_set));
   loom_value_set_id_t result_set = 0;
-  IREE_RETURN_IF_ERROR(
-      loom_value_set_index_add(relations->literals.index, source_set,
-                               (loom_value_id_t)literal_id, &result_set));
-  IREE_ASSERT_FALSE(loom_value_fact_literal_root_is_singleton(result_set));
+  IREE_RETURN_IF_ERROR(loom_value_set_index_add(
+      relations->index, source_set, (loom_value_id_t)atom_id, &result_set));
+  IREE_ASSERT_FALSE(loom_value_fact_relation_root_is_singleton(result_set));
   *out_root = result_set;
   return iree_ok_status();
 }
 
-static iree_status_t loom_value_fact_literal_root_union(
-    loom_value_fact_table_t* table, loom_value_fact_literal_root_t lhs,
-    loom_value_fact_literal_root_t rhs,
-    loom_value_fact_literal_root_t* out_root) {
+static iree_status_t loom_value_fact_relation_root_union(
+    loom_value_fact_table_t* table, loom_value_fact_relation_root_t lhs,
+    loom_value_fact_relation_root_t rhs,
+    loom_value_fact_relation_root_t* out_root) {
   if (!lhs || lhs == rhs) {
     *out_root = rhs;
     return iree_ok_status();
@@ -384,30 +393,30 @@ static iree_status_t loom_value_fact_literal_root_union(
       loom_value_fact_integer_relations_ensure_owner(table, &relations));
   loom_value_set_id_t lhs_set = 0;
   loom_value_set_id_t rhs_set = 0;
-  IREE_RETURN_IF_ERROR(loom_value_fact_literal_root_materialize(
+  IREE_RETURN_IF_ERROR(loom_value_fact_relation_root_materialize(
       table, relations, lhs, &lhs_set));
-  IREE_RETURN_IF_ERROR(loom_value_fact_literal_root_materialize(
+  IREE_RETURN_IF_ERROR(loom_value_fact_relation_root_materialize(
       table, relations, rhs, &rhs_set));
   loom_value_set_id_t result_set = 0;
-  IREE_RETURN_IF_ERROR(loom_value_set_index_union(
-      relations->literals.index, lhs_set, rhs_set, &result_set));
-  IREE_ASSERT_FALSE(loom_value_fact_literal_root_is_singleton(result_set));
+  IREE_RETURN_IF_ERROR(loom_value_set_index_union(relations->index, lhs_set,
+                                                  rhs_set, &result_set));
+  IREE_ASSERT_FALSE(loom_value_fact_relation_root_is_singleton(result_set));
   *out_root = result_set;
   return iree_ok_status();
 }
 
-static bool loom_value_fact_literal_root_contains(
+static bool loom_value_fact_relation_root_contains(
     const loom_value_fact_integer_relations_t* relations,
-    loom_value_fact_literal_root_t root, uint32_t literal_id) {
-  if (!root || !literal_id) {
+    loom_value_fact_relation_root_t root, uint32_t atom_id) {
+  if (!root || !atom_id) {
     return false;
   }
-  if (loom_value_fact_literal_root_is_singleton(root)) {
-    return loom_value_fact_literal_singleton_id(root) == literal_id;
+  if (loom_value_fact_relation_root_is_singleton(root)) {
+    return loom_value_fact_relation_singleton_id(root) == atom_id;
   }
-  IREE_ASSERT(relations->literals.index);
-  return loom_value_set_index_contains(relations->literals.index, root,
-                                       (loom_value_id_t)literal_id);
+  IREE_ASSERT(relations->index);
+  return loom_value_set_index_contains(relations->index, root,
+                                       (loom_value_id_t)atom_id);
 }
 
 static iree_status_t loom_value_fact_integer_relations_reserve_entries(
@@ -491,16 +500,17 @@ static iree_status_t loom_value_fact_relation_add_exclusions(
   if (!excluded_outcomes) {
     return iree_ok_status();
   }
-  loom_value_fact_integer_relations_t* relations = NULL;
-  IREE_RETURN_IF_ERROR(
-      loom_value_fact_integer_relations_ensure_index(table, &relations));
+  uint32_t atom_id = 0;
+  IREE_RETURN_IF_ERROR(loom_value_fact_relation_atom_intern(
+      table, LOOM_VALUE_FACT_RELATION_ATOM_VALUE,
+      (uint64_t)counterpart_identity, &atom_id));
   for (uint8_t outcome = 0; outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT;
        ++outcome) {
     if (!(excluded_outcomes & (1u << outcome))) {
       continue;
     }
-    IREE_RETURN_IF_ERROR(loom_value_set_index_add(
-        relations->index, inout_roots->excluded[outcome], counterpart_identity,
+    IREE_RETURN_IF_ERROR(loom_value_fact_relation_root_add(
+        table, inout_roots->excluded[outcome], atom_id,
         &inout_roots->excluded[outcome]));
   }
   return iree_ok_status();
@@ -512,15 +522,12 @@ static iree_status_t loom_value_fact_relation_union_roots(
   if (loom_value_fact_relation_roots_empty(source)) {
     return iree_ok_status();
   }
-  loom_value_fact_integer_relations_t* relations = NULL;
-  IREE_RETURN_IF_ERROR(
-      loom_value_fact_integer_relations_ensure_owner(table, &relations));
   for (uint8_t i = 0; i < LOOM_INTEGER_ORDER_OUTCOME_COUNT; ++i) {
-    IREE_RETURN_IF_ERROR(loom_value_set_index_union(
-        relations->index, inout_target->excluded[i], source.excluded[i],
+    IREE_RETURN_IF_ERROR(loom_value_fact_relation_root_union(
+        table, inout_target->excluded[i], source.excluded[i],
         &inout_target->excluded[i]));
   }
-  return loom_value_fact_literal_root_union(
+  return loom_value_fact_relation_root_union(
       table, inout_target->excluded_literal_equal,
       source.excluded_literal_equal, &inout_target->excluded_literal_equal);
 }
@@ -609,40 +616,46 @@ loom_value_fact_table_query_signed_integer_order(
       loom_value_fact_relation_lookup_roots(table, lhs);
   const loom_value_fact_relation_roots_t rhs_roots =
       loom_value_fact_relation_lookup_roots(table, rhs);
+  const uint32_t lhs_identity_atom = loom_value_fact_relation_atom_find(
+      table->integer_relations, LOOM_VALUE_FACT_RELATION_ATOM_VALUE,
+      (uint64_t)lhs_identity);
+  const uint32_t rhs_identity_atom = loom_value_fact_relation_atom_find(
+      table->integer_relations, LOOM_VALUE_FACT_RELATION_ATOM_VALUE,
+      (uint64_t)rhs_identity);
   for (uint8_t outcome = 0; outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT;
        ++outcome) {
-    if (lhs_roots.excluded[outcome] && table->integer_relations->index &&
-        loom_value_set_index_contains(table->integer_relations->index,
-                                      lhs_roots.excluded[outcome],
-                                      rhs_identity)) {
+    if (loom_value_fact_relation_root_contains(table->integer_relations,
+                                               lhs_roots.excluded[outcome],
+                                               rhs_identity_atom)) {
       outcomes &= ~(1u << outcome);
     }
     const loom_integer_order_outcome_t swapped =
         loom_integer_order_outcome_swap(outcome);
-    if (rhs_roots.excluded[swapped] && table->integer_relations->index &&
-        loom_value_set_index_contains(table->integer_relations->index,
-                                      rhs_roots.excluded[swapped],
-                                      lhs_identity)) {
+    if (loom_value_fact_relation_root_contains(table->integer_relations,
+                                               rhs_roots.excluded[swapped],
+                                               lhs_identity_atom)) {
       outcomes &= ~(1u << outcome);
     }
   }
 
   int64_t exact_value = 0;
   if (loom_value_facts_as_exact_i64(rhs_facts, &exact_value)) {
-    const uint32_t literal_id =
-        loom_value_fact_literal_find(table->integer_relations, exact_value);
-    if (loom_value_fact_literal_root_contains(table->integer_relations,
-                                              lhs_roots.excluded_literal_equal,
-                                              literal_id)) {
+    const uint32_t literal_atom = loom_value_fact_relation_atom_find(
+        table->integer_relations, LOOM_VALUE_FACT_RELATION_ATOM_LITERAL,
+        (uint64_t)exact_value);
+    if (loom_value_fact_relation_root_contains(table->integer_relations,
+                                               lhs_roots.excluded_literal_equal,
+                                               literal_atom)) {
       outcomes &= ~LOOM_INTEGER_ORDER_OUTCOME_BIT_EQUAL;
     }
   }
   if (loom_value_facts_as_exact_i64(lhs_facts, &exact_value)) {
-    const uint32_t literal_id =
-        loom_value_fact_literal_find(table->integer_relations, exact_value);
-    if (loom_value_fact_literal_root_contains(table->integer_relations,
-                                              rhs_roots.excluded_literal_equal,
-                                              literal_id)) {
+    const uint32_t literal_atom = loom_value_fact_relation_atom_find(
+        table->integer_relations, LOOM_VALUE_FACT_RELATION_ATOM_LITERAL,
+        (uint64_t)exact_value);
+    if (loom_value_fact_relation_root_contains(table->integer_relations,
+                                               rhs_roots.excluded_literal_equal,
+                                               literal_atom)) {
       outcomes &= ~LOOM_INTEGER_ORDER_OUTCOME_BIT_EQUAL;
     }
   }
@@ -668,39 +681,36 @@ void loom_value_fact_integer_relations_undefine(loom_value_fact_table_t* table,
   }
 }
 
-static iree_status_t loom_value_fact_literal_relation_clone_root(
+static iree_status_t loom_value_fact_relation_clone_root(
     loom_value_fact_table_t* target,
     const loom_value_fact_integer_relations_t* source_relations,
-    loom_value_fact_literal_root_t source_root,
-    loom_value_fact_literal_root_t* out_root) {
+    loom_value_fact_relation_root_t source_root,
+    loom_value_fact_relation_root_t* out_root) {
   *out_root = 0;
   if (!source_root) {
     return iree_ok_status();
   }
-  if (loom_value_fact_literal_root_is_singleton(source_root)) {
-    const uint32_t source_id =
-        loom_value_fact_literal_singleton_id(source_root);
-    IREE_ASSERT_LE(source_id, source_relations->literals.value_count);
-    uint32_t target_id = 0;
-    IREE_RETURN_IF_ERROR(loom_value_fact_literal_intern(
-        target, source_relations->literals.values[source_id - 1].value,
-        &target_id));
-    return loom_value_fact_literal_root_add(target, 0, target_id, out_root);
-  }
-
   loom_value_set_cursor_t cursor;
-  loom_value_set_cursor_begin(source_relations->literals.index, source_root,
-                              &cursor);
-  for (loom_value_id_t source_id = loom_value_set_cursor_next(&cursor);
-       source_id != LOOM_VALUE_ID_INVALID;
-       source_id = loom_value_set_cursor_next(&cursor)) {
-    IREE_ASSERT_LE(source_id, source_relations->literals.value_count);
-    uint32_t target_id = 0;
-    IREE_RETURN_IF_ERROR(loom_value_fact_literal_intern(
-        target, source_relations->literals.values[source_id - 1].value,
-        &target_id));
-    IREE_RETURN_IF_ERROR(loom_value_fact_literal_root_add(target, *out_root,
-                                                          target_id, out_root));
+  loom_value_id_t source_atom_id = LOOM_VALUE_ID_INVALID;
+  if (loom_value_fact_relation_root_is_singleton(source_root)) {
+    source_atom_id = loom_value_fact_relation_singleton_id(source_root);
+  } else {
+    loom_value_set_cursor_begin(source_relations->index, source_root, &cursor);
+    source_atom_id = loom_value_set_cursor_next(&cursor);
+  }
+  while (source_atom_id != LOOM_VALUE_ID_INVALID) {
+    IREE_ASSERT_LE(source_atom_id, source_relations->atoms.value_count);
+    const loom_value_fact_relation_atom_t* source_atom =
+        &source_relations->atoms.values[source_atom_id - 1];
+    uint32_t target_atom_id = 0;
+    IREE_RETURN_IF_ERROR(loom_value_fact_relation_atom_intern(
+        target, (loom_value_fact_relation_atom_kind_t)source_atom->kind,
+        source_atom->bits, &target_atom_id));
+    IREE_RETURN_IF_ERROR(loom_value_fact_relation_root_add(
+        target, *out_root, target_atom_id, out_root));
+    source_atom_id = loom_value_fact_relation_root_is_singleton(source_root)
+                         ? LOOM_VALUE_ID_INVALID
+                         : loom_value_set_cursor_next(&cursor);
   }
   return iree_ok_status();
 }
@@ -714,30 +724,15 @@ iree_status_t loom_value_fact_integer_relations_clone_value(
   const loom_value_fact_relation_roots_t source_roots =
       loom_value_fact_relation_lookup_roots(source, value_id);
   loom_value_fact_relation_roots_t target_roots = {0};
-  if (!loom_value_fact_relation_value_roots_empty(source_roots)) {
-    loom_value_fact_integer_relations_t* target_relations = NULL;
-    IREE_RETURN_IF_ERROR(loom_value_fact_integer_relations_ensure_index(
-        target, &target_relations));
-    for (uint8_t outcome = 0; outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT;
-         ++outcome) {
-      loom_value_set_cursor_t cursor;
-      loom_value_set_cursor_begin(source->integer_relations->index,
-                                  source_roots.excluded[outcome], &cursor);
-      for (loom_value_id_t counterpart = loom_value_set_cursor_next(&cursor);
-           counterpart != LOOM_VALUE_ID_INVALID;
-           counterpart = loom_value_set_cursor_next(&cursor)) {
-        IREE_RETURN_IF_ERROR(loom_value_set_index_add(
-            target_relations->index, target_roots.excluded[outcome],
-            counterpart, &target_roots.excluded[outcome]));
-      }
-    }
+  for (uint8_t outcome = 0; outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT;
+       ++outcome) {
+    IREE_RETURN_IF_ERROR(loom_value_fact_relation_clone_root(
+        target, source->integer_relations, source_roots.excluded[outcome],
+        &target_roots.excluded[outcome]));
   }
-
-  if (source_roots.excluded_literal_equal) {
-    IREE_RETURN_IF_ERROR(loom_value_fact_literal_relation_clone_root(
-        target, source->integer_relations, source_roots.excluded_literal_equal,
-        &target_roots.excluded_literal_equal));
-  }
+  IREE_RETURN_IF_ERROR(loom_value_fact_relation_clone_root(
+      target, source->integer_relations, source_roots.excluded_literal_equal,
+      &target_roots.excluded_literal_equal));
 
   bool changed = false;
   return loom_value_fact_integer_relations_publish_one(target, value_id,
@@ -849,11 +844,12 @@ static iree_status_t loom_value_fact_relation_plan_add_literal_exclusion(
                                         &ordinal)) {
     return iree_ok_status();
   }
-  uint32_t literal_id = 0;
-  IREE_RETURN_IF_ERROR(
-      loom_value_fact_literal_intern(table, excluded_literal, &literal_id));
-  return loom_value_fact_literal_root_add(
-      table, plan->locals[ordinal].excluded_literal_equal, literal_id,
+  uint32_t literal_atom = 0;
+  IREE_RETURN_IF_ERROR(loom_value_fact_relation_atom_intern(
+      table, LOOM_VALUE_FACT_RELATION_ATOM_LITERAL, (uint64_t)excluded_literal,
+      &literal_atom));
+  return loom_value_fact_relation_root_add(
+      table, plan->locals[ordinal].excluded_literal_equal, literal_atom,
       &plan->locals[ordinal].excluded_literal_equal);
 }
 
