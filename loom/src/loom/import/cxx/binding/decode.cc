@@ -33,7 +33,8 @@ std::optional<DecodeIntrinsic> DecodeIntrinsic::resolve(
                        "vector.decode requires payload, schema, and an "
                        "optional auxiliary record");
   }
-  if (!types.vector(parameters[0]) || !types.vector(signature->returnType())) {
+  if (!types.native_vector(parameters[0]) ||
+      !types.native_vector(signature->returnType())) {
     diagnostics.reject(unit, owner,
                        "vector.decode payload and result must be vectors");
   }
@@ -57,7 +58,7 @@ std::optional<DecodeIntrinsic> DecodeIntrinsic::resolve(
     }
     names.reserve(record->members.size());
     for (const auto& member : record->members) {
-      if (!types.vector(member.field->type())) {
+      if (!types.native_vector(member.field->type())) {
         diagnostics.reject(unit, owner,
                            "vector.decode auxiliaries must be a flat record "
                            "of named vectors");

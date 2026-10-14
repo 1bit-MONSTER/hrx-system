@@ -88,7 +88,7 @@ std::vector<loom_string_id_t> require_named_operands(
         diagnostics.reject(unit, owner,
                            "unknown fragment named operand '" + name + "'");
       }
-      if (!types.vector(member.field->type())) {
+      if (!types.native_vector(member.field->type())) {
         diagnostics.reject(unit, owner,
                            "fragment auxiliary operands must be vectors");
       }
@@ -200,10 +200,10 @@ std::optional<FragmentIntrinsic> FragmentIntrinsic::resolve(
     if ((result.mma_flags_ & ~LOOM_VECTOR_MMAFLAGS_SATURATE) != 0) {
       diagnostics.reject(unit, owner, "vector.mma has unsupported flags");
     }
-    auto* result_vector = types.vector(signature->returnType());
-    if (!result_vector || !types.vector(parameters[0]) ||
-        !types.vector(parameters[1]) ||
-        types.vector(parameters[2]) != result_vector) {
+    auto* result_vector = types.native_vector(signature->returnType());
+    if (!result_vector || !types.native_vector(parameters[0]) ||
+        !types.native_vector(parameters[1]) ||
+        types.native_vector(parameters[2]) != result_vector) {
       diagnostics.reject(
           unit, owner,
           "vector.mma requires vector operands and a result matching init");
@@ -227,8 +227,8 @@ std::optional<FragmentIntrinsic> FragmentIntrinsic::resolve(
             unit, owner,
             "vector.fragment requires data, shape, and optional parameters");
       }
-      auto* data = types.vector(parameters[0]);
-      auto* output = types.vector(signature->returnType());
+      auto* data = types.native_vector(parameters[0]);
+      auto* output = types.native_vector(signature->returnType());
       if (!data || data != output) {
         diagnostics.reject(unit, owner,
                            "vector.fragment must preserve its vector type");
@@ -241,8 +241,8 @@ std::optional<FragmentIntrinsic> FragmentIntrinsic::resolve(
       break;
     }
     case Operation::Repack: {
-      if (parameters.size() != 2 || !types.vector(parameters[0]) ||
-          !types.vector(signature->returnType())) {
+      if (parameters.size() != 2 || !types.native_vector(parameters[0]) ||
+          !types.native_vector(signature->returnType())) {
         diagnostics.reject(
             unit, owner,
             "vector.fragment.repack requires source and result vectors");
@@ -267,7 +267,7 @@ std::optional<FragmentIntrinsic> FragmentIntrinsic::resolve(
       result.origin_unsigned_mask_ = require_index_record(
           unit, diagnostics, types, parameters[1], result.view_->extents.size(),
           owner, "fragment origin");
-      if (!types.vector(signature->returnType())) {
+      if (!types.native_vector(signature->returnType())) {
         diagnostics.reject(unit, owner,
                            "vector.fragment.load must return a vector");
       }
@@ -281,7 +281,7 @@ std::optional<FragmentIntrinsic> FragmentIntrinsic::resolve(
     case Operation::Store: {
       if (parameters.size() != 4 ||
           signature->returnType()->kind() != cxx::TypeKind::kVoid ||
-          !types.vector(parameters[0])) {
+          !types.native_vector(parameters[0])) {
         diagnostics.reject(
             unit, owner,
             "vector.fragment.store requires value, view, origin, and shape");

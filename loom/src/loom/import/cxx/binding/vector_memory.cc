@@ -33,7 +33,7 @@ const ViewPartition& require_view(cxx::TranslationUnit& unit,
 const cxx::VectorType& require_vector(cxx::TranslationUnit& unit,
                                       Diagnostics& diagnostics, Types& types,
                                       const cxx::Type* type, cxx::AST* owner) {
-  auto* vector = types.vector(type);
+  auto* vector = types.native_vector(type);
   if (!vector) {
     diagnostics.reject(unit, owner,
                        "vector memory operation requires a vector value");

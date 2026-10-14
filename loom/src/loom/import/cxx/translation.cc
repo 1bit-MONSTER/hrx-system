@@ -188,8 +188,8 @@ class Translator final : private Initialization::Evaluation {
       return Value(result);
     }
     if (value.is_record() || value.is_array() || value.is_buffer() ||
-        value.is_opaque_dialect() || value.is_encoding() || value.is_view() ||
-        value.is_tensor()) {
+        value.is_opaque_dialect() || value.is_encoding() || value.is_vector() ||
+        value.is_view() || value.is_tensor()) {
       if (&types_.partition(output_type, owner) != &value.partition()) {
         fail(owner, "conversion must preserve the source value type");
       }
@@ -243,7 +243,7 @@ class Translator final : private Initialization::Evaluation {
                                   const cxx::Type* input_type,
                                   const cxx::Type* output_type,
                                   cxx::AST* owner) {
-    return types_.vector(input_type) || types_.vector(output_type)
+    return types_.native_vector(input_type) || types_.native_vector(output_type)
                ? vectors_.convert(value, input_type, output_type, owner,
                                   lexical_fastmath_flags_)
                : scalars_.convert(value, input_type, output_type, owner,
@@ -253,7 +253,7 @@ class Translator final : private Initialization::Evaluation {
   loom_value_id_t binary(cxx::TokenKind token, loom_value_id_t left,
                          loom_value_id_t right, const cxx::Type* input_type,
                          const cxx::Type* output_type, cxx::AST* owner) {
-    return types_.vector(input_type)
+    return types_.native_vector(input_type)
                ? vectors_.binary(token, left, right, input_type, output_type,
                                  owner, lexical_fastmath_flags_)
                : scalars_.binary(token, left, right, input_type, output_type,
@@ -287,6 +287,14 @@ class Translator final : private Initialization::Evaluation {
       auto components = value.components();
       for (size_t index = 0; index < components.size(); ++index) {
         name(components[index], hint + "_" + partition.component_names[index]);
+      }
+    } else if (value.is_vector()) {
+      const auto& partition =
+          static_cast<const VectorPartition&>(value.partition());
+      auto components = value.components();
+      for (size_t index = 0; index < components.size(); ++index) {
+        auto suffix = partition.component_names[index];
+        name(components[index], suffix.empty() ? hint : hint + "_" + suffix);
       }
     } else if (value.is_view()) {
       const auto& partition =
@@ -745,7 +753,7 @@ class Translator final : private Initialization::Evaluation {
     }
     auto* base_type = ast->baseExpression->type;
     auto* index_type = ast->indexExpression->type;
-    if (types_.vector(base_type) || types_.vector(index_type)) {
+    if (types_.native_vector(base_type) || types_.native_vector(index_type)) {
       fail(ast, "vector lane subscripts require a value projection");
     }
     if (unit_.typeTraits().is_pointer(base_type) ||
@@ -978,6 +986,8 @@ class Translator final : private Initialization::Evaluation {
       source = static_cast<const OpaqueDialectPartition&>(partition).source;
     } else if (partition.kind == ValueKind::Encoding) {
       source = static_cast<const EncodingPartition&>(partition).source;
+    } else if (partition.kind == ValueKind::Vector) {
+      source = static_cast<const VectorPartition&>(partition).source;
     } else if (partition.kind == ValueKind::View) {
       source = static_cast<const ViewPartition&>(partition).source;
     } else if (partition.kind == ValueKind::Tensor) {
@@ -1057,7 +1067,7 @@ class Translator final : private Initialization::Evaluation {
 
   void conditional_object(StorageProjection destination, const cxx::Type* type,
                           cxx::ConditionalExpressionAST* select) override {
-    if (types_.vector(select->condition->type)) {
+    if (types_.native_vector(select->condition->type)) {
       fail(select, "vector conditions require lane-wise selection");
     }
     auto condition = expression(select->condition).ssa();
@@ -1098,8 +1108,9 @@ class Translator final : private Initialization::Evaluation {
   }
 
   Value constant(const cxx::ConstValue& value, cxx::ExpressionAST* ast) {
-    return types_.vector(ast->type) ? vectors_.constant(value, ast->type, ast)
-                                    : scalars_.constant(value, ast->type, ast);
+    return types_.native_vector(ast->type)
+               ? vectors_.constant(value, ast->type, ast)
+               : scalars_.constant(value, ast->type, ast);
   }
 
   Value expression(cxx::ExpressionAST* ast) override {
@@ -1216,7 +1227,7 @@ class Translator final : private Initialization::Evaluation {
       return initialization_.value(ast->type, initializer->expressionList, ast);
     }
     if (auto* select = cxx::ast_cast<cxx::ConditionalExpressionAST>(ast)) {
-      if (types_.vector(select->condition->type)) {
+      if (types_.native_vector(select->condition->type)) {
         fail(ast, "vector conditions require lane-wise selection");
       }
       auto condition = expression(select->condition).ssa();
@@ -1381,7 +1392,7 @@ class Translator final : private Initialization::Evaluation {
       auto left = expression(binary->leftExpression);
       if (binary->op == cxx::TokenKind::T_AMP_AMP ||
           binary->op == cxx::TokenKind::T_BAR_BAR) {
-        if (types_.vector(ast->type)) {
+        if (types_.native_vector(ast->type)) {
           fail(ast, "vector logical operators require lane-wise evaluation");
         }
         // The semantic AST supplies both contextual boolean conversions.
@@ -1470,7 +1481,7 @@ class Translator final : private Initialization::Evaluation {
         fail(ast, "unsupported unary value expression");
       }
       auto operand = expression(unary->expression);
-      if (types_.vector(unary->expression->type)) {
+      if (types_.native_vector(unary->expression->type)) {
         return vectors_.unary(unary->op, operand.ssa(), unary->expression->type,
                               ast->type, ast, lexical_fastmath_flags_);
       }
@@ -1508,13 +1519,13 @@ class Translator final : private Initialization::Evaluation {
     if (auto* subscript = cxx::ast_cast<cxx::SubscriptExpressionAST>(ast)) {
       auto* base_type = subscript->baseExpression->type;
       auto* index_type = subscript->indexExpression->type;
-      if (types_.vector(base_type) || types_.vector(index_type)) {
+      if (types_.native_vector(base_type) || types_.native_vector(index_type)) {
         if (subscript->symbol) {
           fail(ast, "overloaded indexing is not admitted");
         }
         auto base = expression(subscript->baseExpression);
         auto index = expression(subscript->indexExpression);
-        if (!types_.vector(base_type)) {
+        if (!types_.native_vector(base_type)) {
           std::swap(base, index);
           std::swap(base_type, index_type);
         }

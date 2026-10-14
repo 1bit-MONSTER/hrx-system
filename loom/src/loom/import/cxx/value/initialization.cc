@@ -67,6 +67,7 @@ Value Initialization::value(const cxx::Type* type,
   if (partition.kind == ValueKind::Buffer ||
       partition.kind == ValueKind::OpaqueDialect ||
       partition.kind == ValueKind::Encoding ||
+      partition.kind == ValueKind::Vector ||
       partition.kind == ValueKind::View ||
       partition.kind == ValueKind::Tensor) {
     if (elements && !elements->next &&
@@ -77,7 +78,7 @@ Value Initialization::value(const cxx::Type* type,
         unit_, owner,
         "Loom source values require an operation result or a copy");
   }
-  if (auto* vector = types_.vector(type)) {
+  if (auto* vector = types_.native_vector(type)) {
     std::vector<loom_value_id_t> components;
     for (auto* element : cxx::ListView{elements}) {
       components.push_back(
@@ -204,7 +205,7 @@ void Initialization::storage(StorageAllocation allocation,
       auto* clause = index < elements.size() ? elements[index] : nullptr;
       if (unit_.typeTraits().is_class(element_type) ||
           unit_.typeTraits().is_array(element_type) ||
-          types_.vector(element_type)) {
+          types_.native_vector(element_type)) {
         object(
             storage_.element(storage_.project(allocation.pointer, type, owner),
                              array, index, owner),

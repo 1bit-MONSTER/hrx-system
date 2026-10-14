@@ -153,8 +153,8 @@ ShapedIntrinsic ShapedIntrinsic::resolve(Operation operation,
       diagnostics.reject(unit, owner,
                          "vector.slice requires a source and lane offset");
     }
-    auto* source = types.vector(signature->parameterTypes()[0]);
-    auto* result = types.vector(signature->returnType());
+    auto* source = types.native_vector(signature->parameterTypes()[0]);
+    auto* result = types.native_vector(signature->returnType());
     if (!source || !result) {
       diagnostics.reject(unit, owner,
                          "vector.slice requires source and result vectors");
@@ -185,8 +185,8 @@ ShapedIntrinsic ShapedIntrinsic::resolve(Operation operation,
       diagnostics.reject(unit, owner,
                          "vector absolute value requires one operand");
     }
-    const auto* result = types.vector(signature->returnType());
-    const auto* input = types.vector(signature->parameterTypes()[0]);
+    const auto* result = types.native_vector(signature->returnType());
+    const auto* input = types.native_vector(signature->parameterTypes()[0]);
     if (!result || !input || result != input) {
       diagnostics.reject(
           unit, owner,
@@ -211,9 +211,9 @@ ShapedIntrinsic ShapedIntrinsic::resolve(Operation operation,
       diagnostics.reject(unit, owner,
                          "floating vector extremum requires two operands");
     }
-    const auto* result = types.vector(signature->returnType());
-    const auto* left = types.vector(signature->parameterTypes()[0]);
-    const auto* right = types.vector(signature->parameterTypes()[1]);
+    const auto* result = types.native_vector(signature->returnType());
+    const auto* left = types.native_vector(signature->parameterTypes()[0]);
+    const auto* right = types.native_vector(signature->parameterTypes()[1]);
     if (!result || result != left || result != right ||
         !types.is_float(result->elementType())) {
       diagnostics.reject(
@@ -232,7 +232,7 @@ ShapedIntrinsic ShapedIntrinsic::resolve(Operation operation,
                        "intrinsic declaration has the wrong operand count");
   }
   const auto* result = types.unqualified(signature->returnType());
-  const auto* result_vector = types.vector(result);
+  const auto* result_vector = types.native_vector(result);
   if (!scalar_result && !result_vector) {
     diagnostics.reject(unit, owner, "shaped intrinsic result must be a vector");
   }
@@ -248,7 +248,7 @@ ShapedIntrinsic ShapedIntrinsic::resolve(Operation operation,
   std::array<const cxx::VectorType*, 3> operands;
   std::array<loom_type_t, 3> operand_types;
   for (size_t index = 0; index < vector_count; ++index) {
-    operands[index] = types.vector(signature->parameterTypes()[index]);
+    operands[index] = types.native_vector(signature->parameterTypes()[index]);
     if (!operands[index]) {
       diagnostics.reject(unit, owner,
                          "shaped intrinsic operands must be vectors");

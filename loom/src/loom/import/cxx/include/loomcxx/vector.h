@@ -9,6 +9,17 @@
 
 #include <loomcxx/view.h>
 
+namespace loom::type {
+
+// A rank-generic register value whose logical dimensions precede its element
+// type, matching Loom vector syntax. Native C++ vectors remain the concise
+// spelling for static rank-one values; this type retains dependent dimensions
+// through functions, records, templates, and structured control flow.
+template <class Shape, class T>
+class [[loom::type("vector")]] vector {};
+
+}  // namespace loom::type
+
 namespace loom::vector {
 
 // Loads one contiguous native C++ vector at a full-rank logical origin. Result

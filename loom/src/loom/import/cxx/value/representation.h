@@ -35,6 +35,7 @@ enum class ValueKind {
   Address,
   OpaqueDialect,
   Encoding,
+  Vector,
   View,
   Tensor
 };
@@ -79,6 +80,7 @@ class Value {
     return partition_->kind == ValueKind::OpaqueDialect;
   }
   bool is_encoding() const { return partition_->kind == ValueKind::Encoding; }
+  bool is_vector() const { return partition_->kind == ValueKind::Vector; }
   bool is_view() const { return partition_->kind == ValueKind::View; }
   bool is_tensor() const { return partition_->kind == ValueKind::Tensor; }
   loom_value_id_t ssa() const {

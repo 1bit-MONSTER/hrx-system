@@ -165,7 +165,7 @@ std::optional<SubgroupIntrinsic> SubgroupIntrinsic::resolve(
                            "rank-one vector value and result types");
       }
       const auto* element = result;
-      if (const auto* vector = types.vector(result)) {
+      if (const auto* vector = types.native_vector(result)) {
         element = types.unqualified(vector->elementType());
       }
       const bool floating = types.is_float(element);
