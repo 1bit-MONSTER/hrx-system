@@ -50,6 +50,44 @@ privileged. [Window thresholds][window-versions]
 [Generation selection][window-caller] [Start and close][start-counting]
 [Clock owner][begin-control]
 
+### Programming windows and register access
+
+The programming window protects temporary nonbroadcast `GRBM_GFX_INDEX`
+state. PAL requires an open window when selecting individual instances; its
+comment describes suppressing hardware-triggered behavior that could break
+while register addressing is not broadcasting. It does not identify those
+signals or specify scheduler/preemption behavior. The sample builder restores
+global broadcasting before returning. [Register-context invariant][window-index]
+[Broadcast restoration][restore-broadcast]
+
+PAL opens and closes windows within its begin, end and internal-operation
+methods. Its idle and sample dependencies can execute inside a window, while
+the ordinary measured workload runs after the begin method closes it. This
+establishes paired programming operations, not a general prohibition on waits
+or a contract for holding the window across externally supplied work and
+consumer credits. [Begin ordering][begin-control] [Window closure][start-counting]
+[End closure][end-control] [Internal operations][internal-window]
+
+The public packet sources disagree on the GFX11 operation field. Both name
+start as 7 and stop as 0, but PAL's generated MEC and PFP declarations give
+`op` only two bits in DWORD 1. Its builder assigns the enum to that field,
+so start becomes 3. Mesa's GFX11 MEC and PFP descriptions give `op` bits 2:0,
+preserving start as 7. Matching PAL's emitted value therefore does not resolve
+the discrepancy with the packet description. Neither source supplies the
+firmware's behavior for the other encoding or establishes that 3 and 7 are
+interchangeable. [PAL MEC layout][window-mec-layout]
+[PAL PFP layout][window-pfp-layout] [PAL assignment][window-builder]
+[Mesa MEC layout][window-mesa-mec] [Mesa PFP layout][window-mesa-pfp]
+
+Register writes also depend on the command engine. PAL's
+`WriteSetOnePerfCtrReg` uses confirmed immediate-to-counter `COPY_DATA` for
+registers outside user-config space. For user-config registers it sets the
+filter-CAM reset control only on the universal engine; its source explicitly
+identifies that control as a compute-engine hang trigger. The compute path
+uses `SET_UCONFIG_REG` with that control clear. A graphics register-write
+sequence is consequently not a portable compute sequence merely because the
+register addresses agree. [Engine-specific writes][counter-register-write]
+
 ## Event, instance, slot and width
 
 A global-counter request contains `block`, `instance`, `eventId` and any
@@ -326,6 +364,14 @@ describe those additional relationships.
 [window-comparison]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L397-L398
 [window-builder]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L4870-L4912
 [window-caller]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdStream.cpp#L1671-L1684
+[window-index]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdStream.cpp#L300-L327
+[restore-broadcast]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9PerfExperiment.cpp#L3941-L3944
+[internal-window]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9PerfExperiment.cpp#L2328-L2434
+[window-mec-layout]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_mec_pm4_packets.h#L2791-L2821
+[window-pfp-layout]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_pfp_pm4_packets.h#L4519-L4549
+[window-mesa-mec]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/packets/cp_pm4_table_data_gfx11.json#L14234-14265
+[window-mesa-pfp]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/packets/cp_pm4_table_data_gfx11.json#L4633-4664
+[counter-register-write]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdStream.cpp#L1566-L1601
 [begin-control]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9PerfExperiment.cpp#L2020-L2068
 [shader-controls]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9PerfExperiment.cpp#L2070-L2133
 [begin-sample]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9PerfExperiment.cpp#L2142-L2172
