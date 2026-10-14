@@ -45,13 +45,14 @@ void loom_run_hal_testbench_scenario_profile_initialize(
 // Returns the external execution profile backed by |profile|.
 //
 // Product preparation compiles and loads one ordinary kernel artifact before
-// any trial-local values exist. An ordinary void function with scalar and
-// buffer arguments is privately adapted to a fixed 1x1 kernel in the target
-// product; the authored module remains unchanged for oracle execution. Product
-// execution records every call in a bounded batch into one command sequence,
-// stages each distinct host allocation once while preserving aliases, submits
-// once, and reads completed state back. Product benchmarking reuses that same
-// command sequence after target-local staging and omits readback.
+// any trial-local values exist. An ordinary function with scalar and buffer
+// arguments and scalar results is privately adapted to a fixed 1x1 kernel;
+// the authored module remains unchanged for oracle execution. Returned values
+// occupy typed slots in a private output binding, separate from mutable input
+// buffers. Correctness calls execute sequentially with alias-preserving staging
+// and readback, decoding and reusing one result record after each completion.
+// Product benchmarking stages a bounded batch once, binds disjoint result
+// records, and replays one command sequence without allocation or readback.
 loom_testbench_execution_profile_t
 loom_run_hal_testbench_scenario_execution_profile(
     loom_run_hal_testbench_scenario_profile_t* profile);
