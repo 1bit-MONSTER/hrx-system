@@ -7851,6 +7851,9 @@ struct iree_hal_vulkan_staged_transfer_t {
   // Total requested transfer length.
   iree_device_size_t requested_length;
 
+  // Maximum bytes assigned to a slot, preserving file continuation alignment.
+  iree_host_size_t chunk_size;
+
   // Number of bytes assigned to chunks.
   iree_device_size_t submitted_length;
 
@@ -8137,8 +8140,12 @@ static void iree_hal_vulkan_staged_transfer_write_complete(
 static iree_status_t iree_hal_vulkan_staged_transfer_submit_next_read(
     iree_hal_vulkan_staged_transfer_chunk_t* chunk) {
   iree_hal_vulkan_staged_transfer_t* transfer = chunk->transfer;
-  const iree_host_size_t remaining_length =
-      (iree_host_size_t)chunk->length - chunk->file_progress;
+  iree_host_size_t length = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_file_prepare_transfer(
+      &iree_hal_file_requirements(transfer->file)->read,
+      transfer->file_offset + chunk->transfer_offset + chunk->file_progress,
+      chunk->slot->host_span.data + chunk->file_progress,
+      chunk->length - chunk->file_progress, UINT32_C(1) << 30, &length));
   iree_async_operation_zero(&chunk->read_op.base, sizeof(chunk->read_op));
   iree_async_operation_initialize(
       &chunk->read_op.base, IREE_ASYNC_OPERATION_TYPE_FILE_READ,
@@ -8148,7 +8155,7 @@ static iree_status_t iree_hal_vulkan_staged_transfer_submit_next_read(
   chunk->read_op.offset =
       transfer->file_offset + chunk->transfer_offset + chunk->file_progress;
   chunk->read_op.buffer = iree_async_span_from_ptr(
-      chunk->slot->host_span.data + chunk->file_progress, remaining_length);
+      chunk->slot->host_span.data + chunk->file_progress, length);
   iree_hal_resource_retain(&transfer->resource);
   iree_status_t status = iree_async_proactor_submit_one(
       transfer->queue->proactor, &chunk->read_op.base);
@@ -8161,8 +8168,12 @@ static iree_status_t iree_hal_vulkan_staged_transfer_submit_next_read(
 static iree_status_t iree_hal_vulkan_staged_transfer_submit_next_write(
     iree_hal_vulkan_staged_transfer_chunk_t* chunk) {
   iree_hal_vulkan_staged_transfer_t* transfer = chunk->transfer;
-  const iree_host_size_t remaining_length =
-      (iree_host_size_t)chunk->length - chunk->file_progress;
+  iree_host_size_t length = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_file_prepare_transfer(
+      &iree_hal_file_requirements(transfer->file)->write,
+      transfer->file_offset + chunk->transfer_offset + chunk->file_progress,
+      chunk->slot->host_span.data + chunk->file_progress,
+      chunk->length - chunk->file_progress, UINT32_C(1) << 30, &length));
   iree_async_operation_zero(&chunk->write_op.base, sizeof(chunk->write_op));
   iree_async_operation_initialize(
       &chunk->write_op.base, IREE_ASYNC_OPERATION_TYPE_FILE_WRITE,
@@ -8172,7 +8183,7 @@ static iree_status_t iree_hal_vulkan_staged_transfer_submit_next_write(
   chunk->write_op.offset =
       transfer->file_offset + chunk->transfer_offset + chunk->file_progress;
   chunk->write_op.buffer = iree_async_span_from_ptr(
-      chunk->slot->host_span.data + chunk->file_progress, remaining_length);
+      chunk->slot->host_span.data + chunk->file_progress, length);
   iree_hal_resource_retain(&transfer->resource);
   iree_status_t status = iree_async_proactor_submit_one(
       transfer->queue->proactor, &chunk->write_op.base);
@@ -8303,7 +8314,7 @@ static void iree_hal_vulkan_staged_transfer_pump(
         chunk->transfer = transfer;
         chunk->slot = slot;
         chunk->transfer_offset = transfer->submitted_length;
-        chunk->length = iree_min(transfer->ring->slot_size, remaining_length);
+        chunk->length = iree_min(transfer->chunk_size, remaining_length);
         transfer->submitted_length += chunk->length;
         ++transfer->active_chunk_count;
       }
@@ -8412,6 +8423,26 @@ static iree_status_t iree_hal_vulkan_staged_transfer_create(
                             "Vulkan queue staging ring is not initialized");
   }
 
+  iree_host_size_t chunk_size = (iree_host_size_t)ring->slot_size;
+  if (host_kind == IREE_HAL_VULKAN_STAGED_TRANSFER_HOST_ASYNC_FILE) {
+    const iree_async_file_requirements_t* file_requirements =
+        iree_hal_file_requirements(lifetime_file);
+    const iree_async_file_transfer_requirements_t* requirements =
+        kind == IREE_HAL_VULKAN_STAGED_TRANSFER_READ
+            ? &file_requirements->read
+            : &file_requirements->write;
+    // Every slot is an equal-sized subspan of the same backing allocation.
+    if (ring->slot_count > 1 &&
+        (chunk_size & (requirements->buffer_alignment - 1))) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "staging slots do not preserve file buffer alignment");
+    }
+    IREE_RETURN_IF_ERROR(iree_hal_file_prepare_transfer(
+        requirements, file_offset, ring->mapping.contents.data, length,
+        chunk_size, &chunk_size));
+  }
+
   iree_host_size_t chunks_size = 0;
   if (!iree_host_size_checked_mul(
           ring->slot_count, sizeof(iree_hal_vulkan_staged_transfer_chunk_t),
@@ -8463,6 +8494,7 @@ static iree_status_t iree_hal_vulkan_staged_transfer_create(
   iree_hal_buffer_retain(transfer->buffer);
   transfer->buffer_offset = buffer_offset;
   transfer->requested_length = length;
+  transfer->chunk_size = chunk_size;
   transfer->kind = kind;
   transfer->host_kind = host_kind;
   transfer->chunk_count = ring->slot_count;

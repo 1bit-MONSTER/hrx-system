@@ -151,6 +151,9 @@ class FileTest : public CtsTestBase<> {
       iree_io_file_handle_release(native_handle_);
       native_handle_ = nullptr;
       memory_contents_ = nullptr;
+      if (native_path_) {
+        EXPECT_TRUE(native_path_.Remove());
+      }
       native_path_.Reset();
     }
 
@@ -163,6 +166,7 @@ class FileTest : public CtsTestBase<> {
       native_handle_ = other.native_handle_;
       other.native_handle_ = nullptr;
       native_path_ = std::move(other.native_path_);
+      other.native_path_.Reset();
     }
 
     // Imported HAL file under test.
@@ -519,9 +523,11 @@ class FileTest : public CtsTestBase<> {
     return status;
   }
 
+ protected:
   iree_status_t CreateNativeTestFile(
       iree_hal_memory_access_t access,
-      const std::vector<uint8_t>& initial_contents, TestFile* out_file) {
+      const std::vector<uint8_t>& initial_contents, TestFile* out_file,
+      iree_io_file_mode_t additional_mode = 0) {
     iree::testing::TempFilePath path("iree_hal_cts_file");
     IREE_RETURN_IF_ERROR(iree_io_file_contents_write(
         path.path_view(),
@@ -533,7 +539,8 @@ class FileTest : public CtsTestBase<> {
     iree_status_t status = iree_io_file_handle_open(
         IREE_IO_FILE_MODE_READ | IREE_IO_FILE_MODE_WRITE |
             IREE_IO_FILE_MODE_RANDOM_ACCESS | IREE_IO_FILE_MODE_SHARE_READ |
-            IREE_IO_FILE_MODE_SHARE_WRITE | IREE_IO_FILE_MODE_ASYNC,
+            IREE_IO_FILE_MODE_SHARE_WRITE | IREE_IO_FILE_MODE_ASYNC |
+            additional_mode,
         path.path_view(), iree_allocator_system(), &handle);
     if (iree_status_is_ok(status)) {
       EXPECT_TRUE(iree_io_file_handle_uses_async_io(handle));
@@ -549,12 +556,77 @@ class FileTest : public CtsTestBase<> {
       out_file->SetNativeFile(std::move(path), handle);
     } else {
       iree_io_file_handle_release(handle);
+      EXPECT_TRUE(path.Remove());
     }
     return status;
   }
 };
 
 class AsyncFileTest : public FileTest {};
+
+TEST_P(AsyncFileTest, DirectFileRoundTripUsesReportedRequirements) {
+  // A range large enough to cross ordinary staging slots, with untouched file
+  // and buffer guards. The native query supplies every required alignment.
+  constexpr size_t kFileLength = 20 * 1024 * 1024;
+  std::vector<uint8_t> expected(kFileLength, 0xCD);
+  TestFile file;
+  iree::Status status = CreateNativeTestFile(
+      IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE, expected,
+      &file, IREE_IO_FILE_MODE_DIRECT);
+  if (status.code() == iree::StatusCode::kUnavailable ||
+      status.code() == iree::StatusCode::kUnimplemented) {
+    GTEST_SKIP() << status.ToString();
+  }
+  IREE_ASSERT_OK(status);
+  const auto& requirements = *iree_hal_file_requirements(file.get());
+  const auto alignment = std::max(requirements.read.buffer_alignment,
+                                  requirements.write.buffer_alignment);
+  const uint64_t stride = std::max(
+      {requirements.read.offset_alignment, requirements.write.offset_alignment,
+       uint64_t(requirements.read.length_alignment),
+       uint64_t(requirements.write.length_alignment)});
+  ASSERT_LE(alignment, 1024 * 1024u);
+  ASSERT_LE(stride, 1024 * 1024u);
+  const size_t length = iree_host_align(16 * 1024 * 1024 + 17, stride);
+  const size_t buffer_offset = alignment;
+  const uint64_t file_offset = stride;
+  const size_t buffer_length = length + 2 * alignment;
+  iree_hal_pool_t* pool = nullptr;
+  IREE_ASSERT_OK(GetDevicePool(&pool));
+  Ref<iree_hal_buffer_t> source, target;
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(buffer_length, alignment),
+      iree_infinite_timeout(), source.out()));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      pool, iree_hal_make_pool_reservation_request(buffer_length, alignment),
+      iree_infinite_timeout(), target.out()));
+  std::vector<uint8_t> source_contents = MakeDeterministicBytes(buffer_length);
+  const std::vector<uint8_t> target_contents(buffer_length, 0xA5);
+  SemaphoreList empty_wait;
+  SemaphoreList initialized(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_upload(transfer_queue_, empty_wait, initialized,
+                                       source_contents.data(), source.get(), 0,
+                                       buffer_length, nullptr));
+  IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
+      initialized, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+  SemaphoreList target_initialized(device_, {0}, {1});
+  IREE_ASSERT_OK(iree_hal_queue_upload(
+      transfer_queue_, empty_wait, target_initialized, target_contents.data(),
+      target.get(), 0, buffer_length, nullptr));
+  IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
+      target_initialized, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+  ASSERT_NO_FATAL_FAILURE(
+      QueueWriteThenRead(source.get(), buffer_offset, file.get(), file_offset,
+                         target.get(), buffer_offset, length));
+  std::vector<uint8_t> expected_buffer = target_contents;
+  std::memcpy(expected_buffer.data() + buffer_offset,
+              source_contents.data() + buffer_offset, length);
+  std::memcpy(expected.data() + file_offset,
+              source_contents.data() + buffer_offset, length);
+  EXPECT_THAT(ReadBufferBytes(target.get(), 0, buffer_length),
+              ContainerEq(expected_buffer));
+  EXPECT_THAT(file.ReadContents(0, kFileLength), ContainerEq(expected));
+}
 
 TEST_P(FileTest, ReadEntireFile) {
   ForEachProvider([&](const FileProvider& provider) {
@@ -642,11 +714,12 @@ TEST_P(FileTest, MemoryFileUsesExplicitStoragePool) {
       release_callback, iree_allocator_system(), &handle));
 
   TestFile file;
-  IREE_ASSERT_OK(iree_hal_file_import(
+  iree::Status import_status = iree_hal_file_import(
       device_, storage_pool, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
       IREE_HAL_MEMORY_ACCESS_READ, handle, IREE_HAL_EXTERNAL_FILE_FLAG_NONE,
-      file.out_file()));
+      file.out_file());
   iree_io_file_handle_release(handle);
+  IREE_ASSERT_OK(import_status);
 
   iree_hal_buffer_t* storage_buffer = iree_hal_file_storage_buffer(file.get());
   ASSERT_NE(storage_buffer, nullptr);

@@ -7,6 +7,7 @@
 #include "iree/hal/drivers/amd/fabric/file_transfer.h"
 
 #include <array>
+#include <cstring>
 #include <vector>
 
 #include "iree/async/file.h"
@@ -166,7 +167,7 @@ struct BufferStorage {
   }
 
   // Native backing bytes, with guard space around the logical buffer.
-  std::array<uint8_t, 256> contents;
+  alignas(64) std::array<uint8_t, 256> contents;
   // Mapping information borrowed by the production buffer view.
   iree_hal_amd_fabric_memory_t memory = {};
   // Native dependency providing cache maintenance.
@@ -239,9 +240,10 @@ class FileTransferTest
     EXPECT_EQ(storage_.release_count, 1u);
   }
 
-  void Initialize() {
+  void Initialize(uint64_t file_offset = kFileOffset,
+                  iree_device_size_t buffer_offset = kBufferOffset) {
     IREE_ASSERT_OK(iree_hal_amd_fabric_file_transfer_initialize(
-        provider_.file(), GetParam(), kFileOffset, buffer_, kBufferOffset,
+        provider_.file(), GetParam(), file_offset, buffer_, buffer_offset,
         kLength, &transfer_));
     initialized_ = true;
   }
@@ -335,6 +337,57 @@ TEST_P(FileTransferTest, ZeroProgressFailsTheExactRange) {
   EXPECT_EQ(completion_code_, IREE_STATUS_OUT_OF_RANGE);
   EXPECT_EQ(transfer_.async.bytes_transferred, 7u);
   EXPECT_EQ(provider_.pending, nullptr);
+}
+
+TEST_P(FileTransferTest, AlignedPartialCompletionContinues) {
+  auto& requirements = GetParam() == IREE_HAL_MEMORY_ACCESS_READ
+                           ? provider_.requirements.read
+                           : provider_.requirements.write;
+  requirements = {16, 8, 4};
+  ASSERT_NO_FATAL_FAILURE(Initialize(/*file_offset=*/32, /*buffer_offset=*/8));
+  IREE_ASSERT_OK(iree_hal_amd_fabric_file_transfer_prepare(&transfer_));
+  IREE_ASSERT_OK(Submit());
+  provider_.Complete(16);
+  ASSERT_EQ(provider_.requests.size(), 2u);
+  EXPECT_EQ(provider_.requests[1].offset, 48u);
+  EXPECT_EQ(provider_.requests[1].length, 16u);
+  EXPECT_EQ(completion_count_, 0u);
+  provider_.Complete(16);
+  EXPECT_EQ(completion_count_, 1u);
+  EXPECT_EQ(completion_code_, IREE_STATUS_OK);
+  IREE_ASSERT_OK(iree_hal_amd_fabric_file_transfer_finish(&transfer_));
+  EXPECT_EQ(std::memcmp(storage_.contents.data() + 32,
+                        provider_.contents.data() + 32, 32),
+            0);
+}
+
+TEST_P(FileTransferTest, UnalignedPartialCompletionDoesNotResubmit) {
+  auto& requirements = GetParam() == IREE_HAL_MEMORY_ACCESS_READ
+                           ? provider_.requirements.read
+                           : provider_.requirements.write;
+  requirements = {16, 8, 4};
+  ASSERT_NO_FATAL_FAILURE(Initialize(/*file_offset=*/32, /*buffer_offset=*/8));
+  IREE_ASSERT_OK(iree_hal_amd_fabric_file_transfer_prepare(&transfer_));
+  IREE_ASSERT_OK(Submit());
+  provider_.Complete(4);
+  EXPECT_EQ(provider_.requests.size(), 1u);
+  EXPECT_EQ(provider_.pending, nullptr);
+  EXPECT_EQ(transfer_.async.bytes_transferred, 4u);
+  EXPECT_EQ(completion_count_, 1u);
+  EXPECT_EQ(completion_code_, IREE_STATUS_INVALID_ARGUMENT);
+}
+
+TEST_P(FileTransferTest, UnalignedInitialRequestKeepsCallerOwnership) {
+  auto& requirements = GetParam() == IREE_HAL_MEMORY_ACCESS_READ
+                           ? provider_.requirements.read
+                           : provider_.requirements.write;
+  requirements = {16, 8, 4};
+  ASSERT_NO_FATAL_FAILURE(Initialize());
+  IREE_ASSERT_OK(iree_hal_amd_fabric_file_transfer_prepare(&transfer_));
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT, Submit());
+  EXPECT_TRUE(provider_.requests.empty());
+  EXPECT_EQ(provider_.pending, nullptr);
+  EXPECT_EQ(completion_count_, 0u);
 }
 
 TEST_P(FileTransferTest, PlatformFailureAfterPartialProgressIsTerminal) {

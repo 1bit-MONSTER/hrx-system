@@ -597,6 +597,8 @@ struct iree_hal_amdgpu_staging_transfer_t {
   iree_device_size_t buffer_offset;
   // Total requested transfer length.
   iree_device_size_t requested_length;
+  // Maximum bytes assigned to a slot, preserving file continuation alignment.
+  iree_host_size_t chunk_size;
   // Number of bytes assigned to chunks.
   iree_device_size_t submitted_length;
   // Number of bytes fully transferred through all stages.
@@ -1001,6 +1003,13 @@ static iree_status_t iree_hal_amdgpu_staging_chunk_submit_read(
   IREE_RETURN_IF_ERROR(
       iree_hal_amdgpu_host_queue_clone_error_status(transfer->queue));
 
+  iree_host_size_t length = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_file_prepare_transfer(
+      &iree_hal_file_requirements(transfer->file)->read,
+      transfer->file_offset + chunk->transfer_offset + chunk->file_progress,
+      chunk->slot.host_span.data + chunk->file_progress,
+      chunk->length - chunk->file_progress, UINT32_C(1) << 30, &length));
+
   iree_async_operation_zero(&chunk->read_op.base, sizeof(chunk->read_op));
   iree_async_operation_initialize(&chunk->read_op.base,
                                   IREE_ASYNC_OPERATION_TYPE_FILE_READ,
@@ -1010,8 +1019,7 @@ static iree_status_t iree_hal_amdgpu_staging_chunk_submit_read(
   chunk->read_op.offset =
       transfer->file_offset + chunk->transfer_offset + chunk->file_progress;
   chunk->read_op.buffer = iree_async_span_from_ptr(
-      chunk->slot.host_span.data + chunk->file_progress,
-      chunk->length - chunk->file_progress);
+      chunk->slot.host_span.data + chunk->file_progress, length);
   iree_hal_resource_retain(&transfer->resource);
   iree_status_t status = iree_async_proactor_submit_one(
       transfer->queue->proactor, &chunk->read_op.base);
@@ -1027,6 +1035,13 @@ static iree_status_t iree_hal_amdgpu_staging_chunk_submit_write(
   IREE_RETURN_IF_ERROR(
       iree_hal_amdgpu_host_queue_clone_error_status(transfer->queue));
 
+  iree_host_size_t length = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_file_prepare_transfer(
+      &iree_hal_file_requirements(transfer->file)->write,
+      transfer->file_offset + chunk->transfer_offset + chunk->file_progress,
+      chunk->slot.host_span.data + chunk->file_progress,
+      chunk->length - chunk->file_progress, UINT32_C(1) << 30, &length));
+
   iree_async_operation_zero(&chunk->write_op.base, sizeof(chunk->write_op));
   iree_async_operation_initialize(
       &chunk->write_op.base, IREE_ASYNC_OPERATION_TYPE_FILE_WRITE,
@@ -1036,8 +1051,7 @@ static iree_status_t iree_hal_amdgpu_staging_chunk_submit_write(
   chunk->write_op.offset =
       transfer->file_offset + chunk->transfer_offset + chunk->file_progress;
   chunk->write_op.buffer = iree_async_span_from_ptr(
-      chunk->slot.host_span.data + chunk->file_progress,
-      chunk->length - chunk->file_progress);
+      chunk->slot.host_span.data + chunk->file_progress, length);
   iree_hal_resource_retain(&transfer->resource);
   iree_status_t status = iree_async_proactor_submit_one(
       transfer->queue->proactor, &chunk->write_op.base);
@@ -1161,7 +1175,7 @@ static void iree_hal_amdgpu_staging_transfer_pump(
       const iree_device_size_t remaining_length =
           transfer->requested_length - transfer->submitted_length;
       chunk_length = (iree_host_size_t)iree_min(
-          (iree_device_size_t)transfer->pool->slot_size, remaining_length);
+          (iree_device_size_t)transfer->chunk_size, remaining_length);
       chunk_offset = transfer->submitted_length;
       if (transfer->kind == IREE_HAL_AMDGPU_STAGING_TRANSFER_FILE_READ) {
         chunk->state = IREE_HAL_AMDGPU_STAGING_CHUNK_READING;
@@ -1300,6 +1314,26 @@ static iree_status_t iree_hal_amdgpu_staging_transfer_create(
   IREE_RETURN_IF_ERROR(iree_hal_amdgpu_staging_transfer_validate_buffer(
       kind, buffer, buffer_offset, length));
 
+  iree_host_size_t chunk_size = queue->staging_pool->slot_size;
+  if (iree_hal_amdgpu_staging_transfer_uses_file(kind)) {
+    const iree_async_file_requirements_t* file_requirements =
+        iree_hal_file_requirements(file);
+    const iree_async_file_transfer_requirements_t* requirements =
+        kind == IREE_HAL_AMDGPU_STAGING_TRANSFER_FILE_READ
+            ? &file_requirements->read
+            : &file_requirements->write;
+    // Every slot is an equal-sized subspan of the same backing allocation.
+    if (queue->staging_pool->slot_count > 1 &&
+        (chunk_size & (requirements->buffer_alignment - 1))) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "staging slots do not preserve file buffer alignment");
+    }
+    IREE_RETURN_IF_ERROR(iree_hal_file_prepare_transfer(
+        requirements, file_offset, queue->staging_pool->host_base, length,
+        chunk_size, &chunk_size));
+  }
+
   iree_host_size_t chunks_size = 0;
   if (!iree_host_size_checked_mul(queue->staging_pool->slot_count,
                                   sizeof(iree_hal_amdgpu_staging_chunk_t),
@@ -1339,6 +1373,7 @@ static iree_status_t iree_hal_amdgpu_staging_transfer_create(
   transfer->file_offset = file_offset;
   transfer->buffer_offset = buffer_offset;
   transfer->requested_length = length;
+  transfer->chunk_size = chunk_size;
   transfer->chunk_count = queue->staging_pool->slot_count;
   transfer->profile_wait_count = profile_wait_count;
   transfer->kind = kind;
