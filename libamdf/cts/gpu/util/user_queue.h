@@ -61,7 +61,8 @@ struct GpuUserQueue {
                   const amdf_gpu_queue_scratch_t& scratch,
                   amdf_user_queue_capabilities_t required_capabilities =
                       AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER,
-                  uint64_t ring_byte_length = 0);
+                  uint64_t ring_byte_length = 0,
+                  amdf_gpu_user_queue_flags_t flags = 0);
   bool Release(const amdf_api_t* api);
 
   // Publishes an already-written PM4/SDMA stream, with the engine's index

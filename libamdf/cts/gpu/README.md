@@ -150,6 +150,17 @@ existing confirmed-copy timestamp cases also query the native rate and record
 converted durations. These observations are correctness evidence, not
 performance measurements.
 
+`AqlDispatchTimingTest` opts into native dispatch timestamps at queue creation.
+The default-off control checks untouched timestamp fields. Enabled finite and
+16,387-dispatch streaming cases consume four exclusive signal slots, copying
+each observation before rearming its signal. Target-selected Loom transforms,
+complete output checks, per-slot timestamp ordering, and signal/payload guards
+verify publication and reuse. Host brackets bound individual durations; a
+capture-wide constant-offset fit and first/last host-bracketed source anchors
+are reported separately. The anchors retain the information needed to bound
+the effective rate over the capture. The shared fixture retires queues before
+signal, argument, payload, or executable backing.
+
 PM4/SDMA batches publish four prepared upload/compute/download graphs with one
 publication per queue. Each graph has separate payload, arguments and progress
 records. With a shared transfer queue, SDMA observes one graph's shader

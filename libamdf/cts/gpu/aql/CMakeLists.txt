@@ -68,6 +68,7 @@ iree_cc_library(
     "barrier_test.cc"
     "byte_copy_test.cc"
     "dispatch_test.cc"
+    "dispatch_timing_test.cc"
     "epoch_test.cc"
     "executable_test.cc"
     "fanin_test.cc"

@@ -14,13 +14,14 @@ void GpuUserQueue::Initialize(
     amdf_queue_producer_mode_t producer_mode,
     const amdf_gpu_queue_scratch_t& scratch,
     amdf_user_queue_capabilities_t required_capabilities,
-    uint64_t ring_byte_length) {
+    uint64_t ring_byte_length, amdf_gpu_user_queue_flags_t flags) {
   amdf_gpu_user_queue_create_info_t create = {
       .type = AMDF_STRUCTURE_TYPE_GPU_USER_QUEUE_CREATE_INFO,
       .structure_size = sizeof(create),
       .queue_family_ordinal = family.ordinal,
       .priority = AMDF_QUEUE_PRIORITY_NORMAL,
       .producer_mode = producer_mode,
+      .flags = flags,
       .required_capabilities = required_capabilities,
       .ring_byte_length = ring_byte_length,
       .scratch = scratch,

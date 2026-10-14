@@ -105,11 +105,11 @@ void GpuCommandTest::CreateQueue(
     amdf_queue_producer_mode_t producer_mode,
     const amdf_gpu_queue_scratch_t& scratch,
     amdf_user_queue_capabilities_t required_capabilities,
-    uint64_t ring_byte_length) {
+    uint64_t ring_byte_length, amdf_gpu_user_queue_flags_t flags) {
   auto& queue = queues_.emplace_back();
   ASSERT_NO_FATAL_FAILURE(
       queue.Initialize(api_, gpu_api_, device_, family, producer_mode, scratch,
-                       required_capabilities, ring_byte_length));
+                       required_capabilities, ring_byte_length, flags));
   *out_queue = &queue;
 }
 

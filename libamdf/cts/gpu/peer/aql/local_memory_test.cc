@@ -400,9 +400,11 @@ class PeerAqlMemoryTest : public GpuPeerDeviceFixture {
       EXPECT_EQ(signal.kind, 1);
       EXPECT_EQ(signal.value, i == kInitialized ? initialized_value : 0);
       // Dispatch timestamps are native outputs, not unused guard bytes.
-      for (size_t field : {0u, 1u, 4u, 5u}) {
-        EXPECT_EQ(signal.reserved[field], 0u);
-      }
+      EXPECT_EQ(signal.event.mailbox_address, 0u);
+      EXPECT_EQ(signal.event.id, 0u);
+      EXPECT_EQ(signal.event.reserved, 0u);
+      EXPECT_EQ(signal.queue_address, 0u);
+      EXPECT_EQ(signal.reserved, 0u);
     }
     for (size_t i = kSignalCount * sizeof(aql::Signal); i < snapshot.size();
          ++i) {
