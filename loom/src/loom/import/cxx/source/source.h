@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 
+#include "loom/import/cxx/source/contents.h"
 #include "loom/import/cxx/source/options.h"
 
 namespace loom::cxx_import {
@@ -27,19 +28,25 @@ inline std::string string(iree_string_view_t value) {
 }
 
 // Forwards frontend diagnostics without invoking its process-exiting renderer.
-// Source bytes in each callback belong to the invocation's preprocessor.
+// Source bytes in each callback belong to the invocation's retained contents.
 class Diagnostics final : public cxx::DiagnosticsClient {
  public:
   explicit Diagnostics(loom_diagnostic_sink_t sink) : sink_(sink) {}
   ~Diagnostics() override { iree_status_free(status_); }
-  void bind(cxx::Preprocessor* preprocessor) { preprocessor_ = preprocessor; }
+  void bind(cxx::TranslationUnit* unit, SourceContents* contents) {
+    unit_ = unit;
+    contents_ = contents;
+  }
   void report(const cxx::Diagnostic& diagnostic) override;
   // Translation-unit errors refer to the start of the primary source file,
   // independent of declarations injected by builtins or included headers.
   [[noreturn]] void reject(cxx::TranslationUnit& unit, cxx::AST* ast,
                            std::string_view message);
-  // Semantic redeclarations retain their name token even without an AST owner.
-  [[noreturn]] void reject(const cxx::Token& token, std::string_view message);
+  // Diagnoses a semantic source location without requiring current-unit token
+  // ownership, including declarations restored from an immutable prefix.
+  [[noreturn]] void reject(cxx::SourceLocation location,
+                           std::string_view message);
+  SourceContents& contents() const { return *contents_; }
   bool has_error() const { return has_error_; }
   // Propagates sink failure and source rejection at a parser-safe boundary.
   // cxx forwards diagnostics from noexcept destructors, so report never throws.
@@ -48,11 +55,15 @@ class Diagnostics final : public cxx::DiagnosticsClient {
  private:
   void emit(const cxx::Token& token, loom_diagnostic_severity_t severity,
             const loom_error_def_t* error, std::string_view message);
+  void emit(cxx::SourceLocation location, loom_diagnostic_severity_t severity,
+            const loom_error_def_t* error, std::string_view message);
 
   // Borrowed callback and state supplied by the current import request.
   loom_diagnostic_sink_t sink_;
-  // Borrowed source storage used to materialize byte ranges.
-  cxx::Preprocessor* preprocessor_ = nullptr;
+  // Borrowed physical source positions and current frontend source storage.
+  cxx::TranslationUnit* unit_ = nullptr;
+  // Borrowed exact source snapshot used to materialize byte ranges.
+  SourceContents* contents_ = nullptr;
   // Forwarded diagnostics can bypass cxx's counter; this owns admission.
   bool has_error_ = false;
   // First sink failure, retained until a safe point can unwind the frontend.
@@ -73,8 +84,11 @@ class Source {
 
   cxx::TranslationUnit& unit() { return unit_; }
   Diagnostics& diagnostics() { return diagnostics_; }
+  SourceContents& contents() { return contents_; }
 
  private:
+  // Outlives diagnostics and the frontend source store that borrow it.
+  SourceContents contents_;
   // Outlives the frontend that can deliver diagnostics during teardown.
   Diagnostics diagnostics_;
   // Owns the memory layout borrowed by the translation unit.

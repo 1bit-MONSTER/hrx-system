@@ -111,13 +111,27 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "contents",
+    srcs = ["contents.cc"],
+    hdrs = ["contents.h"],
+    cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
+    cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
+    deps = [
+        ":catalog",
+        ":error",
+        ":options",
+        "//third_party:cxx_parser",
+    ],
+)
+
+loom_cc_library(
     name = "source",
     srcs = ["source.cc"],
     hdrs = ["source.h"],
     cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
     cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
     deps = [
-        ":catalog",
+        ":contents",
         ":error",
         ":options",
         "//loom/src/loom/error:error_defs",

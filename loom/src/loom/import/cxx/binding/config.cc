@@ -224,9 +224,10 @@ void Configs::build(loom_builder_t* builder) {
   for (const auto& [canonical, index] : variables_) {
     auto require_annotation = [&](cxx::VariableSymbol* declaration) {
       if (!declarations_.contains(declaration)) {
-        diagnostics_.reject(unit_.tokenAt(declaration->location()),
-                            "every config redeclaration requires its explicit "
-                            "loom::config attribute");
+        diagnostics_.reject(
+            declaration->location(),
+            "every config redeclaration requires its explicit loom::config "
+            "attribute");
       }
     };
     require_annotation(canonical);

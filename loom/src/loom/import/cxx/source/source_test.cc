@@ -194,6 +194,32 @@ TEST(SourceTest, ProviderBytesAreCopiedBeforeTheNextCallback) {
   EXPECT_EQ(store.requests.at("/include/first.h"), 1u);
   EXPECT_EQ(store.requests.at("/include/second.h"), 1u);
   EXPECT_EQ(store.requests.at("/include/missing.h"), 1u);
+  EXPECT_EQ(source.contents().source("/include/first.h"),
+            "#pragma once\n#include <second.h>\n"
+            "constexpr int first = second + 1;\n");
+  EXPECT_EQ(source.contents().source("/include/second.h"),
+            "#pragma once\nconstexpr int second = 41;\n");
+}
+
+TEST(SourceTest, PhysicalRangesMapUtf8ColumnsToExactBytes) {
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  const std::string text =
+      "/* \xcf\x80 */ constexpr auto fragment = R\"asm(first\nsecond)asm\";\n";
+  Source source(view(text), IREE_SV("assembly.cpp"), options);
+  for (const auto& token : source.unit().tokens()) {
+    if (token.kind() != cxx::TokenKind::T_STRING_LITERAL) {
+      continue;
+    }
+    auto first = source.unit().preprocessor()->tokenStartPosition(token);
+    auto last = source.unit().preprocessor()->tokenEndPosition(token);
+    auto physical = source.contents().range(first, last);
+    EXPECT_EQ(
+        physical.source.substr(physical.start, physical.end - physical.start),
+        "R\"asm(first\nsecond)asm\"");
+    return;
+  }
+  FAIL() << "Expected one raw string literal";
 }
 
 TEST(SourceTest, RejectedSourceLeavesTheNextInvocationIndependent) {

@@ -138,6 +138,28 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_cc_library(
   NAME
+    contents
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "contents.h"
+  SRCS
+    "contents.cc"
+  DEPS
+    ::catalog
+    ::error
+    ::options
+    iree::third_party::cxx_parser
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
     source
   CXX_STANDARD
     23
@@ -149,7 +171,7 @@ loom_cc_library(
   SRCS
     "source.cc"
   DEPS
-    ::catalog
+    ::contents
     ::error
     ::options
     iree::third_party::cxx_parser

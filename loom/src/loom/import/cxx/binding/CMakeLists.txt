@@ -59,6 +59,7 @@ loom_cc_library(
     iree::third_party::cxx_parser
     loom::error::source
     loom::format::text::parser
+    loom::import::cxx::source
     loom::import::cxx::source::attributes
     loom::import::cxx::source::error
     loom::import::cxx::symbol::names

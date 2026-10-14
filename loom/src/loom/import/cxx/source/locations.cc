@@ -7,8 +7,6 @@
 #include "loom/import/cxx/source/locations.h"
 
 #include <cxx/ast.h>
-#include <cxx/preprocessor.h>
-#include <cxx/token.h>
 
 #include "loom/import/cxx/source/error.h"
 
@@ -38,16 +36,12 @@ loom_location_id_t Locations::get(cxx::AST* ast) {
       module_,
       iree_make_string_view(first.fileName.data(), first.fileName.size()),
       &source));
-  if (source_observer_.fn && module_->sources.count != source_count &&
-      unit_.ownsLocation(first_location)) {
-    const uint32_t file_id = unit_.tokenAt(first_location).fileId();
-    if (file_id != 0) {
-      const auto& contents = unit_.preprocessor()->source(file_id);
-      check(source_observer_.fn(
-          source_observer_.user_data, source,
-          iree_make_string_view(first.fileName.data(), first.fileName.size()),
-          iree_make_string_view(contents.data(), contents.size())));
-    }
+  if (source_observer_.fn && module_->sources.count != source_count) {
+    const auto contents = diagnostics_.contents().source(first.fileName);
+    check(source_observer_.fn(
+        source_observer_.user_data, source,
+        iree_make_string_view(first.fileName.data(), first.fileName.size()),
+        iree_make_string_view(contents.data(), contents.size())));
   }
   loom_location_id_t result;
   check(loom_module_add_location(
