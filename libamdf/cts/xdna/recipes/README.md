@@ -37,6 +37,16 @@ fixed caller storage, checks native record continuity and complete command
 intervals, and restores its initially disabled recorder. Unsupported native
 trace services skip this case without changing ordinary workload coverage.
 
+`FirmwareDurationsAndHostClockBounds` executes 32 guarded numeric commands
+with a deliberate 100 ms ordinary idle gap midway through the capture. It
+checks positive nanosecond firmware intervals, source ordering, containment
+within each host submission/completion width, and a nonempty intersection of
+the corresponding source-to-host offset bounds. Its XML properties retain
+observed durations and the final offset range. These observations check clock
+interpretation and report sampling uncertainty; they are not latency thresholds
+or benchmark results. The case uses the same recorder and ordinary completion
+protocol as the streaming case, with bounded caller-owned calibration storage.
+
 `FirmwareResultRecipeTest` attaches the smallest advertised finite result
 buffer through the dynamic XDNA API. Four useful numeric commands each emit
 three caller-identified timer records, with one host wait after the four

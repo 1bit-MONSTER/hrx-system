@@ -570,6 +570,57 @@ resident program need a source that actually observes those regions, such as
 its own instrumentation. The [hardware timing reference](../../docs/reference/amd/xdna/observability.md)
 describes the separate firmware and array clocks and their native semantics.
 
+### Durations and host correlation
+
+A complete format-2 command pair supplies a duration directly:
+
+```c
+uint64_t duration_ns = end.timestamp - begin.timestamp;
+```
+
+The pair belongs to the same native context and opcode, has no intervening
+loss or restart, and follows that firmware protocol's ordering. The recorder
+observes the entire device. A consumer establishes ownership and submission
+attribution before pairing events; matching an opcode alone cannot distinguish
+commands from multiple contexts or processes. Its clock differs from the
+partition-shim clock returned by `RECORD_TIMER`.
+
+A caller can correlate an independently attributed command with its own
+monotonic host clock. Let `host_before_ns` precede submission and let
+`host_after_ns` follow observed completion. The command's source-to-host
+offset then satisfies:
+
+```text
+host_before_ns - begin.timestamp <= offset_ns
+offset_ns <= host_after_ns - end.timestamp
+```
+
+This is a bounded observation, not an exact offset returned by the driver.
+The width includes scheduling and host observation latency. A midpoint carries
+half that width as sampling uncertainty. Several observations in a stable
+clock segment can narrow the range by intersecting their bounds. An empty
+intersection exposes inconsistent attribution, epochs or relative clock rates;
+it cannot be repaired by averaging the samples and discarding the disagreement.
+Long captures need fresh observations and a relation that accounts for drift,
+instead of extrapolating one offset indefinitely. Source nanosecond units alone
+provide no bound on oscillator accuracy relative to the host.
+
+Calibration can use the caller's existing submission and completion edges at
+capture boundaries. Continuous collection and ordinary dispatches require no
+extra completion wait. The caller owns those observations and their lifetime;
+libamdf retains no calibration history and adds no sampling to submission.
+The same host clock can relate GPU observations to this capture, after the
+GPU's own source relation is established. Sharing a device or a nominal rate
+does not establish that relation.
+
+The finite marker service does not currently provide an equivalent wall-clock
+conversion: its zero frequency explicitly reports an unestablished rate.
+Converting that counter requires its operating-clock history and an unchanged
+program timer epoch. Sampling the current H-clock frequency before and after
+work does not reveal intervening changes. The automatic firmware source avoids
+that array-clock dependency; admission of its native trace service remains a
+separate driver capability.
+
 ## Asynchronous host observation
 
 A caller can keep one native event and one persistent event-loop registration

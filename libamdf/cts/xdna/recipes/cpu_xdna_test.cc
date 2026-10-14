@@ -6,9 +6,12 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <span>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -48,12 +51,38 @@ void CheckTransition(const amdf_cache_transition_t& actual,
   ASSERT_EQ(actual.range_granularity, expected.range_granularity);
 }
 
+// One caller-correlated command, with device timestamps in format-2
+// nanoseconds.
+struct FirmwareCommandInterval {
+  // Independent host observations in steady-clock nanoseconds.
+  struct {
+    // Lower bound, immediately before submitting the command.
+    int64_t begin = 0;
+    // Upper bound, immediately after observing completion.
+    int64_t end = 0;
+  } host;
+  // Firmware timestamps in this uninterrupted recorder's clock.
+  struct {
+    // Command start in nanoseconds.
+    uint64_t begin = 0;
+    // Command completion in nanoseconds.
+    uint64_t end = 0;
+  } device;
+};
+
+int64_t HostTimestamp() {
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
 // Caller-owned global recorder and fixed read storage. The ordinary numeric
 // workload supplies execution and retirement; observation never gates its work.
 class FirmwareTraceCapture {
  public:
-  FirmwareTraceCapture(const amdf_xdna_api_t* api, amdf_device_t* device)
-      : api_(api), device_(device) {}
+  FirmwareTraceCapture(const amdf_xdna_api_t* api, amdf_device_t* device,
+                       std::span<FirmwareCommandInterval> intervals = {})
+      : api_(api), device_(device), intervals_(intervals) {}
   ~FirmwareTraceCapture() {
     if (owns_configuration_) {
       EXPECT_EQ(api_->device_configure_firmware_trace(device_, 0, 0),
@@ -120,6 +149,12 @@ class FirmwareTraceCapture {
         ASSERT_TRUE(pending_.active);
         ASSERT_EQ(context, pending_.context);
         ASSERT_GE(event.timestamp, pending_.timestamp);
+        if (!intervals_.empty()) {
+          ASSERT_LT(end_count_, intervals_.size());
+          auto& interval = intervals_[end_count_];
+          interval.device.begin = pending_.timestamp;
+          interval.device.end = event.timestamp;
+        }
         pending_.active = false;
         ++end_count_;
       }
@@ -139,14 +174,38 @@ class FirmwareTraceCapture {
     EXPECT_EQ(begin_count_, expected_count);
     EXPECT_EQ(end_count_, expected_count);
     EXPECT_FALSE(pending_.active);
-    EXPECT_GT(nonempty_reads_, 1u);
+    EXPECT_GT(nonempty_reads_, 0u);
   }
+
+  void BeginCommand(uint32_t ordinal) {
+    if (intervals_.empty()) {
+      return;
+    }
+    // A deliberate ordinary idle gap checks source continuity. It is neither
+    // a readiness wait nor a performance measurement or power-policy change.
+    if (ordinal == intervals_.size() / 2) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ASSERT_LT(ordinal, intervals_.size());
+    intervals_[ordinal].host.begin = HostTimestamp();
+  }
+
+  void EndCommand(uint32_t ordinal) {
+    if (!intervals_.empty()) {
+      ASSERT_LT(ordinal, intervals_.size());
+      intervals_[ordinal].host.end = HostTimestamp();
+    }
+  }
+
+  uint32_t nonempty_reads() const { return nonempty_reads_; }
 
  private:
   // Borrowed immutable API table.
   const amdf_xdna_api_t* api_;
   // Borrowed corpus device; configuration is explicitly scoped to this test.
   amdf_device_t* device_;
+  // Optional bounded caller storage for this isolated command sequence.
+  std::span<FirmwareCommandInterval> intervals_;
   // True after this caller has attempted to enable its initially idle recorder.
   bool owns_configuration_ = false;
   // Aligned, fixed-capacity native request and decoded-event storage.
@@ -460,12 +519,18 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
           .commands = &execution_.command,
       };
       uint64_t point = 0;
+      if (capture != nullptr) {
+        ASSERT_NO_FATAL_FAILURE(capture->BeginCommand(generation));
+      }
       ASSERT_EQ(
           xdna_api_->kernel_queue_submit(execution_.queue, &submit, &point),
           AMDF_STATUS_OK);
       ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
                                         AMDF_TIMEOUT_INFINITE, 0),
                 AMDF_STATUS_OK);
+      if (capture != nullptr) {
+        ASSERT_NO_FATAL_FAILURE(capture->EndCommand(generation));
+      }
       // The output transfer joins both input records and all output writes.
       // Remaining resident activity accesses only tile-local state.
       // Native completion supplies ordering; these queried actions supply CPU
@@ -940,6 +1005,63 @@ TEST_F(CpuXdnaRecipeTest, AllocatedRoundTripWithFirmwareTrace) {
   FirmwareTraceCapture capture(xdna_api_, device_);
   ASSERT_NO_FATAL_FAILURE(capture.Start(info));
   RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_CREATE, 16384, &capture);
+  EXPECT_GT(capture.nonempty_reads(), 1u);
+}
+
+TEST_F(CpuXdnaRecipeTest, FirmwareDurationsAndHostClockBounds) {
+  amdf_xdna_firmware_trace_info_t info = {
+      .type = AMDF_STRUCTURE_TYPE_XDNA_FIRMWARE_TRACE_INFO,
+      .structure_size = sizeof(info),
+  };
+  const auto status =
+      xdna_api_->device_query_firmware_trace_info(device_, &info);
+  if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+    GTEST_SKIP() << "native driver does not expose firmware tracing";
+  }
+  ASSERT_EQ(status, AMDF_STATUS_OK);
+  std::array<FirmwareCommandInterval, 32> intervals;
+  FirmwareTraceCapture capture(xdna_api_, device_, intervals);
+  ASSERT_NO_FATAL_FAILURE(capture.Start(info));
+  ASSERT_NO_FATAL_FAILURE(RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_CREATE,
+                                        static_cast<uint32_t>(intervals.size()),
+                                        &capture));
+
+  // For an independently attributed command in one uninterrupted source,
+  // host_begin <= device_begin + offset and device_end + offset <= host_end.
+  // Each command constrains the offset; all commands must admit a common
+  // interval in this bounded capture. No midpoint is asserted to be exact.
+  int64_t lower = std::numeric_limits<int64_t>::min();
+  int64_t upper = std::numeric_limits<int64_t>::max();
+  uint64_t minimum_duration = UINT64_MAX;
+  uint64_t maximum_duration = 0;
+  uint64_t previous_end = 0;
+  for (const auto& interval : intervals) {
+    ASSERT_GE(interval.host.begin, 0);
+    ASSERT_GE(interval.host.end, interval.host.begin);
+    ASSERT_GE(interval.device.begin, previous_end);
+    ASSERT_GT(interval.device.end, interval.device.begin);
+    ASSERT_LE(interval.device.end, uint64_t{INT64_MAX});
+    const uint64_t duration = interval.device.end - interval.device.begin;
+    ASSERT_LE(duration,
+              static_cast<uint64_t>(interval.host.end - interval.host.begin));
+    lower = std::max(lower, interval.host.begin -
+                                static_cast<int64_t>(interval.device.begin));
+    upper = std::min(
+        upper, interval.host.end - static_cast<int64_t>(interval.device.end));
+    ASSERT_LE(lower, upper)
+        << "source/host rate, epoch or command attribution is inconsistent";
+    minimum_duration = std::min(minimum_duration, duration);
+    maximum_duration = std::max(maximum_duration, duration);
+    previous_end = interval.device.end;
+  }
+  // These are capture observations, not performance thresholds. A slow host
+  // widens uncertainty instead of causing an arbitrary latency failure.
+  RecordProperty("firmware_minimum_duration_ns",
+                 std::to_string(minimum_duration));
+  RecordProperty("firmware_maximum_duration_ns",
+                 std::to_string(maximum_duration));
+  RecordProperty("firmware_host_offset_lower_ns", std::to_string(lower));
+  RecordProperty("firmware_host_offset_upper_ns", std::to_string(upper));
 }
 
 TEST_F(CpuXdnaRecipeTest, RegisteredRoundTrip) {

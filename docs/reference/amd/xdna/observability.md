@@ -841,6 +841,23 @@ relation. The array's H-clock frequency is not the rate of this nanosecond
 representation. [Start reply][linux-fw-trace-messages],
 [reply handling][linux-fw-trace-start], [native queries][linux-uapi]
 
+For a separately attributed firmware command, host samples before submission
+and after observed completion bound its relationship to the source clock.
+Writing the four values as `H_before`, `H_after`, `F_begin` and `F_end`, a
+constant source-to-host offset over that interval must satisfy
+`H_before - F_begin <= offset <= H_after - F_end`. The native interval is
+`F_end - F_begin` nanoseconds; the host bracket additionally contains command
+delivery, scheduling and completion-observation delay. A wide bracket reduces
+correlation precision without changing the meaning of the firmware duration.
+
+Intersecting these bounds over a stable clock segment can tighten the offset.
+An empty intersection disproves at least one of the assumed attribution,
+epoch, endpoint or constant-rate relationships. A nominal nanosecond unit is
+not a guarantee of frequency agreement with the host oscillator. Long captures
+therefore require renewed clock observations or a measured rate relation,
+rather than indefinite extrapolation from one pair. Native context and opcode
+attribution remains necessary even when a numerical clock relation fits.
+
 Other SDK timing outputs measure different intervals. XRT's NPU latency
 validation reports host elapsed time around runner execution and its final
 wait. Its Strix GEMM validation instead reads cycle counts written into a result
