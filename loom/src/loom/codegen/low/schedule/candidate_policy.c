@@ -84,6 +84,10 @@ static bool loom_low_schedule_candidate_advances_pinned_completion(
 // or reduce live units, respectively, and remain immediately actionable.
 static bool loom_low_schedule_candidate_defers_storage_setup(
     const loom_low_schedule_candidate_score_t* score) {
+  if (!iree_any_bit_set(score->flags,
+                        LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_STORAGE_SETUP)) {
+    return false;
+  }
   const uint16_t actionable_flags =
       LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_UNLOCKS_DESCRIPTOR |
       LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_STORAGE;
@@ -98,8 +102,6 @@ static bool loom_low_schedule_candidate_defers_storage_setup(
            LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_CONSTRAINED_COMPLETION));
   return score->produced_live_value_count != 0 &&
          score->killed_live_units <= score->produced_live_units &&
-         iree_any_bit_set(score->flags,
-                          LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_STORAGE_SETUP) &&
          !iree_any_bit_set(score->flags, actionable_flags) &&
          !advances_completion;
 }
