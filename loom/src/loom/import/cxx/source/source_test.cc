@@ -17,9 +17,11 @@
 #include <cxx/types.h>
 #include <cxx/views/symbols.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -28,6 +30,7 @@
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/import/cxx/source/error.h"
+#include "loom/import/cxx/source/preamble.h"
 
 namespace loom::cxx_import {
 namespace {
@@ -220,6 +223,68 @@ TEST(SourceTest, PhysicalRangesMapUtf8ColumnsToExactBytes) {
     return;
   }
   FAIL() << "Expected one raw string literal";
+}
+
+TEST(SourceTest, RestoredPreamblePreservesConsumerAndHeaderPhysicalSource) {
+  static constexpr std::string_view kHeader =
+      "constexpr auto assembly_text = R\"loom(first\nsecond)loom\";\n";
+  static constexpr std::string_view kSource =
+      "#include \"literal.h\"\n"
+      "constexpr auto consumer_file = __FILE__;\n";
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  options.source_provider = {
+      [](void*, iree_string_view_t path, bool* out_found,
+         iree_string_view_t* out_source) {
+        *out_found = iree_string_view_equal(path, IREE_SV("/app/literal.h"));
+        *out_source = *out_found ? view(kHeader) : iree_string_view_empty();
+        return iree_ok_status();
+      },
+      nullptr};
+  loom_cxx_preamble_t* raw_preamble = nullptr;
+  IREE_ASSERT_OK(loom_cxx_preamble_create(
+      view(kSource), IREE_SV("/app/producer.cpp"), &options,
+      iree_allocator_system(), &raw_preamble));
+  std::unique_ptr<loom_cxx_preamble_t, decltype(&loom_cxx_preamble_release)>
+      preamble(raw_preamble, loom_cxx_preamble_release);
+  ASSERT_NE(preamble, nullptr);
+
+  options.preamble = preamble.get();
+  Source source(view(kSource), IREE_SV("/app/source.cpp"), options);
+  bool found_consumer_file = false;
+  for (const auto& token : source.unit().tokens()) {
+    if (token.kind() == cxx::TokenKind::T_STRING_LITERAL &&
+        token.spell() == "\"/app/source.cpp\"") {
+      found_consumer_file = true;
+    }
+  }
+  EXPECT_TRUE(found_consumer_file);
+
+  class Literals final : public cxx::ASTVisitor {
+   public:
+    void visit(cxx::StringLiteralExpressionAST* ast) override {
+      literals.push_back(ast);
+      cxx::ASTVisitor::visit(ast);
+    }
+
+    // Literal expressions borrowed from the visited translation unit.
+    std::vector<cxx::StringLiteralExpressionAST*> literals;
+  } literals;
+  literals.accept(source.unit().ast());
+  auto found = std::ranges::find_if(literals.literals, [](const auto* literal) {
+    return literal->literal->value().starts_with("R\"loom(");
+  });
+  ASSERT_NE(found, literals.literals.end());
+  const auto location = (*found)->firstSourceLocation();
+  EXPECT_FALSE(source.unit().ownsLocation(location));
+  const auto first = source.unit().tokenStartPosition(location);
+  const auto last = source.unit().tokenEndPosition(location);
+  const auto physical = source.contents().range(first, last);
+  EXPECT_EQ(first.fileName, "/app/literal.h");
+  EXPECT_EQ(physical.source, kHeader);
+  EXPECT_EQ(
+      physical.source.substr(physical.start, physical.end - physical.start),
+      "R\"loom(first\nsecond)loom\"");
 }
 
 TEST(SourceTest, RejectedSourceLeavesTheNextInvocationIndependent) {

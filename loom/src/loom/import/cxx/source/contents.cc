@@ -8,6 +8,7 @@
 
 #include <cxx/preprocessor.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -69,12 +70,41 @@ void SourceContents::bind(cxx::Preprocessor* preprocessor,
   primary_filename_ = std::move(primary_filename);
 }
 
+void SourceContents::retain_primary(std::string source) {
+  primary_source_ = std::move(source);
+}
+
+void SourceContents::adopt(std::span<const SourceContentSnapshot> snapshot) {
+  snapshot_ = snapshot;
+}
+
+std::vector<SourceContentSnapshot> SourceContents::take_snapshot() {
+  std::vector<SourceContentSnapshot> result;
+  result.reserve(entries_.size());
+  for (auto& [filename, entry] : entries_) {
+    SourceContentSnapshot snapshot = {
+        .filename = filename,
+        .source = std::move(entry.source),
+    };
+    if (snapshot.source) {
+      build_line_offsets(*snapshot.source, snapshot.line_offsets);
+    }
+    result.push_back(std::move(snapshot));
+  }
+  entries_.clear();
+  std::ranges::sort(result, {}, &SourceContentSnapshot::filename);
+  return result;
+}
+
 const std::optional<std::string>& SourceContents::resolve(
     const std::string& path) {
-  auto [entry, inserted] = entries_.try_emplace(path);
-  if (!inserted) {
-    return entry->second.source;
+  if (auto found = entries_.find(path); found != entries_.end()) {
+    return found->second.source;
   }
+  if (const auto* snapshot = snapshot_entry(path)) {
+    return snapshot->source;
+  }
+  auto entry = entries_.try_emplace(path).first;
   if (!builtin_root_.empty() && path.starts_with(builtin_root_) &&
       path.size() > builtin_root_.size() && path[builtin_root_.size()] == '/') {
     auto contents = builtin_include(
@@ -123,35 +153,49 @@ const std::optional<std::string>& SourceContents::resolve(
 
 std::string_view SourceContents::source(std::string_view filename) const {
   if (filename == primary_filename_) {
+    if (primary_source_) {
+      return *primary_source_;
+    }
     if (!preprocessor_) {
       throw std::logic_error("C/C++ primary source is not bound");
     }
     return preprocessor_->source(preprocessor_->mainSourceFileId());
   }
-  return *entry(filename).source;
+  auto found = entries_.find(filename);
+  if (found != entries_.end() && found->second.source) {
+    return *found->second.source;
+  }
+  if (const auto* snapshot = snapshot_entry(filename);
+      snapshot && snapshot->source) {
+    return *snapshot->source;
+  }
+  throw std::logic_error("C/C++ physical source was not retained: " +
+                         std::string(filename));
 }
 
-const SourceContents::Entry& SourceContents::entry(
+const SourceContentSnapshot* SourceContents::snapshot_entry(
     std::string_view filename) const {
-  auto found = entries_.find(filename);
-  if (found == entries_.end() || !found->second.source) {
-    throw std::logic_error("C/C++ physical source was not retained: " +
-                           std::string(filename));
+  auto found = std::ranges::lower_bound(snapshot_, filename, {},
+                                        &SourceContentSnapshot::filename);
+  if (found == snapshot_.end() || found->filename != filename) {
+    return nullptr;
   }
-  return found->second;
+  return &*found;
+}
+
+void SourceContents::build_line_offsets(std::string_view source,
+                                        std::vector<size_t>& line_offsets) {
+  line_offsets.push_back(0);
+  for (size_t index = 0; index < source.size(); ++index) {
+    if (source[index] == '\n') {
+      line_offsets.push_back(index + 1);
+    }
+  }
 }
 
 size_t SourceContents::offset(std::string_view source,
-                              std::vector<size_t>& line_offsets,
+                              const std::vector<size_t>& line_offsets,
                               const cxx::SourcePosition& position) {
-  if (line_offsets.empty()) {
-    line_offsets.push_back(0);
-    for (size_t index = 0; index < source.size(); ++index) {
-      if (source[index] == '\n') {
-        line_offsets.push_back(index + 1);
-      }
-    }
-  }
   if (!position.line || !position.column ||
       position.line > line_offsets.size()) {
     throw std::logic_error("C/C++ physical source position is invalid");
@@ -175,18 +219,38 @@ PhysicalSourceRange SourceContents::range(
   }
   if (first.fileName == primary_filename_) {
     auto contents = source(first.fileName);
+    if (primary_line_offsets_.empty()) {
+      build_line_offsets(contents, primary_line_offsets_);
+    }
     return {
         .source = contents,
         .start = offset(contents, primary_line_offsets_, first),
         .end = offset(contents, primary_line_offsets_, last),
     };
   }
-  const auto& retained = entry(first.fileName);
-  auto contents = std::string_view(*retained.source);
+  if (auto found = entries_.find(first.fileName);
+      found != entries_.end() && found->second.source) {
+    const auto& retained = found->second;
+    auto contents = std::string_view(*retained.source);
+    if (retained.line_offsets.empty()) {
+      build_line_offsets(contents, retained.line_offsets);
+    }
+    return {
+        .source = contents,
+        .start = offset(contents, retained.line_offsets, first),
+        .end = offset(contents, retained.line_offsets, last),
+    };
+  }
+  const auto* snapshot = snapshot_entry(first.fileName);
+  if (!snapshot || !snapshot->source) {
+    throw std::logic_error("C/C++ physical source was not retained: " +
+                           std::string(first.fileName));
+  }
+  auto contents = std::string_view(*snapshot->source);
   return {
       .source = contents,
-      .start = offset(contents, retained.line_offsets, first),
-      .end = offset(contents, retained.line_offsets, last),
+      .start = offset(contents, snapshot->line_offsets, first),
+      .end = offset(contents, snapshot->line_offsets, last),
   };
 }
 

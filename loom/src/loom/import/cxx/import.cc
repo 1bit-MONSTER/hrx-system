@@ -28,21 +28,7 @@ iree_status_t loom_cxx_import(iree_string_view_t source,
     loom_cxx_import_options_initialize(&defaults);
     options = &defaults;
   }
-  if (options->data_model < LOOM_CXX_DATA_MODEL_LP64 ||
-      options->data_model > LOOM_CXX_DATA_MODEL_ILP32 ||
-      options->fp_model < LOOM_CXX_FP_MODEL_PRECISE ||
-      options->fp_model > LOOM_CXX_FP_MODEL_FAST ||
-      (options->flags & ~LOOM_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "invalid C/C++ source configuration");
-  }
-  if ((!options->include_paths && options->include_path_count) ||
-      (!options->system_include_paths && options->system_include_path_count) ||
-      (!options->defines && options->define_count) ||
-      (!options->roots && options->root_count)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "nonempty import option arrays require storage");
-  }
+  IREE_RETURN_IF_ERROR(loom_cxx_import_options_validate(options));
   using namespace loom::cxx_import;
   try {
     Source parsed(source, filename, *options);

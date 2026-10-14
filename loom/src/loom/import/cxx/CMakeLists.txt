@@ -19,9 +19,12 @@ loom_cc_test(
     ::cxx
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::codegen::low::text_asm
     loom::format::text::printer
     loom::import::cxx::source::catalog
+    loom::import::cxx::source::preamble
     loom::ops::op_registry
+    loom::target::test::descriptors
   LABELS
     "iree-build-requirement=loom.import.cxx"
 )
@@ -72,6 +75,7 @@ loom_cc_library(
     loom::import::cxx::source::expressions
     loom::import::cxx::source::locations
     loom::import::cxx::source::options
+    loom::import::cxx::source::preamble
     loom::import::cxx::symbol::functions
     loom::import::cxx::value::bitcast
     loom::import::cxx::value::initialization

@@ -10,6 +10,7 @@
 #include <cxx/source_location.h>
 
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -33,6 +34,16 @@ struct PhysicalSourceRange {
   size_t end = 0;
 };
 
+// One immutable include lookup captured while constructing a preamble.
+struct SourceContentSnapshot {
+  // Exact candidate path queried by the preprocessor.
+  std::string filename;
+  // Owned source bytes, or nullopt for a retained missing candidate.
+  std::optional<std::string> source;
+  // Byte offsets of physical line starts, populated for found sources.
+  std::vector<size_t> line_offsets;
+};
+
 // Owns every include result resolved for one frontend invocation and provides
 // exact physical source bytes independently of frontend token ownership.
 // Missing include results remain cached so repeated search and __has_include
@@ -48,6 +59,18 @@ class SourceContents {
   // this object and become the source of primary-file bytes.
   void bind(cxx::Preprocessor* preprocessor, std::string primary_filename);
 
+  // Retains original primary bytes when the frontend consumes a transformed
+  // copy, such as a source with its restored preamble masked.
+  void retain_primary(std::string source);
+
+  // Borrows one immutable prefix snapshot for this frontend lifetime. Entries
+  // retain both successful and missing lookups from the producing invocation.
+  void adopt(std::span<const SourceContentSnapshot> snapshot);
+
+  // Moves all invocation-local include results into a sorted immutable
+  // snapshot. The producing frontend no longer resolves source bytes afterward.
+  std::vector<SourceContentSnapshot> take_snapshot();
+
   // Returns the retained result for an include candidate, resolving it once.
   const std::optional<std::string>& resolve(const std::string& path);
 
@@ -61,6 +84,8 @@ class SourceContents {
 
   // Virtual system include root, empty when embedded includes are disabled.
   std::string_view builtin_root() const { return builtin_root_; }
+  // Physical filename supplied for the primary source.
+  std::string_view primary_filename() const { return primary_filename_; }
 
  private:
   struct TransparentStringHash {
@@ -77,9 +102,11 @@ class SourceContents {
     mutable std::vector<size_t> line_offsets;
   };
 
-  const Entry& entry(std::string_view filename) const;
+  const SourceContentSnapshot* snapshot_entry(std::string_view filename) const;
+  static void build_line_offsets(std::string_view source,
+                                 std::vector<size_t>& line_offsets);
   static size_t offset(std::string_view source,
-                       std::vector<size_t>& line_offsets,
+                       const std::vector<size_t>& line_offsets,
                        const cxx::SourcePosition& position);
 
   // Borrowed provider state for this invocation.
@@ -90,11 +117,15 @@ class SourceContents {
   cxx::Preprocessor* preprocessor_ = nullptr;
   // Physical primary filename corresponding to the frontend's main source.
   std::string primary_filename_;
+  // Original primary bytes when the frontend source was transformed.
+  std::optional<std::string> primary_source_;
   // Lazily computed byte offsets of primary-source line starts.
   mutable std::vector<size_t> primary_line_offsets_;
   // Candidate path to immutable source bytes, or a retained miss.
   std::unordered_map<std::string, Entry, TransparentStringHash, std::equal_to<>>
       entries_;
+  // Borrowed sorted prefix lookups owned by an immutable preamble handle.
+  std::span<const SourceContentSnapshot> snapshot_;
 };
 
 }  // namespace loom::cxx_import

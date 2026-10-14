@@ -125,9 +125,9 @@ loom_cc_library(
 )
 
 loom_cc_library(
-    name = "source",
-    srcs = ["source.cc"],
-    hdrs = ["source.h"],
+    name = "frontend",
+    srcs = ["frontend.cc"],
+    hdrs = ["frontend.h"],
     cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
     cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
     deps = [
@@ -136,6 +136,34 @@ loom_cc_library(
         ":options",
         "//loom/src/loom/error:error_defs",
         "//third_party:cxx_parser",
+    ],
+)
+
+loom_cc_library(
+    name = "preamble",
+    srcs = ["preamble.cc"],
+    hdrs = ["preamble.h"],
+    cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
+    cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
+    deps = [
+        ":error",
+        ":frontend",
+        ":options",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
+        "//third_party:cxx_parser",
+    ],
+)
+
+loom_cc_library(
+    name = "source",
+    srcs = ["source.cc"],
+    hdrs = ["source.h"],
+    cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
+    cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
+    deps = [
+        ":frontend",
+        ":preamble",
     ],
 )
 
@@ -263,6 +291,22 @@ loom_cc_test(
     deps = [
         ":error",
         ":options",
+        ":preamble",
+        ":source",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+        "//third_party:cxx_parser",
+    ],
+)
+
+loom_cc_test(
+    name = "preamble_test",
+    srcs = ["preamble_test.cc"],
+    cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
+    cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
+    deps = [
+        ":frontend",
+        ":preamble",
         ":source",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",

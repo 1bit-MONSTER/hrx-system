@@ -10,6 +10,7 @@
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "loom/import/cxx/source/options.h"
+#include "loom/import/cxx/source/preamble.h"
 #include "loom/ir/module.h"
 
 #ifdef __cplusplus
