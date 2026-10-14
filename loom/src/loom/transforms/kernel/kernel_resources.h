@@ -6,11 +6,12 @@
 
 // Kernel resource ABI normalization.
 //
-// Kernel entry definitions use ordered opaque buffer arguments as ABI resource
-// roots. Typed logical access must be made explicit inside the entry body via
-// buffer.view so alias analyses and later slab-packing passes can reason from a
-// visible buffer root to every derived view. Ordinary device functions retain
-// their authored callable signatures.
+// Kernel entries and kernel-scoped pipelines use ordered opaque buffer
+// arguments as invocation ABI resource roots. Typed logical access is made
+// explicit inside the body via buffer.view so alias analyses and later
+// slab-packing passes can reason from a visible buffer root to every derived
+// view. Staged arguments, generic pipelines, and ordinary device functions
+// retain their authored callable signatures.
 
 #ifndef LOOM_TRANSFORMS_KERNEL_RESOURCES_H_
 #define LOOM_TRANSFORMS_KERNEL_RESOURCES_H_

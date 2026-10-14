@@ -257,6 +257,7 @@ loom_cc_library(
     loom::ops::buffer
     loom::ops::index
     loom::ops::op_defs
+    loom::ops::pipeline
     loom::pass::types
     loom::pass::value_facts
   PUBLIC
