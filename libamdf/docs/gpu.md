@@ -160,13 +160,48 @@ command stream and memory layout. libamdf owns no query pool, result collector,
 record cursor or sample lifetime, and ordinary submission adds no profiling
 work. USER and KERNEL publication retain their native queue contracts.
 
-These are raw GPU ticks. The current API exposes no GPU rate or CPU correlation
-query; inferring a rate from the graphics IP or borrowing an XDNA/KMT frequency
-would give the samples an unsupported meaning. The [SDMA timing
-reference](../../docs/reference/amd/gpu/sdma/timing.md) describes native clock
-sources, sample placement, publication and instrumentation effects. A sample
-pair can include drains and cache work, and its difference is not a measurement
-of the host cost of submitting the commands.
+GPU extension version 2 exposes the native nominal rate for an admitted queue
+family through `device_query_queue_clock_info`. The same passive clock record
+is used for XDNA observations. Query once at the caller's profiling setup
+boundary; ordinary submission performs no rate query or sampling:
+
+```c
+amdf_observation_clock_info_t clock = {0};
+amdf_status_t status = gpu->device_query_queue_clock_info(
+    device, family.ordinal, &clock);
+// Handle a failed query before consuming clock. A successful rate is nonzero.
+if (amdf_status_is_ok(status)) {
+  // Within one non-wrapping source epoch:
+  double duration_ns = (double)(end_ticks - begin_ticks) * 1e9 / clock.frequency_hz;
+  // Record duration_ns in caller-owned profiling storage.
+}
+```
+
+Linux supplies the selected render device's `gpu_counter_freq`, converted from
+kHz to Hz. Windows queries the engine node chosen for that family's native
+scheduler. An unavailable native rate returns `UNSUPPORTED`; failure leaves
+the output unchanged. Meaningful counter width remains zero when the native
+interface does not establish it. Shader cycle counters and performance-event
+counts use different units.
+
+A nominal rate supplies duration units, not bounded oscillator accuracy or a
+shared epoch. In particular, native driver counter samples need not share the
+epoch of queue-written timestamps. The caller can bracket an actual queue
+sample with its chosen host clock, or surround a source interval with host
+submission/completion observations. For an interval `(device_begin,
+device_end)` inside `(host_before, host_after)`, a constant-offset model at the
+selected rate gives `host_before - device_begin_ns <= offset <= host_after -
+device_end_ns`. Subtract a nearby source origin before conversion to retain
+precision and avoid overflow. Intersecting independent brackets narrows that
+capture's offset range; an empty intersection rejects the model. This is not a
+guarantee about future drift, reset, wrap or power transitions. The caller owns
+refresh and uncertainty policy. Queue identity and event attribution remain
+explicit; equal rates alone correlate nothing.
+
+The [SDMA timing reference](../../docs/reference/amd/gpu/sdma/timing.md) describes
+sample placement, publication and instrumentation effects. A sample pair can
+include drains and cache work, and its difference is not a measurement of the
+host cost of submitting the commands.
 
 ## Fixed private memory
 

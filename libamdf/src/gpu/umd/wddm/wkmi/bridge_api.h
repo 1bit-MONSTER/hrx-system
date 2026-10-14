@@ -39,8 +39,11 @@ extern "C" {
 // First version exposing borrowed native queue handles for mapping ordering.
 #define AMDF_WKMI_BRIDGE_ABI_VERSION_6 6u
 
+// First version querying the selected queue engine's timestamp frequency.
+#define AMDF_WKMI_BRIDGE_ABI_VERSION_7 7u
+
 // Most recent private bridge ABI version described by this header.
-#define AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST AMDF_WKMI_BRIDGE_ABI_VERSION_6
+#define AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST AMDF_WKMI_BRIDGE_ABI_VERSION_7
 
 // Result of one bridge operation.
 typedef uint32_t amdf_wkmi_bridge_result_t;
@@ -232,7 +235,7 @@ typedef struct amdf_wkmi_bridge_gpu_buffer_import_info_t {
   void* shared_handle;
 } amdf_wkmi_bridge_gpu_buffer_import_info_t;
 
-// Immutable entry-point table for private bridge ABI version 4.
+// Immutable entry-point table for the negotiated private bridge ABI.
 typedef struct amdf_wkmi_bridge_api_t {
   // Size in bytes of this table version.
   uint32_t structure_size;
@@ -323,13 +326,23 @@ typedef struct amdf_wkmi_bridge_api_t {
       uint32_t* resource_handle, uint32_t* allocation_handle,
       uint64_t* out_native_byte_length, uint64_t* out_buffer_byte_length);
 
+  // Queries the nominal timestamp frequency for the admitted queue scheduler.
+  // Success publishes a nonzero engine-clock rate. Other results preserve the
+  // output; out_native_status receives NTSTATUS only for NATIVE_FAILURE.
+  // No calibration counter or cross-source epoch identity is published.
+  amdf_wkmi_bridge_result_t(AMDF_WKMI_BRIDGE_CALL* gpu_queue_clock_frequency)(
+      amdf_wkmi_bridge_gpu_adapter_t* adapter, uint32_t adapter_handle,
+      uint32_t physical_adapter_index,
+      amdf_wkmi_bridge_gpu_queue_command_type_t command_type,
+      uint64_t* out_frequency_hz, uint32_t* out_native_status);
+
 } amdf_wkmi_bridge_api_t;
 
 #ifdef __cplusplus
-static_assert(sizeof(amdf_wkmi_bridge_api_t) == 72,
+static_assert(sizeof(amdf_wkmi_bridge_api_t) == 80,
               "WKMI entry-point table ABI must remain stable");
 #else
-_Static_assert(sizeof(amdf_wkmi_bridge_api_t) == 72,
+_Static_assert(sizeof(amdf_wkmi_bridge_api_t) == 80,
                "WKMI entry-point table ABI must remain stable");
 #endif
 

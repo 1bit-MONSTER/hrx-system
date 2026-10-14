@@ -12,6 +12,22 @@ iree_add_all_subdirs()
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    clock
+  SRCS
+    "clock.c"
+  DEPS
+    ::device_state
+    amdf::headers
+    libamdf::src::gpu::umd::clock
+    libamdf::src::gpu::umd::wddm::wkmi::adapter
+    libamdf::src::gpu::umd::wddm::wkmi::bridge_api
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     device_state
   HDRS
     "device.h"
@@ -172,6 +188,7 @@ iree_cc_library(
   NAME
     wddm
   DEPS
+    ::clock
     ::device
     ::endpoint_profile
     ::instance

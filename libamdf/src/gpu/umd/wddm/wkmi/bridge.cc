@@ -132,9 +132,44 @@ GpuAdapterClose(amdf_wkmi_bridge_gpu_adapter_t* adapter,
   return AMDF_WKMI_BRIDGE_RESULT_SUCCESS;
 }
 
-const amdf_wkmi_bridge_api_t kBridgeApiV6 = {
+amdf_wkmi_bridge_result_t AMDF_WKMI_BRIDGE_CALL GpuQueueClockFrequency(
+    amdf_wkmi_bridge_gpu_adapter_t* adapter, uint32_t adapter_handle,
+    uint32_t physical_adapter_index,
+    amdf_wkmi_bridge_gpu_queue_command_type_t command_type,
+    uint64_t* out_frequency_hz, uint32_t* out_native_status) noexcept {
+  if (adapter == nullptr || adapter_handle == 0 ||
+      out_frequency_hz == nullptr || out_native_status == nullptr) {
+    return AMDF_WKMI_BRIDGE_RESULT_INVALID_ARGUMENT;
+  }
+  *out_native_status = 0;
+  uint32_t scheduler = 0;
+  if (!amdf::wkmi_bridge::SelectGpuHardwareQueueScheduler(
+          adapter->device_info, command_type, &scheduler)) {
+    return AMDF_WKMI_BRIDGE_RESULT_UNSUPPORTED;
+  }
+  D3DKMT_QUERYCLOCKCALIBRATION query = {};
+  query.hAdapter = static_cast<D3DKMT_HANDLE>(adapter_handle);
+  query.PhysicalAdapterIndex = physical_adapter_index;
+  query.NodeOrdinal = Wkmi::EngineOrdinal(scheduler, &adapter->device_info);
+  const NTSTATUS status = D3DKMTQueryClockCalibration(&query);
+  if (status == STATUS_NOT_SUPPORTED) {
+    return AMDF_WKMI_BRIDGE_RESULT_UNSUPPORTED;
+  }
+  if (status != STATUS_SUCCESS) {
+    *out_native_status = static_cast<uint32_t>(status);
+    return AMDF_WKMI_BRIDGE_RESULT_NATIVE_FAILURE;
+  }
+  if (query.ClockData.Flags.ContextManagementProcessor ||
+      query.ClockData.GpuFrequency == 0) {
+    return AMDF_WKMI_BRIDGE_RESULT_UNSUPPORTED;
+  }
+  *out_frequency_hz = query.ClockData.GpuFrequency;
+  return AMDF_WKMI_BRIDGE_RESULT_SUCCESS;
+}
+
+const amdf_wkmi_bridge_api_t kBridgeApiV7 = {
     sizeof(amdf_wkmi_bridge_api_t),
-    AMDF_WKMI_BRIDGE_ABI_VERSION_6,
+    AMDF_WKMI_BRIDGE_ABI_VERSION_7,
     GpuAdapterOpen,
     GpuAdapterClose,
     amdf::wkmi_bridge::GpuAllocationQueryLayout,
@@ -143,6 +178,7 @@ const amdf_wkmi_bridge_api_t kBridgeApiV6 = {
     amdf::wkmi_bridge::GpuKernelQueueSubmit,
     amdf::wkmi_bridge::GpuKernelQueueDestroy,
     amdf::wkmi_bridge::GpuBufferPrepareImport,
+    GpuQueueClockFrequency,
 };
 
 }  // namespace
@@ -153,10 +189,10 @@ amdf_wkmi_bridge_query_api(uint32_t minimum_version, uint32_t maximum_version,
   if (out_api == nullptr) {
     return AMDF_WKMI_BRIDGE_RESULT_INVALID_ARGUMENT;
   }
-  if (minimum_version > AMDF_WKMI_BRIDGE_ABI_VERSION_6 ||
-      maximum_version < AMDF_WKMI_BRIDGE_ABI_VERSION_6) {
+  if (minimum_version > AMDF_WKMI_BRIDGE_ABI_VERSION_7 ||
+      maximum_version < AMDF_WKMI_BRIDGE_ABI_VERSION_7) {
     return AMDF_WKMI_BRIDGE_RESULT_VERSION_MISMATCH;
   }
-  *out_api = &kBridgeApiV6;
+  *out_api = &kBridgeApiV7;
   return AMDF_WKMI_BRIDGE_RESULT_SUCCESS;
 }

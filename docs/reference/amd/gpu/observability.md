@@ -69,6 +69,24 @@ documented as compatible with `CmdWriteTimestamp`. The implementation does not
 take an atomic host/GPU snapshot. [PAL bracketing][pal-calibrated] · [Sample
 contract][pal-calibrated-type]
 
+Windows `D3DKMTQueryClockCalibration` identifies the adapter, physical adapter
+and engine node, and returns GPU frequency plus GPU/CPU counter samples. Its
+`ContextManagementProcessor` flag distinguishes a context-management clock
+from the underlying engine clock, which may differ. The selected native queue
+scheduler determines the engine node; node zero is not a portable substitute.
+[Query identity][kmt-clock] · [Clock selection][kmt-clock-flags]
+
+Native-query compatibility needs evidence at the packet source. In a bounded
+Linux GFX11.0.0 experiment, a confirmed PM4 clock pair was
+`80395912441212..80395912441500`, while the surrounding DRM samples were
+`80395911298728..80395911507976`. The packet values exceeded even the later
+native sample despite normal copy completion and retirement. At the reported
+100 MHz rate, the discrepancy is millisecond scale. The result falsifies a
+universal shared-epoch assumption; it does not identify the source of the
+offset or establish a portable correction. Actual queue-written anchors avoid
+that assumption. A reported nominal rate is likewise not an oscillator-error
+bound against the host clock.
+
 ### Host brackets and uncertainty
 
 For one chosen host domain, retain `(host_before_ns, gpu_ticks,
@@ -453,3 +471,6 @@ Return to the [GPU index](README.md) or [primary source map](../sources.md).
 [rdna35-time]: https://gpuopen.com/download/rdna35_instruction_set_architecture.pdf#page=36
 [rdna4-time]: https://gpuopen.com/download/rdna4-instruction-set-architecture.pdf#page=40
 [cdna5-time]: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/instruction-set-architectures/amd-instinct-cdna5-instruction-set-architecture.pdf#page=37
+
+[kmt-clock]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_d3dkmt_queryclockcalibration
+[kmt-clock-flags]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_dxgk_gpuclockdata_flags

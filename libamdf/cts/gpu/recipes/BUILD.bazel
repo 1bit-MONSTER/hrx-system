@@ -41,6 +41,7 @@ amdf_cc_library(
 amdf_cts_test_suite(
     name = "recipes",
     srcs = [
+        "clock_test.cc",
         "copy_dispatch_test.cc",
         "device_sdma_lookahead_test.cc",
         "device_sdma_serial_test.cc",

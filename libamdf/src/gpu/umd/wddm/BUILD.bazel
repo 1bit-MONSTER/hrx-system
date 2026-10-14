@@ -16,6 +16,18 @@ package(
 )
 
 amdf_cc_library(
+    name = "clock",
+    srcs = ["clock.c"],
+    target_compatible_with = ["@platforms//os:windows"],
+    deps = [
+        ":device_state",
+        "//libamdf/src/gpu/umd:clock",
+        "//libamdf/src/gpu/umd/wddm/wkmi:adapter",
+        "//libamdf/src/gpu/umd/wddm/wkmi:bridge_api",
+    ],
+)
+
+amdf_cc_library(
     name = "device_state",
     hdrs = ["device.h"],
     target_compatible_with = ["@platforms//os:windows"],
@@ -136,6 +148,7 @@ amdf_cc_library(
     target_compatible_with = ["@platforms//os:windows"],
     visibility = ["//libamdf/src/gpu/umd:__pkg__"],
     deps = [
+        ":clock",
         ":device",
         ":endpoint_profile",
         ":instance",

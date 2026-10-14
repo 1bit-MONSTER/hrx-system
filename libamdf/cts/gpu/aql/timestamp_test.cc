@@ -26,6 +26,14 @@ class AqlTimestampTest
 };
 
 TEST_P(AqlTimestampTest, ConfirmedClockSamplesAreVisibleBeforeReuse) {
+  ASSERT_GE(gpu_api_->extension_version, AMDF_GPU_EXTENSION_VERSION_2);
+  amdf_observation_clock_info_t clock = {};
+  const amdf_status_t clock_status =
+      gpu_api_->device_query_queue_clock_info(device_, family_.ordinal, &clock);
+  ASSERT_EQ(clock_status, AMDF_STATUS_OK);
+  ASSERT_GT(clock.frequency_hz, 0u);
+  RecordProperty("aql_timestamp_frequency_hz",
+                 std::to_string(clock.frequency_hz));
   constexpr size_t kByteLength = 4096;
   constexpr size_t kWordCount = kByteLength / sizeof(uint32_t);
   constexpr size_t kOutputWordCount = kByteLength / sizeof(uint64_t);
@@ -225,7 +233,7 @@ TEST_P(AqlTimestampTest, ConfirmedClockSamplesAreVisibleBeforeReuse) {
     const uint64_t begin = observed_output[kTimestampIndices[0]];
     const uint64_t end = observed_output[kTimestampIndices[1]];
     // This finite same-XCC observation assumes no reset or counter wrap.
-    // Equality is legal; raw ordering establishes neither rate nor duration.
+    // Equality is legal at the counter resolution.
     EXPECT_LE(begin, end);
     if (epoch != 0) {
       EXPECT_LE(previous_end, begin);
@@ -233,6 +241,9 @@ TEST_P(AqlTimestampTest, ConfirmedClockSamplesAreVisibleBeforeReuse) {
     const std::string prefix = "aql_timestamp_epoch_" + std::to_string(epoch);
     RecordProperty(prefix + "_begin_ticks", std::to_string(begin));
     RecordProperty(prefix + "_end_ticks", std::to_string(end));
+    RecordProperty(prefix + "_duration_ns",
+                   std::to_string(static_cast<double>(end - begin) * 1e9 /
+                                  clock.frequency_hz));
     // Even failed nonfatal observations reach retirement. Neither signal nor
     // output is rearmed after any observation or retirement failure.
     EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, index));

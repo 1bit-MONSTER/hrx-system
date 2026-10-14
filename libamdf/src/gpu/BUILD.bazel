@@ -89,11 +89,24 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "clock",
+    srcs = ["clock.c"],
+    hdrs = ["clock.h"],
+    deps = [
+        ":device",
+        "//libamdf/src:device",
+        "//libamdf/src:endpoint",
+        "//libamdf/src/gpu/umd:clock",
+    ],
+)
+
+amdf_cc_library(
     name = "extension",
     srcs = ["extension.c"],
     hdrs = ["extension.h"],
     visibility = ["//libamdf/src/provider:__pkg__"],
     deps = [
+        ":clock",
         ":device",
         ":endpoint_profile",
         ":kernel_queue",

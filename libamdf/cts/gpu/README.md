@@ -140,6 +140,15 @@ payloads, untouched guards and source preservation form the oracle. Results
 establish sustained storage reuse, without inferring clock conversion or
 profiling overhead from correctness runs.
 
+`QueueClockRecipeTest` asks the public GPU extension for the selected family's
+nominal timestamp rate. Eight finite, guarded copies per PM4/SDMA publication
+mode produce durations and host brackets around actual queue samples. The
+constant-offset intersection checks the bounded capture at that rate; it does
+not assume native driver queries share the packet epoch or promise oscillator
+accuracy across a long trace. AQL's existing confirmed-copy timestamp cases
+also query the native rate and record converted durations. These observations
+are correctness evidence, not performance measurements.
+
 PM4/SDMA batches publish four prepared upload/compute/download graphs with one
 publication per queue. Each graph has separate payload, arguments and progress
 records. With a shared transfer queue, SDMA observes one graph's shader

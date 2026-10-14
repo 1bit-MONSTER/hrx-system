@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include "amdf/amdf.h"
+#include "amdf/observation.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,8 +19,11 @@ extern "C" {
 /// The first supported GPU extension version.
 #define AMDF_GPU_EXTENSION_VERSION_1 1u
 
+/// First version exposing nominal queue-timestamp clock metadata.
+#define AMDF_GPU_EXTENSION_VERSION_2 2u
+
 /// The most recent GPU extension version described by this header.
-#define AMDF_GPU_EXTENSION_VERSION_LATEST AMDF_GPU_EXTENSION_VERSION_1
+#define AMDF_GPU_EXTENSION_VERSION_LATEST AMDF_GPU_EXTENSION_VERSION_2
 
 /// An `amdf_gpu_endpoint_info_t` output structure.
 #define AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO \
@@ -616,6 +620,29 @@ typedef struct amdf_gpu_api_t {
       amdf_device_t* device,
       const amdf_gpu_user_queue_create_info_t* create_info,
       amdf_user_queue_t** out_queue);
+
+  /// Queries the nominal timestamp rate for an admitted queue family.
+  /// Available from GPU extension version 2.
+  ///
+  /// PM4/AQL GPU-clock samples and SDMA GET_GLOBAL samples use this rate;
+  /// shader cycle counters and performance-event counts do not. The family
+  /// ordinal belongs to device's endpoint. Success publishes a nonzero rate;
+  /// unavailable native metadata returns UNSUPPORTED. Meaningful counter width
+  /// is zero when the native interface does not establish it. Failure leaves
+  /// out_info unchanged.
+  ///
+  /// Rate does not establish a shared epoch between queues, devices or native
+  /// driver clock queries, nor bounded oscillator accuracy against a host
+  /// clock. Correlation uses independently attributed samples from the actual
+  /// event source. Reset or loss of that source invalidates its relation.
+  ///
+  /// This explicit cold query may enter the driver. It creates no queue,
+  /// allocation, collector or retained calibration state and waits for no
+  /// application work. It is thread-safe with submission and other queries;
+  /// the caller keeps device live through the call.
+  amdf_status_t(AMDF_CALL* device_query_queue_clock_info)(
+      amdf_device_t* device, uint32_t queue_family_ordinal,
+      amdf_observation_clock_info_t* out_info);
 } amdf_gpu_api_t;
 
 #ifdef __cplusplus

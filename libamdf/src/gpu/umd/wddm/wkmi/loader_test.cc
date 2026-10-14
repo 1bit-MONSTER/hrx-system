@@ -88,7 +88,7 @@ TEST_F(WkmiLoaderTest, NegotiationFailurePreservesLiveModuleOwner) {
   EXPECT_EQ(loader.module, nullptr);
 }
 
-TEST_F(WkmiLoaderTest, RejectsBridgeWithoutNativeAtomicProperties) {
+TEST_F(WkmiLoaderTest, RejectsBridgeWithoutRequiredOperations) {
   amdf_gpu_wddm_wkmi_loader_t loader = {};
   ASSERT_EQ(
       amdf_gpu_wddm_wkmi_loader_initialize(amdf_allocator_system(), &loader),
@@ -99,8 +99,8 @@ TEST_F(WkmiLoaderTest, RejectsBridgeWithoutNativeAtomicProperties) {
   const auto* sentinel =
       reinterpret_cast<const amdf_wkmi_bridge_api_t*>(uintptr_t{1});
   const amdf_wkmi_bridge_api_t* api = sentinel;
-  for (uint32_t version :
-       {AMDF_WKMI_BRIDGE_ABI_VERSION_3, AMDF_WKMI_BRIDGE_ABI_VERSION_4}) {
+  for (uint32_t version = AMDF_WKMI_BRIDGE_ABI_VERSION_1;
+       version < AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST; ++version) {
     SCOPED_TRACE(version);
     set_version(version);
     EXPECT_EQ(amdf_gpu_wddm_wkmi_loader_query_api(&loader, &api),

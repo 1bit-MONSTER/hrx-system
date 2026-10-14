@@ -60,6 +60,13 @@ TEST(WkmiAdapterTest, FailedInitializationLeavesOutputsUnchanged) {
   EXPECT_EQ(properties.gfx_ip_major, 11);
   EXPECT_EQ(properties.gfx_ip_minor, 5);
 
+  uint64_t frequency = UINT64_MAX;
+  EXPECT_EQ(amdf_gpu_wddm_wkmi_adapter_query_queue_clock_frequency(
+                &adapter, 0x08, 0, AMDF_WKMI_BRIDGE_GPU_QUEUE_COMMAND_TYPE_PM4,
+                &frequency),
+            amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED));
+  EXPECT_EQ(frequency, UINT64_MAX);
+
   EXPECT_EQ(amdf_status_code(amdf_gpu_wddm_wkmi_adapter_deinitialize(&adapter)),
             AMDF_STATUS_CODE_BUSY);
   EXPECT_NE(adapter.api, nullptr);

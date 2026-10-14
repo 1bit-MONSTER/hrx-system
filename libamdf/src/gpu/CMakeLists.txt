@@ -108,12 +108,31 @@ endif()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    clock
+  HDRS
+    "clock.h"
+  SRCS
+    "clock.c"
+  DEPS
+    ::device
+    amdf::headers
+    libamdf::src::device
+    libamdf::src::endpoint
+    libamdf::src::gpu::umd::clock
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     extension
   HDRS
     "extension.h"
   SRCS
     "extension.c"
   DEPS
+    ::clock
     ::device
     ::endpoint_profile
     ::kernel_queue

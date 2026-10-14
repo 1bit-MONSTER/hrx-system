@@ -131,6 +131,35 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "clock",
+    srcs = ["clock.c"],
+    target_compatible_with = KFD_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        "//libamdf/src/gpu/umd:clock",
+        "//libamdf/src/platform/linux:file",
+        "//third_party:linux_amdgpu_uapi",
+        "//third_party:linux_drm_uapi",
+    ],
+)
+
+amdf_cc_test(
+    name = "clock_test",
+    srcs = ["clock_test.cc"],
+    linkopts = ["-Wl,--wrap=ioctl"],
+    target_compatible_with = KFD_COMPATIBILITY,
+    deps = [
+        ":clock",
+        ":device_state",
+        "//libamdf/src/gpu/umd:clock",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
+        "//third_party:linux_amdgpu_uapi",
+        "//third_party:linux_drm_uapi",
+    ],
+)
+
+amdf_cc_library(
     name = "device_state",
     hdrs = ["device.h"],
     target_compatible_with = KFD_COMPATIBILITY,
@@ -470,6 +499,7 @@ amdf_cc_library(
     visibility = ["//libamdf/src/gpu/umd:__pkg__"],
     deps = [
         ":buffer",
+        ":clock",
         ":device",
         ":endpoint_profile",
         ":instance",

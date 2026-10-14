@@ -51,6 +51,7 @@ iree_cc_library(
   NAME
     recipes_cases
   SRCS
+    "clock_test.cc"
     "copy_dispatch_test.cc"
     "device_sdma_lookahead_test.cc"
     "device_sdma_serial_test.cc"
