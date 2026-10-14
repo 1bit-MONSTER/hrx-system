@@ -168,3 +168,214 @@ check.scenario @float16_sign_all_bits {
   }
   check.return
 }
+
+// Wide formats exercise scalar and vector sign manipulation independently.
+// Raw integer observations retain NaN payloads, including signaling encodings.
+func.def @float32_sign_bits(%input: buffer, %sign: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %inputs = buffer.view %input[%base] : buffer -> view<4xf32>
+  %signs = buffer.view %sign[%base] : buffer -> view<4xf32>
+  %results = buffer.view %output[%base] : buffer -> view<15xf32>
+  %values = vector.load %inputs[0] : view<4xf32> -> vector<4xf32>
+  %sign_values = vector.load %signs[0] : view<4xf32> -> vector<4xf32>
+  %absolute = vector.absf %values : vector<4xf32>
+  %negated = vector.negf %values : vector<4xf32>
+  %copied = vector.copysignf %values, %sign_values : vector<4xf32>
+  vector.store %absolute, %results[0] : vector<4xf32>, view<15xf32>
+  vector.store %negated, %results[4] : vector<4xf32>, view<15xf32>
+  vector.store %copied, %results[8] : vector<4xf32>, view<15xf32>
+  %value = vector.extract %values[0] : vector<4xf32> -> f32
+  %sign_value = vector.extract %sign_values[0] : vector<4xf32> -> f32
+  %scalar_absolute = scalar.absf %value : f32
+  %scalar_negated = scalar.negf %value : f32
+  %scalar_copied = scalar.copysignf %value, %sign_value : f32
+  view.store %scalar_absolute, %results[12] : f32, view<15xf32>
+  view.store %scalar_negated, %results[13] : f32, view<15xf32>
+  view.store %scalar_copied, %results[14] : f32, view<15xf32>
+  func.return
+}
+
+func.def @float32_sign_bits_oracle(%input: buffer, %sign: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %inputs = buffer.view %input[%base] : buffer -> view<4xi32>
+  %signs = buffer.view %sign[%base] : buffer -> view<4xi32>
+  %results = buffer.view %output[%base] : buffer -> view<15xi32>
+  %bits = vector.load %inputs[0] : view<4xi32> -> vector<4xi32>
+  %sign_bits = vector.load %signs[0] : view<4xi32> -> vector<4xi32>
+  %magnitude_mask = vector.constant 2147483647 : vector<4xi32>
+  %sign_mask = vector.constant -2147483648 : vector<4xi32>
+  %absolute = vector.andi %bits, %magnitude_mask : vector<4xi32>
+  %negated = vector.xori %bits, %sign_mask : vector<4xi32>
+  %source_sign = vector.andi %sign_bits, %sign_mask : vector<4xi32>
+  %copied = vector.ori %absolute, %source_sign : vector<4xi32>
+  vector.store %absolute, %results[0] : vector<4xi32>, view<15xi32>
+  vector.store %negated, %results[4] : vector<4xi32>, view<15xi32>
+  vector.store %copied, %results[8] : vector<4xi32>, view<15xi32>
+  %scalar_absolute = vector.extract %absolute[0] : vector<4xi32> -> i32
+  %scalar_negated = vector.extract %negated[0] : vector<4xi32> -> i32
+  %scalar_copied = vector.extract %copied[0] : vector<4xi32> -> i32
+  view.store %scalar_absolute, %results[12] : i32, view<15xi32>
+  view.store %scalar_negated, %results[13] : i32, view<15xi32>
+  view.store %scalar_copied, %results[14] : i32, view<15xi32>
+  func.return
+}
+
+check.scenario @float32_sign_values {
+  // Zero and subnormals of both signs.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0) step(1) : tensor<4xi32>
+    %sign = check.generate.fill value(-2147483648) : tensor<4xi32>
+    %output = check.generate.fill value(-559038737) : tensor<15xi32>
+    check.compare<@float32_sign_bits, @float32_sign_bits_oracle>(%input, %sign, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<15xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-2147483648) step(1) : tensor<4xi32>
+    %sign = check.generate.fill value(0) : tensor<4xi32>
+    %output = check.generate.fill value(-559038737) : tensor<15xi32>
+    check.compare<@float32_sign_bits, @float32_sign_bits_oracle>(%input, %sign, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<15xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15xi32>
+    }
+  }
+  // Infinity and signaling NaN payloads of both signs.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(2139095040) step(1) : tensor<4xi32>
+    %sign = check.generate.fill value(-2147483648) : tensor<4xi32>
+    %output = check.generate.fill value(-559038737) : tensor<15xi32>
+    check.compare<@float32_sign_bits, @float32_sign_bits_oracle>(%input, %sign, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<15xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-8388608) step(1) : tensor<4xi32>
+    %sign = check.generate.fill value(0) : tensor<4xi32>
+    %output = check.generate.fill value(-559038737) : tensor<15xi32>
+    check.compare<@float32_sign_bits, @float32_sign_bits_oracle>(%input, %sign, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<15xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15xi32>
+    }
+  }
+  // Quiet NaN payloads remain unchanged except for the requested sign.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(2143289344) step(1) : tensor<4xi32>
+    %sign = check.generate.fill value(-2147483648) : tensor<4xi32>
+    %output = check.generate.fill value(-559038737) : tensor<15xi32>
+    check.compare<@float32_sign_bits, @float32_sign_bits_oracle>(%input, %sign, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<15xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15xi32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %input_seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %sign_seed = check.entropy.read %entropy[1] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%input_seed) range(-2147483648 to 2147483647) : tensor<4xi32>
+    %sign = check.generate.random.uniform seed(%sign_seed) range(-2147483648 to 2147483647) : tensor<4xi32>
+    %output = check.generate.fill value(-559038737) : tensor<15xi32>
+    check.compare<@float32_sign_bits, @float32_sign_bits_oracle>(%input, %sign, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<15xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15xi32>
+    }
+  }
+  check.return
+}
+
+func.def @float64_sign_bits(%input: buffer, %sign: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %inputs = buffer.view %input[%base] : buffer -> view<4xf64>
+  %signs = buffer.view %sign[%base] : buffer -> view<4xf64>
+  %results = buffer.view %output[%base] : buffer -> view<15xf64>
+  %values = vector.load %inputs[0] : view<4xf64> -> vector<4xf64>
+  %sign_values = vector.load %signs[0] : view<4xf64> -> vector<4xf64>
+  %absolute = vector.absf %values : vector<4xf64>
+  %negated = vector.negf %values : vector<4xf64>
+  %copied = vector.copysignf %values, %sign_values : vector<4xf64>
+  vector.store %absolute, %results[0] : vector<4xf64>, view<15xf64>
+  vector.store %negated, %results[4] : vector<4xf64>, view<15xf64>
+  vector.store %copied, %results[8] : vector<4xf64>, view<15xf64>
+  %value = vector.extract %values[0] : vector<4xf64> -> f64
+  %sign_value = vector.extract %sign_values[0] : vector<4xf64> -> f64
+  %scalar_absolute = scalar.absf %value : f64
+  %scalar_negated = scalar.negf %value : f64
+  %scalar_copied = scalar.copysignf %value, %sign_value : f64
+  view.store %scalar_absolute, %results[12] : f64, view<15xf64>
+  view.store %scalar_negated, %results[13] : f64, view<15xf64>
+  view.store %scalar_copied, %results[14] : f64, view<15xf64>
+  func.return
+}
+
+func.def @float64_sign_bits_oracle(%input: buffer, %sign: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %inputs = buffer.view %input[%base] : buffer -> view<4xi64>
+  %signs = buffer.view %sign[%base] : buffer -> view<4xi64>
+  %results = buffer.view %output[%base] : buffer -> view<15xi64>
+  %bits = vector.load %inputs[0] : view<4xi64> -> vector<4xi64>
+  %sign_bits = vector.load %signs[0] : view<4xi64> -> vector<4xi64>
+  %magnitude_mask = vector.constant 9223372036854775807 : vector<4xi64>
+  %sign_mask = vector.constant -9223372036854775808 : vector<4xi64>
+  %absolute = vector.andi %bits, %magnitude_mask : vector<4xi64>
+  %negated = vector.xori %bits, %sign_mask : vector<4xi64>
+  %source_sign = vector.andi %sign_bits, %sign_mask : vector<4xi64>
+  %copied = vector.ori %absolute, %source_sign : vector<4xi64>
+  vector.store %absolute, %results[0] : vector<4xi64>, view<15xi64>
+  vector.store %negated, %results[4] : vector<4xi64>, view<15xi64>
+  vector.store %copied, %results[8] : vector<4xi64>, view<15xi64>
+  %scalar_absolute = vector.extract %absolute[0] : vector<4xi64> -> i64
+  %scalar_negated = vector.extract %negated[0] : vector<4xi64> -> i64
+  %scalar_copied = vector.extract %copied[0] : vector<4xi64> -> i64
+  view.store %scalar_absolute, %results[12] : i64, view<15xi64>
+  view.store %scalar_negated, %results[13] : i64, view<15xi64>
+  view.store %scalar_copied, %results[14] : i64, view<15xi64>
+  func.return
+}
+
+check.scenario @float64_sign_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0) step(1) : tensor<4xi64>
+    %sign = check.generate.fill value(-9223372036854775808) : tensor<4xi64>
+    %output = check.generate.fill value(-559038737) : tensor<15xi64>
+    check.compare<@float64_sign_bits, @float64_sign_bits_oracle>(%input, %sign, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<15xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-9223372036854775808) step(1) : tensor<4xi64>
+    %sign = check.generate.fill value(0) : tensor<4xi64>
+    %output = check.generate.fill value(-559038737) : tensor<15xi64>
+    check.compare<@float64_sign_bits, @float64_sign_bits_oracle>(%input, %sign, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<15xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(9218868437227405312) step(1) : tensor<4xi64>
+    %sign = check.generate.fill value(-9223372036854775808) : tensor<4xi64>
+    %output = check.generate.fill value(-559038737) : tensor<15xi64>
+    check.compare<@float64_sign_bits, @float64_sign_bits_oracle>(%input, %sign, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<15xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-4503599627370496) step(1) : tensor<4xi64>
+    %sign = check.generate.fill value(0) : tensor<4xi64>
+    %output = check.generate.fill value(-559038737) : tensor<15xi64>
+    check.compare<@float64_sign_bits, @float64_sign_bits_oracle>(%input, %sign, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<15xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15xi64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(9221120237041090560) step(1) : tensor<4xi64>
+    %sign = check.generate.fill value(-9223372036854775808) : tensor<4xi64>
+    %output = check.generate.fill value(-559038737) : tensor<15xi64>
+    check.compare<@float64_sign_bits, @float64_sign_bits_oracle>(%input, %sign, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<15xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15xi64>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %input_seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %sign_seed = check.entropy.read %entropy[1] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%input_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<4xi64>
+    %sign = check.generate.random.uniform seed(%sign_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<4xi64>
+    %output = check.generate.fill value(-559038737) : tensor<15xi64>
+    check.compare<@float64_sign_bits, @float64_sign_bits_oracle>(%input, %sign, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<15xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<15xi64>
+    }
+  }
+  check.return
+}
