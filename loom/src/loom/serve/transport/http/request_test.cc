@@ -13,6 +13,7 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/serve/transport/http/multipart.h"
 
 namespace {
 
@@ -37,6 +38,8 @@ struct RequestSnapshot {
   std::vector<std::pair<std::string, std::string>> headers;
   // Copied request body.
   std::string body;
+  // Copied ordered multipart names and binary payloads, when present.
+  std::vector<std::pair<std::string, std::string>> form_fields;
 };
 
 std::string CopyString(iree_string_view_t value) {
@@ -48,6 +51,8 @@ loom_serve_http_request_limits_t DefaultLimits() {
       .header_byte_capacity = 4096,
       .body_byte_capacity = 4096,
       .header_capacity = 32,
+      .multipart_header_byte_capacity = 4096,
+      .multipart_part_capacity = 32,
   };
 }
 
@@ -104,6 +109,11 @@ void CopyRequest(const loom_serve_http_request_t* request,
         CopyString(request->headers.pairs[i].value));
   }
   out_snapshot->body = CopyString(request->body);
+  const auto parts = loom_serve_http_multipart_parts(request->multipart);
+  for (size_t i = 0; i < parts.count; ++i) {
+    out_snapshot->form_fields.emplace_back(
+        CopyString(parts.values[i].name), CopyString(parts.values[i].contents));
+  }
 }
 
 iree_status_t ParseRequest(const std::vector<iree_const_byte_span_t>& chunks,
@@ -134,6 +144,7 @@ void ExpectSnapshotsEqual(const RequestSnapshot& actual,
   EXPECT_EQ(actual.target, expected.target);
   EXPECT_EQ(actual.headers, expected.headers);
   EXPECT_EQ(actual.body, expected.body);
+  EXPECT_EQ(actual.form_fields, expected.form_fields);
 }
 
 void ExpectEverySplit(const std::string& wire_request,
@@ -207,6 +218,7 @@ TEST(HttpRequestTest, ParsesChunkedMultipartAcrossEverySplit) {
           "Content-Disposition: form-data; name=\"file\"; "
           "filename=\"recording.wav\"\r\n\r\n" +
           file_bytes + "\r\n--sample--\r\n",
+      .form_fields = {{"model", "fixture"}, {"file", file_bytes}},
   };
   RequestSnapshot actual;
   IREE_ASSERT_OK(

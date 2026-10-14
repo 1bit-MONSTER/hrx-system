@@ -10,6 +10,7 @@
 #define LOOM_SERVE_TRANSPORT_HTTP_REQUEST_H_
 
 #include "iree/base/api.h"
+#include "loom/serve/transport/http/multipart.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,13 +18,16 @@ extern "C" {
 
 // Hard storage and structure limits for one HTTP request.
 typedef struct loom_serve_http_request_limits_t {
-  // Maximum request-line/header bytes, and independently cumulative chunk
-  // framing bytes (size lines, extensions, delimiters and trailers).
+  // Maximum request-line/header bytes and cumulative chunk framing bytes.
   iree_host_size_t header_byte_capacity;
   // Maximum body bytes after transfer decoding.
   iree_host_size_t body_byte_capacity;
-  // Maximum number of unique request headers.
+  // Maximum unique request headers.
   iree_host_size_t header_capacity;
+  // Maximum cumulative MIME header bytes, independent of payload bytes.
+  iree_host_size_t multipart_header_byte_capacity;
+  // Maximum retained multipart records, including repeated field names.
+  iree_host_size_t multipart_part_capacity;
 } loom_serve_http_request_limits_t;
 
 // One fully framed HTTP/1.1 request.
@@ -37,6 +41,8 @@ typedef struct loom_serve_http_request_t {
   // Body after Content-Length or chunked framing, empty without either.
   // Chunk extensions and trailers are discarded, never merged into headers.
   iree_string_view_t body;
+  // Parsed ordered form fields borrowing this request; NULL for other media.
+  const loom_serve_http_multipart_t* multipart;
 } loom_serve_http_request_t;
 
 // Stateful parser for exactly one HTTP/1.1 request.

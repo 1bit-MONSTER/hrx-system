@@ -180,6 +180,8 @@ TEST_F(HttpServerTest, FragmentedRequestAndOrderedStreamingResponse) {
   EXPECT_EQ(limits.header_byte_capacity, 16384u);
   EXPECT_EQ(limits.body_byte_capacity, 2 * 1024 * 1024u);
   EXPECT_EQ(limits.header_capacity, 64u);
+  EXPECT_EQ(limits.multipart_header_byte_capacity, 64 * 1024u);
+  EXPECT_EQ(limits.multipart_part_capacity, 1024u);
   int client = Connect();
   ASSERT_TRUE(Write(
       client, "POST /v1/chat/completions HTTP/1.1\r\nHost: local\r\nContent-"));

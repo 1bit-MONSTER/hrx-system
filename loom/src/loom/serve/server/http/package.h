@@ -20,10 +20,12 @@ extern "C" {
 // and establishes the document directory; payload file names are never local
 // filesystem destinations. Parts may arrive in any order. JSON bytes remain
 // borrowed from request; the returned package independently owns all files.
+// Multipart fields are already parsed and retained by the HTTP request owner.
 //
-// Uses the transport's existing complete-body budget, with no implicit larger
-// limit or checkpoint upload path. Failure publishes no package. Content-Type
-// may be absent for ordinary JSON clients; unsupported explicit types reject.
+// Uses the transport's body, MIME-header and part budgets, with no implicit
+// larger limit or checkpoint upload path. Failure publishes no package.
+// Content-Type may be absent for ordinary JSON clients; unsupported explicit
+// types reject.
 iree_status_t loom_serve_http_package_parse(
     const loom_serve_http_request_t* request, iree_allocator_t host_allocator,
     iree_string_view_t* out_json, loom_serve_package_t** out_package);

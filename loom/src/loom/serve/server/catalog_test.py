@@ -533,6 +533,8 @@ def check_empty_server(server_command, directory, device, backing):
                     "header_byte_capacity": 16384,
                     "body_byte_capacity": 65536,
                     "header_capacity": 64,
+                    "multipart_header_byte_capacity": 65536,
+                    "multipart_part_capacity": 1024,
                 },
                 "held_request_capacity": 7,
                 "held_requests": 0,

@@ -68,6 +68,8 @@ struct loom_serve_http_request_parser_t {
   iree_host_size_t framing_length;
   // Final contiguous public header pairs.
   iree_string_pair_t* header_pairs;
+  // Parsed form metadata borrowing the final stable body storage.
+  loom_serve_http_multipart_t* multipart;
   // Final public request borrowing parser-owned storage.
   loom_serve_http_request_t request;
 };
@@ -403,8 +405,20 @@ static iree_status_t loom_serve_http_complete_request(
       .body = iree_make_string_view(storage.data + parser->header_length,
                                     storage.size - parser->header_length),
   };
-  parser->phase = LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_COMPLETE;
-  return iree_ok_status();
+  iree_string_view_t content_type;
+  if (loom_serve_http_request_lookup_header(
+          &parser->request, IREE_SV("Content-Type"), &content_type)) {
+    status = loom_serve_http_multipart_parse(
+        content_type, parser->request.body,
+        parser->limits.multipart_header_byte_capacity,
+        parser->limits.multipart_part_capacity, parser->host_allocator,
+        &parser->multipart);
+  }
+  if (iree_status_is_ok(status)) {
+    parser->request.multipart = parser->multipart;
+    parser->phase = LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_COMPLETE;
+  }
+  return status;
 }
 
 static iree_status_t loom_serve_http_append_body_bytes(
@@ -646,6 +660,7 @@ void loom_serve_http_request_parser_free(
     return;
   }
   iree_allocator_t host_allocator = parser->host_allocator;
+  loom_serve_http_multipart_free(parser->multipart);
   iree_allocator_free(host_allocator, parser->header_pairs);
   iree_allocator_free(host_allocator, parser->header_records.values);
   iree_string_builder_deinitialize(&parser->framing_line);

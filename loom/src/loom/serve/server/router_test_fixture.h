@@ -428,7 +428,8 @@ class HttpRouterTest : public ::testing::TestWithParam<int> {
     iree_task_executor_release(executor_);
   }
   int Send(const std::string& method, const std::string& target,
-           const std::string& body = "", const std::string& headers = "") {
+           const std::string& body = "", const std::string& headers = "",
+           const std::string& content_type = "application/json") {
     const int client = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
     EXPECT_GE(client, 0);
     const auto* address = loom_serve_http_listener_address(listener_);
@@ -438,7 +439,7 @@ class HttpRouterTest : public ::testing::TestWithParam<int> {
         0);
     const std::string request =
         method + " " + target +
-        " HTTP/1.1\r\nHost: local\r\nContent-Type: application/json\r\n" +
+        " HTTP/1.1\r\nHost: local\r\nContent-Type: " + content_type + "\r\n" +
         headers + "Content-Length: " + std::to_string(body.size()) +
         "\r\n\r\n" + body;
     size_t offset = 0;

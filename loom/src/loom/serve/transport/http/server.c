@@ -275,7 +275,14 @@ void loom_serve_http_server_free(loom_serve_http_server_t* server) {
 loom_serve_http_server_options_t loom_serve_http_server_options_default(void) {
   return (loom_serve_http_server_options_t){
       .connection_capacity = 64,
-      .request_limits = {16384, 8 * 1024 * 1024, 64},
+      .request_limits =
+          {
+              .header_byte_capacity = 16384,
+              .body_byte_capacity = 8 * 1024 * 1024,
+              .header_capacity = 64,
+              .multipart_header_byte_capacity = 64 * 1024,
+              .multipart_part_capacity = 1024,
+          },
   };
 }
 

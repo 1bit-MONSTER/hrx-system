@@ -5,12 +5,89 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "loom/serve/server/router_test_fixture.h"
+#include "loom/serve/transport/http/multipart.h"
 
 namespace {
 
 using loom_serve::testing::HttpRouterTest;
 using loom_serve::testing::ModelService;
 using loom_serve::testing::ObservationClient;
+
+TEST_P(HttpRouterTest, MultipartSelectorFollowsFileAndRetainsFieldsWhileHeld) {
+  const std::string body =
+      "--upload\r\nContent-Disposition: form-data; name=file; "
+      "filename=recording.wav\r\nContent-Type: audio/wav\r\n\r\n" +
+      std::string("a\0b", 3) +
+      "\r\n--upload\r\nContent-Disposition: form-data; name=model\r\n\r\n"
+      "held\r\n--upload--\r\n";
+  const int client = Send("POST", "/v1/test", body, "",
+                          "multipart/form-data; boundary=upload");
+  held_.WaitSubmitted();
+  EXPECT_EQ(Read(Send("GET", "/healthz")).find("HTTP/1.1 200"), 0u);
+  {
+    std::lock_guard<std::mutex> lock(held_.mutex);
+    EXPECT_EQ(held_.pending.size(), 1u);
+    if (!held_.pending.empty()) {
+      const auto parts = loom_serve_http_multipart_parts(
+          held_.pending.front().second->multipart);
+      EXPECT_EQ(parts.count, 2u);
+      if (parts.count == 2) {
+        EXPECT_EQ(
+            std::string(parts.values[0].name.data, parts.values[0].name.size),
+            "file");
+        EXPECT_EQ(std::string(parts.values[0].filename.data,
+                              parts.values[0].filename.size),
+                  "recording.wav");
+        EXPECT_EQ(std::string(parts.values[0].contents.data,
+                              parts.values[0].contents.size),
+                  std::string("a\0b", 3));
+        EXPECT_EQ(std::string(parts.values[1].contents.data,
+                              parts.values[1].contents.size),
+                  "held");
+      }
+    }
+  }
+  held_.Release();
+  const std::string response = Read(client);
+  EXPECT_EQ(response.find("HTTP/1.1 200"), 0u);
+  EXPECT_NE(response.find("held:/v1/test:" + body), std::string::npos);
+}
+
+TEST_P(HttpRouterTest, MultipartSelectorIsTextRatherThanJsonEscapedContent) {
+  const std::string body =
+      "--x\r\nContent-Disposition: form-data; name=\"mo\\del\"\r\n\r\n"
+      "quoted\"\\name\r\n--x--";
+  const auto response = Read(
+      Send("POST", "/v1/test", body, "", "multipart/form-data; boundary=x"));
+  EXPECT_EQ(response.find("HTTP/1.1 200"), 0u);
+  EXPECT_NE(response.find("quoted\"\\name:/v1/test:" + body),
+            std::string::npos);
+}
+
+TEST_P(HttpRouterTest, MultipartRejectsMissingDuplicateOrFileModelSelectors) {
+  const std::vector<std::string> bodies = {
+      "--x--",
+      "--x\r\nContent-Disposition: form-data; name=other\r\n\r\na\r\n--x--",
+      "--x\r\nContent-Disposition: form-data; name=model\r\n\r\n\r\n--x--",
+      "--x\r\nContent-Disposition: form-data; name=model; filename=\"\""
+      "\r\n\r\na\r\n--x--",
+      "--x\r\nContent-Disposition: form-data; name=model\r\n\r\na"
+      "\r\n--x\r\nContent-Disposition: form-data; name=model\r\n\r\na\r\n--x--",
+  };
+  for (const auto& body : bodies) {
+    SCOPED_TRACE(body);
+    EXPECT_EQ(Read(Send("POST", "/v1/test", body, "",
+                        "multipart/form-data; boundary=x"))
+                  .find("HTTP/1.1 400"),
+              0u);
+  }
+  EXPECT_EQ(Read(Send("POST", "/v1/models/drain",
+                      "--x\r\nContent-Disposition: form-data; "
+                      "name=model\r\n\r\na\r\n--x--",
+                      "", "multipart/form-data; boundary=x"))
+                .find("HTTP/1.1 400"),
+            0u);
+}
 
 TEST_P(HttpRouterTest,
        LiveReadersResumeAndYieldToPeersWhenTheirRingOverwrites) {
@@ -209,7 +286,7 @@ TEST_P(HttpRouterTest, UnrelatedCapacityNeverWaitsForHeldCompletion) {
                                 sizeof(storage), storage, &address));
   const std::string expected =
       "\"server\":{\"worker_count\":" + std::to_string(GetParam()) +
-      R"(,"model_capacity":5,"connection_capacity":64,"request_limits":{"header_byte_capacity":16384,"body_byte_capacity":8388608,"header_capacity":64},"held_request_capacity":2,"held_requests":0,"observer_capacity":63,"observers":0,"resources":{"listeners":[{"address":")" +
+      R"(,"model_capacity":5,"connection_capacity":64,"request_limits":{"header_byte_capacity":16384,"body_byte_capacity":8388608,"header_capacity":64,"multipart_header_byte_capacity":65536,"multipart_part_capacity":1024},"held_request_capacity":2,"held_requests":0,"observer_capacity":63,"observers":0,"resources":{"listeners":[{"address":")" +
       std::string(address.data, address.size) +
       R"(","waiting_for_capacity":false}],"devices":[]}})";
   EXPECT_NE(state.find(expected), std::string::npos) << state;

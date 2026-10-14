@@ -13,49 +13,51 @@
 extern "C" {
 #endif
 
-// One binary-preserving form-data part. Views are borrowed through the next
-// cursor operation; contents borrow the original complete request body.
+// One ordered multipart/form-data field. Payloads borrow the original body;
+// normalized metadata borrows the enclosing multipart object.
 typedef struct loom_serve_http_part_t {
-  // Required decoded Content-Disposition name parameter.
+  // Unquoted field name, possibly empty; repeated names remain separate parts.
   iree_string_view_t name;
-  // Optional decoded filename; NULL data means absent.
+  // Unquoted opaque filename; NULL data means absent, distinct from empty.
   iree_string_view_t filename;
-  // Optional Content-Type value, not used to reinterpret payload bytes.
+  // Unfolded Content-Type value, empty when absent; no default is inferred.
   iree_string_view_t content_type;
-  // Exact bytes before the delimiter's leading CRLF.
+  // Exact binary field bytes excluding the encapsulation delimiter's CRLF.
   iree_string_view_t contents;
 } loom_serve_http_part_t;
 
-// Bounded cursor over a fully framed multipart/form-data body. HTTP framing
-// owns the aggregate byte limit; this parser never reads the network or files.
-typedef struct loom_serve_http_multipart_t {
-  // Unconsumed body beginning immediately after a boundary token.
-  iree_string_view_t remaining;
-  // Delimiter storage: CRLF, '--', and at most 70 MIME boundary bytes.
-  char delimiter[74];
-  // Active bytes in delimiter.
-  iree_host_size_t delimiter_length;
-  // Decoded parameter storage, reused for each part.
-  iree_string_builder_t parameters;
-  // The final boundary was consumed; repeated next calls remain at EOF.
-  bool complete;
-} loom_serve_http_multipart_t;
+typedef struct loom_serve_http_part_list_t {
+  // Number of parts, including repeated names, in wire order.
+  iree_host_size_t count;
+  // Borrowed immutable part records.
+  const loom_serve_http_part_t* values;
+} loom_serve_http_part_list_t;
 
-// Content-Type supplies a quoted or unquoted boundary. The caller always
-// deinitializes the cursor, including after initialization/iteration failures.
-// Header parameters support quoted-pair escaping; transfer-encoded parts
-// reject instead of silently interpreting encoded bytes as source.
-iree_status_t loom_serve_http_multipart_initialize(
+typedef struct loom_serve_http_multipart_t loom_serve_http_multipart_t;
+
+// Parses a complete multipart/form-data body without copying its payloads.
+// Other media types succeed with *out_multipart NULL and leave the body opaque.
+// header_byte_capacity bounds cumulative MIME headers, including line endings;
+// part_capacity independently bounds records. Metadata unquoting/unfolding is
+// retained once. Unknown syntactically valid MIME headers/parameters are
+// ignored. Parts with transfer encodings other than binary/7bit/8bit are
+// rejected. Nested multipart and filename* are rejected rather than flattened.
+// Text charsets and percent-encoded filenames are left to the application;
+// filenames never name host paths. Preamble and epilogue are discarded. The
+// caller separately bounds body bytes and keeps the original body alive until
+// multipart destruction. Failure leaves *out_multipart NULL.
+iree_status_t loom_serve_http_multipart_parse(
     iree_string_view_t content_type, iree_string_view_t body,
-    iree_allocator_t host_allocator, loom_serve_http_multipart_t* out_cursor);
-void loom_serve_http_multipart_deinitialize(
-    loom_serve_http_multipart_t* cursor);
+    iree_host_size_t header_byte_capacity, iree_host_size_t part_capacity,
+    iree_allocator_t host_allocator,
+    loom_serve_http_multipart_t** out_multipart);
 
-// Returns present=false only after a complete terminal delimiter. Truncation,
-// duplicate disposition parameters and malformed headers reject explicitly.
-iree_status_t loom_serve_http_multipart_next(
-    loom_serve_http_multipart_t* cursor, loom_serve_http_part_t* out_part,
-    bool* out_present);
+// Returns the retained ordered fields. NULL returns an empty list.
+loom_serve_http_part_list_t loom_serve_http_multipart_parts(
+    const loom_serve_http_multipart_t* multipart);
+
+// Releases metadata/records, never the borrowed body. NULL is accepted.
+void loom_serve_http_multipart_free(loom_serve_http_multipart_t* multipart);
 
 #ifdef __cplusplus
 }  // extern "C"
