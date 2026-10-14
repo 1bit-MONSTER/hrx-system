@@ -14,7 +14,6 @@ import re
 import subprocess
 import sys
 import tempfile
-from collections import defaultdict, deque
 from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -50,18 +49,22 @@ CMAKE_SOURCE_FORMAT_TARGET_DEFINES = (
 CI_LOOM_TARGETS = ",".join(
     target for target, _define in CMAKE_SOURCE_FORMAT_TARGET_DEFINES
 )
-BAZEL_SOURCE_TOOL_ARGS = (
-    "--config=locked",
-    f"--//loom/config/target:enable={CI_LOOM_TARGETS}",
-)
-BAZEL_TEST_CONFIGURATION_ARGS = (
-    "--config=presubmit",
+# Formatting, hygiene, dependency selection, and tests share one build
+# configuration so successive phases retain Bazel's configured analysis graph.
+BAZEL_CONFIGURATION_ARGS = (
     f"--//loom/config/target:enable={CI_LOOM_TARGETS}",
     "--//loom/config/import:enable=cxx",
 )
+BAZEL_SOURCE_TOOL_ARGS = (
+    "--config=locked",
+    *BAZEL_CONFIGURATION_ARGS,
+)
+BAZEL_TEST_CONFIGURATION_ARGS = (
+    "--config=presubmit",
+    *BAZEL_CONFIGURATION_ARGS,
+)
 BAZEL_FULL_TEST_TARGET = "//loom/..."
 BAZEL_ALL_TESTS_QUERY = f"tests({BAZEL_FULL_TEST_TARGET})"
-BAZEL_GRAPH_EDGE_PATTERN = re.compile(r'^  "([^"]+)" -> "([^"]+)"$')
 LOOM_FORMAT_BAZEL_TARGET = "//loom/src/loom/tools/loom-format:loom-format"
 LOOM_FORMAT_CMAKE_TARGET = "loom::tools::loom-format"
 LOOM_LINT_PYTHON_SOURCE = "loom/py/loom/tools/source_lint.py"
@@ -383,45 +386,18 @@ def bazel_node_label(node: str) -> str:
     return node[:separator]
 
 
-def affected_bazel_test_targets(
-    test_targets: set[str], source_labels: set[str], dependency_graph: Path
-) -> list[str]:
-    """Finds tests that transitively depend on any changed source label."""
-    reverse_dependencies: dict[str, set[str]] = defaultdict(set)
-    source_nodes: set[str] = set()
-    with open(dependency_graph, encoding="utf-8") as graph_file:
-        for line_number, raw_line in enumerate(graph_file, start=1):
-            line = raw_line.rstrip("\n")
-            match = BAZEL_GRAPH_EDGE_PATTERN.fullmatch(line)
-            if match is None:
-                if " -> " in line:
-                    raise ValueError(
-                        f"malformed Bazel dependency edge at line {line_number}"
-                    )
-                continue
-            dependent, dependency = match.groups()
-            reverse_dependencies[dependency].add(dependent)
-            if bazel_node_label(dependent) in source_labels:
-                source_nodes.add(dependent)
-            if bazel_node_label(dependency) in source_labels:
-                source_nodes.add(dependency)
-
-    worklist = deque(source_nodes)
-    reachable = set(worklist)
-    while worklist:
-        node = worklist.popleft()
-        for dependent in reverse_dependencies.get(node, ()):
-            if dependent in reachable:
-                continue
-            reachable.add(dependent)
-            worklist.append(dependent)
-
-    return sorted(
-        {
-            label
-            for node in reachable
-            if (label := bazel_node_label(node)) in test_targets
-        }
+def affected_bazel_test_query(test_targets: set[str], source_labels: set[str]) -> str:
+    """Selects tests through their configured dependencies, including transitions."""
+    # Filter the analyzed closure instead of resolving changed paths as target
+    # patterns: deleted, untracked, or configuration-excluded files may have no
+    # node. Query strings preserve backslashes rather than decoding JSON escapes.
+    source_pattern = "|".join(re.escape(label) for label in sorted(source_labels))
+    source_pattern = source_pattern.replace('"', r"\x22")
+    return (
+        "let tests = set(\n  " + "\n  ".join(sorted(test_targets)) + ") in\n"
+        "let dependencies = deps($tests) in\n"
+        "$tests intersect rdeps($dependencies, "
+        f'filter("^({source_pattern})$", $dependencies))\n'
     )
 
 
@@ -458,19 +434,23 @@ def query_affected_bazel_test_targets(source_labels: set[str]) -> list[str]:
 
         query_path = temp_path / "test_dependencies.query"
         query_path.write_text(
-            "deps(set(\n  " + "\n  ".join(sorted(test_targets)) + "\n))\n",
+            affected_bazel_test_query(test_targets, source_labels),
             encoding="utf-8",
         )
-        dependency_graph_path = temp_path / "test_dependencies.dot"
+        affected_targets_path = temp_path / "affected_targets.txt"
         if not run_command(
             [
                 "bazel",
                 "cquery",
                 *BAZEL_TEST_CONFIGURATION_ARGS,
-                "--output=graph",
-                "--nograph:factored",
+                *project_presubmit.bazel_config_args(),
+                # Explicit aspect nodes preserve reverse edges. Flattening an
+                # aspect's forward dependencies during rdeps can select siblings
+                # that do not depend on the changed file.
+                "--experimental_explicit_aspects",
+                "--output=label",
                 f"--query_file={query_path}",
-                f"--output_file={dependency_graph_path}",
+                f"--output_file={affected_targets_path}",
             ],
             "Resolve Bazel test dependencies",
         ):
@@ -478,8 +458,14 @@ def query_affected_bazel_test_targets(source_labels: set[str]) -> list[str]:
                 "failed to resolve configured Bazel test dependencies"
             )
         try:
-            targets = affected_bazel_test_targets(
-                test_targets, source_labels, dependency_graph_path
+            targets = sorted(
+                {
+                    bazel_node_label(line)
+                    for line in affected_targets_path.read_text(
+                        encoding="utf-8"
+                    ).splitlines()
+                    if line
+                }
             )
         except (OSError, ValueError) as exc:
             raise BazelDependencyQueryError(

@@ -105,7 +105,9 @@ test --test_output=errors
 # Keep Python test entry-point directories off sys.path. Bazel supplies the
 # declared runfiles roots explicitly; allowing the script directory to win can
 # shadow standard-library modules with package-local files such as types.py.
-test --test_env=PYTHONSAFEPATH=1
+# Build and test analysis share this setting so switching commands preserves
+# configured test nodes. It only changes test environments, not build actions.
+build --test_env=PYTHONSAFEPATH=1
 
 # Local presubmit uses the configured Bazel graph. Build and runtime
 # requirements belong on targets and package policy rather than tag filters.

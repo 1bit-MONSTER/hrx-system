@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -35,6 +36,15 @@ class LoomPresubmitTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.presubmit = load_presubmit_module()
+
+    def test_source_tools_and_tests_share_the_build_configuration(self):
+        source_options = self.presubmit.BAZEL_SOURCE_TOOL_ARGS
+        test_options = self.presubmit.BAZEL_TEST_CONFIGURATION_ARGS
+
+        self.assertEqual(source_options[0], "--config=locked")
+        self.assertEqual(test_options[0], "--config=presubmit")
+        self.assertEqual(source_options[1:], test_options[1:])
+        self.assertIn("--//loom/config/import:enable=cxx", source_options)
 
     def test_bazel_tests_preserve_manual_filter_without_hardware_blacklists(self):
         command = self.presubmit.bazel_test_command()
@@ -108,46 +118,37 @@ class LoomPresubmitTest(unittest.TestCase):
                     "//loom/src/loom/example:test/example.loom-test",
                 )
 
-    def test_affected_tests_follow_configured_reverse_dependencies(self):
-        with tempfile.TemporaryDirectory() as temporary_dir:
-            graph_path = Path(temporary_dir) / "dependencies.dot"
-            graph_path.write_text(
-                """digraph mygraph {
-  "//loom/src/loom/ops/vector:vector (cfg)" -> "//loom/src/loom/ops/vector:canonicalize.c (null)"
-  "//loom/src/loom/ops/vector/test:canonicalize (cfg)" -> "//loom/src/loom/ops/vector:vector (cfg)"
-  "//loom/src/loom/target/arch:source_low_runner (cfg)" -> "//loom/src/loom/ops/vector:vector (cfg)"
-  "//loom/src/loom/target/arch/amdgpu:source_low_memory_global (cfg)" -> "//loom/src/loom/target/arch:source_low_runner (cfg)"
-  "//loom/src/loom/unrelated:unrelated_test (cfg)" -> "//loom/src/loom/unrelated:unrelated.c (null)"
-}
-""",
-                encoding="utf-8",
-            )
+    def test_affected_query_filters_sources_in_the_configured_test_closure(self):
+        query = self.presubmit.affected_bazel_test_query(
+            {"//loom:b_test", "//loom:a_test"}, {"//loom:changed.c"}
+        )
 
-            self.assertEqual(
-                self.presubmit.affected_bazel_test_targets(
-                    {
-                        "//loom/src/loom/ops/vector/test:canonicalize",
-                        "//loom/src/loom/target/arch/amdgpu:source_low_memory_global",
-                        "//loom/src/loom/unrelated:unrelated_test",
-                    },
-                    {"//loom/src/loom/ops/vector:canonicalize.c"},
-                    graph_path,
-                ),
-                [
-                    "//loom/src/loom/ops/vector/test:canonicalize",
-                    "//loom/src/loom/target/arch/amdgpu:source_low_memory_global",
-                ],
-            )
+        self.assertEqual(
+            query,
+            "let tests = set(\n  //loom:a_test\n  //loom:b_test) in\n"
+            "let dependencies = deps($tests) in\n"
+            "$tests intersect rdeps($dependencies, "
+            'filter("^(//loom:changed\\.c)$", $dependencies))\n',
+        )
 
-    def test_affected_tests_reject_malformed_dependency_edges(self):
-        with tempfile.TemporaryDirectory() as temporary_dir:
-            graph_path = Path(temporary_dir) / "dependencies.dot"
-            graph_path.write_text('  "//loom:a (cfg)" -> malformed\n', encoding="utf-8")
+    def test_affected_query_matches_literal_labels_without_query_string_escapes(self):
+        labels = {"//loom:input+[x].loom-test", "//loom:both'\".loom-test"}
+        query = self.presubmit.affected_bazel_test_query({"//loom:root_test"}, labels)
+        pattern = query.split('filter("', 1)[1].split('", $dependencies)', 1)[0]
 
-            with self.assertRaisesRegex(ValueError, "dependency edge at line 1"):
-                self.presubmit.affected_bazel_test_targets(
-                    {"//loom:a_test"}, {"//loom:a.c"}, graph_path
-                )
+        self.assertNotIn('"', pattern)
+        for label in labels:
+            self.assertIsNotNone(re.fullmatch(pattern, label))
+            self.assertIsNone(re.fullmatch(pattern, label + ".extra"))
+        self.assertIsNone(re.fullmatch(pattern, "//loom:inputtxXloom-test"))
+
+    def test_configured_label_preserves_target_name_and_rejects_malformed_output(self):
+        self.assertEqual(
+            self.presubmit.bazel_node_label("//loom:test (name) (cfg)"),
+            "//loom:test (name)",
+        )
+        with self.assertRaisesRegex(ValueError, "malformed configured Bazel node"):
+            self.presubmit.bazel_node_label("//loom:a_test")
 
     def test_selected_files_are_mapped_to_source_labels(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
@@ -215,21 +216,28 @@ class LoomPresubmitTest(unittest.TestCase):
                 )
                 observed_query = query_path.read_text(encoding="utf-8")
                 output_path.write_text(
-                    """digraph mygraph {
-  "//loom/src/loom/ops/vector:vector (cfg)" -> "//loom/src/loom/ops/vector:canonicalize.c (null)"
-  "//loom/src/loom/ops/vector/test:canonicalize (cfg)" -> "//loom/src/loom/ops/vector:vector (cfg)"
-  "//loom/src/loom/target/arch/amdgpu:source_low_memory_global (cfg)" -> "//loom/src/loom/ops/vector:vector (cfg)"
-}
-""",
+                    "//loom/src/loom/ops/vector/test:canonicalize (cfg)\n"
+                    "//loom/src/loom/target/arch/amdgpu:source_low_memory_global (cfg)\n"
+                    "//loom/src/loom/ops/vector/test:canonicalize (othercfg)\n",
                     encoding="utf-8",
                 )
             else:
                 self.fail(f"unexpected command: {description}")
             return True
 
-        with mock.patch.object(
-            self.presubmit, "run_command", side_effect=run_query
-        ) as run_command:
+        with (
+            mock.patch.dict(
+                os.environ,
+                {
+                    self.presubmit.project_presubmit.BAZEL_CONFIGS_ENV: json.dumps(
+                        ["asan", "remote-execution"]
+                    )
+                },
+            ),
+            mock.patch.object(
+                self.presubmit, "run_command", side_effect=run_query
+            ) as run_command,
+        ):
             self.assertEqual(
                 self.presubmit.query_affected_bazel_test_targets(
                     {"//loom/src/loom/ops/vector:canonicalize.c"}
@@ -252,11 +260,51 @@ class LoomPresubmitTest(unittest.TestCase):
             dependency_command,
         )
         self.assertIn("--//loom/config/import:enable=cxx", dependency_command)
-        self.assertIn("--nograph:factored", dependency_command)
+        self.assertEqual(
+            [arg for arg in dependency_command if arg.startswith("--config=")],
+            ["--config=presubmit", "--config=asan", "--config=remote-execution"],
+        )
+        self.assertIn("--experimental_explicit_aspects", dependency_command)
+        self.assertIn("--output=label", dependency_command)
         self.assertIn(
             "//loom/src/loom/target/arch/amdgpu:source_low_memory_global",
             observed_query,
         )
+
+    def test_affected_query_distinguishes_empty_and_malformed_results(self):
+        for result in ("", "not a configured target\n"):
+            with self.subTest(result=result):
+
+                def run_query(command, _description):
+                    output_path = Path(
+                        next(
+                            arg for arg in command if arg.startswith("--output_file=")
+                        ).split("=", 1)[1]
+                    )
+                    output_path.write_text(
+                        "//loom:root_test\n" if command[1] == "query" else result,
+                        encoding="utf-8",
+                    )
+                    return True
+
+                with mock.patch.object(
+                    self.presubmit, "run_command", side_effect=run_query
+                ):
+                    if result:
+                        with self.assertRaisesRegex(
+                            self.presubmit.BazelDependencyQueryError,
+                            "malformed configured Bazel node",
+                        ):
+                            self.presubmit.query_affected_bazel_test_targets(
+                                {"//loom:absent.c"}
+                            )
+                    else:
+                        self.assertEqual(
+                            self.presubmit.query_affected_bazel_test_targets(
+                                {"//loom:absent.c"}
+                            ),
+                            [],
+                        )
 
     def test_dependency_query_failure_does_not_run_a_fallback_suite(self):
         with (
@@ -664,6 +712,7 @@ class LoomPresubmitTest(unittest.TestCase):
             bazel_args=(
                 "--config=locked",
                 "--//loom/config/target:enable=amdgpu,spirv,vm,wasm,xdna,x86",
+                "--//loom/config/import:enable=cxx",
             ),
         )
         run_command.assert_called_once_with(
