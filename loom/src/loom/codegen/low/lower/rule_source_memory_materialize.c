@@ -565,30 +565,31 @@ iree_status_t loom_low_lower_rule_materialize_source_memory_byte_offset(
         context, rule_set, source_op, materializer, component->term,
         offset_type, LOOM_VALUE_ID_INVALID, &accumulator));
   }
+  uint16_t consumed_mask = retained_mask;
   uint8_t term_ordinal = 0;
-  uint8_t realization_ordinal = 0;
   while (term_ordinal < source_memory_access->dynamic_term_count) {
+    if (consumed_mask & (1u << term_ordinal)) {
+      ++term_ordinal;
+      continue;
+    }
     const loom_low_source_memory_dynamic_term_t* term =
         &source_memory_access->dynamic_terms[term_ordinal];
-    uint8_t consumed_term_count = 1;
-    if (realization_ordinal < source_memory_access->dynamic_realization_count &&
-        source_memory_access->dynamic_realizations[realization_ordinal]
-                .first_term == term_ordinal) {
+    uint16_t materialized_mask = (uint16_t)(1u << term_ordinal);
+    const uint16_t preceding_mask =
+        term_ordinal == 0 ? 0 : (uint16_t)((1u << term_ordinal) - 1u);
+    for (uint8_t i = 0; i < source_memory_access->dynamic_realization_count;
+         ++i) {
       const loom_low_source_memory_dynamic_realization_t* realization =
-          &source_memory_access->dynamic_realizations[realization_ordinal++];
-      const uint16_t realization_mask =
-          (uint16_t)(((1u << realization->term_count) - 1u)
-                     << realization->first_term);
-      if (!(retained_mask & realization_mask) &&
+          &source_memory_access->dynamic_realizations[i];
+      if ((realization->term_mask & (1u << term_ordinal)) != 0 &&
+          (realization->term_mask & preceding_mask) == 0 &&
+          !(retained_mask & realization->term_mask) &&
           loom_low_lower_source_value_has_low_mapping(
               context, realization->term.index)) {
         term = &realization->term;
-        consumed_term_count = realization->term_count;
+        materialized_mask = realization->term_mask;
+        break;
       }
-    }
-    if (retained_mask & (1u << term_ordinal)) {
-      ++term_ordinal;
-      continue;
     }
     loom_value_id_t term_value = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(loom_low_lower_rule_materialize_source_memory_term(
@@ -601,7 +602,8 @@ iree_status_t loom_low_lower_rule_materialize_source_memory_byte_offset(
           context, rule_set, materializer->add_descriptor_ref, accumulator,
           term_value, source_op->location, &accumulator));
     }
-    term_ordinal = (uint8_t)(term_ordinal + consumed_term_count);
+    consumed_mask |= materialized_mask;
+    ++term_ordinal;
   }
 
   IREE_ASSERT_NE(accumulator, LOOM_VALUE_ID_INVALID);

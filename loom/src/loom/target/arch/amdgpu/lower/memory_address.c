@@ -139,11 +139,22 @@ static void loom_amdgpu_memory_access_select_retained_component(
                    LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_SOFFSET;
   }
   if (!has_vaddr) {
-    if (has_soffset) {
+    if (!has_soffset) {
+      return;
+    }
+    bool has_other_vaddr = false;
+    for (uint8_t i = 0; i < access->source.dynamic_term_count; ++i) {
+      if (!(component->term_mask & (1u << i))) {
+        has_other_vaddr |= access->dynamic_term_kinds[i] ==
+                           LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR;
+      }
+    }
+    if (!has_other_vaddr ||
+        access->address_form != LOOM_AMDGPU_MEMORY_ADDRESS_FORM_GLOBAL_SADDR) {
       access->retained_component_kind =
           LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_SOFFSET;
+      return;
     }
-    return;
   }
   if (has_soffset &&
       access->address_form != LOOM_AMDGPU_MEMORY_ADDRESS_FORM_GLOBAL_SADDR) {
@@ -188,46 +199,57 @@ void loom_amdgpu_memory_access_select_vaddr_realizations(
     return;
   }
 
-  // Promotion is all-or-none, so retained whole-expression facts bound the
-  // complete vector offset without losing correlations between its terms.
+  // Promotion is all-or-none, so each retained realization contributes its
+  // correlated facts to the bound for the complete vector offset.
   loom_value_facts_t offset_facts =
       loom_value_facts_exact_i64((int64_t)access->vaddr_static_byte_offset);
   uint8_t realization_mask = 0;
-  bool has_unpromoted_scalar_term = false;
-  uint8_t realization_index = 0;
-  uint8_t term_index = 0;
-  while (term_index < source->dynamic_term_count) {
-    if (realization_index < source->dynamic_realization_count &&
-        source->dynamic_realizations[realization_index].first_term ==
-            term_index) {
-      const loom_low_source_memory_dynamic_realization_t* realization =
-          &source->dynamic_realizations[realization_index];
-      bool has_vaddr = false;
-      bool has_soffset = false;
-      for (uint8_t i = 0; i < realization->term_count; ++i) {
-        const uint8_t canonical_index = term_index + i;
-        if (access->dynamic_term_kinds[canonical_index] ==
-            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR) {
-          has_vaddr = true;
-        } else {
-          has_soffset = true;
-        }
-      }
-      const bool can_promote =
-          has_vaddr && has_soffset && realization->term.byte_stride > 0 &&
-          realization->term.byte_stride <= UINT32_MAX &&
-          loom_low_source_memory_dynamic_term_fits_unsigned_bit_count(
-              &realization->term, 32);
-      if (can_promote) {
-        realization_mask |= (uint8_t)(1u << realization_index);
-      }
-      ++realization_index;
-      if (can_promote || !has_soffset) {
-        loom_value_facts_addi(&offset_facts, &realization->term.byte_facts,
-                              &offset_facts);
-        term_index += realization->term_count;
+  bool has_any_vaddr = false;
+  for (uint8_t i = 0; i < source->dynamic_term_count; ++i) {
+    has_any_vaddr |=
+        access->dynamic_term_kinds[i] == LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR;
+  }
+  uint16_t covered_term_mask = 0;
+  for (uint8_t realization_index = 0;
+       realization_index < source->dynamic_realization_count;
+       ++realization_index) {
+    const loom_low_source_memory_dynamic_realization_t* realization =
+        &source->dynamic_realizations[realization_index];
+    bool has_vaddr = false;
+    bool has_soffset = false;
+    for (uint8_t term_index = 0; term_index < source->dynamic_term_count;
+         ++term_index) {
+      if (!(realization->term_mask & (1u << term_index))) {
         continue;
       }
+      if (access->dynamic_term_kinds[term_index] ==
+          LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR) {
+        has_vaddr = true;
+      } else {
+        has_soffset = true;
+      }
+    }
+    const bool can_promote =
+        has_soffset && (has_vaddr || has_any_vaddr) &&
+        realization->term.byte_stride > 0 &&
+        realization->term.byte_stride <= UINT32_MAX &&
+        loom_low_source_memory_dynamic_term_fits_unsigned_bit_count(
+            &realization->term, 32);
+    if (can_promote) {
+      realization_mask |= (uint8_t)(1u << realization_index);
+    }
+    if (can_promote || !has_soffset) {
+      IREE_ASSERT_EQ(covered_term_mask & realization->term_mask, 0u);
+      covered_term_mask |= realization->term_mask;
+      loom_value_facts_addi(&offset_facts, &realization->term.byte_facts,
+                            &offset_facts);
+    }
+  }
+  bool has_unpromoted_scalar_term = false;
+  for (uint8_t term_index = 0; term_index < source->dynamic_term_count;
+       ++term_index) {
+    if (covered_term_mask & (1u << term_index)) {
+      continue;
     }
     if (access->dynamic_term_kinds[term_index] ==
         LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR) {
@@ -237,7 +259,6 @@ void loom_amdgpu_memory_access_select_vaddr_realizations(
     } else {
       has_unpromoted_scalar_term = true;
     }
-    ++term_index;
   }
   // A mapped expression can have died before this access. Extending its live
   // range only earns promotion when it removes the dynamic scalar address
@@ -285,56 +306,61 @@ void loom_amdgpu_memory_access_resolve_dynamic_terms(
               access->vaddr_realization_mask
           ? access->vaddr_realization_mask
           : 0;
+  uint16_t consumed_term_mask = retained_mask;
   uint8_t term_index = 0;
-  uint8_t realization_index = 0;
   while (term_index < source->dynamic_term_count) {
-    const loom_low_source_memory_dynamic_realization_t* realization = NULL;
-    const bool promote_realization =
-        (promotion_mask & (1u << realization_index)) != 0;
-    const bool realization_available =
-        (available_realization_mask & (1u << realization_index)) != 0;
-    if (realization_index < source->dynamic_realization_count &&
-        source->dynamic_realizations[realization_index].first_term ==
-            term_index) {
-      realization = &source->dynamic_realizations[realization_index++];
+    if (consumed_term_mask & (1u << term_index)) {
+      ++term_index;
+      continue;
     }
-
-    const uint16_t realization_mask =
-        realization != NULL ? (uint16_t)(((1u << realization->term_count) - 1u)
-                                         << realization->first_term)
-                            : 0;
-    bool use_realization = realization != NULL && realization_available &&
-                           !(retained_mask & realization_mask);
+    const loom_low_source_memory_dynamic_realization_t* realization = NULL;
+    uint8_t realization_index = 0;
+    const uint16_t preceding_mask =
+        term_index == 0 ? 0 : (uint16_t)((1u << term_index) - 1u);
+    for (; realization_index < source->dynamic_realization_count;
+         ++realization_index) {
+      const loom_low_source_memory_dynamic_realization_t* candidate =
+          &source->dynamic_realizations[realization_index];
+      if ((candidate->term_mask & (1u << term_index)) != 0 &&
+          (candidate->term_mask & preceding_mask) == 0) {
+        realization = candidate;
+        break;
+      }
+    }
+    const bool promote_realization =
+        realization != NULL &&
+        (promotion_mask & (1u << realization_index)) != 0;
+    bool use_realization =
+        realization != NULL &&
+        (available_realization_mask & (1u << realization_index)) != 0 &&
+        !(retained_mask & realization->term_mask);
     if (use_realization && !promote_realization) {
       const loom_amdgpu_memory_dynamic_index_kind_t realization_kind =
           dynamic_term_kinds[term_index];
-      for (uint8_t i = 1; i < realization->term_count; ++i) {
-        use_realization &=
-            dynamic_term_kinds[term_index + i] == realization_kind;
+      for (uint8_t i = term_index + 1; i < source->dynamic_term_count; ++i) {
+        if (realization->term_mask & (1u << i)) {
+          use_realization &= dynamic_term_kinds[i] == realization_kind;
+        }
       }
-    }
-
-    if (retained_mask & (1u << term_index)) {
-      ++term_index;
-      continue;
     }
     const uint8_t sequence_index = out_sequence->count++;
     if (use_realization) {
       out_sequence->terms[sequence_index] = &realization->term;
       out_sequence->plans[sequence_index] =
           &access->dynamic_term_plans[source->dynamic_term_count +
-                                      realization_index - 1];
+                                      realization_index];
       out_sequence->kinds[sequence_index] =
           promote_realization ? LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR
                               : dynamic_term_kinds[term_index];
-      term_index = (uint8_t)(term_index + realization->term_count);
+      consumed_term_mask |= realization->term_mask;
     } else {
       out_sequence->terms[sequence_index] = &source->dynamic_terms[term_index];
       out_sequence->plans[sequence_index] =
           &access->dynamic_term_plans[term_index];
       out_sequence->kinds[sequence_index] = dynamic_term_kinds[term_index];
-      ++term_index;
+      consumed_term_mask |= (uint16_t)(1u << term_index);
     }
+    ++term_index;
   }
 }
 

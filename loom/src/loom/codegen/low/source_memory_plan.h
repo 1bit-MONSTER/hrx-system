@@ -162,7 +162,10 @@ bool loom_low_source_memory_operation_kind_from_access(
 
 #define LOOM_LOW_SOURCE_MEMORY_DYNAMIC_TERM_AXIS_NONE UINT8_MAX
 #define LOOM_LOW_SOURCE_MEMORY_DYNAMIC_TERM_CAPACITY (LOOM_TYPE_MAX_RANK + 1)
-// Each realization covers at least two canonical dynamic terms.
+// Each realization originates from a disjoint expression containing at least
+// two canonical dynamic terms. A retained strict component may represent only
+// a subset of those terms, but there can still be at most half as many
+// realizations as canonical terms.
 #define LOOM_LOW_SOURCE_MEMORY_DYNAMIC_REALIZATION_CAPACITY \
   (LOOM_LOW_SOURCE_MEMORY_DYNAMIC_TERM_CAPACITY / 2)
 
@@ -234,10 +237,9 @@ typedef struct loom_low_source_memory_dynamic_term_t {
 typedef struct loom_low_source_memory_dynamic_realization_t {
   // Equivalent source SSA term available when already materialized.
   loom_low_source_memory_dynamic_term_t term;
-  // First canonical dynamic term represented by term.
-  uint8_t first_term;
-  // Number of contiguous canonical dynamic terms represented by term.
-  uint8_t term_count;
+  // Canonical dynamic terms represented by term. Members need not be adjacent
+  // in the normalized source expression.
+  uint16_t term_mask;
 } loom_low_source_memory_dynamic_realization_t;
 
 typedef struct loom_low_source_memory_dynamic_component_t {
@@ -333,9 +335,9 @@ typedef struct loom_low_source_memory_access_plan_t {
   // static stride. Zero when multiple coordinates or dynamic extents prevent
   // using one source index directly with an instruction's static scale.
   int64_t source_index_byte_stride;
-  // Optional source expressions equivalent to contiguous canonical term
-  // ranges. These preserve reusable SSA provenance without changing the
-  // canonical address representation used for analysis.
+  // Optional source expressions equivalent to disjoint canonical term sets.
+  // These preserve reusable SSA provenance without changing the canonical
+  // address representation used for analysis.
   loom_low_source_memory_dynamic_realization_t
       dynamic_realizations[LOOM_LOW_SOURCE_MEMORY_DYNAMIC_REALIZATION_CAPACITY];
   // Number of populated dynamic realization entries.

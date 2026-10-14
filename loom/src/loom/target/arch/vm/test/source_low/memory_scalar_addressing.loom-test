@@ -116,7 +116,7 @@ low.func.def target<vm.core> abi(vm_function) @scalar_mixed_rank2_i32(%input_vie
   %29 = integer.add.i64 %28, %column_bounded
   %30 = constant.i64 2 : reg<vm.value>
   %31 = integer.shift.left.i64 %29, %30
-  %32 = integer.add.i64 %base_aligned, %31
+  %32 = integer.add.i64 %31, %base_aligned
   %loaded = buffer.load %input_view, %32, %32, 0, "i32.x1" : reg<vm.value : i32>
   buffer.store %output_view, %32, %32, %loaded, 0, "i32.x1"
   return %loaded

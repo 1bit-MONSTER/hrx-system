@@ -484,16 +484,17 @@ static bool loom_low_source_memory_access_append_dynamic_term(
 
 static void loom_low_source_memory_access_append_dynamic_realization(
     loom_low_source_memory_access_plan_t* plan,
-    const loom_low_source_memory_dynamic_term_t* term, uint8_t first_term,
-    uint8_t term_count) {
-  IREE_ASSERT_GE(term_count, 2u);
+    const loom_low_source_memory_dynamic_term_t* term, uint16_t term_mask) {
+  IREE_ASSERT_NE(term_mask, 0u);
   IREE_ASSERT_LT(plan->dynamic_realization_count,
                  LOOM_LOW_SOURCE_MEMORY_DYNAMIC_REALIZATION_CAPACITY);
+  for (uint8_t i = 0; i < plan->dynamic_realization_count; ++i) {
+    IREE_ASSERT_EQ(plan->dynamic_realizations[i].term_mask & term_mask, 0u);
+  }
   plan->dynamic_realizations[plan->dynamic_realization_count++] =
       (loom_low_source_memory_dynamic_realization_t){
           .term = *term,
-          .first_term = first_term,
-          .term_count = term_count,
+          .term_mask = term_mask,
       };
 }
 
@@ -723,24 +724,25 @@ loom_value_facts_t loom_low_source_memory_dynamic_offset_facts(
                           &offset_facts);
     term_ordinal = plan->dynamic_view_base_term_count;
   }
-  uint8_t realization_ordinal = 0;
+  const uint16_t prefix_mask =
+      term_ordinal == 0 ? 0 : (uint16_t)((1u << term_ordinal) - 1u);
+  uint16_t realization_mask = 0;
+  for (uint8_t i = 0; i < plan->dynamic_realization_count; ++i) {
+    const loom_low_source_memory_dynamic_realization_t* realization =
+        &plan->dynamic_realizations[i];
+    IREE_ASSERT_EQ(realization->term_mask & prefix_mask, 0u);
+    IREE_ASSERT_EQ(realization_mask & realization->term_mask, 0u);
+    realization_mask |= realization->term_mask;
+    loom_value_facts_addi(&offset_facts, &realization->term.byte_facts,
+                          &offset_facts);
+  }
   while (term_ordinal < plan->dynamic_term_count) {
-    const loom_low_source_memory_dynamic_realization_t* realization = NULL;
-    if (realization_ordinal < plan->dynamic_realization_count &&
-        plan->dynamic_realizations[realization_ordinal].first_term ==
-            term_ordinal) {
-      realization = &plan->dynamic_realizations[realization_ordinal++];
-    }
-    if (realization != NULL) {
-      loom_value_facts_addi(&offset_facts, &realization->term.byte_facts,
-                            &offset_facts);
-      term_ordinal = (uint8_t)(term_ordinal + realization->term_count);
-    } else {
+    if (!(realization_mask & (1u << term_ordinal))) {
       loom_value_facts_addi(&offset_facts,
                             &plan->dynamic_terms[term_ordinal].byte_facts,
                             &offset_facts);
-      ++term_ordinal;
     }
+    ++term_ordinal;
   }
   return offset_facts;
 }
@@ -751,6 +753,89 @@ bool loom_low_source_memory_dynamic_offset_fits_unsigned_bit_count(
   return loom_value_facts_fit_unsigned_bit_count(
       loom_low_source_memory_dynamic_offset_facts(plan, static_byte_offset),
       bit_count);
+}
+
+static uint16_t loom_low_source_memory_expression_component_mask(
+    const loom_symbolic_expr_t* expression,
+    const loom_symbolic_expr_t* component, uint8_t first_expression_term) {
+  if (!loom_symbolic_expr_is_linear(component) || component->constant != 0 ||
+      component->term_count == 0 ||
+      component->term_count >= expression->term_count) {
+    return 0;
+  }
+  uint16_t mask = 0;
+  iree_host_size_t expression_index = 0;
+  for (iree_host_size_t component_index = 0;
+       component_index < component->term_count; ++component_index) {
+    const loom_symbolic_term_t* component_term =
+        &component->terms[component_index];
+    while (expression_index < expression->term_count &&
+           expression->terms[expression_index].value_id <
+               component_term->value_id) {
+      ++expression_index;
+    }
+    if (expression_index == expression->term_count ||
+        expression->terms[expression_index].value_id !=
+            component_term->value_id ||
+        expression->terms[expression_index].coefficient !=
+            component_term->coefficient) {
+      return 0;
+    }
+    mask |= (uint16_t)(1u << (first_expression_term + expression_index));
+    ++expression_index;
+  }
+  return mask;
+}
+
+static void loom_low_source_memory_access_append_expression_realization(
+    const loom_value_fact_table_t* fact_table,
+    const loom_vector_memory_access_t* vector_access,
+    loom_low_source_memory_access_plan_t* plan, loom_value_id_t value_id,
+    loom_value_facts_t expression_facts, int64_t expression_constant,
+    int64_t expression_byte_stride, uint8_t dynamic_axis,
+    const loom_value_id_t* stride_values, uint8_t stride_value_count,
+    uint16_t term_mask) {
+  uint32_t byte_shift = LOOM_LOW_SOURCE_MEMORY_ACCESS_BYTE_SHIFT_NONE;
+  (void)loom_low_source_memory_access_power_of_two_shift(expression_byte_stride,
+                                                         &byte_shift);
+  loom_value_facts_t canonical_byte_facts = loom_value_facts_exact_i64(0);
+  for (uint8_t term_ordinal = 0; term_ordinal < plan->dynamic_term_count;
+       ++term_ordinal) {
+    if (term_mask & (1u << term_ordinal)) {
+      loom_value_facts_addi(&canonical_byte_facts,
+                            &plan->dynamic_terms[term_ordinal].byte_facts,
+                            &canonical_byte_facts);
+    }
+  }
+  loom_value_facts_t expression_byte_facts = loom_value_facts_unknown();
+  loom_low_source_memory_dynamic_term_compute_expression_byte_facts(
+      fact_table, vector_access, expression_facts, dynamic_axis,
+      expression_constant, expression_byte_stride, stride_values,
+      stride_value_count, &expression_byte_facts);
+  loom_value_facts_t byte_facts =
+      loom_low_source_memory_access_intersect_index_facts(
+          canonical_byte_facts, expression_byte_facts);
+  loom_value_facts_t realization_byte_facts = loom_value_facts_unknown();
+  loom_low_source_memory_dynamic_term_compute_scaled_byte_facts(
+      fact_table, value_id, expression_byte_stride, stride_values,
+      stride_value_count, &realization_byte_facts);
+  byte_facts = loom_low_source_memory_access_intersect_index_facts(
+      byte_facts, realization_byte_facts);
+  loom_low_source_memory_dynamic_term_t term = {
+      .index = value_id,
+      .axis = dynamic_axis,
+      .byte_stride = expression_byte_stride,
+      .byte_facts = byte_facts,
+      .byte_shift = byte_shift,
+      .stride_value_count = stride_value_count,
+  };
+  loom_low_source_memory_access_dynamic_index_source(
+      fact_table, value_id, &term.source, &term.dimension);
+  for (uint8_t i = 0; i < stride_value_count; ++i) {
+    term.stride_values[i] = stride_values[i];
+  }
+  loom_low_source_memory_access_append_dynamic_realization(plan, &term,
+                                                           term_mask);
 }
 
 bool loom_low_source_memory_access_plan_include_root_byte_offset(
@@ -1555,58 +1640,49 @@ static bool loom_low_source_memory_access_plan_from_components(
           return false;
         }
       }
-      // Preserve the analyzed SSA value that exactly materializes the
-      // canonical dynamic terms. This may be the source index itself or a
-      // constant-free prefix retained while symbolic analysis folded a static
-      // suffix.
-      if (index_summary.materialized_dynamic_value_id !=
-          LOOM_VALUE_ID_INVALID) {
-        const loom_value_id_t realization_value =
-            index_summary.materialized_dynamic_value_id;
-        uint32_t byte_shift = LOOM_LOW_SOURCE_MEMORY_ACCESS_BYTE_SHIFT_NONE;
-        (void)loom_low_source_memory_access_power_of_two_shift(
-            expression_byte_stride, &byte_shift);
-        loom_value_facts_t canonical_byte_facts = loom_value_facts_exact_i64(0);
-        for (uint8_t term_ordinal = first_expression_term;
-             term_ordinal < out_plan->dynamic_term_count; ++term_ordinal) {
-          loom_value_facts_addi(
-              &canonical_byte_facts,
-              &out_plan->dynamic_terms[term_ordinal].byte_facts,
-              &canonical_byte_facts);
-        }
-        loom_value_facts_t expression_byte_facts = loom_value_facts_unknown();
-        loom_low_source_memory_dynamic_term_compute_expression_byte_facts(
-            fact_table, &vector_access, index_expression->facts, dynamic_axis,
-            index_expression->constant, expression_byte_stride, stride_values,
-            stride_value_count, &expression_byte_facts);
-        loom_value_facts_t byte_facts =
-            loom_low_source_memory_access_intersect_index_facts(
-                canonical_byte_facts, expression_byte_facts);
-        loom_value_facts_t realization_byte_facts = loom_value_facts_unknown();
-        loom_low_source_memory_dynamic_term_compute_scaled_byte_facts(
-            fact_table, realization_value, expression_byte_stride,
-            stride_values, stride_value_count, &realization_byte_facts);
-        byte_facts = loom_low_source_memory_access_intersect_index_facts(
-            byte_facts, realization_byte_facts);
-        loom_low_source_memory_dynamic_term_t realization_term = {
-            .index = realization_value,
-            .axis = dynamic_axis,
-            .byte_stride = expression_byte_stride,
-            .byte_facts = byte_facts,
-            .byte_shift = byte_shift,
-            .stride_value_count = stride_value_count,
-        };
-        loom_low_source_memory_access_dynamic_index_source(
-            fact_table, realization_value, &realization_term.source,
-            &realization_term.dimension);
-        for (uint8_t stride_ordinal = 0; stride_ordinal < stride_value_count;
-             ++stride_ordinal) {
-          realization_term.stride_values[stride_ordinal] =
-              stride_values[stride_ordinal];
-        }
-        loom_low_source_memory_access_append_dynamic_realization(
-            out_plan, &realization_term, first_expression_term,
-            (uint8_t)(out_plan->dynamic_term_count - first_expression_term));
+      // Preserve the largest reusable source spelling. A complete expression
+      // already consumed more than once is the best realization. When the
+      // complete expression is private to this access, prefer the shared
+      // strict component retained by symbolic analysis so sibling accesses can
+      // reuse it with their distinct canonical suffixes.
+      loom_symbolic_expr_summary_t component_summary = {0};
+      uint16_t component_mask = 0;
+      if (index_summary.materialized_component_value_id !=
+              LOOM_VALUE_ID_INVALID &&
+          loom_symbolic_expr_context_try_lookup_summary(
+              view_regions->expression_context,
+              index_summary.materialized_component_value_id,
+              &component_summary)) {
+        component_mask = loom_low_source_memory_expression_component_mask(
+            index_expression, &component_summary.expression,
+            first_expression_term);
+      }
+      const bool complete_expression_is_reused =
+          index_summary.materialized_dynamic_value_id !=
+              LOOM_VALUE_ID_INVALID &&
+          loom_module_value(module, index_summary.materialized_dynamic_value_id)
+                  ->use_count > 1;
+      if (component_mask != 0 && !complete_expression_is_reused) {
+        loom_low_source_memory_access_append_expression_realization(
+            fact_table, &vector_access, out_plan,
+            index_summary.materialized_component_value_id,
+            component_summary.expression.facts,
+            component_summary.expression.constant, expression_byte_stride,
+            LOOM_LOW_SOURCE_MEMORY_DYNAMIC_TERM_AXIS_NONE, stride_values,
+            stride_value_count, component_mask);
+      } else if (index_summary.materialized_dynamic_value_id !=
+                 LOOM_VALUE_ID_INVALID) {
+        const uint8_t expression_term_count =
+            (uint8_t)(out_plan->dynamic_term_count - first_expression_term);
+        const uint16_t expression_term_mask =
+            (uint16_t)(((1u << expression_term_count) - 1u)
+                       << first_expression_term);
+        loom_low_source_memory_access_append_expression_realization(
+            fact_table, &vector_access, out_plan,
+            index_summary.materialized_dynamic_value_id,
+            index_expression->facts, index_expression->constant,
+            expression_byte_stride, dynamic_axis, stride_values,
+            stride_value_count, expression_term_mask);
       }
       continue;
     }
