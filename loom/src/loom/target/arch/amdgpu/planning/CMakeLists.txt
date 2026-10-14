@@ -766,10 +766,12 @@ loom_cc_test(
     "occupancy_test.cc"
   DEPS
     ::occupancy
+    ::occupancy_model
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
     loom::target::arch::amdgpu::facts
+    loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info
   LABELS
     "iree-build-requirement=loom.target.arch.amdgpu"

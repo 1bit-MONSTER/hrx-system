@@ -40,7 +40,7 @@
 #include "loom/target/emit/native/amdgpu/hsaco.h"
 #include "loom/target/emit/native/amdgpu/hsaco_build.h"
 #include "loom/target/emit/native/amdgpu/kernel_emission.h"
-#include "loom/target/emit/native/amdgpu/preflight.h"
+#include "loom/target/emit/native/amdgpu/kernel_plan_build.h"
 #include "loom/target/emit/native/amdgpu/runtime_globals.h"
 #include "loom/target/emit/native/amdgpu/spill_lowering.h"
 #include "loom/target/entry_selection.h"
@@ -709,7 +709,6 @@ static iree_status_t loom_amdgpu_hal_kernel_library_build_kernel(
     loom_target_compile_report_record_low_kernel_workload(
         report, plan->low_function_op);
   }
-  loom_amdgpu_native_preflight_t preflight = {0};
   loom_amdgpu_hal_kernel_library_spill_lowering_context_t
       spill_lowering_context = {
           .descriptor_set = plan->target.descriptor_set,
@@ -743,12 +742,24 @@ static iree_status_t loom_amdgpu_hal_kernel_library_build_kernel(
     }
     return iree_ok_status();
   }
-  const loom_amdgpu_native_preflight_options_t preflight_options = {
+  loom_amdgpu_kernel_plan_t native_plan = {0};
+  const loom_amdgpu_kernel_plan_options_t native_plan_options = {
+      .abi_layout = &plan->abi_layout,
+      .abi_verify = &plan->abi_verify,
       .emitter = frame_options.emitter,
+      .report = report,
   };
-  IREE_RETURN_IF_ERROR(loom_amdgpu_native_preflight_analyze(
-      &frame.schedule, &frame.allocation, &preflight_options, &preflight));
-  if (preflight.error_count != 0) {
+  bool native_plan_accepted = false;
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_kernel_plan_build(&frame, &native_plan_options, table_arena,
+                                    &native_plan_accepted, &native_plan));
+  if (!native_plan_accepted) {
+    if (report != NULL) {
+      loom_target_compile_report_record_low_planning(report,
+                                                     &planning_statistics);
+      IREE_RETURN_IF_ERROR(loom_target_compile_report_record_low_allocation(
+          report, &frame.allocation));
+    }
     return iree_ok_status();
   }
   if (report != NULL) {
@@ -759,8 +770,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_build_kernel(
   }
 
   IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_emission_build(
-      &frame, &plan->abi_layout, &plan->abi_verify, &preflight, target_listing,
-      report, out_kernel, table_arena));
+      &frame, &native_plan, target_listing, report, out_kernel, table_arena));
   *out_built = true;
   return iree_ok_status();
 }

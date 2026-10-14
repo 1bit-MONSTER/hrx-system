@@ -1105,6 +1105,41 @@ ERR_AMDGPU_051 = ErrorDef(
     ),
 )
 
+# ERR_AMDGPU_052: final resources cannot admit one complete workgroup.
+ERR_AMDGPU_052 = ErrorDef(
+    domain=ErrorDomain.AMDGPU,
+    code=52,
+    severity=Severity.ERROR,
+    summary="AMDGPU final resources cannot admit one complete workgroup.",
+    message=(
+        "AMDGPU target '{target_key}' export '{export_name}' config "
+        "'{config_key}' rejected '@{function_name}' for processor "
+        "'{processor}': its fixed {workgroup_size}-workitem workgroup uses "
+        "{waves_per_workgroup} wave{wave_size} waves and requires at least "
+        "{required_waves_per_simd} resident waves per SIMD, but final "
+        "resources admit {resident_waves_per_simd} (SGPRs={sgpr_count}, "
+        "VGPRs={vgpr_count}, LDS={local_memory_bytes} bytes, limiting "
+        "resource='{limiting_resource}')"
+    ),
+    params=(
+        *_TARGET_CONTEXT_PARAMS,
+        ErrorParam("processor", ParamKind.STRING),
+        ErrorParam("workgroup_size", ParamKind.U32),
+        ErrorParam("waves_per_workgroup", ParamKind.U32),
+        ErrorParam("wave_size", ParamKind.U32),
+        ErrorParam("required_waves_per_simd", ParamKind.U32),
+        ErrorParam("resident_waves_per_simd", ParamKind.U32),
+        ErrorParam("sgpr_count", ParamKind.U32),
+        ErrorParam("vgpr_count", ParamKind.U32),
+        ErrorParam("local_memory_bytes", ParamKind.U32),
+        ErrorParam("limiting_resource", ParamKind.STRING),
+    ),
+    fix_hint=(
+        "Reduce register use, workgroup size, or workgroup-local storage until "
+        "one complete workgroup fits in the occupancy domain"
+    ),
+)
+
 ALL_AMDGPU_ERRORS = (
     ERR_AMDGPU_001,
     ERR_AMDGPU_006,
@@ -1152,4 +1187,5 @@ ALL_AMDGPU_ERRORS = (
     ERR_AMDGPU_049,
     ERR_AMDGPU_050,
     ERR_AMDGPU_051,
+    ERR_AMDGPU_052,
 )

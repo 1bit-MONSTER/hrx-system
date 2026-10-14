@@ -151,9 +151,12 @@ TEST(CompileReportFormatTest, FormatsCoreReport) {
       LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_VALID |
       LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_NEXT_BETTER_TIER |
       LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_UNIQUE_LIMITING_RESOURCE |
-      LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_LIMITING_RESOURCE_NEXT_WORSE_TIER;
+      LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_LIMITING_RESOURCE_NEXT_WORSE_TIER |
+      LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_REQUIRED_TIER |
+      LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_REQUIRED_TIER_UNSATISFIED;
   resources.residency_summary.best_tier = 16;
   resources.residency_summary.tier = 3;
+  resources.residency_summary.required_tier = 4;
   resources.residency_summary.next_better_tier = 4;
   resources.residency_summary.limiting_resource_count = 1;
   resources.residency_summary.limiting_resource = IREE_SVL("amdgpu.vgpr");
@@ -187,12 +190,21 @@ TEST(CompileReportFormatTest, FormatsCoreReport) {
           text, IREE_SV("target_resources scalar_register_class=amdgpu.sgpr"),
           0),
       IREE_STRING_VIEW_NPOS);
-  EXPECT_NE(iree_string_view_find(text,
-                                  IREE_SV("residency_current_tier=3 "
-                                          "residency_limiting_resource_count=1 "
-                                          "residency_next_better_tier=4"),
-                                  0),
-            IREE_STRING_VIEW_NPOS);
+  EXPECT_NE(
+      iree_string_view_find(text, IREE_SV("residency_required_tier=4"), 0),
+      IREE_STRING_VIEW_NPOS);
+  EXPECT_NE(
+      iree_string_view_find(text, IREE_SV("residency_launchable=false"), 0),
+      IREE_STRING_VIEW_NPOS);
+  EXPECT_NE(
+      iree_string_view_find(text,
+                            IREE_SV("residency_current_tier=3 "
+                                    "residency_limiting_resource_count=1"),
+                            0),
+      IREE_STRING_VIEW_NPOS);
+  EXPECT_NE(
+      iree_string_view_find(text, IREE_SV("residency_next_better_tier=4"), 0),
+      IREE_STRING_VIEW_NPOS);
   EXPECT_NE(
       iree_string_view_find(
           text, IREE_SV("residency_reduction_units_to_next_better_tier=32"), 0),
@@ -270,8 +282,10 @@ TEST(CompileReportFormatTest, FormatsCoreReport) {
   ExpectObjectUint64Equals(target_resources, IREE_SV("occupancy_percent"), 18);
   const iree_string_view_t residency =
       LookupObject(target_resources, IREE_SV("residency"));
+  ExpectObjectUint64Equals(residency, IREE_SV("required_tier"), 4);
   ExpectObjectUint64Equals(residency, IREE_SV("best_tier"), 16);
   ExpectObjectUint64Equals(residency, IREE_SV("current_tier"), 3);
+  ExpectObjectValueEquals(residency, IREE_SV("launchable"), IREE_SV("false"));
   ExpectObjectUint64Equals(residency, IREE_SV("next_better_tier"), 4);
   const iree_string_view_t limiting =
       LookupObject(residency, IREE_SV("unique_limiting_resource"));

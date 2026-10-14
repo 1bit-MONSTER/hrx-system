@@ -297,6 +297,11 @@ static iree_status_t loom_target_compile_report_append_target_resources_fields(
       limiting_resource.data));
   const loom_target_residency_summary_t* summary =
       &resources->residency_summary;
+  if (iree_any_bit_set(summary->flags,
+                       LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_REQUIRED_TIER)) {
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        builder, " residency_required_tier=%" PRIu32, summary->required_tier));
+  }
   if (!loom_target_residency_summary_is_valid(summary)) {
     if (iree_any_bit_set(
             summary->flags,
@@ -317,6 +322,16 @@ static iree_status_t loom_target_compile_report_append_target_resources_fields(
       " residency_best_tier=%" PRIu32 " residency_current_tier=%" PRIu32
       " residency_limiting_resource_count=%" PRIu32,
       summary->best_tier, summary->tier, summary->limiting_resource_count));
+  if (iree_any_bit_set(summary->flags,
+                       LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_REQUIRED_TIER)) {
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        builder, " residency_launchable=%s",
+        iree_any_bit_set(
+            summary->flags,
+            LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_REQUIRED_TIER_UNSATISFIED)
+            ? "false"
+            : "true"));
+  }
   if (iree_any_bit_set(
           summary->flags,
           LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_NEXT_BETTER_TIER)) {

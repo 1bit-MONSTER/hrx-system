@@ -1,0 +1,25 @@
+// RUN: emit amdgpu-kernel-assembly
+
+amdgpu.target<gfx942> @target
+
+// A wave64 workgroup of 1,024 workitems needs 16 waves. gfx942 distributes
+// them across four SIMDs, so one complete workgroup requires four resident
+// waves per SIMD. Materializing the 169-word aggregate consumes enough VGPRs
+// that hardware rounding admits only two waves per SIMD.
+// ERROR@+1: AMDGPU/052 {function_name="reject_incomplete_workgroup", processor="gfx942", workgroup_size="1024", waves_per_workgroup="16", wave_size="64", required_waves_per_simd="4", resident_waves_per_simd="2", limiting_resource="amdgpu.vgpr"}
+low.kernel.def target<amdgpu.cdna3.core>(@target) workgroup_size(1024, 1, 1) @reject_incomplete_workgroup() asm {
+  %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %pair = concat(%lane, %lane) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %quad = concat(%pair, %pair) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %octet = concat(%quad, %quad) : (reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>) -> reg<amdgpu.vgpr x8>
+  %v16 = concat(%octet, %octet) : (reg<amdgpu.vgpr x8>, reg<amdgpu.vgpr x8>) -> reg<amdgpu.vgpr x16>
+  %v32 = concat(%v16, %v16) : (reg<amdgpu.vgpr x16>, reg<amdgpu.vgpr x16>) -> reg<amdgpu.vgpr x32>
+  %v64 = concat(%v32, %v32) : (reg<amdgpu.vgpr x32>, reg<amdgpu.vgpr x32>) -> reg<amdgpu.vgpr x64>
+  %v128 = concat(%v64, %v64) : (reg<amdgpu.vgpr x64>, reg<amdgpu.vgpr x64>) -> reg<amdgpu.vgpr x128>
+  %v160 = concat(%v128, %v32) : (reg<amdgpu.vgpr x128>, reg<amdgpu.vgpr x32>) -> reg<amdgpu.vgpr x160>
+  %v168 = concat(%v160, %octet) : (reg<amdgpu.vgpr x160>, reg<amdgpu.vgpr x8>) -> reg<amdgpu.vgpr x168>
+  %pressure = concat(%v168, %lane) : (reg<amdgpu.vgpr x168>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x169>
+  %tail = slice %pressure[168] : reg<amdgpu.vgpr x169> -> reg<amdgpu.vgpr>
+  %observed = v_add_u32 %tail, %lane
+  return
+}
