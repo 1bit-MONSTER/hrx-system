@@ -461,7 +461,7 @@ void loom_x86_encode_instruction(
     case LOOM_X86_ENCODING_FORM_SHIFT_COUNT:
       loom_x86_encode_registers(instruction, encoding_id, extension, result);
       break;
-    case LOOM_X86_ENCODING_FORM_MOVE:
+    case LOOM_X86_ENCODING_FORM_UNARY_R_RM:
       loom_x86_encode_registers(instruction, encoding_id, result, lhs);
       break;
     case LOOM_X86_ENCODING_FORM_SELECT:

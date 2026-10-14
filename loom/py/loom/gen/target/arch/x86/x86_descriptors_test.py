@@ -136,7 +136,7 @@ def test_scalar_speculation_facts_cover_total_integer_forms() -> None:
         Form.BINARY_IMMEDIATE,
         Form.SHIFT_IMMEDIATE,
         Form.SHIFT_COUNT,
-        Form.MOVE,
+        Form.UNARY_R_RM,
         Form.SELECT,
         Form.SUBTRACT_IF_UGE,
         Form.COMPARE,

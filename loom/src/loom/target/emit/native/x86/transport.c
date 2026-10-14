@@ -122,7 +122,7 @@ bool loom_x86_transport_select_register(
       loom_x86_transport_is_gpr(source_class)) {
     const bool wide = destination_class == LOOM_X86_REGISTER_CLASS_GPR64 &&
                       source_class == LOOM_X86_REGISTER_CLASS_GPR64;
-    out_instruction->encoding_format_id = LOOM_X86_ENCODING_FORM_MOVE;
+    out_instruction->encoding_format_id = LOOM_X86_ENCODING_FORM_UNARY_R_RM;
     out_instruction->encoding_id = 0x8b | (wide ? LOOM_X86_ENCODING_REX_W : 0);
     return true;
   }

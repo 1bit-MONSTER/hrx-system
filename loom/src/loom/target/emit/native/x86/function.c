@@ -1388,7 +1388,8 @@ static iree_status_t loom_x86_function_write_stack_enter(
     const loom_x86_function_t* function, loom_x86_function_writer_t* writer) {
   if (function->stack.realignment.mask) {
     IREE_RETURN_IF_ERROR(loom_x86_function_write_encoding(
-        writer, LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
+        writer, LOOM_X86_ENCODING_FORM_UNARY_R_RM,
+        0x8b | LOOM_X86_ENCODING_REX_W,
         (loom_x86_encoding_operands_t){
             .result = function->stack.realignment.scratch_register,
             .inputs = {4}}));

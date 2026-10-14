@@ -71,7 +71,7 @@ class FunctionTest : public ::testing::Test {
 TEST(X86LoopPlacementCostTest, AdmitsOnlySingleScalarInstruction) {
   loom_low_loop_placement_cost_t cost = {};
   const loom_low_descriptor_layout_t layouts[] = {
-      {.encoding_format_id = LOOM_X86_ENCODING_FORM_MOVE},
+      {.encoding_format_id = LOOM_X86_ENCODING_FORM_UNARY_R_RM},
       {.encoding_format_id = LOOM_X86_ENCODING_FORM_SELECT},
       {.encoding_format_id = LOOM_X86_ENCODING_FORMAT_VECTOR},
       {},
@@ -242,8 +242,8 @@ TEST_F(FunctionTest, RestoreStackAndRegistersAfterResultTransport) {
                   0xb8 | LOOM_X86_ENCODING_REX_W, left),
       Instruction(LOOM_X86_ENCODING_FORM_CONSTANT,
                   0xb8 | LOOM_X86_ENCODING_REX_W, right),
-      Instruction(LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
-                  result),
+      Instruction(LOOM_X86_ENCODING_FORM_UNARY_R_RM,
+                  0x8b | LOOM_X86_ENCODING_REX_W, result),
   };
   iree_host_size_t block_starts[] = {0, IREE_ARRAYSIZE(instructions)};
   const loom_x86_function_t function = {
@@ -297,8 +297,8 @@ TEST_F(FunctionTest, BranchesSkipEntryTransportAndPreservation) {
       .result = 3,  // RBX.
   };
   loom_x86_instruction_t instructions[] = {
-      Instruction(LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
-                  entry),
+      Instruction(LOOM_X86_ENCODING_FORM_UNARY_R_RM,
+                  0x8b | LOOM_X86_ENCODING_REX_W, entry),
       Instruction(LOOM_X86_ENCODING_FORM_BRANCH_ZERO, 0, condition, 3),
       Instruction(LOOM_X86_ENCODING_FORM_CONSTANT,
                   0xb8 | LOOM_X86_ENCODING_REX_W, value),
@@ -396,7 +396,7 @@ TEST_F(FunctionTest, RealignmentRestoresTheSavedStackPointerBeforePops) {
   restore.immediate = 8;
   EXPECT_EQ(Read(),
             Encode(Instruction(LOOM_X86_ENCODING_FORM_PUSH, 0, rbx)) +
-                Encode(Instruction(LOOM_X86_ENCODING_FORM_MOVE,
+                Encode(Instruction(LOOM_X86_ENCODING_FORM_UNARY_R_RM,
                                    0x8b | LOOM_X86_ENCODING_REX_W, capture)) +
                 Encode(Instruction(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
                                    0x81 | (4u << 9) | LOOM_X86_ENCODING_REX_W,

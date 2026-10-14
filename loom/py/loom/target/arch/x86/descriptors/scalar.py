@@ -96,7 +96,7 @@ _NON_TRAPPING_SCALAR_FORMS = frozenset(
         Form.BINARY_IMMEDIATE,
         Form.SHIFT_IMMEDIATE,
         Form.SHIFT_COUNT,
-        Form.MOVE,
+        Form.UNARY_R_RM,
         Form.SELECT,
         Form.SUBTRACT_IF_UGE,
         Form.COMPARE,
@@ -276,7 +276,7 @@ def _division_descriptors(bit_count: int) -> tuple[Descriptor, ...]:
     descriptors = [
         Descriptor(
             key=f"x86.scalar.dividend.low.gpr{bit_count}",
-            encoding_format_id=Form.MOVE,
+            encoding_format_id=Form.UNARY_R_RM,
             encoding_id=encoding(0x8B, flags=width_flags),
             mnemonic="mov.dividend.low",
             semantic_tag=f"integer.dividend.low.i{bit_count}",
@@ -560,7 +560,7 @@ def _gpr32_to_gpr64_extend_descriptor(
 ) -> Descriptor:
     return Descriptor(
         key=key,
-        encoding_format_id=Form.MOVE,
+        encoding_format_id=Form.UNARY_R_RM,
         encoding_id=encoding_id,
         mnemonic=mnemonic,
         semantic_tag=semantic_tag,
@@ -578,7 +578,7 @@ def _gpr32_to_gpr64_extend_descriptor(
 def _gpr64_to_gpr32_truncate_descriptor() -> Descriptor:
     return Descriptor(
         key="x86.scalar.mov.trunc.gpr32.gpr64",
-        encoding_format_id=Form.MOVE,
+        encoding_format_id=Form.UNARY_R_RM,
         encoding_id=encoding(0x8B),
         mnemonic="mov.trunc",
         semantic_tag="integer.trunc.i64.i32",
@@ -601,7 +601,7 @@ def _gpr_narrow_zero_extend_descriptor(
     # unsigned i64 results deliberately retain the shorter non-REX.W form.
     return Descriptor(
         key=f"x86.scalar.movzx.u{source_bit_count}.gpr{result_bit_count}",
-        encoding_format_id=Form.MOVE,
+        encoding_format_id=Form.UNARY_R_RM,
         encoding_id=encoding(
             0x0FB6 if source_bit_count == 8 else 0x0FB7,
             flags=Flag.BYTE if source_bit_count == 8 else 0,
@@ -629,7 +629,7 @@ def _gpr_narrow_sign_extend_descriptor(
     # low byte or word and defines the complete signed result carrier.
     return Descriptor(
         key=f"x86.scalar.movsx.i{source_bit_count}.gpr{result_bit_count}",
-        encoding_format_id=Form.MOVE,
+        encoding_format_id=Form.UNARY_R_RM,
         encoding_id=encoding(
             0x0FBE if source_bit_count == 8 else 0x0FBF,
             flags=(Flag.BYTE if source_bit_count == 8 else 0)
@@ -1347,7 +1347,7 @@ _X86_SCALAR_SUFFIX_DESCRIPTORS = (
     ),
     Descriptor(
         key="x86.scalar.mov.gpr64",
-        encoding_format_id=Form.MOVE,
+        encoding_format_id=Form.UNARY_R_RM,
         encoding_id=encoding(0x8B, flags=Flag.REX_W),
         mnemonic="mov",
         semantic_tag="integer.move.i64",
