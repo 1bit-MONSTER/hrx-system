@@ -681,6 +681,9 @@ iree_status_t iree_tokenizer_decode_state_feed(
 //
 // Returns the number of bytes written in |out_text_length|. Returns
 // IREE_STATUS_RESOURCE_EXHAUSTED if the output would exceed text_output.size.
+// Queued token strings are processed before decoder finalization. On capacity
+// exhaustion, the written prefix is counted and remaining state is retained;
+// callers can provide more output space and call finalize again.
 iree_status_t iree_tokenizer_decode_state_finalize(
     iree_tokenizer_decode_state_t* state,
     iree_mutable_string_view_t text_output, iree_host_size_t* out_text_length);

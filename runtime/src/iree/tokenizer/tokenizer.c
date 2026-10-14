@@ -3563,8 +3563,7 @@ static iree_status_t iree_tokenizer_decode_state_pump(
   // Stage 1: Decoder - consume strings from buffer, produce text.
   iree_host_size_t pending_count =
       state->string_count - state->strings_consumed;
-  if (pending_count > 0 &&
-      text_output->size >= IREE_TOKENIZER_DECODER_MIN_BUFFER_SIZE) {
+  if (pending_count > 0) {
     iree_tokenizer_string_list_t pending_strings = {
         pending_count,
         &state->string_buffer[state->strings_consumed],
@@ -4138,6 +4137,46 @@ iree_status_t iree_tokenizer_decode_state_finalize(
                             "decode pipeline not configured");
   }
 
-  return iree_tokenizer_decoder_state_finalize(state->decoder_state,
-                                               text_output, out_text_length);
+  // Accepted IDs may still be queued as strings when feed runs out of output
+  // credit. Those strings precede the decoder's own pending state: finalizing
+  // the decoder first would silently discard accepted input or reorder it.
+  iree_status_t status = iree_ok_status();
+  while (iree_status_is_ok(status) &&
+         state->strings_consumed < state->string_count) {
+    const iree_tokenizer_string_list_t pending_strings = {
+        state->string_count - state->strings_consumed,
+        state->string_buffer + state->strings_consumed};
+    iree_host_size_t consumed = 0;
+    iree_host_size_t written = 0;
+    status = iree_tokenizer_decoder_state_process(state->decoder_state,
+                                                  pending_strings, text_output,
+                                                  &consumed, &written);
+    state->strings_consumed += consumed;
+    text_output.data += written;
+    text_output.size -= written;
+    *out_text_length += written;
+    if (iree_status_is_ok(status) && consumed == 0 && written == 0) {
+      status = iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                                "decode finalize: output buffer full");
+    }
+  }
+  if (iree_status_is_ok(status)) {
+    state->string_count = 0;
+    state->strings_consumed = 0;
+    bool pending = true;
+    while (iree_status_is_ok(status) && pending) {
+      iree_host_size_t written = 0;
+      status = iree_tokenizer_decoder_state_finalize(state->decoder_state,
+                                                     text_output, &written);
+      text_output.data += written;
+      text_output.size -= written;
+      *out_text_length += written;
+      pending = iree_tokenizer_decoder_state_has_pending(state->decoder_state);
+      if (iree_status_is_ok(status) && pending && written == 0) {
+        status = iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                                  "decode finalize: output buffer full");
+      }
+    }
+  }
+  return status;
 }

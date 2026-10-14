@@ -197,6 +197,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/testing:gtest_main",
         "//runtime/src/iree/tokenizer/decoder:byte_fallback",
         "//runtime/src/iree/tokenizer/decoder:byte_level",
+        "//runtime/src/iree/tokenizer/decoder:ctc",
         "//runtime/src/iree/tokenizer/decoder:metaspace",
         "//runtime/src/iree/tokenizer/decoder:replace",
         "//runtime/src/iree/tokenizer/decoder:sequence",
