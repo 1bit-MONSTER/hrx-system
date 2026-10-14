@@ -553,6 +553,9 @@ def test_scalar_compare_branches_cover_native_carrier_matrix() -> None:
 
 
 def test_scalar_compare_select_rules_cover_native_carrier_matrix() -> None:
+    gpr32_result_types = Scalar(
+        ("i1", "i8", "i16", "i32", "f8E4M3", "f8E5M2", "f16", "bf16")
+    )
     rules = tuple(
         case
         for case in X86_SCALAR_CONTRACT_FRAGMENT.cases
@@ -570,7 +573,7 @@ def test_scalar_compare_select_rules_cover_native_carrier_matrix() -> None:
             (index.index_cmp, Scalar(("index", "offset")), 64),
         )
         for result_type, result_width in (
-            (Scalar(("i1", "i8", "i16", "i32")), 32),
+            (gpr32_result_types, 32),
             (Scalar(("i64", "index", "offset")), 64),
             (Buffer(), 64),
         )
@@ -623,7 +626,7 @@ def test_scalar_compare_select_rules_cover_native_carrier_matrix() -> None:
             assert not immediate_project.source_node
         else:
             assert emit.operands["rhs"] == ValueRef.operand("rhs")
-        result_width = 32 if result_type == Scalar(("i1", "i8", "i16", "i32")) else 64
+        result_width = 32 if result_type == gpr32_result_types else 64
         actual_cells.add(
             (
                 rule.source_op,
@@ -636,6 +639,35 @@ def test_scalar_compare_select_rules_cover_native_carrier_matrix() -> None:
         )
     assert actual_cells == expected_cells
     assert len(rules) == len(expected_cells)
+
+
+def test_scalar_select_rules_cover_native_carrier_families() -> None:
+    rules = tuple(
+        case
+        for case in X86_SCALAR_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule) and case.source_op is scf.scf_select
+    )
+    assert {
+        (_value_type_guard(rule, "result"), rule.descriptor.key) for rule in rules
+    } == {
+        (
+            Scalar(
+                (
+                    "i1",
+                    "i8",
+                    "i16",
+                    "i32",
+                    "f8E4M3",
+                    "f8E5M2",
+                    "f16",
+                    "bf16",
+                )
+            ),
+            "x86.scalar.select.gpr32",
+        ),
+        (Scalar(("i64", "index", "offset")), "x86.scalar.select.gpr64"),
+        (Buffer(), "x86.scalar.select.gpr64"),
+    }
 
 
 def test_scalar_integer_read_memory_rules_cover_native_carriers() -> None:

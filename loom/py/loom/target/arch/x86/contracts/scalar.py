@@ -77,7 +77,9 @@ _BF16 = Scalar("bf16")
 _STORAGE_FLOATS = Scalar(("f8E4M3", "f8E5M2", "f16", "bf16"))
 _INDEX = Scalar("index")
 _OFFSET = Scalar("offset")
-_GPR32_SELECT_TYPES = Scalar(("i1", "i8", "i16", "i32"))
+_GPR32_SELECT_TYPES = Scalar(
+    ("i1", "i8", "i16", "i32", "f8E4M3", "f8E5M2", "f16", "bf16")
+)
 _GPR64_SELECT_TYPES = Scalar(("i64", "index", "offset"))
 _INTEGER_CONDITION_CODE_MAP = dict(X86_INTEGER_CONDITION_CODES)
 
