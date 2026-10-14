@@ -69,8 +69,9 @@ typedef struct loom_symbolic_term_t {
   // SSA value used for algebraic identity and cancellation.
   loom_value_id_t value_id;
 
-  // Equal SSA value retaining identity-chain predicates for relation proofs
-  // and value replacement. Normalized terms always have a valid value ID.
+  // Equal SSA value preserving scoped relation provenance for fact queries,
+  // scaled predicate proofs, and value replacement. Normalized terms always
+  // have a valid value ID.
   loom_value_id_t relation_value_id;
 } loom_symbolic_term_t;
 
