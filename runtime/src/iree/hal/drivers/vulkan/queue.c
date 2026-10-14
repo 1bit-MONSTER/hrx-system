@@ -9810,9 +9810,15 @@ static iree_status_t iree_hal_vulkan_queue_record_dispatch_bda_native(
       iree_hal_vulkan_queue_profile_prepare_native_timestamps_under_lock(
           queue, submission);
 
+  // Empty grids preserve dispatch ordering and profiling without publishing
+  // pointers that no invocation can consume (including empty buffer ranges).
   const iree_host_size_t binding_count =
-      pipeline->bda.binding_count_known ? pipeline->binding_count
-                                        : submission->dispatch.binding_count;
+      iree_hal_dispatch_is_statically_empty(submission->dispatch.config,
+                                            submission->dispatch.flags)
+          ? 0
+          : (pipeline->bda.binding_count_known
+                 ? pipeline->binding_count
+                 : submission->dispatch.binding_count);
   iree_device_size_t binding_table_length = 0;
   if (iree_status_is_ok(status) &&
       !iree_device_size_checked_mul((iree_device_size_t)binding_count,
