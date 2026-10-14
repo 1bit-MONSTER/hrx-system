@@ -353,6 +353,44 @@ value %values: test.phys -> physical_register[0:4]
 
 // ====
 
+// A reload result must occupy a register through its concat definition. The
+// later block's decomposed edge read keeps that physical source reservation
+// alive across a CFG boundary after its semantic SSA lifetime ends. When
+// low-register pressure spills the concat, the store becomes the complete
+// observation and the source reservation can retire so %candidate reuses
+// register zero.
+// RUN: emit low-allocation-query @spill_materializes_decomposed_concat_source strategy=source spill-count spill-plans=%packed values=%source,%packed,%candidate test.i32=8 fixed=%source:target_id:0:1 fixed=%blocker1:target_id:1:1 fixed=%blocker2:target_id:2:1 fixed=%blocker3:target_id:3:1 fixed=%other:target_id:4:1
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @spill_materializes_decomposed_concat_source(%other: reg<test.i32>, %blocker1: reg<test.i32>, %blocker2: reg<test.i32>, %blocker3: reg<test.i32>) -> (reg<test.i32 x2>, reg<test.i32>) asm {
+  %source_storage = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  %candidate_storage = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  %source = low.reload %source_storage : low.storage<private> -> reg<test.i32>
+  %packed = concat(%source, %other) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
+  low.br ^pressure
+^pressure:
+  %candidate = test.add.i32 %blocker1, %blocker2
+  %bounded = test.add.low4.i32 %candidate, %blocker3
+  low.spill %candidate, %candidate_storage : reg<test.i32>, low.storage<private>
+  %keep1 = test.add.i32 %blocker1, %blocker1
+  %keep2 = test.add.i32 %blocker2, %keep1
+  %keep3 = test.add.i32 %blocker3, %keep2
+  %result = test.add.i32 %bounded, %keep3
+  low.br ^exit(%packed: reg<test.i32 x2>)
+^exit(%state: reg<test.i32 x2>):
+  return %state, %result
+}
+
+// ----
+spills: 1
+value %source: test.i32 -> target_id[0:1]
+value %packed: test.i32 -> spill_slot[0:2]
+value %candidate: test.i32 -> target_id[0:1]
+spill %packed: private[0] bytes=8 align=8 stores=1 reloads=1
+
+// ====
+
 // RUN: emit low-allocation-query @compact_concat_uses_other_fallback_slot strategy=source spill-count copy-count values=%historical,%blocker,%lane0,%lane1,%lane2,%lane3,%values fixed=%seed:physical_register:6:1 fixed=%occupy0:physical_register:0:1 fixed=%occupy1:physical_register:1:1 fixed=%occupy3:physical_register:3:1 fixed=%historical:physical_register:4:1 fixed=%values:physical_register:0:4 fixed=%lane3:physical_register:3:1
 
 test.target<low_core> @target

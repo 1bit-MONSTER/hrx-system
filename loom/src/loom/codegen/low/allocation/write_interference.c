@@ -1494,8 +1494,8 @@ static bool loom_low_write_infer_conflicts(
 
 static bool loom_low_write_constraint_overlaps(
     const loom_low_allocation_write_interference_t* table,
-    const loom_low_write_constraint_t* row, int64_t destination,
-    int64_t observed) {
+    const uint32_t* unit_end_points, const loom_low_write_constraint_t* row,
+    int64_t destination, int64_t observed) {
   const int64_t offset = destination + row->destination_offset - observed;
   if (row->retained.value != LOOM_VALUE_ORDINAL_INVALID) {
     return loom_low_write_ranges_overlap(
@@ -1509,14 +1509,14 @@ static bool loom_low_write_constraint_overlaps(
   }
   const uint32_t point_start =
       table->unit_liveness->values[row->source].unit_point_start;
-  return table->unit_liveness->end_points[point_start + (uint32_t)offset] >
+  return unit_end_points[point_start + (uint32_t)offset] >
          row->source_lifetime.point;
 }
 
 static loom_value_ordinal_t loom_low_write_origin_conflicting_read(
     loom_low_allocation_write_interference_t* table,
     const loom_low_allocation_assignment_map_t* assignments,
-    loom_value_ordinal_t origin, uint32_t base,
+    const uint32_t* unit_end_points, loom_value_ordinal_t origin, uint32_t base,
     const loom_low_allocation_write_proposal_t* proposal) {
   table->inferred_origins[0] = origin;
   table->inferred_bases[origin] = base;
@@ -1540,8 +1540,8 @@ static loom_value_ordinal_t loom_low_write_origin_conflicting_read(
         const int64_t retained = loom_low_write_location(
             table, assignments, observed, origin, base, proposal);
         if (retained >= LOOM_LOW_WRITE_LOCATION_UNKNOWN ||
-            !loom_low_write_constraint_overlaps(table, row, destination,
-                                                retained)) {
+            !loom_low_write_constraint_overlaps(table, unit_end_points, row,
+                                                destination, retained)) {
           continue;
         }
         if (row->source == LOOM_VALUE_ORDINAL_INVALID) {
@@ -1596,6 +1596,7 @@ static loom_value_ordinal_t loom_low_write_assignment_origin(
 loom_value_ordinal_t loom_low_allocation_write_interference_conflicting_read(
     loom_low_allocation_write_interference_t* table,
     const loom_low_allocation_assignment_map_t* assignments,
+    const uint32_t* unit_end_points,
     const loom_low_allocation_assignment_t* candidate) {
   if (table->constraint_count == 0 ||
       !loom_low_allocation_assignment_is_physical_register_class(
@@ -1609,7 +1610,8 @@ loom_value_ordinal_t loom_low_allocation_write_interference_conflicting_read(
   }
   loom_low_allocation_write_interference_reset_inference(table);
   const loom_value_ordinal_t retained = loom_low_write_origin_conflicting_read(
-      table, assignments, origin, candidate->location_base, NULL);
+      table, assignments, unit_end_points, origin, candidate->location_base,
+      NULL);
   if (retained != LOOM_VALUE_ORDINAL_INVALID) {
     loom_low_allocation_write_interference_reset_inference(table);
   } else if (table->inferred_count > 1) {
@@ -1679,7 +1681,8 @@ bool loom_low_allocation_write_proposal_conflicts(
     const loom_value_ordinal_t origin = proposal->origins[i];
     const loom_value_ordinal_t retained =
         loom_low_write_origin_conflicting_read(
-            table, assignments, origin, proposal->bases[origin], proposal);
+            table, assignments, table->unit_liveness->end_points, origin,
+            proposal->bases[origin], proposal);
     loom_low_allocation_write_interference_reset_inference(table);
     if (retained != LOOM_VALUE_ORDINAL_INVALID) {
       return true;

@@ -907,7 +907,9 @@ static iree_status_t loom_low_allocate_function_impl(
         .assignment_indices_by_value_ordinal =
             state.interval_assignment.assignment_indices_by_value_ordinal,
         .unit_start_points = state.unit_liveness.start_points,
-        .unit_end_points = state.unit_liveness.end_points,
+        .unit_end_points = state.interval_assignment.unit_end_points != NULL
+                               ? state.interval_assignment.unit_end_points
+                               : state.unit_liveness.end_points,
         .unit_point_count = state.unit_liveness.point_count,
         .spill_plans = state.interval_assignment.spill_plans,
         .spill_plan_count = state.interval_assignment.spill_plan_count,

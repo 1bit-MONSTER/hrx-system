@@ -313,6 +313,19 @@ loom_cc_test(
     loom::target::residency
 )
 
+loom_cc_test(
+  NAME
+    search_covering_spill_test
+  SRCS
+    "search_covering_spill_test.cc"
+  DEPS
+    ::search
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir
+)
+
 loom_cc_library(
   NAME
     edge_alias

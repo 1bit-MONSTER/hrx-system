@@ -169,6 +169,12 @@ bool loom_low_allocation_storage_lease_state_value_has_records(
     const loom_low_allocation_storage_lease_state_t* state,
     const loom_liveness_analysis_t* liveness, loom_value_id_t value_id);
 
+// Returns true when a materialized lease for |value_ordinal| retains physical
+// storage after |end_point|. The value assignment must already be published.
+bool loom_low_allocation_storage_lease_state_value_reservation_extends_past(
+    const loom_low_allocation_storage_lease_state_t* state,
+    loom_value_ordinal_t value_ordinal, uint32_t end_point);
+
 // Records release actions for every materialized lease conflicting with
 // |candidate|, moving a recorded release earlier when an aggregate reservation
 // precedes allocation of its writers. Each lease retains its earliest release.

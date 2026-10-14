@@ -92,6 +92,14 @@ typedef struct loom_low_allocation_search_workspace_t {
   uint32_t* best_assignment_indices;
   // Candidate victims excluded while checking remaining location conflicts.
   loom_value_id_t* ignored_value_ids;
+  // Candidate victims already selected, indexed by active-set position.
+  // This keeps covering-source deduplication linear without another u32 array.
+  iree_bitmap_t candidate_selected_assignments;
+  // Entry capacity of |best_released_value_ids|.
+  iree_host_size_t released_value_capacity;
+  // Best source reservations released by materializing covering victims.
+  // Allocated lazily because ordinary victim searches never need this array.
+  loom_value_id_t* best_released_value_ids;
 } loom_low_allocation_search_workspace_t;
 
 // Active assignment set selected for spilling before an interval is assigned.
@@ -103,6 +111,12 @@ typedef struct loom_low_allocation_search_spill_victim_set_t {
   const uint32_t* assignment_indices;
   // Number of entries in |assignment_indices|.
   uint16_t assignment_count;
+  // Active source values whose extended physical reservation ends when the
+  // selected covering victims are materialized. Borrowed from the workspace
+  // until its next search or scratch-arena release.
+  const loom_value_id_t* released_value_ids;
+  // Number of entries in |released_value_ids|.
+  uint16_t released_value_count;
   // True when a legal victim set was found.
   bool found;
 } loom_low_allocation_search_spill_victim_set_t;

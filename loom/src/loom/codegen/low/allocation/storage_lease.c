@@ -1174,6 +1174,23 @@ bool loom_low_allocation_storage_lease_state_value_has_records(
   return state->record_heads_by_value_ordinal[value_ordinal] != UINT32_MAX;
 }
 
+bool loom_low_allocation_storage_lease_state_value_reservation_extends_past(
+    const loom_low_allocation_storage_lease_state_t* state,
+    loom_value_ordinal_t value_ordinal, uint32_t end_point) {
+  if (!state || state->record_heads_by_value_ordinal == NULL) {
+    return false;
+  }
+  uint32_t record_index = state->record_heads_by_value_ordinal[value_ordinal];
+  while (record_index != UINT32_MAX) {
+    IREE_ASSERT_TRUE(state->instance_written[record_index]);
+    if (state->instances[record_index].end_point > end_point) {
+      return true;
+    }
+    record_index = state->next_record_indices[record_index];
+  }
+  return false;
+}
+
 static void loom_low_allocation_storage_lease_state_shorten(
     loom_low_allocation_storage_lease_state_t* state,
     const loom_low_descriptor_set_t* descriptor_set,

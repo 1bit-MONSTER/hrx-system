@@ -222,6 +222,7 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   EXPECT_EQ(result.assignments[0].location_count, 2u);
   EXPECT_EQ(result.assignments[0].unit_point_start, 0u);
   EXPECT_EQ(result.assignments[0].end_point, 8u);
+  EXPECT_EQ(result.unit_end_points, unit_end_points);
   EXPECT_EQ(result.spill_count, 0u);
   EXPECT_EQ(result.spill_plan_count, 0u);
   EXPECT_EQ(result.remark_count, 0u);

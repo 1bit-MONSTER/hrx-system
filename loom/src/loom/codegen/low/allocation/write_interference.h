@@ -94,10 +94,13 @@ void loom_low_allocation_write_interference_reset_inference(
 // propagation: spill plans rebuild allocation before emission. Required aliases
 // query their canonical storage origin. Hypothetical recoloring of an already
 // located root does not publish its implications for queries rooted at other
-// values.
+// values. |unit_end_points| selects the current assignment attempt's physical
+// lifetime view; it may shorten canonical source observations after a covering
+// structural value is materialized.
 loom_value_ordinal_t loom_low_allocation_write_interference_conflicting_read(
     loom_low_allocation_write_interference_t* interference,
     const loom_low_allocation_assignment_map_t* assignments,
+    const uint32_t* unit_end_points,
     const loom_low_allocation_assignment_t* candidate);
 
 // A complete simultaneous location proposal, indexed by local value ordinal.
