@@ -5,7 +5,7 @@ changes live in the maintained fork rather than as patches in this directory:
 
 - Upstream: <https://github.com/robertoraggi/cplusplus>
 - Maintained fork: <https://github.com/benvanik/cplusplus>
-- Current stack: [`hrx-upstream/69-builtin-subscript-conversions`](https://github.com/benvanik/cplusplus/commits/hrx-upstream/69-builtin-subscript-conversions/)
+- Current stack: [`hrx-upstream/70-builtin-subscript-slow-path`](https://github.com/benvanik/cplusplus/commits/hrx-upstream/70-builtin-subscript-slow-path/)
 
 `../deps.MODULE.bazel` owns the archive commit and checksum. The generated root
 `MODULE.cmake.lock` carries the same identity for CMake. `cxx.BUILD.bazel` and
