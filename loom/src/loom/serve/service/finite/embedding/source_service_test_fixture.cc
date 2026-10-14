@@ -294,7 +294,7 @@ void SourceEmbeddingServiceTest::Drain() {
 }
 
 void SourceEmbeddingServiceTest::CheckAbandonedCohort(
-    loom_serve_http_service_flags_t flags) {
+    loom_serve_http_service_flags_t flags, const char* expected) {
   const char* bodies[] = {R"({"model":"fixture","input":"a"})",
                           R"({"model":"fixture","input":"bbb"})"};
   int clients[IREE_ARRAYSIZE(bodies)] = {};
@@ -347,7 +347,7 @@ void SourceEmbeddingServiceTest::CheckAbandonedCohort(
   const int next = Send(R"({"model":"fixture","input":[0]})");
   ASSERT_NO_FATAL_FAILURE(Accept(next));
   Drain();
-  EXPECT_NE(Read(next).find(R"("embedding":[1,1,1,1])"), std::string::npos);
+  EXPECT_NE(Read(next).find(expected), std::string::npos);
   EXPECT_EQ(interface_.telemetry.counters->completed, 1u);
   EXPECT_EQ(interface_.telemetry.counters->failed, 0u);
 }
@@ -538,9 +538,14 @@ void SourceEmbeddingServiceTest::WriteWeightedPackage(
     ASSERT_TRUE(std::filesystem::copy_file(directory_ + "/" + file,
                                            target + "/" + file));
   }
+  const char* weighted_source =
+      std::getenv("LOOM_SERVE_TEST_WEIGHTED_STAGE_SOURCE");
   for (const char* file : {"weights.loom", "policy.loom"}) {
-    ASSERT_TRUE(std::filesystem::copy_file(directory_ + "/variants/" + file,
-                                           target + "/" + file));
+    const std::string source =
+        weighted_source && std::string(file) == "weights.loom"
+            ? weighted_source
+            : directory_ + "/variants/" + file;
+    ASSERT_TRUE(std::filesystem::copy_file(source, target + "/" + file));
   }
   std::ifstream input(directory_ + "/prepare.loom");
   ASSERT_TRUE(input.good());

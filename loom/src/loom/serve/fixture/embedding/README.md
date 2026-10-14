@@ -67,8 +67,10 @@ storage; AMDGPU additionally covers elastic group-backed admission.
 
 `variants/` supplies a checkpoint-backed scaling head and its weight policy.
 The test writes a separate source directory and a tiny safetensors checkpoint
-containing F32 2.0, then loads that package with the same native binary. A second
-actual model pins the only available parameter slab. The accepted request stays
+containing F32 1.0, then loads that package with the same native binary. A
+source-selected preparation command doubles the factor in place on its first
+device activation. A second actual model pins the only available parameter slab.
+The accepted request stays
 prepared while admission waits; after the pin releases, the source's scaling
 head produces doubled vectors through the HTTP endpoint. The test exercises
 real checkpoint indexing, loading, LRU eviction and compact feedback, not a
@@ -93,7 +95,14 @@ The test selects this source at package construction; the ordinary command
 package above is not an XDNA package. It requires the XDNA compiler target,
 XDNA HAL and a supported physical NPU.
 
-This direct variant has no checkpoint parameters. The weighted command variant
-above separately proves the existing weight-loading contract; combining the
-two requires explicit source-owned native parameter placement. Neither fixture
-establishes learned-model quality.
+The [weighted XDNA variant](../../../tooling/target/amd/xdna/serve/testdata/weighted_embedding.loom)
+uses the same checkpoint and preparation policy as the portable command variant.
+Its preparation pipeline transforms the factor in final device storage. Its
+consumer supplies the factor extent as a staged argument and the checkpoint
+view as a runtime binding to a resident pipeline. Both command stages use only
+device-local channel storage, without a global workspace allocation.
+
+The native HTTP tests exercise changed inputs and dimensions, a seven-request
+cohort, cancelled result consumers, and reuse of the prepared weight with one
+and four shared workers. These check the full loader, JIT, submission, and
+retirement path. Neither fixture establishes learned-model quality.

@@ -129,6 +129,25 @@ endif()
 if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_library(
   NAME
+    weighted_dispatch_tests
+  SRCS
+    "weighted_dispatch_test.cc"
+  DEPS
+    ::source_service_fixture
+    iree::testing::gtest
+    iree::testing::temp_file
+    loom::serve::testing::model
+    loom::serve::testing::package
+    loom::serve::testing::stalled_stderr
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
     elastic_storage_tests
   SRCS
     "elastic_storage_test.cc"

@@ -106,7 +106,8 @@ class SourceEmbeddingServiceTest : public ::testing::Test {
 
   void Drain();
 
-  void CheckAbandonedCohort(loom_serve_http_service_flags_t flags);
+  void CheckAbandonedCohort(loom_serve_http_service_flags_t flags,
+                            const char* expected = R"("embedding":[1,1,1,1])");
 
   void StartRouter();
 

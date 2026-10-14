@@ -101,7 +101,7 @@ iree_status_t loom_serve_finite_load_free(loom_serve_finite_load_t* load);
 // equal tags permit batching. Ranges contain [offset, length] i64 pairs into
 // concatenated prepared bytes, in request order. Both stage kinds have two
 // dynamic roots (input/output) aligned to LOOM_SERVE_FINITE_BUFFER_ALIGNMENT.
-// Commands additionally have compiler-reflected private workspace; direct
+// Commands may additionally have compiler-reflected private workspace; direct
 // stages use their compiled launch configuration without a command buffer or
 // runner workspace.
 // Weighted command stages share exactly the same fixed parameter placement.

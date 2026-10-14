@@ -85,8 +85,9 @@ uses trusted row views. Physical output and live feedback extents are separate:
 stages may need padded binding storage without downloading the padding.
 
 Both stage kinds have two dynamic roots (input/output). Commands additionally
-have compiler-reflected private workspace. Direct native entries instead use
-their compiled launch-config companion and HAL logical-parameter reflection,
+bind private workspace when the compiler reflects a nonzero requirement.
+Direct native entries use their compiled launch-config companion and HAL
+logical-parameter reflection,
 submitting through `queue_dispatch` without a command buffer or invented host
 workspace. A resident array program uses this same path; source owns its
 device-local storage. Both kinds use the runner's `execute_2` and `feedback`
@@ -135,8 +136,12 @@ Vulkan. Its HTTP checks cover compact row ordering, repeated requests,
 cancellation and retirement with one/four workers. Its
 [XDNA variant](../../../tooling/target/amd/xdna/serve/testdata/resident_embedding.loom) executes the same
 HTTP contract with a resident array program and DMA/channel packet transport.
-These prove direct-stage ownership, including untouched first output, not
-learned embedding quality or checkpoint-backed resident stages.
+The [weighted XDNA variant](../../../tooling/target/amd/xdna/serve/testdata/weighted_embedding.loom)
+loads a real checkpoint, prepares it on device, and binds it to a staged resident
+pipeline through a command stage with no global workspace. Its HTTP checks cover
+changed inputs, batching, cancellation, and retained preparation across reuse.
+These fixtures qualify source and resource ownership; their deterministic
+outputs have no learned embedding meaning.
 
 A real embedding port must still supply its source package, checkpoint policy,
 input/task policy, numerical oracle and shape coverage. Target-family selection

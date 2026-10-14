@@ -138,6 +138,28 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "weighted_dispatch_tests",
+    testonly = True,
+    srcs = ["weighted_dispatch_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = [
+        ":source_service_fixture",
+        "//loom/src/loom/serve/testing:model",
+        "//loom/src/loom/serve/testing:package",
+        "//loom/src/loom/serve/testing:stalled_stderr",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:temp_file",
+    ],
+    alwayslink = True,
+)
+
+loom_cc_library(
     name = "elastic_storage_tests",
     testonly = True,
     srcs = ["elastic_storage_test.cc"],
