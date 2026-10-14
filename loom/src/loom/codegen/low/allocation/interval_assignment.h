@@ -38,6 +38,10 @@ typedef enum loom_low_allocation_search_strategy_e {
   // Separates overlapping scalar and wide intervals across the feasible
   // liveness-pressure frontier to repair first-fit fragmentation.
   LOOM_LOW_ALLOCATION_SEARCH_STRATEGY_FRAGMENTATION_REPAIR = 1,
+  // Reuses an exact retained location for every current value. The attempt
+  // stops without a planning error when any location is unavailable under the
+  // current liveness and target constraints.
+  LOOM_LOW_ALLOCATION_SEARCH_STRATEGY_RETAINED_LOCATIONS = 2,
 } loom_low_allocation_search_strategy_t;
 
 typedef struct loom_low_allocation_interval_assignment_context_t {
@@ -83,6 +87,10 @@ typedef struct loom_low_allocation_interval_assignment_context_t {
   // Borrowed bitmap indexed by module value ID. Set values have definitions
   // that write physical storage outside their semantic execution domain.
   iree_bitmap_t expanded_execution_values;
+  // Optional exact locations indexed by the current liveness value ordinal.
+  // Required by RETAINED_LOCATIONS and ignored by other strategies.
+  const loom_low_allocation_assignment_t* const*
+      retained_assignments_by_value_ordinal;
   // Optional borrowed exclusive spill-traffic limit for this assignment
   // attempt. Reaching the limit ends the attempt with a partial result that
   // the comparison caller must discard. Null leaves the attempt unbounded.
@@ -119,6 +127,10 @@ typedef struct loom_low_allocation_interval_assignment_result_t {
   // True when assignment stopped after reaching the comparison-only spill
   // traffic limit. All assignment state is partial and must be discarded.
   bool reached_spill_traffic_limit;
+  // True when an exact retained location could not be replayed. This is a
+  // legitimate comparison rejection; all partial assignment state is
+  // discarded by the caller.
+  bool retained_location_replay_failed;
   // Interval ordering found a multi-unit interval in a contiguous register
   // class. Without one, fragmentation repair repeats the same placement.
   bool has_packable_aggregates;

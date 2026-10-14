@@ -75,6 +75,9 @@ typedef struct loom_low_allocation_build_state_t {
   loom_low_allocation_packet_move_plan_t packet_move_plan;
   // Mutable assignment-backed storage leases and release actions being built.
   loom_low_allocation_storage_lease_state_t storage_leases;
+  // Optional retained locations indexed by the current local value ordinal.
+  const loom_low_allocation_assignment_t**
+      retained_assignments_by_value_ordinal;
 } loom_low_allocation_build_state_t;
 
 static loom_low_allocation_interval_assignment_context_t
@@ -102,6 +105,8 @@ loom_low_allocation_make_interval_assignment_context(
       .storage_transport = state->options->storage_transport,
       .required_register_values = state->options->required_register_values,
       .expanded_execution_values = state->options->expanded_execution_values,
+      .retained_assignments_by_value_ordinal =
+          state->retained_assignments_by_value_ordinal,
       .unit_liveness = &state->unit_liveness,
       .residency = state->options->residency,
       .storage_leases = storage_leases,
@@ -587,10 +592,50 @@ static iree_status_t loom_low_allocation_build_moves(
   return status;
 }
 
-iree_status_t loom_low_allocate_function(
+static iree_status_t loom_low_allocation_index_retained_assignments(
     const loom_low_function_model_t* model,
-    const loom_low_allocation_options_t* options, iree_arena_allocator_t* arena,
-    loom_low_allocation_table_t* out_table) {
+    const loom_low_allocation_table_t* source_table,
+    iree_arena_allocator_t* arena, loom_low_allocation_build_state_t* state) {
+  IREE_ASSERT_ARGUMENT(source_table);
+  IREE_ASSERT(source_table->module == model->context.module);
+  IREE_ASSERT(source_table->function_op == model->context.function_op);
+  IREE_ASSERT(source_table->target.descriptor_set ==
+              model->context.target.descriptor_set);
+  const loom_local_value_domain_t* value_domain = &model->context.value_domain;
+  if (value_domain->value_count == 0) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, value_domain->value_count,
+      sizeof(*state->retained_assignments_by_value_ordinal),
+      (void**)&state->retained_assignments_by_value_ordinal));
+  memset(state->retained_assignments_by_value_ordinal, 0,
+         value_domain->value_count *
+             sizeof(*state->retained_assignments_by_value_ordinal));
+  for (iree_host_size_t i = 0; i < source_table->assignment_count; ++i) {
+    const loom_low_allocation_assignment_t* assignment =
+        &source_table->assignments[i];
+    const loom_value_ordinal_t value_ordinal =
+        loom_local_value_domain_try_ordinal(value_domain, assignment->value_id);
+    if (value_ordinal == LOOM_VALUE_ORDINAL_INVALID) {
+      continue;
+    }
+    IREE_ASSERT(state->retained_assignments_by_value_ordinal[value_ordinal] ==
+                NULL);
+    state->retained_assignments_by_value_ordinal[value_ordinal] = assignment;
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_low_allocate_function_impl(
+    const loom_low_function_model_t* model,
+    const loom_low_allocation_options_t* options,
+    const loom_low_allocation_table_t* retained_location_table,
+    iree_arena_allocator_t* arena, loom_low_allocation_table_t* out_table,
+    bool* out_locations_replayed) {
+  if (out_locations_replayed != NULL) {
+    *out_locations_replayed = false;
+  }
   *out_table = (loom_low_allocation_table_t){
       .module = model->context.module,
       .function_op = model->context.function_op,
@@ -622,11 +667,20 @@ iree_status_t loom_low_allocate_function(
   };
   iree_arena_allocator_t decision_arena;
   iree_arena_initialize(arena->block_pool, &decision_arena);
-  iree_status_t status = loom_low_allocation_target_constraints_initialize(
-      model->context.module, model->context.function_op, &state.target,
-      options->budgets, options->budget_count, options->reserved_ranges,
-      options->reserved_range_count, options->emitter, arena,
-      &state.target_constraints);
+  iree_status_t status = iree_ok_status();
+  if (retained_location_table != NULL) {
+    status = loom_low_allocation_index_retained_assignments(
+        model, retained_location_table, &decision_arena, &state);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_low_allocation_target_constraints_initialize(
+        model->context.module, model->context.function_op, &state.target,
+        options->budgets, options->budget_count, options->reserved_ranges,
+        options->reserved_range_count,
+        retained_location_table == NULL ? options->emitter
+                                        : (iree_diagnostic_emitter_t){0},
+        arena, &state.target_constraints);
+  }
 
   const loom_local_value_domain_t* value_domain = &model->context.value_domain;
   const loom_liveness_order_t operation_order =
@@ -701,11 +755,15 @@ iree_status_t loom_low_allocate_function(
         &state.storage_leases);
   }
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
+    const loom_low_allocation_search_strategy_t search_strategy =
+        retained_location_table != NULL
+            ? LOOM_LOW_ALLOCATION_SEARCH_STRATEGY_RETAINED_LOCATIONS
+            : LOOM_LOW_ALLOCATION_SEARCH_STRATEGY_FIRST_FIT;
     const loom_low_allocation_interval_assignment_context_t
         interval_assignment_context =
             loom_low_allocation_make_interval_assignment_context(
-                &state, model, LOOM_LOW_ALLOCATION_SEARCH_STRATEGY_FIRST_FIT,
-                arena, &state.target_constraints, &state.storage_leases,
+                &state, model, search_strategy, arena,
+                &state.target_constraints, &state.storage_leases,
                 /*spill_traffic_exclusive_limit=*/NULL);
     status = loom_low_allocation_interval_assignment_build(
         &interval_assignment_context, &decision_arena,
@@ -714,7 +772,7 @@ iree_status_t loom_low_allocate_function(
   // Required register values can fail first-fit placement through fragmentation
   // just as spillable values can. Their retained failure is provisional until
   // the alternative packing has also been considered.
-  if (iree_status_is_ok(status) &&
+  if (retained_location_table == NULL && iree_status_is_ok(status) &&
       state.interval_assignment.has_packable_aggregates &&
       ((state.target_constraints.error_count == 0 &&
         state.interval_assignment.spill_count != 0) ||
@@ -727,11 +785,17 @@ iree_status_t loom_low_allocate_function(
   // Backedge placement belongs to the final physical assignment. Spill repair
   // rewrites the IR and rebuilds the frame, so relocating a provisional spill
   // assignment would be discarded.
+  const bool locations_replayed =
+      retained_location_table == NULL ||
+      (!state.interval_assignment.retained_location_replay_failed &&
+       state.target_constraints.error_count == 0 &&
+       !loom_low_allocation_failure_is_present(
+           &state.target_constraints.failure));
   const bool assignment_is_final =
-      state.interval_assignment.spill_plan_count == 0 &&
+      locations_replayed && state.interval_assignment.spill_plan_count == 0 &&
       state.interval_assignment.spill_count == 0;
-  if (iree_status_is_ok(status) && state.target_constraints.error_count == 0 &&
-      assignment_is_final) {
+  if (retained_location_table == NULL && iree_status_is_ok(status) &&
+      state.target_constraints.error_count == 0 && assignment_is_final) {
     const iree_arena_checkpoint_t relocation_checkpoint =
         iree_arena_checkpoint_save(&decision_arena);
     const loom_low_allocation_loop_edge_relocation_context_t
@@ -758,11 +822,13 @@ iree_status_t loom_low_allocate_function(
         &loop_edge_relocation_context, &loop_edge_relocation_result);
     iree_arena_checkpoint_restore(&relocation_checkpoint);
   }
-  if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
+  if (iree_status_is_ok(status) && state.target_constraints.error_count == 0 &&
+      locations_replayed) {
     status =
         loom_low_allocation_storage_lease_state_finalize(&state.storage_leases);
   }
-  if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
+  if (iree_status_is_ok(status) && state.target_constraints.error_count == 0 &&
+      locations_replayed) {
     const loom_low_allocation_copy_decision_context_t copy_decision_context = {
         .body = state.body,
         .descriptor_set = state.target.descriptor_set,
@@ -778,8 +844,8 @@ iree_status_t loom_low_allocate_function(
       assignment_is_final) {
     status = loom_low_allocation_build_moves(&state, &decision_arena);
   }
-  if (iree_status_is_ok(status) && state.target_constraints.error_count == 0 &&
-      assignment_is_final) {
+  if (retained_location_table == NULL && iree_status_is_ok(status) &&
+      state.target_constraints.error_count == 0 && assignment_is_final) {
     const loom_low_allocation_numbering_context_t numbering_context = {
         .placement = &state.placement,
         .preferences = &state.preferences,
@@ -798,7 +864,7 @@ iree_status_t loom_low_allocate_function(
   iree_arena_deinitialize(&decision_arena);
 
   uint32_t* first_storage_release_action_by_node = NULL;
-  if (iree_status_is_ok(status) &&
+  if (locations_replayed && iree_status_is_ok(status) &&
       state.storage_leases.release_action_count != 0 &&
       iree_any_bit_set(
           options->flags,
@@ -811,7 +877,7 @@ iree_status_t loom_low_allocate_function(
   }
 
   loom_low_allocation_table_t table = {0};
-  if (iree_status_is_ok(status)) {
+  if (locations_replayed && iree_status_is_ok(status)) {
     table = (loom_low_allocation_table_t){
         .module = model->context.module,
         .function_op = model->context.function_op,
@@ -890,8 +956,33 @@ iree_status_t loom_low_allocate_function(
         .cfg_graph = model->cfg_graph,
     };
   }
-  if (iree_status_is_ok(status)) {
+  if (locations_replayed && iree_status_is_ok(status)) {
     *out_table = table;
+    if (out_locations_replayed != NULL) {
+      *out_locations_replayed = true;
+    }
   }
   return status;
+}
+
+iree_status_t loom_low_allocate_function(
+    const loom_low_function_model_t* model,
+    const loom_low_allocation_options_t* options, iree_arena_allocator_t* arena,
+    loom_low_allocation_table_t* out_table) {
+  return loom_low_allocate_function_impl(model, options, NULL, arena, out_table,
+                                         NULL);
+}
+
+iree_status_t loom_low_allocation_try_replay_locations(
+    const loom_low_function_model_t* model,
+    const loom_low_allocation_options_t* options,
+    const loom_low_allocation_table_t* source_table,
+    iree_arena_allocator_t* arena, loom_low_allocation_table_t* out_table,
+    bool* out_replayed) {
+  *out_replayed = false;
+  IREE_ASSERT_EQ(source_table->error_count, 0u);
+  IREE_ASSERT_EQ(source_table->spill_plan_count, 0u);
+  IREE_ASSERT_EQ(source_table->spill_count, 0u);
+  return loom_low_allocate_function_impl(model, options, source_table, arena,
+                                         out_table, out_replayed);
 }
