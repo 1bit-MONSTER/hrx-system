@@ -90,6 +90,32 @@ func.def @hoists_total_numeric_families(%n: index, %value: i32, %integers: vecto
 
 // ====
 
+// LICM consumes execution safety independently of the eager branch policy.
+// A nonlinear activation can hoist out of a possibly zero-trip loop even
+// though generic if-conversion keeps it guarded.
+func.def @hoists_total_nonlinear_activation(%n: index, %input: f32) {
+  %loop_begin = index.constant 0 : index
+  %loop_step = index.constant 1 : index
+  scf.for %iv = [%loop_begin to %n step %loop_step] {
+    %activated = scalar.siluf %input : f32
+    test.use %activated : f32
+  }
+  func.return
+}
+
+// ----
+func.def @hoists_total_nonlinear_activation(%n: index, %input: f32) {
+  %loop_begin = index.constant 0 : index
+  %loop_step = index.constant 1 : index
+  %activated = scalar.siluf %input : f32
+  scf.for %iv = [%loop_begin to %n step %loop_step] {
+    test.use %activated : f32
+  }
+  func.return
+}
+
+// ====
+
 // PURE does not imply that an op can execute on a path where the loop body did
 // not run. test.addi intentionally lacks SAFE_TO_SPECULATE and stays inside a
 // loop whose trip count may be zero.

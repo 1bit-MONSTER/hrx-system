@@ -256,6 +256,35 @@ TEST(OpSemantics, NumericSpeculationDistinguishesTotalAndPartialFamilies) {
   loom_context_deinitialize(&context);
 }
 
+TEST(OpSemantics, EagerExecutionCostSeparatesLegalityFromProfitability) {
+  loom_context_t context;
+  loom_context_initialize(iree_allocator_system(), &context);
+  IREE_ASSERT_OK(loom_op_registry_register_all_dialects(&context));
+  IREE_ASSERT_OK(loom_context_finalize(&context));
+
+  struct ExpectedCost {
+    loom_op_kind_t kind;
+    uint8_t cost;
+  };
+  static constexpr ExpectedCost kExpectedCosts[] = {
+      {LOOM_OP_SCALAR_FMAF, 1},   {LOOM_OP_VECTOR_ROUNDEVENF, 1},
+      {LOOM_OP_SCALAR_SILUF, 0},  {LOOM_OP_VECTOR_MMA, 0},
+      {LOOM_OP_VECTOR_REDUCE, 0},
+  };
+  for (const auto& expected : kExpectedCosts) {
+    SCOPED_TRACE(expected.kind);
+    const loom_op_vtable_t* vtable =
+        loom_context_resolve_op(&context, expected.kind);
+    ASSERT_NE(vtable, nullptr);
+    EXPECT_TRUE(loom_traits_are_safe_to_speculate(vtable->traits));
+    EXPECT_EQ(loom_context_resolve_op_semantics(&context, expected.kind)
+                  .eager_execution_cost,
+              expected.cost);
+  }
+
+  loom_context_deinitialize(&context);
+}
+
 TEST(TypeRegistry, DescriptorsCarrySemantics) {
   const loom_type_descriptor_t* token = loom_type_registry_lookup(
       nullptr, iree_make_cstring_view("kernel.async.token"));

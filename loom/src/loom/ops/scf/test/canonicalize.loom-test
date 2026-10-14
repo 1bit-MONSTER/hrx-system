@@ -328,6 +328,57 @@ func.def @if_selectifies_vector_float_arithmetic(%cond: i1, %numerator: vector<4
 
 // ====
 
+// Cheap total float primitives use the same eager budget as ordinary
+// arithmetic and can move into straight-line selection.
+func.def @if_selectifies_cheap_float_primitives(%cond: i1, %a: f32, %b: f32, %c: f32, %values: vector<4xf32>, %scalar_fallback: f32, %vector_fallback: vector<4xf32>) -> (f32, vector<4xf32>) {
+  %selected_scalar, %selected_vector = scf.if %cond -> (f32, vector<4xf32>) {
+    %fused = scalar.fmaf %a, %b, %c : f32
+    %rounded = vector.roundevenf %values : vector<4xf32>
+    scf.yield %fused, %rounded : f32, vector<4xf32>
+  } else {
+    scf.yield %scalar_fallback, %vector_fallback : f32, vector<4xf32>
+  }
+  func.return %selected_scalar, %selected_vector : f32, vector<4xf32>
+}
+
+// ----
+func.def @if_selectifies_cheap_float_primitives(%cond: i1, %a: f32, %b: f32, %c: f32, %values: vector<4xf32>, %scalar_fallback: f32, %vector_fallback: vector<4xf32>) -> (f32, vector<4xf32>) {
+  %fused = scalar.fmaf %a, %b, %c : f32
+  %rounded = vector.roundevenf %values : vector<4xf32>
+  %selected_scalar = scf.select %cond, %fused, %scalar_fallback : f32
+  %selected_vector = scf.select %cond, %rounded, %vector_fallback : vector<4xf32>
+  func.return %selected_scalar, %selected_vector : f32, vector<4xf32>
+}
+
+// ====
+
+// Nonlinear activation is total but deliberately has no generic eager policy.
+// The production-shaped activation-plus-multiply path remains guarded.
+func.def @if_preserves_guard_around_nonlinear_activation(%cond: i1, %input: f32, %scale: f32, %fallback: f32) -> (f32) {
+  %selected = scf.if %cond -> (f32) {
+    %activated = scalar.siluf %input : f32
+    %scaled = scalar.mulf %activated, %scale : f32
+    scf.yield %scaled : f32
+  } else {
+    scf.yield %fallback : f32
+  }
+  func.return %selected : f32
+}
+
+// ----
+func.def @if_preserves_guard_around_nonlinear_activation(%cond: i1, %input: f32, %scale: f32, %fallback: f32) -> (f32) {
+  %selected = scf.if %cond -> (f32) {
+    %activated = scalar.siluf %input : f32
+    %scaled = scalar.mulf %activated, %scale : f32
+    scf.yield %scaled : f32
+  } else {
+    scf.yield %fallback : f32
+  }
+  func.return %selected : f32
+}
+
+// ====
+
 // Total conversions, bit counts, and comparisons can execute on both sides of
 // the condition. Partial neighbors such as fptosi and shifts remain guarded.
 func.def @if_selectifies_total_numeric_families(%cond: i1, %value: i32, %float_fallback: f32, %floats: vector<4xf32>, %vector_fallback: vector<4xf16>, %index: index, %index_fallback: index, %integers: vector<4xi32>, %integer_limits: vector<4xi32>, %mask_fallback: vector<4xi1>) -> (f32, vector<4xf16>, index, vector<4xi1>) {

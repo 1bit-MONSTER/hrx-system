@@ -23,6 +23,7 @@ from loom.dsl import (
     FLOAT,
     IDEMPOTENT,
     PURE,
+    SAFE_TO_SPECULATE,
     AttrDef,
     Op,
     Operand,
@@ -51,6 +52,8 @@ scalar_expf = unary_op(
     flags=_FM,
     facts="loom_scalar_expf_facts",
     examples=["%result = scalar.expf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_exp2f = unary_op(
     "scalar.exp2f",
@@ -61,6 +64,8 @@ scalar_exp2f = unary_op(
     flags=_FM,
     facts="loom_scalar_exp2f_facts",
     examples=["%result = scalar.exp2f %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_expm1f = unary_op(
     "scalar.expm1f",
@@ -71,6 +76,8 @@ scalar_expm1f = unary_op(
     flags=_FM,
     facts="loom_scalar_expm1f_facts",
     examples=["%result = scalar.expm1f %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_logf = unary_op(
     "scalar.logf",
@@ -81,6 +88,8 @@ scalar_logf = unary_op(
     flags=_FM,
     facts="loom_scalar_logf_facts",
     examples=["%result = scalar.logf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_log2f = unary_op(
     "scalar.log2f",
@@ -91,6 +100,8 @@ scalar_log2f = unary_op(
     flags=_FM,
     facts="loom_scalar_log2f_facts",
     examples=["%result = scalar.log2f %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_log10f = unary_op(
     "scalar.log10f",
@@ -101,6 +112,8 @@ scalar_log10f = unary_op(
     flags=_FM,
     facts="loom_scalar_log10f_facts",
     examples=["%result = scalar.log10f %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_log1pf = unary_op(
     "scalar.log1pf",
@@ -111,6 +124,8 @@ scalar_log1pf = unary_op(
     flags=_FM,
     facts="loom_scalar_log1pf_facts",
     examples=["%result = scalar.log1pf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 # ============================================================================
@@ -127,6 +142,8 @@ scalar_powf = binary_op(
     canonicalize="loom_scalar_powf_canonicalize",
     facts="loom_scalar_powf_facts",
     examples=["%result = scalar.powf %lhs, %rhs : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_sqrtf = unary_op(
     "scalar.sqrtf",
@@ -137,6 +154,8 @@ scalar_sqrtf = unary_op(
     flags=_FM,
     facts="loom_scalar_sqrtf_facts",
     examples=["%result = scalar.sqrtf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_rsqrtf = unary_op(
     "scalar.rsqrtf",
@@ -147,6 +166,8 @@ scalar_rsqrtf = unary_op(
     flags=_FM,
     facts="loom_scalar_rsqrtf_facts",
     examples=["%result = scalar.rsqrtf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_cbrtf = unary_op(
     "scalar.cbrtf",
@@ -157,6 +178,8 @@ scalar_cbrtf = unary_op(
     flags=_FM,
     facts="loom_scalar_cbrtf_facts",
     examples=["%result = scalar.cbrtf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 # ============================================================================
@@ -172,6 +195,8 @@ scalar_sinf = unary_op(
     flags=_FM,
     facts="loom_scalar_sinf_facts",
     examples=["%result = scalar.sinf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_cosf = unary_op(
     "scalar.cosf",
@@ -182,6 +207,8 @@ scalar_cosf = unary_op(
     flags=_FM,
     facts="loom_scalar_cosf_facts",
     examples=["%result = scalar.cosf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_sinturnsf = unary_op(
     "scalar.sinturnsf",
@@ -192,6 +219,8 @@ scalar_sinturnsf = unary_op(
     flags=_FM,
     facts="loom_scalar_sinturnsf_facts",
     examples=["%result = scalar.sinturnsf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_costurnsf = unary_op(
     "scalar.costurnsf",
@@ -202,6 +231,8 @@ scalar_costurnsf = unary_op(
     flags=_FM,
     facts="loom_scalar_costurnsf_facts",
     examples=["%result = scalar.costurnsf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_tanf = unary_op(
     "scalar.tanf",
@@ -212,6 +243,8 @@ scalar_tanf = unary_op(
     flags=_FM,
     facts="loom_scalar_tanf_facts",
     examples=["%result = scalar.tanf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_asinf = unary_op(
     "scalar.asinf",
@@ -222,6 +255,8 @@ scalar_asinf = unary_op(
     flags=_FM,
     facts="loom_scalar_asinf_facts",
     examples=["%result = scalar.asinf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_acosf = unary_op(
     "scalar.acosf",
@@ -232,6 +267,8 @@ scalar_acosf = unary_op(
     flags=_FM,
     facts="loom_scalar_acosf_facts",
     examples=["%result = scalar.acosf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_atanf = unary_op(
     "scalar.atanf",
@@ -242,6 +279,8 @@ scalar_atanf = unary_op(
     flags=_FM,
     facts="loom_scalar_atanf_facts",
     examples=["%result = scalar.atanf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_atan2f = binary_op(
     "scalar.atan2f",
@@ -252,6 +291,8 @@ scalar_atan2f = binary_op(
     flags=_FM,
     facts="loom_scalar_atan2f_facts",
     examples=["%result = scalar.atan2f %lhs, %rhs : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 # ============================================================================
@@ -267,6 +308,8 @@ scalar_sinhf = unary_op(
     flags=_FM,
     facts="loom_scalar_sinhf_facts",
     examples=["%result = scalar.sinhf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_coshf = unary_op(
     "scalar.coshf",
@@ -277,6 +320,8 @@ scalar_coshf = unary_op(
     flags=_FM,
     facts="loom_scalar_coshf_facts",
     examples=["%result = scalar.coshf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_tanhf = unary_op(
     "scalar.tanhf",
@@ -287,6 +332,8 @@ scalar_tanhf = unary_op(
     flags=_FM,
     facts="loom_scalar_tanhf_facts",
     examples=["%result = scalar.tanhf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_asinhf = unary_op(
     "scalar.asinhf",
@@ -297,6 +344,8 @@ scalar_asinhf = unary_op(
     flags=_FM,
     facts="loom_scalar_asinhf_facts",
     examples=["%result = scalar.asinhf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_acoshf = unary_op(
     "scalar.acoshf",
@@ -307,6 +356,8 @@ scalar_acoshf = unary_op(
     flags=_FM,
     facts="loom_scalar_acoshf_facts",
     examples=["%result = scalar.acoshf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_atanhf = unary_op(
     "scalar.atanhf",
@@ -317,6 +368,8 @@ scalar_atanhf = unary_op(
     flags=_FM,
     facts="loom_scalar_atanhf_facts",
     examples=["%result = scalar.atanhf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 # ============================================================================
@@ -332,6 +385,8 @@ scalar_erff = unary_op(
     flags=_FM,
     facts="loom_scalar_erff_facts",
     examples=["%result = scalar.erff %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 scalar_erfcf = unary_op(
     "scalar.erfcf",
@@ -342,6 +397,8 @@ scalar_erfcf = unary_op(
     flags=_FM,
     facts="loom_scalar_erfcf_facts",
     examples=["%result = scalar.erfcf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 scalar_logisticf = unary_op(
@@ -353,6 +410,8 @@ scalar_logisticf = unary_op(
     flags=_FM,
     facts="loom_scalar_logisticf_facts",
     examples=["%result = scalar.logisticf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 scalar_siluf = unary_op(
@@ -364,6 +423,8 @@ scalar_siluf = unary_op(
     flags=_FM,
     facts="loom_scalar_siluf_facts",
     examples=["%result = scalar.siluf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 scalar_softplusf = unary_op(
@@ -375,6 +436,8 @@ scalar_softplusf = unary_op(
     flags=_FM,
     facts="loom_scalar_softplusf_facts",
     examples=["%result = scalar.softplusf %input : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 scalar_geluf = Op(
@@ -394,7 +457,7 @@ scalar_geluf = Op(
         AttrDef("scale", ATTR_TYPE_F64, optional=True),
     ],
     constraints=[SameType("input", "result")],
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     verify="loom_scalar_geluf_verify",
     facts="loom_scalar_geluf_facts",
     format=[
@@ -409,6 +472,7 @@ scalar_geluf = Op(
         "%result = scalar.geluf<tanh, afn> %input : f32",
         "%result = scalar.geluf<logistic> %input {scale = 1.702} : f32",
     ],
+    eager_execution_cost=0,
 )
 
 scalar_fmaf = Op(
@@ -424,7 +488,7 @@ scalar_fmaf = Op(
     results=[Result("result", FLOAT)],
     attrs=[AttrDef("fastmath", "flags", optional=True, enum_def=FastMathFlags)],
     constraints=[SameType("a", "b", "c", "result")],
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         Flags("fastmath"),
         Ref("a"),
@@ -438,6 +502,7 @@ scalar_fmaf = Op(
     facts="loom_scalar_fmaf_facts",
     canonicalize="loom_scalar_fmaf_canonicalize",
     examples=["%result = scalar.fmaf %a, %b, %c : f32"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
@@ -450,11 +515,12 @@ scalar_ceilf = unary_op(
     phase=OpPhase.EXECUTABLE,
     type_constraint=FLOAT,
     doc="Round toward positive infinity.",
-    traits=[IDEMPOTENT],
+    traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     flags=_FM,
     canonicalize="loom_scalar_ceilf_canonicalize",
     facts="loom_scalar_ceilf_facts",
     examples=["%result = scalar.ceilf %input : f32"],
+    eager_execution_cost=1,
 )
 scalar_floorf = unary_op(
     "scalar.floorf",
@@ -462,11 +528,12 @@ scalar_floorf = unary_op(
     phase=OpPhase.EXECUTABLE,
     type_constraint=FLOAT,
     doc="Round toward negative infinity.",
-    traits=[IDEMPOTENT],
+    traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     flags=_FM,
     canonicalize="loom_scalar_floorf_canonicalize",
     facts="loom_scalar_floorf_facts",
     examples=["%result = scalar.floorf %input : f32"],
+    eager_execution_cost=1,
 )
 scalar_roundf = unary_op(
     "scalar.roundf",
@@ -474,11 +541,12 @@ scalar_roundf = unary_op(
     phase=OpPhase.EXECUTABLE,
     type_constraint=FLOAT,
     doc="Round to nearest, ties away from zero.",
-    traits=[IDEMPOTENT],
+    traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     flags=_FM,
     canonicalize="loom_scalar_roundf_canonicalize",
     facts="loom_scalar_roundf_facts",
     examples=["%result = scalar.roundf %input : f32"],
+    eager_execution_cost=1,
 )
 scalar_roundevenf = unary_op(
     "scalar.roundevenf",
@@ -486,11 +554,12 @@ scalar_roundevenf = unary_op(
     phase=OpPhase.EXECUTABLE,
     type_constraint=FLOAT,
     doc="Round to nearest, ties to even (IEEE 754 default rounding).",
-    traits=[IDEMPOTENT],
+    traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     flags=_FM,
     canonicalize="loom_scalar_roundevenf_canonicalize",
     facts="loom_scalar_roundevenf_facts",
     examples=["%result = scalar.roundevenf %input : f32"],
+    eager_execution_cost=1,
 )
 scalar_truncf = unary_op(
     "scalar.truncf",
@@ -498,11 +567,12 @@ scalar_truncf = unary_op(
     phase=OpPhase.EXECUTABLE,
     type_constraint=FLOAT,
     doc="Round toward zero (C trunc).",
-    traits=[IDEMPOTENT],
+    traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     flags=_FM,
     canonicalize="loom_scalar_truncf_canonicalize",
     facts="loom_scalar_truncf_facts",
     examples=["%result = scalar.truncf %input : f32"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================

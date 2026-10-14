@@ -407,6 +407,8 @@ scalar_remf = binary_op(
     flags=("fastmath", FastMathFlags),
     facts="loom_scalar_remf_facts",
     examples=["%result = scalar.remf %lhs, %rhs : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 scalar_negf = unary_op(
@@ -415,11 +417,12 @@ scalar_negf = unary_op(
     phase=OpPhase.EXECUTABLE,
     type_constraint=FLOAT,
     doc="Floating-point negation.",
-    traits=[INVOLUTION],
+    traits=[INVOLUTION, SAFE_TO_SPECULATE],
     flags=("fastmath", FastMathFlags),
     facts="loom_scalar_negf_facts",
     canonicalize="loom_scalar_negf_canonicalize",
     examples=["%result = scalar.negf %input : f32"],
+    eager_execution_cost=1,
 )
 
 scalar_absf = unary_op(
@@ -428,11 +431,12 @@ scalar_absf = unary_op(
     phase=OpPhase.EXECUTABLE,
     type_constraint=FLOAT,
     doc="Floating-point absolute value.",
-    traits=[IDEMPOTENT],
+    traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     flags=("fastmath", FastMathFlags),
     facts="loom_scalar_absf_facts",
     canonicalize="loom_scalar_absf_canonicalize",
     examples=["%result = scalar.absf %input : f32"],
+    eager_execution_cost=1,
 )
 
 scalar_minimumf = binary_op(
@@ -445,6 +449,8 @@ scalar_minimumf = binary_op(
     flags=("fastmath", FastMathFlags),
     facts="loom_scalar_minimumf_facts",
     examples=["%result = scalar.minimumf %lhs, %rhs : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 scalar_maximumf = binary_op(
@@ -457,6 +463,8 @@ scalar_maximumf = binary_op(
     flags=("fastmath", FastMathFlags),
     facts="loom_scalar_maximumf_facts",
     examples=["%result = scalar.maximumf %lhs, %rhs : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 scalar_minnumf = binary_op(
@@ -469,6 +477,8 @@ scalar_minnumf = binary_op(
     flags=("fastmath", FastMathFlags),
     facts="loom_scalar_minnumf_facts",
     examples=["%result = scalar.minnumf %lhs, %rhs : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 scalar_maxnumf = binary_op(
@@ -481,6 +491,8 @@ scalar_maxnumf = binary_op(
     flags=("fastmath", FastMathFlags),
     facts="loom_scalar_maxnumf_facts",
     examples=["%result = scalar.maxnumf %lhs, %rhs : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 scalar_clampf = Op(
@@ -501,7 +513,7 @@ scalar_clampf = Op(
         AttrDef("fastmath", ATTR_TYPE_FLAGS, optional=True, enum_def=FastMathFlags),
     ],
     constraints=[SameType("value", "lower", "upper", "result")],
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     facts="loom_scalar_clampf_facts",
     canonicalize="loom_scalar_clampf_canonicalize",
     format=[
@@ -519,6 +531,7 @@ scalar_clampf = Op(
         "%result = scalar.clampf<number, nnan|nsz> %value, %lower, %upper : f32",
         "%result = scalar.clampf<ieee> %value, %lower, %upper : f32",
     ],
+    eager_execution_cost=1,
 )
 
 scalar_copysignf = binary_op(
@@ -531,6 +544,8 @@ scalar_copysignf = binary_op(
     facts="loom_scalar_copysignf_facts",
     canonicalize="loom_scalar_copysignf_canonicalize",
     examples=["%result = scalar.copysignf %lhs, %rhs : f32"],
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
