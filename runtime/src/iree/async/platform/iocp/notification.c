@@ -306,8 +306,8 @@ static bool iree_async_iocp_notification_wait_cancelled(
 
 static bool iree_async_iocp_notification_wait_ready(
     iree_async_notification_wait_operation_t* wait, uint32_t epoch,
-    iree_status_t failure) {
-  return wait->wait_token != epoch || !iree_status_is_ok(failure) ||
+    iree_status_code_t failure_code) {
+  return wait->wait_token != epoch || failure_code != IREE_STATUS_OK ||
          iree_async_iocp_notification_wait_cancelled(wait);
 }
 
@@ -346,7 +346,7 @@ static iree_status_t iree_async_iocp_notification_process(
          wait;
          wait = (iree_async_notification_wait_operation_t*)wait->base.next) {
       pending |= !iree_async_iocp_notification_wait_ready(
-          wait, epoch, notification->platform.iocp.failure);
+          wait, epoch, iree_status_code(notification->platform.iocp.failure));
       cancel |= iree_async_iocp_notification_wait_cancelled(wait);
     }
     if (pending && !iree_any_bit_set(notification->platform.iocp.state,
@@ -380,7 +380,8 @@ static iree_status_t iree_async_iocp_notification_process(
     while (*wait_link) {
       iree_async_notification_wait_operation_t* wait = *wait_link;
       if (iree_async_iocp_notification_wait_ready(
-              wait, epoch, notification->platform.iocp.failure)) {
+              wait, epoch,
+              iree_status_code(notification->platform.iocp.failure))) {
         *wait_link = (iree_async_notification_wait_operation_t*)wait->base.next;
         wait->base.next = NULL;
         *ready_tail = &wait->base;

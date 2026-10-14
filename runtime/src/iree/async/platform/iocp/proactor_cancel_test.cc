@@ -165,9 +165,10 @@ TEST(IocpWaitCancellationTest, DestructionRetainsUnresolvedCarrier) {
   proactor.nt_wait_api.available = true;
   proactor.nt_wait_api.NtCancelWaitCompletionPacket = ReturnCancellationFailure;
   iree_async_operation_t operation = {};
-  iree_async_iocp_carrier_t carrier = {};
-  carrier.type = IREE_ASYNC_IOCP_CARRIER_EVENT_WAIT;
-  carrier.operation = &operation;
+  iree_async_iocp_carrier_t carrier = {
+      .type = IREE_ASYNC_IOCP_CARRIER_EVENT_WAIT,
+      .operation = &operation,
+  };
   carrier.data.event_wait.wait_handle = reinterpret_cast<HANDLE>(1);
   operation.next = reinterpret_cast<iree_async_operation_t*>(&carrier);
   proactor.active_carriers = &carrier;
