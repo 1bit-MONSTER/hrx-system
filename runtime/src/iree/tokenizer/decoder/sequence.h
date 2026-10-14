@@ -25,6 +25,8 @@ extern "C" {
 // All children must have IREE_TOKENIZER_DECODER_FLAG_SHRINKING set, enabling
 // zero-allocation in-place transformation. The |child_count| must be at most
 // IREE_TOKENIZER_DECODER_SEQUENCE_MAX_DEPTH.
+// Finalization drains children in order and passes each child's final bytes
+// through its downstream transforms before finalizing those consumers.
 //
 // The sequence takes ownership of child decoders on successful allocation.
 // Child decoders are freed when the sequence is destroyed. On allocation
