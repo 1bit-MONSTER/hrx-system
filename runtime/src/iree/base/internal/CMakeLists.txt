@@ -11,6 +11,18 @@ iree_add_all_subdirs()
 
 iree_cc_library(
   NAME
+    file_io_posix
+  HDRS
+    "file_io_posix.h"
+  SRCS
+    "file_io_posix.c"
+  DEPS
+    iree::base
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     internal
   HDRS
     "atomics.h"

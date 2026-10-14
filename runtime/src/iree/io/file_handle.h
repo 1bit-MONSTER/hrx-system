@@ -45,10 +45,10 @@ enum iree_io_file_mode_bits_t {
   // Mutually exclusive with IREE_IO_FILE_MODE_RANDOM_ACCESS. If no access
   // hint is specified the platform will use its default behavior.
   IREE_IO_FILE_MODE_SEQUENTIAL_SCAN = 1ull << 3,
-  // Hints that the library and system caching are not required. May hurt
-  // performance more than it helps unless the file is very large and
-  // exclusively accessed as part of bulk transfer operations that are
-  // page-aligned.
+  // Enables native uncached I/O (O_DIRECT, FILE_FLAG_NO_BUFFERING, F_NOCACHE).
+  // Failure to enable the native mode fails the open; no buffered fallback is
+  // selected. Request alignment is platform/file-specific. This does not
+  // request write-through durability or guarantee the absence of kernel copies.
   IREE_IO_FILE_MODE_DIRECT = 1ull << 4,
   // Ensures the file is deleted when it is closed. Platforms may use this as a
   // hint to avoid writing the file contents when cache is available.
@@ -170,6 +170,12 @@ IREE_API_EXPORT void iree_io_file_handle_release(iree_io_file_handle_t* handle);
 // primitive users of the handles must always verify accesses using this value.
 IREE_API_EXPORT iree_io_file_access_t
 iree_io_file_handle_access(const iree_io_file_handle_t* handle);
+
+// Returns the native mode retained at open/wrap. Querying this value performs
+// no native calls. The underlying mode must not change while the handle is
+// live.
+IREE_API_EXPORT iree_io_file_mode_t
+iree_io_file_handle_mode(const iree_io_file_handle_t* handle);
 
 // Returns the underlying platform file |handle| primitive value.
 // Only valid for as long as the file handle is retained. Closing or otherwise

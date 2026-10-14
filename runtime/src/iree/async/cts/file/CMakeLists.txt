@@ -9,15 +9,53 @@
 
 iree_add_all_subdirs()
 
+set(_native_file_platform_srcs "")
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  list(APPEND _native_file_platform_srcs "native_file_win32.cc")
+else()
+  list(APPEND _native_file_platform_srcs "native_file_posix.cc")
+endif()
 iree_cc_library(
   NAME
-    file_test
+    native_file
   HDRS
     "native_file.h"
   SRCS
-    "file_test.cc"
     "native_file.cc"
+    ${_native_file_platform_srcs}
   DEPS
+    iree::async
+    iree::base
+    iree::io::file_handle
+  TESTONLY
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    file_test
+  SRCS
+    "file_test.cc"
+  DEPS
+    ::native_file
+    iree::async
+    iree::async::cts::util::registry
+    iree::async::cts::util::test_base
+    iree::base
+    iree::io::file_handle
+    iree::testing::temp_file
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    requirements_test
+  SRCS
+    "requirements_test.cc"
+  DEPS
+    ::native_file
     iree::async
     iree::async::cts::util::registry
     iree::async::cts::util::test_base
@@ -34,6 +72,7 @@ iree_cc_library(
     all_tests
   DEPS
     ::file_test
+    ::requirements_test
   TESTONLY
   PUBLIC
 )

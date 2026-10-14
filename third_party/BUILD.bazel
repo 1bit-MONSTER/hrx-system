@@ -133,7 +133,10 @@ alias(
     name = "linux_io_uapi",
     actual = "//build_tools/third_party/linux_uapi:linux_io_uapi",
     tags = ["manual"],
-    visibility = [":libamdf_users"],
+    visibility = [
+        ":libamdf_users",
+        "//runtime/src/iree/async:__pkg__",
+    ],
 )
 
 alias(

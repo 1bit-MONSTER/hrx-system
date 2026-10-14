@@ -7,6 +7,7 @@
 #include "iree/io/file_handle.h"
 
 #include "iree/base/internal/atomics.h"
+#include "iree/base/internal/file_io_posix.h"
 #include "iree/io/file_contents.h"
 
 #if IREE_FILE_IO_ENABLE
@@ -139,6 +140,11 @@ IREE_API_EXPORT iree_io_file_handle_primitive_t
 iree_io_file_handle_primitive(const iree_io_file_handle_t* handle) {
   IREE_ASSERT_ARGUMENT(handle);
   return handle->primitive;
+}
+
+IREE_API_EXPORT iree_io_file_mode_t
+iree_io_file_handle_mode(const iree_io_file_handle_t* handle) {
+  return handle->mode;
 }
 
 IREE_API_EXPORT bool iree_io_file_handle_uses_async_io(
@@ -317,6 +323,9 @@ static iree_status_t iree_io_file_handle_platform_open(
   if (iree_all_bits_set(mode, IREE_IO_FILE_MODE_ASYNC)) {
     flags |= FILE_FLAG_OVERLAPPED;
   }
+  if (iree_all_bits_set(mode, IREE_IO_FILE_MODE_DIRECT)) {
+    flags |= FILE_FLAG_NO_BUFFERING;
+  }
 
   // Convert from the runtime's UTF-8 representation only at the Win32 API
   // boundary. The converted path is absolute and extended-length.
@@ -439,11 +448,6 @@ static iree_status_t iree_io_file_handle_platform_open(
   } else if (iree_all_bits_set(mode, IREE_IO_FILE_MODE_WRITE)) {
     flags |= O_WRONLY;
   }
-#if defined(O_DIRECT)
-  if (iree_all_bits_set(mode, IREE_IO_FILE_MODE_DIRECT)) {
-    flags |= O_DIRECT;
-  }
-#endif  // O_DIRECT
 #if defined(O_TMPFILE)
   if (iree_all_bits_set(mode, IREE_IO_FILE_MODE_TEMPORARY)) {
     flags |= O_TMPFILE;
@@ -458,6 +462,14 @@ static iree_status_t iree_io_file_handle_platform_open(
     return iree_make_status(iree_status_code_from_errno(errno),
                             "failed to open file '%.*s'", (int)path.size,
                             path.data);
+  }
+
+  if (iree_all_bits_set(mode, IREE_IO_FILE_MODE_DIRECT)) {
+    iree_status_t status = iree_file_enable_direct_io(fd);
+    if (!iree_status_is_ok(status)) {
+      iree_close(fd);
+      return status;
+    }
   }
 
   // If we were provided an initialize size and are creating the file then

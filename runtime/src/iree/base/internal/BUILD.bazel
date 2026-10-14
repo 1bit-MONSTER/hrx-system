@@ -20,6 +20,13 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
+iree_runtime_cc_library(
+    name = "file_io_posix",
+    srcs = ["file_io_posix.c"],
+    hdrs = ["file_io_posix.h"],
+    deps = ["//runtime/src/iree/base"],
+)
+
 #===------------------------------------------------------------------------===#
 # Core headers (internal)
 #===------------------------------------------------------------------------===#

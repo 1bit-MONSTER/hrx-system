@@ -62,6 +62,7 @@ iree_cc_library(
     iree::base
     iree::base::internal
     iree::base::internal::atomic_slist
+    iree::base::internal::file_io_posix
     iree::base::threading
     iree::base::threading::thread
     ${_posix_platform_deps}

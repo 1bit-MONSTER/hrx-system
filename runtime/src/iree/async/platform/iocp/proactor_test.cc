@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <memory>
 #include <thread>
 
 #include "iree/async/event.h"
@@ -22,6 +23,7 @@
 #include "iree/async/socket.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "iree/testing/temp_file.h"
 
 namespace {
 
@@ -446,6 +448,63 @@ TEST(IocpProactorSubmitTest, CarrierAllocationFailureRollsBackCloseAndMessage) {
   iree_async_socket_release(socket);
   iree_async_proactor_release(target);
   iree_async_proactor_release(source);
+}
+
+TEST(IocpFileImportTest, AllocationFailureLeavesCompletionPortUnassociated) {
+  ControlledAllocator allocator;
+  iree_async_proactor_t* source = nullptr;
+  IREE_ASSERT_OK(iree_async_proactor_create_iocp(
+      iree_async_proactor_options_default(), allocator.value(), &source));
+  std::unique_ptr<iree_async_proactor_t, decltype(&iree_async_proactor_release)>
+      source_owner(source, iree_async_proactor_release);
+  iree_async_proactor_t* target = nullptr;
+  IREE_ASSERT_OK(iree_async_proactor_create_iocp(
+      iree_async_proactor_options_default(), iree_allocator_system(), &target));
+  std::unique_ptr<iree_async_proactor_t, decltype(&iree_async_proactor_release)>
+      target_owner(target, iree_async_proactor_release);
+
+  iree::testing::TempFilePath path("iree_async_import_rollback");
+  HANDLE handle =
+      CreateFileA(path.path().c_str(), GENERIC_READ | GENERIC_WRITE,
+                  FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, CREATE_NEW,
+                  FILE_FLAG_OVERLAPPED | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+  ASSERT_NE(handle, INVALID_HANDLE_VALUE);
+  std::unique_ptr<void, decltype(&CloseHandle)> handle_owner(handle,
+                                                             CloseHandle);
+  iree_async_primitive_t primitive = iree_async_primitive_from_win32_handle(
+      reinterpret_cast<uintptr_t>(handle));
+
+  allocator.allocations_before_failure = 0;
+  iree_async_file_t* file = nullptr;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_RESOURCE_EXHAUSTED,
+      iree_async_file_import(source, primitive, IREE_ASYNC_FILE_FLAG_NONE,
+                             &file));
+  EXPECT_EQ(file, nullptr);
+  allocator.allocations_before_failure = -1;
+
+  // A successful import into a different port proves that failed construction
+  // did not irreversibly associate the caller's native handle with |source|.
+  IREE_ASSERT_OK(iree_async_file_import(target, primitive,
+                                        IREE_ASYNC_FILE_FLAG_NONE, &file));
+  handle_owner.release();
+  std::unique_ptr<iree_async_file_t, decltype(&iree_async_file_release)>
+      file_owner(file, iree_async_file_release);
+  CompletionState completion;
+  uint8_t data = 0;
+  iree_async_file_read_operation_t read;
+  InitializeOperation(&read, IREE_ASYNC_OPERATION_TYPE_FILE_READ, &completion);
+  read.file = file;
+  read.offset = 0;
+  read.buffer = iree_async_span_from_ptr(&data, 1);
+  IREE_ASSERT_OK(iree_async_proactor_submit_one(target, &read.base));
+  while (completion.call_count == 0) {
+    IREE_ASSERT_OK(
+        iree_async_proactor_poll(target, iree_infinite_timeout(), nullptr));
+  }
+  EXPECT_EQ(completion.call_count, 1);
+  EXPECT_EQ(completion.status_code, IREE_STATUS_OK);
+  EXPECT_EQ(read.bytes_read, 0);
 }
 
 TEST_F(IocpProactorTest, FailedWakePersistsUntilPoll) {

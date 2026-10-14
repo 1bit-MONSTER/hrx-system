@@ -76,18 +76,19 @@ class FileTest : public CtsTestBase<> {
   // or release the file when done.
   iree_async_file_t* ImportTempFileForReadWrite(const std::string& path) {
     iree_async_file_t* file = nullptr;
-    IREE_EXPECT_OK(ImportNativeFile(
-        proactor_, iree_make_cstring_view(path.c_str()),
-        kNativeFileAccessRead | kNativeFileAccessWrite, &file));
+    IREE_EXPECT_OK(
+        ImportNativeFile(proactor_, iree_make_cstring_view(path.c_str()),
+                         kNativeFileAccessRead | kNativeFileAccessWrite,
+                         IREE_ASYNC_FILE_FLAG_NONE, &file));
     return file;
   }
 
   // Opens a temp file for reading only and imports it into the proactor.
   iree_async_file_t* ImportTempFileForRead(const std::string& path) {
     iree_async_file_t* file = nullptr;
-    IREE_EXPECT_OK(ImportNativeFile(proactor_,
-                                    iree_make_cstring_view(path.c_str()),
-                                    kNativeFileAccessRead, &file));
+    IREE_EXPECT_OK(ImportNativeFile(
+        proactor_, iree_make_cstring_view(path.c_str()), kNativeFileAccessRead,
+        IREE_ASYNC_FILE_FLAG_NONE, &file));
     return file;
   }
 

@@ -713,7 +713,7 @@ static void iree_async_proactor_iocp_commit_file_open(
   }
 
   if (iree_any_bit_set(open_op->open_flags, IREE_ASYNC_FILE_OPEN_FLAG_DIRECT)) {
-    flags_and_attributes |= FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH;
+    flags_and_attributes |= FILE_FLAG_NO_BUFFERING;
   }
 
   // Convert from the runtime's UTF-8 representation only at the Win32 API
@@ -744,8 +744,12 @@ static void iree_async_proactor_iocp_commit_file_open(
   // Import the file handle (associates with IOCP port).
   iree_async_primitive_t primitive =
       iree_async_primitive_from_win32_handle((uintptr_t)file_handle);
-  status =
-      iree_async_file_import(&proactor->base, primitive, &open_op->opened_file);
+  iree_async_file_flags_t flags =
+      iree_any_bit_set(open_op->open_flags, IREE_ASYNC_FILE_OPEN_FLAG_DIRECT)
+          ? IREE_ASYNC_FILE_FLAG_DIRECT
+          : IREE_ASYNC_FILE_FLAG_NONE;
+  status = iree_async_file_import(&proactor->base, primitive, flags,
+                                  &open_op->opened_file);
   if (!iree_status_is_ok(status)) {
     CloseHandle(file_handle);
     IREE_TRACE_ZONE_END(z0);

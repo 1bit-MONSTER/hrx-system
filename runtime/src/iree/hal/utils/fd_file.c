@@ -374,8 +374,13 @@ IREE_API_EXPORT iree_status_t iree_hal_fd_file_from_handle(
     iree_async_primitive_t dup_primitive;
     status = iree_hal_platform_fd_dup_for_async(fd, &dup_primitive);
     if (iree_status_is_ok(status)) {
-      status =
-          iree_async_file_import(proactor, dup_primitive, &file->async_file);
+      iree_async_file_flags_t file_flags =
+          iree_any_bit_set(iree_io_file_handle_mode(handle),
+                           IREE_IO_FILE_MODE_DIRECT)
+              ? IREE_ASYNC_FILE_FLAG_DIRECT
+              : IREE_ASYNC_FILE_FLAG_NONE;
+      status = iree_async_file_import(proactor, dup_primitive, file_flags,
+                                      &file->async_file);
     }
     if (!iree_status_is_ok(status)) {
       iree_async_primitive_close(&dup_primitive);

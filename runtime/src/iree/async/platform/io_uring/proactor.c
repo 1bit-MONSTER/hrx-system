@@ -851,8 +851,12 @@ static iree_status_t iree_async_proactor_io_uring_complete_file_open(
     iree_async_file_open_operation_t* open_op) {
   int fd = cqe->res;
   iree_async_primitive_t primitive = iree_async_primitive_from_fd(fd);
-  iree_status_t status =
-      iree_async_file_import(&proactor->base, primitive, &open_op->opened_file);
+  iree_async_file_flags_t flags =
+      iree_any_bit_set(open_op->open_flags, IREE_ASYNC_FILE_OPEN_FLAG_DIRECT)
+          ? IREE_ASYNC_FILE_FLAG_DIRECT
+          : IREE_ASYNC_FILE_FLAG_NONE;
+  iree_status_t status = iree_async_file_import(&proactor->base, primitive,
+                                                flags, &open_op->opened_file);
   if (!iree_status_is_ok(status)) {
     // Import failed (e.g., allocation failure). Close the opened fd.
     close(fd);

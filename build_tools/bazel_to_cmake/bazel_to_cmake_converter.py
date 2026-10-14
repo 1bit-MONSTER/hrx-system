@@ -39,6 +39,7 @@ _PLATFORM_CMAKE_SYSTEM_NAME = {
     # target_compatible_with constraint labels.
     "@platforms//os:android": "Android",
     "@platforms//os:emscripten": "Emscripten",
+    "@platforms//os:ios": "iOS",
     "@platforms//os:linux": "Linux",
     "@platforms//os:macos": "Darwin",
     "@platforms//os:wasi": "WASI",
