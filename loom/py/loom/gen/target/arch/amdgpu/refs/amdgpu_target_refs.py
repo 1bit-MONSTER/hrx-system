@@ -651,10 +651,11 @@ def _descriptor_memory_properties(info: AmdgpuDescriptorSetInfo, descriptor: Des
         return order_class
     if descriptor.encoding_format_id not in _VECTOR_MEMORY_ENCODING_FORMAT_IDS:
         return order_class
-    # CDNA3/4 ISA 4.5, table 11: wide VMEM store and compare-swap payloads
-    # must survive two issue slots before VALU reuse, one before other writes.
-    # LLVM's SOFFSET-dependent window also requires one slot for SGPR-offset
-    # buffer stores. DATA/VDATA input widths cover stores and 64-bit CAS alike.
+    # CDNA2 ISA 4.5, table 9 requires one slot before wide-payload reuse;
+    # CDNA3/4 table 11 requires a second slot before VALU reuse. SGPR-offset
+    # buffers are exempt on CDNA2. Later targets retain LLVM's one-slot VALU
+    # correction for those buffers. DATA/VDATA includes 64-bit CAS payloads.
+    is_cdna2 = info.generator_target == "cdna2"
     data_fields = (AMDGPU_ENCODING_FIELD_IDS["DATA"], AMDGPU_ENCODING_FIELD_IDS["VDATA"])
     for index, operand in enumerate(descriptor.operands):
         if operand.encoding_field_id not in data_fields or operand.role not in (OperandRole.OPERAND, OperandRole.OPERAND_RESULT) or operand.unit_count <= 2:
@@ -662,8 +663,11 @@ def _descriptor_memory_properties(info: AmdgpuDescriptorSetInfo, descriptor: Des
         if index >= 7:
             raise ValueError(f"wide store payload index does not fit memory properties: {descriptor.key}")
         has_scalar_offset = any(operand.encoding_field_id == AMDGPU_ENCODING_FIELD_IDS["SOFFSET"] for operand in descriptor.operands)
-        cycles = 1 if has_scalar_offset else 2
-        return f"{order_class} | (({index} + 1) << 3) | ({cycles} << 6)"
+        if is_cdna2 and has_scalar_offset:
+            return order_class
+        other_cycles = int(not has_scalar_offset)
+        second_valu_cycle = int(not is_cdna2 and not has_scalar_offset)
+        return f"{order_class} | (({index} + 1) << 3) | ({other_cycles} << 6) | ({second_valu_cycle} << 7)"
     return order_class
 
 

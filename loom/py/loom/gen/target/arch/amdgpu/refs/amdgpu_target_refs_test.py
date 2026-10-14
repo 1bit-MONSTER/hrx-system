@@ -799,6 +799,42 @@ def test_reg_class_trait_names_classify_special_register_files() -> None:
     assert amdgpu_target_refs._reg_class_trait_names("amdgpu.vgpr") == ()
 
 
+def test_wide_store_windows_preserve_generation_and_offset_contracts() -> None:
+    # ISA section 4.5: CDNA2 has a uniform one-slot window. Later CDNA has
+    # a second VALU slot; LLVM retains one VALU slot for SGPR-offset buffers.
+    for target, ordinary, scalar_offset in (
+        ("cdna2", (1, 1), (0, 0)),
+        ("cdna3", (2, 1), (1, 0)),
+        ("cdna4", (2, 1), (1, 0)),
+        ("gfx9_4_generic", (2, 1), (1, 0)),
+    ):
+        info = amdgpu_descriptor_set_info_by_generator_target(target)
+        for format_name, data_field, offsets in (
+            ("ENC_FLAT", "DATA", (False,)),
+            ("ENC_MUBUF", "VDATA", (False, True)),
+        ):
+            # Ordinary stores plus 32/64-bit compare-swap input/result shapes.
+            for width, result_width in ((1, 0), (2, 0), (3, 0), (4, 0), (2, 1), (4, 2)):
+                for has_scalar_offset in offsets:
+                    returned = result_width != 0
+                    operands = [Operand("value", OperandRole.OPERAND, (), unit_count=width, encoding_field_id=AMDGPU_ENCODING_FIELD_IDS[data_field])]
+                    if returned:
+                        operands.insert(0, Operand("old", OperandRole.RESULT, (), unit_count=result_width))
+                    if has_scalar_offset:
+                        operands.append(Operand("offset", OperandRole.OPERAND, (), encoding_field_id=AMDGPU_ENCODING_FIELD_IDS["SOFFSET"]))
+                    descriptor = _descriptor(
+                        "amdgpu.payload",
+                        encoding_format_id=AMDGPU_ENCODING_FORMAT_IDS[format_name],
+                        operands=tuple(operands),
+                    )
+                    order = "LOOM_AMDGPU_VMEM_RESULT_ORDER_NOSAMPLER" if returned else "LOOM_AMDGPU_VMEM_RESULT_ORDER_NONE"
+                    valu_cycles, other_cycles = scalar_offset if has_scalar_offset else ordinary
+                    expected = order
+                    if width > 2 and valu_cycles:
+                        expected += f" | (({int(returned)} + 1) << 3) | ({other_cycles} << 6) | ({valu_cycles - 1} << 7)"
+                    assert amdgpu_target_refs._descriptor_memory_properties(info, descriptor) == expected
+
+
 def test_descriptor_traits_reject_missing_schedule_class() -> None:
     descriptor_set = _descriptor_set(_descriptor("amdgpu.test", schedule_class="missing"))
     trait_context = amdgpu_target_refs._descriptor_trait_context(descriptor_set)

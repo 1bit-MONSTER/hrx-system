@@ -18,7 +18,7 @@ low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_addressed_spills(%aligned
 // ----
   v_mov_b32 v8, 0
   scratch_store_dwordx4 v8, v[0:3], off offset:0
-  s_nop 1
+  s_nop 0
   v_mov_b32 v0, 20
   scratch_store_dword v0, v4, off offset:0
   v_mov_b32 v0, v5

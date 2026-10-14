@@ -567,7 +567,7 @@ low.func.def target<amdgpu.cdna2.core>(@target) @accumulator_store_matrix_write(
 
 // ----
   flat_store_dwordx4 v[0:1], acc[0:3] offset:0
-  s_nop 1
+  s_nop 0
   v_mfma_f32_16x16x4f32 acc[0:3], v2, v3, acc[0:3]
   s_waitcnt vmcnt(0) lgkmcnt(15)
   s_nop 9
@@ -591,4 +591,158 @@ low.func.def target<amdgpu.cdna3.core>(@target) @accumulator_buffer_matrix_write
   v_mfma_f32_16x16x4_f32 acc[0:3], v1, v2, acc[0:3]
   s_waitcnt vmcnt(0) lgkmcnt(15)
   s_nop 8
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @cdna2_wide_store_reuse strategy=source fixed=%address:physical_register:8:1 fixed=%data:physical_register:0:4 fixed=%base:physical_register:0:2 fixed=%replacement:physical_register:0:1
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_wide_store_reuse(%address: reg<amdgpu.vgpr>, %data: reg<amdgpu.vgpr x4>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>) asm {
+  global_store_dwordx4_saddr %address, %data, %base
+  %replacement = v_mov_b32 42
+  return %replacement
+}
+
+// ----
+  global_store_dwordx4 v8, v[0:3], s[0:1] offset:0
+  s_nop 0
+  v_mov_b32 v0, 42
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @cdna2_wide_store_last_component strategy=source fixed=%address:physical_register:8:1 fixed=%data:physical_register:0:3 fixed=%base:physical_register:0:2 fixed=%replacement:physical_register:2:1
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_wide_store_last_component(%address: reg<amdgpu.vgpr>, %data: reg<amdgpu.vgpr x3>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>) asm {
+  global_store_dwordx3_saddr %address, %data, %base
+  %replacement = v_mov_b32 42
+  return %replacement
+}
+
+// ----
+  global_store_dwordx3 v8, v[0:2], s[0:1] offset:0
+  s_nop 0
+  v_mov_b32 v2, 42
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @cdna2_buffer_store_scalar_offset strategy=source fixed=%address:physical_register:8:1 fixed=%data:physical_register:0:4 fixed=%replacement:physical_register:0:1 fixed=%resource:physical_register:4:4 fixed=%offset:physical_register:8:1
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_buffer_store_scalar_offset(%address: reg<amdgpu.vgpr>, %data: reg<amdgpu.vgpr x4>, %resource: reg<amdgpu.sgpr x4>, %offset: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
+  buffer_store_dwordx4 %data, %resource, %address, %offset
+  %replacement = v_mov_b32 42
+  return %replacement
+}
+
+// ----
+  buffer_store_dwordx4 v[0:3], v8, s[4:7], s8 offen offset:0
+  v_mov_b32 v0, 42
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @cdna2_buffer_store_inline_offset strategy=source fixed=%data:physical_register:0:4 fixed=%replacement:physical_register:0:1 fixed=%resource:physical_register:4:4
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_buffer_store_inline_offset(%data: reg<amdgpu.vgpr x4>, %resource: reg<amdgpu.sgpr x4>) -> (reg<amdgpu.vgpr>) asm {
+  buffer_store_dwordx4_off_zero %data, %resource
+  %replacement = v_mov_b32 42
+  return %replacement
+}
+
+// ----
+  buffer_store_dwordx4 v[0:3], off, s[4:7], 0 offset:0
+  s_nop 0
+  v_mov_b32 v0, 42
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @cdna2_wide_store_non_valu_writer strategy=source fixed=%address:physical_register:8:1 fixed=%data:physical_register:0:4 fixed=%base:physical_register:0:2 fixed=%replacement:physical_register:0:1
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_wide_store_non_valu_writer(%address: reg<amdgpu.vgpr>, %data: reg<amdgpu.vgpr x4>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>) asm {
+  global_store_dwordx4_saddr %address, %data, %base
+  %replacement = ds_read_b32 %address
+  return %replacement
+}
+
+// ----
+  global_store_dwordx4 v8, v[0:3], s[0:1] offset:0
+  s_nop 0
+  ds_read_b32 v0, v8 offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @cdna2_wide_compare_swap_reuse strategy=source fixed=%address:physical_register:8:1 fixed=%data:physical_register:0:4 fixed=%base:physical_register:0:2 fixed=%old:physical_register:6:2 fixed=%replacement:physical_register:0:1
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_wide_compare_swap_reuse(%address: reg<amdgpu.vgpr>, %data: reg<amdgpu.vgpr x4>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr x2>) asm {
+  %old = global_atomic_cmpswap_x2_rtn_saddr %address, %data, %base : reg<amdgpu.vgpr x2>
+  %replacement = v_mov_b32 42
+  return %replacement, %old
+}
+
+// ----
+  global_atomic_cmpswap_x2 v[6:7], v8, v[0:3], s[0:1] offset:0 glc
+  s_nop 0
+  v_mov_b32 v0, 42
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @cdna2_wide_store_backedge strategy=source fixed=%address:physical_register:8:1 fixed=%base:physical_register:0:2 fixed=%value:physical_register:0:1 fixed=%data:physical_register:0:4
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_wide_store_backedge(%address: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>, %condition: reg<amdgpu.scc>) asm {
+  low.br ^loop
+^loop:
+  %value = v_mov_b32 42
+  %data = concat(%value, %value, %value, %value) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
+  global_store_dwordx4_saddr %address, %data, %base
+  low.cond_br %condition, ^loop, ^exit : reg<amdgpu.scc>
+^exit:
+  return
+}
+
+// ----
+.Lbb1:
+  v_mov_b32 v0, 42
+  v_mov_b32 v1, v0
+  v_mov_b32 v2, v0
+  v_mov_b32 v3, v0
+  global_store_dwordx4 v8, v[0:3], s[0:1] offset:0
+  s_cbranch_scc1 .Lbb1
+.Lbb2:
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @cdna2_wide_store_one_slot strategy=source fixed=%address:physical_register:8:1 fixed=%data:physical_register:0:4 fixed=%base:physical_register:0:2 fixed=%replacement:physical_register:0:1 fixed=%gap:physical_register:6:1
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_wide_store_one_slot(%address: reg<amdgpu.vgpr>, %data: reg<amdgpu.vgpr x4>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>) asm {
+  global_store_dwordx4_saddr %address, %data, %base
+  %gap = v_mov_b32 7
+  %replacement = v_add_u32 %gap, %gap
+  return %replacement
+}
+
+// ----
+  global_store_dwordx4 v8, v[0:3], s[0:1] offset:0
+  v_mov_b32 v6, 7
+  v_add_u32 v0, v6, v6
+  s_waitcnt vmcnt(0) lgkmcnt(15)
   s_endpgm

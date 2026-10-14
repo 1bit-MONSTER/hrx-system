@@ -185,7 +185,8 @@ loom_amdgpu_store_data_wait_t loom_amdgpu_descriptor_store_data_wait(
       loom_amdgpu_descriptor_memory_properties(descriptor_set, descriptor);
   return (loom_amdgpu_store_data_wait_t){
       .operand_index = (uint8_t)(((properties >> 3) & 7) - 1),
-      .cycles = properties >> 6,
+      .valu_cycles = (((properties >> 3) & 7) != 0) + (properties >> 7),
+      .other_cycles = (properties >> 6) & 1,
   };
 }
 

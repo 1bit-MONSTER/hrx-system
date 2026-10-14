@@ -413,7 +413,7 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
     const loom_amdgpu_store_data_wait_t binding =
         loom_amdgpu_descriptor_store_data_wait(
             state->schedule->target.descriptor_set, packet->descriptor);
-    if (binding.cycles != 0) {
+    if (binding.valu_cycles != 0) {
       const loom_low_allocation_assignment_t* payload =
           loom_low_packet_descriptor_operand_assignment(
               state->allocation, packet, binding.operand_index);
@@ -425,11 +425,12 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
           .base = base,
           .count = payload->location_count,
           .reasons = {LOOM_AMDGPU_SHORT_WAIT_STORE_VALU |
-                          (binding.cycles == 2
+                          (binding.other_cycles != 0
                                ? LOOM_AMDGPU_SHORT_WAIT_STORE_OTHER
                                : 0),
-                      binding.cycles == 2 ? LOOM_AMDGPU_SHORT_WAIT_STORE_VALU
-                                          : 0},
+                      binding.valu_cycles == 2
+                          ? LOOM_AMDGPU_SHORT_WAIT_STORE_VALU
+                          : 0},
       };
     }
   }
