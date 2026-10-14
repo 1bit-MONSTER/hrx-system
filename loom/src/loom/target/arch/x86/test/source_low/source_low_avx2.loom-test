@@ -48,7 +48,7 @@ func.def target(@target) @f32x8_select_argument(%condition: vector<8xi1>, %true_
 
 // ----
 low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<8xi1>, vector<8xf32>, vector<8xf32>) -> (vector<8xf32>)}) @f32x8_select_argument(%condition: reg<x86.xmm>, %true_value: reg<x86.ymm>, %false_value: reg<x86.ymm>) -> (reg<x86.ymm>) asm {
-  %9 = vpmovsxwd.ymm.xmm %condition
+  %9 = vpmovsxwd.ymm %condition
   %result = vpblendvb.ymm %false_value, %true_value, %9
   return %result
 }

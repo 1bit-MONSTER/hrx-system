@@ -40,6 +40,7 @@ iree_py_library(
         "shuffle.py",
         "vector_arithmetic.py",
         "vector_construction.py",
+        "vector_integer_conversion.py",
     ],
     deps = [
         "//loom/py/loom:core",
@@ -151,6 +152,23 @@ iree_py_test(
         "//loom/py/loom/dialect/index",
         "//loom/py/loom/dialect/scalar",
         "//loom/py/loom/target/arch/x86:descriptors",
+        "//loom/py/loom/target/contracts",
+    ],
+)
+
+iree_py_test(
+    name = "vector_integer_conversion_test",
+    srcs = [
+        "vector_integer_conversion_test.py",
+        "//loom/py/loom/tools:pytest_style_runner.py",
+    ],
+    args = ["loom.target.arch.x86.contracts.vector_integer_conversion_test"],
+    main = "pytest_style_runner.py",
+    deps = [
+        ":contracts",
+        "//loom/py/loom/dialect/vector",
+        "//loom/py/loom/target/arch/x86:descriptors",
+        "//loom/py/loom/target/arch/x86:vector_families",
         "//loom/py/loom/target/contracts",
     ],
 )

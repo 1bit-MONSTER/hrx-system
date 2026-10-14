@@ -37,6 +37,7 @@ from loom.target.arch.x86.vector_families import (
     AVX512VL_VECTOR_BIT_WIDTHS,
     FLOAT_ELEMENTS,
     INTEGER_ELEMENTS,
+    X86_VECTOR_INTEGER_WIDENING_FAMILIES,
 )
 
 
@@ -215,6 +216,55 @@ def test_avx2_family_rows_materialize_both_register_widths() -> None:
         for mnemonic in family_mnemonics
         for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
     } <= descriptor_keys
+
+
+def test_integer_widening_rows_cover_every_pair_signedness_and_register_width() -> None:
+    assert {
+        (family.source.name, family.result.name)
+        for family in X86_VECTOR_INTEGER_WIDENING_FAMILIES
+    } == {
+        (source.name, result.name)
+        for source_index, source in enumerate(INTEGER_ELEMENTS[:-1])
+        for result in INTEGER_ELEMENTS[source_index + 1 :]
+    }
+
+    avx2_descriptors = {
+        descriptor.key: descriptor for descriptor in X86_AVX2_DESCRIPTOR_SET.descriptors
+    }
+    avx512_descriptors = {
+        descriptor.key: descriptor
+        for descriptor in X86_AVX512_CORE_DESCRIPTOR_SET.descriptors
+    }
+    for family_index, family in enumerate(X86_VECTOR_INTEGER_WIDENING_FAMILIES):
+        for mnemonic, opcode in (
+            (family.signed_mnemonic, 0x20 + family_index),
+            (family.unsigned_mnemonic, 0x30 + family_index),
+        ):
+            for result_vector_bit_width, result_suffix, encoding_prefix in (
+                (128, "xmm", 0x0600),
+                (256, "ymm", 0x4600),
+            ):
+                key = f"x86.avx2.{mnemonic}.{result_suffix}.xmm"
+                descriptor = avx2_descriptors[key]
+                assert descriptor.encoding_id == encoding_prefix | opcode
+                lane_count = result_vector_bit_width // family.result.bit_width
+                signedness = (
+                    "signed" if mnemonic == family.signed_mnemonic else "unsigned"
+                )
+                assert descriptor.semantic_tag == (
+                    f"integer.extend.{signedness}."
+                    f"{family.source.name}x{lane_count}."
+                    f"{family.result.name}x{lane_count}"
+                )
+
+            source_vector_bit_width = (
+                512 * family.source.bit_width // family.result.bit_width
+            )
+            source_suffix = "ymm" if source_vector_bit_width == 256 else "xmm"
+            descriptor = avx512_descriptors[
+                f"x86.avx512.{mnemonic}.zmm.{source_suffix}"
+            ]
+            assert descriptor.encoding_id == 0xA600 | opcode
 
 
 def test_avx_vnni_int8_rows_have_complete_direct_encodings() -> None:

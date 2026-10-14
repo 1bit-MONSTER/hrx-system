@@ -42,7 +42,7 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
   %15 = vpcmpeqb.xmm %lhs, %lhs
   %16 = vpxor.xmm %14, %15
   %17 = vpand.xmm %13, %16
-  %condition = vpmovsxbw.ymm.xmm %17
+  %condition = vpmovsxbw.ymm %17
   %result = vpblendvb.ymm %false_value, %true_value, %condition
   return %result
 }
@@ -197,11 +197,11 @@ func.def target(@target) @packed_compare_return(%lhs2: vector<2xi32>, %rhs2: vec
 // ----
 low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<2xi32>, vector<2xi32>, vector<4xi16>, vector<4xi16>, vector<8xi8>, vector<8xi8>) -> (vector<2xi1>, vector<4xi1>, vector<8xi1>)}) @packed_compare_return(%lhs2: reg<x86.xmm>, %rhs2: reg<x86.xmm>, %lhs4: reg<x86.xmm>, %rhs4: reg<x86.xmm>, %lhs8: reg<x86.xmm>, %rhs8: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
   %21 = vpcmpgtd.xmm %rhs2, %lhs2
-  %result2 = vpmovsxdq.xmm.xmm %21
+  %result2 = vpmovsxdq.xmm %21
   %23 = vpcmpgtw.xmm %rhs4, %lhs4
-  %result4 = vpmovsxwd.xmm.xmm %23
+  %result4 = vpmovsxwd.xmm %23
   %25 = vpcmpgtb.xmm %rhs8, %lhs8
-  %result8 = vpmovsxbw.xmm.xmm %25
+  %result8 = vpmovsxbw.xmm %25
   return %result2, %result4, %result8
 }
 

@@ -90,3 +90,56 @@ low.func.def target<x86.avx2.core> abi(object_function) @exchange_signed_positio
   mov.store.indexed.gpr32 %replacement, %buffer, %28 {disp32 = 16, scale = 1}
   return %previous
 }
+
+// ====
+
+x86.target<avx2> @target
+
+func.def target(@target) @widen_vector_ymm(%source: vector<8xi16>) -> (vector<8xi32>, vector<8xi32>) {
+  %signed = vector.extsi %source : vector<8xi16> to vector<8xi32>
+  %unsigned = vector.extui %source : vector<8xi16> to vector<8xi32>
+  func.return %signed, %unsigned : vector<8xi32>, vector<8xi32>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<8xi16>) -> (vector<8xi32>, vector<8xi32>)}) @widen_vector_ymm(%source: reg<x86.xmm>) -> (reg<x86.ymm>, reg<x86.ymm>) asm {
+  %signed = vpmovsxwd.ymm %source
+  %unsigned = vpmovzxwd.ymm %source
+  return %signed, %unsigned
+}
+
+// ====
+// RUN: emit source-low output=low
+
+x86.target<avx512> @target
+
+func.def target(@target) @widen_vector_zmm_smallest(%source: vector<8xi8>) -> (vector<8xi64>, vector<8xi64>) {
+  %signed = vector.extsi %source : vector<8xi8> to vector<8xi64>
+  %unsigned = vector.extui %source : vector<8xi8> to vector<8xi64>
+  func.return %signed, %unsigned : vector<8xi64>, vector<8xi64>
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (vector<8xi8>) -> (vector<8xi64>, vector<8xi64>)}) @widen_vector_zmm_smallest(%source: reg<x86.xmm>) -> (reg<x86.zmm>, reg<x86.zmm>) asm {
+  %signed = avx512.vpmovsxbq.zmm.xmm %source
+  %unsigned = avx512.vpmovzxbq.zmm.xmm %source
+  return %signed, %unsigned
+}
+
+// ====
+// RUN: emit source-low output=low
+
+x86.target<avx512> @target
+
+func.def target(@target) @widen_vector_zmm_widest_source(%source: vector<32xi8>) -> (vector<32xi16>, vector<32xi16>) {
+  %signed = vector.extsi %source : vector<32xi8> to vector<32xi16>
+  %unsigned = vector.extui %source : vector<32xi8> to vector<32xi16>
+  func.return %signed, %unsigned : vector<32xi16>, vector<32xi16>
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (vector<32xi8>) -> (vector<32xi16>, vector<32xi16>)}) @widen_vector_zmm_widest_source(%source: reg<x86.ymm>) -> (reg<x86.zmm>, reg<x86.zmm>) asm {
+  %signed = avx512.vpmovsxbw.zmm.ymm %source
+  %unsigned = avx512.vpmovzxbw.zmm.ymm %source
+  return %signed, %unsigned
+}

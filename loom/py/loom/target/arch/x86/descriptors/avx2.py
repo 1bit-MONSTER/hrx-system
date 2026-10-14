@@ -31,6 +31,7 @@ from loom.target.arch.x86.vector_families import (
     FLOAT_EXTREMA_MNEMONICS,
     INTEGER_ELEMENTS,
     X86_LANE_FAMILIES,
+    X86_VECTOR_INTEGER_WIDENING_FAMILIES,
     VectorBinaryFamily,
     VectorLaneFamily,
 )
@@ -747,31 +748,6 @@ _X86_AVX2_VECTOR_DESCRIPTORS = (
         ),
         native.VPBROADCASTD_VECTOR_UNARY,
     ),
-    *(
-        _vector_widen_descriptor(
-            mnemonic=mnemonic,
-            result_bit_width=result_bit_width,
-            semantic_tag=(
-                f"integer.extend.signed.i{source_element_bit_width}x"
-                f"{result_bit_width // result_element_bit_width}."
-                f"i{result_element_bit_width}x"
-                f"{result_bit_width // result_element_bit_width}"
-            ),
-            instruction=instruction,
-            explicit_source_suffix=True,
-        )
-        for (
-            mnemonic,
-            source_element_bit_width,
-            result_element_bit_width,
-            instruction,
-        ) in (
-            ("vpmovsxdq", 32, 64, native.VPMOVSXDQ),
-            ("vpmovsxwd", 16, 32, native.VPMOVSXWD),
-            ("vpmovsxbw", 8, 16, native.VPMOVSXBW),
-        )
-        for result_bit_width in AVX2_VECTOR_BIT_WIDTHS
-    ),
     _vex_descriptor(
         Descriptor(
             key="x86.avx2.vpackssdw.xmm",
@@ -989,17 +965,26 @@ _X86_AVX2_VECTOR_DESCRIPTORS = (
             mnemonic=mnemonic,
             result_bit_width=result_bit_width,
             semantic_tag=(
-                f"integer.extui.i8x{result_bit_width // result_element_bit_width}."
+                f"integer.extend.{signedness}."
+                f"i{family.source.bit_width}x"
+                f"{result_bit_width // result_element_bit_width}."
                 f"i{result_element_bit_width}x"
                 f"{result_bit_width // result_element_bit_width}"
             ),
             instruction=instruction,
         )
-        for mnemonic, result_element_bit_width, instruction in (
-            ("vpmovzxbw", 16, native.VPMOVZXBW),
-            ("vpmovzxbd", 32, native.VPMOVZXBD),
-            ("vpmovzxbq", 64, native.VPMOVZXBQ),
+        for family, instructions in zip(
+            X86_VECTOR_INTEGER_WIDENING_FAMILIES,
+            native.PACKED_INTEGER_WIDEN,
+            strict=True,
         )
+        for mnemonic, signedness, instruction in zip(
+            (family.signed_mnemonic, family.unsigned_mnemonic),
+            ("signed", "unsigned"),
+            instructions,
+            strict=True,
+        )
+        for result_element_bit_width in (family.result.bit_width,)
         for result_bit_width in AVX2_VECTOR_BIT_WIDTHS
     ),
     _vector_binary_descriptor(

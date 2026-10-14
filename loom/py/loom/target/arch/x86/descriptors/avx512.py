@@ -31,6 +31,7 @@ from loom.target.arch.x86.vector_families import (
     FLOAT_ELEMENTS,
     FLOAT_EXTREMA_MNEMONICS,
     INTEGER_ELEMENTS,
+    X86_VECTOR_INTEGER_WIDENING_FAMILIES,
 )
 from loom.target.low_descriptors import (
     Descriptor,
@@ -114,7 +115,7 @@ from .integer_float import integer_float_descriptors
 from .memory import memory_descriptors
 from .scalar import X86_SCALAR_DESCRIPTOR_SET
 
-_REGISTER_SUFFIXES = {128: "xmm", 256: "ymm", 512: "zmm"}
+_REGISTER_SUFFIXES = {64: "xmm", 128: "xmm", 256: "ymm", 512: "zmm"}
 
 
 def _evex_descriptor(
@@ -144,7 +145,9 @@ def _direct_broadcast_asm_mnemonic(
 def _zmm_widen_descriptor(
     mnemonic: str,
     source_bit_width: int,
+    source_element_bit_width: int,
     result_element_bit_width: int,
+    signedness: str,
     instruction: VectorMachineInstruction,
 ) -> Descriptor:
     source_suffix = _REGISTER_SUFFIXES[source_bit_width]
@@ -153,7 +156,9 @@ def _zmm_widen_descriptor(
             key=f"x86.avx512.{mnemonic}.zmm.{source_suffix}",
             mnemonic=mnemonic,
             semantic_tag=(
-                f"integer.extui.i8x{512 // result_element_bit_width}."
+                f"integer.extend.{signedness}."
+                f"i{source_element_bit_width}x"
+                f"{512 // result_element_bit_width}."
                 f"i{result_element_bit_width}x{512 // result_element_bit_width}"
             ),
             operands=(_zmm_result(), _vector_operand(source_bit_width, "source")),
@@ -755,12 +760,23 @@ X86_AVX512_CORE_DESCRIPTOR_SET = DescriptorSet(
         ),
         *(
             _zmm_widen_descriptor(
-                mnemonic, source_bit_width, element_bit_width, instruction
+                mnemonic,
+                512 * family.source.bit_width // family.result.bit_width,
+                family.source.bit_width,
+                family.result.bit_width,
+                signedness,
+                instruction,
             )
-            for mnemonic, source_bit_width, element_bit_width, instruction in (
-                ("vpmovzxbw", 256, 16, native.VPMOVZXBW),
-                ("vpmovzxbd", 128, 32, native.VPMOVZXBD),
-                ("vpmovzxbq", 128, 64, native.VPMOVZXBQ),
+            for family, instructions in zip(
+                X86_VECTOR_INTEGER_WIDENING_FAMILIES,
+                native.PACKED_INTEGER_WIDEN,
+                strict=True,
+            )
+            for mnemonic, signedness, instruction in zip(
+                (family.signed_mnemonic, family.unsigned_mnemonic),
+                ("signed", "unsigned"),
+                instructions,
+                strict=True,
             )
         ),
         *(
