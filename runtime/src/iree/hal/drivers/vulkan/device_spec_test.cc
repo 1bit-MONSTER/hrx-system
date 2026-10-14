@@ -625,6 +625,8 @@ TEST_P(DeviceSpecFloatControlsTest, CreatesSpecFromParams) {
   EXPECT_EQ(dispatch->launch.maximum_workgroup_invocations, 1024);
   EXPECT_EQ(dispatch->launch.maximum_workgroup_size[2], 64);
   EXPECT_EQ(dispatch->subgroup.default_size, 32);
+  EXPECT_EQ(dispatch->subgroup.minimum_size, 32);
+  EXPECT_EQ(dispatch->subgroup.maximum_size, 32);
   EXPECT_EQ(dispatch->subgroup.supported_size_mask, 1ull << 32);
   EXPECT_EQ(dispatch->execution.maximum_workgroup_local_memory_size, 64 * 1024);
   EXPECT_EQ(dispatch->addressing.minimum_buffer_device_address_alignment, 16);
@@ -676,6 +678,25 @@ TEST_P(DeviceSpecFloatControlsTest, CreatesSpecFromParams) {
   EXPECT_EQ(decoded_property.a_type, cooperative_matrix_property.AType);
   EXPECT_EQ(decoded_property.scope, cooperative_matrix_property.scope);
 
+  iree_hal_device_spec_release(device_spec);
+  physical_device.subgroup_size_control_properties.requiredSubgroupSizeStages =
+      VK_SHADER_STAGE_COMPUTE_BIT;
+  IREE_ASSERT_OK(iree_hal_vulkan_device_spec_create(
+      &params, iree_allocator_system(), &device_spec));
+  dispatch = iree_hal_device_spec_dispatch(device_spec);
+  ASSERT_NE(dispatch, nullptr);
+  EXPECT_EQ(dispatch->subgroup.minimum_size, 32);
+  EXPECT_EQ(dispatch->subgroup.maximum_size, 64);
+  iree_hal_device_spec_release(device_spec);
+
+  device_plan.enabled_features.general &=
+      ~IREE_HAL_VULKAN_FEATURE_ENABLE_SUBGROUP_SIZE_CONTROL;
+  IREE_ASSERT_OK(iree_hal_vulkan_device_spec_create(
+      &params, iree_allocator_system(), &device_spec));
+  dispatch = iree_hal_device_spec_dispatch(device_spec);
+  ASSERT_NE(dispatch, nullptr);
+  EXPECT_EQ(dispatch->subgroup.minimum_size, 32);
+  EXPECT_EQ(dispatch->subgroup.maximum_size, 32);
   iree_hal_device_spec_release(device_spec);
   iree_hal_allocator_release(allocator);
 }

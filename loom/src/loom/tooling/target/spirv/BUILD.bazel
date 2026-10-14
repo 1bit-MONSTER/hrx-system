@@ -200,6 +200,27 @@ iree_c_embed_data(
     target_compatible_with = _SPIRV_COMPILE_COMPATIBLE_WITH,
 )
 
+loom_generated_file(
+    name = "subgroup_entries_binary",
+    testonly = True,
+    args = ["$(location test/subgroup_entries.loom)"],
+    generator = "//loom/src/loom/tools/loom-compile:loom-compile",
+    inputs = ["test/subgroup_entries.loom"],
+    output = "subgroup_entries.spv",
+    output_flag = "--output=",
+    target_compatible_with = _SPIRV_COMPILE_COMPATIBLE_WITH,
+)
+
+iree_c_embed_data(
+    name = "subgroup_entries_spv",
+    testonly = True,
+    srcs = [":subgroup_entries_binary"],
+    c_file_output = "subgroup_entries_spv.c",
+    h_file_output = "subgroup_entries_spv.h",
+    identifier = "loom_spirv_subgroup_entries",
+    target_compatible_with = _SPIRV_COMPILE_COMPATIBLE_WITH,
+)
+
 loom_cc_test(
     name = "artifact_execution_test",
     srcs = [
@@ -215,6 +236,7 @@ loom_cc_test(
     target_compatible_with = LOOM_SPIRV_VULKAN_COMPATIBLE_WITH,
     deps = [
         ":multiple_entries_spv",
+        ":subgroup_entries_spv",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/cts/util:registry",

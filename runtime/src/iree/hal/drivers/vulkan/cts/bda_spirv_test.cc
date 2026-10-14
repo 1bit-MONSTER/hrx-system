@@ -642,6 +642,53 @@ TEST_P(BdaSpirvTest, QueueDispatchExecutesBdaShader) {
   ExpectOutput(output_buffer);
 }
 
+TEST_P(BdaSpirvTest, RejectsUnsupportedSubgroupSize) {
+  Ref<iree_hal_executable_t> executable;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      PrepareBdaExecutable(BdaSpirvFixture("bda_subgroup_unsupported.spv"),
+                           executable.out()));
+  EXPECT_EQ(executable.get(), nullptr);
+}
+
+TEST_P(BdaSpirvTest, QueueDispatchHonorsPerEntrySubgroupSizes) {
+  const auto* dispatch =
+      iree_hal_device_spec_dispatch(iree_hal_device_spec(device_));
+  ASSERT_NE(dispatch, nullptr);
+  if (dispatch->subgroup.minimum_size > 32 ||
+      dispatch->subgroup.maximum_size < 64) {
+    GTEST_SKIP()
+        << "device does not support both 32- and 64-lane compute subgroups";
+  }
+  Ref<iree_hal_executable_t> executable;
+  IREE_ASSERT_OK(PrepareBdaExecutable(BdaSpirvFixture("bda_subgroup_sizes.spv"),
+                                      executable.out()));
+  for (uint32_t subgroup_size : {32u, 64u}) {
+    SCOPED_TRACE(subgroup_size);
+    Ref<iree_hal_buffer_t> output;
+    IREE_ASSERT_OK(
+        CreateZeroedDeviceBuffer(128 * sizeof(uint32_t), output.out()));
+    const iree_hal_buffer_ref_t binding =
+        iree_hal_make_buffer_ref(output, 0, IREE_HAL_WHOLE_BUFFER);
+    const iree_hal_buffer_ref_list_t bindings = {1, &binding};
+    iree_hal_executable_function_t function =
+        iree_hal_executable_function_invalid();
+    IREE_ASSERT_OK(iree_hal_executable_lookup_function_by_name(
+        executable, subgroup_size == 32 ? IREE_SV("wave32") : IREE_SV("wave64"),
+        &function));
+    SemaphoreList completed(device_, {0}, {1});
+    IREE_ASSERT_OK(iree_hal_queue_dispatch(
+        dispatch_queue_, iree_hal_semaphore_list_empty(), completed, executable,
+        function, iree_hal_make_static_dispatch_config(1, 1, 1),
+        iree_const_byte_span_empty(), bindings, /*barriers=*/NULL,
+        IREE_HAL_DISPATCH_FLAG_NONE));
+    IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
+        completed, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+    EXPECT_THAT(ReadBufferData<uint32_t>(output),
+                ContainerEq(std::vector<uint32_t>(128, subgroup_size)));
+  }
+}
+
 TEST_P(BdaSpirvTest, QueueDispatchExecutesBdaShaderWithMetadata) {
   Ref<iree_hal_executable_t> executable;
   IREE_ASSERT_OK(PrepareBdaExecutable(BdaSpirvFixture(kBdaSpirvAdd7Bindings2),

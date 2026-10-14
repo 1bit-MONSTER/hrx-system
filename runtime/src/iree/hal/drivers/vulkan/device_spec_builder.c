@@ -442,7 +442,11 @@ static iree_status_t iree_hal_vulkan_device_spec_populate_dispatch(
       &params->physical_device->properties2.properties.limits;
   const bool has_subgroup_size_control =
       iree_all_bits_set(params->device_plan->enabled_features.general,
-                        IREE_HAL_VULKAN_FEATURE_ENABLE_SUBGROUP_SIZE_CONTROL);
+                        IREE_HAL_VULKAN_FEATURE_ENABLE_SUBGROUP_SIZE_CONTROL) &&
+      iree_all_bits_set(
+          params->physical_device->subgroup_size_control_properties
+              .requiredSubgroupSizeStages,
+          VK_SHADER_STAGE_COMPUTE_BIT);
   const uint32_t subgroup_size =
       params->physical_device->subgroup_properties.subgroupSize;
   const uint32_t subgroup_size_minimum =

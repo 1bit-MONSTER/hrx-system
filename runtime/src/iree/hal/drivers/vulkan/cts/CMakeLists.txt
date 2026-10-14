@@ -214,6 +214,32 @@ iree_spirv_asm_module(
 )
 endif()
 
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV OR IREE_HAL_DRIVER_VULKAN)
+iree_spirv_asm_module(
+  NAME
+    bda_subgroup_sizes
+  SRC
+    "testdata/bda_subgroup_sizes.spvasm"
+  TARGET_ENV
+    "vulkan1.3"
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV OR IREE_HAL_DRIVER_VULKAN)
+iree_spirv_asm_module(
+  NAME
+    bda_subgroup_unsupported
+  SRC
+    "testdata/bda_subgroup_unsupported.spvasm"
+  TARGET_ENV
+    "vulkan1.3"
+  TESTONLY
+  PUBLIC
+)
+endif()
+
 if(IREE_HAL_DRIVER_VULKAN)
 iree_c_embed_data(
   NAME
@@ -231,6 +257,8 @@ iree_c_embed_data(
     "${CMAKE_CURRENT_BINARY_DIR}/bda_noop_binding_requirements.spv"
     "${CMAKE_CURRENT_BINARY_DIR}/bda_noop_bindings_2_constant_length_8.spv"
     "${CMAKE_CURRENT_BINARY_DIR}/bda_noop_without_push_constant_root.spv"
+    "${CMAKE_CURRENT_BINARY_DIR}/bda_subgroup_sizes.spv"
+    "${CMAKE_CURRENT_BINARY_DIR}/bda_subgroup_unsupported.spv"
   C_FILE_OUTPUT
     "bda_spirv_test_spv.c"
   H_FILE_OUTPUT

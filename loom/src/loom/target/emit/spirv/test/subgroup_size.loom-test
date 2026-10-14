@@ -1,0 +1,61 @@
+// RUN: emit spirv-dis validate
+// REQUIRES: spirv-dis, spirv-val
+
+spirv.target<vulkan1_3> @wave32 {abi = hal_kernel, subgroup_size = 32}
+
+spirv.target<vulkan1_3> @wave64 {abi = hal_kernel, subgroup_size = 64}
+
+low.kernel.def target<spirv.logical.core>(@wave32) abi_layout({signature = () -> ()}) workgroup_size(128, 1, 1) @entry32() asm {
+  return
+}
+
+low.kernel.def target<spirv.logical.core>(@wave64) abi_layout({signature = () -> ()}) workgroup_size(128, 1, 1) @entry64() asm {
+  return
+}
+
+// ----
+               OpCapability Shader
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpMemoryModel PhysicalStorageBuffer64 GLSL450
+               OpEntryPoint GLCompute %entry32 "entry32"
+               OpEntryPoint GLCompute %entry64 "entry64"
+               OpExecutionMode %entry32 LocalSize 128 1 1
+               OpExecutionMode %entry64 LocalSize 128 1 1
+               OpName %entry32 "entry32"
+               OpName %entry64 "entry64"
+               OpModuleProcessed "iree.vulkan.bda.v1[entry32].subgroup_size=32"
+               OpModuleProcessed "iree.vulkan.bda.v1[entry32].root=0,32"
+               OpModuleProcessed "iree.vulkan.bda.v1[entry32].constant_offset=32"
+               OpModuleProcessed "iree.vulkan.bda.v1[entry32].constant_length=0"
+               OpModuleProcessed "iree.vulkan.bda.v1[entry32].bindings=0"
+               OpModuleProcessed "iree.vulkan.bda.parameters.v1[entry32]="
+               OpModuleProcessed "iree.vulkan.bda.v1[entry64].subgroup_size=64"
+               OpModuleProcessed "iree.vulkan.bda.v1[entry64].root=0,32"
+               OpModuleProcessed "iree.vulkan.bda.v1[entry64].constant_offset=32"
+               OpModuleProcessed "iree.vulkan.bda.v1[entry64].constant_length=0"
+               OpModuleProcessed "iree.vulkan.bda.v1[entry64].bindings=0"
+               OpModuleProcessed "iree.vulkan.bda.parameters.v1[entry64]="
+               OpDecorate %_struct_10 Block
+               OpMemberDecorate %_struct_10 0 Offset 0
+               OpMemberDecorate %_struct_10 1 Offset 8
+               OpMemberDecorate %_struct_10 2 Offset 16
+               OpMemberDecorate %_struct_10 3 Offset 20
+               OpMemberDecorate %_struct_10 4 Offset 24
+               OpMemberDecorate %_struct_10 5 Offset 28
+       %void = OpTypeVoid
+          %4 = OpTypeFunction %void
+      %ulong = OpTypeInt 64 0
+       %uint = OpTypeInt 32 0
+ %_struct_10 = OpTypeStruct %ulong %ulong %uint %uint %uint %uint
+%_ptr_PushConstant__struct_10 = OpTypePointer PushConstant %_struct_10
+          %2 = OpVariable %_ptr_PushConstant__struct_10 PushConstant
+    %entry32 = OpFunction %void None %4
+          %5 = OpLabel
+               OpReturn
+               OpFunctionEnd
+    %entry64 = OpFunction %void None %4
+          %7 = OpLabel
+               OpReturn
+               OpFunctionEnd

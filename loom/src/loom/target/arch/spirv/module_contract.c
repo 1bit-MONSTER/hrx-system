@@ -12,7 +12,6 @@ loom_spirv_module_contract_t loom_spirv_module_contract_make(
     uint64_t contract_feature_bits) {
   return (loom_spirv_module_contract_t){
       .target_name = target_name,
-      .snapshot_name = target_bundle->snapshot->name,
       .codegen_format = target_bundle->snapshot->codegen_format,
       .artifact_format = target_bundle->snapshot->artifact_format,
       .abi_kind = target_bundle->export_plan->abi_kind,
@@ -24,8 +23,7 @@ loom_spirv_module_contract_t loom_spirv_module_contract_make(
 
 bool loom_spirv_module_contract_equal(const loom_spirv_module_contract_t* lhs,
                                       const loom_spirv_module_contract_t* rhs) {
-  return iree_string_view_equal(lhs->snapshot_name, rhs->snapshot_name) &&
-         lhs->codegen_format == rhs->codegen_format &&
+  return lhs->codegen_format == rhs->codegen_format &&
          lhs->artifact_format == rhs->artifact_format &&
          lhs->abi_kind == rhs->abi_kind &&
          lhs->descriptor_set_stable_id == rhs->descriptor_set_stable_id &&

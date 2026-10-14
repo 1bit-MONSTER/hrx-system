@@ -1075,6 +1075,13 @@ iree_status_t loom_spirv_module_abi_emit_entry_metadata(
   iree_string_builder_t text;
   iree_string_builder_initialize_with_storage(text_storage, text_capacity,
                                               &text);
+  const uint32_t subgroup_size =
+      loom_spirv_function_plan_target_bundle(context->function_plan)
+          ->snapshot->subgroup_size;
+  if (subgroup_size != 0) {
+    IREE_RETURN_IF_ERROR(loom_spirv_module_abi_bda_metadata_field(
+        context, &text, entry_name, "subgroup_size=", subgroup_size));
+  }
   IREE_RETURN_IF_ERROR(loom_spirv_module_abi_bda_metadata_field(
       context, &text, entry_name, "root=0,", LOOM_SPIRV_BDA_ROOT_BYTE_LENGTH));
   IREE_RETURN_IF_ERROR(loom_spirv_module_abi_bda_metadata_field(

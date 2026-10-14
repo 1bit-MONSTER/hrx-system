@@ -1038,8 +1038,9 @@ static iree_status_t iree_hal_vulkan_logical_device_load_executable(
   }
 
   return iree_hal_vulkan_executable_create(
-      &device->syms, device->logical_device, device->executable_pipeline_cache,
-      queue_family, load_params, device->host_allocator, out_executable);
+      &device->syms, device->logical_device, &device->physical_device,
+      device->enabled_features, device->executable_pipeline_cache, queue_family,
+      load_params, device->host_allocator, out_executable);
 }
 
 static iree_status_t iree_hal_vulkan_logical_device_import_file(

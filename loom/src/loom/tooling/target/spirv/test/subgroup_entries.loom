@@ -1,0 +1,38 @@
+// Fixed-width compilation must agree with the device's actual lane numbering.
+spirv.target<vulkan1_3> @wave32 {abi = hal_kernel, subgroup_size = 32}
+
+spirv.target<vulkan1_3> @wave64 {abi = hal_kernel, subgroup_size = 64}
+
+template.decl @record_subgroup_lanes(%output: buffer)
+
+template.def<@record_subgroup_lanes> @record_lanes(%output: buffer) {
+  %thread = kernel.workitem.id<x> : index
+  %lane = kernel.subgroup.lane.id : index
+  %lane_word = index.cast %lane : index to i32
+  %base = index.constant 0 : offset
+  %view = buffer.view %output[%base] : buffer -> view<128xi32>
+  view.store %lane_word, %view[%thread] : i32, view<128xi32>
+  template.return
+}
+
+kernel.def target(@wave32) @lanes32() {
+  %unit = index.constant 1 : index
+  %subgroups = index.constant 2 : index
+  %width = target.subgroup.size : index
+  %threads = index.mul %width, %subgroups : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%output: buffer) {
+  template.apply<@record_subgroup_lanes>(%output) : (buffer)
+  kernel.return
+}
+
+kernel.def target(@wave64) @lanes64() {
+  %unit = index.constant 1 : index
+  %subgroups = index.constant 2 : index
+  %width = target.subgroup.size : index
+  %threads = index.mul %width, %subgroups : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%output: buffer) {
+  template.apply<@record_subgroup_lanes>(%output) : (buffer)
+  kernel.return
+}
