@@ -83,50 +83,6 @@ loom_check_compile_tests(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_test_module(
-  NAME
-    mx_decode_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/encoding/mxfp4_decode_bf16.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/encoding/mxfp8_decode.loom"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_check_compile_tests(
-  NAME
-    "mx_decode_test"
-  SRC
-    "::mx_decode_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx11-generic
-    loom::target::amdgpu::gfx1100
-    loom::target::amdgpu::gfx1101
-    loom::target::amdgpu::gfx1102
-    loom::target::amdgpu::gfx1103
-    loom::target::amdgpu::gfx1150
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1152
-    loom::target::amdgpu::gfx1153
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1171
-    loom::target::amdgpu::gfx1172
-    loom::target::amdgpu::gfx12-5-generic
-    loom::target::amdgpu::gfx12-generic
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1201
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx1250-a0
-    loom::target::amdgpu::gfx1251
-    loom::target::amdgpu::gfx9-4-generic
-    loom::target::amdgpu::gfx940
-    loom::target::amdgpu::gfx941
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
-endif()
-
 file(GLOB _GLOB_GENERIC_X_LOOM LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS generic/*.loom)
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_module(

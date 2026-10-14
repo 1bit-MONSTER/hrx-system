@@ -176,7 +176,7 @@ AMD_CLIENT_BAZEL_OPTIONS = (
     "--//libamdf/config:enabled=true",
     "--//libamdf/config:families=rdna,xdna",
     "--//runtime/config/hal:drivers=task,xdna",
-    "--//loom/config/target:enable=amdgpu,xdna,x86",
+    "--//loom/config/target:enable=amdgpu,vm,xdna,x86",
     "--//loom/config/execute:enable=iree_hal",
     "--//loom/config/import:enable=",
     "--//loom/config/emit:enable=",
@@ -185,12 +185,13 @@ AMD_CLIENT_BAZEL_TARGETS = (
     *AMDF_BAZEL_TARGETS,
     "//experimental/xdna/...",
     "//runtime/src/iree/hal/drivers/amd/...",
+    "//loom/target/amd/xdna/...",
 )
 AMD_CLIENT_WINDOWS_BAZEL_OPTIONS = AMD_CLIENT_BAZEL_OPTIONS + (
     "--//build_tools/vulkan/config:enabled=true",
     "--//build_tools/d3d12/config:enabled=true",
     "--//runtime/config/hal:drivers=task,vulkan,xdna",
-    "--//loom/config/target:enable=amdgpu,spirv,xdna,x86",
+    "--//loom/config/target:enable=amdgpu,spirv,vm,xdna,x86",
 )
 AMD_CLIENT_WINDOWS_BAZEL_TARGETS = AMD_CLIENT_BAZEL_TARGETS + (
     "//runtime/src/iree/hal/drivers/vulkan/...",
