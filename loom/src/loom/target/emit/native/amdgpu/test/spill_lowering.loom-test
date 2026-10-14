@@ -29,10 +29,10 @@ low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_addressed_spills(%aligned
   scratch_store_dword v0, v7, off offset:0
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s0
+  v_mov_b32 v0, s0
   v_mov_b32 v1, 4096
   scratch_store_dword v1, v0, off offset:0
-  v_mov_b32_copy v0, s1
+  v_mov_b32 v0, s1
   v_mov_b32 v1, 4100
   scratch_store_dword v1, v0, off offset:0
   s_mov_b64 exec, s[2:3]
@@ -78,9 +78,9 @@ low.func.def target<amdgpu.gfx9_4.generic.core>(@gfx9_4_generic_target) @gfx9_4_
 // ----
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s0
+  v_mov_b32 v0, s0
   scratch_store_b32 off, v0, off offset:0
-  v_mov_b32_copy v0, s1
+  v_mov_b32 v0, s1
   scratch_store_b32 off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[0:1]
@@ -135,9 +135,9 @@ low.func.def target<amdgpu.gfx11.generic.core>(@gfx11_retired_lane_target) @sgpr
 .Lbb2:
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v4, s0
+  v_mov_b32 v4, s0
   scratch_store_b32 off, v4, off offset:0
-  v_mov_b32_copy v4, s1
+  v_mov_b32 v4, s1
   scratch_store_b32 off, v4, off offset:4
   s_mov_b64 exec, s[4:5]
   s_mov_b64_exec_read s[4:5]
@@ -196,9 +196,9 @@ low.func.def target<amdgpu.gfx9_4.generic.core>(@gfx9_4_generic_target) @gfx9_4_
 // ----
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s0
+  v_mov_b32 v0, s0
   scratch_store_b32 off, v0, off offset:0
-  v_mov_b32_copy v0, s1
+  v_mov_b32 v0, s1
   scratch_store_b32 off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[0:1]
@@ -228,9 +228,9 @@ low.func.def target<amdgpu.gfx11.generic.core>(@gfx11_generic_target) @gfx11_gen
 // ----
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s0
+  v_mov_b32 v0, s0
   scratch_store_b32 off, v0, off offset:0
-  v_mov_b32_copy v0, s1
+  v_mov_b32 v0, s1
   scratch_store_b32 off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[0:1]
@@ -258,9 +258,9 @@ low.func.def target<amdgpu.gfx12.generic.core>(@gfx12_generic_target) @gfx12_gen
 // ----
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s0
+  v_mov_b32 v0, s0
   scratch_store_b32 off, v0, off offset:0
-  v_mov_b32_copy v0, s1
+  v_mov_b32 v0, s1
   scratch_store_b32 off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[0:1]
@@ -288,9 +288,9 @@ low.func.def target<amdgpu.gfx12_5.generic.core>(@gfx12_5_generic_target) @gfx12
 // ----
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s0
+  v_mov_b32 v0, s0
   scratch_store_b32 off, v0, off offset:0
-  v_mov_b32_copy v0, s1
+  v_mov_b32 v0, s1
   scratch_store_b32 off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[0:1]
@@ -431,36 +431,36 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @later_block_storage_survi
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s0
+  v_mov_b32 v0, s0
   scratch_store_b32 off, v0, off offset:0
-  v_mov_b32_copy v0, s1
+  v_mov_b32 v0, s1
   scratch_store_b32 off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   v_cmp_lt_u32 s[2:3], v2, v3
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s2
+  v_mov_b32 v0, s2
   scratch_store_b32 off, v0, off offset:32
-  v_mov_b32_copy v0, s3
+  v_mov_b32 v0, s3
   scratch_store_b32 off, v0, off offset:36
   s_mov_b64 exec, s[4:5]
   v_cmp_lt_u32 s[2:3], v4, v5
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s2
+  v_mov_b32 v0, s2
   scratch_store_b32 off, v0, off offset:8
-  v_mov_b32_copy v0, s3
+  v_mov_b32 v0, s3
   scratch_store_b32 off, v0, off offset:12
   s_mov_b64 exec, s[4:5]
   v_cmp_lt_u32 s[2:3], v6, v7
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s2
+  v_mov_b32 v0, s2
   scratch_store_b32 off, v0, off offset:24
-  v_mov_b32_copy v0, s3
+  v_mov_b32 v0, s3
   scratch_store_b32 off, v0, off offset:28
   s_mov_b64 exec, s[4:5]
   s_mov_b64_exec_read s[2:3]
@@ -476,9 +476,9 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @later_block_storage_survi
   s_and_b64 s[2:3], s[0:1], s[4:5]
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s2
+  v_mov_b32 v0, s2
   scratch_store_b32 off, v0, off offset:16
-  v_mov_b32_copy v0, s3
+  v_mov_b32 v0, s3
   scratch_store_b32 off, v0, off offset:20
   s_mov_b64 exec, s[4:5]
   s_mov_b64_exec_read s[2:3]
@@ -585,36 +585,36 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @storage_views_survive_spi
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s0
+  v_mov_b32 v0, s0
   scratch_store_b32 off, v0, off offset:28
-  v_mov_b32_copy v0, s1
+  v_mov_b32 v0, s1
   scratch_store_b32 off, v0, off offset:32
   s_mov_b64 exec, s[2:3]
   v_cmp_lt_u32 s[2:3], v2, v3
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s2
+  v_mov_b32 v0, s2
   scratch_store_b32 off, v0, off offset:72
-  v_mov_b32_copy v0, s3
+  v_mov_b32 v0, s3
   scratch_store_b32 off, v0, off offset:76
   s_mov_b64 exec, s[4:5]
   v_cmp_lt_u32 s[2:3], v4, v5
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s2
+  v_mov_b32 v0, s2
   scratch_store_b32 off, v0, off offset:48
-  v_mov_b32_copy v0, s3
+  v_mov_b32 v0, s3
   scratch_store_b32 off, v0, off offset:52
   s_mov_b64 exec, s[4:5]
   v_cmp_lt_u32 s[2:3], v6, v7
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s2
+  v_mov_b32 v0, s2
   scratch_store_b32 off, v0, off offset:64
-  v_mov_b32_copy v0, s3
+  v_mov_b32 v0, s3
   scratch_store_b32 off, v0, off offset:68
   s_mov_b64 exec, s[4:5]
   s_mov_b64_exec_read s[2:3]
@@ -630,9 +630,9 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @storage_views_survive_spi
   s_and_b64 s[2:3], s[0:1], s[4:5]
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s2
+  v_mov_b32 v0, s2
   scratch_store_b32 off, v0, off offset:56
-  v_mov_b32_copy v0, s3
+  v_mov_b32 v0, s3
   scratch_store_b32 off, v0, off offset:60
   s_mov_b64 exec, s[4:5]
   s_mov_b64_exec_read s[2:3]

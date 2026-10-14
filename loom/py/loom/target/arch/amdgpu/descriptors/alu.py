@@ -7719,7 +7719,12 @@ def _v_mov_b32_copy_overlay() -> AmdgpuDescriptorOverlay:
             AmdgpuOperandOverlay("VDST", _vgpr_result()),
             AmdgpuOperandOverlay("SRC0", _sgpr_vgpr_operand("src")),
         ),
-        asm_forms=_asm(mnemonic="v_mov_b32_copy", results=("dst",), operands=("src",)),
+        asm_forms=_asm(
+            mnemonic="v_mov_b32_copy",
+            native_assembly_mnemonic="v_mov_b32",
+            results=("dst",),
+            operands=("src",),
+        ),
         flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.SAFE_TO_SPECULATE),
     )
 

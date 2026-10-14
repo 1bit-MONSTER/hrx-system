@@ -221,3 +221,59 @@ low.func.def target<amdgpu.rdna4.core>(@target) @scoped_address_forms(%resource:
   global_store_b32 v0, v1, s[2:3] offset:0 scope:SCOPE_DEV th:TH_STORE_WB
   global_store_b32 v[2:3], v4, off offset:0 scope:SCOPE_SYS th:TH_STORE_BYPASS
   s_endpgm
+
+// ====
+
+// Immediate-only SMEM uses a positional offset. Register-offset forms retain
+// their additional named offset, for global, scratch and buffer accesses.
+// RUN: emit amdgpu-assembly @scalar_address_forms strategy=source waits=none
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @scalar_address_forms(%base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.sgpr>, %resource: reg<amdgpu.sgpr x4>, %vector: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %word = s_load_dword_offset_only %base
+  %pair = s_load_dwordx2_offset_only %base {offset = 32}
+  %dynamic = s_load_dwordx4 %base, %offset {offset = 48}
+  %scratch = s_scratch_load_dwordx4_offset_only %base {offset = 64}
+  %buffer = s_buffer_load_dword %resource, %offset {offset = 16}
+  s_store_dword_offset_only %word, %base
+  s_store_dwordx2_offset_only %pair, %base {offset = 32}
+  s_store_dwordx4 %dynamic, %base, %offset {offset = 48}
+  s_scratch_store_dwordx4_offset_only %scratch, %base {offset = 64}
+  s_buffer_store_dword %buffer, %resource, %offset {offset = 16}
+  %scalar_copy = v_mov_b32_copy %word
+  %vector_copy = v_mov_b32_copy %vector
+  return %scalar_copy, %vector_copy
+}
+// ----
+  s_load_dword s3, s[0:1], 0
+  s_load_dwordx2 s[8:9], s[0:1], 32
+  s_load_dwordx4 s[12:15], s[0:1], s2 offset:48
+  s_scratch_load_dwordx4 s[16:19], s[0:1], 64
+  s_buffer_load_dword s10, s[4:7], s2 offset:16
+  s_store_dword s3, s[0:1], 0
+  s_store_dwordx2 s[8:9], s[0:1], 32
+  s_store_dwordx4 s[12:15], s[0:1], s2 offset:48
+  s_scratch_store_dwordx4 s[16:19], s[0:1], 64
+  s_buffer_store_dword s10, s[4:7], s2 offset:16
+  v_mov_b32 v1, s3
+  v_mov_b32 v0, v0
+  s_endpgm
+
+// ====
+
+// RDNA4's narrow and three-word scalar loads share the immediate-only form,
+// including offsets wider than the earlier 21-bit field.
+// RUN: emit amdgpu-assembly @scalar_narrow_offsets strategy=source waits=none
+amdgpu.target<gfx1201> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @scalar_narrow_offsets(%base: reg<amdgpu.sgpr x2>) asm {
+  %byte = s_load_u8_offset_only %base
+  %half = s_load_i16_offset_only %base {offset = 12}
+  %triple = s_load_b96_offset_only %base {offset = 3430008}
+  return
+}
+// ----
+  s_load_u8 s2, s[0:1], 0
+  s_load_i16 s2, s[0:1], 12
+  s_load_b96 s[4:6], s[0:1], 3430008
+  s_endpgm

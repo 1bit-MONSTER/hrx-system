@@ -25,8 +25,8 @@ low.func.def target<amdgpu.rdna3.core>(@target) @gfx11_vopd_register_moves_same_
 }
 
 // ----
-  v_mov_b32_copy v2, v5
-  v_mov_b32_copy v3, v1
+  v_mov_b32 v2, v5
+  v_mov_b32 v3, v1
   s_endpgm
 
 // ====

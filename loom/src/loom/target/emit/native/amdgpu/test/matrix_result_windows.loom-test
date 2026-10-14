@@ -150,7 +150,7 @@ low.func.def target<amdgpu.cdna2.core>(@target) @overwrite_preserves_memory_wind
 // ----
   v_mfma_f64_4x4x4f64 v[0:1], v[2:3], v[4:5], v[0:1]
   s_nop 5
-  v_mov_b32_copy v0, v6
+  v_mov_b32 v0, v6
   s_nop 1
   global_store_dword v7, v0, s[0:1] offset:0
   s_waitcnt vmcnt(0) lgkmcnt(15)

@@ -224,10 +224,10 @@ low.func.def target<amdgpu.rdna3.core>(@target) @smem_result_reuse_requires_full
 // wide load's physical result after three younger requests therefore requires
 // a full drain, even though a positional remaining-count bound would be three.
 // ----
-  s_load_dwordx8 s[8:15], s[0:1] offset:0
-  s_load_dword s4, s[0:1] offset:32
-  s_load_dwordx2 s[6:7], s[0:1] offset:40
-  s_load_dwordx4 s[16:19], s[0:1] offset:48
+  s_load_dwordx8 s[8:15], s[0:1], 0
+  s_load_dword s4, s[0:1], 32
+  s_load_dwordx2 s[6:7], s[0:1], 40
+  s_load_dwordx4 s[16:19], s[0:1], 48
   s_mov_b32 s0, 4
   s_waitcnt vmcnt(63) lgkmcnt(0)
   s_add_u32 s10, s10, s0

@@ -185,7 +185,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @smem_before_global_atom
 }
 
 // ----
-  s_load_dword s2, s[0:1] offset:0
+  s_load_dword s2, s[0:1], 0
   s_wait_kmcnt kmcnt(0)
   global_atomic_add_u32 v2, v0, v1, s[0:1] offset:0 scope:SCOPE_DEV th:TH_ATOMIC_RETURN
   s_wait_loadcnt loadcnt(0)

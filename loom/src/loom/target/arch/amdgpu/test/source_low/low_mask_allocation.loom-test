@@ -192,7 +192,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @memory_repla
 
 // ----
   v_cndmask_b32 v0, 0, v0, s[0:1]
-  s_load_dwordx2 s[0:1], s[4:5] offset:0
+  s_load_dwordx2 s[0:1], s[4:5], 0
   s_waitcnt vmcnt(63) lgkmcnt(0)
   s_or_b64 s[0:1], s[0:1], s[4:5]
   s_endpgm
@@ -217,7 +217,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @memory_repla
 
 // ----
   v_cndmask_b32 v0, 0, v0, s[0:1]
-  s_load_dword s0, s[4:5] offset:0
+  s_load_dword s0, s[4:5], 0
   s_waitcnt vmcnt(63) lgkmcnt(0)
   s_or_b32 s0, s0, s4
   s_or_b32 s2, s4, s4
@@ -268,7 +268,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @copy_cycle_a
   v_cndmask_b32 v1, v0, v0, s[0:1]
   s_delay_alu instid0(VALU_DEP_1) | instskip(SKIP_1) | instid1(VALU_DEP_1)
   v_add_f32 v1, v1, v0
-  s_load_dword s0, s[4:5] offset:0
+  s_load_dword s0, s[4:5], 0
   v_add_f32 v0, v1, v0
   s_waitcnt vmcnt(63) lgkmcnt(0)
   s_mov_b32 s0, s2
@@ -300,7 +300,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @copy_cycle_a
   v_cndmask_b32 v1, v0, v0, s[4:5]
   s_delay_alu instid0(VALU_DEP_1)
   v_add_f32 v1, v1, v0
-  v_mov_b32_copy v2, s6
+  v_mov_b32 v2, s6
   s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
   v_cndmask_b32 v1, v1, v2, s[0:1]
   s_delay_alu instid0(VALU_DEP_1)

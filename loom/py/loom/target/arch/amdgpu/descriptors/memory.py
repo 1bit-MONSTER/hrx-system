@@ -323,6 +323,11 @@ def _s_load_sized_overlay(
             operands=("base",),
             immediates=("offset",),
             named_immediates=True,
+            native_assembly_values=(
+                _native_result("dst"),
+                _native_operand("base"),
+                _native_i64_immediate("offset"),
+            ),
         )
     else:
         operands = (
@@ -466,6 +471,11 @@ def _s_store_sized_overlay(
             operands=("value", "base"),
             immediates=("offset",),
             named_immediates=True,
+            native_assembly_values=(
+                _native_operand("value"),
+                _native_operand("base"),
+                _native_i64_immediate("offset"),
+            ),
         )
     else:
         operands = (

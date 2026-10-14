@@ -105,7 +105,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @permlane16_first_input_assembly
 }
 
 // ----
-  v_mov_b32_copy v0, v0
+  v_mov_b32 v0, v0
   s_nop 1
   v_permlane16_swap_b32 v0, v1
   s_endpgm

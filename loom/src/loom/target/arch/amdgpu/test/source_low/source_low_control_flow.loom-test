@@ -274,7 +274,7 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) @uniform_branch_conditio
 
 // ----
   s_mov_b32 s6, 0
-  v_mov_b32_copy v1, s1
+  v_mov_b32 v1, s1
   s_delay_alu instid0(VALU_DEP_1)
   v_cmp_lt_i32 s[8:9], v0, v1
   s_cmp_ge_i32 s0, s6
@@ -296,7 +296,7 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) @uniform_branch_conditio
 .Lbb2:
   s_mov_b32 s2, s3
 .Lbb3:
-  v_mov_b32_copy v1, s2
+  v_mov_b32 v1, s2
   s_delay_alu instid0(VALU_DEP_1) | instskip(NEXT) | instid1(VALU_DEP_1)
   v_add_u32 v1, v1, v0
   v_cndmask_b32 v1, v0, v1, s[8:9]

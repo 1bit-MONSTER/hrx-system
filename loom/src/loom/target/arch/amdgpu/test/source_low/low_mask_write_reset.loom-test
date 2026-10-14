@@ -15,7 +15,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reuse(%value
 
 // ----
   v_cndmask_b32 v0, 0, v0, s[0:1]
-  v_mov_b32_copy v0, s4
+  v_mov_b32 v0, s4
   s_or_b64 s[0:1], s[4:5], s[4:5]
   s_and_b64 s[0:1], s[0:1], s[4:5]
   s_endpgm
@@ -36,7 +36,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3.core>(@target) @reuse(%value: 
 
 // ----
   v_cndmask_b32 v0, 0, v0, s[0:1]
-  v_mov_b32_copy v0, s4
+  v_mov_b32 v0, s4
   s_or_b64 s[0:1], s[4:5], s[4:5]
   s_and_b64 s[0:1], s[0:1], s[4:5]
   s_endpgm
@@ -57,7 +57,7 @@ low.func.def schedule(locked) target<amdgpu.rdna4m.core>(@target) @reuse(%value:
 
 // ----
   v_cndmask_b32 v0, 0, v0, s[0:1]
-  v_mov_b32_copy v0, s4
+  v_mov_b32 v0, s4
   s_or_b64 s[0:1], s[4:5], s[4:5]
   s_and_b64 s[0:1], s[0:1], s[4:5]
   s_endpgm
@@ -105,7 +105,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reuse(%value
   v_cndmask_b32 v0, 0, v0, s[0:1]
   s_or_b64 s[0:1], s[4:5], s[4:5]
   s_waitcnt_depctr 0xff9e
-  v_mov_b32_copy v0, s4
+  v_mov_b32 v0, s4
   s_and_b64 s[0:1], s[0:1], s[4:5]
   s_endpgm
 
@@ -215,7 +215,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reuse(%value
 
 // ----
   v_cndmask_b32 v1, 0, v0, vcc
-  v_mov_b32_copy v2, s4
+  v_mov_b32 v2, s4
   s_or_b64 s[0:1], s[4:5], s[4:5]
   v_cmp_eq_i32 vcc, 0, v0
   s_delay_alu instid0(VALU_DEP_3)
@@ -241,7 +241,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reuse(%value
 // ----
   v_cndmask_b32 v0, 0, v0, s[0:1]
 .Lbb1:
-  v_mov_b32_copy v0, s4
+  v_mov_b32 v0, s4
   s_or_b64 s[0:1], s[4:5], s[4:5]
   s_and_b64 s[0:1], s[0:1], s[4:5]
   s_endpgm
@@ -270,7 +270,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reuse(%value
   v_cndmask_b32 v0, 0, v0, s[0:1]
   s_cbranch_scc0 .Lbb2
 .Lbb1:
-  v_mov_b32_copy v0, s4
+  v_mov_b32 v0, s4
   s_branch .Lbb3
 .Lbb2:
 .Lbb3:
@@ -305,10 +305,10 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reuse(%value
   v_cndmask_b32 v0, 0, v0, s[0:1]
   s_cbranch_scc0 .Lbb2
 .Lbb1:
-  v_mov_b32_copy v0, s4
+  v_mov_b32 v0, s4
   s_branch .Lbb3
 .Lbb2:
-  v_mov_b32_copy v0, s5
+  v_mov_b32 v0, s5
 .Lbb3:
   s_or_b64 s[0:1], s[4:5], s[4:5]
   s_and_b64 s[0:1], s[0:1], s[4:5]
@@ -334,7 +334,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reuse(%value
 
 // ----
 .Lbb1:
-  v_mov_b32_copy v1, s4
+  v_mov_b32 v1, s4
   s_or_b64 s[0:1], s[4:5], s[4:5]
 .Lbb2:
   v_cndmask_b32 v1, 0, v0, s[0:1]
@@ -356,7 +356,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reuse(%value
 
 // ----
   v_cndmask_b32 v0, 0, v0, s[0:1]
-  v_mov_b32_copy v0, s4
+  v_mov_b32 v0, s4
   s_or_b64 s[0:1], s[4:5], s[4:5]
   s_and_b64 s[0:1], s[0:1], s[4:5]
   s_endpgm
@@ -377,7 +377,7 @@ low.func.def schedule(locked) target<amdgpu.cdna3.core>(@target) @reuse(%value: 
 
 // ----
   v_cndmask_b32 v0, 0, v0, s[0:1]
-  v_mov_b32_copy v0, s4
+  v_mov_b32 v0, s4
   s_or_b64 s[0:1], s[4:5], s[4:5]
   s_and_b64 s[0:1], s[0:1], s[4:5]
   s_endpgm
@@ -398,7 +398,7 @@ low.func.def schedule(locked) target<amdgpu.rdna4.core>(@target) @reuse(%value: 
 
 // ----
   v_cndmask_b32 v0, 0, v0, s[0:1]
-  v_mov_b32_copy v0, s4
+  v_mov_b32 v0, s4
   s_or_b64 s[0:1], s[4:5], s[4:5]
   s_wait_alu depctr(0)
   s_and_b64 s[0:1], s[0:1], s[4:5]

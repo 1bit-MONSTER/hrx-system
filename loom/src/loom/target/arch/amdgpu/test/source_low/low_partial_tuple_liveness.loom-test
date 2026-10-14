@@ -17,7 +17,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @partial_tuple_cfg(%bindings: 
 }
 
 // ----
-  v_mov_b32_copy v0, s0
+  v_mov_b32 v0, s0
 .Lbb1:
   s_mov_b64_exec_read s[0:1]
 .Lbb2:
@@ -51,7 +51,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @partial_tuple_reverse_layout(
 }
 
 // ----
-  v_mov_b32_copy v0, s0
+  v_mov_b32 v0, s0
   s_mov_b32 s0, 0
   s_mov_b64_exec_read s[4:5]
 .Lbb1:
@@ -92,7 +92,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @partial_tuple_loop(%bindings:
 // ----
   s_mov_b32 s4, 0
 .Lbb1:
-  v_mov_b32_copy v0, s2
+  v_mov_b32 v0, s2
 .Lbb2:
   s_mov_b64_exec_read s[6:7]
   s_cmp_eq_i32 s3, s4
