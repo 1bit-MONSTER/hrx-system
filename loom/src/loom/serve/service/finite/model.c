@@ -394,6 +394,8 @@ static iree_status_t loom_serve_finite_check_layouts(
       }
       continue;
     }
+    IREE_RETURN_IF_ERROR(loom_serve_preparation_stage_check_workspace(
+        declaration, program->requirements.transient.required_byte_length));
     if (program->requirements.rebindable_binding_count != binding_count ||
         program->requirements.transient.binding_index != 2 ||
         program->requirements.fixed_buffer_count != roots ||

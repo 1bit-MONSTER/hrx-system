@@ -23,6 +23,8 @@ static iree_status_t loom_serve_text_check_layouts(
     const loom_cmd_program_t* program = &stages[i].program;
     const loom_serve_preparation_stage_t* declaration =
         loom_serve_preparation_stage(preparation, i);
+    IREE_RETURN_IF_ERROR(loom_serve_preparation_stage_check_workspace(
+        declaration, program->requirements.transient.required_byte_length));
     const uint32_t binding_count =
         program->requirements.rebindable_binding_count;
     const uint32_t roots = program->requirements.fixed_buffer_count;
