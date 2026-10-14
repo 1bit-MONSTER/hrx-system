@@ -175,6 +175,10 @@ enum loom_low_schedule_flag_bits_e {
   LOOM_LOW_SCHEDULE_FLAG_RETAIN_VALUE_PRODUCER_NODES = 1u << 5,
   // Retains exact memory-completion edges across acyclic CFG paths.
   LOOM_LOW_SCHEDULE_FLAG_RETAIN_ACYCLIC_MEMORY_COMPLETIONS = 1u << 6,
+  // Orders single-successor structural setup chains after their consumers'
+  // external prerequisites. Allocation repair enables this while retrying a
+  // rematerialized program; spill insertion resets that scheduling policy.
+  LOOM_LOW_SCHEDULE_FLAG_ORDER_STRUCTURAL_SETUP = 1u << 7,
 };
 typedef uint32_t loom_low_schedule_flags_t;
 
@@ -781,10 +785,9 @@ typedef struct loom_low_schedule_options_t {
   // Borrowed module-value membership retained by allocation repair. Marked
   // results have private per-user placement, either from cloning or from
   // retaining an already-adjacent definition separated by scheduling.
-  // Nonempty membership enables static setup ordering and defers blocked
-  // materializations during ready selection. Consumer cloning and spill
-  // insertion invalidate placement at the rematerialization owner. Empty
-  // outside repair.
+  // Data-dependent members receive static setup ordering; blocked members are
+  // deferred during ready selection. Mutations that change a member's users
+  // invalidate its placement at that mutation's owner. Empty outside repair.
   iree_bitmap_t per_user_placement_values;
   // Optional target-provided implicit state reads for structural low
   // materializations that emit target packets without descriptor rows.

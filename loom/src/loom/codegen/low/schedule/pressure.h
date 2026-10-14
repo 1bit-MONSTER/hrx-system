@@ -357,6 +357,13 @@ enum loom_low_schedule_candidate_flag_bits_e {
   // Candidate itself requires more physical storage than an unspillable
   // register class, alias set, or shared packing resource can provide.
   LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXCEEDS_UNSPILLABLE_CAPACITY = 1u << 5,
+  // Candidate opens required storage above a spillable bank's capacity.
+  // Other live values can still spill, so this is pressure debt, not proof
+  // that the candidate's mandatory physical footprint cannot fit.
+  LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_OPENS_REQUIRED_REGISTER_DEBT = 1u << 10,
+  // Candidate grows a spillable bank beyond its capacity, independently of
+  // whether its new values require physical registers across later repairs.
+  LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_OPENS_REGISTER_DEBT = 1u << 11,
   // Candidate establishes storage for a later operation. Storage setup is
   // actionable only when it also advances storage or unlocks a descriptor.
   LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_STORAGE_SETUP = 1u << 7,
@@ -374,7 +381,7 @@ enum loom_low_schedule_candidate_flag_bits_e {
       LOOM_LOW_SCHEDULE_NODE_FLAG_DESCRIPTOR_SETUP,
 };
 static_assert(
-    LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXACT_PACKING_COMPLETION <= UINT16_MAX,
+    LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_OPENS_REGISTER_DEBT <= UINT16_MAX,
     "candidate flags must fit in loom_low_schedule_candidate_score_t");
 static_assert(
     (LOOM_LOW_SCHEDULE_NODE_FLAG_PAIR_TRANSPARENT << 1u) ==

@@ -1,0 +1,83 @@
+// Materializing addresses inside a pinned completion cone must still wait
+// for actionable consumers. Ordered memory transfers cannot consume all their
+// addresses together; each transfer can release storage before the next.
+// RUN: emit low-schedule-query @scratch_chain strategy=resource-stall amdgpu.vgpr=4 required-register-values=%required,%final_address,%wide_load_address,%wide,%wide_store_address,%narrow_load_address,%narrow,%narrow_store_address order=* scheduled-pressure=amdgpu.vgpr
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @scratch_chain(%live: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %required = v_mov_b32 7
+  low.schedule.fence
+  %storage = storage {byte_alignment = 8, byte_length = 64} : low.storage<private>
+  %initial_address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
+  scratch_store_b64_vaddr %initial_address, %live
+  %wide_load_address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
+  %wide = scratch_load_b64_vaddr %wide_load_address
+  %wide_store_address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
+  scratch_store_b64_vaddr %wide_store_address, %wide
+  %narrow_load_address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
+  %narrow = scratch_load_b32_vaddr %narrow_load_address
+  %narrow_store_address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
+  scratch_store_b32_vaddr %narrow_store_address, %narrow
+  %final_address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
+  scratch_store_b32_vaddr %final_address, %required
+  return %live
+}
+
+// ----
+block 0 order: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+scheduled pressure amdgpu.vgpr: peak-live-units=6 peak-live-values=4
+
+// ====
+
+// RUN: emit low-schedule-query @literal_chain strategy=resource-stall amdgpu.vgpr=4 required-register-values=%required,%final_address,%wide_load_address,%wide,%wide_store_address,%narrow_load_address,%narrow,%narrow_store_address order=* scheduled-pressure=amdgpu.vgpr
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @literal_chain(%live: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %required = v_mov_b32 7
+  low.schedule.fence
+  %storage = storage {byte_alignment = 8, byte_length = 64} : low.storage<private>
+  %initial_address = v_mov_b32 0
+  scratch_store_b64_vaddr %initial_address, %live
+  %wide_load_address = v_mov_b32 0
+  %wide = scratch_load_b64_vaddr %wide_load_address
+  %wide_store_address = v_mov_b32 0
+  scratch_store_b64_vaddr %wide_store_address, %wide
+  %narrow_load_address = v_mov_b32 0
+  %narrow = scratch_load_b32_vaddr %narrow_load_address
+  %narrow_store_address = v_mov_b32 0
+  scratch_store_b32_vaddr %narrow_store_address, %narrow
+  %final_address = v_mov_b32 0
+  scratch_store_b32_vaddr %final_address, %required
+  return %live
+}
+
+// ----
+block 0 order: 0, 1, 2, 3, 4, 9, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15
+scheduled pressure amdgpu.vgpr: peak-live-units=7 peak-live-values=5
+
+// ====
+
+// Required scratch setup must not displace wider private arithmetic that its
+// consumer still needs. EXEC readers also precede the restore, so their extra
+// dependency prevents the single-successor setup order from serializing them.
+// RUN: emit low-schedule-query @private_arithmetic strategy=resource-stall amdgpu.vgpr=4 required-register-values=%address per-user-placement-values=%left,%right order=* scheduled-pressure=amdgpu.vgpr
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @private_arithmetic(%input: reg<amdgpu.vgpr x2>, %held: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %saved_exec = s_mov_b64_exec_read
+  %storage = storage {byte_alignment = 8, byte_length = 8} : low.storage<private>
+  %left = v_mul_f64 %input, %input
+  %right = v_mul_f64 %input, %held
+  %address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
+  %sum = v_add_f64 %left, %right
+  scratch_store_b64_vaddr %address, %sum
+  s_mov_b64_exec %saved_exec
+  return %input, %held
+}
+
+// ----
+block 0 order: 0, 1, 2, 3, 5, 4, 6, 7, 8
+scheduled pressure amdgpu.vgpr: peak-live-units=8 peak-live-values=4

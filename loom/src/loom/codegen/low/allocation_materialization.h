@@ -17,6 +17,7 @@
 #define LOOM_CODEGEN_LOW_ALLOCATION_MATERIALIZATION_H_
 
 #include "iree/base/api.h"
+#include "iree/base/bitmap.h"
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/allocation.h"
 #include "loom/codegen/low/storage_layout.h"
@@ -97,6 +98,10 @@ typedef struct loom_low_allocation_materialization_options_t {
   // CFG/signature rewrites can invalidate obsolete later plans before they are
   // turned into unnecessary storage traffic.
   iree_host_size_t max_spill_plan_count;
+  // Borrowed module-value membership for retained private producer placement.
+  // Materialization clears values whose users it changes, preserving placement
+  // for other producers across the next schedule rebuild. May be empty.
+  iree_bitmap_t per_user_placement_values;
   // Structured diagnostic emitter for materialized allocation feedback.
   iree_diagnostic_emitter_t emitter;
 } loom_low_allocation_materialization_options_t;

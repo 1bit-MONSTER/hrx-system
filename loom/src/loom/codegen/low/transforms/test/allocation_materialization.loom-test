@@ -758,10 +758,10 @@ low.func.def target<test.low.core>(@test_target) @rematerialize_overlapping_view
 test.target<low_core> @test_target
 
 low.func.def target<test.low.core>(@test_target) @rematerialize_overlapping_view() -> (reg<test.packed.wide x2>, reg<test.i32>) asm {
-  %block0 = test.const.explicit32 0
   %seed = test.const.packed.narrow 4
   %wide = test.packing.expand %seed
-  %use0 = copy %block0 : reg<test.explicit32> -> reg<test.i32>
+  %block0_remat = test.const.explicit32 0
+  %use0 = copy %block0_remat : reg<test.explicit32> -> reg<test.i32>
   %block1_remat = test.const.explicit32 1
   %use1 = copy %block1_remat : reg<test.explicit32> -> reg<test.i32>
   %block2_remat = test.const.explicit32 2
@@ -784,8 +784,7 @@ low.func.def target<test.low.core>(@test_target) @rematerialize_overlapping_view
 
 test.target<low_core> @test_target
 
-// REMARK@+3: BACKEND/045 {repaired_value_count="1", cloned_packet_count="1", rewritten_operand_count="1", retained_placement_count="0"}
-// REMARK@+2: BACKEND/045 {repaired_value_count="1", cloned_packet_count="1", rewritten_operand_count="1", retained_placement_count="0"}
+// REMARK@+2: BACKEND/045 {repaired_value_count="2", cloned_packet_count="2", rewritten_operand_count="2", retained_placement_count="0"}
 // REMARK@+1: BACKEND/045 {repaired_value_count="1", cloned_packet_count="1", rewritten_operand_count="1", retained_placement_count="0"}
 low.func.def target<test.low.core>(@test_target) @irreducible_constants() -> (reg<test.packed.narrow>, reg<test.packed.narrow>, reg<test.packed.narrow>) asm {
   %first = test.const.packed.narrow 7
@@ -1074,5 +1073,37 @@ test.target<low_core> @target
 
 // ERROR@+1: BACKEND/051 {function_name="fixed_input", allocation_mode="fixed"}
 low.func.def allocation(fixed) target<test.low.core>(@target) @fixed_input() asm {
+  return
+}
+
+// ====
+
+// Register-required spill sources can still be rematerialized. Recreating a
+// constant near its store repairs pressure without another spill slot.
+// RUN: pass low-materialize-allocation{budgets=test.i32=2}
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @spill_constants() asm {
+  %storage = storage {byte_alignment = 4, byte_length = 12} : low.storage<private>
+  %first = test.const.i32 1
+  %second = test.const.i32 2
+  %third = test.const.i32 3
+  low.spill %first, %storage : reg<test.i32>, low.storage<private>
+  low.spill %second, %storage {offset = 4} : reg<test.i32>, low.storage<private>
+  low.spill %third, %storage {offset = 8} : reg<test.i32>, low.storage<private>
+  return
+}
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @spill_constants() asm {
+  %storage = storage {byte_alignment = 4, byte_length = 12} : low.storage<private>
+  %first = test.const.i32 1
+  low.spill %first, %storage : reg<test.i32>, low.storage<private>
+  %second_remat = test.const.i32 2
+  low.spill %second_remat, %storage {offset = 4} : reg<test.i32>, low.storage<private>
+  %third_remat = test.const.i32 3
+  low.spill %third_remat, %storage {offset = 8} : reg<test.i32>, low.storage<private>
   return
 }

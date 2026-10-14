@@ -813,3 +813,57 @@ low.func.def target<amdgpu.rdna3.core>(@target) @shared_spill_payloads(%offset: 
   global_store_b32 v0, v1, s[2:3] offset:16
   s_waitcnt_vscnt vscnt(0)
   s_endpgm
+
+// ====
+
+// Rematerialize private arithmetic, then spill the captured loads. Retaining
+// that arithmetic placement lets each reload start before the private producer
+// instead of losing all placement facts when spill traffic is inserted.
+// RUN: emit amdgpu-assembly @retained_arithmetic_after_spill strategy=resource-stall amdgpu.vgpr=3
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @retained_arithmetic_after_spill(%offset: reg<amdgpu.vgpr>, %source: reg<amdgpu.sgpr x2>, %destination: reg<amdgpu.sgpr x2>) asm {
+  %bias0 = v_add_u32_lit %offset, 12345
+  %bias1 = v_add_u32_lit %offset, 12346
+  %bias2 = v_add_u32_lit %offset, 12347
+  low.schedule.fence
+  %loaded0 = global_load_b32_saddr %offset, %source
+  %loaded1 = global_load_b32_saddr %offset, %source {offset = 4}
+  %loaded2 = global_load_b32_saddr %offset, %source {offset = 8}
+  s_barrier
+  %biased0 = v_add_u32 %loaded0, %bias0
+  global_store_b32_saddr %offset, %biased0, %destination
+  %biased1 = v_add_u32 %loaded1, %bias1
+  global_store_b32_saddr %offset, %biased1, %destination {offset = 4}
+  %biased2 = v_add_u32 %loaded2, %bias2
+  global_store_b32_saddr %offset, %biased2, %destination {offset = 8}
+  return
+}
+// ----
+  global_load_b32 v1, v0, s[0:1] offset:4
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v1, off offset:0
+  global_load_b32 v1, v0, s[0:1] offset:8
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v1, off offset:4
+  global_load_b32 v1, v0, s[0:1] offset:0
+  s_barrier
+  v_add_u32 v2, 12345, v0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  s_delay_alu instid0(VALU_DEP_1) | instskip(SKIP_4) | instid1(VALU_DEP_1)
+  v_add_u32 v1, v1, v2
+  global_store_b32 v0, v1, s[2:3] offset:0
+  scratch_load_b32 v1, off, off offset:0
+  v_add_u32 v2, 12346, v0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  v_add_u32 v1, v1, v2
+  global_store_b32 v0, v1, s[2:3] offset:4
+  scratch_load_b32 v1, off, off offset:4
+  v_add_u32 v2, 12347, v0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_u32 v1, v1, v2
+  global_store_b32 v0, v1, s[2:3] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm

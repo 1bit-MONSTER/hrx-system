@@ -229,8 +229,8 @@ static void loom_low_schedule_score_candidate_pressure_limit(
     loom_low_schedule_candidate_score_t* score, uint16_t reg_class_id,
     uint32_t limit_units, uint64_t current_live_units, int64_t delta_units,
     uint64_t transient_added_units, uint32_t packing_reserve_units,
-    uint32_t unspillable_activation_units,
-    bool requires_hard_register_capacity) {
+    uint32_t unspillable_activation_units, bool requires_hard_register_capacity,
+    bool opens_required_lifetime) {
   if (limit_units == UINT32_MAX) {
     return;
   }
@@ -246,10 +246,18 @@ static void loom_low_schedule_score_candidate_pressure_limit(
         candidate_live_units, iree_math_saturating_add_u64(
                                   current_live_units, transient_added_units));
   }
-  if (requires_hard_register_capacity && candidate_live_units > limit_units &&
+  if (candidate_live_units > limit_units &&
       candidate_live_units > current_live_units) {
-    score->flags |=
-        LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXCEEDS_UNSPILLABLE_CAPACITY;
+    if (requires_hard_register_capacity) {
+      score->flags |=
+          LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXCEEDS_UNSPILLABLE_CAPACITY;
+    } else {
+      score->flags |= LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_OPENS_REGISTER_DEBT;
+      if (opens_required_lifetime) {
+        score->flags |=
+            LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_OPENS_REQUIRED_REGISTER_DEBT;
+      }
+    }
   }
   const uint64_t activation_reserve_units =
       delta_units > 0 ? score->activation_reserve_units : 0;
@@ -369,9 +377,9 @@ static void loom_low_schedule_score_candidate_pressure_limit_for_class(
       unspillable_activation_units,
       iree_all_bits_set(
           state->target.descriptor_set->reg_classes[reg_class_id].flags,
-          LOOM_LOW_REG_CLASS_FLAG_UNSPILLABLE) ||
-          loom_low_schedule_candidate_opens_required_register_lifetime(
-              state, candidate_node_index, completion_domain_id));
+          LOOM_LOW_REG_CLASS_FLAG_UNSPILLABLE),
+      loom_low_schedule_candidate_opens_required_register_lifetime(
+          state, candidate_node_index, completion_domain_id));
 }
 
 static void loom_low_schedule_score_candidate_pressure_limit_for_alias_set(
@@ -400,9 +408,9 @@ static void loom_low_schedule_score_candidate_pressure_limit_for_alias_set(
           record->candidate_lifetime.early_added_units,
           record->candidate_lifetime.late_released_units),
       record->packing_reserve_units, unspillable_activation_units,
-      state->pressure_limits.alias_sets[alias_set_id].all_classes_unspillable ||
-          loom_low_schedule_candidate_opens_required_register_lifetime(
-              state, candidate_node_index, completion_domain_id));
+      state->pressure_limits.alias_sets[alias_set_id].all_classes_unspillable,
+      loom_low_schedule_candidate_opens_required_register_lifetime(
+          state, candidate_node_index, completion_domain_id));
 }
 
 static void loom_low_schedule_score_candidate_pressure_limits(

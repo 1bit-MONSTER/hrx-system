@@ -27,9 +27,9 @@ iree_status_t loom_low_schedule_setup_order_initialize(
 
 static bool loom_low_schedule_setup_order_is_member(
     const loom_low_schedule_build_state_t* state,
-    const loom_low_schedule_node_t* node, bool is_repair) {
+    const loom_low_schedule_node_t* node, bool order_structural_setup) {
   if (node->kind == LOOM_LOW_SCHEDULE_NODE_STRUCTURAL) {
-    if (is_repair) {
+    if (order_structural_setup) {
       return true;
     }
     if (!iree_any_bit_set(node->flags,
@@ -54,7 +54,7 @@ static bool loom_low_schedule_setup_order_is_member(
   // Input-free materializations carry no source register lifetime. Leave them
   // available to pressure scheduling: delaying a wide clear behind its peers
   // can let narrow producers fragment the register bank that it needs.
-  if (!is_repair || node->result_count != 1 || node->operand_count == 0) {
+  if (node->result_count != 1 || node->operand_count == 0) {
     return false;
   }
   const loom_value_id_t value_id =
@@ -66,8 +66,9 @@ static bool loom_low_schedule_setup_order_is_member(
 
 void loom_low_schedule_setup_order_classify_node(
     loom_low_schedule_build_state_t* state, loom_low_schedule_node_t* node,
-    bool is_repair) {
-  if (loom_low_schedule_setup_order_is_member(state, node, is_repair)) {
+    bool order_structural_setup) {
+  if (loom_low_schedule_setup_order_is_member(state, node,
+                                              order_structural_setup)) {
     node->flags |= LOOM_LOW_SCHEDULE_NODE_FLAG_ORDERED_SETUP;
     state->setup_order.has_members = true;
   }

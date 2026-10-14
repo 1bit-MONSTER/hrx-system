@@ -64,8 +64,8 @@ static const loom_low_schedule_recovery_policy_t
 };
 
 // Returns true when |score| establishes a new live storage value without
-// reducing live units, exposing a storage step or descriptor, or advancing
-// a live constrained-storage completion.
+// reducing live units, exposing a storage step or descriptor, or releasing
+// live inputs along a constrained-storage completion.
 // Scheduling such setup early only transfers or grows liveness in its
 // destination register class and can hold scarce physical locations across
 // unrelated work. Alias establishment and storage compaction produce no value
@@ -74,26 +74,33 @@ static bool loom_low_schedule_candidate_defers_storage_setup(
     const loom_low_schedule_candidate_score_t* score) {
   const uint16_t actionable_flags =
       LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_UNLOCKS_DESCRIPTOR |
-      LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_STORAGE |
-      LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_CONSTRAINED_COMPLETION;
+      LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_STORAGE;
+  const bool releases_completion_inputs =
+      score->killed_live_units != 0 &&
+      iree_any_bit_set(
+          score->flags,
+          LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_CONSTRAINED_COMPLETION);
   return score->produced_live_value_count != 0 &&
          score->killed_live_units <= score->produced_live_units &&
          iree_any_bit_set(score->flags,
                           LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_STORAGE_SETUP) &&
-         !iree_any_bit_set(score->flags, actionable_flags);
+         !iree_any_bit_set(score->flags, actionable_flags) &&
+         !releases_completion_inputs;
 }
 
-// Defers operand-free materializations during pressure recovery unless they
-// make their consumer ready, complete storage directly, or advance the pinned
-// transaction's final. The latter can need several leaves before any one
-// consumer becomes ready. A leaf on another constrained completion path may
-// remain serialized behind a target-state access; materializing it early opens
-// an unrelated live range while the active storage remains unchanged.
+// A pinned completion can require several leaves before its consumer is ready.
+// Preserve that progress while their physical bank has headroom. Once a leaf
+// grows its bank beyond capacity, cone membership alone is insufficient: memory
+// or target-state ordering can still block its consumer behind earlier work.
 static bool loom_low_schedule_candidate_defers_rematerializable_leaf(
     loom_low_schedule_candidate_compare_mode_t compare_mode,
     const loom_low_schedule_candidate_score_t* score) {
   if (compare_mode == LOOM_LOW_SCHEDULE_CANDIDATE_COMPARE_DEFAULT ||
-      score->active_unspillable_transaction_final_capacity != UINT32_MAX) {
+      (score->active_unspillable_transaction_final_capacity != UINT32_MAX &&
+       !iree_any_bit_set(
+           score->flags,
+           LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_OPENS_REGISTER_DEBT |
+               LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXCEEDS_UNSPILLABLE_CAPACITY))) {
     return false;
   }
   uint16_t actionable_flags =
@@ -270,6 +277,13 @@ static bool loom_low_schedule_candidate_score_less(
     loom_low_schedule_candidate_compare_mode_t compare_mode,
     const loom_low_schedule_candidate_score_t* lhs,
     const loom_low_schedule_candidate_score_t* rhs) {
+  const bool lhs_exceeds_unspillable_capacity =
+      loom_low_schedule_candidate_exceeds_unspillable_capacity(lhs);
+  const bool rhs_exceeds_unspillable_capacity =
+      loom_low_schedule_candidate_exceeds_unspillable_capacity(rhs);
+  if (lhs_exceeds_unspillable_capacity != rhs_exceeds_unspillable_capacity) {
+    return !lhs_exceeds_unspillable_capacity;
+  }
   const bool lhs_defers_materialization =
       loom_low_schedule_candidate_defers_materialization(compare_mode, lhs);
   const bool rhs_defers_materialization =
@@ -279,13 +293,6 @@ static bool loom_low_schedule_candidate_score_less(
   // register across earlier uses required to make the consumer ready.
   if (lhs_defers_materialization != rhs_defers_materialization) {
     return !lhs_defers_materialization;
-  }
-  const bool lhs_exceeds_unspillable_capacity =
-      loom_low_schedule_candidate_exceeds_unspillable_capacity(lhs);
-  const bool rhs_exceeds_unspillable_capacity =
-      loom_low_schedule_candidate_exceeds_unspillable_capacity(rhs);
-  if (lhs_exceeds_unspillable_capacity != rhs_exceeds_unspillable_capacity) {
-    return !lhs_exceeds_unspillable_capacity;
   }
   // Once hard-capacity feasibility ties, advance the tighter full bank's
   // pending completion. Waiting until both candidates exceed capacity lets
@@ -334,6 +341,21 @@ static bool loom_low_schedule_candidate_score_less(
         loom_low_schedule_candidate_unlocks_descriptor(rhs);
     if (lhs_unlocks_descriptor != rhs_unlocks_descriptor) {
       return lhs_unlocks_descriptor;
+    }
+  }
+  // Temporary spillable pressure can be repaired; opening another required
+  // lifetime consumes storage needed by the work that closes existing ones.
+  // Compare that obligation before favoring narrower deferred setup.
+  if (state->options->strategy == LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL &&
+      compare_mode != LOOM_LOW_SCHEDULE_CANDIDATE_COMPARE_DEFAULT) {
+    const bool lhs_opens_required_debt = iree_any_bit_set(
+        lhs->flags,
+        LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_OPENS_REQUIRED_REGISTER_DEBT);
+    const bool rhs_opens_required_debt = iree_any_bit_set(
+        rhs->flags,
+        LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_OPENS_REQUIRED_REGISTER_DEBT);
+    if (lhs_opens_required_debt != rhs_opens_required_debt) {
+      return !lhs_opens_required_debt;
     }
   }
   if (lhs_defers_materialization &&

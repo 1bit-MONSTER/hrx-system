@@ -394,10 +394,8 @@ scheduled pressure aie2p.vec256: peak-live-units<=24
 // final singleton insert index, even when that address work crosses capacity.
 // RUN: emit aie2p-leaf @index_repair_ordering diagnostics=predicted-spills
 
-// The two address results reach distinct failure frontiers and therefore
-// require one productive allocation retry each.
-// REMARK@+2: BACKEND/045 {function_name="index_repair_ordering", trigger_kind="allocation-failure", repaired_value_count="1", cloned_packet_count="2", rewritten_operand_count="2", retained_placement_count="0"}
-// REMARK@+1: BACKEND/045 {function_name="index_repair_ordering", trigger_kind="allocation-failure", repaired_value_count="1", cloned_packet_count="2", rewritten_operand_count="2", retained_placement_count="0"}
+// Both live address results are repaired together before rebuilding allocation.
+// REMARK@+1: BACKEND/045 {function_name="index_repair_ordering", trigger_kind="allocation-failure", repaired_value_count="2", cloned_packet_count="4", rewritten_operand_count="4", retained_placement_count="0"}
 low.func.def target<amd.xdna.aie2p.core> @index_repair_ordering(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %address0: reg<aie2p.edj>, %address1: reg<aie2p.edj>, %address2: reg<aie2p.edj>, %address3: reg<aie2p.edj>, %address4: reg<aie2p.edj>, %address5: reg<aie2p.edj>, %address6: reg<aie2p.edj>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>, %position9: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>) asm {
   %offset7 = mov.static-byte-offset 119
   %address7 = mov.address-index %offset7

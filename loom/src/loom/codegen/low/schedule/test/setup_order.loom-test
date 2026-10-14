@@ -1,0 +1,62 @@
+// A retained private producer waits for its consumer prerequisites. Its
+// membership does not enable ordering for unrelated structural operations.
+// RUN: emit low-schedule-query @retained_private_placement kind=order consumer=1,3 per-user-placement-values=%private
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @retained_private_placement(%lhs: reg<test.i32>, %rhs: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %dependency = test.add.i32 %lhs, %rhs
+  %private = test.mul.i32 %lhs, %rhs
+  %result = test.add.i32 %private, %dependency
+  %structural = copy %seed : reg<test.i32> -> reg<test.i32>
+  %other = test.mul.i32 %lhs, %seed
+  %joint = test.add.i32 %structural, %other
+  return %result, %joint
+}
+
+// ----
+node 1 <- 0
+node 3 <- none
+
+// ====
+
+// The transient structural policy and retained producer membership can
+// contribute independent setup chains to the same schedule.
+// RUN: emit low-schedule-query @structural_repair_with_retained_placement kind=order consumer=1,3 per-user-placement-values=%private order-structural-setup
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @structural_repair_with_retained_placement(%lhs: reg<test.i32>, %rhs: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %dependency = test.add.i32 %lhs, %rhs
+  %private = test.mul.i32 %lhs, %rhs
+  %result = test.add.i32 %private, %dependency
+  %structural = copy %seed : reg<test.i32> -> reg<test.i32>
+  %other = test.mul.i32 %lhs, %seed
+  %joint = test.add.i32 %structural, %other
+  return %result, %joint
+}
+
+// ----
+node 1 <- 0
+node 3 <- 4
+
+// ====
+
+// Structural repair ordering does not require any retained private producers.
+// RUN: emit low-schedule-query @structural_repair_without_retained_placement kind=order consumer=1,3 order-structural-setup
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @structural_repair_without_retained_placement(%lhs: reg<test.i32>, %rhs: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %dependency = test.add.i32 %lhs, %rhs
+  %private = test.mul.i32 %lhs, %rhs
+  %result = test.add.i32 %private, %dependency
+  %structural = copy %seed : reg<test.i32> -> reg<test.i32>
+  %other = test.mul.i32 %lhs, %seed
+  %joint = test.add.i32 %structural, %other
+  return %result, %joint
+}
+
+// ----
+node 1 <- none
+node 3 <- 4

@@ -56,8 +56,8 @@ typedef struct loom_low_rematerialization_batch_result_t {
 // or from retaining an already-adjacent definition after scheduling separated
 // it from its user. Inserting other operand definitions does not make them
 // candidates again. Cloning a consumer invalidates placement for its inputs;
-// spill materialization invalidates all placement. Value IDs remain stable
-// across the supported repair mutations.
+// spill materialization invalidates placement for values whose users it
+// changes. Value IDs remain stable across the supported repair mutations.
 typedef struct loom_low_rematerialization_state_t {
   // Arena retaining placement membership across repair attempts.
   iree_arena_allocator_t* arena;
@@ -67,11 +67,6 @@ typedef struct loom_low_rematerialization_state_t {
   // each clone inherits from its source. Growth uses the repair arena.
   iree_bitmap_t* required_register_values;
 } loom_low_rematerialization_state_t;
-
-// Invalidates per-user placement after spill traffic changes live ranges.
-// Retains allocated membership storage for subsequent repair attempts.
-void loom_low_rematerialization_invalidate_placement(
-    loom_low_rematerialization_state_t* state);
 
 // Rematerializes a descriptor-backed SSA value once near each distinct user.
 // A tied result recreates its complete rematerializable ownership chain so each
@@ -96,15 +91,16 @@ iree_status_t loom_low_rematerialize_value_uses(
     loom_low_rematerialization_state_t* state, iree_arena_allocator_t* arena,
     loom_low_value_rematerialization_result_t* out_result);
 
-// Repairs cross-block rematerializations in over-budget unspillable classes
-// as one consumer-first batch. When no batch applies, repairs the terminal
-// failure frontier: private placements accumulate while the snapshot remains
-// unchanged, stopping before a clone once placement warrants a new schedule.
-// Otherwise one genuine rewrite ends use of that snapshot. One optional
-// diagnostic summarizes the complete batch.
-// |schedule| is the completed order that failed allocation when the caller
-// will rebuild scheduling with retained placement. Source-order allocation
-// callers pass NULL and only consume IR-rewriting repairs.
+// Repairs pressure from unspillable classes and register-required spill
+// traffic. Selects cross-block demand in over-budget unspillable classes first,
+// then the live failure frontier if that demand cannot be repaired. Each set
+// forms one consumer-first batch. Private placements retain the completed
+// schedule until the first clone invalidates it. Subsequent clones capture
+// fresh operand uses without consulting the allocation or schedule snapshot.
+// One optional diagnostic summarizes the complete batch. |schedule| is the
+// completed order that failed allocation when the caller will rebuild
+// scheduling with retained placement. Source-order allocation callers pass NULL
+// and only consume IR-rewriting repairs.
 //
 // Returns OK with a zero result when the failure is not a rematerialization
 // candidate. User IR failures remain allocation diagnostics; status failures
