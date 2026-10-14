@@ -103,6 +103,7 @@ index_constant = Op(
         "%c0 = index.constant 0 : index",
         "%base = index.constant 0 : offset",
     ],
+    eager_execution_cost=1,
 )
 
 index_cast = cast_op(
@@ -207,6 +208,7 @@ index_add = binary_op(
         "%r = index.add %lhs, %rhs : index",
         "%bytes = index.add %base, %delta : offset",
     ],
+    eager_execution_cost=1,
 )
 
 index_sub = binary_op(
@@ -224,6 +226,7 @@ index_sub = binary_op(
         "%r = index.sub %lhs, %rhs : index",
         "%delta = index.sub %end, %base : offset",
     ],
+    eager_execution_cost=1,
 )
 
 index_mul = binary_op(
@@ -238,6 +241,7 @@ index_mul = binary_op(
     facts="loom_index_mul_facts",
     traits=[DISTRIBUTION_TRANSFER],
     examples=["%r = index.mul %lhs, %rhs : index"],
+    eager_execution_cost=1,
 )
 
 index_scale = Op(
@@ -275,6 +279,7 @@ index_scale = Op(
         ResultType("result"),
     ],
     examples=["%bytes = index.scale %lane, %byte_stride : index, offset -> offset"],
+    eager_execution_cost=1,
 )
 
 index_div = binary_op(
@@ -337,6 +342,7 @@ index_min = binary_op(
     facts="loom_index_min_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.min %lhs, %rhs : index"],
+    eager_execution_cost=1,
 )
 
 index_max = binary_op(
@@ -350,6 +356,7 @@ index_max = binary_op(
     facts="loom_index_max_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.max %lhs, %rhs : index"],
+    eager_execution_cost=1,
 )
 
 index_madd = Op(
@@ -378,6 +385,7 @@ index_madd = Op(
     ],
     facts="loom_index_madd_facts",
     examples=["%r = index.madd %a, %b, %c : index"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
@@ -395,6 +403,7 @@ index_andi = binary_op(
     facts="loom_index_andi_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.andi %lhs, %rhs : index"],
+    eager_execution_cost=1,
 )
 
 index_ori = binary_op(
@@ -408,6 +417,7 @@ index_ori = binary_op(
     facts="loom_index_ori_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.ori %lhs, %rhs : index"],
+    eager_execution_cost=1,
 )
 
 index_xori = binary_op(
@@ -421,6 +431,7 @@ index_xori = binary_op(
     facts="loom_index_xori_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.xori %lhs, %rhs : index"],
+    eager_execution_cost=1,
 )
 
 index_shli = binary_op(
@@ -434,6 +445,7 @@ index_shli = binary_op(
     facts="loom_index_shli_facts",
     traits=[DISTRIBUTION_TRANSFER],
     examples=["%r = index.shli %lhs, %rhs : index"],
+    eager_execution_cost=1,
 )
 
 index_shrsi = binary_op(
@@ -447,6 +459,7 @@ index_shrsi = binary_op(
     facts="loom_index_shrsi_facts",
     traits=[DISTRIBUTION_TRANSFER],
     examples=["%r = index.shrsi %lhs, %rhs : index"],
+    eager_execution_cost=1,
 )
 
 index_shrui = binary_op(
@@ -460,6 +473,7 @@ index_shrui = binary_op(
     facts="loom_index_shrui_facts",
     traits=[DISTRIBUTION_TRANSFER],
     examples=["%r = index.shrui %lhs, %rhs : index"],
+    eager_execution_cost=1,
 )
 
 index_rotli = binary_op(
@@ -472,6 +486,7 @@ index_rotli = binary_op(
     facts="loom_index_rotli_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.rotli %lhs, %rhs : index"],
+    eager_execution_cost=1,
 )
 
 index_rotri = binary_op(
@@ -484,6 +499,7 @@ index_rotri = binary_op(
     facts="loom_index_rotri_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.rotri %lhs, %rhs : index"],
+    eager_execution_cost=1,
 )
 
 index_ctlzi = unary_op(
@@ -495,6 +511,7 @@ index_ctlzi = unary_op(
     facts="loom_index_ctlzi_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.ctlzi %input : index"],
+    eager_execution_cost=1,
 )
 
 index_cttzi = unary_op(
@@ -506,6 +523,7 @@ index_cttzi = unary_op(
     facts="loom_index_cttzi_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.cttzi %input : index"],
+    eager_execution_cost=1,
 )
 
 index_ctpopi = unary_op(
@@ -517,6 +535,7 @@ index_ctpopi = unary_op(
     facts="loom_index_ctpopi_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.ctpopi %input : index"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
@@ -536,6 +555,7 @@ index_cmp = comparison_op(
         "%p = index.cmp slt, %i, %n : index",
         "%inside = index.cmp ule, %byte_offset, %limit : offset",
     ],
+    eager_execution_cost=1,
 )
 
 # ============================================================================

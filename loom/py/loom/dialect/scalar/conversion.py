@@ -51,6 +51,7 @@ scalar_sitofp = cast_op(
     facts="loom_scalar_sitofp_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.sitofp %input : i32 to f32"],
+    eager_execution_cost=1,
 )
 scalar_uitofp = cast_op(
     "scalar.uitofp",
@@ -62,6 +63,7 @@ scalar_uitofp = cast_op(
     facts="loom_scalar_uitofp_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.uitofp %input : i32 to f32"],
+    eager_execution_cost=1,
 )
 scalar_fptosi = cast_op(
     "scalar.fptosi",
@@ -107,6 +109,7 @@ scalar_extf = cast_op(
     facts="loom_scalar_extf_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.extf %input : f16 to f32"],
+    eager_execution_cost=1,
 )
 scalar_fptrunc = cast_op(
     "scalar.fptrunc",
@@ -131,6 +134,7 @@ scalar_fptrunc = cast_op(
     facts="loom_scalar_fptrunc_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.fptrunc %input : f32 to f16"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
@@ -148,6 +152,7 @@ scalar_extsi = cast_op(
     facts="loom_scalar_extsi_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.extsi %input : i8 to i32"],
+    eager_execution_cost=1,
 )
 scalar_extui = cast_op(
     "scalar.extui",
@@ -160,6 +165,7 @@ scalar_extui = cast_op(
     facts="loom_scalar_extui_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.extui %input : i8 to i32"],
+    eager_execution_cost=1,
 )
 scalar_trunci = cast_op(
     "scalar.trunci",
@@ -173,6 +179,7 @@ scalar_trunci = cast_op(
     facts="loom_scalar_trunci_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.trunci %input : i32 to i8"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
@@ -191,6 +198,7 @@ scalar_bitcast = cast_op(
     facts="loom_scalar_bitcast_facts",
     traits=[SAFE_TO_SPECULATE],
     examples=["%result = scalar.bitcast %input : f32 to i32"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
@@ -218,6 +226,7 @@ scalar_constant = Op(
         "%pi = scalar.constant 3.14159265358979 : f32",
         "%true = scalar.constant 1 : i1",
     ],
+    eager_execution_cost=1,
 )
 
 scalar_poison = Op(

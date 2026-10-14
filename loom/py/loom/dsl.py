@@ -6569,6 +6569,9 @@ class Op:
     assembly: Short target-assembly spelling using the same operation fields.
     execution_condition: Shared fact-dependent condition under which the op is
         safe to execute on additional control-flow paths.
+    eager_execution_cost: Relative cost for transforms that eagerly execute
+        the op on additional control-flow paths. None means no legality path
+        requires a policy; zero disables generic eager execution.
     structural_materialization: Whether a descriptor-free operation may emit
         target register packets while materializing its results.
     legacy_formats: Legacy textual formats accepted by migration tooling.
@@ -6602,6 +6605,7 @@ class Op:
     type_transfer: str = ""  # C function name for semantic type transfer, or "".
     condition_refinement: ConditionRefinement | None = None
     execution_condition: ExecutionCondition | None = None
+    eager_execution_cost: int | None = None
     verify: str = ""  # C function name for op-specific verification, or "".
     builder_name: str | None = None  # Python builder method override, or None.
     generate_c_builder: bool = True  # False when construction requires domain context.
@@ -6641,6 +6645,7 @@ class Op:
         type_transfer: str = "",
         condition_refinement: ConditionRefinement | None = None,
         execution_condition: ExecutionCondition | None = None,
+        eager_execution_cost: int | None = None,
         verify: str = "",
         builder_name: str | None = None,
         generate_c_builder: bool = True,
@@ -6684,6 +6689,7 @@ class Op:
         object.__setattr__(self, "type_transfer", type_transfer)
         object.__setattr__(self, "condition_refinement", condition_refinement)
         object.__setattr__(self, "execution_condition", execution_condition)
+        object.__setattr__(self, "eager_execution_cost", eager_execution_cost)
         object.__setattr__(self, "verify", verify)
         object.__setattr__(self, "builder_name", builder_name)
         object.__setattr__(self, "generate_c_builder", generate_c_builder)

@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "loom/analysis/motion_policy.h"
 #include "loom/ir/attribute.h"
 #include "loom/ir/context.h"
 #include "loom/ir/facts.h"
@@ -1190,8 +1191,9 @@ iree_status_t loom_scf_switch_canonicalize(loom_op_t* op,
 //===----------------------------------------------------------------------===//
 
 enum {
-  // Maximum non-fact work per arm that if-conversion may execute eagerly.
-  LOOM_SCF_IF_SELECTIFY_MAX_SPECULATED_OPS = 4,
+  // Maximum non-fact execution cost per arm that if-conversion may execute
+  // eagerly.
+  LOOM_SCF_IF_SELECTIFY_MAX_EAGER_EXECUTION_COST = 4,
 };
 
 static bool loom_scf_if_regions_are_discardable(const loom_op_t* op) {
@@ -1456,31 +1458,6 @@ static iree_status_t loom_scf_if_build_select(loom_op_t* op, loom_type_t type,
   return iree_ok_status();
 }
 
-static bool loom_scf_if_op_can_selectify_speculate(const loom_module_t* module,
-                                                   const loom_op_t* op) {
-  if (!op || iree_any_bit_set(op->flags, LOOM_OP_FLAG_DEAD)) {
-    return false;
-  }
-  if (op->region_count != 0 || op->tied_result_count != 0) {
-    return false;
-  }
-  loom_trait_flags_t traits = loom_op_effective_traits(module, op);
-  if (loom_scf_if_op_is_strippable_fact_identity(module, op, traits)) {
-    return true;
-  }
-  if (!iree_any_bit_set(traits, LOOM_TRAIT_PURE)) {
-    return false;
-  }
-  if (iree_any_bit_set(traits, LOOM_TRAIT_HINT | LOOM_TRAIT_CONVERGENT |
-                                   LOOM_TRAIT_OBSERVABLE_EFFECT)) {
-    return false;
-  }
-  if (loom_traits_may_read(traits) || loom_traits_may_write(traits)) {
-    return false;
-  }
-  return loom_traits_are_safe_to_speculate(traits);
-}
-
 static bool loom_scf_if_block_can_selectify_speculate(
     const loom_module_t* module, const loom_block_t* block,
     const loom_op_t* yield, bool* out_has_fact_identities) {
@@ -1488,18 +1465,29 @@ static bool loom_scf_if_block_can_selectify_speculate(
   if (!block || block->arg_count != 0 || !yield) {
     return false;
   }
-  uint16_t speculative_op_count = 0;
+  uint16_t eager_execution_cost = 0;
   for (const loom_op_t* child_op = block->first_op; child_op != yield;
        child_op = child_op->next_op) {
-    if (!loom_scf_if_op_can_selectify_speculate(module, child_op)) {
+    if (!child_op || iree_any_bit_set(child_op->flags, LOOM_OP_FLAG_DEAD)) {
       return false;
     }
-    loom_trait_flags_t traits = loom_op_effective_traits(module, child_op);
+    const loom_trait_flags_t traits =
+        loom_op_effective_traits(module, child_op);
     if (loom_scf_if_op_is_strippable_fact_identity(module, child_op, traits)) {
       *out_has_fact_identities = true;
-    } else if (++speculative_op_count >
-               LOOM_SCF_IF_SELECTIFY_MAX_SPECULATED_OPS) {
-      return false;
+    } else {
+      if (child_op->region_count != 0 ||
+          !loom_motion_op_can_speculate_with_traits(module, child_op, traits)) {
+        return false;
+      }
+      const uint8_t op_cost =
+          loom_op_semantics(module, child_op).eager_execution_cost;
+      if (op_cost == 0 ||
+          op_cost > LOOM_SCF_IF_SELECTIFY_MAX_EAGER_EXECUTION_COST -
+                        eager_execution_cost) {
+        return false;
+      }
+      eager_execution_cost += op_cost;
     }
   }
   return true;

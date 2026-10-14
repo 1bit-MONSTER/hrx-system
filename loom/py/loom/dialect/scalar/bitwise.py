@@ -44,6 +44,7 @@ scalar_andi = binary_op(
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     canonicalize="loom_scalar_andi_canonicalize",
     examples=["%result = scalar.andi %lhs, %rhs : i32"],
+    eager_execution_cost=1,
 )
 scalar_ori = binary_op(
     "scalar.ori",
@@ -56,6 +57,7 @@ scalar_ori = binary_op(
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     canonicalize="loom_scalar_ori_canonicalize",
     examples=["%result = scalar.ori %lhs, %rhs : i32"],
+    eager_execution_cost=1,
 )
 scalar_xori = binary_op(
     "scalar.xori",
@@ -68,6 +70,7 @@ scalar_xori = binary_op(
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     canonicalize="loom_scalar_xori_canonicalize",
     examples=["%result = scalar.xori %lhs, %rhs : i32"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
@@ -86,6 +89,7 @@ scalar_shli = binary_op(
     traits=[DISTRIBUTION_TRANSFER],
     canonicalize="loom_scalar_shli_canonicalize",
     examples=["%result = scalar.shli %lhs, %rhs : i32"],
+    eager_execution_cost=1,
 )
 scalar_shrsi = binary_op(
     "scalar.shrsi",
@@ -98,6 +102,7 @@ scalar_shrsi = binary_op(
     traits=[DISTRIBUTION_TRANSFER],
     canonicalize="loom_scalar_shrsi_canonicalize",
     examples=["%result = scalar.shrsi %lhs, %rhs : i32"],
+    eager_execution_cost=1,
 )
 scalar_shrui = binary_op(
     "scalar.shrui",
@@ -110,6 +115,7 @@ scalar_shrui = binary_op(
     traits=[DISTRIBUTION_TRANSFER],
     canonicalize="loom_scalar_shrui_canonicalize",
     examples=["%result = scalar.shrui %lhs, %rhs : i32"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
@@ -126,6 +132,7 @@ scalar_rotli = binary_op(
     canonicalize="loom_scalar_rotli_canonicalize",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.rotli %lhs, %rhs : i32"],
+    eager_execution_cost=1,
 )
 scalar_rotri = binary_op(
     "scalar.rotri",
@@ -137,6 +144,7 @@ scalar_rotri = binary_op(
     canonicalize="loom_scalar_rotri_canonicalize",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.rotri %lhs, %rhs : i32"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
@@ -152,6 +160,7 @@ scalar_ctlzi = unary_op(
     facts="loom_scalar_ctlzi_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.ctlzi %input : i32"],
+    eager_execution_cost=1,
 )
 scalar_cttzi = unary_op(
     "scalar.cttzi",
@@ -162,6 +171,7 @@ scalar_cttzi = unary_op(
     facts="loom_scalar_cttzi_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.cttzi %input : i32"],
+    eager_execution_cost=1,
 )
 scalar_ctpopi = unary_op(
     "scalar.ctpopi",
@@ -172,6 +182,7 @@ scalar_ctpopi = unary_op(
     facts="loom_scalar_ctpopi_facts",
     traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.ctpopi %input : i32"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
@@ -220,6 +231,7 @@ scalar_bitfield_extractu = Op(
     examples=[
         "%byte = scalar.bitfield.extractu %word {offset = 8, width = 8} : i32 -> i32",
     ],
+    eager_execution_cost=1,
 )
 
 scalar_bitfield_extracts = Op(
@@ -248,6 +260,7 @@ scalar_bitfield_extracts = Op(
     examples=[
         "%signed_byte = scalar.bitfield.extracts %word {offset = 24, width = 8} : i32 -> i32",
     ],
+    eager_execution_cost=1,
 )
 
 # ============================================================================

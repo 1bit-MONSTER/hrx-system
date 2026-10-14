@@ -102,14 +102,36 @@ def _op_phase_c_name(op: Op) -> str:
     return phase.c_name
 
 
+def _validate_eager_execution_cost(op: Op) -> None:
+    """Validates authored generic eager-execution policy."""
+    has_unconditional_safety = op.has_trait("SafeToSpeculate") or op.has_trait("ConstantLike")
+    has_conditional_safety = op.execution_condition is not None
+    has_dynamic_traits = bool(op.effective_traits)
+    requires_policy = has_unconditional_safety or has_conditional_safety or has_dynamic_traits
+    cost = op.eager_execution_cost
+    if requires_policy and cost is None:
+        raise ValueError(f"Op '{op.name}': speculation legality requires an explicit eager_execution_cost")
+    if not requires_policy and cost is not None:
+        raise ValueError(f"Op '{op.name}': eager_execution_cost requires speculation legality")
+    if cost is None:
+        return
+    if isinstance(cost, bool) or not isinstance(cost, int) or not 0 <= cost <= 255:
+        raise ValueError(f"Op '{op.name}': eager_execution_cost must be an integer in [0, 255]")
+    if cost > 0 and not (has_unconditional_safety or has_conditional_safety):
+        raise ValueError(f"Op '{op.name}': positive eager_execution_cost requires static or fact-dependent speculation safety")
+
+
 def _op_semantics_row(op: Op, condition_refinement_index: int = 0) -> list[str]:
     """Returns a sparse initializer row for one op semantic metadata row."""
+    _validate_eager_execution_cost(op)
     contract_families = _contract_family_mask(op.contracts)
     row = [f".phase = {_op_phase_c_name(op)},"]
     if condition_refinement_index:
         row.append(f".condition_refinement_index = {condition_refinement_index},")
     if op.execution_condition is not None:
         row.append(f".execution_condition = {op.execution_condition.c_name},")
+    if op.eager_execution_cost:
+        row.append(f".eager_execution_cost = {op.eager_execution_cost},")
     if contract_families != "0":
         row.append(f".contract_families = {contract_families},")
     return row

@@ -330,6 +330,7 @@ template_apply = Op(
     verify="loom_template_apply_verify",
     canonicalize="loom_template_apply_canonicalize",
     effective_traits="loom_template_apply_effective_traits",
+    eager_execution_cost=0,
     format=[
         TemplateParam("family"),
         GLUE,
@@ -390,6 +391,7 @@ template_call = Op(
     verify="loom_template_call_verify",
     canonicalize="loom_template_call_canonicalize",
     effective_traits="loom_template_call_effective_traits",
+    eager_execution_cost=0,
     format=[
         OptionalGroup([Attr("purity")], anchor="purity"),
         OptionalGroup([Attr("temperature")], anchor="temperature"),

@@ -228,6 +228,7 @@ scf_select = Op(
         "%r = scf.select %cond, %a, %b : f32",
         "%v = scf.select %cond, %then_vec, %else_vec : vector<16xf32>",
     ],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
@@ -276,6 +277,7 @@ scf_lookup = Op(
     examples=[
         "%ordinal, %wgx = scf.lookup %variant {\n  0 = (%gemm0, %x0),\n  1 = (%gemm1, %x1)\n} default(%fallback, %xf) : index, index",
     ],
+    eager_execution_cost=1,
 )
 
 # ============================================================================

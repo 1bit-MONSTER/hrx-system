@@ -90,6 +90,7 @@ scalar_cmpi = comparison_op(
     canonicalize="loom_scalar_cmpi_canonicalize",
     facts="loom_scalar_cmpi_facts",
     examples=["%result = scalar.cmpi eq, %lhs, %rhs : i32"],
+    eager_execution_cost=1,
 )
 
 scalar_cmpf = comparison_op(
@@ -103,6 +104,7 @@ scalar_cmpf = comparison_op(
     canonicalize="loom_scalar_cmpf_canonicalize",
     facts="loom_scalar_cmpf_facts",
     examples=["%result = scalar.cmpf olt, %lhs, %rhs : f32"],
+    eager_execution_cost=1,
 )
 
 scalar_isnanf = Op(
@@ -170,6 +172,7 @@ scalar_signi = Op(
     format=[Ref("input"), COLON, TypeOf("result")],
     facts="loom_scalar_signi_facts",
     examples=["%result = scalar.signi %input : i32"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================

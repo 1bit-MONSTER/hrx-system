@@ -466,6 +466,7 @@ func_call = Op(
         "%r = func.call inline @specific_template(%a, %b) : (f32, f32) -> (f32)",
         "%out, %count = func.call @process(%a, %b) : (tensor<[%M]xf32>, index) -> (%a as tensor<[%M]xf32>, index)",
     ],
+    eager_execution_cost=0,
 )
 
 # ============================================================================
