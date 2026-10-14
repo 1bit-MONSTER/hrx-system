@@ -321,8 +321,21 @@ typedef enum loomc_spirv_limit_e {
   /// Known values must fit the IR's non-negative int64_t attribute range.
   LOOMC_SPIRV_LIMIT_MAX_FLAT_GRID_SIZE = 13,
 
+  /// Device preference when a root has no fixed subgroup requirement.
+  LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE = 14,
+
+  /// Smallest selectable compute subgroup width (powers of two only).
+  LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE = 15,
+
+  /// Largest selectable compute subgroup width. Every power of two in the
+  /// inclusive minimum/maximum range is supported.
+  LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE = 16,
+
+  /// Maximum subgroups per workgroup for a requested nondefault width.
+  LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SUBGROUP_COUNT = 17,
+
   /// Number of public SPIR-V limit identifiers.
-  LOOMC_SPIRV_LIMIT_COUNT = 14,
+  LOOMC_SPIRV_LIMIT_COUNT = 18,
 } loomc_spirv_limit_t;
 
 /// Stable SPIR-V numeric environment fact identifier.

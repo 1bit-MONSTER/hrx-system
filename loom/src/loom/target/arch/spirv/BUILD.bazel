@@ -230,6 +230,7 @@ loom_cc_library(
     deps = [
         ":cooperative_properties",
         "//loom/src/loom/target:facts",
+        "//loom/src/loom/target:facts_builder",
         "//runtime/src/iree/base",
     ],
 )
@@ -268,6 +269,7 @@ loom_cc_test(
     srcs = ["profile_test.cc"],
     deps = [
         ":profile",
+        "//loom/src/loom/target:facts_builder",
         "//loom/src/loom/target/arch/spirv/records:target_records",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",

@@ -565,6 +565,9 @@ static iree_status_t iree_hal_vulkan_device_spec_populate_facet(
       .flags = IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
       .subgroup_supported_operations =
           params->physical_device->subgroup_properties.supportedOperations,
+      .maximum_workgroup_subgroup_count =
+          params->physical_device->subgroup_size_control_properties
+              .maxComputeWorkgroupSubgroups,
   };
   const VkPhysicalDeviceFloatControlsProperties* float_controls =
       &params->physical_device->float_controls_properties;

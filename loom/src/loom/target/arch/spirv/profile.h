@@ -24,6 +24,9 @@ typedef struct loom_spirv_target_profile_t {
   // Target-neutral family identity and bundle projection.
   loom_target_profile_t base;
 
+  // Compute subgroup capabilities before root execution selection.
+  loom_spirv_subgroup_properties_t subgroup;
+
   // Cooperative operation rows selected for the active target, or NULL to use
   // the static modeled rows implied by the target feature set.
   const loom_spirv_cooperative_property_set_t* cooperative_properties;
@@ -34,6 +37,7 @@ typedef struct loom_spirv_target_profile_t {
 void loom_spirv_target_profile_initialize(
     const loom_target_bundle_t* target_bundle,
     loom_target_fact_field_set_t explicit_fields,
+    loom_spirv_subgroup_properties_t subgroup,
     const loom_spirv_cooperative_property_set_t* cooperative_properties,
     loom_spirv_target_profile_t* out_profile);
 

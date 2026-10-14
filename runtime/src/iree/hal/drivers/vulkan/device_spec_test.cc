@@ -36,6 +36,7 @@ static iree_hal_vulkan_device_spec_t MakeTestSpec() {
       .flags = IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
       .subgroup_supported_operations =
           VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT,
+      .maximum_workgroup_subgroup_count = 32,
   };
 }
 
@@ -72,6 +73,7 @@ TEST(DeviceSpecTest, EncodesAndDecodesPayload) {
   EXPECT_EQ(decoded.flags, source.flags);
   EXPECT_EQ(decoded.subgroup_supported_operations,
             source.subgroup_supported_operations);
+  EXPECT_EQ(decoded.maximum_workgroup_subgroup_count, 32u);
   ASSERT_EQ(decoded.cooperative_matrix.count, 1);
   iree_hal_vulkan_cooperative_matrix_property_t decoded_property = {};
   ASSERT_TRUE(iree_hal_vulkan_device_spec_read_cooperative_matrix_property(
@@ -477,6 +479,8 @@ TEST_P(DeviceSpecFloatControlsTest, CreatesSpecFromParams) {
       VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT;
   physical_device.subgroup_size_control_properties.minSubgroupSize = 32;
   physical_device.subgroup_size_control_properties.maxSubgroupSize = 64;
+  physical_device.subgroup_size_control_properties
+      .maxComputeWorkgroupSubgroups = 16;
   physical_device.calibrated_timestamp_time_domains =
       IREE_HAL_VULKAN_TIME_DOMAIN_DEVICE |
       IREE_HAL_VULKAN_TIME_DOMAIN_CLOCK_MONOTONIC;
@@ -670,6 +674,7 @@ TEST_P(DeviceSpecFloatControlsTest, CreatesSpecFromParams) {
   EXPECT_EQ(decoded.physical_device_type, VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
   EXPECT_EQ(decoded.subgroup_supported_operations,
             physical_device.subgroup_properties.supportedOperations);
+  EXPECT_EQ(decoded.maximum_workgroup_subgroup_count, 16u);
   ASSERT_EQ(decoded.cooperative_matrix.count, 1);
   iree_hal_vulkan_cooperative_matrix_property_t decoded_property = {};
   ASSERT_TRUE(iree_hal_vulkan_device_spec_read_cooperative_matrix_property(

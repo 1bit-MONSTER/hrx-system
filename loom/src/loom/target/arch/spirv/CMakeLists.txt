@@ -246,6 +246,7 @@ loom_cc_library(
     ::cooperative_properties
     iree::base
     loom::target::facts
+    loom::target::facts_builder
   PUBLIC
 )
 endif()
@@ -296,6 +297,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::target::arch::spirv::records::target_records
+    loom::target::facts_builder
   LABELS
     "iree-build-requirement=loom.target.arch.spirv"
 )

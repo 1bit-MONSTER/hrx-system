@@ -324,7 +324,7 @@ TEST(TargetSpirvVulkaninfoTest, ImportsGpuinfoProfileWrapper) {
                    LOOMC_TARGET_FACT_STATE_TRUE, 256);
   ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES,
                    LOOMC_TARGET_FACT_STATE_TRUE, UINT64_C(49152));
-  ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE,
+  ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
                    LOOMC_TARGET_FACT_STATE_TRUE, 32);
   ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_X,
                    LOOMC_TARGET_FACT_STATE_TRUE, 65535);
@@ -471,6 +471,55 @@ TEST(TargetSpirvVulkaninfoTest, ImportsSourceLoadedFromPath) {
                    LOOMC_TARGET_FACT_STATE_TRUE, UINT64_C(32768));
 
   EXPECT_TRUE(path.Remove());
+}
+
+TEST(TargetSpirvVulkaninfoTest, ImportsComputeSubgroupSizeControlFamily) {
+  TargetEnvironmentPtr environment = CreateSpirvTargetEnvironment();
+  for (const std::string spelling :
+       {"Vulkan13", "SubgroupSizeControl", "SubgroupSizeControlEXT"}) {
+    for (bool control : {false, true}) {
+      for (bool compute : {false, true}) {
+        SCOPED_TRACE(spelling);
+        SCOPED_TRACE(control);
+        SCOPED_TRACE(compute);
+        const std::string stem = spelling == "SubgroupSizeControlEXT"
+                                     ? "SubgroupSizeControl"
+                                     : spelling;
+        const std::string suffix =
+            spelling == "SubgroupSizeControlEXT" ? "EXT" : "";
+        const std::string json =
+            R"({"devices":[{"properties":{
+              "VkPhysicalDeviceSubgroupProperties":{"subgroupSize":64},
+              "VkPhysicalDevice)" +
+            stem + "Properties" + suffix + R"(":{
+                "minSubgroupSize":32,"maxSubgroupSize":64,
+                "maxComputeWorkgroupSubgroups":16,"requiredSubgroupSizeStages":[")" +
+            (compute ? "VK_SHADER_STAGE_COMPUTE_BIT"
+                     : "VK_SHADER_STAGE_FRAGMENT_BIT") +
+            R"("]}},"extended_features":{"VkPhysicalDevice)" + stem +
+            "Features" + suffix + R"(":{"subgroupSizeControl":)" +
+            (control ? "true" : "false") + "}}}]}";
+        SourcePtr source = CreateJsonSource("subgroups.json", json.c_str());
+        TargetProfilePtr profile =
+            ImportVulkaninfoProfile(environment.get(), source.get(), nullptr);
+        ASSERT_NE(profile.get(), nullptr);
+        ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
+                         LOOMC_TARGET_FACT_STATE_TRUE, 64);
+        ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE,
+                         LOOMC_TARGET_FACT_STATE_TRUE,
+                         control && compute ? 32 : 64);
+        ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE,
+                         LOOMC_TARGET_FACT_STATE_TRUE, 64);
+        ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE,
+                         LOOMC_TARGET_FACT_STATE_UNKNOWN, 0);
+        ExpectLimitValue(profile.get(),
+                         LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SUBGROUP_COUNT,
+                         control && compute ? LOOMC_TARGET_FACT_STATE_TRUE
+                                            : LOOMC_TARGET_FACT_STATE_UNKNOWN,
+                         control && compute ? 16 : 0);
+      }
+    }
+  }
 }
 
 TEST(TargetSpirvVulkaninfoTest, ReportsMalformedJsonAsResultDiagnostic) {

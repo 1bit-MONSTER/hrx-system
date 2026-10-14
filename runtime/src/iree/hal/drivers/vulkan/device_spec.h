@@ -18,7 +18,7 @@ extern "C" {
 #endif  // __cplusplus
 
 #define IREE_HAL_VULKAN_DEVICE_SPEC_SCHEMA_ID "iree.hal.drivers.vulkan.device"
-#define IREE_HAL_VULKAN_DEVICE_SPEC_SCHEMA_VERSION 6u
+#define IREE_HAL_VULKAN_DEVICE_SPEC_SCHEMA_VERSION 7u
 
 // Stable Vulkan device spec flags.
 typedef uint32_t iree_hal_vulkan_device_spec_flags_t;
@@ -68,6 +68,8 @@ typedef struct iree_hal_vulkan_device_spec_t {
   iree_hal_vulkan_device_spec_flags_t flags;
   // VkPhysicalDeviceSubgroupProperties::supportedOperations value.
   uint32_t subgroup_supported_operations;
+  // Maximum compute subgroups per workgroup when requesting a subgroup size.
+  uint32_t maximum_workgroup_subgroup_count;
   // Cooperative matrix properties enabled on the logical device.
   iree_hal_vulkan_cooperative_matrix_property_table_t cooperative_matrix;
 } iree_hal_vulkan_device_spec_t;

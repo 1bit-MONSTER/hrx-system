@@ -119,6 +119,7 @@ static iree_status_t loom_spirv_target_profile_project_facts(
   IREE_ASSERT(profile != NULL);
   loom_spirv_target_facts_t* facts = (loom_spirv_target_facts_t*)base_facts;
   facts->base.selector = LOOM_SPIRV_TARGET_KIND_VULKAN1_3;
+  facts->subgroup = profile->subgroup;
   if (profile->cooperative_properties != NULL) {
     return loom_spirv_target_profile_copy_cooperative_properties(
         profile->cooperative_properties, arena, &facts->cooperative_properties);
@@ -181,6 +182,7 @@ static const loom_spirv_target_profile_t kSpirvSubgroup32BallotHalProfile = {
 void loom_spirv_target_profile_initialize(
     const loom_target_bundle_t* target_bundle,
     loom_target_fact_field_set_t explicit_fields,
+    loom_spirv_subgroup_properties_t subgroup,
     const loom_spirv_cooperative_property_set_t* cooperative_properties,
     loom_spirv_target_profile_t* out_profile) {
   IREE_ASSERT_ARGUMENT(out_profile);
@@ -191,6 +193,7 @@ void loom_spirv_target_profile_initialize(
               .target_bundle = target_bundle,
               .explicit_fields = explicit_fields,
           },
+      .subgroup = subgroup,
       .cooperative_properties = cooperative_properties,
   };
 }

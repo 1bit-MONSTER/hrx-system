@@ -106,6 +106,14 @@ static loomc_string_view_t loomc_spirv_profile_limit_name(
       return loomc_make_cstring_view("spirv.max_workgroup_storage_bytes");
     case LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE:
       return loomc_make_cstring_view("spirv.subgroup_size");
+    case LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE:
+      return loomc_make_cstring_view("spirv.default_subgroup_size");
+    case LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE:
+      return loomc_make_cstring_view("spirv.min_subgroup_size");
+    case LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE:
+      return loomc_make_cstring_view("spirv.max_subgroup_size");
+    case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SUBGROUP_COUNT:
+      return loomc_make_cstring_view("spirv.max_workgroup_subgroup_count");
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_X:
       return loomc_make_cstring_view("spirv.max_workgroup_count_x");
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_Y:
@@ -138,6 +146,10 @@ static uint64_t loomc_spirv_profile_limit_maximum_value(
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_Z:
     case LOOMC_SPIRV_LIMIT_MAX_FLAT_WORKGROUP_SIZE:
     case LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE:
+    case LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE:
+    case LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE:
+    case LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE:
+    case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SUBGROUP_COUNT:
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_X:
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_Y:
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_Z:
@@ -162,6 +174,10 @@ static const char* loomc_spirv_profile_limit_range_name(
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_Z:
     case LOOMC_SPIRV_LIMIT_MAX_FLAT_WORKGROUP_SIZE:
     case LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE:
+    case LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE:
+    case LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE:
+    case LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE:
+    case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SUBGROUP_COUNT:
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_X:
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_Y:
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_Z:
@@ -679,6 +695,64 @@ static loomc_status_t loomc_spirv_profile_validate_environment_constraints(
       loomc_status_from_iree(status));
 }
 
+static loomc_status_t loomc_spirv_profile_prepare_subgroup_properties(
+    const loomc_spirv_numeric_fact_state_t* limits, loomc_result_t* result,
+    loom_spirv_subgroup_properties_t* out_properties) {
+  const loomc_spirv_limit_t width_limits[] = {
+      LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE,
+      LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
+      LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE,
+      LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE,
+  };
+  uint32_t widths[IREE_ARRAYSIZE(width_limits)] = {0};
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(width_limits); ++i) {
+    const loomc_spirv_numeric_fact_state_t* observation =
+        &limits[width_limits[i]];
+    if (observation->state != LOOMC_TARGET_FACT_STATE_TRUE) {
+      continue;
+    }
+    widths[i] = (uint32_t)observation->value;
+    if (!iree_device_size_is_power_of_two(widths[i])) {
+      const loomc_string_view_t name =
+          loomc_spirv_profile_limit_name(width_limits[i]);
+      return loomc_spirv_profile_fail_status(
+          result, loomc_make_cstring_view("SPIRV/PROFILE"),
+          loomc_status_from_iree(iree_make_status(
+              IREE_STATUS_FAILED_PRECONDITION,
+              "SPIR-V subgroup width '%.*s' from '%.*s' must be a power of two",
+              (int)name.size, name.data, (int)observation->provenance.size,
+              loomc_spirv_profile_string_data(observation->provenance))));
+    }
+  }
+  const uint32_t minimum = widths[2];
+  const uint32_t maximum = widths[3];
+  if ((minimum != 0 && maximum != 0 && minimum > maximum) ||
+      (widths[0] != 0 && ((minimum != 0 && widths[0] < minimum) ||
+                          (maximum != 0 && widths[0] > maximum))) ||
+      (widths[1] != 0 && ((minimum != 0 && widths[1] < minimum) ||
+                          (maximum != 0 && widths[1] > maximum)))) {
+    return loomc_spirv_profile_fail_status(
+        result, loomc_make_cstring_view("SPIRV/PROFILE"),
+        loomc_status_from_iree(iree_make_status(
+            IREE_STATUS_FAILED_PRECONDITION,
+            "SPIR-V subgroup widths contradict the supported range: "
+            "fixed=%u, default=%u, minimum=%u, maximum=%u",
+            widths[0], widths[1], minimum, maximum)));
+  }
+  *out_properties = (loom_spirv_subgroup_properties_t){
+      .default_size = widths[1],
+      .minimum_size = minimum,
+      .maximum_size = maximum,
+      .maximum_workgroup_subgroup_count =
+          limits[LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SUBGROUP_COUNT].state ==
+                  LOOMC_TARGET_FACT_STATE_TRUE
+              ? (uint32_t)limits[LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SUBGROUP_COUNT]
+                    .value
+              : 0,
+  };
+  return loomc_ok_status();
+}
+
 static loom_target_fact_field_set_t
 loomc_spirv_profile_apply_limit_states_to_bundle(
     const loomc_spirv_numeric_fact_state_t* limit_states,
@@ -758,6 +832,7 @@ static loomc_status_t loomc_spirv_target_profile_create_from_states(
     const loomc_spirv_cooperative_row_fact_set_t* base_row_facts,
     const loomc_spirv_profile_options_t* options, loomc_result_t* result,
     loomc_allocator_t allocator, loomc_target_profile_t** out_profile) {
+  loom_spirv_subgroup_properties_t subgroup = {0};
   loomc_spirv_target_profile_storage_t* profile_storage = NULL;
   loomc_status_t status = loomc_allocator_malloc(
       allocator, sizeof(*profile_storage), (void**)&profile_storage);
@@ -795,6 +870,10 @@ static loomc_status_t loomc_spirv_target_profile_create_from_states(
         &profile_storage->feature_set, environment_states, result);
   }
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
+    status = loomc_spirv_profile_prepare_subgroup_properties(limit_states,
+                                                             result, &subgroup);
+  }
+  if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
     status = loomc_spirv_cooperative_row_fact_set_prepare_properties(
         &profile_storage->cooperative_row_facts, &profile_storage->feature_set,
         allocator, &profile_storage->profile.cooperative_properties);
@@ -813,7 +892,8 @@ static loomc_status_t loomc_spirv_target_profile_create_from_states(
         profile_storage->profile.cooperative_properties;
     loom_spirv_target_profile_initialize(
         has_target_bundle ? &profile_storage->bundle_storage.bundle : NULL,
-        explicit_fields, cooperative_properties, &profile_storage->profile);
+        explicit_fields, subgroup, cooperative_properties,
+        &profile_storage->profile);
     status = loomc_target_profile_create(
         target_environment, identifier, &profile_storage->profile.base,
         loomc_spirv_target_profile_destroy, allocator, out_profile);
@@ -886,6 +966,27 @@ static loomc_spirv_limit_value_t loomc_spirv_profile_limit_value(
         .value = query->storage->limit_states[limit].value,
     };
   }
+  // Subgroup capabilities are family facts, separate from the selected width
+  // in the common snapshot. Named profiles may leave these observations open.
+#define LOOMC_READ_SUBGROUP_LIMIT(name, member)                \
+  case LOOMC_SPIRV_LIMIT_##name: {                             \
+    const uint32_t value = query->profile->subgroup.member;    \
+    return (loomc_spirv_limit_value_t){                        \
+        .state = value != 0 ? LOOMC_TARGET_FACT_STATE_TRUE     \
+                            : LOOMC_TARGET_FACT_STATE_UNKNOWN, \
+        .value = value,                                        \
+    };                                                         \
+  }
+  switch (limit) {
+    LOOMC_READ_SUBGROUP_LIMIT(DEFAULT_SUBGROUP_SIZE, default_size)
+    LOOMC_READ_SUBGROUP_LIMIT(MIN_SUBGROUP_SIZE, minimum_size)
+    LOOMC_READ_SUBGROUP_LIMIT(MAX_SUBGROUP_SIZE, maximum_size)
+    LOOMC_READ_SUBGROUP_LIMIT(MAX_WORKGROUP_SUBGROUP_COUNT,
+                              maximum_workgroup_subgroup_count)
+    default:
+      break;
+  }
+#undef LOOMC_READ_SUBGROUP_LIMIT
   const loom_target_bundle_t* bundle = query->profile->base.target_bundle;
   if (bundle == NULL) {
     return (loomc_spirv_limit_value_t){0};

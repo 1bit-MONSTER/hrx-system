@@ -124,7 +124,8 @@ iree_status_t CreateVulkanDeviceSpec(
         IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
     uint32_t subgroup_supported_operations = 0,
     uint32_t vendor_id = kNvidiaVendorId,
-    const iree_hal_device_dispatch_spec_t* dispatch_override = nullptr) {
+    const iree_hal_device_dispatch_spec_t* dispatch_override = nullptr,
+    uint32_t maximum_workgroup_subgroup_count = 0) {
   out_device_spec->reset();
   iree_hal_vulkan_device_spec_t vulkan_spec = {
       .api_version = kVulkanApiVersion13,
@@ -133,6 +134,7 @@ iree_status_t CreateVulkanDeviceSpec(
       .enabled_features = enabled_features,
       .flags = device_spec_flags,
       .subgroup_supported_operations = subgroup_supported_operations,
+      .maximum_workgroup_subgroup_count = maximum_workgroup_subgroup_count,
   };
   iree_host_size_t vulkan_payload_size = 0;
   IREE_RETURN_IF_ERROR(iree_hal_vulkan_device_spec_calculate_payload_size(
@@ -452,6 +454,17 @@ TEST(LoomcSpirvIreeHalTargetTest, CreatesProfileFromHalFacts) {
       profile.get(), LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES, &limit));
   EXPECT_EQ(limit.state, LOOMC_TARGET_FACT_STATE_TRUE);
   EXPECT_EQ(limit.value, kMaximumWorkgroupLocalMemorySize);
+  for (auto identifier : {LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
+                          LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE,
+                          LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE}) {
+    LOOMC_EXPECT_OK(loomc_spirv_target_profile_query_limit(profile.get(),
+                                                           identifier, &limit));
+    EXPECT_EQ(limit.state, LOOMC_TARGET_FACT_STATE_TRUE);
+    EXPECT_EQ(limit.value, 32u);
+  }
+  LOOMC_EXPECT_OK(loomc_spirv_target_profile_query_limit(
+      profile.get(), LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE, &limit));
+  EXPECT_EQ(limit.state, LOOMC_TARGET_FACT_STATE_UNKNOWN);
   loomc_target_fact_state_t feature_state = LOOMC_TARGET_FACT_STATE_UNKNOWN;
   LOOMC_EXPECT_OK(loomc_spirv_target_profile_query_feature(
       profile.get(), LOOMC_SPIRV_FEATURE_FLOAT16, &feature_state));
@@ -980,8 +993,10 @@ TEST(LoomcSpirvIreeHalTargetTest,
 
 TEST(LoomcSpirvIreeHalTargetTest, ForcedProfilesCheckEveryLimit) {
   DeviceSpecPtr spec;
-  IREE_ASSERT_OK(CreateVulkanDeviceSpec(RequiredVulkanFeatures(),
-                                        kCompleteDeviceSpecFlags, &spec));
+  IREE_ASSERT_OK(CreateVulkanDeviceSpec(
+      RequiredVulkanFeatures(), kCompleteDeviceSpecFlags, &spec, 0, nullptr,
+      IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE, 0, kNvidiaVendorId, nullptr,
+      /*maximum_workgroup_subgroup_count=*/8));
   FakeHalDevice device = {};
   InitializeFakeDevice(spec.get(), &device);
   auto environment = CreateSpirvTargetEnvironment();
@@ -999,11 +1014,21 @@ TEST(LoomcSpirvIreeHalTargetTest, ForcedProfilesCheckEveryLimit) {
                              256ull * 65535,
                              128ull * 65535,
                              64ull * 65535,
-                             256ull * 65535 * 65535 * 65535};
+                             256ull * 65535 * 65535 * 65535,
+                             32,
+                             32,
+                             32,
+                             8};
   static_assert(IREE_ARRAYSIZE(limits) == LOOMC_SPIRV_LIMIT_COUNT);
   for (int i = 1; i < LOOMC_SPIRV_LIMIT_COUNT; ++i) {
     SCOPED_TRACE(i);
-    for (uint64_t value : {limits[i] - 1, limits[i], limits[i] + 1}) {
+    const bool width = i == LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE ||
+                       i == LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE ||
+                       i == LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE ||
+                       i == LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE;
+    const uint64_t values[] = {width ? 16 : limits[i] - 1, limits[i],
+                               width ? 64 : limits[i] + 1};
+    for (uint64_t value : values) {
       SCOPED_TRACE(value);
       const loomc_spirv_limit_fact_t fact = {
           .limit = static_cast<loomc_spirv_limit_t>(i),
@@ -1017,13 +1042,67 @@ TEST(LoomcSpirvIreeHalTargetTest, ForcedProfilesCheckEveryLimit) {
       };
       auto profile = CreateRequestedProfile(environment.get(), options);
       ASSERT_NE(profile.get(), nullptr);
-      const bool supported = i == LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE
-                                 ? value == limits[i]
-                                 : value <= limits[i];
+      const bool supported = width ? value == limits[i] : value <= limits[i];
       ExpectForcedSelection(environment.get(), &device, profile.get(),
                             supported);
     }
   }
+}
+
+TEST(LoomcSpirvIreeHalTargetTest,
+     ForcedProfilesRetainSelectableSubgroupWidths) {
+  const iree_hal_device_dispatch_spec_t dispatch = {
+      .launch =
+          {
+              .maximum_workgroup_invocations = 1024,
+              .maximum_workgroup_size = {1024, 1024, 64},
+              .maximum_workgroup_count = {65535, 65535, 65535},
+          },
+      .subgroup = {.default_size = 64, .minimum_size = 32, .maximum_size = 64},
+      .execution = {.maximum_workgroup_local_memory_size = 32768},
+  };
+  DeviceSpecPtr spec;
+  IREE_ASSERT_OK(CreateVulkanDeviceSpec(
+      RequiredVulkanFeatures(), kCompleteDeviceSpecFlags, &spec, 0, nullptr,
+      IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE, 0, kNvidiaVendorId, &dispatch,
+      /*maximum_workgroup_subgroup_count=*/16));
+  FakeHalDevice device = {};
+  InitializeFakeDevice(spec.get(), &device);
+  auto environment = CreateSpirvTargetEnvironment();
+  for (auto limit : {LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE,
+                     LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
+                     LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE,
+                     LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE}) {
+    SCOPED_TRACE(limit);
+    for (uint64_t width : {16, 32, 64, 128}) {
+      SCOPED_TRACE(width);
+      const loomc_spirv_limit_fact_t fact = {
+          .limit = limit,
+          .state = LOOMC_TARGET_FACT_STATE_TRUE,
+          .value = width,
+      };
+      const loomc_spirv_profile_options_t options = {
+          .preset = LOOMC_SPIRV_PROFILE_PRESET_VULKAN_1_3_BDA,
+          .limit_facts = &fact,
+          .limit_fact_count = 1,
+      };
+      auto profile = CreateRequestedProfile(environment.get(), options);
+      ASSERT_NE(profile, nullptr);
+      const bool supported = limit == LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE
+                                 ? width == 64
+                                 : width == 32 || width == 64;
+      ExpectForcedSelection(environment.get(), &device, profile.get(),
+                            supported);
+    }
+  }
+  // A device-derived profile preserves all four capability observations when
+  // the caller explicitly chooses to reuse it.
+  loomc_result_t* result = nullptr;
+  auto profile = SelectTargetFromHal(environment.get(), &device, &result);
+  ResultPtr result_ptr(result);
+  ExpectSucceededResult(result);
+  ASSERT_NE(profile, nullptr);
+  ExpectForcedSelection(environment.get(), &device, profile.get(), true);
 }
 
 TEST(LoomcSpirvIreeHalTargetTest, DerivedGridLimitsSaturateWithoutWrapping) {
