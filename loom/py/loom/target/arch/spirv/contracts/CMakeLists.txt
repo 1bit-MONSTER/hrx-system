@@ -18,6 +18,7 @@ iree_py_library(
     "bfloat.py"
     "descriptor_rule.py"
     "extended_math.py"
+    "extrema.py"
     "float8.py"
     "float_width.py"
     "index.py"
@@ -161,10 +162,12 @@ iree_py_test(
     "../../../../tools/pytest_style_runner.py"
   SRCS
     "extended_math_test.py"
+    "extrema_test.py"
     "rounding_test.py"
     "../../../../tools/pytest_style_runner.py"
   ARGS
     "loom.target.arch.spirv.contracts.extended_math_test"
+    "loom.target.arch.spirv.contracts.extrema_test"
     "loom.target.arch.spirv.contracts.rounding_test"
   DEPS
     loom::py::loom::target::arch::spirv::contracts::contracts

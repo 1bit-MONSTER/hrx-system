@@ -57,6 +57,7 @@ from loom.target.arch.spirv.contracts.descriptor_rule import (
 from loom.target.arch.spirv.contracts.extended_math import (
     SPIRV_EXTENDED_MATH_CONTRACT_CASES,
 )
+from loom.target.arch.spirv.contracts.extrema import extrema_rules
 from loom.target.arch.spirv.contracts.float8 import float8_narrow_rules
 from loom.target.arch.spirv.contracts.float_width import (
     float_width_narrow_rules,
@@ -1606,6 +1607,7 @@ SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT = ContractFragment(
         *_vector_float_scale_rules(),
         *_vector_float_binary_rules(),
         *SPIRV_EXTENDED_MATH_CONTRACT_CASES,
+        *extrema_rules(),
         *rounding_rules(),
         *SPIRV_ORDINARY_VECTOR_CONTRACT_CASES,
         *SPIRV_ORDINARY_VECTOR_ALU_CONTRACT_CASES,

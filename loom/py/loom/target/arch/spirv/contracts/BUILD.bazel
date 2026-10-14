@@ -19,6 +19,7 @@ iree_py_library(
         "bfloat.py",
         "descriptor_rule.py",
         "extended_math.py",
+        "extrema.py",
         "float8.py",
         "float_width.py",
         "index.py",
@@ -142,11 +143,13 @@ iree_py_test(
     name = "extended_math_test",
     srcs = [
         "extended_math_test.py",
+        "extrema_test.py",
         "rounding_test.py",
         "//loom/py/loom/tools:pytest_style_runner.py",
     ],
     args = [
         "loom.target.arch.spirv.contracts.extended_math_test",
+        "loom.target.arch.spirv.contracts.extrema_test",
         "loom.target.arch.spirv.contracts.rounding_test",
     ],
     main = "pytest_style_runner.py",

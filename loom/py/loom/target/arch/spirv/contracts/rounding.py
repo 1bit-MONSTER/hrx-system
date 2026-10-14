@@ -69,50 +69,6 @@ def _suffix(element: str, lanes: int) -> str:
     return element if lanes == 1 else f"v{lanes}{element}"
 
 
-def _import_bits(
-    recipe: IntegerRecipe, format: _RoundingFormat, native_value: bool
-) -> ValueRef:
-    value = ValueRef.operand("input")
-    if not native_value:
-        return value
-    source_suffix = _suffix(format.source_type, recipe.lanes)
-    if format.bit_width != recipe.integer_width:
-        # Float16/BFloat16 do not imply Int16. Duplicate the scalar into a
-        # full i32-sized packet; the magnitude/sign masks discard its high half.
-        source_suffix = f"v2{format.source_type}"
-        value = recipe.emit(
-            f"composite_construct.{source_suffix}",
-            {"component0": value, "component1": value},
-        )
-    return recipe.emit(
-        f"bitcast.{source_suffix}.{recipe.integer_suffix}", {"input": value}
-    )
-
-
-def _export_bits(
-    recipe: IntegerRecipe,
-    format: _RoundingFormat,
-    bits: ValueRef,
-) -> None:
-    result = ValueRef.result("result")
-    if format.bit_width == recipe.integer_width:
-        recipe.emit(
-            f"bitcast.{recipe.integer_suffix}."
-            f"{_suffix(format.source_type, recipe.lanes)}",
-            {"input": bits},
-            result=result,
-        )
-    else:
-        packed_suffix = f"v2{format.source_type}"
-        packed = recipe.emit(f"bitcast.i32.{packed_suffix}", {"input": bits})
-        recipe.emit(
-            f"composite_extract.{packed_suffix}.{format.source_type}",
-            {"composite": packed},
-            immediates={"component_index": 0},
-            result=result,
-        )
-
-
 def _rounding_emits(
     format: _RoundingFormat,
     operation: str,
@@ -121,7 +77,9 @@ def _rounding_emits(
     native_value: bool,
 ) -> tuple[EmitDescriptorOp, ...]:
     recipe = IntegerRecipe(integer_width, lanes)
-    bits = _import_bits(recipe, format, native_value)
+    bits = ValueRef.operand("input")
+    if native_value:
+        bits = recipe.import_float_bits(bits, format.source_type, format.bit_width)
     binary = recipe.binary
     constant = recipe.constant
     select = recipe.select
@@ -241,7 +199,7 @@ def _rounding_emits(
         result=None if native_value else ValueRef.result("result"),
     )
     if native_value:
-        _export_bits(recipe, format, result)
+        recipe.export_float_bits(result, format.source_type, format.bit_width)
     return tuple(recipe.emits)
 
 

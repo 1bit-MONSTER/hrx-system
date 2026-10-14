@@ -7,16 +7,13 @@
 
 func.def @vector_float_extrema_f8e4m3(%value_buffer: buffer, %lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
   %base = index.constant 0 : offset
-  %value_bits_view = buffer.view %value_buffer[%base] : buffer -> view<4xi8>
-  %lhs_bits_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xi8>
-  %rhs_bits_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xi8>
+  %value_view = buffer.view %value_buffer[%base] : buffer -> view<4xf8E4M3>
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf8E4M3>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf8E4M3>
   %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf32>
-  %value_bits = vector.load %value_bits_view[0] : view<4xi8> -> vector<4xi8>
-  %lhs_bits = vector.load %lhs_bits_view[0] : view<4xi8> -> vector<4xi8>
-  %rhs_bits = vector.load %rhs_bits_view[0] : view<4xi8> -> vector<4xi8>
-  %value = vector.bitcast %value_bits : vector<4xi8> to vector<4xf8E4M3>
-  %lhs = vector.bitcast %lhs_bits : vector<4xi8> to vector<4xf8E4M3>
-  %rhs = vector.bitcast %rhs_bits : vector<4xi8> to vector<4xf8E4M3>
+  %value = vector.load %value_view[0] : view<4xf8E4M3> -> vector<4xf8E4M3>
+  %lhs = vector.load %lhs_view[0] : view<4xf8E4M3> -> vector<4xf8E4M3>
+  %rhs = vector.load %rhs_view[0] : view<4xf8E4M3> -> vector<4xf8E4M3>
   %minimum = vector.minimumf %lhs, %rhs : vector<4xf8E4M3>
   %minimum_output = vector.extf %minimum : vector<4xf8E4M3> to vector<4xf32>
   vector.store %minimum_output, %output_view[0] : vector<4xf32>, view<28xf32>
@@ -43,16 +40,13 @@ func.def @vector_float_extrema_f8e4m3(%value_buffer: buffer, %lhs_buffer: buffer
 
 func.def @vector_float_extrema_f8e5m2(%value_buffer: buffer, %lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
   %base = index.constant 0 : offset
-  %value_bits_view = buffer.view %value_buffer[%base] : buffer -> view<4xi8>
-  %lhs_bits_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xi8>
-  %rhs_bits_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xi8>
+  %value_view = buffer.view %value_buffer[%base] : buffer -> view<4xf8E5M2>
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf8E5M2>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf8E5M2>
   %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf32>
-  %value_bits = vector.load %value_bits_view[0] : view<4xi8> -> vector<4xi8>
-  %lhs_bits = vector.load %lhs_bits_view[0] : view<4xi8> -> vector<4xi8>
-  %rhs_bits = vector.load %rhs_bits_view[0] : view<4xi8> -> vector<4xi8>
-  %value = vector.bitcast %value_bits : vector<4xi8> to vector<4xf8E5M2>
-  %lhs = vector.bitcast %lhs_bits : vector<4xi8> to vector<4xf8E5M2>
-  %rhs = vector.bitcast %rhs_bits : vector<4xi8> to vector<4xf8E5M2>
+  %value = vector.load %value_view[0] : view<4xf8E5M2> -> vector<4xf8E5M2>
+  %lhs = vector.load %lhs_view[0] : view<4xf8E5M2> -> vector<4xf8E5M2>
+  %rhs = vector.load %rhs_view[0] : view<4xf8E5M2> -> vector<4xf8E5M2>
   %minimum = vector.minimumf %lhs, %rhs : vector<4xf8E5M2>
   %minimum_output = vector.extf %minimum : vector<4xf8E5M2> to vector<4xf32>
   vector.store %minimum_output, %output_view[0] : vector<4xf32>, view<28xf32>
@@ -79,16 +73,13 @@ func.def @vector_float_extrema_f8e5m2(%value_buffer: buffer, %lhs_buffer: buffer
 
 func.def @vector_float_extrema_f16(%value_buffer: buffer, %lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
   %base = index.constant 0 : offset
-  %value_bits_view = buffer.view %value_buffer[%base] : buffer -> view<4xi16>
-  %lhs_bits_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xi16>
-  %rhs_bits_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xi16>
+  %value_view = buffer.view %value_buffer[%base] : buffer -> view<4xf16>
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf16>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf16>
   %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf16>
-  %value_bits = vector.load %value_bits_view[0] : view<4xi16> -> vector<4xi16>
-  %lhs_bits = vector.load %lhs_bits_view[0] : view<4xi16> -> vector<4xi16>
-  %rhs_bits = vector.load %rhs_bits_view[0] : view<4xi16> -> vector<4xi16>
-  %value = vector.bitcast %value_bits : vector<4xi16> to vector<4xf16>
-  %lhs = vector.bitcast %lhs_bits : vector<4xi16> to vector<4xf16>
-  %rhs = vector.bitcast %rhs_bits : vector<4xi16> to vector<4xf16>
+  %value = vector.load %value_view[0] : view<4xf16> -> vector<4xf16>
+  %lhs = vector.load %lhs_view[0] : view<4xf16> -> vector<4xf16>
+  %rhs = vector.load %rhs_view[0] : view<4xf16> -> vector<4xf16>
   %minimum = vector.minimumf %lhs, %rhs : vector<4xf16>
   vector.store %minimum, %output_view[0] : vector<4xf16>, view<28xf16>
   %maximum = vector.maximumf %lhs, %rhs : vector<4xf16>
@@ -108,16 +99,13 @@ func.def @vector_float_extrema_f16(%value_buffer: buffer, %lhs_buffer: buffer, %
 
 func.def @vector_float_extrema_bf16(%value_buffer: buffer, %lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
   %base = index.constant 0 : offset
-  %value_bits_view = buffer.view %value_buffer[%base] : buffer -> view<4xi16>
-  %lhs_bits_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xi16>
-  %rhs_bits_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xi16>
+  %value_view = buffer.view %value_buffer[%base] : buffer -> view<4xbf16>
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xbf16>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xbf16>
   %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xbf16>
-  %value_bits = vector.load %value_bits_view[0] : view<4xi16> -> vector<4xi16>
-  %lhs_bits = vector.load %lhs_bits_view[0] : view<4xi16> -> vector<4xi16>
-  %rhs_bits = vector.load %rhs_bits_view[0] : view<4xi16> -> vector<4xi16>
-  %value = vector.bitcast %value_bits : vector<4xi16> to vector<4xbf16>
-  %lhs = vector.bitcast %lhs_bits : vector<4xi16> to vector<4xbf16>
-  %rhs = vector.bitcast %rhs_bits : vector<4xi16> to vector<4xbf16>
+  %value = vector.load %value_view[0] : view<4xbf16> -> vector<4xbf16>
+  %lhs = vector.load %lhs_view[0] : view<4xbf16> -> vector<4xbf16>
+  %rhs = vector.load %rhs_view[0] : view<4xbf16> -> vector<4xbf16>
   %minimum = vector.minimumf %lhs, %rhs : vector<4xbf16>
   vector.store %minimum, %output_view[0] : vector<4xbf16>, view<28xbf16>
   %maximum = vector.maximumf %lhs, %rhs : vector<4xbf16>
@@ -137,16 +125,13 @@ func.def @vector_float_extrema_bf16(%value_buffer: buffer, %lhs_buffer: buffer, 
 
 func.def @vector_float_extrema_f32(%value_buffer: buffer, %lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
   %base = index.constant 0 : offset
-  %value_bits_view = buffer.view %value_buffer[%base] : buffer -> view<4xi32>
-  %lhs_bits_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xi32>
-  %rhs_bits_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xi32>
+  %value_view = buffer.view %value_buffer[%base] : buffer -> view<4xf32>
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf32>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf32>
   %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf32>
-  %value_bits = vector.load %value_bits_view[0] : view<4xi32> -> vector<4xi32>
-  %lhs_bits = vector.load %lhs_bits_view[0] : view<4xi32> -> vector<4xi32>
-  %rhs_bits = vector.load %rhs_bits_view[0] : view<4xi32> -> vector<4xi32>
-  %value = vector.bitcast %value_bits : vector<4xi32> to vector<4xf32>
-  %lhs = vector.bitcast %lhs_bits : vector<4xi32> to vector<4xf32>
-  %rhs = vector.bitcast %rhs_bits : vector<4xi32> to vector<4xf32>
+  %value = vector.load %value_view[0] : view<4xf32> -> vector<4xf32>
+  %lhs = vector.load %lhs_view[0] : view<4xf32> -> vector<4xf32>
+  %rhs = vector.load %rhs_view[0] : view<4xf32> -> vector<4xf32>
   %minimum = vector.minimumf %lhs, %rhs : vector<4xf32>
   vector.store %minimum, %output_view[0] : vector<4xf32>, view<28xf32>
   %maximum = vector.maximumf %lhs, %rhs : vector<4xf32>
@@ -166,16 +151,13 @@ func.def @vector_float_extrema_f32(%value_buffer: buffer, %lhs_buffer: buffer, %
 
 func.def @vector_float_extrema_f64(%value_buffer: buffer, %lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
   %base = index.constant 0 : offset
-  %value_bits_view = buffer.view %value_buffer[%base] : buffer -> view<4xi64>
-  %lhs_bits_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xi64>
-  %rhs_bits_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xi64>
+  %value_view = buffer.view %value_buffer[%base] : buffer -> view<4xf64>
+  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf64>
+  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf64>
   %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf64>
-  %value_bits = vector.load %value_bits_view[0] : view<4xi64> -> vector<4xi64>
-  %lhs_bits = vector.load %lhs_bits_view[0] : view<4xi64> -> vector<4xi64>
-  %rhs_bits = vector.load %rhs_bits_view[0] : view<4xi64> -> vector<4xi64>
-  %value = vector.bitcast %value_bits : vector<4xi64> to vector<4xf64>
-  %lhs = vector.bitcast %lhs_bits : vector<4xi64> to vector<4xf64>
-  %rhs = vector.bitcast %rhs_bits : vector<4xi64> to vector<4xf64>
+  %value = vector.load %value_view[0] : view<4xf64> -> vector<4xf64>
+  %lhs = vector.load %lhs_view[0] : view<4xf64> -> vector<4xf64>
+  %rhs = vector.load %rhs_view[0] : view<4xf64> -> vector<4xf64>
   %minimum = vector.minimumf %lhs, %rhs : vector<4xf64>
   vector.store %minimum, %output_view[0] : vector<4xf64>, view<28xf64>
   %maximum = vector.maximumf %lhs, %rhs : vector<4xf64>
@@ -193,7 +175,233 @@ func.def @vector_float_extrema_f64(%value_buffer: buffer, %lhs_buffer: buffer, %
   func.return
 }
 
+// Finite-only permissions admit native min/max on qualified profiles, without
+// permitting subnormal flushing or changing sequential reversed-bound clamps.
+func.def @vector_float_extrema_finite_f16(%value_buffer: buffer, %lower_buffer: buffer, %upper_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %value_view = buffer.view %value_buffer[%base] : buffer -> view<4xf16>
+  %lower_view = buffer.view %lower_buffer[%base] : buffer -> view<4xf16>
+  %upper_view = buffer.view %upper_buffer[%base] : buffer -> view<4xf16>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf16>
+  %value = vector.load %value_view[0] : view<4xf16> -> vector<4xf16>
+  %lower = vector.load %lower_view[0] : view<4xf16> -> vector<4xf16>
+  %upper = vector.load %upper_view[0] : view<4xf16> -> vector<4xf16>
+  %minimum = vector.minimumf<nnan|ninf|nsz> %lower, %upper : vector<4xf16>
+  %maximum = vector.maximumf<nnan|ninf|nsz> %lower, %upper : vector<4xf16>
+  %minnum = vector.minnumf<nnan|ninf|nsz> %lower, %upper : vector<4xf16>
+  %maxnum = vector.maxnumf<nnan|ninf|nsz> %lower, %upper : vector<4xf16>
+  %ordered = vector.clampf<ordered, nnan|ninf|nsz> %value, %lower, %upper : vector<4xf16>
+  %number = vector.clampf<number, nnan|ninf|nsz> %value, %lower, %upper : vector<4xf16>
+  %ieee = vector.clampf<ieee, nnan|ninf|nsz> %value, %lower, %upper : vector<4xf16>
+  vector.store %minimum, %output_view[0] : vector<4xf16>, view<28xf16>
+  vector.store %maximum, %output_view[4] : vector<4xf16>, view<28xf16>
+  vector.store %minnum, %output_view[8] : vector<4xf16>, view<28xf16>
+  vector.store %maxnum, %output_view[12] : vector<4xf16>, view<28xf16>
+  vector.store %ordered, %output_view[16] : vector<4xf16>, view<28xf16>
+  vector.store %number, %output_view[20] : vector<4xf16>, view<28xf16>
+  vector.store %ieee, %output_view[24] : vector<4xf16>, view<28xf16>
+  func.return
+}
+
+func.def @vector_float_extrema_finite_f32(%value_buffer: buffer, %lower_buffer: buffer, %upper_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %value_view = buffer.view %value_buffer[%base] : buffer -> view<4xf32>
+  %lower_view = buffer.view %lower_buffer[%base] : buffer -> view<4xf32>
+  %upper_view = buffer.view %upper_buffer[%base] : buffer -> view<4xf32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf32>
+  %value = vector.load %value_view[0] : view<4xf32> -> vector<4xf32>
+  %lower = vector.load %lower_view[0] : view<4xf32> -> vector<4xf32>
+  %upper = vector.load %upper_view[0] : view<4xf32> -> vector<4xf32>
+  %minimum = vector.minimumf<nnan|ninf|nsz> %lower, %upper : vector<4xf32>
+  %maximum = vector.maximumf<nnan|ninf|nsz> %lower, %upper : vector<4xf32>
+  %minnum = vector.minnumf<nnan|ninf|nsz> %lower, %upper : vector<4xf32>
+  %maxnum = vector.maxnumf<nnan|ninf|nsz> %lower, %upper : vector<4xf32>
+  %ordered = vector.clampf<ordered, nnan|ninf|nsz> %value, %lower, %upper : vector<4xf32>
+  %number = vector.clampf<number, nnan|ninf|nsz> %value, %lower, %upper : vector<4xf32>
+  %ieee = vector.clampf<ieee, nnan|ninf|nsz> %value, %lower, %upper : vector<4xf32>
+  vector.store %minimum, %output_view[0] : vector<4xf32>, view<28xf32>
+  vector.store %maximum, %output_view[4] : vector<4xf32>, view<28xf32>
+  vector.store %minnum, %output_view[8] : vector<4xf32>, view<28xf32>
+  vector.store %maxnum, %output_view[12] : vector<4xf32>, view<28xf32>
+  vector.store %ordered, %output_view[16] : vector<4xf32>, view<28xf32>
+  vector.store %number, %output_view[20] : vector<4xf32>, view<28xf32>
+  vector.store %ieee, %output_view[24] : vector<4xf32>, view<28xf32>
+  func.return
+}
+
+func.def @vector_float_extrema_finite_f64(%value_buffer: buffer, %lower_buffer: buffer, %upper_buffer: buffer, %output_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %value_view = buffer.view %value_buffer[%base] : buffer -> view<4xf64>
+  %lower_view = buffer.view %lower_buffer[%base] : buffer -> view<4xf64>
+  %upper_view = buffer.view %upper_buffer[%base] : buffer -> view<4xf64>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf64>
+  %value = vector.load %value_view[0] : view<4xf64> -> vector<4xf64>
+  %lower = vector.load %lower_view[0] : view<4xf64> -> vector<4xf64>
+  %upper = vector.load %upper_view[0] : view<4xf64> -> vector<4xf64>
+  %minimum = vector.minimumf<nnan|ninf|nsz> %lower, %upper : vector<4xf64>
+  %maximum = vector.maximumf<nnan|ninf|nsz> %lower, %upper : vector<4xf64>
+  %minnum = vector.minnumf<nnan|ninf|nsz> %lower, %upper : vector<4xf64>
+  %maxnum = vector.maxnumf<nnan|ninf|nsz> %lower, %upper : vector<4xf64>
+  %ordered = vector.clampf<ordered, nnan|ninf|nsz> %value, %lower, %upper : vector<4xf64>
+  %number = vector.clampf<number, nnan|ninf|nsz> %value, %lower, %upper : vector<4xf64>
+  %ieee = vector.clampf<ieee, nnan|ninf|nsz> %value, %lower, %upper : vector<4xf64>
+  vector.store %minimum, %output_view[0] : vector<4xf64>, view<28xf64>
+  vector.store %maximum, %output_view[4] : vector<4xf64>, view<28xf64>
+  vector.store %minnum, %output_view[8] : vector<4xf64>, view<28xf64>
+  vector.store %maxnum, %output_view[12] : vector<4xf64>, view<28xf64>
+  vector.store %ordered, %output_view[16] : vector<4xf64>, view<28xf64>
+  vector.store %number, %output_view[20] : vector<4xf64>, view<28xf64>
+  vector.store %ieee, %output_view[24] : vector<4xf64>, view<28xf64>
+  func.return
+}
+
+check.scenario @vector_float_extrema_finite_f16_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %value_seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %lower_seed = check.entropy.read %entropy[1] : check.entropy -> i64
+    %upper_seed = check.entropy.read %entropy[2] : check.entropy -> i64
+    %value = check.generate.random.uniform seed(%value_seed) range(-1024.0 to 1024.0) : tensor<4xf16>
+    %lower = check.generate.random.uniform seed(%lower_seed) range(-1024.0 to 1024.0) : tensor<4xf16>
+    %upper = check.generate.random.uniform seed(%upper_seed) range(-1024.0 to 1024.0) : tensor<4xf16>
+    %output = check.generate.fill value(0.0) : tensor<28xf16>
+    check.compare<@vector_float_extrema_finite_f16>(%value, %lower, %upper, %output) : (tensor<4xf16>, tensor<4xf16>, tensor<4xf16>, tensor<28xf16>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(different) : tensor<28xf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(1) step(1) : tensor<4xi16>
+    %lower = check.generate.iota offset(4) step(-1) : tensor<4xi16>
+    %upper = check.generate.iota offset(2) step(1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xf16>
+    check.compare<@vector_float_extrema_finite_f16>(%value, %lower, %upper, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf16>
+    }
+  }
+  check.return
+}
+
+check.scenario @vector_float_extrema_finite_f32_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %value_seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %lower_seed = check.entropy.read %entropy[1] : check.entropy -> i64
+    %upper_seed = check.entropy.read %entropy[2] : check.entropy -> i64
+    %value = check.generate.random.uniform seed(%value_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %lower = check.generate.random.uniform seed(%lower_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %upper = check.generate.random.uniform seed(%upper_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_finite_f32>(%value, %lower, %upper, %output) : (tensor<4xf32>, tensor<4xf32>, tensor<4xf32>, tensor<28xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(different) : tensor<28xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(1) step(1) : tensor<4xi32>
+    %lower = check.generate.iota offset(4) step(-1) : tensor<4xi32>
+    %upper = check.generate.iota offset(2) step(1) : tensor<4xi32>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_finite_f32>(%value, %lower, %upper, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  check.return
+}
+
+check.scenario @vector_float_extrema_finite_f64_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %value_seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %lower_seed = check.entropy.read %entropy[1] : check.entropy -> i64
+    %upper_seed = check.entropy.read %entropy[2] : check.entropy -> i64
+    %value = check.generate.random.uniform seed(%value_seed) range(-1024.0 to 1024.0) : tensor<4xf64>
+    %lower = check.generate.random.uniform seed(%lower_seed) range(-1024.0 to 1024.0) : tensor<4xf64>
+    %upper = check.generate.random.uniform seed(%upper_seed) range(-1024.0 to 1024.0) : tensor<4xf64>
+    %output = check.generate.fill value(0.0) : tensor<28xf64>
+    check.compare<@vector_float_extrema_finite_f64>(%value, %lower, %upper, %output) : (tensor<4xf64>, tensor<4xf64>, tensor<4xf64>, tensor<28xf64>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(different) : tensor<28xf64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(1) step(1) : tensor<4xi64>
+    %lower = check.generate.iota offset(4) step(-1) : tensor<4xi64>
+    %upper = check.generate.iota offset(2) step(1) : tensor<4xi64>
+    %output = check.generate.fill value(0.0) : tensor<28xf64>
+    check.compare<@vector_float_extrema_finite_f64>(%value, %lower, %upper, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<4xi64>, tensor<28xf64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf64>
+    }
+  }
+  check.return
+}
+
 check.scenario @vector_float_extrema_f8e4m3_values {
+  // Swapping the zero operands covers the other IEEE tie direction.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(0) step(-128) period(2) : tensor<4xi8>
+    %lhs = check.generate.fill value(-128) : tensor<4xi8>
+    %rhs = check.generate.iota offset(0) step(-128) period(2) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e4m3>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  // Same-sign subnormal bounds exercise reversed bit ordering below zero.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(1) step(1) : tensor<4xi8>
+    %lhs = check.generate.iota offset(4) step(-1) : tensor<4xi8>
+    %rhs = check.generate.iota offset(2) step(1) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e4m3>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(-127) step(1) : tensor<4xi8>
+    %lhs = check.generate.iota offset(-124) step(-1) : tensor<4xi8>
+    %rhs = check.generate.iota offset(-126) step(1) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e4m3>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  // A NaN in the value or lower bound must not poison number-preferring
+  // extrema, while ordered clamp retains the NaN value.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.fill value(-1) : tensor<4xi8>
+    %lhs = check.generate.fill value(127) : tensor<4xi8>
+    %rhs = check.generate.iota offset(1) step(1) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e4m3>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf32>
+    }
+  }
+  // Every sign pairing, including reversed bounds, preserves subnormal bits.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative = check.generate.iota offset(-127) step(1) : tensor<4xi8>
+    %positive = check.generate.iota offset(4) step(-1) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e4m3>(%negative, %negative, %positive, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative = check.generate.iota offset(-127) step(1) : tensor<4xi8>
+    %positive = check.generate.iota offset(4) step(-1) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e4m3>(%positive, %positive, %negative, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  // Independent raw encodings exercise finite magnitudes and NaNs without
+  // making the compiler specialize its operands or its bound ordering.
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %value_seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %lhs_seed = check.entropy.read %entropy[1] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %entropy[2] : check.entropy -> i64
+    %value = check.generate.random.uniform seed(%value_seed) range(-128 to 127) : tensor<4xi8>
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-128 to 127) : tensor<4xi8>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-128 to 127) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e4m3>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf32>
+    }
+  }
   // Opposing signed-zero operands exercise IEEE extrema ordering while the
   // alternating value tests ordered clamp's compare/select tie behavior.
   check.trial[1](%trial: index, %entropy: check.entropy) {
@@ -220,6 +428,77 @@ check.scenario @vector_float_extrema_f8e4m3_values {
 }
 
 check.scenario @vector_float_extrema_f8e5m2_values {
+  // Swapping the zero operands covers the other IEEE tie direction.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(0) step(-128) period(2) : tensor<4xi8>
+    %lhs = check.generate.fill value(-128) : tensor<4xi8>
+    %rhs = check.generate.iota offset(0) step(-128) period(2) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e5m2>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  // Same-sign subnormal bounds exercise reversed bit ordering below zero.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(1) step(1) : tensor<4xi8>
+    %lhs = check.generate.iota offset(4) step(-1) : tensor<4xi8>
+    %rhs = check.generate.iota offset(2) step(1) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e5m2>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(-127) step(1) : tensor<4xi8>
+    %lhs = check.generate.iota offset(-124) step(-1) : tensor<4xi8>
+    %rhs = check.generate.iota offset(-126) step(1) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e5m2>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  // A NaN in the value or lower bound must not poison number-preferring
+  // extrema, while ordered clamp retains the NaN value.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.fill value(-3) : tensor<4xi8>
+    %lhs = check.generate.fill value(125) : tensor<4xi8>
+    %rhs = check.generate.iota offset(1) step(1) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e5m2>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf32>
+    }
+  }
+  // Every sign pairing, including reversed bounds, preserves subnormal bits.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative = check.generate.iota offset(-127) step(1) : tensor<4xi8>
+    %positive = check.generate.iota offset(4) step(-1) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e5m2>(%negative, %negative, %positive, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative = check.generate.iota offset(-127) step(1) : tensor<4xi8>
+    %positive = check.generate.iota offset(4) step(-1) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e5m2>(%positive, %positive, %negative, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  // Independent raw encodings exercise finite magnitudes and NaNs without
+  // making the compiler specialize its operands or its bound ordering.
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %value_seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %lhs_seed = check.entropy.read %entropy[1] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %entropy[2] : check.entropy -> i64
+    %value = check.generate.random.uniform seed(%value_seed) range(-128 to 127) : tensor<4xi8>
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-128 to 127) : tensor<4xi8>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-128 to 127) : tensor<4xi8>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f8e5m2>(%value, %lhs, %rhs, %output) : (tensor<4xi8>, tensor<4xi8>, tensor<4xi8>, tensor<28xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf32>
+    }
+  }
   // Opposing signed-zero operands exercise IEEE extrema ordering while the
   // alternating value tests ordered clamp's compare/select tie behavior.
   check.trial[1](%trial: index, %entropy: check.entropy) {
@@ -246,6 +525,77 @@ check.scenario @vector_float_extrema_f8e5m2_values {
 }
 
 check.scenario @vector_float_extrema_f16_values {
+  // Swapping the zero operands covers the other IEEE tie direction.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(0) step(-32768) period(2) : tensor<4xi16>
+    %lhs = check.generate.fill value(-32768) : tensor<4xi16>
+    %rhs = check.generate.iota offset(0) step(-32768) period(2) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xf16>
+    check.compare<@vector_float_extrema_f16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf16>
+    }
+  }
+  // Same-sign subnormal bounds exercise reversed bit ordering below zero.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(1) step(1) : tensor<4xi16>
+    %lhs = check.generate.iota offset(4) step(-1) : tensor<4xi16>
+    %rhs = check.generate.iota offset(2) step(1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xf16>
+    check.compare<@vector_float_extrema_f16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(-32767) step(1) : tensor<4xi16>
+    %lhs = check.generate.iota offset(-32764) step(-1) : tensor<4xi16>
+    %rhs = check.generate.iota offset(-32766) step(1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xf16>
+    check.compare<@vector_float_extrema_f16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf16>
+    }
+  }
+  // A NaN in the value or lower bound must not poison number-preferring
+  // extrema, while ordered clamp retains the NaN value.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.fill value(-1023) : tensor<4xi16>
+    %lhs = check.generate.fill value(31745) : tensor<4xi16>
+    %rhs = check.generate.iota offset(1) step(1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xf16>
+    check.compare<@vector_float_extrema_f16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xf16>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf16>
+    }
+  }
+  // Every sign pairing, including reversed bounds, preserves subnormal bits.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative = check.generate.iota offset(-32767) step(1) : tensor<4xi16>
+    %positive = check.generate.iota offset(4) step(-1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xf16>
+    check.compare<@vector_float_extrema_f16>(%negative, %negative, %positive, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative = check.generate.iota offset(-32767) step(1) : tensor<4xi16>
+    %positive = check.generate.iota offset(4) step(-1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xf16>
+    check.compare<@vector_float_extrema_f16>(%positive, %positive, %negative, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf16>
+    }
+  }
+  // Independent raw encodings exercise finite magnitudes and NaNs without
+  // making the compiler specialize its operands or its bound ordering.
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %value_seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %lhs_seed = check.entropy.read %entropy[1] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %entropy[2] : check.entropy -> i64
+    %value = check.generate.random.uniform seed(%value_seed) range(-32768 to 32767) : tensor<4xi16>
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-32768 to 32767) : tensor<4xi16>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-32768 to 32767) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xf16>
+    check.compare<@vector_float_extrema_f16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xf16>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf16>
+    }
+  }
   // Opposing signed-zero operands exercise IEEE extrema ordering while the
   // alternating value tests ordered clamp's compare/select tie behavior.
   check.trial[1](%trial: index, %entropy: check.entropy) {
@@ -272,6 +622,77 @@ check.scenario @vector_float_extrema_f16_values {
 }
 
 check.scenario @vector_float_extrema_bf16_values {
+  // Swapping the zero operands covers the other IEEE tie direction.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(0) step(-32768) period(2) : tensor<4xi16>
+    %lhs = check.generate.fill value(-32768) : tensor<4xi16>
+    %rhs = check.generate.iota offset(0) step(-32768) period(2) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xbf16>
+    check.compare<@vector_float_extrema_bf16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xbf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xbf16>
+    }
+  }
+  // Same-sign subnormal bounds exercise reversed bit ordering below zero.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(1) step(1) : tensor<4xi16>
+    %lhs = check.generate.iota offset(4) step(-1) : tensor<4xi16>
+    %rhs = check.generate.iota offset(2) step(1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xbf16>
+    check.compare<@vector_float_extrema_bf16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xbf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xbf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(-32767) step(1) : tensor<4xi16>
+    %lhs = check.generate.iota offset(-32764) step(-1) : tensor<4xi16>
+    %rhs = check.generate.iota offset(-32766) step(1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xbf16>
+    check.compare<@vector_float_extrema_bf16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xbf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xbf16>
+    }
+  }
+  // A NaN in the value or lower bound must not poison number-preferring
+  // extrema, while ordered clamp retains the NaN value.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.fill value(-127) : tensor<4xi16>
+    %lhs = check.generate.fill value(32641) : tensor<4xi16>
+    %rhs = check.generate.iota offset(1) step(1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xbf16>
+    check.compare<@vector_float_extrema_bf16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xbf16>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xbf16>
+    }
+  }
+  // Every sign pairing, including reversed bounds, preserves subnormal bits.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative = check.generate.iota offset(-32767) step(1) : tensor<4xi16>
+    %positive = check.generate.iota offset(4) step(-1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xbf16>
+    check.compare<@vector_float_extrema_bf16>(%negative, %negative, %positive, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xbf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xbf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative = check.generate.iota offset(-32767) step(1) : tensor<4xi16>
+    %positive = check.generate.iota offset(4) step(-1) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xbf16>
+    check.compare<@vector_float_extrema_bf16>(%positive, %positive, %negative, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xbf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xbf16>
+    }
+  }
+  // Independent raw encodings exercise finite magnitudes and NaNs without
+  // making the compiler specialize its operands or its bound ordering.
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %value_seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %lhs_seed = check.entropy.read %entropy[1] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %entropy[2] : check.entropy -> i64
+    %value = check.generate.random.uniform seed(%value_seed) range(-32768 to 32767) : tensor<4xi16>
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-32768 to 32767) : tensor<4xi16>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-32768 to 32767) : tensor<4xi16>
+    %output = check.generate.fill value(0.0) : tensor<28xbf16>
+    check.compare<@vector_float_extrema_bf16>(%value, %lhs, %rhs, %output) : (tensor<4xi16>, tensor<4xi16>, tensor<4xi16>, tensor<28xbf16>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xbf16>
+    }
+  }
   // Opposing signed-zero operands exercise IEEE extrema ordering while the
   // alternating value tests ordered clamp's compare/select tie behavior.
   check.trial[1](%trial: index, %entropy: check.entropy) {
@@ -298,6 +719,77 @@ check.scenario @vector_float_extrema_bf16_values {
 }
 
 check.scenario @vector_float_extrema_f32_values {
+  // Swapping the zero operands covers the other IEEE tie direction.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(0) step(-2147483648) period(2) : tensor<4xi32>
+    %lhs = check.generate.fill value(-2147483648) : tensor<4xi32>
+    %rhs = check.generate.iota offset(0) step(-2147483648) period(2) : tensor<4xi32>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f32>(%value, %lhs, %rhs, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  // Same-sign subnormal bounds exercise reversed bit ordering below zero.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(1) step(1) : tensor<4xi32>
+    %lhs = check.generate.iota offset(4) step(-1) : tensor<4xi32>
+    %rhs = check.generate.iota offset(2) step(1) : tensor<4xi32>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f32>(%value, %lhs, %rhs, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(-2147483647) step(1) : tensor<4xi32>
+    %lhs = check.generate.iota offset(-2147483644) step(-1) : tensor<4xi32>
+    %rhs = check.generate.iota offset(-2147483646) step(1) : tensor<4xi32>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f32>(%value, %lhs, %rhs, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  // A NaN in the value or lower bound must not poison number-preferring
+  // extrema, while ordered clamp retains the NaN value.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.fill value(-8388607) : tensor<4xi32>
+    %lhs = check.generate.fill value(2139095041) : tensor<4xi32>
+    %rhs = check.generate.iota offset(1) step(1) : tensor<4xi32>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f32>(%value, %lhs, %rhs, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<28xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf32>
+    }
+  }
+  // Every sign pairing, including reversed bounds, preserves subnormal bits.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative = check.generate.iota offset(-2147483647) step(1) : tensor<4xi32>
+    %positive = check.generate.iota offset(4) step(-1) : tensor<4xi32>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f32>(%negative, %negative, %positive, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative = check.generate.iota offset(-2147483647) step(1) : tensor<4xi32>
+    %positive = check.generate.iota offset(4) step(-1) : tensor<4xi32>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f32>(%positive, %positive, %negative, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<28xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf32>
+    }
+  }
+  // Independent raw encodings exercise finite magnitudes and NaNs without
+  // making the compiler specialize its operands or its bound ordering.
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %value_seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %lhs_seed = check.entropy.read %entropy[1] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %entropy[2] : check.entropy -> i64
+    %value = check.generate.random.uniform seed(%value_seed) range(-2147483648 to 2147483647) : tensor<4xi32>
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-2147483648 to 2147483647) : tensor<4xi32>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-2147483648 to 2147483647) : tensor<4xi32>
+    %output = check.generate.fill value(0.0) : tensor<28xf32>
+    check.compare<@vector_float_extrema_f32>(%value, %lhs, %rhs, %output) : (tensor<4xi32>, tensor<4xi32>, tensor<4xi32>, tensor<28xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf32>
+    }
+  }
   // Opposing signed-zero operands exercise IEEE extrema ordering while the
   // alternating value tests ordered clamp's compare/select tie behavior.
   check.trial[1](%trial: index, %entropy: check.entropy) {
@@ -324,6 +816,77 @@ check.scenario @vector_float_extrema_f32_values {
 }
 
 check.scenario @vector_float_extrema_f64_values {
+  // Swapping the zero operands covers the other IEEE tie direction.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(0) step(-9223372036854775808) period(2) : tensor<4xi64>
+    %lhs = check.generate.fill value(-9223372036854775808) : tensor<4xi64>
+    %rhs = check.generate.iota offset(0) step(-9223372036854775808) period(2) : tensor<4xi64>
+    %output = check.generate.fill value(0.0) : tensor<28xf64>
+    check.compare<@vector_float_extrema_f64>(%value, %lhs, %rhs, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<4xi64>, tensor<28xf64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf64>
+    }
+  }
+  // Same-sign subnormal bounds exercise reversed bit ordering below zero.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(1) step(1) : tensor<4xi64>
+    %lhs = check.generate.iota offset(4) step(-1) : tensor<4xi64>
+    %rhs = check.generate.iota offset(2) step(1) : tensor<4xi64>
+    %output = check.generate.fill value(0.0) : tensor<28xf64>
+    check.compare<@vector_float_extrema_f64>(%value, %lhs, %rhs, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<4xi64>, tensor<28xf64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.iota offset(-9223372036854775807) step(1) : tensor<4xi64>
+    %lhs = check.generate.iota offset(-9223372036854775804) step(-1) : tensor<4xi64>
+    %rhs = check.generate.iota offset(-9223372036854775806) step(1) : tensor<4xi64>
+    %output = check.generate.fill value(0.0) : tensor<28xf64>
+    check.compare<@vector_float_extrema_f64>(%value, %lhs, %rhs, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<4xi64>, tensor<28xf64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf64>
+    }
+  }
+  // A NaN in the value or lower bound must not poison number-preferring
+  // extrema, while ordered clamp retains the NaN value.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value = check.generate.fill value(-4503599627370495) : tensor<4xi64>
+    %lhs = check.generate.fill value(9218868437227405313) : tensor<4xi64>
+    %rhs = check.generate.iota offset(1) step(1) : tensor<4xi64>
+    %output = check.generate.fill value(0.0) : tensor<28xf64>
+    check.compare<@vector_float_extrema_f64>(%value, %lhs, %rhs, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<4xi64>, tensor<28xf64>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf64>
+    }
+  }
+  // Every sign pairing, including reversed bounds, preserves subnormal bits.
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative = check.generate.iota offset(-9223372036854775807) step(1) : tensor<4xi64>
+    %positive = check.generate.iota offset(4) step(-1) : tensor<4xi64>
+    %output = check.generate.fill value(0.0) : tensor<28xf64>
+    check.compare<@vector_float_extrema_f64>(%negative, %negative, %positive, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<4xi64>, tensor<28xf64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf64>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative = check.generate.iota offset(-9223372036854775807) step(1) : tensor<4xi64>
+    %positive = check.generate.iota offset(4) step(-1) : tensor<4xi64>
+    %output = check.generate.fill value(0.0) : tensor<28xf64>
+    check.compare<@vector_float_extrema_f64>(%positive, %positive, %negative, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<4xi64>, tensor<28xf64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<28xf64>
+    }
+  }
+  // Independent raw encodings exercise finite magnitudes and NaNs without
+  // making the compiler specialize its operands or its bound ordering.
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %value_seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %lhs_seed = check.entropy.read %entropy[1] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %entropy[2] : check.entropy -> i64
+    %value = check.generate.random.uniform seed(%value_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<4xi64>
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<4xi64>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<4xi64>
+    %output = check.generate.fill value(0.0) : tensor<28xf64>
+    check.compare<@vector_float_extrema_f64>(%value, %lhs, %rhs, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<4xi64>, tensor<28xf64>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<28xf64>
+    }
+  }
   // Opposing signed-zero operands exercise IEEE extrema ordering while the
   // alternating value tests ordered clamp's compare/select tie behavior.
   check.trial[1](%trial: index, %entropy: check.entropy) {

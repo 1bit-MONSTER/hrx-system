@@ -257,7 +257,7 @@ _EXTENDED_TYPES_XFAILS = {
     "memory/storage/workgroup.loom:@workgroup_packet_exchange": "TARGET/003",
     "numeric/conversion/float8_dequantization.loom:@float8_dequantization": "TARGET/002",
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_bf16": "TARGET/001",
-    "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_f16": "TARGET/003",
+    "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_f16": "TARGET/001",
 }
 
 _NO_EXTENDED_TYPES_XFAILS = {
@@ -489,7 +489,7 @@ _SPIRV_EXECUTION_XFAILS = {
     "numeric/float/scalar_f32.loom:@scalar_f32_denormal_values": "EXPECT/002",
     "numeric/float/scalar_f32.loom:@scalar_f32_values": "TARGET/001",
     "numeric/float/selectors.loom:@selector_f32_values": "TARGET/001",
-    "numeric/float/selectors.loom:@selector_f64_values": "TARGET/002",
+    "numeric/float/selectors.loom:@selector_f64_values": "TARGET/001",
     "numeric/float/turns.loom:@turn_values": "LOWERING/036",
     "numeric/integer/arithmetic.loom:@integer_arithmetic_i32_values": "TARGET/001",
     "numeric/integer/arithmetic.loom:@integer_arithmetic_i64_values": "TARGET/001",
@@ -500,22 +500,12 @@ _SPIRV_EXECUTION_XFAILS = {
     "numeric/integer/wide/observations.loom:@wide_dynamic_lane_values": "TARGET/004",
     "numeric/matrix/nvfp4.loom:@nvfp4_matrix_values": "TARGET/002",
     "numeric/predicate/extract.loom:@predicate_extract_values": "TARGET/032",
-    # BF16-capable devices reach the missing extrema contract; other devices
-    # reject the narrow carrier before extrema selection.
-    "numeric/vector/bfloat_extrema_reductions.loom:@bfloat_extrema_reduction_boundaries": "TARGET/001,TARGET/003",
     # BF16-capable profiles reach the missing FMA contract; other devices reject
     # the narrow carrier before arithmetic selection.
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_bf16_values": "TARGET/001,TARGET/003",
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_f16_values": "TARGET/001",
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_fma_values": "TARGET/001",
     "numeric/vector/f32.loom:@vector_f32_square_root_values": "TARGET/001",
-    # BF16-capable devices reach the missing extrema contract; other devices
-    # reject the narrow carrier before extrema selection.
-    "numeric/vector/float_extrema.loom:@vector_float_extrema_bf16_values": "TARGET/001,TARGET/003",
-    "numeric/vector/float_extrema.loom:@vector_float_extrema_f16_values": "TARGET/001",
-    "numeric/vector/float_extrema.loom:@vector_float_extrema_f64_values": "TARGET/002",
-    "numeric/vector/float_extrema.loom:@vector_float_extrema_f8e4m3_values": "TARGET/001",
-    "numeric/vector/float_extrema.loom:@vector_float_extrema_f8e5m2_values": "TARGET/001",
     "numeric/vector/reductions.loom:@vector_axis_reduction_values": "TARGET/002,TARGET/032",
     "numeric/vector/reductions.loom:@vector_float_reductions_case": "TARGET/001,TARGET/003",
 }
@@ -565,12 +555,10 @@ _SPIRV_EXECUTION_ALLOWED_FAILURES = {
     "memory/storage/word.loom:@copy_word_volatile_bits": "TARGET/003",
     "numeric/conversion/integer_floating.loom:@wide_floating_integer_values": "TARGET/003",
     "numeric/conversion/narrow_arithmetic.loom:@arithmetic_bf16_values": "EXPECT/003",
-    "numeric/float/half_extrema.loom:@half_extrema_random_values": "TARGET/001,TARGET/002",
-    "numeric/float/half_extrema.loom:@half_extrema_special_values": "TARGET/001,TARGET/002",
     "numeric/float/narrow_reduction.loom:@narrow_reduction_normal_values": "TARGET/003",
     "numeric/float/narrow_reduction.loom:@narrow_reduction_subnormal_values": "TARGET/003,EXPECT/002",
-    "numeric/float/scalar_float64.loom:@scalar_float64_random_values": "TARGET/002",
-    "numeric/float/scalar_float64.loom:@scalar_float64_special_values": "TARGET/002",
+    "numeric/float/scalar_float64.loom:@scalar_float64_random_values": "EXPECT/002",
+    "numeric/float/scalar_float64.loom:@scalar_float64_special_values": "EXPECT/002",
     "numeric/vector/conversion.loom:@wide_bfloat_values": "TARGET/003",
     "numeric/vector/f32.loom:@vector_bf16_origin_scale_values": "TARGET/003,EXPECT/002",
     "numeric/vector/float_comparison.loom:@vector_float_comparison_bf16_values": "TARGET/003",

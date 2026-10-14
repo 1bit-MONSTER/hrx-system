@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.scalar import math as scalar_math
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
@@ -19,7 +18,7 @@ from loom.target.arch.spirv.contracts.descriptor_rule import (
 )
 from loom.target.arch.spirv.extended_math import (
     EXTENDED_MATH_INSTRUCTIONS,
-    ROUNDING_MATH_OPERATIONS,
+    EXTENDED_MATH_OPERATIONS,
     ExtendedMathInstruction,
 )
 from loom.target.arch.spirv.ordinary_vector import (
@@ -41,8 +40,6 @@ _SCALAR_SOURCE_OPS = {
     "logf": scalar_math.scalar_logf,
     "exp2f": scalar_math.scalar_exp2f,
     "log2f": scalar_math.scalar_log2f,
-    "minnumf": scalar_arithmetic.scalar_minnumf,
-    "maxnumf": scalar_arithmetic.scalar_maxnumf,
 }
 
 _VECTOR_SOURCE_OPS = {
@@ -50,8 +47,6 @@ _VECTOR_SOURCE_OPS = {
     "logf": vector.vector_logf,
     "exp2f": vector.vector_exp2f,
     "log2f": vector.vector_log2f,
-    "minnumf": vector.vector_minnumf,
-    "maxnumf": vector.vector_maxnumf,
 }
 
 
@@ -93,7 +88,7 @@ def _extended_math_cases() -> tuple[ContractCase, ...]:
     cases: list[ContractCase] = []
     for instruction in EXTENDED_MATH_INSTRUCTIONS:
         operation_key = instruction.operation.source_op_key
-        if instruction.operation in ROUNDING_MATH_OPERATIONS:
+        if instruction.operation not in EXTENDED_MATH_OPERATIONS:
             continue
         if isinstance(instruction.value_type, OrdinaryVectorComponentType):
             cases.append(

@@ -719,9 +719,7 @@ def _extended_math_descriptor(row: ExtendedMathInstruction) -> Descriptor:
                 for operand_name in row.operation.operand_names
             ),
         ),
-        feature_mask_words=(
-            (row.value_type.feature_bits,) if row.value_type.feature_bits else ()
-        ),
+        feature_mask_words=((row.feature_bits,) if row.feature_bits else ()),
         asm_forms=_asm(
             results=("dst",),
             operands=row.operation.operand_names,

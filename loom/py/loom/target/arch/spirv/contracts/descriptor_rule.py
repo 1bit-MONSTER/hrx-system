@@ -107,6 +107,41 @@ class IntegerRecipe:
             result=result,
         )
 
+    def import_float_bits(
+        self, value: ValueRef, element: str, bit_width: int
+    ) -> ValueRef:
+        """Reinterprets native float lanes, packing a scalar half without Int16."""
+        suffix = element if self.lanes == 1 else f"v{self.lanes}{element}"
+        if bit_width != self.integer_width:
+            # Float16/BFloat16 do not imply Int16. The scalar packet's low half
+            # carries the payload; consumers mask or shift away its high half.
+            suffix = f"v2{element}"
+            value = self.emit(
+                f"composite_construct.{suffix}",
+                {"component0": value, "component1": value},
+            )
+        return self.emit(f"bitcast.{suffix}.{self.integer_suffix}", {"input": value})
+
+    def export_float_bits(self, bits: ValueRef, element: str, bit_width: int) -> None:
+        """Binds a native float result from same-width lanes or a packed half."""
+        result = ValueRef.result("result")
+        if bit_width == self.integer_width:
+            suffix = element if self.lanes == 1 else f"v{self.lanes}{element}"
+            self.emit(
+                f"bitcast.{self.integer_suffix}.{suffix}",
+                {"input": bits},
+                result=result,
+            )
+        else:
+            suffix = f"v2{element}"
+            packed = self.emit(f"bitcast.i32.{suffix}", {"input": bits})
+            self.emit(
+                f"composite_extract.{suffix}.{element}",
+                {"composite": packed},
+                immediates={"component_index": 0},
+                result=result,
+            )
+
 
 def logical_core_descriptor(key: str) -> Descriptor:
     return descriptor_by_key(SPIRV_LOGICAL_CORE_DESCRIPTOR_SET, key)
