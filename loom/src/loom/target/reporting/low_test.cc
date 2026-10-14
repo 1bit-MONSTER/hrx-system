@@ -10,6 +10,7 @@
 #include "iree/testing/status_matchers.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
+#include "loom/ops/low/ops.h"
 #include "loom/ops/test/ops.h"
 #include "loom/target/facts_builder.h"
 #include "loom/target/registers.h"
@@ -18,6 +19,84 @@
 
 namespace loom {
 namespace {
+
+struct CondBranchTestOp {
+  loom_op_t op = {};
+  loom_block_t* successors[2] = {};
+};
+
+TEST(CompileReportLowMixTest,
+     CountsConditionalTransfersAndGenericTerminatorClasses) {
+  loom_region_t region = {};
+  loom_block_t region_block_storage[4] = {};
+  loom_block_t* region_blocks[IREE_ARRAYSIZE(region_block_storage)] = {};
+  loom_low_schedule_block_t schedule_blocks[IREE_ARRAYSIZE(region_blocks)] = {};
+  for (uint16_t i = 0; i < IREE_ARRAYSIZE(region_blocks); ++i) {
+    region_blocks[i] = &region_block_storage[i];
+    region_blocks[i]->parent_region = &region;
+    region_blocks[i]->region_index = i;
+    schedule_blocks[i].block = region_blocks[i];
+  }
+  region.block_count = IREE_ARRAYSIZE(region_blocks);
+  region.block_capacity = IREE_ARRAYSIZE(region_blocks);
+  region.blocks = region_blocks;
+
+  CondBranchTestOp branch;
+  branch.op.kind = LOOM_OP_LOW_OP_COND_BR;
+  branch.op.successor_count = IREE_ARRAYSIZE(branch.successors);
+  branch.successors[0] = region_blocks[2];
+  branch.successors[1] = region_blocks[3];
+
+  loom_low_descriptor_t descriptor = {
+      .op_kind = LOOM_LOW_DESCRIPTOR_OP_KIND_COND_BR,
+  };
+  loom_low_descriptor_view_t descriptor_view = {
+      .instruction_class_flags = LOOM_LOW_INSTRUCTION_CLASS_FLAG_SCALAR_ALU |
+                                 LOOM_LOW_INSTRUCTION_CLASS_FLAG_BRANCH |
+                                 LOOM_LOW_INSTRUCTION_CLASS_FLAG_CONTROL,
+  };
+  loom_low_descriptor_set_t descriptor_set = {
+      .descriptors = &descriptor,
+      .descriptor_views = &descriptor_view,
+      .descriptor_count = 1,
+      .descriptor_ordinal_count = 1,
+  };
+  loom_low_schedule_table_t schedule = {
+      .blocks = schedule_blocks,
+      .block_count = IREE_ARRAYSIZE(schedule_blocks),
+  };
+  loom_low_schedule_node_t node = {
+      .op = &branch.op,
+      .descriptor = &descriptor,
+      .block_index = 0,
+      .kind = LOOM_LOW_SCHEDULE_NODE_TERMINATOR,
+  };
+  loom_low_allocation_table_t allocation = {};
+  loom_target_compile_report_static_instruction_mix_t mix = {};
+
+  loom_target_compile_report_accumulate_low_node_static_mix(
+      &schedule, &allocation, &descriptor_set, &node, &mix);
+
+  EXPECT_EQ(mix.descriptor_count, 1u);
+  EXPECT_EQ(mix.scalar_alu_count, 1u);
+  EXPECT_EQ(mix.branch_count, 2u);
+  EXPECT_EQ(mix.control_count, 2u);
+
+  loom_op_t generic_terminator = {
+      .kind = LOOM_OP_LOW_OP,
+  };
+  descriptor.op_kind = LOOM_LOW_DESCRIPTOR_OP_KIND_OP;
+  descriptor_view.instruction_class_flags =
+      LOOM_LOW_INSTRUCTION_CLASS_FLAG_CONTROL;
+  node.op = &generic_terminator;
+  loom_target_compile_report_accumulate_low_node_static_mix(
+      &schedule, &allocation, &descriptor_set, &node, &mix);
+
+  EXPECT_EQ(mix.descriptor_count, 2u);
+  EXPECT_EQ(mix.scalar_alu_count, 1u);
+  EXPECT_EQ(mix.branch_count, 2u);
+  EXPECT_EQ(mix.control_count, 3u);
+}
 
 TEST(CompileReportLowMixTest, CountsExecutionBarriersFromInstructionClasses) {
   // Both packets have ordering effects; only one is an execution rendezvous.

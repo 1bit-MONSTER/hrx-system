@@ -32,8 +32,7 @@ static bool loom_target_compile_report_low_branch_falls_through(
          dest_block_index == node->block_index + 1;
 }
 
-static uint64_t
-loom_target_compile_report_low_structural_control_transfer_count(
+static uint64_t loom_target_compile_report_low_control_transfer_count(
     const loom_low_schedule_table_t* schedule,
     const loom_low_schedule_node_t* node) {
   if (node->op == NULL) {
@@ -48,12 +47,18 @@ loom_target_compile_report_low_structural_control_transfer_count(
                ? 0
                : 1;
   }
-  if (!loom_low_cond_br_isa(node->op)) {
+  const loom_block_t* true_dest = NULL;
+  const loom_block_t* false_dest = NULL;
+  if (loom_low_cond_br_isa(node->op)) {
+    true_dest = loom_low_cond_br_true_dest(node->op);
+    false_dest = loom_low_cond_br_false_dest(node->op);
+  } else if (loom_low_op_cond_br_isa(node->op)) {
+    true_dest = loom_low_op_cond_br_true_dest(node->op);
+    false_dest = loom_low_op_cond_br_false_dest(node->op);
+  } else {
     return 0;
   }
 
-  const loom_block_t* true_dest = loom_low_cond_br_true_dest(node->op);
-  const loom_block_t* false_dest = loom_low_cond_br_false_dest(node->op);
   const bool true_fallthrough =
       loom_target_compile_report_low_branch_falls_through(schedule, node,
                                                           true_dest);
@@ -210,16 +215,14 @@ void loom_target_compile_report_accumulate_low_node_static_mix(
     loom_target_compile_report_static_instruction_mix_t* mix) {
   mix->register_move_count +=
       loom_target_compile_report_low_structural_move_count(allocation, node);
-  if (node->kind == LOOM_LOW_SCHEDULE_NODE_TERMINATOR) {
-    const uint64_t control_transfer_count =
-        loom_target_compile_report_low_structural_control_transfer_count(
-            schedule, node);
+  const bool is_terminator = node->kind == LOOM_LOW_SCHEDULE_NODE_TERMINATOR;
+  const uint64_t control_transfer_count =
+      is_terminator ? loom_target_compile_report_low_control_transfer_count(
+                          schedule, node)
+                    : 0;
+  if (node->descriptor == NULL) {
     mix->branch_count += control_transfer_count;
     mix->control_count += control_transfer_count;
-    return;
-  }
-  if (node->kind != LOOM_LOW_SCHEDULE_NODE_DESCRIPTOR ||
-      node->descriptor == NULL) {
     return;
   }
   ++mix->descriptor_count;
@@ -254,9 +257,19 @@ void loom_target_compile_report_accumulate_low_node_static_mix(
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(private_memory, PRIVATE_MEMORY);
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(generic_memory, GENERIC_MEMORY);
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(atomic, ATOMIC);
-  LOOM_ACCUMULATE_INSTRUCTION_CLASS_(branch, BRANCH);
+  const bool has_semantic_conditional_successors =
+      is_terminator && loom_low_op_cond_br_isa(node->op);
+  if (has_semantic_conditional_successors) {
+    mix->branch_count += control_transfer_count;
+  } else {
+    LOOM_ACCUMULATE_INSTRUCTION_CLASS_(branch, BRANCH);
+  }
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(execution_barrier, EXECUTION_BARRIER);
-  LOOM_ACCUMULATE_INSTRUCTION_CLASS_(control, CONTROL);
+  if (has_semantic_conditional_successors) {
+    mix->control_count += control_transfer_count;
+  } else {
+    LOOM_ACCUMULATE_INSTRUCTION_CLASS_(control, CONTROL);
+  }
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(conversion, CONVERSION);
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(cache, CACHE);
   LOOM_ACCUMULATE_INSTRUCTION_CLASS_(register_move, REGISTER_MOVE);
