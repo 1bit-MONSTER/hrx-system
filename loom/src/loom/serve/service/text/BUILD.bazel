@@ -391,11 +391,43 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "readiness",
+    srcs = ["readiness.c"],
+    hdrs = ["readiness.h"],
+    deps = [
+        "//loom/src/loom/serve/runtime/execution",
+        "//loom/src/loom/serve/runtime/host:wake",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/task",
+    ],
+)
+
+loom_cc_test(
+    name = "readiness_test",
+    srcs = ["readiness_test.cc"],
+    deps = [
+        ":readiness",
+        "//loom/src/loom/serve/runtime/execution",
+        "//loom/src/loom/serve/runtime/host",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/util:proactor_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "response",
     srcs = ["response.c"],
     hdrs = ["response.h"],
     visibility = ["//visibility:private"],
     deps = [
+        ":chat",
+        ":session",
         ":telemetry",
         "//loom/src/loom/serve/telemetry:record",
         "//loom/src/loom/serve/transport/http:server",
@@ -458,6 +490,7 @@ loom_cc_library(
         ":model",
         ":packing",
         ":prefix_cache",
+        ":readiness",
         ":reconfiguration",
         ":response",
         ":schedule",
@@ -478,7 +511,6 @@ loom_cc_library(
         "//runtime/src/iree/async/util:proactor_pool",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/threading",
-        "//runtime/src/iree/task",
         "//runtime/src/iree/tokenizer",
         "//runtime/src/iree/vm",
     ],

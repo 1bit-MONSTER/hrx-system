@@ -422,12 +422,48 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    readiness
+  HDRS
+    "readiness.h"
+  SRCS
+    "readiness.c"
+  DEPS
+    iree::async
+    iree::base
+    iree::base::threading
+    iree::task
+    loom::serve::runtime::execution
+    loom::serve::runtime::host::wake
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    readiness_test
+  SRCS
+    "readiness_test.cc"
+  DEPS
+    ::readiness
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    iree::base::threading
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::serve::runtime::execution
+    loom::serve::runtime::host
+)
+
+loom_cc_library(
+  NAME
     response
   HDRS
     "response.h"
   SRCS
     "response.c"
   DEPS
+    ::chat
+    ::session
     ::telemetry
     iree::base
     loom::serve::telemetry::record
@@ -496,6 +532,7 @@ loom_cc_library(
     ::model
     ::packing
     ::prefix_cache
+    ::readiness
     ::reconfiguration
     ::response
     ::schedule
@@ -506,7 +543,6 @@ loom_cc_library(
     iree::async::util::proactor_pool
     iree::base
     iree::base::threading
-    iree::task
     iree::tokenizer
     iree::vm
     loom::serve::runtime::device
