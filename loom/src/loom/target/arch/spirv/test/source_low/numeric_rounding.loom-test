@@ -1,0 +1,101 @@
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+// The strict path protects GLSL rounding's exceptional inputs; the relaxed
+// path keeps a single instruction when zero signs and nonfinite values do not
+// matter. Numerical type/shape coverage belongs in the executable corpus.
+func.def @truncate(%first: f32, %second: f32, %third: f32) -> (f32) {
+  %values = vector.from_elements %first, %second, %third : vector<3xf32>
+  %rounded = vector.truncf %values : vector<3xf32>
+  %result = vector.extract %rounded[1] : vector<3xf32> -> f32
+  func.return %result : f32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @truncate(%first: reg<spirv.id : f32>, %second: reg<spirv.id : f32>, %third: reg<spirv.id : f32>) -> (reg<spirv.id : f32>) asm {
+  %values = OpCompositeConstruct.v3f32 %first, %second, %third
+  %12 = OpBitcast.v3f32.v3i32 %values : reg<spirv.id>
+  %13 = OpConstant.i32 0 : reg<spirv.id>
+  %14 = OpCompositeConstruct.v3i32 %13, %13, %13 : reg<spirv.id>
+  %15 = OpConstant.i32 1065353216 : reg<spirv.id>
+  %16 = OpCompositeConstruct.v3i32 %15, %15, %15 : reg<spirv.id>
+  %17 = OpConstant.i32 2147483647 : reg<spirv.id>
+  %18 = OpCompositeConstruct.v3i32 %17, %17, %17 : reg<spirv.id>
+  %19 = OpBitwiseAnd.v3i32 %12, %18 : reg<spirv.id>
+  %20 = OpConstant.i32 -2147483648 : reg<spirv.id>
+  %21 = OpCompositeConstruct.v3i32 %20, %20, %20 : reg<spirv.id>
+  %22 = OpBitwiseAnd.v3i32 %12, %21 : reg<spirv.id>
+  %23 = OpSLessThan.v3i32 %19, %16 : reg<spirv.id>
+  %24 = OpConstant.i32 1258291200 : reg<spirv.id>
+  %25 = OpCompositeConstruct.v3i32 %24, %24, %24 : reg<spirv.id>
+  %26 = OpSGreaterThanEqual.v3i32 %19, %25 : reg<spirv.id>
+  %27 = OpSelect.v3i32 %23, %16, %12 : reg<spirv.id>
+  %28 = OpSelect.v3i32 %26, %16, %27 : reg<spirv.id>
+  %29 = OpBitcast.v3i32.v3f32 %28 : reg<spirv.id>
+  %30 = OpExtInst.GLSL.std.450.Trunc.v3f32 %29 : reg<spirv.id>
+  %31 = OpBitcast.v3f32.v3i32 %30 : reg<spirv.id>
+  %32 = OpSelect.v3i32 %23, %14, %31 : reg<spirv.id>
+  %33 = OpBitwiseOr.v3i32 %32, %22 : reg<spirv.id>
+  %34 = OpSelect.v3i32 %26, %12, %33 : reg<spirv.id>
+  %rounded = OpBitcast.v3i32.v3f32 %34
+  %result = OpCompositeExtract.v3f32.f32 %rounded, 1
+  return %result
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+func.def @relaxed_rounding(%first: f32, %second: f32, %third: f32) -> (f32) {
+  %values = vector.from_elements %first, %second, %third : vector<3xf32>
+  %rounded = vector.roundevenf<nnan|ninf|nsz> %values : vector<3xf32>
+  %result = vector.extract %rounded[2] : vector<3xf32> -> f32
+  func.return %result : f32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @relaxed_rounding(%first: reg<spirv.id : f32>, %second: reg<spirv.id : f32>, %third: reg<spirv.id : f32>) -> (reg<spirv.id : f32>) asm {
+  %values = OpCompositeConstruct.v3f32 %first, %second, %third
+  %rounded = OpExtInst.GLSL.std.450.RoundEven.v3f32 %values
+  %result = OpCompositeExtract.v3f32.f32 %rounded, 2
+  return %result
+}
+
+// ====
+// RUN: emit source-low output=low
+
+// Float16 and Int16 are independent: this profile has only Shader and Float16.
+spirv.target<vulkan1_3> @target {contract_feature_bits = 10}
+
+func.def target(@target) @truncate_half_without_int16(%value: f16) -> (f16) {
+  %rounded = scalar.truncf %value : f16
+  func.return %rounded : f16
+}
+
+// ----
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @truncate_half_without_int16(%value: reg<spirv.id : f16>) -> (reg<spirv.id : f16>) asm {
+  %5 = OpCompositeConstruct.v2f16 %value, %value : reg<spirv.id>
+  %6 = OpBitcast.v2f16.i32 %5 : reg<spirv.id>
+  %7 = OpConstant.i32 0 : reg<spirv.id>
+  %8 = OpConstant.i32 15360 : reg<spirv.id>
+  %9 = OpConstant.i32 32767 : reg<spirv.id>
+  %10 = OpBitwiseAnd %6, %9 : reg<spirv.id>
+  %11 = OpConstant.i32 32768 : reg<spirv.id>
+  %12 = OpBitwiseAnd %6, %11 : reg<spirv.id>
+  %13 = OpSLessThan %10, %8 : reg<spirv.id>
+  %14 = OpConstant.i32 25600 : reg<spirv.id>
+  %15 = OpSGreaterThanEqual %10, %14 : reg<spirv.id>
+  %16 = OpSelect %13, %8, %6 : reg<spirv.id>
+  %17 = OpSelect %15, %8, %16 : reg<spirv.id>
+  %18 = OpBitcast.i32.v2f16 %17 : reg<spirv.id>
+  %19 = OpCompositeExtract.v2f16.f16 %18, 0 : reg<spirv.id>
+  %20 = OpExtInst.GLSL.std.450.Trunc.f16 %19 : reg<spirv.id>
+  %21 = OpCompositeConstruct.v2f16 %20, %20 : reg<spirv.id>
+  %22 = OpBitcast.v2f16.i32 %21 : reg<spirv.id>
+  %23 = OpConstant.i32 65535 : reg<spirv.id>
+  %24 = OpBitwiseAnd %22, %23 : reg<spirv.id>
+  %25 = OpSelect %13, %7, %24 : reg<spirv.id>
+  %26 = OpBitwiseOr %25, %12 : reg<spirv.id>
+  %27 = OpSelect %15, %6, %26 : reg<spirv.id>
+  %28 = OpBitcast.i32.v2f16 %27 : reg<spirv.id>
+  %rounded = OpCompositeExtract.v2f16.f16 %28, 0
+  return %rounded
+}

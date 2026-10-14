@@ -14,6 +14,7 @@ from loom.target.arch.spirv.ordinary_vector import (
     ORDINARY_VECTOR_COMPONENT_TYPES,
     ORDINARY_VECTOR_TYPES,
     OrdinaryVectorInstructionType,
+    OrdinaryVectorType,
 )
 
 
@@ -26,6 +27,8 @@ class ExtendedMathOperation:
     instruction_name: str
     instruction_c_enum: str
     required_fastmath_flags: tuple[str, ...] = ()
+    # Element formats admitted by this GLSL instruction, not all float formats.
+    source_types: tuple[str, ...] = ("f32",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,23 +98,30 @@ EXTENDED_MATH_OPERATIONS = (
     ),
 )
 
-_F32_COMPONENT_TYPE = next(
-    component_type
-    for component_type in ORDINARY_VECTOR_COMPONENT_TYPES
-    if component_type.source_types == ("f32",)
-)
-
-_F32_VALUE_TYPES = (
-    _F32_COMPONENT_TYPE,
-    *(
-        vector_type
-        for vector_type in ORDINARY_VECTOR_TYPES
-        if vector_type.component_type == _F32_COMPONENT_TYPE
-    ),
+ROUNDING_MATH_OPERATIONS = tuple(
+    ExtendedMathOperation(
+        source_op_key=source_op_key,
+        operand_names=("input",),
+        instruction_name=instruction_name,
+        instruction_c_enum=f"LOOM_SPIRV_GLSL_STD_450_{instruction_enum}",
+        source_types=("f16", "f32", "f64"),
+    )
+    for source_op_key, instruction_name, instruction_enum in (
+        ("ceilf", "Ceil", "CEIL"),
+        ("floorf", "Floor", "FLOOR"),
+        ("roundevenf", "RoundEven", "ROUND_EVEN"),
+        ("truncf", "Trunc", "TRUNC"),
+    )
 )
 
 EXTENDED_MATH_INSTRUCTIONS = tuple(
     ExtendedMathInstruction(operation=operation, value_type=value_type)
-    for operation in EXTENDED_MATH_OPERATIONS
-    for value_type in _F32_VALUE_TYPES
+    for operation in (*EXTENDED_MATH_OPERATIONS, *ROUNDING_MATH_OPERATIONS)
+    for value_type in (*ORDINARY_VECTOR_COMPONENT_TYPES, *ORDINARY_VECTOR_TYPES)
+    if (
+        value_type.component_type.source_types
+        if isinstance(value_type, OrdinaryVectorType)
+        else value_type.source_types
+    )[0]
+    in operation.source_types
 )

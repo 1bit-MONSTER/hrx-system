@@ -281,18 +281,18 @@ def _atomic_result_recipes() -> dict[str, AsmResultValueType]:
 
 
 def _extended_math_result_recipes() -> dict[str, AsmResultValueType]:
-    f32_element_type = _scalar_recipe("f32").element_type
-    return {
-        row.descriptor_key: AsmResultValueType(
-            f32_element_type,
-            vector_lane_count=(
-                row.value_type.lane_count
-                if isinstance(row.value_type, OrdinaryVectorType)
-                else 0
-            ),
+    recipes = {}
+    for row in EXTENDED_MATH_INSTRUCTIONS:
+        component_type = row.value_type
+        lane_count = 0
+        if isinstance(row.value_type, OrdinaryVectorType):
+            component_type = row.value_type.component_type
+            lane_count = row.value_type.lane_count
+        recipes[row.descriptor_key] = AsmResultValueType(
+            _scalar_recipe(component_type.source_types[0]).element_type,
+            vector_lane_count=lane_count,
         )
-        for row in EXTENDED_MATH_INSTRUCTIONS
-    }
+    return recipes
 
 
 def test_result_asm_recipes_cover_every_spirv_descriptor_family() -> None:

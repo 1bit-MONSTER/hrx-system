@@ -26,6 +26,7 @@ iree_py_library(
     "ordinary_vector.py"
     "ordinary_vector_alu.py"
     "predicate.py"
+    "rounding.py"
     "subgroup.py"
   DEPS
     loom::py::loom::core
@@ -160,12 +161,15 @@ iree_py_test(
     "../../../../tools/pytest_style_runner.py"
   SRCS
     "extended_math_test.py"
+    "rounding_test.py"
     "../../../../tools/pytest_style_runner.py"
   ARGS
     "loom.target.arch.spirv.contracts.extended_math_test"
+    "loom.target.arch.spirv.contracts.rounding_test"
   DEPS
     loom::py::loom::target::arch::spirv::contracts::contracts
     loom::py::loom::target::arch::spirv::extended_math
+    loom::py::loom::target::arch::spirv::features
     loom::py::loom::target::contracts::contracts
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"

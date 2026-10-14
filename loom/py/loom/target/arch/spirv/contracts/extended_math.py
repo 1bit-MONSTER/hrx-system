@@ -19,6 +19,7 @@ from loom.target.arch.spirv.contracts.descriptor_rule import (
 )
 from loom.target.arch.spirv.extended_math import (
     EXTENDED_MATH_INSTRUCTIONS,
+    ROUNDING_MATH_OPERATIONS,
     ExtendedMathInstruction,
 )
 from loom.target.arch.spirv.ordinary_vector import (
@@ -92,6 +93,8 @@ def _extended_math_cases() -> tuple[ContractCase, ...]:
     cases: list[ContractCase] = []
     for instruction in EXTENDED_MATH_INSTRUCTIONS:
         operation_key = instruction.operation.source_op_key
+        if instruction.operation in ROUNDING_MATH_OPERATIONS:
+            continue
         if isinstance(instruction.value_type, OrdinaryVectorComponentType):
             cases.append(
                 _extended_math_rule(

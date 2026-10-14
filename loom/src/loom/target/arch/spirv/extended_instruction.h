@@ -26,6 +26,10 @@ typedef enum loom_spirv_extended_instruction_set_e {
 } loom_spirv_extended_instruction_set_t;
 
 typedef enum loom_spirv_glsl_std_450_instruction_e {
+  LOOM_SPIRV_GLSL_STD_450_ROUND_EVEN = 2,
+  LOOM_SPIRV_GLSL_STD_450_TRUNC = 3,
+  LOOM_SPIRV_GLSL_STD_450_FLOOR = 8,
+  LOOM_SPIRV_GLSL_STD_450_CEIL = 9,
   LOOM_SPIRV_GLSL_STD_450_EXP = 27,
   LOOM_SPIRV_GLSL_STD_450_LOG = 28,
   LOOM_SPIRV_GLSL_STD_450_EXP2 = 29,

@@ -27,6 +27,7 @@ iree_py_library(
         "ordinary_vector.py",
         "ordinary_vector_alu.py",
         "predicate.py",
+        "rounding.py",
         "subgroup.py",
     ],
     deps = [
@@ -141,13 +142,18 @@ iree_py_test(
     name = "extended_math_test",
     srcs = [
         "extended_math_test.py",
+        "rounding_test.py",
         "//loom/py/loom/tools:pytest_style_runner.py",
     ],
-    args = ["loom.target.arch.spirv.contracts.extended_math_test"],
+    args = [
+        "loom.target.arch.spirv.contracts.extended_math_test",
+        "loom.target.arch.spirv.contracts.rounding_test",
+    ],
     main = "pytest_style_runner.py",
     deps = [
         ":contracts",
         "//loom/py/loom/target/arch/spirv:extended_math",
+        "//loom/py/loom/target/arch/spirv:features",
         "//loom/py/loom/target/contracts",
     ],
 )

@@ -557,6 +557,7 @@ loom_check_test_suite(
     "test/source_low/numeric_narrow_address.loom-test"
     "test/source_low/numeric_narrow_float_carriers.loom-test"
     "test/source_low/numeric_narrow_float_signs.loom-test"
+    "test/source_low/numeric_rounding.loom-test"
     "test/source_low/numeric_scalar_f32.loom-test"
     "test/source_low/numeric_scalar_f32_values.loom-test"
     "test/source_low/numeric_unsigned_remainder.loom-test"
