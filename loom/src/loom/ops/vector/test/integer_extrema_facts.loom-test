@@ -65,3 +65,37 @@ func.def @byte_reductions() -> (i8, i8, i8, i8) {
   %umax = scalar.constant -1 : i8
   func.return %smin, %smax, %umin, %umax : i8, i8, i8, i8
 }
+
+// ====
+
+// Extrema identities leave a dynamic accumulator unchanged.
+func.def @byte_reduction_identities(%init: i8) -> (i8, i8, i8, i8) {
+  %signed_maximum = vector.constant 127 : vector<4xi8>
+  %signed_minimum = vector.constant -128 : vector<4xi8>
+  %unsigned_maximum = vector.constant -1 : vector<4xi8>
+  %unsigned_minimum = vector.constant 0 : vector<4xi8>
+  %smin = vector.reduce<minsi> %signed_maximum, %init : vector<4xi8>, i8
+  %smax = vector.reduce<maxsi> %signed_minimum, %init : vector<4xi8>, i8
+  %umin = vector.reduce<minui> %unsigned_maximum, %init : vector<4xi8>, i8
+  %umax = vector.reduce<maxui> %unsigned_minimum, %init : vector<4xi8>, i8
+  func.return %smin, %smax, %umin, %umax : i8, i8, i8, i8
+}
+
+// ----
+func.def @byte_reduction_identities(%init: i8) -> (i8, i8, i8, i8) {
+  func.return %init, %init, %init, %init : i8, i8, i8, i8
+}
+
+// ====
+
+// Axis reductions consume the same shared identity classification.
+func.def @byte_axis_reduction_identity(%init: vector<3xi8>) -> (vector<3xi8>) {
+  %values = vector.constant 0 : vector<2x3xi8>
+  %result = vector.reduce.axes<maxui> %values, %init axes [0] : vector<2x3xi8>, vector<3xi8>
+  func.return %result : vector<3xi8>
+}
+
+// ----
+func.def @byte_axis_reduction_identity(%init: vector<3xi8>) -> (vector<3xi8>) {
+  func.return %init : vector<3xi8>
+}

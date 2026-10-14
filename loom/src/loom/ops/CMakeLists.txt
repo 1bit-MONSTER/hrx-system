@@ -253,7 +253,19 @@ loom_cc_library(
     "combining.c"
   DEPS
     iree::base
+    loom::ir
   PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    combining_test
+  SRCS
+    "combining_test.cc"
+  DEPS
+    ::combining
+    iree::testing::gtest
+    iree::testing::gtest_main
 )
 
 loom_generated_file_family(

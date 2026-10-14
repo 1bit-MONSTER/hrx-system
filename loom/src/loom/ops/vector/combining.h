@@ -16,6 +16,11 @@
 extern "C" {
 #endif
 
+// Maps a combining kind to the vector binary op that implements one lanewise
+// combine step. Returns false if the kind has no vector op representation.
+bool loom_vector_combining_kind_op(loom_combining_kind_t kind,
+                                   loom_op_kind_t* out_op_kind);
+
 // Builds the lanewise vector operation for one verified combining step.
 // Floating-point operations retain |fastmath_flags|; integer operations have
 // exact semantics and ignore them. Returns the single operation result.
