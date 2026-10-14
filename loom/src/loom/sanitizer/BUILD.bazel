@@ -45,7 +45,6 @@ loom_cc_library(
         ":options",
         ":site_location",
         ":site_payload",
-        "//loom/src/loom/decision:predicate",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/index",
@@ -59,6 +58,7 @@ loom_cc_library(
         "//loom/src/loom/pass:types",
         "//loom/src/loom/pass:value_facts",
         "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/util:predicate_facts",
         "//runtime/src/iree/base",
     ],
 )

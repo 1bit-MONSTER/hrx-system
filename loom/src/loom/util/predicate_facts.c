@@ -9,7 +9,9 @@
 #include <stdint.h>
 
 #include "iree/base/internal/math.h"
+#include "loom/analysis/integer_relation.h"
 #include "loom/util/fact_ordinal_map.h"
+#include "loom/util/fact_relation.h"
 
 // At most this many aliases bound each predicate's scan to constant work.
 #define LOOM_VALUE_FACT_ALIAS_LINEAR_SCAN_LIMIT 16
@@ -63,6 +65,139 @@ uint16_t loom_value_facts_export_integer_refinements(
     };
   }
   return count;
+}
+
+static bool loom_value_fact_table_resolve_predicate_operand(
+    const loom_value_fact_table_t* table, const loom_predicate_t* predicate,
+    uint8_t argument_index, loom_decision_predicate_operand_t* out_operand) {
+  *out_operand = (loom_decision_predicate_operand_t){
+      .facts = loom_value_facts_unknown(),
+      .identity = LOOM_DECISION_OPERAND_IDENTITY_NONE,
+  };
+  switch ((loom_predicate_arg_tag_t)predicate->arg_tags[argument_index]) {
+    case LOOM_PRED_ARG_CONST:
+      out_operand->facts =
+          loom_value_facts_exact_i64(predicate->args[argument_index]);
+      return true;
+    case LOOM_PRED_ARG_VALUE: {
+      if (predicate->args[argument_index] < 0) {
+        return false;
+      }
+      const loom_value_id_t value_id =
+          (loom_value_id_t)predicate->args[argument_index];
+      if (table) {
+        out_operand->facts = loom_value_fact_table_lookup(table, value_id);
+      }
+      out_operand->identity =
+          loom_value_fact_table_query_identity(table, value_id);
+      return true;
+    }
+    case LOOM_PRED_ARG_NONE:
+    case LOOM_PRED_ARG_COUNT_:
+      return false;
+  }
+  return false;
+}
+
+static loom_decision_truth_t
+loom_value_fact_table_evaluate_retained_signed_relation(
+    const loom_value_fact_table_t* table, loom_predicate_kind_t predicate_kind,
+    loom_predicate_arg_tag_t lhs_tag, int64_t lhs_argument,
+    const loom_decision_predicate_operand_t* lhs_operand,
+    loom_predicate_arg_tag_t rhs_tag, int64_t rhs_argument,
+    const loom_decision_predicate_operand_t* rhs_operand) {
+  if (loom_value_facts_is_float(lhs_operand->facts) ||
+      loom_value_facts_is_float(rhs_operand->facts)) {
+    return LOOM_DECISION_TRUTH_UNKNOWN;
+  }
+
+  loom_symbolic_integer_relation_t relation = LOOM_SYMBOLIC_INTEGER_RELATION_EQ;
+  if (!loom_symbolic_integer_relation_from_predicate_kind(predicate_kind,
+                                                          &relation)) {
+    return LOOM_DECISION_TRUTH_UNKNOWN;
+  }
+
+  loom_integer_order_outcome_bits_t outcomes =
+      LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL;
+  if (lhs_tag == LOOM_PRED_ARG_VALUE && rhs_tag == LOOM_PRED_ARG_VALUE) {
+    outcomes = loom_value_fact_table_query_signed_integer_order(
+        table, (loom_value_id_t)lhs_argument, (loom_value_id_t)rhs_argument);
+  } else if (lhs_tag == LOOM_PRED_ARG_VALUE && rhs_tag == LOOM_PRED_ARG_CONST) {
+    outcomes = loom_value_fact_table_query_signed_integer_literal_order(
+        table, (loom_value_id_t)lhs_argument, rhs_argument);
+  } else if (lhs_tag == LOOM_PRED_ARG_CONST && rhs_tag == LOOM_PRED_ARG_VALUE) {
+    outcomes = loom_integer_order_outcomes_swap(
+        loom_value_fact_table_query_signed_integer_literal_order(
+            table, (loom_value_id_t)rhs_argument, lhs_argument));
+  }
+
+  bool result = false;
+  if (!loom_symbolic_integer_relation_resolve(outcomes, relation, &result)) {
+    return LOOM_DECISION_TRUTH_UNKNOWN;
+  }
+  return result ? LOOM_DECISION_TRUTH_TRUE : LOOM_DECISION_TRUTH_FALSE;
+}
+
+static loom_decision_truth_t loom_value_fact_table_evaluate_dynamic_range(
+    const loom_value_fact_table_t* table, const loom_predicate_t* predicate,
+    const loom_decision_predicate_operand_t operands[3]) {
+  const loom_decision_truth_t lower =
+      loom_value_fact_table_evaluate_retained_signed_relation(
+          table, LOOM_PREDICATE_LE,
+          (loom_predicate_arg_tag_t)predicate->arg_tags[1], predicate->args[1],
+          &operands[1], (loom_predicate_arg_tag_t)predicate->arg_tags[0],
+          predicate->args[0], &operands[0]);
+  const loom_decision_truth_t upper =
+      loom_value_fact_table_evaluate_retained_signed_relation(
+          table, LOOM_PREDICATE_LE,
+          (loom_predicate_arg_tag_t)predicate->arg_tags[0], predicate->args[0],
+          &operands[0], (loom_predicate_arg_tag_t)predicate->arg_tags[2],
+          predicate->args[2], &operands[2]);
+  if (lower == LOOM_DECISION_TRUTH_FALSE ||
+      upper == LOOM_DECISION_TRUTH_FALSE) {
+    return LOOM_DECISION_TRUTH_FALSE;
+  }
+  return lower == LOOM_DECISION_TRUTH_TRUE && upper == LOOM_DECISION_TRUTH_TRUE
+             ? LOOM_DECISION_TRUTH_TRUE
+             : LOOM_DECISION_TRUTH_UNKNOWN;
+}
+
+loom_decision_truth_t loom_value_fact_table_evaluate_predicate(
+    const loom_value_fact_table_t* table, const loom_predicate_t* predicate) {
+  loom_decision_predicate_operand_t operands[3] = {0};
+  for (uint8_t i = 0; i < predicate->arg_count; ++i) {
+    if (!loom_value_fact_table_resolve_predicate_operand(table, predicate, i,
+                                                         &operands[i])) {
+      return LOOM_DECISION_TRUTH_UNKNOWN;
+    }
+  }
+
+  const loom_decision_truth_t scalar_result =
+      loom_decision_predicate_evaluate(predicate->kind, operands);
+  if (scalar_result != LOOM_DECISION_TRUTH_UNKNOWN) {
+    return scalar_result;
+  }
+  if (predicate->kind == LOOM_PREDICATE_RANGE) {
+    return loom_value_fact_table_evaluate_dynamic_range(table, predicate,
+                                                        operands);
+  }
+  return loom_value_fact_table_evaluate_retained_signed_relation(
+      table, predicate->kind, (loom_predicate_arg_tag_t)predicate->arg_tags[0],
+      predicate->args[0], &operands[0],
+      (loom_predicate_arg_tag_t)predicate->arg_tags[1], predicate->args[1],
+      &operands[1]);
+}
+
+bool loom_value_fact_table_proves_predicate_list(
+    const loom_value_fact_table_t* table, const loom_predicate_t* predicates,
+    uint16_t predicate_count) {
+  for (uint16_t i = 0; i < predicate_count; ++i) {
+    if (loom_value_fact_table_evaluate_predicate(table, &predicates[i]) !=
+        LOOM_DECISION_TRUTH_TRUE) {
+      return false;
+    }
+  }
+  return true;
 }
 
 static bool loom_value_fact_alias_map_resolve(

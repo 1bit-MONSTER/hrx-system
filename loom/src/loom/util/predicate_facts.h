@@ -7,6 +7,7 @@
 #ifndef LOOM_UTIL_PREDICATE_FACTS_H_
 #define LOOM_UTIL_PREDICATE_FACTS_H_
 
+#include "loom/decision/predicate.h"
 #include "loom/util/fact_table.h"
 
 #ifdef __cplusplus
@@ -23,6 +24,19 @@ uint16_t loom_value_facts_export_integer_refinements(
     loom_value_id_t value, loom_value_facts_t inferred_facts,
     loom_value_facts_t proven_facts, loom_predicate_t* predicates,
     uint16_t capacity);
+
+// Proves one verified predicate from the scalar, identity, and retained
+// relation domains in |table|. The query is allocation-free and does not walk
+// IR or producer chains. A NULL table proves only literal and direct-identity
+// predicates.
+loom_decision_truth_t loom_value_fact_table_evaluate_predicate(
+    const loom_value_fact_table_t* table, const loom_predicate_t* predicate);
+
+// Returns true when every predicate in the verified list is proven true by
+// |table|. An empty conjunction is true.
+bool loom_value_fact_table_proves_predicate_list(
+    const loom_value_fact_table_t* table, const loom_predicate_t* predicates,
+    uint16_t predicate_count);
 
 // Tightens one fact per SSA alias using predicates over those aliases and
 // externally referenced SSA values already defined in |table|. Literal

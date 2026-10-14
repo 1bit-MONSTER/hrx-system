@@ -52,7 +52,6 @@ loom_cc_library(
     ::site_location
     ::site_payload
     iree::base
-    loom::decision::predicate
     loom::error::error_defs
     loom::ir
     loom::ops::index
@@ -66,6 +65,7 @@ loom_cc_library(
     loom::pass::types
     loom::pass::value_facts
     loom::rewrite::rewriter
+    loom::util::predicate_facts
   PUBLIC
 )
 

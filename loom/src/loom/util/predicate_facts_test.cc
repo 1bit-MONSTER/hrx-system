@@ -334,5 +334,58 @@ TEST_F(PredicateFactsTest, FloatRelationsDoNotUseIntegerIntervals) {
   EXPECT_FALSE(loom_value_facts_is_exact(facts[1]));
 }
 
+TEST_F(PredicateFactsTest, PredicateProofCombinesScalarAndLiteralFacts) {
+  constexpr loom_value_id_t kMultiple = 0;
+  constexpr loom_value_id_t kPowerOfTwo = 1;
+  loom_value_fact_table_t table = {0};
+  IREE_ASSERT_OK(loom_value_fact_table_initialize(&table, &arena_, 2));
+  IREE_ASSERT_OK(loom_value_fact_table_define(&table, kMultiple,
+                                              loom_value_facts_make(0, 64, 8)));
+  IREE_ASSERT_OK(loom_value_fact_table_define(&table, kPowerOfTwo,
+                                              loom_value_facts_exact_i64(16)));
+
+  const loom_predicate_t predicates[] = {
+      {
+          .kind = LOOM_PREDICATE_RANGE,
+          .arg_count = 3,
+          .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
+                       LOOM_PRED_ARG_CONST},
+          .args = {kMultiple, 0, 64},
+      },
+      {
+          .kind = LOOM_PREDICATE_MULTIPLE_OF,
+          .arg_count = 2,
+          .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
+                       LOOM_PRED_ARG_NONE},
+          .args = {kMultiple, 8, 0},
+      },
+      {
+          .kind = LOOM_PREDICATE_NE,
+          .arg_count = 2,
+          .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
+                       LOOM_PRED_ARG_NONE},
+          .args = {kMultiple, 10, 0},
+      },
+      {
+          .kind = LOOM_PREDICATE_POWER_OF_TWO,
+          .arg_count = 1,
+          .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_NONE,
+                       LOOM_PRED_ARG_NONE},
+          .args = {kPowerOfTwo, 0, 0},
+      },
+  };
+
+  EXPECT_TRUE(loom_value_fact_table_proves_predicate_list(
+      &table, predicates, IREE_ARRAYSIZE(predicates)));
+  EXPECT_TRUE(loom_value_fact_table_proves_predicate_list(&table, nullptr, 0));
+
+  loom_predicate_t stronger = predicates[0];
+  stronger.args[2] = 32;
+  EXPECT_EQ(loom_value_fact_table_evaluate_predicate(&table, &stronger),
+            LOOM_DECISION_TRUTH_UNKNOWN);
+  EXPECT_FALSE(
+      loom_value_fact_table_proves_predicate_list(&table, &stronger, 1));
+}
+
 }  // namespace
 }  // namespace loom

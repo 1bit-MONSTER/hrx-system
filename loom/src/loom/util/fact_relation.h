@@ -25,6 +25,15 @@ loom_value_fact_table_query_signed_integer_order(
     const loom_value_fact_table_t* table, loom_value_id_t lhs,
     loom_value_id_t rhs);
 
+// Returns the possible signed comparison outcomes for |value| relative to
+// |literal|. Scalar integer facts and retained alias-local literal exclusions
+// are resolved without materializing an SSA constant. Unknown or contradictory
+// retained state admits every outcome.
+loom_integer_order_outcome_bits_t
+loom_value_fact_table_query_signed_integer_literal_order(
+    const loom_value_fact_table_t* table, loom_value_id_t value,
+    int64_t literal);
+
 // Clears all scope-local retained relation state. The caller releases the
 // transient arena after clearing the complete fact-table scope.
 void loom_value_fact_integer_relations_clear_scope(
