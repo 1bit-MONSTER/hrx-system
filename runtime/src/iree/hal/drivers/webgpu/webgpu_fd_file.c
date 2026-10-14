@@ -41,6 +41,11 @@ iree_status_t iree_hal_webgpu_fd_file_from_handle(
                             "expected FD file handle type, got %d",
                             (int)primitive.type);
   }
+  if (iree_any_bit_set(iree_io_file_handle_mode(handle),
+                       IREE_IO_FILE_MODE_DIRECT)) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "WebGPU file bridge does not support direct I/O");
+  }
 
   IREE_TRACE_ZONE_BEGIN(z0);
 
@@ -86,6 +91,15 @@ static uint64_t iree_hal_webgpu_fd_file_length(iree_hal_file_t* base_file) {
   return iree_hal_webgpu_fd_file_cast(base_file)->length;
 }
 
+static const iree_async_file_requirements_t*
+iree_hal_webgpu_fd_file_requirements(iree_hal_file_t* base_file) {
+  (void)base_file;
+  // The JavaScript bridge accepts byte ranges, not native direct-I/O requests.
+  static const iree_async_file_requirements_t requirements = {
+      .read = {1, 1, 1}, .write = {1, 1, 1}};
+  return &requirements;
+}
+
 static iree_hal_buffer_t* iree_hal_webgpu_fd_file_storage_buffer(
     iree_hal_file_t* base_file) {
   // FD files have no host pointer or device buffer. The queue_read/write
@@ -119,6 +133,7 @@ static const iree_hal_file_vtable_t iree_hal_webgpu_fd_file_vtable = {
     .destroy = iree_hal_webgpu_fd_file_destroy,
     .allowed_access = iree_hal_webgpu_fd_file_allowed_access,
     .length = iree_hal_webgpu_fd_file_length,
+    .requirements = iree_hal_webgpu_fd_file_requirements,
     .storage_buffer = iree_hal_webgpu_fd_file_storage_buffer,
     .supports_synchronous_io = iree_hal_webgpu_fd_file_supports_synchronous_io,
     .read = iree_hal_webgpu_fd_file_read,

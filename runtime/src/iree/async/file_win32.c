@@ -18,6 +18,10 @@
 iree_status_t iree_async_file_query_direct_requirements(
     iree_async_primitive_t primitive,
     iree_async_file_requirements_t* out_requirements) {
+  if (primitive.type != IREE_ASYNC_PRIMITIVE_TYPE_WIN32_HANDLE) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "file requirements query needs a Windows handle");
+  }
   HANDLE handle = (HANDLE)primitive.value.win32_handle;
   FILE_ALIGNMENT_INFO alignment = {0};
   FILE_STORAGE_INFO storage = {0};

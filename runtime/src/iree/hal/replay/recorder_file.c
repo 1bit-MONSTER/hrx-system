@@ -482,6 +482,13 @@ static uint64_t iree_hal_replay_recorder_file_length(
   return iree_hal_file_length(file->base_file);
 }
 
+static const iree_async_file_requirements_t*
+iree_hal_replay_recorder_file_requirements(iree_hal_file_t* base_file) {
+  iree_hal_replay_recorder_file_t* file =
+      iree_hal_replay_recorder_file_cast(base_file);
+  return iree_hal_file_requirements(file->base_file);
+}
+
 static iree_hal_buffer_t* iree_hal_replay_recorder_file_storage_buffer(
     iree_hal_file_t* base_file) {
   (void)base_file;
@@ -523,6 +530,7 @@ static const iree_hal_file_vtable_t iree_hal_replay_recorder_file_vtable = {
     .destroy = iree_hal_replay_recorder_file_destroy,
     .allowed_access = iree_hal_replay_recorder_file_allowed_access,
     .length = iree_hal_replay_recorder_file_length,
+    .requirements = iree_hal_replay_recorder_file_requirements,
     .storage_buffer = iree_hal_replay_recorder_file_storage_buffer,
     .async_handle = iree_hal_replay_recorder_file_async_handle,
     .supports_synchronous_io =

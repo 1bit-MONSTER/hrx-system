@@ -114,7 +114,10 @@ IREE_API_EXPORT iree_status_t iree_async_file_import(
     iree_async_proactor_t* proactor, iree_async_primitive_t primitive,
     iree_async_file_flags_t flags, iree_async_file_t** out_file);
 
-// Queries complete read/write requirements for |file|'s declared native mode.
+// Queries complete read/write requirements for a borrowed native file handle.
+// |flags| declares the handle's actual mode, as for file import. The handle
+// need not be associated with a proactor; callers can establish requirements
+// before importing it without changing its mode or transferring ownership.
 // On failure |out_requirements| is unchanged. UNAVAILABLE means that the native
 // filesystem does not report a usable alignment contract; unknown requirements
 // are never reported as unrestricted. Buffered files are byte-granular.
@@ -131,7 +134,8 @@ IREE_API_EXPORT iree_status_t iree_async_file_import(
 // durability, and absence of kernel copies are separate from these
 // requirements.
 IREE_API_EXPORT iree_status_t iree_async_file_query_requirements(
-    iree_async_file_t* file, iree_async_file_requirements_t* out_requirements);
+    iree_async_primitive_t primitive, iree_async_file_flags_t flags,
+    iree_async_file_requirements_t* out_requirements);
 
 // Increments the reference count.
 IREE_API_EXPORT void iree_async_file_retain(iree_async_file_t* file);

@@ -22,6 +22,10 @@
 iree_status_t iree_async_file_query_direct_requirements(
     iree_async_primitive_t primitive,
     iree_async_file_requirements_t* out_requirements) {
+  if (primitive.type != IREE_ASYNC_PRIMITIVE_TYPE_FD) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "file requirements query needs a file descriptor");
+  }
   const int fd = primitive.value.fd;
   struct statx attributes = {0};
   int result = syscall(SYS_statx, fd, "", AT_EMPTY_PATH,

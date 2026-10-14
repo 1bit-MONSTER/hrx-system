@@ -35,6 +35,7 @@ struct FileProvider {
     native_file.proactor = &proactor;
     file_vtable.destroy = Destroy;
     file_vtable.async_handle = AsyncHandle;
+    file_vtable.requirements = Requirements;
     iree_hal_resource_initialize(&file_vtable, &resource);
     for (size_t i = 0; i < contents.size(); ++i) {
       contents[i] = uint8_t(i * 3);
@@ -56,6 +57,13 @@ struct FileProvider {
                                   FileProvider, resource);
     EXPECT_EQ(self->pending, nullptr);
     ++self->release_count;
+  }
+
+  static const iree_async_file_requirements_t* Requirements(
+      iree_hal_file_t* file) {
+    auto* self = iree_containerof(reinterpret_cast<iree_hal_resource_t*>(file),
+                                  FileProvider, resource);
+    return &self->requirements;
   }
 
   static iree_status_t Submit(iree_async_proactor_t* proactor,
@@ -121,6 +129,8 @@ struct FileProvider {
   iree_hal_resource_t resource = {};
   // File operations used by the shared transfer.
   iree_hal_file_vtable_t file_vtable = {};
+  // Retained native requirements for each submitted request.
+  iree_async_file_requirements_t requirements = {{1, 1, 1}, {1, 1, 1}};
   // Platform file bytes.
   std::array<uint8_t, 128> contents;
   // Accepted request awaiting an explicit completion.

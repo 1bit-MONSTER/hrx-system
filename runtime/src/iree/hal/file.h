@@ -9,13 +9,12 @@
 
 #include <stdint.h>
 
+#include "iree/async/file.h"
 #include "iree/base/api.h"
 #include "iree/hal/buffer.h"
 #include "iree/hal/queue.h"
 #include "iree/hal/resource.h"
 #include "iree/io/file_handle.h"
-
-typedef struct iree_async_file_t iree_async_file_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -115,6 +114,14 @@ iree_hal_file_allowed_access(iree_hal_file_t* file);
 // Queue and synchronous operations cannot access or extend beyond this range.
 IREE_API_EXPORT uint64_t iree_hal_file_length(iree_hal_file_t* file);
 
+// Returns immutable native host-transfer requirements retained at import.
+// The result is borrowed for the file's lifetime. Memory-backed files are
+// byte-granular. Device-copy routes have their own buffer requirements.
+// This accessor performs no native queries, allocations, locking, or lazy
+// initialization. A file whose requirements cannot be established fails import.
+IREE_API_EXPORT const iree_async_file_requirements_t*
+iree_hal_file_requirements(iree_hal_file_t* file);
+
 // Returns an optional device-accessible storage buffer representing the file.
 // Available if the implementation is able to perform import/address-space
 // mapping/etc such that device-side transfers can directly access the resources
@@ -147,6 +154,23 @@ IREE_API_EXPORT iree_status_t iree_hal_file_validate_access(
 IREE_API_EXPORT iree_status_t iree_hal_file_validate_range(
     iree_hal_file_t* file, uint64_t byte_offset, uint64_t byte_length);
 
+// Validates a remaining native transfer and selects its next request length.
+// |requirements| must come from a successful requirements query.
+// |remaining_length| is the logical transfer remainder, which may exceed the
+// capacity of a staging buffer. |buffer| supplies storage for at least
+// min(|remaining_length|, |maximum_length|) bytes; reads require writable
+// storage. A split request preserves buffer, offset, and length alignment for
+// the following request. Empty transfers return zero without checking
+// alignment. An unaligned request (including a suffix after a short native
+// completion) fails without submitting I/O. RESOURCE_EXHAUSTED means
+// |maximum_length| cannot hold an aligned chunk. Failure sets |out_length| to
+// zero. Successful preparation performs no I/O, allocation, locking, or hidden
+// staging; failures may allocate diagnostic status storage.
+IREE_API_EXPORT iree_status_t iree_hal_file_prepare_transfer(
+    const iree_async_file_transfer_requirements_t* requirements,
+    uint64_t file_offset, const void* buffer, uint64_t remaining_length,
+    iree_host_size_t maximum_length, iree_host_size_t* out_length);
+
 // Returns true if the host-side iree_hal_file_read and iree_hal_file_write APIs
 // are available for use on the file. Synchronous I/O support is optional,
 // backend-varying, and independent of whether queue read/write operations can
@@ -158,6 +182,8 @@ IREE_API_EXPORT bool iree_hal_file_supports_synchronous_io(
 // Blocks the caller until the entire span is filled or an error occurs. The
 // file must allow read access. The caller supplies writable host storage and
 // owns its synchronization, cache maintenance and lifetime through this call.
+// The buffer address, offset and length must satisfy the file's retained read
+// requirements; incompatible requests fail with INVALID_ARGUMENT.
 // An error may leave a partially filled span. Empty spans are valid, including
 // at the end of the file. Only available if
 // iree_hal_file_supports_synchronous_io is true.
@@ -169,6 +195,8 @@ IREE_API_EXPORT iree_status_t iree_hal_file_read(iree_hal_file_t* file,
 // Blocks the caller until the entire span is written or an error occurs. The
 // file must allow write access. The caller supplies readable host storage and
 // owns its synchronization, cache maintenance and lifetime through this call.
+// The buffer address, offset and length must satisfy the file's retained write
+// requirements; incompatible requests fail with INVALID_ARGUMENT.
 // An error may leave a partially written file range. Empty spans are valid,
 // including at the end of the file. Only available if
 // iree_hal_file_supports_synchronous_io is true.
@@ -185,6 +213,9 @@ typedef struct iree_hal_file_vtable_t {
   iree_hal_memory_access_t(IREE_API_PTR* allowed_access)(iree_hal_file_t* file);
 
   uint64_t(IREE_API_PTR* length)(iree_hal_file_t* file);
+
+  const iree_async_file_requirements_t*(IREE_API_PTR* requirements)(
+      iree_hal_file_t* file);
 
   iree_hal_buffer_t*(IREE_API_PTR* storage_buffer)(iree_hal_file_t* file);
 

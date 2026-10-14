@@ -30,14 +30,23 @@ IREE_API_EXPORT iree_status_t iree_async_file_import(
 }
 
 IREE_API_EXPORT iree_status_t iree_async_file_query_requirements(
-    iree_async_file_t* file, iree_async_file_requirements_t* out_requirements) {
-  IREE_ASSERT_ARGUMENT(file);
+    iree_async_primitive_t primitive, iree_async_file_flags_t flags,
+    iree_async_file_requirements_t* out_requirements) {
   IREE_ASSERT_ARGUMENT(out_requirements);
+  if (primitive.type != IREE_ASYNC_PRIMITIVE_TYPE_FD &&
+      primitive.type != IREE_ASYNC_PRIMITIVE_TYPE_WIN32_HANDLE) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "requirements query needs a native file handle");
+  }
+  if (flags & ~IREE_ASYNC_FILE_FLAG_DIRECT) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "unknown file flags: 0x%08x", flags);
+  }
   iree_async_file_requirements_t requirements = {.read = {1, 1, 1},
                                                  .write = {1, 1, 1}};
-  if (iree_any_bit_set(file->flags, IREE_ASYNC_FILE_FLAG_DIRECT)) {
-    IREE_RETURN_IF_ERROR(iree_async_file_query_direct_requirements(
-        file->primitive, &requirements));
+  if (iree_any_bit_set(flags, IREE_ASYNC_FILE_FLAG_DIRECT)) {
+    IREE_RETURN_IF_ERROR(
+        iree_async_file_query_direct_requirements(primitive, &requirements));
   }
   *out_requirements = requirements;
   return iree_ok_status();

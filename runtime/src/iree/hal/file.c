@@ -92,6 +92,12 @@ IREE_API_EXPORT uint64_t iree_hal_file_length(iree_hal_file_t* file) {
   return _VTABLE_DISPATCH(file, length)(file);
 }
 
+IREE_API_EXPORT const iree_async_file_requirements_t*
+iree_hal_file_requirements(iree_hal_file_t* file) {
+  IREE_ASSERT_ARGUMENT(file);
+  return _VTABLE_DISPATCH(file, requirements)(file);
+}
+
 IREE_API_EXPORT iree_hal_buffer_t* iree_hal_file_storage_buffer(
     iree_hal_file_t* file) {
   IREE_ASSERT_ARGUMENT(file);
@@ -148,6 +154,46 @@ IREE_API_EXPORT bool iree_hal_file_supports_synchronous_io(
     iree_hal_file_t* file) {
   IREE_ASSERT_ARGUMENT(file);
   return _VTABLE_DISPATCH(file, supports_synchronous_io)(file);
+}
+
+IREE_API_EXPORT iree_status_t iree_hal_file_prepare_transfer(
+    const iree_async_file_transfer_requirements_t* requirements,
+    uint64_t file_offset, const void* buffer, uint64_t remaining_length,
+    iree_host_size_t maximum_length, iree_host_size_t* out_length) {
+  IREE_ASSERT_ARGUMENT(requirements);
+  IREE_ASSERT_ARGUMENT(out_length);
+  *out_length = 0;
+  if (!remaining_length) {
+    return iree_ok_status();
+  }
+  if (!buffer || ((uintptr_t)buffer & (requirements->buffer_alignment - 1)) ||
+      (file_offset & (requirements->offset_alignment - 1)) ||
+      (remaining_length & (requirements->length_alignment - 1))) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "file transfer requires buffer/offset/length alignment "
+        "%" PRIhsz "/%" PRIu64 "/%" PRIhsz,
+        requirements->buffer_alignment, requirements->offset_alignment,
+        requirements->length_alignment);
+  }
+  iree_host_size_t length = (iree_host_size_t)remaining_length;
+  if (remaining_length > maximum_length) {
+    // All alignments are powers of two established by the native query. A
+    // full chunk must preserve all three, not just native request length.
+    const uint64_t stride = iree_max(requirements->offset_alignment,
+                                     iree_max(requirements->buffer_alignment,
+                                              requirements->length_alignment));
+    length = (iree_host_size_t)((uint64_t)maximum_length & ~(stride - 1));
+    if (!length) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "file transfer capacity %" PRIhsz
+                              " cannot hold an aligned chunk of %" PRIu64
+                              " bytes",
+                              maximum_length, stride);
+    }
+  }
+  *out_length = length;
+  return iree_ok_status();
 }
 
 IREE_API_EXPORT iree_status_t iree_hal_file_read(iree_hal_file_t* file,
