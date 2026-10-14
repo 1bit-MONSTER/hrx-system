@@ -71,7 +71,7 @@ TEST_F(PreparationTest, DirectDeclarationRetainsProductAndSpecialization) {
 
 TEST_F(PreparationTest, WorkspaceLimitConstrainsCompilerReflection) {
   IREE_ASSERT_OK(loom_serve_preparation_allocate(
-      environment, iree_make_cstring_view(FLAG_boundary_source),
+      environment, &sources, iree_make_cstring_view(FLAG_boundary_source),
       IREE_SV("workspace_constrained"), iree_vm_variant_span_empty(),
       iree_vm_variant_span_empty(), iree_vm_module_span_empty(), &compilation,
       host_allocator, &preparation));
