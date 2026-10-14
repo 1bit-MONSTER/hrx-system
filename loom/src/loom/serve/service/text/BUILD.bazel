@@ -65,6 +65,7 @@ loom_cc_library(
         "source_service_test.cc",
         "source_test_oracle.h",
         "stalled_client_test_util.h",
+        "variant_test.cc",
     ],
     target_compatible_with = loom_config_compatible_with([
         "//loom/config/target/arch:vm",
@@ -163,12 +164,14 @@ loom_cc_library(
         "source.c",
         "stages.c",
         "state.c",
+        "variant.c",
     ],
     hdrs = [
         "model.h",
         "source.h",
         "stages.h",
         "state.h",
+        "variant.h",
     ],
     target_compatible_with = loom_config_compatible_with([
         "//loom/config/target/arch:vm",

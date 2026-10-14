@@ -9,6 +9,7 @@
 
 #include "loom/serve/runtime/device/device.h"
 #include "loom/serve/runtime/parameter/weights.h"
+#include "loom/serve/runtime/program/module.h"
 #include "loom/serve/runtime/program/preparation.h"
 
 #ifdef __cplusplus
@@ -49,6 +50,21 @@ iree_status_t loom_serve_text_stages_bind(
     iree_host_size_t shared_count, iree_host_size_t stage_count,
     loom_serve_text_stage_t* stages, loom_serve_text_parameters_t* parameters,
     iree_allocator_t host_allocator);
+
+// Binds replacement code to the original stages' parameter roots. Reflection
+// must preserve parameter keys, placement, alignment and model-buffer arity;
+// private workspace may change. No weight plan, storage or I/O is created.
+// Stages start zeroed except for compiled ownership. The caller releases all
+// populated fixed-buffer slots even on failure. Preparation and baseline are
+// immutable and outlive this call; successful slots own independent references.
+iree_status_t loom_serve_text_stages_rebind(
+    const loom_serve_preparation_t* preparation, iree_host_size_t shared_count,
+    iree_host_size_t stage_count, const loom_serve_text_stage_t* baseline,
+    loom_serve_text_stage_t* stages, iree_allocator_t host_allocator);
+
+// Borrows the command and reflects its model-facing native submission ABI.
+loom_serve_stage_t loom_serve_text_stage_binding(
+    const loom_serve_text_stage_t* stage);
 
 #ifdef __cplusplus
 }  // extern "C"

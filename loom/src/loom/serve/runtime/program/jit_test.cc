@@ -275,12 +275,12 @@ class JitTest : public ::testing::TestWithParam<int> {
     IREE_RETURN_IF_ERROR(iree_hal_module_register_types(environment_, &table));
     IREE_RETURN_IF_ERROR(iree_hal_module_types_resolve(table, &types_));
     const loom_serve_stage_t stages[] = {
-        {commands_[0], 1, transients_[0]},
-        {commands_[1], 1, transients_[1]},
+        {commands_[0], 1, transients_[0], dispatches_[0]},
+        {commands_[1], 1, transients_[1], dispatches_[1]},
     };
     loom_serve_module_options_t options = {};
     options.binding_capacity = 1;
-    options.stages = {commands_[1] ? 2u : 1u, stages};
+    options.stages = {commands_[1] || dispatches_[1] ? 2u : 1u, stages};
     IREE_RETURN_IF_ERROR(loom_serve_module_create(&types_, execution_, options,
                                                   host_allocator_, &native_));
     const std::string path = directory_ + "/control.loom";
@@ -573,6 +573,58 @@ TEST_P(JitTest, InvalidConfigurationLeavesCompilerReusable) {
   IREE_ASSERT_OK(Compile("3", 0));
 }
 
+TEST_P(JitTest, RebindingChangesWorkspaceWithoutRelinkingVm) {
+  IREE_ASSERT_OK(Compile("5", 0, IREE_SV("temporary_advance"), "64"));
+  IREE_ASSERT_OK(PrepareVm());
+  // This candidate did not exist when the original workspace was registered.
+  IREE_ASSERT_OK(Compile("7", 1, IREE_SV("temporary_advance"), "4160"));
+  IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
+      loom_serve_device_storage_pool(device_owner_),
+      iree_hal_make_pool_reservation_request(sizeof(input_), 0),
+      iree_infinite_timeout(), &buffer_));
+  const iree_hal_transfer_operation_t upload = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+      .upload = {input_.data(), buffer_, 0, sizeof(input_)},
+  };
+  uint64_t completion = 0;
+  IREE_ASSERT_OK(
+      loom_serve_execution_transfer(execution_, 1, &upload, &completion));
+  for (size_t i = 0; i < 2; ++i) {
+    const loom_serve_stage_t wrong_arity = {commands_[i], 2, transients_[i]};
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_INVALID_ARGUMENT,
+        loom_serve_module_bind_stages(native_, 1, &wrong_arity));
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          loom_serve_module_bind_stages(native_, 0, nullptr));
+    if (i) {
+      const loom_serve_stage_t replacement = {commands_[i], 1, transients_[i]};
+      IREE_ASSERT_OK(loom_serve_module_bind_stages(native_, 1, &replacement));
+    }
+    iree_vm_variant_t arguments[] = {
+        iree_hal_buffer_variant_from_ptr_borrowed(&types_, buffer_)};
+    iree_vm_variant_t results[1] = {};
+    auto status = iree_vm_invoke(invocation_, step_,
+                                 iree_vm_variant_span_from_array(arguments),
+                                 iree_vm_variant_span_from_array(results));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+    IREE_ASSERT_OK(status);
+    // The module and submitted work retain code independently of this owner.
+    iree_hal_command_buffer_release(commands_[i]);
+    commands_[i] = nullptr;
+  }
+  const iree_hal_transfer_operation_t download = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+      .download = {buffer_, 0, output_.data(), sizeof(output_)},
+  };
+  IREE_ASSERT_OK(
+      loom_serve_execution_feedback(execution_, 1, &download, &completion));
+  IREE_ASSERT_OK(loom_serve_execution_feedback_wait(execution_, completion));
+  for (size_t i = 0; i < output_.size(); ++i) {
+    EXPECT_EQ(output_[i], 112);
+  }
+}
+
 TEST_P(JitTest, DirectStagesReuseExactInputsAndOutliveCatalog) {
   const loomc_config_binding_t binding = {
       loomc_make_cstring_view("increment.delta"), loomc_make_cstring_view("7")};
@@ -608,6 +660,7 @@ TEST_P(JitTest, DirectStagesReuseExactInputsAndOutliveCatalog) {
   EXPECT_EQ(compilation_.kernels, 2u);
   EXPECT_EQ(compilation_.reused_kernels, 1u);
   EXPECT_EQ(compilation_.entries, 3u);
+  IREE_ASSERT_OK(PrepareVm());
   IREE_ASSERT_OK(iree_hal_pool_allocate_buffer(
       loom_serve_device_storage_pool(device_owner_),
       iree_hal_make_pool_reservation_request(sizeof(input_), 0),
@@ -618,11 +671,29 @@ TEST_P(JitTest, DirectStagesReuseExactInputsAndOutliveCatalog) {
   uint64_t completion = 0;
   IREE_ASSERT_OK(
       loom_serve_execution_transfer(execution_, 1, &upload, &completion));
-  const iree_hal_buffer_binding_t argument = {buffer_, 0, sizeof(input_)};
-  iree_hal_buffer_ref_t scratch;
-  for (auto* dispatch : dispatches_) {
-    IREE_ASSERT_OK(loom_serve_dispatch_issue(
-        dispatch, execution_, {1, &argument}, &scratch, &completion));
+  for (size_t i = 0; i < 2; ++i) {
+    if (i) {
+      const loom_serve_stage_t replacement[] = {
+          {.binding_count = 1, .dispatch = dispatches_[1]},
+          {.binding_count = 1, .dispatch = dispatches_[0]},
+      };
+      IREE_ASSERT_OK(loom_serve_module_bind_stages(
+          native_, IREE_ARRAYSIZE(replacement), replacement));
+      // Dropping caller ownership cannot retire selected native executables.
+      for (auto*& dispatch : dispatches_) {
+        loom_serve_dispatch_release(dispatch);
+        dispatch = nullptr;
+      }
+    }
+    iree_vm_variant_t arguments[] = {
+        iree_hal_buffer_variant_from_ptr_borrowed(&types_, buffer_)};
+    iree_vm_variant_t results[1] = {};
+    auto status = iree_vm_invoke(invocation_, step_,
+                                 iree_vm_variant_span_from_array(arguments),
+                                 iree_vm_variant_span_from_array(results));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+    IREE_ASSERT_OK(status);
   }
   iree_hal_transfer_operation_t download = {};
   download.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;

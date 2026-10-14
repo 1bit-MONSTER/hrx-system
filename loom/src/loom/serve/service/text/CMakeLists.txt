@@ -73,6 +73,7 @@ loom_cc_library(
     "source_service_test.cc"
     "source_test_oracle.h"
     "stalled_client_test_util.h"
+    "variant_test.cc"
   DEPS
     iree::async
     iree::async::platform
@@ -177,11 +178,13 @@ loom_cc_library(
     "source.h"
     "stages.h"
     "state.h"
+    "variant.h"
   SRCS
     "model.c"
     "source.c"
     "stages.c"
     "state.c"
+    "variant.c"
   DEPS
     ::chat
     ::packing

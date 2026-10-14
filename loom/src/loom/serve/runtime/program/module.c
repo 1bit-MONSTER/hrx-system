@@ -227,6 +227,43 @@ static int loom_serve_module_compare_exports(const void* lhs, const void* rhs) {
       ((const iree_vm_module_export_declaration_t*)rhs)->export_name);
 }
 
+iree_status_t loom_serve_module_bind_stages(iree_vm_module_t* base,
+                                            iree_host_size_t stage_count,
+                                            const loom_serve_stage_t* stages) {
+  loom_serve_module_t* module = (loom_serve_module_t*)base;
+  if (stage_count != module->stage_count) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "replacement stage count differs from the model");
+  }
+  uint64_t workspace_length = 0;
+  uint64_t workspace_alignment = 0;
+  for (iree_host_size_t i = 0; i < stage_count; ++i) {
+    if (stages[i].binding_count != module->stages[i].binding_count) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "replacement stage %zu changes model bindings",
+                              i);
+    }
+    workspace_length =
+        iree_max(workspace_length, stages[i].transient.required_byte_length);
+    workspace_alignment =
+        iree_max(workspace_alignment, stages[i].transient.minimum_alignment);
+  }
+  IREE_RETURN_IF_ERROR(loom_serve_execution_reserve_workspace(
+      module->execution, workspace_length, workspace_alignment));
+  // Retain the complete replacement before releasing anything: a candidate
+  // may share commands or executables with any slot in the previous table.
+  for (iree_host_size_t i = 0; i < stage_count; ++i) {
+    iree_hal_command_buffer_retain(stages[i].command_buffer);
+    loom_serve_dispatch_retain(stages[i].dispatch);
+  }
+  for (iree_host_size_t i = 0; i < stage_count; ++i) {
+    iree_hal_command_buffer_release(module->stages[i].command_buffer);
+    loom_serve_dispatch_release(module->stages[i].dispatch);
+    module->stages[i] = stages[i];
+  }
+  return iree_ok_status();
+}
+
 iree_status_t loom_serve_module_create(const iree_hal_module_types_t* types,
                                        loom_serve_execution_t* execution,
                                        loom_serve_module_options_t options,
