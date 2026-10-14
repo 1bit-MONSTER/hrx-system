@@ -1,9 +1,9 @@
-// RUN: pass target=x86:avx2 entry=@proves_index_shift_conditions licm
+// RUN: pass target=x86:avx2 entry=@proves_index_arithmetic_conditions licm
 
-// The x86 target selects a 64-bit index carrier. Counts through 63 are valid,
-// while a left shift additionally requires its mathematical result to fit the
-// signed carrier.
-func.def @proves_index_shift_conditions(%n: index, %value: index, %fit_input: index, %overflow_input: index, %count_input: index, %wide_count_input: index) {
+// The x86 target selects a 64-bit index carrier. Shift counts through 63 are
+// valid, while left shifts and mathematical arithmetic additionally require
+// their results to fit the signed carrier.
+func.def @proves_index_arithmetic_conditions(%n: index, %value: index, %fit_input: index, %overflow_input: index, %small_input: index, %count_input: index, %wide_count_input: index) {
   %begin = index.constant 0 : index
   %step = index.constant 1 : index
   %right_count = index.assume %count_input [range(%count_input, 32, 63)] : index
@@ -11,19 +11,25 @@ func.def @proves_index_shift_conditions(%n: index, %value: index, %fit_input: in
   %wide_count = index.assume %wide_count_input [range(%wide_count_input, 0, 64)] : index
   %fit = index.assume %fit_input [range(%fit_input, -4611686018427387904, 4611686018427387903)] : index
   %overflow = index.assume %overflow_input [range(%overflow_input, -4611686018427387905, 4611686018427387903)] : index
+  %small = index.assume %small_input [range(%small_input, -1024, 1024)] : index
   scf.for %iv = [%begin to %n step %step] {
     %left = index.shli %fit, %left_count : index
     %left_overflow = index.shli %overflow, %left_count : index
     %arithmetic = index.shrsi %value, %right_count : index
     %logical = index.shrui %value, %right_count : index
     %wide = index.shrui %value, %wide_count : index
-    test.use %left, %left_overflow, %arithmetic, %logical, %wide : index, index, index, index, index
+    %addition = index.add %fit, %fit : index
+    %addition_overflow = index.add %overflow, %overflow : index
+    %subtraction = index.sub %fit, %fit : index
+    %multiplication = index.mul %small, %small : index
+    %multiply_add = index.madd %small, %small, %small : index
+    test.use %left, %left_overflow, %arithmetic, %logical, %wide, %addition, %addition_overflow, %subtraction, %multiplication, %multiply_add : index, index, index, index, index, index, index, index, index, index
   }
   func.return
 }
 
 // ----
-func.def @proves_index_shift_conditions(%n: index, %value: index, %fit_input: index, %overflow_input: index, %count_input: index, %wide_count_input: index) {
+func.def @proves_index_arithmetic_conditions(%n: index, %value: index, %fit_input: index, %overflow_input: index, %small_input: index, %count_input: index, %wide_count_input: index) {
   %begin = index.constant 0 : index
   %step = index.constant 1 : index
   %right_count = index.assume %count_input [range(%count_input, 32, 63)] : index
@@ -31,13 +37,19 @@ func.def @proves_index_shift_conditions(%n: index, %value: index, %fit_input: in
   %wide_count = index.assume %wide_count_input [range(%wide_count_input, 0, 64)] : index
   %fit = index.assume %fit_input [range(%fit_input, -4611686018427387904, 4611686018427387903)] : index
   %overflow = index.assume %overflow_input [range(%overflow_input, -4611686018427387905, 4611686018427387903)] : index
+  %small = index.assume %small_input [range(%small_input, -1024, 1024)] : index
   %left = index.shli %fit, %left_count : index
   %arithmetic = index.shrsi %value, %right_count : index
   %logical = index.shrui %value, %right_count : index
+  %addition = index.add %fit, %fit : index
+  %subtraction = index.sub %fit, %fit : index
+  %multiplication = index.mul %small, %small : index
+  %multiply_add = index.madd %small, %small, %small : index
   scf.for %iv = [%begin to %n step %step] {
     %left_overflow = index.shli %overflow, %left_count : index
     %wide = index.shrui %value, %wide_count : index
-    test.use %left, %left_overflow, %arithmetic, %logical, %wide : index, index, index, index, index
+    %addition_overflow = index.add %overflow, %overflow : index
+    test.use %left, %left_overflow, %arithmetic, %logical, %wide, %addition, %addition_overflow, %subtraction, %multiplication, %multiply_add : index, index, index, index, index, index, index, index, index, index
   }
   func.return
 }

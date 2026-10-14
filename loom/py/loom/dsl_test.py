@@ -4038,6 +4038,14 @@ def test_execution_condition_requires_canonical_integer_shift_shape() -> None:
             "results": [Result("result", INTEGER)],
             "constraints": [SameType("lhs", "rhs", "result")],
             "traits": [PURE],
+            "attrs": [
+                AttrDef(
+                    "overflow",
+                    dsl.ATTR_TYPE_FLAGS,
+                    optional=True,
+                    enum_def=canonical_flags,
+                )
+            ],
             "execution_condition": condition,
         }
         fields.update(overrides)
@@ -4046,14 +4054,10 @@ def test_execution_condition_requires_canonical_integer_shift_shape() -> None:
     assert make_op().execution_condition is condition
     assert (
         make_op(
-            attrs=[
-                AttrDef(
-                    "overflow",
-                    dsl.ATTR_TYPE_FLAGS,
-                    optional=True,
-                    enum_def=canonical_flags,
-                )
-            ]
+            operands=[Operand("lhs", INDEX), Operand("rhs", INDEX)],
+            results=[Result("result", INDEX)],
+            constraints=[SameType("lhs", "rhs", "result")],
+            attrs=[],
         ).execution_condition
         is condition
     )
@@ -4066,6 +4070,8 @@ def test_execution_condition_requires_canonical_integer_shift_shape() -> None:
         make_op(regions=[RegionDef("body")])
     with _raises(ValueError, match="requires same-typed integer"):
         make_op(constraints=[])
+    with _raises(ValueError, match="canonical integer overflow flags"):
+        make_op(attrs=[])
     with _raises(ValueError, match="canonical integer overflow flags"):
         make_op(
             attrs=[
@@ -4084,6 +4090,99 @@ def test_execution_condition_requires_canonical_integer_shift_shape() -> None:
         make_op(
             execution_condition=dsl.ExecutionCondition.INTEGER_SHIFT_RIGHT,
             attrs=[AttrDef("mode", dsl.ATTR_TYPE_I64)],
+        )
+
+
+def test_execution_condition_requires_complete_integer_arithmetic_shape() -> None:
+    canonical_flags = EnumDef(
+        "IntOverflowFlags",
+        [EnumCase("nsw", 1), EnumCase("nuw", 2)],
+        c_type="loom_integer_overflow_flags_t",
+        c_const_prefix="LOOM_INTEGER_OVERFLOW_FLAG",
+        c_include="loom/ops/op_defs.h",
+    )
+    overflow_attr = AttrDef(
+        "overflow",
+        dsl.ATTR_TYPE_FLAGS,
+        optional=True,
+        enum_def=canonical_flags,
+    )
+
+    for condition in (
+        dsl.ExecutionCondition.INTEGER_ADD,
+        dsl.ExecutionCondition.INTEGER_SUBTRACT,
+        dsl.ExecutionCondition.INTEGER_MULTIPLY,
+    ):
+        op = Op(
+            "test.binary",
+            operands=[Operand("lhs", INTEGER), Operand("rhs", INTEGER)],
+            results=[Result("result", INTEGER)],
+            attrs=[overflow_attr],
+            constraints=[SameType("lhs", "rhs", "result")],
+            traits=[PURE],
+            execution_condition=condition,
+        )
+        assert op.execution_condition is condition
+
+    vector_add = Op(
+        "test.vector_add",
+        operands=[Operand("lhs", dsl.VECTOR), Operand("rhs", dsl.VECTOR)],
+        results=[Result("result", dsl.VECTOR)],
+        attrs=[overflow_attr],
+        constraints=[
+            SameType("lhs", "rhs", "result"),
+            HasIntegerElement("result"),
+        ],
+        traits=[PURE],
+        execution_condition=dsl.ExecutionCondition.INTEGER_ADD,
+    )
+    assert vector_add.execution_condition is dsl.ExecutionCondition.INTEGER_ADD
+
+    multiply_add = Op(
+        "test.multiply_add",
+        operands=[
+            Operand("a", INTEGER),
+            Operand("b", INTEGER),
+            Operand("c", INTEGER),
+        ],
+        results=[Result("result", INTEGER)],
+        attrs=[overflow_attr],
+        constraints=[SameType("a", "b", "c", "result")],
+        traits=[PURE],
+        execution_condition=dsl.ExecutionCondition.INTEGER_MULTIPLY_ADD,
+    )
+    assert (
+        multiply_add.execution_condition is dsl.ExecutionCondition.INTEGER_MULTIPLY_ADD
+    )
+
+    address_add = Op(
+        "test.address_add",
+        operands=[Operand("lhs", ADDRESS), Operand("rhs", ADDRESS)],
+        results=[Result("result", ADDRESS)],
+        constraints=[SameType("lhs", "rhs", "result")],
+        traits=[PURE],
+        execution_condition=dsl.ExecutionCondition.INTEGER_ADD,
+    )
+    assert address_add.execution_condition is dsl.ExecutionCondition.INTEGER_ADD
+
+    with _raises(ValueError, match="same-typed integer"):
+        Op(
+            "test.address_multiply",
+            operands=[Operand("lhs", ADDRESS), Operand("rhs", ADDRESS)],
+            results=[Result("result", ADDRESS)],
+            constraints=[SameType("lhs", "rhs", "result")],
+            traits=[PURE],
+            execution_condition=dsl.ExecutionCondition.INTEGER_MULTIPLY,
+        )
+    with _raises(ValueError, match="3 required operands"):
+        Op(
+            "test.short_multiply_add",
+            operands=[Operand("lhs", INTEGER), Operand("rhs", INTEGER)],
+            results=[Result("result", INTEGER)],
+            attrs=[overflow_attr],
+            constraints=[SameType("lhs", "rhs", "result")],
+            traits=[PURE],
+            execution_condition=dsl.ExecutionCondition.INTEGER_MULTIPLY_ADD,
         )
 
 

@@ -57,6 +57,7 @@ loom_generated_cc_library(
     srcs = [
         "canonicalize.c",
         "facts.c",
+        "traits.c",
         "verify.c",
     ],
     hdrs = [

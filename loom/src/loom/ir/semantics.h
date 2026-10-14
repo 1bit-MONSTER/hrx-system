@@ -50,6 +50,21 @@ typedef enum loom_execution_condition_e {
   // Integer arithmetic or logical right shift with a count in
   // [0, element width).
   LOOM_EXECUTION_CONDITION_INTEGER_SHIFT_RIGHT = 2,
+  // Integer addition whose declared no-wrap promises hold, or mathematical
+  // index addition whose result fits the selected signed target carrier.
+  // Offset addition is total modulo its unsigned target carrier.
+  LOOM_EXECUTION_CONDITION_INTEGER_ADD = 3,
+  // Integer subtraction with the same fixed-width, index, and offset domains
+  // as INTEGER_ADD.
+  LOOM_EXECUTION_CONDITION_INTEGER_SUBTRACT = 4,
+  // Integer multiplication whose declared no-wrap promises hold, or
+  // mathematical index multiplication whose result fits the selected signed
+  // target carrier.
+  LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY = 5,
+  // Integer multiply-add whose declared no-wrap promises hold, or
+  // mathematical index multiply-add whose result fits the selected signed
+  // target carrier.
+  LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY_ADD = 6,
 } loom_execution_condition_e;
 
 // Bitset of target-contract families represented by an op or type.
