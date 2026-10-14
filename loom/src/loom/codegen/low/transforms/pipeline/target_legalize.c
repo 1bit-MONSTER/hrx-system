@@ -1361,7 +1361,9 @@ static iree_status_t loom_low_target_legalize_packet_components(
   if (state->preflight.error_count != 0 ||
       state->legalization_context.vector_packet_policy == NULL ||
       state->legalization_context.policy ==
-          LOOM_TARGET_LEGALIZATION_POLICY_REFERENCE_ONLY) {
+          LOOM_TARGET_LEGALIZATION_POLICY_REFERENCE_ONLY ||
+      !loom_value_fact_table_has_result_type_kind(driver->fact_table,
+                                                  LOOM_TYPE_VECTOR)) {
     return iree_ok_status();
   }
 

@@ -1106,6 +1106,8 @@ iree_status_t loom_value_fact_table_define_results(
     facts =
         loom_value_fact_table_clamp_scalar_type_domain(module, result, facts);
     loom_type_t type = loom_module_value_type(module, result);
+    table->result_type_kind_bits |=
+        (uint16_t)(UINT16_C(1) << loom_type_kind(type));
     if (out_changed &&
         (!loom_value_fact_table_has_entry(table, result) ||
          !loom_value_fact_table_facts_equal_for_type(
