@@ -33,6 +33,14 @@ chooses checkpoint domains, stages, capacities, waveform geometry and initial
 conditioning. The native model does not encode a particular vocoder, speaker
 vector, latent width, number of diffusion steps or waveform block size.
 
+Each stage binds its own checkpoint roots. Voice encoding, text prefill and
+waveform decoding can share a backbone while loading different phase weights.
+Roots with the same checkpoint path and preparation policy share compatible
+tensor placement and prepare each tensor once. Distinct paths or policies own
+independent storage, so a voice archive can reuse a tensor name from the base
+model without aliasing it. Incompatible overlapping layouts reject during
+preparation, before checkpoint payloads are loaded.
+
 Four dynamic roots carry immutable request bytes, reusable model conditioning,
 mutable per-request state and bounded device output. State crossing commands
 lives in the stream bank. Compiler-private workspace belongs to one complete

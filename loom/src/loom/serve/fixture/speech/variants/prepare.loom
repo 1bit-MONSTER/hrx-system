@@ -1,0 +1,67 @@
+func.decl import("prepare") @stage(%root: buffer, %tag: i64) -> (i32)
+
+func.decl import("prepare") @parameter(%stage: i32, %binding: i32, %directory: buffer, %path: buffer, %policy: buffer)
+
+func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
+global.rodata.def @initialize = bytes("696e697469616c697a655f77656967687465645f617564696f")
+
+global.rodata.def @step = bytes("737465705f77656967687465645f617564696f")
+
+global.rodata.def @weights = bytes("776569676874732e7361666574656e736f7273")
+
+global.rodata.def @voices = bytes("766f696365732e7361666574656e736f7273")
+
+global.rodata.def @policy = bytes("76617269616e74732f706f6c6963792e6c6f6f6d")
+
+global.rodata.def @identity = bytes("76617269616e74732f6964656e746974792e6c6f6f6d")
+
+global.rodata.def @name = bytes("666978747572652d77656967687465642d737065656368")
+
+global.rodata.def @empty = bytes("")
+
+global.rodata.def @invalid = bytes("7370656563682066697874757265206578706563747320656d707479206f7074696f6e73")
+
+func.def public @prepare(%directory: buffer, %options: buffer) -> (i64, i64, i64, i64, i64, i64, i64, i64, buffer, buffer, buffer, buffer) {
+  %c0 = scalar.constant 0 : i64
+  %c1 = scalar.constant 1 : i64
+  %object_kind = scalar.constant 2 : i32
+  %fields, %kind, %count = func.call @members(%options) : (buffer) -> (buffer, i32, i64)
+  %object = scalar.cmpi eq, %kind, %object_kind : i32
+  %empty = scalar.cmpi eq, %count, %c0 : i64
+  %valid = scalar.andi %object, %empty : i1
+  %valid32 = scalar.extui %valid : i1 to i32
+  %diagnostic = global.load @invalid : buffer
+  func.call @require(%valid32, %diagnostic) : (i32, buffer)
+  %initialize = global.load @initialize : buffer
+  %first = func.call @stage(%initialize, %c0) : (buffer, i64) -> (i32)
+  %step = global.load @step : buffer
+  %second = func.call @stage(%step, %c1) : (buffer, i64) -> (i32)
+  %binding0 = scalar.constant 0 : i32
+  %binding1 = scalar.constant 1 : i32
+  %binding2 = scalar.constant 2 : i32
+  %binding3 = scalar.constant 3 : i32
+  %weights = global.load @weights : buffer
+  %voices = global.load @voices : buffer
+  %policy = global.load @policy : buffer
+  %identity = global.load @identity : buffer
+  %empty_buffer = global.load @empty : buffer
+  // Declaration order is independent of each command's fixed binding order.
+  // The raw base factor has a different preparation policy and storage owner.
+  func.call @parameter(%first, %binding2, %directory, %voices, %policy) : (i32, i32, buffer, buffer, buffer)
+  func.call @parameter(%first, %binding3, %directory, %weights, %identity) : (i32, i32, buffer, buffer, buffer)
+  func.call @parameter(%first, %binding1, %directory, %weights, %policy) : (i32, i32, buffer, buffer, buffer)
+  func.call @parameter(%first, %binding0, %directory, %weights, %policy) : (i32, i32, buffer, buffer, buffer)
+  func.call @parameter(%second, %binding1, %directory, %weights, %policy) : (i32, i32, buffer, buffer, buffer)
+  func.call @parameter(%second, %binding0, %directory, %weights, %policy) : (i32, i32, buffer, buffer, buffer)
+  %input = scalar.constant 16 : i64
+  %conditioning_bytes = scalar.constant 8 : i64
+  %stream = scalar.constant 8 : i64
+  %output = scalar.constant 36 : i64
+  %frames = scalar.constant 5 : i64
+  %rate = scalar.constant 24000 : i64
+  %name = global.load @name : buffer
+  func.return %input, %conditioning_bytes, %stream, %output, %output, %frames, %rate, %c1, %empty_buffer, %name, %empty_buffer, %empty_buffer : i64, i64, i64, i64, i64, i64, i64, i64, buffer, buffer, buffer, buffer
+}

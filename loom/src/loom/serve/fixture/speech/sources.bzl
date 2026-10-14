@@ -7,4 +7,6 @@
 """Source closure for the incremental waveform serving fixture."""
 
 SOURCE_FILES = ["control.loom", "generate.loom", "model.json", "prepare.loom"]
+VARIANT_FILES = ["variants/identity.loom", "variants/policy.loom", "variants/prepare.loom", "variants/weights.loom"]
 SOURCES = ["//loom/src/loom/serve/fixture/speech:" + path for path in SOURCE_FILES]
+VARIANT_SOURCES = ["//loom/src/loom/serve/fixture/speech:" + path for path in VARIANT_FILES]

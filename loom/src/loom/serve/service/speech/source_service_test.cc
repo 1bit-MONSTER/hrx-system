@@ -9,14 +9,17 @@
 
 #include <atomic>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "iree/base/threading/notification.h"
 #include "iree/base/tooling/flags.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "iree/testing/temp_file.h"
 #include "loom/serve/server/model_registration.h"
 #include "loom/serve/server/router.h"
 #include "loom/serve/service/speech/model.h"
@@ -30,10 +33,38 @@ IREE_FLAG(string, test_device, "task", "Device executing the speech fixture.");
 
 namespace {
 
-class SourceSpeechServiceTest : public ::testing::TestWithParam<uint32_t> {
+class SourceSpeechServiceTest
+    : public ::testing::TestWithParam<std::tuple<uint32_t, bool>> {
  protected:
+  static void WriteCheckpoint(const std::string& path, bool voice) {
+    // Overlapping names belong to distinct archives. Only factor is prepared;
+    // the encoder and decoder remain disjoint phase weights in the base file.
+    const std::string header =
+        voice
+            ? R"({"factor":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}})"
+            : R"({"factor":{"dtype":"F32","shape":[1],"data_offsets":[0,4]},)"
+              R"("encoder":{"dtype":"F32","shape":[1],"data_offsets":[4,8]},)"
+              R"("decoder":{"dtype":"F32","shape":[1],"data_offsets":[8,12]}})";
+    std::ofstream file(path, std::ios::binary);
+    uint8_t length[8];
+    iree_unaligned_store_le_u64(length, header.size());
+    file.write(reinterpret_cast<const char*>(length), sizeof(length));
+    file.write(header.data(), header.size());
+    const std::vector<float> values =
+        voice ? std::vector<float>{0.25f}
+              : std::vector<float>{0.5f, 0.125f, 4.0f};
+    for (float value : values) {
+      uint8_t bytes[4];
+      iree_unaligned_store_le_f32(bytes, value);
+      file.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
+    }
+    file.close();
+    ASSERT_TRUE(file.good());
+  }
+
   void SetUp() override {
-    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), allocator_, &host_));
+    IREE_ASSERT_OK(
+        loom_serve_host_create(std::get<0>(GetParam()), allocator_, &host_));
     const loom_serve_device_options_t device_options = {
         .uri = iree_make_cstring_view(FLAG_test_device),
     };
@@ -41,17 +72,28 @@ class SourceSpeechServiceTest : public ::testing::TestWithParam<uint32_t> {
                                                     allocator_, &group_));
     directory_ =
         std::filesystem::path(FLAG_model_source).parent_path().string();
-    const iree_string_view_t providers[] = {IREE_SVL("generate.loom")};
+    const bool weighted = std::get<1>(GetParam());
+    if (weighted) {
+      assets_ = iree::testing::MakeTempFilePath("speech_assets");
+      ASSERT_TRUE(std::filesystem::create_directory(assets_));
+      ASSERT_NO_FATAL_FAILURE(
+          WriteCheckpoint(assets_ + "/weights.safetensors", false));
+      ASSERT_NO_FATAL_FAILURE(
+          WriteCheckpoint(assets_ + "/voices.safetensors", true));
+    }
+    const iree_string_view_t providers[] = {IREE_SVL("generate.loom"),
+                                            IREE_SVL("variants/weights.loom")};
     const loom_serve_speech_model_options_t options = {
         .sources =
             {
                 .base_directory = iree_make_cstring_view(directory_.c_str()),
-                .prepare = IREE_SV("prepare.loom"),
+                .prepare = weighted ? IREE_SV("variants/prepare.loom")
+                                    : IREE_SV("prepare.loom"),
                 .control = IREE_SV("control.loom"),
-                .count = 1,
+                .count = weighted ? 2u : 1u,
                 .values = providers,
             },
-        .asset_directory = IREE_SV("."),
+        .asset_directory = iree_make_cstring_view(assets_.c_str()),
     };
     IREE_ASSERT_OK(loom_serve_speech_model_allocate(
         loom_serve_device_group_at(group_, 0), &options, allocator_, &model_));
@@ -218,6 +260,8 @@ class SourceSpeechServiceTest : public ::testing::TestWithParam<uint32_t> {
   loom_serve_speech_generator_t generator_ = {};
   // Source asset base retained through asynchronous registration.
   std::string directory_;
+  // Checkpoint files remain alive through model and registration retirement.
+  std::string assets_ = ".";
   // Loopback HTTP owner, created only by endpoint tests.
   loom_serve_http_server_t* server_ = nullptr;
   // Listener outlives every connected client and service turn.
@@ -271,10 +315,17 @@ TEST_P(SourceSpeechServiceTest, RejectionAndCancellationPreserveReusableModel) {
 
 TEST_P(SourceSpeechServiceTest, DynamicRegistrationStandardEndpointAndRemoval) {
   ASSERT_NO_FATAL_FAILURE(StartManaged());
+  const std::string definition =
+      std::get<1>(GetParam())
+          ? R"({"kind":"speech","prepare":"variants/prepare.loom",)"
+            R"("control":"control.loom","sources":["generate.loom",)"
+            R"("variants/weights.loom"],"pending_requests":4,"assets":")" +
+                assets_ + "\"}"
+          : loom_serve::testing::ReadDefinition(directory_);
   const std::string declaration =
       R"({"name":"speech","base_directory":")" +
       std::filesystem::absolute(directory_).string() + R"(","definition":)" +
-      loom_serve::testing::ReadDefinition(directory_) + "}";
+      definition + "}";
   EXPECT_EQ(Read(Send("POST", "/v1/models/register", declaration))
                 .find("HTTP/1.1 202"),
             0u);
@@ -822,7 +873,8 @@ TEST_P(SpeechReadinessTest, SlowReaderResumesFromBoundedSendCredit) {
 
 INSTANTIATE_TEST_SUITE_P(Workers, SpeechReadinessTest, ::testing::Values(1, 2));
 
-INSTANTIATE_TEST_SUITE_P(Workers, SourceSpeechServiceTest,
-                         ::testing::Values(1, 2));
+INSTANTIATE_TEST_SUITE_P(WorkersAndParameters, SourceSpeechServiceTest,
+                         ::testing::Combine(::testing::Values(1u, 2u),
+                                            ::testing::Bool()));
 
 }  // namespace

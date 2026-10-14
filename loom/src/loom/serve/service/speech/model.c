@@ -30,6 +30,10 @@ typedef struct speech_model_stage_t {
   loom_serve_jit_stage_t* compiled;
   // Reusable command retaining the model's immutable parameter domains.
   iree_hal_command_buffer_t* command;
+  // Number of fixed parameter roots in this stage's reflection.
+  uint32_t parameter_count;
+  // Owned fixed buffer references, indexed by this stage's fixed binding.
+  iree_hal_buffer_t** parameters;
 } speech_model_stage_t;
 
 typedef struct speech_invocation_t {
@@ -118,13 +122,13 @@ struct loom_serve_speech_model_t {
     // CPU interpretation of successfully retired output.
     iree_vm_function_t complete;
   } control;
-  // Shared immutable checkpoint domains in compiler reflection order.
+  // Checkpoint domains shared by compatible roots across numerical stages.
   struct {
-    // Owned array extent, including partial initialization.
-    uint32_t count;
-    // Retained fixed parameter buffers.
-    iree_hal_buffer_t** values;
-    // Owned checkpoint and preparation plans in the same order.
+    // Number of domains, including partially initialized plans.
+    iree_host_size_t count;
+    // First declaration of each domain, borrowed from preparation.
+    const loom_serve_preparation_parameter_t** sources;
+    // Owned checkpoint and preparation plans in domain order.
     loom_serve_weights_t** plans;
   } weights;
   // Bounded host feedback, exclusive through source completion and encoding.
@@ -139,12 +143,13 @@ static void loom_serve_speech_model_release_consumers(
   loom_serve_program_free(model->control.program);
   model->control.program = NULL;
   for (uint32_t i = 0; i < model->stages.count; ++i) {
-    iree_hal_command_buffer_release(model->stages.values[i].command);
-    model->stages.values[i].command = NULL;
-  }
-  for (iree_host_size_t i = 0; i < model->weights.count; ++i) {
-    iree_hal_buffer_release(model->weights.values[i]);
-    model->weights.values[i] = NULL;
+    speech_model_stage_t* stage = &model->stages.values[i];
+    iree_hal_command_buffer_release(stage->command);
+    stage->command = NULL;
+    for (uint32_t j = 0; j < stage->parameter_count; ++j) {
+      iree_hal_buffer_release(stage->parameters[j]);
+      stage->parameters[j] = NULL;
+    }
   }
   for (speech_invocation_t* invocation = model->invocations; invocation;
        invocation = invocation->next) {
@@ -209,6 +214,8 @@ static iree_status_t loom_serve_speech_model_destroy_resources(
     iree_vm_buffer_release(model->control.state);
     for (uint32_t i = 0; i < model->stages.count; ++i) {
       loom_serve_jit_stage_free(model->stages.values[i].compiled);
+      iree_allocator_free(model->host_allocator,
+                          model->stages.values[i].parameters);
     }
     iree_allocator_free(model->host_allocator, model->stages.values);
     loom_serve_preparation_free(model->preparation);
@@ -224,7 +231,7 @@ static iree_status_t loom_serve_speech_model_destroy_resources(
     loom_serve_retirement_deinitialize(&model->retirement);
     iree_vm_environment_free(model->control.environment);
     loom_serve_execution_release(model->execution);
-    iree_allocator_free(model->host_allocator, model->weights.values);
+    iree_allocator_free(model->host_allocator, model->weights.sources);
     iree_allocator_free(model->host_allocator, model->weights.plans);
     iree_allocator_free(model->host_allocator, (void*)model->name.data);
     loom_serve_jit_free(model->jit);
@@ -418,21 +425,31 @@ static iree_status_t loom_serve_speech_prepare(
   return status;
 }
 
-// The source catalog is external. Every retained shape must describe the same
-// immutable placement before a single checkpoint byte is loaded or shared.
+// Source declarations name each stage's fixed bindings independently. The
+// weight owner validates compatible placement when roots share a checkpoint.
 static iree_status_t loom_serve_speech_check_layouts(
     loom_serve_speech_model_t* model) {
-  const loom_cmd_program_t* canonical =
-      loom_serve_jit_stage_program(model->stages.values[0].compiled);
   for (uint32_t i = 0; i < model->stages.count; ++i) {
     const speech_model_stage_t* stage = &model->stages.values[i];
     const loom_cmd_program_t* program =
         loom_serve_jit_stage_program(stage->compiled);
     const loom_serve_preparation_stage_t* declaration =
         loom_serve_preparation_stage(model->preparation, i);
-    IREE_RETURN_IF_ERROR(loom_serve_preparation_stage_check_parameters(
-        declaration, program,
-        loom_serve_preparation_stage(model->preparation, 0), canonical));
+    const uint32_t roots =
+        program ? program->requirements.fixed_buffer_count : 0;
+    if (declaration->parameter_count != roots) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "speech stage %u requires %u checkpoint bindings",
+                              i, roots);
+    }
+    for (iree_host_size_t j = 0; j < declaration->parameter_count; ++j) {
+      if (declaration->parameters[j].binding >= roots) {
+        return iree_make_status(
+            IREE_STATUS_INVALID_ARGUMENT,
+            "speech stage %u checkpoint binding %u is outside [0, %u)", i,
+            declaration->parameters[j].binding, roots);
+      }
+    }
     if (!program) {
       if (loom_serve_dispatch_binding_count(
               loom_serve_jit_stage_dispatch(stage->compiled)) != 4) {
@@ -533,40 +550,109 @@ static iree_status_t loom_serve_speech_create_control(
       process, IREE_SV("model"), IREE_SV("complete"), &model->control.complete);
 }
 
-static iree_status_t loom_serve_speech_model_bind(
+// Cold binding records retain the source's checkpoint identity until all
+// compatible stage roots have joined one existing parameter-storage owner.
+typedef struct speech_parameter_binding_t {
+  // Index into the model's checkpoint domain arrays.
+  iree_host_size_t domain;
+  // Compiled placement and stage-owned output buffer slot.
+  loom_serve_weight_root_t root;
+} speech_parameter_binding_t;
+
+static iree_status_t loom_serve_speech_bind_parameters(
     loom_serve_speech_model_t* model) {
   const iree_allocator_t host_allocator = model->host_allocator;
-  iree_hal_device_t* device = loom_serve_device_handle(model->owner);
-  iree_hal_queue_t* dispatch = loom_serve_device_dispatch_queue(model->owner);
+  iree_host_size_t binding_count = 0;
+  for (uint32_t i = 0; i < model->stages.count; ++i) {
+    speech_model_stage_t* stage = &model->stages.values[i];
+    const loom_cmd_program_t* program =
+        loom_serve_jit_stage_program(stage->compiled);
+    const uint32_t count =
+        program ? program->requirements.fixed_buffer_count : 0;
+    if (count > SIZE_MAX - binding_count) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "speech parameter binding count overflow");
+    }
+    if (count) {
+      IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
+          host_allocator, count, sizeof(*stage->parameters),
+          (void**)&stage->parameters));
+      stage->parameter_count = count;
+      binding_count += count;
+    }
+  }
+  if (!binding_count) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
+      host_allocator, binding_count, sizeof(*model->weights.sources),
+      (void**)&model->weights.sources));
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
+      host_allocator, binding_count, sizeof(*model->weights.plans),
+      (void**)&model->weights.plans));
+  speech_parameter_binding_t* bindings = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
+      host_allocator, binding_count, sizeof(*bindings), (void**)&bindings));
+  iree_host_size_t cursor = 0;
+  for (uint32_t i = 0; i < model->stages.count; ++i) {
+    speech_model_stage_t* stage = &model->stages.values[i];
+    const loom_cmd_program_t* program =
+        loom_serve_jit_stage_program(stage->compiled);
+    const loom_serve_preparation_stage_t* declaration =
+        loom_serve_preparation_stage(model->preparation, i);
+    for (iree_host_size_t j = 0; j < declaration->parameter_count; ++j) {
+      const loom_serve_preparation_parameter_t* parameter =
+          &declaration->parameters[j];
+      iree_host_size_t domain = 0;
+      while (domain < model->weights.count &&
+             (!iree_string_view_equal(parameter->path,
+                                      model->weights.sources[domain]->path) ||
+              !iree_string_view_equal(
+                  parameter->policy, model->weights.sources[domain]->policy))) {
+        ++domain;
+      }
+      if (domain == model->weights.count) {
+        model->weights.sources[model->weights.count++] = parameter;
+      }
+      bindings[cursor++] = (speech_parameter_binding_t){
+          .domain = domain,
+          .root = {program,
+                   loom_cmd_program_parameter_root_at(program,
+                                                      parameter->binding),
+                   &stage->parameters[parameter->binding]},
+      };
+    }
+  }
+  loom_serve_weight_root_t* roots = NULL;
+  iree_status_t status = iree_allocator_malloc_array(
+      host_allocator, binding_count, sizeof(*roots), (void**)&roots);
+  for (iree_host_size_t domain = 0;
+       domain < model->weights.count && iree_status_is_ok(status); ++domain) {
+    iree_host_size_t count = 0;
+    for (iree_host_size_t i = 0; i < binding_count; ++i) {
+      if (bindings[i].domain == domain) {
+        roots[count++] = bindings[i].root;
+      }
+    }
+    status = loom_serve_weights_allocate(
+        loom_serve_device_handle(model->owner),
+        loom_serve_device_transfer_queue(model->owner),
+        loom_serve_device_dispatch_queue(model->owner),
+        loom_serve_device_storage_pool(model->owner),
+        loom_serve_device_memory_pool(model->owner), 0, count, roots,
+        host_allocator, &model->weights.plans[domain]);
+  }
+  iree_allocator_free(host_allocator, roots);
+  iree_allocator_free(host_allocator, bindings);
+  return status;
+}
+
+static iree_status_t loom_serve_speech_model_bind(
+    loom_serve_speech_model_t* model) {
   IREE_RETURN_IF_ERROR(loom_serve_speech_check_layouts(model));
   IREE_RETURN_IF_ERROR(
       loom_serve_device_create_execution(model->owner, &model->execution));
-  const loom_cmd_program_t* program =
-      loom_serve_jit_stage_program(model->stages.values[0].compiled);
-  const uint32_t roots = program ? program->requirements.fixed_buffer_count : 0;
-  if (roots) {
-    IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-        host_allocator, roots, sizeof(*model->weights.values),
-        (void**)&model->weights.values));
-    model->weights.count = roots;
-    IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-        host_allocator, roots, sizeof(*model->weights.plans),
-        (void**)&model->weights.plans));
-  }
-  iree_status_t status = iree_ok_status();
-  for (uint32_t i = 0; i < roots && iree_status_is_ok(status); ++i) {
-    const loom_cmd_program_parameter_root_t reflected =
-        loom_cmd_program_parameter_root_at(program, i);
-    const loom_serve_weight_root_t root = {
-        program, reflected,
-        &model->weights.values[reflected.fixed_buffer_index]};
-    status = loom_serve_weights_allocate(
-        device, loom_serve_device_transfer_queue(model->owner), dispatch,
-        loom_serve_device_storage_pool(model->owner),
-        loom_serve_device_memory_pool(model->owner), 0, 1, &root,
-        host_allocator, &model->weights.plans[i]);
-  }
-  return status;
+  return loom_serve_speech_bind_parameters(model);
 }
 
 static iree_status_t loom_serve_speech_model_link(
@@ -583,7 +669,7 @@ static iree_status_t loom_serve_speech_model_link(
     if (loom_serve_jit_stage_program(stage->compiled)) {
       IREE_RETURN_IF_ERROR(loom_serve_jit_stage_record(
           stage->compiled, iree_hal_queue_family(dispatch), command_mode, NULL,
-          model->weights.values, &stage->command));
+          stage->parameters, &stage->command));
     }
   }
   // Register stream allocation extents without committing request backing.
@@ -623,7 +709,7 @@ struct loom_serve_speech_load_t {
   // Owner-only next phase; callbacks never make shared-state transitions.
   speech_load_phase_t phase;
   // Next stage or weight domain within the current phase.
-  uint32_t index;
+  iree_host_size_t index;
   // Recording policy shared by consumer and weight preparation commands.
   iree_hal_command_buffer_mode_t command_mode;
   // Prepared control bytecode, not yet linked to device capabilities.
@@ -804,11 +890,9 @@ iree_status_t loom_serve_speech_load_advance(
         break;
       case SPEECH_LOAD_WEIGHTS:
         if (load->index < model->weights.count) {
-          const uint32_t i = load->index++;
-          const loom_serve_preparation_stage_t* declaration =
-              loom_serve_preparation_stage(model->preparation, 0);
+          const iree_host_size_t i = load->index++;
           const loom_serve_preparation_parameter_t* parameter =
-              &declaration->parameters[i];
+              model->weights.sources[i];
           iree_slim_mutex_lock(&load->event.mutex);
           load->event.pending = true;
           iree_slim_mutex_unlock(&load->event.mutex);

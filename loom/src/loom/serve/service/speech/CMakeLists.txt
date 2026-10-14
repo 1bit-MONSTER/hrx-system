@@ -104,6 +104,7 @@ loom_cc_library(
     iree::base::tooling::flags
     iree::hal
     iree::testing::gtest
+    iree::testing::temp_file
     loom::serve::runtime::device
     loom::serve::runtime::execution
     loom::serve::runtime::host

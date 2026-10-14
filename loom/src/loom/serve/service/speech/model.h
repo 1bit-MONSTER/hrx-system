@@ -93,9 +93,12 @@ iree_status_t loom_serve_speech_load_free(loom_serve_speech_load_t* load);
 // dynamic roots hold immutable request bytes, model conditioning, mutable
 // per-request stream state and output. Compiler-private workspace lives for one
 // command; state crossing commands belongs in the explicit stream bank.
-// Commands share reflected checkpoint placement. Direct stages have the same
-// four model roots and no checkpoint domains. No model math is linked into the
-// server.
+// Each command declares its own fixed parameter bindings. Roots sharing a
+// checkpoint path and preparation policy share compatible reflected storage;
+// disjoint roots retain their own placement. Distinct checkpoints or policies
+// own independent storage, even for identically named tensors. Direct stages
+// have the same four model roots and no checkpoint domains. No model math is
+// linked into the server.
 //
 // Source model-state changes and shared conditioning publication occur only
 // after their accepted producer retires. Partial preparation cannot mark an

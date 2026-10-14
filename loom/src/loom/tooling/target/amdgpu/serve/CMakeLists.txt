@@ -418,6 +418,10 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/generate.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/model.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/identity.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/policy.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/weights.loom"
   DEPS
     iree::testing::gtest_main
     loom::serve::service::speech::source_service_tests
