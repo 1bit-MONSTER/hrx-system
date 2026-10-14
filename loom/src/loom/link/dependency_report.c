@@ -109,6 +109,10 @@ static iree_string_view_t loom_link_dependency_facet_name(
       return IREE_SV("command_contract");
     case LOOM_LINK_SYMBOL_FACET_COMMAND_IMPLEMENTATION:
       return IREE_SV("command_implementation");
+    case LOOM_LINK_SYMBOL_FACET_PIPELINE_CONTRACT:
+      return IREE_SV("pipeline_contract");
+    case LOOM_LINK_SYMBOL_FACET_PIPELINE_IMPLEMENTATION:
+      return IREE_SV("pipeline_implementation");
     case LOOM_LINK_SYMBOL_FACET_INVALID:
       return IREE_SV("contract");
   }

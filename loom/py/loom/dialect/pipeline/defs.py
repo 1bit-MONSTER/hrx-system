@@ -59,6 +59,7 @@ from loom.dsl import (
     RegionDef,
     Result,
     SymbolDefinition,
+    SymbolDefinitionFlag,
     SymbolReference,
     TypeDef,
 )
@@ -173,7 +174,7 @@ pipeline_def = Op(
             body="body",
         )
     ],
-    verify="loom_pipeline_def_verify",
+    verify="loom_pipeline_signature_verify",
     format=[
         *_PIPELINE_MODIFIER_FORMAT,
         *_PIPELINE_SIGNATURE_FORMAT,
@@ -221,6 +222,44 @@ pipeline_memory = Op(
         ResultType("result"),
     ],
     examples=["%memory = pipeline.memory<workgroup>[%column, 3] : pool"],
+)
+
+pipeline_decl = Op(
+    "pipeline.decl",
+    group=pipeline_ops,
+    phase=OpPhase.EXECUTABLE,
+    doc=(
+        "Bodyless persistent pipeline contract. The leading specialization arguments, invocation arguments, target, predicates, and optional artifact scope have the same meaning as on pipeline.def."
+    ),
+    traits=[SYMBOL_DEFINE],
+    operands=[Operand("args", ANY, variadic=True)],
+    attrs=list(_PIPELINE_ATTRS),
+    symbol_def=SymbolDefinition(
+        field="callee",
+        name="pipeline",
+        interfaces=["func_like", "pipeline"],
+        bytecode_kind="LOOM_SYMBOL_FUNC_DECL",
+        fact_domain="loom_func_symbol_fact_domain",
+        retain="retain",
+        product_carrier="scope",
+        flags=[SymbolDefinitionFlag.DECLARATION],
+    ),
+    interfaces=[
+        FuncLikeInterface(
+            callee="callee",
+            visibility="visibility",
+            target="target",
+            predicates="predicates",
+            specialization_count="specialization_count",
+            args="args",
+        )
+    ],
+    verify="loom_pipeline_signature_verify",
+    format=[*_PIPELINE_MODIFIER_FORMAT, *_PIPELINE_SIGNATURE_FORMAT],
+    examples=[
+        "pipeline.decl<kernel> @embed(%batch: index) run(%weights: buffer, %input: buffer, %output: buffer)",
+        "pipeline.decl @stage(%width: index) run(%input: channel<tile<[%width]xi32>>)",
+    ],
 )
 
 pipeline_compose = Op(
@@ -376,4 +415,5 @@ ALL_PIPELINE_OPS: tuple[Op, ...] = (
     pipeline_end,
     pipeline_compose,
     pipeline_memory,
+    pipeline_decl,
 )

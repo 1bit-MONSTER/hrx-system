@@ -212,8 +212,8 @@ TEST_F(PipelineConstructionTest, CapturesKeepProtocolAndStorageSeparate) {
   loom_op_t* child;
   IREE_ASSERT_OK(loom_pipeline_def_build(
       &builder_, LOOM_PIPELINE_DEF_BUILD_FLAG_HAS_SCOPE,
-      LOOM_PIPELINE_DEF_SCOPE_KERNEL, 0, 0, loom_symbol_ref_null(),
-      child_symbol, child_arguments, 1, child_arguments + 1, 2, nullptr, 0,
+      LOOM_PIPELINE_SCOPE_KERNEL, 0, 0, loom_symbol_ref_null(), child_symbol,
+      child_arguments, 1, child_arguments + 1, 2, nullptr, 0,
       LOOM_LOCATION_UNKNOWN, &child));
   loom_builder_enter_region(&builder_, child, loom_pipeline_def_body(child));
   const auto* child_arguments_ids =
@@ -524,7 +524,7 @@ TEST_F(PipelineConstructionTest, MemorySelectionsShareBackingNotAllocations) {
   const auto pool_type = loom_type_pool();
   IREE_ASSERT_OK(loom_pipeline_def_build(
       &builder_, LOOM_PIPELINE_DEF_BUILD_FLAG_HAS_SCOPE,
-      LOOM_PIPELINE_DEF_SCOPE_KERNEL, 0, 0, loom_symbol_ref_null(),
+      LOOM_PIPELINE_SCOPE_KERNEL, 0, 0, loom_symbol_ref_null(),
       Symbol("pipeline"), &pool_type, 1, nullptr, 0, nullptr, 0,
       LOOM_LOCATION_UNKNOWN, &pipeline));
   auto* body = loom_pipeline_def_body(pipeline);

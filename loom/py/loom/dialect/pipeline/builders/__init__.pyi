@@ -64,3 +64,16 @@ class PipelineBuilder(DialectBuilder):
         result_names: Sequence[str] | None = ...,
         location_id: int | None = ...,
     ) -> ValueRef: ...
+    def decl(
+        self,
+        *,
+        scope: str | None = ...,
+        visibility: str | None = ...,
+        retain: str | None = ...,
+        target: str | None = ...,
+        callee: str,
+        specializations: list[ValueRef] = ...,
+        bindings: list[ValueRef] = ...,
+        predicates: list[Predicate] = ...,
+        location_id: int | None = ...,
+    ) -> None: ...

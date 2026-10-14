@@ -14,11 +14,15 @@ static_assert((LOOM_LINK_SYMBOL_FACET_KERNEL_CONTRACT >> 8) ==
 static_assert((LOOM_LINK_SYMBOL_FACET_COMMAND_CONTRACT >> 8) ==
                   LOOM_DIALECT_COMMAND,
               "command facets must remain in the command dialect namespace");
+static_assert((LOOM_LINK_SYMBOL_FACET_PIPELINE_CONTRACT >> 8) ==
+                  LOOM_DIALECT_PIPELINE,
+              "pipeline facets must remain in the pipeline dialect namespace");
 
 typedef enum loom_link_symbol_facet_family_e {
   LOOM_LINK_SYMBOL_FACET_FAMILY_DEFINITION = 0,
   LOOM_LINK_SYMBOL_FACET_FAMILY_KERNEL = 1,
   LOOM_LINK_SYMBOL_FACET_FAMILY_COMMAND = 2,
+  LOOM_LINK_SYMBOL_FACET_FAMILY_PIPELINE = 3,
 } loom_link_symbol_facet_family_t;
 
 // Returns the one semantic facet family selected by structural interfaces.
@@ -36,6 +40,9 @@ static loom_link_symbol_facet_family_t loom_link_symbol_facet_family(
   }
   if (is_command) {
     return LOOM_LINK_SYMBOL_FACET_FAMILY_COMMAND;
+  }
+  if (iree_any_bit_set(interfaces, LOOM_SYMBOL_INTERFACE_PIPELINE)) {
+    return LOOM_LINK_SYMBOL_FACET_FAMILY_PIPELINE;
   }
   return LOOM_LINK_SYMBOL_FACET_FAMILY_DEFINITION;
 }
@@ -62,6 +69,7 @@ loom_link_symbol_facet_schema_t loom_link_symbol_facet_schema_classify(
       IREE_ASSERT_EQ(schema.facet_count, root_region_count + 1);
       break;
     case LOOM_LINK_SYMBOL_FACET_FAMILY_COMMAND:
+    case LOOM_LINK_SYMBOL_FACET_FAMILY_PIPELINE:
       IREE_ASSERT_EQ(kernel_configuration_region_index_plus_one, 0);
       schema.facet_count += body_region_index_plus_one != 0;
       IREE_ASSERT_EQ(schema.facet_count, root_region_count + 1);
@@ -95,6 +103,9 @@ loom_link_symbol_facet_kind_t loom_link_symbol_facet_schema_kind_at(
     case LOOM_LINK_SYMBOL_FACET_FAMILY_COMMAND:
       return ordinal == 0 ? LOOM_LINK_SYMBOL_FACET_COMMAND_CONTRACT
                           : LOOM_LINK_SYMBOL_FACET_COMMAND_IMPLEMENTATION;
+    case LOOM_LINK_SYMBOL_FACET_FAMILY_PIPELINE:
+      return ordinal == 0 ? LOOM_LINK_SYMBOL_FACET_PIPELINE_CONTRACT
+                          : LOOM_LINK_SYMBOL_FACET_PIPELINE_IMPLEMENTATION;
     case LOOM_LINK_SYMBOL_FACET_FAMILY_DEFINITION:
       return LOOM_LINK_SYMBOL_FACET_DEFINITION;
   }
@@ -127,6 +138,12 @@ loom_link_symbol_facet_kind_t loom_link_symbol_facet_schema_source_root_kind(
       if (source_root_region_index_plus_one ==
           schema->body_region_index_plus_one) {
         return LOOM_LINK_SYMBOL_FACET_COMMAND_IMPLEMENTATION;
+      }
+      break;
+    case LOOM_LINK_SYMBOL_FACET_FAMILY_PIPELINE:
+      if (source_root_region_index_plus_one ==
+          schema->body_region_index_plus_one) {
+        return LOOM_LINK_SYMBOL_FACET_PIPELINE_IMPLEMENTATION;
       }
       break;
     case LOOM_LINK_SYMBOL_FACET_FAMILY_DEFINITION:

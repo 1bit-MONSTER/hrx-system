@@ -55,6 +55,15 @@ def test_generic_pipeline_roundtrip() -> None:
     _roundtrip("pipeline.def @generic(%batch: index) run(%input: buffer) {\n}\n")
 
 
+@pytest.mark.parametrize("scope", ["", "<kernel>"])
+def test_pipeline_declaration_roundtrip(scope: str) -> None:
+    _roundtrip(f"pipeline.decl{scope} @stage(%width: index) run(%input: channel<tile<[%width]xi32>>)\n")
+
+
+def test_pipeline_declaration_empty_signature_roundtrip() -> None:
+    _roundtrip("pipeline.decl<kernel> public @resident() run()\n")
+
+
 def test_command_pipeline_scope_is_not_a_language_state() -> None:
     with pytest.raises(ParseError, match="invalid enum value 'command'"):
         _parse_module("pipeline.def<command> @unsupported() run() {\n}\n")

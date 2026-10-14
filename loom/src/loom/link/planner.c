@@ -475,7 +475,7 @@ static bool loom_link_plan_symbols_share_merge_ownership(
 }
 
 // Returns true when |request| consumes an implementation-bearing facet. A
-// kernel or command contract can remain as a declaration in a closed portable
+// kernel, command or pipeline contract can remain a declaration in a portable
 // product; configuration, implementation, and ordinary definition facets
 // require a concrete provider.
 static bool loom_link_plan_facet_request_requires_definition(
@@ -488,7 +488,8 @@ static bool loom_link_plan_facet_request_requires_definition(
     return false;
   }
   return request.kind != LOOM_LINK_SYMBOL_FACET_KERNEL_CONTRACT &&
-         request.kind != LOOM_LINK_SYMBOL_FACET_COMMAND_CONTRACT;
+         request.kind != LOOM_LINK_SYMBOL_FACET_COMMAND_CONTRACT &&
+         request.kind != LOOM_LINK_SYMBOL_FACET_PIPELINE_CONTRACT;
 }
 
 static iree_status_t loom_link_plan_unresolved_exact_declaration_status(
@@ -1003,12 +1004,14 @@ static iree_status_t loom_link_plan_select_global_reference(
 //===----------------------------------------------------------------------===//
 
 // Maps one authored symbol-reference contract to the semantic provider
-// projection needed by that use. Logical launches consume configuration but
-// not implementation, while physical dispatches consume only the entry
-// contract. Every other reference retains the complete-symbol behavior.
+// projection needed by that use. Logical kernel launches consume configuration;
+// pipeline issues consume the staged and invocation contract. Neither opens the
+// implementation. Physical dispatches consume only the entry contract.
+// Every other reference retains the complete-symbol behavior.
 static loom_link_plan_facet_request_t loom_link_plan_dependency_facet_request(
     const loom_link_plan_options_t* options,
-    loom_symbol_interface_flags_t target_interfaces) {
+    loom_symbol_interface_flags_t target_interfaces,
+    const loom_link_module_index_symbol_t* target) {
   if (!options ||
       options->dependency_policy == LOOM_LINK_PLAN_DEPENDENCY_COMPLETE) {
     return (loom_link_plan_facet_request_t){
@@ -1023,6 +1026,12 @@ static loom_link_plan_facet_request_t loom_link_plan_dependency_facet_request(
       iree_any_bit_set(target_interfaces, LOOM_SYMBOL_INTERFACE_KERNEL_ENTRY);
   IREE_ASSERT(!(requests_kernel && requests_kernel_entry));
   if (requests_kernel) {
+    if (iree_any_bit_set(target->facets.schema.interfaces,
+                         LOOM_SYMBOL_INTERFACE_PIPELINE)) {
+      return (loom_link_plan_facet_request_t){
+          .mode = LOOM_LINK_PLAN_FACET_REQUEST_PRIMARY,
+      };
+    }
     return (loom_link_plan_facet_request_t){
         .mode = LOOM_LINK_PLAN_FACET_REQUEST_EXACT,
         .kind = LOOM_LINK_SYMBOL_FACET_KERNEL_CONFIGURATION,
@@ -1045,7 +1054,8 @@ static iree_status_t loom_link_plan_select_dependency_target(
           plan->index, module->symbol_start_ordinal + target_symbol_id);
   IREE_ASSERT(target);
   const loom_link_plan_facet_request_t request =
-      loom_link_plan_dependency_facet_request(options, target_interfaces);
+      loom_link_plan_dependency_facet_request(options, target_interfaces,
+                                              target);
   if (target->identity == LOOM_LINK_SYMBOL_IDENTITY_GLOBAL) {
     return loom_link_plan_select_global_reference(plan, options, target,
                                                   request, cause);

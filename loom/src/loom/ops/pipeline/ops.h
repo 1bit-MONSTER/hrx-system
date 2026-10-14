@@ -26,35 +26,36 @@ enum {
   LOOM_OP_PIPELINE_END = LOOM_OP_KIND(LOOM_DIALECT_PIPELINE, 3),
   LOOM_OP_PIPELINE_COMPOSE = LOOM_OP_KIND(LOOM_DIALECT_PIPELINE, 4),
   LOOM_OP_PIPELINE_MEMORY = LOOM_OP_KIND(LOOM_DIALECT_PIPELINE, 5),
-  LOOM_OP_PIPELINE_COUNT_ = 6,
+  LOOM_OP_PIPELINE_DECL = LOOM_OP_KIND(LOOM_DIALECT_PIPELINE, 6),
+  LOOM_OP_PIPELINE_COUNT_ = 7,
 };
 
 // Required materialization boundary. An absent scope permits a generic pipeline program that may span targets and runtime operations.
-typedef enum loom_pipeline_def_scope_e {
-  LOOM_PIPELINE_DEF_SCOPE_KERNEL = 1,
-  LOOM_PIPELINE_DEF_SCOPE_COUNT_ = 2,
-} loom_pipeline_def_scope_t;
+typedef enum loom_pipeline_scope_e {
+  LOOM_PIPELINE_SCOPE_KERNEL = 1,
+  LOOM_PIPELINE_SCOPE_COUNT_ = 2,
+} loom_pipeline_scope_t;
 
 // Function visibility. Absent (0) means private (module-internal).
-typedef enum loom_pipeline_def_visibility_e {
-  LOOM_PIPELINE_DEF_VISIBILITY_PUBLIC = 1,
-  LOOM_PIPELINE_DEF_VISIBILITY_COUNT_ = 2,
-} loom_pipeline_def_visibility_t;
+typedef enum loom_pipeline_visibility_e {
+  LOOM_PIPELINE_VISIBILITY_PUBLIC = 1,
+  LOOM_PIPELINE_VISIBILITY_COUNT_ = 2,
+} loom_pipeline_visibility_t;
 
 // Private symbol retention policy. Absent (0) permits ordinary DCE.
-typedef enum loom_pipeline_def_retain_e {
-  LOOM_PIPELINE_DEF_RETAIN_RETAIN = 1,
-  LOOM_PIPELINE_DEF_RETAIN_COUNT_ = 2,
-} loom_pipeline_def_retain_t;
+typedef enum loom_pipeline_retain_e {
+  LOOM_PIPELINE_RETAIN_RETAIN = 1,
+  LOOM_PIPELINE_RETAIN_COUNT_ = 2,
+} loom_pipeline_retain_t;
 
 // LOOM_OP_PIPELINE_DEF: Persistent dataflow program. Leading specialization arguments remain ordinary SSA values and typed run arguments are supplied by each invocation. Their source types are independent of the eventual target export ABI. The optional scope fixes the artifact boundary that lowering must satisfy.
 // pipeline.def<kernel> target(@array) @resident() run(%input: buffer, %output: buffer) {
 // }
 LOOM_DEFINE_ISA(loom_pipeline_def_isa, LOOM_OP_PIPELINE_DEF)
 LOOM_DEFINE_ATTR_SYMBOL(loom_pipeline_def_callee, 0)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_pipeline_def_scope, 1, loom_pipeline_def_scope_t)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_pipeline_def_visibility, 2, loom_pipeline_def_visibility_t)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_pipeline_def_retain, 3, loom_pipeline_def_retain_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_pipeline_def_scope, 1, loom_pipeline_scope_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_pipeline_def_visibility, 2, loom_pipeline_visibility_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_pipeline_def_retain, 3, loom_pipeline_retain_t)
 LOOM_DEFINE_ATTR_SYMBOL(loom_pipeline_def_target, 4)
 LOOM_DEFINE_ATTR_PREDICATE_LIST(loom_pipeline_def_predicates, 5)
 LOOM_DEFINE_ATTR_I64(loom_pipeline_def_specialization_count, 6)
@@ -83,7 +84,7 @@ iree_status_t loom_pipeline_def_build(
     iree_host_size_t predicates_count,
     loom_location_id_t location,
     loom_op_t** out_op);
-iree_status_t loom_pipeline_def_verify(
+iree_status_t loom_pipeline_signature_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
@@ -178,6 +179,45 @@ iree_status_t loom_pipeline_memory_build(
     loom_location_id_t location,
     loom_op_t** out_op);
 iree_status_t loom_pipeline_memory_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
+
+// LOOM_OP_PIPELINE_DECL: Bodyless persistent pipeline contract. The leading specialization arguments, invocation arguments, target, predicates, and optional artifact scope have the same meaning as on pipeline.def.
+// pipeline.decl<kernel> @embed(%batch: index) run(%weights: buffer, %input: buffer, %output: buffer)
+LOOM_DEFINE_ISA(loom_pipeline_decl_isa, LOOM_OP_PIPELINE_DECL)
+LOOM_DEFINE_VARIADIC_OPERANDS(loom_pipeline_decl_args, 0)
+LOOM_DEFINE_ATTR_SYMBOL(loom_pipeline_decl_callee, 0)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_pipeline_decl_scope, 1, loom_pipeline_scope_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_pipeline_decl_visibility, 2, loom_pipeline_visibility_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_pipeline_decl_retain, 3, loom_pipeline_retain_t)
+LOOM_DEFINE_ATTR_SYMBOL(loom_pipeline_decl_target, 4)
+LOOM_DEFINE_ATTR_PREDICATE_LIST(loom_pipeline_decl_predicates, 5)
+LOOM_DEFINE_ATTR_I64(loom_pipeline_decl_specialization_count, 6)
+enum loom_pipeline_decl_build_flag_bits_e {
+  LOOM_PIPELINE_DECL_BUILD_FLAG_HAS_SCOPE = 1u << 0,
+  LOOM_PIPELINE_DECL_BUILD_FLAG_HAS_VISIBILITY = 1u << 1,
+  LOOM_PIPELINE_DECL_BUILD_FLAG_HAS_RETAIN = 1u << 2,
+  LOOM_PIPELINE_DECL_BUILD_FLAG_HAS_TARGET = 1u << 3,
+  LOOM_PIPELINE_DECL_BUILD_FLAG_HAS_PREDICATES = 1u << 4,
+};
+typedef uint32_t loom_pipeline_decl_build_flags_t;
+iree_status_t loom_pipeline_decl_build(
+    loom_builder_t* builder,
+    loom_pipeline_decl_build_flags_t build_flags,
+    loom_optional uint8_t scope,
+    loom_optional uint8_t visibility,
+    loom_optional uint8_t retain,
+    loom_optional loom_symbol_ref_t target,
+    loom_symbol_ref_t callee,
+    const loom_type_t* specializations_types,
+    iree_host_size_t specializations_types_count,
+    const loom_type_t* bindings_types,
+    iree_host_size_t bindings_types_count,
+    loom_optional const loom_predicate_t* predicates,
+    iree_host_size_t predicates_count,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_pipeline_signature_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 

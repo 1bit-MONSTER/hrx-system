@@ -454,7 +454,7 @@ pipeline.def @generic_pipeline() run() {
                                               IREE_SV("generic_pipeline"));
     ASSERT_NE(kernel_pipeline, nullptr);
     ASSERT_NE(generic_pipeline, nullptr);
-    EXPECT_EQ(kernel_pipeline->product_carrier, LOOM_PIPELINE_DEF_SCOPE_KERNEL);
+    EXPECT_EQ(kernel_pipeline->product_carrier, LOOM_PIPELINE_SCOPE_KERNEL);
     EXPECT_EQ(generic_pipeline->product_carrier, 0u);
   };
 

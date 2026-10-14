@@ -1,5 +1,19 @@
 // RUN: roundtrip
 
+target.decl @npu
+
+pipeline.decl<kernel> public retain target(@npu) @resident(%width: index) run(%input: view<[%width]xi32>, %output: buffer) where [multiple_of(%width, 16)]
+
+// ====
+
+pipeline.decl @compose_stage(%width: index) run(%input: channel<tile<[%width]xf32>>, %count: index)
+
+pipeline.def @compose_caller(%width: index) run(%input: channel<tile<[%width]xf32>>, %count: index) {
+  pipeline.compose @compose_stage[%width](%input, %count) : [index](channel<tile<[%width]xf32>>, index)
+}
+
+// ====
+
 // Specialization fixes record tiling independently of runtime work count.
 pipeline.def @stream(%width: index) run(%input: channel<tile<[%width]xf32>>, %output: channel<tile<[%width]xf32>>, %scratch: view<[%width]xf32>, %count: index) {
 }

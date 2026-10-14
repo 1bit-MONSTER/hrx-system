@@ -40,6 +40,10 @@ loom_link_plan_projection_classify_symbol(
   if (selection->selected_facet_count == source->facets.schema.facet_count) {
     return LOOM_LINK_PLAN_SYMBOL_PROJECTION_COMPLETE;
   }
+  if (iree_any_bit_set(source->facets.schema.interfaces,
+                       LOOM_SYMBOL_INTERFACE_PIPELINE)) {
+    return LOOM_LINK_PLAN_SYMBOL_PROJECTION_PIPELINE_CONTRACT;
+  }
   if (!iree_any_bit_set(source->facets.schema.interfaces,
                         LOOM_SYMBOL_INTERFACE_KERNEL) ||
       loom_link_plan_contains_facet(

@@ -81,7 +81,7 @@ static iree_status_t loom_compile_entry_selection_classify_symbol(
       case 0:
         *out_kind = LOOM_COMPILE_ENTRY_KIND_MODULE;
         return iree_ok_status();
-      case LOOM_PIPELINE_DEF_SCOPE_KERNEL:
+      case LOOM_PIPELINE_SCOPE_KERNEL:
         *out_kind = LOOM_COMPILE_ENTRY_KIND_KERNEL;
         return iree_ok_status();
       default: {
@@ -213,7 +213,7 @@ static loom_compile_entry_kind_t loom_compile_entry_selection_default_kind(
     const loom_symbol_product_carrier_t carrier =
         loom_symbol_definition_product_carrier(symbol->definition,
                                                symbol->defining_op);
-    if (carrier == LOOM_PIPELINE_DEF_SCOPE_KERNEL) {
+    if (carrier == LOOM_PIPELINE_SCOPE_KERNEL) {
       return is_public ? LOOM_COMPILE_ENTRY_KIND_KERNEL
                        : LOOM_COMPILE_ENTRY_KIND_INVALID;
     }

@@ -25,8 +25,10 @@ typedef enum loom_link_plan_symbol_projection_e {
   LOOM_LINK_PLAN_SYMBOL_PROJECTION_KERNEL_ENTRY = 1,
   // The logical kernel contract and its pure configuration helper are required.
   LOOM_LINK_PLAN_SYMBOL_PROJECTION_KERNEL_CONFIGURATION = 2,
+  // The pipeline's staged and invocation signature is required without a body.
+  LOOM_LINK_PLAN_SYMBOL_PROJECTION_PIPELINE_CONTRACT = 3,
   // The requested partial facet set has no IR reconstruction implementation.
-  LOOM_LINK_PLAN_SYMBOL_PROJECTION_UNSUPPORTED = 3,
+  LOOM_LINK_PLAN_SYMBOL_PROJECTION_UNSUPPORTED = 4,
 } loom_link_plan_symbol_projection_t;
 
 // One selected symbol projected into its source module's ordinal domain.
