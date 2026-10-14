@@ -137,3 +137,37 @@ func.def @guarded_shift(%condition: i1, %value: vector<4xi32>, %count: vector<4x
 CHECK: %selected = scf.if %condition -> (vector<4xi32>) {
 CHECK: %shifted = vector.shli %value, %count : vector<4xi32>
 CHECK-NOT: *scf.select*
+
+// ====
+
+// RUN: pass canonicalize,canonicalize
+
+// Speculation must retain the branch when stripping its assumption would
+// weaken facts already published for the result.
+func.def @guarded_bit_count_preserves_result_facts(%condition: i1, %mask: i32) -> (i32, i1) {
+  %c0 = scalar.constant 0 : i32
+  %width = scalar.constant 32 : i32
+  %lane = scf.if %condition -> (i32) {
+    %nonzero = scalar.assume %mask [ne(%mask, 0)] : i32
+    %first = scalar.cttzi %nonzero : i32
+    scf.yield %first : i32
+  } else {
+    scf.yield %c0 : i32
+  }
+  %bounded = scalar.cmpi ult, %lane, %width : i32
+  func.return %lane, %bounded : i32, i1
+}
+
+// ----
+func.def @guarded_bit_count_preserves_result_facts(%condition: i1, %mask: i32) -> (i32, i1) {
+  %c0 = scalar.constant 0 : i32
+  %lane = scf.if %condition -> (i32) {
+    %nonzero = scalar.assume %mask [ne(%mask, 0)] : i32
+    %first = scalar.cttzi %nonzero : i32
+    scf.yield %first : i32
+  } else {
+    scf.yield %c0 : i32
+  }
+  %bounded = scalar.constant true : i1
+  func.return %lane, %bounded : i32, i1
+}

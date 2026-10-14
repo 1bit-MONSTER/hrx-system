@@ -335,7 +335,7 @@ index_min = binary_op(
     commutative=True,
     canonicalize="loom_index_min_canonicalize",
     facts="loom_index_min_facts",
-    traits=[DISTRIBUTION_TRANSFER],
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.min %lhs, %rhs : index"],
 )
 
@@ -348,7 +348,7 @@ index_max = binary_op(
     commutative=True,
     canonicalize="loom_index_max_canonicalize",
     facts="loom_index_max_facts",
-    traits=[DISTRIBUTION_TRANSFER],
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.max %lhs, %rhs : index"],
 )
 
@@ -393,7 +393,7 @@ index_andi = binary_op(
     commutative=True,
     canonicalize="loom_index_andi_canonicalize",
     facts="loom_index_andi_facts",
-    traits=[DISTRIBUTION_TRANSFER],
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.andi %lhs, %rhs : index"],
 )
 
@@ -406,7 +406,7 @@ index_ori = binary_op(
     commutative=True,
     canonicalize="loom_index_ori_canonicalize",
     facts="loom_index_ori_facts",
-    traits=[DISTRIBUTION_TRANSFER],
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.ori %lhs, %rhs : index"],
 )
 
@@ -419,7 +419,7 @@ index_xori = binary_op(
     commutative=True,
     canonicalize="loom_index_xori_canonicalize",
     facts="loom_index_xori_facts",
-    traits=[DISTRIBUTION_TRANSFER],
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.xori %lhs, %rhs : index"],
 )
 
@@ -470,7 +470,7 @@ index_rotli = binary_op(
     doc="Left rotate over logical coordinate values, with the count reduced modulo the target coordinate-carrier width. Offsets are physical byte counts and cannot use this op.",
     canonicalize="loom_index_rotli_canonicalize",
     facts="loom_index_rotli_facts",
-    traits=[DISTRIBUTION_TRANSFER],
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.rotli %lhs, %rhs : index"],
 )
 
@@ -482,7 +482,7 @@ index_rotri = binary_op(
     doc="Right rotate over logical coordinate values, with the count reduced modulo the target coordinate-carrier width. Offsets are physical byte counts and cannot use this op.",
     canonicalize="loom_index_rotri_canonicalize",
     facts="loom_index_rotri_facts",
-    traits=[DISTRIBUTION_TRANSFER],
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.rotri %lhs, %rhs : index"],
 )
 
@@ -493,7 +493,7 @@ index_ctlzi = unary_op(
     type_constraint=INDEX,
     doc="Count leading zeros in a logical coordinate value.",
     facts="loom_index_ctlzi_facts",
-    traits=[DISTRIBUTION_TRANSFER],
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.ctlzi %input : index"],
 )
 
@@ -504,7 +504,7 @@ index_cttzi = unary_op(
     type_constraint=INDEX,
     doc="Count trailing zeros in a logical coordinate value.",
     facts="loom_index_cttzi_facts",
-    traits=[DISTRIBUTION_TRANSFER],
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.cttzi %input : index"],
 )
 
@@ -515,7 +515,7 @@ index_ctpopi = unary_op(
     type_constraint=INDEX,
     doc="Count set bits in a logical coordinate value.",
     facts="loom_index_ctpopi_facts",
-    traits=[DISTRIBUTION_TRANSFER],
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%r = index.ctpopi %input : index"],
 )
 

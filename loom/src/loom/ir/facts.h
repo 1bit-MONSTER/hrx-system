@@ -947,6 +947,16 @@ void loom_value_facts_shrsi(const loom_value_facts_t* lhs,
                             const loom_value_facts_t* rhs,
                             loom_value_facts_t* out);
 
+// Fixed-width rotates are total: the signed amount is reduced modulo the
+// verified integer width in [1, 64]. Exact operands produce exact raw-bit
+// results; otherwise only execution distribution is retained.
+void loom_value_facts_rotli(const loom_value_facts_t* lhs,
+                            const loom_value_facts_t* rhs, int32_t bit_count,
+                            loom_value_facts_t* out);
+void loom_value_facts_rotri(const loom_value_facts_t* lhs,
+                            const loom_value_facts_t* rhs, int32_t bit_count,
+                            loom_value_facts_t* out);
+
 // Bitwise.
 void loom_value_facts_andi(const loom_value_facts_t* lhs,
                            const loom_value_facts_t* rhs,

@@ -17,6 +17,7 @@
 #include "loom/ops/scalar/compare.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/scf/ops.h"
+#include "loom/ops/scf/selectify_facts.h"
 #include "loom/rewrite/rewriter.h"
 
 //===----------------------------------------------------------------------===//
@@ -1455,22 +1456,6 @@ static iree_status_t loom_scf_if_build_select(loom_op_t* op, loom_type_t type,
   return iree_ok_status();
 }
 
-static bool loom_scf_if_op_is_strippable_fact_identity(
-    const loom_module_t* module, const loom_op_t* op,
-    loom_trait_flags_t traits) {
-  if (loom_traits_are_fact_identity(traits) &&
-      iree_any_bit_set(traits, LOOM_TRAIT_PURE) &&
-      !iree_any_bit_set(traits, LOOM_TRAIT_HINT | LOOM_TRAIT_CONVERGENT |
-                                    LOOM_TRAIT_OBSERVABLE_EFFECT) &&
-      !loom_traits_may_read(traits) && !loom_traits_may_write(traits) &&
-      op->operand_count == 1 && op->result_count == 1) {
-    return loom_type_equal(
-        loom_module_value_type(module, loom_op_operands(op)[0]),
-        loom_module_value_type(module, loom_op_const_results(op)[0]));
-  }
-  return false;
-}
-
 static bool loom_scf_if_op_can_selectify_speculate(const loom_module_t* module,
                                                    const loom_op_t* op) {
   if (!op || iree_any_bit_set(op->flags, LOOM_OP_FLAG_DEAD)) {
@@ -1498,7 +1483,8 @@ static bool loom_scf_if_op_can_selectify_speculate(const loom_module_t* module,
 
 static bool loom_scf_if_block_can_selectify_speculate(
     const loom_module_t* module, const loom_block_t* block,
-    const loom_op_t* yield) {
+    const loom_op_t* yield, bool* out_has_fact_identities) {
+  *out_has_fact_identities = false;
   if (!block || block->arg_count != 0 || !yield) {
     return false;
   }
@@ -1509,8 +1495,10 @@ static bool loom_scf_if_block_can_selectify_speculate(
       return false;
     }
     loom_trait_flags_t traits = loom_op_effective_traits(module, child_op);
-    if (!loom_scf_if_op_is_strippable_fact_identity(module, child_op, traits) &&
-        ++speculative_op_count > LOOM_SCF_IF_SELECTIFY_MAX_SPECULATED_OPS) {
+    if (loom_scf_if_op_is_strippable_fact_identity(module, child_op, traits)) {
+      *out_has_fact_identities = true;
+    } else if (++speculative_op_count >
+               LOOM_SCF_IF_SELECTIFY_MAX_SPECULATED_OPS) {
       return false;
     }
   }
@@ -1619,10 +1607,14 @@ static iree_status_t loom_scf_if_selectify_speculatable_values(
 
   loom_block_t* then_block = loom_region_entry_block(then_region);
   loom_block_t* else_block = loom_region_entry_block(else_region);
+  bool then_has_fact_identities = false;
+  bool else_has_fact_identities = false;
   if (!loom_scf_if_block_can_selectify_speculate(rewriter->module, then_block,
-                                                 then_yield) ||
+                                                 then_yield,
+                                                 &then_has_fact_identities) ||
       !loom_scf_if_block_can_selectify_speculate(rewriter->module, else_block,
-                                                 else_yield)) {
+                                                 else_yield,
+                                                 &else_has_fact_identities)) {
     return iree_ok_status();
   }
 
@@ -1644,6 +1636,16 @@ static iree_status_t loom_scf_if_selectify_speculatable_values(
         !loom_type_equal(
             result_type,
             loom_module_value_type(rewriter->module, else_values.values[i]))) {
+      return iree_ok_status();
+    }
+  }
+
+  if (then_has_fact_identities || else_has_fact_identities) {
+    bool preserves_facts = false;
+    IREE_RETURN_IF_ERROR(loom_scf_if_stripped_facts_preserve_results(
+        op, rewriter, then_block, then_yield, else_block, else_yield,
+        &preserves_facts));
+    if (!preserves_facts) {
       return iree_ok_status();
     }
   }

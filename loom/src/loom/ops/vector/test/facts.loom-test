@@ -713,6 +713,33 @@ func.def @wave2_bit_count_small_lanes() -> (i32, i32, i32) {
 
 // ====
 
+// Rotate facts reduce each signed lane amount modulo the declared lane width.
+func.def @wave2_rotate_small_lanes() -> (i8, i8, i8, i8) {
+  %v0 = scalar.constant -127 : i8
+  %v1 = scalar.constant 1 : i8
+  %a0 = scalar.constant 9 : i8
+  %a1 = scalar.constant -1 : i8
+  %values = vector.from_elements %v0, %v1 : vector<2xi8>
+  %amounts = vector.from_elements %a0, %a1 : vector<2xi8>
+  %left = vector.rotli %values, %amounts : vector<2xi8>
+  %right = vector.rotri %values, %amounts : vector<2xi8>
+  %l0 = vector.extract %left[0] : vector<2xi8> -> i8
+  %l1 = vector.extract %left[1] : vector<2xi8> -> i8
+  %r0 = vector.extract %right[0] : vector<2xi8> -> i8
+  %r1 = vector.extract %right[1] : vector<2xi8> -> i8
+  func.return %l0, %l1, %r0, %r1 : i8, i8, i8, i8
+}
+// ----
+func.def @wave2_rotate_small_lanes() -> (i8, i8, i8, i8) {
+  %l0 = scalar.constant 3 : i8
+  %l1 = scalar.constant -128 : i8
+  %r0 = scalar.constant -64 : i8
+  %r1 = scalar.constant 2 : i8
+  func.return %l0, %l1, %r0, %r1 : i8, i8, i8, i8
+}
+
+// ====
+
 // Bitfield facts interpret exact lane payloads as raw typed bits, so both
 // unsigned and signed field extraction can fold through scalar extracts.
 func.def @bitfield_extract_small_lanes() -> (i32, i32) {

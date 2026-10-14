@@ -444,34 +444,48 @@ static bool loom_amdgpu_source_scalar_float_conversion_is_native(
   }
 }
 
-static bool loom_amdgpu_source_scalar_float_result_follows_operands(
+typedef enum loom_amdgpu_scalar_float_result_policy_e {
+  LOOM_AMDGPU_SCALAR_FLOAT_RESULT_DEFAULT = 0,
+  LOOM_AMDGPU_SCALAR_FLOAT_RESULT_FOLLOWS_OPERANDS,
+  LOOM_AMDGPU_SCALAR_FLOAT_RESULT_REQUIRES_VGPR,
+} loom_amdgpu_scalar_float_result_policy_t;
+
+static loom_amdgpu_scalar_float_result_policy_t
+loom_amdgpu_source_scalar_float_result_policy(
     const loom_module_t* module,
     const loom_amdgpu_source_value_analysis_t* analysis,
     loom_value_id_t source_value_id, const loom_op_t* defining_op,
     loom_amdgpu_source_producer_flags_t producer_flags) {
-  if (analysis == NULL ||
-      loom_value_def_index(loom_module_value(module, source_value_id)) != 0) {
-    return false;
+  if (loom_value_def_index(loom_module_value(module, source_value_id)) != 0) {
+    return LOOM_AMDGPU_SCALAR_FLOAT_RESULT_DEFAULT;
   }
   const loom_type_t result_type =
       loom_module_value_type(module, source_value_id);
   if (iree_any_bit_set(producer_flags,
-                       LOOM_AMDGPU_SOURCE_PRODUCER_SCALAR_FLOAT_ARITHMETIC)) {
-    return iree_all_bits_set(
-               analysis->descriptor_set_info_flags,
-               LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_SCALAR_FLOAT_ARITHMETIC) &&
-           (loom_amdgpu_type_is_f32(result_type) ||
-            (loom_type_is_scalar(result_type) &&
-             loom_type_element_type(result_type) == LOOM_SCALAR_TYPE_F16));
+                       LOOM_AMDGPU_SOURCE_PRODUCER_SCALAR_FLOAT_CONVERSION)) {
+    const bool has_native_conversion =
+        analysis != NULL &&
+        iree_all_bits_set(
+            analysis->descriptor_set_info_flags,
+            LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_SCALAR_FLOAT_CONVERSION) &&
+        loom_amdgpu_source_scalar_float_conversion_is_native(
+            module, defining_op, result_type);
+    return has_native_conversion
+               ? LOOM_AMDGPU_SCALAR_FLOAT_RESULT_FOLLOWS_OPERANDS
+               : LOOM_AMDGPU_SCALAR_FLOAT_RESULT_REQUIRES_VGPR;
   }
-  return iree_any_bit_set(
-             producer_flags,
-             LOOM_AMDGPU_SOURCE_PRODUCER_SCALAR_FLOAT_CONVERSION) &&
-         iree_all_bits_set(
-             analysis->descriptor_set_info_flags,
-             LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_SCALAR_FLOAT_CONVERSION) &&
-         loom_amdgpu_source_scalar_float_conversion_is_native(
-             module, defining_op, result_type);
+  if (iree_any_bit_set(producer_flags,
+                       LOOM_AMDGPU_SOURCE_PRODUCER_SCALAR_FLOAT_ARITHMETIC) &&
+      analysis != NULL &&
+      iree_all_bits_set(
+          analysis->descriptor_set_info_flags,
+          LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_SCALAR_FLOAT_ARITHMETIC) &&
+      (loom_amdgpu_type_is_f32(result_type) ||
+       (loom_type_is_scalar(result_type) &&
+        loom_type_element_type(result_type) == LOOM_SCALAR_TYPE_F16))) {
+    return LOOM_AMDGPU_SCALAR_FLOAT_RESULT_FOLLOWS_OPERANDS;
+  }
+  return LOOM_AMDGPU_SCALAR_FLOAT_RESULT_DEFAULT;
 }
 
 static bool loom_amdgpu_distribution_transfer_result_prefers_vgpr(
@@ -990,8 +1004,13 @@ static bool loom_amdgpu_source_value_prefers_vgpr_impl(
         module, fact_table, view_regions, analysis, input_value_id);
   }
 
-  if (loom_amdgpu_source_scalar_float_result_follows_operands(
-          module, analysis, source_value_id, defining_op, producer_flags)) {
+  const loom_amdgpu_scalar_float_result_policy_t scalar_float_policy =
+      loom_amdgpu_source_scalar_float_result_policy(
+          module, analysis, source_value_id, defining_op, producer_flags);
+  if (scalar_float_policy == LOOM_AMDGPU_SCALAR_FLOAT_RESULT_REQUIRES_VGPR) {
+    return true;
+  }
+  if (scalar_float_policy == LOOM_AMDGPU_SCALAR_FLOAT_RESULT_FOLLOWS_OPERANDS) {
     const loom_value_id_t* operands = loom_op_const_operands(defining_op);
     for (uint16_t i = 0; i < defining_op->operand_count; ++i) {
       if (loom_amdgpu_analyzed_source_value_prefers_vgpr(

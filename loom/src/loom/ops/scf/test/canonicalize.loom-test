@@ -328,6 +328,36 @@ func.def @if_selectifies_vector_float_arithmetic(%cond: i1, %numerator: vector<4
 
 // ====
 
+// Total conversions, bit counts, and comparisons can execute on both sides of
+// the condition. Partial neighbors such as fptosi and shifts remain guarded.
+func.def @if_selectifies_total_numeric_families(%cond: i1, %value: i32, %float_fallback: f32, %floats: vector<4xf32>, %vector_fallback: vector<4xf16>, %index: index, %index_fallback: index, %integers: vector<4xi32>, %integer_limits: vector<4xi32>, %mask_fallback: vector<4xi1>) -> (f32, vector<4xf16>, index, vector<4xi1>) {
+  %selected_float, %selected_vector, %selected_index, %selected_mask = scf.if %cond -> (f32, vector<4xf16>, index, vector<4xi1>) {
+    %converted = scalar.uitofp %value : i32 to f32
+    %narrowed = vector.fptrunc %floats : vector<4xf32> to vector<4xf16>
+    %bit_count = index.ctpopi %index : index
+    %less = vector.cmpi slt, %integers, %integer_limits : vector<4xi32> -> vector<4xi1>
+    scf.yield %converted, %narrowed, %bit_count, %less : f32, vector<4xf16>, index, vector<4xi1>
+  } else {
+    scf.yield %float_fallback, %vector_fallback, %index_fallback, %mask_fallback : f32, vector<4xf16>, index, vector<4xi1>
+  }
+  func.return %selected_float, %selected_vector, %selected_index, %selected_mask : f32, vector<4xf16>, index, vector<4xi1>
+}
+
+// ----
+func.def @if_selectifies_total_numeric_families(%cond: i1, %value: i32, %float_fallback: f32, %floats: vector<4xf32>, %vector_fallback: vector<4xf16>, %index: index, %index_fallback: index, %integers: vector<4xi32>, %integer_limits: vector<4xi32>, %mask_fallback: vector<4xi1>) -> (f32, vector<4xf16>, index, vector<4xi1>) {
+  %converted = scalar.uitofp %value : i32 to f32
+  %narrowed = vector.fptrunc %floats : vector<4xf32> to vector<4xf16>
+  %bit_count = index.ctpopi %index : index
+  %less = vector.cmpi slt, %integers, %integer_limits : vector<4xi32> -> vector<4xi1>
+  %selected_float = scf.select %cond, %converted, %float_fallback : f32
+  %selected_vector = scf.select %cond, %narrowed, %vector_fallback : vector<4xf16>
+  %selected_index = scf.select %cond, %bit_count, %index_fallback : index
+  %selected_mask = scf.select %cond, %less, %mask_fallback : vector<4xi1>
+  func.return %selected_float, %selected_vector, %selected_index, %selected_mask : f32, vector<4xf16>, index, vector<4xi1>
+}
+
+// ====
+
 // Branch-edge assumes also rewrite region-local type references on values whose
 // defining op owns the result type. This keeps dynamic view extents connected to
 // the refined SSA value instead of leaving only operand uses refined.

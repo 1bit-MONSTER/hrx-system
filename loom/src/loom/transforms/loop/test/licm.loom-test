@@ -52,6 +52,44 @@ func.def @hoists_constant_like_ops(%n: index) {
 
 // ====
 
+// Total numeric operations can execute before a potentially zero-trip loop.
+// This covers scalar conversion, index bitwise, vector conversion, comparison,
+// and selection paths while the registry test covers every family member.
+func.def @hoists_total_numeric_families(%n: index, %value: i32, %integers: vector<4xi32>, %integer_limits: vector<4xi32>, %floats: vector<4xf32>, %fallback: vector<4xf16>) {
+  %loop_begin = index.constant 0 : index
+  %loop_step = index.constant 1 : index
+  scf.for %iv = [%loop_begin to %n step %loop_step] {
+    %converted = scalar.uitofp %value : i32 to f32
+    %bit_count = index.ctpopi %n : index
+    %narrowed = vector.fptrunc %floats : vector<4xf32> to vector<4xf16>
+    %less = vector.cmpi slt, %integers, %integer_limits : vector<4xi32> -> vector<4xi1>
+    %selected = vector.select %less, %narrowed, %fallback : vector<4xf16>
+    test.use %converted : f32
+    test.use %bit_count : index
+    test.use %selected : vector<4xf16>
+  }
+  func.return
+}
+
+// ----
+func.def @hoists_total_numeric_families(%n: index, %value: i32, %integers: vector<4xi32>, %integer_limits: vector<4xi32>, %floats: vector<4xf32>, %fallback: vector<4xf16>) {
+  %loop_begin = index.constant 0 : index
+  %loop_step = index.constant 1 : index
+  %converted = scalar.uitofp %value : i32 to f32
+  %bit_count = index.ctpopi %n : index
+  %narrowed = vector.fptrunc %floats : vector<4xf32> to vector<4xf16>
+  %less = vector.cmpi slt, %integers, %integer_limits : vector<4xi32> -> vector<4xi1>
+  %selected = vector.select %less, %narrowed, %fallback : vector<4xf16>
+  scf.for %iv = [%loop_begin to %n step %loop_step] {
+    test.use %converted : f32
+    test.use %bit_count : index
+    test.use %selected : vector<4xf16>
+  }
+  func.return
+}
+
+// ====
+
 // PURE does not imply that an op can execute on a path where the loop body did
 // not run. test.addi intentionally lacks SAFE_TO_SPECULATE and stays inside a
 // loop whose trip count may be zero.

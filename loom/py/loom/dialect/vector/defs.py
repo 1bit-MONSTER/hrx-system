@@ -2469,7 +2469,7 @@ vector_select = Op(
     ],
     facts="loom_vector_select_facts",
     canonicalize="loom_vector_select_canonicalize",
-    traits=[PURE, ELEMENTWISE],
+    traits=[PURE, ELEMENTWISE, SAFE_TO_SPECULATE],
     format=[
         Ref("condition"),
         COMMA,
@@ -2500,7 +2500,7 @@ vector_cmpi = Op(
         SameShape("lhs", "rhs", "result"),
         SameElementType("lhs", "rhs"),
     ],
-    traits=[PURE, ELEMENTWISE],
+    traits=[PURE, ELEMENTWISE, SAFE_TO_SPECULATE],
     facts="loom_vector_cmpi_facts",
     canonicalize="loom_vector_comparison_canonicalize",
     format=[
@@ -2538,7 +2538,7 @@ vector_cmpf = Op(
         SameShape("lhs", "rhs", "result"),
         SameElementType("lhs", "rhs"),
     ],
-    traits=[PURE, ELEMENTWISE],
+    traits=[PURE, ELEMENTWISE, SAFE_TO_SPECULATE],
     facts="loom_vector_cmpf_facts",
     canonicalize="loom_vector_comparison_canonicalize",
     format=[
@@ -3081,12 +3081,16 @@ vector_rotli = _lanewise_binary(
     "vector.rotli",
     result_constraint=INTEGER_ELEMENT,
     doc="Lanewise left rotate of same-typed integer vector operands. Each count is reduced modulo the element width; one-bit rotation is identity.",
+    facts="loom_vector_rotli_facts",
+    traits=[SAFE_TO_SPECULATE],
 )
 
 vector_rotri = _lanewise_binary(
     "vector.rotri",
     result_constraint=INTEGER_ELEMENT,
     doc="Lanewise right rotate of same-typed integer vector operands. Each count is reduced modulo the element width; one-bit rotation is identity.",
+    facts="loom_vector_rotri_facts",
+    traits=[SAFE_TO_SPECULATE],
 )
 
 vector_ctlzi = _lanewise_unary(
@@ -3094,6 +3098,7 @@ vector_ctlzi = _lanewise_unary(
     result_constraint=INTEGER_ELEMENT,
     doc="Lanewise count leading zeros over integer lanes.",
     facts="loom_vector_ctlzi_facts",
+    traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_uniform_result_canonicalize",
 )
 
@@ -3102,6 +3107,7 @@ vector_cttzi = _lanewise_unary(
     result_constraint=INTEGER_ELEMENT,
     doc="Lanewise count trailing zeros over integer lanes.",
     facts="loom_vector_cttzi_facts",
+    traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_uniform_result_canonicalize",
 )
 
@@ -3110,6 +3116,7 @@ vector_ctpopi = _lanewise_unary(
     result_constraint=INTEGER_ELEMENT,
     doc=("Lanewise population count over integer lanes. Each result lane is the number of set bits in the corresponding input lane and has the same integer element type as the input."),
     facts="loom_vector_ctpopi_facts",
+    traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_uniform_result_canonicalize",
 )
 
@@ -3581,6 +3588,7 @@ vector_extf = _vector_cast(
     input_role=OperandRole.FLOAT_EXTENSION_SOURCE,
     facts="loom_vector_extf_facts",
     canonicalize="loom_vector_extf_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
 )
 
 vector_fptrunc = _vector_cast(
@@ -3604,6 +3612,7 @@ vector_fptrunc = _vector_cast(
     constraints=[ElementWidthLessThan("result", "input")],
     facts="loom_vector_fptrunc_facts",
     canonicalize="loom_vector_fptrunc_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
 )
 
 vector_extsi = _vector_cast(
@@ -3648,6 +3657,7 @@ vector_sitofp = _vector_cast(
     doc=("Lanewise signed integer to floating-point conversion with unchanged shape."),
     facts="loom_vector_sitofp_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
 )
 
 vector_uitofp = _vector_cast(
@@ -3657,6 +3667,7 @@ vector_uitofp = _vector_cast(
     result_constraint=FLOAT_ELEMENT,
     doc=("Lanewise unsigned integer to floating-point conversion with unchanged shape."),
     facts="loom_vector_uitofp_facts",
+    traits=[SAFE_TO_SPECULATE],
 )
 
 vector_fptosi = _vector_cast(
