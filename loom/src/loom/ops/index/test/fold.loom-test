@@ -608,6 +608,26 @@ func.def @add_mul_canonicalizes_to_madd(%i: index, %j: index) -> (index) {
 
 // ====
 
+// A reused scaled coordinate remains explicit so later address planning can
+// preserve and share its materialized SSA value across distinct accesses.
+func.def @add_shared_mul_preserves_reusable_scale(%i: index, %j: index, %k: index) -> (index, index) {
+  %c4 = index.constant 4 : index
+  %scaled = index.mul %i, %c4 : index
+  %first = index.add %scaled, %j : index
+  %second = index.add %scaled, %k : index
+  func.return %first, %second : index, index
+}
+// ----
+func.def @add_shared_mul_preserves_reusable_scale(%i: index, %j: index, %k: index) -> (index, index) {
+  %c4 = index.constant 4 : index
+  %scaled = index.mul %i, %c4 : index
+  %first = index.add %scaled, %j : index
+  %second = index.add %scaled, %k : index
+  func.return %first, %second : index, index
+}
+
+// ====
+
 // A shift-derived scale remains explicit until the target width establishes
 // that the source shift is valid.
 func.def @add_shift_waits_for_target_width(%i: index, %j: index) -> (index) {

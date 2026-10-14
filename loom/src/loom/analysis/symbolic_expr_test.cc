@@ -510,6 +510,115 @@ TEST_F(SymbolicExprTest, ReadySummaryRetainsConstantFreeMaterialization) {
   ASSERT_EQ(summary.expression.term_count, 2);
   EXPECT_EQ(summary.materialized_dynamic_value_id,
             loom_index_madd_result(linear_op));
+  EXPECT_EQ(summary.materialized_component_value_id, LOOM_VALUE_ID_INVALID);
+}
+
+TEST_F(SymbolicExprTest, ReadySummaryRetainsSharedStrictComponent) {
+  const loom_value_id_t first = DefineIndexValue();
+  const loom_value_id_t middle = DefineIndexValue();
+  const loom_value_id_t last = DefineIndexValue();
+  const loom_value_id_t sibling = DefineIndexValue();
+
+  loom_op_t* shared_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(&builder_, first, last,
+                                      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+                                      LOOM_LOCATION_UNKNOWN, &shared_op));
+  const loom_value_id_t shared = loom_index_add_result(shared_op);
+  loom_op_t* first_outer_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(&builder_, shared, middle,
+                                      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+                                      LOOM_LOCATION_UNKNOWN, &first_outer_op));
+  const loom_value_id_t first_outer = loom_index_add_result(first_outer_op);
+  loom_op_t* sibling_outer_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(
+      &builder_, shared, sibling, loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+      LOOM_LOCATION_UNKNOWN, &sibling_outer_op));
+  loom_op_t* propagated_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(&builder_, first_outer, sibling,
+                                      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+                                      LOOM_LOCATION_UNKNOWN, &propagated_op));
+  const loom_value_id_t propagated = loom_index_add_result(propagated_op);
+  IREE_ASSERT_OK(loom_module_compute_uses(module_));
+
+  loom_symbolic_expr_t expression = {};
+  IREE_ASSERT_OK(loom_symbolic_expr_from_value(&expression_context_, propagated,
+                                               &expression));
+  ASSERT_TRUE(loom_symbolic_expr_is_linear(&expression));
+  ASSERT_EQ(expression.term_count, 4u);
+
+  loom_symbolic_expr_summary_t outer_summary = {};
+  ASSERT_TRUE(loom_symbolic_expr_context_try_lookup_summary(
+      &expression_context_, first_outer, &outer_summary));
+  EXPECT_EQ(outer_summary.materialized_dynamic_value_id, first_outer);
+  EXPECT_EQ(outer_summary.materialized_component_value_id, shared);
+
+  loom_symbolic_expr_summary_t propagated_summary = {};
+  ASSERT_TRUE(loom_symbolic_expr_context_try_lookup_summary(
+      &expression_context_, propagated, &propagated_summary));
+  EXPECT_EQ(propagated_summary.materialized_dynamic_value_id, propagated);
+  EXPECT_EQ(propagated_summary.materialized_component_value_id, shared);
+
+  loom_symbolic_expr_context_reset(&expression_context_);
+  EXPECT_FALSE(loom_symbolic_expr_context_try_lookup_summary(
+      &expression_context_, propagated, &propagated_summary));
+  IREE_ASSERT_OK(loom_symbolic_expr_from_value(&expression_context_, propagated,
+                                               &expression));
+  ASSERT_TRUE(loom_symbolic_expr_context_try_lookup_summary(
+      &expression_context_, propagated, &propagated_summary));
+  EXPECT_EQ(propagated_summary.materialized_component_value_id, shared);
+}
+
+TEST_F(SymbolicExprTest, ReadySummaryRejectsPrivateAndRescaledComponents) {
+  const loom_value_id_t private_first = DefineIndexValue();
+  const loom_value_id_t private_middle = DefineIndexValue();
+  const loom_value_id_t private_last = DefineIndexValue();
+
+  loom_op_t* private_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(&builder_, private_first, private_last,
+                                      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+                                      LOOM_LOCATION_UNKNOWN, &private_op));
+  loom_op_t* private_outer_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(
+      &builder_, loom_index_add_result(private_op), private_middle,
+      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), LOOM_LOCATION_UNKNOWN,
+      &private_outer_op));
+
+  const loom_value_id_t first = DefineIndexValue();
+  const loom_value_id_t middle = DefineIndexValue();
+  const loom_value_id_t last = DefineIndexValue();
+  const loom_value_id_t sibling = DefineIndexValue();
+  loom_op_t* shared_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(&builder_, first, last,
+                                      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+                                      LOOM_LOCATION_UNKNOWN, &shared_op));
+  const loom_value_id_t shared = loom_index_add_result(shared_op);
+  const loom_value_id_t two = loom_index_constant_result(BuildIndexConstant(2));
+  loom_op_t* scaled_op = nullptr;
+  IREE_ASSERT_OK(loom_index_mul_build(&builder_, shared, two,
+                                      LOOM_LOCATION_UNKNOWN, &scaled_op));
+  loom_op_t* scaled_outer_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(&builder_,
+                                      loom_index_mul_result(scaled_op), middle,
+                                      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+                                      LOOM_LOCATION_UNKNOWN, &scaled_outer_op));
+  loom_op_t* sibling_outer_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(
+      &builder_, shared, sibling, loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+      LOOM_LOCATION_UNKNOWN, &sibling_outer_op));
+  IREE_ASSERT_OK(loom_module_compute_uses(module_));
+
+  for (const loom_value_id_t value : {
+           loom_index_add_result(private_outer_op),
+           loom_index_add_result(scaled_outer_op),
+       }) {
+    loom_symbolic_expr_t expression = {};
+    IREE_ASSERT_OK(loom_symbolic_expr_from_value(&expression_context_, value,
+                                                 &expression));
+    loom_symbolic_expr_summary_t summary = {};
+    ASSERT_TRUE(loom_symbolic_expr_context_try_lookup_summary(
+        &expression_context_, value, &summary));
+    EXPECT_EQ(summary.materialized_component_value_id, LOOM_VALUE_ID_INVALID);
+  }
 }
 
 TEST_F(SymbolicExprTest, DynamicMultiplyFallsBackToResultSymbol) {
@@ -1292,6 +1401,55 @@ TEST_F(SymbolicExprStorageTest, ExpansionFailureCanBeRetriedWithoutReset) {
     ASSERT_EQ(expression.term_count, 1u);
     EXPECT_EQ(expression.terms[0].value_id, source);
     EXPECT_EQ(expression.terms[0].coefficient, 1);
+  }
+}
+
+TEST_F(SymbolicExprStorageTest,
+       ComponentRetentionFailureCanBeRetriedWithoutReset) {
+  const loom_value_id_t first = DefineIndexValue();
+  const loom_value_id_t middle = DefineIndexValue();
+  const loom_value_id_t last = DefineIndexValue();
+  const loom_value_id_t sibling = DefineIndexValue();
+  loom_op_t* shared_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(&builder_, first, last,
+                                      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+                                      LOOM_LOCATION_UNKNOWN, &shared_op));
+  const loom_value_id_t shared = loom_index_add_result(shared_op);
+  loom_op_t* outer_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(&builder_, shared, middle,
+                                      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+                                      LOOM_LOCATION_UNKNOWN, &outer_op));
+  const loom_value_id_t outer = loom_index_add_result(outer_op);
+  loom_op_t* sibling_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(&builder_, shared, sibling,
+                                      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+                                      LOOM_LOCATION_UNKNOWN, &sibling_op));
+  IREE_ASSERT_OK(loom_module_compute_uses(module_));
+
+  DeinitializeStorage();
+  InitializeStorage(256);
+  loom_symbolic_expr_t expression = {};
+  IREE_ASSERT_OK(
+      loom_symbolic_expr_from_value(&expression_context_, outer, &expression));
+  const auto allocations = allocation_count_;
+  ASSERT_GT(allocations, 1u);
+  for (iree_host_size_t i = 0; i < allocations; ++i) {
+    SCOPED_TRACE(i);
+    DeinitializeStorage();
+    InitializeStorage(256);
+    failure_index_ = i;
+    IREE_ASSERT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED,
+                          loom_symbolic_expr_from_value(&expression_context_,
+                                                        outer, &expression));
+    EXPECT_EQ(allocation_count_, i + 1);
+    failure_index_ = SIZE_MAX;
+    IREE_ASSERT_OK(loom_symbolic_expr_from_value(&expression_context_, outer,
+                                                 &expression));
+    loom_symbolic_expr_summary_t summary = {};
+    ASSERT_TRUE(loom_symbolic_expr_context_try_lookup_summary(
+        &expression_context_, outer, &summary));
+    EXPECT_EQ(summary.materialized_dynamic_value_id, outer);
+    EXPECT_EQ(summary.materialized_component_value_id, shared);
   }
 }
 
