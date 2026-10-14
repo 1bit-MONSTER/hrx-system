@@ -741,7 +741,9 @@ typedef struct loomc_spirv_cooperative_matrix_row_t {
   /// Accepted pointer storage classes for load/store operations.
   loomc_spirv_storage_class_flags_t storage_class_flags;
 
-  /// Required cooperative matrix operand bits for this row.
+  /// Required cooperative matrix operand bits for this row. Each signed
+  /// component flag must be present if and only if its component type is
+  /// signed.
   loomc_spirv_cooperative_matrix_operand_flags_t operand_flags;
 } loomc_spirv_cooperative_matrix_row_t;
 

@@ -1177,6 +1177,62 @@ TEST(TargetSpirvProfileTest, ExplicitCooperativeRowsAnnotateModelRows) {
   EXPECT_EQ(ToString(matrix_row.provenance), "vulkaninfo:row[0]");
 }
 
+TEST(TargetSpirvProfileTest, MatrixOperandFlagsMatchEveryComponentType) {
+  TargetEnvironmentPtr environment = CreateSpirvTargetEnvironment();
+  const loomc_spirv_cooperative_matrix_operand_flags_t signed_flags[] = {
+      LOOMC_SPIRV_COOPERATIVE_MATRIX_OPERAND_A_SIGNED_COMPONENTS,
+      LOOMC_SPIRV_COOPERATIVE_MATRIX_OPERAND_B_SIGNED_COMPONENTS,
+      LOOMC_SPIRV_COOPERATIVE_MATRIX_OPERAND_C_SIGNED_COMPONENTS,
+      LOOMC_SPIRV_COOPERATIVE_MATRIX_OPERAND_RESULT_SIGNED_COMPONENTS};
+  for (auto type : {LOOMC_SPIRV_SCALAR_TYPE_F16, LOOMC_SPIRV_SCALAR_TYPE_F32,
+                    LOOMC_SPIRV_SCALAR_TYPE_F64, LOOMC_SPIRV_SCALAR_TYPE_BF16,
+                    LOOMC_SPIRV_SCALAR_TYPE_S8, LOOMC_SPIRV_SCALAR_TYPE_S16,
+                    LOOMC_SPIRV_SCALAR_TYPE_S32, LOOMC_SPIRV_SCALAR_TYPE_S64,
+                    LOOMC_SPIRV_SCALAR_TYPE_U8, LOOMC_SPIRV_SCALAR_TYPE_U16,
+                    LOOMC_SPIRV_SCALAR_TYPE_U32, LOOMC_SPIRV_SCALAR_TYPE_U64}) {
+    SCOPED_TRACE(type);
+    for (auto state :
+         {LOOMC_TARGET_FACT_STATE_TRUE, LOOMC_TARGET_FACT_STATE_FALSE}) {
+      SCOPED_TRACE(state);
+      auto row = MakeCustomMatrixRow(loomc_make_cstring_view("custom.matrix"),
+                                     state, loomc_string_view_empty());
+      row.lhs_type = row.rhs_type = row.accumulator_type = row.result_type =
+          type;
+      if (type == LOOMC_SPIRV_SCALAR_TYPE_S8 ||
+          type == LOOMC_SPIRV_SCALAR_TYPE_S16 ||
+          type == LOOMC_SPIRV_SCALAR_TYPE_S32 ||
+          type == LOOMC_SPIRV_SCALAR_TYPE_S64) {
+        for (auto flag : signed_flags) {
+          row.operand_flags |= flag;
+        }
+      }
+      const loomc_spirv_profile_options_t options = {
+          .preset = LOOMC_SPIRV_PROFILE_PRESET_VULKAN_1_3_BDA,
+          .cooperative_matrix_rows = &row,
+          .cooperative_matrix_row_count = 1,
+      };
+      auto valid = CreateSpirvProfile(environment.get(), &options);
+      ASSERT_NE(valid.get(), nullptr);
+      for (auto flag : signed_flags) {
+        SCOPED_TRACE(flag);
+        row.operand_flags ^= flag;
+        loomc_target_profile_t* profile = nullptr;
+        loomc_result_t* result = nullptr;
+        LOOMC_EXPECT_STATUS_IS(
+            LOOMC_STATUS_INVALID_ARGUMENT,
+            loomc_target_profile_create_spirv(environment.get(), &options,
+                                              loomc_allocator_system(),
+                                              &profile, &result));
+        EXPECT_EQ(profile, nullptr);
+        EXPECT_EQ(result, nullptr);
+        loomc_target_profile_release(profile);
+        loomc_result_release(result);
+        row.operand_flags ^= flag;
+      }
+    }
+  }
+}
+
 TEST(TargetSpirvProfileTest, AppliesExplicitCooperativeRowFacts) {
   TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
   loomc_spirv_feature_fact_t facts[] = {

@@ -539,6 +539,14 @@ static loomc_status_t loomc_spirv_rows_validate_row_name(
   return loomc_ok_status();
 }
 
+static bool loomc_spirv_rows_scalar_type_is_signed(
+    loomc_spirv_scalar_type_t type) {
+  return type == LOOMC_SPIRV_SCALAR_TYPE_S8 ||
+         type == LOOMC_SPIRV_SCALAR_TYPE_S16 ||
+         type == LOOMC_SPIRV_SCALAR_TYPE_S32 ||
+         type == LOOMC_SPIRV_SCALAR_TYPE_S64;
+}
+
 static loomc_status_t loomc_spirv_rows_validate_matrix_row(
     const loomc_spirv_cooperative_matrix_row_t* row) {
   LOOMC_RETURN_IF_ERROR(loomc_spirv_rows_validate_fact_state(row->state));
@@ -594,6 +602,22 @@ static loomc_status_t loomc_spirv_rows_validate_matrix_row(
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
                              "SPIR-V cooperative matrix row operand flags are "
                              "invalid");
+  }
+  const loomc_spirv_scalar_type_t component_types[] = {
+      row->lhs_type, row->rhs_type, row->accumulator_type, row->result_type};
+  const loomc_spirv_cooperative_matrix_operand_flags_t signed_flags[] = {
+      LOOMC_SPIRV_COOPERATIVE_MATRIX_OPERAND_A_SIGNED_COMPONENTS,
+      LOOMC_SPIRV_COOPERATIVE_MATRIX_OPERAND_B_SIGNED_COMPONENTS,
+      LOOMC_SPIRV_COOPERATIVE_MATRIX_OPERAND_C_SIGNED_COMPONENTS,
+      LOOMC_SPIRV_COOPERATIVE_MATRIX_OPERAND_RESULT_SIGNED_COMPONENTS};
+  for (loomc_host_size_t i = 0; i < IREE_ARRAYSIZE(component_types); ++i) {
+    if (loomc_spirv_rows_scalar_type_is_signed(component_types[i]) !=
+        ((row->operand_flags & signed_flags[i]) != 0)) {
+      return loomc_make_status(
+          LOOMC_STATUS_INVALID_ARGUMENT,
+          "SPIR-V cooperative matrix signed operand flags must match their "
+          "component types");
+    }
   }
   return loomc_ok_status();
 }
