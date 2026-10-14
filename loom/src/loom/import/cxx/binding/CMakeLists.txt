@@ -108,6 +108,7 @@ loom_cc_library(
   SRCS
     "atomic.cc"
   DEPS
+    ::index_values
     iree::third_party::cxx_parser
     loom::import::cxx::source::constants
     loom::import::cxx::source::error

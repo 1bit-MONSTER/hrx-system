@@ -25,6 +25,38 @@ class [[loom::type("buffer")]] buffer {
 
 }  // namespace type
 
+namespace atomic {
+
+// Memory ordering between synchronized accesses.
+enum class ordering {
+  // Atomicity without inter-address synchronization.
+  relaxed = 0,
+  // Acquire ordering.
+  acquire = 1,
+  // Release ordering.
+  release = 2,
+  // Acquire and release ordering.
+  acq_rel = 3,
+  // Sequentially consistent ordering.
+  seq_cst = 4,
+};
+
+// Synchronization scope for memory effects.
+enum class scope {
+  // Current invocation or thread.
+  thread = 0,
+  // Current SIMD subgroup or wave.
+  subgroup = 1,
+  // Current workgroup or block.
+  workgroup = 2,
+  // Current device.
+  device = 3,
+  // Whole system.
+  system = 4,
+};
+
+}  // namespace atomic
+
 // Storage domain attached to an allocated or externally supplied buffer root.
 // Target lowering decides which domains are legal for each program kind.
 enum class memory_space {
@@ -75,6 +107,14 @@ template <class T>
 // Alignment-byte alignment in the current scope.
 template <__SIZE_TYPE__ Alignment, class T>
 [[loom::op("buffer.assume.alignment")]] T* assume_alignment(T* source);
+
+// Orders the executing thread's memory accesses across storage objects.
+// Ordering is acquire, release, acq_rel, or seq_cst. Matching atomic
+// observations and publications establish synchronization. The fence does not
+// rendezvous with other threads or complete independent asynchronous transfers.
+// It is valid in ordinary functions as well as kernels.
+template <loom::atomic::ordering Ordering, loom::atomic::scope Scope>
+[[loom::op("buffer.fence")]] void fence();
 
 }  // namespace buffer
 }  // namespace loom

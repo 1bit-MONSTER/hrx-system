@@ -35,6 +35,8 @@ def render_preamble(
     """Renders includes, helper declarations, and source target metadata."""
 
     headers = {"loomcxx/kernel.h"}
+    if any(name.startswith("view.atomic.") for name in operation_names):
+        headers.add("loomcxx/atomic.h")
     if "scalar.siluf" in operation_names:
         headers.add("loomcxx/scalar.h")
     if "index.assume" in operation_names:

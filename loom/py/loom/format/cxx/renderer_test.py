@@ -354,42 +354,48 @@ kernel.def @atomics() {
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%values: buffer) {
   %zero = index.constant 0 : offset
-  %values_view = buffer.view %values[%zero] : buffer -> view<4xi32>
+  %values_view = buffer.view %values[%zero] : buffer -> view<2x2xi32>
   %replacement = scalar.constant 1 : i32
   buffer.fence scope(device) ordering(release)
-  view.atomic.store %replacement, %values_view[0] {ordering = relaxed, scope = device} : i32, view<4xi32>
-  %observed = view.atomic.load %values_view[0] {ordering = acquire, scope = device} : view<4xi32> -> i32
-  %old = view.atomic.rmw<addi> %replacement, %values_view[1] {ordering = acq_rel, scope = device} : i32, view<4xi32> -> i32
-  view.atomic.reduce<maxui> %replacement, %values_view[2] {ordering = relaxed, scope = device} : i32, view<4xi32>
-  %compared = view.atomic.cmpxchg %observed, %replacement, %values_view[3] {failure_ordering = acquire, scope = device, success_ordering = acq_rel} : i32, view<4xi32> -> i32
+  view.atomic.store %replacement, %values_view[0, 0] {ordering = relaxed, scope = device} : i32, view<2x2xi32>
+  %observed = view.atomic.load %values_view[0, 1] {ordering = acquire, scope = device} : view<2x2xi32> -> i32
+  %old = view.atomic.rmw<addi> %replacement, %values_view[1, 0] {ordering = acq_rel, scope = device} : i32, view<2x2xi32> -> i32
+  view.atomic.reduce<maxui> %old, %values_view[1, 1] {ordering = relaxed, scope = device} : i32, view<2x2xi32>
+  %compared = view.atomic.cmpxchg %observed, %old, %values_view[0, 0] {failure_ordering = acquire, scope = device, success_ordering = acq_rel} : i32, view<2x2xi32> -> i32
   kernel.return
 }
 """
 
     result = render_module(load_module(source.encode()))
 
+    assert "#include <loomcxx/atomic.h>" in result
     assert (
         "loom::buffer::fence<loom::atomic::ordering::release, "
         "loom::atomic::scope::device>();" in result
     )
     assert (
         "loom::view::atomic::store<loom::atomic::ordering::relaxed, "
-        "loom::atomic::scope::device>(1u, values);" in result
+        "loom::atomic::scope::device>(1u, values_view, 0, 0);" in result
+    )
+    assert (
+        "unsigned observed = loom::view::atomic::load<"
+        "loom::atomic::ordering::acquire, loom::atomic::scope::device>("
+        "values_view, 0, 1);" in result
     )
     assert (
         "unsigned old = loom::view::atomic::rmw<loom::atomic::kind::addi, "
         "loom::atomic::ordering::acq_rel, loom::atomic::scope::device>(1u, "
-        "values + 1);" in result
+        "values_view, 1, 0);" in result
     )
     assert (
         "loom::view::atomic::reduce<loom::atomic::kind::maxui, "
-        "loom::atomic::ordering::relaxed, loom::atomic::scope::device>(1u, "
-        "values + 2);" in result
+        "loom::atomic::ordering::relaxed, loom::atomic::scope::device>(old, "
+        "values_view, 1, 1);" in result
     )
     assert (
-        "unsigned compared = loom::view::atomic::cmpxchg<"
+        "(void)loom::view::atomic::cmpxchg<"
         "loom::atomic::ordering::acq_rel, loom::atomic::ordering::acquire, "
-        "loom::atomic::scope::device>(observed, 1u, values + 3);" in result
+        "loom::atomic::scope::device>(observed, old, values_view, 0, 0);" in result
     )
 
 

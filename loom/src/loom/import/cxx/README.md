@@ -1148,9 +1148,10 @@ permissions do not apply to these integer operations.
 ## Integer atomics
 
 `<loomcxx/atomic.h>` exposes scalar atomic observations and updates through typed
-pointers. The kind, ordering, and scope use the same names as High IR, with
-explicit template arguments. Pointer arithmetic and helper calls preserve the
-original allocation and byte origin.
+pointers and typed views. The kind, ordering, and scope use the same names as
+High IR, with explicit template arguments. Pointer arithmetic and helper calls
+preserve the original allocation and byte origin. View accesses retain their
+rank, encoding, and logical coordinates directly.
 
 ```cpp
 #include <loomcxx/atomic.h>
@@ -1184,22 +1185,38 @@ The atomic operations import directly as:
 %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = acquire, scope = device, success_ordering = acq_rel} : i32, view<1xi32> -> i32
 ```
 
-`rmw<kind, ordering, scope>(value, pointer)` returns the old memory value.
-`reduce<kind, ordering, scope>(value, pointer)` performs an atomic update without
-a result. Integer kinds include exchange, addition, subtraction, bitwise
-AND/OR/XOR, and signed or unsigned minimum/maximum. Minimum/maximum signedness
+An existing view is passed before one index per logical axis:
+
+```cpp
+auto counters = loom::buffer::view<4, 8>(
+    storage, {}, loom::encoding::layout::dense<2>());
+unsigned ticket = loom::view::atomic::rmw<
+    kind::addi, ordering::relaxed, scope::device>(
+    1u, counters, row, column);
+```
+
+This imports as one `view.atomic.rmw` on the original `view<4x8xi32>` instead
+of projecting an interior pointer and rebuilding a one-element view.
+
+`rmw<kind, ordering, scope>(value, storage, indices...)` returns the old memory
+value. `reduce<kind, ordering, scope>(value, storage, indices...)` performs an
+atomic update without a result. Pointer storage has no indices; view storage
+has one per logical axis. Integer kinds include exchange, addition,
+subtraction, bitwise AND/OR/XOR, and signed or unsigned minimum/maximum.
+Minimum/maximum signedness
 must agree with the source integer type; the High payload itself is signless.
 
-`cmpxchg<success, failure, scope>(expected, replacement, pointer)` returns the
-old value on both success and failure. It writes exactly when the old bits
-equal `expected`, without spurious failure or an output parameter. Failure
-ordering cannot release or be stronger than success ordering. The declaration
-binding validates this pair using the same contract as High IR.
+`cmpxchg<success, failure, scope>(expected, replacement, storage, indices...)`
+returns the old value on both success and failure. It writes exactly when the
+old bits equal `expected`, without spurious failure or an output parameter.
+Failure ordering cannot release or be stronger than success ordering. The
+declaration binding validates this pair using the same contract as High IR.
 
-`load<ordering, scope>(pointer)` observes an object without changing it;
-`store<ordering, scope>(value, pointer)` publishes a value without reading the
-old one. Loads accept relaxed, acquire, or sequentially consistent ordering.
-Stores accept relaxed, release, or sequentially consistent ordering.
+`load<ordering, scope>(storage, indices...)` observes an object without changing
+it; `store<ordering, scope>(value, storage, indices...)` publishes a value
+without reading the old one. Loads accept relaxed, acquire, or sequentially
+consistent ordering. Stores accept relaxed, release, or sequentially consistent
+ordering.
 
 ```cpp
 unsigned consume(const unsigned* ready, const unsigned* payload) {

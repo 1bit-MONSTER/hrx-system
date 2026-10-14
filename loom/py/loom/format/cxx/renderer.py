@@ -58,67 +58,26 @@ class CxxRenderer(CxxExpressionRenderer):
             return address
         return f"reinterpret_cast<{target_type}>({address})"
 
-    def _atomic_pointer_expression(self, operation: Operation) -> str:
+    def _atomic_access_arguments(self, operation: Operation) -> str:
         resolved = self._resolved(operation)
-        view_id = resolved.value_id("view")
-        view_type = self.module.values[view_id].type
-        definition = self.definitions.get(view_id)
-        if (
-            not isinstance(view_type, ShapedType)
-            or view_type.type_kind != TypeKind.VIEW
-            or view_type.rank != 1
-            or not view_type.is_all_static
-            or definition is None
-            or definition.name != "buffer.view"
-        ):
-            raise CxxRenderError(
-                operation,
-                "atomic pointer projection requires a direct static rank-one view",
-            )
-        if isinstance(view_type.encoding, DynamicEncoding):
-            encoding = self.definitions.get(view_type.encoding.value_id)
-            if encoding is None or encoding.name != "encoding.layout.dense":
-                raise CxxRenderError(
-                    operation,
-                    "atomic pointer projection requires a dense address layout",
-                )
-        elif view_type.encoding is not None:
-            raise CxxRenderError(
-                operation,
-                "atomic pointer projection requires a dense address layout",
-            )
-
-        view_fields = self._resolved(definition)
-        buffer_id = view_fields.value_id("buffer")
-        root = self.buffer_roots.get(buffer_id)
-        is_const = root is not None and not self.buffer_info[root].mutable
-        element = self.types.scalar(view_type.element_type, view_id in self.view_signed)
-        pointer = self._buffer_pointer_expression(
-            buffer_id, view_fields.value_id("byte_offset"), element, is_const
-        )
         indices = self._mixed_indices(
             resolved, dynamic_field="indices", static_field="static_indices"
         )
-        if len(indices) != 1:
-            raise CxxRenderError(
-                operation, "atomic pointer projection requires one logical index"
-            )
-        index = indices[0]
-        dynamic_indices = resolved.value_ids("indices")
-        if dynamic_indices:
-            index_id = dynamic_indices[0]
-            if self.expression_type(index_id) == "loom::type::index":
-                index = f"static_cast<long long>({index})"
-        if index in {"0", "0u", "0ull"}:
-            return pointer
-        return f"{pointer} + {index}"
+        arguments = [self.expression(resolved.value_id("view")), *indices]
+        return ", ".join(arguments)
+
+    def _emit_atomic_result(self, result: int, expression: str) -> None:
+        if self.use_counts[result] == 0 and result not in self.assignment_targets:
+            self.writer.line(f"(void){expression};")
+            return
+        self._declare(result, expression)
 
     def _render_atomic(self, operation: Operation) -> tuple[str, ...] | None:
         name = operation.name
         if not name.startswith("view.atomic."):
             return None
         resolved = self._resolved(operation)
-        pointer = self._atomic_pointer_expression(operation)
+        access = self._atomic_access_arguments(operation)
         scope = resolved.attr("scope")
         if name == "view.atomic.cmpxchg":
             success = resolved.attr("success_ordering")
@@ -130,9 +89,9 @@ class CxxRenderer(CxxExpressionRenderer):
                 f"loom::atomic::scope::{scope}>("
                 f"{self.expression(resolved.value_id('expected'))}, "
                 f"{self.expression(resolved.value_id('replacement'))}, "
-                f"{pointer})"
+                f"{access})"
             )
-            self._declare(resolved.value_id("old"), expression)
+            self._emit_atomic_result(resolved.value_id("old"), expression)
             return (
                 "success_ordering",
                 "failure_ordering",
@@ -145,16 +104,16 @@ class CxxRenderer(CxxExpressionRenderer):
             expression = (
                 "loom::view::atomic::load<"
                 f"loom::atomic::ordering::{ordering}, "
-                f"loom::atomic::scope::{scope}>({pointer})"
+                f"loom::atomic::scope::{scope}>({access})"
             )
-            self._declare(resolved.value_id("result"), expression)
+            self._emit_atomic_result(resolved.value_id("result"), expression)
             return ("ordering", "scope", "static_indices")
         if name == "view.atomic.store":
             self.writer.line(
                 "loom::view::atomic::store<"
                 f"loom::atomic::ordering::{ordering}, "
                 f"loom::atomic::scope::{scope}>("
-                f"{self.expression(resolved.value_id('value'))}, {pointer});"
+                f"{self.expression(resolved.value_id('value'))}, {access});"
             )
             return ("ordering", "scope", "static_indices")
 
@@ -164,10 +123,10 @@ class CxxRenderer(CxxExpressionRenderer):
             f"loom::view::atomic::{member}<loom::atomic::kind::{kind}, "
             f"loom::atomic::ordering::{ordering}, "
             f"loom::atomic::scope::{scope}>("
-            f"{self.expression(resolved.value_id('value'))}, {pointer})"
+            f"{self.expression(resolved.value_id('value'))}, {access})"
         )
         if name == "view.atomic.rmw":
-            self._declare(resolved.value_id("result"), expression)
+            self._emit_atomic_result(resolved.value_id("result"), expression)
         else:
             self.writer.line(f"{expression};")
         return ("kind", "ordering", "scope", "static_indices")

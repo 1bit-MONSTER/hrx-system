@@ -14,9 +14,11 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <variant>
 
+#include "loom/import/cxx/binding/index_values.h"
 #include "loom/import/cxx/source/constants.h"
 #include "loom/import/cxx/source/error.h"
 #include "loom/ops/buffer/ops.h"
@@ -183,30 +185,59 @@ std::optional<AtomicIntrinsic> AtomicIntrinsic::resolve(
 
   auto* signature = cxx::type_cast<cxx::FunctionType>(function->type());
   auto parameters = signature->parameterTypes();
-  size_t operand_count = operation == Operation::Load              ? 1
-                         : operation == Operation::CompareExchange ? 3
-                                                                   : 2;
-  if (signature->isVariadic() || parameters.size() != operand_count) {
+  size_t storage_index = operation == Operation::Load              ? 0
+                         : operation == Operation::CompareExchange ? 2
+                                                                   : 1;
+  if (signature->isVariadic() || parameters.size() <= storage_index) {
     diagnostics.reject(unit, owner,
                        "atomic declaration has the wrong operand count");
   }
+
+  const auto* storage_type = parameters[storage_index];
   auto* pointer =
-      cxx::type_cast<cxx::PointerType>(types.unqualified(parameters.back()));
-  if (!pointer) {
-    diagnostics.reject(unit, owner, "atomic access requires a pointer");
+      cxx::type_cast<cxx::PointerType>(types.unqualified(storage_type));
+  const ViewPartition* source_view = nullptr;
+  uint32_t unsigned_index_mask = 0;
+  const cxx::Type* element_type = nullptr;
+  if (pointer) {
+    if (parameters.size() != storage_index + 1) {
+      diagnostics.reject(unit, owner,
+                         "atomic declaration has the wrong operand count");
+    }
+    element_type = pointer->elementType();
+  } else {
+    const auto& partition = types.partition(storage_type, owner);
+    if (partition.kind != ValueKind::View) {
+      diagnostics.reject(unit, owner,
+                         "atomic access requires a pointer or typed view");
+    }
+    source_view = &static_cast<const ViewPartition&>(partition);
+    if (parameters.size() != storage_index + 1 + source_view->extents.size()) {
+      diagnostics.reject(unit, owner,
+                         "atomic view index count must match its rank");
+    }
+    for (size_t index = storage_index + 1; index < parameters.size(); ++index) {
+      if (require_index_value(unit, diagnostics, types, parameters[index],
+                              owner, "atomic view index")) {
+        unsigned_index_mask |= uint32_t{1} << index;
+      }
+    }
+    element_type = source_view->element_type;
   }
   if (operation != Operation::Load &&
-      unit.typeTraits().is_const(pointer->elementType())) {
+      unit.typeTraits().is_const(element_type)) {
     diagnostics.reject(unit, owner,
-                       "atomic destination requires a mutable pointer");
+                       source_view
+                           ? "atomic destination requires a mutable view"
+                           : "atomic destination requires a mutable pointer");
   }
-  auto* element = types.unqualified(pointer->elementType());
+  auto* element = types.unqualified(element_type);
   if (!unit.typeTraits().is_integral(element) ||
       element->kind() == cxx::TypeKind::kBool) {
     diagnostics.reject(unit, owner,
                        "atomic destination requires a non-boolean integer");
   }
-  for (size_t index = 0; index + 1 < parameters.size(); ++index) {
+  for (size_t index = 0; index < storage_index; ++index) {
     if (types.unqualified(parameters[index]) != element) {
       diagnostics.reject(unit, owner,
                          "atomic operands must match the destination element "
@@ -230,9 +261,9 @@ std::optional<AtomicIntrinsic> AtomicIntrinsic::resolve(
                        "atomic minimum/maximum signedness must match the "
                        "destination element type");
   }
-  return AtomicIntrinsic(operation, pointer->elementType(),
-                         types.get(element, owner), kind, ordering,
-                         failure_ordering, scope);
+  return AtomicIntrinsic(operation, element_type, types.get(element, owner),
+                         kind, ordering, failure_ordering, scope, source_view,
+                         unsigned_index_mask);
 }
 
 std::optional<AtomicBuiltin> AtomicBuiltin::resolve(
@@ -340,39 +371,68 @@ std::optional<Value> AtomicIntrinsic::call(std::span<const Value> arguments,
                                            Storage& storage, cxx::AST* owner,
                                            loom_builder_t* builder,
                                            loom_location_id_t location) const {
-  auto access = storage.dereference(
-      storage.project(arguments.back().pointer(), element_type_, owner),
-      element_type_, owner);
-  const int64_t index = 0;
+  const size_t storage_index = operation_ == Operation::Load              ? 0
+                               : operation_ == Operation::CompareExchange ? 2
+                                                                          : 1;
+  loom_value_id_t view;
+  std::array<loom_value_id_t, LOOM_TYPE_MAX_RANK> indices;
+  std::array<int64_t, LOOM_TYPE_MAX_RANK> static_indices;
+  const loom_value_id_t* dynamic_indices = nullptr;
+  size_t dynamic_index_count = 0;
+  size_t static_index_count = 1;
+  static_indices.fill(std::numeric_limits<int64_t>::min());
+  if (source_view_) {
+    view = arguments[storage_index].components().back();
+    dynamic_indices = indices.data();
+    dynamic_index_count = source_view_->extents.size();
+    static_index_count = source_view_->extents.size();
+    for (size_t axis = 0; axis < dynamic_index_count; ++axis) {
+      const size_t argument_index = storage_index + 1 + axis;
+      indices[axis] = cast_index(
+          arguments[argument_index],
+          is_unsigned_component(unsigned_index_mask_, argument_index), builder,
+          location);
+    }
+  } else {
+    static_indices[0] = 0;
+    auto access =
+        storage.dereference(storage.project(arguments[storage_index].pointer(),
+                                            element_type_, owner),
+                            element_type_, owner);
+    view = access.view;
+  }
   loom_op_t* op;
   switch (operation_) {
     case Operation::Load:
-      check(loom_view_atomic_load_build(builder, 0, access.view, nullptr, 0,
-                                        &index, 1, ordering_, scope_, 0, 0,
-                                        type_, location, &op));
+      check(loom_view_atomic_load_build(
+          builder, 0, view, dynamic_indices, dynamic_index_count,
+          static_indices.data(), static_index_count, ordering_, scope_, 0, 0,
+          type_, location, &op));
       return Value(loom_op_results(op)[0]);
     case Operation::Store:
       check(loom_view_atomic_store_build(
-          builder, 0, arguments[0].ssa(), access.view, nullptr, 0, &index, 1,
+          builder, 0, arguments[0].ssa(), view, dynamic_indices,
+          dynamic_index_count, static_indices.data(), static_index_count,
           ordering_, scope_, 0, 0, location, &op));
       return std::nullopt;
     case Operation::Rmw:
-      check(loom_view_atomic_rmw_build(builder, 0, kind_, /*instance_flags=*/0,
-                                       arguments[0].ssa(), access.view, nullptr,
-                                       0, &index, 1, ordering_, scope_, 0, 0,
-                                       type_, location, &op));
+      check(loom_view_atomic_rmw_build(
+          builder, 0, kind_, /*instance_flags=*/0, arguments[0].ssa(), view,
+          dynamic_indices, dynamic_index_count, static_indices.data(),
+          static_index_count, ordering_, scope_, 0, 0, type_, location, &op));
       return Value(loom_op_results(op)[0]);
     case Operation::Reduce:
       check(loom_view_atomic_reduce_build(
-          builder, 0, kind_, /*instance_flags=*/0, arguments[0].ssa(),
-          access.view, nullptr, 0, &index, 1, ordering_, scope_, 0, 0, location,
-          &op));
+          builder, 0, kind_, /*instance_flags=*/0, arguments[0].ssa(), view,
+          dynamic_indices, dynamic_index_count, static_indices.data(),
+          static_index_count, ordering_, scope_, 0, 0, location, &op));
       return std::nullopt;
     case Operation::CompareExchange:
       check(loom_view_atomic_cmpxchg_build(
-          builder, 0, arguments[0].ssa(), arguments[1].ssa(), access.view,
-          nullptr, 0, &index, 1, ordering_, failure_ordering_, scope_, 0, 0,
-          type_, location, &op));
+          builder, 0, arguments[0].ssa(), arguments[1].ssa(), view,
+          dynamic_indices, dynamic_index_count, static_indices.data(),
+          static_index_count, ordering_, failure_ordering_, scope_, 0, 0, type_,
+          location, &op));
       return Value(loom_op_results(op)[0]);
   }
   std::unreachable();
@@ -457,7 +517,9 @@ bool AtomicIntrinsic::equivalent(const AtomicIntrinsic& other) const {
   return operation_ == other.operation_ &&
          element_type_ == other.element_type_ && kind_ == other.kind_ &&
          ordering_ == other.ordering_ &&
-         failure_ordering_ == other.failure_ordering_ && scope_ == other.scope_;
+         failure_ordering_ == other.failure_ordering_ &&
+         scope_ == other.scope_ && source_view_ == other.source_view_ &&
+         unsigned_index_mask_ == other.unsigned_index_mask_;
 }
 
 bool FenceIntrinsic::supports(std::string_view name) {

@@ -196,6 +196,8 @@ constexpr SourceToModuleInput kEncoding = {
     SourceLanguage::kCxx, "#include <loomcxx/encoding.h>\n", nullptr, nullptr};
 constexpr SourceToModuleInput kView = {
     SourceLanguage::kCxx, "#include <loomcxx/view.h>\n", nullptr, nullptr};
+constexpr SourceToModuleInput kAtomic = {
+    SourceLanguage::kCxx, "#include <loomcxx/atomic.h>\n", nullptr, nullptr};
 constexpr SourceToModuleInput kRankTwoView = {SourceLanguage::kCxx,
                                               R"cxx(#include <loomcxx/view.h>
 float load_rank_two(const float* data, unsigned rows, unsigned row,
@@ -254,6 +256,8 @@ BENCHMARK_CAPTURE(SourceToModule, EncodingType, &kEncodingType)
 BENCHMARK_CAPTURE(SourceToModule, Encoding, &kEncoding)
     ->Unit(::benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(SourceToModule, View, &kView)
+    ->Unit(::benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(SourceToModule, Atomic, &kAtomic)
     ->Unit(::benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(SourceToModule, RankTwoView, &kRankTwoView)
     ->Unit(::benchmark::kMicrosecond);

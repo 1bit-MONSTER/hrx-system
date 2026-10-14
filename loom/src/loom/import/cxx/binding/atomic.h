@@ -20,11 +20,11 @@
 
 namespace loom::cxx_import {
 
-// An admitted scalar integer atomic through a source pointer. Leading function
-// template arguments select ordering/scope for load/store, kind/ordering/scope
-// for RMW/reduction, or success/failure/scope for compare-exchange. The
-// concrete signature supplies the integer type. Calls retain the pointer's
-// allocation and byte origin.
+// An admitted scalar integer atomic through a source pointer or typed view.
+// Leading function template arguments select ordering/scope for load/store,
+// kind/ordering/scope for RMW/reduction, or success/failure/scope for
+// compare-exchange. The concrete signature supplies the integer type and, for
+// views, the full-rank logical index contract.
 class AtomicIntrinsic {
  public:
   static bool supports(std::string_view name);
@@ -59,14 +59,18 @@ class AtomicIntrinsic {
                   loom_type_t type, loom_atomic_kind_t kind,
                   loom_atomic_ordering_t ordering,
                   loom_atomic_ordering_t failure_ordering,
-                  loom_atomic_scope_t scope)
+                  loom_atomic_scope_t scope,
+                  const ViewPartition* source_view = nullptr,
+                  uint32_t unsigned_index_mask = 0)
       : operation_(operation),
         element_type_(element_type),
         type_(type),
         kind_(kind),
         ordering_(ordering),
         failure_ordering_(failure_ordering),
-        scope_(scope) {}
+        scope_(scope),
+        source_view_(source_view),
+        unsigned_index_mask_(unsigned_index_mask) {}
 
   // Admitted operation family.
   Operation operation_;
@@ -82,6 +86,10 @@ class AtomicIntrinsic {
   loom_atomic_ordering_t failure_ordering_;
   // Explicit source synchronization scope, preserved without narrowing.
   loom_atomic_scope_t scope_;
+  // Typed source view contract, or null when this binding consumes a pointer.
+  const ViewPartition* source_view_;
+  // View-index arguments whose fixed-width C++ interpretation is unsigned.
+  uint32_t unsigned_index_mask_;
 };
 
 // GCC argument and result conventions over the same typed High projection.
