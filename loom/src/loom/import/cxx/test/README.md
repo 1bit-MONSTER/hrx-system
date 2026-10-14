@@ -5,6 +5,9 @@ Compiler behavior is authored in `.cxx-test` files and checked through the same
 Each `//====` case supplies C++ source; `//----` introduces its expected Loom
 output. `// ERROR` annotations check source diagnostics. `// INPUT:` selects
 import options such as the language standard, data model, or exported roots.
+`// RUN: emit cxx` instead places canonical exported C++ after `//----`; these
+files declare `// REQUIRES: loom-export-cxx` and can grow through ordinary
+`//====` cases without adding process-level JSON fixtures.
 The [loom-check guide](../../../tools/loom-check/README.md) describes the format
 and `--update` workflow.
 

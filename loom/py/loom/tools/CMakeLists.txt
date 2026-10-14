@@ -90,6 +90,15 @@ iree_py_library(
 
 iree_py_library(
   NAME
+    export_cxx
+  SRCS
+    "export_cxx.py"
+  DEPS
+    loom::py::loom::format::cxx::cxx
+)
+
+iree_py_library(
+  NAME
     loom-compile-report
   MAIN
     "compile_report.py"
@@ -112,6 +121,17 @@ iree_py_library(
 
 iree_py_library(
   NAME
+    loom-export-cxx
+  MAIN
+    "export_cxx.py"
+  SRCS
+    "export_cxx.py"
+  DEPS
+    loom::py::loom::tools::export_cxx
+)
+
+iree_py_library(
+  NAME
     pytest_style_runner
   MAIN
     "pytest_style_runner.py"
@@ -127,6 +147,7 @@ iree_py_test(
   SRCS
     "amdgpu_asm_test.py"
     "compile_report_test.py"
+    "export_cxx_test.py"
     "loom_opt_test.py"
     "pytest_style_runner.py"
     "pytest_style_runner_test.py"
@@ -136,15 +157,18 @@ iree_py_test(
     "loom.tools.amdgpu_asm_test"
     "loom.tools.compile_report_test"
     "loom.tools.loom_opt_test"
+    "loom.tools.export_cxx_test"
     "loom.tools.pytest_style_runner_test"
     "loom.tools.source_surface_test"
     "loom.tools.source_lint_test"
   DEPS
     loom::py::loom::tools::amdgpu_asm
     loom::py::loom::tools::compile_report
+    loom::py::loom::tools::export_cxx
     loom::py::loom::tools::loom_opt
     loom::py::loom::tools::source_lint
     loom::py::loom::tools::tools
+    loom::py::loom::format::cxx::test_support
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"

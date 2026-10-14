@@ -58,3 +58,15 @@ iree_execution_test_suite(
         "loom-import-cxx": ":loom-import-cxx",
     },
 )
+
+iree_execution_test_suite(
+    name = "export_roundtrip_test",
+    data = ["testdata/readable_projection.loom"],
+    manifests = ["export_roundtrip.test.json"],
+    tags = ["hostonly"],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
+    tools = {
+        "loom-export-cxx": "//loom/py/loom/tools:loom-export-cxx",
+        "loom-import-cxx": ":loom-import-cxx",
+    },
+)

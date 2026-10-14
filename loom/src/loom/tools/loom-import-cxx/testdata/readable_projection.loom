@@ -1,0 +1,18 @@
+kernel.def @copy_one() {
+  %count = index.constant 1 : index
+  %size = index.constant 4 : index
+  kernel.launch.config workgroups(%count, %count, %count) workgroup_size(%size, %count, %count) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : offset
+  %input_view = buffer.view %input[%c0] : buffer -> view<4xf32>
+  %workitem_index = kernel.workitem.id<x> : index
+  %workitem = index.cast %workitem_index : index to i32
+  %wide_workitem = scalar.extui %workitem : i32 to i64
+  %bounded_workitem = scalar.assume %wide_workitem [range(%wide_workitem, 0, 9223372036854775807)] : i64
+  %element = index.cast %bounded_workitem : i64 to index
+  %slice = view.subview %input_view[%element] : view<4xf32> -> view<1xf32>
+  %value = view.load %slice[0] : view<1xf32> -> f32
+  %output_view = buffer.view %output[%c0] : buffer -> view<4xf32>
+  view.store %value, %output_view[%element] : f32, view<4xf32>
+  kernel.return
+}

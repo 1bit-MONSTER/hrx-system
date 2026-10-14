@@ -479,6 +479,7 @@ loom_cc_binary(
     iree::base
     loom::target::arch::cmd::check::check_provider
     loom::target::configured::compiler_provider_set
+    loom::tooling::export::cxx::loom_check
     loom::tooling::input::configured
     loom::tooling::input::loomc_configured
     ${_loom_check_platform_deps}
@@ -550,6 +551,7 @@ loom_cc_binary(
     iree::base
     loom::target::arch::cmd::check::check_provider
     loom::target::configured::compiler_provider_set
+    loom::tooling::export::cxx::loom_check
     loom::tooling::input::configured
     loom::tooling::input::loomc_configured
     ${_loom_check_test_platform_deps}

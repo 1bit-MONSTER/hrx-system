@@ -1,0 +1,104 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+"""C++ translation-unit declarations required by a rendered kernel."""
+
+from dataclasses import dataclass
+
+from loom.format.cxx.types import SCALAR_CPP_TYPES
+from loom.ir import Operation
+
+
+@dataclass(frozen=True, slots=True)
+class TargetInfo:
+    """Source target record required by the rendered kernel."""
+
+    operation: Operation
+    operation_name: str
+    kind: str
+    subgroup_size: int | None
+    features: tuple[tuple[str, bool], ...]
+
+
+def render_preamble(
+    *,
+    operation_names: set[str],
+    scalar_names: set[str],
+    vector_aliases: dict[tuple[str, tuple[int, ...], bool], str],
+    table_lookup_declarations: set[tuple[str, str, str, str]],
+    target: TargetInfo | None,
+) -> list[str]:
+    """Renders includes, helper declarations, and source target metadata."""
+
+    headers = {"loomcxx/kernel.h"}
+    if "scalar.siluf" in operation_names:
+        headers.add("loomcxx/scalar.h")
+    if operation_names & {
+        "kernel.subgroup.reduce",
+        "vector.dot2f",
+        "vector.load",
+        "vector.reduce",
+        "vector.store",
+        "vector.table.lookup",
+    }:
+        headers.add("loomcxx/vector.h")
+    if scalar_names & {"f8E4M3", "f8E5M2"}:
+        headers.add("loomcxx/numeric.h")
+    system_headers = {"stdfloat"} if scalar_names & {"f16", "bf16"} else set()
+    preamble = [*(f"#include <{header}>" for header in sorted(headers)), ""]
+    if system_headers:
+        preamble.extend(
+            [*(f"#include <{header}>" for header in sorted(system_headers)), ""]
+        )
+
+    for (element, dims, signed), alias in sorted(
+        vector_aliases.items(), key=lambda item: item[1]
+    ):
+        base = SCALAR_CPP_TYPES[element]
+        if element.startswith("i") and not signed:
+            base = {
+                "i8": "unsigned char",
+                "i16": "unsigned short",
+                "i32": "unsigned",
+                "i64": "unsigned long long",
+                "i1": "bool",
+            }[element]
+        preamble.append(
+            f"using {alias} = {base} __attribute__((ext_vector_type({dims[0]})));"
+        )
+    if vector_aliases:
+        preamble.append("")
+
+    for function, result, table, indices in sorted(table_lookup_declarations):
+        preamble.append('[[loom::op("vector.table.lookup")]]')
+        preamble.append(f"{result} {function}({table} table, {indices} indices);")
+        preamble.append("")
+
+    if target is not None:
+        preamble[0:0] = ["#include <loomcxx/target/amdgpu.h>"]
+        target_fields = [f'.kind = "{target.kind}"']
+        if target.subgroup_size is not None:
+            target_fields.append(f".subgroup_size = {target.subgroup_size}")
+        if target.features:
+            target_fields.append(".features = {")
+            target_fields.extend(
+                f"  .{name} = loom::target::feature::"
+                f"{'enabled' if enabled else 'disabled'},"
+                for name, enabled in target.features
+            )
+            target_fields.append("}")
+        if len(target_fields) == 1:
+            preamble.append(
+                f"constexpr loom::amdgpu::target rendered_target{{{target_fields[0]}}};"
+            )
+        else:
+            preamble.append("constexpr loom::amdgpu::target rendered_target{")
+            for field in target_fields:
+                suffix = "" if field.endswith(("{", ",")) else ","
+                preamble.append(f"  {field}{suffix}")
+            preamble.append("};")
+        preamble.append("")
+    return preamble

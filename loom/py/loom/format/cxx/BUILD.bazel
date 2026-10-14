@@ -1,0 +1,73 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//build_tools/bazel:python.bzl", "iree_py_library", "iree_py_test")
+
+package(
+    default_visibility = ["//visibility:public"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+iree_py_library(
+    name = "cxx",
+    srcs = [
+        "__init__.py",
+        "errors.py",
+        "naming.py",
+        "printer.py",
+        "registry.py",
+        "renderer.py",
+        "translation_unit.py",
+        "types.py",
+    ],
+    deps = [
+        "//loom/py/loom:package",
+        "//loom/py/loom/dialect/config",
+        "//loom/py/loom/dialect/encoding",
+        "//loom/py/loom/dialect/func",
+        "//loom/py/loom/dialect/target",
+        "//loom/py/loom/dialect/template",
+        "//loom/py/loom/dialect/test",
+        "//loom/py/loom/format/bytecode",
+        "//loom/py/loom/format/text",
+        "//loom/py/loom/target/arch/amd/xdna/aie2p:dialect",
+        "//loom/py/loom/target/arch/amdgpu:dialect",
+        "//loom/py/loom/target/arch/spirv:dialect",
+        "//loom/py/loom/target/arch/vm:dialect",
+        "//loom/py/loom/target/arch/wasm:dialect",
+        "//loom/py/loom/target/arch/x86:dialect",
+    ],
+)
+
+iree_py_test(
+    name = "cxx_test",
+    srcs = [
+        "naming_test.py",
+        "printer_test.py",
+        "registry_test.py",
+        "renderer_test.py",
+        "test_support.py",
+        "//loom/py/loom/tools:pytest_style_runner.py",
+    ],
+    args = [
+        "loom.format.cxx.naming_test",
+        "loom.format.cxx.registry_test",
+        "loom.format.cxx.renderer_test",
+        "loom.format.cxx.printer_test",
+    ],
+    main = "pytest_style_runner.py",
+    deps = [
+        ":cxx",
+        "//loom/py/loom/format/bytecode",
+        "//loom/py/loom/format/text",
+    ],
+)
+
+iree_py_library(
+    name = "test_support",
+    testonly = True,
+    srcs = ["test_support.py"],
+)

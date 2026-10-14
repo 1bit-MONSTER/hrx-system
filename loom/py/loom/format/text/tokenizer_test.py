@@ -56,6 +56,14 @@ class TestSSAValue:
         assert _texts("%0") == ["0"]
         assert _texts("%42") == ["42"]
 
+    @pytest.mark.parametrize(
+        "spelling",
+        ["%789$141", "%0_1", "%0-1", "%value$2", "%$3$9"],
+    )
+    def test_collision_suffix(self, spelling: str) -> None:
+        assert _texts(spelling) == [spelling[1:]]
+        assert _kinds(spelling) == [TokenKind.SSA_VALUE]
+
     def test_complex_name(self) -> None:
         assert _texts("%arg0") == ["arg0"]
         assert _texts("%contract0") == ["contract0"]
