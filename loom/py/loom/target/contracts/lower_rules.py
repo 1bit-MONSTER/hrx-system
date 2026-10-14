@@ -37,6 +37,7 @@ from loom.target.contracts.immediates import (
     AttrProjectKind,
     OperandSegmentProject,
     OperandSegmentProjectKind,
+    ReadOnlyDataLiteral,
     SourceMemoryProject,
     SourceOpProject,
     ValueProject,
@@ -318,6 +319,8 @@ class _LowerRuleSetCompiler:
         self._tied_results: list[LowerTiedResult] = []
         self._emits: list[LowerEmit] = []
         self._diagnostics: list[LowerDiagnostic] = []
+        self._literal_data = bytearray()
+        self._literal_data_offsets: dict[bytes, int] = {}
         self._authored_case_indices: list[int] = []
         self._type_pattern_ordinals: dict[TypePattern, int] = {}
         self._diagnostic_ordinals: dict[LowerDiagnostic, int] = {}
@@ -440,6 +443,7 @@ class _LowerRuleSetCompiler:
             tied_results=tuple(self._tied_results),
             emits=emits,
             diagnostics=tuple(self._diagnostics),
+            literal_data=bytes(self._literal_data),
         )
 
     def _append_descriptor_rule(
@@ -2264,6 +2268,17 @@ class _LowerRuleSetCompiler:
                     )
                 )
                 continue
+            if isinstance(binding, ReadOnlyDataLiteral):
+                literal_data_offset = self._append_literal_data(binding.data)
+                attr_copies.append(
+                    LowerAttrCopy(
+                        kind=LowerAttrCopyKind.READ_ONLY_DATA_LITERAL,
+                        target_name=target_name,
+                        literal_data_offset=literal_data_offset,
+                        literal_data_length=len(binding.data),
+                    )
+                )
+                continue
             if isinstance(binding, SourceOpProject):
                 attr_copies.append(
                     _lower_source_op_project(source_op, target_name, binding)
@@ -2792,6 +2807,20 @@ class _LowerRuleSetCompiler:
             sequence,
             self._attr_copy_sequence_starts,
         )
+
+    def _append_literal_data(self, data: bytes) -> int:
+        offset = self._literal_data_offsets.get(data)
+        if offset is not None:
+            return offset
+        offset = len(self._literal_data)
+        if offset + len(data) > 0xFFFF:
+            raise ValueError(
+                f"contract fragment '{self._table.name}' read-only literal data "
+                "exceeds 65535 bytes"
+            )
+        self._literal_data.extend(data)
+        self._literal_data_offsets[data] = offset
+        return offset
 
     def _append_tied_result_sequence(
         self,

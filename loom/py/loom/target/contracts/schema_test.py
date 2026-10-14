@@ -31,6 +31,7 @@ from loom.target.contracts import (
     Guard,
     OperandSegmentProject,
     OrdinalValueAliasRule,
+    ReadOnlyDataLiteral,
     RecipeRule,
     Scalar,
     SourceNode,
@@ -1262,6 +1263,40 @@ def test_operand_segment_exact_bits_requires_read_only_immediate() -> None:
         ),
     )
     projection.validate(vector.vector_from_elements, read_only_descriptor, "data")
+
+
+def test_read_only_data_literal_requires_read_only_immediate() -> None:
+    literal = ReadOnlyDataLiteral(b"\x00\x80\xff")
+    descriptor = replace(
+        TEST_LOW_FROM_ELEMENTS_V4I32_DESCRIPTOR,
+        immediates=(
+            Immediate(
+                "data",
+                ImmediateKind.ORDINAL,
+                bit_width=32,
+                unsigned_max=(2**32) - 1,
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="must reference read-only data"):
+        literal.validate(vector.vector_from_elements, descriptor, "data")
+
+    read_only_descriptor = replace(
+        descriptor,
+        immediates=(
+            replace(
+                descriptor.immediates[0],
+                flags=(ImmediateFlag.READ_ONLY_DATA,),
+            ),
+        ),
+    )
+    literal.validate(vector.vector_from_elements, read_only_descriptor, "data")
+
+
+@pytest.mark.parametrize("data", [b"", bytes(256)])
+def test_read_only_data_literal_rejects_unrepresentable_lengths(data: bytes) -> None:
+    with pytest.raises(ValueError, match="read-only data literal"):
+        ReadOnlyDataLiteral(data)
 
 
 def test_operand_segment_projection_requires_matching_exact_bits_guard() -> None:

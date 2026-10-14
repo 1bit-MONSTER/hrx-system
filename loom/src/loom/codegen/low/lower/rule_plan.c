@@ -302,18 +302,21 @@ static loom_memory_access_flags_t loom_low_lower_resolve_emit_access_flags(
 static iree_status_t loom_low_lower_rule_project_read_only_data(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_attribute_t* source_attrs,
+    const loom_low_lower_rule_set_t* rule_set,
     const loom_low_lower_attr_copy_t* attr_copy,
     loom_low_lower_read_only_data_id_t* out_id) {
   loom_attribute_t source_attr = {0};
   if (attr_copy->kind !=
-      LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY) {
+          LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY &&
+      attr_copy->kind != LOOM_LOW_LOWER_ATTR_COPY_READ_ONLY_DATA_LITERAL) {
     IREE_ASSERT_LT(attr_copy->source_attr_index, source_op->attribute_count);
     source_attr = source_attrs[attr_copy->source_attr_index];
     IREE_ASSERT_EQ(source_attr.kind, LOOM_ATTR_I64_ARRAY);
   }
 
   iree_host_size_t byte_length = 0;
-  uint8_t* bytes = NULL;
+  uint8_t* projected_bytes = NULL;
+  const uint8_t* bytes = NULL;
   switch (attr_copy->kind) {
     case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_READ_ONLY_ELEMENTS: {
       IREE_ASSERT(attr_copy->source_element_bit_width == 8 ||
@@ -326,13 +329,16 @@ static iree_status_t loom_low_lower_rule_project_read_only_data(
           source_attr.count, element_byte_count, &byte_length);
       IREE_ASSERT(has_byte_length);
       IREE_RETURN_IF_ERROR(loom_low_lower_allocate_planning_array(
-          context, source_attr.count, element_byte_count, (void**)&bytes));
+          context, source_attr.count, element_byte_count,
+          (void**)&projected_bytes));
       for (iree_host_size_t i = 0; i < source_attr.count; ++i) {
         const uint64_t value = (uint64_t)source_attr.i64_array[i];
         for (iree_host_size_t byte = 0; byte < element_byte_count; ++byte) {
-          bytes[i * element_byte_count + byte] = (uint8_t)(value >> (byte * 8));
+          projected_bytes[i * element_byte_count + byte] =
+              (uint8_t)(value >> (byte * 8));
         }
       }
+      bytes = projected_bytes;
       break;
     }
     case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_READ_ONLY_BYTE_SEGMENT: {
@@ -346,7 +352,7 @@ static iree_status_t loom_low_lower_rule_project_read_only_data(
           source_attr.count, bytes_per_lane, &byte_length);
       IREE_ASSERT(has_byte_length);
       IREE_RETURN_IF_ERROR(loom_low_lower_allocate_planning_array(
-          context, byte_length, 1, (void**)&bytes));
+          context, byte_length, 1, (void**)&projected_bytes));
       for (iree_host_size_t output_byte = 0; output_byte < byte_length;
            ++output_byte) {
         const iree_host_size_t output_lane = output_byte / bytes_per_lane;
@@ -354,12 +360,13 @@ static iree_status_t loom_low_lower_rule_project_read_only_data(
         const uint64_t source_byte =
             (uint64_t)source_attr.i64_array[output_lane] * bytes_per_lane +
             lane_byte;
-        bytes[output_byte] =
+        projected_bytes[output_byte] =
             source_byte >= source_byte_offset &&
                     source_byte < source_byte_offset + source_byte_count
                 ? (uint8_t)(source_byte - source_byte_offset)
                 : 0x80;
       }
+      bytes = projected_bytes;
       break;
     }
     case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_READ_ONLY_BYTE_WORDS: {
@@ -367,7 +374,7 @@ static iree_status_t loom_low_lower_rule_project_read_only_data(
       IREE_ASSERT_LE(attr_copy->source_element_index, 1u);
       byte_length = source_attr.count;
       IREE_RETURN_IF_ERROR(loom_low_lower_allocate_planning_array(
-          context, byte_length, 1, (void**)&bytes));
+          context, byte_length, 1, (void**)&projected_bytes));
       const uint32_t byte_parity = attr_copy->source_element_index;
       for (iree_host_size_t output_word = 0;
            output_word < source_attr.count / 2; ++output_word) {
@@ -377,9 +384,10 @@ static iree_status_t loom_low_lower_rule_project_read_only_data(
         const uint16_t shift_count = (source_lane & 1) * 8;
         const uint16_t encoded_control =
             source_word | (uint16_t)(shift_count << 5);
-        bytes[output_word * 2] = (uint8_t)encoded_control;
-        bytes[output_word * 2 + 1] = (uint8_t)(encoded_control >> 8);
+        projected_bytes[output_word * 2] = (uint8_t)encoded_control;
+        projected_bytes[output_word * 2 + 1] = (uint8_t)(encoded_control >> 8);
       }
+      bytes = projected_bytes;
       break;
     }
     case LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY: {
@@ -394,7 +402,8 @@ static iree_status_t loom_low_lower_rule_project_read_only_data(
           segment.count, element_byte_count, &byte_length);
       IREE_ASSERT(has_byte_length);
       IREE_RETURN_IF_ERROR(loom_low_lower_allocate_planning_array(
-          context, segment.count, element_byte_count, (void**)&bytes));
+          context, segment.count, element_byte_count,
+          (void**)&projected_bytes));
       const loom_module_t* module = loom_low_lower_context_module(context);
       const loom_value_fact_table_t* fact_table =
           loom_low_lower_context_fact_table(context);
@@ -405,9 +414,16 @@ static iree_status_t loom_low_lower_rule_project_read_only_data(
             attr_copy->source_element_bit_width, &bits);
         IREE_ASSERT(has_exact_bits);
         for (iree_host_size_t byte = 0; byte < element_byte_count; ++byte) {
-          bytes[i * element_byte_count + byte] = (uint8_t)(bits >> (byte * 8));
+          projected_bytes[i * element_byte_count + byte] =
+              (uint8_t)(bits >> (byte * 8));
         }
       }
+      bytes = projected_bytes;
+      break;
+    }
+    case LOOM_LOW_LOWER_ATTR_COPY_READ_ONLY_DATA_LITERAL: {
+      byte_length = attr_copy->literal_data_length;
+      bytes = rule_set->literal_data + attr_copy->literal_data_offset;
       break;
     }
     default:
@@ -460,11 +476,12 @@ static iree_status_t loom_low_lower_rule_build_attrs(
       case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_READ_ONLY_ELEMENTS:
       case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_READ_ONLY_BYTE_SEGMENT:
       case LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_READ_ONLY_BYTE_WORDS:
-      case LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY: {
+      case LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY:
+      case LOOM_LOW_LOWER_ATTR_COPY_READ_ONLY_DATA_LITERAL: {
         loom_low_lower_read_only_data_id_t* ids =
             (loom_low_lower_read_only_data_id_t*)(read_only_attributes + 1);
         IREE_RETURN_IF_ERROR(loom_low_lower_rule_project_read_only_data(
-            context, source_op, source_attrs, attr_copy, &ids[i]));
+            context, source_op, source_attrs, rule_set, attr_copy, &ids[i]));
         read_only_attributes->attribute_mask |= UINT32_C(1) << i;
         attrs[i].value = loom_attr_symbol(loom_symbol_ref_null());
         break;

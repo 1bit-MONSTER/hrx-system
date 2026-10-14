@@ -158,6 +158,7 @@ def _compiled_lower_rule_set(
     guards: tuple[LowerGuard, ...] = (),
     attr_copies: tuple[LowerAttrCopy, ...] = (),
     emits: tuple[LowerEmit, ...] = (),
+    literal_data: bytes = b"",
 ) -> CompiledLowerRuleSet:
     return CompiledLowerRuleSet(
         name="test.low.generated_c_shape",
@@ -174,6 +175,7 @@ def _compiled_lower_rule_set(
         tied_results=(),
         emits=emits,
         diagnostics=(),
+        literal_data=literal_data,
     )
 
 
@@ -784,6 +786,7 @@ def test_validate_c_table_shape_checks_deferred_resource_storage() -> None:
         (LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_SEGMENT, True),
         (LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_WORDS, True),
         (LowerAttrCopyKind.OPERAND_SEGMENT_EXACT_BITS_READ_ONLY, True),
+        (LowerAttrCopyKind.READ_ONLY_DATA_LITERAL, True),
     ):
         emit = LowerEmit(
             kind=LowerEmitKind.DESCRIPTOR_CONST,
@@ -791,9 +794,17 @@ def test_validate_c_table_shape_checks_deferred_resource_storage() -> None:
             attr_copy_count=1,
             has_read_only_data_attributes=needs_storage,
         )
+        literal_data = b"\x00" if kind is LowerAttrCopyKind.READ_ONLY_DATA_LITERAL else b""
         table = _compiled_lower_rule_set(
-            attr_copies=(LowerAttrCopy(kind=kind, target_name="value"),),
+            attr_copies=(
+                LowerAttrCopy(
+                    kind=kind,
+                    target_name="value",
+                    literal_data_length=len(literal_data),
+                ),
+            ),
             emits=(emit,),
+            literal_data=literal_data,
         )
         _validate_c_table_shape(table, _c_shape_contract(), ())
         inconsistent_table = replace(
@@ -804,6 +815,54 @@ def test_validate_c_table_shape_checks_deferred_resource_storage() -> None:
             lambda table=inconsistent_table: _validate_c_table_shape(table, _c_shape_contract(), ()),
             "read-only data flag does not match its attribute projections",
         )
+
+
+def test_validate_c_table_shape_rejects_literal_data_range_oob() -> None:
+    table = _compiled_lower_rule_set(
+        attr_copies=(
+            LowerAttrCopy(
+                kind=LowerAttrCopyKind.READ_ONLY_DATA_LITERAL,
+                target_name="value",
+                literal_data_offset=1,
+                literal_data_length=2,
+            ),
+        ),
+        literal_data=b"\x00\x01",
+    )
+
+    _expect_value_error(
+        lambda: _validate_c_table_shape(table, _c_shape_contract(), ()),
+        "attr-copy 0 literal-data range exceeds the generated pool",
+    )
+
+
+def test_generate_lower_rule_set_emits_literal_data_pool() -> None:
+    compiled = _compiled_lower_rule_set(
+        attr_copies=(
+            LowerAttrCopy(
+                kind=LowerAttrCopyKind.READ_ONLY_DATA_LITERAL,
+                target_name="value",
+                literal_data_length=3,
+            ),
+        ),
+        emits=(
+            LowerEmit(
+                kind=LowerEmitKind.DESCRIPTOR_CONST,
+                descriptor=TEST_LOW_CONST_I32_DESCRIPTOR,
+                attr_copy_count=1,
+                has_read_only_data_attributes=True,
+            ),
+        ),
+        literal_data=b"\x00\x80\xff",
+    )
+
+    generated = generate_lower_rule_set_from_compiled(_c_shape_contract(), compiled=compiled)
+
+    assert "static const uint8_t" in generated.source
+    assert "UINT8_C(0x00)" in generated.source
+    assert "UINT8_C(0x80)" in generated.source
+    assert "UINT8_C(0xFF)" in generated.source
+    assert ".literal_data = " in generated.source
 
 
 def test_validate_c_table_shape_rejects_structural_descriptor_payload() -> None:
@@ -1931,6 +1990,23 @@ def test_attr_copy_row_emits_exact_operand_segment_projection() -> None:
     assert ".kind = LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY" in fields
     assert ".source_operand_field_index = 3" in fields
     assert ".source_element_bit_width = 16" in fields
+    assert not any("source_attr_index" in field for field in fields)
+
+
+def test_attr_copy_row_emits_read_only_data_literal_slice() -> None:
+    fields = attr_copy_row(
+        LowerAttrCopy(
+            kind=LowerAttrCopyKind.READ_ONLY_DATA_LITERAL,
+            target_name="data",
+            literal_data_offset=17,
+            literal_data_length=4,
+        ),
+        target_name_string_ref="TEST_STRING_DATA",
+    )
+
+    assert ".kind = LOOM_LOW_LOWER_ATTR_COPY_READ_ONLY_DATA_LITERAL" in fields
+    assert ".literal_data_offset = 17" in fields
+    assert ".literal_data_length = 4" in fields
     assert not any("source_attr_index" in field for field in fields)
 
 

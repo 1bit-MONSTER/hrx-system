@@ -160,6 +160,34 @@ class SourceOpProjectKind(Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class ReadOnlyDataLiteral:
+    """Immutable literal bytes bound to a read-only-data immediate."""
+
+    data: bytes
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.data, bytes):
+            raise TypeError("read-only data literal must use bytes")
+        if not self.data:
+            raise ValueError("read-only data literal must not be empty")
+        if len(self.data) > 255:
+            raise ValueError("read-only data literal must fit in 255 bytes")
+
+    def validate(
+        self,
+        source_op: Op,
+        descriptor: Descriptor,
+        bound_immediate_name: str | None,
+    ) -> None:
+        _require_read_only_data_immediate(
+            source_op,
+            descriptor,
+            bound_immediate_name,
+            "read-only data literal",
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class AttrProject:
     """Descriptor immediate projection from a source attribute."""
 

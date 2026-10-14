@@ -853,6 +853,19 @@ def attr_copy_row(
             row.source_operand_field_index,
             always=True,
         )
+    if row.kind == LowerAttrCopyKind.READ_ONLY_DATA_LITERAL:
+        _append_field(
+            fields,
+            "literal_data_offset",
+            row.literal_data_offset,
+            always=True,
+        )
+        _append_field(
+            fields,
+            "literal_data_length",
+            row.literal_data_length,
+            always=True,
+        )
     if row.kind in (
         LowerAttrCopyKind.I64_SHIFTED_LOW_BIT_MASK,
         LowerAttrCopyKind.I64_SHIFTED_LOW_BIT_CLEAR_MASK,
@@ -1200,6 +1213,7 @@ def rule_set_row(
     storage_operand_schemas_name: str,
     guard_refs: tuple[int, ...],
     guard_refs_name: str,
+    literal_data_name: str,
     attr_copies_name: str,
     tied_results_name: str,
     emit_rows: tuple[LowerEmit, ...],
@@ -1335,6 +1349,8 @@ def rule_set_row(
     _append_table_fields(fields, "emit_refs", emit_refs, emit_refs_name)
     _append_table_fields(fields, "emits", emit_rows, emits_name)
     _append_table_fields(fields, "diagnostics", table.diagnostics, diagnostics_name)
+    if table.literal_data:
+        fields.append(f".literal_data = {literal_data_name}")
     if string_pool_initializer is not None:
         fields.append(f".string_pool = {string_pool_initializer}")
     return fields
