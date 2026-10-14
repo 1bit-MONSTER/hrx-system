@@ -248,6 +248,8 @@ class _PacketRow:
     component_index: int | None = None
     execution_scope: str | None = None
     group_operation_scope: str | None = None
+    # SPIR-V GroupOperation literal, present only for arithmetic collectives.
+    group_operation: str | None = None
     memory_scope: str | None = None
     memory_semantics: str | None = None
     cooperative_matrix_layout: str | None = None
@@ -294,6 +296,7 @@ class _PacketRow:
             },
             "group_non_uniform": {
                 "execution_scope": self.group_operation_scope,
+                "operation": self.group_operation,
             },
             "cooperative_matrix": {
                 "layout": self.cooperative_matrix_layout,
@@ -986,6 +989,8 @@ def _subgroup_rows() -> list[_PacketRow]:
             result_type=_ordinary_vector_instruction_value(row.result_type),
             operand_types=tuple(_ordinary_vector_instruction_value(operand_type) for operand_type in row.operand_types),
             group_operation_scope="LOOM_SPIRV_SCOPE_SUBGROUP",
+            group_operation=row.group_operation,
+            has_immediate=row.clustered,
         )
         for row in SPIRV_SUBGROUP_INSTRUCTIONS
     ]

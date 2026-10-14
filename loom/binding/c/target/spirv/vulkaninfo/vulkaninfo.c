@@ -453,9 +453,25 @@ static loomc_status_t loomc_spirv_vulkaninfo_add_subgroup_features(
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_flag_feature(
       import, object, key, IREE_SV("VK_SUBGROUP_FEATURE_VOTE_BIT"),
       &vote_state));
-  return loomc_spirv_vulkaninfo_add_feature_fact(
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_feature_fact(
       import, LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
       loomc_spirv_vulkaninfo_and_fact_states(basic_state, vote_state),
+      provenance));
+  loomc_target_fact_state_t arithmetic_state = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_flag_feature(
+      import, object, key, IREE_SV("VK_SUBGROUP_FEATURE_ARITHMETIC_BIT"),
+      &arithmetic_state));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_feature_fact(
+      import, LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_ARITHMETIC,
+      loomc_spirv_vulkaninfo_and_fact_states(basic_state, arithmetic_state),
+      provenance));
+  loomc_target_fact_state_t clustered_state = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_flag_feature(
+      import, object, key, IREE_SV("VK_SUBGROUP_FEATURE_CLUSTERED_BIT"),
+      &clustered_state));
+  return loomc_spirv_vulkaninfo_add_feature_fact(
+      import, LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_CLUSTERED,
+      loomc_spirv_vulkaninfo_and_fact_states(basic_state, clustered_state),
       provenance);
 }
 
@@ -1184,6 +1200,11 @@ static loomc_status_t loomc_spirv_vulkaninfo_import_features_from_structs(
       import, features, extended_features,
       IREE_SV("VkPhysicalDeviceShaderFloat16Int8Features"),
       &float16_int8_features));
+  iree_string_view_t subgroup_type_features = iree_string_view_empty();
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_lookup_feature_struct(
+      import, features, extended_features,
+      IREE_SV("VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures"),
+      &subgroup_type_features));
   iree_string_view_t storage8_features = iree_string_view_empty();
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_lookup_feature_struct(
       import, features, extended_features,
@@ -1238,6 +1259,14 @@ static loomc_status_t loomc_spirv_vulkaninfo_import_features_from_structs(
       import, core_features, IREE_SV("shaderInt64"), LOOMC_SPIRV_FEATURE_INT64,
       loomc_make_cstring_view("vulkaninfo:shaderInt64")));
 
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_bool_feature(
+      import, vulkan12_features, IREE_SV("shaderSubgroupExtendedTypes"),
+      LOOMC_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES,
+      loomc_make_cstring_view("vulkaninfo:shaderSubgroupExtendedTypes")));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_bool_feature(
+      import, subgroup_type_features, IREE_SV("shaderSubgroupExtendedTypes"),
+      LOOMC_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES,
+      loomc_make_cstring_view("vulkaninfo:shaderSubgroupExtendedTypes")));
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_bool_feature(
       import, vulkan12_features, IREE_SV("shaderFloat16"),
       LOOMC_SPIRV_FEATURE_FLOAT16,

@@ -69,6 +69,8 @@ struct MockVulkanDevice {
   VkBool32 shader_int64 = VK_FALSE;
   VkBool32 shader_float16 = VK_TRUE;
   VkBool32 shader_int8 = VK_TRUE;
+  // Whether subgroup instructions accept narrow and 64-bit integer types.
+  VkBool32 shader_subgroup_extended_types = VK_FALSE;
   VkBool32 storage_buffer_8bit_access = VK_TRUE;
   VkBool32 storage_buffer_16bit_access = VK_TRUE;
   VkBool32 buffer_device_address = VK_TRUE;
@@ -90,6 +92,8 @@ struct MockVulkanDevice {
   VkBool32 shader_shared_float64_atomic_add = VK_FALSE;
   VkBool32 cooperative_matrix = VK_TRUE;
   bool reports_shader_float16_int8_extension = false;
+  // Whether the pre-Vulkan-1.2 extended subgroup type feature is advertised.
+  bool reports_subgroup_extended_types_extension = false;
   bool reports_storage_8bit_extension = false;
   bool reports_storage_16bit_extension = false;
   bool reports_buffer_device_address_extension = false;
@@ -231,6 +235,8 @@ void VKAPI_PTR MockGetPhysicalDeviceFeatures2(
             reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(out);
         vulkan12->shaderFloat16 = g_mock_vulkan_device->shader_float16;
         vulkan12->shaderInt8 = g_mock_vulkan_device->shader_int8;
+        vulkan12->shaderSubgroupExtendedTypes =
+            g_mock_vulkan_device->shader_subgroup_extended_types;
         vulkan12->storageBuffer8BitAccess =
             g_mock_vulkan_device->storage_buffer_8bit_access;
         vulkan12->bufferDeviceAddress =
@@ -260,6 +266,12 @@ void VKAPI_PTR MockGetPhysicalDeviceFeatures2(
         reinterpret_cast<VkPhysicalDevice8BitStorageFeatures*>(out)
             ->storageBuffer8BitAccess =
             g_mock_vulkan_device->storage_buffer_8bit_access;
+        break;
+      case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES:
+        reinterpret_cast<VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures*>(
+            out)
+            ->shaderSubgroupExtendedTypes =
+            g_mock_vulkan_device->shader_subgroup_extended_types;
         break;
       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES:
         reinterpret_cast<VkPhysicalDevice16BitStorageFeatures*>(out)
@@ -341,6 +353,9 @@ uint32_t MockDeviceExtensionCount(const MockVulkanDevice& device) {
   if (device.reports_subgroup_size_control_extension) {
     ++extension_count;
   }
+  if (device.reports_subgroup_extended_types_extension) {
+    ++extension_count;
+  }
   if (device.reports_shader_float16_int8_extension) {
     ++extension_count;
   }
@@ -420,6 +435,12 @@ VkResult VKAPI_PTR MockEnumerateDeviceExtensionProperties(
     MaybeWriteExtensionProperty(properties, capacity, &written_count,
                                 VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME,
                                 VK_EXT_SUBGROUP_SIZE_CONTROL_SPEC_VERSION);
+  }
+  if (device.reports_subgroup_extended_types_extension) {
+    MaybeWriteExtensionProperty(
+        properties, capacity, &written_count,
+        VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME,
+        VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_SPEC_VERSION);
   }
   if (device.reports_shader_float16_int8_extension) {
     MaybeWriteExtensionProperty(properties, capacity, &written_count,
@@ -681,6 +702,8 @@ TEST(TargetSpirvVulkanTest, UsesExtensionFeatureStructsBeforeCorePromotion) {
   MockVulkanDevice device;
   device.api_version = VK_API_VERSION_1_1;
   device.reports_shader_float16_int8_extension = true;
+  device.reports_subgroup_extended_types_extension = true;
+  device.shader_subgroup_extended_types = VK_TRUE;
   device.reports_storage_8bit_extension = true;
   device.reports_buffer_device_address_extension = true;
   device.reports_shader_atomic_int64_extension = true;
@@ -708,6 +731,8 @@ TEST(TargetSpirvVulkanTest, UsesExtensionFeatureStructsBeforeCorePromotion) {
   TargetProfilePtr profile =
       CreateVulkanProfile(target_environment.get(), device);
 
+  ExpectFeatureState(profile.get(), LOOMC_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES,
+                     LOOMC_TARGET_FACT_STATE_TRUE);
   ExpectFeatureState(profile.get(), LOOMC_SPIRV_FEATURE_PHYSICAL_STORAGE_BUFFER,
                      LOOMC_TARGET_FACT_STATE_TRUE);
   ExpectFeatureState(profile.get(), LOOMC_SPIRV_FEATURE_FLOAT16,
@@ -762,7 +787,9 @@ TEST(TargetSpirvVulkanTest, PreservesExtendedCompilerFeatureFamily) {
   TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
   MockVulkanDevice device;
   device.subgroup_operations |=
-      VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT;
+      VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT |
+      VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_CLUSTERED_BIT;
+  device.shader_subgroup_extended_types = VK_TRUE;
   device.denorm_behavior_independence =
       VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY;
   device.rounding_mode_independence =
@@ -817,6 +844,9 @@ TEST(TargetSpirvVulkanTest, PreservesExtendedCompilerFeatureFamily) {
       LOOMC_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
       LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
+      LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_ARITHMETIC,
+      LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_CLUSTERED,
+      LOOMC_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
       LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,

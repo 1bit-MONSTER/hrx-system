@@ -82,6 +82,10 @@ class PhysicalDeviceSnapshotBuilder {
     snapshot_.features12.vulkanMemoryModelDeviceScope = VK_TRUE;
   }
 
+  void EnableSubgroupExtendedTypes() {
+    snapshot_.features12.shaderSubgroupExtendedTypes = VK_TRUE;
+  }
+
   void EnableCooperativeMatrixExtension() {
     snapshot_.available_extensions |=
         IREE_HAL_VULKAN_DEVICE_EXTENSION_KHR_COOPERATIVE_MATRIX;
@@ -487,6 +491,39 @@ TEST(DevicePlanTest, OwnedCreateRejectsRequiredUnavailableReportedFeature) {
           &plan));
 }
 
+TEST(DevicePlanTest, OwnedCreateEnablesAvailableSubgroupExtendedTypes) {
+  PhysicalDeviceSnapshotBuilder builder;
+  builder.AddQueueFamily(VK_QUEUE_COMPUTE_BIT, 1);
+  iree_hal_vulkan_device_options_t options = DefaultDeviceOptions();
+  ScopedDevicePlan without_feature;
+  IREE_ASSERT_OK(iree_hal_vulkan_device_plan_initialize_for_create(
+      builder.snapshot(), &options, IREE_HAL_VULKAN_REQUEST_FLAG_NONE,
+      NoFeatures(), &without_feature));
+  EXPECT_FALSE(without_feature.enabled_features12.shaderSubgroupExtendedTypes);
+  EXPECT_FALSE(iree_any_bit_set(
+      without_feature.enabled_features.general,
+      IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_SUBGROUP_EXTENDED_TYPES));
+
+  ScopedDevicePlan required_feature;
+  IREE_EXPECT_STATUS_IS(
+      StatusCode::kUnavailable,
+      iree_hal_vulkan_device_plan_initialize_for_create(
+          builder.snapshot(), &options, IREE_HAL_VULKAN_REQUEST_FLAG_NONE,
+          GeneralFeatures(
+              IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_SUBGROUP_EXTENDED_TYPES),
+          &required_feature));
+
+  builder.EnableSubgroupExtendedTypes();
+  ScopedDevicePlan with_feature;
+  IREE_ASSERT_OK(iree_hal_vulkan_device_plan_initialize_for_create(
+      builder.snapshot(), &options, IREE_HAL_VULKAN_REQUEST_FLAG_NONE,
+      NoFeatures(), &with_feature));
+  EXPECT_TRUE(with_feature.enabled_features12.shaderSubgroupExtendedTypes);
+  EXPECT_TRUE(iree_all_bits_set(
+      with_feature.enabled_features.general,
+      IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_SUBGROUP_EXTENDED_TYPES));
+}
+
 TEST(DevicePlanTest,
      OwnedCreateRejectsRequiredUnavailableStorageBuffer16BitAccess) {
   PhysicalDeviceSnapshotBuilder builder;
@@ -824,6 +861,39 @@ TEST(DevicePlanTest, WrapCarriesRequestFlags) {
       builder.snapshot(), &options, &params, &plan));
 
   EXPECT_EQ(IREE_HAL_VULKAN_REQUEST_FLAG_DEBUG_UTILS, plan.request_flags);
+}
+
+TEST(DevicePlanTest, WrapRetainsOnlyEnabledSubgroupExtendedTypes) {
+  PhysicalDeviceSnapshotBuilder builder;
+  builder.AddQueueFamily(VK_QUEUE_COMPUTE_BIT, 1);
+  iree_hal_vulkan_device_options_t options = DefaultDeviceOptions();
+  iree_hal_vulkan_external_device_params_t params = DefaultExternalParams();
+  params.compute_queue_set.queue_family_index = 0;
+  params.compute_queue_set.queue_indices = 1ull << 0;
+  params.enabled_features.general |=
+      IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_SUBGROUP_EXTENDED_TYPES;
+  ScopedDevicePlan unavailable_feature;
+  IREE_EXPECT_STATUS_IS(
+      StatusCode::kFailedPrecondition,
+      iree_hal_vulkan_device_plan_initialize_for_wrap(
+          builder.snapshot(), &options, &params, &unavailable_feature));
+
+  builder.EnableSubgroupExtendedTypes();
+  ScopedDevicePlan enabled_feature;
+  IREE_ASSERT_OK(iree_hal_vulkan_device_plan_initialize_for_wrap(
+      builder.snapshot(), &options, &params, &enabled_feature));
+  EXPECT_TRUE(iree_all_bits_set(
+      enabled_feature.enabled_features.general,
+      IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_SUBGROUP_EXTENDED_TYPES));
+
+  params.enabled_features.general &=
+      ~IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_SUBGROUP_EXTENDED_TYPES;
+  ScopedDevicePlan disabled_feature;
+  IREE_ASSERT_OK(iree_hal_vulkan_device_plan_initialize_for_wrap(
+      builder.snapshot(), &options, &params, &disabled_feature));
+  EXPECT_FALSE(iree_any_bit_set(
+      disabled_feature.enabled_features.general,
+      IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_SUBGROUP_EXTENDED_TYPES));
 }
 
 TEST(DevicePlanTest, WrapCarriesStorageBuffer16BitAccessWhenAvailable) {

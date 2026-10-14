@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from loom.target.arch.spirv.features import feature_bits_value
 from loom.target.arch.spirv.ordinary_vector import (
     BOOLEAN_ORDINARY_VECTOR_COMPONENT_TYPE,
+    NATIVE_ORDINARY_VECTOR_LANE_COUNTS,
+    ORDINARY_VECTOR_COMPONENT_TYPES,
+    OrdinaryVectorComponentKind,
     OrdinaryVectorComponentType,
     OrdinaryVectorInstruction,
     OrdinaryVectorInstructionType,
@@ -44,14 +47,24 @@ SPIRV_SUBGROUP_V4U32_TYPE = OrdinaryVectorType(SPIRV_SUBGROUP_U32_TYPE, 4)
 class SpirvSubgroupInstruction:
     """One native SPIR-V subgroup instruction and its value contract."""
 
+    # Stable descriptor key including mode and native value shape.
     key: str
+    # Human-readable Low assembly spelling.
     mnemonic: str
+    # Native SPIR-V opcode constant.
     opcode: str
+    # Shared binary operand layout selected by the emitter.
     packet_form: str
+    # Native result component or vector type.
     result_type: OrdinaryVectorInstructionType
+    # Named SSA operands in binary order.
     operand_names: tuple[str, ...]
-    operand_types: tuple[OrdinaryVectorComponentType, ...]
+    # Native types corresponding to operand_names.
+    operand_types: tuple[OrdinaryVectorInstructionType, ...]
+    # Required capabilities in addition to each value type's requirements.
     feature_atoms: tuple[str, ...]
+    # SPIR-V arithmetic mode, absent for predicates and ballots.
+    group_operation: str | None = None
 
     def __post_init__(self) -> None:
         if len(self.operand_names) != len(self.operand_types):
@@ -65,6 +78,10 @@ class SpirvSubgroupInstruction:
         for operand_type in self.operand_types:
             bits |= operand_type.feature_bits
         return bits
+
+    @property
+    def clustered(self) -> bool:
+        return self.group_operation == "LOOM_SPIRV_GROUP_OPERATION_CLUSTERED_REDUCE"
 
 
 SPIRV_SUBGROUP_BALLOT_INSTRUCTION = SpirvSubgroupInstruction(
@@ -92,9 +109,108 @@ SPIRV_SUBGROUP_VOTE_INSTRUCTIONS = tuple(
     for name, mnemonic in (("any", "Any"), ("all", "All"))
 )
 
+
+@dataclass(frozen=True, slots=True)
+class SpirvSubgroupReduction:
+    """Source combining kinds sharing one native typed reduction."""
+
+    # Authored element type; unsigned target views retain their signed source.
+    source_type: str
+    # Source operations whose bit semantics equal the native instruction.
+    combining_kinds: tuple[str, ...]
+    # Native instruction, including its group operation and value type.
+    instruction: SpirvSubgroupInstruction
+
+
+def _reduction_operations(component: OrdinaryVectorComponentType):
+    if component.kind == OrdinaryVectorComponentKind.BOOLEAN:
+        # I1 arithmetic wraps modulo two; signed true represents -1.
+        return (
+            (
+                ("muli", "maxsi", "minui", "andi"),
+                "logical_and",
+                "LogicalAnd",
+                "LOGICAL_AND",
+                component,
+            ),
+            (
+                ("minsi", "maxui", "ori"),
+                "logical_or",
+                "LogicalOr",
+                "LOGICAL_OR",
+                component,
+            ),
+            (("addi", "xori"), "logical_xor", "LogicalXor", "LOGICAL_XOR", component),
+        )
+    if component.kind == OrdinaryVectorComponentKind.SIGNED_INTEGER:
+        unsigned = _unsigned_component(component.source_types[0])
+        return (
+            (("addi",), "iadd", "IAdd", "I_ADD", component),
+            (("muli",), "imul", "IMul", "I_MUL", component),
+            (("minsi",), "smin", "SMin", "S_MIN", component),
+            (("maxsi",), "smax", "SMax", "S_MAX", component),
+            (("minui",), "umin", "UMin", "U_MIN", unsigned),
+            (("maxui",), "umax", "UMax", "U_MAX", unsigned),
+            (("andi",), "bitwise_and", "BitwiseAnd", "BITWISE_AND", component),
+            (("ori",), "bitwise_or", "BitwiseOr", "BITWISE_OR", component),
+            (("xori",), "bitwise_xor", "BitwiseXor", "BITWISE_XOR", component),
+        )
+    if component.source_types[0] in ("f16", "f32", "f64"):
+        return (
+            (("addf",), "fadd", "FAdd", "F_ADD", component),
+            (("mulf",), "fmul", "FMul", "F_MUL", component),
+        )
+    return ()
+
+
+def _reduction_rows() -> tuple[SpirvSubgroupReduction, ...]:
+    rows = []
+    for component in ORDINARY_VECTOR_COMPONENT_TYPES:
+        extended = (
+            component.kind == OrdinaryVectorComponentKind.SIGNED_INTEGER
+            and component.bit_width != 32
+        ) or component.source_types == ("f16",)
+        for kinds, key, mnemonic, opcode, native_component in _reduction_operations(
+            component
+        ):
+            for lane_count in (1, *NATIVE_ORDINARY_VECTOR_LANE_COUNTS):
+                value_type = (
+                    native_component
+                    if lane_count == 1
+                    else OrdinaryVectorType(native_component, lane_count)
+                )
+                rows.extend(
+                    SpirvSubgroupReduction(
+                        source_type=component.source_types[0],
+                        combining_kinds=kinds,
+                        instruction=SpirvSubgroupInstruction(
+                            key=f"spirv.op_group_non_uniform_{key}.{mode}.{value_type.suffix}",
+                            mnemonic=f"OpGroupNonUniform{mnemonic}.{mode}.{value_type.suffix}",
+                            opcode=f"LOOM_SPIRV_OP_GROUP_NON_UNIFORM_{opcode}",
+                            packet_form="LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_ARITHMETIC",
+                            result_type=value_type,
+                            operand_names=("value",),
+                            operand_types=(value_type,),
+                            feature_atoms=(
+                                "group_non_uniform_arithmetic"
+                                if mode == "reduce"
+                                else "group_non_uniform_clustered",
+                                *(("subgroup_extended_types",) if extended else ()),
+                            ),
+                            group_operation=f"LOOM_SPIRV_GROUP_OPERATION_{mode.upper()}",
+                        ),
+                    )
+                    for mode in ("reduce", "clustered_reduce")
+                )
+    return tuple(rows)
+
+
+SPIRV_SUBGROUP_REDUCTIONS = _reduction_rows()
+
 SPIRV_SUBGROUP_INSTRUCTIONS = (
     SPIRV_SUBGROUP_BALLOT_INSTRUCTION,
     *SPIRV_SUBGROUP_VOTE_INSTRUCTIONS,
+    *(row.instruction for row in SPIRV_SUBGROUP_REDUCTIONS),
 )
 
 

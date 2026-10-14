@@ -784,6 +784,8 @@ iree_status_t iree_hal_vulkan_device_plan_initialize_for_create(
       .shaderSharedInt64Atomics = snapshot->features12.shaderSharedInt64Atomics,
       .shaderFloat16 = snapshot->features12.shaderFloat16,
       .shaderInt8 = snapshot->features12.shaderInt8,
+      .shaderSubgroupExtendedTypes =
+          snapshot->features12.shaderSubgroupExtendedTypes,
       .scalarBlockLayout = VK_TRUE,
       .timelineSemaphore = VK_TRUE,
       .bufferDeviceAddress = VK_TRUE,
@@ -929,6 +931,12 @@ iree_status_t iree_hal_vulkan_device_plan_initialize_for_create(
       iree_hal_vulkan_device_plan_select_shader_atomic_features(
           snapshot, required_features.atomics,
           &out_plan->enabled_features.atomics));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_vulkan_device_plan_select_reported_general_feature(
+          required_features.general,
+          IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_SUBGROUP_EXTENDED_TYPES,
+          snapshot->features12.shaderSubgroupExtendedTypes,
+          "shaderSubgroupExtendedTypes", &out_plan->enabled_features.general));
   IREE_RETURN_IF_ERROR(
       iree_hal_vulkan_device_plan_select_reported_general_feature(
           required_features.general,
@@ -1151,6 +1159,12 @@ static iree_status_t iree_hal_vulkan_verify_external_enabled_features(
   IREE_RETURN_IF_ERROR(
       iree_hal_vulkan_device_plan_verify_external_shader_atomic_features(
           snapshot, enabled_features.atomics));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_vulkan_device_plan_verify_external_reported_general_feature(
+          enabled_features.general,
+          IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_SUBGROUP_EXTENDED_TYPES,
+          snapshot->features12.shaderSubgroupExtendedTypes,
+          "shaderSubgroupExtendedTypes"));
   IREE_RETURN_IF_ERROR(
       iree_hal_vulkan_device_plan_verify_external_reported_general_feature(
           enabled_features.general,

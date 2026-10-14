@@ -64,6 +64,9 @@ typedef struct loomc_spirv_vulkan_extensions_t {
   // VK_KHR_shader_float16_int8 is supported.
   bool shader_float16_int8_khr;
 
+  // VK_KHR_shader_subgroup_extended_types is supported.
+  bool shader_subgroup_extended_types_khr;
+
   // VK_KHR_8bit_storage is supported.
   bool storage_8bit_khr;
 
@@ -308,6 +311,10 @@ static void loomc_spirv_vulkan_record_extension(
           extension, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME)) {
     out_extensions->shader_float16_int8_khr = true;
   } else if (loomc_spirv_vulkan_extension_name_equal(
+                 extension,
+                 VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME)) {
+    out_extensions->shader_subgroup_extended_types_khr = true;
+  } else if (loomc_spirv_vulkan_extension_name_equal(
                  extension, VK_KHR_8BIT_STORAGE_EXTENSION_NAME)) {
     out_extensions->storage_8bit_khr = true;
   } else if (loomc_spirv_vulkan_extension_name_equal(
@@ -543,6 +550,18 @@ static loomc_status_t loomc_spirv_vulkan_query_properties(
                                   VK_SUBGROUP_FEATURE_VOTE_BIT) != 0,
         LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
         loomc_make_cstring_view("vulkan:subgroupSupportedOperations")));
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_bool_feature(
+        facts,
+        has_group_non_uniform && (subgroup_properties.supportedOperations &
+                                  VK_SUBGROUP_FEATURE_ARITHMETIC_BIT) != 0,
+        LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_ARITHMETIC,
+        loomc_make_cstring_view("vulkan:subgroupSupportedOperations")));
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_bool_feature(
+        facts,
+        has_group_non_uniform && (subgroup_properties.supportedOperations &
+                                  VK_SUBGROUP_FEATURE_CLUSTERED_BIT) != 0,
+        LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_CLUSTERED,
+        loomc_make_cstring_view("vulkan:subgroupSupportedOperations")));
     LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_limit_fact(
         facts, LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
         subgroup_properties.subgroupSize,
@@ -624,6 +643,10 @@ static loomc_status_t loomc_spirv_vulkan_query_features(
   VkPhysicalDeviceShaderFloat16Int8Features float16_int8_features = {
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES,
   };
+  VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures subgroup_type_features = {
+      .sType =
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES,
+  };
   VkPhysicalDevice8BitStorageFeatures storage8_features = {
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES,
   };
@@ -668,6 +691,8 @@ static loomc_status_t loomc_spirv_vulkan_query_features(
   const bool has_vulkan_12 = api_version >= VK_API_VERSION_1_2;
   const bool query_shader_float16_int8_extension =
       !has_vulkan_12 && extensions->shader_float16_int8_khr;
+  const bool query_subgroup_type_extension =
+      !has_vulkan_12 && extensions->shader_subgroup_extended_types_khr;
   const bool query_storage_8bit_extension =
       !has_vulkan_12 && extensions->storage_8bit_khr;
   const bool query_storage_16bit_features =
@@ -701,6 +726,9 @@ static loomc_status_t loomc_spirv_vulkan_query_features(
   }
   if (query_shader_float16_int8_extension) {
     loomc_spirv_vulkan_link_out_struct(&feature_chain, &float16_int8_features);
+  }
+  if (query_subgroup_type_extension) {
+    loomc_spirv_vulkan_link_out_struct(&feature_chain, &subgroup_type_features);
   }
   if (has_vulkan_12) {
     loomc_spirv_vulkan_link_out_struct(&feature_chain, &vulkan12_features);
@@ -751,6 +779,10 @@ static loomc_status_t loomc_spirv_vulkan_query_features(
       facts, features2.features.shaderInt64, LOOMC_SPIRV_FEATURE_INT64,
       loomc_make_cstring_view("vulkan:shaderInt64")));
   if (has_vulkan_12) {
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_bool_feature(
+        facts, vulkan12_features.shaderSubgroupExtendedTypes,
+        LOOMC_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES,
+        loomc_make_cstring_view("vulkan:shaderSubgroupExtendedTypes")));
     LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_bool_feature(
         facts, vulkan12_features.shaderFloat16, LOOMC_SPIRV_FEATURE_FLOAT16,
         loomc_make_cstring_view("vulkan:shaderFloat16")));
@@ -804,6 +836,12 @@ static loomc_status_t loomc_spirv_vulkan_query_features(
         facts, storage8_features.storageBuffer8BitAccess,
         LOOMC_SPIRV_FEATURE_STORAGE_BUFFER_8BIT_ACCESS,
         loomc_make_cstring_view("vulkan:storageBuffer8BitAccess")));
+  }
+  if (query_subgroup_type_extension) {
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_bool_feature(
+        facts, subgroup_type_features.shaderSubgroupExtendedTypes,
+        LOOMC_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES,
+        loomc_make_cstring_view("vulkan:shaderSubgroupExtendedTypes")));
   }
   if (query_buffer_device_address_extension) {
     LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_bool_feature(

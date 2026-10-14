@@ -215,8 +215,17 @@ typedef enum loomc_spirv_feature_e {
   /// Boolean votes over active subgroup invocations.
   LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE = 41,
 
+  /// Arithmetic reductions over active subgroup invocations.
+  LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_ARITHMETIC = 42,
+
+  /// Arithmetic reductions over contiguous power-of-two subgroup clusters.
+  LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_CLUSTERED = 43,
+
+  /// Logical Vulkan device enables subgroup operations on I8/I16/I64 and F16.
+  LOOMC_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES = 44,
+
   /// Number of public SPIR-V feature identifiers.
-  LOOMC_SPIRV_FEATURE_COUNT = 42,
+  LOOMC_SPIRV_FEATURE_COUNT = 45,
 } loomc_spirv_feature_t;
 
 /// Bitset of `loomc_spirv_feature_t` values.

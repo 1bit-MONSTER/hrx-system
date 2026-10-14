@@ -6,6 +6,8 @@
 
 from loom.dialect.kernel import defs as kernel
 from loom.target.arch.spirv.contracts.subgroup import SPIRV_SUBGROUP_CONTRACT_CASES
+from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET
+from loom.target.arch.spirv.features import feature_bits_value
 from loom.target.contracts import DescriptorResultType, GuardKind, SourceValueKind
 
 
@@ -106,3 +108,102 @@ def test_boolean_votes_are_single_native_operations() -> None:
         assert any(
             guard.kind is GuardKind.DESCRIPTOR_AVAILABLE for guard in rule.guards
         )
+
+
+def test_reduction_family_covers_native_types_shapes_and_modes() -> None:
+    actual = set()
+    for rule in SPIRV_SUBGROUP_CONTRACT_CASES:
+        if rule.source_op is not kernel.kernel_subgroup_reduce:
+            continue
+        rule.validate(SPIRV_LOGICAL_CORE_DESCRIPTOR_SET)
+        pattern = next(
+            guard.type_pattern
+            for guard in rule.guards
+            if guard.kind is GuardKind.VALUE_TYPE
+        )
+        kinds = next(
+            guard.enum_keywords
+            for guard in rule.guards
+            if guard.kind is GuardKind.ENUM_ATTR_IN
+        )
+        mode = next(
+            guard.kind
+            for guard in rule.guards
+            if guard.kind
+            in (
+                GuardKind.TARGET_WHOLE_SUBGROUP,
+                GuardKind.TARGET_CONTIGUOUS_SUBGROUP_CLUSTER,
+            )
+        )
+        for kind in kinds:
+            cell = (pattern.elements[0], pattern.lanes, kind, mode)
+            assert cell not in actual, cell
+            actual.add(cell)
+        group_emits = [
+            emit
+            for emit in rule.emit
+            if emit.descriptor.key.startswith("spirv.op_group_non_uniform_")
+        ]
+        assert len(group_emits) == 1
+        clustered = mode is GuardKind.TARGET_CONTIGUOUS_SUBGROUP_CLUSTER
+        assert bool(group_emits[0].immediates) == clustered
+        if clustered:
+            assert group_emits[0].descriptor.immediates[0].unsigned_max == (1 << 32) - 1
+        if pattern.elements[0] == "i1" or kinds in (("addf",), ("mulf",)):
+            assert len(rule.emit) == 1
+    expected = {
+        (element, lanes, kind, mode)
+        for elements, kinds in (
+            (
+                ("i1", "i8", "i16", "i32", "i64"),
+                (
+                    "addi",
+                    "muli",
+                    "minsi",
+                    "maxsi",
+                    "minui",
+                    "maxui",
+                    "andi",
+                    "ori",
+                    "xori",
+                ),
+            ),
+            (("f16", "f32", "f64"), ("addf", "mulf", "minnumf", "maxnumf")),
+        )
+        for element in elements
+        for lanes in (None, 1, 2, 3, 4)
+        for kind in kinds
+        for mode in (
+            GuardKind.TARGET_WHOLE_SUBGROUP,
+            GuardKind.TARGET_CONTIGUOUS_SUBGROUP_CLUSTER,
+        )
+    }
+    assert actual == expected
+
+
+def test_reduction_types_require_logical_device_admission() -> None:
+    extended = feature_bits_value(("subgroup_extended_types",))
+    for rule in SPIRV_SUBGROUP_CONTRACT_CASES:
+        if rule.source_op is not kernel.kernel_subgroup_reduce:
+            continue
+        pattern = next(
+            guard.type_pattern
+            for guard in rule.guards
+            if guard.kind is GuardKind.VALUE_TYPE
+        )
+        requires_extended = any(
+            mask & extended
+            for guard in rule.guards
+            if guard.kind is GuardKind.DESCRIPTOR_AVAILABLE
+            for mask in guard.descriptor.feature_mask_words
+        )
+        assert requires_extended == (
+            pattern.elements[0] in ("i8", "i16", "i64", "f16")
+            or (pattern.elements[0] == "f64" and bool(rule.report_key))
+        )
+        if rule.report_key:
+            assert rule.report_key == "integer_float_extrema"
+            assert len(rule.emit) <= 22
+            assert all(
+                not emit.descriptor.key.startswith("spirv.op_f") for emit in rule.emit
+            )

@@ -800,6 +800,28 @@ class _LowerRuleSetCompiler:
                 )
             )
             return
+        if guard.kind in (
+            GuardKind.TARGET_WHOLE_SUBGROUP,
+            GuardKind.TARGET_CONTIGUOUS_SUBGROUP_CLUSTER,
+        ):
+            assert guard.other_field is not None
+            self._guards.append(
+                LowerGuard(
+                    kind=guard.kind,
+                    attr_index=attr_index,
+                    other_attr_index=_source_attr_index(source_op, guard.other_field),
+                    diagnostic_index=self._append_diagnostic_ref(
+                        source_op,
+                        _guard_diagnostic(
+                            guard,
+                            _named_constraint_diagnostic(
+                                "field", guard.field, guard.kind.value
+                            ),
+                        ),
+                    ),
+                )
+            )
+            return
         assert guard.kind == GuardKind.I64_ATTRS_SUM_EQUALS
         assert guard.other_field is not None and guard.i64_value is not None
         self._guards.append(

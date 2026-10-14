@@ -143,15 +143,16 @@ _SCENARIO_EXCLUDES = {
 }
 
 _ALL_PROFILE_XFAILS = {
-    "control/schedule/ordered_read_ahead.loom:@ordered_guarded_else_depth_2": "TARGET/032",
-    "control/schedule/ordered_read_ahead.loom:@ordered_guarded_else_depth_3": "TARGET/032",
-    "control/schedule/ordered_read_ahead.loom:@ordered_guarded_then_depth_2": "TARGET/032",
-    "control/schedule/ordered_read_ahead.loom:@ordered_guarded_then_depth_3": "TARGET/032",
+    "control/schedule/ordered_read_ahead.loom:@ordered_guarded_else_depth_2": "TARGET/003",
+    "control/schedule/ordered_read_ahead.loom:@ordered_guarded_else_depth_3": "TARGET/003",
+    "control/schedule/ordered_read_ahead.loom:@ordered_guarded_then_depth_2": "TARGET/003",
+    "control/schedule/ordered_read_ahead.loom:@ordered_guarded_then_depth_3": "TARGET/003",
     "kernel/subgroup/active_predicate.loom:@subgroup_active_predicate": "TARGET/003",
     "kernel/subgroup/match.loom:@subgroup_match_all_i32": "TARGET/032",
     "kernel/subgroup/match.loom:@subgroup_match_any_i32": "TARGET/032",
-    "kernel/subgroup/reduce.loom:@subgroup_float_reductions": "TARGET/032",
-    "kernel/subgroup/reduce.loom:@subgroup_integer_reductions": "TARGET/032",
+    "kernel/subgroup/reduce.loom:@subgroup_extended_reductions": "TARGET/003",
+    "kernel/subgroup/reduce.loom:@subgroup_float_reductions": "TARGET/003",
+    "kernel/subgroup/reduce.loom:@subgroup_integer_reductions": "TARGET/003",
     "kernel/subgroup/scan.loom:@subgroup_scan_i32": "TARGET/032",
     "kernel/subgroup/shuffle_dynamic.loom:@subgroup_shuffle_dynamic_down": "TARGET/032",
     "kernel/subgroup/shuffle_dynamic.loom:@subgroup_shuffle_dynamic_index": "TARGET/032",
@@ -398,7 +399,6 @@ _ALL_ROOTS_XFAIL = [
 
 _SPIRV_EXECUTION_XFAILS = {
     "control/branch/structured.loom:@structured_branch_values": "TARGET/001",
-    "control/schedule/ordered_read_ahead.loom:@ordered_read_ahead_guarded_consumers": "TARGET/032",
     "function/buffer/arguments.loom:@buffer_argument_values": "TARGET/001",
     "function/buffer/arguments.loom:@buffer_extent_values": "TARGET/001",
     "function/buffer/call_overflow.loom:@buffer_overflow_values": "LOWERING/044",
@@ -417,8 +417,6 @@ _SPIRV_EXECUTION_XFAILS = {
     "function/template/library.loom:@template_dead_library_values": "LOWERING/045",
     "kernel/subgroup/match.loom:@subgroup_match_all_i32_values": "TARGET/032",
     "kernel/subgroup/match.loom:@subgroup_match_any_i32_values": "TARGET/032",
-    "kernel/subgroup/reduce.loom:@subgroup_float_reduction_values": "TARGET/032",
-    "kernel/subgroup/reduce.loom:@subgroup_integer_reduction_values": "TARGET/032",
     "kernel/subgroup/scan.loom:@subgroup_scan_i32_values": "TARGET/032",
     "kernel/subgroup/shuffle_dynamic.loom:@subgroup_shuffle_dynamic_down_case": "TARGET/032",
     "kernel/subgroup/shuffle_dynamic.loom:@subgroup_shuffle_dynamic_index_case": "TARGET/032",

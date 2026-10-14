@@ -1,0 +1,110 @@
+// RUN: emit spirv-dis target=spirv:vulkan1.3+bda+subgroup32+reductions+hal input=source-low validate
+// REQUIRES: spirv-dis, spirv-val
+
+kernel.def @subgroup_reductions() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<32xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<32xf32>
+  %value = view.load %source[%lane] : view<32xf32> -> f32
+  %sum = kernel.subgroup.reduce<addf> %value : f32
+  %product = kernel.subgroup.reduce<mulf> %sum {cluster_size = 8} : f32
+  view.store %product, %destination[%lane] : f32, view<32xf32>
+  kernel.return
+}
+
+// ----
+               OpCapability Shader
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability GroupNonUniform
+               OpCapability GroupNonUniformArithmetic
+               OpCapability GroupNonUniformClustered
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpMemoryModel PhysicalStorageBuffer64 GLSL450
+               OpEntryPoint GLCompute %subgroup_reductions "subgroup_reductions" %local_invocation_id
+               OpExecutionMode %subgroup_reductions LocalSize 32 1 1
+               OpName %subgroup_reductions "subgroup_reductions"
+               OpName %input "input"
+               OpName %output "output"
+               OpName %local_invocation_id "local_invocation_id"
+               OpName %lane "lane"
+               OpName %value "value"
+               OpName %sum "sum"
+               OpName %product "product"
+               OpModuleProcessed "iree.vulkan.bda.v1[subgroup_reductions].root=0,32"
+               OpModuleProcessed "iree.vulkan.bda.v1[subgroup_reductions].constant_offset=32"
+               OpModuleProcessed "iree.vulkan.bda.v1[subgroup_reductions].constant_length=0"
+               OpModuleProcessed "iree.vulkan.bda.v1[subgroup_reductions].bindings=2"
+               OpModuleProcessed "iree.vulkan.bda.parameters.v1[subgroup_reductions]=b0;b1"
+               OpDecorate %_runtimearr_ulong ArrayStride 8
+               OpDecorate %_struct_11 Block
+               OpMemberDecorate %_struct_11 0 Offset 0
+               OpDecorate %local_invocation_id BuiltIn LocalInvocationId
+               OpDecorate %_ptr_PhysicalStorageBuffer_float ArrayStride 4
+               OpDecorate %_struct_51 Block
+               OpMemberDecorate %_struct_51 0 Offset 0
+               OpMemberDecorate %_struct_51 1 Offset 8
+               OpMemberDecorate %_struct_51 2 Offset 16
+               OpMemberDecorate %_struct_51 3 Offset 20
+               OpMemberDecorate %_struct_51 4 Offset 24
+               OpMemberDecorate %_struct_51 5 Offset 28
+       %void = OpTypeVoid
+          %4 = OpTypeFunction %void
+      %ulong = OpTypeInt 64 0
+       %uint = OpTypeInt 32 0
+%_ptr_PushConstant_ulong = OpTypePointer PushConstant %ulong
+%_ptr_PushConstant_uint = OpTypePointer PushConstant %uint
+%_runtimearr_ulong = OpTypeRuntimeArray %ulong
+ %_struct_11 = OpTypeStruct %_runtimearr_ulong
+%_ptr_PhysicalStorageBuffer__struct_11 = OpTypePointer PhysicalStorageBuffer %_struct_11
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+      %int_2 = OpConstant %int 2
+%_ptr_PhysicalStorageBuffer_ulong = OpTypePointer PhysicalStorageBuffer %ulong
+     %uint_1 = OpConstant %uint 1
+     %v3uint = OpTypeVector %uint 3
+%_ptr_Input_v3uint = OpTypePointer Input %v3uint
+%local_invocation_id = OpVariable %_ptr_Input_v3uint Input
+    %ulong_4 = OpConstant %ulong 4
+      %float = OpTypeFloat 32
+%_ptr_PhysicalStorageBuffer_float = OpTypePointer PhysicalStorageBuffer %float
+     %uint_3 = OpConstant %uint 3
+     %uint_8 = OpConstant %uint 8
+  %ulong_4_0 = OpConstant %ulong 4
+ %_struct_51 = OpTypeStruct %ulong %ulong %uint %uint %uint %uint
+%_ptr_PushConstant__struct_51 = OpTypePointer PushConstant %_struct_51
+          %2 = OpVariable %_ptr_PushConstant__struct_51 PushConstant
+%subgroup_reductions = OpFunction %void None %4
+          %5 = OpLabel
+         %16 = OpAccessChain %_ptr_PushConstant_ulong %2 %int_0
+         %17 = OpLoad %ulong %16 Aligned 8
+         %18 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer__struct_11 %17
+         %19 = OpAccessChain %_ptr_PushConstant_uint %2 %int_2
+         %20 = OpLoad %uint %19 Aligned 4
+         %22 = OpAccessChain %_ptr_PhysicalStorageBuffer_ulong %18 %int_0 %20
+      %input = OpLoad %ulong %22 Aligned 8
+         %25 = OpIAdd %uint %20 %uint_1
+         %26 = OpAccessChain %_ptr_PhysicalStorageBuffer_ulong %18 %int_0 %25
+     %output = OpLoad %ulong %26 Aligned 8
+         %31 = OpLoad %v3uint %local_invocation_id
+         %32 = OpCompositeExtract %uint %31 0
+       %lane = OpBitcast %int %32
+         %34 = OpSConvert %ulong %lane
+         %36 = OpIMul %ulong %34 %ulong_4
+         %37 = OpIAdd %ulong %input %36
+         %40 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_float %37
+      %value = OpLoad %float %40 Aligned 4
+        %sum = OpGroupNonUniformFAdd %float %uint_3 Reduce %value
+    %product = OpGroupNonUniformFMul %float %uint_3 ClusteredReduce %sum %uint_8
+         %46 = OpSConvert %ulong %lane
+         %48 = OpIMul %ulong %46 %ulong_4_0
+         %49 = OpIAdd %ulong %output %48
+         %50 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_float %49
+               OpStore %50 %product Aligned 4
+               OpReturn
+               OpFunctionEnd

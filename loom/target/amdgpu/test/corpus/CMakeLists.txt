@@ -22,6 +22,10 @@ loom_corpus_build(
     loom::target::amdgpu::all
   XFAILS
     "loom::target::amdgpu::all"
+    "kernel/subgroup/reduce.loom"
+    "@subgroup_extended_reductions"
+    "AMDGPU/023"
+    "loom::target::amdgpu::all"
     "numeric/conversion/float8_facts.loom"
     "@float8_facts"
     "TARGET/034"
@@ -372,6 +376,9 @@ loom_corpus_test(
     "function/template/library.loom"
     "@template_dead_library_values"
     "LOWERING/045"
+    "kernel/subgroup/reduce.loom"
+    "@subgroup_extended_reduction_values"
+    "AMDGPU/023"
     "memory/address/address.loom"
     "@launch_arithmetic_values"
     "TARGET/004"

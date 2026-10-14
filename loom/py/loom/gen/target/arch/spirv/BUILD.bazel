@@ -145,6 +145,7 @@ iree_py_test(
         ":packet_rows",
         "//loom/py/loom/target/arch/spirv:barrier",
         "//loom/py/loom/target/arch/spirv:extended_math",
+        "//loom/py/loom/target/arch/spirv:subgroup",
     ],
 )
 

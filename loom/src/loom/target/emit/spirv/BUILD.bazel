@@ -344,6 +344,7 @@ loom_check_test_suite(
         "test/structured_control.loom-test",
         "test/subgroup_ballot.loom-test",
         "test/subgroup_predicates.loom-test",
+        "test/subgroup_reductions.loom-test",
         "test/subgroup_size.loom-test",
         "test/workgroup_byte_offsets.loom-test",
         "test/workgroup_storage.loom-test",

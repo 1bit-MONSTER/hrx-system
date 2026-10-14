@@ -688,6 +688,18 @@ def _subgroup_instruction_descriptor(row: SpirvSubgroupInstruction) -> Descripto
                 )
             ),
         ),
+        immediates=(
+            (
+                Immediate(
+                    "cluster_size",
+                    ImmediateKind.UNSIGNED,
+                    bit_width=32,
+                    unsigned_max=(1 << 32) - 1,
+                ),
+            )
+            if row.clustered
+            else ()
+        ),
         effects=(
             Effect(
                 EffectKind.CONVERGENT,
@@ -698,6 +710,7 @@ def _subgroup_instruction_descriptor(row: SpirvSubgroupInstruction) -> Descripto
         asm_forms=_asm(
             results=("dst",),
             operands=row.operand_names,
+            immediates=("cluster_size",) if row.clustered else (),
             result_value_types=(
                 (result_value_type,) if result_value_type is not None else ()
             ),

@@ -106,8 +106,14 @@ typedef enum loom_spirv_feature_atom_e {
   LOOM_SPIRV_FEATURE_ATOM_FLOAT64_TO_FLOAT16_CONVERSION = 40,
   // Boolean votes over active subgroup invocations.
   LOOM_SPIRV_FEATURE_ATOM_GROUP_NON_UNIFORM_VOTE = 41,
+  // Arithmetic reductions over active subgroup invocations.
+  LOOM_SPIRV_FEATURE_ATOM_GROUP_NON_UNIFORM_ARITHMETIC = 42,
+  // Arithmetic reductions over contiguous power-of-two subgroup clusters.
+  LOOM_SPIRV_FEATURE_ATOM_GROUP_NON_UNIFORM_CLUSTERED = 43,
+  // Vulkan subgroup operations admit I8/I16/I64 and F16 values.
+  LOOM_SPIRV_FEATURE_ATOM_SUBGROUP_EXTENDED_TYPES = 44,
   // Number of feature atom enum slots.
-  LOOM_SPIRV_FEATURE_ATOM_COUNT = 42,
+  LOOM_SPIRV_FEATURE_ATOM_COUNT = 45,
 } loom_spirv_feature_atom_t;
 
 // Bitset of loom_spirv_feature_atom_t values.
@@ -251,6 +257,18 @@ typedef enum loom_spirv_feature_bit_e {
 #define LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE \
   (UINT64_C(1) << LOOM_SPIRV_FEATURE_ATOM_GROUP_NON_UNIFORM_VOTE)
 
+// Target enables arithmetic reductions over active subgroup invocations.
+#define LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_ARITHMETIC \
+  (UINT64_C(1) << LOOM_SPIRV_FEATURE_ATOM_GROUP_NON_UNIFORM_ARITHMETIC)
+
+// Target enables contiguous power-of-two subgroup arithmetic clusters.
+#define LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_CLUSTERED \
+  (UINT64_C(1) << LOOM_SPIRV_FEATURE_ATOM_GROUP_NON_UNIFORM_CLUSTERED)
+
+// Logical Vulkan device enables shaderSubgroupExtendedTypes.
+#define LOOM_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES \
+  (UINT64_C(1) << LOOM_SPIRV_FEATURE_ATOM_SUBGROUP_EXTENDED_TYPES)
+
 // Feature bits known by the SPIR-V target package.
 #define LOOM_SPIRV_FEATURE_KNOWN_BITS                                         \
   (LOOM_SPIRV_FEATURE_VULKAN_SHADER |                                         \
@@ -290,7 +308,10 @@ typedef enum loom_spirv_feature_bit_e {
    LOOM_SPIRV_FEATURE_FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE |                  \
    LOOM_SPIRV_FEATURE_FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE |                  \
    LOOM_SPIRV_FEATURE_FLOAT64_TO_FLOAT16_CONVERSION |                         \
-   LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE)
+   LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE |                                \
+   LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_ARITHMETIC |                          \
+   LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_CLUSTERED |                           \
+   LOOM_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES)
 
 // Feature bits unconditionally required by Vulkan 1.3 BDA HAL modules.
 #define LOOM_SPIRV_FEATURE_MODULE_VULKAN_1_3_BDA_BASELINE \
@@ -305,9 +326,9 @@ typedef enum loom_spirv_feature_bit_e {
 // Maximum number of OpExtension rows emitted by all modeled atoms.
 #define LOOM_SPIRV_FEATURE_MAX_EXTENSION_COUNT 10
 // Maximum number of OpCapability rows emitted by all modeled atoms.
-#define LOOM_SPIRV_FEATURE_MAX_CAPABILITY_COUNT 27
+#define LOOM_SPIRV_FEATURE_MAX_CAPABILITY_COUNT 29
 // Maximum number of opcode rows exposed by all modeled atoms.
-#define LOOM_SPIRV_FEATURE_MAX_OPCODE_COUNT 16
+#define LOOM_SPIRV_FEATURE_MAX_OPCODE_COUNT 30
 // Maximum number of storage-class rows exposed by all modeled atoms.
 #define LOOM_SPIRV_FEATURE_MAX_STORAGE_CLASS_COUNT 1
 // Maximum number of decoration rows exposed by all modeled atoms.

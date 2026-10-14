@@ -104,6 +104,8 @@ LOWER_RULE_REPORT_KEY_ORDINAL_MAX = 0xFE
 
 _GUARD_NO_PAYLOAD_KINDS = frozenset(
     (
+        GuardKind.TARGET_WHOLE_SUBGROUP,
+        GuardKind.TARGET_CONTIGUOUS_SUBGROUP_CLUSTER,
         GuardKind.VALUE_TYPE,
         GuardKind.ATTR_KIND,
         GuardKind.DESCRIPTOR_AVAILABLE,
@@ -645,6 +647,8 @@ def guard_row(
         GuardKind.ENUM_ATTR_IN,
         GuardKind.I64_RANGE,
         GuardKind.I64_ATTRS_SUM_EQUALS,
+        GuardKind.TARGET_WHOLE_SUBGROUP,
+        GuardKind.TARGET_CONTIGUOUS_SUBGROUP_CLUSTER,
         GuardKind.OPERAND_SEGMENT_COUNT,
         GuardKind.OPERAND_SEGMENT_EXACT_BITS,
         GuardKind.I64_ARRAY_COUNT,
@@ -672,7 +676,11 @@ def guard_row(
             row.u64,
             always=True,
         )
-    elif row.kind == GuardKind.I64_ATTRS_SUM_EQUALS:
+    elif row.kind in (
+        GuardKind.I64_ATTRS_SUM_EQUALS,
+        GuardKind.TARGET_WHOLE_SUBGROUP,
+        GuardKind.TARGET_CONTIGUOUS_SUBGROUP_CLUSTER,
+    ):
         _append_field(
             fields,
             "selector.attribute.other_attr_index",
