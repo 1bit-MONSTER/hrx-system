@@ -634,32 +634,6 @@ bool loom_condition_integer_comparison_relation(
                    comparison->predicate, out_relation, out_unsigned_order);
 }
 
-static bool loom_condition_relation_to_predicate_kind(
-    loom_symbolic_integer_relation_t relation, uint8_t* out_kind) {
-  switch (relation) {
-    case LOOM_SYMBOLIC_INTEGER_RELATION_EQ:
-      *out_kind = LOOM_PREDICATE_EQ;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_NE:
-      *out_kind = LOOM_PREDICATE_NE;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_LT:
-      *out_kind = LOOM_PREDICATE_LT;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_LE:
-      *out_kind = LOOM_PREDICATE_LE;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_GT:
-      *out_kind = LOOM_PREDICATE_GT;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_GE:
-      *out_kind = LOOM_PREDICATE_GE;
-      return true;
-    default:
-      return false;
-  }
-}
-
 // Normalizes carrier order to mathematical order. Unsigned comparisons may
 // additionally establish a nonnegative lower operand on the selected edge.
 static bool loom_condition_integer_comparison_normalize_relation(
@@ -724,11 +698,10 @@ void loom_condition_integer_comparison_refine_facts(
           &relation)) {
     return;
   }
-  uint8_t predicate_kind = 0;
-  if (loom_condition_relation_to_predicate_kind(relation, &predicate_kind)) {
-    (void)loom_value_facts_refine_relation(predicate_kind, *lhs_facts,
-                                           *rhs_facts, lhs_facts, rhs_facts);
-  }
+  const loom_predicate_kind_t predicate_kind =
+      loom_symbolic_integer_relation_to_predicate_kind(relation);
+  (void)loom_value_facts_refine_relation(predicate_kind, *lhs_facts, *rhs_facts,
+                                         lhs_facts, rhs_facts);
 }
 
 // Derives numeric consequences while the condition owner visits a comparison.
@@ -886,9 +859,9 @@ static iree_status_t loom_condition_facts_query_integer_compare(
   };
   IREE_RETURN_IF_ERROR(loom_condition_fact_set_append_integer_relation(
       facts, out_derivation, assertion, out_complete));
-  uint8_t predicate_kind = 0;
-  if (loom_condition_relation_to_predicate_kind(relation, &predicate_kind) &&
-      loom_value_facts_refine_relation(predicate_kind, left_facts, right_facts,
+  const loom_predicate_kind_t predicate_kind =
+      loom_symbolic_integer_relation_to_predicate_kind(relation);
+  if (loom_value_facts_refine_relation(predicate_kind, left_facts, right_facts,
                                        &left_facts, &right_facts)) {
     IREE_RETURN_IF_ERROR(loom_condition_facts_derive_quotient_preimage(
         module, fact_table, left_value, left_facts, facts, out_derivation,
@@ -1596,11 +1569,8 @@ bool loom_condition_integer_relation_make_predicate_for_value(
     return false;
   }
 
-  uint8_t predicate_kind = 0;
-  if (!loom_condition_relation_to_predicate_kind(normalized_relation,
-                                                 &predicate_kind)) {
-    return false;
-  }
+  const loom_predicate_kind_t predicate_kind =
+      loom_symbolic_integer_relation_to_predicate_kind(normalized_relation);
 
   *out_predicate = (loom_predicate_t){
       .kind = predicate_kind,

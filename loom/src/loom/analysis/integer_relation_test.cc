@@ -48,6 +48,13 @@ TEST(IntegerRelationTest, RoundTripsOutcomeSetsAndSwaps) {
     EXPECT_EQ(recovered, test_case.relation);
     EXPECT_EQ(loom_symbolic_integer_relation_swap(test_case.relation),
               test_case.swapped);
+    loom_symbolic_integer_relation_t predicate_relation =
+        LOOM_SYMBOLIC_INTEGER_RELATION_EQ;
+    const loom_predicate_kind_t predicate_kind =
+        loom_symbolic_integer_relation_to_predicate_kind(test_case.relation);
+    ASSERT_TRUE(loom_symbolic_integer_relation_from_predicate_kind(
+        predicate_kind, &predicate_relation));
+    EXPECT_EQ(predicate_relation, test_case.relation);
     EXPECT_EQ(loom_integer_order_outcomes_swap(test_case.outcomes),
               loom_symbolic_integer_relation_outcomes(test_case.swapped));
   }
@@ -56,6 +63,10 @@ TEST(IntegerRelationTest, RoundTripsOutcomeSetsAndSwaps) {
   EXPECT_FALSE(loom_symbolic_integer_relation_from_outcomes(0, &unused));
   EXPECT_FALSE(loom_symbolic_integer_relation_from_outcomes(
       LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL, &unused));
+  EXPECT_FALSE(loom_symbolic_integer_relation_from_predicate_kind(
+      LOOM_PREDICATE_ULT, &unused));
+  EXPECT_FALSE(loom_symbolic_integer_relation_from_predicate_kind(
+      LOOM_PREDICATE_RANGE, &unused));
 }
 
 TEST(IntegerRelationTest, ResolvesEveryKnownAndQueriedPair) {

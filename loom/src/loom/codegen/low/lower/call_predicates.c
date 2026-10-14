@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "loom/analysis/condition_facts.h"
+#include "loom/analysis/integer_relation.h"
 #include "loom/analysis/symbolic_expr_proof.h"
 #include "loom/codegen/low/lower/context.h"
 #include "loom/decision/predicate.h"
@@ -74,44 +75,6 @@ static bool loom_low_call_find_argument(const loom_value_id_t* callee_arguments,
       *out_argument_index = i;
     }
     return true;
-  }
-  return false;
-}
-
-static bool loom_low_call_predicate_integer_relation(
-    uint8_t predicate_kind,
-    loom_symbolic_integer_relation_t* out_integer_relation) {
-  switch ((loom_predicate_kind_t)predicate_kind) {
-    case LOOM_PREDICATE_EQ:
-      *out_integer_relation = LOOM_SYMBOLIC_INTEGER_RELATION_EQ;
-      return true;
-    case LOOM_PREDICATE_NE:
-      *out_integer_relation = LOOM_SYMBOLIC_INTEGER_RELATION_NE;
-      return true;
-    case LOOM_PREDICATE_LT:
-      *out_integer_relation = LOOM_SYMBOLIC_INTEGER_RELATION_LT;
-      return true;
-    case LOOM_PREDICATE_LE:
-      *out_integer_relation = LOOM_SYMBOLIC_INTEGER_RELATION_LE;
-      return true;
-    case LOOM_PREDICATE_GT:
-      *out_integer_relation = LOOM_SYMBOLIC_INTEGER_RELATION_GT;
-      return true;
-    case LOOM_PREDICATE_GE:
-      *out_integer_relation = LOOM_SYMBOLIC_INTEGER_RELATION_GE;
-      return true;
-    case LOOM_PREDICATE_ULT:
-    case LOOM_PREDICATE_ULE:
-    case LOOM_PREDICATE_UGT:
-    case LOOM_PREDICATE_UGE:
-    case LOOM_PREDICATE_MULTIPLE_OF:
-    case LOOM_PREDICATE_POWER_OF_TWO:
-    case LOOM_PREDICATE_RANGE:
-    case LOOM_PREDICATE_NOT_NAN:
-    case LOOM_PREDICATE_NOT_INF:
-    case LOOM_PREDICATE_FINITE:
-    case LOOM_PREDICATE_COUNT_:
-      return false;
   }
   return false;
 }
@@ -227,8 +190,8 @@ static iree_status_t loom_low_call_caller_contract_proves_relation(
     const loom_predicate_t* caller_predicate = &caller_predicates[i];
     loom_condition_integer_relation_t known_relation = {0};
     if (caller_predicate->arg_count != 2 ||
-        !loom_low_call_predicate_integer_relation(caller_predicate->kind,
-                                                  &known_relation.relation) ||
+        !loom_symbolic_integer_relation_from_predicate_kind(
+            caller_predicate->kind, &known_relation.relation) ||
         !loom_low_call_caller_predicate_operand_as_integer(
             caller_predicate, 0, caller_arguments, caller_argument_count,
             &known_relation.left) ||
@@ -290,8 +253,8 @@ static iree_status_t loom_low_call_prove_predicate(
   }
 
   loom_condition_integer_relation_t queried_relation = {0};
-  if (!loom_low_call_predicate_integer_relation(predicate_kind,
-                                                &queried_relation.relation) ||
+  if (!loom_symbolic_integer_relation_from_predicate_kind(
+          predicate_kind, &queried_relation.relation) ||
       !loom_low_call_decision_operand_as_integer(&predicate_operands[0],
                                                  &queried_relation.left) ||
       !loom_low_call_decision_operand_as_integer(&predicate_operands[1],

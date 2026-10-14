@@ -12,6 +12,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "loom/ir/attribute.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -59,6 +61,17 @@ loom_symbolic_integer_relation_t loom_symbolic_integer_relation_invert(
 
 // Returns the equivalent relation after swapping left and right operands.
 loom_symbolic_integer_relation_t loom_symbolic_integer_relation_swap(
+    loom_symbolic_integer_relation_t relation);
+
+// Converts a signed integer predicate kind to its symbolic relation. Unsigned
+// order and non-relational predicates return false without writing
+// |out_relation|.
+bool loom_symbolic_integer_relation_from_predicate_kind(
+    loom_predicate_kind_t predicate_kind,
+    loom_symbolic_integer_relation_t* out_relation);
+
+// Returns the signed predicate kind representing |relation|.
+loom_predicate_kind_t loom_symbolic_integer_relation_to_predicate_kind(
     loom_symbolic_integer_relation_t relation);
 
 // Returns the exact set of less/equal/greater outcomes admitted by |relation|.

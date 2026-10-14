@@ -6,6 +6,19 @@
 
 #include "loom/analysis/integer_relation.h"
 
+static_assert((int)LOOM_PREDICATE_EQ == (int)LOOM_SYMBOLIC_INTEGER_RELATION_EQ,
+              "signed predicate and relation families must align");
+static_assert((int)LOOM_PREDICATE_NE == (int)LOOM_SYMBOLIC_INTEGER_RELATION_NE,
+              "signed predicate and relation families must align");
+static_assert((int)LOOM_PREDICATE_LT == (int)LOOM_SYMBOLIC_INTEGER_RELATION_LT,
+              "signed predicate and relation families must align");
+static_assert((int)LOOM_PREDICATE_LE == (int)LOOM_SYMBOLIC_INTEGER_RELATION_LE,
+              "signed predicate and relation families must align");
+static_assert((int)LOOM_PREDICATE_GT == (int)LOOM_SYMBOLIC_INTEGER_RELATION_GT,
+              "signed predicate and relation families must align");
+static_assert((int)LOOM_PREDICATE_GE == (int)LOOM_SYMBOLIC_INTEGER_RELATION_GE,
+              "signed predicate and relation families must align");
+
 static const loom_integer_order_outcome_bits_t
     loom_symbolic_integer_relation_outcome_table[] = {
         [LOOM_SYMBOLIC_INTEGER_RELATION_EQ] =
@@ -61,6 +74,21 @@ loom_symbolic_integer_relation_t loom_symbolic_integer_relation_swap(
     default:
       return relation;
   }
+}
+
+bool loom_symbolic_integer_relation_from_predicate_kind(
+    loom_predicate_kind_t predicate_kind,
+    loom_symbolic_integer_relation_t* out_relation) {
+  if (predicate_kind > LOOM_PREDICATE_GE) {
+    return false;
+  }
+  *out_relation = (loom_symbolic_integer_relation_t)predicate_kind;
+  return true;
+}
+
+loom_predicate_kind_t loom_symbolic_integer_relation_to_predicate_kind(
+    loom_symbolic_integer_relation_t relation) {
+  return (loom_predicate_kind_t)relation;
 }
 
 loom_integer_order_outcome_bits_t loom_symbolic_integer_relation_outcomes(

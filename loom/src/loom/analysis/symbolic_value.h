@@ -47,11 +47,6 @@ iree_status_t loom_symbolic_value_for_each_identity_predicate(
     loom_symbolic_expr_context_t* context, loom_value_id_t start_value,
     loom_symbolic_value_identity_predicate_visit_fn_t visit, void* user_data);
 
-// Returns the integer relation represented by |predicate|.
-bool loom_symbolic_value_predicate_relation(
-    const loom_predicate_t* predicate,
-    loom_symbolic_integer_relation_t* out_relation);
-
 // Returns whether two SSA values are algebraically identical.
 iree_status_t loom_symbolic_values_match(loom_symbolic_expr_context_t* context,
                                          loom_value_id_t left_value,

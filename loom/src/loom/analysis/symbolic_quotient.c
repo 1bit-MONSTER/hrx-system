@@ -400,7 +400,8 @@ static iree_status_t loom_symbolic_quotient_visit_identity_predicate(
 
   loom_symbolic_integer_relation_t predicate_relation =
       LOOM_SYMBOLIC_INTEGER_RELATION_EQ;
-  if (!loom_symbolic_value_predicate_relation(predicate, &predicate_relation)) {
+  if (!loom_symbolic_integer_relation_from_predicate_kind(
+          predicate->kind, &predicate_relation)) {
     return iree_ok_status();
   }
 

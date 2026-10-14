@@ -331,59 +331,6 @@ iree_status_t loom_symbolic_value_lookup_condition_refined_facts(
 // Identity chains and value equivalence
 //===----------------------------------------------------------------------===//
 
-bool loom_symbolic_value_predicate_relation(
-    const loom_predicate_t* predicate,
-    loom_symbolic_integer_relation_t* out_relation) {
-  switch ((loom_predicate_kind_t)predicate->kind) {
-    case LOOM_PREDICATE_EQ:
-      *out_relation = LOOM_SYMBOLIC_INTEGER_RELATION_EQ;
-      return true;
-    case LOOM_PREDICATE_NE:
-      *out_relation = LOOM_SYMBOLIC_INTEGER_RELATION_NE;
-      return true;
-    case LOOM_PREDICATE_LT:
-      *out_relation = LOOM_SYMBOLIC_INTEGER_RELATION_LT;
-      return true;
-    case LOOM_PREDICATE_LE:
-      *out_relation = LOOM_SYMBOLIC_INTEGER_RELATION_LE;
-      return true;
-    case LOOM_PREDICATE_GT:
-      *out_relation = LOOM_SYMBOLIC_INTEGER_RELATION_GT;
-      return true;
-    case LOOM_PREDICATE_GE:
-      *out_relation = LOOM_SYMBOLIC_INTEGER_RELATION_GE;
-      return true;
-    default:
-      return false;
-  }
-}
-
-static bool loom_symbolic_expr_relation_predicate_kind(
-    loom_symbolic_integer_relation_t relation, uint8_t* out_kind) {
-  switch (relation) {
-    case LOOM_SYMBOLIC_INTEGER_RELATION_EQ:
-      *out_kind = LOOM_PREDICATE_EQ;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_NE:
-      *out_kind = LOOM_PREDICATE_NE;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_LT:
-      *out_kind = LOOM_PREDICATE_LT;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_LE:
-      *out_kind = LOOM_PREDICATE_LE;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_GT:
-      *out_kind = LOOM_PREDICATE_GT;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_GE:
-      *out_kind = LOOM_PREDICATE_GE;
-      return true;
-    default:
-      return false;
-  }
-}
-
 static iree_status_t loom_symbolic_expr_predicate_arg_exact_integer(
     loom_symbolic_expr_context_t* context, loom_predicate_arg_tag_t arg_tag,
     int64_t arg, int64_t* out_value, bool* out_known) {
@@ -474,7 +421,8 @@ static iree_status_t loom_symbolic_expr_predicate_apply_to_value_facts(
   }
 
   loom_symbolic_integer_relation_t relation = LOOM_SYMBOLIC_INTEGER_RELATION_EQ;
-  if (!loom_symbolic_value_predicate_relation(predicate, &relation)) {
+  if (!loom_symbolic_integer_relation_from_predicate_kind(predicate->kind,
+                                                          &relation)) {
     return iree_ok_status();
   }
 
@@ -509,10 +457,8 @@ static iree_status_t loom_symbolic_expr_predicate_apply_to_value_facts(
   if (value_is_right) {
     relation = loom_symbolic_integer_relation_swap(relation);
   }
-  uint8_t predicate_kind = 0;
-  if (!loom_symbolic_expr_relation_predicate_kind(relation, &predicate_kind)) {
-    return iree_ok_status();
-  }
+  const loom_predicate_kind_t predicate_kind =
+      loom_symbolic_integer_relation_to_predicate_kind(relation);
 
   loom_predicate_t normalized = {
       .kind = predicate_kind,
@@ -1271,7 +1217,8 @@ static iree_status_t loom_symbolic_expr_predicate_proves_relation(
   loom_value_id_t predicate_left = (loom_value_id_t)predicate->args[0];
   loom_symbolic_integer_relation_t implied_relation =
       LOOM_SYMBOLIC_INTEGER_RELATION_EQ;
-  if (!loom_symbolic_value_predicate_relation(predicate, &implied_relation)) {
+  if (!loom_symbolic_integer_relation_from_predicate_kind(predicate->kind,
+                                                          &implied_relation)) {
     return iree_ok_status();
   }
 
@@ -1403,7 +1350,8 @@ static iree_status_t loom_symbolic_expr_predicate_upper_bound(
     return iree_ok_status();
   }
   loom_symbolic_integer_relation_t relation = LOOM_SYMBOLIC_INTEGER_RELATION_EQ;
-  if (!loom_symbolic_value_predicate_relation(predicate, &relation)) {
+  if (!loom_symbolic_integer_relation_from_predicate_kind(predicate->kind,
+                                                          &relation)) {
     return iree_ok_status();
   }
   uint8_t value_argument_index = 0;

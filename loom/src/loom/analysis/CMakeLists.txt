@@ -1299,7 +1299,7 @@ loom_cc_library(
   SRCS
     "integer_relation.c"
   DEPS
-
+    loom::ir
   PUBLIC
 )
 
