@@ -1,7 +1,7 @@
 # loom-serve
 
-`loom-serve` runs source-defined text, image, embedding and decision models over
-HTTP. One process owns its listeners, shared CPU workers and a device group;
+`loom-serve` runs source-defined text, image, embedding, decision and speech
+models over HTTP. One process owns its listeners, shared CPU workers and a device group;
 models can be registered, drained and removed independently. Numerical programs
 and parameter files are external inputs. Adding a compatible model package does
 not require rebuilding the server.
@@ -54,7 +54,7 @@ and capacities. Program roles and providers accept both `.loom` and `.loombc`.
 The complete source contract is modality-specific; an arbitrary checkpoint
 alone is not a runnable model package.
 
-The [source fixtures](../../serve/fixture/README.md) exercise all four modalities
+The [source fixtures](../../serve/fixture/README.md) exercise these modalities
 without a model download. They use this same executable, JIT and HTTP stack;
 their independently checkable results are useful when building a client or
 porting a model package.

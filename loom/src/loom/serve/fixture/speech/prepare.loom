@@ -1,0 +1,45 @@
+func.decl import("prepare") @stage(%root: buffer, %tag: i64) -> (i32)
+
+func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
+global.rodata.def @initialize = bytes("696e697469616c697a655f617564696f")
+
+global.rodata.def @step = bytes("737465705f617564696f")
+
+global.rodata.def @name = bytes("666978747572652d737065656368")
+
+global.rodata.def @empty = bytes("")
+
+global.rodata.def @invalid = bytes("7370656563682066697874757265206578706563747320656d707479206f7074696f6e73")
+
+// Two immutable conditioning entries are shared across independent streams.
+global.rodata.def @conditioning = bytes("0000003e000000be")
+
+func.def public @prepare(%directory: buffer, %options: buffer) -> (i64, i64, i64, i64, i64, i64, i64, i64, buffer, buffer, buffer, buffer) {
+  %c0 = scalar.constant 0 : i64
+  %c1 = scalar.constant 1 : i64
+  %object_kind = scalar.constant 2 : i32
+  %fields, %kind, %count = func.call @members(%options) : (buffer) -> (buffer, i32, i64)
+  %object = scalar.cmpi eq, %kind, %object_kind : i32
+  %empty = scalar.cmpi eq, %count, %c0 : i64
+  %valid = scalar.andi %object, %empty : i1
+  %valid32 = scalar.extui %valid : i1 to i32
+  %diagnostic = global.load @invalid : buffer
+  func.call @require(%valid32, %diagnostic) : (i32, buffer)
+  %initialize = global.load @initialize : buffer
+  %first = func.call @stage(%initialize, %c0) : (buffer, i64) -> (i32)
+  %step = global.load @step : buffer
+  %second = func.call @stage(%step, %c1) : (buffer, i64) -> (i32)
+  %input = scalar.constant 16 : i64
+  %conditioning_bytes = scalar.constant 8 : i64
+  %stream = scalar.constant 8 : i64
+  %output = scalar.constant 36 : i64
+  %frames = scalar.constant 5 : i64
+  %rate = scalar.constant 24000 : i64
+  %empty_buffer = global.load @empty : buffer
+  %name = global.load @name : buffer
+  %conditioning = global.load @conditioning : buffer
+  func.return %input, %conditioning_bytes, %stream, %output, %output, %frames, %rate, %c1, %empty_buffer, %name, %empty_buffer, %conditioning : i64, i64, i64, i64, i64, i64, i64, i64, buffer, buffer, buffer, buffer
+}

@@ -21,15 +21,16 @@ The important distinction is the shape of state and output, not the model name:
 | Staged image | Prompt preparation, parameter domains, numerical stages, invocation continuation and final RGB. | [Image model](https://github.com/ROCm/hrx-system/tree/main/loom/src/loom/serve/fixture/image) |
 | Finite embeddings | Input preparation, cohort cost/compatibility, pooling/projection and final vectors. | [Embedding model](https://github.com/ROCm/hrx-system/tree/main/loom/src/loom/serve/fixture/embedding) |
 | Finite decisions | Structured question framing and compact normalized answer distributions. | [Decision model](https://github.com/ROCm/hrx-system/tree/main/loom/src/loom/serve/fixture/decision) |
+| Streaming speech | Voice conditioning, independent request state, bounded generation and continuous waveform blocks. | [Speech model](https://github.com/ROCm/hrx-system/tree/main/loom/src/loom/serve/fixture/speech) |
 
 These packages use actual source VM programs, native kernels and production
 HTTP services, not canned native replies. They establish the serving contract,
 not learned quality or competitive neural performance. Each learned port needs
 its own numerical oracle and representative workload.
 
-An audio stream, image-conditioned request or arbitrary workflow graph needs an
-input/output ownership contract beyond these HTTP profiles. Such a port is a
-modality extension, not an embedding vector with overloaded fields. The
+Audio input, an image-conditioned request or an arbitrary workflow graph needs
+an input/output ownership contract beyond these HTTP profiles. Such a port is
+a modality extension, not an embedding vector with overloaded fields. The
 [HTTP reference](http-profiles.md) defines the existing boundary.
 
 ## Keep the package complete and relocatable

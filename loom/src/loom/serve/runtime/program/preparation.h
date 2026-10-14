@@ -12,6 +12,7 @@
 #include "iree/vm/variant.h"
 #include "loom/serve/runtime/program/compilation.h"
 #include "loom/serve/runtime/program/sources.h"
+#include "loom/target/arch/cmd/program.h"
 #include "loomc/config.h"
 
 #ifdef __cplusplus
@@ -112,6 +113,19 @@ const loom_serve_preparation_stage_t* loom_serve_preparation_stage(
 // RESOURCE_EXHAUSTED before execution storage is allocated.
 iree_status_t loom_serve_preparation_stage_check_workspace(
     const loom_serve_preparation_stage_t* stage, uint64_t required_byte_length);
+
+// Checks one source declaration against compiler-reflected checkpoint storage
+// shared with the canonical stage. Ordered checkpoint paths, preparation policy
+// and byte placement must agree before any domain is loaded or shared. A NULL
+// program denotes a direct stage without fixed parameter domains. The caller
+// checks the canonical stage against itself before checking subsequent stages.
+// Dynamic buffer bindings and modality-specific geometry remain with the
+// caller.
+iree_status_t loom_serve_preparation_stage_check_parameters(
+    const loom_serve_preparation_stage_t* stage,
+    const loom_cmd_program_t* program,
+    const loom_serve_preparation_stage_t* canonical_stage,
+    const loom_cmd_program_t* canonical_program);
 
 #ifdef __cplusplus
 }  // extern "C"

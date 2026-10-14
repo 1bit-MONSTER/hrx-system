@@ -14,6 +14,7 @@
 #include "iree/vm/buffer.h"
 #include "iree/vm/reflection.h"
 #include "iree/vm/sync.h"
+#include "loom/serve/runtime/program/parameter_layout.h"
 #include "loom/serve/runtime/program/program.h"
 
 typedef struct preparation_stage_t {
@@ -528,4 +529,45 @@ iree_status_t loom_serve_preparation_stage_check_workspace(
         stage->workspace_limit_bytes);
   }
   return iree_ok_status();
+}
+
+iree_status_t loom_serve_preparation_stage_check_parameters(
+    const loom_serve_preparation_stage_t* stage,
+    const loom_cmd_program_t* program,
+    const loom_serve_preparation_stage_t* canonical_stage,
+    const loom_cmd_program_t* canonical_program) {
+  const uint32_t roots =
+      canonical_program ? canonical_program->requirements.fixed_buffer_count
+                        : 0;
+  if (stage->parameter_count != roots ||
+      (program ? program->requirements.fixed_buffer_count : 0) != roots ||
+      (program ? program->parameter_roots.count : 0) != roots) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "stage '%.*s' checkpoint domains differ from the shared layout",
+        (int)stage->root.size, stage->root.data);
+  }
+  for (uint32_t root = 0; root < roots; ++root) {
+    const loom_serve_preparation_parameter_t* parameter =
+        &stage->parameters[root];
+    const loom_serve_preparation_parameter_t* shared =
+        &canonical_stage->parameters[root];
+    const loom_cmd_program_parameter_root_t rhs =
+        loom_cmd_program_parameter_root_at(program, root);
+    if (parameter->binding != root ||
+        rhs.fixed_buffer_index != parameter->binding ||
+        !loom_serve_preparation_parameter_equal(parameter, shared)) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "stage '%.*s' checkpoint domain %u differs from the shared layout",
+          (int)stage->root.size, stage->root.data, root);
+    }
+  }
+  if (!program || !canonical_program || program == canonical_program) {
+    return iree_ok_status();
+  }
+  return iree_status_annotate_f(
+      loom_serve_parameter_layout_check(canonical_program, program),
+      "stage '%.*s' differs from the shared layout", (int)stage->root.size,
+      stage->root.data);
 }

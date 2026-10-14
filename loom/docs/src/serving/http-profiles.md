@@ -5,7 +5,7 @@ Inference requests select a registered deployment through the JSON `model`
 field. Names come from [model documents](model-documents.md), not checkpoint
 filenames or an inferred architecture. An absent model returns 404.
 
-The text, image and embedding profiles use familiar OpenAI response shapes,
+The text, image, embedding and speech profiles use familiar OpenAI response shapes,
 but are not the entire OpenAI API. Supported fields are explicit; unsupported
 execution options reject rather than being silently ignored. The server has
 no built-in authentication or TLS termination.
@@ -257,6 +257,33 @@ Accepted pin/suspend work survives client disconnect through actual readiness.
 Deleting a pin does not invalidate active branches that already own independent
 references. An impossible reservation or refused restore returns overload
 without silently replacing the destination's continuation.
+
+## Speech synthesis
+
+`POST /v1/audio/speech` accepts a speech deployment:
+
+```json
+{"model":"speaker","input":"Good day.","voice":"alba","response_format":"pcm"}
+```
+
+The response streams signed little-endian PCM16 at 24 kHz, mono, with
+`Content-Type: application/octet-stream`. Completion closes the response.
+Network reads need not coincide with waveform blocks; consumers retain any
+partial sample between reads. Disconnection suppresses further generation
+while already accepted work retires.
+
+`model`, nonempty UTF-8 `input`, `voice` and explicit `response_format: "pcm"`
+are required. `voice` is a package-supported identifier or an object containing
+an `id` string. Optional `instructions`, `speed` and `seed` reach source request
+preparation, which rejects controls it cannot implement. Speed defaults to 1
+and accepts 0.25–4. The seed extension accepts an unsigned 64-bit integer or
+decimal string and defaults to zero.
+
+`stream_format` may be omitted or set to `"audio"`. Encoded formats, SSE and an
+omitted response format return an input error. Voice registration and sample
+persistence are not supplied by this endpoint; conditioning assets belong to
+the loaded package. File-based players require an encoded-audio profile rather
+than raw PCM.
 
 ## Embeddings
 

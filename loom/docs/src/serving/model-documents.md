@@ -47,7 +47,7 @@ activation can prepare a model while its admission stays closed.
 ## Programs and dependencies
 
 Every definition contains `kind`, `prepare`, `control` and a nonempty `sources`
-array. Kinds are `text`, `image`, `embedding` and `decision`.
+array. Kinds are `text`, `image`, `embedding`, `decision` and `speech`.
 
 | Field | Role |
 | --- | --- |
@@ -55,8 +55,8 @@ array. Kinds are `text`, `image`, `embedding` and `decision`.
 | `control` | Warm VM program implementing the modality's request and execution contract. |
 | `sources` | Native command, kernel, configuration and motif providers. |
 | `options` | JSON object passed to source preparation unchanged; defaults to `{}`. |
-| `pending_requests` | Request credit, default `32`; positive integer. Text/image count queued requests, while embedding/decision also count the active cohort. |
-| `variant_capacity` | Retained native executable choices, default `16`, including the original, pending compilations and failed attempts; zero disables native reconfiguration. |
+| `pending_requests` | Request credit, default `32`; positive integer. Text/image/speech count queued requests, while embedding/decision also count the active cohort. |
+| `variant_capacity` | Text/image/embedding/decision retained native executable choices, default `16`, including the original, pending compilations and failed attempts; zero disables native reconfiguration. |
 
 Programs accept text or portable Loom bytecode (`.loom` or `.loombc`), detected
 from contents. Providers may mix formats. Bytecode is serialized IR, not a
@@ -124,6 +124,19 @@ native per-model fields.
 The referenced assets must match the package's preparation policy. Loading
 checks its declared parameter keys and extents; matching a filename alone does
 not establish checkpoint identity or original tensor dtype/shape compatibility.
+
+## Speech definitions
+
+Speech requires an `assets` directory. Source-owned `options` select model
+capacities, voices and preparation policy. The package declares reusable voice
+conditioning, separate mutable state for each request, waveform geometry and a
+bounded output block. A model may perform several stages before producing audio.
+
+The [speech HTTP profile](http-profiles.md#speech-synthesis) exposes incremental
+24 kHz mono PCM; a package producing other geometry rejects during preparation.
+Voice identifiers and conditioning assets belong to the package. The service
+keeps request state alive until accepted device work and output copies retire,
+allowing subsequent requests to reuse the model safely.
 
 ## Local path binding
 

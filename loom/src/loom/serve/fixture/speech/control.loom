@@ -1,0 +1,112 @@
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
+func.decl import("runner") @execute_4(%stage: i32, %request: hal.buffer, %conditioning: hal.buffer, %stream: hal.buffer, %output: hal.buffer) -> (i64)
+
+func.decl import("runner") @feedback(%slot: i32, %source: hal.buffer, %offset: i64, %length: i64) -> (i64)
+
+global.rodata.def @positive = bytes("706f736974697665")
+
+global.rodata.def @negative = bytes("6e65676174697665")
+
+global.rodata.def @invalid = bytes("737065656368206669787475726520726571756972657320312d3130323420696e7075742062797465732c20706f736974697665206f72206e6567617469766520766f6963652c207370656564203120616e64206e6f20696e737472756374696f6e73")
+
+func.def @check(%condition: i1) {
+  %valid = scalar.extui %condition : i1 to i32
+  %diagnostic = global.load @invalid : buffer
+  func.call @require(%valid, %diagnostic) : (i32, buffer)
+  func.return
+}
+
+func.def public @prepare_request(%model: buffer, %text: buffer, %voice: buffer, %instructions: buffer, %seed: i64, %speed: f32) -> (buffer, buffer) {
+  %origin = index.constant 0 : offset
+  %voice_bytes = index.constant 8 : offset
+  %maximum = index.constant 1024 : offset
+  %length = buffer.length %text
+  %positive_length = index.cmp ugt, %length, %origin : offset
+  %bounded = index.cmp ule, %length, %maximum : offset
+  %valid_length = scalar.andi %positive_length, %bounded : i1
+  func.call @check(%valid_length) : (i1)
+  %instruction_length = buffer.length %instructions
+  %plain = index.cmp eq, %instruction_length, %origin : offset
+  func.call @check(%plain) : (i1)
+  %normal = scalar.constant 1.0 : f32
+  %normal_speed = scalar.cmpf oeq, %speed, %normal : f32
+  func.call @check(%normal_speed) : (i1)
+  %voice_length = buffer.length %voice
+  %valid_voice_length = index.cmp eq, %voice_length, %voice_bytes : offset
+  func.call @check(%valid_voice_length) : (i1)
+  %actual = buffer.view %voice[%origin] : buffer -> view<8xi8>
+  %positive_buffer = global.load @positive : buffer
+  %negative_buffer = global.load @negative : buffer
+  %positive = buffer.view %positive_buffer[%origin] : buffer -> view<8xi8>
+  %negative = buffer.view %negative_buffer[%origin] : buffer -> view<8xi8>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %voice_length_limit = index.constant 8 : index
+  %true = scalar.constant 1 : i1
+  %is_positive, %is_negative = scf.for %i = [%begin to %voice_length_limit step %step](%p = %true : i1, %n = %true : i1) -> (i1, i1) {
+    %byte = view.load %actual[%i] : view<8xi8> -> i8
+    %positive_byte = view.load %positive[%i] : view<8xi8> -> i8
+    %negative_byte = view.load %negative[%i] : view<8xi8> -> i8
+    %p_match = scalar.cmpi eq, %byte, %positive_byte : i8
+    %n_match = scalar.cmpi eq, %byte, %negative_byte : i8
+    %next_p = scalar.andi %p, %p_match : i1
+    %next_n = scalar.andi %n, %n_match : i1
+    scf.yield %next_p, %next_n : i1, i1
+  }
+  %known_voice = scalar.ori %is_positive, %is_negative : i1
+  func.call @check(%known_voice) : (i1)
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %voice_id = scf.select %is_positive, %c0, %c1 : i32
+  %bounded_length = index.assume %length [range(%length, 1, 1024)] : offset
+  %length32 = index.cast %bounded_length : offset to i32
+  %scale = scalar.constant 8 : i32
+  %scaled = scalar.muli %length32, %scale : i32
+  %total = scalar.addi %scaled, %c1 : i32
+  %seed32 = scalar.trunci %seed : i64 to i32
+  %payload_bytes = index.constant 16 : offset
+  %payload = buffer.alloca<private> align(8) %payload_bytes : buffer
+  %header = buffer.view %payload[%origin] : buffer -> view<4xi32>
+  view.store %total, %header[0] : i32, view<4xi32>
+  view.store %seed32, %header[1] : i32, view<4xi32>
+  view.store %voice_id, %header[2] : i32, view<4xi32>
+  view.store %c0, %header[3] : i32, view<4xi32>
+  %state_bytes = index.constant 4 : offset
+  %state = buffer.alloca<private> align(4) %state_bytes : buffer
+  %cursor = buffer.view %state[%origin] : buffer -> view<1xi32>
+  view.store %c0, %cursor[0] : i32, view<1xi32>
+  func.return %state, %payload : buffer, buffer
+}
+
+func.def public @generate(%model: buffer, %state: buffer, %tags: buffer, %request: hal.buffer, %conditioning: hal.buffer, %stream: hal.buffer, %output: hal.buffer) -> (i32) {
+  %origin = index.constant 0 : offset
+  %cursor = buffer.view %state[%origin] : buffer -> view<1xi32>
+  %stage = view.load %cursor[0] : view<1xi32> -> i32
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %initial = scalar.cmpi eq, %stage, %c0 : i32
+  %work = func.call @execute_4(%stage, %request, %conditioning, %stream, %output) : (i32, hal.buffer, hal.buffer, hal.buffer, hal.buffer) -> (i64)
+  %ready = scf.if %initial -> (i32) {
+    view.store %c1, %cursor[0] : i32, view<1xi32>
+    scf.yield %c0 : i32
+  } else {
+    %begin = scalar.constant 0 : i64
+    %length = scalar.constant 36 : i64
+    %feedback = func.call @feedback(%c0, %output, %begin, %length) : (i32, hal.buffer, i64, i64) -> (i64)
+    scf.yield %c1 : i32
+  }
+  func.return %ready : i32
+}
+
+func.def public @complete(%model: buffer, %state: buffer, %feedback: buffer) -> (i64, i64, i64, i32) {
+  %origin = index.constant 0 : offset
+  %header = buffer.view %feedback[%origin] : buffer -> view<4xi32>
+  %position = view.load %header[0] : view<4xi32> -> i32
+  %count = view.load %header[1] : view<4xi32> -> i32
+  %done = view.load %header[2] : view<4xi32> -> i32
+  %position64 = scalar.extui %position : i32 to i64
+  %count64 = scalar.extui %count : i32 to i64
+  %sample_offset = scalar.constant 16 : i64
+  func.return %position64, %sample_offset, %count64, %done : i64, i64, i64, i32
+}

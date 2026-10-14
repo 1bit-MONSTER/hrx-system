@@ -1,6 +1,6 @@
 # Serve source-defined models
 
-`loom-serve` runs text, image, embedding and decision models in one HTTP server.
+`loom-serve` runs text, image, embedding, decision and speech models in one HTTP server.
 Models are runtime inputs: a JSON deployment document, Loom programs and assets.
 Registering a compatible package does not require rebuilding the executable.
 The process can start empty and keep serving while models are added or removed.

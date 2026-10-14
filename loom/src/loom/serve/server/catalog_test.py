@@ -21,6 +21,7 @@ from catalog_test_util import (
     Client,
     check_counters,
     check_decision,
+    check_pcm,
     check_png,
     complete,
     prepare_catalog,
@@ -233,6 +234,11 @@ def check_parameter_residency(client, backing, workers):
     for model, target, payload in (
         ("vectors", "/v1/embeddings", {"input": "ab", "dimensions": 2}),
         (
+            "speech",
+            "/v1/audio/speech",
+            {"input": "hi", "voice": "positive", "seed": 1, "response_format": "pcm"},
+        ),
+        (
             "pixels",
             "/v1/images/generations",
             {"prompt": "ab", "seed": 1, "response_format": "b64_json"},
@@ -276,6 +282,8 @@ def check_parameter_residency(client, backing, workers):
             assert result["data"][0]["embedding"] == [3, 2], result
         elif model == "pixels":
             check_png(result["data"][0]["b64_json"], "ab", 1)
+        elif model == "speech":
+            check_pcm(result, "hi", 1)
         else:
             check_decision(result)
         assert snapshot(model)["incarnation"] == identity
@@ -726,7 +734,7 @@ def check_sporadic_connections(process, client, model, workers):
 
 
 def check_dynamic_catalog(server_command, directory, catalog, workers):
-    """Twelve real model owners share workers, clients and retirement accounting."""
+    """Three copies of each modality share workers and retirement accounting."""
     declarations = [
         {
             **model,
@@ -736,11 +744,12 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
         for index in range(3)
         for model in catalog["models"]
     ]
+    modality_count = len(catalog["models"])
     log_path = directory / f"dynamic-catalog-{workers}.log"
     arguments = [
         "--listen=127.0.0.1:0",
         f"--workers={workers}",
-        "--model_capacity=12",
+        f"--model_capacity={len(declarations)}",
         "--connections=320",
         "--heartbeat_ms=0",
     ]
@@ -765,7 +774,7 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
         assert client.request("/v1/models")["data"] == []
         initial_status = client.request("/v1/status")["server"]
         assert initial_status["worker_count"] == workers, initial_status
-        assert initial_status["model_capacity"] == 12, initial_status
+        assert initial_status["model_capacity"] == len(declarations), initial_status
         assert initial_status["connection_capacity"] == 320, initial_status
         for declaration in declarations:
             client.request("/v1/models/register", declaration, status=202)
@@ -776,7 +785,7 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
         )
         registered = client.request("/v1/status")["data"]
         identities = {item["id"]: item["loom"]["incarnation"] for item in registered}
-        assert len(identities) == 12
+        assert len(identities) == len(declarations)
         assert all(
             item["loom"]["registration"] == "registered"
             and item["loom"]["status"]["admission"] == "drained"
@@ -809,7 +818,7 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
         )
 
         # Preparation and parameter I/O need no inference or open admission.
-        # Submit all twelve intents before awaiting any individual completion.
+        # Submit all intents before awaiting any individual completion.
         for declaration in declarations:
             client.request(
                 "/v1/models/activate", {"model": declaration["name"]}, status=202
@@ -867,6 +876,19 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
                     },
                 )
                 check_png(result["data"][0]["b64_json"], prompt, iteration)
+            elif kind == "speech":
+                text = "hi" * (iteration + 1)
+                result = client.request(
+                    "/v1/audio/speech",
+                    {
+                        "model": model,
+                        "input": text,
+                        "voice": "positive",
+                        "seed": iteration,
+                        "response_format": "pcm",
+                    },
+                )
+                check_pcm(result, text, iteration)
             elif kind == "embedding":
                 result = client.request(
                     "/v1/embeddings",
@@ -923,7 +945,7 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
             if declaration is not first:
                 client.request("/v1/models/undrain", {"model": declaration["name"]})
 
-        with ThreadPoolExecutor(max_workers=12) as executor:
+        with ThreadPoolExecutor(max_workers=len(declarations)) as executor:
             work = [
                 executor.submit(infer, declaration, 0) for declaration in declarations
             ]
@@ -945,15 +967,17 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
             # modality retires. No client, public name or model kind owns peers.
             work = [
                 executor.submit(infer, declaration, 1)
-                for declaration in declarations[4:]
+                for declaration in declarations[modality_count:]
             ]
-            for declaration in declarations[:4]:
+            for declaration in declarations[:modality_count]:
                 client.request(
                     "/v1/models/unregister", {"model": declaration["name"]}, status=202
                 )
             for future in work:
                 future.result()
-            peers = {declaration["name"] for declaration in declarations[4:]}
+            peers = {
+                declaration["name"] for declaration in declarations[modality_count:]
+            }
             while True:
                 discovered = client.request("/v1/status")["data"]
                 assert all(
@@ -966,7 +990,7 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
             # owns only copied output and its connection, not that model/ring.
             while observer.read():
                 pass
-            for declaration in declarations[:4]:
+            for declaration in declarations[:modality_count]:
                 client.request(
                     "/v1/models/register",
                     {**declaration, "admission": "open"},
@@ -979,7 +1003,7 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
                     assert not item["loom"]["parameter_pinned"], item
             work = [
                 executor.submit(infer, declaration, 2)
-                for declaration in declarations[:4]
+                for declaration in declarations[:modality_count]
             ]
             for future in work:
                 future.result()
@@ -990,9 +1014,11 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
             for record in reader.poll().records
             if record["event"] == "counters"
         )
-        # One activation request, twelve initial requests, eight peers, four
-        # replacements and two embedding probes while transport requests park.
-        assert before["requests"] == before["completed"] == 27, before
+        # Two requests per declaration, one activation request and two embedding
+        # probes while transport requests park.
+        assert before["requests"] == before["completed"] == 2 * len(declarations) + 3, (
+            before
+        )
         for index, declaration in enumerate(declarations):
             client.request(
                 "/v1/models/unregister",
@@ -1249,6 +1275,7 @@ def main():
                     "pixels",
                     "vectors",
                     "judge",
+                    "speech",
                     "fixture-text",
                 ]
             )

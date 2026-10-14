@@ -3,7 +3,7 @@
 `loom-serve` can back Pi, Oh My Pi and Open WebUI through their existing
 OpenAI-compatible configuration. No client plugin or Loom-specific HTTP route
 is required. The server continues to publish one complete catalog containing
-text, image, embedding and decision deployments; each client selects the
+text, image, embedding, decision and speech deployments; each client selects the
 operations it understands.
 
 This workflow assumes that the server and its model packages are already
@@ -11,6 +11,10 @@ running. [Serve source-defined models](serve-models.md) establishes that
 baseline. The examples use `scout` for text, `illustrator` for image generation
 and `vectors` for embeddings; replace those names with IDs from the live
 catalog.
+
+The [speech profile](../http-profiles.md#speech-synthesis) currently supplies raw
+PCM streaming. Open WebUI's ordinary audio playback expects an encoded file,
+so the client setup below covers chat, images and embeddings.
 
 ## Inspect the client-visible contract
 

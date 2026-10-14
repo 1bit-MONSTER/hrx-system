@@ -179,6 +179,10 @@ iree_status_t loom_serve_registry_register(
       model->service.kind = "image";
       model->service.endpoint = "/v1/images/generations";
       break;
+    case LOOM_SERVE_MODEL_KIND_SPEECH:
+      model->service.kind = "speech";
+      model->service.endpoint = "/v1/audio/speech";
+      break;
     case LOOM_SERVE_MODEL_KIND_EMBEDDING:
       model->service.kind = "embedding";
       model->service.endpoint = "/v1/embeddings";

@@ -66,11 +66,34 @@ TEST_F(ConfigurationTest, OwnsAuthoredPathsAndBaseSeparately) {
   EXPECT_EQ(String(model_.sources.control), "run.loom");
   ASSERT_EQ(model_.sources.count, 2u);
   EXPECT_EQ(String(model_.sources.values[1]), "kernel.loombc");
-  EXPECT_EQ(String(model_.finite.assets), ".");
+  EXPECT_EQ(String(model_.assets), ".");
   EXPECT_EQ(String(model_.options), R"({"batch_units":64})");
   loom_serve_model_configuration_deinitialize(&model_);
   EXPECT_EQ(model_.name.data, nullptr);
   EXPECT_EQ(model_.sources.values, nullptr);
+}
+
+TEST_F(ConfigurationTest, SpeechOwnsAssetsAndSourceOptions) {
+  IREE_ASSERT_OK(Parse(Document(
+      "speech",
+      R"(,"assets":"voices","pending_requests":4,"options":{"voice":"alba"})")));
+  EXPECT_EQ(model_.kind, LOOM_SERVE_MODEL_KIND_SPEECH);
+  EXPECT_EQ(String(model_.assets), "voices");
+  EXPECT_EQ(model_.pending_requests, 4u);
+  EXPECT_EQ(model_.variant_capacity, 0u);
+  EXPECT_EQ(String(model_.options), R"({"voice":"alba"})");
+  for (const char* field :
+       {R"(,"assets":"")", R"(,"assets":null)",
+        R"(,"assets":".","weights":"model.gguf")",
+        R"(,"assets":".","width":384)", R"(,"assets":".","rows":1)",
+        R"(,"assets":".","variant_capacity":16)"}) {
+    SCOPED_TRACE(field);
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          Parse(Document("speech", field)));
+    EXPECT_EQ(model_.name.data, nullptr);
+  }
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        Parse(Document("speech")));
 }
 
 TEST_F(ConfigurationTest, AdmissionIsAnIndependentRegistrationSetting) {
@@ -201,7 +224,7 @@ TEST_F(ConfigurationTest,
     IREE_ASSERT_OK(Parse(json, directory));
     EXPECT_EQ(String(model_.sources.base_directory), "//files/models/vectors");
     EXPECT_EQ(String(model_.sources.prepare), "boot.loombc");
-    EXPECT_EQ(String(model_.finite.assets), ".");
+    EXPECT_EQ(String(model_.assets), ".");
   }
 }
 

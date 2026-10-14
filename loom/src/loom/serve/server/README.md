@@ -28,7 +28,7 @@ resource retirement before freeing the name. A control connection acknowledges
 intent without owning the operation's lifetime.
 
 The [registration adapter](model_registration.h) is the concrete composition
-point for text, image and finite-vector services. It translates deployment
+point for text, image, speech and finite-vector services. It translates deployment
 options into their native constructors, then exposes preparation, residency and
 retirement callbacks to the registry. The registry consumes that callback
 contract without depending on concrete model implementations. Source loading

@@ -188,6 +188,8 @@ loom_cc_library(
     loom::serve::service::finite::service
     loom::serve::service::image::model
     loom::serve::service::image::service
+    loom::serve::service::speech::model
+    loom::serve::service::speech::service
     loom::serve::service::text::model
     loom::serve::service::text::schedule
     loom::serve::service::text::service

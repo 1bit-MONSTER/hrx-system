@@ -65,7 +65,8 @@ static void loom_serve_main_shutdown_requested(void* user_data,
 static int loom_serve_main_agents_markdown(void) {
   return fputs(
              "# loom-serve\n\n"
-             "Runs source-defined text, image, embedding and decision models "
+             "Runs source-defined text, image, embedding, decision and speech "
+             "models "
              "in one process. Numerical programs and parameter files are "
              "external inputs, not compiled-in model implementations.\n\n"
              "## Start and inspect\n\n"

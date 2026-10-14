@@ -374,17 +374,17 @@ static iree_status_t loom_serve_finite_check_layouts(
   const loom_cmd_program_t* canonical =
       loom_serve_jit_stage_program(model->stages.values[0].compiled);
   const iree_host_size_t binding_count = 2;
-  const uint32_t roots =
-      canonical ? canonical->requirements.fixed_buffer_count : 0;
   for (uint32_t i = 0; i < model->stages.count; ++i) {
     const finite_model_stage_t* stage = &model->stages.values[i];
     const loom_cmd_program_t* program =
         loom_serve_jit_stage_program(stage->compiled);
     const loom_serve_preparation_stage_t* declaration =
         loom_serve_preparation_stage(model->preparation, i);
+    IREE_RETURN_IF_ERROR(loom_serve_preparation_stage_check_parameters(
+        declaration, program,
+        loom_serve_preparation_stage(model->preparation, 0), canonical));
     if (!program) {
-      if (roots || declaration->parameter_count ||
-          loom_serve_dispatch_binding_count(
+      if (loom_serve_dispatch_binding_count(
               loom_serve_jit_stage_dispatch(stage->compiled)) != 2) {
         return iree_make_status(
             IREE_STATUS_INVALID_ARGUMENT,
@@ -400,67 +400,10 @@ static iree_status_t loom_serve_finite_check_layouts(
             binding_count + has_workspace ||
         (has_workspace &&
          program->requirements.transient.binding_index != binding_count) ||
-        program->requirements.fixed_buffer_count != roots ||
-        program->parameter_roots.count != roots ||
-        declaration->parameter_count != roots ||
         program->requirements.launch_counts.binding_index != UINT32_MAX) {
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
           "stage %u does not implement the finite vector ABI", i);
-    }
-    const loom_serve_preparation_stage_t* maximum =
-        loom_serve_preparation_stage(model->preparation, 0);
-    for (uint32_t root = 0; root < roots; ++root) {
-      const loom_serve_preparation_parameter_t* parameter =
-          &declaration->parameters[root];
-      const loom_serve_preparation_parameter_t* shared =
-          &maximum->parameters[root];
-      if (parameter->binding != root ||
-          loom_cmd_program_parameter_root_at(program, root)
-                  .fixed_buffer_index != parameter->binding ||
-          !loom_serve_preparation_parameter_equal(parameter, shared)) {
-        return iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "stage %u must declare the same ordered checkpoint domains", i);
-      }
-    }
-    if (!i || !canonical) {
-      continue;
-    }
-    if (canonical->parameters.count != program->parameters.count) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "stage %u parameter count differs from shared layout", i);
-    }
-    for (uint32_t root = 0; root < roots; ++root) {
-      const loom_cmd_program_parameter_root_t lhs =
-          loom_cmd_program_parameter_root_at(canonical, root);
-      const loom_cmd_program_parameter_root_t rhs =
-          loom_cmd_program_parameter_root_at(program, root);
-      if (lhs.fixed_buffer_index != rhs.fixed_buffer_index ||
-          lhs.required_byte_length != rhs.required_byte_length ||
-          lhs.minimum_alignment != rhs.minimum_alignment) {
-        return iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "stage %u parameter root %u differs from shared layout", i, root);
-      }
-    }
-    for (uint32_t parameter = 0; parameter < canonical->parameters.count;
-         ++parameter) {
-      const loom_cmd_program_parameter_t lhs =
-          loom_cmd_program_parameter_at(canonical, parameter);
-      const loom_cmd_program_parameter_t rhs =
-          loom_cmd_program_parameter_at(program, parameter);
-      if (!iree_string_view_equal(lhs.key, rhs.key) ||
-          lhs.fixed_buffer_index != rhs.fixed_buffer_index ||
-          lhs.byte_offset != rhs.byte_offset ||
-          lhs.byte_length != rhs.byte_length ||
-          lhs.minimum_alignment != rhs.minimum_alignment) {
-        return iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "stage %u parameter placement %u differs from shared layout", i,
-            parameter);
-      }
     }
   }
   return iree_ok_status();
