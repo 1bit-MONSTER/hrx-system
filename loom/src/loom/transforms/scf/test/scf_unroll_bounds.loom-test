@@ -183,7 +183,7 @@ func.def @dynamic_recurrence_nonunit_step(%payload: buffer, %base: offset, %end0
   %54 = index.cmp slt, %51, %end : index
   cfg.cond_br %54, ^_bb6, ^_bb9
 ^_bb6:
-  %i$53 = index.assume %51 [range(%51, 0, 16), multiple_of(%51, 3), ge(%51, %26), lt(%51, %end)] : index
+  %i$53 = index.assume %51 [range(%51, 0, 15), multiple_of(%51, 3), ge(%51, %26), lt(%51, %end)] : index
   %packet$45 = vector.load %view[%i$53, %c0] : view<17x4xi32> -> vector<4xi32>
   %value$46 = view.load %view[%i$53, %c0] : view<17x4xi32> -> i32
   test.use %packet$45 : vector<4xi32>

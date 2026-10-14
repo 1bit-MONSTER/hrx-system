@@ -1,0 +1,190 @@
+// RUN: emit spirv-dis target=spirv:vulkan1.3+bda+hal input=source-low control-flow=structured-low validate
+// REQUIRES: spirv-dis, spirv-val
+
+kernel.def @execution_queries(%groups_x: index, %groups_y: index, %groups_z: index) {
+  %threads = index.constant 128 : index
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%groups_x, %groups_y, %groups_z) workgroup_size(%threads, %unit, %unit) : index
+} launch(%output: buffer) {
+  %groups_x = kernel.workgroup.count<x> : index
+  %groups_y = kernel.workgroup.count<y> : index
+  %groups_z = kernel.workgroup.count<z> : index
+  %subgroup = kernel.subgroup.id : index
+  %subgroup_count = kernel.subgroup.count : index
+  %width = kernel.subgroup.size : index
+  %lane = kernel.subgroup.lane.id : index
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %output {minimum_alignment = 4} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<128x7xi32>
+  %thread = kernel.workitem.id<x> : index
+  %groups_x_word = index.cast %groups_x : index to i32
+  %groups_y_word = index.cast %groups_y : index to i32
+  %groups_z_word = index.cast %groups_z : index to i32
+  %subgroup_word = index.cast %subgroup : index to i32
+  %subgroup_count_word = index.cast %subgroup_count : index to i32
+  %width_word = index.cast %width : index to i32
+  %lane_word = index.cast %lane : index to i32
+  view.store %groups_x_word, %view[%thread, 0] : i32, view<128x7xi32>
+  view.store %groups_y_word, %view[%thread, 1] : i32, view<128x7xi32>
+  view.store %groups_z_word, %view[%thread, 2] : i32, view<128x7xi32>
+  view.store %subgroup_word, %view[%thread, 3] : i32, view<128x7xi32>
+  view.store %subgroup_count_word, %view[%thread, 4] : i32, view<128x7xi32>
+  view.store %width_word, %view[%thread, 5] : i32, view<128x7xi32>
+  view.store %lane_word, %view[%thread, 6] : i32, view<128x7xi32>
+  kernel.return
+}
+
+// ----
+               OpCapability Shader
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability GroupNonUniform
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpMemoryModel PhysicalStorageBuffer64 GLSL450
+               OpEntryPoint GLCompute %execution_queries "execution_queries" %local_invocation_id %num_workgroups %subgroup_local_invocation_id %subgroup_size %subgroup_id %num_subgroups
+               OpExecutionMode %execution_queries LocalSize 128 1 1
+               OpName %execution_queries "execution_queries"
+               OpName %aligned "aligned"
+               OpName %num_workgroups "num_workgroups"
+               OpName %groups_x "groups_x"
+               OpName %groups_y "groups_y"
+               OpName %groups_z "groups_z"
+               OpName %subgroup_id "subgroup_id"
+               OpName %subgroup "subgroup"
+               OpName %num_subgroups "num_subgroups"
+               OpName %subgroup_count "subgroup_count"
+               OpName %subgroup_size "subgroup_size"
+               OpName %width "width"
+               OpName %subgroup_local_invocation_id "subgroup_local_invocation_id"
+               OpName %lane "lane"
+               OpName %local_invocation_id "local_invocation_id"
+               OpName %thread "thread"
+               OpName %groups_x_word "groups_x_word"
+               OpName %groups_y_word "groups_y_word"
+               OpName %groups_z_word "groups_z_word"
+               OpName %subgroup_word "subgroup_word"
+               OpName %subgroup_count_word "subgroup_count_word"
+               OpName %width_word "width_word"
+               OpName %lane_word "lane_word"
+               OpModuleProcessed "iree.vulkan.bda.v1[execution_queries].root=0,32"
+               OpModuleProcessed "iree.vulkan.bda.v1[execution_queries].constant_offset=32"
+               OpModuleProcessed "iree.vulkan.bda.v1[execution_queries].constant_length=0"
+               OpModuleProcessed "iree.vulkan.bda.v1[execution_queries].bindings=1"
+               OpModuleProcessed "iree.vulkan.bda.parameters.v1[execution_queries]=b0"
+               OpDecorate %_runtimearr_ulong ArrayStride 8
+               OpDecorate %_struct_11 Block
+               OpMemberDecorate %_struct_11 0 Offset 0
+               OpDecorate %num_workgroups BuiltIn NumWorkgroups
+               OpDecorate %subgroup_id BuiltIn SubgroupId
+               OpDecorate %num_subgroups BuiltIn NumSubgroups
+               OpDecorate %subgroup_size BuiltIn SubgroupSize
+               OpDecorate %subgroup_local_invocation_id BuiltIn SubgroupLocalInvocationId
+               OpDecorate %local_invocation_id BuiltIn LocalInvocationId
+               OpDecorate %_ptr_PhysicalStorageBuffer_int ArrayStride 4
+               OpDecorate %_struct_90 Block
+               OpMemberDecorate %_struct_90 0 Offset 0
+               OpMemberDecorate %_struct_90 1 Offset 8
+               OpMemberDecorate %_struct_90 2 Offset 16
+               OpMemberDecorate %_struct_90 3 Offset 20
+               OpMemberDecorate %_struct_90 4 Offset 24
+               OpMemberDecorate %_struct_90 5 Offset 28
+       %void = OpTypeVoid
+          %4 = OpTypeFunction %void
+      %ulong = OpTypeInt 64 0
+       %uint = OpTypeInt 32 0
+%_ptr_PushConstant_ulong = OpTypePointer PushConstant %ulong
+%_ptr_PushConstant_uint = OpTypePointer PushConstant %uint
+%_runtimearr_ulong = OpTypeRuntimeArray %ulong
+ %_struct_11 = OpTypeStruct %_runtimearr_ulong
+%_ptr_PhysicalStorageBuffer__struct_11 = OpTypePointer PhysicalStorageBuffer %_struct_11
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+      %int_2 = OpConstant %int 2
+%_ptr_PhysicalStorageBuffer_ulong = OpTypePointer PhysicalStorageBuffer %ulong
+     %v3uint = OpTypeVector %uint 3
+%_ptr_Input_v3uint = OpTypePointer Input %v3uint
+%num_workgroups = OpVariable %_ptr_Input_v3uint Input
+%_ptr_Input_uint = OpTypePointer Input %uint
+%subgroup_id = OpVariable %_ptr_Input_uint Input
+%num_subgroups = OpVariable %_ptr_Input_uint Input
+%subgroup_size = OpVariable %_ptr_Input_uint Input
+%subgroup_local_invocation_id = OpVariable %_ptr_Input_uint Input
+%local_invocation_id = OpVariable %_ptr_Input_v3uint Input
+   %ulong_28 = OpConstant %ulong 28
+%_ptr_PhysicalStorageBuffer_int = OpTypePointer PhysicalStorageBuffer %int
+    %ulong_4 = OpConstant %ulong 4
+    %ulong_8 = OpConstant %ulong 8
+   %ulong_12 = OpConstant %ulong 12
+   %ulong_16 = OpConstant %ulong 16
+   %ulong_20 = OpConstant %ulong 20
+   %ulong_24 = OpConstant %ulong 24
+ %_struct_90 = OpTypeStruct %ulong %ulong %uint %uint %uint %uint
+%_ptr_PushConstant__struct_90 = OpTypePointer PushConstant %_struct_90
+          %2 = OpVariable %_ptr_PushConstant__struct_90 PushConstant
+%execution_queries = OpFunction %void None %4
+          %5 = OpLabel
+         %16 = OpAccessChain %_ptr_PushConstant_ulong %2 %int_0
+         %17 = OpLoad %ulong %16 Aligned 8
+         %18 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer__struct_11 %17
+         %19 = OpAccessChain %_ptr_PushConstant_uint %2 %int_2
+         %20 = OpLoad %uint %19 Aligned 4
+         %22 = OpAccessChain %_ptr_PhysicalStorageBuffer_ulong %18 %int_0 %20
+    %aligned = OpLoad %ulong %22 Aligned 8
+         %27 = OpLoad %v3uint %num_workgroups
+         %28 = OpCompositeExtract %uint %27 0
+   %groups_x = OpBitcast %int %28
+         %30 = OpLoad %v3uint %num_workgroups
+         %31 = OpCompositeExtract %uint %30 1
+   %groups_y = OpBitcast %int %31
+         %33 = OpLoad %v3uint %num_workgroups
+         %34 = OpCompositeExtract %uint %33 2
+   %groups_z = OpBitcast %int %34
+         %38 = OpLoad %uint %subgroup_id
+   %subgroup = OpBitcast %int %38
+         %41 = OpLoad %uint %num_subgroups
+%subgroup_count = OpBitcast %int %41
+         %44 = OpLoad %uint %subgroup_size
+      %width = OpBitcast %int %44
+         %47 = OpLoad %uint %subgroup_local_invocation_id
+       %lane = OpBitcast %int %47
+         %50 = OpLoad %v3uint %local_invocation_id
+         %51 = OpCompositeExtract %uint %50 0
+     %thread = OpBitcast %int %51
+%groups_x_word = OpCopyObject %int %groups_x
+%groups_y_word = OpCopyObject %int %groups_y
+%groups_z_word = OpCopyObject %int %groups_z
+%subgroup_word = OpCopyObject %int %subgroup
+%subgroup_count_word = OpCopyObject %int %subgroup_count
+ %width_word = OpCopyObject %int %width
+  %lane_word = OpCopyObject %int %lane
+         %60 = OpSConvert %ulong %thread
+         %62 = OpIMul %ulong %60 %ulong_28
+         %63 = OpIAdd %ulong %aligned %62
+         %65 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_int %63
+               OpStore %65 %groups_x_word Aligned 4
+         %67 = OpIAdd %ulong %62 %ulong_4
+         %68 = OpIAdd %ulong %aligned %67
+         %69 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_int %68
+               OpStore %69 %groups_y_word Aligned 4
+         %71 = OpIAdd %ulong %62 %ulong_8
+         %72 = OpIAdd %ulong %aligned %71
+         %73 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_int %72
+               OpStore %73 %groups_z_word Aligned 4
+         %75 = OpIAdd %ulong %62 %ulong_12
+         %76 = OpIAdd %ulong %aligned %75
+         %77 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_int %76
+               OpStore %77 %subgroup_word Aligned 4
+         %79 = OpIAdd %ulong %62 %ulong_16
+         %80 = OpIAdd %ulong %aligned %79
+         %81 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_int %80
+               OpStore %81 %subgroup_count_word Aligned 4
+         %83 = OpIAdd %ulong %62 %ulong_20
+         %84 = OpIAdd %ulong %aligned %83
+         %85 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_int %84
+               OpStore %85 %width_word Aligned 4
+         %87 = OpIAdd %ulong %62 %ulong_24
+         %88 = OpIAdd %ulong %aligned %87
+         %89 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_int %88
+               OpStore %89 %lane_word Aligned 4
+               OpReturn
+               OpFunctionEnd

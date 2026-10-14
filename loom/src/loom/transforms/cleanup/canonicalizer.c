@@ -302,31 +302,10 @@ static bool loom_canonicalize_predicate_lists_are_empty(
   return true;
 }
 
-static bool loom_canonicalize_predicate_implied_by_carrier(
-    const loom_value_fact_table_t* fact_table, const loom_op_t* carrier_op,
-    const loom_op_vtable_t* carrier_vtable,
-    const loom_predicate_t* conclusion) {
-  const loom_attribute_t* carrier_attributes = loom_op_const_attrs(carrier_op);
-  for (uint8_t i = 0; i < carrier_vtable->attribute_count; ++i) {
-    if (carrier_vtable->attr_descriptors[i].attr_kind !=
-        LOOM_ATTR_PREDICATE_LIST) {
-      continue;
-    }
-    const loom_attribute_t* premise_attribute = &carrier_attributes[i];
-    for (uint16_t j = 0; j < premise_attribute->count; ++j) {
-      if (loom_value_fact_table_predicate_implies(
-              fact_table, &premise_attribute->predicate_list[j], conclusion)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 static bool loom_canonicalize_predicate_lists_implied_by_carrier(
-    const loom_value_fact_table_t* fact_table, const loom_op_t* op,
-    const loom_op_vtable_t* vtable, const loom_op_t* carrier_op,
-    const loom_op_vtable_t* carrier_vtable) {
+    const loom_value_fact_table_t* fact_table, const loom_module_t* module,
+    const loom_op_t* op, const loom_op_vtable_t* vtable,
+    const loom_op_t* carrier_op) {
   const loom_attribute_t* attributes = loom_op_const_attrs(op);
   for (uint8_t i = 0; i < vtable->attribute_count; ++i) {
     if (vtable->attr_descriptors[i].attr_kind != LOOM_ATTR_PREDICATE_LIST) {
@@ -334,8 +313,8 @@ static bool loom_canonicalize_predicate_lists_implied_by_carrier(
     }
     const loom_attribute_t* conclusion_attribute = &attributes[i];
     for (uint16_t j = 0; j < conclusion_attribute->count; ++j) {
-      if (!loom_canonicalize_predicate_implied_by_carrier(
-              fact_table, carrier_op, carrier_vtable,
+      if (!loom_value_fact_table_carrier_implies_predicate(
+              fact_table, module, carrier_op,
               &conclusion_attribute->predicate_list[j])) {
         return false;
       }
@@ -377,17 +356,8 @@ static iree_status_t loom_canonicalize_try_elide_redundant_fact_identity(
       carrier_op = definition;
     }
     if (!carrier_op ||
-        !iree_all_bits_set(carrier_op->traits,
-                           LOOM_TRAIT_PURE | LOOM_TRAIT_FACT_IDENTITY)) {
-      return iree_ok_status();
-    }
-    const loom_op_vtable_t* carrier_vtable =
-        loom_op_vtable(rewriter->module, carrier_op);
-    if (!carrier_vtable ||
-        !iree_any_bit_set(carrier_vtable->vtable_flags,
-                          LOOM_OP_VTABLE_HAS_PREDICATE_LIST) ||
         !loom_canonicalize_predicate_lists_implied_by_carrier(
-            rewriter->fact_table, op, vtable, carrier_op, carrier_vtable)) {
+            rewriter->fact_table, rewriter->module, op, vtable, carrier_op)) {
       return iree_ok_status();
     }
   }

@@ -694,6 +694,25 @@ static iree_status_t iree_hal_vulkan_spirv_parse_bda_metadata_field(
     return iree_ok_status();
   }
 
+  if (iree_string_view_consume_prefix(&value, IREE_SV("subgroup_size="))) {
+    if (metadata->subgroup_size != 0) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "Vulkan BDA metadata subgroup size is duplicated");
+    }
+    uint32_t subgroup_size = 0;
+    IREE_RETURN_IF_ERROR(iree_hal_vulkan_spirv_parse_metadata_uint32(
+        value, UINT32_MAX, "subgroup_size", &subgroup_size));
+    if (subgroup_size == 0 ||
+        !iree_device_size_is_power_of_two(subgroup_size)) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "Vulkan BDA metadata subgroup size must be a nonzero power of two");
+    }
+    metadata->subgroup_size = subgroup_size;
+    return iree_ok_status();
+  }
+
   if (iree_string_view_consume_prefix(&value, IREE_SV("root="))) {
     if (state->has_root_layout) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,

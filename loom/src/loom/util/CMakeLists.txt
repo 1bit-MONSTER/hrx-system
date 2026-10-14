@@ -431,6 +431,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::analysis::integer_relation
     loom::decision::predicate
+    loom::ir
     loom::ir::facts
   PUBLIC
 )

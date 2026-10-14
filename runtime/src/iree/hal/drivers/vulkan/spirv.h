@@ -107,6 +107,10 @@ typedef struct iree_hal_vulkan_spirv_bda_dispatch_metadata_t {
   // Whether any recognized iree.vulkan.bda.v1 metadata string was found.
   bool is_present;
 
+  // Required subgroup width, or zero when the entry has no fixed-width
+  // contract.
+  uint32_t subgroup_size;
+
   // Push-constant byte offset of iree_hal_vulkan_bda_dispatch_root_v1_t.
   uint32_t root_push_constant_offset;
 
@@ -187,6 +191,7 @@ iree_status_t iree_hal_vulkan_spirv_verify_bda_entry_point(
 // exported OpEntryPoint name (not a SPIR-V ID that optimizers may renumber):
 //
 //   iree.vulkan.bda.v1[<name>]
+//   iree.vulkan.bda.v1[<name>].subgroup_size=<invocations>
 //   iree.vulkan.bda.v1[<name>].root=<byte_offset>,<byte_length>
 //   iree.vulkan.bda.v1[<name>].constant_offset=<byte_offset>
 //   iree.vulkan.bda.v1[<name>].constant_length=<byte_length>
@@ -208,6 +213,9 @@ iree_status_t iree_hal_vulkan_spirv_verify_bda_entry_point(
 // Missing metadata leaves that entry's is_present false. Unknown versions and
 // other tools' strings are ignored. Recognized malformed records, unknown entry
 // names, and duplicate fields fail load. Unscoped v1 records are invalid.
+// A subgroup size is a nonzero power of two. Its absence permits the device's
+// default width; its presence requires that exact execution width. Nondefault
+// widths require a static LocalSize and enabled compute subgroup-size control.
 //
 // The caller owns the output array. On success, release each element with
 // iree_hal_vulkan_spirv_bda_dispatch_metadata_deinitialize. On failure all

@@ -2237,6 +2237,10 @@ static iree_status_t iree_hal_vulkan_command_buffer_publish_bda_dispatch_table(
   *out_binding_table_address = 0;
   const iree_hal_vulkan_command_dispatch_t* dispatch =
       iree_hal_vulkan_command_dispatch_payload(command);
+  if (iree_hal_dispatch_is_statically_empty(dispatch->config,
+                                            dispatch->flags)) {
+    return iree_ok_status();
+  }
   const iree_host_size_t binding_count = pipeline->bda.binding_count_known
                                              ? pipeline->binding_count
                                              : dispatch->binding_count;
@@ -3376,7 +3380,8 @@ static iree_status_t iree_hal_vulkan_command_buffer_dispatch(
         IREE_STATUS_OUT_OF_RANGE,
         "Vulkan command buffer dispatch count exceeds host size");
   }
-  if (iree_status_is_ok(status)) {
+  if (iree_status_is_ok(status) &&
+      !iree_hal_dispatch_is_statically_empty(config, flags)) {
     const iree_host_size_t binding_count = pipeline->bda.binding_count_known
                                                ? pipeline->binding_count
                                                : bindings.count;

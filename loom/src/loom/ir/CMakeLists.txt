@@ -33,6 +33,7 @@ loom_cc_test(
   SRCS
     "facts_bitwise_test.cc"
     "facts_division_test.cc"
+    "facts_refinement_test.cc"
     "facts_test.cc"
     "float_facts_test.cc"
   DEPS

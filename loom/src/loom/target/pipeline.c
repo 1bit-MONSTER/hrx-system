@@ -408,7 +408,7 @@ loom_target_pipeline_build_view_root_selection_decomposition(
       builder, loom_target_pipeline_build_dce_body, NULL, &if_changed_op);
 }
 
-static iree_status_t loom_target_pipeline_build_source_unroll_before_bank_sroa(
+static iree_status_t loom_target_pipeline_build_source_loop_unrolling(
     loom_builder_t* builder, void* user_data) {
   (void)user_data;
   IREE_RETURN_IF_ERROR(
@@ -634,8 +634,7 @@ static iree_status_t loom_target_pipeline_build_lexical_worker_body(
   IREE_RETURN_IF_ERROR(
       loom_target_pipeline_build_source_loop_pipelining(builder, user_data));
   IREE_RETURN_IF_ERROR(
-      loom_target_pipeline_build_source_unroll_before_bank_sroa(builder,
-                                                                user_data));
+      loom_target_pipeline_build_source_loop_unrolling(builder, user_data));
   if (control_flow_lowering == LOOM_TARGET_CONTROL_FLOW_LOWERING_CFG) {
     IREE_RETURN_IF_ERROR(
         loom_target_pipeline_build_source_cfg_lowering(builder));
@@ -740,11 +739,13 @@ static iree_status_t loom_target_pipeline_build_source_low_body(
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_for_target_functions(
       builder, IREE_SV("source"),
       loom_target_pipeline_build_source_loop_pipelining, user_data, &for_op));
+  // Authored unroll policies determine source expansion independently of the
+  // target's control-flow representation. Cleanup exposes scalar uses of banks
+  // assembled and consumed by fully unrolled loops before target lowering.
+  IREE_RETURN_IF_ERROR(loom_target_pipeline_build_for_target_functions(
+      builder, IREE_SV("source"),
+      loom_target_pipeline_build_source_loop_unrolling, user_data, &for_op));
   if (control_flow_lowering == LOOM_TARGET_CONTROL_FLOW_LOWERING_CFG) {
-    IREE_RETURN_IF_ERROR(loom_target_pipeline_build_for_target_functions(
-        builder, IREE_SV("source"),
-        loom_target_pipeline_build_source_unroll_before_bank_sroa, user_data,
-        &for_op));
     IREE_RETURN_IF_ERROR(
         loom_target_pipeline_build_run(builder, IREE_SV("sroa-vector-banks")));
     loom_op_t* bank_sroa_changed_op = NULL;

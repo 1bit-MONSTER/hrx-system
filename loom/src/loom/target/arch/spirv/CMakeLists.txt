@@ -246,6 +246,7 @@ loom_cc_library(
     ::cooperative_properties
     iree::base
     loom::target::facts
+    loom::target::facts_builder
   PUBLIC
 )
 endif()
@@ -296,6 +297,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::target::arch::spirv::records::target_records
+    loom::target::facts_builder
   LABELS
     "iree-build-requirement=loom.target.arch.spirv"
 )
@@ -533,6 +535,7 @@ loom_check_test_suite(
     "test/source_low/buffer_bulk.loom-test"
     "test/source_low/buffer_raw.loom-test"
     "test/source_low/buffer_selection.loom-test"
+    "test/source_low/builtin_queries.loom-test"
     "test/source_low/callable_values.loom-test"
     "test/source_low/control_flow_legality.loom-test"
     "test/source_low/index_addressing.loom-test"
@@ -542,6 +545,7 @@ loom_check_test_suite(
     "test/source_low/low_verify_diagnostics.loom-test"
     "test/source_low/math_contraction.loom-test"
     "test/source_low/memory_access_flags.loom-test"
+    "test/source_low/memory_constant.loom-test"
     "test/source_low/memory_scalar_addressing.loom-test"
     "test/source_low/memory_shared_components.loom-test"
     "test/source_low/memory_wide_carriers.loom-test"
@@ -574,6 +578,7 @@ loom_check_test_suite(
     "test/source_low/semantic_assertions.loom-test"
     "test/source_low/source_low.loom-test"
     "test/source_low/source_low_diagnostics.loom-test"
+    "test/source_low/source_unroll.loom-test"
     "test/source_low/split_barrier.loom-test"
     "test/source_low/structural_value_types_bytecode.loom-test"
     "test/source_low/structured_control.loom-test"

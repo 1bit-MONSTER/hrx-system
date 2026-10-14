@@ -75,8 +75,8 @@ low.func.def target<wasm.core.simd128>(@target) abi(wasm_function) @for_without_
 
 wasm.target<simd128> @target
 
-func.def target(@target) @for_with_iter_args(%lo: index, %hi: index, %step: index, %unroll: index, %seed: vector<4xf32>, %bias: vector<4xf32>) -> (vector<4xf32>) {
-  %result = scf.for %iv = [%lo to %hi step %step](%acc = %seed : vector<4xf32>) -> (vector<4xf32>) unroll(%unroll) {
+func.def target(@target) @for_with_iter_args(%lo: index, %hi: index, %step: index, %seed: vector<4xf32>, %bias: vector<4xf32>) -> (vector<4xf32>) {
+  %result = scf.for %iv = [%lo to %hi step %step](%acc = %seed : vector<4xf32>) -> (vector<4xf32>) {
     %next = vector.addf %acc, %bias : vector<4xf32>
     scf.yield %next : vector<4xf32>
   }
@@ -84,8 +84,8 @@ func.def target(@target) @for_with_iter_args(%lo: index, %hi: index, %step: inde
 }
 
 // ----
-low.func.def target<wasm.core.simd128>(@target) abi(wasm_function) @for_with_iter_args(%lo: reg<wasm.i32>, %hi: reg<wasm.i32>, %step: reg<wasm.i32>, %unroll: reg<wasm.i32>, %seed: reg<wasm.v128>, %bias: reg<wasm.v128>) -> (reg<wasm.v128>) asm {
-  %result = low.scf.for signed [%lo to %hi step %step] iter_args(%seed: reg<wasm.v128>) -> (reg<wasm.v128>) unroll(%unroll) do(%iv: reg<wasm.i32>, %acc: reg<wasm.v128>) {
+low.func.def target<wasm.core.simd128>(@target) abi(wasm_function) @for_with_iter_args(%lo: reg<wasm.i32>, %hi: reg<wasm.i32>, %step: reg<wasm.i32>, %seed: reg<wasm.v128>, %bias: reg<wasm.v128>) -> (reg<wasm.v128>) asm {
+  %result = low.scf.for signed [%lo to %hi step %step] iter_args(%seed: reg<wasm.v128>) -> (reg<wasm.v128>) do(%iv: reg<wasm.i32>, %acc: reg<wasm.v128>) {
     %next = f32x4.add %acc, %bias
     low.scf.yield %next : reg<wasm.v128>
   }

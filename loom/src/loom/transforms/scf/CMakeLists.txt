@@ -27,6 +27,7 @@ loom_cc_library(
     loom::rewrite::pattern_registry
     loom::rewrite::rewriter
     loom::transforms::cleanup::patterns
+    loom::util::predicate_facts
     loom::util::walk
   PUBLIC
 )

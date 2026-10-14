@@ -539,6 +539,10 @@ static loomc_status_t loomc_spirv_iree_hal_query_facts(
     return loomc_spirv_iree_hal_fail_status(result, status);
   }
   if (dispatch->subgroup.default_size == 0 ||
+      dispatch->subgroup.minimum_size == 0 ||
+      dispatch->subgroup.maximum_size == 0 ||
+      (dispatch->subgroup.minimum_size != dispatch->subgroup.maximum_size &&
+       vulkan_spec.maximum_workgroup_subgroup_count == 0) ||
       dispatch->launch.maximum_workgroup_invocations == 0 ||
       dispatch->launch.maximum_workgroup_size[0] == 0 ||
       dispatch->launch.maximum_workgroup_size[1] == 0 ||
@@ -601,9 +605,24 @@ static loomc_status_t loomc_spirv_iree_hal_query_facts(
       loomc_make_cstring_view("iree-hal:vulkan.feature.shader_int64"));
 
   loomc_spirv_iree_hal_set_limit_fact(
-      out_facts, LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE,
+      out_facts, LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
       dispatch->subgroup.default_size,
       loomc_make_cstring_view("iree-hal:vulkan.device.subgroup_size"));
+  loomc_spirv_iree_hal_set_limit_fact(
+      out_facts, LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE,
+      dispatch->subgroup.minimum_size,
+      loomc_make_cstring_view("iree-hal:vulkan.device.min_subgroup_size"));
+  loomc_spirv_iree_hal_set_limit_fact(
+      out_facts, LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE,
+      dispatch->subgroup.maximum_size,
+      loomc_make_cstring_view("iree-hal:vulkan.device.max_subgroup_size"));
+  if (vulkan_spec.maximum_workgroup_subgroup_count != 0) {
+    loomc_spirv_iree_hal_set_limit_fact(
+        out_facts, LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SUBGROUP_COUNT,
+        vulkan_spec.maximum_workgroup_subgroup_count,
+        loomc_make_cstring_view(
+            "iree-hal:vulkan.device.max_compute_workgroup_subgroups"));
+  }
   loomc_spirv_iree_hal_set_limit_fact(
       out_facts, LOOMC_SPIRV_LIMIT_MAX_FLAT_WORKGROUP_SIZE,
       dispatch->launch.maximum_workgroup_invocations,
@@ -745,6 +764,12 @@ static loomc_status_t loomc_spirv_iree_hal_validate_profile_requirements(
       [LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES] =
           snapshot->max_workgroup_storage_bytes,
       [LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE] = snapshot->subgroup_size,
+      [LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE] =
+          profile->subgroup.default_size,
+      [LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE] = profile->subgroup.minimum_size,
+      [LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE] = profile->subgroup.maximum_size,
+      [LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SUBGROUP_COUNT] =
+          profile->subgroup.maximum_workgroup_subgroup_count,
       [LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_X] =
           snapshot->max_workgroup_count.x,
       [LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_Y] =
@@ -758,10 +783,29 @@ static loomc_status_t loomc_spirv_iree_hal_validate_profile_requirements(
   };
   for (uint32_t i = 1; i < LOOMC_SPIRV_LIMIT_COUNT; ++i) {
     const loomc_spirv_limit_fact_t* available = &facts->limit_facts[i];
-    const bool incompatible =
-        i == LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE
-            ? requirements[i] != 0 && requirements[i] != available->value
-            : requirements[i] > available->value;
+    bool incompatible = requirements[i] > available->value;
+    if (i == LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE ||
+        i == LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE ||
+        i == LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE) {
+      // A fixed width or either endpoint must be selectable on this device.
+      const uint64_t minimum =
+          facts->limit_facts[LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE].value;
+      const uint64_t maximum =
+          facts->limit_facts[LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE].value;
+      if (requirements[i] != 0 &&
+          (requirements[i] < minimum || requirements[i] > maximum)) {
+        return loomc_status_from_iree(iree_make_status(
+            IREE_STATUS_UNAVAILABLE,
+            "forced SPIR-V profile subgroup width %" PRIu64
+            " is outside the device's selectable range [%" PRIu64 ", %" PRIu64
+            "]",
+            requirements[i], minimum, maximum));
+      }
+      continue;
+    } else if (i == LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE) {
+      incompatible =
+          requirements[i] != 0 && requirements[i] != available->value;
+    }
     if (incompatible) {
       return loomc_status_from_iree(
           iree_make_status(IREE_STATUS_UNAVAILABLE,

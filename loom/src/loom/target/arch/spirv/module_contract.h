@@ -7,9 +7,9 @@
 // Module-level SPIR-V target contract.
 //
 // SPIR-V binary emission produces one physical module at a time. Every function
-// in that module must agree on the target snapshot, artifact format, ABI,
-// descriptor set, and feature contract so module-level declarations and
-// capabilities have one meaning.
+// in that module must agree on the artifact format, ABI, descriptor set, and
+// feature contract so module-level declarations and capabilities have one
+// meaning. Subgroup widths and dispatch limits belong to individual entries.
 
 #ifndef LOOM_TARGET_ARCH_SPIRV_MODULE_CONTRACT_H_
 #define LOOM_TARGET_ARCH_SPIRV_MODULE_CONTRACT_H_
@@ -24,8 +24,6 @@ extern "C" {
 typedef struct loom_spirv_module_contract_t {
   // Borrowed target-record symbol name selected by the function.
   iree_string_view_t target_name;
-  // Borrowed target snapshot name selected by the function.
-  iree_string_view_t snapshot_name;
   // Target codegen format selected by the function.
   loom_target_codegen_format_t codegen_format;
   // Target artifact format selected by the function.

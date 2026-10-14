@@ -244,7 +244,7 @@ class _PacketRow:
     memory_alignment: int = 0
     no_contraction: bool = False
     coordinate_byte_shift: int = 0
-    builtin: str | None = None
+    builtin_variable: str | None = None
     component_index: int | None = None
     execution_scope: str | None = None
     group_operation_scope: str | None = None
@@ -284,7 +284,7 @@ class _PacketRow:
                 "coordinate_byte_shift": self.coordinate_byte_shift or None,
             },
             "builtin_load": {
-                "builtin": self.builtin,
+                "variable": self.builtin_variable,
                 "component_index": self.component_index,
             },
             "barrier": {
@@ -1016,7 +1016,7 @@ def _builtin_index_rows() -> list[_PacketRow]:
                 "LOOM_SPIRV_VALUE_CLASS_SCALAR",
                 "LOOM_SPIRV_SCALAR_TYPE_S32",
             ),
-            builtin=query.builtin_enum,
+            builtin_variable=query.variable_enum,
             component_index=dimension.component_index,
         )
         for query in BUILTIN_INDEX_QUERIES
@@ -1034,7 +1034,7 @@ def _builtin_scalar_index_rows() -> list[_PacketRow]:
                 "LOOM_SPIRV_VALUE_CLASS_SCALAR",
                 "LOOM_SPIRV_SCALAR_TYPE_S32",
             ),
-            builtin=query.builtin_enum,
+            builtin_variable=query.variable_enum,
         )
         for query in BUILTIN_SCALAR_INDEX_QUERIES
     ]
@@ -1351,6 +1351,7 @@ def generate_tables() -> str:
     _validate_rows(rows, SPIRV_LOGICAL_CORE_DESCRIPTOR_SET.descriptors)
     value_types, value_type_refs = _interned_value_types(rows)
     payloads, payload_refs = _interned_payloads(rows)
+    builtin_queries = (*BUILTIN_INDEX_QUERIES, *BUILTIN_SCALAR_INDEX_QUERIES)
     lines = [
         "// Copyright 2026 The IREE Authors",
         "//",
@@ -1362,6 +1363,14 @@ def generate_tables() -> str:
         "",
         f'static_assert(LOOM_SPIRV_PACKET_MAX_OPERAND_COUNT == {_PACKET_MAX_OPERAND_COUNT}, "generated packet operand maximum");',
         f'static_assert(LOOM_SPIRV_PACKET_OPERAND_TYPE_CAPACITY == {_PACKET_OPERAND_TYPE_CAPACITY}, "generated packet operand-type capacity");',
+        f'static_assert(LOOM_SPIRV_BUILTIN_VARIABLE_COUNT == {len(builtin_queries)}, "generated builtin variable count");',
+        "",
+        "const loom_spirv_builtin_variable_info_t loom_spirv_builtin_variables[] = {",
+        *(
+            f'    [{query.variable_enum}] = {{ .name = IREE_SVL("{query.mnemonic_suffix}"), .builtin = {query.builtin_enum}, .component_count = {query.component_count} }},'
+            for query in builtin_queries
+        ),
+        "};",
         "",
         "const loom_spirv_value_type_t loom_spirv_packet_value_types[] = {",
         *(f"    {value_type}," for value_type in value_types),

@@ -25,9 +25,25 @@ enum loom_spirv_target_kind_e {
   LOOM_SPIRV_TARGET_KIND_VULKAN1_3 = 1,
 };
 
+// Compute subgroup capabilities, independent of a selected execution width.
+// Zero denotes an unknown observation. Every width is a power of two.
+typedef struct loom_spirv_subgroup_properties_t {
+  // Width selected when the source imposes no fixed-width requirement.
+  uint32_t default_size;
+  // Smallest selectable compute subgroup width.
+  uint32_t minimum_size;
+  // Largest selectable compute subgroup width.
+  uint32_t maximum_size;
+  // Maximum subgroups per workgroup when requesting a nondefault width.
+  uint32_t maximum_workgroup_subgroup_count;
+} loom_spirv_subgroup_properties_t;
+
 typedef struct loom_spirv_target_facts_t {
   // Target-neutral facts shared by all target families.
   loom_target_facts_t base;
+
+  // Supported execution widths retained from the device profile.
+  loom_spirv_subgroup_properties_t subgroup;
 
   // Cooperative operation rows available to target-local lowering.
   loom_spirv_cooperative_property_set_t cooperative_properties;

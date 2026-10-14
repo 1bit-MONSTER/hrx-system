@@ -20,7 +20,8 @@ kernel.def target(@target) @cooperative_matrix_f16_two_tiles() {
   %m = index.constant 16 : index
   %n = index.constant 16 : index
   %k = index.constant 16 : index
-  %lhs_aligned = buffer.assume.alignment %lhs_buffer {minimum_alignment = 16} : buffer
+  %lhs_constant = buffer.assume.memory_space<constant> %lhs_buffer : buffer
+  %lhs_aligned = buffer.assume.alignment %lhs_constant {minimum_alignment = 16} : buffer
   %rhs_aligned = buffer.assume.alignment %rhs_buffer {minimum_alignment = 16} : buffer
   %init_aligned = buffer.assume.alignment %init_buffer {minimum_alignment = 16} : buffer
   %out_aligned = buffer.assume.alignment %out_buffer {minimum_alignment = 16} : buffer

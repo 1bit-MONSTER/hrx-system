@@ -101,7 +101,9 @@ typedef struct iree_hal_vulkan_pipeline_t {
 // ABI.
 iree_status_t iree_hal_vulkan_executable_create(
     const iree_hal_vulkan_device_syms_t* syms, VkDevice logical_device,
-    VkPipelineCache pipeline_cache, const iree_hal_queue_family_t* queue_family,
+    const iree_hal_vulkan_physical_device_snapshot_t* physical_device,
+    iree_hal_vulkan_features_t enabled_features, VkPipelineCache pipeline_cache,
+    const iree_hal_queue_family_t* queue_family,
     const iree_hal_executable_load_params_t* load_params,
     iree_allocator_t host_allocator, iree_hal_executable_t** out_executable);
 

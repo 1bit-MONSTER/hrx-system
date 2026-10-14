@@ -70,6 +70,33 @@ enum loom_spirv_packet_flag_bits_e {
 };
 typedef uint8_t loom_spirv_packet_flags_t;
 
+// Dense module-cache and entry-interface slots for shader Input builtins.
+enum loom_spirv_builtin_variable_e {
+  LOOM_SPIRV_BUILTIN_VARIABLE_WORKGROUP_ID = 0,
+  LOOM_SPIRV_BUILTIN_VARIABLE_WORKITEM_ID = 1,
+  LOOM_SPIRV_BUILTIN_VARIABLE_WORKITEM_DISPATCH_ID = 2,
+  LOOM_SPIRV_BUILTIN_VARIABLE_WORKGROUP_COUNT = 3,
+  LOOM_SPIRV_BUILTIN_VARIABLE_SUBGROUP_LANE_ID = 4,
+  LOOM_SPIRV_BUILTIN_VARIABLE_SUBGROUP_SIZE = 5,
+  LOOM_SPIRV_BUILTIN_VARIABLE_SUBGROUP_ID = 6,
+  LOOM_SPIRV_BUILTIN_VARIABLE_SUBGROUP_COUNT = 7,
+  LOOM_SPIRV_BUILTIN_VARIABLE_COUNT = 8,
+};
+typedef uint8_t loom_spirv_builtin_variable_t;
+
+typedef struct loom_spirv_builtin_variable_info_t {
+  // Debug name assigned to the SPIR-V Input variable.
+  iree_string_view_t name;
+  // SPIR-V BuiltIn enumerant decorating the variable.
+  uint32_t builtin;
+  // Number of u32 components in the builtin value.
+  uint8_t component_count;
+} loom_spirv_builtin_variable_info_t;
+
+// Generated variable facts indexed by loom_spirv_builtin_variable_t.
+extern const loom_spirv_builtin_variable_info_t
+    loom_spirv_builtin_variables[LOOM_SPIRV_BUILTIN_VARIABLE_COUNT];
+
 // Form-specific packet literals interned independently of descriptor and type.
 // The packet row's form selects the active member.
 typedef union loom_spirv_packet_payload_t {
@@ -87,8 +114,8 @@ typedef union loom_spirv_packet_payload_t {
   } scalar_constant;
   // Built-in input packet literals.
   struct {
-    // SPIR-V BuiltIn enumerant.
-    uint32_t builtin;
+    // Dense builtin-variable table and cache slot.
+    loom_spirv_builtin_variable_t variable;
     // Vector component extracted from the built-in input.
     uint8_t component_index;
   } builtin_load;

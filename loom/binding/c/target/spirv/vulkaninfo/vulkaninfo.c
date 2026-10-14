@@ -944,9 +944,7 @@ static loomc_status_t loomc_spirv_vulkaninfo_lookup_feature_struct(
 
 static loomc_status_t loomc_spirv_vulkaninfo_import_limits(
     loomc_spirv_vulkaninfo_import_t* import,
-    iree_string_view_t physical_properties,
-    iree_string_view_t vulkan11_properties,
-    iree_string_view_t subgroup_properties) {
+    iree_string_view_t physical_properties) {
   iree_string_view_t limits = iree_string_view_empty();
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_try_lookup_object(
       import, physical_properties, IREE_SV("limits"), &limits));
@@ -982,13 +980,77 @@ static loomc_status_t loomc_spirv_vulkaninfo_import_limits(
       import, limits, IREE_SV("maxComputeWorkGroupCount"), 2,
       LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_Z,
       loomc_make_cstring_view("vulkaninfo:maxComputeWorkGroupCount[2]")));
-  const iree_string_view_t subgroup_limit_properties =
-      !iree_string_view_is_empty(vulkan11_properties) ? vulkan11_properties
-                                                      : subgroup_properties;
-  return loomc_spirv_vulkaninfo_add_limit(
-      import, subgroup_limit_properties, IREE_SV("subgroupSize"),
-      LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE,
-      loomc_make_cstring_view("vulkaninfo:subgroupSize"));
+  return loomc_ok_status();
+}
+
+static loomc_status_t loomc_spirv_vulkaninfo_import_subgroup_limits(
+    loomc_spirv_vulkaninfo_import_t* import,
+    iree_string_view_t subgroup_properties, iree_string_view_t properties,
+    iree_string_view_t features, iree_string_view_t extended_features) {
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_limit(
+      import, subgroup_properties, IREE_SV("subgroupSize"),
+      LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
+      loomc_make_cstring_view("vulkaninfo:subgroupSize")));
+
+  iree_string_view_t control_properties = iree_string_view_empty();
+  const char* property_structs[] = {
+      "VkPhysicalDeviceVulkan13Properties",
+      "VkPhysicalDeviceSubgroupSizeControlProperties",
+      "VkPhysicalDeviceSubgroupSizeControlPropertiesEXT",
+  };
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(property_structs) &&
+                               iree_string_view_is_empty(control_properties);
+       ++i) {
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_try_lookup_object(
+        import, properties, iree_make_cstring_view(property_structs[i]),
+        &control_properties));
+  }
+  iree_string_view_t control_features = iree_string_view_empty();
+  const char* feature_structs[] = {
+      "VkPhysicalDeviceVulkan13Features",
+      "VkPhysicalDeviceSubgroupSizeControlFeatures",
+      "VkPhysicalDeviceSubgroupSizeControlFeaturesEXT",
+  };
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(feature_structs) &&
+                               iree_string_view_is_empty(control_features);
+       ++i) {
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_lookup_feature_struct(
+        import, features, extended_features,
+        iree_make_cstring_view(feature_structs[i]), &control_features));
+  }
+  loomc_target_fact_state_t control = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_bool_feature(
+      import, control_features, IREE_SV("subgroupSizeControl"), &control));
+  loomc_target_fact_state_t compute = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_flag_feature(
+      import, control_properties, IREE_SV("requiredSubgroupSizeStages"),
+      IREE_SV("VK_SHADER_STAGE_COMPUTE_BIT"), &compute));
+  const loomc_target_fact_state_t compute_control =
+      loomc_spirv_vulkaninfo_and_fact_states(control, compute);
+  if (compute_control == LOOMC_TARGET_FACT_STATE_TRUE) {
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_limit(
+        import, control_properties, IREE_SV("minSubgroupSize"),
+        LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE,
+        loomc_make_cstring_view("vulkaninfo:minSubgroupSize")));
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_limit(
+        import, control_properties, IREE_SV("maxSubgroupSize"),
+        LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE,
+        loomc_make_cstring_view("vulkaninfo:maxSubgroupSize")));
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_limit(
+        import, control_properties, IREE_SV("maxComputeWorkgroupSubgroups"),
+        LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SUBGROUP_COUNT,
+        loomc_make_cstring_view("vulkaninfo:maxComputeWorkgroupSubgroups")));
+  } else if (compute_control == LOOMC_TARGET_FACT_STATE_FALSE) {
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_limit(
+        import, subgroup_properties, IREE_SV("subgroupSize"),
+        LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE,
+        loomc_make_cstring_view("vulkaninfo:subgroupSize")));
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_limit(
+        import, subgroup_properties, IREE_SV("subgroupSize"),
+        LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE,
+        loomc_make_cstring_view("vulkaninfo:subgroupSize")));
+  }
+  return loomc_ok_status();
 }
 
 static loomc_status_t loomc_spirv_vulkaninfo_import_feature_properties(
@@ -1288,8 +1350,8 @@ static loomc_status_t loomc_spirv_vulkaninfo_import_device(
   LOOMC_RETURN_IF_ERROR(
       loomc_spirv_vulkaninfo_add_float64_to_float16_conversion(
           import, physical_properties));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_import_limits(
-      import, physical_properties, vulkan11_properties, subgroup_properties));
+  LOOMC_RETURN_IF_ERROR(
+      loomc_spirv_vulkaninfo_import_limits(import, physical_properties));
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_import_feature_properties(
       import, vulkan11_properties, subgroup_properties, vulkan12_properties,
       float_controls_properties));
@@ -1300,6 +1362,11 @@ static loomc_status_t loomc_spirv_vulkaninfo_import_device(
   iree_string_view_t extended_features = iree_string_view_empty();
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_try_lookup_object(
       import, device, IREE_SV("extended_features"), &extended_features));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_import_subgroup_limits(
+      import,
+      !iree_string_view_is_empty(vulkan11_properties) ? vulkan11_properties
+                                                      : subgroup_properties,
+      properties, features, extended_features));
   return loomc_spirv_vulkaninfo_import_features_from_structs(import, features,
                                                              extended_features);
 }

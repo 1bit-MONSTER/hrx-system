@@ -10,6 +10,7 @@
 
 #include "iree/base/internal/math.h"
 #include "loom/analysis/integer_relation.h"
+#include "loom/ir/context.h"
 #include "loom/util/fact_ordinal_map.h"
 #include "loom/util/fact_relation.h"
 
@@ -376,6 +377,30 @@ bool loom_value_fact_table_predicate_implies(
         table, premise, conclusion, /*swapped=*/false);
   }
 
+  return false;
+}
+
+bool loom_value_fact_table_carrier_implies_predicate(
+    const loom_value_fact_table_t* table, const loom_module_t* module,
+    const loom_op_t* carrier, const loom_predicate_t* conclusion) {
+  if (!iree_all_bits_set(carrier->traits,
+                         LOOM_TRAIT_PURE | LOOM_TRAIT_FACT_IDENTITY)) {
+    return false;
+  }
+  const loom_op_vtable_t* vtable = loom_op_vtable(module, carrier);
+  const loom_attribute_t* attributes = loom_op_const_attrs(carrier);
+  for (uint8_t i = 0; i < vtable->attribute_count; ++i) {
+    if (vtable->attr_descriptors[i].attr_kind != LOOM_ATTR_PREDICATE_LIST) {
+      continue;
+    }
+    const loom_attribute_t* premises = &attributes[i];
+    for (uint16_t j = 0; j < premises->count; ++j) {
+      if (loom_value_fact_table_predicate_implies(
+              table, &premises->predicate_list[j], conclusion)) {
+        return true;
+      }
+    }
+  }
   return false;
 }
 

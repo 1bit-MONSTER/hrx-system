@@ -656,6 +656,39 @@ void loom_value_facts_recompute_flags(loom_value_facts_t* facts) {
       preserved;
 }
 
+// A literal bound and a known divisor describe the same value. Tighten finite
+// endpoints to possible multiples so consumers need not rediscover this fact.
+void loom_value_facts_refine_divisible_range(loom_value_facts_t* facts) {
+  const int64_t divisor = facts->known_divisor;
+  if (divisor <= 1 || loom_value_facts_is_float(*facts)) {
+    return;
+  }
+  int64_t lower = facts->range_lo;
+  int64_t upper = facts->range_hi;
+  if (lower != INT64_MIN) {
+    const int64_t remainder = lower % divisor;
+    const int64_t adjustment = remainder > 0 ? divisor - remainder : -remainder;
+    if (!iree_checked_add_i64(lower, adjustment, &lower)) {
+      return;
+    }
+  }
+  if (upper != INT64_MAX) {
+    const int64_t remainder = upper % divisor;
+    const int64_t adjustment = remainder < 0 ? divisor + remainder : remainder;
+    if (!iree_checked_sub_i64(upper, adjustment, &upper)) {
+      return;
+    }
+  }
+  // The lattice has no empty set. Contradictory predicates retain their
+  // conservative interval instead of manufacturing an exact value.
+  if (lower > upper) {
+    return;
+  }
+  facts->range_lo = lower;
+  facts->range_hi = upper;
+  facts->flags |= loom_value_facts_compute_flags(lower, upper);
+}
+
 //===----------------------------------------------------------------------===//
 // Predicate application
 //===----------------------------------------------------------------------===//
@@ -915,38 +948,6 @@ bool loom_value_facts_predicate_conflict(
                                                    out_conflict) ||
          loom_value_facts_predicate_exact_i64_conflict(facts, predicate,
                                                        out_conflict);
-}
-
-// A literal bound and a known divisor describe the same value. Tighten finite
-// endpoints to possible multiples so consumers need not rediscover this fact.
-static void loom_value_facts_refine_divisible_range(loom_value_facts_t* facts) {
-  const int64_t divisor = facts->known_divisor;
-  if (divisor <= 1 || loom_value_facts_is_float(*facts)) {
-    return;
-  }
-  int64_t lower = facts->range_lo;
-  int64_t upper = facts->range_hi;
-  if (lower != INT64_MIN) {
-    const int64_t remainder = lower % divisor;
-    const int64_t adjustment = remainder > 0 ? divisor - remainder : -remainder;
-    if (!iree_checked_add_i64(lower, adjustment, &lower)) {
-      return;
-    }
-  }
-  if (upper != INT64_MAX) {
-    const int64_t remainder = upper % divisor;
-    const int64_t adjustment = remainder < 0 ? divisor + remainder : remainder;
-    if (!iree_checked_sub_i64(upper, adjustment, &upper)) {
-      return;
-    }
-  }
-  // The lattice has no empty set. Contradictory predicates retain their
-  // conservative interval instead of manufacturing an exact value.
-  if (lower > upper) {
-    return;
-  }
-  facts->range_lo = lower;
-  facts->range_hi = upper;
 }
 
 void loom_value_facts_apply_predicate(loom_value_facts_t* facts,

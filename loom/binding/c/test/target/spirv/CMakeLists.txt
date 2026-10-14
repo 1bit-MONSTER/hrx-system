@@ -96,6 +96,7 @@ loom_cc_test(
     "iree_hal_execution_test.cc"
   DEPS
     iree::base
+    iree::hal
     iree::testing::gtest
     iree::testing::gtest_main
     loom::binding::c::loomc
@@ -103,6 +104,7 @@ loom_cc_test(
     loom::binding::c::target::spirv
     loom::binding::c::target::spirv::iree_hal
     loom::binding::c::test::target::iree_hal_execution_test_util
+    loom::binding::c::test::test_util
   LABELS
     "iree-run-requirement=vulkan.resource.device"
     "runtime-resource=vulkan-device"

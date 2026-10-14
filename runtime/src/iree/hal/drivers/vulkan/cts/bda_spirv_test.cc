@@ -318,10 +318,117 @@ class BdaSpirvTest : public CtsTestBase<> {
         execute_signal, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
   }
 
+  void TestEmptyGridDispatches(bool capture_profile) {
+    Ref<iree_hal_buffer_t> input_buffer;
+    Ref<iree_hal_buffer_t> output_buffer;
+    CreateInputOutputBuffers(&input_buffer, &output_buffer);
+    enum class Mode { kQueue, kRecorded, kBindingTable };
+    for (auto mode : {Mode::kQueue, Mode::kRecorded, Mode::kBindingTable}) {
+      SCOPED_TRACE(static_cast<int>(mode));
+      for (uint32_t zero_axes = 1; zero_axes < 8; ++zero_axes) {
+        SCOPED_TRACE(zero_axes);
+        const auto config = iree_hal_make_static_dispatch_config(
+            zero_axes & 1 ? 0 : 1, zero_axes & 2 ? 0 : 1,
+            zero_axes & 4 ? 0 : 1);
+        iree_hal_buffer_ref_t refs[2] = {
+            iree_hal_make_buffer_ref(input_buffer, 0, 0),
+            iree_hal_make_buffer_ref(output_buffer, 0, 0),
+        };
+        const iree_hal_buffer_binding_t entries[2] = {{input_buffer, 0, 0},
+                                                      {output_buffer, 0, 0}};
+        auto table = iree_hal_buffer_binding_table_empty();
+        if (mode == Mode::kBindingTable) {
+          refs[0] = iree_hal_make_indirect_buffer_ref(0, 0, 0);
+          refs[1] = iree_hal_make_indirect_buffer_ref(1, 0, 0);
+          table = {2, entries};
+        }
+        const iree_hal_buffer_ref_list_t bindings = {2, refs};
+        Ref<iree_hal_command_buffer_t> commands;
+        if (mode != Mode::kQueue) {
+          IREE_ASSERT_OK(CreateCommandBuffer(
+              IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT,
+              IREE_HAL_COMMAND_CATEGORY_DISPATCH,
+              mode == Mode::kBindingTable ? 2 : 0, commands.out()));
+          IREE_ASSERT_OK(iree_hal_command_buffer_begin(commands));
+          IREE_ASSERT_OK(iree_hal_command_buffer_dispatch(
+              commands, executable_, iree_hal_executable_function_from_index(0),
+              config, iree_const_byte_span_empty(), bindings,
+              IREE_HAL_DISPATCH_FLAG_NONE));
+          IREE_ASSERT_OK(iree_hal_command_buffer_end(commands));
+        }
+
+        TestProfileSink sink = {};
+        TestProfileSinkInitialize(&sink);
+        for (int axis = 0; axis < 3; ++axis) {
+          sink.expected_workgroup_count[axis] = config.workgroup_count[axis];
+        }
+        if (commands) {
+          sink.expected_dispatch_flags =
+              IREE_HAL_PROFILE_DISPATCH_EVENT_FLAG_COMMAND_BUFFER;
+          sink.expected_dispatch_command_indices = {0, 0};
+        }
+        DeviceProfilingScope profiling(device_);
+        if (capture_profile) {
+          iree_status_t status =
+              profiling.Begin(IREE_HAL_DEVICE_PROFILING_DATA_DISPATCH_EVENTS,
+                              TestProfileSinkAsBase(&sink));
+          if (IsProfilingUnsupported(iree_status_code(status))) {
+            iree_status_ignore(status);
+            GTEST_SKIP() << "Vulkan dispatch profiling is unavailable";
+          }
+          IREE_ASSERT_OK(status);
+        }
+
+        // Replay the same command buffer after completion to exercise native
+        // replay caching as well as initial BDA publication.
+        for (int iteration = 0; iteration < 2; ++iteration) {
+          SemaphoreList gate(device_, {0}, {1});
+          SemaphoreList completed(device_, {0}, {1});
+          if (commands) {
+            IREE_ASSERT_OK(iree_hal_queue_execute(
+                QueueForCommandBuffer(commands), gate, completed, commands,
+                table, IREE_HAL_QUEUE_EXECUTE_FLAG_NONE));
+          } else {
+            IREE_ASSERT_OK(iree_hal_queue_dispatch(
+                dispatch_queue_, gate, completed, executable_,
+                iree_hal_executable_function_from_index(0), config,
+                iree_const_byte_span_empty(), bindings, /*barriers=*/nullptr,
+                IREE_HAL_DISPATCH_FLAG_NONE));
+          }
+          uint64_t value = 0;
+          IREE_ASSERT_OK(
+              iree_hal_semaphore_query(completed.semaphores[0], &value));
+          EXPECT_EQ(0u, value);
+          IREE_ASSERT_OK(iree_hal_semaphore_list_signal(gate, nullptr));
+          IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
+              completed, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+        }
+        if (capture_profile) {
+          IREE_ASSERT_OK(iree_hal_device_profiling_flush(device_));
+          IREE_ASSERT_OK(profiling.End());
+          // The common HAL recorder elides an all-zero grid before reaching
+          // the driver. Other empty shapes remain recorded dispatch events.
+          EXPECT_EQ(commands && zero_axes == 7 ? 0u : 2u,
+                    sink.dispatch_events.size());
+        }
+        EXPECT_THAT(ReadBufferData<int32_t>(output_buffer),
+                    ContainerEq(std::vector<int32_t>(kElementCount, 0)));
+      }
+    }
+  }
+
   iree_hal_queue_t* dispatch_queue_ = nullptr;
   const iree_hal_executable_target_t* executable_target_ = nullptr;
   iree_hal_executable_t* executable_ = nullptr;
 };
+
+TEST_P(BdaSpirvTest, EmptyGridsAcceptEmptyBindings) {
+  TestEmptyGridDispatches(/*capture_profile=*/false);
+}
+
+TEST_P(BdaSpirvTest, EmptyGridsPreserveDispatchProfiling) {
+  TestEmptyGridDispatches(/*capture_profile=*/true);
+}
 
 static void ExpectNativeBindingRange(iree_hal_buffer_t* root,
                                      iree_hal_buffer_t* view,
@@ -640,6 +747,53 @@ TEST_P(BdaSpirvTest, QueueDispatchExecutesBdaShader) {
       dispatch_signal, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
 
   ExpectOutput(output_buffer);
+}
+
+TEST_P(BdaSpirvTest, RejectsUnsupportedSubgroupSize) {
+  Ref<iree_hal_executable_t> executable;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      PrepareBdaExecutable(BdaSpirvFixture("bda_subgroup_unsupported.spv"),
+                           executable.out()));
+  EXPECT_EQ(executable.get(), nullptr);
+}
+
+TEST_P(BdaSpirvTest, QueueDispatchHonorsPerEntrySubgroupSizes) {
+  const auto* dispatch =
+      iree_hal_device_spec_dispatch(iree_hal_device_spec(device_));
+  ASSERT_NE(dispatch, nullptr);
+  if (dispatch->subgroup.minimum_size > 32 ||
+      dispatch->subgroup.maximum_size < 64) {
+    GTEST_SKIP()
+        << "device does not support both 32- and 64-lane compute subgroups";
+  }
+  Ref<iree_hal_executable_t> executable;
+  IREE_ASSERT_OK(PrepareBdaExecutable(BdaSpirvFixture("bda_subgroup_sizes.spv"),
+                                      executable.out()));
+  for (uint32_t subgroup_size : {32u, 64u}) {
+    SCOPED_TRACE(subgroup_size);
+    Ref<iree_hal_buffer_t> output;
+    IREE_ASSERT_OK(
+        CreateZeroedDeviceBuffer(128 * sizeof(uint32_t), output.out()));
+    const iree_hal_buffer_ref_t binding =
+        iree_hal_make_buffer_ref(output, 0, IREE_HAL_WHOLE_BUFFER);
+    const iree_hal_buffer_ref_list_t bindings = {1, &binding};
+    iree_hal_executable_function_t function =
+        iree_hal_executable_function_invalid();
+    IREE_ASSERT_OK(iree_hal_executable_lookup_function_by_name(
+        executable, subgroup_size == 32 ? IREE_SV("wave32") : IREE_SV("wave64"),
+        &function));
+    SemaphoreList completed(device_, {0}, {1});
+    IREE_ASSERT_OK(iree_hal_queue_dispatch(
+        dispatch_queue_, iree_hal_semaphore_list_empty(), completed, executable,
+        function, iree_hal_make_static_dispatch_config(1, 1, 1),
+        iree_const_byte_span_empty(), bindings, /*barriers=*/NULL,
+        IREE_HAL_DISPATCH_FLAG_NONE));
+    IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
+        completed, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+    EXPECT_THAT(ReadBufferData<uint32_t>(output),
+                ContainerEq(std::vector<uint32_t>(128, subgroup_size)));
+  }
 }
 
 TEST_P(BdaSpirvTest, QueueDispatchExecutesBdaShaderWithMetadata) {
@@ -1392,6 +1546,10 @@ TEST_P(BdaSpirvTest, CommandBufferExecutesBdaShaderWithSparseBindings) {
 }
 
 class BdaSpirvReplayCacheTest : public BdaSpirvTest {};
+
+TEST_P(BdaSpirvReplayCacheTest, EmptyGridsAcceptEmptyBindings) {
+  TestEmptyGridDispatches(/*capture_profile=*/false);
+}
 
 TEST_P(BdaSpirvReplayCacheTest, CommandBufferReusesCachedNativeReplay) {
   ASSERT_GE(NativeReplayCacheStats().max_instance_count, 1);

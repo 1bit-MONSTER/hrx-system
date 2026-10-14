@@ -10,6 +10,7 @@
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/target/arch/spirv/records/target_records.h"
+#include "loom/target/facts_builder.h"
 
 namespace loom {
 namespace {
@@ -19,7 +20,7 @@ TEST(SpirvTargetProfileTest, PreservesStructuredProfileFacts) {
   const loom_spirv_cooperative_property_set_t cooperative_properties = {};
   loom_spirv_target_profile_t profile = {};
 
-  loom_spirv_target_profile_initialize(&target_bundle, 0,
+  loom_spirv_target_profile_initialize(&target_bundle, 0, {},
                                        &cooperative_properties, &profile);
 
   EXPECT_EQ(loom_spirv_target_profile_cast(&profile.base), &profile);
@@ -67,7 +68,8 @@ TEST(SpirvTargetProfileTest, ProjectsOwnedCooperativePropertyFacts) {
   };
   loom_spirv_target_profile_t profile = {};
   loom_spirv_target_profile_initialize(&loom_spirv_low_target_bundle_vulkan1_3,
-                                       0, &cooperative_properties, &profile);
+                                       0, {}, &cooperative_properties,
+                                       &profile);
 
   iree_arena_block_pool_t block_pool;
   iree_arena_block_pool_initialize(4096, iree_allocator_system(), &block_pool);
@@ -135,7 +137,7 @@ TEST(SpirvTargetProfileTest, PreservesExplicitZeroAndPresetValues) {
   const loom_spirv_cooperative_property_set_t no_cooperative_properties = {};
   loom_spirv_target_profile_t profile = {};
   loom_spirv_target_profile_initialize(&loom_spirv_low_target_bundle_vulkan1_3,
-                                       explicit_fields,
+                                       explicit_fields, {},
                                        &no_cooperative_properties, &profile);
 
   iree_arena_block_pool_t block_pool;
@@ -198,6 +200,79 @@ TEST(SpirvTargetProfileTest, SelectsExplicitTypeAndAbiRequirements) {
       LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT));
   EXPECT_EQ(profile->base.target_bundle->export_plan->abi_kind,
             LOOM_TARGET_ABI_HAL_KERNEL);
+}
+
+TEST(SpirvTargetProfileTest, SelectsSupportedSubgroupsPerRoot) {
+  loom_target_snapshot_t snapshot =
+      *loom_spirv_low_target_bundle_vulkan1_3.snapshot;
+  snapshot.max_flat_workgroup_size = 4096;
+  loom_target_bundle_t bundle = loom_spirv_low_target_bundle_vulkan1_3;
+  bundle.snapshot = &snapshot;
+  const loom_spirv_subgroup_properties_t subgroup = {
+      .default_size = 64,
+      .minimum_size = 1,
+      .maximum_size = 128,
+      .maximum_workgroup_subgroup_count = 16,
+  };
+  loom_spirv_target_profile_t profile = {};
+  loom_spirv_target_profile_initialize(&bundle, 0, subgroup, nullptr, &profile);
+  iree_arena_block_pool_t block_pool;
+  iree_arena_block_pool_initialize(4096, iree_allocator_system(), &block_pool);
+  iree_arena_allocator_t arena;
+  iree_arena_initialize(&block_pool, &arena);
+  loom_target_facts_t* available = nullptr;
+  IREE_ASSERT_OK(
+      loom_target_profile_project_facts(&profile.base, &arena, &available));
+  EXPECT_EQ(available->storage.snapshot.subgroup_size, 0u);
+  const loom_target_facts_t* preferred = nullptr;
+  IREE_ASSERT_OK(loom_target_facts_builder_select_execution(available, &arena,
+                                                            &preferred));
+  EXPECT_EQ(preferred->storage.snapshot.subgroup_size, 64u);
+  EXPECT_EQ(preferred->storage.snapshot.max_flat_workgroup_size, 4096u);
+  EXPECT_TRUE(loom_target_facts_field_is_explicit(
+      preferred, LOOM_TARGET_FACT_FIELD_SUBGROUP_SIZE));
+
+  for (uint32_t width = 1; width <= 256; width *= 2) {
+    SCOPED_TRACE(width);
+    snapshot.subgroup_size = width;
+    snapshot.max_flat_workgroup_size = 0;
+    loom_spirv_target_profile_t required_profile = {};
+    loom_spirv_target_profile_initialize(
+        &bundle, UINT64_C(1) << LOOM_TARGET_FACT_FIELD_SUBGROUP_SIZE, {},
+        nullptr, &required_profile);
+    loom_target_facts_t* requirement = nullptr;
+    IREE_ASSERT_OK(loom_target_profile_project_facts(&required_profile.base,
+                                                     &arena, &requirement));
+    EXPECT_EQ(loom_target_facts_satisfy_specialization_requirement(available,
+                                                                   requirement),
+              width <= 128);
+    EXPECT_EQ(loom_target_facts_satisfy_specialization_requirement(preferred,
+                                                                   requirement),
+              width == 64);
+    if (width > 128) {
+      continue;
+    }
+    loom_target_facts_t* constrained = nullptr;
+    IREE_ASSERT_OK(
+        loom_target_facts_builder_clone(available, &arena, &constrained));
+    loom_target_facts_builder_apply_requirement(requirement, constrained);
+    const loom_target_facts_t* selected = nullptr;
+    IREE_ASSERT_OK(loom_target_facts_builder_select_execution(
+        constrained, &arena, &selected));
+    EXPECT_EQ(selected->storage.snapshot.subgroup_size, width);
+    EXPECT_EQ(selected->storage.snapshot.max_flat_workgroup_size,
+              width == 64 ? 4096u : width * 16);
+    EXPECT_EQ(loom_target_facts_field_is_explicit(
+                  selected, LOOM_TARGET_FACT_FIELD_MAX_FLAT_WORKGROUP_SIZE),
+              width != 64);
+    const loom_target_facts_t* repeated = nullptr;
+    IREE_ASSERT_OK(loom_target_facts_builder_select_execution(selected, &arena,
+                                                              &repeated));
+    EXPECT_EQ(repeated, selected);
+  }
+  EXPECT_EQ(available->storage.snapshot.subgroup_size, 0u);
+  iree_arena_deinitialize(&arena);
+  iree_arena_block_pool_deinitialize(&block_pool);
 }
 
 TEST(SpirvTargetProfileTest, RejectsUnknownNamedProfile) {

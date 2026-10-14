@@ -88,6 +88,9 @@ typedef struct loomc_spirv_vulkan_extensions_t {
   // VK_EXT_shader_atomic_float2 is supported.
   bool shader_atomic_float2_ext;
 
+  // VK_EXT_subgroup_size_control is supported.
+  bool subgroup_size_control_ext;
+
   // VK_KHR_cooperative_matrix is supported.
   bool cooperative_matrix_khr;
 } loomc_spirv_vulkan_extensions_t;
@@ -326,6 +329,9 @@ static void loomc_spirv_vulkan_record_extension(
                  extension, VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME)) {
     out_extensions->shader_atomic_float_ext = true;
   } else if (loomc_spirv_vulkan_extension_name_equal(
+                 extension, VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)) {
+    out_extensions->subgroup_size_control_ext = true;
+  } else if (loomc_spirv_vulkan_extension_name_equal(
                  extension, VK_EXT_SHADER_ATOMIC_FLOAT_2_EXTENSION_NAME)) {
     out_extensions->shader_atomic_float2_ext = true;
 #if defined(VK_KHR_cooperative_matrix)
@@ -413,7 +419,9 @@ static void loomc_spirv_vulkan_link_out_struct(void** inout_chain,
 static loomc_status_t loomc_spirv_vulkan_query_properties(
     const loomc_spirv_vulkan_profile_options_t* options,
     const loomc_spirv_vulkan_extensions_t* extensions,
-    loomc_spirv_vulkan_profile_facts_t* facts, uint32_t* out_api_version) {
+    loomc_spirv_vulkan_profile_facts_t* facts, uint32_t* out_api_version,
+    uint32_t* out_subgroup_size,
+    VkPhysicalDeviceSubgroupSizeControlProperties* out_subgroup_control) {
   VkPhysicalDeviceProperties2 properties2 = {
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
   };
@@ -489,6 +497,14 @@ static loomc_status_t loomc_spirv_vulkan_query_properties(
   };
 
   void* property_chain = NULL;
+  *out_subgroup_control = (VkPhysicalDeviceSubgroupSizeControlProperties){
+      .sType =
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES,
+  };
+  if (*out_api_version >= VK_API_VERSION_1_3 ||
+      extensions->subgroup_size_control_ext) {
+    loomc_spirv_vulkan_link_out_struct(&property_chain, out_subgroup_control);
+  }
   if (query_float_controls_extension) {
     loomc_spirv_vulkan_link_out_struct(&property_chain,
                                        &float_controls_properties);
@@ -508,6 +524,7 @@ static loomc_status_t loomc_spirv_vulkan_query_properties(
                                                       &properties2);
   IREE_LEAK_CHECK_DISABLE_POP();
   if (has_vulkan_11) {
+    *out_subgroup_size = subgroup_properties.subgroupSize;
     const bool has_group_non_uniform =
         (subgroup_properties.supportedOperations &
          VK_SUBGROUP_FEATURE_BASIC_BIT) != 0;
@@ -521,7 +538,7 @@ static loomc_status_t loomc_spirv_vulkan_query_properties(
         LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
         loomc_make_cstring_view("vulkan:subgroupSupportedOperations")));
     LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_limit_fact(
-        facts, LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE,
+        facts, LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
         subgroup_properties.subgroupSize,
         loomc_make_cstring_view("vulkan:subgroupSize")));
   }
@@ -589,8 +606,12 @@ static loomc_status_t loomc_spirv_vulkan_query_properties(
 
 static loomc_status_t loomc_spirv_vulkan_query_features(
     const loomc_spirv_vulkan_profile_options_t* options, uint32_t api_version,
-    const loomc_spirv_vulkan_extensions_t* extensions,
+    const loomc_spirv_vulkan_extensions_t* extensions, uint32_t subgroup_size,
+    const VkPhysicalDeviceSubgroupSizeControlProperties* subgroup_control,
     loomc_spirv_vulkan_profile_facts_t* facts) {
+  VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_control_features = {
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
+  };
   VkPhysicalDeviceVulkan12Features vulkan12_features = {
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
   };
@@ -622,6 +643,11 @@ static loomc_status_t loomc_spirv_vulkan_query_features(
   };
 
   void* feature_chain = NULL;
+  if (api_version >= VK_API_VERSION_1_3 ||
+      extensions->subgroup_size_control_ext) {
+    loomc_spirv_vulkan_link_out_struct(&feature_chain,
+                                       &subgroup_control_features);
+  }
 #if defined(VK_KHR_cooperative_matrix)
   VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features = {
       .sType =
@@ -682,6 +708,29 @@ static loomc_status_t loomc_spirv_vulkan_query_features(
   options->functions->get_physical_device_features2(options->physical_device,
                                                     &features2);
   IREE_LEAK_CHECK_DISABLE_POP();
+
+  if (has_vulkan_11) {
+    const bool supports_compute_control =
+        subgroup_control_features.subgroupSizeControl &&
+        (subgroup_control->requiredSubgroupSizeStages &
+         VK_SHADER_STAGE_COMPUTE_BIT) != 0;
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_limit_fact(
+        facts, LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE,
+        supports_compute_control ? subgroup_control->minSubgroupSize
+                                 : subgroup_size,
+        loomc_make_cstring_view("vulkan:minSubgroupSize")));
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_limit_fact(
+        facts, LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE,
+        supports_compute_control ? subgroup_control->maxSubgroupSize
+                                 : subgroup_size,
+        loomc_make_cstring_view("vulkan:maxSubgroupSize")));
+    if (supports_compute_control) {
+      LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_limit_fact(
+          facts, LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SUBGROUP_COUNT,
+          subgroup_control->maxComputeWorkgroupSubgroups,
+          loomc_make_cstring_view("vulkan:maxComputeWorkgroupSubgroups")));
+    }
+  }
 
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_feature_fact(
       facts, LOOMC_SPIRV_FEATURE_VULKAN_SHADER, LOOMC_TARGET_FACT_STATE_TRUE,
@@ -882,17 +931,21 @@ loomc_status_t loomc_target_profile_create_spirv_vulkan(
 
   loomc_spirv_vulkan_profile_facts_t facts = {0};
   uint32_t api_version = 0;
+  uint32_t subgroup_size = 0;
+  VkPhysicalDeviceSubgroupSizeControlProperties subgroup_control = {0};
   loomc_spirv_vulkan_extensions_t extensions = {0};
   IREE_LEAK_CHECK_DISABLE_PUSH();
   loomc_status_t status =
       loomc_spirv_vulkan_query_extensions(options, allocator, &extensions);
   if (loomc_status_is_ok(status)) {
     status = loomc_spirv_vulkan_query_properties(options, &extensions, &facts,
-                                                 &api_version);
+                                                 &api_version, &subgroup_size,
+                                                 &subgroup_control);
   }
   if (loomc_status_is_ok(status)) {
     status = loomc_spirv_vulkan_query_features(options, api_version,
-                                               &extensions, &facts);
+                                               &extensions, subgroup_size,
+                                               &subgroup_control, &facts);
   }
   IREE_LEAK_CHECK_DISABLE_POP();
   LOOMC_RETURN_IF_ERROR(status);

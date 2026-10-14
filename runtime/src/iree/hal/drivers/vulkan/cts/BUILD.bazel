@@ -67,6 +67,8 @@ _BDA_SPIRV_TEST_FIXTURES = [
     "bda_noop_binding_requirements",
     "bda_noop_bindings_2_constant_length_8",
     "bda_noop_without_push_constant_root",
+    "bda_subgroup_sizes",
+    "bda_subgroup_unsupported",
 ]
 
 [

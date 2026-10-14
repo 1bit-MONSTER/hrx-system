@@ -832,6 +832,13 @@ typedef struct loom_value_fact_predicate_conflict_t {
 // predicate, floating-point type, and execution distribution flags.
 void loom_value_facts_recompute_flags(loom_value_facts_t* facts);
 
+// Tightens finite integer bounds to multiples of the known divisor and
+// updates cached flags, preserving independent predicates and distribution.
+// Floating-point facts and unbounded endpoints remain unchanged. Intervals
+// containing no representable multiple stay conservative because the lattice
+// has no empty set.
+void loom_value_facts_refine_divisible_range(loom_value_facts_t* facts);
+
 // Returns true when |predicate| is statically impossible for |facts|. This is a
 // validation query, not a transfer function: callers that accept user assumes
 // should diagnose true results before applying the predicate to avoid turning

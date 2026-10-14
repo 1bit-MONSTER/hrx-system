@@ -1,0 +1,26 @@
+; A well-formed width beyond Vulkan's maximum of 128 must fail before creation.
+OpCapability Shader
+OpCapability Int64
+OpCapability PhysicalStorageBufferAddresses
+OpMemoryModel PhysicalStorageBuffer64 GLSL450
+OpEntryPoint GLCompute %main "main" %root
+OpExecutionMode %main LocalSize 1 1 1
+OpModuleProcessed "iree.vulkan.bda.v1[main].subgroup_size=256"
+OpDecorate %Root Block
+OpMemberDecorate %Root 0 Offset 0
+OpMemberDecorate %Root 1 Offset 8
+OpMemberDecorate %Root 2 Offset 16
+OpMemberDecorate %Root 3 Offset 20
+OpMemberDecorate %Root 4 Offset 24
+OpMemberDecorate %Root 5 Offset 28
+%void = OpTypeVoid
+%function = OpTypeFunction %void
+%u32 = OpTypeInt 32 0
+%u64 = OpTypeInt 64 0
+%Root = OpTypeStruct %u64 %u64 %u32 %u32 %u32 %u32
+%root_pointer = OpTypePointer PushConstant %Root
+%root = OpVariable %root_pointer PushConstant
+%main = OpFunction %void None %function
+%entry = OpLabel
+OpReturn
+OpFunctionEnd

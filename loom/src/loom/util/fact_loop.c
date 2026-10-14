@@ -157,6 +157,7 @@ iree_status_t loom_value_fact_table_seed_loop_iv_arg(
       loom_value_fact_table_lookup(table, loom_loop_like_step(loop));
   loom_value_facts_t iv_facts =
       loom_value_fact_counted_loop_iv_facts(lower_bound, upper_bound, step);
+  loom_value_facts_refine_divisible_range(&iv_facts);
   loom_value_facts_propagate_ternary_distribution(lower_bound, upper_bound,
                                                   step, &iv_facts);
   loom_value_id_t iv_id =

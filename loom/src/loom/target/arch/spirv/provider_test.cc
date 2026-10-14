@@ -292,7 +292,7 @@ TEST_F(SpirvProviderTest, MaterializesStructuredProfileOverrides) {
     loom_target_fact_field_set_insert(&explicit_fields, field);
   }
   loom_spirv_target_profile_t profile = {};
-  loom_spirv_target_profile_initialize(&storage.bundle, explicit_fields,
+  loom_spirv_target_profile_initialize(&storage.bundle, explicit_fields, {},
                                        nullptr, &profile);
   loom_target_facts_t* profile_facts = nullptr;
   IREE_ASSERT_OK(loom_target_profile_project_facts(
@@ -382,9 +382,9 @@ TEST_F(SpirvProviderTest, ProjectedProfileSatisfiesStructuredRequirements) {
     loom_target_fact_field_set_insert(&explicit_fields, field);
   }
   loom_spirv_target_profile_t profile = {};
-  loom_spirv_target_profile_initialize(&live_storage.bundle, explicit_fields,
-                                       /*cooperative_properties=*/nullptr,
-                                       &profile);
+  loom_spirv_target_profile_initialize(
+      &live_storage.bundle, explicit_fields, {},
+      /*cooperative_properties=*/nullptr, &profile);
   loom_target_facts_t* effective = nullptr;
   IREE_ASSERT_OK(loom_target_profile_project_facts(
       &profile.base, &analysis_arena_, &effective));

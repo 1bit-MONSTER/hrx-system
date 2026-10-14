@@ -1,0 +1,78 @@
+; The two entries share instructions and read the actual runtime SubgroupSize.
+; Per-entry BDA requirements must produce different pipeline execution widths.
+OpCapability Shader
+OpCapability Int64
+OpCapability GroupNonUniform
+OpCapability PhysicalStorageBufferAddresses
+OpMemoryModel PhysicalStorageBuffer64 GLSL450
+OpEntryPoint GLCompute %wave32 "wave32" %root %thread %width
+OpEntryPoint GLCompute %wave64 "wave64" %root %thread %width
+OpExecutionMode %wave32 LocalSize 128 1 1
+OpExecutionMode %wave64 LocalSize 128 1 1
+OpModuleProcessed "iree.vulkan.bda.v1[wave64].subgroup_size=64"
+OpModuleProcessed "iree.vulkan.bda.v1[wave32].subgroup_size=32"
+OpModuleProcessed "iree.vulkan.bda.v1[wave32].bindings=1"
+OpModuleProcessed "iree.vulkan.bda.v1[wave64].bindings=1"
+OpDecorate %Root Block
+OpMemberDecorate %Root 0 Offset 0
+OpMemberDecorate %Root 1 Offset 8
+OpMemberDecorate %Root 2 Offset 16
+OpMemberDecorate %Root 3 Offset 20
+OpMemberDecorate %Root 4 Offset 24
+OpMemberDecorate %Root 5 Offset 28
+OpDecorate %addresses ArrayStride 8
+OpDecorate %AddressTable Block
+OpMemberDecorate %AddressTable 0 Offset 0
+OpDecorate %values ArrayStride 4
+OpDecorate %Output Block
+OpMemberDecorate %Output 0 Offset 0
+OpDecorate %thread BuiltIn LocalInvocationIndex
+OpDecorate %width BuiltIn SubgroupSize
+%void = OpTypeVoid
+%function = OpTypeFunction %void
+%u32 = OpTypeInt 32 0
+%u64 = OpTypeInt 64 0
+%base = OpConstant %u32 0
+%binding_base_member = OpConstant %u32 2
+%Root = OpTypeStruct %u64 %u64 %u32 %u32 %u32 %u32
+%root_pointer = OpTypePointer PushConstant %Root
+%root_address_pointer = OpTypePointer PushConstant %u64
+%root_index_pointer = OpTypePointer PushConstant %u32
+%root = OpVariable %root_pointer PushConstant
+%addresses = OpTypeRuntimeArray %u64
+%AddressTable = OpTypeStruct %addresses
+%table_pointer = OpTypePointer PhysicalStorageBuffer %AddressTable
+%address_pointer = OpTypePointer PhysicalStorageBuffer %u64
+%values = OpTypeRuntimeArray %u32
+%Output = OpTypeStruct %values
+%output_pointer = OpTypePointer PhysicalStorageBuffer %Output
+%value_pointer = OpTypePointer PhysicalStorageBuffer %u32
+%input_pointer = OpTypePointer Input %u32
+%thread = OpVariable %input_pointer Input
+%width = OpVariable %input_pointer Input
+%record = OpFunction %void None %function
+%record_entry = OpLabel
+%table_address_slot = OpAccessChain %root_address_pointer %root %base
+%table_address = OpLoad %u64 %table_address_slot
+%table = OpConvertUToPtr %table_pointer %table_address
+%binding_base_slot = OpAccessChain %root_index_pointer %root %binding_base_member
+%binding_base = OpLoad %u32 %binding_base_slot
+%output_address_slot = OpAccessChain %address_pointer %table %base %binding_base
+%output_address = OpLoad %u64 %output_address_slot Aligned 8
+%output = OpConvertUToPtr %output_pointer %output_address
+%position = OpLoad %u32 %thread
+%actual_width = OpLoad %u32 %width
+%output_slot = OpAccessChain %value_pointer %output %base %position
+OpStore %output_slot %actual_width Aligned 4
+OpReturn
+OpFunctionEnd
+%wave32 = OpFunction %void None %function
+%entry32 = OpLabel
+%call32 = OpFunctionCall %void %record
+OpReturn
+OpFunctionEnd
+%wave64 = OpFunction %void None %function
+%entry64 = OpLabel
+%call64 = OpFunctionCall %void %record
+OpReturn
+OpFunctionEnd

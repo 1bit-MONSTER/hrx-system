@@ -975,6 +975,60 @@ TEST(SpirvTest, ParsesBdaDispatchMetadata) {
       &metadata, iree_allocator_system());
 }
 
+TEST(SpirvTest, ParsesPerEntrySubgroupSizes) {
+  for (uint32_t size = 1; size <= 128; size *= 2) {
+    SCOPED_TRACE(size);
+    const std::string record =
+        "iree.vulkan.bda.v1[sized].subgroup_size=" + std::to_string(size);
+    const auto module = MakeBdaMetadataModule(
+        {record.c_str(), "iree.vulkan.bda.v1[default]"}, {"default", "sized"});
+    iree_hal_vulkan_spirv_compute_entry_point_t entries[2] = {};
+    IREE_ASSERT_OK(iree_hal_vulkan_spirv_parse_compute_entry_points(
+        module.data(), module.size(), 2, entries));
+    iree_hal_vulkan_spirv_bda_dispatch_metadata_t metadata[2] = {};
+    IREE_ASSERT_OK(iree_hal_vulkan_spirv_parse_bda_dispatch_metadata(
+        module.data(), module.size(), 2, entries, metadata,
+        iree_allocator_system()));
+    EXPECT_EQ(metadata[0].subgroup_size, 0u);
+    EXPECT_EQ(metadata[1].subgroup_size, size);
+    for (auto& entry : metadata) {
+      iree_hal_vulkan_spirv_bda_dispatch_metadata_deinitialize(
+          &entry, iree_allocator_system());
+    }
+  }
+}
+
+TEST(SpirvTest, RejectsMalformedSubgroupSizeMetadata) {
+  for (const char* size : {"0", "3", "48", "-32", "", "32,64"}) {
+    SCOPED_TRACE(size);
+    const std::string record =
+        std::string("iree.vulkan.bda.v1[main].subgroup_size=") + size;
+    const auto module = MakeBdaMetadataModule({record.c_str()});
+    iree_hal_vulkan_spirv_compute_entry_point_t entry = {};
+    IREE_ASSERT_OK(iree_hal_vulkan_spirv_parse_compute_entry_points(
+        module.data(), module.size(), 1, &entry));
+    iree_hal_vulkan_spirv_bda_dispatch_metadata_t metadata = {};
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          iree_hal_vulkan_spirv_parse_bda_dispatch_metadata(
+                              module.data(), module.size(), 1, &entry,
+                              &metadata, iree_allocator_system()));
+    EXPECT_EQ(metadata.subgroup_size, 0u);
+  }
+  const auto module = MakeBdaMetadataModule({
+      "iree.vulkan.bda.v1[main].subgroup_size=32",
+      "iree.vulkan.bda.v1[main].subgroup_size=32",
+  });
+  iree_hal_vulkan_spirv_compute_entry_point_t entry = {};
+  IREE_ASSERT_OK(iree_hal_vulkan_spirv_parse_compute_entry_points(
+      module.data(), module.size(), 1, &entry));
+  iree_hal_vulkan_spirv_bda_dispatch_metadata_t metadata = {};
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        iree_hal_vulkan_spirv_parse_bda_dispatch_metadata(
+                            module.data(), module.size(), 1, &entry, &metadata,
+                            iree_allocator_system()));
+  EXPECT_EQ(metadata.subgroup_size, 0u);
+}
+
 TEST(SpirvTest, IgnoresUnknownBdaDispatchMetadataVersions) {
   std::vector<uint32_t> module = MakeBdaMetadataModule({
       "some.other.tool.metadata",

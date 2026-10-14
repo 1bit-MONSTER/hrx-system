@@ -15,6 +15,7 @@ loom_corpus_sources(
   MANIFEST
     "kernel"
   SRCS
+    "geometry.loom"
     "subgroup/active_predicate.loom"
     "subgroup/ballot.loom"
     "subgroup/match.loom"

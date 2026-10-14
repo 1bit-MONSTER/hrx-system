@@ -357,6 +357,17 @@ static inline iree_hal_dispatch_config_t iree_hal_make_static_dispatch_config(
   return config;
 }
 
+// Returns true when the host-visible grid guarantees no shader invocations.
+// Indirect parameters and exact work-item counts do not use workgroup_count.
+static inline bool iree_hal_dispatch_is_statically_empty(
+    iree_hal_dispatch_config_t config, iree_hal_dispatch_flags_t flags) {
+  return !iree_hal_dispatch_uses_indirect_parameters(flags) &&
+         !iree_any_bit_set(flags,
+                           IREE_HAL_DISPATCH_FLAG_EXACT_WORKITEM_COUNT) &&
+         (config.workgroup_count[0] == 0 || config.workgroup_count[1] == 0 ||
+          config.workgroup_count[2] == 0);
+}
+
 // An RGBA color.
 typedef struct iree_hal_label_color_t {
   union {

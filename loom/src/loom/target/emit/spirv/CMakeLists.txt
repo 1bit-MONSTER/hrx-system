@@ -334,6 +334,7 @@ loom_check_test_suite(
     "test/atomic_diagnostics.loom-test"
     "test/barrier.loom-test"
     "test/buffer_raw.loom-test"
+    "test/builtin_queries.loom-test"
     "test/cooperative_matrix.loom-test"
     "test/entry_point.loom-test"
     "test/extended_math.loom-test"
@@ -359,6 +360,7 @@ loom_check_test_suite(
     "test/storage_buffer_abi.loom-test"
     "test/structured_control.loom-test"
     "test/subgroup_ballot.loom-test"
+    "test/subgroup_size.loom-test"
     "test/workgroup_byte_offsets.loom-test"
     "test/workgroup_storage.loom-test"
   DATA

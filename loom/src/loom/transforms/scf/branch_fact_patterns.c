@@ -17,6 +17,7 @@
 #include "loom/ops/scf/ops.h"
 #include "loom/rewrite/rewriter.h"
 #include "loom/transforms/cleanup/patterns.h"
+#include "loom/util/predicate_facts.h"
 #include "loom/util/walk.h"
 
 //===----------------------------------------------------------------------===//
@@ -135,6 +136,17 @@ static iree_status_t loom_branch_facts_edge_assume_set_append_predicate(
     return iree_ok_status();
   }
   if (loom_branch_facts_value_exact_integer(rewriter->fact_table, source)) {
+    return iree_ok_status();
+  }
+
+  // The existing input carrier already makes this predicate durable. Creating
+  // another copy would oppose redundant-identity cleanup and requeue this
+  // branch indefinitely. Ambient edge facts do not establish this contract.
+  const loom_value_t* value = loom_module_value(rewriter->module, source);
+  if (!loom_value_is_block_arg(value) &&
+      loom_value_fact_table_carrier_implies_predicate(
+          rewriter->fact_table, rewriter->module, loom_value_def_op(value),
+          &predicate)) {
     return iree_ok_status();
   }
 

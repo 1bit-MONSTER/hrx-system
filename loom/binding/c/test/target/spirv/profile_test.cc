@@ -1739,6 +1739,118 @@ TEST(TargetSpirvProfileTest,
               ::testing::HasSubstr("override:b"));
 }
 
+TEST(TargetSpirvProfileTest, ValidatesSubgroupWidthFamily) {
+  TargetEnvironmentPtr environment = CreateSpirvTargetEnvironment();
+  for (auto identifier : {LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE,
+                          LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
+                          LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE,
+                          LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE}) {
+    SCOPED_TRACE(identifier);
+    for (uint32_t width : {0u, 1u, 2u, 4u, 8u, 16u, 32u, 48u, 64u, 128u}) {
+      SCOPED_TRACE(width);
+      const loomc_spirv_limit_fact_t limit = {
+          .limit = identifier,
+          .state = LOOMC_TARGET_FACT_STATE_TRUE,
+          .value = width,
+          .provenance = loomc_make_cstring_view("device:width"),
+      };
+      const loomc_spirv_profile_options_t options = {
+          .preset = LOOMC_SPIRV_PROFILE_PRESET_VULKAN_1_3_BDA,
+          .limit_facts = &limit,
+          .limit_fact_count = 1,
+      };
+      loomc_target_profile_t* profile = nullptr;
+      loomc_result_t* result = nullptr;
+      LOOMC_EXPECT_OK(loomc_target_profile_create_spirv(
+          environment.get(), &options, loomc_allocator_system(), &profile,
+          &result));
+      TargetProfilePtr owned_profile(profile);
+      ResultPtr owned_result(result);
+      if (width == 0 || width == 48) {
+        EXPECT_EQ(profile, nullptr);
+        ExpectFailedResult(result);
+      } else {
+        ASSERT_NE(profile, nullptr);
+        ExpectSucceededResult(result);
+        ExpectLimitValue(profile, identifier, LOOMC_TARGET_FACT_STATE_TRUE,
+                         width);
+      }
+    }
+  }
+}
+
+TEST(TargetSpirvProfileTest, ValidatesSubgroupRangeRelationships) {
+  TargetEnvironmentPtr environment = CreateSpirvTargetEnvironment();
+  for (auto identifier : {LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE,
+                          LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE}) {
+    for (uint32_t width : {16u, 32u, 64u, 128u}) {
+      SCOPED_TRACE(identifier);
+      SCOPED_TRACE(width);
+      const loomc_spirv_limit_fact_t limits[] = {
+          {
+              .limit = LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE,
+              .state = LOOMC_TARGET_FACT_STATE_TRUE,
+              .value = 32,
+          },
+          {
+              .limit = LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE,
+              .state = LOOMC_TARGET_FACT_STATE_TRUE,
+              .value = 64,
+          },
+          {
+              .limit = identifier,
+              .state = LOOMC_TARGET_FACT_STATE_TRUE,
+              .value = width,
+          },
+      };
+      const loomc_spirv_profile_options_t options = {
+          .preset = LOOMC_SPIRV_PROFILE_PRESET_VULKAN_1_3_BDA,
+          .limit_facts = limits,
+          .limit_fact_count = 3,
+      };
+      loomc_target_profile_t* profile = nullptr;
+      loomc_result_t* result = nullptr;
+      LOOMC_EXPECT_OK(loomc_target_profile_create_spirv(
+          environment.get(), &options, loomc_allocator_system(), &profile,
+          &result));
+      TargetProfilePtr owned_profile(profile);
+      ResultPtr owned_result(result);
+      if (width < 32 || width > 64) {
+        EXPECT_EQ(profile, nullptr);
+        ExpectFailedResult(result);
+      } else {
+        ASSERT_NE(profile, nullptr);
+        ExpectSucceededResult(result);
+      }
+    }
+  }
+  const loomc_spirv_limit_fact_t reversed[] = {
+      {
+          .limit = LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE,
+          .state = LOOMC_TARGET_FACT_STATE_TRUE,
+          .value = 64,
+      },
+      {
+          .limit = LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE,
+          .state = LOOMC_TARGET_FACT_STATE_TRUE,
+          .value = 32,
+      },
+  };
+  const loomc_spirv_profile_options_t options = {
+      .limit_facts = reversed,
+      .limit_fact_count = 2,
+  };
+  loomc_target_profile_t* profile = nullptr;
+  loomc_result_t* result = nullptr;
+  LOOMC_EXPECT_OK(loomc_target_profile_create_spirv(environment.get(), &options,
+                                                    loomc_allocator_system(),
+                                                    &profile, &result));
+  TargetProfilePtr owned_profile(profile);
+  ResultPtr owned_result(result);
+  EXPECT_EQ(profile, nullptr);
+  ExpectFailedResult(result);
+}
+
 TEST(TargetSpirvProfileTest, ReportsInvalidZeroLimitValuesAsResult) {
   TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
   loomc_spirv_limit_fact_t limits[] = {
@@ -1832,11 +1944,18 @@ TEST(TargetSpirvProfileTest, NumericLimitRangesMatchIRRepresentation) {
   for (int i = 1; i < LOOMC_SPIRV_LIMIT_COUNT; ++i) {
     const auto limit = static_cast<loomc_spirv_limit_t>(i);
     SCOPED_TRACE(limit);
-    const uint64_t maximum =
+    const uint64_t numeric_maximum =
         limit == LOOMC_SPIRV_LIMIT_MAX_FLAT_GRID_SIZE ||
                 limit == LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES
             ? static_cast<uint64_t>(INT64_MAX)
             : UINT32_MAX;
+    const bool subgroup_width =
+        limit == LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE ||
+        limit == LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE ||
+        limit == LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE ||
+        limit == LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE;
+    const uint64_t maximum =
+        subgroup_width ? uint64_t{1} << 31 : numeric_maximum;
     loomc_spirv_limit_fact_t fact = {
         .limit = limit,
         .state = LOOMC_TARGET_FACT_STATE_TRUE,
@@ -1850,7 +1969,7 @@ TEST(TargetSpirvProfileTest, NumericLimitRangesMatchIRRepresentation) {
     auto valid = CreateSpirvProfile(environment.get(), &options);
     ASSERT_NE(valid.get(), nullptr);
     ExpectLimitValue(valid.get(), limit, LOOMC_TARGET_FACT_STATE_TRUE, maximum);
-    ++fact.value;
+    fact.value = numeric_maximum + 1;
     loomc_target_profile_t* profile = nullptr;
     loomc_result_t* result = nullptr;
     LOOMC_ASSERT_OK(loomc_target_profile_create_spirv(

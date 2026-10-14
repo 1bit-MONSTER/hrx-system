@@ -1,0 +1,71 @@
+// RUN: emit source-low output=low control-flow=structured-low
+
+// Full expansion exposes each recurrence step before structured Low lowering.
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @full_unroll(%seed: i32) -> (i32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 3 : index
+  %step = index.constant 1 : index
+  %result = scf.for %position = [%begin to %end step %step](%total = %seed : i32) -> (i32) unroll {
+    %next = scalar.addi %total, %total : i32
+    scf.yield %next : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @full_unroll(%seed: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %next = OpIAdd %seed, %seed
+  %next_1 = OpIAdd %next, %next
+  %next_2 = OpIAdd %next_1, %next_1
+  return %next_2
+}
+
+// ====
+
+// Factor expansion retains a structured loop and tail for dynamic bounds.
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @partial_unroll(%count: index, %seed: i32) -> (i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %factor = index.constant 2 : index
+  %result = scf.for %position = [%begin to %count step %step](%total = %seed : i32) -> (i32) unroll(%factor) {
+    %next = scalar.addi %total, %total : i32
+    scf.yield %next : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @partial_unroll(%count: reg<spirv.id : index>, %seed: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %begin = OpConstant.i32 0 : reg<spirv.id : index>
+  %25 = OpConstant.i32 2 : reg<spirv.id : index>
+  %26 = OpConstant.i32 1 : reg<spirv.id : index>
+  %result = low.scf.for signed [%begin to %count step %25] iter_args(%seed: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) do(%position: reg<spirv.id : index>, %total: reg<spirv.id : i32>) {
+    %next = OpIAdd %total, %total
+    %position_1 = OpIAdd %position, %26 : reg<spirv.id : index>
+    %32 = OpSLessThan %position_1, %count
+    %next_1 = OpIAdd %next, %next
+    %34 = OpSelect %32, %next_1, %next
+    low.scf.yield %34 : reg<spirv.id : i32>
+  }
+  return %result
+}
+
+// ====
+
+// Required full expansion cannot be weakened to a downstream unroll hint.
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @unresolved_full_unroll(%count: index, %seed: i32) -> (i32) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  // ERROR@+1: STRUCTURE/014 {attr_name="unroll", expected_constraint="exact static trip count"}
+  %result = scf.for %position = [%begin to %count step %step](%total = %seed : i32) -> (i32) unroll {
+    %next = scalar.addi %total, %total : i32
+    scf.yield %next : i32
+  }
+  func.return %result : i32
+}

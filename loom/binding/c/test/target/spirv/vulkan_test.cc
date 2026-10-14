@@ -37,6 +37,19 @@ struct MockVulkanDevice {
   uint32_t max_workgroup_storage_bytes = 49152;
   uint32_t max_workgroup_count[3] = {65535, 32768, 16384};
   uint32_t subgroup_size = 32;
+  // Whether subgroup sizes can be requested on supported stages.
+  VkBool32 subgroup_size_control = VK_FALSE;
+  // Smallest requestable subgroup width.
+  uint32_t minimum_subgroup_size = 32;
+  // Largest requestable subgroup width.
+  uint32_t maximum_subgroup_size = 64;
+  // Workgroup subgroup limit when specifying a width.
+  uint32_t maximum_workgroup_subgroup_count = 32;
+  // Stages supporting explicit subgroup widths.
+  VkShaderStageFlags required_subgroup_size_stages =
+      VK_SHADER_STAGE_COMPUTE_BIT;
+  // Extension route for subgroup-size control before Vulkan 1.3.
+  bool reports_subgroup_size_control_extension = false;
   VkSubgroupFeatureFlags subgroup_operations = VK_SUBGROUP_FEATURE_BASIC_BIT;
   VkShaderFloatControlsIndependence denorm_behavior_independence =
       VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE;
@@ -117,6 +130,18 @@ void VKAPI_PTR MockGetPhysicalDeviceProperties2(
            reinterpret_cast<VkBaseOutStructure*>(properties->pNext);
        out != nullptr; out = out->pNext) {
     switch (out->sType) {
+      case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES: {
+        auto* control =
+            reinterpret_cast<VkPhysicalDeviceSubgroupSizeControlProperties*>(
+                out);
+        control->minSubgroupSize = g_mock_vulkan_device->minimum_subgroup_size;
+        control->maxSubgroupSize = g_mock_vulkan_device->maximum_subgroup_size;
+        control->maxComputeWorkgroupSubgroups =
+            g_mock_vulkan_device->maximum_workgroup_subgroup_count;
+        control->requiredSubgroupSizeStages =
+            g_mock_vulkan_device->required_subgroup_size_stages;
+        break;
+      }
       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES: {
         auto* subgroup_properties =
             reinterpret_cast<VkPhysicalDeviceSubgroupProperties*>(out);
@@ -197,6 +222,10 @@ void VKAPI_PTR MockGetPhysicalDeviceFeatures2(
            reinterpret_cast<VkBaseOutStructure*>(features->pNext);
        out != nullptr; out = out->pNext) {
     switch (out->sType) {
+      case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES:
+        reinterpret_cast<VkPhysicalDeviceSubgroupSizeControlFeatures*>(out)
+            ->subgroupSizeControl = g_mock_vulkan_device->subgroup_size_control;
+        break;
       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES: {
         auto* vulkan12 =
             reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(out);
@@ -309,6 +338,9 @@ void VKAPI_PTR MockGetPhysicalDeviceFeatures2(
 
 uint32_t MockDeviceExtensionCount(const MockVulkanDevice& device) {
   uint32_t extension_count = 0;
+  if (device.reports_subgroup_size_control_extension) {
+    ++extension_count;
+  }
   if (device.reports_shader_float16_int8_extension) {
     ++extension_count;
   }
@@ -384,6 +416,11 @@ VkResult VKAPI_PTR MockEnumerateDeviceExtensionProperties(
 
   const uint32_t capacity = *property_count;
   uint32_t written_count = 0;
+  if (device.reports_subgroup_size_control_extension) {
+    MaybeWriteExtensionProperty(properties, capacity, &written_count,
+                                VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME,
+                                VK_EXT_SUBGROUP_SIZE_CONTROL_SPEC_VERSION);
+  }
   if (device.reports_shader_float16_int8_extension) {
     MaybeWriteExtensionProperty(properties, capacity, &written_count,
                                 VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,
@@ -529,6 +566,52 @@ void ExpectLimitValue(const loomc_target_profile_t* profile,
   EXPECT_EQ(value.value, expected_value);
 }
 
+TEST(TargetSpirvVulkanTest, ImportsSelectableComputeSubgroups) {
+  TargetEnvironmentPtr environment = CreateSpirvTargetEnvironment();
+  enum class ControlRoute { Core, Extension, Absent };
+  for (ControlRoute route :
+       {ControlRoute::Core, ControlRoute::Extension, ControlRoute::Absent}) {
+    for (bool control : {false, true}) {
+      for (bool compute : {false, true}) {
+        SCOPED_TRACE(static_cast<int>(route));
+        SCOPED_TRACE(control);
+        SCOPED_TRACE(compute);
+        MockVulkanDevice device;
+        device.api_version = route == ControlRoute::Core ? VK_API_VERSION_1_3
+                                                         : VK_API_VERSION_1_2;
+        device.reports_subgroup_size_control_extension =
+            route == ControlRoute::Extension;
+        device.subgroup_size = 64;
+        device.subgroup_size_control = control;
+        device.required_subgroup_size_stages =
+            compute ? VK_SHADER_STAGE_COMPUTE_BIT
+                    : VK_SHADER_STAGE_FRAGMENT_BIT;
+        const bool selectable =
+            route != ControlRoute::Absent && control && compute;
+        TargetProfilePtr profile =
+            CreateVulkanProfile(environment.get(), device);
+        ASSERT_NE(profile.get(), nullptr);
+        ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
+                         64);
+        ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_MIN_SUBGROUP_SIZE,
+                         selectable ? 32 : 64);
+        ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_MAX_SUBGROUP_SIZE,
+                         64);
+        loomc_spirv_limit_value_t value = {};
+        LOOMC_EXPECT_OK(loomc_spirv_target_profile_query_limit(
+            profile.get(), LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE, &value));
+        EXPECT_EQ(value.state, LOOMC_TARGET_FACT_STATE_UNKNOWN);
+        LOOMC_EXPECT_OK(loomc_spirv_target_profile_query_limit(
+            profile.get(), LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SUBGROUP_COUNT,
+            &value));
+        EXPECT_EQ(value.state, selectable ? LOOMC_TARGET_FACT_STATE_TRUE
+                                          : LOOMC_TARGET_FACT_STATE_UNKNOWN);
+        EXPECT_EQ(value.value, selectable ? 32u : 0u);
+      }
+    }
+  }
+}
+
 TEST(TargetSpirvVulkanTest, CreatesProfileFromRawVulkanDevice) {
   TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
   MockVulkanDevice device;
@@ -571,7 +654,7 @@ TEST(TargetSpirvVulkanTest, CreatesProfileFromRawVulkanDevice) {
                    device.max_flat_workgroup_size);
   ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES,
                    device.max_workgroup_storage_bytes);
-  ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE,
+  ExpectLimitValue(profile.get(), LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
                    device.subgroup_size);
 
   loomc_spirv_environment_value_t environment = {};

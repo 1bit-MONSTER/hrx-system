@@ -92,7 +92,7 @@ func.def target(@target) @source_if(%numerator: i32, %denominator: i32, %fallbac
 spirv.target<vulkan1_3> @target
 
 func.def target(@target) @source_for(%start: index, %limit: index, %step: index, %seed: index) -> (index) {
-  %result = scf.for %i = [%start to %limit step %step](%acc = %seed : index) -> (index) unroll {
+  %result = scf.for %i = [%start to %limit step %step](%acc = %seed : index) -> (index) {
     %next = index.add %acc, %i : index
     scf.yield %next : index
   }
@@ -163,7 +163,7 @@ func.def target(@target) @source_for(%start: index, %limit: index, %step: index,
           %i = OpPhi %int %start %14 %33 %32
         %acc = OpPhi %int %seed %14 %next %32
          %38 = OpPhi %bool %24 %14 %34 %32
-               OpLoopMerge %31 %32 Unroll
+               OpLoopMerge %31 %32 None
                OpBranchConditional %38 %30 %31
          %30 = OpLabel
        %next = OpIAdd %int %acc %i

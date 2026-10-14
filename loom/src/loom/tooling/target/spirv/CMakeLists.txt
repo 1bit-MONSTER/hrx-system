@@ -430,6 +430,41 @@ iree_c_embed_data(
 )
 endif()
 
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+loom_generated_file(
+  NAME
+    subgroup_entries_binary
+  GENERATOR
+    loom::tools::loom-compile::loom-compile
+  OUTPUT
+    "subgroup_entries.spv"
+  OUTPUT_FLAG
+    "--output="
+  ARGS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/spirv/test/subgroup_entries.loom"
+  INPUTS
+    "test/subgroup_entries.loom"
+  TESTONLY
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+iree_c_embed_data(
+  NAME
+    subgroup_entries_spv
+  SRCS
+    "${CMAKE_CURRENT_BINARY_DIR}/subgroup_entries.spv"
+  C_FILE_OUTPUT
+    "subgroup_entries_spv.c"
+  H_FILE_OUTPUT
+    "subgroup_entries_spv.h"
+  IDENTIFIER
+    "loom_spirv_subgroup_entries"
+  TESTONLY
+  PUBLIC
+)
+endif()
+
 if(IREE_HAL_DRIVER_VULKAN AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 loom_cc_test(
   NAME
@@ -439,6 +474,7 @@ loom_cc_test(
     "artifact_execution_test.cc"
   DEPS
     ::multiple_entries_spv
+    ::subgroup_entries_spv
     iree::base::tooling::flags
     iree::hal
     iree::hal::cts::util::registry
