@@ -11,6 +11,7 @@
 #include "iree/hal/cts/util/test_base.h"
 #include "iree/hal/drivers/vulkan/buffer.h"
 #include "iree/hal/drivers/vulkan/queue.h"
+#include "iree/hal/drivers/vulkan/queue_test_util.h"
 
 namespace iree::hal::cts {
 namespace {
@@ -22,20 +23,8 @@ class VulkanSparseBindingTest : public CtsTestBase<> {
     if (HasFatalFailure() || IsSkipped()) {
       return;
     }
-    const auto* queues =
-        iree_hal_device_spec_queues(iree_hal_device_spec(device_));
-    for (iree_host_size_t i = 0; i < queues->family_count; ++i) {
-      if (!queues->families[i].provisioned_queue_count) {
-        continue;
-      }
-      auto* queue =
-          reinterpret_cast<iree_hal_vulkan_queue_t*>(iree_hal_device_queue(
-              device_, static_cast<iree_hal_queue_family_ordinal_t>(i), 0));
-      if (iree_any_bit_set(queue->queue_flags, VK_QUEUE_SPARSE_BINDING_BIT)) {
-        sparse_queue_ = queue;
-        break;
-      }
-    }
+    sparse_queue_ = reinterpret_cast<iree_hal_vulkan_queue_t*>(
+        FindVulkanSparseBindingQueue(device_));
     family_ = {
         .family = iree_hal_queue_family(transfer_queue_),
         .usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_STORAGE,

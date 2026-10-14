@@ -643,6 +643,7 @@ iree_cc_test(
     iree::hal::cts::util::test_main
     iree::hal::drivers::vulkan
     iree::hal::drivers::vulkan::headers
+    iree::hal::drivers::vulkan::queue_test_util
     iree::hal::memory::tlsf_pool
     iree::testing::gtest
   LABELS
