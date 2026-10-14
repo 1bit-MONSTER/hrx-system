@@ -91,6 +91,10 @@ LOOMC_TARGET_WASM_PUBLIC_HDRS = [
     "include/loomc/target/wasm.h",
 ]
 
+LOOMC_TARGET_X86_PUBLIC_HDRS = [
+    "include/loomc/target/x86.h",
+]
+
 LOOMC_TARGET_CONFIGURED_PUBLIC_HDRS = [
     "include/loomc/target/configured.h",
 ]
@@ -142,6 +146,7 @@ exports_files(
     LOOMC_TARGET_SPIRV_VULKAN_PUBLIC_HDRS +
     LOOMC_TARGET_VM_PUBLIC_HDRS +
     LOOMC_TARGET_WASM_PUBLIC_HDRS +
+    LOOMC_TARGET_X86_PUBLIC_HDRS +
     LOOMC_TARGET_XDNA_PUBLIC_HDRS,
     visibility = _TARGET_EXTENSION_VISIBILITY,
 )
