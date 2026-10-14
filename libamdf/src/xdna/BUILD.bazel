@@ -125,6 +125,7 @@ amdf_cc_library(
         ":context",
         ":device",
         ":device_profile",
+        ":firmware_trace",
         ":kernel_queue",
         "//libamdf/src:endpoint",
         "//libamdf/src:structure",
@@ -184,6 +185,35 @@ amdf_cc_test(
         "//libamdf/src:memory_resource",
         "//libamdf/src:memory_scope_state",
         "//libamdf/src/xdna/umd:kernel_queue",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
+    ],
+)
+
+amdf_cc_library(
+    name = "firmware_trace_format",
+    srcs = ["firmware_trace_format.c"],
+    hdrs = ["firmware_trace_format.h"],
+)
+
+amdf_cc_library(
+    name = "firmware_trace",
+    srcs = ["firmware_trace.c"],
+    hdrs = ["firmware_trace.h"],
+    deps = [
+        ":device",
+        ":firmware_trace_format",
+        "//libamdf/src:device",
+        "//libamdf/src:structure",
+        "//libamdf/src/xdna/umd:firmware_trace",
+    ],
+)
+
+amdf_cc_test(
+    name = "firmware_trace_format_test",
+    srcs = ["firmware_trace_format_test.cc"],
+    deps = [
+        ":firmware_trace_format",
         "//third_party:google_test",
         "//third_party:google_test_main",
     ],

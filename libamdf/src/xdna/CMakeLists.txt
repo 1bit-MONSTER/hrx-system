@@ -161,6 +161,7 @@ iree_cc_library(
     ::context
     ::device
     ::device_profile
+    ::firmware_trace
     ::kernel_queue
     amdf::headers
     libamdf::src::endpoint
@@ -245,6 +246,56 @@ iree_cc_test(
     libamdf::src::memory_resource
     libamdf::src::memory_scope_state
     libamdf::src::xdna::umd::kernel_queue
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+)
+endif()
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    firmware_trace_format
+  HDRS
+    "firmware_trace_format.h"
+  SRCS
+    "firmware_trace_format.c"
+  DEPS
+    amdf::headers
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    firmware_trace
+  HDRS
+    "firmware_trace.h"
+  SRCS
+    "firmware_trace.c"
+  DEPS
+    ::device
+    ::firmware_trace_format
+    amdf::headers
+    libamdf::src::device
+    libamdf::src::structure
+    libamdf::src::xdna::umd::firmware_trace
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_test(
+  NAME
+    firmware_trace_format_test
+  SRCS
+    "firmware_trace_format_test.cc"
+  DEPS
+    ::firmware_trace_format
+    amdf::headers
+    iree::third_party::google_test
+    iree::third_party::google_test_main
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.xdna"

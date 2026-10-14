@@ -327,6 +327,7 @@ iree_cc_library(
   DEPS
     ::context
     ::device
+    ::firmware_trace
     ::kernel_queue
     ::memory
     amdf::headers
@@ -479,6 +480,41 @@ iree_cc_test(
     libamdf::src::xdna::device_profile
     libamdf::src::xdna::umd::kernel_queue
     libamdf::src::xdna::umd::memory
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    firmware_trace
+  SRCS
+    "firmware_trace.c"
+  DEPS
+    ::device_state
+    amdf::headers
+    libamdf::src::platform::windows::kmt_api
+    libamdf::src::xdna::umd::firmware_trace
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_test(
+  NAME
+    firmware_trace_test
+  SRCS
+    "firmware_trace_test.cc"
+  DEPS
+    ::device_state
+    ::firmware_trace
+    amdf::headers
+    iree::third_party::google_test
+    iree::third_party::google_test_main
+    libamdf::src::platform::windows::kmt_api
+    libamdf::src::xdna::umd::firmware_trace
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.xdna"

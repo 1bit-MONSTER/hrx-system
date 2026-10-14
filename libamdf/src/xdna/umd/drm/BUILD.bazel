@@ -174,6 +174,7 @@ amdf_cc_library(
     deps = [
         ":context",
         ":device",
+        ":firmware_trace",
         ":kernel_queue",
         ":memory",
     ],
@@ -233,4 +234,31 @@ amdf_cc_library(
     srcs = ["elf_packet.c"],
     hdrs = ["elf_packet.h"],
     target_compatible_with = DRM_COMPATIBILITY,
+)
+
+amdf_cc_library(
+    name = "firmware_trace",
+    srcs = ["firmware_trace.c"],
+    target_compatible_with = DRM_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        "//libamdf/src/platform/linux:file",
+        "//libamdf/src/xdna/umd:firmware_trace",
+        "//third_party:linux_drm_uapi",
+        "//third_party:linux_xdna_uapi",
+    ],
+)
+
+amdf_cc_test(
+    name = "firmware_trace_test",
+    srcs = ["firmware_trace_test.cc"],
+    linkopts = ["-Wl,--wrap=ioctl"],
+    target_compatible_with = DRM_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        ":firmware_trace",
+        "//libamdf/src/xdna/umd:firmware_trace",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
+    ],
 )

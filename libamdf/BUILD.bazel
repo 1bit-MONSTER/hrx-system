@@ -41,8 +41,10 @@ amdf_library(
         "include/amdf/memory.h",
         "include/amdf/memory_reservation.h",
         "include/amdf/native_event.h",
+        "include/amdf/observation.h",
         "include/amdf/queue.h",
         "include/amdf/xdna.h",
+        "include/amdf/xdna_trace.h",
     ],
     components = ["//libamdf/src/provider"],
     runtime_data = select({

@@ -444,6 +444,73 @@ visibility; it does not wait for a still-running writer. A GPU reader can
 consume the same backing under its own ordering and lifetime contract. The
 [memory reference](memory.md) describes those operations in detail.
 
+## Automatic firmware timing
+
+XDNA extension version 2 exposes the native device-wide firmware recorder.
+`device_query_firmware_trace_info` reports its live configuration, payload
+schema, timestamp units and caller read-storage requirements. A successful
+query establishes that the native service exists; configuration and reading
+have separate permission checks. Linux uses the AMD SDK DPT interface when
+the installed driver supplies it. Windows uses the native MCDM service.
+An absent service returns `UNSUPPORTED`; permission failures remain native
+errors instead of being treated as absence.
+
+The recorder observes native scheduling, command, power and other selected
+events without modifying tile code or reserving application DMA resources.
+It is global to the device. The application or an external recorder owns
+configuration authority across processes; opening or destroying a libamdf
+device neither acquires that authority nor changes the recorder. The same
+owner serializes reconfiguration against reads and assigns a new capture
+identity when it enables a new recording.
+
+A caller with configuration authority queries the initial state, arranges its
+aligned storage, enables the desired categories with
+`device_configure_firmware_trace`, and queries the active schema. An already
+enabled recorder may belong to another process. A configuration error may
+have native effects, so its owner queries state before deciding cleanup.
+Workloads continue through ordinary queues while readers keep independent
+storage and native byte positions:
+
+```c
+// The recorder's owner has enabled this capture. Storage satisfies the
+// queried requirements and remains separate from the result descriptor.
+amdf_observation_read_result_t result;
+amdf_status_t status = xdna->device_read_firmware_trace(
+    device, info.format_version, position, storage, storage_byte_length,
+    &result);
+if (amdf_status_is_ok(status)) {
+  // Process discontinuity flags before consuming this batch's events.
+  // Valid amdf_xdna_firmware_trace_event_t records occupy
+  // [storage + result.byte_offset, result.byte_length].
+  position = result.next_position;
+}
+```
+
+Reads allocate and retain nothing and wait for no application queue. Native
+format-2 frames are validated before events are published, then compacted in
+place. Overwritten history and invalid copies produce explicit gap flags and
+loss information. Consumers invalidate pending interval pairs across a gap.
+`BUFFER_TOO_SMALL` preserves the previous position and requires larger caller
+storage: some native interfaces cannot distinguish a capacity-limited copy
+from overwritten history without returning the entire retained window. The
+queried recommended capacity provides ordinary full-window storage. A read
+may modify storage even on failure, but publishes its result only on success.
+
+An empty read reports current availability, not producer retirement. The
+application's completion and expected-event protocol determines its final
+drain. Only the configuration owner disables the recorder after reading the
+required events. Neither observation records nor their cursors are completion
+signals or reliable feedback credits.
+
+Format 2 represents timestamps in nanoseconds. This describes units, not
+sampling resolution, accuracy, a shared CPU/GPU epoch or clock continuity.
+Command events preserve firmware context, virtual-context and opcode fields;
+those fields do not identify a HAL submission by themselves. These observations
+describe native command execution and scheduling. Internal regions of a
+resident program need a source that actually observes those regions, such as
+its own instrumentation. The [hardware timing reference](../../docs/reference/amd/xdna/observability.md)
+describes the separate firmware and array clocks and their native semantics.
+
 ## Asynchronous host observation
 
 A caller can keep one native event and one persistent event-loop registration

@@ -6,9 +6,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <iterator>
 #include <span>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "libamdf/cts/xdna/programs/mul_i32.h"
@@ -45,6 +47,130 @@ void CheckTransition(const amdf_cache_transition_t& actual,
   ASSERT_EQ(actual.host_fence_after, expected.host_fence_after);
   ASSERT_EQ(actual.range_granularity, expected.range_granularity);
 }
+
+// Caller-owned global recorder and fixed read storage. The ordinary numeric
+// workload supplies execution and retirement; observation never gates its work.
+class FirmwareTraceCapture {
+ public:
+  FirmwareTraceCapture(const amdf_xdna_api_t* api, amdf_device_t* device)
+      : api_(api), device_(device) {}
+  ~FirmwareTraceCapture() {
+    if (owns_configuration_) {
+      EXPECT_EQ(api_->device_configure_firmware_trace(device_, 0, 0),
+                AMDF_STATUS_OK);
+    }
+  }
+
+  void Start(const amdf_xdna_firmware_trace_info_t& initial) {
+    ASSERT_EQ(initial.enabled, 0u) << "firmware recorder is already owned";
+    storage_.resize((initial.recommended_buffer_byte_length + 7) / 8);
+    owns_configuration_ = true;
+    ASSERT_EQ(api_->device_configure_firmware_trace(
+                  device_, 1,
+                  AMDF_XDNA_FIRMWARE_TRACE_CATEGORY_SCHEDULING |
+                      AMDF_XDNA_FIRMWARE_TRACE_CATEGORY_CLOCK_POWER),
+              AMDF_STATUS_OK);
+    amdf_xdna_firmware_trace_info_t info = {
+        .type = AMDF_STRUCTURE_TYPE_XDNA_FIRMWARE_TRACE_INFO,
+        .structure_size = sizeof(info),
+    };
+    ASSERT_EQ(api_->device_query_firmware_trace_info(device_, &info),
+              AMDF_STATUS_OK);
+    ASSERT_EQ(info.enabled, 1u);
+    format_version_ = info.format_version;
+    ASSERT_EQ(format_version_, AMDF_XDNA_FIRMWARE_TRACE_FORMAT_2_0);
+    ASSERT_EQ(info.clock.frequency_hz, UINT64_C(1000000000));
+    ASSERT_EQ(info.clock.counter_bit_count, 64u);
+  }
+
+  void Read() {
+    amdf_observation_read_result_t result = {};
+    ASSERT_EQ(api_->device_read_firmware_trace(
+                  device_, format_version_, position_, storage_.data(),
+                  static_cast<uint32_t>(storage_.size() * 8), &result),
+              AMDF_STATUS_OK);
+    ASSERT_EQ(result.flags, 0u);
+    ASSERT_EQ(result.lost_byte_length, 0u);
+    ASSERT_GE(result.next_position, position_);
+    position_ = result.next_position;
+    ASSERT_LE(result.byte_offset + result.byte_length, storage_.size() * 8);
+    ASSERT_EQ(result.byte_length % sizeof(amdf_xdna_firmware_trace_event_t),
+              0u);
+    const auto* bytes = reinterpret_cast<const uint8_t*>(storage_.data());
+    for (uint64_t offset = 0; offset < result.byte_length;
+         offset += sizeof(amdf_xdna_firmware_trace_event_t)) {
+      amdf_xdna_firmware_trace_event_t event;
+      std::memcpy(&event, bytes + result.byte_offset + offset, sizeof(event));
+      if (event.event_id != AMDF_XDNA_FIRMWARE_TRACE_EVENT_COMMAND_BEGIN &&
+          event.event_id != AMDF_XDNA_FIRMWARE_TRACE_EVENT_COMMAND_END) {
+        continue;
+      }
+      // EXEC_NPU_CMD is the unchanged recipe's native carrier.
+      if (amdf_xdna_firmware_trace_command_opcode(&event) != 23) {
+        continue;
+      }
+      const uint32_t context =
+          amdf_xdna_firmware_trace_command_context(&event) |
+          (amdf_xdna_firmware_trace_command_virtual_context(&event) << 4);
+      if (event.event_id == AMDF_XDNA_FIRMWARE_TRACE_EVENT_COMMAND_BEGIN) {
+        ASSERT_FALSE(pending_.active);
+        pending_ = {true, context, event.timestamp};
+        ++begin_count_;
+      } else {
+        ASSERT_TRUE(pending_.active);
+        ASSERT_EQ(context, pending_.context);
+        ASSERT_GE(event.timestamp, pending_.timestamp);
+        pending_.active = false;
+        ++end_count_;
+      }
+    }
+    if (result.byte_length) {
+      ++nonempty_reads_;
+    }
+  }
+
+  void Drain(uint32_t expected_count) {
+    // The numeric producer has retired. Native publication may still progress;
+    // known message count, not an empty snapshot or a sleep, closes this read.
+    while (end_count_ < expected_count && !::testing::Test::HasFailure()) {
+      Read();
+      std::this_thread::yield();
+    }
+    EXPECT_EQ(begin_count_, expected_count);
+    EXPECT_EQ(end_count_, expected_count);
+    EXPECT_FALSE(pending_.active);
+    EXPECT_GT(nonempty_reads_, 1u);
+  }
+
+ private:
+  // Borrowed immutable API table.
+  const amdf_xdna_api_t* api_;
+  // Borrowed corpus device; configuration is explicitly scoped to this test.
+  amdf_device_t* device_;
+  // True after this caller has attempted to enable its initially idle recorder.
+  bool owns_configuration_ = false;
+  // Aligned, fixed-capacity native request and decoded-event storage.
+  std::vector<uint64_t> storage_;
+  // Queried native event schema for this capture.
+  uint32_t format_version_ = 0;
+  // Next native read position accepted by this consumer.
+  uint64_t position_ = 0;
+  // Number of observed workload command beginnings.
+  uint32_t begin_count_ = 0;
+  // Number of observed workload command completions.
+  uint32_t end_count_ = 0;
+  // Number of useful incremental reads.
+  uint32_t nonempty_reads_ = 0;
+  // One serial workload message awaiting its corresponding completion event.
+  struct {
+    // True between the start and done events.
+    bool active = false;
+    // Physical and virtual native context identity.
+    uint32_t context = 0;
+    // Start timestamp, compared only with this message's done timestamp.
+    uint64_t timestamp = 0;
+  } pending_;
+};
 
 class CpuXdnaRecipeTest : public XdnaDeviceFixture {
  protected:
@@ -279,7 +405,8 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
     }
   }
 
-  void RunRoundTrips(amdf_memory_profile_roles_t role) {
+  void RunRoundTrips(amdf_memory_profile_roles_t role, uint32_t count = 8,
+                     FirmwareTraceCapture* capture = nullptr) {
     ASSERT_NO_FATAL_FAILURE(CreateBindings(role));
     ASSERT_NO_FATAL_FAILURE(PrepareExecution());
     const auto commands = execution_.instructions.bytes();
@@ -295,7 +422,7 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
                                                AMDF_HOST_CACHE_OPERATION_FLUSH,
                                                0, commands.size()),
               AMDF_STATUS_OK);
-    for (uint32_t generation = 0; generation < 8 && !HasFailure();
+    for (uint32_t generation = 0; generation < count && !HasFailure();
          ++generation) {
       SCOPED_TRACE(generation);
       std::array<std::vector<uint8_t>, 3> expected;
@@ -341,9 +468,9 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
       // The output transfer joins both input records and all output writes.
       // Remaining resident activity accesses only tile-local state.
       // Native completion supplies ordering; these queried actions supply CPU
-      // visibility. Capture output first, then the inputs and command owner. No
-      // oracle, progress query or cleanup precedes the complete observation
-      // snapshots.
+      // visibility. Snapshot all payloads before checking their values. The
+      // streaming case checks the immutable command owner after its final use;
+      // ordinary memory recipes check that owner after every submission.
       for (size_t ordinal : {2u, 0u, 1u}) {
         ASSERT_EQ(api_->host_mapping_cache_control(
                       bindings_[ordinal].mapping,
@@ -353,11 +480,14 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
         const auto bytes = bindings_[ordinal].bytes();
         std::copy(bytes.begin(), bytes.end(), observed[ordinal].begin());
       }
-      ASSERT_EQ(api_->host_mapping_cache_control(
-                    execution_.instructions.mapping,
-                    AMDF_HOST_CACHE_OPERATION_INVALIDATE, 0, commands.size()),
-                AMDF_STATUS_OK);
-      std::copy(commands.begin(), commands.end(), observed_commands.begin());
+      if (capture == nullptr || generation + 1 == count) {
+        ASSERT_EQ(api_->host_mapping_cache_control(
+                      execution_.instructions.mapping,
+                      AMDF_HOST_CACHE_OPERATION_INVALIDATE, 0, commands.size()),
+                  AMDF_STATUS_OK);
+        std::copy(commands.begin(), commands.end(), observed_commands.begin());
+        EXPECT_EQ(observed_commands, original_commands);
+      }
       for (size_t ordinal = 0; ordinal < bindings_.size(); ++ordinal) {
         SCOPED_TRACE(ordinal);
         const auto mismatch =
@@ -367,7 +497,6 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
             << "binding byte "
             << std::distance(observed[ordinal].begin(), mismatch.first);
       }
-      EXPECT_EQ(observed_commands, original_commands);
       amdf_kernel_queue_status_t status = {
           .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS,
           .structure_size = sizeof(status),
@@ -376,6 +505,12 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
                 AMDF_STATUS_OK);
       EXPECT_EQ(status.retired_submission, point);
       EXPECT_EQ(status.terminal_status, AMDF_STATUS_OK);
+      if (capture != nullptr && generation % 64 == 63) {
+        ASSERT_NO_FATAL_FAILURE(capture->Read());
+      }
+    }
+    if (capture != nullptr) {
+      ASSERT_NO_FATAL_FAILURE(capture->Drain(count));
     }
   }
 
@@ -399,6 +534,22 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
 
 TEST_F(CpuXdnaRecipeTest, AllocatedRoundTrip) {
   RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_CREATE);
+}
+
+TEST_F(CpuXdnaRecipeTest, AllocatedRoundTripWithFirmwareTrace) {
+  amdf_xdna_firmware_trace_info_t info = {
+      .type = AMDF_STRUCTURE_TYPE_XDNA_FIRMWARE_TRACE_INFO,
+      .structure_size = sizeof(info),
+  };
+  const amdf_status_t status =
+      xdna_api_->device_query_firmware_trace_info(device_, &info);
+  if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+    GTEST_SKIP() << "native driver does not expose firmware tracing";
+  }
+  ASSERT_EQ(status, AMDF_STATUS_OK);
+  FirmwareTraceCapture capture(xdna_api_, device_);
+  ASSERT_NO_FATAL_FAILURE(capture.Start(info));
+  RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_CREATE, 16384, &capture);
 }
 
 TEST_F(CpuXdnaRecipeTest, RegisteredRoundTrip) {

@@ -51,3 +51,10 @@ amdf_cc_library(
         "//libamdf/src:wait",
     ],
 )
+
+amdf_cc_library(
+    name = "firmware_trace",
+    hdrs = ["firmware_trace.h"],
+    visibility = ["//libamdf/src/xdna:__subpackages__"],
+    deps = [":device"],
+)

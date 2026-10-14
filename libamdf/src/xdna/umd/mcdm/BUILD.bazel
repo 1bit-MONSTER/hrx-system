@@ -250,6 +250,7 @@ amdf_cc_library(
     deps = [
         ":context",
         ":device",
+        ":firmware_trace",
         ":kernel_queue",
         ":memory",
     ],
@@ -360,6 +361,31 @@ amdf_cc_test(
         "//libamdf/src/xdna:device_profile",
         "//libamdf/src/xdna/umd:kernel_queue",
         "//libamdf/src/xdna/umd:memory",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
+    ],
+)
+
+amdf_cc_library(
+    name = "firmware_trace",
+    srcs = ["firmware_trace.c"],
+    target_compatible_with = MCDM_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        "//libamdf/src/platform/windows:kmt_api",
+        "//libamdf/src/xdna/umd:firmware_trace",
+    ],
+)
+
+amdf_cc_test(
+    name = "firmware_trace_test",
+    srcs = ["firmware_trace_test.cc"],
+    target_compatible_with = MCDM_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        ":firmware_trace",
+        "//libamdf/src/platform/windows:kmt_api",
+        "//libamdf/src/xdna/umd:firmware_trace",
         "//third_party:google_test",
         "//third_party:google_test_main",
     ],

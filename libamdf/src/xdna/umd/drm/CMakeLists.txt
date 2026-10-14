@@ -213,6 +213,7 @@ iree_cc_library(
   DEPS
     ::context
     ::device
+    ::firmware_trace
     ::kernel_queue
     ::memory
     amdf::headers
@@ -293,6 +294,44 @@ iree_cc_library(
   DEPS
     amdf::headers
   PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    firmware_trace
+  SRCS
+    "firmware_trace.c"
+  DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_drm_uapi>
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_xdna_uapi>
+    ::device_state
+    amdf::headers
+    libamdf::src::platform::linux::file
+    libamdf::src::xdna::umd::firmware_trace
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_test(
+  NAME
+    firmware_trace_test
+  SRCS
+    "firmware_trace_test.cc"
+  LINKOPTS
+    "-Wl,--wrap=ioctl"
+  DEPS
+    ::device_state
+    ::firmware_trace
+    amdf::headers
+    iree::third_party::google_test
+    iree::third_party::google_test_main
+    libamdf::src::xdna::umd::firmware_trace
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
 )
 endif()
 
