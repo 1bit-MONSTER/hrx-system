@@ -36,6 +36,7 @@
 #include "loom/target/arch/amdgpu/amdhsa_target_id.h"
 #include "loom/target/arch/amdgpu/hal/binding_materialization.h"
 #include "loom/target/arch/amdgpu/hal/kernel_abi.h"
+#include "loom/target/arch/amdgpu/planning/occupancy.h"
 #include "loom/target/arch/amdgpu/planning/storage_lease.h"
 #include "loom/target/arch/amdgpu/profile.h"
 #include "loom/target/arch/amdgpu/provider.h"
@@ -43,6 +44,7 @@
 #include "loom/target/emit/native/amdgpu/hsaco.h"
 #include "loom/target/emit/native/amdgpu/hsaco_build.h"
 #include "loom/target/emit/native/amdgpu/kernel_emission.h"
+#include "loom/target/emit/native/amdgpu/kernel_plan_build.h"
 #include "loom/target/function_version.h"
 #include "loom/target/low_descriptor_registry.h"
 #include "loom/target/specialization.h"
@@ -843,12 +845,18 @@ class LowKernelEmitter {
     loom_low_emission_frame_options_t frame_options = {
         .descriptor_registry = &target_registry_.registry,
         .function_target_facts = function_target_facts,
+        .residency_query = loom_amdgpu_occupancy_residency_view,
         .allocation_flags =
             LOOM_LOW_ALLOCATION_FLAG_RETAIN_COALESCED_INCOMING_INDEX |
             LOOM_LOW_ALLOCATION_FLAG_RETAIN_STORAGE_RELEASE_ACTION_INDEX,
         .allocation_fixed_values = abi_verify_result.fixed_values,
         .allocation_fixed_value_count = abi_verify_result.fixed_value_count,
         .storage_lease_provider = &storage_lease_provider,
+        .emitter =
+            {
+                .fn = PrintCompilerDiagnostic,
+                .user_data = nullptr,
+            },
     };
     loom_low_emission_frame_t frame = {};
     bool frame_accepted = false;
@@ -859,14 +867,25 @@ class LowKernelEmitter {
     }
 
     StreamPtr stream = CreateStream();
-    loom_amdgpu_hsaco_kernel_t kernel = {};
+    loom_amdgpu_kernel_plan_t plan = {};
+    const loom_amdgpu_kernel_plan_options_t plan_options = {
+        .abi_layout = &materialization.abi_layout,
+        .abi_verify = &abi_verify_result,
+        .emitter = frame_options.emitter,
+    };
+    bool plan_accepted = false;
+    IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_plan_build(
+        &frame, &plan_options, arena, &plan_accepted, &plan));
+    if (!plan_accepted) {
+      return iree_ok_status();
+    }
+    loom_amdgpu_kernel_emission_result_t emission_result = {};
     IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_emission_build(
-        &frame, &materialization.abi_layout, &abi_verify_result,
-        /*preflight=*/nullptr, /*target_listing=*/nullptr, /*report=*/nullptr,
-        &kernel, arena));
+        &frame, &plan, LOOM_AMDGPU_KERNEL_EMISSION_FLAG_NONE,
+        /*target_listing=*/nullptr, &emission_result, arena));
     const loom_amdgpu_hsaco_input_t hsaco_input = {
         .target_identity = target_profile->identity,
-        .kernels = &kernel,
+        .kernels = &emission_result.kernel,
         .kernel_count = 1,
     };
     loom_amdgpu_hsaco_plan_t hsaco_plan = {};

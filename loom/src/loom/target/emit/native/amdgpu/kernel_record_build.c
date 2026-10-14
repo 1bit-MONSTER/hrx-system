@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/target/emit/native/amdgpu/kernel_record.h"
+#include "loom/target/emit/native/amdgpu/kernel_record_build.h"
 
 #include <string.h>
 
@@ -480,7 +480,7 @@ iree_status_t loom_amdgpu_kernel_record_build(
       .descriptor_symbol = descriptor_symbol,
       .target_identity = target_facts->identity,
       .processor = processor,
-      .abi_layout = *abi_layout,
+      .entry_envelope = entry_envelope,
       .storage_layout = storage_layout,
       .metadata =
           {

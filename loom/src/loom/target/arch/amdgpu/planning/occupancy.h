@@ -177,6 +177,8 @@ typedef struct loom_amdgpu_occupancy_target_resources_t {
   uint32_t vector_register_count;
   // Target wavefront width in lanes.
   uint32_t wave_size;
+  // Waves in one exact fixed workgroup, or zero when the launch is unknown.
+  uint32_t waves_per_workgroup;
   // Maximum resident waves per SIMD in this model.
   uint32_t max_waves_per_simd;
   // Estimated resident waves per SIMD after final target resources.
@@ -197,16 +199,20 @@ iree_status_t loom_amdgpu_occupancy_build(
     const loom_amdgpu_occupancy_options_t* options,
     iree_arena_allocator_t* arena, loom_amdgpu_occupancy_table_t* out_table);
 
-// Builds an AMDGPU occupancy estimate from final target metadata.
+// Builds an AMDGPU occupancy estimate from final target resources.
+// |direct_resource_units| is dense by descriptor register-class ID and must
+// exactly match the selected model's direct resource count. It includes every
+// final class extent; native metadata counts replace the allocation extents for
+// classes whose entry envelope or ABI can increase the final footprint.
 // |flat_workgroup_size| is the exact fixed size or zero when it is unknown.
 // Local-memory occupancy is only applied when the fixed size is available.
 // |out_resources| is entirely by value. Optional |out_constraints| retains an
 // arena-owned inventory for report capture; NULL avoids allocating that data.
 iree_status_t loom_amdgpu_occupancy_build_target_resources(
     const loom_amdgpu_processor_info_t* processor, uint32_t wave_size,
-    uint32_t scalar_register_count, uint32_t vector_register_count,
-    uint32_t flat_workgroup_size, uint32_t local_memory_bytes,
-    iree_arena_allocator_t* arena,
+    const uint32_t* direct_resource_units,
+    iree_host_size_t direct_resource_unit_count, uint32_t flat_workgroup_size,
+    uint32_t local_memory_bytes, iree_arena_allocator_t* arena,
     loom_amdgpu_occupancy_target_resources_t* out_resources,
     loom_target_residency_constraint_list_t* out_constraints);
 

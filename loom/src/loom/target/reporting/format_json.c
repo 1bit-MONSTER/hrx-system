@@ -702,6 +702,11 @@ static iree_status_t loom_target_compile_report_format_residency_summary_json(
     loom_output_stream_t* stream) {
   loom_json_object_writer_t object;
   IREE_RETURN_IF_ERROR(loom_json_object_begin(stream, &object));
+  if (iree_any_bit_set(summary->flags,
+                       LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_REQUIRED_TIER)) {
+    IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
+        &object, IREE_SV("required_tier"), summary->required_tier));
+  }
   if (!loom_target_residency_summary_is_valid(summary)) {
     IREE_RETURN_IF_ERROR(
         loom_json_object_begin_field(&object, IREE_SV("unavailable_reasons")));
@@ -726,6 +731,14 @@ static iree_status_t loom_target_compile_report_format_residency_summary_json(
       &object, IREE_SV("best_tier"), summary->best_tier));
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
       &object, IREE_SV("current_tier"), summary->tier));
+  if (iree_any_bit_set(summary->flags,
+                       LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_HAS_REQUIRED_TIER)) {
+    IREE_RETURN_IF_ERROR(loom_json_object_write_bool_field(
+        &object, IREE_SV("launchable"),
+        !iree_any_bit_set(
+            summary->flags,
+            LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_REQUIRED_TIER_UNSATISFIED)));
+  }
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
       &object, IREE_SV("limiting_resource_count"),
       summary->limiting_resource_count));

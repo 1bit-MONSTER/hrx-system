@@ -40,7 +40,8 @@
 #include "loom/target/emit/native/amdgpu/hsaco.h"
 #include "loom/target/emit/native/amdgpu/hsaco_build.h"
 #include "loom/target/emit/native/amdgpu/kernel_emission.h"
-#include "loom/target/emit/native/amdgpu/preflight.h"
+#include "loom/target/emit/native/amdgpu/kernel_plan_build.h"
+#include "loom/target/emit/native/amdgpu/kernel_report.h"
 #include "loom/target/emit/native/amdgpu/runtime_globals.h"
 #include "loom/target/emit/native/amdgpu/spill_lowering.h"
 #include "loom/target/entry_selection.h"
@@ -709,7 +710,6 @@ static iree_status_t loom_amdgpu_hal_kernel_library_build_kernel(
     loom_target_compile_report_record_low_kernel_workload(
         report, plan->low_function_op);
   }
-  loom_amdgpu_native_preflight_t preflight = {0};
   loom_amdgpu_hal_kernel_library_spill_lowering_context_t
       spill_lowering_context = {
           .descriptor_set = plan->target.descriptor_set,
@@ -743,24 +743,56 @@ static iree_status_t loom_amdgpu_hal_kernel_library_build_kernel(
     }
     return iree_ok_status();
   }
-  const loom_amdgpu_native_preflight_options_t preflight_options = {
+  loom_amdgpu_kernel_plan_t native_plan = {0};
+  const loom_amdgpu_kernel_plan_options_t native_plan_options = {
+      .abi_layout = &plan->abi_layout,
+      .abi_verify = &plan->abi_verify,
       .emitter = frame_options.emitter,
+      .report = report,
   };
-  IREE_RETURN_IF_ERROR(loom_amdgpu_native_preflight_analyze(
-      &frame.schedule, &frame.allocation, &preflight_options, &preflight));
-  if (preflight.error_count != 0) {
+  bool native_plan_accepted = false;
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_kernel_plan_build(&frame, &native_plan_options, table_arena,
+                                    &native_plan_accepted, &native_plan));
+  if (!native_plan_accepted) {
+    if (report != NULL) {
+      loom_target_compile_report_record_low_planning(report,
+                                                     &planning_statistics);
+      IREE_RETURN_IF_ERROR(loom_target_compile_report_record_low_allocation(
+          report, &frame.allocation));
+    }
     return iree_ok_status();
   }
+  loom_target_compile_report_low_dynamic_context_t dynamic_context = {0};
+  iree_status_t status = iree_ok_status();
   if (report != NULL) {
     loom_target_compile_report_record_low_planning(report,
                                                    &planning_statistics);
-    IREE_RETURN_IF_ERROR(
-        loom_target_compile_report_record_low_emission_frame(report, &frame));
+    status = loom_target_compile_report_low_dynamic_context_initialize(
+        &frame, &dynamic_context);
+    if (iree_status_is_ok(status)) {
+      status =
+          loom_target_compile_report_record_low_emission_frame_with_dynamic_context(
+              report, &frame, &dynamic_context);
+    }
   }
-
-  IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_emission_build(
-      &frame, &plan->abi_layout, &plan->abi_verify, &preflight, target_listing,
-      report, out_kernel, table_arena));
+  loom_amdgpu_kernel_emission_result_t emission_result = {0};
+  const loom_amdgpu_kernel_emission_flags_t emission_flags =
+      report != NULL
+          ? LOOM_AMDGPU_KERNEL_EMISSION_FLAG_CAPTURE_NATIVE_INSERTIONS
+          : LOOM_AMDGPU_KERNEL_EMISSION_FLAG_NONE;
+  if (iree_status_is_ok(status)) {
+    status = loom_amdgpu_kernel_emission_build(&frame, &native_plan,
+                                               emission_flags, target_listing,
+                                               &emission_result, table_arena);
+  }
+  if (iree_status_is_ok(status) && report != NULL) {
+    status = loom_amdgpu_kernel_report_record_emission(
+        report, &frame, &dynamic_context, &native_plan, &emission_result);
+  }
+  loom_target_compile_report_low_dynamic_context_deinitialize(&dynamic_context);
+  IREE_RETURN_IF_ERROR(status);
+  *out_kernel = emission_result.kernel;
   *out_built = true;
   return iree_ok_status();
 }

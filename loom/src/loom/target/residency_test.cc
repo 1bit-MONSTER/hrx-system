@@ -203,15 +203,70 @@ TEST_F(ResidencyTest, DirectResourceOverrideEvaluatesWholeModelTier) {
 }
 
 TEST_F(ResidencyTest, ViewPreservesUnavailableAndZeroLimits) {
-  const auto unavailable = loom_target_residency_view(nullptr, 3);
+  const auto unavailable =
+      loom_target_residency_view_with_bounds(nullptr, 3, 2);
   EXPECT_EQ(unavailable.model, nullptr);
   EXPECT_EQ(unavailable.tier_limit, 0u);
+  EXPECT_EQ(unavailable.required_tier, 0u);
   const auto full = loom_target_residency_view(&kModel, UINT32_MAX);
   EXPECT_EQ(full.model, &kModel);
   EXPECT_EQ(full.tier_limit, kModel.best_tier);
   const auto zero = loom_target_residency_view(&kModel, 0);
   EXPECT_EQ(zero.model, &kModel);
   EXPECT_EQ(zero.tier_limit, 0u);
+}
+
+TEST_F(ResidencyTest, ViewRetainsIndivisibleLaunchRequirement) {
+  const auto view = loom_target_residency_view_with_bounds(&kModel, 2, 3);
+  EXPECT_EQ(view.required_tier, 3u);
+  EXPECT_FALSE(loom_target_residency_view_meets_required_tier(view, 2));
+  EXPECT_TRUE(loom_target_residency_view_meets_required_tier(view, 3));
+
+  const auto unconstrained = loom_target_residency_view(&kModel, 2);
+  EXPECT_TRUE(loom_target_residency_view_meets_required_tier(unconstrained, 0));
+}
+
+TEST_F(ResidencyTest, WholeModelTierUsesDirectAndDerivedResources) {
+  const auto view = loom_target_residency_view(&kModel, 3);
+  const uint32_t direct_units[] = {4, 5};
+  // Each direct resource independently admits tier three. Rounded
+  // contributions consume ten shared units and make the derived resource the
+  // tier-two limiter.
+  EXPECT_EQ(loom_target_residency_evaluate_tier(view, direct_units,
+                                                IREE_ARRAYSIZE(direct_units)),
+            2u);
+}
+
+TEST_F(ResidencyTest, MultipleOverridesShareDerivedResourceAccounting) {
+  const auto view = loom_target_residency_view(&kModel, UINT32_MAX);
+  const uint32_t direct_units[] = {0, 0};
+  const loom_target_residency_direct_resource_override_t overrides[] = {
+      {.resource_id = 0, .units = 4},
+      {.resource_id = 1, .units = 5},
+  };
+  // Neither replacement reaches tier two alone. Together their rounded
+  // contributions consume ten derived units and select tier two.
+  EXPECT_EQ(loom_target_residency_evaluate_tier_with_direct_resource_overrides(
+                view, direct_units, IREE_ARRAYSIZE(direct_units), overrides,
+                IREE_ARRAYSIZE(overrides)),
+            2u);
+}
+
+TEST_F(ResidencyTest, ResourceTierComparisonIgnoresCliffsAboveCeiling) {
+  const auto view = loom_target_residency_view(&kModel, 2);
+  const uint32_t baseline[] = {0, 0};
+  const uint32_t same_capped_tier[] = {5, 0};
+  EXPECT_FALSE(loom_target_residency_any_resource_tier_decreases(
+      view, baseline, same_capped_tier, IREE_ARRAYSIZE(baseline)));
+
+  const uint32_t lower_tier[] = {9, 0};
+  EXPECT_TRUE(loom_target_residency_any_resource_tier_decreases(
+      view, baseline, lower_tier, IREE_ARRAYSIZE(baseline)));
+
+  const auto derived_view = loom_target_residency_view(&kModel, 3);
+  const uint32_t derived_lower_tier[] = {4, 5};
+  EXPECT_TRUE(loom_target_residency_any_resource_tier_decreases(
+      derived_view, baseline, derived_lower_tier, IREE_ARRAYSIZE(baseline)));
 }
 
 TEST_F(ResidencyTest, CeilingSkipsUnattainableCliffsAndCutsTierJumps) {

@@ -12,6 +12,7 @@
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/frame.h"
 #include "loom/codegen/low/lower/lower.h"
+#include "loom/target/reporting/low_mix.h"
 #include "loom/target/reporting/report.h"
 
 #ifdef __cplusplus
@@ -23,6 +24,17 @@ extern "C" {
 iree_status_t loom_target_compile_report_record_low_emission_frame(
     loom_target_compile_report_t* report,
     const loom_low_emission_frame_t* frame);
+
+// Records an emission frame using caller-retained dynamic execution facts.
+//
+// This form lets a target reporting adapter reuse the same facts after native
+// emission. |dynamic_context| must have been initialized for |frame| and
+// remains caller-owned.
+iree_status_t
+loom_target_compile_report_record_low_emission_frame_with_dynamic_context(
+    loom_target_compile_report_t* report,
+    const loom_low_emission_frame_t* frame,
+    const loom_target_compile_report_low_dynamic_context_t* dynamic_context);
 
 // Records coarse planning work and memory statistics for one low function.
 // This accepts partial frames returned with user-facing diagnostics.

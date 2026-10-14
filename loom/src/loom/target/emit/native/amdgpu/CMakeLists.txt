@@ -183,6 +183,7 @@ loom_check_test_suite(
     "test/wait_flat.loom-test"
     "test/wait_plan.loom-test"
     "test/wait_states.loom-test"
+    "test/whole_workgroup_residency.loom-test"
     "test/wide_offset_spills.loom-test"
 )
 endif()
@@ -419,12 +420,29 @@ loom_cc_library(
     kernel_record
   HDRS
     "kernel_record.h"
-  SRCS
-    "kernel_record.c"
   DEPS
     ::descriptor
     ::kernel_entry
     ::metadata
+    ::storage_layout
+    iree::base
+    loom::target::arch::amdgpu::target_identity
+    loom::target::arch::amdgpu::target_info
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_cc_library(
+  NAME
+    kernel_record_build
+  HDRS
+    "kernel_record_build.h"
+  SRCS
+    "kernel_record_build.c"
+  DEPS
+    ::kernel_entry
+    ::kernel_record
     ::preflight
     ::storage_layout
     iree::base
@@ -438,9 +456,49 @@ loom_cc_library(
     loom::target::arch::amdgpu::facts
     loom::target::arch::amdgpu::hal::kernel_abi
     loom::target::arch::amdgpu::refs::target_refs
-    loom::target::arch::amdgpu::target_identity
-    loom::target::arch::amdgpu::target_info
     loom::target::launch
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_cc_library(
+  NAME
+    kernel_plan
+  HDRS
+    "kernel_plan.h"
+  DEPS
+    ::kernel_record
+    loom::target::arch::amdgpu::planning::packet_plan
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_cc_library(
+  NAME
+    kernel_plan_build
+  HDRS
+    "kernel_plan_build.h"
+  SRCS
+    "kernel_plan_build.c"
+  DEPS
+    ::kernel_plan
+    ::kernel_record_build
+    ::preflight
+    iree::base
+    iree::base::internal::arena
+    loom::codegen::low::diagnostics
+    loom::codegen::low::frame
+    loom::error::emitter
+    loom::ir
+    loom::target::arch::amdgpu::error_defs
+    loom::target::arch::amdgpu::hal::kernel_abi
+    loom::target::arch::amdgpu::planning::occupancy
+    loom::target::arch::amdgpu::planning::wait_counters
+    loom::target::arch::amdgpu::refs::target_refs
+    loom::target::reporting::low
+    loom::target::reporting::report
   PUBLIC
 )
 endif()
@@ -567,16 +625,28 @@ loom_cc_library(
     ::hsaco_build
     ::kernel_assembly
     ::kernel_entry
-    ::kernel_record
-    ::preflight
+    ::kernel_plan
     iree::base
     iree::base::internal::arena
     loom::codegen::low::frame
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_cc_library(
+  NAME
+    kernel_report
+  HDRS
+    "kernel_report.h"
+  SRCS
+    "kernel_report.c"
+  DEPS
+    ::kernel_emission
+    ::kernel_plan
+    iree::base
+    loom::codegen::low::frame
     loom::ir
-    loom::target::arch::amdgpu::hal::kernel_abi
-    loom::target::arch::amdgpu::planning::occupancy
-    loom::target::arch::amdgpu::planning::packet_plan
-    loom::target::arch::amdgpu::planning::wait_counters
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::reporting::low
     loom::target::reporting::report
@@ -671,7 +741,8 @@ loom_cc_library(
     ::hsaco
     ::hsaco_build
     ::kernel_emission
-    ::preflight
+    ::kernel_plan_build
+    ::kernel_report
     ::runtime_globals
     ::spill_lowering
     iree::base
@@ -843,6 +914,7 @@ loom_cc_test(
     ::hsaco
     ::hsaco_build
     ::kernel_emission
+    ::kernel_plan_build
     iree::base
     iree::base::internal
     iree::base::internal::arena
@@ -864,6 +936,7 @@ loom_cc_test(
     loom::target::arch::amdgpu::amdhsa_target_id
     loom::target::arch::amdgpu::hal::binding_materialization
     loom::target::arch::amdgpu::hal::kernel_abi
+    loom::target::arch::amdgpu::planning::occupancy
     loom::target::arch::amdgpu::planning::storage_lease
     loom::target::arch::amdgpu::profile
     loom::target::arch::amdgpu::provider

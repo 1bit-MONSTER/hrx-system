@@ -269,8 +269,7 @@ iree_status_t loom_amdgpu_emit_kernel_assembly(
       record->symbol.data, (int)record->symbol.size, record->symbol.data,
       (int)record->symbol.size, record->symbol.data));
   const loom_amdgpu_kernel_entry_envelope_t* entry_envelope =
-      loom_amdgpu_kernel_entry_envelope_for_properties(
-          &record->processor->properties);
+      record->entry_envelope;
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_string(builder, entry_envelope->assembly));
   const loom_amdgpu_assembly_fragment_options_t assembly_options = {
